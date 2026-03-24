@@ -256,6 +256,18 @@ class Game{
         // 押されているキーを管理
         this.keyState = {}
 
+        // DAS設定（Delayed Auto Shift）
+        this.DAS_DELAY = 150; // ms（初期値0.15秒）
+
+        // ARR設定（左右とソフトドロップを分離）
+        this.ARR_INTERVAL = 20;        // 左右移動
+        this.SOFTDROP_ARR = 50;        // ソフトドロップ
+        this._lastSoftDropTime = 0;
+        this._leftPressTime = null;
+        this._rightPressTime = null;
+        this._lastMoveTimeLeft = 0;
+        this._lastMoveTimeRight = 0;
+
         // 既存のリスナー解除
         if(this._keyDownHandler){
             document.removeEventListener('keydown', this._keyDownHandler)
@@ -275,6 +287,16 @@ class Game{
 
             this.keyState[e.code] = true
 
+            const now = performance.now()
+            if(e.code === keys.moveLeft.code && this._leftPressTime === null){
+                this._leftPressTime = now
+                this._lastMoveTimeLeft = 0
+            }
+            if(e.code === keys.moveRight.code && this._rightPressTime === null){
+                this._rightPressTime = now
+                this._lastMoveTimeRight = 0
+            }
+
             // 単発系（押した瞬間のみ）
             if(e.code === keys.hardDrop.code){
                 e.preventDefault()
@@ -288,41 +310,95 @@ class Game{
 
         this._keyUpHandler = (e) => {
             this.keyState[e.code] = false
+
+            if(e.code === keys.moveLeft.code){
+                this._leftPressTime = null
+            }
+            if(e.code === keys.moveRight.code){
+                this._rightPressTime = null
+            }
         }
 
         document.addEventListener('keydown', this._keyDownHandler)
         document.addEventListener('keyup', this._keyUpHandler)
 
         // 毎フレーム入力処理（同時入力対応）
+        this._lastFrameTime = performance.now()
         this._keyLoop = setInterval(() => {
             const gamePage = document.getElementById('game-page')
             if(!gamePage || !gamePage.classList.contains('active')) return
 
+            const nowPerf = performance.now()
+            const delta = nowPerf - this._lastFrameTime
+            this._lastFrameTime = nowPerf
+
             let acted = false
 
-            // 左右移動
+            const now = nowPerf
+
+            // 左移動（DAS対応）
             if(this.keyState[keys.moveLeft.code]){
-                if(this.valid(-1, 0)){
-                    this.mino.x--
-                    acted = true
+                if(this._leftPressTime !== null){
+                    const heldTime = now - this._leftPressTime
+
+                    // 初回入力（押した瞬間）
+                    if(this._lastMoveTimeLeft === 0){
+                        if(this.valid(-1, 0)){
+                            this.mino.x--
+                            acted = true
+                        }
+                        this._lastMoveTimeLeft = now
+                    }
+                    // DAS後の連続移動
+                    else if(heldTime >= this.DAS_DELAY &&
+                            now - this._lastMoveTimeLeft >= this.ARR_INTERVAL){
+                        if(this.valid(-1, 0)){
+                            this.mino.x--
+                            acted = true
+                        }
+                        this._lastMoveTimeLeft = now
+                    }
                 }
             }
+
+            // 右移動（DAS対応）
             if(this.keyState[keys.moveRight.code]){
-                if(this.valid(1, 0)){
-                    this.mino.x++
-                    acted = true
+                if(this._rightPressTime !== null){
+                    const heldTime = now - this._rightPressTime
+
+                    if(this._lastMoveTimeRight === 0){
+                        if(this.valid(1, 0)){
+                            this.mino.x++
+                            acted = true
+                        }
+                        this._lastMoveTimeRight = now
+                    }
+                    else if(heldTime >= this.DAS_DELAY &&
+                            now - this._lastMoveTimeRight >= this.ARR_INTERVAL){
+                        if(this.valid(1, 0)){
+                            this.mino.x++
+                            acted = true
+                        }
+                        this._lastMoveTimeRight = now
+                    }
                 }
             }
 
-            // ソフトドロップ
+            // ソフトドロップ（専用ARR）
             if(this.keyState[keys.softDrop.code]){
-                if(this.valid(0, 1)){
-                    this.mino.y++
-                    acted = true
+                if(this._lastSoftDropTime === 0 ||
+                   now - this._lastSoftDropTime >= this.SOFTDROP_ARR){
+                    if(this.valid(0, 1)){
+                        this.mino.y++
+                        acted = true
+                    }
+                    this._lastSoftDropTime = now
                 }
+            } else {
+                this._lastSoftDropTime = 0
             }
 
-            // 回転（押しっぱなし暴発防止のためフラグで制御）
+            // 回転（即時反応させる）
             if(this.keyState[keys.rotateCW.code]){
                 if(!this._rotCWPressed){
                     if(this.valid(0, 0, 1)){
@@ -331,7 +407,8 @@ class Game{
                     }
                     this._rotCWPressed = true
                 }
-            } else {
+            }
+            if(!this.keyState[keys.rotateCW.code]){
                 this._rotCWPressed = false
             }
 
@@ -343,7 +420,8 @@ class Game{
                     }
                     this._rotCCWPressed = true
                 }
-            } else {
+            }
+            if(!this.keyState[keys.rotateCCW.code]){
                 this._rotCCWPressed = false
             }
 
@@ -351,7 +429,7 @@ class Game{
                 this.drawAll()
             }
 
-        }, 50) // 入力ポーリング間隔（約20FPS）
+        }, 16) // 約60FPS（ARRが効くようにする）
     }
 }
 
