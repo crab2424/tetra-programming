@@ -156,6 +156,29 @@ class Game{
         this.drawAll()
     }
 
+    // ゴーストピースのY座標を計算（現在位置から着地点まで下げる）
+    getGhostY(){
+        let ghostY = this.mino.y
+        while(true){
+            let newBlocks = this.mino.blocks.map(block => ({
+                x: block.x + this.mino.x,
+                y: block.y + ghostY + 1
+            }))
+            let canMove = newBlocks.every(block =>
+                block.x >= 0 &&
+                block.x < COLS_COUNT &&
+                block.y < ROWS_COUNT &&
+                !this.field.has(block.x, block.y)
+            )
+            if(canMove){
+                ghostY++
+            } else {
+                break
+            }
+        }
+        return ghostY
+    }
+
     // 画面の描画
     drawAll(){
         // 表示クリア
@@ -165,6 +188,14 @@ class Game{
 
         // 落下済みのミノを描画
         this.field.drawFixedBlocks(this.mainCtx)
+
+        // ゴーストピースを描画（ミノ本体より先に、半透明で）
+        const ghostY = this.getGhostY()
+        if(ghostY !== this.mino.y){
+            this.mainCtx.globalAlpha = 0.25
+            this.mino.draw(this.mainCtx, ghostY)
+            this.mainCtx.globalAlpha = 1.0
+        }
 
         // NEXT・現在のミノを描画
         this.nextMino.drawNext(this.nextCtx)
@@ -342,9 +373,11 @@ class Mino{
     }
 
     // フィールドに描画する
-    draw(ctx){
+    // overrideY を指定すると、Y座標をそちらで上書き（ゴースト描画に使用）
+    draw(ctx, overrideY = null){
+        const drawY = overrideY !== null ? overrideY : this.y
         this.blocks.forEach(block => {
-            block.draw(this.x, this.y, ctx)
+            block.draw(this.x, drawY, ctx)
         })
     }
 
