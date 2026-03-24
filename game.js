@@ -253,54 +253,105 @@ class Game{
     // キーイベント（localStorage のキー設定を参照）
     // ─────────────────────────────────────────
     setKeyEvent(){
-        // 既存のリスナーを解除してから再登録
-        if(this._keyHandler){
-            document.removeEventListener('keydown', this._keyHandler)
+        // 押されているキーを管理
+        this.keyState = {}
+
+        // 既存のリスナー解除
+        if(this._keyDownHandler){
+            document.removeEventListener('keydown', this._keyDownHandler)
+        }
+        if(this._keyUpHandler){
+            document.removeEventListener('keyup', this._keyUpHandler)
+        }
+        if(this._keyLoop){
+            clearInterval(this._keyLoop)
         }
 
-        this._keyHandler = (e) => {
-            // 設定ページが表示中はゲーム操作を無効化
+        const keys = loadKeyConfig()
+
+        this._keyDownHandler = (e) => {
             const gamePage = document.getElementById('game-page')
             if(!gamePage || !gamePage.classList.contains('active')) return
 
-            const keys = loadKeyConfig()
+            this.keyState[e.code] = true
 
-            switch(e.code){
-                case keys.moveLeft.code:
-                    e.preventDefault()
-                    if(this.valid(-1, 0)) this.mino.x--;
-                    break;
-                case keys.moveRight.code:
-                    e.preventDefault()
-                    if(this.valid(1, 0)) this.mino.x++;
-                    break;
-                case keys.softDrop.code:
-                    e.preventDefault()
-                    if(this.valid(0, 1)) this.mino.y++;
-                    break;
-                case keys.hardDrop.code:
-                    e.preventDefault()
-                    this.hardDrop();
-                    return; // hardDrop 内で drawAll するので return
-                case keys.rotateCW.code:
-                    e.preventDefault()
-                    if(this.valid(0, 0, 1)) this.mino.rotate();
-                    break;
-                case keys.rotateCCW.code:
-                    e.preventDefault()
-                    if(this.valid(0, 0, -1)) this.mino.rotateCCW();
-                    break;
-                case keys.hold.code:
-                    e.preventDefault()
-                    this.holdCurrentMino();
-                    return; // holdCurrentMino 内で drawAll するので return
-                default:
-                    return; // 関係ないキーは描画しない
+            // 単発系（押した瞬間のみ）
+            if(e.code === keys.hardDrop.code){
+                e.preventDefault()
+                this.hardDrop()
             }
-            this.drawAll()
+            if(e.code === keys.hold.code){
+                e.preventDefault()
+                this.holdCurrentMino()
+            }
         }
 
-        document.addEventListener('keydown', this._keyHandler)
+        this._keyUpHandler = (e) => {
+            this.keyState[e.code] = false
+        }
+
+        document.addEventListener('keydown', this._keyDownHandler)
+        document.addEventListener('keyup', this._keyUpHandler)
+
+        // 毎フレーム入力処理（同時入力対応）
+        this._keyLoop = setInterval(() => {
+            const gamePage = document.getElementById('game-page')
+            if(!gamePage || !gamePage.classList.contains('active')) return
+
+            let acted = false
+
+            // 左右移動
+            if(this.keyState[keys.moveLeft.code]){
+                if(this.valid(-1, 0)){
+                    this.mino.x--
+                    acted = true
+                }
+            }
+            if(this.keyState[keys.moveRight.code]){
+                if(this.valid(1, 0)){
+                    this.mino.x++
+                    acted = true
+                }
+            }
+
+            // ソフトドロップ
+            if(this.keyState[keys.softDrop.code]){
+                if(this.valid(0, 1)){
+                    this.mino.y++
+                    acted = true
+                }
+            }
+
+            // 回転（押しっぱなし暴発防止のためフラグで制御）
+            if(this.keyState[keys.rotateCW.code]){
+                if(!this._rotCWPressed){
+                    if(this.valid(0, 0, 1)){
+                        this.mino.rotate()
+                        acted = true
+                    }
+                    this._rotCWPressed = true
+                }
+            } else {
+                this._rotCWPressed = false
+            }
+
+            if(this.keyState[keys.rotateCCW.code]){
+                if(!this._rotCCWPressed){
+                    if(this.valid(0, 0, -1)){
+                        this.mino.rotateCCW()
+                        acted = true
+                    }
+                    this._rotCCWPressed = true
+                }
+            } else {
+                this._rotCCWPressed = false
+            }
+
+            if(acted){
+                this.drawAll()
+            }
+
+        }, 50) // 入力ポーリング間隔（約20FPS）
     }
 }
 
@@ -367,7 +418,7 @@ class Mino{
         let t = this.type
         switch(t){
             case 0: // I型
-                this.blocks = [new Block(0,2,t),new Block(1,2,t),new Block(2,2,t),new Block(3,2,t)]
+                this.blocks = [new Block(0,1,t),new Block(1,1,t),new Block(2,1,t),new Block(3,1,t)]
                 this.pivot = { x: 1.5, y: 1.5 }
                 break;
             case 1: // O型（回転しないので中心固定）
