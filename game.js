@@ -356,6 +356,7 @@ class Block{
 // Mino クラス
 // ─────────────────────────────────────────────
 class Mino{
+    // mino の種類を決定してブロックを初期化
     constructor(){
         this.type = Math.floor(Math.random() * 7);
         this.initBlocks()
@@ -374,7 +375,7 @@ class Mino{
                 this.blocks = [new Block(1,1,t),new Block(0,2,t),new Block(1,2,t),new Block(2,2,t)]
                 break;
             case 3: // J型
-                this.blocks = [new Block(1,1,t),new Block(0,2,t),new Block(1,2,t),new Block(2,2,t)]
+                this.blocks = [new Block(0,1,t),new Block(0,2,t),new Block(1,2,t),new Block(2,2,t)]
                 break;
             case 4: // L型
                 this.blocks = [new Block(2,1,t),new Block(0,2,t),new Block(1,2,t),new Block(2,2,t)]
