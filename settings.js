@@ -33,7 +33,7 @@ let _onKeyDown      = null;
 // ─── localStorage 読み込み ────────────────────
 function loadKeys() {
   try {
-    const saved = localStorage.getItem('tetris_keyconfig');
+    const saved = localStorage.getItem('game_keyconfig');
     if (saved) return JSON.parse(saved);
   } catch (e) { /* フォールバック */ }
   return JSON.parse(JSON.stringify(DEFAULT_KEYS));
@@ -158,7 +158,7 @@ function checkConflicts() {
 
 // ─── 設定を保存 ───────────────────────────────
 function saveSettings() {
-  localStorage.setItem('tetris_keyconfig', JSON.stringify(currentKeys));
+  localStorage.setItem('game_keyconfig', JSON.stringify(currentKeys));
   // ゲームが起動中なら即座にキーバインドを更新
   if (window._game) window._game.setKeyEvent();
   showToast();
