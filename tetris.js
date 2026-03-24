@@ -97,6 +97,10 @@ class Game{
         this.holdMino = null       // ホールド中のミノ
         this.canHold = true        // 今のミノでホールドできるか
 
+        // スコアの初期化
+        this.score = 0
+        this.updateScoreDisplay()
+
         // 最初のミノを読み込み
         this.popMino()
 
@@ -154,6 +158,11 @@ class Game{
         }
 
         this.drawAll()
+    }
+
+    // スコア表示を更新する
+    updateScoreDisplay(){
+        document.getElementById("score-value").textContent = this.score
     }
 
     // ゴーストピースのY座標を計算（現在位置から着地点まで下げる）
@@ -222,7 +231,11 @@ class Game{
                 e.y += this.mino.y
             })
             this.field.blocks = this.field.blocks.concat(this.mino.blocks)
-            this.field.checkLine()
+            const linesCleared = this.field.checkLine()
+            // 消去ライン数に応じてスコア加算
+            const scoreTable = [0, 100, 300, 500, 800]
+            this.score += scoreTable[linesCleared] ?? 0
+            this.updateScoreDisplay()
             this.popMino()
         }
         this.drawAll();
@@ -435,14 +448,19 @@ class Field{
         this.blocks.forEach(block => block.draw(0, 0, ctx))
     }
 
+    // ラインを消去し、消去したライン数を返す
     checkLine(){
+      let linesCleared = 0
       for(var r = 0; r < ROWS_COUNT; r++){
         var c = this.blocks.filter(block => block.y === r).length
         if(c === COLS_COUNT){
           this.blocks = this.blocks.filter(block => block.y !== r)
           this.blocks.filter(block => block.y < r).forEach(upper => upper.y++)
+          linesCleared++
+          r-- // 消去した行を再チェック
         }
       }
+      return linesCleared
     }
 
     has(x, y){
