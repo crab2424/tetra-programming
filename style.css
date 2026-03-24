@@ -1,0 +1,365 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&display=swap');
+
+/* ─────────────────────────────────────────────
+   CSS 変数（テーマカラー）
+───────────────────────────────────────────── */
+:root {
+  --bg:        #0a0a0f;
+  --panel-bg:  #12121a;
+  --border:    #2a2a3a;
+  --accent:    #c471f5;
+  --accent2:   #fa71cd;
+  --accent3:   #71c5f5;
+  --text:      #e0e0f0;
+  --text-dim:  #888;
+  --danger:    #f55a5a;
+  --success:   #5af5a0;
+}
+
+/* ─────────────────────────────────────────────
+   リセット・ベース
+───────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans JP', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+}
+
+/* ─────────────────────────────────────────────
+   タイトル
+───────────────────────────────────────────── */
+h1 {
+  font-family: 'Orbitron', monospace;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 20px;
+}
+
+/* ─────────────────────────────────────────────
+   タブ
+───────────────────────────────────────────── */
+#tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.tab-btn {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 8px 24px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff;
+}
+
+.tab-btn:hover:not(.active) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ─────────────────────────────────────────────
+   ページ切り替え
+───────────────────────────────────────────── */
+.page        { display: none; }
+.page.active { display: block; }
+
+/* ─────────────────────────────────────────────
+   ゲームページ
+───────────────────────────────────────────── */
+#game-page {
+  position: relative;
+  width: 700px;
+}
+
+#container {
+  position: relative;
+  width: 700px;
+  height: 640px;
+}
+
+/* キャンバス共通 */
+canvas {
+  image-rendering: pixelated;
+}
+
+#main-canvas {
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+}
+
+#next-canvas,
+#hold-canvas {
+  position: absolute;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+}
+
+#next-canvas { top: 0;    left: 400px; }
+#hold-canvas { top: 200px; left: 400px; }
+
+/* NEXT / HOLD / SCORE ラベル */
+.area-label {
+  position: absolute;
+  left: 400px;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+}
+
+#label-next { top: -18px; }
+#label-hold { top: 182px; }
+
+/* スコアエリア */
+#score-area {
+  position: absolute;
+  left: 400px;
+  top: 390px;
+}
+
+#score-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#score-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 操作説明画像 */
+#img-howto {
+  position: absolute;
+  bottom: 200px;
+  left: 360px;
+  opacity: 0.6;
+}
+
+/* スタートボタン */
+#start-btn {
+  position: absolute;
+  left: 400px;
+  bottom: 0;
+  width: 180px;
+  text-align: center;
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+#start-btn:hover  { opacity: 0.88; transform: translateY(-1px); }
+#start-btn:active { transform: translateY(0); }
+
+/* ─────────────────────────────────────────────
+   設定ページ
+───────────────────────────────────────────── */
+#settings-page {
+  width: 700px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+}
+
+#settings-page h2 {
+  font-family: 'Orbitron', monospace;
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin-bottom: 28px;
+  text-transform: uppercase;
+}
+
+/* キーコンフィグ グリッド */
+.key-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+/* 各キー行 */
+.key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+/* アクション名 */
+.key-action-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.key-action-name small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+/* キーバッジ */
+.key-badge {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 80px;
+  padding: 6px 12px;
+  border-radius: 5px;
+  border: 1px solid rgba(196, 113, 245, 0.35);
+  background: rgba(196, 113, 245, 0.15);
+  color: var(--accent);
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.key-badge:hover {
+  background: rgba(196, 113, 245, 0.28);
+}
+
+.key-badge.listening {
+  border-color: var(--accent2);
+  background: rgba(250, 113, 205, 0.2);
+  color: var(--accent2);
+  animation: pulse 0.8s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+/* 重複警告 */
+.conflict-warning {
+  display: none;
+  margin-top: -8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.conflict-warning.show { display: block; }
+
+/* ボタン行 */
+.settings-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+/* 汎用ボタン */
+.btn {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 10px 24px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-reset {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.btn-reset:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn-save {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff;
+}
+
+.btn-save:hover { opacity: 0.85; }
+
+/* ─────────────────────────────────────────────
+   トースト通知
+───────────────────────────────────────────── */
+#settings-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--success);
+  color: #0a0a0f;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 10px 28px;
+  border-radius: 100px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 999;
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+#settings-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
