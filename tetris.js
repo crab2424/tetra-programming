@@ -1,7 +1,7 @@
 const SATRT_BTN_ID = "start-btn"
 const MAIN_CANVAS_ID = "main-canvas"
 const NEXT_CANVAS_ID = "next-canvas"
-const HOLD_CANVAS_ID = "hold-canvas"  // ホールド用キャンバスID追加
+const HOLD_CANVAS_ID = "hold-canvas"
 const GAME_SPEED = 500;
 const BLOCK_SIZE = 32;
 const COLS_COUNT = 10;
@@ -10,32 +10,56 @@ const SCREEN_WIDTH = COLS_COUNT * BLOCK_SIZE;
 const SCREEN_HEIGHT = ROWS_COUNT * BLOCK_SIZE;
 const NEXT_AREA_SIZE = 160;
 const BLOCK_SOURCES = [
-        "images/block-0.png",
-        "images/block-1.png",
-        "images/block-2.png",
-        "images/block-3.png",
-        "images/block-4.png",
-        "images/block-5.png",
-        "images/block-6.png"
-    ]
+    "images/block-0.png",
+    "images/block-1.png",
+    "images/block-2.png",
+    "images/block-3.png",
+    "images/block-4.png",
+    "images/block-5.png",
+    "images/block-6.png"
+]
 
-window.onload = function(){
-  Asset.init()
-  let game = new Game()
-  document.getElementById(SATRT_BTN_ID).onclick = function(){
-      game.start()
-      this.blur() // ボタンのフォーカスを外す
-  }
+// ─────────────────────────────────────────────
+// キーコンフィグ：localStorage から読み込む
+// DEFAULT_KEYS は index.html 側でも定義しているが、
+// tetris.js 単体でも動くようにここにも定義する
+// ─────────────────────────────────────────────
+const _DEFAULT_KEYCONFIG = {
+    moveLeft:  { code: 'ArrowLeft',  label: '←' },
+    moveRight: { code: 'ArrowRight', label: '→' },
+    softDrop:  { code: 'ArrowDown',  label: '↓' },
+    hardDrop:  { code: 'Space',      label: 'SPACE' },
+    rotateCW:  { code: 'ArrowUp',    label: '↑' },
+    rotateCCW: { code: 'KeyZ',       label: 'Z' },
+    hold:      { code: 'ShiftLeft',  label: 'SHIFT' },
+};
+
+function loadKeyConfig() {
+    try {
+        const saved = localStorage.getItem('tetris_keyconfig');
+        if (saved) return JSON.parse(saved);
+    } catch(e) {}
+    return JSON.parse(JSON.stringify(_DEFAULT_KEYCONFIG));
 }
 
-// 素材を管理するクラス
-// ゲーム開始前に初期化する
+window.onload = function(){
+    Asset.init()
+    let game = new Game()
+    // グローバルに保持（設定変更後に setKeyEvent を外から呼ぶため）
+    window._game = game
+
+    document.getElementById(SATRT_BTN_ID).onclick = function(){
+        game.start()
+        this.blur()
+    }
+}
+
+// ─────────────────────────────────────────────
+// 素材管理クラス
+// ─────────────────────────────────────────────
 class Asset{
-    // ブロック用Imageの配列
     static blockImages = []
 
-    // 初期化処理
-    // callback には、init完了後に行う処理を渡す
     static init(callback){
         let loadCnt = 0
         for(let i = 0; i <= 6; i++){
@@ -44,8 +68,6 @@ class Asset{
             img.onload = function(){
                 loadCnt++
                 Asset.blockImages.push(img)
-
-                // 全ての画像読み込みが終われば、callback実行
                 if(loadCnt >= BLOCK_SOURCES.length && callback){
                     callback()
                 }
@@ -54,77 +76,58 @@ class Asset{
     }
 }
 
+// ─────────────────────────────────────────────
+// Game クラス
+// ─────────────────────────────────────────────
 class Game{
     constructor(){
         this.initMainCanvas()
         this.initNextCanvas()
-        this.initHoldCanvas()  // ホールドキャンバスの初期化
+        this.initHoldCanvas()
     }
 
-    // メインキャンバスの初期化
     initMainCanvas(){
         this.mainCanvas = document.getElementById(MAIN_CANVAS_ID);
         this.mainCtx = this.mainCanvas.getContext("2d");
         this.mainCanvas.width = SCREEN_WIDTH;
         this.mainCanvas.height = SCREEN_HEIGHT;
-        this.mainCanvas.style.border = "4px solid #555";
     }
 
-    // ネクストキャンバスの初期化
     initNextCanvas(){
         this.nextCanvas = document.getElementById(NEXT_CANVAS_ID);
         this.nextCtx = this.nextCanvas.getContext("2d");
         this.nextCanvas.width = NEXT_AREA_SIZE
         this.nextCanvas.height = NEXT_AREA_SIZE;
-        this.nextCanvas.style.border = "4px solid #555";
     }
 
-    // ホールドキャンバスの初期化
     initHoldCanvas(){
         this.holdCanvas = document.getElementById(HOLD_CANVAS_ID);
         this.holdCtx = this.holdCanvas.getContext("2d");
         this.holdCanvas.width = NEXT_AREA_SIZE;
         this.holdCanvas.height = NEXT_AREA_SIZE;
-        this.holdCanvas.style.border = "4px solid #555";
     }
 
-    // ゲームの開始処理（STARTボタンクリック時）
+    // ゲーム開始
     start(){
-        // フィールドとミノの初期化
         this.field = new Field()
-
-        // ホールド関連の初期化
-        this.holdMino = null       // ホールド中のミノ
-        this.canHold = true        // 今のミノでホールドできるか
-
-        // スコアの初期化
+        this.holdMino = null
+        this.canHold = true
         this.score = 0
         this.updateScoreDisplay()
-
-        // 最初のミノを読み込み
         this.popMino()
-
-        // 初回描画
         this.drawAll()
-
-        // 落下処理
         clearInterval(this.timer)
         this.timer = setInterval(() => this.dropMino(), 1000);
-
-        // キーボードイベントの登録
         this.setKeyEvent()
     }
 
-    // 新しいミノを読み込む
+    // 新しいミノを出す
     popMino(){
         this.mino = this.nextMino ?? new Mino()
         this.mino.spawn()
         this.nextMino = new Mino()
-
-        // 新しいミノが来たらホールド可能にリセット
         this.canHold = true
 
-        // ゲームオーバー判定
         if(!this.valid(0, 1)){
             this.drawAll()
             clearInterval(this.timer)
@@ -132,21 +135,17 @@ class Game{
         }
     }
 
-    // ホールド処理
+    // ホールド
     holdCurrentMino(){
-        // このターンすでにホールド済みなら何もしない
         if(!this.canHold) return
-
         this.canHold = false
 
         if(this.holdMino === null){
-            // ホールドが空のとき：現在のミノをホールドし、次のミノを出す
             this.holdMino = new Mino()
             this.holdMino.type = this.mino.type
             this.holdMino.initBlocks()
             this.popMino()
         } else {
-            // ホールドにミノがあるとき：現在のミノとホールドを入れ替える
             let prevHoldType = this.holdMino.type
             this.holdMino = new Mino()
             this.holdMino.type = this.mino.type
@@ -156,16 +155,21 @@ class Game{
             this.mino.initBlocks()
             this.mino.spawn()
         }
-
         this.drawAll()
     }
 
-    // スコア表示を更新する
+    // ハードドロップ
+    hardDrop(){
+        while(this.valid(0, 1)){
+            this.mino.y++
+        }
+        this.dropMino()
+    }
+
     updateScoreDisplay(){
         document.getElementById("score-value").textContent = this.score
     }
 
-    // ゴーストピースのY座標を計算（現在位置から着地点まで下げる）
     getGhostY(){
         let ghostY = this.mino.y
         while(true){
@@ -188,17 +192,13 @@ class Game{
         return ghostY
     }
 
-    // 画面の描画
     drawAll(){
-        // 表示クリア
         this.mainCtx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
         this.nextCtx.clearRect(0, 0, NEXT_AREA_SIZE, NEXT_AREA_SIZE)
         this.holdCtx.clearRect(0, 0, NEXT_AREA_SIZE, NEXT_AREA_SIZE)
 
-        // 落下済みのミノを描画
         this.field.drawFixedBlocks(this.mainCtx)
 
-        // ゴーストピースを描画（ミノ本体より先に、半透明で）
         const ghostY = this.getGhostY()
         if(ghostY !== this.mino.y){
             this.mainCtx.globalAlpha = 0.25
@@ -206,11 +206,9 @@ class Game{
             this.mainCtx.globalAlpha = 1.0
         }
 
-        // NEXT・現在のミノを描画
         this.nextMino.drawNext(this.nextCtx)
         this.mino.draw(this.mainCtx)
 
-        // ホールドミノを描画（ホールド不可のときは半透明で表示）
         if(this.holdMino){
             if(!this.canHold){
                 this.holdCtx.globalAlpha = 0.4
@@ -220,19 +218,16 @@ class Game{
         }
     }
 
-    // ミノの落下処理
     dropMino(){
-        if(this.valid(0, 1)) {
+        if(this.valid(0, 1)){
             this.mino.y++;
-        }else{
-            // Minoを固定する（座標変換してFieldに渡す）
-            this.mino.blocks.forEach( e => {
+        } else {
+            this.mino.blocks.forEach(e => {
                 e.x += this.mino.x
                 e.y += this.mino.y
             })
             this.field.blocks = this.field.blocks.concat(this.mino.blocks)
             const linesCleared = this.field.checkLine()
-            // 消去ライン数に応じてスコア加算
             const scoreTable = [0, 100, 300, 500, 800]
             this.score += scoreTable[linesCleared] ?? 0
             this.updateScoreDisplay()
@@ -240,8 +235,7 @@ class Game{
         }
         this.drawAll();
     }
-    
-    // 次の移動が可能かチェック
+
     valid(moveX, moveY, rot=0){
         let newBlocks = this.mino.getNewBlocks(moveX, moveY, rot)
         return newBlocks.every(block => {
@@ -255,40 +249,68 @@ class Game{
         })
     }
 
-    // キーボードイベント
+    // ─────────────────────────────────────────
+    // キーイベント（localStorage のキー設定を参照）
+    // ─────────────────────────────────────────
     setKeyEvent(){
-        document.onkeydown = function(e){
-            switch(e.keyCode){
-                case 37: // 左
-                    if( this.valid(-1, 0)) this.mino.x--;
+        // 既存のリスナーを解除してから再登録
+        if(this._keyHandler){
+            document.removeEventListener('keydown', this._keyHandler)
+        }
+
+        this._keyHandler = (e) => {
+            // 設定ページが表示中はゲーム操作を無効化
+            const gamePage = document.getElementById('game-page')
+            if(!gamePage || !gamePage.classList.contains('active')) return
+
+            const keys = loadKeyConfig()
+
+            switch(e.code){
+                case keys.moveLeft.code:
+                    e.preventDefault()
+                    if(this.valid(-1, 0)) this.mino.x--;
                     break;
-                case 39: // 右
-                    if( this.valid(1, 0)) this.mino.x++;
+                case keys.moveRight.code:
+                    e.preventDefault()
+                    if(this.valid(1, 0)) this.mino.x++;
                     break;
-                case 40: // 下
-                    if( this.valid(0, 1) ) this.mino.y++;
+                case keys.softDrop.code:
+                    e.preventDefault()
+                    if(this.valid(0, 1)) this.mino.y++;
                     break;
-                case 32: // スペース
-                    if( this.valid(0, 0, 1)) this.mino.rotate();
+                case keys.hardDrop.code:
+                    e.preventDefault()
+                    this.hardDrop();
+                    return; // hardDrop 内で drawAll するので return
+                case keys.rotateCW.code:
+                    e.preventDefault()
+                    if(this.valid(0, 0, 1)) this.mino.rotate();
                     break;
-                case 16: // Shift：ホールド
+                case keys.rotateCCW.code:
+                    e.preventDefault()
+                    if(this.valid(0, 0, -1)) this.mino.rotateCCW();
+                    break;
+                case keys.hold.code:
+                    e.preventDefault()
                     this.holdCurrentMino();
-                    break;
+                    return; // holdCurrentMino 内で drawAll するので return
+                default:
+                    return; // 関係ないキーは描画しない
             }
             this.drawAll()
-        }.bind(this)
+        }
+
+        document.addEventListener('keydown', this._keyHandler)
     }
 }
 
+// ─────────────────────────────────────────────
+// Block クラス
+// ─────────────────────────────────────────────
 class Block{
-    // 基準地点からの座標
-    // 移動中 ⇒ Minoの左上
-    // 配置後 ⇒ Fieldの左上
     constructor(x, y, type){
         this.x = x
         this.y = y
-        
-        // 描画しないときはタイプを指定しない
         if(type >= 0) this.setType(type)
     }
 
@@ -297,55 +319,42 @@ class Block{
         this.image = Asset.blockImages[type]
     }
 
-    // Minoに属するときは、Minoの位置をオフセットに指定
-    // Fieldに属するときは、(0,0)を起点とするので不要
     draw(offsetX = 0, offsetY = 0, ctx){
         let drawX = this.x + offsetX
         let drawY = this.y + offsetY
-
-        // 画面外は描画しない
         if(drawX >= 0 && drawX < COLS_COUNT &&
            drawY >= 0 && drawY < ROWS_COUNT){
             ctx.drawImage(
-                this.image, 
-                drawX * BLOCK_SIZE, 
+                this.image,
+                drawX * BLOCK_SIZE,
                 drawY * BLOCK_SIZE,
-                BLOCK_SIZE, 
+                BLOCK_SIZE,
                 BLOCK_SIZE
             )
         }
     }
 
-    // 次のミノを描画する
-    // タイプごとに余白を調整して、中央に表示
     drawNext(ctx){
         let offsetX = 0
         let offsetY = 0
         switch(this.type){
-            case 0:
-                offsetX = 0.5
-                offsetY = 0
-                break;
-            case 1:
-                offsetX = 0.5
-                offsetY = 0.5
-                break;
-            default:
-                offsetX = 1
-                offsetY = 0.5
-                break;
+            case 0: offsetX = 0.5; offsetY = 0;   break;
+            case 1: offsetX = 0.5; offsetY = 0.5; break;
+            default: offsetX = 1;  offsetY = 0.5; break;
         }
-
         ctx.drawImage(
-            this.image, 
-            (this.x + offsetX) * BLOCK_SIZE, 
+            this.image,
+            (this.x + offsetX) * BLOCK_SIZE,
             (this.y + offsetY) * BLOCK_SIZE,
-            BLOCK_SIZE, 
+            BLOCK_SIZE,
             BLOCK_SIZE
         )
     }
 }
 
+// ─────────────────────────────────────────────
+// Mino クラス
+// ─────────────────────────────────────────────
 class Mino{
     constructor(){
         this.type = Math.floor(Math.random() * 7);
@@ -376,17 +385,14 @@ class Mino{
             case 6: // Z型
                 this.blocks = [new Block(0,1,t),new Block(1,1,t),new Block(1,2,t),new Block(2,2,t)]
                 break;
-            }
+        }
     }
 
-    // フィールドに生成する
     spawn(){
         this.x = COLS_COUNT/2 - 2
         this.y = -3
     }
 
-    // フィールドに描画する
-    // overrideY を指定すると、Y座標をそちらで上書き（ゴースト描画に使用）
     draw(ctx, overrideY = null){
         const drawY = overrideY !== null ? overrideY : this.y
         this.blocks.forEach(block => {
@@ -394,14 +400,13 @@ class Mino{
         })
     }
 
-    // 次のミノを描画する
     drawNext(ctx){
         this.blocks.forEach(block => {
             block.drawNext(ctx)
         })
     }
-    
-    // 回転させる
+
+    // 右回転（時計回り）
     rotate(){
         this.blocks.forEach(block=>{
             let oldX = block.x
@@ -410,35 +415,43 @@ class Mino{
         })
     }
 
-    // 次に移動しようとしている位置の情報を持ったミノを生成
-    // 描画はせず、移動が可能かどうかの判定に使用する
+    // 左回転（反時計回り）
+    rotateCCW(){
+        this.blocks.forEach(block=>{
+            let oldY = block.y
+            block.y = block.x
+            block.x = 3-oldY
+        })
+    }
+
     getNewBlocks(moveX, moveY, rot){
         let newBlocks = this.blocks.map(block=>{
             return new Block(block.x, block.y)
         })
         newBlocks.forEach(block => {
-            // 移動させる場合
             if(moveX || moveY){
                 block.x += moveX
                 block.y += moveY
             }
-
-            // 回転させる場合
-            if(rot){
+            if(rot === 1){
                 let oldX = block.x
                 block.x = block.y
                 block.y = 3-oldX
+            } else if(rot === -1){
+                let oldY = block.y
+                block.y = block.x
+                block.x = 3-oldY
             }
-
-            // グローバル座標に変換
             block.x += this.x
             block.y += this.y
         })
-        
         return newBlocks
     }
 }
 
+// ─────────────────────────────────────────────
+// Field クラス
+// ─────────────────────────────────────────────
 class Field{
     constructor(){
         this.blocks = []
@@ -448,19 +461,18 @@ class Field{
         this.blocks.forEach(block => block.draw(0, 0, ctx))
     }
 
-    // ラインを消去し、消去したライン数を返す
     checkLine(){
-      let linesCleared = 0
-      for(var r = 0; r < ROWS_COUNT; r++){
-        var c = this.blocks.filter(block => block.y === r).length
-        if(c === COLS_COUNT){
-          this.blocks = this.blocks.filter(block => block.y !== r)
-          this.blocks.filter(block => block.y < r).forEach(upper => upper.y++)
-          linesCleared++
-          r-- // 消去した行を再チェック
+        let linesCleared = 0
+        for(var r = 0; r < ROWS_COUNT; r++){
+            var c = this.blocks.filter(block => block.y === r).length
+            if(c === COLS_COUNT){
+                this.blocks = this.blocks.filter(block => block.y !== r)
+                this.blocks.filter(block => block.y < r).forEach(upper => upper.y++)
+                linesCleared++
+                r--
+            }
         }
-      }
-      return linesCleared
+        return linesCleared
     }
 
     has(x, y){
