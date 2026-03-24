@@ -358,6 +358,7 @@ class Block{
 class Mino{
     // mino の種類を決定してブロックを初期化
     constructor(){
+        this.pivot = { x: 1.5, y: 1.5 }; // デフォルトの回転軸（4x4中心）
         this.type = Math.floor(Math.random() * 7);
         this.initBlocks()
     }
@@ -367,31 +368,38 @@ class Mino{
         switch(t){
             case 0: // I型
                 this.blocks = [new Block(0,2,t),new Block(1,2,t),new Block(2,2,t),new Block(3,2,t)]
+                this.pivot = { x: 1.5, y: 1.5 }
                 break;
-            case 1: // O型
+            case 1: // O型（回転しないので中心固定）
                 this.blocks = [new Block(1,1,t),new Block(2,1,t),new Block(1,2,t),new Block(2,2,t)]
+                this.pivot = { x: 1.5, y: 1.5 }
                 break;
             case 2: // T型
                 this.blocks = [new Block(1,1,t),new Block(0,2,t),new Block(1,2,t),new Block(2,2,t)]
+                this.pivot = { x: 1, y: 2 }
                 break;
             case 3: // J型
                 this.blocks = [new Block(0,1,t),new Block(0,2,t),new Block(1,2,t),new Block(2,2,t)]
+                this.pivot = { x: 1, y: 2 }
                 break;
             case 4: // L型
                 this.blocks = [new Block(2,1,t),new Block(0,2,t),new Block(1,2,t),new Block(2,2,t)]
+                this.pivot = { x: 1, y: 2 }
                 break;
             case 5: // S型
                 this.blocks = [new Block(1,1,t),new Block(2,1,t),new Block(0,2,t),new Block(1,2,t)]
+                this.pivot = { x: 1, y: 2 }
                 break;
             case 6: // Z型
                 this.blocks = [new Block(0,1,t),new Block(1,1,t),new Block(1,2,t),new Block(2,2,t)]
+                this.pivot = { x: 1, y: 2 }
                 break;
         }
     }
 
     spawn(){
         this.x = COLS_COUNT/2 - 2
-        this.y = -3
+        this.y = -1
     }
 
     draw(ctx, overrideY = null){
@@ -410,18 +418,28 @@ class Mino{
     // 右回転（時計回り）
     rotate(){
         this.blocks.forEach(block=>{
-            let oldX = block.x
-            block.x = block.y
-            block.y = 3-oldX
+            let relX = block.x - this.pivot.x
+            let relY = block.y - this.pivot.y
+
+            let newX = -relY
+            let newY = relX
+
+            block.x = Math.round(newX + this.pivot.x)
+            block.y = Math.round(newY + this.pivot.y)
         })
     }
 
     // 左回転（反時計回り）
     rotateCCW(){
         this.blocks.forEach(block=>{
-            let oldY = block.y
-            block.y = block.x
-            block.x = 3-oldY
+            let relX = block.x - this.pivot.x
+            let relY = block.y - this.pivot.y
+
+            let newX = relY
+            let newY = -relX
+
+            block.x = Math.round(newX + this.pivot.x)
+            block.y = Math.round(newY + this.pivot.y)
         })
     }
 
@@ -434,14 +452,21 @@ class Mino{
                 block.x += moveX
                 block.y += moveY
             }
-            if(rot === 1){
-                let oldX = block.x
-                block.x = block.y
-                block.y = 3-oldX
-            } else if(rot === -1){
-                let oldY = block.y
-                block.y = block.x
-                block.x = 3-oldY
+            if(rot === 1 || rot === -1){
+                let relX = block.x - this.pivot.x
+                let relY = block.y - this.pivot.y
+
+                let newX, newY
+                if(rot === 1){
+                    newX = relY
+                    newY = -relX
+                } else {
+                    newX = -relY
+                    newY = relX
+                }
+
+                block.x = Math.round(newX + this.pivot.x)
+                block.y = Math.round(newY + this.pivot.y)
             }
             block.x += this.x
             block.y += this.y
