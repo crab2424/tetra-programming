@@ -38,7 +38,11 @@ const _DEFAULT_KEYCONFIG = {
 function loadKeyConfig() {
     try {
         const saved = localStorage.getItem('game_keyconfig');
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            // デフォルト設定に、保存された設定を上書き（足りないキーを補完）
+            return { ..._DEFAULT_KEYCONFIG, ...parsed };
+        }
     } catch(e) {}
     return JSON.parse(JSON.stringify(_DEFAULT_KEYCONFIG));
 }
