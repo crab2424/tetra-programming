@@ -7,8 +7,9 @@ const BLOCK_SIZE = 32;
 const COLS_COUNT = 10;
 const ROWS_COUNT = 20;
 const GRAVITY_INTERVAL = 1000; // ミノが1マス落ちる時間（ms）
+const VISIBLE_EXTRA_ROW_RATIO = 0.5; // 上に見せる割合（-1行目）
 const SCREEN_WIDTH = COLS_COUNT * BLOCK_SIZE;
-const SCREEN_HEIGHT = ROWS_COUNT * BLOCK_SIZE;
+const SCREEN_HEIGHT = (ROWS_COUNT + VISIBLE_EXTRA_ROW_RATIO) * BLOCK_SIZE;
 const NEXT_AREA_SIZE = 160;
 const BLOCK_SOURCES = [
     "images/block-0.png",
@@ -388,7 +389,11 @@ class Game{
         this.nextCtx.clearRect(0, 0, this.nextCanvas.width, this.nextCanvas.height)
         this.holdCtx.clearRect(0, 0, this.holdCanvas.width, this.holdCanvas.height)
 
-        this.field.drawFixedBlocks(this.mainCtx)
+        // 上に少し余白を作る（-1行目の一部を表示）
+        this.mainCtx.save();
+        this.mainCtx.translate(0, BLOCK_SIZE * VISIBLE_EXTRA_ROW_RATIO);
+
+        this.field.drawFixedBlocks(this.mainCtx);
 
         const ghostY = this.getGhostY()
         if(ghostY !== this.mino.y){
@@ -414,6 +419,7 @@ class Game{
         });
         
         this.mino.draw(this.mainCtx)
+        this.mainCtx.restore();
 
         if(this.holdMino){
             this.holdCtx.save(); // ★ 追加
@@ -727,8 +733,11 @@ class Block{
     draw(offsetX = 0, offsetY = 0, ctx){
         let drawX = this.x + offsetX
         let drawY = this.y + offsetY
+        
+        // 修正前: drawY >= 0 && ...
+        // 修正後: drawY >= -1 && ...
         if(drawX >= 0 && drawX < COLS_COUNT &&
-            drawY >= 0 && drawY < ROWS_COUNT){
+            drawY >= -1 && drawY < ROWS_COUNT){
             ctx.drawImage(
                 this.image,
                 drawX * BLOCK_SIZE,
