@@ -135,6 +135,44 @@ class Game{
         }
     }
 
+    // SRS回転
+    tryRotate(rotDir){
+        const from = this.mino.rotation
+        const to = (from + (rotDir === 1 ? 1 : 3)) % 4
+
+        const kickTableCW = {
+            '0>1': [[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
+            '1>2': [[0,0],[1,0],[1,-1],[0,2],[1,2]],
+            '2>3': [[0,0],[1,0],[1,1],[0,-2],[1,-2]],
+            '3>0': [[0,0],[-1,0],[-1,-1],[0,2],[-1,2]]
+        }
+
+        const kickTableCCW = {
+            '0>3': [[0,0],[1,0],[1,1],[0,-2],[1,-2]],
+            '3>2': [[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
+            '2>1': [[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
+            '1>0': [[0,0],[1,0],[1,-1],[0,2],[1,2]]
+        }
+
+        const key = `${from}>${to}`
+        const table = rotDir === 1 ? kickTableCW[key] : kickTableCCW[key]
+
+        if(!table) return false
+
+        for(const [dx, dy] of table){
+            if(this.valid(dx, dy, rotDir)){
+                if(rotDir === 1) this.mino.rotate()
+                else this.mino.rotateCCW()
+
+                this.mino.x += dx
+                this.mino.y += dy
+                this.mino.rotation = to
+                return true
+            }
+        }
+        return false
+    }
+
     // ホールド
     holdCurrentMino(){
         if(!this.canHold) return
@@ -401,9 +439,8 @@ class Game{
             // 回転（即時反応させる）
             if(this.keyState[keys.rotateCW.code]){
                 if(!this._rotCWPressed){
-                    if(this.valid(0, 0, 1)){
-                        this.mino.rotate()
-                        acted = true
+                    if(this.tryRotate(1)){
+                    acted = true
                     }
                     this._rotCWPressed = true
                 }
@@ -414,8 +451,7 @@ class Game{
 
             if(this.keyState[keys.rotateCCW.code]){
                 if(!this._rotCCWPressed){
-                    if(this.valid(0, 0, -1)){
-                        this.mino.rotateCCW()
+                    if(this.tryRotate(-1)){
                         acted = true
                     }
                     this._rotCCWPressed = true
@@ -485,10 +521,12 @@ class Block{
 // Mino クラス
 // ─────────────────────────────────────────────
 class Mino{
+    
     // mino の種類を決定してブロックを初期化
     constructor(){
         this.pivot = { x: 1.5, y: 1.5 }; // デフォルトの回転軸（4x4中心）
         this.type = Math.floor(Math.random() * 7);
+        this.rotation = 0; // 0:上 1:右 2:下 3:左
         this.initBlocks()
     }
 
@@ -529,6 +567,7 @@ class Mino{
     spawn(){
         this.x = COLS_COUNT/2 - 2
         this.y = -1
+        this.rotation = 0
     }
 
     draw(ctx, overrideY = null){
@@ -587,11 +626,11 @@ class Mino{
 
                 let newX, newY
                 if(rot === 1){
-                    newX = relY
-                    newY = -relX
-                } else {
                     newX = -relY
                     newY = relX
+                } else {
+                    newX = relY
+                    newY = -relX
                 }
 
                 block.x = Math.round(newX + this.pivot.x)
