@@ -12,6 +12,7 @@ const DEFAULT_KEYS = {
   rotateCW:  { code: 'ArrowUp',    label: '↑'     },
   rotateCCW: { code: 'KeyZ',       label: 'Z'     },
   hold:      { code: 'ShiftLeft',  label: 'SHIFT' },
+  pause:     { code: 'Escape',     label: 'ESC'   },
 };
 
 // アクションの表示名
@@ -23,6 +24,7 @@ const ACTION_LABELS = {
   rotateCW:  { name: '右回転',       en: 'Rotate CW'   },
   rotateCCW: { name: '左回転',       en: 'Rotate CCW'  },
   hold:      { name: 'ホールド',     en: 'Hold'        },
+  pause:     { name: 'ポーズ',       en: 'Pause'       },
 };
 
 // ─── 状態 ────────────────────────────────────

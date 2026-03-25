@@ -29,6 +29,17 @@
         </div>
         <button id="start-btn">START</button>
       </div>
+
+      <!-- ポーズオーバーレイ -->
+      <div id="pause-overlay">
+        <div id="pause-modal">
+          <h2 id="pause-title">PAUSE</h2>
+          <div id="pause-buttons">
+            <button class="pause-btn btn-resume" onclick="window._game && window._game.resume()">▶ RESUME</button>
+            <button class="pause-btn btn-restart" onclick="window._game && window._game.start()">↺ RESTART</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 設定ページ -->

@@ -32,6 +32,7 @@ const _DEFAULT_KEYCONFIG = {
     rotateCW:  { code: 'ArrowUp',    label: '↑' },
     rotateCCW: { code: 'KeyZ',       label: 'Z' },
     hold:      { code: 'ShiftLeft',  label: 'SHIFT' },
+    pause:     { code: 'Escape',     label: 'ESC' },
 };
 
 function loadKeyConfig() {
@@ -113,12 +114,45 @@ class Game{
         this.holdMino = null
         this.canHold = true
         this.score = 0
+        this.isPaused = false
+        this.hidePauseOverlay()
         this.updateScoreDisplay()
         this.popMino()
         this.drawAll()
         clearInterval(this.timer)
         this.timer = setInterval(() => this.dropMino(), 1000);
         this.setKeyEvent()
+    }
+
+    // ポーズ切り替え
+    togglePause(){
+        if(this.isPaused){
+            this.resume()
+        } else {
+            this.pause()
+        }
+    }
+
+    pause(){
+        if(this.isPaused) return
+        this.isPaused = true
+        clearInterval(this.timer)
+        this.showPauseOverlay()
+    }
+
+    resume(){
+        if(!this.isPaused) return
+        this.isPaused = false
+        this.hidePauseOverlay()
+        this.timer = setInterval(() => this.dropMino(), 1000)
+    }
+
+    showPauseOverlay(){
+        document.getElementById('pause-overlay').classList.add('active')
+    }
+
+    hidePauseOverlay(){
+        document.getElementById('pause-overlay').classList.remove('active')
     }
 
     // 新しいミノを出す
@@ -360,6 +394,16 @@ class Game{
             const gamePage = document.getElementById('game-page')
             if(!gamePage || !gamePage.classList.contains('active')) return
 
+            // ポーズ
+            if(e.code === keys.pause.code){
+                e.preventDefault()
+                this.togglePause()
+                return
+            }
+
+            // ポーズ中は他のキー入力を無視
+            if(this.isPaused) return
+
             this.keyState[e.code] = true
 
             const now = performance.now()
@@ -402,6 +446,7 @@ class Game{
         this._keyLoop = setInterval(() => {
             const gamePage = document.getElementById('game-page')
             if(!gamePage || !gamePage.classList.contains('active')) return
+            if(this.isPaused) return
 
             const nowPerf = performance.now()
             const delta = nowPerf - this._lastFrameTime
