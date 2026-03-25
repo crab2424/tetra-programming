@@ -160,7 +160,9 @@ class Game{
         if(!table) return false
 
         for(const [dx, dy] of table){
-            if(this.valid(dx, dy, rotDir)){
+            // 「回転後の形状でキックオフセット(dx,dy)を加算した位置」を検証する
+            // rotDir で回転、moveX/moveY でキックを別々に渡す
+            if(this.validRotated(rotDir, dx, dy)){
                 if(rotDir === 1) this.mino.rotate()
                 else this.mino.rotateCCW()
 
@@ -171,6 +173,41 @@ class Game{
             }
         }
         return false
+    }
+
+    // 回転後にキックオフセットを加えた位置が有効かどうかを検証
+    // （valid/getNewBlocks とは独立した専用メソッド）
+    validRotated(rotDir, kickX, kickY){
+        const pivot = this.mino.pivot
+        const newBlocks = this.mino.blocks.map(block => {
+            // 1. pivot 基準で回転
+            let relX = block.x - pivot.x
+            let relY = block.y - pivot.y
+            let rx, ry
+            if(rotDir === 1){
+                rx = -relY
+                ry =  relX
+            } else {
+                rx =  relY
+                ry = -relX
+            }
+            const rotatedX = Math.round(rx + pivot.x)
+            const rotatedY = Math.round(ry + pivot.y)
+
+            // 2. ミノのワールド座標 + キックオフセットを加算
+            return {
+                x: rotatedX + this.mino.x + kickX,
+                y: rotatedY + this.mino.y + kickY
+            }
+        })
+
+        return newBlocks.every(block =>
+            block.x >= 0 &&
+            block.x < COLS_COUNT &&
+            block.y >= -1 &&
+            block.y < ROWS_COUNT &&
+            !this.field.has(block.x, block.y)
+        )
     }
 
     // ホールド
