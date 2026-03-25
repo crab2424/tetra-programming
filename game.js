@@ -215,6 +215,15 @@ class Game{
         document.getElementById('pause-overlay').classList.remove('active')
     }
 
+    // ゲームオーバー処理
+    gameOver() {
+        this.drawAll();
+        if (this.timer) { clearInterval(this.timer); this.timer = null; }
+        if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+        this.isPaused = true; // キー入力を無効化
+        setTimeout(() => alert("ゲームオーバー"), 10);
+    }
+
     getNextType(){
         if(this.bag.length === 0){
             this.bag = [0,1,2,3,4,5,6];
@@ -230,11 +239,21 @@ class Game{
     // 新しいミノを出す
     popMino(){
         this.mino = this.nextQueue.shift();
-        this.mino.spawn();
+        this.mino.spawn(); // デフォルトで y = -2 になる
+
+        // ★ 追加：出現位置での致命判定
+        if (!this.valid(0, 0)) {
+            this.mino.y = -3; // 1列上で再試行
+            if (!this.valid(0, 0)) {
+                this.gameOver();
+                return;
+            }
+        }
+
         this.nextQueue.push(new Mino(this.getNextType()));
         this.canHold = true
 
-        // ★ 状態・タイマー・カウントの初期化
+        // 状態・タイマー・カウントの初期化
         this.isGrounded = false;
         this.lowestY = this.mino.y;
         this.moveCount = 0;
@@ -245,11 +264,7 @@ class Game{
         }
         this.startGravity(); // 重力をリセットして開始
 
-        if(!this.valid(0, 1)){
-            this.drawAll()
-            if(this.timer) clearInterval(this.timer)
-            alert("ゲームオーバー")
-        }
+        // ★ 削除：ここにあった if(!this.valid(0, 1)) { ... } は削除
     }
 
     // SRS回転
@@ -331,7 +346,7 @@ class Game{
         return newBlocks.every(block =>
             block.x >= 0 &&
             block.x < COLS_COUNT &&
-            block.y >= -1 &&
+            block.y >= -3 &&
             block.y < ROWS_COUNT &&
             !this.field.has(block.x, block.y)
         )
@@ -362,6 +377,9 @@ class Game{
 
     // ミノを即座に固定する共通処理
     secureMino(){
+        // ★ 追加：固定されるミノがすべて盤面外（y < 0）か判定
+        let isAllOutside = this.mino.blocks.every(block => (block.y + this.mino.y) < 0);
+
         this.mino.blocks.forEach(e => {
             e.x += this.mino.x
             e.y += this.mino.y
@@ -372,6 +390,12 @@ class Game{
         const scoreTable = [0, 100, 300, 500, 800]
         this.score += scoreTable[linesCleared] ?? 0
         this.updateScoreDisplay()
+
+        // ★ 追加：すべて盤面外ならゲームオーバーにして、次のミノは出さない
+        if (isAllOutside) {
+            this.gameOver();
+            return;
+        }
 
         this.popMino()
     }
@@ -543,7 +567,7 @@ class Game{
         return newBlocks.every(block => {
             return (
                 block.x >= 0 &&
-                block.y >= -1 &&
+                block.y >= -3 &&
                 block.x < COLS_COUNT &&
                 block.y < ROWS_COUNT &&
                 !this.field.has(block.x, block.y)
@@ -850,7 +874,7 @@ class Mino{
 
     spawn(){
         this.x = COLS_COUNT/2 - 2
-        this.y = -1
+        this.y = -2
         this.rotation = 0
     }
 
