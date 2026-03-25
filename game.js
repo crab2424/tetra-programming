@@ -468,9 +468,6 @@ class Game{
         if(this.timer) { clearInterval(this.timer); this.timer = null; }
         if(this.lockTimer){ clearTimeout(this.lockTimer); this.lockTimer = null; }
 
-        // ハードドロップは「回転アクションではない」のでフラグをリセット
-        this.lastActionWasRotation = false;
-
         this.secureMino()
         this.drawAll()
     }
