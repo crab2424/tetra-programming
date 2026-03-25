@@ -617,6 +617,16 @@ class Game{
         this._lastMoveTimeLeft = 0;
         this._lastMoveTimeRight = 0;
 
+        // DCD設定（DAS Cut Delay）
+        // 「DASが効いていてARR連続移動中だが壁等で動けない（空振り）」状態で
+        // ハードドロップまたは回転を入力した際に発動する遅延。
+        // この遅延が終わるまでDASによる左右移動はブロックされる。
+        // 左右キーを離すと即座にリセット。
+        this.DCD_DELAY = 50;        // ms（0 = 無効、例: 2f≒33ms）
+        this._dcdUntil = 0;        // DCD解除時刻（performance.now()基準）
+        this._dasBlockedLeft = false;   // 左: DASアクティブだが動けない状態か
+        this._dasBlockedRight = false;  // 右: DASアクティブだが動けない状態か
+
         // 既存のリスナー解除
         if(this._keyDownHandler){
             document.removeEventListener('keydown', this._keyDownHandler)
@@ -659,6 +669,12 @@ class Game{
             // 単発系（押した瞬間のみ）
             if(e.code === keys.hardDrop.code){
                 e.preventDefault()
+                // DCD発動チェック（ハードドロップ）
+                // DASが効いていて動けない状態でハードドロップした場合にDCDを開始する
+                if(this.DCD_DELAY > 0 &&
+                    (this._dasBlockedLeft || this._dasBlockedRight)){
+                    this._dcdUntil = performance.now() + this.DCD_DELAY
+                }
                 this.hardDrop()
             }
             if(e.code === keys.hold.code){
@@ -672,9 +688,15 @@ class Game{
 
             if(e.code === keys.moveLeft.code){
                 this._leftPressTime = null
+                // 左キーを離したら DCD・DASブロック状態を即リセット
+                this._dasBlockedLeft = false
+                this._dcdUntil = 0
             }
             if(e.code === keys.moveRight.code){
                 this._rightPressTime = null
+                // 右キーを離したら DCD・DASブロック状態を即リセット
+                this._dasBlockedRight = false
+                this._dcdUntil = 0
             }
         }
 
@@ -697,10 +719,11 @@ class Game{
 
             const now = nowPerf
 
-            // 左移動（DAS対応）
+            // ─── 左移動（DAS対応） ─────────────────────────────────
             if(this.keyState[keys.moveLeft.code]){
                 if(this._leftPressTime !== null){
                     const heldTime = now - this._leftPressTime
+                    const inDcd = now < this._dcdUntil
 
                     // 初回入力（押した瞬間）
                     if(this._lastMoveTimeLeft === 0){
@@ -709,23 +732,35 @@ class Game{
                             acted = true
                         }
                         this._lastMoveTimeLeft = now
+                        this._dasBlockedLeft = false
                     }
-                    // DAS後の連続移動
+                    // DAS後の連続移動フェーズ
                     else if(heldTime >= this.DAS_DELAY &&
                             now - this._lastMoveTimeLeft >= this.ARR_INTERVAL){
-                        if(this.valid(-1, 0)){
-                            this.mino.x--
-                            acted = true
+                        if(!inDcd){
+                            if(this.valid(-1, 0)){
+                                this.mino.x--
+                                acted = true
+                                this._dasBlockedLeft = false
+                            } else {
+                                // DASが効いているが壁等で動けない（空振り）
+                                this._dasBlockedLeft = true
+                            }
                         }
+                        // DCD中でも _lastMoveTimeLeft は更新し続け、
+                        // DCD解除後すぐARRが再開できるようにする
                         this._lastMoveTimeLeft = now
                     }
                 }
+            } else {
+                this._dasBlockedLeft = false
             }
 
-            // 右移動（DAS対応）
+            // ─── 右移動（DAS対応） ─────────────────────────────────
             if(this.keyState[keys.moveRight.code]){
                 if(this._rightPressTime !== null){
                     const heldTime = now - this._rightPressTime
+                    const inDcd = now < this._dcdUntil
 
                     if(this._lastMoveTimeRight === 0){
                         if(this.valid(1, 0)){
@@ -733,16 +768,25 @@ class Game{
                             acted = true
                         }
                         this._lastMoveTimeRight = now
+                        this._dasBlockedRight = false
                     }
                     else if(heldTime >= this.DAS_DELAY &&
                             now - this._lastMoveTimeRight >= this.ARR_INTERVAL){
-                        if(this.valid(1, 0)){
-                            this.mino.x++
-                            acted = true
+                        if(!inDcd){
+                            if(this.valid(1, 0)){
+                                this.mino.x++
+                                acted = true
+                                this._dasBlockedRight = false
+                            } else {
+                                // DASが効いているが壁等で動けない（空振り）
+                                this._dasBlockedRight = true
+                            }
                         }
                         this._lastMoveTimeRight = now
                     }
                 }
+            } else {
+                this._dasBlockedRight = false
             }
 
             // ソフトドロップ（専用ARR）
@@ -785,6 +829,17 @@ class Game{
             }
             if(!this.keyState[keys.rotateCCW.code]){
                 this._rotCCWPressed = false
+            }
+
+            // ─── DCD 発動チェック（回転） ──────────────────────────
+            // DASが効いていて動けない（空振り）状態で回転が入力された場合にDCDを開始する
+            if(this.DCD_DELAY > 0 && acted){
+                const rotActed =
+                    (this.keyState[keys.rotateCW.code]  && this._rotCWPressed) ||
+                    (this.keyState[keys.rotateCCW.code] && this._rotCCWPressed)
+                if(rotActed && (this._dasBlockedLeft || this._dasBlockedRight)){
+                    this._dcdUntil = now + this.DCD_DELAY
+                }
             }
 
             // ★ アクションが起きたら接地状態を再評価（15回制限もここで処理される）
