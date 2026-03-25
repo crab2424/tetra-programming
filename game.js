@@ -89,6 +89,9 @@ class Game{
         this.initMainCanvas()
         this.initNextCanvas()
         this.initHoldCanvas()
+        this.lockDelay = 800; // 0.8秒
+        this.lockTimer = null;
+        this.isGrounded = false;
     }
 
     initMainCanvas(){
@@ -124,7 +127,7 @@ class Game{
         this.popMino()
         this.drawAll()
         clearInterval(this.timer)
-        this.timer = setInterval(() => this.dropMino(), 1000);
+        this.startGravity()
         this.setKeyEvent()
     }
 
@@ -148,6 +151,16 @@ class Game{
         if(!this.isPaused) return
         this.isPaused = false
         this.hidePauseOverlay()
+        
+        // ★重力か猶予タイマーのどちらかを再開させる
+        this.checkGroundState();
+        if(!this.isGrounded) {
+            this.startGravity();
+        }
+    }
+
+    startGravity(){
+        if(this.timer) clearInterval(this.timer)
         this.timer = setInterval(() => this.dropMino(), 1000)
     }
 
@@ -165,10 +178,18 @@ class Game{
         this.mino.spawn()
         this.nextMino = new Mino()
         this.canHold = true
+        
+        // ★状態とタイマーの初期化
+        this.isGrounded = false;
+        if(this.lockTimer){
+            clearTimeout(this.lockTimer);
+            this.lockTimer = null;
+        }
+        this.startGravity(); // 重力をリセットして開始
 
         if(!this.valid(0, 1)){
             this.drawAll()
-            clearInterval(this.timer)
+            if(this.timer) clearInterval(this.timer)
             alert("ゲームオーバー")
         }
     }
@@ -281,12 +302,34 @@ class Game{
         this.drawAll()
     }
 
+    // ミノを即座に固定する共通処理
+    secureMino(){
+        this.mino.blocks.forEach(e => {
+            e.x += this.mino.x
+            e.y += this.mino.y
+        })
+        this.field.blocks = this.field.blocks.concat(this.mino.blocks)
+
+        const linesCleared = this.field.checkLine()
+        const scoreTable = [0, 100, 300, 500, 800]
+        this.score += scoreTable[linesCleared] ?? 0
+        this.updateScoreDisplay()
+
+        this.popMino()
+    }
+
     // ハードドロップ
     hardDrop(){
         while(this.valid(0, 1)){
             this.mino.y++
         }
-        this.dropMino()
+
+        // タイマーを両方停止
+        if(this.timer) { clearInterval(this.timer); this.timer = null; }
+        if(this.lockTimer){ clearTimeout(this.lockTimer); this.lockTimer = null; }
+
+        this.secureMino()
+        this.drawAll()
     }
 
     updateScoreDisplay(){
@@ -344,19 +387,49 @@ class Game{
     dropMino(){
         if(this.valid(0, 1)){
             this.mino.y++;
-        } else {
-            this.mino.blocks.forEach(e => {
-                e.x += this.mino.x
-                e.y += this.mino.y
-            })
-            this.field.blocks = this.field.blocks.concat(this.mino.blocks)
-            const linesCleared = this.field.checkLine()
-            const scoreTable = [0, 100, 300, 500, 800]
-            this.score += scoreTable[linesCleared] ?? 0
-            this.updateScoreDisplay()
-            this.popMino()
         }
+        this.checkGroundState();
         this.drawAll();
+    }
+
+    // 接地状態をチェックし、重力と固定猶予タイマーを切り替える
+    checkGroundState() {
+        if (!this.valid(0, 1)) {
+            // ▼ 接地している場合 ▼
+            if (!this.isGrounded) {
+                // 空中から接地した瞬間：重力を止めて固定猶予開始
+                this.isGrounded = true;
+                if (this.timer) {
+                    clearInterval(this.timer);
+                    this.timer = null;
+                }
+                this.startLockTimer();
+            } else {
+                // すでに接地しており、移動や回転をした場合：猶予時間をリセット
+                this.startLockTimer();
+            }
+        } else {
+            // ▼ 空中にいる場合 ▼
+            if (this.isGrounded) {
+                // 接地状態から段差などで空中に飛び出した瞬間：猶予をキャンセルし重力を再開
+                this.isGrounded = false;
+                if (this.lockTimer) {
+                    clearTimeout(this.lockTimer);
+                    this.lockTimer = null;
+                }
+                this.startGravity(); // 内部でリセットされてからスタートします
+            }
+        }
+    }
+
+    // 固定猶予タイマーの起動・リセット
+    startLockTimer() {
+        if (this.lockTimer) clearTimeout(this.lockTimer);
+        this.lockTimer = setTimeout(() => {
+            this.lockTimer = null;
+            this.secureMino();
+            this.drawAll();
+        }, this.lockDelay);
     }
 
     valid(moveX, moveY, rot=0){
@@ -521,7 +594,7 @@ class Game{
             // ソフトドロップ（専用ARR）
             if(this.keyState[keys.softDrop.code]){
                 if(this._lastSoftDropTime === 0 ||
-                   now - this._lastSoftDropTime >= this.SOFTDROP_ARR){
+                    now - this._lastSoftDropTime >= this.SOFTDROP_ARR){
                     if(this.valid(0, 1)){
                         this.mino.y++
                         acted = true
@@ -557,10 +630,12 @@ class Game{
                 this._rotCCWPressed = false
             }
 
+            // アクションが起きたら接地状態を再評価（滑り落ち・猶予リセット）
             if(acted){
-                this.drawAll()
+                this.checkGroundState();
+                this.drawAll();
             }
-
+            
         }, 16) // 約60FPS（ARRが効くようにする）
     }
 }
