@@ -127,13 +127,27 @@ canvas {
   border-radius: 2px;
 }
 
-#next-canvas { top: 0; left: 400px; }
-#hold-canvas { top: 0; left: -240px; }
+#next-canvas {
+  top: 0;       /* 縦位置調整 */
+  left: 350px;  /* 横位置調整 */
+
+  /* 以下を追加（75%に縮小） */
+  width: 96px;  
+  height: 360px;
+}
+#hold-canvas {
+  top: 0;        /* 縦位置調整 */
+  left: -160px;  /* 横位置調整 */
+
+  /* 以下を追加（75%に縮小） */
+  width: 96px;  
+  height: 96px;
+}
 
 /* NEXT / HOLD / SCORE ラベル */
 .area-label {
   position: absolute;
-  left: 400px; /* default for right side */
+  left: 400px; /* NEXTラベルの横位置（#next-canvasと合わせる） */
   font-family: 'Orbitron', monospace;
   font-size: 11px;
   font-weight: 700;
@@ -142,16 +156,12 @@ canvas {
 }
 
 #label-next { top: -18px; }
-#label-hold { top: -18px; left: -240px; }
-
-#label-hold {
-  left: -240px;
-}
+#label-hold { top: -18px; left: -160px; }
 
 /* スコアエリア */
 #score-area {
   position: absolute;
-  left: 400px;
+  left: 600px;
   top: 390px;
 }
 
@@ -169,14 +179,6 @@ canvas {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-}
-
-/* 操作説明画像 */
-#img-howto {
-  position: absolute;
-  bottom: 200px;
-  left: 360px;
-  opacity: 0.6;
 }
 
 /* スタートボタン */

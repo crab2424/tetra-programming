@@ -94,6 +94,7 @@ class Game{
         this.lockTimer = null;
         this.isGrounded = false;
         this.bag = [];
+        this.nextQueue = [];
     }
 
     initMainCanvas(){
@@ -106,21 +107,25 @@ class Game{
     initNextCanvas(){
         this.nextCanvas = document.getElementById(NEXT_CANVAS_ID);
         this.nextCtx = this.nextCanvas.getContext("2d");
-        this.nextCanvas.width = NEXT_AREA_SIZE
-        this.nextCanvas.height = NEXT_AREA_SIZE;
+        this.nextCanvas.width = BLOCK_SIZE * 4;
+        this.nextCanvas.height = BLOCK_SIZE * 15;
     }
 
     initHoldCanvas(){
         this.holdCanvas = document.getElementById(HOLD_CANVAS_ID);
         this.holdCtx = this.holdCanvas.getContext("2d");
-        this.holdCanvas.width = NEXT_AREA_SIZE;
-        this.holdCanvas.height = NEXT_AREA_SIZE;
+        this.holdCanvas.width = BLOCK_SIZE * 4;
+        this.holdCanvas.height = BLOCK_SIZE * 4;
     }
 
     // ゲーム開始
     start(){
         // ★ 7バッグをリセット
         this.bag = [];
+        this.nextQueue = [];
+        for(let i = 0; i < 5; i++){
+            this.nextQueue.push(new Mino(this.getNextType()));
+        }
         this.nextMino = null;
         this.field = new Field()
         this.holdMino = null
@@ -191,9 +196,9 @@ class Game{
 
     // 新しいミノを出す
     popMino(){
-        this.mino = this.nextMino ?? new Mino(this.getNextType())
-        this.mino.spawn()
-        this.nextMino = new Mino(this.getNextType())
+        this.mino = this.nextQueue.shift();
+        this.mino.spawn();
+        this.nextQueue.push(new Mino(this.getNextType()));
         this.canHold = true
 
         // ★ 状態・タイマー・カウントの初期化
@@ -380,8 +385,8 @@ class Game{
 
     drawAll(){
         this.mainCtx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
-        this.nextCtx.clearRect(0, 0, NEXT_AREA_SIZE, NEXT_AREA_SIZE)
-        this.holdCtx.clearRect(0, 0, NEXT_AREA_SIZE, NEXT_AREA_SIZE)
+        this.nextCtx.clearRect(0, 0, this.nextCanvas.width, this.nextCanvas.height)
+        this.holdCtx.clearRect(0, 0, this.holdCanvas.width, this.holdCanvas.height)
 
         this.field.drawFixedBlocks(this.mainCtx)
 
@@ -392,7 +397,14 @@ class Game{
             this.mainCtx.globalAlpha = 1.0
         }
 
-        this.nextMino.drawNext(this.nextCtx)
+        // Draw next queue vertically
+        const spacing = 3; // ミノ間の縦間隔（マス単位）
+        this.nextQueue.forEach((mino, i) => {
+            this.nextCtx.save();
+            this.nextCtx.translate(0, i * spacing * BLOCK_SIZE);
+            mino.drawNext(this.nextCtx);
+            this.nextCtx.restore();
+        });
         this.mino.draw(this.mainCtx)
 
         if(this.holdMino){
