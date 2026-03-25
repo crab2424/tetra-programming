@@ -383,6 +383,7 @@ class Game{
         return ghostY
     }
 
+    // game.js （285行目付近）
     drawAll(){
         this.mainCtx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
         this.nextCtx.clearRect(0, 0, this.nextCanvas.width, this.nextCanvas.height)
@@ -397,22 +398,32 @@ class Game{
             this.mainCtx.globalAlpha = 1.0
         }
 
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ★ 追加：NEXT / HOLD 内のミノの縮小率を設定
+        const minoScale = 0.8; // 0.8倍（お好みのサイズに変更してください）
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
         // Draw next queue vertically
         const spacing = 3; // ミノ間の縦間隔（マス単位）
         this.nextQueue.forEach((mino, i) => {
             this.nextCtx.save();
-            this.nextCtx.translate(0, i * spacing * BLOCK_SIZE);
+            // ★変更：スケールに合わせて縦の間隔も調整し、ctx.scale を適用
+            this.nextCtx.translate(0, i * spacing * BLOCK_SIZE * minoScale);
+            this.nextCtx.scale(minoScale, minoScale);
             mino.drawNext(this.nextCtx);
             this.nextCtx.restore();
         });
+        
         this.mino.draw(this.mainCtx)
 
         if(this.holdMino){
+            this.holdCtx.save(); // ★ 追加
             if(!this.canHold){
-                this.holdCtx.globalAlpha = 0.4
+                this.holdCtx.globalAlpha = 0.4;
             }
-            this.holdMino.drawNext(this.holdCtx)
-            this.holdCtx.globalAlpha = 1.0
+            this.holdCtx.scale(minoScale, minoScale); // ★ 追加
+            this.holdMino.drawNext(this.holdCtx);
+            this.holdCtx.restore(); // ★ 追加
         }
     }
 
@@ -733,7 +744,7 @@ class Block{
         let offsetX = 0
         let offsetY = 0
         switch(this.type){
-            case 0: offsetX = 0.5; offsetY = 0;   break;
+            case 0: offsetX = 0.5; offsetY = 1;   break;
             case 1: offsetX = 0.5; offsetY = 0.5; break;
             default: offsetX = 1;  offsetY = 0.5; break;
         }

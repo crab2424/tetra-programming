@@ -100,12 +100,14 @@ h1 {
 ───────────────────────────────────────────── */
 #game-page {
   position: relative;
-  width: 700px;
+  width: 100%; /* ★変更：固定幅をやめて全幅に */
+  display: flex;
+  justify-content: center; /* ★追加：中身を中央揃え */
 }
 
 #container {
   position: relative;
-  width: 700px;
+  width: 320px;  /* ★変更：メインキャンバスの幅(10マス×32px)に合わせる */
   height: 640px;
 }
 
@@ -128,26 +130,17 @@ canvas {
 }
 
 #next-canvas {
-  top: 0;       /* 縦位置調整 */
-  left: 350px;  /* 横位置調整 */
-
-  /* 以下を追加（75%に縮小） */
-  width: 96px;  
-  height: 360px;
+  top: 0;
+  left: 352px;  /* ★変更：メインキャンバス(320px) + 余白(32px) */
 }
 #hold-canvas {
-  top: 0;        /* 縦位置調整 */
-  left: -160px;  /* 横位置調整 */
-
-  /* 以下を追加（75%に縮小） */
-  width: 96px;  
-  height: 96px;
+  top: 0;
+  left: -160px; /* ★変更：HOLD枠幅(128px) + 余白(32px) のマイナス方向 */
 }
 
 /* NEXT / HOLD / SCORE ラベル */
 .area-label {
   position: absolute;
-  left: 400px; /* NEXTラベルの横位置（#next-canvasと合わせる） */
   font-family: 'Orbitron', monospace;
   font-size: 11px;
   font-weight: 700;
@@ -155,13 +148,13 @@ canvas {
   color: var(--text-dim);
 }
 
-#label-next { top: -18px; }
+#label-next { top: -18px; left: 352px; } /* ★変更：左右対称の位置に */
 #label-hold { top: -18px; left: -160px; }
 
 /* スコアエリア */
 #score-area {
   position: absolute;
-  left: 600px;
+  left: 352px; /* ★変更 */
   top: 390px;
 }
 
@@ -184,9 +177,9 @@ canvas {
 /* スタートボタン */
 #start-btn {
   position: absolute;
-  left: 400px;
+  left: 352px; /* ★変更 */
   bottom: 0;
-  width: 180px;
+  width: 160px;
   text-align: center;
   font-family: 'Orbitron', monospace;
   font-size: 13px;
@@ -205,7 +198,7 @@ canvas {
 #start-btn:active { transform: translateY(0); }
 
 /* ─────────────────────────────────────────────
-   設定ページ
+  設定ページ
 ───────────────────────────────────────────── */
 #settings-page {
   width: 700px;
