@@ -460,9 +460,15 @@ class Game{
 
     // ハードドロップ
     hardDrop(){
+        let fell = false;
         while(this.valid(0, 1)){
             this.mino.y++
+            fell = true;
         }
+
+        // 実際に落下した場合のみ回転フラグをリセット
+        // （その場ハードドロップは直前の回転をT-spin判定に活かす）
+        if(fell) this.lastActionWasRotation = false;
 
         // タイマーを両方停止
         if(this.timer) { clearInterval(this.timer); this.timer = null; }
