@@ -6,6 +6,7 @@ const GAME_SPEED = 500;
 const BLOCK_SIZE = 32;
 const COLS_COUNT = 10;
 const ROWS_COUNT = 20;
+const GRAVITY_INTERVAL = 1000; // ミノが1マス落ちる時間（ms）
 const SCREEN_WIDTH = COLS_COUNT * BLOCK_SIZE;
 const SCREEN_HEIGHT = ROWS_COUNT * BLOCK_SIZE;
 const NEXT_AREA_SIZE = 160;
@@ -161,7 +162,7 @@ class Game{
 
     startGravity(){
         if(this.timer) clearInterval(this.timer)
-        this.timer = setInterval(() => this.dropMino(), 1000)
+        this.timer = setInterval(() => this.dropMino(), GRAVITY_INTERVAL)
     }
 
     showPauseOverlay(){
@@ -178,9 +179,12 @@ class Game{
         this.mino.spawn()
         this.nextMino = new Mino()
         this.canHold = true
-        
-        // ★状態とタイマーの初期化
+
+        // ★ 状態・タイマー・カウントの初期化
         this.isGrounded = false;
+        this.lowestY = this.mino.y;
+        this.moveCount = 0;
+        
         if(this.lockTimer){
             clearTimeout(this.lockTimer);
             this.lockTimer = null;
@@ -387,38 +391,61 @@ class Game{
     dropMino(){
         if(this.valid(0, 1)){
             this.mino.y++;
+            this.updateLowestY(); // ★ 追加
         }
         this.checkGroundState();
         this.drawAll();
     }
 
     // 接地状態をチェックし、重力と固定猶予タイマーを切り替える
-    checkGroundState() {
+    checkGroundState(actionHappened = false, wasGrounded = false) {
+        // ★ 接地状態からの操作ならカウントを進める
+        if (actionHappened && wasGrounded) {
+            this.moveCount++;
+        }
+
         if (!this.valid(0, 1)) {
             // ▼ 接地している場合 ▼
             if (!this.isGrounded) {
-                // 空中から接地した瞬間：重力を止めて固定猶予開始
                 this.isGrounded = true;
                 if (this.timer) {
                     clearInterval(this.timer);
                     this.timer = null;
                 }
-                this.startLockTimer();
-            } else {
-                // すでに接地しており、移動や回転をした場合：猶予時間をリセット
-                this.startLockTimer();
             }
+
+            // ★ カウントが15回以上の場合は即座に強制固定
+            if (this.moveCount >= 15) {
+                if (this.lockTimer) {
+                    clearTimeout(this.lockTimer);
+                    this.lockTimer = null;
+                }
+                this.secureMino();
+                // secureMino()内で次のミノが呼ばれ描画されるためここで終了
+                return; 
+            }
+
+            // まだ余裕がある場合は猶予タイマー開始（またはリセット）
+            this.startLockTimer();
         } else {
             // ▼ 空中にいる場合 ▼
+            // 15回超えでも空中なら自由に動ける（接地した瞬間に上のブロックで強制固定される）
             if (this.isGrounded) {
-                // 接地状態から段差などで空中に飛び出した瞬間：猶予をキャンセルし重力を再開
                 this.isGrounded = false;
                 if (this.lockTimer) {
                     clearTimeout(this.lockTimer);
                     this.lockTimer = null;
                 }
-                this.startGravity(); // 内部でリセットされてからスタートします
+                this.startGravity(); 
             }
+        }
+    }
+
+    // 最低Y座標を更新し、更新されたら操作回数をリセットする
+    updateLowestY() {
+        if (this.mino.y > this.lowestY) {
+            this.lowestY = this.mino.y;
+            this.moveCount = 0; // 最低位置が更新されたら15カウントをリセット
         }
     }
 
@@ -457,7 +484,7 @@ class Game{
 
         // ARR設定（左右とソフトドロップを分離）
         this.ARR_INTERVAL = 20;        // 左右移動
-        this.SOFTDROP_ARR = 50;        // ソフトドロップ
+        this.SOFTDROP_ARR = GRAVITY_INTERVAL / 20;        // ソフトドロップ
         this._lastSoftDropTime = 0;
         this._leftPressTime = null;
         this._rightPressTime = null;
@@ -540,6 +567,7 @@ class Game{
             this._lastFrameTime = nowPerf
 
             let acted = false
+            let wasGrounded = this.isGrounded; // ★ 操作前の接地状態を記憶
 
             const now = nowPerf
 
@@ -597,6 +625,7 @@ class Game{
                     now - this._lastSoftDropTime >= this.SOFTDROP_ARR){
                     if(this.valid(0, 1)){
                         this.mino.y++
+                        this.updateLowestY(); // ★ 追加：落下したら最低Y更新チェック
                         acted = true
                     }
                     this._lastSoftDropTime = now
@@ -609,7 +638,8 @@ class Game{
             if(this.keyState[keys.rotateCW.code]){
                 if(!this._rotCWPressed){
                     if(this.tryRotate(1)){
-                    acted = true
+                        this.updateLowestY(); // ★ 追加：キック等でY座標が下がった時のため
+                        acted = true
                     }
                     this._rotCWPressed = true
                 }
@@ -621,6 +651,7 @@ class Game{
             if(this.keyState[keys.rotateCCW.code]){
                 if(!this._rotCCWPressed){
                     if(this.tryRotate(-1)){
+                        this.updateLowestY(); // ★ 追加：キック等でY座標が下がった時のため
                         acted = true
                     }
                     this._rotCCWPressed = true
@@ -630,12 +661,12 @@ class Game{
                 this._rotCCWPressed = false
             }
 
-            // アクションが起きたら接地状態を再評価（滑り落ち・猶予リセット）
+            // ★ アクションが起きたら接地状態を再評価（15回制限もここで処理される）
             if(acted){
-                this.checkGroundState();
-                this.drawAll();
+                this.checkGroundState(true, wasGrounded);
+                this.drawAll()
             }
-            
+
         }, 16) // 約60FPS（ARRが効くようにする）
     }
 }
@@ -659,7 +690,7 @@ class Block{
         let drawX = this.x + offsetX
         let drawY = this.y + offsetY
         if(drawX >= 0 && drawX < COLS_COUNT &&
-           drawY >= 0 && drawY < ROWS_COUNT){
+            drawY >= 0 && drawY < ROWS_COUNT){
             ctx.drawImage(
                 this.image,
                 drawX * BLOCK_SIZE,
