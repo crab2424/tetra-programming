@@ -90,7 +90,7 @@ class Game{
         this.initMainCanvas()
         this.initNextCanvas()
         this.initHoldCanvas()
-        this.lockDelay = 800; // 0.8秒
+        this.lockDelay = 600; // 0.6秒
         this.lockTimer = null;
         this.isGrounded = false;
         this.bag = [];
@@ -108,7 +108,7 @@ class Game{
         this.nextCanvas = document.getElementById(NEXT_CANVAS_ID);
         this.nextCtx = this.nextCanvas.getContext("2d");
         this.nextCanvas.width = BLOCK_SIZE * 4;
-        this.nextCanvas.height = BLOCK_SIZE * 15;
+        this.nextCanvas.height = BLOCK_SIZE * 13.5;
     }
 
     initHoldCanvas(){
@@ -383,7 +383,6 @@ class Game{
         return ghostY
     }
 
-    // game.js （285行目付近）
     drawAll(){
         this.mainCtx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
         this.nextCtx.clearRect(0, 0, this.nextCanvas.width, this.nextCanvas.height)

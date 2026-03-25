@@ -90,13 +90,13 @@ h1 {
 }
 
 /* ─────────────────────────────────────────────
-   ページ切り替え
+  ページ切り替え
 ───────────────────────────────────────────── */
 .page        { display: none; }
 .page.active { display: block; }
 
 /* ─────────────────────────────────────────────
-   ゲームページ
+  ゲームページ
 ───────────────────────────────────────────── */
 #game-page {
   position: relative;
@@ -131,7 +131,7 @@ canvas {
 
 #next-canvas {
   top: 0;
-  left: 352px;  /* ★変更：メインキャンバス(320px) + 余白(32px) */
+  left: 352px; /* ★変更：メインキャンバス(320px) + 余白(32px) */
 }
 #hold-canvas {
   top: 0;
@@ -155,7 +155,7 @@ canvas {
 #score-area {
   position: absolute;
   left: 352px; /* ★変更 */
-  top: 390px;
+  top: 450px;
 }
 
 #score-area .area-label {
