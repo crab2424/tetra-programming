@@ -165,6 +165,12 @@ class Game{
         this.canHold = true
         this.score = 0
         this.isPaused = false
+        this.tSpinLabel = null;
+        this.tSpinLabelAlpha = 0;
+        this.lastActionWasRotation = false;
+        this.lastRotUsedPoint5 = false;
+        if(this._tSpinFadeTimer) clearTimeout(this._tSpinFadeTimer);
+        if(this._tSpinFadeInterval) clearInterval(this._tSpinFadeInterval);
         this.hidePauseOverlay()
         this.updateScoreDisplay()
         this.popMino()
@@ -258,6 +264,9 @@ class Game{
         this.isGrounded = false;
         this.lowestY = this.mino.y;
         this.moveCount = 0;
+        // T-spin判定フラグのリセット
+        this.lastActionWasRotation = false;
+        this.lastRotUsedPoint5 = false;
         
         if(this.lockTimer){
             clearTimeout(this.lockTimer);
@@ -302,7 +311,8 @@ class Game{
 
         if(!table) return false
 
-        for(const [dx, dy] of table){
+        for(let i = 0; i < table.length; i++){
+            const [dx, dy] = table[i];
             // 「回転後の形状でキックオフセット(dx,-dy)を加算した位置」を検証する
             // rotDir で回転、moveX/moveY でキックを別々に渡す
             if(this.validRotated(rotDir, dx, -dy)){
@@ -312,6 +322,11 @@ class Game{
                 this.mino.x += dx
                 this.mino.y += -dy
                 this.mino.rotation = to
+
+                // T-spin判定用フラグを記録
+                // キックテーブルの5番目（index=4）がPoint 5（井戸抜け用）
+                this.lastRotUsedPoint5 = (i === 4);
+                this.lastActionWasRotation = true;
                 return true
             }
         }
@@ -403,6 +418,9 @@ class Game{
         // ★ 追加：固定されるミノがすべて盤面外（y < 0）か判定
         let isAllOutside = this.mino.blocks.every(block => (block.y + this.mino.y) < 0);
 
+        // ─── T-spin判定（固定前・フィールドへの書き込み前に行う）───
+        const tSpinResult = this.checkTSpin();
+
         this.mino.blocks.forEach(e => {
             e.x += this.mino.x
             e.y += this.mino.y
@@ -410,9 +428,26 @@ class Game{
         this.field.blocks = this.field.blocks.concat(this.mino.blocks)
 
         const linesCleared = this.field.checkLine()
-        const scoreTable = [0, 100, 300, 500, 800]
-        this.score += scoreTable[linesCleared] ?? 0
+
+        // ─── T-spinスコア加算 ───
+        // T-spinあり：通常より高いスコアテーブルを使う
+        // T-spinなし：既存のスコアテーブルを使う
+        if(tSpinResult === 'tspin'){
+            const tSpinScoreTable = [400, 800, 1200, 1600] // 0~3ライン（0ラインでも400点）
+            this.score += tSpinScoreTable[linesCleared] ?? tSpinScoreTable[tSpinScoreTable.length - 1]
+        } else if(tSpinResult === 'mini'){
+            const miniScoreTable = [100, 200, 400, 0] // 0~2ライン
+            this.score += miniScoreTable[linesCleared] ?? 0
+        } else {
+            const scoreTable = [0, 100, 300, 500, 800]
+            this.score += scoreTable[linesCleared] ?? 0
+        }
         this.updateScoreDisplay()
+
+        // ─── T-spinラベルを表示 ───
+        if(tSpinResult !== null){
+            this.showTSpinLabel(tSpinResult, linesCleared)
+        }
 
         // ★ 追加：すべて盤面外ならゲームオーバーにして、次のミノは出さない
         if (isAllOutside) {
@@ -433,8 +468,121 @@ class Game{
         if(this.timer) { clearInterval(this.timer); this.timer = null; }
         if(this.lockTimer){ clearTimeout(this.lockTimer); this.lockTimer = null; }
 
+        // ハードドロップは「回転アクションではない」のでフラグをリセット
+        this.lastActionWasRotation = false;
+
         this.secureMino()
         this.drawAll()
+    }
+
+    // ─────────────────────────────────────────
+    // T-spin判定（ガイドライン 9.1 準拠）
+    // 戻り値: 'tspin' | 'mini' | null
+    // ─────────────────────────────────────────
+    checkTSpin(){
+        // T型（type=2）以外は対象外
+        if(this.mino.type !== 2) return null;
+        // 直前のアクションが回転でなければ対象外
+        if(!this.lastActionWasRotation) return null;
+
+        // T型ミノのピボット（中心マス）のフィールド座標
+        // ピボットは blocks 定義上 {x:1, y:2}、ミノ位置を加算したワールド座標
+        const cx = this.mino.x + this.mino.pivot.x - 0.5; // セル左上基準に変換
+        const cy = this.mino.y + this.mino.pivot.y - 0.5;
+        // ピボットの中心セル座標（floor で整数化）
+        const px = Math.round(cx);
+        const py = Math.round(cy);
+
+        // 斜め4隅の座標を調べる
+        //  (-1,-1) (+1,-1)
+        //  (-1,+1) (+1,+1)
+        const corners = [
+            { x: px - 1, y: py - 1 }, // 左上
+            { x: px + 1, y: py - 1 }, // 右上
+            { x: px - 1, y: py + 1 }, // 左下
+            { x: px + 1, y: py + 1 }, // 右下
+        ];
+
+        // 各隅が「埋まっているか」を判定（フィールド外も埋まりとして扱う）
+        const occupied = corners.map(c =>
+            c.x < 0 || c.x >= COLS_COUNT || c.y < 0 || c.y >= ROWS_COUNT
+            || this.field.has(c.x, c.y)
+        );
+        // occupied[0]=左上, [1]=右上, [2]=左下, [3]=右下
+
+        // ─── 向きに応じてA/B面・C/D面を割り当てる ───
+        // ガイドライン図（Page 22）に基づく：
+        //   North: A=左上[0], B=右上[1],  C=左下[2], D=右下[3]
+        //   East:  A=右上[1], B=右下[3],  C=左上[0], D=左下[2]
+        //   South: A=右下[3], B=左下[2],  C=右上[1], D=左上[0]
+        //   West:  A=左下[2], B=左上[0],  C=右下[3], D=右上[1]
+        let abIdx, cdIdx;
+        switch(this.mino.rotation){
+            case 0: // North
+                abIdx = [0, 1]; cdIdx = [2, 3]; break;
+            case 1: // East
+                abIdx = [1, 3]; cdIdx = [0, 2]; break;
+            case 2: // South
+                abIdx = [3, 2]; cdIdx = [1, 0]; break;
+            case 3: // West
+                abIdx = [2, 0]; cdIdx = [3, 1]; break;
+            default:
+                return null;
+        }
+
+        const abFilled = abIdx.filter(i => occupied[i]).length; // A・B側の埋まり数
+        const cdFilled = cdIdx.filter(i => occupied[i]).length; // C・D側の埋まり数
+
+        // Point 5使用 → 常にT-Spin
+        if(this.lastRotUsedPoint5){
+            return 'tspin';
+        }
+
+        // A・B側2隅 + C・D側1隅以上 → T-Spin
+        if(abFilled === 2 && cdFilled >= 1){
+            return 'tspin';
+        }
+
+        // C・D側2隅 + A・B側1隅以上 → Mini T-Spin
+        if(cdFilled === 2 && abFilled >= 1){
+            return 'mini';
+        }
+
+        return null;
+    }
+
+    // ─────────────────────────────────────────
+    // T-spinラベルをキャンバス上に一定時間表示する
+    // ─────────────────────────────────────────
+    showTSpinLabel(type, linesCleared){
+        // クリア数に応じたラベル文字
+        const clearNames = ['', ' SINGLE', ' DOUBLE', ' TRIPLE'];
+        const clearSuffix = clearNames[linesCleared] ?? '';
+
+        if(type === 'tspin'){
+            this.tSpinLabel = 'T-SPIN' + clearSuffix;
+            this.tSpinLabelColor = '#c471f5'; // アクセントパープル
+        } else {
+            this.tSpinLabel = 'MINI T-SPIN' + clearSuffix;
+            this.tSpinLabelColor = '#71c5f5'; // アクセントブルー
+        }
+
+        this.tSpinLabelAlpha = 1.0;
+
+        // 既存のフェードタイマーをリセット
+        if(this._tSpinFadeTimer) clearInterval(this._tSpinFadeTimer);
+        // 0.8秒後からフェードアウト開始
+        this._tSpinFadeTimer = setTimeout(() => {
+            this._tSpinFadeInterval = setInterval(() => {
+                this.tSpinLabelAlpha -= 0.06;
+                if(this.tSpinLabelAlpha <= 0){
+                    this.tSpinLabelAlpha = 0;
+                    this.tSpinLabel = null;
+                    clearInterval(this._tSpinFadeInterval);
+                }
+                this.drawAll();
+            }, 30);
+        }, 800);
     }
 
     updateScoreDisplay(){
@@ -501,6 +649,29 @@ class Game{
         });
         
         this.mino.draw(this.mainCtx)
+
+        // ─── T-spinラベル描画 ───
+        if(this.tSpinLabel && this.tSpinLabelAlpha > 0){
+            const ctx = this.mainCtx;
+            ctx.save();
+            ctx.globalAlpha = this.tSpinLabelAlpha;
+            ctx.font = 'bold 18px "Orbitron", monospace';
+            ctx.textAlign = 'center';
+            // 影（視認性向上）
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowBlur = 8;
+            ctx.shadowOffsetX = 1;
+            ctx.shadowOffsetY = 1;
+            // アウトライン
+            ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+            ctx.lineWidth = 4;
+            ctx.strokeText(this.tSpinLabel, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20);
+            // 本文
+            ctx.fillStyle = this.tSpinLabelColor;
+            ctx.fillText(this.tSpinLabel, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20);
+            ctx.restore();
+        }
+
         this.mainCtx.restore();
 
         if(this.holdMino){
@@ -614,19 +785,8 @@ class Game{
         this._lastSoftDropTime = 0;
         this._leftPressTime = null;
         this._rightPressTime = null;
-        this._lastHorizontal = null; // 'left' or 'right'
         this._lastMoveTimeLeft = 0;
         this._lastMoveTimeRight = 0;
-
-        // DCD設定（DAS Cut Delay）
-        // 「DASが効いていてARR連続移動中だが壁等で動けない（空振り）」状態で
-        // ハードドロップまたは回転を入力した際に発動する遅延。
-        // この遅延が終わるまでDASによる左右移動はブロックされる。
-        // 左右キーを離すと即座にリセット。
-        this.DCD_DELAY = 50;        // ms（0 = 無効、例: 2f≒33ms）
-        this._dcdUntil = 0;        // DCD解除時刻（performance.now()基準）
-        this._dasBlockedLeft = false;   // 左: DASアクティブだが動けない状態か
-        this._dasBlockedRight = false;  // 右: DASアクティブだが動けない状態か
 
         // 既存のリスナー解除
         if(this._keyDownHandler){
@@ -661,23 +821,15 @@ class Game{
             if(e.code === keys.moveLeft.code && this._leftPressTime === null){
                 this._leftPressTime = now
                 this._lastMoveTimeLeft = 0
-                this._lastHorizontal = 'left'
             }
             if(e.code === keys.moveRight.code && this._rightPressTime === null){
                 this._rightPressTime = now
                 this._lastMoveTimeRight = 0
-                this._lastHorizontal = 'right'
             }
 
             // 単発系（押した瞬間のみ）
             if(e.code === keys.hardDrop.code){
                 e.preventDefault()
-                // DCD発動チェック（ハードドロップ）
-                // DASが効いていて動けない状態でハードドロップした場合にDCDを開始する
-                if(this.DCD_DELAY > 0 &&
-                    (this._dasBlockedLeft || this._dasBlockedRight)){
-                    this._dcdUntil = performance.now() + this.DCD_DELAY
-                }
                 this.hardDrop()
             }
             if(e.code === keys.hold.code){
@@ -691,24 +843,9 @@ class Game{
 
             if(e.code === keys.moveLeft.code){
                 this._leftPressTime = null
-                this._dasBlockedLeft = false
-                this._dcdUntil = 0
-
-                // 左を離したとき、右が押されていれば右を優先
-                if(this.keyState[keys.moveRight.code]){
-                    this._lastHorizontal = 'right'
-                }
             }
-
             if(e.code === keys.moveRight.code){
                 this._rightPressTime = null
-                this._dasBlockedRight = false
-                this._dcdUntil = 0
-
-                // 右を離したとき、左が押されていれば左を優先
-                if(this.keyState[keys.moveLeft.code]){
-                    this._lastHorizontal = 'left'
-                }
             }
         }
 
@@ -731,80 +868,56 @@ class Game{
 
             const now = nowPerf
 
-            const leftPressed  = this.keyState[keys.moveLeft.code];
-            const rightPressed = this.keyState[keys.moveRight.code];
-
-            // 優先方向を決定（後押し優先）
-            let dir = null;
-            if(leftPressed && rightPressed){
-                dir = this._lastHorizontal;
-            } else if(leftPressed){
-                dir = 'left';
-            } else if(rightPressed){
-                dir = 'right';
-            }
-
-            if(dir === 'left'){
+            // 左移動（DAS対応）
+            if(this.keyState[keys.moveLeft.code]){
                 if(this._leftPressTime !== null){
                     const heldTime = now - this._leftPressTime
-                    const inDcd = now < this._dcdUntil
 
+                    // 初回入力（押した瞬間）
                     if(this._lastMoveTimeLeft === 0){
                         if(this.valid(-1, 0)){
                             this.mino.x--
+                            this.lastActionWasRotation = false; // 移動したので回転フラグを解除
                             acted = true
                         }
                         this._lastMoveTimeLeft = now
-                        this._dasBlockedLeft = false
                     }
+                    // DAS後の連続移動
                     else if(heldTime >= this.DAS_DELAY &&
                             now - this._lastMoveTimeLeft >= this.ARR_INTERVAL){
-                        if(!inDcd){
-                            if(this.valid(-1, 0)){
-                                this.mino.x--
-                                acted = true
-                                this._dasBlockedLeft = false
-                            } else {
-                                this._dasBlockedLeft = true
-                            }
+                        if(this.valid(-1, 0)){
+                            this.mino.x--
+                            this.lastActionWasRotation = false;
+                            acted = true
                         }
                         this._lastMoveTimeLeft = now
                     }
                 }
-                this._dasBlockedRight = false
             }
-            else if(dir === 'right'){
+
+            // 右移動（DAS対応）
+            if(this.keyState[keys.moveRight.code]){
                 if(this._rightPressTime !== null){
                     const heldTime = now - this._rightPressTime
-                    const inDcd = now < this._dcdUntil
 
                     if(this._lastMoveTimeRight === 0){
                         if(this.valid(1, 0)){
                             this.mino.x++
+                            this.lastActionWasRotation = false;
                             acted = true
                         }
                         this._lastMoveTimeRight = now
-                        this._dasBlockedRight = false
                     }
                     else if(heldTime >= this.DAS_DELAY &&
                             now - this._lastMoveTimeRight >= this.ARR_INTERVAL){
-                        if(!inDcd){
-                            if(this.valid(1, 0)){
-                                this.mino.x++
-                                acted = true
-                                this._dasBlockedRight = false
-                            } else {
-                                this._dasBlockedRight = true
-                            }
+                        if(this.valid(1, 0)){
+                            this.mino.x++
+                            this.lastActionWasRotation = false;
+                            acted = true
                         }
                         this._lastMoveTimeRight = now
                     }
                 }
-                this._dasBlockedLeft = false
-            }
-            else {
-                this._dasBlockedLeft = false
-                this._dasBlockedRight = false
             }
 
             // ソフトドロップ（専用ARR）
@@ -814,6 +927,7 @@ class Game{
                     if(this.valid(0, 1)){
                         this.mino.y++
                         this.updateLowestY(); // ★ 追加：落下したら最低Y更新チェック
+                        this.lastActionWasRotation = false; // 落下したので回転フラグを解除
                         acted = true
                     }
                     this._lastSoftDropTime = now
@@ -847,17 +961,6 @@ class Game{
             }
             if(!this.keyState[keys.rotateCCW.code]){
                 this._rotCCWPressed = false
-            }
-
-            // ─── DCD 発動チェック（回転） ──────────────────────────
-            // DASが効いていて動けない（空振り）状態で回転が入力された場合にDCDを開始する
-            if(this.DCD_DELAY > 0 && acted){
-                const rotActed =
-                    (this.keyState[keys.rotateCW.code]  && this._rotCWPressed) ||
-                    (this.keyState[keys.rotateCCW.code] && this._rotCCWPressed)
-                if(rotActed && (this._dasBlockedLeft || this._dasBlockedRight)){
-                    this._dcdUntil = now + this.DCD_DELAY
-                }
             }
 
             // ★ アクションが起きたら接地状態を再評価（15回制限もここで処理される）
