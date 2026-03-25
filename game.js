@@ -614,6 +614,7 @@ class Game{
         this._lastSoftDropTime = 0;
         this._leftPressTime = null;
         this._rightPressTime = null;
+        this._lastHorizontal = null; // 'left' or 'right'
         this._lastMoveTimeLeft = 0;
         this._lastMoveTimeRight = 0;
 
@@ -660,10 +661,12 @@ class Game{
             if(e.code === keys.moveLeft.code && this._leftPressTime === null){
                 this._leftPressTime = now
                 this._lastMoveTimeLeft = 0
+                this._lastHorizontal = 'left'
             }
             if(e.code === keys.moveRight.code && this._rightPressTime === null){
                 this._rightPressTime = now
                 this._lastMoveTimeRight = 0
+                this._lastHorizontal = 'right'
             }
 
             // 単発系（押した瞬間のみ）
@@ -688,15 +691,24 @@ class Game{
 
             if(e.code === keys.moveLeft.code){
                 this._leftPressTime = null
-                // 左キーを離したら DCD・DASブロック状態を即リセット
                 this._dasBlockedLeft = false
                 this._dcdUntil = 0
+
+                // 左を離したとき、右が押されていれば右を優先
+                if(this.keyState[keys.moveRight.code]){
+                    this._lastHorizontal = 'right'
+                }
             }
+
             if(e.code === keys.moveRight.code){
                 this._rightPressTime = null
-                // 右キーを離したら DCD・DASブロック状態を即リセット
                 this._dasBlockedRight = false
                 this._dcdUntil = 0
+
+                // 右を離したとき、左が押されていれば左を優先
+                if(this.keyState[keys.moveLeft.code]){
+                    this._lastHorizontal = 'left'
+                }
             }
         }
 
@@ -719,13 +731,24 @@ class Game{
 
             const now = nowPerf
 
-            // ─── 左移動（DAS対応） ─────────────────────────────────
-            if(this.keyState[keys.moveLeft.code]){
+            const leftPressed  = this.keyState[keys.moveLeft.code];
+            const rightPressed = this.keyState[keys.moveRight.code];
+
+            // 優先方向を決定（後押し優先）
+            let dir = null;
+            if(leftPressed && rightPressed){
+                dir = this._lastHorizontal;
+            } else if(leftPressed){
+                dir = 'left';
+            } else if(rightPressed){
+                dir = 'right';
+            }
+
+            if(dir === 'left'){
                 if(this._leftPressTime !== null){
                     const heldTime = now - this._leftPressTime
                     const inDcd = now < this._dcdUntil
 
-                    // 初回入力（押した瞬間）
                     if(this._lastMoveTimeLeft === 0){
                         if(this.valid(-1, 0)){
                             this.mino.x--
@@ -734,7 +757,6 @@ class Game{
                         this._lastMoveTimeLeft = now
                         this._dasBlockedLeft = false
                     }
-                    // DAS後の連続移動フェーズ
                     else if(heldTime >= this.DAS_DELAY &&
                             now - this._lastMoveTimeLeft >= this.ARR_INTERVAL){
                         if(!inDcd){
@@ -743,21 +765,15 @@ class Game{
                                 acted = true
                                 this._dasBlockedLeft = false
                             } else {
-                                // DASが効いているが壁等で動けない（空振り）
                                 this._dasBlockedLeft = true
                             }
                         }
-                        // DCD中でも _lastMoveTimeLeft は更新し続け、
-                        // DCD解除後すぐARRが再開できるようにする
                         this._lastMoveTimeLeft = now
                     }
                 }
-            } else {
-                this._dasBlockedLeft = false
+                this._dasBlockedRight = false
             }
-
-            // ─── 右移動（DAS対応） ─────────────────────────────────
-            if(this.keyState[keys.moveRight.code]){
+            else if(dir === 'right'){
                 if(this._rightPressTime !== null){
                     const heldTime = now - this._rightPressTime
                     const inDcd = now < this._dcdUntil
@@ -778,14 +794,16 @@ class Game{
                                 acted = true
                                 this._dasBlockedRight = false
                             } else {
-                                // DASが効いているが壁等で動けない（空振り）
                                 this._dasBlockedRight = true
                             }
                         }
                         this._lastMoveTimeRight = now
                     }
                 }
-            } else {
+                this._dasBlockedLeft = false
+            }
+            else {
+                this._dasBlockedLeft = false
                 this._dasBlockedRight = false
             }
 
