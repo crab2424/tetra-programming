@@ -93,6 +93,7 @@ class Game{
         this.lockDelay = 800; // 0.8秒
         this.lockTimer = null;
         this.isGrounded = false;
+        this.bag = [];
     }
 
     initMainCanvas(){
@@ -118,6 +119,9 @@ class Game{
 
     // ゲーム開始
     start(){
+        // ★ 7バッグをリセット
+        this.bag = [];
+        this.nextMino = null;
         this.field = new Field()
         this.holdMino = null
         this.canHold = true
@@ -173,11 +177,23 @@ class Game{
         document.getElementById('pause-overlay').classList.remove('active')
     }
 
+    getNextType(){
+        if(this.bag.length === 0){
+            this.bag = [0,1,2,3,4,5,6];
+            // シャッフル（Fisher-Yates）
+            for(let i = this.bag.length - 1; i > 0; i--){
+                const j = Math.floor(Math.random() * (i + 1));
+                [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
+            }
+        }
+        return this.bag.pop();
+    }
+
     // 新しいミノを出す
     popMino(){
-        this.mino = this.nextMino ?? new Mino()
+        this.mino = this.nextMino ?? new Mino(this.getNextType())
         this.mino.spawn()
-        this.nextMino = new Mino()
+        this.nextMino = new Mino(this.getNextType())
         this.canHold = true
 
         // ★ 状態・タイマー・カウントの初期化
@@ -725,9 +741,9 @@ class Block{
 class Mino{
     
     // mino の種類を決定してブロックを初期化
-    constructor(){
+    constructor(type = null){
         this.pivot = { x: 1.5, y: 1.5 }; // デフォルトの回転軸（4x4中心）
-        this.type = Math.floor(Math.random() * 7);
+        this.type = (type !== null) ? type : Math.floor(Math.random() * 7);
         this.rotation = 0; // 0:上 1:右 2:下 3:左
         this.initBlocks()
     }
