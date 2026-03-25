@@ -239,11 +239,12 @@ class Game{
     // 新しいミノを出す
     popMino(){
         this.mino = this.nextQueue.shift();
-        this.mino.spawn(); // デフォルトで y = -2 になる
+        this.mino.spawn();
 
         // ★ 追加：出現位置での致命判定
         if (!this.valid(0, 0)) {
-            this.mino.y = -3; // 1列上で再試行
+            // ★ 修正: -3 などの固定値ではなく、現在の位置から1引く
+            this.mino.y -= 1;
             if (!this.valid(0, 0)) {
                 this.gameOver();
                 return;
@@ -346,7 +347,7 @@ class Game{
         return newBlocks.every(block =>
             block.x >= 0 &&
             block.x < COLS_COUNT &&
-            block.y >= -3 &&
+            block.y >= -5 &&
             block.y < ROWS_COUNT &&
             !this.field.has(block.x, block.y)
         )
@@ -371,6 +372,28 @@ class Game{
             this.mino.type = prevHoldType
             this.mino.initBlocks()
             this.mino.spawn()
+        
+            /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            追加: ホールドから出した時の致命判定とタイマーリセット
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+            if (!this.valid(0, 0)) {
+                this.mino.y -= 1; // 1列上で再試行
+                if (!this.valid(0, 0)) {
+                    this.gameOver();
+                    return;
+                }
+            }
+
+            // 状態・タイマー・カウントの初期化（popMinoと同じにする）
+            this.isGrounded = false;
+            this.lowestY = this.mino.y;
+            this.moveCount = 0;
+            
+            if(this.lockTimer){
+                clearTimeout(this.lockTimer);
+                this.lockTimer = null;
+            }
+            this.startGravity();
         }
         this.drawAll()
     }
@@ -567,7 +590,7 @@ class Game{
         return newBlocks.every(block => {
             return (
                 block.x >= 0 &&
-                block.y >= -3 &&
+                block.y >= -5 &&
                 block.x < COLS_COUNT &&
                 block.y < ROWS_COUNT &&
                 !this.field.has(block.x, block.y)
@@ -874,7 +897,8 @@ class Mino{
 
     spawn(){
         this.x = COLS_COUNT/2 - 2
-        this.y = -2
+        // ★ 修正: Iミノ(type:0)はブロック定義が1段高いため、yを1段下げる
+        this.y = (this.type === 0) ? -1 : -2;
         this.rotation = 0
     }
 
