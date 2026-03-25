@@ -103,6 +103,12 @@ class Game{
         this.mainCtx = this.mainCanvas.getContext("2d");
         this.mainCanvas.width = SCREEN_WIDTH;
         this.mainCanvas.height = SCREEN_HEIGHT;
+
+        // ★ 追加：ページ読み込み時（ゲーム開始前）に一度だけグリッドを描画しておく
+        this.mainCtx.save();
+        this.mainCtx.translate(0, BLOCK_SIZE * VISIBLE_EXTRA_ROW_RATIO);
+        this.drawGrid(this.mainCtx);
+        this.mainCtx.restore();
     }
 
     initNextCanvas(){
@@ -117,6 +123,32 @@ class Game{
         this.holdCtx = this.holdCanvas.getContext("2d");
         this.holdCanvas.width = BLOCK_SIZE * 4;
         this.holdCanvas.height = BLOCK_SIZE * 4;
+    }
+
+    // グリッド線を描画する
+    drawGrid(ctx) {
+        ctx.save();
+        // グリッド線の色と太さ（暗い背景に馴染む薄い白）
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'; 
+        ctx.lineWidth = 1;
+
+        // 縦線を引く
+        for (let x = 0; x <= COLS_COUNT; x++) {
+            ctx.beginPath();
+            // -1行目の上端（見えている部分）から一番下まで
+            ctx.moveTo(x * BLOCK_SIZE, -BLOCK_SIZE * VISIBLE_EXTRA_ROW_RATIO);
+            ctx.lineTo(x * BLOCK_SIZE, ROWS_COUNT * BLOCK_SIZE);
+            ctx.stroke();
+        }
+
+        // 横線を引く（-1行目の区切り線も含むように -1 からスタート）
+        for (let y = -1; y <= ROWS_COUNT; y++) {
+            ctx.beginPath();
+            ctx.moveTo(0, y * BLOCK_SIZE);
+            ctx.lineTo(COLS_COUNT * BLOCK_SIZE, y * BLOCK_SIZE);
+            ctx.stroke();
+        }
+        ctx.restore();
     }
 
     // ゲーム開始
@@ -392,6 +424,9 @@ class Game{
         // 上に少し余白を作る（-1行目の一部を表示）
         this.mainCtx.save();
         this.mainCtx.translate(0, BLOCK_SIZE * VISIBLE_EXTRA_ROW_RATIO);
+
+        // ★ ブロックを描画する前にグリッドを描画する
+        this.drawGrid(this.mainCtx);
 
         this.field.drawFixedBlocks(this.mainCtx);
 
