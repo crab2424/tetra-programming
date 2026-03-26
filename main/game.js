@@ -96,6 +96,8 @@ class Game{
         this.isGrounded = false;
         this.bag = [];
         this.nextQueue = [];
+        this.level = 1;
+        this.backToBack = false;
         this.startTime = 0;
         this.elapsedTime = 0;
         this.isTimerRunning = false;
@@ -474,6 +476,54 @@ class Game{
         this.drawAll()
     }
 
+    Scoring(tSpinType, linesCleared){
+        let baseScore = 0;
+        let isB2BEligible = false;
+
+         // ─── T-SPIN系 ───
+        if(tSpinType === 'tspin'){
+            isB2BEligible = (linesCleared > 0);
+
+            if(linesCleared === 0) baseScore = 400;
+            if(linesCleared === 1) baseScore = 800;
+            if(linesCleared === 2) baseScore = 1200;
+            if(linesCleared === 3) baseScore = 1600;
+        }
+        else if(tSpinType === 'mini'){
+            isB2BEligible = (linesCleared > 0);
+
+            if(linesCleared === 0) baseScore = 100;
+            if(linesCleared === 1) baseScore = 200;
+        }
+
+        // ─── 通常ライン消去 ───
+        else {
+            if(linesCleared === 1) baseScore = 100;
+            if(linesCleared === 2) baseScore = 300;
+            if(linesCleared === 3) baseScore = 500;
+            if(linesCleared === 4){
+                baseScore = 800;
+                isB2BEligible = true;
+            }
+        }
+
+        // ─── B2B処理 ───
+        if(isB2BEligible){
+            if(this.backToBack){
+                baseScore *= 1.5; // +50%
+            }
+            this.backToBack = true;
+        } else if(linesCleared > 0){
+            // 通常ラインでリセット
+            this.backToBack = false;
+        }
+
+        // ─── Level適用 ───
+        baseScore *= this.level;
+
+        this.score += Math.floor(baseScore);
+    }
+
     // ミノを即座に固定する共通処理
     secureMino(){
         // ★ 追加：固定されるミノがすべて盤面外（y < 0）か判定
@@ -490,20 +540,8 @@ class Game{
 
         const linesCleared = this.field.checkLine()
 
-        // ─── T-spinスコア加算 ───
-        // T-spinあり：通常より高いスコアテーブルを使う
-        // T-spinなし：既存のスコアテーブルを使う
-        if(tSpinResult === 'tspin'){
-            const tSpinScoreTable = [400, 800, 1200, 1600] // 0~3ライン（0ラインでも400点）
-            this.score += tSpinScoreTable[linesCleared] ?? tSpinScoreTable[tSpinScoreTable.length - 1]
-        } else if(tSpinResult === 'mini'){
-            const miniScoreTable = [100, 200, 400, 0] // 0~2ライン
-            this.score += miniScoreTable[linesCleared] ?? 0
-        } else {
-            const scoreTable = [0, 100, 300, 500, 800]
-            this.score += scoreTable[linesCleared] ?? 0
-        }
-        this.updateScoreDisplay()
+        this.Scoring(tSpinResult, linesCleared);
+        this.updateScoreDisplay();
 
         // ─── T-spinラベルを表示 ───
         if(tSpinResult !== null){
@@ -521,15 +559,21 @@ class Game{
 
     // ハードドロップ
     hardDrop(){
-        let fell = false;
+        let dropDistance = 0;
         while(this.valid(0, 1)){
             this.mino.y++
-            fell = true;
+            dropDistance++;
+        }
+
+        // ハードドロップスコア加算（距離 × 2）
+        if(dropDistance > 0){
+            this.score += dropDistance * 2;
+            this.updateScoreDisplay();
         }
 
         // 実際に落下した場合のみ回転フラグをリセット
         // （その場ハードドロップは直前の回転をT-spin判定に活かす）
-        if(fell) this.lastActionWasRotation = false;
+        if(dropDistance > 0) this.lastActionWasRotation = false;
 
         // タイマーを両方停止
         if(this.timer) { clearInterval(this.timer); this.timer = null; }
@@ -1059,6 +1103,10 @@ class Game{
                         this.updateLowestY(); // ★ 追加：落下したら最低Y更新チェック
                         this.lastActionWasRotation = false; // 落下したので回転フラグを解除
                         acted = true
+
+                        // ソフトドロップスコア加算（1マスごとに+1）
+                        this.score += 1;
+                        this.updateScoreDisplay();
                     }
                     this._lastSoftDropTime = now
                 }
