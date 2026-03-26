@@ -629,15 +629,18 @@ canvas {
 ───────────────────────────────────────────── */
 #pause-overlay {
   display: none;
-  position: absolute;
-  inset: 0;
+  position: fixed; /* ★ absolute から fixed に変更 */
+  top: 0;          /* ★ 画面の左上から */
+  left: 0;         /* ★ 画面の左上から */
+  width: 100vw;    /* ★ 画面幅いっぱい */
+  height: 100vh;   /* ★ 画面高さいっぱい */
   background: rgba(10, 10, 15, 0.72);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
-  z-index: 100;
+  z-index: 1000;   /* ★ 最前面に来るように数値を上げる */
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  /* border-radius: 4px; は全画面になるため削除またはコメントアウト */
 }
 
 #pause-overlay.active {

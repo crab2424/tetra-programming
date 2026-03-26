@@ -265,8 +265,15 @@ class Game{
         if(this.isPaused) return
         this.isPaused = true
         clearInterval(this.timer)
+
+        // ★追加: 接地中の固定猶予タイマーが動いていればそれも止める
+        if(this.lockTimer){
+            clearTimeout(this.lockTimer);
+            this.lockTimer = null;
+        }
+        
         this.showPauseOverlay()
-        // ▼ 追加: ポーズ時の経過時間保存とループ停止
+        // ポーズ時の経過時間保存とループ停止
         if(this.isTimerRunning){
             this.elapsedTime += performance.now() - this.startTime;
             this.isTimerRunning = false;
@@ -1033,9 +1040,10 @@ class Game{
             const gamePage = document.getElementById('game-page')
             if(!gamePage || !gamePage.classList.contains('active')) return
 
-            // ★追加：リスタート (ポーズ中・プレイ中問わず即座にやり直し)
+            // リスタート (ポーズ中・プレイ中問わず即座にやり直し)
             if(e.code === keys.restart.code){
                 e.preventDefault()
+                if(e.repeat) return; // ★追加：長押しによる連続発火を防止
                 this.start()
                 return
             }
@@ -1043,6 +1051,7 @@ class Game{
             // ポーズ
             if(e.code === keys.pause.code){
                 e.preventDefault()
+                if(e.repeat) return; // ★追加：長押しによる連続発火を防止
                 this.togglePause()
                 return
             }
