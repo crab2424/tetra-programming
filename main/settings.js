@@ -13,10 +13,9 @@ const DEFAULT_KEYS = {
   rotateCCW: { code: 'KeyZ',       label: 'Z'     },
   hold:      { code: 'ShiftLeft',  label: 'SHIFT' },
   pause:     { code: 'Escape',     label: 'ESC'   },
-  restart:   { code: 'KeyR',       label: 'R'     }, // ★追加
+  restart:   { code: 'KeyR',       label: 'R'     }, 
 };
 
-// アクションの表示名
 const ACTION_LABELS = {
   moveLeft:  { name: '左移動',       en: 'Move Left'   },
   moveRight: { name: '右移動',       en: 'Move Right'  },
@@ -26,31 +25,24 @@ const ACTION_LABELS = {
   rotateCCW: { name: '左回転',       en: 'Rotate CCW'  },
   hold:      { name: 'ホールド',     en: 'Hold'        },
   pause:     { name: 'ポーズ',       en: 'Pause'       },
-  restart:   { name: 'リスタート',   en: 'Restart'     }, // ★追加
+  restart:   { name: 'リスタート',   en: 'Restart'     }, 
 };
 
-// ─── デフォルトチューニング（単位：フレーム） ──
-// 1フレーム = 1000/60 ≒ 16.666ms
 const DEFAULT_TUNING = {
-  das: 9.0, // 9.0 * 16.66 ≒ 150ms
-  arr: 1.1, // 1.1 * 16.66 ≒ 18ms
-  dcd: 3.0  // 3.0 * 16.66 ≒ 50ms
+  das: 9.0,
+  arr: 1.1,
+  dcd: 3.0
 };
 
-// ─── 状態 ────────────────────────────────────
 let currentKeys     = loadKeys();
 let currentTuning   = loadTuning();
 let listeningAction = null;
 let _onKeyDown      = null;
 
-// ─── localStorage 読み込み ────────────────────
 function loadKeys() {
   try {
     const saved = localStorage.getItem('game_keyconfig');
-    if (saved) {
-        const parsed = JSON.parse(saved);
-        return { ...DEFAULT_KEYS, ...parsed };
-    }
+    if (saved) return { ...DEFAULT_KEYS, ...JSON.parse(saved) };
   } catch (e) { }
   return JSON.parse(JSON.stringify(DEFAULT_KEYS));
 }
@@ -58,9 +50,7 @@ function loadKeys() {
 function loadTuning() {
   try {
     const saved = localStorage.getItem('game_tuning');
-    if (saved) {
-      return { ...DEFAULT_TUNING, ...JSON.parse(saved) };
-    }
+    if (saved) return { ...DEFAULT_TUNING, ...JSON.parse(saved) };
   } catch(e) { }
   return JSON.parse(JSON.stringify(DEFAULT_TUNING));
 }
@@ -74,13 +64,10 @@ function switchPage(pageId) {
   // 対象のページを表示
   document.getElementById(pageId + '-page').classList.add('active');
 
-  // ヘッダーの設定ボタンの表示/非表示を切り替え
-  const headerBtn = document.getElementById('btn-go-settings');
+  // 表示時に必要な処理を実行
   if (pageId === 'game') {
-    headerBtn.style.display = 'block';
     stopListening();
   } else {
-    headerBtn.style.display = 'none';
     renderKeyConfig();
     renderTuning();
   }
@@ -120,7 +107,7 @@ function renderTuning() {
 }
 
 function updateTuningDisplay() {
-  const frameMs = 1000 / 60; // 約16.666ms
+  const frameMs = 1000 / 60;
   const dasF = parseFloat(document.getElementById('slider-das').value);
   const arrF = parseFloat(document.getElementById('slider-arr').value);
   const dcdF = parseFloat(document.getElementById('slider-dcd').value);
@@ -134,13 +121,12 @@ function updateTuningDisplay() {
   currentTuning.dcd = dcdF;
 }
 
-// スライダー変更イベント
 document.getElementById('slider-das').addEventListener('input', updateTuningDisplay);
 document.getElementById('slider-arr').addEventListener('input', updateTuningDisplay);
 document.getElementById('slider-dcd').addEventListener('input', updateTuningDisplay);
 
 
-// ─── キー入力待ち開始 ─────────────────────────
+// ─── キー入力待ち ─────────────────────────
 function startListening(action) {
   stopListening();
   listeningAction = action;
@@ -213,16 +199,14 @@ function checkConflicts() {
   return hasDup;
 }
 
-// ─── 設定を保存 ───────────────────────────────
+// ─── 保存とリセット ───────────────────────────────
 function saveSettings() {
   localStorage.setItem('game_keyconfig', JSON.stringify(currentKeys));
-  localStorage.setItem('game_tuning', JSON.stringify(currentTuning)); // ★チューニングも保存
-  // ゲームが起動中なら即座に設定を更新
+  localStorage.setItem('game_tuning', JSON.stringify(currentTuning));
   if (window._game) window._game.setKeyEvent();
   showToast();
 }
 
-// ─── デフォルトに戻す ─────────────────────────
 function resetToDefaults() {
   currentKeys   = JSON.parse(JSON.stringify(DEFAULT_KEYS));
   currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
@@ -230,13 +214,12 @@ function resetToDefaults() {
   renderTuning();
 }
 
-// ─── トースト通知 ─────────────────────────────
 function showToast() {
   const toast = document.getElementById('settings-toast');
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 2000);
 }
 
-// ─── 初期描画 ─────────────────────────────────
+// 初期描画
 renderKeyConfig();
 renderTuning();

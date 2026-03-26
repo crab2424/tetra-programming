@@ -41,7 +41,7 @@ body {
 ───────────────────────────────────────────── */
 #header-area {
   display: flex;
-  justify-content: space-between;
+  justify-content: center; /* 中央寄せに変更 */
   align-items: center;
   width: 100%;
   max-width: 700px;
@@ -58,95 +58,43 @@ h1 {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  margin: 0; /* マージンをリセット */
-}
-
-#btn-go-settings {
-  font-family: 'Orbitron', monospace;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-#btn-go-settings:hover {
-  background: rgba(196, 113, 245, 0.15);
-  border-color: var(--accent);
-  color: var(--accent);
+  margin: 0;
 }
 
 /* ─────────────────────────────────────────────
   ページ切り替え（完全独立）
 ───────────────────────────────────────────── */
-.page { display: none; }
+/* 基本は非表示 */
+.page { 
+  display: none; 
+}
 
-/* ゲーム画面がアクティブな時だけ flex を適用 */
+/* ゲーム画面がアクティブな時 */
 #game-page.active { 
   display: flex; 
   justify-content: center;
   width: 100%;
 }
 
-/* 設定画面がアクティブな時だけ block を適用 */
+/* 設定画面がアクティブな時 */
 #settings-page.active { 
   display: block; 
 }
-
-/* 設定画面ヘッダー（戻るボタン） */
-.settings-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 28px;
-}
-
-.btn-back {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-}
-
-.btn-back:hover {
-  border-color: var(--accent3);
-  color: var(--accent3);
-}
-
-#settings-page h2 {
-  font-family: 'Orbitron', monospace;
-  font-size: 14px;
-  letter-spacing: 4px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  margin: 0;
-}
-
-/* ─────────────────────────────────────────────
-  ページ切り替え
-───────────────────────────────────────────── */
-/* Removed duplicate .page rules here */
 
 /* ─────────────────────────────────────────────
   ゲームページ
 ───────────────────────────────────────────── */
 #game-page {
   position: relative;
-  width: 100%; /* ★変更：固定幅をやめて全幅に */
-  justify-content: center; /* ★追加：中身を中央揃え */
+  z-index: 1;
 }
 
 #container {
   position: relative;
-  width: 320px;  /* ★変更：メインキャンバスの幅(10マス×32px)に合わせる */
+  width: 320px;
   height: 640px;
 }
 
-/* キャンバス共通 */
 canvas {
   image-rendering: pixelated;
 }
@@ -166,14 +114,13 @@ canvas {
 
 #next-canvas {
   top: 0;
-  left: 352px; /* ★変更：メインキャンバス(320px) + 余白(32px) */
+  left: 352px;
 }
 #hold-canvas {
   top: 0;
-  left: -160px; /* ★変更：HOLD枠幅(128px) + 余白(32px) のマイナス方向 */
+  left: -160px;
 }
 
-/* NEXT / HOLD / SCORE ラベル */
 .area-label {
   position: absolute;
   font-family: 'Orbitron', monospace;
@@ -183,13 +130,12 @@ canvas {
   color: var(--text-dim);
 }
 
-#label-next { top: -18px; left: 352px; } /* ★変更：左右対称の位置に */
+#label-next { top: -18px; left: 352px; }
 #label-hold { top: -18px; left: -160px; }
 
-/* スコアエリア */
 #score-area {
   position: absolute;
-  left: 352px; /* ★変更 */
+  left: 352px;
   top: 450px;
 }
 
@@ -209,10 +155,9 @@ canvas {
   background-clip: text;
 }
 
-/* TIMEエリア */
 #time-area {
   position: absolute;
-  left: 352px; /* ★変更 */
+  left: 352px;
   top: 510px;
 }
 
@@ -232,10 +177,9 @@ canvas {
   background-clip: text;
 }
 
-/* スタートボタン */
 #start-btn {
   position: absolute;
-  left: 352px; /* ★変更 */
+  left: 352px;
   bottom: 0;
   width: 160px;
   text-align: center;
@@ -264,6 +208,26 @@ canvas {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 32px;
+  position: relative;
+  z-index: 2;
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.btn-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.btn-back:hover {
+  border-color: var(--accent3);
+  color: var(--accent3);
 }
 
 #settings-page h2 {
@@ -271,11 +235,10 @@ canvas {
   font-size: 14px;
   letter-spacing: 4px;
   color: var(--text-dim);
-  margin-bottom: 28px;
   text-transform: uppercase;
+  margin: 0;
 }
 
-/* キーコンフィグ グリッド */
 .key-config-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -283,7 +246,6 @@ canvas {
   margin-bottom: 28px;
 }
 
-/* 各キー行 */
 .key-row {
   display: flex;
   align-items: center;
@@ -295,7 +257,6 @@ canvas {
   padding: 12px 16px;
 }
 
-/* アクション名 */
 .key-action-name {
   flex: 1;
   font-size: 13px;
@@ -311,7 +272,6 @@ canvas {
   color: var(--text-dim);
 }
 
-/* キーバッジ */
 .key-badge {
   font-family: 'Orbitron', monospace;
   font-size: 11px;
@@ -345,7 +305,6 @@ canvas {
   50%       { opacity: 0.5; }
 }
 
-/* 重複警告 */
 .conflict-warning {
   display: none;
   margin-top: -8px;
@@ -356,14 +315,12 @@ canvas {
 
 .conflict-warning.show { display: block; }
 
-/* ボタン行 */
 .settings-actions {
   display: flex;
   gap: 12px;
   justify-content: flex-end;
 }
 
-/* 汎用ボタン */
 .btn {
   font-family: 'Orbitron', monospace;
   font-size: 11px;
@@ -467,6 +424,16 @@ canvas {
   color: #fff;
 }
 
+.btn-settings {
+  background: rgba(196, 113, 245, 0.15);
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+
+.btn-settings:hover {
+  background: rgba(196, 113, 245, 0.28);
+}
+
 .btn-restart {
   background: transparent;
   border: 1px solid var(--border);
@@ -507,7 +474,7 @@ canvas {
 }
 
 /* ─────────────────────────────────────────────
-   チューニングセクション (追加分)
+   チューニングセクション
 ───────────────────────────────────────────── */
 .tuning-container {
   display: flex;
@@ -547,7 +514,6 @@ canvas {
   color: var(--accent3);
 }
 
-/* スライダー (range) カスタマイズ */
 input[type="range"] {
   width: 100%;
   background: transparent;
@@ -581,7 +547,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
 }
 
-/* メモリ表示 */
 .slider-markers {
   display: flex;
   justify-content: space-between;

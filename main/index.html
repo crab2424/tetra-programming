@@ -4,12 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>テトラボ</title>
-    <link rel="stylesheet" href="style.css?v=3">
+    <link rel="stylesheet" href="style.css?v=4">
   </head>
   <body>
     <div id="header-area">
       <h1>TETLABO</h1>
-      <button id="btn-go-settings" onclick="switchPage('settings')">⚙ SETTINGS</button>
     </div>
 
     <div id="game-page" class="page active">
@@ -35,6 +34,7 @@
           <h2 id="pause-title">PAUSE</h2>
           <div id="pause-buttons">
             <button class="pause-btn btn-resume" onclick="window._game && window._game.resume()">▶ RESUME</button>
+            <button class="pause-btn btn-settings" onclick="switchPage('settings')">⚙ SETTINGS</button>
             <button class="pause-btn btn-restart" onclick="window._game && window._game.start()">↺ RESTART</button>
           </div>
         </div>
@@ -80,7 +80,7 @@
 
     <div id="settings-toast">SAVED ✓</div>
 
-    <script src="game.js?v=3"></script>
-    <script src="settings.js?v=3"></script>
+    <script src="game.js?v=4"></script>
+    <script src="settings.js?v=4"></script>
   </body>
 </html>
