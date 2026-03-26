@@ -96,6 +96,10 @@ class Game{
         this.isGrounded = false;
         this.bag = [];
         this.nextQueue = [];
+        this.startTime = 0;
+        this.elapsedTime = 0;
+        this.isTimerRunning = false;
+        this.timerReqId = null;
     }
 
     initMainCanvas(){
@@ -173,11 +177,49 @@ class Game{
         if(this._tSpinFadeInterval) clearInterval(this._tSpinFadeInterval);
         this.hidePauseOverlay()
         this.updateScoreDisplay()
+        this.elapsedTime = 0;
+        this.startTime = performance.now();
+        this.isTimerRunning = true;
+        this.startTimerLoop();
         this.popMino()
         this.drawAll()
         clearInterval(this.timer)
         this.startGravity()
         this.setKeyEvent()
+    }
+
+    // ▼ 新規追加: タイマーの描画ループ（約60fps）
+    startTimerLoop() {
+        const loop = () => {
+            if (!this.isTimerRunning) return;
+            this.updateTimeDisplay();
+            this.timerReqId = requestAnimationFrame(loop);
+        };
+        this.timerReqId = requestAnimationFrame(loop);
+    }
+
+    // ▼ 新規追加: タイムの計算とHTMLへの反映
+    updateTimeDisplay() {
+        let totalMs = this.elapsedTime;
+        if (this.isTimerRunning) {
+            totalMs += performance.now() - this.startTime;
+        }
+
+        const m = Math.floor(totalMs / 60000);
+        const s = Math.floor((totalMs % 60000) / 1000);
+        // ミリ秒を10で割って切り捨て、2桁（centiseconds）にする
+        const ms = Math.floor((totalMs % 1000) / 10); 
+
+        // mm:ss.xx の形式にゼロ埋めフォーマット
+        const formattedTime = 
+            String(m).padStart(2, '0') + ':' + 
+            String(s).padStart(2, '0') + '.' + 
+            String(ms).padStart(2, '0');
+
+        const timeEl = document.getElementById("time-value");
+        if(timeEl) {
+            timeEl.textContent = formattedTime;
+        }
     }
 
     // ポーズ切り替え
@@ -194,6 +236,12 @@ class Game{
         this.isPaused = true
         clearInterval(this.timer)
         this.showPauseOverlay()
+        // ▼ 追加: ポーズ時の経過時間保存とループ停止
+        if(this.isTimerRunning){
+            this.elapsedTime += performance.now() - this.startTime;
+            this.isTimerRunning = false;
+            cancelAnimationFrame(this.timerReqId);
+        }
     }
 
     resume(){
@@ -205,6 +253,12 @@ class Game{
         this.checkGroundState();
         if(!this.isGrounded) {
             this.startGravity();
+        }
+
+        if(!this.isTimerRunning){
+            this.startTime = performance.now();
+            this.isTimerRunning = true;
+            this.startTimerLoop();
         }
     }
 
@@ -227,6 +281,13 @@ class Game{
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
         this.isPaused = true; // キー入力を無効化
+
+        if (this.isTimerRunning) {
+            this.elapsedTime += performance.now() - this.startTime;
+            this.isTimerRunning = false;
+            cancelAnimationFrame(this.timerReqId);
+            this.updateTimeDisplay(); 
+        }
         setTimeout(() => alert("ゲームオーバー"), 10);
     }
 
