@@ -99,10 +99,13 @@ class Game{
         this.nextQueue = [];
         this.level = 1;
         this.backToBack = false;
+        this.ren = 0;
         this.startTime = 0;
         this.elapsedTime = 0;
         this.isTimerRunning = false;
         this.timerReqId = null;
+        this.actionLabels = [];
+        this.actionAlpha = 0;
     }
 
     initMainCanvas(){
@@ -172,12 +175,14 @@ class Game{
         this.canHold = true
         this.score = 0
         this.isPaused = false
-        this.tSpinLabel = null;
-        this.tSpinLabelAlpha = 0;
+        this.actionLabels = [];
+        this.actionAlpha = 0;
+        if(this._actionFadeTimer) clearTimeout(this._actionFadeTimer);
+        if(this._actionFadeInterval) clearInterval(this._actionFadeInterval);
         this.lastActionWasRotation = false;
         this.lastRotUsedPoint5 = false;
-        if(this._tSpinFadeTimer) clearTimeout(this._tSpinFadeTimer);
-        if(this._tSpinFadeInterval) clearInterval(this._tSpinFadeInterval);
+        this.backToBack = false;
+        this.ren = 0;
         this.hidePauseOverlay()
         this.updateScoreDisplay()
         this.elapsedTime = 0;
@@ -479,58 +484,64 @@ class Game{
 
     Scoring(tSpinType, linesCleared){
         let baseScore = 0;
-        let isB2BEligible = false;
 
-         // ─── T-SPIN系 ───
+        // ─── T-SPIN系 ───
         if(tSpinType === 'tspin'){
-            isB2BEligible = (linesCleared > 0);
-
             if(linesCleared === 0) baseScore = 400;
             if(linesCleared === 1) baseScore = 800;
             if(linesCleared === 2) baseScore = 1200;
             if(linesCleared === 3) baseScore = 1600;
         }
         else if(tSpinType === 'mini'){
-            isB2BEligible = (linesCleared > 0);
-
             if(linesCleared === 0) baseScore = 100;
             if(linesCleared === 1) baseScore = 200;
         }
-
         // ─── 通常ライン消去 ───
         else {
             if(linesCleared === 1) baseScore = 100;
             if(linesCleared === 2) baseScore = 300;
             if(linesCleared === 3) baseScore = 500;
-            if(linesCleared === 4){
-                baseScore = 800;
-                isB2BEligible = true;
-            }
+            if(linesCleared === 4) baseScore = 800;
         }
 
-        // ─── B2B処理 ───
-        if(isB2BEligible){
+        // ─── BtB判定 ───
+        const isBtBAction = (
+            linesCleared > 0 &&
+            (linesCleared === 4 || tSpinType !== null)
+        );
+
+        let lineScore = baseScore;
+
+        if(isBtBAction){
             if(this.backToBack){
-                baseScore *= 1.5; // +50%
+                lineScore = Math.floor(lineScore * 1.5);
             }
             this.backToBack = true;
         } else if(linesCleared > 0){
-            // 通常ラインでリセット
             this.backToBack = false;
         }
 
-        // ─── Level適用 ───
-        baseScore *= this.level;
+        // ─── Level適用（ライン消去分のみ） ───
+        lineScore *= this.level;
 
-        this.score += Math.floor(baseScore);
+        // ─── REN処理 ───
+        let renBonus = 0;
+        if(linesCleared > 0){
+            const renCount = Math.min(this.ren, 20);
+            renBonus = renCount * 50;
+            this.ren++;
+        } else {
+            this.ren = 0;
+        }
+
+        this.score += Math.floor(lineScore + renBonus);
     }
 
     // ミノを即座に固定する共通処理
     secureMino(){
-        // ★ 追加：固定されるミノがすべて盤面外（y < 0）か判定
         let isAllOutside = this.mino.blocks.every(block => (block.y + this.mino.y) < 0);
 
-        // ─── T-spin判定（固定前・フィールドへの書き込み前に行う）───
+        // ─── T-spin判定（固定前に行う）───
         const tSpinResult = this.checkTSpin();
 
         this.mino.blocks.forEach(e => {
@@ -541,15 +552,19 @@ class Game{
 
         const linesCleared = this.field.checkLine()
 
+        // ★ 追加：Scoringで変数が更新される前に、今回のB2B・REN発動状態を記録する
+        const isBtBAction = (linesCleared > 0 && (linesCleared === 4 || tSpinResult !== null));
+        const isB2BTriggered = isBtBAction && this.backToBack;
+        const currentRen = (linesCleared > 0 && this.ren > 0) ? this.ren : 0;
+
         this.Scoring(tSpinResult, linesCleared);
         this.updateScoreDisplay();
 
-        // ─── T-spinラベルを表示 ───
-        if(tSpinResult !== null){
-            this.showTSpinLabel(tSpinResult, linesCleared)
+        // ★ 変更：アクションラベルを表示
+        if (tSpinResult !== null || isB2BTriggered || currentRen > 0) {
+            this.showActionLabels(tSpinResult, linesCleared, isB2BTriggered, currentRen);
         }
 
-        // ★ 追加：すべて盤面外ならゲームオーバーにして、次のミノは出さない
         if (isAllOutside) {
             this.gameOver();
             return;
@@ -661,37 +676,52 @@ class Game{
     }
 
     // ─────────────────────────────────────────
-    // T-spinラベルをキャンバス上に一定時間表示する
+    // アクションラベル（T-Spin, B2B, REN）を一定時間表示する
     // ─────────────────────────────────────────
-    showTSpinLabel(type, linesCleared){
-        // クリア数に応じたラベル文字
-        const clearNames = ['', ' SINGLE', ' DOUBLE', ' TRIPLE'];
-        const clearSuffix = clearNames[linesCleared] ?? '';
+    showActionLabels(tSpinType, linesCleared, isB2B, renCount){
+        this.actionLabels = [];
 
-        if(type === 'tspin'){
-            this.tSpinLabel = 'T-SPIN' + clearSuffix;
-            this.tSpinLabelColor = '#c471f5'; // アクセントパープル
-        } else {
-            this.tSpinLabel = 'MINI T-SPIN' + clearSuffix;
-            this.tSpinLabelColor = '#71c5f5'; // アクセントブルー
+        // 1. T-SPIN判定
+        if(tSpinType !== null){
+            const clearNames = ['', ' SINGLE', ' DOUBLE', ' TRIPLE'];
+            const clearSuffix = clearNames[linesCleared] ?? '';
+            if(tSpinType === 'tspin'){
+                this.actionLabels.push({ text: 'T-SPIN' + clearSuffix, color: '#c471f5' });
+            } else {
+                this.actionLabels.push({ text: 'MINI T-SPIN' + clearSuffix, color: '#71c5f5' });
+            }
         }
 
-        this.tSpinLabelAlpha = 1.0;
+        // 2. BACK-TO-BACK判定
+        if(isB2B){
+            this.actionLabels.push({ text: 'BACK-TO-BACK', color: '#f5a623' }); // オレンジ・ゴールド系
+        }
 
-        // 既存のフェードタイマーをリセット
-        if(this._tSpinFadeTimer) clearInterval(this._tSpinFadeTimer);
-        // 0.8秒後からフェードアウト開始
-        this._tSpinFadeTimer = setTimeout(() => {
-            this._tSpinFadeInterval = setInterval(() => {
-                this.tSpinLabelAlpha -= 0.06;
-                if(this.tSpinLabelAlpha <= 0){
-                    this.tSpinLabelAlpha = 0;
-                    this.tSpinLabel = null;
-                    clearInterval(this._tSpinFadeInterval);
-                }
-                this.drawAll();
-            }, 30);
-        }, 800);
+        // 3. REN判定
+        if(renCount > 0){
+            this.actionLabels.push({ text: renCount + ' REN', color: '#a6f523' }); // グリーン系
+        }
+
+        if(this.actionLabels.length > 0){
+            this.actionAlpha = 1.0;
+
+            // 既存のフェードタイマーをリセット
+            if(this._actionFadeTimer) clearTimeout(this._actionFadeTimer);
+            if(this._actionFadeInterval) clearInterval(this._actionFadeInterval);
+            
+            // 0.8秒後からフェードアウト開始
+            this._actionFadeTimer = setTimeout(() => {
+                this._actionFadeInterval = setInterval(() => {
+                    this.actionAlpha -= 0.06;
+                    if(this.actionAlpha <= 0){
+                        this.actionAlpha = 0;
+                        this.actionLabels = [];
+                        clearInterval(this._actionFadeInterval);
+                    }
+                    this.drawAll();
+                }, 30);
+            }, 800);
+        }
     }
 
     updateScoreDisplay(){
@@ -759,11 +789,11 @@ class Game{
         
         this.mino.draw(this.mainCtx)
 
-        // ─── T-spinラベル描画 ───
-        if(this.tSpinLabel && this.tSpinLabelAlpha > 0){
+        // ─── アクションラベル描画 ───
+        if(this.actionLabels && this.actionLabels.length > 0 && this.actionAlpha > 0){
             const ctx = this.mainCtx;
             ctx.save();
-            ctx.globalAlpha = this.tSpinLabelAlpha;
+            ctx.globalAlpha = this.actionAlpha;
             ctx.font = 'bold 18px "Orbitron", monospace';
             ctx.textAlign = 'center';
             // 影（視認性向上）
@@ -774,10 +804,17 @@ class Game{
             // アウトライン
             ctx.strokeStyle = 'rgba(0,0,0,0.6)';
             ctx.lineWidth = 4;
-            ctx.strokeText(this.tSpinLabel, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20);
-            // 本文
-            ctx.fillStyle = this.tSpinLabelColor;
-            ctx.fillText(this.tSpinLabel, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20);
+
+            // ラベルの数に合わせてY座標の開始位置を調整（全体が中央にくるように）
+            const lineHeight = 24;
+            let startY = (SCREEN_HEIGHT / 2) - ((this.actionLabels.length - 1) * lineHeight / 2) - 10;
+
+            this.actionLabels.forEach((label, index) => {
+                const y = startY + (index * lineHeight);
+                ctx.strokeText(label.text, SCREEN_WIDTH / 2, y);
+                ctx.fillStyle = label.color;
+                ctx.fillText(label.text, SCREEN_WIDTH / 2, y);
+            });
             ctx.restore();
         }
 
