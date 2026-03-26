@@ -174,6 +174,29 @@ canvas {
   background-clip: text;
 }
 
+/* TIMEエリア */
+#time-area {
+  position: absolute;
+  left: 352px; /* ★変更 */
+  top: 510px;
+}
+
+#time-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#time-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 /* スタートボタン */
 #start-btn {
   position: absolute;

@@ -788,8 +788,19 @@ class Game{
         this._lastSoftDropTime = 0;
         this._leftPressTime = null;
         this._rightPressTime = null;
+        this._lastHorizontal = null; // 'left' or 'right'
         this._lastMoveTimeLeft = 0;
         this._lastMoveTimeRight = 0;
+
+        // DCD設定（DAS Cut Delay）
+        // 「DASが効いていてARR連続移動中だが壁等で動けない（空振り）」状態で
+        // ハードドロップまたは回転を入力した際に発動する遅延。
+        // この遅延が終わるまでDASによる左右移動はブロックされる。
+        // 左右キーを離すと即座にリセット。
+        this.DCD_DELAY = 50;        // ms（0 = 無効、例: 2f≒33ms）
+        this._dcdUntil = 0;        // DCD解除時刻（performance.now()基準）
+        this._dasBlockedLeft = false;   // 左: DASアクティブだが動けない状態か
+        this._dasBlockedRight = false;  // 右: DASアクティブだが動けない状態か
 
         // 既存のリスナー解除
         if(this._keyDownHandler){
@@ -824,15 +835,23 @@ class Game{
             if(e.code === keys.moveLeft.code && this._leftPressTime === null){
                 this._leftPressTime = now
                 this._lastMoveTimeLeft = 0
+                this._lastHorizontal = 'left'
             }
             if(e.code === keys.moveRight.code && this._rightPressTime === null){
                 this._rightPressTime = now
                 this._lastMoveTimeRight = 0
+                this._lastHorizontal = 'right'
             }
 
             // 単発系（押した瞬間のみ）
             if(e.code === keys.hardDrop.code){
                 e.preventDefault()
+                // DCD発動チェック（ハードドロップ）
+                // DASが効いていて動けない状態でハードドロップした場合にDCDを開始する
+                if(this.DCD_DELAY > 0 &&
+                    (this._dasBlockedLeft || this._dasBlockedRight)){
+                    this._dcdUntil = performance.now() + this.DCD_DELAY
+                }
                 this.hardDrop()
             }
             if(e.code === keys.hold.code){
@@ -846,9 +865,24 @@ class Game{
 
             if(e.code === keys.moveLeft.code){
                 this._leftPressTime = null
+                this._dasBlockedLeft = false
+                this._dcdUntil = 0
+
+                // 左を離したとき、右が押されていれば右を優先
+                if(this.keyState[keys.moveRight.code]){
+                    this._lastHorizontal = 'right'
+                }
             }
+
             if(e.code === keys.moveRight.code){
                 this._rightPressTime = null
+                this._dasBlockedRight = false
+                this._dcdUntil = 0
+
+                // 右を離したとき、左が押されていれば左を優先
+                if(this.keyState[keys.moveLeft.code]){
+                    this._lastHorizontal = 'left'
+                }
             }
         }
 
@@ -871,10 +905,23 @@ class Game{
 
             const now = nowPerf
 
-            // 左移動（DAS対応）
-            if(this.keyState[keys.moveLeft.code]){
+            const leftPressed  = this.keyState[keys.moveLeft.code];
+            const rightPressed = this.keyState[keys.moveRight.code];
+
+            // 優先方向を決定（後押し優先）
+            let dir = null;
+            if(leftPressed && rightPressed){
+                dir = this._lastHorizontal;
+            } else if(leftPressed){
+                dir = 'left';
+            } else if(rightPressed){
+                dir = 'right';
+            }
+
+            if(dir === 'left'){
                 if(this._leftPressTime !== null){
                     const heldTime = now - this._leftPressTime
+                    const inDcd = now < this._dcdUntil
 
                     // 初回入力（押した瞬間）
                     if(this._lastMoveTimeLeft === 0){
@@ -884,43 +931,62 @@ class Game{
                             acted = true
                         }
                         this._lastMoveTimeLeft = now
+                        this._dasBlockedLeft = false
                     }
                     // DAS後の連続移動
                     else if(heldTime >= this.DAS_DELAY &&
                             now - this._lastMoveTimeLeft >= this.ARR_INTERVAL){
-                        if(this.valid(-1, 0)){
-                            this.mino.x--
-                            this.lastActionWasRotation = false;
-                            acted = true
+                        if(!inDcd){
+                            if(this.valid(-1, 0)){
+                                this.mino.x--
+                                this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                                acted = true
+                                this._dasBlockedLeft = false
+                            } else {
+                                this._dasBlockedLeft = true
+                            }
                         }
                         this._lastMoveTimeLeft = now
                     }
                 }
+                this._dasBlockedRight = false
             }
-
-            // 右移動（DAS対応）
-            if(this.keyState[keys.moveRight.code]){
+            else if(dir === 'right'){
                 if(this._rightPressTime !== null){
                     const heldTime = now - this._rightPressTime
+                    const inDcd = now < this._dcdUntil
 
+                    // 初回入力（押した瞬間）
                     if(this._lastMoveTimeRight === 0){
                         if(this.valid(1, 0)){
                             this.mino.x++
-                            this.lastActionWasRotation = false;
+                            this.lastActionWasRotation = false; // 移動したので回転フラグを解除
                             acted = true
                         }
                         this._lastMoveTimeRight = now
+                        this._dasBlockedRight = false
                     }
+                    // DAS後の連続移動
                     else if(heldTime >= this.DAS_DELAY &&
                             now - this._lastMoveTimeRight >= this.ARR_INTERVAL){
-                        if(this.valid(1, 0)){
-                            this.mino.x++
-                            this.lastActionWasRotation = false;
-                            acted = true
+                        if(!inDcd){
+                            if(this.valid(1, 0)){
+                                this.mino.x++
+                                this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                                acted = true
+                                this._dasBlockedRight = false
+                            } else {
+                                this._dasBlockedRight = true
+                            }
                         }
                         this._lastMoveTimeRight = now
                     }
                 }
+                this._dasBlockedLeft = false
+            }
+            else {
+                this._dasBlockedLeft = false
+                this._dasBlockedRight = false
             }
 
             // ソフトドロップ（専用ARR）
@@ -964,6 +1030,17 @@ class Game{
             }
             if(!this.keyState[keys.rotateCCW.code]){
                 this._rotCCWPressed = false
+            }
+
+            // ─── DCD 発動チェック（回転） ──────────────────────────
+            // DASが効いていて動けない（空振り）状態で回転が入力された場合にDCDを開始する
+            if(this.DCD_DELAY > 0 && acted){
+                const rotActed =
+                    (this.keyState[keys.rotateCW.code]  && this._rotCWPressed) ||
+                    (this.keyState[keys.rotateCCW.code] && this._rotCCWPressed)
+                if(rotActed && (this._dasBlockedLeft || this._dasBlockedRight)){
+                    this._dcdUntil = now + this.DCD_DELAY
+                }
             }
 
             // ★ アクションが起きたら接地状態を再評価（15回制限もここで処理される）
