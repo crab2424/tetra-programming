@@ -1133,10 +1133,13 @@ class Game{
         document.addEventListener('keydown', this._keyDownHandler)
         document.addEventListener('keyup', this._keyUpHandler)
 
+        // ★最適化：ループ内で毎回ID検索すると流石にチリツモで重くなるため、外で取得しておく
+        const gamePage = document.getElementById('game-page');
+
         // 毎フレーム入力処理（同時入力対応）
         this._lastFrameTime = performance.now()
         this._keyLoop = setInterval(() => {
-            const gamePage = document.getElementById('game-page')
+            // クラスのチェックだけは毎ターン行う
             if(!gamePage || !gamePage.classList.contains('active')) return
             if(this.isPaused) return
 
@@ -1145,7 +1148,7 @@ class Game{
             this._lastFrameTime = nowPerf
 
             let acted = false
-            let wasGrounded = this.isGrounded; // ★ 操作前の接地状態を記憶
+            let wasGrounded = this.isGrounded; // 操作前の接地状態を記憶
 
             const now = nowPerf
 
@@ -1328,7 +1331,7 @@ class Game{
                 this.drawAll()
             }
 
-        }, 16) // 約60FPS（ARRが効くようにする）
+        }, 4) // （最小実行間隔の4ms、つまり秒間約250回ループ）
     }
 }
 
