@@ -129,8 +129,7 @@ h1 {
 /* ─────────────────────────────────────────────
   ページ切り替え
 ───────────────────────────────────────────── */
-.page        { display: none; }
-.page.active { display: block; }
+/* Removed duplicate .page rules here */
 
 /* ─────────────────────────────────────────────
   ゲームページ
@@ -138,7 +137,6 @@ h1 {
 #game-page {
   position: relative;
   width: 100%; /* ★変更：固定幅をやめて全幅に */
-  display: flex;
   justify-content: center; /* ★追加：中身を中央揃え */
 }
 
