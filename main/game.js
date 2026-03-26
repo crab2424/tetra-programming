@@ -24,35 +24,6 @@ const BLOCK_SOURCES = [
     "images/block-6.png"
 ]
 
-// ─────────────────────────────────────────────
-// キーコンフィグ：localStorage から読み込む
-// DEFAULT_KEYS は index.html 側でも定義しているが、
-// game.js 単体でも動くようにここにも定義する
-// ─────────────────────────────────────────────
-const _DEFAULT_KEYCONFIG = {
-    moveLeft:  { code: 'ArrowLeft',  label: '←' },
-    moveRight: { code: 'ArrowRight', label: '→' },
-    softDrop:  { code: 'ArrowDown',  label: '↓' },
-    hardDrop:  { code: 'Space',      label: 'SPACE' },
-    rotateCW:  { code: 'ArrowUp',    label: '↑' },
-    rotateCCW: { code: 'KeyZ',       label: 'Z' },
-    hold:      { code: 'ShiftLeft',  label: 'SHIFT' },
-    pause:     { code: 'Escape',     label: 'ESC' },
-    restart:   { code: 'KeyR',       label: 'R' }, // ★追加
-};
-
-function loadKeyConfig() {
-    try {
-        const saved = localStorage.getItem('game_keyconfig');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            // デフォルト設定に、保存された設定を上書き（足りないキーを補完）
-            return { ..._DEFAULT_KEYCONFIG, ...parsed };
-        }
-    } catch(e) {}
-    return JSON.parse(JSON.stringify(_DEFAULT_KEYCONFIG));
-}
-
 window.onload = function(){
     Asset.init()
     let game = new Game()
@@ -1012,15 +983,9 @@ class Game{
     setKeyEvent(){
         // 押されているキーを管理
         this.keyState = {}
-
-        // ★追加：localStorageからチューニング設定を読み込み
-        let tuning = { das: 9.0, arr: 1.1, dcd: 3.0 }; // デフォルト値(f)
-        try {
-            const savedTuning = localStorage.getItem('game_tuning');
-            if (savedTuning) {
-                tuning = { ...tuning, ...JSON.parse(savedTuning) };
-            }
-        } catch(e) {}
+        // 設定を読み込み
+        let tuning = loadTuning();
+        
 
         const frameMs = 1000 / 60; // 1フレーム = 約16.67ms
         
@@ -1048,7 +1013,7 @@ class Game{
         if(this._keyUpHandler)   document.removeEventListener('keyup', this._keyUpHandler)
         if(this._keyLoop)        clearInterval(this._keyLoop)
 
-        const keys = loadKeyConfig()
+        const keys = loadKeys();
 
         this._keyDownHandler = (e) => {
             const gamePage = document.getElementById('game-page')

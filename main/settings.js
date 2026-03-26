@@ -30,7 +30,7 @@ const ACTION_LABELS = {
 
 const DEFAULT_TUNING = {
   das: 9.0,
-  arr: 1.1,
+  arr: 1.5,
   dcd: 3.0
 };
 
