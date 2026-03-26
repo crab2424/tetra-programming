@@ -59,7 +59,23 @@ window.onload = function(){
     // グローバルに保持（設定変更後に setKeyEvent を外から呼ぶため）
     window._game = game
 
+    // メインメニューの「GAME START」ボタン
+    document.getElementById('menu-start-btn').onclick = function(){
+        switchPage('game');
+        game.start();
+        this.blur();
+    }
+
+    // リザルト画面の「RETRY」ボタン
+    document.getElementById('result-retry-btn').onclick = function(){
+        switchPage('game');
+        game.start();
+        this.blur();
+    }
+
+    // 非表示のstart-btnは後方互換のため残す（非表示）
     document.getElementById(SATRT_BTN_ID).onclick = function(){
+        switchPage('game');
         game.start()
         this.blur()
     }
@@ -305,7 +321,16 @@ class Game{
             cancelAnimationFrame(this.timerReqId);
             this.updateTimeDisplay(); 
         }
-        setTimeout(() => alert("ゲームオーバー"), 10);
+
+        // リザルト画面に値を反映してから遷移
+        setTimeout(() => {
+            const timeEl = document.getElementById('time-value');
+            document.getElementById('result-score').textContent = this.score;
+            document.getElementById('result-level').textContent = this.level;
+            document.getElementById('result-lines').textContent = this.lines;
+            document.getElementById('result-time').textContent = timeEl ? timeEl.textContent : '00:00.00';
+            if (typeof switchPage === 'function') switchPage('result');
+        }, 400);
     }
 
     getNextType(){

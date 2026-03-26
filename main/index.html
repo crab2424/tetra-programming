@@ -7,11 +7,49 @@
     <link rel="stylesheet" href="style.css?v=5">
   </head>
   <body>
-    <div id="header-area">
+    <div id="header-area" style="display:none;">
       <h1>TETLABO</h1>
     </div>
 
-    <div id="game-page" class="page active">
+    <!-- ─────────────────────────────────────────────
+         メインメニューページ
+    ───────────────────────────────────────────── -->
+    <div id="menu-page" class="page active">
+      <div id="menu-container">
+        <div id="menu-logo">
+          <h1 class="menu-title">TETLABO</h1>
+          <p class="menu-subtitle">GUIDELINE TETRIS ENGINE</p>
+        </div>
+        <div id="menu-buttons">
+          <button class="menu-btn btn-primary" id="menu-start-btn">
+            <span class="menu-btn-icon">▶</span>
+            <span>GAME START</span>
+          </button>
+          <button class="menu-btn btn-secondary" onclick="switchPage('settings')">
+            <span class="menu-btn-icon">⚙</span>
+            <span>SETTINGS</span>
+          </button>
+        </div>
+        <div id="menu-controls">
+          <p class="controls-title">CONTROLS</p>
+          <div class="controls-grid">
+            <span class="ctrl-key">←→</span><span class="ctrl-desc">移動</span>
+            <span class="ctrl-key">↑</span><span class="ctrl-desc">右回転</span>
+            <span class="ctrl-key">Z</span><span class="ctrl-desc">左回転</span>
+            <span class="ctrl-key">↓</span><span class="ctrl-desc">ソフトドロップ</span>
+            <span class="ctrl-key">SPACE</span><span class="ctrl-desc">ハードドロップ</span>
+            <span class="ctrl-key">SHIFT</span><span class="ctrl-desc">ホールド</span>
+            <span class="ctrl-key">ESC</span><span class="ctrl-desc">ポーズ</span>
+            <span class="ctrl-key">R</span><span class="ctrl-desc">リスタート</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         ゲームページ（元々の画面）
+    ───────────────────────────────────────────── -->
+    <div id="game-page" class="page">
       <div id="container">
         <canvas id="main-canvas"></canvas>
         <span class="area-label" id="label-next">NEXT</span>
@@ -34,7 +72,7 @@
           <span class="area-label">TIME</span>
           <span id="time-value">00:00.00</span>
         </div>
-        <button id="start-btn">START</button>
+        <button id="start-btn" style="display:none;"></button>
       </div>
 
       <div id="pause-overlay">
@@ -49,10 +87,47 @@
       </div>
     </div>
 
+    <!-- ─────────────────────────────────────────────
+         リザルトページ
+    ───────────────────────────────────────────── -->
+    <div id="result-page" class="page">
+      <div id="result-container">
+        <h2 id="result-title">GAME OVER</h2>
+        <div id="result-stats">
+          <div class="result-stat-row">
+            <span class="result-label">SCORE</span>
+            <span class="result-value" id="result-score">0</span>
+          </div>
+          <div class="result-stat-row">
+            <span class="result-label">LEVEL</span>
+            <span class="result-value" id="result-level">1</span>
+          </div>
+          <div class="result-stat-row">
+            <span class="result-label">LINES</span>
+            <span class="result-value" id="result-lines">0</span>
+          </div>
+          <div class="result-stat-row result-stat-time">
+            <span class="result-label">TIME</span>
+            <span class="result-value" id="result-time">00:00.00</span>
+          </div>
+        </div>
+        <div id="result-buttons">
+          <button class="menu-btn btn-primary" id="result-retry-btn">
+            <span class="menu-btn-icon">↺</span>
+            <span>RETRY</span>
+          </button>
+          <button class="menu-btn btn-secondary" onclick="switchPage('menu')">
+            <span class="menu-btn-icon">⌂</span>
+            <span>MAIN MENU</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div id="settings-page" class="page">
       <div class="settings-header">
         <h2 style="margin-bottom: 0;">⚙ KEY CONFIG</h2>
-        <button class="btn btn-back" onclick="switchPage('game')">◀ BACK TO GAME</button>
+        <button class="btn btn-back" onclick="switchPage(window._prevPage || 'menu')">◀ BACK</button>
       </div>
       
       <div class="key-config-grid" id="key-config-grid">

@@ -62,11 +62,19 @@ h1 {
 }
 
 /* ─────────────────────────────────────────────
-  ページ切り替え（完全独立）
+   ページ切り替え（完全独立）
 ───────────────────────────────────────────── */
 /* 基本は非表示 */
 .page { 
   display: none; 
+}
+
+/* メニュー画面がアクティブな時 */
+#menu-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
 }
 
 /* ゲーム画面がアクティブな時 */
@@ -79,6 +87,227 @@ h1 {
 /* 設定画面がアクティブな時 */
 #settings-page.active { 
   display: block; 
+}
+
+/* リザルト画面がアクティブな時 */
+#result-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   メインメニューページ
+───────────────────────────────────────────── */
+#menu-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+  padding-top: 32px;
+  width: 420px;
+}
+
+#menu-logo {
+  text-align: center;
+}
+
+.menu-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 52px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 8px 0;
+  line-height: 1;
+}
+
+/* メニューページのh1はグローバルh1スタイルと競合しないよう上書き */
+#menu-logo h1.menu-title {
+  font-size: 52px;
+  letter-spacing: 10px;
+}
+
+.menu-subtitle {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+#menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  padding: 18px 32px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+  width: 100%;
+}
+
+.menu-btn:hover  { opacity: 0.85; transform: translateY(-2px); }
+.menu-btn:active { transform: translateY(0); }
+
+.menu-btn.btn-primary {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  color: #fff;
+}
+
+.menu-btn.btn-secondary {
+  background: rgba(196, 113, 245, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(196, 113, 245, 0.35);
+}
+
+.menu-btn.btn-secondary:hover {
+  background: rgba(196, 113, 245, 0.22);
+}
+
+.menu-btn-icon {
+  font-size: 16px;
+}
+
+/* コントロール一覧 */
+#menu-controls {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+
+.controls-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0 0 16px 0;
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+.ctrl-key {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(196,113,245,0.15);
+  border: 1px solid rgba(196,113,245,0.35);
+  color: var(--accent);
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ctrl-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ─────────────────────────────────────────────
+   リザルトページ
+───────────────────────────────────────────── */
+#result-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding-top: 32px;
+  width: 420px;
+}
+
+#result-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 40px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+  animation: result-appear 0.5s ease-out both;
+}
+
+@keyframes result-appear {
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+#result-stats {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  animation: result-appear 0.5s 0.1s ease-out both;
+}
+
+.result-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.result-stat-row:last-child {
+  border-bottom: none;
+}
+
+.result-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+}
+
+.result-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.result-stat-time .result-value {
+  font-size: 22px;
+}
+
+#result-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  animation: result-appear 0.5s 0.2s ease-out both;
 }
 
 /* ─────────────────────────────────────────────

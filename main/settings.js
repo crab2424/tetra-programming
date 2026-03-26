@@ -57,17 +57,28 @@ function loadTuning() {
 
 // ─── 画面切り替え（SPA仕様） ───────────────────────────
 function switchPage(pageId) {
+  // 直前のページを記憶（設定画面から戻るため）
+  const currentActive = document.querySelector('.page.active');
+  if (currentActive && currentActive.id !== 'settings-page') {
+    window._prevPage = currentActive.id.replace('-page', '');
+  }
+
   // すべてのページを非表示
-  document.getElementById('game-page').classList.remove('active');
-  document.getElementById('settings-page').classList.remove('active');
-  
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
   // 対象のページを表示
-  document.getElementById(pageId + '-page').classList.add('active');
+  const target = document.getElementById(pageId + '-page');
+  if (target) target.classList.add('active');
+
+  // ヘッダーは settings ページのみ表示
+  const header = document.getElementById('header-area');
+  if (header) header.style.display = (pageId === 'settings') ? 'flex' : 'none';
 
   // 表示時に必要な処理を実行
   if (pageId === 'game') {
     stopListening();
-  } else {
+  } else if (pageId === 'settings') {
+    stopListening();
     renderKeyConfig();
     renderTuning();
   }
