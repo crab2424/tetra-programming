@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────
 // settings.js
-// キーコンフィグ設定画面の UI ロジック
+// キーコンフィグおよびチューニング設定画面の UI ロジック
 // ─────────────────────────────────────────────
 
 // ─── デフォルトキー設定 ───────────────────────
@@ -13,6 +13,7 @@ const DEFAULT_KEYS = {
   rotateCCW: { code: 'KeyZ',       label: 'Z'     },
   hold:      { code: 'ShiftLeft',  label: 'SHIFT' },
   pause:     { code: 'Escape',     label: 'ESC'   },
+  restart:   { code: 'KeyR',       label: 'R'     }, // ★追加
 };
 
 // アクションの表示名
@@ -25,10 +26,20 @@ const ACTION_LABELS = {
   rotateCCW: { name: '左回転',       en: 'Rotate CCW'  },
   hold:      { name: 'ホールド',     en: 'Hold'        },
   pause:     { name: 'ポーズ',       en: 'Pause'       },
+  restart:   { name: 'リスタート',   en: 'Restart'     }, // ★追加
+};
+
+// ─── デフォルトチューニング（単位：フレーム） ──
+// 1フレーム = 1000/60 ≒ 16.666ms
+const DEFAULT_TUNING = {
+  das: 9.0, // 9.0 * 16.66 ≒ 150ms
+  arr: 1.1, // 1.1 * 16.66 ≒ 18ms
+  dcd: 3.0  // 3.0 * 16.66 ≒ 50ms
 };
 
 // ─── 状態 ────────────────────────────────────
 let currentKeys     = loadKeys();
+let currentTuning   = loadTuning();
 let listeningAction = null;
 let _onKeyDown      = null;
 
@@ -38,11 +49,20 @@ function loadKeys() {
     const saved = localStorage.getItem('game_keyconfig');
     if (saved) {
         const parsed = JSON.parse(saved);
-        // デフォルト設定に、保存された設定を上書き（足りないキーを補完）
         return { ...DEFAULT_KEYS, ...parsed };
     }
-  } catch (e) { /* フォールバック */ }
+  } catch (e) { }
   return JSON.parse(JSON.stringify(DEFAULT_KEYS));
+}
+
+function loadTuning() {
+  try {
+    const saved = localStorage.getItem('game_tuning');
+    if (saved) {
+      return { ...DEFAULT_TUNING, ...JSON.parse(saved) };
+    }
+  } catch(e) { }
+  return JSON.parse(JSON.stringify(DEFAULT_TUNING));
 }
 
 // ─── タブ切り替え ─────────────────────────────
@@ -59,7 +79,7 @@ function switchTab(tab) {
   renderKeyConfig();
 }
 
-// ─── 設定画面の描画 ───────────────────────────
+// ─── 設定画面の描画 (キー) ────────────────────
 function renderKeyConfig() {
   const grid = document.getElementById('key-config-grid');
   grid.innerHTML = '';
@@ -81,9 +101,37 @@ function renderKeyConfig() {
     `;
     grid.appendChild(row);
   }
-
   checkConflicts();
 }
+
+// ─── 設定画面の描画 (チューニング) ────────────
+function renderTuning() {
+  document.getElementById('slider-das').value = currentTuning.das;
+  document.getElementById('slider-arr').value = currentTuning.arr;
+  document.getElementById('slider-dcd').value = currentTuning.dcd;
+  updateTuningDisplay();
+}
+
+function updateTuningDisplay() {
+  const frameMs = 1000 / 60; // 約16.666ms
+  const dasF = parseFloat(document.getElementById('slider-das').value);
+  const arrF = parseFloat(document.getElementById('slider-arr').value);
+  const dcdF = parseFloat(document.getElementById('slider-dcd').value);
+
+  document.getElementById('val-das').textContent = `${dasF.toFixed(1)}f (${Math.round(dasF * frameMs)}ms)`;
+  document.getElementById('val-arr').textContent = `${arrF.toFixed(1)}f (${Math.round(arrF * frameMs)}ms)`;
+  document.getElementById('val-dcd').textContent = `${dcdF.toFixed(1)}f (${Math.round(dcdF * frameMs)}ms)`;
+  
+  currentTuning.das = dasF;
+  currentTuning.arr = arrF;
+  currentTuning.dcd = dcdF;
+}
+
+// スライダー変更イベント
+document.getElementById('slider-das').addEventListener('input', updateTuningDisplay);
+document.getElementById('slider-arr').addEventListener('input', updateTuningDisplay);
+document.getElementById('slider-dcd').addEventListener('input', updateTuningDisplay);
+
 
 // ─── キー入力待ち開始 ─────────────────────────
 function startListening(action) {
@@ -103,7 +151,6 @@ function startListening(action) {
   document.addEventListener('keydown', _onKeyDown);
 }
 
-// ─── キー入力待ち解除 ─────────────────────────
 function stopListening() {
   if (_onKeyDown) {
     document.removeEventListener('keydown', _onKeyDown);
@@ -116,7 +163,6 @@ function stopListening() {
   }
 }
 
-// ─── キー名を人間が読める形式に変換 ─────────────
 function getKeyLabel(e) {
   const specialMap = {
     'Space':        'SPACE',
@@ -140,14 +186,12 @@ function getKeyLabel(e) {
   return e.code.replace('Key', '').replace('Digit', '');
 }
 
-// ─── 重複キー検出 ─────────────────────────────
 function checkConflicts() {
   const codes  = Object.values(currentKeys).map(k => k.code);
   const hasDup = codes.length !== new Set(codes).size;
 
   document.getElementById('conflict-warning').classList.toggle('show', hasDup);
 
-  // 重複しているバッジを赤くハイライト
   const count = {};
   codes.forEach(c => { count[c] = (count[c] || 0) + 1; });
 
@@ -165,15 +209,18 @@ function checkConflicts() {
 // ─── 設定を保存 ───────────────────────────────
 function saveSettings() {
   localStorage.setItem('game_keyconfig', JSON.stringify(currentKeys));
-  // ゲームが起動中なら即座にキーバインドを更新
+  localStorage.setItem('game_tuning', JSON.stringify(currentTuning)); // ★チューニングも保存
+  // ゲームが起動中なら即座に設定を更新
   if (window._game) window._game.setKeyEvent();
   showToast();
 }
 
 // ─── デフォルトに戻す ─────────────────────────
 function resetToDefaults() {
-  currentKeys = JSON.parse(JSON.stringify(DEFAULT_KEYS));
+  currentKeys   = JSON.parse(JSON.stringify(DEFAULT_KEYS));
+  currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
   renderKeyConfig();
+  renderTuning();
 }
 
 // ─── トースト通知 ─────────────────────────────
@@ -185,3 +232,4 @@ function showToast() {
 
 // ─── 初期描画 ─────────────────────────────────
 renderKeyConfig();
+renderTuning();

@@ -35,6 +35,7 @@ const _DEFAULT_KEYCONFIG = {
     rotateCCW: { code: 'KeyZ',       label: 'Z' },
     hold:      { code: 'ShiftLeft',  label: 'SHIFT' },
     pause:     { code: 'Escape',     label: 'ESC' },
+    restart:   { code: 'KeyR',       label: 'R' }, // ★追加
 };
 
 function loadKeyConfig() {
@@ -884,45 +885,52 @@ class Game{
         // 押されているキーを管理
         this.keyState = {}
 
-        // DAS設定（Delayed Auto Shift）
-        this.DAS_DELAY = 150; // ms（初期値0.15秒）
+        // ★追加：localStorageからチューニング設定を読み込み
+        let tuning = { das: 9.0, arr: 1.1, dcd: 3.0 }; // デフォルト値(f)
+        try {
+            const savedTuning = localStorage.getItem('game_tuning');
+            if (savedTuning) {
+                tuning = { ...tuning, ...JSON.parse(savedTuning) };
+            }
+        } catch(e) {}
 
-        // ARR設定（左右とソフトドロップを分離）
-        this.ARR_INTERVAL = 20;        // 左右移動
-        this.SOFTDROP_ARR = GRAVITY_INTERVAL / 20;        // ソフトドロップ
+        const frameMs = 1000 / 60; // 1フレーム = 約16.67ms
+        
+        // DAS, ARR, DCD をフレーム数からミリ秒に変換してセット
+        this.DAS_DELAY = tuning.das * frameMs;
+        this.ARR_INTERVAL = tuning.arr * frameMs;
+        this.DCD_DELAY = tuning.dcd * frameMs;
+
+        // ソフトドロップ用ARR
+        this.SOFTDROP_ARR = GRAVITY_INTERVAL / 20;
+        
         this._lastSoftDropTime = 0;
         this._leftPressTime = null;
         this._rightPressTime = null;
-        this._lastHorizontal = null; // 'left' or 'right'
+        this._lastHorizontal = null;
         this._lastMoveTimeLeft = 0;
         this._lastMoveTimeRight = 0;
-
-        // DCD設定（DAS Cut Delay）
-        // 「DASが効いていてARR連続移動中だが壁等で動けない（空振り）」状態で
-        // ハードドロップまたは回転を入力した際に発動する遅延。
-        // この遅延が終わるまでDASによる左右移動はブロックされる。
-        // 左右キーを離すと即座にリセット。
-        this.DCD_DELAY = 50;        // ms（0 = 無効、例: 2f≒33ms）
-        this._dcdUntil = 0;        // DCD解除時刻（performance.now()基準）
-        this._dasBlockedLeft = false;   // 左: DASアクティブだが動けない状態か
-        this._dasBlockedRight = false;  // 右: DASアクティブだが動けない状態か
+        this._dcdUntil = 0;
+        this._dasBlockedLeft = false;
+        this._dasBlockedRight = false;
 
         // 既存のリスナー解除
-        if(this._keyDownHandler){
-            document.removeEventListener('keydown', this._keyDownHandler)
-        }
-        if(this._keyUpHandler){
-            document.removeEventListener('keyup', this._keyUpHandler)
-        }
-        if(this._keyLoop){
-            clearInterval(this._keyLoop)
-        }
+        if(this._keyDownHandler) document.removeEventListener('keydown', this._keyDownHandler)
+        if(this._keyUpHandler)   document.removeEventListener('keyup', this._keyUpHandler)
+        if(this._keyLoop)        clearInterval(this._keyLoop)
 
         const keys = loadKeyConfig()
 
         this._keyDownHandler = (e) => {
             const gamePage = document.getElementById('game-page')
             if(!gamePage || !gamePage.classList.contains('active')) return
+
+            // ★追加：リスタート (ポーズ中・プレイ中問わず即座にやり直し)
+            if(e.code === keys.restart.code){
+                e.preventDefault()
+                this.start()
+                return
+            }
 
             // ポーズ
             if(e.code === keys.pause.code){
