@@ -265,15 +265,19 @@ class Game{
         if(this.isPaused) return
         this.isPaused = true
         clearInterval(this.timer)
-
-        // ★追加: 接地中の固定猶予タイマーが動いていればそれも止める
+        
+        // ★変更: 接地猶予タイマーが動いていた場合、残り時間を計算して保存する
         if(this.lockTimer){
             clearTimeout(this.lockTimer);
             this.lockTimer = null;
+            this.lockRemaining -= (performance.now() - this.lockStartTime);
+            this._wasLockingWhenPaused = true;
+        } else {
+            this._wasLockingWhenPaused = false;
         }
-        
+
         this.showPauseOverlay()
-        // ポーズ時の経過時間保存とループ停止
+        
         if(this.isTimerRunning){
             this.elapsedTime += performance.now() - this.startTime;
             this.isTimerRunning = false;
@@ -286,9 +290,12 @@ class Game{
         this.isPaused = false
         this.hidePauseOverlay()
         
-        // ★重力か猶予タイマーのどちらかを再開させる
-        this.checkGroundState();
-        if(!this.isGrounded) {
+        // ★変更: 接地中(lockTimer稼働中)だったか空中だったかで再開処理を分ける
+        if (this._wasLockingWhenPaused) {
+            // 保存しておいた残り時間（最低0ms）で猶予タイマーを再開
+            this.startLockTimer(Math.max(0, this.lockRemaining));
+            this._wasLockingWhenPaused = false;
+        } else if (!this.isGrounded) {
             this.startGravity();
         }
 
@@ -488,6 +495,7 @@ class Game{
             this.holdMino.type = this.mino.type
             this.holdMino.initBlocks()
             this.popMino()
+            this.canHold = false
         } else {
             let prevHoldType = this.holdMino.type
             this.holdMino = new Mino()
@@ -971,13 +979,18 @@ class Game{
     }
 
     // 固定猶予タイマーの起動・リセット
-    startLockTimer() {
+    startLockTimer(delay = this.lockDelay) {
         if (this.lockTimer) clearTimeout(this.lockTimer);
+        
+        // ★追加: ポーズ時の計算用に開始時刻と設定時間を記録
+        this.lockStartTime = performance.now();
+        this.lockRemaining = delay;
+
         this.lockTimer = setTimeout(() => {
             this.lockTimer = null;
             this.secureMino();
             this.drawAll();
-        }, this.lockDelay);
+        }, delay); // ★ this.lockDelay ではなく引数の delay を使う
     }
 
     valid(moveX, moveY, rot=0){
@@ -1017,7 +1030,8 @@ class Game{
         this.DCD_DELAY = tuning.dcd * frameMs;
 
         // ソフトドロップ用ARR
-        this.SOFTDROP_ARR = LEVEL_SPEEDS[this.level] / 20;
+        const currentLevelSpeed = LEVEL_SPEEDS[this.level] || 7;
+        const currentSoftDropArr = currentLevelSpeed / 20;
         
         this._lastSoftDropTime = 0;
         this._leftPressTime = null;
@@ -1220,23 +1234,54 @@ class Game{
             }
 
             // ソフトドロップ（専用ARR）
-            if(this.keyState[keys.softDrop.code]){
-                if(this._lastSoftDropTime === 0 ||
-                    now - this._lastSoftDropTime >= this.SOFTDROP_ARR){
-                    if(this.valid(0, 1)){
-                        this.mino.y++
-                        this.updateLowestY(); // ★ 追加：落下したら最低Y更新チェック
-                        this.lastActionWasRotation = false; // 落下したので回転フラグを解除
-                        acted = true
+            const currentLevelSpeed = LEVEL_SPEEDS[this.level] || 7;
+            const currentSoftDropArr = currentLevelSpeed / 20;
 
-                        // ソフトドロップスコア加算（1マスごとに+1）
+            if(this.keyState[keys.softDrop.code]){
+                // 初回押し込み時は即座に1段落とす
+                if(this._lastSoftDropTime === 0){
+                    this._lastSoftDropTime = now;
+                    if(this.valid(0, 1)){
+                        this.mino.y++;
+                        this.updateLowestY();
+                        this.lastActionWasRotation = false;
+                        acted = true;
                         this.score += 1;
                         this.updateStatsDisplay();
                     }
-                    this._lastSoftDropTime = now
+                } else {
+                    // 前回ソフトドロップ処理をしてからの経過時間
+                    let elapsed = now - this._lastSoftDropTime;
+                    
+                    // 必要な時間（currentSoftDropArr）が経過していたら落下処理
+                    if(elapsed >= currentSoftDropArr){
+                        // 経過時間の中に、何マスの落下が含まれるかを割り算で計算（フレームの壁を突破）
+                        let dropCount = Math.floor(elapsed / currentSoftDropArr);
+
+                        let actuallyDropped = 0;
+                        for(let i = 0; i < dropCount; i++){
+                            if(this.valid(0, 1)){
+                                this.mino.y++;
+                                actuallyDropped++;
+                            } else {
+                                break; // 途中で接地したらループを抜ける
+                            }
+                        }
+
+                        if(actuallyDropped > 0){
+                            this.updateLowestY();
+                            this.lastActionWasRotation = false;
+                            acted = true;
+                            this.score += actuallyDropped; // 実際に落ちたマス数分だけスコア加算
+                            this.updateStatsDisplay();
+                        }
+
+                        // 余った端数の時間を次回に持ち越す（超高速落下時のガタつき防止）
+                        this._lastSoftDropTime = now - (elapsed % currentSoftDropArr);
+                    }
                 }
             } else {
-                this._lastSoftDropTime = 0
+                this._lastSoftDropTime = 0;
             }
 
             // 回転（即時反応させる）
