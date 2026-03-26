@@ -4,14 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>テトラボ</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=3">
   </head>
   <body>
-    <h1>TETLABO</h1>
-
-    <div id="tabs">
-      <button class="tab-btn active" onclick="switchTab('game')">▶ GAME</button>
-      <button class="tab-btn"        onclick="switchTab('settings')">⚙ SETTINGS</button>
+    <div id="header-area">
+      <h1>TETLABO</h1>
+      <button id="btn-go-settings" onclick="switchPage('settings')">⚙ SETTINGS</button>
     </div>
 
     <div id="game-page" class="page active">
@@ -44,14 +42,18 @@
     </div>
 
     <div id="settings-page" class="page">
-      <h2>⚙ KEY CONFIG</h2>
+      <div class="settings-header">
+        <h2 style="margin-bottom: 0;">⚙ KEY CONFIG</h2>
+        <button class="btn btn-back" onclick="switchPage('game')">◀ BACK TO GAME</button>
+      </div>
+      
       <div class="key-config-grid" id="key-config-grid">
         </div>
       <p class="conflict-warning" id="conflict-warning">
         ⚠ 同じキーが複数のアクションに割り当てられています
       </p>
 
-      <h2 style="margin-top: 32px;">🛠 TUNING</h2>
+      <h2 style="margin-top: 32px; margin-bottom: 28px;">🛠 TUNING</h2>
       <div class="tuning-container">
         <div class="slider-row">
           <div class="slider-label">DAS <small>(Delayed Auto Shift)</small><span id="val-das">9.0f (150ms)</span></div>
@@ -78,7 +80,7 @@
 
     <div id="settings-toast">SAVED ✓</div>
 
-    <script src="game.js?v=2"></script>
-    <script src="settings.js?v=2"></script>
+    <script src="game.js?v=3"></script>
+    <script src="settings.js?v=3"></script>
   </body>
 </html>

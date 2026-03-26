@@ -37,8 +37,17 @@ body {
 }
 
 /* ─────────────────────────────────────────────
-   タイトル
+   ヘッダーエリア
 ───────────────────────────────────────────── */
+#header-area {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  max-width: 700px;
+  margin-bottom: 20px;
+}
+
 h1 {
   font-family: 'Orbitron', monospace;
   font-size: 28px;
@@ -49,44 +58,72 @@ h1 {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  margin-bottom: 20px;
+  margin: 0; /* マージンをリセット */
 }
 
-/* ─────────────────────────────────────────────
-   タブ
-───────────────────────────────────────────── */
-#tabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 16px;
-  background: var(--panel-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px;
-}
-
-.tab-btn {
+#btn-go-settings {
   font-family: 'Orbitron', monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 2px;
-  padding: 8px 24px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-dim);
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.tab-btn.active {
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  color: #fff;
+#btn-go-settings:hover {
+  background: rgba(196, 113, 245, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
-.tab-btn:hover:not(.active) {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
+/* ─────────────────────────────────────────────
+  ページ切り替え（完全独立）
+───────────────────────────────────────────── */
+.page { display: none; }
+
+/* ゲーム画面がアクティブな時だけ flex を適用 */
+#game-page.active { 
+  display: flex; 
+  justify-content: center;
+  width: 100%;
+}
+
+/* 設定画面がアクティブな時だけ block を適用 */
+#settings-page.active { 
+  display: block; 
+}
+
+/* 設定画面ヘッダー（戻るボタン） */
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.btn-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.btn-back:hover {
+  border-color: var(--accent3);
+  color: var(--accent3);
+}
+
+#settings-page h2 {
+  font-family: 'Orbitron', monospace;
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin: 0;
 }
 
 /* ─────────────────────────────────────────────

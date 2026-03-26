@@ -65,18 +65,25 @@ function loadTuning() {
   return JSON.parse(JSON.stringify(DEFAULT_TUNING));
 }
 
-// ─── タブ切り替え ─────────────────────────────
-function switchTab(tab) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById(tab + '-page').classList.add('active');
-  document.querySelectorAll('.tab-btn').forEach(b => {
-    if (b.textContent.toLowerCase().includes(tab === 'game' ? 'game' : 'set')) {
-      b.classList.add('active');
-    }
-  });
-  stopListening();
-  renderKeyConfig();
+// ─── 画面切り替え（SPA仕様） ───────────────────────────
+function switchPage(pageId) {
+  // すべてのページを非表示
+  document.getElementById('game-page').classList.remove('active');
+  document.getElementById('settings-page').classList.remove('active');
+  
+  // 対象のページを表示
+  document.getElementById(pageId + '-page').classList.add('active');
+
+  // ヘッダーの設定ボタンの表示/非表示を切り替え
+  const headerBtn = document.getElementById('btn-go-settings');
+  if (pageId === 'game') {
+    headerBtn.style.display = 'block';
+    stopListening();
+  } else {
+    headerBtn.style.display = 'none';
+    renderKeyConfig();
+    renderTuning();
+  }
 }
 
 // ─── 設定画面の描画 (キー) ────────────────────
