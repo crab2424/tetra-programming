@@ -18,7 +18,7 @@
       <div id="menu-container">
         <div id="menu-logo">
           <h1 class="menu-title">TETLABO</h1>
-          <p class="menu-subtitle">GUIDELINE TETRIS ENGINE</p>
+          <p class="menu-subtitle">CREATED BY GAME CIRCLE</p>
         </div>
         <div id="menu-buttons">
           <button class="menu-btn btn-primary" id="menu-start-btn">
@@ -32,15 +32,7 @@
         </div>
         <div id="menu-controls">
           <p class="controls-title">CONTROLS</p>
-          <div class="controls-grid">
-            <span class="ctrl-key">←→</span><span class="ctrl-desc">移動</span>
-            <span class="ctrl-key">↑</span><span class="ctrl-desc">右回転</span>
-            <span class="ctrl-key">Z</span><span class="ctrl-desc">左回転</span>
-            <span class="ctrl-key">↓</span><span class="ctrl-desc">ソフトドロップ</span>
-            <span class="ctrl-key">SPACE</span><span class="ctrl-desc">ハードドロップ</span>
-            <span class="ctrl-key">SHIFT</span><span class="ctrl-desc">ホールド</span>
-            <span class="ctrl-key">ESC</span><span class="ctrl-desc">ポーズ</span>
-            <span class="ctrl-key">R</span><span class="ctrl-desc">リスタート</span>
+          <div class="controls-grid" id="menu-controls-grid">
           </div>
         </div>
       </div>
@@ -74,7 +66,11 @@
         </div>
         <button id="start-btn" style="display:none;"></button>
       </div>
-
+    
+    <!-- ─────────────────────────────────────────────
+         ポーズページ
+    ───────────────────────────────────────────── -->
+    
       <div id="pause-overlay">
         <div id="pause-modal">
           <h2 id="pause-title">PAUSE</h2>
@@ -82,6 +78,7 @@
             <button class="pause-btn btn-resume" onclick="window._game && window._game.resume()">▶ RESUME</button>
             <button class="pause-btn btn-settings" onclick="switchPage('settings')">⚙ SETTINGS</button>
             <button class="pause-btn btn-restart" onclick="window._game && window._game.start()">↺ RESTART</button>
+            <button class="pause-btn btn-mainmenu" onclick="switchPage('menu')">⌂ MAIN MENU</button>
           </div>
         </div>
       </div>

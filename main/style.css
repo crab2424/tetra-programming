@@ -719,6 +719,19 @@ canvas {
   opacity: 1;
 }
 
+.btn-mainmenu {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  margin-top: 8px; /* 他のアクションボタンと少し距離を置く */
+}
+
+.btn-mainmenu:hover {
+  border-color: var(--text-dim);
+  color: var(--text);
+  opacity: 1;
+}
+
 /* ─────────────────────────────────────────────
    トースト通知
 ───────────────────────────────────────────── */

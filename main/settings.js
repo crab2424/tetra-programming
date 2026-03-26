@@ -210,14 +210,6 @@ function checkConflicts() {
   return hasDup;
 }
 
-// ─── 保存とリセット ───────────────────────────────
-function saveSettings() {
-  localStorage.setItem('game_keyconfig', JSON.stringify(currentKeys));
-  localStorage.setItem('game_tuning', JSON.stringify(currentTuning));
-  if (window._game) window._game.setKeyEvent();
-  showToast();
-}
-
 function resetToDefaults() {
   currentKeys   = JSON.parse(JSON.stringify(DEFAULT_KEYS));
   currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
@@ -231,6 +223,34 @@ function showToast() {
   setTimeout(() => toast.classList.remove('show'), 2000);
 }
 
-// 初期描画
+// メインメニューのコントロール表示を更新する関数
+function updateMenuControlsDisplay() {
+  const grid = document.getElementById('menu-controls-grid');
+  if (!grid) return;
+
+  grid.innerHTML = `
+    <span class="ctrl-key">${currentKeys.moveLeft.label}${currentKeys.moveRight.label}</span><span class="ctrl-desc">移動</span>
+    <span class="ctrl-key">${currentKeys.rotateCW.label}</span><span class="ctrl-desc">右回転</span>
+    <span class="ctrl-key">${currentKeys.rotateCCW.label}</span><span class="ctrl-desc">左回転</span>
+    <span class="ctrl-key">${currentKeys.softDrop.label}</span><span class="ctrl-desc">ソフトドロップ</span>
+    <span class="ctrl-key">${currentKeys.hardDrop.label}</span><span class="ctrl-desc">ハードドロップ</span>
+    <span class="ctrl-key">${currentKeys.hold.label}</span><span class="ctrl-desc">ホールド</span>
+    <span class="ctrl-key">${currentKeys.pause.label}</span><span class="ctrl-desc">ポーズ</span>
+    <span class="ctrl-key">${currentKeys.restart.label}</span><span class="ctrl-desc">リスタート</span>
+  `;
+}
+
+// 既存の saveSettings 関数を書き換えて、保存時にメニュー表示も更新するようにします
+function saveSettings() {
+  localStorage.setItem('game_keyconfig', JSON.stringify(currentKeys));
+  localStorage.setItem('game_tuning', JSON.stringify(currentTuning));
+  if (window._game) window._game.setKeyEvent();
+  
+  updateMenuControlsDisplay(); // ★追加：保存時にメインメニューの表示を更新
+  showToast();
+}
+
+// ページ読み込み時の初期描画
 renderKeyConfig();
 renderTuning();
+updateMenuControlsDisplay(); // ★追加：初期表示でも実行
