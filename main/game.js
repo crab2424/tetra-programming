@@ -482,7 +482,8 @@ class Game{
         this.drawAll()
     }
 
-    Scoring(tSpinType, linesCleared){
+    // ★ 変更：第3引数 isPerfectClear を追加（デフォルトは false）
+    Scoring(tSpinType, linesCleared, isPerfectClear = false){
         let baseScore = 0;
 
         // ─── T-SPIN系 ───
@@ -524,6 +525,17 @@ class Game{
         // ─── Level適用（ライン消去分のみ） ───
         lineScore *= this.level;
 
+        // ─── PERFECT CLEAR ボーナス（指定されたスコア × レベル を加算） ───
+        if (isPerfectClear) {
+            let pcBonus = 0;
+            if (linesCleared === 1) pcBonus = 800;
+            if (linesCleared === 2) pcBonus = 1000;
+            if (linesCleared === 3) pcBonus = 1800;
+            if (linesCleared === 4) pcBonus = 2000;
+            
+            lineScore += (pcBonus * this.level);
+        }
+
         // ─── REN処理 ───
         let renBonus = 0;
         if(linesCleared > 0){
@@ -552,17 +564,19 @@ class Game{
 
         const linesCleared = this.field.checkLine()
 
-        // ★ 追加：Scoringで変数が更新される前に、今回のB2B・REN発動状態を記録する
         const isBtBAction = (linesCleared > 0 && (linesCleared === 4 || tSpinResult !== null));
         const isB2BTriggered = isBtBAction && this.backToBack;
         const currentRen = (linesCleared > 0 && this.ren > 0) ? this.ren : 0;
+        
+        const isPerfectClear = (this.field.blocks.length === 0);
+        const is4Lines = (linesCleared === 4);
 
-        this.Scoring(tSpinResult, linesCleared);
+        // ★ 変更：第3引数に isPerfectClear を追加
+        this.Scoring(tSpinResult, linesCleared, isPerfectClear);
         this.updateScoreDisplay();
 
-        // ★ 変更：アクションラベルを表示
-        if (tSpinResult !== null || isB2BTriggered || currentRen > 0) {
-            this.showActionLabels(tSpinResult, linesCleared, isB2BTriggered, currentRen);
+        if (tSpinResult !== null || isB2BTriggered || currentRen > 0 || isPerfectClear || is4Lines) {
+            this.showActionLabels(tSpinResult, linesCleared, isB2BTriggered, currentRen, isPerfectClear, is4Lines);
         }
 
         if (isAllOutside) {
@@ -676,12 +690,17 @@ class Game{
     }
 
     // ─────────────────────────────────────────
-    // アクションラベル（T-Spin, B2B, REN）を一定時間表示する
+    // アクションラベル（PC, 4-LINES, T-Spin, B2B, REN）を一定時間表示する
     // ─────────────────────────────────────────
-    showActionLabels(tSpinType, linesCleared, isB2B, renCount){
+    showActionLabels(tSpinType, linesCleared, isB2B, renCount, isPerfectClear, is4Lines){
         this.actionLabels = [];
 
-        // 1. T-SPIN判定
+        // 1. PERFECT CLEAR判定
+        if(isPerfectClear){
+            this.actionLabels.push({ text: 'PERFECT CLEAR', color: '#ffea00' }); // ゴールド系
+        }
+
+        // 2. T-SPIN 又は 4-LINES判定
         if(tSpinType !== null){
             const clearNames = ['', ' SINGLE', ' DOUBLE', ' TRIPLE'];
             const clearSuffix = clearNames[linesCleared] ?? '';
@@ -690,14 +709,16 @@ class Game{
             } else {
                 this.actionLabels.push({ text: 'MINI T-SPIN' + clearSuffix, color: '#71c5f5' });
             }
+        } else if(is4Lines) {
+            this.actionLabels.push({ text: '4-LINES', color: '#00e5ff' }); // シアン（Iミノ色）系
         }
 
-        // 2. BACK-TO-BACK判定
+        // 3. BACK-TO-BACK判定
         if(isB2B){
-            this.actionLabels.push({ text: 'BACK-TO-BACK', color: '#f5a623' }); // オレンジ・ゴールド系
+            this.actionLabels.push({ text: 'BACK-TO-BACK', color: '#f5a623' }); // オレンジ系
         }
 
-        // 3. REN判定
+        // 4. REN判定
         if(renCount > 0){
             this.actionLabels.push({ text: renCount + ' REN', color: '#a6f523' }); // グリーン系
         }
@@ -705,11 +726,9 @@ class Game{
         if(this.actionLabels.length > 0){
             this.actionAlpha = 1.0;
 
-            // 既存のフェードタイマーをリセット
             if(this._actionFadeTimer) clearTimeout(this._actionFadeTimer);
             if(this._actionFadeInterval) clearInterval(this._actionFadeInterval);
             
-            // 0.8秒後からフェードアウト開始
             this._actionFadeTimer = setTimeout(() => {
                 this._actionFadeInterval = setInterval(() => {
                     this.actionAlpha -= 0.06;
