@@ -717,57 +717,54 @@ class Game{
     }
 
     // ─────────────────────────────────────────
-    // アクションラベル（PC, 4-LINES, T-Spin, B2B, REN）を一定時間表示する
+    // アクションラベル（PC, 4-LINES, T-Spin, B2B, REN）を一定時間表示する（DOM表示）
     // ─────────────────────────────────────────
     showActionLabels(tSpinType, linesCleared, isB2B, renCount, isPerfectClear, is4Lines){
-        this.actionLabels = [];
+        const container = document.getElementById('action-label-container');
+        if(!container) return;
 
-        // 1. PERFECT CLEAR判定
+        container.innerHTML = '';
+
+        const createLabel = (text, className) => {
+            const el = document.createElement('div');
+            el.className = 'action-label ' + className;
+            el.textContent = text;
+            container.appendChild(el);
+        };
+
         if(isPerfectClear){
-            this.actionLabels.push({ text: 'PERFECT CLEAR', color: '#ffea00' }); // ゴールド系
+            createLabel('PERFECT CLEAR', 'pc');
         }
 
-        // 2. T-SPIN 又は 4-LINES判定
         if(tSpinType !== null){
             const clearNames = ['', ' SINGLE', ' DOUBLE', ' TRIPLE'];
-            const clearSuffix = clearNames[linesCleared] ?? '';
+            const suffix = clearNames[linesCleared] ?? '';
             if(tSpinType === 'tspin'){
-                this.actionLabels.push({ text: 'T-SPIN' + clearSuffix, color: '#c471f5' });
+                createLabel('T-SPIN' + suffix, 'tspin');
             } else {
-                this.actionLabels.push({ text: 'MINI T-SPIN' + clearSuffix, color: '#71c5f5' });
+                createLabel('MINI T-SPIN' + suffix, 'mini');
             }
-        } else if(is4Lines) {
-            this.actionLabels.push({ text: '4-LINES', color: '#00e5ff' }); // シアン（Iミノ色）系
+        } else if(is4Lines){
+            createLabel('4-LINES', 'four');
         }
 
-        // 3. BACK-TO-BACK判定
         if(isB2B){
-            this.actionLabels.push({ text: 'BACK-TO-BACK', color: '#f5a623' }); // オレンジ系
+            createLabel('BACK-TO-BACK', 'b2b');
         }
 
-        // 4. REN判定
         if(renCount > 0){
-            this.actionLabels.push({ text: renCount + ' REN', color: '#a6f523' }); // グリーン系
+            createLabel(renCount + ' REN', 'ren');
         }
 
-        if(this.actionLabels.length > 0){
-            this.actionAlpha = 1.0;
+        // フェードアウト処理
+        setTimeout(() => {
+            const labels = container.querySelectorAll('.action-label');
+            labels.forEach(el => el.style.opacity = '0');
+        }, 800);
 
-            if(this._actionFadeTimer) clearTimeout(this._actionFadeTimer);
-            if(this._actionFadeInterval) clearInterval(this._actionFadeInterval);
-            
-            this._actionFadeTimer = setTimeout(() => {
-                this._actionFadeInterval = setInterval(() => {
-                    this.actionAlpha -= 0.06;
-                    if(this.actionAlpha <= 0){
-                        this.actionAlpha = 0;
-                        this.actionLabels = [];
-                        clearInterval(this._actionFadeInterval);
-                    }
-                    this.drawAll();
-                }, 30);
-            }, 800);
-        }
+        setTimeout(() => {
+            container.innerHTML = '';
+        }, 1200);
     }
 
     // ─── 表示の更新 ───
@@ -846,34 +843,6 @@ class Game{
         
         this.mino.draw(this.mainCtx)
 
-        // ─── アクションラベル描画 ───
-        if(this.actionLabels && this.actionLabels.length > 0 && this.actionAlpha > 0){
-            const ctx = this.mainCtx;
-            ctx.save();
-            ctx.globalAlpha = this.actionAlpha;
-            ctx.font = 'bold 18px "Orbitron", monospace';
-            ctx.textAlign = 'center';
-            // 影（視認性向上）
-            ctx.shadowColor = 'rgba(0,0,0,0.8)';
-            ctx.shadowBlur = 8;
-            ctx.shadowOffsetX = 1;
-            ctx.shadowOffsetY = 1;
-            // アウトライン
-            ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-            ctx.lineWidth = 4;
-
-            // ラベルの数に合わせてY座標の開始位置を調整（全体が中央にくるように）
-            const lineHeight = 24;
-            let startY = (SCREEN_HEIGHT / 2) - ((this.actionLabels.length - 1) * lineHeight / 2) - 10;
-
-            this.actionLabels.forEach((label, index) => {
-                const y = startY + (index * lineHeight);
-                ctx.strokeText(label.text, SCREEN_WIDTH / 2, y);
-                ctx.fillStyle = label.color;
-                ctx.fillText(label.text, SCREEN_WIDTH / 2, y);
-            });
-            ctx.restore();
-        }
 
         this.mainCtx.restore();
 
