@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>テトラボ</title>
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="style.css?v=5">
   </head>
   <body>
     <div id="header-area">
@@ -18,6 +18,14 @@
         <canvas id="next-canvas"></canvas>
         <span class="area-label" id="label-hold">HOLD</span>
         <canvas id="hold-canvas"></canvas>
+        <div id="level-area">
+          <span class="area-label">LEVEL</span>
+          <span id="level-value">1</span>
+        </div>
+        <div id="lines-area">
+          <span class="area-label">LINES</span>
+          <span id="lines-value">0</span>
+        </div>
         <div id="score-area">
           <span class="area-label">SCORE</span>
           <span id="score-value">0</span>
@@ -80,7 +88,7 @@
 
     <div id="settings-toast">SAVED ✓</div>
 
-    <script src="game.js?v=4"></script>
-    <script src="settings.js?v=4"></script>
+    <script src="game.js?v=5"></script>
+    <script src="settings.js?v=5"></script>
   </body>
 </html>

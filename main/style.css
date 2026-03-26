@@ -133,6 +133,50 @@ canvas {
 #label-next { top: -18px; left: 352px; }
 #label-hold { top: -18px; left: -160px; }
 
+#level-area {
+  position: absolute;
+  left: -160px;
+  top: 450px;
+}
+
+#level-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#level-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#lines-area {
+  position: absolute;
+  left: -160px;
+  top: 510px;
+}
+
+#lines-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#lines-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 #score-area {
   position: absolute;
   left: 352px;

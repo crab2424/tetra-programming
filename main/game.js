@@ -6,7 +6,10 @@ const GAME_SPEED = 500;
 const BLOCK_SIZE = 32;
 const COLS_COUNT = 10;
 const ROWS_COUNT = 20;
-const GRAVITY_INTERVAL = 1000; // ミノが1マス落ちる時間（ms）
+const LEVEL_SPEEDS = [
+    0, // インデックス合わせのためのダミー(Level 0)
+    1000, 793, 618, 473, 355, 262, 190, 135, 94, 64, 43, 28, 18, 11, 7
+]; // ミノが1マス落ちる時間（ms）
 const VISIBLE_EXTRA_ROW_RATIO = 0.5; // 上に見せる割合（-1行目）
 const SCREEN_WIDTH = COLS_COUNT * BLOCK_SIZE;
 const SCREEN_HEIGHT = (ROWS_COUNT + VISIBLE_EXTRA_ROW_RATIO) * BLOCK_SIZE;
@@ -98,6 +101,7 @@ class Game{
         this.bag = [];
         this.nextQueue = [];
         this.level = 1;
+        this.lines = 0;
         this.backToBack = false;
         this.ren = 0;
         this.startTime = 0;
@@ -184,7 +188,9 @@ class Game{
         this.backToBack = false;
         this.ren = 0;
         this.hidePauseOverlay()
-        this.updateScoreDisplay()
+        this.level = 1;
+        this.lines = 0;
+        this.updateStatsDisplay();
         this.elapsedTime = 0;
         this.startTime = performance.now();
         this.isTimerRunning = true;
@@ -270,9 +276,12 @@ class Game{
         }
     }
 
+    // ─── 重力の開始 ───
     startGravity(){
-        if(this.timer) clearInterval(this.timer)
-        this.timer = setInterval(() => this.dropMino(), GRAVITY_INTERVAL)
+        if(this.timer) clearInterval(this.timer);
+        // 現在のレベルに応じた速度を取得（15を超えた場合は最速の7ms）
+        const speed = LEVEL_SPEEDS[this.level] || 7;
+        this.timer = setInterval(() => this.dropMino(), speed);
     }
 
     showPauseOverlay(){
@@ -547,6 +556,13 @@ class Game{
         }
 
         this.score += Math.floor(lineScore + renBonus);
+
+        // ★ 追加：ライン数の加算とレベルの更新
+        if (linesCleared > 0) {
+            this.lines += linesCleared;
+            // レベルは「1 + (消去ライン数 / 10)」、最大15
+            this.level = Math.min(15, Math.floor(this.lines / 10) + 1);
+        }
     }
 
     // ミノを即座に固定する共通処理
@@ -573,7 +589,7 @@ class Game{
 
         // ★ 変更：第3引数に isPerfectClear を追加
         this.Scoring(tSpinResult, linesCleared, isPerfectClear);
-        this.updateScoreDisplay();
+        this.updateStatsDisplay();
 
         if (tSpinResult !== null || isB2BTriggered || currentRen > 0 || isPerfectClear || is4Lines) {
             this.showActionLabels(tSpinResult, linesCleared, isB2BTriggered, currentRen, isPerfectClear, is4Lines);
@@ -598,7 +614,7 @@ class Game{
         // ハードドロップスコア加算（距離 × 2）
         if(dropDistance > 0){
             this.score += dropDistance * 2;
-            this.updateScoreDisplay();
+            this.updateStatsDisplay();
         }
 
         // 実際に落下した場合のみ回転フラグをリセット
@@ -743,8 +759,19 @@ class Game{
         }
     }
 
-    updateScoreDisplay(){
-        document.getElementById("score-value").textContent = this.score
+    // ─── 表示の更新 ───
+    updateStatsDisplay(){
+        // スコア
+        const scoreEl = document.getElementById("score-value");
+        if(scoreEl) scoreEl.textContent = this.score;
+        
+        // レベル
+        const levelEl = document.getElementById("level-value");
+        if(levelEl) levelEl.textContent = this.level;
+        
+        // ライン
+        const linesEl = document.getElementById("lines-value");
+        if(linesEl) linesEl.textContent = this.lines;
     }
 
     getGhostY(){
@@ -958,7 +985,7 @@ class Game{
         this.DCD_DELAY = tuning.dcd * frameMs;
 
         // ソフトドロップ用ARR
-        this.SOFTDROP_ARR = GRAVITY_INTERVAL / 20;
+        this.SOFTDROP_ARR = LEVEL_SPEEDS[this.level] / 20;
         
         this._lastSoftDropTime = 0;
         this._leftPressTime = null;
@@ -1170,7 +1197,7 @@ class Game{
 
                         // ソフトドロップスコア加算（1マスごとに+1）
                         this.score += 1;
-                        this.updateScoreDisplay();
+                        this.updateStatsDisplay();
                     }
                     this._lastSoftDropTime = now
                 }
