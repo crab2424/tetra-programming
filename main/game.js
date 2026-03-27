@@ -157,6 +157,24 @@ class Game{
 
     // ゲーム開始
     start(){
+
+        // ★ ここから追加：モードごとの初期化
+        this.mode = this.currentMode || 'marathon';
+        if (this.mode === 'sprint') {
+            this.startLevel = 1;
+            this.goalLines = 40;
+            this.timeLimit = 0;
+        } else if (this.mode === 'ultra') {
+            this.startLevel = 1;
+            this.goalLines = 0;
+            this.timeLimit = 120 * 1000; // 2分（ミリ秒）
+        } else {
+            // marathon
+            this.startLevel = this.marathonStartLevel || 1;
+            this.goalLines = this.marathonGoal || 150;
+            this.timeLimit = 0;
+        }
+
         // ★ 7バッグをリセット
         this.bag = [];
         this.nextQueue = [];
@@ -216,18 +234,47 @@ class Game{
             totalMs += performance.now() - this.startTime;
         }
 
-        const m = Math.floor(totalMs / 60000);
-        const s = Math.floor((totalMs % 60000) / 1000);
-        // ミリ秒を10で割って切り捨て、2桁（centiseconds）にする
-        const ms = Math.floor((totalMs % 1000) / 10); 
+        let displayMs = totalMs;
+        const timeEl = document.getElementById("time-value");
 
-        // mm:ss.xx の形式にゼロ埋めフォーマット
+        // ★ 追加：Ultra モード時はカウントダウン処理
+        if (this.mode === 'ultra') {
+            displayMs = this.timeLimit - totalMs;
+            if (displayMs <= 0) {
+                displayMs = 0;
+                if (this.isTimerRunning) {
+                    this.isTimerRunning = false;
+                    this.gameOver(true); // 時間切れでクリア扱い
+                    return;
+                }
+            }
+            // 残り10秒以下で文字を赤くする演出
+            if (timeEl) {
+                if (displayMs <= 10000) {
+                    timeEl.style.color = "var(--danger)";
+                    timeEl.style.webkitTextFillColor = "var(--danger)";
+                } else {
+                    timeEl.style.color = "";
+                    timeEl.style.webkitTextFillColor = "transparent";
+                }
+            }
+        } else {
+            // 他のモードは通常色に戻す
+            if (timeEl) {
+                timeEl.style.color = "";
+                timeEl.style.webkitTextFillColor = "transparent";
+            }
+        }
+
+        const m = Math.floor(displayMs / 60000);
+        const s = Math.floor((displayMs % 60000) / 1000);
+        const ms = Math.floor((displayMs % 1000) / 10); 
+
         const formattedTime = 
             String(m).padStart(2, '0') + ':' + 
             String(s).padStart(2, '0') + '.' + 
             String(ms).padStart(2, '0');
 
-        const timeEl = document.getElementById("time-value");
         if(timeEl) {
             timeEl.textContent = formattedTime;
         }
@@ -304,11 +351,13 @@ class Game{
     }
 
     // ゲームオーバー処理
-    gameOver() {
+    // ★ 変更：引数に isClear（デフォルト false）を追加
+    gameOver(isClear = false) {
+        this.isClear = isClear;
         this.drawAll();
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
-        this.isPaused = true; // キー入力を無効化
+        this.isPaused = true; 
 
         if (this.isTimerRunning) {
             this.elapsedTime += performance.now() - this.startTime;
@@ -317,13 +366,34 @@ class Game{
             this.updateTimeDisplay(); 
         }
 
-        // リザルト画面に値を反映してから遷移
         setTimeout(() => {
             const timeEl = document.getElementById('time-value');
+            const resultTitle = document.getElementById('result-title');
+            
+            // ★ 追加：クリア/ゲームオーバーの表示切り替え
+            if (isClear) {
+                resultTitle.textContent = "CLEARED!";
+                resultTitle.style.color = "var(--success)";
+                resultTitle.style.background = "none";
+                resultTitle.style.webkitTextFillColor = "var(--success)";
+            } else {
+                resultTitle.textContent = "GAME OVER";
+                resultTitle.style.background = "linear-gradient(90deg, var(--accent), var(--accent2))";
+                resultTitle.style.webkitBackgroundClip = "text";
+                resultTitle.style.webkitTextFillColor = "transparent";
+            }
+
             document.getElementById('result-score').textContent = this.score;
             document.getElementById('result-level').textContent = this.level;
             document.getElementById('result-lines').textContent = this.lines;
-            document.getElementById('result-time').textContent = timeEl ? timeEl.textContent : '00:00.00';
+            
+            // ★ 追加：Sprint モードのゲームオーバー時は記録なし（タイム非表示）
+            if (this.mode === 'sprint' && !isClear) {
+                document.getElementById('result-time').textContent = "--:--.--";
+            } else {
+                document.getElementById('result-time').textContent = timeEl ? timeEl.textContent : '00:00.00';
+            }
+
             if (typeof switchPage === 'function') switchPage('result');
         }, 400);
     }
@@ -578,12 +648,16 @@ class Game{
 
         this.score += Math.floor(lineScore + renBonus);
 
-        // ★ 追加：ライン数の加算とレベルの更新
+        // ★ 変更：モードごとのレベルアップ計算
         if (linesCleared > 0) {
             this.lines += linesCleared;
-            // レベルは「1 + (消去ライン数 / 10)」、最大15
-            this.level = Math.min(15, Math.floor(this.lines / 10) + 1);
+            if (this.mode === 'marathon') {
+                // 開始レベルを基準に、10ラインごとに+1
+                this.level = Math.min(15, this.startLevel + Math.floor(this.lines / 10));
+            }
+            // Sprint, Ultra の場合はレベルは開始時のまま固定
         }
+
     }
 
     // ミノを即座に固定する共通処理
@@ -614,6 +688,14 @@ class Game{
 
         if (tSpinResult !== null || isB2BTriggered || currentRen > 0 || isPerfectClear || is4Lines) {
             this.showActionLabels(tSpinResult, linesCleared, isB2BTriggered, currentRen, isPerfectClear, is4Lines);
+        }
+
+        if (this.mode === 'sprint' && this.lines >= this.goalLines) {
+            this.gameOver(true); // クリア！
+            return;
+        } else if (this.mode === 'marathon' && this.goalLines !== Infinity && this.lines >= this.goalLines) {
+            this.gameOver(true); // クリア！
+            return;
         }
 
         if (isAllOutside) {

@@ -95,6 +95,24 @@
           <p id="mode-check-desc-en" class="mode-check-desc-en">Clear lines to rack up score. Speed increases as your level rises.</p>
         </div>
 
+        <div id="mode-check-options" style="display: none;">
+          <div class="option-row">
+            <span class="option-label">GOAL</span>
+            <div class="option-toggle">
+              <button class="opt-btn active" id="opt-goal-150" onclick="setMarathonGoal(150)">150 LINES</button>
+              <button class="opt-btn" id="opt-goal-endless" onclick="setMarathonGoal('endless')">ENDLESS</button>
+            </div>
+          </div>
+          <div class="option-row">
+            <span class="option-label">START LEVEL</span>
+            <div class="option-slider">
+              <input type="range" id="marathon-level-slider" min="1" max="15" value="1" oninput="updateMarathonLevelDisplay()">
+              <span id="marathon-level-val" class="option-val">1</span>
+            </div>
+          </div>
+        </div>
+        
+
         <!-- ルール／操作確認エリア（固定情報） -->
         <div id="mode-check-controls">
           <p class="controls-title">CONTROLS</p>

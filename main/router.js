@@ -38,6 +38,21 @@ const GAME_MODES = {
 // mode-check-page に渡す共有変数
 let currentGameMode = null;
 
+// ★ ここから追加
+let marathonSelectedGoal = 150;
+
+function setMarathonGoal(goal) {
+  marathonSelectedGoal = goal;
+  document.getElementById('opt-goal-150').classList.toggle('active', goal === 150);
+  document.getElementById('opt-goal-endless').classList.toggle('active', goal === 'endless');
+}
+
+function updateMarathonLevelDisplay() {
+  const val = document.getElementById('marathon-level-slider').value;
+  document.getElementById('marathon-level-val').textContent = val;
+}
+// ★ ここまで追加
+
 // ─── 遷移元ページ追跡 ─────────────────────────
 // settings から「戻る」ときに使う（settings.js の window._prevPage と共存）
 // ※ settings.js の switchPage() はここで上書きされる
@@ -121,6 +136,23 @@ function renderModeCheck() {
   const descEnEl = document.getElementById('mode-check-desc-en');
   if (descEnEl) descEnEl.textContent = mode.descriptionEn;
 
+  // ★ ここから追加：Marathon用オプション表示の切り替え
+  const optionsEl = document.getElementById('mode-check-options');
+  if (optionsEl) {
+    if (mode.id === 'marathon') {
+      optionsEl.style.display = 'flex';
+      // モードに合わせて文字・枠線の色を変更
+      const levelVal = document.getElementById('marathon-level-val');
+      if (levelVal) levelVal.style.color = mode.color;
+      document.querySelectorAll('.opt-btn.active').forEach(btn => {
+          btn.style.color = mode.color;
+          btn.style.borderColor = mode.color;
+      });
+    } else {
+      optionsEl.style.display = 'none';
+    }
+  }
+
   // STARTボタンのアクセントカラーを動的に変える（CSS変数は上書きできないためインラインで）
   const startBtn = document.getElementById('mode-check-start-btn');
   if (startBtn) {
@@ -143,8 +175,15 @@ function renderModeCheck() {
 function startGameFromModeCheck() {
   if (!window._game) return;
 
-  // game.js 側にモードを伝える（将来の拡張用）
-  window._game.currentMode = currentGameMode ? currentGameMode.id : 'marathon';
+  const modeId = currentGameMode ? currentGameMode.id : 'marathon';
+  window._game.currentMode = modeId;
+
+  // ★ 追加：Marathon時の設定を game.js に渡す
+  if (modeId === 'marathon') {
+    window._game.marathonGoal = (marathonSelectedGoal === 'endless') ? Infinity : 150;
+    const levelSlider = document.getElementById('marathon-level-slider');
+    window._game.marathonStartLevel = levelSlider ? parseInt(levelSlider.value, 10) : 1;
+  }
 
   switchPage('game');
   window._game.start();
@@ -169,7 +208,7 @@ function startGameFromModeCheck() {
     if (!document.getElementById('title-page').classList.contains('active')) return;
     // 特殊キーは無視
     if (['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12',
-         'Tab','CapsLock','ScrollLock','NumLock','PrintScreen','Pause'].includes(e.key)) return;
+        'Tab','CapsLock','ScrollLock','NumLock','PrintScreen','Pause'].includes(e.key)) return;
     switchPage('main-menu');
   });
 })();
