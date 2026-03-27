@@ -114,21 +114,20 @@ function setCpuLevel(lv) {
 // ─────────────────────────────────────────────
 // startVersusGame() — 対戦ゲームを開始
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// startVersusGame() — 対戦ゲームを開始
+// ─────────────────────────────────────────────
 function startVersusGame() {
   if (!window._game) return;
 
-  // CPU難易度をゲームインスタンスに渡す（将来のCPU AI実装用）
   const cpuConfig = CPU_LEVELS[selectedCpuLevel];
-
-  // 対戦ページに遷移
   switchPage('versus');
 
-  // 中央のCPUレベル表示を更新
   const cpuLevelDisp = document.getElementById('versus-cpu-level-display');
   if (cpuLevelDisp) cpuLevelDisp.textContent = 'CPU ' + cpuConfig.label;
 
-  // ─── プレイヤーゲームの初期化（既存の window._game を使用） ───
-  window._game.currentMode = 'versus';        // ★修正: marathonから変更（レベルアップを無効化）
+  // ─── プレイヤーゲームの初期化 ───
+  window._game.currentMode = 'versus';
   window._game.marathonGoal = Infinity;       
   window._game.isVersusMode = true;           
   window._game.canvasPrefix = 'player';       
@@ -138,11 +137,11 @@ function startVersusGame() {
   window._game.initNextCanvas();
   window._game.initHoldCanvas();
 
-  // ─── CPUゲームの初期化（window._cpuGame として保持） ───
+  // ─── CPUゲームの初期化 ───
   if (!window._cpuGame) {
     window._cpuGame = new Game('cpu');
   }
-  window._cpuGame.currentMode = 'versus';     // ★修正: marathonから変更（レベルアップを無効化）
+  window._cpuGame.currentMode = 'versus';
   window._cpuGame.marathonGoal = Infinity;
   window._cpuGame.isVersusMode = true;
   window._cpuGame.canvasPrefix = 'cpu';       
@@ -153,19 +152,18 @@ function startVersusGame() {
   window._cpuGame.initNextCanvas();
   window._cpuGame.initHoldCanvas();
 
-  // 前回のポーズ状態が残っている場合に備えて強制リセット
+  // 前回のポーズ状態リセット
   document.getElementById('pause-overlay')?.classList.remove('active');
   document.getElementById('versus-pause-overlay')?.classList.remove('active');
 
-  // ★ 対戦モードのカウントダウンは両方同時に開始する
-  // 両ゲームの状態だけ初期化してからカウントダウンを走らせる
+  // 両ゲームの状態初期化
   window._game._initGameState();
   window._cpuGame._initGameState();
 
-  // ★ 追加：DAS先行チャージのために、カウントダウン前にイベントを登録
+  // DAS先行チャージ等を受け付けるため、カウントダウン前にキーイベントをセット
   window._game.setKeyEvent();
 
-  // レベルを設定（_initGameState の後に上書き）
+  // レベルを設定
   window._game.level = 2;
   window._cpuGame.level = 2;
   window._game.updateStatsDisplay();
@@ -173,29 +171,14 @@ function startVersusGame() {
 
   // プレイヤー側カウントダウン
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
-    // START! 瞬間に入力受付開始
-    window._game.isCountingDown = false; // ★ 追加
-    window._game.popMino();              // ★ 追加
-    window._game.startTime = performance.now();
-    window._game.isTimerRunning = true;
-    window._game.startTimerLoop();
-    window._game.level = 2;
-    window._game.startGravity();
-    window._game.updateStatsDisplay();
-    // window._game.setKeyEvent();       // ★ 削除（上で呼ぶようにしたため）
+    // START! の瞬間に、game.js の開始メソッドを呼ぶだけ
+    window._game._startGameplay();
   }, null);
 
   // CPU側カウントダウン（同時実行）
   runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
-    // START! 瞬間にCPUの重力を開始
-    window._cpuGame.isCountingDown = false; // ★ 追加
-    window._cpuGame.popMino();              // ★ 追加
-    window._cpuGame.startTime = performance.now();
-    window._cpuGame.isTimerRunning = true;
-    window._cpuGame.startTimerLoop();
-    window._cpuGame.level = 2;
-    window._cpuGame.startGravity();
-    window._cpuGame.updateStatsDisplay();
+    // START! の瞬間に、game.js の開始メソッドを呼ぶだけ
+    window._cpuGame._startGameplay();
   }, null);
 
   // 対戦用ポーズキーを設定
