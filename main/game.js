@@ -21,7 +21,8 @@ const BLOCK_SOURCES = [
     "images/block-3.png",
     "images/block-4.png",
     "images/block-5.png",
-    "images/block-6.png"
+    "images/block-6.png",
+    "images/block-7.png"
 ]
 
 window.onload = function(){
@@ -67,7 +68,7 @@ class Asset{
 
     static init(callback){
         let loadCnt = 0
-        for(let i = 0; i <= 6; i++){
+        for(let i = 0; i <= 7; i++){
             let img = new Image();
             img.src = BLOCK_SOURCES[i];
             img.onload = function(){
@@ -172,7 +173,7 @@ class Game{
     // ゲーム開始
     start(){
 
-        // ★ ここから追加：モードごとの初期化
+        // モードごとの初期化
         this.mode = this.currentMode || 'marathon';
         if (this.mode === 'sprint') {
             this.startLevel = 1;
@@ -195,6 +196,7 @@ class Game{
         for(let i = 0; i < 5; i++){
             this.nextQueue.push(new Mino(this.getNextType()));
         }
+        this.garbageQueue = [];
         this.nextMino = null;
         this.field = new Field()
         this.holdMino = null
@@ -638,10 +640,12 @@ class Game{
         );
 
         let lineScore = baseScore;
+        let isB2BTriggered = false; // ★ 追加：火力計算用フラグ
 
         if(isBtBAction){
             if(this.backToBack){
                 lineScore = Math.floor(lineScore * 1.5);
+                isB2BTriggered = true; // ★ 発動したことを記録
             }
             this.backToBack = true;
         } else if(linesCleared > 0){
@@ -651,7 +655,7 @@ class Game{
         // ─── Level適用（ライン消去分のみ） ───
         lineScore *= this.level;
 
-        // ─── PERFECT CLEAR ボーナス（指定されたスコア × レベル を加算） ───
+        // ─── PERFECT CLEAR ボーナス ───
         if (isPerfectClear) {
             let pcBonus = 0;
             if (linesCleared === 1) pcBonus = 800;
@@ -664,6 +668,7 @@ class Game{
 
         // ─── REN処理 ───
         let renBonus = 0;
+        let currentRenForGarbage = this.ren; // ★ 追加：火力計算用に加算前の値を保持
         if(linesCleared > 0){
             const renCount = Math.min(this.ren, 20);
             renBonus = renCount * 50;
@@ -674,16 +679,109 @@ class Game{
 
         this.score += Math.floor(lineScore + renBonus);
 
-        // ★ 変更：モードごとのレベルアップ計算
         if (linesCleared > 0) {
             this.lines += linesCleared;
             if (this.mode === 'marathon') {
-                // 開始レベルを基準に、10ラインごとに+1
                 this.level = Math.min(15, this.startLevel + Math.floor(this.lines / 10));
             }
-            // Sprint, Ultra の場合はレベルは開始時のまま固定
         }
 
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ★ おじゃまブロック（火力）の計算
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        let generatedGarbage = 0;
+
+        if (isPerfectClear) {
+            // PCは10ライン固定（ボーナスなし）
+            generatedGarbage = 10;
+        } else if (linesCleared > 0) {
+            // 基本火力
+            if (tSpinType !== null) {
+                // T-Spin時は消去ライン数の2倍
+                generatedGarbage = linesCleared * 2;
+            } else {
+                // 通常消去
+                if (linesCleared === 2) generatedGarbage = 1;
+                else if (linesCleared === 3) generatedGarbage = 2;
+                else if (linesCleared === 4) generatedGarbage = 4;
+            }
+
+            // BtBボーナス
+            if (isB2BTriggered) {
+                generatedGarbage += 1;
+            }
+
+            // RENボーナス
+            let r = currentRenForGarbage;
+            if (r === 2 || r === 3) generatedGarbage += 1;
+            else if (r === 4 || r === 5) generatedGarbage += 2;
+            else if (r === 6 || r === 7) generatedGarbage += 3;
+            else if (r >= 8 && r <= 12) generatedGarbage += 4;
+            else if (r >= 13) generatedGarbage += 5;
+            // r === 0, 1 (0REN, 1REN) は 0加算なのでそのまま
+        }
+
+        return generatedGarbage;
+    }
+
+    // ★ 変更：穴の位置を配列にして相手に送る
+    sendGarbage(amount){
+        const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+        if(!opponent || amount <= 0) return;
+
+        const holes = [];
+        let prevHole = -1;
+
+        for (let i = 0; i < amount; i++) {
+            let holeX;
+            if (i === 0) {
+                // 1番上（一番早く受ける1ライン）は完全ランダム (10分の1)
+                holeX = Math.floor(Math.random() * COLS_COUNT);
+            } else {
+                // 2段目以降: 70%で直前と同じ、30%でそれ以外の9マスのどれか
+                if (Math.random() < 0.7) {
+                    holeX = prevHole;
+                } else {
+                    const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1; // 1〜9のランダム値
+                    holeX = (prevHole + offset) % COLS_COUNT; // prevHole以外の9マスに均等に散らす
+                }
+            }
+            holes.push(holeX);
+            prevHole = holeX;
+        }
+
+        const garbageObj = { amount: amount, holes: holes, ready: false };
+        opponent.garbageQueue.push(garbageObj);
+
+        // 1.5秒経過後に相手のフィールドに適用可能な状態(ready)にする
+        setTimeout(() => {
+            garbageObj.ready = true;
+        }, 1500);
+    }
+
+    // ★ 変更：配列化された穴の位置(holes)を使って下から押し上げる
+    applyGarbage(){
+        const readyGarbage = this.garbageQueue.filter(g => g.ready);
+        this.garbageQueue = this.garbageQueue.filter(g => !g.ready);
+
+        if(readyGarbage.length === 0) return;
+
+        readyGarbage.forEach(g => {
+            for(let i = 0; i < g.amount; i++){
+                // 既存のフィールド上の全ブロックのY座標を -1（上へ押し上げ）
+                this.field.blocks.forEach(block => block.y -= 1);
+
+                // i=0 から順に挿入するため、holes[0] が一番上に押し上げられる
+                const currentHole = g.holes[i];
+
+                // 最下段（ROWS_COUNT - 1）におじゃまブロック（type=7）を敷き詰める
+                for(let x = 0; x < COLS_COUNT; x++){
+                    if(x !== currentHole){
+                        this.field.blocks.push(new Block(x, ROWS_COUNT - 1, 7));
+                    }
+                }
+            }
+        });
     }
 
     // ミノを即座に固定する共通処理
@@ -708,12 +806,17 @@ class Game{
         const isPerfectClear = (this.field.blocks.length === 0);
         const is4Lines = (linesCleared === 4);
 
-        // ★ 変更：第3引数に isPerfectClear を追加
-        this.Scoring(tSpinResult, linesCleared, isPerfectClear);
+        // ★ 変更：Scoring() の戻り値として火力（段数）を受け取る
+        const generatedGarbage = this.Scoring(tSpinResult, linesCleared, isPerfectClear);
         this.updateStatsDisplay();
 
         if (tSpinResult !== null || isB2BTriggered || currentRen > 0 || isPerfectClear || is4Lines) {
             this.showActionLabels(tSpinResult, linesCleared, isB2BTriggered, currentRen, isPerfectClear, is4Lines);
+        }
+
+        // ★ 追加：対戦モードで火力を生成した場合、相手に送る
+        if(this.isVersusMode && generatedGarbage > 0){
+            this.sendGarbage(generatedGarbage);
         }
 
         if (this.mode === 'sprint' && this.lines >= this.goalLines) {
@@ -727,6 +830,11 @@ class Game{
         if (isAllOutside) {
             this.gameOver();
             return;
+        }
+
+        // ★ 追加：次のミノが出現する直前（今のミノが固定された瞬間）に、自分に届いている火力を適用
+        if(this.isVersusMode){
+            this.applyGarbage();
         }
 
         this.popMino()
