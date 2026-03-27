@@ -862,12 +862,12 @@ class Game{
             // x: プラスで右、マイナスで左へ移動
             // y: プラスで下、マイナスで上へ移動
             this.labelLayout = {
-                four:  { x: 0, y: 0 },    // 1. 4-LINES
-                mini:  { x: 0, y: 35 },   // 2. MINI
-                tspin: { x: 0, y: 70 },   // 3. T-SPIN
-                b2b:   { x: 0, y: 105 },  // 4. BACK-TO-BACK
-                pc:    { x: 0, y: 140 },  // 5. PERFECT CLEAR
-                ren:   { x: 0, y: 175 }   // 6. REN
+                four:  { x: 80, y: 0 },    // 1. 4-LINES
+                mini:  { x: 40, y: 35 },   // 2. MINI
+                tspin: { x: 60, y: 70 },   // 3. T-SPIN
+                b2b:   { x: 60, y: 105 },  // 4. BACK-TO-BACK
+                pc:    { x: 60, y: 140 },  // 5. PERFECT CLEAR
+                ren:   { x: 80, y: 175 }   // 6. REN
             };
 
             const slotIds = ['four', 'mini', 'tspin', 'b2b', 'pc', 'ren'];

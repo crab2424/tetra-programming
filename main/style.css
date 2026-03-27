@@ -1554,7 +1554,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   /* 既存のスタイルに上書き・追加されます */
   transform: scale(0.8);
   transform-origin: top center;
-  margin: 0 40px; /* 縮小してできた余白を詰めて、画面に収める */
+  margin: 0 80px; /* フィールド間のスペースを広げるために左右にマージンを追加 */
 }
 
 /* ★ 追加：両プレイヤーのレベル表記を非表示 */
