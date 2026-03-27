@@ -32,6 +32,14 @@ const GAME_MODES = {
     descriptionEn: 'Score as many points as possible in 2 minutes.',
     color:       'var(--accent2)',
   },
+  test: {
+    id:          'test',
+    label:       'CPU TEST',
+    icon:        '🤖',
+    description: 'CPUの動作確認用モードです。人間は操作しません。',
+    descriptionEn: 'Test mode for CPU behavior. CPU ONLY.',
+    color:       'var(--success)', // 緑色など任意のカラー
+  },
 };
 
 // ─── 現在選択中のモード ───────────────────────
@@ -436,6 +444,24 @@ function renderModeCheck() {
           btn.style.color = mode.color;
           btn.style.borderColor = mode.color;
       });
+    } else if (mode.id === 'test') {
+      // ★ 追加: TESTモード時はCPUレベル選択UIを生成して表示
+      optionsEl.style.display = 'flex';
+      optionsEl.innerHTML = `
+        <div class="opt-label">CPU LEVEL</div>
+        <div class="opt-row" id="test-cpu-level-toggle"></div>
+      `;
+      const toggle = document.getElementById('test-cpu-level-toggle');
+      for (let lv = 1; lv <= 5; lv++) {
+        const btn = document.createElement('button');
+        btn.className = 'opt-btn' + (lv === selectedCpuLevel ? ' active' : '');
+        btn.textContent = 'LV' + lv;
+        btn.onclick = () => {
+          selectedCpuLevel = lv;
+          renderModeCheck(); // 再描画してactive状態を更新
+        };
+        toggle.appendChild(btn);
+      }
     } else {
       optionsEl.style.display = 'none';
     }
@@ -488,6 +514,17 @@ function startGameFromModeCheck() {
 
   switchPage('game');
   window._game.start();
+
+  // ★ 追加: TESTモードならCPUコントローラーをシングルプレイ側にアタッチして起動
+  if (modeId === 'test') {
+    window._game.isCpuControlled = true; // 人間の操作を無効化
+    if (!window._cpuController) {
+      window._cpuController = new CPU(window._game);
+    } else {
+      window._cpuController.game = window._game; // 参照を更新
+    }
+    window._cpuController.start();
+  }
 }
 
 // ─────────────────────────────────────────────

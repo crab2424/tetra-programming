@@ -1749,3 +1749,14 @@ input[type="range"]::-webkit-slider-thumb:hover {
   top: 0;
   left: 0;
 }
+
+/* Test: success（緑） */
+.mode-btn-test {
+  border-color: rgba(90, 245, 160, 0.35);
+}
+.mode-btn-test:hover {
+  background: rgba(90, 245, 160, 0.12);
+  border-color: var(--success);
+}
+.mode-btn-test .mode-btn-icon { color: var(--success); }
+.mode-btn-test .mode-btn-label { color: var(--success); }
