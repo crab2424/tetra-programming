@@ -1,7 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&family=Press+Start+2P&family=Russo+One&family=Rajdhani:wght@400;700&display=swap');
 
 /* ─────────────────────────────────────────────
-   CSS 変数（テーマカラー）
+  CSS 変数（テーマカラー）
 ───────────────────────────────────────────── */
 :root {
   --bg:        #0a0a0f;
@@ -14,10 +14,16 @@
   --text-dim:  #888;
   --danger:    #f55a5a;
   --success:   #5af5a0;
+  /* フォント変数 */
+  --font-main: 'Noto Sans JP', sans-serif;
+  --font-orbitron: 'Orbitron', monospace;
+  --font-pixel: 'Press Start 2P', monospace;
+  --font-tech: 'Russo One', sans-serif;
+  --font-modern: 'Rajdhani', sans-serif;
 }
 
 /* ─────────────────────────────────────────────
-   リセット・ベース
+  リセット・ベース
 ───────────────────────────────────────────── */
 * {
   box-sizing: border-box;
@@ -26,6 +32,7 @@
 }
 
 body {
+  font-family: var(--font-main);
   background: var(--bg);
   color: var(--text);
   font-family: 'Noto Sans JP', sans-serif;
@@ -37,7 +44,7 @@ body {
 }
 
 /* ─────────────────────────────────────────────
-   ヘッダーエリア
+  ヘッダーエリア
 ───────────────────────────────────────────── */
 #header-area {
   display: flex;
@@ -62,7 +69,7 @@ h1 {
 }
 
 /* ─────────────────────────────────────────────
-   ページ切り替え（完全独立）
+  ページ切り替え（完全独立）
 ───────────────────────────────────────────── */
 /* 基本は非表示 */
 .page { 
@@ -98,7 +105,7 @@ h1 {
 }
 
 /* ─────────────────────────────────────────────
-   メインメニューページ
+  メインメニューページ
 ───────────────────────────────────────────── */
 #menu-container {
   display: flex;
@@ -230,7 +237,7 @@ h1 {
 }
 
 /* ─────────────────────────────────────────────
-   リザルトページ
+  リザルトページ
 ───────────────────────────────────────────── */
 #result-container {
   display: flex;
@@ -626,8 +633,8 @@ canvas {
 
 #action-label-container {
   position: absolute;
-  left: -160px;
-  top: 240px;
+  left: -200px;
+  top: 200px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -636,7 +643,7 @@ canvas {
 }
 
 .action-label {
-  font-family: 'Orbitron', monospace;
+  font-family: var(--font-orbitron);
   font-size: 18px;
   font-weight: 700;
   letter-spacing: 2px;
@@ -652,6 +659,12 @@ canvas {
 .action-label.four  { color: #00e5ff; }
 .action-label.b2b   { color: #f5a623; }
 .action-label.ren   { color: #a6f523; }
+
+/* フォント切り替え用 */
+.font-orbitron { font-family: var(--font-orbitron); }
+.font-pixel    { font-family: var(--font-pixel); font-size: 14px; }
+.font-tech     { font-family: var(--font-tech); }
+.font-modern   { font-family: var(--font-modern); }
 
 /* ─────────────────────────────────────────────
    ポーズオーバーレイ

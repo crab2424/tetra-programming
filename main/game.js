@@ -168,8 +168,15 @@ class Game{
         this.isPaused = false
         this.actionLabels = [];
         this.actionAlpha = 0;
-        if(this._actionFadeTimer) clearTimeout(this._actionFadeTimer);
-        if(this._actionFadeInterval) clearInterval(this._actionFadeInterval);
+        if(this._labelsInitialized) {
+            Object.keys(this.labelTimers).forEach(id => {
+                if(this.labelTimers[id].fade) clearTimeout(this.labelTimers[id].fade);
+                if(this.labelTimers[id].clear) clearTimeout(this.labelTimers[id].clear);
+                
+                this.labelElements[id].style.opacity = '0';
+                this.labelElements[id].innerHTML = '&nbsp;';
+            });
+        }
         this.lastActionWasRotation = false;
         this.lastRotUsedPoint5 = false;
         this.backToBack = false;
@@ -723,48 +730,111 @@ class Game{
         const container = document.getElementById('action-label-container');
         if(!container) return;
 
-        container.innerHTML = '';
+        // 初回呼び出し時に、完全に独立した絶対配置のスロットを作成する
+        if(!this._labelsInitialized) {
+            container.innerHTML = '';
+            
+            // コンテナを基準点（座標0, 0のアンカー）として扱うための設定
+            container.style.width = '0px';
+            container.style.height = '0px';
+            container.style.position = 'absolute';
+            // ※ container自体の位置は style.css の #action-label-container (left: -200px; top: 240px;) に依存します
 
-        const createLabel = (text, className) => {
-            const el = document.createElement('div');
-            el.className = 'action-label ' + className;
-            el.textContent = text;
-            container.appendChild(el);
-        };
+            this.labelElements = {};
+            this.labelTimers = {};
+            
+            // ★ 完全自由配置用の座標マッピング（コンテナを基準としたpx単位）
+            // x: プラスで右、マイナスで左へ移動
+            // y: プラスで下、マイナスで上へ移動
+            this.labelLayout = {
+                four:  { x: 0, y: 0 },    // 1. 4-LINES
+                mini:  { x: 0, y: 35 },   // 2. MINI
+                tspin: { x: 0, y: 70 },   // 3. T-SPIN
+                b2b:   { x: 0, y: 105 },  // 4. BACK-TO-BACK
+                pc:    { x: 0, y: 140 },  // 5. PERFECT CLEAR
+                ren:   { x: 0, y: 175 }   // 6. REN
+            };
 
-        if(isPerfectClear){
-            createLabel('PERFECT CLEAR', 'pc');
+            const slotIds = ['four', 'mini', 'tspin', 'b2b', 'pc', 'ren'];
+            slotIds.forEach(id => {
+                const el = document.createElement('div');
+                el.className = `action-label`; 
+                el.style.opacity = '0';
+                
+                // ★ 絶対配置（他のラベルの位置に一切影響を与えない）
+                el.style.position = 'absolute';
+                el.style.whiteSpace = 'nowrap'; // テキストの意図しない折り返しを防止
+                
+                // 座標の適用 (テキストの中央がX座標の基準になるように transform を使用)
+                el.style.left = `${this.labelLayout[id].x}px`;
+                el.style.top = `${this.labelLayout[id].y}px`;
+                el.style.transform = 'translateX(-50%)'; 
+                
+                el.innerHTML = '&nbsp;'; 
+                
+                container.appendChild(el);
+                this.labelElements[id] = el;
+                this.labelTimers[id] = { fade: null, clear: null };
+            });
+            this._labelsInitialized = true;
         }
 
+        const triggerLabel = (id, text, additionalClass) => {
+            const el = this.labelElements[id];
+            const timers = this.labelTimers[id];
+
+            if(timers.fade) clearTimeout(timers.fade);
+            if(timers.clear) clearTimeout(timers.clear);
+
+            el.className = `action-label ${additionalClass}`;
+            el.textContent = text;
+            el.style.opacity = '1';
+
+            timers.fade = setTimeout(() => {
+                el.style.opacity = '0';
+            }, 800);
+
+            timers.clear = setTimeout(() => {
+                el.innerHTML = '&nbsp;';
+            }, 1200);
+        };
+
+        // 1. 4-LINES
+        if(is4Lines){
+            triggerLabel('four', '4-LINES', 'four font-orbitron');
+        }
+
+        // 2 & 3. T-SPIN / MINI T-SPIN
         if(tSpinType !== null){
             const clearNames = ['', ' SINGLE', ' DOUBLE', ' TRIPLE'];
             const suffix = clearNames[linesCleared] ?? '';
-            if(tSpinType === 'tspin'){
-                createLabel('T-SPIN' + suffix, 'tspin');
+            
+            if(tSpinType === 'mini'){
+                triggerLabel('mini', 'MINI', 'mini font-tech');
+                triggerLabel('tspin', 'T-SPIN' + suffix, 'mini font-tech');
             } else {
-                createLabel('MINI T-SPIN' + suffix, 'mini');
+                if(this.labelElements['mini'].style.opacity !== '0'){
+                    this.labelElements['mini'].style.opacity = '0';
+                    this.labelElements['mini'].innerHTML = '&nbsp;';
+                }
+                triggerLabel('tspin', 'T-SPIN' + suffix, 'tspin font-tech');
             }
-        } else if(is4Lines){
-            createLabel('4-LINES', 'four');
         }
 
+        // 4. BACK-TO-BACK
         if(isB2B){
-            createLabel('BACK-TO-BACK', 'b2b');
+            triggerLabel('b2b', 'BACK-TO-BACK', 'b2b font-orbitron');
         }
 
+        // 5. PERFECT CLEAR
+        if(isPerfectClear){
+            triggerLabel('pc', 'PERFECT CLEAR', 'pc font-orbitron');
+        }
+
+        // 6. REN
         if(renCount > 0){
-            createLabel(renCount + ' REN', 'ren');
+            triggerLabel('ren', renCount + ' REN', 'ren font-orbitron');
         }
-
-        // フェードアウト処理
-        setTimeout(() => {
-            const labels = container.querySelectorAll('.action-label');
-            labels.forEach(el => el.style.opacity = '0');
-        }, 800);
-
-        setTimeout(() => {
-            container.innerHTML = '';
-        }, 1200);
     }
 
     // ─── 表示の更新 ───
