@@ -56,33 +56,29 @@ function loadTuning() {
 }
 
 // ─── 画面切り替え（SPA仕様） ───────────────────────────
-function switchPage(pageId) {
-  // 直前のページを記憶（設定画面から戻るため）
-  const currentActive = document.querySelector('.page.active');
-  if (currentActive && currentActive.id !== 'settings-page') {
-    window._prevPage = currentActive.id.replace('-page', '');
-  }
-
-  // すべてのページを非表示
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-
-  // 対象のページを表示
-  const target = document.getElementById(pageId + '-page');
-  if (target) target.classList.add('active');
-
-  // ヘッダーは settings ページのみ表示
-  const header = document.getElementById('header-area');
-  if (header) header.style.display = (pageId === 'settings') ? 'flex' : 'none';
-
-  // 表示時に必要な処理を実行
-  if (pageId === 'game') {
-    stopListening();
-  } else if (pageId === 'settings') {
-    stopListening();
-    renderKeyConfig();
-    renderTuning();
-  }
-}
+// ★ 注意：この関数は router.js の switchPage() に統合されました。
+//　 router.js が settings.js より後に読み込まれるため、
+// 　 router.js の定義がこちらを上書きします。
+// 　 後方互換のためここにコメントとして残しておきます。
+//
+// function switchPage(pageId) {
+//   const currentActive = document.querySelector('.page.active');
+//   if (currentActive && currentActive.id !== 'settings-page') {
+//     window._prevPage = currentActive.id.replace('-page', '');
+//   }
+//   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+//   const target = document.getElementById(pageId + '-page');
+//   if (target) target.classList.add('active');
+//   const header = document.getElementById('header-area');
+//   if (header) header.style.display = (pageId === 'settings') ? 'flex' : 'none';
+//   if (pageId === 'game') {
+//     stopListening();
+//   } else if (pageId === 'settings') {
+//     stopListening();
+//     renderKeyConfig();
+//     renderTuning();
+//   }
+// }
 
 // ─── 設定画面の描画 (キー) ────────────────────
 function renderKeyConfig() {
@@ -225,19 +221,35 @@ function showToast() {
 
 // メインメニューのコントロール表示を更新する関数
 function updateMenuControlsDisplay() {
+  // ─── 旧メインメニュー（後方互換） ───
   const grid = document.getElementById('menu-controls-grid');
-  if (!grid) return;
+  if (grid) {
+    grid.innerHTML = `
+      <span class="ctrl-key">${currentKeys.moveLeft.label}${currentKeys.moveRight.label}</span><span class="ctrl-desc">移動</span>
+      <span class="ctrl-key">${currentKeys.rotateCW.label}</span><span class="ctrl-desc">右回転</span>
+      <span class="ctrl-key">${currentKeys.rotateCCW.label}</span><span class="ctrl-desc">左回転</span>
+      <span class="ctrl-key">${currentKeys.softDrop.label}</span><span class="ctrl-desc">ソフトドロップ</span>
+      <span class="ctrl-key">${currentKeys.hardDrop.label}</span><span class="ctrl-desc">ハードドロップ</span>
+      <span class="ctrl-key">${currentKeys.hold.label}</span><span class="ctrl-desc">ホールド</span>
+      <span class="ctrl-key">${currentKeys.pause.label}</span><span class="ctrl-desc">ポーズ</span>
+      <span class="ctrl-key">${currentKeys.restart.label}</span><span class="ctrl-desc">リスタート</span>
+    `;
+  }
 
-  grid.innerHTML = `
-    <span class="ctrl-key">${currentKeys.moveLeft.label}${currentKeys.moveRight.label}</span><span class="ctrl-desc">移動</span>
-    <span class="ctrl-key">${currentKeys.rotateCW.label}</span><span class="ctrl-desc">右回転</span>
-    <span class="ctrl-key">${currentKeys.rotateCCW.label}</span><span class="ctrl-desc">左回転</span>
-    <span class="ctrl-key">${currentKeys.softDrop.label}</span><span class="ctrl-desc">ソフトドロップ</span>
-    <span class="ctrl-key">${currentKeys.hardDrop.label}</span><span class="ctrl-desc">ハードドロップ</span>
-    <span class="ctrl-key">${currentKeys.hold.label}</span><span class="ctrl-desc">ホールド</span>
-    <span class="ctrl-key">${currentKeys.pause.label}</span><span class="ctrl-desc">ポーズ</span>
-    <span class="ctrl-key">${currentKeys.restart.label}</span><span class="ctrl-desc">リスタート</span>
-  `;
+  // ★ 追加：準備画面のコントロールグリッドも同じ内容で更新
+  const modeCheckGrid = document.getElementById('mode-check-controls-grid');
+  if (modeCheckGrid) {
+    modeCheckGrid.innerHTML = `
+      <span class="ctrl-key">${currentKeys.moveLeft.label}${currentKeys.moveRight.label}</span><span class="ctrl-desc">移動</span>
+      <span class="ctrl-key">${currentKeys.rotateCW.label}</span><span class="ctrl-desc">右回転</span>
+      <span class="ctrl-key">${currentKeys.rotateCCW.label}</span><span class="ctrl-desc">左回転</span>
+      <span class="ctrl-key">${currentKeys.softDrop.label}</span><span class="ctrl-desc">ソフトドロップ</span>
+      <span class="ctrl-key">${currentKeys.hardDrop.label}</span><span class="ctrl-desc">ハードドロップ</span>
+      <span class="ctrl-key">${currentKeys.hold.label}</span><span class="ctrl-desc">ホールド</span>
+      <span class="ctrl-key">${currentKeys.pause.label}</span><span class="ctrl-desc">ポーズ</span>
+      <span class="ctrl-key">${currentKeys.restart.label}</span><span class="ctrl-desc">リスタート</span>
+    `;
+  }
 }
 
 // 既存の saveSettings 関数を書き換えて、保存時にメニュー表示も更新するようにします

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>テトラボ</title>
-    <link rel="stylesheet" href="style.css?v=6">
+    <link rel="stylesheet" href="style.css?v=7">
   </head>
   <body>
     <div id="header-area" style="display:none;">
@@ -12,9 +12,118 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         メインメニューページ
+         タイトル画面（フローチャート: title screen）
+         クリック or キー入力でメインメニューへ遷移
     ───────────────────────────────────────────── -->
-    <div id="menu-page" class="page active">
+    <div id="title-page" class="page active">
+      <div id="title-container">
+        <div id="title-logo">
+          <h1 class="title-main-title">TETLABO</h1>
+          <p class="title-subtitle">CREATED BY GAME CIRCLE</p>
+        </div>
+        <div id="title-press-any" class="title-blink">
+          PRESS ANY KEY
+        </div>
+        <div id="title-version">v1.0</div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         メインメニューページ（フローチャート: main menu）
+         モード選択 + Settings へ遷移
+    ───────────────────────────────────────────── -->
+    <div id="main-menu-page" class="page">
+      <div id="main-menu-container">
+        <div id="main-menu-logo">
+          <h1 class="menu-title">TETLABO</h1>
+          <p class="menu-subtitle">SELECT MODE</p>
+        </div>
+
+        <!-- モードボタン 3つ（フローチャートでは mode1/mode2 の2つだが実装は3つ） -->
+        <div id="main-menu-modes">
+          <!-- mode1: MARATHON -->
+          <button class="mode-btn mode-btn-marathon" onclick="goToModeCheck('marathon')">
+            <span class="mode-btn-icon">∞</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">MARATHON</span>
+              <span class="mode-btn-desc">ラインを消してスコアを稼げ</span>
+            </div>
+          </button>
+          <!-- mode2: SPRINT（フローチャートの mode2 check に対応） -->
+          <button class="mode-btn mode-btn-sprint" onclick="goToModeCheck('sprint')">
+            <span class="mode-btn-icon">⚡</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">SPRINT</span>
+              <span class="mode-btn-desc">40ライン最速クリア</span>
+            </div>
+          </button>
+          <!-- mode3: ULTRA（実装追加の3つ目のモード） -->
+          <button class="mode-btn mode-btn-ultra" onclick="goToModeCheck('ultra')">
+            <span class="mode-btn-icon">★</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">ULTRA</span>
+              <span class="mode-btn-desc">2分間スコアアタック</span>
+            </div>
+          </button>
+        </div>
+
+        <!-- Settings へのリンク -->
+        <div id="main-menu-footer">
+          <button class="menu-btn btn-secondary" onclick="switchPage('settings')">
+            <span class="menu-btn-icon">⚙</span>
+            <span>SETTINGS</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         準備画面（フローチャート: mode1 check / mode2 check）
+         1つの共通ページ。currentGameMode 変数で内容を切り替える。
+    ───────────────────────────────────────────── -->
+    <div id="mode-check-page" class="page">
+      <div id="mode-check-container">
+        <!-- モードアイコン＆ラベル（renderModeCheck() で動的に変わる） -->
+        <div id="mode-check-header">
+          <span id="mode-check-icon" class="mode-check-icon">∞</span>
+          <h2 id="mode-check-label" class="mode-check-label">MARATHON</h2>
+        </div>
+
+        <!-- モード説明文 -->
+        <div id="mode-check-desc-block">
+          <p id="mode-check-desc-ja" class="mode-check-desc-ja">ラインを消してスコアを稼げ。レベルが上がるにつれてミノが加速する。</p>
+          <p id="mode-check-desc-en" class="mode-check-desc-en">Clear lines to rack up score. Speed increases as your level rises.</p>
+        </div>
+
+        <!-- ルール／操作確認エリア（固定情報） -->
+        <div id="mode-check-controls">
+          <p class="controls-title">CONTROLS</p>
+          <div class="controls-grid" id="mode-check-controls-grid">
+            <!-- updateModeCheckControls() で内容を入れる（初期値は menu-controls-grid と同様） -->
+          </div>
+        </div>
+
+        <!-- ボタン群 -->
+        <div id="mode-check-buttons">
+          <!-- STARTボタン押下でゲーム開始（startGameFromModeCheck() 経由） -->
+          <button class="menu-btn btn-primary" id="mode-check-start-btn" onclick="startGameFromModeCheck()">
+            <span class="menu-btn-icon">▶</span>
+            <span>START</span>
+          </button>
+          <!-- メインメニューへ戻る -->
+          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+            <span class="menu-btn-icon">◀</span>
+            <span>BACK</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         旧メインメニューページ（後方互換のため残す・非表示）
+         現在はタイトル画面として扱う
+    ───────────────────────────────────────────── -->
+    <div id="menu-page" class="page">
       <div id="menu-container">
         <div id="menu-logo">
           <h1 class="menu-title">TETLABO</h1>
@@ -79,7 +188,7 @@
             <button class="pause-btn btn-resume" onclick="window._game && window._game.resume()">▶ RESUME</button>
             <button class="pause-btn btn-settings" onclick="switchPage('settings')">⚙ SETTINGS</button>
             <button class="pause-btn btn-restart" onclick="window._game && window._game.start()">↺ RESTART</button>
-            <button class="pause-btn btn-mainmenu" onclick="switchPage('menu')">⌂ MAIN MENU</button>
+            <button class="pause-btn btn-mainmenu" onclick="switchPage('main-menu')">⌂ MAIN MENU</button>
           </div>
         </div>
       </div>
@@ -114,7 +223,7 @@
             <span class="menu-btn-icon">↺</span>
             <span>RETRY</span>
           </button>
-          <button class="menu-btn btn-secondary" onclick="switchPage('menu')">
+          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
             <span class="menu-btn-icon">⌂</span>
             <span>MAIN MENU</span>
           </button>
@@ -161,7 +270,8 @@
 
     <div id="settings-toast">SAVED ✓</div>
     
-    <script src="settings.js?v=6"></script>
-    <script src="game.js?v=6"></script>
+    <script src="settings.js?v=7"></script>
+    <script src="router.js?v=7"></script>
+    <script src="game.js?v=7"></script>
   </body>
 </html>

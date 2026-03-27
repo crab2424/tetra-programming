@@ -888,3 +888,273 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--text-dim);
   user-select: none;
 }
+
+/* ─────────────────────────────────────────────
+   タイトル画面（title-page）
+───────────────────────────────────────────── */
+#title-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 80vh;
+  cursor: pointer;
+}
+
+#title-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+}
+
+.title-main-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 64px;
+  font-weight: 900;
+  letter-spacing: 14px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 8px 0;
+  line-height: 1;
+  text-shadow: none;
+}
+
+.title-subtitle {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0;
+  text-align: center;
+}
+
+.title-blink {
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  letter-spacing: 5px;
+  color: var(--text-dim);
+  animation: title-blink-anim 1.2s ease-in-out infinite;
+}
+
+@keyframes title-blink-anim {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.15; }
+}
+
+#title-version {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+  opacity: 0.5;
+}
+
+/* ─────────────────────────────────────────────
+   メインメニューページ（main-menu-page）
+   フローチャート: main menu
+───────────────────────────────────────────── */
+#main-menu-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#main-menu-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding-top: 32px;
+  width: 460px;
+}
+
+#main-menu-logo {
+  text-align: center;
+}
+
+/* モード選択ボタン群 */
+#main-menu-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  padding: 20px 28px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+  text-align: left;
+}
+
+.mode-btn:hover  { transform: translateY(-2px); }
+.mode-btn:active { transform: translateY(0); }
+
+/* Marathon: accent（紫） */
+.mode-btn-marathon {
+  border-color: rgba(196, 113, 245, 0.35);
+}
+.mode-btn-marathon:hover {
+  background: rgba(196, 113, 245, 0.12);
+  border-color: var(--accent);
+}
+
+/* Sprint: accent3（水色） */
+.mode-btn-sprint {
+  border-color: rgba(113, 197, 245, 0.35);
+}
+.mode-btn-sprint:hover {
+  background: rgba(113, 197, 245, 0.12);
+  border-color: var(--accent3);
+}
+
+/* Ultra: accent2（ピンク） */
+.mode-btn-ultra {
+  border-color: rgba(250, 113, 205, 0.35);
+}
+.mode-btn-ultra:hover {
+  background: rgba(250, 113, 205, 0.12);
+  border-color: var(--accent2);
+}
+
+.mode-btn-icon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 40px;
+  text-align: center;
+}
+
+/* Marathon のアイコン色 */
+.mode-btn-marathon .mode-btn-icon { color: var(--accent); }
+/* Sprint のアイコン色 */
+.mode-btn-sprint   .mode-btn-icon { color: var(--accent3); }
+/* Ultra のアイコン色 */
+.mode-btn-ultra    .mode-btn-icon { color: var(--accent2); }
+
+.mode-btn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mode-btn-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text);
+}
+
+/* Marathon の label 色 */
+.mode-btn-marathon .mode-btn-label { color: var(--accent); }
+/* Sprint の label 色 */
+.mode-btn-sprint   .mode-btn-label { color: var(--accent3); }
+/* Ultra の label 色 */
+.mode-btn-ultra    .mode-btn-label { color: var(--accent2); }
+
+.mode-btn-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* フッター（Settingsボタン） */
+#main-menu-footer {
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   準備画面（mode-check-page）
+   フローチャート: mode1 check / mode2 check（共通1ページ）
+───────────────────────────────────────────── */
+#mode-check-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#mode-check-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 36px;
+  padding-top: 32px;
+  width: 460px;
+}
+
+/* ヘッダー（アイコン＋ラベル） */
+#mode-check-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.mode-check-icon {
+  font-size: 52px;
+  line-height: 1;
+  /* color は renderModeCheck() でインラインセット */
+}
+
+.mode-check-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  margin: 0;
+  /* color は renderModeCheck() でインラインセット */
+}
+
+/* 説明文 */
+#mode-check-desc-block {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  text-align: center;
+}
+
+.mode-check-desc-ja {
+  font-size: 14px;
+  color: var(--text);
+  margin: 0 0 8px 0;
+  line-height: 1.6;
+}
+
+.mode-check-desc-en {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* コントロール一覧（menu-controls と同スタイル） */
+#mode-check-controls {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+
+/* ボタン群 */
+#mode-check-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}

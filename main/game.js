@@ -30,7 +30,7 @@ window.onload = function(){
     // グローバルに保持（設定変更後に setKeyEvent を外から呼ぶため）
     window._game = game
 
-    // メインメニューの「GAME START」ボタン
+    // メインメニューの「GAME START」ボタン（旧UIとの後方互換、非表示だが残す）
     document.getElementById('menu-start-btn').onclick = function(){
         switchPage('game');
         game.start();
@@ -50,6 +50,9 @@ window.onload = function(){
         game.start()
         this.blur()
     }
+
+    // ★ 追加：準備画面のコントロール表示を初期化（router.js の関数を呼ぶ）
+    if (typeof updateMenuControlsDisplay === 'function') updateMenuControlsDisplay();
 }
 
 // ─────────────────────────────────────────────
