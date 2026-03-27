@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>テトラボ</title>
-    <link rel="stylesheet" href="style.css?v=7">
+    <link rel="stylesheet" href="style.css?v=9">
   </head>
   <body>
     <div id="header-area" style="display:none;">
@@ -211,6 +211,17 @@
             <div id="player-garbage-gauge" class="garbage-gauge"></div>
             <canvas id="player-main-canvas"></canvas>
             <div id="player-action-label-container"></div>
+
+            <!-- ★ 追加：プレイヤー側カウントダウンオーバーレイ -->
+            <div id="player-countdown-overlay" class="field-overlay countdown-overlay">
+              <span id="player-countdown-text" class="countdown-text"></span>
+            </div>
+
+            <!-- ★ 追加：プレイヤー側終了演出オーバーレイ -->
+            <div id="player-finish-overlay" class="field-overlay finish-overlay">
+              <span id="player-finish-text" class="finish-text"></span>
+            </div>
+
             <span class="area-label versus-label-next">NEXT</span>
             <canvas id="player-next-canvas"></canvas>
             <span class="area-label versus-label-hold">HOLD</span>
@@ -247,6 +258,17 @@
             <div id="cpu-garbage-gauge" class="garbage-gauge"></div>
             <canvas id="cpu-main-canvas"></canvas>
             <div id="cpu-action-label-container"></div>
+
+            <!-- ★ 追加：CPU側カウントダウンオーバーレイ -->
+            <div id="cpu-countdown-overlay" class="field-overlay countdown-overlay">
+              <span id="cpu-countdown-text" class="countdown-text"></span>
+            </div>
+
+            <!-- ★ 追加：CPU側終了演出オーバーレイ -->
+            <div id="cpu-finish-overlay" class="field-overlay finish-overlay">
+              <span id="cpu-finish-text" class="finish-text"></span>
+            </div>
+
             <span class="area-label versus-label-next-cpu">NEXT</span>
             <canvas id="cpu-next-canvas"></canvas>
             <span class="area-label versus-label-hold-cpu">HOLD</span>
@@ -357,6 +379,17 @@
       <div id="container">
         <canvas id="main-canvas"></canvas>
         <div id="action-label-container"></div>
+
+        <!-- ★ 追加：シングルプレイ用カウントダウンオーバーレイ（キャンバスに重なる） -->
+        <div id="countdown-overlay" class="field-overlay countdown-overlay">
+          <span id="countdown-text" class="countdown-text"></span>
+        </div>
+
+        <!-- ★ 追加：シングルプレイ用終了演出オーバーレイ -->
+        <div id="finish-overlay" class="field-overlay finish-overlay">
+          <span id="finish-text" class="finish-text"></span>
+        </div>
+
         <span class="area-label" id="label-next">NEXT</span>
         <canvas id="next-canvas"></canvas>
         <span class="area-label" id="label-hold">HOLD</span>
@@ -473,8 +506,8 @@
 
     <div id="settings-toast">SAVED ✓</div>
     
-    <script src="settings.js?v=7"></script>
-    <script src="router.js?v=7"></script>
-    <script src="game.js?v=7"></script>
+    <script src="settings.js?v=9"></script>
+    <script src="router.js?v=9"></script>
+    <script src="game.js?v=9"></script>
   </body>
 </html>

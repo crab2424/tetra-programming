@@ -1611,3 +1611,141 @@ input[type="range"]::-webkit-slider-thumb:hover {
   from { opacity: 1; }
   to   { opacity: 0.2; }
 }
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ★ 追加：カウントダウン／終了演出オーバーレイ
+   フィールド上に重なって表示される汎用オーバーレイ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* ─── 汎用フィールドオーバーレイ（カウントダウン＆終了演出の共通ベース） ─── */
+.field-overlay {
+  /* キャンバスと同じ位置・サイズに重ねる */
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;   /* SCREEN_WIDTH = COLS_COUNT(10) × BLOCK_SIZE(32) */
+  height: 656px;  /* SCREEN_HEIGHT + ラベル余白分（versus-container に合わせる） */
+  display: none;  /* .active クラスで表示 */
+  align-items: center;
+  justify-content: center;
+  z-index: 20;    /* アクションラベル(z-index:10)より前面 */
+  pointer-events: none; /* クリック透過 */
+  border-radius: 2px;
+}
+
+/* シングルプレイのフィールドオーバーレイはキャンバスに合わせた高さ */
+#countdown-overlay,
+#finish-overlay {
+  height: 656px; /* SCREEN_HEIGHT 相当 */
+}
+
+.field-overlay.active {
+  display: flex;
+}
+
+/* ─── カウントダウンオーバーレイ専用スタイル ─── */
+.countdown-overlay {
+  background: transparent;
+}
+
+/* カウントダウンの数字・テキスト */
+.countdown-text {
+  font-family: 'Orbitron', monospace;
+  font-weight: 900;
+  font-size: 96px;
+  letter-spacing: 4px;
+  color: #fff;
+  text-shadow:
+    0 0 20px rgba(196, 113, 245, 0.8),
+    0 0 60px rgba(196, 113, 245, 0.4),
+    0 4px 16px rgba(0, 0, 0, 0.8);
+  /* アニメーションはクラスで付与 */
+  line-height: 1;
+  user-select: none;
+}
+
+/* START! は少し小さく */
+.countdown-text:not(:empty) {
+  /* テキスト長に応じて自動調整 */
+  white-space: nowrap;
+}
+
+/* ポップアニメーション（数字が弾ける） */
+@keyframes countdown-pop-anim {
+  0%   { transform: scale(0.4); opacity: 0; }
+  40%  { transform: scale(1.15); opacity: 1; }
+  65%  { transform: scale(0.95); }
+  80%  { transform: scale(1.05); }
+  100% { transform: scale(1.0); opacity: 1; }
+}
+
+.countdown-text.countdown-pop {
+  animation: countdown-pop-anim 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* START! テキストは色を変えて区別 */
+.countdown-overlay {
+  background: transparent;
+}
+
+/* ─── 終了演出オーバーレイ専用スタイル ─── */
+.finish-overlay {
+  background: transparent;
+  transition: opacity 0.5s ease;
+}
+
+.finish-overlay.fadeout {
+  opacity: 0;
+}
+
+/* 終了テキスト共通 */
+.finish-text {
+  font-family: 'Orbitron', monospace;
+  font-weight: 900;
+  font-size: 44px;
+  letter-spacing: 4px;
+  text-align: center;
+  line-height: 1.2;
+  user-select: none;
+  animation: finish-appear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* クリア時（FINISH! / WIN!） */
+.finish-text.finish-clear {
+  color: var(--success);
+  text-shadow:
+    0 0 24px rgba(90, 245, 160, 0.7),
+    0 0 60px rgba(90, 245, 160, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.8);
+}
+
+/* ゲームオーバー時（GAME OVER / LOSE...） */
+.finish-text.finish-gameover {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* text-shadow は -webkit-text-fill-color: transparent と共存できないため filter で代替 */
+  filter: drop-shadow(0 0 16px rgba(196, 113, 245, 0.6)) drop-shadow(0 4px 8px rgba(0,0,0,0.8));
+}
+
+@keyframes finish-appear {
+  0%   { transform: scale(0.6) translateY(20px); opacity: 0; }
+  60%  { transform: scale(1.08) translateY(-4px); opacity: 1; }
+  80%  { transform: scale(0.97) translateY(2px); }
+  100% { transform: scale(1.0) translateY(0); opacity: 1; }
+}
+
+/* ─── 対戦モードでのオーバーレイは縮小率に合わせて調整 ─── */
+/* versus-container は scale(0.8) で縮小されているため、
+   フィールドオーバーレイはその内側で絶対配置されるため自動的に縮小される。
+   サイズは元の SCREEN_WIDTH(320px) × SCREEN_HEIGHT に合わせる。 */
+#player-countdown-overlay,
+#player-finish-overlay,
+#cpu-countdown-overlay,
+#cpu-finish-overlay {
+  /* versus-container 内のキャンバス (320×656) に合わせる */
+  width: 320px;
+  height: 640px; /* SCREEN_HEIGHT (ROWS_COUNT × BLOCK_SIZE = 640) */
+  top: 0;
+  left: 0;
+}

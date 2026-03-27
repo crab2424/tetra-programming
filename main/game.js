@@ -83,6 +83,92 @@ class Asset{
 }
 
 // ─────────────────────────────────────────────
+// ★ 追加：カウントダウン演出ユーティリティ
+// overlayId   : 表示するオーバーレイ要素のID
+// textEl      : 数字/テキストを表示する要素
+// onStart     : "START!" 表示の瞬間（入力受付開始）に呼ぶコールバック
+// onComplete  : 演出が完全に終了したときのコールバック（任意）
+// ─────────────────────────────────────────────
+function runCountdown(overlayId, textElId, onStart, onComplete) {
+    const overlay = document.getElementById(overlayId);
+    const textEl  = document.getElementById(textElId);
+    if (!overlay || !textEl) {
+        if (onStart)    onStart();
+        if (onComplete) onComplete();
+        return;
+    }
+
+    // ★ 追加：前回のタイマーが動いていればキャンセル（リスタート対策）
+    if (overlay.countdownTimer) clearTimeout(overlay.countdownTimer);
+
+    overlay.classList.add('active');
+
+    const steps = ['3', '2', '1', 'START!'];
+    let stepIdx = 0;
+
+    const showStep = () => {
+        const val = steps[stepIdx];
+        textEl.textContent = val;
+
+        textEl.classList.remove('countdown-pop');
+        void textEl.offsetWidth;
+        textEl.classList.add('countdown-pop');
+
+        if (val === 'START!' && onStart) {
+            onStart();
+        }
+
+        stepIdx++;
+
+        if (stepIdx < steps.length) {
+            overlay.countdownTimer = setTimeout(showStep, 700);
+        } else {
+            overlay.countdownTimer = setTimeout(() => {
+                overlay.classList.remove('active');
+                textEl.textContent = '';
+                if (onComplete) onComplete();
+            }, 600);
+        }
+    };
+
+    showStep();
+}
+
+// ─────────────────────────────────────────────
+// ★ 終了演出ユーティリティ（リセット対応版）
+// ─────────────────────────────────────────────
+function showFinishOverlay(overlayId, textElId, text, className, duration, onComplete) {
+    const overlay = document.getElementById(overlayId);
+    const textEl  = document.getElementById(textElId);
+    if (!overlay || !textEl) {
+        if (onComplete) setTimeout(onComplete, duration || 800);
+        return;
+    }
+
+    // ★ 追加：前回のタイマーが動いていればキャンセル
+    if (overlay.countdownTimer) clearTimeout(overlay.countdownTimer);
+    if (overlay.finishTimer1) clearTimeout(overlay.finishTimer1);
+    if (overlay.finishTimer2) clearTimeout(overlay.finishTimer2);
+
+    textEl.className = 'finish-text';
+    if (className) textEl.classList.add(className);
+    textEl.textContent = text;
+
+    // リスタート用にクラスをリセットしてから表示
+    overlay.classList.remove('fadeout');
+    overlay.classList.add('active');
+
+    overlay.finishTimer1 = setTimeout(() => {
+        overlay.classList.add('fadeout');
+        overlay.finishTimer2 = setTimeout(() => {
+            overlay.classList.remove('active', 'fadeout');
+            textEl.textContent = '';
+            if (onComplete) onComplete();
+        }, 500);
+    }, duration || 800);
+}
+
+// ─────────────────────────────────────────────
 // Game クラス
 // ─────────────────────────────────────────────
 class Game{
@@ -172,7 +258,28 @@ class Game{
 
     // ゲーム開始
     start(){
+        const overlayId = this.isVersusMode
+            ? (this.canvasPrefix ? `${this.canvasPrefix}-countdown-overlay` : 'versus-countdown-overlay')
+            : 'countdown-overlay';
+        const textElId = this.isVersusMode
+            ? (this.canvasPrefix ? `${this.canvasPrefix}-countdown-text` : 'versus-countdown-text')
+            : 'countdown-text';
 
+        this._initGameState();
+
+        // ★ 追加：DASの先行チャージ等を受け付けるため、カウントダウン開始「前」にキーイベントをセット
+        this.setKeyEvent();
+
+        // カウントダウン開始
+        runCountdown(overlayId, textElId, () => {
+            this._startGameplay();
+        }, null);
+    }
+
+    // ─────────────────────────────────────────
+    // ★ 追加：ゲーム状態の初期化（カウントダウン前に呼ぶ）
+    // ─────────────────────────────────────────
+    _initGameState(){
         // モードごとの初期化
         this.mode = this.currentMode || 'marathon';
         if (this.mode === 'sprint') {
@@ -224,14 +331,61 @@ class Game{
         this.lines = 0;
         this.updateStatsDisplay();
         this.elapsedTime = 0;
+        this.isTimerRunning = false;
+
+        // ★ 追加：カウントダウンフラグと、ミノの未出現状態の設定
+        this.isCountingDown = true;
+        this.mino = null; 
+
+        // 既存のタイマーをすべて止めておく
+        clearInterval(this.timer);
+        this.timer = null;
+        if(this.lockTimer){ clearTimeout(this.lockTimer); this.lockTimer = null; }
+
+        // ★ 追加：リスタート時に表示中のオーバーレイを強制終了する
+        const countdownId = this.isVersusMode 
+            ? (this.canvasPrefix ? `${this.canvasPrefix}-countdown-overlay` : 'versus-countdown-overlay')
+            : 'countdown-overlay';
+        const finishId = this.isVersusMode 
+            ? (this.canvasPrefix ? `${this.canvasPrefix}-finish-overlay` : 'versus-finish-overlay')
+            : 'finish-overlay';
+            
+        const countdownOverlay = document.getElementById(countdownId);
+        const finishOverlay = document.getElementById(finishId);
+
+        if (countdownOverlay) {
+            if(countdownOverlay.countdownTimer) clearTimeout(countdownOverlay.countdownTimer);
+            countdownOverlay.classList.remove('active');
+        }
+        if (finishOverlay) {
+            if(finishOverlay.finishTimer1) clearTimeout(finishOverlay.finishTimer1);
+            if(finishOverlay.finishTimer2) clearTimeout(finishOverlay.finishTimer2);
+            finishOverlay.classList.remove('active', 'fadeout');
+        }
+
+        // 初期描画（カウントダウン中もフィールドとNEXTが見える）
+        // this.popMino() ← ★ここにあった popMino() を削除します
+        this.drawAll()
+    }
+
+    // ─────────────────────────────────────────
+    // ★ 追加：実際のゲームプレイ開始（START! 表示の瞬間に呼ばれる）
+    // ─────────────────────────────────────────
+    _startGameplay(){
+        // ★ 追加：カウントダウンを解除し、ここで初めてミノを出現させる
+        this.isCountingDown = false;
+        this.popMino();
+        this.drawAll();
+
+        // タイマー開始
         this.startTime = performance.now();
         this.isTimerRunning = true;
         this.startTimerLoop();
-        this.popMino()
-        this.drawAll()
-        clearInterval(this.timer)
+
+        // 重力開始
         this.startGravity()
-        this.setKeyEvent()
+
+        // this.setKeyEvent() ← ★ここにあった setKeyEvent() を削除します
     }
 
     // ▼ 新規追加: タイマーの描画ループ（約60fps）
@@ -395,7 +549,10 @@ class Game{
             return;
         }
 
-        setTimeout(() => {
+        // ★ 追加：シングルプレイの終了演出（FINISH!）を表示してからリザルトへ
+        const finishText = isClear ? 'FINISH!' : 'GAME OVER';
+        const finishClass = isClear ? 'finish-clear' : 'finish-gameover';
+        showFinishOverlay('finish-overlay', 'finish-text', finishText, finishClass, 1200, () => {
             const timeEl = document.getElementById('time-value');
             const resultTitle = document.getElementById('result-title');
             
@@ -424,7 +581,7 @@ class Game{
             }
 
             if (typeof switchPage === 'function') switchPage('result');
-        }, 400);
+        });
     }
 
     getNextType(){
@@ -1193,31 +1350,32 @@ class Game{
 
         this.field.drawFixedBlocks(this.mainCtx);
 
-        const ghostY = this.getGhostY()
-        if(ghostY !== this.mino.y){
-            this.mainCtx.globalAlpha = 0.25
-            this.mino.draw(this.mainCtx, ghostY)
-            this.mainCtx.globalAlpha = 1.0
+        // ★ 変更：this.mino が存在するときだけゴーストを描画
+        if (this.mino) {
+            const ghostY = this.getGhostY()
+            if(ghostY !== this.mino.y){
+                this.mainCtx.globalAlpha = 0.25
+                this.mino.draw(this.mainCtx, ghostY)
+                this.mainCtx.globalAlpha = 1.0
+            }
         }
 
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ★ 追加：NEXT / HOLD 内のミノの縮小率を設定
-        const minoScale = 0.8; // 0.8倍（お好みのサイズに変更してください）
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const minoScale = 0.8; 
 
         // Draw next queue vertically
-        const spacing = 3; // ミノ間の縦間隔（マス単位）
+        const spacing = 3; 
         this.nextQueue.forEach((mino, i) => {
             this.nextCtx.save();
-            // ★変更：スケールに合わせて縦の間隔も調整し、ctx.scale を適用
             this.nextCtx.translate(0, i * spacing * BLOCK_SIZE * minoScale);
             this.nextCtx.scale(minoScale, minoScale);
             mino.drawNext(this.nextCtx);
             this.nextCtx.restore();
         });
         
-        this.mino.draw(this.mainCtx)
-
+        // ★ 変更：this.mino が存在するときだけ本体を描画
+        if (this.mino) {
+            this.mino.draw(this.mainCtx)
+        }
 
         this.mainCtx.restore();
 
@@ -1382,6 +1540,7 @@ class Game{
             if(!this.isVersusMode && e.code === keys.pause.code){
                 e.preventDefault()
                 if(e.repeat) return; // ★追加：長押しによる連続発火を防止
+                if(this.isCountingDown) return;
                 this.togglePause()
                 return
             }
@@ -1406,8 +1565,9 @@ class Game{
             // 単発系（押した瞬間のみ）
             if(e.code === keys.hardDrop.code){
                 e.preventDefault()
-                // DCD発動チェック（ハードドロップ）
-                // DASが効いていて動けない状態でハードドロップした場合にDCDを開始する
+                if(e.repeat) return;            // ★追加：長押しによる連続発火を防止
+                if(this.isCountingDown) return; // ★追加：カウントダウン中は無効
+                
                 if(this.DCD_DELAY > 0 &&
                     (this._dasBlockedLeft || this._dasBlockedRight)){
                     this._dcdUntil = performance.now() + this.DCD_DELAY
@@ -1416,6 +1576,8 @@ class Game{
             }
             if(e.code === keys.hold.code){
                 e.preventDefault()
+                if(e.repeat) return;            // ★追加：長押し防止
+                if(this.isCountingDown) return; // ★追加：カウントダウン中は無効
                 this.holdCurrentMino()
             }
         }
@@ -1457,9 +1619,10 @@ class Game{
         // 毎フレーム入力処理（同時入力対応）
         this._lastFrameTime = performance.now()
         this._keyLoop = setInterval(() => {
-            // クラスのチェックだけは毎ターン行う
             if(!gamePage || !gamePage.classList.contains('active')) return
             if(this.isPaused) return
+            // ★ 追加：カウントダウン中はDASの時間を裏で記録するだけで、操作の実行はしない
+            if(this.isCountingDown) return; 
 
             const nowPerf = performance.now()
             const delta = nowPerf - this._lastFrameTime

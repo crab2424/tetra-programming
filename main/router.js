@@ -157,16 +157,46 @@ function startVersusGame() {
   document.getElementById('pause-overlay')?.classList.remove('active');
   document.getElementById('versus-pause-overlay')?.classList.remove('active');
 
-  // ★ 両方のゲームを開始した直後に、レベル2で固定する
-  window._game.start();
-  window._game.level = 2;
-  window._game.startGravity(); // レベル2の落下速度を適用
-  window._game.updateStatsDisplay();
+  // ★ 対戦モードのカウントダウンは両方同時に開始する
+  // 両ゲームの状態だけ初期化してからカウントダウンを走らせる
+  window._game._initGameState();
+  window._cpuGame._initGameState();
 
-  window._cpuGame.start();
+  // ★ 追加：DAS先行チャージのために、カウントダウン前にイベントを登録
+  window._game.setKeyEvent();
+
+  // レベルを設定（_initGameState の後に上書き）
+  window._game.level = 2;
   window._cpuGame.level = 2;
-  window._cpuGame.startGravity(); // レベル2の落下速度を適用
+  window._game.updateStatsDisplay();
   window._cpuGame.updateStatsDisplay();
+
+  // プレイヤー側カウントダウン
+  runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
+    // START! 瞬間に入力受付開始
+    window._game.isCountingDown = false; // ★ 追加
+    window._game.popMino();              // ★ 追加
+    window._game.startTime = performance.now();
+    window._game.isTimerRunning = true;
+    window._game.startTimerLoop();
+    window._game.level = 2;
+    window._game.startGravity();
+    window._game.updateStatsDisplay();
+    // window._game.setKeyEvent();       // ★ 削除（上で呼ぶようにしたため）
+  }, null);
+
+  // CPU側カウントダウン（同時実行）
+  runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
+    // START! 瞬間にCPUの重力を開始
+    window._cpuGame.isCountingDown = false; // ★ 追加
+    window._cpuGame.popMino();              // ★ 追加
+    window._cpuGame.startTime = performance.now();
+    window._cpuGame.isTimerRunning = true;
+    window._cpuGame.startTimerLoop();
+    window._cpuGame.level = 2;
+    window._cpuGame.startGravity();
+    window._cpuGame.updateStatsDisplay();
+  }, null);
 
   // 対戦用ポーズキーを設定
   setupVersusPauseKey();
@@ -266,8 +296,16 @@ function versusGameOver(loser) {
   const overlay = document.getElementById('versus-pause-overlay');
   if (overlay) overlay.classList.remove('active');
 
-  // リザルト画面に結果を表示
-  setTimeout(() => {
+  // ★ 追加：プレイヤーとCPUそれぞれのフィールドに結果演出を同時表示
+  const playerText  = (loser === 'player') ? 'LOSE...' : 'WIN!';
+  const cpuText     = (loser === 'cpu')    ? 'LOSE...' : 'WIN!';
+  const playerClass = (loser === 'player') ? 'finish-gameover' : 'finish-clear';
+  const cpuClass    = (loser === 'cpu')    ? 'finish-gameover' : 'finish-clear';
+
+  // 両側のフィールドに同時に演出を表示（1400ms 後にリザルトへ）
+  showFinishOverlay('player-finish-overlay', 'player-finish-text', playerText, playerClass, 1400, null);
+  showFinishOverlay('cpu-finish-overlay',    'cpu-finish-text',    cpuText,    cpuClass,    1400, () => {
+    // リザルト画面に結果を表示（cpu側のコールバックで1回だけ実行）
     const winner = (loser === 'player') ? 'CPU' : 'YOU';
     const titleEl = document.getElementById('versus-result-title');
     const winnerEl = document.getElementById('versus-result-winner');
@@ -289,7 +327,7 @@ function versusGameOver(loser) {
     document.getElementById('versus-result-cpu-score').textContent    = window._cpuGame ? window._cpuGame.score : 0;
     document.getElementById('versus-result-player-lines').textContent = window._game ? window._game.lines : 0;
     switchPage('versus-result');
-  }, 600);
+  });
 }
 
 // ★ ここから追加
