@@ -38,6 +38,260 @@ const GAME_MODES = {
 // mode-check-page に渡す共有変数
 let currentGameMode = null;
 
+// ─── VERSUSモード用グローバル変数 ──────────────
+// CPU難易度 Lv1〜5（パラメータは将来の実装のために定義）
+const CPU_LEVELS = {
+  1: { label: 'LV 1', desc: '超ゆっくり。ほぼ止まっている。',      gravityLevel: 1  },
+  2: { label: 'LV 2', desc: '少しゆっくり。ちょうど良い練習相手。', gravityLevel: 3  },
+  3: { label: 'LV 3', desc: '普通の速さ。そこそこ強い。',           gravityLevel: 6  },
+  4: { label: 'LV 4', desc: '速い。かなり手強い。',                 gravityLevel: 10 },
+  5: { label: 'LV 5', desc: '最速。ほぼ人間には止められない。',     gravityLevel: 15 },
+};
+let selectedCpuLevel = 3; // デフォルト難易度
+
+// ─────────────────────────────────────────────
+// goToVersusCheck() — 対戦確認画面へ遷移
+// ─────────────────────────────────────────────
+function goToVersusCheck() {
+  switchPage('versus-check');
+}
+
+// ─────────────────────────────────────────────
+// renderVersusCheck() — 対戦確認画面の描画
+// ─────────────────────────────────────────────
+function renderVersusCheck() {
+  // CPU難易度ボタンを生成
+  const toggle = document.getElementById('cpu-level-toggle');
+  if (toggle) {
+    toggle.innerHTML = '';
+    for (let lv = 1; lv <= 5; lv++) {
+      const btn = document.createElement('button');
+      btn.className = 'opt-btn' + (lv === selectedCpuLevel ? ' active' : '');
+      btn.style.minWidth = '48px';
+      btn.textContent = CPU_LEVELS[lv].label;
+      btn.onclick = (function(lvCopy) {
+        return function() { setCpuLevel(lvCopy); };
+      })(lv);
+      toggle.appendChild(btn);
+    }
+  }
+  // 説明文を更新
+  const descEl = document.getElementById('versus-cpu-desc');
+  if (descEl) descEl.textContent = CPU_LEVELS[selectedCpuLevel].desc;
+
+  // コントロール表示をプレイヤーの現在キー設定で更新
+  const grid = document.getElementById('versus-check-controls-grid');
+  if (grid && typeof currentKeys !== 'undefined') {
+    grid.innerHTML = `
+      <span class="ctrl-key">${currentKeys.moveLeft.label}${currentKeys.moveRight.label}</span><span class="ctrl-desc">移動</span>
+      <span class="ctrl-key">${currentKeys.rotateCW.label}</span><span class="ctrl-desc">右回転</span>
+      <span class="ctrl-key">${currentKeys.rotateCCW.label}</span><span class="ctrl-desc">左回転</span>
+      <span class="ctrl-key">${currentKeys.softDrop.label}</span><span class="ctrl-desc">ソフトドロップ</span>
+      <span class="ctrl-key">${currentKeys.hardDrop.label}</span><span class="ctrl-desc">ハードドロップ</span>
+      <span class="ctrl-key">${currentKeys.hold.label}</span><span class="ctrl-desc">ホールド</span>
+      <span class="ctrl-key">${currentKeys.pause.label}</span><span class="ctrl-desc">ポーズ</span>
+    `;
+  }
+}
+
+// ─────────────────────────────────────────────
+// setCpuLevel() — CPU難易度を変更
+// ─────────────────────────────────────────────
+function setCpuLevel(lv) {
+  selectedCpuLevel = lv;
+  // ボタンのactive状態を更新
+  const toggle = document.getElementById('cpu-level-toggle');
+  if (toggle) {
+    toggle.querySelectorAll('.opt-btn').forEach((btn, idx) => {
+      btn.classList.toggle('active', idx + 1 === lv);
+    });
+  }
+  // 説明文を更新
+  const descEl = document.getElementById('versus-cpu-desc');
+  if (descEl) descEl.textContent = CPU_LEVELS[lv].desc;
+}
+
+// ─────────────────────────────────────────────
+// startVersusGame() — 対戦ゲームを開始
+// ─────────────────────────────────────────────
+function startVersusGame() {
+  if (!window._game) return;
+
+  // CPU難易度をゲームインスタンスに渡す（将来のCPU AI実装用）
+  const cpuConfig = CPU_LEVELS[selectedCpuLevel];
+
+  // 対戦ページに遷移
+  switchPage('versus');
+
+  // 中央のCPUレベル表示を更新
+  const cpuLevelDisp = document.getElementById('versus-cpu-level-display');
+  if (cpuLevelDisp) cpuLevelDisp.textContent = 'CPU ' + cpuConfig.label;
+
+  // ─── プレイヤーゲームの初期化（既存の window._game を使用） ───
+  window._game.currentMode = 'versus';        // ★修正: marathonから変更（レベルアップを無効化）
+  window._game.marathonGoal = Infinity;       
+  window._game.isVersusMode = true;           
+  window._game.canvasPrefix = 'player';       
+  window._game.statsPrefix = 'player';        
+  window._game._labelsInitialized = false;    
+  window._game.initMainCanvas();              
+  window._game.initNextCanvas();
+  window._game.initHoldCanvas();
+
+  // ─── CPUゲームの初期化（window._cpuGame として保持） ───
+  if (!window._cpuGame) {
+    window._cpuGame = new Game('cpu');
+  }
+  window._cpuGame.currentMode = 'versus';     // ★修正: marathonから変更（レベルアップを無効化）
+  window._cpuGame.marathonGoal = Infinity;
+  window._cpuGame.isVersusMode = true;
+  window._cpuGame.canvasPrefix = 'cpu';       
+  window._cpuGame.statsPrefix = 'cpu';
+  window._cpuGame.isCpuControlled = true;
+  window._cpuGame._labelsInitialized = false;
+  window._cpuGame.initMainCanvas();
+  window._cpuGame.initNextCanvas();
+  window._cpuGame.initHoldCanvas();
+
+  // 前回のポーズ状態が残っている場合に備えて強制リセット
+  document.getElementById('pause-overlay')?.classList.remove('active');
+  document.getElementById('versus-pause-overlay')?.classList.remove('active');
+
+  // ★ 両方のゲームを開始した直後に、レベル2で固定する
+  window._game.start();
+  window._game.level = 2;
+  window._game.startGravity(); // レベル2の落下速度を適用
+  window._game.updateStatsDisplay();
+
+  window._cpuGame.start();
+  window._cpuGame.level = 2;
+  window._cpuGame.startGravity(); // レベル2の落下速度を適用
+  window._cpuGame.updateStatsDisplay();
+
+  // 対戦用ポーズキーを設定
+  setupVersusPauseKey();
+}
+
+// ─────────────────────────────────────────────
+// setupVersusPauseKey() — 対戦中のポーズ処理
+// ─────────────────────────────────────────────
+function setupVersusPauseKey() {
+  // 既存のリスナーを一旦削除
+  if (window._versusPauseHandler) {
+    document.removeEventListener('keydown', window._versusPauseHandler);
+  }
+  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { code: 'Escape' } };
+  window._versusPauseHandler = function(e) {
+    // 対戦ページがアクティブな時のみ動作
+    const versusPage = document.getElementById('versus-page');
+    if (!versusPage || !versusPage.classList.contains('active')) return;
+    if (e.code === keys.pause.code) {
+      e.preventDefault();
+      toggleVersusPause();
+    }
+  };
+  document.addEventListener('keydown', window._versusPauseHandler);
+}
+
+// ─────────────────────────────────────────────
+// toggleVersusPause() / resumeVersus()
+// ─────────────────────────────────────────────
+function toggleVersusPause() {
+  const overlay = document.getElementById('versus-pause-overlay');
+  if (!overlay) return;
+  const isPaused = overlay.classList.contains('active');
+  if (isPaused) {
+    resumeVersus();
+  } else {
+    // 両方のゲームをポーズ
+    if (window._game) window._game.pause();
+    if (window._cpuGame) window._cpuGame.pause();
+    overlay.classList.add('active');
+  }
+}
+
+function resumeVersus() {
+  const overlay = document.getElementById('versus-pause-overlay');
+  if (overlay) overlay.classList.remove('active');
+  if (window._game) window._game.resume();
+  if (window._cpuGame) window._cpuGame.resume();
+}
+
+function restartVersus() {
+  const overlay = document.getElementById('versus-pause-overlay');
+  if (overlay) overlay.classList.remove('active');
+  startVersusGame();
+}
+
+function restartVersusFromResult() {
+  startVersusGame();
+  switchPage('versus');
+}
+
+// ─────────────────────────────────────────────
+// versusGameOver() — 対戦終了処理（game.js から呼ばれる）
+// loser: 'player' | 'cpu'
+// ─────────────────────────────────────────────
+function versusGameOver(loser) {
+  // 両方のゲームを停止
+  if (window._game) {
+    clearInterval(window._game.timer);
+    window._game.timer = null;
+    clearTimeout(window._game.lockTimer);
+    window._game.lockTimer = null;
+    window._game.isPaused = true;
+    if (window._game.isTimerRunning) {
+      window._game.elapsedTime += performance.now() - window._game.startTime;
+      window._game.isTimerRunning = false;
+      cancelAnimationFrame(window._game.timerReqId);
+    }
+    // キーイベントの無効化
+    if (window._game._keyDownHandler) document.removeEventListener('keydown', window._game._keyDownHandler);
+    if (window._game._keyUpHandler)   document.removeEventListener('keyup',   window._game._keyUpHandler);
+    if (window._game._keyLoop)        clearInterval(window._game._keyLoop);
+  }
+  if (window._cpuGame) {
+    clearInterval(window._cpuGame.timer);
+    window._cpuGame.timer = null;
+    clearTimeout(window._cpuGame.lockTimer);
+    window._cpuGame.lockTimer = null;
+    window._cpuGame.isPaused = true;
+    if (window._cpuGame.isTimerRunning) {
+      window._cpuGame.elapsedTime += performance.now() - window._cpuGame.startTime;
+      window._cpuGame.isTimerRunning = false;
+      cancelAnimationFrame(window._cpuGame.timerReqId);
+    }
+  }
+  // ポーズオーバーレイを念のため非表示
+  const overlay = document.getElementById('versus-pause-overlay');
+  if (overlay) overlay.classList.remove('active');
+
+  // リザルト画面に結果を表示
+  setTimeout(() => {
+    const winner = (loser === 'player') ? 'CPU' : 'YOU';
+    const titleEl = document.getElementById('versus-result-title');
+    const winnerEl = document.getElementById('versus-result-winner');
+    if (titleEl) {
+      if (loser === 'player') {
+        titleEl.textContent = 'YOU LOSE';
+        titleEl.style.color = 'var(--danger)';
+        titleEl.style.background = 'none';
+        titleEl.style.webkitTextFillColor = 'var(--danger)';
+      } else {
+        titleEl.textContent = 'YOU WIN!';
+        titleEl.style.color = 'var(--success)';
+        titleEl.style.background = 'none';
+        titleEl.style.webkitTextFillColor = 'var(--success)';
+      }
+    }
+    if (winnerEl) winnerEl.textContent = winner;
+    document.getElementById('versus-result-player-score').textContent = window._game ? window._game.score : 0;
+    document.getElementById('versus-result-cpu-score').textContent    = window._cpuGame ? window._cpuGame.score : 0;
+    document.getElementById('versus-result-player-lines').textContent = window._game ? window._game.lines : 0;
+    switchPage('versus-result');
+  }, 600);
+}
+
 // ★ ここから追加
 let marathonSelectedGoal = 150;
 
@@ -98,6 +352,14 @@ function switchPage(pageId) {
     if (typeof stopListening  === 'function') stopListening();
     if (typeof renderKeyConfig === 'function') renderKeyConfig();
     if (typeof renderTuning    === 'function') renderTuning();
+
+  } else if (pageId === 'versus-check') {
+    // 対戦確認画面への遷移時
+    renderVersusCheck();
+
+  } else if (pageId === 'versus') {
+    // 対戦ゲーム画面への遷移時
+    if (typeof stopListening === 'function') stopListening();
   }
 }
 
@@ -178,7 +440,20 @@ function startGameFromModeCheck() {
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
   window._game.currentMode = modeId;
 
-  // ★ 追加：Marathon時の設定を game.js に渡す
+  // ★修正：対戦モードからシングルプレイに戻ってきた時のために、バインドを通常に戻す
+  window._game.isVersusMode = false;
+  window._game.canvasPrefix = null;
+  window._game.statsPrefix = null;
+  window._game._labelsInitialized = false;
+  window._game.initMainCanvas();
+  window._game.initNextCanvas();
+  window._game.initHoldCanvas();
+
+  // ★修正：前回のポーズ状態が残っている場合に備えて強制リセット
+  document.getElementById('pause-overlay')?.classList.remove('active');
+  document.getElementById('versus-pause-overlay')?.classList.remove('active');
+
+  // Marathon時の設定を game.js に渡す
   if (modeId === 'marathon') {
     window._game.marathonGoal = (marathonSelectedGoal === 'endless') ? Infinity : 150;
     const levelSlider = document.getElementById('marathon-level-slider');

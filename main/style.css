@@ -1219,3 +1219,356 @@ input[type="range"]::-webkit-slider-thumb:hover {
   width: 20px;
   text-align: right;
 }
+
+/* ─────────────────────────────────────────────
+   対戦モード（VERSUS）
+───────────────────────────────────────────── */
+
+/* メインメニューの対戦ボタン */
+.mode-btn-versus {
+  border-color: rgba(245, 197, 66, 0.35);
+}
+.mode-btn-versus:hover {
+  background: rgba(245, 197, 66, 0.12);
+  border-color: #f5c542;
+}
+.mode-btn-versus .mode-btn-icon { color: #f5c542; }
+.mode-btn-versus .mode-btn-label { color: #f5c542; }
+
+/* 対戦STARTボタン */
+.btn-versus-primary {
+  background: linear-gradient(135deg, #f5c542 0%, #fa71cd 100%);
+  color: #0a0a0f;
+  font-weight: 700;
+}
+.btn-versus-primary:hover { opacity: 0.88; }
+
+/* 対戦確認画面 */
+#versus-check-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#versus-check-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding-top: 32px;
+  width: 460px;
+}
+
+#versus-cpu-options {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 対戦ゲーム画面 */
+#versus-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#versus-layout {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  padding-top: 16px;
+}
+
+.versus-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.versus-side-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 4px;
+}
+
+.player-label { color: var(--accent3); }
+.cpu-label    { color: var(--danger); }
+
+/* 各ゲームフィールドのコンテナ（元の#containerと同構造） */
+.versus-container {
+  position: relative;
+  width: 320px;
+  height: 656px; /* SCREEN_HEIGHT + ラベル分 */
+}
+
+/* NEXT / HOLD キャンバスの配置（左側プレイヤー用） */
+.versus-label-next {
+  position: absolute;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: 352px;
+}
+.versus-label-hold {
+  position: absolute;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: -160px;
+}
+
+/* NEXT / HOLD キャンバスの配置（右側CPU用） */
+/* CPUフィールドはHOLDを右に、NEXTを左に配置（中央よりの配置にしない場合は左右反転） */
+.versus-label-next-cpu {
+  position: absolute;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: 352px;
+}
+.versus-label-hold-cpu {
+  position: absolute;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: -160px;
+}
+
+/* NEXT/HOLD canvasの絶対配置（プレイヤー側） */
+#versus-player-container canvas#player-next-canvas {
+  position: absolute;
+  top: 0;
+  left: 352px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+}
+#versus-player-container canvas#player-hold-canvas {
+  position: absolute;
+  top: 0;
+  left: -160px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+}
+
+/* NEXT/HOLD canvasの絶対配置（CPU側） */
+#versus-cpu-container canvas#cpu-next-canvas {
+  position: absolute;
+  top: 0;
+  left: 352px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+}
+#versus-cpu-container canvas#cpu-hold-canvas {
+  position: absolute;
+  top: 0;
+  left: -160px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+}
+
+/* メインキャンバスのスタイル */
+#player-main-canvas,
+#cpu-main-canvas {
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  image-rendering: pixelated;
+}
+
+/* プレイヤー側スタッツ */
+.versus-stats-left {
+  position: absolute;
+  left: -160px;
+  top: 450px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.versus-stats-right {
+  position: absolute;
+  left: 352px;
+  top: 450px;
+}
+/* CPU側スタッツ */
+.versus-stats-left-cpu {
+  position: absolute;
+  left: -160px;
+  top: 450px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.versus-stats-right-cpu {
+  position: absolute;
+  left: 352px;
+  top: 450px;
+}
+
+.versus-stat-block {
+  display: flex;
+  flex-direction: column;
+}
+.versus-stat-block .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 2px;
+}
+.versus-stat-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 24px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 中央のVS表示 */
+#versus-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
+  margin-top: 280px; /* フィールドの中ほどに来るように */
+}
+
+#versus-vs-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 32px;
+  top: 0;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#versus-cpu-level-display {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: #f5c542;
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* アクションラベルコンテナ（プレイヤー・CPU共通） */
+#player-action-label-container,
+#cpu-action-label-container {
+  position: absolute;
+  left: -200px;
+  top: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* 対戦ポーズオーバーレイ */
+#versus-pause-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 10, 15, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+
+#versus-pause-overlay.active {
+  display: flex;
+}
+
+.versus-pause-modal {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 56px;
+  text-align: center;
+  box-shadow: 0 0 48px rgba(245, 197, 66, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+#versus-pause-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  color: #f5c542;
+  margin: 0;
+}
+
+#versus-pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+/* 対戦リザルト */
+#versus-result-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ★ 追加：対戦モードの縮小とレイアウト調整
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.versus-container {
+  /* 既存のスタイルに上書き・追加されます */
+  transform: scale(0.8);
+  transform-origin: top center;
+  margin: 0 40px; /* 縮小してできた余白を詰めて、画面に収める */
+}
+
+/* ★ 追加：両プレイヤーのレベル表記を非表示 */
+.versus-stats-left .versus-stat-block:nth-child(1),
+.versus-stats-left-cpu .versus-stat-block:nth-child(1) {
+  display: none;
+}
+
+/* ★ 追加：VS表記の下にある「CPU LV」テキストを非表示 */
+#versus-cpu-level-display {
+  display: none;
+}
+
+/* ★ 追加：対戦前の準備画面にある「CPU LEVEL」の選択肢そのものを非表示 */
+#versus-cpu-options {
+  display: none !important;
+}

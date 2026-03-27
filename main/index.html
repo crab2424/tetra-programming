@@ -65,6 +65,14 @@
               <span class="mode-btn-desc">2分間スコアアタック</span>
             </div>
           </button>
+          <!-- mode4: VERSUS（対戦モード） -->
+          <button class="mode-btn mode-btn-versus" onclick="goToVersusCheck()">
+            <span class="mode-btn-icon">⚔</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">VERSUS</span>
+              <span class="mode-btn-desc">CPU対戦モード</span>
+            </div>
+          </button>
         </div>
 
         <!-- Settings へのリンク -->
@@ -132,6 +140,181 @@
           <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
             <span class="menu-btn-icon">◀</span>
             <span>BACK</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         対戦モード確認画面（versus-check-page）
+         CPU難易度設定（Lv1〜5）とSTARTボタン
+    ───────────────────────────────────────────── -->
+    <div id="versus-check-page" class="page">
+      <div id="versus-check-container">
+        <!-- ヘッダー -->
+        <div id="versus-check-header">
+          <span class="mode-check-icon" style="color: var(--versus-color, #f5c542);">⚔</span>
+          <h2 class="mode-check-label" style="color: var(--versus-color, #f5c542);">VERSUS</h2>
+        </div>
+
+        <!-- 説明文 -->
+        <div id="versus-check-desc-block" class="mode-check-desc-block" style="width:100%; background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:10px; padding:20px 24px; text-align:center;">
+          <p class="mode-check-desc-ja">CPUと対戦。どちらかがゲームオーバーになった時点で終了。</p>
+          <p class="mode-check-desc-en">Battle against CPU. The match ends when either side tops out.</p>
+        </div>
+        <!-- CPU難易度設定 -->
+        <div id="versus-cpu-options">
+          <div class="option-row">
+            <span class="option-label">CPU LEVEL</span>
+            <div class="option-toggle" id="cpu-level-toggle">
+              <!-- router.js の renderVersusCheck() で生成 -->
+            </div>
+          </div>
+          <!-- CPU難易度の説明 -->
+          <p id="versus-cpu-desc" style="font-size:11px; color:var(--text-dim); text-align:center; margin-top:8px;"></p>
+        </div>
+
+        <!-- コントロール確認 -->
+        <div id="versus-check-controls" style="width:100%; background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:10px; padding:20px 24px;">
+          <p class="controls-title">YOUR CONTROLS (LEFT SIDE)</p>
+          <div class="controls-grid" id="versus-check-controls-grid">
+            <!-- updateMenuControlsDisplay() と同様に settings.js 側で更新 -->
+          </div>
+        </div>
+
+        <!-- ボタン群 -->
+        <div id="versus-check-buttons">
+          <button class="menu-btn btn-versus-primary" id="versus-check-start-btn" onclick="startVersusGame()">
+            <span class="menu-btn-icon">▶</span>
+            <span>START</span>
+          </button>
+          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+            <span class="menu-btn-icon">◀</span>
+            <span>BACK</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         対戦ゲーム画面（versus-page）
+         左：プレイヤー、右：CPU
+         ゲームインスタンスは2つ（window._game / window._cpuGame）
+    ───────────────────────────────────────────── -->
+    <div id="versus-page" class="page">
+      <div id="versus-layout">
+
+        <!-- ===== 左側：プレイヤー ===== -->
+        <div class="versus-side" id="versus-player-side">
+          <div class="versus-side-label player-label">YOU</div>
+          <div class="versus-container" id="versus-player-container">
+            <canvas id="player-main-canvas"></canvas>
+            <div id="player-action-label-container"></div>
+            <span class="area-label versus-label-next">NEXT</span>
+            <canvas id="player-next-canvas"></canvas>
+            <span class="area-label versus-label-hold">HOLD</span>
+            <canvas id="player-hold-canvas"></canvas>
+            <div class="versus-stats-left">
+              <div class="versus-stat-block">
+                <span class="area-label">LEVEL</span>
+                <span id="player-level-value" class="versus-stat-value">1</span>
+              </div>
+              <div class="versus-stat-block">
+                <span class="area-label">LINES</span>
+                <span id="player-lines-value" class="versus-stat-value">0</span>
+              </div>
+            </div>
+            <div class="versus-stats-right">
+              <div class="versus-stat-block">
+                <span class="area-label">SCORE</span>
+                <span id="player-score-value" class="versus-stat-value">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== 中央：VS表示 ===== -->
+        <div id="versus-center">
+          <div id="versus-vs-label">VS</div>
+          <div id="versus-cpu-level-display"></div>
+        </div>
+
+        <!-- ===== 右側：CPU ===== -->
+        <div class="versus-side" id="versus-cpu-side">
+          <div class="versus-side-label cpu-label">CPU</div>
+          <div class="versus-container" id="versus-cpu-container">
+            <canvas id="cpu-main-canvas"></canvas>
+            <div id="cpu-action-label-container"></div>
+            <span class="area-label versus-label-next-cpu">NEXT</span>
+            <canvas id="cpu-next-canvas"></canvas>
+            <span class="area-label versus-label-hold-cpu">HOLD</span>
+            <canvas id="cpu-hold-canvas"></canvas>
+            <div class="versus-stats-left-cpu">
+              <div class="versus-stat-block">
+                <span class="area-label">LEVEL</span>
+                <span id="cpu-level-value" class="versus-stat-value">1</span>
+              </div>
+              <div class="versus-stat-block">
+                <span class="area-label">LINES</span>
+                <span id="cpu-lines-value" class="versus-stat-value">0</span>
+              </div>
+            </div>
+            <div class="versus-stats-right-cpu">
+              <div class="versus-stat-block">
+                <span class="area-label">SCORE</span>
+                <span id="cpu-score-value" class="versus-stat-value">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /versus-layout -->
+
+      <!-- 対戦用ポーズオーバーレイ（共通のpause-overlayとは別に持つ） -->
+      <div id="versus-pause-overlay">
+        <div id="pause-modal" class="versus-pause-modal">
+          <h2 id="versus-pause-title">PAUSE</h2>
+          <div id="versus-pause-buttons">
+            <button class="pause-btn btn-resume" onclick="resumeVersus()">▶ RESUME</button>
+            <button class="pause-btn btn-restart" onclick="restartVersus()">↺ RESTART</button>
+            <button class="pause-btn btn-mainmenu" onclick="switchPage('main-menu')">⌂ MAIN MENU</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         対戦リザルトページ（versus-result-page）
+    ───────────────────────────────────────────── -->
+    <div id="versus-result-page" class="page">
+      <div id="result-container">
+        <h2 id="versus-result-title">RESULT</h2>
+        <div id="result-stats">
+          <div class="result-stat-row">
+            <span class="result-label">WINNER</span>
+            <span class="result-value" id="versus-result-winner">—</span>
+          </div>
+          <div class="result-stat-row">
+            <span class="result-label">YOUR SCORE</span>
+            <span class="result-value" id="versus-result-player-score">0</span>
+          </div>
+          <div class="result-stat-row">
+            <span class="result-label">CPU SCORE</span>
+            <span class="result-value" id="versus-result-cpu-score">0</span>
+          </div>
+          <div class="result-stat-row">
+            <span class="result-label">YOUR LINES</span>
+            <span class="result-value" id="versus-result-player-lines">0</span>
+          </div>
+        </div>
+        <div id="result-buttons">
+          <button class="menu-btn btn-versus-primary" onclick="restartVersusFromResult()">
+            <span class="menu-btn-icon">↺</span>
+            <span>RETRY</span>
+          </button>
+          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+            <span class="menu-btn-icon">⌂</span>
+            <span>MAIN MENU</span>
           </button>
         </div>
       </div>

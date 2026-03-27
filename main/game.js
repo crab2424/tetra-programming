@@ -30,6 +30,10 @@ window.onload = function(){
     // グローバルに保持（設定変更後に setKeyEvent を外から呼ぶため）
     window._game = game
 
+    // ★ 追加：対戦用CPUゲームインスタンスを初期化（canvasPrefix='cpu'）
+    let cpuGame = new Game('cpu')
+    window._cpuGame = cpuGame
+
     // メインメニューの「GAME START」ボタン（旧UIとの後方互換、非表示だが残す）
     document.getElementById('menu-start-btn').onclick = function(){
         switchPage('game');
@@ -81,7 +85,11 @@ class Asset{
 // Game クラス
 // ─────────────────────────────────────────────
 class Game{
-    constructor(){
+    // ★ 変更：canvasPrefix を引数で受け取れるようにする
+    // 通常モード: prefix = null（従来のID: main-canvas, next-canvas, hold-canvas）
+    // 対戦モード: prefix = 'player' or 'cpu'（例: player-main-canvas）
+    constructor(canvasPrefix = null){
+        this.canvasPrefix = canvasPrefix; // null なら通常モード
         this.initMainCanvas()
         this.initNextCanvas()
         this.initHoldCanvas()
@@ -103,7 +111,9 @@ class Game{
     }
 
     initMainCanvas(){
-        this.mainCanvas = document.getElementById(MAIN_CANVAS_ID);
+        // ★ prefix が指定されていれば "{prefix}-main-canvas" を使う
+        const id = this.canvasPrefix ? `${this.canvasPrefix}-main-canvas` : MAIN_CANVAS_ID;
+        this.mainCanvas = document.getElementById(id);
         this.mainCtx = this.mainCanvas.getContext("2d");
         this.mainCanvas.width = SCREEN_WIDTH;
         this.mainCanvas.height = SCREEN_HEIGHT;
@@ -116,14 +126,18 @@ class Game{
     }
 
     initNextCanvas(){
-        this.nextCanvas = document.getElementById(NEXT_CANVAS_ID);
+        // ★ prefix が指定されていれば "{prefix}-next-canvas" を使う
+        const id = this.canvasPrefix ? `${this.canvasPrefix}-next-canvas` : NEXT_CANVAS_ID;
+        this.nextCanvas = document.getElementById(id);
         this.nextCtx = this.nextCanvas.getContext("2d");
         this.nextCanvas.width = BLOCK_SIZE * 4;
         this.nextCanvas.height = BLOCK_SIZE * 13.5;
     }
 
     initHoldCanvas(){
-        this.holdCanvas = document.getElementById(HOLD_CANVAS_ID);
+        // ★ prefix が指定されていれば "{prefix}-hold-canvas" を使う
+        const id = this.canvasPrefix ? `${this.canvasPrefix}-hold-canvas` : HOLD_CANVAS_ID;
+        this.holdCanvas = document.getElementById(id);
         this.holdCtx = this.holdCanvas.getContext("2d");
         this.holdCanvas.width = BLOCK_SIZE * 4;
         this.holdCanvas.height = BLOCK_SIZE * 4;
@@ -235,7 +249,8 @@ class Game{
         }
 
         let displayMs = totalMs;
-        const timeEl = document.getElementById("time-value");
+        // ★ 対戦モードではtime-valueは使わない（非表示のため参照先なし）
+        const timeEl = this.isVersusMode ? null : document.getElementById("time-value");
 
         // ★ 追加：Ultra モード時はカウントダウン処理
         if (this.mode === 'ultra') {
@@ -343,10 +358,14 @@ class Game{
     }
 
     showPauseOverlay(){
+        // ★ 対戦モードでは versus-pause-overlay を使う（router.js 側で管理）
+        if (this.isVersusMode) return;
         document.getElementById('pause-overlay').classList.add('active')
     }
 
     hidePauseOverlay(){
+        // ★ 対戦モードでは versus-pause-overlay を使う（router.js 側で管理）
+        if (this.isVersusMode) return;
         document.getElementById('pause-overlay').classList.remove('active')
     }
 
@@ -364,6 +383,13 @@ class Game{
             this.isTimerRunning = false;
             cancelAnimationFrame(this.timerReqId);
             this.updateTimeDisplay(); 
+        }
+
+        // ★ 追加：対戦モードの場合は versusGameOver() に委譲する
+        if (this.isVersusMode) {
+            const loser = (this.canvasPrefix === 'cpu') ? 'cpu' : 'player';
+            if (typeof versusGameOver === 'function') versusGameOver(loser);
+            return;
         }
 
         setTimeout(() => {
@@ -812,7 +838,11 @@ class Game{
     // アクションラベル（PC, 4-LINES, T-Spin, B2B, REN）を一定時間表示する（DOM表示）
     // ─────────────────────────────────────────
     showActionLabels(tSpinType, linesCleared, isB2B, renCount, isPerfectClear, is4Lines){
-        const container = document.getElementById('action-label-container');
+        // ★ 対戦モードでは prefix 付きのコンテナを使う
+        const containerId = (this.isVersusMode && this.canvasPrefix)
+            ? `${this.canvasPrefix}-action-label-container`
+            : 'action-label-container';
+        const container = document.getElementById(containerId);
         if(!container) return;
 
         // 初回呼び出し時に、完全に独立した絶対配置のスロットを作成する
@@ -924,16 +954,19 @@ class Game{
 
     // ─── 表示の更新 ───
     updateStatsDisplay(){
+        // ★ 対戦モードでは prefix 付きの要素IDを参照する
+        const prefix = (this.isVersusMode && this.statsPrefix) ? `${this.statsPrefix}-` : '';
+
         // スコア
-        const scoreEl = document.getElementById("score-value");
+        const scoreEl = document.getElementById(`${prefix}score-value`);
         if(scoreEl) scoreEl.textContent = this.score;
         
         // レベル
-        const levelEl = document.getElementById("level-value");
+        const levelEl = document.getElementById(`${prefix}level-value`);
         if(levelEl) levelEl.textContent = this.level;
         
         // ライン
-        const linesEl = document.getElementById("lines-value");
+        const linesEl = document.getElementById(`${prefix}lines-value`);
         if(linesEl) linesEl.textContent = this.lines;
     }
 
@@ -1105,6 +1138,9 @@ class Game{
     // キーイベント（localStorage のキー設定を参照）
     // ─────────────────────────────────────────
     setKeyEvent(){
+        // ★ 追加：CPU制御モードの場合はキーイベントを一切設定しない
+        if (this.isCpuControlled) return;
+
         // 押されているキーを管理
         this.keyState = {}
         // 設定を読み込み
@@ -1140,11 +1176,14 @@ class Game{
         const keys = loadKeys();
 
         this._keyDownHandler = (e) => {
-            const gamePage = document.getElementById('game-page')
+            // ★ 対戦モードでは versus-page がアクティブな場合のみ動作
+            const activePageId = this.isVersusMode ? 'versus-page' : 'game-page';
+            const gamePage = document.getElementById(activePageId)
             if(!gamePage || !gamePage.classList.contains('active')) return
 
             // リスタート (ポーズ中・プレイ中問わず即座にやり直し)
-            if(e.code === keys.restart.code){
+            // ★ 対戦モードではリスタートキーは router.js 側で管理するためスキップ
+            if(!this.isVersusMode && e.code === keys.restart.code){
                 e.preventDefault()
                 if(e.repeat) return; // ★追加：長押しによる連続発火を防止
                 this.start()
@@ -1152,7 +1191,8 @@ class Game{
             }
 
             // ポーズ
-            if(e.code === keys.pause.code){
+            // ★ 対戦モードではポーズは router.js の toggleVersusPause() に委譲
+            if(!this.isVersusMode && e.code === keys.pause.code){
                 e.preventDefault()
                 if(e.repeat) return; // ★追加：長押しによる連続発火を防止
                 this.togglePause()
@@ -1223,7 +1263,9 @@ class Game{
         document.addEventListener('keyup', this._keyUpHandler)
 
         // ★最適化：ループ内で毎回ID検索すると流石にチリツモで重くなるため、外で取得しておく
-        const gamePage = document.getElementById('game-page');
+        // ★ 対戦モードでは versus-page を参照する
+        const activePageId = this.isVersusMode ? 'versus-page' : 'game-page';
+        const gamePage = document.getElementById(activePageId);
 
         // 毎フレーム入力処理（同時入力対応）
         this._lastFrameTime = performance.now()
