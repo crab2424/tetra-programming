@@ -114,9 +114,6 @@ function setCpuLevel(lv) {
 // ─────────────────────────────────────────────
 // startVersusGame() — 対戦ゲームを開始
 // ─────────────────────────────────────────────
-// ─────────────────────────────────────────────
-// startVersusGame() — 対戦ゲームを開始
-// ─────────────────────────────────────────────
 function startVersusGame() {
   if (!window._game) return;
 
@@ -171,14 +168,19 @@ function startVersusGame() {
 
   // プレイヤー側カウントダウン
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
-    // START! の瞬間に、game.js の開始メソッドを呼ぶだけ
     window._game._startGameplay();
   }, null);
 
   // CPU側カウントダウン（同時実行）
   runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
-    // START! の瞬間に、game.js の開始メソッドを呼ぶだけ
     window._cpuGame._startGameplay();
+
+    // ★ 追加：START! の瞬間にCPUの思考ループを起動する
+    if (!window._cpuController) {
+      window._cpuController = new CPU(window._cpuGame);
+    }
+    window._cpuController.start();
+
   }, null);
 
   // 対戦用ポーズキーを設定
@@ -263,6 +265,9 @@ function versusGameOver(loser) {
     if (window._game._keyUpHandler)   document.removeEventListener('keyup',   window._game._keyUpHandler);
     if (window._game._keyLoop)        clearInterval(window._game._keyLoop);
   }
+
+  if(window._cpuController) window._cpuController.stop();
+
   if (window._cpuGame) {
     clearInterval(window._cpuGame.timer);
     window._cpuGame.timer = null;
