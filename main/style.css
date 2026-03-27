@@ -1572,3 +1572,42 @@ input[type="range"]::-webkit-slider-thumb:hover {
 #versus-cpu-options {
   display: none !important;
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ★ 追加：対戦モード 火力ゲージ表示
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.garbage-gauge {
+  position: absolute;
+  left: -16px;       /* キャンバスのすぐ左に配置 */
+  bottom: 0;         /* キャンバスの下端に合わせる */
+  width: 10px;
+  height: 640px;     /* フィールドの高さ（20マス × 32px）と一致させる */
+  display: flex;
+  flex-direction: column-reverse; /* 下から上へ積み上げる */
+  pointer-events: none;
+  z-index: 5;
+}
+
+.gauge-block {
+  width: 10px;
+  height: 32px;      /* 1マスの高さと一致させる */
+  box-sizing: border-box;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.5); /* 境目を見やすく */
+  flex-shrink: 0;
+}
+
+.gauge-block.unready {
+  background-color: var(--accent3); /* 猶予時間中（青） */
+  box-shadow: 0 0 8px var(--accent3);
+}
+
+.gauge-block.ready {
+  background-color: var(--danger); /* 確定（赤点滅） */
+  box-shadow: 0 0 8px var(--danger);
+  animation: gauge-blink 0.4s infinite alternate;
+}
+
+@keyframes gauge-blink {
+  from { opacity: 1; }
+  to   { opacity: 0.2; }
+}

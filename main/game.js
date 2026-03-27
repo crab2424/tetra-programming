@@ -197,6 +197,7 @@ class Game{
             this.nextQueue.push(new Mino(this.getNextType()));
         }
         this.garbageQueue = [];
+        this.updateGarbageGauge();
         this.nextMino = null;
         this.field = new Field()
         this.holdMino = null
@@ -724,7 +725,6 @@ class Game{
         return generatedGarbage;
     }
 
-    // ★ 変更：穴の位置を配列にして相手に送る
     sendGarbage(amount){
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if(!opponent || amount <= 0) return;
@@ -735,15 +735,13 @@ class Game{
         for (let i = 0; i < amount; i++) {
             let holeX;
             if (i === 0) {
-                // 1番上（一番早く受ける1ライン）は完全ランダム (10分の1)
                 holeX = Math.floor(Math.random() * COLS_COUNT);
             } else {
-                // 2段目以降: 70%で直前と同じ、30%でそれ以外の9マスのどれか
                 if (Math.random() < 0.7) {
                     holeX = prevHole;
                 } else {
-                    const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1; // 1〜9のランダム値
-                    holeX = (prevHole + offset) % COLS_COUNT; // prevHole以外の9マスに均等に散らす
+                    const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1;
+                    holeX = (prevHole + offset) % COLS_COUNT;
                 }
             }
             holes.push(holeX);
@@ -752,14 +750,19 @@ class Game{
 
         const garbageObj = { amount: amount, holes: holes, ready: false };
         opponent.garbageQueue.push(garbageObj);
+        
+        // ★ 追加：相手のゲージを更新（青色のゲージが増える）
+        opponent.updateGarbageGauge();
 
-        // 1.5秒経過後に相手のフィールドに適用可能な状態(ready)にする
+        // 1.5秒経過後に確定
         setTimeout(() => {
+            // タイマー発火時に相殺されて消滅していなければ状態変更
             garbageObj.ready = true;
+            // ★ 追加：相手のゲージを更新（青→赤点滅に変わる）
+            opponent.updateGarbageGauge();
         }, 1500);
     }
 
-    // ★ 変更：配列化された穴の位置(holes)を使って下から押し上げる
     applyGarbage(){
         const readyGarbage = this.garbageQueue.filter(g => g.ready);
         this.garbageQueue = this.garbageQueue.filter(g => !g.ready);
@@ -768,13 +771,8 @@ class Game{
 
         readyGarbage.forEach(g => {
             for(let i = 0; i < g.amount; i++){
-                // 既存のフィールド上の全ブロックのY座標を -1（上へ押し上げ）
                 this.field.blocks.forEach(block => block.y -= 1);
-
-                // i=0 から順に挿入するため、holes[0] が一番上に押し上げられる
                 const currentHole = g.holes[i];
-
-                // 最下段（ROWS_COUNT - 1）におじゃまブロック（type=7）を敷き詰める
                 for(let x = 0; x < COLS_COUNT; x++){
                     if(x !== currentHole){
                         this.field.blocks.push(new Block(x, ROWS_COUNT - 1, 7));
@@ -782,6 +780,79 @@ class Game{
                 }
             }
         });
+        
+        // ★ 追加：おじゃまがフィールドに出現したのでゲージを減らす
+        this.updateGarbageGauge();
+    }
+
+    // ★ 追加：自分に降ってくる予定の火力を相殺し、余った火力を返す
+    offsetGarbage(amount) {
+        // 1. まずは「確定(ready)」で最も古いおじゃまから相殺
+        for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
+            if (this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
+                if (this.garbageQueue[i].amount <= amount) {
+                    amount -= this.garbageQueue[i].amount;
+                    this.garbageQueue[i].amount = 0;
+                } else {
+                    this.garbageQueue[i].amount -= amount;
+                    amount = 0;
+                }
+            }
+        }
+        
+        // 2. 次に「猶予中(unready)」で最も古いおじゃまを相殺
+        for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
+            if (!this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
+                if (this.garbageQueue[i].amount <= amount) {
+                    amount -= this.garbageQueue[i].amount;
+                    this.garbageQueue[i].amount = 0;
+                } else {
+                    this.garbageQueue[i].amount -= amount;
+                    amount = 0;
+                }
+            }
+        }
+
+        // 相殺しきって amount が 0 になったキューを削除
+        this.garbageQueue = this.garbageQueue.filter(g => g.amount > 0);
+        
+        // 相殺した結果をゲージに反映
+        this.updateGarbageGauge();
+
+        // 相殺しきれず余った火力（＝相手に送り返す火力）を返す
+        return amount;
+    }
+
+    // ★ 追加：予告ゲージのDOMを更新
+    updateGarbageGauge() {
+        if (!this.isVersusMode) return;
+        const gaugeId = this.canvasPrefix ? `${this.canvasPrefix}-garbage-gauge` : null;
+        if (!gaugeId) return;
+        const gaugeEl = document.getElementById(gaugeId);
+        if (!gaugeEl) return;
+
+        gaugeEl.innerHTML = '';
+        
+        // ready（確定・赤）と unready（猶予中・青）の合計をカウント
+        let readyCount = 0;
+        let unreadyCount = 0;
+        
+        this.garbageQueue.forEach(g => {
+            if (g.ready) readyCount += g.amount;
+            else unreadyCount += g.amount;
+        });
+
+        // 下から表示するため、先にreadyを、後にunreadyをDOMに追加する
+        for (let i = 0; i < readyCount; i++) {
+            const block = document.createElement('div');
+            block.className = 'gauge-block ready';
+            gaugeEl.appendChild(block);
+        }
+        for (let i = 0; i < unreadyCount; i++) {
+            const block = document.createElement('div');
+            block.className = 'gauge-block unready';
+            gaugeEl.appendChild(block);
+        }
     }
 
     // ミノを即座に固定する共通処理
@@ -814,9 +885,17 @@ class Game{
             this.showActionLabels(tSpinResult, linesCleared, isB2BTriggered, currentRen, isPerfectClear, is4Lines);
         }
 
-        // ★ 追加：対戦モードで火力を生成した場合、相手に送る
-        if(this.isVersusMode && generatedGarbage > 0){
-            this.sendGarbage(generatedGarbage);
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ★ 変更：相殺（オフセット）と送り返し処理
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (this.isVersusMode && generatedGarbage > 0) {
+            // 自分の待機中のおじゃまを相殺し、余った分（送り返し分）を受け取る
+            const remainder = this.offsetGarbage(generatedGarbage);
+            
+            // 余った火力があれば相手に送る
+            if (remainder > 0) {
+                this.sendGarbage(remainder);
+            }
         }
 
         if (this.mode === 'sprint' && this.lines >= this.goalLines) {
