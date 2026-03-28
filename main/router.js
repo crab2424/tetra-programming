@@ -64,6 +64,15 @@ const CPU_LEVELS = {
 };
 let selectedCpuLevel = 1; // デフォルト難易度
 
+// CPUクラスのレベル別マッピング
+const CPU_CLASSES = {
+  1: CPU,    // 元の高度なCPU（最強）
+  2: CPU2,   // 基本フローCPU
+  3: CPU3,   // 中級CPU
+  4: CPU4,   // 上級CPU
+  5: CPU5    // 最難関CPU
+};
+
 // ─────────────────────────────────────────────
 // goToVersusCheck() — 対戦確認画面へ遷移
 // ─────────────────────────────────────────────
@@ -140,12 +149,12 @@ function startVersusGame() {
 
   // ─── プレイヤーゲームの初期化 ───
   window._game.currentMode = 'versus';
-  window._game.marathonGoal = Infinity;       
-  window._game.isVersusMode = true;           
-  window._game.canvasPrefix = 'player';       
-  window._game.statsPrefix = 'player';        
-  window._game._labelsInitialized = false;    
-  window._game.initMainCanvas();              
+  window._game.marathonGoal = Infinity;
+  window._game.isVersusMode = true;
+  window._game.canvasPrefix = 'player';
+  window._game.statsPrefix = 'player';
+  window._game._labelsInitialized = false;
+  window._game.initMainCanvas();
   window._game.initNextCanvas();
   window._game.initHoldCanvas();
 
@@ -156,7 +165,7 @@ function startVersusGame() {
   window._cpuGame.currentMode = 'versus';
   window._cpuGame.marathonGoal = Infinity;
   window._cpuGame.isVersusMode = true;
-  window._cpuGame.canvasPrefix = 'cpu';       
+  window._cpuGame.canvasPrefix = 'cpu';
   window._cpuGame.statsPrefix = 'cpu';
   window._cpuGame.isCpuControlled = true;
   window._cpuGame._labelsInitialized = false;
@@ -187,16 +196,21 @@ function startVersusGame() {
   }, null);
 
   // CPU側カウントダウン（同時実行）
-  runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
+runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
     window._cpuGame._startGameplay();
 
-    // ★ 追加：START! の瞬間にCPUの思考ループを起動する
-    if (!window._cpuController) {
-      window._cpuController = new CPU(window._cpuGame);
+    // ★ 変更：レベルに応じたCPUクラスを使用
+    const CPUClass = CPU_CLASSES[selectedCpuLevel];
+    if (!window._cpuController || !(window._cpuController instanceof CPUClass)) {
+        // 前のCPUを停止
+        if (window._cpuController) {
+            window._cpuController.stop();
+        }
+        // 新しいCPUを生成
+        window._cpuController = new CPUClass(window._cpuGame);
     }
     window._cpuController.start();
-
-  }, null);
+}, null);
 
   // 対戦用ポーズキーを設定
   setupVersusPauseKey();
@@ -474,7 +488,7 @@ function renderModeCheck() {
         btn.textContent = 'LV' + lv;
         btn.onclick = () => {
           selectedCpuLevel = lv;
-          renderModeCheck(); 
+          renderModeCheck();
         };
         toggle.appendChild(btn);
       }
@@ -537,15 +551,21 @@ function startGameFromModeCheck() {
   switchPage('game');
   window._game.start();
 
-  // ★ 変更: TESTモードならCPUコントローラーをシングルプレイ側にアタッチ
-  if (modeId === 'test') {
-    window._game.isCpuControlled = testCpuControl; // ONなら人間操作不可、OFFなら人間操作可能
-    if (!window._cpuController) {
-      window._cpuController = new CPU(window._game);
+  // ★ 変更: TESTモードならレベルに応じたCPUコントローラーをアタッチ
+if (modeId === 'test') {
+    window._game.isCpuControlled = testCpuControl;
+
+    const CPUClass = CPU_CLASSES[selectedCpuLevel];
+    if (!window._cpuController || !(window._cpuController instanceof CPUClass)) {
+        if (window._cpuController) {
+            window._cpuController.stop();
+        }
+        window._cpuController = new CPUClass(window._game);
     } else {
-      window._cpuController.game = window._game;
+        window._cpuController.game = window._game;
     }
-    window._cpuController.isAutoPlay = testCpuControl; // CPUクラスに自動操作モードかを伝達
+
+    window._cpuController.isAutoPlay = testCpuControl;
     window._cpuController.start();
   }
 }

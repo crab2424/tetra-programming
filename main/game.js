@@ -26,7 +26,7 @@ const BLOCK_SOURCES = [
 ]
 
 window.onload = function(){
-    Asset.init()
+    Asset.init(function() {
     let game = new Game()
     // グローバルに保持（設定変更後に setKeyEvent を外から呼ぶため）
     window._game = game
@@ -58,6 +58,7 @@ window.onload = function(){
 
     // ★ 追加：準備画面のコントロール表示を初期化（router.js の関数を呼ぶ）
     if (typeof updateMenuControlsDisplay === 'function') updateMenuControlsDisplay();
+    })
 }
 
 // ─────────────────────────────────────────────
@@ -234,7 +235,7 @@ class Game{
     drawGrid(ctx) {
         ctx.save();
         // グリッド線の色と太さ（暗い背景に馴染む薄い白）
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'; 
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.lineWidth = 1;
 
         // 縦線を引く
@@ -317,7 +318,7 @@ class Game{
             Object.keys(this.labelTimers).forEach(id => {
                 if(this.labelTimers[id].fade) clearTimeout(this.labelTimers[id].fade);
                 if(this.labelTimers[id].clear) clearTimeout(this.labelTimers[id].clear);
-                
+
                 this.labelElements[id].style.opacity = '0';
                 this.labelElements[id].innerHTML = '&nbsp;';
             });
@@ -335,7 +336,7 @@ class Game{
 
         // ★ 追加：カウントダウンフラグと、ミノの未出現状態の設定
         this.isCountingDown = true;
-        this.mino = null; 
+        this.mino = null;
 
         // 既存のタイマーをすべて止めておく
         clearInterval(this.timer);
@@ -343,13 +344,13 @@ class Game{
         if(this.lockTimer){ clearTimeout(this.lockTimer); this.lockTimer = null; }
 
         // ★ 追加：リスタート時に表示中のオーバーレイを強制終了する
-        const countdownId = this.isVersusMode 
+        const countdownId = this.isVersusMode
             ? (this.canvasPrefix ? `${this.canvasPrefix}-countdown-overlay` : 'versus-countdown-overlay')
             : 'countdown-overlay';
-        const finishId = this.isVersusMode 
+        const finishId = this.isVersusMode
             ? (this.canvasPrefix ? `${this.canvasPrefix}-finish-overlay` : 'versus-finish-overlay')
             : 'finish-overlay';
-            
+
         const countdownOverlay = document.getElementById(countdownId);
         const finishOverlay = document.getElementById(finishId);
 
@@ -440,11 +441,11 @@ class Game{
 
         const m = Math.floor(displayMs / 60000);
         const s = Math.floor((displayMs % 60000) / 1000);
-        const ms = Math.floor((displayMs % 1000) / 10); 
+        const ms = Math.floor((displayMs % 1000) / 10);
 
-        const formattedTime = 
-            String(m).padStart(2, '0') + ':' + 
-            String(s).padStart(2, '0') + '.' + 
+        const formattedTime =
+            String(m).padStart(2, '0') + ':' +
+            String(s).padStart(2, '0') + '.' +
             String(ms).padStart(2, '0');
 
         if(timeEl) {
@@ -465,7 +466,7 @@ class Game{
         if(this.isPaused) return
         this.isPaused = true
         clearInterval(this.timer)
-        
+
         // ★変更: 接地猶予タイマーが動いていた場合、残り時間を計算して保存する
         if(this.lockTimer){
             clearTimeout(this.lockTimer);
@@ -477,7 +478,7 @@ class Game{
         }
 
         this.showPauseOverlay()
-        
+
         if(this.isTimerRunning){
             this.elapsedTime += performance.now() - this.startTime;
             this.isTimerRunning = false;
@@ -489,7 +490,7 @@ class Game{
         if(!this.isPaused) return
         this.isPaused = false
         this.hidePauseOverlay()
-        
+
         // ★変更: 接地中(lockTimer稼働中)だったか空中だったかで再開処理を分ける
         if (this._wasLockingWhenPaused) {
             // 保存しておいた残り時間（最低0ms）で猶予タイマーを再開
@@ -533,13 +534,13 @@ class Game{
         this.drawAll();
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
-        this.isPaused = true; 
+        this.isPaused = true;
 
         if (this.isTimerRunning) {
             this.elapsedTime += performance.now() - this.startTime;
             this.isTimerRunning = false;
             cancelAnimationFrame(this.timerReqId);
-            this.updateTimeDisplay(); 
+            this.updateTimeDisplay();
         }
 
         // ★ 追加：対戦モードの場合は versusGameOver() に委譲する
@@ -555,7 +556,7 @@ class Game{
         showFinishOverlay('finish-overlay', 'finish-text', finishText, finishClass, 1200, () => {
             const timeEl = document.getElementById('time-value');
             const resultTitle = document.getElementById('result-title');
-            
+
             // ★ 追加：クリア/ゲームオーバーの表示切り替え
             if (isClear) {
                 resultTitle.textContent = "CLEARED!";
@@ -572,7 +573,7 @@ class Game{
             document.getElementById('result-score').textContent = this.score;
             document.getElementById('result-level').textContent = this.level;
             document.getElementById('result-lines').textContent = this.lines;
-            
+
             // ★ 追加：Sprint モードのゲームオーバー時は記録なし（タイム非表示）
             if (this.mode === 'sprint' && !isClear) {
                 document.getElementById('result-time').textContent = "--:--.--";
@@ -621,7 +622,7 @@ class Game{
         // T-spin判定フラグのリセット
         this.lastActionWasRotation = false;
         this.lastRotUsedPoint5 = false;
-        
+
         if(this.lockTimer){
             clearTimeout(this.lockTimer);
             this.lockTimer = null;
@@ -742,7 +743,7 @@ class Game{
             this.mino.type = prevHoldType
             this.mino.initBlocks()
             this.mino.spawn()
-        
+
             /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             追加: ホールドから出した時の致命判定とタイマーリセット
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
@@ -758,7 +759,7 @@ class Game{
             this.isGrounded = false;
             this.lowestY = this.mino.y;
             this.moveCount = 0;
-            
+
             if(this.lockTimer){
                 clearTimeout(this.lockTimer);
                 this.lockTimer = null;
@@ -820,7 +821,7 @@ class Game{
             if (linesCleared === 2) pcBonus = 1000;
             if (linesCleared === 3) pcBonus = 1800;
             if (linesCleared === 4) pcBonus = 2000;
-            
+
             lineScore += (pcBonus * this.level);
         }
 
@@ -907,7 +908,7 @@ class Game{
 
         const garbageObj = { amount: amount, holes: holes, ready: false };
         opponent.garbageQueue.push(garbageObj);
-        
+
         // ★ 追加：相手のゲージを更新（青色のゲージが増える）
         opponent.updateGarbageGauge();
 
@@ -937,7 +938,7 @@ class Game{
                 }
             }
         });
-        
+
         // ★ 追加：おじゃまがフィールドに出現したのでゲージを減らす
         this.updateGarbageGauge();
     }
@@ -956,7 +957,7 @@ class Game{
                 }
             }
         }
-        
+
         // 2. 次に「猶予中(unready)」で最も古いおじゃまを相殺
         for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
             if (!this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
@@ -972,7 +973,7 @@ class Game{
 
         // 相殺しきって amount が 0 になったキューを削除
         this.garbageQueue = this.garbageQueue.filter(g => g.amount > 0);
-        
+
         // 相殺した結果をゲージに反映
         this.updateGarbageGauge();
 
@@ -989,11 +990,11 @@ class Game{
         if (!gaugeEl) return;
 
         gaugeEl.innerHTML = '';
-        
+
         // ready（確定・赤）と unready（猶予中・青）の合計をカウント
         let readyCount = 0;
         let unreadyCount = 0;
-        
+
         this.garbageQueue.forEach(g => {
             if (g.ready) readyCount += g.amount;
             else unreadyCount += g.amount;
@@ -1030,7 +1031,7 @@ class Game{
         const isBtBAction = (linesCleared > 0 && (linesCleared === 4 || tSpinResult !== null));
         const isB2BTriggered = isBtBAction && this.backToBack;
         const currentRen = (linesCleared > 0 && this.ren > 0) ? this.ren : 0;
-        
+
         const isPerfectClear = (this.field.blocks.length === 0);
         const is4Lines = (linesCleared === 4);
 
@@ -1048,7 +1049,7 @@ class Game{
         if (this.isVersusMode && generatedGarbage > 0) {
             // 自分の待機中のおじゃまを相殺し、余った分（送り返し分）を受け取る
             const remainder = this.offsetGarbage(generatedGarbage);
-            
+
             // 余った火力があれば相手に送る
             if (remainder > 0) {
                 this.sendGarbage(remainder);
@@ -1192,7 +1193,7 @@ class Game{
         // 初回呼び出し時に、完全に独立した絶対配置のスロットを作成する
         if(!this._labelsInitialized) {
             container.innerHTML = '';
-            
+
             // コンテナを基準点（座標0, 0のアンカー）として扱うための設定
             container.style.width = '0px';
             container.style.height = '0px';
@@ -1201,7 +1202,7 @@ class Game{
 
             this.labelElements = {};
             this.labelTimers = {};
-            
+
             // ★ 完全自由配置用の座標マッピング（コンテナを基準としたpx単位）
             // x: プラスで右、マイナスで左へ移動
             // y: プラスで下、マイナスで上へ移動
@@ -1217,20 +1218,20 @@ class Game{
             const slotIds = ['four', 'mini', 'tspin', 'b2b', 'pc', 'ren'];
             slotIds.forEach(id => {
                 const el = document.createElement('div');
-                el.className = `action-label`; 
+                el.className = `action-label`;
                 el.style.opacity = '0';
-                
+
                 // ★ 絶対配置（他のラベルの位置に一切影響を与えない）
                 el.style.position = 'absolute';
                 el.style.whiteSpace = 'nowrap'; // テキストの意図しない折り返しを防止
-                
+
                 // 座標の適用 (テキストの中央がX座標の基準になるように transform を使用)
                 el.style.left = `${this.labelLayout[id].x}px`;
                 el.style.top = `${this.labelLayout[id].y}px`;
-                el.style.transform = 'translateX(-50%)'; 
-                
-                el.innerHTML = '&nbsp;'; 
-                
+                el.style.transform = 'translateX(-50%)';
+
+                el.innerHTML = '&nbsp;';
+
                 container.appendChild(el);
                 this.labelElements[id] = el;
                 this.labelTimers[id] = { fade: null, clear: null };
@@ -1267,7 +1268,7 @@ class Game{
         if(tSpinType !== null){
             const clearNames = ['', ' SINGLE', ' DOUBLE', ' TRIPLE'];
             const suffix = clearNames[linesCleared] ?? '';
-            
+
             if(tSpinType === 'mini'){
                 triggerLabel('mini', 'MINI', 'mini font-tech');
                 triggerLabel('tspin', 'T-SPIN' + suffix, 'mini font-tech');
@@ -1304,11 +1305,11 @@ class Game{
         // スコア
         const scoreEl = document.getElementById(`${prefix}score-value`);
         if(scoreEl) scoreEl.textContent = this.score;
-        
+
         // レベル
         const levelEl = document.getElementById(`${prefix}level-value`);
         if(levelEl) levelEl.textContent = this.level;
-        
+
         // ライン
         const linesEl = document.getElementById(`${prefix}lines-value`);
         if(linesEl) linesEl.textContent = this.lines;
@@ -1360,10 +1361,10 @@ class Game{
             }
         }
 
-        const minoScale = 0.8; 
+        const minoScale = 0.8;
 
         // Draw next queue vertically
-        const spacing = 3; 
+        const spacing = 3;
         this.nextQueue.forEach((mino, i) => {
             this.nextCtx.save();
             this.nextCtx.translate(0, i * spacing * BLOCK_SIZE * minoScale);
@@ -1371,7 +1372,7 @@ class Game{
             mino.drawNext(this.nextCtx);
             this.nextCtx.restore();
         });
-        
+
         // ★ 変更：this.mino が存在するときだけ本体を描画
         if (this.mino) {
             this.mino.draw(this.mainCtx)
@@ -1424,7 +1425,7 @@ class Game{
                 }
                 this.secureMino();
                 // secureMino()内で次のミノが呼ばれ描画されるためここで終了
-                return; 
+                return;
             }
 
             // まだ余裕がある場合は猶予タイマー開始（またはリセット）
@@ -1438,7 +1439,7 @@ class Game{
                     clearTimeout(this.lockTimer);
                     this.lockTimer = null;
                 }
-                this.startGravity(); 
+                this.startGravity();
             }
         }
     }
@@ -1454,7 +1455,7 @@ class Game{
     // 固定猶予タイマーの起動・リセット
     startLockTimer(delay = this.lockDelay) {
         if (this.lockTimer) clearTimeout(this.lockTimer);
-        
+
         // ★追加: ポーズ時の計算用に開始時刻と設定時間を記録
         this.lockStartTime = performance.now();
         this.lockRemaining = delay;
@@ -1490,10 +1491,10 @@ class Game{
         this.keyState = {}
         // 設定を読み込み
         let tuning = loadTuning();
-        
+
 
         const frameMs = 1000 / 60; // 1フレーム = 約16.67ms
-        
+
         // DAS, ARR, DCD をフレーム数からミリ秒に変換してセット
         this.DAS_DELAY = tuning.das * frameMs;
         this.ARR_INTERVAL = tuning.arr * frameMs;
@@ -1502,7 +1503,7 @@ class Game{
         // ソフトドロップ用ARR
         const currentLevelSpeed = LEVEL_SPEEDS[this.level] || 7;
         const currentSoftDropArr = currentLevelSpeed / 20;
-        
+
         this._lastSoftDropTime = 0;
         this._leftPressTime = null;
         this._rightPressTime = null;
@@ -1567,7 +1568,7 @@ class Game{
                 e.preventDefault()
                 if(e.repeat) return;            // ★追加：長押しによる連続発火を防止
                 if(this.isCountingDown) return; // ★追加：カウントダウン中は無効
-                
+
                 if(this.DCD_DELAY > 0 &&
                     (this._dasBlockedLeft || this._dasBlockedRight)){
                     this._dcdUntil = performance.now() + this.DCD_DELAY
@@ -1622,7 +1623,7 @@ class Game{
             if(!gamePage || !gamePage.classList.contains('active')) return
             if(this.isPaused) return
             // ★ 追加：カウントダウン中はDASの時間を裏で記録するだけで、操作の実行はしない
-            if(this.isCountingDown) return; 
+            if(this.isCountingDown) return;
 
             const nowPerf = performance.now()
             const delta = nowPerf - this._lastFrameTime
@@ -1736,7 +1737,7 @@ class Game{
                 } else {
                     // 前回ソフトドロップ処理をしてからの経過時間
                     let elapsed = now - this._lastSoftDropTime;
-                    
+
                     // 必要な時間（currentSoftDropArr）が経過していたら落下処理
                     if(elapsed >= currentSoftDropArr){
                         // 経過時間の中に、何マスの落下が含まれるかを割り算で計算（フレームの壁を突破）
@@ -1834,7 +1835,7 @@ class Block{
     draw(offsetX = 0, offsetY = 0, ctx){
         let drawX = this.x + offsetX
         let drawY = this.y + offsetY
-        
+
         // 修正前: drawY >= 0 && ...
         // 修正後: drawY >= -1 && ...
         if(drawX >= 0 && drawX < COLS_COUNT &&
@@ -1871,7 +1872,7 @@ class Block{
 // Mino クラス
 // ─────────────────────────────────────────────
 class Mino{
-    
+
     // mino の種類を決定してブロックを初期化
     constructor(type = null){
         this.pivot = { x: 1.5, y: 1.5 }; // デフォルトの回転軸（4x4中心）

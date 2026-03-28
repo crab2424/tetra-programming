@@ -199,6 +199,10 @@ class CPU {
     }
 
     calculatePlacementInfo(currentBlocks, droppedBlocks) {
+        // ★ 修正：各列の「最も下にあるブロック」だけを抽出する
+        // 旧コードはbottomEdgesに格納した最下Y座標を確認していたが、
+        // isFullyGroundedのチェックで全droppedBlocksを使っていたため、
+        // 同列の上のブロックの真下が空でもgroundedと誤判定するバグがあった
         let bottomEdges = {};
         
         droppedBlocks.forEach(b => {
@@ -211,6 +215,7 @@ class CPU {
         for (let x in bottomEdges) {
             let bottomY = bottomEdges[x];
             let xNum = parseInt(x, 10);
+            // ★ bottomEdgesに格納された最下段のブロックの真下が床かブロックかをチェック
             let grounded = (bottomY + 1 >= 20) || currentBlocks.some(cb => cb.x === xNum && cb.y === bottomY + 1);
             if (!grounded) {
                 isFullyGrounded = false;
@@ -249,7 +254,10 @@ class CPU {
             if (rowCount === 10) { 
                 linesCleared++;
                 blocks = blocks.filter(b => b.y !== r);
+                // ★ 修正：消去した行より上のブロックを1段下ろす（game.jsのcheckLine()と同じロジック）
+                // 旧コードは r-- がなかったため、連続消去時に行のチェックをスキップするバグがあった
                 blocks.filter(b => b.y < r).forEach(b => b.y++);
+                r--; // ★ 修正：消去した行を再チェックするためにrを戻す
             }
         }
         return { blocks, linesCleared };
@@ -335,16 +343,24 @@ class CPU {
         const mino = this.game.mino;
         if (!mino || mino.type !== id) return;
 
+        // ★ 修正：回転はブロック座標を直接変更するため、まずY座標をspawnYに戻してから行う
+        // （重力で落下中に呼ばれた場合、回転後の壁判定がずれることを防ぐ）
+        if (spawnY !== undefined) {
+            mino.y = spawnY;
+        }
+
         while (mino.rotation !== targetRot) {
             mino.rotate(); 
             mino.rotation = (mino.rotation + 1) % 4;
         }
 
+        // ★ 修正：targetXをセットする前に、そのX座標が有効かをゲームのvalid()で確認する
+        // 無効な場合は現在位置のままにしてフォールバックする
+        const prevX = mino.x;
         mino.x = targetX;
-        
-        // 待機中の重力落下による「壁へのめり込み」を防ぐため、安全な高さへ戻す
-        if (spawnY !== undefined) {
-            mino.y = spawnY;
+        if (!this.game.valid(0, 0)) {
+            // targetXが無効ならX座標を元に戻す（重力やロックタイマーに任せる）
+            mino.x = prevX;
         }
 
         this.game.drawAll();
