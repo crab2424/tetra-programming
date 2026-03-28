@@ -42,6 +42,13 @@ const GAME_MODES = {
   },
 };
 
+let testCpuControl = true; // TESTモードのCPU自動操作フラグ（デフォルトON）
+
+function setTestCpuControl(isOn) {
+  testCpuControl = isOn;
+  renderModeCheck();
+}
+
 // ─── 現在選択中のモード ───────────────────────
 // mode-check-page に渡す共有変数
 let currentGameMode = null;
@@ -445,12 +452,21 @@ function renderModeCheck() {
           btn.style.borderColor = mode.color;
       });
     } else if (mode.id === 'test') {
-      // ★ 追加: TESTモード時はCPUレベル選択UIを生成して表示
       optionsEl.style.display = 'flex';
       optionsEl.innerHTML = `
-        <div class="opt-label">CPU LEVEL</div>
-        <div class="opt-row" id="test-cpu-level-toggle"></div>
+        <div class="option-row">
+          <span class="option-label">CPU CONTROL</span>
+          <div class="option-toggle" id="test-cpu-control-toggle">
+            <button class="opt-btn ${testCpuControl ? 'active' : ''}" onclick="setTestCpuControl(true)">ON</button>
+            <button class="opt-btn ${!testCpuControl ? 'active' : ''}" onclick="setTestCpuControl(false)">OFF</button>
+          </div>
+        </div>
+        <div class="option-row">
+          <span class="option-label">CPU LEVEL</span>
+          <div class="option-toggle" id="test-cpu-level-toggle"></div>
+        </div>
       `;
+      // レベルトグルの生成
       const toggle = document.getElementById('test-cpu-level-toggle');
       for (let lv = 1; lv <= 5; lv++) {
         const btn = document.createElement('button');
@@ -458,7 +474,7 @@ function renderModeCheck() {
         btn.textContent = 'LV' + lv;
         btn.onclick = () => {
           selectedCpuLevel = lv;
-          renderModeCheck(); // 再描画してactive状態を更新
+          renderModeCheck(); 
         };
         toggle.appendChild(btn);
       }
@@ -521,14 +537,15 @@ function startGameFromModeCheck() {
   switchPage('game');
   window._game.start();
 
-  // ★ 追加: TESTモードならCPUコントローラーをシングルプレイ側にアタッチして起動
+  // ★ 変更: TESTモードならCPUコントローラーをシングルプレイ側にアタッチ
   if (modeId === 'test') {
-    window._game.isCpuControlled = true; // 人間の操作を無効化
+    window._game.isCpuControlled = testCpuControl; // ONなら人間操作不可、OFFなら人間操作可能
     if (!window._cpuController) {
       window._cpuController = new CPU(window._game);
     } else {
-      window._cpuController.game = window._game; // 参照を更新
+      window._cpuController.game = window._game;
     }
+    window._cpuController.isAutoPlay = testCpuControl; // CPUクラスに自動操作モードかを伝達
     window._cpuController.start();
   }
 }

@@ -1785,3 +1785,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+
+/* CPU評価の得点差カラー */
+.eval-diff-plus {
+  color: var(--accent3); /* 水色 */
+}
+.eval-diff-minus {
+  color: var(--danger); /* 赤色 */
+}

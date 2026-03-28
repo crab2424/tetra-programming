@@ -1,33 +1,33 @@
 // ─────────────────────────────────────────────
 // cpu.js
-// CPUの思考・操作をつかさどるクラス
+// CPUの思考・操作・解析をつかさどるクラス
 // ─────────────────────────────────────────────
 
 class CPU {
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
+        this.isAutoPlay = true; // true: CPUが操作する, false: 人間が操作してCPUが採点する
         this.currentMino = null;
+        this.baseScore = 0;     // 出現時の盤面の基礎点
 
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ★ 評価値のパラメータ（重み）
-        // ここの数値をいじることでCPUの性格・強さが変わります
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         this.weights = {
-            lineClear:   100,  // ライン消去（1ラインにつき）
-            hole:        -4,  // 穴（1つにつき）
-            heightLimit: -10,  // 8段以上になった時のペナルティ（1段につき）
-
-            // ▼ 今回追加した「平らさ」重視のパラメータ ▼
-            heightDiff:   -3,  // 最高段と最低段の差（1段差につき）
-            flat:          5,  // 隣の列と高さが同じ（1箇所につき）
-            step1Good:     3,  // 1段差が2個以下の時のボーナス（1箇所につき）
-            step1Bad:     -3,  // 1段差が3個以上の時のペナルティ（1箇所につき）
-            step2Plus:    -5,   // 2マス以上の段差（1箇所につき）
-            groundedBonus: 20, // ミノの下辺がすべて接地している場合のボーナス
-            underSpace:   -30  // ミノの下辺に空間がある場合のペナルティ（1マスにつき）
+            lineClear:    20,
+            hole:         -16,
+            heightLimit:  -5,
+            heightDiff:   -3,
+            flat:          2,
+            step1Good:     3,
+            step1Bad:     -2,
+            step2Plus:    -8,
+            groundedBonus: 12,
+            touchingBonus: 0,   // 接地条件を満たした時、周囲の壁・床・ブロックに触れている面1つにつきプラス
+            underSpace:   -6,
+            singleWell:    0,  // 3段以上の深い穴が1列だけの場合のボーナス（Iミノ待ち）
+            multiWell:    -10,   // 深い穴が2列以上ある場合のペナルティ（深さ1マスにつき掛け算）
         };
     }
+    
 
     start() {
         this.isActive = true;
@@ -46,31 +46,98 @@ class CPU {
             this.onMinoSpawned();
         }
 
+        if (this.game.mino && !this.game.isPaused) {
+            this.updateGhostEval();
+        }
+
         requestAnimationFrame(() => this.updateLoop());
     }
 
     onMinoSpawned() {
-        const startTime = performance.now();
-        const bestMove = this.searchBestMove(this.game.mino);
+        const diffEl = document.getElementById('eval-diff');
+        if (diffEl) diffEl.textContent = ''; 
 
-        // 画面のEVALを更新
-        if (bestMove) {
-            const evalEl = document.getElementById('eval-value');
-            if (evalEl) evalEl.textContent = bestMove.score;
-        }
+        const currentBlocks = this.game.field.blocks.map(b => ({ x: b.x, y: b.y }));
+        this.baseScore = this.evaluateBoard(currentBlocks, 0, false, 0);
 
-        const processingTime = performance.now() - startTime;
-        const waitTime = Math.max(0, 500 - processingTime);
+        if (this.isAutoPlay) {
+            const bestMove = this.searchBestMove(this.game.mino);
 
-        setTimeout(() => {
-            if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                if (bestMove) {
-                    this.executeMove(bestMove.id, bestMove.rot, bestMove.x, bestMove.y);
-                } else {
-                    this.game.hardDrop();
+            if (bestMove) {
+                // 1. EVAL値と「得点差」の表示を更新（CPU操作時にも表示）
+                const evalEl = document.getElementById('eval-value');
+                if (evalEl) evalEl.textContent = bestMove.score;
+
+                if (diffEl) {
+                    let diff = bestMove.score - this.baseScore;
+                    if (diff > 0) {
+                        diffEl.textContent = `(+${diff})`;
+                        diffEl.className = 'eval-diff-plus';
+                    } else if (diff < 0) {
+                        diffEl.textContent = `(${diff})`;
+                        diffEl.className = 'eval-diff-minus';
+                    } else {
+                        diffEl.textContent = `(±0)`;
+                        diffEl.className = '';
+                        diffEl.style.color = 'var(--text-dim)';
+                    }
                 }
+
+                if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
+                    // 2. 最高スコアが確定した瞬間に「向きとX座標に横・回転移動」させる
+                    this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x);
+
+                    // 3. 0.3秒（300ms）待機してからハードドロップする
+                    setTimeout(() => {
+                        if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
+                            this.game.hardDrop();
+                        }
+                    }, 700);
+                }
+            } else {
+                // 置く場所が見つからない時のフェイルセーフ
+                setTimeout(() => {
+                    if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
+                        this.game.hardDrop();
+                    }
+                }, 700);
             }
-        }, waitTime); 
+        }
+    }
+
+    updateGhostEval() {
+        const mino = this.game.mino;
+        if (!mino) return;
+
+        const currentBlocks = this.game.field.blocks.map(b => ({ x: b.x, y: b.y }));
+        const ghostY = this.game.getGhostY(); 
+
+        let droppedBlocks = mino.blocks.map(b => ({ x: b.x + mino.x, y: b.y + ghostY }));
+
+        let placement = this.calculatePlacementInfo(currentBlocks, droppedBlocks);
+        let simResult = this.simulateBoard(currentBlocks, droppedBlocks);
+        
+        let score = this.evaluateBoard(simResult.blocks, simResult.linesCleared, placement.isFullyGrounded, placement.touchingCount);
+
+        const evalEl = document.getElementById('eval-value');
+        const diffEl = document.getElementById('eval-diff');
+        
+        if (evalEl) evalEl.textContent = score;
+
+        if (diffEl) {
+            let diff = score - this.baseScore;
+            if (diff > 0) {
+                diffEl.textContent = `(+${diff})`;
+                diffEl.className = 'eval-diff-plus';
+            } else if (diff < 0) {
+                diffEl.textContent = `(${diff})`;
+                diffEl.className = 'eval-diff-minus';
+            } else {
+                diffEl.textContent = `(±0)`;
+                diffEl.className = '';
+                diffEl.style.color = 'var(--text-dim)';
+            }
+        }
     }
 
     searchBestMove(mino) {
@@ -113,27 +180,11 @@ class CPU {
                 }
 
                 let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + simMino.x, y: b.y + ghostY }));
-
-                let bottomEdges = {};
-                droppedBlocks.forEach(b => {
-                    // 各X座標について、最も下（Y座標が大きい）のブロックを記録
-                    if (bottomEdges[b.x] === undefined || b.y > bottomEdges[b.x]) {
-                        bottomEdges[b.x] = b.y;
-                    }
-                });
                 
-                let underSpaces = 0;
-                for (let x in bottomEdges) {
-                    let bottomY = bottomEdges[x];
-                    // その真下（bottomY + 1）が床（20）であるか、既存のブロックが存在するか
-                    let isGrounded = (bottomY + 1 >= 20) || currentBlocks.some(cb => cb.x == x && cb.y == bottomY + 1);
-                    if (!isGrounded) {
-                        underSpaces++;
-                    }
-                }
-
+                let placement = this.calculatePlacementInfo(currentBlocks, droppedBlocks);
                 let simResult = this.simulateBoard(currentBlocks, droppedBlocks);
-                let score = this.evaluateBoard(simResult.blocks, simResult.linesCleared, underSpaces);
+                
+                let score = this.evaluateBoard(simResult.blocks, simResult.linesCleared, placement.isFullyGrounded, placement.touchingCount);
 
                 if (score > bestScore) {
                     bestScore = score;
@@ -143,6 +194,48 @@ class CPU {
         }
         
         return bestMove;
+    }
+
+    calculatePlacementInfo(currentBlocks, droppedBlocks) {
+        let bottomEdges = {};
+        
+        droppedBlocks.forEach(b => {
+            if (bottomEdges[b.x] === undefined || b.y > bottomEdges[b.x]) {
+                bottomEdges[b.x] = b.y;
+            }
+        });
+
+        let isFullyGrounded = true;
+        for (let x in bottomEdges) {
+            let bottomY = bottomEdges[x];
+            let xNum = parseInt(x, 10);
+            let grounded = (bottomY + 1 >= 20) || currentBlocks.some(cb => cb.x === xNum && cb.y === bottomY + 1);
+            if (!grounded) {
+                isFullyGrounded = false;
+                break;
+            }
+        }
+
+        let touchingCount = 0;
+        if (isFullyGrounded) {
+            droppedBlocks.forEach(b => {
+                const neighbors = [ {dx: -1, dy: 0}, {dx: 1, dy: 0}, {dx: 0, dy: 1} ];
+                
+                neighbors.forEach(n => {
+                    let nx = b.x + n.dx;
+                    let ny = b.y + n.dy;
+                    
+                    if (nx < 0 || nx >= 10 || ny >= 20) {
+                        touchingCount++;
+                    } 
+                    else if (currentBlocks.some(cb => cb.x === nx && cb.y === ny)) {
+                        touchingCount++;
+                    }
+                });
+            });
+        }
+
+        return { isFullyGrounded, touchingCount };
     }
 
     simulateBoard(fieldBlocks, minoBlocks) {
@@ -160,14 +253,9 @@ class CPU {
         return { blocks, linesCleared };
     }
 
-    // ─────────────────────────────────────────
-    // 盤面の評価関数（パラメータ変数化）
-    // ★ 第3引数に underSpaces を追加
-    // ─────────────────────────────────────────
-    evaluateBoard(blocks, linesCleared, underSpaces) {
+    evaluateBoard(blocks, linesCleared, isFullyGrounded, touchingCount) {
         let score = 0;
 
-        // 【ルール】ライン消去
         score += linesCleared * this.weights.lineClear;
 
         let heights = new Array(10).fill(0);
@@ -194,7 +282,6 @@ class CPU {
         score += holes * this.weights.hole;
 
         let step1Count = 0;
-
         for (let c = 0; c < 9; c++) {
             let diff = Math.abs(heights[c] - heights[c + 1]);
             
@@ -213,19 +300,38 @@ class CPU {
             score += step1Count * this.weights.step1Bad;
         }
 
-        // ▼ 今回追加した「接地空間」の評価 ▼
-        if (underSpaces === 0) {
-            // 全て接地している（空間が0）
+        let deepWells = []; 
+        for (let c = 0; c < 10; c++) {
+            let leftDiff  = (c === 0) ? Infinity : heights[c - 1] - heights[c];
+            let rightDiff = (c === 9) ? Infinity : heights[c + 1] - heights[c];
+            
+            if (leftDiff >= 3 && rightDiff >= 3) {
+                let depth = Math.min(leftDiff, rightDiff);
+                if (c === 0) depth = rightDiff;
+                if (c === 9) depth = leftDiff;
+                deepWells.push(depth);
+            }
+        }
+
+        if (deepWells.length === 1) {
+            score += this.weights.singleWell;
+        } else if (deepWells.length >= 2) {
+            let totalDepth = deepWells.reduce((sum, d) => sum + d, 0);
+            score += totalDepth * this.weights.multiWell;
+        }
+
+        if (isFullyGrounded) {
             score += this.weights.groundedBonus;
-        } else {
-            // 下に空間がある（宙に浮いた部分がある）
-            score += underSpaces * this.weights.underSpace;
+            score += touchingCount * this.weights.touchingBonus;
         }
 
         return score;
     }
 
-    executeMove(id, targetRot, targetX, targetY) {
+    // ─────────────────────────────────────────
+    // ★ 変更：移動（回転とX座標の適用）のみを行い、描画を更新する
+    // ─────────────────────────────────────────
+    moveMinoTo(id, targetRot, targetX) {
         const mino = this.game.mino;
         if (!mino || mino.type !== id) return;
 
@@ -235,6 +341,8 @@ class CPU {
         }
 
         mino.x = targetX;
-        this.game.hardDrop();
+        
+        // 移動結果を即座に画面に反映させる
+        this.game.drawAll();
     }
 }
