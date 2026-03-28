@@ -12,7 +12,7 @@ class CPU {
         this.baseScore = 0;     // 出現時の盤面の基礎点
 
         this.weights = {
-            lineClear:    20,
+            lineClear:    1000,
             hole:         -16,
             heightLimit:  -5,
             heightDiff:   -3,
@@ -21,9 +21,9 @@ class CPU {
             step1Bad:     -2,
             step2Plus:    -8,
             groundedBonus: 12,
-            touchingBonus: 0,   // 接地条件を満たした時、周囲の壁・床・ブロックに触れている面1つにつきプラス
+            touchingBonus: 1,   // 接地条件を満たした時、周囲の壁・床・ブロックに触れている面1つにつきプラス
             underSpace:   -6,
-            singleWell:    0,  // 3段以上の深い穴が1列だけの場合のボーナス（Iミノ待ち）
+            singleWell:    1,  // 3段以上の深い穴が1列だけの場合のボーナス（Iミノ待ち）
             multiWell:    -10,   // 深い穴が2列以上ある場合のペナルティ（深さ1マスにつき掛け算）
         };
     }
@@ -92,14 +92,14 @@ class CPU {
                         if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                             this.game.hardDrop();
                         }
-                    }, 700); // 0.7秒待機
+                    }, 2000); // 0.7秒待機
                 }
             } else {
                 setTimeout(() => {
                     if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                         this.game.hardDrop();
                     }
-                }, 700);
+                }, 2000);
             }
         }
     }
@@ -159,7 +159,7 @@ class CPU {
         let bestDiff = -10000;
         let bestMove = null;
         let searchCount = 0;
-        const SEARCH_LIMIT = 200;
+        const SEARCH_LIMIT = 1000;
 
         const currentBlocks = this.game.field.blocks.map(b => ({ x: b.x, y: b.y }));
         const baseScore = this.evaluateBoard(currentBlocks, 0, false, 0);
@@ -169,7 +169,13 @@ class CPU {
                 if (searchCount >= SEARCH_LIMIT) break;
 
                 let simMino = new Mino(mino.type);
-                for (let i = 0; i < rot; i++) simMino.rotate();
+                simMino.rotation = 0; // ★ 追加：初期状態を明示
+
+                // ★ 修正：シミュレーション用のMinoも内部数値を同期して回す
+                for (let i = 0; i < rot; i++) {
+                    simMino.rotate();
+                    simMino.rotation = (simMino.rotation + 1) % 4; 
+                }
 
                 // 共通ロジックを使って出現位置の重なりを判定
                 let isSpawnValid = this.isValidPlacement(simMino, x, mino.y, currentBlocks);
@@ -206,9 +212,6 @@ class CPU {
 
     calculatePlacementInfo(currentBlocks, droppedBlocks) {
         // ★ 修正：各列の「最も下にあるブロック」だけを抽出する
-        // 旧コードはbottomEdgesに格納した最下Y座標を確認していたが、
-        // isFullyGroundedのチェックで全droppedBlocksを使っていたため、
-        // 同列の上のブロックの真下が空でもgroundedと誤判定するバグがあった
         let bottomEdges = {};
         
         droppedBlocks.forEach(b => {
@@ -261,7 +264,6 @@ class CPU {
                 linesCleared++;
                 blocks = blocks.filter(b => b.y !== r);
                 // ★ 修正：消去した行より上のブロックを1段下ろす（game.jsのcheckLine()と同じロジック）
-                // 旧コードは r-- がなかったため、連続消去時に行のチェックをスキップするバグがあった
                 blocks.filter(b => b.y < r).forEach(b => b.y++);
                 r--; // ★ 修正：消去した行を再チェックするためにrを戻す
             }
@@ -349,23 +351,26 @@ class CPU {
         const mino = this.game.mino;
         if (!mino || mino.type !== id) return;
 
-        // ★ 修正：回転はブロック座標を直接変更するため、まずY座標をspawnYに戻してから行う
-        // （重力で落下中に呼ばれた場合、回転後の壁判定がずれることを防ぐ）
+        // まずY座標を安全な場所（spawnY）に戻してから回転操作を行う
         if (spawnY !== undefined) {
             mino.y = spawnY;
         }
 
-        while (mino.rotation !== targetRot) {
-            mino.rotate(); 
-            mino.rotation = (mino.rotation + 1) % 4;
+        // ★ 完全修正：目標の向きになるまで、必要な回数だけ確実に回転させる
+        // targetRot (0~3) と 現在の rotation (0~3) の差分から必要な回転数を割り出す
+        let rotationsNeeded = (targetRot - mino.rotation + 4) % 4;
+        for (let i = 0; i < rotationsNeeded; i++) {
+            mino.rotate(); // ブロックの座標を回す
+            mino.rotation = (mino.rotation + 1) % 4; // 内部の数値を手動で同期させる！
         }
 
-        // ★ 修正：targetXをセットする前に、そのX座標が有効かをゲームのvalid()で確認する
-        // 無効な場合は現在位置のままにしてフォールバックする
+        // ★ 修正：targetXをセットする前に、そのX座標が有効か確認する
         const prevX = mino.x;
         mino.x = targetX;
+        
+        // 移動した結果がフィールド外やブロックと重なる場合（重力で落ちてしまった場合など）
+        // その場合はX座標を元に戻してフォールバックする
         if (!this.game.valid(0, 0)) {
-            // targetXが無効ならX座標を元に戻す（重力やロックタイマーに任せる）
             mino.x = prevX;
         }
 
