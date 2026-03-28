@@ -1793,3 +1793,41 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .eval-diff-minus {
   color: var(--danger); /* 赤色 */
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ★ 追加：CPU予測表示用オーバーレイ (TESTモード用)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.cpu-estimate-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  height: 656px; /* キャンバスの高さと一致させる */
+  pointer-events: none; /* マウスイベントを透過させる */
+  z-index: 15; /* キャンバス(0)より上、アクションラベル(20)より下 */
+  overflow: hidden;
+}
+
+.cpu-estimate-block {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  box-sizing: border-box;
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 2px;
+}
+
+/* 1手目（シアン） */
+.cpu-estimate-block.step1 {
+  background: rgba(0, 255, 213, 0.25);
+  border-color: rgba(0, 255, 213, 0.8);
+  z-index: 2;
+}
+
+/* 2手目（マゼンタ） */
+.cpu-estimate-block.step2 {
+  background: rgba(255, 0, 160, 0.2);
+  border-color: rgba(255, 0, 160, 0.6);
+  z-index: 1;
+}
