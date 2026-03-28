@@ -68,6 +68,9 @@ class CPU {
                 if (evalEl) evalEl.textContent = bestMove.score;
 
                 if (diffEl) {
+                    
+                    diffEl.style.color = '';
+
                     if (bestMove.diff > 0) {
                         diffEl.textContent = `(+${bestMove.diff})`;
                         diffEl.className = 'eval-diff-plus';
@@ -89,7 +92,7 @@ class CPU {
                         if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                             this.game.hardDrop();
                         }
-                    }, 700); // 0.3秒待機
+                    }, 700); // 0.7秒待機
                 }
             } else {
                 setTimeout(() => {
@@ -121,6 +124,9 @@ class CPU {
         if (evalEl) evalEl.textContent = score;
 
         if (diffEl) {
+
+            diffEl.style.color = '';
+
             let diff = score - this.baseScore;
             if (diff > 0) {
                 diffEl.textContent = `(+${diff})`;
@@ -150,10 +156,10 @@ class CPU {
     }
 
     searchBestMove(mino) {
-        let bestDiff = -Infinity;
+        let bestDiff = -10000;
         let bestMove = null;
         let searchCount = 0;
-        const SEARCH_LIMIT = 2000;
+        const SEARCH_LIMIT = 200;
 
         const currentBlocks = this.game.field.blocks.map(b => ({ x: b.x, y: b.y }));
         const baseScore = this.evaluateBoard(currentBlocks, 0, false, 0);
