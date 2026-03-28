@@ -64,17 +64,15 @@ class CPU {
             const bestMove = this.searchBestMove(this.game.mino);
 
             if (bestMove) {
-                // 1. EVAL値と「得点差」の表示を更新（CPU操作時にも表示）
                 const evalEl = document.getElementById('eval-value');
                 if (evalEl) evalEl.textContent = bestMove.score;
 
                 if (diffEl) {
-                    let diff = bestMove.score - this.baseScore;
-                    if (diff > 0) {
-                        diffEl.textContent = `(+${diff})`;
+                    if (bestMove.diff > 0) {
+                        diffEl.textContent = `(+${bestMove.diff})`;
                         diffEl.className = 'eval-diff-plus';
-                    } else if (diff < 0) {
-                        diffEl.textContent = `(${diff})`;
+                    } else if (bestMove.diff < 0) {
+                        diffEl.textContent = `(${bestMove.diff})`;
                         diffEl.className = 'eval-diff-minus';
                     } else {
                         diffEl.textContent = `(±0)`;
@@ -84,18 +82,16 @@ class CPU {
                 }
 
                 if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                    // 2. 最高スコアが確定した瞬間に「向きとX座標に横・回転移動」させる
-                    this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x);
+                    // ★ 修正：めり込みを防ぐため、シミュレーション時の安全なY座標(spawnY)も渡す
+                    this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
 
-                    // 3. 0.3秒（300ms）待機してからハードドロップする
                     setTimeout(() => {
                         if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                             this.game.hardDrop();
                         }
-                    }, 700);
+                    }, 700); // 0.3秒待機
                 }
             } else {
-                // 置く場所が見つからない時のフェイルセーフ
                 setTimeout(() => {
                     if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                         this.game.hardDrop();
@@ -140,55 +136,61 @@ class CPU {
         }
     }
 
+    // ─────────────────────────────────────────
+    // ★ 修正：シミュレーションと実際の判定を完全に一致させる共通メソッド
+    // ─────────────────────────────────────────
+    isValidPlacement(simMino, testX, testY, currentBlocks) {
+        return simMino.blocks.every(b => {
+            let bx = b.x + testX;
+            let by = b.y + testY;
+            // 上部（y<0）は天井がないため重なり判定のみ行い、左右と下部の壁抜けを防ぐ
+            let isOverlapping = (by >= 0) && currentBlocks.some(cb => cb.x === bx && cb.y === by);
+            return bx >= 0 && bx < 10 && by < 20 && !isOverlapping;
+        });
+    }
+
     searchBestMove(mino) {
-        let bestScore = -Infinity;
+        let bestDiff = -Infinity;
         let bestMove = null;
         let searchCount = 0;
         const SEARCH_LIMIT = 2000;
 
         const currentBlocks = this.game.field.blocks.map(b => ({ x: b.x, y: b.y }));
+        const baseScore = this.evaluateBoard(currentBlocks, 0, false, 0);
 
         for (let rot = 0; rot < 4; rot++) {
             for (let x = -2; x < 12; x++) {
                 if (searchCount >= SEARCH_LIMIT) break;
 
                 let simMino = new Mino(mino.type);
-                simMino.x = x;
-                simMino.y = mino.y; 
-                
                 for (let i = 0; i < rot; i++) simMino.rotate();
 
-                let isSpawnValid = simMino.blocks.every(b => {
-                    let bx = b.x + simMino.x;
-                    let by = b.y + simMino.y;
-                    return bx >= 0 && bx < 10 && by < 20 && !currentBlocks.some(cb => cb.x === bx && cb.y === by);
-                });
-
+                // 共通ロジックを使って出現位置の重なりを判定
+                let isSpawnValid = this.isValidPlacement(simMino, x, mino.y, currentBlocks);
                 if (!isSpawnValid) continue;
 
                 searchCount++;
 
-                let ghostY = simMino.y;
-                while (true) {
-                    let canMove = simMino.blocks.every(b => {
-                        let bx = b.x + simMino.x;
-                        let by = b.y + ghostY + 1;
-                        return bx >= 0 && bx < 10 && by < 20 && !currentBlocks.some(cb => cb.x === bx && cb.y === by);
-                    });
-                    if (canMove) ghostY++;
-                    else break;
+                // 共通ロジックを使って落下位置を計算
+                let ghostY = mino.y;
+                while (this.isValidPlacement(simMino, x, ghostY + 1, currentBlocks)) {
+                    ghostY++;
                 }
 
-                let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + simMino.x, y: b.y + ghostY }));
+                let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + x, y: b.y + ghostY }));
                 
                 let placement = this.calculatePlacementInfo(currentBlocks, droppedBlocks);
                 let simResult = this.simulateBoard(currentBlocks, droppedBlocks);
                 
                 let score = this.evaluateBoard(simResult.blocks, simResult.linesCleared, placement.isFullyGrounded, placement.touchingCount);
+                
+                // EVAL差の計算
+                let diff = score - baseScore;
 
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = { id: mino.type, rot: rot, x: x, y: ghostY, score: score };
+                if (diff > bestDiff) {
+                    bestDiff = diff;
+                    // ★ 修正：めり込み防止用に出現位置（spawnY）も記録しておく
+                    bestMove = { id: mino.type, rot: rot, x: x, y: ghostY, score: score, diff: diff, spawnY: mino.y };
                 }
             }
         }
@@ -328,10 +330,8 @@ class CPU {
         return score;
     }
 
-    // ─────────────────────────────────────────
-    // ★ 変更：移動（回転とX座標の適用）のみを行い、描画を更新する
-    // ─────────────────────────────────────────
-    moveMinoTo(id, targetRot, targetX) {
+    // ★ 修正：第4引数に spawnY を受け取り、めり込みを防止する
+    moveMinoTo(id, targetRot, targetX, spawnY) {
         const mino = this.game.mino;
         if (!mino || mino.type !== id) return;
 
@@ -342,7 +342,11 @@ class CPU {
 
         mino.x = targetX;
         
-        // 移動結果を即座に画面に反映させる
+        // 待機中の重力落下による「壁へのめり込み」を防ぐため、安全な高さへ戻す
+        if (spawnY !== undefined) {
+            mino.y = spawnY;
+        }
+
         this.game.drawAll();
     }
 }
