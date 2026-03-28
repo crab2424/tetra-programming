@@ -1760,3 +1760,28 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 .mode-btn-test .mode-btn-icon { color: var(--success); }
 .mode-btn-test .mode-btn-label { color: var(--success); }
+
+/* ─────────────────────────────────────────────
+   CPU評価点表示エリア（TESTモード専用）
+───────────────────────────────────────────── */
+#eval-area {
+  position: absolute;
+  left: 352px;
+  top: 570px; /* TIME(510px) の 60px 下 */
+}
+
+#eval-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#eval-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

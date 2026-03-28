@@ -55,7 +55,7 @@ const CPU_LEVELS = {
   4: { label: 'LV 4', desc: '速い。かなり手強い。',                 gravityLevel: 10 },
   5: { label: 'LV 5', desc: '最速。ほぼ人間には止められない。',     gravityLevel: 15 },
 };
-let selectedCpuLevel = 3; // デフォルト難易度
+let selectedCpuLevel = 1; // デフォルト難易度
 
 // ─────────────────────────────────────────────
 // goToVersusCheck() — 対戦確認画面へ遷移
@@ -510,6 +510,12 @@ function startGameFromModeCheck() {
     window._game.marathonGoal = (marathonSelectedGoal === 'endless') ? Infinity : 150;
     const levelSlider = document.getElementById('marathon-level-slider');
     window._game.marathonStartLevel = levelSlider ? parseInt(levelSlider.value, 10) : 1;
+  }
+
+  // ★ 追加：TESTモードの時だけ評価点エリアを表示する
+  const evalArea = document.getElementById('eval-area');
+  if (evalArea) {
+    evalArea.style.display = (modeId === 'test') ? 'block' : 'none';
   }
 
   switchPage('game');
