@@ -154,6 +154,7 @@ function startVersusGame() {
   window._game.canvasPrefix = 'player';
   window._game.statsPrefix = 'player';
   window._game._labelsInitialized = false;
+  window._game.isCpuControlled = false;
   window._game.initMainCanvas();
   window._game.initNextCanvas();
   window._game.initHoldCanvas();
@@ -199,16 +200,13 @@ function startVersusGame() {
 runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
     window._cpuGame._startGameplay();
 
-    // ★ 変更：レベルに応じたCPUクラスを使用
     const CPUClass = CPU_CLASSES[selectedCpuLevel];
-    if (!window._cpuController || !(window._cpuController instanceof CPUClass)) {
-        // 前のCPUを停止
-        if (window._cpuController) {
-            window._cpuController.stop();
-        }
-        // 新しいCPUを生成
-        window._cpuController = new CPUClass(window._cpuGame);
+    
+    // ★修正：インスタンスの使い回しをやめ、必ずCPUを初期化して紐付け直す
+    if (window._cpuController) {
+        window._cpuController.stop();
     }
+    window._cpuController = new CPUClass(window._cpuGame);
     window._cpuController.start();
 }, null);
 
@@ -527,6 +525,7 @@ function startGameFromModeCheck() {
   window._game.canvasPrefix = null;
   window._game.statsPrefix = null;
   window._game._labelsInitialized = false;
+  window._game.isCpuControlled = false;
   window._game.initMainCanvas();
   window._game.initNextCanvas();
   window._game.initHoldCanvas();
@@ -556,14 +555,12 @@ if (modeId === 'test') {
     window._game.isCpuControlled = testCpuControl;
 
     const CPUClass = CPU_CLASSES[selectedCpuLevel];
-    if (!window._cpuController || !(window._cpuController instanceof CPUClass)) {
-        if (window._cpuController) {
-            window._cpuController.stop();
-        }
-        window._cpuController = new CPUClass(window._game);
-    } else {
-        window._cpuController.game = window._game;
+    
+    // ★修正：こちらも同様に必ず破棄・再生成する
+    if (window._cpuController) {
+        window._cpuController.stop();
     }
+    window._cpuController = new CPUClass(window._game);
 
     window._cpuController.isAutoPlay = testCpuControl;
     window._cpuController.start();

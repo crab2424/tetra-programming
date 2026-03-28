@@ -12,7 +12,7 @@ class CPU {
         this.baseScore = 0;     // 出現時の盤面の基礎点
 
         this.weights = {
-            lineClear:    1000,
+            lineClear:    20,
             hole:         -16,
             heightLimit:  -5,
             heightDiff:   -3,
@@ -85,21 +85,21 @@ class CPU {
                 }
 
                 if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                    // ★ 修正：めり込みを防ぐため、シミュレーション時の安全なY座標(spawnY)も渡す
+                    // めり込みを防ぐため、シミュレーション時の安全なY座標(spawnY)も渡す
                     this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
 
                     setTimeout(() => {
                         if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                             this.game.hardDrop();
                         }
-                    }, 1000); // 0.7秒待機
+                    }, 700); // 0.7秒待機
                 }
             } else {
                 setTimeout(() => {
                     if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                         this.game.hardDrop();
                     }
-                }, 1000);
+                }, 700);
             }
         }
     }
@@ -142,9 +142,7 @@ class CPU {
         }
     }
 
-    // ─────────────────────────────────────────
-    // ★ 修正：シミュレーションと実際の判定を完全に一致させる共通メソッド
-    // ─────────────────────────────────────────
+    // シミュレーションと実際の判定を完全に一致させる共通メソッド
     isValidPlacement(simMino, testX, testY, currentBlocks) {
         return simMino.blocks.every(b => {
             let bx = b.x + testX;
@@ -159,7 +157,7 @@ class CPU {
         let bestDiff = -10000;
         let bestMove = null;
         let searchCount = 0;
-        const SEARCH_LIMIT = 1000;
+        const SEARCH_LIMIT = 200;
 
         const currentBlocks = this.game.field.blocks.map(b => ({ x: b.x, y: b.y }));
         const baseScore = this.evaluateBoard(currentBlocks, 0, false, 0);
@@ -169,9 +167,9 @@ class CPU {
                 if (searchCount >= SEARCH_LIMIT) break;
 
                 let simMino = new Mino(mino.type);
-                simMino.rotation = 0; // ★ 追加：初期状態を明示
+                simMino.rotation = 0;
 
-                // ★ 修正：シミュレーション用のMinoも内部数値を同期して回す
+                // シミュレーション用のMinoも内部数値を同期して回す
                 for (let i = 0; i < rot; i++) {
                     simMino.rotate();
                     simMino.rotation = (simMino.rotation + 1) % 4; 
@@ -201,7 +199,6 @@ class CPU {
 
                 if (diff > bestDiff) {
                     bestDiff = diff;
-                    // ★ 修正：めり込み防止用に出現位置（spawnY）も記録しておく
                     bestMove = { id: mino.type, rot: rot, x: x, y: ghostY, score: score, diff: diff, spawnY: mino.y };
                 }
             }
@@ -211,7 +208,7 @@ class CPU {
     }
 
     calculatePlacementInfo(currentBlocks, droppedBlocks) {
-        // ★ 修正：各列の「最も下にあるブロック」だけを抽出する
+        // 各列の「最も下にあるブロック」だけを抽出する
         let bottomEdges = {};
         
         droppedBlocks.forEach(b => {
@@ -224,7 +221,7 @@ class CPU {
         for (let x in bottomEdges) {
             let bottomY = bottomEdges[x];
             let xNum = parseInt(x, 10);
-            // ★ bottomEdgesに格納された最下段のブロックの真下が床かブロックかをチェック
+            // bottomEdgesに格納された最下段のブロックの真下が床かブロックかをチェック
             let grounded = (bottomY + 1 >= 20) || currentBlocks.some(cb => cb.x === xNum && cb.y === bottomY + 1);
             if (!grounded) {
                 isFullyGrounded = false;
@@ -255,7 +252,16 @@ class CPU {
     }
 
     simulateBoard(fieldBlocks, minoBlocks) {
-        let blocks = [...fieldBlocks, ...minoBlocks];
+        // ★ 修正：シミュレーション時のフィールド破損を防ぐため、完全なディープコピーを作成する
+        // （以前はオブジェクトの参照が残っていたため、元の盤面まで沈んでしまっていた）
+        let blocks = [];
+        for (let i = 0; i < fieldBlocks.length; i++) {
+            blocks.push({ x: fieldBlocks[i].x, y: fieldBlocks[i].y });
+        }
+        for (let i = 0; i < minoBlocks.length; i++) {
+            blocks.push({ x: minoBlocks[i].x, y: minoBlocks[i].y });
+        }
+        
         let linesCleared = 0;
         
         for (let r = 0; r < 20; r++) {
@@ -263,9 +269,9 @@ class CPU {
             if (rowCount === 10) { 
                 linesCleared++;
                 blocks = blocks.filter(b => b.y !== r);
-                // ★ 修正：消去した行より上のブロックを1段下ろす（game.jsのcheckLine()と同じロジック）
+                // 消去した行より上のブロックを1段下ろす（コピーしたブロックの座標をいじる）
                 blocks.filter(b => b.y < r).forEach(b => b.y++);
-                r--; // ★ 修正：消去した行を再チェックするためにrを戻す
+                r--; // 消去した行を再チェックするためにrを戻す
             }
         }
         return { blocks, linesCleared };
@@ -346,7 +352,7 @@ class CPU {
         return score;
     }
 
-    // ★ 修正：第4引数に spawnY を受け取り、めり込みを防止する
+    // めり込みを防止しつつ目標の位置へ移動する
     moveMinoTo(id, targetRot, targetX, spawnY) {
         const mino = this.game.mino;
         if (!mino || mino.type !== id) return;
@@ -356,15 +362,13 @@ class CPU {
             mino.y = spawnY;
         }
 
-        // ★ 完全修正：目標の向きになるまで、必要な回数だけ確実に回転させる
-        // targetRot (0~3) と 現在の rotation (0~3) の差分から必要な回転数を割り出す
+        // 目標の向きになるまで、必要な回数だけ確実に回転させる
         let rotationsNeeded = (targetRot - mino.rotation + 4) % 4;
         for (let i = 0; i < rotationsNeeded; i++) {
-            mino.rotate(); // ブロックの座標を回す
+            mino.rotate(); 
             mino.rotation = (mino.rotation + 1) % 4; // 内部の数値を手動で同期させる！
         }
 
-        // ★ 修正：targetXをセットする前に、そのX座標が有効か確認する
         const prevX = mino.x;
         mino.x = targetX;
         
