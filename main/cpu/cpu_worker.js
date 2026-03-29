@@ -12,7 +12,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm.js');
+importScripts('cpu_wasm2.js');
 
 let boardPtr = null;
 let resultPtr = null;
