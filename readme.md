@@ -2,7 +2,7 @@
 
 ターミナルまたはコマンドプロンプトで
 
-1. cd　tetra-programming-main/main
+1. cd tetra-programming-main/main
 2. python -m http.server 8000
 
 と打ち，ブラウザで
