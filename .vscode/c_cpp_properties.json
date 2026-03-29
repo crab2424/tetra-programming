@@ -1,0 +1,17 @@
+{
+  "configurations": [
+    {
+      "name": "Mac",
+      "compilerPath": "clang",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "/Users/crab2424/emsdk/upstream/emscripten/system/include",
+        "/Users/crab2424/emsdk/upstream/emscripten/cache/sysroot/include"
+      ],
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "macos-clang-arm64"
+    }
+  ],
+  "version": 4
+}

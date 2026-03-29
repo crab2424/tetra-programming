@@ -11,30 +11,33 @@ class CPU2 {
         this.currentMino = null;
         this.baseScore = 0;     
 
-        // ★ 復活！パラメータはここで管理する。
-        // 今後 CPU3や4 を作る時は、ここの数値を少し変えるだけでAIの挙動が変わります。
         this.weights = {
-            lineClear:    20,
-            hole:         -24,
-            heightLimit:  -5,
-            heightDiff:   -3,
-            flat:          2,
-            step1Good:     3,
-            step1Bad:     -2,
-            step2Plus:    -8,
-            groundedBonus: 12,
-            touchingBonus: 1,
-            underSpace:   -6,
-            singleWell:    1,  
-            multiWell:    -10, 
+            lineClear: 20, 
+            hole: -24, 
+            heightLimit: -5, 
+            heightDiff: -3, 
+            flat: 2,
+            step1Good: 3, 
+            step1Bad: -2, 
+            step2Plus: -8, 
+            groundedBonus: 12, 
+            touchingBonus: 1,   
+            underSpace: -6, 
+            singleWell: 1, 
+            multiWell: -10,   
         };
 
-        this.boardBuffer = new Uint8Array(200);
-        this.worker = new Worker('cpu_worker.js');
+        // ★追加: Workerの初期化とメッセージ受信設定
+        this.worker = new Worker('cpu/cpu_worker.js');
+        this.workerReady = false;
+        this.isCalculating = false;
 
         this.worker.onmessage = (e) => {
-            if (!this.isActive) return;
-            this.handleWorkerResult(e.data.result);
+            if (e.data.type === 'ready') {
+                this.workerReady = true;
+            } else if (e.data.type === 'result') {
+                this.handleWorkerResult(e.data.result);
+            }
         };
     }
 
@@ -74,61 +77,91 @@ class CPU2 {
         const diffEl = document.getElementById('eval-diff');
         if (diffEl) diffEl.textContent = ''; 
 
-        const currentBlocks = this.game.field.blocks.map(b => ({ x: b.x, y: b.y }));
-        this.baseScore = this.evaluateBoard(currentBlocks, 0, false, 0);
+        // Workerが準備中、または計算中ならスキップ
+        if (!this.workerReady || this.isCalculating) return;
 
-        // ★ 変更：WasmとJSを透過的に切り替えるラッパー関数を呼ぶ
-        const bestMove = this.searchBestMove(this.game.mino);
+        const mino = this.game.mino;
+        if (!mino) return;
+
+        this.isCalculating = true; // 計算ロックをかける
+
+        // 1. 盤面データを 1次元の Uint8Array に変換 (C++の uint8_t[200] 用)
+        let boardBuffer = new Uint8Array(200);
+        this.game.field.blocks.forEach(b => {
+            if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) {
+                boardBuffer[b.y * 10 + b.x] = 1; // ブロックがある場所を1に
+            }
+        });
+
+        // 2. 重みデータを Int32Array に変換 (C++の EvalWeights 10項目に合わせる)
+        let weightsArray = new Int32Array([
+            this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
+            this.weights.heightDiff, this.weights.flat, this.weights.step1Good,
+            this.weights.step1Bad, this.weights.step2Plus, this.weights.groundedBonus,
+            this.weights.touchingBonus
+        ]);
+
+        let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
+
+        // Workerに計算を依頼する
+        this.worker.postMessage({
+            type: 'calculate',
+            boardBuffer: boardBuffer,
+            currentType: mino.type,
+            holdType: holdType,
+            next1: this.game.nextQueue[0].type,
+            next2: this.game.nextQueue[1].type,
+            canHold: this.game.canHold ? 1 : 0,
+            weightsArray: weightsArray
+        });
+    }
+
+    // ★追加: Workerから結果が返ってきたときの処理
+    handleWorkerResult(res) {
+        this.isCalculating = false; // ロック解除
+
+        // 結果配列: [action, score, diff, p1.id, p1.rot, p1.x, p1.y, p1.spawnY, p2.id, p2.rot, p2.x, p2.y]
+        let actionInt = res[0];
+        
+        if (actionInt === -1) {
+            // 最善手が見つからなかった場合（窒息など）
+            this.bestMoveData = null;
+            if (this.isAutoPlay) setTimeout(() => this.game.hardDrop(), 700);
+            return;
+        }
+
+        let bestMove = {
+            action: actionInt === 1 ? 'hold' : 'play',
+            score: res[1],
+            diff: res[2],
+            id: res[3],
+            rot: res[4],
+            x: res[5],
+            spawnY: res[7],
+            p1: { id: res[3], rot: res[4], x: res[5], y: res[6] },
+            p2: res[8] !== -1 ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null
+        };
+
         this.bestMoveData = bestMove;
 
+        // UIの更新 (評価値など)
+        const evalEl = document.getElementById('eval-value');
+        if (evalEl) evalEl.textContent = bestMove.score;
+
         if (this.game.currentMode === 'test') {
-            this.renderEstimatePlace();
+            this.renderEstimatePlace(); // 予測ゴーストの描画
         }
 
-        if (bestMove) {
-            const evalEl = document.getElementById('eval-value');
-            if (evalEl) evalEl.textContent = bestMove.score;
-
-            if (diffEl) {
-                diffEl.style.color = '';
-                if (bestMove.diff > 0) {
-                    diffEl.textContent = `(+${bestMove.diff})`;
-                    diffEl.className = 'eval-diff-plus';
-                } else if (bestMove.diff < 0) {
-                    diffEl.textContent = `(${bestMove.diff})`;
-                    diffEl.className = 'eval-diff-minus';
-                } else {
-                    diffEl.textContent = `(±0)`;
-                    diffEl.className = '';
-                    diffEl.style.color = 'var(--text-dim)';
-                }
-            }
-        }
-
-        if (this.isAutoPlay) {
-            if (bestMove) {
-                if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                    if (bestMove.action === 'hold') {
-                        setTimeout(() => {
-                            if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                                this.game.holdCurrentMino();
-                            }
-                        }, 700);
-                    } else {
-                        this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
-
-                        setTimeout(() => {
-                            if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                                this.game.hardDrop();
-                            }
-                        }, 700);
-                    }
-                }
-            } else {
+        // 自動プレイの実行 (setTimeoutで少し待ってから実行)
+        if (this.isAutoPlay && this.isActive && !this.game.isPaused) {
+            if (bestMove.action === 'hold') {
                 setTimeout(() => {
-                    if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                        this.game.hardDrop();
-                    }
+                    if (this.isActive && this.game.mino === this.currentMino) this.game.holdCurrentMino();
+                }, 700);
+            } else {
+                this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
+                setTimeout(() => {
+                    if (this.isActive && this.game.mino === this.currentMino) this.game.hardDrop();
                 }, 700);
             }
         }
