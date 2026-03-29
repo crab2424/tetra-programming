@@ -12,9 +12,9 @@ class CPU2 {
         this.baseScore = 0;     
 
         this.weights = {
-            lineClear: -40,
+            lineClear: 14,
             hole: -36, 
-            heightLimit: -20, 
+            heightLimit: -11, 
             heightDiff: -7, 
             flat: 4,
             step1Good: 3, 
@@ -23,19 +23,19 @@ class CPU2 {
             groundedBonus: 12, 
             touchingBonus: 6,   
             underSpace: -6, 
-            singleWell: 9, 
+            singleWell: 5, 
             multiWell: -10,
             
-            iWell: 10,           
+            iWell: 32,           
             iWellOver: -10,      
             blocksOverHole: -3, 
             
             // ★今回追加分 (必要に応じて数値を調整してください)
-            line4: 100,          // 4ライン消去した際の追加ボーナス
-            downstackGood: 10,   // n>=5 かつ 接地 の時の nの倍率
+            line4: 200,          // 4ライン消去した際の追加ボーナス
+            downstackGood: 48,   // n>=5 かつ 接地 の時の nの倍率
             downstackBad: -3,    // n<5  かつ 浮き の時の nの倍率
 
-            P1_WEIGHT: 1.5,             // 1手目の評価を重視するための倍率（Wasm側で使用）
+            P1_WEIGHT: 1.2,             // 1手目の評価を重視するための倍率（Wasm側で使用）
         };
 
         // 毎回新しいWorkerを立ち上げる

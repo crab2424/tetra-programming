@@ -112,7 +112,12 @@ struct EvalWeights {
 };
 
 int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, const std::vector<GridBlock>& droppedBlocks = {}) {
-    int score = (linesCleared - 2) * w.lineClear;
+    int score = 0;
+
+    // ★修正: ライン消去が発生した時のみ、ペナルティ/ボーナスを計算する
+    if (linesCleared > 0) {
+        score += (linesCleared - 2) * w.lineClear;
+    }
     
     if (linesCleared >= 4) {
         score += w.line4;
