@@ -374,6 +374,14 @@ function switchPage(pageId) {
     window._prevPage = currentActive.id.replace('-page', '');
   }
 
+  // ★ 修正：メインメニューに戻る時は、稼働中のCPUコントローラーがあれば必ず停止する
+  if (pageId === 'main-menu') {
+    if (window._cpuController) {
+      window._cpuController.stop();
+      window._cpuController = null;
+    }
+  }
+
   // すべてのページを非表示
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
 
@@ -451,15 +459,34 @@ function renderModeCheck() {
   const descEnEl = document.getElementById('mode-check-desc-en');
   if (descEnEl) descEnEl.textContent = mode.descriptionEn;
 
-  // ★ ここから追加：Marathon用オプション表示の切り替え
+  // ★ 修正：Marathon / Test モードで動的にHTMLを生成して上書きする
   const optionsEl = document.getElementById('mode-check-options');
   if (optionsEl) {
     if (mode.id === 'marathon') {
       optionsEl.style.display = 'flex';
+      // 現在のスタートレベルを取得
+      const startLevel = (window._game && window._game.marathonStartLevel) ? window._game.marathonStartLevel : 1;
+
+      optionsEl.innerHTML = `
+        <div class="option-row">
+          <span class="option-label">GOAL</span>
+          <div class="option-toggle">
+            <button class="opt-btn ${marathonSelectedGoal === 150 ? 'active' : ''}" id="opt-goal-150" onclick="setMarathonGoal(150)">150 LINES</button>
+            <button class="opt-btn ${marathonSelectedGoal === 'endless' ? 'active' : ''}" id="opt-goal-endless" onclick="setMarathonGoal('endless')">ENDLESS</button>
+          </div>
+        </div>
+        <div class="option-row">
+          <span class="option-label">START LEVEL</span>
+          <div class="option-slider">
+            <input type="range" id="marathon-level-slider" min="1" max="15" value="${startLevel}" oninput="updateMarathonLevelDisplay()">
+            <span id="marathon-level-val" class="option-val">${startLevel}</span>
+          </div>
+        </div>
+      `;
       // モードに合わせて文字・枠線の色を変更
       const levelVal = document.getElementById('marathon-level-val');
       if (levelVal) levelVal.style.color = mode.color;
-      document.querySelectorAll('.opt-btn.active').forEach(btn => {
+      optionsEl.querySelectorAll('.opt-btn.active').forEach(btn => {
           btn.style.color = mode.color;
           btn.style.borderColor = mode.color;
       });
@@ -492,6 +519,7 @@ function renderModeCheck() {
       }
     } else {
       optionsEl.style.display = 'none';
+      optionsEl.innerHTML = ''; // 余計な内容を消す
     }
   }
 
@@ -519,6 +547,13 @@ function startGameFromModeCheck() {
 
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
   window._game.currentMode = modeId;
+
+  // ★修正：既存のCPUコントローラーが動いていれば必ず停止する
+  // (TESTモードから別のモードに移る際にCPU操作が残るのを防止)
+  if (window._cpuController) {
+      window._cpuController.stop();
+      window._cpuController = null;
+  }
 
   // ★修正：対戦モードからシングルプレイに戻ってきた時のために、バインドを通常に戻す
   window._game.isVersusMode = false;
@@ -555,11 +590,6 @@ if (modeId === 'test') {
     window._game.isCpuControlled = testCpuControl;
 
     const CPUClass = CPU_CLASSES[selectedCpuLevel];
-    
-    // ★修正：こちらも同様に必ず破棄・再生成する
-    if (window._cpuController) {
-        window._cpuController.stop();
-    }
     window._cpuController = new CPUClass(window._game);
 
     window._cpuController.isAutoPlay = testCpuControl;

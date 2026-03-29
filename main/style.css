@@ -1155,7 +1155,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 #mode-check-buttons {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 24px;
   width: 100%;
 }
 
@@ -1270,6 +1270,14 @@ input[type="range"]::-webkit-slider-thumb:hover {
   flex-direction: column;
   gap: 12px;
 }
+
+#versus-check-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
 
 /* 対戦ゲーム画面 */
 #versus-page.active {
@@ -1566,11 +1574,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* ★ 追加：VS表記の下にある「CPU LV」テキストを非表示 */
 #versus-cpu-level-display {
   display: none;
-}
-
-/* ★ 追加：対戦前の準備画面にある「CPU LEVEL」の選択肢そのものを非表示 */
-#versus-cpu-options {
-  display: none !important;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

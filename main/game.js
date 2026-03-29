@@ -193,7 +193,6 @@ class Game{
         this.startTime = 0;
         this.elapsedTime = 0;
         this.isTimerRunning = false;
-        this.timerReqId = null;
         this.actionLabels = [];
         this.actionAlpha = 0;
     }
@@ -334,6 +333,9 @@ class Game{
         this.elapsedTime = 0;
         this.isTimerRunning = false;
 
+        // ★ 追加：リスタート時にタイマー表示をリセット
+        this.updateTimeDisplay();
+
         // ★ 追加：カウントダウンフラグと、ミノの未出現状態の設定
         this.isCountingDown = true;
         this.mino = null;
@@ -365,7 +367,6 @@ class Game{
         }
 
         // 初期描画（カウントダウン中もフィールドとNEXTが見える）
-        // this.popMino() ← ★ここにあった popMino() を削除します
         this.drawAll()
     }
 
@@ -385,8 +386,6 @@ class Game{
 
         // 重力開始
         this.startGravity()
-
-        // this.setKeyEvent() ← ★ここにあった setKeyEvent() を削除します
     }
 
     // ▼ 新規追加: タイマーの描画ループ（約60fps）
@@ -628,8 +627,6 @@ class Game{
             this.lockTimer = null;
         }
         this.startGravity(); // 重力をリセットして開始
-
-        // ★ 削除：ここにあった if(!this.valid(0, 1)) { ... } は削除
     }
 
     // SRS回転

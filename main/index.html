@@ -111,21 +111,8 @@
           <p id="mode-check-desc-en" class="mode-check-desc-en">Clear lines to rack up score. Speed increases as your level rises.</p>
         </div>
 
-        <div id="mode-check-options" style="display: none;">
-          <div class="option-row">
-            <span class="option-label">GOAL</span>
-            <div class="option-toggle">
-              <button class="opt-btn active" id="opt-goal-150" onclick="setMarathonGoal(150)">150 LINES</button>
-              <button class="opt-btn" id="opt-goal-endless" onclick="setMarathonGoal('endless')">ENDLESS</button>
-            </div>
-          </div>
-          <div class="option-row">
-            <span class="option-label">START LEVEL</span>
-            <div class="option-slider">
-              <input type="range" id="marathon-level-slider" min="1" max="15" value="1" oninput="updateMarathonLevelDisplay()">
-              <span id="marathon-level-val" class="option-val">1</span>
-            </div>
-          </div>
+        <!-- ★ 修正：中身は router.js で動的に生成する -->
+        <div id="mode-check-options" style="display: none; width: 100%; flex-direction: column; gap: 16px;">
         </div>
         
 
@@ -526,7 +513,7 @@
     <div id="settings-toast">SAVED ✓</div>
     
     <script src="settings.js?v=11"></script>
-    <script src="game.js?v=11"></script>
+    <script src="game.js?v=12"></script>
     <script src="cpu/cpu.js?v=11"></script>
     <script src="cpu/cpu2.js?v=12"></script>
     <script src="cpu/cpu3.js?v=11"></script>
