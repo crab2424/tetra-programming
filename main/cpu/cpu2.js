@@ -14,7 +14,7 @@ class CPU2 {
         this.weights = {
             lineClear: 14,
             hole: -36, 
-            heightLimit: -11, 
+            heightLimit: -22, 
             heightDiff: -7, 
             flat: 4,
             step1Good: 3, 
@@ -31,7 +31,7 @@ class CPU2 {
             blocksOverHole: -3, 
             
             // ★今回追加分 (必要に応じて数値を調整してください)
-            line4: 200,          // 4ライン消去した際の追加ボーナス
+            line4: 400,          // 4ライン消去した際の追加ボーナス
             downstackGood: 48,   // n>=5 かつ 接地 の時の nの倍率
             downstackBad: -3,    // n<5  かつ 浮き の時の nの倍率
 
