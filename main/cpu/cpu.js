@@ -92,14 +92,14 @@ class CPU {
                         if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                             this.game.hardDrop();
                         }
-                    }, 700); // 0.7秒待機
+                    }, 1000); // 0.7秒待機
                 }
             } else {
                 setTimeout(() => {
                     if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                         this.game.hardDrop();
                     }
-                }, 700);
+                }, 1000);
             }
         }
     }

@@ -12,9 +12,28 @@ class CPU2 {
         this.baseScore = 0;     
 
         this.weights = {
-            lineClear: 20, hole: -24, heightLimit: -5, heightDiff: -3, flat: 2,
-            step1Good: 3, step1Bad: -2, step2Plus: -8, groundedBonus: 12, touchingBonus: 1,   
-            underSpace: -6, singleWell: 1, multiWell: -10,   
+            lineClear: -5,
+            hole: -36, 
+            heightLimit: -20, 
+            heightDiff: -7, 
+            flat: 4,
+            step1Good: 3, 
+            step1Bad: -2, 
+            step2Plus: -8, 
+            groundedBonus: 12, 
+            touchingBonus: 6,   
+            underSpace: -6, 
+            singleWell: 9, 
+            multiWell: -10,
+            
+            iWell: 10,           
+            iWellOver: -10,      
+            blocksOverHole: -3, 
+            
+            // ★今回追加分 (必要に応じて数値を調整してください)
+            line4: 75,          // 4ライン消去した際の追加ボーナス
+            downstackGood: 10,   // n>=5 かつ 接地 の時の nの倍率
+            downstackBad: -3    // n<5  かつ 浮き の時の nの倍率
         };
 
         // 毎回新しいWorkerを立ち上げる
@@ -24,7 +43,7 @@ class CPU2 {
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
-                console.log("🚀 Wasm Worker Ready!"); // コンソールで確認できます
+                console.log("🚀 Wasm Worker Ready!"); 
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 this.handleWorkerResult(e.data.result);
@@ -114,12 +133,14 @@ class CPU2 {
             }
         });
 
-        // 2. 重みデータをInt32Arrayに変換
+        // 2. 重みデータをInt32Arrayに変換（パラメータを16個に拡張）
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
             this.weights.heightDiff, this.weights.flat, this.weights.step1Good,
             this.weights.step1Bad, this.weights.step2Plus, this.weights.groundedBonus,
-            this.weights.touchingBonus
+            this.weights.touchingBonus, 
+            this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
+            this.weights.line4, this.weights.downstackGood, this.weights.downstackBad
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
@@ -170,8 +191,26 @@ class CPU2 {
             bestMove.clearedLines = this.getClearedLines(this.game.field.blocks, droppedBlocks1);
         }
 
+        // --- 画面のEVALスコアと差分（diff）の更新 ---
         const evalEl = document.getElementById('eval-value');
         if (evalEl) evalEl.textContent = bestMove.score;
+
+        const diffEl = document.getElementById('eval-diff');
+        if (diffEl) {
+            diffEl.style.color = '';
+            if (bestMove.diff > 0) {
+                diffEl.textContent = `(+${bestMove.diff})`;
+                diffEl.className = 'eval-diff-plus';
+            } else if (bestMove.diff < 0) {
+                diffEl.textContent = `(${bestMove.diff})`;
+                diffEl.className = 'eval-diff-minus';
+            } else {
+                diffEl.textContent = `(±0)`;
+                diffEl.className = '';
+                diffEl.style.color = 'var(--text-dim)';
+            }
+        }
+        // ------------------------------------------
 
         if (this.game.currentMode === 'test') {
             this.renderEstimatePlace(); 
@@ -184,7 +223,7 @@ class CPU2 {
                     if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                         this.game.holdCurrentMino();
                     }
-                }, 700);
+                }, 200);
             } else {
                 this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
                 setTimeout(() => {

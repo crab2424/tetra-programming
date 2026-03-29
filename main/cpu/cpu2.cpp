@@ -3,13 +3,11 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
-#include <cstdlib> // ★これを追加 (malloc/free を使うため)
-
+#include <cstdlib>
 
 const int COLS = 10;
 const int ROWS = 20;
 
-// エラー回避: Block -> GridBlock に変更
 struct GridBlock { int x, y; };
 
 struct MinoData {
@@ -108,11 +106,43 @@ PlacementInfo calcPlacementInfo(const Board& b, const std::vector<GridBlock>& bl
 struct EvalWeights {
     int lineClear, hole, heightLimit, heightDiff, flat;
     int step1Good, step1Bad, step2Plus, groundedBonus, touchingBonus;
+    int iWell, iWellOver, blocksOverHole; 
+    // ★追加パラメータ
+    int line4, downstackGood, downstackBad;
 };
 
-// 重み (w) を引数として受け取るように変更
-int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w) {
+// 重み (w) と 配置したブロック (droppedBlocks) を受け取るように変更
+int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, const std::vector<GridBlock>& droppedBlocks = {}) {
     int score = linesCleared * w.lineClear;
+    
+    // ★追加1: 4ライン消去 (Tetris) 時のボーナス
+    if (linesCleared >= 4) {
+        score += w.line4;
+    }
+
+    // ★追加2: downstack() 評価 (1〜3ライン消去限定)
+    if (linesCleared >= 1 && linesCleared <= 3 && !droppedBlocks.empty()) {
+        int minoBottomY = -1;
+        for (const auto& blk : droppedBlocks) {
+            if (blk.y > minoBottomY) {
+                minoBottomY = blk.y;
+            }
+        }
+        
+        // n = ミノの最下段の1段下(minoBottomY + 1) から 盤面の底(19) までの行数
+        // 19 - (minoBottomY + 1) + 1 = 19 - minoBottomY
+        int n = 19 - minoBottomY;
+        if (n < 0) n = 0;
+
+        if (n >= 5 && isGrounded) {
+            score += w.downstackGood * n; // 正のスコア
+        } else if (n >= 5 && !isGrounded) {
+            // score += 0;
+        } else if (n < 5) {
+            score += w.downstackBad * n;  // 負のスコア (w.downstackBad を負とする)
+        }
+    }
+
     int heights[COLS] = {0};
     int holes = 0;
 
@@ -146,7 +176,6 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     }
     score += (step1Count <= 2) ? (step1Count * w.step1Good) : (step1Count * w.step1Bad);
 
-    // 井戸の評価（一旦固定値、必要ならwに追加）
     int deepWells = 0; int totalDepth = 0;
     for(int x = 0; x < COLS; x++) {
         int leftDiff = (x == 0) ? 999 : heights[x-1] - heights[x];
@@ -161,6 +190,60 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     if(deepWells == 1) score += 1;
     else if(deepWells >= 2) score += totalDepth * -10;
 
+    int blocksInRowArray[ROWS] = {0};
+    for(int y = 0; y < ROWS; y++) {
+        for(int x = 0; x < COLS; x++) {
+            if(b.cells[y][x] != 0) blocksInRowArray[y]++;
+        }
+    }
+
+    int totalIWellScore = 0;
+    for(int x = 0; x < COLS; x++) {
+        int continuousEmpty = 0;
+        int maxContinuous = 0;
+        for(int y = 0; y < ROWS; y++) {
+            if(blocksInRowArray[y] == 9 && b.cells[y][x] == 0) {
+                continuousEmpty++;
+                if(continuousEmpty > maxContinuous) maxContinuous = continuousEmpty;
+            } else {
+                continuousEmpty = 0; 
+            }
+        }
+        if(maxContinuous > 0) {
+            if(maxContinuous <= 10) totalIWellScore += maxContinuous * w.iWell;
+            else totalIWellScore += 10 * w.iWell + (maxContinuous - 10) * w.iWellOver;
+        }
+    }
+    score += totalIWellScore;
+
+    int totalBlocksOverLowestHole = 0;
+    for(int x = 0; x < COLS; x++) {
+        int firstBlockY = -1;
+        for(int y = 0; y < ROWS; y++) {
+            if(b.cells[y][x] != 0) {
+                firstBlockY = y;
+                break;
+            }
+        }
+        if (firstBlockY != -1) {
+            int lowestHoleY = -1;
+            for(int y = ROWS - 1; y > firstBlockY; y--) {
+                if(b.cells[y][x] == 0) {
+                    lowestHoleY = y;
+                    break;
+                }
+            }
+            if(lowestHoleY != -1) {
+                int blocksAbove = 0;
+                for(int y = 0; y < lowestHoleY; y++) {
+                    if(b.cells[y][x] != 0) blocksAbove++;
+                }
+                totalBlocksOverLowestHole += blocksAbove;
+            }
+        }
+    }
+    score += totalBlocksOverLowestHole * w.blocksOverHole;
+
     if(isGrounded) {
         score += w.groundedBonus;
         score += touchingCount * w.touchingBonus;
@@ -168,12 +251,14 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     return score;
 }
 
+// Placement構造体に配置したブロック情報(blocks)を追加
 struct Placement {
     int rot, x, y, spawnY;
     Board board;
     int linesCleared;
     bool isFullyGrounded;
     int touchingCount;
+    std::vector<GridBlock> blocks; // ★追加
 };
 
 std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, int spawnY) {
@@ -197,7 +282,9 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
             }
             PlacementInfo info = calcPlacementInfo(baseBoard, droppedBlocks);
             int cleared = simBoard.checkLineAndClear();
-            placements.push_back({rot, x, ghostY, spawnY, simBoard, cleared, info.isFullyGrounded, info.touchingCount});
+            
+            // ★ droppedBlocks を保存
+            placements.push_back({rot, x, ghostY, spawnY, simBoard, cleared, info.isFullyGrounded, info.touchingCount, droppedBlocks});
         }
     }
     return placements;
@@ -205,7 +292,6 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
 
 extern "C" {
 
-    // ★これを追加：JS側からメモリ領域を確保・解放するためのラッパー関数
 EMSCRIPTEN_KEEPALIVE
 void* my_malloc(size_t size) {
     return malloc(size);
@@ -219,16 +305,18 @@ void my_free(void* ptr) {
 EMSCRIPTEN_KEEPALIVE
 void searchBestMoveWasm(
     uint8_t* boardData, int currentType, int holdType, int next1, int next2, int canHold,
-    int* weightsArray, // JS側から重みを受け取る配列
+    int* weightsArray, 
     int* outResult
 ){
     Board baseBoard;
     for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
 
-    // JSから受け取った配列を構造体にマッピング
+    // JSから受け取った配列を構造体にマッピング（16要素に拡張）
     EvalWeights w = {
         weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
-        weightsArray[5], weightsArray[6], weightsArray[7], weightsArray[8], weightsArray[9]
+        weightsArray[5], weightsArray[6], weightsArray[7], weightsArray[8], weightsArray[9],
+        weightsArray[10], weightsArray[11], weightsArray[12], 
+        weightsArray[13], weightsArray[14], weightsArray[15]
     };
 
     int baseScore = evaluateBoard(baseBoard, 0, false, 0, w);
@@ -255,7 +343,8 @@ void searchBestMoveWasm(
         for(const auto& p1 : p1_list) {
             std::vector<Placement> p2_list = getAllPlacements(p1.board, path.p2, getSpawnY(path.p2));
             if(p2_list.empty()) {
-                int score = evaluateBoard(p1.board, p1.linesCleared, p1.isFullyGrounded, p1.touchingCount, w) - 10000;
+                // p1 のブロック情報を渡す
+                int score = evaluateBoard(p1.board, p1.linesCleared, p1.isFullyGrounded, p1.touchingCount, w, p1.blocks) - 10000;
                 int diff = score - baseScore;
                 if(diff > bestDiff) {
                     bestDiff = diff;
@@ -267,7 +356,8 @@ void searchBestMoveWasm(
             }
             for(const auto& p2 : p2_list) {
                 int totalLines = p1.linesCleared + p2.linesCleared;
-                int score = evaluateBoard(p2.board, totalLines, p2.isFullyGrounded, p2.touchingCount, w);
+                // p2 のブロック情報を渡す
+                int score = evaluateBoard(p2.board, totalLines, p2.isFullyGrounded, p2.touchingCount, w, p2.blocks);
                 int diff = score - baseScore;
                 if(diff > bestDiff) {
                     bestDiff = diff;
