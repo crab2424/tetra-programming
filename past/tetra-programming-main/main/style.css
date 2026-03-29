@@ -1,0 +1,1833 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&family=Press+Start+2P&family=Russo+One&family=Rajdhani:wght@400;700&display=swap');
+
+/* ─────────────────────────────────────────────
+  CSS 変数（テーマカラー）
+───────────────────────────────────────────── */
+:root {
+  --bg:        #0a0a0f;
+  --panel-bg:  #12121a;
+  --border:    #2a2a3a;
+  --accent:    #c471f5;
+  --accent2:   #fa71cd;
+  --accent3:   #71c5f5;
+  --text:      #e0e0f0;
+  --text-dim:  #888;
+  --danger:    #f55a5a;
+  --success:   #5af5a0;
+  /* フォント変数 */
+  --font-main: 'Noto Sans JP', sans-serif;
+  --font-orbitron: 'Orbitron', monospace;
+  --font-pixel: 'Press Start 2P', monospace;
+  --font-tech: 'Russo One', sans-serif;
+  --font-modern: 'Rajdhani', sans-serif;
+}
+
+/* ─────────────────────────────────────────────
+  リセット・ベース
+───────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-main);
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans JP', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+}
+
+/* ─────────────────────────────────────────────
+  ヘッダーエリア
+───────────────────────────────────────────── */
+#header-area {
+  display: flex;
+  justify-content: center; /* 中央寄せに変更 */
+  align-items: center;
+  width: 100%;
+  max-width: 700px;
+  margin-bottom: 20px;
+}
+
+h1 {
+  font-family: 'Orbitron', monospace;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+/* ─────────────────────────────────────────────
+  ページ切り替え（完全独立）
+───────────────────────────────────────────── */
+/* 基本は非表示 */
+.page { 
+  display: none; 
+}
+
+/* メニュー画面がアクティブな時 */
+#menu-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* ゲーム画面がアクティブな時 */
+#game-page.active { 
+  display: flex; 
+  justify-content: center;
+  width: 100%;
+}
+
+/* 設定画面がアクティブな時 */
+#settings-page.active { 
+  display: block; 
+}
+
+/* リザルト画面がアクティブな時 */
+#result-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+  メインメニューページ
+───────────────────────────────────────────── */
+#menu-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+  padding-top: 32px;
+  width: 420px;
+}
+
+#menu-logo {
+  text-align: center;
+}
+
+.menu-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 52px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 8px 0;
+  line-height: 1;
+}
+
+/* メニューページのh1はグローバルh1スタイルと競合しないよう上書き */
+#menu-logo h1.menu-title {
+  font-size: 52px;
+  letter-spacing: 10px;
+}
+
+.menu-subtitle {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+#menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  padding: 18px 32px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+  width: 100%;
+}
+
+.menu-btn:hover  { opacity: 0.85; transform: translateY(-2px); }
+.menu-btn:active { transform: translateY(0); }
+
+.menu-btn.btn-primary {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  color: #fff;
+}
+
+.menu-btn.btn-secondary {
+  background: rgba(196, 113, 245, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(196, 113, 245, 0.35);
+}
+
+.menu-btn.btn-secondary:hover {
+  background: rgba(196, 113, 245, 0.22);
+}
+
+.menu-btn-icon {
+  font-size: 16px;
+}
+
+/* コントロール一覧 */
+#menu-controls {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+
+.controls-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0 0 16px 0;
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+.ctrl-key {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(196,113,245,0.15);
+  border: 1px solid rgba(196,113,245,0.35);
+  color: var(--accent);
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ctrl-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ─────────────────────────────────────────────
+  リザルトページ
+───────────────────────────────────────────── */
+#result-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding-top: 32px;
+  width: 420px;
+}
+
+#result-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 40px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+  animation: result-appear 0.5s ease-out both;
+}
+
+@keyframes result-appear {
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+#result-stats {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  animation: result-appear 0.5s 0.1s ease-out both;
+}
+
+.result-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.result-stat-row:last-child {
+  border-bottom: none;
+}
+
+.result-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+}
+
+.result-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.result-stat-time .result-value {
+  font-size: 22px;
+}
+
+#result-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  animation: result-appear 0.5s 0.2s ease-out both;
+}
+
+/* ─────────────────────────────────────────────
+  ゲームページ
+───────────────────────────────────────────── */
+#game-page {
+  position: relative;
+  z-index: 1;
+}
+
+#container {
+  position: relative;
+  width: 320px;
+  height: 640px;
+}
+
+canvas {
+  image-rendering: pixelated;
+}
+
+#main-canvas {
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+}
+
+#next-canvas,
+#hold-canvas {
+  position: absolute;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+}
+
+#next-canvas {
+  top: 0;
+  left: 352px;
+}
+#hold-canvas {
+  top: 0;
+  left: -160px;
+}
+
+.area-label {
+  position: absolute;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+}
+
+#label-next { top: -18px; left: 352px; }
+#label-hold { top: -18px; left: -160px; }
+
+#level-area {
+  position: absolute;
+  left: -160px;
+  top: 450px;
+}
+
+#level-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#level-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#lines-area {
+  position: absolute;
+  left: -160px;
+  top: 510px;
+}
+
+#lines-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#lines-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#score-area {
+  position: absolute;
+  left: 352px;
+  top: 450px;
+}
+
+#score-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#score-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#time-area {
+  position: absolute;
+  left: 352px;
+  top: 510px;
+}
+
+#time-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#time-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#start-btn {
+  position: absolute;
+  left: 352px;
+  bottom: 0;
+  width: 160px;
+  text-align: center;
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+#start-btn:hover  { opacity: 0.88; transform: translateY(-1px); }
+#start-btn:active { transform: translateY(0); }
+
+/* ─────────────────────────────────────────────
+  設定ページ
+───────────────────────────────────────────── */
+#settings-page {
+  width: 700px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  position: relative;
+  z-index: 2;
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.btn-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.btn-back:hover {
+  border-color: var(--accent3);
+  color: var(--accent3);
+}
+
+#settings-page h2 {
+  font-family: 'Orbitron', monospace;
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.key-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.key-action-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.key-action-name small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.key-badge {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 80px;
+  padding: 6px 12px;
+  border-radius: 5px;
+  border: 1px solid rgba(196, 113, 245, 0.35);
+  background: rgba(196, 113, 245, 0.15);
+  color: var(--accent);
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.key-badge:hover {
+  background: rgba(196, 113, 245, 0.28);
+}
+
+.key-badge.listening {
+  border-color: var(--accent2);
+  background: rgba(250, 113, 205, 0.2);
+  color: var(--accent2);
+  animation: pulse 0.8s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+.conflict-warning {
+  display: none;
+  margin-top: -8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.conflict-warning.show { display: block; }
+
+.settings-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.btn {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 10px 24px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-reset {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.btn-reset:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn-save {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff;
+}
+
+.btn-save:hover { opacity: 0.85; }
+
+#action-label-container {
+  position: absolute;
+  left: -200px;
+  top: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.action-label {
+  font-family: var(--font-orbitron);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin: 4px 0;
+  opacity: 1;
+  transition: opacity 0.3s linear;
+  text-shadow: 0 0 8px rgba(0,0,0,0.6);
+}
+
+.action-label.pc    { color: #ffea00; }
+.action-label.tspin { color: #c471f5; }
+.action-label.mini  { color: #71c5f5; }
+.action-label.four  { color: #00e5ff; }
+.action-label.b2b   { color: #f5a623; }
+.action-label.ren   { color: #a6f523; }
+
+/* フォント切り替え用 */
+.font-orbitron { font-family: var(--font-orbitron); }
+.font-pixel    { font-family: var(--font-pixel); font-size: 14px; }
+.font-tech     { font-family: var(--font-tech); }
+.font-modern   { font-family: var(--font-modern); }
+
+/* ─────────────────────────────────────────────
+   ポーズオーバーレイ
+───────────────────────────────────────────── */
+#pause-overlay {
+  display: none;
+  position: fixed; /* ★ absolute から fixed に変更 */
+  top: 0;          /* ★ 画面の左上から */
+  left: 0;         /* ★ 画面の左上から */
+  width: 100vw;    /* ★ 画面幅いっぱい */
+  height: 100vh;   /* ★ 画面高さいっぱい */
+  background: rgba(10, 10, 15, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1000;   /* ★ 最前面に来るように数値を上げる */
+  align-items: center;
+  justify-content: center;
+  /* border-radius: 4px; は全画面になるため削除またはコメントアウト */
+}
+
+#pause-overlay.active {
+  display: flex;
+}
+
+#pause-modal {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 56px;
+  text-align: center;
+  box-shadow: 0 0 48px rgba(196, 113, 245, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+#pause-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+#pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.pause-btn {
+  font-family: 'Orbitron', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  padding: 14px 40px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+  width: 100%;
+}
+
+.pause-btn:hover  { opacity: 0.85; transform: translateY(-1px); }
+.pause-btn:active { transform: translateY(0); }
+
+.btn-resume {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff;
+}
+
+.btn-settings {
+  background: rgba(196, 113, 245, 0.15);
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+
+.btn-settings:hover {
+  background: rgba(196, 113, 245, 0.28);
+}
+
+.btn-restart {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.btn-restart:hover {
+  border-color: var(--accent3);
+  color: var(--accent3);
+  opacity: 1;
+}
+
+.btn-mainmenu {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  margin-top: 8px; /* 他のアクションボタンと少し距離を置く */
+}
+
+.btn-mainmenu:hover {
+  border-color: var(--text-dim);
+  color: var(--text);
+  opacity: 1;
+}
+
+/* ─────────────────────────────────────────────
+   トースト通知
+───────────────────────────────────────────── */
+#settings-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--success);
+  color: #0a0a0f;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 10px 28px;
+  border-radius: 100px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 999;
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+#settings-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ─────────────────────────────────────────────
+   チューニングセクション
+───────────────────────────────────────────── */
+.tuning-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slider-label {
+  display: flex;
+  align-items: baseline;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.slider-label small {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.slider-label span {
+  margin-left: auto;
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  color: var(--accent3);
+}
+
+input[type="range"] {
+  width: 100%;
+  background: transparent;
+}
+
+input[type="range"]:focus {
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: var(--border);
+  border-radius: 3px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  -webkit-appearance: none;
+  margin-top: -5px;
+  box-shadow: 0 0 8px rgba(196, 113, 245, 0.6);
+  transition: transform 0.1s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.slider-markers {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 6px;
+  margin-top: -4px;
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+/* ─────────────────────────────────────────────
+   タイトル画面（title-page）
+───────────────────────────────────────────── */
+#title-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 80vh;
+  cursor: pointer;
+}
+
+#title-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+}
+
+.title-main-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 64px;
+  font-weight: 900;
+  letter-spacing: 14px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 8px 0;
+  line-height: 1;
+  text-shadow: none;
+}
+
+.title-subtitle {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0;
+  text-align: center;
+}
+
+.title-blink {
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  letter-spacing: 5px;
+  color: var(--text-dim);
+  animation: title-blink-anim 1.2s ease-in-out infinite;
+}
+
+@keyframes title-blink-anim {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.15; }
+}
+
+#title-version {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+  opacity: 0.5;
+}
+
+/* ─────────────────────────────────────────────
+   メインメニューページ（main-menu-page）
+   フローチャート: main menu
+───────────────────────────────────────────── */
+#main-menu-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#main-menu-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding-top: 32px;
+  width: 460px;
+}
+
+#main-menu-logo {
+  text-align: center;
+}
+
+/* モード選択ボタン群 */
+#main-menu-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  padding: 20px 28px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+  text-align: left;
+}
+
+.mode-btn:hover  { transform: translateY(-2px); }
+.mode-btn:active { transform: translateY(0); }
+
+/* Marathon: accent（紫） */
+.mode-btn-marathon {
+  border-color: rgba(196, 113, 245, 0.35);
+}
+.mode-btn-marathon:hover {
+  background: rgba(196, 113, 245, 0.12);
+  border-color: var(--accent);
+}
+
+/* Sprint: accent3（水色） */
+.mode-btn-sprint {
+  border-color: rgba(113, 197, 245, 0.35);
+}
+.mode-btn-sprint:hover {
+  background: rgba(113, 197, 245, 0.12);
+  border-color: var(--accent3);
+}
+
+/* Ultra: accent2（ピンク） */
+.mode-btn-ultra {
+  border-color: rgba(250, 113, 205, 0.35);
+}
+.mode-btn-ultra:hover {
+  background: rgba(250, 113, 205, 0.12);
+  border-color: var(--accent2);
+}
+
+.mode-btn-icon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 40px;
+  text-align: center;
+}
+
+/* Marathon のアイコン色 */
+.mode-btn-marathon .mode-btn-icon { color: var(--accent); }
+/* Sprint のアイコン色 */
+.mode-btn-sprint   .mode-btn-icon { color: var(--accent3); }
+/* Ultra のアイコン色 */
+.mode-btn-ultra    .mode-btn-icon { color: var(--accent2); }
+
+.mode-btn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mode-btn-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text);
+}
+
+/* Marathon の label 色 */
+.mode-btn-marathon .mode-btn-label { color: var(--accent); }
+/* Sprint の label 色 */
+.mode-btn-sprint   .mode-btn-label { color: var(--accent3); }
+/* Ultra の label 色 */
+.mode-btn-ultra    .mode-btn-label { color: var(--accent2); }
+
+.mode-btn-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* フッター（Settingsボタン） */
+#main-menu-footer {
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   準備画面（mode-check-page）
+   フローチャート: mode1 check / mode2 check（共通1ページ）
+───────────────────────────────────────────── */
+#mode-check-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#mode-check-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 36px;
+  padding-top: 32px;
+  width: 460px;
+}
+
+/* ヘッダー（アイコン＋ラベル） */
+#mode-check-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.mode-check-icon {
+  font-size: 52px;
+  line-height: 1;
+  /* color は renderModeCheck() でインラインセット */
+}
+
+.mode-check-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  margin: 0;
+  /* color は renderModeCheck() でインラインセット */
+}
+
+/* 説明文 */
+#mode-check-desc-block {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  text-align: center;
+}
+
+.mode-check-desc-ja {
+  font-size: 14px;
+  color: var(--text);
+  margin: 0 0 8px 0;
+  line-height: 1.6;
+}
+
+.mode-check-desc-en {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* コントロール一覧（menu-controls と同スタイル） */
+#mode-check-controls {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+
+/* ボタン群 */
+#mode-check-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   ★ 追加：マラソン用オプションUI
+───────────────────────────────────────────── */
+#mode-check-options {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.option-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.option-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+}
+.option-toggle {
+  display: flex;
+  gap: 8px;
+}
+.opt-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.opt-btn.active {
+  background: rgba(196, 113, 245, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.option-slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 160px;
+}
+.option-slider input {
+  flex: 1;
+}
+.option-val {
+  font-family: 'Orbitron', monospace;
+  font-size: 14px;
+  color: var(--accent);
+  width: 20px;
+  text-align: right;
+}
+
+/* ─────────────────────────────────────────────
+   対戦モード（VERSUS）
+───────────────────────────────────────────── */
+
+/* メインメニューの対戦ボタン */
+.mode-btn-versus {
+  border-color: rgba(245, 197, 66, 0.35);
+}
+.mode-btn-versus:hover {
+  background: rgba(245, 197, 66, 0.12);
+  border-color: #f5c542;
+}
+.mode-btn-versus .mode-btn-icon { color: #f5c542; }
+.mode-btn-versus .mode-btn-label { color: #f5c542; }
+
+/* 対戦STARTボタン */
+.btn-versus-primary {
+  background: linear-gradient(135deg, #f5c542 0%, #fa71cd 100%);
+  color: #0a0a0f;
+  font-weight: 700;
+}
+.btn-versus-primary:hover { opacity: 0.88; }
+
+/* 対戦確認画面 */
+#versus-check-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#versus-check-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding-top: 32px;
+  width: 460px;
+}
+
+#versus-cpu-options {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 対戦ゲーム画面 */
+#versus-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#versus-layout {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  padding-top: 16px;
+}
+
+.versus-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.versus-side-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 4px;
+}
+
+.player-label { color: var(--accent3); }
+.cpu-label    { color: var(--danger); }
+
+/* 各ゲームフィールドのコンテナ（元の#containerと同構造） */
+.versus-container {
+  position: relative;
+  width: 320px;
+  height: 656px; /* SCREEN_HEIGHT + ラベル分 */
+}
+
+/* NEXT / HOLD キャンバスの配置（左側プレイヤー用） */
+.versus-label-next {
+  position: absolute;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: 352px;
+}
+.versus-label-hold {
+  position: absolute;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: -160px;
+}
+
+/* NEXT / HOLD キャンバスの配置（右側CPU用） */
+/* CPUフィールドはHOLDを右に、NEXTを左に配置（中央よりの配置にしない場合は左右反転） */
+.versus-label-next-cpu {
+  position: absolute;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: 352px;
+}
+.versus-label-hold-cpu {
+  position: absolute;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: -160px;
+}
+
+/* NEXT/HOLD canvasの絶対配置（プレイヤー側） */
+#versus-player-container canvas#player-next-canvas {
+  position: absolute;
+  top: 0;
+  left: 352px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+}
+#versus-player-container canvas#player-hold-canvas {
+  position: absolute;
+  top: 0;
+  left: -160px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+}
+
+/* NEXT/HOLD canvasの絶対配置（CPU側） */
+#versus-cpu-container canvas#cpu-next-canvas {
+  position: absolute;
+  top: 0;
+  left: 352px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+}
+#versus-cpu-container canvas#cpu-hold-canvas {
+  position: absolute;
+  top: 0;
+  left: -160px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+}
+
+/* メインキャンバスのスタイル */
+#player-main-canvas,
+#cpu-main-canvas {
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  image-rendering: pixelated;
+}
+
+/* プレイヤー側スタッツ */
+.versus-stats-left {
+  position: absolute;
+  left: -160px;
+  top: 450px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.versus-stats-right {
+  position: absolute;
+  left: 352px;
+  top: 450px;
+}
+/* CPU側スタッツ */
+.versus-stats-left-cpu {
+  position: absolute;
+  left: -160px;
+  top: 450px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.versus-stats-right-cpu {
+  position: absolute;
+  left: 352px;
+  top: 450px;
+}
+
+.versus-stat-block {
+  display: flex;
+  flex-direction: column;
+}
+.versus-stat-block .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 2px;
+}
+.versus-stat-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 24px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 中央のVS表示 */
+#versus-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
+  margin-top: 280px; /* フィールドの中ほどに来るように */
+}
+
+#versus-vs-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 32px;
+  top: 0;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#versus-cpu-level-display {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: #f5c542;
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* アクションラベルコンテナ（プレイヤー・CPU共通） */
+#player-action-label-container,
+#cpu-action-label-container {
+  position: absolute;
+  left: -200px;
+  top: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* 対戦ポーズオーバーレイ */
+#versus-pause-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 10, 15, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+
+#versus-pause-overlay.active {
+  display: flex;
+}
+
+.versus-pause-modal {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 56px;
+  text-align: center;
+  box-shadow: 0 0 48px rgba(245, 197, 66, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+#versus-pause-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  color: #f5c542;
+  margin: 0;
+}
+
+#versus-pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+/* 対戦リザルト */
+#versus-result-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ★ 追加：対戦モードの縮小とレイアウト調整
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.versus-container {
+  /* 既存のスタイルに上書き・追加されます */
+  transform: scale(0.8);
+  transform-origin: top center;
+  margin: 0 80px; /* フィールド間のスペースを広げるために左右にマージンを追加 */
+}
+
+/* ★ 追加：両プレイヤーのレベル表記を非表示 */
+.versus-stats-left .versus-stat-block:nth-child(1),
+.versus-stats-left-cpu .versus-stat-block:nth-child(1) {
+  display: none;
+}
+
+/* ★ 追加：VS表記の下にある「CPU LV」テキストを非表示 */
+#versus-cpu-level-display {
+  display: none;
+}
+
+/* ★ 追加：対戦前の準備画面にある「CPU LEVEL」の選択肢そのものを非表示 */
+#versus-cpu-options {
+  display: none !important;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ★ 追加：対戦モード 火力ゲージ表示
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.garbage-gauge {
+  position: absolute;
+  left: -16px;       /* キャンバスのすぐ左に配置 */
+  bottom: 0;         /* キャンバスの下端に合わせる */
+  width: 10px;
+  height: 640px;     /* フィールドの高さ（20マス × 32px）と一致させる */
+  display: flex;
+  flex-direction: column-reverse; /* 下から上へ積み上げる */
+  pointer-events: none;
+  z-index: 5;
+}
+
+.gauge-block {
+  width: 10px;
+  height: 32px;      /* 1マスの高さと一致させる */
+  box-sizing: border-box;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.5); /* 境目を見やすく */
+  flex-shrink: 0;
+}
+
+.gauge-block.unready {
+  background-color: var(--accent3); /* 猶予時間中（青） */
+  box-shadow: 0 0 8px var(--accent3);
+}
+
+.gauge-block.ready {
+  background-color: var(--danger); /* 確定（赤点滅） */
+  box-shadow: 0 0 8px var(--danger);
+  animation: gauge-blink 0.4s infinite alternate;
+}
+
+@keyframes gauge-blink {
+  from { opacity: 1; }
+  to   { opacity: 0.2; }
+}
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ★ 追加：カウントダウン／終了演出オーバーレイ
+   フィールド上に重なって表示される汎用オーバーレイ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* ─── 汎用フィールドオーバーレイ（カウントダウン＆終了演出の共通ベース） ─── */
+.field-overlay {
+  /* キャンバスと同じ位置・サイズに重ねる */
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;   /* SCREEN_WIDTH = COLS_COUNT(10) × BLOCK_SIZE(32) */
+  height: 656px;  /* SCREEN_HEIGHT + ラベル余白分（versus-container に合わせる） */
+  display: none;  /* .active クラスで表示 */
+  align-items: center;
+  justify-content: center;
+  z-index: 20;    /* アクションラベル(z-index:10)より前面 */
+  pointer-events: none; /* クリック透過 */
+  border-radius: 2px;
+}
+
+/* シングルプレイのフィールドオーバーレイはキャンバスに合わせた高さ */
+#countdown-overlay,
+#finish-overlay {
+  height: 656px; /* SCREEN_HEIGHT 相当 */
+}
+
+.field-overlay.active {
+  display: flex;
+}
+
+/* ─── カウントダウンオーバーレイ専用スタイル ─── */
+.countdown-overlay {
+  background: transparent;
+}
+
+/* カウントダウンの数字・テキスト */
+.countdown-text {
+  font-family: 'Orbitron', monospace;
+  font-weight: 900;
+  font-size: 96px;
+  letter-spacing: 4px;
+  color: #fff;
+  text-shadow:
+    0 0 20px rgba(196, 113, 245, 0.8),
+    0 0 60px rgba(196, 113, 245, 0.4),
+    0 4px 16px rgba(0, 0, 0, 0.8);
+  /* アニメーションはクラスで付与 */
+  line-height: 1;
+  user-select: none;
+}
+
+/* START! は少し小さく */
+.countdown-text:not(:empty) {
+  /* テキスト長に応じて自動調整 */
+  white-space: nowrap;
+}
+
+/* ポップアニメーション（数字が弾ける） */
+@keyframes countdown-pop-anim {
+  0%   { transform: scale(0.4); opacity: 0; }
+  40%  { transform: scale(1.15); opacity: 1; }
+  65%  { transform: scale(0.95); }
+  80%  { transform: scale(1.05); }
+  100% { transform: scale(1.0); opacity: 1; }
+}
+
+.countdown-text.countdown-pop {
+  animation: countdown-pop-anim 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* START! テキストは色を変えて区別 */
+.countdown-overlay {
+  background: transparent;
+}
+
+/* ─── 終了演出オーバーレイ専用スタイル ─── */
+.finish-overlay {
+  background: transparent;
+  transition: opacity 0.5s ease;
+}
+
+.finish-overlay.fadeout {
+  opacity: 0;
+}
+
+/* 終了テキスト共通 */
+.finish-text {
+  font-family: 'Orbitron', monospace;
+  font-weight: 900;
+  font-size: 44px;
+  letter-spacing: 4px;
+  text-align: center;
+  line-height: 1.2;
+  user-select: none;
+  animation: finish-appear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* クリア時（FINISH! / WIN!） */
+.finish-text.finish-clear {
+  color: var(--success);
+  text-shadow:
+    0 0 24px rgba(90, 245, 160, 0.7),
+    0 0 60px rgba(90, 245, 160, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.8);
+}
+
+/* ゲームオーバー時（GAME OVER / LOSE...） */
+.finish-text.finish-gameover {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* text-shadow は -webkit-text-fill-color: transparent と共存できないため filter で代替 */
+  filter: drop-shadow(0 0 16px rgba(196, 113, 245, 0.6)) drop-shadow(0 4px 8px rgba(0,0,0,0.8));
+}
+
+@keyframes finish-appear {
+  0%   { transform: scale(0.6) translateY(20px); opacity: 0; }
+  60%  { transform: scale(1.08) translateY(-4px); opacity: 1; }
+  80%  { transform: scale(0.97) translateY(2px); }
+  100% { transform: scale(1.0) translateY(0); opacity: 1; }
+}
+
+/* ─── 対戦モードでのオーバーレイは縮小率に合わせて調整 ─── */
+/* versus-container は scale(0.8) で縮小されているため、
+   フィールドオーバーレイはその内側で絶対配置されるため自動的に縮小される。
+   サイズは元の SCREEN_WIDTH(320px) × SCREEN_HEIGHT に合わせる。 */
+#player-countdown-overlay,
+#player-finish-overlay,
+#cpu-countdown-overlay,
+#cpu-finish-overlay {
+  /* versus-container 内のキャンバス (320×656) に合わせる */
+  width: 320px;
+  height: 640px; /* SCREEN_HEIGHT (ROWS_COUNT × BLOCK_SIZE = 640) */
+  top: 0;
+  left: 0;
+}
+
+/* Test: success（緑） */
+.mode-btn-test {
+  border-color: rgba(90, 245, 160, 0.35);
+}
+.mode-btn-test:hover {
+  background: rgba(90, 245, 160, 0.12);
+  border-color: var(--success);
+}
+.mode-btn-test .mode-btn-icon { color: var(--success); }
+.mode-btn-test .mode-btn-label { color: var(--success); }
+
+/* ─────────────────────────────────────────────
+   CPU評価点表示エリア（TESTモード専用）
+───────────────────────────────────────────── */
+#eval-area {
+  position: absolute;
+  left: 352px;
+  top: 570px; /* TIME(510px) の 60px 下 */
+}
+
+#eval-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#eval-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* CPU評価の得点差カラー */
+.eval-diff-plus {
+  color: var(--accent3); /* 水色 */
+}
+.eval-diff-minus {
+  color: var(--danger); /* 赤色 */
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ★ 追加：CPU予測表示用オーバーレイ (TESTモード用)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.cpu-estimate-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  height: 656px; /* キャンバスの高さと一致させる */
+  pointer-events: none; /* マウスイベントを透過させる */
+  z-index: 15; /* キャンバス(0)より上、アクションラベル(20)より下 */
+  overflow: hidden;
+}
+
+.cpu-estimate-block {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  box-sizing: border-box;
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 2px;
+}
+
+/* 1手目（シアン） */
+.cpu-estimate-block.step1 {
+  background: rgba(0, 255, 213, 0.25);
+  border-color: rgba(0, 255, 213, 0.8);
+  z-index: 2;
+}
+
+/* 2手目（マゼンタ） */
+.cpu-estimate-block.step2 {
+  background: rgba(255, 0, 160, 0.2);
+  border-color: rgba(255, 0, 160, 0.6);
+  z-index: 1;
+}

@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────
 // cpu2.js
-// 2手読みCPU（NEXT1、HOLD考慮）- Wasm連携対応版
+// 2手読みCPU（NEXT1、HOLD考慮）
 // ─────────────────────────────────────────────
 
 class CPU2 {
@@ -11,8 +11,7 @@ class CPU2 {
         this.currentMino = null;
         this.baseScore = 0;     
 
-        // ★ 復活！パラメータはここで管理する。
-        // 今後 CPU3や4 を作る時は、ここの数値を少し変えるだけでAIの挙動が変わります。
+        // 評価関数の重み（基本はそのまま引き継ぎ）
         this.weights = {
             lineClear:    20,
             hole:         -24,
@@ -23,51 +22,69 @@ class CPU2 {
             step1Bad:     -2,
             step2Plus:    -8,
             groundedBonus: 12,
-            touchingBonus: 1,
+            touchingBonus: 1,   
             underSpace:   -6,
             singleWell:    1,  
-            multiWell:    -10, 
-        };
-
-        this.boardBuffer = new Uint8Array(200);
-        this.worker = new Worker('cpu_worker.js');
-
-        this.worker.onmessage = (e) => {
-            if (!this.isActive) return;
-            this.handleWorkerResult(e.data.result);
+            multiWell:    -10,   
         };
     }
 
-    // (中略：initEstimateContainer, start, stop, updateLoop 等はそのまま)
+    
+    // 予測表示用コンテナの初期化（CSSなしでも動くようにインラインスタイルで絶対配置）
+    initEstimateContainer() {
+        const canvasId = this.game.canvasPrefix ? `${this.game.canvasPrefix}-main-canvas` : 'main-canvas';
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !canvas.parentNode) return;
+
+        let containerId = `${canvasId}-estimate-overlay`;
+        this.estimateContainer = document.getElementById(containerId);
+
+        if (!this.estimateContainer) {
+            this.estimateContainer = document.createElement('div');
+            this.estimateContainer.id = containerId;
+            
+            // CSSが適用されていなくても確実に表示されるようインラインスタイルを付与
+            this.estimateContainer.style.position = 'absolute';
+            this.estimateContainer.style.top = '0';
+            this.estimateContainer.style.left = '0';
+            this.estimateContainer.style.width = '320px';
+            this.estimateContainer.style.height = '656px';
+            this.estimateContainer.style.pointerEvents = 'none'; // マウス操作を邪魔しない
+            this.estimateContainer.style.zIndex = '15'; // キャンバスより上に表示
+            this.estimateContainer.style.overflow = 'hidden'; // はみ出しを隠す
+
+            // キャンバスと同じ親要素（#containerなど）の末尾に追加
+            canvas.parentNode.appendChild(this.estimateContainer);
+        }
+    }
+
+    start() {
+        this.isActive = true;
+        this.initEstimateContainer();
+        this.updateLoop();
+    }
+
+    stop() {
+        this.isActive = false;
+        this.bestMoveData = null;
+        if (this.estimateContainer) {
+            this.estimateContainer.innerHTML = '';
+        }
+    }
+
     updateLoop() {
         if (!this.isActive) return;
+
         if (this.game.mino && this.game.mino !== this.currentMino) {
             this.currentMino = this.game.mino;
-            this.requestSearchToWorker();
+            this.onMinoSpawned();
         }
+
+        if (this.game.mino && !this.game.isPaused) {
+            this.updateGhostEval();
+        }
+
         requestAnimationFrame(() => this.updateLoop());
-    }
-
-    requestSearchToWorker() {
-        this.boardBuffer.fill(0);
-        this.game.field.blocks.forEach(b => {
-            if (b.x >= 0 && b.x < 10 && b.y >= 0 && b.y < 20) {
-                this.boardBuffer[b.y * 10 + b.x] = 1;
-            }
-        });
-
-        // Wokerへ送るデータに `weights` を含める
-        const data = {
-            boardBuffer: this.boardBuffer,
-            currentType: this.game.mino.type,
-            holdType: this.game.holdMino ? this.game.holdMino.type : -1,
-            next1: this.game.nextQueue[0].type,
-            next2: this.game.nextQueue[1].type,
-            canHold: this.game.canHold ? 1 : 0,
-            weights: this.weights // ★ここで重みをWasmに渡す
-        };
-
-        this.worker.postMessage(data);
     }
 
     onMinoSpawned() {
@@ -77,7 +94,7 @@ class CPU2 {
         const currentBlocks = this.game.field.blocks.map(b => ({ x: b.x, y: b.y }));
         this.baseScore = this.evaluateBoard(currentBlocks, 0, false, 0);
 
-        // ★ 変更：WasmとJSを透過的に切り替えるラッパー関数を呼ぶ
+        // TESTモードでは常にbestMoveを計算する
         const bestMove = this.searchBestMove(this.game.mino);
         this.bestMoveData = bestMove;
 
@@ -218,6 +235,7 @@ class CPU2 {
         return placements;
     }
 
+    // ★追加：1手目を置いた結果、消去される行のインデックス（Y座標）を取得する
     getClearedLines(fieldBlocks, minoBlocks) {
         let blocks = [];
         for (let i = 0; i < fieldBlocks.length; i++) {
@@ -237,88 +255,7 @@ class CPU2 {
         return clearedRowIndices;
     }
 
-    // ─────────────────────────────────────────────
-    // ★ 分岐：WasmモジュールがあればC++版、なければJS版を呼ぶ
-    // ─────────────────────────────────────────────
     searchBestMove(mino) {
-        if (typeof Module !== 'undefined' && Module._searchBestMoveWasm) {
-            return this.searchBestMoveWasm(mino);
-        }
-        return this.searchBestMoveJS(mino);
-    }
-
-    // ─────────────────────────────────────────────
-    // ★ 新規追加：C++ (WebAssembly) に探索を依頼する処理
-    // ─────────────────────────────────────────────
-    searchBestMoveWasm(mino) {
-        // 1. 盤面データの構築（1次元配列化）
-        this.boardBuffer.fill(0);
-        this.game.field.blocks.forEach(b => {
-            if (b.x >= 0 && b.x < 10 && b.y >= 0 && b.y < 20) {
-                this.boardBuffer[b.y * 10 + b.x] = 1;
-            }
-        });
-
-        // 2. メモリ領域の確保（初回のみ）
-        if (this.boardPtr === null) {
-            this.boardPtr = Module._malloc(200);        // 盤面用（1バイト×200マス）
-            this.resultPtr = Module._malloc(4 * 12);    // 結果受け取り用（4バイト整数×12要素）
-        }
-
-        // 3. 盤面データをWasmのメモリへ高速コピー
-        Module.HEAPU8.set(this.boardBuffer, this.boardPtr);
-
-        // ミノ情報の取得
-        const currentType = mino.type;
-        const holdType = this.game.holdMino ? this.game.holdMino.type : -1;
-        const next1 = this.game.nextQueue[0].type;
-        const next2 = this.game.nextQueue[1].type;
-        const canHold = this.game.canHold ? 1 : 0;
-
-        // 4. C++の関数を呼び出す
-        // void searchBestMoveWasm(uint8_t* board, int current, int hold, int next1, int next2, int canHold, int* outResult)
-        Module._searchBestMoveWasm(
-            this.boardPtr, 
-            currentType, holdType, next1, next2, canHold, 
-            this.resultPtr
-        );
-
-        // 5. C++からの結果を読み取る（Int32Arrayとしてパース）
-        // outResult配列の定義:
-        // [0]: action (-1:無効, 0:play, 1:hold)
-        // [1]: score
-        // [2]: diff
-        // [3]: p1_id, [4]: p1_rot, [5]: p1_x, [6]: p1_y, [7]: p1_spawnY
-        // [8]: p2_id, [9]: p2_rot, [10]: p2_x, [11]: p2_y
-        const res = new Int32Array(Module.HEAP32.buffer, this.resultPtr, 12);
-        
-        if (res[0] === -1) return null; // 有効な手がない場合
-
-        let bestMove = {
-            action: res[0] === 1 ? 'hold' : 'play',
-            score: res[1],
-            diff: res[2],
-            id: res[3], rot: res[4], x: res[5], spawnY: res[7],
-            p1: { id: res[3], rot: res[4], x: res[5], y: res[6] },
-            p2: res[8] !== -1 ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
-            clearedLines: []
-        };
-
-        // ゴースト描画用に、1手目で消去されるラインをJS側でサクッと計算する
-        if (bestMove.p1) {
-            let simMino1 = new Mino(bestMove.p1.id);
-            for(let i = 0; i < bestMove.p1.rot; i++) simMino1.rotate();
-            let droppedBlocks1 = simMino1.blocks.map(b => ({ x: b.x + bestMove.p1.x, y: b.y + bestMove.p1.y }));
-            bestMove.clearedLines = this.getClearedLines(this.game.field.blocks, droppedBlocks1);
-        }
-
-        return bestMove;
-    }
-
-    // ─────────────────────────────────────────────
-    // 既存の JavaScript による探索（フォールバック用）
-    // ─────────────────────────────────────────────
-    searchBestMoveJS(mino) {
         let bestDiff = -10000;
         let bestMove = null;
 
@@ -389,6 +326,7 @@ class CPU2 {
             }
         }
         
+        // ★追加：最善手が決まった後、1手目によって消去されるラインのY座標を記録する
         if (bestMove && bestMove.p1) {
             let simMino1 = new Mino(bestMove.p1.id);
             for(let i = 0; i < bestMove.p1.rot; i++) simMino1.rotate();
@@ -562,10 +500,14 @@ class CPU2 {
         this.game.drawAll();
     }
 
+    // ─────────────────────────────────────────────
+    // DOMとCSSを用いた予測ゴーストの生成
+    // ─────────────────────────────────────────────
     renderEstimatePlace() {
         if (!this.estimateContainer) this.initEstimateContainer();
         if (!this.estimateContainer) return;
 
+        // 一旦リセット
         this.estimateContainer.innerHTML = '';
 
         if (!this.isActive || !this.bestMoveData) return;
@@ -575,6 +517,7 @@ class CPU2 {
         const clearedLines = this.bestMoveData.clearedLines || [];
 
         if (p1) this.createEstimateBlocks(p1, 'step1');
+        // ★変更：2手目を描画する際、1手目の消去ライン情報を渡す
         if (p2) this.createEstimateBlocks(p2, 'step2', clearedLines);
     }
 
@@ -582,26 +525,30 @@ class CPU2 {
         let simMino = new Mino(pData.id);
         for(let i = 0; i < pData.rot; i++) simMino.rotate();
 
+        // ★追加：2手目の場合、1手目で消去されるラインを考慮して、
+        // シミュレーション盤面のY座標から元の盤面のY座標に逆変換するマップを作成
         let yMap = {};
         if (stepClass === 'step2' && clearedLines.length > 0) {
             let currentY_sim = 19;
+            // 盤面外の上部（-10あたり）まで十分にマッピングを作る
             for (let y_orig = 19; y_orig >= -10; y_orig--) {
                 if (clearedLines.includes(y_orig)) {
-                    continue; 
+                    continue; // 消去された行はシミュレーション後の盤面には存在しないため飛ばす
                 }
                 yMap[currentY_sim] = y_orig;
                 currentY_sim--;
             }
         }
 
+        // ミノのIDに対応する色
         const colorMap = {
-            0: { border: 'rgba(0, 240, 240, 0.8)', bg: 'rgba(0, 240, 240, 0.25)' }, 
-            1: { border: 'rgba(240, 240, 0, 0.8)', bg: 'rgba(240, 240, 0, 0.25)' }, 
-            2: { border: 'rgba(160, 0, 240, 0.8)', bg: 'rgba(160, 0, 240, 0.25)' }, 
-            3: { border: 'rgba(0, 0, 240, 0.8)',   bg: 'rgba(0, 0, 240, 0.25)' },   
-            4: { border: 'rgba(240, 160, 0, 0.8)', bg: 'rgba(240, 160, 0, 0.25)' }, 
-            5: { border: 'rgba(0, 240, 0, 0.8)',   bg: 'rgba(0, 240, 0, 0.25)' },   
-            6: { border: 'rgba(240, 0, 0, 0.8)',   bg: 'rgba(240, 0, 0, 0.25)' }    
+            0: { border: 'rgba(0, 240, 240, 0.8)', bg: 'rgba(0, 240, 240, 0.25)' }, // I: #00F0F0
+            1: { border: 'rgba(240, 240, 0, 0.8)', bg: 'rgba(240, 240, 0, 0.25)' }, // O: #F0F000
+            2: { border: 'rgba(160, 0, 240, 0.8)', bg: 'rgba(160, 0, 240, 0.25)' }, // T: #A000F0
+            3: { border: 'rgba(0, 0, 240, 0.8)',   bg: 'rgba(0, 0, 240, 0.25)' },   // J: #0000F0
+            4: { border: 'rgba(240, 160, 0, 0.8)', bg: 'rgba(240, 160, 0, 0.25)' }, // L: #F0A000
+            5: { border: 'rgba(0, 240, 0, 0.8)',   bg: 'rgba(0, 240, 0, 0.25)' },   // S: #00F000
+            6: { border: 'rgba(240, 0, 0, 0.8)',   bg: 'rgba(240, 0, 0, 0.25)' }    // Z: #F00000
         };
         const colors = colorMap[pData.id] || { border: 'rgba(255, 255, 255, 0.8)', bg: 'rgba(255, 255, 255, 0.25)' };
 
@@ -609,6 +556,7 @@ class CPU2 {
             let drawX = block.x + pData.x;
             let drawY = block.y + pData.y;
 
+            // ★追加：2手目の場合、シミュレーション盤面でのY座標を、元の盤面（ライン消去前）でのY座標に変換
             if (stepClass === 'step2' && clearedLines.length > 0) {
                 if (yMap[drawY] !== undefined) {
                     drawY = yMap[drawY];
@@ -619,6 +567,7 @@ class CPU2 {
                 let div = document.createElement('div');
                 div.className = `cpu-estimate-block ${stepClass}`;
                 
+                // CSSがなくても確実に見えるようにインラインで直接スタイルを付与
                 div.style.position = 'absolute';
                 div.style.width = '32px';
                 div.style.height = '32px';
@@ -627,12 +576,16 @@ class CPU2 {
                 div.style.borderStyle = 'solid';
                 div.style.borderRadius = '2px';
                 
+                // ミノ固有の色を設定
                 div.style.backgroundColor = colors.bg;
                 div.style.borderColor = colors.border;
                 
+                // 重なった時に1手目を見やすくするため、z-indexで少し差をつける
                 div.style.zIndex = stepClass === 'step1' ? '2' : '1';
 
+                // 32pxのグリッドに沿って配置
                 div.style.left = `${drawX * 32}px`;
+                // game.jsは上部に VISIBLE_EXTRA_ROW_RATIO(0.5行分 = 16px) の余白を設けているため
                 div.style.top = `${(drawY + 0.5) * 32}px`;
                 
                 this.estimateContainer.appendChild(div);
