@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib> // ★これを追加 (malloc/free を使うため)
 
 
 const int COLS = 10;
@@ -203,12 +204,24 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
 }
 
 extern "C" {
+
+    // ★これを追加：JS側からメモリ領域を確保・解放するためのラッパー関数
+EMSCRIPTEN_KEEPALIVE
+void* my_malloc(size_t size) {
+    return malloc(size);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void my_free(void* ptr) {
+    free(ptr);
+}
+
 EMSCRIPTEN_KEEPALIVE
 void searchBestMoveWasm(
     uint8_t* boardData, int currentType, int holdType, int next1, int next2, int canHold,
-    int* weightsArray, // JSから重みの配列を受け取る
+    int* weightsArray, // JS側から重みを受け取る配列
     int* outResult
-) {
+){
     Board baseBoard;
     for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
 

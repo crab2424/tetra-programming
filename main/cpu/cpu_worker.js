@@ -1,14 +1,14 @@
 // ─────────────────────────────────────────────
 // cpu_worker.js
+// Web Worker上で動き、Wasmを呼び出す作業員（時間計測付き）
 // ─────────────────────────────────────────────
 
 let wasmReady = false;
 
-// Wasmの準備が完了したタイミングをフックする
 self.Module = {
     onRuntimeInitialized: function() {
         wasmReady = true;
-        self.postMessage({ type: 'ready' }); // メインスレッドに準備完了を通知
+        self.postMessage({ type: 'ready' }); 
     }
 };
 
@@ -19,25 +19,24 @@ let resultPtr = null;
 let weightsPtr = null;
 
 self.onmessage = function(e) {
-    // 準備ができていなければ弾く
     if (!wasmReady) return;
 
     const data = e.data;
     if (data.type !== 'calculate') return;
 
-    // 初回のみメモリを確保 (board用、重み用、結果用)
     if (boardPtr === null) {
-        boardPtr = Module._malloc(200);      
-        weightsPtr = Module._malloc(4 * 10); // Int32(4バイト) * 10要素
-        resultPtr = Module._malloc(4 * 12);  
+        boardPtr = Module._my_malloc(200);      
+        weightsPtr = Module._my_malloc(4 * 10); 
+        resultPtr = Module._my_malloc(4 * 12);  
     }
 
-    // 1. 盤面と重みデータをWasmのメモリに書き込む
-    Module.HEAPU8.set(data.boardBuffer, boardPtr);
-    // 注意: HEAP32は4バイト単位のインデックスを要求するため、ポインタを4で割る必要があります
-    Module.HEAP32.set(data.weightsArray, weightsPtr / 4);
+    HEAPU8.set(data.boardBuffer, boardPtr);
+    HEAP32.set(data.weightsArray, weightsPtr / 4);
 
-    // 2. C++の関数を呼び出す（weightsPtr を忘れずに追加！）
+    // ★ ここから時間計測スタート！
+    const startTime = performance.now();
+
+    // C++の関数を呼び出して爆速計算
     Module._searchBestMoveWasm(
         boardPtr,
         data.currentType,
@@ -49,10 +48,15 @@ self.onmessage = function(e) {
         resultPtr
     );
 
-    // 3. 計算結果を読み取る
-    const resultArray = new Int32Array(Module.HEAP32.buffer, resultPtr, 12);
+    // ★ ここで時間計測ストップ！
+    const endTime = performance.now();
+    const timeTaken = (endTime - startTime).toFixed(2); // 小数点2桁まで
 
-    // 4. メインスレッドに返す
+    // C++の処理にかかった時間をコンソールに出力
+    console.log(`⚡ Wasm CPU Calculated in: ${timeTaken} ms`);
+
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 12);
+
     self.postMessage({
         type: 'result',
         result: new Int32Array(resultArray)
