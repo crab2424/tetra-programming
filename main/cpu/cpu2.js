@@ -12,7 +12,7 @@ class CPU2 {
         this.baseScore = 0;     
 
         this.weights = {
-            lineClear: -5,
+            lineClear: -40,
             hole: -36, 
             heightLimit: -20, 
             heightDiff: -7, 
@@ -31,9 +31,11 @@ class CPU2 {
             blocksOverHole: -3, 
             
             // ★今回追加分 (必要に応じて数値を調整してください)
-            line4: 75,          // 4ライン消去した際の追加ボーナス
+            line4: 100,          // 4ライン消去した際の追加ボーナス
             downstackGood: 10,   // n>=5 かつ 接地 の時の nの倍率
-            downstackBad: -3    // n<5  かつ 浮き の時の nの倍率
+            downstackBad: -3,    // n<5  かつ 浮き の時の nの倍率
+
+            P1_WEIGHT: 1.5,             // 1手目の評価を重視するための倍率（Wasm側で使用）
         };
 
         // 毎回新しいWorkerを立ち上げる
@@ -230,7 +232,7 @@ class CPU2 {
                     if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
                         this.game.hardDrop();
                     }
-                }, 700);
+                }, 800);
             }
         }
     }

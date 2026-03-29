@@ -107,20 +107,17 @@ struct EvalWeights {
     int lineClear, hole, heightLimit, heightDiff, flat;
     int step1Good, step1Bad, step2Plus, groundedBonus, touchingBonus;
     int iWell, iWellOver, blocksOverHole; 
-    // ★追加パラメータ
     int line4, downstackGood, downstackBad;
+    int p1Weight; // ★追加：1手目の重み
 };
 
-// 重み (w) と 配置したブロック (droppedBlocks) を受け取るように変更
 int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, const std::vector<GridBlock>& droppedBlocks = {}) {
-    int score = linesCleared * w.lineClear;
+    int score = (linesCleared - 2) * w.lineClear;
     
-    // ★追加1: 4ライン消去 (Tetris) 時のボーナス
     if (linesCleared >= 4) {
         score += w.line4;
     }
 
-    // ★追加2: downstack() 評価 (1〜3ライン消去限定)
     if (linesCleared >= 1 && linesCleared <= 3 && !droppedBlocks.empty()) {
         int minoBottomY = -1;
         for (const auto& blk : droppedBlocks) {
@@ -129,17 +126,15 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
             }
         }
         
-        // n = ミノの最下段の1段下(minoBottomY + 1) から 盤面の底(19) までの行数
-        // 19 - (minoBottomY + 1) + 1 = 19 - minoBottomY
         int n = 19 - minoBottomY;
         if (n < 0) n = 0;
 
         if (n >= 5 && isGrounded) {
-            score += w.downstackGood * n; // 正のスコア
+            score += w.downstackGood * n; 
         } else if (n >= 5 && !isGrounded) {
             // score += 0;
         } else if (n < 5) {
-            score += w.downstackBad * n;  // 負のスコア (w.downstackBad を負とする)
+            score += w.downstackBad * 10 * n; 
         }
     }
 
@@ -247,18 +242,20 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     if(isGrounded) {
         score += w.groundedBonus;
         score += touchingCount * w.touchingBonus;
+    }else{
+        score -= 3 * w.groundedBonus;
     }
+
     return score;
 }
 
-// Placement構造体に配置したブロック情報(blocks)を追加
 struct Placement {
     int rot, x, y, spawnY;
     Board board;
     int linesCleared;
     bool isFullyGrounded;
     int touchingCount;
-    std::vector<GridBlock> blocks; // ★追加
+    std::vector<GridBlock> blocks;
 };
 
 std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, int spawnY) {
@@ -283,7 +280,6 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
             PlacementInfo info = calcPlacementInfo(baseBoard, droppedBlocks);
             int cleared = simBoard.checkLineAndClear();
             
-            // ★ droppedBlocks を保存
             placements.push_back({rot, x, ghostY, spawnY, simBoard, cleared, info.isFullyGrounded, info.touchingCount, droppedBlocks});
         }
     }
@@ -311,18 +307,17 @@ void searchBestMoveWasm(
     Board baseBoard;
     for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
 
-    // JSから受け取った配列を構造体にマッピング（16要素に拡張）
+    // JSから受け取った配列を構造体にマッピング（17要素に拡張）
     EvalWeights w = {
         weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
         weightsArray[5], weightsArray[6], weightsArray[7], weightsArray[8], weightsArray[9],
         weightsArray[10], weightsArray[11], weightsArray[12], 
-        weightsArray[13], weightsArray[14], weightsArray[15]
+        weightsArray[13], weightsArray[14], weightsArray[15],
+        weightsArray[16] // ★追加：p1Weight
     };
 
     int baseScore = evaluateBoard(baseBoard, 0, false, 0, w);
-    int bestDiff = -10000;
-    outResult[0] = -1;
-
+    
     int A = currentType; int B = holdType; int C = next1; int D = next2;
     struct Path { int action; int p1; int p2; };
     std::vector<Path> paths;
@@ -338,33 +333,65 @@ void searchBestMoveWasm(
 
     auto getSpawnY = [](int type) { return type == 0 ? -1 : -2; };
 
+    struct EvaluatedP1 {
+        Path path;
+        Placement p1;
+        int score1;
+    };
+    std::vector<EvaluatedP1> all_p1_evals;
+    int globalMaxScore1 = -1000000;
+
     for(const auto& path : paths) {
         std::vector<Placement> p1_list = getAllPlacements(baseBoard, path.p1, getSpawnY(path.p1));
         for(const auto& p1 : p1_list) {
-            std::vector<Placement> p2_list = getAllPlacements(p1.board, path.p2, getSpawnY(path.p2));
-            if(p2_list.empty()) {
-                // p1 のブロック情報を渡す
-                int score = evaluateBoard(p1.board, p1.linesCleared, p1.isFullyGrounded, p1.touchingCount, w, p1.blocks) - 10000;
-                int diff = score - baseScore;
-                if(diff > bestDiff) {
-                    bestDiff = diff;
-                    outResult[0] = path.action; outResult[1] = score; outResult[2] = diff;
-                    outResult[3] = path.p1; outResult[4] = p1.rot; outResult[5] = p1.x; outResult[6] = p1.y; outResult[7] = p1.spawnY;
-                    outResult[8] = -1;
-                }
-                continue;
+            int score1 = evaluateBoard(p1.board, p1.linesCleared, p1.isFullyGrounded, p1.touchingCount, w, p1.blocks);
+            all_p1_evals.push_back({path, p1, score1});
+            if(score1 > globalMaxScore1) {
+                globalMaxScore1 = score1;
             }
-            for(const auto& p2 : p2_list) {
-                int totalLines = p1.linesCleared + p2.linesCleared;
-                // p2 のブロック情報を渡す
-                int score = evaluateBoard(p2.board, totalLines, p2.isFullyGrounded, p2.touchingCount, w, p2.blocks);
-                int diff = score - baseScore;
-                if(diff > bestDiff) {
-                    bestDiff = diff;
-                    outResult[0] = path.action; outResult[1] = score; outResult[2] = diff;
-                    outResult[3] = path.p1; outResult[4] = p1.rot; outResult[5] = p1.x; outResult[6] = p1.y; outResult[7] = p1.spawnY;
-                    outResult[8] = path.p2; outResult[9] = p2.rot; outResult[10] = p2.x; outResult[11] = p2.y;
-                }
+        }
+    }
+
+    int bestTotalScore = -10000000;
+    outResult[0] = -1;
+    
+    // ★JSから渡された重みを使用
+    const int P1_WEIGHT = w.p1Weight; 
+
+    for(const auto& ep1 : all_p1_evals) {
+        
+        if(ep1.score1 < 0 && ep1.score1 < globalMaxScore1) {
+            continue;
+        }
+
+        std::vector<Placement> p2_list = getAllPlacements(ep1.p1.board, ep1.path.p2, getSpawnY(ep1.path.p2));
+        
+        if(p2_list.empty()) {
+            int totalScore = ep1.score1 * P1_WEIGHT - 10000;
+            if(totalScore > bestTotalScore) {
+                bestTotalScore = totalScore;
+                outResult[0] = ep1.path.action; 
+                outResult[1] = ep1.score1;             
+                outResult[2] = ep1.score1 - baseScore; 
+                outResult[3] = ep1.path.p1; outResult[4] = ep1.p1.rot; outResult[5] = ep1.p1.x; outResult[6] = ep1.p1.y; outResult[7] = ep1.p1.spawnY;
+                outResult[8] = -1;
+            }
+            continue;
+        }
+
+        for(const auto& p2 : p2_list) {
+            int score2 = evaluateBoard(p2.board, p2.linesCleared, p2.isFullyGrounded, p2.touchingCount, w, p2.blocks);
+            
+            // 1手目の評価に重みをかけて総合スコアを算出
+            int totalScore = ep1.score1 * P1_WEIGHT + score2;
+            
+            if(totalScore > bestTotalScore) {
+                bestTotalScore = totalScore;
+                outResult[0] = ep1.path.action; 
+                outResult[1] = ep1.score1;             
+                outResult[2] = ep1.score1 - baseScore; 
+                outResult[3] = ep1.path.p1; outResult[4] = ep1.p1.rot; outResult[5] = ep1.p1.x; outResult[6] = ep1.p1.y; outResult[7] = ep1.p1.spawnY;
+                outResult[8] = ep1.path.p2; outResult[9] = p2.rot; outResult[10] = p2.x; outResult[11] = p2.y;
             }
         }
     }
