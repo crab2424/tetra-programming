@@ -158,6 +158,15 @@ bool isTSDShape(const Board& board, int cx, int cy) {
         }
     }
 
+    // ★追加: Tの穴3列(cx-1, cx, cx+1)のうち、屋根の列を含まない2列が、穴(cy)より上全て空いていること
+    // これにより、上からTミノが進入できない閉じ込められた空間をTSDとして誤評価するのを防ぐ
+    int clearCol1 = cx;
+    int clearCol2 = leftRoof ? cx + 1 : cx - 1;
+    for (int y = 0; y < cy; y++) {
+        if (board.cells[y][clearCol1] != 0) return false;
+        if (board.cells[y][clearCol2] != 0) return false;
+    }
+
     // ★追加：地形が独立しないための土台条件 (緑 or 黄色の行が埋まっていること)
     
     // 条件1: 緑の行 (cy + 1) が cx 以外すべて埋まっているか
