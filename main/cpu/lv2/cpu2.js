@@ -35,7 +35,7 @@ window.CPU2 = class {
             downstackGood: 48,   
             downstackBad: -3,    
 
-            P1_WEIGHT: 1.2,             
+            P1_WEIGHT: 0.8,             
         };
 
         // Workerの生成

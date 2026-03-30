@@ -134,11 +134,11 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         int n = 19 - minoBottomY;
         if (n < 0) n = 0;
 
-        if (n >= 5 && isGrounded) {
+        if (n >= 3 && isGrounded) {
             score += w.downstackGood * n; 
         } else if (n >= 5 && !isGrounded) {
             // score += 0;
-        } else if (n < 5) {
+        } else if (n < 3) {
             score += w.downstackBad * 10 * n; 
         }
     }
@@ -386,9 +386,14 @@ void searchBestMoveWasm(
 
         for(const auto& p2 : p2_list) {
             int score2 = evaluateBoard(p2.board, p2.linesCleared, p2.isFullyGrounded, p2.touchingCount, w, p2.blocks);
+
+            // ★追加: 先延ばし防止の「Early Clear Bonus」
+            // 2手目ではなく、1手目でラインを消した時だけ特別ボーナスを与える
+            int earlyClearBonus = ep1.p1.linesCleared;
+            if (ep1.p1.linesCleared >= 4) earlyClearBonus += w.line4 * 2; // 1手目での4消しを強烈に推奨
             
             // 1手目の評価に重みをかけて総合スコアを算出
-            int totalScore = ep1.score1 * P1_WEIGHT + score2;
+            int totalScore = ep1.score1 * P1_WEIGHT + score2 + earlyClearBonus;
             
             if(totalScore > bestTotalScore) {
                 bestTotalScore = totalScore;
