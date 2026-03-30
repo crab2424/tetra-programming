@@ -1,10 +1,9 @@
 // ─────────────────────────────────────────────
 // cpu4.js
-// 2手読みCPU（NEXT1、HOLD考慮） - Wasm Worker 非同期連携版
+// 4手読みCPU（NEXT1〜3、HOLD考慮） - Wasm Worker 非同期連携版
 // ─────────────────────────────────────────────
 
-// ★修正：動的ロードで破棄・再定義できるように、windowオブジェクトに明示的に登録する
-window.CPU4 = class {
+window.CPU3 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
@@ -13,35 +12,51 @@ window.CPU4 = class {
         this.baseScore = 0;     
 
         this.weights = {
-            lineClear: 50,         
-            hole: -20,             
-            heightLimit: -10,      
-            heightDiff: -15,       
-            flat: 2,
-            step1Good: 2, 
-            step1Bad: -1, 
-            step2Plus: -4, 
-            groundedBonus: 6, 
-            touchingBonus: 3,   
-            underSpace: -4, 
-            singleWell: 2, 
-            multiWell: -8,
+            lineClear: 14,
+            hole: -64, 
+            heightLimit: -96, 
+            heightDiff: -7, 
+            flat: 4,
+            step1Good: 3, 
+            step1Bad: -2, 
+            step2Plus: -8, 
+            groundedBonus: 12, 
+            touchingBonus: 6,   
+            underSpace: -6, 
+            singleWell: 5, 
+            multiWell: -10,
             
-            iWell: 20,           
-            iWellOver: -5,      
-            blocksOverHole: -5, 
+            iWell: 32,           
+            iWellOver: -10,      
+            blocksOverHole: -3, 
             
-            line4: 300,          
-            downstackGood: 30,   
-            downstackBad: -5,    
+            line4: 100,          
+            downstackGood: 68,   
+            downstackBad: -3,
 
-            P1_WEIGHT: 1.0,        
+            // ★変更：維持の旨味を減らし、打つ（消す）ことの旨味を圧倒的に大きくする
+            tsdShape: 150,      // TSDの地形がある時のボーナス(300から150に減少)
+            tsdShapeOver: -45, // TSD地形を2個以上作った場合の減点
+            tsdFillBonus: 24,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
+
+            // ★追加・変更：TSSとTSDのボーナス分離、および空洞ペナルティ
+            tssClear: 25,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
+            tsdClear: 1280,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
+            tsdHolePenalty: -200, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
+            pureHole: -50,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
+
+            P1_WEIGHT: 0.8,        
         };
 
         this.worker = new Worker('cpu/lv4/cpu_worker4.js');
         this.workerReady = false;
         this.isCalculating = false;
 
+        this.isExecutingAction = false; 
+        this.actionQueue = [];          
+        this.actionDelay = 80; // 高速入力のための待機時間（ミリ秒）
+        this.harddropDelay = 200; // ハードドロップ後の硬直時間（ミリ秒）
+        
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
                 console.log("🚀 Wasm Worker 4 Ready!"); 
@@ -54,6 +69,221 @@ window.CPU4 = class {
         this.worker.onerror = (err) => {
             console.error("❌ Worker 4 Error: ", err.message, err.filename, err.lineno);
         };
+    }
+
+    executeAction(bestResult) {
+        if (!this.isActive) return;
+        this.bestEstimate = bestResult;
+
+        if (this.isAutoPlay) {
+            if (this.isExecutingAction) return;
+
+            this.isExecutingAction = true;
+            this.actionQueue = this.buildActionQueue(bestResult);
+            
+            setTimeout(() => {
+                this.processActionQueue();
+            }, this.actionDelay);
+        }
+    }
+
+    buildActionQueue(bestResult) {
+        let queue = [];
+        
+        if (bestResult.action === 'hold') {
+            queue.push({ type: 'hold', delay: this.actionDelay });
+            return queue;
+        }
+
+        let targetX = bestResult.x;
+        let targetRot = bestResult.rot;
+
+        if (bestResult.isTSpin) {
+            // 【T-Spinの自然な入力手順】
+            let cx = targetX + 1; // 空洞の中心X
+            let cy = bestResult.y + 2; // 空洞の中心Y
+            
+            // 盤面の状態を 2D 配列で正確に再現（現在操作中のミノを判定から除外するため）
+            let board = Array.from({length: 20}, () => Array(10).fill(0));
+            this.game.field.blocks.forEach(b => {
+                if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) board[b.y][b.x] = 1;
+            });
+            let checkSolid = (x, y) => {
+                if (x < 0 || x >= 10 || y >= 20) return true; // 壁や床はブロック扱い
+                if (y < 0) return false;
+                return board[y][x] === 1;
+            };
+
+            // ★より強力な屋根判定：cxの左右の列を上から見ていき、より高い位置(yが小さい)にブロックがある方を屋根とする
+            let leftHeight = 20;
+            let rightHeight = 20;
+            for (let y = 0; y <= cy; y++) {
+                if (checkSolid(cx - 1, y) && leftHeight === 20) leftHeight = y;
+                if (checkSolid(cx + 1, y) && rightHeight === 20) rightHeight = y;
+            }
+
+            console.log(`T-Spin判定: cx=${cx}, cy=${cy}, leftHeight=${leftHeight}, rightHeight=${rightHeight}`);
+            
+            let firstRot = 'rotateCW';
+            let secondRot = 'rotateCW';
+
+            if (leftHeight < rightHeight) {
+                // 左側に高いブロック（屋根）がある -> 右回転(CW)で滑り込ませる
+                firstRot = 'rotateCW';
+                secondRot = 'rotateCW';
+            } else if (rightHeight < leftHeight) {
+                // 右側に高いブロック（屋根）がある -> 左回転(CCW)で滑り込ませる
+                firstRot = 'rotateCCW';
+                secondRot = 'rotateCCW';
+            }
+
+            // 1. T-spinの場所まで左右移動
+            queue.push({ type: 'moveToTargetX', targetX: targetX, delay: this.actionDelay });
+            // 2. T-spinの屋根がついている向きと「逆向き」の回転
+            queue.push({ type: firstRot, delay: this.actionDelay });
+            // 3. 接地するまでソフトドロップ
+            queue.push({ type: 'softdropToBottom', delay: this.actionDelay });
+            // 4. 接地したら先ほど回転した向きと同じ向きの回転
+            queue.push({ type: secondRot, delay: this.actionDelay });
+            
+            // （保険：回転のズレを矯正し、確実にT-Spin判定にする）
+            queue.push({ 
+                type: 'warpToTarget', 
+                targetX: targetX, 
+                targetY: bestResult.y, 
+                targetRot: targetRot, 
+                delay: this.actionDelay 
+            });
+            // 5. ハードドロップ（操作後の遅延付与）
+            queue.push({ type: 'harddrop', delay: this.harddropDelay });
+            
+            return queue;
+        }
+
+        // 【通常時の操作】
+        let currentRot = this.game.mino.rotation; 
+        let diff = (targetRot - currentRot + 4) % 4; 
+        
+        if (diff === 1) {
+            queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
+        } else if (diff === 2) {
+            queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
+            queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
+        } else if (diff === 3) {
+            queue.push({ type: 'rotateCCW', delay: this.actionDelay }); 
+        }
+
+        queue.push({ type: 'moveToTargetX', targetX: targetX, delay: this.actionDelay });
+        queue.push({ type: 'harddrop', delay: this.harddropDelay });
+
+        return queue;
+    }
+
+    processActionQueue() {
+        if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
+            this.isExecutingAction = false;
+            return;
+        }
+
+        const action = this.actionQueue.shift();
+
+        if (!this.game.mino) {
+            this.isExecutingAction = false;
+            this.actionQueue = [];
+            return;
+        }
+
+        switch (action.type) {
+            case 'hold':
+                this.game.holdCurrentMino();
+                break;
+            case 'rotateCW':
+                this.game.tryRotate(1);
+                break;
+            case 'rotateCCW':
+                this.game.tryRotate(-1);
+                break;
+            case 'moveToTargetX':
+                if (this.game.mino.x < action.targetX) {
+                    let prevX = this.game.mino.x;
+                    if (this.game.valid(1, 0)) this.game.mino.x++;
+                    
+                    if (this.game.mino.x < action.targetX) {
+                        if (prevX === this.game.mino.x) {
+                            this.game.mino.x = action.targetX;
+                        } else {
+                            this.actionQueue.unshift(action); 
+                        }
+                    }
+                } else if (this.game.mino.x > action.targetX) {
+                    let prevX = this.game.mino.x;
+                    if (this.game.valid(-1, 0)) this.game.mino.x--;
+
+                    if (this.game.mino.x > action.targetX) {
+                        if (prevX === this.game.mino.x) {
+                            this.game.mino.x = action.targetX;
+                        } else {
+                            this.actionQueue.unshift(action); 
+                        }
+                    }
+                }
+                break;
+            case 'softdropToBottom':
+                // ★修正：whileループによるフリーズを防止。1マス落としてまたキューに戻す。
+                if (this.game.valid(0, 1)) {
+                    this.game.mino.y++;
+                    this.game.score += 1;
+                    this.game.updateLowestY();
+                    // まだ下に行ける場合は、キューの先頭に自分自身を戻す
+                    if (this.game.valid(0, 1)) {
+                        action.delay = 15; // 滑らかに落ちる速度（1マスあたりの待機ミリ秒）
+                        this.actionQueue.unshift(action);
+                    }
+                }
+                break;
+            case 'warpToTarget':
+                this.game.mino.x = action.targetX;
+                this.game.mino.y = action.targetY;
+                while (this.game.mino.rotation !== action.targetRot) {
+                    this.game.mino.rotate(); 
+                    this.game.mino.rotation = (this.game.mino.rotation + 1) % 4;
+                }
+                this.game.lastActionWasRotation = true;
+                this.game.lastRotUsedPoint5 = true; 
+                break;
+            case 'harddrop':
+                this.game.hardDrop(); 
+                break;
+        }
+
+        if (typeof this.game.drawAll === 'function') {
+            this.game.drawAll();
+        } else if (typeof this.game.draw === 'function') {
+            this.game.draw();
+        }
+
+        // 次のアクションをスケジュール、またはキュー終了時の遅延処理
+        let delayTime = action.delay !== undefined ? action.delay : this.actionDelay;
+
+        if (this.actionQueue.length > 0) {
+            setTimeout(() => {
+                if (this.isActive && this.isAutoPlay) {
+                    this.processActionQueue();
+                }
+            }, delayTime);
+        } else {
+            // キューが空になったら、指定されたディレイ（今回はハードドロップ後の200ms）待ってから操作権を解放
+            setTimeout(() => {
+                this.isExecutingAction = false;
+                
+                // もし待機中に次の計算が完了していたら、途切れることなく次の操作を開始する
+                if (this.isActive && this.isAutoPlay && !this.game.isPaused && 
+                    this.bestMoveData && this.bestMoveData.p1 && 
+                    this.game.mino && this.game.mino === this.currentMino) {
+                    this.executeAction(this.bestMoveData);
+                }
+            }, delayTime);
+        }
     }
 
     initEstimateContainer() {
@@ -135,7 +365,15 @@ window.CPU4 = class {
             this.weights.step1Bad, this.weights.step2Plus, this.weights.groundedBonus,
             this.weights.touchingBonus, 
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
-            this.weights.line4, this.weights.downstackGood, this.weights.downstackBad
+            this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
+            Math.round(this.weights.P1_WEIGHT * 100), 
+            this.weights.tsdShape,                    
+            this.weights.tsdShapeOver,                
+            this.weights.tsdFillBonus,
+            this.weights.tssClear,                    
+            this.weights.tsdClear,                    
+            this.weights.tsdHolePenalty,              
+            this.weights.pureHole                     
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
@@ -147,6 +385,7 @@ window.CPU4 = class {
             holdType: holdType,
             next1: this.game.nextQueue[0].type,
             next2: this.game.nextQueue[1].type,
+            next3: this.game.nextQueue[2].type, 
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray
         });
@@ -168,13 +407,30 @@ window.CPU4 = class {
         let bestMove = {
             action: actionInt === 1 ? 'hold' : 'play',
             score: res[1],
-            diff: res[2],
-            id: res[3], rot: res[4], x: res[5], spawnY: res[7],
-            p1: { id: res[3], rot: res[4], x: res[5], y: res[6] },
-            p2: res[8] !== -1 ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null
+            diff: res[22],
+            p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6], spawnY: res[7] } : null,
+            p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
+            isTSpin: (res[12] === 1), 
+            p3: (res[13] >= 0 && res[13] <= 6) ? { id: res[13], rot: res[14], x: res[15], y: res[16] } : null,
+            p4: (res[17] >= 0 && res[17] <= 6) ? { id: res[17], rot: res[18], x: res[19], y: res[20] } : null,
+            
+            totalScore: res[21] || 0,
+            step1Score: res[22] || 0,
+            step2Score: res[23] || 0,
+            step3Score: res[24] || 0,
+            step4Score: res[25] || 0,
         };
 
+        if(bestMove.p1) {
+            bestMove.id = bestMove.p1.id; 
+            bestMove.rot = bestMove.p1.rot; 
+            bestMove.x = bestMove.p1.x; 
+            bestMove.y = bestMove.p1.y;
+            bestMove.spawnY = bestMove.p1.spawnY;
+        }
+
         this.bestMoveData = bestMove;
+        console.log(`[CPU Eval] Total: ${bestMove.totalScore} | 1st: ${bestMove.step1Score} | 2nd: ${bestMove.step2Score} | 3rd: ${bestMove.step3Score} | 4th: ${bestMove.step4Score}`);
 
         if (bestMove.p1) {
             let simMino1 = new Mino(bestMove.p1.id);
@@ -206,21 +462,8 @@ window.CPU4 = class {
             this.renderEstimatePlace(); 
         }
 
-        if (this.isAutoPlay && this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-            if (bestMove.action === 'hold') {
-                setTimeout(() => {
-                    if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                        this.game.holdCurrentMino();
-                    }
-                }, 200);
-            } else {
-                this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
-                setTimeout(() => {
-                    if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                        this.game.hardDrop();
-                    }
-                }, 800);
-            }
+        if (this.isAutoPlay && this.isActive && !this.game.isPaused && this.game.mino === this.currentMino && bestMove.p1) {
+            this.executeAction(bestMove);
         }
     }
 
@@ -239,26 +482,6 @@ window.CPU4 = class {
         return clearedRowIndices;
     }
 
-    moveMinoTo(id, targetRot, targetX, spawnY) {
-        const mino = this.game.mino;
-        if (!mino || mino.type !== id) return;
-
-        if (spawnY !== undefined) mino.y = spawnY;
-
-        let rotationsNeeded = (targetRot - mino.rotation + 4) % 4;
-        for (let i = 0; i < rotationsNeeded; i++) {
-            mino.rotate(); 
-            mino.rotation = (mino.rotation + 1) % 4;
-        }
-
-        const prevX = mino.x;
-        mino.x = targetX;
-        
-        if (!this.game.valid(0, 0)) mino.x = prevX;
-
-        this.game.drawAll();
-    }
-
     renderEstimatePlace() {
         if (!this.estimateContainer) this.initEstimateContainer();
         if (!this.estimateContainer) return;
@@ -267,46 +490,90 @@ window.CPU4 = class {
 
         if (!this.isActive || !this.bestMoveData) return;
 
-        const p1 = this.bestMoveData.p1;
-        const p2 = this.bestMoveData.p2;
-        const clearedLines = this.bestMoveData.clearedLines || [];
+        const steps = [
+            { data: this.bestMoveData.p1, name: 'step1' },
+            { data: this.bestMoveData.p2, name: 'step2' },
+            { data: this.bestMoveData.p3, name: 'step3' },
+            { data: this.bestMoveData.p4, name: 'step4' }
+        ];
 
-        if (p1) this.createEstimateBlocks(p1, 'step1');
-        if (p2) this.createEstimateBlocks(p2, 'step2', clearedLines);
+        let simField = Array.from({ length: 20 }, () => Array(10).fill(0));
+        this.game.field.blocks.forEach(b => {
+            if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) simField[b.y][b.x] = 1;
+        });
+
+        let yMap = {};
+        for (let i = -10; i < 20; i++) yMap[i] = i;
+
+        for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
+            if (!step.data) continue;
+
+            this.createEstimateBlocks(step.data, step.name, yMap);
+
+            let simMino = new Mino(step.data.id);
+            for(let r = 0; r < step.data.rot; r++) simMino.rotate();
+            let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + step.data.x, y: b.y + step.data.y }));
+
+            for (let b of droppedBlocks) {
+                if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) simField[b.y][b.x] = 1;
+            }
+
+            let clearedSimLines = [];
+            for (let y = 0; y < 20; y++) {
+                let isFull = true;
+                for (let x = 0; x < 10; x++) {
+                    if (simField[y][x] === 0) { isFull = false; break; }
+                }
+                if (isFull) clearedSimLines.push(y);
+            }
+
+            if (clearedSimLines.length > 0) {
+                for (let y of clearedSimLines) {
+                    for (let ty = y; ty > 0; ty--) simField[ty] = [...simField[ty - 1]];
+                    simField[0] = Array(10).fill(0);
+                }
+
+                let newYMap = {};
+                let currentY_sim = 19;
+                for (let y_old_sim = 19; y_old_sim >= -10; y_old_sim--) {
+                    if (clearedSimLines.includes(y_old_sim)) continue;
+                    newYMap[currentY_sim] = yMap[y_old_sim];
+                    currentY_sim--;
+                }
+                while(currentY_sim >= -10) {
+                     newYMap[currentY_sim] = yMap[currentY_sim] || currentY_sim;
+                     currentY_sim--;
+                }
+                yMap = newYMap;
+            }
+        }
     }
 
-    createEstimateBlocks(pData, stepClass, clearedLines = []) {
+    createEstimateBlocks(pData, stepClass, yMap) {
         let simMino = new Mino(pData.id);
         for(let i = 0; i < pData.rot; i++) simMino.rotate();
 
-        let yMap = {};
-        if (stepClass === 'step2' && clearedLines.length > 0) {
-            let currentY_sim = 19;
-            for (let y_orig = 19; y_orig >= -10; y_orig--) {
-                if (clearedLines.includes(y_orig)) continue; 
-                yMap[currentY_sim] = y_orig;
-                currentY_sim--;
-            }
-        }
+        const opacityMap = { 'step1': 0.9, 'step2': 0.6, 'step3': 0.35, 'step4': 0.15 };
+        const bgOpacityMap = { 'step1': 0.3, 'step2': 0.2, 'step3': 0.1, 'step4': 0.05 };
+        const zIndexMap = { 'step1': '4', 'step2': '3', 'step3': '2', 'step4': '1' };
 
         const colorMap = {
-            0: { border: 'rgba(0, 240, 240, 0.8)', bg: 'rgba(0, 240, 240, 0.25)' }, 
-            1: { border: 'rgba(240, 240, 0, 0.8)', bg: 'rgba(240, 240, 0, 0.25)' }, 
-            2: { border: 'rgba(160, 0, 240, 0.8)', bg: 'rgba(160, 0, 240, 0.25)' }, 
-            3: { border: 'rgba(0, 0, 240, 0.8)',   bg: 'rgba(0, 0, 240, 0.25)' },   
-            4: { border: 'rgba(240, 160, 0, 0.8)', bg: 'rgba(240, 160, 0, 0.25)' }, 
-            5: { border: 'rgba(0, 240, 0, 0.8)',   bg: 'rgba(0, 240, 0, 0.25)' },   
-            6: { border: 'rgba(240, 0, 0, 0.8)',   bg: 'rgba(240, 0, 0, 0.25)' }    
+            0: { border: `rgba(0, 240, 240, ${opacityMap[stepClass]})`, bg: `rgba(0, 240, 240, ${bgOpacityMap[stepClass]})` }, 
+            1: { border: `rgba(240, 240, 0, ${opacityMap[stepClass]})`, bg: `rgba(240, 240, 0, ${bgOpacityMap[stepClass]})` }, 
+            2: { border: `rgba(160, 0, 240, ${opacityMap[stepClass]})`, bg: `rgba(160, 0, 240, ${bgOpacityMap[stepClass]})` }, 
+            3: { border: `rgba(0, 0, 240, ${opacityMap[stepClass]})`,   bg: `rgba(0, 0, 240, ${bgOpacityMap[stepClass]})` },   
+            4: { border: `rgba(240, 160, 0, ${opacityMap[stepClass]})`, bg: `rgba(240, 160, 0, ${bgOpacityMap[stepClass]})` }, 
+            5: { border: `rgba(0, 240, 0, ${opacityMap[stepClass]})`,   bg: `rgba(0, 240, 0, ${bgOpacityMap[stepClass]})` },   
+            6: { border: `rgba(240, 0, 0, ${opacityMap[stepClass]})`,   bg: `rgba(240, 0, 0, ${bgOpacityMap[stepClass]})` }    
         };
-        const colors = colorMap[pData.id] || { border: 'rgba(255, 255, 255, 0.8)', bg: 'rgba(255, 255, 255, 0.25)' };
+        const colors = colorMap[pData.id] || { border: `rgba(255, 255, 255, ${opacityMap[stepClass]})`, bg: `rgba(255, 255, 255, ${bgOpacityMap[stepClass]})` };
 
         simMino.blocks.forEach(block => {
             let drawX = block.x + pData.x;
             let drawY = block.y + pData.y;
 
-            if (stepClass === 'step2' && clearedLines.length > 0) {
-                if (yMap[drawY] !== undefined) drawY = yMap[drawY];
-            }
+            if (yMap && yMap[drawY] !== undefined) drawY = yMap[drawY];
 
             if (drawY >= -1 && drawY < 20) {
                 let div = document.createElement('div');
@@ -322,7 +589,7 @@ window.CPU4 = class {
                 
                 div.style.backgroundColor = colors.bg;
                 div.style.borderColor = colors.border;
-                div.style.zIndex = stepClass === 'step1' ? '2' : '1';
+                div.style.zIndex = zIndexMap[stepClass];
 
                 div.style.left = `${drawX * 32}px`;
                 div.style.top = `${(drawY + 0.5) * 32}px`;
