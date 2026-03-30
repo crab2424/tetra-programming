@@ -57,16 +57,14 @@ const CPU_LEVELS = {
   4: { label: 'LV 4', desc: '速い。かなり手強い。',                 gravityLevel: 2 },
   5: { label: 'LV 5', desc: '最速。ほぼ人間には止められない。',     gravityLevel: 2 },
 };
-let selectedCpuLevel = 3; 
+let selectedCpuLevel = 4; 
 
-// ★修正：レベル1は元の cpu.js（JSのみ版）を読み込むように設定を修正しました
-//★修正：各レベルのディレクトリ（lv2, lv3...）をパスに追加
 const CPU_CONFIGS = {
-  1: { className: 'CPU',  src: 'cpu/cpu.js' },  // ← ここを修正
+  1: { className: 'CPU',  src: 'cpu/cpu.js' },  
   2: { className: 'CPU2', src: 'cpu/lv2/cpu2.js' },
   3: { className: 'CPU3', src: 'cpu/lv3/cpu3.js' },
-  4: { className: 'CPU4', src: 'cpu/lv4/cpu4.js' }, // ※まだ未作成の場合は選ぶと404になります
-  5: { className: 'CPU5', src: 'cpu/lv5/cpu5.js' }  // ※まだ未作成の場合は選ぶと404になります
+  4: { className: 'CPU4', src: 'cpu/lv4/cpu4.js' }, 
+  5: { className: 'CPU5', src: 'cpu/lv5/cpu5.js' }  
 };
 
 // ─── CPU動的ロード・破棄システム ──────────────
@@ -176,6 +174,12 @@ function setCpuLevel(lv) {
 async function startVersusGame() {
   if (!window._game) return;
 
+  // ★追加：既存のCPUコントローラーが動いていれば完全に停止・破棄する（二重起動防止）
+  if (window._cpuController) {
+    window._cpuController.stop();
+    window._cpuController = null;
+  }
+
   const cpuConfig = CPU_LEVELS[selectedCpuLevel];
   switchPage('versus');
 
@@ -232,6 +236,10 @@ async function startVersusGame() {
   }, null);
 
   runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
+    // ★念のためカウントダウンコールバック内でも再確認して破棄
+    if (window._cpuController) {
+      window._cpuController.stop();
+    }
     window._cpuGame._startGameplay();
     
     window._cpuController = new CPUClass(window._cpuGame);
@@ -497,6 +505,12 @@ function renderModeCheck() {
 
 async function startGameFromModeCheck() {
   if (!window._game) return;
+
+  // ★追加：既存のCPUコントローラーが動いていれば完全に停止・破棄する（二重起動防止）
+  if (window._cpuController) {
+    window._cpuController.stop();
+    window._cpuController = null;
+  }
 
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
   window._game.currentMode = modeId;
