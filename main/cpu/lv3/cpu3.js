@@ -14,7 +14,7 @@ window.CPU3 = class {
         this.weights = {
             lineClear: 14,
             hole: -64, 
-            heightLimit: -22, 
+            heightLimit: -96, 
             heightDiff: -7, 
             flat: 4,
             step1Good: 3, 
@@ -30,20 +30,20 @@ window.CPU3 = class {
             iWellOver: -10,      
             blocksOverHole: -3, 
             
-            line4: 200,          
-            downstackGood: 48,   
+            line4: 100,          
+            downstackGood: 68,   
             downstackBad: -3,
 
             // ★変更：維持の旨味を減らし、打つ（消す）ことの旨味を圧倒的に大きくする
-            tsdShape: 75,      // TSDの地形がある時のボーナス(300から150に減少)
-            tsdShapeOver: -1000, // TSD地形を2個以上作った場合の減点
+            tsdShape: 24,      // TSDの地形がある時のボーナス(300から150に減少)
+            tsdShapeOver: -45, // TSD地形を2個以上作った場合の減点
             tsdFillBonus: 24,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
 
             // ★追加・変更：TSSとTSDのボーナス分離、および空洞ペナルティ
-            tssClear: 400,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
-            tsdClear: 4800,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
-            tsdHolePenalty: 2000, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
-            pureHole: -500,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
+            tssClear: 25,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
+            tsdClear: 246,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
+            tsdHolePenalty: -200, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
+            pureHole: -50,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
 
             P1_WEIGHT: 0.8,        
         };
@@ -310,7 +310,7 @@ window.CPU3 = class {
         let bestMove = {
             action: actionInt === 1 ? 'hold' : 'play',
             score: res[1],
-            diff: res[2],
+            diff: res[22],
             // ★JSエラー防止：idが0〜6の正常な値の時のみオブジェクトを作成する
             p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6], spawnY: res[7] } : null,
             p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
