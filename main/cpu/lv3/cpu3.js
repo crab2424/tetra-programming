@@ -1,9 +1,8 @@
 // ─────────────────────────────────────────────
 // cpu3.js
-// 2手読みCPU（NEXT1、HOLD考慮） - Wasm Worker 非同期連携版
+// 4手読みCPU（NEXT1〜3、HOLD考慮） - Wasm Worker 非同期連携版
 // ─────────────────────────────────────────────
 
-// ★修正：動的ロードで破棄・再定義できるように、windowオブジェクトに明示的に登録する
 window.CPU3 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -34,23 +33,24 @@ window.CPU3 = class {
             line4: 200,          
             downstackGood: 48,   
             downstackBad: -3,
-            tsdShape: 300,     // 
-            tsdClear: 640,    // 実際にTSDを打った時の特大ボーナス
+
+            // ★変更：維持の旨味を減らし、打つ（消す）ことの旨味を圧倒的に大きくする
+            tsdShape: 75,      // TSDの地形がある時のボーナス(300から150に減少)
+            tsdClear: 9600,      // TSDを打った時のボーナス
+            tsdShapeOver: -10000, // TSD地形を2個以上作った場合の減点
+            tsdFillBonus: 40,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
 
             P1_WEIGHT: 0.8,        
-
-            
         };
 
         this.worker = new Worker('cpu/lv3/cpu_worker3.js');
         this.workerReady = false;
         this.isCalculating = false;
 
-        this.isExecutingAction = false; // アクション実行中かどうかのフラグ
-        this.actionQueue = [];          // 実行する操作のキュー（配列）
-        this.actionDelay = 1000;          // 1操作ごとの待機時間(ミリ秒)。好みに合わせて調整可能
+        this.isExecutingAction = false; 
+        this.actionQueue = [];          
+        this.actionDelay = 1000;          
         
-
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
                 console.log("🚀 Wasm Worker 3 Ready!"); 
@@ -65,77 +65,58 @@ window.CPU3 = class {
         };
     }
 
-    // ★2. 既存の executeAction を以下の内容でまるごと上書きしてください
     executeAction(bestResult) {
         if (!this.isActive) return;
 
         this.bestEstimate = bestResult;
 
         if (this.isAutoPlay) {
-            // 既にアクション実行中なら重複させない
             if (this.isExecutingAction) return;
 
             this.isExecutingAction = true;
-            // 操作キューを構築
             this.actionQueue = this.buildActionQueue(bestResult);
-            // キューの処理を開始
             this.processActionQueue();
 
-            // ★修正ポイント2: すぐに開始せず、最初の1手目にも少しだけラグを入れる
             setTimeout(() => {
                 this.processActionQueue();
             }, this.actionDelay);
         }
     }
 
-
-    // ★3. クラス内に以下の3つの新しいメソッド（buildActionQueue, processActionQueue, updateMinoBlocks）を追加してください
-
-    // 受け取った結果から、実際のキー入力のような操作順序を組み立てる
     buildActionQueue(bestResult) {
         let queue = [];
         
-        // 1. HOLDするかしないか
         if (bestResult.action === 1) {
-            // ホールドする場合は0.2秒(200ms)待機する指定
             queue.push({ type: 'hold', delay: 200 });
-            // HOLD後は新しいミノが降ってくるため、ここで今回のシーケンスは終了
             return queue;
         }
 
-        // 2. 回転 (左右どちらか使って回す)
         let currentRot = this.game.currentMino.rot;
         let targetRot = bestResult.rot;
-        let diff = (targetRot - currentRot + 4) % 4; // 回転の差分(0〜3)
+        let diff = (targetRot - currentRot + 4) % 4; 
         
         if (diff === 1) {
-            queue.push({ type: 'rotate', dir: 1, delay: this.actionDelay }); // 右回転1回
+            queue.push({ type: 'rotate', dir: 1, delay: this.actionDelay }); 
         } else if (diff === 2) {
             queue.push({ type: 'rotate', dir: 1, delay: this.actionDelay }); 
-            queue.push({ type: 'rotate', dir: 1, delay: this.actionDelay }); // 2回回転
+            queue.push({ type: 'rotate', dir: 1, delay: this.actionDelay }); 
         } else if (diff === 3) {
-            queue.push({ type: 'rotate', dir: -1, delay: this.actionDelay }); // 左回転1回
+            queue.push({ type: 'rotate', dir: -1, delay: this.actionDelay }); 
         }
 
-        // 3. 移動 (目標のX座標を設定)
         let targetX = bestResult.x;
         queue.push({ type: 'moveToTargetX', targetX: targetX, delay: this.actionDelay });
 
-        // 4. (将来、ソフドロからの回転入れを実装予定)
-        // // ▼ 追加：Tスピンの場合は穴の中にワープさせる ▼
         if (bestResult.isTSpin) {
             queue.push({ type: 'warpToY', targetY: bestResult.y, delay: this.actionDelay });
         };
 
-        // 5. ハードドロップ
         queue.push({ type: 'harddrop', delay: this.actionDelay });
 
         return queue;
     }
 
-    // キューから操作を1つ取り出して実行し、次を予約する
     processActionQueue() {
-        // 中断されたり、キューが空になったら終了
         if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
             this.isExecutingAction = false;
             return;
@@ -143,8 +124,6 @@ window.CPU3 = class {
 
         const action = this.actionQueue.shift();
 
-        // ★修正ポイント4: 現在のミノがゲーム側で確定(ロック)されていないか確認
-        // (ゲームループ側で勝手に着地判定されてしまうのを防ぐ)
         if (!this.game.currentMino) {
             this.isExecutingAction = false;
             this.actionQueue = [];
@@ -166,19 +145,17 @@ window.CPU3 = class {
                 break;
                 
             case 'moveToTargetX':
-                // targetX に向かって1マスずつ移動し、まだ到達していなければキューの先頭に戻す
                 if (this.game.currentMino.x < action.targetX) {
                     this.game.currentMino.x++;
                     this.updateMinoBlocks();
-                    this.actionQueue.unshift(action); // まだ移動が必要なのでキューに戻す
+                    this.actionQueue.unshift(action); 
                 } else if (this.game.currentMino.x > action.targetX) {
                     this.game.currentMino.x--;
                     this.updateMinoBlocks();
-                    this.actionQueue.unshift(action); // まだ移動が必要なのでキューに戻す
+                    this.actionQueue.unshift(action); 
                 }
                 break;
 
-            // ▼ 追加：ワープ処理 ▼
             case 'warpToY':
                 this.game.currentMino.y = action.targetY;
                 this.updateMinoBlocks();
@@ -191,11 +168,10 @@ window.CPU3 = class {
                 }
                 this.game.currentMino.y += dropDistance;
                 this.updateMinoBlocks();
-                this.game.lockMino(); // 固定
+                this.game.lockMino(); 
                 break;
         }
 
-        // 描画を即座に反映させる（gameオブジェクトに描画メソッドがある場合）
         if (typeof this.game.draw === 'function') {
             this.game.draw();
         } else if (typeof this.game.render === 'function') {
@@ -204,22 +180,18 @@ window.CPU3 = class {
 
         if (this.actionQueue.length > 0) {
             let delayTime = action.delay || this.actionDelay;
-            // アロー関数で this を保持しつつタイマーセット
             setTimeout(() => {
-                // タイマー発火時にまだアクティブか再確認
                 if (this.isActive && this.isAutoPlay) {
                     this.processActionQueue();
                 }
             }, delayTime);
         } else {
-            // ここで即座に false にせず、少しだけ余韻を残す(任意)
             setTimeout(() => {
                 this.isExecutingAction = false;
             }, 50);
         }
     }
 
-    // 回転や移動をした際に、ブロックの実座標データを更新するための補助メソッド
     updateMinoBlocks() {
         if (this.game.currentMino) {
             this.game.currentMino.blocks = this.game.getBlocks(
@@ -310,7 +282,12 @@ window.CPU3 = class {
             this.weights.step1Bad, this.weights.step2Plus, this.weights.groundedBonus,
             this.weights.touchingBonus, 
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
-            this.weights.line4, this.weights.downstackGood, this.weights.downstackBad
+            this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
+            Math.round(this.weights.P1_WEIGHT * 100), 
+            this.weights.tsdShape,                    
+            this.weights.tsdClear,                    
+            this.weights.tsdShapeOver,                
+            this.weights.tsdFillBonus                 
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
@@ -322,6 +299,7 @@ window.CPU3 = class {
             holdType: holdType,
             next1: this.game.nextQueue[0].type,
             next2: this.game.nextQueue[1].type,
+            next3: this.game.nextQueue[2].type, 
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray
         });
@@ -346,12 +324,15 @@ window.CPU3 = class {
             diff: res[2],
             id: res[3], rot: res[4], x: res[5], spawnY: res[7],
             p1: { id: res[3], rot: res[4], x: res[5], y: res[6] },
-            p2: res[8] !== -1 ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
-            isTSpin: (res[12] === 1) // ★C++から受け取ったフラグ
+            p2: res[8]  !== -1 ? { id: res[8],  rot: res[9],  x: res[10], y: res[11] } : null,
+            isTSpin: (res[12] === 1), 
+            p3: res[13] !== undefined && res[13] !== -1 ? { id: res[13], rot: res[14], x: res[15], y: res[16] } : null,
+            p4: res[17] !== undefined && res[17] !== -1 ? { id: res[17], rot: res[18], x: res[19], y: res[20] } : null,
         };
 
         this.bestMoveData = bestMove;
 
+        // クリアラインの記録は一応残しておく（デバッグ用）
         if (bestMove.p1) {
             let simMino1 = new Mino(bestMove.p1.id);
             for(let i = 0; i < bestMove.p1.rot; i++) simMino1.rotate();
@@ -435,6 +416,7 @@ window.CPU3 = class {
         this.game.drawAll();
     }
 
+    // ★修正：4手先まで描画＆ライン消去の累積をシミュレーションしてY座標を補正する
     renderEstimatePlace() {
         if (!this.estimateContainer) this.initEstimateContainer();
         if (!this.estimateContainer) return;
@@ -443,45 +425,127 @@ window.CPU3 = class {
 
         if (!this.isActive || !this.bestMoveData) return;
 
-        const p1 = this.bestMoveData.p1;
-        const p2 = this.bestMoveData.p2;
-        const clearedLines = this.bestMoveData.clearedLines || [];
+        // 描画するステップのリスト
+        const steps = [
+            { data: this.bestMoveData.p1, name: 'step1' },
+            { data: this.bestMoveData.p2, name: 'step2' },
+            { data: this.bestMoveData.p3, name: 'step3' },
+            { data: this.bestMoveData.p4, name: 'step4' }
+        ];
 
-        if (p1) this.createEstimateBlocks(p1, 'step1');
-        if (p2) this.createEstimateBlocks(p2, 'step2', clearedLines);
+        // 簡易シミュレーション用フィールドの作成 (20x10)
+        let simField = Array.from({ length: 20 }, () => Array(10).fill(0));
+        this.game.field.blocks.forEach(b => {
+            if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) {
+                simField[b.y][b.x] = 1;
+            }
+        });
+
+        // シミュレーション盤面上のY座標から、実際の画面上のY座標へのマッピング
+        let yMap = {};
+        for (let i = -10; i < 20; i++) yMap[i] = i;
+
+        for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
+            if (!step.data) continue;
+
+            // 1. ブロックを描画（この時点でのyMapを使用してズレを補正）
+            this.createEstimateBlocks(step.data, step.name, yMap);
+
+            // 2. シミュレーション盤面にブロックを置く
+            let simMino = new Mino(step.data.id);
+            for(let r = 0; r < step.data.rot; r++) simMino.rotate();
+            let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + step.data.x, y: b.y + step.data.y }));
+
+            for (let b of droppedBlocks) {
+                if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) {
+                    simField[b.y][b.x] = 1;
+                }
+            }
+
+            // 3. ライン消去判定
+            let clearedSimLines = [];
+            for (let y = 0; y < 20; y++) {
+                let isFull = true;
+                for (let x = 0; x < 10; x++) {
+                    if (simField[y][x] === 0) {
+                        isFull = false;
+                        break;
+                    }
+                }
+                if (isFull) clearedSimLines.push(y);
+            }
+
+            // 4. 盤面の更新とyMapの更新
+            if (clearedSimLines.length > 0) {
+                for (let y of clearedSimLines) {
+                    for (let ty = y; ty > 0; ty--) {
+                        simField[ty] = [...simField[ty - 1]];
+                    }
+                    simField[0] = Array(10).fill(0);
+                }
+
+                let newYMap = {};
+                let currentY_sim = 19;
+                for (let y_old_sim = 19; y_old_sim >= -10; y_old_sim--) {
+                    if (clearedSimLines.includes(y_old_sim)) continue;
+                    newYMap[currentY_sim] = yMap[y_old_sim];
+                    currentY_sim--;
+                }
+                while(currentY_sim >= -10) {
+                     newYMap[currentY_sim] = yMap[currentY_sim] || currentY_sim;
+                     currentY_sim--;
+                }
+                yMap = newYMap;
+            }
+        }
     }
 
-    createEstimateBlocks(pData, stepClass, clearedLines = []) {
+    // ★修正：yMapを受け取り、手数が進むごとに透明度を下げる
+    createEstimateBlocks(pData, stepClass, yMap) {
         let simMino = new Mino(pData.id);
         for(let i = 0; i < pData.rot; i++) simMino.rotate();
 
-        let yMap = {};
-        if (stepClass === 'step2' && clearedLines.length > 0) {
-            let currentY_sim = 19;
-            for (let y_orig = 19; y_orig >= -10; y_orig--) {
-                if (clearedLines.includes(y_orig)) continue; 
-                yMap[currentY_sim] = y_orig;
-                currentY_sim--;
-            }
-        }
+        // 後の手ほど薄く表示する
+        const opacityMap = {
+            'step1': 0.9,
+            'step2': 0.6,
+            'step3': 0.35,
+            'step4': 0.15
+        };
+        const bgOpacityMap = {
+            'step1': 0.3,
+            'step2': 0.2,
+            'step3': 0.1,
+            'step4': 0.05
+        };
 
         const colorMap = {
-            0: { border: 'rgba(0, 240, 240, 0.8)', bg: 'rgba(0, 240, 240, 0.25)' }, 
-            1: { border: 'rgba(240, 240, 0, 0.8)', bg: 'rgba(240, 240, 0, 0.25)' }, 
-            2: { border: 'rgba(160, 0, 240, 0.8)', bg: 'rgba(160, 0, 240, 0.25)' }, 
-            3: { border: 'rgba(0, 0, 240, 0.8)',   bg: 'rgba(0, 0, 240, 0.25)' },   
-            4: { border: 'rgba(240, 160, 0, 0.8)', bg: 'rgba(240, 160, 0, 0.25)' }, 
-            5: { border: 'rgba(0, 240, 0, 0.8)',   bg: 'rgba(0, 240, 0, 0.25)' },   
-            6: { border: 'rgba(240, 0, 0, 0.8)',   bg: 'rgba(240, 0, 0, 0.25)' }    
+            0: { border: `rgba(0, 240, 240, ${opacityMap[stepClass]})`, bg: `rgba(0, 240, 240, ${bgOpacityMap[stepClass]})` }, 
+            1: { border: `rgba(240, 240, 0, ${opacityMap[stepClass]})`, bg: `rgba(240, 240, 0, ${bgOpacityMap[stepClass]})` }, 
+            2: { border: `rgba(160, 0, 240, ${opacityMap[stepClass]})`, bg: `rgba(160, 0, 240, ${bgOpacityMap[stepClass]})` }, 
+            3: { border: `rgba(0, 0, 240, ${opacityMap[stepClass]})`,   bg: `rgba(0, 0, 240, ${bgOpacityMap[stepClass]})` },   
+            4: { border: `rgba(240, 160, 0, ${opacityMap[stepClass]})`, bg: `rgba(240, 160, 0, ${bgOpacityMap[stepClass]})` }, 
+            5: { border: `rgba(0, 240, 0, ${opacityMap[stepClass]})`,   bg: `rgba(0, 240, 0, ${bgOpacityMap[stepClass]})` },   
+            6: { border: `rgba(240, 0, 0, ${opacityMap[stepClass]})`,   bg: `rgba(240, 0, 0, ${bgOpacityMap[stepClass]})` }    
         };
-        const colors = colorMap[pData.id] || { border: 'rgba(255, 255, 255, 0.8)', bg: 'rgba(255, 255, 255, 0.25)' };
+        const colors = colorMap[pData.id] || { border: `rgba(255, 255, 255, ${opacityMap[stepClass]})`, bg: `rgba(255, 255, 255, ${bgOpacityMap[stepClass]})` };
+
+        // 先の手のブロックほど後ろ(下)に描画されるようにする
+        const zIndexMap = {
+            'step1': '4',
+            'step2': '3',
+            'step3': '2',
+            'step4': '1'
+        };
 
         simMino.blocks.forEach(block => {
             let drawX = block.x + pData.x;
             let drawY = block.y + pData.y;
 
-            if (stepClass === 'step2' && clearedLines.length > 0) {
-                if (yMap[drawY] !== undefined) drawY = yMap[drawY];
+            // 累積されたライン消去によるY座標のズレを補正
+            if (yMap && yMap[drawY] !== undefined) {
+                drawY = yMap[drawY];
             }
 
             if (drawY >= -1 && drawY < 20) {
@@ -498,7 +562,7 @@ window.CPU3 = class {
                 
                 div.style.backgroundColor = colors.bg;
                 div.style.borderColor = colors.border;
-                div.style.zIndex = stepClass === 'step1' ? '2' : '1';
+                div.style.zIndex = zIndexMap[stepClass];
 
                 div.style.left = `${drawX * 32}px`;
                 div.style.top = `${(drawY + 0.5) * 32}px`;
