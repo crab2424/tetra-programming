@@ -108,7 +108,6 @@ PlacementInfo calcPlacementInfo(const Board& b, const std::vector<GridBlock>& bl
     return {isFullyGrounded, touchingCount};
 }
 
-// パラメータ：全24要素
 struct EvalWeights {
     int lineClear, hole, heightLimit, heightDiff, flat;
     int step1Good, step1Bad, step2Plus, groundedBonus, touchingBonus;
@@ -135,7 +134,7 @@ bool isTSDShape(const Board& board, int cx, int cy) {
     }
     
     auto isSolid = [&](int x, int y) {
-        if (x < 0 || x >= COLS || y >= ROWS) return true; 
+        if (x < 0 || x >= COLS || y >= ROWS) return true; // 壁や床はブロックとして扱う
         if (y < 0) return false;
         return board.cells[y][x] != 0;
     };
@@ -158,6 +157,32 @@ bool isTSDShape(const Board& board, int cx, int cy) {
             if (board.cells[cy-1][cx] != 0 || (cx - 1 >= 0 && board.cells[cy-1][cx-1] != 0)) return false;
         }
     }
+
+    // ★追加：地形が独立しないための土台条件 (緑 or 黄色の行が埋まっていること)
+    
+    // 条件1: 緑の行 (cy + 1) が cx 以外すべて埋まっているか
+    bool greenFilled = true;
+    for(int x = 0; x < COLS; x++) {
+        if (x != cx && !isSolid(x, cy + 1)) {
+            greenFilled = false;
+            break;
+        }
+    }
+    
+    // 条件2: 黄色の行 (cy + 2) が cx 以外すべて埋まっているか
+    bool yellowFilled = true;
+    for(int x = 0; x < COLS; x++) {
+        if (x != cx && !isSolid(x, cy + 2)) {
+            yellowFilled = false;
+            break;
+        }
+    }
+
+    // どちらの条件も満たしていない場合は「孤立した空中の地形」とみなし、TSDとして評価しない
+    if (!greenFilled && !yellowFilled) {
+        return false;
+    }
+
     return true;
 }
 
@@ -454,7 +479,6 @@ void searchBestMoveWasm(
     int* weightsArray, 
     int* outResult
 ){
-    // ゴミデータによるJS側エラー防止のため、結果配列を全て -1 で初期化
     for(int i = 0; i < 26; i++) outResult[i] = -1;
 
     Board baseBoard;
@@ -490,13 +514,12 @@ void searchBestMoveWasm(
         if (p.linesCleared >= 4) bonus += w.line4 * multiplier;
         
         if (p.isTSpin) {
-            if (p.linesCleared == 1) bonus += w.tssClear * multiplier; 
+            if (p.linesCleared == 0 || p.linesCleared == 1) bonus += w.tssClear * multiplier; 
             else if (p.linesCleared >= 2) bonus += w.tsdClear * multiplier; 
         }
         return bonus;
     };
 
-    // ── ビームサーチ ──
     std::vector<SearchState> final_states;
     std::vector<SearchState> current_states;
     std::vector<SearchState> next_states;
