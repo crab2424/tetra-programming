@@ -36,6 +36,13 @@ public:
         if(y < 0) return false;
         return cells[y][x] != 0;
     }
+    // ★追加：指定したマスの「上空」にブロックがあるか（空洞かどうかの判定用）
+    bool hasBlockAbove(int x, int y) const {
+        for (int ty = y - 1; ty >= 0; ty--) {
+            if (cells[ty][x] != 0) return true;
+        }
+        return false;
+    }
     int checkLineAndClear() {
         int cleared = 0;
         for(int y = 0; y < ROWS; y++) {
@@ -112,11 +119,14 @@ struct EvalWeights {
     int tsdClear;  
     int tsdShapeOver; 
     int tsdFillBonus; 
+    int tssClear;       
+    int tsdHolePenalty; 
 };
 
 bool isTSDShape(const Board& board, int cx, int cy) {
     if (cx < 1 || cx >= COLS - 1 || cy < 0 || cy >= ROWS - 1) return false;
     
+    // 【紫】空白条件
     if (board.cells[cy][cx] != 0 || 
         board.cells[cy][cx-1] != 0 || 
         board.cells[cy][cx+1] != 0 || 
@@ -124,14 +134,26 @@ bool isTSDShape(const Board& board, int cx, int cy) {
         return false;
     }
     
-    bool leftWall = (cx - 1 < 0) || (board.cells[cy+1][cx-1] != 0);
-    bool rightWall = (cx + 1 >= COLS) || (board.cells[cy+1][cx+1] != 0);
-    if (!leftWall || !rightWall) return false;
+    auto isSolid = [&](int x, int y) {
+        if (x < 0 || x >= COLS || y >= ROWS) return true; 
+        if (y < 0) return false;
+        return board.cells[y][x] != 0;
+    };
+
+    // 綺麗なTSD地形の周辺条件（6箇所）
+    if (!isSolid(cx - 2, cy)) return false;
+    if (!isSolid(cx + 2, cy)) return false;
+    if (!isSolid(cx - 2, cy + 1)) return false;
+    if (!isSolid(cx + 2, cy + 1)) return false;
+    if (!isSolid(cx - 1, cy + 1)) return false; 
+    if (!isSolid(cx + 1, cy + 1)) return false; 
     
+    // 【水色】屋根条件
     bool leftRoof = (cy - 1 < 0) || (cx - 1 < 0) || (board.cells[cy-1][cx-1] != 0);
     bool rightRoof = (cy - 1 < 0) || (cx + 1 >= COLS) || (board.cells[cy-1][cx+1] != 0);
     if (!(leftRoof ^ rightRoof)) return false; 
     
+    // 【黄色】道条件
     if (cy - 1 >= 0) {
         if (leftRoof) {
             if (board.cells[cy-1][cx] != 0 || (cx + 1 < COLS && board.cells[cy-1][cx+1] != 0)) return false;
@@ -145,21 +167,34 @@ bool isTSDShape(const Board& board, int cx, int cy) {
 struct TSDStats {
     int count;
     int fillCount; 
+    int holeCount; // ★追加：TSDの段に作られた空洞の数
 };
 
 TSDStats analyzeTSD(const Board& board) {
-    TSDStats stats = {0, 0};
+    TSDStats stats = {0, 0, 0};
     for (int cy = 1; cy < ROWS - 1; cy++) {
         for (int cx = 1; cx < COLS - 1; cx++) {
             if (isTSDShape(board, cx, cy)) {
                 stats.count++;
                 if (stats.count == 1) { 
                     for (int x = 0; x < COLS; x++) {
+                        // Tミノが入るマス以外について、ブロックが埋まっているか、または空洞（上が塞がれた穴）かを判定する
+                        
+                        // 上段 (cy)
                         if (x != cx - 1 && x != cx && x != cx + 1) {
-                            if (board.cells[cy][x] != 0) stats.fillCount++;
+                            if (board.cells[cy][x] != 0) {
+                                stats.fillCount++;
+                            } else if (board.hasBlockAbove(x, cy)) {
+                                stats.holeCount++; // 空きマスの上空にブロックがある＝空洞
+                            }
                         }
+                        // 下段 (cy+1)
                         if (x != cx) {
-                            if (board.cells[cy + 1][x] != 0) stats.fillCount++;
+                            if (board.cells[cy + 1][x] != 0) {
+                                stats.fillCount++;
+                            } else if (board.hasBlockAbove(x, cy + 1)) {
+                                stats.holeCount++; // 空きマスの上空にブロックがある＝空洞
+                            }
                         }
                     }
                 }
@@ -302,12 +337,16 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         score -= 3 * w.groundedBonus;
     }
 
+    // ★修正：盤面にTスピンの地形がある時、その段に空洞があるなら特大ペナルティを引く
     TSDStats tsd = analyzeTSD(b);
     if (tsd.count == 1) {
         score += w.tsdShape;
         score += tsd.fillCount * w.tsdFillBonus; 
-    } else if (tsd.count >= 2) { 
+        score -= tsd.holeCount * w.tsdHolePenalty; // 空洞ペナルティ
+    } else if (tsd.count >= 2) {
+        score += w.tsdShape; 
         score += (tsd.count - 1) * w.tsdShapeOver; 
+        score -= tsd.holeCount * w.tsdHolePenalty; // 空洞ペナルティ
     }
 
     return score;
@@ -349,19 +388,17 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
         }
     }
 
-    // ★修正：ワープした場合に、実際に盤面にブロックを置いてラインを消去する処理を追加
     if (pieceType == 2) { 
         for (int cy = 1; cy < ROWS - 1; cy++) {
             for (int cx = 1; cx < COLS - 1; cx++) {
                 if (isTSDShape(baseBoard, cx, cy)) {
-                    int rot = 2; // Tミノ(凸下向き)
+                    int rot = 2; 
                     int x = cx - 1;
                     int y = cy - 2;
                     int spawn = cy - 2;
                     
                     std::vector<GridBlock> droppedBlocks = getRotatedBlocks(pieceType, rot, x, y);
                     
-                    // 盤面にブロックを配置
                     Board simBoard = baseBoard;
                     for(const auto& blk : droppedBlocks) {
                         if(blk.y >= 0 && blk.y < ROWS && blk.x >= 0 && blk.x < COLS) {
@@ -370,7 +407,6 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                     }
                     
                     PlacementInfo info = calcPlacementInfo(baseBoard, droppedBlocks);
-                    // ライン消去を実行
                     int cleared = simBoard.checkLineAndClear();
                     
                     Placement p; 
@@ -378,8 +414,8 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                     p.x = x;
                     p.y = y;
                     p.spawnY = spawn;
-                    p.board = simBoard; // ブロックが置かれ、ラインが消去された盤面をセット
-                    p.linesCleared = cleared; // 正しい消去数(2など)が入る
+                    p.board = simBoard; 
+                    p.linesCleared = cleared; 
                     p.isFullyGrounded = info.isFullyGrounded;
                     p.touchingCount = info.touchingCount;
                     p.blocks = droppedBlocks;
@@ -405,6 +441,19 @@ void my_free(void* ptr) {
     free(ptr);
 }
 
+struct SearchState {
+    int action;
+    int path_index;
+    int p1_score;     
+    int total_score;  
+    Board board;
+    
+    Placement p1; bool has_p1 = false;
+    Placement p2; bool has_p2 = false;
+    Placement p3; bool has_p3 = false;
+    Placement p4; bool has_p4 = false;
+};
+
 EMSCRIPTEN_KEEPALIVE
 void searchBestMoveWasm(
     uint8_t* boardData, int currentType, int holdType, int next1, int next2, int next3, int canHold,
@@ -419,7 +468,8 @@ void searchBestMoveWasm(
         weightsArray[5], weightsArray[6], weightsArray[7], weightsArray[8], weightsArray[9],
         weightsArray[10], weightsArray[11], weightsArray[12], 
         weightsArray[13], weightsArray[14], weightsArray[15],
-        weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], weightsArray[20]
+        weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], weightsArray[20],
+        weightsArray[21], weightsArray[22]
     };
 
     int baseScore = evaluateBoard(baseBoard, 0, false, 0, w);
@@ -441,146 +491,195 @@ void searchBestMoveWasm(
 
     auto getSpawnY = [](int type) { return type == 0 ? -1 : -2; };
 
-    struct EvaluatedP1 {
-        Path path;
-        Placement p1;
-        int score1;
-    };
-    std::vector<EvaluatedP1> all_p1_evals;
-    int globalMaxScore1 = -1000000;
-
-    for(const auto& path : paths) {
-        std::vector<Placement> p1_list = getAllPlacements(baseBoard, path.p1, getSpawnY(path.p1));
-        for(const auto& p1 : p1_list) {
-            int score1 = evaluateBoard(p1.board, p1.linesCleared, p1.isFullyGrounded, p1.touchingCount, w, p1.blocks);
-            all_p1_evals.push_back({path, p1, score1});
-            if(score1 > globalMaxScore1) {
-                globalMaxScore1 = score1;
-            }
-        }
-    }
-
-    int bestTotalScore = -10000000;
-    outResult[0] = -1;
-    
-    const int P1_WEIGHT_PCT = w.p1Weight; 
-
-    // イベントを早く実行するほど高い倍率をかける関数
     auto calcEventBonus = [&](const Placement& p, int depth) {
         int bonus = 0; 
-        int multiplier = 5 - depth; // 1手目:4倍, 2手目:3倍, 3手目:2倍, 4手目:1倍
+        int multiplier = 5 - depth; 
         if (p.linesCleared >= 4) bonus += w.line4 * multiplier;
-        // linesCleared が正しく反映されるようになったので、ここで莫大なボーナスが発生する
-        if (p.isTSpin && p.linesCleared >= 2) bonus += w.tsdClear * multiplier;
+        
+        // ★修正：打った時のイベントボーナスは加算のみ
+        if (p.isTSpin) {
+            if (p.linesCleared == 1) {
+                bonus += w.tssClear * multiplier; 
+            } else if (p.linesCleared >= 2) {
+                bonus += w.tsdClear * multiplier; 
+            }
+        }
         return bonus;
     };
 
-    for(const auto& ep1 : all_p1_evals) {
-        if(ep1.score1 < 0 && ep1.score1 < globalMaxScore1) {
-            continue;
+    std::vector<SearchState> final_states;
+    std::vector<SearchState> current_states;
+    std::vector<SearchState> next_states;
+    const size_t BEAM_WIDTH = 8;
+    const int P1_WEIGHT_PCT = w.p1Weight; 
+
+    // ─── 1手目の展開 ───
+    for(size_t i = 0; i < paths.size(); i++) {
+        const auto& path = paths[i];
+        std::vector<Placement> p1_list = getAllPlacements(baseBoard, path.p1, getSpawnY(path.p1));
+        for(const auto& p1 : p1_list) {
+            int score1 = evaluateBoard(p1.board, p1.linesCleared, p1.isFullyGrounded, p1.touchingCount, w, p1.blocks);
+            int eventBonus = calcEventBonus(p1, 1);
+            int totalScore = score1 * P1_WEIGHT_PCT / 100 + eventBonus;
+
+            SearchState s;
+            s.action = path.action;
+            s.path_index = i;
+            s.p1_score = score1;
+            s.total_score = totalScore;
+            s.board = p1.board;
+            s.p1 = p1;
+            s.has_p1 = true;
+            next_states.push_back(s);
         }
+    }
 
-        std::vector<Placement> p2_list = getAllPlacements(ep1.p1.board, ep1.path.p2, getSpawnY(ep1.path.p2));
+    if(next_states.size() > BEAM_WIDTH) {
+        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
+            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
+        next_states.resize(BEAM_WIDTH);
+    }
+    current_states = next_states;
 
+    // ─── 2手目の展開 ───
+    next_states.clear();
+    for(const auto& state : current_states) {
+        int p2_type = paths[state.path_index].p2;
+        std::vector<Placement> p2_list = getAllPlacements(state.board, p2_type, getSpawnY(p2_type));
+        
         if(p2_list.empty()) {
-            int totalScore = ep1.score1 * P1_WEIGHT_PCT / 100 - 10000;
-            if(totalScore > bestTotalScore) {
-                bestTotalScore = totalScore;
-                outResult[0] = ep1.path.action; 
-                outResult[1] = ep1.score1;             
-                outResult[2] = ep1.score1 - baseScore; 
-                outResult[3] = ep1.path.p1; outResult[4] = ep1.p1.rot; outResult[5] = ep1.p1.x; outResult[6] = ep1.p1.y; outResult[7] = ep1.p1.spawnY;
-                outResult[8] = -1; 
-            }
+            final_states.push_back(state);
             continue;
         }
 
-        int globalMaxScore2 = -1000000;
-        std::vector<int> p2_scores;
-        p2_scores.reserve(p2_list.size());
         for(const auto& p2 : p2_list) {
-            int s = evaluateBoard(p2.board, p2.linesCleared, p2.isFullyGrounded, p2.touchingCount, w, p2.blocks);
-            p2_scores.push_back(s);
-            if(s > globalMaxScore2) globalMaxScore2 = s;
+            int score2 = evaluateBoard(p2.board, p2.linesCleared, p2.isFullyGrounded, p2.touchingCount, w, p2.blocks);
+            int eventBonus = calcEventBonus(p2, 2);
+
+            SearchState s = state;
+            s.total_score += score2 + eventBonus;
+            s.board = p2.board;
+            s.p2 = p2;
+            s.has_p2 = true;
+            next_states.push_back(s);
+        }
+    }
+
+    if(next_states.size() > BEAM_WIDTH) {
+        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
+            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
+        next_states.resize(BEAM_WIDTH);
+    }
+    current_states = next_states;
+
+    // ─── 3手目の展開 ───
+    next_states.clear();
+    for(const auto& state : current_states) {
+        int p3_type = paths[state.path_index].p3;
+        std::vector<Placement> p3_list = getAllPlacements(state.board, p3_type, getSpawnY(p3_type));
+        
+        if(p3_list.empty()) {
+            final_states.push_back(state);
+            continue;
         }
 
-        for(int p2i = 0; p2i < (int)p2_list.size(); p2i++) {
-            const auto& p2 = p2_list[p2i];
-            int score2 = p2_scores[p2i];
+        for(const auto& p3 : p3_list) {
+            int score3 = evaluateBoard(p3.board, p3.linesCleared, p3.isFullyGrounded, p3.touchingCount, w, p3.blocks);
+            int eventBonus = calcEventBonus(p3, 3);
 
-            if(score2 < 0 && score2 < globalMaxScore2) continue;
+            SearchState s = state;
+            s.total_score += score3 + eventBonus;
+            s.board = p3.board;
+            s.p3 = p3;
+            s.has_p3 = true;
+            next_states.push_back(s);
+        }
+    }
 
-            std::vector<Placement> p3_list = getAllPlacements(p2.board, ep1.path.p3, getSpawnY(ep1.path.p3));
+    if(next_states.size() > BEAM_WIDTH) {
+        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
+            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
+        next_states.resize(BEAM_WIDTH);
+    }
+    current_states = next_states;
 
-            if(p3_list.empty()) {
-                int eventBonus = calcEventBonus(ep1.p1, 1) + calcEventBonus(p2, 2);
-                int totalScore = ep1.score1 * P1_WEIGHT_PCT / 100 + score2 + eventBonus;
+    // ─── 4手目の展開 ───
+    next_states.clear();
+    for(const auto& state : current_states) {
+        int p4_type = paths[state.path_index].p4;
+        std::vector<Placement> p4_list = getAllPlacements(state.board, p4_type, getSpawnY(p4_type));
+        
+        if(p4_list.empty()) {
+            final_states.push_back(state);
+            continue;
+        }
 
-                if(totalScore > bestTotalScore) {
-                    bestTotalScore = totalScore;
-                    outResult[0] = ep1.path.action;
-                    outResult[1] = ep1.score1; outResult[2] = ep1.score1 - baseScore;
-                    outResult[3] = ep1.path.p1; outResult[4] = ep1.p1.rot; outResult[5] = ep1.p1.x; outResult[6] = ep1.p1.y; outResult[7] = ep1.p1.spawnY;
-                    outResult[8] = ep1.path.p2; outResult[9] = p2.rot; outResult[10] = p2.x; outResult[11] = p2.y;
-                    outResult[12] = ep1.p1.isTSpin ? 1 : 0;
-                    outResult[13] = -1; 
-                }
-                continue;
-            }
+        for(const auto& p4 : p4_list) {
+            int score4 = evaluateBoard(p4.board, p4.linesCleared, p4.isFullyGrounded, p4.touchingCount, w, p4.blocks);
+            int eventBonus = calcEventBonus(p4, 4);
 
-            int globalMaxScore3 = -1000000;
-            std::vector<int> p3_scores;
-            p3_scores.reserve(p3_list.size());
-            for(const auto& p3 : p3_list) {
-                int s = evaluateBoard(p3.board, p3.linesCleared, p3.isFullyGrounded, p3.touchingCount, w, p3.blocks);
-                p3_scores.push_back(s);
-                if(s > globalMaxScore3) globalMaxScore3 = s;
-            }
+            SearchState s = state;
+            s.total_score += score4 + eventBonus;
+            s.board = p4.board;
+            s.p4 = p4;
+            s.has_p4 = true;
+            next_states.push_back(s);
+        }
+    }
 
-            for(int p3i = 0; p3i < (int)p3_list.size(); p3i++) {
-                const auto& p3 = p3_list[p3i];
-                int score3 = p3_scores[p3i];
+    if(next_states.size() > BEAM_WIDTH) {
+        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
+            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
+        next_states.resize(BEAM_WIDTH);
+    }
 
-                if(score3 < 0 && score3 < globalMaxScore3) continue;
+    for(const auto& state : next_states) {
+        final_states.push_back(state);
+    }
 
-                std::vector<Placement> p4_list = getAllPlacements(p3.board, ep1.path.p4, getSpawnY(ep1.path.p4));
+    // ─── 最終結果の選択 ───
+    outResult[0] = -1; 
+    int bestTotalScore = -10000000;
+    const SearchState* bestState = nullptr;
 
-                if(p4_list.empty()) {
-                    int eventBonus = calcEventBonus(ep1.p1, 1) + calcEventBonus(p2, 2) + calcEventBonus(p3, 3);
-                    int totalScore = ep1.score1 * P1_WEIGHT_PCT / 100 + score2 + score3 + eventBonus;
+    for(const auto& state : final_states) {
+        if(state.total_score > bestTotalScore) {
+            bestTotalScore = state.total_score;
+            bestState = &state;
+        }
+    }
 
-                    if(totalScore > bestTotalScore) {
-                        bestTotalScore = totalScore;
-                        outResult[0] = ep1.path.action;
-                        outResult[1] = ep1.score1; outResult[2] = ep1.score1 - baseScore;
-                        outResult[3] = ep1.path.p1; outResult[4] = ep1.p1.rot; outResult[5] = ep1.p1.x; outResult[6] = ep1.p1.y; outResult[7] = ep1.p1.spawnY;
-                        outResult[8] = ep1.path.p2; outResult[9] = p2.rot; outResult[10] = p2.x; outResult[11] = p2.y;
-                        outResult[12] = ep1.p1.isTSpin ? 1 : 0;
-                        outResult[13] = ep1.path.p3; outResult[14] = p3.rot; outResult[15] = p3.x; outResult[16] = p3.y;
-                        outResult[17] = -1; 
-                    }
-                    continue;
-                }
+    if(bestState) {
+        const auto& path = paths[bestState->path_index];
+        outResult[0] = bestState->action; 
+        
+        outResult[1] = bestState->p1_score; 
+        outResult[2] = bestState->p1_score - baseScore; 
 
-                for(const auto& p4 : p4_list) {
-                    int score4 = evaluateBoard(p4.board, p4.linesCleared, p4.isFullyGrounded, p4.touchingCount, w, p4.blocks);
+        outResult[3] = path.p1; 
+        outResult[4] = bestState->p1.rot; 
+        outResult[5] = bestState->p1.x; 
+        outResult[6] = bestState->p1.y; 
+        outResult[7] = bestState->p1.spawnY;
+        
+        outResult[12] = bestState->p1.isTSpin ? 1 : 0;
+        
+        if(bestState->has_p2) {
+            outResult[8] = path.p2; outResult[9] = bestState->p2.rot; outResult[10] = bestState->p2.x; outResult[11] = bestState->p2.y;
+        } else {
+            outResult[8] = -1;
+        }
 
-                    int eventBonus = calcEventBonus(ep1.p1, 1) + calcEventBonus(p2, 2) + calcEventBonus(p3, 3) + calcEventBonus(p4, 4);
-                    int totalScore = ep1.score1 * P1_WEIGHT_PCT / 100 + score2 + score3 + score4 + eventBonus;
+        if(bestState->has_p3) {
+            outResult[13] = path.p3; outResult[14] = bestState->p3.rot; outResult[15] = bestState->p3.x; outResult[16] = bestState->p3.y;
+        } else {
+            outResult[13] = -1;
+        }
 
-                    if(totalScore > bestTotalScore) {
-                        bestTotalScore = totalScore;
-                        outResult[0] = ep1.path.action; 
-                        outResult[1] = ep1.score1;             
-                        outResult[2] = ep1.score1 - baseScore; 
-                        outResult[3] = ep1.path.p1; outResult[4] = ep1.p1.rot; outResult[5] = ep1.p1.x; outResult[6] = ep1.p1.y; outResult[7] = ep1.p1.spawnY;
-                        outResult[8] = ep1.path.p2; outResult[9] = p2.rot; outResult[10] = p2.x; outResult[11] = p2.y;
-                        outResult[12] = ep1.p1.isTSpin ? 1 : 0;
-                        outResult[13] = ep1.path.p3; outResult[14] = p3.rot; outResult[15] = p3.x; outResult[16] = p3.y;
-                        outResult[17] = ep1.path.p4; outResult[18] = p4.rot; outResult[19] = p4.x; outResult[20] = p4.y;
-                    }
-                }
-            }
+        if(bestState->has_p4) {
+            outResult[17] = path.p4; outResult[18] = bestState->p4.rot; outResult[19] = bestState->p4.x; outResult[20] = bestState->p4.y;
+        } else {
+            outResult[17] = -1;
         }
     }
 }

@@ -13,7 +13,7 @@ window.CPU3 = class {
 
         this.weights = {
             lineClear: 14,
-            hole: -36, 
+            hole: -64, 
             heightLimit: -22, 
             heightDiff: -7, 
             flat: 4,
@@ -36,9 +36,13 @@ window.CPU3 = class {
 
             // ★変更：維持の旨味を減らし、打つ（消す）ことの旨味を圧倒的に大きくする
             tsdShape: 75,      // TSDの地形がある時のボーナス(300から150に減少)
-            tsdClear: 9600,      // TSDを打った時のボーナス
-            tsdShapeOver: -10000, // TSD地形を2個以上作った場合の減点
-            tsdFillBonus: 40,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
+            tsdShapeOver: -1000, // TSD地形を2個以上作った場合の減点
+            tsdFillBonus: 24,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
+
+            // ★追加・変更：TSSとTSDのボーナス分離、および空洞ペナルティ
+            tssClear: 400,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
+            tsdClear: 4800,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
+            tsdHolePenalty: -2000, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
 
             P1_WEIGHT: 0.8,        
         };
