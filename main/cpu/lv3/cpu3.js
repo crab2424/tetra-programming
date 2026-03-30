@@ -35,13 +35,13 @@ window.CPU3 = class {
             downstackBad: -3,
 
             // ★変更：維持の旨味を減らし、打つ（消す）ことの旨味を圧倒的に大きくする
-            tsdShape: 24,      // TSDの地形がある時のボーナス(300から150に減少)
+            tsdShape: 150,      // TSDの地形がある時のボーナス(300から150に減少)
             tsdShapeOver: -45, // TSD地形を2個以上作った場合の減点
             tsdFillBonus: 24,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
 
             // ★追加・変更：TSSとTSDのボーナス分離、および空洞ペナルティ
             tssClear: 25,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
-            tsdClear: 960,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
+            tsdClear: 1280,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
             tsdHolePenalty: -200, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
             pureHole: -50,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
 
@@ -54,7 +54,7 @@ window.CPU3 = class {
 
         this.isExecutingAction = false; 
         this.actionQueue = [];          
-        this.actionDelay = 100; // 高速入力のための待機時間（ミリ秒）
+        this.actionDelay = 80; // 高速入力のための待機時間（ミリ秒）
         this.harddropDelay = 200; // ハードドロップ後の硬直時間（ミリ秒）
         
         this.worker.onmessage = (e) => {
@@ -407,7 +407,7 @@ window.CPU3 = class {
         let bestMove = {
             action: actionInt === 1 ? 'hold' : 'play',
             score: res[1],
-            diff: res[2],
+            diff: res[22],
             p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6], spawnY: res[7] } : null,
             p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
             isTSpin: (res[12] === 1), 
