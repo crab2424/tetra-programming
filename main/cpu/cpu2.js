@@ -3,7 +3,8 @@
 // 2手読みCPU（NEXT1、HOLD考慮） - Wasm Worker 非同期連携版
 // ─────────────────────────────────────────────
 
-class CPU2 {
+// ★修正：動的ロードで破棄・再定義できるように、windowオブジェクトに明示的に登録する
+window.CPU2 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
@@ -30,22 +31,21 @@ class CPU2 {
             iWellOver: -10,      
             blocksOverHole: -3, 
             
-            // ★今回追加分 (必要に応じて数値を調整してください)
-            line4: 400,          // 4ライン消去した際の追加ボーナス
-            downstackGood: 48,   // n>=5 かつ 接地 の時の nの倍率
-            downstackBad: -3,    // n<5  かつ 浮き の時の nの倍率
+            line4: 400,          
+            downstackGood: 48,   
+            downstackBad: -3,    
 
-            P1_WEIGHT: 1.2,             // 1手目の評価を重視するための倍率（Wasm側で使用）
+            P1_WEIGHT: 1.2,             
         };
 
-        // 毎回新しいWorkerを立ち上げる
-        this.worker = new Worker('cpu/cpu_worker.js');
+        // Workerの生成
+        this.worker = new Worker('cpu/cpu_worker2.js');
         this.workerReady = false;
         this.isCalculating = false;
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
-                console.log("🚀 Wasm Worker Ready!"); 
+                console.log("🚀 Wasm Worker 2 Ready!"); 
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 this.handleWorkerResult(e.data.result);
@@ -53,7 +53,7 @@ class CPU2 {
         };
 
         this.worker.onerror = (err) => {
-            console.error("❌ Worker Error: ", err.message, err.filename, err.lineno);
+            console.error("❌ Worker 2 Error: ", err.message, err.filename, err.lineno);
         };
     }
 
@@ -92,7 +92,6 @@ class CPU2 {
         if (this.estimateContainer) {
             this.estimateContainer.innerHTML = '';
         }
-        // Workerを完全に破棄してゾンビ化を防ぐ
         if (this.worker) {
             this.worker.terminate();
             this.worker = null;
@@ -116,18 +115,14 @@ class CPU2 {
         const mino = this.game.mino;
         if (!mino) return;
 
-        // Wasmの準備ができていない場合は、とりあえずハードドロップして進行を止めない
         if (!this.workerReady) {
             if (this.isAutoPlay) setTimeout(() => this.game.hardDrop(), 700);
             return;
         }
 
-        // 既に計算中なら重複して送らない
         if (this.isCalculating) return;
-
         this.isCalculating = true; 
 
-        // 1. 盤面データをUint8Arrayに変換
         let boardBuffer = new Uint8Array(200);
         this.game.field.blocks.forEach(b => {
             if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) {
@@ -135,7 +130,6 @@ class CPU2 {
             }
         });
 
-        // 2. 重みデータをInt32Arrayに変換（パラメータを16個に拡張）
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
             this.weights.heightDiff, this.weights.flat, this.weights.step1Good,
@@ -147,7 +141,6 @@ class CPU2 {
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
 
-        // Workerに非同期で計算を依頼する
         this.worker.postMessage({
             type: 'calculate',
             boardBuffer: boardBuffer,
@@ -161,11 +154,10 @@ class CPU2 {
     }
 
     handleWorkerResult(res) {
-        this.isCalculating = false; // ロック解除
+        this.isCalculating = false; 
 
         let actionInt = res[0];
         
-        // 最善手が見つからなかった場合（窒息など）
         if (actionInt === -1) {
             this.bestMoveData = null;
             if (this.isAutoPlay && this.isActive && !this.game.isPaused) {
@@ -185,7 +177,6 @@ class CPU2 {
 
         this.bestMoveData = bestMove;
 
-        // ゴースト用に、1手目で消去されるラインをJS側で計算
         if (bestMove.p1) {
             let simMino1 = new Mino(bestMove.p1.id);
             for(let i = 0; i < bestMove.p1.rot; i++) simMino1.rotate();
@@ -193,7 +184,6 @@ class CPU2 {
             bestMove.clearedLines = this.getClearedLines(this.game.field.blocks, droppedBlocks1);
         }
 
-        // --- 画面のEVALスコアと差分（diff）の更新 ---
         const evalEl = document.getElementById('eval-value');
         if (evalEl) evalEl.textContent = bestMove.score;
 
@@ -212,13 +202,11 @@ class CPU2 {
                 diffEl.style.color = 'var(--text-dim)';
             }
         }
-        // ------------------------------------------
 
         if (this.game.currentMode === 'test') {
             this.renderEstimatePlace(); 
         }
 
-        // 自動プレイの実行
         if (this.isAutoPlay && this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
             if (bestMove.action === 'hold') {
                 setTimeout(() => {
@@ -344,4 +332,4 @@ class CPU2 {
             }
         });
     }
-}
+};

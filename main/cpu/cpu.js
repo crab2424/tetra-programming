@@ -3,7 +3,7 @@
 // CPUの思考・操作・解析をつかさどるクラス
 // ─────────────────────────────────────────────
 
-class CPU {
+window.CPU = class{
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
