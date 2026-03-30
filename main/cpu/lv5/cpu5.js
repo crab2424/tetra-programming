@@ -4,7 +4,7 @@
 // ─────────────────────────────────────────────
 
 // ★修正：動的ロードで破棄・再定義できるように、windowオブジェクトに明示的に登録する
-window.CPU4 = class {
+window.CPU5 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
@@ -38,13 +38,13 @@ window.CPU4 = class {
             P1_WEIGHT: 1.0,        
         };
 
-        this.worker = new Worker('cpu/cpu_worker4.js');
+        this.worker = new Worker('cpu/lv5/cpu_worker5.js');
         this.workerReady = false;
         this.isCalculating = false;
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
-                console.log("🚀 Wasm Worker 4 Ready!"); 
+                console.log("🚀 Wasm Worker 5 Ready!"); 
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 this.handleWorkerResult(e.data.result);
@@ -52,7 +52,7 @@ window.CPU4 = class {
         };
 
         this.worker.onerror = (err) => {
-            console.error("❌ Worker 4 Error: ", err.message, err.filename, err.lineno);
+            console.error("❌ Worker 5 Error: ", err.message, err.filename, err.lineno);
         };
     }
 
