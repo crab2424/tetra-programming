@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────
-// cpu_worker.js
+// cpu_worker2.js
 // Web Worker上で動き、Wasmを呼び出す作業員（時間計測付き）
 // ─────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ self.onmessage = function(e) {
 
     if (boardPtr === null) {
         boardPtr = Module._my_malloc(200);      
-        weightsPtr = Module._my_malloc(4 * 10); 
+        weightsPtr = Module._my_malloc(4 * 16); // パラメータを16個に拡張済み
         resultPtr = Module._my_malloc(4 * 12);  
     }
 
@@ -53,7 +53,7 @@ self.onmessage = function(e) {
     const timeTaken = (endTime - startTime).toFixed(2); // 小数点2桁まで
 
     // C++の処理にかかった時間をコンソールに出力
-    console.log(`⚡ Wasm CPU Calculated in: ${timeTaken} ms`);
+    console.log(`⚡ Wasm CPU2 Calculated in: ${timeTaken} ms`);
 
     const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 12);
 
