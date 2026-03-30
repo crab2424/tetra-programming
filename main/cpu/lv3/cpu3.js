@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────
-// cpu2.js
+// cpu3.js
 // 2手読みCPU（NEXT1、HOLD考慮） - Wasm Worker 非同期連携版
 // ─────────────────────────────────────────────
 
 // ★修正：動的ロードで破棄・再定義できるように、windowオブジェクトに明示的に登録する
-window.CPU2 = class {
+window.CPU3 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
@@ -13,39 +13,38 @@ window.CPU2 = class {
         this.baseScore = 0;     
 
         this.weights = {
-            lineClear: 14,
-            hole: -36, 
-            heightLimit: -22, 
-            heightDiff: -7, 
-            flat: 4,
-            step1Good: 3, 
-            step1Bad: -2, 
-            step2Plus: -8, 
-            groundedBonus: 12, 
-            touchingBonus: 6,   
-            underSpace: -6, 
-            singleWell: 5, 
-            multiWell: -10,
+            lineClear: 50,         
+            hole: -20,             
+            heightLimit: -10,      
+            heightDiff: -15,       
+            flat: 2,
+            step1Good: 2, 
+            step1Bad: -1, 
+            step2Plus: -4, 
+            groundedBonus: 6, 
+            touchingBonus: 3,   
+            underSpace: -4, 
+            singleWell: 2, 
+            multiWell: -8,
             
-            iWell: 32,           
-            iWellOver: -10,      
-            blocksOverHole: -3, 
+            iWell: 20,           
+            iWellOver: -5,      
+            blocksOverHole: -5, 
             
-            line4: 400,          
-            downstackGood: 48,   
-            downstackBad: -3,    
+            line4: 300,          
+            downstackGood: 30,   
+            downstackBad: -5,    
 
-            P1_WEIGHT: 1.2,             
+            P1_WEIGHT: 1.0,        
         };
 
-        // Workerの生成
-        this.worker = new Worker('cpu/cpu_worker2.js');
+        this.worker = new Worker('cpu/lv3/cpu_worker3.js');
         this.workerReady = false;
         this.isCalculating = false;
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
-                console.log("🚀 Wasm Worker 2 Ready!"); 
+                console.log("🚀 Wasm Worker 3 Ready!"); 
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 this.handleWorkerResult(e.data.result);
@@ -53,7 +52,7 @@ window.CPU2 = class {
         };
 
         this.worker.onerror = (err) => {
-            console.error("❌ Worker 2 Error: ", err.message, err.filename, err.lineno);
+            console.error("❌ Worker 3 Error: ", err.message, err.filename, err.lineno);
         };
     }
 

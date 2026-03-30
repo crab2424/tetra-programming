@@ -60,12 +60,13 @@ const CPU_LEVELS = {
 let selectedCpuLevel = 1; 
 
 // ★修正：レベル1は元の cpu.js（JSのみ版）を読み込むように設定を修正しました
+//★修正：各レベルのディレクトリ（lv2, lv3...）をパスに追加
 const CPU_CONFIGS = {
   1: { className: 'CPU',  src: 'cpu/cpu.js' },  // ← ここを修正
-  2: { className: 'CPU2', src: 'cpu/cpu2.js' },
-  3: { className: 'CPU3', src: 'cpu/cpu3.js' },
-  4: { className: 'CPU4', src: 'cpu/cpu4.js' }, // ※まだ未作成の場合は選ぶと404になります
-  5: { className: 'CPU5', src: 'cpu/cpu5.js' }  // ※まだ未作成の場合は選ぶと404になります
+  2: { className: 'CPU2', src: 'cpu/lv2/cpu2.js' },
+  3: { className: 'CPU3', src: 'cpu/lv3/cpu3.js' },
+  4: { className: 'CPU4', src: 'cpu/lv4/cpu4.js' }, // ※まだ未作成の場合は選ぶと404になります
+  5: { className: 'CPU5', src: 'cpu/lv5/cpu5.js' }  // ※まだ未作成の場合は選ぶと404になります
 };
 
 // ─── CPU動的ロード・破棄システム ──────────────
