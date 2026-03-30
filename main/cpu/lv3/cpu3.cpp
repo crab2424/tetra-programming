@@ -109,7 +109,59 @@ struct EvalWeights {
     int iWell, iWellOver, blocksOverHole; 
     int line4, downstackGood, downstackBad;
     int p1Weight; // ★追加：1手目の重み
+    int tsdShape;  // TSDの地形ができていることへのボーナス
+    int tsdClear;  // 実際にTSDを打ってラインを消した時の特大ボーナス
 };
+
+// cx, cy は Tミノの十字の交点 (紫ブロックの上の段の中央)
+bool isTSDShape(const Board& board, int cx, int cy) {
+    // 盤面外の場合は除外
+    if (cx < 1 || cx >= COLS - 1 || cy < 0 || cy >= ROWS - 1) return false;
+    
+    // 【紫】空白条件：Tミノ(凸下向き)の形に空間が空いているか
+    if (board.cells[cy][cx] != 0 || 
+        board.cells[cy][cx-1] != 0 || 
+        board.cells[cy][cx+1] != 0 || 
+        board.cells[cy+1][cx] != 0) {
+        return false;
+    }
+    
+    // 【灰】土台条件：Tの凸の左右がブロックで埋まっているか (壁もブロック扱い)
+    bool leftWall = (cx - 1 < 0) || (board.cells[cy+1][cx-1] != 0);
+    bool rightWall = (cx + 1 >= COLS) || (board.cells[cy+1][cx+1] != 0);
+    if (!leftWall || !rightWall) return false;
+    
+    // 【水色】屋根条件：左右どちらか片方だけブロックが存在するか (XOR)
+    bool leftRoof = (cy - 1 < 0) || (cx - 1 < 0) || (board.cells[cy-1][cx-1] != 0);
+    bool rightRoof = (cy - 1 < 0) || (cx + 1 >= COLS) || (board.cells[cy-1][cx+1] != 0);
+    if (!(leftRoof ^ rightRoof)) return false; // 両方ある、または両方ない場合はfalse
+    
+    // 【黄色】道条件：屋根の逆側の進入路が空いているか
+    if (cy - 1 >= 0) {
+        if (leftRoof) {
+            // 左屋根なら、中と右の上が空いていること
+            if (board.cells[cy-1][cx] != 0 || (cx + 1 < COLS && board.cells[cy-1][cx+1] != 0)) return false;
+        } else {
+            // 右屋根なら、中と左の上が空いていること
+            if (board.cells[cy-1][cx] != 0 || (cx - 1 >= 0 && board.cells[cy-1][cx-1] != 0)) return false;
+        }
+    }
+    
+    return true; // 全ての条件をクリア＝TSD地形完成！
+}
+
+
+
+// 盤面全体のTSD穴をカウントする関数
+int countTSDShapes(const Board& board) {
+    int count = 0;
+    for (int cy = 1; cy < ROWS - 1; cy++) {
+        for (int cx = 1; cx < COLS - 1; cx++) {
+            if (isTSDShape(board, cx, cy)) count++;
+        }
+    }
+    return count;
+}
 
 int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, const std::vector<GridBlock>& droppedBlocks = {}) {
     int score = 0;
@@ -251,6 +303,10 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         score -= 3 * w.groundedBonus;
     }
 
+    // TSD地形があればボーナスを加算
+    int tsdCount = countTSDShapes(b);
+    score += tsdCount * w.tsdShape;
+
     return score;
 }
 
@@ -261,6 +317,8 @@ struct Placement {
     bool isFullyGrounded;
     int touchingCount;
     std::vector<GridBlock> blocks;
+    // ▼ これを追加！ ▼
+    bool isTSpin = false;
 };
 
 std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, int spawnY) {
@@ -286,6 +344,29 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
             int cleared = simBoard.checkLineAndClear();
             
             placements.push_back({rot, x, ghostY, spawnY, simBoard, cleared, info.isFullyGrounded, info.touchingCount, droppedBlocks});
+        }
+    }
+
+    // ▼▼ Tスピンワープ処理を追加 ▼▼
+    // ※ checkCollisionで弾かれていたエラーを消すため、直接ワープ登録します
+    if (pieceType == 2) { 
+        for (int cy = 1; cy < ROWS - 1; cy++) {
+            for (int cx = 1; cx < COLS - 1; cx++) {
+                if (isTSDShape(baseBoard, cx, cy)) {
+                    Placement p; // ※コンストラクタがないため、1つずつ代入
+                    p.rot = 2;
+                    p.x = cx - 1;
+                    p.y = cy - 2;
+                    p.spawnY = cy - 2;
+                    p.board = baseBoard; // 一旦元の盤面をコピー
+                    p.linesCleared = 0;
+                    p.isFullyGrounded = true;
+                    p.touchingCount = 0;
+                    p.isTSpin = true; 
+                    
+                    placements.push_back(p);
+                }
+            }
         }
     }
     return placements;
@@ -394,6 +475,11 @@ void searchBestMoveWasm(
             
             // 1手目の評価に重みをかけて総合スコアを算出
             int totalScore = ep1.score1 * P1_WEIGHT + score2 + earlyClearBonus;
+
+            // ★追加：1手目がTスピンで、かつ2ライン以上消したら特大ボーナス
+            if (ep1.p1.isTSpin && ep1.p1.linesCleared >= 2) {
+                totalScore += w.tsdClear;
+            }
             
             if(totalScore > bestTotalScore) {
                 bestTotalScore = totalScore;
@@ -402,6 +488,7 @@ void searchBestMoveWasm(
                 outResult[2] = ep1.score1 - baseScore; 
                 outResult[3] = ep1.path.p1; outResult[4] = ep1.p1.rot; outResult[5] = ep1.p1.x; outResult[6] = ep1.p1.y; outResult[7] = ep1.p1.spawnY;
                 outResult[8] = ep1.path.p2; outResult[9] = p2.rot; outResult[10] = p2.x; outResult[11] = p2.y;
+                outResult[12] = ep1.p1.isTSpin ? 1 : 0;
             }
         }
     }

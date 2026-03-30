@@ -13,34 +13,43 @@ window.CPU3 = class {
         this.baseScore = 0;     
 
         this.weights = {
-            lineClear: 50,         
-            hole: -20,             
-            heightLimit: -10,      
-            heightDiff: -15,       
-            flat: 2,
-            step1Good: 2, 
-            step1Bad: -1, 
-            step2Plus: -4, 
-            groundedBonus: 6, 
-            touchingBonus: 3,   
-            underSpace: -4, 
-            singleWell: 2, 
-            multiWell: -8,
+            lineClear: 14,
+            hole: -36, 
+            heightLimit: -22, 
+            heightDiff: -7, 
+            flat: 4,
+            step1Good: 3, 
+            step1Bad: -2, 
+            step2Plus: -8, 
+            groundedBonus: 12, 
+            touchingBonus: 6,   
+            underSpace: -6, 
+            singleWell: 5, 
+            multiWell: -10,
             
-            iWell: 20,           
-            iWellOver: -5,      
-            blocksOverHole: -5, 
+            iWell: 32,           
+            iWellOver: -10,      
+            blocksOverHole: -3, 
             
-            line4: 300,          
-            downstackGood: 30,   
-            downstackBad: -5,    
+            line4: 200,          
+            downstackGood: 48,   
+            downstackBad: -3,
+            tsdShape: 300,     // 
+            tsdClear: 640,    // 実際にTSDを打った時の特大ボーナス
 
-            P1_WEIGHT: 1.0,        
+            P1_WEIGHT: 0.8,        
+
+            
         };
 
         this.worker = new Worker('cpu/lv3/cpu_worker3.js');
         this.workerReady = false;
         this.isCalculating = false;
+
+        this.isExecutingAction = false; // アクション実行中かどうかのフラグ
+        this.actionQueue = [];          // 実行する操作のキュー（配列）
+        this.actionDelay = 1000;          // 1操作ごとの待機時間(ミリ秒)。好みに合わせて調整可能
+        
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
@@ -54,6 +63,172 @@ window.CPU3 = class {
         this.worker.onerror = (err) => {
             console.error("❌ Worker 3 Error: ", err.message, err.filename, err.lineno);
         };
+    }
+
+    // ★2. 既存の executeAction を以下の内容でまるごと上書きしてください
+    executeAction(bestResult) {
+        if (!this.isActive) return;
+
+        this.bestEstimate = bestResult;
+
+        if (this.isAutoPlay) {
+            // 既にアクション実行中なら重複させない
+            if (this.isExecutingAction) return;
+
+            this.isExecutingAction = true;
+            // 操作キューを構築
+            this.actionQueue = this.buildActionQueue(bestResult);
+            // キューの処理を開始
+            this.processActionQueue();
+
+            // ★修正ポイント2: すぐに開始せず、最初の1手目にも少しだけラグを入れる
+            setTimeout(() => {
+                this.processActionQueue();
+            }, this.actionDelay);
+        }
+    }
+
+
+    // ★3. クラス内に以下の3つの新しいメソッド（buildActionQueue, processActionQueue, updateMinoBlocks）を追加してください
+
+    // 受け取った結果から、実際のキー入力のような操作順序を組み立てる
+    buildActionQueue(bestResult) {
+        let queue = [];
+        
+        // 1. HOLDするかしないか
+        if (bestResult.action === 1) {
+            // ホールドする場合は0.2秒(200ms)待機する指定
+            queue.push({ type: 'hold', delay: 200 });
+            // HOLD後は新しいミノが降ってくるため、ここで今回のシーケンスは終了
+            return queue;
+        }
+
+        // 2. 回転 (左右どちらか使って回す)
+        let currentRot = this.game.currentMino.rot;
+        let targetRot = bestResult.rot;
+        let diff = (targetRot - currentRot + 4) % 4; // 回転の差分(0〜3)
+        
+        if (diff === 1) {
+            queue.push({ type: 'rotate', dir: 1, delay: this.actionDelay }); // 右回転1回
+        } else if (diff === 2) {
+            queue.push({ type: 'rotate', dir: 1, delay: this.actionDelay }); 
+            queue.push({ type: 'rotate', dir: 1, delay: this.actionDelay }); // 2回回転
+        } else if (diff === 3) {
+            queue.push({ type: 'rotate', dir: -1, delay: this.actionDelay }); // 左回転1回
+        }
+
+        // 3. 移動 (目標のX座標を設定)
+        let targetX = bestResult.x;
+        queue.push({ type: 'moveToTargetX', targetX: targetX, delay: this.actionDelay });
+
+        // 4. (将来、ソフドロからの回転入れを実装予定)
+        // // ▼ 追加：Tスピンの場合は穴の中にワープさせる ▼
+        if (bestResult.isTSpin) {
+            queue.push({ type: 'warpToY', targetY: bestResult.y, delay: this.actionDelay });
+        };
+
+        // 5. ハードドロップ
+        queue.push({ type: 'harddrop', delay: this.actionDelay });
+
+        return queue;
+    }
+
+    // キューから操作を1つ取り出して実行し、次を予約する
+    processActionQueue() {
+        // 中断されたり、キューが空になったら終了
+        if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
+            this.isExecutingAction = false;
+            return;
+        }
+
+        const action = this.actionQueue.shift();
+
+        // ★修正ポイント4: 現在のミノがゲーム側で確定(ロック)されていないか確認
+        // (ゲームループ側で勝手に着地判定されてしまうのを防ぐ)
+        if (!this.game.currentMino) {
+            this.isExecutingAction = false;
+            this.actionQueue = [];
+            return;
+        }
+
+        switch (action.type) {
+            case 'hold':
+                this.game.hold();
+                break;
+                
+            case 'rotate':
+                if (action.dir === 1) {
+                    this.game.currentMino.rot = (this.game.currentMino.rot + 1) % 4;
+                } else {
+                    this.game.currentMino.rot = (this.game.currentMino.rot + 3) % 4;
+                }
+                this.updateMinoBlocks();
+                break;
+                
+            case 'moveToTargetX':
+                // targetX に向かって1マスずつ移動し、まだ到達していなければキューの先頭に戻す
+                if (this.game.currentMino.x < action.targetX) {
+                    this.game.currentMino.x++;
+                    this.updateMinoBlocks();
+                    this.actionQueue.unshift(action); // まだ移動が必要なのでキューに戻す
+                } else if (this.game.currentMino.x > action.targetX) {
+                    this.game.currentMino.x--;
+                    this.updateMinoBlocks();
+                    this.actionQueue.unshift(action); // まだ移動が必要なのでキューに戻す
+                }
+                break;
+
+            // ▼ 追加：ワープ処理 ▼
+            case 'warpToY':
+                this.game.currentMino.y = action.targetY;
+                this.updateMinoBlocks();
+                break;
+                
+            case 'harddrop':
+                let dropDistance = 0;
+                while (!this.game.checkCollision(0, dropDistance + 1, this.game.currentMino)) {
+                    dropDistance++;
+                }
+                this.game.currentMino.y += dropDistance;
+                this.updateMinoBlocks();
+                this.game.lockMino(); // 固定
+                break;
+        }
+
+        // 描画を即座に反映させる（gameオブジェクトに描画メソッドがある場合）
+        if (typeof this.game.draw === 'function') {
+            this.game.draw();
+        } else if (typeof this.game.render === 'function') {
+            this.game.render();
+        }
+
+        if (this.actionQueue.length > 0) {
+            let delayTime = action.delay || this.actionDelay;
+            // アロー関数で this を保持しつつタイマーセット
+            setTimeout(() => {
+                // タイマー発火時にまだアクティブか再確認
+                if (this.isActive && this.isAutoPlay) {
+                    this.processActionQueue();
+                }
+            }, delayTime);
+        } else {
+            // ここで即座に false にせず、少しだけ余韻を残す(任意)
+            setTimeout(() => {
+                this.isExecutingAction = false;
+            }, 50);
+        }
+    }
+
+    // 回転や移動をした際に、ブロックの実座標データを更新するための補助メソッド
+    updateMinoBlocks() {
+        if (this.game.currentMino) {
+            this.game.currentMino.blocks = this.game.getBlocks(
+                this.game.currentMino.id,
+                this.game.currentMino.rot,
+                this.game.currentMino.x,
+                this.game.currentMino.y
+            );
+        }
     }
 
     initEstimateContainer() {
@@ -171,7 +346,8 @@ window.CPU3 = class {
             diff: res[2],
             id: res[3], rot: res[4], x: res[5], spawnY: res[7],
             p1: { id: res[3], rot: res[4], x: res[5], y: res[6] },
-            p2: res[8] !== -1 ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null
+            p2: res[8] !== -1 ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
+            isTSpin: (res[12] === 1) // ★C++から受け取ったフラグ
         };
 
         this.bestMoveData = bestMove;
