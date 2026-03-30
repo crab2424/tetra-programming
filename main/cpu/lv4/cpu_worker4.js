@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────
-// cpu_worker2.js
-// Web Worker上で動き、Wasmを呼び出す作業員（時間計測付き）
+// cpu_worker4.js
+// CPU4(中級) 用のWeb Worker.Wasm(4)を呼び出します。
+// ★完全版：メモリサイズの拡張と保護を行いました
 // ─────────────────────────────────────────────
 
 let wasmReady = false;
@@ -24,38 +25,36 @@ self.onmessage = function(e) {
     const data = e.data;
     if (data.type !== 'calculate') return;
 
+    // メモリ確保 (24要素の重み、26要素の戻り値に対応)
     if (boardPtr === null) {
-        boardPtr = Module._my_malloc(200);      
-        weightsPtr = Module._my_malloc(4 * 16); // パラメータを16個に拡張済み
-        resultPtr = Module._my_malloc(4 * 12);  
+        boardPtr   = Module._my_malloc(200);       
+        weightsPtr = Module._my_malloc(4 * 24); // 最大24要素まで確保
+        resultPtr  = Module._my_malloc(4 * 26); // 最大26要素まで確保
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
     HEAP32.set(data.weightsArray, weightsPtr / 4);
 
-    // ★ ここから時間計測スタート！
     const startTime = performance.now();
 
-    // C++の関数を呼び出して爆速計算
     Module._searchBestMoveWasm(
         boardPtr,
         data.currentType,
         data.holdType,
         data.next1,
         data.next2,
+        data.next3,
         data.canHold,
         weightsPtr, 
         resultPtr
     );
 
-    // ★ ここで時間計測ストップ！
     const endTime = performance.now();
-    const timeTaken = (endTime - startTime).toFixed(2); // 小数点2桁まで
+    const timeTaken = (endTime - startTime).toFixed(2);
 
-    // C++の処理にかかった時間をコンソールに出力
-    console.log(`⚡ Wasm CPU2 Calculated in: ${timeTaken} ms`);
+    console.log(`⚡ Wasm CPU4 Calculated in: ${timeTaken} ms`);
 
-    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 12);
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 26);
 
     self.postMessage({
         type: 'result',
