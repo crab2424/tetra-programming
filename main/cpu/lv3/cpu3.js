@@ -42,7 +42,8 @@ window.CPU3 = class {
             // ★追加・変更：TSSとTSDのボーナス分離、および空洞ペナルティ
             tssClear: 400,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
             tsdClear: 4800,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
-            tsdHolePenalty: -2000, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
+            tsdHolePenalty: 2000, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
+            pureHole: -500,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
 
             P1_WEIGHT: 0.8,        
         };
@@ -71,7 +72,6 @@ window.CPU3 = class {
 
     executeAction(bestResult) {
         if (!this.isActive) return;
-
         this.bestEstimate = bestResult;
 
         if (this.isAutoPlay) {
@@ -116,7 +116,6 @@ window.CPU3 = class {
         };
 
         queue.push({ type: 'harddrop', delay: this.actionDelay });
-
         return queue;
     }
 
@@ -138,16 +137,10 @@ window.CPU3 = class {
             case 'hold':
                 this.game.hold();
                 break;
-                
             case 'rotate':
-                if (action.dir === 1) {
-                    this.game.currentMino.rot = (this.game.currentMino.rot + 1) % 4;
-                } else {
-                    this.game.currentMino.rot = (this.game.currentMino.rot + 3) % 4;
-                }
+                this.game.currentMino.rot = (this.game.currentMino.rot + (action.dir === 1 ? 1 : 3)) % 4;
                 this.updateMinoBlocks();
                 break;
-                
             case 'moveToTargetX':
                 if (this.game.currentMino.x < action.targetX) {
                     this.game.currentMino.x++;
@@ -159,12 +152,10 @@ window.CPU3 = class {
                     this.actionQueue.unshift(action); 
                 }
                 break;
-
             case 'warpToY':
                 this.game.currentMino.y = action.targetY;
                 this.updateMinoBlocks();
                 break;
-                
             case 'harddrop':
                 let dropDistance = 0;
                 while (!this.game.checkCollision(0, dropDistance + 1, this.game.currentMino)) {
@@ -176,23 +167,16 @@ window.CPU3 = class {
                 break;
         }
 
-        if (typeof this.game.draw === 'function') {
-            this.game.draw();
-        } else if (typeof this.game.render === 'function') {
-            this.game.render();
-        }
+        if (typeof this.game.draw === 'function') this.game.draw();
+        else if (typeof this.game.render === 'function') this.game.render();
 
         if (this.actionQueue.length > 0) {
             let delayTime = action.delay || this.actionDelay;
             setTimeout(() => {
-                if (this.isActive && this.isAutoPlay) {
-                    this.processActionQueue();
-                }
+                if (this.isActive && this.isAutoPlay) this.processActionQueue();
             }, delayTime);
         } else {
-            setTimeout(() => {
-                this.isExecutingAction = false;
-            }, 50);
+            setTimeout(() => { this.isExecutingAction = false; }, 50);
         }
     }
 
@@ -239,9 +223,7 @@ window.CPU3 = class {
     stop() {
         this.isActive = false;
         this.bestMoveData = null;
-        if (this.estimateContainer) {
-            this.estimateContainer.innerHTML = '';
-        }
+        if (this.estimateContainer) this.estimateContainer.innerHTML = '';
         if (this.worker) {
             this.worker.terminate();
             this.worker = null;
@@ -289,9 +271,12 @@ window.CPU3 = class {
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
             Math.round(this.weights.P1_WEIGHT * 100), 
             this.weights.tsdShape,                    
-            this.weights.tsdClear,                    
             this.weights.tsdShapeOver,                
-            this.weights.tsdFillBonus                 
+            this.weights.tsdFillBonus,
+            this.weights.tssClear,                    
+            this.weights.tsdClear,                    
+            this.weights.tsdHolePenalty,              
+            this.weights.pureHole                     
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
@@ -326,17 +311,28 @@ window.CPU3 = class {
             action: actionInt === 1 ? 'hold' : 'play',
             score: res[1],
             diff: res[2],
-            id: res[3], rot: res[4], x: res[5], spawnY: res[7],
-            p1: { id: res[3], rot: res[4], x: res[5], y: res[6] },
-            p2: res[8]  !== -1 ? { id: res[8],  rot: res[9],  x: res[10], y: res[11] } : null,
+            // ★JSエラー防止：idが0〜6の正常な値の時のみオブジェクトを作成する
+            p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6], spawnY: res[7] } : null,
+            p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
             isTSpin: (res[12] === 1), 
-            p3: res[13] !== undefined && res[13] !== -1 ? { id: res[13], rot: res[14], x: res[15], y: res[16] } : null,
-            p4: res[17] !== undefined && res[17] !== -1 ? { id: res[17], rot: res[18], x: res[19], y: res[20] } : null,
+            p3: (res[13] >= 0 && res[13] <= 6) ? { id: res[13], rot: res[14], x: res[15], y: res[16] } : null,
+            p4: (res[17] >= 0 && res[17] <= 6) ? { id: res[17], rot: res[18], x: res[19], y: res[20] } : null,
+            
+            totalScore: res[21] || 0,
+            step1Score: res[22] || 0,
+            step2Score: res[23] || 0,
+            step3Score: res[24] || 0,
+            step4Score: res[25] || 0,
         };
 
-        this.bestMoveData = bestMove;
+        // 互換性のため直下にプロパティも配置
+        if(bestMove.p1) {
+            bestMove.id = bestMove.p1.id; bestMove.rot = bestMove.p1.rot; bestMove.x = bestMove.p1.x; bestMove.spawnY = bestMove.p1.spawnY;
+        }
 
-        // クリアラインの記録は一応残しておく（デバッグ用）
+        this.bestMoveData = bestMove;
+        console.log(`[CPU Eval] Total: ${bestMove.totalScore} | 1st: ${bestMove.step1Score} | 2nd: ${bestMove.step2Score} | 3rd: ${bestMove.step3Score} | 4th: ${bestMove.step4Score}`);
+
         if (bestMove.p1) {
             let simMino1 = new Mino(bestMove.p1.id);
             for(let i = 0; i < bestMove.p1.rot; i++) simMino1.rotate();
@@ -367,7 +363,7 @@ window.CPU3 = class {
             this.renderEstimatePlace(); 
         }
 
-        if (this.isAutoPlay && this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
+        if (this.isAutoPlay && this.isActive && !this.game.isPaused && this.game.mino === this.currentMino && bestMove.p1) {
             if (bestMove.action === 'hold') {
                 setTimeout(() => {
                     if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
@@ -420,7 +416,6 @@ window.CPU3 = class {
         this.game.drawAll();
     }
 
-    // ★修正：4手先まで描画＆ライン消去の累積をシミュレーションしてY座標を補正する
     renderEstimatePlace() {
         if (!this.estimateContainer) this.initEstimateContainer();
         if (!this.estimateContainer) return;
@@ -429,7 +424,6 @@ window.CPU3 = class {
 
         if (!this.isActive || !this.bestMoveData) return;
 
-        // 描画するステップのリスト
         const steps = [
             { data: this.bestMoveData.p1, name: 'step1' },
             { data: this.bestMoveData.p2, name: 'step2' },
@@ -437,15 +431,11 @@ window.CPU3 = class {
             { data: this.bestMoveData.p4, name: 'step4' }
         ];
 
-        // 簡易シミュレーション用フィールドの作成 (20x10)
         let simField = Array.from({ length: 20 }, () => Array(10).fill(0));
         this.game.field.blocks.forEach(b => {
-            if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) {
-                simField[b.y][b.x] = 1;
-            }
+            if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) simField[b.y][b.x] = 1;
         });
 
-        // シミュレーション盤面上のY座標から、実際の画面上のY座標へのマッピング
         let yMap = {};
         for (let i = -10; i < 20; i++) yMap[i] = i;
 
@@ -453,39 +443,28 @@ window.CPU3 = class {
             const step = steps[i];
             if (!step.data) continue;
 
-            // 1. ブロックを描画（この時点でのyMapを使用してズレを補正）
             this.createEstimateBlocks(step.data, step.name, yMap);
 
-            // 2. シミュレーション盤面にブロックを置く
             let simMino = new Mino(step.data.id);
             for(let r = 0; r < step.data.rot; r++) simMino.rotate();
             let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + step.data.x, y: b.y + step.data.y }));
 
             for (let b of droppedBlocks) {
-                if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) {
-                    simField[b.y][b.x] = 1;
-                }
+                if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) simField[b.y][b.x] = 1;
             }
 
-            // 3. ライン消去判定
             let clearedSimLines = [];
             for (let y = 0; y < 20; y++) {
                 let isFull = true;
                 for (let x = 0; x < 10; x++) {
-                    if (simField[y][x] === 0) {
-                        isFull = false;
-                        break;
-                    }
+                    if (simField[y][x] === 0) { isFull = false; break; }
                 }
                 if (isFull) clearedSimLines.push(y);
             }
 
-            // 4. 盤面の更新とyMapの更新
             if (clearedSimLines.length > 0) {
                 for (let y of clearedSimLines) {
-                    for (let ty = y; ty > 0; ty--) {
-                        simField[ty] = [...simField[ty - 1]];
-                    }
+                    for (let ty = y; ty > 0; ty--) simField[ty] = [...simField[ty - 1]];
                     simField[0] = Array(10).fill(0);
                 }
 
@@ -505,24 +484,13 @@ window.CPU3 = class {
         }
     }
 
-    // ★修正：yMapを受け取り、手数が進むごとに透明度を下げる
     createEstimateBlocks(pData, stepClass, yMap) {
         let simMino = new Mino(pData.id);
         for(let i = 0; i < pData.rot; i++) simMino.rotate();
 
-        // 後の手ほど薄く表示する
-        const opacityMap = {
-            'step1': 0.9,
-            'step2': 0.6,
-            'step3': 0.35,
-            'step4': 0.15
-        };
-        const bgOpacityMap = {
-            'step1': 0.3,
-            'step2': 0.2,
-            'step3': 0.1,
-            'step4': 0.05
-        };
+        const opacityMap = { 'step1': 0.9, 'step2': 0.6, 'step3': 0.35, 'step4': 0.15 };
+        const bgOpacityMap = { 'step1': 0.3, 'step2': 0.2, 'step3': 0.1, 'step4': 0.05 };
+        const zIndexMap = { 'step1': '4', 'step2': '3', 'step3': '2', 'step4': '1' };
 
         const colorMap = {
             0: { border: `rgba(0, 240, 240, ${opacityMap[stepClass]})`, bg: `rgba(0, 240, 240, ${bgOpacityMap[stepClass]})` }, 
@@ -535,22 +503,11 @@ window.CPU3 = class {
         };
         const colors = colorMap[pData.id] || { border: `rgba(255, 255, 255, ${opacityMap[stepClass]})`, bg: `rgba(255, 255, 255, ${bgOpacityMap[stepClass]})` };
 
-        // 先の手のブロックほど後ろ(下)に描画されるようにする
-        const zIndexMap = {
-            'step1': '4',
-            'step2': '3',
-            'step3': '2',
-            'step4': '1'
-        };
-
         simMino.blocks.forEach(block => {
             let drawX = block.x + pData.x;
             let drawY = block.y + pData.y;
 
-            // 累積されたライン消去によるY座標のズレを補正
-            if (yMap && yMap[drawY] !== undefined) {
-                drawY = yMap[drawY];
-            }
+            if (yMap && yMap[drawY] !== undefined) drawY = yMap[drawY];
 
             if (drawY >= -1 && drawY < 20) {
                 let div = document.createElement('div');

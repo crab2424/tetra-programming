@@ -36,7 +36,6 @@ public:
         if(y < 0) return false;
         return cells[y][x] != 0;
     }
-    // ★追加：指定したマスの「上空」にブロックがあるか（空洞かどうかの判定用）
     bool hasBlockAbove(int x, int y) const {
         for (int ty = y - 1; ty >= 0; ty--) {
             if (cells[ty][x] != 0) return true;
@@ -109,6 +108,7 @@ PlacementInfo calcPlacementInfo(const Board& b, const std::vector<GridBlock>& bl
     return {isFullyGrounded, touchingCount};
 }
 
+// パラメータ：全24要素
 struct EvalWeights {
     int lineClear, hole, heightLimit, heightDiff, flat;
     int step1Good, step1Bad, step2Plus, groundedBonus, touchingBonus;
@@ -116,17 +116,17 @@ struct EvalWeights {
     int line4, downstackGood, downstackBad;
     int p1Weight; 
     int tsdShape;  
-    int tsdClear;  
     int tsdShapeOver; 
     int tsdFillBonus; 
     int tssClear;       
+    int tsdClear;  
     int tsdHolePenalty; 
+    int pureHole; 
 };
 
 bool isTSDShape(const Board& board, int cx, int cy) {
     if (cx < 1 || cx >= COLS - 1 || cy < 0 || cy >= ROWS - 1) return false;
     
-    // 【紫】空白条件
     if (board.cells[cy][cx] != 0 || 
         board.cells[cy][cx-1] != 0 || 
         board.cells[cy][cx+1] != 0 || 
@@ -140,7 +140,6 @@ bool isTSDShape(const Board& board, int cx, int cy) {
         return board.cells[y][x] != 0;
     };
 
-    // 綺麗なTSD地形の周辺条件（6箇所）
     if (!isSolid(cx - 2, cy)) return false;
     if (!isSolid(cx + 2, cy)) return false;
     if (!isSolid(cx - 2, cy + 1)) return false;
@@ -148,12 +147,10 @@ bool isTSDShape(const Board& board, int cx, int cy) {
     if (!isSolid(cx - 1, cy + 1)) return false; 
     if (!isSolid(cx + 1, cy + 1)) return false; 
     
-    // 【水色】屋根条件
     bool leftRoof = (cy - 1 < 0) || (cx - 1 < 0) || (board.cells[cy-1][cx-1] != 0);
     bool rightRoof = (cy - 1 < 0) || (cx + 1 >= COLS) || (board.cells[cy-1][cx+1] != 0);
     if (!(leftRoof ^ rightRoof)) return false; 
     
-    // 【黄色】道条件
     if (cy - 1 >= 0) {
         if (leftRoof) {
             if (board.cells[cy-1][cx] != 0 || (cx + 1 < COLS && board.cells[cy-1][cx+1] != 0)) return false;
@@ -167,7 +164,7 @@ bool isTSDShape(const Board& board, int cx, int cy) {
 struct TSDStats {
     int count;
     int fillCount; 
-    int holeCount; // ★追加：TSDの段に作られた空洞の数
+    int holeCount; 
 };
 
 TSDStats analyzeTSD(const Board& board) {
@@ -178,22 +175,18 @@ TSDStats analyzeTSD(const Board& board) {
                 stats.count++;
                 if (stats.count == 1) { 
                     for (int x = 0; x < COLS; x++) {
-                        // Tミノが入るマス以外について、ブロックが埋まっているか、または空洞（上が塞がれた穴）かを判定する
-                        
-                        // 上段 (cy)
                         if (x != cx - 1 && x != cx && x != cx + 1) {
                             if (board.cells[cy][x] != 0) {
                                 stats.fillCount++;
                             } else if (board.hasBlockAbove(x, cy)) {
-                                stats.holeCount++; // 空きマスの上空にブロックがある＝空洞
+                                stats.holeCount++; 
                             }
                         }
-                        // 下段 (cy+1)
                         if (x != cx) {
                             if (board.cells[cy + 1][x] != 0) {
                                 stats.fillCount++;
                             } else if (board.hasBlockAbove(x, cy + 1)) {
-                                stats.holeCount++; // 空きマスの上空にブロックがある＝空洞
+                                stats.holeCount++; 
                             }
                         }
                     }
@@ -207,12 +200,8 @@ TSDStats analyzeTSD(const Board& board) {
 int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, const std::vector<GridBlock>& droppedBlocks = {}) {
     int score = 0;
 
-    if (linesCleared > 0) {
-        score += (linesCleared - 2) * w.lineClear;
-    }
-    if (linesCleared >= 4) {
-        score += w.line4;
-    }
+    if (linesCleared > 0) score += (linesCleared - 2) * w.lineClear;
+    if (linesCleared >= 4) score += w.line4;
 
     if (linesCleared >= 1 && linesCleared <= 3 && !droppedBlocks.empty()) {
         int minoBottomY = -1;
@@ -222,11 +211,8 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         int n = 19 - minoBottomY;
         if (n < 0) n = 0;
 
-        if (n >= 3 && isGrounded) {
-            score += w.downstackGood * n; 
-        } else if (n < 3) {
-            score += w.downstackBad * 10 * n; 
-        }
+        if (n >= 3 && isGrounded) score += w.downstackGood * n; 
+        else if (n < 3) score += w.downstackBad * 10 * n; 
     }
 
     int heights[COLS] = {0};
@@ -252,6 +238,20 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     score += (maxHeight - minHeight) * w.heightDiff;
     if(maxHeight >= 8) score += (maxHeight - 7) * w.heightLimit;
     score += holes * w.hole;
+
+    int pureHolesCount = 0;
+    for(int y = 0; y < ROWS; y++) {
+        for(int x = 0; x < COLS; x++) {
+            if(b.cells[y][x] == 0) {
+                bool up    = (y == 0) || (b.cells[y-1][x] != 0);
+                bool down  = (y == ROWS-1) || (b.cells[y+1][x] != 0);
+                bool left  = (x == 0) || (b.cells[y][x-1] != 0);
+                bool right = (x == COLS-1) || (b.cells[y][x+1] != 0);
+                if(up && down && left && right) pureHolesCount++;
+            }
+        }
+    }
+    score += pureHolesCount * w.pureHole;
 
     int step1Count = 0;
     for(int x = 0; x < COLS - 1; x++) {
@@ -337,16 +337,15 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         score -= 3 * w.groundedBonus;
     }
 
-    // ★修正：盤面にTスピンの地形がある時、その段に空洞があるなら特大ペナルティを引く
     TSDStats tsd = analyzeTSD(b);
     if (tsd.count == 1) {
         score += w.tsdShape;
         score += tsd.fillCount * w.tsdFillBonus; 
-        score -= tsd.holeCount * w.tsdHolePenalty; // 空洞ペナルティ
+        score += tsd.holeCount * w.tsdHolePenalty; 
     } else if (tsd.count >= 2) {
         score += w.tsdShape; 
         score += (tsd.count - 1) * w.tsdShapeOver; 
-        score -= tsd.holeCount * w.tsdHolePenalty; // 空洞ペナルティ
+        score += tsd.holeCount * w.tsdHolePenalty; 
     }
 
     return score;
@@ -398,7 +397,6 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                     int spawn = cy - 2;
                     
                     std::vector<GridBlock> droppedBlocks = getRotatedBlocks(pieceType, rot, x, y);
-                    
                     Board simBoard = baseBoard;
                     for(const auto& blk : droppedBlocks) {
                         if(blk.y >= 0 && blk.y < ROWS && blk.x >= 0 && blk.x < COLS) {
@@ -410,12 +408,8 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                     int cleared = simBoard.checkLineAndClear();
                     
                     Placement p; 
-                    p.rot = rot;
-                    p.x = x;
-                    p.y = y;
-                    p.spawnY = spawn;
-                    p.board = simBoard; 
-                    p.linesCleared = cleared; 
+                    p.rot = rot; p.x = x; p.y = y; p.spawnY = spawn;
+                    p.board = simBoard; p.linesCleared = cleared; 
                     p.isFullyGrounded = info.isFullyGrounded;
                     p.touchingCount = info.touchingCount;
                     p.blocks = droppedBlocks;
@@ -448,10 +442,10 @@ struct SearchState {
     int total_score;  
     Board board;
     
-    Placement p1; bool has_p1 = false;
-    Placement p2; bool has_p2 = false;
-    Placement p3; bool has_p3 = false;
-    Placement p4; bool has_p4 = false;
+    Placement p1; bool has_p1 = false; int step1_score = 0;
+    Placement p2; bool has_p2 = false; int step2_score = 0;
+    Placement p3; bool has_p3 = false; int step3_score = 0;
+    Placement p4; bool has_p4 = false; int step4_score = 0;
 };
 
 EMSCRIPTEN_KEEPALIVE
@@ -460,6 +454,9 @@ void searchBestMoveWasm(
     int* weightsArray, 
     int* outResult
 ){
+    // ゴミデータによるJS側エラー防止のため、結果配列を全て -1 で初期化
+    for(int i = 0; i < 26; i++) outResult[i] = -1;
+
     Board baseBoard;
     for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
 
@@ -469,7 +466,7 @@ void searchBestMoveWasm(
         weightsArray[10], weightsArray[11], weightsArray[12], 
         weightsArray[13], weightsArray[14], weightsArray[15],
         weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], weightsArray[20],
-        weightsArray[21], weightsArray[22]
+        weightsArray[21], weightsArray[22], weightsArray[23]
     };
 
     int baseScore = evaluateBoard(baseBoard, 0, false, 0, w);
@@ -480,13 +477,9 @@ void searchBestMoveWasm(
     std::vector<Path> paths;
 
     paths.push_back({0, A, C, D, E});
-
     if(canHold == 1) {
-        if(B != -1) {
-            paths.push_back({1, B, A, C, D});
-        } else {
-            paths.push_back({1, C, A, D, E});
-        }
+        if(B != -1) paths.push_back({1, B, A, C, D});
+        else paths.push_back({1, C, A, D, E});
     }
 
     auto getSpawnY = [](int type) { return type == 0 ? -1 : -2; };
@@ -496,24 +489,21 @@ void searchBestMoveWasm(
         int multiplier = 5 - depth; 
         if (p.linesCleared >= 4) bonus += w.line4 * multiplier;
         
-        // ★修正：打った時のイベントボーナスは加算のみ
         if (p.isTSpin) {
-            if (p.linesCleared == 1) {
-                bonus += w.tssClear * multiplier; 
-            } else if (p.linesCleared >= 2) {
-                bonus += w.tsdClear * multiplier; 
-            }
+            if (p.linesCleared == 1) bonus += w.tssClear * multiplier; 
+            else if (p.linesCleared >= 2) bonus += w.tsdClear * multiplier; 
         }
         return bonus;
     };
 
+    // ── ビームサーチ ──
     std::vector<SearchState> final_states;
     std::vector<SearchState> current_states;
     std::vector<SearchState> next_states;
     const size_t BEAM_WIDTH = 8;
     const int P1_WEIGHT_PCT = w.p1Weight; 
 
-    // ─── 1手目の展開 ───
+    // Step 1
     for(size_t i = 0; i < paths.size(); i++) {
         const auto& path = paths[i];
         std::vector<Placement> p1_list = getAllPlacements(baseBoard, path.p1, getSpawnY(path.p1));
@@ -523,13 +513,10 @@ void searchBestMoveWasm(
             int totalScore = score1 * P1_WEIGHT_PCT / 100 + eventBonus;
 
             SearchState s;
-            s.action = path.action;
-            s.path_index = i;
-            s.p1_score = score1;
-            s.total_score = totalScore;
-            s.board = p1.board;
-            s.p1 = p1;
-            s.has_p1 = true;
+            s.action = path.action; s.path_index = i;
+            s.p1_score = score1; s.total_score = totalScore;
+            s.board = p1.board; s.p1 = p1; s.has_p1 = true;
+            s.step1_score = totalScore;
             next_states.push_back(s);
         }
     }
@@ -541,26 +528,21 @@ void searchBestMoveWasm(
     }
     current_states = next_states;
 
-    // ─── 2手目の展開 ───
+    // Step 2
     next_states.clear();
     for(const auto& state : current_states) {
         int p2_type = paths[state.path_index].p2;
         std::vector<Placement> p2_list = getAllPlacements(state.board, p2_type, getSpawnY(p2_type));
         
-        if(p2_list.empty()) {
-            final_states.push_back(state);
-            continue;
-        }
+        if(p2_list.empty()) { final_states.push_back(state); continue; }
 
         for(const auto& p2 : p2_list) {
             int score2 = evaluateBoard(p2.board, p2.linesCleared, p2.isFullyGrounded, p2.touchingCount, w, p2.blocks);
-            int eventBonus = calcEventBonus(p2, 2);
+            int stepScore = score2 + calcEventBonus(p2, 2);
 
             SearchState s = state;
-            s.total_score += score2 + eventBonus;
-            s.board = p2.board;
-            s.p2 = p2;
-            s.has_p2 = true;
+            s.total_score += stepScore; s.board = p2.board; s.p2 = p2; s.has_p2 = true;
+            s.step2_score = stepScore;
             next_states.push_back(s);
         }
     }
@@ -572,26 +554,21 @@ void searchBestMoveWasm(
     }
     current_states = next_states;
 
-    // ─── 3手目の展開 ───
+    // Step 3
     next_states.clear();
     for(const auto& state : current_states) {
         int p3_type = paths[state.path_index].p3;
         std::vector<Placement> p3_list = getAllPlacements(state.board, p3_type, getSpawnY(p3_type));
         
-        if(p3_list.empty()) {
-            final_states.push_back(state);
-            continue;
-        }
+        if(p3_list.empty()) { final_states.push_back(state); continue; }
 
         for(const auto& p3 : p3_list) {
             int score3 = evaluateBoard(p3.board, p3.linesCleared, p3.isFullyGrounded, p3.touchingCount, w, p3.blocks);
-            int eventBonus = calcEventBonus(p3, 3);
+            int stepScore = score3 + calcEventBonus(p3, 3);
 
             SearchState s = state;
-            s.total_score += score3 + eventBonus;
-            s.board = p3.board;
-            s.p3 = p3;
-            s.has_p3 = true;
+            s.total_score += stepScore; s.board = p3.board; s.p3 = p3; s.has_p3 = true;
+            s.step3_score = stepScore;
             next_states.push_back(s);
         }
     }
@@ -603,26 +580,21 @@ void searchBestMoveWasm(
     }
     current_states = next_states;
 
-    // ─── 4手目の展開 ───
+    // Step 4
     next_states.clear();
     for(const auto& state : current_states) {
         int p4_type = paths[state.path_index].p4;
         std::vector<Placement> p4_list = getAllPlacements(state.board, p4_type, getSpawnY(p4_type));
         
-        if(p4_list.empty()) {
-            final_states.push_back(state);
-            continue;
-        }
+        if(p4_list.empty()) { final_states.push_back(state); continue; }
 
         for(const auto& p4 : p4_list) {
             int score4 = evaluateBoard(p4.board, p4.linesCleared, p4.isFullyGrounded, p4.touchingCount, w, p4.blocks);
-            int eventBonus = calcEventBonus(p4, 4);
+            int stepScore = score4 + calcEventBonus(p4, 4);
 
             SearchState s = state;
-            s.total_score += score4 + eventBonus;
-            s.board = p4.board;
-            s.p4 = p4;
-            s.has_p4 = true;
+            s.total_score += stepScore; s.board = p4.board; s.p4 = p4; s.has_p4 = true;
+            s.step4_score = stepScore;
             next_states.push_back(s);
         }
     }
@@ -633,12 +605,9 @@ void searchBestMoveWasm(
         next_states.resize(BEAM_WIDTH);
     }
 
-    for(const auto& state : next_states) {
-        final_states.push_back(state);
-    }
+    for(const auto& state : next_states) final_states.push_back(state);
 
-    // ─── 最終結果の選択 ───
-    outResult[0] = -1; 
+    // ─── 最終結果選択 ───
     int bestTotalScore = -10000000;
     const SearchState* bestState = nullptr;
 
@@ -656,31 +625,18 @@ void searchBestMoveWasm(
         outResult[1] = bestState->p1_score; 
         outResult[2] = bestState->p1_score - baseScore; 
 
-        outResult[3] = path.p1; 
-        outResult[4] = bestState->p1.rot; 
-        outResult[5] = bestState->p1.x; 
-        outResult[6] = bestState->p1.y; 
-        outResult[7] = bestState->p1.spawnY;
-        
+        outResult[3] = path.p1; outResult[4] = bestState->p1.rot; outResult[5] = bestState->p1.x; outResult[6] = bestState->p1.y; outResult[7] = bestState->p1.spawnY;
         outResult[12] = bestState->p1.isTSpin ? 1 : 0;
         
-        if(bestState->has_p2) {
-            outResult[8] = path.p2; outResult[9] = bestState->p2.rot; outResult[10] = bestState->p2.x; outResult[11] = bestState->p2.y;
-        } else {
-            outResult[8] = -1;
-        }
+        if(bestState->has_p2) { outResult[8] = path.p2; outResult[9] = bestState->p2.rot; outResult[10] = bestState->p2.x; outResult[11] = bestState->p2.y; }
+        if(bestState->has_p3) { outResult[13] = path.p3; outResult[14] = bestState->p3.rot; outResult[15] = bestState->p3.x; outResult[16] = bestState->p3.y; }
+        if(bestState->has_p4) { outResult[17] = path.p4; outResult[18] = bestState->p4.rot; outResult[19] = bestState->p4.x; outResult[20] = bestState->p4.y; }
 
-        if(bestState->has_p3) {
-            outResult[13] = path.p3; outResult[14] = bestState->p3.rot; outResult[15] = bestState->p3.x; outResult[16] = bestState->p3.y;
-        } else {
-            outResult[13] = -1;
-        }
-
-        if(bestState->has_p4) {
-            outResult[17] = path.p4; outResult[18] = bestState->p4.rot; outResult[19] = bestState->p4.x; outResult[20] = bestState->p4.y;
-        } else {
-            outResult[17] = -1;
-        }
+        outResult[21] = bestState->total_score;
+        outResult[22] = bestState->step1_score;
+        outResult[23] = bestState->has_p2 ? bestState->step2_score : 0;
+        outResult[24] = bestState->has_p3 ? bestState->step3_score : 0;
+        outResult[25] = bestState->has_p4 ? bestState->step4_score : 0;
     }
 }
 }

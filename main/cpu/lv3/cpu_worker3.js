@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────
 // cpu_worker3.js
 // CPU3(中級) 用のWeb Worker。Wasm(3)を呼び出します。
-// ★4手読み対応（next3引数追加、weights19要素、result21要素）
+// ★完全版：メモリサイズの拡張と保護を行いました
 // ─────────────────────────────────────────────
 
 let wasmReady = false;
@@ -13,7 +13,6 @@ self.Module = {
     }
 };
 
-// ★今後作成するWasmファイル名を指定します
 importScripts('cpu_wasm3.js');
 
 let boardPtr = null;
@@ -26,10 +25,11 @@ self.onmessage = function(e) {
     const data = e.data;
     if (data.type !== 'calculate') return;
 
+    // メモリ確保 (24要素の重み、26要素の戻り値に対応)
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(200);       
-        weightsPtr = Module._my_malloc(4 * 19); // ★変更：16→19（p1Weight, tsdShape, tsdClear追加）
-        resultPtr  = Module._my_malloc(4 * 21); // ★変更：12→21（p3/p4の結果格納分を追加）
+        weightsPtr = Module._my_malloc(4 * 24); // 最大24要素まで確保
+        resultPtr  = Module._my_malloc(4 * 26); // 最大26要素まで確保
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
@@ -43,7 +43,7 @@ self.onmessage = function(e) {
         data.holdType,
         data.next1,
         data.next2,
-        data.next3,   // ★追加：4手読み用NEXT3
+        data.next3,
         data.canHold,
         weightsPtr, 
         resultPtr
@@ -54,7 +54,7 @@ self.onmessage = function(e) {
 
     console.log(`⚡ Wasm CPU3 Calculated in: ${timeTaken} ms`);
 
-    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 21); // ★変更：12→21
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 26);
 
     self.postMessage({
         type: 'result',
