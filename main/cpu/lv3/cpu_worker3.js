@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────
 // cpu_worker3.js
 // CPU3(中級) 用のWeb Worker。Wasm(3)を呼び出します。
+// ★4手読み対応（next3引数追加、weights19要素、result21要素）
 // ─────────────────────────────────────────────
 
 let wasmReady = false;
@@ -26,9 +27,9 @@ self.onmessage = function(e) {
     if (data.type !== 'calculate') return;
 
     if (boardPtr === null) {
-        boardPtr = Module._my_malloc(200);      
-        weightsPtr = Module._my_malloc(4 * 16); 
-        resultPtr = Module._my_malloc(4 * 12);  
+        boardPtr   = Module._my_malloc(200);       
+        weightsPtr = Module._my_malloc(4 * 19); // ★変更：16→19（p1Weight, tsdShape, tsdClear追加）
+        resultPtr  = Module._my_malloc(4 * 21); // ★変更：12→21（p3/p4の結果格納分を追加）
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
@@ -42,6 +43,7 @@ self.onmessage = function(e) {
         data.holdType,
         data.next1,
         data.next2,
+        data.next3,   // ★追加：4手読み用NEXT3
         data.canHold,
         weightsPtr, 
         resultPtr
@@ -52,7 +54,7 @@ self.onmessage = function(e) {
 
     console.log(`⚡ Wasm CPU3 Calculated in: ${timeTaken} ms`);
 
-    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 12);
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 21); // ★変更：12→21
 
     self.postMessage({
         type: 'result',

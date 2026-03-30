@@ -52,12 +52,12 @@ let currentGameMode = null;
 // ─── VERSUSモード用グローバル変数 ──────────────
 const CPU_LEVELS = {
   1: { label: 'LV 1', desc: '超ゆっくり。ほぼ止まっている。',      gravityLevel: 1  },
-  2: { label: 'LV 2', desc: '少しゆっくり。ちょうど良い練習相手。', gravityLevel: 3  },
-  3: { label: 'LV 3', desc: '普通の速さ。そこそこ強い。',           gravityLevel: 6  },
-  4: { label: 'LV 4', desc: '速い。かなり手強い。',                 gravityLevel: 10 },
-  5: { label: 'LV 5', desc: '最速。ほぼ人間には止められない。',     gravityLevel: 15 },
+  2: { label: 'LV 2', desc: '少しゆっくり。ちょうど良い練習相手。', gravityLevel: 2  },
+  3: { label: 'LV 3', desc: '普通の速さ。そこそこ強い。',           gravityLevel: 2  },
+  4: { label: 'LV 4', desc: '速い。かなり手強い。',                 gravityLevel: 2 },
+  5: { label: 'LV 5', desc: '最速。ほぼ人間には止められない。',     gravityLevel: 2 },
 };
-let selectedCpuLevel = 1; 
+let selectedCpuLevel = 3; 
 
 // ★修正：レベル1は元の cpu.js（JSのみ版）を読み込むように設定を修正しました
 //★修正：各レベルのディレクトリ（lv2, lv3...）をパスに追加
