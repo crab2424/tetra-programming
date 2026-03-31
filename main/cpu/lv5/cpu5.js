@@ -35,17 +35,17 @@ window.CPU5 = class {
             iWellOver: -10,      
             blocksOverHole: -72, 
             
-            line4: 100,          
+            line4: 500,          
             downstackGood: 68,   
             downstackBad: -3,
 
             // ★変更：維持の旨味を減らし、打つ（消す）ことの旨味を圧倒的に大きくする
-            tsdShape: 36,      // TSDの地形がある時のボーナス(300から150に減少)
+            tsdShape: 128,      // TSDの地形がある時のボーナス(300から150に減少)
             tsdShapeOver: -45, // TSD地形を2個以上作った場合の減点
             tsdFillBonus: 24,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
 
             // ★追加・変更：TSSとTSDのボーナス分離、および空洞ペナルティ
-            tssClear: 512,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
+            tssClear: 256,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
             tsdClear: 2560,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
             tsdHolePenalty: -200, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
             pureHole: -50,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
@@ -126,9 +126,8 @@ window.CPU5 = class {
         return ghostY;
     }
 
-    // ★追加：指定された座標（ゴースト位置）で落とした場合、それがT-SpinかMiniかを判定する
     checkTSpinAt(x, y, rot) {
-        if(this.game.mino.type !== 2) return 0; // T以外は対象外
+        if(this.game.mino.type !== 2) return 0; 
         if(!this.game.lastActionWasRotation) return 0;
 
         const cx = x + this.game.mino.pivot.x - 0.5; 
@@ -137,10 +136,10 @@ window.CPU5 = class {
         const py = Math.round(cy);
 
         const corners = [
-            { x: px - 1, y: py - 1 }, // 左上
-            { x: px + 1, y: py - 1 }, // 右上
-            { x: px - 1, y: py + 1 }, // 左下
-            { x: px + 1, y: py + 1 }, // 右下
+            { x: px - 1, y: py - 1 }, 
+            { x: px + 1, y: py - 1 }, 
+            { x: px - 1, y: py + 1 }, 
+            { x: px + 1, y: py + 1 }, 
         ];
 
         const occupied = corners.map(c =>
@@ -159,12 +158,12 @@ window.CPU5 = class {
         const abFilled = abIdx.filter(i => occupied[i]).length;
         const cdFilled = cdIdx.filter(i => occupied[i]).length;
 
-        if(this.game.lastRotUsedPoint5) return 1; // tspin
+        if(this.game.lastRotUsedPoint5) return 1; 
 
-        if(abFilled === 2 && cdFilled >= 1) return 1; // tspin
-        if(cdFilled === 2 && abFilled >= 1) return 2; // mini
+        if(abFilled === 2 && cdFilled >= 1) return 1; 
+        if(cdFilled === 2 && abFilled >= 1) return 2; 
 
-        return 0; // なし
+        return 0; 
     }
 
     executeAction(bestResult) {
@@ -305,7 +304,6 @@ window.CPU5 = class {
         };
 
         let skipInstantDrop = false;
-        // ★変更：tSpinType > 0 であれば空中ショートカットをスキップ（Miniもスキップ対象）
         if (bestResult.tSpinType > 0 && bestResult.clearedLines && bestResult.clearedLines.length > 0 && this.game.backToBack) {
             skipInstantDrop = true;
         }
@@ -596,13 +594,13 @@ window.CPU5 = class {
             this.weights.tsdHolePenalty,              
             this.weights.pureHole,                    
             this.weights.comboBonus,                  
-            this.weights.btbKeep                      
+            this.weights.btbKeep,
+            this.weights.renCutPenalty // ★追加
         ]);
 
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
         
-        // ★ JS側で確実にゴーストの座標でのT-Spin/Miniを判定する
         let tSpinType = this.checkTSpinAt(x, y, rot);
 
         this.worker.postMessage({
@@ -615,7 +613,7 @@ window.CPU5 = class {
             weightsArray: weightsArray,
             ren: currentRen,
             backToBack: currentBtB,
-            tSpinType: tSpinType // ★変更：isTSpinからtSpinTypeに
+            tSpinType: tSpinType 
         });
     }
 
@@ -657,7 +655,8 @@ window.CPU5 = class {
             this.weights.tsdHolePenalty,              
             this.weights.pureHole,                    
             this.weights.comboBonus,                  
-            this.weights.btbKeep                      
+            this.weights.btbKeep,
+            this.weights.renCutPenalty // ★追加
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
@@ -702,7 +701,6 @@ window.CPU5 = class {
             p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6], spawnY: res[7] } : null,
             p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
             
-            // ★変更：tSpinTypeを受け取り、>0 で isTSpin とする
             tSpinType: res[12], 
             isTSpin: (res[12] > 0), 
 

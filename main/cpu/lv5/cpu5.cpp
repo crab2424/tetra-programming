@@ -120,6 +120,7 @@ struct EvalWeights {
     int tssClear, tsdClear, tsdHolePenalty, pureHole; 
     int comboBonus; 
     int btbKeep;    
+    int renCutPenalty; // ★追加：REN切れペナルティ
 };
 
 bool isTSDShape(const Board& board, int cx, int cy) {
@@ -164,7 +165,6 @@ bool isTSDShape(const Board& board, int cx, int cy) {
     for(int x = 0; x < COLS; x++) {
         if (x != cx && !isSolid(x, cy + 2)) { yellowFilled = false; break; }
     }
-    if (!greenFilled && !yellowFilled) return false;
     return true;
 }
 
@@ -194,7 +194,6 @@ TSDStats analyzeTSD(const Board& board) {
     return stats;
 }
 
-// ★修正：bool isTSpin を int tSpinType (0:なし, 1:通常, 2:Mini) に変更
 int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, int ren = 0, bool backToBack = false, const GridBlock* droppedBlocks = nullptr, int tSpinType = 0) {
     int score = 0;
     if (linesCleared > 0) score += (linesCleared - 2) * w.lineClear;
@@ -361,7 +360,6 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     }
 
     if (linesCleared > 0) {
-        // ★修正：tSpinType > 0 (Mini T-Spin含む) であればライン消去時にBtB継続となる
         bool isBtBAction = (linesCleared >= 4) || (tSpinType > 0 && linesCleared > 0);
         
         if (isBtBAction) {
@@ -386,7 +384,7 @@ struct PlacementMeta {
     bool isFullyGrounded;
     int touchingCount;
     GridBlock blocks[4];
-    int tSpinType = 0; // ★変更 0: なし, 1: 通常T-Spin, 2: Mini T-Spin
+    int tSpinType = 0;
     uint8_t path[64]; 
     int pathLength = 0;
 };
@@ -488,7 +486,6 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                     PlacementInfo info = calcPlacementInfo(baseBoard, droppedBlocks);
                     int cleared = simBoard.checkLineAndClear();
                     
-                    // ★修正：T-Spin判定をMiniも区別するように変更
                     int tSpinType = 0;
                     if (pieceType == 2 && curr.lastActionWasRotation) {
                         float cx = curr.x + MINO_TEMPLATES[pieceType].pivotX - 0.5f;
@@ -539,7 +536,7 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                     p.isFullyGrounded = info.isFullyGrounded;
                     p.touchingCount = info.touchingCount;
                     for(int i=0; i<4; i++) p.blocks[i] = droppedBlocks[i];
-                    p.tSpinType = tSpinType; // 変更反映
+                    p.tSpinType = tSpinType;
                     for(int i=0; i<pathLen; i++) p.path[i] = path[i];
                     p.pathLength = pathLen;
                     
@@ -633,7 +630,6 @@ struct SearchState {
     }
 };
 
-// ★引数名を tSpinType に変更
 EMSCRIPTEN_KEEPALIVE
 void evaluateSinglePlacementWasm(
     uint8_t* boardData, int minoType, int rot, int x, int y, 
@@ -649,7 +645,7 @@ void evaluateSinglePlacementWasm(
         weightsArray[10], weightsArray[11], weightsArray[12], weightsArray[13], weightsArray[14], 
         weightsArray[15], weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], 
         weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
-        weightsArray[24], weightsArray[25] 
+        weightsArray[24], weightsArray[25], weightsArray[26] // ★追加：renCutPenalty
     };
 
     int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0);
@@ -668,16 +664,18 @@ void evaluateSinglePlacementWasm(
     PlacementInfo info = calcPlacementInfo(baseBoard, blocks);
     int cleared = simBoard.checkLineAndClear();
 
-    // ★ tSpinType を渡して評価
     int score = evaluateBoard(simBoard, cleared, info.isFullyGrounded, info.touchingCount, w, ren, backToBack != 0, blocks, tSpinType);
     
     int eventBonus = 0;
     int multiplier = 6; 
     if (cleared >= 4) eventBonus += w.line4 * multiplier;
-    // ★ Mini(2) のときはボーナス付与をスキップ
     if (tSpinType == 1) { 
-        if (cleared == 0 || cleared == 1) eventBonus += w.tssClear * multiplier; 
+        if (cleared == 1) eventBonus += w.tssClear; 
         else if (cleared >= 2) eventBonus += w.tsdClear * multiplier; 
+    } else if (tSpinType == 2) { 
+        if (cleared == 1) eventBonus -= w.tssClear * multiplier * 100; 
+        else if (cleared >= 2) eventBonus += w.tsdClear;
+        
     }
 
     int stepScore = score * w.p1Weight / 100 + eventBonus;
@@ -704,7 +702,7 @@ void searchBestMoveWasm(
         weightsArray[10], weightsArray[11], weightsArray[12], weightsArray[13], weightsArray[14], 
         weightsArray[15], weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], 
         weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
-        weightsArray[24], weightsArray[25] 
+        weightsArray[24], weightsArray[25], weightsArray[26] // ★追加：renCutPenalty
     };
 
     int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0);
@@ -715,7 +713,6 @@ void searchBestMoveWasm(
     auto calcEventBonus = [&](const Placement& p, int step_num) {
         int bonus = 0; int multiplier = 7 - step_num; 
         if (p.linesCleared >= 4) bonus += w.line4 * multiplier;
-        // ★ Mini(2) のときはボーナスを入れない
         if (p.tSpinType == 1) {
             if (p.linesCleared == 1) bonus += w.tssClear; 
             else if (p.linesCleared >= 2) bonus += w.tsdClear * multiplier; 
@@ -771,7 +768,6 @@ void searchBestMoveWasm(
             int cur_ren = is_first ? ren : s.ren;
             bool cur_btb = is_first ? (backToBack != 0) : s.backToBack;
 
-            // ★引数変更
             int score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, cur_ren, cur_btb, p.blocks, p.tSpinType);
             int eventBonus = calcEventBonus(p, step_num);
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
@@ -780,8 +776,29 @@ void searchBestMoveWasm(
                 stepScore -= 1000000;
             }
 
+            // ★追加：REN切れペナルティの判定
+            if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) {
+                int prevHeight = 0;
+                // 1手前（または現在）のボードの高さを確認
+                const Board& checkBoard = is_first ? baseBoard : s.board;
+                for(int y = 0; y < ROWS; y++) {
+                    bool found = false;
+                    for(int x = 0; x < COLS; x++) {
+                        if(checkBoard.cells[y][x] != 0) {
+                            prevHeight = ROWS - y;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if(found) break;
+                }
+                // 最大の高さが10以下なら、REN切れペナルティを加算（再帰的にtotal_scoreを下げる）
+                if (prevHeight <= 10) {
+                    stepScore += w.renCutPenalty; 
+                }
+            }
+
             int next_ren = (p.linesCleared > 0) ? (cur_ren + 1) : 0;
-            // ★ Mini T-Spin (2) でもライン消去なら BtB 継続
             bool isBtBAction = (p.linesCleared >= 4) || (p.tSpinType > 0 && p.linesCleared > 0);
             bool next_btb = cur_btb;
             if (p.linesCleared > 0) {
@@ -901,7 +918,6 @@ void searchBestMoveWasm(
 
         outResult[3] = bestState->p_id[0]; outResult[4] = bestState->p[0].rot; outResult[5] = bestState->p[0].x; outResult[6] = bestState->p[0].y; outResult[7] = bestState->p[0].spawnY;
         
-        // ★ tSpinTypeを出力
         outResult[12] = bestState->p[0].tSpinType;
         
         if(bestState->has_p[1]) { outResult[8] = bestState->p_id[1]; outResult[9] = bestState->p[1].rot; outResult[10] = bestState->p[1].x; outResult[11] = bestState->p[1].y; }
