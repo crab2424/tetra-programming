@@ -7,6 +7,10 @@
 let wasmReady = false;
 
 self.Module = {
+    // ★ WasmのHEAPサイズを明示的に設定（デフォルト256KBでは SearchState の大量確保で枯渇するため）
+    // SearchState(~616bytes) × 320 + Placement(~92bytes) × 80 × 各ステップ = ~200KB 超のため
+    // 16MB(= 256 * 64KB pages)を確保して余裕を持たせる
+    INITIAL_MEMORY: 16 * 1024 * 1024, // 16MB
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' }); 
@@ -25,11 +29,11 @@ self.onmessage = function(e) {
     const data = e.data;
     if (data.type !== 'calculate') return;
 
-    // メモリ確保 (24要素の重み、26要素の戻り値に対応)
+    // メモリ確保 (24要素の重み、33要素の戻り値に対応)
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(200);       
         weightsPtr = Module._my_malloc(4 * 24); // 最大24要素まで確保
-        resultPtr  = Module._my_malloc(4 * 26); // 最大26要素まで確保
+        resultPtr  = Module._my_malloc(4 * 33); // 最大33要素まで確保
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
@@ -54,7 +58,7 @@ self.onmessage = function(e) {
 
     console.log(`⚡ Wasm CPU4 Calculated in: ${timeTaken} ms`);
 
-    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 26);
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 33); // 最大33要素まで読み取る
 
     self.postMessage({
         type: 'result',

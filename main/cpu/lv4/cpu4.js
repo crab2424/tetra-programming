@@ -3,7 +3,7 @@
 // 4手読みCPU（NEXT1〜3、HOLD考慮） - Wasm Worker 非同期連携版
 // ─────────────────────────────────────────────
 
-window.CPU3 = class {
+window.CPU4 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
@@ -54,8 +54,8 @@ window.CPU3 = class {
 
         this.isExecutingAction = false; 
         this.actionQueue = [];          
-        this.actionDelay = 80; // 高速入力のための待機時間（ミリ秒）
-        this.harddropDelay = 200; // ハードドロップ後の硬直時間（ミリ秒）
+        this.actionDelay = 60; 
+        this.harddropDelay = 200; 
         
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
@@ -87,6 +87,33 @@ window.CPU3 = class {
         }
     }
 
+    canDropStraightFromTo(targetX, startY, targetY, targetRot, id) {
+        if (!this.game || !this.game.field || !this.game.field.blocks) return false;
+
+        let simMino = new Mino(id);
+        for(let i = 0; i < targetRot; i++) simMino.rotate();
+        
+        let fieldBlocks = this.game.field.blocks;
+
+        for (let y = startY; y <= targetY; y++) {
+            for (let b of simMino.blocks) {
+                let bx = targetX + b.x;
+                let by = y + b.y;
+                
+                if (bx < 0 || bx >= 10) return false;
+                
+                if (by >= 0) {
+                    for (let i = 0; i < fieldBlocks.length; i++) {
+                        if (fieldBlocks[i].x === bx && fieldBlocks[i].y === by) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
     buildActionQueue(bestResult) {
         let queue = [];
         
@@ -95,86 +122,187 @@ window.CPU3 = class {
             return queue;
         }
 
-        let targetX = bestResult.x;
-        let targetRot = bestResult.rot;
-
-        if (bestResult.isTSpin) {
-            // 【T-Spinの自然な入力手順】
-            let cx = targetX + 1; // 空洞の中心X
-            let cy = bestResult.y + 2; // 空洞の中心Y
-            
-            // 盤面の状態を 2D 配列で正確に再現（現在操作中のミノを判定から除外するため）
-            let board = Array.from({length: 20}, () => Array(10).fill(0));
-            this.game.field.blocks.forEach(b => {
-                if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) board[b.y][b.x] = 1;
-            });
-            let checkSolid = (x, y) => {
-                if (x < 0 || x >= 10 || y >= 20) return true; // 壁や床はブロック扱い
-                if (y < 0) return false;
-                return board[y][x] === 1;
-            };
-
-            // ★より強力な屋根判定：cxの左右の列を上から見ていき、より高い位置(yが小さい)にブロックがある方を屋根とする
-            let leftHeight = 20;
-            let rightHeight = 20;
-            for (let y = 0; y <= cy; y++) {
-                if (checkSolid(cx - 1, y) && leftHeight === 20) leftHeight = y;
-                if (checkSolid(cx + 1, y) && rightHeight === 20) rightHeight = y;
-            }
-
-            console.log(`T-Spin判定: cx=${cx}, cy=${cy}, leftHeight=${leftHeight}, rightHeight=${rightHeight}`);
-            
-            let firstRot = 'rotateCW';
-            let secondRot = 'rotateCW';
-
-            if (leftHeight < rightHeight) {
-                // 左側に高いブロック（屋根）がある -> 右回転(CW)で滑り込ませる
-                firstRot = 'rotateCW';
-                secondRot = 'rotateCW';
-            } else if (rightHeight < leftHeight) {
-                // 右側に高いブロック（屋根）がある -> 左回転(CCW)で滑り込ませる
-                firstRot = 'rotateCCW';
-                secondRot = 'rotateCCW';
-            }
-
-            // 1. T-spinの場所まで左右移動
-            queue.push({ type: 'moveToTargetX', targetX: targetX, delay: this.actionDelay });
-            // 2. T-spinの屋根がついている向きと「逆向き」の回転
-            queue.push({ type: firstRot, delay: this.actionDelay });
-            // 3. 接地するまでソフトドロップ
-            queue.push({ type: 'softdropToBottom', delay: this.actionDelay });
-            // 4. 接地したら先ほど回転した向きと同じ向きの回転
-            queue.push({ type: secondRot, delay: this.actionDelay });
-            
-            // （保険：回転のズレを矯正し、確実にT-Spin判定にする）
-            queue.push({ 
-                type: 'warpToTarget', 
-                targetX: targetX, 
-                targetY: bestResult.y, 
-                targetRot: targetRot, 
-                delay: this.actionDelay 
-            });
-            // 5. ハードドロップ（操作後の遅延付与）
+        let path = bestResult.path;
+        if (!path || path.length === 0) {
+            queue.push({ type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay });
             queue.push({ type: 'harddrop', delay: this.harddropDelay });
+            return queue;
+        }
+
+        let levelSpeed = 7;
+        const fallbackSpeeds = [0, 1000, 793, 618, 473, 355, 262, 190, 135, 94, 64, 43, 28, 18, 11, 7];
+        if (typeof LEVEL_SPEEDS !== 'undefined') {
+            levelSpeed = LEVEL_SPEEDS[this.game.level] || fallbackSpeeds[this.game.level] || 7;
+        } else {
+            levelSpeed = fallbackSpeeds[this.game.level] || 7;
+        }
+        let softDropDelay = levelSpeed / 20;
+
+        const ACTION_MAP = {
+            1: 'moveLeft', 2: 'moveRight', 3: 'softDrop',
+            4: 'rotateCW', 5: 'rotateCCW', 6: 'harddrop'
+        };
+
+        let startX = this.game.mino.x;
+        let startY = this.game.mino.y;
+        let startRot = this.game.mino.rotation;
+
+        let backupX = this.game.mino.x;
+        let backupY = this.game.mino.y;
+        let backupRot = this.game.mino.rotation;
+        let backupBlocks = this.game.mino.blocks.map(b => new Block(b.x, b.y, b.type));
+        let backupScore = this.game.score;
+        let backupLowestY = this.game.lowestY;
+        let backupLastActionWasRotation = this.game.lastActionWasRotation;
+        let backupLastRotUsedPoint5 = this.game.lastRotUsedPoint5;
+
+        let states = [];
+        states.push({ x: backupX, y: backupY, rot: backupRot });
+
+        // C++のパスをシミュレート
+        for (let actId of path) {
+            if (actId === 1) { if (this.game.valid(-1, 0)) this.game.mino.x--; }
+            else if (actId === 2) { if (this.game.valid(1, 0)) this.game.mino.x++; }
+            else if (actId === 3) { if (this.game.valid(0, 1)) this.game.mino.y++; }
+            else if (actId === 4) { this.game.tryRotate(1); }
+            else if (actId === 5) { this.game.tryRotate(-1); }
+            else if (actId === 6) { break; }
+            states.push({ x: this.game.mino.x, y: this.game.mino.y, rot: this.game.mino.rotation });
+        }
+
+        this.game.mino.x = backupX;
+        this.game.mino.y = backupY;
+        this.game.mino.rotation = backupRot;
+        this.game.mino.blocks = backupBlocks;
+        this.game.score = backupScore;
+        this.game.lowestY = backupLowestY;
+        this.game.lastActionWasRotation = backupLastActionWasRotation;
+        this.game.lastRotUsedPoint5 = backupLastRotUsedPoint5;
+
+        let bestI = -1;
+        for (let i = states.length - 1; i >= 1; i--) {
+            let st = states[i];
+            if (this.canDropStraightFromTo(st.x, startY, st.y, st.rot, bestResult.id)) {
+                let canRotateTop = this.canDropStraightFromTo(startX, startY, startY, st.rot, bestResult.id);
+                let canMoveTop = true;
+                let step = st.x > startX ? 1 : -1;
+                for (let tx = startX; tx !== st.x + step; tx += step) {
+                    if (!this.canDropStraightFromTo(tx, startY, startY, st.rot, bestResult.id)) {
+                        canMoveTop = false;
+                        break;
+                    }
+                }
+                
+                if (canRotateTop && canMoveTop) {
+                    bestI = i;
+                    break;
+                }
+            }
+        }
+
+        // ★修正点1 & 2: 目的のX座標まで横移動し、そこから一番下まで干渉せずに落とせるかを厳密にチェック
+        const checkInstantDrop = (checkRot) => {
+            // 出現位置で回転できるか
+            if (!this.canDropStraightFromTo(startX, startY, startY, checkRot, bestResult.id)) return false;
+            // 出現位置から目的のx座標まで、途中で地形にぶつからず横移動できるか
+            let step = bestResult.x > startX ? 1 : -1;
+            for (let tx = startX; tx !== bestResult.x + step; tx += step) {
+                if (!this.canDropStraightFromTo(tx, startY, startY, checkRot, bestResult.id)) return false;
+            }
+            // 目的のx座標で、startYからbestResult.y(一番下)まで障害物なく落とせるか
+            return this.canDropStraightFromTo(bestResult.x, startY, bestResult.y, checkRot, bestResult.id);
+        };
+
+        if (checkInstantDrop(bestResult.rot)) {
+            let targetRot = bestResult.rot;
+
+            // ★修正点2: I, O, S, Zミノ(id:0,1,5,6)かつ最終向きが2(または0)の時、回転を無視できるかチェック
+            if ([0, 1, 5, 6].includes(bestResult.id) && (bestResult.rot === 2 || bestResult.rot === 0)) {
+                // startRot(通常は0、回転なし)の状態でも即落とし可能であれば、回転をスキップする
+                if (checkInstantDrop(startRot)) {
+                    targetRot = startRot; 
+                }
+            }
+            
+            let diff = (targetRot - startRot + 4) % 4; 
+            if (diff === 1) queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
+            else if (diff === 2) { queue.push({ type: 'rotateCW', delay: this.actionDelay }); queue.push({ type: 'rotateCW', delay: this.actionDelay }); }
+            else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay }); 
+
+            if (bestResult.x !== startX) {
+                queue.push({ type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay });
+            }
+            queue.push({ type: 'harddrop', delay: this.harddropDelay });
+            return queue;
+        }
+
+        // 部分最適化（T-Spin等、屋根の下へのねじ込み）
+        if (bestI > 0) {
+            let st = states[bestI];
+            
+            let diff = (st.rot - startRot + 4) % 4; 
+            if (diff === 1) queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
+            else if (diff === 2) { queue.push({ type: 'rotateCW', delay: this.actionDelay }); queue.push({ type: 'rotateCW', delay: this.actionDelay }); }
+            else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay }); 
+            
+            if (st.x !== startX) {
+                queue.push({ type: 'moveToTargetX', targetX: st.x, delay: this.actionDelay });
+            }
+            
+            let dropDist = st.y - startY;
+            if (dropDist > 0) {
+                queue.push({ type: 'multiSoftDrop', targetY: st.y, delay: softDropDelay });
+            }
+            
+            let hasSoftDropSequence = false;
+            let softDropTargetY = -1;
+            for (let j = bestI; j < path.length; j++) {
+                let actId = path[j];
+                let type = ACTION_MAP[actId];
+                if (type === 'softDrop') {
+                    hasSoftDropSequence = true;
+                    softDropTargetY = states[j + 1].y;
+                } else {
+                    if (hasSoftDropSequence) {
+                        queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
+                        hasSoftDropSequence = false;
+                    }
+                    if (type) {
+                        let delay = type === 'harddrop' ? this.harddropDelay : this.actionDelay;
+                        queue.push({ type: type, delay: delay });
+                    }
+                }
+            }
+            if (hasSoftDropSequence) {
+                queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
+            }
             
             return queue;
         }
 
-        // 【通常時の操作】
-        let currentRot = this.game.mino.rotation; 
-        let diff = (targetRot - currentRot + 4) % 4; 
-        
-        if (diff === 1) {
-            queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
-        } else if (diff === 2) {
-            queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
-            queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
-        } else if (diff === 3) {
-            queue.push({ type: 'rotateCCW', delay: this.actionDelay }); 
+        // 最適化不可（最初から上に障害物がある等）
+        let hasSoftDropSequence = false;
+        let softDropTargetY = -1;
+        for (let j = 0; j < path.length; j++) {
+            let actId = path[j];
+            let type = ACTION_MAP[actId];
+            if (type === 'softDrop') {
+                hasSoftDropSequence = true;
+                softDropTargetY = states[j + 1].y;
+            } else {
+                if (hasSoftDropSequence) {
+                    queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
+                    hasSoftDropSequence = false;
+                }
+                if (type) {
+                    let delay = type === 'harddrop' ? this.harddropDelay : this.actionDelay;
+                    queue.push({ type: type, delay: delay });
+                }
+            }
         }
-
-        queue.push({ type: 'moveToTargetX', targetX: targetX, delay: this.actionDelay });
-        queue.push({ type: 'harddrop', delay: this.harddropDelay });
+        if (hasSoftDropSequence) {
+            queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
+        }
 
         return queue;
     }
@@ -203,53 +331,55 @@ window.CPU3 = class {
             case 'rotateCCW':
                 this.game.tryRotate(-1);
                 break;
-            case 'moveToTargetX':
-                if (this.game.mino.x < action.targetX) {
-                    let prevX = this.game.mino.x;
-                    if (this.game.valid(1, 0)) this.game.mino.x++;
-                    
-                    if (this.game.mino.x < action.targetX) {
-                        if (prevX === this.game.mino.x) {
-                            this.game.mino.x = action.targetX;
-                        } else {
-                            this.actionQueue.unshift(action); 
-                        }
-                    }
-                } else if (this.game.mino.x > action.targetX) {
-                    let prevX = this.game.mino.x;
-                    if (this.game.valid(-1, 0)) this.game.mino.x--;
-
-                    if (this.game.mino.x > action.targetX) {
-                        if (prevX === this.game.mino.x) {
-                            this.game.mino.x = action.targetX;
-                        } else {
-                            this.actionQueue.unshift(action); 
-                        }
-                    }
-                }
+            case 'moveLeft':
+                if (this.game.valid(-1, 0)) this.game.mino.x--;
                 break;
-            case 'softdropToBottom':
-                // ★修正：whileループによるフリーズを防止。1マス落としてまたキューに戻す。
+            case 'moveRight':
+                if (this.game.valid(1, 0)) this.game.mino.x++;
+                break;
+            case 'softDrop':
                 if (this.game.valid(0, 1)) {
                     this.game.mino.y++;
                     this.game.score += 1;
                     this.game.updateLowestY();
-                    // まだ下に行ける場合は、キューの先頭に自分自身を戻す
+                }
+                break;
+            case 'multiSoftDrop':
+                // ★修正点3: マスの高さを調べ、目標Y座標（ソフドロ完了後の位置）を満たしているか確認
+                if (this.game.mino.y >= action.targetY) {
+                    // 満たしていた場合、待機なし(delay=0)で残りのソフドロをスキップし、次の操作へ
+                    action.delay = 0;
+                } else {
+                    // 未満であればソフドロ1回入力して待機
                     if (this.game.valid(0, 1)) {
-                        action.delay = 15; // 滑らかに落ちる速度（1マスあたりの待機ミリ秒）
+                        this.game.mino.y++;
+                        this.game.score += 1;
+                        this.game.updateLowestY();
+                        
+                        // 「次の命令」として自身をキューの先頭に戻す
                         this.actionQueue.unshift(action);
+                    } else {
+                        // 障害物にぶつかった場合も終了（スキップ）
+                        action.delay = 0;
                     }
                 }
                 break;
-            case 'warpToTarget':
-                this.game.mino.x = action.targetX;
-                this.game.mino.y = action.targetY;
-                while (this.game.mino.rotation !== action.targetRot) {
-                    this.game.mino.rotate(); 
-                    this.game.mino.rotation = (this.game.mino.rotation + 1) % 4;
+            case 'moveToTargetX':
+                if (this.game.mino.x < action.targetX) {
+                    let prevX = this.game.mino.x;
+                    if (this.game.valid(1, 0)) this.game.mino.x++;
+                    if (this.game.mino.x < action.targetX) {
+                        if (prevX === this.game.mino.x) this.game.mino.x = action.targetX;
+                        else this.actionQueue.unshift(action); 
+                    }
+                } else if (this.game.mino.x > action.targetX) {
+                    let prevX = this.game.mino.x;
+                    if (this.game.valid(-1, 0)) this.game.mino.x--;
+                    if (this.game.mino.x > action.targetX) {
+                        if (prevX === this.game.mino.x) this.game.mino.x = action.targetX;
+                        else this.actionQueue.unshift(action); 
+                    }
                 }
-                this.game.lastActionWasRotation = true;
-                this.game.lastRotUsedPoint5 = true; 
                 break;
             case 'harddrop':
                 this.game.hardDrop(); 
@@ -262,21 +392,16 @@ window.CPU3 = class {
             this.game.draw();
         }
 
-        // 次のアクションをスケジュール、またはキュー終了時の遅延処理
+        // action.delay が 0 に上書きされた場合、ディレイなし(即時)で次が呼ばれる
         let delayTime = action.delay !== undefined ? action.delay : this.actionDelay;
 
         if (this.actionQueue.length > 0) {
             setTimeout(() => {
-                if (this.isActive && this.isAutoPlay) {
-                    this.processActionQueue();
-                }
+                if (this.isActive && this.isAutoPlay) this.processActionQueue();
             }, delayTime);
         } else {
-            // キューが空になったら、指定されたディレイ（今回はハードドロップ後の200ms）待ってから操作権を解放
             setTimeout(() => {
                 this.isExecutingAction = false;
-                
-                // もし待機中に次の計算が完了していたら、途切れることなく次の操作を開始する
                 if (this.isActive && this.isAutoPlay && !this.game.isPaused && 
                     this.bestMoveData && this.bestMoveData.p1 && 
                     this.game.mino && this.game.mino === this.currentMino) {
@@ -429,8 +554,20 @@ window.CPU3 = class {
             bestMove.spawnY = bestMove.p1.spawnY;
         }
 
+        let actions = [];
+        if (res.length >= 33) {
+            for (let i = 0; i < 64; i++) {
+                let idx = Math.floor(i / 10);
+                let shift = (i % 10) * 3;
+                let act = (res[26 + idx] >> shift) & 0x7;
+                if (act === 0) break; 
+                actions.push(act);
+                if (act === 6) break; 
+            }
+        }
+        bestMove.path = actions;
+
         this.bestMoveData = bestMove;
-        console.log(`[CPU Eval] Total: ${bestMove.totalScore} | 1st: ${bestMove.step1Score} | 2nd: ${bestMove.step2Score} | 3rd: ${bestMove.step3Score} | 4th: ${bestMove.step4Score}`);
 
         if (bestMove.p1) {
             let simMino1 = new Mino(bestMove.p1.id);
