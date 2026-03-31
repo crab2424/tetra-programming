@@ -27,14 +27,46 @@ self.onmessage = function(e) {
     if (!wasmReady) return;
 
     const data = e.data;
+
+    if (data.type === 'evaluate_single') {
+        if (boardPtr === null) {
+            boardPtr   = Module._my_malloc(200);       
+            weightsPtr = Module._my_malloc(4 * 26);
+            resultPtr  = Module._my_malloc(4 * 43); 
+        }
+
+        HEAPU8.set(data.boardBuffer, boardPtr);
+        HEAP32.set(data.weightsArray, weightsPtr / 4);
+
+        // ★引数を data.isTSpin から data.tSpinType に変更
+        Module._evaluateSinglePlacementWasm(
+            boardPtr,
+            data.minoType,
+            data.rot,
+            data.x,
+            data.y,
+            weightsPtr,
+            resultPtr,
+            data.ren,
+            data.backToBack,
+            data.tSpinType
+        );
+
+        const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 2);
+        self.postMessage({
+            type: 'evaluate_single_result',
+            score: resultArray[0],
+            diff: resultArray[1]
+        });
+        return;
+    }
+
     if (data.type !== 'calculate') return;
 
-    // メモリ確保 (26要素の重み、43要素の戻り値に対応)
-    // ★変更：comboBonus, btbKeep 追加により重みが24→26要素に増加
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(200);       
-        weightsPtr = Module._my_malloc(4 * 26); // ★変更：最大26要素まで確保
-        resultPtr  = Module._my_malloc(4 * 43); // 6手対応で最大43要素まで確保
+        weightsPtr = Module._my_malloc(4 * 26); 
+        resultPtr  = Module._my_malloc(4 * 43); 
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
@@ -54,16 +86,16 @@ self.onmessage = function(e) {
         data.canHold,
         weightsPtr, 
         resultPtr,
-        data.ren,        // ★追加：現在のREN数
-        data.backToBack  // ★追加：BtB継続フラグ（1 or 0）
+        data.ren,        
+        data.backToBack  
     );
 
     const endTime = performance.now();
     const timeTaken = (endTime - startTime).toFixed(2);
 
-    console.log(`⚡ Wasm CPU4 Calculated in: ${timeTaken} ms`);
+    console.log(`⚡ Wasm CPU5 Calculated in: ${timeTaken} ms`);
 
-    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 43); // 最大43要素まで読み取る
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 43); 
 
     self.postMessage({
         type: 'result',
