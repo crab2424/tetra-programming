@@ -857,8 +857,8 @@ class Game{
             generatedGarbage = 10;
         } else if (linesCleared > 0) {
             // 基本火力
-            if (tSpinType !== null) {
-                // T-Spin時は消去ライン数の2倍
+            if (tSpinType == 'tspin') {
+                // T-Spin時（miniは除く）は消去ライン数の2倍
                 generatedGarbage = linesCleared * 2;
             } else {
                 // 通常消去
