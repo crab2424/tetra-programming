@@ -45,7 +45,11 @@ window.CPU5 = class {
             tsdHolePenalty: -200, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
             pureHole: -50,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
 
-            P1_WEIGHT: 0.8,        
+            // ★追加：RENコンボボーナスとBtB維持ボーナス
+            comboBonus: 10,   // REN数の2乗に掛けるボーナス係数（地形高さ10以上の時のみ発動）
+            btbKeep: 1729,     // BtB維持/破壊の評価係数（4line/tspin時は+、通常ライン消去時は-）
+
+            P1_WEIGHT: 1.2,        
         };
 
         this.worker = new Worker('cpu/lv5/cpu_worker5.js');
@@ -488,10 +492,16 @@ window.CPU5 = class {
             this.weights.tssClear,                    
             this.weights.tsdClear,                    
             this.weights.tsdHolePenalty,              
-            this.weights.pureHole                     
+            this.weights.pureHole,                    
+            this.weights.comboBonus,                  // ★追加：[24] comboBonus
+            this.weights.btbKeep                      // ★追加：[25] btbKeep
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
+
+        // ★追加：現在のゲームのREN数とBtB状態を取得してWorkerに渡す
+        const currentRen = this.game.ren || 0;
+        const currentBtB = this.game.backToBack ? 1 : 0;
 
         this.worker.postMessage({
             type: 'calculate',
@@ -504,7 +514,9 @@ window.CPU5 = class {
             next4: this.game.nextQueue[3].type, // ★追加
             next5: this.game.nextQueue[4].type, // ★追加
             canHold: this.game.canHold ? 1 : 0,
-            weightsArray: weightsArray
+            weightsArray: weightsArray,
+            ren: currentRen,       // ★追加：現在のREN数
+            backToBack: currentBtB // ★追加：BtB継続フラグ
         });
     }
 
@@ -524,7 +536,7 @@ window.CPU5 = class {
         let bestMove = {
             action: actionInt === 1 ? 'hold' : 'play',
             score: res[1],
-            diff: res[2], // ★ res[22] になってたバグの修正
+            diff: res[2], 
             p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6], spawnY: res[7] } : null,
             p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
             isTSpin: (res[12] === 1), 

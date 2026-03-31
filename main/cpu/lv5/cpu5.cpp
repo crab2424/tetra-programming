@@ -118,6 +118,9 @@ struct EvalWeights {
     int p1Weight; 
     int tsdShape, tsdShapeOver, tsdFillBonus; 
     int tssClear, tsdClear, tsdHolePenalty, pureHole; 
+    // ★追加：REN連続消去ボーナス（maxHeight>=10時のみ）とBtB維持ボーナス
+    int comboBonus; // REN数の2乗に掛けるボーナス係数
+    int btbKeep;    // BtB維持/破壊の評価係数（4line/tspin時は+、通常ライン消去時は-）
 };
 
 bool isTSDShape(const Board& board, int cx, int cy) {
@@ -192,7 +195,8 @@ TSDStats analyzeTSD(const Board& board) {
     return stats;
 }
 
-int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, const GridBlock* droppedBlocks = nullptr) {
+// ★変更：ren（現在のREN数）とbackToBack（BtB継続中か）、isTSpin（Tスピン消去か）を引数に追加
+int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, int ren = 0, bool backToBack = false, const GridBlock* droppedBlocks = nullptr, bool isTSpin = false) {
     int score = 0;
     if (linesCleared > 0) score += (linesCleared - 2) * w.lineClear;
     if (linesCleared >= 4) score += w.line4;
@@ -332,6 +336,28 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         score += (tsd.count - 1) * w.tsdShapeOver; 
         score += tsd.holeCount * w.tsdHolePenalty; 
     }
+
+    // ★追加：RENコンボボーナス（地形の最大高さが10以上の時のみ発動）
+    // ren数の2乗 × comboBonusを加算し、高積み状態での連続消去を評価する
+    if (ren > 0 && maxHeight >= 10) {
+        score += ren * ren * w.comboBonus;
+    }
+
+    // ★追加：BtB（Back-to-Back）維持/破壊ボーナス
+    // ライン消去がある場合のみ評価する
+    // 4ライン消去またはTスピン消去時は+btbKeep（BtBを繋ぐ行動を評価）
+    // それ以外の通常ライン消去時は-btbKeep（BtBを切る行動にペナルティ）
+    if (linesCleared > 0) {
+        bool isBtBAction = (linesCleared >= 4) || (isTSpin && linesCleared > 0); // ★変更：T-spin消去もBtBアクションとして扱う
+        if (isBtBAction || backToBack) {
+            // BtBを繋ぐ/継続する行動はボーナス
+            score += w.btbKeep;
+        } else {
+            // BtBを持っていないか、通常ライン消去でBtBを切る行動はペナルティ
+            score -= w.btbKeep;
+        }
+    }
+
     return score;
 }
 
@@ -568,12 +594,18 @@ struct SearchState {
     int step_score[6];  // 各ステップのスコア
     int p_id[6];        // 実際にそのステップで配置されたミノのID
 
+    // ★追加：REN数とBtB状態を探索ステップをまたいで引き継ぐ
+    int ren;        // 現在のREN数（連続ライン消去カウント）
+    bool backToBack; // BtB継続中か
+
     SearchState() {
         first_action = -1;
         hold_mino = -1;
         next_idx = 0;
         p1_score = 0;
         total_score = 0;
+        ren = 0;        // ★追加
+        backToBack = false; // ★追加
         for(int i = 0; i < 6; ++i) { 
             has_p[i] = false; 
             step_score[i] = 0; 
@@ -585,7 +617,8 @@ struct SearchState {
 EMSCRIPTEN_KEEPALIVE
 void searchBestMoveWasm(
     uint8_t* boardData, int currentType, int holdType, int next1, int next2, int next3, int next4, int next5, int canHold,
-    int* weightsArray, int* outResult
+    int* weightsArray, int* outResult,
+    int ren, int backToBack // ★追加：現在のREN数とBtB継続フラグ
 ){
     for(int i = 0; i < 43; i++) outResult[i] = -1;
     for(int i = 36; i < 43; i++) outResult[i] = 0; 
@@ -598,10 +631,11 @@ void searchBestMoveWasm(
         weightsArray[5], weightsArray[6], weightsArray[7], weightsArray[8], weightsArray[9],
         weightsArray[10], weightsArray[11], weightsArray[12], weightsArray[13], weightsArray[14], 
         weightsArray[15], weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], 
-        weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23]
+        weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
+        weightsArray[24], weightsArray[25] // ★追加：comboBonus, btbKeep
     };
 
-    int baseScore = evaluateBoard(baseBoard, 0, false, 0, w);
+    int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0);
     
     int next_queue[7] = { currentType, next1, next2, next3, next4, next5, 0 };
 
@@ -662,7 +696,12 @@ void searchBestMoveWasm(
             }
             simBoard.checkLineAndClear();
 
-            int score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, p.blocks);
+            // ★追加：このステップで適用するREN数とBtB状態を決定する
+            // is_first の場合は外部から受け取った実際の値、それ以降は前ステップから引き継ぐ
+            int cur_ren = is_first ? ren : s.ren;
+            bool cur_btb = is_first ? (backToBack != 0) : s.backToBack;
+
+            int score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, cur_ren, cur_btb, p.blocks, p.isTSpin);
             int eventBonus = calcEventBonus(p, step_num);
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
 
@@ -671,9 +710,21 @@ void searchBestMoveWasm(
                 stepScore -= 1000000;
             }
 
+            // ★追加：次ステップへ引き継ぐ REN・BtB を計算する
+            // ライン消去があればREN++、なければRENリセット
+            int next_ren = (p.linesCleared > 0) ? (cur_ren + 1) : 0;
+            // BtBは 4line or Tspin 消去で維持、通常消去でリセット、消去なしは変化なし
+            bool isBtBAction = (p.linesCleared >= 4) || (p.isTSpin && p.linesCleared > 0);
+            bool next_btb = cur_btb;
+            if (p.linesCleared > 0) {
+                next_btb = isBtBAction; // BtBアクションなら継続、通常消去なら切れる
+            }
+
             SearchState next_s = s;
             next_s.hold_mino = new_hold;
             next_s.next_idx = new_next_idx;
+            next_s.ren = next_ren;       // ★追加：REN引き継ぎ
+            next_s.backToBack = next_btb; // ★追加：BtB引き継ぎ
             if (is_first) {
                 next_s.first_action = first_action;
                 next_s.p1_score = score;
@@ -700,6 +751,9 @@ void searchBestMoveWasm(
     // 1手目 (Step 1)
     // ────────────────────────────
     SearchState initial_state;
+    // ★追加：外部から受け取った実際のゲーム状態をinitial_stateに設定
+    initial_state.ren = ren;
+    initial_state.backToBack = (backToBack != 0);
     
     expandState(initial_state, next_queue[0], holdType, 1, 1, true, 0);
 
