@@ -29,10 +29,11 @@ self.onmessage = function(e) {
     const data = e.data;
     if (data.type !== 'calculate') return;
 
-    // メモリ確保 (24要素の重み、43要素の戻り値に対応)
+    // メモリ確保 (26要素の重み、43要素の戻り値に対応)
+    // ★変更：comboBonus, btbKeep 追加により重みが24→26要素に増加
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(200);       
-        weightsPtr = Module._my_malloc(4 * 24); // 最大24要素まで確保
+        weightsPtr = Module._my_malloc(4 * 26); // ★変更：最大26要素まで確保
         resultPtr  = Module._my_malloc(4 * 43); // 6手対応で最大43要素まで確保
     }
 
@@ -52,7 +53,9 @@ self.onmessage = function(e) {
         data.next5,
         data.canHold,
         weightsPtr, 
-        resultPtr
+        resultPtr,
+        data.ren,        // ★追加：現在のREN数
+        data.backToBack  // ★追加：BtB継続フラグ（1 or 0）
     );
 
     const endTime = performance.now();

@@ -57,7 +57,7 @@ const CPU_LEVELS = {
   4: { label: 'LV 4', desc: '速い。かなり手強い。',                 gravityLevel: 2 },
   5: { label: 'LV 5', desc: '最速。ほぼ人間には止められない。',     gravityLevel: 2 },
 };
-let selectedCpuLevel = 4; 
+let selectedCpuLevel = 5; 
 
 const CPU_CONFIGS = {
   1: { className: 'CPU',  src: 'cpu/cpu.js' },  
@@ -185,6 +185,10 @@ async function startVersusGame() {
 
   const cpuLevelDisp = document.getElementById('versus-cpu-level-display');
   if (cpuLevelDisp) cpuLevelDisp.textContent = 'CPU ' + cpuConfig.label;
+
+  // 追加: CPU側フィールド上のラベルも書き換える
+  const cpuSideLabel = document.getElementById('versus-cpu-side-label');
+  if (cpuSideLabel) cpuSideLabel.textContent = 'CPU ' + cpuConfig.label;
 
   window._game.currentMode = 'versus';
   window._game.marathonGoal = Infinity;
