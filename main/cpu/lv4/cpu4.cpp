@@ -554,7 +554,6 @@ void* my_malloc(size_t size) { return malloc(size); }
 EMSCRIPTEN_KEEPALIVE
 void my_free(void* ptr) { free(ptr); }
 
-// ★変更点：各手での情報を保持しやすいように配列ベースの構造体に刷新
 struct SearchState {
     int first_action; // 1手目の行動(0: Play, 1: Hold)
     int hold_mino;    // 現在のホールドに入っているミノの種類
@@ -567,7 +566,7 @@ struct SearchState {
     bool has_p[6];      // 各ステップでミノを置いたか
     Placement p[6];     // 各ステップの配置
     int step_score[6];  // 各ステップのスコア
-    int p_id[6];        // ★実際にそのステップで配置されたミノのID
+    int p_id[6];        // 実際にそのステップで配置されたミノのID
 
     SearchState() {
         first_action = -1;
@@ -604,7 +603,6 @@ void searchBestMoveWasm(
 
     int baseScore = evaluateBoard(baseBoard, 0, false, 0, w);
     
-    // ★ NEXTキューを用意（インデックス6はダミーのIミノだが、通常6手目までにそこまでは届かない）
     int next_queue[7] = { currentType, next1, next2, next3, next4, next5, 0 };
 
     auto getSpawnY = [](int type) { return type == 0 ? -1 : -2; };
@@ -629,14 +627,33 @@ void searchBestMoveWasm(
     current_states.reserve(BEAM_WIDTH);
     next_states.reserve(1024);
 
-    // ★各ステップでの展開（Play/Hold共通処理）をラムダ化
     auto expandState = [&](const SearchState& s, int piece, int new_hold, int new_next_idx, int step_num, bool is_first, int first_action) -> int {
         std::vector<Placement> p_list = getAllPlacements(is_first ? baseBoard : s.board, piece, getSpawnY(piece));
-        int pushed_count = 0;
         
+        // ★ 条件1: Block Out（出現位置にミノが重なっており置けない）
+        if (p_list.empty()) {
+            SearchState dead_s = s;
+            dead_s.total_score -= 1000000; // ゲームオーバー手への特大ペナルティ
+            if (is_first) dead_s.first_action = first_action;
+            
+            // これ以上探索を進められないため、最終状態として保存して枝刈り
+            final_states.push_back(dead_s);
+            return 0; 
+        }
+
+        int pushed_count = 0;
         for(size_t j = 0; j < p_list.size(); j++) {
             const auto& p = p_list[j];
             
+            // ★ 条件2: Lock Out（固定された全ブロックが y < 0 である）
+            bool isAllOutside = true;
+            for(int k=0; k<4; k++) {
+                if(p.blocks[k].y >= 0) {
+                    isAllOutside = false;
+                    break;
+                }
+            }
+
             Board simBoard = is_first ? baseBoard : s.board;
             for(int k=0; k<4; k++) {
                 if(p.blocks[k].y >= 0 && p.blocks[k].y < ROWS && p.blocks[k].x >= 0 && p.blocks[k].x < COLS) {
@@ -648,6 +665,11 @@ void searchBestMoveWasm(
             int score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, p.blocks);
             int eventBonus = calcEventBonus(p, step_num);
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
+
+            // Lock Out なら特大ペナルティを与える
+            if (isAllOutside) {
+                stepScore -= 1000000;
+            }
 
             SearchState next_s = s;
             next_s.hold_mino = new_hold;
@@ -661,10 +683,15 @@ void searchBestMoveWasm(
             next_s.p[step_num - 1] = p;
             next_s.has_p[step_num - 1] = true;
             next_s.step_score[step_num - 1] = stepScore;
-            next_s.p_id[step_num - 1] = piece; // ★実際に選んだミノのIDを保存
+            next_s.p_id[step_num - 1] = piece; 
 
-            next_states.push_back(next_s);
-            pushed_count++;
+            // Lock Out になった手も、これ以上は探索しないため最終状態に退避
+            if (isAllOutside) {
+                final_states.push_back(next_s);
+            } else {
+                next_states.push_back(next_s);
+                pushed_count++;
+            }
         }
         return pushed_count;
     };
@@ -674,20 +701,18 @@ void searchBestMoveWasm(
     // ────────────────────────────
     SearchState initial_state;
     
-    // Branch 1: Play (そのまま置く)
     expandState(initial_state, next_queue[0], holdType, 1, 1, true, 0);
 
-    // Branch 2: Hold (ホールドを使う)
     if(canHold == 1) {
         int piece;
-        int new_hold = next_queue[0]; // カレントがホールドに入る
+        int new_hold = next_queue[0]; 
         int new_next_idx;
         if(holdType != -1) {
-            piece = holdType; // 元々あったホールドを使う
-            new_next_idx = 1; // NEXTはまだ消費しない
+            piece = holdType; 
+            new_next_idx = 1; 
         } else {
-            piece = next_queue[1]; // ホールドが空ならNEXT1を使う
-            new_next_idx = 2; // NEXT1まで消費した
+            piece = next_queue[1]; 
+            new_next_idx = 2; 
         }
         expandState(initial_state, piece, new_hold, new_next_idx, 1, true, 1);
     }
@@ -708,24 +733,15 @@ void searchBestMoveWasm(
 
         for (const auto& state : current_states) {
             int cur_mino = state.next_idx < 6 ? next_queue[state.next_idx] : 0;
-            int added = 0;
-
-            // Branch 1: Play (現在のステップのcur_minoをそのまま置く)
-            added += expandState(state, cur_mino, state.hold_mino, state.next_idx + 1, step_num, false, -1);
             
-            // Branch 2: Hold (ホールドミノと入れ替えて置く)
-            // （ホールドが空ではない、かつ入れ替える意味がある場合のみ）
+            expandState(state, cur_mino, state.hold_mino, state.next_idx + 1, step_num, false, -1);
+            
             if (state.hold_mino != -1 && state.hold_mino != cur_mino) {
-                added += expandState(state, state.hold_mino, cur_mino, state.next_idx + 1, step_num, false, -1);
-            }
-
-            // この状態から一つも手を展開できなかった場合（一番上まで積まれてしまった等）は、ここで探索終了
-            if (added == 0) {
-                final_states.push_back(state);
+                expandState(state, state.hold_mino, cur_mino, state.next_idx + 1, step_num, false, -1);
             }
         }
 
-        if (next_states.empty()) break; // 全てのビームで置けなくなった場合
+        if (next_states.empty()) break; 
 
         if(next_states.size() > BEAM_WIDTH) {
             std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
@@ -735,7 +751,7 @@ void searchBestMoveWasm(
         current_states = next_states;
     }
 
-    // 最後まで到達した状態も final_states に統合
+    // 最後まで到達した安全な状態を final_states に統合
     for (const auto& state : current_states) {
         final_states.push_back(state);
     }
@@ -743,7 +759,8 @@ void searchBestMoveWasm(
     // ────────────────────────────
     // 最適解の決定と出力
     // ────────────────────────────
-    int bestTotalScore = -10000000;
+    // ペナルティ付き（-1,000,000等）も比較対象として残るため初期値を極小に設定
+    int bestTotalScore = -100000000;
     const SearchState* bestState = nullptr;
 
     for(const auto& state : final_states) {
@@ -754,8 +771,6 @@ void searchBestMoveWasm(
     }
 
     if(bestState) {
-        // ★配列に保存しておいた「実際に使用したミノID（p_id）」を結果に書き込むため、
-        // JS側は何も変更せずに「その手で置かれたミノ」を正しく描画できる
         outResult[0] = bestState->first_action; 
         outResult[1] = bestState->p1_score; 
         outResult[2] = bestState->p1_score - baseScore; 
@@ -783,6 +798,7 @@ void searchBestMoveWasm(
         if (bestState->first_action == 1) {
             finalPath[finalPathLen++] = 7; 
         }
+        // p_list.empty()で初手死した場合は p[0].pathLength が 0 なので安全
         for (int i = 0; i < bestState->p[0].pathLength && finalPathLen < 64; i++) {
             finalPath[finalPathLen++] = bestState->p[0].path[i];
         }
