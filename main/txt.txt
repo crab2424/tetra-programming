@@ -20,11 +20,11 @@ t-spinあり，NEXT視認3個
 
 lv4
 上級者向け
-置きミス率3%，NEXT視認5個
+NEXT視認5個
 
 lv5
 最上級者向け
-テンプレ使用，相殺外し，置きミス率1%
+置きミス率1%
 
 学習
 
@@ -51,7 +51,7 @@ lv5
 emcc cpu2.cpp -O3 -s WASM=1 -s EXPORTED_RUNTIME_METHODS='["ccall", "cwrap"]' -o cpu_wasm.js
 emcc cpu2.cpp -O3 -s WASM=1 -o cpu_wasm.js
 
-emcc cpu4.cpp -O2 -o cpu_wasm4.js \
+emcc cpu5.cpp -O2 -o cpu_wasm5.js \
   -s EXPORTED_FUNCTIONS='["_searchBestMoveWasm","_my_malloc","_my_free"]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
   -s ALLOW_MEMORY_GROWTH=1 \
