@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────
 // cpu4.js
-// 4手読みCPU（NEXT1〜3、HOLD考慮） - Wasm Worker 非同期連携版
+// 6手読みCPU（NEXT1〜5、HOLD考慮） - Wasm Worker 非同期連携版
 // ─────────────────────────────────────────────
 
 window.CPU4 = class {
@@ -200,7 +200,6 @@ window.CPU4 = class {
             }
         }
 
-        // ★修正点1 & 2: 目的のX座標まで横移動し、そこから一番下まで干渉せずに落とせるかを厳密にチェック
         const checkInstantDrop = (checkRot) => {
             // 出現位置で回転できるか
             if (!this.canDropStraightFromTo(startX, startY, startY, checkRot, bestResult.id)) return false;
@@ -216,9 +215,7 @@ window.CPU4 = class {
         if (checkInstantDrop(bestResult.rot)) {
             let targetRot = bestResult.rot;
 
-            // ★修正点2: I, O, S, Zミノ(id:0,1,5,6)かつ最終向きが2(または0)の時、回転を無視できるかチェック
             if ([0, 1, 5, 6].includes(bestResult.id) && (bestResult.rot === 2 || bestResult.rot === 0)) {
-                // startRot(通常は0、回転なし)の状態でも即落とし可能であれば、回転をスキップする
                 if (checkInstantDrop(startRot)) {
                     targetRot = startRot; 
                 }
@@ -345,21 +342,15 @@ window.CPU4 = class {
                 }
                 break;
             case 'multiSoftDrop':
-                // ★修正点3: マスの高さを調べ、目標Y座標（ソフドロ完了後の位置）を満たしているか確認
                 if (this.game.mino.y >= action.targetY) {
-                    // 満たしていた場合、待機なし(delay=0)で残りのソフドロをスキップし、次の操作へ
                     action.delay = 0;
                 } else {
-                    // 未満であればソフドロ1回入力して待機
                     if (this.game.valid(0, 1)) {
                         this.game.mino.y++;
                         this.game.score += 1;
                         this.game.updateLowestY();
-                        
-                        // 「次の命令」として自身をキューの先頭に戻す
                         this.actionQueue.unshift(action);
                     } else {
-                        // 障害物にぶつかった場合も終了（スキップ）
                         action.delay = 0;
                     }
                 }
@@ -392,7 +383,6 @@ window.CPU4 = class {
             this.game.draw();
         }
 
-        // action.delay が 0 に上書きされた場合、ディレイなし(即時)で次が呼ばれる
         let delayTime = action.delay !== undefined ? action.delay : this.actionDelay;
 
         if (this.actionQueue.length > 0) {
@@ -511,6 +501,8 @@ window.CPU4 = class {
             next1: this.game.nextQueue[0].type,
             next2: this.game.nextQueue[1].type,
             next3: this.game.nextQueue[2].type, 
+            next4: this.game.nextQueue[3].type, // ★追加
+            next5: this.game.nextQueue[4].type, // ★追加
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray
         });
@@ -532,18 +524,22 @@ window.CPU4 = class {
         let bestMove = {
             action: actionInt === 1 ? 'hold' : 'play',
             score: res[1],
-            diff: res[22],
+            diff: res[2], // ★ res[22] になってたバグの修正
             p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6], spawnY: res[7] } : null,
             p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
             isTSpin: (res[12] === 1), 
             p3: (res[13] >= 0 && res[13] <= 6) ? { id: res[13], rot: res[14], x: res[15], y: res[16] } : null,
             p4: (res[17] >= 0 && res[17] <= 6) ? { id: res[17], rot: res[18], x: res[19], y: res[20] } : null,
+            p5: (res[21] >= 0 && res[21] <= 6) ? { id: res[21], rot: res[22], x: res[23], y: res[24] } : null, // ★追加
+            p6: (res[25] >= 0 && res[25] <= 6) ? { id: res[25], rot: res[26], x: res[27], y: res[28] } : null, // ★追加
             
-            totalScore: res[21] || 0,
-            step1Score: res[22] || 0,
-            step2Score: res[23] || 0,
-            step3Score: res[24] || 0,
-            step4Score: res[25] || 0,
+            totalScore: res[29] || 0,
+            step1Score: res[30] || 0,
+            step2Score: res[31] || 0,
+            step3Score: res[32] || 0,
+            step4Score: res[33] || 0,
+            step5Score: res[34] || 0, // ★追加
+            step6Score: res[35] || 0, // ★追加
         };
 
         if(bestMove.p1) {
@@ -555,11 +551,11 @@ window.CPU4 = class {
         }
 
         let actions = [];
-        if (res.length >= 33) {
+        if (res.length >= 43) {
             for (let i = 0; i < 64; i++) {
                 let idx = Math.floor(i / 10);
                 let shift = (i % 10) * 3;
-                let act = (res[26 + idx] >> shift) & 0x7;
+                let act = (res[36 + idx] >> shift) & 0x7;
                 if (act === 0) break; 
                 actions.push(act);
                 if (act === 6) break; 
@@ -631,7 +627,9 @@ window.CPU4 = class {
             { data: this.bestMoveData.p1, name: 'step1' },
             { data: this.bestMoveData.p2, name: 'step2' },
             { data: this.bestMoveData.p3, name: 'step3' },
-            { data: this.bestMoveData.p4, name: 'step4' }
+            { data: this.bestMoveData.p4, name: 'step4' },
+            { data: this.bestMoveData.p5, name: 'step5' }, // ★追加
+            { data: this.bestMoveData.p6, name: 'step6' }  // ★追加
         ];
 
         let simField = Array.from({ length: 20 }, () => Array(10).fill(0));
@@ -691,9 +689,10 @@ window.CPU4 = class {
         let simMino = new Mino(pData.id);
         for(let i = 0; i < pData.rot; i++) simMino.rotate();
 
-        const opacityMap = { 'step1': 0.9, 'step2': 0.6, 'step3': 0.35, 'step4': 0.15 };
-        const bgOpacityMap = { 'step1': 0.3, 'step2': 0.2, 'step3': 0.1, 'step4': 0.05 };
-        const zIndexMap = { 'step1': '4', 'step2': '3', 'step3': '2', 'step4': '1' };
+        // ★追加・調整: 6手対応で不透明度やZ-indexをスケーリング
+        const opacityMap = { 'step1': 0.9, 'step2': 0.5, 'step3': 0.5, 'step4': 0.5, 'step5': 0.5, 'step6': 0.5 };
+        const bgOpacityMap = { 'step1': 0.3, 'step2': 0.2, 'step3': 0.1, 'step4': 0.1, 'step5': 0.1, 'step6': 0.1 };
+        const zIndexMap = { 'step1': '6', 'step2': '5', 'step3': '4', 'step4': '3', 'step5': '2', 'step6': '1' };
 
         const colorMap = {
             0: { border: `rgba(0, 240, 240, ${opacityMap[stepClass]})`, bg: `rgba(0, 240, 240, ${bgOpacityMap[stepClass]})` }, 

@@ -383,13 +383,10 @@ struct ParentInfo {
     int8_t x, y, rot, action;
 };
 
-// ★変更点: 動的アロケーションを避けるため、Boardの返却をやめる。
-// Boardは呼び出し元で p.blocks から再構築する。
 std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, int spawnY) {
     std::vector<Placement> placements;
-    placements.reserve(64); // vectorの再アロケーションを防ぐ
+    placements.reserve(64); 
     
-    // staticによるスタック消費抑制
     static bool visited[4][30][19];
     static bool placementFound[4][30][19];
     static ParentInfo parent[4][30][19]; 
@@ -413,7 +410,6 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
         if (!isValidPlacement(baseBoard, startBlocks)) return placements; 
     }
     
-    // ★変更点: std::queue のヒープ動的確保を廃止し、静的なリングバッファに変更
     static BFSState bfsQueue[3000]; 
     int qHead = 0, qTail = 0;
     
@@ -437,7 +433,6 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                     GridBlock droppedBlocks[4];
                     getRotatedBlocks(pieceType, curr.rot, curr.x, curr.y, droppedBlocks);
                     
-                    // ここでのみ一時的に評価用のBoardを作るが、vectorには追加しない
                     Board simBoard = baseBoard;
                     for(int i=0; i<4; i++) {
                         const auto& blk = droppedBlocks[i];
@@ -512,7 +507,6 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                 if (!visited[nrot][ny + 5][nx + 4]) {
                     visited[nrot][ny + 5][nx + 4] = true;
                     parent[nrot][ny + 5][nx + 4] = { (int8_t)curr.x, (int8_t)curr.y, (int8_t)curr.rot, (int8_t)action };
-                    // キューに追加
                     bfsQueue[qTail++] = {nx, ny, nrot, isRot, isPoint5};
                 }
             }
@@ -560,21 +554,42 @@ void* my_malloc(size_t size) { return malloc(size); }
 EMSCRIPTEN_KEEPALIVE
 void my_free(void* ptr) { free(ptr); }
 
+// ★変更点：各手での情報を保持しやすいように配列ベースの構造体に刷新
 struct SearchState {
-    int action; int path_index; int p1_score; int total_score; Board board;
-    Placement p1; bool has_p1 = false; int step1_score = 0;
-    Placement p2; bool has_p2 = false; int step2_score = 0;
-    Placement p3; bool has_p3 = false; int step3_score = 0;
-    Placement p4; bool has_p4 = false; int step4_score = 0;
+    int first_action; // 1手目の行動(0: Play, 1: Hold)
+    int hold_mino;    // 現在のホールドに入っているミノの種類
+    int next_idx;     // 次に消費するNEXTキューのインデックス
+
+    int p1_score; 
+    int total_score; 
+    Board board;
+
+    bool has_p[6];      // 各ステップでミノを置いたか
+    Placement p[6];     // 各ステップの配置
+    int step_score[6];  // 各ステップのスコア
+    int p_id[6];        // ★実際にそのステップで配置されたミノのID
+
+    SearchState() {
+        first_action = -1;
+        hold_mino = -1;
+        next_idx = 0;
+        p1_score = 0;
+        total_score = 0;
+        for(int i = 0; i < 6; ++i) { 
+            has_p[i] = false; 
+            step_score[i] = 0; 
+            p_id[i] = -1; 
+        }
+    }
 };
 
 EMSCRIPTEN_KEEPALIVE
 void searchBestMoveWasm(
-    uint8_t* boardData, int currentType, int holdType, int next1, int next2, int next3, int canHold,
+    uint8_t* boardData, int currentType, int holdType, int next1, int next2, int next3, int next4, int next5, int canHold,
     int* weightsArray, int* outResult
 ){
-    for(int i = 0; i < 33; i++) outResult[i] = -1;
-    for(int i = 26; i < 33; i++) outResult[i] = 0; 
+    for(int i = 0; i < 43; i++) outResult[i] = -1;
+    for(int i = 36; i < 43; i++) outResult[i] = 0; 
 
     Board baseBoard;
     for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
@@ -589,19 +604,12 @@ void searchBestMoveWasm(
 
     int baseScore = evaluateBoard(baseBoard, 0, false, 0, w);
     
-    int A = currentType; int B = holdType; int C = next1; int D = next2; int E = next3;
-    struct Path { int action; int p1; int p2; int p3; int p4; };
-    std::vector<Path> paths;
-
-    paths.push_back({0, A, C, D, E});
-    if(canHold == 1) {
-        if(B != -1) paths.push_back({1, B, A, C, D});
-        else paths.push_back({1, C, A, D, E});
-    }
+    // ★ NEXTキューを用意（インデックス6はダミーのIミノだが、通常6手目までにそこまでは届かない）
+    int next_queue[7] = { currentType, next1, next2, next3, next4, next5, 0 };
 
     auto getSpawnY = [](int type) { return type == 0 ? -1 : -2; };
-    auto calcEventBonus = [&](const Placement& p, int depth) {
-        int bonus = 0; int multiplier = 5 - depth; 
+    auto calcEventBonus = [&](const Placement& p, int step_num) {
+        int bonus = 0; int multiplier = 7 - step_num; 
         if (p.linesCleared >= 4) bonus += w.line4 * multiplier;
         if (p.isTSpin) {
             if (p.linesCleared == 0 || p.linesCleared == 1) bonus += w.tssClear * multiplier; 
@@ -617,36 +625,71 @@ void searchBestMoveWasm(
     const size_t BEAM_WIDTH = 8;
     const int P1_WEIGHT_PCT = w.p1Weight; 
 
-    // ★重要: ヒープの再割り当てによる断片化と枯渇を防ぐため容量を予約
     final_states.reserve(128);
     current_states.reserve(BEAM_WIDTH);
     next_states.reserve(1024);
 
-    for(size_t i = 0; i < paths.size(); i++) {
-        const auto& path = paths[i];
-        std::vector<Placement> p1_list = getAllPlacements(baseBoard, path.p1, getSpawnY(path.p1));
-        for(size_t j = 0; j < p1_list.size(); j++) {
-            const auto& p1 = p1_list[j];
+    // ★各ステップでの展開（Play/Hold共通処理）をラムダ化
+    auto expandState = [&](const SearchState& s, int piece, int new_hold, int new_next_idx, int step_num, bool is_first, int first_action) -> int {
+        std::vector<Placement> p_list = getAllPlacements(is_first ? baseBoard : s.board, piece, getSpawnY(piece));
+        int pushed_count = 0;
+        
+        for(size_t j = 0; j < p_list.size(); j++) {
+            const auto& p = p_list[j];
             
-            Board simBoard = baseBoard;
+            Board simBoard = is_first ? baseBoard : s.board;
             for(int k=0; k<4; k++) {
-                if(p1.blocks[k].y >= 0 && p1.blocks[k].y < ROWS && p1.blocks[k].x >= 0 && p1.blocks[k].x < COLS) {
-                    simBoard.cells[p1.blocks[k].y][p1.blocks[k].x] = 1;
+                if(p.blocks[k].y >= 0 && p.blocks[k].y < ROWS && p.blocks[k].x >= 0 && p.blocks[k].x < COLS) {
+                    simBoard.cells[p.blocks[k].y][p.blocks[k].x] = 1;
                 }
             }
             simBoard.checkLineAndClear();
 
-            int score1 = evaluateBoard(simBoard, p1.linesCleared, p1.isFullyGrounded, p1.touchingCount, w, p1.blocks);
-            int eventBonus = calcEventBonus(p1, 1);
-            int totalScore = score1 * P1_WEIGHT_PCT / 100 + eventBonus;
+            int score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, p.blocks);
+            int eventBonus = calcEventBonus(p, step_num);
+            int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
 
-            SearchState s;
-            s.action = path.action; s.path_index = i;
-            s.p1_score = score1; s.total_score = totalScore;
-            s.board = simBoard; s.p1 = p1; s.has_p1 = true;
-            s.step1_score = totalScore;
-            next_states.push_back(s);
+            SearchState next_s = s;
+            next_s.hold_mino = new_hold;
+            next_s.next_idx = new_next_idx;
+            if (is_first) {
+                next_s.first_action = first_action;
+                next_s.p1_score = score;
+            }
+            next_s.total_score += stepScore;
+            next_s.board = simBoard;
+            next_s.p[step_num - 1] = p;
+            next_s.has_p[step_num - 1] = true;
+            next_s.step_score[step_num - 1] = stepScore;
+            next_s.p_id[step_num - 1] = piece; // ★実際に選んだミノのIDを保存
+
+            next_states.push_back(next_s);
+            pushed_count++;
         }
+        return pushed_count;
+    };
+
+    // ────────────────────────────
+    // 1手目 (Step 1)
+    // ────────────────────────────
+    SearchState initial_state;
+    
+    // Branch 1: Play (そのまま置く)
+    expandState(initial_state, next_queue[0], holdType, 1, 1, true, 0);
+
+    // Branch 2: Hold (ホールドを使う)
+    if(canHold == 1) {
+        int piece;
+        int new_hold = next_queue[0]; // カレントがホールドに入る
+        int new_next_idx;
+        if(holdType != -1) {
+            piece = holdType; // 元々あったホールドを使う
+            new_next_idx = 1; // NEXTはまだ消費しない
+        } else {
+            piece = next_queue[1]; // ホールドが空ならNEXT1を使う
+            new_next_idx = 2; // NEXT1まで消費した
+        }
+        expandState(initial_state, piece, new_hold, new_next_idx, 1, true, 1);
     }
 
     if(next_states.size() > BEAM_WIDTH) {
@@ -656,103 +699,50 @@ void searchBestMoveWasm(
     }
     current_states = next_states;
 
-    next_states.clear();
-    for(const auto& state : current_states) {
-        int p2_type = paths[state.path_index].p2;
-        std::vector<Placement> p2_list = getAllPlacements(state.board, p2_type, getSpawnY(p2_type));
-        if(p2_list.empty()) { final_states.push_back(state); continue; }
-        for(size_t j = 0; j < p2_list.size(); j++) {
-            const auto& p2 = p2_list[j];
+    // ────────────────────────────
+    // 2手目 〜 6手目 (Step 2 to 6)
+    // ────────────────────────────
+    for (int depth = 1; depth < 6; depth++) {
+        int step_num = depth + 1;
+        next_states.clear();
+
+        for (const auto& state : current_states) {
+            int cur_mino = state.next_idx < 6 ? next_queue[state.next_idx] : 0;
+            int added = 0;
+
+            // Branch 1: Play (現在のステップのcur_minoをそのまま置く)
+            added += expandState(state, cur_mino, state.hold_mino, state.next_idx + 1, step_num, false, -1);
             
-            Board simBoard = state.board;
-            for(int k=0; k<4; k++) {
-                if(p2.blocks[k].y >= 0 && p2.blocks[k].y < ROWS && p2.blocks[k].x >= 0 && p2.blocks[k].x < COLS) {
-                    simBoard.cells[p2.blocks[k].y][p2.blocks[k].x] = 1;
-                }
+            // Branch 2: Hold (ホールドミノと入れ替えて置く)
+            // （ホールドが空ではない、かつ入れ替える意味がある場合のみ）
+            if (state.hold_mino != -1 && state.hold_mino != cur_mino) {
+                added += expandState(state, state.hold_mino, cur_mino, state.next_idx + 1, step_num, false, -1);
             }
-            simBoard.checkLineAndClear();
 
-            int score2 = evaluateBoard(simBoard, p2.linesCleared, p2.isFullyGrounded, p2.touchingCount, w, p2.blocks);
-            int stepScore = score2 + calcEventBonus(p2, 2);
-            SearchState s = state;
-            s.total_score += stepScore; s.board = simBoard; s.p2 = p2; s.has_p2 = true;
-            s.step2_score = stepScore;
-            next_states.push_back(s);
-        }
-    }
-
-    if(next_states.size() > BEAM_WIDTH) {
-        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
-            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
-        next_states.resize(BEAM_WIDTH);
-    }
-    current_states = next_states;
-
-    next_states.clear();
-    for(const auto& state : current_states) {
-        int p3_type = paths[state.path_index].p3;
-        std::vector<Placement> p3_list = getAllPlacements(state.board, p3_type, getSpawnY(p3_type));
-        if(p3_list.empty()) { final_states.push_back(state); continue; }
-        for(size_t j = 0; j < p3_list.size(); j++) {
-            const auto& p3 = p3_list[j];
-            
-            Board simBoard = state.board;
-            for(int k=0; k<4; k++) {
-                if(p3.blocks[k].y >= 0 && p3.blocks[k].y < ROWS && p3.blocks[k].x >= 0 && p3.blocks[k].x < COLS) {
-                    simBoard.cells[p3.blocks[k].y][p3.blocks[k].x] = 1;
-                }
+            // この状態から一つも手を展開できなかった場合（一番上まで積まれてしまった等）は、ここで探索終了
+            if (added == 0) {
+                final_states.push_back(state);
             }
-            simBoard.checkLineAndClear();
-
-            int score3 = evaluateBoard(simBoard, p3.linesCleared, p3.isFullyGrounded, p3.touchingCount, w, p3.blocks);
-            int stepScore = score3 + calcEventBonus(p3, 3);
-            SearchState s = state;
-            s.total_score += stepScore; s.board = simBoard; s.p3 = p3; s.has_p3 = true;
-            s.step3_score = stepScore;
-            next_states.push_back(s);
         }
-    }
 
-    if(next_states.size() > BEAM_WIDTH) {
-        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
-            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
-        next_states.resize(BEAM_WIDTH);
-    }
-    current_states = next_states;
+        if (next_states.empty()) break; // 全てのビームで置けなくなった場合
 
-    next_states.clear();
-    for(const auto& state : current_states) {
-        int p4_type = paths[state.path_index].p4;
-        std::vector<Placement> p4_list = getAllPlacements(state.board, p4_type, getSpawnY(p4_type));
-        if(p4_list.empty()) { final_states.push_back(state); continue; }
-        for(size_t j = 0; j < p4_list.size(); j++) {
-            const auto& p4 = p4_list[j];
-            
-            Board simBoard = state.board;
-            for(int k=0; k<4; k++) {
-                if(p4.blocks[k].y >= 0 && p4.blocks[k].y < ROWS && p4.blocks[k].x >= 0 && p4.blocks[k].x < COLS) {
-                    simBoard.cells[p4.blocks[k].y][p4.blocks[k].x] = 1;
-                }
-            }
-            simBoard.checkLineAndClear();
-
-            int score4 = evaluateBoard(simBoard, p4.linesCleared, p4.isFullyGrounded, p4.touchingCount, w, p4.blocks);
-            int stepScore = score4 + calcEventBonus(p4, 4);
-            SearchState s = state;
-            s.total_score += stepScore; s.board = simBoard; s.p4 = p4; s.has_p4 = true;
-            s.step4_score = stepScore;
-            next_states.push_back(s);
+        if(next_states.size() > BEAM_WIDTH) {
+            std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
+                [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
+            next_states.resize(BEAM_WIDTH);
         }
+        current_states = next_states;
     }
 
-    if(next_states.size() > BEAM_WIDTH) {
-        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
-            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
-        next_states.resize(BEAM_WIDTH);
+    // 最後まで到達した状態も final_states に統合
+    for (const auto& state : current_states) {
+        final_states.push_back(state);
     }
 
-    for(const auto& state : next_states) final_states.push_back(state);
-
+    // ────────────────────────────
+    // 最適解の決定と出力
+    // ────────────────────────────
     int bestTotalScore = -10000000;
     const SearchState* bestState = nullptr;
 
@@ -764,38 +754,43 @@ void searchBestMoveWasm(
     }
 
     if(bestState) {
-        const auto& path = paths[bestState->path_index];
-        outResult[0] = bestState->action; 
+        // ★配列に保存しておいた「実際に使用したミノID（p_id）」を結果に書き込むため、
+        // JS側は何も変更せずに「その手で置かれたミノ」を正しく描画できる
+        outResult[0] = bestState->first_action; 
         outResult[1] = bestState->p1_score; 
         outResult[2] = bestState->p1_score - baseScore; 
 
-        outResult[3] = path.p1; outResult[4] = bestState->p1.rot; outResult[5] = bestState->p1.x; outResult[6] = bestState->p1.y; outResult[7] = bestState->p1.spawnY;
-        outResult[12] = bestState->p1.isTSpin ? 1 : 0;
+        outResult[3] = bestState->p_id[0]; outResult[4] = bestState->p[0].rot; outResult[5] = bestState->p[0].x; outResult[6] = bestState->p[0].y; outResult[7] = bestState->p[0].spawnY;
+        outResult[12] = bestState->p[0].isTSpin ? 1 : 0;
         
-        if(bestState->has_p2) { outResult[8] = path.p2; outResult[9] = bestState->p2.rot; outResult[10] = bestState->p2.x; outResult[11] = bestState->p2.y; }
-        if(bestState->has_p3) { outResult[13] = path.p3; outResult[14] = bestState->p3.rot; outResult[15] = bestState->p3.x; outResult[16] = bestState->p3.y; }
-        if(bestState->has_p4) { outResult[17] = path.p4; outResult[18] = bestState->p4.rot; outResult[19] = bestState->p4.x; outResult[20] = bestState->p4.y; }
+        if(bestState->has_p[1]) { outResult[8] = bestState->p_id[1]; outResult[9] = bestState->p[1].rot; outResult[10] = bestState->p[1].x; outResult[11] = bestState->p[1].y; }
+        if(bestState->has_p[2]) { outResult[13] = bestState->p_id[2]; outResult[14] = bestState->p[2].rot; outResult[15] = bestState->p[2].x; outResult[16] = bestState->p[2].y; }
+        if(bestState->has_p[3]) { outResult[17] = bestState->p_id[3]; outResult[18] = bestState->p[3].rot; outResult[19] = bestState->p[3].x; outResult[20] = bestState->p[3].y; }
+        if(bestState->has_p[4]) { outResult[21] = bestState->p_id[4]; outResult[22] = bestState->p[4].rot; outResult[23] = bestState->p[4].x; outResult[24] = bestState->p[4].y; }
+        if(bestState->has_p[5]) { outResult[25] = bestState->p_id[5]; outResult[26] = bestState->p[5].rot; outResult[27] = bestState->p[5].x; outResult[28] = bestState->p[5].y; }
 
-        outResult[21] = bestState->total_score;
-        outResult[22] = bestState->step1_score;
-        outResult[23] = bestState->has_p2 ? bestState->step2_score : 0;
-        outResult[24] = bestState->has_p3 ? bestState->step3_score : 0;
-        outResult[25] = bestState->has_p4 ? bestState->step4_score : 0;
+        outResult[29] = bestState->total_score;
+        outResult[30] = bestState->step_score[0];
+        outResult[31] = bestState->has_p[1] ? bestState->step_score[1] : 0;
+        outResult[32] = bestState->has_p[2] ? bestState->step_score[2] : 0;
+        outResult[33] = bestState->has_p[3] ? bestState->step_score[3] : 0;
+        outResult[34] = bestState->has_p[4] ? bestState->step_score[4] : 0;
+        outResult[35] = bestState->has_p[5] ? bestState->step_score[5] : 0;
         
         int finalPath[64];
         int finalPathLen = 0;
         
-        if (bestState->action == 1) {
+        if (bestState->first_action == 1) {
             finalPath[finalPathLen++] = 7; 
         }
-        for (int i = 0; i < bestState->p1.pathLength && finalPathLen < 64; i++) {
-            finalPath[finalPathLen++] = bestState->p1.path[i];
+        for (int i = 0; i < bestState->p[0].pathLength && finalPathLen < 64; i++) {
+            finalPath[finalPathLen++] = bestState->p[0].path[i];
         }
         
         for (int i = 0; i < finalPathLen; i++) {
             int idx = i / 10;
             int shift = (i % 10) * 3;
-            outResult[26 + idx] |= (finalPath[i] & 0x7) << shift;
+            outResult[36 + idx] |= (finalPath[i] & 0x7) << shift;
         }
     }
 }
