@@ -11,11 +11,16 @@ window.CPU5 = class {
         this.currentMino = null;
         this.baseScore = 0;     
 
+        // ★追加：ゴースト位置の監視用変数
+        this.lastGhostState = null;
+        this.pendingGhostState = null;
+        this.isCalculatingSingle = false;
+
         this.weights = {
             lineClear: 14,
-            hole: -64, 
+            hole: -40, 
             heightLimit: -96, 
-            heightDiff: -7, 
+            heightDiff: -12, 
             flat: 4,
             step1Good: 3, 
             step1Bad: -2, 
@@ -26,28 +31,28 @@ window.CPU5 = class {
             singleWell: 5, 
             multiWell: -10,
             
-            iWell: 32,           
+            iWell: 96,           
             iWellOver: -10,      
-            blocksOverHole: -3, 
+            blocksOverHole: -72, 
             
             line4: 100,          
             downstackGood: 68,   
             downstackBad: -3,
 
             // ★変更：維持の旨味を減らし、打つ（消す）ことの旨味を圧倒的に大きくする
-            tsdShape: 150,      // TSDの地形がある時のボーナス(300から150に減少)
+            tsdShape: 36,      // TSDの地形がある時のボーナス(300から150に減少)
             tsdShapeOver: -45, // TSD地形を2個以上作った場合の減点
             tsdFillBonus: 24,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
 
             // ★追加・変更：TSSとTSDのボーナス分離、および空洞ペナルティ
-            tssClear: 25,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
-            tsdClear: 1280,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
+            tssClear: 512,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
+            tsdClear: 2560,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
             tsdHolePenalty: -200, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
             pureHole: -50,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
 
             // ★追加：RENコンボボーナスとBtB維持ボーナス
-            comboBonus: 10,   // REN数の2乗に掛けるボーナス係数（地形高さ10以上の時のみ発動）
-            btbKeep: 1729,     // BtB維持/破壊の評価係数（4line/tspin時は+、通常ライン消去時は-）
+            comboBonus: 20,   // REN数の2乗に掛けるボーナス係数（地形高さ10以上の時のみ発動）
+            btbKeep: 496,     // BtB維持/破壊の評価係数（4line/tspin時は+、通常ライン消去時は-）
 
             P1_WEIGHT: 1.2,        
         };
@@ -67,12 +72,99 @@ window.CPU5 = class {
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 this.handleWorkerResult(e.data.result);
+            } else if (e.data.type === 'evaluate_single_result') {
+                this.isCalculatingSingle = false;
+                this.updateEvalDisplay(e.data.score, e.data.diff);
             }
         };
 
         this.worker.onerror = (err) => {
             console.error("❌ Worker 5 Error: ", err.message, err.filename, err.lineno);
         };
+    }
+
+    updateEvalDisplay(score, diff) {
+        const evalEl = document.getElementById('eval-value');
+        if (evalEl) evalEl.textContent = score;
+
+        const diffEl = document.getElementById('eval-diff');
+        if (diffEl) {
+            diffEl.style.color = '';
+            if (diff > 0) {
+                diffEl.textContent = `(+${diff})`;
+                diffEl.className = 'eval-diff-plus';
+            } else if (diff < 0) {
+                diffEl.textContent = `(${diff})`;
+                diffEl.className = 'eval-diff-minus';
+            } else {
+                diffEl.textContent = `(±0)`;
+                diffEl.className = '';
+                diffEl.style.color = 'var(--text-dim)';
+            }
+        }
+    }
+
+    getGhostY() {
+        if (!this.game || !this.game.mino || !this.game.field) return null;
+        let m = this.game.mino;
+        let ghostY = m.y;
+        while (true) {
+            let canDrop = true;
+            for (let b of m.blocks) {
+                let bx = m.x + b.x;
+                let by = ghostY + 1 + b.y;
+                if (by >= 20) { canDrop = false; break; }
+                if (by >= 0) {
+                    if (this.game.field.blocks.some(fb => fb.x === bx && fb.y === by)) {
+                        canDrop = false; break;
+                    }
+                }
+            }
+            if (!canDrop) break;
+            ghostY++;
+        }
+        return ghostY;
+    }
+
+    // ★追加：指定された座標（ゴースト位置）で落とした場合、それがT-SpinかMiniかを判定する
+    checkTSpinAt(x, y, rot) {
+        if(this.game.mino.type !== 2) return 0; // T以外は対象外
+        if(!this.game.lastActionWasRotation) return 0;
+
+        const cx = x + this.game.mino.pivot.x - 0.5; 
+        const cy = y + this.game.mino.pivot.y - 0.5;
+        const px = Math.round(cx);
+        const py = Math.round(cy);
+
+        const corners = [
+            { x: px - 1, y: py - 1 }, // 左上
+            { x: px + 1, y: py - 1 }, // 右上
+            { x: px - 1, y: py + 1 }, // 左下
+            { x: px + 1, y: py + 1 }, // 右下
+        ];
+
+        const occupied = corners.map(c =>
+            c.x < 0 || c.x >= 10 || c.y < 0 || c.y >= 20 || this.game.field.has(c.x, c.y)
+        );
+
+        let abIdx, cdIdx;
+        switch(rot){
+            case 0: abIdx = [0, 1]; cdIdx = [2, 3]; break;
+            case 1: abIdx = [1, 3]; cdIdx = [0, 2]; break;
+            case 2: abIdx = [3, 2]; cdIdx = [1, 0]; break;
+            case 3: abIdx = [2, 0]; cdIdx = [3, 1]; break;
+            default: return 0;
+        }
+
+        const abFilled = abIdx.filter(i => occupied[i]).length;
+        const cdFilled = cdIdx.filter(i => occupied[i]).length;
+
+        if(this.game.lastRotUsedPoint5) return 1; // tspin
+
+        if(abFilled === 2 && cdFilled >= 1) return 1; // tspin
+        if(cdFilled === 2 && abFilled >= 1) return 2; // mini
+
+        return 0; // なし
     }
 
     executeAction(bestResult) {
@@ -163,7 +255,6 @@ window.CPU5 = class {
         let states = [];
         states.push({ x: backupX, y: backupY, rot: backupRot });
 
-        // C++のパスをシミュレート
         for (let actId of path) {
             if (actId === 1) { if (this.game.valid(-1, 0)) this.game.mino.x--; }
             else if (actId === 2) { if (this.game.valid(1, 0)) this.game.mino.x++; }
@@ -205,18 +296,21 @@ window.CPU5 = class {
         }
 
         const checkInstantDrop = (checkRot) => {
-            // 出現位置で回転できるか
             if (!this.canDropStraightFromTo(startX, startY, startY, checkRot, bestResult.id)) return false;
-            // 出現位置から目的のx座標まで、途中で地形にぶつからず横移動できるか
             let step = bestResult.x > startX ? 1 : -1;
             for (let tx = startX; tx !== bestResult.x + step; tx += step) {
                 if (!this.canDropStraightFromTo(tx, startY, startY, checkRot, bestResult.id)) return false;
             }
-            // 目的のx座標で、startYからbestResult.y(一番下)まで障害物なく落とせるか
             return this.canDropStraightFromTo(bestResult.x, startY, bestResult.y, checkRot, bestResult.id);
         };
 
-        if (checkInstantDrop(bestResult.rot)) {
+        let skipInstantDrop = false;
+        // ★変更：tSpinType > 0 であれば空中ショートカットをスキップ（Miniもスキップ対象）
+        if (bestResult.tSpinType > 0 && bestResult.clearedLines && bestResult.clearedLines.length > 0 && this.game.backToBack) {
+            skipInstantDrop = true;
+        }
+
+        if (!skipInstantDrop && checkInstantDrop(bestResult.rot)) {
             let targetRot = bestResult.rot;
 
             if ([0, 1, 5, 6].includes(bestResult.id) && (bestResult.rot === 2 || bestResult.rot === 0)) {
@@ -237,7 +331,6 @@ window.CPU5 = class {
             return queue;
         }
 
-        // 部分最適化（T-Spin等、屋根の下へのねじ込み）
         if (bestI > 0) {
             let st = states[bestI];
             
@@ -281,7 +374,6 @@ window.CPU5 = class {
             return queue;
         }
 
-        // 最適化不可（最初から上に障害物がある等）
         let hasSoftDropSequence = false;
         let softDropTargetY = -1;
         for (let j = 0; j < path.length; j++) {
@@ -449,11 +541,82 @@ window.CPU5 = class {
 
     updateLoop() {
         if (!this.isActive) return;
+        
         if (this.game.mino && this.game.mino !== this.currentMino) {
             this.currentMino = this.game.mino;
             this.onMinoSpawned();
         }
+
+        if (this.game.mino) {
+            let gx = this.game.mino.x;
+            let gy = this.getGhostY();
+            let rot = this.game.mino.rotation;
+            let type = this.game.mino.type;
+            
+            let stateStr = `${type}_${gx}_${gy}_${rot}`;
+            if (this.lastGhostState !== stateStr) {
+                this.lastGhostState = stateStr;
+                this.pendingGhostState = { type, rot, x: gx, y: gy };
+            }
+
+            if (this.pendingGhostState && !this.isCalculating && !this.isCalculatingSingle) {
+                let p = this.pendingGhostState;
+                this.pendingGhostState = null;
+                this.requestSingleEvaluation(p.type, p.rot, p.x, p.y);
+            }
+        }
+
         requestAnimationFrame(() => this.updateLoop());
+    }
+
+    requestSingleEvaluation(type, rot, x, y) {
+        if (!this.workerReady) return;
+        this.isCalculatingSingle = true;
+
+        let boardBuffer = new Uint8Array(200);
+        this.game.field.blocks.forEach(b => {
+            if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) {
+                boardBuffer[b.y * 10 + b.x] = 1; 
+            }
+        });
+
+        let weightsArray = new Int32Array([
+            this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
+            this.weights.heightDiff, this.weights.flat, this.weights.step1Good,
+            this.weights.step1Bad, this.weights.step2Plus, this.weights.groundedBonus,
+            this.weights.touchingBonus, 
+            this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
+            this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
+            Math.round(this.weights.P1_WEIGHT * 100), 
+            this.weights.tsdShape,                    
+            this.weights.tsdShapeOver,                
+            this.weights.tsdFillBonus,
+            this.weights.tssClear,                    
+            this.weights.tsdClear,                    
+            this.weights.tsdHolePenalty,              
+            this.weights.pureHole,                    
+            this.weights.comboBonus,                  
+            this.weights.btbKeep                      
+        ]);
+
+        const currentRen = this.game.ren || 0;
+        const currentBtB = this.game.backToBack ? 1 : 0;
+        
+        // ★ JS側で確実にゴーストの座標でのT-Spin/Miniを判定する
+        let tSpinType = this.checkTSpinAt(x, y, rot);
+
+        this.worker.postMessage({
+            type: 'evaluate_single',
+            boardBuffer: boardBuffer,
+            minoType: type,
+            rot: rot,
+            x: x,
+            y: y,
+            weightsArray: weightsArray,
+            ren: currentRen,
+            backToBack: currentBtB,
+            tSpinType: tSpinType // ★変更：isTSpinからtSpinTypeに
+        });
     }
 
     onMinoSpawned() {
@@ -493,13 +656,12 @@ window.CPU5 = class {
             this.weights.tsdClear,                    
             this.weights.tsdHolePenalty,              
             this.weights.pureHole,                    
-            this.weights.comboBonus,                  // ★追加：[24] comboBonus
-            this.weights.btbKeep                      // ★追加：[25] btbKeep
+            this.weights.comboBonus,                  
+            this.weights.btbKeep                      
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
 
-        // ★追加：現在のゲームのREN数とBtB状態を取得してWorkerに渡す
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
 
@@ -511,12 +673,12 @@ window.CPU5 = class {
             next1: this.game.nextQueue[0].type,
             next2: this.game.nextQueue[1].type,
             next3: this.game.nextQueue[2].type, 
-            next4: this.game.nextQueue[3].type, // ★追加
-            next5: this.game.nextQueue[4].type, // ★追加
+            next4: this.game.nextQueue[3].type, 
+            next5: this.game.nextQueue[4].type, 
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray,
-            ren: currentRen,       // ★追加：現在のREN数
-            backToBack: currentBtB // ★追加：BtB継続フラグ
+            ren: currentRen,       
+            backToBack: currentBtB 
         });
     }
 
@@ -539,19 +701,23 @@ window.CPU5 = class {
             diff: res[2], 
             p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6], spawnY: res[7] } : null,
             p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
-            isTSpin: (res[12] === 1), 
+            
+            // ★変更：tSpinTypeを受け取り、>0 で isTSpin とする
+            tSpinType: res[12], 
+            isTSpin: (res[12] > 0), 
+
             p3: (res[13] >= 0 && res[13] <= 6) ? { id: res[13], rot: res[14], x: res[15], y: res[16] } : null,
             p4: (res[17] >= 0 && res[17] <= 6) ? { id: res[17], rot: res[18], x: res[19], y: res[20] } : null,
-            p5: (res[21] >= 0 && res[21] <= 6) ? { id: res[21], rot: res[22], x: res[23], y: res[24] } : null, // ★追加
-            p6: (res[25] >= 0 && res[25] <= 6) ? { id: res[25], rot: res[26], x: res[27], y: res[28] } : null, // ★追加
+            p5: (res[21] >= 0 && res[21] <= 6) ? { id: res[21], rot: res[22], x: res[23], y: res[24] } : null, 
+            p6: (res[25] >= 0 && res[25] <= 6) ? { id: res[25], rot: res[26], x: res[27], y: res[28] } : null, 
             
             totalScore: res[29] || 0,
             step1Score: res[30] || 0,
             step2Score: res[31] || 0,
             step3Score: res[32] || 0,
             step4Score: res[33] || 0,
-            step5Score: res[34] || 0, // ★追加
-            step6Score: res[35] || 0, // ★追加
+            step5Score: res[34] || 0, 
+            step6Score: res[35] || 0, 
         };
 
         if(bestMove.p1) {
@@ -584,24 +750,7 @@ window.CPU5 = class {
             bestMove.clearedLines = this.getClearedLines(this.game.field.blocks, droppedBlocks1);
         }
 
-        const evalEl = document.getElementById('eval-value');
-        if (evalEl) evalEl.textContent = bestMove.score;
-
-        const diffEl = document.getElementById('eval-diff');
-        if (diffEl) {
-            diffEl.style.color = '';
-            if (bestMove.diff > 0) {
-                diffEl.textContent = `(+${bestMove.diff})`;
-                diffEl.className = 'eval-diff-plus';
-            } else if (bestMove.diff < 0) {
-                diffEl.textContent = `(${bestMove.diff})`;
-                diffEl.className = 'eval-diff-minus';
-            } else {
-                diffEl.textContent = `(±0)`;
-                diffEl.className = '';
-                diffEl.style.color = 'var(--text-dim)';
-            }
-        }
+        this.updateEvalDisplay(bestMove.score, bestMove.diff);
 
         if (this.game.currentMode === 'test') {
             this.renderEstimatePlace(); 
@@ -640,8 +789,8 @@ window.CPU5 = class {
             { data: this.bestMoveData.p2, name: 'step2' },
             { data: this.bestMoveData.p3, name: 'step3' },
             { data: this.bestMoveData.p4, name: 'step4' },
-            { data: this.bestMoveData.p5, name: 'step5' }, // ★追加
-            { data: this.bestMoveData.p6, name: 'step6' }  // ★追加
+            { data: this.bestMoveData.p5, name: 'step5' }, 
+            { data: this.bestMoveData.p6, name: 'step6' }  
         ];
 
         let simField = Array.from({ length: 20 }, () => Array(10).fill(0));
@@ -701,7 +850,6 @@ window.CPU5 = class {
         let simMino = new Mino(pData.id);
         for(let i = 0; i < pData.rot; i++) simMino.rotate();
 
-        // ★追加・調整: 6手対応で不透明度やZ-indexをスケーリング
         const opacityMap = { 'step1': 0.9, 'step2': 0.5, 'step3': 0.5, 'step4': 0.5, 'step5': 0.5, 'step6': 0.5 };
         const bgOpacityMap = { 'step1': 0.3, 'step2': 0.2, 'step3': 0.1, 'step4': 0.1, 'step5': 0.1, 'step6': 0.1 };
         const zIndexMap = { 'step1': '6', 'step2': '5', 'step3': '4', 'step4': '3', 'step5': '2', 'step6': '1' };
