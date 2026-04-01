@@ -110,9 +110,10 @@ PlacementInfo calcPlacementInfo(const Board& b, const GridBlock blocks[4]) {
     return {isFullyGrounded, touchingCount};
 }
 
+// ★変更：heightDiff -> step3Plus, step2Plus -> step2, TspinMiniペナルティ等追加
 struct EvalWeights {
-    int lineClear, hole, heightLimit, heightDiff, flat;
-    int step1Good, step1Bad, step2Plus, groundedBonus, touchingBonus;
+    int lineClear, hole, heightLimit, step3Plus, flat;
+    int step1Good, step1Bad, step2, groundedBonus, touchingBonus;
     int iWell, iWellOver, blocksOverHole; 
     int line4, downstackGood, downstackBad;
     int p1Weight; 
@@ -120,7 +121,9 @@ struct EvalWeights {
     int tssClear, tsdClear, tsdHolePenalty, pureHole; 
     int comboBonus; 
     int btbKeep;    
-    int renCutPenalty; // ★追加：REN切れペナルティ
+    int renCutPenalty; 
+    int tsmMiniPenalty;      // ★追加：Tspin mini全般への負のスコア
+    int tMinoNoClearPenalty; // ★追加：Tミノをライン消去なしで消費したときのペナルティ
 };
 
 bool isTSDShape(const Board& board, int cx, int cy) {
@@ -210,17 +213,16 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         else if (n < 3) score += w.downstackBad * 10 * n; 
     }
 
+    // ★変更：heightとholesの計算ロジック（特定行の穴を除外する処理）
     int heights[COLS] = {0};
-    int holes = 0;
+    int colBlocks[COLS] = {0};
     for(int x = 0; x < COLS; x++) {
-        bool foundTop = false; int colBlocks = 0;
         for(int y = 0; y < ROWS; y++) {
             if(b.cells[y][x] != 0) {
-                if(!foundTop) { heights[x] = ROWS - y; foundTop = true; }
-                colBlocks++;
+                if(heights[x] == 0) heights[x] = ROWS - y; 
+                colBlocks[x]++;
             }
         }
-        if(foundTop) holes += (heights[x] - colBlocks);
     }
 
     int maxHeight = 0; int minHeight = ROWS;
@@ -229,10 +231,51 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         if(h < minHeight) minHeight = h;
     }
 
-    score += (maxHeight - minHeight)* (maxHeight - minHeight) * w.heightDiff;
     if(maxHeight >= 8) score += (maxHeight - 7) * w.heightLimit;
     if(maxHeight >= 16) score += 100 * maxHeight * maxHeight * w.heightLimit;
-    
+
+    // ★追加：TSD消去行および4line消去行のhole除外判定
+    bool ignoreHoleRow[ROWS] = {false};
+    if (maxHeight <= 10) {
+        // TSDを打てる2ラインを除外
+        for (int cy = 1; cy < ROWS - 1; cy++) {
+            for (int cx = 1; cx < COLS - 1; cx++) {
+                if (isTSDShape(b, cx, cy)) {
+                    ignoreHoleRow[cy] = true;
+                    ignoreHoleRow[cy + 1] = true;
+                }
+            }
+        }
+        // 4lineを打てる4ラインを除外
+        for(int x = 0; x < COLS; x++) {
+            int leftDiff = (x == 0) ? 999 : heights[x-1] - heights[x];
+            int rightDiff = (x == COLS-1) ? 999 : heights[x+1] - heights[x];
+            if(leftDiff >= 4 && rightDiff >= 4) {
+                int startY = ROWS - heights[x];
+                for (int dy = 0; dy < 4; dy++) {
+                    if (startY + dy >= 0 && startY + dy < ROWS) {
+                        ignoreHoleRow[startY + dy] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    int holes = 0;
+    for(int x = 0; x < COLS; x++) {
+        bool foundTop = false; 
+        for(int y = 0; y < ROWS; y++) {
+            if(b.cells[y][x] != 0) {
+                foundTop = true;
+            } else if (foundTop) {
+                // 除外行でなければ穴としてカウント
+                if (!ignoreHoleRow[y]) {
+                    holes++;
+                }
+            }
+        }
+    }
+
     score += holes * w.hole;
     if (holes > 0) {
         score += (holes * holes) * (w.hole / 2);
@@ -256,14 +299,20 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         score += (pureHolesCount * pureHolesCount) * (w.pureHole / 2);
     }
 
+    // ★変更：heightDiffの廃止、step2, step3Plusへの変更
     int step1Count = 0;
+    int step2Count = 0;
+    int step3PlusCount = 0;
     for(int x = 0; x < COLS - 1; x++) {
         int diff = std::abs(heights[x] - heights[x+1]);
         if(diff == 0) score += w.flat;
         else if(diff == 1) step1Count++;
-        else score += w.step2Plus;
+        else if(diff == 2) step2Count++;
+        else step3PlusCount++;
     }
     score += (step1Count <= 2) ? (step1Count * w.step1Good) : (step1Count * w.step1Bad);
+    score += step2Count * w.step2;
+    score += step3PlusCount * w.step3Plus;
 
     int deepWells = 0; int totalDepth = 0;
     for(int x = 0; x < COLS; x++) {
@@ -639,13 +688,14 @@ void evaluateSinglePlacementWasm(
     Board baseBoard;
     for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
 
+    // ★変更：拡張されたweightsに対応
     EvalWeights w = {
         weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
         weightsArray[5], weightsArray[6], weightsArray[7], weightsArray[8], weightsArray[9],
         weightsArray[10], weightsArray[11], weightsArray[12], weightsArray[13], weightsArray[14], 
         weightsArray[15], weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], 
         weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
-        weightsArray[24], weightsArray[25], weightsArray[26] // ★追加：renCutPenalty
+        weightsArray[24], weightsArray[25], weightsArray[26], weightsArray[27], weightsArray[28]
     };
 
     int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0);
@@ -673,12 +723,29 @@ void evaluateSinglePlacementWasm(
         if (cleared == 1) eventBonus += w.tssClear; 
         else if (cleared >= 2) eventBonus += w.tsdClear * multiplier; 
     } else if (tSpinType == 2) { 
-        if (cleared == 1) eventBonus -= w.tssClear * multiplier * 100; 
-        else if (cleared >= 2) eventBonus += w.tsdClear;
-        
+        // ★変更：Tspin Mini のスコアを負にする
+        eventBonus += w.tsmMiniPenalty * multiplier;
     }
 
     int stepScore = score * w.p1Weight / 100 + eventBonus;
+
+    // ★追加：Tミノをライン消去なしで消費したときのペナルティ
+    int prevHeight = 0;
+    for(int y = 0; y < ROWS; y++) {
+        for(int x = 0; x < COLS; x++) {
+            if(baseBoard.cells[y][x] != 0) {
+                prevHeight = ROWS - y;
+                break;
+            }
+        }
+        if(prevHeight != 0) break;
+    }
+
+    if (prevHeight <= 10) {
+        if (minoType == 2 && cleared == 0) {
+            stepScore += w.tMinoNoClearPenalty;
+        }
+    }
 
     outResult[0] = stepScore;
     outResult[1] = stepScore - baseScore;
@@ -696,13 +763,14 @@ void searchBestMoveWasm(
     Board baseBoard;
     for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
 
+    // ★変更：拡張されたweightsに対応
     EvalWeights w = {
         weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
         weightsArray[5], weightsArray[6], weightsArray[7], weightsArray[8], weightsArray[9],
         weightsArray[10], weightsArray[11], weightsArray[12], weightsArray[13], weightsArray[14], 
         weightsArray[15], weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], 
         weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
-        weightsArray[24], weightsArray[25], weightsArray[26] // ★追加：renCutPenalty
+        weightsArray[24], weightsArray[25], weightsArray[26], weightsArray[27], weightsArray[28]
     };
 
     int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0);
@@ -716,6 +784,9 @@ void searchBestMoveWasm(
         if (p.tSpinType == 1) {
             if (p.linesCleared == 1) bonus += w.tssClear; 
             else if (p.linesCleared >= 2) bonus += w.tsdClear * multiplier; 
+        } else if (p.tSpinType == 2) {
+            // ★変更：Tspin Mini のスコアを負にする
+            bonus += w.tsmMiniPenalty * multiplier;
         }
         return bonus;
     };
@@ -776,25 +847,27 @@ void searchBestMoveWasm(
                 stepScore -= 1000000;
             }
 
-            // ★追加：REN切れペナルティの判定
-            if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) {
-                int prevHeight = 0;
-                // 1手前（または現在）のボードの高さを確認
-                const Board& checkBoard = is_first ? baseBoard : s.board;
-                for(int y = 0; y < ROWS; y++) {
-                    bool found = false;
-                    for(int x = 0; x < COLS; x++) {
-                        if(checkBoard.cells[y][x] != 0) {
-                            prevHeight = ROWS - y;
-                            found = true;
-                            break;
-                        }
+            // ★追加：REN切れペナルティとTミノ空打ちペナルティの判定
+            int prevHeight = 0;
+            const Board& checkBoard = is_first ? baseBoard : s.board;
+            for(int y = 0; y < ROWS; y++) {
+                bool found = false;
+                for(int x = 0; x < COLS; x++) {
+                    if(checkBoard.cells[y][x] != 0) {
+                        prevHeight = ROWS - y;
+                        found = true;
+                        break;
                     }
-                    if(found) break;
                 }
-                // 最大の高さが10以下なら、REN切れペナルティを加算（再帰的にtotal_scoreを下げる）
-                if (prevHeight <= 10) {
+                if(found) break;
+            }
+            
+            if (prevHeight <= 10) {
+                if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) {
                     stepScore += w.renCutPenalty; 
+                }
+                if (piece == 2 && p.linesCleared == 0) {
+                    stepScore += w.tMinoNoClearPenalty;
                 }
             }
 

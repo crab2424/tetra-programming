@@ -31,7 +31,7 @@ self.onmessage = function(e) {
     if (data.type === 'evaluate_single') {
         if (boardPtr === null) {
             boardPtr   = Module._my_malloc(200);       
-            weightsPtr = Module._my_malloc(4 * 27); // ★変更：26から27に拡張（renCutPenalty用）
+            weightsPtr = Module._my_malloc(4 * 29); // ★変更：27から29に拡張
             resultPtr  = Module._my_malloc(4 * 43); 
         }
 
@@ -65,7 +65,7 @@ self.onmessage = function(e) {
 
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(200);       
-        weightsPtr = Module._my_malloc(4 * 27); // ★変更：26から27に拡張
+        weightsPtr = Module._my_malloc(4 * 29); // ★変更：27から29に拡張
         resultPtr  = Module._my_malloc(4 * 43); 
     }
 
