@@ -31,7 +31,8 @@ self.onmessage = function(e) {
     if (data.type === 'evaluate_single') {
         if (boardPtr === null) {
             boardPtr   = Module._my_malloc(200);       
-            weightsPtr = Module._my_malloc(4 * 27); 
+            // ★修正: JS側から渡される要素数が33に増えたため、確保サイズを 4 * 33 に変更
+            weightsPtr = Module._my_malloc(4 * 33); 
             resultPtr  = Module._my_malloc(4 * 43); 
         }
 
@@ -64,7 +65,8 @@ self.onmessage = function(e) {
 
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(200);       
-        weightsPtr = Module._my_malloc(4 * 27); 
+        // ★修正: JS側から渡される要素数が33に増えたため、確保サイズを 4 * 33 に変更
+        weightsPtr = Module._my_malloc(4 * 33); 
         resultPtr  = Module._my_malloc(4 * 43); 
     }
 

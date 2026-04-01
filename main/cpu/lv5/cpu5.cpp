@@ -759,6 +759,18 @@ void evaluateSinglePlacementWasm(
 
     int stepScore = score * w.p1Weight / 100 + eventBonus;
 
+    // ★追加：シングル評価でも、ブロックが1つでも画面外（y < 0）にはみ出す場合は即死ペナルティを与えます
+    bool hasBlockOutside = false;
+    for(int i=0; i<4; i++) {
+        if(blocks[i].y < 0) {
+            hasBlockOutside = true;
+            break;
+        }
+    }
+    if (hasBlockOutside) {
+        stepScore -= 1000000;
+    }
+
     int prevHeight = 0;
     for(int y = 0; y < ROWS; y++) {
         for(int x = 0; x < COLS; x++) {
@@ -838,7 +850,8 @@ void searchBestMoveWasm(
         
         if (p_list.empty()) {
             SearchState dead_s = s;
-            dead_s.total_score -= 1000000; 
+            // ★修正：早い段階でゲームオーバーになるほどペナルティを大きくする（遅延死が選ばれるのを防ぐ）
+            dead_s.total_score -= 1000000 * (7 - step_num); 
             if (is_first) dead_s.first_action = first_action;
             
             final_states.push_back(dead_s);
@@ -849,10 +862,11 @@ void searchBestMoveWasm(
         for(size_t j = 0; j < p_list.size(); j++) {
             const auto& p = p_list[j];
             
-            bool isAllOutside = true;
+            // ★変更：ブロックが1つでも画面外（y < 0）にはみ出している場合、ゲームオーバーと判定します。
+            bool hasBlockOutside = false;
             for(int k=0; k<4; k++) {
-                if(p.blocks[k].y >= 0) {
-                    isAllOutside = false;
+                if(p.blocks[k].y < 0) {
+                    hasBlockOutside = true;
                     break;
                 }
             }
@@ -872,8 +886,10 @@ void searchBestMoveWasm(
             int eventBonus = calcEventBonus(p, step_num);
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
 
-            if (isAllOutside) {
-                stepScore -= 1000000;
+            if (hasBlockOutside) {
+                // ★修正：早い段階でゲームオーバーになるほどペナルティを大きくする（遅延死が選ばれるのを防ぐ）
+                // 1手目で死ぬと -600万、2手目で死ぬと -500万 となり、できるだけ長く生き延びるルートが選ばれやすくなります。
+                stepScore -= 1000000 * (7 - step_num);
             }
 
             int prevHeight = 0;
@@ -922,7 +938,9 @@ void searchBestMoveWasm(
             next_s.step_score[step_num - 1] = stepScore;
             next_s.p_id[step_num - 1] = piece; 
 
-            if (isAllOutside) {
+            if (hasBlockOutside) {
+                // ★追加：ゲームオーバーの手は、帳消しにされないよう以降の探索（枝）に追加せずここで打ち切ります。
+                // これにより、回避可能な置き方が8通り未満でも、ゲームオーバー手が生き残らなくなります。
                 final_states.push_back(next_s);
             } else {
                 if (p.linesCleared > 0) {
