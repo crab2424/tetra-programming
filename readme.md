@@ -1,6 +1,6 @@
 現在CPUはLv.5まで実装しています．
 
-github pagesはこちらから↓
+github pagesはこちらから
 https://crab2424.github.io/tetra-programming/main/
 
 
