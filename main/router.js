@@ -10,23 +10,23 @@ const GAME_MODES = {
     id:          'marathon',
     label:       'MARATHON',
     icon:        '∞',
-    description: 'ラインを消してスコアを稼げ。レベルが上がるにつれてミノが加速する。',
-    descriptionEn: 'Clear lines to rack up score. Speed increases as your level rises.',
+    description: 'レベルが上がるにつれてミノが加速する。',
+    descriptionEn: 'Speed increases as your level rises.',
     color:       'var(--accent)',
   },
   sprint: {
     id:          'sprint',
     label:       'SPRINT',
     icon:        '⚡',
-    description: '40ラインを最速で消せ。タイムを競え。',
-    descriptionEn: 'Clear 40 lines as fast as possible. Race against the clock.',
+    description: '40ラインのタイムアタック。',
+    descriptionEn: 'Clear 40 lines as fast as possible.',
     color:       'var(--accent3)',
   },
   ultra: {
     id:          'ultra',
     label:       'ULTRA',
     icon:        '★',
-    description: '2分間でどれだけスコアを稼げるか。制限時間との勝負。',
+    description: '2分間のスコアアタック。',
     descriptionEn: 'Score as many points as possible in 2 minutes.',
     color:       'var(--accent2)',
   },
@@ -34,8 +34,8 @@ const GAME_MODES = {
     id:          'test',
     label:       'CPU TEST',
     icon:        '🤖',
-    description: 'CPUの動作確認用モードです。人間は操作しません。',
-    descriptionEn: 'Test mode for CPU behavior. CPU ONLY.',
+    description: 'CPUの動作確認用モードです。',
+    descriptionEn: 'Test mode for CPU behavior. ',
     color:       'var(--success)',
   },
 };
@@ -51,13 +51,13 @@ let currentGameMode = null;
 
 // ─── VERSUSモード用グローバル変数 ──────────────
 const CPU_LEVELS = {
-  1: { label: 'LV 1', desc: '超ゆっくり。ほぼ止まっている。',      gravityLevel: 1  },
-  2: { label: 'LV 2', desc: '少しゆっくり。ちょうど良い練習相手。', gravityLevel: 2  },
-  3: { label: 'LV 3', desc: '普通の速さ。そこそこ強い。',           gravityLevel: 2  },
-  4: { label: 'LV 4', desc: '速い。かなり手強い。',                 gravityLevel: 2 },
-  5: { label: 'LV 5', desc: '最速。ほぼ人間には止められない。',     gravityLevel: 2 },
+  1: { label: 'LV 1', desc: '初心者向け',      gravityLevel: 1  },
+  2: { label: 'LV 2', desc: '初級者向け', gravityLevel: 2  },
+  3: { label: 'LV 3', desc: '中級者向け',           gravityLevel: 2  },
+  4: { label: 'LV 4', desc: '上級者向け',                 gravityLevel: 2 },
+  5: { label: 'LV 5', desc: '最上級者向け',     gravityLevel: 2 },
 };
-let selectedCpuLevel = 5; 
+let selectedCpuLevel = 1; 
 
 const CPU_CONFIGS = {
   1: { className: 'CPU',  src: 'cpu/cpu.js' },  
