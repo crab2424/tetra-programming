@@ -31,14 +31,13 @@ self.onmessage = function(e) {
     if (data.type === 'evaluate_single') {
         if (boardPtr === null) {
             boardPtr   = Module._my_malloc(200);       
-            weightsPtr = Module._my_malloc(4 * 29); // ★変更：27から29に拡張
+            weightsPtr = Module._my_malloc(4 * 27); 
             resultPtr  = Module._my_malloc(4 * 43); 
         }
 
         HEAPU8.set(data.boardBuffer, boardPtr);
         HEAP32.set(data.weightsArray, weightsPtr / 4);
 
-        // ★引数を data.isTSpin から data.tSpinType に変更
         Module._evaluateSinglePlacementWasm(
             boardPtr,
             data.minoType,
@@ -65,7 +64,7 @@ self.onmessage = function(e) {
 
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(200);       
-        weightsPtr = Module._my_malloc(4 * 29); // ★変更：27から29に拡張
+        weightsPtr = Module._my_malloc(4 * 27); 
         resultPtr  = Module._my_malloc(4 * 43); 
     }
 

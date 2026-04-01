@@ -19,21 +19,21 @@ window.CPU5 = class {
         this.weights = {
             lineClear: 14,
             hole: -40, 
-            heightLimit: -96, 
+            heightLimit: -56, 
             step3Plus: -128, 
             flat: 4,
             step1Good: 3, 
             step1Bad: -2, 
-            step2: -8, 
+            step2: -54, 
             groundedBonus: 72, 
             touchingBonus: 36,   
             underSpace: -6, 
             singleWell: 5, 
-            multiWell: -10,
+            multiWell: -170,
             
-            iWell: 96,           
-            iWellOver: -10,      
-            blocksOverHole: -72, 
+            iWell: 60,           
+            iWellOver: -40,      
+            blocksOverHole: -24, 
             
             line4: 500,          
             downstackGood: 68,   
@@ -59,6 +59,11 @@ window.CPU5 = class {
             tsmMiniPenalty: -1000,      // Tspin mini全般への負のスコア
             tMinoNoClearPenalty: -80, // Tミノをライン消去なしで消費したときのペナルティ
 
+            tsdSetup: 80,         // ★追加：TSD前段階の地形へのボーナス (tsdShape 128 より低い値)
+            tsdSetupOver: -100,   // ★追加：TSD前段階の地形が3個以上ある場合のペナルティ係数
+
+            slopeBonus: 72,       // ★追加：ゆるやかな下り坂条件を満たす場合のボーナス
+            slopePenalty: -36,    // ★追加：ゆるやかな下り坂条件を満たさない場合のペナルティ
 
             P1_WEIGHT: 1.2,        
         };
@@ -584,7 +589,7 @@ window.CPU5 = class {
             }
         });
 
-        // ★変更：拡張されたweightsに対応
+        // ★変更：拡張されたweightsに対応 (要素数33)
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
             this.weights.step3Plus, this.weights.flat, this.weights.step1Good,
@@ -603,8 +608,12 @@ window.CPU5 = class {
             this.weights.comboBonus,                  
             this.weights.btbKeep,
             this.weights.renCutPenalty,
-            this.weights.tsmMiniPenalty,       // ★追加
-            this.weights.tMinoNoClearPenalty   // ★追加
+            this.weights.tsmMiniPenalty,       
+            this.weights.tMinoNoClearPenalty,
+            this.weights.tsdSetup,             
+            this.weights.tsdSetupOver,         
+            this.weights.slopeBonus,           // ★追加
+            this.weights.slopePenalty          // ★追加
         ]);
 
         const currentRen = this.game.ren || 0;
@@ -648,7 +657,7 @@ window.CPU5 = class {
             }
         });
 
-        // ★変更：拡張されたweightsに対応
+        // ★変更：拡張されたweightsに対応 (要素数33)
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
             this.weights.step3Plus, this.weights.flat, this.weights.step1Good,
@@ -667,8 +676,12 @@ window.CPU5 = class {
             this.weights.comboBonus,                  
             this.weights.btbKeep,
             this.weights.renCutPenalty,
-            this.weights.tsmMiniPenalty,       // ★追加
-            this.weights.tMinoNoClearPenalty   // ★追加
+            this.weights.tsmMiniPenalty,       
+            this.weights.tMinoNoClearPenalty,
+            this.weights.tsdSetup,             
+            this.weights.tsdSetupOver,         
+            this.weights.slopeBonus,           // ★追加
+            this.weights.slopePenalty          // ★追加
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
