@@ -32,7 +32,7 @@ window.CPU5 = class {
             multiWell: -170,
             
             iWell: 60,           
-            iWellOver: -40,      
+            iWellOver: -234,      
             blocksOverHole: -24, 
             
             line4: 500,          
@@ -74,8 +74,8 @@ window.CPU5 = class {
 
         this.isExecutingAction = false; 
         this.actionQueue = [];          
-        this.actionDelay = 60; 
-        this.harddropDelay = 200; 
+        this.actionDelay = 45; 
+        this.harddropDelay = 150; 
         
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
@@ -589,11 +589,11 @@ window.CPU5 = class {
             }
         });
 
-        // ★変更：拡張されたweightsに対応 (要素数33)
+        // ★修正: C++側（要素数33）に合わせて、足りなかった重み付けと変数名の誤り（step3Plus, step2）を修正しました。
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
-            this.weights.step3Plus, this.weights.flat, this.weights.step1Good,
-            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus,
+            this.weights.step3Plus, this.weights.flat, this.weights.step1Good, // heightDiff -> step3Plus に修正
+            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus, // step2Plus -> step2 に修正
             this.weights.touchingBonus, 
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
@@ -608,12 +608,13 @@ window.CPU5 = class {
             this.weights.comboBonus,                  
             this.weights.btbKeep,
             this.weights.renCutPenalty,
-            this.weights.tsmMiniPenalty,       
+            // 追加: 33要素対応のため不足分を補填
+            this.weights.tsmMiniPenalty,
             this.weights.tMinoNoClearPenalty,
-            this.weights.tsdSetup,             
-            this.weights.tsdSetupOver,         
-            this.weights.slopeBonus,           // ★追加
-            this.weights.slopePenalty          // ★追加
+            this.weights.tsdSetup,
+            this.weights.tsdSetupOver,
+            this.weights.slopeBonus,
+            this.weights.slopePenalty
         ]);
 
         const currentRen = this.game.ren || 0;
@@ -657,11 +658,11 @@ window.CPU5 = class {
             }
         });
 
-        // ★変更：拡張されたweightsに対応 (要素数33)
+        // ★修正: C++側（要素数33）に合わせて、足りなかった重み付けと変数名の誤り（step3Plus, step2）を修正しました。
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
-            this.weights.step3Plus, this.weights.flat, this.weights.step1Good,
-            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus,
+            this.weights.step3Plus, this.weights.flat, this.weights.step1Good, // heightDiff -> step3Plus に修正
+            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus, // step2Plus -> step2 に修正
             this.weights.touchingBonus, 
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
@@ -676,12 +677,13 @@ window.CPU5 = class {
             this.weights.comboBonus,                  
             this.weights.btbKeep,
             this.weights.renCutPenalty,
-            this.weights.tsmMiniPenalty,       
+            // 追加: 33要素対応のため不足分を補填
+            this.weights.tsmMiniPenalty,
             this.weights.tMinoNoClearPenalty,
-            this.weights.tsdSetup,             
-            this.weights.tsdSetupOver,         
-            this.weights.slopeBonus,           // ★追加
-            this.weights.slopePenalty          // ★追加
+            this.weights.tsdSetup,
+            this.weights.tsdSetupOver,
+            this.weights.slopeBonus,
+            this.weights.slopePenalty
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
