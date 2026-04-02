@@ -125,7 +125,7 @@ window.CPU5 = class {
                 let bx = m.x + b.x;
                 let by = ghostY + 1 + b.y;
                 if (by >= 20) { canDrop = false; break; }
-                if (by >= 0) {
+                if (by >= -5) { // 画面外認識対応として負方向も許可
                     if (this.game.field.blocks.some(fb => fb.x === bx && fb.y === by)) {
                         canDrop = false; break;
                     }
@@ -153,8 +153,9 @@ window.CPU5 = class {
             { x: px + 1, y: py + 1 }, 
         ];
 
+        // ★修正: 画面拡張対応。元の y < 0 ではなく y < -5 を壁(画面外)として判定
         const occupied = corners.map(c =>
-            c.x < 0 || c.x >= 10 || c.y < 0 || c.y >= 20 || this.game.field.has(c.x, c.y)
+            c.x < 0 || c.x >= 10 || c.y < -5 || c.y >= 20 || this.game.field.has(c.x, c.y)
         );
 
         let abIdx, cdIdx;
@@ -208,7 +209,7 @@ window.CPU5 = class {
                 
                 if (bx < 0 || bx >= 10) return false;
                 
-                if (by >= 0) {
+                if (by >= -5) { // 拡張画面に対応
                     for (let i = 0; i < fieldBlocks.length; i++) {
                         if (fieldBlocks[i].x === bx && fieldBlocks[i].y === by) {
                             return false;
@@ -582,18 +583,19 @@ window.CPU5 = class {
         if (!this.workerReady) return;
         this.isCalculatingSingle = true;
 
-        let boardBuffer = new Uint8Array(200);
+        // ★修正: バッファサイズを200から250に拡張し、y=-5を0にシフトして保存
+        let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
-            if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) {
-                boardBuffer[b.y * 10 + b.x] = 1; 
+            let by = b.y + 5;
+            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) {
+                boardBuffer[by * 10 + b.x] = 1; 
             }
         });
 
-        // ★修正: C++側（要素数33）に合わせて、足りなかった重み付けと変数名の誤り（step3Plus, step2）を修正しました。
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
-            this.weights.step3Plus, this.weights.flat, this.weights.step1Good, // heightDiff -> step3Plus に修正
-            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus, // step2Plus -> step2 に修正
+            this.weights.step3Plus, this.weights.flat, this.weights.step1Good, 
+            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus, 
             this.weights.touchingBonus, 
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
@@ -608,7 +610,6 @@ window.CPU5 = class {
             this.weights.comboBonus,                  
             this.weights.btbKeep,
             this.weights.renCutPenalty,
-            // 追加: 33要素対応のため不足分を補填
             this.weights.tsmMiniPenalty,
             this.weights.tMinoNoClearPenalty,
             this.weights.tsdSetup,
@@ -628,7 +629,7 @@ window.CPU5 = class {
             minoType: type,
             rot: rot,
             x: x,
-            y: y,
+            y: y + 5, // ★修正: シフトさせたy座標をWasmに渡す
             weightsArray: weightsArray,
             ren: currentRen,
             backToBack: currentBtB,
@@ -651,18 +652,19 @@ window.CPU5 = class {
         if (this.isCalculating) return;
         this.isCalculating = true; 
 
-        let boardBuffer = new Uint8Array(200);
+        // ★修正: バッファサイズを200から250に拡張し、y=-5を0にシフトして保存
+        let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
-            if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) {
-                boardBuffer[b.y * 10 + b.x] = 1; 
+            let by = b.y + 5;
+            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) {
+                boardBuffer[by * 10 + b.x] = 1; 
             }
         });
 
-        // ★修正: C++側（要素数33）に合わせて、足りなかった重み付けと変数名の誤り（step3Plus, step2）を修正しました。
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
-            this.weights.step3Plus, this.weights.flat, this.weights.step1Good, // heightDiff -> step3Plus に修正
-            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus, // step2Plus -> step2 に修正
+            this.weights.step3Plus, this.weights.flat, this.weights.step1Good, 
+            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus, 
             this.weights.touchingBonus, 
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
@@ -677,7 +679,6 @@ window.CPU5 = class {
             this.weights.comboBonus,                  
             this.weights.btbKeep,
             this.weights.renCutPenalty,
-            // 追加: 33要素対応のため不足分を補填
             this.weights.tsmMiniPenalty,
             this.weights.tMinoNoClearPenalty,
             this.weights.tsdSetup,
@@ -721,20 +722,21 @@ window.CPU5 = class {
             return;
         }
 
+        // ★修正: C++側から受け取るY座標はすべて +5 されているため -5 して元の座標系に戻す
         let bestMove = {
             action: actionInt === 1 ? 'hold' : 'play',
             score: res[1],
             diff: res[2], 
-            p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6], spawnY: res[7] } : null,
-            p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
+            p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6] - 5, spawnY: res[7] - 5 } : null,
+            p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] - 5 } : null,
             
             tSpinType: res[12], 
             isTSpin: (res[12] > 0), 
 
-            p3: (res[13] >= 0 && res[13] <= 6) ? { id: res[13], rot: res[14], x: res[15], y: res[16] } : null,
-            p4: (res[17] >= 0 && res[17] <= 6) ? { id: res[17], rot: res[18], x: res[19], y: res[20] } : null,
-            p5: (res[21] >= 0 && res[21] <= 6) ? { id: res[21], rot: res[22], x: res[23], y: res[24] } : null, 
-            p6: (res[25] >= 0 && res[25] <= 6) ? { id: res[25], rot: res[26], x: res[27], y: res[28] } : null, 
+            p3: (res[13] >= 0 && res[13] <= 6) ? { id: res[13], rot: res[14], x: res[15], y: res[16] - 5 } : null,
+            p4: (res[17] >= 0 && res[17] <= 6) ? { id: res[17], rot: res[18], x: res[19], y: res[20] - 5 } : null,
+            p5: (res[21] >= 0 && res[21] <= 6) ? { id: res[21], rot: res[22], x: res[23], y: res[24] - 5 } : null, 
+            p6: (res[25] >= 0 && res[25] <= 6) ? { id: res[25], rot: res[26], x: res[27], y: res[28] - 5 } : null, 
             
             totalScore: res[29] || 0,
             step1Score: res[30] || 0,
@@ -792,7 +794,7 @@ window.CPU5 = class {
         for (let i = 0; i < minoBlocks.length; i++) blocks.push({ x: minoBlocks[i].x, y: minoBlocks[i].y });
         
         let clearedRowIndices = [];
-        for (let r = 0; r < 20; r++) {
+        for (let r = -5; r < 20; r++) { // ★修正: y=-5まで判定を拡張
             let rowCount = blocks.filter(b => b.y === r).length;
             if (rowCount === 10) { 
                 clearedRowIndices.push(r);
@@ -818,9 +820,11 @@ window.CPU5 = class {
             { data: this.bestMoveData.p6, name: 'step6' }  
         ];
 
-        let simField = Array.from({ length: 20 }, () => Array(10).fill(0));
+        // ★修正: 描画シミュレーション用のフィールドも 25行 に拡張し、シフトして処理
+        let simField = Array.from({ length: 25 }, () => Array(10).fill(0));
         this.game.field.blocks.forEach(b => {
-            if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) simField[b.y][b.x] = 1;
+            let by = b.y + 5;
+            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) simField[by][b.x] = 1;
         });
 
         let yMap = {};
@@ -837,11 +841,12 @@ window.CPU5 = class {
             let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + step.data.x, y: b.y + step.data.y }));
 
             for (let b of droppedBlocks) {
-                if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) simField[b.y][b.x] = 1;
+                let by = b.y + 5; // シフトして記録
+                if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) simField[by][b.x] = 1;
             }
 
             let clearedSimLines = [];
-            for (let y = 0; y < 20; y++) {
+            for (let y = 0; y < 25; y++) {
                 let isFull = true;
                 for (let x = 0; x < 10; x++) {
                     if (simField[y][x] === 0) { isFull = false; break; }
@@ -858,7 +863,7 @@ window.CPU5 = class {
                 let newYMap = {};
                 let currentY_sim = 19;
                 for (let y_old_sim = 19; y_old_sim >= -10; y_old_sim--) {
-                    if (clearedSimLines.includes(y_old_sim)) continue;
+                    if (clearedSimLines.includes(y_old_sim + 5)) continue; // ★シフトして比較
                     newYMap[currentY_sim] = yMap[y_old_sim];
                     currentY_sim--;
                 }
@@ -896,7 +901,8 @@ window.CPU5 = class {
 
             if (yMap && yMap[drawY] !== undefined) drawY = yMap[drawY];
 
-            if (drawY >= -1 && drawY < 20) {
+            // ★修正: 描画範囲を y=-5(画面外)まで広げました
+            if (drawY >= -5 && drawY < 20) {
                 let div = document.createElement('div');
                 div.className = `cpu-estimate-block ${stepClass}`;
                 
@@ -913,7 +919,7 @@ window.CPU5 = class {
                 div.style.zIndex = zIndexMap[stepClass];
 
                 div.style.left = `${drawX * 32}px`;
-                div.style.top = `${(drawY + 0.5) * 32}px`;
+                div.style.top = `${(drawY + 0.5) * 32}px`; // ※描画領域のoffsetがある前提
                 
                 this.estimateContainer.appendChild(div);
             }

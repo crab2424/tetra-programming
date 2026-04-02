@@ -7,7 +7,7 @@
 #include <vector>
 
 const int COLS = 10;
-const int ROWS = 20;
+const int ROWS = 25; // ★変更：JS側のy=-5に対応するため画面を25行に拡張 (内部的には 0~24)
 
 struct GridBlock { int x, y; };
 
@@ -142,8 +142,8 @@ bool isTSDShape(const Board& board, int cx, int cy) {
     if (!isSolid(cx - 1, cy + 1)) return false; // 左下の土台
     if (!isSolid(cx + 1, cy + 1)) return false; // 右下の土台
     
-    bool leftRoof = (cy - 1 < 0) || (cx - 1 < 0) || (board.cells[cy-1][cx-1] != 0);
-    bool rightRoof = (cy - 1 < 0) || (cx + 1 >= COLS) || (board.cells[cy-1][cx+1] != 0);
+    bool leftRoof = (cy - 1 < 0) || (cx - 1 < 0) || (board.cells[cy-1][cx-1] && board.cells[cy][cx-2] != 0);
+    bool rightRoof = (cy - 1 < 0) || (cx + 1 >= COLS) || (board.cells[cy-1][cx+1] && board.cells[cy-1][cx+2] != 0);
     if (!(leftRoof ^ rightRoof)) return false; 
     
     if (cy - 1 >= 0) {
@@ -200,7 +200,7 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         for (int i=0; i<4; i++) {
             if (droppedBlocks[i].y > minoBottomY) minoBottomY = droppedBlocks[i].y;
         }
-        int n = 19 - minoBottomY;
+        int n = (ROWS - 1) - minoBottomY; // ★変更: 19 から (ROWS - 1) に拡張
         if (n < 0) n = 0;
         if (n >= 3 && isGrounded) score += w.downstackGood * n; 
         else if (n < 3) score += w.downstackBad * 10 * n; 
@@ -211,7 +211,7 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     for(int x = 0; x < COLS; x++) {
         for(int y = 0; y < ROWS; y++) {
             if(b.cells[y][x] != 0) {
-                if(heights[x] == 0) heights[x] = ROWS - y; 
+                if(heights[x] == 0) heights[x] = ROWS - y; // ★変更: 高さ計算は ROWS(25)から計算するためズレない
                 colBlocks[x]++;
             }
         }
@@ -404,9 +404,9 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         score += w.tsdShape;
         score += tsd.fillCount * w.tsdFillBonus; 
         score += tsd.holeCount * w.tsdHolePenalty; 
-    } else if (tsd.count >= 3) {
+    } else if (tsd.count >= 2) {
         score += w.tsdShape; 
-        score += (tsd.count - 2) * w.tsdShapeOver; 
+        score += (tsd.count - 1) * w.tsdShapeOver; 
         score += tsd.holeCount * w.tsdHolePenalty; 
     }
 
@@ -509,15 +509,16 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
     std::vector<Placement> placements;
     placements.reserve(64); 
     
-    static bool visited[4][30][19];
-    static bool placementFound[4][30][19];
-    static ParentInfo parent[4][30][19]; 
+    // ★変更: Yのバッファサイズを拡張 (30 -> 35) 画面拡張のため
+    static bool visited[4][35][19];
+    static bool placementFound[4][35][19];
+    static ParentInfo parent[4][35][19]; 
     
     std::memset(visited, 0, sizeof(visited));
     std::memset(placementFound, 0, sizeof(placementFound));
     
     for(int r=0; r<4; r++) 
-        for(int y=0; y<30; y++) 
+        for(int y=0; y<35; y++) 
             for(int x=0; x<19; x++) 
                 parent[r][y][x].x = -100; 
     
@@ -536,7 +537,7 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
     int qHead = 0, qTail = 0;
     
     bfsQueue[qTail++] = {spawnX, spawnY, initialRot, false, false};
-    if (spawnY + 5 >= 0 && spawnY + 5 < 30 && spawnX + 4 >= 0 && spawnX + 4 < 19) {
+    if (spawnY + 5 >= 0 && spawnY + 5 < 35 && spawnX + 4 >= 0 && spawnX + 4 < 19) {
         visited[initialRot][spawnY + 5][spawnX + 4] = true;
     }
 
@@ -548,7 +549,7 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
         bool canMoveDown = isValidPlacement(baseBoard, blocks_down);
         
         if (!canMoveDown) {
-            if (curr.y + 5 >= 0 && curr.y + 5 < 30 && curr.x + 4 >= 0 && curr.x + 4 < 19) {
+            if (curr.y + 5 >= 0 && curr.y + 5 < 35 && curr.x + 4 >= 0 && curr.x + 4 < 19) {
                 if (!placementFound[curr.rot][curr.y + 5][curr.x + 4]) {
                     placementFound[curr.rot][curr.y + 5][curr.x + 4] = true;
                     
@@ -596,7 +597,7 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                     int pathLen = 0;
                     int traceX = curr.x, traceY = curr.y, traceRot = curr.rot;
                     while(true) {
-                        if (traceY + 5 < 0 || traceY + 5 >= 30 || traceX + 4 < 0 || traceX + 4 >= 19) break;
+                        if (traceY + 5 < 0 || traceY + 5 >= 35 || traceX + 4 < 0 || traceX + 4 >= 19) break;
                         ParentInfo& pInfo = parent[traceRot][traceY + 5][traceX + 4];
                         if (pInfo.x == -100) break; 
                         if (pathLen < 63) path[pathLen++] = (uint8_t)pInfo.action; 
@@ -625,7 +626,7 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
         }
         
         auto tryPush = [&](int nx, int ny, int nrot, bool isRot, bool isPoint5, int action) {
-            if (ny + 5 >= 0 && ny + 5 < 30 && nx + 4 >= 0 && nx + 4 < 19) {
+            if (ny + 5 >= 0 && ny + 5 < 35 && nx + 4 >= 0 && nx + 4 < 19) {
                 if (!visited[nrot][ny + 5][nx + 4]) {
                     visited[nrot][ny + 5][nx + 4] = true;
                     parent[nrot][ny + 5][nx + 4] = { (int8_t)curr.x, (int8_t)curr.y, (int8_t)curr.rot, (int8_t)action };
@@ -716,7 +717,8 @@ void evaluateSinglePlacementWasm(
     int ren, int backToBack, int tSpinType
 ) {
     Board baseBoard;
-    for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
+    // ★変更: バッファサイズを200から250に拡張
+    for(int i = 0; i < 250; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
 
     // ★変更：拡張されたweightsに対応 (要素数33)
     EvalWeights w = {
@@ -759,7 +761,7 @@ void evaluateSinglePlacementWasm(
 
     int stepScore = score * w.p1Weight / 100 + eventBonus;
 
-    // ★追加：シングル評価でも、ブロックが1つでも画面外（y < 0）にはみ出す場合は即死ペナルティを与えます
+    // ★追加：シングル評価でも、ブロックが1つでも画面外（シフト後座標で y < 0, つまり元座標で y < -5）にはみ出す場合は即死ペナルティを与えます
     bool hasBlockOutside = false;
     for(int i=0; i<4; i++) {
         if(blocks[i].y < 0) {
@@ -768,7 +770,7 @@ void evaluateSinglePlacementWasm(
         }
     }
     if (hasBlockOutside) {
-        stepScore -= 1000000;
+        stepScore -= 100000000; // ★修正: ペナルティを -1億 に大幅増加 (評価値累積による意図せぬ長生き防止)
     }
 
     int prevHeight = 0;
@@ -802,7 +804,8 @@ void searchBestMoveWasm(
     for(int i = 36; i < 43; i++) outResult[i] = 0; 
 
     Board baseBoard;
-    for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
+    // ★変更: バッファサイズを200から250に拡張
+    for(int i = 0; i < 250; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
 
     // ★変更：拡張されたweightsに対応 (要素数33)
     EvalWeights w = {
@@ -819,7 +822,9 @@ void searchBestMoveWasm(
     
     int next_queue[7] = { currentType, next1, next2, next3, next4, next5, 0 };
 
-    auto getSpawnY = [](int type) { return type == 0 ? -1 : -2; };
+    // ★変更: Y座標系が+5シフトされているため、スポーン位置のベースもシフトします
+    auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; }; 
+    
     auto calcEventBonus = [&](const Placement& p, int step_num) {
         int bonus = 0; int multiplier = 7 - step_num; 
         if (p.linesCleared >= 4) bonus += w.line4 * multiplier;
@@ -850,8 +855,8 @@ void searchBestMoveWasm(
         
         if (p_list.empty()) {
             SearchState dead_s = s;
-            // ★修正：早い段階でゲームオーバーになるほどペナルティを大きくする（遅延死が選ばれるのを防ぐ）
-            dead_s.total_score -= 1000000 * (7 - step_num); 
+            // ★修正：ペナルティを -1億 に大幅増加 (評価値累積による意図せぬ長生き防止)
+            dead_s.total_score -= 100000000 * (7 - step_num); 
             if (is_first) dead_s.first_action = first_action;
             
             final_states.push_back(dead_s);
@@ -862,7 +867,7 @@ void searchBestMoveWasm(
         for(size_t j = 0; j < p_list.size(); j++) {
             const auto& p = p_list[j];
             
-            // ★変更：ブロックが1つでも画面外（y < 0）にはみ出している場合、ゲームオーバーと判定します。
+            // ★変更：ブロックが1つでも画面外（シフト後座標で y < 0, つまり元座標で y < -5）にはみ出している場合、ゲームオーバーと判定します。
             bool hasBlockOutside = false;
             for(int k=0; k<4; k++) {
                 if(p.blocks[k].y < 0) {
@@ -887,9 +892,9 @@ void searchBestMoveWasm(
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
 
             if (hasBlockOutside) {
-                // ★修正：早い段階でゲームオーバーになるほどペナルティを大きくする（遅延死が選ばれるのを防ぐ）
-                // 1手目で死ぬと -600万、2手目で死ぬと -500万 となり、できるだけ長く生き延びるルートが選ばれやすくなります。
-                stepScore -= 1000000 * (7 - step_num);
+                // ★修正：早い段階でゲームオーバーになるほどペナルティを大きくする
+                // ペナルティを -1億 に大幅増加 (毎ターンの評価値の累積マイナスによって、長生きするより早く死ぬ方がマシと判断されるバグを防止)
+                stepScore -= 100000000 * (7 - step_num);
             }
 
             int prevHeight = 0;
@@ -1020,7 +1025,8 @@ void searchBestMoveWasm(
         final_states.push_back(state);
     }
 
-    int bestTotalScore = -100000000;
+    // ★修正: ゲームオーバーペナルティを-1億にしたため、初期スコアをさらに低く設定（-20億）
+    int bestTotalScore = -2000000000;
     const SearchState* bestState = nullptr;
 
     for(const auto& state : final_states) {
