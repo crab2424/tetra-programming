@@ -24,7 +24,7 @@
         <div id="title-press-any" class="title-blink">
           PRESS ANY KEY
         </div>
-        <div id="title-version">v0.7</div>
+        <div id="title-version">v1.0</div>
       </div>
     </div>
 
@@ -79,6 +79,14 @@
             <div class="mode-btn-text">
               <span class="mode-btn-label">CPU TEST</span>
               <span class="mode-btn-desc">CPUの動作確認・開発用</span>
+            </div>
+          </button>
+          <!-- mode6: PUYO（ぷよぷよシングルプレイ） -->
+          <button class="mode-btn mode-btn-puyo" onclick="goToModeCheck('puyo')">
+            <span class="mode-btn-icon">🫧</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">PUYO</span>
+              <span class="mode-btn-desc">ぷよぷよシングルプレイ</span>
             </div>
           </button>
         </div>
@@ -373,6 +381,8 @@
     <div id="game-page" class="page">
       <div id="container">
         <canvas id="main-canvas"></canvas>
+        <!-- ぷよぷよ用メインキャンバス（PUYOモード時のみ表示） -->
+        <canvas id="puyo-main-canvas" style="display:none; border:2px solid var(--border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
         <div id="action-label-container"></div>
 
         <!-- ★ 追加：シングルプレイ用カウントダウンオーバーレイ（キャンバスに重なる） -->
@@ -387,14 +397,16 @@
 
         <span class="area-label" id="label-next">NEXT</span>
         <canvas id="next-canvas"></canvas>
+        <!-- ぷよぷよ用NEXTキャンバス（PUYOモード時のみ表示） -->
+        <canvas id="puyo-next-canvas" style="display:none; position:absolute; top:0; left:352px; border:2px solid var(--border); border-radius:2px;"></canvas>
         <span class="area-label" id="label-hold">HOLD</span>
         <canvas id="hold-canvas"></canvas>
         <div id="level-area">
-          <span class="area-label">LEVEL</span>
+          <span class="area-label" id="label-level">LEVEL</span>
           <span id="level-value">1</span>
         </div>
         <div id="lines-area">
-          <span class="area-label">LINES</span>
+          <span class="area-label" id="label-lines">LINES</span>
           <span id="lines-value">0</span>
         </div>
         <div id="score-area">
@@ -514,8 +526,7 @@
     
     <script src="settings.js?v=11"></script>
     <script src="game.js?v=12"></script>
-    
-    <!-- ★ 修正：CPUのスクリプトは router.js 内で動的ロードされるため、ここから削除しました -->
+    <script src="p_game.js?v=1"></script>
     <script src="router.js?v=13"></script>
   </body>
 </html>

@@ -38,6 +38,14 @@ const GAME_MODES = {
     descriptionEn: 'Test mode for CPU behavior. ',
     color:       'var(--success)',
   },
+  puyo: {
+    id:          'puyo',
+    label:       'PUYO',
+    icon:        '🫧',
+    description: 'ぷよぷよシングルプレイ。連鎖を繋いでハイスコアを目指せ！',
+    descriptionEn: 'Chain combos to score as high as possible.',
+    color:       'var(--accent2)',
+  },
 };
 
 let testCpuControl = true; 
@@ -60,7 +68,7 @@ const CPU_LEVELS = {
 let selectedCpuLevel = 1; 
 
 const CPU_CONFIGS = {
-  1: { className: 'CPU',  src: 'cpu/cpu.js' },  
+  1: { className: 'CPU',  src: 'cpu/lv1/cpu.js' },  
   2: { className: 'CPU2', src: 'cpu/lv2/cpu2.js' },
   3: { className: 'CPU3', src: 'cpu/lv3/cpu3.js' },
   4: { className: 'CPU4', src: 'cpu/lv4/cpu4.js' }, 
@@ -385,6 +393,11 @@ function switchPage(pageId) {
 
   if (pageId === 'main-menu' || pageId === 'title') {
     unloadCpuScript();
+    // ぷよぷよが動いていれば停止し、レイアウトをリセット
+    if (window._puyoGame) {
+      window._puyoGame.stop();
+    }
+    _switchToPuyoLayout(false);
   }
 
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -489,6 +502,10 @@ function renderModeCheck() {
         };
         toggle.appendChild(btn);
       }
+    } else if (mode.id === 'puyo') {
+      // PUYOモード：特別なオプションなし（シンプルにスタートのみ）
+      optionsEl.style.display = 'none';
+      optionsEl.innerHTML = '';
     } else {
       optionsEl.style.display = 'none';
       optionsEl.innerHTML = '';
@@ -517,6 +534,27 @@ async function startGameFromModeCheck() {
   }
 
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
+
+  // ─── PUYOモード専用処理 ────────────────────────────────────────────
+  if (modeId === 'puyo') {
+    // 既存のぷよぷよゲームが動いていれば停止する
+    if (window._puyoGame) {
+      window._puyoGame.stop();
+    }
+    // テトリス側のキャンバスを非表示にし、ぷよぷよ用を表示する
+    _switchToPuyoLayout(true);
+    switchPage('game');
+    startPuyoGame();
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────
+
+  // ぷよぷよが動いていれば停止（他モードへ戻った時）
+  if (window._puyoGame) {
+    window._puyoGame.stop();
+  }
+  // レイアウトをテトリス側に戻す
+  _switchToPuyoLayout(false);
   window._game.currentMode = modeId;
 
   if (modeId !== 'test') {
@@ -581,3 +619,50 @@ async function startGameFromModeCheck() {
     switchPage('main-menu');
   });
 })();
+
+// ─────────────────────────────────────────────
+// _switchToPuyoLayout : PUYOモード用のキャンバス表示切り替え
+// isPuyo=true → ぷよぷよ用キャンバスON、テトリス用OFF
+// isPuyo=false → テトリス用キャンバスON、ぷよぷよ用OFF
+// ─────────────────────────────────────────────
+function _switchToPuyoLayout(isPuyo) {
+  // テトリス用キャンバス群
+  const tetrisCanvases = ['main-canvas', 'next-canvas', 'hold-canvas'];
+  // ぷよぷよ用キャンバス群
+  const puyoCanvases   = ['puyo-main-canvas', 'puyo-next-canvas'];
+
+  // テトリス用の付属ラベル・エリア
+  const tetrisAreas = [
+    'label-next', 'label-hold',
+    'level-area', 'lines-area', 'score-area', 'time-area',
+    'eval-area', 'action-label-container',
+  ];
+
+  tetrisCanvases.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isPuyo ? 'none' : '';
+  });
+
+  puyoCanvases.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isPuyo ? '' : 'none';
+  });
+
+  // ラベルテキストを切り替え
+  const labelLevel = document.getElementById('label-level');
+  const labelLines = document.getElementById('label-lines');
+  const labelNext  = document.getElementById('label-next');
+  const labelHold  = document.getElementById('label-hold');
+
+  if (isPuyo) {
+    if (labelLevel) labelLevel.textContent = 'MAX CHAIN';
+    if (labelLines) labelLines.textContent = 'CHAIN';
+    if (labelNext)  labelNext.style.display  = 'none'; // NEXTラベルはぷよ用キャンバス側で表示
+    if (labelHold)  labelHold.style.display  = 'none'; // HOLDなし
+  } else {
+    if (labelLevel) labelLevel.textContent = 'LEVEL';
+    if (labelLines) labelLines.textContent = 'LINES';
+    if (labelNext)  labelNext.style.display  = '';
+    if (labelHold)  labelHold.style.display  = '';
+  }
+}

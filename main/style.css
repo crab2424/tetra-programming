@@ -671,18 +671,17 @@ canvas {
 ───────────────────────────────────────────── */
 #pause-overlay {
   display: none;
-  position: fixed; /* ★ absolute から fixed に変更 */
-  top: 0;          /* ★ 画面の左上から */
-  left: 0;         /* ★ 画面の左上から */
-  width: 100vw;    /* ★ 画面幅いっぱい */
-  height: 100vh;   /* ★ 画面高さいっぱい */
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
   background: rgba(10, 10, 15, 0.72);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
-  z-index: 1000;   /* ★ 最前面に来るように数値を上げる */
+  z-index: 1000;
   align-items: center;
   justify-content: center;
-  /* border-radius: 4px; は全画面になるため削除またはコメントアウト */
 }
 
 #pause-overlay.active {
@@ -768,7 +767,7 @@ canvas {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text-dim);
-  margin-top: 8px; /* 他のアクションボタンと少し距離を置く */
+  margin-top: 8px;
 }
 
 .btn-mainmenu:hover {
@@ -955,7 +954,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 /* ─────────────────────────────────────────────
    メインメニューページ（main-menu-page）
-   フローチャート: main menu
 ───────────────────────────────────────────── */
 #main-menu-page.active {
   display: flex;
@@ -977,7 +975,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   text-align: center;
 }
 
-/* モード選択ボタン群 */
 #main-menu-modes {
   display: flex;
   flex-direction: column;
@@ -1002,32 +999,15 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .mode-btn:hover  { transform: translateY(-2px); }
 .mode-btn:active { transform: translateY(0); }
 
-/* Marathon: accent（紫） */
-.mode-btn-marathon {
-  border-color: rgba(196, 113, 245, 0.35);
-}
-.mode-btn-marathon:hover {
-  background: rgba(196, 113, 245, 0.12);
-  border-color: var(--accent);
-}
-
-/* Sprint: accent3（水色） */
-.mode-btn-sprint {
-  border-color: rgba(113, 197, 245, 0.35);
-}
-.mode-btn-sprint:hover {
-  background: rgba(113, 197, 245, 0.12);
-  border-color: var(--accent3);
-}
-
-/* Ultra: accent2（ピンク） */
-.mode-btn-ultra {
-  border-color: rgba(250, 113, 205, 0.35);
-}
-.mode-btn-ultra:hover {
-  background: rgba(250, 113, 205, 0.12);
-  border-color: var(--accent2);
-}
+/* Marathon */
+.mode-btn-marathon { border-color: rgba(196, 113, 245, 0.35); }
+.mode-btn-marathon:hover { background: rgba(196, 113, 245, 0.12); border-color: var(--accent); }
+/* Sprint */
+.mode-btn-sprint { border-color: rgba(113, 197, 245, 0.35); }
+.mode-btn-sprint:hover { background: rgba(113, 197, 245, 0.12); border-color: var(--accent3); }
+/* Ultra */
+.mode-btn-ultra { border-color: rgba(250, 113, 205, 0.35); }
+.mode-btn-ultra:hover { background: rgba(250, 113, 205, 0.12); border-color: var(--accent2); }
 
 .mode-btn-icon {
   font-size: 32px;
@@ -1037,11 +1017,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   text-align: center;
 }
 
-/* Marathon のアイコン色 */
 .mode-btn-marathon .mode-btn-icon { color: var(--accent); }
-/* Sprint のアイコン色 */
 .mode-btn-sprint   .mode-btn-icon { color: var(--accent3); }
-/* Ultra のアイコン色 */
 .mode-btn-ultra    .mode-btn-icon { color: var(--accent2); }
 
 .mode-btn-text {
@@ -1058,11 +1035,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--text);
 }
 
-/* Marathon の label 色 */
 .mode-btn-marathon .mode-btn-label { color: var(--accent); }
-/* Sprint の label 色 */
 .mode-btn-sprint   .mode-btn-label { color: var(--accent3); }
-/* Ultra の label 色 */
 .mode-btn-ultra    .mode-btn-label { color: var(--accent2); }
 
 .mode-btn-desc {
@@ -1070,14 +1044,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--text-dim);
 }
 
-/* フッター（Settingsボタン） */
 #main-menu-footer {
   width: 100%;
 }
 
 /* ─────────────────────────────────────────────
    準備画面（mode-check-page）
-   フローチャート: mode1 check / mode2 check（共通1ページ）
 ───────────────────────────────────────────── */
 #mode-check-page.active {
   display: flex;
@@ -1095,7 +1067,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   width: 460px;
 }
 
-/* ヘッダー（アイコン＋ラベル） */
 #mode-check-header {
   display: flex;
   flex-direction: column;
@@ -1106,7 +1077,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .mode-check-icon {
   font-size: 52px;
   line-height: 1;
-  /* color は renderModeCheck() でインラインセット */
 }
 
 .mode-check-label {
@@ -1115,10 +1085,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   font-weight: 900;
   letter-spacing: 8px;
   margin: 0;
-  /* color は renderModeCheck() でインラインセット */
 }
 
-/* 説明文 */
 #mode-check-desc-block {
   width: 100%;
   background: rgba(255, 255, 255, 0.03);
@@ -1142,7 +1110,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   line-height: 1.5;
 }
 
-/* コントロール一覧（menu-controls と同スタイル） */
 #mode-check-controls {
   width: 100%;
   background: rgba(255,255,255,0.03);
@@ -1151,7 +1118,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   padding: 20px 24px;
 }
 
-/* ボタン群 */
 #mode-check-buttons {
   display: flex;
   flex-direction: column;
@@ -1159,9 +1125,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   width: 100%;
 }
 
-/* ─────────────────────────────────────────────
-   ★ 追加：マラソン用オプションUI
-───────────────────────────────────────────── */
 #mode-check-options {
   width: 100%;
   background: rgba(255, 255, 255, 0.03);
@@ -1223,19 +1186,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* ─────────────────────────────────────────────
    対戦モード（VERSUS）
 ───────────────────────────────────────────── */
-
-/* メインメニューの対戦ボタン */
-.mode-btn-versus {
-  border-color: rgba(245, 197, 66, 0.35);
-}
-.mode-btn-versus:hover {
-  background: rgba(245, 197, 66, 0.12);
-  border-color: #f5c542;
-}
+.mode-btn-versus { border-color: rgba(245, 197, 66, 0.35); }
+.mode-btn-versus:hover { background: rgba(245, 197, 66, 0.12); border-color: #f5c542; }
 .mode-btn-versus .mode-btn-icon { color: #f5c542; }
 .mode-btn-versus .mode-btn-label { color: #f5c542; }
 
-/* 対戦STARTボタン */
 .btn-versus-primary {
   background: linear-gradient(135deg, #f5c542 0%, #fa71cd 100%);
   color: #0a0a0f;
@@ -1243,7 +1198,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 .btn-versus-primary:hover { opacity: 0.88; }
 
-/* 対戦確認画面 */
 #versus-check-page.active {
   display: flex;
   justify-content: center;
@@ -1278,8 +1232,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   width: 100%;
 }
 
-
-/* 対戦ゲーム画面 */
 #versus-page.active {
   display: flex;
   justify-content: center;
@@ -1313,15 +1265,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .player-label { color: var(--accent3); }
 .cpu-label    { color: var(--danger); }
 
-/* 各ゲームフィールドのコンテナ（元の#containerと同構造） */
 .versus-container {
   position: relative;
   width: 320px;
-  height: 656px; /* SCREEN_HEIGHT + ラベル分 */
+  height: 656px; 
+  transform: scale(0.8);
+  transform-origin: top center;
+  margin: 0 80px; 
 }
 
-/* NEXT / HOLD キャンバスの配置（左側プレイヤー用） */
-.versus-label-next {
+.versus-label-next, .versus-label-next-cpu {
   position: absolute;
   font-family: 'Orbitron', monospace;
   font-size: 11px;
@@ -1331,7 +1284,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   top: -18px;
   left: 352px;
 }
-.versus-label-hold {
+.versus-label-hold, .versus-label-hold-cpu {
   position: absolute;
   font-family: 'Orbitron', monospace;
   font-size: 11px;
@@ -1342,46 +1295,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   left: -160px;
 }
 
-/* NEXT / HOLD キャンバスの配置（右側CPU用） */
-/* CPUフィールドはHOLDを右に、NEXTを左に配置（中央よりの配置にしない場合は左右反転） */
-.versus-label-next-cpu {
-  position: absolute;
-  font-family: 'Orbitron', monospace;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 3px;
-  color: var(--text-dim);
-  top: -18px;
-  left: 352px;
-}
-.versus-label-hold-cpu {
-  position: absolute;
-  font-family: 'Orbitron', monospace;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 3px;
-  color: var(--text-dim);
-  top: -18px;
-  left: -160px;
-}
-
-/* NEXT/HOLD canvasの絶対配置（プレイヤー側） */
-#versus-player-container canvas#player-next-canvas {
-  position: absolute;
-  top: 0;
-  left: 352px;
-  border: 2px solid var(--border);
-  border-radius: 2px;
-}
-#versus-player-container canvas#player-hold-canvas {
-  position: absolute;
-  top: 0;
-  left: -160px;
-  border: 2px solid var(--border);
-  border-radius: 2px;
-}
-
-/* NEXT/HOLD canvasの絶対配置（CPU側） */
+#versus-player-container canvas#player-next-canvas,
 #versus-cpu-container canvas#cpu-next-canvas {
   position: absolute;
   top: 0;
@@ -1389,6 +1303,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border: 2px solid var(--border);
   border-radius: 2px;
 }
+#versus-player-container canvas#player-hold-canvas,
 #versus-cpu-container canvas#cpu-hold-canvas {
   position: absolute;
   top: 0;
@@ -1397,7 +1312,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-radius: 2px;
 }
 
-/* メインキャンバスのスタイル */
 #player-main-canvas,
 #cpu-main-canvas {
   border: 2px solid var(--border);
@@ -1406,8 +1320,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   image-rendering: pixelated;
 }
 
-/* プレイヤー側スタッツ */
-.versus-stats-left {
+.versus-stats-left, .versus-stats-left-cpu {
   position: absolute;
   left: -160px;
   top: 450px;
@@ -1415,24 +1328,15 @@ input[type="range"]::-webkit-slider-thumb:hover {
   flex-direction: column;
   gap: 8px;
 }
-.versus-stats-right {
+.versus-stats-right, .versus-stats-right-cpu {
   position: absolute;
   left: 352px;
   top: 450px;
 }
-/* CPU側スタッツ */
-.versus-stats-left-cpu {
-  position: absolute;
-  left: -160px;
-  top: 450px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.versus-stats-right-cpu {
-  position: absolute;
-  left: 352px;
-  top: 450px;
+
+.versus-stats-left .versus-stat-block:nth-child(1),
+.versus-stats-left-cpu .versus-stat-block:nth-child(1) {
+  display: none;
 }
 
 .versus-stat-block {
@@ -1454,14 +1358,13 @@ input[type="range"]::-webkit-slider-thumb:hover {
   background-clip: text;
 }
 
-/* 中央のVS表示 */
 #versus-center {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 0 20px;
-  margin-top: 280px; /* フィールドの中ほどに来るように */
+  margin-top: 280px; 
 }
 
 #versus-vs-label {
@@ -1477,15 +1380,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 #versus-cpu-level-display {
-  font-family: 'Orbitron', monospace;
-  font-size: 11px;
-  letter-spacing: 3px;
-  color: #f5c542;
-  margin-top: 8px;
-  text-align: center;
+  display: none;
 }
 
-/* アクションラベルコンテナ（プレイヤー・CPU共通） */
 #player-action-label-container,
 #cpu-action-label-container {
   position: absolute;
@@ -1498,7 +1395,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   z-index: 10;
 }
 
-/* 対戦ポーズオーバーレイ */
 #versus-pause-overlay {
   display: none;
   position: fixed;
@@ -1547,7 +1443,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   width: 100%;
 }
 
-/* 対戦リザルト */
 #versus-result-page.active {
   display: flex;
   justify-content: center;
@@ -1555,57 +1450,33 @@ input[type="range"]::-webkit-slider-thumb:hover {
   width: 100%;
 }
 
-/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   ★ 追加：対戦モードの縮小とレイアウト調整
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-.versus-container {
-  /* 既存のスタイルに上書き・追加されます */
-  transform: scale(0.8);
-  transform-origin: top center;
-  margin: 0 80px; /* フィールド間のスペースを広げるために左右にマージンを追加 */
-}
-
-/* ★ 追加：両プレイヤーのレベル表記を非表示 */
-.versus-stats-left .versus-stat-block:nth-child(1),
-.versus-stats-left-cpu .versus-stat-block:nth-child(1) {
-  display: none;
-}
-
-/* ★ 追加：VS表記の下にある「CPU LV」テキストを非表示 */
-#versus-cpu-level-display {
-  display: none;
-}
-
-/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   ★ 追加：対戦モード 火力ゲージ表示
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .garbage-gauge {
   position: absolute;
-  left: -16px;       /* キャンバスのすぐ左に配置 */
-  bottom: 0;         /* キャンバスの下端に合わせる */
+  left: -16px;
+  bottom: 0;
   width: 10px;
-  height: 640px;     /* フィールドの高さ（20マス × 32px）と一致させる */
+  height: 640px; 
   display: flex;
-  flex-direction: column-reverse; /* 下から上へ積み上げる */
+  flex-direction: column-reverse; 
   pointer-events: none;
   z-index: 5;
 }
 
 .gauge-block {
   width: 10px;
-  height: 32px;      /* 1マスの高さと一致させる */
+  height: 32px; 
   box-sizing: border-box;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.5); /* 境目を見やすく */
+  border-bottom: 1px solid rgba(0, 0, 0, 0.5);
   flex-shrink: 0;
 }
 
 .gauge-block.unready {
-  background-color: var(--accent3); /* 猶予時間中（青） */
+  background-color: var(--accent3); 
   box-shadow: 0 0 8px var(--accent3);
 }
 
 .gauge-block.ready {
-  background-color: var(--danger); /* 確定（赤点滅） */
+  background-color: var(--danger); 
   box-shadow: 0 0 8px var(--danger);
   animation: gauge-blink 0.4s infinite alternate;
 }
@@ -1614,43 +1485,37 @@ input[type="range"]::-webkit-slider-thumb:hover {
   from { opacity: 1; }
   to   { opacity: 0.2; }
 }
-/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   ★ 追加：カウントダウン／終了演出オーバーレイ
-   フィールド上に重なって表示される汎用オーバーレイ
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-/* ─── 汎用フィールドオーバーレイ（カウントダウン＆終了演出の共通ベース） ─── */
+/* ─────────────────────────────────────────────
+   カウントダウン／終了演出オーバーレイ
+───────────────────────────────────────────── */
 .field-overlay {
-  /* キャンバスと同じ位置・サイズに重ねる */
   position: absolute;
   top: 0;
   left: 0;
-  width: 320px;   /* SCREEN_WIDTH = COLS_COUNT(10) × BLOCK_SIZE(32) */
-  height: 656px;  /* SCREEN_HEIGHT + ラベル余白分（versus-container に合わせる） */
-  display: none;  /* .active クラスで表示 */
+  width: 320px; 
+  height: 656px; 
+  display: none; 
   align-items: center;
   justify-content: center;
-  z-index: 20;    /* アクションラベル(z-index:10)より前面 */
-  pointer-events: none; /* クリック透過 */
+  z-index: 20; 
+  pointer-events: none; 
   border-radius: 2px;
 }
 
-/* シングルプレイのフィールドオーバーレイはキャンバスに合わせた高さ */
 #countdown-overlay,
 #finish-overlay {
-  height: 656px; /* SCREEN_HEIGHT 相当 */
+  height: 656px;
 }
 
 .field-overlay.active {
   display: flex;
 }
 
-/* ─── カウントダウンオーバーレイ専用スタイル ─── */
 .countdown-overlay {
   background: transparent;
 }
 
-/* カウントダウンの数字・テキスト */
 .countdown-text {
   font-family: 'Orbitron', monospace;
   font-weight: 900;
@@ -1661,18 +1526,14 @@ input[type="range"]::-webkit-slider-thumb:hover {
     0 0 20px rgba(196, 113, 245, 0.8),
     0 0 60px rgba(196, 113, 245, 0.4),
     0 4px 16px rgba(0, 0, 0, 0.8);
-  /* アニメーションはクラスで付与 */
   line-height: 1;
   user-select: none;
 }
 
-/* START! は少し小さく */
 .countdown-text:not(:empty) {
-  /* テキスト長に応じて自動調整 */
   white-space: nowrap;
 }
 
-/* ポップアニメーション（数字が弾ける） */
 @keyframes countdown-pop-anim {
   0%   { transform: scale(0.4); opacity: 0; }
   40%  { transform: scale(1.15); opacity: 1; }
@@ -1685,12 +1546,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   animation: countdown-pop-anim 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
-/* START! テキストは色を変えて区別 */
-.countdown-overlay {
-  background: transparent;
-}
-
-/* ─── 終了演出オーバーレイ専用スタイル ─── */
 .finish-overlay {
   background: transparent;
   transition: opacity 0.5s ease;
@@ -1700,7 +1555,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   opacity: 0;
 }
 
-/* 終了テキスト共通 */
 .finish-text {
   font-family: 'Orbitron', monospace;
   font-weight: 900;
@@ -1712,7 +1566,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
   animation: finish-appear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
-/* クリア時（FINISH! / WIN!） */
 .finish-text.finish-clear {
   color: var(--success);
   text-shadow:
@@ -1721,13 +1574,11 @@ input[type="range"]::-webkit-slider-thumb:hover {
     0 4px 16px rgba(0, 0, 0, 0.8);
 }
 
-/* ゲームオーバー時（GAME OVER / LOSE...） */
 .finish-text.finish-gameover {
   background: linear-gradient(135deg, var(--accent), var(--accent2));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  /* text-shadow は -webkit-text-fill-color: transparent と共存できないため filter で代替 */
   filter: drop-shadow(0 0 16px rgba(196, 113, 245, 0.6)) drop-shadow(0 4px 8px rgba(0,0,0,0.8));
 }
 
@@ -1738,39 +1589,53 @@ input[type="range"]::-webkit-slider-thumb:hover {
   100% { transform: scale(1.0) translateY(0); opacity: 1; }
 }
 
-/* ─── 対戦モードでのオーバーレイは縮小率に合わせて調整 ─── */
-/* versus-container は scale(0.8) で縮小されているため、
-   フィールドオーバーレイはその内側で絶対配置されるため自動的に縮小される。
-   サイズは元の SCREEN_WIDTH(320px) × SCREEN_HEIGHT に合わせる。 */
 #player-countdown-overlay,
 #player-finish-overlay,
 #cpu-countdown-overlay,
 #cpu-finish-overlay {
-  /* versus-container 内のキャンバス (320×656) に合わせる */
   width: 320px;
-  height: 640px; /* SCREEN_HEIGHT (ROWS_COUNT × BLOCK_SIZE = 640) */
+  height: 640px; 
   top: 0;
   left: 0;
 }
 
-/* Test: success（緑） */
-.mode-btn-test {
-  border-color: rgba(90, 245, 160, 0.35);
-}
-.mode-btn-test:hover {
-  background: rgba(90, 245, 160, 0.12);
-  border-color: var(--success);
-}
+.mode-btn-test { border-color: rgba(90, 245, 160, 0.35); }
+.mode-btn-test:hover { background: rgba(90, 245, 160, 0.12); border-color: var(--success); }
 .mode-btn-test .mode-btn-icon { color: var(--success); }
 .mode-btn-test .mode-btn-label { color: var(--success); }
 
 /* ─────────────────────────────────────────────
-   CPU評価点表示エリア（TESTモード専用）
+   PUYOモード用スタイル
 ───────────────────────────────────────────── */
+.mode-btn-puyo { border-color: rgba(250, 113, 205, 0.35); }
+.mode-btn-puyo:hover { background: rgba(250, 113, 205, 0.12); border-color: var(--accent2); }
+.mode-btn-puyo .mode-btn-icon  { color: var(--accent2); }
+.mode-btn-puyo .mode-btn-label { color: var(--accent2); }
+
+/* ★ テトリスモードのキャンバスと同じスタイルと位置を適用して統一 */
+#puyo-main-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  image-rendering: pixelated;
+}
+
+#puyo-next-canvas {
+  position: absolute;
+  top: 0;
+  left: 352px;
+  border: 2px solid var(--border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+}
+
 #eval-area {
   position: absolute;
   left: 352px;
-  top: 570px; /* TIME(510px) の 60px 下 */
+  top: 570px; 
 }
 
 #eval-area .area-label {
@@ -1789,25 +1654,17 @@ input[type="range"]::-webkit-slider-thumb:hover {
   background-clip: text;
 }
 
-/* CPU評価の得点差カラー */
-.eval-diff-plus {
-  color: var(--accent3); /* 水色 */
-}
-.eval-diff-minus {
-  color: var(--danger); /* 赤色 */
-}
+.eval-diff-plus { color: var(--accent3); }
+.eval-diff-minus { color: var(--danger); }
 
-/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   ★ 追加：CPU予測表示用オーバーレイ (TESTモード用)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .cpu-estimate-overlay {
   position: absolute;
   top: 0;
   left: 0;
   width: 320px;
-  height: 656px; /* キャンバスの高さと一致させる */
-  pointer-events: none; /* マウスイベントを透過させる */
-  z-index: 15; /* キャンバス(0)より上、アクションラベル(20)より下 */
+  height: 656px; 
+  pointer-events: none; 
+  z-index: 15; 
   overflow: hidden;
 }
 
@@ -1821,14 +1678,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-radius: 2px;
 }
 
-/* 1手目（シアン） */
 .cpu-estimate-block.step1 {
   background: rgba(0, 255, 213, 0.25);
   border-color: rgba(0, 255, 213, 0.8);
   z-index: 2;
 }
 
-/* 2手目（マゼンタ） */
 .cpu-estimate-block.step2 {
   background: rgba(255, 0, 160, 0.2);
   border-color: rgba(255, 0, 160, 0.6);
