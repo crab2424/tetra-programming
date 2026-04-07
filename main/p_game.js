@@ -28,6 +28,7 @@ const PConfig = {
     splitDropSpeed:   500 / 6,    // 単独ちぎり落下（重力の6倍速）
     lockDelayMs:      500,        // 接地猶予時間
     fixWaitMs:        250,        // 設置後の硬直時間（CSSアニメーション用待機）
+    spawnAnimMs:      62,         // NEXT出現アニメーションの時間（追加）
     rotateDurationMs: 80,         // 回転アニメーションの時間
 
     // 4個以上でまとめて消える
@@ -100,6 +101,7 @@ class PuyoGame {
         this.lockTimer  = 0;
         this.scoreFloat = 0;
         this.fixWaitTimer = 0;
+        this.spawnAnimTimer = 0; // NEXT出現演出用タイマー
 
         // 入力・DAS
         this._keys           = {};
@@ -110,6 +112,9 @@ class PuyoGame {
         this._dasTimer       = 0;
         this._arrTimer       = 0;
         this._priorityMove   = false; 
+        
+        // ★ 先行入力バッファ用配列
+        this.inputBuffer     = [];
 
         // 消去・ちぎり・落下アニメーション
         this._erasingCells  = null;
@@ -204,6 +209,8 @@ class PuyoGame {
         this._keys      = {};
         this._priorityMove = false;
         this.quickTurnCount = 0;
+        this.spawnAnimTimer = 0;
+        this.inputBuffer    = []; // ★ バッファリセット
 
         this._updateScoreDisplay();
         this._updateTimeDisplay(0);
@@ -221,7 +228,7 @@ class PuyoGame {
 
         if (this.nextCanvas) {
             this.nextCanvas.width  = 128;
-            this.nextCanvas.height = 432;
+            this.nextCanvas.height = 259;
             this.nextCtx = this.nextCanvas.getContext('2d');
         }
     }
@@ -289,14 +296,36 @@ class PuyoGame {
 
     _initNextQueue() {
         this.nextQueue = [];
-        for (let i = 0; i < 3; i++) {
-            this.nextQueue.push(this._makePair());
+        
+        // 1手目
+        const pair1 = this._makePair();
+        this.nextQueue.push(pair1);
+
+        // ★初手2手が4色バラバラになるのを防ぐ処理
+        // 1手目で使われなかった色の中からランダムに1色選び、2手目の抽選から除外する
+        const usedInFirst = new Set(pair1);
+        const unusedColors = this.activeColors.filter(c => !usedInFirst.has(c));
+        let excludeColor = null;
+        if (unusedColors.length > 0) {
+            excludeColor = unusedColors[Math.floor(Math.random() * unusedColors.length)];
         }
+
+        // 2手目（除外色を指定して抽選）
+        const pair2 = this._makePair(excludeColor);
+        this.nextQueue.push(pair2);
+
+        // 3手目以降は通常通り
+        this.nextQueue.push(this._makePair());
     }
 
-    _makePair() {
-        const c1 = this.activeColors[Math.floor(Math.random() * this.activeColors.length)];
-        const c2 = this.activeColors[Math.floor(Math.random() * this.activeColors.length)];
+    // ★除外色を指定できるように引数を追加
+    _makePair(excludeColor = null) {
+        let availableColors = this.activeColors;
+        if (excludeColor !== null) {
+            availableColors = this.activeColors.filter(c => c !== excludeColor);
+        }
+        const c1 = availableColors[Math.floor(Math.random() * availableColors.length)];
+        const c2 = availableColors[Math.floor(Math.random() * availableColors.length)];
         return [c1, c2];
     }
 
@@ -362,6 +391,17 @@ class PuyoGame {
                     this._beginGameOver();
                 } else {
                     this._gs = 'falling';
+                    
+                    // ★ 操作可能になった瞬間、先行入力バッファに溜まった操作を実行
+                    if (this.inputBuffer.length > 0) {
+                        for (const action of this.inputBuffer) {
+                            if (action === 'left') this._tryMove(-1);
+                            else if (action === 'right') this._tryMove(1);
+                            else if (action === 'cw') this._tryRotate(1);
+                            else if (action === 'ccw') this._tryRotate(-1);
+                        }
+                        this.inputBuffer = []; // 実行完了したらバッファを空にする
+                    }
                 }
                 break;
 
@@ -398,7 +438,7 @@ class PuyoGame {
             case 'fixWait':
                 this.fixWaitTimer += dt;
                 if (this.fixWaitTimer >= PConfig.fixWaitMs) {
-                    this.chainCount = 0;
+                    this.chainCount = 0; // 新しいぷよ落下前に一旦リセット
                     this._gs = 'checkErase';
                 }
                 break;
@@ -418,8 +458,9 @@ class PuyoGame {
                         this._updateScoreDisplay();
                         this._zenkeshiTimer = PConfig.zenkeshiMs;
                     }
-                    this.chainCount = 0;
-                    this._gs = 'spawn';
+                    // ★ 連鎖終了（または消去なし）でNEXT出現アニメーションへ移行
+                    this._gs = 'spawnAnim';
+                    this.spawnAnimTimer = 0;
                 }
                 break;
             }
@@ -447,10 +488,19 @@ class PuyoGame {
                     if (allDone) {
                         this._applyDropAnim();
                         this._dropAnim = null;
-                        this._gs = 'checkErase';
+                        this._gs = 'checkErase'; // 落下完了後、再び消去判定へ
                     }
                 } else {
                     this._gs = 'checkErase';
+                }
+                break;
+                
+            // ★ NEXT出現演出（NEXT枠移動）ステート
+            case 'spawnAnim':
+                this.spawnAnimTimer += dt;
+                if (this.spawnAnimTimer >= PConfig.spawnAnimMs) {
+                    this.chainCount = 0; // 次の操作に備えてリセット
+                    this._gs = 'spawn';
                 }
                 break;
 
@@ -480,6 +530,8 @@ class PuyoGame {
             const gamePage = document.getElementById('game-page');
             if (!gamePage || !gamePage.classList.contains('active')) return;
 
+            // ★ OSキーリピートによる連続入力を先行入力として過剰カウントしないための処理
+            const isRepeat = e.repeat;
             this._keys[e.code] = true;
 
             if (e.code === this._keyMap.restart) {
@@ -494,6 +546,14 @@ class PuyoGame {
                 e.preventDefault();
                 this._onPauseKey();
                 return;
+            }
+
+            // ★ 出現演出中(62ms)の先行入力バッファリング
+            if (this._gs === 'spawnAnim' && !isRepeat) {
+                if (e.code === this._keyMap.moveLeft)  this.inputBuffer.push('left');
+                if (e.code === this._keyMap.moveRight) this.inputBuffer.push('right');
+                if (e.code === this._keyMap.rotateCW)  this.inputBuffer.push('cw');
+                if (e.code === this._keyMap.rotateCCW) this.inputBuffer.push('ccw');
             }
 
             if (e.code === this._keyMap.moveLeft) {
@@ -1299,16 +1359,40 @@ class PuyoGame {
         
         ctx.save();
         
+        // ★ NEXTぷよせり上がりアニメーションの計算
+        let offsetY = 0;
+        let showThree = false;
+        const shiftDist = drawCs * 2.5; // NEXTぷよ1段分のシフト距離
+
+        // ★ 新設した spawnAnim ステート中にのみアニメーションを実行
+        if (this._gs === 'spawnAnim') {
+            const progress = Math.min(1, this.spawnAnimTimer / PConfig.spawnAnimMs);
+            offsetY = -shiftDist * progress;
+            showThree = true;
+        } 
+        // falling, fixWait, checkErase, erasing, dropping など他の状態では offsetY = 0 のまま動かない
+
+        // NEXT1の描画
         const next1 = this.nextQueue[0];
         if (next1) {
-            this._drawPuyo(ctx, offsetX, 20, next1[1], drawCs, 0); 
-            this._drawPuyo(ctx, offsetX, 20 + drawCs, next1[0], drawCs, 0); 
+            this._drawPuyo(ctx, offsetX, 20 + offsetY, next1[1], drawCs, 0); 
+            this._drawPuyo(ctx, offsetX, 20 + drawCs + offsetY, next1[0], drawCs, 0); 
         }
 
+        // NEXT2の描画
         const next2 = this.nextQueue[1];
         if (next2) {
-            this._drawPuyo(ctx, offsetX, 20 + drawCs * 2.5, next2[1], drawCs, 0); 
-            this._drawPuyo(ctx, offsetX, 20 + drawCs * 3.5, next2[0], drawCs, 0); 
+            this._drawPuyo(ctx, offsetX, 20 + drawCs * 2.5 + offsetY, next2[1], drawCs, 0); 
+            this._drawPuyo(ctx, offsetX, 20 + drawCs * 3.5 + offsetY, next2[0], drawCs, 0); 
+        }
+        
+        // アニメーション中などは下から湧いてくるNEXT3も描画する
+        if (showThree) {
+            const next3 = this.nextQueue[2];
+            if (next3) {
+                this._drawPuyo(ctx, offsetX, 20 + drawCs * 5.0 + offsetY, next3[1], drawCs, 0); 
+                this._drawPuyo(ctx, offsetX, 20 + drawCs * 6.0 + offsetY, next3[0], drawCs, 0); 
+            }
         }
 
         ctx.restore();
