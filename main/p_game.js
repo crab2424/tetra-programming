@@ -27,8 +27,13 @@ const PConfig = {
     dropSpeedFast:    500 / 12,   // 下入力時（重力の12倍速）
     splitDropSpeed:   500 / 6,    // 単独ちぎり落下（重力の6倍速）
     lockDelayMs:      500,        // 接地猶予時間
-    fixWaitMs:        250,        // 設置後の硬直時間（CSSアニメーション用待機）
-    spawnAnimMs:      62,         // NEXT出現アニメーションの時間（追加）
+    
+    // ★ 修正：振動アニメーションの速度を2倍に変更（1フェーズ1.5f = 約41.67ms）
+    vibPhaseMs:       1000 / 60 * 1.5, 
+    // ★ 修正：設置アニメーション後の待機時間は5fのまま独立させる
+    fixWait5fMs:      1000 / 60 * 5,   
+
+    spawnAnimMs:      62,         // NEXT出現アニメーションの時間
     rotateDurationMs: 80,         // 回転アニメーションの時間
 
     // 4個以上でまとめて消える
@@ -96,11 +101,17 @@ class PuyoGame {
         this.animRot        = 0; // 現在の描画角度 (連続値)
         this.quickTurnCount = 0; // クイックターン（180度回転）のための失敗カウント
 
+        // ★ 設置・振動アニメーション用
+        this.activeAnims    = [];
+        this.lastRotationInfo = null; // { pivotY: number }
+        this.fixAnimTimer   = 0;
+        this.fixAnimDuration = 0;
+        this.fw5fTimer      = 0;
+
         // タイマー類
         this.fallTimer  = 0;
         this.lockTimer  = 0;
         this.scoreFloat = 0;
-        this.fixWaitTimer = 0;
         this.spawnAnimTimer = 0; // NEXT出現演出用タイマー
 
         // 入力・DAS
@@ -210,7 +221,13 @@ class PuyoGame {
         this._priorityMove = false;
         this.quickTurnCount = 0;
         this.spawnAnimTimer = 0;
-        this.inputBuffer    = []; // ★ バッファリセット
+        this.inputBuffer    = []; 
+
+        this.activeAnims    = [];
+        this.lastRotationInfo = null;
+        this.fixAnimTimer   = 0;
+        this.fixAnimDuration = 0;
+        this.fw5fTimer      = 0;
 
         this._updateScoreDisplay();
         this._updateTimeDisplay(0);
@@ -350,6 +367,7 @@ class PuyoGame {
         this.lockTimer      = 0;
         this.scoreFloat     = 0;
         this.quickTurnCount = 0; 
+        this.lastRotationInfo = null; // 回転情報リセット
 
         this._priorityMove = false;
         if (this._keys[this._keyMap.softDrop] && (this._keys[this._keyMap.moveLeft] || this._keys[this._keyMap.moveRight])) {
@@ -360,6 +378,43 @@ class PuyoGame {
             return false;
         }
         return true;
+    }
+
+    // ★ 振動アニメーション登録
+    _addPuyoAnim(fr, c, cycles) {
+        let duration = cycles * 4 * PConfig.vibPhaseMs;
+        let existing = this.activeAnims.find(a => a.fr === fr && a.c === c);
+        if (existing) {
+            existing.timer = 0;
+            existing.duration = duration;
+            existing.maxCycle = cycles;
+        } else {
+            this.activeAnims.push({ fr, c, timer: 0, duration, maxCycle: cycles });
+        }
+    }
+
+    // ★ 設置時のサイクル数を判定する
+    _calcFixCycles() {
+        let isSoftDrop = this._keys[this._keyMap.softDrop];
+        if (isSoftDrop && this.lastRotationInfo) {
+            // 回転開始時親ぷよの高さが設置段1段以内の高さであった場合
+            if (Math.round(this.pivotY) - Math.floor(this.lastRotationInfo.pivotY) <= 1) {
+                return 1;
+            }
+        }
+        return 2;
+    }
+
+    // ★ アニメーション完了まで待機するステートへ移行
+    _beginFixAnimWait() {
+        let maxDur = 0;
+        for(let anim of this.activeAnims) {
+            let remaining = anim.duration - anim.timer;
+            if(remaining > maxDur) maxDur = remaining;
+        }
+        this.fixAnimTimer = 0;
+        this.fixAnimDuration = maxDur;
+        this._gs = 'fixAnim';
     }
 
     // ══════════════════════════════════════════════
@@ -383,6 +438,12 @@ class PuyoGame {
         if (this._zenkeshiTimer > 0) this._zenkeshiTimer -= dt;
 
         this._updateDAS(dt);
+
+        // ★ フィールド上の振動アニメーション進行
+        for (let anim of this.activeAnims) {
+            anim.timer += dt;
+        }
+        this.activeAnims = this.activeAnims.filter(a => a.timer < a.duration);
 
         switch (this._gs) {
             case 'spawn':
@@ -426,19 +487,32 @@ class PuyoGame {
                 let sLimit = this._calcLimitY_Single(this.splitPuyo.col, this.splitPuyo.y);
 
                 if (this.splitPuyo.y >= sLimit) {
+                    let fr_s = Math.round(sLimit) + PConfig.hiddenRows;
                     this.splitPuyo.y = sLimit;
                     this._setCell(this.splitPuyo.col, Math.round(this.splitPuyo.y), this.splitPuyo.color);
-                    this.splitPuyo = null;
                     
-                    this._gs = 'fixWait';
-                    this.fixWaitTimer = 0;
+                    // ★ ちぎりぷよ接地：3往復
+                    this._addPuyoAnim(fr_s, this.splitPuyo.col, 3);
+                    
+                    this.splitPuyo = null;
+                    this._beginFixAnimWait();
                 }
                 break;
 
-            case 'fixWait':
-                this.fixWaitTimer += dt;
-                if (this.fixWaitTimer >= PConfig.fixWaitMs) {
-                    this.chainCount = 0; // 新しいぷよ落下前に一旦リセット
+            // ★ 新規追加：設置アニメーション（振動）の待機
+            case 'fixAnim':
+                this.fixAnimTimer += dt;
+                if (this.fixAnimTimer >= this.fixAnimDuration) {
+                    this._gs = 'fixWait5f';
+                    this.fw5fTimer = 0;
+                }
+                break;
+
+            // ★ 新規追加：将来追加予定のアニメーション用（5f待機）
+            case 'fixWait5f':
+                this.fw5fTimer += dt;
+                if (this.fw5fTimer >= PConfig.fixWait5fMs) {
+                    // ★修正: 連鎖が途切れる原因となっていた `this.chainCount = 0;` を削除
                     this._gs = 'checkErase';
                 }
                 break;
@@ -487,8 +561,18 @@ class PuyoGame {
                     }
                     if (allDone) {
                         this._applyDropAnim();
+                        
+                        // ★ 落下完了後の振動アニメーション登録
+                        for (const col of this._dropAnim) {
+                            for (const cell of col.cells) {
+                                let dropDist = cell.toR - cell.fromR;
+                                let cycles = dropDist >= 2 ? 4 : 3;
+                                this._addPuyoAnim(cell.toR, col.c, cycles);
+                            }
+                        }
+                        
                         this._dropAnim = null;
-                        this._gs = 'checkErase'; // 落下完了後、再び消去判定へ
+                        this._beginFixAnimWait(); // 落下後も振動完了を待ってから消去チェックへ
                     }
                 } else {
                     this._gs = 'checkErase';
@@ -499,7 +583,7 @@ class PuyoGame {
             case 'spawnAnim':
                 this.spawnAnimTimer += dt;
                 if (this.spawnAnimTimer >= PConfig.spawnAnimMs) {
-                    this.chainCount = 0; // 次の操作に備えてリセット
+                    this.chainCount = 0; // 次の操作に備えてリセット（連鎖リセットはここでのみ行う）
                     this._gs = 'spawn';
                 }
                 break;
@@ -676,6 +760,7 @@ class PuyoGame {
             this.pivotX = newCol;
             this.lockTimer = 0; 
             this.quickTurnCount = 0; 
+            this.lastRotationInfo = null; // 移動したら回転フラグ折る
         }
     }
 
@@ -711,6 +796,7 @@ class PuyoGame {
             this.targetAnimRot += dir; 
             this.lockTimer = 0; 
             this.quickTurnCount = 0; 
+            this.lastRotationInfo = { pivotY: this.pivotY }; // 回転開始時の高さを記録
         } else {
             if (isVertical) {
                 this.quickTurnCount++;
@@ -736,6 +822,7 @@ class PuyoGame {
                         this.targetAnimRot += dir * 2; 
                         this.lockTimer = 0;
                         this.quickTurnCount = 0; 
+                        this.lastRotationInfo = { pivotY: this.pivotY }; // クイックターンでも記録
                     }
                 }
             }
@@ -872,20 +959,30 @@ class PuyoGame {
         let pivotFloating = this._isCellEmpty(pc, pr + 1);
         let childFloating = this._isCellEmpty(cc, cr + 1);
 
+        let fr_p = pr + PConfig.hiddenRows;
+        let fr_c = cr + PConfig.hiddenRows;
+
+        let cycles = this._calcFixCycles();
+
         if (pivotFloating && !childFloating) {
             this._setCell(cc, cr, this.childColor);
+            this._addPuyoAnim(fr_c, cc, cycles); // 先に接地した子ぷよのアニメ開始
+            
             this.splitPuyo = { col: pc, y: pr, color: this.pivotColor };
             this._gs = 'splitting';
         } else if (!pivotFloating && childFloating) {
             this._setCell(pc, pr, this.pivotColor);
+            this._addPuyoAnim(fr_p, pc, cycles); // 先に接地した親ぷよのアニメ開始
+            
             this.splitPuyo = { col: cc, y: cr, color: this.childColor };
             this._gs = 'splitting';
         } else {
             this._setCell(pc, pr, this.pivotColor);
             this._setCell(cc, cr, this.childColor);
             
-            this._gs = 'fixWait';
-            this.fixWaitTimer = 0;
+            this._addPuyoAnim(fr_p, pc, cycles);
+            this._addPuyoAnim(fr_c, cc, cycles);
+            this._beginFixAnimWait();
         }
     }
 
@@ -1218,7 +1315,8 @@ class PuyoGame {
                     }
                 }
 
-                this._drawPuyo(ctx, c * cs, r * cs, color, cs, flashType);
+                const animState = this.activeAnims.find(a => a.fr === fr && a.c === c);
+                this._drawPuyo(ctx, c * cs, r * cs, color, cs, flashType, animState);
             }
         }
 
@@ -1298,10 +1396,34 @@ class PuyoGame {
         this._renderNext();
     }
 
-    _drawPuyo(ctx, x, y, color, size, flashType = 0) {
+    _drawPuyo(ctx, x, y, color, size, flashType = 0, animState = null) {
         const imageIndex = color - 1;
         const key = 'puyo-' + imageIndex;
         const img = this._images[key];
+
+        ctx.save();
+
+        let cx = x + size / 2;
+        let cy = y + size; // 下端基準
+
+        let scaleX = 1;
+        let scaleY = 1;
+
+        // ★ 振動アニメーションのスケール計算
+        if (animState) {
+            let phase = Math.floor(animState.timer / PConfig.vibPhaseMs) % 4;
+            if (phase === 0) {
+                // 縦長: 幅0.8
+                scaleX = 0.8;
+            } else if (phase === 2) {
+                // 横長: 高さ0.8
+                scaleY = 0.8;
+            }
+        }
+
+        ctx.translate(cx, cy);
+        ctx.scale(scaleX, scaleY);
+        ctx.translate(-cx, -cy);
 
         if (img && img.complete && img.naturalWidth > 0) {
             ctx.drawImage(img, x, y, size, size);
@@ -1334,14 +1456,14 @@ class PuyoGame {
             const maxAlpha = isErase ? 0.85 : 0.7; 
             const alpha = (Math.sin(this.elapsed / speed) + 1) / 2 * maxAlpha; 
             
-            ctx.save();
             ctx.globalCompositeOperation = 'lighter';
             ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
             ctx.beginPath();
             ctx.arc(x + size * 0.5, y + size * 0.5, size * 0.45, 0, Math.PI * 2);
             ctx.fill();
-            ctx.restore();
         }
+
+        ctx.restore();
     }
 
     _renderNext() {
@@ -1370,7 +1492,7 @@ class PuyoGame {
             offsetY = -shiftDist * progress;
             showThree = true;
         } 
-        // falling, fixWait, checkErase, erasing, dropping など他の状態では offsetY = 0 のまま動かない
+        // falling, checkErase, erasing, dropping など他の状態では offsetY = 0 のまま動かない
 
         // NEXT1の描画
         const next1 = this.nextQueue[0];
