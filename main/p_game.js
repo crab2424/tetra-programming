@@ -28,9 +28,9 @@ const PConfig = {
     splitDropSpeed:   500 / 6,    // 単独ちぎり落下（重力の6倍速）
     lockDelayMs:      500,        // 接地猶予時間
     
-    // ★ 修正：振動アニメーションの速度を2倍に変更（1フェーズ1.5f = 約41.67ms）
-    vibPhaseMs:       1000 / 60 * 1.5, 
-    // ★ 修正：設置アニメーション後の待機時間は5fのまま独立させる
+    // ★ 振動アニメーションの速度（1フェーズ = 約20ms）
+    vibPhaseMs:       1000 / 60 * 1.2, 
+    // ★ 設置アニメーション後の待機時間
     fixWait5fMs:      1000 / 60 * 5,   
 
     spawnAnimMs:      62,         // NEXT出現アニメーションの時間
@@ -41,6 +41,8 @@ const PConfig = {
 
     // 消えるアニメーション長（ms）
     eraseMs:          28 * 16.67, // 約466ms
+    // ★ 追加：消去後から落下開始までの待機時間（連鎖演出時間）
+    eraseWaitMs:      333,
 
     // 全消しボーナス表示時間（ms）
     zenkeshiMs:       1500,
@@ -130,6 +132,7 @@ class PuyoGame {
         // 消去・ちぎり・落下アニメーション
         this._erasingCells  = null;
         this._eraseTimer    = 0;
+        this.eraseWaitTimer = 0; // ★ 消去後待機タイマー追加
         this._dropAnim      = null;
         this.splitPuyo      = null; 
 
@@ -212,6 +215,7 @@ class PuyoGame {
         this.splitPuyo  = null;
         this._erasingCells  = null;
         this._eraseTimer    = 0;
+        this.eraseWaitTimer = 0; // ★ リセット
         this._dropAnim      = null;
         this._zenkeshiTimer = 0;
         this._dasDir    = 0;
@@ -318,7 +322,7 @@ class PuyoGame {
         const pair1 = this._makePair();
         this.nextQueue.push(pair1);
 
-        // ★初手2手が4色バラバラになるのを防ぐ処理
+        // 初手2手が4色バラバラになるのを防ぐ処理
         // 1手目で使われなかった色の中からランダムに1色選び、2手目の抽選から除外する
         const usedInFirst = new Set(pair1);
         const unusedColors = this.activeColors.filter(c => !usedInFirst.has(c));
@@ -335,7 +339,6 @@ class PuyoGame {
         this.nextQueue.push(this._makePair());
     }
 
-    // ★除外色を指定できるように引数を追加
     _makePair(excludeColor = null) {
         let availableColors = this.activeColors;
         if (excludeColor !== null) {
@@ -499,7 +502,7 @@ class PuyoGame {
                 }
                 break;
 
-            // ★ 新規追加：設置アニメーション（振動）の待機
+            // ★ 設置アニメーション（振動）の待機
             case 'fixAnim':
                 this.fixAnimTimer += dt;
                 if (this.fixAnimTimer >= this.fixAnimDuration) {
@@ -508,11 +511,10 @@ class PuyoGame {
                 }
                 break;
 
-            // ★ 新規追加：将来追加予定のアニメーション用（5f待機）
+            // ★ 将来追加予定のアニメーション用（5f待機）
             case 'fixWait5f':
                 this.fw5fTimer += dt;
                 if (this.fw5fTimer >= PConfig.fixWait5fMs) {
-                    // ★修正: 連鎖が途切れる原因となっていた `this.chainCount = 0;` を削除
                     this._gs = 'checkErase';
                 }
                 break;
@@ -542,9 +544,24 @@ class PuyoGame {
             case 'erasing':
                 this._eraseTimer += dt;
                 if (this._eraseTimer >= PConfig.eraseMs) {
-                    this._applyErase();
-                    this._buildDropAnim();
-                    this._gs = 'dropping';
+                    this._applyErase(); // ここでぷよを消去する
+                    this._buildDropAnim(); // 落下情報の構築
+                    // ★ 修正：消去した瞬間ではなく、400ms待機ステートへ移行
+                    this._gs = 'eraseWait';
+                    this.eraseWaitTimer = 0;
+                }
+                break;
+            
+            // ★ 追加：消去後の400ms待機（連鎖演出）
+            case 'eraseWait':
+                this.eraseWaitTimer += dt;
+                if (this.eraseWaitTimer >= PConfig.eraseWaitMs) {
+                    if (this._dropAnim) {
+                        this._gs = 'dropping'; // 落下するぷよがあれば落下
+                    } else {
+                        // 落下するぷよがなければ、消去チェックを経由してNEXT演出へ
+                        this._gs = 'checkErase';
+                    }
                 }
                 break;
 
@@ -554,7 +571,7 @@ class PuyoGame {
                     for (const col of this._dropAnim) {
                         for (const cell of col.cells) {
                             const targetY = (cell.toR - PConfig.hiddenRows) * PConfig.cellSize;
-                            const speed = PConfig.cellSize / 100;
+                            const speed = PConfig.cellSize / 50;
                             cell.py = Math.min(cell.py + speed * dt, targetY);
                             if (cell.py < targetY) allDone = false;
                         }
@@ -995,7 +1012,7 @@ class PuyoGame {
         const visited   = Array.from({ length: totalRows }, () => new Array(PConfig.cols).fill(false));
         const result = [];
 
-        for (let r = 0; r < totalRows; r++) {
+        for (let r = 1; r < totalRows; r++) {
             for (let c = 0; c < PConfig.cols; c++) {
                 if (visited[r][c]) continue;
                 const color = checkField[r][c];
@@ -1011,7 +1028,7 @@ class PuyoGame {
                     for (const [dr, dc] of dirs) {
                         const nr = cur.r + dr;
                         const nc = cur.c + dc;
-                        if (nr < 0 || nr >= totalRows) continue;
+                        if (nr <= 0 || nr >= totalRows) continue;
                         if (nc < 0 || nc >= PConfig.cols)  continue;
                         if (visited[nr][nc]) continue;
                         if (checkField[nr][nc] !== color) continue;
@@ -1107,6 +1124,9 @@ class PuyoGame {
             let emptyBelow = 0;
             const cellAnims = [];
             for (let r = totalRows - 1; r >= 0; r--) {
+                if (r === 0) {
+                    continue;
+                }
                 if (this.field[r][c] === 0) {
                     emptyBelow++;
                 } else if (emptyBelow > 0) {
@@ -1269,22 +1289,6 @@ class PuyoGame {
         ctx.scale(W / logicalW, H / logicalH);
 
         const cs  = PConfig.cellSize;
-
-        // グリッド線
-        ctx.strokeStyle = 'rgba(42,42,58,0.6)';
-        ctx.lineWidth   = 0.5;
-        for (let r = 0; r <= PConfig.rows; r++) {
-            ctx.beginPath();
-            ctx.moveTo(0,   r * cs);
-            ctx.lineTo(logicalW, r * cs);
-            ctx.stroke();
-        }
-        for (let c = 0; c <= PConfig.cols; c++) {
-            ctx.beginPath();
-            ctx.moveTo(c * cs, 0);
-            ctx.lineTo(c * cs, logicalH);
-            ctx.stroke();
-        }
 
         // 連鎖予告用情報取得
         let ghostEraseInfo = null;
