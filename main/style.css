@@ -725,6 +725,26 @@ h1 {
     image-rendering: pixelated;
 }
 
+/* PUYO 対戦用Canvas */
+#player-puyo-main-canvas,
+#cpu-puyo-main-canvas {
+    border: 2px solid var(--border);
+    border-radius: 2px;
+    box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+    image-rendering: pixelated;
+}
+#player-puyo-next-canvas,
+#cpu-puyo-next-canvas {
+    position: absolute;
+    top: 0;
+    left: 352px;
+    border: 2px solid var(--border);
+    border-radius: 2px;
+    image-rendering: pixelated;
+    height: 259px;
+}
+
+
 .versus-stats-left,
 .versus-stats-left-cpu {
     position: absolute;

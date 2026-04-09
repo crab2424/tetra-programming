@@ -62,7 +62,12 @@ const PConfig = {
 // PuyoGame : メインクラス
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class PuyoGame {
-    constructor() {
+    constructor(canvasPrefix = null) {
+        this.canvasPrefix = canvasPrefix;
+        this.isVersusMode = false;
+        this.isCpuControlled = false;
+        this.rng = null; // 対戦時の同期用乱数関数
+        
         this.canvas     = null;
         this.ctx        = null;
         this.nextCanvas = null;
@@ -149,8 +154,13 @@ class PuyoGame {
         this.isPaused       = false;
     }
 
-    start() {
-        this.stop();
+    // 乱数ラッパー（シード固定対応）
+    _random() {
+        if (this.rng) return this.rng();
+        return Math.random();
+    }
+
+    initGame(callback) {
         this._setupCanvas();
         this._setupStatDisplay();
         this._loadImages(() => {
@@ -160,17 +170,27 @@ class PuyoGame {
             this.state = 'idle';
             this._setKeyHandlers();
             this._render();
-            
+            if (callback) callback();
+        });
+    }
+
+    start() {
+        this.stop();
+        this.initGame(() => {
             const overlayId = 'countdown-overlay';
             const textElId = 'countdown-text';
             
             runCountdown(overlayId, textElId, () => {
-                this.state = 'playing';
-                this.lastTime = performance.now();
-                this._startTimer();
-                this._loop();
+                this._startGameplay();
             }, null);
         });
+    }
+
+    _startGameplay() {
+        this.state = 'playing';
+        this.lastTime = performance.now();
+        this._startTimer();
+        this._loop();
     }
 
     stop() {
@@ -203,7 +223,7 @@ class PuyoGame {
     _initActiveColors() {
         const allColors = [1, 2, 3, 4, 5];
         for (let i = allColors.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = Math.floor(this._random() * (i + 1));
             [allColors[i], allColors[j]] = [allColors[j], allColors[i]];
         }
         this.activeColors = allColors.slice(0, PConfig.colorCount);
@@ -254,8 +274,11 @@ class PuyoGame {
     }
 
     _setupCanvas() {
-        this.canvas     = document.getElementById('puyo-main-canvas');
-        this.nextCanvas = document.getElementById('puyo-next-canvas');
+        const mainId = this.canvasPrefix ? `${this.canvasPrefix}-puyo-main-canvas` : 'puyo-main-canvas';
+        const nextId = this.canvasPrefix ? `${this.canvasPrefix}-puyo-next-canvas` : 'puyo-next-canvas';
+
+        this.canvas     = document.getElementById(mainId);
+        this.nextCanvas = document.getElementById(nextId);
         if (!this.canvas) return;
 
         this.canvas.width  = 320;
@@ -270,10 +293,11 @@ class PuyoGame {
     }
 
     _setupStatDisplay() {
-        this.scoreEl = document.getElementById('score-value');
-        this.timeEl  = document.getElementById('time-value');
-        this.linesEl = document.getElementById('lines-value');
-        this.levelEl = document.getElementById('level-value');
+        const prefix = this.canvasPrefix ? `${this.canvasPrefix}-` : '';
+        this.scoreEl = document.getElementById(`${prefix}score-value`);
+        this.timeEl  = document.getElementById(`${prefix}time-value`);
+        this.linesEl = document.getElementById(`${prefix}lines-value`);
+        this.levelEl = document.getElementById(`${prefix}level-value`);
     }
 
     _loadImages(callback) {
@@ -343,7 +367,7 @@ class PuyoGame {
         const unusedColors = this.activeColors.filter(c => !usedInFirst.has(c));
         let excludeColor = null;
         if (unusedColors.length > 0) {
-            excludeColor = unusedColors[Math.floor(Math.random() * unusedColors.length)];
+            excludeColor = unusedColors[Math.floor(this._random() * unusedColors.length)];
         }
 
         // 2手目（除外色を指定して抽選）
@@ -359,8 +383,8 @@ class PuyoGame {
         if (excludeColor !== null) {
             availableColors = this.activeColors.filter(c => c !== excludeColor);
         }
-        const c1 = availableColors[Math.floor(Math.random() * availableColors.length)];
-        const c2 = availableColors[Math.floor(Math.random() * availableColors.length)];
+        const c1 = availableColors[Math.floor(this._random() * availableColors.length)];
+        const c2 = availableColors[Math.floor(this._random() * availableColors.length)];
         return [c1, c2];
     }
 
@@ -652,6 +676,8 @@ class PuyoGame {
 
     _setKeyHandlers() {
         this._removeKeyHandlers();
+        if (this.isCpuControlled) return;
+
         const ks = (typeof loadKeys === 'function') ? loadKeys() : {};
         this._keyMap = {
             moveLeft:  ks.moveLeft  ? ks.moveLeft.code  : 'ArrowLeft',
@@ -664,7 +690,8 @@ class PuyoGame {
         };
 
         this._keyHandlerDown = (e) => {
-            const gamePage = document.getElementById('game-page');
+            const activePageId = this.isVersusMode ? 'versus-page' : 'game-page';
+            const gamePage = document.getElementById(activePageId);
             if (!gamePage || !gamePage.classList.contains('active')) return;
 
             // ★ OSキーリピートによる連続入力を先行入力として過剰カウントしないための処理
@@ -673,15 +700,19 @@ class PuyoGame {
 
             if (e.code === this._keyMap.restart) {
                 e.preventDefault();
-                const pauseOverlay = document.getElementById('pause-overlay');
-                if (pauseOverlay) pauseOverlay.classList.remove('active');
-                this.start();
+                if (!this.isVersusMode) {
+                    const pauseOverlay = document.getElementById('pause-overlay');
+                    if (pauseOverlay) pauseOverlay.classList.remove('active');
+                    this.start();
+                }
                 return;
             }
 
             if (e.code === this._keyMap.pause) {
                 e.preventDefault();
-                this._onPauseKey();
+                if (!this.isVersusMode) {
+                    this._onPauseKey();
+                }
                 return;
             }
 
@@ -1226,7 +1257,7 @@ class PuyoGame {
         }
 
         // 一番下、かつ一番左の条件が被った場合（通常は被らないが念のため）はランダムに1つ選ぶ
-        const targetGroup = candidates[Math.floor(Math.random() * candidates.length)];
+        const targetGroup = candidates[Math.floor(this._random() * candidates.length)];
         
         let sumC = 0, sumR = 0;
         for (const cell of targetGroup) {
@@ -1372,6 +1403,12 @@ class PuyoGame {
         this._clearChainTextDOM(); // ★ 追加：ゲームオーバー時にDOMを削除
         this.state = 'gameover';
 
+        if (this.isVersusMode) {
+            const loser = (this.canvasPrefix === 'cpu') ? 'cpu' : 'player';
+            if (typeof versusGameOver === 'function') versusGameOver(loser);
+            return;
+        }
+
         showFinishOverlay('finish-overlay', 'finish-text', 'GAME OVER', 'finish-gameover', 1200, () => {
             this._showResult();
         });
@@ -1466,6 +1503,14 @@ class PuyoGame {
         if (this.linesEl) this.linesEl.textContent = chain > 0 ? chain : 0;
         if (this.levelEl) this.levelEl.textContent = this.chainMax;
     }
+
+    // ══════════════════════════════════════════════
+    // 対戦モックメソッド
+    // ══════════════════════════════════════════════
+    updateGarbageGauge() {}
+    offsetGarbage(amount) { return amount; }
+    sendGarbage(amount) {}
+    applyGarbage() {}
 
     // ══════════════════════════════════════════════
     // 描画
