@@ -42,14 +42,14 @@ const GAME_MODES = {
     id:          'puyo',
     label:       'PUYO',
     icon:        '🫧',
-    description: 'ぷよぷよシングルプレイ。連鎖を繋いでハイスコアを目指せ！',
+    description: 'ぷよモードシングルプレイ。',
     descriptionEn: 'Chain combos to score as high as possible.',
     color:       'var(--accent2)',
   },
 };
 
 let testCpuControl = true; 
-let testRule = 'tetris';
+let testRule = 'tet';
 
 function setTestCpuControl(isOn) {
   testCpuControl = isOn;
@@ -62,7 +62,7 @@ function setTestRule(rule) {
 }
 
 let currentGameMode = null;
-let versusRule = 'tetris'; // 'tetris' or 'puyo'
+let versusRule = 'tet'; // 'tet' or 'puyo'
 
 // カウントダウン中の中断を防ぐためのセッション管理
 let currentSessionId = 0;
@@ -78,7 +78,7 @@ const CPU_LEVELS = {
 let selectedCpuLevel = 1; 
 
 const CPU_CONFIGS = {
-  tetris: {
+  tet: {
     1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js' },  
     2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js' },
     3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js' },
@@ -86,7 +86,7 @@ const CPU_CONFIGS = {
     5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js' }  
   },
   puyo: {
-    1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu.js' },  
+    1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu1.js' },  
     2: { className: 'PuyoCPU2', src: 'cpu/puyo/lv2/cpu2.js' },
     3: { className: 'PuyoCPU3', src: 'cpu/puyo/lv3/cpu3.js' },
     4: { className: 'PuyoCPU4', src: 'cpu/puyo/lv4/cpu4.js' }, 
@@ -96,7 +96,7 @@ const CPU_CONFIGS = {
 
 // ─── ゲーム進行の中断・破棄機能 ──────────────
 /**
- * 進行中の全てのゲーム（TETRIS/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
+ * 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
  */
 function stopAllGames() {
     currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
@@ -104,7 +104,7 @@ function stopAllGames() {
     const stopGameInstance = (gameInst) => {
         if (!gameInst) return;
         if (typeof gameInst.gameOver === 'function') { 
-            // Tetris の停止処理
+            // tet の停止処理
             if (gameInst.timer) { clearInterval(gameInst.timer); gameInst.timer = null; }
             if (gameInst.lockTimer) { clearTimeout(gameInst.lockTimer); gameInst.lockTimer = null; }
             gameInst.isPaused = true;
@@ -128,8 +128,8 @@ function stopAllGames() {
     stopGameInstance(window._puyoGame);
     stopGameInstance(window._puyoGamePlayer);
     stopGameInstance(window._puyoGameCpu);
-    stopGameInstance(window._tetrisGamePlayer);
-    stopGameInstance(window._tetrisGameCpu);
+    stopGameInstance(window._tetGamePlayer);
+    stopGameInstance(window._tetGameCpu);
 
     if (window._cpuController && typeof window._cpuController.stop === 'function') {
         window._cpuController.stop();
@@ -205,9 +205,9 @@ function goToVersusCheck() {
 
 function setVersusRule(rule) {
   versusRule = rule;
-  const tetrisBtn = document.getElementById('opt-rule-tetris');
+  const tetBtn = document.getElementById('opt-rule-tet');
   const puyoBtn = document.getElementById('opt-rule-puyo');
-  if (tetrisBtn) tetrisBtn.classList.toggle('active', rule === 'tetris');
+  if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
   if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
 }
 
@@ -257,7 +257,7 @@ function setCpuLevel(lv) {
 
 // ─────────────────────────────────────────────
 function _switchToVersusPuyoLayout(isPuyo) {
-    const tetrisCanvases = [
+    const tetCanvases = [
         'player-main-canvas', 'player-next-canvas', 'player-hold-canvas',
         'cpu-main-canvas', 'cpu-next-canvas', 'cpu-hold-canvas'
     ];
@@ -266,7 +266,7 @@ function _switchToVersusPuyoLayout(isPuyo) {
         'cpu-puyo-main-canvas', 'cpu-puyo-next-canvas'
     ];
 
-    tetrisCanvases.forEach(id => {
+    tetCanvases.forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = isPuyo ? 'none' : '';
     });
@@ -316,11 +316,11 @@ async function startVersusGame() {
       window._cpuGame.rng = createSeededRandom(sharedSeed);
   } else {
       _switchToVersusPuyoLayout(false);
-      if (!window._tetrisGamePlayer) window._tetrisGamePlayer = new Game('player');
-      if (!window._tetrisGameCpu) window._tetrisGameCpu = new Game('cpu');
+      if (!window._tetGamePlayer) window._tetGamePlayer = new Game('player');
+      if (!window._tetGameCpu) window._tetGameCpu = new Game('cpu');
       
-      window._game = window._tetrisGamePlayer;
-      window._cpuGame = window._tetrisGameCpu;
+      window._game = window._tetGamePlayer;
+      window._cpuGame = window._tetGameCpu;
   }
 
   window._game.currentMode = 'versus';
@@ -339,7 +339,7 @@ async function startVersusGame() {
   window._cpuGame.isCpuControlled = true;
   window._cpuGame._labelsInitialized = false;
 
-  if (versusRule === 'tetris') {
+  if (versusRule === 'tet') {
       window._game.initMainCanvas();
       window._game.initNextCanvas();
       window._game.initHoldCanvas();
@@ -445,7 +445,7 @@ function versusGameOver(loser) {
   const stopGame = (gameInst) => {
       if (!gameInst) return;
       if (typeof gameInst.gameOver === 'function') { 
-          // Tetris
+          // tet
           if (gameInst.timer) clearInterval(gameInst.timer);
           gameInst.timer = null;
           if (gameInst.lockTimer) clearTimeout(gameInst.lockTimer);
@@ -619,7 +619,7 @@ function renderModeCheck() {
         <div class="option-row">
           <span class="option-label">RULE</span>
           <div class="option-toggle" id="test-rule-toggle">
-            <button class="opt-btn ${testRule === 'tetris' ? 'active' : ''}" onclick="setTestRule('tetris')">TET</button>
+            <button class="opt-btn ${testRule === 'tet' ? 'active' : ''}" onclick="setTestRule('tet')">TET</button>
             <button class="opt-btn ${testRule === 'puyo' ? 'active' : ''}" onclick="setTestRule('puyo')">PUYO</button>
           </div>
         </div>
@@ -748,12 +748,12 @@ async function startGameFromModeCheck() {
   switchPage('game');
   window._game.start();
 
-  if (modeId === 'test' && testRule === 'tetris') {
+  if (modeId === 'test' && testRule === 'tet') {
     window._game.isCpuControlled = testCpuControl;
 
     let CPUClass;
     try {
-      CPUClass = await loadCpuScript(selectedCpuLevel, 'tetris');
+      CPUClass = await loadCpuScript(selectedCpuLevel, 'tet');
     } catch (e) {
       alert("CPUスクリプトの読み込みに失敗しました。");
       return;
@@ -782,10 +782,10 @@ async function startGameFromModeCheck() {
 })();
 
 function _switchToPuyoLayout(isPuyo) {
-  const tetrisCanvases = ['main-canvas', 'next-canvas', 'hold-canvas'];
+  const tetCanvases = ['main-canvas', 'next-canvas', 'hold-canvas'];
   const puyoCanvases   = ['puyo-main-canvas', 'puyo-next-canvas'];
 
-  tetrisCanvases.forEach(id => {
+  tetCanvases.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isPuyo ? 'none' : '';
   });
