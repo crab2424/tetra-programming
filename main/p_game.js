@@ -50,11 +50,11 @@ const PConfig = {
 
     // ── スコア計算テーブル（ぷよぷよ公式準拠） ──
     scoreBase:        10,
-    // 連鎖ボーナス（1連鎖目〜18連鎖目）
+    // 連鎖ボーナス（1連鎖目〜18連鎖目） -> [0]が1連鎖目、[1]が2連鎖目...
     chainBonusTable:  [0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512],
-    // 色ボーナス（使用色数 1〜4）
+    // 色ボーナス（使用色数 1〜4） -> [0]が1色、[1]が2色...
     colorBonusTable:  [0, 3, 6, 12, 24],
-    // 連結ボーナス（消えた個数ごと）
+    // 連結ボーナス（消えた個数ごと） -> インデックスと消去数を一致させている（[4]が4個、[5]が5個...）
     groupBonusTable:  [0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10],
 };
 
@@ -78,6 +78,9 @@ class PuyoGame {
         this.score      = 0;
         this.chainMax   = 0;
         this.chainCount = 0;
+        this.clearedPuyos = 0; // 消した総ぷよ数
+        this.chainScoreAdd = 0; // 連鎖時の一時加算スコア
+        this.chainScoreStr = ""; // 連鎖時の一時スコア表示文字列
 
         this.elapsed        = 0;
         this._timerRunning  = false;
@@ -132,7 +135,7 @@ class PuyoGame {
         // 消去・ちぎり・落下アニメーション
         this._erasingCells  = null;
         this._eraseTimer    = 0;
-        this.eraseWaitTimer = 0; // ★ 消去後待機タイマー追加
+        this.eraseWaitTimer = 0; 
         this._dropAnim      = null;
         this.splitPuyo      = null; 
 
@@ -208,6 +211,9 @@ class PuyoGame {
         this.score      = 0;
         this.chainMax   = 0;
         this.chainCount = 0;
+        this.clearedPuyos = 0;
+        this.chainScoreAdd = 0;
+        this.chainScoreStr = "";
         this.elapsed    = 0;
         this._gs        = 'spawn';
         this.isPaused   = false;
@@ -215,7 +221,7 @@ class PuyoGame {
         this.splitPuyo  = null;
         this._erasingCells  = null;
         this._eraseTimer    = 0;
-        this.eraseWaitTimer = 0; // ★ リセット
+        this.eraseWaitTimer = 0; 
         this._dropAnim      = null;
         this._zenkeshiTimer = 0;
         this._dasDir    = 0;
@@ -520,13 +526,14 @@ class PuyoGame {
                 break;
 
             case 'checkErase': {
-                const toErase = this._findErasable();
-                if (toErase.length > 0) {
-                    this._erasingCells = toErase;
+                const groups = this._findErasable();
+                if (groups.length > 0) {
+                    this._erasingCells = groups.flat();
                     this._eraseTimer   = 0;
                     this.chainCount++;
                     if (this.chainCount > this.chainMax) this.chainMax = this.chainCount;
-                    this._addChainScore(toErase);
+                    // ★ ここでスコア計算と一時表示の切り替えを行う
+                    this._calcChainScore(groups);
                     this._gs = 'erasing';
                 } else {
                     if (this._isFieldEmpty() && this.chainCount > 0) {
@@ -546,16 +553,24 @@ class PuyoGame {
                 if (this._eraseTimer >= PConfig.eraseMs) {
                     this._applyErase(); // ここでぷよを消去する
                     this._buildDropAnim(); // 落下情報の構築
-                    // ★ 修正：消去した瞬間ではなく、400ms待機ステートへ移行
+                    // ★ 修正：消去した瞬間ではなく、待機ステートへ移行
                     this._gs = 'eraseWait';
                     this.eraseWaitTimer = 0;
                 }
                 break;
             
-            // ★ 追加：消去後の400ms待機（連鎖演出）
+            // ★ 追加：消去後の待機（連鎖演出）
             case 'eraseWait':
                 this.eraseWaitTimer += dt;
                 if (this.eraseWaitTimer >= PConfig.eraseWaitMs) {
+                    
+                    // ★ eraseWait終了時に一時加算スコアを合計スコアに反映し、表示を元に戻す
+                    if (this.chainScoreAdd > 0) {
+                        this.score += this.chainScoreAdd;
+                        this.chainScoreAdd = 0;
+                        this._updateScoreDisplay();
+                    }
+
                     if (this._dropAnim) {
                         this._gs = 'dropping'; // 落下するぷよがあれば落下
                     } else {
@@ -1010,7 +1025,7 @@ class PuyoGame {
     _findErasableInField(checkField) {
         const totalRows = PConfig.rows + PConfig.hiddenRows;
         const visited   = Array.from({ length: totalRows }, () => new Array(PConfig.cols).fill(false));
-        const result = [];
+        const groups = []; // ★ グループごとの配列を保持するように変更
 
         for (let r = 1; r < totalRows; r++) {
             for (let c = 0; c < PConfig.cols; c++) {
@@ -1038,18 +1053,18 @@ class PuyoGame {
                 }
 
                 if (group.length >= PConfig.eraseCount) {
-                    result.push(...group);
+                    groups.push(group);
                 }
             }
         }
-        return result;
+        return groups;
     }
 
     _findErasable() {
         return this._findErasableInField(this.field);
     }
 
-    // ★ 修正：現在のゴースト位置で固定された場合の消去セルを取得（貫通バグの修正）
+    // ★ 現在のゴースト位置で固定された場合の消去セルを取得（貫通バグの修正）
     _getGhostEraseInfo() {
         const rot = this.targetRot;
         const limitY = this._calcLimitY(this.pivotX, this.pivotY, rot);
@@ -1084,9 +1099,9 @@ class PuyoGame {
         if (actualPivotR >= 0 && actualPivotR < totalRows) vField[actualPivotR][pc] = this.pivotColor;
         if (actualChildR >= 0 && actualChildR < totalRows) vField[actualChildR][cc] = this.childColor;
 
-        const erasingCells = this._findErasableInField(vField);
+        const groups = this._findErasableInField(vField);
         return {
-            cells: erasingCells
+            cells: groups.flat() // ここは連鎖予告表示用なのでフラットな配列でOK
         };
     }
 
@@ -1098,17 +1113,39 @@ class PuyoGame {
         this._erasingCells = null;
     }
 
-    _addChainScore(cells) {
+    // ★ 連鎖時のスコア計算と、一時的なスコア表示切替
+    _calcChainScore(groups) {
+        const cells = groups.flat();
         const n = cells.length;
-        const cb = PConfig.chainBonusTable[Math.min(this.chainCount, PConfig.chainBonusTable.length - 1)];
+        this.clearedPuyos += n; // 消した総ぷよ数をカウント
+
+        // ★ 配列のインデックスと一致させるため、それぞれ-1を適用
+        const chainIndex = Math.max(0, this.chainCount - 1);
+        const cb = PConfig.chainBonusTable[Math.min(chainIndex, PConfig.chainBonusTable.length - 1)];
+        
         const usedColors = new Set(cells.map(cell => cell.color));
-        const colorB = PConfig.colorBonusTable[Math.min(usedColors.size, PConfig.colorBonusTable.length - 1)];
-        const groupB = PConfig.groupBonusTable[Math.min(n, PConfig.groupBonusTable.length - 1)];
+        const colorIndex = Math.max(0, usedColors.size - 1);
+        const colorB = PConfig.colorBonusTable[Math.min(colorIndex, PConfig.colorBonusTable.length - 1)];
+        
+        // ★ 連結ボーナスを、消えたグループごとに分けて計算し合算する
+        // （グループボーナスはインデックスがそのまま「消えた個数」に対応しているため、countを直接使用）
+        let groupB = 0;
+        for (const group of groups) {
+            const count = group.length;
+            groupB += PConfig.groupBonusTable[Math.min(count, PConfig.groupBonusTable.length - 1)];
+        }
 
         const bonus = Math.max(1, cb + colorB + groupB);
         const add   = PConfig.scoreBase * n * bonus;
-        this.score += add;
-        this._updateScoreDisplay();
+        
+        this.chainScoreAdd = add;
+        this.chainScoreStr = `${n * 10} × ${bonus}`;
+
+        if (this.scoreEl) {
+            this.scoreEl.style.fontSize = '18px'; // 文字列がはみ出さないように一時的に縮小
+            this.scoreEl.style.whiteSpace = 'nowrap'; // ★ 改行を防ぐ
+            this.scoreEl.textContent = this.chainScoreStr;
+        }
         this._updateChainDisplay(this.chainCount);
     }
 
@@ -1195,12 +1232,12 @@ class PuyoGame {
 
         const levelEl = document.getElementById('result-level');
         if (levelEl) {
-            levelEl.textContent = this.chainMax + ' CHAIN';
-            levelEl.style.fontSize = '18px';
+            levelEl.textContent = this.chainMax;
+            levelEl.style.fontSize = ''; // 前回の変更をクリア
         }
 
         const linesEl = document.getElementById('result-lines');
-        if (linesEl) linesEl.textContent = '—';
+        if (linesEl) linesEl.textContent = this.clearedPuyos;
 
         const timeEl = document.getElementById('result-time');
         if (timeEl) timeEl.textContent = this._formatTime(this.elapsed);
@@ -1255,7 +1292,11 @@ class PuyoGame {
     }
 
     _updateScoreDisplay() {
-        if (this.scoreEl) this.scoreEl.textContent = this.score;
+        if (this.scoreEl) {
+            this.scoreEl.style.fontSize = ''; // サイズを元に戻す（CSS指定に従う）
+            this.scoreEl.style.whiteSpace = ''; // 改行設定を元に戻す
+            this.scoreEl.textContent = this.score;
+        }
     }
 
     _updateTimeDisplay(ms) {
@@ -1289,6 +1330,23 @@ class PuyoGame {
         ctx.scale(W / logicalW, H / logicalH);
 
         const cs  = PConfig.cellSize;
+
+        // ★ ❌マークの描画 (上から12段目＝画面の最上段(r=0)、左から3列目(c=2))
+        const deadX = 2 * cs;
+        const deadY = 0 * cs; 
+        
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 80, 80, 0.7)';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        const pad = 6;
+        ctx.moveTo(deadX + pad, deadY + pad);
+        ctx.lineTo(deadX + cs - pad, deadY + cs - pad);
+        ctx.moveTo(deadX + cs - pad, deadY + pad);
+        ctx.lineTo(deadX + pad, deadY + cs - pad);
+        ctx.stroke();
+        ctx.restore();
 
         // 連鎖予告用情報取得
         let ghostEraseInfo = null;

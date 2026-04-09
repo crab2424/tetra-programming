@@ -665,4 +665,15 @@ function _switchToPuyoLayout(isPuyo) {
     if (labelNext)  labelNext.style.display  = '';
     if (labelHold)  labelHold.style.display  = '';
   }
+
+  // ★ リザルト画面のラベルも切り替え
+  const resLevelLabel = document.getElementById('result-label-level');
+  const resLinesLabel = document.getElementById('result-label-lines');
+  if (isPuyo) {
+    if (resLevelLabel) resLevelLabel.textContent = 'MAX CHAIN';
+    if (resLinesLabel) resLinesLabel.textContent = 'CLEARED PUYOS';
+  } else {
+    if (resLevelLabel) resLevelLabel.textContent = 'LEVEL';
+    if (resLinesLabel) resLinesLabel.textContent = 'LINES';
+  }
 }
