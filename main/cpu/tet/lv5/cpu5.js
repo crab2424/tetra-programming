@@ -68,7 +68,7 @@ window.CPU5 = class {
             P1_WEIGHT: 1.2,        
         };
 
-        this.worker = new Worker('cpu/lv5/cpu_worker5.js');
+        this.worker = new Worker('cpu/tet/lv5/cpu_worker5.js');
         this.workerReady = false;
         this.isCalculating = false;
 
