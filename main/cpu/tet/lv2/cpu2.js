@@ -39,7 +39,7 @@ window.CPU2 = class {
         };
 
         // Workerの生成
-        this.worker = new Worker('cpu/lv2/cpu_worker2.js');
+        this.worker = new Worker('cpu/tet/lv2/cpu_worker2.js');
         this.workerReady = false;
         this.isCalculating = false;
 
