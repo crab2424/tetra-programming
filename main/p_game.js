@@ -137,7 +137,10 @@ class PuyoGame {
         this._eraseTimer    = 0;
         this.eraseWaitTimer = 0; 
         this._dropAnim      = null;
-        this.splitPuyo      = null; 
+        
+        this.pendingChainGroups = null; // ★ 完全に消えた後にテキストを表示するための保存用
+        this.chainTextInfo      = null; // 連鎖テキストの描画情報（DOM要素）
+        this.moveLockCount      = 0;    // ★ 接地状態での操作回数制限用カウンター
 
         this._zenkeshiTimer = 0;
 
@@ -174,6 +177,7 @@ class PuyoGame {
         this.state = 'idle';
         this._stopTimer();
         this._removeKeyHandlers();
+        this._clearChainTextDOM(); // 停止時にDOMを削除
         if (this._loopId) {
             cancelAnimationFrame(this._loopId);
             this._loopId = null;
@@ -223,6 +227,11 @@ class PuyoGame {
         this._eraseTimer    = 0;
         this.eraseWaitTimer = 0; 
         this._dropAnim      = null;
+        this._clearChainTextDOM(); 
+        
+        this.pendingChainGroups = null;
+        this.moveLockCount      = 0;
+
         this._zenkeshiTimer = 0;
         this._dasDir    = 0;
         this._dasTimer  = 0;
@@ -377,6 +386,7 @@ class PuyoGame {
         this.scoreFloat     = 0;
         this.quickTurnCount = 0; 
         this.lastRotationInfo = null; // 回転情報リセット
+        this.moveLockCount  = 0;      // 操作回数リセット
 
         this._priorityMove = false;
         if (this._keys[this._keyMap.softDrop] && (this._keys[this._keyMap.moveLeft] || this._keys[this._keyMap.moveRight])) {
@@ -532,6 +542,9 @@ class PuyoGame {
                     this._eraseTimer   = 0;
                     this.chainCount++;
                     if (this.chainCount > this.chainMax) this.chainMax = this.chainCount;
+                    
+                    this.pendingChainGroups = groups; // ★ テキスト表示用に保存
+
                     // ★ ここでスコア計算と一時表示の切り替えを行う
                     this._calcChainScore(groups);
                     this._gs = 'erasing';
@@ -553,13 +566,19 @@ class PuyoGame {
                 if (this._eraseTimer >= PConfig.eraseMs) {
                     this._applyErase(); // ここでぷよを消去する
                     this._buildDropAnim(); // 落下情報の構築
-                    // ★ 修正：消去した瞬間ではなく、待機ステートへ移行
+                    // ★ 完全に消えた瞬間（待機ステートへの移行時）
                     this._gs = 'eraseWait';
                     this.eraseWaitTimer = 0;
+
+                    // ★ ここでテキストを表示する
+                    if (this.pendingChainGroups) {
+                        this._prepareChainTextDOM(this.pendingChainGroups);
+                        this.pendingChainGroups = null;
+                    }
                 }
                 break;
             
-            // ★ 追加：消去後の待機（連鎖演出）
+            // ★ 消去後の待機（連鎖演出）
             case 'eraseWait':
                 this.eraseWaitTimer += dt;
                 if (this.eraseWaitTimer >= PConfig.eraseWaitMs) {
@@ -570,6 +589,8 @@ class PuyoGame {
                         this.chainScoreAdd = 0;
                         this._updateScoreDisplay();
                     }
+                    
+                    this._clearChainTextDOM(); // 待機終了時にDOMを削除
 
                     if (this._dropAnim) {
                         this._gs = 'dropping'; // 落下するぷよがあれば落下
@@ -787,16 +808,19 @@ class PuyoGame {
     // ══════════════════════════════════════════════
 
     _tryMove(dir) {
+        if (this._gs !== 'falling') return; // 操作制限のための即時固定発動後に実行されるのを防ぐ
         const newCol = this.pivotX + dir;
         if (this._canPlace(newCol, this.pivotY, this.targetRot)) {
             this.pivotX = newCol;
             this.lockTimer = 0; 
             this.quickTurnCount = 0; 
             this.lastRotationInfo = null; // 移動したら回転フラグ折る
+            this._checkMoveLock(); // ★ 接地状態での操作回数加算と即固定チェック
         }
     }
 
     _tryRotate(dir) {
+        if (this._gs !== 'falling') return; // 操作制限のための即時固定発動後に実行されるのを防ぐ
         const isVertical = (this.targetRot === 0 || this.targetRot === 2);
         const newRot = ((this.targetRot + dir) % 4 + 4) % 4;
         let tempY = this.pivotY;
@@ -829,6 +853,7 @@ class PuyoGame {
             this.lockTimer = 0; 
             this.quickTurnCount = 0; 
             this.lastRotationInfo = { pivotY: this.pivotY }; // 回転開始時の高さを記録
+            this._checkMoveLock(); // ★ 接地状態での操作回数加算と即固定チェック
         } else {
             if (isVertical) {
                 this.quickTurnCount++;
@@ -855,8 +880,20 @@ class PuyoGame {
                         this.lockTimer = 0;
                         this.quickTurnCount = 0; 
                         this.lastRotationInfo = { pivotY: this.pivotY }; // クイックターンでも記録
+                        this._checkMoveLock(); // ★ 接地状態での操作回数加算と即固定チェック
                     }
                 }
+            }
+        }
+    }
+
+    // ★ 接地状態での操作時に回数をカウントし、15回に達したら即固定する
+    _checkMoveLock() {
+        let limitY = this._calcLimitY(this.pivotX, this.pivotY, this.targetRot);
+        if (this.pivotY >= limitY) {
+            this.moveLockCount++;
+            if (this.moveLockCount >= 15) {
+                this._fixPuyo();
             }
         }
     }
@@ -968,6 +1005,9 @@ class PuyoGame {
         }
 
         let limitY = this._calcLimitY(this.pivotX, this.pivotY, this.targetRot);
+        
+        // ★ 操作回数制限のリセット処理を削除し、空中に逃げてもカウントを維持する
+
         if (this.pivotY >= limitY) {
             this.pivotY = limitY;
             let lockSpeed = isSoftDrop ? 12 : 1; 
@@ -1025,9 +1065,10 @@ class PuyoGame {
     _findErasableInField(checkField) {
         const totalRows = PConfig.rows + PConfig.hiddenRows;
         const visited   = Array.from({ length: totalRows }, () => new Array(PConfig.cols).fill(false));
-        const groups = []; // ★ グループごとの配列を保持するように変更
+        const groups = []; 
 
-        for (let r = 1; r < totalRows; r++) {
+        // ★ 12段目(画面最上段)以下のぷよだけを探索の起点にする
+        for (let r = PConfig.hiddenRows; r < totalRows; r++) {
             for (let c = 0; c < PConfig.cols; c++) {
                 if (visited[r][c]) continue;
                 const color = checkField[r][c];
@@ -1043,10 +1084,12 @@ class PuyoGame {
                     for (const [dr, dc] of dirs) {
                         const nr = cur.r + dr;
                         const nc = cur.c + dc;
-                        if (nr <= 0 || nr >= totalRows) continue;
+                        // ★ 13段目以上(nr < hiddenRows)には繋がらないようにする
+                        if (nr < PConfig.hiddenRows || nr >= totalRows) continue;
                         if (nc < 0 || nc >= PConfig.cols)  continue;
                         if (visited[nr][nc]) continue;
                         if (checkField[nr][nc] !== color) continue;
+                        
                         visited[nr][nc] = true;
                         queue.push({ r: nr, c: nc });
                     }
@@ -1149,6 +1192,121 @@ class PuyoGame {
         this._updateChainDisplay(this.chainCount);
     }
 
+    // ★ Canvas描画ではなく、document.body に直接追加して絶対配置する
+    _prepareChainTextDOM(groups) {
+        let bestR = -1;
+        let bestC = 999;
+        let candidates = [];
+
+        for (const group of groups) {
+            let maxR = -1;
+            let minC = 999;
+            for (const cell of group) {
+                if (cell.r > maxR) {
+                    maxR = cell.r;
+                    minC = cell.c; // Rが更新されたのでCもリセット
+                } else if (cell.r === maxR) {
+                    if (cell.c < minC) {
+                        minC = cell.c;
+                    }
+                }
+            }
+            if (maxR > bestR) {
+                bestR = maxR;
+                bestC = minC;
+                candidates = [group];
+            } else if (maxR === bestR) {
+                if (minC < bestC) {
+                    bestC = minC;
+                    candidates = [group];
+                } else if (minC === bestC) {
+                    candidates.push(group);
+                }
+            }
+        }
+
+        // 一番下、かつ一番左の条件が被った場合（通常は被らないが念のため）はランダムに1つ選ぶ
+        const targetGroup = candidates[Math.floor(Math.random() * candidates.length)];
+        
+        let sumC = 0, sumR = 0;
+        for (const cell of targetGroup) {
+            sumC += cell.c;
+            sumR += cell.r;
+        }
+        const avgC = sumC / targetGroup.length;
+        const avgR = sumR / targetGroup.length;
+
+        // 左下1マス (-1, +1) 移動
+        const targetC = avgC - 1;
+        const targetR = avgR + 1;
+
+        const logicalX = (targetC + 0.5) * PConfig.cellSize;
+        const logicalY = (targetR - PConfig.hiddenRows + 0.5) * PConfig.cellSize;
+
+        if (!this.canvas) return;
+
+        // ★ Canvasの位置とサイズを取得して、ページ全体からの絶対座標を計算する
+        const rect = this.canvas.getBoundingClientRect();
+
+        // Canvasの内部解像度に対する表示解像度の比率（スケール）を計算
+        const scaleX = rect.width / (PConfig.cols * PConfig.cellSize);
+        const scaleY = rect.height / (PConfig.rows * PConfig.cellSize);
+
+        const finalX = logicalX * scaleX;
+        const finalY = logicalY * scaleY;
+
+        // 以前のテキストがあれば消去
+        this._clearChainTextDOM();
+
+        // 盤面より手前のレイヤー（bodyの直下）に表示するためのDOMを生成
+        const el = document.createElement('div');
+        el.style.position = 'absolute';
+        
+        // ★ overflow: hidden の影響を受けないよう、body基準で絶対配置
+        const pageX = rect.left + window.scrollX + finalX;
+        const pageY = rect.top + window.scrollY + finalY;
+
+        el.style.left = pageX + 'px';
+        el.style.top  = pageY + 'px';
+        el.style.transform = 'translate(-50%, -50%)'; // 中心合わせ
+        el.style.pointerEvents = 'none'; // クリック阻害防止
+        el.style.zIndex = '9999'; // 確実に最前面になるように設定
+        el.style.whiteSpace = 'nowrap'; // 改行防止
+        el.style.display = 'flex';
+        el.style.alignItems = 'baseline'; // ベースラインで数字と文字を揃える
+        el.style.justifyContent = 'center';
+        
+        // ★ 数字部分と "CHAIN" 部分のサイズ指定 (48px : 24px)
+        const numSize = 48;
+        const chainSize = 24;
+
+        el.innerHTML = `
+            <span style="font-family: 'Orbitron', monospace; font-size: ${numSize}px; font-weight: bold; color: #ff8c00; text-shadow: 0 0 4px #fff, 0 0 8px rgba(255,140,0,0.8); -webkit-text-stroke: 1.5px #fff; line-height: 1;">
+                ${this.chainCount}
+            </span>
+            <span style="font-family: 'Orbitron', monospace; font-size: ${chainSize}px; font-weight: bold; color: #ff8c00; text-shadow: 0 0 4px #fff, 0 0 8px rgba(255,140,0,0.8); -webkit-text-stroke: 1px #fff; margin-left: 6px; line-height: 1;">
+                CHAIN
+            </span>
+        `;
+
+        document.body.appendChild(el);
+
+        this.chainTextInfo = {
+            el: el,
+            baseY: pageY
+        };
+    }
+
+    // ★ 追加：DOM要素を削除するヘルパー
+    _clearChainTextDOM() {
+        if (this.chainTextInfo && this.chainTextInfo.el) {
+            if (this.chainTextInfo.el.parentNode) {
+                this.chainTextInfo.el.parentNode.removeChild(this.chainTextInfo.el);
+            }
+        }
+        this.chainTextInfo = null;
+    }
+
     // ══════════════════════════════════════════════
     // 落下アニメーション（消去後の浮きぷよ）
     // ══════════════════════════════════════════════
@@ -1211,6 +1369,7 @@ class PuyoGame {
     _beginGameOver() {
         this._stopTimer();
         this._removeKeyHandlers();
+        this._clearChainTextDOM(); // ★ 追加：ゲームオーバー時にDOMを削除
         this.state = 'gameover';
 
         showFinishOverlay('finish-overlay', 'finish-text', 'GAME OVER', 'finish-gameover', 1200, () => {
@@ -1439,7 +1598,20 @@ class PuyoGame {
             this._drawPuyo(ctx, this.splitPuyo.col * cs, this.splitPuyo.y * cs, this.splitPuyo.color, cs, 0);
         }
 
-        ctx.restore(); 
+        ctx.restore(); // フィールドのスケール解除
+
+        // ★ 連鎖演出テキストDOMの更新処理 (eraseWait ステート中のみ)
+        if (this._gs === 'eraseWait' && this.chainTextInfo && this.chainTextInfo.el) {
+            const remaining = PConfig.eraseWaitMs - this.eraseWaitTimer;
+            const alpha = Math.max(0, Math.min(1, remaining / 150)); // 残り150msを切ったらフェードアウト
+            
+            // 待機時間中に少し上にスライドさせるアニメーション (全体で約12pxほど)
+            const progress = this.eraseWaitTimer / PConfig.eraseWaitMs;
+            const slideY = -12 * progress;
+
+            this.chainTextInfo.el.style.opacity = alpha;
+            this.chainTextInfo.el.style.top = (this.chainTextInfo.baseY + slideY) + 'px';
+        }
 
         // 全消しバナー
         if (this._zenkeshiTimer > 0) {
