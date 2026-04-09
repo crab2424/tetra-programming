@@ -40,13 +40,6 @@ window.onload = function(){
     let cpuGame = new Game('cpu')
     window._cpuGame = cpuGame
 
-    // メインメニューの「GAME START」ボタン（旧UIとの後方互換、非表示だが残す）
-    document.getElementById('menu-start-btn').onclick = function(){
-        switchPage('game');
-        game.start();
-        this.blur();
-    }
-
     // リザルト画面の「RETRY」ボタン
     document.getElementById('result-retry-btn').onclick = function(){
         switchPage('game');
