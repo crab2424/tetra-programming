@@ -809,10 +809,10 @@ class PuyoGame {
                 } else {
                     // 連鎖が終わった（または無かった）ときの処理
 
-                    // 連鎖を行ったターンの最後なら、attackScoreをリセットして未送信の火力を送る
+                    // 連鎖を行ったターンの最後なら、未送信の火力を送り、端数を持ち越す
                     if (this.chainCount > 0) {
-                        this.attackScore = 0;
-                        this.generatedOjamaTotal = 0;
+                        this.attackScore = this.attackScore % PConfig.ojamaRate; // 端数持ち越し
+                        this.generatedOjamaTotal = 0; // 送信済みおじゃま量をリセット
                         if (this.pendingFire > 0) {
                             this.ojamaUpdateQueue.push({ timer: 0, amount: this.pendingFire });
                             this.pendingFire = 0;
@@ -869,6 +869,13 @@ class PuyoGame {
                         this._prepareChainTextDOM(this.pendingChainGroups);
                         this.pendingChainGroups = null;
                         
+                        // ★ 追加: 相手からの火力を相殺する時のみ、自分の火力が0でも最低1個だけ相殺する
+                        let queuedOffset = this.ojamaUpdateQueue.reduce((sum, q) => sum + q.amount, 0);
+                        let effectiveOjama = this.pendingOjama - queuedOffset;
+                        if (effectiveOjama > 0 && this.pendingFire === 0) {
+                            this.pendingFire = 1;
+                        }
+
                         // ★ 連鎖表示が出たタイミングで、そこまでに溜まった微火力＋連鎖火力を0.5秒後に相殺・送信
                         // （全消しで持ち越されたpendingFireも、ここで1連鎖目として送られる）
                         if (this.pendingFire > 0) {
