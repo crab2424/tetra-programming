@@ -84,22 +84,35 @@ window.CPU = class{
                     }
                 }
 
-                if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                    // めり込みを防ぐため、シミュレーション時の安全なY座標(spawnY)も渡す
+                // 移動そのものは即座に行う
+                if (this.isActive && this.game.mino === this.currentMino) {
                     this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
 
-                    setTimeout(() => {
-                        if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                            this.game.hardDrop();
+                    // ★変更：ポーズ中は待機してリトライするドロップ関数を定義
+                    const tryDrop = () => {
+                        if (!this.isActive || this.game.mino !== this.currentMino) return;
+                        
+                        if (this.game.isPaused || this.game.state === 'paused') {
+                            setTimeout(tryDrop, 100); // ポーズ中なら100ms後に再チェック
+                            return;
                         }
-                    }, 1000); // 0.7秒待機
+                        this.game.hardDrop();
+                    };
+                    
+                    setTimeout(tryDrop, 1000); // 1秒待機してからドロップを試みる
                 }
             } else {
-                setTimeout(() => {
-                    if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                        this.game.hardDrop();
+                // 最適手が見つからなかった場合（ゲームオーバー寸前など）のフォールバック
+                const tryDropFallback = () => {
+                    if (!this.isActive || this.game.mino !== this.currentMino) return;
+                    
+                    if (this.game.isPaused || this.game.state === 'paused') {
+                        setTimeout(tryDropFallback, 100);
+                        return;
                     }
-                }, 1000);
+                    this.game.hardDrop();
+                };
+                setTimeout(tryDropFallback, 1000);
             }
         }
     }

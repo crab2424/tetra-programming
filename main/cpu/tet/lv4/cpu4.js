@@ -34,16 +34,14 @@ window.CPU4 = class {
             downstackGood: 68,   
             downstackBad: -3,
 
-            // ★変更：維持の旨味を減らし、打つ（消す）ことの旨味を圧倒的に大きくする
-            tsdShape: 150,      // TSDの地形がある時のボーナス(300から150に減少)
-            tsdShapeOver: -45, // TSD地形を2個以上作った場合の減点
-            tsdFillBonus: 24,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
+            tsdShape: 150,      
+            tsdShapeOver: -45, 
+            tsdFillBonus: 24,   
 
-            // ★追加・変更：TSSとTSDのボーナス分離、および空洞ペナルティ
-            tssClear: 25,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
-            tsdClear: 1280,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
-            tsdHolePenalty: -200, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
-            pureHole: -50,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
+            tssClear: 25,       
+            tsdClear: 1280,      
+            tsdHolePenalty: -200, 
+            pureHole: -50,         
 
             P1_WEIGHT: 0.8,        
         };
@@ -159,7 +157,6 @@ window.CPU4 = class {
         let states = [];
         states.push({ x: backupX, y: backupY, rot: backupRot });
 
-        // C++のパスをシミュレート
         for (let actId of path) {
             if (actId === 1) { if (this.game.valid(-1, 0)) this.game.mino.x--; }
             else if (actId === 2) { if (this.game.valid(1, 0)) this.game.mino.x++; }
@@ -201,18 +198,20 @@ window.CPU4 = class {
         }
 
         const checkInstantDrop = (checkRot) => {
-            // 出現位置で回転できるか
             if (!this.canDropStraightFromTo(startX, startY, startY, checkRot, bestResult.id)) return false;
-            // 出現位置から目的のx座標まで、途中で地形にぶつからず横移動できるか
             let step = bestResult.x > startX ? 1 : -1;
             for (let tx = startX; tx !== bestResult.x + step; tx += step) {
                 if (!this.canDropStraightFromTo(tx, startY, startY, checkRot, bestResult.id)) return false;
             }
-            // 目的のx座標で、startYからbestResult.y(一番下)まで障害物なく落とせるか
             return this.canDropStraightFromTo(bestResult.x, startY, bestResult.y, checkRot, bestResult.id);
         };
 
-        if (checkInstantDrop(bestResult.rot)) {
+        let skipInstantDrop = false;
+        if (bestResult.tSpinType > 0 && bestResult.clearedLines && bestResult.clearedLines.length > 0 && this.game.backToBack) {
+            skipInstantDrop = true;
+        }
+
+        if (!skipInstantDrop && checkInstantDrop(bestResult.rot)) {
             let targetRot = bestResult.rot;
 
             if ([0, 1, 5, 6].includes(bestResult.id) && (bestResult.rot === 2 || bestResult.rot === 0)) {
@@ -233,7 +232,6 @@ window.CPU4 = class {
             return queue;
         }
 
-        // 部分最適化（T-Spin等、屋根の下へのねじ込み）
         if (bestI > 0) {
             let st = states[bestI];
             
@@ -277,7 +275,6 @@ window.CPU4 = class {
             return queue;
         }
 
-        // 最適化不可（最初から上に障害物がある等）
         let hasSoftDropSequence = false;
         let softDropTargetY = -1;
         for (let j = 0; j < path.length; j++) {
@@ -307,6 +304,14 @@ window.CPU4 = class {
     processActionQueue() {
         if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
             this.isExecutingAction = false;
+            return;
+        }
+
+        // ★ポーズ中はアクションの実行を一時停止し、100msごとに解除を待つ
+        if (this.game.isPaused || this.game.state === 'paused') {
+            setTimeout(() => {
+                if (this.isActive && this.isAutoPlay) this.processActionQueue();
+            }, 100);
             return;
         }
 
@@ -390,14 +395,22 @@ window.CPU4 = class {
                 if (this.isActive && this.isAutoPlay) this.processActionQueue();
             }, delayTime);
         } else {
-            setTimeout(() => {
+            // ★待機時間中のポーズにも対応
+            const tryFinish = () => {
+                if (!this.isActive || !this.isAutoPlay) return;
+                
+                if (this.game.isPaused || this.game.state === 'paused') {
+                    setTimeout(tryFinish, 100);
+                    return;
+                }
+                
                 this.isExecutingAction = false;
-                if (this.isActive && this.isAutoPlay && !this.game.isPaused && 
-                    this.bestMoveData && this.bestMoveData.p1 && 
+                if (this.bestMoveData && this.bestMoveData.p1 && 
                     this.game.mino && this.game.mino === this.currentMino) {
                     this.executeAction(this.bestMoveData);
                 }
-            }, delayTime);
+            };
+            setTimeout(tryFinish, delayTime);
         }
     }
 
@@ -501,8 +514,8 @@ window.CPU4 = class {
             next1: this.game.nextQueue[0].type,
             next2: this.game.nextQueue[1].type,
             next3: this.game.nextQueue[2].type, 
-            next4: this.game.nextQueue[3].type, // ★追加
-            next5: this.game.nextQueue[4].type, // ★追加
+            next4: this.game.nextQueue[3].type, 
+            next5: this.game.nextQueue[4].type, 
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray
         });
@@ -515,8 +528,16 @@ window.CPU4 = class {
         
         if (actionInt === -1) {
             this.bestMoveData = null;
-            if (this.isAutoPlay && this.isActive && !this.game.isPaused) {
-                setTimeout(() => this.game.hardDrop(), 700);
+            if (this.isAutoPlay && this.isActive) {
+                const tryDropFallback = () => {
+                    if (!this.isActive || this.game.mino !== this.currentMino) return;
+                    if (this.game.isPaused || this.game.state === 'paused') {
+                        setTimeout(tryDropFallback, 100);
+                        return;
+                    }
+                    this.game.hardDrop();
+                };
+                setTimeout(tryDropFallback, 700);
             }
             return;
         }
@@ -524,22 +545,22 @@ window.CPU4 = class {
         let bestMove = {
             action: actionInt === 1 ? 'hold' : 'play',
             score: res[1],
-            diff: res[2], // ★ res[22] になってたバグの修正
+            diff: res[2], 
             p1: (res[3] >= 0 && res[3] <= 6) ? { id: res[3], rot: res[4], x: res[5], y: res[6], spawnY: res[7] } : null,
             p2: (res[8] >= 0 && res[8] <= 6) ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null,
             isTSpin: (res[12] === 1), 
             p3: (res[13] >= 0 && res[13] <= 6) ? { id: res[13], rot: res[14], x: res[15], y: res[16] } : null,
             p4: (res[17] >= 0 && res[17] <= 6) ? { id: res[17], rot: res[18], x: res[19], y: res[20] } : null,
-            p5: (res[21] >= 0 && res[21] <= 6) ? { id: res[21], rot: res[22], x: res[23], y: res[24] } : null, // ★追加
-            p6: (res[25] >= 0 && res[25] <= 6) ? { id: res[25], rot: res[26], x: res[27], y: res[28] } : null, // ★追加
+            p5: (res[21] >= 0 && res[21] <= 6) ? { id: res[21], rot: res[22], x: res[23], y: res[24] } : null, 
+            p6: (res[25] >= 0 && res[25] <= 6) ? { id: res[25], rot: res[26], x: res[27], y: res[28] } : null, 
             
             totalScore: res[29] || 0,
             step1Score: res[30] || 0,
             step2Score: res[31] || 0,
             step3Score: res[32] || 0,
             step4Score: res[33] || 0,
-            step5Score: res[34] || 0, // ★追加
-            step6Score: res[35] || 0, // ★追加
+            step5Score: res[34] || 0, 
+            step6Score: res[35] || 0, 
         };
 
         if(bestMove.p1) {
@@ -595,7 +616,7 @@ window.CPU4 = class {
             this.renderEstimatePlace(); 
         }
 
-        if (this.isAutoPlay && this.isActive && !this.game.isPaused && this.game.mino === this.currentMino && bestMove.p1) {
+        if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino && bestMove.p1) {
             this.executeAction(bestMove);
         }
     }
@@ -628,8 +649,8 @@ window.CPU4 = class {
             { data: this.bestMoveData.p2, name: 'step2' },
             { data: this.bestMoveData.p3, name: 'step3' },
             { data: this.bestMoveData.p4, name: 'step4' },
-            { data: this.bestMoveData.p5, name: 'step5' }, // ★追加
-            { data: this.bestMoveData.p6, name: 'step6' }  // ★追加
+            { data: this.bestMoveData.p5, name: 'step5' }, 
+            { data: this.bestMoveData.p6, name: 'step6' }  
         ];
 
         let simField = Array.from({ length: 20 }, () => Array(10).fill(0));
@@ -689,7 +710,6 @@ window.CPU4 = class {
         let simMino = new Mino(pData.id);
         for(let i = 0; i < pData.rot; i++) simMino.rotate();
 
-        // ★追加・調整: 6手対応で不透明度やZ-indexをスケーリング
         const opacityMap = { 'step1': 0.9, 'step2': 0.5, 'step3': 0.5, 'step4': 0.5, 'step5': 0.5, 'step6': 0.5 };
         const bgOpacityMap = { 'step1': 0.3, 'step2': 0.2, 'step3': 0.1, 'step4': 0.1, 'step5': 0.1, 'step6': 0.1 };
         const zIndexMap = { 'step1': '6', 'step2': '5', 'step3': '4', 'step4': '3', 'step5': '2', 'step6': '1' };
