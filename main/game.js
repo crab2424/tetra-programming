@@ -179,6 +179,7 @@ class Game{
     // 対戦モード: prefix = 'player' or 'cpu'（例: player-main-canvas）
     constructor(canvasPrefix = null){
         this.canvasPrefix = canvasPrefix; // null なら通常モード
+        this.rule = 'tet';
         this.initMainCanvas()
         this.initNextCanvas()
         this.initHoldCanvas()
@@ -196,6 +197,7 @@ class Game{
         this.isTimerRunning = false;
         this.actionLabels = [];
         this.actionAlpha = 0;
+        this.pendingAttack = 0;
     }
 
     initMainCanvas(){
@@ -303,6 +305,10 @@ class Game{
         }
         this.garbageQueue = [];
         this.updateGarbageGauge();
+        
+        this.pendingAttack = 0;
+        this.updateAttackGauge();
+        
         this.nextMino = null;
         this.field = new Field()
         this.holdMino = null
@@ -875,12 +881,23 @@ class Game{
             // r === 0, 1 (0REN, 1REN) は 0加算なのでそのまま
         }
 
+        console.log(`[Scoring] prefix: ${this.canvasPrefix}, lines: ${linesCleared}, tSpin: ${tSpinType}, ren: ${currentRenForGarbage}, genGarbage: ${generatedGarbage}`);
+
         return generatedGarbage;
     }
 
     sendGarbage(amount){
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if(!opponent || amount <= 0) return;
+
+        let isOpponentPuyo = false;
+        if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
+            isOpponentPuyo = (this.canvasPrefix === 'cpu') ? (versusPlayerRule === 'puyo') : (versusCpuRule === 'puyo');
+        } else if (opponent) {
+            isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
+        }
+
+        console.log(`[sendGarbage] ${this.canvasPrefix || 'player'} から相手へ ${amount} 送信`);
 
         const holes = [];
         let prevHole = -1;
@@ -905,15 +922,23 @@ class Game{
         opponent.garbageQueue.push(garbageObj);
 
         // 相手のゲージを更新（青色のゲージが増える）
-        opponent.updateGarbageGauge();
+        if (typeof opponent.updateGarbageGauge === 'function') {
+            opponent.updateGarbageGauge();
+        }
 
-        // 1.5秒経過後に確定
+        // 異種戦(ぷよ相手)なら1000ms後、テト同士なら1500ms後に降下可能に
+        const delay = isOpponentPuyo ? 1000 : 1500;
+
         setTimeout(() => {
             // タイマー発火時に相殺されて消滅していなければ状態変更
-            garbageObj.ready = true;
-            // 相手のゲージを更新（青→赤点滅に変わる）
-            opponent.updateGarbageGauge();
-        }, 1500);
+            if (opponent.garbageQueue.includes(garbageObj) && garbageObj.amount > 0) {
+                garbageObj.ready = true;
+                // 相手のゲージを更新（青→赤点滅に変わる）
+                if (typeof opponent.updateGarbageGauge === 'function') {
+                    opponent.updateGarbageGauge();
+                }
+            }
+        }, delay);
     }
 
     applyGarbage(){
@@ -922,17 +947,47 @@ class Game{
 
         if(readyGarbage.length === 0) return;
 
-        readyGarbage.forEach(g => {
+        const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+        let isOpponentPuyo = false;
+        if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
+            isOpponentPuyo = (this.canvasPrefix === 'cpu') ? (versusPlayerRule === 'puyo') : (versusCpuRule === 'puyo');
+        } else if (opponent) {
+            isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
+        }
+
+        // ★ 異種戦（相手がぷよ）からの攻撃は最大7ラインずつ降る
+        const limit = isOpponentPuyo ? 7 : Infinity;
+        let droppedLines = 0;
+
+        for (let j = 0; j < readyGarbage.length; j++) {
+            let g = readyGarbage[j];
+            let dropCount = 0;
+
             for(let i = 0; i < g.amount; i++){
+                if (droppedLines >= limit) {
+                    break;
+                }
                 this.field.blocks.forEach(block => block.y -= 1);
-                const currentHole = g.holes[i];
+                const currentHole = (g.holes && g.holes[i] !== undefined) ? g.holes[i] : Math.floor(Math.random() * COLS_COUNT);
                 for(let x = 0; x < COLS_COUNT; x++){
                     if(x !== currentHole){
                         this.field.blocks.push(new Block(x, ROWS_COUNT - 1, 7));
                     }
                 }
+                dropCount++;
+                droppedLines++;
             }
-        });
+
+            if (dropCount < g.amount) {
+                // 制限にかかった場合、残りの攻撃を再びreadyキューの先頭へ
+                let remainHoles = g.holes ? g.holes.slice(dropCount) : [];
+                this.garbageQueue.unshift({ amount: g.amount - dropCount, holes: remainHoles, ready: true });
+                for (let k = j + 1; k < readyGarbage.length; k++) {
+                    this.garbageQueue.push(readyGarbage[k]);
+                }
+                break;
+            }
+        }
 
         // おじゃまがフィールドに出現したのでゲージを減らす
         this.updateGarbageGauge();
@@ -940,6 +995,8 @@ class Game{
 
     // 自分に降ってくる予定の火力を相殺し、余った火力を返す
     offsetGarbage(amount) {
+        console.log(`[offsetGarbage] ${this.canvasPrefix || 'player'} が ${amount} の火力で相殺を試みます。現在のキュー:`, JSON.parse(JSON.stringify(this.garbageQueue)));
+
         // 1. まずは「確定(ready)」で最も古いおじゃまから相殺
         for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
             if (this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
@@ -1008,6 +1065,70 @@ class Game{
         }
     }
 
+    // ★追加: 攻撃(送る用)ゲージの更新
+    updateAttackGauge() {
+        if (!this.isVersusMode) return;
+        
+        const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+        let isOpponentPuyo = false;
+        if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
+            isOpponentPuyo = (this.canvasPrefix === 'cpu') ? (versusPlayerRule === 'puyo') : (versusCpuRule === 'puyo');
+        } else if (opponent) {
+            isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
+        }
+
+        const gaugeId = this.canvasPrefix ? `${this.canvasPrefix}-attack-gauge` : null;
+        if (!gaugeId) return;
+        const gaugeEl = document.getElementById(gaugeId);
+        if (!gaugeEl) return;
+
+        gaugeEl.innerHTML = '';
+
+        // 相手がぷよの場合のみ表示する
+        if (!isOpponentPuyo) {
+            gaugeEl.style.display = 'none';
+            return;
+        }
+        
+        gaugeEl.style.display = 'flex';
+        
+        if (this.pendingAttack <= 0) return;
+
+        let amount = this.pendingAttack;
+        let cycles = Math.floor(amount / 20);
+        let remain = amount % 20;
+
+        if (amount > 0 && remain === 0) {
+            cycles -= 1;
+            remain = 20;
+        }
+
+        const colors = ['c-0', 'c-1', 'c-2', 'c-3']; // 緑, 黄, オレンジ, 水色
+        let baseColorIdx = cycles % colors.length;
+        let nextColorIdx = (cycles + 1) % colors.length;
+        
+        let baseColor = colors[baseColorIdx];
+        let nextColor = colors[nextColorIdx];
+
+        if (cycles === 0) {
+            for (let i = 0; i < remain; i++) {
+                const block = document.createElement('div');
+                block.className = `attack-block ${baseColor}`;
+                gaugeEl.appendChild(block);
+            }
+        } else {
+            for (let i = 0; i < 20; i++) {
+                const block = document.createElement('div');
+                if (i < remain) {
+                    block.className = `attack-block ${nextColor}`;
+                } else {
+                    block.className = `attack-block ${baseColor}`;
+                }
+                gaugeEl.appendChild(block);
+            }
+        }
+    }
+
     // ミノを即座に固定する共通処理
     secureMino(){
         let isAllOutside = this.mino.blocks.every(block => (block.y + this.mino.y) < 0);
@@ -1041,13 +1162,52 @@ class Game{
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 相殺（オフセット）と送り返し処理
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        if (this.isVersusMode && generatedGarbage > 0) {
-            // 自分の待機中のおじゃまを相殺し、余った分（送り返し分）を受け取る
-            const remainder = this.offsetGarbage(generatedGarbage);
+        if (this.isVersusMode) {
+            const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+            let isOpponentPuyo = false;
+            if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
+                isOpponentPuyo = (this.canvasPrefix === 'cpu') ? (versusPlayerRule === 'puyo') : (versusCpuRule === 'puyo');
+            } else if (opponent) {
+                isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
+            }
 
-            // 余った火力があれば相手に送る
-            if (remainder > 0) {
-                this.sendGarbage(remainder);
+            console.log(`[secureMino] prefix: ${this.canvasPrefix}, isOpponentPuyo: ${isOpponentPuyo}, pendingAttack(Before): ${this.pendingAttack}`);
+
+            if (isOpponentPuyo) {
+                // ★異種戦（相手がぷよ）の特殊ロジック
+                if (linesCleared > 0) {
+                    let remainder = generatedGarbage;
+                    // ライン消去がある場合は、貯蓄を使わず相殺
+                    if (this.garbageQueue.length > 0 && remainder > 0) {
+                        remainder = this.offsetGarbage(remainder);
+                    }
+                    // 相殺して余った火力を貯蓄に加算
+                    this.pendingAttack += remainder;
+                    console.log(`[secureMino] -> 消去あり: remainder ${remainder} を貯蓄に追加しました`);
+                } else {
+                    // ライン消去がない（設置のみ）場合、貯蓄を放出して相殺・送信
+                    let remainder = this.pendingAttack;
+                    if (this.garbageQueue.length > 0 && remainder > 0) {
+                        remainder = this.offsetGarbage(remainder);
+                    }
+                    if (remainder > 0) {
+                        console.log(`[secureMino] -> 消去なし: 貯蓄から ${remainder} を相手に送信します`);
+                        this.sendGarbage(remainder);
+                    }
+                    this.pendingAttack = 0;
+                }
+                this.updateAttackGauge();
+            } else {
+                // ★従来通り（テト同士）
+                if (generatedGarbage > 0) {
+                    // 自分の待機中のおじゃまを相殺し、余った分（送り返し分）を受け取る
+                    const remainder = this.offsetGarbage(generatedGarbage);
+
+                    // 余った火力があれば相手に送る
+                    if (remainder > 0) {
+                        this.sendGarbage(remainder);
+                    }
+                }
             }
         }
 
