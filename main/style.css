@@ -647,10 +647,11 @@ h1 {
     gap: 8px;
 }
 
-/* ★ 変更：キャンバス（コンテナ）の上に文字をくっつけるためのスタイル */
+/* ★ 変更：キャンバス（コンテナ）の下に文字をくっつけるためのスタイル */
 .versus-side-label {
     position: absolute;
-    top: -40px; /* キャンバスからの相対的な上部の位置 */
+    top: auto;
+    bottom: -40px; /* キャンバスからの相対的な下部の位置 */
     left: 0;
     width: 100%;
     text-align: center;
@@ -1753,7 +1754,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
     border: 2px solid var(--border);
     border-radius: 2px;
     image-rendering: pixelated;
-    height: 259px; /* ★ 追加：縦の長さを0.6倍にする */
+    height: 259px; 
 }
 
 #eval-area {
