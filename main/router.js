@@ -97,9 +97,7 @@ const CPU_CONFIGS = {
 };
 
 // ─── ゲーム進行の中断・破棄機能 ──────────────
-/**
- * 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
- */
+// 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
 function stopAllGames() {
     currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
     
@@ -154,6 +152,14 @@ function stopAllGames() {
     document.querySelectorAll('.countdown-text, .finish-text').forEach(el => {
         el.textContent = '';
         el.className = el.className.replace(/countdown-pop|finish-clear|finish-gameover/g, '').trim();
+    });
+
+    // ★追加：残っている予告火力・アタックゲージの見た目を強制クリアする
+    document.querySelectorAll('.garbage-gauge, .attack-gauge').forEach(el => {
+        el.innerHTML = '';
+        if (el.classList.contains('attack-gauge')) {
+            el.style.display = 'none';
+        }
     });
 }
 
