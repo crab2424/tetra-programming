@@ -56,32 +56,6 @@ window.PuyoCPU = class {
         this.worker.onerror = (err) => {
             console.error('❌ PuyoCPU Worker Error:', err.message, err.filename, err.lineno);
         };
-
-        // ────────────────────────────────
-        // ★ CPU操作時のPauseキー監視
-        // ────────────────────────────────
-        this._pauseListener = (e) => {
-            if (!this.isActive) return;
-            
-            const gamePage = document.getElementById('game-page');
-            const versusPage = document.getElementById('versus-page');
-            if (!(gamePage && gamePage.classList.contains('active')) &&
-                !(versusPage && versusPage.classList.contains('active'))) {
-                return;
-            }
-            
-            const ks = (typeof loadKeys === 'function') ? loadKeys() : {};
-            const pauseKey = ks.pause ? ks.pause.code : 'Escape';
-            
-            if (e.code === pauseKey) {
-                e.preventDefault();
-                if (!this.game.isVersusMode) {
-                    if (typeof this.game._onPauseKey === 'function') {
-                        this.game._onPauseKey();
-                    }
-                }
-            }
-        };
     }
 
     // ══════════════════════════════════════════════
@@ -90,8 +64,7 @@ window.PuyoCPU = class {
 
     start() {
         this.isActive = true;
-        this._initEstimateContainer(); 
-        document.addEventListener('keydown', this._pauseListener);
+        this._initEstimateContainer(); // ★ 予想手表示用コンテナの初期化
         this._updateLoop();
     }
 
@@ -101,8 +74,7 @@ window.PuyoCPU = class {
         this.isExecutingAction = false;
         this.actionQueue       = [];
         
-        document.removeEventListener('keydown', this._pauseListener);
-
+        // ★ 予想手表示のクリア
         if (this.estimateContainer) {
             this.estimateContainer.innerHTML = '';
         }
@@ -149,8 +121,7 @@ window.PuyoCPU = class {
 
         this.isCalculating = true;
 
-        // ★ hiddenRowsの拡張（2→5）に伴い17行分をバッファに乗せる
-        const TOTAL_ROWS = 17; 
+        const TOTAL_ROWS = 14; 
         const COLS       = 6;
         const boardBuffer = new Uint8Array(TOTAL_ROWS * COLS);
         for (let r = 0; r < TOTAL_ROWS; r++) {
@@ -211,13 +182,16 @@ window.PuyoCPU = class {
             col3: res[5], rot3: res[6],
         };
 
+        // スコア表示の更新（画面上にDOMが存在する場合）
         const evalEl = document.getElementById('eval-value');
         if (evalEl) evalEl.textContent = this.bestMoveData.score;
 
+        // ★ 予想手表示の描画
         if (this.game.currentMode === 'test') {
             this._renderEstimatePlace();
         }
 
+        // 自動プレイ時は直ちに実行
         if (this.isAutoPlay && this.isActive && !this.game.isPaused) {
             if (!this.isExecutingAction) {
                 this._executeMove(this.bestMoveData.col1, this.bestMoveData.rot1);
@@ -243,8 +217,8 @@ window.PuyoCPU = class {
             this.estimateContainer.style.position = 'absolute';
             this.estimateContainer.style.top = '0';
             this.estimateContainer.style.left = '0';
-            this.estimateContainer.style.width = '320px';
-            this.estimateContainer.style.height = '656px'; 
+            this.estimateContainer.style.width = '320px'; // ぷよCanvasの幅
+            this.estimateContainer.style.height = '656px'; // ぷよCanvasの高さ
             this.estimateContainer.style.pointerEvents = 'none'; 
             this.estimateContainer.style.zIndex = '15'; 
             this.estimateContainer.style.overflow = 'hidden'; 
@@ -257,10 +231,11 @@ window.PuyoCPU = class {
         if (!this.estimateContainer) return;
         this.estimateContainer.innerHTML = '';
 
+        // 対戦時やデータが存在しない場合は表示しない
         if (!this.isActive || !this.bestMoveData || this.game.isVersusMode) return;
 
-        // ★ totalRows=17 に追従
-        const simField = Array.from({ length: 17 }, (_, r) => [...this.game.field[r]]);
+        // シミュレーション用の盤面コピー（内部行 0〜13）
+        const simField = Array.from({ length: 14 }, (_, r) => [...this.game.field[r]]);
 
         const steps = [
             { col: this.bestMoveData.col1, rot: this.bestMoveData.rot1, colors: [this.game.pivotColor, this.game.childColor], name: 'step1' },
@@ -271,12 +246,15 @@ window.PuyoCPU = class {
         for (const step of steps) {
             if (step.col === -1) continue;
             
+            // 落下位置を計算
             const res = this._simulateDrop(simField, step.col, step.rot);
             if (!res) continue;
 
+            // 描画
             this._createEstimatePuyo(res.pivotCol, res.pivotRow, step.colors[0], step.name);
             this._createEstimatePuyo(res.childCol, res.childRow, step.colors[1], step.name);
 
+            // シミュレーション盤面に反映（連鎖の消去まではやらず、単に積み上げるだけ）
             simField[res.pivotRow][res.pivotCol] = step.colors[0];
             simField[res.childRow][res.childCol] = step.colors[1];
         }
@@ -289,25 +267,24 @@ window.PuyoCPU = class {
         if (pc < 0 || pc >= 6 || cc < 0 || cc >= 6) return null;
 
         const getDropRow = (c) => {
-            // ★ 最下段(16)から上へ探索
-            for (let r = 16; r >= 0; r--) {
+            for (let r = 13; r >= 0; r--) {
                 if (field[r][c] === 0) return r;
             }
             return -1;
         };
 
         let pr, cr;
-        if (rot === 0) { 
+        if (rot === 0) { // 子が上
             pr = getDropRow(pc);
             if (pr < 0) return null;
             cr = pr - 1;
             if (cr < 0 || field[cr][pc] !== 0) return null;
-        } else if (rot === 2) { 
+        } else if (rot === 2) { // 子が下
             cr = getDropRow(pc);
             if (cr < 0) return null;
             pr = cr - 1;
             if (pr < 0 || field[pr][pc] !== 0) return null;
-        } else { 
+        } else { // 横置き
             pr = getDropRow(pc);
             cr = getDropRow(cc);
             if (pr < 0 || cr < 0) return null;
@@ -319,34 +296,27 @@ window.PuyoCPU = class {
     _createEstimatePuyo(col, row, color, stepClass) {
         if (row < 0 || col < 0 || col >= 6) return;
 
-        const scaleX = 320 / 192;
-        const scaleY = 656 / 384;
-
-        const dispWidth = 32 * scaleX;
-        const dispHeight = 32 * scaleY;
-
-        // ★ hiddenRows=5 なので表示行(0〜11)への変換は -5
-        const displayRow = row - 5; 
+        // 内部行(0〜13)から表示行(-2〜11)へ変換。0未満の行は画面外
+        const displayRow = row - 2; 
+        const cellSize = 32;
 
         const opacityMap = { 'step1': 0.8, 'step2': 0.5, 'step3': 0.3 };
         const zIndexMap = { 'step1': '6', 'step2': '5', 'step3': '4' };
         
-        const COLORS = ['#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f'];
+        const COLORS = ['#e74c3c', '#2ecc71', '#3498db', '#f1c40f', '#9b59b6'];
         const bgColor = COLORS[color - 1] || '#fff';
 
         const div = document.createElement('div');
         div.className = `cpu-estimate-puyo ${stepClass}`;
         div.style.position = 'absolute';
-        
-        div.style.width = `${dispWidth}px`;
-        div.style.height = `${dispHeight}px`;
-        div.style.left = `${col * dispWidth}px`;
-        div.style.top = `${displayRow * dispHeight}px`;
-        
+        div.style.width = `${cellSize}px`;
+        div.style.height = `${cellSize}px`;
         div.style.borderRadius = '50%';
         div.style.backgroundColor = bgColor;
         div.style.opacity = opacityMap[stepClass];
         div.style.zIndex = zIndexMap[stepClass];
+        div.style.left = `${col * cellSize}px`;
+        div.style.top = `${displayRow * cellSize}px`;
         div.style.boxSizing = 'border-box';
         div.style.border = '2px solid rgba(255,255,255,0.5)';
         
@@ -376,17 +346,20 @@ window.PuyoCPU = class {
         const startCol = game.pivotX;
         const startRot = game.targetRot;
 
+        // 1. 回転
         const rotDiff = ((targetRot - startRot) % 4 + 4) % 4;
         if (rotDiff === 1) queue.push({ type: 'rotateCW' });
         else if (rotDiff === 2) { queue.push({ type: 'rotateCW' }); queue.push({ type: 'rotateCW' }); }
         else if (rotDiff === 3) queue.push({ type: 'rotateCCW' });
 
+        // 2. 横移動
         const moveDiff = targetCol - startCol;
         const moveType = moveDiff > 0 ? 'moveRight' : 'moveLeft';
         for (let i = 0; i < Math.abs(moveDiff); i++) {
             queue.push({ type: moveType });
         }
 
+        // 3. 高速落下（ソフトドロップ長押し）
         queue.push({ type: 'softDropUntilLock' });
 
         return queue;
@@ -398,6 +371,7 @@ window.PuyoCPU = class {
             return;
         }
 
+        // ★ Pauseが有効化されている場合は待機して再チェックする
         if (this.game.isPaused || this.game.state === 'paused') {
             setTimeout(() => {
                 if (this.isActive && this.isAutoPlay) this._processActionQueue();
@@ -428,32 +402,34 @@ window.PuyoCPU = class {
                 this.game._tryMove(1);
                 break;
             case 'softDropUntilLock':
+                // ★ 高速落下の長押し制御（重力の12倍速想定）
                 const limitY = this.game._calcLimitY(this.game.pivotX, this.game.pivotY, this.game.targetRot);
-                
+                const step = 0.5; // なめらかに落とすための移動量
+                const dropInterval = (500 / 12) * step; // 約20.8msごとの遅延
+
                 if (this.game.pivotY < limitY) {
-                    this.game.pivotY = Math.min(this.game.pivotY + 1, limitY);
+                    this.game.pivotY = Math.min(this.game.pivotY + step, limitY);
+                    this.game.scoreFloat += step;
                     
-                    this.game.scoreFloat += 1;
                     if (this.game.scoreFloat >= 1) {
                         let add = Math.floor(this.game.scoreFloat);
                         this.game.score += add;
                         this.game.scoreFloat -= add;
-                        // ★ CPUの落下操作でも正しく火力を溜める
-                        if(typeof this.game._addDropScore === 'function') {
-                            this.game._addDropScore(add);
-                        }
                         this.game._updateScoreDisplay();
                     }
                     
+                    // まだ接地していないので、同じアクションをキューの先頭に戻す
                     this.actionQueue.unshift(action);
-                    delayTime = 500 / 12; 
+                    delayTime = dropInterval;
                 } else {
+                    // 接地したら固定処理へ移行
                     this._forceLock();
                     isFinalAction = true;
                 }
                 break;
         }
 
+        // 次のアクションへの移行
         if (!isFinalAction) {
             if (this.actionQueue.length > 0) {
                 setTimeout(() => {
