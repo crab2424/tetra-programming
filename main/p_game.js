@@ -30,8 +30,8 @@ const PConfig = {
 
     eraseMs:          28 * 16.67, 
     eraseWaitMs:      333,
-    zenkeshiMs:       1500,
-    zenkeshiBonus:    3600,
+    zenkeshiMs:       1500,       // (未使用になりましたが念のため残置)
+    zenkeshiBonus:    2100,       // ★ 全消しスコアを2100点に変更
 
     scoreBase:        10,
     chainBonusTable:  [0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512],
@@ -78,6 +78,7 @@ class PuyoGame {
         // ★ テトリスエンジン(game.js)との通信用キュー
         this.garbageQueue         = []; 
         this.ojamaUpdateQueue     = []; 
+        this.sentGarbageThisTurn  = []; // このターン（ツモ〜連鎖終了まで）に相手に送った1段階目のおじゃまオブジェクトを保持
         this.hasDroppedOjamaThisTurn = false; 
         this.yokokuContainer      = null;
 
@@ -133,7 +134,7 @@ class PuyoGame {
         this.chainTextInfo      = null; 
         this.moveLockCount      = 0;    
 
-        this._zenkeshiTimer = 0;
+        this.isAllClear     = false; // ★ 全消し表示フラグ
 
         this._images        = {};
         this._imagesLoaded  = false;
@@ -240,6 +241,7 @@ class PuyoGame {
         
         this.garbageQueue = [];
         this.ojamaUpdateQueue = [];
+        this.sentGarbageThisTurn = []; 
         this.hasDroppedOjamaThisTurn = false;
 
         this.elapsed    = 0;
@@ -256,7 +258,8 @@ class PuyoGame {
         this.pendingChainGroups = null;
         this.moveLockCount      = 0;
 
-        this._zenkeshiTimer = 0;
+        this.isAllClear = false; // ★ 全消し表示フラグをリセット
+
         this._dasDir    = 0;
         this._dasTimer  = 0;
         this._arrTimer  = 0;
@@ -438,24 +441,42 @@ class PuyoGame {
             prevHole = holeX;
         }
 
+        // 常に1段階目(ready: false)として送る
         const garbageObj = { amount: amount, holes: holes, ready: false };
         opponent.garbageQueue.push(garbageObj);
+
+        // 自分が送った火力をリストに保持しておく
+        this.sentGarbageThisTurn.push(garbageObj);
 
         if (typeof opponent.updateGarbageGauge === 'function') {
             opponent.updateGarbageGauge();
         }
+    }
 
-        setTimeout(() => {
-            garbageObj.ready = true;
-            if (typeof opponent.updateGarbageGauge === 'function') {
-                opponent.updateGarbageGauge();
+    _confirmSentGarbage() {
+        if (!this.isVersusMode) return;
+        const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+        if (!opponent) return;
+
+        let changed = false;
+        // 保持していた1段階目のおじゃまを全て2段階目(ready: true)に確定させる
+        for (const g of this.sentGarbageThisTurn) {
+            if (!g.ready) {
+                g.ready = true;
+                changed = true;
             }
-        }, 1500);
+        }
+        this.sentGarbageThisTurn = []; // クリア
+
+        if (changed && typeof opponent.updateGarbageGauge === 'function') {
+            opponent.updateGarbageGauge();
+        }
     }
 
     _applyOjamaOffset(amount) {
         if (amount <= 0) return;
 
+        // 相殺はまず確定(ready: true)しているおじゃまから優先して行う
         for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
             if (this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
                 if (this.garbageQueue[i].amount <= amount) {
@@ -468,6 +489,7 @@ class PuyoGame {
             }
         }
 
+        // 次に未確定(ready: false)のおじゃまを相殺する
         for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
             if (!this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
                 if (this.garbageQueue[i].amount <= amount) {
@@ -492,6 +514,7 @@ class PuyoGame {
         let drop = 0;
         let limit = 30; 
         
+        // 降るおじゃまは、2段階目(ready: true)になっているもののみ
         for (let i = 0; i < this.garbageQueue.length && drop < limit; i++) {
             if (this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
                 let take = Math.min(this.garbageQueue[i].amount, limit - drop);
@@ -689,8 +712,6 @@ class PuyoGame {
     }
 
     _update(dt) {
-        if (this._zenkeshiTimer > 0) this._zenkeshiTimer -= dt;
-
         this._updateDAS(dt);
 
         if (this.ojamaUpdateQueue.length > 0) {
@@ -776,6 +797,7 @@ class PuyoGame {
             case 'checkErase': {
                 const { groups, ojamaToErase } = this._findErasable();
                 if (groups.length > 0) {
+                    this.isAllClear = false; // ★ 1連鎖発生でALL CLEAR表示を消す
                     this._erasingCells = [...groups.flat(), ...ojamaToErase];
                     this._eraseTimer   = 0;
                     this.chainCount++;
@@ -786,24 +808,6 @@ class PuyoGame {
                     this._gs = 'erasing';
                 } else {
                     // 連鎖が終わった（または無かった）ときの処理
-                    if (this._isFieldEmpty() && this.chainCount > 0) {
-                        this.score += PConfig.zenkeshiBonus;
-                        this.attackScore += PConfig.zenkeshiBonus;
-                        
-                        let totalOjama = Math.floor(this.attackScore / PConfig.ojamaRate);
-                        let newlyGenerated = totalOjama - this.generatedOjamaTotal;
-                        this.generatedOjamaTotal = totalOjama;
-                        if (newlyGenerated > 0) {
-                            this.pendingFire += newlyGenerated;
-                        }
-                        if (this.pendingFire > 0) {
-                            this.ojamaUpdateQueue.push({ timer: 500, amount: this.pendingFire });
-                            this.pendingFire = 0;
-                        }
-
-                        this._updateScoreDisplay();
-                        this._zenkeshiTimer = PConfig.zenkeshiMs;
-                    }
 
                     // 連鎖を行ったターンの最後なら、attackScoreをリセットして未送信の火力を送る
                     if (this.chainCount > 0) {
@@ -815,6 +819,17 @@ class PuyoGame {
                         }
                     }
 
+                    // ★ その後で全消し判定を行い、全消し火力を新たに pendingFire に追加して持ち越す
+                    if (this._isFieldEmpty() && this.chainCount > 0) {
+                        this.score += PConfig.zenkeshiBonus; // 2100点追加
+                        
+                        let zenkeshiOjama = Math.floor(PConfig.zenkeshiBonus / PConfig.ojamaRate);
+                        this.pendingFire += zenkeshiOjama; // 連鎖後に火力スコア(pendingFire)に持ち越す
+
+                        this._updateScoreDisplay();
+                        this.isAllClear = true; // ★ ALL CLEARフラグON
+                    }
+
                     // おじゃまぷよ降下判定
                     if (!this.hasDroppedOjamaThisTurn && this.pendingOjama > 0) {
                         // 降る前にキューに残っている相殺・送信をすべて即時適用する
@@ -823,12 +838,17 @@ class PuyoGame {
                             this._applyOjamaOffset(q.amount);
                         }
                         
+                        // 降るおじゃま（ready: trueのもの）があれば降る
                         if (this.pendingOjama > 0) {
                             if (this._generateOjama()) {
                                 break; 
                             }
                         }
                     }
+
+                    // ★ 連鎖が終わったタイミングでNEXTアニメーションに移る瞬間、
+                    // 相手に送った火力全てに2段階目になるように情報を送る
+                    this._confirmSentGarbage();
 
                     this._gs = 'spawnAnim';
                     this.spawnAnimTimer = 0;
@@ -850,6 +870,7 @@ class PuyoGame {
                         this.pendingChainGroups = null;
                         
                         // ★ 連鎖表示が出たタイミングで、そこまでに溜まった微火力＋連鎖火力を0.5秒後に相殺・送信
+                        // （全消しで持ち越されたpendingFireも、ここで1連鎖目として送られる）
                         if (this.pendingFire > 0) {
                             this.ojamaUpdateQueue.push({ timer: 500, amount: this.pendingFire });
                             this.pendingFire = 0;
@@ -1339,6 +1360,7 @@ class PuyoGame {
         this._stopTimer();
         this._removeKeyHandlers();
         this._clearChainTextDOM(); 
+        this.isAllClear = false; // ★ ゲームオーバー時にALL CLEARを消す
         this.state = 'gameover';
 
         if (this.isVersusMode) {
@@ -1806,7 +1828,10 @@ class PuyoGame {
                 } 
                 else if (ghostEraseInfo && ghostEraseInfo.cells.length > 0) {
                     if (ghostEraseInfo.cells.some(ec => ec.r === fr && ec.c === c)) {
-                        flashType = 2; 
+                        // ★ ゴースト時、おじゃまぷよ(color===6)は白光りさせない
+                        if (color !== 6) {
+                            flashType = 2; 
+                        }
                     }
                 }
 
@@ -1880,16 +1905,24 @@ class PuyoGame {
             this.chainTextInfo.el.style.top = (this.chainTextInfo.baseY + slideY) + 'px';
         }
 
-        if (this._zenkeshiTimer > 0) {
-            const alpha = Math.min(1, this._zenkeshiTimer / 150);
+        // ★ ALL CLEAR 永続表示
+        if (this.isAllClear) {
             ctx.save();
+            // 時間経過でアルファ値を少し揺らす (0.85 〜 1.0)
+            const alpha = 0.85 + 0.15 * Math.sin(this.elapsed / 150);
             ctx.globalAlpha = alpha;
-            ctx.font        = 'bold 22px "Orbitron", monospace';
+            ctx.font        = 'bold 26px "Orbitron", monospace';
             ctx.fillStyle   = '#ffea00';
             ctx.textAlign   = 'center';
-            ctx.shadowColor = 'rgba(255,234,0,0.9)';
-            ctx.shadowBlur  = 20;
-            ctx.fillText('ALL CLEAR!', W / 2, H / 2);
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(255,234,0,1)';
+            ctx.shadowBlur  = 15;
+            
+            // 少しだけ黒縁をつけて見やすくする
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth   = 4;
+            ctx.strokeText('ALL CLEAR', W / 2, H / 2);
+            ctx.fillText('ALL CLEAR', W / 2, H / 2);
             ctx.restore();
         }
 

@@ -34,16 +34,14 @@ window.CPU3 = class {
             downstackGood: 68,   
             downstackBad: -3,
 
-            // ★変更：維持の旨味を減らし、打つ（消す）ことの旨味を圧倒的に大きくする
-            tsdShape: 150,      // TSDの地形がある時のボーナス(300から150に減少)
-            tsdShapeOver: -45, // TSD地形を2個以上作った場合の減点
-            tsdFillBonus: 24,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
+            tsdShape: 150,      
+            tsdShapeOver: -45, 
+            tsdFillBonus: 24,   
 
-            // ★追加・変更：TSSとTSDのボーナス分離、および空洞ペナルティ
-            tssClear: 25,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
-            tsdClear: 1280,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
-            tsdHolePenalty: -200, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
-            pureHole: -50,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
+            tssClear: 25,       
+            tsdClear: 1280,      
+            tsdHolePenalty: -200, 
+            pureHole: -50,         
 
             P1_WEIGHT: 0.8,        
         };
@@ -54,8 +52,8 @@ window.CPU3 = class {
 
         this.isExecutingAction = false; 
         this.actionQueue = [];          
-        this.actionDelay = 80; // 高速入力のための待機時間（ミリ秒）
-        this.harddropDelay = 200; // ハードドロップ後の硬直時間（ミリ秒）
+        this.actionDelay = 80; 
+        this.harddropDelay = 200; 
         
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
@@ -99,22 +97,19 @@ window.CPU3 = class {
         let targetRot = bestResult.rot;
 
         if (bestResult.isTSpin) {
-            // 【T-Spinの自然な入力手順】
-            let cx = targetX + 1; // 空洞の中心X
-            let cy = bestResult.y + 2; // 空洞の中心Y
+            let cx = targetX + 1; 
+            let cy = bestResult.y + 2; 
             
-            // 盤面の状態を 2D 配列で正確に再現（現在操作中のミノを判定から除外するため）
             let board = Array.from({length: 20}, () => Array(10).fill(0));
             this.game.field.blocks.forEach(b => {
                 if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) board[b.y][b.x] = 1;
             });
             let checkSolid = (x, y) => {
-                if (x < 0 || x >= 10 || y >= 20) return true; // 壁や床はブロック扱い
+                if (x < 0 || x >= 10 || y >= 20) return true; 
                 if (y < 0) return false;
                 return board[y][x] === 1;
             };
 
-            // ★より強力な屋根判定：cxの左右の列を上から見ていき、より高い位置(yが小さい)にブロックがある方を屋根とする
             let leftHeight = 20;
             let rightHeight = 20;
             for (let y = 0; y <= cy; y++) {
@@ -128,25 +123,18 @@ window.CPU3 = class {
             let secondRot = 'rotateCW';
 
             if (leftHeight < rightHeight) {
-                // 左側に高いブロック（屋根）がある -> 右回転(CW)で滑り込ませる
                 firstRot = 'rotateCW';
                 secondRot = 'rotateCW';
             } else if (rightHeight < leftHeight) {
-                // 右側に高いブロック（屋根）がある -> 左回転(CCW)で滑り込ませる
                 firstRot = 'rotateCCW';
                 secondRot = 'rotateCCW';
             }
 
-            // 1. T-spinの場所まで左右移動
             queue.push({ type: 'moveToTargetX', targetX: targetX, delay: this.actionDelay });
-            // 2. T-spinの屋根がついている向きと「逆向き」の回転
             queue.push({ type: firstRot, delay: this.actionDelay });
-            // 3. 接地するまでソフトドロップ
             queue.push({ type: 'softdropToBottom', delay: this.actionDelay });
-            // 4. 接地したら先ほど回転した向きと同じ向きの回転
             queue.push({ type: secondRot, delay: this.actionDelay });
             
-            // （保険：回転のズレを矯正し、確実にT-Spin判定にする）
             queue.push({ 
                 type: 'warpToTarget', 
                 targetX: targetX, 
@@ -154,13 +142,11 @@ window.CPU3 = class {
                 targetRot: targetRot, 
                 delay: this.actionDelay 
             });
-            // 5. ハードドロップ（操作後の遅延付与）
             queue.push({ type: 'harddrop', delay: this.harddropDelay });
             
             return queue;
         }
 
-        // 【通常時の操作】
         let currentRot = this.game.mino.rotation; 
         let diff = (targetRot - currentRot + 4) % 4; 
         
@@ -182,6 +168,14 @@ window.CPU3 = class {
     processActionQueue() {
         if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
             this.isExecutingAction = false;
+            return;
+        }
+
+        // ★ポーズ中はアクションの実行を一時停止し、100msごとに解除を待つ
+        if (this.game.isPaused || this.game.state === 'paused') {
+            setTimeout(() => {
+                if (this.isActive && this.isAutoPlay) this.processActionQueue();
+            }, 100);
             return;
         }
 
@@ -229,14 +223,12 @@ window.CPU3 = class {
                 }
                 break;
             case 'softdropToBottom':
-                // ★修正：whileループによるフリーズを防止。1マス落としてまたキューに戻す。
                 if (this.game.valid(0, 1)) {
                     this.game.mino.y++;
                     this.game.score += 1;
                     this.game.updateLowestY();
-                    // まだ下に行ける場合は、キューの先頭に自分自身を戻す
                     if (this.game.valid(0, 1)) {
-                        action.delay = 15; // 滑らかに落ちる速度（1マスあたりの待機ミリ秒）
+                        action.delay = 15; 
                         this.actionQueue.unshift(action);
                     }
                 }
@@ -262,7 +254,6 @@ window.CPU3 = class {
             this.game.draw();
         }
 
-        // 次のアクションをスケジュール、またはキュー終了時の遅延処理
         let delayTime = action.delay !== undefined ? action.delay : this.actionDelay;
 
         if (this.actionQueue.length > 0) {
@@ -272,17 +263,22 @@ window.CPU3 = class {
                 }
             }, delayTime);
         } else {
-            // キューが空になったら、指定されたディレイ（今回はハードドロップ後の200ms）待ってから操作権を解放
-            setTimeout(() => {
-                this.isExecutingAction = false;
+            // ★待機時間中のポーズにも対応
+            const tryFinish = () => {
+                if (!this.isActive || !this.isAutoPlay) return;
                 
-                // もし待機中に次の計算が完了していたら、途切れることなく次の操作を開始する
-                if (this.isActive && this.isAutoPlay && !this.game.isPaused && 
-                    this.bestMoveData && this.bestMoveData.p1 && 
+                if (this.game.isPaused || this.game.state === 'paused') {
+                    setTimeout(tryFinish, 100);
+                    return;
+                }
+                
+                this.isExecutingAction = false;
+                if (this.bestMoveData && this.bestMoveData.p1 && 
                     this.game.mino && this.game.mino === this.currentMino) {
                     this.executeAction(this.bestMoveData);
                 }
-            }, delayTime);
+            };
+            setTimeout(tryFinish, delayTime);
         }
     }
 
@@ -398,8 +394,16 @@ window.CPU3 = class {
         
         if (actionInt === -1) {
             this.bestMoveData = null;
-            if (this.isAutoPlay && this.isActive && !this.game.isPaused) {
-                setTimeout(() => this.game.hardDrop(), 700);
+            if (this.isAutoPlay && this.isActive) {
+                const tryDropFallback = () => {
+                    if (!this.isActive || this.game.mino !== this.currentMino) return;
+                    if (this.game.isPaused || this.game.state === 'paused') {
+                        setTimeout(tryDropFallback, 100);
+                        return;
+                    }
+                    this.game.hardDrop();
+                };
+                setTimeout(tryDropFallback, 700);
             }
             return;
         }
@@ -462,7 +466,7 @@ window.CPU3 = class {
             this.renderEstimatePlace(); 
         }
 
-        if (this.isAutoPlay && this.isActive && !this.game.isPaused && this.game.mino === this.currentMino && bestMove.p1) {
+        if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino && bestMove.p1) {
             this.executeAction(bestMove);
         }
     }

@@ -3,7 +3,6 @@
 // 2手読みCPU（NEXT1、HOLD考慮） - Wasm Worker 非同期連携版
 // ─────────────────────────────────────────────
 
-// ★修正：動的ロードで破棄・再定義できるように、windowオブジェクトに明示的に登録する
 window.CPU2 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -160,8 +159,16 @@ window.CPU2 = class {
         
         if (actionInt === -1) {
             this.bestMoveData = null;
-            if (this.isAutoPlay && this.isActive && !this.game.isPaused) {
-                setTimeout(() => this.game.hardDrop(), 700);
+            if (this.isAutoPlay && this.isActive) {
+                const tryDropFallback = () => {
+                    if (!this.isActive || this.game.mino !== this.currentMino) return;
+                    if (this.game.isPaused || this.game.state === 'paused') {
+                        setTimeout(tryDropFallback, 100);
+                        return;
+                    }
+                    this.game.hardDrop();
+                };
+                setTimeout(tryDropFallback, 700);
             }
             return;
         }
@@ -207,20 +214,37 @@ window.CPU2 = class {
             this.renderEstimatePlace(); 
         }
 
-        if (this.isAutoPlay && this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
+        if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino) {
             if (bestMove.action === 'hold') {
-                setTimeout(() => {
-                    if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                        this.game.holdCurrentMino();
+                const tryHold = () => {
+                    if (!this.isActive || this.game.mino !== this.currentMino) return;
+                    if (this.game.isPaused || this.game.state === 'paused') {
+                        setTimeout(tryHold, 100);
+                        return;
                     }
-                }, 200);
+                    this.game.holdCurrentMino();
+                };
+                setTimeout(tryHold, 200);
             } else {
-                this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
-                setTimeout(() => {
-                    if (this.isActive && !this.game.isPaused && this.game.mino === this.currentMino) {
-                        this.game.hardDrop();
+                const tryMoveAndDrop = () => {
+                    if (!this.isActive || this.game.mino !== this.currentMino) return;
+                    if (this.game.isPaused || this.game.state === 'paused') {
+                        setTimeout(tryMoveAndDrop, 100);
+                        return;
                     }
-                }, 800);
+                    this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
+                    
+                    const tryDrop = () => {
+                        if (!this.isActive || this.game.mino !== this.currentMino) return;
+                        if (this.game.isPaused || this.game.state === 'paused') {
+                            setTimeout(tryDrop, 100);
+                            return;
+                        }
+                        this.game.hardDrop();
+                    };
+                    setTimeout(tryDrop, 800);
+                };
+                tryMoveAndDrop();
             }
         }
     }

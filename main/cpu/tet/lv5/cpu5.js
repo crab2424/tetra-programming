@@ -11,7 +11,6 @@ window.CPU5 = class {
         this.currentMino = null;
         this.baseScore = 0;     
 
-        // ★追加：ゴースト位置の監視用変数
         this.lastGhostState = null;
         this.pendingGhostState = null;
         this.isCalculatingSingle = false;
@@ -39,31 +38,27 @@ window.CPU5 = class {
             downstackGood: 68,   
             downstackBad: -3,
 
-            // ★変更：維持の旨味を減らし、打つ（消す）ことの旨味を圧倒的に大きくする
-            tsdShape: 128,      // TSDの地形がある時のボーナス(300から150に減少)
-            tsdShapeOver: -45, // TSD地形を2個以上作った場合の減点
-            tsdFillBonus: 24,   // TSD消去ラインがブロックで埋まっているほど加点（15から40に増加）
+            tsdShape: 128,      
+            tsdShapeOver: -45, 
+            tsdFillBonus: 24,   
 
-            // ★追加・変更：TSSとTSDのボーナス分離、および空洞ペナルティ
-            tssClear: 256,       // TSSを打った時のベースボーナス (1手目なら4倍で1600)
-            tsdClear: 2560,      // TSDを打った時のベースボーナス (2手目なら3倍で3600 -> TSS1手目より上)
-            tsdHolePenalty: -200, // Tスピンを打った結果として空洞が残った場合の特大ペナルティ
-            pureHole: -50,         // ★追加：上下左右が塞がれた1マスの穴へのペナルティ
+            tssClear: 256,       
+            tsdClear: 2560,      
+            tsdHolePenalty: -200, 
+            pureHole: -50,         
 
-            // ★追加：RENコンボボーナスとBtB維持ボーナス
-            comboBonus: 20,   // REN数の2乗に掛けるボーナス係数（地形高さ10以上の時のみ発動）
-            btbKeep: 496,     // BtB維持/破壊の評価係数（4line/tspin時は+、通常ライン消去時は-）
+            comboBonus: 20,   
+            btbKeep: 496,     
             renCutPenalty: -200,
 
-            // ★追加：各種ペナルティ
-            tsmMiniPenalty: -1000,      // Tspin mini全般への負のスコア
-            tMinoNoClearPenalty: -80, // Tミノをライン消去なしで消費したときのペナルティ
+            tsmMiniPenalty: -1000,      
+            tMinoNoClearPenalty: -80, 
 
-            tsdSetup: 80,         // ★追加：TSD前段階の地形へのボーナス (tsdShape 128 より低い値)
-            tsdSetupOver: -100,   // ★追加：TSD前段階の地形が3個以上ある場合のペナルティ係数
+            tsdSetup: 80,         
+            tsdSetupOver: -100,   
 
-            slopeBonus: 72,       // ★追加：ゆるやかな下り坂条件を満たす場合のボーナス
-            slopePenalty: -36,    // ★追加：ゆるやかな下り坂条件を満たさない場合のペナルティ
+            slopeBonus: 72,       
+            slopePenalty: -36,    
 
             P1_WEIGHT: 1.2,        
         };
@@ -125,7 +120,7 @@ window.CPU5 = class {
                 let bx = m.x + b.x;
                 let by = ghostY + 1 + b.y;
                 if (by >= 20) { canDrop = false; break; }
-                if (by >= -5) { // 画面外認識対応として負方向も許可
+                if (by >= -5) { 
                     if (this.game.field.blocks.some(fb => fb.x === bx && fb.y === by)) {
                         canDrop = false; break;
                     }
@@ -153,7 +148,6 @@ window.CPU5 = class {
             { x: px + 1, y: py + 1 }, 
         ];
 
-        // ★修正: 画面拡張対応。元の y < 0 ではなく y < -5 を壁(画面外)として判定
         const occupied = corners.map(c =>
             c.x < 0 || c.x >= 10 || c.y < -5 || c.y >= 20 || this.game.field.has(c.x, c.y)
         );
@@ -209,7 +203,7 @@ window.CPU5 = class {
                 
                 if (bx < 0 || bx >= 10) return false;
                 
-                if (by >= -5) { // 拡張画面に対応
+                if (by >= -5) { 
                     for (let i = 0; i < fieldBlocks.length; i++) {
                         if (fieldBlocks[i].x === bx && fieldBlocks[i].y === by) {
                             return false;
@@ -416,6 +410,14 @@ window.CPU5 = class {
             return;
         }
 
+        // ★ポーズ中はアクションの実行を一時停止し、100msごとに解除を待つ
+        if (this.game.isPaused || this.game.state === 'paused') {
+            setTimeout(() => {
+                if (this.isActive && this.isAutoPlay) this.processActionQueue();
+            }, 100);
+            return;
+        }
+
         const action = this.actionQueue.shift();
 
         if (!this.game.mino) {
@@ -496,14 +498,22 @@ window.CPU5 = class {
                 if (this.isActive && this.isAutoPlay) this.processActionQueue();
             }, delayTime);
         } else {
-            setTimeout(() => {
+            // ★待機時間中のポーズにも対応
+            const tryFinish = () => {
+                if (!this.isActive || !this.isAutoPlay) return;
+                
+                if (this.game.isPaused || this.game.state === 'paused') {
+                    setTimeout(tryFinish, 100);
+                    return;
+                }
+                
                 this.isExecutingAction = false;
-                if (this.isActive && this.isAutoPlay && !this.game.isPaused && 
-                    this.bestMoveData && this.bestMoveData.p1 && 
+                if (this.bestMoveData && this.bestMoveData.p1 && 
                     this.game.mino && this.game.mino === this.currentMino) {
                     this.executeAction(this.bestMoveData);
                 }
-            }, delayTime);
+            };
+            setTimeout(tryFinish, delayTime);
         }
     }
 
@@ -583,7 +593,6 @@ window.CPU5 = class {
         if (!this.workerReady) return;
         this.isCalculatingSingle = true;
 
-        // ★修正: バッファサイズを200から250に拡張し、y=-5を0にシフトして保存
         let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
             let by = b.y + 5;
@@ -629,7 +638,7 @@ window.CPU5 = class {
             minoType: type,
             rot: rot,
             x: x,
-            y: y + 5, // ★修正: シフトさせたy座標をWasmに渡す
+            y: y + 5, 
             weightsArray: weightsArray,
             ren: currentRen,
             backToBack: currentBtB,
@@ -645,14 +654,23 @@ window.CPU5 = class {
         if (!mino) return;
 
         if (!this.workerReady) {
-            if (this.isAutoPlay) setTimeout(() => this.game.hardDrop(), 700);
+            if (this.isAutoPlay) {
+                const tryDropFallback = () => {
+                    if (!this.isActive || this.game.mino !== this.currentMino) return;
+                    if (this.game.isPaused || this.game.state === 'paused') {
+                        setTimeout(tryDropFallback, 100);
+                        return;
+                    }
+                    this.game.hardDrop();
+                };
+                setTimeout(tryDropFallback, 700);
+            }
             return;
         }
 
         if (this.isCalculating) return;
         this.isCalculating = true; 
 
-        // ★修正: バッファサイズを200から250に拡張し、y=-5を0にシフトして保存
         let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
             let by = b.y + 5;
@@ -716,13 +734,20 @@ window.CPU5 = class {
         
         if (actionInt === -1) {
             this.bestMoveData = null;
-            if (this.isAutoPlay && this.isActive && !this.game.isPaused) {
-                setTimeout(() => this.game.hardDrop(), 700);
+            if (this.isAutoPlay && this.isActive) {
+                const tryDropFallback = () => {
+                    if (!this.isActive || this.game.mino !== this.currentMino) return;
+                    if (this.game.isPaused || this.game.state === 'paused') {
+                        setTimeout(tryDropFallback, 100);
+                        return;
+                    }
+                    this.game.hardDrop();
+                };
+                setTimeout(tryDropFallback, 700);
             }
             return;
         }
 
-        // ★修正: C++側から受け取るY座標はすべて +5 されているため -5 して元の座標系に戻す
         let bestMove = {
             action: actionInt === 1 ? 'hold' : 'play',
             score: res[1],
@@ -783,7 +808,7 @@ window.CPU5 = class {
             this.renderEstimatePlace(); 
         }
 
-        if (this.isAutoPlay && this.isActive && !this.game.isPaused && this.game.mino === this.currentMino && bestMove.p1) {
+        if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino && bestMove.p1) {
             this.executeAction(bestMove);
         }
     }
@@ -794,7 +819,7 @@ window.CPU5 = class {
         for (let i = 0; i < minoBlocks.length; i++) blocks.push({ x: minoBlocks[i].x, y: minoBlocks[i].y });
         
         let clearedRowIndices = [];
-        for (let r = -5; r < 20; r++) { // ★修正: y=-5まで判定を拡張
+        for (let r = -5; r < 20; r++) { 
             let rowCount = blocks.filter(b => b.y === r).length;
             if (rowCount === 10) { 
                 clearedRowIndices.push(r);
@@ -820,7 +845,6 @@ window.CPU5 = class {
             { data: this.bestMoveData.p6, name: 'step6' }  
         ];
 
-        // ★修正: 描画シミュレーション用のフィールドも 25行 に拡張し、シフトして処理
         let simField = Array.from({ length: 25 }, () => Array(10).fill(0));
         this.game.field.blocks.forEach(b => {
             let by = b.y + 5;
@@ -841,7 +865,7 @@ window.CPU5 = class {
             let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + step.data.x, y: b.y + step.data.y }));
 
             for (let b of droppedBlocks) {
-                let by = b.y + 5; // シフトして記録
+                let by = b.y + 5; 
                 if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) simField[by][b.x] = 1;
             }
 
@@ -863,7 +887,7 @@ window.CPU5 = class {
                 let newYMap = {};
                 let currentY_sim = 19;
                 for (let y_old_sim = 19; y_old_sim >= -10; y_old_sim--) {
-                    if (clearedSimLines.includes(y_old_sim + 5)) continue; // ★シフトして比較
+                    if (clearedSimLines.includes(y_old_sim + 5)) continue; 
                     newYMap[currentY_sim] = yMap[y_old_sim];
                     currentY_sim--;
                 }
@@ -901,7 +925,6 @@ window.CPU5 = class {
 
             if (yMap && yMap[drawY] !== undefined) drawY = yMap[drawY];
 
-            // ★修正: 描画範囲を y=-5(画面外)まで広げました
             if (drawY >= -5 && drawY < 20) {
                 let div = document.createElement('div');
                 div.className = `cpu-estimate-block ${stepClass}`;
@@ -919,7 +942,7 @@ window.CPU5 = class {
                 div.style.zIndex = zIndexMap[stepClass];
 
                 div.style.left = `${drawX * 32}px`;
-                div.style.top = `${(drawY + 0.5) * 32}px`; // ※描画領域のoffsetがある前提
+                div.style.top = `${(drawY + 0.5) * 32}px`; 
                 
                 this.estimateContainer.appendChild(div);
             }
