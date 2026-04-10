@@ -62,7 +62,9 @@ function setTestRule(rule) {
 }
 
 let currentGameMode = null;
-let versusRule = 'puyo'; // 'tet' or 'puyo'
+let versusRule = 'puyo'; // 既存の互換性のため残す
+let versusPlayerRule = 'tet'; // プレイヤー側のルール ('tet' or 'puyo')
+let versusCpuRule = 'tet';    // CPU側のルール ('tet' or 'puyo')
 
 // カウントダウン中の中断を防ぐためのセッション管理
 let currentSessionId = 0;
@@ -203,10 +205,29 @@ function goToVersusCheck() {
   switchPage('versus-check');
 }
 
+// 既存の互換性用（今回は使わないが削除しない）
 function setVersusRule(rule) {
   versusRule = rule;
   const tetBtn = document.getElementById('opt-rule-tet');
   const puyoBtn = document.getElementById('opt-rule-puyo');
+  if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
+  if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
+}
+
+// 追加: Player側のルール設定
+function setVersusPlayerRule(rule) {
+  versusPlayerRule = rule;
+  const tetBtn = document.getElementById('opt-rule-player-tet');
+  const puyoBtn = document.getElementById('opt-rule-player-puyo');
+  if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
+  if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
+}
+
+// 追加: CPU側のルール設定
+function setVersusCpuRule(rule) {
+  versusCpuRule = rule;
+  const tetBtn = document.getElementById('opt-rule-cpu-tet');
+  const puyoBtn = document.getElementById('opt-rule-cpu-puyo');
   if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
   if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
 }
@@ -256,6 +277,7 @@ function setCpuLevel(lv) {
 }
 
 // ─────────────────────────────────────────────
+// 既存の関数。呼び出し側は混合戦対応に置き換えたため、使用頻度は減るが互換性維持のため残す
 function _switchToVersusPuyoLayout(isPuyo) {
     const tetCanvases = [
         'player-main-canvas', 'player-next-canvas', 'player-hold-canvas',
@@ -280,6 +302,44 @@ function _switchToVersusPuyoLayout(isPuyo) {
     });
 }
 
+// ★ 追加: 混合戦対応用のレイアウト切り替え
+function _switchToVersusMixedLayout(playerRule, cpuRule) {
+    const isPlayerPuyo = playerRule === 'puyo';
+    const isCpuPuyo = cpuRule === 'puyo';
+
+    // Player側のキャンバス切り替え
+    const playerTetCanvases = ['player-main-canvas', 'player-next-canvas', 'player-hold-canvas'];
+    const playerPuyoCanvases = ['player-puyo-main-canvas', 'player-puyo-next-canvas'];
+
+    playerTetCanvases.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isPlayerPuyo ? 'none' : '';
+    });
+    playerPuyoCanvases.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isPlayerPuyo ? '' : 'none';
+    });
+    document.querySelectorAll('.versus-label-hold').forEach(el => {
+        el.style.display = isPlayerPuyo ? 'none' : '';
+    });
+
+    // CPU側のキャンバス切り替え
+    const cpuTetCanvases = ['cpu-main-canvas', 'cpu-next-canvas', 'cpu-hold-canvas'];
+    const cpuPuyoCanvases = ['cpu-puyo-main-canvas', 'cpu-puyo-next-canvas'];
+
+    cpuTetCanvases.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isCpuPuyo ? 'none' : '';
+    });
+    cpuPuyoCanvases.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isCpuPuyo ? '' : 'none';
+    });
+    document.querySelectorAll('.versus-label-hold-cpu').forEach(el => {
+        el.style.display = isCpuPuyo ? 'none' : '';
+    });
+}
+
 function createSeededRandom(seed) {
     let s = seed;
     return function() {
@@ -290,6 +350,7 @@ function createSeededRandom(seed) {
     }
 }
 
+// ★ 修正: 混合戦に対応した VERSUS開始関数
 async function startVersusGame() {
   stopAllGames(); // 開始前に完全に状態をリセット
 
@@ -304,25 +365,33 @@ async function startVersusGame() {
 
   const sharedSeed = Math.floor(Math.random() * 1000000);
 
-  if (versusRule === 'puyo') {
-      _switchToVersusPuyoLayout(true);
-      if (!window._puyoGamePlayer) window._puyoGamePlayer = new PuyoGame('player');
-      if (!window._puyoGameCpu) window._puyoGameCpu = new PuyoGame('cpu');
-      
-      window._game = window._puyoGamePlayer;
-      window._cpuGame = window._puyoGameCpu;
+  const isPlayerPuyo = versusPlayerRule === 'puyo';
+  const isCpuPuyo = versusCpuRule === 'puyo';
 
+  // 混合レイアウトの適用
+  _switchToVersusMixedLayout(versusPlayerRule, versusCpuRule);
+
+  // ─── Player インスタンス生成 ───
+  if (isPlayerPuyo) {
+      if (!window._puyoGamePlayer) window._puyoGamePlayer = new PuyoGame('player');
+      window._game = window._puyoGamePlayer;
       window._game.rng = createSeededRandom(sharedSeed);
+  } else {
+      if (!window._tetGamePlayer) window._tetGamePlayer = new Game('player');
+      window._game = window._tetGamePlayer;
+  }
+
+  // ─── CPU インスタンス生成 ───
+  if (isCpuPuyo) {
+      if (!window._puyoGameCpu) window._puyoGameCpu = new PuyoGame('cpu');
+      window._cpuGame = window._puyoGameCpu;
       window._cpuGame.rng = createSeededRandom(sharedSeed);
   } else {
-      _switchToVersusPuyoLayout(false);
-      if (!window._tetGamePlayer) window._tetGamePlayer = new Game('player');
       if (!window._tetGameCpu) window._tetGameCpu = new Game('cpu');
-      
-      window._game = window._tetGamePlayer;
       window._cpuGame = window._tetGameCpu;
   }
 
+  // ─── 共通設定 ───
   window._game.currentMode = 'versus';
   window._game.marathonGoal = Infinity;
   window._game.isVersusMode = true;
@@ -339,30 +408,35 @@ async function startVersusGame() {
   window._cpuGame.isCpuControlled = true;
   window._cpuGame._labelsInitialized = false;
 
-  if (versusRule === 'tet') {
+  // ─── Player 初期化 ───
+  if (isPlayerPuyo) {
+      await new Promise(resolve => window._game.initGame(resolve));
+  } else {
       window._game.initMainCanvas();
       window._game.initNextCanvas();
       window._game.initHoldCanvas();
+      window._game._initGameState();
+      window._game.setKeyEvent();
+      window._game.level = 2;
+      window._game.updateStatsDisplay();
+  }
+
+  // ─── CPU 初期化 ───
+  if (isCpuPuyo) {
+      await new Promise(resolve => window._cpuGame.initGame(resolve));
+  } else {
       window._cpuGame.initMainCanvas();
       window._cpuGame.initNextCanvas();
       window._cpuGame.initHoldCanvas();
-      
-      window._game._initGameState();
       window._cpuGame._initGameState();
-      window._game.setKeyEvent();
-
-      window._game.level = 2;
       window._cpuGame.level = 2;
-      window._game.updateStatsDisplay();
       window._cpuGame.updateStatsDisplay();
-  } else {
-      await new Promise(resolve => window._game.initGame(resolve));
-      await new Promise(resolve => window._cpuGame.initGame(resolve));
   }
 
+  // ─── CPUスクリプト読み込み ───
   let CPUClass;
   try {
-    CPUClass = await loadCpuScript(selectedCpuLevel, versusRule);
+    CPUClass = await loadCpuScript(selectedCpuLevel, versusCpuRule);
   } catch (e) {
     console.warn("CPUスクリプトの読み込みに失敗しました。自由落下になります。");
     CPUClass = null;
@@ -370,6 +444,7 @@ async function startVersusGame() {
 
   const sessionId = currentSessionId;
 
+  // ─── カウントダウンとゲーム開始 ───
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
     if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
     window._game._startGameplay();
@@ -601,6 +676,7 @@ function renderModeCheck() {
         </div>
         <div class="option-row">
           <span class="option-label">START LEVEL</span>
+          <div class="option-toggle" id="marathon-level-toggle"></div>
           <div class="option-slider">
             <input type="range" id="marathon-level-slider" min="1" max="15" value="${startLevel}" oninput="updateMarathonLevelDisplay()">
             <span id="marathon-level-val" class="option-val">${startLevel}</span>

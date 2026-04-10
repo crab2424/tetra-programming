@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>テトラボ</title>
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="style.css?v=17">
+    <link rel="stylesheet" href="style.css?v=19">
   </head>
   <body>
     <div id="header-area" style="display:none;">
@@ -145,12 +145,20 @@
           <p class="mode-check-desc-en">Battle against CPU. The match ends when either side tops out.</p>
         </div>
         
+        <!-- ★ 対戦ルール（自分とCPUのルールを個別に選べるように改修） -->
         <div id="versus-rule-options" style="width:100%; background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:10px; padding:16px 24px; display:flex; flex-direction:column; gap:12px;">
           <div class="option-row">
-            <span class="option-label">RULE</span>
-            <div class="option-toggle" id="versus-rule-toggle">
-              <button class="opt-btn active" id="opt-rule-tet" onclick="setVersusRule('tet')">TET</button>
-              <button class="opt-btn" id="opt-rule-puyo" onclick="setVersusRule('puyo')">PUYO</button>
+            <span class="option-label">YOUR RULE</span>
+            <div class="option-toggle" id="versus-player-rule-toggle">
+              <button class="opt-btn active" id="opt-rule-player-tet" onclick="setVersusPlayerRule('tet')">TET</button>
+              <button class="opt-btn" id="opt-rule-player-puyo" onclick="setVersusPlayerRule('puyo')">PUYO</button>
+            </div>
+          </div>
+          <div class="option-row">
+            <span class="option-label">CPU RULE</span>
+            <div class="option-toggle" id="versus-cpu-rule-toggle">
+              <button class="opt-btn active" id="opt-rule-cpu-tet" onclick="setVersusCpuRule('tet')">TET</button>
+              <button class="opt-btn" id="opt-rule-cpu-puyo" onclick="setVersusCpuRule('puyo')">PUYO</button>
             </div>
           </div>
         </div>
@@ -187,10 +195,11 @@
         <!-- 左側：プレイヤー -->
         <div class="versus-side" id="versus-player-side">
           <div class="versus-container" id="versus-player-container">
-            <!-- ★ ラベルをコンテナ内に移動し、キャンバスに連動させる -->
             <div class="versus-side-label player-label">YOU</div>
             
             <div id="player-garbage-gauge" class="garbage-gauge"></div>
+            <!-- ★ 追加: 攻撃貯める用の右側ゲージ -->
+            <div id="player-attack-gauge" class="attack-gauge"></div>
 
             <!-- tet Canvas -->
             <canvas id="player-main-canvas"></canvas>
@@ -239,10 +248,11 @@
         <!-- 右側：CPU -->
         <div class="versus-side" id="versus-cpu-side">
           <div class="versus-container" id="versus-cpu-container">
-            <!-- ★ ラベルをコンテナ内に移動 -->
             <div class="versus-side-label cpu-label" id="versus-cpu-side-label">CPU</div>
 
             <div id="cpu-garbage-gauge" class="garbage-gauge"></div>
+            <!-- ★ 追加: 攻撃貯める用の右側ゲージ -->
+            <div id="cpu-attack-gauge" class="attack-gauge"></div>
 
             <!-- tet Canvas -->
             <canvas id="cpu-main-canvas"></canvas>
@@ -470,8 +480,8 @@
     <div id="settings-toast">SAVED ✓</div>
     
     <script src="settings.js?v=12"></script>
-    <script src="game.js?v=13"></script>
+    <script src="game.js?v=14"></script>
     <script src="p_game.js?v=3"></script>
-    <script src="router.js?v=16"></script>
+    <script src="router.js?v=18"></script>
   </body>
 </html>

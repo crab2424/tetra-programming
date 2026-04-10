@@ -880,6 +880,7 @@ h1 {
     width: 100%;
 }
 
+/* ★ 被弾（くらう）用のゲージ（左側） */
 .garbage-gauge {
     position: absolute;
     left: -16px;
@@ -916,6 +917,43 @@ h1 {
     to {
         opacity: 0.2;
     }
+}
+
+/* ★ 攻撃（送る・貯蓄）用のゲージ（右側） */
+.attack-gauge {
+    position: absolute;
+    right: -16px;
+    bottom: 0;
+    width: 10px;
+    height: 640px;
+    display: flex;
+    flex-direction: column-reverse;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.attack-block {
+    width: 10px;
+    height: 32px;
+    box-sizing: border-box;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+    flex-shrink: 0;
+}
+.attack-block.c-0 {
+    background-color: #5af5a0;
+    box-shadow: 0 0 8px #5af5a0;
+}
+.attack-block.c-1 {
+    background-color: #f5e05a;
+    box-shadow: 0 0 8px #f5e05a;
+}
+.attack-block.c-2 {
+    background-color: #f58a5a;
+    box-shadow: 0 0 8px #f58a5a;
+}
+.attack-block.c-3 {
+    background-color: #5acdf5;
+    box-shadow: 0 0 8px #5acdf5;
 }
 
 /* ─────────────────────────────────────────────
