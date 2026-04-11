@@ -198,6 +198,7 @@ class Game{
         this.actionLabels = [];
         this.actionAlpha = 0;
         this.pendingAttack = 0;
+        this.pendingInternalAttack = 0; // 追加：相殺用（テト基準）の内部保持火力
     }
 
     initMainCanvas(){
@@ -307,6 +308,7 @@ class Game{
         this.updateGarbageGauge();
         
         this.pendingAttack = 0;
+        this.pendingInternalAttack = 0; // 追加
         this.updateAttackGauge();
         
         this.nextMino = null;
@@ -355,7 +357,7 @@ class Game{
             : 'countdown-overlay';
         const finishId = this.isVersusMode
             ? (this.canvasPrefix ? `${this.canvasPrefix}-finish-overlay` : 'versus-finish-overlay')
-            : 'finish-overlay';
+            : 'versus-finish-overlay';
 
         const countdownOverlay = document.getElementById(countdownId);
         const finishOverlay = document.getElementById(finishId);
@@ -897,12 +899,26 @@ class Game{
             isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
         }
 
-        console.log(`[sendGarbage] ${this.canvasPrefix || 'player'} から相手へ ${amount} 送信`);
+        // ★追加：異種戦（ぷよ相手）の場合はゲージ量をおじゃまぷよの個数に変換する
+        let actualAmount = amount;
+        if (isOpponentPuyo) {
+            const table = [0, 4, 5, 6, 8, 10, 13, 16, 20, 24, 28, 33, 38, 43, 49, 55, 61, 68];
+            if (amount < table.length) {
+                actualAmount = table[amount];
+            } else {
+                // n>=18の場合の階差数列の一般項: an = (n^2 - 21n + 204)/2
+                actualAmount = Math.floor((amount * amount - 21 * amount + 204) / 2);
+            }
+            console.log(`[sendGarbage] ぷよ相手用にゲージ ${amount} をおじゃまぷよ ${actualAmount} 個に変換して送信`);
+        } else {
+            console.log(`[sendGarbage] ${this.canvasPrefix || 'player'} から相手へ ${amount} 送信`);
+        }
 
+        // 穴の計算（テト相手のみ意味があるが、エラーを防ぐため actualAmount 回ループする）
         const holes = [];
         let prevHole = -1;
 
-        for (let i = 0; i < amount; i++) {
+        for (let i = 0; i < actualAmount; i++) {
             let holeX;
             if (i === 0) {
                 holeX = Math.floor(Math.random() * COLS_COUNT);
@@ -918,7 +934,7 @@ class Game{
             prevHole = holeX;
         }
 
-        const garbageObj = { amount: amount, holes: holes, ready: false };
+        const garbageObj = { amount: actualAmount, holes: holes, ready: false };
         opponent.garbageQueue.push(garbageObj);
 
         // 相手のゲージを更新（青色のゲージが増える）
@@ -1146,6 +1162,8 @@ class Game{
         })
         this.field.blocks = this.field.blocks.concat(this.mino.blocks)
 
+        const renForCalc = this.ren; // ★ぷよ用火力計算のために加算前のRENを保持
+
         const linesCleared = this.field.checkLine()
 
         const isBtBAction = (linesCleared > 0 && (linesCleared === 4 || tSpinResult !== null));
@@ -1175,10 +1193,12 @@ class Game{
                 isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
             }
 
-            console.log(`[secureMino] prefix: ${this.canvasPrefix}, isOpponentPuyo: ${isOpponentPuyo}, pendingAttack(Before): ${this.pendingAttack}`);
+            console.log(`[secureMino] prefix: ${this.canvasPrefix}, isOpponentPuyo: ${isOpponentPuyo}, pendingAttack(Before): ${this.pendingAttack}, pendingInternalAttack(Before): ${this.pendingInternalAttack}`);
 
             if (isOpponentPuyo) {
-                // ★異種戦（相手がぷよ）の特殊ロジック
+                // ---------------------------------------------------------------------
+                // ★ 古い仕様のコメントアウトとして保持（既存の内容を削除しないため）
+                /*
                 if (linesCleared > 0) {
                     let remainder = generatedGarbage;
                     // ライン消去がある場合は、貯蓄を使わず相殺
@@ -1199,6 +1219,96 @@ class Game{
                         this.sendGarbage(remainder);
                     }
                     this.pendingAttack = 0;
+                }
+                */
+                /*
+                // ★ 前回の仕様のコメントアウト（内部と表示の分離のみで、消去時も内部貯蓄から相殺していた版）
+                if (linesCleared > 0) {
+                    // 1. ぷよ相手用のアタックゲージ火力を計算
+                    // ... 
+                    this.pendingInternalAttack += generatedGarbage;
+                    this.pendingAttack += puyoAttack;
+                    let canceledGarbage = 0;
+                    if (this.garbageQueue.length > 0 && this.pendingInternalAttack > 0) {
+                        let beforeInternal = this.pendingInternalAttack;
+                        this.pendingInternalAttack = this.offsetGarbage(this.pendingInternalAttack);
+                        canceledGarbage = beforeInternal - this.pendingInternalAttack;
+                    }
+                    this.pendingAttack = Math.max(0, this.pendingAttack - canceledGarbage);
+                    if (this.pendingAttack === 0) {
+                        this.pendingInternalAttack = 0;
+                    }
+                } else {
+                    // ...
+                }
+                */
+                // ---------------------------------------------------------------------
+
+                // ★ 今回の新仕様：ライン消去時は今回発生分のみで相殺、設置時に溜まったゲージで相殺
+                if (linesCleared > 0) {
+                    // 1. ぷよ相手用のアタックゲージ火力を計算
+                    let puyoAttack = 0;
+                    if (isPerfectClear) {
+                        puyoAttack = 6;
+                    } else {
+                        // 基本火力
+                        if (tSpinResult === 'tspin') {
+                            if (linesCleared === 1) puyoAttack = 2;
+                            else if (linesCleared === 2) puyoAttack = 3;
+                            else if (linesCleared === 3) puyoAttack = 5;
+                        } else {
+                            if (linesCleared === 2) puyoAttack = 1;
+                            else if (linesCleared === 3) puyoAttack = 2;
+                            else if (linesCleared === 4) puyoAttack = 4;
+                        }
+
+                        // BtBボーナス
+                        if (isB2BTriggered) {
+                            puyoAttack += 1;
+                        }
+
+                        // RENボーナス
+                        const renTable = [0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5];
+                        let renVal = (renForCalc >= renTable.length) ? 5 : renTable[renForCalc];
+                        puyoAttack += renVal;
+                    }
+
+                    // 2. 「今回発生した火力(generatedGarbage)」のみを使って相殺を試みる（溜まっているゲージは使わない）
+                    let canceledGarbage = 0;
+                    let remainGenerated = generatedGarbage; // 今回のテト基準火力
+
+                    if (this.garbageQueue.length > 0 && generatedGarbage > 0) {
+                        remainGenerated = this.offsetGarbage(generatedGarbage);
+                        canceledGarbage = generatedGarbage - remainGenerated;
+                    }
+
+                    // 3. 相殺に使われなかった分(remainGenerated)を内部火力の貯蓄に追加
+                    this.pendingInternalAttack += remainGenerated;
+                    
+                    // アタックゲージ(送信用)に貯める火力 = 今回のぷよ用火力 - 相殺ライン(負の場合は0)
+                    let attackToAdd = Math.max(0, puyoAttack - canceledGarbage);
+                    this.pendingAttack += attackToAdd;
+
+                    console.log(`[secureMino] -> 消去あり: ぷよ用火力 ${puyoAttack}(内部 ${generatedGarbage}), 相殺使用 ${canceledGarbage}, 現在の貯蓄(表示): ${this.pendingAttack}(内部: ${this.pendingInternalAttack})`);
+                } else {
+                    // ライン消去がない（設置のみ）場合、溜まっているゲージ（内部火力）を放出して相殺・送信を行う
+                    let canceledGarbage = 0;
+                    if (this.garbageQueue.length > 0 && this.pendingInternalAttack > 0) {
+                        let beforeInternal = this.pendingInternalAttack;
+                        this.pendingInternalAttack = this.offsetGarbage(this.pendingInternalAttack);
+                        canceledGarbage = beforeInternal - this.pendingInternalAttack;
+                    }
+
+                    // 余った火力を計算して相手に送信
+                    let sendAmount = Math.max(0, this.pendingAttack - canceledGarbage);
+                    if (sendAmount > 0) {
+                        console.log(`[secureMino] -> 消去なし: 貯蓄から ${sendAmount} を相手に送信します`);
+                        this.sendGarbage(sendAmount); // sendGarbage内でぷよ個数への変換が行われます
+                    }
+                    
+                    // 放出後は両方ともリセット
+                    this.pendingAttack = 0;
+                    this.pendingInternalAttack = 0;
                 }
                 this.updateAttackGauge();
             } else {
