@@ -974,6 +974,9 @@ class Game{
         // ★ 異種戦（相手がぷよ）からの攻撃は最大7ラインずつ降る
         const limit = isOpponentPuyo ? 7 : Infinity;
         let droppedLines = 0;
+        
+        // ★ 追加：まとめて降ってくるおじゃまの穴位置を一貫して保持・計算するための変数
+        let lastHole = -1; 
 
         for (let j = 0; j < readyGarbage.length; j++) {
             let g = readyGarbage[j];
@@ -984,7 +987,28 @@ class Game{
                     break;
                 }
                 this.field.blocks.forEach(block => block.y -= 1);
-                const currentHole = (g.holes && g.holes[i] !== undefined) ? g.holes[i] : Math.floor(Math.random() * COLS_COUNT);
+                
+                // ---------------------------------------------------------------------
+                // ★ 旧仕様：送られた時点で計算されたholesを使用（バラバラに送られたら途切れる）
+                // const currentHole = (g.holes && g.holes[i] !== undefined) ? g.holes[i] : Math.floor(Math.random() * COLS_COUNT);
+                // ---------------------------------------------------------------------
+                
+                // ★ 新仕様：まとめて受けるおじゃまは、ここで一括で穴バラを計算する
+                let currentHole;
+                if (droppedLines === 0) {
+                    // 今回受ける一番下の段（最初の1段目）は完全にランダム
+                    currentHole = Math.floor(Math.random() * COLS_COUNT);
+                } else {
+                    // 2段目以降は70%で同じ穴、30%で違う穴
+                    if (Math.random() < 0.7) {
+                        currentHole = lastHole;
+                    } else {
+                        const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1;
+                        currentHole = (lastHole + offset) % COLS_COUNT;
+                    }
+                }
+                lastHole = currentHole;
+
                 for(let x = 0; x < COLS_COUNT; x++){
                     if(x !== currentHole){
                         this.field.blocks.push(new Block(x, ROWS_COUNT - 1, 7));
@@ -1196,54 +1220,6 @@ class Game{
             console.log(`[secureMino] prefix: ${this.canvasPrefix}, isOpponentPuyo: ${isOpponentPuyo}, pendingAttack(Before): ${this.pendingAttack}, pendingInternalAttack(Before): ${this.pendingInternalAttack}`);
 
             if (isOpponentPuyo) {
-                // ---------------------------------------------------------------------
-                // ★ 古い仕様のコメントアウトとして保持（既存の内容を削除しないため）
-                /*
-                if (linesCleared > 0) {
-                    let remainder = generatedGarbage;
-                    // ライン消去がある場合は、貯蓄を使わず相殺
-                    if (this.garbageQueue.length > 0 && remainder > 0) {
-                        remainder = this.offsetGarbage(remainder);
-                    }
-                    // 相殺して余った火力を貯蓄に加算
-                    this.pendingAttack += remainder;
-                    console.log(`[secureMino] -> 消去あり: remainder ${remainder} を貯蓄に追加しました`);
-                } else {
-                    // ライン消去がない（設置のみ）場合、貯蓄を放出して相殺・送信
-                    let remainder = this.pendingAttack;
-                    if (this.garbageQueue.length > 0 && remainder > 0) {
-                        remainder = this.offsetGarbage(remainder);
-                    }
-                    if (remainder > 0) {
-                        console.log(`[secureMino] -> 消去なし: 貯蓄から ${remainder} を相手に送信します`);
-                        this.sendGarbage(remainder);
-                    }
-                    this.pendingAttack = 0;
-                }
-                */
-                /*
-                // ★ 前回の仕様のコメントアウト（内部と表示の分離のみで、消去時も内部貯蓄から相殺していた版）
-                if (linesCleared > 0) {
-                    // 1. ぷよ相手用のアタックゲージ火力を計算
-                    // ... 
-                    this.pendingInternalAttack += generatedGarbage;
-                    this.pendingAttack += puyoAttack;
-                    let canceledGarbage = 0;
-                    if (this.garbageQueue.length > 0 && this.pendingInternalAttack > 0) {
-                        let beforeInternal = this.pendingInternalAttack;
-                        this.pendingInternalAttack = this.offsetGarbage(this.pendingInternalAttack);
-                        canceledGarbage = beforeInternal - this.pendingInternalAttack;
-                    }
-                    this.pendingAttack = Math.max(0, this.pendingAttack - canceledGarbage);
-                    if (this.pendingAttack === 0) {
-                        this.pendingInternalAttack = 0;
-                    }
-                } else {
-                    // ...
-                }
-                */
-                // ---------------------------------------------------------------------
-
                 // ★ 今回の新仕様：ライン消去時は今回発生分のみで相殺、設置時に溜まったゲージで相殺
                 if (linesCleared > 0) {
                     // 1. ぷよ相手用のアタックゲージ火力を計算
