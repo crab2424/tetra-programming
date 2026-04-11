@@ -211,15 +211,6 @@ function goToVersusCheck() {
   switchPage('versus-check');
 }
 
-// 既存の互換性用（今回は使わないが削除しない）
-function setVersusRule(rule) {
-  versusRule = rule;
-  const tetBtn = document.getElementById('opt-rule-tet');
-  const puyoBtn = document.getElementById('opt-rule-puyo');
-  if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
-  if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
-}
-
 // 追加: Player側のルール設定
 function setVersusPlayerRule(rule) {
   versusPlayerRule = rule;
