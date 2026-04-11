@@ -1104,21 +1104,25 @@ class Game{
         }
 
         const colors = ['c-0', 'c-1', 'c-2', 'c-3']; // 緑, 黄, オレンジ, 水色
-        let baseColorIdx = cycles % colors.length;
-        let nextColorIdx = (cycles + 1) % colors.length;
         
-        let baseColor = colors[baseColorIdx];
-        let nextColor = colors[nextColorIdx];
-
+        // 1周目の場合はベースがない
         if (cycles === 0) {
+            let color = colors[0];
             for (let i = 0; i < remain; i++) {
                 const block = document.createElement('div');
-                block.className = `attack-block ${baseColor}`;
+                block.className = `attack-block ${color}`;
                 gaugeEl.appendChild(block);
             }
         } else {
+            let baseColorIdx = (cycles - 1) % colors.length;
+            let nextColorIdx = cycles % colors.length;
+            
+            let baseColor = colors[baseColorIdx];
+            let nextColor = colors[nextColorIdx];
+
             for (let i = 0; i < 20; i++) {
                 const block = document.createElement('div');
+                // 下から上に積むので、remainの数だけ新しい色にする
                 if (i < remain) {
                     block.className = `attack-block ${nextColor}`;
                 } else {
