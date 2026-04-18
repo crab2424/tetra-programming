@@ -35,8 +35,14 @@ window.PuyoCPU = class {
         // アクション実行制御
         this.isExecutingAction = false;
         this.actionQueue       = [];
-        this.actionDelay       = 80;  // 各アクション間の待機時間 (ms)
-        this.placeDelay        = 120; // 設置（固定）前の待機時間 (ms)
+        
+        // ★ CPU lv1 向けの遅延設定
+        this.thinkDelay        = 600;      // 思考時間（動き出すまでの待機 ms）
+        this.actionDelay       = 250;      // 左右移動・回転の待機時間 (ms)
+        this.placeDelay        = 400;      // 接地から固定までの待機時間 (ms)
+
+        this.originalGravity   = null;     // 高速落下時の重力退避用
+        this.lastDropTime      = null;     // 高速落下時の dt 計算用
 
         // ────────────────────────────────
         // Web Worker 初期化
@@ -100,7 +106,10 @@ window.PuyoCPU = class {
         this.bestMoveData      = null;
         this.isExecutingAction = false;
         this.actionQueue       = [];
+        this.lastDropTime      = null;
         
+        this._restoreGravity(); // 中断時も確実に重力を元に戻す
+
         document.removeEventListener('keydown', this._pauseListener);
 
         if (this.estimateContainer) {
@@ -130,6 +139,7 @@ window.PuyoCPU = class {
                 this.isExecutingAction = false;
                 this.actionQueue       = [];
                 this.bestMoveData      = null;
+                this.lastDropTime      = null; // 新しいぷよに切り替わったらリセット
                 this._requestCalculation();
             }
         }
@@ -149,7 +159,6 @@ window.PuyoCPU = class {
 
         this.isCalculating = true;
 
-        // ★ hiddenRowsの拡張（2→5）に伴い17行分をバッファに乗せる
         const TOTAL_ROWS = 17; 
         const COLS       = 6;
         const boardBuffer = new Uint8Array(TOTAL_ROWS * COLS);
@@ -259,7 +268,6 @@ window.PuyoCPU = class {
 
         if (!this.isActive || !this.bestMoveData || this.game.isVersusMode) return;
 
-        // ★ totalRows=17 に追従
         const simField = Array.from({ length: 17 }, (_, r) => [...this.game.field[r]]);
 
         const steps = [
@@ -289,7 +297,6 @@ window.PuyoCPU = class {
         if (pc < 0 || pc >= 6 || cc < 0 || cc >= 6) return null;
 
         const getDropRow = (c) => {
-            // ★ 最下段(16)から上へ探索
             for (let r = 16; r >= 0; r--) {
                 if (field[r][c] === 0) return r;
             }
@@ -325,7 +332,6 @@ window.PuyoCPU = class {
         const dispWidth = 32 * scaleX;
         const dispHeight = 32 * scaleY;
 
-        // ★ hiddenRows=5 なので表示行(0〜11)への変換は -5
         const displayRow = row - 5; 
 
         const opacityMap = { 'step1': 0.8, 'step2': 0.5, 'step3': 0.3 };
@@ -366,7 +372,7 @@ window.PuyoCPU = class {
 
         setTimeout(() => {
             this._processActionQueue();
-        }, this.actionDelay);
+        }, this.thinkDelay);
     }
 
     _buildActionQueue(targetCol, targetRot) {
@@ -376,17 +382,20 @@ window.PuyoCPU = class {
         const startCol = game.pivotX;
         const startRot = game.targetRot;
 
+        // ① 回転
         const rotDiff = ((targetRot - startRot) % 4 + 4) % 4;
         if (rotDiff === 1) queue.push({ type: 'rotateCW' });
         else if (rotDiff === 2) { queue.push({ type: 'rotateCW' }); queue.push({ type: 'rotateCW' }); }
         else if (rotDiff === 3) queue.push({ type: 'rotateCCW' });
 
+        // ② 移動 (1マスずつ)
         const moveDiff = targetCol - startCol;
         const moveType = moveDiff > 0 ? 'moveRight' : 'moveLeft';
         for (let i = 0; i < Math.abs(moveDiff); i++) {
             queue.push({ type: moveType });
         }
 
+        // ③ 高速落下
         queue.push({ type: 'softDropUntilLock' });
 
         return queue;
@@ -395,6 +404,7 @@ window.PuyoCPU = class {
     _processActionQueue() {
         if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
             this.isExecutingAction = false;
+            this._restoreGravity();
             return;
         }
 
@@ -407,6 +417,7 @@ window.PuyoCPU = class {
 
         if (this.game._gs !== 'falling') {
             this.isExecutingAction = false;
+            this._restoreGravity();
             return;
         }
 
@@ -427,39 +438,77 @@ window.PuyoCPU = class {
             case 'moveRight':
                 this.game._tryMove(1);
                 break;
+            
             case 'softDropUntilLock':
+                // ★ 高速落下中のみ重力(自然落下)タイマーをリセットし続ける
+                if (this.game.fallTimer !== undefined) this.game.fallTimer = 0;
+                if (this.game.dropTimer !== undefined) this.game.dropTimer = 0;
+                
+                // テト側で呼ばれた場合の考慮
+                if (this.originalGravity === null && this.game.gravity !== undefined) {
+                    this.originalGravity = this.game.gravity;
+                    this.game.gravity = 0; 
+                }
+
+                // dt 計算用の初期化（ループ開始時）
+                if (!this.lastDropTime) {
+                    this.lastDropTime = performance.now();
+                    this.actionQueue.unshift(action);
+                    delayTime = 0; 
+                    break; // 初回は時間を記録して即座に抜ける（次のフレームで処理）
+                }
+
+                // 前回のフレームからの経過時間を計算
+                let now = performance.now();
+                let dt = now - this.lastDropTime;
+                if (dt > 100) dt = 16.6; // 最大遅延のガード
+                this.lastDropTime = now;
+
                 const limitY = this.game._calcLimitY(this.game.pivotX, this.game.pivotY, this.game.targetRot);
                 
                 if (this.game.pivotY < limitY) {
-                    this.game.pivotY = Math.min(this.game.pivotY + 1, limitY);
+                    // ★ プレイヤー操作の softDrop と同じ落下計算 (dt / PConfig.dropSpeedFast)
+                    const dropSpeedFast = 500 ;
+                    const dropDist = dt / dropSpeedFast;
                     
-                    this.game.scoreFloat += 1;
+                    this.game.pivotY = Math.min(this.game.pivotY + dropDist, limitY);
+                    
+                    this.game.scoreFloat += dropDist;
                     if (this.game.scoreFloat >= 1) {
                         let add = Math.floor(this.game.scoreFloat);
                         this.game.score += add;
                         this.game.scoreFloat -= add;
-                        // ★ CPUの落下操作でも正しく火力を溜める
                         if(typeof this.game._addDropScore === 'function') {
                             this.game._addDropScore(add);
                         }
                         this.game._updateScoreDisplay();
                     }
                     
-                    this.actionQueue.unshift(action);
-                    delayTime = 500 / 12; 
+                    this.actionQueue.unshift(action); // 継続
                 } else {
-                    this._forceLock();
-                    isFinalAction = true;
+                    // 完全に接地したらループ終了
+                    this.lastDropTime = null;
+                    this._restoreGravity();
                 }
                 break;
         }
 
         if (!isFinalAction) {
             if (this.actionQueue.length > 0) {
-                setTimeout(() => {
-                    if (this.isActive && this.isAutoPlay) this._processActionQueue();
-                }, delayTime);
+                const nextAction = this.actionQueue[0];
+                // ★ 高速落下が継続中の場合は requestAnimationFrame を使って 60fps ベースで滑らかに呼び出す
+                if (action.type === 'softDropUntilLock' && nextAction && nextAction.type === 'softDropUntilLock') {
+                    requestAnimationFrame(() => {
+                        if (this.isActive && this.isAutoPlay) this._processActionQueue();
+                    });
+                } else {
+                    // 回転や移動は規定のディレイを使用
+                    setTimeout(() => {
+                        if (this.isActive && this.isAutoPlay) this._processActionQueue();
+                    }, delayTime);
+                }
             } else {
+                this._restoreGravity(); // キューが空になったら確実に重力を戻す
                 setTimeout(() => {
                     if (this.isActive && this.isAutoPlay) {
                         if (this.game._gs === 'falling') this._forceLock();
@@ -472,7 +521,16 @@ window.PuyoCPU = class {
         }
     }
 
+    // ★ 一時的にゼロにした重力を復元するヘルパー
+    _restoreGravity() {
+        if (this.originalGravity !== null && this.game) {
+            this.game.gravity = this.originalGravity;
+            this.originalGravity = null;
+        }
+    }
+
     _forceLock() {
+        this._restoreGravity();
         if (!this.isActive) return;
         if (this.game._gs !== 'falling') return;
 

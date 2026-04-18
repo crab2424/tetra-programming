@@ -103,22 +103,28 @@ function stopAllGames() {
     
     const stopGameInstance = (gameInst) => {
         if (!gameInst) return;
-        if (typeof gameInst.gameOver === 'function') { 
-            // tet の停止処理
-            if (gameInst.timer) { clearInterval(gameInst.timer); gameInst.timer = null; }
-            if (gameInst.lockTimer) { clearTimeout(gameInst.lockTimer); gameInst.lockTimer = null; }
-            gameInst.isPaused = true;
-            if (gameInst.isTimerRunning) {
-                gameInst.elapsedTime += performance.now() - gameInst.startTime;
-                gameInst.isTimerRunning = false;
-                if (gameInst.timerReqId) cancelAnimationFrame(gameInst.timerReqId);
-            }
-            if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
-            if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
-            if (gameInst._keyLoop) { clearInterval(gameInst._keyLoop); gameInst._keyLoop = null; }
-        } else if (typeof gameInst.stop === 'function') {
+        
+        // ★ 修正: PuyoGame と Tetris (Game) インスタンスを確実に区別して停止処理を行う
+        if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
             // Puyo の停止処理
-            gameInst.stop();
+            if (typeof gameInst.stop === 'function') {
+                gameInst.stop();
+            }
+        } else {
+            // tet の停止処理
+            if (typeof gameInst.gameOver === 'function') { 
+                if (gameInst.timer) { clearInterval(gameInst.timer); gameInst.timer = null; }
+                if (gameInst.lockTimer) { clearTimeout(gameInst.lockTimer); gameInst.lockTimer = null; }
+                gameInst.isPaused = true;
+                if (gameInst.isTimerRunning) {
+                    gameInst.elapsedTime += performance.now() - gameInst.startTime;
+                    gameInst.isTimerRunning = false;
+                    if (gameInst.timerReqId) cancelAnimationFrame(gameInst.timerReqId);
+                }
+                if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
+                if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
+                if (gameInst._keyLoop) { clearInterval(gameInst._keyLoop); gameInst._keyLoop = null; }
+            }
         }
     };
 
@@ -154,7 +160,6 @@ function stopAllGames() {
         el.className = el.className.replace(/countdown-pop|finish-clear|finish-gameover/g, '').trim();
     });
 
-    // ★追加：残っている予告火力・アタックゲージの見た目を強制クリアする
     document.querySelectorAll('.garbage-gauge, .attack-gauge').forEach(el => {
         el.innerHTML = '';
         if (el.classList.contains('attack-gauge')) {
@@ -211,7 +216,6 @@ function goToVersusCheck() {
   switchPage('versus-check');
 }
 
-// 追加: Player側のルール設定
 function setVersusPlayerRule(rule) {
   versusPlayerRule = rule;
   const tetBtn = document.getElementById('opt-rule-player-tet');
@@ -220,7 +224,6 @@ function setVersusPlayerRule(rule) {
   if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
 }
 
-// 追加: CPU側のルール設定
 function setVersusCpuRule(rule) {
   versusCpuRule = rule;
   const tetBtn = document.getElementById('opt-rule-cpu-tet');
@@ -273,8 +276,6 @@ function setCpuLevel(lv) {
   if (descEl) descEl.textContent = CPU_LEVELS[lv].desc;
 }
 
-// ─────────────────────────────────────────────
-// 既存の関数。呼び出し側は混合戦対応に置き換えたため、使用頻度は減るが互換性維持のため残す
 function _switchToVersusPuyoLayout(isPuyo) {
     const tetCanvases = [
         'player-main-canvas', 'player-next-canvas', 'player-hold-canvas',
@@ -299,7 +300,6 @@ function _switchToVersusPuyoLayout(isPuyo) {
     });
 }
 
-// ★ 追加: 混合戦対応用のレイアウト切り替え
 function _switchToVersusMixedLayout(playerRule, cpuRule) {
     const isPlayerPuyo = playerRule === 'puyo';
     const isCpuPuyo = cpuRule === 'puyo';
@@ -347,7 +347,6 @@ function createSeededRandom(seed) {
     }
 }
 
-// ★ 修正: 混合戦に対応した VERSUS開始関数
 async function startVersusGame() {
   stopAllGames(); // 開始前に完全に状態をリセット
 
@@ -513,28 +512,31 @@ function restartVersusFromResult() {
 }
 
 function versusGameOver(loser) {
-  // 演出を残すため、stopAllGames は呼ばずに個別に止める
+  // ★ 修正: ここでも Tetris と Puyo を確実に区別する
   const stopGame = (gameInst) => {
       if (!gameInst) return;
-      if (typeof gameInst.gameOver === 'function') { 
-          // tet
-          if (gameInst.timer) clearInterval(gameInst.timer);
-          gameInst.timer = null;
-          if (gameInst.lockTimer) clearTimeout(gameInst.lockTimer);
-          gameInst.lockTimer = null;
-          gameInst.isPaused = true;
-          if (gameInst.isTimerRunning) {
-              gameInst.elapsedTime += performance.now() - gameInst.startTime;
-              gameInst.isTimerRunning = false;
-              if (gameInst.timerReqId) cancelAnimationFrame(gameInst.timerReqId);
+      if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
+          if (typeof gameInst.stop === 'function') {
+              gameInst.stop();
+              gameInst.state = 'gameover';
           }
-          if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
-          if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
-          if (gameInst._keyLoop)        clearInterval(gameInst._keyLoop);
       } else {
-          // Puyo
-          gameInst.stop();
-          gameInst.state = 'gameover';
+          if (typeof gameInst.gameOver === 'function') { 
+              // tet
+              if (gameInst.timer) clearInterval(gameInst.timer);
+              gameInst.timer = null;
+              if (gameInst.lockTimer) clearTimeout(gameInst.lockTimer);
+              gameInst.lockTimer = null;
+              gameInst.isPaused = true;
+              if (gameInst.isTimerRunning) {
+                  gameInst.elapsedTime += performance.now() - gameInst.startTime;
+                  gameInst.isTimerRunning = false;
+                  if (gameInst.timerReqId) cancelAnimationFrame(gameInst.timerReqId);
+              }
+              if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
+              if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
+              if (gameInst._keyLoop)        clearInterval(gameInst._keyLoop);
+          }
       }
   };
 
@@ -749,6 +751,14 @@ async function startGameFromModeCheck() {
   // ─── PUYO(シングル)モード専用処理
   if (modeId === 'puyo') {
     _switchToPuyoLayout(true);
+    
+    // ★ 修正: CPUテストモード等で true にされたフラグを確実に false に戻す
+    if (window._puyoGame) {
+        window._puyoGame.isCpuControlled = false;
+        window._puyoGame.isVersusMode = false;
+        window._puyoGame.currentMode = 'puyo';
+    }
+
     switchPage('game');
     startPuyoGame();
     return;

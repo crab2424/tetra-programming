@@ -74,6 +74,12 @@ class PuyoGame {
         this.attackScore          = 0; 
         this.generatedOjamaTotal  = 0; 
         this.pendingFire          = 0; // まだ相手に送るための処理を待機している火力
+
+        // ★ ぷよ→テト火力変換用変数（混合戦でのみ使用）
+        // ぷよ本来の ojamaRate 計算とは独立して保持する
+        this.tetAttackCarry  = 0; // 連鎖間で持ち越す累積得点（一連の連鎖終了時にリセット）
+        this.tetAttackLines  = 0; // 現在の連鎖チェーンで確定したおじゃまライン数
+        this.tetPendingFire  = 0; // 連鎖終了時に相手テトへ送る予定のライン数
         
         // ★ テトリスエンジン(game.js)との通信用キュー
         this.garbageQueue         = []; 
@@ -210,7 +216,11 @@ class PuyoGame {
         this.state    = 'playing';
         this.isPaused = false;
         this.lastTime = performance.now();
-        this._startTimer();
+        
+        // ★ 修正箇所：再開時は this.elapsed をリセットしない
+        this._timerRunning  = true;
+        this._timerStart    = performance.now();
+        this._timerTick();
         this._loop();
     }
 
@@ -238,6 +248,11 @@ class PuyoGame {
         this.attackScore = 0;
         this.generatedOjamaTotal = 0;
         this.pendingFire = 0;
+
+        // ★ ぷよ→テト変換用変数のリセット
+        this.tetAttackCarry = 0;
+        this.tetAttackLines = 0;
+        this.tetPendingFire = 0;
         
         this.garbageQueue = [];
         this.ojamaUpdateQueue = [];
@@ -453,7 +468,7 @@ class PuyoGame {
         }
     }
 
-    _confirmSentGarbage() {
+    _confirmSentGarbage(isZenkeshi = false) {
         if (!this.isVersusMode) return;
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opponent) return;
@@ -466,6 +481,12 @@ class PuyoGame {
                 changed = true;
             }
         }
+
+        // ぷよ→テトへの火力送信は_applyOjamaOffsetで処理されるため、ここでの直接送信は行わない
+
+        // 一連の連鎖が終了したため端数リセット（仕様通り）
+        this.tetAttackCarry = isZenkeshi ? PConfig.zenkeshiBonus : 0;
+        this.tetAttackLines = 0;
         this.sentGarbageThisTurn = []; // クリア
 
         if (changed && typeof opponent.updateGarbageGauge === 'function') {
@@ -473,8 +494,10 @@ class PuyoGame {
         }
     }
 
-    _applyOjamaOffset(amount) {
-        if (amount <= 0) return;
+    _applyOjamaOffset(amount, tetAmount = 0) {
+        if (amount <= 0 && tetAmount <= 0) return;
+
+        const originalAmount = amount; // 相殺前のぷよ火力
 
         // 相殺はまず確定(ready: true)しているおじゃまから優先して行う
         for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
@@ -505,8 +528,32 @@ class PuyoGame {
         this.garbageQueue = this.garbageQueue.filter(g => g.amount > 0);
         this.updateGarbageGauge();
 
-        if (amount > 0) {
-            this.sendGarbage(amount);
+        // ★ 相殺結果の送信処理
+        const _isOppTet = (() => {
+            if (!this.isVersusMode) return false;
+            const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+            if (!opponent) return false;
+            return !(opponent instanceof PuyoGame) && (typeof opponent.gameOver === 'function');
+        })();
+
+        if (_isOppTet) {
+            // 相手がテトの場合、tetAmount（テト用のライン数）を送信する。
+            // ぷよ火力が相殺で減った場合は、その割合に応じて送信する tetAmount も減らす。
+            if (originalAmount > 0) {
+                let ratio = amount / originalAmount; // 残った割合 (0.0 〜 1.0)
+                let sendTetAmount = Math.ceil(tetAmount * ratio); // 割合が少しでもあれば最低1ラインは送る
+                if (sendTetAmount > 0) {
+                    this.sendGarbage(sendTetAmount);
+                }
+            } else if (tetAmount > 0 && amount === 0) {
+                // 通常はぷよ火力と連動するが、万が一ぷよ火力が無いのにテト火力がある場合はそのまま送る
+                this.sendGarbage(tetAmount);
+            }
+        } else {
+            // 相手がぷよの場合、残ったぷよ基準の火力を送る
+            if (amount > 0) {
+                this.sendGarbage(amount);
+            }
         }
     }
 
@@ -718,7 +765,7 @@ class PuyoGame {
             this.ojamaUpdateQueue[0].timer -= dt;
             if (this.ojamaUpdateQueue[0].timer <= 0) {
                 let q = this.ojamaUpdateQueue.shift();
-                this._applyOjamaOffset(q.amount);
+                this._applyOjamaOffset(q.amount, q.tetAmount || 0);
             }
         }
 
@@ -813,12 +860,18 @@ class PuyoGame {
                     if (this.chainCount > 0) {
                         this.attackScore = this.attackScore % PConfig.ojamaRate; // 端数持ち越し
                         this.generatedOjamaTotal = 0; // 送信済みおじゃま量をリセット
-                        if (this.pendingFire > 0) {
-                            this.ojamaUpdateQueue.push({ timer: 0, amount: this.pendingFire });
+                        if (this.pendingFire > 0 || this.tetPendingFire > 0) {
+                            this.ojamaUpdateQueue.push({ 
+                                timer: 0, 
+                                amount: this.pendingFire,
+                                tetAmount: this.tetPendingFire
+                            });
                             this.pendingFire = 0;
+                            this.tetPendingFire = 0;
                         }
                     }
 
+                    let isZenkeshi = false;
                     // ★ その後で全消し判定を行い、全消し火力を新たに pendingFire に追加して持ち越す
                     if (this._isFieldEmpty() && this.chainCount > 0) {
                         this.score += PConfig.zenkeshiBonus; // 2100点追加
@@ -828,6 +881,7 @@ class PuyoGame {
 
                         this._updateScoreDisplay();
                         this.isAllClear = true; // ★ ALL CLEARフラグON
+                        isZenkeshi = true;
                     }
 
                     // おじゃまぷよ降下判定
@@ -835,7 +889,7 @@ class PuyoGame {
                         // 降る前にキューに残っている相殺・送信をすべて即時適用する
                         while(this.ojamaUpdateQueue.length > 0) {
                             let q = this.ojamaUpdateQueue.shift();
-                            this._applyOjamaOffset(q.amount);
+                            this._applyOjamaOffset(q.amount, q.tetAmount || 0);
                         }
                         
                         // 降るおじゃま（ready: trueのもの）があれば降る
@@ -848,7 +902,7 @@ class PuyoGame {
 
                     // ★ 連鎖が終わったタイミングでNEXTアニメーションに移る瞬間、
                     // 相手に送った火力全てに2段階目になるように情報を送る
-                    this._confirmSentGarbage();
+                    this._confirmSentGarbage(isZenkeshi);
 
                     this._gs = 'spawnAnim';
                     this.spawnAnimTimer = 0;
@@ -878,9 +932,14 @@ class PuyoGame {
 
                         // ★ 連鎖表示が出たタイミングで、そこまでに溜まった微火力＋連鎖火力を0.5秒後に相殺・送信
                         // （全消しで持ち越されたpendingFireも、ここで1連鎖目として送られる）
-                        if (this.pendingFire > 0) {
-                            this.ojamaUpdateQueue.push({ timer: 500, amount: this.pendingFire });
+                        if (this.pendingFire > 0 || this.tetPendingFire > 0) {
+                            this.ojamaUpdateQueue.push({ 
+                                timer: 500, 
+                                amount: this.pendingFire,
+                                tetAmount: this.tetPendingFire
+                            });
                             this.pendingFire = 0;
+                            this.tetPendingFire = 0;
                         }
                     }
                 }
@@ -1201,6 +1260,60 @@ class PuyoGame {
         this.generatedOjamaTotal = totalOjama;
         if (newlyGenerated > 0) {
             this.pendingFire += newlyGenerated; 
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ★ ぷよ→テト火力変換処理（混合戦でのみ動作）
+        // 基準点テーブル: (段数, 累積必要点) = (1,210)(2,630)(3,1050)(4,1710)(5,3500)(6,7000)(7,14000)
+        // A(1)＝全消しボーナス得点＋1連鎖目消去得点
+        // A(n)＝（A(n-1)－(n-1)連鎖消去時の基準点）＋n連鎖目消去得点
+        // 端数は次連鎖へ持越し。一連の連鎖終了時にリセット。
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const _isOpponentTet = (() => {
+            if (!this.isVersusMode) return false;
+            const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+            if (!opponent) return false;
+            // PuyoGame インスタンスでなければテトとみなす
+            return !(opponent instanceof PuyoGame) && (typeof opponent.gameOver === 'function');
+        })();
+
+        if (_isOpponentTet) {
+            const TET_ATTACK_TABLE = [
+                { lines: 7, score: 14000 },
+                { lines: 6, score: 7000 },
+                { lines: 5, score: 3500 },
+                { lines: 4, score: 1710 },
+                { lines: 3, score: 1050 },
+                { lines: 2, score: 630 },
+                { lines: 1, score: 210 }
+            ];
+
+            // 今連鎖の持ち点 A(n) = 前回の端数 + 今回の得点
+            let currentA = this.tetAttackCarry + add;
+            
+            let generatedLines = 0;
+            let usedScore = 0;
+
+            for (const threshold of TET_ATTACK_TABLE) {
+                if (currentA >= threshold.score) {
+                    generatedLines = threshold.lines;
+                    usedScore = threshold.score;
+                    break;
+                }
+            }
+
+            // 次の連鎖への持ち越し(端数)
+            this.tetAttackCarry = currentA - usedScore;
+            // (tetAttackLines は既存互換のため加算形式で残す)
+            this.tetAttackLines += generatedLines;
+
+            if (generatedLines > 0) {
+                // n連鎖目で発生したラインを送信予定に追加
+                this.tetPendingFire += generatedLines;
+                console.log(`[p_game TetAttack] ${this.chainCount}連鎖: A(n)=${currentA}, used=${usedScore}, generatedLines=${generatedLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
+            } else {
+                console.log(`[p_game TetAttack] ${this.chainCount}連鎖: A(n)=${currentA}, generatedLines=0, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
+            }
         }
 
         if (this.scoreEl) {
