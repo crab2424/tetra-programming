@@ -44,6 +44,9 @@ window.PuyoCPU = class {
         this.originalGravity   = null;     // 高速落下時の重力退避用
         this.lastDropTime      = null;     // 高速落下時の dt 計算用
 
+        // ★ 高速落下専用 rAF ループ管理
+        this._softDropRafId    = null;
+
         // ────────────────────────────────
         // Web Worker 初期化
         // ────────────────────────────────
@@ -108,6 +111,12 @@ window.PuyoCPU = class {
         this.actionQueue       = [];
         this.lastDropTime      = null;
         
+        // ★ 高速落下ループを停止
+        if (this._softDropRafId !== null) {
+            cancelAnimationFrame(this._softDropRafId);
+            this._softDropRafId = null;
+        }
+
         this._restoreGravity(); // 中断時も確実に重力を元に戻す
 
         document.removeEventListener('keydown', this._pauseListener);
@@ -422,8 +431,6 @@ window.PuyoCPU = class {
         }
 
         const action = this.actionQueue.shift();
-        let delayTime = this.actionDelay;
-        let isFinalAction = false;
 
         switch (action.type) {
             case 'rotateCW':
@@ -440,75 +447,117 @@ window.PuyoCPU = class {
                 break;
             
             case 'softDropUntilLock':
-                // ★ 高速落下中のみ重力(自然落下)タイマーをリセットし続ける
-                if (this.game.fallTimer !== undefined) this.game.fallTimer = 0;
-                if (this.game.dropTimer !== undefined) this.game.dropTimer = 0;
-                
-                // テト側で呼ばれた場合の考慮
-                if (this.originalGravity === null && this.game.gravity !== undefined) {
-                    this.originalGravity = this.game.gravity;
-                    this.game.gravity = 0; 
-                }
-
-                // dt 計算用の初期化（ループ開始時）
-                if (!this.lastDropTime) {
-                    this.lastDropTime = performance.now();
-                    this.actionQueue.unshift(action);
-                    delayTime = 0; 
-                    break; // 初回は時間を記録して即座に抜ける（次のフレームで処理）
-                }
-
-                // 前回のフレームからの経過時間を計算
-                let now = performance.now();
-                let dt = now - this.lastDropTime;
-                if (dt > 100) dt = 16.6; // 最大遅延のガード
-                this.lastDropTime = now;
-
-                const limitY = this.game._calcLimitY(this.game.pivotX, this.game.pivotY, this.game.targetRot);
-                
-                if (this.game.pivotY < limitY) {
-                    // ★ プレイヤー操作の softDrop と同じ落下計算 (dt / PConfig.dropSpeedFast)
-                    const dropSpeedFast = 500 ;
-                    const dropDist = dt / dropSpeedFast;
-                    
-                    this.game.pivotY = Math.min(this.game.pivotY + dropDist, limitY);
-                    
-                    this.game.scoreFloat += dropDist;
-                    if (this.game.scoreFloat >= 1) {
-                        let add = Math.floor(this.game.scoreFloat);
-                        this.game.score += add;
-                        this.game.scoreFloat -= add;
-                        if(typeof this.game._addDropScore === 'function') {
-                            this.game._addDropScore(add);
-                        }
-                        this.game._updateScoreDisplay();
-                    }
-                    
-                    this.actionQueue.unshift(action); // 継続
-                } else {
-                    // 完全に接地したらループ終了
-                    this.lastDropTime = null;
-                    this._restoreGravity();
-                }
-                break;
+                // ★ 専用の rAF ループに委譲し、processActionQueue はここで止める
+                // （_startSoftDropLoop 内で完結後、placeDelay を経て isExecutingAction を解除する）
+                this._startSoftDropLoop();
+                return; // ← ここで return し、以降の setTimeout チェーンに乗らない
         }
 
-        if (!isFinalAction) {
-            if (this.actionQueue.length > 0) {
-                const nextAction = this.actionQueue[0];
-                // ★ 高速落下が継続中の場合は requestAnimationFrame を使って 60fps ベースで滑らかに呼び出す
-                if (action.type === 'softDropUntilLock' && nextAction && nextAction.type === 'softDropUntilLock') {
-                    requestAnimationFrame(() => {
-                        if (this.isActive && this.isAutoPlay) this._processActionQueue();
-                    });
-                } else {
-                    // 回転や移動は規定のディレイを使用
-                    setTimeout(() => {
-                        if (this.isActive && this.isAutoPlay) this._processActionQueue();
-                    }, delayTime);
+        // 回転・移動はここまで到達する（softDropUntilLock は return 済み）
+        if (this.actionQueue.length > 0) {
+            setTimeout(() => {
+                if (this.isActive && this.isAutoPlay) this._processActionQueue();
+            }, this.actionDelay);
+        } else {
+            // キューが空（通常はsoftDropが最後なので基本ここには来ない）
+            this._restoreGravity();
+            this.isExecutingAction = false;
+        }
+    }
+
+    // ══════════════════════════════════════════════
+    // ★ 高速落下専用 rAF ループ
+    // プレイヤーの softDrop と同じ速度・精度で毎フレーム落下させる
+    // ══════════════════════════════════════════════
+
+    _startSoftDropLoop() {
+        // 既存のループが動いていれば停止してから開始
+        if (this._softDropRafId !== null) {
+            cancelAnimationFrame(this._softDropRafId);
+            this._softDropRafId = null;
+        }
+
+        // 自然落下タイマーをリセット（落下中に自然落下と競合させない）
+        if (this.game.fallTimer !== undefined) this.game.fallTimer = 0;
+        if (this.game.dropTimer !== undefined) this.game.dropTimer = 0;
+
+        // テト側の gravity プロパティがある場合は退避
+        if (this.originalGravity === null && this.game.gravity !== undefined) {
+            this.originalGravity = this.game.gravity;
+            this.game.gravity = 0;
+        }
+
+        const dropSpeedFast = 500 / 12; // プレイヤーと同じ: 500ms / 12マス
+
+        let prevTime = performance.now();
+
+        const tick = (now) => {
+            // 停止・ポーズ・ゲーム状態の変化を検知したらループ終了
+            if (!this.isActive || !this.isAutoPlay) {
+                this._softDropRafId = null;
+                this._restoreGravity();
+                this.isExecutingAction = false;
+                return;
+            }
+
+            if (this.game.isPaused || this.game.state === 'paused') {
+                // ポーズ中は再開まで待機（再帰的に呼ぶ）
+                this._softDropRafId = requestAnimationFrame(tick);
+                prevTime = now; // ポーズ中の時間を無効化
+                return;
+            }
+
+            if (this.game._gs !== 'falling') {
+                // 落下フェーズ終了（固定アニメ等に遷移）→ ループ終了
+                this._softDropRafId = null;
+                this._restoreGravity();
+                setTimeout(() => {
+                    if (this.isActive && this.isAutoPlay) {
+                        if (this.game._gs === 'falling') this._forceLock();
+                    }
+                    this.isExecutingAction = false;
+                }, this.placeDelay);
+                return;
+            }
+
+            // ── 経過時間から落下距離を計算（プレイヤーと同じ計算式）──
+            let dt = now - prevTime;
+            if (dt > 100) dt = 100; // 最大遅延ガード（タブ非アクティブ等）
+            prevTime = now;
+
+            const limitY = this.game._calcLimitY(
+                this.game.pivotX,
+                this.game.pivotY,
+                this.game.targetRot
+            );
+
+            if (this.game.pivotY < limitY) {
+                // まだ接地していない → 落下させる
+                const dropDist = dt / dropSpeedFast;
+                const prevY = this.game.pivotY;
+                this.game.pivotY = Math.min(this.game.pivotY + dropDist, limitY);
+                // 実際に落下した距離（limitYでクランプされた場合の端数も含む）
+                const actualDist = this.game.pivotY - prevY;
+
+                // ソフトドロップスコア加算（プレイヤーと同じ処理）
+                this.game.scoreFloat += actualDist;
+                if (this.game.scoreFloat >= 1) {
+                    const add = Math.floor(this.game.scoreFloat);
+                    this.game.score += add;
+                    this.game.scoreFloat -= add;
+                    if (typeof this.game._addDropScore === 'function') {
+                        this.game._addDropScore(add);
+                    }
+                    this.game._updateScoreDisplay();
                 }
+
+                this._softDropRafId = requestAnimationFrame(tick);
             } else {
-                this._restoreGravity(); // キューが空になったら確実に重力を戻す
+                // 接地した → ループ終了し、lockTimer を進めて固定を促す
+                this.game.pivotY = limitY;
+                this._softDropRafId = null;
+                this._restoreGravity();
+
                 setTimeout(() => {
                     if (this.isActive && this.isAutoPlay) {
                         if (this.game._gs === 'falling') this._forceLock();
@@ -516,9 +565,9 @@ window.PuyoCPU = class {
                     this.isExecutingAction = false;
                 }, this.placeDelay);
             }
-        } else {
-            this.isExecutingAction = false;
-        }
+        };
+
+        this._softDropRafId = requestAnimationFrame(tick);
     }
 
     // ★ 一時的にゼロにした重力を復元するヘルパー

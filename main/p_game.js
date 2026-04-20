@@ -1960,7 +1960,7 @@ class PuyoGame {
         // 接地する限界のY座標を計算
         let limitY = this._calcLimitY(this.pivotX, this.pivotY, this.targetRot);
         
-        // 落下距離に応じてスコア加算（任意：ソフトドロップと同様の基準）
+        /* // 落下距離に応じてスコア加算（任意：ソフトドロップと同様の基準）
         let dropDist = limitY - this.pivotY;
         if (dropDist > 0) {
             let add = Math.floor(dropDist);
@@ -1970,8 +1970,9 @@ class PuyoGame {
                 this._updateScoreDisplay();
             }
         }
+        */
 
-        // Y座標を限界まで一気に移動
+        // Y座標を限界まで一気に移動（クイックドロップによるスコア加算はなし）
         this.pivotY = limitY;
         
         // 設置猶予時間をカットして即時設置
