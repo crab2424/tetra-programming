@@ -29,7 +29,7 @@ const PConfig = {
     eraseCount:       4,
 
     eraseMs:          28 * 16.67, 
-    eraseWaitMs:      333,
+    eraseWaitMs:      270,
     zenkeshiMs:       1500,       // (未使用になりましたが念のため残置)
     zenkeshiBonus:    2100,       // ★ 全消しスコアを2100点に変更
 
@@ -77,9 +77,11 @@ class PuyoGame {
 
         // ★ ぷよ→テト火力変換用変数（混合戦でのみ使用）
         // ぷよ本来の ojamaRate 計算とは独立して保持する
-        this.tetAttackCarry  = 0; // 連鎖間で持ち越す累積得点（一連の連鎖終了時にリセット）
+        this.tetAttackCarry  = 0; // 連鎖間で持ち越す端数得点（一連の連鎖終了時にmod70で次ターンへ持ち越し）
         this.tetAttackLines  = 0; // 現在の連鎖チェーンで確定したおじゃまライン数
         this.tetPendingFire  = 0; // 連鎖終了時に相手テトへ送る予定のライン数
+        this.tetDropScore    = 0; // このツモで積み上げた落下点数（連鎖開始時に1連鎖目の計算へ加算）
+        this.hasTetZenkeshi  = false; // ★ 全消しボーナス2ラインを保持・消化するためのフラグ
         
         // ★ テトリスエンジン(game.js)との通信用キュー
         this.garbageQueue         = []; 
@@ -253,6 +255,8 @@ class PuyoGame {
         this.tetAttackCarry = 0;
         this.tetAttackLines = 0;
         this.tetPendingFire = 0;
+        this.tetDropScore   = 0;
+        this.hasTetZenkeshi = false;
         
         this.garbageQueue = [];
         this.ojamaUpdateQueue = [];
@@ -484,9 +488,15 @@ class PuyoGame {
 
         // ぷよ→テトへの火力送信は_applyOjamaOffsetで処理されるため、ここでの直接送信は行わない
 
-        // 一連の連鎖が終了したため端数リセット（仕様通り）
-        this.tetAttackCarry = isZenkeshi ? PConfig.zenkeshiBonus : 0;
+        // 一連の連鎖が終了したため端数処理（仕様通り：最後の端数をmod70で次ターンへ持ち越す）
+        this.tetAttackCarry = this.tetAttackCarry % PConfig.ojamaRate;
+        
+        if (isZenkeshi) {
+            this.hasTetZenkeshi = true; // ★ 全消しボーナスの2ライン送付フラグを立てる
+        }
+
         this.tetAttackLines = 0;
+        this.tetDropScore   = 0; // 落下点数は連鎖終了時にリセット（次ツモから新たに積む）
         this.sentGarbageThisTurn = []; // クリア
 
         if (changed && typeof opponent.updateGarbageGauge === 'function') {
@@ -1016,6 +1026,8 @@ class PuyoGame {
         if (newlyGenerated > 0) {
             this.pendingFire += newlyGenerated; 
         }
+        // ★ ぷよ→テト火力変換用：落下点数を独立して記録（連鎖開始時の1連鎖目計算に使用）
+        this.tetDropScore += amount;
     }
 
     _handleGravity(dt) {
@@ -1264,10 +1276,16 @@ class PuyoGame {
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // ★ ぷよ→テト火力変換処理（混合戦でのみ動作）
-        // 基準点テーブル: (段数, 累積必要点) = (1,210)(2,630)(3,1050)(4,1710)(5,3500)(6,7000)(7,14000)
-        // A(1)＝全消しボーナス得点＋1連鎖目消去得点
-        // A(n)＝（A(n-1)－(n-1)連鎖消去時の基準点）＋n連鎖目消去得点
-        // 端数は次連鎖へ持越し。一連の連鎖終了時にリセット。
+        //
+        // 【処理の流れ】
+        // 1連鎖目: 合計スコア = 前回最後の連鎖の持ち越し点(tetAttackCarry) + 落下点数(tetDropScore) + 1連鎖消去点(add)
+        // x連鎖目: 合計スコア = x-1連鎖の持ち越し点(tetAttackCarry) + x連鎖消去点(add)
+        // → スコア閾値テーブルと消去ぷよ数テーブルで火力ラインを決定
+        // → 使用した閾値スコアを合計スコアから引いた端数を次連鎖へ持ち越す
+        // → 連鎖終了時: 最後の端数をmod70で次ターンへ持ち越す（tetDropScoreはリセット）
+        //
+        // スコア閾値テーブル (lines, score): (1,210)(2,420)(3,700)(4,1120)(5,2240)(6,5320)(7,13300)
+        // 消去ぷよ追加ラインテーブル (addLines, puyoCount): (1,8)(2,9)(3,12)(4,14)
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const _isOpponentTet = (() => {
             if (!this.isVersusMode) return false;
@@ -1278,23 +1296,97 @@ class PuyoGame {
         })();
 
         if (_isOpponentTet) {
-            const TET_ATTACK_TABLE = [
-                { lines: 7, score: 14000 },
-                { lines: 6, score: 7000 },
-                { lines: 5, score: 3500 },
-                { lines: 4, score: 1710 },
-                { lines: 3, score: 1050 },
-                { lines: 2, score: 630 },
+            // ─── スコア閾値テーブル（降順）───
+            const TET_ATTACK_SCORE_TABLE = [
+                { lines: 7, score: 13300 },
+                { lines: 6, score: 5320 },
+                { lines: 5, score: 2240 },
+                { lines: 4, score: 1120 },
+                { lines: 3, score: 700 },
+                { lines: 2, score: 420 },
                 { lines: 1, score: 210 }
             ];
 
-            // 今連鎖の持ち点 A(n) = 前回の端数 + 今回の得点
-            let currentA = this.tetAttackCarry + add;
-            
+            // ─── 消去ぷよ数による追加ラインテーブル（降順）───
+            // n個以上消去したとき、基本ライン数に追加ラインを上乗せする
+            const TET_ATTACK_PUYO_TABLE = [
+                { addLines: 4, count: 14 },
+                { addLines: 3, count: 12 },
+                { addLines: 2, count: 9 },
+                { addLines: 1, count: 8 }
+            ];
+
+            // ★ 追加：テト戦の場合はぷよ側の火力をリセットして二重相殺を防ぐ
+            this.pendingFire = 0;
+
+            // 1連鎖目のみ落下点数と前回端数を加算する
+            // 2連鎖目以降は前回端数（tetAttackCarry）のみ加算する
+            let baseCarry = this.tetAttackCarry;
+            if (this.chainCount === 1) {
+                baseCarry += this.tetDropScore; // 落下点数を1連鎖目の計算に加算
+                if (this.hasTetZenkeshi) {
+                    baseCarry += PConfig.zenkeshiBonus; // ★ 全消しスコア(2100点)を1連鎖目に加算
+                }
+            }
+
+            // 今連鎖の合計スコア A(n) = 前回端数 + 今回消去点
+            let currentA = baseCarry + add;
+
+            // ★ 追加：テト相手の特殊相殺ルール
+            let pendingOjamaCount = this.pendingOjama;
+            let scoreForAttack = currentA; // デフォルトは全スコアを使用
+            let carryOverFromOffset = 0; // 相殺しきれなかった場合の端数保持用
+
+            if (pendingOjamaCount > 0) {
+                let requiredOffsetScore = pendingOjamaCount * PConfig.ojamaRate;
+                
+                if (currentA >= requiredOffsetScore) {
+                    // 相殺しきれる場合
+                    this.garbageQueue = []; // おじゃまはなかったものとする
+                    this.updateGarbageGauge();
+
+                    if (baseCarry < requiredOffsetScore) {
+                        scoreForAttack = add; // 持ち越しスコアより相殺量が多いなら、攻撃には連鎖スコアのみ使用
+                    } else {
+                        scoreForAttack = add + (baseCarry - requiredOffsetScore); // 持ち越しで相殺しきれるなら、残った持ち越し+連鎖スコアを使用
+                    }
+                } else {
+                    // 相殺しきれない場合
+                    let offsetPuyoCount = Math.floor(currentA / PConfig.ojamaRate);
+                    carryOverFromOffset = currentA % PConfig.ojamaRate; // 相殺後の端数
+                    
+                    // キューから currentA 分のおじゃまを減らす
+                    let remainingToOffset = offsetPuyoCount;
+                    // ready: true を優先
+                    for (let i = 0; i < this.garbageQueue.length && remainingToOffset > 0; i++) {
+                        if (this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
+                            let take = Math.min(this.garbageQueue[i].amount, remainingToOffset);
+                            this.garbageQueue[i].amount -= take;
+                            remainingToOffset -= take;
+                        }
+                    }
+                    // ready: false を次に減らす
+                    for (let i = 0; i < this.garbageQueue.length && remainingToOffset > 0; i++) {
+                        if (!this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
+                            let take = Math.min(this.garbageQueue[i].amount, remainingToOffset);
+                            this.garbageQueue[i].amount -= take;
+                            remainingToOffset -= take;
+                        }
+                    }
+                    this.garbageQueue = this.garbageQueue.filter(g => g.amount > 0);
+                    this.updateGarbageGauge();
+
+                    scoreForAttack = 0; // 攻撃には使えない
+                }
+            }
+
+            // 以降のライン算出計算のために、currentA を決定された攻撃用スコアで上書きする
+            currentA = scoreForAttack;
+
+            // ─── スコア閾値で基本ライン数を決定 ───
             let generatedLines = 0;
             let usedScore = 0;
-
-            for (const threshold of TET_ATTACK_TABLE) {
+            for (const threshold of TET_ATTACK_SCORE_TABLE) {
                 if (currentA >= threshold.score) {
                     generatedLines = threshold.lines;
                     usedScore = threshold.score;
@@ -1302,17 +1394,48 @@ class PuyoGame {
                 }
             }
 
-            // 次の連鎖への持ち越し(端数)
-            this.tetAttackCarry = currentA - usedScore;
-            // (tetAttackLines は既存互換のため加算形式で残す)
-            this.tetAttackLines += generatedLines;
+            // ─── 消去ぷよ数で追加ライン数を決定 ───
+            // n は今連鎖で消去したぷよ数（おじゃまぷよを含まない通常色のみ）
+            let addLines = 0;
+            for (const puyo of TET_ATTACK_PUYO_TABLE) {
+                if (n >= puyo.count) {
+                    addLines = puyo.addLines;
+                    break;
+                }
+            }
 
-            if (generatedLines > 0) {
+            // 基本ラインが1以上のときのみ消去ぷよ追加ラインを適用する
+            let totalLines = generatedLines;
+            if (generatedLines >= 1) {
+                totalLines += addLines;
+            }
+
+            // ★ 全消しボーナスによる追加ライン（2ライン）
+            let zenkeshiAdded = 0;
+            if (this.hasTetZenkeshi) {
+                zenkeshiAdded = 2;
+                totalLines += zenkeshiAdded;
+                this.hasTetZenkeshi = false; // 消費
+            }
+
+            // ─── 次の連鎖への端数を保持 ───
+            // 使用した閾値スコアを引いた残りを次連鎖のcarryとする
+            this.tetAttackCarry = currentA - usedScore;
+            
+            // ★ 追加：相殺しきれなかった場合、計算上 currentA が 0 になり tetAttackCarry も 0 になってしまうため、相殺の余りを復元
+            if (pendingOjamaCount > 0 && scoreForAttack === 0) {
+                this.tetAttackCarry = carryOverFromOffset;
+            }
+
+            // (tetAttackLines は既存互換のため加算形式で残す)
+            this.tetAttackLines += totalLines;
+
+            if (totalLines > 0) {
                 // n連鎖目で発生したラインを送信予定に追加
-                this.tetPendingFire += generatedLines;
-                console.log(`[p_game TetAttack] ${this.chainCount}連鎖: A(n)=${currentA}, used=${usedScore}, generatedLines=${generatedLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
+                this.tetPendingFire += totalLines;
+                console.log(`[p_game TetAttack] ${this.chainCount}連鎖: baseCarry=${baseCarry}, add=${add}, scoreForAttack=${scoreForAttack}, used=${usedScore}, scoredLines=${generatedLines}, puyoN=${n}, addLines=${addLines}, zkLines=${zenkeshiAdded}, totalLines=${totalLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
             } else {
-                console.log(`[p_game TetAttack] ${this.chainCount}連鎖: A(n)=${currentA}, generatedLines=0, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
+                console.log(`[p_game TetAttack] ${this.chainCount}連鎖: baseCarry=${baseCarry}, add=${add}, scoreForAttack=${scoreForAttack}, scoredLines=0, puyoN=${n}, addLines=${addLines}, zkLines=${zenkeshiAdded}, totalLines=${totalLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
             }
         }
 
@@ -1593,6 +1716,7 @@ class PuyoGame {
             moveLeft:  ks.moveLeft  ? ks.moveLeft.code  : 'ArrowLeft',
             moveRight: ks.moveRight ? ks.moveRight.code : 'ArrowRight',
             softDrop:  ks.softDrop  ? ks.softDrop.code  : 'ArrowDown',
+            quickDrop: ks.quickDrop ? ks.quickDrop.code : 'Space', // ★ クイックドロップ追加
             rotateCW:  ks.rotateCW  ? ks.rotateCW.code  : 'ArrowUp',
             rotateCCW: ks.rotateCCW ? ks.rotateCCW.code : 'KeyZ',
             pause:     ks.pause     ? ks.pause.code     : 'Escape',
@@ -1651,6 +1775,13 @@ class PuyoGame {
             }
 
             if (this._gs !== 'falling') return;
+
+            // ★ クイックドロップ処理の追加
+            if (e.code === this._keyMap.quickDrop) {
+                e.preventDefault();
+                this._tryQuickDrop();
+                return;
+            }
 
             if (e.code === this._keyMap.rotateCW) {
                 e.preventDefault();
@@ -1820,6 +1951,32 @@ class PuyoGame {
                 }
             }
         }
+    }
+
+    // ★ クイックドロップ（ハードドロップ）処理の実装
+    _tryQuickDrop() {
+        if (this._gs !== 'falling') return;
+
+        // 接地する限界のY座標を計算
+        let limitY = this._calcLimitY(this.pivotX, this.pivotY, this.targetRot);
+        
+        // 落下距離に応じてスコア加算（任意：ソフトドロップと同様の基準）
+        let dropDist = limitY - this.pivotY;
+        if (dropDist > 0) {
+            let add = Math.floor(dropDist);
+            if (add > 0) {
+                this.score += add;
+                this._addDropScore(add);
+                this._updateScoreDisplay();
+            }
+        }
+
+        // Y座標を限界まで一気に移動
+        this.pivotY = limitY;
+        
+        // 設置猶予時間をカットして即時設置
+        this.lockTimer = PConfig.lockDelayMs;
+        this._fixPuyo();
     }
 
     _checkMoveLock() {
