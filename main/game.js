@@ -20,14 +20,14 @@ const NEXT_AREA_SIZE = 160;
 // 画像の色が合わない場合は、ここのファイル名を実際の色に合わせて入れ替えてください。
 // ─────────────────────────────────────────────
 const BLOCK_SOURCES = [
-    "images/block-0.png", // ID 0: I型（推奨色: 水色）
-    "images/block-1.png", // ID 1: O型（推奨色: 黄色）
-    "images/block-2.png", // ID 2: T型（推奨色: 紫色）
-    "images/block-3.png", // ID 3: J型（推奨色: 青色）
-    "images/block-4.png", // ID 4: L型（推奨色: 橙色）
-    "images/block-5.png", // ID 5: S型（推奨色: 緑色）
-    "images/block-6.png", // ID 6: Z型（推奨色: 赤色）
-    "images/block-7.png"  // ID 7: おじゃまブロック（推奨色: 灰色）
+    "images/t_images/block-0.png", // ID 0: I型（推奨色: 水色）
+    "images/t_images/block-1.png", // ID 1: O型（推奨色: 黄色）
+    "images/t_images/block-2.png", // ID 2: T型（推奨色: 紫色）
+    "images/t_images/block-3.png", // ID 3: J型（推奨色: 青色）
+    "images/t_images/block-4.png", // ID 4: L型（推奨色: 橙色）
+    "images/t_images/block-5.png", // ID 5: S型（推奨色: 緑色）
+    "images/t_images/block-6.png", // ID 6: Z型（推奨色: 赤色）
+    "images/t_images/block-7.png"  // ID 7: おじゃまブロック（推奨色: 灰色）
 ]
 
 window.onload = function(){
