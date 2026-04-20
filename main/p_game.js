@@ -200,6 +200,7 @@ class PuyoGame {
         this._stopTimer();
         this._removeKeyHandlers();
         this._clearChainTextDOM();
+        this._clearYokokuDOM(); // ★ おじゃま予告をDOMからクリアする
         if (this._loopId) {
             cancelAnimationFrame(this._loopId);
             this._loopId = null;
@@ -1549,6 +1550,14 @@ class PuyoGame {
             }
         }
         this.chainTextInfo = null;
+    }
+
+    _clearYokokuDOM() {
+        // ★ おじゃま予告コンテナの中身を空にする
+        // ゲーム停止・ルール切り替え時に残像が残らないようにする
+        if (this.yokokuContainer) {
+            this.yokokuContainer.innerHTML = '';
+        }
     }
 
     _buildDropAnim() {
