@@ -12,15 +12,18 @@ window.PuyoCPU = class {
         // ★ 評価パラメータ
         // ────────────────────────────────
         this.weights = {
-            chainBonus:        500,
-            erasedBonus:        20,
-            heightPenalty:     -30,
-            heightDiffPenalty:  -8,
-            holePenalty:       -60,
-            flatBonus:           5,
-            colorConnBonus:     12,
-            zenkeshiBonus:     100,
-            p1Weight:           70,
+            chainBonus:           5,  // 連鎖消去ボーナス（実際に消えた連鎖数への報酬）
+            erasedBonus:         -3,  // 消去ぷよ数ボーナス（負値で無意味な1連鎖を抑制）
+            heightPenalty:     -200,
+            heightDiffPenalty:   -8,
+            // holePenalty: 0,        // ★ ぷよの仕様上ホールは発生しないため無効化
+            flatBonus:           20,
+            colorConnBonus:      80,
+            zenkeshiBonus:      100,
+            chainPotentialBonus: 10, // ★ 連鎖ポテンシャルボーナス
+                                      //    盤面の将来的な連鎖力を評価する
+                                      //    chainBonus(500) > chainPotentialBonus(200) の関係を保つこと
+            p1Weight:           180,  // 1手目スコアの重み (x/100 倍)
         };
 
         // ────────────────────────────────
@@ -29,7 +32,10 @@ window.PuyoCPU = class {
         this.isActive          = false;
         this.isAutoPlay        = true;
         this.isCalculating     = false;
-        this.currentPairKey    = null; 
+        
+        // ★ 1手につき1回だけ計算するためのフラグ
+        this.hasCalculatedForCurrentPiece = false; 
+        
         this.bestMoveData      = null; 
 
         // アクション実行制御
@@ -99,6 +105,7 @@ window.PuyoCPU = class {
 
     start() {
         this.isActive = true;
+        this.hasCalculatedForCurrentPiece = false;
         this._initEstimateContainer(); 
         document.addEventListener('keydown', this._pauseListener);
         this._updateLoop();
@@ -110,6 +117,7 @@ window.PuyoCPU = class {
         this.isExecutingAction = false;
         this.actionQueue       = [];
         this.lastDropTime      = null;
+        this.hasCalculatedForCurrentPiece = false;
         
         // ★ 高速落下ループを停止
         if (this._softDropRafId !== null) {
@@ -142,15 +150,19 @@ window.PuyoCPU = class {
         const game = this.game;
 
         if (game._gs === 'falling') {
-            const key = `${game.pivotColor}_${game.childColor}_${game.pivotX.toFixed(1)}_${game.pivotY.toFixed(1)}`;
-            if (key !== this.currentPairKey) {
-                this.currentPairKey    = key;
+            // ★ falling状態に入ってから、まだ計算していなければ1度だけ計算する
+            if (!this.hasCalculatedForCurrentPiece) {
+                this.hasCalculatedForCurrentPiece = true;
+                
                 this.isExecutingAction = false;
                 this.actionQueue       = [];
                 this.bestMoveData      = null;
-                this.lastDropTime      = null; // 新しいぷよに切り替わったらリセット
+                this.lastDropTime      = null; 
                 this._requestCalculation();
             }
+        } else {
+            // ★ falling以外の状態（固定中、消去中、NEXT生成中など）になったらフラグをリセット
+            this.hasCalculatedForCurrentPiece = false;
         }
 
         requestAnimationFrame(() => this._updateLoop());
@@ -187,11 +199,12 @@ window.PuyoCPU = class {
             this.weights.erasedBonus,
             this.weights.heightPenalty,
             this.weights.heightDiffPenalty,
-            this.weights.holePenalty,
+            // holePenalty は除外（ぷよの仕様上ホールは発生しない）
             this.weights.flatBonus,
             this.weights.colorConnBonus,
             this.weights.zenkeshiBonus,
-            this.weights.p1Weight,
+            this.weights.chainPotentialBonus, 
+            this.weights.p1Weight,            // cpp側で /100 して使用
         ]);
 
         this.worker.postMessage({
