@@ -30,11 +30,15 @@ self.onmessage = function (e) {
     if (data.type !== 'calculate') return;
 
     // ── メモリ確保（初回のみ） ──
-    // boardData   : uint8_t[14 * 6] = 84 bytes
+    // boardData   : uint8_t[17 * 6] = 102 bytes (TOTAL_ROWS=17)
     // weightsArray: int32[9]  = 36 bytes
+    //   [0] chainBonus, [1] erasedBonus, [2] heightPenalty, [3] heightDiffPenalty,
+    //   [4] flatBonus,  [5] colorConnBonus, [6] zenkeshiBonus,
+    //   [7] chainPotentialBonus, [8] p1Weight
+    //   ※ holePenalty は除外（ぷよの仕様上ホールは発生しない）
     // outResult   : int32[7]  = 28 bytes
     if (boardPtr === null) {
-        boardPtr   = Module._my_malloc(84);      // TOTAL_ROWS(14) × COLS(6)
+        boardPtr   = Module._my_malloc(102);     // TOTAL_ROWS(17) × COLS(6)
         weightsPtr = Module._my_malloc(4 * 9);   // 9 要素の int32
         resultPtr  = Module._my_malloc(4 * 7);   // 7 要素の int32
     }

@@ -293,18 +293,45 @@ static ChainResult simulateChain(Board& b) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 連鎖ポテンシャル計算
+// ─ 現在の盤面をコピーして全配置を試し，
+//   それぞれの連鎖数（消えないなら0）を記録，
+//   その最大値を「連鎖ポテンシャル」として返す
+// ─ 将来の盤面がどれだけ連鎖力を持っているかを推定する
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+static int calcChainPotential(const Board& b) {
+    // ダミーカラー（全色を試す必要はなく、同色2個でグループが形成されやすい色1で代用）
+    // ポテンシャルは連鎖数のみを見るため色の影響は限定的
+    const uint8_t DUMMY_COLOR = 1;
+
+    std::vector<PairPlacement> placements = getAllPlacements(b);
+    int maxChains = 0;
+
+    for (const auto& p : placements) {
+        Board tmp = applyPlacement(b, p, DUMMY_COLOR, DUMMY_COLOR);
+        ChainResult res = simulateChain(tmp);
+        // ★ 各設置候補ごとに連鎖数（消えないなら0）を評価し最大値を保持
+        if (res.chains > maxChains) {
+            maxChains = res.chains;
+        }
+    }
+
+    return maxChains;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 評価パラメータ (JS から渡される)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 struct EvalWeights {
-    int chainBonus;       
-    int erasedBonus;      
-    int heightPenalty;    
-    int heightDiffPenalty;
-    int holePenalty;      
-    int flatBonus;        
-    int colorConnBonus;   
-    int zenkeshiBonus;    
-    int p1Weight;         
+    int chainBonus;          // 連鎖消去ボーナス
+    int erasedBonus;         // 消去ぷよ数ボーナス（負値推奨）
+    int heightPenalty;       // 高さペナルティ
+    int heightDiffPenalty;   // 高さ差ペナルティ
+    int flatBonus;           // 平坦ボーナス
+    int colorConnBonus;      // 同色隣接ボーナス
+    int zenkeshiBonus;       // 全消しボーナス
+    int chainPotentialBonus; // 連鎖ポテンシャルボーナス
+    int p1Weight;            // 1手目重み
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -313,7 +340,12 @@ struct EvalWeights {
 static int evaluateBoard(const Board& b, const ChainResult& chain, const EvalWeights& w) {
     int score = 0;
 
-    score += chain.chains   * w.chainBonus;
+    // ★ 連鎖消去ボーナス（連鎖数の2乗に比例させることで、多連鎖を圧倒的に優遇）
+    // 例: 3連鎖なら 9 * w.chainBonus となり、爆発的にスコアが上がる
+    if (chain.chains > 0) {
+        score += (chain.chains * chain.chains) * w.chainBonus;
+    }
+    // 消したぷよ数によるペナルティ（無意味な1連鎖や暴発を防ぐため）
     score += chain.totalErased * w.erasedBonus;
 
     if (b.isEmpty()) score += w.zenkeshiBonus;
@@ -326,26 +358,23 @@ static int evaluateBoard(const Board& b, const ChainResult& chain, const EvalWei
         }
     }
 
-    int maxH = 0;
-    for (int c = 0; c < COLS; c++) if (heights[c] > maxH) maxH = heights[c];
-
-    score += maxH * w.heightPenalty;
+    // ★ ペナルティ強化：自滅するまで積み込むのを防ぐ
+    // 左から3列目（インデックス2）の致命判定列
+    if (heights[2] >= 8) {
+        score += (heights[2] - 7) * w.heightPenalty; 
+    }
+    // 全体の高積みペナルティ（10段目以上でペナルティ）
+    for (int c = 0; c < COLS; c++) {
+        if (heights[c] >= 10) {
+            score += (heights[c] - 9) * (w.heightPenalty / 2);
+        }
+    }
 
     for (int c = 0; c < COLS - 1; c++) {
         int diff = std::abs(heights[c] - heights[c+1]);
         score += diff * w.heightDiffPenalty;
         if (diff == 0) score += w.flatBonus;
     }
-
-    int holes = 0;
-    for (int c = 0; c < COLS; c++) {
-        bool foundPuyo = false;
-        for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
-            if (b.cells[r][c] != 0) foundPuyo = true;
-            else if (foundPuyo) holes++;
-        }
-    }
-    score += holes * w.holePenalty;
 
     int connPairs = 0;
     for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
@@ -359,8 +388,26 @@ static int evaluateBoard(const Board& b, const ChainResult& chain, const EvalWei
     }
     score += connPairs * w.colorConnBonus;
 
+    // ★ 連鎖ポテンシャルボーナス（こちらも連鎖数の2乗に比例させる）
+    // 盤面に残したときの将来の連鎖力
+    int potential = calcChainPotential(b);
+    if (potential > 0) {
+        score += (potential * potential) * w.chainPotentialBonus;
+    }
+
     return score;
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 探索ノード（ビームサーチ用）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+struct SearchNode {
+    Board board;
+    int accumulatedScore;
+    int col1, rot1;
+    int col2, rot2;
+    int col3, rot3;
+};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Wasm エクスポート関数
@@ -376,24 +423,6 @@ void my_free(void* ptr) { free(ptr); }
 
 // ─────────────────────────────────────────────
 // searchBestMovePuyoWasm
-//
-// 引数:
-//   boardData   : uint8_t[17*6] = field[row][col] (内部行順)
-//   pivotColor  : 現在の軸ぷよ色 (1〜5)
-//   childColor  : 現在の子ぷよ色 (1〜5)
-//   next1Pivot  : NEXT1 軸ぷよ色
-//   next1Child  : NEXT1 子ぷよ色
-//   next2Pivot  : NEXT2 軸ぷよ色
-//   next2Child  : NEXT2 子ぷよ色
-//   weightsArray: int32[9] = EvalWeights
-//   outResult   : int32[7] 出力バッファ
-//     [0] = 最善手の軸ぷよ列 (0〜5), -1 = 探索失敗
-//     [1] = 最善手の向き (0〜3)
-//     [2] = 評価スコア
-//     [3] = 2手目の軸ぷよ列 (-1 = なし)
-//     [4] = 2手目の向き
-//     [5] = 3手目の軸ぷよ列 (-1 = なし)
-//     [6] = 3手目の向き
 // ─────────────────────────────────────────────
 EMSCRIPTEN_KEEPALIVE
 void searchBestMovePuyoWasm(
@@ -407,15 +436,15 @@ void searchBestMovePuyoWasm(
     for (int i = 0; i < 7; i++) outResult[i] = -1;
 
     EvalWeights w;
-    w.chainBonus        = weightsArray[0];
-    w.erasedBonus       = weightsArray[1];
-    w.heightPenalty     = weightsArray[2];
-    w.heightDiffPenalty = weightsArray[3];
-    w.holePenalty       = weightsArray[4];
-    w.flatBonus         = weightsArray[5];
-    w.colorConnBonus    = weightsArray[6];
-    w.zenkeshiBonus     = weightsArray[7];
-    w.p1Weight          = weightsArray[8];
+    w.chainBonus          = weightsArray[0];
+    w.erasedBonus         = weightsArray[1];
+    w.heightPenalty       = weightsArray[2];
+    w.heightDiffPenalty   = weightsArray[3];
+    w.flatBonus           = weightsArray[4];
+    w.colorConnBonus      = weightsArray[5];
+    w.zenkeshiBonus       = weightsArray[6];
+    w.chainPotentialBonus = weightsArray[7];
+    w.p1Weight            = weightsArray[8];
 
     // ★ TOTAL_ROWS = 17 に合わせて復元
     Board baseBoard;
@@ -423,17 +452,16 @@ void searchBestMovePuyoWasm(
         for (int c = 0; c < COLS; c++)
             baseBoard.cells[r][c] = boardData[r * COLS + c];
 
+    // ★ 各手で評価値上位を残す数（ビーム幅）
+    const int BEAM_WIDTH = 4;
+
+    // ─────────────────────────────────────────────
+    // 1手目（現在ぷよ）
+    // ─────────────────────────────────────────────
     std::vector<PairPlacement> placements1 = getAllPlacements(baseBoard);
     if (placements1.empty()) return;
 
-    int bestTotalScore  = -100000000;
-    int best1Col        = -1;
-    int best1Rot        = -1;
-    int best2Col        = -1;
-    int best2Rot        = -1;
-    int best3Col        = -1;
-    int best3Rot        = -1;
-
+    std::vector<SearchNode> nodes1;
     for (const auto& p1 : placements1) {
         Board board1 = applyPlacement(baseBoard, p1,
                                       (uint8_t)pivotColor, (uint8_t)childColor);
@@ -441,62 +469,95 @@ void searchBestMovePuyoWasm(
         int score1Raw = evaluateBoard(board1, chain1, w);
         int score1    = score1Raw * w.p1Weight / 100; 
 
-        std::vector<PairPlacement> placements2 = getAllPlacements(board1);
+        SearchNode node;
+        node.board = board1;
+        node.accumulatedScore = score1;
+        node.col1 = p1.col; node.rot1 = p1.rot;
+        node.col2 = -1;     node.rot2 = -1;
+        node.col3 = -1;     node.rot3 = -1;
+        nodes1.push_back(node);
+    }
 
+    // 評価値上位4つを残す
+    std::sort(nodes1.begin(), nodes1.end(), [](const SearchNode& a, const SearchNode& b) {
+        return a.accumulatedScore > b.accumulatedScore;
+    });
+    if (nodes1.size() > BEAM_WIDTH) nodes1.resize(BEAM_WIDTH);
+
+    // ─────────────────────────────────────────────
+    // 2手目（NEXT1）
+    // ─────────────────────────────────────────────
+    std::vector<SearchNode> nodes2;
+    for (const auto& node1 : nodes1) {
+        std::vector<PairPlacement> placements2 = getAllPlacements(node1.board);
         if (placements2.empty()) {
-            int total = score1;
-            if (total > bestTotalScore) {
-                bestTotalScore = total;
-                best1Col = p1.col; best1Rot = p1.rot;
-                best2Col = -1;    best2Rot = -1;
-                best3Col = -1;    best3Rot = -1;
-            }
+            nodes2.push_back(node1);
             continue;
         }
 
         for (const auto& p2 : placements2) {
-            Board board2 = applyPlacement(board1, p2,
+            Board board2 = applyPlacement(node1.board, p2,
                                           (uint8_t)next1Pivot, (uint8_t)next1Child);
             ChainResult chain2 = simulateChain(board2);
             int score2 = evaluateBoard(board2, chain2, w);
 
-            std::vector<PairPlacement> placements3 = getAllPlacements(board2);
-
-            if (placements3.empty()) {
-                int total = score1 + score2;
-                if (total > bestTotalScore) {
-                    bestTotalScore = total;
-                    best1Col = p1.col; best1Rot = p1.rot;
-                    best2Col = p2.col; best2Rot = p2.rot;
-                    best3Col = -1;     best3Rot = -1;
-                }
-                continue;
-            }
-
-            for (const auto& p3 : placements3) {
-                Board board3 = applyPlacement(board2, p3,
-                                              (uint8_t)next2Pivot, (uint8_t)next2Child);
-                ChainResult chain3 = simulateChain(board3);
-                int score3 = evaluateBoard(board3, chain3, w);
-
-                int total = score1 + score2 + score3;
-                if (total > bestTotalScore) {
-                    bestTotalScore = total;
-                    best1Col = p1.col; best1Rot = p1.rot;
-                    best2Col = p2.col; best2Rot = p2.rot;
-                    best3Col = p3.col; best3Rot = p3.rot;
-                }
-            }
+            SearchNode nextNode = node1;
+            nextNode.board = board2;
+            nextNode.accumulatedScore += score2; // スコアを累計
+            nextNode.col2 = p2.col;
+            nextNode.rot2 = p2.rot;
+            nodes2.push_back(nextNode);
         }
     }
 
-    outResult[0] = best1Col;
-    outResult[1] = best1Rot;
-    outResult[2] = bestTotalScore;
-    outResult[3] = best2Col;
-    outResult[4] = best2Rot;
-    outResult[5] = best3Col;
-    outResult[6] = best3Rot;
+    // 評価値上位4つを残す
+    std::sort(nodes2.begin(), nodes2.end(), [](const SearchNode& a, const SearchNode& b) {
+        return a.accumulatedScore > b.accumulatedScore;
+    });
+    if (nodes2.size() > BEAM_WIDTH) nodes2.resize(BEAM_WIDTH);
+
+    // ─────────────────────────────────────────────
+    // 3手目（NEXT2）
+    // ─────────────────────────────────────────────
+    std::vector<SearchNode> nodes3;
+    for (const auto& node2 : nodes2) {
+        std::vector<PairPlacement> placements3 = getAllPlacements(node2.board);
+        if (placements3.empty()) {
+            nodes3.push_back(node2);
+            continue;
+        }
+
+        for (const auto& p3 : placements3) {
+            Board board3 = applyPlacement(node2.board, p3,
+                                          (uint8_t)next2Pivot, (uint8_t)next2Child);
+            ChainResult chain3 = simulateChain(board3);
+            int score3 = evaluateBoard(board3, chain3, w);
+
+            SearchNode nextNode = node2;
+            nextNode.board = board3;
+            nextNode.accumulatedScore += score3; // スコアを累計
+            nextNode.col3 = p3.col;
+            nextNode.rot3 = p3.rot;
+            nodes3.push_back(nextNode);
+        }
+    }
+
+    // 最終的なスコアでソート
+    std::sort(nodes3.begin(), nodes3.end(), [](const SearchNode& a, const SearchNode& b) {
+        return a.accumulatedScore > b.accumulatedScore;
+    });
+
+    // 一番評価値が高かったものを出力
+    if (!nodes3.empty()) {
+        const auto& bestNode = nodes3.front();
+        outResult[0] = bestNode.col1;
+        outResult[1] = bestNode.rot1;
+        outResult[2] = bestNode.accumulatedScore;
+        outResult[3] = bestNode.col2;
+        outResult[4] = bestNode.rot2;
+        outResult[5] = bestNode.col3;
+        outResult[6] = bestNode.rot3;
+    }
 }
 
 } // extern "C"
