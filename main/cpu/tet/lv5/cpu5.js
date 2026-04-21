@@ -32,19 +32,19 @@ window.CPU5 = class {
             
             iWell: 60,           
             iWellOver: -234,      
-            blocksOverHole: -24, 
+            blocksOverHole: -125, 
             
             line4: 500,          
             downstackGood: 68,   
             downstackBad: -3,
 
-            tsdShape: 128,      
+            tsdShape: 64,      
             tsdShapeOver: -45, 
-            tsdFillBonus: 24,   
+            tsdFillBonus: 120,   
 
-            tssClear: 256,       
+            tssClear: 496,       
             tsdClear: 2560,      
-            tsdHolePenalty: -200, 
+            tsdHolePenalty: -600, 
             pureHole: -50,         
 
             comboBonus: 20,   
@@ -52,7 +52,7 @@ window.CPU5 = class {
             renCutPenalty: -200,
 
             tsmMiniPenalty: -1000,      
-            tMinoNoClearPenalty: -80, 
+            tMinoNoClearPenalty: -144, 
 
             tsdSetup: 80,         
             tsdSetupOver: -100,   
