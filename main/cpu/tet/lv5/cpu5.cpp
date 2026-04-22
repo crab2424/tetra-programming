@@ -141,6 +141,8 @@ bool isTSDShape(const Board& board, int cx, int cy) {
 
     if (!isSolid(cx - 1, cy + 1)) return false; // 左下の土台
     if (!isSolid(cx + 1, cy + 1)) return false; // 右下の土台
+    if (!isSolid(cx - 2, cy + 1)) return false; 
+    if (!isSolid(cx + 2, cy + 1)) return false; 
     
     bool leftRoof = (cy - 1 < 0) || (cx - 1 < 0) || (board.cells[cy-1][cx-1] && board.cells[cy][cx-2] != 0);
     bool rightRoof = (cy - 1 < 0) || (cx + 1 >= COLS) || (board.cells[cy-1][cx+1] && board.cells[cy-1][cx+2] != 0);

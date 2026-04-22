@@ -60,7 +60,7 @@ window.CPU5 = class {
             slopeBonus: 72,       
             slopePenalty: -36,    
 
-            P1_WEIGHT: 1.2,        
+            P1_WEIGHT: 1.0,        
         };
 
         this.worker = new Worker('cpu/tet/lv5/cpu_worker5.js');
