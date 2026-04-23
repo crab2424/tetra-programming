@@ -1198,7 +1198,7 @@ class Game{
         const is4Lines = (linesCleared === 4);
 
         // Scoring() の戻り値として火力（段数）を受け取る
-        const generatedGarbage = this.Scoring(tSpinResult, linesCleared, isPerfectClear);
+        let generatedGarbage = this.Scoring(tSpinResult, linesCleared, isPerfectClear);
         this.updateStatsDisplay();
 
         if (tSpinResult !== null || isB2BTriggered || currentRen > 0 || isPerfectClear || is4Lines) {
@@ -1247,11 +1247,21 @@ class Game{
                         const renTable = [0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5];
                         let renVal = (renForCalc >= renTable.length) ? 5 : renTable[renForCalc];
                         puyoAttack += renVal;
+
+                        // ★ 追加: 相殺用の内部火力(generatedGarbage)のRENボーナスを、攻撃用(ぷよ用RENテーブル)に合わせる
+                        let tetRenBonus = 0;
+                        if (renForCalc === 2 || renForCalc === 3) tetRenBonus = 1;
+                        else if (renForCalc === 4 || renForCalc === 5) tetRenBonus = 2;
+                        else if (renForCalc === 6 || renForCalc === 7) tetRenBonus = 3;
+                        else if (renForCalc >= 8 && renForCalc <= 12) tetRenBonus = 4;
+                        else if (renForCalc >= 13) tetRenBonus = 5;
+                        
+                        generatedGarbage = generatedGarbage - tetRenBonus + renVal;
                     }
 
                     // 2. 「今回発生した火力(generatedGarbage)」のみを使って相殺を試みる（溜まっているゲージは使わない）
                     let canceledGarbage = 0;
-                    let remainGenerated = generatedGarbage; // 今回のテト基準火力
+                    let remainGenerated = generatedGarbage; // 今回のテト基準火力（RENはぷよ基準に書き換わった状態）
 
                     if (this.garbageQueue.length > 0 && generatedGarbage > 0) {
                         remainGenerated = this.offsetGarbage(generatedGarbage);

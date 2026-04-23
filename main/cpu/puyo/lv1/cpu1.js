@@ -13,7 +13,7 @@ window.PuyoCPU = class {
         // ────────────────────────────────
         this.weights = {
             chainBonus:           5,  // 連鎖消去ボーナス（実際に消えた連鎖数への報酬）
-            erasedBonus:         -3,  // 消去ぷよ数ボーナス（負値で無意味な1連鎖を抑制）
+            erasedBonus:        -50,  // 消去ぷよ数ボーナス（負値で無意味な1連鎖を抑制）
             heightPenalty:     -200,
             heightDiffPenalty:   -8,
             // holePenalty: 0,        // ★ ぷよの仕様上ホールは発生しないため無効化
@@ -71,32 +71,9 @@ window.PuyoCPU = class {
         this.worker.onerror = (err) => {
             console.error('❌ PuyoCPU Worker Error:', err.message, err.filename, err.lineno);
         };
-
-        // ────────────────────────────────
-        // ★ CPU操作時のPauseキー監視
-        // ────────────────────────────────
-        this._pauseListener = (e) => {
-            if (!this.isActive) return;
-            
-            const gamePage = document.getElementById('game-page');
-            const versusPage = document.getElementById('versus-page');
-            if (!(gamePage && gamePage.classList.contains('active')) &&
-                !(versusPage && versusPage.classList.contains('active'))) {
-                return;
-            }
-            
-            const ks = (typeof loadKeys === 'function') ? loadKeys() : {};
-            const pauseKey = ks.pause ? ks.pause.code : 'Escape';
-            
-            if (e.code === pauseKey) {
-                e.preventDefault();
-                if (!this.game.isVersusMode) {
-                    if (typeof this.game._onPauseKey === 'function') {
-                        this.game._onPauseKey();
-                    }
-                }
-            }
-        };
+        
+        // ★ 注意: ゲームのポーズ操作は p_game.js 本体側で処理するため、
+        // ここに存在していた _pauseListener は削除し、競合を排除しました。
     }
 
     // ══════════════════════════════════════════════
@@ -107,7 +84,6 @@ window.PuyoCPU = class {
         this.isActive = true;
         this.hasCalculatedForCurrentPiece = false;
         this._initEstimateContainer(); 
-        document.addEventListener('keydown', this._pauseListener);
         this._updateLoop();
     }
 
@@ -126,8 +102,6 @@ window.PuyoCPU = class {
         }
 
         this._restoreGravity(); // 中断時も確実に重力を元に戻す
-
-        document.removeEventListener('keydown', this._pauseListener);
 
         if (this.estimateContainer) {
             this.estimateContainer.innerHTML = '';
@@ -151,7 +125,7 @@ window.PuyoCPU = class {
 
         if (game._gs === 'falling') {
             // ★ falling状態に入ってから、まだ計算していなければ1度だけ計算する
-            if (!this.hasCalculatedForCurrentPiece) {
+            if (!this.hasCalculatedForCurrentPiece && this.workerReady && !this.isCalculating && game && game.state === 'playing') {
                 this.hasCalculatedForCurrentPiece = true;
                 
                 this.isExecutingAction = false;

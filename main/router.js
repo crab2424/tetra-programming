@@ -200,6 +200,23 @@ function loadCpuScript(level, rule) {
   });
 }
 
+// ★ フォールバック付きのCPUロード関数（カウントダウン中に非同期で呼ばれる）
+async function loadCpuWithFallback(targetLevel, rule) {
+  for (let lv = targetLevel; lv >= 1; lv--) {
+    try {
+      const CPUClass = await loadCpuScript(lv, rule);
+      if (lv !== targetLevel) {
+        alert(`指定されたCPU(LV ${targetLevel})の読み込みに失敗しました。\n現在CPUは LV ${lv} まで実装しています。\nLV ${lv} を読み込んで開始します。`);
+      }
+      return CPUClass;
+    } catch (e) {
+      console.warn(`CPU LV ${lv} (${rule}) の読み込みに失敗しました。`);
+      // 失敗した場合は1つ下のレベルを試すループが続く
+    }
+  }
+  throw new Error("CPUスクリプトのロードに全て失敗しました。");
+}
+
 function unloadCpuScript() {
   if (activeCpuScript && activeCpuScript.parentNode) {
     activeCpuScript.parentNode.removeChild(activeCpuScript);
@@ -349,6 +366,7 @@ function createSeededRandom(seed) {
 
 async function startVersusGame() {
   stopAllGames(); // 開始前に完全に状態をリセット
+  const sessionId = currentSessionId; // カウントダウン後にセッションが有効か確認するために保持
 
   const cpuConfig = CPU_LEVELS[selectedCpuLevel];
   switchPage('versus');
@@ -429,24 +447,19 @@ async function startVersusGame() {
       window._cpuGame.updateStatsDisplay();
   }
 
-  // ─── CPUスクリプト読み込み ───
-  let CPUClass;
-  try {
-    CPUClass = await loadCpuScript(selectedCpuLevel, versusCpuRule);
-  } catch (e) {
-    console.warn("CPUスクリプトの読み込みに失敗しました。自由落下になります。");
-    CPUClass = null;
-  }
-
-  const sessionId = currentSessionId;
-
   // ─── カウントダウンとゲーム開始 ───
+  // ★ カウントダウンの開始と同時に非同期でCPUのスクリプト読み込みを開始する
+  let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, versusCpuRule).catch(e => {
+    console.warn("CPUスクリプトの読み込みに失敗しました。自由落下になります。");
+    return null;
+  });
+
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
     if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
     window._game._startGameplay();
   }, null);
 
-  runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
+  runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', async () => {
     if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
     
     if (window._cpuController && typeof window._cpuController.stop === 'function') {
@@ -454,7 +467,9 @@ async function startVersusGame() {
     }
     window._cpuGame._startGameplay();
     
-    if (CPUClass) {
+    // ★ ロード完了を待ってからスタート操作を開始する
+    const CPUClass = await cpuLoadPromise;
+    if (CPUClass && currentSessionId === sessionId) { // 待機中にセッションが変わっていないか再確認
         window._cpuController = new CPUClass(window._cpuGame);
         if (typeof window._cpuController.start === 'function') {
             window._cpuController.start();
@@ -744,6 +759,7 @@ function renderModeCheck() {
 
 async function startGameFromModeCheck() {
   stopAllGames(); // 開始前に完全に状態をリセット
+  const sessionId = currentSessionId;
 
   if (!window._game && !window._puyoGame) window._game = new Game();
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
@@ -752,7 +768,6 @@ async function startGameFromModeCheck() {
   if (modeId === 'puyo') {
     _switchToPuyoLayout(true);
     
-    // ★ 修正: CPUテストモード等で true にされたフラグを確実に false に戻す
     if (window._puyoGame) {
         window._puyoGame.isCpuControlled = false;
         window._puyoGame.isVersusMode = false;
@@ -779,23 +794,26 @@ async function startGameFromModeCheck() {
     }
 
     switchPage('game');
-    window._puyoGame.start();
-
-    let CPUClass;
-    try {
-      CPUClass = await loadCpuScript(selectedCpuLevel, 'puyo');
-    } catch (e) {
+    setupGlobalCpuPauseKey(); 
+    
+    // ★ カウントダウン(ある場合)と同時にバックグラウンドで読み込み
+    let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, 'puyo').catch(e => {
       alert("CPUスクリプトの読み込みに失敗しました。");
-      return;
-    }
+      return null;
+    });
 
-    if (CPUClass) {
-      window._cpuController = new CPUClass(window._puyoGame);
-      window._cpuController.isAutoPlay = testCpuControl;
-      if (typeof window._cpuController.start === 'function') {
-        window._cpuController.start();
-      }
-    }
+    window._puyoGame.start(); // ここでカウントダウン開始
+
+    // ロード完了したらゲームにアタッチ（カウントダウン完了後に実行されるよう待機）
+    cpuLoadPromise.then(CPUClass => {
+        if (CPUClass && currentSessionId === sessionId) {
+          window._cpuController = new CPUClass(window._puyoGame);
+          window._cpuController.isAutoPlay = testCpuControl;
+          if (typeof window._cpuController.start === 'function') {
+            window._cpuController.start();
+          }
+        }
+    });
     return;
   }
 
@@ -829,22 +847,30 @@ async function startGameFromModeCheck() {
   }
 
   switchPage('game');
-  window._game.start();
-
+  setupGlobalCpuPauseKey(); 
+  
+  let cpuLoadPromise = null;
   if (modeId === 'test' && testRule === 'tet') {
     window._game.isCpuControlled = testCpuControl;
-
-    let CPUClass;
-    try {
-      CPUClass = await loadCpuScript(selectedCpuLevel, 'tet');
-    } catch (e) {
+    cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, 'tet').catch(e => {
       alert("CPUスクリプトの読み込みに失敗しました。");
-      return;
-    }
+      return null;
+    });
+  }
 
-    window._cpuController = new CPUClass(window._game);
-    window._cpuController.isAutoPlay = testCpuControl;
-    window._cpuController.start();
+  window._game.start();
+
+  // ★ ロードが完了し次第アタッチして操作開始
+  if (cpuLoadPromise) {
+    cpuLoadPromise.then(CPUClass => {
+      if (CPUClass && currentSessionId === sessionId) {
+        window._cpuController = new CPUClass(window._game);
+        window._cpuController.isAutoPlay = testCpuControl;
+        if (typeof window._cpuController.start === 'function') {
+            window._cpuController.start();
+        }
+      }
+    });
   }
 }
 
@@ -904,4 +930,44 @@ function _switchToPuyoLayout(isPuyo) {
     if (resLevelLabel) resLevelLabel.textContent = 'LEVEL';
     if (resLinesLabel) resLinesLabel.textContent = 'LINES';
   }
+}
+
+// ─────────────────────────────────────────────
+// ★ テストモード (CPU操作ON) 時にプレイヤーのポーズ操作を補完する機能
+// ─────────────────────────────────────────────
+function setupGlobalCpuPauseKey() {
+  if (window._globalCpuPauseHandler) {
+    document.removeEventListener('keydown', window._globalCpuPauseHandler);
+  }
+  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { code: 'Escape' } };
+  
+  window._globalCpuPauseHandler = function(e) {
+    const gamePage = document.getElementById('game-page');
+    // シングルプレイ画面以外なら何もしない
+    if (!gamePage || !gamePage.classList.contains('active')) return;
+    
+    // ★ ぷよぷよ側は p_game.js 自身がポーズを処理するので、テト側のみここで補完する
+    if (currentGameMode && currentGameMode.id === 'test' && testRule === 'tet' && window._game && window._game.isCpuControlled) {
+        if (e.code === keys.pause.code) {
+            if (e.defaultPrevented) return;
+            e.preventDefault();
+            
+            if (typeof togglePause === 'function') {
+                togglePause();
+            } else {
+                const overlay = document.getElementById('pause-overlay');
+                if (overlay) {
+                    if (overlay.classList.contains('active')) {
+                        overlay.classList.remove('active');
+                        if (typeof window._game.resume === 'function') window._game.resume();
+                    } else {
+                        if (typeof window._game.pause === 'function') window._game.pause();
+                        overlay.classList.add('active');
+                    }
+                }
+            }
+        }
+    }
+  };
+  document.addEventListener('keydown', window._globalCpuPauseHandler);
 }
