@@ -1718,7 +1718,7 @@ class PuyoGame {
 
     _setKeyHandlers() {
         this._removeKeyHandlers();
-        if (this.isCpuControlled) return;
+        // ★ CPU操作モードであっても、PauseとRestartはプレイヤーの操作を受け付けるため、ここで早期リターンはしない
 
         const ks = (typeof loadKeys === 'function') ? loadKeys() : {};
         this._keyMap = {
@@ -1740,6 +1740,7 @@ class PuyoGame {
             const isRepeat = e.repeat;
             this._keys[e.code] = true;
 
+            // ★ PauseとRestartキーは、CPU操作時であっても処理を優先して通す
             if (e.code === this._keyMap.restart) {
                 e.preventDefault();
                 if (!this.isVersusMode) {
@@ -1757,6 +1758,9 @@ class PuyoGame {
                 }
                 return;
             }
+
+            // ★ これ以降の操作（移動、回転、ドロップ等）は、CPU制御時にはプレイヤーの入力を無視する
+            if (this.isCpuControlled) return;
 
             if (this._gs === 'spawnAnim' && !isRepeat) {
                 if (e.code === this._keyMap.moveLeft)  this.inputBuffer.push('left');

@@ -366,7 +366,7 @@ static int evaluateBoard(const Board& b, const ChainResult& chain, const EvalWei
     // 全体の高積みペナルティ（10段目以上でペナルティ）
     for (int c = 0; c < COLS; c++) {
         if (heights[c] >= 10) {
-            score += (heights[c] - 9) * (w.heightPenalty / 2);
+            score += (heights[c] - 9) * (w.heightPenalty / 3);
         }
     }
 
@@ -448,9 +448,26 @@ void searchBestMovePuyoWasm(
 
     // ★ TOTAL_ROWS = 17 に合わせて復元
     Board baseBoard;
-    for (int r = 0; r < TOTAL_ROWS; r++)
-        for (int c = 0; c < COLS; c++)
+    int initialPuyoCount = 0; // ★ 追加: 初期盤面のぷよ数をカウント
+    for (int r = 0; r < TOTAL_ROWS; r++) {
+        for (int c = 0; c < COLS; c++) {
             baseBoard.cells[r][c] = boardData[r * COLS + c];
+            // 表示領域（HIDDEN行以降）で、空(0)でないセル（おじゃまぷよ含む）をカウント
+            if (r >= HIDDEN && baseBoard.cells[r][c] != 0) {
+                initialPuyoCount++;
+            }
+        }
+    }
+
+    // ★ 追加: ぷよを積みすぎてゲームオーバーにならないための緊急回避
+    // フィールドに存在するぷよの個数が半分(ROWS * COLS / 2 = 36)を超えた時、
+    // erasedBonus を強制的に正の値にして、1連鎖でも積極的に消しに行くようにする
+    if (initialPuyoCount > (ROWS * COLS) / 3) {
+        if (w.erasedBonus <= 0) {
+            w.erasedBonus = std::abs(w.erasedBonus) * 10;
+            if (w.erasedBonus == 0) w.erasedBonus = 3; // 0の場合は適当な正の値を設定
+        }
+    }
 
     // ★ 各手で評価値上位を残す数（ビーム幅）
     const int BEAM_WIDTH = 4;
