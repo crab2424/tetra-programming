@@ -38,16 +38,36 @@ const GAME_MODES = {
     descriptionEn: 'Test mode for CPU behavior. ',
     color:       'var(--success)',
   },
+  puyo: {
+    id:          'puyo',
+    label:       'PUYO',
+    icon:        '🫧',
+    description: 'ぷよモードシングルプレイ。',
+    descriptionEn: 'Chain combos to score as high as possible.',
+    color:       'var(--accent2)',
+  },
 };
 
 let testCpuControl = true; 
+let testRule = 'puyo';
 
 function setTestCpuControl(isOn) {
   testCpuControl = isOn;
   renderModeCheck();
 }
 
+function setTestRule(rule) {
+  testRule = rule;
+  renderModeCheck();
+}
+
 let currentGameMode = null;
+let versusRule = 'puyo'; // 既存の互換性のため残す
+let versusPlayerRule = 'puyo'; // プレイヤー側のルール ('tet' or 'puyo')
+let versusCpuRule = 'puyo';    // CPU側のルール ('tet' or 'puyo')
+
+// カウントダウン中の中断を防ぐためのセッション管理
+let currentSessionId = 0;
 
 // ─── VERSUSモード用グローバル変数 ──────────────
 const CPU_LEVELS = {
@@ -60,24 +80,102 @@ const CPU_LEVELS = {
 let selectedCpuLevel = 1; 
 
 const CPU_CONFIGS = {
-  1: { className: 'CPU',  src: 'cpu/cpu.js' },  
-  2: { className: 'CPU2', src: 'cpu/lv2/cpu2.js' },
-  3: { className: 'CPU3', src: 'cpu/lv3/cpu3.js' },
-  4: { className: 'CPU4', src: 'cpu/lv4/cpu4.js' }, 
-  5: { className: 'CPU5', src: 'cpu/lv5/cpu5.js' }  
+  tet: {
+    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js' },  
+    2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js' },
+    3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js' },
+    4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js' }, 
+    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js' }  
+  },
+  puyo: {
+    1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu1.js' },  
+    2: { className: 'PuyoCPU2', src: 'cpu/puyo/lv2/cpu2.js' },
+    3: { className: 'PuyoCPU3', src: 'cpu/puyo/lv3/cpu3.js' },
+    4: { className: 'PuyoCPU4', src: 'cpu/puyo/lv4/cpu4.js' }, 
+    5: { className: 'PuyoCPU5', src: 'cpu/puyo/lv5/cpu5.js' }  
+  }
 };
+
+// ─── ゲーム進行の中断・破棄機能 ──────────────
+// 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
+function stopAllGames() {
+    currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
+    
+    const stopGameInstance = (gameInst) => {
+        if (!gameInst) return;
+        
+        // ★ 修正: PuyoGame と Tetris (Game) インスタンスを確実に区別して停止処理を行う
+        if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
+            // Puyo の停止処理
+            if (typeof gameInst.stop === 'function') {
+                gameInst.stop();
+            }
+        } else {
+            // tet の停止処理
+            if (typeof gameInst.gameOver === 'function') { 
+                if (gameInst.timer) { clearInterval(gameInst.timer); gameInst.timer = null; }
+                if (gameInst.lockTimer) { clearTimeout(gameInst.lockTimer); gameInst.lockTimer = null; }
+                gameInst.isPaused = true;
+                if (gameInst.isTimerRunning) {
+                    gameInst.elapsedTime += performance.now() - gameInst.startTime;
+                    gameInst.isTimerRunning = false;
+                    if (gameInst.timerReqId) cancelAnimationFrame(gameInst.timerReqId);
+                }
+                if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
+                if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
+                if (gameInst._keyLoop) { clearInterval(gameInst._keyLoop); gameInst._keyLoop = null; }
+            }
+        }
+    };
+
+    // 存在しうる全インスタンスを停止
+    stopGameInstance(window._game);
+    stopGameInstance(window._cpuGame);
+    stopGameInstance(window._puyoGame);
+    stopGameInstance(window._puyoGamePlayer);
+    stopGameInstance(window._puyoGameCpu);
+    stopGameInstance(window._tetGamePlayer);
+    stopGameInstance(window._tetGameCpu);
+
+    if (window._cpuController && typeof window._cpuController.stop === 'function') {
+        window._cpuController.stop();
+    }
+    window._cpuController = null;
+    unloadCpuScript();
+
+    // カウントダウン・フィニッシュのオーバーレイを消去し、リセット
+    document.querySelectorAll('.field-overlay').forEach(el => {
+        el.classList.remove('active');
+        el.style.opacity = '';
+        el.classList.remove('fadeout');
+    });
+    
+    // pause overlay も消す
+    document.getElementById('pause-overlay')?.classList.remove('active');
+    document.getElementById('versus-pause-overlay')?.classList.remove('active');
+
+    // オーバーレイ内のテキストも消去
+    document.querySelectorAll('.countdown-text, .finish-text').forEach(el => {
+        el.textContent = '';
+        el.className = el.className.replace(/countdown-pop|finish-clear|finish-gameover/g, '').trim();
+    });
+
+    document.querySelectorAll('.garbage-gauge, .attack-gauge').forEach(el => {
+        el.innerHTML = '';
+        if (el.classList.contains('attack-gauge')) {
+            el.style.display = 'none';
+        }
+    });
+}
 
 // ─── CPU動的ロード・破棄システム ──────────────
 let activeCpuScript = null;
 let activeCpuClassName = null;
 
-/**
- * 指定レベルのCPUスクリプトを動的にロードする
- */
-function loadCpuScript(level) {
+function loadCpuScript(level, rule) {
   return new Promise((resolve, reject) => {
-    const config = CPU_CONFIGS[level];
-    if (!config) return reject(new Error("Invalid CPU Level"));
+    const config = CPU_CONFIGS[rule][level];
+    if (!config) return reject(new Error("Invalid CPU Level or Rule"));
 
     if (activeCpuClassName === config.className && window[config.className]) {
       return resolve(window[config.className]);
@@ -102,20 +200,28 @@ function loadCpuScript(level) {
   });
 }
 
-/**
- * ロードされているCPUスクリプトとWorkerを完全に破棄する
- */
-function unloadCpuScript() {
-  if (window._cpuController) {
-    window._cpuController.stop(); 
-    window._cpuController = null;
+// ★ フォールバック付きのCPUロード関数（カウントダウン中に非同期で呼ばれる）
+async function loadCpuWithFallback(targetLevel, rule) {
+  for (let lv = targetLevel; lv >= 1; lv--) {
+    try {
+      const CPUClass = await loadCpuScript(lv, rule);
+      if (lv !== targetLevel) {
+        alert(`指定されたCPU(LV ${targetLevel})の読み込みに失敗しました。\n現在CPUは LV ${lv} まで実装しています。\nLV ${lv} を読み込んで開始します。`);
+      }
+      return CPUClass;
+    } catch (e) {
+      console.warn(`CPU LV ${lv} (${rule}) の読み込みに失敗しました。`);
+      // 失敗した場合は1つ下のレベルを試すループが続く
+    }
   }
+  throw new Error("CPUスクリプトのロードに全て失敗しました。");
+}
 
+function unloadCpuScript() {
   if (activeCpuScript && activeCpuScript.parentNode) {
     activeCpuScript.parentNode.removeChild(activeCpuScript);
     activeCpuScript = null;
   }
-
   if (activeCpuClassName && window[activeCpuClassName]) {
     delete window[activeCpuClassName];
     activeCpuClassName = null;
@@ -125,6 +231,22 @@ function unloadCpuScript() {
 // ─────────────────────────────────────────────
 function goToVersusCheck() {
   switchPage('versus-check');
+}
+
+function setVersusPlayerRule(rule) {
+  versusPlayerRule = rule;
+  const tetBtn = document.getElementById('opt-rule-player-tet');
+  const puyoBtn = document.getElementById('opt-rule-player-puyo');
+  if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
+  if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
+}
+
+function setVersusCpuRule(rule) {
+  versusCpuRule = rule;
+  const tetBtn = document.getElementById('opt-rule-cpu-tet');
+  const puyoBtn = document.getElementById('opt-rule-cpu-puyo');
+  if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
+  if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
 }
 
 function renderVersusCheck() {
@@ -171,14 +293,80 @@ function setCpuLevel(lv) {
   if (descEl) descEl.textContent = CPU_LEVELS[lv].desc;
 }
 
-async function startVersusGame() {
-  if (!window._game) return;
+function _switchToVersusPuyoLayout(isPuyo) {
+    const tetCanvases = [
+        'player-main-canvas', 'player-next-canvas', 'player-hold-canvas',
+        'cpu-main-canvas', 'cpu-next-canvas', 'cpu-hold-canvas'
+    ];
+    const puyoCanvases = [
+        'player-puyo-main-canvas', 'player-puyo-next-canvas',
+        'cpu-puyo-main-canvas', 'cpu-puyo-next-canvas'
+    ];
 
-  // ★追加：既存のCPUコントローラーが動いていれば完全に停止・破棄する（二重起動防止）
-  if (window._cpuController) {
-    window._cpuController.stop();
-    window._cpuController = null;
-  }
+    tetCanvases.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isPuyo ? 'none' : '';
+    });
+    puyoCanvases.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isPuyo ? '' : 'none';
+    });
+
+    document.querySelectorAll('.versus-label-hold, .versus-label-hold-cpu').forEach(el => {
+        el.style.display = isPuyo ? 'none' : '';
+    });
+}
+
+function _switchToVersusMixedLayout(playerRule, cpuRule) {
+    const isPlayerPuyo = playerRule === 'puyo';
+    const isCpuPuyo = cpuRule === 'puyo';
+
+    // Player側のキャンバス切り替え
+    const playerTetCanvases = ['player-main-canvas', 'player-next-canvas', 'player-hold-canvas'];
+    const playerPuyoCanvases = ['player-puyo-main-canvas', 'player-puyo-next-canvas'];
+
+    playerTetCanvases.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isPlayerPuyo ? 'none' : '';
+    });
+    playerPuyoCanvases.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isPlayerPuyo ? '' : 'none';
+    });
+    document.querySelectorAll('.versus-label-hold').forEach(el => {
+        el.style.display = isPlayerPuyo ? 'none' : '';
+    });
+
+    // CPU側のキャンバス切り替え
+    const cpuTetCanvases = ['cpu-main-canvas', 'cpu-next-canvas', 'cpu-hold-canvas'];
+    const cpuPuyoCanvases = ['cpu-puyo-main-canvas', 'cpu-puyo-next-canvas'];
+
+    cpuTetCanvases.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isCpuPuyo ? 'none' : '';
+    });
+    cpuPuyoCanvases.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isCpuPuyo ? '' : 'none';
+    });
+    document.querySelectorAll('.versus-label-hold-cpu').forEach(el => {
+        el.style.display = isCpuPuyo ? 'none' : '';
+    });
+}
+
+function createSeededRandom(seed) {
+    let s = seed;
+    return function() {
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        return (s >>> 0) / 4294967296;
+    }
+}
+
+async function startVersusGame() {
+  stopAllGames(); // 開始前に完全に状態をリセット
+  const sessionId = currentSessionId; // カウントダウン後にセッションが有効か確認するために保持
 
   const cpuConfig = CPU_LEVELS[selectedCpuLevel];
   switchPage('versus');
@@ -186,10 +374,38 @@ async function startVersusGame() {
   const cpuLevelDisp = document.getElementById('versus-cpu-level-display');
   if (cpuLevelDisp) cpuLevelDisp.textContent = 'CPU ' + cpuConfig.label;
 
-  // 追加: CPU側フィールド上のラベルも書き換える
   const cpuSideLabel = document.getElementById('versus-cpu-side-label');
   if (cpuSideLabel) cpuSideLabel.textContent = 'CPU ' + cpuConfig.label;
 
+  const sharedSeed = Math.floor(Math.random() * 1000000);
+
+  const isPlayerPuyo = versusPlayerRule === 'puyo';
+  const isCpuPuyo = versusCpuRule === 'puyo';
+
+  // 混合レイアウトの適用
+  _switchToVersusMixedLayout(versusPlayerRule, versusCpuRule);
+
+  // ─── Player インスタンス生成 ───
+  if (isPlayerPuyo) {
+      if (!window._puyoGamePlayer) window._puyoGamePlayer = new PuyoGame('player');
+      window._game = window._puyoGamePlayer;
+      window._game.rng = createSeededRandom(sharedSeed);
+  } else {
+      if (!window._tetGamePlayer) window._tetGamePlayer = new Game('player');
+      window._game = window._tetGamePlayer;
+  }
+
+  // ─── CPU インスタンス生成 ───
+  if (isCpuPuyo) {
+      if (!window._puyoGameCpu) window._puyoGameCpu = new PuyoGame('cpu');
+      window._cpuGame = window._puyoGameCpu;
+      window._cpuGame.rng = createSeededRandom(sharedSeed);
+  } else {
+      if (!window._tetGameCpu) window._tetGameCpu = new Game('cpu');
+      window._cpuGame = window._tetGameCpu;
+  }
+
+  // ─── 共通設定 ───
   window._game.currentMode = 'versus';
   window._game.marathonGoal = Infinity;
   window._game.isVersusMode = true;
@@ -197,13 +413,7 @@ async function startVersusGame() {
   window._game.statsPrefix = 'player';
   window._game._labelsInitialized = false;
   window._game.isCpuControlled = false;
-  window._game.initMainCanvas();
-  window._game.initNextCanvas();
-  window._game.initHoldCanvas();
 
-  if (!window._cpuGame) {
-    window._cpuGame = new Game('cpu');
-  }
   window._cpuGame.currentMode = 'versus';
   window._cpuGame.marathonGoal = Infinity;
   window._cpuGame.isVersusMode = true;
@@ -211,43 +421,60 @@ async function startVersusGame() {
   window._cpuGame.statsPrefix = 'cpu';
   window._cpuGame.isCpuControlled = true;
   window._cpuGame._labelsInitialized = false;
-  window._cpuGame.initMainCanvas();
-  window._cpuGame.initNextCanvas();
-  window._cpuGame.initHoldCanvas();
 
-  document.getElementById('pause-overlay')?.classList.remove('active');
-  document.getElementById('versus-pause-overlay')?.classList.remove('active');
-
-  window._game._initGameState();
-  window._cpuGame._initGameState();
-  window._game.setKeyEvent();
-
-  window._game.level = 2;
-  window._cpuGame.level = 2;
-  window._game.updateStatsDisplay();
-  window._cpuGame.updateStatsDisplay();
-
-  let CPUClass;
-  try {
-    CPUClass = await loadCpuScript(selectedCpuLevel);
-  } catch (e) {
-    alert("CPUスクリプトの読み込みに失敗しました。");
-    return;
+  // ─── Player 初期化 ───
+  if (isPlayerPuyo) {
+      await new Promise(resolve => window._game.initGame(resolve));
+  } else {
+      window._game.initMainCanvas();
+      window._game.initNextCanvas();
+      window._game.initHoldCanvas();
+      window._game._initGameState();
+      window._game.setKeyEvent();
+      window._game.level = 2;
+      window._game.updateStatsDisplay();
   }
 
+  // ─── CPU 初期化 ───
+  if (isCpuPuyo) {
+      await new Promise(resolve => window._cpuGame.initGame(resolve));
+  } else {
+      window._cpuGame.initMainCanvas();
+      window._cpuGame.initNextCanvas();
+      window._cpuGame.initHoldCanvas();
+      window._cpuGame._initGameState();
+      window._cpuGame.level = 2;
+      window._cpuGame.updateStatsDisplay();
+  }
+
+  // ─── カウントダウンとゲーム開始 ───
+  // ★ カウントダウンの開始と同時に非同期でCPUのスクリプト読み込みを開始する
+  let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, versusCpuRule).catch(e => {
+    console.warn("CPUスクリプトの読み込みに失敗しました。自由落下になります。");
+    return null;
+  });
+
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
+    if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
     window._game._startGameplay();
   }, null);
 
-  runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
-    // ★念のためカウントダウンコールバック内でも再確認して破棄
-    if (window._cpuController) {
+  runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', async () => {
+    if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
+    
+    if (window._cpuController && typeof window._cpuController.stop === 'function') {
       window._cpuController.stop();
     }
     window._cpuGame._startGameplay();
     
-    window._cpuController = new CPUClass(window._cpuGame);
-    window._cpuController.start();
+    // ★ ロード完了を待ってからスタート操作を開始する
+    const CPUClass = await cpuLoadPromise;
+    if (CPUClass && currentSessionId === sessionId) { // 待機中にセッションが変わっていないか再確認
+        window._cpuController = new CPUClass(window._cpuGame);
+        if (typeof window._cpuController.start === 'function') {
+            window._cpuController.start();
+        }
+    }
   }, null);
 
   setupVersusPauseKey();
@@ -276,8 +503,8 @@ function toggleVersusPause() {
   if (isPaused) {
     resumeVersus();
   } else {
-    if (window._game) window._game.pause();
-    if (window._cpuGame) window._cpuGame.pause();
+    if (window._game && typeof window._game.pause === 'function') window._game.pause();
+    if (window._cpuGame && typeof window._cpuGame.pause === 'function') window._cpuGame.pause();
     overlay.classList.add('active');
   }
 }
@@ -285,8 +512,8 @@ function toggleVersusPause() {
 function resumeVersus() {
   const overlay = document.getElementById('versus-pause-overlay');
   if (overlay) overlay.classList.remove('active');
-  if (window._game) window._game.resume();
-  if (window._cpuGame) window._cpuGame.resume();
+  if (window._game && typeof window._game.resume === 'function') window._game.resume();
+  if (window._cpuGame && typeof window._cpuGame.resume === 'function') window._cpuGame.resume();
 }
 
 function restartVersus() {
@@ -297,39 +524,42 @@ function restartVersus() {
 
 function restartVersusFromResult() {
   startVersusGame();
-  switchPage('versus');
 }
 
 function versusGameOver(loser) {
-  if (window._game) {
-    clearInterval(window._game.timer);
-    window._game.timer = null;
-    clearTimeout(window._game.lockTimer);
-    window._game.lockTimer = null;
-    window._game.isPaused = true;
-    if (window._game.isTimerRunning) {
-      window._game.elapsedTime += performance.now() - window._game.startTime;
-      window._game.isTimerRunning = false;
-      cancelAnimationFrame(window._game.timerReqId);
-    }
-    if (window._game._keyDownHandler) document.removeEventListener('keydown', window._game._keyDownHandler);
-    if (window._game._keyUpHandler)   document.removeEventListener('keyup',   window._game._keyUpHandler);
-    if (window._game._keyLoop)        clearInterval(window._game._keyLoop);
-  }
+  // ★ 修正: ここでも Tetris と Puyo を確実に区別する
+  const stopGame = (gameInst) => {
+      if (!gameInst) return;
+      if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
+          if (typeof gameInst.stop === 'function') {
+              gameInst.stop();
+              gameInst.state = 'gameover';
+          }
+      } else {
+          if (typeof gameInst.gameOver === 'function') { 
+              // tet
+              if (gameInst.timer) clearInterval(gameInst.timer);
+              gameInst.timer = null;
+              if (gameInst.lockTimer) clearTimeout(gameInst.lockTimer);
+              gameInst.lockTimer = null;
+              gameInst.isPaused = true;
+              if (gameInst.isTimerRunning) {
+                  gameInst.elapsedTime += performance.now() - gameInst.startTime;
+                  gameInst.isTimerRunning = false;
+                  if (gameInst.timerReqId) cancelAnimationFrame(gameInst.timerReqId);
+              }
+              if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
+              if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
+              if (gameInst._keyLoop)        clearInterval(gameInst._keyLoop);
+          }
+      }
+  };
 
-  if(window._cpuController) window._cpuController.stop();
-
-  if (window._cpuGame) {
-    clearInterval(window._cpuGame.timer);
-    window._cpuGame.timer = null;
-    clearTimeout(window._cpuGame.lockTimer);
-    window._cpuGame.lockTimer = null;
-    window._cpuGame.isPaused = true;
-    if (window._cpuGame.isTimerRunning) {
-      window._cpuGame.elapsedTime += performance.now() - window._cpuGame.startTime;
-      window._cpuGame.isTimerRunning = false;
-      cancelAnimationFrame(window._cpuGame.timerReqId);
-    }
+  stopGame(window._game);
+  stopGame(window._cpuGame);
+  
+  if (window._cpuController && typeof window._cpuController.stop === 'function') {
+      window._cpuController.stop();
   }
 
   const overlay = document.getElementById('versus-pause-overlay');
@@ -357,9 +587,16 @@ function versusGameOver(loser) {
       }
     }
     if (winnerEl) winnerEl.textContent = winner;
+    
     document.getElementById('versus-result-player-score').textContent = window._game ? window._game.score : 0;
     document.getElementById('versus-result-cpu-score').textContent    = window._cpuGame ? window._cpuGame.score : 0;
-    document.getElementById('versus-result-player-lines').textContent = window._game ? window._game.lines : 0;
+    
+    let pLines = 0;
+    if (window._game) {
+        pLines = window._game.lines !== undefined ? window._game.lines : window._game.chainMax;
+    }
+    document.getElementById('versus-result-player-lines').textContent = pLines;
+    
     switchPage('versus-result');
   });
 }
@@ -383,8 +620,10 @@ function switchPage(pageId) {
     window._prevPage = currentActive.id.replace('-page', '');
   }
 
+  // メインメニューやタイトルに戻る際はゲーム情報を完全に破棄
   if (pageId === 'main-menu' || pageId === 'title') {
-    unloadCpuScript();
+    stopAllGames();
+    _switchToPuyoLayout(false);
   }
 
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -451,6 +690,7 @@ function renderModeCheck() {
         </div>
         <div class="option-row">
           <span class="option-label">START LEVEL</span>
+          <div class="option-toggle" id="marathon-level-toggle"></div>
           <div class="option-slider">
             <input type="range" id="marathon-level-slider" min="1" max="15" value="${startLevel}" oninput="updateMarathonLevelDisplay()">
             <span id="marathon-level-val" class="option-val">${startLevel}</span>
@@ -466,6 +706,13 @@ function renderModeCheck() {
     } else if (mode.id === 'test') {
       optionsEl.style.display = 'flex';
       optionsEl.innerHTML = `
+        <div class="option-row">
+          <span class="option-label">RULE</span>
+          <div class="option-toggle" id="test-rule-toggle">
+            <button class="opt-btn ${testRule === 'tet' ? 'active' : ''}" onclick="setTestRule('tet')">TET</button>
+            <button class="opt-btn ${testRule === 'puyo' ? 'active' : ''}" onclick="setTestRule('puyo')">PUYO</button>
+          </div>
+        </div>
         <div class="option-row">
           <span class="option-label">CPU CONTROL</span>
           <div class="option-toggle" id="test-cpu-control-toggle">
@@ -489,6 +736,9 @@ function renderModeCheck() {
         };
         toggle.appendChild(btn);
       }
+    } else if (mode.id === 'puyo') {
+      optionsEl.style.display = 'none';
+      optionsEl.innerHTML = '';
     } else {
       optionsEl.style.display = 'none';
       optionsEl.innerHTML = '';
@@ -508,21 +758,74 @@ function renderModeCheck() {
 }
 
 async function startGameFromModeCheck() {
-  if (!window._game) return;
+  stopAllGames(); // 開始前に完全に状態をリセット
+  const sessionId = currentSessionId;
 
-  // ★追加：既存のCPUコントローラーが動いていれば完全に停止・破棄する（二重起動防止）
-  if (window._cpuController) {
-    window._cpuController.stop();
-    window._cpuController = null;
-  }
-
+  if (!window._game && !window._puyoGame) window._game = new Game();
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
-  window._game.currentMode = modeId;
 
-  if (modeId !== 'test') {
-    unloadCpuScript();
+  // ─── PUYO(シングル)モード専用処理
+  if (modeId === 'puyo') {
+    _switchToPuyoLayout(true);
+    
+    if (window._puyoGame) {
+        window._puyoGame.isCpuControlled = false;
+        window._puyoGame.isVersusMode = false;
+        window._puyoGame.currentMode = 'puyo';
+    }
+
+    switchPage('game');
+    startPuyoGame();
+    return;
   }
 
+  // ─── TESTモード (PUYO) 処理
+  if (modeId === 'test' && testRule === 'puyo') {
+    _switchToPuyoLayout(true);
+
+    if (!window._puyoGame) window._puyoGame = new PuyoGame();
+    window._puyoGame.currentMode = 'test';
+    window._puyoGame.isVersusMode = false;
+    window._puyoGame.isCpuControlled = testCpuControl;
+
+    const evalArea = document.getElementById('eval-area');
+    if (evalArea) {
+      evalArea.style.display = 'block';
+    }
+
+    switchPage('game');
+    setupGlobalCpuPauseKey(); 
+    
+    // ★ カウントダウン(ある場合)と同時にバックグラウンドで読み込み
+    let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, 'puyo').catch(e => {
+      alert("CPUスクリプトの読み込みに失敗しました。");
+      return null;
+    });
+
+    window._puyoGame.start(); // ここでカウントダウン開始
+
+    // ロード完了したらゲームにアタッチ（カウントダウン完了後に実行されるよう待機）
+    cpuLoadPromise.then(CPUClass => {
+        if (CPUClass && currentSessionId === sessionId) {
+          window._cpuController = new CPUClass(window._puyoGame);
+          window._cpuController.isAutoPlay = testCpuControl;
+          if (typeof window._cpuController.start === 'function') {
+            window._cpuController.start();
+          }
+        }
+    });
+    return;
+  }
+
+  // レイアウトをテトリス側に戻す
+  _switchToPuyoLayout(false);
+
+  // 未定義の場合はインスタンスを作成
+  if (!window._game || typeof window._game.initMainCanvas !== 'function') {
+      window._game = new Game();
+  }
+
+  window._game.currentMode = modeId;
   window._game.isVersusMode = false;
   window._game.canvasPrefix = null;
   window._game.statsPrefix = null;
@@ -531,9 +834,6 @@ async function startGameFromModeCheck() {
   window._game.initMainCanvas();
   window._game.initNextCanvas();
   window._game.initHoldCanvas();
-
-  document.getElementById('pause-overlay')?.classList.remove('active');
-  document.getElementById('versus-pause-overlay')?.classList.remove('active');
 
   if (modeId === 'marathon') {
     window._game.marathonGoal = (marathonSelectedGoal === 'endless') ? Infinity : 150;
@@ -547,22 +847,30 @@ async function startGameFromModeCheck() {
   }
 
   switchPage('game');
+  setupGlobalCpuPauseKey(); 
+  
+  let cpuLoadPromise = null;
+  if (modeId === 'test' && testRule === 'tet') {
+    window._game.isCpuControlled = testCpuControl;
+    cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, 'tet').catch(e => {
+      alert("CPUスクリプトの読み込みに失敗しました。");
+      return null;
+    });
+  }
+
   window._game.start();
 
-  if (modeId === 'test') {
-    window._game.isCpuControlled = testCpuControl;
-
-    let CPUClass;
-    try {
-      CPUClass = await loadCpuScript(selectedCpuLevel);
-    } catch (e) {
-      alert("CPUスクリプトの読み込みに失敗しました。");
-      return;
-    }
-
-    window._cpuController = new CPUClass(window._game);
-    window._cpuController.isAutoPlay = testCpuControl;
-    window._cpuController.start();
+  // ★ ロードが完了し次第アタッチして操作開始
+  if (cpuLoadPromise) {
+    cpuLoadPromise.then(CPUClass => {
+      if (CPUClass && currentSessionId === sessionId) {
+        window._cpuController = new CPUClass(window._game);
+        window._cpuController.isAutoPlay = testCpuControl;
+        if (typeof window._cpuController.start === 'function') {
+            window._cpuController.start();
+        }
+      }
+    });
   }
 }
 
@@ -581,3 +889,85 @@ async function startGameFromModeCheck() {
     switchPage('main-menu');
   });
 })();
+
+function _switchToPuyoLayout(isPuyo) {
+  const tetCanvases = ['main-canvas', 'next-canvas', 'hold-canvas'];
+  const puyoCanvases   = ['puyo-main-canvas', 'puyo-next-canvas'];
+
+  tetCanvases.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isPuyo ? 'none' : '';
+  });
+
+  puyoCanvases.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isPuyo ? '' : 'none';
+  });
+
+  const labelLevel = document.getElementById('label-level');
+  const labelLines = document.getElementById('label-lines');
+  const labelNext  = document.getElementById('label-next');
+  const labelHold  = document.getElementById('label-hold');
+
+  if (isPuyo) {
+    if (labelLevel) labelLevel.textContent = 'MAX CHAIN';
+    if (labelLines) labelLines.textContent = 'CHAIN';
+    if (labelNext)  labelNext.style.display  = 'none'; 
+    if (labelHold)  labelHold.style.display  = 'none'; 
+  } else {
+    if (labelLevel) labelLevel.textContent = 'LEVEL';
+    if (labelLines) labelLines.textContent = 'LINES';
+    if (labelNext)  labelNext.style.display  = '';
+    if (labelHold)  labelHold.style.display  = '';
+  }
+
+  const resLevelLabel = document.getElementById('result-label-level');
+  const resLinesLabel = document.getElementById('result-label-lines');
+  if (isPuyo) {
+    if (resLevelLabel) resLevelLabel.textContent = 'MAX CHAIN';
+    if (resLinesLabel) resLinesLabel.textContent = 'CLEARED PUYOS';
+  } else {
+    if (resLevelLabel) resLevelLabel.textContent = 'LEVEL';
+    if (resLinesLabel) resLinesLabel.textContent = 'LINES';
+  }
+}
+
+// ─────────────────────────────────────────────
+// ★ テストモード (CPU操作ON) 時にプレイヤーのポーズ操作を補完する機能
+// ─────────────────────────────────────────────
+function setupGlobalCpuPauseKey() {
+  if (window._globalCpuPauseHandler) {
+    document.removeEventListener('keydown', window._globalCpuPauseHandler);
+  }
+  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { code: 'Escape' } };
+  
+  window._globalCpuPauseHandler = function(e) {
+    const gamePage = document.getElementById('game-page');
+    // シングルプレイ画面以外なら何もしない
+    if (!gamePage || !gamePage.classList.contains('active')) return;
+    
+    // ★ ぷよぷよ側は p_game.js 自身がポーズを処理するので、テト側のみここで補完する
+    if (currentGameMode && currentGameMode.id === 'test' && testRule === 'tet' && window._game && window._game.isCpuControlled) {
+        if (e.code === keys.pause.code) {
+            if (e.defaultPrevented) return;
+            e.preventDefault();
+            
+            if (typeof togglePause === 'function') {
+                togglePause();
+            } else {
+                const overlay = document.getElementById('pause-overlay');
+                if (overlay) {
+                    if (overlay.classList.contains('active')) {
+                        overlay.classList.remove('active');
+                        if (typeof window._game.resume === 'function') window._game.resume();
+                    } else {
+                        if (typeof window._game.pause === 'function') window._game.pause();
+                        overlay.classList.add('active');
+                    }
+                }
+            }
+        }
+    }
+  };
+  document.addEventListener('keydown', window._globalCpuPauseHandler);
+}
