@@ -38,7 +38,7 @@ window.CPU5 = class {
             downstackGood: 68,   
             downstackBad: -3,
 
-            tsdShape: 40,      
+            tsdShape: 20,      
             tsdShapeOver: -45, 
             tsdFillBonus: 120,   
 
