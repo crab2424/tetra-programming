@@ -673,7 +673,11 @@ class PuyoGame {
 
         const pair2 = this._makePair(excludeColor);
         this.nextQueue.push(pair2);
-        this.nextQueue.push(this._makePair());
+        
+        // ★ 内部でNEXTを20まで拡張する
+        while(this.nextQueue.length < 20) {
+            this.nextQueue.push(this._makePair());
+        }
     }
 
     _makePair(excludeColor = null) {
@@ -688,7 +692,10 @@ class PuyoGame {
 
     _dequeueNext() {
         const pair = this.nextQueue.shift();
-        this.nextQueue.push(this._makePair());
+        // ★ 消費後も常に20を維持する
+        while(this.nextQueue.length < 20) {
+            this.nextQueue.push(this._makePair());
+        }
         return pair;
     }
 
