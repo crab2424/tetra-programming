@@ -4,7 +4,7 @@
 // PuyoGame インスタンスを受け取り，自動操作を行う
 // ─────────────────────────────────────────────
 
-window.PuyoCPU = class {
+window.PuyoCPU2 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
 
@@ -12,18 +12,34 @@ window.PuyoCPU = class {
         // ★ 評価パラメータ
         // ────────────────────────────────
         this.weights = {
-            chainBonus:           5,  // 連鎖消去ボーナス（実際に消えた連鎖数への報酬）
-            erasedBonus:        -50,  // 消去ぷよ数ボーナス（負値で無意味な1連鎖を抑制）
+            chainBonus:           5,  
+            erasedBonus:        -50,  
             heightPenalty:     -200,
             heightDiffPenalty:   -8,
-            // holePenalty: 0,        // ★ ぷよの仕様上ホールは発生しないため無効化
             flatBonus:           20,
             colorConnBonus:      80,
             zenkeshiBonus:      100,
-            chainPotentialBonus: 10, // ★ 連鎖ポテンシャルボーナス
-                                      //    盤面の将来的な連鎖力を評価する
-                                      //    chainBonus(500) > chainPotentialBonus(200) の関係を保つこと
-            p1Weight:           180,  // 1手目スコアの重み (x/100 倍)
+            chainPotentialBonus: 10, 
+            p1Weight:           180,  
+            templateBonus:      500,  
+        };
+
+        // ────────────────────────────────
+        // ★ テンプレート管理
+        // ────────────────────────────────
+        this.TEMPLATE_PATTERNS = {
+            'stairs': [
+                1, 2, 3, 4, 5, 0,
+                2, 3, 4, 5, 1, 0,
+                2, 3, 4, 5, 1, 0,
+                2, 3, 4, 5, 1, 0,
+            ],
+            'key': [
+                1, 2, 3, 4, 5, 0,
+                2, 3, 4, 5, 1, 0,
+                1, 2, 3, 4, 5, 0,
+                1, 2, 3, 4, 5, 0,
+            ],
         };
 
         // ────────────────────────────────
@@ -33,24 +49,20 @@ window.PuyoCPU = class {
         this.isAutoPlay        = true;
         this.isCalculating     = false;
         
-        // ★ 1手につき1回だけ計算するためのフラグ
         this.hasCalculatedForCurrentPiece = false; 
         
         this.bestMoveData      = null; 
 
-        // アクション実行制御
         this.isExecutingAction = false;
         this.actionQueue       = [];
         
-        // ★ CPU lv1 向けの遅延設定
-        this.thinkDelay        = 600;      // 思考時間（動き出すまでの待機 ms）
-        this.actionDelay       = 250;      // 左右移動・回転の待機時間 (ms)
-        this.placeDelay        = 400;      // 接地から固定までの待機時間 (ms)
+        this.thinkDelay        = 600;      
+        this.actionDelay       = 250;      
+        this.placeDelay        = 400;      
 
-        this.originalGravity   = null;     // 高速落下時の重力退避用
-        this.lastDropTime      = null;     // 高速落下時の dt 計算用
+        this.originalGravity   = null;     
+        this.lastDropTime      = null;     
 
-        // ★ 高速落下専用 rAF ループ管理
         this._softDropRafId    = null;
 
         // ────────────────────────────────
@@ -71,19 +83,12 @@ window.PuyoCPU = class {
         this.worker.onerror = (err) => {
             console.error('❌ PuyoCPU Worker Error:', err.message, err.filename, err.lineno);
         };
-        
-        // ★ 注意: ゲームのポーズ操作は p_game.js 本体側で処理するため、
-        // ここに存在していた _pauseListener は削除し、競合を排除しました。
     }
-
-    // ══════════════════════════════════════════════
-    // 外部 API
-    // ══════════════════════════════════════════════
 
     start() {
         this.isActive = true;
         this.hasCalculatedForCurrentPiece = false;
-        this._initEstimateContainer(); 
+        this._initEstimateContainer();
         this._updateLoop();
     }
 
@@ -95,13 +100,12 @@ window.PuyoCPU = class {
         this.lastDropTime      = null;
         this.hasCalculatedForCurrentPiece = false;
         
-        // ★ 高速落下ループを停止
         if (this._softDropRafId !== null) {
             cancelAnimationFrame(this._softDropRafId);
             this._softDropRafId = null;
         }
 
-        this._restoreGravity(); // 中断時も確実に重力を元に戻す
+        this._restoreGravity(); 
 
         if (this.estimateContainer) {
             this.estimateContainer.innerHTML = '';
@@ -114,17 +118,12 @@ window.PuyoCPU = class {
         }
     }
 
-    // ══════════════════════════════════════════════
-    // メインループ
-    // ══════════════════════════════════════════════
-
     _updateLoop() {
         if (!this.isActive) return;
 
         const game = this.game;
 
         if (game._gs === 'falling') {
-            // ★ falling状態に入ってから、まだ計算していなければ1度だけ計算する
             if (!this.hasCalculatedForCurrentPiece && this.workerReady && !this.isCalculating && game && game.state === 'playing') {
                 this.hasCalculatedForCurrentPiece = true;
                 
@@ -135,16 +134,11 @@ window.PuyoCPU = class {
                 this._requestCalculation();
             }
         } else {
-            // ★ falling以外の状態（固定中、消去中、NEXT生成中など）になったらフラグをリセット
             this.hasCalculatedForCurrentPiece = false;
         }
 
         requestAnimationFrame(() => this._updateLoop());
     }
-
-    // ══════════════════════════════════════════════
-    // Wasm へ計算を依頼
-    // ══════════════════════════════════════════════
 
     _requestCalculation() {
         if (!this.workerReady || this.isCalculating) return;
@@ -163,40 +157,57 @@ window.PuyoCPU = class {
             }
         }
 
-        const pivotColor = game.pivotColor;
-        const childColor = game.childColor;
-        const next1 = game.nextQueue[0] || [1, 1];
-        const next2 = game.nextQueue[1] || [1, 1];
+        // ★ C++へ10手分(20要素)のネクスト情報を送る
+        const nextPairs = new Int32Array(20);
+        
+        // 0手目 (現在落下中のぷよ)
+        nextPairs[0] = game.pivotColor;
+        nextPairs[1] = game.childColor;
+        
+        // 1手目以降 (ゲームから取得できるだけ取得し、足りない分はダミーで埋める)
+        for (let i = 0; i < 9; i++) {
+            if (game.nextQueue && game.nextQueue[i]) {
+                nextPairs[(i + 1) * 2]     = game.nextQueue[i][0];
+                nextPairs[(i + 1) * 2 + 1] = game.nextQueue[i][1];
+            } else {
+                // ネクストが見えない部分は仮の色(1〜4)のループでシミュレートする
+                nextPairs[(i + 1) * 2]     = (i % 4) + 1;
+                nextPairs[(i + 1) * 2 + 1] = ((i + 1) % 4) + 1;
+            }
+        }
+
+        const stairsPattern = this.TEMPLATE_PATTERNS['stairs'];
+        const keyPattern    = this.TEMPLATE_PATTERNS['key'];
+        const stairsBuffer  = new Uint8Array(24);
+        const keyBuffer     = new Uint8Array(24);
+        
+        for (let i = 0; i < 24; i++) {
+            stairsBuffer[i] = stairsPattern[i];
+            keyBuffer[i]    = keyPattern[i];
+        }
 
         const weightsArray = new Int32Array([
             this.weights.chainBonus,
             this.weights.erasedBonus,
             this.weights.heightPenalty,
             this.weights.heightDiffPenalty,
-            // holePenalty は除外（ぷよの仕様上ホールは発生しない）
             this.weights.flatBonus,
             this.weights.colorConnBonus,
             this.weights.zenkeshiBonus,
             this.weights.chainPotentialBonus, 
-            this.weights.p1Weight,            // cpp側で /100 して使用
+            this.weights.p1Weight,            
+            this.weights.templateBonus,       
         ]);
 
         this.worker.postMessage({
-            type:        'calculate',
-            boardBuffer: boardBuffer,
-            pivotColor:  pivotColor,
-            childColor:  childColor,
-            next1Pivot:  next1[0],
-            next1Child:  next1[1],
-            next2Pivot:  next2[0],
-            next2Child:  next2[1],
-            weightsArray: weightsArray,
+            type:           'calculate',
+            boardBuffer:    boardBuffer,
+            nextPairs:      nextPairs,      // ★ 10手分の配列を送信
+            weightsArray:   weightsArray,
+            stairsBuffer:   stairsBuffer,   
+            keyBuffer:      keyBuffer       
         });
     }
-
-    // ══════════════════════════════════════════════
-    // Worker からの結果受信
-    // ══════════════════════════════════════════════
 
     _handleWorkerResult(res) {
         this.isCalculating = false;
@@ -229,10 +240,6 @@ window.PuyoCPU = class {
             }
         }
     }
-
-    // ══════════════════════════════════════════════
-    // 予想手（Estimate）の表示
-    // ══════════════════════════════════════════════
 
     _initEstimateContainer() {
         const canvasId = this.game.canvasPrefix ? `${this.game.canvasPrefix}-puyo-main-canvas` : 'puyo-main-canvas';
@@ -355,10 +362,6 @@ window.PuyoCPU = class {
         this.estimateContainer.appendChild(div);
     }
 
-    // ══════════════════════════════════════════════
-    // 操作実行
-    // ══════════════════════════════════════════════
-
     _executeMove(targetCol, targetRot) {
         if (!this.isActive || !this.isAutoPlay) return;
         if (this.isExecutingAction) return;
@@ -378,20 +381,17 @@ window.PuyoCPU = class {
         const startCol = game.pivotX;
         const startRot = game.targetRot;
 
-        // ① 回転
         const rotDiff = ((targetRot - startRot) % 4 + 4) % 4;
         if (rotDiff === 1) queue.push({ type: 'rotateCW' });
         else if (rotDiff === 2) { queue.push({ type: 'rotateCW' }); queue.push({ type: 'rotateCW' }); }
         else if (rotDiff === 3) queue.push({ type: 'rotateCCW' });
 
-        // ② 移動 (1マスずつ)
         const moveDiff = targetCol - startCol;
         const moveType = moveDiff > 0 ? 'moveRight' : 'moveLeft';
         for (let i = 0; i < Math.abs(moveDiff); i++) {
             queue.push({ type: moveType });
         }
 
-        // ③ 高速落下
         queue.push({ type: 'softDropUntilLock' });
 
         return queue;
@@ -432,54 +432,40 @@ window.PuyoCPU = class {
             case 'moveRight':
                 this.game._tryMove(1);
                 break;
-            
             case 'softDropUntilLock':
-                // ★ 専用の rAF ループに委譲し、processActionQueue はここで止める
-                // （_startSoftDropLoop 内で完結後、placeDelay を経て isExecutingAction を解除する）
                 this._startSoftDropLoop();
-                return; // ← ここで return し、以降の setTimeout チェーンに乗らない
+                return; 
         }
 
-        // 回転・移動はここまで到達する（softDropUntilLock は return 済み）
         if (this.actionQueue.length > 0) {
             setTimeout(() => {
                 if (this.isActive && this.isAutoPlay) this._processActionQueue();
             }, this.actionDelay);
         } else {
-            // キューが空（通常はsoftDropが最後なので基本ここには来ない）
             this._restoreGravity();
             this.isExecutingAction = false;
         }
     }
 
-    // ══════════════════════════════════════════════
-    // ★ 高速落下専用 rAF ループ
-    // プレイヤーの softDrop と同じ速度・精度で毎フレーム落下させる
-    // ══════════════════════════════════════════════
-
     _startSoftDropLoop() {
-        // 既存のループが動いていれば停止してから開始
         if (this._softDropRafId !== null) {
             cancelAnimationFrame(this._softDropRafId);
             this._softDropRafId = null;
         }
 
-        // 自然落下タイマーをリセット（落下中に自然落下と競合させない）
         if (this.game.fallTimer !== undefined) this.game.fallTimer = 0;
         if (this.game.dropTimer !== undefined) this.game.dropTimer = 0;
 
-        // テト側の gravity プロパティがある場合は退避
         if (this.originalGravity === null && this.game.gravity !== undefined) {
             this.originalGravity = this.game.gravity;
             this.game.gravity = 0;
         }
 
-        const dropSpeedFast = 500 / 12; // プレイヤーと同じ: 500ms / 12マス
+        const dropSpeedFast = 500 / 12; 
 
         let prevTime = performance.now();
 
         const tick = (now) => {
-            // 停止・ポーズ・ゲーム状態の変化を検知したらループ終了
             if (!this.isActive || !this.isAutoPlay) {
                 this._softDropRafId = null;
                 this._restoreGravity();
@@ -488,14 +474,12 @@ window.PuyoCPU = class {
             }
 
             if (this.game.isPaused || this.game.state === 'paused') {
-                // ポーズ中は再開まで待機（再帰的に呼ぶ）
                 this._softDropRafId = requestAnimationFrame(tick);
-                prevTime = now; // ポーズ中の時間を無効化
+                prevTime = now; 
                 return;
             }
 
             if (this.game._gs !== 'falling') {
-                // 落下フェーズ終了（固定アニメ等に遷移）→ ループ終了
                 this._softDropRafId = null;
                 this._restoreGravity();
                 setTimeout(() => {
@@ -507,9 +491,8 @@ window.PuyoCPU = class {
                 return;
             }
 
-            // ── 経過時間から落下距離を計算（プレイヤーと同じ計算式）──
             let dt = now - prevTime;
-            if (dt > 100) dt = 100; // 最大遅延ガード（タブ非アクティブ等）
+            if (dt > 100) dt = 100; 
             prevTime = now;
 
             const limitY = this.game._calcLimitY(
@@ -519,14 +502,11 @@ window.PuyoCPU = class {
             );
 
             if (this.game.pivotY < limitY) {
-                // まだ接地していない → 落下させる
                 const dropDist = dt / dropSpeedFast;
                 const prevY = this.game.pivotY;
                 this.game.pivotY = Math.min(this.game.pivotY + dropDist, limitY);
-                // 実際に落下した距離（limitYでクランプされた場合の端数も含む）
                 const actualDist = this.game.pivotY - prevY;
 
-                // ソフトドロップスコア加算（プレイヤーと同じ処理）
                 this.game.scoreFloat += actualDist;
                 if (this.game.scoreFloat >= 1) {
                     const add = Math.floor(this.game.scoreFloat);
@@ -540,7 +520,6 @@ window.PuyoCPU = class {
 
                 this._softDropRafId = requestAnimationFrame(tick);
             } else {
-                // 接地した → ループ終了し、lockTimer を進めて固定を促す
                 this.game.pivotY = limitY;
                 this._softDropRafId = null;
                 this._restoreGravity();
@@ -557,7 +536,6 @@ window.PuyoCPU = class {
         this._softDropRafId = requestAnimationFrame(tick);
     }
 
-    // ★ 一時的にゼロにした重力を復元するヘルパー
     _restoreGravity() {
         if (this.originalGravity !== null && this.game) {
             this.game.gravity = this.originalGravity;
