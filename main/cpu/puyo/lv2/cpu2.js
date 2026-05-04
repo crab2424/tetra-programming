@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────
 // cpu2.js
 // ぷよCPU lv2 - Web Worker + Wasm 連携版
-// PuyoGame インスタンスを受け取り，自動操作を行う
+// 発火閾値・緊急回避の高さをパラメータとして追加
 // ─────────────────────────────────────────────
 
 window.PuyoCPU2 = class {
@@ -12,21 +12,21 @@ window.PuyoCPU2 = class {
         // ★ 評価パラメータ
         // ────────────────────────────────
         this.weights = {
-            chainBonus:           5,  
-            erasedBonus:        -50,  
-            heightPenalty:     -200,
-            heightDiffPenalty:   -8,
-            flatBonus:           20,
-            colorConnBonus:      80,
-            zenkeshiBonus:      100,
-            chainPotentialBonus: 10, 
-            p1Weight:           180,  
-            templateBonus:      500,  
+            chainBonus:           200,  // 発火時の基本ボーナス（C++側で連鎖の3乗倍などで増幅）
+            erasedBonus:           10,  
+            heightPenalty:       -200,
+            heightDiffPenalty:     -8,
+            flatBonus:             20,
+            colorConnBonus:        80,
+            zenkeshiBonus:        100,
+            chainPotentialBonus:   50,  // ポテンシャルの基本ボーナス
+            p1Weight:             100,  
+            templateBonus:        500,  
+            // ── 新規追加の閾値パラメータ ──
+            ignitionThreshold:      4,  // ★ 発火の閾値（この連鎖数以上なら暴発ペナルティなしで特大評価）
+            emergencyHeight:       10,  // ★ 緊急回避ライン（この段数以上なら自滅回避で小連鎖も許容）
         };
 
-        // ────────────────────────────────
-        // ★ テンプレート管理
-        // ────────────────────────────────
         this.TEMPLATE_PATTERNS = {
             'stairs': [
                 1, 2, 3, 4, 5, 0,
@@ -42,17 +42,11 @@ window.PuyoCPU2 = class {
             ],
         };
 
-        // ────────────────────────────────
-        // 内部状態
-        // ────────────────────────────────
         this.isActive          = false;
         this.isAutoPlay        = true;
         this.isCalculating     = false;
-        
         this.hasCalculatedForCurrentPiece = false; 
-        
         this.bestMoveData      = null; 
-
         this.isExecutingAction = false;
         this.actionQueue       = [];
         
@@ -62,12 +56,8 @@ window.PuyoCPU2 = class {
 
         this.originalGravity   = null;     
         this.lastDropTime      = null;     
-
         this._softDropRafId    = null;
 
-        // ────────────────────────────────
-        // Web Worker 初期化
-        // ────────────────────────────────
         this.workerReady = false;
         this.worker = new Worker('cpu/puyo/lv2/cpu_worker2.js');
 
@@ -78,10 +68,6 @@ window.PuyoCPU2 = class {
             } else if (e.data.type === 'result') {
                 this._handleWorkerResult(e.data.result);
             }
-        };
-
-        this.worker.onerror = (err) => {
-            console.error('❌ PuyoCPU Worker Error:', err.message, err.filename, err.lineno);
         };
     }
 
@@ -157,20 +143,16 @@ window.PuyoCPU2 = class {
             }
         }
 
-        // ★ C++へ10手分(20要素)のネクスト情報を送る
         const nextPairs = new Int32Array(20);
         
-        // 0手目 (現在落下中のぷよ)
         nextPairs[0] = game.pivotColor;
         nextPairs[1] = game.childColor;
         
-        // 1手目以降 (ゲームから取得できるだけ取得し、足りない分はダミーで埋める)
         for (let i = 0; i < 9; i++) {
             if (game.nextQueue && game.nextQueue[i]) {
                 nextPairs[(i + 1) * 2]     = game.nextQueue[i][0];
                 nextPairs[(i + 1) * 2 + 1] = game.nextQueue[i][1];
             } else {
-                // ネクストが見えない部分は仮の色(1〜4)のループでシミュレートする
                 nextPairs[(i + 1) * 2]     = (i % 4) + 1;
                 nextPairs[(i + 1) * 2 + 1] = ((i + 1) % 4) + 1;
             }
@@ -186,6 +168,7 @@ window.PuyoCPU2 = class {
             keyBuffer[i]    = keyPattern[i];
         }
 
+        // ★ 12要素に拡張してWasmに送信
         const weightsArray = new Int32Array([
             this.weights.chainBonus,
             this.weights.erasedBonus,
@@ -197,12 +180,14 @@ window.PuyoCPU2 = class {
             this.weights.chainPotentialBonus, 
             this.weights.p1Weight,            
             this.weights.templateBonus,       
+            this.weights.ignitionThreshold,   // 10: 発火閾値
+            this.weights.emergencyHeight      // 11: 緊急高さ
         ]);
 
         this.worker.postMessage({
             type:           'calculate',
             boardBuffer:    boardBuffer,
-            nextPairs:      nextPairs,      // ★ 10手分の配列を送信
+            nextPairs:      nextPairs,      
             weightsArray:   weightsArray,
             stairsBuffer:   stairsBuffer,   
             keyBuffer:      keyBuffer       
