@@ -2,7 +2,7 @@
 // cpu2.cpp
 // ぷよCPU lv2 - Web Worker + Wasm 版
 // ビットボード (1マス3ビット) による超高速探索で、
-// 最大10手先までのビームサーチを行う
+// 発火の閾値制御と、正確な連鎖ポテンシャル計算を行う
 // ─────────────────────────────────────────────
 
 #include <emscripten.h>
@@ -13,19 +13,13 @@
 #include <cstring>
 #include <vector>
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// フィールド定数
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const int COLS       = 6;
-const int ROWS       = 12; // 見える行数
-const int HIDDEN     = 5;  // 隠し行領域
-const int TOTAL_ROWS = ROWS + HIDDEN; // 内部総行数 = 17
+const int ROWS       = 12; 
+const int HIDDEN     = 5;  
+const int TOTAL_ROWS = ROWS + HIDDEN;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// BitBoard : ビットボードによる盤面表現
-// ─ 1マス3ビット (0:空, 1〜5:色, 6:おじゃま, 7:未使用)
-// ─ 1列17マス = 51ビット。uint64_t に収まる。
-// ─ 下端(r=16)をLSB側(ビット0〜2)、上端(r=0)をMSB側(ビット48〜50)とする。
+// BitBoard 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 struct BitBoard {
     uint64_t cols[COLS];
@@ -34,27 +28,23 @@ struct BitBoard {
         for(int c = 0; c < COLS; c++) cols[c] = 0;
     }
 
-    // JSからの初期配列 (r=0が一番上、r=16が一番下) をビットボードに変換
     void fromArray(const uint8_t* data) {
         for(int c = 0; c < COLS; c++) cols[c] = 0;
         for (int r = 0; r < TOTAL_ROWS; r++) {
             for (int c = 0; c < COLS; c++) {
                 uint8_t val = data[r * COLS + c];
                 if (val != 0) {
-                    // r=16が一番下なので、ビットシフト量は (16 - r) * 3
                     cols[c] |= ((uint64_t)(val & 0x7) << ((TOTAL_ROWS - 1 - r) * 3));
                 }
             }
         }
     }
 
-    // 値の取得
     inline uint8_t get(int col, int r) const {
         if (col < 0 || col >= COLS || r < 0 || r >= TOTAL_ROWS) return 0;
         return (cols[col] >> ((TOTAL_ROWS - 1 - r) * 3)) & 0x7;
     }
 
-    // 値の設定
     inline void set(int col, int r, uint8_t val) {
         if (col < 0 || col >= COLS || r < 0 || r >= TOTAL_ROWS) return;
         int shift = (TOTAL_ROWS - 1 - r) * 3;
@@ -62,7 +52,6 @@ struct BitBoard {
         cols[col] |= ((uint64_t)(val & 0x7) << shift);
     }
 
-    // 表示行 (0〜11) の空きチェック
     bool isEmpty(int col, int row) const {
         if (col < 0 || col >= COLS) return false;
         if (row >= ROWS) return false;
@@ -71,18 +60,15 @@ struct BitBoard {
         return get(col, r) == 0;
     }
 
-    // 全消し判定
     bool isEmptyAll() const {
         for(int c = 0; c < COLS; c++) if (cols[c] != 0) return false;
         return true;
     }
 
-    // ★ ビットボード最大の恩恵：超高速重力落下
-    // シフト演算だけで、空いた0の隙間を消し去って下へ詰める
     void applyGravity() {
         for (int c = 0; c < COLS; c++) {
             uint64_t col = cols[c];
-            if (col == 0) continue; // 全部空ならスキップ
+            if (col == 0) continue; 
             
             uint64_t new_col = 0;
             int write_idx = 0;
@@ -98,9 +84,6 @@ struct BitBoard {
     }
 };
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 組ぷよ 1 手の配置情報
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 struct PairPlacement {
     int col;
     int rot;
@@ -109,7 +92,6 @@ struct PairPlacement {
     int childCol;
 };
 
-// 落下行の計算
 static int calcDropRow(const BitBoard& b, int col) {
     for (int row = ROWS - 1; row >= 0; row--) {
         if (b.isEmpty(col, row)) return row;
@@ -117,7 +99,6 @@ static int calcDropRow(const BitBoard& b, int col) {
     return -1;
 }
 
-// 全配置の列挙
 static std::vector<PairPlacement> getAllPlacements(const BitBoard& b) {
     const int DC[4] = { 0,  1,  0, -1 };
     const int DR[4] = {-1,  0,  1,  0 };
@@ -162,12 +143,11 @@ static BitBoard applyPlacement(const BitBoard& b, const PairPlacement& p, uint8_
     BitBoard nb = b;
     nb.set(p.col,      p.pivotRow + HIDDEN, pivotColor);
     nb.set(p.childCol, p.childRow + HIDDEN, childColor);
-    // 配置先は calcDropRow で接地判定済みのため、ここでは重力処理は不要
     return nb;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 連鎖処理（消去 → 落下 → 再消去）
+// 連鎖シミュレーション
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 struct ChainResult {
     int chains;
@@ -225,7 +205,6 @@ static ChainResult simulateChain(BitBoard& b) {
 
         if (!found) break;
 
-        // おじゃまぷよ巻き込み
         for (auto& cell : toErase) {
             const int dr[] = {-1, 1,  0, 0};
             const int dc[] = { 0, 0, -1, 1};
@@ -241,11 +220,9 @@ static ChainResult simulateChain(BitBoard& b) {
 
         res.chains++;
 
-        // 消去
         for (auto& p : toErase) b.set(p.second, p.first, 0);
         for (auto& p : toEraseOjama) b.set(p.second, p.first, 0); 
 
-        // 重力落下（超高速）
         b.applyGravity();
     }
 
@@ -253,19 +230,46 @@ static ChainResult simulateChain(BitBoard& b) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 連鎖ポテンシャル計算
+// ★ 連鎖ポテンシャルと発火点の安全性計算
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-static int calcChainPotential(const BitBoard& b) {
-    const uint8_t DUMMY_COLOR = 1;
-    std::vector<PairPlacement> placements = getAllPlacements(b);
-    int maxChains = 0;
+struct PotentialInfo {
+    int maxChains;
+    int triggerCol;
+    int triggerRow;
+    uint8_t triggerColor;
+    bool isSafe; // 発火点の上、左、右のいずれかが空いているか
+};
 
-    for (const auto& p : placements) {
-        BitBoard tmp = applyPlacement(b, p, DUMMY_COLOR, DUMMY_COLOR);
-        ChainResult res = simulateChain(tmp);
-        if (res.chains > maxChains) maxChains = res.chains;
+static PotentialInfo calcChainPotential(const BitBoard& b) {
+    PotentialInfo best = {0, -1, -1, 0, false};
+    for (int col = 0; col < COLS; col++) {
+        int r = calcDropRow(b, col);
+        if (r < 0) continue;
+        
+        for (uint8_t color = 1; color <= 5; color++) {
+            BitBoard tmp = b;
+            tmp.set(col, r + HIDDEN, color);
+            ChainResult res = simulateChain(tmp);
+            if (res.chains > best.maxChains) {
+                best.maxChains = res.chains;
+                best.triggerCol = col;
+                best.triggerRow = r;
+                best.triggerColor = color;
+            }
+        }
     }
-    return maxChains;
+    
+    // 発火点が特定できたら、その周囲の安全性を確認
+    if (best.maxChains > 0) {
+        int c = best.triggerCol;
+        int r = best.triggerRow;
+        bool upSafe    = b.isEmpty(c, r - 1);
+        bool leftSafe  = b.isEmpty(c - 1, r);
+        bool rightSafe = b.isEmpty(c + 1, r);
+        best.isSafe = (upSafe || leftSafe || rightSafe);
+    }
+    
+    return best;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -282,11 +286,10 @@ struct EvalWeights {
     int chainPotentialBonus;
     int p1Weight;
     int templateBonus;
+    int ignitionThreshold;
+    int emergencyHeight;  
 };
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 動的テンプレート追従スコア計算
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 static int getTemplateScore(const BitBoard& b, const uint8_t* pattern, int templateBonus) {
     uint8_t colorOfGroup[6] = {0};
     bool broken = false;
@@ -343,7 +346,7 @@ static int getTemplateScore(const BitBoard& b, const uint8_t* pattern, int templ
         if (broken) break;
     }
 
-    if (broken || matchCount == expectedCount) return 0;
+    if (broken) return 0;
     return matchCount * templateBonus;
 }
 
@@ -358,43 +361,105 @@ static int calcTemplateScore(const BitBoard& b, const uint8_t* stairsPattern, co
 // 盤面評価関数
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const EvalWeights& w,
-                         const uint8_t* stairsPattern, const uint8_t* keyPattern) {
+                         const uint8_t* stairsPattern, const uint8_t* keyPattern,
+                         const PotentialInfo& prePot) {
     int score = 0;
 
     if (stairsPattern != nullptr && keyPattern != nullptr) {
         score += calcTemplateScore(b, stairsPattern, keyPattern, w.templateBonus);
     }
 
-    if (chain.chains > 0) {
-        score += (chain.chains * chain.chains) * w.chainBonus;
-    }
-    score += chain.totalErased * w.erasedBonus;
-
-    if (b.isEmptyAll()) score += w.zenkeshiBonus;
-
     int heights[COLS];
+    bool isEmergency = false;
     for (int c = 0; c < COLS; c++) {
         heights[c] = 0;
         for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
             if (b.get(c, r) != 0) heights[c]++;
         }
-    }
-
-    if (heights[2] >= 8) {
-        score += (heights[2] - 7) * w.heightPenalty; 
-    }
-    for (int c = 0; c < COLS; c++) {
-        if (heights[c] >= 10) {
-            score += (heights[c] - 9) * (w.heightPenalty / 3);
+        if (heights[c] >= w.emergencyHeight || (c == 2 && heights[c] >= 9)) {
+            isEmergency = true;
         }
     }
 
+    // ──────────────────────────────────────────
+    // ★ 発火モードと防衛判定
+    // ──────────────────────────────────────────
+    bool isIgnitionMode = (prePot.maxChains >= w.ignitionThreshold);
+
+    if (chain.chains > 0) {
+        // 本線の大連鎖が起きた場合
+        if (chain.chains >= w.ignitionThreshold || (isIgnitionMode && chain.chains >= prePot.maxChains)) {
+            int effectiveChains = std::max(chain.chains, prePot.maxChains);
+            score += (effectiveChains * effectiveChains * effectiveChains) * w.chainBonus * 10;
+            score += chain.totalErased * std::abs(w.erasedBonus);
+        } else if (isEmergency || b.isEmptyAll()) {
+            // 致死回避の掘り、または全消し消化
+            score += (chain.chains * chain.chains) * w.chainBonus * 5;
+            score += chain.totalErased * std::abs(w.erasedBonus);
+        } else if (isIgnitionMode) {
+            // 発火モード中の小連鎖
+            PotentialInfo postPot = calcChainPotential(b);
+            if (postPot.maxChains >= w.ignitionThreshold && postPot.isSafe) {
+                // 発火点が埋まらないことを優先した「回避のための小連鎖」として許容
+                score += chain.totalErased * std::abs(w.erasedBonus);
+            } else {
+                // 回避にもならず本線を破壊する完全な暴発
+                score -= (chain.chains * chain.chains) * 5000;
+            }
+        } else {
+            // 発火モード未満での暴発（タネの無駄遣い）
+            score -= (chain.chains * chain.chains) * 5000;
+        }
+    } else {
+        // 連鎖なし（ただ置いただけ）
+        if (isIgnitionMode) {
+            PotentialInfo postPot = calcChainPotential(b);
+            if (postPot.maxChains >= w.ignitionThreshold) {
+                if (postPot.isSafe) {
+                    // 発火点を安全に維持できた
+                    score += (postPot.maxChains * postPot.maxChains) * w.chainPotentialBonus * 5;
+                    score += w.flatBonus * 2; 
+                } else {
+                    // ポテンシャルはあるが、発火点が塞がれてしまった
+                    // 回避小連鎖ルートを選ばせるために強烈なペナルティ
+                    score -= 10000;
+                }
+            } else {
+                // 置きミスによりポテンシャルが壊れた
+                score -= 10000;
+            }
+        } else {
+            // 通常のポテンシャル評価
+            PotentialInfo postPot = calcChainPotential(b);
+            if (postPot.maxChains > 0) {
+                if (postPot.isSafe) {
+                    if (postPot.maxChains >= w.ignitionThreshold) {
+                        score += (postPot.maxChains * postPot.maxChains) * w.chainPotentialBonus * 5;
+                    } else {
+                        score += (postPot.maxChains * postPot.maxChains) * w.chainPotentialBonus;
+                    }
+                } else {
+                    // 発火点が塞がっているポテンシャルは低く評価
+                    score += (postPot.maxChains * postPot.maxChains) * (w.chainPotentialBonus / 2);
+                }
+            }
+        }
+    }
+
+    if (b.isEmptyAll()) score += w.zenkeshiBonus;
+
+    // 高さ・平坦ペナルティ
+    if (heights[2] >= 8) score += (heights[2] - 7) * w.heightPenalty; 
+    for (int c = 0; c < COLS; c++) {
+        if (heights[c] >= 10) score += (heights[c] - 9) * (w.heightPenalty / 3);
+    }
     for (int c = 0; c < COLS - 1; c++) {
         int diff = std::abs(heights[c] - heights[c+1]);
         score += diff * w.heightDiffPenalty;
         if (diff == 0) score += w.flatBonus;
     }
 
+    // 連結ボーナス
     int connPairs = 0;
     for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
         for (int c = 0; c < COLS; c++) {
@@ -406,11 +471,6 @@ static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const Eval
         }
     }
     score += connPairs * w.colorConnBonus;
-
-    int potential = calcChainPotential(b);
-    if (potential > 0) {
-        score += (potential * potential) * w.chainPotentialBonus;
-    }
 
     return score;
 }
@@ -429,7 +489,7 @@ struct SearchNode {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Wasm エクスポート関数
+// Wasm エクスポート
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 extern "C" {
 
@@ -439,14 +499,10 @@ void* my_malloc(size_t size) { return malloc(size); }
 EMSCRIPTEN_KEEPALIVE
 void my_free(void* ptr) { free(ptr); }
 
-// ─────────────────────────────────────────────
-// searchBestMovePuyoWasm
-// ★ 10手読みビームサーチ拡張版
-// ─────────────────────────────────────────────
 EMSCRIPTEN_KEEPALIVE
 void searchBestMovePuyoWasm(
     uint8_t* boardData,
-    int* nextPairs,         // ★ 10手分の色配列 (サイズ20: pivot0, child0, pivot1, child1...)
+    int* nextPairs,         
     int* weightsArray,
     int* outResult,
     uint8_t* stairsPattern, 
@@ -465,69 +521,56 @@ void searchBestMovePuyoWasm(
     w.chainPotentialBonus = weightsArray[7];
     w.p1Weight            = weightsArray[8];
     w.templateBonus       = weightsArray[9];
+    w.ignitionThreshold   = weightsArray[10]; 
+    w.emergencyHeight     = weightsArray[11]; 
 
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
-
-    int initialPuyoCount = 0;
-    for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
-        for (int c = 0; c < COLS; c++) {
-            if (baseBoard.get(c, r) != 0) initialPuyoCount++;
-        }
-    }
-    if (initialPuyoCount > (ROWS * COLS) / 3) {
-        if (w.erasedBonus <= 0) {
-            w.erasedBonus = std::abs(w.erasedBonus) * 10;
-            if (w.erasedBonus == 0) w.erasedBonus = 3;
-        }
-    }
 
     std::vector<SearchNode> currentNodes;
     SearchNode rootNode;
     rootNode.board = baseBoard;
     currentNodes.push_back(rootNode);
 
-    const int MAX_DEPTH = 10; // ★ 10手読み
+    const int MAX_DEPTH = 10; 
     
     for (int depth = 0; depth < MAX_DEPTH; depth++) {
         std::vector<SearchNode> nextNodes;
         int pivot = nextPairs[depth * 2];
         int child = nextPairs[depth * 2 + 1];
 
-        // 深くなるほどビーム幅を絞って計算爆発を防ぐ
         int beamWidth = 4;
         if (depth == 0) beamWidth = 10;
-        else if (depth == 1) beamWidth = 10;
-        else if (depth == 2) beamWidth = 8;
-        else if (depth == 3) beamWidth = 6;
-        else if (depth <= 5) beamWidth = 4;
-        else beamWidth = 2; // 6〜10手目は上位2つのみ
+        else if (depth == 1) beamWidth = 8;
+        else if (depth == 2) beamWidth = 6;
+        else beamWidth = 4;
 
         for (const auto& node : currentNodes) {
             std::vector<PairPlacement> placements = getAllPlacements(node.board);
             if (placements.empty()) {
-                // ゲームオーバーになる手は極大ペナルティ
                 SearchNode deathNode = node;
                 deathNode.accumulatedScore -= 999999;
                 nextNodes.push_back(deathNode);
                 continue;
             }
 
+            // ★ 置く前の盤面のポテンシャルを1回だけ計算して使い回す（高速化）
+            PotentialInfo prePot = calcChainPotential(node.board);
+
             for (const auto& p : placements) {
                 BitBoard nb = applyPlacement(node.board, p, (uint8_t)pivot, (uint8_t)child);
                 ChainResult chain = simulateChain(nb);
-                int scoreRaw = evaluateBoard(nb, chain, w, stairsPattern, keyPattern);
+                
+                int scoreRaw = evaluateBoard(nb, chain, w, stairsPattern, keyPattern, prePot);
                 
                 int score = scoreRaw;
                 if (depth == 0) score = score * w.p1Weight / 100;
-                // 未来の手ほどスコアの影響度を割引 (1手につき0.9倍)
                 for(int i = 0; i < depth; i++) score = (score * 9) / 10;
 
                 SearchNode nextNode = node;
                 nextNode.board = nb;
                 nextNode.accumulatedScore += score;
                 
-                // JSの予想表示用に、最初の3手のアクションだけ保持
                 if (depth == 0) {
                     nextNode.col1 = p.col; nextNode.rot1 = p.rot;
                 } else if (depth == 1) {
@@ -540,24 +583,20 @@ void searchBestMovePuyoWasm(
             }
         }
 
-        // 評価順にソート
         std::sort(nextNodes.begin(), nextNodes.end(), [](const SearchNode& a, const SearchNode& b) {
             return a.accumulatedScore > b.accumulatedScore;
         });
 
-        // 枝刈り
         if ((int)nextNodes.size() > beamWidth) {
             nextNodes.resize(beamWidth);
         }
         currentNodes = nextNodes;
 
-        // 全ルートが死ぬ場合、これ以上深く読んでも無駄なので打ち切り
         if (!currentNodes.empty() && currentNodes[0].accumulatedScore < -900000) {
             break;
         }
     }
 
-    // 最終的に生き残った最善手を出力
     if (!currentNodes.empty()) {
         const auto& bestNode = currentNodes.front();
         outResult[0] = bestNode.col1;
