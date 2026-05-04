@@ -139,6 +139,16 @@ bool isTSDShape(const Board& board, int cx, int cy) {
         return board.cells[y][x] != 0;
     }; 
 
+    // ★追加：TSDの地形が存在する高さに、深さ3以上のI-Wellのような穴がある場合は除外する
+    for (int k = 0; k < COLS; k++) {
+        if (!isSolid(k, cy - 1) && !isSolid(k, cy) && !isSolid(k, cy + 1)) {
+            if (isSolid(k + 1, cy - 1) && isSolid(k + 1, cy) && isSolid(k + 1, cy + 1) &&
+                isSolid(k - 1, cy - 1) && isSolid(k - 1, cy) && isSolid(k - 1, cy + 1)) {
+                return false;
+            }
+        }
+    }
+
     if (!isSolid(cx - 1, cy + 1)) return false; // 左下の土台
     if (!isSolid(cx + 1, cy + 1)) return false; // 右下の土台
     if (!isSolid(cx - 2, cy + 1)) return false; 

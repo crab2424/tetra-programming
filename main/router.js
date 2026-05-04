@@ -71,11 +71,11 @@ let currentSessionId = 0;
 
 // ─── VERSUSモード用グローバル変数 ──────────────
 const CPU_LEVELS = {
-  1: { label: 'LV 1', desc: '初心者向け',      gravityLevel: 1  },
+  1: { label: 'LV 1', desc: '初心者向け', gravityLevel: 1  },
   2: { label: 'LV 2', desc: '初級者向け', gravityLevel: 2  },
-  3: { label: 'LV 3', desc: '中級者向け',           gravityLevel: 2  },
-  4: { label: 'LV 4', desc: '上級者向け',                 gravityLevel: 2 },
-  5: { label: 'LV 5', desc: '最上級者向け',     gravityLevel: 2 },
+  3: { label: 'LV 3', desc: '中級者向け', gravityLevel: 2  },
+  4: { label: 'LV 4', desc: '上級者向け', gravityLevel: 2 },
+  5: { label: 'LV 5', desc: '最上級者向け', gravityLevel: 2 },
 };
 let selectedCpuLevel = 1; 
 

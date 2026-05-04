@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TETLABO Icon Generator</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --panel-bg: #12121a;
+      --border: #2a2a3a;
+      --accent: #c471f5;
+      --accent2: #fa71cd;
+      --text: #e0e0f0;
+    }
+    body {
+      font-family: 'Orbitron', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      margin: 0;
+    }
+    h1 {
+      font-weight: 900;
+      letter-spacing: 4px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    .preview-container {
+      background: var(--panel-bg);
+      padding: 30px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+    canvas {
+      border: 1px solid var(--border);
+      border-radius: 20%; /* iOS風の角丸プレビュー */
+      background: var(--bg);
+    }
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      max-width: 400px;
+    }
+    button {
+      font-family: 'Orbitron', monospace;
+      font-size: 14px;
+      font-weight: 700;
+      padding: 16px 24px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      color: white;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    button:hover {
+      opacity: 0.88;
+      transform: translateY(-2px);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    .desc {
+      font-family: sans-serif;
+      font-size: 14px;
+      color: #888;
+      text-align: center;
+      line-height: 1.6;
+      max-width: 500px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>TETLABO Icon Generator</h1>
+
+  <div class="preview-container">
+    <canvas id="previewCanvas" width="256" height="256"></canvas>
+    <div style="font-size: 12px; color: #888; letter-spacing: 2px;">PREVIEW (256x256)</div>
+  </div>
+
+  <div class="btn-group">
+    <button onclick="downloadIcon(32, 'favicon.ico')">
+      Download favicon.ico (32x32)
+    </button>
+    <button onclick="downloadIcon(180, 'apple-touch-icon.png')">
+      Download apple-touch-icon.png (180x180)
+    </button>
+    <button onclick="downloadIcon(180, 'apple-touch-icon-precomposed.png')">
+      Download apple-touch-icon-precomposed.png
+    </button>
+  </div>
+
+  <p class="desc" style="margin-top: 30px;">
+    ※ <code>favicon.ico</code> は PNGフォーマットのデータを拡張子 .ico で保存する簡易仕様です。現代のほとんどのブラウザ（Chrome, Edge, Safari, Firefox等）でそのまま機能します。
+  </p>
+
+  <script>
+    // アイコンを描画する関数
+    function drawIcon(ctx, size) {
+      // 背景
+      ctx.fillStyle = '#0a0a0f';
+      ctx.fillRect(0, 0, size, size);
+
+      ctx.save();
+      const scale = size / 512;
+      ctx.scale(scale, scale);
+
+      // Tミノの設定
+      const blockSize = 110;
+      const padding = 12;
+      const step = blockSize + padding;
+
+      // ブロックの相対座標 (x, y)
+      const blocks = [
+        {x: 0, y: -0.5}, // 上
+        {x: -1, y: 0.5}, // 左下
+        {x: 0, y: 0.5},  // 中央下
+        {x: 1, y: 0.5}   // 右下
+      ];
+
+      // グラデーション (左上から右下へ)
+      const grad = ctx.createLinearGradient(100, 100, 400, 400);
+      grad.addColorStop(0, '#c471f5'); // accent
+      grad.addColorStop(1, '#fa71cd'); // accent2
+
+      // キャンバスの中心に移動
+      ctx.translate(256, 256);
+
+      // ブロックを描画
+      blocks.forEach(b => {
+        const bx = b.x * step - blockSize / 2;
+        const by = b.y * step - blockSize / 2;
+
+        // ネオンシャドウ
+        ctx.shadowColor = '#c471f5';
+        ctx.shadowBlur = 25;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+
+        ctx.fillStyle = grad;
+        
+        ctx.beginPath();
+        ctx.roundRect(bx, by, blockSize, blockSize, 16); // 角丸のブロック
+        ctx.fill();
+
+        // シャドウをリセットして枠線を描画
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#e0e0f0'; // text color
+        ctx.stroke();
+      });
+
+      ctx.restore();
+    }
+
+    // プレビューの描画
+    const previewCanvas = document.getElementById('previewCanvas');
+    const previewCtx = previewCanvas.getContext('2d');
+    drawIcon(previewCtx, 256);
+
+    // ダウンロード処理
+    function downloadIcon(size, filename) {
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = size;
+      tempCanvas.height = size;
+      const ctx = tempCanvas.getContext('2d');
+      
+      // 指定サイズで描画
+      drawIcon(ctx, size);
+
+      // 画像化してダウンロード
+      const dataURL = tempCanvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = dataURL;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  </script>
+</body>
+</html>

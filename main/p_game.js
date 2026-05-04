@@ -673,7 +673,11 @@ class PuyoGame {
 
         const pair2 = this._makePair(excludeColor);
         this.nextQueue.push(pair2);
-        this.nextQueue.push(this._makePair());
+        
+        // ★ 内部でNEXTを20まで拡張する
+        while(this.nextQueue.length < 20) {
+            this.nextQueue.push(this._makePair());
+        }
     }
 
     _makePair(excludeColor = null) {
@@ -688,7 +692,10 @@ class PuyoGame {
 
     _dequeueNext() {
         const pair = this.nextQueue.shift();
-        this.nextQueue.push(this._makePair());
+        // ★ 消費後も常に20を維持する
+        while(this.nextQueue.length < 20) {
+            this.nextQueue.push(this._makePair());
+        }
         return pair;
     }
 
@@ -883,7 +890,7 @@ class PuyoGame {
                     }
 
                     let isZenkeshi = false;
-                    // ★ その後で全消し判定を行い、全消し火力を新たに pendingFire に追加して持ち越す
+                    // ★ その後で全消し判定を行い、全消し火力を新たに pendingFireに追加して持ち越す
                     if (this._isFieldEmpty() && this.chainCount > 0) {
                         this.score += PConfig.zenkeshiBonus; // 2100点追加
                         
@@ -1737,9 +1744,6 @@ class PuyoGame {
             const gamePage = document.getElementById(activePageId);
             if (!gamePage || !gamePage.classList.contains('active')) return;
 
-            const isRepeat = e.repeat;
-            this._keys[e.code] = true;
-
             // ★ PauseとRestartキーは、CPU操作時であっても処理を優先して通す
             if (e.code === this._keyMap.restart) {
                 e.preventDefault();
@@ -1761,6 +1765,9 @@ class PuyoGame {
 
             // ★ これ以降の操作（移動、回転、ドロップ等）は、CPU制御時にはプレイヤーの入力を無視する
             if (this.isCpuControlled) return;
+
+            const isRepeat = e.repeat;
+            this._keys[e.code] = true;
 
             if (this._gs === 'spawnAnim' && !isRepeat) {
                 if (e.code === this._keyMap.moveLeft)  this.inputBuffer.push('left');
@@ -1806,6 +1813,9 @@ class PuyoGame {
         };
 
         this._keyHandlerUp = (e) => {
+            // ★ CPU制御時はキーの解放も無視する
+            if (this.isCpuControlled) return; 
+
             delete this._keys[e.code];
             if (e.code === this._keyMap.moveLeft  && this._dasDir === -1) this._dasDir = 0;
             if (e.code === this._keyMap.moveRight && this._dasDir ===  1) this._dasDir = 0;
