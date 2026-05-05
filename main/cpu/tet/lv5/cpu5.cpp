@@ -139,7 +139,9 @@ bool isTSDShape(const Board& board, int cx, int cy) {
         return board.cells[y][x] != 0;
     }; 
 
-    // ★追加：TSDの地形が存在する高さに、深さ3以上のI-Wellのような穴がある場合は除外する
+    // ★最適化：TSDの地形が存在する高さのI-Wellチェックは、この関数の外（スキャン処理）で事前に1回だけ計算して除外するように変更しました。
+    // そのため、毎マス呼び出されるこのループ処理はコメントアウトし、負荷を激減させています。
+    /*
     for (int k = 0; k < COLS; k++) {
         if (!isSolid(k, cy - 1) && !isSolid(k, cy) && !isSolid(k, cy + 1)) {
             if (isSolid(k + 1, cy - 1) && isSolid(k + 1, cy) && isSolid(k + 1, cy + 1) &&
@@ -148,6 +150,7 @@ bool isTSDShape(const Board& board, int cx, int cy) {
             }
         }
     }
+    */
 
     if (!isSolid(cx - 1, cy + 1)) return false; // 左下の土台
     if (!isSolid(cx + 1, cy + 1)) return false; // 右下の土台
@@ -180,7 +183,28 @@ struct TSDStats { int count; int fillCount; int holeCount; };
 
 TSDStats analyzeTSD(const Board& board) {
     TSDStats stats = {0, 0, 0};
+    
+    // ★最適化：元の関数挙動を崩さないため、I-Well判定のみこちらにも復旧（※実際はメイン評価関数内で一括処理されるため呼ばれません）
+    bool hasIWellInRow[ROWS] = {false};
+    auto isSolidLocal = [&](int x, int y) {
+        if (x < 0 || x >= COLS || y >= ROWS) return true;
+        if (y < 0) return false;
+        return board.cells[y][x] != 0;
+    }; 
     for (int cy = 1; cy < ROWS - 1; cy++) {
+        for (int k = 0; k < COLS; k++) {
+            if (!isSolidLocal(k, cy - 1) && !isSolidLocal(k, cy) && !isSolidLocal(k, cy + 1)) {
+                if (isSolidLocal(k + 1, cy - 1) && isSolidLocal(k + 1, cy) && isSolidLocal(k + 1, cy + 1) &&
+                    isSolidLocal(k - 1, cy - 1) && isSolidLocal(k - 1, cy) && isSolidLocal(k - 1, cy + 1)) {
+                    hasIWellInRow[cy] = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    for (int cy = 1; cy < ROWS - 1; cy++) {
+        if (hasIWellInRow[cy]) continue;
         for (int cx = 1; cx < COLS - 1; cx++) {
             if (isTSDShape(board, cx, cy)) {
                 stats.count++;
@@ -261,6 +285,63 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         score += (r_cond2) * (r_cond2) * w.slopePenalty;
     }
 
+    // ★最適化：盤面スキャンを1回に統合（3重苦の解消）とI-Well判定のループ外への切り出し
+    bool ignoreHoleRow[ROWS] = {false};
+    bool isTSDRowForBlocksOverHole[ROWS] = {false};
+    TSDStats tsd = {0, 0, 0};
+
+    // I-Wellのような深い穴がある「行(cy)」を事前に1回だけリストアップ
+    bool hasIWellInRow[ROWS] = {false};
+    auto isSolidLocal = [&](int x, int y) {
+        if (x < 0 || x >= COLS || y >= ROWS) return true;
+        if (y < 0) return false;
+        return b.cells[y][x] != 0;
+    }; 
+    for (int cy = 1; cy < ROWS - 1; cy++) {
+        for (int k = 0; k < COLS; k++) {
+            if (!isSolidLocal(k, cy - 1) && !isSolidLocal(k, cy) && !isSolidLocal(k, cy + 1)) {
+                if (isSolidLocal(k + 1, cy - 1) && isSolidLocal(k + 1, cy) && isSolidLocal(k + 1, cy + 1) &&
+                    isSolidLocal(k - 1, cy - 1) && isSolidLocal(k - 1, cy) && isSolidLocal(k - 1, cy + 1)) {
+                    hasIWellInRow[cy] = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // 1回のスキャンでTSD判定、ignoreHoleRow、isTSDRowForBlocksOverHole、TSDStatsをすべて計算
+    for (int cy = 1; cy < ROWS - 1; cy++) {
+        if (hasIWellInRow[cy]) continue; // 行全体でI-Wellがある場合はTSDを作れないとしてスキップ
+
+        for (int cx = 1; cx < COLS - 1; cx++) {
+            if (isTSDShape(b, cx, cy)) {
+                isTSDRowForBlocksOverHole[cy] = true;
+                isTSDRowForBlocksOverHole[cy + 1] = true;
+                
+                if (maxHeight <= 10) {
+                    ignoreHoleRow[cy] = true;
+                    ignoreHoleRow[cy + 1] = true;
+                }
+
+                tsd.count++;
+                if (tsd.count == 1) { 
+                    for (int x = 0; x < COLS; x++) {
+                        if (x != cx - 1 && x != cx && x != cx + 1) {
+                            if (b.cells[cy][x] != 0) tsd.fillCount++;
+                            else if (b.hasBlockAbove(x, cy)) tsd.holeCount++; 
+                        }
+                        if (x != cx) {
+                            if (b.cells[cy + 1][x] != 0) tsd.fillCount++;
+                            else if (b.hasBlockAbove(x, cy + 1)) tsd.holeCount++; 
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ★最適化：TSDに関する穴無視処理は上記スキャンに統合したためコメントアウト
+    /*
     bool ignoreHoleRow[ROWS] = {false};
     if (maxHeight <= 10) {
         for (int cy = 1; cy < ROWS - 1; cy++) {
@@ -271,6 +352,8 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
                 }
             }
         }
+    */
+    if (maxHeight <= 10) {
         for(int x = 0; x < COLS; x++) {
             int leftDiff = (x == 0) ? 999 : heights[x-1] - heights[x];
             int rightDiff = (x == COLS-1) ? 999 : heights[x+1] - heights[x];
@@ -382,6 +465,19 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     }
     score += totalIWellScore;
 
+    // ★最適化：上記の一括スキャンで処理済みのためコメントアウト
+    /*
+    bool isTSDRowForBlocksOverHole[ROWS] = {false};
+    for (int cy = 1; cy < ROWS - 1; cy++) {
+        for (int cx = 1; cx < COLS - 1; cx++) {
+            if (isTSDShape(b, cx, cy)) {
+                isTSDRowForBlocksOverHole[cy] = true;
+                isTSDRowForBlocksOverHole[cy + 1] = true;
+            }
+        }
+    }
+    */
+
     int totalBlocksOverLowestHole = 0;
     for(int x = 0; x < COLS; x++) {
         int firstBlockY = -1;
@@ -396,7 +492,8 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
             if(lowestHoleY != -1) {
                 int blocksAbove = 0;
                 for(int y = 0; y < lowestHoleY; y++) {
-                    if(b.cells[y][x] != 0) blocksAbove++;
+                    // ★変更：TSDの行のブロックはカウントから除外
+                    if(b.cells[y][x] != 0 && !isTSDRowForBlocksOverHole[y]) blocksAbove++;
                 }
                 totalBlocksOverLowestHole += blocksAbove;
             }
@@ -411,7 +508,8 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         score -= 3 * w.groundedBonus;
     }
 
-    TSDStats tsd = analyzeTSD(b);
+    // ★最適化：analyzeTSD呼び出しを削除し、一括スキャンで計算済みの tsd を使用
+    // TSDStats tsd = analyzeTSD(b);
     if (tsd.count == 1) {
         score += w.tsdShape;
         score += tsd.fillCount * w.tsdFillBonus; 
