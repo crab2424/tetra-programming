@@ -26,57 +26,85 @@ const MinoData MINO_TEMPLATES[7] = {
     {{{0,1},{1,1},{1,2},{2,2}}, 1.0f, 2.0f}  
 };
 
+// ★最適化：BFS内での無駄な演算を省くため、全ミノの座標を起動時に事前計算してテーブル化
+GridBlock PRECALC_MINO_BLOCKS[7][4][4];
+bool isPrecalcDone = false;
+
+void ensurePrecalc() {
+    if (isPrecalcDone) return;
+    for (int type = 0; type < 7; type++) {
+        for (int rot = 0; rot < 4; rot++) {
+            MinoData tmpl = MINO_TEMPLATES[type];
+            for (int i = 0; i < 4; i++) {
+                float relX = tmpl.blocks[i].x - tmpl.pivotX;
+                float relY = tmpl.blocks[i].y - tmpl.pivotY;
+                float newX = relX, newY = relY;
+                for (int r = 0; r < rot; r++) {
+                    float tempX = -newY; float tempY = newX;
+                    newX = tempX; newY = tempY;
+                }
+                PRECALC_MINO_BLOCKS[type][rot][i].x = std::round(newX + tmpl.pivotX);
+                PRECALC_MINO_BLOCKS[type][rot][i].y = std::round(newY + tmpl.pivotY);
+            }
+        }
+    }
+    isPrecalcDone = true;
+}
+
+// 旧：毎度計算していた関数（比較用としてコメントアウト残し）
+/*
+void getRotatedBlocks(int type, int rot, int offsetX, int offsetY, GridBlock outBlocks[4]) {
+    MinoData tmpl = MINO_TEMPLATES[type];
+    for(int i = 0; i < 4; i++) { ... }
+}
+*/
+
+// ★最適化：Boardクラスをビットボード化（250バイト → 50バイトへ圧縮）
 class Board {
 public:
-    uint8_t cells[ROWS][COLS];
+    // uint8_t cells[ROWS][COLS]; // 旧：多次元配列
+    uint16_t rows[ROWS];          // 新：各行をビット(10bit分)で管理
+
     Board() {
-        for(int y=0; y<ROWS; y++) for(int x=0; x<COLS; x++) cells[y][x] = 0;
+        for(int y=0; y<ROWS; y++) rows[y] = 0;
     }
-    bool has(int x, int y) const {
+    
+    inline bool has(int x, int y) const {
         if(x < 0 || x >= COLS || y >= ROWS) return true;
         if(y < 0) return false;
-        return cells[y][x] != 0;
+        return (rows[y] & (1 << x)) != 0;
     }
-    bool hasBlockAbove(int x, int y) const {
-        for (int ty = y - 1; ty >= 0; ty--) {
-            if (cells[ty][x] != 0) return true;
-        }
-        return false;
+    
+    inline void set(int x, int y) {
+        if(x >= 0 && x < COLS && y >= 0 && y < ROWS) rows[y] |= (1 << x);
     }
+    
+    inline void clear(int x, int y) {
+        if(x >= 0 && x < COLS && y >= 0 && y < ROWS) rows[y] &= ~(1 << x);
+    }
+
     int checkLineAndClear() {
         int cleared = 0;
-        for(int y = 0; y < ROWS; y++) {
-            bool full = true;
-            for(int x = 0; x < COLS; x++) if(cells[y][x] == 0) { full = false; break; }
-            if(full) {
+        int write_y = ROWS - 1;
+        for (int y = ROWS - 1; y >= 0; y--) {
+            if (rows[y] == 0x3FF) { // 10列すべてビットが立っている (1023)
                 cleared++;
-                for(int ty = y; ty > 0; ty--) for(int x = 0; x < COLS; x++) cells[ty][x] = cells[ty-1][x];
-                for(int x = 0; x < COLS; x++) cells[0][x] = 0;
+            } else {
+                rows[write_y] = rows[y];
+                write_y--;
             }
+        }
+        for (int y = write_y; y >= 0; y--) {
+            rows[y] = 0;
         }
         return cleared;
     }
 };
 
-void getRotatedBlocks(int type, int rot, int offsetX, int offsetY, GridBlock outBlocks[4]) {
-    MinoData tmpl = MINO_TEMPLATES[type];
-    for(int i = 0; i < 4; i++) {
-        float relX = tmpl.blocks[i].x - tmpl.pivotX;
-        float relY = tmpl.blocks[i].y - tmpl.pivotY;
-        float newX = relX, newY = relY;
-        for(int r = 0; r < rot; r++) {
-            float tempX = -newY; float tempY = newX;
-            newX = tempX; newY = tempY;
-        }
-        outBlocks[i].x = std::round(newX + tmpl.pivotX) + offsetX;
-        outBlocks[i].y = std::round(newY + tmpl.pivotY) + offsetY;
-    }
-}
-
 bool isValidPlacement(const Board& b, const GridBlock blocks[4]) {
     for(int i = 0; i < 4; i++) {
         const auto& blk = blocks[i];
-        if(blk.x < 0 || blk.x >= COLS || blk.y >= ROWS || (blk.y >= 0 && b.has(blk.x, blk.y))) return false;
+        if(blk.x < 0 || blk.x >= COLS || blk.y >= ROWS || (blk.y >= 0 && ((b.rows[blk.y] >> blk.x) & 1))) return false;
     }
     return true;
 }
@@ -100,11 +128,9 @@ PlacementInfo calcPlacementInfo(const Board& b, const GridBlock blocks[4]) {
     if(isFullyGrounded) {
         for(int bi=0; bi<4; bi++) {
             const auto& blk = blocks[bi];
-            int dx[] = {-1, 1, 0}; int dy[] = {0, 0, 1};
-            for(int i=0; i<3; i++) {
-                int nx = blk.x + dx[i]; int ny = blk.y + dy[i];
-                if(nx < 0 || nx >= COLS || ny >= ROWS || b.has(nx, ny)) touchingCount++;
-            }
+            if (b.has(blk.x - 1, blk.y)) touchingCount++;
+            if (b.has(blk.x + 1, blk.y)) touchingCount++;
+            if (b.has(blk.x, blk.y + 1)) touchingCount++;
         }
     }
     return {isFullyGrounded, touchingCount};
@@ -130,26 +156,22 @@ struct EvalWeights {
     int slopePenalty;        // ★追加：ゆるやかな下り坂を満たさないペナルティ
 };
 
-bool isTSDShape(const Board& board, int cx, int cy) {
+// ★最適化：引数に const int heights[COLS] = nullptr を追加
+bool isTSDShape(const Board& board, int cx, int cy, const int heights[COLS] = nullptr) {
     if (cx < 1 || cx >= COLS - 1 || cy < 0 || cy >= ROWS - 1) return false;
-    if (board.cells[cy][cx] != 0 || board.cells[cy][cx-1] != 0 || board.cells[cy][cx+1] != 0 || board.cells[cy+1][cx] != 0) return false;
+    
+    // ★最適化：盤面配列の直接参照をビット演算に置換
+    if ((board.rows[cy] & (1<<cx)) || (board.rows[cy] & (1<<(cx-1))) || (board.rows[cy] & (1<<(cx+1))) || (board.rows[cy+1] & (1<<cx))) return false;
+    
     auto isSolid = [&](int x, int y) {
         if (x < 0 || x >= COLS || y >= ROWS) return true;
         if (y < 0) return false;
-        return board.cells[y][x] != 0;
+        return (board.rows[y] & (1 << x)) != 0;
     }; 
 
-    // ★最適化：TSDの地形が存在する高さのI-Wellチェックは、この関数の外（スキャン処理）で事前に1回だけ計算して除外するように変更しました。
-    // そのため、毎マス呼び出されるこのループ処理はコメントアウトし、負荷を激減させています。
+    // ★最適化：TSDの地形が存在する高さのI-Wellチェックは、この関数の外（スキャン処理）で事前に1回だけ計算して除外するように変更
     /*
-    for (int k = 0; k < COLS; k++) {
-        if (!isSolid(k, cy - 1) && !isSolid(k, cy) && !isSolid(k, cy + 1)) {
-            if (isSolid(k + 1, cy - 1) && isSolid(k + 1, cy) && isSolid(k + 1, cy + 1) &&
-                isSolid(k - 1, cy - 1) && isSolid(k - 1, cy) && isSolid(k - 1, cy + 1)) {
-                return false;
-            }
-        }
-    }
+    for (int k = 0; k < COLS; k++) { ... }
     */
 
     if (!isSolid(cx - 1, cy + 1)) return false; // 左下の土台
@@ -157,23 +179,30 @@ bool isTSDShape(const Board& board, int cx, int cy) {
     if (!isSolid(cx - 2, cy + 1)) return false; 
     if (!isSolid(cx + 2, cy + 1)) return false; 
     
-    bool leftRoof = (cy - 1 < 0) || (cx - 1 < 0) || (board.cells[cy-1][cx-1] && board.cells[cy][cx-2] != 0);
-    bool rightRoof = (cy - 1 < 0) || (cx + 1 >= COLS) || (board.cells[cy-1][cx+1] && board.cells[cy-1][cx+2] != 0);
+    bool leftRoof = (cy - 1 < 0) || (cx - 1 < 0) || (isSolid(cx-1, cy-1) && isSolid(cx-2, cy));
+    bool rightRoof = (cy - 1 < 0) || (cx + 1 >= COLS) || (isSolid(cx+1, cy-1) && isSolid(cx+2, cy-1));
     if (!(leftRoof ^ rightRoof)) return false; 
     
     if (cy - 1 >= 0) {
         if (leftRoof) {
-            if (board.cells[cy-1][cx] != 0 || (cx + 1 < COLS && board.cells[cy-1][cx+1] != 0)) return false;
+            if (isSolid(cx, cy-1) || (cx + 1 < COLS && isSolid(cx+1, cy-1))) return false;
         } else {
-            if (board.cells[cy-1][cx] != 0 || (cx - 1 >= 0 && board.cells[cy-1][cx-1] != 0)) return false;
+            if (isSolid(cx, cy-1) || (cx - 1 >= 0 && isSolid(cx-1, cy-1))) return false;
         }
     }
 
     int clearCol1 = cx;
     int clearCol2 = leftRoof ? cx + 1 : cx - 1;
-    for (int y = 0; y < cy; y++) {
-        if (board.cells[y][clearCol1] != 0) return false;
-        if (board.cells[y][clearCol2] != 0) return false;
+    
+    // ★最適化：heights配列が渡されている場合はループを回さずO(1)で計算
+    if (heights != nullptr) {
+        if (heights[clearCol1] > ROWS - cy) return false;
+        if (heights[clearCol2] > ROWS - cy) return false;
+    } else {
+        for (int y = 0; y < cy; y++) {
+            if (board.rows[y] & (1<<clearCol1)) return false;
+            if (board.rows[y] & (1<<clearCol2)) return false;
+        }
     }
 
     return true;
@@ -181,52 +210,8 @@ bool isTSDShape(const Board& board, int cx, int cy) {
 
 struct TSDStats { int count; int fillCount; int holeCount; };
 
-TSDStats analyzeTSD(const Board& board) {
-    TSDStats stats = {0, 0, 0};
-    
-    // ★最適化：元の関数挙動を崩さないため、I-Well判定のみこちらにも復旧（※実際はメイン評価関数内で一括処理されるため呼ばれません）
-    bool hasIWellInRow[ROWS] = {false};
-    auto isSolidLocal = [&](int x, int y) {
-        if (x < 0 || x >= COLS || y >= ROWS) return true;
-        if (y < 0) return false;
-        return board.cells[y][x] != 0;
-    }; 
-    for (int cy = 1; cy < ROWS - 1; cy++) {
-        for (int k = 0; k < COLS; k++) {
-            if (!isSolidLocal(k, cy - 1) && !isSolidLocal(k, cy) && !isSolidLocal(k, cy + 1)) {
-                if (isSolidLocal(k + 1, cy - 1) && isSolidLocal(k + 1, cy) && isSolidLocal(k + 1, cy + 1) &&
-                    isSolidLocal(k - 1, cy - 1) && isSolidLocal(k - 1, cy) && isSolidLocal(k - 1, cy + 1)) {
-                    hasIWellInRow[cy] = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    for (int cy = 1; cy < ROWS - 1; cy++) {
-        if (hasIWellInRow[cy]) continue;
-        for (int cx = 1; cx < COLS - 1; cx++) {
-            if (isTSDShape(board, cx, cy)) {
-                stats.count++;
-                if (stats.count == 1) { 
-                    for (int x = 0; x < COLS; x++) {
-                        if (x != cx - 1 && x != cx && x != cx + 1) {
-                            if (board.cells[cy][x] != 0) stats.fillCount++;
-                            else if (board.hasBlockAbove(x, cy)) stats.holeCount++; 
-                        }
-                        if (x != cx) {
-                            if (board.cells[cy + 1][x] != 0) stats.fillCount++;
-                            else if (board.hasBlockAbove(x, cy + 1)) stats.holeCount++; 
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return stats;
-}
-
-int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, int ren = 0, bool backToBack = false, const GridBlock* droppedBlocks = nullptr, int tSpinType = 0) {
+// ★最適化：引数に outMaxHeight を追加（SearchStateへの引継ぎ用）
+int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, int ren = 0, bool backToBack = false, const GridBlock* droppedBlocks = nullptr, int tSpinType = 0, int* outMaxHeight = nullptr) {
     int score = 0;
     if (linesCleared > 0) score += (linesCleared - 2) * w.lineClear;
     if (linesCleared >= 4) score += w.line4;
@@ -236,28 +221,36 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         for (int i=0; i<4; i++) {
             if (droppedBlocks[i].y > minoBottomY) minoBottomY = droppedBlocks[i].y;
         }
-        int n = (ROWS - 1) - minoBottomY; // ★変更: 19 から (ROWS - 1) に拡張
+        int n = (ROWS - 1) - minoBottomY; 
         if (n < 0) n = 0;
         if (n >= 3 && isGrounded) score += w.downstackGood * n; 
         else if (n < 3) score += w.downstackBad * 10 * n; 
     }
 
+    // ★最適化：ビットボードから一瞬で各列の高さを算出
+    uint32_t cols[COLS] = {0};
     int heights[COLS] = {0};
-    int colBlocks[COLS] = {0};
-    for(int x = 0; x < COLS; x++) {
-        for(int y = 0; y < ROWS; y++) {
-            if(b.cells[y][x] != 0) {
-                if(heights[x] == 0) heights[x] = ROWS - y; // ★変更: 高さ計算は ROWS(25)から計算するためズレない
-                colBlocks[x]++;
-            }
+    for(int y = 0; y < ROWS; y++) {
+        uint16_t row = b.rows[y];
+        for(int x = 0; x < COLS; x++) {
+            if ((row >> x) & 1) cols[x] |= (1 << y);
         }
     }
 
     int maxHeight = 0; int minHeight = ROWS;
-    for(int h : heights) {
-        if(h > maxHeight) maxHeight = h;
-        if(h < minHeight) minHeight = h;
+    for (int x = 0; x < COLS; x++) {
+        if (cols[x] != 0) {
+            // ★最適化：__builtin_ctz (最下位の0の数を数える超高速命令) を使って高さを一発で取得
+            heights[x] = ROWS - __builtin_ctz(cols[x]); 
+            if (heights[x] > maxHeight) maxHeight = heights[x];
+            if (heights[x] < minHeight) minHeight = heights[x];
+        } else {
+            minHeight = 0;
+        }
     }
+    
+    // 呼び出し元に高さを引き継ぐ
+    if (outMaxHeight != nullptr) *outMaxHeight = maxHeight;
 
     if(maxHeight >= 8) score += (maxHeight - 7) * (maxHeight - 7) * w.heightLimit;
     if(maxHeight >= 18) score += 100 * maxHeight * maxHeight * w.heightLimit;
@@ -285,54 +278,55 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         score += (r_cond2) * (r_cond2) * w.slopePenalty;
     }
 
-    // ★最適化：盤面スキャンを1回に統合（3重苦の解消）とI-Well判定のループ外への切り出し
-    bool ignoreHoleRow[ROWS] = {false};
-    bool isTSDRowForBlocksOverHole[ROWS] = {false};
-    TSDStats tsd = {0, 0, 0};
-
-    // I-Wellのような深い穴がある「行(cy)」を事前に1回だけリストアップ
+    // ★最適化：I-Well判定のループ外への切り出しをビット演算で完全一括処理
     bool hasIWellInRow[ROWS] = {false};
-    auto isSolidLocal = [&](int x, int y) {
-        if (x < 0 || x >= COLS || y >= ROWS) return true;
-        if (y < 0) return false;
-        return b.cells[y][x] != 0;
-    }; 
     for (int cy = 1; cy < ROWS - 1; cy++) {
-        for (int k = 0; k < COLS; k++) {
-            if (!isSolidLocal(k, cy - 1) && !isSolidLocal(k, cy) && !isSolidLocal(k, cy + 1)) {
-                if (isSolidLocal(k + 1, cy - 1) && isSolidLocal(k + 1, cy) && isSolidLocal(k + 1, cy + 1) &&
-                    isSolidLocal(k - 1, cy - 1) && isSolidLocal(k - 1, cy) && isSolidLocal(k - 1, cy + 1)) {
-                    hasIWellInRow[cy] = true;
-                    break;
-                }
-            }
+        uint16_t row_up = (cy-1 < 0) ? 0 : b.rows[cy-1];
+        uint16_t row_mid = b.rows[cy];
+        uint16_t row_down = b.rows[cy+1];
+        
+        uint16_t empty_mask = (~row_up) & (~row_mid) & (~row_down) & 0x3FF;
+        uint16_t solid_mask = row_up & row_mid & row_down;
+        
+        uint16_t left_solid = (solid_mask << 1) | 1;      // 左壁を含む
+        uint16_t right_solid = (solid_mask >> 1) | 0x200; // 右壁を含む
+        
+        if (empty_mask & left_solid & right_solid) {
+            hasIWellInRow[cy] = true;
         }
     }
 
-    // 1回のスキャンでTSD判定、ignoreHoleRow、isTSDRowForBlocksOverHole、TSDStatsをすべて計算
+    // 1回のスキャンでTSD判定
+    TSDStats tsd = {0, 0, 0};
+    bool isTSDRowForBlocksOverHole[ROWS] = {false};
+    uint32_t ignoreMask = 0; // 穴として数えない行のビットマスク
+
     for (int cy = 1; cy < ROWS - 1; cy++) {
-        if (hasIWellInRow[cy]) continue; // 行全体でI-Wellがある場合はTSDを作れないとしてスキップ
+        if (hasIWellInRow[cy]) continue;
 
         for (int cx = 1; cx < COLS - 1; cx++) {
-            if (isTSDShape(b, cx, cy)) {
+            if (isTSDShape(b, cx, cy, heights)) {
                 isTSDRowForBlocksOverHole[cy] = true;
                 isTSDRowForBlocksOverHole[cy + 1] = true;
                 
                 if (maxHeight <= 10) {
-                    ignoreHoleRow[cy] = true;
-                    ignoreHoleRow[cy + 1] = true;
+                    ignoreMask |= (1 << cy);
+                    ignoreMask |= (1 << (cy + 1));
                 }
 
                 tsd.count++;
                 if (tsd.count == 1) { 
+                    uint16_t mask_cy = ~( (1<<(cx-1)) | (1<<cx) | (1<<(cx+1)) ) & 0x3FF;
+                    uint16_t mask_cy1 = ~( (1<<cx) ) & 0x3FF;
+                    tsd.fillCount += __builtin_popcount(b.rows[cy] & mask_cy);
+                    tsd.fillCount += __builtin_popcount(b.rows[cy+1] & mask_cy1);
+                    
                     for (int x = 0; x < COLS; x++) {
                         if (x != cx - 1 && x != cx && x != cx + 1) {
-                            if (b.cells[cy][x] != 0) tsd.fillCount++;
-                            else if (b.hasBlockAbove(x, cy)) tsd.holeCount++; 
+                            if (cy > ROWS - heights[x] && !((b.rows[cy] >> x) & 1)) tsd.holeCount++; 
                         }
                         if (x != cx) {
-                            if (b.cells[cy + 1][x] != 0) tsd.fillCount++;
-                            else if (b.hasBlockAbove(x, cy + 1)) tsd.holeCount++; 
+                            if (cy + 1 > ROWS - heights[x] && !((b.rows[cy+1] >> x) & 1)) tsd.holeCount++; 
                         }
                     }
                 }
@@ -340,19 +334,6 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         }
     }
 
-    // ★最適化：TSDに関する穴無視処理は上記スキャンに統合したためコメントアウト
-    /*
-    bool ignoreHoleRow[ROWS] = {false};
-    if (maxHeight <= 10) {
-        for (int cy = 1; cy < ROWS - 1; cy++) {
-            for (int cx = 1; cx < COLS - 1; cx++) {
-                if (isTSDShape(b, cx, cy)) {
-                    ignoreHoleRow[cy] = true;
-                    ignoreHoleRow[cy + 1] = true;
-                }
-            }
-        }
-    */
     if (maxHeight <= 10) {
         for(int x = 0; x < COLS; x++) {
             int leftDiff = (x == 0) ? 999 : heights[x-1] - heights[x];
@@ -361,49 +342,44 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
                 int startY = ROWS - heights[x];
                 for (int dy = 0; dy < 4; dy++) {
                     if (startY + dy >= 0 && startY + dy < ROWS) {
-                        ignoreHoleRow[startY + dy] = true;
+                        ignoreMask |= (1 << (startY + dy));
                     }
                 }
             }
         }
     }
 
+    // ★最適化：holesのループをビット演算と popcount で一撃で計算
     int holes = 0;
-    for(int x = 0; x < COLS; x++) {
-        bool foundTop = false; 
-        for(int y = 0; y < ROWS; y++) {
-            if(b.cells[y][x] != 0) {
-                foundTop = true;
-            } else if (foundTop) {
-                if (!ignoreHoleRow[y]) {
-                    holes++;
-                }
-            }
-        }
+    for (int x = 0; x < COLS; x++) {
+        if (cols[x] == 0) continue;
+        int first_y = __builtin_ctz(cols[x]);
+        uint32_t filled = cols[x] | ignoreMask; // 穴を無視する行を埋める
+        uint32_t mask = ~((1 << first_y) - 1);
+        filled |= ~mask;                        // ブロック上空を 1 にして穴判定から消す
+        filled |= ~((1 << ROWS) - 1);           // 盤面外を 1 にする
+        
+        holes += 32 - __builtin_popcount(filled); // 残った 0 の数が穴の数
     }
 
     score += holes * w.hole;
-    if (holes > 0) {
-        score += (holes * holes) * (w.hole / 2);
-    }
+    if (holes > 0) score += (holes * holes) * (w.hole / 2);
 
+    // ★最適化：pureHole も盤面の多重ループを消滅させ、ビット演算に置換
     int pureHolesCount = 0;
     for(int y = 0; y < ROWS; y++) {
-        for(int x = 0; x < COLS; x++) {
-            if(b.cells[y][x] == 0) {
-                bool up    = (y == 0) || (b.cells[y-1][x] != 0);
-                bool down  = (y == ROWS-1) || (b.cells[y+1][x] != 0);
-                bool left  = (x == 0) || (b.cells[y][x-1] != 0);
-                bool right = (x == COLS-1) || (b.cells[y][x+1] != 0);
-                if(up && down && left && right) pureHolesCount++;
-            }
-        }
+        uint16_t row = b.rows[y];
+        uint16_t empty = (~row) & 0x3FF;
+        uint16_t up = (y == 0) ? 0x3FF : b.rows[y-1];
+        uint16_t down = (y == ROWS-1) ? 0x3FF : b.rows[y+1];
+        uint16_t left_wall = (row << 1) | 1;
+        uint16_t right_wall = (row >> 1) | 0x200;
+        uint16_t pure = empty & up & down & left_wall & right_wall;
+        pureHolesCount += __builtin_popcount(pure);
     }
     
     score += pureHolesCount * w.pureHole;
-    if (pureHolesCount > 0) {
-        score += (pureHolesCount * pureHolesCount) * (w.pureHole / 2);
-    }
+    if (pureHolesCount > 0) score += (pureHolesCount * pureHolesCount) * (w.pureHole / 2);
 
     int step1Count = 0;
     int step2Count = 0;
@@ -433,18 +409,11 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     if(deepWells == 1) score += 1;
     else if(deepWells >= 2) score += totalDepth * -10;
 
-    int blocksInRowArray[ROWS] = {0};
-    for(int y = 0; y < ROWS; y++) {
-        for(int x = 0; x < COLS; x++) {
-            if(b.cells[y][x] != 0) blocksInRowArray[y]++;
-        }
-    }
-
     int totalIWellScore = 0;
     for(int x = 0; x < COLS; x++) {
         int continuousEmpty = 0; int maxContinuous = 0;
         for(int y = 0; y < ROWS; y++) {
-            if(blocksInRowArray[y] == 9 && b.cells[y][x] == 0) {
+            if(__builtin_popcount(b.rows[y]) == 9 && !((b.rows[y] >> x) & 1)) {
                 continuousEmpty++;
                 if(continuousEmpty > maxContinuous) maxContinuous = continuousEmpty;
             } else {
@@ -456,47 +425,28 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
             if(maxContinuous <= 10) wellScore = maxContinuous * w.iWell;
             else wellScore = 10 * w.iWell + (maxContinuous - 10) * w.iWellOver;
             
-            if (x <= 1 || x >= 8) {
-                totalIWellScore -= wellScore / 4;
-            } else {
-                totalIWellScore += wellScore;
-            }
+            if (x <= 1 || x >= 8) totalIWellScore -= wellScore / 4;
+            else totalIWellScore += wellScore;
         }
     }
     score += totalIWellScore;
 
-    // ★最適化：上記の一括スキャンで処理済みのためコメントアウト
-    /*
-    bool isTSDRowForBlocksOverHole[ROWS] = {false};
-    for (int cy = 1; cy < ROWS - 1; cy++) {
-        for (int cx = 1; cx < COLS - 1; cx++) {
-            if (isTSDShape(b, cx, cy)) {
-                isTSDRowForBlocksOverHole[cy] = true;
-                isTSDRowForBlocksOverHole[cy + 1] = true;
-            }
-        }
-    }
-    */
+    // ★最適化：totalBlocksOverLowestHole もループと条件分岐を消し去り、ビット演算に置換
+    uint32_t tsdr_mask = 0;
+    for (int y = 0; y < ROWS; y++) if (isTSDRowForBlocksOverHole[y]) tsdr_mask |= (1 << y);
 
     int totalBlocksOverLowestHole = 0;
-    for(int x = 0; x < COLS; x++) {
-        int firstBlockY = -1;
-        for(int y = 0; y < ROWS; y++) {
-            if(b.cells[y][x] != 0) { firstBlockY = y; break; }
-        }
-        if (firstBlockY != -1) {
-            int lowestHoleY = -1;
-            for(int y = ROWS - 1; y > firstBlockY; y--) {
-                if(b.cells[y][x] == 0) { lowestHoleY = y; break; }
-            }
-            if(lowestHoleY != -1) {
-                int blocksAbove = 0;
-                for(int y = 0; y < lowestHoleY; y++) {
-                    // ★変更：TSDの行のブロックはカウントから除外
-                    if(b.cells[y][x] != 0 && !isTSDRowForBlocksOverHole[y]) blocksAbove++;
-                }
-                totalBlocksOverLowestHole += blocksAbove;
-            }
+    for (int x = 0; x < COLS; x++) {
+        uint32_t c = cols[x];
+        if (c == 0) continue;
+        int firstBlockY = __builtin_ctz(c);
+        uint32_t inv = ~c & ((1 << ROWS) - 1);
+        inv &= ~((1 << (firstBlockY + 1)) - 1); // 最初のブロックより上空を無視
+        if (inv != 0) {
+            int lowestHoleY = 31 - __builtin_clz(inv); // 一番下にある穴の位置を特定
+            uint32_t valid_blocks = c & ~tsdr_mask;    // TSD地形を除外したブロック列
+            valid_blocks &= ((1 << lowestHoleY) - 1);  // 穴より上空のブロックだけを残す
+            totalBlocksOverLowestHole += __builtin_popcount(valid_blocks);
         }
     }
     score += totalBlocksOverLowestHole * w.blocksOverHole;
@@ -508,8 +458,6 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         score -= 3 * w.groundedBonus;
     }
 
-    // ★最適化：analyzeTSD呼び出しを削除し、一括スキャンで計算済みの tsd を使用
-    // TSDStats tsd = analyzeTSD(b);
     if (tsd.count == 1) {
         score += w.tsdShape;
         score += tsd.fillCount * w.tsdFillBonus; 
@@ -524,8 +472,8 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     for (int x = 1; x < COLS - 1; x++) {
         int y = ROWS - heights[x] - 1; 
         if (y > 0 && y < ROWS) {
-            if (b.cells[y][x-1] != 0 && b.cells[y][x+1] != 0) {
-                if (b.cells[y-1][x-1] == 0 && b.cells[y-1][x+1] == 0) {
+            if ((b.rows[y] & (1<<(x-1))) && (b.rows[y] & (1<<(x+1)))) {
+                if (!((b.rows[y-1] >> (x-1)) & 1) && !((b.rows[y-1] >> (x+1)) & 1)) {
                     tsdSetupCount++;
                 }
             }
@@ -533,34 +481,21 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     }
 
     if (tsdSetupCount > 0) {
-        if (tsdSetupCount <= 2) {
-            score += tsdSetupCount * w.tsdSetup;
-        } else {
-            score += tsdSetupCount * w.tsdSetupOver;
-        }
+        if (tsdSetupCount <= 2) score += tsdSetupCount * w.tsdSetup;
+        else score += tsdSetupCount * w.tsdSetupOver;
     }
 
-    if (ren > 0 && maxHeight >= 10) {
-        score += (ren-2) * (ren) * w.comboBonus;
-    }
-
-    if (ren > 4) {
-        score += ren * ren * w.comboBonus;
-    }
+    if (ren > 0 && maxHeight >= 10) score += (ren-2) * (ren) * w.comboBonus;
+    if (ren > 4) score += ren * ren * w.comboBonus;
 
     if (linesCleared > 0) {
         bool isBtBAction = (linesCleared >= 4) || (tSpinType > 0 && linesCleared > 0);
-        
         if (isBtBAction) {
             score += w.btbKeep;
-            if (backToBack) {
-                score += w.btbKeep; 
-            }
+            if (backToBack) score += w.btbKeep; 
         } else {
             score -= w.btbKeep;
-            if (backToBack) {
-                score -= w.btbKeep * 2; 
-            }
+            if (backToBack) score -= w.btbKeep * 2; 
         }
     }
 
@@ -619,7 +554,6 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
     std::vector<Placement> placements;
     placements.reserve(64); 
     
-    // ★変更: Yのバッファサイズを拡張 (30 -> 35) 画面拡張のため
     static bool visited[4][35][19];
     static bool placementFound[4][35][19];
     static ParentInfo parent[4][35][19]; 
@@ -635,11 +569,18 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
     int spawnX = COLS / 2 - 2; 
     int initialRot = 0;
     
+    // ★最適化：getRotatedBlocks() の呼び出しを排除し、事前計算されたテーブルから直接ブロック位置を取得
     GridBlock startBlocks[4];
-    getRotatedBlocks(pieceType, initialRot, spawnX, spawnY, startBlocks);
+    for(int i=0; i<4; i++) {
+        startBlocks[i].x = PRECALC_MINO_BLOCKS[pieceType][initialRot][i].x + spawnX;
+        startBlocks[i].y = PRECALC_MINO_BLOCKS[pieceType][initialRot][i].y + spawnY;
+    }
+    
     if (!isValidPlacement(baseBoard, startBlocks)) {
         spawnY -= 1; 
-        getRotatedBlocks(pieceType, initialRot, spawnX, spawnY, startBlocks);
+        for(int i=0; i<4; i++) {
+            startBlocks[i].y = PRECALC_MINO_BLOCKS[pieceType][initialRot][i].y + spawnY;
+        }
         if (!isValidPlacement(baseBoard, startBlocks)) return placements; 
     }
     
@@ -655,7 +596,10 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
         BFSState curr = bfsQueue[qHead++];
         
         GridBlock blocks_down[4];
-        getRotatedBlocks(pieceType, curr.rot, curr.x, curr.y + 1, blocks_down);
+        for(int i=0; i<4; i++) {
+            blocks_down[i].x = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].x + curr.x;
+            blocks_down[i].y = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].y + curr.y + 1;
+        }
         bool canMoveDown = isValidPlacement(baseBoard, blocks_down);
         
         if (!canMoveDown) {
@@ -664,14 +608,14 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                     placementFound[curr.rot][curr.y + 5][curr.x + 4] = true;
                     
                     GridBlock droppedBlocks[4];
-                    getRotatedBlocks(pieceType, curr.rot, curr.x, curr.y, droppedBlocks);
+                    for(int i=0; i<4; i++) {
+                        droppedBlocks[i].x = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].x + curr.x;
+                        droppedBlocks[i].y = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].y + curr.y;
+                    }
                     
                     Board simBoard = baseBoard;
                     for(int i=0; i<4; i++) {
-                        const auto& blk = droppedBlocks[i];
-                        if(blk.y >= 0 && blk.y < ROWS && blk.x >= 0 && blk.x < COLS) {
-                            simBoard.cells[blk.y][blk.x] = 1;
-                        }
+                        simBoard.set(droppedBlocks[i].x, droppedBlocks[i].y);
                     }
                     PlacementInfo info = calcPlacementInfo(baseBoard, droppedBlocks);
                     int cleared = simBoard.checkLineAndClear();
@@ -684,7 +628,7 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                         
                         int corners[4][2] = {{px-1, py-1}, {px+1, py-1}, {px-1, py+1}, {px+1, py+1}};
                         bool occupied[4];
-                        for(int i=0; i<4; i++) occupied[i] = (corners[i][0] < 0 || corners[i][0] >= COLS || corners[i][1] < 0 || corners[i][1] >= ROWS || baseBoard.has(corners[i][0], corners[i][1]));
+                        for(int i=0; i<4; i++) occupied[i] = baseBoard.has(corners[i][0], corners[i][1]);
                         
                         int abIdx[2], cdIdx[2];
                         if (curr.rot == 0) { abIdx[0]=0; abIdx[1]=1; cdIdx[0]=2; cdIdx[1]=3; }
@@ -748,11 +692,17 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
         if (canMoveDown) tryPush(curr.x, curr.y + 1, curr.rot, false, false, 3);
         
         GridBlock blocks_left[4];
-        getRotatedBlocks(pieceType, curr.rot, curr.x - 1, curr.y, blocks_left);
+        for(int i=0; i<4; i++) {
+            blocks_left[i].x = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].x + curr.x - 1;
+            blocks_left[i].y = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].y + curr.y;
+        }
         if (isValidPlacement(baseBoard, blocks_left)) tryPush(curr.x - 1, curr.y, curr.rot, false, false, 1);
         
         GridBlock blocks_right[4];
-        getRotatedBlocks(pieceType, curr.rot, curr.x + 1, curr.y, blocks_right);
+        for(int i=0; i<4; i++) {
+            blocks_right[i].x = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].x + curr.x + 1;
+            blocks_right[i].y = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].y + curr.y;
+        }
         if (isValidPlacement(baseBoard, blocks_right)) tryPush(curr.x + 1, curr.y, curr.rot, false, false, 2);
         
         for (int rotDir : {1, -1}) {
@@ -766,7 +716,10 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                 int kx = table[i][0];
                 int ky = table[i][1]; 
                 GridBlock blocks_rot[4];
-                getRotatedBlocks(pieceType, toRot, curr.x + kx, curr.y + ky, blocks_rot);
+                for(int j=0; j<4; j++) {
+                    blocks_rot[j].x = PRECALC_MINO_BLOCKS[pieceType][toRot][j].x + curr.x + kx;
+                    blocks_rot[j].y = PRECALC_MINO_BLOCKS[pieceType][toRot][j].y + curr.y + ky;
+                }
                 if (isValidPlacement(baseBoard, blocks_rot)) {
                     bool usedPoint5 = (i == 4);
                     tryPush(curr.x + kx, curr.y + ky, toRot, true, usedPoint5, actionId);
@@ -788,19 +741,21 @@ EMSCRIPTEN_KEEPALIVE
 void my_free(void* ptr) { free(ptr); }
 
 struct SearchState {
-    int first_action; // 1手目の行動(0: Play, 1: Hold)
-    int hold_mino;    // 現在のホールドに入っているミノの種類
-    int next_idx;     // 次に消費するNEXTキューのインデックス
+    int first_action; 
+    int hold_mino;    
+    int next_idx;     
 
     int p1_score; 
     int total_score; 
     Board board;
 
-    bool has_p[6];      // 各ステップでミノを置いたか
-    Placement p[6];     // 各ステップの配置
-    int step_score[6];  // 各ステップのスコア
-    int p_id[6];        // 実際にそのステップで配置されたミノのID
+    bool has_p[6];      
+    Placement p[6];     
+    int step_score[6];  
+    int p_id[6];        
 
+    int max_height;     
+    
     int ren;        
     bool backToBack; 
 
@@ -810,6 +765,7 @@ struct SearchState {
         next_idx = 0;
         p1_score = 0;
         total_score = 0;
+        max_height = 0;
         ren = 0;        
         backToBack = false; 
         for(int i = 0; i < 6; ++i) { 
@@ -826,11 +782,13 @@ void evaluateSinglePlacementWasm(
     int* weightsArray, int* outResult,
     int ren, int backToBack, int tSpinType
 ) {
+    ensurePrecalc();
+    
     Board baseBoard;
-    // ★変更: バッファサイズを200から250に拡張
-    for(int i = 0; i < 250; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
+    for(int i = 0; i < 250; i++) {
+        if (boardData[i]) baseBoard.set(i % 10, i / 10);
+    }
 
-    // ★変更：拡張されたweightsに対応 (要素数33)
     EvalWeights w = {
         weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
         weightsArray[5], weightsArray[6], weightsArray[7], weightsArray[8], weightsArray[9],
@@ -838,26 +796,26 @@ void evaluateSinglePlacementWasm(
         weightsArray[15], weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], 
         weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
         weightsArray[24], weightsArray[25], weightsArray[26], weightsArray[27], weightsArray[28],
-        weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32] // slopeBonus, slopePenalty
+        weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32] 
     };
 
-    int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0);
+    int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0, nullptr);
 
     GridBlock blocks[4];
-    getRotatedBlocks(minoType, rot, x, y, blocks);
+    for(int i=0; i<4; i++) {
+        blocks[i].x = PRECALC_MINO_BLOCKS[minoType][rot][i].x + x;
+        blocks[i].y = PRECALC_MINO_BLOCKS[minoType][rot][i].y + y;
+    }
 
     Board simBoard = baseBoard;
     for(int i=0; i<4; i++) {
-        const auto& blk = blocks[i];
-        if(blk.y >= 0 && blk.y < ROWS && blk.x >= 0 && blk.x < COLS) {
-            simBoard.cells[blk.y][blk.x] = 1;
-        }
+        simBoard.set(blocks[i].x, blocks[i].y);
     }
     
     PlacementInfo info = calcPlacementInfo(baseBoard, blocks);
     int cleared = simBoard.checkLineAndClear();
 
-    int score = evaluateBoard(simBoard, cleared, info.isFullyGrounded, info.touchingCount, w, ren, backToBack != 0, blocks, tSpinType);
+    int score = evaluateBoard(simBoard, cleared, info.isFullyGrounded, info.touchingCount, w, ren, backToBack != 0, blocks, tSpinType, nullptr);
     
     int eventBonus = 0;
     int multiplier = 6; 
@@ -871,7 +829,6 @@ void evaluateSinglePlacementWasm(
 
     int stepScore = score * w.p1Weight / 100 + eventBonus;
 
-    // ★追加：シングル評価でも、ブロックが1つでも画面外（シフト後座標で y < 0, つまり元座標で y < -5）にはみ出す場合は即死ペナルティを与えます
     bool hasBlockOutside = false;
     for(int i=0; i<4; i++) {
         if(blocks[i].y < 0) {
@@ -879,25 +836,18 @@ void evaluateSinglePlacementWasm(
             break;
         }
     }
-    if (hasBlockOutside) {
-        stepScore -= 100000000; // ★修正: ペナルティを -1億 に大幅増加 (評価値累積による意図せぬ長生き防止)
-    }
+    if (hasBlockOutside) stepScore -= 100000000;
 
     int prevHeight = 0;
     for(int y = 0; y < ROWS; y++) {
-        for(int x = 0; x < COLS; x++) {
-            if(baseBoard.cells[y][x] != 0) {
-                prevHeight = ROWS - y;
-                break;
-            }
+        if (baseBoard.rows[y] != 0) {
+            prevHeight = ROWS - y;
+            break;
         }
-        if(prevHeight != 0) break;
     }
 
     if (prevHeight <= 10) {
-        if (minoType == 2 && cleared == 0) {
-            stepScore += w.tMinoNoClearPenalty;
-        }
+        if (minoType == 2 && cleared == 0) stepScore += w.tMinoNoClearPenalty;
     }
 
     outResult[0] = stepScore;
@@ -910,14 +860,16 @@ void searchBestMoveWasm(
     int* weightsArray, int* outResult,
     int ren, int backToBack 
 ){
+    ensurePrecalc();
+    
     for(int i = 0; i < 43; i++) outResult[i] = -1;
     for(int i = 36; i < 43; i++) outResult[i] = 0; 
 
     Board baseBoard;
-    // ★変更: バッファサイズを200から250に拡張
-    for(int i = 0; i < 250; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
+    for(int i = 0; i < 250; i++) {
+        if (boardData[i]) baseBoard.set(i % 10, i / 10);
+    }
 
-    // ★変更：拡張されたweightsに対応 (要素数33)
     EvalWeights w = {
         weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
         weightsArray[5], weightsArray[6], weightsArray[7], weightsArray[8], weightsArray[9],
@@ -925,14 +877,13 @@ void searchBestMoveWasm(
         weightsArray[15], weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], 
         weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
         weightsArray[24], weightsArray[25], weightsArray[26], weightsArray[27], weightsArray[28],
-        weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32] // slopeBonus, slopePenalty
+        weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32]
     };
 
-    int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0);
+    int baseMaxHeight = 0; 
+    int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0, &baseMaxHeight);
     
     int next_queue[7] = { currentType, next1, next2, next3, next4, next5, 0 };
-
-    // ★変更: Y座標系が+5シフトされているため、スポーン位置のベースもシフトします
     auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; }; 
     
     auto calcEventBonus = [&](const Placement& p, int step_num) {
@@ -965,10 +916,8 @@ void searchBestMoveWasm(
         
         if (p_list.empty()) {
             SearchState dead_s = s;
-            // ★修正：ペナルティを -1億 に大幅増加 (評価値累積による意図せぬ長生き防止)
             dead_s.total_score -= 100000000 * (7 - step_num); 
             if (is_first) dead_s.first_action = first_action;
-            
             final_states.push_back(dead_s);
             return 0; 
         }
@@ -977,7 +926,6 @@ void searchBestMoveWasm(
         for(size_t j = 0; j < p_list.size(); j++) {
             const auto& p = p_list[j];
             
-            // ★変更：ブロックが1つでも画面外（シフト後座標で y < 0, つまり元座標で y < -5）にはみ出している場合、ゲームオーバーと判定します。
             bool hasBlockOutside = false;
             for(int k=0; k<4; k++) {
                 if(p.blocks[k].y < 0) {
@@ -988,60 +936,37 @@ void searchBestMoveWasm(
 
             Board simBoard = is_first ? baseBoard : s.board;
             for(int k=0; k<4; k++) {
-                if(p.blocks[k].y >= 0 && p.blocks[k].y < ROWS && p.blocks[k].x >= 0 && p.blocks[k].x < COLS) {
-                    simBoard.cells[p.blocks[k].y][p.blocks[k].x] = 1;
-                }
+                simBoard.set(p.blocks[k].x, p.blocks[k].y);
             }
             simBoard.checkLineAndClear();
 
             int cur_ren = is_first ? ren : s.ren;
             bool cur_btb = is_first ? (backToBack != 0) : s.backToBack;
 
-            int score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, cur_ren, cur_btb, p.blocks, p.tSpinType);
+            int current_max_height = 0;
+            int score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, cur_ren, cur_btb, p.blocks, p.tSpinType, &current_max_height);
             int eventBonus = calcEventBonus(p, step_num);
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
 
-            if (hasBlockOutside) {
-                // ★修正：早い段階でゲームオーバーになるほどペナルティを大きくする
-                // ペナルティを -1億 に大幅増加 (毎ターンの評価値の累積マイナスによって、長生きするより早く死ぬ方がマシと判断されるバグを防止)
-                stepScore -= 100000000 * (7 - step_num);
-            }
+            if (hasBlockOutside) stepScore -= 100000000 * (7 - step_num);
 
-            int prevHeight = 0;
-            const Board& checkBoard = is_first ? baseBoard : s.board;
-            for(int y = 0; y < ROWS; y++) {
-                bool found = false;
-                for(int x = 0; x < COLS; x++) {
-                    if(checkBoard.cells[y][x] != 0) {
-                        prevHeight = ROWS - y;
-                        found = true;
-                        break;
-                    }
-                }
-                if(found) break;
-            }
-            
+            int prevHeight = is_first ? baseMaxHeight : s.max_height;
             if (prevHeight <= 10) {
-                if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) {
-                    stepScore += w.renCutPenalty; 
-                }
-                if (piece == 2 && p.linesCleared == 0) {
-                    stepScore += w.tMinoNoClearPenalty;
-                }
+                if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) stepScore += w.renCutPenalty; 
+                if (piece == 2 && p.linesCleared == 0) stepScore += w.tMinoNoClearPenalty;
             }
 
             int next_ren = (p.linesCleared > 0) ? (cur_ren + 1) : 0;
             bool isBtBAction = (p.linesCleared >= 4) || (p.tSpinType > 0 && p.linesCleared > 0);
             bool next_btb = cur_btb;
-            if (p.linesCleared > 0) {
-                next_btb = isBtBAction; 
-            }
+            if (p.linesCleared > 0) next_btb = isBtBAction; 
 
             SearchState next_s = s;
             next_s.hold_mino = new_hold;
             next_s.next_idx = new_next_idx;
             next_s.ren = next_ren;       
             next_s.backToBack = next_btb; 
+            next_s.max_height = current_max_height;
             if (is_first) {
                 next_s.first_action = first_action;
                 next_s.p1_score = score;
@@ -1054,15 +979,10 @@ void searchBestMoveWasm(
             next_s.p_id[step_num - 1] = piece; 
 
             if (hasBlockOutside) {
-                // ★追加：ゲームオーバーの手は、帳消しにされないよう以降の探索（枝）に追加せずここで打ち切ります。
-                // これにより、回避可能な置き方が8通り未満でも、ゲームオーバー手が生き残らなくなります。
                 final_states.push_back(next_s);
             } else {
-                if (p.linesCleared > 0) {
-                    next_states_L.push_back(next_s);
-                } else {
-                    next_states_N.push_back(next_s);
-                }
+                if (p.linesCleared > 0) next_states_L.push_back(next_s);
+                else next_states_N.push_back(next_s);
                 pushed_count++;
             }
         }
@@ -1092,6 +1012,7 @@ void searchBestMoveWasm(
     SearchState initial_state;
     initial_state.ren = ren;
     initial_state.backToBack = (backToBack != 0);
+    initial_state.max_height = baseMaxHeight;
     
     expandState(initial_state, next_queue[0], holdType, 1, 1, true, 0);
 
@@ -1135,7 +1056,6 @@ void searchBestMoveWasm(
         final_states.push_back(state);
     }
 
-    // ★修正: ゲームオーバーペナルティを-1億にしたため、初期スコアをさらに低く設定（-20億）
     int bestTotalScore = -2000000000;
     const SearchState* bestState = nullptr;
 
