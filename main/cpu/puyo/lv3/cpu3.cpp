@@ -382,16 +382,19 @@ static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const Eval
     }
 
     int heights[COLS];
+    int avg_heights = 0;
     bool isEmergency = false;
     for (int c = 0; c < COLS; c++) {
         heights[c] = 0;
         for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
             if (b.get(c, r) != 0) heights[c]++;
         }
-        if (heights[c] >= w.emergencyHeight || (c == 2 && heights[c] >= 9)) {
+        avg_heights += heights[c];
+    }
+    avg_heights /= COLS;
+    if (avg_heights >= w.emergencyHeight || heights[2] >= 9) {
             isEmergency = true;
         }
-    }
 
     bool isIgnitionMode = (prePot.maxChains >= w.ignitionThreshold);
 
