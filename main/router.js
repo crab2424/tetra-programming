@@ -85,7 +85,8 @@ const CPU_CONFIGS = {
     2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js' },
     3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js' },
     4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js' }, 
-    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js' }  
+    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js' },
+    6: { className: 'CPU6', src: 'cpu/tet/???/cpu6.js' }  
   },
   puyo: {
     1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu1.js' },  
