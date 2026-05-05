@@ -44,7 +44,7 @@ window.CPU5 = class {
 
             tssClear: 496,       
             tsdClear: 2560,      
-            tsdHolePenalty: -600, 
+            tsdHolePenalty: -6000, 
             pureHole: -50,         
 
             comboBonus: 20,   
@@ -52,7 +52,7 @@ window.CPU5 = class {
             renCutPenalty: -200,
 
             tsmMiniPenalty: -1000,      
-            tMinoNoClearPenalty: -144, 
+            tMinoNoClearPenalty: -360, 
 
             tsdSetup: 30,         
             tsdSetupOver: -100,   
