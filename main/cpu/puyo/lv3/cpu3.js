@@ -14,7 +14,7 @@ window.PuyoCPU3 = class {
         this.weights = {
             chainBonus:           200,  // 発火時の基本ボーナス（C++側で連鎖の3乗倍などで増幅）
             erasedBonus:           10,  
-            heightPenalty:       -600,
+            heightPenalty:       -200,
             heightDiffPenalty:     -8,
             flatBonus:             20,
             colorConnBonus:        80,
@@ -22,15 +22,15 @@ window.PuyoCPU3 = class {
             chainPotentialBonus:   50,  // ポテンシャルの基本ボーナス
             p1Weight:             100,  
             templateBonus:        500,  
-            ignitionThreshold:      7,  // 発火の閾値
-            emergencyHeight:       12,  // 緊急回避ライン
+            ignitionThreshold:      7,  // 基本の発火閾値（おじゃまが少ない場合）
+            emergencyHeight:       10,  // 緊急回避ライン
         };
 
         this.TEMPLATE_PATTERNS = {
             'gtr': [
                 0, 0, 0, 0, 0, 0,  // 盤面の上から数えて一番上の行は空洞（GTRは下3段で組むため）
                 2, 1, 3, 6, 6, 6, 
-                2, 2, 1, 3, 3, 6,
+                2, 2, 1, 3, 6, 6,
                 1, 1, 3, 6, 6, 6
             ],
             'key': [
@@ -49,8 +49,8 @@ window.PuyoCPU3 = class {
         this.isExecutingAction = false;
         this.actionQueue       = [];
         
-        this.templateActive    = true; // ★ テンプレを1プレイ1回に制限するためのフラグ
-        this.lastPuyoCount     = 0;    // ★ 盤面のぷよ数を監視して発火を検知
+        this.templateActive    = true; // テンプレを1プレイ1回に制限するためのフラグ
+        this.lastPuyoCount     = 0;    // 盤面のぷよ数を監視して発火を検知
         
         this.thinkDelay        = 400;      
         this.actionDelay       = 150;      
@@ -141,16 +141,22 @@ window.PuyoCPU3 = class {
         const TOTAL_ROWS = 17; 
         const COLS       = 6;
         let currentPuyoCount = 0;
+        let ojamaCount = 0; // ★ おじゃまぷよの数をカウント
         const boardBuffer = new Uint8Array(TOTAL_ROWS * COLS);
         
         for (let r = 0; r < TOTAL_ROWS; r++) {
             for (let c = 0; c < COLS; c++) {
                 boardBuffer[r * COLS + c] = game.field[r][c] || 0;
-                if (boardBuffer[r * COLS + c] !== 0) currentPuyoCount++;
+                if (boardBuffer[r * COLS + c] !== 0) {
+                    currentPuyoCount++;
+                    if (boardBuffer[r * COLS + c] === 6) {
+                        ojamaCount++; // ★ 6はおじゃまぷよ
+                    }
+                }
             }
         }
 
-        // ★ ぷよが減った（連鎖で消えた）場合は、テンプレ構築を完全に終了する（1プレイ1回の制限）
+        // ぷよが減った（連鎖で消えた）場合は、テンプレ構築を完全に終了する
         if (currentPuyoCount < this.lastPuyoCount - 2) {
             this.templateActive = false;
         }
@@ -181,6 +187,16 @@ window.PuyoCPU3 = class {
             keyBuffer[i]   = keyPattern[i];
         }
 
+        // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
+        let dynamicIgnitionThreshold = this.weights.ignitionThreshold;
+        if (ojamaCount >= 15) {
+            dynamicIgnitionThreshold = 2; // 15個以上で2連鎖妥協
+        } else if (ojamaCount >= 10) {
+            dynamicIgnitionThreshold = 4; // 10個以上で4連鎖妥協
+        } else if (ojamaCount >= 5) {
+            dynamicIgnitionThreshold = 6; // 5個以上で6連鎖妥協
+        }
+
         const weightsArray = new Int32Array([
             this.weights.chainBonus,
             this.weights.erasedBonus,
@@ -191,8 +207,8 @@ window.PuyoCPU3 = class {
             this.weights.zenkeshiBonus,
             this.weights.chainPotentialBonus, 
             this.weights.p1Weight,            
-            this.templateActive ? this.weights.templateBonus : 0,  // ★ 破綻・発火後はボーナスを0にする
-            this.weights.ignitionThreshold,   
+            this.templateActive ? this.weights.templateBonus : 0,  
+            dynamicIgnitionThreshold,         // ★ 基本値の代わりに動的閾値を渡す
             this.weights.emergencyHeight      
         ]);
 
