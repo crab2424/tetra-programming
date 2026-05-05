@@ -9,6 +9,16 @@
 const int COLS = 10;
 const int ROWS = 25; // ★変更：JS側のy=-5に対応するため画面を25行に拡張 (内部的には 0~24)
 
+// ─────────────────────────────────────────────
+// ビットボード設計
+//   1マスにつき2ビットを使用する（拡張性確保）
+//   ビット配置: row y, col x → bit index = (y * COLS + x) * 2
+//   使用ビット: bit[2i]   = 埋まっているか (1 = 埋まり, 0 = 空)
+//              bit[2i+1] = 拡張用予約ビット（将来利用可, 現在は常に0）
+//   500ビット必要 → uint32_t 16個（512ビット）で保持
+// ─────────────────────────────────────────────
+static const int BB_WORDS = 16; // 16 * 32 = 512 bits >= 500 bits
+
 struct GridBlock { int x, y; };
 
 struct MinoData {
@@ -26,35 +36,124 @@ const MinoData MINO_TEMPLATES[7] = {
     {{{0,1},{1,1},{1,2},{2,2}}, 1.0f, 2.0f}  
 };
 
+// ─────────────────────────────────────────────
+// Board クラス（ビットボード実装）
+// ─────────────────────────────────────────────
 class Board {
 public:
-    uint8_t cells[ROWS][COLS];
+    // ビットボード本体: bits[w]の第b bit (下位から)が、
+    //   全体ビットインデックス i = w*32 + b
+    //   → セル (x, y) の occupiedビット: i = (y * COLS + x) * 2
+    //   → 拡張ビット:                    i = (y * COLS + x) * 2 + 1
+    uint32_t bits[BB_WORDS];
+
     Board() {
-        for(int y=0; y<ROWS; y++) for(int x=0; x<COLS; x++) cells[y][x] = 0;
+        memset(bits, 0, sizeof(bits));
     }
-    bool has(int x, int y) const {
-        if(x < 0 || x >= COLS || y >= ROWS) return true;
-        if(y < 0) return false;
-        return cells[y][x] != 0;
+
+    // ─── 内部ヘルパー：ビットインデックス → word/bit 位置 ───
+    static inline int bitIndex(int x, int y) {
+        return (y * COLS + x) * 2; // 占有ビットのインデックス
     }
-    bool hasBlockAbove(int x, int y) const {
-        for (int ty = y - 1; ty >= 0; ty--) {
-            if (cells[ty][x] != 0) return true;
+
+    // ─── セルの占有状態を取得 ───
+    inline bool has(int x, int y) const {
+        if (x < 0 || x >= COLS || y >= ROWS) return true;  // 範囲外は壁扱い
+        if (y < 0) return false;                             // 上方向の範囲外は空
+        int i = bitIndex(x, y);
+        return (bits[i >> 5] >> (i & 31)) & 1;
+    }
+
+    // ─── セルを埋める ───
+    inline void set(int x, int y, int val) {
+        if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
+        int i = bitIndex(x, y);
+        int w = i >> 5;
+        int b = i & 31;
+        if (val) {
+            bits[w] |= (1u << b);
+        } else {
+            bits[w] &= ~(1u << b);
         }
-        return false;
     }
+
+    // ─── 旧API互換: cells[y][x] への代入をエミュレート ───
+    // （外部コードが cells[y][x] = val と書いていた箇所に対応）
+    // 注意: 本実装では cells 配列は持たない。setCell/getCell を使う。
+    inline uint8_t getCell(int x, int y) const {
+        if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return 0;
+        int i = bitIndex(x, y);
+        return (bits[i >> 5] >> (i & 31)) & 1;
+    }
+
+    inline void setCell(int x, int y, uint8_t val) {
+        set(x, y, val ? 1 : 0);
+    }
+
+    // ─── y行目が全列埋まっているか判定（ビット演算） ───
+    // 行 y の占有ビット列: x=0..9 の各 bitIndex(x,y) が全て1
+    // bitIndex(x,y) = (y*10+x)*2 なので、行yの先頭ビットインデックスは y*10*2 = y*20
+    // 10マス分の occupiedビット: bit positions y*20, y*20+2, ..., y*20+18 (偶数のみ)
+    // 高速化: 行全体のマスクを使って一括判定
+    bool isRowFull(int y) const {
+        for (int x = 0; x < COLS; x++) {
+            if (!has(x, y)) return false;
+        }
+        return true;
+    }
+
+    // ─── y行を消去し、上の行を1段下ろす ───
+    void clearRow(int y) {
+        // y行を消して上を下ろす
+        for (int ty = y; ty > 0; ty--) {
+            for (int x = 0; x < COLS; x++) {
+                set(x, ty, getCell(x, ty - 1));
+            }
+        }
+        // 最上行を空に
+        for (int x = 0; x < COLS; x++) {
+            set(x, 0, 0);
+        }
+    }
+
+    // ─── ライン消去チェック＆実行 ───
     int checkLineAndClear() {
         int cleared = 0;
-        for(int y = 0; y < ROWS; y++) {
-            bool full = true;
-            for(int x = 0; x < COLS; x++) if(cells[y][x] == 0) { full = false; break; }
-            if(full) {
+        for (int y = 0; y < ROWS; y++) {
+            if (isRowFull(y)) {
+                clearRow(y);
                 cleared++;
-                for(int ty = y; ty > 0; ty--) for(int x = 0; x < COLS; x++) cells[ty][x] = cells[ty-1][x];
-                for(int x = 0; x < COLS; x++) cells[0][x] = 0;
+                y--; // 同じ行を再チェック
             }
         }
         return cleared;
+    }
+
+    // ─── 指定列のy行より上に1つでもブロックがあるか ───
+    bool hasBlockAbove(int x, int y) const {
+        for (int ty = y - 1; ty >= 0; ty--) {
+            if (has(x, ty)) return true;
+        }
+        return false;
+    }
+
+    // ─── 旧 Board からの変換コンストラクタ互換: uint8_t配列から初期化 ───
+    void fromArray(const uint8_t* arr, int size) {
+        memset(bits, 0, sizeof(bits));
+        for (int i = 0; i < size; i++) {
+            int x = i % COLS;
+            int y = i / COLS;
+            if (arr[i]) set(x, y, 1);
+        }
+    }
+
+    // ─── コピーコンストラクタ・代入演算子（デフォルトで十分だが明示） ───
+    Board(const Board& other) {
+        memcpy(bits, other.bits, sizeof(bits));
+    }
+    Board& operator=(const Board& other) {
+        if (this != &other) memcpy(bits, other.bits, sizeof(bits));
+        return *this;
     }
 };
 
@@ -132,11 +231,11 @@ struct EvalWeights {
 
 bool isTSDShape(const Board& board, int cx, int cy) {
     if (cx < 1 || cx >= COLS - 1 || cy < 0 || cy >= ROWS - 1) return false;
-    if (board.cells[cy][cx] != 0 || board.cells[cy][cx-1] != 0 || board.cells[cy][cx+1] != 0 || board.cells[cy+1][cx] != 0) return false;
+    if (board.has(cx, cy) || board.has(cx-1, cy) || board.has(cx+1, cy) || board.has(cx, cy+1)) return false;
     auto isSolid = [&](int x, int y) {
         if (x < 0 || x >= COLS || y >= ROWS) return true;
         if (y < 0) return false;
-        return board.cells[y][x] != 0;
+        return board.has(x, y);
     }; 
 
     // ★追加：TSDの地形が存在する高さに、深さ3以上のI-Wellのような穴がある場合は除外する
@@ -154,23 +253,23 @@ bool isTSDShape(const Board& board, int cx, int cy) {
     if (!isSolid(cx - 2, cy + 1)) return false; 
     if (!isSolid(cx + 2, cy + 1)) return false; 
     
-    bool leftRoof = (cy - 1 < 0) || (cx - 1 < 0) || (board.cells[cy-1][cx-1] && board.cells[cy][cx-2] != 0);
-    bool rightRoof = (cy - 1 < 0) || (cx + 1 >= COLS) || (board.cells[cy-1][cx+1] && board.cells[cy-1][cx+2] != 0);
+    bool leftRoof = (cy - 1 < 0) || (cx - 1 < 0) || (board.has(cx-1, cy-1) && board.getCell(cx-2, cy) != 0);
+    bool rightRoof = (cy - 1 < 0) || (cx + 1 >= COLS) || (board.has(cx+1, cy-1) && board.has(cx+2, cy-1));
     if (!(leftRoof ^ rightRoof)) return false; 
     
     if (cy - 1 >= 0) {
         if (leftRoof) {
-            if (board.cells[cy-1][cx] != 0 || (cx + 1 < COLS && board.cells[cy-1][cx+1] != 0)) return false;
+            if (board.has(cx, cy-1) || (cx + 1 < COLS && board.has(cx+1, cy-1))) return false;
         } else {
-            if (board.cells[cy-1][cx] != 0 || (cx - 1 >= 0 && board.cells[cy-1][cx-1] != 0)) return false;
+            if (board.has(cx, cy-1) || (cx - 1 >= 0 && board.has(cx-1, cy-1))) return false;
         }
     }
 
     int clearCol1 = cx;
     int clearCol2 = leftRoof ? cx + 1 : cx - 1;
     for (int y = 0; y < cy; y++) {
-        if (board.cells[y][clearCol1] != 0) return false;
-        if (board.cells[y][clearCol2] != 0) return false;
+        if (board.has(clearCol1, y)) return false;
+        if (board.has(clearCol2, y)) return false;
     }
 
     return true;
@@ -187,11 +286,11 @@ TSDStats analyzeTSD(const Board& board) {
                 if (stats.count == 1) { 
                     for (int x = 0; x < COLS; x++) {
                         if (x != cx - 1 && x != cx && x != cx + 1) {
-                            if (board.cells[cy][x] != 0) stats.fillCount++;
+                            if (board.has(x, cy)) stats.fillCount++;
                             else if (board.hasBlockAbove(x, cy)) stats.holeCount++; 
                         }
                         if (x != cx) {
-                            if (board.cells[cy + 1][x] != 0) stats.fillCount++;
+                            if (board.has(x, cy + 1)) stats.fillCount++;
                             else if (board.hasBlockAbove(x, cy + 1)) stats.holeCount++; 
                         }
                     }
@@ -222,7 +321,7 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     int colBlocks[COLS] = {0};
     for(int x = 0; x < COLS; x++) {
         for(int y = 0; y < ROWS; y++) {
-            if(b.cells[y][x] != 0) {
+            if(b.has(x, y)) {
                 if(heights[x] == 0) heights[x] = ROWS - y; // ★変更: 高さ計算は ROWS(25)から計算するためズレない
                 colBlocks[x]++;
             }
@@ -289,7 +388,7 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     for(int x = 0; x < COLS; x++) {
         bool foundTop = false; 
         for(int y = 0; y < ROWS; y++) {
-            if(b.cells[y][x] != 0) {
+            if(b.has(x, y)) {
                 foundTop = true;
             } else if (foundTop) {
                 if (!ignoreHoleRow[y]) {
@@ -307,11 +406,11 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     int pureHolesCount = 0;
     for(int y = 0; y < ROWS; y++) {
         for(int x = 0; x < COLS; x++) {
-            if(b.cells[y][x] == 0) {
-                bool up    = (y == 0) || (b.cells[y-1][x] != 0);
-                bool down  = (y == ROWS-1) || (b.cells[y+1][x] != 0);
-                bool left  = (x == 0) || (b.cells[y][x-1] != 0);
-                bool right = (x == COLS-1) || (b.cells[y][x+1] != 0);
+            if(!b.has(x, y)) {
+                bool up    = (y == 0) || b.has(x, y-1);
+                bool down  = (y == ROWS-1) || b.has(x, y+1);
+                bool left  = (x == 0) || b.has(x-1, y);
+                bool right = (x == COLS-1) || b.has(x+1, y);
                 if(up && down && left && right) pureHolesCount++;
             }
         }
@@ -350,10 +449,11 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     if(deepWells == 1) score += 1;
     else if(deepWells >= 2) score += totalDepth * -10;
 
+    // ─── 行ごとのブロック数をビットボードから計算 ───
     int blocksInRowArray[ROWS] = {0};
     for(int y = 0; y < ROWS; y++) {
         for(int x = 0; x < COLS; x++) {
-            if(b.cells[y][x] != 0) blocksInRowArray[y]++;
+            if(b.has(x, y)) blocksInRowArray[y]++;
         }
     }
 
@@ -361,7 +461,7 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     for(int x = 0; x < COLS; x++) {
         int continuousEmpty = 0; int maxContinuous = 0;
         for(int y = 0; y < ROWS; y++) {
-            if(blocksInRowArray[y] == 9 && b.cells[y][x] == 0) {
+            if(blocksInRowArray[y] == 9 && !b.has(x, y)) {
                 continuousEmpty++;
                 if(continuousEmpty > maxContinuous) maxContinuous = continuousEmpty;
             } else {
@@ -386,17 +486,17 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     for(int x = 0; x < COLS; x++) {
         int firstBlockY = -1;
         for(int y = 0; y < ROWS; y++) {
-            if(b.cells[y][x] != 0) { firstBlockY = y; break; }
+            if(b.has(x, y)) { firstBlockY = y; break; }
         }
         if (firstBlockY != -1) {
             int lowestHoleY = -1;
             for(int y = ROWS - 1; y > firstBlockY; y--) {
-                if(b.cells[y][x] == 0) { lowestHoleY = y; break; }
+                if(!b.has(x, y)) { lowestHoleY = y; break; }
             }
             if(lowestHoleY != -1) {
                 int blocksAbove = 0;
                 for(int y = 0; y < lowestHoleY; y++) {
-                    if(b.cells[y][x] != 0) blocksAbove++;
+                    if(b.has(x, y)) blocksAbove++;
                 }
                 totalBlocksOverLowestHole += blocksAbove;
             }
@@ -426,8 +526,8 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     for (int x = 1; x < COLS - 1; x++) {
         int y = ROWS - heights[x] - 1; 
         if (y > 0 && y < ROWS) {
-            if (b.cells[y][x-1] != 0 && b.cells[y][x+1] != 0) {
-                if (b.cells[y-1][x-1] == 0 && b.cells[y-1][x+1] == 0) {
+            if (b.has(x-1, y) && b.has(x+1, y)) {
+                if (!b.has(x-1, y-1) && !b.has(x+1, y-1)) {
                     tsdSetupCount++;
                 }
             }
@@ -517,21 +617,90 @@ struct ParentInfo {
     int8_t x, y, rot, action;
 };
 
+// ─────────────────────────────────────────────
+// BFS 訪問状態管理
+//   訪問済みフラグ: visited[rot][y+5][x+4]
+//   ビットボード化: uint64_t を使って rot×y×x の3次元を1ビットで管理
+//   4 rots × 35 rows × 19 cols = 2660 bits → uint64_t 42個（2688bits）
+// ─────────────────────────────────────────────
+static const int BFS_ROT  = 4;
+static const int BFS_YOFF = 5;   // yのオフセット (+5するとインデックス0始まり)
+static const int BFS_YMAX = 35;  // y: -5..29 → 0..34
+static const int BFS_XOFF = 4;   // xのオフセット
+static const int BFS_XMAX = 19;  // x: -4..14 → 0..18
+static const int BFS_TOTAL = BFS_ROT * BFS_YMAX * BFS_XMAX; // 2660 bits
+static const int BFS_WORDS = (BFS_TOTAL + 63) / 64; // 42 uint64_t
+
+struct BFSVisited {
+    uint64_t words[BFS_WORDS];
+
+    void clear() {
+        memset(words, 0, sizeof(words));
+    }
+
+    // rot, y (実座標), x (実座標) からビットインデックスを計算
+    static inline int idx(int rot, int y, int x) {
+        return rot * (BFS_YMAX * BFS_XMAX) + (y + BFS_YOFF) * BFS_XMAX + (x + BFS_XOFF);
+    }
+
+    inline bool get(int rot, int y, int x) const {
+        if (y + BFS_YOFF < 0 || y + BFS_YOFF >= BFS_YMAX) return true;  // 範囲外は訪問済み扱い
+        if (x + BFS_XOFF < 0 || x + BFS_XOFF >= BFS_XMAX) return true;
+        int i = idx(rot, y, x);
+        return (words[i >> 6] >> (i & 63)) & 1;
+    }
+
+    inline void set(int rot, int y, int x) {
+        if (y + BFS_YOFF < 0 || y + BFS_YOFF >= BFS_YMAX) return;
+        if (x + BFS_XOFF < 0 || x + BFS_XOFF >= BFS_XMAX) return;
+        int i = idx(rot, y, x);
+        words[i >> 6] |= (1ull << (i & 63));
+    }
+};
+
+// placement found フラグも同様のビットボードで管理
+struct PlacementFoundBits {
+    uint64_t words[BFS_WORDS];
+
+    void clear() {
+        memset(words, 0, sizeof(words));
+    }
+
+    static inline int idx(int rot, int y, int x) {
+        return rot * (BFS_YMAX * BFS_XMAX) + (y + BFS_YOFF) * BFS_XMAX + (x + BFS_XOFF);
+    }
+
+    inline bool get(int rot, int y, int x) const {
+        if (y + BFS_YOFF < 0 || y + BFS_YOFF >= BFS_YMAX) return true;
+        if (x + BFS_XOFF < 0 || x + BFS_XOFF >= BFS_XMAX) return true;
+        int i = idx(rot, y, x);
+        return (words[i >> 6] >> (i & 63)) & 1;
+    }
+
+    inline void set(int rot, int y, int x) {
+        if (y + BFS_YOFF < 0 || y + BFS_YOFF >= BFS_YMAX) return;
+        if (x + BFS_XOFF < 0 || x + BFS_XOFF >= BFS_XMAX) return;
+        int i = idx(rot, y, x);
+        words[i >> 6] |= (1ull << (i & 63));
+    }
+};
+
 std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, int spawnY) {
     std::vector<Placement> placements;
     placements.reserve(64); 
     
-    // ★変更: Yのバッファサイズを拡張 (30 -> 35) 画面拡張のため
-    static bool visited[4][35][19];
-    static bool placementFound[4][35][19];
-    static ParentInfo parent[4][35][19]; 
+    // ★変更: visitedをビットボード管理に変更
+    static BFSVisited visited;
+    static PlacementFoundBits placementFound;
+    // ★変更: ParentInfoは引き続き配列で管理（経路復元に使用）
+    static ParentInfo parent[BFS_ROT][BFS_YMAX][BFS_XMAX]; 
     
-    std::memset(visited, 0, sizeof(visited));
-    std::memset(placementFound, 0, sizeof(placementFound));
-    
-    for(int r=0; r<4; r++) 
-        for(int y=0; y<35; y++) 
-            for(int x=0; x<19; x++) 
+    visited.clear();
+    placementFound.clear();
+    // ★変更: parent配列の初期化（x=-100で未設定を表す）
+    for(int r=0; r<BFS_ROT; r++) 
+        for(int y=0; y<BFS_YMAX; y++) 
+            for(int x=0; x<BFS_XMAX; x++) 
                 parent[r][y][x].x = -100; 
     
     int spawnX = COLS / 2 - 2; 
@@ -549,9 +718,7 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
     int qHead = 0, qTail = 0;
     
     bfsQueue[qTail++] = {spawnX, spawnY, initialRot, false, false};
-    if (spawnY + 5 >= 0 && spawnY + 5 < 35 && spawnX + 4 >= 0 && spawnX + 4 < 19) {
-        visited[initialRot][spawnY + 5][spawnX + 4] = true;
-    }
+    visited.set(initialRot, spawnY, spawnX);
 
     while(qHead < qTail) {
         BFSState curr = bfsQueue[qHead++];
@@ -561,89 +728,92 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
         bool canMoveDown = isValidPlacement(baseBoard, blocks_down);
         
         if (!canMoveDown) {
-            if (curr.y + 5 >= 0 && curr.y + 5 < 35 && curr.x + 4 >= 0 && curr.x + 4 < 19) {
-                if (!placementFound[curr.rot][curr.y + 5][curr.x + 4]) {
-                    placementFound[curr.rot][curr.y + 5][curr.x + 4] = true;
+            if (!placementFound.get(curr.rot, curr.y, curr.x)) {
+                placementFound.set(curr.rot, curr.y, curr.x);
                     
-                    GridBlock droppedBlocks[4];
-                    getRotatedBlocks(pieceType, curr.rot, curr.x, curr.y, droppedBlocks);
-                    
-                    Board simBoard = baseBoard;
-                    for(int i=0; i<4; i++) {
-                        const auto& blk = droppedBlocks[i];
-                        if(blk.y >= 0 && blk.y < ROWS && blk.x >= 0 && blk.x < COLS) {
-                            simBoard.cells[blk.y][blk.x] = 1;
-                        }
+                GridBlock droppedBlocks[4];
+                getRotatedBlocks(pieceType, curr.rot, curr.x, curr.y, droppedBlocks);
+                
+                Board simBoard = baseBoard;
+                for(int i=0; i<4; i++) {
+                    const auto& blk = droppedBlocks[i];
+                    if(blk.y >= 0 && blk.y < ROWS && blk.x >= 0 && blk.x < COLS) {
+                        simBoard.set(blk.x, blk.y, 1);
                     }
-                    PlacementInfo info = calcPlacementInfo(baseBoard, droppedBlocks);
-                    int cleared = simBoard.checkLineAndClear();
-                    
-                    int tSpinType = 0;
-                    if (pieceType == 2 && curr.lastActionWasRotation) {
-                        float cx = curr.x + MINO_TEMPLATES[pieceType].pivotX - 0.5f;
-                        float cy = curr.y + MINO_TEMPLATES[pieceType].pivotY - 0.5f;
-                        int px = std::round(cx), py = std::round(cy);
-                        
-                        int corners[4][2] = {{px-1, py-1}, {px+1, py-1}, {px-1, py+1}, {px+1, py+1}};
-                        bool occupied[4];
-                        for(int i=0; i<4; i++) occupied[i] = (corners[i][0] < 0 || corners[i][0] >= COLS || corners[i][1] < 0 || corners[i][1] >= ROWS || baseBoard.has(corners[i][0], corners[i][1]));
-                        
-                        int abIdx[2], cdIdx[2];
-                        if (curr.rot == 0) { abIdx[0]=0; abIdx[1]=1; cdIdx[0]=2; cdIdx[1]=3; }
-                        else if (curr.rot == 1) { abIdx[0]=1; abIdx[1]=3; cdIdx[0]=0; cdIdx[1]=2; }
-                        else if (curr.rot == 2) { abIdx[0]=3; abIdx[1]=2; cdIdx[0]=1; cdIdx[1]=0; }
-                        else if (curr.rot == 3) { abIdx[0]=2; abIdx[1]=0; cdIdx[0]=3; cdIdx[1]=1; }
-                        
-                        int abFilled = 0, cdFilled = 0;
-                        if(occupied[abIdx[0]]) abFilled++;
-                        if(occupied[abIdx[1]]) abFilled++;
-                        if(occupied[cdIdx[0]]) cdFilled++;
-                        if(occupied[cdIdx[1]]) cdFilled++;
-                        
-                        if (curr.lastRotUsedPoint5) tSpinType = 1;
-                        else if (abFilled == 2 && cdFilled >= 1) tSpinType = 1; // Normal T-Spin
-                        else if (cdFilled == 2 && abFilled >= 1) tSpinType = 2; // Mini T-Spin
-                    }
-                    
-                    uint8_t path[64];
-                    int pathLen = 0;
-                    int traceX = curr.x, traceY = curr.y, traceRot = curr.rot;
-                    while(true) {
-                        if (traceY + 5 < 0 || traceY + 5 >= 35 || traceX + 4 < 0 || traceX + 4 >= 19) break;
-                        ParentInfo& pInfo = parent[traceRot][traceY + 5][traceX + 4];
-                        if (pInfo.x == -100) break; 
-                        if (pathLen < 63) path[pathLen++] = (uint8_t)pInfo.action; 
-                        traceX = pInfo.x; traceY = pInfo.y; traceRot = pInfo.rot;
-                    }
-                    for (int i=0; i < pathLen / 2; i++) {
-                        uint8_t tmp = path[i];
-                        path[i] = path[pathLen - 1 - i];
-                        path[pathLen - 1 - i] = tmp;
-                    }
-                    path[pathLen++] = 6; 
-                    
-                    Placement p;
-                    p.rot = curr.rot; p.x = curr.x; p.y = curr.y; p.spawnY = spawnY;
-                    p.linesCleared = cleared;
-                    p.isFullyGrounded = info.isFullyGrounded;
-                    p.touchingCount = info.touchingCount;
-                    for(int i=0; i<4; i++) p.blocks[i] = droppedBlocks[i];
-                    p.tSpinType = tSpinType;
-                    for(int i=0; i<pathLen; i++) p.path[i] = path[i];
-                    p.pathLength = pathLen;
-                    
-                    placements.push_back(p);
                 }
+                PlacementInfo info = calcPlacementInfo(baseBoard, droppedBlocks);
+                int cleared = simBoard.checkLineAndClear();
+                
+                int tSpinType = 0;
+                if (pieceType == 2 && curr.lastActionWasRotation) {
+                    float cx = curr.x + MINO_TEMPLATES[pieceType].pivotX - 0.5f;
+                    float cy = curr.y + MINO_TEMPLATES[pieceType].pivotY - 0.5f;
+                    int px = std::round(cx), py = std::round(cy);
+                    
+                    int corners[4][2] = {{px-1, py-1}, {px+1, py-1}, {px-1, py+1}, {px+1, py+1}};
+                    bool occupied[4];
+                    for(int i=0; i<4; i++) occupied[i] = (corners[i][0] < 0 || corners[i][0] >= COLS || corners[i][1] < 0 || corners[i][1] >= ROWS || baseBoard.has(corners[i][0], corners[i][1]));
+                    
+                    int abIdx[2], cdIdx[2];
+                    if (curr.rot == 0) { abIdx[0]=0; abIdx[1]=1; cdIdx[0]=2; cdIdx[1]=3; }
+                    else if (curr.rot == 1) { abIdx[0]=1; abIdx[1]=3; cdIdx[0]=0; cdIdx[1]=2; }
+                    else if (curr.rot == 2) { abIdx[0]=3; abIdx[1]=2; cdIdx[0]=1; cdIdx[1]=0; }
+                    else if (curr.rot == 3) { abIdx[0]=2; abIdx[1]=0; cdIdx[0]=3; cdIdx[1]=1; }
+                    
+                    int abFilled = 0, cdFilled = 0;
+                    if(occupied[abIdx[0]]) abFilled++;
+                    if(occupied[abIdx[1]]) abFilled++;
+                    if(occupied[cdIdx[0]]) cdFilled++;
+                    if(occupied[cdIdx[1]]) cdFilled++;
+                    
+                    if (curr.lastRotUsedPoint5) tSpinType = 1;
+                    else if (abFilled == 2 && cdFilled >= 1) tSpinType = 1; // Normal T-Spin
+                    else if (cdFilled == 2 && abFilled >= 1) tSpinType = 2; // Mini T-Spin
+                }
+                
+                uint8_t path[64];
+                int pathLen = 0;
+                int traceX = curr.x, traceY = curr.y, traceRot = curr.rot;
+                while(true) {
+                    // ★変更: parent参照もBFS_YOFF/BFS_XOFFを使うように
+                    if (traceY + BFS_YOFF < 0 || traceY + BFS_YOFF >= BFS_YMAX ||
+                        traceX + BFS_XOFF < 0 || traceX + BFS_XOFF >= BFS_XMAX) break;
+                    ParentInfo& pInfo = parent[traceRot][traceY + BFS_YOFF][traceX + BFS_XOFF];
+                    if (pInfo.x == -100) break; 
+                    if (pathLen < 63) path[pathLen++] = (uint8_t)pInfo.action; 
+                    traceX = pInfo.x; traceY = pInfo.y; traceRot = pInfo.rot;
+                }
+                for (int i=0; i < pathLen / 2; i++) {
+                    uint8_t tmp = path[i];
+                    path[i] = path[pathLen - 1 - i];
+                    path[pathLen - 1 - i] = tmp;
+                }
+                path[pathLen++] = 6; 
+                
+                Placement p;
+                p.rot = curr.rot; p.x = curr.x; p.y = curr.y; p.spawnY = spawnY;
+                p.linesCleared = cleared;
+                p.isFullyGrounded = info.isFullyGrounded;
+                p.touchingCount = info.touchingCount;
+                for(int i=0; i<4; i++) p.blocks[i] = droppedBlocks[i];
+                p.tSpinType = tSpinType;
+                for(int i=0; i<pathLen; i++) p.path[i] = path[i];
+                p.pathLength = pathLen;
+                
+                placements.push_back(p);
             }
         }
         
+        // ★変更: tryPush もビットボードベースのvisited/parentを使用
         auto tryPush = [&](int nx, int ny, int nrot, bool isRot, bool isPoint5, int action) {
-            if (ny + 5 >= 0 && ny + 5 < 35 && nx + 4 >= 0 && nx + 4 < 19) {
-                if (!visited[nrot][ny + 5][nx + 4]) {
-                    visited[nrot][ny + 5][nx + 4] = true;
-                    parent[nrot][ny + 5][nx + 4] = { (int8_t)curr.x, (int8_t)curr.y, (int8_t)curr.rot, (int8_t)action };
-                    bfsQueue[qTail++] = {nx, ny, nrot, isRot, isPoint5};
+            if (!visited.get(nrot, ny, nx)) {
+                visited.set(nrot, ny, nx);
+                // ★変更: parent配列のインデックスもBFS_YOFF/BFS_XOFFを使う
+                if (ny + BFS_YOFF >= 0 && ny + BFS_YOFF < BFS_YMAX &&
+                    nx + BFS_XOFF >= 0 && nx + BFS_XOFF < BFS_XMAX) {
+                    parent[nrot][ny + BFS_YOFF][nx + BFS_XOFF] = { (int8_t)curr.x, (int8_t)curr.y, (int8_t)curr.rot, (int8_t)action };
                 }
+                bfsQueue[qTail++] = {nx, ny, nrot, isRot, isPoint5};
             }
         };
 
@@ -729,8 +899,8 @@ void evaluateSinglePlacementWasm(
     int ren, int backToBack, int tSpinType
 ) {
     Board baseBoard;
-    // ★変更: バッファサイズを200から250に拡張
-    for(int i = 0; i < 250; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
+    // ★変更: バッファサイズを200から250に拡張。ビットボードへ変換して初期化。
+    baseBoard.fromArray(boardData, 250);
 
     // ★変更：拡張されたweightsに対応 (要素数33)
     EvalWeights w = {
@@ -752,7 +922,7 @@ void evaluateSinglePlacementWasm(
     for(int i=0; i<4; i++) {
         const auto& blk = blocks[i];
         if(blk.y >= 0 && blk.y < ROWS && blk.x >= 0 && blk.x < COLS) {
-            simBoard.cells[blk.y][blk.x] = 1;
+            simBoard.set(blk.x, blk.y, 1);
         }
     }
     
@@ -788,7 +958,7 @@ void evaluateSinglePlacementWasm(
     int prevHeight = 0;
     for(int y = 0; y < ROWS; y++) {
         for(int x = 0; x < COLS; x++) {
-            if(baseBoard.cells[y][x] != 0) {
+            if(baseBoard.has(x, y)) {
                 prevHeight = ROWS - y;
                 break;
             }
@@ -816,8 +986,8 @@ void searchBestMoveWasm(
     for(int i = 36; i < 43; i++) outResult[i] = 0; 
 
     Board baseBoard;
-    // ★変更: バッファサイズを200から250に拡張
-    for(int i = 0; i < 250; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
+    // ★変更: バッファサイズを200から250に拡張。ビットボードへ変換して初期化。
+    baseBoard.fromArray(boardData, 250);
 
     // ★変更：拡張されたweightsに対応 (要素数33)
     EvalWeights w = {
@@ -891,7 +1061,7 @@ void searchBestMoveWasm(
             Board simBoard = is_first ? baseBoard : s.board;
             for(int k=0; k<4; k++) {
                 if(p.blocks[k].y >= 0 && p.blocks[k].y < ROWS && p.blocks[k].x >= 0 && p.blocks[k].x < COLS) {
-                    simBoard.cells[p.blocks[k].y][p.blocks[k].x] = 1;
+                    simBoard.set(p.blocks[k].x, p.blocks[k].y, 1);
                 }
             }
             simBoard.checkLineAndClear();
@@ -914,7 +1084,7 @@ void searchBestMoveWasm(
             for(int y = 0; y < ROWS; y++) {
                 bool found = false;
                 for(int x = 0; x < COLS; x++) {
-                    if(checkBoard.cells[y][x] != 0) {
+                    if(checkBoard.has(x, y)) {
                         prevHeight = ROWS - y;
                         found = true;
                         break;
