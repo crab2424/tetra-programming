@@ -1657,13 +1657,6 @@ class PuyoGame {
         const timeEl = document.getElementById('result-time');
         if (timeEl) timeEl.textContent = this._formatTime(this.elapsed);
 
-        const retryBtn = document.getElementById('result-retry-btn');
-        if (retryBtn) {
-            retryBtn.onclick = () => {
-                if (typeof goToModeCheck === 'function') goToModeCheck('puyo');
-            };
-        }
-
         if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(false);
         if (typeof switchPage === 'function') switchPage('result');
     }

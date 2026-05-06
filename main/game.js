@@ -40,13 +40,6 @@ window.onload = function(){
     let cpuGame = new Game('cpu')
     window._cpuGame = cpuGame
 
-    // リザルト画面の「RETRY」ボタン
-    document.getElementById('result-retry-btn').onclick = function(){
-        switchPage('game');
-        game.start();
-        this.blur();
-    }
-
     // 非表示のstart-btnは後方互換のため残す（非表示）
     document.getElementById(SATRT_BTN_ID).onclick = function(){
         switchPage('game');
