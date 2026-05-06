@@ -23,6 +23,7 @@ window.PuyoCPU3 = class {
             p1Weight:             100,  
             templateBonus:        500,  
             ignitionThreshold:      7,  // 基本の発火閾値（おじゃまが少ない場合）
+            ignitionScoreThreshold: 12000, // ★ 発火のスコア閾値
             emergencyHeight:       10,  // 緊急回避ライン
         };
 
@@ -189,12 +190,16 @@ window.PuyoCPU3 = class {
 
         // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
         let dynamicIgnitionThreshold = this.weights.ignitionThreshold;
+        let dynamicIgnitionScoreThreshold = this.weights.ignitionScoreThreshold;
         if (ojamaCount >= 15) {
             dynamicIgnitionThreshold = 2; // 15個以上で2連鎖妥協
+            dynamicIgnitionScoreThreshold = 320;
         } else if (ojamaCount >= 10) {
             dynamicIgnitionThreshold = 4; // 10個以上で4連鎖妥協
+            dynamicIgnitionScoreThreshold = 2000;
         } else if (ojamaCount >= 5) {
             dynamicIgnitionThreshold = 6; // 5個以上で6連鎖妥協
+            dynamicIgnitionScoreThreshold = 8000;
         }
 
         const weightsArray = new Int32Array([
@@ -209,7 +214,8 @@ window.PuyoCPU3 = class {
             this.weights.p1Weight,            
             this.templateActive ? this.weights.templateBonus : 0,  
             dynamicIgnitionThreshold,         // ★ 基本値の代わりに動的閾値を渡す
-            this.weights.emergencyHeight      
+            this.weights.emergencyHeight,     
+            dynamicIgnitionScoreThreshold     // ★ 動的スコア閾値を渡す
         ]);
 
         this.worker.postMessage({
