@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────
-// cpu_worker5.js
-// CPU5(上級) 用のWeb Worker.Wasm(5)を呼び出します。
+// cpu_worker6.js
+// CPU6 用のWeb Worker.Wasm(6)を呼び出します。
 // ★完全版：メモリサイズの拡張と保護を行いました（6手対応）
 // ─────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js');
+importScripts('cpu_wasm6.js');
 
 let boardPtr = null;
 let resultPtr = null;
@@ -94,7 +94,7 @@ self.onmessage = function(e) {
     const endTime = performance.now();
     const timeTaken = (endTime - startTime).toFixed(2);
 
-    console.log(`⚡ Wasm CPU5 Calculated in: ${timeTaken} ms`);
+    console.log(`⚡ Wasm CPU6 Calculated in: ${timeTaken} ms`);
 
     const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 43); 
 

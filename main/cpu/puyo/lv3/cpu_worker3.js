@@ -31,9 +31,10 @@ self.onmessage = function (e) {
 
     if (boardPtr === null) {
         boardPtr     = Module._my_malloc(102);      
-        weightsPtr   = Module._my_malloc(4 * 12);   // 12要素(48 bytes)
+        // ★ weightsArray の要素数が 13 に増えたためサイズを拡張
+        weightsPtr   = Module._my_malloc(4 * 13);   // 13要素(52 bytes)
         resultPtr    = Module._my_malloc(4 * 7);    
-        gtrPtr       = Module._my_malloc(24);       // stairsPtrから変更
+        gtrPtr       = Module._my_malloc(24);       
         keyPtr       = Module._my_malloc(24);       
         nextPairsPtr = Module._my_malloc(4 * 20); 
     }

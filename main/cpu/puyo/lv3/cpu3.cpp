@@ -18,6 +18,12 @@ const int ROWS       = 12;
 const int HIDDEN     = 5;  
 const int TOTAL_ROWS = ROWS + HIDDEN;
 
+// スコア計算用テーブル
+const int SCORE_BASE = 10;
+const int CHAIN_BONUS_TABLE[] = {0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512};
+const int COLOR_BONUS_TABLE[] = {0, 3, 6, 12, 24};
+const int GROUP_BONUS_TABLE[] = {0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10};
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // BitBoard 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -153,10 +159,11 @@ struct ChainResult {
     int chains;
     int totalErased;
     int maxGroup;
+    int score; 
 };
 
 static ChainResult simulateChain(BitBoard& b) {
-    ChainResult res = {0, 0, 0};
+    ChainResult res = {0, 0, 0, 0};
     static bool visited[TOTAL_ROWS][COLS];
 
     while (true) {
@@ -164,6 +171,10 @@ static ChainResult simulateChain(BitBoard& b) {
         std::vector<std::pair<int,int>> toErase; 
         std::vector<std::pair<int,int>> toEraseOjama;
         bool found = false;
+
+        int stepErasedPuyo = 0;
+        int usedColorBitmask = 0;
+        int groupBonusSum = 0;
 
         for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
             for (int c = 0; c < COLS; c++) {
@@ -198,6 +209,13 @@ static ChainResult simulateChain(BitBoard& b) {
                     found = true;
                     if ((int)group.size() > res.maxGroup) res.maxGroup = (int)group.size();
                     res.totalErased += (int)group.size();
+                    
+                    stepErasedPuyo += (int)group.size();
+                    usedColorBitmask |= (1 << color);
+                    int gSize = (int)group.size();
+                    int gbIdx = std::min(gSize, 11);
+                    groupBonusSum += GROUP_BONUS_TABLE[gbIdx];
+
                     for (auto& cell : group) toErase.push_back(cell);
                 }
             }
@@ -220,6 +238,19 @@ static ChainResult simulateChain(BitBoard& b) {
 
         res.chains++;
 
+        int cbIdx = std::min(std::max(0, res.chains - 1), 18);
+        int cb = CHAIN_BONUS_TABLE[cbIdx];
+
+        int colorCount = 0;
+        for (int i = 1; i <= 5; i++) {
+            if (usedColorBitmask & (1 << i)) colorCount++;
+        }
+        int colorIdx = std::min(std::max(0, colorCount - 1), 4);
+        int colorB = COLOR_BONUS_TABLE[colorIdx];
+
+        int bonus = std::max(1, cb + colorB + groupBonusSum);
+        res.score += SCORE_BASE * stepErasedPuyo * bonus;
+
         for (auto& p : toErase) b.set(p.second, p.first, 0);
         for (auto& p : toEraseOjama) b.set(p.second, p.first, 0); 
 
@@ -234,6 +265,7 @@ static ChainResult simulateChain(BitBoard& b) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 struct PotentialInfo {
     int maxChains;
+    int maxScore; 
     int triggerCol;
     int triggerRow;
     uint8_t triggerColor;
@@ -241,7 +273,7 @@ struct PotentialInfo {
 };
 
 static PotentialInfo calcChainPotential(const BitBoard& b) {
-    PotentialInfo best = {0, -1, -1, 0, false};
+    PotentialInfo best = {0, 0, -1, -1, 0, false};
     for (int col = 0; col < COLS; col++) {
         int r = calcDropRow(b, col);
         if (r < 0) continue;
@@ -250,7 +282,9 @@ static PotentialInfo calcChainPotential(const BitBoard& b) {
             BitBoard tmp = b;
             tmp.set(col, r + HIDDEN, color);
             ChainResult res = simulateChain(tmp);
-            if (res.chains > best.maxChains) {
+            
+            if (res.score > best.maxScore || (res.score == best.maxScore && res.chains > best.maxChains)) {
+                best.maxScore = res.score;
                 best.maxChains = res.chains;
                 best.triggerCol = col;
                 best.triggerRow = r;
@@ -259,7 +293,7 @@ static PotentialInfo calcChainPotential(const BitBoard& b) {
         }
     }
     
-    if (best.maxChains > 0) {
+    if (best.maxChains > 0 || best.maxScore > 0) {
         int c = best.triggerCol;
         int r = best.triggerRow;
         bool upSafe    = b.isEmpty(c, r - 1);
@@ -287,9 +321,9 @@ struct EvalWeights {
     int templateBonus;
     int ignitionThreshold;
     int emergencyHeight;  
+    int ignitionScoreThreshold; 
 };
 
-// ★ getTemplateScore: GTRの左下2マスを絶対優先するように特大ウェイトを追加
 static int getTemplateScore(const BitBoard& b, const uint8_t* pattern, int templateBonus, bool isGtr) {
     uint8_t colorOfGroup[8] = {0}; 
     bool broken = false;
@@ -310,10 +344,10 @@ static int getTemplateScore(const BitBoard& b, const uint8_t* pattern, int templ
                 int weight = 1;
                 
                 if (isGtr && col < 3 && row >= 1) {
-                    weight = 10; // ★ GTRの左下3x3マス優先
+                    weight = 10; 
                     
                     if (row == 3 && col < 2) {
-                        weight = 50; // ★ さらに最下段の横2マス(1,1)を絶対優先する特大ウェイト
+                        weight = 50; 
                     }
                 }
 
@@ -374,7 +408,7 @@ static int calcTemplateScore(const BitBoard& b, const uint8_t* gtrPattern, const
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const EvalWeights& w,
                          const uint8_t* gtrPattern, const uint8_t* keyPattern,
-                         const PotentialInfo& prePot) {
+                         const PotentialInfo& prePot, bool isEmergencyPre) { // ★ isEmergencyPre を引数に追加
     int score = 0;
 
     if (gtrPattern != nullptr && keyPattern != nullptr) {
@@ -382,33 +416,42 @@ static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const Eval
     }
 
     int heights[COLS];
-    int avg_heights = 0;
-    bool isEmergency = false;
     for (int c = 0; c < COLS; c++) {
         heights[c] = 0;
         for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
             if (b.get(c, r) != 0) heights[c]++;
         }
-        avg_heights += heights[c];
     }
-    avg_heights /= COLS;
-    if (avg_heights >= w.emergencyHeight || heights[2] >= 9) {
-            isEmergency = true;
-        }
 
-    bool isIgnitionMode = (prePot.maxChains >= w.ignitionThreshold);
+    // ★ 連鎖後の盤面で isEmergency を判定していた部分を削除し、連鎖前の判定（isEmergencyPre）を使用する
+    int currentIgnitionThreshold = isEmergencyPre ? 1 : w.ignitionThreshold;
+    int currentIgnitionScoreThreshold = isEmergencyPre ? 0 : w.ignitionScoreThreshold;
+
+    bool isIgnitionMode = (prePot.maxChains >= currentIgnitionThreshold || prePot.maxScore >= currentIgnitionScoreThreshold);
 
     if (chain.chains > 0) {
-        if (chain.chains >= w.ignitionThreshold || (isIgnitionMode && chain.chains >= prePot.maxChains)) {
+        bool triggersIgnition = (chain.chains >= currentIgnitionThreshold || chain.score >= currentIgnitionScoreThreshold);
+        bool fulfillsPotential = isIgnitionMode && (chain.chains >= prePot.maxChains || chain.score >= prePot.maxScore);
+
+        if (triggersIgnition || fulfillsPotential) {
             int effectiveChains = std::max(chain.chains, prePot.maxChains);
             score += (effectiveChains * effectiveChains * effectiveChains) * w.chainBonus * 10;
+            score += (chain.score / 100) * w.chainBonus; 
             score += chain.totalErased * std::abs(w.erasedBonus);
-        } else if (isEmergency || b.isEmptyAll()) {
+        } else if (isEmergencyPre || b.isEmptyAll()) {
             score += (chain.chains * chain.chains) * w.chainBonus * 5;
+            score += (chain.score / 100) * w.chainBonus / 2;
             score += chain.totalErased * std::abs(w.erasedBonus);
+            
+            // ★ 緊急事態時は、連鎖後に3列目（致死列）の高さが低いほど特大ボーナスを与える
+            if (isEmergencyPre) {
+                int col2_reduction = std::max(0, 12 - heights[2]);
+                score += col2_reduction * 20000; 
+            }
         } else if (isIgnitionMode) {
             PotentialInfo postPot = calcChainPotential(b);
-            if (postPot.maxChains >= w.ignitionThreshold && postPot.isSafe) {
+            bool keepsPotential = (postPot.maxChains >= currentIgnitionThreshold || postPot.maxScore >= currentIgnitionScoreThreshold);
+            if (keepsPotential && postPot.isSafe) {
                 score += chain.totalErased * std::abs(w.erasedBonus);
             } else {
                 score -= (chain.chains * chain.chains) * 5000;
@@ -419,9 +462,11 @@ static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const Eval
     } else {
         if (isIgnitionMode) {
             PotentialInfo postPot = calcChainPotential(b);
-            if (postPot.maxChains >= w.ignitionThreshold) {
+            bool keepsPotential = (postPot.maxChains >= currentIgnitionThreshold || postPot.maxScore >= currentIgnitionScoreThreshold);
+            if (keepsPotential) {
                 if (postPot.isSafe) {
                     score += (postPot.maxChains * postPot.maxChains) * w.chainPotentialBonus * 5;
+                    score += (postPot.maxScore / 1000) * w.chainPotentialBonus; 
                     score += w.flatBonus * 2; 
                 } else {
                     score -= 10000;
@@ -431,12 +476,14 @@ static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const Eval
             }
         } else {
             PotentialInfo postPot = calcChainPotential(b);
-            if (postPot.maxChains > 0) {
+            if (postPot.maxChains > 0 || postPot.maxScore > 0) {
                 if (postPot.isSafe) {
-                    if (postPot.maxChains >= w.ignitionThreshold) {
+                    if (postPot.maxChains >= currentIgnitionThreshold || postPot.maxScore >= currentIgnitionScoreThreshold) {
                         score += (postPot.maxChains * postPot.maxChains) * w.chainPotentialBonus * 5;
+                        score += (postPot.maxScore / 1000) * w.chainPotentialBonus * 2;
                     } else {
                         score += (postPot.maxChains * postPot.maxChains) * w.chainPotentialBonus;
+                        score += (postPot.maxScore / 1000) * w.chainPotentialBonus;
                     }
                 } else {
                     score += (postPot.maxChains * postPot.maxChains) * (w.chainPotentialBonus / 2);
@@ -520,6 +567,7 @@ void searchBestMovePuyoWasm(
     w.templateBonus       = weightsArray[9];
     w.ignitionThreshold   = weightsArray[10]; 
     w.emergencyHeight     = weightsArray[11]; 
+    w.ignitionScoreThreshold = weightsArray[12]; 
 
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
@@ -551,13 +599,31 @@ void searchBestMovePuyoWasm(
                 continue;
             }
 
+            // ★ 配置前（連鎖前）の盤面で緊急事態かどうかを判定する
+            bool isEmergencyPre = false;
+            int avgH = 0;
+            int col2H = 0;
+            for (int c = 0; c < COLS; c++) {
+                int h = 0;
+                for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
+                    if (node.board.get(c, r) != 0) h++;
+                }
+                avgH += h;
+                if (c == 2) col2H = h;
+            }
+            avgH /= COLS;
+            if (avgH >= w.emergencyHeight || col2H >= 9) {
+                isEmergencyPre = true;
+            }
+
             PotentialInfo prePot = calcChainPotential(node.board);
 
             for (const auto& p : placements) {
                 BitBoard nb = applyPlacement(node.board, p, (uint8_t)pivot, (uint8_t)child);
                 ChainResult chain = simulateChain(nb);
                 
-                int scoreRaw = evaluateBoard(nb, chain, w, gtrPattern, keyPattern, prePot);
+                // ★ 連鎖前の緊急事態フラグを引数として渡す
+                int scoreRaw = evaluateBoard(nb, chain, w, gtrPattern, keyPattern, prePot, isEmergencyPre);
                 
                 int score = scoreRaw;
                 if (depth == 0) score = score * w.p1Weight / 100;
