@@ -2465,6 +2465,14 @@ class PuyoGame {
         ctx.scale(scaleX, scaleY);
         ctx.translate(-cx, -cy);
 
+        // ★ サブピクセルレンダリングによる隙間（1pxの境界線）を埋めるためのオーバーラップ値
+        // 論理座標(32px)に対して少し広げて描画することで、物理座標での小数の丸め誤差による隙間を重ね合わせて消す
+        const overlap = 0.6;
+        const dx = x - overlap / 2;
+        const dy = y - overlap / 2;
+        const dw = size + overlap;
+        const dh = size + overlap;
+
         // ── 画像描画（連結あり / なし の分岐） ──
         if (connectInfo) {
             // ★ 連結画像：angle ラジアン分だけセル中心を軸に時計回り回転して描画
@@ -2476,16 +2484,17 @@ class PuyoGame {
                 ctx.translate(centerX, centerY);
                 ctx.rotate(connectInfo.angle);
                 ctx.translate(-centerX, -centerY);
-                ctx.drawImage(connectImg, x, y, size, size);
+                ctx.drawImage(connectImg, dx, dy, dw, dh);
             } else if (img && img.complete && img.naturalWidth > 0) {
                 // 連結画像が未ロードの場合は通常画像にフォールバック
-                ctx.drawImage(img, x, y, size, size);
+                ctx.drawImage(img, dx, dy, dw, dh);
             } else {
                 // 画像が何もない場合はフォールバック描画（フォールバックは下記と共通）
+                // フォールバックはCanvasネイティブ描画なのでオーバーラップは不要
                 this._drawPuyoFallback(ctx, x, y, size, imageIndex);
             }
         } else if (img && img.complete && img.naturalWidth > 0) {
-            ctx.drawImage(img, x, y, size, size);
+            ctx.drawImage(img, dx, dy, dw, dh);
         } else {
             // ── 画像未ロード時のフォールバック（丸＋目） ──
             this._drawPuyoFallback(ctx, x, y, size, imageIndex);
@@ -2501,6 +2510,7 @@ class PuyoGame {
             ctx.globalCompositeOperation = 'lighter';
             ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
             ctx.beginPath();
+            // エフェクトの中心とサイズは元のサイズのままでOK
             ctx.arc(x + size * 0.5, y + size * 0.5, size * 0.45, 0, Math.PI * 2);
             ctx.fill();
         }
