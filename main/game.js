@@ -1741,7 +1741,11 @@ class Game{
 
         // 押されているキーを管理
         this.keyState = {}
+
         // 設定を読み込み
+        /**
+         * @type {{das: number, arr: number, dcd: number}}
+         */
         let tuning = loadTuning();
 
 
@@ -1771,6 +1775,10 @@ class Game{
         if(this._keyUpHandler)   document.removeEventListener('keyup', this._keyUpHandler)
         if(this._keyLoop)        clearInterval(this._keyLoop)
 
+        /**
+         * キー設定
+         * @type {Object.<string, {code: string, label: string}>}
+         */
         const keys = loadKeys();
 
         this._keyDownHandler = (e) => {

@@ -4,6 +4,10 @@
 // ─────────────────────────────────────────────
 
 // ─── デフォルトキー設定 ───────────────────────
+/**
+ * キーコードと表示ラベルのマッピング (またはデフォルト設定)
+ * @type {Object.<string, {code: string, label: string}>}
+ */
 const DEFAULT_KEYS = {
   moveLeft:  { code: 'ArrowLeft',  label: '←'     },
   moveRight: { code: 'ArrowRight', label: '→'     },
@@ -28,13 +32,26 @@ const ACTION_LABELS = {
   restart:   { name: 'リスタート',   en: 'Restart'     }, 
 };
 
+/**
+ * デフォルトチューニング設定
+ * @type {{das: number, arr: number, dcd: number}}
+ */
 const DEFAULT_TUNING = {
   das: 9.0,
   arr: 1.6,
   dcd: 3.0
 };
 
+/**
+ * キー設定 (初期化時に読み込まれる)
+ * @type {Object.<string, {code: string, label: string}>}
+ */
 let currentKeys     = loadKeys();
+
+/**
+ * チューニング設定
+ * @type {{das: number, arr: number, dcd: number}}
+ */
 let currentTuning   = loadTuning();
 let listeningAction = null;
 let _onKeyDown      = null;
