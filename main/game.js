@@ -1320,6 +1320,7 @@ class Game {
         }
 
         if (isAllOutside) {
+            this.mino = null;
             this.gameOver();
             return;
         }
