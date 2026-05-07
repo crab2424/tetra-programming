@@ -57,18 +57,27 @@ let listeningAction = null;
 let _onKeyDown      = null;
 
 function loadKeys() {
-  try {
-    const saved = localStorage.getItem('game_keyconfig');
-    if (saved) return { ...DEFAULT_KEYS, ...JSON.parse(saved) };
-  } catch (e) { }
+  const saved = localStorage.getItem('game_keyconfig');
+  if (saved) {
+    try {
+      return { ...DEFAULT_KEYS, ...JSON.parse(saved) };
+    } catch (e) {
+      // JSON-parseエラーしか起きないので、エラーが起きたら保存データをリセットする
+      localStorage.removeItem('game_keyconfig');
+    }
+  }
   return JSON.parse(JSON.stringify(DEFAULT_KEYS));
 }
 
 function loadTuning() {
-  try {
-    const saved = localStorage.getItem('game_tuning');
-    if (saved) return { ...DEFAULT_TUNING, ...JSON.parse(saved) };
-  } catch(e) { }
+  const saved = localStorage.getItem('game_tuning');
+  if (saved) {
+    try {
+      return { ...DEFAULT_TUNING, ...JSON.parse(saved) };
+    } catch(e) {
+      localStorage.removeItem('game_tuning');
+    }
+  }
   return JSON.parse(JSON.stringify(DEFAULT_TUNING));
 }
 
