@@ -296,6 +296,14 @@ h1 {
   border-color: var(--accent2);
 }
 
+.mode-btn-online {
+    border-color: rgba(113, 188, 250, 0.35);
+}
+.mode-btn-online:hover {
+    background: rgba(113, 168, 250, 0.12);
+    border-color: var(--accent3);
+}
+
 .mode-btn-icon {
   font-size: 32px;
   line-height: 1;
@@ -321,6 +329,9 @@ h1 {
 }
 .mode-btn-puyo .mode-btn-icon {
   color: var(--accent2);
+}
+.mode-btn-online .mode-btn-icon {
+    color: var(--accent3);
 }
 
 .mode-btn-text {
@@ -354,6 +365,9 @@ h1 {
 }
 .mode-btn-puyo .mode-btn-label {
   color: var(--accent2);
+}
+.mode-btn-online .mode-btn-label {
+    color: var(--accent3);
 }
 
 .mode-btn-desc {
