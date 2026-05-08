@@ -13,6 +13,7 @@
 //   title: 'QUIZ 1',        // 表示タイトル
 //   description: '説明文',  // 説明（日本語）
 //   rule: 'tet',            // 'tet' または 'puyo'
+//   allowHold: false,       // (tetのみ) HOLDを許可するかどうか。未指定時はfalse扱い
 //
 //   // ─── テトリス用フィールド ───
 //   // initialField: 行ごとのブロック配列（上から順）
@@ -50,6 +51,7 @@ const QUIZ_LEVELS_TET = [
         title: 'QUIZ 1',
         description: 'I型1つでラインを消せ！',
         rule: 'tet',
+        allowHold: false,
         // 下2行が穴あき（列1だけ空）
         initialField: [
             [5,5,5,5,5,5,5,5,5,0],
@@ -67,6 +69,7 @@ const QUIZ_LEVELS_TET = [
         title: 'QUIZ 2',
         description: 'フィールドを全て消せ！',
         rule: 'tet',
+        allowHold: false,
         // 下4行が綺麗に詰まっているが、1列分だけ空き（Iミノ2本でパーフェクトクリア）
         initialField: [
             [6,6,6,6,0,6,6,6,6,6],
@@ -86,12 +89,11 @@ const QUIZ_LEVELS_TET = [
         title: 'QUIZ 3',
         description: 'T-Spinを決めろ！',
         rule: 'tet',
+        allowHold: true, // ★ このレベルは特別にHOLD可能に設定
         // T-Spinのセットアップ（井戸型）
         initialField: [
-            [3,3,0,3,3,3,3,3,3,3],
-            [3,3,0,0,3,3,3,3,3,3],
-            [3,3,3,0,3,3,3,3,3,3],
-            [3,3,0,0,3,3,3,3,3,3],
+            [3,0,0,3,3,3,3,3,3,3],
+            [3,0,0,0,3,3,3,3,3,3],
             [3,3,0,3,3,3,3,3,3,3],
         ],
         nextPieces: [2], // T型1個
@@ -198,15 +200,34 @@ const QUIZ_LEVELS = {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class QuizManager {
     constructor() {
-        this.currentLevel = null;  // 現在のレベルデータ
-        this.gameInstance = null;  // Game または PuyoGame のインスタンス
+        this.currentLevel = null;  
+        this.gameInstance = null;  
         this.isClear      = false;
         this.isFailed     = false;
-        this._checkInterval = null;
-        this._originalPopMino     = null; // テト用: オリジナルのpopMinoを保存
-        this._originalDequeueNext = null; // ぷよ用: オリジナルの_dequeueNextを保存
-        this._remainingPieces = []; // テト用: 残りNEXT
-        this._remainingPairs  = []; // ぷよ用: 残りNEXT
+        
+        // リセット（元に戻す）用の関数保存用プロパティ
+        this._originalPopMino         = null; 
+        this._originalGetNextType     = null;
+        this._originalHoldCurrentMino = null;
+        this._originalDrawHold        = null; // ★ HOLD描画の復元用
+        this._originalDequeueNext     = null; 
+        this._originalMakePair        = null;
+        
+        this._remainingPieces = []; 
+        this._remainingPairs  = []; 
+    }
+
+    // ─── ダミーミノの生成（テト用、完全に描画されない透明なミノ） ─────
+    _createDummyMino() {
+        const dummy = new Mino(0); // ベースは作るが描画させない
+        dummy._quizDummy = true;
+        const noop = function() {};
+        dummy.draw = noop;
+        dummy.drawNext = noop;
+        dummy.drawHold = noop;
+        dummy.drawAt = noop;
+        dummy.drawGhost = noop;
+        return dummy;
     }
 
     // ─── クイズ開始 ──────────────────────────────
@@ -225,7 +246,7 @@ class QuizManager {
 
     // ─── テトリス用初期化 ─────────────────────────
     _startTet(levelData, game) {
-        // 残りNEXTを複製（使い切り検出のため）
+        // 残りNEXTを複製
         this._remainingPieces = [...levelData.nextPieces];
 
         // フィールドにクイズ初期配置を反映
@@ -237,27 +258,26 @@ class QuizManager {
         for (let i = 0; i < Math.min(5, this._remainingPieces.length); i++) {
             game.nextQueue.push(new Mino(this._remainingPieces[i]));
         }
-        // 5個以降は "使い切り" を示すセンチネル (-1) で埋める
+        // 5個以降は、描画されない完全なダミー（透明）で埋める
         while (game.nextQueue.length < 5) {
-            // センチネル: type=-1 のダミーMinoは後で判定に使う
-            const dummy = new Mino(0);
-            dummy._quizDummy = true;
-            game.nextQueue.push(dummy);
+            game.nextQueue.push(this._createDummyMino());
         }
 
-        // popMino をラップして残りNEXT管理とクリア判定を行う
         const self = this;
-        const originalPopMino = game.popMino.bind(game);
-        this._originalPopMino = originalPopMino;
-        let nextPieceIndex = 0; // nextPiecesの次に出す位置
+        // モード終了時に復元できるよう保存
+        this._originalPopMino = game.popMino;
+        this._originalGetNextType = game.getNextType;
+        this._originalHoldCurrentMino = game.holdCurrentMino;
+        this._originalDrawHold = game.drawHold; // ★ 描画関数も保存
+        
+        let nextPieceIndex = 0;
 
         game.popMino = function() {
-            // 現在のミノのインデックスを管理
-            // nextQueue は常に5個維持する必要があるため、
-            // 使い切り後は新規補充せず、_quizDummy フラグで判別
+            // 次のミノが出現する直前（前の一手が確定した瞬間）にクリア判定を行う
+            if (self._checkClear()) return;
+
             const currentMino = this.nextQueue[0];
             if (currentMino && currentMino._quizDummy) {
-                // 使い切り → 失敗
                 self._onFailed();
                 return;
             }
@@ -276,22 +296,19 @@ class QuizManager {
             }
 
             // 次に補充するピースのインデックスを計算
-            // すでに最初に5個セットしているので、nextPieceIndex は shift した分だけ進む
             nextPieceIndex++;
-            const absoluteNextIndex = nextPieceIndex + 4; // 先読み4個分のオフセット
+            const absoluteNextIndex = nextPieceIndex + 4;
 
             if (absoluteNextIndex < levelData.nextPieces.length) {
-                // まだ残りのピースがある
                 const nextMino = new Mino(levelData.nextPieces[absoluteNextIndex]);
                 this.nextQueue.push(nextMino);
             } else {
-                // 使い切り → ダミー補充
-                const dummy = new Mino(0);
-                dummy._quizDummy = true;
-                this.nextQueue.push(dummy);
+                // NEXTが枯渇したら透明なダミーを補充
+                this.nextQueue.push(self._createDummyMino());
             }
 
-            this.canHold = true;
+            // HOLD可否の更新
+            this.canHold = levelData.allowHold ? true : false;
             this.isGrounded = false;
             this.lowestY = this.mino.y;
             this.moveCount = 0;
@@ -305,20 +322,39 @@ class QuizManager {
             this.startGravity();
         }.bind(game);
 
-        // getNextType もオーバーライド（バッグ補充を無効化）
         game.getNextType = function() {
-            return 0; // 呼ばれても無害なダミーを返す
+            return 0;
         };
 
-        // ─── クリア判定のポーリング ───
-        this._startCheckLoop();
-        // ホールドを無効化
-        game.canHold = false;
-        const origHold = game.holdCurrentMino.bind(game);
-        this._originalHold = origHold;
-        game.holdCurrentMino = function() {
-            // QUIZモードではホールド不可
-        };
+        // ★ レベルごとのHOLD機能とUIの制御
+        if (!levelData.allowHold) {
+            game.canHold = false;
+            game.holdCurrentMino = function() {}; // HOLD処理を無効化
+            
+            // HOLDキャンバスにバツ印（赤い斜線）を描画する
+            game.drawHold = function() {
+                // まず元の処理（キャンバスのクリア等）を呼ぶ
+                if (self._originalDrawHold) self._originalDrawHold.call(game);
+                
+                // その後、斜線を上書き描画
+                if (game.holdCtx && game.holdCanvas) {
+                    const ctx = game.holdCtx;
+                    const w = game.holdCanvas.width;
+                    const h = game.holdCanvas.height;
+                    
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(0, h);  // 左下
+                    ctx.lineTo(w, 0);  // 右上
+                    ctx.strokeStyle = 'rgba(255, 60, 60, 0.8)'; // 赤系の半透明
+                    ctx.lineWidth = 4;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            };
+        } else {
+            game.canHold = true;
+        }
     }
 
     // ─── テト用フィールド初期配置 ─────────────────
@@ -326,7 +362,6 @@ class QuizManager {
         game.field = new Field();
         if (!fieldRows || fieldRows.length === 0) return;
 
-        // fieldRows は上から順、下詰めでフィールドへ配置
         const startRow = ROWS_COUNT - fieldRows.length;
         fieldRows.forEach((row, rowIdx) => {
             row.forEach((typeId, colIdx) => {
@@ -350,63 +385,58 @@ class QuizManager {
         for (const pair of this._remainingPairs) {
             puyoGame.nextQueue.push([...pair]);
         }
-        // ダミーペアで最低20個を維持（ゲームエンジンが20個要求するため）
+        // ダミーペアで最低20個を維持
+        // ★ 0はぷよぷよの描画エンジンでは「空色（透明）」として扱われるため、NEXT表示が綺麗に空白になる
         while (puyoGame.nextQueue.length < 20) {
-            puyoGame.nextQueue.push([-1, -1]); // センチネル
+            puyoGame.nextQueue.push([0, 0]); 
         }
 
-        // _dequeueNext をラップ
         const self = this;
-        const originalDequeue = puyoGame._dequeueNext.bind(puyoGame);
-        this._originalDequeueNext = originalDequeue;
+        // モード終了時に復元できるよう保存
+        this._originalDequeueNext = puyoGame._dequeueNext;
+        this._originalMakePair    = puyoGame._makePair;
+        
         let pairIndex = 0;
 
         puyoGame._dequeueNext = function() {
+            // 次のぷよが出現する直前にクリア判定
+            if (self._checkClear()) {
+                return [1, 1]; // ダミーを返して空回りさせる
+            }
+
             const pair = this.nextQueue.shift();
 
-            // センチネル検出 → 失敗
-            if (pair[0] === -1 || pair[1] === -1) {
+            // センチネル検出（枯渇） → 色IDが0の場合は失敗
+            if (pair[0] === 0 || pair[1] === 0) {
                 self._onFailed();
-                // ゲームを止めるため、ダミーペアを返してゲームオーバー処理に任せる
-                // 実際には _onFailed内でゲームを停止する
-                return [1, 1];
+                return [0, 0];
             }
 
             pairIndex++;
-            // 次に補充するペアのインデックス（先読み分を考慮）
             const absIdx = pairIndex + (this.nextQueue.length);
             if (absIdx < levelData.nextPuyoPairs.length) {
                 this.nextQueue.push([...levelData.nextPuyoPairs[absIdx]]);
             } else {
-                this.nextQueue.push([-1, -1]); // センチネル補充
+                this.nextQueue.push([0, 0]); // 空白のダミーを補充
             }
 
             return pair;
         }.bind(puyoGame);
 
-        // _makePair もオーバーライド（バッグ補充を無効化）
         puyoGame._makePair = function() {
-            return [-1, -1]; // 呼ばれても無害なセンチネルを返す
+            return [0, 0]; 
         };
-
-        // ─── クリア判定のポーリング ───
-        this._startCheckLoop();
     }
 
     // ─── ぷよ用フィールド初期配置 ─────────────────
     _applyPuyoField(fieldRows, puyoGame) {
         if (!fieldRows || fieldRows.length === 0) return;
-        // fieldRows は表示行順（上から12行）
-        // puyoGame.field は (rows + hiddenRows) 行
-        // hiddenRows=5, rows=12 → 合計17行
         const totalRows = PConfig.rows + PConfig.hiddenRows; // 17
-        // 初期化
         for (let r = 0; r < totalRows; r++) {
             for (let c = 0; c < PConfig.cols; c++) {
                 puyoGame.field[r][c] = 0;
             }
         }
-        // fieldRows は表示領域12行分（下詰め）
         const displayStart = PConfig.hiddenRows; // 5
         fieldRows.forEach((row, rowIdx) => {
             const fr = displayStart + rowIdx;
@@ -418,21 +448,9 @@ class QuizManager {
         });
     }
 
-    // ─── クリア判定ループ ─────────────────────────
-    _startCheckLoop() {
-        if (this._checkInterval) clearInterval(this._checkInterval);
-        this._checkInterval = setInterval(() => {
-            if (this.isClear || this.isFailed) {
-                clearInterval(this._checkInterval);
-                return;
-            }
-            this._checkClear();
-        }, 100);
-    }
-
-    // ─── クリア条件チェック ───────────────────────
+    // ─── クリア条件チェック（イベント駆動） ─────────
     _checkClear() {
-        if (!this.currentLevel || !this.gameInstance) return;
+        if (!this.currentLevel || !this.gameInstance) return false;
         const cond = this.currentLevel.clearCondition;
         const game = this.gameInstance;
         let cleared = false;
@@ -443,7 +461,6 @@ class QuizManager {
                     if (game.lines >= cond.value) cleared = true;
                     break;
                 case 'allClear':
-                    // フィールドのブロックが0個かつ少なくとも1手指した後
                     if (game.field && game.field.blocks.length === 0 && game.lines > 0) cleared = true;
                     break;
                 case 'score':
@@ -457,7 +474,6 @@ class QuizManager {
                     if (game.chainMax >= cond.value) cleared = true;
                     break;
                 case 'allClear':
-                    // 全消し判定
                     if (game.isAllClear) cleared = true;
                     break;
                 case 'score':
@@ -468,17 +484,17 @@ class QuizManager {
 
         if (cleared) {
             this._onClear();
+            return true;
         }
+        return false;
     }
 
     // ─── クリア時処理 ─────────────────────────────
     _onClear() {
         if (this.isClear || this.isFailed) return;
         this.isClear = true;
-        clearInterval(this._checkInterval);
         this._stopGame();
 
-        // 少し待ってからクリア演出
         setTimeout(() => {
             if (typeof showQuizResult === 'function') {
                 showQuizResult(true, this.currentLevel);
@@ -490,7 +506,6 @@ class QuizManager {
     _onFailed() {
         if (this.isClear || this.isFailed) return;
         this.isFailed = true;
-        clearInterval(this._checkInterval);
         this._stopGame();
 
         setTimeout(() => {
@@ -529,12 +544,55 @@ class QuizManager {
 
     // ─── 後片付け ─────────────────────────────────
     destroy() {
-        clearInterval(this._checkInterval);
-        this._checkInterval = null;
+        // 破壊した関数と状態を元のゲームエンジンに復元する（他のモードへの影響を遮断）
+        if (this.gameInstance) {
+            if (this.currentLevel && this.currentLevel.rule === 'tet') {
+                if (this._originalPopMino) this.gameInstance.popMino = this._originalPopMino;
+                if (this._originalGetNextType) this.gameInstance.getNextType = this._originalGetNextType;
+                if (this._originalHoldCurrentMino) this.gameInstance.holdCurrentMino = this._originalHoldCurrentMino;
+                // ★ 斜線描画関数を元に戻す
+                if (this._originalDrawHold) this.gameInstance.drawHold = this._originalDrawHold;
+                this.gameInstance.canHold = true;
+                
+                // ★エラー回避: フィールドが存在する場合のみクリアと再描画を行う
+                if (this.gameInstance.field) {
+                    this.gameInstance.field.blocks = [];
+                    if (typeof this.gameInstance.drawAll === 'function') this.gameInstance.drawAll();
+                }
+                this.gameInstance.nextQueue = [];
+                this.gameInstance.bag = [];
+                if (typeof this.gameInstance.drawNext === 'function') this.gameInstance.drawNext();
+                if (typeof this.gameInstance.drawHold === 'function') this.gameInstance.drawHold();
+                
+            } else if (this.currentLevel && this.currentLevel.rule === 'puyo') {
+                if (this._originalDequeueNext) this.gameInstance._dequeueNext = this._originalDequeueNext;
+                if (this._originalMakePair) this.gameInstance._makePair = this._originalMakePair;
+                
+                // ★エラー回避: フィールドが存在する場合のみクリアと再描画を行う
+                if (this.gameInstance.field) {
+                    for (let r = 0; r < this.gameInstance.field.length; r++) {
+                        for (let c = 0; c < this.gameInstance.field[r].length; c++) {
+                            this.gameInstance.field[r][c] = 0;
+                        }
+                    }
+                    if (typeof this.gameInstance._render === 'function') this.gameInstance._render();
+                }
+                this.gameInstance.nextQueue = [];
+            }
+        }
+
         this.currentLevel  = null;
         this.gameInstance  = null;
         this.isClear       = false;
         this.isFailed      = false;
+        
+        // 参照も破棄
+        this._originalPopMino = null;
+        this._originalGetNextType = null;
+        this._originalHoldCurrentMino = null;
+        this._originalDrawHold = null;
+        this._originalDequeueNext = null;
+        this._originalMakePair = null;
     }
 }
 
@@ -544,22 +602,18 @@ class QuizManager {
 window._quizManager = null;
 
 // ─── QUIZリザルト表示 ─────────────────────────────
-// router.js から呼ばれる（game-page 上に演出を出す）
 function showQuizResult(isSuccess, levelData) {
     const text      = isSuccess ? 'CLEAR!' : 'FAILED...';
     const className = isSuccess ? 'finish-clear' : 'finish-gameover';
 
     showFinishOverlay('finish-overlay', 'finish-text', text, className, 1200, () => {
-        // クイズリザルトページへ
         if (typeof switchPage === 'function') {
-            // リザルトページのカスタム情報をセット
             _setQuizResultPage(isSuccess, levelData);
             switchPage('quiz-result');
         }
     });
 }
 
-// ─── クイズリザルトページのDOM更新 ───────────────
 function _setQuizResultPage(isSuccess, levelData) {
     const titleEl = document.getElementById('quiz-result-title');
     if (titleEl) {
@@ -585,7 +639,6 @@ function _setQuizResultPage(isSuccess, levelData) {
     const statusEl = document.getElementById('quiz-result-status');
     if (statusEl) statusEl.textContent = isSuccess ? 'SUCCESS' : 'FAILED';
 
-    // 「NEXT LEVEL」ボタンの表示制御
     const nextBtn = document.getElementById('quiz-result-next-btn');
     if (nextBtn && levelData) {
         const rule   = levelData.rule;
@@ -608,29 +661,22 @@ function _setQuizResultPage(isSuccess, levelData) {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // QUIZモード router 連携関数
-// （quiz.jsに集約してrouter.jsとの結合を最小化）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// ─── 現在選択中のクイズルール ─────────────────
-let currentQuizRule = 'tet'; // 'tet' または 'puyo'
-// ─── 現在選択中のクイズレベルデータ ────────────
+let currentQuizRule = 'tet'; 
 let currentQuizLevel = null;
 
-// ─── クイズルール変更 ─────────────────────────
 function setQuizRule(rule) {
     currentQuizRule = rule;
     renderQuizCheck();
 }
 
-// ─── クイズ確認画面のレンダリング ───────────────
 function renderQuizCheck() {
-    // ルールボタンのハイライト更新
     ['tet', 'puyo'].forEach(r => {
         const btn = document.getElementById(`quiz-rule-${r}`);
         if (btn) btn.classList.toggle('active', r === currentQuizRule);
     });
 
-    // レベルリストの更新
     const listEl = document.getElementById('quiz-level-list');
     if (!listEl) return;
     listEl.innerHTML = '';
@@ -661,10 +707,7 @@ function renderQuizCheck() {
 async function startQuizLevel(levelData) {
     if (!levelData) return;
 
-    // ★ 修正箇所：無限ループ（スタックオーバーフロー）を回避するため、
-    // 関数を後からパッチで上書きするのをやめ、直接ヘッダー表示関数を呼び出します。
     _showQuizFieldHeader(levelData);
-
     currentQuizLevel = levelData;
 
     // 既存ゲームを全停止
@@ -672,6 +715,29 @@ async function startQuizLevel(levelData) {
     if (window._quizManager) {
         window._quizManager.destroy();
     }
+    
+    // ★ エラー回避：フィールド(盤面)がすでに存在している場合のみ、残像クリアと再描画を行う
+    if (window._game) {
+        if (window._game.field) {
+            window._game.field.blocks = [];
+            if (typeof window._game.drawAll === 'function') window._game.drawAll();
+        }
+        window._game.nextQueue = [];
+        window._game.bag = [];
+        if (typeof window._game.drawNext === 'function') window._game.drawNext();
+        if (typeof window._game.drawHold === 'function') window._game.drawHold();
+    }
+    if (window._puyoGame) {
+        if (window._puyoGame.field) {
+            for (let r = 0; r < window._puyoGame.field.length; r++) {
+                if (window._puyoGame.field[r]) window._puyoGame.field[r].fill(0);
+            }
+            if (typeof window._puyoGame._render === 'function') window._puyoGame._render();
+        }
+        window._puyoGame.nextQueue = [];
+    }
+
+    // マネージャーの再生成
     window._quizManager = new QuizManager();
 
     // ─── フィールドオーバーレイのヘッダーテキスト更新 ───
@@ -700,11 +766,13 @@ async function startQuizLevel(levelData) {
         // initGame してからカウントダウン経由でフィールド初期化
         await new Promise(resolve => pg.initGame(resolve));
 
-        // カウントダウン開始（STARTの瞬間にQuizManagerを適用）
+        // READY表示時に盤面とNEXTをロード
+        window._quizManager.start(levelData, pg);
+        // ロードした盤面を画面に即座に反映
+        if (typeof pg._render === 'function') pg._render();
+
+        // カウントダウン開始
         runCountdown('countdown-overlay', 'countdown-text', () => {
-            // フィールドにクイズ配置を上書き
-            window._quizManager.start(levelData, pg);
-            // ゲームプレイ開始（ぷよ）
             pg._startGameplay();
         }, null);
 
@@ -726,28 +794,29 @@ async function startQuizLevel(levelData) {
         tg.initNextCanvas();
         tg.initHoldCanvas();
 
-        // evalエリア非表示
         const evalArea = document.getElementById('eval-area');
         if (evalArea) evalArea.style.display = 'none';
 
         switchPage('game');
 
-        // カウントダウン経由で開始
         tg._initGameState();
         tg.setKeyEvent();
 
+        // READY表示時に盤面とNEXTをロード
+        window._quizManager.start(levelData, tg);
+        // ロードした盤面とNEXTを画面に即座に反映
+        if (typeof tg.drawAll === 'function') tg.drawAll();
+        if (typeof tg.drawNext === 'function') tg.drawNext();
+        if (typeof tg.drawHold === 'function') tg.drawHold();
+
+        // カウントダウン経由で開始
         runCountdown('countdown-overlay', 'countdown-text', () => {
-            // フィールドとNEXTをクイズ用に上書き
-            window._quizManager.start(levelData, tg);
-            // ゲームプレイ開始（テト）
             tg._startGameplay();
         }, null);
     }
 }
 
 // ─── QUIZモードのstopAllGamesフック ──────────
-// router.js の stopAllGames() が呼ばれた際に QuizManager も破棄するため
-// stopAllGames 末尾で呼ばれるよう router.js 側でフックする
 function _stopQuizIfActive() {
     if (window._quizManager) {
         window._quizManager.destroy();
@@ -756,7 +825,6 @@ function _stopQuizIfActive() {
 }
 
 // ─── QUIZフィールドヘッダーの表示/非表示制御 ─────
-// startQuizLevel 内で呼ばれる（ゲームページ切替後に表示する）
 function _showQuizFieldHeader(levelData) {
     const overlay = document.getElementById('quiz-field-overlay');
     if (!overlay) return;
@@ -773,7 +841,6 @@ function _showQuizFieldHeader(levelData) {
 }
 
 // ─── _stopQuizIfActive 内でヘッダーも非表示に ────
-// 元の _stopQuizIfActive を拡張（同ファイル内で再定義して上書き）
 (function() {
     const _original = window._stopQuizIfActive;
     window._stopQuizIfActive = function() {
