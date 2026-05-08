@@ -597,7 +597,7 @@ h1 {
   align-items: center;
   gap: 28px;
   padding-top: 32px;
-  width: 460px;
+  width: 660px;
 }
 
 #versus-cpu-options {
@@ -1894,7 +1894,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
     align-items: center;
     gap: 24px;
     padding-top: 32px;
-    width: 480px;
+    width: 660px;
 }
 
 #quiz-check-header {
