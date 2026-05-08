@@ -23,10 +23,10 @@ const DEFAULT_KEYS = {
 const ACTION_LABELS = {
   moveLeft: { name: '左移動', en: 'Move Left' },
   moveRight: { name: '右移動', en: 'Move Right' },
+  rotateCCW: { name: '左回転', en: 'Rotate CCW' },
+  rotateCW: { name: '右回転', en: 'Rotate CW' },
   softDrop: { name: 'ソフトドロップ', en: 'Soft Drop' },
   hardDrop: { name: 'ハードドロップ', en: 'Hard Drop' },
-  rotateCW: { name: '右回転', en: 'Rotate CW' },
-  rotateCCW: { name: '左回転', en: 'Rotate CCW' },
   hold: { name: 'ホールド', en: 'Hold' },
   pause: { name: 'ポーズ', en: 'Pause' },
   restart: { name: 'リスタート', en: 'Restart' },
