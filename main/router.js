@@ -55,6 +55,14 @@ const GAME_MODES = {
     descriptionEn: 'Puzzle challenge mode for both Tet and Puyo.',
     color:       '#f58542',
   },
+  online: {
+    id:          'online',
+    label:       'ONLINE',
+    icon:        '🌐',
+    description: 'オンラインの対戦モード。',
+    descriptionEn: 'Online competitive mode.',
+    color:       'var(--accent3)',
+  },
 };
 
 let testCpuControl = true; 
