@@ -46,6 +46,15 @@ const GAME_MODES = {
     descriptionEn: 'Chain combos to score as high as possible.',
     color:       'var(--accent2)',
   },
+  // ─── QUIZモード ───────────────────────────────
+  quiz: {
+    id:          'quiz',
+    label:       'QUIZ',
+    icon:        '❓',
+    description: '謎解きパズルモード。テト・ぷよ両対応。',
+    descriptionEn: 'Puzzle challenge mode for both Tet and Puyo.',
+    color:       '#f5c542',
+  },
 };
 
 let testCpuControl = true; 
@@ -154,6 +163,9 @@ function stopAllGames() {
     // pause overlay も消す
     document.getElementById('pause-overlay')?.classList.remove('active');
     document.getElementById('versus-pause-overlay')?.classList.remove('active');
+
+    // ─── QUIZマネージャーの破棄（quiz.js）───
+    if (typeof _stopQuizIfActive === 'function') _stopQuizIfActive();
 
     // オーバーレイ内のテキストも消去
     document.querySelectorAll('.countdown-text, .finish-text').forEach(el => {
@@ -646,6 +658,9 @@ function switchPage(pageId) {
     renderVersusCheck();
   } else if (pageId === 'mode-check') {
     renderModeCheck(); 
+  } else if (pageId === 'quiz-check') {
+    // QUIZモード選択画面のレンダリング（quiz.js）
+    if (typeof renderQuizCheck === 'function') renderQuizCheck();
   }
 }
 
@@ -764,6 +779,13 @@ async function startGameFromModeCheck() {
 
   if (!window._game && !window._puyoGame) window._game = new Game();
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
+
+  // ─── QUIZモード専用処理 ────────────────────────
+  if (modeId === 'quiz') {
+    // quiz-check画面へ遷移（レベル選択）
+    switchPage('quiz-check');
+    return;
+  }
 
   // ─── PUYO(シングル)モード専用処理
   if (modeId === 'puyo') {
