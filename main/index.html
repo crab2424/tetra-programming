@@ -87,16 +87,16 @@
           </button>
         </div>
 
-        <div class="menu-col">
-          <button class="mode-btn mode-btn-puyo" onclick="goToModeCheck('puyo')">
-            <span class="mode-btn-icon">🫧</span>
-            <div class="mode-btn-text">
-              <span class="mode-btn-label">PUYO</span>
-              <span class="mode-btn-desc">シングルプレイ</span>
-            </div>
-          </button>
+          <div class="menu-col">
+            <button class="mode-btn mode-btn-puyo" onclick="goToModeCheck('puyo')">
+              <span class="mode-btn-icon">🫧</span>
+              <div class="mode-btn-text">
+                <span class="mode-btn-label">PUYO</span>
+                <span class="mode-btn-desc">シングルプレイ</span>
+              </div>
+            </button>
+          </div>
         </div>
-      </div>
 
       <div id="main-menu-footer">
         <button class="menu-btn btn-secondary" onclick="switchPage('settings')">
@@ -307,18 +307,18 @@
       </div>
     </div>
 
-    <!-- 対戦用ポーズ -->
-    <div id="versus-pause-overlay">
-      <div id="pause-modal" class="versus-pause-modal">
-        <h2 id="versus-pause-title">PAUSE</h2>
-        <div id="versus-pause-buttons">
-          <button class="pause-btn btn-resume" onclick="resumeVersus()">▶ RESUME</button>
-          <button class="pause-btn btn-restart" onclick="restartVersus()">↺ RESTART</button>
-          <button class="pause-btn btn-mainmenu" onclick="switchPage('main-menu')">⌂ MAIN MENU</button>
+      <!-- 対戦用ポーズ -->
+      <div id="versus-pause-overlay">
+        <div id="pause-modal" class="versus-pause-modal">
+          <h2 id="versus-pause-title">PAUSE</h2>
+          <div id="versus-pause-buttons">
+            <button class="pause-btn btn-resume" onclick="resumeVersus()">▶ RESUME</button>
+            <button class="pause-btn btn-restart" onclick="restartVersus()">↺ RESTART</button>
+            <button class="pause-btn btn-mainmenu" onclick="switchPage('main-menu')">⌂ MAIN MENU</button>
+          </div>
         </div>
       </div>
     </div>
-  </div>
 
   <!-- ─────────────────────────────────────────────
          対戦リザルトページ
@@ -360,46 +360,44 @@
   <!-- ─────────────────────────────────────────────
          ゲームページ
     ───────────────────────────────────────────── -->
-  <div id="game-page" class="page">
-    <div id="container">
-      <canvas id="main-canvas"></canvas>
-      <canvas id="puyo-main-canvas"
-        style="display:none; border:2px solid var(--border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
-      <div id="action-label-container"></div>
-      <div id="countdown-overlay" class="field-overlay countdown-overlay">
-        <span id="countdown-text" class="countdown-text"></span>
-      </div>
-      <div id="finish-overlay" class="field-overlay finish-overlay">
-        <span id="finish-text" class="finish-text"></span>
-      </div>
-      <span class="area-label" id="label-next">NEXT</span>
-      <canvas id="next-canvas"></canvas>
-      <canvas id="puyo-next-canvas"
-        style="display:none; position:absolute; top:0; left:352px; border:2px solid var(--border); border-radius:2px;"></canvas>
-      <span class="area-label" id="label-hold">HOLD</span>
-      <canvas id="hold-canvas"></canvas>
-      <div id="level-area">
-        <span class="area-label" id="label-level">LEVEL</span>
-        <span id="level-value">1</span>
-      </div>
-      <div id="lines-area">
-        <span class="area-label" id="label-lines">LINES</span>
-        <span id="lines-value">0</span>
-      </div>
-      <div id="score-area">
-        <span class="area-label">SCORE</span>
-        <span id="score-value">0</span>
-      </div>
-      <div id="time-area">
-        <span class="area-label">TIME</span>
-        <span id="time-value">00:00.00</span>
-      </div>
-      <div id="eval-area" style="display: none;">
-        <span class="area-label">EVAL</span>
-        <div style="display: flex; align-items: baseline;">
-          <span id="eval-value">0</span>
-          <span id="eval-diff"
-            style="font-family: 'Orbitron', monospace; font-size: 16px; margin-left: 8px; font-weight: 700;"></span>
+    <div id="game-page" class="page">
+      <div id="container">
+        <canvas id="main-canvas"></canvas>
+        <canvas id="puyo-main-canvas" style="display:none; border:2px solid var(--border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
+        <div id="action-label-container"></div>
+        <div id="countdown-overlay" class="field-overlay countdown-overlay">
+          <span id="countdown-text" class="countdown-text"></span>
+        </div>
+        <div id="finish-overlay" class="field-overlay finish-overlay">
+          <span id="finish-text" class="finish-text"></span>
+        </div>
+        <span class="area-label" id="label-next">NEXT</span>
+        <canvas id="next-canvas"></canvas>
+        <canvas id="puyo-next-canvas" style="display:none; position:absolute; top:0; left:352px; border:2px solid var(--border); border-radius:2px;"></canvas>
+        <span class="area-label" id="label-hold">HOLD</span>
+        <canvas id="hold-canvas"></canvas>
+        <div id="level-area">
+          <span class="area-label" id="label-level">LEVEL</span>
+          <span id="level-value">1</span>
+        </div>
+        <div id="lines-area">
+          <span class="area-label" id="label-lines">LINES</span>
+          <span id="lines-value">0</span>
+        </div>
+        <div id="score-area">
+          <span class="area-label">SCORE</span>
+          <span id="score-value">0</span>
+        </div>
+        <div id="time-area">
+          <span class="area-label">TIME</span>
+          <span id="time-value">00:00.00</span>
+        </div>
+        <div id="eval-area" style="display: none;">
+          <span class="area-label">EVAL</span>
+          <div style="display: flex; align-items: baseline;">
+            <span id="eval-value">0</span>
+            <span id="eval-diff" style="font-family: 'Orbitron', monospace; font-size: 16px; margin-left: 8px; font-weight: 700;"></span>
+          </div>
         </div>
       </div>
       <button id="start-btn" style="display:none;"></button>
@@ -503,12 +501,11 @@
     </div>
   </div>
 
-  <div id="settings-toast">SAVED ✓</div>
-
-  <script src="settings.js?v=12"></script>
-  <script src="game.js?v=15"></script>
-  <script src="p_game.js?v=3"></script>
-  <script src="router.js?v=18"></script>
-</body>
-
+    <div id="settings-toast">SAVED ✓</div>
+    
+    <script src="settings.js?v=12"></script>
+    <script src="game.js?v=15"></script>
+    <script src="p_game.js?v=3"></script>
+    <script src="router.js?v=18"></script>
+  </body>
 </html>
