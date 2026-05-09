@@ -1,0 +1,58 @@
+[
+    {
+        "id": "tet-1",
+        "title": "QUIZ 1",
+        "description": "I型1つでラインを消せ！",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [5,5,5,5,5,5,5,5,5,0],
+            [5,5,5,5,5,5,5,5,5,0]
+        ],
+        "nextPieces": [0],
+        "clearCondition": {
+            "type": "clearLines",
+            "value": 1,
+            "description": "1ライン消去"
+        }
+    },
+    {
+        "id": "tet-2",
+        "title": "QUIZ 2",
+        "description": "フィールドを全て消せ！",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [6,6,6,6,0,6,6,6,6,6],
+            [6,6,6,6,0,6,6,6,6,6],
+            [6,6,6,6,0,6,6,6,6,6],
+            [6,6,6,6,0,6,6,6,6,6]
+        ],
+        "nextPieces": [0, 0],
+        "clearCondition": {
+            "type": "allClear",
+            "value": 0,
+            "description": "パーフェクトクリア"
+        }
+    },
+    {
+        "id": "tet-3",
+        "title": "QUIZ 3",
+        "description": "T-Spinを決めろ！",
+        "rule": "tet",
+        "allowHold": true,
+        "initialField": [
+            [3,3,0,3,3,3,3,3,3,3],
+            [3,3,0,0,3,3,3,3,3,3],
+            [3,3,3,0,3,3,3,3,3,3],
+            [3,3,0,0,3,3,3,3,3,3],
+            [3,3,0,3,3,3,3,3,3,3]
+        ],
+        "nextPieces": [2],
+        "clearCondition": {
+            "type": "clearLines",
+            "value": 2,
+            "description": "2ライン消去（T-Spin推奨）"
+        }
+    }
+]
