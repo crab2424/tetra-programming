@@ -213,6 +213,8 @@ class PuyoGame {
     }
 
     pause() {
+        if (typeof isVersusCountingDown !== 'undefined' && isVersusCountingDown) return;
+        if (typeof isCountingDown !== 'undefined' && isCountingDown) return;
         if (this.state !== 'playing') return;
         this.state = 'paused';
         this.isPaused = true;
@@ -334,6 +336,18 @@ class PuyoGame {
     }
 
     _loadImages(callback) {
+        // ★ 画像は全インスタンスで共有する（クラス静的プロパティ）
+        // 　 2回目以降の initGame / start では即座に callback() を呼ぶことで
+        // 　 new Image() → onload の非同期サイクルによる約200msの遅延を解消する
+        if (PuyoGame._sharedImagesLoaded) {
+            this._images = PuyoGame._sharedImages;
+            this._imagesLoaded = true;
+            callback();
+            return;
+        }
+
+        // ─── 初回のみ：全画像をロードしてクラス静的プロパティに保存 ───
+
         // ベース画像（おじゃま含む6色）
         const baseTargets = ['puyo-0', 'puyo-1', 'puyo-2', 'puyo-3', 'puyo-4', 'puyo-5'];
 
@@ -354,11 +368,17 @@ class PuyoGame {
 
         const targets = [...baseTargets, ...connectTargets];
         let remaining = targets.length;
+        // 初回ロード用の一時オブジェクト（完了後にクラス静的プロパティへ昇格）
+        const sharedImages = {};
         targets.forEach(key => {
             const img = new Image();
             const done = () => {
                 remaining--;
                 if (remaining <= 0) {
+                    // ★ ロード完了：クラス静的プロパティへ保存し、以降の全インスタンスで再利用
+                    PuyoGame._sharedImages = sharedImages;
+                    PuyoGame._sharedImagesLoaded = true;
+                    this._images = sharedImages;
                     this._imagesLoaded = true;
                     callback();
                 }
@@ -366,7 +386,7 @@ class PuyoGame {
             img.onload = done;
             img.onerror = done;
             img.src = PConfig.imagePath + key + '.png';
-            this._images[key] = img;
+            sharedImages[key] = img;
         });
     }
 
@@ -2874,6 +2894,14 @@ class PuyoGame {
         ctx.restore();
     }
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ★ クラス静的プロパティ：全インスタンスで画像を共有するためのキャッシュ
+//    初回ロード後は PuyoGame._sharedImagesLoaded = true になり、
+//    以降の _loadImages では即座に callback() が呼ばれる（200ms遅延の解消）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PuyoGame._sharedImages = null;
+PuyoGame._sharedImagesLoaded = false;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // グローバル公開 API

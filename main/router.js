@@ -114,7 +114,7 @@ function stopAllGames() {
     const stopGameInstance = (gameInst) => {
         if (!gameInst) return;
         
-        // ★ 修正: PuyoGame と Tetris (Game) インスタンスを確実に区別して停止処理を行う
+        // ★ 修正: PuyoGame と Tet (Game) インスタンスを確実に区別して停止処理を行う
         if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
             // Puyo の停止処理
             if (typeof gameInst.stop === 'function') {
@@ -461,6 +461,12 @@ async function startVersusGame() {
   }
 
   // ─── カウントダウンとゲーム開始 ───
+  
+  // ★ 修正箇所：カウントダウン期間中はポーズを受け付けないよう、ぷよ側の状態を 'starting' に明示的に切り替える
+  if (isPlayerPuyo && window._game) window._game.state = 'starting';
+  if (isCpuPuyo && window._cpuGame) window._cpuGame.state = 'starting';
+  // ★ 修正箇所 ここまで
+
   // ★ カウントダウンの開始と同時に非同期でCPUのスクリプト読み込みを開始する
   let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, versusCpuRule).catch(e => {
     console.warn("CPUスクリプトの読み込みに失敗しました。自由落下になります。");
@@ -516,6 +522,20 @@ function toggleVersusPause() {
   if (isPaused) {
     resumeVersus();
   } else {
+    // カウントダウン中はポーズを受け付けない（シングルモードと同じ挙動）
+    // Tet(Game)は isCountingDown、PuyoGame は state === 'starting' でカウントダウン中を判定する
+    const isGameCounting = (inst) => {
+      if (!inst) return false;
+      if (inst.isCountingDown) return true;           // Game (Tet)
+      if (inst.state === 'starting') return true;     // PuyoGame
+      return false;
+    };
+    // ★ _game/_cpuGame に加えて、ぷよ専用インスタンスも明示的にチェックする
+    // ぷよ同士の対戦では _puyoGamePlayer/_puyoGameCpu がカウントダウン中の場合も含める
+    if (isGameCounting(window._game) || isGameCounting(window._cpuGame)
+        || isGameCounting(window._puyoGamePlayer) || isGameCounting(window._puyoGameCpu)) {
+      return;
+    }
     if (window._game && typeof window._game.pause === 'function') window._game.pause();
     if (window._cpuGame && typeof window._cpuGame.pause === 'function') window._cpuGame.pause();
     overlay.classList.add('active');
@@ -540,7 +560,7 @@ function restartVersusFromResult() {
 }
 
 function versusGameOver(loser) {
-  // ★ 修正: ここでも Tetris と Puyo を確実に区別する
+  // ★ 修正: ここでも Tet と Puyo を確実に区別する
   const stopGame = (gameInst) => {
       if (!gameInst) return;
       if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
@@ -840,7 +860,7 @@ async function startGameFromModeCheck() {
     return;
   }
 
-  // レイアウトをテトリス側に戻す
+  // レイアウトをテト側に戻す
   _switchToPuyoLayout(false);
 
   // 未定義の場合はインスタンスを作成
@@ -969,7 +989,7 @@ function setupGlobalCpuPauseKey() {
     // シングルプレイ画面以外なら何もしない
     if (!gamePage || !gamePage.classList.contains('active')) return;
     
-    // ★ ぷよぷよ側は p_game.js 自身がポーズを処理するので、テト側のみここで補完する
+    // ★ ぷよ側は p_game.js 自身がポーズを処理するので、テト側のみここで補完する
     if (currentGameMode && currentGameMode.id === 'test' && testRule === 'tet' && window._game && window._game.isCpuControlled) {
         if (e.code === keys.pause.code) {
             if (e.defaultPrevented) return;
