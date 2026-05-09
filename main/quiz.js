@@ -4,198 +4,64 @@
 // ─────────────────────────────────────────────
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// QUIZ レベルデータ定義
-// 拡張方法: QUIZ_LEVELS_TET / QUIZ_LEVELS_PUYO に要素を追加するだけでOK
+// QUIZ レベルデータ定義 (JSONからの読み込み)
+// ※ データ自体は /quizlevels/tdata.json と /quizlevels/pdata.json に分離しています。
 //
 // 各レベルのフォーマット:
 // {
-//   id: 'tet-1',            // 一意なID
-//   title: 'QUIZ 1',        // 表示タイトル
-//   description: '説明文',  // 説明（日本語）
-//   rule: 'tet',            // 'tet' または 'puyo'
-//   allowHold: false,       // (tetのみ) HOLDを許可するかどうか。未指定時はfalse扱い
+//   "id": "tet-1",            // 一意なID
+//   "title": "QUIZ 1",        // 表示タイトル
+//   "description": "説明文",  // 説明（日本語）
+//   "rule": "tet",            // "tet" または "puyo"
+//   "allowHold": false,       // (tetのみ) HOLDを許可するかどうか。未指定時はfalse扱い
 //
 //   // ─── テトリス用フィールド ───
-//   // initialField: 行ごとのブロック配列（上から順）
+//   // "initialField": 行ごとのブロック配列（上から順）
 //   //   各行は長さ10の配列、0=空、1〜7=ブロック種類（色ID）
 //   //   行数は任意（最大20行分、下詰めで配置される）
-//   initialField: [ ... ],
+//   "initialField": [ ... ],
 //
 //   // ─── ぷよ用フィールド ───
-//   // initialPuyoField: 行ごとの配列（上から順）
+//   // "initialPuyoField": 行ごとの配列（上から順）
 //   //   各行は長さ6の配列、0=空、1〜5=色、6=おじゃまぷよ
-//   initialPuyoField: [ ... ],
+//   "initialPuyoField": [ ... ],
 //
 //   // ─── NEXT（有限・固定） ───
-//   // nextPieces: テト用ミノタイプの配列 (0=I,1=O,2=T,3=J,4=L,5=S,6=Z)
-//   nextPieces: [ ... ],
-//   // nextPuyoPairs: ぷよ用ペアの配列 [[pivot色, child色], ...]
-//   nextPuyoPairs: [ ... ],
+//   // "nextPieces": テト用ミノタイプの配列 (0=I,1=O,2=T,3=J,4=L,5=S,6=Z)
+//   "nextPieces": [ ... ],
+//   // "nextPuyoPairs": ぷよ用ペアの配列 [[pivot色, child色], ...]
+//   "nextPuyoPairs": [ ... ],
 //
 //   // ─── クリア条件 ───
-//   // clearCondition: {
-//   //   type: 'clearLines'       // n行消去
-//   //         | 'allClear'       // フィールド全消し
-//   //         | 'score'          // スコアがn以上
-//   //         | 'chain'          // n連鎖以上（ぷよ）
-//   //   value: number            // type に対応する値
-//   //   description: '説明'      // クリア条件の説明文
+//   // "clearCondition": {
+//   //   "type": "clearLines"       // n行消去
+//   //         | "allClear"       // フィールド全消し
+//   //         | "score"          // スコアがn以上
+//   //         | "chain"          // n連鎖以上（ぷよ）
+//   //   "value": number            // type に対応する値
+//   //   "description": "説明"      // クリア条件の説明文
 //   // }
 // }
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// ─── テトリスQUIZレベル ───────────────────────
-const QUIZ_LEVELS_TET = [
-    {
-        id: 'tet-1',
-        title: 'QUIZ 1',
-        description: 'I型1つでラインを消せ！',
-        rule: 'tet',
-        allowHold: false,
-        // 下2行が穴あき（列1だけ空）
-        initialField: [
-            [5,5,5,5,5,5,5,5,5,0],
-            [5,5,5,5,5,5,5,5,5,0],
-        ],
-        nextPieces: [0], // I型1個
-        clearCondition: {
-            type: 'clearLines',
-            value: 1,
-            description: '1ライン消去'
-        }
-    },
-    {
-        id: 'tet-2',
-        title: 'QUIZ 2',
-        description: 'フィールドを全て消せ！',
-        rule: 'tet',
-        allowHold: false,
-        // 下4行が綺麗に詰まっているが、1列分だけ空き（Iミノ2本でパーフェクトクリア）
-        initialField: [
-            [6,6,6,6,0,6,6,6,6,6],
-            [6,6,6,6,0,6,6,6,6,6],
-            [6,6,6,6,0,6,6,6,6,6],
-            [6,6,6,6,0,6,6,6,6,6],
-        ],
-        nextPieces: [0, 0], // I型2個
-        clearCondition: {
-            type: 'allClear',
-            value: 0,
-            description: 'パーフェクトクリア'
-        }
-    },
-    {
-        id: 'tet-3',
-        title: 'QUIZ 3',
-        description: 'T-Spinを決めろ！',
-        rule: 'tet',
-        allowHold: true, // ★ このレベルは特別にHOLD可能に設定
-        // T-Spinのセットアップ（井戸型）
-        initialField: [
-            [3,3,0,3,3,3,3,3,3,3],
-            [3,3,0,0,3,3,3,3,3,3],
-            [3,3,3,0,3,3,3,3,3,3],
-            [3,3,0,0,3,3,3,3,3,3],
-            [3,3,0,3,3,3,3,3,3,3],
-        ],
-        nextPieces: [2], // T型1個
-        clearCondition: {
-            type: 'clearLines',
-            value: 2,
-            description: '2ライン消去（T-Spin推奨）'
-        }
-    },
-];
+// ─── 外部JSONからレベルデータを読み込む ─────────
+let QUIZ_LEVELS = { tet: [], puyo: [] };
+let _isQuizLevelsLoaded = false;
 
-// ─── ぷよQUIZレベル ───────────────────────────
-const QUIZ_LEVELS_PUYO = [
-    {
-        id: 'puyo-1',
-        title: 'QUIZ 1',
-        description: '4つつなげて消せ！',
-        rule: 'puyo',
-        // 下から3行：3色が混在、あと1個置けば4つ揃う
-        initialPuyoField: [
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [1, 0, 0, 0, 0, 0],
-            [1, 0, 0, 0, 0, 0],
-            [1, 0, 0, 0, 0, 0],
-        ],
-        // pivot色, child色
-        nextPuyoPairs: [[1, 2]],
-        clearCondition: {
-            type: 'chain',
-            value: 1,
-            description: '1連鎖以上'
-        }
-    },
-    {
-        id: 'puyo-2',
-        title: 'QUIZ 2',
-        description: '2連鎖を起こせ！',
-        rule: 'puyo',
-        initialPuyoField: [
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [2, 0, 0, 0, 0, 0],
-            [2, 0, 0, 0, 0, 0],
-            [2, 1, 0, 0, 0, 0],
-            [1, 1, 0, 0, 0, 0],
-        ],
-        nextPuyoPairs: [[2, 1]],
-        clearCondition: {
-            type: 'chain',
-            value: 2,
-            description: '2連鎖以上'
-        }
-    },
-    {
-        id: 'puyo-3',
-        title: 'QUIZ 3',
-        description: '全消しを達成せよ！',
-        rule: 'puyo',
-        initialPuyoField: [
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [3, 0, 0, 0, 0, 0],
-            [3, 3, 0, 0, 0, 0],
-            [3, 3, 3, 0, 0, 0],
-        ],
-        nextPuyoPairs: [[3, 3]],
-        clearCondition: {
-            type: 'allClear',
-            value: 0,
-            description: '全消し'
-        }
-    },
-];
-
-// 全レベルをまとめたマップ（rule → levels）
-const QUIZ_LEVELS = {
-    tet: QUIZ_LEVELS_TET,
-    puyo: QUIZ_LEVELS_PUYO,
-};
+async function loadQuizLevels() {
+    if (_isQuizLevelsLoaded) return;
+    try {
+        const [tetRes, puyoRes] = await Promise.all([
+            fetch('quizlevels/tdata.json'),
+            fetch('quizlevels/pdata.json')
+        ]);
+        if (tetRes.ok) QUIZ_LEVELS.tet = await tetRes.json();
+        if (puyoRes.ok) QUIZ_LEVELS.puyo = await puyoRes.json();
+        _isQuizLevelsLoaded = true;
+    } catch (e) {
+        console.error("QUIZレベルデータの読み込みに失敗しました:", e);
+    }
+}
 
 // ─── QUIZ用 HOLD禁止斜線オーバーレイ管理 ─────────
 function _setHoldOverlayVisible(visible) {
@@ -705,7 +571,10 @@ function setQuizRule(rule) {
     renderQuizCheck();
 }
 
-function renderQuizCheck() {
+// ★ 非同期関数に変更し、データをfetchしてから描画するようにしました
+async function renderQuizCheck() {
+    await loadQuizLevels();
+
     ['tet', 'puyo'].forEach(r => {
         const btn = document.getElementById(`quiz-rule-${r}`);
         if (btn) btn.classList.toggle('active', r === currentQuizRule);
