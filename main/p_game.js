@@ -2748,12 +2748,12 @@ class PuyoGame {
      */
     _drawPuyoFallback(ctx, x, y, size, imageIndex) {
         const COLORS = ['#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f', '#bdc3c7'];
-        ctx.fillStyle = COLORS[imageIndex] || '#fff';
+        ctx.fillStyle = COLORS[imageIndex] || '#000';
         ctx.beginPath();
         ctx.arc(x + size * 0.5, y + size * 0.5, size * 0.42, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = 'rgba(255,255,255,0.75)';
+        ctx.fillStyle = 'rgba(0,0,0,0)';
         ctx.beginPath();
         ctx.arc(x + size * 0.35, y + size * 0.38, size * 0.1, 0, Math.PI * 2);
         ctx.fill();
@@ -2761,7 +2761,7 @@ class PuyoGame {
         ctx.arc(x + size * 0.65, y + size * 0.38, size * 0.1, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.strokeStyle = 'rgba(0,0,0,0)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(x + size * 0.5, y + size * 0.5, size * 0.42, 0, Math.PI * 2);

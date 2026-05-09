@@ -92,8 +92,10 @@ const QUIZ_LEVELS_TET = [
         allowHold: true, // ★ このレベルは特別にHOLD可能に設定
         // T-Spinのセットアップ（井戸型）
         initialField: [
-            [3,0,0,3,3,3,3,3,3,3],
-            [3,0,0,0,3,3,3,3,3,3],
+            [3,3,0,3,3,3,3,3,3,3],
+            [3,3,0,0,3,3,3,3,3,3],
+            [3,3,3,0,3,3,3,3,3,3],
+            [3,3,0,0,3,3,3,3,3,3],
             [3,3,0,3,3,3,3,3,3,3],
         ],
         nextPieces: [2], // T型1個
@@ -195,6 +197,49 @@ const QUIZ_LEVELS = {
     puyo: QUIZ_LEVELS_PUYO,
 };
 
+// ─── QUIZ用 HOLD禁止斜線オーバーレイ管理 ─────────
+function _setHoldOverlayVisible(visible) {
+    let overlay = document.getElementById('quiz-hold-overlay');
+    const holdCanvas = document.getElementById('hold-canvas');
+
+    if (!holdCanvas) return;
+
+    if (!overlay && visible) {
+        const container = holdCanvas.parentElement;
+        overlay = document.createElement('div');
+        overlay.id = 'quiz-hold-overlay';
+        container.appendChild(overlay);
+    }
+
+    if (overlay) {
+        if (visible) {
+            // CSSで設定された hold-canvas の位置・サイズ・角丸を自動で取得して同期
+            const t = holdCanvas.offsetTop;
+            const l = holdCanvas.offsetLeft;
+            const w = holdCanvas.offsetWidth;
+            const h = holdCanvas.offsetHeight;
+            const br = window.getComputedStyle(holdCanvas).borderRadius;
+            
+            // キャンバスの枠線（var(--border)）と同じ色で、2px幅のシャープな斜線を引く
+            overlay.style.cssText = `
+                position: absolute;
+                top: ${t}px; 
+                left: ${l}px;
+                width: ${w}px; 
+                height: ${h}px;
+                pointer-events: none;
+                z-index: 10;
+                background: linear-gradient(to top right, transparent calc(50% - 1px), var(--border) calc(50% - 1px), var(--border) calc(50% + 1px), transparent calc(50% + 1px));
+                border-radius: ${br};
+                display: block;
+            `;
+        } else {
+            overlay.style.display = 'none';
+        }
+    }
+}
+
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // QuizManager : クイズの進行・クリア判定を管理するクラス
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -209,7 +254,7 @@ class QuizManager {
         this._originalPopMino         = null; 
         this._originalGetNextType     = null;
         this._originalHoldCurrentMino = null;
-        this._originalDrawHold        = null; // ★ HOLD描画の復元用
+        this._originalDrawHold        = null; 
         this._originalDequeueNext     = null; 
         this._originalMakePair        = null;
         
@@ -268,7 +313,6 @@ class QuizManager {
         this._originalPopMino = game.popMino;
         this._originalGetNextType = game.getNextType;
         this._originalHoldCurrentMino = game.holdCurrentMino;
-        this._originalDrawHold = game.drawHold; // ★ 描画関数も保存
         
         let nextPieceIndex = 0;
 
@@ -326,34 +370,14 @@ class QuizManager {
             return 0;
         };
 
-        // ★ レベルごとのHOLD機能とUIの制御
+        // レベルごとのHOLD機能とUI(HTMLレイヤー)の制御
         if (!levelData.allowHold) {
             game.canHold = false;
             game.holdCurrentMino = function() {}; // HOLD処理を無効化
-            
-            // HOLDキャンバスにバツ印（赤い斜線）を描画する
-            game.drawHold = function() {
-                // まず元の処理（キャンバスのクリア等）を呼ぶ
-                if (self._originalDrawHold) self._originalDrawHold.call(game);
-                
-                // その後、斜線を上書き描画
-                if (game.holdCtx && game.holdCanvas) {
-                    const ctx = game.holdCtx;
-                    const w = game.holdCanvas.width;
-                    const h = game.holdCanvas.height;
-                    
-                    ctx.save();
-                    ctx.beginPath();
-                    ctx.moveTo(0, h);  // 左下
-                    ctx.lineTo(w, 0);  // 右上
-                    ctx.strokeStyle = 'rgba(255, 60, 60, 0.8)'; // 赤系の半透明
-                    ctx.lineWidth = 4;
-                    ctx.stroke();
-                    ctx.restore();
-                }
-            };
+            _setHoldOverlayVisible(true);         // HTML要素でキャンバスに合わせて斜線を表示
         } else {
             game.canHold = true;
+            _setHoldOverlayVisible(false);        // 斜線を非表示
         }
     }
 
@@ -380,15 +404,25 @@ class QuizManager {
         // フィールド初期配置
         this._applyPuyoField(levelData.initialPuyoField, puyoGame);
 
+        // ★ フェイルセーフ：ID 7 の描画時にエラーにならないよう、ゲームエンジンの色配列に透明色を定義しておく
+        if (typeof PConfig !== 'undefined' && PConfig.colors && !PConfig.colors[7]) {
+            PConfig.colors[7] = 'rgba(0,0,0,0)';
+        }
+        if (puyoGame.colors && !puyoGame.colors[7]) {
+            puyoGame.colors[7] = 'rgba(0,0,0,0)';
+        }
+
         // NEXTキューを固定ペアで上書き
         puyoGame.nextQueue = [];
         for (const pair of this._remainingPairs) {
             puyoGame.nextQueue.push([...pair]);
         }
-        // ダミーペアで最低20個を維持
-        // ★ 0はぷよぷよの描画エンジンでは「空色（透明）」として扱われるため、NEXT表示が綺麗に空白になる
+        
+        // ★ ダミーペアで最低20個を維持
+        // 0(空マス), 1~5(通常ぷよ), 6(おじゃま) は使用済みのため、
+        // NEXT表示が綺麗に空白になる「透明なダミーぷよ」として 新規ID 7 を生成して使用する
         while (puyoGame.nextQueue.length < 20) {
-            puyoGame.nextQueue.push([0, 0]); 
+            puyoGame.nextQueue.push([7, 7]); 
         }
 
         const self = this;
@@ -401,15 +435,15 @@ class QuizManager {
         puyoGame._dequeueNext = function() {
             // 次のぷよが出現する直前にクリア判定
             if (self._checkClear()) {
-                return [1, 1]; // ダミーを返して空回りさせる
+                return [7, 7]; // ダミー(ID 7)を返して空回りさせる
             }
 
             const pair = this.nextQueue.shift();
 
-            // センチネル検出（枯渇） → 色IDが0の場合は失敗
-            if (pair[0] === 0 || pair[1] === 0) {
+            // センチネル検出（枯渇） → 色IDが7の場合は失敗
+            if (pair[0] === 7 || pair[1] === 7) {
                 self._onFailed();
-                return [0, 0];
+                return [7, 7];
             }
 
             pairIndex++;
@@ -417,14 +451,14 @@ class QuizManager {
             if (absIdx < levelData.nextPuyoPairs.length) {
                 this.nextQueue.push([...levelData.nextPuyoPairs[absIdx]]);
             } else {
-                this.nextQueue.push([0, 0]); // 空白のダミーを補充
+                this.nextQueue.push([7, 7]); // ID 7 の透明なダミーを補充
             }
 
             return pair;
         }.bind(puyoGame);
 
         puyoGame._makePair = function() {
-            return [0, 0]; 
+            return [7, 7]; // 呼ばれても影響がないようダミーぷよを生成
         };
     }
 
@@ -550,11 +584,12 @@ class QuizManager {
                 if (this._originalPopMino) this.gameInstance.popMino = this._originalPopMino;
                 if (this._originalGetNextType) this.gameInstance.getNextType = this._originalGetNextType;
                 if (this._originalHoldCurrentMino) this.gameInstance.holdCurrentMino = this._originalHoldCurrentMino;
-                // ★ 斜線描画関数を元に戻す
-                if (this._originalDrawHold) this.gameInstance.drawHold = this._originalDrawHold;
                 this.gameInstance.canHold = true;
                 
-                // ★エラー回避: フィールドが存在する場合のみクリアと再描画を行う
+                // HTML要素による斜線表示を非表示にする
+                _setHoldOverlayVisible(false);
+                
+                // エラー回避: フィールドが存在する場合のみクリアと再描画を行う
                 if (this.gameInstance.field) {
                     this.gameInstance.field.blocks = [];
                     if (typeof this.gameInstance.drawAll === 'function') this.gameInstance.drawAll();
@@ -568,7 +603,7 @@ class QuizManager {
                 if (this._originalDequeueNext) this.gameInstance._dequeueNext = this._originalDequeueNext;
                 if (this._originalMakePair) this.gameInstance._makePair = this._originalMakePair;
                 
-                // ★エラー回避: フィールドが存在する場合のみクリアと再描画を行う
+                // エラー回避: フィールドが存在する場合のみクリアと再描画を行う
                 if (this.gameInstance.field) {
                     for (let r = 0; r < this.gameInstance.field.length; r++) {
                         for (let c = 0; c < this.gameInstance.field[r].length; c++) {
@@ -590,7 +625,6 @@ class QuizManager {
         this._originalPopMino = null;
         this._originalGetNextType = null;
         this._originalHoldCurrentMino = null;
-        this._originalDrawHold = null;
         this._originalDequeueNext = null;
         this._originalMakePair = null;
     }
@@ -716,7 +750,7 @@ async function startQuizLevel(levelData) {
         window._quizManager.destroy();
     }
     
-    // ★ エラー回避：フィールド(盤面)がすでに存在している場合のみ、残像クリアと再描画を行う
+    // エラー回避：フィールド(盤面)がすでに存在している場合のみ、残像クリアと再描画を行う
     if (window._game) {
         if (window._game.field) {
             window._game.field.blocks = [];
