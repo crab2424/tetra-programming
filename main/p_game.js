@@ -1129,6 +1129,64 @@ class PuyoGame {
                     // 相手に送った火力全てに2段階目になるように情報を送る
                     this._confirmSentGarbage(isZenkeshi);
 
+                    // ========================================================
+                    // 【追加】QUIZモード：演出（spawnAnim）に入る前にクリア/失敗判定を行う
+                    // ========================================================
+                    if (window._quizManager && window._quizManager.currentLevel) {
+                        let isQuizFinished = false;
+
+                        // 1. QUIZ側の判定メソッドがあれば呼び出す（クリア条件などのチェック）
+                        //    ※ 旧設計の checkCondition が実装された場合の互換呼び出しも残す
+                        if (typeof window._quizManager.checkCondition === 'function') {
+                            const quizResult = window._quizManager.checkCondition(this);
+                            if (quizResult === 'clear' || quizResult === 'fail') {
+                                isQuizFinished = true;
+                            }
+                        }
+
+                        // 2. _checkClear() を直接呼び出してクリア条件を評価する
+                        //    （quiz.js の QuizManager._checkClear は isClear/isFailed フラグを立てて
+                        //     _onClear/_onFailed を発火する。既にどちらかが立っていれば重複呼び出しは無視される）
+                        if (!isQuizFinished && !window._quizManager.isClear && !window._quizManager.isFailed) {
+                            if (typeof window._quizManager._checkClear === 'function') {
+                                isQuizFinished = window._quizManager._checkClear();
+                            }
+                        }
+
+                        // 3. クリア済み or 失敗済みフラグが立っていれば演出をスキップする
+                        if (!isQuizFinished) {
+                            isQuizFinished = !!(window._quizManager.isClear || window._quizManager.isFailed);
+                        }
+
+                        // 4. 次のペアがダミー（color=7）なら NEXTが枯渇 → 失敗とする
+                        //    （_dequeueNext の上書きでもダミー検出は行われるが、演出前に先回りして判定する）
+                        if (!isQuizFinished) {
+                            const nextPair = this.nextQueue[0];
+                            const isDummyNext = nextPair && (nextPair[0] === 7 || nextPair[1] === 7);
+                            if (isDummyNext) {
+                                // _onFailed() を直接呼び出して失敗扱いにする
+                                if (typeof window._quizManager._onFailed === 'function') {
+                                    window._quizManager._onFailed();
+                                }
+                                isQuizFinished = true;
+                            }
+                        }
+
+                        // 5. ネクストが完全に空なら、演出に入る前に即座に失敗（ゲームオーバー）とする
+                        //    ※ 旧設計の互換コードも残す
+                        if (this.nextQueue.length === 0 && !isQuizFinished) {
+                            if (typeof this.gameOver === 'function') {
+                                this.gameOver();
+                            }
+                            isQuizFinished = true;
+                        }
+
+                        // 判定によってクリアや失敗になった場合は、spawnAnim演出に進まずここで終了する
+                        if (isQuizFinished || this._gs === 'clear' || this._gs === 'gameover') {
+                            return;
+                        }
+                    }
+                    // ========================================================
                     this._gs = 'spawnAnim';
                     this.spawnAnimTimer = 0;
                 }
