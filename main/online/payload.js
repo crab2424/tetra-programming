@@ -100,7 +100,7 @@ export class Payload {
      * @returns {Uint8Array} エンコードされたペイロード
      */
     static searchRooms() {
-        return this.__encode(this.SearchRoomsSchema, { op: Payload.Opcodes.SearchRooms });
+        return Payload.__encode(Payload.SearchRoomsSchema, { op: Payload.Opcodes.SearchRooms });
     }
 
     /**
@@ -118,7 +118,7 @@ export class Payload {
      * @returns {Uint8Array} エンコードされたペイロード
      */
     static createRoom(name) {
-        return this.__encode(this.CreateRoomSchema, { op: Payload.Opcodes.CreateRoom, name });
+        return Payload.__encode(Payload.CreateRoomSchema, { op: Payload.Opcodes.CreateRoom, name });
     }
 
     // MARK: デコード処理
@@ -143,7 +143,7 @@ export class Payload {
         const decoder = new TextDecoder();
 
         const op = view.getUint8(0);
-        const schema = this.schemaOrders[op];
+        const schema = Payload.schemaOrders[op];
         if (!schema) {
             throw new Error(`Unknown opcode: ${op}`);
         }
