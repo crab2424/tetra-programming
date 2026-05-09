@@ -123,9 +123,23 @@ class QuizManager {
         this._originalDrawHold        = null; 
         this._originalDequeueNext     = null; 
         this._originalMakePair        = null;
+        this._originalSecureMino      = null; // count / ren / tspin / lines 判定用フック
+        this._originalRestart         = null; // ショートカット・ポーズ画面からのリスタート用フック
         
         this._remainingPieces = []; 
         this._remainingPairs  = []; 
+
+        // ─── count 条件用：クリア条件を満たした回数カウンター ───
+        // tet / puyo 両方の "count" タイプで使用する
+        this.clearTimes = 0;
+
+        // ─── tet 専用：secureMino フックから受け取る直前プレイ情報 ───
+        // _lastSecureResult は secureMino 実行直後に更新され、_checkClear で参照する
+        this._lastSecureResult = {
+            tSpinType:    null,  // 'tspin' | 'mini' | null
+            linesCleared: 0,     // 消去ライン数
+            ren:          0,     // 固定時点の REN（連鎖）カウント（加算前）
+        };
     }
 
     // ─── ダミーミノの生成（テト用、完全に描画されない透明なミノ） ─────
@@ -179,6 +193,59 @@ class QuizManager {
         this._originalPopMino = game.popMino;
         this._originalGetNextType = game.getNextType;
         this._originalHoldCurrentMino = game.holdCurrentMino;
+        this._originalSecureMino = game.secureMino;
+        this._originalRestart = game.restart;
+
+        // ─── restart フック ──────────────────────────────────────
+        // プレイ中のショートカットやポーズ画面からのリトライをQUIZモード専用のリトライに統一する
+        game.restart = function() {
+            if (self.currentLevel) {
+                // ポーズ画面から呼ばれた場合を考慮し、ポーズ画面を非表示にする
+                const pauseOverlay = document.getElementById('pause-overlay');
+                if (pauseOverlay) pauseOverlay.style.display = 'none';
+                
+                startQuizLevel(self.currentLevel);
+            } else {
+                if (self._originalRestart) self._originalRestart.call(this);
+            }
+        }.bind(game);
+
+        // ─── secureMino フック ──────────────────────────────────────
+        // tet 専用条件（ren / tspin / lines / count）の判定に必要な情報を
+        // secureMino 実行後にキャプチャして _lastSecureResult へ保存する。
+        // 元の secureMino をラップする形で差し込むことで、
+        // 既存の固定・ライン消去・スコア処理には一切影響を与えない。
+        game.secureMino = function() {
+            // ── ラップ前：今回の固定で使うT-spin判定結果とRENを先取りする ──
+            // ※ checkTSpin() は secureMino の内部でも呼ばれるが、
+            //    同じ状態で呼ぶので結果は同一（副作用なし）
+            const preRen         = this.ren;          // 加算される前の連鎖数
+            const preTSpinType   = this.checkTSpin(); // 現在の配置でのT-spin種別
+
+            // ── 元の secureMino を実行（固定・消去・スコア等すべて処理される） ──
+            self._originalSecureMino.call(this);
+
+            // ── ラップ後：消去ライン数は field.checkLine() が内部で変えた game.lines から逆算 ──
+            // secureMino 実行前の lines は self._preLines に保存しておく
+            const linesCleared = this.lines - (self._preLines || 0);
+            self._preLines = this.lines;
+
+            // 今回の固定情報を記録（_checkClear の各ハンドラから参照される）
+            self._lastSecureResult = {
+                tSpinType:    preTSpinType,
+                linesCleared: linesCleared,
+                ren:          preRen,
+            };
+
+            // ─── secureMino 直後にクリア条件チェック ───────────────────
+            // popMino 側でも直前にチェックするが、
+            // count / ren / tspin / lines などは「固定の瞬間」に確定するため
+            // ここでも判定を走らせる（2重チェックは _onClear の isClear ガードで防ぐ）
+            self._checkClearOnSecure();
+        }.bind(game);
+
+        // ── secureMino フック用：実行前に現在 lines を記録しておく ──
+        this._preLines = game.lines;
         
         let nextPieceIndex = 0;
 
@@ -295,8 +362,22 @@ class QuizManager {
         // モード終了時に復元できるよう保存
         this._originalDequeueNext = puyoGame._dequeueNext;
         this._originalMakePair    = puyoGame._makePair;
+        this._originalRestart     = puyoGame.restart;
         
         let pairIndex = 0;
+
+        // ─── restart フック ──────────────────────────────────────
+        // プレイ中のショートカットやポーズ画面からのリトライをQUIZモード専用のリトライに統一する
+        puyoGame.restart = function() {
+            if (self.currentLevel) {
+                const pauseOverlay = document.getElementById('pause-overlay');
+                if (pauseOverlay) pauseOverlay.style.display = 'none';
+
+                startQuizLevel(self.currentLevel);
+            } else {
+                if (self._originalRestart) self._originalRestart.call(this);
+            }
+        }.bind(puyoGame);
 
         puyoGame._dequeueNext = function() {
             // 次のぷよが出現する直前にクリア判定
@@ -349,6 +430,7 @@ class QuizManager {
     }
 
     // ─── クリア条件チェック（イベント駆動） ─────────
+    // popMino 直前に呼ばれる汎用チェック（clearLines / allClear / score / chain）
     _checkClear() {
         if (!this.currentLevel || !this.gameInstance) return false;
         const cond = this.currentLevel.clearCondition;
@@ -366,6 +448,8 @@ class QuizManager {
                 case 'score':
                     if (game.score >= cond.value) cleared = true;
                     break;
+                // ─── 以下の条件は secureMino フック側で判定するため、ここでは何もしない ───
+                // count / ren / tspin / lines は _checkClearOnSecure() を参照
             }
         } else {
             // ぷよ
@@ -379,6 +463,7 @@ class QuizManager {
                 case 'score':
                     if (game.score >= cond.value) cleared = true;
                     break;
+                // count はぷよの場合 _checkClearOnPuyoChain() で判定
             }
         }
 
@@ -387,6 +472,141 @@ class QuizManager {
             return true;
         }
         return false;
+    }
+
+    // ─── secureMino 直後のクリア条件チェック（tet 専用条件） ────
+    // 対象: count / ren / tspin / lines
+    // このメソッドは secureMino ラッパー内から呼ばれる。
+    _checkClearOnSecure() {
+        if (!this.currentLevel || !this.gameInstance) return;
+        if (this.isClear || this.isFailed) return;
+
+        const cond   = this.currentLevel.clearCondition;
+        const game   = this.gameInstance;
+        const result = this._lastSecureResult;
+
+        // ── tet 専用条件のみ処理 ──
+        if (this.currentLevel.rule !== 'tet') return;
+
+        switch (cond.type) {
+            // ─── lines: 合計消去ライン数が value 以上でクリア ───────────────
+            case 'lines':
+                if (game.lines >= cond.value) {
+                    this._onClear();
+                }
+                break;
+
+            // ─── ren: 今回の固定時に ren（連鎖）が value 以上でクリア ─────────
+            // ren は「直前の固定でのREN数（加算前）」を使う。
+            // ※ linesCleared > 0 の場合のみ REN が進むので、ライン消去ありの場合のみ判定。
+            case 'ren':
+                if (result.linesCleared > 0 && result.ren >= cond.value) {
+                    this._onClear();
+                }
+                break;
+
+            // ─── tspin: T-Spin消去（mini含む）でクリア ──────────────────────
+            // value 1 = T-Spin Single（1ライン）
+            // value 2 = T-Spin Double（2ライン）
+            // value 3 = T-Spin Triple（3ライン）
+            // 通常の 1/2/3 ライン消去は不可。mini は tspin として扱う。
+            case 'tspin': {
+                const isTSpin = (result.tSpinType === 'tspin' || result.tSpinType === 'mini');
+                if (isTSpin && result.linesCleared >= cond.value) {
+                    this._onClear();
+                }
+                break;
+            }
+
+            // ─── count: 条件を cond.countCondition で指定し、達成するたびに clearTimes++ ─
+            // clearTimes が cond.value に達したらクリア。
+            // count の場合、cond.countCondition に判定ロジックを記述する:
+            //   { "type": "count", "value": 3, "countCondition": "clearLines", "countValue": 1 }
+            //   → 1ライン以上消去を3回行うとクリア
+            //   { "type": "count", "value": 2, "countCondition": "tspin", "countValue": 1 }
+            //   → T-Spin 1ライン以上を2回行うとクリア
+            case 'count': {
+                let conditionMet = false;
+                const cc  = cond.countCondition;  // 内部条件の種類
+                const ccv = cond.countValue ?? 1; // 内部条件の閾値（デフォルト1）
+
+                switch (cc) {
+                    case 'clearLines':
+                        // n ライン以上消去したとき
+                        if (result.linesCleared >= ccv) conditionMet = true;
+                        break;
+                    case 'tspin': {
+                        // T-Spin（mini含む）で n ライン以上消去したとき
+                        const isTSpin2 = (result.tSpinType === 'tspin' || result.tSpinType === 'mini');
+                        if (isTSpin2 && result.linesCleared >= ccv) conditionMet = true;
+                        break;
+                    }
+                    case 'ren':
+                        // REN が n 以上の状態でライン消去したとき
+                        if (result.linesCleared > 0 && result.ren >= ccv) conditionMet = true;
+                        break;
+                    case 'allClear':
+                        // パーフェクトクリアしたとき（fieldが空 & ライン消去あり）
+                        if (game.field && game.field.blocks.length === 0 && result.linesCleared > 0) conditionMet = true;
+                        break;
+                    case 'score':
+                        // スコアが ccv 以上になったとき（累積でも単回でも条件を満たすたびに加算）
+                        if (game.score >= ccv) conditionMet = true;
+                        break;
+                }
+
+                if (conditionMet) {
+                    this.clearTimes++;
+                    // クリア回数表示を更新（HTMLに quiz-count-display 要素があれば反映）
+                    const dispEl = document.getElementById('quiz-count-display');
+                    if (dispEl) dispEl.textContent = `${this.clearTimes} / ${cond.value}`;
+
+                    if (this.clearTimes >= cond.value) {
+                        this._onClear();
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // ─── ぷよ用 count 条件チェック（チェーン確定時に呼ぶ） ─────────
+    // PuyoGame 側から _quizManager._checkClearOnPuyoChain(chainCount) の形で呼ぶ想定。
+    // （PuyoGame の連鎖確定コールバックに以下の呼び出しを追加する必要がある）
+    _checkClearOnPuyoChain(chainCount) {
+        if (!this.currentLevel || !this.gameInstance) return;
+        if (this.isClear || this.isFailed) return;
+        if (this.currentLevel.rule !== 'puyo') return;
+
+        const cond = this.currentLevel.clearCondition;
+        if (cond.type !== 'count') return;
+
+        const cc  = cond.countCondition;
+        const ccv = cond.countValue ?? 1;
+        let conditionMet = false;
+
+        switch (cc) {
+            case 'chain':
+                // 今回の連鎖数が ccv 以上のとき
+                if (chainCount >= ccv) conditionMet = true;
+                break;
+            case 'allClear':
+                if (this.gameInstance.isAllClear) conditionMet = true;
+                break;
+            case 'score':
+                if (this.gameInstance.score >= ccv) conditionMet = true;
+                break;
+        }
+
+        if (conditionMet) {
+            this.clearTimes++;
+            const dispEl = document.getElementById('quiz-count-display');
+            if (dispEl) dispEl.textContent = `${this.clearTimes} / ${cond.value}`;
+
+            if (this.clearTimes >= cond.value) {
+                this._onClear();
+            }
+        }
     }
 
     // ─── クリア時処理 ─────────────────────────────
@@ -450,6 +670,9 @@ class QuizManager {
                 if (this._originalPopMino) this.gameInstance.popMino = this._originalPopMino;
                 if (this._originalGetNextType) this.gameInstance.getNextType = this._originalGetNextType;
                 if (this._originalHoldCurrentMino) this.gameInstance.holdCurrentMino = this._originalHoldCurrentMino;
+                // secureMino フックも元に戻す
+                if (this._originalSecureMino) this.gameInstance.secureMino = this._originalSecureMino;
+                if (this._originalRestart) this.gameInstance.restart = this._originalRestart;
                 this.gameInstance.canHold = true;
                 
                 // HTML要素による斜線表示を非表示にする
@@ -468,6 +691,7 @@ class QuizManager {
             } else if (this.currentLevel && this.currentLevel.rule === 'puyo') {
                 if (this._originalDequeueNext) this.gameInstance._dequeueNext = this._originalDequeueNext;
                 if (this._originalMakePair) this.gameInstance._makePair = this._originalMakePair;
+                if (this._originalRestart) this.gameInstance.restart = this._originalRestart;
                 
                 // エラー回避: フィールドが存在する場合のみクリアと再描画を行う
                 if (this.gameInstance.field) {
@@ -487,12 +711,19 @@ class QuizManager {
         this.isClear       = false;
         this.isFailed      = false;
         
+        // ─── 追加フィールドのリセット ───
+        this.clearTimes        = 0;
+        this._lastSecureResult = { tSpinType: null, linesCleared: 0, ren: 0 };
+        this._preLines         = 0;
+
         // 参照も破棄
         this._originalPopMino = null;
         this._originalGetNextType = null;
         this._originalHoldCurrentMino = null;
+        this._originalSecureMino = null;
         this._originalDequeueNext = null;
         this._originalMakePair = null;
+        this._originalRestart = null;
     }
 }
 
