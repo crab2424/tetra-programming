@@ -54,7 +54,7 @@ export class GameConnection {
      * 生データをDatagramとして送信する
      * @param {Uint8Array} payload 送信するデータ
      */
-    async sendDatagram(payload) {
+    async sendDGRAM(payload) {
         const writer = this.transport.datagrams.writable.getWriter();
         try {
             await writer.write(payload);
