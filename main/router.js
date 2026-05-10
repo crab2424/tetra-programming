@@ -109,76 +109,7 @@ const CPU_CONFIGS = {
 // ─── ゲーム進行の中断・破棄機能 ──────────────
 // 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
 function stopAllGames() {
-    currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
-    
-    const stopGameInstance = (gameInst) => {
-        if (!gameInst) return;
-        
-        // ★ 修正: PuyoGame と Tet (Game) インスタンスを確実に区別して停止処理を行う
-        if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
-            // Puyo の停止処理
-            if (typeof gameInst.stop === 'function') {
-                gameInst.stop();
-            }
-        } else {
-            // tet の停止処理
-            if (typeof gameInst.gameOver === 'function') { 
-                if (gameInst.timer) { clearInterval(gameInst.timer); gameInst.timer = null; }
-                if (gameInst.lockTimer) { clearTimeout(gameInst.lockTimer); gameInst.lockTimer = null; }
-                gameInst.isPaused = true;
-                if (gameInst.isTimerRunning) {
-                    gameInst.elapsedTime += performance.now() - gameInst.startTime;
-                    gameInst.isTimerRunning = false;
-                    if (gameInst.timerReqId) cancelAnimationFrame(gameInst.timerReqId);
-                }
-                if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
-                if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
-                if (gameInst._keyLoop) { clearInterval(gameInst._keyLoop); gameInst._keyLoop = null; }
-            }
-        }
-    };
-
-    // 存在しうる全インスタンスを停止
-    stopGameInstance(window._game);
-    stopGameInstance(window._cpuGame);
-    stopGameInstance(window._puyoGame);
-    stopGameInstance(window._puyoGamePlayer);
-    stopGameInstance(window._puyoGameCpu);
-    stopGameInstance(window._tetGamePlayer);
-    stopGameInstance(window._tetGameCpu);
-
-    if (window._cpuController && typeof window._cpuController.stop === 'function') {
-        window._cpuController.stop();
-    }
-    window._cpuController = null;
-    unloadCpuScript();
-
-    // カウントダウン・フィニッシュのオーバーレイを消去し、リセット
-    document.querySelectorAll('.field-overlay').forEach(el => {
-        el.classList.remove('active');
-        el.style.opacity = '';
-        el.classList.remove('fadeout');
-    });
-    
-    // pause overlay も消す
-    document.getElementById('pause-overlay')?.classList.remove('active');
-    document.getElementById('versus-pause-overlay')?.classList.remove('active');
-
-    // ─── QUIZマネージャーの破棄（quiz.js）───
-    if (typeof _stopQuizIfActive === 'function') _stopQuizIfActive();
-
-    // オーバーレイ内のテキストも消去
-    document.querySelectorAll('.countdown-text, .finish-text').forEach(el => {
-        el.textContent = '';
-        el.className = el.className.replace(/countdown-pop|finish-clear|finish-gameover/g, '').trim();
-    });
-
-    document.querySelectorAll('.garbage-gauge, .attack-gauge').forEach(el => {
-        el.innerHTML = '';
-        if (el.classList.contains('attack-gauge')) {
-            el.style.display = 'none';
-        }
-    });
+    GameManager.stopAllGames();
 }
 
 // ─── CPU動的ロード・破棄システム ──────────────
@@ -798,6 +729,7 @@ async function startGameFromModeCheck() {
   const sessionId = currentSessionId;
 
   if (!window._game && !window._puyoGame) window._game = new Game();
+  GameManager.setInstance('p1', window._game); // これを追加！
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
 
   // ─── QUIZモード専用処理 ────────────────────────

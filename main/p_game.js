@@ -4,42 +4,6 @@
 // TETLABOに統合するぷよぷよシングルプレイモジュール
 // ─────────────────────────────────────────────
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// PConfig : ぷよぷよ用定数
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const PConfig = {
-    cols: 6,
-    rows: 12,
-    hiddenRows: 5,
-
-    cellSize: 32,
-    imagePath: 'images/p_images/',
-    colorCount: 4,
-
-    dropSpeedNormal: 500,
-    dropSpeedFast: 500 / 12,
-    splitDropSpeed: 500 / 6,
-    lockDelayMs: 500,
-
-    vibPhaseMs: 1000 / 60 * 1.2,
-    fixWait5fMs: 1000 / 60 * 5,
-
-    spawnAnimMs: 62,
-    rotateDurationMs: 80,
-    eraseCount: 4,
-
-    eraseMs: 28 * 16.67,
-    eraseWaitMs: 270,
-    zenkeshiMs: 1500,       // (未使用になりましたが念のため残置)
-    zenkeshiBonus: 2100,       // ★ 全消しスコアを2100点に変更
-
-    scoreBase: 10,
-    chainBonusTable: [0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512],
-    colorBonusTable: [0, 3, 6, 12, 24],
-    groupBonusTable: [0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10],
-
-    ojamaRate: 70,
-};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PuyoGame : メインクラス
