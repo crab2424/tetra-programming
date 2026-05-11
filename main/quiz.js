@@ -52,8 +52,8 @@ async function loadQuizLevels() {
     if (_isQuizLevelsLoaded) return;
     try {
         const [tetRes, puyoRes] = await Promise.all([
-            fetch('quizlevels/tdata.json'),
-            fetch('quizlevels/pdata.json')
+            fetch('quizlevels/tdata.json?' + Date.now()), // キャッシュ対策
+            fetch('quizlevels/pdata.json?' + Date.now())  // キャッシュ対策
         ]);
         if (tetRes.ok) QUIZ_LEVELS.tet = await tetRes.json();
         if (puyoRes.ok) QUIZ_LEVELS.puyo = await puyoRes.json();
