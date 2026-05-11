@@ -15,7 +15,7 @@
 //   "rule": "tet",            // "tet" または "puyo"
 //   "allowHold": false,       // (tetのみ) HOLDを許可するかどうか。未指定時はfalse扱い
 //
-//   // ─── テトリス用フィールド ───
+//   // ─── テト用フィールド ───
 //   // "initialField": 行ごとのブロック配列（上から順）
 //   //   各行は長さ10の配列、0=空、1〜7=ブロック種類（色ID）
 //   //   行数は任意（最大20行分、下詰めで配置される）
@@ -140,6 +140,10 @@ class QuizManager {
             linesCleared: 0,     // 消去ライン数
             ren:          0,     // 固定時点の REN（連鎖）カウント（加算前）
         };
+
+        // ★ 追加：secureMino フック中の popMino 呼び出しによる弾切れ判定を遅延させるフラグ
+        this._isSecuring      = false;
+        this._failedByDummy   = false;
     }
 
     // ─── ダミーミノの生成（テト用、完全に描画されない透明なミノ） ─────
@@ -169,7 +173,7 @@ class QuizManager {
         }
     }
 
-    // ─── テトリス用初期化 ─────────────────────────
+    // ─── テト用初期化 ─────────────────────────
     _startTet(levelData, game) {
         // 残りNEXTを複製
         this._remainingPieces = [...levelData.nextPieces];
@@ -237,8 +241,14 @@ class QuizManager {
             const preRen         = this.ren;          // 加算される前の連鎖数
             const preTSpinType   = this.checkTSpin(); // 現在の配置でのT-spin種別
 
+            // ★追加：secureMino の処理中であることを記録（popMinoでの即時FAILEDを防ぐため）
+            self._isSecuring = true;
+
             // ── 元の secureMino を実行（固定・消去・スコア等すべて処理される） ──
             self._originalSecureMino.call(this);
+
+            // ★追加：処理中フラグを解除
+            self._isSecuring = false;
 
             // ── ラップ後：消去ライン数は field.checkLine() が内部で変えた game.lines から逆算 ──
             // secureMino 実行前の lines は self._preLines に保存しておく
@@ -257,6 +267,13 @@ class QuizManager {
             // count / ren / tspin / lines などは「固定の瞬間」に確定するため
             // ここでも判定を走らせる（2重チェックは _onClear の isClear ガードで防ぐ）
             self._checkClearOnSecure();
+
+            // ★追加：もし _originalSecureMino 内部で popMino が同期的に呼ばれ、弾切れ（ダミー）を引いて
+            // FAILED判定が保留されていた場合は、ここで（クリアしていなければ）発動させる。
+            if (self._failedByDummy && !self.isClear && !self.isFailed) {
+                self._onFailed();
+            }
+
         }.bind(game);
 
         // ── secureMino フック用：実行前に現在 lines を記録しておく ──
@@ -265,12 +282,21 @@ class QuizManager {
         let nextPieceIndex = 0;
 
         game.popMino = function() {
+            // secureMino フック内の _checkClearOnSecure() でクリア確定済みの場合は
+            // ダミー検出・_checkClear を走らせずそのまま抜ける
+            if (self.isClear || self.isFailed) return;
             // 次のミノが出現する直前（前の一手が確定した瞬間）にクリア判定を行う
             if (self._checkClear()) return;
 
             const currentMino = this.nextQueue[0];
             if (currentMino && currentMino._quizDummy) {
-                self._onFailed();
+                // ★修正：secureMino の内部から同期的に呼ばれた場合は、
+                // クリア判定(_checkClearOnSecure)が完了するまでFAILEDを保留する
+                if (self._isSecuring) {
+                    self._failedByDummy = true;
+                } else {
+                    self._onFailed();
+                }
                 return;
             }
 
@@ -411,6 +437,9 @@ class QuizManager {
         }.bind(puyoGame);
 
         puyoGame._dequeueNext = function() {
+            // クリア／失敗確定済みなら何もしない
+            if (self.isClear || self.isFailed) return [7, 7];
+
             // 次のぷよが出現する直前にクリア判定
             if (self._checkClear()) {
                 return [7, 7]; // ダミー(ID 7)を返して空回りさせる
@@ -531,7 +560,7 @@ class QuizManager {
             // ren は「直前の固定でのREN数（加算前）」を使う。
             // ※ linesCleared > 0 の場合のみ REN が進むので、ライン消去ありの場合のみ判定。
             case 'ren':
-                if (result.linesCleared > 0 && result.ren >= cond.value) {
+                if (result.linesCleared > 0 && (result.ren) >= cond.value) {
                     this._onClear();
                 }
                 break;
@@ -574,7 +603,7 @@ class QuizManager {
                     }
                     case 'ren':
                         // REN が n 以上の状態でライン消去したとき
-                        if (result.linesCleared > 0 && result.ren >= ccv) conditionMet = true;
+                        if (result.linesCleared > 0 && (result.ren) >= ccv) conditionMet = true;
                         break;
                     case 'allClear':
                         // パーフェクトクリアしたとき（fieldが空 & ライン消去あり）
@@ -748,6 +777,8 @@ class QuizManager {
         this.clearTimes        = 0;
         this._lastSecureResult = { tSpinType: null, linesCleared: 0, ren: 0 };
         this._preLines         = 0;
+        this._isSecuring       = false;
+        this._failedByDummy    = false;
 
         // 参照も破棄
         this._originalPopMino = null;
@@ -945,7 +976,7 @@ async function startQuizLevel(levelData) {
         }, null);
 
     } else {
-        // テトリス
+        // テト
         _switchToPuyoLayout(false);
 
         if (!window._game || typeof window._game.initMainCanvas !== 'function') {
