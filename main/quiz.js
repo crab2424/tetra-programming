@@ -195,18 +195,33 @@ class QuizManager {
         this._originalHoldCurrentMino = game.holdCurrentMino;
         this._originalSecureMino = game.secureMino;
         this._originalRestart = game.restart;
+        this._originalStart = game.start;
 
         // ─── restart フック ──────────────────────────────────────
         // プレイ中のショートカットやポーズ画面からのリトライをQUIZモード専用のリトライに統一する
         game.restart = function() {
             if (self.currentLevel) {
-                // ポーズ画面から呼ばれた場合を考慮し、ポーズ画面を非表示にする
+                // ポーズ画面・ショートカットキー両経路から呼ばれた場合を考慮し、ポーズ画面を非表示にする
                 const pauseOverlay = document.getElementById('pause-overlay');
-                if (pauseOverlay) pauseOverlay.style.display = 'none';
+                if (pauseOverlay) pauseOverlay.classList.remove('active');
                 
                 startQuizLevel(self.currentLevel);
             } else {
                 if (self._originalRestart) self._originalRestart.call(this);
+            }
+        }.bind(game);
+
+        // ─── start フック ──────────────────────────────────────
+        // ショートカットキーが game.restart ではなく game.start を呼ぶ経路でも
+        // QUIZモード専用のリトライ処理（盤面・NEXT復元）に統一する
+        game.start = function() {
+            if (self.currentLevel) {
+                const pauseOverlay = document.getElementById('pause-overlay');
+                if (pauseOverlay) pauseOverlay.classList.remove('active');
+
+                startQuizLevel(self.currentLevel);
+            } else {
+                if (self._originalStart) self._originalStart.call(this);
             }
         }.bind(game);
 
@@ -363,6 +378,7 @@ class QuizManager {
         this._originalDequeueNext = puyoGame._dequeueNext;
         this._originalMakePair    = puyoGame._makePair;
         this._originalRestart     = puyoGame.restart;
+        this._originalStart       = puyoGame.start;
         
         let pairIndex = 0;
 
@@ -370,12 +386,27 @@ class QuizManager {
         // プレイ中のショートカットやポーズ画面からのリトライをQUIZモード専用のリトライに統一する
         puyoGame.restart = function() {
             if (self.currentLevel) {
+                // ポーズ画面・ショートカットキー両経路から呼ばれた場合を考慮し、ポーズ画面を非表示にする
                 const pauseOverlay = document.getElementById('pause-overlay');
-                if (pauseOverlay) pauseOverlay.style.display = 'none';
+                if (pauseOverlay) pauseOverlay.classList.remove('active');
 
                 startQuizLevel(self.currentLevel);
             } else {
                 if (self._originalRestart) self._originalRestart.call(this);
+            }
+        }.bind(puyoGame);
+
+        // ─── start フック ──────────────────────────────────────
+        // ショートカットキーが puyoGame.restart ではなく puyoGame.start を呼ぶ経路でも
+        // QUIZモード専用のリトライ処理（盤面・NEXT復元）に統一する
+        puyoGame.start = function() {
+            if (self.currentLevel) {
+                const pauseOverlay = document.getElementById('pause-overlay');
+                if (pauseOverlay) pauseOverlay.classList.remove('active');
+
+                startQuizLevel(self.currentLevel);
+            } else {
+                if (self._originalStart) self._originalStart.call(this);
             }
         }.bind(puyoGame);
 
@@ -673,6 +704,7 @@ class QuizManager {
                 // secureMino フックも元に戻す
                 if (this._originalSecureMino) this.gameInstance.secureMino = this._originalSecureMino;
                 if (this._originalRestart) this.gameInstance.restart = this._originalRestart;
+                if (this._originalStart) this.gameInstance.start = this._originalStart;
                 this.gameInstance.canHold = true;
                 
                 // HTML要素による斜線表示を非表示にする
@@ -692,6 +724,7 @@ class QuizManager {
                 if (this._originalDequeueNext) this.gameInstance._dequeueNext = this._originalDequeueNext;
                 if (this._originalMakePair) this.gameInstance._makePair = this._originalMakePair;
                 if (this._originalRestart) this.gameInstance.restart = this._originalRestart;
+                if (this._originalStart) this.gameInstance.start = this._originalStart;
                 
                 // エラー回避: フィールドが存在する場合のみクリアと再描画を行う
                 if (this.gameInstance.field) {
@@ -724,6 +757,7 @@ class QuizManager {
         this._originalDequeueNext = null;
         this._originalMakePair = null;
         this._originalRestart = null;
+        this._originalStart = null;
     }
 }
 
