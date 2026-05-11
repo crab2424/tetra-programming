@@ -113,7 +113,6 @@ function stopAllGames() {
     
     const stopGameInstance = (gameInst) => {
         if (!gameInst) return;
-        console.log("🛑 Stopping game instance:", gameInst);
         // ★ 修正: PuyoGame と Tet (Game) インスタンスを確実に区別して停止処理を行う
         if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
             // Puyo の停止処理
@@ -800,7 +799,6 @@ async function startGameFromModeCheck() {
   if (!window._game && !window._puyoGame) window._game = new Game();
   GameManager.setInstance('p1', window._game); // これを追加！
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
-  console.log("Starting game with mode:", modeId);
 
   // ─── QUIZモード専用処理 ────────────────────────
   if (modeId === 'quiz') {
@@ -1068,7 +1066,12 @@ function handlePauseAction(action) {
       switchPage('settings');
       break;
     case 'restart':
-      if (currentGameMode && currentGameMode.id === 'puyo') {
+      // ─── QUIZモード専用リスタート（quiz.js の startQuizLevel を使用） ───
+      if (currentGameMode && currentGameMode.id === 'quiz') {
+          if (typeof startQuizLevel === 'function' && typeof currentQuizLevel !== 'undefined' && currentQuizLevel) {
+              startQuizLevel(currentQuizLevel);
+          }
+      } else if (currentGameMode && currentGameMode.id === 'puyo') {
           if (window._puyoGame && typeof window._puyoGame.start === 'function') window._puyoGame.start();
       } else {
           if (window._game && typeof window._game.start === 'function') window._game.start();

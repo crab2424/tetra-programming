@@ -47,7 +47,7 @@ class PuyoGame {
         this.tetDropScore = 0; // このツモで積み上げた落下点数（連鎖開始時に1連鎖目の計算へ加算）
         this.hasTetZenkeshi = false; // ★ 全消しボーナス2ラインを保持・消化するためのフラグ
 
-        // ★ テトリスエンジン(game.js)との通信用キュー
+        // ★ テトエンジン(game.js)との通信用キュー
         this.garbageQueue = [];
         this.ojamaUpdateQueue = [];
         this.sentGarbageThisTurn = []; // このターン（ツモ〜連鎖終了まで）に相手に送った1段階目のおじゃまオブジェクトを保持
@@ -138,7 +138,6 @@ class PuyoGame {
     }
 
     start() {
-        console.log("🫧 [PuyoGame.start] state=", this.state, "canvasPrefix=", this.canvasPrefix);
         this.stop();
         this.initGame(() => {
             if (this.state !== 'idle') return;
@@ -540,7 +539,7 @@ class PuyoGame {
     }
 
     // ══════════════════════════════════════════════
-    // 対戦・おじゃま通信 API (Tetris互換)
+    // 対戦・おじゃま通信 API (tet互換)
     // ══════════════════════════════════════════════
 
     get pendingOjama() {
