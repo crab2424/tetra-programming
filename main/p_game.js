@@ -138,6 +138,7 @@ class PuyoGame {
     }
 
     start() {
+        console.log("🫧 [PuyoGame.start] state=", this.state, "canvasPrefix=", this.canvasPrefix);
         this.stop();
         this.initGame(() => {
             if (this.state !== 'idle') return;
@@ -1982,6 +1983,9 @@ class PuyoGame {
         };
 
         this._keyHandlerDown = (e) => {
+            // ★ 【修正】待機中のインスタンスは無視
+            if (this.state === 'idle') return;
+
             const activePageId = this.isVersusMode ? 'versus-page' : 'game-page';
             const gamePage = document.getElementById(activePageId);
             if (!gamePage || !gamePage.classList.contains('active')) return;
@@ -2299,39 +2303,9 @@ class PuyoGame {
     }
 
     _onPauseKey() {
-        const overlay = document.getElementById('pause-overlay');
-        if (!overlay) return;
-
-        if (this.state === 'paused') {
-            overlay.classList.remove('active');
-            this.resume();
-        } else if (this.state === 'playing') {
-            this.pause();
-            overlay.classList.add('active');
-
-            const resumeBtn = overlay.querySelector('.btn-resume');
-            if (resumeBtn) {
-                resumeBtn.onclick = () => {
-                    overlay.classList.remove('active');
-                    this.resume();
-                };
-            }
-            const restartBtn = overlay.querySelector('.btn-restart');
-            if (restartBtn) {
-                restartBtn.onclick = () => {
-                    overlay.classList.remove('active');
-                    this.start();
-                };
-            }
-            const mainmenuBtn = overlay.querySelector('.btn-mainmenu');
-            if (mainmenuBtn) {
-                mainmenuBtn.onclick = () => {
-                    overlay.classList.remove('active');
-                    this.stop();
-                    _switchToPuyoLayout(false);
-                    if (typeof switchPage === 'function') switchPage('main-menu');
-                };
-            }
+        // UIの表示非表示、ボタンのバインドはすべて router.js に委譲
+        if (typeof toggleGamePause === 'function') {
+            toggleGamePause();
         }
     }
 

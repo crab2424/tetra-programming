@@ -484,10 +484,12 @@
         <div id="pause-modal">
           <h2 id="pause-title">PAUSE</h2>
           <div id="pause-buttons">
-            <button class="pause-btn btn-resume" onclick="window._game && window._game.resume()">▶ RESUME</button>
-            <button class="pause-btn btn-settings" onclick="switchPage('settings')">⚙ SETTINGS</button>
-            <button class="pause-btn btn-restart" onclick="window._game && window._game.start()">↺ RESTART</button>
-            <button class="pause-btn btn-mainmenu" onclick="switchPage('main-menu')">⌂ MAIN MENU</button>
+          <!-- ★ router.js の共通関数を呼ぶように変更 -->
+          <div id="pause-buttons">
+            <button class="pause-btn btn-resume" onclick="handlePauseAction('resume')">▶ RESUME</button>
+            <button class="pause-btn btn-settings" onclick="handlePauseAction('settings')">⚙ SETTINGS</button>
+            <button class="pause-btn btn-restart" onclick="handlePauseAction('restart')">↺ RESTART</button>
+            <button class="pause-btn btn-mainmenu" onclick="handlePauseAction('mainmenu')">⌂ MAIN MENU</button>
           </div>
         </div>
       </div>
