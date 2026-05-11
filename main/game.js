@@ -351,6 +351,13 @@ class Game {
     showPauseOverlay() {
         // 対戦モードでは versus-pause-overlay を使う（router.js 側で管理）
         if (this.isVersusMode) return;
+        // QUIZモード時のみ LEVEL SELECT ボタンを表示、それ以外は非表示
+        const levelSelectBtn = document.getElementById('pause-quiz-level-select-btn');
+        if (levelSelectBtn) {
+            const isQuiz = (typeof currentGameMode !== 'undefined') && currentGameMode && currentGameMode.id === 'quiz';
+            levelSelectBtn.style.display = isQuiz ? '' : 'none';
+        }
+
         document.getElementById('pause-overlay').classList.add('active')
     }
 

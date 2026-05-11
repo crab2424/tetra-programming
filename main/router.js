@@ -53,7 +53,7 @@ const GAME_MODES = {
     icon:        '❓',
     description: '謎解きパズルモード。テト・ぷよ両対応。',
     descriptionEn: 'Puzzle challenge mode for both Tet and Puyo.',
-    color:       '#f5c542',
+    color:       '#f58542',
   },
 };
 
@@ -782,13 +782,31 @@ function renderModeCheck() {
 
   const startBtn = document.getElementById('mode-check-start-btn');
   if (startBtn) {
-    if (mode.id === 'sprint') {
-      startBtn.style.background = 'linear-gradient(135deg, var(--accent3) 0%, var(--accent) 100%)';
-    } else if (mode.id === 'ultra') {
-      startBtn.style.background = 'linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%)';
+      if (mode.id === 'quiz') {
+      startBtn.classList.remove('btn-primary');
+      startBtn.classList.add('btn-quiz-primary');
+      startBtn.style.background = '';
     } else {
-      startBtn.style.background = 'linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%)';
+      startBtn.classList.remove('btn-quiz-primary');
+      startBtn.classList.add('btn-primary');
+      if (mode.id === 'sprint') {
+        startBtn.style.background = 'linear-gradient(135deg, var(--accent3) 0%, var(--accent) 100%)';
+      } else if (mode.id === 'ultra') {
+        startBtn.style.background = 'linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%)';
+      } else {
+        startBtn.style.background = 'linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%)';
+      }
     }
+  }
+
+  const startIcon  = document.getElementById('mode-check-start-icon');
+  const startLabel = document.getElementById('mode-check-start-label');
+  if (mode.id === 'quiz') {
+    if (startIcon)  startIcon.textContent  = '❓';
+    if (startLabel) startLabel.textContent = 'LEVEL SELECT';
+  } else {
+    if (startIcon)  startIcon.textContent  = '▶';
+    if (startLabel) startLabel.textContent = 'START';
   }
 }
 
@@ -1048,6 +1066,12 @@ function toggleGamePause() {
     if (canPauseGame || canPausePuyo) {
       if (window._game && typeof window._game.pause === 'function') window._game.pause();
       if (window._puyoGame && typeof window._puyoGame.pause === 'function') window._puyoGame.pause();
+      // QUIZモード時のみ LEVEL SELECT ボタンを表示
+      const levelSelectBtn = document.getElementById('pause-quiz-level-select-btn');
+      if (levelSelectBtn) {
+        const isQuiz = currentGameMode && currentGameMode.id === 'quiz';
+        levelSelectBtn.style.display = isQuiz ? '' : 'none';
+      }
       overlay.classList.add('active');
     }
   }
@@ -1076,6 +1100,10 @@ function handlePauseAction(action) {
       } else {
           if (window._game && typeof window._game.start === 'function') window._game.start();
       }
+      break;
+    case 'quiz-levelselect':
+      stopAllGames();
+      switchPage('quiz-check');
       break;
     case 'mainmenu':
       stopAllGames();
