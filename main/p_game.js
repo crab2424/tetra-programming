@@ -2662,8 +2662,8 @@ class PuyoGame {
             // 少しだけ黒縁をつけて見やすくする
             ctx.strokeStyle = '#000';
             ctx.lineWidth = 4;
-            ctx.strokeText('ALL CLEAR', W / 2, H / 2);
-            ctx.fillText('ALL CLEAR', W / 2, H / 2);
+            ctx.strokeText('ALL CLEAR', W / 2, H / 3);
+            ctx.fillText('ALL CLEAR', W / 2, H / 3);
             ctx.restore();
         }
 
