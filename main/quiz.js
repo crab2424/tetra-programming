@@ -578,6 +578,28 @@ class QuizManager {
                 break;
             }
 
+            // ─── tspinSingle/Double/Triple: miniを除く厳密なT-Spin種別でクリア ─
+            // 単体クリア条件として使用。count と組み合わせる場合は
+            // clearCondition.type = "count", countCondition = "tspinDouble" を使う。
+            case 'tspinSingle': {
+                if (result.tSpinType === 'tspin' && result.linesCleared === 1) {
+                    this._onClear();
+                }
+                break;
+            }
+            case 'tspinDouble': {
+                if (result.tSpinType === 'tspin' && result.linesCleared === 2) {
+                    this._onClear();
+                }
+                break;
+            }
+            case 'tspinTriple': {
+                if (result.tSpinType === 'tspin' && result.linesCleared === 3) {
+                    this._onClear();
+                }
+                break;
+            }
+
             // ─── count: 条件を cond.countCondition で指定し、達成するたびに clearTimes++ ─
             // clearTimes が cond.value に達したらクリア。
             // count の場合、cond.countCondition に判定ロジックを記述する:
@@ -599,6 +621,21 @@ class QuizManager {
                         // T-Spin（mini含む）で n ライン以上消去したとき
                         const isTSpin2 = (result.tSpinType === 'tspin' || result.tSpinType === 'mini');
                         if (isTSpin2 && result.linesCleared >= ccv) conditionMet = true;
+                        break;
+                    }
+                    case 'tspinSingle': {
+                        // T-Spin Single（miniは除く）: ちょうど1ライン消去
+                        if (result.tSpinType === 'tspin' && result.linesCleared === 1) conditionMet = true;
+                        break;
+                    }
+                    case 'tspinDouble': {
+                        // T-Spin Double（miniは除く）: ちょうど2ライン消去
+                        if (result.tSpinType === 'tspin' && result.linesCleared === 2) conditionMet = true;
+                        break;
+                    }
+                    case 'tspinTriple': {
+                        // T-Spin Triple（miniは除く）: ちょうど3ライン消去
+                        if (result.tSpinType === 'tspin' && result.linesCleared === 3) conditionMet = true;
                         break;
                     }
                     case 'ren':
