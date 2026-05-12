@@ -1974,7 +1974,7 @@ class PuyoGame {
             moveLeft: ks.moveLeft ? ks.moveLeft.code : 'ArrowLeft',
             moveRight: ks.moveRight ? ks.moveRight.code : 'ArrowRight',
             softDrop: ks.softDrop ? ks.softDrop.code : 'ArrowDown',
-            quickDrop: ks.quickDrop ? ks.quickDrop.code : 'Space', // ★ クイックドロップ追加
+            quickDrop: ks.hardDrop ? ks.hardDrop.code : 'Space', // ★ クイックドロップ追加
             rotateCW: ks.rotateCW ? ks.rotateCW.code : 'ArrowUp',
             rotateCCW: ks.rotateCCW ? ks.rotateCCW.code : 'KeyZ',
             pause: ks.pause ? ks.pause.code : 'Escape',
