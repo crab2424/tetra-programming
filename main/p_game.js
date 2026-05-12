@@ -1690,9 +1690,9 @@ class PuyoGame {
             if (totalLines > 0) {
                 // n連鎖目で発生したラインを送信予定に追加
                 this.tetPendingFire += totalLines;
-                console.log(`[p_game TetAttack] ${this.chainCount}連鎖: baseCarry=${baseCarry}, add=${add}, scoreForAttack=${scoreForAttack}, used=${usedScore}, scoredLines=${generatedLines}, puyoN=${n}, addLines=${addLines}, zkLines=${zenkeshiAdded}, totalLines=${totalLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
+                //console.log(`[p_game TetAttack] ${this.chainCount}連鎖: baseCarry=${baseCarry}, add=${add}, scoreForAttack=${scoreForAttack}, used=${usedScore}, scoredLines=${generatedLines}, puyoN=${n}, addLines=${addLines}, zkLines=${zenkeshiAdded}, totalLines=${totalLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
             } else {
-                console.log(`[p_game TetAttack] ${this.chainCount}連鎖: baseCarry=${baseCarry}, add=${add}, scoreForAttack=${scoreForAttack}, scoredLines=0, puyoN=${n}, addLines=${addLines}, zkLines=${zenkeshiAdded}, totalLines=${totalLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
+                //console.log(`[p_game TetAttack] ${this.chainCount}連鎖: baseCarry=${baseCarry}, add=${add}, scoreForAttack=${scoreForAttack}, scoredLines=0, puyoN=${n}, addLines=${addLines}, zkLines=${zenkeshiAdded}, totalLines=${totalLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
             }
         }
 
