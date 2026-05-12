@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────
-// cpu2.js
-// ぷよCPU lv2 - Web Worker + Wasm 連携版
+// cpu3.js
+// ぷよCPU lv3 - Web Worker + Wasm 連携版
 // 発火閾値・緊急回避の高さをパラメータとして追加
 // ─────────────────────────────────────────────
 
-window.PuyoCPU2 = class {
+window.PuyoCPU3 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
 
@@ -22,17 +22,17 @@ window.PuyoCPU2 = class {
             chainPotentialBonus:   50,  // ポテンシャルの基本ボーナス
             p1Weight:             100,  
             templateBonus:        500,  
-            // ── 新規追加の閾値パラメータ ──
-            ignitionThreshold:      4,  // ★ 発火の閾値（この連鎖数以上なら暴発ペナルティなしで特大評価）
-            emergencyHeight:       10,  // ★ 緊急回避ライン（この段数以上なら自滅回避で小連鎖も許容）
+            ignitionThreshold:      7,  // 基本の発火閾値（おじゃまが少ない場合）
+            ignitionScoreThreshold: 12000, // ★ 発火のスコア閾値
+            emergencyHeight:       10,  // 緊急回避ライン
         };
 
         this.TEMPLATE_PATTERNS = {
-            'stairs': [
-                1, 2, 3, 4, 5, 0,
-                2, 3, 4, 5, 1, 0,
-                2, 3, 4, 5, 1, 0,
-                2, 3, 4, 5, 1, 0,
+            'gtr': [
+                0, 0, 0, 0, 0, 0,  // 盤面の上から数えて一番上の行は空洞（GTRは下3段で組むため）
+                2, 1, 3, 6, 6, 6, 
+                2, 2, 1, 3, 6, 6,
+                1, 1, 3, 6, 6, 6
             ],
             'key': [
                 1, 2, 3, 4, 5, 0,
@@ -50,20 +50,23 @@ window.PuyoCPU2 = class {
         this.isExecutingAction = false;
         this.actionQueue       = [];
         
-        this.thinkDelay        = 600;      
-        this.actionDelay       = 250;      
-        this.placeDelay        = 400;      
+        this.templateActive    = true; // テンプレを1プレイ1回に制限するためのフラグ
+        this.lastPuyoCount     = 0;    // 盤面のぷよ数を監視して発火を検知
+        
+        this.thinkDelay        = 400;      
+        this.actionDelay       = 150;      
+        this.placeDelay        = 200;      
 
         this.originalGravity   = null;     
         this.lastDropTime      = null;     
         this._softDropRafId    = null;
 
         this.workerReady = false;
-        this.worker = new Worker('cpu/puyo/lv2/cpu_worker2.js');
+        this.worker = new Worker('cpu/puyo/lv3/cpu_worker3.js');
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
-                console.log('🚀 Wasm PuyoCPU2 Worker Ready!');
+                console.log('🚀 Wasm PuyoCPU3 Worker Ready!');
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 this._handleWorkerResult(e.data.result);
@@ -74,6 +77,8 @@ window.PuyoCPU2 = class {
     start() {
         this.isActive = true;
         this.hasCalculatedForCurrentPiece = false;
+        this.templateActive = true; 
+        this.lastPuyoCount = 0;
         this._initEstimateContainer();
         this._updateLoop();
     }
@@ -136,12 +141,27 @@ window.PuyoCPU2 = class {
 
         const TOTAL_ROWS = 17; 
         const COLS       = 6;
+        let currentPuyoCount = 0;
+        let ojamaCount = 0; // ★ おじゃまぷよの数をカウント
         const boardBuffer = new Uint8Array(TOTAL_ROWS * COLS);
+        
         for (let r = 0; r < TOTAL_ROWS; r++) {
             for (let c = 0; c < COLS; c++) {
                 boardBuffer[r * COLS + c] = game.field[r][c] || 0;
+                if (boardBuffer[r * COLS + c] !== 0) {
+                    currentPuyoCount++;
+                    if (boardBuffer[r * COLS + c] === 6) {
+                        ojamaCount++; // ★ 6はおじゃまぷよ
+                    }
+                }
             }
         }
+
+        // ぷよが減った（連鎖で消えた）場合は、テンプレ構築を完全に終了する
+        if (currentPuyoCount < this.lastPuyoCount - 2) {
+            this.templateActive = false;
+        }
+        this.lastPuyoCount = currentPuyoCount;
 
         const nextPairs = new Int32Array(20);
         
@@ -158,17 +178,30 @@ window.PuyoCPU2 = class {
             }
         }
 
-        const stairsPattern = this.TEMPLATE_PATTERNS['stairs'];
+        const gtrPattern    = this.TEMPLATE_PATTERNS['gtr'];
         const keyPattern    = this.TEMPLATE_PATTERNS['key'];
-        const stairsBuffer  = new Uint8Array(24);
+        const gtrBuffer     = new Uint8Array(24);
         const keyBuffer     = new Uint8Array(24);
         
         for (let i = 0; i < 24; i++) {
-            stairsBuffer[i] = stairsPattern[i];
-            keyBuffer[i]    = keyPattern[i];
+            gtrBuffer[i] = gtrPattern[i];
+            keyBuffer[i]   = keyPattern[i];
         }
 
-        // ★ 12要素に拡張してWasmに送信
+        // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
+        let dynamicIgnitionThreshold = this.weights.ignitionThreshold;
+        let dynamicIgnitionScoreThreshold = this.weights.ignitionScoreThreshold;
+        if (ojamaCount >= 15) {
+            dynamicIgnitionThreshold = 2; // 15個以上で2連鎖妥協
+            dynamicIgnitionScoreThreshold = 320;
+        } else if (ojamaCount >= 10) {
+            dynamicIgnitionThreshold = 4; // 10個以上で4連鎖妥協
+            dynamicIgnitionScoreThreshold = 2000;
+        } else if (ojamaCount >= 5) {
+            dynamicIgnitionThreshold = 6; // 5個以上で6連鎖妥協
+            dynamicIgnitionScoreThreshold = 8000;
+        }
+
         const weightsArray = new Int32Array([
             this.weights.chainBonus,
             this.weights.erasedBonus,
@@ -179,9 +212,10 @@ window.PuyoCPU2 = class {
             this.weights.zenkeshiBonus,
             this.weights.chainPotentialBonus, 
             this.weights.p1Weight,            
-            this.weights.templateBonus,       
-            this.weights.ignitionThreshold,   // 10: 発火閾値
-            this.weights.emergencyHeight      // 11: 緊急高さ
+            this.templateActive ? this.weights.templateBonus : 0,  
+            dynamicIgnitionThreshold,         // ★ 基本値の代わりに動的閾値を渡す
+            this.weights.emergencyHeight,     
+            dynamicIgnitionScoreThreshold     // ★ 動的スコア閾値を渡す
         ]);
 
         this.worker.postMessage({
@@ -189,7 +223,7 @@ window.PuyoCPU2 = class {
             boardBuffer:    boardBuffer,
             nextPairs:      nextPairs,      
             weightsArray:   weightsArray,
-            stairsBuffer:   stairsBuffer,   
+            gtrBuffer:      gtrBuffer,   
             keyBuffer:      keyBuffer       
         });
     }

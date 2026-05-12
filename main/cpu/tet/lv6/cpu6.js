@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────
-// cpu5.js
+// cpu6.js
 // 6手読みCPU（NEXT1〜5、HOLD考慮） - Wasm Worker 非同期連携版
 // ─────────────────────────────────────────────
 
-window.CPU5 = class {
+window.CPU6 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
@@ -63,7 +63,7 @@ window.CPU5 = class {
             P1_WEIGHT: 1.0,        
         };
 
-        this.worker = new Worker('cpu/tet/lv5/cpu_worker5.js');
+        this.worker = new Worker('cpu/tet/???/cpu_worker6.js');
         this.workerReady = false;
         this.isCalculating = false;
 
@@ -74,7 +74,7 @@ window.CPU5 = class {
         
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
-                console.log("🚀 Wasm Worker 5 Ready!"); 
+                console.log("🚀 Wasm Worker 6 Ready!"); 
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 this.handleWorkerResult(e.data.result);
@@ -85,7 +85,7 @@ window.CPU5 = class {
         };
 
         this.worker.onerror = (err) => {
-            console.error("❌ Worker 5 Error: ", err.message, err.filename, err.lineno);
+            console.error("❌ Worker 6 Error: ", err.message, err.filename, err.lineno);
         };
     }
 
