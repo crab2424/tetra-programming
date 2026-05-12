@@ -658,6 +658,16 @@ function switchPage(pageId) {
     _switchToPuyoLayout(false);
   }
 
+  // ★ 追加: 設定から game に戻る際、ポーズ画面を復元する
+    if (pageId === 'game' && window._returnToPause) {
+        window._returnToPause = false;
+        // 次フレームで overlay を active に戻す（DOM更新後）
+        requestAnimationFrame(() => {
+            const overlay = document.getElementById('pause-overlay');
+            if (overlay) overlay.classList.add('active');
+        });
+    }
+
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
 
   const target = document.getElementById(pageId + '-page');
@@ -1144,6 +1154,9 @@ function handlePauseAction(action) {
       if (window._puyoGame && typeof window._puyoGame.resume === 'function') window._puyoGame.resume();
       break;
     case 'settings':
+      // pause-overlay を閉じる前に「設定から戻ったらポーズ画面を再表示する」フラグを立てる
+      window._returnToPause = true;
+      overlay.classList.remove('active'); // ← これを追加
       switchPage('settings');
       break;
     case 'restart':
