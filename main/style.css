@@ -1977,16 +1977,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
     flex-shrink: 0;
 }
 
-/* QUIZリザルト: NEXT LEVELボタン */
-.btn-quiz-primary {
-    background: linear-gradient(135deg, #f58542 0%, #fa71cd 100%);
-    color: #0a0a0f;
-    font-weight: 700;
-    width: 100%;
-}
-.btn-quiz-primary:hover {
-    opacity: 0.88;
-}
 
 /* QUIZリザルト: quiz-result-page */
 #quiz-result-page.active {
