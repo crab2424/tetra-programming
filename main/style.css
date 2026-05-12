@@ -1986,6 +1986,20 @@ input[type="range"]::-webkit-slider-thumb:hover {
     width: 100%;
 }
 
+/* QUIZリザルト: NEXT LEVELボタン */
+.btn-quiz-primary {
+    background: linear-gradient(135deg, 
+#f58542 0%, 
+#fa71cd 100%);
+    color: 
+#0a0a0f;
+    font-weight: 700;
+    width: 100%;
+}
+.btn-quiz-primary:hover {
+    opacity: 0.88;
+}
+
 .cpu-estimate-overlay {
   position: absolute;
   top: 0;
@@ -2014,4 +2028,41 @@ input[type="range"]::-webkit-slider-thumb:hover {
   background: rgba(255, 0, 160, 0.2);
   border-color: rgba(255, 0, 160, 0.6);
   z-index: 1;
+}
+
+/* ─── PAUSE モーダル内 QUIZ レベル情報ブロック ─── */
+#pause-quiz-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 16px;
+  margin-bottom: 4px;
+  background: rgba(245, 133, 66, 0.07);
+  border: 1px solid rgba(245, 133, 66, 0.3);
+  border-radius: 8px;
+}
+
+#pause-quiz-info-rule-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #f58542;
+}
+
+#pause-quiz-info-desc {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+#pause-quiz-info-goal {
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #f58542;
+  opacity: 0.85;
 }

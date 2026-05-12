@@ -685,7 +685,7 @@ function switchPage(pageId) {
 
 function goToModeCheck(modeId) {
   currentGameMode = GAME_MODES[modeId] || GAME_MODES.marathon;
-  // QUIZモードの場合は専用のレベル選択画面へ遷移させる
+  
   if (modeId === 'quiz') {
     switchPage('quiz-check');
   } else {
@@ -1090,12 +1090,31 @@ function toggleGamePause() {
     if (canPauseGame || canPausePuyo) {
       if (window._game && typeof window._game.pause === 'function') window._game.pause();
       if (window._puyoGame && typeof window._puyoGame.pause === 'function') window._puyoGame.pause();
+
+      const isQuiz = currentGameMode && currentGameMode.id === 'quiz';
+
       // QUIZモード時のみ LEVEL SELECT ボタンを表示
       const levelSelectBtn = document.getElementById('pause-quiz-level-select-btn');
-      if (levelSelectBtn) {
-        const isQuiz = currentGameMode && currentGameMode.id === 'quiz';
-        levelSelectBtn.style.display = isQuiz ? '' : 'none';
+      if (levelSelectBtn) levelSelectBtn.style.display = isQuiz ? '' : 'none';
+
+      // QUIZモード時のみレベル情報ブロックを表示・更新
+      const quizInfo = document.getElementById('pause-quiz-info');
+      if (quizInfo) {
+        if (isQuiz && typeof currentQuizLevel !== 'undefined' && currentQuizLevel) {
+          const lv = currentQuizLevel;
+          const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
+          const ruleTitleEl = document.getElementById('pause-quiz-info-rule-title');
+          const descEl      = document.getElementById('pause-quiz-info-desc');
+          const goalEl      = document.getElementById('pause-quiz-info-goal');
+          if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} — ${lv.title}`;
+          if (descEl)      descEl.textContent      = lv.description;
+          if (goalEl)      goalEl.textContent      = `GOAL: ${lv.clearCondition.description}`;
+          quizInfo.style.display = '';
+        } else {
+          quizInfo.style.display = 'none';
+        }
       }
+
       overlay.classList.add('active');
     }
   }
@@ -1136,3 +1155,37 @@ function handlePauseAction(action) {
       break;
   }
 }
+
+// ─── pause-overlay が active になった瞬間に QUIZ レベル情報を更新 ───
+// game.js の togglePause() 経由など toggleGamePause() を通らない経路にも対応
+(function setupPauseQuizInfoObserver() {
+  const overlay = document.getElementById('pause-overlay');
+  if (!overlay) return;
+
+  const observer = new MutationObserver(() => {
+    const isQuiz = currentGameMode && currentGameMode.id === 'quiz';
+    const quizInfo = document.getElementById('pause-quiz-info');
+    if (!quizInfo) return;
+
+    if (overlay.classList.contains('active') && isQuiz &&
+        typeof currentQuizLevel !== 'undefined' && currentQuizLevel) {
+      const lv = currentQuizLevel;
+      const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
+      const ruleTitleEl = document.getElementById('pause-quiz-info-rule-title');
+      const descEl      = document.getElementById('pause-quiz-info-desc');
+      const goalEl      = document.getElementById('pause-quiz-info-goal');
+      if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} — ${lv.title}`;
+      if (descEl)      descEl.textContent      = lv.description;
+      if (goalEl)      goalEl.textContent      = `GOAL: ${lv.clearCondition.description}`;
+      quizInfo.style.display = '';
+
+      // LEVEL SELECT ボタンも同じタイミングで確実に表示
+      const levelSelectBtn = document.getElementById('pause-quiz-level-select-btn');
+      if (levelSelectBtn) levelSelectBtn.style.display = '';
+    } else if (!overlay.classList.contains('active') || !isQuiz) {
+      quizInfo.style.display = 'none';
+    }
+  });
+
+  observer.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+})();
