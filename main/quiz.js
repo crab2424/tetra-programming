@@ -885,12 +885,7 @@ async function renderQuizCheck() {
         const btn = document.createElement('button');
         btn.className = 'quiz-level-btn';
         btn.dataset.levelId = level.id;
-
-        btn.innerHTML = `
-            <span class="quiz-level-num">${idx + 1}</span>
-            <div class="quiz-level-info">
-            </div>
-        `;
+        btn.innerHTML = `<span class="quiz-level-num">${idx + 1}</span>`;
         btn.onclick = () => {
             currentQuizLevel = level;
             // 【変更】ゲームを即座に開始せず、選択したレベルを保持して準備画面（mode-check）へ遷移する

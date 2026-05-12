@@ -785,11 +785,25 @@ function renderModeCheck() {
       const lv = typeof currentQuizLevel !== 'undefined' && currentQuizLevel;
       if (lv) {
         const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
+        
+        // ★追加: NEXT情報の動的生成
+        let nextInfoText = '';
+        if (lv.rule === 'tet' && lv.nextPieces) {
+            const tetMap = {0: 'I', 1: 'O', 2: 'T', 3: 'J', 4: 'L', 5: 'S', 6: 'Z'};
+            const nextArray = lv.nextPieces.map(p => tetMap[p] || '?');
+            nextInfoText = `NEXT: ${nextArray.join(', ')}`;
+        } else if (lv.rule === 'puyo' && lv.nextPuyoPairs) {
+            const puyoMap = {1: '赤', 2: '青', 3: '紫', 4: '緑', 5: '黄'};
+            const nextArray = lv.nextPuyoPairs.map(pair => `[${puyoMap[pair[0]] || '?'}, ${puyoMap[pair[1]] || '?'}]`);
+            nextInfoText = `NEXT: ${nextArray.join(', ')}`;
+        }
+
         optionsEl.innerHTML = `
           <div class="option-row" style="flex-direction:column; gap:6px; align-items:flex-start;">
             <span class="option-label" style="color:#f58542;">${ruleLabel} — ${lv.title}</span>
             <span style="font-size:11px; color:var(--text-dim); letter-spacing:1px;">${lv.description}</span>
             <span style="font-size:11px; color:#f58542; letter-spacing:1px;">GOAL: ${lv.clearCondition.description}</span>
+            ${nextInfoText ? `<span style="font-size:11px; color:var(--text-dim); letter-spacing:1px; word-break: break-all;">${nextInfoText}</span>` : ''}
           </div>
         `;
       } else {
