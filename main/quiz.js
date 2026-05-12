@@ -889,14 +889,12 @@ async function renderQuizCheck() {
         btn.innerHTML = `
             <span class="quiz-level-num">${idx + 1}</span>
             <div class="quiz-level-info">
-                <span class="quiz-level-title">${level.title}</span>
-                <span class="quiz-level-desc">${level.description}</span>
             </div>
-            <span class="quiz-level-cond">${level.clearCondition.description}</span>
         `;
         btn.onclick = () => {
             currentQuizLevel = level;
-            startQuizLevel(level);
+            // 【変更】ゲームを即座に開始せず、選択したレベルを保持して準備画面（mode-check）へ遷移する
+            switchPage('mode-check');
         };
         listEl.appendChild(btn);
     });

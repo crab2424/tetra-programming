@@ -685,7 +685,12 @@ function switchPage(pageId) {
 
 function goToModeCheck(modeId) {
   currentGameMode = GAME_MODES[modeId] || GAME_MODES.marathon;
-  switchPage('mode-check');
+  // QUIZモードの場合は専用のレベル選択画面へ遷移させる
+  if (modeId === 'quiz') {
+    switchPage('quiz-check');
+  } else {
+    switchPage('mode-check');
+  }
 }
 
 function renderModeCheck() {
@@ -774,9 +779,36 @@ function renderModeCheck() {
     } else if (mode.id === 'puyo') {
       optionsEl.style.display = 'none';
       optionsEl.innerHTML = '';
+    } else if (mode.id === 'quiz') {
+      // 選択中のレベル情報を表示
+      optionsEl.style.display = 'flex';
+      const lv = typeof currentQuizLevel !== 'undefined' && currentQuizLevel;
+      if (lv) {
+        const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
+        optionsEl.innerHTML = `
+          <div class="option-row" style="flex-direction:column; gap:6px; align-items:flex-start;">
+            <span class="option-label" style="color:#f58542;">${ruleLabel} — ${lv.title}</span>
+            <span style="font-size:11px; color:var(--text-dim); letter-spacing:1px;">${lv.description}</span>
+            <span style="font-size:11px; color:#f58542; letter-spacing:1px;">GOAL: ${lv.clearCondition.description}</span>
+          </div>
+        `;
+      } else {
+        optionsEl.innerHTML = '';
+        optionsEl.style.display = 'none';
+      }
     } else {
       optionsEl.style.display = 'none';
       optionsEl.innerHTML = '';
+    }
+  }
+
+  // QUIZモードの場合、BACKボタンの遷移先をquiz-checkに変更
+  const backBtn = document.querySelector('#mode-check-buttons .btn-secondary');
+  if (backBtn) {
+    if (mode.id === 'quiz') {
+      backBtn.setAttribute('onclick', "switchPage('quiz-check')");
+    } else {
+      backBtn.setAttribute('onclick', "switchPage('main-menu')");
     }
   }
 
@@ -799,15 +831,6 @@ function renderModeCheck() {
     }
   }
 
-  const startIcon  = document.getElementById('mode-check-start-icon');
-  const startLabel = document.getElementById('mode-check-start-label');
-  if (mode.id === 'quiz') {
-    if (startIcon)  startIcon.textContent  = '❓';
-    if (startLabel) startLabel.textContent = 'LEVEL SELECT';
-  } else {
-    if (startIcon)  startIcon.textContent  = '▶';
-    if (startLabel) startLabel.textContent = 'START';
-  }
 }
 
 async function startGameFromModeCheck() {
@@ -820,8 +843,9 @@ async function startGameFromModeCheck() {
 
   // ─── QUIZモード専用処理 ────────────────────────
   if (modeId === 'quiz') {
-    // quiz-check画面へ遷移（レベル選択）
-    switchPage('quiz-check');
+    if (typeof startQuizLevel === 'function' && currentQuizLevel) {
+      startQuizLevel(currentQuizLevel);
+    }
     return;
   }
 
