@@ -1908,40 +1908,41 @@ input[type="range"]::-webkit-slider-thumb:hover {
 #quiz-level-list {
     width: 100%;
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: 10px;
 }
 
 .quiz-level-btn {
     display: flex;
     align-items: center;
-    gap: 16px;
-    width: 100%;
-    padding: 16px 20px;
+    justify-content: center;
+    width: 57px;
+    height: 57px;
+    flex-shrink: 0;
+    padding: 0;
     border-radius: 10px;
     border: 1px solid rgba(245, 197, 66, 0.3);
     background: rgba(245, 197, 66, 0.04);
     cursor: pointer;
-    text-align: left;
+    text-align: center;
     transition: background 0.2s, border-color 0.2s, transform 0.1s;
 }
 .quiz-level-btn:hover {
     background: rgba(245, 197, 66, 0.14);
     border-color: #f58542;
-    transform: translateX(4px);
+    transform: scale(1.08);
 }
 .quiz-level-btn:active {
-    transform: translateX(2px);
+    transform: scale(1.03);
 }
 
 .quiz-level-num {
     font-family: "Orbitron", monospace;
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 900;
     color: #f58542;
-    min-width: 32px;
     text-align: center;
-    flex-shrink: 0;
+    line-height: 1;
 }
 
 .quiz-level-info {
