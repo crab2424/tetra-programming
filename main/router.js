@@ -535,7 +535,8 @@ function toggleVersusPause() {
         || isGameCounting(window._puyoGamePlayer) || isGameCounting(window._puyoGameCpu)) {
       return;
     }
-    if (window._game && typeof window._game.pause === 'function') window._game.pause();
+    if (window._game && typeof window._game.pause === 'function'
+    && !(currentGameMode && currentGameMode.id === 'puyo')) window._game.pause();
     if (window._cpuGame && typeof window._cpuGame.pause === 'function') window._cpuGame.pause();
     overlay.classList.add('active');
   }
@@ -875,6 +876,7 @@ async function startGameFromModeCheck() {
 
   // ─── PUYO(シングル)モード専用処理
   if (modeId === 'puyo') {
+    window._game = null; // ★ tetインスタンスへの参照を切る
     _switchToPuyoLayout(true);
     
     if (window._puyoGame) {
@@ -1150,7 +1152,10 @@ function handlePauseAction(action) {
 
   switch (action) {
     case 'resume':
-      if (window._game && typeof window._game.resume === 'function') window._game.resume();
+      // ★ PUYOモード中はtetインスタンスのresumeを呼ばない
+      if (window._game && typeof window._game.resume === 'function' && !(currentGameMode && currentGameMode.id === 'puyo')) {
+        window._game.resume();
+      }
       if (window._puyoGame && typeof window._puyoGame.resume === 'function') window._puyoGame.resume();
       break;
     case 'settings':

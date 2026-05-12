@@ -342,6 +342,7 @@ class Game {
 
     // ─── 重力の開始 ───
     startGravity() {
+        console.log('[startGravity] called, stack:', new Error().stack);
         if (this.timer) clearInterval(this.timer);
         // 現在のレベルに応じた速度を取得（15を超えた場合は最速の7ms）
         const speed = LEVEL_SPEEDS[this.level] || 7;
@@ -718,7 +719,7 @@ class Game {
             // r === 0, 1 (0REN, 1REN) は 0加算なのでそのまま
         }
 
-        console.log(`[Scoring] prefix: ${this.canvasPrefix}, lines: ${linesCleared}, tSpin: ${tSpinType}, ren: ${currentRenForGarbage}, genGarbage: ${generatedGarbage}`);
+        ////console.log(`[Scoring] prefix: ${this.canvasPrefix}, lines: ${linesCleared}, tSpin: ${tSpinType}, ren: ${currentRenForGarbage}, genGarbage: ${generatedGarbage}`);
 
         return generatedGarbage;
     }
@@ -744,9 +745,9 @@ class Game {
                 // n>=18の場合の階差数列の一般項: an = (n^2 - 21n + 204)/2
                 actualAmount = Math.floor((amount * amount - 21 * amount + 204) / 2);
             }
-            console.log(`[sendGarbage] ぷよ相手用にゲージ ${amount} をおじゃまぷよ ${actualAmount} 個に変換して送信`);
+            //console.log(`[sendGarbage] ぷよ相手用にゲージ ${amount} をおじゃまぷよ ${actualAmount} 個に変換して送信`);
         } else {
-            console.log(`[sendGarbage] ${this.canvasPrefix || 'player'} から相手へ ${amount} 送信`);
+            //console.log(`[sendGarbage] ${this.canvasPrefix || 'player'} から相手へ ${amount} 送信`);
         }
 
         // 穴の計算（テト相手のみ意味があるが、エラーを防ぐため actualAmount 回ループする）
@@ -870,7 +871,7 @@ class Game {
 
     // 自分に降ってくる予定の火力を相殺し、余った火力を返す
     offsetGarbage(amount) {
-        console.log(`[offsetGarbage] ${this.canvasPrefix || 'player'} が ${amount} の火力で相殺を試みます。現在のキュー:`, JSON.parse(JSON.stringify(this.garbageQueue)));
+        //console.log(`[offsetGarbage] ${this.canvasPrefix || 'player'} が ${amount} の火力で相殺を試みます。現在のキュー:`, JSON.parse(JSON.stringify(this.garbageQueue)));
 
         // 1. まずは「確定(ready)」で最も古いおじゃまから相殺
         for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
@@ -1052,7 +1053,7 @@ class Game {
                 isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
             }
 
-            console.log(`[secureMino] prefix: ${this.canvasPrefix}, isOpponentPuyo: ${isOpponentPuyo}, pendingAttack(Before): ${this.pendingAttack}, pendingInternalAttack(Before): ${this.pendingInternalAttack}`);
+            //console.log(`[secureMino] prefix: ${this.canvasPrefix}, isOpponentPuyo: ${isOpponentPuyo}, pendingAttack(Before): ${this.pendingAttack}, pendingInternalAttack(Before): ${this.pendingInternalAttack}`);
 
             if (isOpponentPuyo) {
                 // ★ 今回の新仕様：ライン消去時は今回発生分のみで相殺、設置時に溜まったゲージで相殺
@@ -1110,7 +1111,7 @@ class Game {
                     let attackToAdd = Math.max(0, puyoAttack - canceledGarbage);
                     this.pendingAttack += attackToAdd;
 
-                    console.log(`[secureMino] -> 消去あり: ぷよ用火力 ${puyoAttack}(内部 ${generatedGarbage}), 相殺使用 ${canceledGarbage}, 現在の貯蓄(表示): ${this.pendingAttack}(内部: ${this.pendingInternalAttack})`);
+                    //console.log(`[secureMino] -> 消去あり: ぷよ用火力 ${puyoAttack}(内部 ${generatedGarbage}), 相殺使用 ${canceledGarbage}, 現在の貯蓄(表示): ${this.pendingAttack}(内部: ${this.pendingInternalAttack})`);
                 } else {
                     // ライン消去がない（設置のみ）場合、溜まっているゲージ（内部火力）を放出して相殺・送信を行う
                     let canceledGarbage = 0;
@@ -1123,7 +1124,7 @@ class Game {
                     // 余った火力を計算して相手に送信
                     let sendAmount = Math.max(0, this.pendingAttack - canceledGarbage);
                     if (sendAmount > 0) {
-                        console.log(`[secureMino] -> 消去なし: 貯蓄から ${sendAmount} を相手に送信します`);
+                        //console.log(`[secureMino] -> 消去なし: 貯蓄から ${sendAmount} を相手に送信します`);
                         this.sendGarbage(sendAmount); // sendGarbage内でぷよ個数への変換が行われます
                     }
 
@@ -1480,6 +1481,7 @@ class Game {
     }
 
     dropMino() {
+        console.log('[dropMino] isPaused:', this.isPaused, 'isCountingDown:', this.isCountingDown, 'mino:', this.mino, 'stack:', new Error().stack);
         if (this.valid(0, 1)) {
             this.mino.y++;
             this.updateLowestY();
@@ -1720,6 +1722,7 @@ class Game {
             if (this.isPaused) return
             // カウントダウン中はDASの時間を裏で記録するだけで、操作の実行はしない
             if (this.isCountingDown) return;
+            if (!this.mino) return;
 
             const nowPerf = performance.now()
             const delta = nowPerf - this._lastFrameTime
@@ -2083,6 +2086,7 @@ class Game {
                         }
                         if (action === 'softDrop' && this._lastSoftDropTime === 0) {
                             this._lastSoftDropTime = now
+                            if (!this.mino) break;
                             if (this.valid(0, 1)) {
                                 this.mino.y++
                                 this.updateLowestY()
