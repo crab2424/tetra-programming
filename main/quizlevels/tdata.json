@@ -154,7 +154,7 @@
         "clearCondition": {
             "type": "count",
             "value": 2,
-            "countCondition": "tspin",
+            "countCondition": "tspinDouble",
             "countValue": 1,
             "description": "T-Spin doubleを2回決める"
         }
