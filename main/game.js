@@ -342,7 +342,6 @@ class Game {
 
     // ─── 重力の開始 ───
     startGravity() {
-        console.log('[startGravity] called, stack:', new Error().stack);
         if (this.timer) clearInterval(this.timer);
         // 現在のレベルに応じた速度を取得（15を超えた場合は最速の7ms）
         const speed = LEVEL_SPEEDS[this.level] || 7;
@@ -1481,7 +1480,6 @@ class Game {
     }
 
     dropMino() {
-        console.log('[dropMino] isPaused:', this.isPaused, 'isCountingDown:', this.isCountingDown, 'mino:', this.mino, 'stack:', new Error().stack);
         if (this.valid(0, 1)) {
             this.mino.y++;
             this.updateLowestY();
