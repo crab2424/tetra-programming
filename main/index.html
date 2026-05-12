@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>テトラボ</title>
+  <title>テトラボ</title>
 
     <link rel="icon" href="favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png">
   
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="style.css?v=19">
+    <link rel="stylesheet" href="style.css?v=20">
   </head>
   <body>
     <div id="header-area" style="display:none;">
@@ -29,7 +29,7 @@
         <div id="title-press-any" class="title-blink">
           PRESS ANY KEY
         </div>
-        <div id="title-version">v0.9</div>
+        <div id="title-version">v1.0</div>
       </div>
     </div>
 
@@ -93,6 +93,14 @@
                 <span class="mode-btn-desc">シングルプレイ</span>
               </div>
             </button>
+            <!-- ★ QUIZモードボタン -->
+            <button class="mode-btn mode-btn-quiz" onclick="goToModeCheck('quiz')">
+              <span class="mode-btn-icon">❓</span>
+              <div class="mode-btn-text">
+                <span class="mode-btn-label">QUIZ</span>
+                <span class="mode-btn-desc">謎解きパズル</span>
+              </div>
+            </button>
           </div>
         </div>
 
@@ -125,8 +133,8 @@
         </div>
         <div id="mode-check-buttons">
           <button class="menu-btn btn-primary" id="mode-check-start-btn" onclick="startGameFromModeCheck()">
-            <span class="menu-btn-icon">▶</span>
-            <span>START</span>
+            <span class="menu-btn-icon" id="mode-check-start-icon">▶</span>
+            <span id="mode-check-start-label">START</span>
           </button>
           <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
             <span class="menu-btn-icon">◀</span>
@@ -312,6 +320,80 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
+         QUIZモード選択画面
+    ───────────────────────────────────────────── -->
+    <div id="quiz-check-page" class="page">
+      <div id="quiz-check-container">
+        <div id="quiz-check-header">
+          <span class="mode-check-icon" style="color:#f58542;">❓</span>
+          <h2 class="mode-check-label" style="color:#f58542;">QUIZ</h2>
+        </div>
+        <p class="mode-check-desc-ja" style="text-align:center; margin:0;">ルールを選んでレベルに挑戦！</p>
+
+        <!-- ルール選択 -->
+        <div id="quiz-rule-select" style="display:flex; gap:12px; justify-content:center;">
+          <button class="opt-btn active" id="quiz-rule-tet" onclick="setQuizRule('tet')">TET</button>
+          <button class="opt-btn" id="quiz-rule-puyo" onclick="setQuizRule('puyo')">PUYO</button>
+        </div>
+
+        <!-- レベルリスト（quiz.js の renderQuizCheck() が動的生成） -->
+        <div id="quiz-level-list"></div>
+
+        <div style="display:flex; flex-direction:column; gap:14px; width:100%;">
+          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+            <span class="menu-btn-icon">◀</span>
+            <span>BACK</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         QUIZリザルトページ
+    ───────────────────────────────────────────── -->
+    <div id="quiz-result-page" class="page">
+      <div id="result-container">
+        <h2 id="quiz-result-title">CLEAR!</h2>
+        <div id="result-stats">
+          <div class="result-stat-row">
+            <span class="result-label">LEVEL</span>
+            <span class="result-value" id="quiz-result-level">QUIZ 1</span>
+          </div>
+          <div class="result-stat-row">
+            <span class="result-label">GOAL</span>
+            <span class="result-value" id="quiz-result-condition" style="font-size:18px;">—</span>
+          </div>
+          <div class="result-stat-row">
+            <span class="result-label">RESULT</span>
+            <span class="result-value" id="quiz-result-status">SUCCESS</span>
+          </div>
+        </div>
+        <div id="result-buttons">
+          <!-- NEXT LEVEL（クリア時のみ表示。quiz.jsの_setQuizResultPageが制御） -->
+          <button class="menu-btn btn-quiz-primary" id="quiz-result-next-btn" style="display:none;">
+            <span class="menu-btn-icon">▶</span>
+            <span>NEXT LEVEL</span>
+          </button>
+          <!-- RETRY（同じレベルを再挑戦） -->
+          <button class="menu-btn btn-primary" id="quiz-result-retry-btn"
+            onclick="if(currentQuizLevel && typeof startQuizLevel==='function') startQuizLevel(currentQuizLevel);">
+            <span class="menu-btn-icon">↺</span>
+            <span>RETRY</span>
+          </button>
+          <!-- レベル選択に戻る -->
+          <button class="menu-btn btn-secondary" onclick="switchPage('quiz-check')">
+            <span class="menu-btn-icon">◀</span>
+            <span>LEVEL SELECT</span>
+          </button>
+          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+            <span class="menu-btn-icon">⌂</span>
+            <span>MAIN MENU</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
          対戦リザルトページ
     ───────────────────────────────────────────── -->
     <div id="versus-result-page" class="page">
@@ -353,6 +435,11 @@
     ───────────────────────────────────────────── -->
     <div id="game-page" class="page">
       <div id="container">
+        <!-- ★ QUIZモード用フィールドヘッダー（quiz.jsが表示/非表示を制御） -->
+        <div id="quiz-field-overlay" style="display:none; position:absolute; top:-56px; left:0; width:320px; text-align:center; pointer-events:none; z-index:15;">
+          <div id="quiz-field-header" style="font-family:'Orbitron',monospace; font-size:11px; font-weight:700; letter-spacing:3px; color:#f58542; margin-bottom:4px;"></div>
+          <div id="quiz-field-condition" style="font-family:'Orbitron',monospace; font-size:10px; letter-spacing:2px; color:var(--text-dim);"></div>
+        </div>
         <canvas id="main-canvas"></canvas>
         <canvas id="puyo-main-canvas" style="display:none; border:2px solid var(--border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
         <div id="action-label-container"></div>
@@ -396,11 +483,21 @@
       <div id="pause-overlay">
         <div id="pause-modal">
           <h2 id="pause-title">PAUSE</h2>
+          <div id="pause-quiz-info" style="display:none;">
+            <span id="pause-quiz-info-rule-title"></span>
+            <span id="pause-quiz-info-desc"></span>
+            <span id="pause-quiz-info-goal"></span>
+          </div>
           <div id="pause-buttons">
-            <button class="pause-btn btn-resume" onclick="window._game && window._game.resume()">▶ RESUME</button>
-            <button class="pause-btn btn-settings" onclick="switchPage('settings')">⚙ SETTINGS</button>
-            <button class="pause-btn btn-restart" onclick="window._game && window._game.start()">↺ RESTART</button>
-            <button class="pause-btn btn-mainmenu" onclick="switchPage('main-menu')">⌂ MAIN MENU</button>
+          <!-- ★ router.js の共通関数を呼ぶように変更 -->
+            <div id="pause-buttons">
+              <button class="pause-btn btn-resume" onclick="handlePauseAction('resume')">▶ RESUME</button>
+              <button class="pause-btn btn-settings" onclick="handlePauseAction('settings')">⚙ SETTINGS</button>
+              <button class="pause-btn btn-restart" onclick="handlePauseAction('restart')">↺ RESTART</button>
+              <button class="pause-btn btn-quiz-primary" id="pause-quiz-level-select-btn"
+              onclick="handlePauseAction('quiz-levelselect')" style="display:none;">◀ LEVEL SELECT</button>
+              <button class="pause-btn btn-mainmenu" onclick="handlePauseAction('mainmenu')">⌂ MAIN MENU</button>
+            </div>
           </div>
         </div>
       </div>
@@ -431,7 +528,7 @@
           </div>
         </div>
         <div id="result-buttons">
-          <button class="menu-btn btn-primary" id="result-retry-btn">
+          <button class="menu-btn btn-primary" id="result-retry-btn" onclick="startGameFromModeCheck()">
             <span class="menu-btn-icon">↺</span>
             <span>RETRY</span>
           </button>
@@ -484,9 +581,12 @@
 
     <div id="settings-toast">SAVED ✓</div>
     
-    <script src="settings.js?v=12"></script>
-    <script src="game.js?v=15"></script>
-    <script src="p_game.js?v=3"></script>
+    <script src="base.js?v=1"></script>     
+    <script src="manager.js?v=1"></script>
+    <script src="settings.js?v=13"></script>
+    <script src="game.js?v=17"></script>
+    <script src="p_game.js?v=4"></script>
+    <script src="quiz.js?v=1"></script>
     <script src="router.js?v=18"></script>
   </body>
 </html>

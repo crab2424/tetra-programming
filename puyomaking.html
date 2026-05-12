@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ぷよ画像ジェネレーター</title>
+<style>
+  body {
+    background: #1a1a2e;
+    color: #eee;
+    font-family: 'Segoe UI', sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+    gap: 24px;
+    min-height: 100vh;
+    margin: 0;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 0;
+    letter-spacing: 2px;
+    color: #88ccff;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+    align-items: flex-end;
+    background: #16213e;
+    padding: 20px 24px;
+    border-radius: 12px;
+    border: 1px solid #334;
+  }
+  .ctrl-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  label {
+    font-size: 12px;
+    color: #aac;
+    letter-spacing: 1px;
+  }
+  
+  /* RGB入力UI用スタイル */
+  .rgb-inputs {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .rgb-num {
+    width: 44px !important;
+    padding: 4px 6px !important;
+    font-size: 13px !important;
+    text-align: center;
+  }
+  .rgb-num::placeholder {
+    color: #556;
+  }
+
+  input[type="color"] {
+    width: 44px;
+    height: 32px;
+    border: 2px solid #445;
+    border-radius: 6px;
+    cursor: pointer;
+    background: none;
+    padding: 2px;
+  }
+  input[type="range"] {
+    width: 120px;
+    accent-color: #88ccff;
+  }
+  input[type="number"], input[type="text"] {
+    background: #0f1e3a;
+    border: 1px solid #445;
+    border-radius: 6px;
+    color: #eee;
+    padding: 6px 8px;
+    font-size: 14px;
+  }
+  input[type="number"] { width: 72px; }
+  input[type="text"]   { width: 100px; }
+  select {
+    background: #0f1e3a;
+    border: 1px solid #445;
+    border-radius: 6px;
+    color: #eee;
+    padding: 6px 8px;
+    font-size: 14px;
+  }
+
+  /* 連結方向UI */
+  .connect-section {
+    background: #16213e;
+    border: 1px solid #334;
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .connect-title {
+    font-size: 13px;
+    color: #88ccff;
+    letter-spacing: 1px;
+  }
+  .connect-grid {
+    display: grid;
+    grid-template-columns: 56px 56px 56px;
+    grid-template-rows:    56px 56px 56px;
+    gap: 4px;
+    align-items: center;
+    justify-items: center;
+  }
+  .connect-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    border: 2px solid #445;
+    background: #0f1e3a;
+    color: #778;
+    font-size: 20px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+  }
+  .connect-btn.active {
+    border-color: #88ccff;
+    background: #1a3a6a;
+    color: #88ccff;
+    box-shadow: 0 0 8px rgba(136,204,255,0.4);
+  }
+  .connect-center {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #334;
+    border: 2px solid #556;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: #778;
+    user-select: none;
+  }
+  .connect-empty {
+    width: 48px;
+    height: 48px;
+  }
+  /* プリセット連結ボタン */
+  .pattern-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+  .pattern-btn {
+    background: #0f1e3a;
+    border: 1px solid #445;
+    border-radius: 6px;
+    color: #aac;
+    font-size: 11px;
+    padding: 5px 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .pattern-btn:hover {
+    border-color: #88ccff;
+    color: #88ccff;
+  }
+
+  .preview-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  /* チェッカーボード背景 */
+  .canvas-wrap {
+    border: 2px dashed #445;
+    border-radius: 8px;
+    background-image: linear-gradient(45deg, #333 25%, transparent 25%),
+                      linear-gradient(-45deg, #333 25%, transparent 25%),
+                      linear-gradient(45deg, transparent 75%, #333 75%),
+                      linear-gradient(-45deg, transparent 75%, #333 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+    background-color: #222;
+    display: inline-block;
+  }
+  canvas#preview { display: block; }
+  .size-label { font-size: 12px; color: #778; }
+  button.dl-btn {
+    background: linear-gradient(135deg, #2266cc, #4499ff);
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 15px;
+    font-weight: bold;
+    padding: 12px 32px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: opacity 0.15s;
+  }
+  button.dl-btn:hover { opacity: 0.85; }
+  /* カラープリセット */
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .preset-btn {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 3px solid #555;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+    padding: 0;
+  }
+  .preset-btn:hover { border-color: #fff; transform: scale(1.15); }
+  .preset-label { font-size: 12px; color: #aac; }
+</style>
+</head>
+<body>
+
+<h1>🟥 ぷよ画像ジェネレーター</h1>
+
+<!-- 基本設定 -->
+<div class="controls">
+  <div class="ctrl-group">
+    <label>サイズ (px)</label>
+    <input type="number" id="imgSize" value="128" min="16" max="512" step="8">
+  </div>
+  
+  <div class="ctrl-group">
+    <label>塗り色 (HEX / R G B)</label>
+    <div class="rgb-inputs">
+      <input type="color" id="fillColor" value="#e74c3c" title="カラーピッカー">
+      <input type="number" id="fillR" class="rgb-num" min="0" max="255" title="Red">
+      <input type="number" id="fillG" class="rgb-num" min="0" max="255" title="Green">
+      <input type="number" id="fillB" class="rgb-num" min="0" max="255" title="Blue">
+    </div>
+  </div>
+  
+  <div class="ctrl-group">
+    <label>枠線色 (HEX / R G B)</label>
+    <div class="rgb-inputs">
+      <input type="color" id="strokeColor" value="#c0392b" title="カラーピッカー">
+      <input type="number" id="strokeR" class="rgb-num" min="0" max="255" title="Red">
+      <input type="number" id="strokeG" class="rgb-num" min="0" max="255" title="Green">
+      <input type="number" id="strokeB" class="rgb-num" min="0" max="255" title="Blue">
+    </div>
+  </div>
+
+  <div class="ctrl-group">
+    <label>不透明度 <span id="alphaVal">100</span>%</label>
+    <input type="range" id="fillAlpha" min="0" max="100" value="100">
+  </div>
+  
+  <div class="ctrl-group">
+    <label>枠線幅 (px)</label>
+    <input type="number" id="strokeWidth" value="4" min="0" max="32">
+  </div>
+  
+  <div class="ctrl-group">
+    <label>ハイライト</label>
+    <select id="highlight">
+      <option value="none" selected>なし</option>
+      <option value="soft">ソフト</option>
+      <option value="eye">目っぽい</option>
+    </select>
+  </div>
+  
+  <div class="ctrl-group">
+    <label>ファイル名 (初期提案名)</label>
+    <input type="text" id="filename" value="puyo">
+  </div>
+</div>
+
+<!-- 連結方向設定 -->
+<div class="connect-section">
+  <div class="connect-title">🔗 連結方向</div>
+  <div class="connect-grid">
+    <!-- row 0 -->
+    <div class="connect-empty"></div>
+    <div class="connect-btn" id="btn-up"    onclick="toggleDir('up')"    title="上に連結">↑</div>
+    <div class="connect-empty"></div>
+    <!-- row 1 -->
+    <div class="connect-btn" id="btn-left"  onclick="toggleDir('left')"  title="左に連結">←</div>
+    <div class="connect-center">ぷよ</div>
+    <div class="connect-btn" id="btn-right" onclick="toggleDir('right')" title="右に連結">→</div>
+    <!-- row 2 -->
+    <div class="connect-empty"></div>
+    <div class="connect-btn" id="btn-down"  onclick="toggleDir('down')"  title="下に連結">↓</div>
+    <div class="connect-empty"></div>
+  </div>
+  <!-- プリセットパターン -->
+  <div class="pattern-btns">
+    <button class="pattern-btn" onclick="setPattern([])">単独</button>
+    <button class="pattern-btn" onclick="setPattern(['up'])">↑のみ</button>
+    <button class="pattern-btn" onclick="setPattern(['down'])">↓のみ</button>
+    <button class="pattern-btn" onclick="setPattern(['left'])">←のみ</button>
+    <button class="pattern-btn" onclick="setPattern(['right'])">→のみ</button>
+    <button class="pattern-btn" onclick="setPattern(['up','down'])">縦連結</button>
+    <button class="pattern-btn" onclick="setPattern(['left','right'])">横連結</button>
+    <button class="pattern-btn" onclick="setPattern(['up','right'])">↑→</button>
+    <button class="pattern-btn" onclick="setPattern(['up','left'])">↑←</button>
+    <button class="pattern-btn" onclick="setPattern(['down','right'])">↓→</button>
+    <button class="pattern-btn" onclick="setPattern(['down','left'])">↓←</button>
+    <button class="pattern-btn" onclick="setPattern(['up','down','right'])">T右</button>
+    <button class="pattern-btn" onclick="setPattern(['up','down','left'])">T左</button>
+    <button class="pattern-btn" onclick="setPattern(['up','left','right'])">T上</button>
+    <button class="pattern-btn" onclick="setPattern(['down','left','right'])">T下</button>
+    <button class="pattern-btn" onclick="setPattern(['up','down','left','right'])">十字</button>
+  </div>
+</div>
+
+<!-- カラープリセット -->
+<div>
+  <div class="preset-label" style="text-align:center;margin-bottom:8px;">プリセットカラー</div>
+  <div class="presets">
+    <button class="preset-btn" style="background:#e74c3c;" title="赤 (puyo-0)" onclick="applyPreset('#e74c3c','#c0392b','puyo-0')"></button>
+    <button class="preset-btn" style="background:#3498db;" title="青 (puyo-1)" onclick="applyPreset('#3498db','#2471a3','puyo-1')"></button>
+    <button class="preset-btn" style="background:#9b59b6;" title="紫 (puyo-2)" onclick="applyPreset('#9b59b6','#7d3c98','puyo-2')"></button>
+    <button class="preset-btn" style="background:#2ecc71;" title="緑 (puyo-3)" onclick="applyPreset('#2ecc71','#27ae60','puyo-3')"></button>
+    <button class="preset-btn" style="background:#f1c40f;" title="黄 (puyo-4)" onclick="applyPreset('#f1c40f','#d4ac0d','puyo-4')"></button>
+    <button class="preset-btn" style="background:#bdc3c7;border-color:#999;" title="おじゃま (puyo-5)" onclick="applyPreset('#bdc3c7','#99a3a4','puyo-5')"></button>
+  </div>
+</div>
+
+<!-- プレビュー -->
+<div class="preview-area">
+  <div class="size-label" id="sizeLabel">128 × 128 px</div>
+  <div class="canvas-wrap">
+    <canvas id="preview" width="128" height="128"></canvas>
+  </div>
+</div>
+
+<button class="dl-btn" onclick="downloadPNG()">💾 フォルダを指定して保存</button>
+
+<script>
+  // ── RGB と HEX の相互変換 ──
+  function hexToRgb(hex) {
+    const bigint = parseInt(hex.slice(1), 16);
+    return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+  }
+  function rgbToHex(r, g, b) {
+    return "#" + (1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1);
+  }
+
+  // カラーピッカーとRGB数値入力の同期設定
+  function syncColorInputs(colorEl, rEl, gEl, bEl) {
+    colorEl.addEventListener('input', () => {
+      const { r, g, b } = hexToRgb(colorEl.value);
+      rEl.value = r; gEl.value = g; bEl.value = b;
+      draw();
+    });
+    [rEl, gEl, bEl].forEach(el => {
+      el.addEventListener('input', () => {
+        let r = parseInt(rEl.value)||0; let g = parseInt(gEl.value)||0; let b = parseInt(bEl.value)||0;
+        r = Math.min(255, Math.max(0, r)); g = Math.min(255, Math.max(0, g)); b = Math.min(255, Math.max(0, b));
+        colorEl.value = rgbToHex(r, g, b);
+        draw();
+      });
+    });
+    // 初回実行
+    const { r, g, b } = hexToRgb(colorEl.value);
+    rEl.value = r; gEl.value = g; bEl.value = b;
+  }
+
+  // ── 連結方向の状態 ──
+  const dirs = { up: false, down: false, left: false, right: false };
+
+  function toggleDir(d) {
+    dirs[d] = !dirs[d];
+    document.getElementById('btn-' + d).classList.toggle('active', dirs[d]);
+    draw();
+  }
+
+  function setPattern(arr) {
+    for (const d of ['up','down','left','right']) {
+      dirs[d] = arr.includes(d);
+      document.getElementById('btn-' + d).classList.toggle('active', dirs[d]);
+    }
+    draw();
+  }
+
+  // ── DOM refs ──
+  const previewCanvas  = document.getElementById('preview');
+  const ctx            = previewCanvas.getContext('2d');
+  const fillColorEl    = document.getElementById('fillColor');
+  const fillAlphaEl    = document.getElementById('fillAlpha');
+  const alphaValEl     = document.getElementById('alphaVal');
+  const strokeColorEl  = document.getElementById('strokeColor');
+  const strokeWidthEl  = document.getElementById('strokeWidth');
+  const imgSizeEl      = document.getElementById('imgSize');
+  const highlightEl    = document.getElementById('highlight');
+  const filenameEl     = document.getElementById('filename');
+  const sizeLabelEl    = document.getElementById('sizeLabel');
+
+  // RGB入力同期の初期化
+  syncColorInputs(fillColorEl, document.getElementById('fillR'), document.getElementById('fillG'), document.getElementById('fillB'));
+  syncColorInputs(strokeColorEl, document.getElementById('strokeR'), document.getElementById('strokeG'), document.getElementById('strokeB'));
+
+  // ── メイン描画 ──
+  function draw() {
+    const size = Math.max(16, Math.min(512, parseInt(imgSizeEl.value) || 128));
+    previewCanvas.width  = size;
+    previewCanvas.height = size;
+    sizeLabelEl.textContent = `${size} × ${size} px`;
+
+    ctx.clearRect(0, 0, size, size);
+
+    const alphaVal = parseInt(fillAlphaEl.value) / 100;
+    const fill     = fillColorEl.value;
+    const strokeC  = strokeColorEl.value;
+    const sw       = parseInt(strokeWidthEl.value) || 0;
+    const hl       = highlightEl.value;
+
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size / 2 - sw / 2;
+
+    // ─────────────────────────────────────────
+    // 一筆書きパス生成パラメータ
+    // ─────────────────────────────────────────
+    const baseW = r * 0.70;  // 付け根の半幅
+    const neckW = r * 0.60;  // 接合面の半幅（先端幅）
+    
+    const attachAngle = Math.asin(baseW / r); 
+    const reachX = size / 2 + sw + 2; 
+
+    // ローカル座標(lx, ly)と角度angleから、キャンバス上の絶対座標を計算する関数
+    function getPt(lx, ly, angle) {
+      return {
+        x: cx + lx * Math.cos(angle) - ly * Math.sin(angle),
+        y: cy + lx * Math.sin(angle) + ly * Math.cos(angle)
+      };
+    }
+
+    const dirsArr = ['right', 'down', 'left', 'up'];
+
+    // 共通パス生成関数：自己交差・逆走を数学的に100%排除した完璧な一筆書き
+    function definePuyoPath(targetCtx) {
+      targetCtx.beginPath();
+      
+      // 最初（Right方向の処理前）のペンの開始位置を決定
+      if (dirs.right) {
+        const ptStart = getPt(reachX, -neckW, 0); // Rightの先端上端
+        targetCtx.moveTo(ptStart.x, ptStart.y);
+      } else {
+        const ptStart = getPt(r * Math.cos(-attachAngle), r * Math.sin(-attachAngle), 0); // 円周上
+        targetCtx.moveTo(ptStart.x, ptStart.y);
+      }
+
+      // コーナーごとの描画ループ（右下、左下、左上、右上の4つ）
+      for(let j=0; j<4; j++) {
+        const idx1 = j;
+        const idx2 = (j + 1) % 4;
+        const dir1 = dirsArr[idx1];
+        const dir2 = dirsArr[idx2];
+        const a = j * Math.PI / 2; // 現在の方向の角度
+        
+        const has1 = dirs[dir1];
+        const has2 = dirs[dir2];
+        
+        const startX = r * Math.cos(attachAngle);
+        const tanA   = Math.tan(attachAngle);
+        // くびれ用の制御点計算
+        let cX = startX + (baseW - neckW) * tanA;
+        if (cX > reachX * 0.85) cX = reachX * 0.85; 
+
+        // 1. 直前の突起(idx1)がある場合、先端の平らな部分（上端から下端へ）を直線で描く
+        if (has1) {
+          const ptTipBot = getPt(reachX, neckW, a);
+          targetCtx.lineTo(ptTipBot.x, ptTipBot.y);
+        }
+        
+        // 2. コーナー（idx1 と idx2 の間）の曲線を描く
+        if (has1 && has2) {
+          // パターンA：【両方向に突起あり】
+          // 直角にならず、内側にスライム状の滑らかなフィレット（凹カーブ）を作る
+          const ptC = getPt(neckW, neckW, a); // 直角の角を丸めるための制御点
+          const ptEnd = getPt(neckW, reachX, a); // 次の突起(idx2)の先端上端
+          targetCtx.quadraticCurveTo(ptC.x, ptC.y, ptEnd.x, ptEnd.y);
+          
+        } else if (has1 && !has2) {
+          // パターンB：【現在の方向にのみ突起あり】
+          // 突起の先端からくびれを描いて、通常の円周に戻る
+          const ptC2 = getPt(cX, neckW, a);
+          const ptEndKubi = getPt(startX, baseW, a);
+          targetCtx.quadraticCurveTo(ptC2.x, ptC2.y, ptEndKubi.x, ptEndKubi.y);
+          targetCtx.arc(cx, cy, r, a + attachAngle, a + Math.PI/2 - attachAngle, false);
+          
+        } else if (!has1 && has2) {
+          // パターンC：【次の方向にのみ突起あり】
+          // 通常の円周から、次の突起のくびれを描いて持ち上がる
+          targetCtx.arc(cx, cy, r, a - attachAngle, a + Math.PI/2 - attachAngle, false);
+          const ptC1_for2 = getPt(neckW, cX, a);
+          const ptEnd_for2 = getPt(neckW, reachX, a); // 次の突起(idx2)の先端上端
+          targetCtx.quadraticCurveTo(ptC1_for2.x, ptC1_for2.y, ptEnd_for2.x, ptEnd_for2.y);
+          
+        } else {
+          // パターンD：【どちらも突起なし】
+          // そのまま円弧を描いてコーナーを通過する
+          targetCtx.arc(cx, cy, r, a - attachAngle, a + Math.PI/2 - attachAngle, false);
+        }
+      }
+      targetCtx.closePath();
+    }
+
+    // ─────────────────────────────────────────
+    // 描画実行
+    // ─────────────────────────────────────────
+    // パスが一筆書きになったため、内部の重なりを気にする必要はなくなりましたが、
+    // 半透明設定時の重なりを美しく保つため、引き続きオフスクリーンキャンバスを利用します。
+    const osCanvas = document.createElement('canvas');
+    osCanvas.width = size;
+    osCanvas.height = size;
+    const osCtx = osCanvas.getContext('2d');
+
+    // 完璧な一筆書きパスを生成
+    definePuyoPath(osCtx);
+    
+    // 中身を塗る
+    osCtx.fillStyle = fill;
+    osCtx.fill();
+    // 枠線を引く（パスが完全に外周だけをなぞるため、内部に一切線が出ません）
+    if (sw > 0) {
+      osCtx.strokeStyle = strokeC;
+      osCtx.lineWidth   = sw;
+      osCtx.lineJoin    = 'round';
+      osCtx.stroke();
+    }
+
+    // ハイライト
+    if (hl === 'soft') {
+      osCtx.save();
+      osCtx.clip(); 
+      const grad = osCtx.createRadialGradient(cx - r*0.25, cy - r*0.25, 0, cx, cy, r*0.9);
+      grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      osCtx.fillStyle = grad;
+      osCtx.fillRect(0, 0, size, size);
+      osCtx.restore();
+    } else if (hl === 'eye') {
+      osCtx.beginPath();
+      osCtx.arc(cx - r * 0.3, cy - r * 0.25, r * 0.12, 0, Math.PI * 2);
+      osCtx.fillStyle = 'rgba(255,255,255,0.85)';
+      osCtx.fill();
+      osCtx.beginPath();
+      osCtx.arc(cx + r * 0.3, cy - r * 0.25, r * 0.12, 0, Math.PI * 2);
+      osCtx.fill();
+    }
+
+    // 完成した画像をメインキャンバスに転写（ここで不透明度が適用されます）
+    ctx.globalAlpha = alphaVal;
+    ctx.drawImage(osCanvas, 0, 0);
+  }
+
+  // ── プリセットカラー ──
+  function applyPreset(fill, stroke, name) {
+    fillColorEl.value   = fill;
+    strokeColorEl.value = stroke;
+    filenameEl.value    = name;
+    
+    const fRgb = hexToRgb(fill);
+    document.getElementById('fillR').value = fRgb.r;
+    document.getElementById('fillG').value = fRgb.g;
+    document.getElementById('fillB').value = fRgb.b;
+    
+    const sRgb = hexToRgb(stroke);
+    document.getElementById('strokeR').value = sRgb.r;
+    document.getElementById('strokeG').value = sRgb.g;
+    document.getElementById('strokeB').value = sRgb.b;
+    
+    draw();
+  }
+
+  // ── PNG 保存（File System Access API 対応） ──
+  async function downloadPNG() {
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width  = previewCanvas.width;
+    outCanvas.height = previewCanvas.height;
+    outCanvas.getContext('2d').drawImage(previewCanvas, 0, 0);
+    
+    const defaultName = (filenameEl.value.trim() || 'puyo') + '.png';
+
+    // モダンなブラウザ機能（保存ダイアログを開いてパスを選べるAPI）が使える場合
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: defaultName,
+          types: [{
+            description: 'PNG 画像',
+            accept: { 'image/png': ['.png'] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        
+        // CanvasのデータをBlob(ファイルの実体)に変換して書き込み
+        const blob = await new Promise(resolve => outCanvas.toBlob(resolve, 'image/png'));
+        await writable.write(blob);
+        await writable.close();
+      } catch (err) {
+        // ユーザーが「キャンセル」を押した場合はエラーを出さない
+        if (err.name !== 'AbortError') {
+          console.error(err);
+          alert('保存に失敗しました。');
+        }
+      }
+    } else {
+      // APIに非対応のブラウザ（今まで通りの自動ダウンロード）
+      const link = document.createElement('a');
+      link.download = defaultName;
+      link.href = outCanvas.toDataURL('image/png');
+      link.click();
+    }
+  }
+
+  // ── イベント登録 ──
+  [fillAlphaEl, strokeWidthEl, imgSizeEl, highlightEl].forEach(el => {
+    el.addEventListener('input', () => {
+      alphaValEl.textContent = fillAlphaEl.value;
+      draw();
+    });
+  });
+
+  draw();
+</script>
+</body>
+</html>

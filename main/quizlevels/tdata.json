@@ -1,0 +1,162 @@
+[
+    {
+        "id": "tet-1",
+        "title": "QUIZ 1",
+        "description": "I型1つでラインを消せ！",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [5,5,5,5,5,5,5,5,5,0],
+            [5,5,5,5,5,5,5,5,5,0]
+        ],
+        "nextPieces": [0],
+        "clearCondition": {
+            "type": "clearLines",
+            "value": 1,
+            "description": "1ライン消去"
+        }
+    },
+    {
+        "id": "tet-2",
+        "title": "QUIZ 2",
+        "description": "フィールドを全て消せ！",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [1,1,1,1,1,0,1,1,1,1],
+            [1,1,1,1,1,0,1,1,1,1],
+            [1,1,1,1,1,0,1,1,1,1],
+            [1,1,1,1,1,0,1,1,1,1],
+            [1,1,1,1,0,1,1,1,1,1],
+            [1,1,1,1,0,1,1,1,1,1],
+            [1,1,1,1,0,1,1,1,1,1],
+            [1,1,1,1,0,1,1,1,1,1]
+        ],
+        "nextPieces": [0, 0],
+        "clearCondition": {
+            "type": "allClear",
+            "value": 0,
+            "description": "パーフェクトクリア"
+        }
+    },
+    {
+        "id": "tet-3",
+        "title": "QUIZ 3",
+        "description": "T-Spinを決めろ！",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [3,3,0,0,3,3,3,3,3,3],
+            [3,3,0,0,0,3,3,3,3,3],
+            [3,3,3,0,3,3,3,3,3,3],
+            [3,3,0,0,3,3,3,3,3,3],
+            [3,3,0,3,3,3,3,3,3,3]
+        ],
+        "nextPieces": [2],
+        "clearCondition": {
+            "type": "clearLines",
+            "value": 2,
+            "description": "2ライン消去（T-Spin推奨）"
+        }
+    },
+    {
+        "id": "tet-4",
+        "title": "QUIZ 4",
+        "description": "合計4ライン消去せよ！",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [4,4,4,4,4,4,4,4,4,0],
+            [4,4,4,4,4,4,4,4,4,0],
+            [4,4,4,4,4,4,4,4,4,0],
+            [4,4,4,4,4,4,4,4,4,0]
+        ],
+        "nextPieces": [0, 0, 0, 0, 0],
+        "clearCondition": {
+            "type": "lines",
+            "value": 4,
+            "description": "合計4ライン消去"
+        }
+    },
+    {
+        "id": "tet-5",
+        "title": "QUIZ 5",
+        "description": "T-Spin Doubleを決めろ！",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [3,3,0,0,3,3,3,3,3,3],
+            [3,3,0,0,0,3,3,3,3,3],
+            [3,3,3,0,3,3,3,3,3,3],
+            [3,3,0,0,3,3,3,3,3,3]
+        ],
+        "nextPieces": [2],
+        "clearCondition": {
+            "type": "tspin",
+            "value": 2,
+            "description": "T-Spin Double以上（mini含む）"
+        }
+    },
+    {
+        "id": "tet-6",
+        "title": "QUIZ 6",
+        "description": "3RENを達成せよ！",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [2,2,2,2,2,2,2,2,2,0],
+            [2,2,2,2,2,0,2,2,2,2],
+            [0,2,2,2,2,2,2,2,2,2]
+        ],
+        "nextPieces": [3, 2, 4, 0],
+        "clearCondition": {
+            "type": "ren",
+            "value": 3,
+            "description": "3REN以上"
+        }
+    },
+    {
+        "id": "tet-7",
+        "title": "QUIZ 7",
+        "description": "ライン消去を3回成功させろ！",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [1,1,1,1,1,1,1,1,1,0],
+            [1,1,1,1,1,1,1,1,1,0],
+            [1,1,1,1,1,1,1,1,1,0],
+            [1,1,1,1,1,1,1,1,1,0],
+            [1,1,1,1,1,1,1,1,1,0],
+            [1,1,1,1,1,1,1,1,1,0]
+        ],
+        "nextPieces": [0, 0, 0, 0, 0, 0],
+        "clearCondition": {
+            "type": "count",
+            "value": 3,
+            "countCondition": "clearLines",
+            "countValue": 1,
+            "description": "ライン消去を3回行う"
+        }
+    },
+    {
+        "id": "tet-8",
+        "title": "QUIZ 8",
+        "description": "T-Spin doubleを2回決めろ！",
+        "rule": "tet",
+        "allowHold": true,
+        "initialField": [
+            [0,0,0,0,0,0,0,0,8,8],
+            [0,0,0,0,0,0,0,0,8,8],
+            [8,0,8,8,0,0,8,8,8,8],
+            [8,0,8,8,8,0,8,8,8,8]
+        ],
+        "nextPieces": [6, 4, 5, 3, 2, 0, 2, 1],
+        "clearCondition": {
+            "type": "count",
+            "value": 2,
+            "countCondition": "tspin",
+            "countValue": 1,
+            "description": "T-Spin doubleを2回決める"
+        }
+    }
+]
