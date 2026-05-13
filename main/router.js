@@ -62,12 +62,27 @@ let testRule = 'puyo';
 
 function setTestCpuControl(isOn) {
   testCpuControl = isOn;
-  renderModeCheck();
+  const toggle = document.getElementById('test-cpu-control-toggle');
+  if (toggle) {
+    toggle.querySelectorAll('.opt-btn').forEach(btn => {
+      const isOn_ = btn.textContent === 'ON';
+      btn.classList.toggle('active', isOn_ === isOn);
+    });
+  } else {
+    renderModeCheck();
+  }
 }
 
 function setTestRule(rule) {
   testRule = rule;
-  renderModeCheck();
+  const toggle = document.getElementById('test-rule-toggle');
+  if (toggle) {
+    toggle.querySelectorAll('.opt-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.textContent.toLowerCase() === rule.toLowerCase());
+    });
+  } else {
+    renderModeCheck();
+  }
 }
 
 let currentGameMode = null;
@@ -178,6 +193,10 @@ function stopAllGames() {
             el.style.display = 'none';
         }
     });
+
+    // LINESゴール表示をリセット
+    const linesGoalEl = document.getElementById('lines-goal');
+    if (linesGoalEl) linesGoalEl.textContent = '';
 }
 
 // ─── CPU動的ロード・破棄システム ──────────────
@@ -535,7 +554,8 @@ function toggleVersusPause() {
         || isGameCounting(window._puyoGamePlayer) || isGameCounting(window._puyoGameCpu)) {
       return;
     }
-    if (window._game && typeof window._game.pause === 'function') window._game.pause();
+    if (window._game && typeof window._game.pause === 'function'
+    && !(currentGameMode && currentGameMode.id === 'puyo')) window._game.pause();
     if (window._cpuGame && typeof window._cpuGame.pause === 'function') window._cpuGame.pause();
     overlay.classList.add('active');
   }
@@ -633,12 +653,49 @@ function versusGameOver(loser) {
   });
 }
 
+// ─── LINESゴール表示の更新 ──────────────────────
+// marathon(150ライン目標時)は "/150"、sprintは "/40"、それ以外は非表示
+function updateLinesGoalDisplay(modeId) {
+  const el = document.getElementById('lines-goal');
+  if (!el) return;
+  if (modeId === 'sprint') {
+    el.textContent = '/40';
+  } else if (modeId === 'marathon' && marathonSelectedGoal !== 'endless') {
+    el.textContent = '/' + marathonSelectedGoal;
+  } else {
+    el.textContent = '';
+  }
+}
+
 let marathonSelectedGoal = 150;
 
 function setMarathonGoal(goal) {
   marathonSelectedGoal = goal;
-  document.getElementById('opt-goal-150').classList.toggle('active', goal === 150);
-  document.getElementById('opt-goal-endless').classList.toggle('active', goal === 'endless');
+  const btn150     = document.getElementById('opt-goal-150');
+  const btnEndless = document.getElementById('opt-goal-endless');
+  const color = currentGameMode ? currentGameMode.color : 'var(--accent)';
+
+  // まず両方のインラインスタイルをリセット
+  [btn150, btnEndless].forEach(btn => {
+    if (!btn) return;
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    btn.classList.remove('active');
+  });
+
+  // activeなボタンにだけ色を付ける
+  const activeBtn = goal === 150 ? btn150 : btnEndless;
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+    activeBtn.style.color = color;
+    activeBtn.style.borderColor = color;
+  }
+
+  // ゲーム中にゴールを切り替えた場合の即時反映
+  const linesGoalEl = document.getElementById('lines-goal');
+  if (linesGoalEl && currentGameMode && currentGameMode.id === 'marathon') {
+    linesGoalEl.textContent = goal === 'endless' ? '' : '/' + goal;
+  }
 }
 
 function updateMarathonLevelDisplay() {
@@ -657,6 +714,16 @@ function switchPage(pageId) {
     stopAllGames();
     _switchToPuyoLayout(false);
   }
+
+  // ★ 追加: 設定から game に戻る際、ポーズ画面を復元する
+    if (pageId === 'game' && window._returnToPause) {
+        window._returnToPause = false;
+        // 次フレームで overlay を active に戻す（DOM更新後）
+        requestAnimationFrame(() => {
+            const overlay = document.getElementById('pause-overlay');
+            if (overlay) overlay.classList.add('active');
+        });
+    }
 
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
 
@@ -739,6 +806,10 @@ function renderModeCheck() {
       `;
       const levelVal = document.getElementById('marathon-level-val');
       if (levelVal) levelVal.style.color = mode.color;
+      optionsEl.querySelectorAll('.opt-btn').forEach(btn => {
+          btn.style.color = '';
+          btn.style.borderColor = '';
+      });
       optionsEl.querySelectorAll('.opt-btn.active').forEach(btn => {
           btn.style.color = mode.color;
           btn.style.borderColor = mode.color;
@@ -772,7 +843,12 @@ function renderModeCheck() {
         btn.textContent = 'LV' + lv;
         btn.onclick = () => {
           selectedCpuLevel = lv;
-          renderModeCheck();
+          const t = document.getElementById('test-cpu-level-toggle');
+          if (t) {
+            t.querySelectorAll('.opt-btn').forEach((b, i) => {
+              b.classList.toggle('active', i + 1 === lv);
+            });
+          }
         };
         toggle.appendChild(btn);
       }
@@ -865,6 +941,7 @@ async function startGameFromModeCheck() {
 
   // ─── PUYO(シングル)モード専用処理
   if (modeId === 'puyo') {
+    window._game = null; // ★ tetインスタンスへの参照を切る
     _switchToPuyoLayout(true);
     
     if (window._puyoGame) {
@@ -946,6 +1023,7 @@ async function startGameFromModeCheck() {
   }
 
   switchPage('game');
+  updateLinesGoalDisplay(modeId);
   setupGlobalCpuPauseKey(); 
   
   let cpuLoadPromise = null;
@@ -1140,10 +1218,16 @@ function handlePauseAction(action) {
 
   switch (action) {
     case 'resume':
-      if (window._game && typeof window._game.resume === 'function') window._game.resume();
+      // ★ PUYOモード中はtetインスタンスのresumeを呼ばない
+      if (window._game && typeof window._game.resume === 'function' && !(currentGameMode && currentGameMode.id === 'puyo')) {
+        window._game.resume();
+      }
       if (window._puyoGame && typeof window._puyoGame.resume === 'function') window._puyoGame.resume();
       break;
     case 'settings':
+      // pause-overlay を閉じる前に「設定から戻ったらポーズ画面を再表示する」フラグを立てる
+      window._returnToPause = true;
+      overlay.classList.remove('active'); // ← これを追加
       switchPage('settings');
       break;
     case 'restart':

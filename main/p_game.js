@@ -1690,9 +1690,9 @@ class PuyoGame {
             if (totalLines > 0) {
                 // n連鎖目で発生したラインを送信予定に追加
                 this.tetPendingFire += totalLines;
-                console.log(`[p_game TetAttack] ${this.chainCount}連鎖: baseCarry=${baseCarry}, add=${add}, scoreForAttack=${scoreForAttack}, used=${usedScore}, scoredLines=${generatedLines}, puyoN=${n}, addLines=${addLines}, zkLines=${zenkeshiAdded}, totalLines=${totalLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
+                //console.log(`[p_game TetAttack] ${this.chainCount}連鎖: baseCarry=${baseCarry}, add=${add}, scoreForAttack=${scoreForAttack}, used=${usedScore}, scoredLines=${generatedLines}, puyoN=${n}, addLines=${addLines}, zkLines=${zenkeshiAdded}, totalLines=${totalLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
             } else {
-                console.log(`[p_game TetAttack] ${this.chainCount}連鎖: baseCarry=${baseCarry}, add=${add}, scoreForAttack=${scoreForAttack}, scoredLines=0, puyoN=${n}, addLines=${addLines}, zkLines=${zenkeshiAdded}, totalLines=${totalLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
+                //console.log(`[p_game TetAttack] ${this.chainCount}連鎖: baseCarry=${baseCarry}, add=${add}, scoreForAttack=${scoreForAttack}, scoredLines=0, puyoN=${n}, addLines=${addLines}, zkLines=${zenkeshiAdded}, totalLines=${totalLines}, nextCarry=${this.tetAttackCarry}, totalPending=${this.tetPendingFire}`);
             }
         }
 
@@ -1974,7 +1974,7 @@ class PuyoGame {
             moveLeft: ks.moveLeft ? ks.moveLeft.code : 'ArrowLeft',
             moveRight: ks.moveRight ? ks.moveRight.code : 'ArrowRight',
             softDrop: ks.softDrop ? ks.softDrop.code : 'ArrowDown',
-            quickDrop: ks.quickDrop ? ks.quickDrop.code : 'Space', // ★ クイックドロップ追加
+            quickDrop: ks.hardDrop ? ks.hardDrop.code : 'Space', // ★ クイックドロップ追加
             rotateCW: ks.rotateCW ? ks.rotateCW.code : 'ArrowUp',
             rotateCCW: ks.rotateCCW ? ks.rotateCCW.code : 'KeyZ',
             pause: ks.pause ? ks.pause.code : 'Escape',

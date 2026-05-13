@@ -516,10 +516,9 @@ function saveSettings() {
   localStorage.setItem('game_tuning', JSON.stringify(currentTuning));
   saveGamepadConfig();
   saveGamepadOptions();
-  if (window._game) window._game.setKeyEvent();
-  if (window._cpuGame && typeof window._cpuGame.setKeyEvent === 'function') window._cpuGame.setKeyEvent();
+  if (window._game && typeof window._game.setKeyEvent === 'function' 
+    && currentGameMode && currentGameMode.id !== 'puyo') window._game.setKeyEvent();
   if (window._puyoGame && typeof window._puyoGame._setKeyHandlers === 'function') window._puyoGame._setKeyHandlers();
-  if (window._cpuPuyoGame && typeof window._cpuPuyoGame._setKeyHandlers === 'function') window._cpuPuyoGame._setKeyHandlers();
 
   updateMenuControlsDisplay(); // ★追加：保存時にメインメニューの表示を更新
   showToast();
