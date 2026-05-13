@@ -883,9 +883,9 @@ function _setQuizResultPage(isSuccess, levelData) {
 
         if (hasNext) {
             nextBtn.onclick = () => {
-                const nextLevel = levels[currentIdx + 1];
-                if (typeof startQuizLevel === 'function') {
-                    startQuizLevel(nextLevel);
+                currentQuizLevel = levels[currentIdx + 1];
+                if (typeof switchPage === 'function') {
+                    switchPage('mode-check');
                 }
             };
         }
