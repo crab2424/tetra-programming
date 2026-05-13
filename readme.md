@@ -1,7 +1,7 @@
 現在CPUは tet:Lv.5, puyo:Lv.3 まで実装しています．
 
 プレイはこちらから
-[https://crab2424.github.io/tetra-programming/main/](https://citgame.pptlabo.workers.dev/)
+[https://citgame.pptlabo.workers.dev/]
 
 ##ローカルサーバーの建て方##
 
