@@ -1,14 +1,13 @@
-現在CPUはLv.5まで実装しています．
+現在CPUは tet:Lv.5, puyo:Lv.3 まで実装しています．
 
-github pagesはこちらから
-https://crab2424.github.io/tetra-programming/main/
-
+プレイはこちらから
+[https://crab2424.github.io/tetra-programming/main/](https://citgame.pptlabo.workers.dev/)
 
 ##ローカルサーバーの建て方##
 
 ターミナルまたはコマンドプロンプトで
 
-1. cd tetra-programming-main/main
+1. cd /main
 2. python -m http.server 8000
 
 と打ち，ブラウザで
