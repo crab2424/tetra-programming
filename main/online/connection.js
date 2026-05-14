@@ -23,6 +23,38 @@ export class GameConnection {
     masterWriter = null;
 
     /**
+     * 通常ログ出力用の関数
+     * @param  {...any} args 追加のログ引数
+     */
+    log(...args) {
+        console.log("[ONLINE:Connection]", ...args);
+    }
+
+    /**
+     * 警告ログ出力用の関数
+     * @param  {...any} args 追加のログ引数
+     */
+    warn(...args) {
+        console.warn("[ONLINE:Connection]", ...args);
+    }
+
+    /**
+     * エラーログ出力用の関数
+     * @param  {...any} args 追加のログ引数
+     */
+    error(...args) {
+        console.error("[ONLINE:Connection]", ...args);
+    }
+
+    /**
+     * 情報ログ出力用の関数
+     * @param  {...any} args 追加のログ引数
+     */
+    info(...args) {
+        console.info("[ONLINE:Connection]", ...args);
+    }
+
+    /**
      * ゲーム通信用コネクションクラス
      * @param {string} url WebTransportのサーバーURL
      * @param {WebTransportOptions | undefined} options WebTransportのオプション

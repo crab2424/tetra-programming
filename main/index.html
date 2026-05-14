@@ -18,7 +18,7 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         タイトル画面
+    MARK: タイトル画面
     ───────────────────────────────────────────── -->
     <div id="title-page" class="page active">
       <div id="title-container">
@@ -34,7 +34,7 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         メインメニューページ
+    MARK: メインメニューページ
     ───────────────────────────────────────────── -->
     <div id="main-menu-page" class="page">
       <div id="main-menu-container">
@@ -83,7 +83,7 @@
                 <span class="mode-btn-desc">CPUの動作確認・開発用</span>
               </div>
             </button>
-            <button class="mode-btn mode-btn-online" onclick="goToModeCheck('online')">
+            <button id="online-mode-button" class="mode-btn mode-btn-online">
               <span class="mode-btn-icon">🌐</span>
               <div class="mode-btn-text">
                 <span class="mode-btn-label">ONLINE</span>
@@ -121,7 +121,7 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         準備画面
+    MARK: 準備画面
     ───────────────────────────────────────────── -->
     <div id="mode-check-page" class="page">
       <div id="mode-check-container">
@@ -152,7 +152,7 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         対戦モード確認画面
+    MARK: 対戦モード確認画面
     ───────────────────────────────────────────── -->
     <div id="versus-check-page" class="page">
       <div id="versus-check-container">
@@ -208,7 +208,7 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         対戦ゲーム画面
+    MARK: 対戦ゲーム画面
     ───────────────────────────────────────────── -->
     <div id="versus-page" class="page">
       <div id="versus-layout">
@@ -327,7 +327,7 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         QUIZモード選択画面
+    MARK: QUIZモード選択画面
     ───────────────────────────────────────────── -->
     <div id="quiz-check-page" class="page">
       <div id="quiz-check-container">
@@ -356,7 +356,7 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         QUIZリザルトページ
+    MARK: QUIZリザルトページ
     ───────────────────────────────────────────── -->
     <div id="quiz-result-page" class="page">
       <div id="result-container">
@@ -401,7 +401,23 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         対戦リザルトページ
+    MARK: オンライントップ画面
+    ───────────────────────────────────────────── -->
+    <div id="online-top-page" class="page">
+      <div id="online-top-container">
+        <div id="online-top-header">
+          <button id="online-top-back-button" class="menu-btn btn-secondary">
+            <span class="menu-btn-icon">⌂</span>
+            <span>MAIN MENU</span>
+          </button>
+          <div id="online-top-label">CONNECTING...</div>
+          <div class="online-top-icon">🌐</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+    MARK: 対戦リザルトページ
     ───────────────────────────────────────────── -->
     <div id="versus-result-page" class="page">
       <div id="result-container">
@@ -438,7 +454,7 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         ゲームページ
+    MARK: ゲームページ
     ───────────────────────────────────────────── -->
     <div id="game-page" class="page">
       <div id="container">
@@ -506,7 +522,7 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-         リザルトページ
+    MARK: リザルトページ
     ───────────────────────────────────────────── -->
     <div id="result-page" class="page">
       <div id="result-container">
@@ -543,7 +559,7 @@
     </div>
 
     <!-- ─────────────────────────────────────────────
-        設定ページ
+    MARK: 設定ページ
     ───────────────────────────────────────────── -->
     <div id="settings-page" class="page">
       <div class="settings-header">
@@ -575,6 +591,18 @@
         </div>
       </div>
 
+      <h2 style="margin-top: 32px; margin-bottom: 28px;">🌐 ONLINE</h2>
+      <div class="online-container">
+        <div class="slider-row">
+          <div class="slider-label">WebTransport URL</div>
+          <input type="url" id="settings-online-wturl" class="settings-online-input">
+        </div>
+        <div class="slider-row">
+          <div class="slider-label">WebTransport Certificate Hash</div>
+          <input type="text" id="settings-online-wthash" class="settings-online-input">
+        </div>
+      </div>
+
       <div class="settings-actions" style="margin-top: 24px;">
         <button class="btn btn-reset" onclick="resetToDefaults()">RESET DEFAULT</button>
         <button class="btn btn-save"  onclick="saveSettings()">SAVE</button>
@@ -590,5 +618,6 @@
     <script src="p_game.js?v=4"></script>
     <script src="quiz.js?v=1"></script>
     <script src="router.js?v=18"></script>
+    <script type="module" src="online/online.js"></script>
   </body>
 </html>
