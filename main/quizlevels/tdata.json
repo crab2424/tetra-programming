@@ -2,7 +2,7 @@
     {
         "id": "tet-1",
         "title": "QUIZ 1",
-        "description": "I型1つでラインを消せ！",
+        "description": "まずはチュートリアル",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -56,7 +56,7 @@
         "clearCondition": {
             "type": "clearLines",
             "value": 2,
-            "description": "2ライン消去（T-Spin推奨）"
+            "description": "2ライン消去"
         }
     },
     {
