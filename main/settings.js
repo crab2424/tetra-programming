@@ -314,6 +314,13 @@ function updateGamepadOptionsDisplay() {
   label.textContent = `${currentGamepadOptions.deadzone.toFixed(2)} (${pct}%)`;
 }
 
+function renderOnlineSettings() {
+  const wturlInput = document.getElementById('settings-online-wturl');
+  const wthashInput = document.getElementById('settings-online-wthash');
+  if (wturlInput) wturlInput.value = localStorage.getItem('tetlaboServerUrl') || '';
+  if (wthashInput) wthashInput.value = localStorage.getItem('tetlaboServerHash') || '';
+}
+
 document.getElementById('slider-das').addEventListener('input', updateTuningDisplay);
 document.getElementById('slider-arr').addEventListener('input', updateTuningDisplay);
 document.getElementById('slider-dcd').addEventListener('input', updateTuningDisplay);
@@ -405,9 +412,12 @@ function resetToDefaults() {
   localStorage.removeItem('game_gamepad_options');
   currentGamepadConfig = loadGamepadConfig();
   currentGamepadOptions = loadGamepadOptions();
+  localStorage.removeItem('tetlaboServerUrl');
+  localStorage.removeItem('tetlaboServerHash');
   renderKeyConfig();
   renderTuning();
   renderGamepadOptions();
+  renderOnlineSettings();
   updateMenuControlsDisplay();
 }
 
@@ -521,12 +531,20 @@ function saveSettings() {
   if (window._puyoGame && typeof window._puyoGame._setKeyHandlers === 'function') window._puyoGame._setKeyHandlers();
   if (window._cpuPuyoGame && typeof window._cpuPuyoGame._setKeyHandlers === 'function') window._cpuPuyoGame._setKeyHandlers();
 
+  const wturl = document.getElementById('settings-online-wturl')?.value || '';
+  const wthash = document.getElementById('settings-online-wthash')?.value || '';
+  localStorage.setItem('tetlaboServerUrl', wturl);
+  localStorage.setItem('tetlaboServerHash', wthash);
+
   updateMenuControlsDisplay(); // ★追加：保存時にメインメニューの表示を更新
   showToast();
 }
 
-// ページ読み込み時の初期描画
-renderKeyConfig();
-renderTuning();
-renderGamepadOptions();
-updateMenuControlsDisplay(); // ★追加：初期表示でも実行
+document.addEventListener('DOMContentLoaded', () => {
+  // ページ読み込み時の初期描画
+  renderKeyConfig();
+  renderTuning();
+  renderGamepadOptions();
+  renderOnlineSettings();
+  updateMenuControlsDisplay(); // ★追加：初期表示でも実行
+});
