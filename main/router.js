@@ -861,6 +861,15 @@ function renderModeCheck() {
       const lv = typeof currentQuizLevel !== 'undefined' && currentQuizLevel;
       if (lv) {
         const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
+
+        // QUIZ_LEVELSからレベル番号を算出
+        if (typeof QUIZ_LEVELS !== 'undefined' && QUIZ_LEVELS[lv.rule]) {
+          const idx = QUIZ_LEVELS[lv.rule].findIndex(l => l.id === lv.id);
+          if (idx !== -1) levelNum = idx + 1;
+        }
+        const levelTitle = `${ruleLabel} - ${levelNum}`;
+
+        console.log("Current Quiz Level:", levelTitle);
         
         // ★追加: NEXT情報の動的生成
         let nextInfoText = '';
@@ -875,8 +884,8 @@ function renderModeCheck() {
         }
 
         optionsEl.innerHTML = `
-          <div class="option-row" style="flex-direction:column; gap:6px; align-items:flex-start;">
-            <span class="option-label" style="color:#f58542;">${ruleLabel} — ${lv.title}</span>
+        <div class="option-row" style="flex-direction:column; gap:6px; align-items:flex-start;">
+          <span class="option-label" style="color:#f58542;">${levelTitle}</span>
             <span style="font-size:11px; color:var(--text-dim); letter-spacing:1px;">${lv.description}</span>
             <span style="font-size:11px; color:#f58542; letter-spacing:1px;">GOAL: ${lv.clearCondition.description}</span>
             ${nextInfoText ? `<span style="font-size:11px; color:var(--text-dim); letter-spacing:1px; word-break: break-all;">${nextInfoText}</span>` : ''}
@@ -1195,10 +1204,15 @@ function toggleGamePause() {
         if (isQuiz && typeof currentQuizLevel !== 'undefined' && currentQuizLevel) {
           const lv = currentQuizLevel;
           const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
+          let levelNum = '';
+          if (typeof QUIZ_LEVELS !== 'undefined' && QUIZ_LEVELS[lv.rule]) {
+            const idx = QUIZ_LEVELS[lv.rule].findIndex(l => l.id === lv.id);
+            if (idx !== -1) levelNum = idx + 1;
+          }
           const ruleTitleEl = document.getElementById('pause-quiz-info-rule-title');
           const descEl      = document.getElementById('pause-quiz-info-desc');
           const goalEl      = document.getElementById('pause-quiz-info-goal');
-          if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} — ${lv.title}`;
+          if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} - ${levelNum}`;
           if (descEl)      descEl.textContent      = lv.description;
           if (goalEl)      goalEl.textContent      = `GOAL: ${lv.clearCondition.description}`;
           quizInfo.style.display = '';
@@ -1269,10 +1283,24 @@ function handlePauseAction(action) {
         typeof currentQuizLevel !== 'undefined' && currentQuizLevel) {
       const lv = currentQuizLevel;
       const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
+      
+      // ─── 修正箇所: lv.title を廃止し、QUIZ_LEVELSからレベル値を算出 ───
+      let levelNum = '';
+      if (typeof QUIZ_LEVELS !== 'undefined' && QUIZ_LEVELS[lv.rule]) {
+          const idx = QUIZ_LEVELS[lv.rule].findIndex(l => l.id === lv.id);
+          if (idx !== -1) {
+              levelNum = idx + 1;
+          }
+      }
+
       const ruleTitleEl = document.getElementById('pause-quiz-info-rule-title');
       const descEl      = document.getElementById('pause-quiz-info-desc');
       const goalEl      = document.getElementById('pause-quiz-info-goal');
-      if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} — ${lv.title}`;
+      
+      // 算出した levelNum を使ってタイトルを表示
+      if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} - ${levelNum}`;
+      // ──────────────────────────────────────────────────────────
+
       if (descEl)      descEl.textContent      = lv.description;
       if (goalEl)      goalEl.textContent      = `GOAL: ${lv.clearCondition.description}`;
       quizInfo.style.display = '';
@@ -1282,6 +1310,8 @@ function handlePauseAction(action) {
       if (levelSelectBtn) levelSelectBtn.style.display = '';
     } else if (!overlay.classList.contains('active') || !isQuiz) {
       quizInfo.style.display = 'none';
+      const levelSelectBtn = document.getElementById('pause-quiz-level-select-btn');
+      if (levelSelectBtn) levelSelectBtn.style.display = 'none';
     }
   });
 

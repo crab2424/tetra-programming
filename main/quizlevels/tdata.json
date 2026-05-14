@@ -11,8 +11,8 @@
         "nextPieces": [0],
         "clearCondition": {
             "type": "clearLines",
-            "value": 1,
-            "description": "ライン消去"
+            "value": 2,
+            "description": "2ライン消去"
         }
     },
     {

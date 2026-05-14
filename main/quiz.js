@@ -870,7 +870,7 @@ function _setQuizResultPage(isSuccess, levelData, currentIdx) {
     if (levelEl && levelData) {
         const ruleLabel  = levelData.rule === 'tet' ? 'TET' : 'PUYO';
         const levelNum   = (currentIdx >= 0) ? currentIdx + 1 : '?';
-        levelEl.textContent = `${ruleLabel} ${levelNum}`;
+        levelEl.textContent = `${ruleLabel} - ${levelNum}`;
     }
 
     const condEl = document.getElementById('quiz-result-condition');
@@ -891,7 +891,7 @@ function _setQuizResultPage(isSuccess, levelData, currentIdx) {
             nextBtn.onclick = () => {
                 currentQuizLevel = levels[currentIdx + 1];
                 if (typeof switchPage === 'function') {
-                    switchPage('mode-check');
+                    startQuizLevel(currentQuizLevel);
                 }
             };
         }
@@ -984,7 +984,7 @@ async function startQuizLevel(levelData) {
     if (ruleTitleEl || descEl || goalEl) {
         const ruleLabel = levelData.rule === 'tet' ? 'TET' : 'PUYO';
         const levelNum  = (QUIZ_LEVELS[levelData.rule] || []).findIndex(l => l.id === levelData.id) + 1;
-        if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} ${levelNum}`;
+        if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} — ${levelNum}`;
         if (descEl)      descEl.textContent      = levelData.description;
         if (goalEl)      goalEl.textContent      = `GOAL: ${levelData.clearCondition.description}`;
     }
@@ -1073,7 +1073,7 @@ function _showQuizFieldHeader(levelData) {
         const ruleTitleEl = document.getElementById('quiz-field-info-rule-title');
         const descEl      = document.getElementById('quiz-field-info-desc');
         const goalEl      = document.getElementById('quiz-field-info-goal');
-        if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} ${levelNum}`;
+        if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} — ${levelNum}`;
         if (descEl)      descEl.textContent      = levelData.description;
         if (goalEl)      goalEl.textContent      = `GOAL: ${levelData.clearCondition.description}`;
     } else {
