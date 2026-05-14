@@ -1,20 +1,21 @@
-現在CPUはLv.5まで実装しています．
+# TETLABO
 
-github pagesはこちらから
-https://crab2424.github.io/tetra-programming/main/
+https://citgame.pptlabo.workers.dev/
 
+# ローカルでの開発方法
 
-##ローカルサーバーの建て方##
+## 依存関係
 
-ターミナルまたはコマンドプロンプトで
+- Node.js
+- pnpm
+  - TypeScript
+  - Vite
 
-1. cd tetra-programming-main/main
-2. python -m http.server 8000
+## セットアップ
 
-と打ち，ブラウザで
+```bash
+$ pnpm install # パッケージのインストール
+$ pnpm dev # サーバーの起動
+```
 
-3. http://localhost:8000/
-
-と打てば起動できます．サーバーの立てっぱなしには注意してください．
-
-
+Viteが起動して， [http://localhost:5173/](http://localhost:5173/) でアクセスできるようになります．
