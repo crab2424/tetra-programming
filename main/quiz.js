@@ -841,13 +841,16 @@ function showQuizResult(isSuccess, levelData) {
 
     showFinishOverlay('finish-overlay', 'finish-text', text, className, 1200, () => {
         if (typeof switchPage === 'function') {
-            _setQuizResultPage(isSuccess, levelData);
+            const rule   = levelData.rule;
+            const levels = QUIZ_LEVELS[rule] || [];
+            const currentIdx = levels.findIndex(l => l.id === levelData.id);
+            _setQuizResultPage(isSuccess, levelData, currentIdx);
             switchPage('quiz-result');
         }
     });
 }
 
-function _setQuizResultPage(isSuccess, levelData) {
+function _setQuizResultPage(isSuccess, levelData, currentIdx) {
     const titleEl = document.getElementById('quiz-result-title');
     if (titleEl) {
         if (isSuccess) {
@@ -864,7 +867,11 @@ function _setQuizResultPage(isSuccess, levelData) {
     }
 
     const levelEl = document.getElementById('quiz-result-level');
-    if (levelEl && levelData) levelEl.textContent = levelData.title;
+    if (levelEl && levelData) {
+        const ruleLabel  = levelData.rule === 'tet' ? 'TET' : 'PUYO';
+        const levelNum   = (currentIdx >= 0) ? currentIdx + 1 : '?';
+        levelEl.textContent = `${ruleLabel} ${levelNum}`;
+    }
 
     const condEl = document.getElementById('quiz-result-condition');
     if (condEl && levelData) condEl.textContent = levelData.clearCondition.description;
@@ -876,7 +883,6 @@ function _setQuizResultPage(isSuccess, levelData) {
     if (nextBtn && levelData) {
         const rule   = levelData.rule;
         const levels = QUIZ_LEVELS[rule] || [];
-        const currentIdx = levels.findIndex(l => l.id === levelData.id);
         const hasNext = isSuccess && currentIdx >= 0 && currentIdx < levels.length - 1;
 
         nextBtn.style.display = hasNext ? 'flex' : 'none';
@@ -936,7 +942,6 @@ async function renderQuizCheck() {
 async function startQuizLevel(levelData) {
     if (!levelData) return;
 
-    _showQuizFieldHeader(levelData);
     currentQuizLevel = levelData;
 
     // 既存ゲームを全停止
@@ -944,6 +949,9 @@ async function startQuizLevel(levelData) {
     if (window._quizManager) {
         window._quizManager.destroy();
     }
+
+    // stopAllGames → _stopQuizIfActive により非表示にされた後で表示を復元する
+    _showQuizFieldHeader(levelData);
     
     // エラー回避：フィールド(盤面)がすでに存在している場合のみ、残像クリアと再描画を行う
     if (window._game) {
@@ -969,15 +977,16 @@ async function startQuizLevel(levelData) {
     // マネージャーの再生成
     window._quizManager = new QuizManager();
 
-    // ─── フィールドオーバーレイのヘッダーテキスト更新 ───
-    const quizHeaderEl = document.getElementById('quiz-field-header');
-    if (quizHeaderEl) {
+    // ─── フィールドオーバーレイのヘッダーテキスト更新（pause-quiz-info と同じ構造） ───
+    const ruleTitleEl = document.getElementById('quiz-field-info-rule-title');
+    const descEl      = document.getElementById('quiz-field-info-desc');
+    const goalEl      = document.getElementById('quiz-field-info-goal');
+    if (ruleTitleEl || descEl || goalEl) {
         const ruleLabel = levelData.rule === 'tet' ? 'TET' : 'PUYO';
-        quizHeaderEl.textContent = `QUIZ — ${ruleLabel} — ${levelData.title}`;
-    }
-    const quizCondEl = document.getElementById('quiz-field-condition');
-    if (quizCondEl) {
-        quizCondEl.textContent = `GOAL: ${levelData.clearCondition.description}`;
+        const levelNum  = (QUIZ_LEVELS[levelData.rule] || []).findIndex(l => l.id === levelData.id) + 1;
+        if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} ${levelNum}`;
+        if (descEl)      descEl.textContent      = levelData.description;
+        if (goalEl)      goalEl.textContent      = `GOAL: ${levelData.clearCondition.description}`;
     }
 
     // ─── ルールに応じてゲームインスタンスを準備 ───
@@ -1059,11 +1068,14 @@ function _showQuizFieldHeader(levelData) {
     if (!overlay) return;
     if (levelData) {
         overlay.style.display = 'block';
-        const ruleLabel = levelData.rule === 'tet' ? 'TET' : 'PUYO';
-        const headerEl = document.getElementById('quiz-field-header');
-        const condEl   = document.getElementById('quiz-field-condition');
-        if (headerEl) headerEl.textContent = `QUIZ — ${ruleLabel} — ${levelData.title}`;
-        if (condEl)   condEl.textContent   = `GOAL: ${levelData.clearCondition.description}`;
+        const ruleLabel   = levelData.rule === 'tet' ? 'TET' : 'PUYO';
+        const levelNum    = (QUIZ_LEVELS[levelData.rule] || []).findIndex(l => l.id === levelData.id) + 1;
+        const ruleTitleEl = document.getElementById('quiz-field-info-rule-title');
+        const descEl      = document.getElementById('quiz-field-info-desc');
+        const goalEl      = document.getElementById('quiz-field-info-goal');
+        if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} ${levelNum}`;
+        if (descEl)      descEl.textContent      = levelData.description;
+        if (goalEl)      goalEl.textContent      = `GOAL: ${levelData.clearCondition.description}`;
     } else {
         overlay.style.display = 'none';
     }

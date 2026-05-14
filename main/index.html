@@ -436,9 +436,12 @@
     <div id="game-page" class="page">
       <div id="container">
         <!-- ★ QUIZモード用フィールドヘッダー（quiz.jsが表示/非表示を制御） -->
-        <div id="quiz-field-overlay" style="display:none; position:absolute; top:-56px; left:0; width:320px; text-align:center; pointer-events:none; z-index:15;">
-          <div id="quiz-field-header" style="font-family:'Orbitron',monospace; font-size:11px; font-weight:700; letter-spacing:3px; color:#f58542; margin-bottom:4px;"></div>
-          <div id="quiz-field-condition" style="font-family:'Orbitron',monospace; font-size:10px; letter-spacing:2px; color:var(--text-dim);"></div>
+        <div id="quiz-field-overlay" style="display:none; position:absolute; top:200px; left:400px; width:320px; text-align:center; pointer-events:none; z-index:15;">
+          <div id="quiz-field-info">
+            <span id="quiz-field-info-rule-title"></span>
+            <span id="quiz-field-info-desc"></span>
+            <span id="quiz-field-info-goal"></span>
+          </div>
         </div>
         <canvas id="main-canvas"></canvas>
         <canvas id="puyo-main-canvas" style="display:none; border:2px solid var(--border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>

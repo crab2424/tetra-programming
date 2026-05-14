@@ -2031,8 +2031,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
   z-index: 1;
 }
 
-/* ─── PAUSE モーダル内 QUIZ レベル情報ブロック ─── */
-#pause-quiz-info {
+/* ─── PAUSE モーダル / フィールドヘッダー 共通 QUIZ レベル情報ブロック ─── */
+#pause-quiz-info,
+#quiz-field-info {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2045,7 +2046,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-radius: 8px;
 }
 
-#pause-quiz-info-rule-title {
+#pause-quiz-info-rule-title,
+#quiz-field-info-rule-title {
   font-family: 'Orbitron', monospace;
   font-size: 12px;
   font-weight: 700;
@@ -2053,14 +2055,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: #f58542;
 }
 
-#pause-quiz-info-desc {
+#pause-quiz-info-desc,
+#quiz-field-info-desc {
   font-family: 'Orbitron', monospace;
   font-size: 10px;
   letter-spacing: 1px;
   color: var(--text-dim);
 }
 
-#pause-quiz-info-goal {
+#pause-quiz-info-goal,
+#quiz-field-info-goal {
   font-family: 'Orbitron', monospace;
   font-size: 10px;
   letter-spacing: 1px;
