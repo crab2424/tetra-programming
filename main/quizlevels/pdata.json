@@ -1,8 +1,7 @@
 [
     {
         "id": "puyo-1",
-        "title": "QUIZ 1",
-        "description": "4つつなげて消せ！",
+        "description": "まずはチュートリアル",
         "rule": "puyo",
         "initialPuyoField": [
             [0, 0, 0, 0, 0, 0],
@@ -22,13 +21,12 @@
         "clearCondition": {
             "type": "chain",
             "value": 1,
-            "description": "1連鎖以上"
+            "description": "1連鎖"
         }
     },
     {
         "id": "puyo-2",
-        "title": "QUIZ 2",
-        "description": "2連鎖を起こせ！",
+        "description": "連鎖をしてみよう",
         "rule": "puyo",
         "initialPuyoField": [
             [0, 0, 0, 0, 0, 0],
@@ -48,13 +46,12 @@
         "clearCondition": {
             "type": "chain",
             "value": 2,
-            "description": "2連鎖以上"
+            "description": "2連鎖"
         }
     },
     {
         "id": "puyo-3",
-        "title": "QUIZ 3",
-        "description": "全消しを達成せよ！",
+        "description": "全消しを目指そう",
         "rule": "puyo",
         "initialPuyoField": [
             [0, 0, 0, 0, 0, 0],
@@ -79,8 +76,7 @@
     },
     {
         "id": "puyo-4",
-        "title": "QUIZ 4",
-        "description": "15連鎖を達成せよ！",
+        "description": "15連鎖をしてみよう",
         "rule": "puyo",
         "initialPuyoField": [
             [0, 0, 0, 0, 4, 4],
@@ -100,7 +96,7 @@
         "clearCondition": {
             "type": "chain",
             "value": 15,
-            "description": "15連鎖以上"
+            "description": "15連鎖"
         }
     }
 ]
