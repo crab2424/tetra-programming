@@ -1,7 +1,6 @@
 [
     {
         "id": "tet-1",
-        "title": "QUIZ 1",
         "description": "まずはチュートリアル",
         "rule": "tet",
         "allowHold": false,
@@ -13,13 +12,12 @@
         "clearCondition": {
             "type": "clearLines",
             "value": 1,
-            "description": "1ライン消去"
+            "description": "ライン消去"
         }
     },
     {
         "id": "tet-2",
-        "title": "QUIZ 2",
-        "description": "フィールドを全て消せ！",
+        "description": "4-LINE 全消し",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -40,48 +38,8 @@
         }
     },
     {
-        "id": "tet-3",
-        "title": "QUIZ 3",
-        "description": "T-Spinを決めろ！",
-        "rule": "tet",
-        "allowHold": false,
-        "initialField": [
-            [3,3,0,0,3,3,3,3,3,3],
-            [3,3,0,0,0,3,3,3,3,3],
-            [3,3,3,0,3,3,3,3,3,3],
-            [3,3,0,0,3,3,3,3,3,3],
-            [3,3,0,3,3,3,3,3,3,3]
-        ],
-        "nextPieces": [2],
-        "clearCondition": {
-            "type": "clearLines",
-            "value": 2,
-            "description": "2ライン消去"
-        }
-    },
-    {
-        "id": "tet-4",
-        "title": "QUIZ 4",
-        "description": "合計4ライン消去せよ！",
-        "rule": "tet",
-        "allowHold": false,
-        "initialField": [
-            [4,4,4,4,4,4,4,4,4,0],
-            [4,4,4,4,4,4,4,4,4,0],
-            [4,4,4,4,4,4,4,4,4,0],
-            [4,4,4,4,4,4,4,4,4,0]
-        ],
-        "nextPieces": [0, 0, 0, 0, 0],
-        "clearCondition": {
-            "type": "lines",
-            "value": 4,
-            "description": "合計4ライン消去"
-        }
-    },
-    {
         "id": "tet-5",
-        "title": "QUIZ 5",
-        "description": "T-Spin を決めろ！",
+        "description": "T-Spin をやってみよう",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -94,13 +52,12 @@
         "clearCondition": {
             "type": "tspinDouble",
             "value": 2,
-            "description": "T-Spin Double以上（mini含む）"
+            "description": "T-Spin しながら2ライン消去"
         }
     },
     {
         "id": "tet-6",
-        "title": "QUIZ 6",
-        "description": "3RENを達成せよ！",
+        "description": "RENをつなげてみよう",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -117,8 +74,7 @@
     },
     {
         "id": "tet-7",
-        "title": "QUIZ 7",
-        "description": "ライン消去を3回成功させろ！",
+        "description": "そろそろ慣れてきたかな？",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -140,8 +96,7 @@
     },
     {
         "id": "tet-8",
-        "title": "QUIZ 8",
-        "description": "T-Spin doubleを2回決めろ！",
+        "description": "T-Spin doubleを2回決める",
         "rule": "tet",
         "allowHold": true,
         "initialField": [
@@ -161,7 +116,6 @@
     },
     {
         "id": "tet-9",
-        "title": "QUIZ 9",
         "description": "できそうでできないパフェ",
         "rule": "tet",
         "allowHold": true,
