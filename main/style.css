@@ -1978,6 +1978,59 @@ input[type="range"]::-webkit-slider-thumb:hover {
     flex-shrink: 0;
 }
 
+/* =========================================================
+  QUIZ Preview Overlay
+   ========================================================= */
+#quiz-preview-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    /* ★ 表示位置の変更 ★
+      元の -50% (中央揃え) の位置から、さらに左に200px、上に100px移動させます。
+      数値を変更すれば好きな位置に微調整できます。 */
+    transform: translate(calc(-50% - 300px), calc(-50% - 20px));
+    z-index: 100;
+    text-align: center;
+    
+    /* ★ 背景の黒色度合い（0.0〜1.0） 
+    今回は0.4くらいにすると元の0.7よりかなり薄く（透けて）見えます。
+    もっと薄くしたい場合は 0.2 や 0.3 にしてみてください。 */
+    background: rgba(0, 0, 0, 0.7); 
+    
+    /* 枠線は前回薄くしてしまいましたが、元のスタイル（テーマカラー）に戻しています */
+    border: 2px solid var(--accent);
+    
+    padding: 15px 30px;
+    border-radius: 8px;
+    
+    /* ★ 共有いただいたCSS変数を使用してフォントを統一
+       もし別のフォントが良ければ var(--font-tech) や var(--font-pixel) に変更してください */
+    font-family: var(--font-orbitron);
+    color: var(--text);
+    
+    font-weight: bold;
+    font-size: 1.2rem;
+    pointer-events: none;
+    letter-spacing: 1px;
+    line-height: 1.4;
+    
+    /* ★ 点滅間隔の調整
+    2.5s の数値を変更することで点滅のスピードが変わります。
+    (数値を大きくする＝遅くなる、小さくする＝速くなる) */
+    animation: quiz-preview-pulse 2.5s infinite ease-in-out;
+}
+
+#quiz-preview-overlay .quiz-preview-sub {
+    font-size: 0.8em;
+    opacity: 0.8;
+}
+
+@keyframes quiz-preview-pulse {
+    0%   { opacity: 1; }
+    50%  { opacity: 0.4; } /* 点滅で一番薄くなったときの透明度 */
+    100% { opacity: 1; }
+}
+
 
 /* QUIZリザルト: quiz-result-page */
 #quiz-result-page.active {

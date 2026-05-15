@@ -946,9 +946,6 @@ async function startGameFromModeCheck() {
   //GameManager.setInstance('p1', window._game); // これを追加！
 
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
-  
-  // ★ デバッグ: currentGameMode が正しく設定されているか確認
-  console.log('[startGameFromModeCheck] currentGameMode:', currentGameMode, 'modeId:', modeId);
 
   // ─── QUIZモード専用処理 ────────────────────────
   if (modeId === 'quiz') {
