@@ -847,6 +847,13 @@ class QuizManager {
         this._isSecuring       = false;
         this._failedByDummy    = false;
 
+        // ★追加: プレビュー待機中なら解除する
+        if (window._quizPreviewHandler) {
+            document.removeEventListener('keydown', window._quizPreviewHandler, true);
+            window._quizPreviewHandler = null;
+            if (typeof hideQuizPreviewUI === 'function') hideQuizPreviewUI();
+        }
+
         // 参照も破棄
         this._originalPopMino = null;
         this._originalGetNextType = null;
@@ -1094,10 +1101,12 @@ async function startQuizLevel(levelData) {
         // ロードした盤面を画面に即座に反映
         if (typeof pg._render === 'function') pg._render();
 
-        // カウントダウン開始
-        runCountdown('countdown-overlay', 'countdown-text', () => {
-            pg._startGameplay();
-        }, null);
+        // ★ 変更: カウントダウン開始前に入力待機（プレビューモード）を挟む
+        _waitForStartInput(() => {
+            runCountdown('countdown-overlay', 'countdown-text', () => {
+                pg._startGameplay();
+            }, null);
+        });
 
     } else {
         // テト
@@ -1132,12 +1141,61 @@ async function startQuizLevel(levelData) {
         if (typeof tg.drawNext === 'function') tg.drawNext();
         if (typeof tg.drawHold === 'function') tg.drawHold();
 
-        // カウントダウン経由で開始
-        runCountdown('countdown-overlay', 'countdown-text', () => {
-            tg._startGameplay();
-        }, null);
+        // ★ 変更: カウントダウン開始前に入力待機（プレビューモード）を挟む
+        _waitForStartInput(() => {
+            runCountdown('countdown-overlay', 'countdown-text', () => {
+                tg._startGameplay();
+            }, null);
+        });
     }
 }
+
+// ─── QUIZプレビュー表示・待機機能（追加） ────────────────
+function showQuizPreviewUI() {
+    let overlay = document.getElementById('quiz-preview-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'quiz-preview-overlay';
+        overlay.innerHTML = 'PRESS HARD/QUICK DROP KEY<br><span class="quiz-preview-sub">TO START</span>';
+        
+        // 描画先: countdown-overlayがある場所(ゲーム画面のコンテナ)があればそこ、無ければbody
+        const container = document.getElementById('countdown-overlay')?.parentElement || document.body;
+        container.appendChild(overlay);
+    }
+    overlay.style.display = 'block';
+}
+
+function hideQuizPreviewUI() {
+    const overlay = document.getElementById('quiz-preview-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function _waitForStartInput(onStart) {
+    showQuizPreviewUI();
+    
+    window._quizPreviewHandler = (e) => {
+        // ハードドロップに割り当てられがちなキー (スペース, 上矢印, W) + 念のためEnter
+        const startKeys = ['Space', 'ArrowUp', 'KeyW', 'Enter', 'w', 'W', ' '];
+        
+        // ブラウザのデフォルト操作（F12、リロードなど）は通す
+        if (e.key && (e.key.startsWith('F') || e.ctrlKey || e.metaKey)) return;
+
+        // イベントの伝播をキャプチャ段階で止めることで、ゲームのpauseや移動操作を完全に無効化する
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (startKeys.includes(e.key) || startKeys.includes(e.code)) {
+            document.removeEventListener('keydown', window._quizPreviewHandler, true);
+            window._quizPreviewHandler = null;
+            hideQuizPreviewUI();
+            onStart();
+        }
+    };
+
+    // 第3引数に true を指定してキャプチャフェーズでフックし、ゲームの既存ハンドラより先に処理・ブロックする
+    document.addEventListener('keydown', window._quizPreviewHandler, true);
+}
+
 
 // ─── QUIZモードのstopAllGamesフック ──────────
 function _stopQuizIfActive() {
