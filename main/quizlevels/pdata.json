@@ -1,6 +1,7 @@
 [
     {
         "id": "puyo-1",
+        "diff": 1,
         "description": "まずはチュートリアル",
         "rule": "puyo",
         "initialPuyoField": [
@@ -26,6 +27,7 @@
     },
     {
         "id": "puyo-2",
+        "diff": 1,
         "description": "連鎖をしてみよう",
         "rule": "puyo",
         "initialPuyoField": [
@@ -51,6 +53,7 @@
     },
     {
         "id": "puyo-3",
+        "diff": 1,
         "description": "全消しを目指そう",
         "rule": "puyo",
         "initialPuyoField": [
@@ -76,6 +79,7 @@
     },
     {
         "id": "puyo-4",
+        "diff": 2,
         "description": "15連鎖をしてみよう",
         "rule": "puyo",
         "initialPuyoField": [
@@ -97,6 +101,46 @@
             "type": "chain",
             "value": 15,
             "description": "15連鎖"
+        }
+    },
+    {
+        "id": "puyo-5",
+        "diff": 3,
+        "description": "開幕AB7連続！",
+        "rule": "puyo",
+        "initialPuyoField": [
+            [0, 0, 0, 0, 0, 0]
+        ],
+        "nextPuyoPairs": [[1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2]],
+        "clearCondition": {
+            "type": "score",
+            "value": 3640,
+            "description": "14個同時イバラ全消し"
+        }
+    },
+    {
+        "id": "puyo-6",
+        "diff": 4,
+        "description": "ゴミ山8連鎖",
+        "rule": "puyo",
+        "initialPuyoField": [
+            [0, 0, 0, 4, 0, 0],
+            [0, 0, 0, 2, 0, 0],
+            [0, 0, 0, 2, 0, 0],
+            [0, 0, 0, 5, 0, 0],
+            [0, 0, 1, 1, 0, 0],
+            [0, 0, 4, 2, 0, 0],
+            [0, 0, 1, 5, 0, 0],
+            [0, 0, 4, 4, 0, 0],
+            [0, 1, 2, 5, 2, 0],
+            [0, 5, 5, 1, 5, 0],
+            [0, 1, 2, 2, 4, 0]
+        ],
+        "nextPuyoPairs": [[4, 4], [5, 5], [1, 2], [4, 1]],
+        "clearCondition": {
+            "type": "chain",
+            "value": 8,
+            "description": "8連鎖"
         }
     }
 ]
