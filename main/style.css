@@ -2031,6 +2031,21 @@ input[type="range"]::-webkit-slider-thumb:hover {
     100% { opacity: 1; }
 }
 
+/* ─── QUIZ NEXT一覧 ─────────────────────────── */
+#quiz-next-all-container {
+    margin-top: 8px;
+    line-height: 0;          /* canvas下の余白を消す */
+}
+
+#quiz-next-all-canvas {
+    display: block;
+    image-rendering: pixelated;   /* ブロック画像をくっきり拡縮 */
+    image-rendering: crisp-edges; /* Firefox向け */
+}
+
+#quiz-field-overlay {
+    overflow-y: auto;   /* NEXTが多くなった場合にスクロール可能にする */
+}
 
 /* QUIZリザルト: quiz-result-page */
 #quiz-result-page.active {
