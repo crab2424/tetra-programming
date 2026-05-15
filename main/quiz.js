@@ -1033,6 +1033,7 @@ async function startQuizLevel(levelData) {
 
     // stopAllGames → _stopQuizIfActive により非表示にされた後で表示を復元する
     _showQuizFieldHeader(levelData);
+    _renderQuizNextAll(levelData); // ← 追加
     
     // エラー回避：フィールド(盤面)がすでに存在している場合のみ、残像クリアと再描画を行う
     if (window._game) {
@@ -1221,6 +1222,153 @@ function _showQuizFieldHeader(levelData) {
         if (goalEl)      goalEl.textContent      = `GOAL: ${levelData.clearCondition.description}`;
     } else {
         overlay.style.display = 'none';
+        // NEXTキャンバスもクリア
+        const nc = document.getElementById('quiz-next-all-container');
+        if (nc) nc.innerHTML = '';
+    }
+}
+
+// ─── QUIZ NEXT一覧キャンバス描画 ─────────────────
+// ゲーム画面のquiz-field-overlayに全NEXTをまとめて描画する。
+// tet : Minoの形状定義に基づき BLOCK_SIZE*0.75 px のブロック画像で描画
+// puyo: PConfigの画像パスから色ごとの画像を CELL_SIZE*0.75 px で描画
+// 1行5個、左上揃え、行が埋まったら折り返す。
+// ─────────────────────────────────────────────────
+
+// ▼ 縮尺設定（独立して変更可能）
+const QUIZ_NEXT_TET_SCALE  = 0.38;   // テトミノの縮尺
+const QUIZ_NEXT_PUYO_SCALE = 0.75;   // ぷよの縮尺
+
+// テトミノ形状定義（左上揃え・コンパクト座標）
+// [colOffset, rowOffset] のペア、w=形状の幅(ブロック数)、h=高さ
+const _TET_SHAPES = {
+    0: { cols: [[0,1],[1,1],[2,1],[3,1]], w: 4, h: 3 }, // I
+    1: { cols: [[0,0],[1,0],[0,1],[1,1]], w: 2, h: 2 }, // O
+    2: { cols: [[1,0],[0,1],[1,1],[2,1]], w: 3, h: 2 }, // T
+    3: { cols: [[0,0],[0,1],[1,1],[2,1]], w: 3, h: 2 }, // J
+    4: { cols: [[2,0],[0,1],[1,1],[2,1]], w: 3, h: 2 }, // L
+    5: { cols: [[1,0],[2,0],[0,1],[1,1]], w: 3, h: 2 }, // S
+    6: { cols: [[0,0],[1,0],[1,1],[2,1]], w: 3, h: 2 }, // Z
+};
+
+// ぷよ色ID → 画像ファイル名
+const _PUYO_IMG_FILES = {
+    1: 'puyo-0.png',
+    2: 'puyo-1.png',
+    3: 'puyo-2.png',
+    4: 'puyo-3.png',
+    5: 'puyo-4.png',
+    6: 'puyo-5.png',
+};
+const _puyoImgCache = {};
+
+function _getPuyoImg(colorId) {
+    if (_puyoImgCache[colorId]) return _puyoImgCache[colorId];
+    const img = new Image();
+    img.src = PConfig.imagePath + (_PUYO_IMG_FILES[colorId] || 'puyo-5.png');
+    _puyoImgCache[colorId] = img;
+    return img;
+}
+
+function _renderQuizNextAll(levelData) {
+    let container = document.getElementById('quiz-next-all-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'quiz-next-all-container';
+        const overlay = document.getElementById('quiz-field-overlay');
+        if (!overlay) return;
+        overlay.appendChild(container);
+    }
+    container.innerHTML = '';
+    if (!levelData) return;
+
+    const COLS_PER_ROW = 5;
+
+    if (levelData.rule === 'tet') {
+        // ── テト用 ──────────────────────────────────────
+        // BLOCK_SIZE(32px) × スケールで1ブロックの描画サイズを決定
+        const BS  = Math.round(BLOCK_SIZE * QUIZ_NEXT_TET_SCALE); // 例: 32*0.75=24px
+        const PAD = 2; // セル間マージン(px)
+
+        // 1ミノセル：幅=4ブロック分、高さ=3ブロック分（I型の高さに合わせる）
+        const CELL_W = 4 * BS + PAD;
+        const CELL_H = 3 * BS + PAD;
+
+        const pieces = levelData.nextPieces || [];
+        const rows   = Math.ceil(pieces.length / COLS_PER_ROW);
+
+        const canvas = document.createElement('canvas');
+        canvas.id     = 'quiz-next-all-canvas';
+        canvas.width  = COLS_PER_ROW * CELL_W;
+        canvas.height = rows * CELL_H;
+        container.appendChild(canvas);
+
+        const ctx = canvas.getContext('2d');
+
+        pieces.forEach((typeId, i) => {
+            const shape = _TET_SHAPES[typeId];
+            if (!shape) return;
+            // ★ Asset.blockImages[typeId] でなく typeId そのものを使う
+            //    （typeId は 0〜6 で blockImages のインデックスに直対応）
+            const img = Asset.blockImages[typeId];
+            if (!img) return;
+
+            const col   = i % COLS_PER_ROW;
+            const row   = Math.floor(i / COLS_PER_ROW);
+            const baseX = col * CELL_W;
+            const baseY = row * CELL_H;
+
+            // セル内で形状を水平中央揃え、垂直中央揃え
+            const offsetX = Math.floor((4 * BS - shape.w * BS) / 2);
+            const offsetY = Math.floor((3 * BS - shape.h * BS) / 2);
+
+            shape.cols.forEach(([c, r]) => {
+                ctx.drawImage(
+                    img,
+                    baseX + offsetX + c * BS, // 描画先 X
+                    baseY + offsetY + r * BS, // 描画先 Y
+                    BS,                        // ★ 描画幅（縮尺適用）
+                    BS                         // ★ 描画高さ（縮尺適用）
+                );
+            });
+        });
+
+    } else {
+        // ── ぷよ用 ──────────────────────────────────────
+        const CS  = Math.round(PConfig.cellSize * QUIZ_NEXT_PUYO_SCALE); // 例: 32*0.75=24px
+        const PAD = 4;
+
+        // 1ペアセル：幅=1ぷよ分、高さ=2ぷよ分（縦ペア）
+        const CELL_W = CS + PAD;
+        const CELL_H = CS * 2 + PAD;
+
+        const pairs = levelData.nextPuyoPairs || [];
+        const rows  = Math.ceil(pairs.length / COLS_PER_ROW);
+
+        const canvas = document.createElement('canvas');
+        canvas.id     = 'quiz-next-all-canvas';
+        canvas.width  = COLS_PER_ROW * CELL_W;
+        canvas.height = rows * CELL_H;
+        container.appendChild(canvas);
+
+        const ctx = canvas.getContext('2d');
+
+        const drawOne = (img, x, y) => {
+            if (img.complete && img.naturalWidth > 0) {
+                ctx.drawImage(img, x, y, CS, CS); // ★ CS を第5・6引数で明示
+            } else {
+                img.onload = () => ctx.drawImage(img, x, y, CS, CS);
+            }
+        };
+
+        pairs.forEach(([pivot, child], i) => {
+            const col  = i % COLS_PER_ROW;
+            const row  = Math.floor(i / COLS_PER_ROW);
+            const x    = col * CELL_W;
+            const y    = row * CELL_H;
+            drawOne(_getPuyoImg(pivot), x, y);
+            drawOne(_getPuyoImg(child), x, y + CS);
+        });
     }
 }
 
