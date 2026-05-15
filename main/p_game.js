@@ -170,6 +170,7 @@ class PuyoGame {
         this._removeKeyHandlers();
         this._clearChainTextDOM();
         this._clearYokokuDOM(); // ★ おじゃま予告をDOMからクリアする
+        this._clearCanvases(); // ★ キャンバスをクリア
         if (this._loopId) {
             cancelAnimationFrame(this._loopId);
             this._loopId = null;
@@ -205,6 +206,22 @@ class PuyoGame {
             [allColors[i], allColors[j]] = [allColors[j], allColors[i]];
         }
         this.activeColors = allColors.slice(0, PConfig.colorCount);
+    }
+
+    // ★ 追加: キャンバスを明示的にクリア
+    _clearCanvases() {
+        if (this.ctx && this.canvas) {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+        if (this.nextCtx && this.nextCanvas) {
+            this.nextCtx.clearRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
+        }
+    }
+
+    // ★ 追加: resetField() - stopAllGames()からのリセット要求に対応
+    resetField() {
+        this._clearCanvases();
+        this._resetState();
     }
 
     _resetState() {
@@ -1906,7 +1923,7 @@ class PuyoGame {
         const timeEl = document.getElementById('result-time');
         if (timeEl) timeEl.textContent = this._formatTime(this.elapsed);
 
-        if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(false);
+        if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(true);
         if (typeof switchPage === 'function') switchPage('result');
     }
 

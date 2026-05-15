@@ -134,6 +134,10 @@ function stopAllGames() {
             if (typeof gameInst.stop === 'function') {
                 gameInst.stop();
             }
+            // ★ puyo ゲームの盤面もリセット
+            if (typeof gameInst._resetState === 'function') {
+                gameInst._resetState();
+            }
         } else {
             // tet の停止処理
             if (typeof gameInst.gameOver === 'function') { 
@@ -938,9 +942,13 @@ async function startGameFromModeCheck() {
   stopAllGames(); // 開始前に完全に状態をリセット
   const sessionId = currentSessionId;
 
-  if (!window._game && !window._puyoGame) window._game = new Game();
-  GameManager.setInstance('p1', window._game); // これを追加！
+  //if (!window._game && !window._puyoGame) window._game = new Game();
+  //GameManager.setInstance('p1', window._game); // これを追加！
+
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
+  
+  // ★ デバッグ: currentGameMode が正しく設定されているか確認
+  console.log('[startGameFromModeCheck] currentGameMode:', currentGameMode, 'modeId:', modeId);
 
   // ─── QUIZモード専用処理 ────────────────────────
   if (modeId === 'quiz') {
@@ -953,8 +961,25 @@ async function startGameFromModeCheck() {
   // ─── PUYO(シングル)モード専用処理
   if (modeId === 'puyo') {
     window._game = null; // ★ tetインスタンスへの参照を切る
-    _switchToPuyoLayout(true);
     
+    // ★ 修正: puyoゲーム用キャンバスをクリア（古い盤面を削除）
+    const puyoMainCanvas = document.getElementById('puyo-main-canvas');
+    const puyoNextCanvas = document.getElementById('puyo-next-canvas');
+    if (puyoMainCanvas) {
+        const ctx = puyoMainCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, puyoMainCanvas.width, puyoMainCanvas.height);
+    }
+    if (puyoNextCanvas) {
+        const ctx = puyoNextCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, puyoNextCanvas.width, puyoNextCanvas.height);
+    }
+    
+    _switchToPuyoLayout(true);
+
+    // ★ 修正: 前のゲーム状態を完全にクリアするため、新規インスタンスを常に作成
+    window._puyoGame = new PuyoGame();
+    GameManager.setInstance('p1', window._puyoGame);
+
     if (window._puyoGame) {
         window._puyoGame.isCpuControlled = false;
         window._puyoGame.isVersusMode = false;
@@ -969,6 +994,9 @@ async function startGameFromModeCheck() {
   // ─── TESTモード (PUYO) 処理
   if (modeId === 'test' && testRule === 'puyo') {
     _switchToPuyoLayout(true);
+    
+    // ★ 追加: ここでも PuyoGame インスタンスを登録
+    GameManager.setInstance('p1', window._puyoGame);
 
     if (!window._puyoGame) window._puyoGame = new PuyoGame();
     window._puyoGame.currentMode = 'test';
@@ -1011,6 +1039,9 @@ async function startGameFromModeCheck() {
   if (!window._game || typeof window._game.initMainCanvas !== 'function') {
       window._game = new Game();
   }
+
+  // ★ 追加: テトの場合はここで Game インスタンスを登録
+  GameManager.setInstance('p1', window._game);
 
   window._game.currentMode = modeId;
   window._game.isVersusMode = false;
