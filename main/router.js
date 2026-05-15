@@ -1189,9 +1189,15 @@ function toggleGamePause() {
     // プレイ中のみポーズ発動
     const canPauseGame = window._game && (window._game.state === 'playing' || window._game.state === 'active');
     const canPausePuyo = window._puyoGame && (window._puyoGame.state === 'playing' || window._puyoGame.state === 'active');
+
+    // QUIZぷよ中かどうかを判定（tetインスタンスへの操作を抑制するために使用）
+    const _isQuizPuyo2 = (currentGameMode && currentGameMode.id === 'quiz') &&
+        typeof currentQuizLevel !== 'undefined' && currentQuizLevel &&
+        currentQuizLevel.rule === 'puyo';
     
     if (canPauseGame || canPausePuyo) {
-      if (window._game && typeof window._game.pause === 'function') window._game.pause();
+      // QUIZぷよ中はtetインスタンスのpauseを呼ばない（resume時の暴発防止）
+      if (window._game && typeof window._game.pause === 'function' && !_isQuizPuyo2) window._game.pause();
       if (window._puyoGame && typeof window._puyoGame.pause === 'function') window._puyoGame.pause();
 
       const isQuiz = currentGameMode && currentGameMode.id === 'quiz';
@@ -1233,13 +1239,19 @@ function handlePauseAction(action) {
   if (overlay) overlay.classList.remove('active');
 
   switch (action) {
-    case 'resume':
-      // ★ PUYOモード中はtetインスタンスのresumeを呼ばない
-      if (window._game && typeof window._game.resume === 'function' && !(currentGameMode && currentGameMode.id === 'puyo')) {
+    case 'resume': {
+      // PUYOモード・QUIZぷよモード中はtetインスタンスのresumeを呼ばない
+      const _modeId = currentGameMode && currentGameMode.id;
+      const _isQuizPuyo = _modeId === 'quiz' &&
+          typeof currentQuizLevel !== 'undefined' && currentQuizLevel &&
+          currentQuizLevel.rule === 'puyo';
+      const _suppressTet = _modeId === 'puyo' || _isQuizPuyo;
+      if (window._game && typeof window._game.resume === 'function' && !_suppressTet) {
         window._game.resume();
       }
       if (window._puyoGame && typeof window._puyoGame.resume === 'function') window._puyoGame.resume();
       break;
+    }
     case 'settings':
       // pause-overlay を閉じる前に「設定から戻ったらポーズ画面を再表示する」フラグを立てる
       window._returnToPause = true;
