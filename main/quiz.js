@@ -412,19 +412,20 @@ class QuizManager {
 
         const self = this;
         // モード終了時に復元できるよう保存
-        this._originalDequeueNext = puyoGame._dequeueNext;
-        this._originalMakePair    = puyoGame._makePair;
-        this._originalRestart     = puyoGame.restart;
-        this._originalStart       = puyoGame.start;
-        this._originalGameOver    = puyoGame.gameOver;
+        this._originalDequeueNext   = puyoGame._dequeueNext;
+        this._originalMakePair      = puyoGame._makePair;
+        this._originalRestart       = puyoGame.restart;
+        this._originalStart         = puyoGame.start;
+        this._originalBeginGameOver = puyoGame._beginGameOver; // PuyoGame の本体は _beginGameOver
 
-        // ─── gameOver フック ──────────────────────────────────────
+        // ─── _beginGameOver フック ──────────────────────────────────────
         // ぷよが積み上がってゲームオーバーになった場合も QUIZ の失敗処理に統一する
-        puyoGame.gameOver = function() {
+        // ※ PuyoGame のゲームオーバー処理の実体は _beginGameOver() であり gameOver() ではない
+        puyoGame._beginGameOver = function() {
             if (self.currentLevel && !self.isClear && !self.isFailed) {
                 self._onFailed();
             } else {
-                if (self._originalGameOver) self._originalGameOver.call(this);
+                if (self._originalBeginGameOver) self._originalBeginGameOver.call(this);
             }
         }.bind(puyoGame);
 
@@ -819,7 +820,7 @@ class QuizManager {
                 if (this._originalMakePair) this.gameInstance._makePair = this._originalMakePair;
                 if (this._originalRestart) this.gameInstance.restart = this._originalRestart;
                 if (this._originalStart) this.gameInstance.start = this._originalStart;
-                if (this._originalGameOver) this.gameInstance.gameOver = this._originalGameOver;
+                if (this._originalBeginGameOver) this.gameInstance._beginGameOver = this._originalBeginGameOver;
                 
                 // エラー回避: フィールドが存在する場合のみクリアと再描画を行う
                 if (this.gameInstance.field) {
@@ -856,6 +857,7 @@ class QuizManager {
         this._originalRestart = null;
         this._originalStart = null;
         this._originalGameOver = null;
+        this._originalBeginGameOver = null;
     }
 }
 
@@ -1064,6 +1066,17 @@ async function startQuizLevel(levelData) {
     // ─── ルールに応じてゲームインスタンスを準備 ───
     if (levelData.rule === 'puyo') {
         _switchToPuyoLayout(true);
+
+        // QUIZぷよ中はtetインスタンスのキーハンドラを明示的に無効化する
+        // （残存ハンドラが pause キーに反応して resume() → startGravity() が暴発するのを防ぐ）
+        if (window._game) {
+            if (window._game._keyDownHandler) document.removeEventListener('keydown', window._game._keyDownHandler);
+            if (window._game._keyUpHandler)   document.removeEventListener('keyup',   window._game._keyUpHandler);
+            if (window._game._keyLoop)        { clearInterval(window._game._keyLoop); window._game._keyLoop = null; }
+            window._game._keyDownHandler = null;
+            window._game._keyUpHandler   = null;
+            window._game.isPaused = false; // 残存 isPaused フラグもリセット
+        }
 
         if (!window._puyoGame) window._puyoGame = new PuyoGame();
         const pg = window._puyoGame;
