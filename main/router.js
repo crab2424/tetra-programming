@@ -867,6 +867,8 @@ function renderModeCheck() {
           const idx = QUIZ_LEVELS[lv.rule].findIndex(l => l.id === lv.id);
           if (idx !== -1) levelNum = idx + 1;
         }
+        // 難易度★の生成（_renderDiffStars は quiz.js で定義）
+        const diffStarsHtml = (typeof _renderDiffStars === 'function') ? _renderDiffStars(lv.diff) : '';
         const levelTitle = `${ruleLabel} - ${levelNum}`;
 
         console.log("Current Quiz Level:", levelTitle);
@@ -885,7 +887,7 @@ function renderModeCheck() {
 
         optionsEl.innerHTML = `
         <div class="option-row" style="flex-direction:column; gap:6px; align-items:flex-start;">
-          <span class="option-label" style="color:#f58542;">${levelTitle}</span>
+          <span class="option-label" style="color:#f58542;">${levelTitle}${diffStarsHtml ? `&nbsp;<span style="font-size:0.8em;">${diffStarsHtml}</span>` : ''}</span>
             <span style="font-size:11px; color:var(--text-dim); letter-spacing:1px;">${lv.description}</span>
             <span style="font-size:11px; color:#f58542; letter-spacing:1px;">GOAL: ${lv.clearCondition.description}</span>
             ${nextInfoText ? `<span style="font-size:11px; color:var(--text-dim); letter-spacing:1px; word-break: break-all;">${nextInfoText}</span>` : ''}

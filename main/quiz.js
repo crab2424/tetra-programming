@@ -200,6 +200,17 @@ class QuizManager {
         this._originalSecureMino = game.secureMino;
         this._originalRestart = game.restart;
         this._originalStart = game.start;
+        this._originalGameOver = game.gameOver;
+
+        // ─── gameOver フック ──────────────────────────────────────
+        // ミノが詰まるなどでゲームオーバーになった場合も QUIZ の失敗処理に統一する
+        game.gameOver = function() {
+            if (self.currentLevel && !self.isClear && !self.isFailed) {
+                self._onFailed();
+            } else {
+                if (self._originalGameOver) self._originalGameOver.call(this);
+            }
+        }.bind(game);
 
         // ─── restart フック ──────────────────────────────────────
         // プレイ中のショートカットやポーズ画面からのリトライをQUIZモード専用のリトライに統一する
@@ -405,7 +416,18 @@ class QuizManager {
         this._originalMakePair    = puyoGame._makePair;
         this._originalRestart     = puyoGame.restart;
         this._originalStart       = puyoGame.start;
-        
+        this._originalGameOver    = puyoGame.gameOver;
+
+        // ─── gameOver フック ──────────────────────────────────────
+        // ぷよが積み上がってゲームオーバーになった場合も QUIZ の失敗処理に統一する
+        puyoGame.gameOver = function() {
+            if (self.currentLevel && !self.isClear && !self.isFailed) {
+                self._onFailed();
+            } else {
+                if (self._originalGameOver) self._originalGameOver.call(this);
+            }
+        }.bind(puyoGame);
+
         let pairIndex = 0;
 
         // ─── restart フック ──────────────────────────────────────
@@ -478,11 +500,16 @@ class QuizManager {
                 puyoGame.field[r][c] = 0;
             }
         }
-        const displayStart = PConfig.hiddenRows; // 5
+        
+        // ★修正：上揃え（displayStart基準）から下詰め（総行数基準）に変更
+        // これにより行数が少ないデータ（レベル6など）でも宙に浮かず一番下に配置されます。
+        const startRow = totalRows - fieldRows.length;
+        
         fieldRows.forEach((row, rowIdx) => {
-            const fr = displayStart + rowIdx;
+            const fr = startRow + rowIdx;
             row.forEach((colorId, colIdx) => {
-                if (colorId > 0 && fr < totalRows && colIdx < PConfig.cols) {
+                // fr >= 0 を追加し、データ行数が多すぎた場合の配列外アクセスも防止
+                if (colorId > 0 && fr >= 0 && fr < totalRows && colIdx < PConfig.cols) {
                     puyoGame.field[fr][colIdx] = colorId;
                 }
             });
@@ -771,6 +798,7 @@ class QuizManager {
                 if (this._originalSecureMino) this.gameInstance.secureMino = this._originalSecureMino;
                 if (this._originalRestart) this.gameInstance.restart = this._originalRestart;
                 if (this._originalStart) this.gameInstance.start = this._originalStart;
+                if (this._originalGameOver) this.gameInstance.gameOver = this._originalGameOver;
                 this.gameInstance.canHold = true;
                 
                 // HTML要素による斜線表示を非表示にする
@@ -791,6 +819,7 @@ class QuizManager {
                 if (this._originalMakePair) this.gameInstance._makePair = this._originalMakePair;
                 if (this._originalRestart) this.gameInstance.restart = this._originalRestart;
                 if (this._originalStart) this.gameInstance.start = this._originalStart;
+                if (this._originalGameOver) this.gameInstance.gameOver = this._originalGameOver;
                 
                 // エラー回避: フィールドが存在する場合のみクリアと再描画を行う
                 if (this.gameInstance.field) {
@@ -826,6 +855,7 @@ class QuizManager {
         this._originalMakePair = null;
         this._originalRestart = null;
         this._originalStart = null;
+        this._originalGameOver = null;
     }
 }
 
@@ -870,7 +900,8 @@ function _setQuizResultPage(isSuccess, levelData, currentIdx) {
     if (levelEl && levelData) {
         const ruleLabel  = levelData.rule === 'tet' ? 'TET' : 'PUYO';
         const levelNum   = (currentIdx >= 0) ? currentIdx + 1 : '?';
-        levelEl.textContent = `${ruleLabel} - ${levelNum}`;
+        const diffStars  = _renderDiffStars(levelData.diff);
+        levelEl.innerHTML = `${ruleLabel} - ${levelNum}${diffStars ? `&nbsp;<span style="font-size:0.75em;">${diffStars}</span>` : ""}`;
     }
 
     const condEl = document.getElementById('quiz-result-condition');
@@ -910,6 +941,46 @@ function setQuizRule(rule) {
     renderQuizCheck();
 }
 
+// ─── 難易度★用スタイルを動的注入 ───────────────
+(function _injectDiffStarStyles() {
+    if (document.getElementById('quiz-diff-star-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'quiz-diff-star-styles';
+    style.textContent = `
+        .quiz-level-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .quiz-level-diff {
+            display: block;
+            font-size: 9px;
+            line-height: 1;
+            margin-top: 2px;
+            letter-spacing: 1px;
+        }
+        .diff-star { font-style: normal; }
+        .diff-star-filled { color: #f5c542; }
+        .diff-star-empty  { color: rgba(255,255,255,0.18); }
+    `;
+    document.head.appendChild(style);
+})();
+
+// ─── 難易度★レンダリングヘルパー ─────────────────
+// diff: 数値（未指定時は null→非表示）
+// 最大5★、filled/empty で色分けする HTML 文字列を返す
+function _renderDiffStars(diff) {
+    if (diff == null || diff === undefined) return '';
+    const max = 5;
+    const filled = Math.max(0, Math.min(max, Math.round(diff)));
+    let html = '';
+    for (let i = 1; i <= max; i++) {
+        html += `<span class="diff-star ${i <= filled ? 'diff-star-filled' : 'diff-star-empty'}">${i <= filled ? '★' : '☆'}</span>`;
+    }
+    return html;
+}
+
 // ★ 非同期関数に変更し、データをfetchしてから描画するようにしました
 async function renderQuizCheck() {
     await loadQuizLevels();
@@ -928,7 +999,8 @@ async function renderQuizCheck() {
         const btn = document.createElement('button');
         btn.className = 'quiz-level-btn';
         btn.dataset.levelId = level.id;
-        btn.innerHTML = `<span class="quiz-level-num">${idx + 1}</span>`;
+        const diffStars = _renderDiffStars(level.diff);
+        btn.innerHTML = `<span class="quiz-level-num">${idx + 1}</span>${diffStars ? `<span class="quiz-level-diff">${diffStars}</span>` : ''}`;
         btn.onclick = () => {
             currentQuizLevel = level;
             // 【変更】ゲームを即座に開始せず、選択したレベルを保持して準備画面（mode-check）へ遷移する
