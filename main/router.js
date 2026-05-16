@@ -584,10 +584,14 @@ function restartVersusFromResult() {
 
 function versusGameOver(loser) {
   // ★ 修正: ここでも Tet と Puyo を確実に区別する
-  const stopGame = (gameInst) => {
+  const stopGame = (gameInst, isWinner) => {
       if (!gameInst) return;
       if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
           if (typeof gameInst.stop === 'function') {
+              // ★ 勝者側ぷよは演出中も盤面・NEXTを残すため、_versusFinishingフラグを立ててからstop()する
+              if (isWinner) {
+                  gameInst._versusFinishing = true;
+              }
               gameInst.stop();
               gameInst.state = 'gameover';
           }
@@ -611,8 +615,10 @@ function versusGameOver(loser) {
       }
   };
 
-  stopGame(window._game);
-  stopGame(window._cpuGame);
+  // loser === 'player' のとき: _game が敗者、_cpuGame が勝者
+  // loser === 'cpu'    のとき: _cpuGame が敗者、_game が勝者
+  stopGame(window._game,    loser === 'cpu');    // loser=cpu なら _game が勝者
+  stopGame(window._cpuGame, loser === 'player'); // loser=player なら _cpuGame が勝者
   
   if (window._cpuController && typeof window._cpuController.stop === 'function') {
       window._cpuController.stop();
