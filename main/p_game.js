@@ -2763,16 +2763,9 @@ class PuyoGame {
             } else if (img && img.complete && img.naturalWidth > 0) {
                 // 連結画像が未ロードの場合は通常画像にフォールバック
                 ctx.drawImage(img, dx, dy, dw, dh);
-            } else {
-                // 画像が何もない場合はフォールバック描画（フォールバックは下記と共通）
-                // フォールバックはCanvasネイティブ描画なのでオーバーラップは不要
-                this._drawPuyoFallback(ctx, x, y, size, imageIndex);
             }
         } else if (img && img.complete && img.naturalWidth > 0) {
             ctx.drawImage(img, dx, dy, dw, dh);
-        } else {
-            // ── 画像未ロード時のフォールバック（丸＋目） ──
-            this._drawPuyoFallback(ctx, x, y, size, imageIndex);
         }
 
         // ── フラッシュエフェクト ──
