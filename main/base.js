@@ -49,9 +49,16 @@ window.onload = function () {
         window._cpuGame = cpuGame
 
         // リザルト画面の「RETRY」ボタン
+        // ★ 修正: puyoモードとtetモードで異なるハンドラーを設定
         document.getElementById('result-retry-btn').onclick = function () {
-            switchPage('game');
-            game.start();
+            if (currentGameMode && currentGameMode.id === 'puyo') {
+                // puyoモード：startGameFromModeCheck を呼び出す
+                startGameFromModeCheck();
+            } else {
+                // tetモード：従来のgame.startを呼び出す
+                switchPage('game');
+                game.start();
+            }
             this.blur();
         }
 

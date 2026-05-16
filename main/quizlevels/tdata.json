@@ -1,8 +1,8 @@
 [
     {
         "id": "tet-1",
-        "title": "QUIZ 1",
-        "description": "I型1つでラインを消せ！",
+        "diff": 1,
+        "description": "まずはチュートリアル",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -12,14 +12,14 @@
         "nextPieces": [0],
         "clearCondition": {
             "type": "clearLines",
-            "value": 1,
-            "description": "1ライン消去"
+            "value": 2,
+            "description": "2ライン消去"
         }
     },
     {
         "id": "tet-2",
-        "title": "QUIZ 2",
-        "description": "フィールドを全て消せ！",
+        "diff": 1,
+        "description": "4-LINE 全消し",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -40,48 +40,9 @@
         }
     },
     {
-        "id": "tet-3",
-        "title": "QUIZ 3",
-        "description": "T-Spinを決めろ！",
-        "rule": "tet",
-        "allowHold": false,
-        "initialField": [
-            [3,3,0,0,3,3,3,3,3,3],
-            [3,3,0,0,0,3,3,3,3,3],
-            [3,3,3,0,3,3,3,3,3,3],
-            [3,3,0,0,3,3,3,3,3,3],
-            [3,3,0,3,3,3,3,3,3,3]
-        ],
-        "nextPieces": [2],
-        "clearCondition": {
-            "type": "clearLines",
-            "value": 2,
-            "description": "2ライン消去（T-Spin推奨）"
-        }
-    },
-    {
-        "id": "tet-4",
-        "title": "QUIZ 4",
-        "description": "合計4ライン消去せよ！",
-        "rule": "tet",
-        "allowHold": false,
-        "initialField": [
-            [4,4,4,4,4,4,4,4,4,0],
-            [4,4,4,4,4,4,4,4,4,0],
-            [4,4,4,4,4,4,4,4,4,0],
-            [4,4,4,4,4,4,4,4,4,0]
-        ],
-        "nextPieces": [0, 0, 0, 0, 0],
-        "clearCondition": {
-            "type": "lines",
-            "value": 4,
-            "description": "合計4ライン消去"
-        }
-    },
-    {
         "id": "tet-5",
-        "title": "QUIZ 5",
-        "description": "T-Spin を決めろ！",
+        "diff": 1,
+        "description": "T-Spin をやってみよう",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -94,13 +55,13 @@
         "clearCondition": {
             "type": "tspinDouble",
             "value": 2,
-            "description": "T-Spin Double以上（mini含む）"
+            "description": "T-Spin しながら2ライン消去"
         }
     },
     {
         "id": "tet-6",
-        "title": "QUIZ 6",
-        "description": "3RENを達成せよ！",
+        "diff": 2,
+        "description": "RENをつなげてみよう",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -117,8 +78,8 @@
     },
     {
         "id": "tet-7",
-        "title": "QUIZ 7",
-        "description": "ライン消去を3回成功させろ！",
+        "diff": 2,
+        "description": "そろそろ慣れてきたかな？",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -139,9 +100,28 @@
         }
     },
     {
+        "id": "tet-9",
+        "diff": 3,
+        "description": "できそうでできないパフェ",
+        "rule": "tet",
+        "allowHold": true,
+        "initialField": [
+            [7,7,0,0,0,0,4,4,4,1],
+            [3,7,7,0,0,0,2,2,4,1],
+            [3,3,6,6,0,0,2,2,5,1],
+            [3,6,6,0,0,0,5,5,5,1]
+        ],
+        "nextPieces": [4, 1, 5, 6],
+        "clearCondition": {
+            "type": "allClear",
+            "value": 2,
+            "description": "パーフェクトクリア"
+        }
+    },
+    {
         "id": "tet-8",
-        "title": "QUIZ 8",
-        "description": "T-Spin doubleを2回決めろ！",
+        "diff": 4,
+        "description": "T-Spin doubleを2回決める",
         "rule": "tet",
         "allowHold": true,
         "initialField": [
@@ -160,21 +140,72 @@
         }
     },
     {
-        "id": "tet-9",
-        "title": "QUIZ 9",
-        "description": "できそうでできないパフェ",
+        "id": "tet-11",
+        "diff": 4,
+        "description": "Tだけのパフェ",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [0,0,0,0,0,0,0,0,0,0]
+        ],
+        "nextPieces": [2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+        "clearCondition": {
+            "type": "allClear",
+            "value": 0,
+            "description": "パーフェクトクリア"
+        }
+    },
+    {
+        "id": "tet-10",
+        "diff": 4,
+        "description": "実は全部繋がる",
         "rule": "tet",
         "allowHold": true,
         "initialField": [
-            [7,7,0,0,0,0,4,4,4,1],
-            [3,7,7,0,0,0,2,2,4,1],
-            [3,3,6,6,0,0,2,2,5,1],
-            [3,6,6,0,0,0,5,5,5,1]
+            [8,8,0,8,8,8,8,8,8,8],
+            [8,8,8,8,0,8,8,8,8,8],
+            [8,8,8,8,8,0,8,8,8,8],
+            [8,8,8,8,8,8,0,8,8,8],
+            [8,0,8,8,8,8,8,8,8,8],
+            [0,8,8,8,8,8,8,8,8,8],
+            [8,8,8,8,8,8,8,8,8,0],
+            [8,8,0,8,8,8,8,8,8,8],
+            [8,8,8,8,8,8,8,8,0,8],
+            [8,8,8,8,8,8,8,0,8,8],
+            [8,0,8,8,8,8,8,8,8,8],
+            [8,8,8,8,0,8,8,8,8,8],
+            [8,8,8,8,8,8,8,8,8,0],
+            [8,8,8,8,0,8,8,8,8,8],
+            [8,8,8,8,8,0,8,8,8,8],
+            [8,8,8,0,8,8,8,8,8,8],
+            [8,8,8,8,8,8,8,8,8,0],
+            [8,0,8,8,8,8,8,8,8,8],
+            [8,8,0,8,8,8,8,8,8,8],
+            [8,8,8,8,8,8,0,8,8,8]
         ],
-        "nextPieces": [4, 1, 5, 6],
+        "nextPieces": [3, 5, 4, 1, 6, 2, 0, 5, 2, 4, 1, 3, 0, 3, 1, 6, 5, 0, 2, 4, 6, 6, 2, 1, 0, 3, 5, 4, 4, 2, 0, 6, 1, 3, 5],
+        "clearCondition": {
+            "type": "ren",
+            "value": 29,
+            "description": "29RENパーフェクトクリア"
+        }
+    },
+    {
+        "id": "tet-12",
+        "diff": 5,
+        "description": "見えるかな？",
+        "rule": "tet",
+        "allowHold": true,
+        "initialField": [
+            [8,8,0,0,0,0,0,0,8,8],
+            [8,8,8,0,0,0,0,8,8,8],
+            [8,8,8,0,0,0,0,8,8,8],
+            [8,8,0,0,0,0,0,0,8,8]
+        ],
+        "nextPieces": [2, 6, 3, 2, 1, 1],
         "clearCondition": {
             "type": "allClear",
-            "value": 2,
+            "value": 0,
             "description": "パーフェクトクリア"
         }
     }

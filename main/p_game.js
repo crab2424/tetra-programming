@@ -113,6 +113,8 @@ class PuyoGame {
 
         this.isAllClear = false; // ★ 全消し表示フラグ
 
+        this._versusFinishing = false; // ★ versus終了演出中フラグ（stop()のキャンバス消去抑止用）
+
         this._images = {};
         this._imagesLoaded = false;
         this.isPaused = false;
@@ -164,15 +166,21 @@ class PuyoGame {
         this._loop();
     }
 
-    stop() {
-        this.state = 'idle';
+    stop(keepCanvas = false) {
         this._stopTimer();
         this._removeKeyHandlers();
         this._clearChainTextDOM();
         this._clearYokokuDOM(); // ★ おじゃま予告をDOMからクリアする
-        if (this._loopId) {
-            cancelAnimationFrame(this._loopId);
-            this._loopId = null;
+        // ★ keepCanvas=true または versus終了演出中フラグが立っているとき、
+        //    キャンバスをクリアせず描画ループも止めない（勝者側の盤面・NEXTを残すため）
+        //    また state も gameover のまま維持し、_loop() の描画継続条件を保つ
+        if (!keepCanvas && !this._versusFinishing) {
+            this.state = 'idle';
+            this._clearCanvases(); // ★ キャンバスをクリア
+            if (this._loopId) {
+                cancelAnimationFrame(this._loopId);
+                this._loopId = null;
+            }
         }
     }
 
@@ -205,6 +213,22 @@ class PuyoGame {
             [allColors[i], allColors[j]] = [allColors[j], allColors[i]];
         }
         this.activeColors = allColors.slice(0, PConfig.colorCount);
+    }
+
+    // ★ 追加: キャンバスを明示的にクリア
+    _clearCanvases() {
+        if (this.ctx && this.canvas) {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+        if (this.nextCtx && this.nextCanvas) {
+            this.nextCtx.clearRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
+        }
+    }
+
+    // ★ 追加: resetField() - stopAllGames()からのリセット要求に対応
+    resetField() {
+        this._clearCanvases();
+        this._resetState();
     }
 
     _resetState() {
@@ -250,6 +274,8 @@ class PuyoGame {
         this.moveLockCount = 0;
 
         this.isAllClear = false; // ★ 全消し表示フラグをリセット
+
+        this._versusFinishing = false; // ★ versus終了演出中フラグをリセット
 
         this._dasDir = 0;
         this._dasTimer = 0;
@@ -955,7 +981,9 @@ class PuyoGame {
     }
 
     _loop() {
-        if (this.state !== 'playing') return;
+        // ★ versusモードのgameover中（_versusFinishing）は描画のみ継続（勝者側の盤面・NEXTを残すため）
+        const continueForVersus = this.isVersusMode && this._versusFinishing;
+        if (this.state !== 'playing' && !continueForVersus) return;
         this._loopId = requestAnimationFrame(() => this._loop());
 
         let now = performance.now();
@@ -963,7 +991,10 @@ class PuyoGame {
         if (dt > 100) dt = 100;
         this.lastTime = now;
 
-        this._update(dt);
+        // ★ gameover中は _update をスキップして描画のみ行う
+        if (this.state === 'playing') {
+            this._update(dt);
+        }
         this._render();
     }
 
@@ -1873,6 +1904,10 @@ class PuyoGame {
 
         if (this.isVersusMode) {
             const loser = (this.canvasPrefix === 'cpu') ? 'cpu' : 'player';
+            // ★ versusGameOver内の stopGame が stop() を呼んでも、
+            //    _versusFinishing フラグによりキャンバス・ループを保持する。
+            //    state は gameover のまま維持されるため、_loop() の描画継続条件を満たし続ける。
+            this._versusFinishing = true;
             if (typeof versusGameOver === 'function') versusGameOver(loser);
             return;
         }
@@ -1906,7 +1941,7 @@ class PuyoGame {
         const timeEl = document.getElementById('result-time');
         if (timeEl) timeEl.textContent = this._formatTime(this.elapsed);
 
-        if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(false);
+        if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(true);
         if (typeof switchPage === 'function') switchPage('result');
     }
 

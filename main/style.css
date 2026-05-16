@@ -1978,6 +1978,74 @@ input[type="range"]::-webkit-slider-thumb:hover {
     flex-shrink: 0;
 }
 
+/* =========================================================
+  QUIZ Preview Overlay
+   ========================================================= */
+#quiz-preview-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    /* ★ 表示位置の変更 ★
+      元の -50% (中央揃え) の位置から、さらに左に200px、上に100px移動させます。
+      数値を変更すれば好きな位置に微調整できます。 */
+    transform: translate(calc(-50% - 300px), calc(-50% - 20px));
+    z-index: 100;
+    text-align: center;
+    
+    /* ★ 背景の黒色度合い（0.0〜1.0） 
+    今回は0.4くらいにすると元の0.7よりかなり薄く（透けて）見えます。
+    もっと薄くしたい場合は 0.2 や 0.3 にしてみてください。 */
+    background: rgba(0, 0, 0, 0.7); 
+    
+    /* 枠線は前回薄くしてしまいましたが、元のスタイル（テーマカラー）に戻しています */
+    border: 2px solid var(--accent);
+    
+    padding: 15px 30px;
+    border-radius: 8px;
+    
+    /* ★ 共有いただいたCSS変数を使用してフォントを統一
+       もし別のフォントが良ければ var(--font-tech) や var(--font-pixel) に変更してください */
+    font-family: var(--font-orbitron);
+    color: var(--text);
+    
+    font-weight: bold;
+    font-size: 1.2rem;
+    pointer-events: none;
+    letter-spacing: 1px;
+    line-height: 1.4;
+    
+    /* ★ 点滅間隔の調整
+    2.5s の数値を変更することで点滅のスピードが変わります。
+    (数値を大きくする＝遅くなる、小さくする＝速くなる) */
+    animation: quiz-preview-pulse 2.5s infinite ease-in-out;
+}
+
+#quiz-preview-overlay .quiz-preview-sub {
+    font-size: 0.8em;
+    opacity: 0.8;
+}
+
+@keyframes quiz-preview-pulse {
+    0%   { opacity: 1; }
+    50%  { opacity: 0.4; } /* 点滅で一番薄くなったときの透明度 */
+    100% { opacity: 1; }
+}
+
+/* ─── QUIZ NEXT一覧 ─────────────────────────── */
+#quiz-next-all-container {
+    margin-top: 8px;
+    line-height: 0;          /* canvas下の余白を消す */
+}
+
+#quiz-next-all-canvas {
+    display: block;
+    image-rendering: pixelated;   /* ブロック画像をくっきり拡縮 */
+    image-rendering: crisp-edges; /* Firefox向け */
+}
+
+#quiz-field-overlay {
+    overflow-y: auto;   /* NEXTが多くなった場合にスクロール可能にする */
+}
 
 /* QUIZリザルト: quiz-result-page */
 #quiz-result-page.active {
@@ -2031,8 +2099,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
   z-index: 1;
 }
 
-/* ─── PAUSE モーダル内 QUIZ レベル情報ブロック ─── */
-#pause-quiz-info {
+/* ─── PAUSE モーダル / フィールドヘッダー 共通 QUIZ レベル情報ブロック ─── */
+#pause-quiz-info,
+#quiz-field-info {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2045,7 +2114,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   border-radius: 8px;
 }
 
-#pause-quiz-info-rule-title {
+#pause-quiz-info-rule-title,
+#quiz-field-info-rule-title {
   font-family: 'Orbitron', monospace;
   font-size: 12px;
   font-weight: 700;
@@ -2053,14 +2123,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: #f58542;
 }
 
-#pause-quiz-info-desc {
+#pause-quiz-info-desc,
+#quiz-field-info-desc {
   font-family: 'Orbitron', monospace;
   font-size: 10px;
   letter-spacing: 1px;
   color: var(--text-dim);
 }
 
-#pause-quiz-info-goal {
+#pause-quiz-info-goal,
+#quiz-field-info-goal {
   font-family: 'Orbitron', monospace;
   font-size: 10px;
   letter-spacing: 1px;
