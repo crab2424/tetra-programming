@@ -210,87 +210,101 @@ bool isTSDShape(const Board& board, int cx, int cy, const int heights[COLS] = nu
 
 struct TSDStats { int count; int fillCount; int holeCount; };
 
-// ★最適化：引数に outMaxHeight を追加（SearchStateへの引継ぎ用）
-int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, int ren = 0, bool backToBack = false, const GridBlock* droppedBlocks = nullptr, int tSpinType = 0, int* outMaxHeight = nullptr) {
-    int score = 0;
-    if (linesCleared > 0) score += (linesCleared - 2) * w.lineClear;
-    if (linesCleared >= 4) score += w.line4;
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ★分割：旧 evaluateBoard を evalBoardState / evalPlacementEvent に分離
+//
+// ・evalBoardState   : 盤面の「現在の状態」を評価する（毎ステップ加算される評価値）
+//                      穴・高さ・段差・TSD形状・Iウェル・下り坂など
+// ・evalPlacementEvent: その1手を置いたことで発生したイベントを評価する（1回限りの報酬）
+//                      ライン消去・Tスピン・BtB・コンボ・接地ボーナスなど
+//
+// 旧 evaluateBoard（1関数でまとめていた実装）はコメントアウトで残す
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    if (linesCleared >= 1 && linesCleared <= 3 && droppedBlocks != nullptr) {
-        int minoBottomY = -1;
-        for (int i=0; i<4; i++) {
-            if (droppedBlocks[i].y > minoBottomY) minoBottomY = droppedBlocks[i].y;
-        }
-        int n = (ROWS - 1) - minoBottomY; 
-        if (n < 0) n = 0;
-        if (n >= 3 && isGrounded) score += w.downstackGood * n; 
-        else if (n < 3) score += w.downstackBad * 10 * n; 
-    }
+/*
+// ★旧実装：evaluateBoard（評価値と報酬を一括計算していた版）
+int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, int ren, bool backToBack, const GridBlock* droppedBlocks, int tSpinType, int* outMaxHeight) {
+    // ...（下記の evalBoardState + evalPlacementEvent に分割済み）
+}
+*/
 
-    // ★最適化：ビットボードから一瞬で各列の高さを算出
-    uint32_t cols[COLS] = {0};
-    int heights[COLS] = {0};
+// ────────────────────────────────────────────────
+// 共通ヘルパー：ビットボードから列ごとの高さを算出し、cols / heights / maxHeight を埋める
+// evalBoardState と evalPlacementEvent の両方から利用する
+// ────────────────────────────────────────────────
+static inline int calcHeights(const Board& b, uint32_t cols[COLS], int heights[COLS]) {
+    for(int x = 0; x < COLS; x++) { cols[x] = 0; heights[x] = 0; }
     for(int y = 0; y < ROWS; y++) {
         uint16_t row = b.rows[y];
         for(int x = 0; x < COLS; x++) {
             if ((row >> x) & 1) cols[x] |= (1 << y);
         }
     }
-
-    int maxHeight = 0; int minHeight = ROWS;
+    int maxHeight = 0;
     for (int x = 0; x < COLS; x++) {
         if (cols[x] != 0) {
             // ★最適化：__builtin_ctz (最下位の0の数を数える超高速命令) を使って高さを一発で取得
-            heights[x] = ROWS - __builtin_ctz(cols[x]); 
+            heights[x] = ROWS - __builtin_ctz(cols[x]);
             if (heights[x] > maxHeight) maxHeight = heights[x];
-            if (heights[x] < minHeight) minHeight = heights[x];
-        } else {
-            minHeight = 0;
         }
     }
-    
+    return maxHeight;
+}
+
+// ────────────────────────────────────────────────
+// 【評価値】evalBoardState
+// 配置後の盤面を見て「現在の盤面の良さ・悪さ」を返す。
+// これは毎ステップ加算される値であり、盤面が変わらない限り同じ値が出続ける。
+// 含む要素：穴・高さ・段差・flat・Iウェル・TSD形状・下り坂・TSDセットアップ・blocksOverHole
+// ────────────────────────────────────────────────
+int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nullptr) {
+    int score = 0;
+
+    // ★最適化：ビットボードから一瞬で各列の高さを算出
+    uint32_t cols[COLS];
+    int heights[COLS];
+    int maxHeight = calcHeights(b, cols, heights);
+
     // 呼び出し元に高さを引き継ぐ
     if (outMaxHeight != nullptr) *outMaxHeight = maxHeight;
 
+    // 高さペナルティ
     if(maxHeight >= 8) score += (maxHeight - 7) * (maxHeight - 7) * w.heightLimit;
     if(maxHeight >= 18) score += 100 * maxHeight * maxHeight * w.heightLimit;
 
     // ★追加：ゆるやかな下り坂の評価
-    // 左側 (y1=0, y2=1, y3=2, y4=3)
+    // 左側 (x=0,1,2,3)
     float l_y1 = heights[0], l_y2 = heights[1] - l_y1, l_y3 = heights[2] - l_y1, l_y4 = heights[3] - l_y1;
     float l_cond1 =  -(2.0f * l_y2 + l_y3) / 2.0f;
     float l_cond2 = l_y4 - (l_y2 + l_y3) / 3.0f;
     if (l_cond1 >= 0.0f && l_cond2 <= 2.0f) {
         score += w.slopeBonus;
     } else if (maxHeight <= 10){
-        score += (l_cond1) * (l_cond1) * w.slopePenalty;
-        score += (l_cond2) * (l_cond2) * w.slopePenalty;
+        score += (int)((l_cond1) * (l_cond1) * w.slopePenalty);
+        score += (int)((l_cond2) * (l_cond2) * w.slopePenalty);
     }
 
-    // 右側 (y1=9, y2=8, y3=7, y4=6)
+    // 右側 (x=9,8,7,6)
     float r_y1 = heights[9], r_y2 = heights[8] - r_y1, r_y3 = heights[7] - r_y1, r_y4 = heights[6] - r_y1;
     float r_cond1 =  -(2.0f * r_y2 + r_y3) / 2.0f;
     float r_cond2 = r_y4 - (r_y2 + r_y3) / 3.0f;
     if (r_cond1 >= 0.0f && r_cond2 <= 2.0f) {
         score += w.slopeBonus;
     } else if (maxHeight <= 10){
-        score += (r_cond1) * (r_cond1) * w.slopePenalty;
-        score += (r_cond2) * (r_cond2) * w.slopePenalty;
+        score += (int)((r_cond1) * (r_cond1) * w.slopePenalty);
+        score += (int)((r_cond2) * (r_cond2) * w.slopePenalty);
     }
 
     // ★最適化：I-Well判定のループ外への切り出しをビット演算で完全一括処理
     bool hasIWellInRow[ROWS] = {false};
     for (int cy = 1; cy < ROWS - 1; cy++) {
-        uint16_t row_up = (cy-1 < 0) ? 0 : b.rows[cy-1];
+        uint16_t row_up  = b.rows[cy-1];
         uint16_t row_mid = b.rows[cy];
         uint16_t row_down = b.rows[cy+1];
-        
         uint16_t empty_mask = (~row_up) & (~row_mid) & (~row_down) & 0x3FF;
         uint16_t solid_mask = row_up & row_mid & row_down;
-        
-        uint16_t left_solid = (solid_mask << 1) | 1;      // 左壁を含む
-        uint16_t right_solid = (solid_mask >> 1) | 0x200; // 右壁を含む
-        
+        uint16_t left_solid  = (solid_mask << 1) | 1;      // 左壁を含む
+        uint16_t right_solid = (solid_mask >> 1) | 0x200;  // 右壁を含む
         if (empty_mask & left_solid & right_solid) {
             hasIWellInRow[cy] = true;
         }
@@ -303,30 +317,26 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
 
     for (int cy = 1; cy < ROWS - 1; cy++) {
         if (hasIWellInRow[cy]) continue;
-
         for (int cx = 1; cx < COLS - 1; cx++) {
             if (isTSDShape(b, cx, cy, heights)) {
-                isTSDRowForBlocksOverHole[cy] = true;
+                isTSDRowForBlocksOverHole[cy]     = true;
                 isTSDRowForBlocksOverHole[cy + 1] = true;
-                
                 if (maxHeight <= 10) {
                     ignoreMask |= (1 << cy);
                     ignoreMask |= (1 << (cy + 1));
                 }
-
                 tsd.count++;
-                if (tsd.count == 1) { 
-                    uint16_t mask_cy = ~( (1<<(cx-1)) | (1<<cx) | (1<<(cx+1)) ) & 0x3FF;
+                if (tsd.count == 1) {
+                    uint16_t mask_cy  = ~( (1<<(cx-1)) | (1<<cx) | (1<<(cx+1)) ) & 0x3FF;
                     uint16_t mask_cy1 = ~( (1<<cx) ) & 0x3FF;
-                    tsd.fillCount += __builtin_popcount(b.rows[cy] & mask_cy);
+                    tsd.fillCount += __builtin_popcount(b.rows[cy]   & mask_cy);
                     tsd.fillCount += __builtin_popcount(b.rows[cy+1] & mask_cy1);
-                    
                     for (int x = 0; x < COLS; x++) {
                         if (x != cx - 1 && x != cx && x != cx + 1) {
-                            if (cy > ROWS - heights[x] && !((b.rows[cy] >> x) & 1)) tsd.holeCount++; 
+                            if (cy > ROWS - heights[x] && !((b.rows[cy] >> x) & 1)) tsd.holeCount++;
                         }
                         if (x != cx) {
-                            if (cy + 1 > ROWS - heights[x] && !((b.rows[cy+1] >> x) & 1)) tsd.holeCount++; 
+                            if (cy + 1 > ROWS - heights[x] && !((b.rows[cy+1] >> x) & 1)) tsd.holeCount++;
                         }
                     }
                 }
@@ -336,8 +346,8 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
 
     if (maxHeight <= 10) {
         for(int x = 0; x < COLS; x++) {
-            int leftDiff = (x == 0) ? 999 : heights[x-1] - heights[x];
-            int rightDiff = (x == COLS-1) ? 999 : heights[x+1] - heights[x];
+            int leftDiff  = (x == 0)       ? 999 : heights[x-1] - heights[x];
+            int rightDiff = (x == COLS-1)  ? 999 : heights[x+1] - heights[x];
             if(leftDiff >= 4 && rightDiff >= 4) {
                 int startY = ROWS - heights[x];
                 for (int dy = 0; dy < 4; dy++) {
@@ -354,61 +364,59 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
     for (int x = 0; x < COLS; x++) {
         if (cols[x] == 0) continue;
         int first_y = __builtin_ctz(cols[x]);
-        uint32_t filled = cols[x] | ignoreMask; // 穴を無視する行を埋める
+        uint32_t filled = cols[x] | ignoreMask;
         uint32_t mask = ~((1 << first_y) - 1);
-        filled |= ~mask;                        // ブロック上空を 1 にして穴判定から消す
-        filled |= ~((1 << ROWS) - 1);           // 盤面外を 1 にする
-        
+        filled |= ~mask;                         // ブロック上空を 1 にして穴判定から消す
+        filled |= ~((1 << ROWS) - 1);            // 盤面外を 1 にする
         holes += 32 - __builtin_popcount(filled); // 残った 0 の数が穴の数
     }
-
     score += holes * w.hole;
     if (holes > 0) score += (holes * holes) * (w.hole / 2);
 
     // ★最適化：pureHole も盤面の多重ループを消滅させ、ビット演算に置換
     int pureHolesCount = 0;
     for(int y = 0; y < ROWS; y++) {
-        uint16_t row = b.rows[y];
+        uint16_t row  = b.rows[y];
         uint16_t empty = (~row) & 0x3FF;
-        uint16_t up = (y == 0) ? 0x3FF : b.rows[y-1];
-        uint16_t down = (y == ROWS-1) ? 0x3FF : b.rows[y+1];
-        uint16_t left_wall = (row << 1) | 1;
+        uint16_t up    = (y == 0)       ? 0x3FF : b.rows[y-1];
+        uint16_t down  = (y == ROWS-1)  ? 0x3FF : b.rows[y+1];
+        uint16_t left_wall  = (row << 1) | 1;
         uint16_t right_wall = (row >> 1) | 0x200;
         uint16_t pure = empty & up & down & left_wall & right_wall;
         pureHolesCount += __builtin_popcount(pure);
     }
-    
     score += pureHolesCount * w.pureHole;
     if (pureHolesCount > 0) score += (pureHolesCount * pureHolesCount) * (w.pureHole / 2);
 
-    int step1Count = 0;
-    int step2Count = 0;
-    int step3PlusCount = 0;
+    // 段差評価
+    int step1Count = 0, step2Count = 0, step3PlusCount = 0;
     for(int x = 0; x < COLS - 1; x++) {
         int diff = std::abs(heights[x] - heights[x+1]);
-        if(diff == 0) score += w.flat;
+        if(diff == 0)      score += w.flat;
         else if(diff == 1) step1Count++;
         else if(diff == 2) step2Count++;
-        else step3PlusCount++;
+        else               step3PlusCount++;
     }
     score += (step1Count <= 2) ? (step1Count * w.step1Good) : (step1Count * w.step1Bad);
     score += step2Count * w.step2;
     score += step3PlusCount * w.step3Plus;
 
+    // ディープウェル評価
     int deepWells = 0; int totalDepth = 0;
     for(int x = 0; x < COLS; x++) {
-        int leftDiff = (x == 0) ? 999 : heights[x-1] - heights[x];
+        int leftDiff  = (x == 0)      ? 999 : heights[x-1] - heights[x];
         int rightDiff = (x == COLS-1) ? 999 : heights[x+1] - heights[x];
         if(leftDiff >= 3 && rightDiff >= 3) {
             int depth = std::min(leftDiff, rightDiff);
-            if(x == 0) depth = rightDiff;
+            if(x == 0)      depth = rightDiff;
             if(x == COLS-1) depth = leftDiff;
             deepWells++; totalDepth += depth;
         }
     }
-    if(deepWells == 1) score += 1;
+    if(deepWells == 1)      score += 1;
     else if(deepWells >= 2) score += totalDepth * -10;
 
+    // Iウェル評価
     int totalIWellScore = 0;
     for(int x = 0; x < COLS; x++) {
         int continuousEmpty = 0; int maxContinuous = 0;
@@ -417,16 +425,14 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
                 continuousEmpty++;
                 if(continuousEmpty > maxContinuous) maxContinuous = continuousEmpty;
             } else {
-                continuousEmpty = 0; 
+                continuousEmpty = 0;
             }
         }
         if(maxContinuous > 0) {
-            int wellScore = 0;
-            if(maxContinuous <= 10) wellScore = maxContinuous * w.iWell;
-            else wellScore = 10 * w.iWell + (maxContinuous - 10) * w.iWellOver;
-            
+            int wellScore = (maxContinuous <= 10) ? maxContinuous * w.iWell
+                                                  : 10 * w.iWell + (maxContinuous - 10) * w.iWellOver;
             if (x <= 1 || x >= 8) totalIWellScore -= wellScore / 4;
-            else totalIWellScore += wellScore;
+            else                   totalIWellScore += wellScore;
         }
     }
     score += totalIWellScore;
@@ -444,33 +450,28 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         inv &= ~((1 << (firstBlockY + 1)) - 1); // 最初のブロックより上空を無視
         if (inv != 0) {
             int lowestHoleY = 31 - __builtin_clz(inv); // 一番下にある穴の位置を特定
-            uint32_t valid_blocks = c & ~tsdr_mask;    // TSD地形を除外したブロック列
+            uint32_t valid_blocks = c & ~tsdr_mask;     // TSD地形を除外したブロック列
             valid_blocks &= ((1 << lowestHoleY) - 1);  // 穴より上空のブロックだけを残す
             totalBlocksOverLowestHole += __builtin_popcount(valid_blocks);
         }
     }
     score += totalBlocksOverLowestHole * w.blocksOverHole;
 
-    if(isGrounded) {
-        score += w.groundedBonus;
-        score += touchingCount * w.touchingBonus;
-    } else {
-        score -= 3 * w.groundedBonus;
-    }
-
+    // TSD形状評価
     if (tsd.count == 1) {
         score += w.tsdShape;
-        score += tsd.fillCount * w.tsdFillBonus; 
-        score += tsd.holeCount * w.tsdHolePenalty; 
+        score += tsd.fillCount * w.tsdFillBonus;
+        score += tsd.holeCount * w.tsdHolePenalty;
     } else if (tsd.count >= 2) {
-        score += w.tsdShape; 
-        score += (tsd.count - 1) * w.tsdShapeOver; 
-        score += tsd.holeCount * w.tsdHolePenalty; 
+        score += w.tsdShape;
+        score += (tsd.count - 1) * w.tsdShapeOver;
+        score += tsd.holeCount * w.tsdHolePenalty;
     }
 
+    // TSDセットアップ評価
     int tsdSetupCount = 0;
     for (int x = 1; x < COLS - 1; x++) {
-        int y = ROWS - heights[x] - 1; 
+        int y = ROWS - heights[x] - 1;
         if (y > 0 && y < ROWS) {
             if ((b.rows[y] & (1<<(x-1))) && (b.rows[y] & (1<<(x+1)))) {
                 if (!((b.rows[y-1] >> (x-1)) & 1) && !((b.rows[y-1] >> (x+1)) & 1)) {
@@ -479,25 +480,87 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
             }
         }
     }
-
     if (tsdSetupCount > 0) {
         if (tsdSetupCount <= 2) score += tsdSetupCount * w.tsdSetup;
-        else score += tsdSetupCount * w.tsdSetupOver;
+        else                    score += tsdSetupCount * w.tsdSetupOver;
     }
 
-    if (ren > 0 && maxHeight >= 10) score += (ren-2) * (ren) * w.comboBonus;
-    if (ren > 4) score += ren * ren * w.comboBonus;
+    return score;
+}
 
+// ────────────────────────────────────────────────
+// 【報酬】evalPlacementEvent
+// その1手を置いたことで「今回だけ」発生したイベントを評価する（1回限り加算）。
+// 含む要素：ライン消去・テトリス・Tスピン・BtB・コンボ・接地ボーナス・ダウンスタック・tsdFillBonus
+//
+// 引数：
+//   afterBoard  : 配置＆ライン消去後の盤面
+//   linesCleared: 消去ライン数
+//   isGrounded  : 完全接地しているか
+//   touchingCount: 接触ブロック数
+//   tSpinType   : 0=なし 1=通常Tスピン 2=ミニ
+//   ren         : 配置前のコンボ数
+//   backToBack  : 配置前のBtB状態
+//   droppedBlocks: 置いたミノの4ブロック座標
+//   prevMaxHeight: 配置前の盤面最大高さ（downstack判定に使用）
+// ────────────────────────────────────────────────
+int evalPlacementEvent(
+    const Board& afterBoard,
+    int linesCleared, bool isGrounded, int touchingCount,
+    int tSpinType, int ren, bool backToBack,
+    const GridBlock* droppedBlocks,
+    int prevMaxHeight,
+    const EvalWeights& w
+) {
+    int score = 0;
+
+    // ── ライン消去スコア ──
+    if (linesCleared > 0) score += (linesCleared - 2) * w.lineClear;
+    if (linesCleared >= 4) score += w.line4;
+
+    // ── ダウンスタック（低いところへ消去した報酬） ──
+    if (linesCleared >= 1 && linesCleared <= 3 && droppedBlocks != nullptr) {
+        int minoBottomY = -1;
+        for (int i = 0; i < 4; i++) {
+            if (droppedBlocks[i].y > minoBottomY) minoBottomY = droppedBlocks[i].y;
+        }
+        int n = (ROWS - 1) - minoBottomY;
+        if (n < 0) n = 0;
+        if (n >= 3 && isGrounded) score += w.downstackGood * n;
+        else if (n < 3)           score += w.downstackBad * 10 * n;
+    }
+
+    // ── 接地・接触ボーナス ──
+    if (isGrounded) {
+        score += w.groundedBonus;
+        score += touchingCount * w.touchingBonus;
+    } else {
+        score -= 3 * w.groundedBonus;
+    }
+
+    // ── Tスピン消去ボーナス / ミニTスピンペナルティ ──
+    if (tSpinType == 1) {
+        if (linesCleared == 1)      score += w.tssClear;
+        else if (linesCleared >= 2) score += w.tsdClear;
+    } else if (tSpinType == 2) {
+        score += w.tsmMiniPenalty;
+    }
+
+    // ── BtB（バックトゥバック）維持・破壊 ──
     if (linesCleared > 0) {
         bool isBtBAction = (linesCleared >= 4) || (tSpinType > 0 && linesCleared > 0);
         if (isBtBAction) {
             score += w.btbKeep;
-            if (backToBack) score += w.btbKeep; 
+            if (backToBack) score += w.btbKeep; // BtB継続ボーナス
         } else {
             score -= w.btbKeep;
-            if (backToBack) score -= w.btbKeep * 2; 
+            if (backToBack) score -= w.btbKeep * 2; // BtB破壊ペナルティ
         }
     }
+
+    // ── コンボボーナス ──
+    if (ren > 0 && prevMaxHeight >= 10) score += (ren - 2) * (ren) * w.comboBonus;
+    if (ren > 4)                        score += ren * ren * w.comboBonus;
 
     return score;
 }
@@ -799,7 +862,9 @@ void evaluateSinglePlacementWasm(
         weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32] 
     };
 
-    int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0, nullptr);
+    // ★分割対応：配置前盤面の評価値（baseScore）を evalBoardState で取得
+    int baseMaxHeight = 0;
+    int baseScore = evalBoardState(baseBoard, w, &baseMaxHeight);
 
     GridBlock blocks[4];
     for(int i=0; i<4; i++) {
@@ -815,8 +880,18 @@ void evaluateSinglePlacementWasm(
     PlacementInfo info = calcPlacementInfo(baseBoard, blocks);
     int cleared = simBoard.checkLineAndClear();
 
+    // ★分割対応：配置後盤面の評価値（stateScore）を evalBoardState で取得
+    int stateScore = evalBoardState(simBoard, w, nullptr);
+
+    // ★分割対応：配置イベントの報酬（eventScore）を evalPlacementEvent で取得
+    int eventScore = evalPlacementEvent(
+        simBoard, cleared, info.isFullyGrounded, info.touchingCount,
+        tSpinType, ren, backToBack != 0, blocks, baseMaxHeight, w
+    );
+
+    // 旧：score = evaluateBoard(一括) + eventBonus の組み合わせだったものを分割
+    /*
     int score = evaluateBoard(simBoard, cleared, info.isFullyGrounded, info.touchingCount, w, ren, backToBack != 0, blocks, tSpinType, nullptr);
-    
     int eventBonus = 0;
     int multiplier = 6; 
     if (cleared >= 4) eventBonus += w.line4 * multiplier;
@@ -826,8 +901,11 @@ void evaluateSinglePlacementWasm(
     } else if (tSpinType == 2) { 
         eventBonus += w.tsmMiniPenalty * multiplier;
     }
-
     int stepScore = score * w.p1Weight / 100 + eventBonus;
+    */
+
+    // ★分割後：stepScore = 評価値 * p1Weight + 報酬
+    int stepScore = stateScore * w.p1Weight / 100 + eventScore;
 
     bool hasBlockOutside = false;
     for(int i=0; i<4; i++) {
@@ -838,15 +916,7 @@ void evaluateSinglePlacementWasm(
     }
     if (hasBlockOutside) stepScore -= 100000000;
 
-    int prevHeight = 0;
-    for(int y = 0; y < ROWS; y++) {
-        if (baseBoard.rows[y] != 0) {
-            prevHeight = ROWS - y;
-            break;
-        }
-    }
-
-    if (prevHeight <= 10) {
+    if (baseMaxHeight <= 10) {
         if (minoType == 2 && cleared == 0) stepScore += w.tMinoNoClearPenalty;
     }
 
@@ -881,11 +951,15 @@ void searchBestMoveWasm(
     };
 
     int baseMaxHeight = 0; 
-    int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0, &baseMaxHeight);
+    // ★分割対応：初期盤面の評価値を evalBoardState で取得
+    int baseScore = evalBoardState(baseBoard, w, &baseMaxHeight);
     
     int next_queue[7] = { currentType, next1, next2, next3, next4, next5, 0 };
     auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; }; 
     
+    // 旧：calcEventBonus は searchBestMoveWasm 内のローカルラムダとして重複スコアを加算していた。
+    // ★分割後：evalPlacementEvent に統合されたためこのラムダは不要になった（コメントアウトで残す）
+    /*
     auto calcEventBonus = [&](const Placement& p, int step_num) {
         int bonus = 0; int multiplier = 7 - step_num; 
         if (p.linesCleared >= 4) bonus += w.line4 * multiplier;
@@ -897,6 +971,7 @@ void searchBestMoveWasm(
         }
         return bonus;
     };
+    */
 
     std::vector<SearchState> final_states;
     std::vector<SearchState> current_states;
@@ -944,13 +1019,28 @@ void searchBestMoveWasm(
             bool cur_btb = is_first ? (backToBack != 0) : s.backToBack;
 
             int current_max_height = 0;
+            // ★分割対応：評価値（盤面の良さ）を evalBoardState で取得
+            int stateScore = evalBoardState(simBoard, w, &current_max_height);
+
+            // ★分割対応：報酬（その1手のイベント）を evalPlacementEvent で取得
+            int prevHeight = is_first ? baseMaxHeight : s.max_height;
+            int eventScore = evalPlacementEvent(
+                simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount,
+                p.tSpinType, cur_ren, cur_btb, p.blocks, prevHeight, w
+            );
+
+            // 旧：score = evaluateBoard(一括) + calcEventBonus の組み合わせだったものを分割
+            /*
             int score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, cur_ren, cur_btb, p.blocks, p.tSpinType, &current_max_height);
             int eventBonus = calcEventBonus(p, step_num);
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
+            */
+
+            // ★分割後：stepScore = 評価値 * p1Weight（1手目のみ）+ 報酬
+            int stepScore = is_first ? (stateScore * P1_WEIGHT_PCT / 100 + eventScore) : (stateScore + eventScore);
 
             if (hasBlockOutside) stepScore -= 100000000 * (7 - step_num);
 
-            int prevHeight = is_first ? baseMaxHeight : s.max_height;
             if (prevHeight <= 10) {
                 if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) stepScore += w.renCutPenalty; 
                 if (piece == 2 && p.linesCleared == 0) stepScore += w.tMinoNoClearPenalty;
@@ -969,7 +1059,7 @@ void searchBestMoveWasm(
             next_s.max_height = current_max_height;
             if (is_first) {
                 next_s.first_action = first_action;
-                next_s.p1_score = score;
+                next_s.p1_score = stateScore; // ★分割対応：旧 score → stateScore に変更
             }
             next_s.total_score += stepScore;
             next_s.board = simBoard;
