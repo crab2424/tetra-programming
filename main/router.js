@@ -134,6 +134,10 @@ function stopAllGames() {
             if (typeof gameInst.stop === 'function') {
                 gameInst.stop();
             }
+            // ★ puyo ゲームの盤面もリセット
+            if (typeof gameInst._resetState === 'function') {
+                gameInst._resetState();
+            }
         } else {
             // tet の停止処理
             if (typeof gameInst.gameOver === 'function') { 
@@ -580,10 +584,14 @@ function restartVersusFromResult() {
 
 function versusGameOver(loser) {
   // ★ 修正: ここでも Tet と Puyo を確実に区別する
-  const stopGame = (gameInst) => {
+  const stopGame = (gameInst, isWinner) => {
       if (!gameInst) return;
       if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
           if (typeof gameInst.stop === 'function') {
+              // ★ 勝者側ぷよは演出中も盤面・NEXTを残すため、_versusFinishingフラグを立ててからstop()する
+              if (isWinner) {
+                  gameInst._versusFinishing = true;
+              }
               gameInst.stop();
               gameInst.state = 'gameover';
           }
@@ -607,8 +615,10 @@ function versusGameOver(loser) {
       }
   };
 
-  stopGame(window._game);
-  stopGame(window._cpuGame);
+  // loser === 'player' のとき: _game が敗者、_cpuGame が勝者
+  // loser === 'cpu'    のとき: _cpuGame が敗者、_game が勝者
+  stopGame(window._game,    loser === 'cpu');    // loser=cpu なら _game が勝者
+  stopGame(window._cpuGame, loser === 'player'); // loser=player なら _cpuGame が勝者
   
   if (window._cpuController && typeof window._cpuController.stop === 'function') {
       window._cpuController.stop();
@@ -861,6 +871,17 @@ function renderModeCheck() {
       const lv = typeof currentQuizLevel !== 'undefined' && currentQuizLevel;
       if (lv) {
         const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
+
+        // QUIZ_LEVELSからレベル番号を算出
+        if (typeof QUIZ_LEVELS !== 'undefined' && QUIZ_LEVELS[lv.rule]) {
+          const idx = QUIZ_LEVELS[lv.rule].findIndex(l => l.id === lv.id);
+          if (idx !== -1) levelNum = idx + 1;
+        }
+        // 難易度★の生成（_renderDiffStars は quiz.js で定義）
+        const diffStarsHtml = (typeof _renderDiffStars === 'function') ? _renderDiffStars(lv.diff) : '';
+        const levelTitle = `${ruleLabel} - ${levelNum}`;
+
+        console.log("Current Quiz Level:", levelTitle);
         
         // ★追加: NEXT情報の動的生成
         let nextInfoText = '';
@@ -875,8 +896,8 @@ function renderModeCheck() {
         }
 
         optionsEl.innerHTML = `
-          <div class="option-row" style="flex-direction:column; gap:6px; align-items:flex-start;">
-            <span class="option-label" style="color:#f58542;">${ruleLabel} — ${lv.title}</span>
+        <div class="option-row" style="flex-direction:column; gap:6px; align-items:flex-start;">
+          <span class="option-label" style="color:#f58542;">${levelTitle}${diffStarsHtml ? `&nbsp;<span style="font-size:0.8em;">${diffStarsHtml}</span>` : ''}</span>
             <span style="font-size:11px; color:var(--text-dim); letter-spacing:1px;">${lv.description}</span>
             <span style="font-size:11px; color:#f58542; letter-spacing:1px;">GOAL: ${lv.clearCondition.description}</span>
             ${nextInfoText ? `<span style="font-size:11px; color:var(--text-dim); letter-spacing:1px; word-break: break-all;">${nextInfoText}</span>` : ''}
@@ -927,8 +948,9 @@ async function startGameFromModeCheck() {
   stopAllGames(); // 開始前に完全に状態をリセット
   const sessionId = currentSessionId;
 
-  if (!window._game && !window._puyoGame) window._game = new Game();
-  GameManager.setInstance('p1', window._game); // これを追加！
+  //if (!window._game && !window._puyoGame) window._game = new Game();
+  //GameManager.setInstance('p1', window._game); // これを追加！
+
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
 
   // ─── QUIZモード専用処理 ────────────────────────
@@ -942,8 +964,25 @@ async function startGameFromModeCheck() {
   // ─── PUYO(シングル)モード専用処理
   if (modeId === 'puyo') {
     window._game = null; // ★ tetインスタンスへの参照を切る
-    _switchToPuyoLayout(true);
     
+    // ★ 修正: puyoゲーム用キャンバスをクリア（古い盤面を削除）
+    const puyoMainCanvas = document.getElementById('puyo-main-canvas');
+    const puyoNextCanvas = document.getElementById('puyo-next-canvas');
+    if (puyoMainCanvas) {
+        const ctx = puyoMainCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, puyoMainCanvas.width, puyoMainCanvas.height);
+    }
+    if (puyoNextCanvas) {
+        const ctx = puyoNextCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, puyoNextCanvas.width, puyoNextCanvas.height);
+    }
+    
+    _switchToPuyoLayout(true);
+
+    // ★ 修正: 前のゲーム状態を完全にクリアするため、新規インスタンスを常に作成
+    window._puyoGame = new PuyoGame();
+    GameManager.setInstance('p1', window._puyoGame);
+
     if (window._puyoGame) {
         window._puyoGame.isCpuControlled = false;
         window._puyoGame.isVersusMode = false;
@@ -958,6 +997,9 @@ async function startGameFromModeCheck() {
   // ─── TESTモード (PUYO) 処理
   if (modeId === 'test' && testRule === 'puyo') {
     _switchToPuyoLayout(true);
+    
+    // ★ 追加: ここでも PuyoGame インスタンスを登録
+    GameManager.setInstance('p1', window._puyoGame);
 
     if (!window._puyoGame) window._puyoGame = new PuyoGame();
     window._puyoGame.currentMode = 'test';
@@ -1000,6 +1042,9 @@ async function startGameFromModeCheck() {
   if (!window._game || typeof window._game.initMainCanvas !== 'function') {
       window._game = new Game();
   }
+
+  // ★ 追加: テトの場合はここで Game インスタンスを登録
+  GameManager.setInstance('p1', window._game);
 
   window._game.currentMode = modeId;
   window._game.isVersusMode = false;
@@ -1178,9 +1223,15 @@ function toggleGamePause() {
     // プレイ中のみポーズ発動
     const canPauseGame = window._game && (window._game.state === 'playing' || window._game.state === 'active');
     const canPausePuyo = window._puyoGame && (window._puyoGame.state === 'playing' || window._puyoGame.state === 'active');
+
+    // QUIZぷよ中かどうかを判定（tetインスタンスへの操作を抑制するために使用）
+    const _isQuizPuyo2 = (currentGameMode && currentGameMode.id === 'quiz') &&
+        typeof currentQuizLevel !== 'undefined' && currentQuizLevel &&
+        currentQuizLevel.rule === 'puyo';
     
     if (canPauseGame || canPausePuyo) {
-      if (window._game && typeof window._game.pause === 'function') window._game.pause();
+      // QUIZぷよ中はtetインスタンスのpauseを呼ばない（resume時の暴発防止）
+      if (window._game && typeof window._game.pause === 'function' && !_isQuizPuyo2) window._game.pause();
       if (window._puyoGame && typeof window._puyoGame.pause === 'function') window._puyoGame.pause();
 
       const isQuiz = currentGameMode && currentGameMode.id === 'quiz';
@@ -1195,10 +1246,15 @@ function toggleGamePause() {
         if (isQuiz && typeof currentQuizLevel !== 'undefined' && currentQuizLevel) {
           const lv = currentQuizLevel;
           const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
+          let levelNum = '';
+          if (typeof QUIZ_LEVELS !== 'undefined' && QUIZ_LEVELS[lv.rule]) {
+            const idx = QUIZ_LEVELS[lv.rule].findIndex(l => l.id === lv.id);
+            if (idx !== -1) levelNum = idx + 1;
+          }
           const ruleTitleEl = document.getElementById('pause-quiz-info-rule-title');
           const descEl      = document.getElementById('pause-quiz-info-desc');
           const goalEl      = document.getElementById('pause-quiz-info-goal');
-          if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} — ${lv.title}`;
+          if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} - ${levelNum}`;
           if (descEl)      descEl.textContent      = lv.description;
           if (goalEl)      goalEl.textContent      = `GOAL: ${lv.clearCondition.description}`;
           quizInfo.style.display = '';
@@ -1217,13 +1273,19 @@ function handlePauseAction(action) {
   if (overlay) overlay.classList.remove('active');
 
   switch (action) {
-    case 'resume':
-      // ★ PUYOモード中はtetインスタンスのresumeを呼ばない
-      if (window._game && typeof window._game.resume === 'function' && !(currentGameMode && currentGameMode.id === 'puyo')) {
+    case 'resume': {
+      // PUYOモード・QUIZぷよモード中はtetインスタンスのresumeを呼ばない
+      const _modeId = currentGameMode && currentGameMode.id;
+      const _isQuizPuyo = _modeId === 'quiz' &&
+          typeof currentQuizLevel !== 'undefined' && currentQuizLevel &&
+          currentQuizLevel.rule === 'puyo';
+      const _suppressTet = _modeId === 'puyo' || _isQuizPuyo;
+      if (window._game && typeof window._game.resume === 'function' && !_suppressTet) {
         window._game.resume();
       }
       if (window._puyoGame && typeof window._puyoGame.resume === 'function') window._puyoGame.resume();
       break;
+    }
     case 'settings':
       // pause-overlay を閉じる前に「設定から戻ったらポーズ画面を再表示する」フラグを立てる
       window._returnToPause = true;
@@ -1269,10 +1331,24 @@ function handlePauseAction(action) {
         typeof currentQuizLevel !== 'undefined' && currentQuizLevel) {
       const lv = currentQuizLevel;
       const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
+      
+      // ─── 修正箇所: lv.title を廃止し、QUIZ_LEVELSからレベル値を算出 ───
+      let levelNum = '';
+      if (typeof QUIZ_LEVELS !== 'undefined' && QUIZ_LEVELS[lv.rule]) {
+          const idx = QUIZ_LEVELS[lv.rule].findIndex(l => l.id === lv.id);
+          if (idx !== -1) {
+              levelNum = idx + 1;
+          }
+      }
+
       const ruleTitleEl = document.getElementById('pause-quiz-info-rule-title');
       const descEl      = document.getElementById('pause-quiz-info-desc');
       const goalEl      = document.getElementById('pause-quiz-info-goal');
-      if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} — ${lv.title}`;
+      
+      // 算出した levelNum を使ってタイトルを表示
+      if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} - ${levelNum}`;
+      // ──────────────────────────────────────────────────────────
+
       if (descEl)      descEl.textContent      = lv.description;
       if (goalEl)      goalEl.textContent      = `GOAL: ${lv.clearCondition.description}`;
       quizInfo.style.display = '';
@@ -1282,6 +1358,8 @@ function handlePauseAction(action) {
       if (levelSelectBtn) levelSelectBtn.style.display = '';
     } else if (!overlay.classList.contains('active') || !isQuiz) {
       quizInfo.style.display = 'none';
+      const levelSelectBtn = document.getElementById('pause-quiz-level-select-btn');
+      if (levelSelectBtn) levelSelectBtn.style.display = 'none';
     }
   });
 

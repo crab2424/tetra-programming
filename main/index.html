@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png">
   
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="style.css?v=20">
+    <link rel="stylesheet" href="style.css?v=21">
   </head>
   <body>
     <div id="header-area" style="display:none;">
@@ -29,7 +29,7 @@
         <div id="title-press-any" class="title-blink">
           PRESS ANY KEY
         </div>
-        <div id="title-version">v1.0.1</div>
+        <div id="title-version">v1.0.2</div>
       </div>
     </div>
 
@@ -328,7 +328,7 @@
           <span class="mode-check-icon" style="color:#f58542;">❓</span>
           <h2 class="mode-check-label" style="color:#f58542;">QUIZ</h2>
         </div>
-        <p class="mode-check-desc-ja" style="text-align:center; margin:0;">ルールを選んでレベルに挑戦！</p>
+        <p class="mode-check-desc-ja" style="text-align:center; margin:0;">レベルを選んで挑戦！</p>
 
         <!-- ルール選択 -->
         <div id="quiz-rule-select" style="display:flex; gap:12px; justify-content:center;">
@@ -353,7 +353,7 @@
     ───────────────────────────────────────────── -->
     <div id="quiz-result-page" class="page">
       <div id="result-container">
-        <h2 id="result-title">CLEAR!</h2>
+        <h2 id="quiz-result-title">CLEAR!</h2>
         <div id="result-stats">
           <div class="result-stat-row">
             <span class="result-label">LEVEL</span>
@@ -436,9 +436,12 @@
     <div id="game-page" class="page">
       <div id="container">
         <!-- ★ QUIZモード用フィールドヘッダー（quiz.jsが表示/非表示を制御） -->
-        <div id="quiz-field-overlay" style="display:none; position:absolute; top:-56px; left:0; width:320px; text-align:center; pointer-events:none; z-index:15;">
-          <div id="quiz-field-header" style="font-family:'Orbitron',monospace; font-size:11px; font-weight:700; letter-spacing:3px; color:#f58542; margin-bottom:4px;"></div>
-          <div id="quiz-field-condition" style="font-family:'Orbitron',monospace; font-size:10px; letter-spacing:2px; color:var(--text-dim);"></div>
+        <div id="quiz-field-overlay" style="display:none; position:absolute; top:0px; left:500px; width:242px; text-align:center; pointer-events:none; z-index:15;">
+          <div id="quiz-field-info">
+            <span id="quiz-field-info-rule-title"></span>
+            <span id="quiz-field-info-desc"></span>
+            <span id="quiz-field-info-goal"></span>
+          </div>
         </div>
         <canvas id="main-canvas"></canvas>
         <canvas id="puyo-main-canvas" style="display:none; border:2px solid var(--border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
@@ -581,12 +584,12 @@
 
     <div id="settings-toast">SAVED ✓</div>
     
-    <script src="base.js?v=1"></script>     
+    <script src="base.js?v=2"></script>     
     <script src="manager.js?v=1"></script>
     <script src="settings.js?v=13"></script>
     <script src="game.js?v=18"></script>
     <script src="p_game.js?v=6"></script>
-    <script src="quiz.js?v=2"></script>
-    <script src="router.js?v=21"></script>
+    <script src="quiz.js?v=3"></script>
+    <script src="router.js?v=24"></script>
   </body>
 </html>

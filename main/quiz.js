@@ -200,6 +200,17 @@ class QuizManager {
         this._originalSecureMino = game.secureMino;
         this._originalRestart = game.restart;
         this._originalStart = game.start;
+        this._originalGameOver = game.gameOver;
+
+        // ─── gameOver フック ──────────────────────────────────────
+        // ミノが詰まるなどでゲームオーバーになった場合も QUIZ の失敗処理に統一する
+        game.gameOver = function() {
+            if (self.currentLevel && !self.isClear && !self.isFailed) {
+                self._onFailed();
+            } else {
+                if (self._originalGameOver) self._originalGameOver.call(this);
+            }
+        }.bind(game);
 
         // ─── restart フック ──────────────────────────────────────
         // プレイ中のショートカットやポーズ画面からのリトライをQUIZモード専用のリトライに統一する
@@ -401,11 +412,23 @@ class QuizManager {
 
         const self = this;
         // モード終了時に復元できるよう保存
-        this._originalDequeueNext = puyoGame._dequeueNext;
-        this._originalMakePair    = puyoGame._makePair;
-        this._originalRestart     = puyoGame.restart;
-        this._originalStart       = puyoGame.start;
-        
+        this._originalDequeueNext   = puyoGame._dequeueNext;
+        this._originalMakePair      = puyoGame._makePair;
+        this._originalRestart       = puyoGame.restart;
+        this._originalStart         = puyoGame.start;
+        this._originalBeginGameOver = puyoGame._beginGameOver; // PuyoGame の本体は _beginGameOver
+
+        // ─── _beginGameOver フック ──────────────────────────────────────
+        // ぷよが積み上がってゲームオーバーになった場合も QUIZ の失敗処理に統一する
+        // ※ PuyoGame のゲームオーバー処理の実体は _beginGameOver() であり gameOver() ではない
+        puyoGame._beginGameOver = function() {
+            if (self.currentLevel && !self.isClear && !self.isFailed) {
+                self._onFailed();
+            } else {
+                if (self._originalBeginGameOver) self._originalBeginGameOver.call(this);
+            }
+        }.bind(puyoGame);
+
         let pairIndex = 0;
 
         // ─── restart フック ──────────────────────────────────────
@@ -478,11 +501,16 @@ class QuizManager {
                 puyoGame.field[r][c] = 0;
             }
         }
-        const displayStart = PConfig.hiddenRows; // 5
+        
+        // ★修正：上揃え（displayStart基準）から下詰め（総行数基準）に変更
+        // これにより行数が少ないデータ（レベル6など）でも宙に浮かず一番下に配置されます。
+        const startRow = totalRows - fieldRows.length;
+        
         fieldRows.forEach((row, rowIdx) => {
-            const fr = displayStart + rowIdx;
+            const fr = startRow + rowIdx;
             row.forEach((colorId, colIdx) => {
-                if (colorId > 0 && fr < totalRows && colIdx < PConfig.cols) {
+                // fr >= 0 を追加し、データ行数が多すぎた場合の配列外アクセスも防止
+                if (colorId > 0 && fr >= 0 && fr < totalRows && colIdx < PConfig.cols) {
                     puyoGame.field[fr][colIdx] = colorId;
                 }
             });
@@ -771,6 +799,7 @@ class QuizManager {
                 if (this._originalSecureMino) this.gameInstance.secureMino = this._originalSecureMino;
                 if (this._originalRestart) this.gameInstance.restart = this._originalRestart;
                 if (this._originalStart) this.gameInstance.start = this._originalStart;
+                if (this._originalGameOver) this.gameInstance.gameOver = this._originalGameOver;
                 this.gameInstance.canHold = true;
                 
                 // HTML要素による斜線表示を非表示にする
@@ -791,6 +820,7 @@ class QuizManager {
                 if (this._originalMakePair) this.gameInstance._makePair = this._originalMakePair;
                 if (this._originalRestart) this.gameInstance.restart = this._originalRestart;
                 if (this._originalStart) this.gameInstance.start = this._originalStart;
+                if (this._originalBeginGameOver) this.gameInstance._beginGameOver = this._originalBeginGameOver;
                 
                 // エラー回避: フィールドが存在する場合のみクリアと再描画を行う
                 if (this.gameInstance.field) {
@@ -817,6 +847,13 @@ class QuizManager {
         this._isSecuring       = false;
         this._failedByDummy    = false;
 
+        // ★追加: プレビュー待機中なら解除する
+        if (window._quizPreviewHandler) {
+            document.removeEventListener('keydown', window._quizPreviewHandler, true);
+            window._quizPreviewHandler = null;
+            if (typeof hideQuizPreviewUI === 'function') hideQuizPreviewUI();
+        }
+
         // 参照も破棄
         this._originalPopMino = null;
         this._originalGetNextType = null;
@@ -826,6 +863,8 @@ class QuizManager {
         this._originalMakePair = null;
         this._originalRestart = null;
         this._originalStart = null;
+        this._originalGameOver = null;
+        this._originalBeginGameOver = null;
     }
 }
 
@@ -841,13 +880,16 @@ function showQuizResult(isSuccess, levelData) {
 
     showFinishOverlay('finish-overlay', 'finish-text', text, className, 1200, () => {
         if (typeof switchPage === 'function') {
-            _setQuizResultPage(isSuccess, levelData);
+            const rule   = levelData.rule;
+            const levels = QUIZ_LEVELS[rule] || [];
+            const currentIdx = levels.findIndex(l => l.id === levelData.id);
+            _setQuizResultPage(isSuccess, levelData, currentIdx);
             switchPage('quiz-result');
         }
     });
 }
 
-function _setQuizResultPage(isSuccess, levelData) {
+function _setQuizResultPage(isSuccess, levelData, currentIdx) {
     const titleEl = document.getElementById('quiz-result-title');
     if (titleEl) {
         if (isSuccess) {
@@ -864,7 +906,12 @@ function _setQuizResultPage(isSuccess, levelData) {
     }
 
     const levelEl = document.getElementById('quiz-result-level');
-    if (levelEl && levelData) levelEl.textContent = levelData.title;
+    if (levelEl && levelData) {
+        const ruleLabel  = levelData.rule === 'tet' ? 'TET' : 'PUYO';
+        const levelNum   = (currentIdx >= 0) ? currentIdx + 1 : '?';
+        const diffStars  = _renderDiffStars(levelData.diff);
+        levelEl.innerHTML = `${ruleLabel} - ${levelNum}${diffStars ? `&nbsp;<span style="font-size:0.75em;">${diffStars}</span>` : ""}`;
+    }
 
     const condEl = document.getElementById('quiz-result-condition');
     if (condEl && levelData) condEl.textContent = levelData.clearCondition.description;
@@ -876,7 +923,6 @@ function _setQuizResultPage(isSuccess, levelData) {
     if (nextBtn && levelData) {
         const rule   = levelData.rule;
         const levels = QUIZ_LEVELS[rule] || [];
-        const currentIdx = levels.findIndex(l => l.id === levelData.id);
         const hasNext = isSuccess && currentIdx >= 0 && currentIdx < levels.length - 1;
 
         nextBtn.style.display = hasNext ? 'flex' : 'none';
@@ -885,7 +931,7 @@ function _setQuizResultPage(isSuccess, levelData) {
             nextBtn.onclick = () => {
                 currentQuizLevel = levels[currentIdx + 1];
                 if (typeof switchPage === 'function') {
-                    switchPage('mode-check');
+                    startQuizLevel(currentQuizLevel);
                 }
             };
         }
@@ -902,6 +948,46 @@ let currentQuizLevel = null;
 function setQuizRule(rule) {
     currentQuizRule = rule;
     renderQuizCheck();
+}
+
+// ─── 難易度★用スタイルを動的注入 ───────────────
+(function _injectDiffStarStyles() {
+    if (document.getElementById('quiz-diff-star-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'quiz-diff-star-styles';
+    style.textContent = `
+        .quiz-level-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .quiz-level-diff {
+            display: block;
+            font-size: 9px;
+            line-height: 1;
+            margin-top: 2px;
+            letter-spacing: 1px;
+        }
+        .diff-star { font-style: normal; }
+        .diff-star-filled { color: #f5c542; }
+        .diff-star-empty  { color: rgba(255,255,255,0.18); }
+    `;
+    document.head.appendChild(style);
+})();
+
+// ─── 難易度★レンダリングヘルパー ─────────────────
+// diff: 数値（未指定時は null→非表示）
+// 最大5★、filled/empty で色分けする HTML 文字列を返す
+function _renderDiffStars(diff) {
+    if (diff == null || diff === undefined) return '';
+    const max = 5;
+    const filled = Math.max(0, Math.min(max, Math.round(diff)));
+    let html = '';
+    for (let i = 1; i <= max; i++) {
+        html += `<span class="diff-star ${i <= filled ? 'diff-star-filled' : 'diff-star-empty'}">${i <= filled ? '★' : '☆'}</span>`;
+    }
+    return html;
 }
 
 // ★ 非同期関数に変更し、データをfetchしてから描画するようにしました
@@ -922,7 +1008,8 @@ async function renderQuizCheck() {
         const btn = document.createElement('button');
         btn.className = 'quiz-level-btn';
         btn.dataset.levelId = level.id;
-        btn.innerHTML = `<span class="quiz-level-num">${idx + 1}</span>`;
+        const diffStars = _renderDiffStars(level.diff);
+        btn.innerHTML = `<span class="quiz-level-num">${idx + 1}</span>${diffStars ? `<span class="quiz-level-diff">${diffStars}</span>` : ''}`;
         btn.onclick = () => {
             currentQuizLevel = level;
             // 【変更】ゲームを即座に開始せず、選択したレベルを保持して準備画面（mode-check）へ遷移する
@@ -936,7 +1023,6 @@ async function renderQuizCheck() {
 async function startQuizLevel(levelData) {
     if (!levelData) return;
 
-    _showQuizFieldHeader(levelData);
     currentQuizLevel = levelData;
 
     // 既存ゲームを全停止
@@ -944,6 +1030,10 @@ async function startQuizLevel(levelData) {
     if (window._quizManager) {
         window._quizManager.destroy();
     }
+
+    // stopAllGames → _stopQuizIfActive により非表示にされた後で表示を復元する
+    _showQuizFieldHeader(levelData);
+    _renderQuizNextAll(levelData); // ← 追加
     
     // エラー回避：フィールド(盤面)がすでに存在している場合のみ、残像クリアと再描画を行う
     if (window._game) {
@@ -969,20 +1059,32 @@ async function startQuizLevel(levelData) {
     // マネージャーの再生成
     window._quizManager = new QuizManager();
 
-    // ─── フィールドオーバーレイのヘッダーテキスト更新 ───
-    const quizHeaderEl = document.getElementById('quiz-field-header');
-    if (quizHeaderEl) {
+    // ─── フィールドオーバーレイのヘッダーテキスト更新（pause-quiz-info と同じ構造） ───
+    const ruleTitleEl = document.getElementById('quiz-field-info-rule-title');
+    const descEl      = document.getElementById('quiz-field-info-desc');
+    const goalEl      = document.getElementById('quiz-field-info-goal');
+    if (ruleTitleEl || descEl || goalEl) {
         const ruleLabel = levelData.rule === 'tet' ? 'TET' : 'PUYO';
-        quizHeaderEl.textContent = `QUIZ — ${ruleLabel} — ${levelData.title}`;
-    }
-    const quizCondEl = document.getElementById('quiz-field-condition');
-    if (quizCondEl) {
-        quizCondEl.textContent = `GOAL: ${levelData.clearCondition.description}`;
+        const levelNum  = (QUIZ_LEVELS[levelData.rule] || []).findIndex(l => l.id === levelData.id) + 1;
+        if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} — ${levelNum}`;
+        if (descEl)      descEl.textContent      = levelData.description;
+        if (goalEl)      goalEl.textContent      = `GOAL: ${levelData.clearCondition.description}`;
     }
 
     // ─── ルールに応じてゲームインスタンスを準備 ───
     if (levelData.rule === 'puyo') {
         _switchToPuyoLayout(true);
+
+        // QUIZぷよ中はtetインスタンスのキーハンドラを明示的に無効化する
+        // （残存ハンドラが pause キーに反応して resume() → startGravity() が暴発するのを防ぐ）
+        if (window._game) {
+            if (window._game._keyDownHandler) document.removeEventListener('keydown', window._game._keyDownHandler);
+            if (window._game._keyUpHandler)   document.removeEventListener('keyup',   window._game._keyUpHandler);
+            if (window._game._keyLoop)        { clearInterval(window._game._keyLoop); window._game._keyLoop = null; }
+            window._game._keyDownHandler = null;
+            window._game._keyUpHandler   = null;
+            window._game.isPaused = false; // 残存 isPaused フラグもリセット
+        }
 
         if (!window._puyoGame) window._puyoGame = new PuyoGame();
         const pg = window._puyoGame;
@@ -1000,10 +1102,12 @@ async function startQuizLevel(levelData) {
         // ロードした盤面を画面に即座に反映
         if (typeof pg._render === 'function') pg._render();
 
-        // カウントダウン開始
-        runCountdown('countdown-overlay', 'countdown-text', () => {
-            pg._startGameplay();
-        }, null);
+        // ★ 変更: カウントダウン開始前に入力待機（プレビューモード）を挟む
+        _waitForStartInput(() => {
+            runCountdown('countdown-overlay', 'countdown-text', () => {
+                pg._startGameplay();
+            }, null);
+        });
 
     } else {
         // テト
@@ -1038,12 +1142,61 @@ async function startQuizLevel(levelData) {
         if (typeof tg.drawNext === 'function') tg.drawNext();
         if (typeof tg.drawHold === 'function') tg.drawHold();
 
-        // カウントダウン経由で開始
-        runCountdown('countdown-overlay', 'countdown-text', () => {
-            tg._startGameplay();
-        }, null);
+        // ★ 変更: カウントダウン開始前に入力待機（プレビューモード）を挟む
+        _waitForStartInput(() => {
+            runCountdown('countdown-overlay', 'countdown-text', () => {
+                tg._startGameplay();
+            }, null);
+        });
     }
 }
+
+// ─── QUIZプレビュー表示・待機機能（追加） ────────────────
+function showQuizPreviewUI() {
+    let overlay = document.getElementById('quiz-preview-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'quiz-preview-overlay';
+        overlay.innerHTML = 'PRESS HARD/QUICK DROP KEY<br><span class="quiz-preview-sub">TO START</span>';
+        
+        // 描画先: countdown-overlayがある場所(ゲーム画面のコンテナ)があればそこ、無ければbody
+        const container = document.getElementById('countdown-overlay')?.parentElement || document.body;
+        container.appendChild(overlay);
+    }
+    overlay.style.display = 'block';
+}
+
+function hideQuizPreviewUI() {
+    const overlay = document.getElementById('quiz-preview-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function _waitForStartInput(onStart) {
+    showQuizPreviewUI();
+    
+    window._quizPreviewHandler = (e) => {
+        // ハードドロップに割り当てられがちなキー (スペース, 上矢印, W) + 念のためEnter
+        const startKeys = ['Space', 'ArrowUp', 'KeyW', 'Enter', 'w', 'W', ' '];
+        
+        // ブラウザのデフォルト操作（F12、リロードなど）は通す
+        if (e.key && (e.key.startsWith('F') || e.ctrlKey || e.metaKey)) return;
+
+        // イベントの伝播をキャプチャ段階で止めることで、ゲームのpauseや移動操作を完全に無効化する
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (startKeys.includes(e.key) || startKeys.includes(e.code)) {
+            document.removeEventListener('keydown', window._quizPreviewHandler, true);
+            window._quizPreviewHandler = null;
+            hideQuizPreviewUI();
+            onStart();
+        }
+    };
+
+    // 第3引数に true を指定してキャプチャフェーズでフックし、ゲームの既存ハンドラより先に処理・ブロックする
+    document.addEventListener('keydown', window._quizPreviewHandler, true);
+}
+
 
 // ─── QUIZモードのstopAllGamesフック ──────────
 function _stopQuizIfActive() {
@@ -1059,13 +1212,164 @@ function _showQuizFieldHeader(levelData) {
     if (!overlay) return;
     if (levelData) {
         overlay.style.display = 'block';
-        const ruleLabel = levelData.rule === 'tet' ? 'TET' : 'PUYO';
-        const headerEl = document.getElementById('quiz-field-header');
-        const condEl   = document.getElementById('quiz-field-condition');
-        if (headerEl) headerEl.textContent = `QUIZ — ${ruleLabel} — ${levelData.title}`;
-        if (condEl)   condEl.textContent   = `GOAL: ${levelData.clearCondition.description}`;
+        const ruleLabel   = levelData.rule === 'tet' ? 'TET' : 'PUYO';
+        const levelNum    = (QUIZ_LEVELS[levelData.rule] || []).findIndex(l => l.id === levelData.id) + 1;
+        const ruleTitleEl = document.getElementById('quiz-field-info-rule-title');
+        const descEl      = document.getElementById('quiz-field-info-desc');
+        const goalEl      = document.getElementById('quiz-field-info-goal');
+        if (ruleTitleEl) ruleTitleEl.textContent = `${ruleLabel} — ${levelNum}`;
+        if (descEl)      descEl.textContent      = levelData.description;
+        if (goalEl)      goalEl.textContent      = `GOAL: ${levelData.clearCondition.description}`;
     } else {
         overlay.style.display = 'none';
+        // NEXTキャンバスもクリア
+        const nc = document.getElementById('quiz-next-all-container');
+        if (nc) nc.innerHTML = '';
+    }
+}
+
+// ─── QUIZ NEXT一覧キャンバス描画 ─────────────────
+// ゲーム画面のquiz-field-overlayに全NEXTをまとめて描画する。
+// tet : Minoの形状定義に基づき BLOCK_SIZE*0.75 px のブロック画像で描画
+// puyo: PConfigの画像パスから色ごとの画像を CELL_SIZE*0.75 px で描画
+// 1行5個、左上揃え、行が埋まったら折り返す。
+// ─────────────────────────────────────────────────
+
+// ▼ 縮尺設定（独立して変更可能）
+const QUIZ_NEXT_TET_SCALE  = 0.38;   // テトミノの縮尺
+const QUIZ_NEXT_PUYO_SCALE = 0.75;   // ぷよの縮尺
+
+// テトミノ形状定義（左上揃え・コンパクト座標）
+// [colOffset, rowOffset] のペア、w=形状の幅(ブロック数)、h=高さ
+const _TET_SHAPES = {
+    0: { cols: [[0,1],[1,1],[2,1],[3,1]], w: 4, h: 3 }, // I
+    1: { cols: [[0,0],[1,0],[0,1],[1,1]], w: 2, h: 2 }, // O
+    2: { cols: [[1,0],[0,1],[1,1],[2,1]], w: 3, h: 2 }, // T
+    3: { cols: [[0,0],[0,1],[1,1],[2,1]], w: 3, h: 2 }, // J
+    4: { cols: [[2,0],[0,1],[1,1],[2,1]], w: 3, h: 2 }, // L
+    5: { cols: [[1,0],[2,0],[0,1],[1,1]], w: 3, h: 2 }, // S
+    6: { cols: [[0,0],[1,0],[1,1],[2,1]], w: 3, h: 2 }, // Z
+};
+
+// ぷよ色ID → 画像ファイル名
+const _PUYO_IMG_FILES = {
+    1: 'puyo-0.png',
+    2: 'puyo-1.png',
+    3: 'puyo-2.png',
+    4: 'puyo-3.png',
+    5: 'puyo-4.png',
+    6: 'puyo-5.png',
+};
+const _puyoImgCache = {};
+
+function _getPuyoImg(colorId) {
+    if (_puyoImgCache[colorId]) return _puyoImgCache[colorId];
+    const img = new Image();
+    img.src = PConfig.imagePath + (_PUYO_IMG_FILES[colorId] || 'puyo-5.png');
+    _puyoImgCache[colorId] = img;
+    return img;
+}
+
+function _renderQuizNextAll(levelData) {
+    let container = document.getElementById('quiz-next-all-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'quiz-next-all-container';
+        const overlay = document.getElementById('quiz-field-overlay');
+        if (!overlay) return;
+        overlay.appendChild(container);
+    }
+    container.innerHTML = '';
+    if (!levelData) return;
+
+    const TETCOLS_PER_ROW = 5; // tet:1行5個
+    const PUYOCOLS_PER_ROW = 9; // puyo:1行9個
+
+    if (levelData.rule === 'tet') {
+        // ── テト用 ──────────────────────────────────────
+        // BLOCK_SIZE(32px) × スケールで1ブロックの描画サイズを決定
+        const BS  = Math.round(BLOCK_SIZE * QUIZ_NEXT_TET_SCALE); // 例: 32*0.75=24px
+        const PAD = 2; // セル間マージン(px)
+
+        // 1ミノセル：幅=4ブロック分、高さ=3ブロック分（I型の高さに合わせる）
+        const CELL_W = 4 * BS + PAD;
+        const CELL_H = 3 * BS + PAD;
+
+        const pieces = levelData.nextPieces || [];
+        const rows   = Math.ceil(pieces.length / TETCOLS_PER_ROW);
+
+        const canvas = document.createElement('canvas');
+        canvas.id     = 'quiz-next-all-canvas';
+        canvas.width  = TETCOLS_PER_ROW * CELL_W;
+        canvas.height = rows * CELL_H;
+        container.appendChild(canvas);
+
+        const ctx = canvas.getContext('2d');
+
+        pieces.forEach((typeId, i) => {
+            const shape = _TET_SHAPES[typeId];
+            if (!shape) return;
+            // ★ Asset.blockImages[typeId] でなく typeId そのものを使う
+            //    （typeId は 0〜6 で blockImages のインデックスに直対応）
+            const img = Asset.blockImages[typeId];
+            if (!img) return;
+
+            const col   = i % TETCOLS_PER_ROW;
+            const row   = Math.floor(i / TETCOLS_PER_ROW);
+            const baseX = col * CELL_W;
+            const baseY = row * CELL_H;
+
+            // セル内で形状を水平中央揃え、垂直中央揃え
+            const offsetX = Math.floor((4 * BS - shape.w * BS) / 2);
+            const offsetY = Math.floor((3 * BS - shape.h * BS) / 2);
+
+            shape.cols.forEach(([c, r]) => {
+                ctx.drawImage(
+                    img,
+                    baseX + offsetX + c * BS, // 描画先 X
+                    baseY + offsetY + r * BS, // 描画先 Y
+                    BS,                        // ★ 描画幅（縮尺適用）
+                    BS                         // ★ 描画高さ（縮尺適用）
+                );
+            });
+        });
+
+    } else {
+        // ── ぷよ用 ──────────────────────────────────────
+        const CS  = Math.round(PConfig.cellSize * QUIZ_NEXT_PUYO_SCALE); // 例: 32*0.75=24px
+        const PAD = 4;
+
+        // 1ペアセル：幅=1ぷよ分、高さ=2ぷよ分（縦ペア）
+        const CELL_W = CS + PAD;
+        const CELL_H = CS * 2 + PAD;
+
+        const pairs = levelData.nextPuyoPairs || [];
+        const rows  = Math.ceil(pairs.length / PUYOCOLS_PER_ROW);
+
+        const canvas = document.createElement('canvas');
+        canvas.id     = 'quiz-next-all-canvas';
+        canvas.width  = PUYOCOLS_PER_ROW * CELL_W;
+        canvas.height = rows * CELL_H;
+        container.appendChild(canvas);
+
+        const ctx = canvas.getContext('2d');
+
+        const drawOne = (img, x, y) => {
+            if (img.complete && img.naturalWidth > 0) {
+                ctx.drawImage(img, x, y, CS, CS); // ★ CS を第5・6引数で明示
+            } else {
+                img.onload = () => ctx.drawImage(img, x, y, CS, CS);
+            }
+        };
+
+        pairs.forEach(([pivot, child], i) => {
+            const col  = i % PUYOCOLS_PER_ROW;
+            const row  = Math.floor(i / PUYOCOLS_PER_ROW);
+            const x    = col * CELL_W;
+            const y    = row * CELL_H;
+            drawOne(_getPuyoImg(pivot), x, y + CS);
+            drawOne(_getPuyoImg(child), x, y);
+        });
     }
 }
 
