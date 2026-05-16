@@ -104,6 +104,41 @@
         }
     },
     {
+            "id": "puyo-10",
+            "diff": 2,
+            "description": "おじゃまぷよ付き連鎖",
+            "rule": "puyo",
+            "initialPuyoField":[
+                [0, 0, 6, 6, 0, 0],
+                [0, 0, 2, 2, 0, 0],
+                [6, 0, 4, 6, 0, 6],
+                [4, 4, 6, 4, 4, 4]
+            ],
+            "nextPuyoPairs": [[2, 4], [2, 4]],
+            "clearCondition": {
+                "type": "chain",
+                "value": 3,
+                "description": "3連鎖"
+            }
+        },
+    {
+        "id": "puyo-9",
+        "diff": 3,
+        "description": "おじゃまぷよの応用",
+        "rule": "puyo",
+        "initialPuyoField":[
+            [0, 0, 0, 2, 2, 0],
+            [0, 6, 6, 6, 4, 4],
+            [0, 6, 1, 1, 1, 4]
+        ],
+        "nextPuyoPairs": [[2, 4], [2, 1]],
+        "clearCondition": {
+            "type": "score",
+            "value": 3100,
+            "description": "3連鎖＆全消し"
+        }
+    },
+    {
         "id": "puyo-5",
         "diff": 3,
         "description": "開幕AB7連続！",
@@ -190,23 +225,6 @@
             "type": "chain",
             "value": 9,
             "description": "9連鎖"
-        }
-    },
-    {
-        "id": "puyo-9",
-        "diff": 3,
-        "description": "おじゃまぷよの基本",
-        "rule": "puyo",
-        "initialPuyoField":[
-            [0, 0, 0, 2, 2, 0],
-            [0, 6, 6, 6, 4, 4],
-            [0, 6, 1, 1, 1, 4]
-        ],
-        "nextPuyoPairs": [[2, 4], [2, 1]],
-        "clearCondition": {
-            "type": "score",
-            "value": 3100,
-            "description": "3連鎖＆全消し"
         }
     }
 ]
