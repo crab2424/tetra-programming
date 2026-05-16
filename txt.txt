@@ -6,7 +6,9 @@
 
 バグ
 ・finish時にポーズを行わない
-
+---cpu memo
+ソフドロ必要かについて
+返り値の操作手順
 
 ーーーーーーーーーーーーーーーーーーーーーーーーーーーメモ
 
@@ -51,17 +53,17 @@
 emcc cpu2.cpp -O3 -s WASM=1 -s EXPORTED_RUNTIME_METHODS='["ccall", "cwrap"]' -o cpu_wasm.js
 emcc cpu2.cpp -O3 -s WASM=1 -o cpu_wasm.js
 
-emcc cpu5.cpp -O2 -o cpu_wasm5.js \
+emcc cpu6.cpp -O2 -o cpu_wasm6.js \
   -s EXPORTED_FUNCTIONS='["_searchBestMoveWasm","_my_malloc","_my_free"]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s INITIAL_MEMORY=16777216
 
-emcc cpu1.cpp -O2 -s WASM=1 \
+emcc cpu4.cpp -O2 -s WASM=1 \
   -s EXPORTED_FUNCTIONS='["_searchBestMovePuyoWasm","_my_malloc","_my_free"]' \
   -s EXPORTED_RUNTIME_METHODS='["HEAPU8","HEAP32"]' \
   -s INITIAL_MEMORY=8388608 \
-  -o cpu_wasm1.js
+  -o cpu_wasm4.js
 
 
 これで、C++側のメモリ動的確保がゼロになり、完全に安定して動作するようになります。

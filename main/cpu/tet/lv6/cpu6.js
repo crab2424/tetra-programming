@@ -40,7 +40,7 @@ window.CPU6 = class {
 
             tsdShape: 20,      
             tsdShapeOver: -45, 
-            tsdFillBonus: 120,   
+            tsdFillBonus: 40,   
 
             tssClear: 496,       
             tsdClear: 2560,      
@@ -54,16 +54,16 @@ window.CPU6 = class {
             tsmMiniPenalty: -1000,      
             tMinoNoClearPenalty: -360, 
 
-            tsdSetup: 30,         
+            tsdSetup: 90,         
             tsdSetupOver: -100,   
 
             slopeBonus: 72,       
             slopePenalty: -36,    
 
-            P1_WEIGHT: 1.0,        
+            P1_WEIGHT: 1.2,        
         };
 
-        this.worker = new Worker('cpu/tet/???/cpu_worker6.js');
+        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js');
         this.workerReady = false;
         this.isCalculating = false;
 

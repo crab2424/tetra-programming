@@ -100,6 +100,8 @@ const CPU_LEVELS = {
   3: { label: 'LV 3', desc: '中級者向け', gravityLevel: 2  },
   4: { label: 'LV 4', desc: '上級者向け', gravityLevel: 2 },
   5: { label: 'LV 5', desc: '最上級者向け', gravityLevel: 2 },
+  // ★ 隠し要素: 準備画面で「6」キーを押すと出現（tet限定）
+  6: { label: 'LV ???', desc: '???', gravityLevel: 2 },
 };
 let selectedCpuLevel = 1; 
 
@@ -1364,4 +1366,49 @@ function handlePauseAction(action) {
   });
 
   observer.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+})();
+
+// ─────────────────────────────────────────────
+// ★ 隠し要素: CPU LV6 ショートカット
+// versus-check または mode-check(testモード) の準備画面で
+// 「6」キー（numキーではない）を押すと、
+// tetルールが選択されている場合のみ LV6 を呼び出してゲームを即スタートする
+// ─────────────────────────────────────────────
+(function setupHiddenLv6Key() {
+  document.addEventListener('keydown', function(e) {
+    // Digit6（テンキーではない「6」）のみ対象
+    if (e.code !== 'Digit6') return;
+
+    const versusCheckPage = document.getElementById('versus-check-page');
+    const modeCheckPage   = document.getElementById('mode-check-page');
+
+    const isVersusCheck = versusCheckPage && versusCheckPage.classList.contains('active');
+    const isTestCheck   = modeCheckPage   && modeCheckPage.classList.contains('active')
+                          && currentGameMode && currentGameMode.id === 'test';
+
+    // どちらの準備画面でもない場合は何もしない
+    if (!isVersusCheck && !isTestCheck) return;
+
+    // ─── versus-check 画面: CPU RULE が tet の場合のみ有効 ───
+    if (isVersusCheck) {
+      if (versusCpuRule !== 'tet') return;
+      e.preventDefault();
+
+      // LV6 を強制設定してからゲームを開始
+      selectedCpuLevel = 6;
+      startVersusGame();
+      return;
+    }
+
+    // ─── mode-check(test) 画面: RULE が tet の場合のみ有効 ───
+    if (isTestCheck) {
+      if (testRule !== 'tet') return;
+      e.preventDefault();
+
+      // LV6 を強制設定してからゲームを開始
+      selectedCpuLevel = 6;
+      startGameFromModeCheck();
+      return;
+    }
+  });
 })();
