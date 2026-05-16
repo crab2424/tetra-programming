@@ -1282,7 +1282,8 @@ function _renderQuizNextAll(levelData) {
     container.innerHTML = '';
     if (!levelData) return;
 
-    const COLS_PER_ROW = 5;
+    const TETCOLS_PER_ROW = 5; // tet:1行5個
+    const PUYOCOLS_PER_ROW = 9; // puyo:1行9個
 
     if (levelData.rule === 'tet') {
         // ── テト用 ──────────────────────────────────────
@@ -1295,11 +1296,11 @@ function _renderQuizNextAll(levelData) {
         const CELL_H = 3 * BS + PAD;
 
         const pieces = levelData.nextPieces || [];
-        const rows   = Math.ceil(pieces.length / COLS_PER_ROW);
+        const rows   = Math.ceil(pieces.length / TETCOLS_PER_ROW);
 
         const canvas = document.createElement('canvas');
         canvas.id     = 'quiz-next-all-canvas';
-        canvas.width  = COLS_PER_ROW * CELL_W;
+        canvas.width  = TETCOLS_PER_ROW * CELL_W;
         canvas.height = rows * CELL_H;
         container.appendChild(canvas);
 
@@ -1313,8 +1314,8 @@ function _renderQuizNextAll(levelData) {
             const img = Asset.blockImages[typeId];
             if (!img) return;
 
-            const col   = i % COLS_PER_ROW;
-            const row   = Math.floor(i / COLS_PER_ROW);
+            const col   = i % TETCOLS_PER_ROW;
+            const row   = Math.floor(i / TETCOLS_PER_ROW);
             const baseX = col * CELL_W;
             const baseY = row * CELL_H;
 
@@ -1343,11 +1344,11 @@ function _renderQuizNextAll(levelData) {
         const CELL_H = CS * 2 + PAD;
 
         const pairs = levelData.nextPuyoPairs || [];
-        const rows  = Math.ceil(pairs.length / COLS_PER_ROW);
+        const rows  = Math.ceil(pairs.length / PUYOCOLS_PER_ROW);
 
         const canvas = document.createElement('canvas');
         canvas.id     = 'quiz-next-all-canvas';
-        canvas.width  = COLS_PER_ROW * CELL_W;
+        canvas.width  = PUYOCOLS_PER_ROW * CELL_W;
         canvas.height = rows * CELL_H;
         container.appendChild(canvas);
 
@@ -1362,12 +1363,12 @@ function _renderQuizNextAll(levelData) {
         };
 
         pairs.forEach(([pivot, child], i) => {
-            const col  = i % COLS_PER_ROW;
-            const row  = Math.floor(i / COLS_PER_ROW);
+            const col  = i % PUYOCOLS_PER_ROW;
+            const row  = Math.floor(i / PUYOCOLS_PER_ROW);
             const x    = col * CELL_W;
             const y    = row * CELL_H;
-            drawOne(_getPuyoImg(pivot), x, y);
-            drawOne(_getPuyoImg(child), x, y + CS);
+            drawOne(_getPuyoImg(pivot), x, y + CS);
+            drawOne(_getPuyoImg(child), x, y);
         });
     }
 }

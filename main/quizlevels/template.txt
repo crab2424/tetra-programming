@@ -1,0 +1,42 @@
+puyo
+
+    ,
+    {
+            "id": "puyo-x",
+            "diff": 2,
+            "description": "連鎖",
+            "rule": "puyo",
+            "initialPuyoField":[
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0]
+            ],
+            "nextPuyoPairs": [[1, 1], [2, 2]],
+            "clearCondition": {
+                "type": "chain",
+                "value": 6,
+                "description": "6連鎖"
+            }
+        }
+
+
+tet
+
+    ,
+        {
+            "id": "tet-x",
+            "diff": 2,
+            "description": "T-spin",
+            "rule": "tet",
+            "allowHold": false,
+            "initialField": [
+                [0,0,0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0,0,0]
+            ],
+            "nextPieces": [0, 1, 2, 3, 4, 5, 6],
+            "clearCondition": {
+                "type": "allClear",
+                "value": 0,
+                "description": "パーフェクトクリア"
+            }
+        }
