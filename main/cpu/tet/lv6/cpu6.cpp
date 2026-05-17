@@ -270,31 +270,31 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
     if (outMaxHeight != nullptr) *outMaxHeight = maxHeight;
 
     // 高さペナルティ
-    if(maxHeight >= 8) score += (maxHeight - 7) * (maxHeight - 7) * w.heightLimit;
-    if(maxHeight >= 18) score += 100 * maxHeight * maxHeight * w.heightLimit;
+    if(maxHeight >= 12) score += (maxHeight - 11) * (maxHeight - 11) * w.heightLimit;
+    if(maxHeight >= 16) score += 100 * maxHeight * maxHeight * w.heightLimit;
 
     // ★追加：ゆるやかな下り坂の評価
     // 左側 (x=0,1,2,3)
-    float l_y1 = heights[0], l_y2 = heights[1] - l_y1, l_y3 = heights[2] - l_y1, l_y4 = heights[3] - l_y1;
-    float l_cond1 =  -(2.0f * l_y2 + l_y3) / 2.0f;
-    float l_cond2 = l_y4 - (l_y2 + l_y3) / 3.0f;
-    if (l_cond1 >= 0.0f && l_cond2 <= 2.0f) {
-        score += w.slopeBonus;
-    } else if (maxHeight <= 10){
-        score += (int)((l_cond1) * (l_cond1) * w.slopePenalty);
-        score += (int)((l_cond2) * (l_cond2) * w.slopePenalty);
-    }
+    //float l_y1 = heights[0], l_y2 = heights[1] - l_y1, l_y3 = heights[2] - l_y1, l_y4 = heights[3] - l_y1;
+    //float l_cond1 =  -(2.0f * l_y2 + l_y3) / 2.0f;
+    //float l_cond2 = l_y4 - (l_y2 + l_y3) / 3.0f;
+    //if (l_cond1 >= 0.0f && l_cond2 <= 2.0f) {
+    //    score += w.slopeBonus;
+    //} else if (maxHeight <= 10){
+    //    score += (int)((l_cond1) * (l_cond1) * w.slopePenalty);
+    //    score += (int)((l_cond2) * (l_cond2) * w.slopePenalty);
+    //}
 
     // 右側 (x=9,8,7,6)
-    float r_y1 = heights[9], r_y2 = heights[8] - r_y1, r_y3 = heights[7] - r_y1, r_y4 = heights[6] - r_y1;
-    float r_cond1 =  -(2.0f * r_y2 + r_y3) / 2.0f;
-    float r_cond2 = r_y4 - (r_y2 + r_y3) / 3.0f;
-    if (r_cond1 >= 0.0f && r_cond2 <= 2.0f) {
-        score += w.slopeBonus;
-    } else if (maxHeight <= 10){
-        score += (int)((r_cond1) * (r_cond1) * w.slopePenalty);
-        score += (int)((r_cond2) * (r_cond2) * w.slopePenalty);
-    }
+    //float r_y1 = heights[9], r_y2 = heights[8] - r_y1, r_y3 = heights[7] - r_y1, r_y4 = heights[6] - r_y1;
+    //float r_cond1 =  -(2.0f * r_y2 + r_y3) / 2.0f;
+    //float r_cond2 = r_y4 - (r_y2 + r_y3) / 3.0f;
+    //if (r_cond1 >= 0.0f && r_cond2 <= 2.0f) {
+    //    score += w.slopeBonus;
+    //} else if (maxHeight <= 10){
+    //    score += (int)((r_cond1) * (r_cond1) * w.slopePenalty);
+    //    score += (int)((r_cond2) * (r_cond2) * w.slopePenalty);
+    //}
 
     // ★最適化：I-Well判定のループ外への切り出しをビット演算で完全一括処理
     bool hasIWellInRow[ROWS] = {false};
@@ -471,18 +471,83 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
 
     // TSDセットアップ評価
     int tsdSetupCount = 0;
-    // ★最適化：TSD（T-Spin Double）の「屋根」を形成するノッチ形状を走査
-    // 各列のスタック最上段の1つ上の空きマスにおいて、左右がブロックで、さらにその上が空域である箇所をカウント
-    for (int x = 1; x < COLS - 1; x++) {
-        int y = ROWS - heights[x] - 1;
-        if (y > 0) {
-            uint16_t mask = (1 << (x - 1)) | (1 << (x + 1));
-            // y行の左右が埋まっており、y-1行の左右が空いている形状（Tスピンの引き出し）を判定
-            if ((b.rows[y] & mask) == mask && !(b.rows[y - 1] & mask)) {
-                    tsdSetupCount++;
-                }
+    // ★新実装：より厳密なTSDセットアップ形状を以下の3条件で判定する
+    // 空白マス(x, y)を起点として：
+    // 条件1: (x-1,y), (x+1,y), (x,y+1) がすべて空白
+    // 条件2: 4隅 A(x-1,y-1) B(x+1,y-1) C(x-1,y+1) D(x+1,y+1) のうち、
+    //        2-1: AC埋まりBD空白 / 2-2: CD埋まりAB空白 / 2-3: BD埋まりAC空白 のいずれか
+    // 条件3: E(x-2,y+1) F(x+2,y+1) G(x-2,y+2) H(x-1,y+3) I(x+2,y+2) J(x+1,y+3) を使い、
+    //        2-1達成時: F空白 かつ (I or J 埋まり)
+    //        2-2達成時: E or F 埋まり
+    //        2-3達成時: E空白 かつ (G or H 埋まり)
+    //
+    // ビットボード座標系: y=0が盤面最上段、y=ROWS-1が最下段
+    // has(x,y): x<0 || x>=COLS || y>=ROWS → true(壁扱い), y<0 → false(空扱い)
+    {
+        // セルの空白判定ヘルパー（範囲外は壁＝埋まり扱い）
+        auto isFilled = [&](int cx, int cy) -> bool {
+            if (cx < 0 || cx >= COLS) return true;  // 壁は埋まり扱い
+            if (cy < 0) return false;                 // 盤面上空は空扱い
+            if (cy >= ROWS) return true;              // 盤面下端以下は埋まり扱い
+            return (b.rows[cy] & (1 << cx)) != 0;
+        };
+        // auto isEmpty = [&](int cx, int cy) -> bool {
+        //     return !isFilled(cx, cy);
+        // };
+
+        // x: 1~COLS-2（左右隣が盤面内に収まる範囲）
+        // y: 0~ROWS-4（y+3まで参照するため下限を確保）
+        for (int y = 0; y < ROWS; y++) {
+            // 条件1の空白マス(x,y)の候補をビット演算で絞り込む
+            // (x,y), (x-1,y), (x+1,y), (x,y+1) がすべて空白
+            // → row[y] の各ビットが 0、かつ row[y+1] も対応ビットが 0、かつ左右ビットも 0
+            uint16_t cand = (~b.rows[y]) & (~b.rows[y+1]) & 0x3FF; // (x,y)と(x,y+1)が空白
+            // 左右隣 (x-1,y) と (x+1,y) が空白: row[y] の左右シフトとAND
+            uint16_t row_y = b.rows[y];
+            uint16_t left_empty  = ~(row_y << 1) & 0x3FF; // ビットx-1が空 → ビットxを残す
+            uint16_t right_empty = ~(row_y >> 1) & 0x3FF; // ビットx+1が空 → ビットxを残す
+            cand &= left_empty & right_empty;
+            // 端の列（x=0, x=COLS-1）は左右参照が壁になるため除外
+            cand &= 0x1FE; // bit1~bit8 (x=1~8) のみ有効
+
+            if (!cand) continue; // この行に候補がなければスキップ
+
+            for (int x = 1; x < COLS - 1; x++) {
+                if (!((cand >> x) & 1)) continue; // 条件1を満たさない列はスキップ
+
+                // 4隅の埋まり状態
+                bool A = isFilled(x-1, y-1); // 左上
+                bool B = isFilled(x+1, y-1); // 右上
+                bool C = isFilled(x-1, y+1); // 左下
+                bool D = isFilled(x+1, y+1); // 右下
+
+                // 条件2の判定
+                bool cond2_1 = ( A &&  C && !B && !D); // 2-1: AC埋まりBD空白
+                bool cond2_2 = ( C &&  D && !A && !B); // 2-2: CD埋まりAB空白
+                bool cond2_3 = ( B &&  D && !A && !C); // 2-3: BD埋まりAC空白
+
+                if (!cond2_1 && !cond2_2 && !cond2_3) continue;
+
+                // 参照点 E~J の埋まり状態
+                bool E = isFilled(x-2, y+1);
+                bool F = isFilled(x+2, y+1);
+                bool G = isFilled(x-2, y+2);
+                bool H = isFilled(x-1, y+3);
+                bool I = isFilled(x+2, y+2);
+                bool J = isFilled(x+1, y+3);
+                bool K = isFilled(x-2, y-3);
+                bool L = isFilled(x+2, y-3);
+
+                // 条件3の判定
+                bool cond3 = false;
+                if (cond2_1) cond3 = (!F && (I || J)); // 2-1: F空白かつ(IまたはJ埋まり)
+                if (cond2_2) cond3 = ( (E && !K) ||  (F && !L));        // 2-2: EまたはF埋まり
+                if (cond2_3) cond3 = (!E && (G || H)); // 2-3: E空白かつ(GまたはH埋まり)
+
+                if (cond3) tsdSetupCount++;
             }
         }
+    }
     if (tsdSetupCount > 0) {
         if (tsdSetupCount <= 2) score += tsdSetupCount * w.tsdSetup;
         else                    score += tsdSetupCount * w.tsdSetupOver;
@@ -490,7 +555,7 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
 
     // ★追加：凹みが中央にある評価（centerDip）
     // 各列の高さを低い順にソートし、下位3列が列3~6の範囲内ならボーナス、範囲外ならペナルティ
-    // 最低列に1.0倍、下位2・3番目に0.8倍の倍率をかける
+    // 最低列に1.0倍、下位2・3番目に0.1倍の倍率をかける
     {
         // (高さ, 列インデックス) のペアを作り、高さ昇順でソート
         std::pair<int,int> heightIdx[COLS];
@@ -499,8 +564,8 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
             [](const std::pair<int,int>& a, const std::pair<int,int>& b){ return a.first < b.first; });
 
         // 下位3列（高さが低い＝最も凹んでいる列）を対象とする
-        // 倍率：1位(最低)=1.0、2位=0.8、3位=0.8
-        const float multipliers[3] = { 1.0f, 0.8f, 0.8f };
+        // 倍率：1位(最低)=1.0、2位=0.1、3位=0.1
+        const float multipliers[3] = { 1.0f, 0.1f, 0.1f };
         for (int rank = 0; rank < 3; rank++) {
             int col = heightIdx[rank].second;
             bool isCenterCol = (col >= 3 && col <= 6); // 列3~6が中央
@@ -948,7 +1013,7 @@ void evaluateSinglePlacementWasm(
     }
     if (hasBlockOutside) stepScore -= 100000000;
 
-    if (baseMaxHeight <= 10) {
+    if (baseMaxHeight <= 14) {
         if (minoType == 2 && cleared == 0) stepScore += w.tMinoNoClearPenalty;
     }
 
