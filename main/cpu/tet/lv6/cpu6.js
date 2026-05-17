@@ -19,11 +19,11 @@ window.CPU6 = class {
             lineClear: -140,
             hole: -80, 
             heightLimit: -56, 
-            step3Plus: -128, 
+            step3Plus: -40, 
             flat: 4,
             step1Good: 3, 
             step1Bad: -2, 
-            step2: -54, 
+            step2: -24, 
             groundedBonus: 72, 
             touchingBonus: 36,   
             underSpace: -6, 
@@ -32,7 +32,7 @@ window.CPU6 = class {
             
             iWell: 60,           
             iWellOver: -234,      
-            blocksOverHole: -250, 
+            blocksOverHole: -300, 
             
             line4: 500,          
             downstackGood: 68,   
@@ -54,13 +54,15 @@ window.CPU6 = class {
             tsmMiniPenalty: -1000,      
             tMinoNoClearPenalty: -360, 
 
-            tsdSetup: 500,         
+            tsdSetup: 200,         
             tsdSetupOver: -1000,   
 
             slopeBonus: 72,       
             slopePenalty: -36,    
 
             centerDip: 10,         // ★追加：凹みが中央(列3~6)にあるとボーナス、端にあるとペナルティ
+
+            fire: 10000,             // ★追加：火力評価（火力>=4で正報酬、<=3で負報酬）
 
             P1_WEIGHT: 0.5,        
         };
@@ -627,7 +629,8 @@ window.CPU6 = class {
             this.weights.tsdSetupOver,
             this.weights.slopeBonus,
             this.weights.slopePenalty,
-            this.weights.centerDip              // ★追加 [33]
+            this.weights.centerDip,             // ★追加 [33]
+            this.weights.fire                   // ★追加 [34]
         ]);
 
         const currentRen = this.game.ren || 0;
@@ -706,7 +709,8 @@ window.CPU6 = class {
             this.weights.tsdSetupOver,
             this.weights.slopeBonus,
             this.weights.slopePenalty,
-            this.weights.centerDip              // ★追加 [33]
+            this.weights.centerDip,             // ★追加 [33]
+            this.weights.fire                   // ★追加 [34]
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
