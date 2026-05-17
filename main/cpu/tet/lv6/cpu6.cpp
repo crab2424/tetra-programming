@@ -834,6 +834,11 @@ struct SearchState {
 
     int p1_score; 
     int total_score; 
+    // ★変更：n手目の枝切りキー = 最新盤面評価値 + 1手目からの累積報酬
+    // cumulative_event_score : 1手目から現在手までの evalPlacementEvent の累積和
+    // beam_score             : 枝切り・最終選択に使うスコア (= 最新 stateScore + cumulative_event_score)
+    int cumulative_event_score;
+    int beam_score;
     Board board;
 
     bool has_p[6];      
@@ -852,6 +857,8 @@ struct SearchState {
         next_idx = 0;
         p1_score = 0;
         total_score = 0;
+        cumulative_event_score = 0;
+        beam_score = 0;
         max_height = 0;
         ren = 0;        
         backToBack = false; 
@@ -1062,14 +1069,28 @@ void searchBestMoveWasm(
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
             */
 
-            // ★分割後：stepScore = 評価値 * p1Weight（1手目のみ）+ 報酬
+            // ★分割後：stepScore = 評価値 * p1Weight（1手目のみ）+ 報酬（total_score 用、従来互換で保持）
             int stepScore = is_first ? (stateScore * P1_WEIGHT_PCT / 100 + eventScore) : (stateScore + eventScore);
+
+            // ★変更：枝切り・最終選択に使う beam_score を計算
+            // beam_score = 最新盤面評価値 + 1手目からの累積報酬の和
+            // (n-1手目までの盤面評価値は含まない)
+            int cur_cumulative_event = (is_first ? 0 : s.cumulative_event_score) + eventScore;
+            // 1手目のみ p1Weight を盤面評価値に掛ける（以降は生の stateScore）
+            int cur_beam_score = stateScore + cur_cumulative_event;
 
             if (hasBlockOutside) stepScore -= 100000000 * (7 - step_num);
 
             if (prevHeight <= 10) {
                 if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) stepScore += w.renCutPenalty; 
                 if (piece == 2 && p.linesCleared == 0) stepScore += w.tMinoNoClearPenalty;
+            }
+
+            // ★変更：ペナルティ系も beam_score に反映する
+            if (hasBlockOutside) cur_beam_score -= 100000000 * (7 - step_num);
+            if (prevHeight <= 10) {
+                if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) cur_beam_score += w.renCutPenalty;
+                if (piece == 2 && p.linesCleared == 0) cur_beam_score += w.tMinoNoClearPenalty;
             }
 
             int next_ren = (p.linesCleared > 0) ? (cur_ren + 1) : 0;
@@ -1083,6 +1104,8 @@ void searchBestMoveWasm(
             next_s.ren = next_ren;       
             next_s.backToBack = next_btb; 
             next_s.max_height = current_max_height;
+            next_s.cumulative_event_score = cur_cumulative_event;
+            next_s.beam_score = cur_beam_score;
             if (is_first) {
                 next_s.first_action = first_action;
                 next_s.p1_score = stateScore; // ★分割対応：旧 score → stateScore に変更
@@ -1106,14 +1129,16 @@ void searchBestMoveWasm(
     };
 
     auto trimAndMerge = [&]() {
+        // ★変更：枝切りの比較キーを total_score → beam_score に変更
+        // beam_score = 最新盤面評価値 + 1手目からの累積報酬（n-1手目以前の盤面評価値を含まない）
         if(next_states_N.size() > BEAM_WIDTH) {
             std::partial_sort(next_states_N.begin(), next_states_N.begin() + BEAM_WIDTH, next_states_N.end(), 
-                [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
+                [](const SearchState& a, const SearchState& b){ return a.beam_score > b.beam_score; });
             next_states_N.resize(BEAM_WIDTH);
         }
         if(next_states_L.size() > BEAM_WIDTH) {
             std::partial_sort(next_states_L.begin(), next_states_L.begin() + BEAM_WIDTH, next_states_L.end(), 
-                [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
+                [](const SearchState& a, const SearchState& b){ return a.beam_score > b.beam_score; });
             next_states_L.resize(BEAM_WIDTH);
         }
         
@@ -1175,9 +1200,10 @@ void searchBestMoveWasm(
     int bestTotalScore = -2000000000;
     const SearchState* bestState = nullptr;
 
+    // ★変更：最終的な最善手選択も beam_score（最新盤面評価値 + 累積報酬）で判断
     for(const auto& state : final_states) {
-        if(state.total_score > bestTotalScore) {
-            bestTotalScore = state.total_score;
+        if(state.beam_score > bestTotalScore) {
+            bestTotalScore = state.beam_score;
             bestState = &state;
         }
     }
