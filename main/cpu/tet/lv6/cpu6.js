@@ -16,19 +16,19 @@ window.CPU6 = class {
         this.isCalculatingSingle = false;
 
         this.weights = {
-            lineClear: -140,
+            lineClear: 100,
             hole: -80, 
             heightLimit: -56, 
-            step3Plus: -40, 
-            flat: 4,
+            step3Plus: -80, 
+            flat: 85,
             step1Good: 3, 
             step1Bad: -2, 
             step2: -24, 
             groundedBonus: 72, 
             touchingBonus: 36,   
-            underSpace: -6, 
-            singleWell: 5, 
-            multiWell: -170,
+            //underSpace: -6, 
+            //singleWell: 5, 
+            //multiWell: -170,
             
             iWell: 60,           
             iWellOver: -234,      
@@ -38,7 +38,7 @@ window.CPU6 = class {
             downstackGood: 68,   
             downstackBad: -3,
 
-            tsdShape: 200,      
+            tsdShape: 1000,      
             tsdShapeOver: -45, 
             tsdFillBonus: 50,   
 
@@ -52,19 +52,19 @@ window.CPU6 = class {
             renCutPenalty: -200,
 
             tsmMiniPenalty: -1000,      
-            tMinoNoClearPenalty: -360, 
+            tMinoNoClearPenalty: -3600, 
 
-            tsdSetup: 200,         
+            tsdSetup: 600,         
             tsdSetupOver: -1000,   
 
             slopeBonus: 72,       
             slopePenalty: -36,    
 
-            centerDip: 10,         // ★追加：凹みが中央(列3~6)にあるとボーナス、端にあるとペナルティ
+            centerDip: 100,         // ★追加：凹みが中央(列3~6)にあるとボーナス、端にあるとペナルティ
 
-            fire: 10000,             // ★追加：火力評価（火力>=4で正報酬、<=3で負報酬）
+            fire: 50,             // ★追加：火力評価（火力>=4で正報酬、<=3で負報酬）
 
-            P1_WEIGHT: 0.5,        
+            P1_WEIGHT: 1.0,        
         };
 
         this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js');

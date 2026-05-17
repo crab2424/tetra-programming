@@ -214,14 +214,19 @@ function loadCpuScript(level, rule) {
     const config = CPU_CONFIGS[rule][level];
     if (!config) return reject(new Error("Invalid CPU Level or Rule"));
 
-    if (activeCpuClassName === config.className && window[config.className]) {
+    // ★ cpu6.js は開発中のため毎回キャッシュをバイパスして再読み込みする
+    // （他のCPUスクリプトは従来通りキャッシュを利用）
+    const isCpu6 = (config.className === 'CPU6');
+
+    if (!isCpu6 && activeCpuClassName === config.className && window[config.className]) {
       return resolve(window[config.className]);
     }
 
     unloadCpuScript();
 
     const script = document.createElement('script');
-    script.src = config.src;
+    // ★ cpu6.js のみタイムスタンプをクエリパラメータとして付与し、ブラウザキャッシュを無効化
+    script.src = isCpu6 ? `${config.src}?v=${Date.now()}` : config.src;
     script.id = `dynamic-cpu-script`;
     
     script.onload = () => {
