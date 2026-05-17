@@ -154,6 +154,7 @@ struct EvalWeights {
     int tsdSetupOver;        
     int slopeBonus;          // ★追加：ゆるやかな下り坂のボーナス
     int slopePenalty;        // ★追加：ゆるやかな下り坂を満たさないペナルティ
+    int centerDip;           // ★追加：凹みが中央(列3~6)にあると正、端にあると負のスコア（初期値50）
 };
 
 // ★最適化：引数に const int heights[COLS] = nullptr を追加
@@ -470,19 +471,42 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
 
     // TSDセットアップ評価
     int tsdSetupCount = 0;
+    // ★最適化：TSD（T-Spin Double）の「屋根」を形成するノッチ形状を走査
+    // 各列のスタック最上段の1つ上の空きマスにおいて、左右がブロックで、さらにその上が空域である箇所をカウント
     for (int x = 1; x < COLS - 1; x++) {
         int y = ROWS - heights[x] - 1;
-        if (y > 0 && y < ROWS) {
-            if ((b.rows[y] & (1<<(x-1))) && (b.rows[y] & (1<<(x+1)))) {
-                if (!((b.rows[y-1] >> (x-1)) & 1) && !((b.rows[y-1] >> (x+1)) & 1)) {
+        if (y > 0) {
+            uint16_t mask = (1 << (x - 1)) | (1 << (x + 1));
+            // y行の左右が埋まっており、y-1行の左右が空いている形状（Tスピンの引き出し）を判定
+            if ((b.rows[y] & mask) == mask && !(b.rows[y - 1] & mask)) {
                     tsdSetupCount++;
                 }
             }
         }
-    }
     if (tsdSetupCount > 0) {
         if (tsdSetupCount <= 2) score += tsdSetupCount * w.tsdSetup;
         else                    score += tsdSetupCount * w.tsdSetupOver;
+    }
+
+    // ★追加：凹みが中央にある評価（centerDip）
+    // 各列の高さを低い順にソートし、下位3列が列3~6の範囲内ならボーナス、範囲外ならペナルティ
+    // 最低列に1.0倍、下位2・3番目に0.8倍の倍率をかける
+    {
+        // (高さ, 列インデックス) のペアを作り、高さ昇順でソート
+        std::pair<int,int> heightIdx[COLS];
+        for (int x = 0; x < COLS; x++) heightIdx[x] = {heights[x], x};
+        std::sort(heightIdx, heightIdx + COLS,
+            [](const std::pair<int,int>& a, const std::pair<int,int>& b){ return a.first < b.first; });
+
+        // 下位3列（高さが低い＝最も凹んでいる列）を対象とする
+        // 倍率：1位(最低)=1.0、2位=0.8、3位=0.8
+        const float multipliers[3] = { 1.0f, 0.8f, 0.8f };
+        for (int rank = 0; rank < 3; rank++) {
+            int col = heightIdx[rank].second;
+            bool isCenterCol = (col >= 3 && col <= 6); // 列3~6が中央
+            int sign = isCenterCol ? 1 : -1;
+            score += (int)(sign * multipliers[rank] * w.centerDip);
+        }
     }
 
     return score;
@@ -859,7 +883,8 @@ void evaluateSinglePlacementWasm(
         weightsArray[15], weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], 
         weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
         weightsArray[24], weightsArray[25], weightsArray[26], weightsArray[27], weightsArray[28],
-        weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32] 
+        weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32],
+        weightsArray[33] // centerDip ★追加
     };
 
     // ★分割対応：配置前盤面の評価値（baseScore）を evalBoardState で取得
@@ -947,7 +972,8 @@ void searchBestMoveWasm(
         weightsArray[15], weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19], 
         weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
         weightsArray[24], weightsArray[25], weightsArray[26], weightsArray[27], weightsArray[28],
-        weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32]
+        weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32],
+        weightsArray[33] // centerDip ★追加
     };
 
     int baseMaxHeight = 0; 

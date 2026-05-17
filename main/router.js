@@ -58,7 +58,7 @@ const GAME_MODES = {
 };
 
 let testCpuControl = true; 
-let testRule = 'puyo';
+let testRule = 'tet';
 
 function setTestCpuControl(isOn) {
   testCpuControl = isOn;

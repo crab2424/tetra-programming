@@ -16,8 +16,8 @@ window.CPU6 = class {
         this.isCalculatingSingle = false;
 
         this.weights = {
-            lineClear: 14,
-            hole: -40, 
+            lineClear: -140,
+            hole: -80, 
             heightLimit: -56, 
             step3Plus: -128, 
             flat: 4,
@@ -32,18 +32,18 @@ window.CPU6 = class {
             
             iWell: 60,           
             iWellOver: -234,      
-            blocksOverHole: -125, 
+            blocksOverHole: -250, 
             
             line4: 500,          
             downstackGood: 68,   
             downstackBad: -3,
 
-            tsdShape: 20,      
+            tsdShape: 200,      
             tsdShapeOver: -45, 
-            tsdFillBonus: 40,   
+            tsdFillBonus: 50,   
 
             tssClear: 496,       
-            tsdClear: 2560,      
+            tsdClear: 25600,      
             tsdHolePenalty: -6000, 
             pureHole: -50,         
 
@@ -54,13 +54,15 @@ window.CPU6 = class {
             tsmMiniPenalty: -1000,      
             tMinoNoClearPenalty: -360, 
 
-            tsdSetup: 90,         
-            tsdSetupOver: -100,   
+            tsdSetup: 500,         
+            tsdSetupOver: -1000,   
 
             slopeBonus: 72,       
             slopePenalty: -36,    
 
-            P1_WEIGHT: 1.2,        
+            centerDip: 10,         // ★追加：凹みが中央(列3~6)にあるとボーナス、端にあるとペナルティ
+
+            P1_WEIGHT: 0.5,        
         };
 
         this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js');
@@ -624,7 +626,8 @@ window.CPU6 = class {
             this.weights.tsdSetup,
             this.weights.tsdSetupOver,
             this.weights.slopeBonus,
-            this.weights.slopePenalty
+            this.weights.slopePenalty,
+            this.weights.centerDip              // ★追加 [33]
         ]);
 
         const currentRen = this.game.ren || 0;
@@ -702,7 +705,8 @@ window.CPU6 = class {
             this.weights.tsdSetup,
             this.weights.tsdSetupOver,
             this.weights.slopeBonus,
-            this.weights.slopePenalty
+            this.weights.slopePenalty,
+            this.weights.centerDip              // ★追加 [33]
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
