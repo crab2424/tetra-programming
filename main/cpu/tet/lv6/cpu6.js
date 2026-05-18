@@ -30,19 +30,19 @@ window.CPU6 = class {
             //singleWell: 5, 
             //multiWell: -170,
             
-            iWell: 20,           
+            iWell: 2000,           
             iWellOver: -4000,      
             blocksOverHole: -300, 
             
-            line4: 500,          
+            line4: 5000,          
             downstackGood: 68,   
             downstackBad: -3,
 
-            tsdShape: 1200,      
+            tsdShape: 2560,      
             tsdShapeOver: -45, 
             tsdFillBonus: 50,   
 
-            tssClear: 496,       
+            tssClear: 256,       
             tsdClear: 25600,      
             tsdHolePenalty: -6000, 
             pureHole: -50,         
