@@ -19,8 +19,8 @@ window.CPU6 = class {
             lineClear: 100,
             hole: -80, 
             heightLimit: -56, 
-            step3Plus: -80, 
-            flat: 85,
+            step3Plus: -200, 
+            flat: 4,
             step1Good: 3, 
             step1Bad: -2, 
             step2: -24, 
@@ -30,15 +30,15 @@ window.CPU6 = class {
             //singleWell: 5, 
             //multiWell: -170,
             
-            iWell: 60,           
-            iWellOver: -234,      
+            iWell: 20,           
+            iWellOver: -4000,      
             blocksOverHole: -300, 
             
             line4: 500,          
             downstackGood: 68,   
             downstackBad: -3,
 
-            tsdShape: 1000,      
+            tsdShape: 1200,      
             tsdShapeOver: -45, 
             tsdFillBonus: 50,   
 
