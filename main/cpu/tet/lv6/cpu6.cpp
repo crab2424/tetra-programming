@@ -192,19 +192,19 @@ bool isTSDShape(const Board& board, int cx, int cy, const int heights[COLS] = nu
         }
     }
 
-    int clearCol1 = cx;
-    int clearCol2 = leftRoof ? cx + 1 : cx - 1;
+    //int clearCol1 = cx;
+    //int clearCol2 = leftRoof ? cx + 1 : cx - 1;
     
     // ★最適化：heights配列が渡されている場合はループを回さずO(1)で計算
-    if (heights != nullptr) {
-        if (heights[clearCol1] > ROWS - cy) return false;
-        if (heights[clearCol2] > ROWS - cy) return false;
-    } else {
-        for (int y = 0; y < cy; y++) {
-            if (board.rows[y] & (1<<clearCol1)) return false;
-            if (board.rows[y] & (1<<clearCol2)) return false;
-        }
-    }
+    //if (heights != nullptr) {
+    //    if (heights[clearCol1] > ROWS - cy) return false;
+    //    if (heights[clearCol2] > ROWS - cy) return false;
+    //} else {
+    //    for (int y = 0; y < cy; y++) {
+    //        if (board.rows[y] & (1<<clearCol1)) return false;
+    //        if (board.rows[y] & (1<<clearCol2)) return false;
+    //    }
+    //}
 
     return true;
 }
@@ -277,9 +277,20 @@ static inline int analyzeTSD(const Board& board, int cx, int cy, const int heigh
         return (board.rows[y] & (1 << x)) != 0;
     };
 
-    // isTSDShape の leftRoof 判定と同じ条件で屋根側を確定させる
-    bool leftRoof  = (cy - 1 < 0) || (cx - 1 < 0) || (isSolid(cx-1, cy-1) && isSolid(cx-2, cy));
-    // rightRoof は leftRoof と排他（isTSDShape で確認済み）なので !leftRoof でよい
+    // isTSDShape と同じ式で leftRoof / rightRoof を両方独立に計算する。
+    // leftRoof と rightRoof は isTSDShape 通過後は必ず XOR（片方だけ true）なので
+    // どちらが true かで屋根側を決定できる。
+    // ただし isTSDShape 側と完全に同じ式を使わないと、境界条件（cy-1<0 等）で
+    // 屋根側を誤判定して左右逆のペナルティを適用してしまうため、両方を再計算する。
+    bool leftRoof  = (isSolid(cx-1, cy-1) && isSolid(cx-2, cy));
+    bool rightRoof = (isSolid(cx+1, cy-1) && isSolid(cx+2, cy-1));
+    // isTSDShape を通過した時点で leftRoof ^ rightRoof が保証されているが、
+    // 万一どちらも false になった場合は評価をスキップして安全側に倒す。
+    if (!leftRoof && !rightRoof) {
+        if (outAnalysis != nullptr) *outAnalysis = analysis;
+        return analysis.multiplier;
+    }
+    // どちらも true の場合（境界条件由来）は leftRoof 優先で処理する（isTSDShape と同じ扱い）
 
     // 整数倍率を使って *=0.5 を表現する（100 → 50 → 25 ...）。
     // 各条件を評価し、該当すれば analysis.multiplier を半減させる。
@@ -288,21 +299,21 @@ static inline int analyzeTSD(const Board& board, int cx, int cy, const int heigh
         // ── [2] Aが屋根の場合 ──────────────────────────────
         // (a) (cx-2, cy-2) 埋まり & (cx-1, cy-2) 空白 & (cx+2, cy-1) 埋まり
         if ( isSolid(cx-2, cy-2) && !isSolid(cx-1, cy-2) && isSolid(cx+2, cy-1) ) {
-            analysis.multiplier = analysis.multiplier * 50 / 100;
+            analysis.multiplier = analysis.multiplier * 90 / 100;
         }
         // (b) (cx-1, cy-3) or (cx+2, cy-2) or (cx+2, cy-3) のいずれかが埋まっている
         if ( isSolid(cx-1, cy-3) || isSolid(cx+2, cy-2) || isSolid(cx+2, cy-3) ) {
-            analysis.multiplier = analysis.multiplier * 50 / 100;
+            analysis.multiplier = analysis.multiplier * 80 / 100;
         }
     } else {
         // ── [3] Bが屋根の場合（左右ミラー） ─────────────────
         // (a) (cx+2, cy-2) 埋まり & (cx+1, cy-2) 空白 & (cx-2, cy-1) 埋まり
         if ( isSolid(cx+2, cy-2) && !isSolid(cx+1, cy-2) && isSolid(cx-2, cy-1) ) {
-            analysis.multiplier = analysis.multiplier * 50 / 100;
+            analysis.multiplier = analysis.multiplier * 90 / 100;
         }
         // (b) (cx+1, cy-3) or (cx-2, cy-2) or (cx-2, cy-3) のいずれかが埋まっている
         if ( isSolid(cx+1, cy-3) || isSolid(cx-2, cy-2) || isSolid(cx-2, cy-3) ) {
-            analysis.multiplier = analysis.multiplier * 50 / 100;
+            analysis.multiplier = analysis.multiplier * 80 / 100;
         }
     }
 
@@ -313,7 +324,7 @@ static inline int analyzeTSD(const Board& board, int cx, int cy, const int heigh
             bool emptyAtCyPlus2 = !isSolid(a, cy + 2);
             bool solidAtCyMinus1 = isSolid(a, cy - 1);
             if (emptyAtCyPlus2 && solidAtCyMinus1) {
-                analysis.multiplier = analysis.multiplier * 50 / 100;
+                analysis.multiplier = analysis.multiplier * 30 / 100;
                 break; // 1列でも該当したら一度だけ半減（複数列で重ねて罰しない）
             }
         }
@@ -322,7 +333,6 @@ static inline int analyzeTSD(const Board& board, int cx, int cy, const int heigh
     // ─────────────────────────────────────────────────────────────────────
 
     if (outAnalysis != nullptr) *outAnalysis = analysis;
-    printf("TSD multiplier: %d\n", analysis.multiplier);
     return analysis.multiplier;
 }
 
@@ -501,7 +511,7 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
         pureHolesCount += __builtin_popcount(pure);
     }
     score += pureHolesCount * w.pureHole;
-    if (pureHolesCount > 0) score += (pureHolesCount * pureHolesCount) * (w.pureHole / 2);
+    if (pureHolesCount > 0) score += pureHolesCount * w.pureHole;
 
     // 段差評価
     int step1Count = 0, step2Count = 0, step3PlusCount = 0;

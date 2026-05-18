@@ -17,9 +17,9 @@ window.CPU6 = class {
 
         this.weights = {
             lineClear: 100,
-            hole: -80, 
-            heightLimit: -56, 
-            step3Plus: -200, 
+            hole: -20, 
+            heightLimit: -560, 
+            step3Plus: -20, 
             flat: 4,
             step1Good: 3, 
             step1Bad: -2, 
@@ -30,39 +30,39 @@ window.CPU6 = class {
             //singleWell: 5, 
             //multiWell: -170,
             
-            iWell: 2000,           
-            iWellOver: -4000,      
-            blocksOverHole: -300, 
+            iWell: 200,           
+            iWellOver: -400,      
+            blocksOverHole: -30, 
             
-            line4: 5000,          
+            line4: 1000,          
             downstackGood: 68,   
             downstackBad: -3,
 
-            tsdShape: 2560,      
+            tsdShape: 200,      
             tsdShapeOver: -45, 
             tsdFillBonus: 50,   
 
             tssClear: 256,       
-            tsdClear: 25600,      
-            tsdHolePenalty: -6000, 
-            pureHole: -50,         
+            tsdClear: 2560,      
+            tsdHolePenalty: -60, 
+            pureHole: -200,         
 
             comboBonus: 20,   
             btbKeep: 496,     
             renCutPenalty: -200,
 
-            tsmMiniPenalty: -1000,      
-            tMinoNoClearPenalty: -3600, 
+            tsmMiniPenalty: -100,      
+            tMinoNoClearPenalty: -360, 
 
-            tsdSetup: 600,         
-            tsdSetupOver: -1000,   
+            tsdSetup: 80,         
+            tsdSetupOver: -400,   
 
             slopeBonus: 72,       
             slopePenalty: -36,    
 
             centerDip: 100,         // ★追加：凹みが中央(列3~6)にあるとボーナス、端にあるとペナルティ
 
-            fire: 50,             // ★追加：火力評価（火力>=4で正報酬、<=3で負報酬）
+            fire: 5,             // ★追加：火力評価（火力>=4で正報酬、<=3で負報酬）
 
             P1_WEIGHT: 1.0,        
         };
@@ -73,8 +73,8 @@ window.CPU6 = class {
 
         this.isExecutingAction = false; 
         this.actionQueue = [];          
-        this.actionDelay = 45; 
-        this.harddropDelay = 150; 
+        this.actionDelay = 36; 
+        this.harddropDelay = 100; 
         
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
