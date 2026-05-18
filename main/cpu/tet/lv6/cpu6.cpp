@@ -218,10 +218,31 @@ struct TSDAnalysis {
 };
 
 // TSD地形が盤面的に綺麗かどうかを解析し、評価値に掛ける倍率を返す。
-// 現時点では枠組みのみで、倍率は常に100(等倍)。
+// ─────────────────────────────────────────────────────────────────────
+// 追加実装した条件（multiplier への影響）:
+//
+// [1] 屋根の場所の確認 (isTSDShape の leftRoof と同じロジックで再判定)
+//     A(cx-1, cy-1) xor B(cx+1, cy-1) の埋まり方で屋根側を決定する。
+//
+// [2] Aが屋根(leftRoof)の場合:
+//     (a) (cx-2, cy-2) が埋まっていて かつ (cx-1, cy-2) が空白 かつ (cx+2, cy-1) が埋まっている
+//         → multiplier *= 0.5 (≒ 50)
+//     (b) (cx-1, cy-3), (cx+2, cy-2), (cx+2, cy-3) のいずれかが埋まっている
+//         → multiplier *= 0.5
+//
+// [3] Bが屋根(rightRoof)の場合: [2] の左右ミラー
+//     (a) (cx+2, cy-2) が埋まっていて かつ (cx+1, cy-2) が空白 かつ (cx-2, cy-1) が埋まっている
+//         → multiplier *= 0.5
+//     (b) (cx+1, cy-3), (cx-2, cy-2), (cx-2, cy-3) のいずれかが埋まっている
+//         → multiplier *= 0.5
+//
+// [4] y+2 行のブロック確認:
+//     列 a について (a, cy+2) が空白 かつ (a, cy-1) が埋まっている → multiplier *= 0.5
+// ─────────────────────────────────────────────────────────────────────
 static inline int analyzeTSD(const Board& board, int cx, int cy, const int heights[COLS], TSDAnalysis* outAnalysis) {
     TSDAnalysis analysis = {100, 0, 0};
 
+    // fillCount: TSD空間の2マスを除いた cy 行と cy+1 行の埋まり具合
     uint16_t mask_cy  = ~( (1<<(cx-1)) | (1<<cx) | (1<<(cx+1)) ) & 0x3FF;
     uint16_t mask_cy1 = ~( (1<<cx) ) & 0x3FF;
     analysis.fillCount += __builtin_popcount(board.rows[cy]   & mask_cy);
@@ -235,6 +256,8 @@ static inline int analyzeTSD(const Board& board, int cx, int cy, const int heigh
         h = localHeights;
     }
 
+    // holeCount: TSD空間より低い（ビットボード上でy番号が大きい）行に
+    // 他の列の穴がある場合にカウント
     for (int x = 0; x < COLS; x++) {
         if (x != cx - 1 && x != cx && x != cx + 1) {
             if (cy > ROWS - h[x] && !((board.rows[cy] >> x) & 1)) analysis.holeCount++;
@@ -244,7 +267,62 @@ static inline int analyzeTSD(const Board& board, int cx, int cy, const int heigh
         }
     }
 
+    // ─── 追加実装: 屋根・周辺地形の綺麗さ評価 ────────────────────────────
+
+    // isTSDShape と同じロジックで屋根側を判定する
+    // isSolid: 盤面外は壁(true)、盤面上空は空(false)
+    auto isSolid = [&](int x, int y) -> bool {
+        if (x < 0 || x >= COLS || y >= ROWS) return true;
+        if (y < 0) return false;
+        return (board.rows[y] & (1 << x)) != 0;
+    };
+
+    // isTSDShape の leftRoof 判定と同じ条件で屋根側を確定させる
+    bool leftRoof  = (cy - 1 < 0) || (cx - 1 < 0) || (isSolid(cx-1, cy-1) && isSolid(cx-2, cy));
+    // rightRoof は leftRoof と排他（isTSDShape で確認済み）なので !leftRoof でよい
+
+    // 整数倍率を使って *=0.5 を表現する（100 → 50 → 25 ...）。
+    // 各条件を評価し、該当すれば analysis.multiplier を半減させる。
+
+    if (leftRoof) {
+        // ── [2] Aが屋根の場合 ──────────────────────────────
+        // (a) (cx-2, cy-2) 埋まり & (cx-1, cy-2) 空白 & (cx+2, cy-1) 埋まり
+        if ( isSolid(cx-2, cy-2) && !isSolid(cx-1, cy-2) && isSolid(cx+2, cy-1) ) {
+            analysis.multiplier = analysis.multiplier * 50 / 100;
+        }
+        // (b) (cx-1, cy-3) or (cx+2, cy-2) or (cx+2, cy-3) のいずれかが埋まっている
+        if ( isSolid(cx-1, cy-3) || isSolid(cx+2, cy-2) || isSolid(cx+2, cy-3) ) {
+            analysis.multiplier = analysis.multiplier * 50 / 100;
+        }
+    } else {
+        // ── [3] Bが屋根の場合（左右ミラー） ─────────────────
+        // (a) (cx+2, cy-2) 埋まり & (cx+1, cy-2) 空白 & (cx-2, cy-1) 埋まり
+        if ( isSolid(cx+2, cy-2) && !isSolid(cx+1, cy-2) && isSolid(cx-2, cy-1) ) {
+            analysis.multiplier = analysis.multiplier * 50 / 100;
+        }
+        // (b) (cx+1, cy-3) or (cx-2, cy-2) or (cx-2, cy-3) のいずれかが埋まっている
+        if ( isSolid(cx+1, cy-3) || isSolid(cx-2, cy-2) || isSolid(cx-2, cy-3) ) {
+            analysis.multiplier = analysis.multiplier * 50 / 100;
+        }
+    }
+
+    // ── [4] y+2 行: 空白セルの真上 (cy-1) が埋まっていたら半減 ────────────
+    // cy+2 が盤面内の場合のみ評価する
+    if (cy + 2 < ROWS) {
+        for (int a = 0; a < COLS; a++) {
+            bool emptyAtCyPlus2 = !isSolid(a, cy + 2);
+            bool solidAtCyMinus1 = isSolid(a, cy - 1);
+            if (emptyAtCyPlus2 && solidAtCyMinus1) {
+                analysis.multiplier = analysis.multiplier * 50 / 100;
+                break; // 1列でも該当したら一度だけ半減（複数列で重ねて罰しない）
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+
     if (outAnalysis != nullptr) *outAnalysis = analysis;
+    printf("TSD multiplier: %d\n", analysis.multiplier);
     return analysis.multiplier;
 }
 
@@ -432,26 +510,11 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
         if(diff == 0)      score += w.flat;
         else if(diff == 1) step1Count++;
         else if(diff == 2) step2Count++;
-        else               step3PlusCount++;
+        else               step3PlusCount += diff;
     }
     score += (step1Count <= 2) ? (step1Count * w.step1Good) : (step1Count * w.step1Bad);
     score += step2Count * w.step2;
     score += step3PlusCount * w.step3Plus;
-
-    // ディープウェル評価
-    int deepWells = 0; int totalDepth = 0;
-    for(int x = 0; x < COLS; x++) {
-        int leftDiff  = (x == 0)      ? 999 : heights[x-1] - heights[x];
-        int rightDiff = (x == COLS-1) ? 999 : heights[x+1] - heights[x];
-        if(leftDiff >= 3 && rightDiff >= 3) {
-            int depth = std::min(leftDiff, rightDiff);
-            if(x == 0)      depth = rightDiff;
-            if(x == COLS-1) depth = leftDiff;
-            deepWells++; totalDepth += depth;
-        }
-    }
-    if(deepWells == 1)      score += 1;
-    else if(deepWells >= 2) score += totalDepth * -10;
 
     // Iウェル評価
     int totalIWellScore = 0;
@@ -1184,7 +1247,7 @@ void searchBestMoveWasm(
 
             if (prevHeight <= 10) {
                 if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) stepScore += w.renCutPenalty; 
-                if (piece == 2 && p.linesCleared == 0) stepScore += w.tMinoNoClearPenalty;
+                if (piece == 2 && p.tSpinType == 0 && p.linesCleared == 0) stepScore += w.tMinoNoClearPenalty;
             }
 
             // ★変更：ペナルティ系も beam_score に反映する
