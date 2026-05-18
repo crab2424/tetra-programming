@@ -58,7 +58,7 @@ const GAME_MODES = {
 };
 
 let testCpuControl = true; 
-let testRule = 'tet';
+let testRule = 'puyo';
 
 function setTestCpuControl(isOn) {
   testCpuControl = isOn;
@@ -214,19 +214,19 @@ function loadCpuScript(level, rule) {
     const config = CPU_CONFIGS[rule][level];
     if (!config) return reject(new Error("Invalid CPU Level or Rule"));
 
-    // ★ cpu6.js は開発中のため毎回キャッシュをバイパスして再読み込みする
+    //  開発中のCPUスクリプトは毎回キャッシュをバイパスして再読み込みする
     // （他のCPUスクリプトは従来通りキャッシュを利用）
-    const isCpu6 = (config.className === 'CPU6');
+    const isDevCpu = (config.className === 'PuyoCPU4');
 
-    if (!isCpu6 && activeCpuClassName === config.className && window[config.className]) {
+    if (!isDevCpu && activeCpuClassName === config.className && window[config.className]) {
       return resolve(window[config.className]);
     }
 
     unloadCpuScript();
 
     const script = document.createElement('script');
-    // ★ cpu6.js のみタイムスタンプをクエリパラメータとして付与し、ブラウザキャッシュを無効化
-    script.src = isCpu6 ? `${config.src}?v=${Date.now()}` : config.src;
+    // ★ 開発中のみタイムスタンプをクエリパラメータとして付与し、ブラウザキャッシュを無効化
+    script.src = isDevCpu ? `${config.src}?v=${Date.now()}` : config.src;
     script.id = `dynamic-cpu-script`;
     
     script.onload = () => {

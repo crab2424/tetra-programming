@@ -118,6 +118,17 @@ function runCountdown(overlayId, textElId, onStart, onComplete) {
     // 前回のタイマーが動いていればキャンセル（リスタート対策）
     if (overlay.countdownTimer) clearTimeout(overlay.countdownTimer);
 
+    const clearCountdownText = () => {
+        textEl.classList.remove('countdown-pop');
+        textEl.textContent = '';
+        // アニメーションの合成レイヤーに START! の残像が残ることがあるため、
+        // transform/opacity の最終状態をここで確実に破棄する。
+        textEl.style.animation = 'none';
+        void textEl.offsetWidth;
+        textEl.style.animation = '';
+    };
+
+    clearCountdownText();
     overlay.classList.add('active');
 
     const steps = ['3', '2', '1', 'START!'];
@@ -141,8 +152,9 @@ function runCountdown(overlayId, textElId, onStart, onComplete) {
             overlay.countdownTimer = setTimeout(showStep, 700);
         } else {
             overlay.countdownTimer = setTimeout(() => {
+                clearCountdownText();
                 overlay.classList.remove('active');
-                textEl.textContent = '';
+                overlay.countdownTimer = null;
                 if (onComplete) onComplete();
             }, 600);
         }
