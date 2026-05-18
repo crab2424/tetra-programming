@@ -209,7 +209,50 @@ bool isTSDShape(const Board& board, int cx, int cy, const int heights[COLS] = nu
     return true;
 }
 
-struct TSDStats { int count; int fillCount; int holeCount; };
+static inline int calcHeights(const Board& b, uint32_t cols[COLS], int heights[COLS]);
+
+struct TSDAnalysis {
+    int multiplier; // 100 = 等倍。今後、盤面的に綺麗なTSD地形ならここを増減させる。
+    int fillCount;
+    int holeCount;
+};
+
+// TSD地形が盤面的に綺麗かどうかを解析し、評価値に掛ける倍率を返す。
+// 現時点では枠組みのみで、倍率は常に100(等倍)。
+static inline int analyzeTSD(const Board& board, int cx, int cy, const int heights[COLS], TSDAnalysis* outAnalysis) {
+    TSDAnalysis analysis = {100, 0, 0};
+
+    uint16_t mask_cy  = ~( (1<<(cx-1)) | (1<<cx) | (1<<(cx+1)) ) & 0x3FF;
+    uint16_t mask_cy1 = ~( (1<<cx) ) & 0x3FF;
+    analysis.fillCount += __builtin_popcount(board.rows[cy]   & mask_cy);
+    analysis.fillCount += __builtin_popcount(board.rows[cy+1] & mask_cy1);
+
+    int localHeights[COLS];
+    uint32_t localCols[COLS];
+    const int* h = heights;
+    if (h == nullptr) {
+        calcHeights(board, localCols, localHeights);
+        h = localHeights;
+    }
+
+    for (int x = 0; x < COLS; x++) {
+        if (x != cx - 1 && x != cx && x != cx + 1) {
+            if (cy > ROWS - h[x] && !((board.rows[cy] >> x) & 1)) analysis.holeCount++;
+        }
+        if (x != cx) {
+            if (cy + 1 > ROWS - h[x] && !((board.rows[cy+1] >> x) & 1)) analysis.holeCount++;
+        }
+    }
+
+    if (outAnalysis != nullptr) *outAnalysis = analysis;
+    return analysis.multiplier;
+}
+
+static inline int analyzeTSD(const Board& board, int cx, int cy, const int heights[COLS] = nullptr) {
+    return analyzeTSD(board, cx, cy, heights, nullptr);
+}
+
+struct TSDStats { int count; int fillCount; int holeCount; int multiplier; };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ★分割：旧 evaluateBoard を evalBoardState / evalPlacementEvent に分離
@@ -312,7 +355,7 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
     }
 
     // 1回のスキャンでTSD判定
-    TSDStats tsd = {0, 0, 0};
+    TSDStats tsd = {0, 0, 0, 100};
     bool isTSDRowForBlocksOverHole[ROWS] = {false};
     uint32_t ignoreMask = 0; // 穴として数えない行のビットマスク
 
@@ -328,18 +371,11 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
                 }
                 tsd.count++;
                 if (tsd.count == 1) {
-                    uint16_t mask_cy  = ~( (1<<(cx-1)) | (1<<cx) | (1<<(cx+1)) ) & 0x3FF;
-                    uint16_t mask_cy1 = ~( (1<<cx) ) & 0x3FF;
-                    tsd.fillCount += __builtin_popcount(b.rows[cy]   & mask_cy);
-                    tsd.fillCount += __builtin_popcount(b.rows[cy+1] & mask_cy1);
-                    for (int x = 0; x < COLS; x++) {
-                        if (x != cx - 1 && x != cx && x != cx + 1) {
-                            if (cy > ROWS - heights[x] && !((b.rows[cy] >> x) & 1)) tsd.holeCount++;
-                        }
-                        if (x != cx) {
-                            if (cy + 1 > ROWS - heights[x] && !((b.rows[cy+1] >> x) & 1)) tsd.holeCount++;
-                        }
-                    }
+                    TSDAnalysis analysis = {100, 0, 0};
+                    analyzeTSD(b, cx, cy, heights, &analysis);
+                    tsd.multiplier = analysis.multiplier;
+                    tsd.fillCount += analysis.fillCount;
+                    tsd.holeCount += analysis.holeCount;
                 }
             }
         }
@@ -460,11 +496,11 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
 
     // TSD形状評価
     if (tsd.count == 1) {
-        score += w.tsdShape;
+        score += w.tsdShape * tsd.multiplier / 100;
         score += tsd.fillCount * w.tsdFillBonus;
         score += tsd.holeCount * w.tsdHolePenalty;
     } else if (tsd.count >= 2) {
-        score += w.tsdShape;
+        score += w.tsdShape * tsd.multiplier / 100;
         score += (tsd.count - 1) * w.tsdShapeOver;
         score += tsd.holeCount * w.tsdHolePenalty;
     }
@@ -497,7 +533,7 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
 
         // x: 1~COLS-2（左右隣が盤面内に収まる範囲）
         // y: 0~ROWS-4（y+3まで参照するため下限を確保）
-        for (int y = 0; y < ROWS; y++) {
+        for (int y = 0; y < ROWS - 1; y++) {
             // 条件1の空白マス(x,y)の候補をビット演算で絞り込む
             // (x,y), (x-1,y), (x+1,y), (x,y+1) がすべて空白
             // → row[y] の各ビットが 0、かつ row[y+1] も対応ビットが 0、かつ左右ビットも 0
@@ -565,7 +601,7 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
 
         // 下位3列（高さが低い＝最も凹んでいる列）を対象とする
         // 倍率：1位(最低)=1.0、2位=0.1、3位=0.1
-        const float multipliers[3] = { 1.0f, 0.1f, 0.1f };
+        const float multipliers[3] = { 1.0f, 0.01f, 0.01f };
         for (int rank = 0; rank < 3; rank++) {
             int col = heightIdx[rank].second;
             bool isCenterCol = (col >= 3 && col <= 6); // 列3~6が中央
