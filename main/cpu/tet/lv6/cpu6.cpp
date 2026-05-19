@@ -192,19 +192,19 @@ bool isTSDShape(const Board& board, int cx, int cy, const int heights[COLS] = nu
         }
     }
 
-    //int clearCol1 = cx;
-    //int clearCol2 = leftRoof ? cx + 1 : cx - 1;
+    int clearCol1 = cx;
+    int clearCol2 = leftRoof ? cx + 1 : cx - 1;
     
     // ★最適化：heights配列が渡されている場合はループを回さずO(1)で計算
-    //if (heights != nullptr) {
-    //    if (heights[clearCol1] > ROWS - cy) return false;
-    //    if (heights[clearCol2] > ROWS - cy) return false;
-    //} else {
-    //    for (int y = 0; y < cy; y++) {
-    //        if (board.rows[y] & (1<<clearCol1)) return false;
-    //        if (board.rows[y] & (1<<clearCol2)) return false;
-    //    }
-    //}
+    if (heights != nullptr) {
+        if (heights[clearCol1] > ROWS - cy) return false;
+        if (heights[clearCol2] > ROWS - cy) return false;
+    } else {
+        for (int y = 0; y < cy; y++) {
+            if (board.rows[y] & (1<<clearCol1)) return false;
+            if (board.rows[y] & (1<<clearCol2)) return false;
+        }
+    }
 
     return true;
 }
