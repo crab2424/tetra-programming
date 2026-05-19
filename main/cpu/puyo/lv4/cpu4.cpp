@@ -307,18 +307,34 @@ static PotentialInfo calcChainPotential(const BitBoard& b) {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 評価パラメータ
+// ─────────────────────────────
+// 【報酬 (reward)】
+//   配置前後の盤面を比較し、配置後にのみ現れた変化に対して1回だけ加算する。
+//   chainBonus, erasedBonus, zenkeshiBonus, chainPotentialBonus, templateBonus
+//
+// 【評価値 (eval)】
+//   配置後の盤面状態をそのまま毎ターン評価する。
+//   heightPenalty, heightDiffPenalty, flatBonus, colorConnBonus
+//
+// 【制御パラメータ】
+//   p1Weight, ignitionThreshold, emergencyHeight, ignitionScoreThreshold
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 struct EvalWeights {
-    int chainBonus;
-    int erasedBonus;
-    int heightPenalty;
-    int heightDiffPenalty;
-    int flatBonus;
-    int colorConnBonus;
-    int zenkeshiBonus;
-    int chainPotentialBonus;
+    // ── 報酬 (reward) ──
+    int chainBonus;           // 発火連鎖ボーナス（1手限り）
+    int erasedBonus;          // 消去ぷよ数ボーナス（1手限り）
+    int zenkeshiBonus;        // 全消しボーナス（1手限り）
+    int chainPotentialBonus;  // 連鎖ポテンシャル増加ボーナス（差分）
+    int templateBonus;        // テンプレート一致ボーナス（差分）
+
+    // ── 評価値 (eval) ──
+    int heightPenalty;        // 高さペナルティ（毎ターン）
+    int heightDiffPenalty;    // 高さ差ペナルティ（毎ターン）
+    int flatBonus;            // 平坦ボーナス（毎ターン）
+    int colorConnBonus;       // 同色隣接ボーナス（毎ターン）
+
+    // ── 制御パラメータ ──
     int p1Weight;
-    int templateBonus;
     int ignitionThreshold;
     int emergencyHeight;  
     int ignitionScoreThreshold; 
@@ -404,31 +420,66 @@ static int calcTemplateScore(const BitBoard& b, const uint8_t* gtrPattern, const
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 盤面評価関数
+// 【評価値】盤面状態スコア計算（毎ターン加算）
+//   配置後の盤面状態のみを見て評価する。
+//   報酬パラメータは含まない。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const EvalWeights& w,
-                         const uint8_t* gtrPattern, const uint8_t* keyPattern,
-                         const PotentialInfo& prePot, bool isEmergencyPre) { // ★ isEmergencyPre を引数に追加
+static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heights[COLS]) {
     int score = 0;
 
-    if (gtrPattern != nullptr && keyPattern != nullptr) {
-        score += calcTemplateScore(b, gtrPattern, keyPattern, w.templateBonus);
+    // 高さペナルティ（3列目は特に重要）
+    if (heights[2] >= 8) score += (heights[2] - 7) * w.heightPenalty; 
+    for (int c = 0; c < COLS; c++) {
+        if (heights[c] >= 10) score += (heights[c] - 9) * (w.heightPenalty / 3);
     }
 
-    int heights[COLS];
-    for (int c = 0; c < COLS; c++) {
-        heights[c] = 0;
-        for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
-            if (b.get(c, r) != 0) heights[c]++;
+    // 隣接列の高さ差ペナルティ・平坦ボーナス
+    for (int c = 0; c < COLS - 1; c++) {
+        int diff = std::abs(heights[c] - heights[c+1]);
+        score += diff * w.heightDiffPenalty;
+        if (diff == 0) score += w.flatBonus;
+    }
+
+    // 同色隣接ボーナス
+    int connPairs = 0;
+    for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
+        for (int c = 0; c < COLS; c++) {
+            uint8_t col_val = b.get(c, r);
+            if (col_val == 0 || col_val == 6) continue;
+            if (c + 1 < COLS && b.get(c+1, r) == col_val) connPairs++;
+            if (r + 1 < TOTAL_ROWS && b.get(c, r+1) == col_val) connPairs++;
         }
     }
+    score += connPairs * w.colorConnBonus;
 
-    // ★ 連鎖後の盤面で isEmergency を判定していた部分を削除し、連鎖前の判定（isEmergencyPre）を使用する
-    int currentIgnitionThreshold = isEmergencyPre ? 1 : w.ignitionThreshold;
-    int currentIgnitionScoreThreshold = isEmergencyPre ? 0 : w.ignitionScoreThreshold;
+    return score;
+}
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 【報酬】配置による変化スコア計算（1手限り）
+//   配置前後の差分として初めて現れた変化にのみ加算する。
+//   chainBonus, erasedBonus: 連鎖は配置により初めて発生するため差分不要。
+//   chainPotentialBonus: 配置前後のポテンシャル差分で計算。
+//   zenkeshiBonus: 配置後に全消しが成立した場合のみ加算。
+//   templateBonus: 配置前後のテンプレートスコア差分で計算。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+static int calcRewardScore(
+    const BitBoard& postBoard,          // 配置後の盤面
+    const ChainResult& chain,           // 配置後の連鎖結果
+    const EvalWeights& w,
+    const uint8_t* gtrPattern,
+    const uint8_t* keyPattern,
+    const PotentialInfo& prePot,        // 配置前のポテンシャル
+    int preTemplateScore,               // 配置前のテンプレートスコア
+    bool isEmergencyPre,                // ★ 配置前の盤面で判定した緊急事態フラグ
+    int currentIgnitionThreshold,
+    int currentIgnitionScoreThreshold
+) {
+    int score = 0;
     bool isIgnitionMode = (prePot.maxChains >= currentIgnitionThreshold || prePot.maxScore >= currentIgnitionScoreThreshold);
 
+    // ── chainBonus / erasedBonus ──
+    // 連鎖は配置により初めて発生するので前後差分は不要。発火条件に応じて1回だけ加算。
     if (chain.chains > 0) {
         bool triggersIgnition = (chain.chains >= currentIgnitionThreshold || chain.score >= currentIgnitionScoreThreshold);
         bool fulfillsPotential = isIgnitionMode && (chain.chains >= prePot.maxChains || chain.score >= prePot.maxScore);
@@ -438,18 +489,22 @@ static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const Eval
             score += (effectiveChains * effectiveChains * effectiveChains) * w.chainBonus * 10;
             score += (chain.score / 100) * w.chainBonus; 
             score += chain.totalErased * std::abs(w.erasedBonus);
-        } else if (isEmergencyPre || b.isEmptyAll()) {
+        } else if (isEmergencyPre || postBoard.isEmptyAll()) {
             score += (chain.chains * chain.chains) * w.chainBonus * 5;
             score += (chain.score / 100) * w.chainBonus / 2;
             score += chain.totalErased * std::abs(w.erasedBonus);
-            
+
             // ★ 緊急事態時は、連鎖後に3列目（致死列）の高さが低いほど特大ボーナスを与える
             if (isEmergencyPre) {
-                int col2_reduction = std::max(0, 12 - heights[2]);
+                int postH2 = 0;
+                for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
+                    if (postBoard.get(2, r) != 0) postH2++;
+                }
+                int col2_reduction = std::max(0, 12 - postH2);
                 score += col2_reduction * 20000; 
             }
         } else if (isIgnitionMode) {
-            PotentialInfo postPot = calcChainPotential(b);
+            PotentialInfo postPot = calcChainPotential(postBoard);
             bool keepsPotential = (postPot.maxChains >= currentIgnitionThreshold || postPot.maxScore >= currentIgnitionScoreThreshold);
             if (keepsPotential && postPot.isSafe) {
                 score += chain.totalErased * std::abs(w.erasedBonus);
@@ -459,15 +514,30 @@ static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const Eval
         } else {
             score -= (chain.chains * chain.chains) * 5000;
         }
-    } else {
+    }
+
+    // ── zenkeshiBonus ──
+    // 配置後に全消しが成立した場合のみ1回加算。
+    if (postBoard.isEmptyAll()) score += w.zenkeshiBonus;
+
+    // ── chainPotentialBonus ──
+    // 配置後のポテンシャルを計算し、配置前からの増加分（差分）に対して報酬を与える。
+    if (chain.chains == 0) {
+        // 連鎖が起きなかった場合のみ（連鎖時はchainBonusで評価済み）
+        PotentialInfo postPot = calcChainPotential(postBoard);
+        int postPotScore = postPot.maxScore;
+        int postPotChains = postPot.maxChains;
+        // 差分：配置後が配置前を上回った分だけ報酬
+        int potChainGain = postPotChains - prePot.maxChains;
+        int potScoreGain = postPotScore  - prePot.maxScore;
+
         if (isIgnitionMode) {
-            PotentialInfo postPot = calcChainPotential(b);
-            bool keepsPotential = (postPot.maxChains >= currentIgnitionThreshold || postPot.maxScore >= currentIgnitionScoreThreshold);
+            bool keepsPotential = (postPotChains >= currentIgnitionThreshold || postPotScore >= currentIgnitionScoreThreshold);
             if (keepsPotential) {
                 if (postPot.isSafe) {
-                    score += (postPot.maxChains * postPot.maxChains) * w.chainPotentialBonus * 5;
-                    score += (postPot.maxScore / 1000) * w.chainPotentialBonus; 
-                    score += w.flatBonus * 2; 
+                    // ポテンシャルを維持できているので、絶対値でも報酬を与える（維持自体に価値がある）
+                    score += (postPotChains * postPotChains) * w.chainPotentialBonus * 5;
+                    score += (postPotScore / 1000) * w.chainPotentialBonus; 
                 } else {
                     score -= 10000;
                 }
@@ -475,48 +545,84 @@ static int evaluateBoard(const BitBoard& b, const ChainResult& chain, const Eval
                 score -= 10000;
             }
         } else {
-            PotentialInfo postPot = calcChainPotential(b);
-            if (postPot.maxChains > 0 || postPot.maxScore > 0) {
+            if (postPotChains > 0 || postPotScore > 0) {
                 if (postPot.isSafe) {
-                    if (postPot.maxChains >= currentIgnitionThreshold || postPot.maxScore >= currentIgnitionScoreThreshold) {
-                        score += (postPot.maxChains * postPot.maxChains) * w.chainPotentialBonus * 5;
-                        score += (postPot.maxScore / 1000) * w.chainPotentialBonus * 2;
+                    if (postPotChains >= currentIgnitionThreshold || postPotScore >= currentIgnitionScoreThreshold) {
+                        // 発火閾値に到達した場合は大きな報酬（絶対値＋差分）
+                        score += (postPotChains * postPotChains) * w.chainPotentialBonus * 5;
+                        score += (postPotScore / 1000) * w.chainPotentialBonus * 2;
+                        score += std::max(0, potChainGain) * w.chainPotentialBonus;
+                        score += std::max(0, potScoreGain / 1000) * w.chainPotentialBonus;
                     } else {
-                        score += (postPot.maxChains * postPot.maxChains) * w.chainPotentialBonus;
-                        score += (postPot.maxScore / 1000) * w.chainPotentialBonus;
+                        // 閾値未満は差分のみ報酬
+                        score += std::max(0, potChainGain) * w.chainPotentialBonus;
+                        score += std::max(0, potScoreGain / 1000) * w.chainPotentialBonus;
                     }
                 } else {
-                    score += (postPot.maxChains * postPot.maxChains) * (w.chainPotentialBonus / 2);
+                    // 発火点が不安定な場合は半額
+                    score += std::max(0, potChainGain) * (w.chainPotentialBonus / 2);
                 }
             }
         }
     }
 
-    if (b.isEmptyAll()) score += w.zenkeshiBonus;
-
-    if (heights[2] >= 8) score += (heights[2] - 7) * w.heightPenalty; 
-    for (int c = 0; c < COLS; c++) {
-        if (heights[c] >= 10) score += (heights[c] - 9) * (w.heightPenalty / 3);
+    // ── templateBonus ──
+    // 配置前後のテンプレートスコア差分に対して報酬を与える。
+    if (gtrPattern != nullptr && keyPattern != nullptr && w.templateBonus > 0) {
+        int postTemplateScore = calcTemplateScore(postBoard, gtrPattern, keyPattern, w.templateBonus);
+        int templateGain = postTemplateScore - preTemplateScore;
+        if (templateGain > 0) score += templateGain;
     }
-    for (int c = 0; c < COLS - 1; c++) {
-        int diff = std::abs(heights[c] - heights[c+1]);
-        score += diff * w.heightDiffPenalty;
-        if (diff == 0) score += w.flatBonus;
-    }
-
-    int connPairs = 0;
-    for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
-        for (int c = 0; c < COLS; c++) {
-            uint8_t col_val = b.get(c, r);
-            if (col_val == 0 || col_val == 6) continue;
-            
-            if (c + 1 < COLS && b.get(c+1, r) == col_val) connPairs++;
-            if (r + 1 < TOTAL_ROWS && b.get(c, r+1) == col_val) connPairs++;
-        }
-    }
-    score += connPairs * w.colorConnBonus;
 
     return score;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 盤面評価関数
+//   報酬（1手限り）と評価値（毎ターン）を合算して返す。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+static int evaluateBoard(
+    const BitBoard& preBoard,           // 配置前の盤面（報酬差分計算用）
+    const BitBoard& postBoard,          // 配置後の盤面
+    const ChainResult& chain,
+    const EvalWeights& w,
+    const uint8_t* gtrPattern,
+    const uint8_t* keyPattern,
+    const PotentialInfo& prePot,        // 配置前のポテンシャル（searchBestMove側で計算済み）
+    bool isEmergencyPre                 // ★ 配置前の盤面で判定した緊急事態フラグ
+) {
+    // ── 配置後の高さを計算（評価値・緊急報酬で共用）
+    int heights[COLS];
+    for (int c = 0; c < COLS; c++) {
+        heights[c] = 0;
+        for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
+            if (postBoard.get(c, r) != 0) heights[c]++;
+        }
+    }
+
+    // ── 発火閾値（緊急時は緩和）
+    // ★ 連鎖前の判定（isEmergencyPre）を使用する
+    int currentIgnitionThreshold      = isEmergencyPre ? 1 : w.ignitionThreshold;
+    int currentIgnitionScoreThreshold = isEmergencyPre ? 0 : w.ignitionScoreThreshold;
+
+    // ── 配置前のテンプレートスコア（templateBonus差分計算用）
+    int preTemplateScore = (gtrPattern != nullptr && keyPattern != nullptr && w.templateBonus > 0)
+        ? calcTemplateScore(preBoard, gtrPattern, keyPattern, w.templateBonus)
+        : 0;
+
+    // ── 【報酬】1手限りの変化に対するスコア
+    int rewardScore = calcRewardScore(
+        postBoard, chain, w,
+        gtrPattern, keyPattern,
+        prePot, preTemplateScore,
+        isEmergencyPre,
+        currentIgnitionThreshold, currentIgnitionScoreThreshold
+    );
+
+    // ── 【評価値】配置後の盤面状態スコア（毎ターン）
+    int evalScore = calcEvalScore(postBoard, w, heights);
+
+    return rewardScore + evalScore;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -555,16 +661,19 @@ void searchBestMovePuyoWasm(
     for (int i = 0; i < 7; i++) outResult[i] = -1;
 
     EvalWeights w;
+    // ── 報酬 (reward) ──
     w.chainBonus          = weightsArray[0];
     w.erasedBonus         = weightsArray[1];
+    w.zenkeshiBonus       = weightsArray[6];
+    w.chainPotentialBonus = weightsArray[7];
+    w.templateBonus       = weightsArray[9];
+    // ── 評価値 (eval) ──
     w.heightPenalty       = weightsArray[2];
     w.heightDiffPenalty   = weightsArray[3];
     w.flatBonus           = weightsArray[4];
     w.colorConnBonus      = weightsArray[5];
-    w.zenkeshiBonus       = weightsArray[6];
-    w.chainPotentialBonus = weightsArray[7];
+    // ── 制御パラメータ ──
     w.p1Weight            = weightsArray[8];
-    w.templateBonus       = weightsArray[9];
     w.ignitionThreshold   = weightsArray[10]; 
     w.emergencyHeight     = weightsArray[11]; 
     w.ignitionScoreThreshold = weightsArray[12]; 
@@ -622,8 +731,9 @@ void searchBestMovePuyoWasm(
                 BitBoard nb = applyPlacement(node.board, p, (uint8_t)pivot, (uint8_t)child);
                 ChainResult chain = simulateChain(nb);
                 
-                // ★ 連鎖前の緊急事態フラグを引数として渡す
-                int scoreRaw = evaluateBoard(nb, chain, w, gtrPattern, keyPattern, prePot, isEmergencyPre);
+                // ★ 配置前の盤面（node.board）と配置後の盤面（nb）を両方渡す
+                //    報酬は前後差分で、評価値は配置後のみで計算される
+                int scoreRaw = evaluateBoard(node.board, nb, chain, w, gtrPattern, keyPattern, prePot, isEmergencyPre);
                 
                 int score = scoreRaw;
                 if (depth == 0) score = score * w.p1Weight / 100;
