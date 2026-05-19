@@ -10,29 +10,52 @@ window.PuyoCPU4 = class {
 
         // ────────────────────────────────
         // ★ 評価パラメータ
+        //
+        // 【報酬 (rewardWeights)】
+        //   配置前後の盤面を比較し、配置後にのみ現れた変化に対して1回だけ加算する。
+        //
+        // 【評価値 (evalWeights)】
+        //   配置後の盤面状態をそのまま毎ターン評価する。
+        //
+        // 【制御パラメータ (controlWeights)】
+        //   発火閾値・緊急ラインなど、評価の振る舞いを制御するパラメータ。
         // ────────────────────────────────
-        this.weights = {
-            chainBonus:           200,  // 発火時の基本ボーナス（C++側で連鎖の3乗倍などで増幅）
-            erasedBonus:           10,  
-            heightPenalty:       -200,
-            heightDiffPenalty:     -8,
-            flatBonus:             20,
-            colorConnBonus:        80,
-            zenkeshiBonus:        100,
-            chainPotentialBonus:   50,  // ポテンシャルの基本ボーナス
-            p1Weight:             100,  
-            templateBonus:        500,  
-            ignitionThreshold:      7,  // 基本の発火閾値（おじゃまが少ない場合）
-            ignitionScoreThreshold: 12000, // ★ 発火のスコア閾値
-            emergencyHeight:       10,  // 緊急回避ライン
+        this.rewardWeights = {
+            chainBonus:           300,  // 発火時の基本ボーナス（C++側で連鎖の3乗倍などで増幅）
+            erasedBonus:           10,  // 消去ぷよ数ボーナス
+            zenkeshiBonus:        100,  // 全消しボーナス
+            chainPotentialBonus:  200,  // ポテンシャル増加ボーナス（差分）
+            templateBonus:        800,  // テンプレート一致ボーナス（差分）
         };
+
+        this.evalWeights = {
+            heightPenalty:       -100,  // 高さペナルティ（毎ターン）
+            heightDiffPenalty:     -8,  // 高さ差ペナルティ（毎ターン）
+            flatBonus:              2,  // 平坦ボーナス（毎ターン）
+            colorConnBonus:         2,  // 同色隣接ボーナス（毎ターン）
+        };
+
+        this.controlWeights = {
+            p1Weight:             100,  // 1手目の重み係数
+            ignitionThreshold:     10,  // 基本の発火閾値（おじゃまが少ない場合）
+            ignitionScoreThreshold: 30000, // ★ 発火のスコア閾値
+            emergencyHeight:       11,  // 緊急回避ライン
+        };
+
+        // 後方互換のため旧 this.weights も参照可能にしておく（読み取り専用エイリアス）
+        // weightsArray への組み立ては _buildWeightsArray() で行う
+        this.weights = Object.assign({},
+            this.rewardWeights,
+            this.evalWeights,
+            this.controlWeights
+        );
 
         this.TEMPLATE_PATTERNS = {
             'gtr': [
-                0, 0, 0, 0, 0, 0,  // 盤面の上から数えて一番上の行は空洞（GTRは下3段で組むため）
-                2, 1, 3, 6, 6, 6, 
-                2, 2, 1, 3, 6, 6,
-                1, 1, 3, 6, 6, 6
+                4, 4, 4, 0, 0, 0,  // 盤面の上から数えて一番上の行は空洞（GTRは下3段で組むため）
+                2, 1, 3, 4, 6, 6, 
+                2, 2, 1, 3, 4, 4,
+                1, 1, 3, 4, 6, 6
             ],
             'key': [
                 1, 2, 3, 4, 5, 0,
@@ -53,9 +76,9 @@ window.PuyoCPU4 = class {
         this.templateActive    = true; // テンプレを1プレイ1回に制限するためのフラグ
         this.lastPuyoCount     = 0;    // 盤面のぷよ数を監視して発火を検知
         
-        this.thinkDelay        = 400;      
-        this.actionDelay       = 150;      
-        this.placeDelay        = 200;      
+        this.thinkDelay        = 100;      
+        this.actionDelay       =  50;      
+        this.placeDelay        =  80;      
 
         this.originalGravity   = null;     
         this.lastDropTime      = null;     
@@ -189,8 +212,8 @@ window.PuyoCPU4 = class {
         }
 
         // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
-        let dynamicIgnitionThreshold = this.weights.ignitionThreshold;
-        let dynamicIgnitionScoreThreshold = this.weights.ignitionScoreThreshold;
+        let dynamicIgnitionThreshold = this.controlWeights.ignitionThreshold;
+        let dynamicIgnitionScoreThreshold = this.controlWeights.ignitionScoreThreshold;
         if (ojamaCount >= 15) {
             dynamicIgnitionThreshold = 2; // 15個以上で2連鎖妥協
             dynamicIgnitionScoreThreshold = 320;
@@ -202,20 +225,25 @@ window.PuyoCPU4 = class {
             dynamicIgnitionScoreThreshold = 8000;
         }
 
+        // weightsArray のインデックス順は C++ 側の weightsArray[N] と対応している。
+        // 順序: [0]chainBonus [1]erasedBonus [2]heightPenalty [3]heightDiffPenalty
+        //       [4]flatBonus [5]colorConnBonus [6]zenkeshiBonus [7]chainPotentialBonus
+        //       [8]p1Weight [9]templateBonus [10]ignitionThreshold [11]emergencyHeight
+        //       [12]ignitionScoreThreshold
         const weightsArray = new Int32Array([
-            this.weights.chainBonus,
-            this.weights.erasedBonus,
-            this.weights.heightPenalty,
-            this.weights.heightDiffPenalty,
-            this.weights.flatBonus,
-            this.weights.colorConnBonus,
-            this.weights.zenkeshiBonus,
-            this.weights.chainPotentialBonus, 
-            this.weights.p1Weight,            
-            this.templateActive ? this.weights.templateBonus : 0,  
-            dynamicIgnitionThreshold,         // ★ 基本値の代わりに動的閾値を渡す
-            this.weights.emergencyHeight,     
-            dynamicIgnitionScoreThreshold     // ★ 動的スコア閾値を渡す
+            this.rewardWeights.chainBonus,                             // [0]
+            this.rewardWeights.erasedBonus,                            // [1]
+            this.evalWeights.heightPenalty,                            // [2]
+            this.evalWeights.heightDiffPenalty,                        // [3]
+            this.evalWeights.flatBonus,                                // [4]
+            this.evalWeights.colorConnBonus,                           // [5]
+            this.rewardWeights.zenkeshiBonus,                          // [6]
+            this.rewardWeights.chainPotentialBonus,                    // [7]
+            this.controlWeights.p1Weight,                              // [8]
+            this.templateActive ? this.rewardWeights.templateBonus : 0,// [9]
+            dynamicIgnitionThreshold,                                  // [10] ★ 動的閾値
+            this.controlWeights.emergencyHeight,                       // [11]
+            dynamicIgnitionScoreThreshold                              // [12] ★ 動的スコア閾値
         ]);
 
         this.worker.postMessage({
