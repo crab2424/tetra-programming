@@ -17,7 +17,7 @@ window.CPU6 = class {
 
         this.weights = {
             lineClear: 100,
-            hole: -20, 
+            hole: -22, 
             heightLimit: -560, 
             step3Plus: -20, 
             flat: 4,
@@ -38,7 +38,7 @@ window.CPU6 = class {
             downstackGood: 68,   
             downstackBad: -3,
 
-            tsdShape: 200,      
+            tsdShape: 500,      
             tsdShapeOver: -45, 
             tsdFillBonus: 50,   
 
@@ -54,7 +54,7 @@ window.CPU6 = class {
             tsmMiniPenalty: -100,      
             tMinoNoClearPenalty: -360, 
 
-            tsdSetup: 80,         
+            tsdSetup: 240,         
             tsdSetupOver: -400,   
 
             slopeBonus: 72,       
@@ -73,8 +73,8 @@ window.CPU6 = class {
 
         this.isExecutingAction = false; 
         this.actionQueue = [];          
-        this.actionDelay = 36; 
-        this.harddropDelay = 100; 
+        this.actionDelay = 40; 
+        this.harddropDelay = 80; 
         
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
