@@ -962,6 +962,10 @@ async function startGameFromModeCheck() {
 
   // ─── QUIZモード専用処理 ────────────────────────
   if (modeId === 'quiz') {
+    // ★ cpu testモードで表示されたEVALエリアをquizモードでは非表示にする
+    const evalArea = document.getElementById('eval-area');
+    if (evalArea) evalArea.style.display = 'none';
+    
     if (typeof startQuizLevel === 'function' && currentQuizLevel) {
       startQuizLevel(currentQuizLevel);
     }
@@ -971,6 +975,10 @@ async function startGameFromModeCheck() {
   // ─── PUYO(シングル)モード専用処理
   if (modeId === 'puyo') {
     window._game = null; // ★ tetインスタンスへの参照を切る
+
+    // ★ cpu testモードで表示されたEVALエリアをぷよモードでは非表示にする
+    const evalArea = document.getElementById('eval-area');
+    if (evalArea) evalArea.style.display = 'none';
     
     // ★ 修正: puyoゲーム用キャンバスをクリア（古い盤面を削除）
     const puyoMainCanvas = document.getElementById('puyo-main-canvas');
