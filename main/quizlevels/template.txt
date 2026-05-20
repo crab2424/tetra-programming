@@ -1,6 +1,6 @@
 puyo
 
-    ,
+,
     {
             "id": "puyo-x",
             "diff": 2,
@@ -22,7 +22,7 @@ puyo
 
 tet
 
-    ,
+,
     {
         "id": "tet-x",
         "diff": 2,
