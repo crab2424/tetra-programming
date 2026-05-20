@@ -226,5 +226,122 @@
             "value": 9,
             "description": "9連鎖"
         }
-    }
+    },
+    {
+            "id": "puyo-1.1",
+            "diff": 1,
+            "description": "簡単でしょ？",
+            "rule": "puyo",
+            "initialPuyoField":[
+                [0, 0, 0, 1, 0, 0],
+                [1, 1, 1, 6, 1, 1]
+            ],
+            "nextPuyoPairs": [[1, 1]],
+            "clearCondition": {
+                "type": "allClear",
+                "value": 0,
+                "description": "全消し"
+            }
+        },
+    {
+            "id": "puyo-1.2",
+            "diff": 1,
+            "description": "発火点はどこ？",
+            "rule": "puyo",
+            "initialPuyoField":[
+                [0, 5, 0, 0, 0, 0],
+                [0, 5, 5, 0, 0, 0],
+                [0, 6, 3, 0, 0, 0],
+                [0, 5, 3, 3, 0, 0],
+                [0, 6, 5, 5, 5, 0]
+            ],
+            "nextPuyoPairs": [[3, 5]],
+            "clearCondition": {
+                "type": "chain",
+                "value": 3,
+                "description": "3連鎖"
+            }
+        },
+    {
+            "id": "puyo-1.3",
+            "diff": 2,
+            "description": "連鎖が上から降ってくる",
+            "rule": "puyo",
+            "initialPuyoField":[
+                [0, 0, 3, 0, 0, 0],
+                [0, 0, 3, 0, 0, 0],
+                [0, 0, 3, 0, 0, 0],
+                [0, 0, 4, 0, 0, 0],
+                [0, 0, 4, 0, 0, 0],
+                [0, 0, 3, 0, 0, 0],
+                [0, 0, 3, 3, 0, 0],
+                [0, 3, 4, 6, 4, 0],
+                [0, 4, 6, 4, 4, 0]
+            ],
+            "nextPuyoPairs": [[4, 3]],
+            "clearCondition": {
+                "type": "chain",
+                "value": 4,
+                "description": "4連鎖"
+            }
+        },
+    {
+            "id": "puyo-1.4",
+            "diff": 2,
+            "description": "暴発しちゃう",
+            "rule": "puyo",
+            "initialPuyoField":[
+                [0, 0, 0, 0, 2, 0],
+                [0, 0, 0, 0, 2, 2],
+                [0, 0, 0, 0, 4, 4],
+                [0, 0, 0, 0, 1, 4],
+                [0, 0, 0, 1, 6, 6]
+            ],
+            "nextPuyoPairs": [[1, 2], [1, 4]],
+            "clearCondition": {
+                "type": "chain",
+                "value": 3,
+                "description": "3連鎖"
+            }
+        },
+    {
+            "id": "puyo-1.5",
+            "diff": 3,
+            "description": "連鎖尾繋げて...あれ足りない？",
+            "rule": "puyo",
+            "initialPuyoField":[
+                [0, 0, 2, 0, 2, 0],
+                [0, 0, 4, 0, 2, 0],
+                [0, 0, 6, 4, 4, 0],
+                [0, 4, 2, 2, 4, 0]
+            ],
+            "nextPuyoPairs": [[4, 2], [4, 2], [4, 2]],
+            "clearCondition": {
+                "type": "chain",
+                "value": 4,
+                "description": "4連鎖"
+            }
+        },
+    {
+            "id": "puyo-1.6",
+            "diff": 3,
+            "description": "カウンター！",
+            "rule": "puyo",
+            "initialPuyoField":[
+                [0, 0, 0, 1, 0, 0],
+                [0, 0, 0, 4, 0, 0],
+                [0, 0, 0, 4, 4, 0],
+                [0, 0, 0, 3, 1, 0],
+                [0, 0, 0, 1, 3, 0],
+                [0, 0, 0, 1, 1, 0],
+                [0, 0, 0, 3, 3, 0],
+                [0, 0, 0, 3, 6, 1]
+            ],
+            "nextPuyoPairs": [[1, 4], [3, 3], [1, 3]],
+            "clearCondition": {
+                "type": "chain",
+                "value": 5,
+                "description": "5連鎖"
+            }
+        }
 ]
