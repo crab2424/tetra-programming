@@ -315,10 +315,8 @@ function updateGamepadOptionsDisplay() {
 }
 
 function renderOnlineSettings() {
-  const wturlInput = document.getElementById('settings-online-wturl');
-  const wthashInput = document.getElementById('settings-online-wthash');
-  if (wturlInput) wturlInput.value = localStorage.getItem('tetlaboServerUrl') || '';
-  if (wthashInput) wthashInput.value = localStorage.getItem('tetlaboServerHash') || '';
+  const signalUrlInput = document.getElementById('settings-online-signalurl');
+  if (signalUrlInput) signalUrlInput.value = localStorage.getItem('tetlaboServerUrl') || '';
 }
 
 document.getElementById('slider-das').addEventListener('input', updateTuningDisplay);
@@ -413,7 +411,6 @@ function resetToDefaults() {
   currentGamepadConfig = loadGamepadConfig();
   currentGamepadOptions = loadGamepadOptions();
   localStorage.removeItem('tetlaboServerUrl');
-  localStorage.removeItem('tetlaboServerHash');
   renderKeyConfig();
   renderTuning();
   renderGamepadOptions();
@@ -531,10 +528,8 @@ function saveSettings() {
   if (window._puyoGame && typeof window._puyoGame._setKeyHandlers === 'function') window._puyoGame._setKeyHandlers();
   if (window._cpuPuyoGame && typeof window._cpuPuyoGame._setKeyHandlers === 'function') window._cpuPuyoGame._setKeyHandlers();
 
-  const wturl = document.getElementById('settings-online-wturl')?.value || '';
-  const wthash = document.getElementById('settings-online-wthash')?.value || '';
-  localStorage.setItem('tetlaboServerUrl', wturl);
-  localStorage.setItem('tetlaboServerHash', wthash);
+  const signalUrl = document.getElementById('settings-online-signalurl')?.value || '';
+  localStorage.setItem('tetlaboServerUrl', signalUrl);
 
   updateMenuControlsDisplay(); // ★追加：保存時にメインメニューの表示を更新
   showToast();

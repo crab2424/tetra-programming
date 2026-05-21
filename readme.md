@@ -8,8 +8,6 @@ https://citgame.pptlabo.workers.dev/
 
 - Node.js
 - pnpm
-  - TypeScript
-  - Vite
 
 ## セットアップ
 
