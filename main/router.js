@@ -127,6 +127,8 @@ const CPU_CONFIGS = {
 // 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
 function stopAllGames() {
     currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
+    // ★ BGM停止（クラスが存在する場合のみ）
+    if (window.BgmManager) window.BgmManager.stop(true);
     
     const stopGameInstance = (gameInst) => {
         if (!gameInst) return;
@@ -504,6 +506,7 @@ async function startVersusGame() {
 
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
     if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
+    if (window.BgmManager) window.BgmManager.play('versus_bgm'); // ★ START! のタイミングでBGM開始
     window._game._startGameplay();
   }, null);
 
@@ -641,6 +644,7 @@ function versusGameOver(loser) {
 
   showFinishOverlay('player-finish-overlay', 'player-finish-text', playerText, playerClass, 1400, null);
   showFinishOverlay('cpu-finish-overlay',    'cpu-finish-text',    cpuText,    cpuClass,    1400, () => {
+    if (window.BgmManager) window.BgmManager.stop(); // ★ // ★ フェードアウトしながら停止（デフォルト500ms）
     const winner = (loser === 'player') ? 'CPU' : 'YOU';
     const titleEl = document.getElementById('versus-result-title');
     const winnerEl = document.getElementById('versus-result-winner');
