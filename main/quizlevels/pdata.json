@@ -343,5 +343,42 @@
                 "value": 5,
                 "description": "5連鎖"
             }
+        },
+    {
+            "id": "puyo-1.7",
+            "diff": 3,
+            "description": "多連結じゃないの？",
+            "rule": "puyo",
+            "initialPuyoField":[
+                [0, 3, 0, 0, 0, 0],
+                [0, 1, 1, 0, 0, 4],
+                [3, 3, 3, 1, 1, 1]
+            ],
+            "nextPuyoPairs": [[4, 1], [4, 1], [4, 1]],
+            "clearCondition": {
+                "type": "chain",
+                "value": 4,
+                "description": "4連鎖"
+            }
+        },
+    {
+            "id": "puyo-1.8",
+            "diff": 4,
+            "description": "青で発火したい",
+            "rule": "puyo",
+            "initialPuyoField":[
+                [0, 0, 1, 0, 0, 0],
+                [0, 0, 4, 2, 0, 0],
+                [0, 0, 2, 1, 0, 0],
+                [0, 2, 6, 4, 0, 0],
+                [0, 1, 1, 2, 2, 0],
+                [0, 4, 4, 6, 2, 0]
+            ],
+            "nextPuyoPairs": [[1, 2], [1, 4], [4, 4], [1, 2], [1, 4]],
+            "clearCondition": {
+                "type": "chain",
+                "value": 6,
+                "description": "6連鎖"
+            }
         }
 ]

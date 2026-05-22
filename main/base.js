@@ -28,14 +28,14 @@ const NEXT_AREA_SIZE = 160;
 // 画像の色が合わない場合は、ここのファイル名を実際の色に合わせて入れ替えてください。
 // ─────────────────────────────────────────────
 const BLOCK_SOURCES = [
-    "images/t_images/block-0.png", // ID 0: I型（推奨色: 水色）
-    "images/t_images/block-1.png", // ID 1: O型（推奨色: 黄色）
-    "images/t_images/block-2.png", // ID 2: T型（推奨色: 紫色）
-    "images/t_images/block-3.png", // ID 3: J型（推奨色: 青色）
-    "images/t_images/block-4.png", // ID 4: L型（推奨色: 橙色）
-    "images/t_images/block-5.png", // ID 5: S型（推奨色: 緑色）
-    "images/t_images/block-6.png", // ID 6: Z型（推奨色: 赤色）
-    "images/t_images/block-7.png"  // ID 7: おじゃまブロック（推奨色: 灰色）
+    "assets/images/t_images/block-0.png", // ID 0: I型（推奨色: 水色）
+    "assets/images/t_images/block-1.png", // ID 1: O型（推奨色: 黄色）
+    "assets/images/t_images/block-2.png", // ID 2: T型（推奨色: 紫色）
+    "assets/images/t_images/block-3.png", // ID 3: J型（推奨色: 青色）
+    "assets/images/t_images/block-4.png", // ID 4: L型（推奨色: 橙色）
+    "assets/images/t_images/block-5.png", // ID 5: S型（推奨色: 緑色）
+    "assets/images/t_images/block-6.png", // ID 6: Z型（推奨色: 赤色）
+    "assets/images/t_images/block-7.png"  // ID 7: おじゃまブロック（推奨色: 灰色）
 ]
 
 window.onload = function () {
@@ -208,7 +208,7 @@ const PConfig = {
     hiddenRows: 5,
 
     cellSize: 32,
-    imagePath: 'images/p_images/',
+    imagePath: 'assets/images/p_images/',
     colorCount: 4,
 
     dropSpeedNormal: 500,
@@ -453,3 +453,151 @@ class Field {
 // テト・ぷよ共通の演出クラス(EffectManager等)を作成する場合は
 // ここに追記していくと綺麗にまとまります。
 // ==========================================
+
+// ─────────────────────────────────────────────
+// AudioLoader  音声ファイルのロード・キャッシュ管理
+// ─────────────────────────────────────────────
+class AudioLoader {
+    // SEはAudioContextで扱うためArrayBufferとしてキャッシュ
+    static _seBuffers  = {};  // { key: AudioBuffer }
+    static _bgmSrcMap  = {};  // { key: src }
+    static _ctx        = null;
+
+    static get context() {
+        if (!this._ctx) this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+        return this._ctx;
+    }
+
+    // BGMのsrcを登録（ロードはしない）
+    static registerBgm(key, src) {
+        this._bgmSrcMap[key] = src;
+    }
+
+    static getBgmSrc(key) {
+        return this._bgmSrcMap[key] ?? null;
+    }
+
+    // SE群を一括プリロード（起動時に呼ぶ）
+    static loadSe(seMap) {
+        // seMap: { key: src, ... }
+        const promises = Object.entries(seMap).map(([key, src]) => {
+            return fetch(src)
+                .then(r => r.arrayBuffer())
+                .then(buf => this.context.decodeAudioData(buf))
+                .then(decoded => { this._seBuffers[key] = decoded; });
+        });
+        return Promise.all(promises);
+    }
+
+    static getSeBuffer(key) {
+        return this._seBuffers[key] ?? null;
+    }
+}
+
+// ─────────────────────────────────────────────
+// BgmManager  BGMの再生・停止・フェード制御
+// ─────────────────────────────────────────────
+class BgmManager {
+    static _audio      = null;
+    static _currentKey = null;
+    static _volume     = 0.5;
+    static _muted      = false;
+    static _fadeTimer  = null;
+
+    static play(key) {
+        const src = AudioLoader.getBgmSrc(key);
+        if (!src) return;
+        if (this._currentKey === key && this._audio && !this._audio.paused) return;
+
+        this.stop(true);
+        this._audio = new Audio();
+        this._audio.loop   = true;
+        this._audio.volume = this._muted ? 0 : this._volume;
+        this._audio.src    = src;
+        this._currentKey   = key;
+        this._audio.play().catch(() => {});
+    }
+
+    static stop(immediate = false) {
+        if (!this._audio) return;
+        if (immediate) {
+            this._audio.pause();
+            this._audio.currentTime = 0;
+            this._audio = null;
+            this._currentKey = null;
+        } else {
+            this.fadeOut(300, () => {
+                if (this._audio) {
+                    this._audio.currentTime = 0;
+                    this._audio = null;
+                }
+                this._currentKey = null;
+            });
+        }
+    }
+
+    static pause()  { this._audio?.pause(); }
+    static resume() { this._audio?.play().catch(() => {}); }
+
+    static setVolume(v) {
+        this._volume = Math.max(0, Math.min(1, v));
+        if (this._audio && !this._muted) this._audio.volume = this._volume;
+    }
+
+    static toggleMute() {
+        this._muted = !this._muted;
+        if (this._audio) this._audio.volume = this._muted ? 0 : this._volume;
+        return this._muted;
+    }
+
+    static fadeOut(ms = 500, cb = null) {
+        if (!this._audio) { cb?.(); return; }
+        if (this._fadeTimer) clearInterval(this._fadeTimer);
+        const step = this._audio.volume / (ms / 50);
+        this._fadeTimer = setInterval(() => {
+            if (!this._audio) { clearInterval(this._fadeTimer); cb?.(); return; }
+            this._audio.volume = Math.max(0, this._audio.volume - step);
+            if (this._audio.volume <= 0) {
+                clearInterval(this._fadeTimer);
+                this._audio.pause();
+                cb?.();
+            }
+        }, 50);
+    }
+}
+
+// ─────────────────────────────────────────────
+// SeManager  SEの再生制御
+// ─────────────────────────────────────────────
+class SeManager {
+    static _volume = 0.8;
+    static _muted  = false;
+
+    // AudioContextを使うことで同時再生・連打に対応
+    static play(key) {
+        if (this._muted) return;
+        const buf = AudioLoader.getSeBuffer(key);
+        if (!buf) return;
+
+        const ctx    = AudioLoader.context;
+        const source = ctx.createBufferSource();
+        const gain   = ctx.createGain();
+        gain.gain.value = this._volume;
+
+        source.buffer = buf;
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        source.start(0);
+        // 再生終了後は自動でGCされるため明示的な破棄は不要
+    }
+
+    static setVolume(v) { this._volume = Math.max(0, Math.min(1, v)); }
+    static toggleMute() { this._muted = !this._muted; return this._muted; }
+}
+
+window.AudioLoader = AudioLoader;
+window.BgmManager = BgmManager;
+window.SeManager = SeManager;
+
+// ─── BGM 登録（ページロード時） ────────────────
+AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
