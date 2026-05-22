@@ -2077,18 +2077,20 @@ class PuyoGame {
             if (this._gs !== 'falling') return;
 
             // ★ クイックドロップ処理の追加
+            // ★ キーリピート（長押し）時は受け付けない（1回押し直したときのみ有効）
             if (e.code === this._keyMap.quickDrop) {
                 e.preventDefault();
-                this._tryQuickDrop();
+                if (!isRepeat) this._tryQuickDrop();
                 return;
             }
 
+            // ★ 回転もキーリピート時は受け付けない（1回押し直したときのみ有効）
             if (e.code === this._keyMap.rotateCW) {
                 e.preventDefault();
-                this._tryRotate(1);
+                if (!isRepeat) this._tryRotate(1);
             } else if (e.code === this._keyMap.rotateCCW) {
                 e.preventDefault();
-                this._tryRotate(-1);
+                if (!isRepeat) this._tryRotate(-1);
             }
         };
 
