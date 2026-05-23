@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png">
   
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="style.css?v=21">
+    <link rel="stylesheet" href="style.css?v=22">
   </head>
   <body>
     <div id="header-area" style="display:none;">
@@ -29,7 +29,7 @@
         <div id="title-press-any" class="title-blink">
           PRESS ANY KEY
         </div>
-        <div id="title-version">v1.0.3</div>
+        <div id="title-version">v1.1</div>
       </div>
     </div>
 
@@ -108,6 +108,12 @@
           <button class="menu-btn btn-secondary" onclick="switchPage('settings')">
             <span class="menu-btn-icon">⚙</span>
             <span>SETTINGS</span>
+          </button>
+        </div>
+          <!-- ★ 追加 -->
+          <button class="menu-btn btn-secondary" onclick="switchPage('credits')">
+            <span class="menu-btn-icon">★</span>
+            <span>CREDITS</span>
           </button>
         </div>
       </div>
@@ -548,10 +554,28 @@
     ───────────────────────────────────────────── -->
     <div id="settings-page" class="page">
       <div class="settings-header">
-        <h2 style="margin-bottom: 0;">⚙ KEY CONFIG</h2>
+        <h2 style="margin-bottom: 0;">⚙ SETTINGS</h2>
         <button class="btn btn-back" onclick="switchPage(window._prevPage || 'main-menu')">◀ BACK</button>
       </div>
+
+      <!-- ★ 追加: 音量設定セクション -->
+      <h2 style="margin-top: 0; margin-bottom: 20px;">🔊 VOLUME</h2>
+      <div class="tuning-container">
+        <div class="slider-row">
+          <div class="slider-label">BGM<span id="val-bgm-volume">50%</span></div>
+          <input type="range" id="slider-bgm-volume" min="0" max="100" step="1" value="50"
+                oninput="updateVolumeDisplay()">
+          <div class="slider-markers"><span>0%</span><span>50%</span><span>100%</span></div>
+        </div>
+        <div class="slider-row">
+          <div class="slider-label">SE<span id="val-se-volume">80%</span></div>
+          <input type="range" id="slider-se-volume" min="0" max="100" step="1" value="80"
+                oninput="updateVolumeDisplay()">
+          <div class="slider-markers"><span>0%</span><span>50%</span><span>100%</span></div>
+        </div>
+      </div>
       
+      <h2 style="margin-top: 32px; margin-bottom: 28px;">⌨️🎮 KEY CONFIG</h2>
       <div class="key-config-grid" id="key-config-grid"></div>
       <p class="conflict-warning" id="conflict-warning">
         ⚠ 同じキーが複数のアクションに割り当てられています
@@ -583,10 +607,72 @@
     </div>
 
     <div id="settings-toast">SAVED ✓</div>
+
+    <!-- ─────────────────────────────────────────────
+        クレジットページ
+    ───────────────────────────────────────────── -->
+    <div id="credits-page" class="page">
+      <div id="credits-container">
+
+        <div id="credits-header">
+          <h1 class="credits-title">TETLABO</h1>
+          <p class="credits-version">v1.1</p>
+        </div>
+
+        <div class="credits-section">
+          <p class="credits-section-label">CREATED BY</p>
+          <p class="credits-name">GAME CIRCLE</p>
+        </div>
+
+        <div class="credits-divider"></div>
+
+        <div class="credits-section">
+          <p class="credits-section-label">PROGRAMMING</p>
+          <p class="credits-name">YOUR NAME</p>
+        </div>
+
+        <div class="credits-section">
+          <p class="credits-section-label">GAME DESIGN</p>
+          <p class="credits-name">YOUR NAME</p>
+        </div>
+
+        <div class="credits-section">
+          <p class="credits-section-label">GRAPHICS</p>
+          <p class="credits-name">YOUR NAME</p>
+        </div>
+
+        <div class="credits-section">
+          <p class="credits-section-label">SOUND</p>
+          <p class="credits-name">YOUR NAME</p>
+        </div>
+
+        <div class="credits-divider"></div>
+
+        <div class="credits-section">
+          <p class="credits-section-label">SPECIAL THANKS</p>
+          <p class="credits-name">GAME CIRCLE MEMBERS</p>
+        </div>
+
+        <div class="credits-divider"></div>
+
+        <div class="credits-section credits-copy">
+          <p>© 2025 GAME CIRCLE</p>
+          <p>ALL RIGHTS RESERVED.</p>
+        </div>
+
+        <div id="credits-buttons">
+          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+            <span class="menu-btn-icon">◀</span>
+            <span>BACK</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
     
-    <script src="base.js?v=3"></script>     
+    <script src="base.js?v=4"></script>     
     <script src="manager.js?v=1"></script>
-    <script src="settings.js?v=13"></script>
+    <script src="settings.js?v=14"></script>
     <script src="game.js?v=18"></script>
     <script src="p_game.js?v=6"></script>
     <script src="quiz.js?v=4"></script>

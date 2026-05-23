@@ -39,6 +39,18 @@ const BLOCK_SOURCES = [
 ]
 
 window.onload = function () {
+    // ★ 追加: 保存済み音量を起動時に復元
+    (function() {
+        const saved = localStorage.getItem('game_volume');
+        if (saved) {
+        try {
+            const v = JSON.parse(saved);
+            if (window.BgmManager && v.bgm != null) window.BgmManager.setVolume(v.bgm);
+            if (window.SeManager  && v.se  != null) window.SeManager.setVolume(v.se);
+        } catch(e) {}
+        }
+    })();
+    
     Asset.init(function () {
         let game = new Game()
         // グローバルに保持（設定変更後に setKeyEvent を外から呼ぶため）
@@ -507,7 +519,16 @@ class BgmManager {
     static play(key) {
         const src = AudioLoader.getBgmSrc(key);
         if (!src) return;
-        if (this._currentKey === key && this._audio && !this._audio.paused) return;
+        if (this._fadeTimer) {
+            clearInterval(this._fadeTimer);
+            this._fadeTimer = null;
+        }
+
+        if (this._currentKey === key && this._audio) {
+            this._audio.volume = this._muted ? 0 : this._volume;
+            if (this._audio.paused) this._audio.play().catch(() => {});
+            return;
+        }
 
         this.stop(true);
         this._audio = new Audio();
@@ -520,6 +541,10 @@ class BgmManager {
 
     static stop(immediate = false) {
         if (!this._audio) return;
+        if (this._fadeTimer) {
+            clearInterval(this._fadeTimer);
+            this._fadeTimer = null;
+        }
         if (immediate) {
             this._audio.pause();
             this._audio.currentTime = 0;
@@ -538,6 +563,7 @@ class BgmManager {
 
     static pause()  { this._audio?.pause(); }
     static resume() { this._audio?.play().catch(() => {}); }
+    static isCurrent(key) { return this._currentKey === key && !!this._audio; }
 
     static setVolume(v) {
         this._volume = Math.max(0, Math.min(1, v));
@@ -601,3 +627,4 @@ window.SeManager = SeManager;
 
 // ─── BGM 登録（ページロード時） ────────────────
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
+AudioLoader.registerBgm('menu_bgm',   'assets/audio/bgm/menu_1.ogg');
