@@ -127,8 +127,10 @@ const CPU_CONFIGS = {
 // 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
 function stopAllGames() {
     currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
-    // ★ BGM停止（クラスが存在する場合のみ）
-    if (window.BgmManager) window.BgmManager.stop(true);
+    // ★ メニューBGMは非ゲーム画面間で継続させ、それ以外のBGMだけ停止する
+    if (window.BgmManager && !window.BgmManager.isCurrent?.('menu_bgm')) {
+        window.BgmManager.stop(true);
+    }
     
     const stopGameInstance = (gameInst) => {
         if (!gameInst) return;
@@ -730,10 +732,24 @@ function switchPage(pageId) {
     window._prevPage = currentActive.id.replace('-page', '');
   }
 
+  // ★ BGM 切り替え処理
   // メインメニューやタイトルに戻る際はゲーム情報を完全に破棄
   if (pageId === 'main-menu' || pageId === 'title') {
-    stopAllGames();
+    stopAllGames(); // ← この中でBGMが止まる
     _switchToPuyoLayout(false);
+    // ★ stopAllGames()の後に鳴らす
+    if (window.BgmManager) window.BgmManager.play('menu_bgm');
+  }
+
+  // 準備画面もメニューBGMを継続
+  const menuPages = ['mode-check', 'versus-check', 'quiz-check'];
+  if (menuPages.includes(pageId)) {
+    if (window.BgmManager) window.BgmManager.play('menu_bgm');
+  }
+
+  // ゲーム画面に入るタイミングでメニューBGMを止める
+  if (pageId === 'game' || pageId === 'versus') {
+    if (window.BgmManager) window.BgmManager.stop(true);
   }
 
   // ★ 追加: 設定から game に戻る際、ポーズ画面を復元する
@@ -761,6 +777,7 @@ function switchPage(pageId) {
   if (pageId === 'settings') {
     if (typeof renderKeyConfig === 'function') renderKeyConfig();
     if (typeof renderTuning    === 'function') renderTuning();
+    if (typeof renderVolume    === 'function') renderVolume();
   } else if (pageId === 'versus-check') {
     renderVersusCheck();
   } else if (pageId === 'mode-check') {
