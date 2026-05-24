@@ -295,12 +295,19 @@ class QuizManager {
         game.popMino = function() {
             // secureMino フック内の _checkClearOnSecure() でクリア確定済みの場合は
             // ダミー検出・_checkClear を走らせずそのまま抜ける
-            if (self.isClear || self.isFailed) return;
+            if (self.isClear || self.isFailed) {
+                this.mino = null;
+                return;
+            }
             // 次のミノが出現する直前（前の一手が確定した瞬間）にクリア判定を行う
-            if (self._checkClear()) return;
+            if (self._checkClear()) {
+                this.mino = null;
+                return;
+            }
 
             const currentMino = this.nextQueue[0];
             if (currentMino && currentMino._quizDummy) {
+                this.mino = null;
                 // ★修正：secureMino の内部から同期的に呼ばれた場合は、
                 // クリア判定(_checkClearOnSecure)が完了するまでFAILEDを保留する
                 if (self._isSecuring) {
