@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png">
   
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="src/styles/style.css?v=22">
+    <link rel="stylesheet" href="src/styles/style.css?v=23">
     <link rel="stylesheet" href="src/styles/anime.css">
   </head>
   <body>
@@ -201,6 +201,17 @@
           <div class="controls-grid" id="versus-check-controls-grid"></div>
         </div>
         <div id="versus-check-buttons">
+          <!-- VS SETTINGS ボタン + サマリー表示 -->
+          <div id="vs-settings-row">
+            <button class="menu-btn btn-vs-settings" id="vs-settings-open-btn" onclick="goToVsSettings()">
+              <span class="menu-btn-icon">⚙</span>
+              <span>VS SETTINGS</span>
+            </button>
+            <div id="vs-settings-summary-block">
+              <span class="vs-settings-summary-label">SETTINGS:</span>
+              <span id="vs-settings-summary">ALL DEFAULT</span>
+            </div>
+          </div>
           <button class="menu-btn btn-versus-primary" id="versus-check-start-btn" onclick="startVersusGame()">
             <span class="menu-btn-icon">▶</span>
             <span>START</span>
@@ -208,6 +219,47 @@
           <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
             <span class="menu-btn-icon">◀</span>
             <span>BACK</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         対戦ゲーム画面
+    ───────────────────────────────────────────── -->
+    <div id="vs-settings-page" class="page">
+      <div id="vs-settings-container">
+        <div id="vs-settings-header">
+          <span class="mode-check-icon" style="color: var(--versus-color, #f5c542);">⚙</span>
+          <h2 class="mode-check-label" style="color: var(--versus-color, #f5c542);">VS SETTINGS</h2>
+          <p class="vs-settings-subtitle">VERSUS MODE ONLY</p>
+        </div>
+
+        <!-- 設定項目エリア（将来ここにrenderVsSettingsPage()が動的生成） -->
+        <div id="vs-settings-items">
+          <!-- ─── 現在は設定項目なし ─── -->
+          <div id="vs-settings-empty">
+            <span class="vs-settings-empty-icon">🔧</span>
+            <p class="vs-settings-empty-title">COMING SOON</p>
+            <p class="vs-settings-empty-desc">詳細設定項目は近日追加予定です。</p>
+            <p class="vs-settings-empty-desc-en">Detailed settings will be available soon.</p>
+          </div>
+
+          <!-- ─── 将来の設定項目はここに追加 ───
+          <div class="vs-setting-section">
+            <p class="vs-setting-section-label">BALANCE</p>
+            <div class="vs-setting-row">
+              <span class="vs-setting-label">火力補正</span>
+              <div class="vs-setting-control">...</div>
+            </div>
+          </div>
+          ─── -->
+        </div>
+
+        <div id="vs-settings-buttons">
+          <button class="menu-btn btn-versus-primary" onclick="backFromVsSettings()">
+            <span class="menu-btn-icon">✓</span>
+            <span>DONE</span>
           </button>
         </div>
       </div>
@@ -692,12 +744,12 @@
     </div>
     
     <script src="src/base.js?v=4"></script>
-    <script src="src/particles.js?v=1"></script>
+    <script src="src/particles.js?v=2"></script>
     <script src="src/manager.js?v=1"></script>
     <script src="src/settings.js?v=14"></script>
     <script src="src/game.js?v=18"></script>
     <script src="src/p_game.js?v=6"></script>
     <script src="src/quiz.js?v=4"></script>
-    <script src="src/router.js?v=27"></script>
+    <script src="src/router.js?v=28"></script>
   </body>
 </html>

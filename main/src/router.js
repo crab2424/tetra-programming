@@ -93,6 +93,44 @@ let versusCpuRule = 'puyo';    // CPU側のルール ('tet' or 'puyo')
 // カウントダウン中の中断を防ぐためのセッション管理
 let currentSessionId = 0;
 
+// ─── VS SETTINGS (versusモード専用詳細設定) ──────────────
+// 将来の設定項目を追加しやすい構造にしておく
+// 各設定のデフォルト値はここで管理する
+const VS_SETTINGS_DEFAULTS = {
+  // 今後追加予定の設定項目のデフォルト値をここに定義する
+  // 例: attackBonus: 0,  // 火力補正 (-3~+3)
+  //     marginTime: false, // マージンタイム
+  //     puyoRate: 70,     // ぷよレート
+  //     minChain: 4,      // 連結数
+};
+
+let vsSettings = { ...VS_SETTINGS_DEFAULTS };
+
+// VS SETTINGSページへ遷移
+function goToVsSettings() {
+  switchPage('vs-settings');
+}
+
+// VS SETTINGSページから戻る
+function backFromVsSettings() {
+  switchPage('versus-check');
+}
+
+// VS SETTINGSのサマリーテキストを生成して準備画面に表示する
+function renderVsSettingsSummary() {
+  const summaryEl = document.getElementById('vs-settings-summary');
+  if (!summaryEl) return;
+
+  const lines = [];
+
+  // 設定が何もなければデフォルト表示
+  if (lines.length === 0) {
+    summaryEl.textContent = 'ALL DEFAULT';
+  } else {
+    summaryEl.textContent = lines.join(' / ');
+  }
+}
+
 // ─── VERSUSモード用グローバル変数 ──────────────
 const CPU_LEVELS = {
   1: { label: 'LV 1', desc: '初心者向け', gravityLevel: 1  },
@@ -414,6 +452,9 @@ async function startVersusGame() {
   window._versusFinishing = false; // ★ finish演出中フラグをリセット
   stopAllGames(); // 開始前に完全に状態をリセット
   const sessionId = currentSessionId; // カウントダウン後にセッションが有効か確認するために保持
+
+  // VS SETTINGSをゲームに適用（将来の設定が増えたときのフック）
+  applyVsSettingsToGame();
 
   const cpuConfig = CPU_LEVELS[selectedCpuLevel];
   switchPage('versus');
@@ -800,14 +841,14 @@ function switchPage(pageId) {
   }
 
   // router.js の switchPage 関数内（既存の page 切り替え処理の後）に追記
-  if (['title', 'main-menu', 'mode-check', 'versus-check', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits'].includes(pageId)) {
+  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits'].includes(pageId)) {
       if (typeof initMenuAnimations === 'function') initMenuAnimations(pageId);
   } else {
       if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
   }
 
   // 準備画面もメニューBGMを継続
-  const menuPages = ['mode-check', 'versus-check', 'quiz-check'];
+  const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check'];
   if (menuPages.includes(pageId)) {
     if (window.BgmManager) window.BgmManager.play('menu_bgm');
   }
@@ -845,6 +886,9 @@ function switchPage(pageId) {
     if (typeof renderVolume    === 'function') renderVolume();
   } else if (pageId === 'versus-check') {
     renderVersusCheck();
+    renderVsSettingsSummary();
+  } else if (pageId === 'vs-settings') {
+    renderVsSettingsPage();
   } else if (pageId === 'mode-check') {
     renderModeCheck(); 
   } else if (pageId === 'quiz-check') {
@@ -861,6 +905,33 @@ function goToModeCheck(modeId) {
   } else {
     switchPage('mode-check');
   }
+}
+
+// ─── VS SETTINGSページのレンダリング ──────────────
+// 現時点では枠組みのみ。将来の設定項目をここに追加していく。
+function renderVsSettingsPage() {
+  const container = document.getElementById('vs-settings-items');
+  if (!container) return;
+
+  // 現在は設定項目が空のため、プレースホルダーを表示
+  // 今後ここに各設定項目のHTML生成コードを追加する
+  // 例:
+  // container.innerHTML = `
+  //   <div class="vs-setting-row">
+  //     <span class="vs-setting-label">火力補正</span>
+  //     <div class="vs-setting-control">...</div>
+  //   </div>
+  // `;
+
+  // 現時点ではプレースホルダーのみ表示（実際のitemはHTMLに直書き）
+}
+
+// vsSettingsをゲーム開始時に適用する（将来の実装用フック）
+function applyVsSettingsToGame() {
+  // 将来: vsSettingsの各項目をゲームインスタンスに反映する
+  // 例: window._game.attackBonus = vsSettings.attackBonus;
+  // 例: window._game.marginTime = vsSettings.marginTime;
+  // など
 }
 
 function renderModeCheck() {
