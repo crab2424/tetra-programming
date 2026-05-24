@@ -10,6 +10,7 @@ import {
   decode,
   BincodeConfig,
 } from "bincode-ts";
+import { RoomTag } from "./room";
 
 export enum Opcodes {
   /** バイナリPing */
@@ -17,9 +18,11 @@ export enum Opcodes {
   /** バイナリPong */
   Pong = 0x02,
   /** JSONでのサーバーへの要求 (応答必須) */
-  JSONRequest = 0x10,
+  JSONRequest = 0x03,
   /** JSONでのサーバーからの応答 */
-  JSONResponse = 0x11,
+  JSONResponse = 0x04,
+  /** 接続切断 */
+  Close = 0x05,
 }
 
 const JSONRequestPayloadType = Struct({
@@ -39,6 +42,8 @@ const PingPayloadType = Struct({
 const PongPayloadType = Struct({
   id: UuidBytesType,
 });
+
+const ClosePayloadType = Struct({});
 
 export class Payload {
   private static estimateStringSize(value: string): number {
@@ -113,6 +118,12 @@ export class Payload {
         1,
         BincodeConfig.STANDARD,
       );
+    });
+  }
+
+  static close(): Uint8Array {
+    return Payload.encodeWithOp(Opcodes.Close, 0, (buffer) => {
+      encode(ClosePayloadType, {}, buffer, 1, BincodeConfig.STANDARD);
     });
   }
 
@@ -212,6 +223,11 @@ export interface JSONGetRoomsResponse {
   id: string;
   rooms: {
     id: string;
+    roomName: string;
+    players: number;
+    maxPlayers: number;
+    locked: boolean;
+    tags: RoomTag[];
   }[];
 }
 

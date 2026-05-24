@@ -11,13 +11,25 @@ import {
  */
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const RELIABLE_CHANNEL_LABEL = "reliable-main";
+const UNRELIABLE_CHANNEL_LABEL = "unreliable-main";
 export class GameConnection {
   private ws: WebSocket;
   private pc: RTCPeerConnection;
 
-  private dc: RTCDataChannel;
+  /**
+   * 信頼性のあるデータチャンネル
+   */
+  private rdc: RTCDataChannel;
 
-  private dcFunctions: ((event: MessageEvent) => void)[] = [];
+  /**
+   * 信頼性のないデータチャンネル
+   */
+  private urdc: RTCDataChannel;
+
+  private rdcFunctions: ((event: MessageEvent) => void)[] = [];
+  private urdcFunctions: ((event: MessageEvent) => void)[] = [];
 
   public dcReady: boolean = false;
 
@@ -64,35 +76,48 @@ export class GameConnection {
     this.ws = new WebSocket(url);
     this.pc = new RTCPeerConnection();
 
-    this.dc = this.pc.createDataChannel("game-payload", {
+    this.rdc = this.pc.createDataChannel(RELIABLE_CHANNEL_LABEL);
+    this.urdc = this.pc.createDataChannel(UNRELIABLE_CHANNEL_LABEL, {
       ordered: false,
       maxRetransmits: 0,
     });
 
-    this.dc.onopen = () => {
+    this.rdc.onopen = () => {
       this.log("Data channel opened");
       this.dcReady = true;
     };
-
-    this.dc.onmessage = (event) => {
-      this.handleInbound(event).finally(() => {
-        this.dcFunctions.forEach((func) => func(event));
-      });
+    this.urdc.onopen = () => {
+      this.log("Unreliable data channel opened");
     };
 
-    this.dc.onerror = (event) => {
-      this.error("Data channel `game-payload` error:", event);
+    this.rdc.onmessage = (event) => {
+      this.handleInbound(event).finally(() => {
+        this.rdcFunctions.forEach((func) => func(event));
+      });
+    };
+    this.urdc.onmessage = (event) => {
+      this.urdcFunctions.forEach((func) => func(event));
+    };
+
+    this.rdc.onerror = (event) => {
+      this.error(`Data channel ${RELIABLE_CHANNEL_LABEL} error:`, event);
+    };
+    this.urdc.onerror = (event) => {
+      this.error(`Data channel ${UNRELIABLE_CHANNEL_LABEL} error:`, event);
     };
 
     this.ws.onerror = (event) => {
       this.error("WebSocket error:", event);
     };
 
-    this.dc.onclose = () => {
+    this.rdc.onclose = () => {
       this.log("Data channel closed");
       this.dcReady = false;
       if (onClose && !this.closed) onClose();
       this.closed = true;
+    };
+    this.urdc.onclose = () => {
+      this.log("Unreliable data channel closed");
     };
 
     this.ws.onclose = () => {
@@ -180,14 +205,22 @@ export class GameConnection {
   async close() {
     this.log("Closing connection...");
     this.dcReady = false;
-    this.dc.close();
+    this.sendRDC(Payload.close());
+
+    try {
+      this.rdc.close();
+    } catch (e) {}
+    try {
+      this.urdc.close();
+    } catch (e) {}
+
     this.pc.close();
     this.ws.close();
     this.log("Connection closed");
   }
 
   addReaderFunction(func: (event: MessageEvent) => void) {
-    this.dcFunctions.push(func);
+    this.rdcFunctions.push(func);
   }
 
   private async handleInbound(event: MessageEvent) {
@@ -207,7 +240,7 @@ export class GameConnection {
       const decoded = Payload.decode(buf);
       if (decoded.op === Opcodes.Ping) {
         const id = Payload.bytesToUuid(decoded.idBytes);
-        await this.sendBI(Payload.binaryPong(id));
+        this.sendRDC(Payload.binaryPong(id));
         return;
       }
 
@@ -215,7 +248,7 @@ export class GameConnection {
         const parsed = JSON.parse(decoded.data);
         if (parsed?.type === "JSONPing" && typeof parsed.id === "string") {
           const resp = { type: "JSONPong", id: parsed.id };
-          await this.sendBI(
+          this.sendRDC(
             Payload.jsonResponse(Opcodes.JSONResponse, JSON.stringify(resp)),
           );
         }
@@ -229,24 +262,27 @@ export class GameConnection {
    * Send binary data over the data channel
    * @param data Uint8Array
    */
-  async sendBI(data: Uint8Array) {
+  sendRDC(data: Uint8Array) {
     if (!this.dcReady) throw new Error("Data channel is not ready");
     // RTCDataChannel in browsers accepts ArrayBuffer or BufferSource
-    this.dc.send(data.buffer as unknown as ArrayBuffer);
+    this.rdc.send(data.buffer as unknown as ArrayBuffer);
   }
 
-  async sendWS(message: string) {
+  /**
+   * Send binary data over the data channel
+   * @param data Uint8Array
+   */
+  sendURDC(data: Uint8Array) {
+    if (!this.dcReady) throw new Error("Data channel is not ready");
+    // RTCDataChannel in browsers accepts ArrayBuffer or BufferSource
+    this.urdc.send(data.buffer as unknown as ArrayBuffer);
+  }
+
+  sendWS(message: string) {
     if (this.ws.readyState !== WebSocket.OPEN) {
       throw new Error("WebSocket is not open");
     }
     this.ws.send(message);
-  }
-
-  async sendDC(message: string) {
-    if (!this.dcReady) {
-      throw new Error("Data channel is not ready");
-    }
-    this.dc.send(message);
   }
 
   async waitResponseBI<T>(op: Opcodes, data: Object): Promise<T> {
@@ -260,7 +296,7 @@ export class GameConnection {
     } as const;
 
     // send binary payload
-    await this.sendBI(Payload.jsonRequest(op, JSON.stringify(sendData)));
+    this.sendRDC(Payload.jsonRequest(op, JSON.stringify(sendData)));
 
     return new Promise((resolve) => {
       let responseReceived = false;
@@ -280,7 +316,7 @@ export class GameConnection {
               const decoded = JSONPayload.fromPayload(b);
               if ("id" in decoded && decoded.id === sendData.id) {
                 responseReceived = true;
-                this.dcFunctions = this.dcFunctions.filter(
+                this.rdcFunctions = this.rdcFunctions.filter(
                   (f) => f !== handler,
                 );
                 resolve(decoded as T);
@@ -296,7 +332,7 @@ export class GameConnection {
           const decoded = JSONPayload.fromPayload(buf);
           if ("id" in decoded && decoded.id === sendData.id) {
             responseReceived = true;
-            this.dcFunctions = this.dcFunctions.filter((f) => f !== handler);
+            this.rdcFunctions = this.rdcFunctions.filter((f) => f !== handler);
             resolve(decoded as T);
           }
         } catch (e) {
@@ -310,7 +346,7 @@ export class GameConnection {
 
   async sendBinaryPing(): Promise<string> {
     const id = crypto.randomUUID();
-    await this.sendBI(Payload.binaryPing(id));
+    await this.sendRDC(Payload.binaryPing(id));
     return this.waitBinaryPong(id);
   }
 
@@ -333,7 +369,7 @@ export class GameConnection {
                 const recvId = Payload.bytesToUuid(decoded.idBytes);
                 if (recvId === id) {
                   responseReceived = true;
-                  this.dcFunctions = this.dcFunctions.filter(
+                  this.rdcFunctions = this.rdcFunctions.filter(
                     (f) => f !== handler,
                   );
                   resolve(recvId);
@@ -352,7 +388,9 @@ export class GameConnection {
             const recvId = Payload.bytesToUuid(decoded.idBytes);
             if (recvId === id) {
               responseReceived = true;
-              this.dcFunctions = this.dcFunctions.filter((f) => f !== handler);
+              this.rdcFunctions = this.rdcFunctions.filter(
+                (f) => f !== handler,
+              );
               resolve(recvId);
             }
           }
