@@ -411,6 +411,7 @@ function createSeededRandom(seed) {
 }
 
 async function startVersusGame() {
+  window._versusFinishing = false; // ★ finish演出中フラグをリセット
   stopAllGames(); // 開始前に完全に状態をリセット
   const sessionId = currentSessionId; // カウントダウン後にセッションが有効か確認するために保持
 
@@ -537,10 +538,21 @@ function setupVersusPauseKey() {
   if (window._versusPauseHandler) {
     document.removeEventListener('keydown', window._versusPauseHandler);
   }
-  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { code: 'Escape' } };
+  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { code: 'Escape' }, restart: { code: 'KeyR' } };
   window._versusPauseHandler = function(e) {
     const versusPage = document.getElementById('versus-page');
     if (!versusPage || !versusPage.classList.contains('active')) return;
+
+    // ★ リスタートキー（versusモードではここで処理する）
+    if (e.code === (keys.restart ? keys.restart.code : 'KeyR')) {
+      if (e.repeat) return;
+      e.preventDefault();
+      // finish演出中はリスタートを受け付けない
+      if (window._versusFinishing) return;
+      restartVersus();
+      return;
+    }
+
     if (e.code === keys.pause.code) {
       e.preventDefault();
       toggleVersusPause();
@@ -556,6 +568,9 @@ function toggleVersusPause() {
   if (isPaused) {
     resumeVersus();
   } else {
+    // ★ finish演出中はポーズを受け付けない（startカウントダウン中と同じ扱い）
+    if (window._versusFinishing) return;
+
     // カウントダウン中はポーズを受け付けない（シングルモードと同じ挙動）
     // Tet(Game)は isCountingDown、PuyoGame は state === 'starting' でカウントダウン中を判定する
     const isGameCounting = (inst) => {
@@ -595,6 +610,9 @@ function restartVersusFromResult() {
 }
 
 function versusGameOver(loser) {
+  // ★ finish演出中フラグを立てる（ポーズキーを無効にするため）
+  window._versusFinishing = true;
+
   // ★ 修正: ここでも Tet と Puyo を確実に区別する
   const stopGame = (gameInst, isWinner) => {
       if (!gameInst) return;
@@ -662,16 +680,49 @@ function versusGameOver(loser) {
       }
     }
     if (winnerEl) winnerEl.textContent = winner;
-    
+
+    // ★ プレイヤーのスコアと固有スタット（ルールに応じてラベルと値を切り替え）
+    const isPlayerPuyo = versusPlayerRule === 'puyo';
+    const isCpuPuyo    = versusCpuRule    === 'puyo';
+
     document.getElementById('versus-result-player-score').textContent = window._game ? window._game.score : 0;
     document.getElementById('versus-result-cpu-score').textContent    = window._cpuGame ? window._cpuGame.score : 0;
-    
-    let pLines = 0;
-    if (window._game) {
-        pLines = window._game.lines !== undefined ? window._game.lines : window._game.chainMax;
+
+    // YOUR LINES ラベルをルールに応じて切り替え
+    const playerLinesLabelEl = document.getElementById('versus-result-player-lines-label');
+    if (playerLinesLabelEl) {
+      playerLinesLabelEl.textContent = isPlayerPuyo ? 'YOUR MAX CHAINS' : 'YOUR LINES';
     }
-    document.getElementById('versus-result-player-lines').textContent = pLines;
-    
+
+    // YOUR LINES 値をルールに応じて取得
+    let pStat = 0;
+    if (window._game) {
+      if (isPlayerPuyo) {
+        // ぷよ：最大連鎖数
+        pStat = window._game.chainMax !== undefined ? window._game.chainMax : 0;
+      } else {
+        // テト：消したライン数
+        pStat = window._game.lines !== undefined ? window._game.lines : 0;
+      }
+    }
+    document.getElementById('versus-result-player-lines').textContent = pStat;
+
+    // CPU LINES ラベルと値も同様に切り替え
+    const cpuLinesLabelEl = document.getElementById('versus-result-cpu-lines-label');
+    const cpuLinesValEl   = document.getElementById('versus-result-cpu-lines');
+    if (cpuLinesLabelEl && cpuLinesValEl) {
+      cpuLinesLabelEl.textContent = isCpuPuyo ? 'CPU MAX CHAINS' : 'CPU LINES';
+      let cStat = 0;
+      if (window._cpuGame) {
+        if (isCpuPuyo) {
+          cStat = window._cpuGame.chainMax !== undefined ? window._cpuGame.chainMax : 0;
+        } else {
+          cStat = window._cpuGame.lines !== undefined ? window._cpuGame.lines : 0;
+        }
+      }
+      cpuLinesValEl.textContent = cStat;
+    }
+
     switchPage('versus-result');
   });
 }
