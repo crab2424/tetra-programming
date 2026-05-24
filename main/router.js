@@ -741,6 +741,13 @@ function switchPage(pageId) {
     if (window.BgmManager) window.BgmManager.play('menu_bgm');
   }
 
+  // router.js の switchPage 関数内（既存の page 切り替え処理の後）に追記
+  if (pageId === 'main-menu') {
+      if (typeof initMenuAnimations === 'function') initMenuAnimations();
+  } else {
+      if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
+  }
+
   // 準備画面もメニューBGMを継続
   const menuPages = ['mode-check', 'versus-check', 'quiz-check'];
   if (menuPages.includes(pageId)) {
