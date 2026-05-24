@@ -1430,6 +1430,14 @@ class Game {
         this.nextCtx.clearRect(0, 0, this.nextCanvas.width, this.nextCanvas.height)
         this.holdCtx.clearRect(0, 0, this.holdCanvas.width, this.holdCanvas.height)
 
+        // キャンバス背景を不透明に塗りつぶす（透明のままだと背後のパーティクルが透過して見えるため）
+        this.mainCtx.fillStyle = '#0a0a0f';
+        this.mainCtx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        this.nextCtx.fillStyle = '#0a0a0f';
+        this.nextCtx.fillRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
+        this.holdCtx.fillStyle = '#0a0a0f';
+        this.holdCtx.fillRect(0, 0, this.holdCanvas.width, this.holdCanvas.height);
+
         // 上に少し余白を作る（-1行目の一部を表示）
         this.mainCtx.save();
         this.mainCtx.translate(0, BLOCK_SIZE * VISIBLE_EXTRA_ROW_RATIO);
