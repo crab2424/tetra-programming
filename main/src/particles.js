@@ -166,6 +166,12 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '#versus-check-controls',    cls: 'menu-enter',  delay: 4   },
             { sel: '#versus-check-buttons',     cls: 'menu-enter',  delay: 5   },
         ];
+    } else if (pageId === 'vs-settings') {
+        targets = [
+            { sel: '#vs-settings-header',       cls: 'menu-enter',  delay: 0   },
+            { sel: '#vs-settings-items',        cls: 'menu-enter',  delay: 1   },
+            { sel: '#vs-settings-buttons',      cls: 'menu-enter',  delay: 2   },
+        ];
     } else if (pageId === 'quiz-check') {
         targets = [
             { sel: '#quiz-check-header',        cls: 'menu-enter',  delay: 0   },

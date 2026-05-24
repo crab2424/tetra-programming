@@ -644,6 +644,196 @@ h1 {
   width: 100%;
 }
 
+/* VS SETTINGSボタン行（準備画面内） */
+#vs-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.btn-vs-settings {
+  background: rgba(245, 197, 66, 0.1);
+  color: #f5c542;
+  border: 1px solid rgba(245, 197, 66, 0.4);
+  flex-shrink: 0;
+  padding: 14px 20px;
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+.btn-vs-settings:hover {
+  background: rgba(245, 197, 66, 0.2);
+  border-color: #f5c542;
+}
+
+#vs-settings-summary-block {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vs-settings-summary-label {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#vs-settings-summary {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #f5c542;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─────────────────────────────────────────────
+   VS SETTINGSページ
+───────────────────────────────────────────── */
+#vs-settings-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#vs-settings-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  padding-top: 32px;
+  width: 660px;
+}
+
+#vs-settings-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.vs-settings-subtitle {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: rgba(245, 197, 66, 0.55);
+  margin: 0;
+}
+
+/* 設定項目コンテナ */
+#vs-settings-items {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 空状態（COMING SOON） */
+#vs-settings-empty {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(245, 197, 66, 0.25);
+  border-radius: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.vs-settings-empty-icon {
+  font-size: 40px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.vs-settings-empty-title {
+  font-family: "Orbitron", monospace;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: rgba(245, 197, 66, 0.6);
+  margin: 0;
+}
+
+.vs-settings-empty-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.6;
+}
+
+.vs-settings-empty-desc-en {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.2);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* セクションヘッダー（将来の設定グループ用） */
+.vs-setting-section {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vs-setting-section-label {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 4px;
+  color: rgba(245, 197, 66, 0.6);
+  margin: 0;
+}
+
+/* 設定行（将来の各設定項目用） */
+.vs-setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.vs-setting-label {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text);
+}
+
+.vs-setting-control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* VS SETTINGSページのボタン */
+#vs-settings-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  padding-bottom: 32px;
+}
+
+
+
 /* ─────────────────────────────────────────────
    ★ 対戦ゲーム画面のレイアウト（レスポンシブスケール化） ★
 ───────────────────────────────────────────── */
