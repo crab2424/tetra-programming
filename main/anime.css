@@ -1,0 +1,248 @@
+@charset "UTF-8";
+
+/* ==========================================================================
+    TETLABO - Animations (anime.css)
+    メインメニュー・UI用のアニメーション定義
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+    1. フェードイン・スライド (順番登場)
+    使用例: <div class="animate-fade-in-up delay-1">
+-------------------------------------------------------------------------- */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in-up {
+    /* 初期状態を透明にしておく */
+    opacity: 0;
+    /* forwards を指定することで、アニメーション終了後の状態（opacity: 1）を維持する */
+    animation: fadeInUp 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+/* 登場を遅らせるためのユーティリティクラス（ボタンなどに順番に付与する） */
+.delay-1 {
+    animation-delay: 0.1s;
+}
+.delay-2 {
+    animation-delay: 0.2s;
+}
+.delay-3 {
+    animation-delay: 0.3s;
+}
+.delay-4 {
+    animation-delay: 0.4s;
+}
+.delay-5 {
+    animation-delay: 0.5s;
+}
+
+/* --------------------------------------------------------------------------
+    2. フロート (タイトルロゴなどの浮遊)
+    使用例: <div id="title-logo" class="animate-float">
+-------------------------------------------------------------------------- */
+@keyframes float {
+    0% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+    100% {
+        transform: translateY(0px);
+    }
+}
+
+.animate-float {
+    /* 3秒かけて永遠に上下に揺れ続ける */
+    animation: float 3s ease-in-out infinite;
+}
+
+/* --------------------------------------------------------------------------
+    3. ネオン・グロウ (ボタンホバー時の発光と拡大)
+    使用例: <button class="menu-btn btn-glow">
+-------------------------------------------------------------------------- */
+.btn-glow {
+    /* 変化を滑らかにする */
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.btn-glow:hover {
+    transform: scale(1.05); /* 5%拡大 */
+    /* ボタンの周りに白い光（ネオン）を放つ ※色はテーマに合わせて変更してください */
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.4);
+    z-index: 10;
+}
+
+.btn-glow:active {
+    transform: scale(0.95); /* クリック時は少し凹む */
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
+}
+
+/* --------------------------------------------------------------------------
+    4. アンビエント・バックグラウンド (背景のゆったりした流れ)
+    使用例: <div id="main-menu" class="page animate-bg-pan">
+-------------------------------------------------------------------------- */
+@keyframes bgPan {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+.animate-bg-pan {
+    /* 背景をグラデーションにし、サイズを巨大化させてゆっくり動かす */
+    /* ※既存の背景色と被る場合は、こちらの色をTETLABOのテーマカラーに調整してください */
+    background: linear-gradient(-45deg, #0f172a, #1e293b, #334155, #1e293b);
+    background-size: 400% 400%;
+    animation: bgPan 15s ease infinite;
+}
+
+
+/* ==========================================================================
+    ▼ 追加アニメーション (メインメニュー用)
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+    案① パーティクル降下 — Canvas レイヤー
+    #menu-particle-canvas を main-menu-page の背景に配置する。
+    描画は base.js の MenuParticles クラスが行う。
+    このスタイルで位置とレイヤー順を固定する。
+-------------------------------------------------------------------------- */
+/* 常時動作する背景演出レイヤー */
+#bg-animation-layer {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+}
+
+#menu-particle-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.6;
+}
+
+/* main-menu-page 自体を position:relative にして中身の基点にする */
+#main-menu-page {
+    position: relative;
+    overflow: hidden;
+}
+
+/* コンテンツ類はbg-animation-layerより前面に */
+#main-menu-container {
+    position: relative;
+    z-index: 1;
+}
+
+
+/* --------------------------------------------------------------------------
+    案② グリッドライン走光 — 背景グリッド＋光の流れ
+    #main-menu-page::before でグリッドを描き、
+    ::after で縦方向に走る光の帯をアニメーションさせる。
+-------------------------------------------------------------------------- */
+
+/* グリッド背景 — body に fixed で貼り付け、全ページで常時表示 */
+body::before {
+    content: '';
+    position: fixed;
+    /* 画面より上下左右40px大きくして端の欠けを防ぐ */
+    top: -40px;
+    left: -40px;
+    right: -40px;
+    bottom: -40px;
+    z-index: 0;
+    pointer-events: none;
+
+    /* 薄いグリッド線: 40px格子 */
+    background-image:
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+}
+
+/* 走光帯のキーフレーム */
+@keyframes gridScan {
+    0%   { transform: translateY(-100%); opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { transform: translateY(300%);  opacity: 0; }
+}
+
+/* 走光帯 — body に fixed で貼り付け、全ページで常時表示 */
+body::after {
+    content: '';
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 30%;
+    z-index: 0;
+    pointer-events: none;
+
+    /* 上下がフェードアウトする半透明の帯 */
+    background: linear-gradient(
+        to bottom,
+        transparent 0%,
+        rgba(100, 200, 255, 0.04) 40%,
+        rgba(100, 200, 255, 0.07) 50%,
+        rgba(100, 200, 255, 0.04) 60%,
+        transparent 100%
+    );
+
+    animation: gridScan 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+
+/* --------------------------------------------------------------------------
+    案④ ボタン波紋登場 — .menu-enter クラス
+    base.js の initMenuAnimations() が各要素に付与する。
+    fadeInUp より少しダイナミックに: スケール＋フェード＋上昇の複合演出。
+-------------------------------------------------------------------------- */
+@keyframes menuEnter {
+    0% {
+        opacity: 0;
+        transform: translateY(18px) scale(0.96);
+        filter: blur(2px);
+    }
+    60% {
+        opacity: 1;
+        filter: blur(0px);
+    }
+    80% {
+        transform: translateY(-3px) scale(1.01);  /* わずかにオーバーシュート */
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        filter: blur(0px);
+    }
+}
+
+.menu-enter {
+    /* 初期状態は非表示にしておく（アニメーション開始まで見えない） */
+    opacity: 0;
+    animation: menuEnter 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    /* animation-delay は base.js の initMenuAnimations() が inline style で上書き */
+}

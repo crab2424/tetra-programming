@@ -11,8 +11,13 @@
   
     <!-- キャッシュクリアのためバージョンを更新 -->
     <link rel="stylesheet" href="style.css?v=22">
+    <link rel="stylesheet" href="anime.css">
   </head>
   <body>
+    <!-- 常時動作する背景演出レイヤー（全ページ共通） -->
+    <div id="bg-animation-layer">
+      <canvas id="menu-particle-canvas"></canvas>
+    </div>
     <div id="header-area" style="display:none;">
       <h1>TETLABO</h1>
     </div>
@@ -109,11 +114,13 @@
             <span class="menu-btn-icon">⚙</span>
             <span>SETTINGS</span>
           </button>
-        </div>
-          <!-- ★ 追加 -->
-          <button class="menu-btn btn-secondary" onclick="switchPage('credits')">
+          <button class="menu-btn btn-credits" onclick="switchPage('credits')">
             <span class="menu-btn-icon">★</span>
             <span>CREDITS</span>
+          </button>
+          <button class="menu-btn btn-title-back" onclick="switchPage('title')">
+            <span class="menu-btn-icon">◀</span>
+            <span>TITLE</span>
           </button>
         </div>
       </div>
@@ -676,6 +683,6 @@
     <script src="game.js?v=18"></script>
     <script src="p_game.js?v=6"></script>
     <script src="quiz.js?v=4"></script>
-    <script src="router.js?v=26"></script>
+    <script src="router.js?v=27"></script>
   </body>
 </html>
