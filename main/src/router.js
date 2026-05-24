@@ -605,6 +605,13 @@ function restartVersus() {
   startVersusGame();
 }
 
+function versusGoToModeSelect() {
+  const overlay = document.getElementById('versus-pause-overlay');
+  if (overlay) overlay.classList.remove('active');
+  stopAllGames();
+  switchPage('versus-check');
+}
+
 function restartVersusFromResult() {
   startVersusGame();
 }
@@ -793,8 +800,8 @@ function switchPage(pageId) {
   }
 
   // router.js の switchPage 関数内（既存の page 切り替え処理の後）に追記
-  if (pageId === 'main-menu') {
-      if (typeof initMenuAnimations === 'function') initMenuAnimations();
+  if (['title', 'main-menu', 'mode-check', 'versus-check', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits'].includes(pageId)) {
+      if (typeof initMenuAnimations === 'function') initMenuAnimations(pageId);
   } else {
       if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
   }
@@ -1334,6 +1341,10 @@ function toggleGamePause() {
       const levelSelectBtn = document.getElementById('pause-quiz-level-select-btn');
       if (levelSelectBtn) levelSelectBtn.style.display = isQuiz ? '' : 'none';
 
+      // QUIZモード時は MODE SELECT ボタンを非表示（LEVEL SELECT で代替）
+      const modeSelectBtn = document.getElementById('pause-mode-select-btn');
+      if (modeSelectBtn) modeSelectBtn.style.display = isQuiz ? 'none' : '';
+
       // QUIZモード時のみレベル情報ブロックを表示・更新
       const quizInfo = document.getElementById('pause-quiz-info');
       if (quizInfo) {
@@ -1402,6 +1413,11 @@ function handlePauseAction(action) {
       stopAllGames();
       switchPage('quiz-check');
       break;
+    case 'mode-select':
+      stopAllGames();
+      _switchToPuyoLayout(false);
+      switchPage('mode-check');
+      break;
     case 'mainmenu':
       stopAllGames();
       _switchToPuyoLayout(false);
@@ -1450,10 +1466,17 @@ function handlePauseAction(action) {
       // LEVEL SELECT ボタンも同じタイミングで確実に表示
       const levelSelectBtn = document.getElementById('pause-quiz-level-select-btn');
       if (levelSelectBtn) levelSelectBtn.style.display = '';
+
+      // QUIZモード中は MODE SELECT を非表示
+      const modeSelectBtn = document.getElementById('pause-mode-select-btn');
+      if (modeSelectBtn) modeSelectBtn.style.display = 'none';
     } else if (!overlay.classList.contains('active') || !isQuiz) {
       quizInfo.style.display = 'none';
       const levelSelectBtn = document.getElementById('pause-quiz-level-select-btn');
       if (levelSelectBtn) levelSelectBtn.style.display = 'none';
+      // 非Quizモードでは MODE SELECT を表示（ポーズ画面が開いているときのみ）
+      const modeSelectBtn2 = document.getElementById('pause-mode-select-btn');
+      if (modeSelectBtn2 && overlay.classList.contains('active')) modeSelectBtn2.style.display = '';
     }
   });
 
