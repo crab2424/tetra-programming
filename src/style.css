@@ -1501,6 +1501,12 @@ canvas {
   transition: all 0.2s;
 }
 
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(80%);
+}
+
 .btn-reset {
   background: transparent;
   border: 1px solid var(--border);
@@ -2058,6 +2064,47 @@ input[type="range"]::-webkit-slider-thumb:hover {
   justify-content: center;
   align-items: flex-start;
   width: 100%;
+}
+
+.online-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.online-top-content {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  padding-top: 32px;
+  width: 660px;
+}
+
+#online-rooms-container {
+  flex-grow: 1;
+}
+
+.online-room {
+  transition: background 0.2s;
+  padding: 8px 16px;
+  border-radius: 6px;
+  width: 100%;
+  cursor: pointer;
+}
+
+@media (hover) {
+  .online-room:hover {
+    background: rgba(57, 154, 233, 0.226);
+  }
+}
+@media (hover: none) {
+  .online-room:active {
+    background: rgba(57, 154, 233, 0.226);
+  }
 }
 
 .settings-online-input {
