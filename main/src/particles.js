@@ -125,39 +125,72 @@ class MenuParticles {
 // router.js の switchPage('main-menu') から呼び出してください
 //   例: if (typeof initMenuAnimations === 'function') initMenuAnimations();
 // ─────────────────────────────────────────────
-function initMenuAnimations() {
+function initMenuAnimations(pageId = 'main-menu') {
     // 全ページ共通の常時動作レイヤーなので、初回起動時のみインスタンス作成する
     if (!window._menuParticles) {
         window._menuParticles = new MenuParticles('menu-particle-canvas');
     }
-    // 常時動作なので start() はコンストラクタ内で呼ばれる。ここでは再呼び不要。
 
     // ── ボタン登場アニメーション ─────────────
-    // main-menu-page が表示されるたびにクラスをリセットして再アニメーション
-    const page = document.getElementById('main-menu-page');
+    const page = document.getElementById(pageId + '-page');
     if (!page) return;
 
-    // アニメーション対象: ロゴ・サブタイトル・各モードボタン・フッターボタン
-    const targets = [
-        { sel: '#main-menu-logo',           cls: 'menu-enter',  delay: 0   },
-        { sel: '.mode-btn-marathon',        cls: 'menu-enter',  delay: 1   },
-        { sel: '.mode-btn-sprint',          cls: 'menu-enter',  delay: 2   },
-        { sel: '.mode-btn-ultra',           cls: 'menu-enter',  delay: 3   },
-        { sel: '.mode-btn-versus',          cls: 'menu-enter',  delay: 2   },
-        { sel: '.mode-btn-test',            cls: 'menu-enter',  delay: 3   },
-        { sel: '.mode-btn-puyo',            cls: 'menu-enter',  delay: 2   },
-        { sel: '.mode-btn-quiz',            cls: 'menu-enter',  delay: 3   },
-        { sel: '#main-menu-footer',         cls: 'menu-enter',  delay: 4   },
-    ];
+    let targets = [];
+
+    if (pageId === 'main-menu') {
+        targets = [
+            { sel: '#main-menu-logo',           cls: 'menu-enter',  delay: 0   },
+            { sel: '.mode-btn-marathon',        cls: 'menu-enter',  delay: 1   },
+            { sel: '.mode-btn-sprint',          cls: 'menu-enter',  delay: 2   },
+            { sel: '.mode-btn-ultra',           cls: 'menu-enter',  delay: 3   },
+            { sel: '.mode-btn-versus',          cls: 'menu-enter',  delay: 2   },
+            { sel: '.mode-btn-test',            cls: 'menu-enter',  delay: 3   },
+            { sel: '.mode-btn-puyo',            cls: 'menu-enter',  delay: 2   },
+            { sel: '.mode-btn-quiz',            cls: 'menu-enter',  delay: 3   },
+            { sel: '#main-menu-footer',         cls: 'menu-enter',  delay: 4   },
+        ];
+    } else if (pageId === 'mode-check') {
+        targets = [
+            { sel: '#mode-check-header',        cls: 'menu-enter',  delay: 0   },
+            { sel: '#mode-check-desc-block',    cls: 'menu-enter',  delay: 1   },
+            { sel: '#mode-check-options',       cls: 'menu-enter',  delay: 2   },
+            { sel: '#mode-check-controls',      cls: 'menu-enter',  delay: 3   },
+            { sel: '#mode-check-buttons',       cls: 'menu-enter',  delay: 4   },
+        ];
+    } else if (pageId === 'versus-check') {
+        targets = [
+            { sel: '#versus-check-header',      cls: 'menu-enter',  delay: 0   },
+            { sel: '#versus-check-desc-block',  cls: 'menu-enter',  delay: 1   },
+            { sel: '#versus-rule-options',      cls: 'menu-enter',  delay: 2   },
+            { sel: '#versus-cpu-options',       cls: 'menu-enter',  delay: 3   },
+            { sel: '#versus-check-controls',    cls: 'menu-enter',  delay: 4   },
+            { sel: '#versus-check-buttons',     cls: 'menu-enter',  delay: 5   },
+        ];
+    } else if (pageId === 'quiz-check') {
+        targets = [
+            { sel: '#quiz-check-header',        cls: 'menu-enter',  delay: 0   },
+            { sel: '.mode-check-desc-ja',       cls: 'menu-enter',  delay: 1   },
+            { sel: '#quiz-rule-select',         cls: 'menu-enter',  delay: 2   },
+            { sel: '#quiz-level-list',          cls: 'menu-enter',  delay: 3   },
+            { sel: '#quiz-check-container > div:last-child', cls: 'menu-enter', delay: 4 }, // BACK button container
+        ];
+    } else if (pageId === 'result' || pageId === 'versus-result' || pageId === 'quiz-result') {
+        targets = [
+            { sel: 'h2',                        cls: 'menu-enter',  delay: 0   },
+            { sel: '#result-stats',             cls: 'menu-enter',  delay: 1   },
+            { sel: '#result-buttons',           cls: 'menu-enter',  delay: 2   },
+        ];
+    }
 
     targets.forEach(({ sel, cls, delay }) => {
-        const el = page.querySelector(sel);
-        if (!el) return;
-        // クラスを一度外してリフローを挟み、再付与することで再アニメーション
-        el.classList.remove(cls);
-        el.style.animationDelay = `${delay * 0.08}s`;
-        void el.offsetWidth;            // reflow
-        el.classList.add(cls);
+        const els = page.querySelectorAll(sel);
+        els.forEach(el => {
+            // クラスを一度外してリフローを挟み、再付与することで再アニメーション
+            el.classList.remove(cls);
+            el.style.animationDelay = `${delay * 0.08}s`;
+            void el.offsetWidth;            // reflow
+            el.classList.add(cls);
+        });
     });
 }
 
