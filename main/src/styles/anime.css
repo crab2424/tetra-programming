@@ -124,6 +124,8 @@
     このスタイルで位置とレイヤー順を固定する。
 -------------------------------------------------------------------------- */
 /* 常時動作する背景演出レイヤー */
+/* z-index: 0 にすることで、z-index:1 を持つ .page / #game-page より確実に背後に描画される。
+   z-index: -1 だと position:static なキャンバス（テト用 #main-canvas）より前に出てしまう場合があるため。 */
 #bg-animation-layer {
     position: fixed;
     inset: 0;
@@ -172,7 +174,7 @@ body::before {
     left: -40px;
     right: -40px;
     bottom: -40px;
-    z-index: 0;
+    z-index: -1;
     pointer-events: none;
 
     /* 薄いグリッド線: 40px格子 */
@@ -198,7 +200,7 @@ body::after {
     top: 0;
     width: 100%;
     height: 30%;
-    z-index: 0;
+    z-index: -1;
     pointer-events: none;
 
     /* 上下がフェードアウトする半透明の帯 */
