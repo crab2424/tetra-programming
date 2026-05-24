@@ -326,6 +326,7 @@
           <div id="versus-pause-buttons">
             <button class="pause-btn btn-resume" onclick="resumeVersus()">▶ RESUME</button>
             <button class="pause-btn btn-restart" onclick="restartVersus()">↺ RESTART</button>
+            <button class="pause-btn btn-secondary" onclick="versusGoToModeSelect()">◀ MODE SELECT</button>
             <button class="pause-btn btn-mainmenu" onclick="switchPage('main-menu')">⌂ MAIN MENU</button>
           </div>
         </div>
@@ -439,6 +440,10 @@
             <span class="menu-btn-icon">↺</span>
             <span>RETRY</span>
           </button>
+          <button class="menu-btn btn-secondary" onclick="switchPage('versus-check')">
+            <span class="menu-btn-icon">◀</span>
+            <span>MODE SELECT</span>
+          </button>
           <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
             <span class="menu-btn-icon">⌂</span>
             <span>MAIN MENU</span>
@@ -516,6 +521,7 @@
               <button class="pause-btn btn-restart" onclick="handlePauseAction('restart')">↺ RESTART</button>
               <button class="pause-btn btn-quiz-primary" id="pause-quiz-level-select-btn"
               onclick="handlePauseAction('quiz-levelselect')" style="display:none;">◀ LEVEL SELECT</button>
+              <button class="pause-btn btn-secondary" id="pause-mode-select-btn" onclick="handlePauseAction('mode-select')">◀ MODE SELECT</button>
               <button class="pause-btn btn-mainmenu" onclick="handlePauseAction('mainmenu')">⌂ MAIN MENU</button>
             </div>
           </div>
@@ -551,6 +557,10 @@
           <button class="menu-btn btn-primary" id="result-retry-btn" onclick="startGameFromModeCheck()">
             <span class="menu-btn-icon">↺</span>
             <span>RETRY</span>
+          </button>
+          <button class="menu-btn btn-secondary" onclick="switchPage('mode-check')">
+            <span class="menu-btn-icon">◀</span>
+            <span>MODE SELECT</span>
           </button>
           <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
             <span class="menu-btn-icon">⌂</span>
