@@ -1390,8 +1390,8 @@ h1 {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  filter: drop-shadow(0 0 16px rgba(196, 113, 245, 0.6))
-    drop-shadow(0 4px 8px rgba(0, 0, 0, 0.8));
+  text-shadow:
+    0 0 16px rgba(196, 113, 245, 0.6),
 }
 
 @keyframes finish-appear {
@@ -1434,7 +1434,8 @@ h1 {
   width: 420px;
 }
 
-#result-title {
+#result-title,
+#quiz-result-title {
   font-family: "Orbitron", monospace;
   font-size: 40px;
   font-weight: 900;

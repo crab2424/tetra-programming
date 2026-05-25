@@ -901,15 +901,15 @@ function _setQuizResultPage(isSuccess, levelData, currentIdx) {
     if (titleEl) {
         if (isSuccess) {
             titleEl.textContent = 'CLEAR!';
-            titleEl.style.fontFamily = 'var(--font-orbitron)';
             titleEl.style.color = 'var(--success)';
-            titleEl.style.webkitTextFillColor = 'var(--success)';
             titleEl.style.background = 'none';
+            titleEl.style.webkitTextFillColor = 'var(--success)';
         } else {
             titleEl.textContent = 'FAILED...';
-            titleEl.style.fontFamily = 'var(--font-orbitron)';
+            titleEl.style.color = '';
             titleEl.style.background = 'linear-gradient(90deg, var(--accent), var(--accent2))';
             titleEl.style.webkitBackgroundClip = 'text';
+            titleEl.style.backgroundClip = 'text';
             titleEl.style.webkitTextFillColor = 'transparent';
         }
     }
