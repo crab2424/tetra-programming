@@ -145,6 +145,11 @@ class Game {
         this.vsMarginMultiplier = 1.0;   // 互換のため残す（ぷよ側との乗率計算では使用しない）
         this._tetMarginStep = null;      // null = マージン未突入
         if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
+        this._vsMarginTimerStart = 0;
+        this._vsMarginTimerDuration = 0;
+        this._vsMarginTimerCb = null;
+        this._vsMarginTimerRemaining = null;
+
         if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
             const TET_MARGIN_INTERVAL_MS = 32000; // 32秒ごとにステップアップ
             const TET_MARGIN_MAX_STEP = 5;        // 最大インデックス（160秒で到達）
@@ -158,14 +163,25 @@ class Game {
                     }
                     if (this._tetMarginStep < TET_MARGIN_MAX_STEP) {
                         this._vsMarginTimer = setTimeout(step, TET_MARGIN_INTERVAL_MS);
+                        this._vsMarginTimerStart = performance.now();
+                        this._vsMarginTimerDuration = TET_MARGIN_INTERVAL_MS;
+                        this._vsMarginTimerCb = step;
+                    } else {
+                        this._vsMarginTimer = null;
                     }
                 };
                 this._vsMarginTimer = setTimeout(step, TET_MARGIN_INTERVAL_MS);
+                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimerDuration = TET_MARGIN_INTERVAL_MS;
+                this._vsMarginTimerCb = step;
             };
             if (this.vsMarginTimeMs === 0) {
                 startMargin(); // 即時発動
             } else {
                 this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
+                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimerDuration = this.vsMarginTimeMs;
+                this._vsMarginTimerCb = startMargin;
             }
         }
 
@@ -340,6 +356,13 @@ class Game {
             this._wasLockingWhenPaused = false;
         }
 
+        // マージンタイマーの停止と残り時間の保存
+        if (this._vsMarginTimer) {
+            clearTimeout(this._vsMarginTimer);
+            this._vsMarginTimer = null;
+            this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (performance.now() - this._vsMarginTimerStart);
+        }
+
         this.showPauseOverlay()
 
         if (this.isTimerRunning) {
@@ -361,6 +384,14 @@ class Game {
             this._wasLockingWhenPaused = false;
         } else if (!this.isGrounded) {
             this.startGravity();
+        }
+
+        // マージンタイマーの再開
+        if (this._vsMarginTimerRemaining !== null && this._vsMarginTimerCb) {
+            this._vsMarginTimerDuration = Math.max(0, this._vsMarginTimerRemaining);
+            this._vsMarginTimer = setTimeout(this._vsMarginTimerCb, this._vsMarginTimerDuration);
+            this._vsMarginTimerStart = performance.now();
+            this._vsMarginTimerRemaining = null;
         }
 
         if (!this.isTimerRunning) {
@@ -762,21 +793,27 @@ class Game {
                 lines3: [2, 2, 3, 4, 5, 6],
                 lines4: [4, 5, 5, 6, 8, 10],
             };
-            // T-Spin（mini除く）乗数テーブル
-            const _tspinMult = [2, 2, 2, 2, 3, 4];
+            // T-Spin（mini除く）火力テーブル
+            const _tspinTables = {
+                single: [2, 2, 3, 4, 5, 6],
+                double: [4, 5, 5, 6, 8, 10],
+                triple: [6, 7, 8, 10, 12, 16],
+            };
             // BtBボーナステーブル
             const _btbBonus = [1, 1, 2, 2, 3, 4];
             // PCボーナステーブル（対テト相殺用）
             const _pcBonus = [12, 13, 14, 15, 16, 18];
             // REN追加ボーナステーブル（従来RENボーナスにさらに加算、2REN以降）
-            const _renBonus = [0, 0, 1, 1, 1, 1];
+            const _renBonus = [0, 0, 0, 1, 1, 1];
 
             if (isPerfectClear) {
                 generatedGarbage = _pcBonus[_ms];
             } else if (linesCleared > 0) {
                 // 基本火力
                 if (tSpinType === 'tspin') {
-                    generatedGarbage = linesCleared * _tspinMult[_ms];
+                    if (linesCleared === 1) generatedGarbage = _tspinTables.single[_ms];
+                    else if (linesCleared === 2) generatedGarbage = _tspinTables.double[_ms];
+                    else if (linesCleared === 3) generatedGarbage = _tspinTables.triple[_ms];
                 } else {
                     if (linesCleared === 1) generatedGarbage = _garbageTables.lines1[_ms];
                     else if (linesCleared === 2) generatedGarbage = _garbageTables.lines2[_ms];
@@ -837,7 +874,8 @@ class Game {
             if (i === 0) {
                 holeX = Math.floor(Math.random() * COLS_COUNT);
             } else {
-                if (Math.random() < 0.7) {
+                const rate = this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate / 100 : 0.7;
+                if (Math.random() < rate) {
                     holeX = prevHole;
                 } else {
                     const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1;
@@ -914,7 +952,8 @@ class Game {
                     currentHole = Math.floor(Math.random() * COLS_COUNT);
                 } else {
                     // 2段目以降は70%で同じ穴、30%で違う穴
-                    if (Math.random() < 0.7) {
+                    const rate = this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate / 100 : 0.7;
+                    if (Math.random() < rate) {
                         currentHole = lastHole;
                     } else {
                         const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1;
@@ -1293,7 +1332,9 @@ class Game {
 
         // 次のミノが出現する直前（今のミノが固定された瞬間）に、自分に届いている火力を適用
         if (this.isVersusMode) {
-            this.applyGarbage();
+            if (this.vsGarbageDamageOnClear !== false || linesCleared === 0) {
+                this.applyGarbage();
+            }
         }
 
         this.popMino()

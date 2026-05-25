@@ -191,6 +191,13 @@ class PuyoGame {
         this.state = 'paused';
         this.isPaused = true;
         this._stopTimer();
+
+        // マージンタイマーの停止と残り時間の保存
+        if (this._vsMarginTimer) {
+            clearTimeout(this._vsMarginTimer);
+            this._vsMarginTimer = null;
+            this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (performance.now() - this._vsMarginTimerStart);
+        }
     }
 
     resume() {
@@ -198,6 +205,14 @@ class PuyoGame {
         this.state = 'playing';
         this.isPaused = false;
         this.lastTime = performance.now();
+
+        // マージンタイマーの再開
+        if (this._vsMarginTimerRemaining !== null && this._vsMarginTimerCb) {
+            this._vsMarginTimerDuration = Math.max(0, this._vsMarginTimerRemaining);
+            this._vsMarginTimer = setTimeout(this._vsMarginTimerCb, this._vsMarginTimerDuration);
+            this._vsMarginTimerStart = performance.now();
+            this._vsMarginTimerRemaining = null;
+        }
 
         // ★ 修正箇所：再開時は this.elapsed をリセットしない
         this._timerRunning = true;
@@ -269,6 +284,11 @@ class PuyoGame {
         this.vsMarginMultiplier = 1.0; // ぷよ側では常に1.0固定（テト側との互換のため残す）
         this._puyoMarginStep = 0;      // 現在のマージンステップ（0=突入直後の最初値適用済み）
         if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
+        this._vsMarginTimerStart = 0;
+        this._vsMarginTimerDuration = 0;
+        this._vsMarginTimerCb = null;
+        this._vsMarginTimerRemaining = null;
+
         if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
             const PUYO_MARGIN_RATE_TABLE = [52, 34, 25, 16, 12, 8, 6, 4, 3, 2, 1];
             const startMargin = () => {
@@ -284,15 +304,26 @@ class PuyoGame {
                     // 上限（ステップ10, レート1）未満なら次のタイマーをセット
                     if (this._puyoMarginStep < PUYO_MARGIN_RATE_TABLE.length - 1) {
                         this._vsMarginTimer = setTimeout(step, 16000);
+                        this._vsMarginTimerStart = performance.now();
+                        this._vsMarginTimerDuration = 16000;
+                        this._vsMarginTimerCb = step;
+                    } else {
+                        this._vsMarginTimer = null;
                     }
                 };
                 // ステップ0適用後、16秒後にステップ1へ
                 this._vsMarginTimer = setTimeout(step, 16000);
+                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimerDuration = 16000;
+                this._vsMarginTimerCb = step;
             };
             if (this.vsMarginTimeMs === 0) {
                 startMargin();
             } else {
                 this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
+                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimerDuration = this.vsMarginTimeMs;
+                this._vsMarginTimerCb = startMargin;
             }
         }
 

@@ -3,7 +3,6 @@
   single_1.ogg
   quiz_1.ogg
   countdown_1.ogg
-・ベストスコアの表示
 
 クイズ
 作者表示？

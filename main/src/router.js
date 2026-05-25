@@ -112,7 +112,7 @@ const CPU_LEVELS = {
   4: { label: 'LV 4', desc: '上級者向け', gravityLevel: 2 },
   5: { label: 'LV 5', desc: '最上級者向け', gravityLevel: 2 },
   // ★ 隠し要素: 準備画面で「6」キーを押すと出現（tet限定）
-  6: { label: 'LV ???', desc: '???', gravityLevel: 2 },
+  6: { label: 'LV 6', desc: '???', gravityLevel: 2 },
 };
 let selectedCpuLevel = 1; 
 
@@ -481,6 +481,11 @@ async function startVersusGame() {
   window._cpuGame.isCpuControlled = true;
   window._cpuGame._labelsInitialized = false;
 
+  // ─── VS設定をエンジンへ注入 ───
+  if (typeof applyVsSettings === 'function') {
+      applyVsSettings(window._game, window._cpuGame, versusPlayerRule, versusCpuRule);
+  }
+
   // ─── Player 初期化 ───
   if (isPlayerPuyo) {
       await new Promise(resolve => window._game.initGame(resolve));
@@ -507,11 +512,6 @@ async function startVersusGame() {
   }
 
   // ─── カウントダウンとゲーム開始 ───
-
-  // ─── VS設定をエンジンへ注入 ───
-  if (typeof applyVsSettings === 'function') {
-      applyVsSettings(window._game, window._cpuGame, versusPlayerRule, versusCpuRule);
-  }
 
   // ★ 修正箇所：カウントダウン期間中はポーズを受け付けないよう、ぷよ側の状態を 'starting' に明示的に切り替える
   if (isPlayerPuyo && window._game) window._game.state = 'starting';

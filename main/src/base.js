@@ -185,6 +185,11 @@ function runCountdown(overlayId, textElId, onStart, onComplete) {
         void textEl.offsetWidth;
         textEl.classList.add('countdown-pop');
 
+        // CPU側のタイマーでも呼ばれる場合は二重再生を防ぐ
+        if (window.SeManager && overlayId !== 'cpu-countdown-overlay') {
+            window.SeManager.play('countdown');
+        }
+
         if (val === 'START!' && onStart) {
             onStart();
         }
@@ -660,6 +665,10 @@ window.SeManager = SeManager;
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 AudioLoader.registerBgm('menu_bgm',   'assets/audio/bgm/menu_1.ogg');
 
+// ─── SE 登録（ページロード時） ────────────────
+AudioLoader.loadSe({
+    'countdown': 'assets/audio/se/countdown_1.ogg'
+});
 
 // ==========================================
 // ※ メインメニュー演出（パーティクル）は src/particles.js に移動しました
