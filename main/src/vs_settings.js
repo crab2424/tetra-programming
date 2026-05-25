@@ -33,7 +33,9 @@ const DEFAULT_VS_SETTINGS = {
         }
     },
     tet: {
-        holdEnabled: true
+        holdEnabled: true,
+        garbageHoleRate: 70,
+        garbageDamageOnClear: true
     },
     puyo: {
         ojamaRate:  70,       // 10~120 (10刻み)
@@ -119,6 +121,8 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
 
         if (playerRule === 'tet') {
             playerGame.vsHoldEnabled = s.tet.holdEnabled;
+            playerGame.vsGarbageHoleRate = s.tet.garbageHoleRate;
+            playerGame.vsGarbageDamageOnClear = s.tet.garbageDamageOnClear;
         }
         if (playerRule === 'puyo') {
             playerGame.vsOjamaRate  = s.puyo.ojamaRate;
@@ -133,6 +137,8 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
 
         if (cpuRule === 'tet') {
             cpuGame.vsHoldEnabled = s.tet.holdEnabled;
+            cpuGame.vsGarbageHoleRate = s.tet.garbageHoleRate;
+            cpuGame.vsGarbageDamageOnClear = s.tet.garbageDamageOnClear;
         }
         if (cpuRule === 'puyo') {
             cpuGame.vsOjamaRate  = s.puyo.ojamaRate;
@@ -160,7 +166,9 @@ function renderVsSettingsPage() {
 
     // ── TET ───────────────────────────────────
     container.appendChild(_buildSection('TET', [
-        _buildHoldToggleRow()
+        _buildHoldToggleRow(),
+        _buildGarbageHoleRateRow(),
+        _buildGarbageDamageRow()
     ]));
 
     // ── PUYO ──────────────────────────────────
@@ -354,6 +362,79 @@ function _buildHoldToggleRow() {
     return _buildRow('HOLD', '', ctrl);
 }
 
+// ── おじゃま直列確率 ───────────────────────────
+function _buildGarbageHoleRateRow() {
+    const current = currentVsSettings.tet.garbageHoleRate;
+
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const valLabel = document.createElement('span');
+    valLabel.className = 'vs-setting-value-label';
+    valLabel.id = 'vss-val-garbageHoleRate';
+    valLabel.textContent = `${current}%`;
+
+    const slider = document.createElement('input');
+    slider.type  = 'range';
+    slider.min   = '0';
+    slider.max   = '100';
+    slider.step  = '10';
+    slider.value = String(current);
+    slider.className = 'vs-setting-slider';
+
+    slider.oninput = () => {
+        const val = parseInt(slider.value);
+        currentVsSettings.tet.garbageHoleRate = val;
+        valLabel.textContent = `${val}%`;
+        saveVsSettings();
+    };
+
+    ctrl.appendChild(valLabel);
+    ctrl.appendChild(slider);
+
+    const markers = document.createElement('div');
+    markers.className = 'vs-setting-markers';
+    [0, 50, 100].forEach(v => {
+        const m = document.createElement('span');
+        m.textContent = String(v);
+        markers.appendChild(m);
+    });
+    ctrl.appendChild(markers);
+
+    return _buildRow('HOLE RATE', '', ctrl);
+}
+
+// ── ライン消去中ダメージ ───────────────────────
+function _buildGarbageDamageRow() {
+    const current = currentVsSettings.tet.garbageDamageOnClear;
+
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'vs-setting-btn-group';
+
+    ['ON', 'OFF'].forEach(label => {
+        const btn = document.createElement('button');
+        const isActive = (label === 'ON') ? current : !current;
+        btn.className = 'vs-setting-step-btn' + (isActive ? ' active' : '');
+        btn.textContent = label;
+        btn.onclick = () => {
+            currentVsSettings.tet.garbageDamageOnClear = (label === 'ON');
+            saveVsSettings();
+            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
+                b.classList.toggle('active',
+                    (b.textContent === 'ON') === currentVsSettings.tet.garbageDamageOnClear
+                );
+            });
+        };
+        btnGroup.appendChild(btn);
+    });
+
+    ctrl.appendChild(btnGroup);
+    return _buildRow('DMG ON CLR', '', ctrl);
+}
+
 // ── おじゃまレート（スライダー、10〜700、10刻み） ──
 function _buildOjamaRateRow() {
     const current = currentVsSettings.puyo.ojamaRate;
@@ -456,6 +537,12 @@ function _updateVsSettingsSummary() {
     if (bc !== 0) parts.push(`C-BIAS:${bc > 0 ? '+' : ''}${bc}`);
 
     if (!s.tet.holdEnabled) parts.push('HOLD:OFF');
+    if (s.tet.garbageHoleRate !== DEFAULT_VS_SETTINGS.tet.garbageHoleRate) {
+        parts.push(`HOLE:${s.tet.garbageHoleRate}%`);
+    }
+    if (!s.tet.garbageDamageOnClear) {
+        parts.push('DMG-ON-CLR:OFF');
+    }
 
     if (s.puyo.ojamaRate !== DEFAULT_VS_SETTINGS.puyo.ojamaRate) {
         parts.push(`RATE:${s.puyo.ojamaRate}`);
