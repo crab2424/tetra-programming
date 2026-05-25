@@ -519,8 +519,16 @@ async function startVersusGame() {
   // ★ 修正箇所 ここまで
 
 
-  // ★ カウントダウンの開始と同時に非同期でCPUのスクリプト読み込みを開始する
-  let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, versusCpuRule).catch(e => {
+  // ★ カウントダウンの開始と同時に非同期でCPUのスクリプト読み込みを開始し、インスタンス化まで済ませる
+  let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, versusCpuRule).then(CPUClass => {
+    if (CPUClass && currentSessionId === sessionId) {
+        if (window._cpuController && typeof window._cpuController.stop === 'function') {
+            window._cpuController.stop();
+        }
+        window._cpuController = new CPUClass(window._cpuGame);
+    }
+    return CPUClass;
+  }).catch(e => {
     console.warn("CPUスクリプトの読み込みに失敗しました。自由落下になります。");
     return null;
   });
@@ -534,18 +542,13 @@ async function startVersusGame() {
   runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', async () => {
     if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
     
-    if (window._cpuController && typeof window._cpuController.stop === 'function') {
-      window._cpuController.stop();
-    }
     window._cpuGame._startGameplay();
     
-    // ★ ロード完了を待ってからスタート操作を開始する
-    const CPUClass = await cpuLoadPromise;
-    if (CPUClass && currentSessionId === sessionId) { // 待機中にセッションが変わっていないか再確認
-        window._cpuController = new CPUClass(window._cpuGame);
-        if (typeof window._cpuController.start === 'function') {
-            window._cpuController.start();
-        }
+    // ★ ロードとインスタンス化がまだ終わっていなければ待つ
+    await cpuLoadPromise;
+    
+    if (window._cpuController && typeof window._cpuController.start === 'function' && currentSessionId === sessionId) {
+        window._cpuController.start();
     }
   }, null);
 
