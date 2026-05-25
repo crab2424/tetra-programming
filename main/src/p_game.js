@@ -264,18 +264,30 @@ class PuyoGame {
         this.isPaused = false;
 
         // VS設定：マージンタイム管理
-        this.vsMarginMultiplier = 1.0;
+        // ぷよのマージンは vsMarginMultiplier ではなく vsOjamaRate をテーブルで段階的に下げる方式
+        // テーブル: マージン突入から16秒ごとに [52, 34, 25, 16, 12, 8, 6, 4, 3, 2, 1] へ移行（160秒で上限）
+        this.vsMarginMultiplier = 1.0; // ぷよ側では常に1.0固定（テト側との互換のため残す）
+        this._puyoMarginStep = 0;      // 現在のマージンステップ（0=突入直後の最初値適用済み）
         if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
         if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
+            const PUYO_MARGIN_RATE_TABLE = [52, 34, 25, 16, 12, 8, 6, 4, 3, 2, 1];
             const startMargin = () => {
                 if (!this.isVersusMode) return;
+                // マージン突入直後：ステップ0のレートを即時適用
+                this._puyoMarginStep = 0;
+                this.vsOjamaRate = PUYO_MARGIN_RATE_TABLE[0];
                 const step = () => {
-                    this.vsMarginMultiplier = Math.min(3.0, this.vsMarginMultiplier + 0.25);
-                    if (this.vsMarginMultiplier < 3.0) {
-                        this._vsMarginTimer = setTimeout(step, 30000);
+                    this._puyoMarginStep++;
+                    if (this._puyoMarginStep < PUYO_MARGIN_RATE_TABLE.length) {
+                        this.vsOjamaRate = PUYO_MARGIN_RATE_TABLE[this._puyoMarginStep];
+                    }
+                    // 上限（ステップ10, レート1）未満なら次のタイマーをセット
+                    if (this._puyoMarginStep < PUYO_MARGIN_RATE_TABLE.length - 1) {
+                        this._vsMarginTimer = setTimeout(step, 16000);
                     }
                 };
-                this._vsMarginTimer = setTimeout(step, 30000);
+                // ステップ0適用後、16秒後にステップ1へ
+                this._vsMarginTimer = setTimeout(step, 16000);
             };
             if (this.vsMarginTimeMs === 0) {
                 startMargin();

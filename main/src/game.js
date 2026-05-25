@@ -139,21 +139,28 @@ class Game {
         this.pendingInternalAttack = 0; // 追加
         this.updateAttackGauge();
 
-        // VS設定：マージンタイム管理
-        this.vsMarginMultiplier = 1.0;   // 現在の追加乗率（1.0 = 補正なし）
+        // VS設定：テトのマージンタイム管理
+        // マージン突入から [0, 32, 64, 96, 128, 160] 秒後にインデックス 0→1→2→3→4→5 へ進む
+        // null = マージン未突入（従来の固定火力を使用）、0〜5 = マージン中のステップ
+        this.vsMarginMultiplier = 1.0;   // 互換のため残す（ぷよ側との乗率計算では使用しない）
+        this._tetMarginStep = null;      // null = マージン未突入
         if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
         if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
-            // マージンタイム後から段階的に火力を増加させる
+            const TET_MARGIN_INTERVAL_MS = 32000; // 32秒ごとにステップアップ
+            const TET_MARGIN_MAX_STEP = 5;        // 最大インデックス（160秒で到達）
             const startMargin = () => {
                 if (!this.isVersusMode) return;
-                // 30秒ごとに乗率を +0.25 ずつ増加（最大 3.0 倍）
+                // マージン突入直後：ステップ0（テーブルindex=0）を適用
+                this._tetMarginStep = 0;
                 const step = () => {
-                    this.vsMarginMultiplier = Math.min(3.0, this.vsMarginMultiplier + 0.25);
-                    if (this.vsMarginMultiplier < 3.0) {
-                        this._vsMarginTimer = setTimeout(step, 30000);
+                    if (this._tetMarginStep < TET_MARGIN_MAX_STEP) {
+                        this._tetMarginStep++;
+                    }
+                    if (this._tetMarginStep < TET_MARGIN_MAX_STEP) {
+                        this._vsMarginTimer = setTimeout(step, TET_MARGIN_INTERVAL_MS);
                     }
                 };
-                this._vsMarginTimer = setTimeout(step, 30000);
+                this._vsMarginTimer = setTimeout(step, TET_MARGIN_INTERVAL_MS);
             };
             if (this.vsMarginTimeMs === 0) {
                 startMargin(); // 即時発動
@@ -710,37 +717,82 @@ class Game {
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // おじゃまブロック（火力）の計算
+        // _tetMarginStep === null : マージン未突入（従来の固定値を使用）
+        // _tetMarginStep === 0〜5 : マージン中（テーブルから値を参照）
+        // テーブルは [0秒, 32秒, 64秒, 96秒, 128秒, 160秒] 突入後のステップに対応
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         let generatedGarbage = 0;
 
-        if (isPerfectClear) {
-            // PCは10ライン固定（ボーナスなし）
-            generatedGarbage = 10;
-        } else if (linesCleared > 0) {
-            // 基本火力
-            if (tSpinType == 'tspin') {
-                // T-Spin時（miniは除く）は消去ライン数の2倍
-                generatedGarbage = linesCleared * 2;
-            } else {
-                // 通常消去
-                if (linesCleared === 2) generatedGarbage = 1;
-                else if (linesCleared === 3) generatedGarbage = 2;
-                else if (linesCleared === 4) generatedGarbage = 4;
-            }
+        const _ms = this._tetMarginStep; // null = 未突入、0〜5 = マージン中
 
-            // BtBボーナス
-            if (isB2BTriggered) {
-                generatedGarbage += 1;
+        if (_ms === null) {
+            // ────────────────────────────────────────
+            // マージン未突入：従来の固定テーブルをそのまま使用
+            // ────────────────────────────────────────
+            if (isPerfectClear) {
+                generatedGarbage = 10;
+            } else if (linesCleared > 0) {
+                // 基本火力
+                if (tSpinType === 'tspin') {
+                    generatedGarbage = linesCleared * 2;
+                } else {
+                    if (linesCleared === 2) generatedGarbage = 1;
+                    else if (linesCleared === 3) generatedGarbage = 2;
+                    else if (linesCleared === 4) generatedGarbage = 4;
+                }
+                // BtBボーナス
+                if (isB2BTriggered) generatedGarbage += 1;
+                // RENボーナス（従来テーブル）
+                let r = currentRenForGarbage;
+                if (r === 2 || r === 3) generatedGarbage += 1;
+                else if (r === 4 || r === 5) generatedGarbage += 2;
+                else if (r === 6 || r === 7) generatedGarbage += 3;
+                else if (r >= 8 && r <= 12) generatedGarbage += 4;
+                else if (r >= 13) generatedGarbage += 5;
             }
+        } else {
+            // ────────────────────────────────────────
+            // マージン中：各要素をテーブルから参照
+            // ────────────────────────────────────────
 
-            // RENボーナス
-            let r = currentRenForGarbage;
-            if (r === 2 || r === 3) generatedGarbage += 1;
-            else if (r === 4 || r === 5) generatedGarbage += 2;
-            else if (r === 6 || r === 7) generatedGarbage += 3;
-            else if (r >= 8 && r <= 12) generatedGarbage += 4;
-            else if (r >= 13) generatedGarbage += 5;
-            // r === 0, 1 (0REN, 1REN) は 0加算なのでそのまま
+            // ── 基本火力テーブル（clear lines） ──
+            const _garbageTables = {
+                lines1: [0, 0, 1, 1, 1, 2],
+                lines2: [1, 1, 2, 2, 3, 4],
+                lines3: [2, 2, 3, 4, 5, 6],
+                lines4: [4, 5, 5, 6, 8, 10],
+            };
+            // T-Spin（mini除く）乗数テーブル
+            const _tspinMult = [2, 2, 2, 2, 3, 4];
+            // BtBボーナステーブル
+            const _btbBonus = [1, 1, 2, 2, 3, 4];
+            // PCボーナステーブル（対テト相殺用）
+            const _pcBonus = [12, 13, 14, 15, 16, 18];
+            // REN追加ボーナステーブル（従来RENボーナスにさらに加算、2REN以降）
+            const _renBonus = [0, 0, 1, 1, 1, 1];
+
+            if (isPerfectClear) {
+                generatedGarbage = _pcBonus[_ms];
+            } else if (linesCleared > 0) {
+                // 基本火力
+                if (tSpinType === 'tspin') {
+                    generatedGarbage = linesCleared * _tspinMult[_ms];
+                } else {
+                    if (linesCleared === 1) generatedGarbage = _garbageTables.lines1[_ms];
+                    else if (linesCleared === 2) generatedGarbage = _garbageTables.lines2[_ms];
+                    else if (linesCleared === 3) generatedGarbage = _garbageTables.lines3[_ms];
+                    else if (linesCleared === 4) generatedGarbage = _garbageTables.lines4[_ms];
+                }
+                // BtBボーナス
+                if (isB2BTriggered) generatedGarbage += _btbBonus[_ms];
+                // RENボーナス：従来テーブル + マージン追加ボーナス（2REN以降の全ボーナスに加算）
+                let r = currentRenForGarbage;
+                if (r === 2 || r === 3) generatedGarbage += 1 + _renBonus[_ms];
+                else if (r === 4 || r === 5) generatedGarbage += 2 + _renBonus[_ms];
+                else if (r === 6 || r === 7) generatedGarbage += 3 + _renBonus[_ms];
+                else if (r >= 8 && r <= 12) generatedGarbage += 4 + _renBonus[_ms];
+                else if (r >= 13) generatedGarbage += 5 + _renBonus[_ms];
+            }
         }
 
         ////console.log(`[Scoring] prefix: ${this.canvasPrefix}, lines: ${linesCleared}, tSpin: ${tSpinType}, ren: ${currentRenForGarbage}, genGarbage: ${generatedGarbage}`);
@@ -1084,46 +1136,80 @@ class Game {
             if (isOpponentPuyo) {
                 // ★ 今回の新仕様：ライン消去時は今回発生分のみで相殺、設置時に溜まったゲージで相殺
                 if (linesCleared > 0) {
-                    // 1. ぷよ相手用のアタックゲージ火力を計算
+                    // ── マージンステップ取得（null = 未突入） ──
+                    const _ms = this._tetMarginStep; // null or 0〜5
+
+                    // ── 対ぷよ攻撃用火力テーブル（マージン中のみ使用） ──
+                    const _puyoTables = {
+                        lines1: [0, 0, 1, 1, 1, 2],
+                        lines2: [1, 1, 2, 2, 3, 4],
+                        lines3: [2, 2, 3, 4, 5, 6],
+                        lines4: [4, 5, 5, 6, 8, 10],
+                        tspinSingle: [2, 2, 3, 4, 5, 6],
+                        tspinDouble: [3, 3, 4, 5, 6, 8],
+                        tspinTriple: [4, 5, 5, 6, 8, 10],
+                    };
+                    const _puyoBtbBonus = [1, 1, 2, 2, 3, 4];
+                    const _puyoPcBonus  = [7, 7, 8, 9, 10, 12];
+                    // REN追加ボーナス（従来RENボーナスにさらに加算）
+                    const _puyoRenBonus = [0, 0, 1, 1, 1, 1];
+                    // 対テト相殺用REN追加ボーナス（Scoring()と同じ定義）
+                    const _tetRenBonus  = [0, 0, 1, 1, 1, 1];
+
+                    // 1. 対ぷよ用アタックゲージ火力を計算
                     let puyoAttack = 0;
                     if (isPerfectClear) {
-                        puyoAttack = 6;
+                        puyoAttack = (_ms === null) ? 6 : _puyoPcBonus[_ms];
                     } else {
-                        // 基本火力
-                        if (tSpinResult === 'tspin') {
-                            if (linesCleared === 1) puyoAttack = 2;
-                            else if (linesCleared === 2) puyoAttack = 3;
-                            else if (linesCleared === 3) puyoAttack = 5;
+                        if (_ms === null) {
+                            // ── マージン未突入：従来の固定値 ──
+                            if (tSpinResult === 'tspin') {
+                                if (linesCleared === 1) puyoAttack = 2;
+                                else if (linesCleared === 2) puyoAttack = 3;
+                                else if (linesCleared === 3) puyoAttack = 5;
+                            } else {
+                                if (linesCleared === 2) puyoAttack = 1;
+                                else if (linesCleared === 3) puyoAttack = 2;
+                                else if (linesCleared === 4) puyoAttack = 4;
+                            }
+                            if (isB2BTriggered) puyoAttack += 1;
+                            // 従来RENテーブル（2REN以降）
+                            const renTable = [0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5];
+                            let renVal = (renForCalc >= renTable.length) ? 5 : renTable[renForCalc];
+                            puyoAttack += renVal;
                         } else {
-                            if (linesCleared === 2) puyoAttack = 1;
-                            else if (linesCleared === 3) puyoAttack = 2;
-                            else if (linesCleared === 4) puyoAttack = 4;
+                            // ── マージン中：テーブル参照 ──
+                            if (tSpinResult === 'tspin') {
+                                if (linesCleared === 1) puyoAttack = _puyoTables.tspinSingle[_ms];
+                                else if (linesCleared === 2) puyoAttack = _puyoTables.tspinDouble[_ms];
+                                else if (linesCleared === 3) puyoAttack = _puyoTables.tspinTriple[_ms];
+                            } else {
+                                if (linesCleared === 1) puyoAttack = _puyoTables.lines1[_ms];
+                                else if (linesCleared === 2) puyoAttack = _puyoTables.lines2[_ms];
+                                else if (linesCleared === 3) puyoAttack = _puyoTables.lines3[_ms];
+                                else if (linesCleared === 4) puyoAttack = _puyoTables.lines4[_ms];
+                            }
+                            if (isB2BTriggered) puyoAttack += _puyoBtbBonus[_ms];
+                            // 従来RENテーブル + マージン追加ボーナス（2REN以降）
+                            const renTable = [0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5];
+                            let renVal = (renForCalc >= renTable.length) ? 5 : renTable[renForCalc];
+                            if (renForCalc >= 2) renVal += _puyoRenBonus[_ms];
+                            puyoAttack += renVal;
                         }
-
-                        // BtBボーナス
-                        if (isB2BTriggered) {
-                            puyoAttack += 1;
-                        }
-
-                        // RENボーナス
-                        const renTable = [0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5];
-                        let renVal = (renForCalc >= renTable.length) ? 5 : renTable[renForCalc];
-                        puyoAttack += renVal;
-
-                        // ★ 追加: 相殺用の内部火力(generatedGarbage)のRENボーナスを、攻撃用(ぷよ用RENテーブル)に合わせる
-                        let tetRenBonus = 0;
-                        if (renForCalc === 2 || renForCalc === 3) tetRenBonus = 1;
-                        else if (renForCalc === 4 || renForCalc === 5) tetRenBonus = 2;
-                        else if (renForCalc === 6 || renForCalc === 7) tetRenBonus = 3;
-                        else if (renForCalc >= 8 && renForCalc <= 12) tetRenBonus = 4;
-                        else if (renForCalc >= 13) tetRenBonus = 5;
-
-                        generatedGarbage = generatedGarbage - tetRenBonus + renVal;
                     }
 
-                    // ── VS設定：火力補正乗率を「実効火力」としてここで一度だけ計算する ──
-                    // 相殺offsetGarbageと送信sendGarbageの両方に同じ実効値を使用する
-                    const _vsMultTvP = (this.vsAttackMultiplier ?? 1.0) * (this.vsMarginMultiplier ?? 1.0);
+                    // 2. 相殺用の内部火力（generatedGarbage）を対ぷよ用RENボーナス基準に揃え直す
+                    //    Scoring()で計算済みの generatedGarbage はテト用REN追加ボーナス込みなので、
+                    //    マージン中の場合のみ対ぷよ用REN追加ボーナスへ差し替える（未突入時は両方0なので変化なし）
+                    if (!isPerfectClear && linesCleared > 0 && _ms !== null) {
+                        const tetRenAdd  = (renForCalc >= 2) ? _tetRenBonus[_ms] : 0;
+                        const puyoRenAdd = (renForCalc >= 2) ? _puyoRenBonus[_ms] : 0;
+                        // 同じ値なので差し替えは不要だが、将来の変更に備えて明示的に処理
+                        generatedGarbage = generatedGarbage - tetRenAdd + puyoRenAdd;
+                    }
+
+                    // ── 乗率適用（vsAttackMultiplierのみ。vsMarginMultiplierはぷよ側が管理） ──
+                    const _vsMultTvP = (this.vsAttackMultiplier ?? 1.0);
                     const effectiveGenerated = (this.isVersusMode && generatedGarbage > 0)
                         ? Math.max(1, Math.floor(generatedGarbage * _vsMultTvP))
                         : generatedGarbage;
@@ -1172,18 +1258,18 @@ class Game {
                 }
                 this.updateAttackGauge();
             } else {
-                // ★従来通り（テト同士）── 実効火力を相殺・送信の両方に適用
+                // ★従来通り（テト同士）── マージンテーブル適用済みの generatedGarbage をそのまま使用
+                // （Scoring()内でマージンステップに応じた値を計算済みなので乗率補正は不要）
                 if (generatedGarbage > 0) {
-                    // 実効火力を一度計算（相殺・送信共通）
-                    const _vsMultTvT = (this.vsAttackMultiplier ?? 1.0) * (this.vsMarginMultiplier ?? 1.0);
-                    const effectiveGarbage = (this.isVersusMode)
+                    // vsAttackMultiplier のみ適用（マージン火力増加はテーブルで処理済み）
+                    const _vsMultTvT = (this.vsAttackMultiplier ?? 1.0);
+                    const effectiveGarbage = (this.isVersusMode && _vsMultTvT !== 1.0)
                         ? Math.max(1, Math.floor(generatedGarbage * _vsMultTvT))
                         : generatedGarbage;
 
-                    // 実効火力で相殺し、余った分を絶対値のまま送信して実効
+                    // 実効火力で相殺し、余った分を送信
                     const remainder = this.offsetGarbage(effectiveGarbage);
 
-                    // 余った火力があれば相手に送る実効化済みなのでsendGarbage内で再計算しない
                     if (remainder > 0) {
                         this.sendGarbage(remainder);
                     }
