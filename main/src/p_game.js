@@ -263,6 +263,27 @@ class PuyoGame {
         this._gs = 'spawn';
         this.isPaused = false;
 
+        // VS設定：マージンタイム管理
+        this.vsMarginMultiplier = 1.0;
+        if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
+        if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
+            const startMargin = () => {
+                if (!this.isVersusMode) return;
+                const step = () => {
+                    this.vsMarginMultiplier = Math.min(3.0, this.vsMarginMultiplier + 0.25);
+                    if (this.vsMarginMultiplier < 3.0) {
+                        this._vsMarginTimer = setTimeout(step, 30000);
+                    }
+                };
+                this._vsMarginTimer = setTimeout(step, 30000);
+            };
+            if (this.vsMarginTimeMs === 0) {
+                startMargin();
+            } else {
+                this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
+            }
+        }
+
         this.splitPuyo = null;
         this._erasingCells = null;
         this._eraseTimer = 0;
@@ -660,6 +681,12 @@ class PuyoGame {
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opponent || amount <= 0) return;
 
+        // ── VS設定：火力補正（マージンタイム経過後は乗率を追加適用） ──
+        const baseMult   = (typeof this.vsAttackMultiplier === 'number') ? this.vsAttackMultiplier   : 1.0;
+        const marginMult = (typeof this.vsMarginMultiplier === 'number') ? this.vsMarginMultiplier   : 1.0;
+        amount = Math.max(1, Math.floor(amount * baseMult * marginMult));
+
+
         const holes = [];
         let prevHole = -1;
         for (let i = 0; i < amount; i++) {
@@ -707,7 +734,7 @@ class PuyoGame {
         // ぷよ→テトへの火力送信は_applyOjamaOffsetで処理されるため、ここでの直接送信は行わない
 
         // 一連の連鎖が終了したため端数処理（仕様通り：最後の端数をmod70で次ターンへ持ち越す）
-        this.tetAttackCarry = this.tetAttackCarry % PConfig.ojamaRate;
+        this.tetAttackCarry = this.tetAttackCarry % (this.vsOjamaRate ?? PConfig.ojamaRate);
 
         if (isZenkeshi) {
             this.hasTetZenkeshi = true; // ★ 全消しボーナスの2ライン送付フラグを立てる
@@ -1098,7 +1125,7 @@ class PuyoGame {
 
                     // 連鎖を行ったターンの最後なら、未送信の火力を送り、端数を持ち越す
                     if (this.chainCount > 0) {
-                        this.attackScore = this.attackScore % PConfig.ojamaRate; // 端数持ち越し
+                        this.attackScore = this.attackScore % (this.vsOjamaRate ?? PConfig.ojamaRate); // 端数持ち越し
                         this.generatedOjamaTotal = 0; // 送信済みおじゃま量をリセット
                         if (this.pendingFire > 0 || this.tetPendingFire > 0) {
                             this.ojamaUpdateQueue.push({
@@ -1116,7 +1143,7 @@ class PuyoGame {
                     if (this._isFieldEmpty() && this.chainCount > 0) {
                         this.score += PConfig.zenkeshiBonus; // 2100点追加
 
-                        let zenkeshiOjama = Math.floor(PConfig.zenkeshiBonus / PConfig.ojamaRate);
+                        let zenkeshiOjama = Math.floor(PConfig.zenkeshiBonus / (this.vsOjamaRate ?? PConfig.ojamaRate));
                         this.pendingFire += zenkeshiOjama; // 連鎖後に火力スコア(pendingFire)に持ち越す
 
                         this._updateScoreDisplay();
@@ -1307,7 +1334,7 @@ class PuyoGame {
 
     _addDropScore(amount) {
         this.attackScore += amount;
-        let totalOjama = Math.floor(this.attackScore / PConfig.ojamaRate);
+        let totalOjama = Math.floor(this.attackScore / (this.vsOjamaRate ?? PConfig.ojamaRate));
         let newlyGenerated = totalOjama - this.generatedOjamaTotal;
         this.generatedOjamaTotal = totalOjama;
         // ★ 即座に相殺・送信せず、pendingFireに留めておく（連鎖まで保持）
@@ -1448,7 +1475,7 @@ class PuyoGame {
                     }
                 }
 
-                if (group.length >= PConfig.eraseCount) {
+                if (group.length >= (this.vsEraseCount ?? PConfig.eraseCount)) {
                     groups.push(group);
                 }
             }
@@ -1555,7 +1582,7 @@ class PuyoGame {
         this.chainScoreStr = `${n * 10} × ${bonus}`;
 
         this.attackScore += add;
-        let totalOjama = Math.floor(this.attackScore / PConfig.ojamaRate);
+        let totalOjama = Math.floor(this.attackScore / (this.vsOjamaRate ?? PConfig.ojamaRate));
         let newlyGenerated = totalOjama - this.generatedOjamaTotal;
         this.generatedOjamaTotal = totalOjama;
         if (newlyGenerated > 0) {
@@ -1626,7 +1653,7 @@ class PuyoGame {
             let carryOverFromOffset = 0; // 相殺しきれなかった場合の端数保持用
 
             if (pendingOjamaCount > 0) {
-                let requiredOffsetScore = pendingOjamaCount * PConfig.ojamaRate;
+                let requiredOffsetScore = pendingOjamaCount * (this.vsOjamaRate ?? PConfig.ojamaRate);
 
                 if (currentA >= requiredOffsetScore) {
                     // 相殺しきれる場合
@@ -1640,8 +1667,8 @@ class PuyoGame {
                     }
                 } else {
                     // 相殺しきれない場合
-                    let offsetPuyoCount = Math.floor(currentA / PConfig.ojamaRate);
-                    carryOverFromOffset = currentA % PConfig.ojamaRate; // 相殺後の端数
+                    let offsetPuyoCount = Math.floor(currentA / (this.vsOjamaRate ?? PConfig.ojamaRate));
+                    carryOverFromOffset = currentA % (this.vsOjamaRate ?? PConfig.ojamaRate); // 相殺後の端数
 
                     // キューから currentA 分のおじゃまを減らす
                     let remainingToOffset = offsetPuyoCount;

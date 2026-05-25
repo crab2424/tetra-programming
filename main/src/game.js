@@ -139,6 +139,29 @@ class Game {
         this.pendingInternalAttack = 0; // 追加
         this.updateAttackGauge();
 
+        // VS設定：マージンタイム管理
+        this.vsMarginMultiplier = 1.0;   // 現在の追加乗率（1.0 = 補正なし）
+        if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
+        if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
+            // マージンタイム後から段階的に火力を増加させる
+            const startMargin = () => {
+                if (!this.isVersusMode) return;
+                // 30秒ごとに乗率を +0.25 ずつ増加（最大 3.0 倍）
+                const step = () => {
+                    this.vsMarginMultiplier = Math.min(3.0, this.vsMarginMultiplier + 0.25);
+                    if (this.vsMarginMultiplier < 3.0) {
+                        this._vsMarginTimer = setTimeout(step, 30000);
+                    }
+                };
+                this._vsMarginTimer = setTimeout(step, 30000);
+            };
+            if (this.vsMarginTimeMs === 0) {
+                startMargin(); // 即時発動
+            } else {
+                this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
+            }
+        }
+
         this.nextMino = null;
         this.field = new Field()
         this.holdMino = null
@@ -564,6 +587,8 @@ class Game {
     // ホールド
     holdCurrentMino() {
         if (!this.canHold) return
+        // VS設定：HOLDが無効な場合はホールド操作を受け付けない
+        if (this.isVersusMode && this.vsHoldEnabled === false) return
         this.canHold = false
 
         if (this.holdMino === null) {
@@ -726,6 +751,13 @@ class Game {
     sendGarbage(amount) {
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opponent || amount <= 0) return;
+
+        // ── VS設定：火力補正（マージンタイム経過後は乗率を追加適用） ──
+        if (this.isVersusMode) {
+            const baseMult = (typeof this.vsAttackMultiplier === 'number') ? this.vsAttackMultiplier : 1.0;
+            const marginMult = (typeof this.vsMarginMultiplier === 'number') ? this.vsMarginMultiplier : 1.0;
+            amount = Math.max(1, Math.floor(amount * baseMult * marginMult));
+        }
 
         let isOpponentPuyo = false;
         if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
