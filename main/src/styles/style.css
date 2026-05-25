@@ -832,6 +832,129 @@ h1 {
   padding-bottom: 32px;
 }
 
+/* ── 設定行：ラベル2段組み ── */
+.vs-setting-label-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 120px;
+}
+
+.vs-setting-sublabel {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+/* ── 現在値表示ラベル ── */
+.vs-setting-value-label {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--accent, #c471ed);
+  min-width: 100px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── コントロール列：縦並び（スライダー系） ── */
+.vs-setting-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* ── スライダー ── */
+.vs-setting-slider {
+  width: 260px;
+  accent-color: var(--accent, #c471ed);
+  cursor: pointer;
+}
+
+/* ── スライダー目盛り ── */
+.vs-setting-markers {
+  display: flex;
+  justify-content: space-between;
+  width: 260px;
+  padding: 0 2px;
+}
+
+.vs-setting-markers span {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+}
+
+/* ── ボタングループ（選択肢ボタン列） ── */
+.vs-setting-btn-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ── 選択肢ボタン（単体） ── */
+.vs-setting-step-btn {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 6px 10px;
+  min-width: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.vs-setting-step-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.vs-setting-step-btn.active {
+  background: rgba(196, 113, 245, 0.18);
+  color: var(--accent, #c471ed);
+  border-color: var(--accent, #c471ed);
+}
+
+/* ── リセットボタン（#vs-settings-items 末尾） ── */
+.vs-settings-reset-btn {
+  align-self: center;
+  margin-top: 8px;
+}
+
+/* ── versus-check-page のサマリー表示 ── */
+#vs-settings-summary-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.vs-settings-summary-label {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+#vs-settings-summary {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 
 /* ─────────────────────────────────────────────
