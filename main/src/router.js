@@ -606,8 +606,7 @@ function toggleVersusPause() {
         || isGameCounting(window._puyoGamePlayer) || isGameCounting(window._puyoGameCpu)) {
       return;
     }
-    if (window._game && typeof window._game.pause === 'function'
-    && !(currentGameMode && currentGameMode.id === 'puyo')) window._game.pause();
+    if (window._game && typeof window._game.pause === 'function') window._game.pause();
     if (window._cpuGame && typeof window._cpuGame.pause === 'function') window._cpuGame.pause();
     overlay.classList.add('active');
   }
@@ -1062,6 +1061,22 @@ function renderModeCheck() {
 
 }
 
+function _applyModePauseSelectStyle(btn) {
+  if (!btn) btn = document.getElementById('pause-mode-select-btn');
+  if (!btn) return;
+  const mode = currentGameMode;
+  if (!mode) return;
+  btn.style.color = '#fff';
+  btn.style.border = 'none';
+  if (mode.id === 'sprint') {
+    btn.style.background = 'linear-gradient(135deg, var(--accent3) 0%, var(--accent) 100%)';
+  } else if (mode.id === 'ultra') {
+    btn.style.background = 'linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%)';
+  } else {
+    btn.style.background = 'linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%)';
+  }
+}
+
 async function startGameFromModeCheck() {
   stopAllGames(); // 開始前に完全に状態をリセット
   const sessionId = currentSessionId;
@@ -1368,7 +1383,10 @@ function toggleGamePause() {
 
       // QUIZモード時は MODE SELECT ボタンを非表示（LEVEL SELECT で代替）
       const modeSelectBtn = document.getElementById('pause-mode-select-btn');
-      if (modeSelectBtn) modeSelectBtn.style.display = isQuiz ? 'none' : '';
+      if (modeSelectBtn) {
+        modeSelectBtn.style.display = isQuiz ? 'none' : '';
+        if (!isQuiz) _applyModePauseSelectStyle(modeSelectBtn);
+      }
 
       // QUIZモード時のみレベル情報ブロックを表示・更新
       const quizInfo = document.getElementById('pause-quiz-info');
@@ -1501,7 +1519,10 @@ function handlePauseAction(action) {
       if (levelSelectBtn) levelSelectBtn.style.display = 'none';
       // 非Quizモードでは MODE SELECT を表示（ポーズ画面が開いているときのみ）
       const modeSelectBtn2 = document.getElementById('pause-mode-select-btn');
-      if (modeSelectBtn2 && overlay.classList.contains('active')) modeSelectBtn2.style.display = '';
+      if (modeSelectBtn2 && overlay.classList.contains('active')) {
+        modeSelectBtn2.style.display = '';
+        _applyModePauseSelectStyle(modeSelectBtn2);
+      }
     }
   });
 
