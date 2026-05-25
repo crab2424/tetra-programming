@@ -1106,6 +1106,10 @@ async function startQuizLevel(levelData) {
         // initGame してからカウントダウン経由でフィールド初期化
         await new Promise(resolve => pg.initGame(resolve));
 
+        // ★ initGame 完了で PuyoGame._sharedImages のロードが保証されたので、
+        //    NEXT一覧を共有画像で再描画する（初回コールドスタート時の描画漏れ対策）。
+        _renderQuizNextAll(levelData);
+
         // READY表示時に盤面とNEXTをロード
         window._quizManager.start(levelData, pg);
         // ロードした盤面を画面に即座に反映
@@ -1272,9 +1276,20 @@ const _PUYO_IMG_FILES = {
 const _puyoImgCache = {};
 
 function _getPuyoImg(colorId) {
+    const fileName = _PUYO_IMG_FILES[colorId] || 'puyo-5.png';
+
+    // ★ ぷよゲーム本体が事前ロード済みの共有画像(PuyoGame._sharedImages)を最優先で再利用する。
+    //    ファイル名 'puyo-N.png' と共有キー 'puyo-N' が対応するため、初回から complete=true の
+    //    画像が得られ、drawOne が onload フォールバック（描画漏れの原因）に入らずに済む。
+    if (typeof PuyoGame !== 'undefined' && PuyoGame._sharedImagesLoaded && PuyoGame._sharedImages) {
+        const shared = PuyoGame._sharedImages[fileName.replace(/\.png$/, '')];
+        if (shared) return shared;
+    }
+
+    // フォールバック：共有画像が未ロードのときのみ独自にロードする
     if (_puyoImgCache[colorId]) return _puyoImgCache[colorId];
     const img = new Image();
-    img.src = PConfig.imagePath + (_PUYO_IMG_FILES[colorId] || 'puyo-5.png');
+    img.src = PConfig.imagePath + fileName;
     _puyoImgCache[colorId] = img;
     return img;
 }
