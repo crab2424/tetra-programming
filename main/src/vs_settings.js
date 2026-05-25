@@ -36,8 +36,8 @@ const DEFAULT_VS_SETTINGS = {
         holdEnabled: true
     },
     puyo: {
-        ojamaRate:  70,       // 10~700、10刻み
-        eraseCount: 4         // 3~5
+        ojamaRate:  70,       // 10~120 (10刻み)
+        eraseCount: 4         // 2~6
     }
 };
 
@@ -398,7 +398,7 @@ function _buildOjamaRateRow() {
 
 // ── 最小連結数 ─────────────────────────────
 function _buildEraseCountRow() {
-    const options = [3, 4, 5];
+    const options = [2, 3, 4, 5, 6];
     const current = currentVsSettings.puyo.eraseCount;
 
     const ctrl = document.createElement('div');
