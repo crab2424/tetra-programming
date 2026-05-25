@@ -3,7 +3,6 @@
   single_1.ogg
   quiz_1.ogg
   countdown_1.ogg
-・VSの火力ハンデ，マージンなどのvs限定詳細設計追加
 ・ベストスコアの表示
 
 クイズ

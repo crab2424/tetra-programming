@@ -95,12 +95,15 @@ window.onload = function () {
             window.BgmManager.play('menu_bgm');
             
             // ブラウザの自動再生制限(Autoplay Policy)対策
-            // 初回ユーザー操作時にBGMが再生されていなければ再生する
+            // 初回ユーザー操作時にBGMが一時停止中（＝自動再生ブロック済み）なら再生する
             const unlockAudio = () => {
-                if (!window.BgmManager.isCurrent('menu_bgm')) {
+                const bm = window.BgmManager;
+                // _audio が存在しつつ paused＝自動再生がブロックされたケース
+                const isBlocked = bm._audio && bm._audio.paused;
+                if (isBlocked || !bm.isCurrent('menu_bgm')) {
                     const active = document.querySelector('.page.active');
                     if (active && (active.id === 'title-page' || active.id === 'main-menu-page')) {
-                        window.BgmManager.play('menu_bgm');
+                        bm.play('menu_bgm');
                     }
                 }
                 document.removeEventListener('click', unlockAudio);
