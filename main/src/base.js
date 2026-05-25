@@ -235,6 +235,12 @@ function showFinishOverlay(overlayId, textElId, text, className, duration, onCom
     overlay.classList.remove('fadeout');
     overlay.classList.add('active');
 
+    // 既に表示中（active）のオーバーレイへ再表示する場合、親の display は
+    // 変化せず finish-appear が再生されない。reflow を強制してアニメを再起動する。
+    textEl.style.animation = 'none';
+    void textEl.offsetWidth;
+    textEl.style.animation = '';
+
     overlay.finishTimer1 = setTimeout(() => {
         overlay.classList.add('fadeout');
         overlay.finishTimer2 = setTimeout(() => {

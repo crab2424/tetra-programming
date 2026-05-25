@@ -1274,6 +1274,12 @@ class PuyoGame {
                         }
                     }
                     // ========================================================
+                    // 致命判定：NEXTアニメーション前にスポーン位置が埋まっていればゲームオーバー
+                    if (!this._isCellEmpty(2, 0)) {
+                        this._gs = 'gameover';
+                        this._beginGameOver();
+                        return;
+                    }
                     this._gs = 'spawnAnim';
                     this.spawnAnimTimer = 0;
                 }
