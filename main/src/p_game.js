@@ -681,11 +681,7 @@ class PuyoGame {
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opponent || amount <= 0) return;
 
-        // ── VS設定：火力補正（マージンタイム経過後は乗率を追加適用） ──
-        const baseMult   = (typeof this.vsAttackMultiplier === 'number') ? this.vsAttackMultiplier   : 1.0;
-        const marginMult = (typeof this.vsMarginMultiplier === 'number') ? this.vsMarginMultiplier   : 1.0;
-        amount = Math.max(1, Math.floor(amount * baseMult * marginMult));
-
+        // ── 注意：火力補正乗率は _applyOjamaOffset の入口で実効火力として計算済み。ここでは再計算しない ──
 
         const holes = [];
         let prevHole = -1;
@@ -752,30 +748,37 @@ class PuyoGame {
     _applyOjamaOffset(amount, tetAmount = 0) {
         if (amount <= 0 && tetAmount <= 0) return;
 
-        const originalAmount = amount; // 相殺前のぷよ火力
+        // ── VS設定：火力補正乗率を「実効火力」としてここで一度だけ計算する ──
+        // 相殺（garbageQueueの減算）と送信（sendGarbage）の両方に同じ実効値を使用する
+        const _vsMult = (this.vsAttackMultiplier ?? 1.0) * (this.vsMarginMultiplier ?? 1.0);
+        const effectiveAmount    = (this.isVersusMode && amount    > 0) ? Math.max(1, Math.floor(amount    * _vsMult)) : amount;
+        const effectiveTetAmount = (this.isVersusMode && tetAmount > 0) ? Math.max(1, Math.floor(tetAmount * _vsMult)) : tetAmount;
+
+        const originalAmount = effectiveAmount; // 相殺前の実効ぷよ火力
 
         // 相殺はまず確定(ready: true)しているおじゃまから優先して行う
-        for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
+        let remaining = effectiveAmount;
+        for (let i = 0; i < this.garbageQueue.length && remaining > 0; i++) {
             if (this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
-                if (this.garbageQueue[i].amount <= amount) {
-                    amount -= this.garbageQueue[i].amount;
+                if (this.garbageQueue[i].amount <= remaining) {
+                    remaining -= this.garbageQueue[i].amount;
                     this.garbageQueue[i].amount = 0;
                 } else {
-                    this.garbageQueue[i].amount -= amount;
-                    amount = 0;
+                    this.garbageQueue[i].amount -= remaining;
+                    remaining = 0;
                 }
             }
         }
 
         // 次に未確定(ready: false)のおじゃまを相殺する
-        for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
+        for (let i = 0; i < this.garbageQueue.length && remaining > 0; i++) {
             if (!this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
-                if (this.garbageQueue[i].amount <= amount) {
-                    amount -= this.garbageQueue[i].amount;
+                if (this.garbageQueue[i].amount <= remaining) {
+                    remaining -= this.garbageQueue[i].amount;
                     this.garbageQueue[i].amount = 0;
                 } else {
-                    this.garbageQueue[i].amount -= amount;
-                    amount = 0;
+                    this.garbageQueue[i].amount -= remaining;
+                    remaining = 0;
                 }
             }
         }
@@ -783,7 +786,7 @@ class PuyoGame {
         this.garbageQueue = this.garbageQueue.filter(g => g.amount > 0);
         this.updateGarbageGauge();
 
-        // ★ 相殺結果の送信処理
+        // ★ 相殺結果の送信処理（実効値 remaining / effectiveTetAmount を使う。sendGarbage 内で再計算しない）
         const _isOppTet = (() => {
             if (!this.isVersusMode) return false;
             const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
@@ -792,22 +795,21 @@ class PuyoGame {
         })();
 
         if (_isOppTet) {
-            // 相手がテトの場合、tetAmount（テト用のライン数）を送信する。
+            // 相手がテトの場合、effectiveTetAmount（テト用の実効ライン数）を送信する。
             // ぷよ火力が相殺で減った場合は、その割合に応じて送信する tetAmount も減らす。
             if (originalAmount > 0) {
-                let ratio = amount / originalAmount; // 残った割合 (0.0 〜 1.0)
-                let sendTetAmount = Math.ceil(tetAmount * ratio); // 割合が少しでもあれば最低1ラインは送る
+                let ratio = remaining / originalAmount; // 残った割合 (0.0 〜 1.0)
+                let sendTetAmount = Math.ceil(effectiveTetAmount * ratio);
                 if (sendTetAmount > 0) {
                     this.sendGarbage(sendTetAmount);
                 }
-            } else if (tetAmount > 0 && amount === 0) {
-                // 通常はぷよ火力と連動するが、万が一ぷよ火力が無いのにテト火力がある場合はそのまま送る
-                this.sendGarbage(tetAmount);
+            } else if (effectiveTetAmount > 0 && remaining === 0) {
+                this.sendGarbage(effectiveTetAmount);
             }
         } else {
-            // 相手がぷよの場合、残ったぷよ基準の火力を送る
-            if (amount > 0) {
-                this.sendGarbage(amount);
+            // 相手がぷよの場合、残った実効ぷよ基準の火力を送る
+            if (remaining > 0) {
+                this.sendGarbage(remaining);
             }
         }
     }
@@ -1649,28 +1651,43 @@ class PuyoGame {
 
             // ★ 追加：テト相手の特殊相殺ルール
             let pendingOjamaCount = this.pendingOjama;
+            
+            // ── VS設定：火力補正乗率を「実効火力スコア」としてここで計算する ──
+            // ぷよ対テトの相殺のみ、ここでスコアを用いて相殺するため、乗率を適用してから計算する
+            const _vsMult = (this.vsAttackMultiplier ?? 1.0) * (this.vsMarginMultiplier ?? 1.0);
+            let effectiveA = currentA * _vsMult; // 相殺用の実効スコア
+
             let scoreForAttack = currentA; // デフォルトは全スコアを使用
             let carryOverFromOffset = 0; // 相殺しきれなかった場合の端数保持用
 
             if (pendingOjamaCount > 0) {
                 let requiredOffsetScore = pendingOjamaCount * (this.vsOjamaRate ?? PConfig.ojamaRate);
 
-                if (currentA >= requiredOffsetScore) {
+                if (effectiveA >= requiredOffsetScore) {
                     // 相殺しきれる場合
                     this.garbageQueue = []; // おじゃまはなかったものとする
                     this.updateGarbageGauge();
 
-                    if (baseCarry < requiredOffsetScore) {
-                        scoreForAttack = add; // 持ち越しスコアより相殺量が多いなら、攻撃には連鎖スコアのみ使用
+                    // 意図的な仕様の復元：
+                    // 持ち越した実効スコア(baseCarry)だけで相殺しきれない場合、不足分を今回の連鎖スコア(add)から引かず、
+                    // addをまるごと攻撃に使う（異種戦におけるぷよの優位拡大のための仕様）
+                    let effectiveBaseCarry = baseCarry * _vsMult;
+                    if (effectiveBaseCarry < requiredOffsetScore) {
+                        scoreForAttack = add; 
                     } else {
-                        scoreForAttack = add + (baseCarry - requiredOffsetScore); // 持ち越しで相殺しきれるなら、残った持ち越し+連鎖スコアを使用
+                        // 持ち越し実効スコアだけで相殺しきれた場合は、残った持ち越し分＋今回の連鎖スコアを使用
+                        let remainingEffectiveA = effectiveA - requiredOffsetScore;
+                        scoreForAttack = remainingEffectiveA / _vsMult;
                     }
                 } else {
                     // 相殺しきれない場合
-                    let offsetPuyoCount = Math.floor(currentA / (this.vsOjamaRate ?? PConfig.ojamaRate));
-                    carryOverFromOffset = currentA % (this.vsOjamaRate ?? PConfig.ojamaRate); // 相殺後の端数
+                    let offsetPuyoCount = Math.floor(effectiveA / (this.vsOjamaRate ?? PConfig.ojamaRate));
+                    let carryOverEffectiveA = effectiveA % (this.vsOjamaRate ?? PConfig.ojamaRate); // 相殺後の端数
+                    
+                    // 次に持ち越す端数を元のスケールに戻す
+                    carryOverFromOffset = carryOverEffectiveA / _vsMult;
 
-                    // キューから currentA 分のおじゃまを減らす
+                    // キューから offsetPuyoCount 分のおじゃまを減らす
                     let remainingToOffset = offsetPuyoCount;
                     // ready: true を優先
                     for (let i = 0; i < this.garbageQueue.length && remainingToOffset > 0; i++) {

@@ -752,12 +752,7 @@ class Game {
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opponent || amount <= 0) return;
 
-        // ── VS設定：火力補正（マージンタイム経過後は乗率を追加適用） ──
-        if (this.isVersusMode) {
-            const baseMult = (typeof this.vsAttackMultiplier === 'number') ? this.vsAttackMultiplier : 1.0;
-            const marginMult = (typeof this.vsMarginMultiplier === 'number') ? this.vsMarginMultiplier : 1.0;
-            amount = Math.max(1, Math.floor(amount * baseMult * marginMult));
-        }
+        // ── 注意：火力補正乗率は secureMino 内で実効火力として計算済み。ここでは再計算しない ──
 
         let isOpponentPuyo = false;
         if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
@@ -1126,25 +1121,37 @@ class Game {
                         generatedGarbage = generatedGarbage - tetRenBonus + renVal;
                     }
 
-                    // 2. 「今回発生した火力(generatedGarbage)」のみを使って相殺を試みる（溜まっているゲージは使わない）
-                    let canceledGarbage = 0;
-                    let remainGenerated = generatedGarbage; // 今回のテト基準火力（RENはぷよ基準に書き換わった状態）
+                    // ── VS設定：火力補正乗率を「実効火力」としてここで一度だけ計算する ──
+                    // 相殺offsetGarbageと送信sendGarbageの両方に同じ実効値を使用する
+                    const _vsMultTvP = (this.vsAttackMultiplier ?? 1.0) * (this.vsMarginMultiplier ?? 1.0);
+                    const effectiveGenerated = (this.isVersusMode && generatedGarbage > 0)
+                        ? Math.max(1, Math.floor(generatedGarbage * _vsMultTvP))
+                        : generatedGarbage;
+                    const effectivePuyoAttack = (this.isVersusMode && puyoAttack > 0)
+                        ? Math.max(1, Math.floor(puyoAttack * _vsMultTvP))
+                        : puyoAttack;
 
-                    if (this.garbageQueue.length > 0 && generatedGarbage > 0) {
-                        remainGenerated = this.offsetGarbage(generatedGarbage);
-                        canceledGarbage = generatedGarbage - remainGenerated;
+                    // 2. 「今回発生した実効火力」のみを使って相殺を試みる（溜まっているゲージは使わない）
+                    let canceledGarbage = 0;
+                    let remainGenerated = effectiveGenerated;
+
+                    if (this.garbageQueue.length > 0 && effectiveGenerated > 0) {
+                        remainGenerated = this.offsetGarbage(effectiveGenerated);
+                        canceledGarbage = effectiveGenerated - remainGenerated;
                     }
 
                     // 3. 相殺に使われなかった分(remainGenerated)を内部火力の貯蓄に追加
                     this.pendingInternalAttack += remainGenerated;
 
-                    // アタックゲージ(送信用)に貯める火力 = 今回のぷよ用火力 - 相殺ライン(負の場合は0)
-                    let attackToAdd = Math.max(0, puyoAttack - canceledGarbage);
+                    // アタックゲージ(送信用)に蓄える火力 = 今回の実効ぶよ用火力 - 相殺ライン(負の場合は0)
+                    let attackToAdd = Math.max(0, effectivePuyoAttack - canceledGarbage);
                     this.pendingAttack += attackToAdd;
 
-                    //console.log(`[secureMino] -> 消去あり: ぷよ用火力 ${puyoAttack}(内部 ${generatedGarbage}), 相殺使用 ${canceledGarbage}, 現在の貯蓄(表示): ${this.pendingAttack}(内部: ${this.pendingInternalAttack})`);
+                    //console.log(`[secureMino] -> 消去あり: 実効ぶよ用火力 ${effectivePuyoAttack}(内部 ${effectiveGenerated}), 相殺使用 ${canceledGarbage}, 現在の貯蓄(表示): ${this.pendingAttack}(内部: ${this.pendingInternalAttack})`);
+
                 } else {
                     // ライン消去がない（設置のみ）場合、溜まっているゲージ（内部火力）を放出して相殺・送信を行う
+                    // 内部火力は設置のたびに実効化された値を積み上げているので、ここでは再適用しない
                     let canceledGarbage = 0;
                     if (this.garbageQueue.length > 0 && this.pendingInternalAttack > 0) {
                         let beforeInternal = this.pendingInternalAttack;
@@ -1156,7 +1163,7 @@ class Game {
                     let sendAmount = Math.max(0, this.pendingAttack - canceledGarbage);
                     if (sendAmount > 0) {
                         //console.log(`[secureMino] -> 消去なし: 貯蓄から ${sendAmount} を相手に送信します`);
-                        this.sendGarbage(sendAmount); // sendGarbage内でぷよ個数への変換が行われます
+                        this.sendGarbage(sendAmount); // 実効化済み。sendGarbage内では再計算しない
                     }
 
                     // 放出後は両方ともリセット
@@ -1165,12 +1172,18 @@ class Game {
                 }
                 this.updateAttackGauge();
             } else {
-                // ★従来通り（テト同士）
+                // ★従来通り（テト同士）── 実効火力を相殺・送信の両方に適用
                 if (generatedGarbage > 0) {
-                    // 自分の待機中のおじゃまを相殺し、余った分（送り返し分）を受け取る
-                    const remainder = this.offsetGarbage(generatedGarbage);
+                    // 実効火力を一度計算（相殺・送信共通）
+                    const _vsMultTvT = (this.vsAttackMultiplier ?? 1.0) * (this.vsMarginMultiplier ?? 1.0);
+                    const effectiveGarbage = (this.isVersusMode)
+                        ? Math.max(1, Math.floor(generatedGarbage * _vsMultTvT))
+                        : generatedGarbage;
 
-                    // 余った火力があれば相手に送る
+                    // 実効火力で相殺し、余った分を絶対値のまま送信して実効
+                    const remainder = this.offsetGarbage(effectiveGarbage);
+
+                    // 余った火力があれば相手に送る実効化済みなのでsendGarbage内で再計算しない
                     if (remainder > 0) {
                         this.sendGarbage(remainder);
                     }
