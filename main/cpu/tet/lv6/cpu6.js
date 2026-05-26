@@ -91,6 +91,33 @@ window.CPU6 = class {
         this.worker.onerror = (err) => {
             console.error("❌ Worker 6 Error: ", err.message, err.filename, err.lineno);
         };
+
+        // ─────────────────────────────────────────────
+        // ★パフェ(全消し)探索 — 評価関数ビームサーチとは独立した別ワーカー
+        // ─────────────────────────────────────────────
+        this.pcWorker = new Worker('cpu/tet/lv6/pc_check/pc_worker6.js');
+        this.pcWorkerReady = false;
+        this.pcSequence = null;          // 実行中のPC手順 [{minoType,rot,x,y,useHold}, ...]
+        this.pcSearchId = 0;             // stale(古い)PC結果を破棄するためのID
+        this.pcSearchActive = false;     // 今ターンPC探索を投げているか
+        this.pendingBeamResult = null;   // PC結果待ちの間、退避するビームサーチ結果
+        this.pcFallbackTimer = null;     // PC結果待ちのタイムアウト
+
+        this.PC_TIMEOUT_MS = 300;        // PC結果を待つ上限。超えたらビームサーチへ
+        this.PC_MAX_BLOCKS = 40;         // PC探索を起動する最大ブロック数（10手×4）
+        this.PC_MAX_DEPTH = 10;          // PC探索の最大手数
+
+        this.pcWorker.onmessage = (e) => {
+            if (e.data.type === 'ready') {
+                console.log("💎 PC Worker 6 Ready!");
+                this.pcWorkerReady = true;
+            } else if (e.data.type === 'pc_result') {
+                this.handlePCResult(e.data);
+            }
+        };
+        this.pcWorker.onerror = (err) => {
+            console.error("❌ PC Worker 6 Error: ", err.message, err.filename, err.lineno);
+        };
     }
 
     updateEvalDisplay(score, diff) {
@@ -561,6 +588,16 @@ window.CPU6 = class {
             this.worker = null;
             this.workerReady = false;
         }
+        // ★PC探索ワーカーと状態の後始末
+        if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
+        this.pcSequence = null;
+        this.pendingBeamResult = null;
+        this.pcSearchActive = false;
+        if (this.pcWorker) {
+            this.pcWorker.terminate();
+            this.pcWorker = null;
+            this.pcWorkerReady = false;
+        }
     }
 
     updateLoop() {
@@ -654,10 +691,25 @@ window.CPU6 = class {
 
     onMinoSpawned() {
         const diffEl = document.getElementById('eval-diff');
-        if (diffEl) diffEl.textContent = ''; 
+        if (diffEl) diffEl.textContent = '';
 
         const mino = this.game.mino;
         if (!mino) return;
+
+        // ── ★PC手順を実行中なら、それを消費する（評価関数を無視してパフェを取る）──
+        if (this.pcSequence && this.pcSequence.length > 0) {
+            const expected = this.pcSequence[0];
+            if (this.validatePCStep(expected)) {
+                this.pcSequence.shift();
+                if (this.pcSequence.length === 0) this.pcSequence = null;
+                this.executePCMove(expected);
+                return; // ビームサーチには投げない
+            } else {
+                // 盤面が想定とずれた（ガベージ等）→ 手順を破棄して通常モードへ
+                console.log("💎 PC sequence invalidated → fall back to eval");
+                this.pcSequence = null;
+            }
+        }
 
         if (!this.workerReady) {
             if (this.isAutoPlay) {
@@ -718,6 +770,14 @@ window.CPU6 = class {
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
 
+        // ── ★PC探索の起動判定（条件を満たせばビームサーチと並列で投げる）──
+        if (!this.pcSequence && this.shouldSearchPC()) {
+            this.pcSearchActive = true;
+            this.requestPCSearch(mino, boardBuffer, holdType);
+        } else {
+            this.pcSearchActive = false;
+        }
+
         this.worker.postMessage({
             type: 'calculate',
             boardBuffer: boardBuffer,
@@ -725,18 +785,154 @@ window.CPU6 = class {
             holdType: holdType,
             next1: this.game.nextQueue[0].type,
             next2: this.game.nextQueue[1].type,
-            next3: this.game.nextQueue[2].type, 
-            next4: this.game.nextQueue[3].type, 
-            next5: this.game.nextQueue[4].type, 
+            next3: this.game.nextQueue[2].type,
+            next4: this.game.nextQueue[3].type,
+            next5: this.game.nextQueue[4].type,
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray,
-            ren: currentRen,       
-            backToBack: currentBtB 
+            ren: currentRen,
+            backToBack: currentBtB
         });
     }
 
+    // ── ★PC探索を起動すべき盤面か ──
+    //   条件: ブロック総数が偶数 AND PC_MAX_BLOCKS以下（10手×4ブロックで埋めきれる規模）
+    shouldSearchPC() {
+        if (!this.pcWorkerReady) return false;
+        const count = this.game.field.blocks.length;
+        return (count % 2 === 0) && (count <= this.PC_MAX_BLOCKS);
+    }
+
+    // ── ★PC探索リクエスト送信（ネクストを11個=current+next0..9 に拡張）──
+    requestPCSearch(mino, boardBuffer, holdType) {
+        this.pcSearchId++;
+        const pieces = new Int32Array(11);
+        pieces[0] = mino.type;
+        for (let i = 0; i < 10; i++) {
+            pieces[i + 1] = this.game.nextQueue[i] ? this.game.nextQueue[i].type : 0;
+        }
+        // boardBuffer はビームサーチ用と共有（postMessage で各ワーカーへ別々にクローンされる）
+        this.pcWorker.postMessage({
+            type: 'pc_search',
+            boardBuffer: boardBuffer,
+            pieces: pieces,
+            holdType: holdType,
+            canHold: this.game.canHold ? 1 : 0,
+            maxDepth: this.PC_MAX_DEPTH,
+            searchId: this.pcSearchId
+        });
+    }
+
+    // ── ★PC手順1手の妥当性検証（盤面/ミノが想定通りか）──
+    validatePCStep(expected) {
+        if (!this.game.mino) return false;
+        const cur = this.game.mino.type;
+        const held = this.game.holdMino !== null ? this.game.holdMino.type : -1;
+        if (expected.useHold === 0) {
+            // そのまま現在ミノを置く想定
+            return cur === expected.minoType;
+        } else {
+            // ホールド入替後に置く想定
+            if (!this.game.canHold) return false;
+            const afterHold = (held === -1)
+                ? (this.game.nextQueue[0] ? this.game.nextQueue[0].type : -1)
+                : held;
+            return afterHold === expected.minoType;
+        }
+    }
+
+    // ── ★PC探索結果のハンドラ ──
+    handlePCResult(data) {
+        if (data.searchId !== this.pcSearchId) return; // 古い結果は破棄
+        this.pcSearchActive = false;
+        if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
+        if (!this.isActive) return;
+
+        const beamPending = this.pendingBeamResult;
+        this.pendingBeamResult = null;
+
+        if (data.found && data.sequence && data.sequence.length > 0 &&
+            this.isAutoPlay && this.game.mino === this.currentMino && !this.isExecutingAction) {
+            const expected = data.sequence[0];
+            this.pcSequence = data.sequence;
+            if (this.validatePCStep(expected)) {
+                console.log(`💎 Perfect Clear found! ${this.pcSequence.length} moves → executing`);
+                this.pcSequence.shift();
+                if (this.pcSequence.length === 0) this.pcSequence = null;
+                this.executePCMove(expected);
+                return;
+            } else {
+                this.pcSequence = null; // 第1手の検証に失敗
+            }
+        }
+        // PC見つからず or 検証失敗 → 退避していたビームサーチ結果へフォールバック
+        if (beamPending && this.isAutoPlay && this.isActive &&
+            this.game.mino === this.currentMino && !this.isExecutingAction) {
+            this.executeAction(beamPending);
+        }
+    }
+
+    // ── ★PC手順1手の実行（ホールド→回転→移動→ハードドロップ）──
+    executePCMove(expected) {
+        if (!this.isActive) return;
+
+        // 前のアクション実行中（直前ハードドロップの後処理待ち等）なら少し待って再試行。
+        // ※ワーカー往復が無く同期的に呼ばれるため、isExecutingAction の解除待ちが必要。
+        if (this.isAutoPlay && this.isExecutingAction) {
+            setTimeout(() => { if (this.isActive) this.executePCMove(expected); }, 20);
+            return;
+        }
+
+        const move = {
+            action: 'play',
+            id: expected.minoType,
+            rot: expected.rot,
+            x: expected.x,
+            y: expected.y - 5,        // 内部0〜24 → JS座標 -5〜19
+            pcUseHold: expected.useHold,
+            isPC: true
+        };
+        this.bestMoveData = move;     // ※p1を持たないので processActionQueue末尾の再実行は走らない
+        this.bestEstimate = move;
+
+        // PCモード表示
+        const evalEl = document.getElementById('eval-value');
+        if (evalEl) evalEl.textContent = 'PC';
+        if (this.estimateContainer) this.estimateContainer.innerHTML = '';
+
+        if (this.isAutoPlay) {
+            this.isExecutingAction = true;
+            this.actionQueue = this.buildPCActionQueue(move);
+            setTimeout(() => this.processActionQueue(), this.actionDelay);
+        }
+    }
+
+    // ── ★PC手順用のアクションキュー構築 ──
+    //   スポーン直後(rotation=0)前提。PC配置は穴なし充填のため "上で回転→移動→落下" で到達可能。
+    buildPCActionQueue(move) {
+        let queue = [];
+        if (move.pcUseHold) {
+            queue.push({ type: 'hold', delay: this.actionDelay });
+        }
+        const diff = move.rot & 3;
+        if (diff === 1) {
+            queue.push({ type: 'rotateCW', delay: this.actionDelay });
+        } else if (diff === 2) {
+            queue.push({ type: 'rotateCW', delay: this.actionDelay });
+            queue.push({ type: 'rotateCW', delay: this.actionDelay });
+        } else if (diff === 3) {
+            queue.push({ type: 'rotateCCW', delay: this.actionDelay });
+        }
+        queue.push({ type: 'moveToTargetX', targetX: move.x, delay: this.actionDelay });
+        queue.push({ type: 'harddrop', delay: this.harddropDelay });
+        return queue;
+    }
+
     handleWorkerResult(res) {
-        this.isCalculating = false; 
+        this.isCalculating = false;
+
+        // ★PCモードが既に主導している場合、ビームサーチ結果は完全に無視する
+        if (this.pcSequence) return;
 
         let actionInt = res[0];
         
@@ -817,7 +1013,24 @@ window.CPU6 = class {
         }
 
         if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino && bestMove.p1) {
-            this.executeAction(bestMove);
+            if (this.pcSearchActive) {
+                // ★PC探索中 → ビーム結果を退避して待機。タイムアウトでフォールバック
+                this.pendingBeamResult = bestMove;
+                if (this.pcFallbackTimer) clearTimeout(this.pcFallbackTimer);
+                this.pcFallbackTimer = setTimeout(() => {
+                    this.pcFallbackTimer = null;
+                    if (!this.isActive) return;
+                    if (this.pcSequence) return;                 // PCが間に合った
+                    if (this.game.mino !== this.currentMino) return;
+                    const r = this.pendingBeamResult;
+                    this.pendingBeamResult = null;
+                    this.pcSearchActive = false;
+                    this.pcSearchId++;                           // 遅延して来るPC結果を無効化
+                    if (r) this.executeAction(r);
+                }, this.PC_TIMEOUT_MS);
+            } else {
+                this.executeAction(bestMove);
+            }
         }
     }
 

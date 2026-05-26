@@ -127,9 +127,11 @@ class Game {
         }
 
         // 7バッグをリセット
+        // ★nextQueue は内部で11個保持（CPU6のパフェ探索が10手先まで読むため）。
+        //   ただし画面表示は先頭5個のみ（drawNext 参照）。
         this.bag = [];
         this.nextQueue = [];
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 11; i++) {
             this.nextQueue.push(new Mino(this.getNextType()));
         }
         this.garbageQueue = [];
@@ -1631,9 +1633,9 @@ class Game {
 
         const minoScale = 0.8;
 
-        // Draw next queue vertically
+        // Draw next queue vertically（表示は先頭5個のみ。内部は11個保持）
         const spacing = 3;
-        this.nextQueue.forEach((mino, i) => {
+        this.nextQueue.slice(0, 5).forEach((mino, i) => {
             this.nextCtx.save();
             this.nextCtx.translate(0, i * spacing * BLOCK_SIZE * minoScale);
             this.nextCtx.scale(minoScale, minoScale);
