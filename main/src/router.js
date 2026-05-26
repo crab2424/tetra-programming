@@ -58,7 +58,7 @@ const GAME_MODES = {
 };
 
 let testCpuControl = true; 
-let testRule = 'puyo';
+let testRule = 'tet';
 
 function setTestCpuControl(isOn) {
   testCpuControl = isOn;
@@ -86,9 +86,9 @@ function setTestRule(rule) {
 }
 
 let currentGameMode = null;
-let versusRule = 'puyo'; // 既存の互換性のため残す
-let versusPlayerRule = 'puyo'; // プレイヤー側のルール ('tet' or 'puyo')
-let versusCpuRule = 'puyo';    // CPU側のルール ('tet' or 'puyo')
+let versusRule = 'tet'; // 既存の互換性のため残す
+let versusPlayerRule = 'tet'; // プレイヤー側のルール ('tet' or 'puyo')
+let versusCpuRule = 'tet';    // CPU側のルール ('tet' or 'puyo')
 
 // カウントダウン中の中断を防ぐためのセッション管理
 let currentSessionId = 0;
