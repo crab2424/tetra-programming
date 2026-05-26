@@ -2213,6 +2213,17 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--danger);
 }
 
+#test-garbage-area {
+  position: absolute;
+  left: -160px;
+  top: 580px;
+}
+#test-garbage-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
 /* ─────────────────────────────────────────────
    QUIZモード スタイル
 ───────────────────────────────────────────── */
