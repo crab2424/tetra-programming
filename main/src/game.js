@@ -1331,7 +1331,7 @@ class Game {
         }
 
         // 次のミノが出現する直前（今のミノが固定された瞬間）に、自分に届いている火力を適用
-        if (this.isVersusMode) {
+        if (this.isVersusMode || this.garbageQueue.length > 0) {
             if (this.vsGarbageDamageOnClear !== false || linesCleared === 0) {
                 this.applyGarbage();
             }

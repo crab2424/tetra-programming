@@ -1093,6 +1093,8 @@ async function startGameFromModeCheck() {
     // ★ cpu testモードで表示されたEVALエリアをquizモードでは非表示にする
     const evalArea = document.getElementById('eval-area');
     if (evalArea) evalArea.style.display = 'none';
+    const garbageArea = document.getElementById('test-garbage-area');
+    if (garbageArea) garbageArea.style.display = 'none';
     
     if (typeof startQuizLevel === 'function' && currentQuizLevel) {
       startQuizLevel(currentQuizLevel);
@@ -1107,6 +1109,8 @@ async function startGameFromModeCheck() {
     // ★ cpu testモードで表示されたEVALエリアをぷよモードでは非表示にする
     const evalArea = document.getElementById('eval-area');
     if (evalArea) evalArea.style.display = 'none';
+    const garbageArea = document.getElementById('test-garbage-area');
+    if (garbageArea) garbageArea.style.display = 'none';
     
     // ★ 修正: puyoゲーム用キャンバスをクリア（古い盤面を削除）
     const puyoMainCanvas = document.getElementById('puyo-main-canvas');
@@ -1153,10 +1157,12 @@ async function startGameFromModeCheck() {
     if (evalArea) {
       evalArea.style.display = 'block';
     }
+    const garbageAreaPuyo = document.getElementById('test-garbage-area');
+    if (garbageAreaPuyo) garbageAreaPuyo.style.display = 'none';
 
     switchPage('game');
-    setupGlobalCpuPauseKey(); 
-    
+    setupGlobalCpuPauseKey();
+
     // ★ カウントダウン(ある場合)と同時にバックグラウンドで読み込み
     let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, 'puyo').catch(e => {
       alert("CPUスクリプトの読み込みに失敗しました。");
@@ -1209,10 +1215,14 @@ async function startGameFromModeCheck() {
   if (evalArea) {
     evalArea.style.display = (modeId === 'test') ? 'block' : 'none';
   }
+  const garbageAreaTet = document.getElementById('test-garbage-area');
+  if (garbageAreaTet) {
+    garbageAreaTet.style.display = (modeId === 'test') ? 'block' : 'none';
+  }
 
   switchPage('game');
   updateLinesGoalDisplay(modeId);
-  setupGlobalCpuPauseKey(); 
+  setupGlobalCpuPauseKey();
   
   let cpuLoadPromise = null;
   if (modeId === 'test' && testRule === 'tet') {
@@ -1238,6 +1248,25 @@ async function startGameFromModeCheck() {
     });
   }
 }
+
+// ─── テストモード用: コンソールからおじゃまラインを送る ──────────────
+// 使い方: testGarbage(5)  → 5ラインをキューに入れる（1500ms後にready）
+window.testGarbage = function(lines) {
+  lines = Math.max(1, Math.min(20, parseInt(lines) || 1));
+  const game = window._game;
+  if (!game || !Array.isArray(game.garbageQueue)) {
+    console.warn('[testGarbage] アクティブなtetゲームが見つかりません');
+    return;
+  }
+  const garbageObj = { amount: lines, holes: [], ready: false };
+  game.garbageQueue.push(garbageObj);
+  setTimeout(() => {
+    if (game.garbageQueue.includes(garbageObj) && garbageObj.amount > 0) {
+      garbageObj.ready = true;
+    }
+  }, 1500);
+  console.log(`[testGarbage] ${lines}ライン投入（1500ms後に降下）`);
+};
 
 (function setupTitleScreen() {
   const titlePage = document.getElementById('title-page');
