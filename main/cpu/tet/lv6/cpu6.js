@@ -32,11 +32,11 @@ window.CPU6 = class {
             
             iWell: 200,           
             iWellOver: -400,      
-            blocksOverHole: -30, 
-            
-            line4: 1000,          
-            downstackGood: 68,   
-            downstackBad: -3,
+            blocksOverHole: -55,
+
+            line4: 1000,
+            downstackGood: 120,
+            downstackBad: -30,
 
             tsdShape: 500,      
             tsdShapeOver: -45, 
@@ -52,9 +52,9 @@ window.CPU6 = class {
             renCutPenalty: -200,
 
             tsmMiniPenalty: -100,      
-            tMinoNoClearPenalty: -360, 
+            tMinoNoClearPenalty: -160, 
 
-            tsdSetup: 240,         
+            tsdSetup: 200,         
             tsdSetupOver: -400,   
 
             slopeBonus: 72,       
