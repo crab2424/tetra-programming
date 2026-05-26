@@ -36,16 +36,16 @@ window.CPU6 = class {
 
             line4: 1000,
             downstackGood: 120,
-            downstackBad: -30,
+            downstackBad: -600,
 
-            tsdShape: 500,      
+            tsdShape: 300,      
             tsdShapeOver: -45, 
             tsdFillBonus: 50,   
 
             tssClear: 256,       
             tsdClear: 2560,      
             tsdHolePenalty: -60, 
-            pureHole: -200,         
+            pureHole: -4000,         
 
             comboBonus: 20,   
             btbKeep: 496,     
@@ -54,7 +54,7 @@ window.CPU6 = class {
             tsmMiniPenalty: -100,      
             tMinoNoClearPenalty: -160, 
 
-            tsdSetup: 200,         
+            tsdSetup: 100,         
             tsdSetupOver: -400,   
 
             slopeBonus: 72,       
@@ -100,7 +100,7 @@ window.CPU6 = class {
         this.pcSequence = null;          // 実行中のPC手順 [{minoType,rot,x,y,useHold}, ...]
         this.pcSearchId = 0;             // stale(古い)PC結果を破棄するためのID
         this.pcSearchActive = false;     // 今ターンPC探索を投げているか
-        this.pendingBeamResult = null;   // PC結果待ちの間、退避するビームサーチ結果
+        this.pcFallbackData = null;       // PC待機中にキャッシュするビームサーチ引数
         this.pcFallbackTimer = null;     // PC結果待ちのタイムアウト
 
         this.PC_TIMEOUT_MS = 300;        // PC結果を待つ上限。超えたらビームサーチへ
@@ -539,7 +539,12 @@ window.CPU6 = class {
                 }
                 
                 this.isExecutingAction = false;
-                if (this.bestMoveData && this.bestMoveData.p1 && 
+                // ★PC手順を実行した直後なら、次の手へ進む
+                if (this.bestMoveData && this.bestMoveData.isPC) {
+                    this.runNextPCMove();
+                    return;
+                }
+                if (this.bestMoveData && this.bestMoveData.p1 &&
                     this.game.mino && this.game.mino === this.currentMino) {
                     this.executeAction(this.bestMoveData);
                 }
@@ -591,7 +596,7 @@ window.CPU6 = class {
         // ★PC探索ワーカーと状態の後始末
         if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
         this.pcSequence = null;
-        this.pendingBeamResult = null;
+        this.pcFallbackData = null;
         this.pcSearchActive = false;
         if (this.pcWorker) {
             this.pcWorker.terminate();
@@ -696,20 +701,10 @@ window.CPU6 = class {
         const mino = this.game.mino;
         if (!mino) return;
 
-        // ── ★PC手順を実行中なら、それを消費する（評価関数を無視してパフェを取る）──
-        if (this.pcSequence && this.pcSequence.length > 0) {
-            const expected = this.pcSequence[0];
-            if (this.validatePCStep(expected)) {
-                this.pcSequence.shift();
-                if (this.pcSequence.length === 0) this.pcSequence = null;
-                this.executePCMove(expected);
-                return; // ビームサーチには投げない
-            } else {
-                // 盤面が想定とずれた（ガベージ等）→ 手順を破棄して通常モードへ
-                console.log("💎 PC sequence invalidated → fall back to eval");
-                this.pcSequence = null;
-            }
-        }
+        // ── ★PC手順を実行中はここでは何もしない ──
+        // 手順の進行は各手のアクション完了時に runNextPCMove が駆動する。
+        // （hold操作で中間的に game.mino が入れ替わっても誤発火しないようにするため）
+        if (this.pcSequence) return;
 
         if (!this.workerReady) {
             if (this.isAutoPlay) {
@@ -727,32 +722,31 @@ window.CPU6 = class {
         }
 
         if (this.isCalculating) return;
-        this.isCalculating = true; 
 
         let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
             let by = b.y + 5;
             if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) {
-                boardBuffer[by * 10 + b.x] = 1; 
+                boardBuffer[by * 10 + b.x] = 1;
             }
         });
 
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
-            this.weights.step3Plus, this.weights.flat, this.weights.step1Good, 
-            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus, 
-            this.weights.touchingBonus, 
+            this.weights.step3Plus, this.weights.flat, this.weights.step1Good,
+            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus,
+            this.weights.touchingBonus,
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
-            Math.round(this.weights.P1_WEIGHT * 100), 
-            this.weights.tsdShape,                    
-            this.weights.tsdShapeOver,                
+            Math.round(this.weights.P1_WEIGHT * 100),
+            this.weights.tsdShape,
+            this.weights.tsdShapeOver,
             this.weights.tsdFillBonus,
-            this.weights.tssClear,                    
-            this.weights.tsdClear,                    
-            this.weights.tsdHolePenalty,              
-            this.weights.pureHole,                    
-            this.weights.comboBonus,                  
+            this.weights.tssClear,
+            this.weights.tsdClear,
+            this.weights.tsdHolePenalty,
+            this.weights.pureHole,
+            this.weights.comboBonus,
             this.weights.btbKeep,
             this.weights.renCutPenalty,
             this.weights.tsmMiniPenalty,
@@ -770,14 +764,37 @@ window.CPU6 = class {
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
 
-        // ── ★PC探索の起動判定（条件を満たせばビームサーチと並列で投げる）──
+        // ── ★PC探索の起動判定（空盤面時のみ。ビームサーチは投げずPC結果を待つ）──
         if (!this.pcSequence && this.shouldSearchPC()) {
             this.pcSearchActive = true;
+            this.pcFallbackData = {
+                boardBuffer, currentType: mino.type, holdType,
+                next1: this.game.nextQueue[0].type,
+                next2: this.game.nextQueue[1].type,
+                next3: this.game.nextQueue[2].type,
+                next4: this.game.nextQueue[3].type,
+                next5: this.game.nextQueue[4].type,
+                canHold: this.game.canHold ? 1 : 0,
+                weightsArray, ren: currentRen, backToBack: currentBtB
+            };
             this.requestPCSearch(mino, boardBuffer, holdType);
-        } else {
-            this.pcSearchActive = false;
+            if (this.pcFallbackTimer) clearTimeout(this.pcFallbackTimer);
+            this.pcFallbackTimer = setTimeout(() => {
+                this.pcFallbackTimer = null;
+                if (!this.isActive) return;
+                if (this.pcSequence) return;
+                if (this.game.mino !== this.currentMino) return;
+                this.pcSearchActive = false;
+                this.pcSearchId++;
+                const fallback = this.pcFallbackData;
+                this.pcFallbackData = null;
+                this.startBeamSearch(fallback);
+            }, this.PC_TIMEOUT_MS);
+            return; // ビームサーチは投げない
         }
 
+        this.pcSearchActive = false;
+        this.isCalculating = true;
         this.worker.postMessage({
             type: 'calculate',
             boardBuffer: boardBuffer,
@@ -795,12 +812,32 @@ window.CPU6 = class {
         });
     }
 
+    // ── ★キャッシュ済みデータでビームサーチを起動する ──
+    startBeamSearch(data) {
+        if (!data || !this.workerReady || this.isCalculating) return;
+        if (!this.isActive || this.game.mino !== this.currentMino) return;
+        this.isCalculating = true;
+        this.worker.postMessage({
+            type: 'calculate',
+            boardBuffer: data.boardBuffer,
+            currentType: data.currentType,
+            holdType: data.holdType,
+            next1: data.next1,
+            next2: data.next2,
+            next3: data.next3,
+            next4: data.next4,
+            next5: data.next5,
+            canHold: data.canHold,
+            weightsArray: data.weightsArray,
+            ren: data.ren,
+            backToBack: data.backToBack
+        });
+    }
+
     // ── ★PC探索を起動すべき盤面か ──
-    //   条件: ブロック総数が偶数 AND PC_MAX_BLOCKS以下（10手×4ブロックで埋めきれる規模）
     shouldSearchPC() {
         if (!this.pcWorkerReady) return false;
-        const count = this.game.field.blocks.length;
-        return (count % 2 === 0) && (count <= this.PC_MAX_BLOCKS);
+        return this.game.field.blocks.length === 0;
     }
 
     // ── ★PC探索リクエスト送信（ネクストを11個=current+next0..9 に拡張）──
@@ -848,9 +885,6 @@ window.CPU6 = class {
         if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
         if (!this.isActive) return;
 
-        const beamPending = this.pendingBeamResult;
-        this.pendingBeamResult = null;
-
         if (data.found && data.sequence && data.sequence.length > 0 &&
             this.isAutoPlay && this.game.mino === this.currentMino && !this.isExecutingAction) {
             const expected = data.sequence[0];
@@ -860,16 +894,44 @@ window.CPU6 = class {
                 this.pcSequence.shift();
                 if (this.pcSequence.length === 0) this.pcSequence = null;
                 this.executePCMove(expected);
+                this.pcFallbackData = null;
                 return;
             } else {
                 this.pcSequence = null; // 第1手の検証に失敗
             }
         }
-        // PC見つからず or 検証失敗 → 退避していたビームサーチ結果へフォールバック
-        if (beamPending && this.isAutoPlay && this.isActive &&
+        // PC見つからず or 検証失敗 → ビームサーチを起動
+        const fallback = this.pcFallbackData;
+        this.pcFallbackData = null;
+        if (this.isAutoPlay && this.isActive &&
             this.game.mino === this.currentMino && !this.isExecutingAction) {
-            this.executeAction(beamPending);
+            this.startBeamSearch(fallback);
         }
+    }
+
+    // ── ★PC手順の次の1手を実行する（直前の手のアクション完了後に呼ばれる）──
+    runNextPCMove() {
+        if (!this.isActive) return;
+        if (!this.pcSequence || this.pcSequence.length === 0) {
+            this.pcSequence = null; // PC完了。次ピースは通常の onMinoSpawned が処理
+            return;
+        }
+        // 直前の操作の完了と次ピースの出現を待つ
+        if (this.isExecutingAction || !this.game.mino) {
+            setTimeout(() => this.runNextPCMove(), 20);
+            return;
+        }
+        this.currentMino = this.game.mino; // onMinoSpawned の重複発火を抑止
+        const expected = this.pcSequence[0];
+        if (!this.validatePCStep(expected)) {
+            // 盤面が想定とずれた（ガベージ等）→ 手順を破棄して通常モードへ
+            console.log("💎 PC sequence invalidated → fall back to eval");
+            this.pcSequence = null;
+            this.currentMino = null; // onMinoSpawned を再発火させ通常評価へ戻す
+            return;
+        }
+        this.pcSequence.shift();
+        this.executePCMove(expected);
     }
 
     // ── ★PC手順1手の実行（ホールド→回転→移動→ハードドロップ）──
@@ -898,7 +960,7 @@ window.CPU6 = class {
         // PCモード表示
         const evalEl = document.getElementById('eval-value');
         if (evalEl) evalEl.textContent = 'PC';
-        if (this.estimateContainer) this.estimateContainer.innerHTML = '';
+        this.renderPCEstimate(move);
 
         if (this.isAutoPlay) {
             this.isExecutingAction = true;
@@ -1013,24 +1075,7 @@ window.CPU6 = class {
         }
 
         if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino && bestMove.p1) {
-            if (this.pcSearchActive) {
-                // ★PC探索中 → ビーム結果を退避して待機。タイムアウトでフォールバック
-                this.pendingBeamResult = bestMove;
-                if (this.pcFallbackTimer) clearTimeout(this.pcFallbackTimer);
-                this.pcFallbackTimer = setTimeout(() => {
-                    this.pcFallbackTimer = null;
-                    if (!this.isActive) return;
-                    if (this.pcSequence) return;                 // PCが間に合った
-                    if (this.game.mino !== this.currentMino) return;
-                    const r = this.pendingBeamResult;
-                    this.pendingBeamResult = null;
-                    this.pcSearchActive = false;
-                    this.pcSearchId++;                           // 遅延して来るPC結果を無効化
-                    if (r) this.executeAction(r);
-                }, this.PC_TIMEOUT_MS);
-            } else {
-                this.executeAction(bestMove);
-            }
+            this.executeAction(bestMove);
         }
     }
 
@@ -1119,6 +1164,68 @@ window.CPU6 = class {
                 yMap = newYMap;
             }
         }
+    }
+
+    renderPCEstimate(currentMove) {
+        if (!this.estimateContainer) this.initEstimateContainer();
+        if (!this.estimateContainer) return;
+
+        this.estimateContainer.innerHTML = '';
+        if (!this.isActive) return;
+
+        const allMoves = [];
+        if (currentMove) {
+            allMoves.push({ id: currentMove.id, rot: currentMove.rot, x: currentMove.x, y: currentMove.y });
+        }
+        if (this.pcSequence) {
+            for (const m of this.pcSequence) {
+                allMoves.push({ id: m.minoType, rot: m.rot, x: m.x, y: m.y - 5 });
+            }
+        }
+
+        for (let i = 0; i < allMoves.length; i++) {
+            const borderOpacity = i === 0 ? 0.9 : Math.max(0.25, 0.5 - i * 0.03);
+            const bgOpacity     = i === 0 ? 0.3 : Math.max(0.05, 0.12 - i * 0.01);
+            const zIndex        = Math.max(1, 11 - i);
+            this.renderPCSinglePiece(allMoves[i], borderOpacity, bgOpacity, zIndex);
+        }
+    }
+
+    renderPCSinglePiece(pData, borderOpacity, bgOpacity, zIndex) {
+        const colorMap = {
+            0: '0, 240, 240',
+            1: '240, 240, 0',
+            2: '160, 0, 240',
+            3: '0, 0, 240',
+            4: '240, 160, 0',
+            5: '0, 240, 0',
+            6: '240, 0, 0'
+        };
+        const rgb = colorMap[pData.id] ?? '255, 255, 255';
+
+        let simMino = new Mino(pData.id);
+        for (let i = 0; i < pData.rot; i++) simMino.rotate();
+
+        simMino.blocks.forEach(block => {
+            const drawX = block.x + pData.x;
+            const drawY = block.y + pData.y;
+            if (drawY < -5 || drawY >= 20) return;
+
+            const div = document.createElement('div');
+            div.style.position = 'absolute';
+            div.style.width = '32px';
+            div.style.height = '32px';
+            div.style.boxSizing = 'border-box';
+            div.style.borderWidth = '2px';
+            div.style.borderStyle = 'solid';
+            div.style.borderRadius = '2px';
+            div.style.backgroundColor = `rgba(${rgb}, ${bgOpacity})`;
+            div.style.borderColor = `rgba(${rgb}, ${borderOpacity})`;
+            div.style.zIndex = String(zIndex);
+            div.style.left = `${drawX * 32}px`;
+            div.style.top = `${(drawY + 0.5) * 32}px`;
+            this.estimateContainer.appendChild(div);
+        });
     }
 
     createEstimateBlocks(pData, stepClass, yMap) {
