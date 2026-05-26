@@ -527,20 +527,21 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
     score += step3PlusCount * w.step3Plus;
 
     // Iウェル評価
+    // 最下段まで連続している場合のみスコアに反映（中断したウェルは無視）
     int totalIWellScore = 0;
     for(int x = 0; x < COLS; x++) {
-        int continuousEmpty = 0; int maxContinuous = 0;
+        int continuousEmpty = 0;
         for(int y = 0; y < ROWS; y++) {
             if(__builtin_popcount(b.rows[y]) == 9 && !((b.rows[y] >> x) & 1)) {
                 continuousEmpty++;
-                if(continuousEmpty > maxContinuous) maxContinuous = continuousEmpty;
             } else {
                 continuousEmpty = 0;
             }
         }
-        if(maxContinuous > 0) {
-            int wellScore = (maxContinuous <= 10) ? maxContinuous * w.iWell
-                                                  : 10 * w.iWell + (maxContinuous - 10) * w.iWellOver;
+        // ループ終了後のcontinuousEmptyは最下段を含む連続深さ（0なら底に届いていない）
+        if(continuousEmpty > 0) {
+            int wellScore = (continuousEmpty <= 10) ? continuousEmpty * w.iWell
+                                                    : 10 * w.iWell + (continuousEmpty - 10) * w.iWellOver;
             if (x <= 1 || x >= 8) totalIWellScore -= wellScore / 4;
             else                   totalIWellScore += wellScore;
         }
@@ -560,22 +561,23 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
         inv &= ~((1 << (firstBlockY + 1)) - 1); // 最初のブロックより上空を無視
         if (inv != 0) {
             int lowestHoleY = 31 - __builtin_clz(inv); // 一番下にある穴の位置を特定
-            uint32_t valid_blocks = c & ~tsdr_mask;     // TSD地形を除外したブロック列
+            // 高さ13以上はTSD地形の行も穴の上のブロックとしてカウント（危機的状況の検知）
+            uint32_t valid_blocks = (maxHeight <= 12) ? (c & ~tsdr_mask) : c;
             valid_blocks &= ((1 << lowestHoleY) - 1);  // 穴より上空のブロックだけを残す
             totalBlocksOverLowestHole += __builtin_popcount(valid_blocks);
         }
     }
     score += totalBlocksOverLowestHole * w.blocksOverHole;
 
-    // TSD形状評価
-    if (tsd.count == 1) {
-        score += w.tsdShape * tsd.multiplier / 100;
+    // TSD形状評価 - 盤面の汚さに応じてTSDボーナスを減衰させる
+    // 穴が多い・穴の上に積みが多い場合にTSD追求を抑制し、掘り動作へ誘導する
+    if (tsd.count >= 1) {
+        int dirtPenalty = holes * 10 + totalBlocksOverLowestHole * 4;
+        int tsdFactor = std::max(10, 100 - dirtPenalty);
+        score += w.tsdShape * tsd.multiplier / 100 * tsdFactor / 100;
         score += tsd.fillCount * w.tsdFillBonus;
         score += tsd.holeCount * w.tsdHolePenalty;
-    } else if (tsd.count >= 2) {
-        score += w.tsdShape * tsd.multiplier / 100;
-        score += (tsd.count - 1) * w.tsdShapeOver;
-        score += tsd.holeCount * w.tsdHolePenalty;
+        if (tsd.count >= 2) score += (tsd.count - 1) * w.tsdShapeOver;
     }
 
     // TSDセットアップ評価
@@ -693,6 +695,7 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
 //
 // 引数：
 //   afterBoard  : 配置＆ライン消去後の盤面
+//   beforeClearBoard: 配置後・ライン消去前の盤面（downstack判定に使用）
 //   linesCleared: 消去ライン数
 //   isGrounded  : 完全接地しているか
 //   touchingCount: 接触ブロック数
@@ -700,10 +703,11 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
 //   ren         : 配置前のコンボ数
 //   backToBack  : 配置前のBtB状態
 //   droppedBlocks: 置いたミノの4ブロック座標
-//   prevMaxHeight: 配置前の盤面最大高さ（downstack判定に使用）
+//   prevMaxHeight: 配置前の盤面最大高さ
 // ────────────────────────────────────────────────
 int evalPlacementEvent(
     const Board& afterBoard,
+    const Board& beforeClearBoard,
     int linesCleared, bool isGrounded, int touchingCount,
     int tSpinType, int ren, bool backToBack,
     const GridBlock* droppedBlocks,
@@ -716,16 +720,44 @@ int evalPlacementEvent(
     if (linesCleared > 0) score += (linesCleared - 2) * w.lineClear;
     if (linesCleared >= 4) score += w.line4;
 
-    // ── ダウンスタック（低いところへ消去した報酬） ──
-    if (linesCleared >= 1 && linesCleared <= 3 && droppedBlocks != nullptr) {
-        int minoBottomY = -1;
-        for (int i = 0; i < 4; i++) {
-            if (droppedBlocks[i].y > minoBottomY) minoBottomY = droppedBlocks[i].y;
+    // ── ダウンスタック（穴に蓋をせず掘れたかを評価） ──
+    // 盤面にholeが存在し、1〜3ライン消去が発生した場合のみ処理する。
+    // A: 消去最下段の1つ下の行の空白位置 / B: 消去最上段の1つ上の行のブロック位置。
+    // 消去後はBの行がAの真上に落ちる。Aの空白の上にBのブロックが乗る(=穴に蓋)ならbad、乗らなければgood。
+    if (linesCleared >= 1 && linesCleared <= 3) {
+        // 消去前盤面にholeが存在するか（あるブロックの下に空白があるか）を上から走査して判定
+        bool hasHole = false;
+        uint16_t filledAbove = 0;
+        for (int y = 0; y < ROWS; y++) {
+            uint16_t row = beforeClearBoard.rows[y] & 0x3FF;
+            if ((~row) & filledAbove & 0x3FF) { hasHole = true; break; }
+            filledAbove |= row;
         }
-        int n = (ROWS - 1) - minoBottomY;
-        if (n < 0) n = 0;
-        if (n >= 3 && isGrounded) score += w.downstackGood * n;
-        else if (n < 3)           score += w.downstackBad * 10 * n;
+
+        if (hasHole) {
+            // 消去ライン(満杯=0x3FF)の最上段(最小y)・最下段(最大y)を特定
+            int clearTopY = -1, clearBottomY = -1;
+            for (int y = 0; y < ROWS; y++) {
+                if (beforeClearBoard.rows[y] == 0x3FF) {
+                    if (clearTopY == -1) clearTopY = y;
+                    clearBottomY = y;
+                }
+            }
+
+            // A: 消去最下段の1つ下の行の空白位置（盤面外は満杯扱い＝空白なし）
+            uint16_t rowA   = (clearBottomY + 1 < ROWS) ? beforeClearBoard.rows[clearBottomY + 1] : 0x3FF;
+            uint16_t emptyA = (~rowA) & 0x3FF;
+
+            // B: 消去最上段の1つ上の行のブロック位置（盤面外はブロックなし扱い）
+            uint16_t rowB   = (clearTopY - 1 >= 0) ? beforeClearBoard.rows[clearTopY - 1] : 0;
+            uint16_t blockB = rowB & 0x3FF;
+
+            // 消去後、Aの空白の真上にBのブロックが来る(overlap)か
+            uint16_t overlap = emptyA & blockB;
+
+            if (overlap != 0) score += w.downstackBad;   // 穴に蓋をしてしまう
+            else              score += w.downstackGood;  // 穴を埋めずきれいに掘れた
+        }
     }
 
     // ── 接地・接触ボーナス ──
@@ -1082,8 +1114,9 @@ void evaluateSinglePlacementWasm(
     for(int i=0; i<4; i++) {
         simBoard.set(blocks[i].x, blocks[i].y);
     }
-    
+
     PlacementInfo info = calcPlacementInfo(baseBoard, blocks);
+    Board beforeClearBoard = simBoard; // ライン消去前の盤面を保存（downstack判定用）
     int cleared = simBoard.checkLineAndClear();
 
     // ★分割対応：配置後盤面の評価値（stateScore）を evalBoardState で取得
@@ -1091,7 +1124,7 @@ void evaluateSinglePlacementWasm(
 
     // ★分割対応：配置イベントの報酬（eventScore）を evalPlacementEvent で取得
     int eventScore = evalPlacementEvent(
-        simBoard, cleared, info.isFullyGrounded, info.touchingCount,
+        simBoard, beforeClearBoard, cleared, info.isFullyGrounded, info.touchingCount,
         tSpinType, ren, backToBack != 0, blocks, baseMaxHeight, w
     );
 
@@ -1220,6 +1253,7 @@ void searchBestMoveWasm(
             for(int k=0; k<4; k++) {
                 simBoard.set(p.blocks[k].x, p.blocks[k].y);
             }
+            Board beforeClearBoard = simBoard; // ライン消去前の盤面を保存（downstack判定用）
             simBoard.checkLineAndClear();
 
             int cur_ren = is_first ? ren : s.ren;
@@ -1232,7 +1266,7 @@ void searchBestMoveWasm(
             // ★分割対応：報酬（その1手のイベント）を evalPlacementEvent で取得
             int prevHeight = is_first ? baseMaxHeight : s.max_height;
             int eventScore = evalPlacementEvent(
-                simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount,
+                simBoard, beforeClearBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount,
                 p.tSpinType, cur_ren, cur_btb, p.blocks, prevHeight, w
             );
 
