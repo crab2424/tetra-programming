@@ -1253,6 +1253,9 @@ async function startGameFromModeCheck() {
         'Tab','CapsLock','ScrollLock','NumLock','PrintScreen','Pause'].includes(e.key)) return;
     switchPage('main-menu');
   });
+
+  // 初期ロード時（HTMLのactiveクラスで表示）もメニューと同じ登場演出を再生
+  if (typeof initMenuAnimations === 'function') initMenuAnimations('title');
 })();
 
 function _switchToPuyoLayout(isPuyo) {
