@@ -302,9 +302,6 @@ bool pcDfs(const Board& board, int curPiece, int holdPiece, int nextIdx, int pla
             for (int i = 0; i < 4; i++)
                 if (p.blocks[i].y < ROWS - g_H) { inRegion = false; break; }
             if (!inRegion) continue;
-            // 穴を作らないか
-            if (!isSolidPlacement(board, p.blocks)) continue;
-
             Board nb = board;
             for (int i = 0; i < 4; i++) nb.set(p.blocks[i].x, p.blocks[i].y);
 
@@ -390,10 +387,11 @@ void searchPerfectClearWasm(
         int H = (B + 4 * N) / 10;
         if (H > ROWS) continue;
         if (H < minH) continue; // 既存スタックが目標高さより高い → 不可能
+        if (B == 0 && N != 10) continue; // 空盤面は4ラインPC(N=10)のみ
 
         g_N = N;
         g_H = H;
-        g_nodeBudget = 200000; // ノード上限（パフォーマンス保護）
+        g_nodeBudget = (B == 0) ? 500000 : 200000;
         g_seq.clear();
 
         int firstPiece = g_queue[0];
@@ -405,10 +403,10 @@ void searchPerfectClearWasm(
             for (int i = 0; i < cnt && i < 15; i++) {
                 PCResultMove& m = g_seq[i];
                 int packed = (m.minoType & 0x7)
-                           | ((m.rot & 0x3) << 3)
-                           | ((m.x & 0xF) << 5)
-                           | ((m.y & 0x1F) << 9)
-                           | ((m.useHold & 0x1) << 14);
+                        | ((m.rot & 0x3) << 3)
+                        | ((m.x & 0xF) << 5)
+                        | ((m.y & 0x1F) << 9)
+                        | ((m.useHold & 0x1) << 14);
                 outResult[1 + i] = packed;
             }
             return;
