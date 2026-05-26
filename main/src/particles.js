@@ -137,7 +137,16 @@ function initMenuAnimations(pageId = 'main-menu') {
 
     let targets = [];
 
-    if (pageId === 'main-menu') {
+    if (pageId === 'title') {
+        // タイトル内の4要素をメインメニューと同じ menuEnter で順番に登場させる。
+        // PRESS ANY KEY の点滅・v1.1 の減光は内側spanで維持される（animation衝突回避）。
+        targets = [
+            { sel: '.title-main-title',         cls: 'menu-enter',  delay: 0   },
+            { sel: '.title-subtitle',           cls: 'menu-enter',  delay: 1   },
+            { sel: '#title-press-any',          cls: 'menu-enter',  delay: 2   },
+            { sel: '#title-version',            cls: 'menu-enter',  delay: 3   },
+        ];
+    } else if (pageId === 'main-menu') {
         targets = [
             { sel: '#main-menu-logo',           cls: 'menu-enter',  delay: 0   },
             { sel: '.mode-btn-marathon',        cls: 'menu-enter',  delay: 1   },
