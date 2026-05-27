@@ -574,6 +574,25 @@ window.CPU6 = class {
         // ★デバッグ用初期盤面（CPU6.DEBUG_BOARD が null でなければ適用）
         if (CPU6.DEBUG_BOARD !== null) {
             this.game.applyDebugBoard(CPU6.DEBUG_BOARD);
+            // カウントダウン中から盤面が見えるよう即時再描画
+            if (typeof this.game.drawAll === 'function') this.game.drawAll();
+
+            // リスタート時（game.start の再呼び出し）にも盤面を再適用するため
+            // game.start をラップする（二重ラップ防止のためフラグで管理）
+            if (!this.game._debugBoardStartWrapped) {
+                const origStart = this.game.start.bind(this.game);
+                const self = this;
+                this.game.start = function() {
+                    origStart();
+                    // _initGameState() で field がリセットされた直後に再適用
+                    if (CPU6.DEBUG_BOARD !== null) {
+                        self.game.applyDebugBoard(CPU6.DEBUG_BOARD);
+                        if (typeof self.game.drawAll === 'function') self.game.drawAll();
+                    }
+                };
+                this.game._debugBoardStartWrapped = true;
+                this.game._debugBoardOrigStart   = origStart;
+            }
         }
         this.initEstimateContainer();
         this.updateLoop();
@@ -599,6 +618,12 @@ window.CPU6 = class {
             this.pcWorker.terminate();
             this.pcWorker = null;
             this.pcWorkerReady = false;
+        }
+        // ★デバッグ用 game.start ラップを解除
+        if (this.game && this.game._debugBoardStartWrapped) {
+            this.game.start = this.game._debugBoardOrigStart;
+            delete this.game._debugBoardStartWrapped;
+            delete this.game._debugBoardOrigStart;
         }
     }
 
@@ -1285,27 +1310,6 @@ window.CPU6 = class {
 //   1 = ブロックあり、0 = なし
 //   行0 = 最上段（y=0）、列0 = 左端（x=0）
 // ─────────────────────────────────────────────
-//CPU6.DEBUG_BOARD = null;
+    CPU6.DEBUG_BOARD = null;
 // 使うときは以下のコメントを外して値を編集する:
-    CPU6.DEBUG_BOARD = [
-    [1,1,1,0,0,0,0,1,1,0], // row 0  (上)
-    [1,1,1,0,0,0,0,1,1,0], // row 1
-    [1,1,1,0,0,0,0,1,1,0], // row 2
-    [1,1,1,0,0,0,1,1,1,0], // row 3
-    [0,0,0,1,0,1,1,0,1,0], // row 4
-    [0,0,0,1,0,0,1,0,1,0], // row 5
-    [0,0,0,0,1,0,0,0,1,0], // row 6
-    [0,0,0,0,0,0,0,0,1,0], // row 7
-    [0,0,0,0,0,0,0,0,1,0], // row 8
-    [0,0,0,0,0,0,0,0,1,0], // row 9
-    [0,0,0,0,0,0,0,0,1,0], // row 10
-    [0,0,0,0,0,0,0,0,1,0], // row 11
-    [0,0,0,0,0,0,0,0,1,0], // row 12
-    [0,0,0,0,0,0,0,1,1,0], // row 13
-    [1,1,1,0,0,0,0,1,1,0], // row 14
-    [1,1,1,0,0,0,0,1,1,0], // row 15
-    [1,1,1,0,0,0,1,1,1,0], // row 16
-    [1,1,1,1,0,0,1,1,1,0], // row 17
-    [1,1,1,1,0,1,1,1,1,0], // row 18
-    [1,1,1,1,0,1,1,1,1,0], // row 19 (下)
-    ];
+    
