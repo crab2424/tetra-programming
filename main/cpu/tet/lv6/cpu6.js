@@ -32,7 +32,7 @@ window.CPU6 = class {
             
             iWell: 200,           
             iWellOver: -400,      
-            blocksOverHole: -55,
+            blocksOverHole: -85,
 
             line4: 1000,
             downstackGood: 120,
@@ -45,7 +45,7 @@ window.CPU6 = class {
             tssClear: 256,       
             tsdClear: 2560,      
             tsdHolePenalty: -60, 
-            pureHole: -4000,         
+            pureHole: -100,         
 
             comboBonus: 20,   
             btbKeep: 496,     
@@ -468,26 +468,19 @@ window.CPU6 = class {
                 this.game.tryRotate(-1);
                 break;
             case 'moveLeft':
-                if (this.game.valid(-1, 0)) this.game.mino.x--;
+                this.game.moveLeft();
                 break;
             case 'moveRight':
-                if (this.game.valid(1, 0)) this.game.mino.x++;
+                this.game.moveRight();
                 break;
             case 'softDrop':
-                if (this.game.valid(0, 1)) {
-                    this.game.mino.y++;
-                    this.game.score += 1;
-                    this.game.updateLowestY();
-                }
+                this.game.softDropOne();
                 break;
             case 'multiSoftDrop':
                 if (this.game.mino.y >= action.targetY) {
                     action.delay = 0;
                 } else {
-                    if (this.game.valid(0, 1)) {
-                        this.game.mino.y++;
-                        this.game.score += 1;
-                        this.game.updateLowestY();
+                    if (this.game.softDropOne()) {
                         this.actionQueue.unshift(action);
                     } else {
                         action.delay = 0;
@@ -578,6 +571,10 @@ window.CPU6 = class {
 
     start() {
         this.isActive = true;
+        // ★デバッグ用初期盤面（CPU6.DEBUG_BOARD が null でなければ適用）
+        if (CPU6.DEBUG_BOARD !== null) {
+            this.game.applyDebugBoard(CPU6.DEBUG_BOARD);
+        }
         this.initEstimateContainer();
         this.updateLoop();
     }
@@ -705,6 +702,9 @@ window.CPU6 = class {
         // 手順の進行は各手のアクション完了時に runNextPCMove が駆動する。
         // （hold操作で中間的に game.mino が入れ替わっても誤発火しないようにするため）
         if (this.pcSequence) return;
+
+        // ★追加：古い評価結果を破棄して、tryFinishによる誤った再実行（無限ホールド等）を防ぐ
+        this.bestMoveData = null;
 
         if (!this.workerReady) {
             if (this.isAutoPlay) {
@@ -931,6 +931,7 @@ window.CPU6 = class {
             return;
         }
         this.pcSequence.shift();
+        if (this.pcSequence.length === 0) this.pcSequence = null; // 空配列はtruthy → onMinoSpawnedの早期returnを防ぐ
         this.executePCMove(expected);
     }
 
@@ -1277,3 +1278,34 @@ window.CPU6 = class {
         });
     }
 };
+
+// ─────────────────────────────────────────────
+// ★デバッグ用初期盤面
+//   null にすると無効（通常プレイ）
+//   1 = ブロックあり、0 = なし
+//   行0 = 最上段（y=0）、列0 = 左端（x=0）
+// ─────────────────────────────────────────────
+//CPU6.DEBUG_BOARD = null;
+// 使うときは以下のコメントを外して値を編集する:
+    CPU6.DEBUG_BOARD = [
+    [1,1,1,0,0,0,0,1,1,0], // row 0  (上)
+    [1,1,1,0,0,0,0,1,1,0], // row 1
+    [1,1,1,0,0,0,0,1,1,0], // row 2
+    [1,1,1,0,0,0,1,1,1,0], // row 3
+    [0,0,0,1,0,1,1,0,1,0], // row 4
+    [0,0,0,1,0,0,1,0,1,0], // row 5
+    [0,0,0,0,1,0,0,0,1,0], // row 6
+    [0,0,0,0,0,0,0,0,1,0], // row 7
+    [0,0,0,0,0,0,0,0,1,0], // row 8
+    [0,0,0,0,0,0,0,0,1,0], // row 9
+    [0,0,0,0,0,0,0,0,1,0], // row 10
+    [0,0,0,0,0,0,0,0,1,0], // row 11
+    [0,0,0,0,0,0,0,0,1,0], // row 12
+    [0,0,0,0,0,0,0,1,1,0], // row 13
+    [1,1,1,0,0,0,0,1,1,0], // row 14
+    [1,1,1,0,0,0,0,1,1,0], // row 15
+    [1,1,1,0,0,0,1,1,1,0], // row 16
+    [1,1,1,1,0,0,1,1,1,0], // row 17
+    [1,1,1,1,0,1,1,1,1,0], // row 18
+    [1,1,1,1,0,1,1,1,1,0], // row 19 (下)
+    ];
