@@ -1751,6 +1751,54 @@ class Game {
     }
 
     // ─────────────────────────────────────────
+    // デバッグ用：初期盤面を2D配列で設定する
+    //   board: 20行×10列の配列（board[0]が最上段、board[19]が最下段）
+    //          1=ブロックあり、0=なし
+    // ─────────────────────────────────────────
+    applyDebugBoard(board) {
+        if (!board) return;
+        this.field.blocks = [];
+        for (let row = 0; row < 20; row++) {
+            for (let col = 0; col < 10; col++) {
+                if (board[row][col] === 1) {
+                    this.field.blocks.push(new Block(col, row, 7)); // type7 = グレー（ゴミブロック色）
+                }
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────
+    // CPU / 外部から呼び出す単純移動ヘルパー
+    // ─────────────────────────────────────────
+    moveLeft() {
+        if (this.valid(-1, 0)) {
+            this.mino.x--;
+            this.lastActionWasRotation = false;
+            return true;
+        }
+        return false;
+    }
+
+    moveRight() {
+        if (this.valid(1, 0)) {
+            this.mino.x++;
+            this.lastActionWasRotation = false;
+            return true;
+        }
+        return false;
+    }
+
+    softDropOne() {
+        if (this.valid(0, 1)) {
+            this.mino.y++;
+            this.score += 1;
+            this.updateLowestY();
+            return true;
+        }
+        return false;
+    }
+
+    // ─────────────────────────────────────────
     // キーイベント（localStorage のキー設定を参照）
     // ─────────────────────────────────────────
     setKeyEvent() {
