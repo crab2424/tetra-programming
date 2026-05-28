@@ -1662,6 +1662,9 @@ class Game {
     }
 
     dropMino() {
+        // CPU操作中は重力を無効（ソフトドロップとの干渉を防ぐ）
+        // フリーズ（接地）はcheckGroundStateで別途管理されるため影響なし
+        if (this.gravityDisabled) return;
         if (this.valid(0, 1)) {
             this.mino.y++;
             this.updateLowestY();
