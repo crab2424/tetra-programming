@@ -404,167 +404,17 @@ window.CPU6 = class {
             return queue;
         }
 
-        if (bestI > 0) {
-            let st = states[bestI];
-            
-            let diff = (st.rot - startRot + 4) % 4; 
-            let rotActions = [];
-            if (diff === 1) rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); 
-            else if (diff === 2) { rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); }
-            else if (diff === 3) rotActions.push({ type: 'rotateCCW', delay: this.actionDelay }); 
-            
-            let moveAction = null;
-            if (st.x !== startX) {
-                moveAction = { type: 'moveToTargetX', targetX: st.x, delay: this.actionDelay };
-            }
 
-            if (bestTopOrder === 'rotate_first') {
-                queue.push(...rotActions);
-                if (moveAction) queue.push(moveAction);
-            } else {
-                if (moveAction) queue.push(moveAction);
-                queue.push(...rotActions);
-            }
-            
-            let hasSoftDropSequence = false;
-            let softDropTargetY = -1;
-            for (let j = bestI; j < path.length; j++) {
-                let actId = path[j];
-                let type = ACTION_MAP[actId];
-                if (type === 'softDrop') {
-                    hasSoftDropSequence = true;
-                    softDropTargetY = states[j + 1].y;
-                } else {
-                    if (hasSoftDropSequence) {
-                        queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
-                        hasSoftDropSequence = false;
-                    }
-                    if (type) {
-                        let delay = type === 'harddrop' ? this.harddropDelay : this.actionDelay;
-                        queue.push({ type: type, delay: delay });
-                    }
-                }
-            }
-            if (hasSoftDropSequence) {
-                queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
-            }
-            
-            return queue;
-        }
-
-        // フォールバック: bestI=-1（ストレートドロップ不可）
-        // path 先頭の moves/rotations prefix（最初のSDより前）を先にemitすることで
-        // 「移動回転 → ソフトドロップ → その他移動回転」の制約に可能な限り近づける
-        const firstSdIdx = path.findIndex(actId => actId === 3);
-        console.log("[Optimize] firstSdIdx:", firstSdIdx);
-
-        let startJ = 0;
-        if (firstSdIdx > 0) {
-            // SDより前の moves/rotations を先出し
-            for (let j = 0; j < firstSdIdx; j++) {
-                let type = ACTION_MAP[path[j]];
-                if (type) queue.push({ type: type, delay: this.actionDelay });
-            }
-            startJ = firstSdIdx;
-        } else if (firstSdIdx === 0) {
-            // path が SD先行の場合: [sd1, ac1, sd2, ac2, hd] 構造で
-            // ac1の終点が空中かつ即時落下判定を満たすなら sd1 と ac1 を入れ替える
-
-            // sd1 の終端（連続するSDの末尾の次）を探す
-            let sd1End = 0;
-            while (sd1End < path.length && path[sd1End] === 3) sd1End++;
-
-            // ac1 の終端（次のSD or HD に当たるまで）を探す
-            let ac1End = sd1End;
-            while (ac1End < path.length && path[ac1End] !== 3 && path[ac1End] !== 6) ac1End++;
-
-            // ac1 が存在し、その終点 state が有効範囲内かチェック
-            if (sd1End < ac1End && ac1End < states.length) {
-                const ac1State = states[ac1End];
-                console.log("[Optimize] sd1End:", sd1End, "ac1End:", ac1End, "ac1State:", ac1State);
-
-                let swapOrder = null;
-                // まず ac1State.x で startY から ac1State.y まで落下可能か
-                if (this.canDropStraightFromTo(ac1State.x, startY, ac1State.y, ac1State.rot, bestResult.id)) {
-                    swapOrder = getSafeTopMoves(ac1State.x, ac1State.rot);
-                }
-
-                console.log("[Optimize] swapOrder returned:", swapOrder);
-                if (swapOrder) {
-                    // ac1 を moveToTargetX と回転アクションで emit（最適化）
-                    let diff = (ac1State.rot - startRot + 4) % 4;
-                    let rotActions = [];
-                    if (diff === 1) rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); 
-                    else if (diff === 2) { rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); }
-                    else if (diff === 3) rotActions.push({ type: 'rotateCCW', delay: this.actionDelay }); 
-                    
-                    let moveAction = null;
-                    if (ac1State.x !== startX) {
-                        moveAction = { type: 'moveToTargetX', targetX: ac1State.x, delay: this.actionDelay };
-                    }
-
-                    if (swapOrder === 'rotate_first') {
-                        queue.push(...rotActions);
-                        if (moveAction) queue.push(moveAction);
-                    } else {
-                        if (moveAction) queue.push(moveAction);
-                        queue.push(...rotActions);
-                    }
-
-                    // sd1 + path[ac1End:] を SD グループ化しながら emit
-                    // sd1 と後続の sd2 は自動的に1つの multiSoftDrop に合算される
-                    let hasSSD = false, sSDTargetY = -1;
-                    for (let j = 0; j < sd1End; j++) {
-                        hasSSD = true;
-                        sSDTargetY = states[j + 1].y;
-                    }
-                    for (let j = ac1End; j < path.length; j++) {
-                        const actId = path[j];
-                        const type = ACTION_MAP[actId];
-                        if (type === 'softDrop') {
-                            hasSSD = true;
-                            sSDTargetY = states[j + 1].y;
-                        } else {
-                            if (hasSSD) {
-                                queue.push({ type: 'multiSoftDrop', targetY: sSDTargetY, delay: softDropDelay });
-                                hasSSD = false;
-                            }
-                            if (type) {
-                                const delay = type === 'harddrop' ? this.harddropDelay : this.actionDelay;
-                                queue.push({ type: type, delay: delay });
-                            }
-                        }
-                    }
-                    if (hasSSD) {
-                        queue.push({ type: 'multiSoftDrop', targetY: sSDTargetY, delay: softDropDelay });
-                    }
-
-                    return queue;
-                }
+        // 仮の単純なパス実行処理（空キューによるフリーズ回避と、最低限の動作確保のため）
+        for (let i = 0; i < path.length; i++) {
+            let type = ACTION_MAP[path[i]];
+            if (type) {
+                let delay = type === 'harddrop' ? this.harddropDelay : this.actionDelay;
+                queue.push({ type: type, delay: delay });
             }
         }
-
-        let hasSoftDropSequence = false;
-        let softDropTargetY = -1;
-        for (let j = startJ; j < path.length; j++) {
-            let actId = path[j];
-            let type = ACTION_MAP[actId];
-            if (type === 'softDrop') {
-                hasSoftDropSequence = true;
-                softDropTargetY = states[j + 1].y;
-            } else {
-                if (hasSoftDropSequence) {
-                    queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
-                    hasSoftDropSequence = false;
-                }
-                if (type) {
-                    let delay = type === 'harddrop' ? this.harddropDelay : this.actionDelay;
-                    queue.push({ type: type, delay: delay });
-                }
-            }
-        }
-        if (hasSoftDropSequence) {
-            queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
+        if (path.length === 0 || path[path.length - 1] !== 6) {
+            queue.push({ type: 'harddrop', delay: this.harddropDelay });
         }
 
         return queue;
@@ -572,6 +422,9 @@ window.CPU6 = class {
 
     processActionQueue() {
         if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
+            if (this.game && this.isExecutingAction) {
+                this.game.gravityDisabled = false; // 空キューの場合に重力が停止したままになるのを防ぐ
+            }
             this.isExecutingAction = false;
             return;
         }
