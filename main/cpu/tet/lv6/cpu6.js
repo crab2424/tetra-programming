@@ -73,7 +73,7 @@ window.CPU6 = class {
 
         this.isExecutingAction = false; 
         this.actionQueue = [];          
-        this.actionDelay = 40; 
+        this.actionDelay = 100; 
         this.harddropDelay = 80; 
         
         this.worker.onmessage = (e) => {
@@ -312,47 +312,37 @@ window.CPU6 = class {
         this.game.lastActionWasRotation = backupLastActionWasRotation;
         this.game.lastRotUsedPoint5 = backupLastRotUsedPoint5;
 
-        // SD前の最後の状態（y == startY の最大インデックス）を分割点にする
-        // → pre-SD の全移動・回転を一括 prefix 化し、SD以降を residual path として正しく emit する
-        // ※ウォールキックで y が変化した回転後状態は y !== startY でフィルタし、
-        //   深い位置でのキックを path[bestI:] 側に残して game.tryRotate に委ねる
-
+        // (x1→x2, y, rot) の水平移動が全て衝突なく通過できるか
         const canMoveHorizontal = (x1, x2, y, rot) => {
             if (x1 === x2) return true;
-            let step = x2 > x1 ? 1 : -1;
+            const step = x2 > x1 ? 1 : -1;
             for (let tx = x1; tx !== x2 + step; tx += step) {
                 if (!this.canDropStraightFromTo(tx, y, y, rot, bestResult.id)) return false;
             }
             return true;
         };
 
-        const getSafeTopMoves = (targetX, targetRot) => {
-            let canRotateFirst = this.canDropStraightFromTo(startX, startY, startY, targetRot, bestResult.id) &&
-                                 canMoveHorizontal(startX, targetX, startY, targetRot);
-            if (canRotateFirst) return 'rotate_first';
-
-            let canMoveFirst = canMoveHorizontal(startX, targetX, startY, startRot) &&
-                               this.canDropStraightFromTo(targetX, startY, startY, targetRot, bestResult.id);
-            if (canMoveFirst) return 'move_first';
-
+        // (fromX, fromY, fromRot) → (toX, fromY, toRot) に直接到達可能か
+        // 'rotate_first' / 'move_first' / null を返す
+        const canReachDirectAt = (fromX, fromY, fromRot, toX, toRot) => {
+            if (this.canDropStraightFromTo(fromX, fromY, fromY, toRot, bestResult.id) &&
+                canMoveHorizontal(fromX, toX, fromY, toRot)) {
+                return 'rotate_first';
+            }
+            if (canMoveHorizontal(fromX, toX, fromY, fromRot) &&
+                this.canDropStraightFromTo(toX, fromY, fromY, toRot, bestResult.id)) {
+                return 'move_first';
+            }
             return null;
         };
 
-        let bestI = -1;
-        let bestTopOrder = null;
-        for (let i = states.length - 1; i >= 1; i--) {
-            let st = states[i];
-            if (st.y !== startY) continue;  // 垂直移動（キックによる y 変化含む）後はスキップ
-
-            if (this.canDropStraightFromTo(st.x, startY, st.y, st.rot, bestResult.id)) {
-                let order = getSafeTopMoves(st.x, st.rot);
-                if (order) {
-                    bestI = i;
-                    bestTopOrder = order;
-                    break;
-                }
-            }
-        }
+        // 回転差分をqueueに追加
+        const emitRot = (from, to) => {
+            const diff = (to - from + 4) % 4;
+            if (diff === 1) queue.push({ type: 'rotateCW', delay: this.actionDelay });
+            else if (diff === 2) { queue.push({ type: 'rotateCW', delay: this.actionDelay }); queue.push({ type: 'rotateCW', delay: this.actionDelay }); }
+            else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay });
+        };
 
         // BtB付きT-spinは即時落下を除外
         let skipInstantDrop = false;
@@ -360,63 +350,132 @@ window.CPU6 = class {
             skipInstantDrop = true;
         }
 
-        // 即時落下判定: startY から目標位置まで一直線に落下可能か、かつ上部での移動・回転が安全か
+        // 即時落下判定: スポーン高さから目標位置まで一直線に落下可能か
         const checkInstantDrop = () => {
             if (!this.canDropStraightFromTo(bestResult.x, startY, bestResult.y, bestResult.rot, bestResult.id)) return false;
-            return getSafeTopMoves(bestResult.x, bestResult.rot);
+            return canReachDirectAt(startX, startY, startRot, bestResult.x, bestResult.rot);
         };
 
         let instantDropOrder = null;
-        if (!skipInstantDrop) {
-            instantDropOrder = checkInstantDrop();
-        }
+        if (!skipInstantDrop) instantDropOrder = checkInstantDrop();
 
         if (instantDropOrder) {
             let targetRot = bestResult.rot;
-
-            // O/I/S/Z(id=0,1,5,6)はrot0とrot2が同形のため回転を省略できる場合は省略
+            // O/I/S/Z(id=0,1,5,6)はrot0とrot2が同形のため、現在rotと揃えて回転を省略
             if ([0, 1, 5, 6].includes(bestResult.id) && (bestResult.rot === 2 || bestResult.rot === 0)) {
-                if (startRot === 0 || startRot === 2) {
-                    targetRot = startRot;
-                }
+                if (startRot === 0 || startRot === 2) targetRot = startRot;
             }
-
-            let diff = (targetRot - startRot + 4) % 4;
-            let rotActions = [];
-            if (diff === 1) rotActions.push({ type: 'rotateCW', delay: this.actionDelay });
-            else if (diff === 2) { rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); }
-            else if (diff === 3) rotActions.push({ type: 'rotateCCW', delay: this.actionDelay });
-
-            let moveAction = null;
-            if (bestResult.x !== startX) {
-                moveAction = { type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay };
-            }
-
             if (instantDropOrder === 'rotate_first') {
-                queue.push(...rotActions);
-                if (moveAction) queue.push(moveAction);
+                emitRot(startRot, targetRot);
+                if (bestResult.x !== startX) queue.push({ type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay });
             } else {
-                if (moveAction) queue.push(moveAction);
-                queue.push(...rotActions);
+                if (bestResult.x !== startX) queue.push({ type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay });
+                emitRot(startRot, targetRot);
             }
-
             queue.push({ type: 'harddrop', delay: this.harddropDelay });
             return queue;
         }
 
-
-        // 仮の単純なパス実行処理（空キューによるフリーズ回避と、最低限の動作確保のため）
-        for (let i = 0; i < path.length; i++) {
-            let type = ACTION_MAP[path[i]];
-            if (type) {
-                let delay = type === 'harddrop' ? this.harddropDelay : this.actionDelay;
-                queue.push({ type: type, delay: delay });
+        // ── SD/AC群分割ベースのパス最適化 ──
+        // pathをSD群(連続するSD)とAC群(移動・回転)に分類し、各群を順に処理する。
+        //
+        // 判定に使う「座標」はSD群の始点のみ。隣り合うSD始点同士（preSdState → 次SD.from）で
+        // 直接到達可能かを判定する。SD始点 = 直前AC群の終点は同一なので、AC群の終点は参照しない。
+        //   直接到達可能  → AC先出し → pendingSD後出し（「移動回転→SD落下」の順）
+        //   直接到達不可  → pendingSD先出し → AC rawそのまま（「SD落下→移動回転」の順）
+        //
+        // AC群はpendingACGroupとして保留し、次のSD群が来た時点で判定する。
+        // 末尾がSD→ACで終わる場合は後続のSD始点が存在しないため最適化不可。
+        //
+        // pendingSDなしのAC群は始点→終点で単独判定する（SD不在時の通常最適化）。
+        const groups = [];
+        {
+            let i = 0;
+            while (i < path.length && path[i] !== 6) {
+                const isSd = path[i] === 3;
+                const start = i;
+                while (i < path.length && path[i] !== 6 && (path[i] === 3) === isSd) i++;
+                groups.push({ isSd, start, end: i });
             }
         }
-        if (path.length === 0 || path[path.length - 1] !== 6) {
-            queue.push({ type: 'harddrop', delay: this.harddropDelay });
+
+        let pendingSD      = null;   // まだ出力していないSD群のmultiSoftDropアクション
+        let preSdState     = null;   // pendingSDに対応するSD群の始点状態
+        let pendingACGroup = null;   // pendingSDと次のSD群の間のAC群（{start,end}）
+
+        for (const g of groups) {
+            const from = states[g.start];
+            const to   = states[g.end];
+
+            if (g.isSd) {
+                if (pendingSD) {
+                    // SD始点同士（preSdState → from）で直接到達可能か判定
+                    const order = canReachDirectAt(preSdState.x, preSdState.y, preSdState.rot, from.x, from.rot);
+                    if (order && pendingACGroup) {
+                        // 直接到達可能 → AC先出し → pendingSD後出し
+                        if (order === 'rotate_first') {
+                            emitRot(preSdState.rot, from.rot);
+                            if (from.x !== preSdState.x) queue.push({ type: 'moveToTargetX', targetX: from.x, delay: this.actionDelay });
+                        } else {
+                            if (from.x !== preSdState.x) queue.push({ type: 'moveToTargetX', targetX: from.x, delay: this.actionDelay });
+                            emitRot(preSdState.rot, from.rot);
+                        }
+                        queue.push(pendingSD);
+                    } else {
+                        // 直接到達不可 → pendingSD先出し → AC rawそのまま出力
+                        queue.push(pendingSD);
+                        if (pendingACGroup) {
+                            for (let i = pendingACGroup.start; i < pendingACGroup.end; i++) {
+                                const type = ACTION_MAP[path[i]];
+                                if (type) queue.push({ type, delay: this.actionDelay });
+                            }
+                        }
+                    }
+                    pendingSD      = null;
+                    preSdState     = null;
+                    pendingACGroup = null;
+                }
+                // to.y === from.y（JSシミュレーション上no-op）でも常に登録する。
+                // multiSoftDropはgame.mino.y >= targetYで即終了するため実害なし。
+                pendingSD  = { type: 'multiSoftDrop', targetY: to.y, delay: softDropDelay };
+                preSdState = from;
+            } else {
+                if (pendingSD) {
+                    // pendingSD待機中 → AC群を保留して次のSD始点を待つ
+                    pendingACGroup = g;
+                } else {
+                    // pendingSDなし → AC群の始点→終点で単独直接到達判定
+                    const order = canReachDirectAt(from.x, from.y, from.rot, to.x, to.rot);
+                    if (order) {
+                        if (order === 'rotate_first') {
+                            emitRot(from.rot, to.rot);
+                            if (to.x !== from.x) queue.push({ type: 'moveToTargetX', targetX: to.x, delay: this.actionDelay });
+                        } else {
+                            if (to.x !== from.x) queue.push({ type: 'moveToTargetX', targetX: to.x, delay: this.actionDelay });
+                            emitRot(from.rot, to.rot);
+                        }
+                    } else {
+                        for (let i = g.start; i < g.end; i++) {
+                            const type = ACTION_MAP[path[i]];
+                            if (type) queue.push({ type, delay: this.actionDelay });
+                        }
+                    }
+                }
+            }
         }
 
+        // 末尾残り処理：後続SD群なし → pendingSD先出し、pendingACGroupはraw出し（最適化不可）
+        if (pendingSD) {
+            queue.push(pendingSD);
+            if (pendingACGroup) {
+                for (let i = pendingACGroup.start; i < pendingACGroup.end; i++) {
+                    const type = ACTION_MAP[path[i]];
+                    if (type) queue.push({ type, delay: this.actionDelay });
+                }
+            }
+        }
+
+        queue.push({ type: 'harddrop', delay: this.harddropDelay });
         return queue;
     }
 
