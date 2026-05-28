@@ -31,7 +31,7 @@ window.CPU6 = class {
             //multiWell: -170,
             
             iWell: 200,           
-            iWellOver: -400,      
+            iWellOver: -800,      
             blocksOverHole: -85,
 
             line4: 1000,
@@ -331,33 +331,60 @@ window.CPU6 = class {
             }
         }
 
-        const checkInstantDrop = (checkRot) => {
-            if (!this.canDropStraightFromTo(startX, startY, startY, checkRot, bestResult.id)) return false;
-            let step = bestResult.x > startX ? 1 : -1;
-            for (let tx = startX; tx !== bestResult.x + step; tx += step) {
-                if (!this.canDropStraightFromTo(tx, startY, startY, checkRot, bestResult.id)) return false;
-            }
-            return this.canDropStraightFromTo(bestResult.x, startY, bestResult.y, checkRot, bestResult.id);
-        };
-
+        // BtB付きT-spinは即時落下を除外
         let skipInstantDrop = false;
         if (bestResult.tSpinType > 0 && bestResult.clearedLines && bestResult.clearedLines.length > 0 && this.game.backToBack) {
             skipInstantDrop = true;
         }
 
-        if (!skipInstantDrop && checkInstantDrop(bestResult.rot)) {
-            let targetRot = bestResult.rot;
+        // 即時落下判定:
+        //   条件1: 盤面の上3行(0≤y≤2)が全て空白
+        //   条件2: 対象位置のミノの上(各列の最上ブロックより上)が全て空白
+        const checkInstantDrop = () => {
+            const fieldBlocks = this.game.field.blocks;
 
-            if ([0, 1, 5, 6].includes(bestResult.id) && (bestResult.rot === 2 || bestResult.rot === 0)) {
-                if (checkInstantDrop(startRot)) {
-                    targetRot = startRot; 
+            // 条件1: 盤面の上3行(0≤y≤2)が全て空白
+            for (let block of fieldBlocks) {
+                if (block.y >= 0 && block.y <= 2) return false;
+            }
+
+            // 条件2: 対象位置のミノの上が全て空白
+            let simMino = new Mino(bestResult.id);
+            for (let i = 0; i < bestResult.rot; i++) simMino.rotate();
+
+            // ミノの各列における最上部ブロックのy座標を求める
+            let topByColumn = {};
+            for (let b of simMino.blocks) {
+                let bx = bestResult.x + b.x;
+                let by = bestResult.y + b.y;
+                if (!(bx in topByColumn) || by < topByColumn[bx]) {
+                    topByColumn[bx] = by;
                 }
             }
-            
-            let diff = (targetRot - startRot + 4) % 4; 
-            if (diff === 1) queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
+
+            // 各列においてミノの上方(0≤y<topY)に盤面ブロックがないか確認
+            for (let block of fieldBlocks) {
+                let topY = topByColumn[block.x];
+                if (topY !== undefined && block.y >= 0 && block.y < topY) return false;
+            }
+
+            return true;
+        };
+
+        if (!skipInstantDrop && checkInstantDrop()) {
+            let targetRot = bestResult.rot;
+
+            // O/I/S/Z(id=0,1,5,6)はrot0とrot2が同形のため回転を省略できる場合は省略
+            if ([0, 1, 5, 6].includes(bestResult.id) && (bestResult.rot === 2 || bestResult.rot === 0)) {
+                if (startRot === 0 || startRot === 2) {
+                    targetRot = startRot;
+                }
+            }
+
+            let diff = (targetRot - startRot + 4) % 4;
+            if (diff === 1) queue.push({ type: 'rotateCW', delay: this.actionDelay });
             else if (diff === 2) { queue.push({ type: 'rotateCW', delay: this.actionDelay }); queue.push({ type: 'rotateCW', delay: this.actionDelay }); }
-            else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay }); 
+            else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay });
 
             if (bestResult.x !== startX) {
                 queue.push({ type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay });
