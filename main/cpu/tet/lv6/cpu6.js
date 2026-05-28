@@ -211,8 +211,10 @@ window.CPU6 = class {
             if (this.isExecutingAction) return;
 
             this.isExecutingAction = true;
+            // CPU操作中は重力を無効にし、ソフトドロップとの干渉を防ぐ
+            if (this.game) this.game.gravityDisabled = true;
             this.actionQueue = this.buildActionQueue(bestResult);
-            
+
             setTimeout(() => {
                 this.processActionQueue();
             }, this.actionDelay);
@@ -310,22 +312,43 @@ window.CPU6 = class {
         this.game.lastActionWasRotation = backupLastActionWasRotation;
         this.game.lastRotUsedPoint5 = backupLastRotUsedPoint5;
 
+        // SD前の最後の状態（y == startY の最大インデックス）を分割点にする
+        // → pre-SD の全移動・回転を一括 prefix 化し、SD以降を residual path として正しく emit する
+        // ※ウォールキックで y が変化した回転後状態は y !== startY でフィルタし、
+        //   深い位置でのキックを path[bestI:] 側に残して game.tryRotate に委ねる
+
+        const canMoveHorizontal = (x1, x2, y, rot) => {
+            if (x1 === x2) return true;
+            let step = x2 > x1 ? 1 : -1;
+            for (let tx = x1; tx !== x2 + step; tx += step) {
+                if (!this.canDropStraightFromTo(tx, y, y, rot, bestResult.id)) return false;
+            }
+            return true;
+        };
+
+        const getSafeTopMoves = (targetX, targetRot) => {
+            let canRotateFirst = this.canDropStraightFromTo(startX, startY, startY, targetRot, bestResult.id) &&
+                                 canMoveHorizontal(startX, targetX, startY, targetRot);
+            if (canRotateFirst) return 'rotate_first';
+
+            let canMoveFirst = canMoveHorizontal(startX, targetX, startY, startRot) &&
+                               this.canDropStraightFromTo(targetX, startY, startY, targetRot, bestResult.id);
+            if (canMoveFirst) return 'move_first';
+
+            return null;
+        };
+
         let bestI = -1;
+        let bestTopOrder = null;
         for (let i = states.length - 1; i >= 1; i--) {
             let st = states[i];
+            if (st.y !== startY) continue;  // 垂直移動（キックによる y 変化含む）後はスキップ
+
             if (this.canDropStraightFromTo(st.x, startY, st.y, st.rot, bestResult.id)) {
-                let canRotateTop = this.canDropStraightFromTo(startX, startY, startY, st.rot, bestResult.id);
-                let canMoveTop = true;
-                let step = st.x > startX ? 1 : -1;
-                for (let tx = startX; tx !== st.x + step; tx += step) {
-                    if (!this.canDropStraightFromTo(tx, startY, startY, st.rot, bestResult.id)) {
-                        canMoveTop = false;
-                        break;
-                    }
-                }
-                
-                if (canRotateTop && canMoveTop) {
+                let order = getSafeTopMoves(st.x, st.rot);
+                if (order) {
                     bestI = i;
+                    bestTopOrder = order;
                     break;
                 }
             }
@@ -337,41 +360,18 @@ window.CPU6 = class {
             skipInstantDrop = true;
         }
 
-        // 即時落下判定:
-        //   条件1: 盤面の上3行(0≤y≤2)が全て空白
-        //   条件2: 対象位置のミノの上(各列の最上ブロックより上)が全て空白
+        // 即時落下判定: startY から目標位置まで一直線に落下可能か、かつ上部での移動・回転が安全か
         const checkInstantDrop = () => {
-            const fieldBlocks = this.game.field.blocks;
-
-            // 条件1: 盤面の上3行(0≤y≤2)が全て空白
-            for (let block of fieldBlocks) {
-                if (block.y >= 0 && block.y <= 2) return false;
-            }
-
-            // 条件2: 対象位置のミノの上が全て空白
-            let simMino = new Mino(bestResult.id);
-            for (let i = 0; i < bestResult.rot; i++) simMino.rotate();
-
-            // ミノの各列における最上部ブロックのy座標を求める
-            let topByColumn = {};
-            for (let b of simMino.blocks) {
-                let bx = bestResult.x + b.x;
-                let by = bestResult.y + b.y;
-                if (!(bx in topByColumn) || by < topByColumn[bx]) {
-                    topByColumn[bx] = by;
-                }
-            }
-
-            // 各列においてミノの上方(0≤y<topY)に盤面ブロックがないか確認
-            for (let block of fieldBlocks) {
-                let topY = topByColumn[block.x];
-                if (topY !== undefined && block.y >= 0 && block.y < topY) return false;
-            }
-
-            return true;
+            if (!this.canDropStraightFromTo(bestResult.x, startY, bestResult.y, bestResult.rot, bestResult.id)) return false;
+            return getSafeTopMoves(bestResult.x, bestResult.rot);
         };
 
-        if (!skipInstantDrop && checkInstantDrop()) {
+        let instantDropOrder = null;
+        if (!skipInstantDrop) {
+            instantDropOrder = checkInstantDrop();
+        }
+
+        if (instantDropOrder) {
             let targetRot = bestResult.rot;
 
             // O/I/S/Z(id=0,1,5,6)はrot0とrot2が同形のため回転を省略できる場合は省略
@@ -382,13 +382,24 @@ window.CPU6 = class {
             }
 
             let diff = (targetRot - startRot + 4) % 4;
-            if (diff === 1) queue.push({ type: 'rotateCW', delay: this.actionDelay });
-            else if (diff === 2) { queue.push({ type: 'rotateCW', delay: this.actionDelay }); queue.push({ type: 'rotateCW', delay: this.actionDelay }); }
-            else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay });
+            let rotActions = [];
+            if (diff === 1) rotActions.push({ type: 'rotateCW', delay: this.actionDelay });
+            else if (diff === 2) { rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); }
+            else if (diff === 3) rotActions.push({ type: 'rotateCCW', delay: this.actionDelay });
 
+            let moveAction = null;
             if (bestResult.x !== startX) {
-                queue.push({ type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay });
+                moveAction = { type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay };
             }
+
+            if (instantDropOrder === 'rotate_first') {
+                queue.push(...rotActions);
+                if (moveAction) queue.push(moveAction);
+            } else {
+                if (moveAction) queue.push(moveAction);
+                queue.push(...rotActions);
+            }
+
             queue.push({ type: 'harddrop', delay: this.harddropDelay });
             return queue;
         }
@@ -397,17 +408,22 @@ window.CPU6 = class {
             let st = states[bestI];
             
             let diff = (st.rot - startRot + 4) % 4; 
-            if (diff === 1) queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
-            else if (diff === 2) { queue.push({ type: 'rotateCW', delay: this.actionDelay }); queue.push({ type: 'rotateCW', delay: this.actionDelay }); }
-            else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay }); 
+            let rotActions = [];
+            if (diff === 1) rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); 
+            else if (diff === 2) { rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); }
+            else if (diff === 3) rotActions.push({ type: 'rotateCCW', delay: this.actionDelay }); 
             
+            let moveAction = null;
             if (st.x !== startX) {
-                queue.push({ type: 'moveToTargetX', targetX: st.x, delay: this.actionDelay });
+                moveAction = { type: 'moveToTargetX', targetX: st.x, delay: this.actionDelay };
             }
-            
-            let dropDist = st.y - startY;
-            if (dropDist > 0) {
-                queue.push({ type: 'multiSoftDrop', targetY: st.y, delay: softDropDelay });
+
+            if (bestTopOrder === 'rotate_first') {
+                queue.push(...rotActions);
+                if (moveAction) queue.push(moveAction);
+            } else {
+                if (moveAction) queue.push(moveAction);
+                queue.push(...rotActions);
             }
             
             let hasSoftDropSequence = false;
@@ -436,9 +452,101 @@ window.CPU6 = class {
             return queue;
         }
 
+        // フォールバック: bestI=-1（ストレートドロップ不可）
+        // path 先頭の moves/rotations prefix（最初のSDより前）を先にemitすることで
+        // 「移動回転 → ソフトドロップ → その他移動回転」の制約に可能な限り近づける
+        const firstSdIdx = path.findIndex(actId => actId === 3);
+        console.log("[Optimize] firstSdIdx:", firstSdIdx);
+
+        let startJ = 0;
+        if (firstSdIdx > 0) {
+            // SDより前の moves/rotations を先出し
+            for (let j = 0; j < firstSdIdx; j++) {
+                let type = ACTION_MAP[path[j]];
+                if (type) queue.push({ type: type, delay: this.actionDelay });
+            }
+            startJ = firstSdIdx;
+        } else if (firstSdIdx === 0) {
+            // path が SD先行の場合: [sd1, ac1, sd2, ac2, hd] 構造で
+            // ac1の終点が空中かつ即時落下判定を満たすなら sd1 と ac1 を入れ替える
+
+            // sd1 の終端（連続するSDの末尾の次）を探す
+            let sd1End = 0;
+            while (sd1End < path.length && path[sd1End] === 3) sd1End++;
+
+            // ac1 の終端（次のSD or HD に当たるまで）を探す
+            let ac1End = sd1End;
+            while (ac1End < path.length && path[ac1End] !== 3 && path[ac1End] !== 6) ac1End++;
+
+            // ac1 が存在し、その終点 state が有効範囲内かチェック
+            if (sd1End < ac1End && ac1End < states.length) {
+                const ac1State = states[ac1End];
+                console.log("[Optimize] sd1End:", sd1End, "ac1End:", ac1End, "ac1State:", ac1State);
+
+                let swapOrder = null;
+                // まず ac1State.x で startY から ac1State.y まで落下可能か
+                if (this.canDropStraightFromTo(ac1State.x, startY, ac1State.y, ac1State.rot, bestResult.id)) {
+                    swapOrder = getSafeTopMoves(ac1State.x, ac1State.rot);
+                }
+
+                console.log("[Optimize] swapOrder returned:", swapOrder);
+                if (swapOrder) {
+                    // ac1 を moveToTargetX と回転アクションで emit（最適化）
+                    let diff = (ac1State.rot - startRot + 4) % 4;
+                    let rotActions = [];
+                    if (diff === 1) rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); 
+                    else if (diff === 2) { rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); rotActions.push({ type: 'rotateCW', delay: this.actionDelay }); }
+                    else if (diff === 3) rotActions.push({ type: 'rotateCCW', delay: this.actionDelay }); 
+                    
+                    let moveAction = null;
+                    if (ac1State.x !== startX) {
+                        moveAction = { type: 'moveToTargetX', targetX: ac1State.x, delay: this.actionDelay };
+                    }
+
+                    if (swapOrder === 'rotate_first') {
+                        queue.push(...rotActions);
+                        if (moveAction) queue.push(moveAction);
+                    } else {
+                        if (moveAction) queue.push(moveAction);
+                        queue.push(...rotActions);
+                    }
+
+                    // sd1 + path[ac1End:] を SD グループ化しながら emit
+                    // sd1 と後続の sd2 は自動的に1つの multiSoftDrop に合算される
+                    let hasSSD = false, sSDTargetY = -1;
+                    for (let j = 0; j < sd1End; j++) {
+                        hasSSD = true;
+                        sSDTargetY = states[j + 1].y;
+                    }
+                    for (let j = ac1End; j < path.length; j++) {
+                        const actId = path[j];
+                        const type = ACTION_MAP[actId];
+                        if (type === 'softDrop') {
+                            hasSSD = true;
+                            sSDTargetY = states[j + 1].y;
+                        } else {
+                            if (hasSSD) {
+                                queue.push({ type: 'multiSoftDrop', targetY: sSDTargetY, delay: softDropDelay });
+                                hasSSD = false;
+                            }
+                            if (type) {
+                                const delay = type === 'harddrop' ? this.harddropDelay : this.actionDelay;
+                                queue.push({ type: type, delay: delay });
+                            }
+                        }
+                    }
+                    if (hasSSD) {
+                        queue.push({ type: 'multiSoftDrop', targetY: sSDTargetY, delay: softDropDelay });
+                    }
+
+                    return queue;
+                }
+            }
+        }
+
         let hasSoftDropSequence = false;
         let softDropTargetY = -1;
-        for (let j = 0; j < path.length; j++) {
+        for (let j = startJ; j < path.length; j++) {
             let actId = path[j];
             let type = ACTION_MAP[actId];
             if (type === 'softDrop') {
@@ -552,12 +660,14 @@ window.CPU6 = class {
             // ★待機時間中のポーズにも対応
             const tryFinish = () => {
                 if (!this.isActive || !this.isAutoPlay) return;
-                
+
                 if (this.game.isPaused || this.game.state === 'paused') {
                     setTimeout(tryFinish, 100);
                     return;
                 }
-                
+
+                // 操作完了 → 重力を再開してからisExecutingActionをリセット
+                if (this.game) this.game.gravityDisabled = false;
                 this.isExecutingAction = false;
                 // ★PC手順を実行した直後なら、次の手へ進む
                 if (this.bestMoveData && this.bestMoveData.isPC) {
@@ -628,6 +738,8 @@ window.CPU6 = class {
     stop() {
         this.isActive = false;
         this.bestMoveData = null;
+        // 操作途中でstopされた場合も重力を必ず復元する
+        if (this.game) this.game.gravityDisabled = false;
         if (this.estimateContainer) {
             this.estimateContainer.innerHTML = '';
         }
@@ -1337,6 +1449,27 @@ window.CPU6 = class {
 //   1 = ブロックあり、0 = なし
 //   行0 = 最上段（y=0）、列0 = 左端（x=0）
 // ─────────────────────────────────────────────
-    CPU6.DEBUG_BOARD = null;
+    CPU6.DEBUG_BOARD =　[
+    [0,0,1,0,0,0,0,1,1,0], // row 0  (上)
+    [0,0,1,0,0,0,0,1,1,0], // row 1
+    [0,0,1,0,0,0,1,1,1,0], // row 2
+    [0,0,1,0,0,0,1,1,1,0], // row 3
+    [0,0,0,1,0,1,1,0,1,0], // row 4
+    [0,0,0,1,0,0,1,0,1,0], // row 5
+    [0,0,0,0,1,0,0,0,1,0], // row 6
+    [0,0,0,0,0,0,0,0,1,0], // row 7
+    [0,0,0,1,0,0,0,0,1,0], // row 8
+    [0,0,1,0,1,0,0,0,1,0], // row 9
+    [0,0,0,0,1,0,0,0,1,0], // row 10
+    [0,1,0,0,1,0,0,0,1,0], // row 11
+    [1,1,1,1,0,0,0,0,1,0], // row 12
+    [1,0,0,0,0,0,0,1,1,0], // row 13
+    [1,1,1,0,0,0,0,1,1,0], // row 14
+    [1,1,1,0,0,0,0,1,1,0], // row 15
+    [1,1,1,0,0,0,1,1,1,0], // row 16
+    [1,1,1,1,0,0,1,1,1,0], // row 17
+    [1,1,1,1,0,1,1,1,1,0], // row 18
+    [1,1,1,1,0,1,1,1,1,0], // row 19 (下)
+    ];
 // 使うときは以下のコメントを外して値を編集する:
     
