@@ -153,7 +153,8 @@ struct PCPlacement {
 };
 
 struct BFSState { int x, y, rot; };
-struct ParentInfo { int8_t x, y, rot, action; };
+// drop: この辺で action を何回出力するか（softdrop の一括降下は drop=落下行数、それ以外は1）
+struct ParentInfo { int8_t x, y, rot, action, drop; };
 
 // SRS 到達可能な「着地配置」を全列挙（cpu6.cpp の getAllPlacements を PC 用に簡略化）
 // ★高速化: 結果は呼び出し側が用意した placements に書き込み、毎回のヒープ確保を避ける。
@@ -186,6 +187,10 @@ void getAllPlacements(const Board& baseBoard, int pieceType, int spawnY,
             startBlocks[i].y = PRECALC_MINO_BLOCKS[pieceType][initialRot][i].y + spawnY;
         if (!isValidPlacement(baseBoard, startBlocks)) return;
     }
+
+    // スタック上端（最も高い既存ブロックの行）。これより上は全セル空。
+    int topY = ROWS;
+    for (int y = 0; y < ROWS; y++) if (baseBoard.rows[y] != 0) { topY = y; break; }
 
     static BFSState bfsQueue[3000];
     int qHead = 0, qTail = 0;
@@ -221,7 +226,8 @@ void getAllPlacements(const Board& baseBoard, int pieceType, int spawnY,
                         if (ty + 5 < 0 || ty + 5 >= 35 || tx + 4 < 0 || tx + 4 >= 19) break;
                         if (parentGen[tr][ty + 5][tx + 4] != g_gen) break; // 親なし（開始点）
                         ParentInfo& pi = parent[tr][ty + 5][tx + 4];
-                        if (pathLen < 63) path[pathLen++] = (uint8_t)pi.action;
+                        // softdrop の一括降下(drop>1)は同じ '3' を drop 回出力（反転後も連続するため順序は不問）
+                        for (int k = 0; k < pi.drop && pathLen < 63; k++) path[pathLen++] = (uint8_t)pi.action;
                         tx = pi.x; ty = pi.y; tr = pi.rot;
                     }
                     for (int i = 0; i < pathLen / 2; i++) {
@@ -237,32 +243,48 @@ void getAllPlacements(const Board& baseBoard, int pieceType, int spawnY,
             }
         }
 
-        auto tryPush = [&](int nx, int ny, int nrot, int action) {
+        auto tryPush = [&](int nx, int ny, int nrot, int action, int drop) {
             if (ny + 5 >= 0 && ny + 5 < 35 && nx + 4 >= 0 && nx + 4 < 19) {
                 if (visitedGen[nrot][ny + 5][nx + 4] != g_gen) {
                     visitedGen[nrot][ny + 5][nx + 4] = g_gen;
-                    parent[nrot][ny + 5][nx + 4] = { (int8_t)curr.x, (int8_t)curr.y, (int8_t)curr.rot, (int8_t)action };
+                    parent[nrot][ny + 5][nx + 4] = { (int8_t)curr.x, (int8_t)curr.y, (int8_t)curr.rot, (int8_t)action, (int8_t)drop };
                     parentGen[nrot][ny + 5][nx + 4] = g_gen;
                     bfsQueue[qTail++] = {nx, ny, nrot};
                 }
             }
         };
 
-        if (canMoveDown) tryPush(curr.x, curr.y + 1, curr.rot, 3); // softdrop
+        // ★高速化: スタック上端より上の「全空の空中」だけ一気に落とす（フリーフォール畳み込み）。
+        //   上端より上は全セル空なので横移動は spawn 面と等価＝ロスレス。
+        //   スタック上端に達したら通常の1段降下に戻し、占有領域の tuck/cave 配置の網羅性を保つ。
+        if (canMoveDown) {
+            // piece の最下ブロックの相対 y
+            int maxRelY = 0;
+            for (int i = 0; i < 4; i++)
+                if (PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].y > maxRelY)
+                    maxRelY = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].y;
+            // 全ブロックが topY より上に収まる最大の y（= topY - maxRelY - 1）
+            int target = topY - maxRelY - 1;
+            if (target > curr.y) {
+                tryPush(curr.x, target, curr.rot, 3, target - curr.y); // 空中を一気に softdrop
+            } else {
+                tryPush(curr.x, curr.y + 1, curr.rot, 3, 1);           // スタック近傍は1段ずつ
+            }
+        }
 
         GridBlock blocks_left[4];
         for (int i = 0; i < 4; i++) {
             blocks_left[i].x = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].x + curr.x - 1;
             blocks_left[i].y = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].y + curr.y;
         }
-        if (isValidPlacement(baseBoard, blocks_left)) tryPush(curr.x - 1, curr.y, curr.rot, 1); // left
+        if (isValidPlacement(baseBoard, blocks_left)) tryPush(curr.x - 1, curr.y, curr.rot, 1, 1); // left
 
         GridBlock blocks_right[4];
         for (int i = 0; i < 4; i++) {
             blocks_right[i].x = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].x + curr.x + 1;
             blocks_right[i].y = PRECALC_MINO_BLOCKS[pieceType][curr.rot][i].y + curr.y;
         }
-        if (isValidPlacement(baseBoard, blocks_right)) tryPush(curr.x + 1, curr.y, curr.rot, 2); // right
+        if (isValidPlacement(baseBoard, blocks_right)) tryPush(curr.x + 1, curr.y, curr.rot, 2, 1); // right
 
         for (int rotDir : {1, -1}) {
             int toRot = (curr.rot + (rotDir == 1 ? 1 : 3)) % 4;
@@ -279,7 +301,7 @@ void getAllPlacements(const Board& baseBoard, int pieceType, int spawnY,
                     blocks_rot[j].y = PRECALC_MINO_BLOCKS[pieceType][toRot][j].y + curr.y + ky;
                 }
                 if (isValidPlacement(baseBoard, blocks_rot)) {
-                    tryPush(curr.x + kx, curr.y + ky, toRot, actionId);
+                    tryPush(curr.x + kx, curr.y + ky, toRot, actionId, 1);
                     break;
                 }
             }
