@@ -30,7 +30,7 @@ self.onmessage = function (e) {
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(250);
         piecesPtr  = Module._my_malloc(4 * 11);
-        resultPtr  = Module._my_malloc(4 * 16);
+        resultPtr  = Module._my_malloc(4 * 256); // 可変長 path 込みの結果
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
@@ -44,26 +44,38 @@ self.onmessage = function (e) {
         data.holdType,
         data.canHold,
         data.maxDepth,
+        (data.maxTimeMs > 0 ? data.maxTimeMs : 500), // 探索のウォールクロック上限(ms)
         resultPtr
     );
 
     const timeTaken = (performance.now() - startTime).toFixed(2);
 
-    const out = new Int32Array(HEAP32.buffer, resultPtr, 16);
+    const out = new Int32Array(HEAP32.buffer, resultPtr, 256);
     const count = out[0];
-    const names = ['I', 'O', 'T', 'J', 'L', 'S', 'Z'];
 
+    // 可変長レイアウトをデコード:
+    //   各手 = header 1個 + path ceil(pathLen/10)個
+    //   header: bit0-2 minoType / bit3-4 rot / bit5-8 (x+2) / bit9-13 y / bit14 useHold / bit15-20 pathLen
+    //   path: 3bit×ID(1=左2=右3=SD4=CW5=CCW6=HD) を 1 int に 10 個ずつ
     let sequence = null;
     if (count > 0) {
         sequence = [];
+        let idx = 1;
         for (let i = 0; i < count; i++) {
-            const p = out[1 + i];
+            const h = out[idx++];
+            const pathLen = (h >> 15) & 0x3F;
+            const path = [];
+            for (let k = 0; k < pathLen; k++) {
+                path.push((out[idx + ((k / 10) | 0)] >> ((k % 10) * 3)) & 0x7);
+            }
+            idx += Math.ceil(pathLen / 10);
             sequence.push({
-                minoType: p & 0x7,
-                rot:      (p >> 3) & 0x3,
-                x:        (p >> 5) & 0xF,
-                y:        (p >> 9) & 0x1F, // 内部 0〜24（JS側では -5 する）
-                useHold:  (p >> 14) & 0x1
+                minoType: h & 0x7,
+                rot:      (h >> 3) & 0x3,
+                x:        ((h >> 5) & 0xF) - 2, // C 側で +2 オフセット格納（負値対応）
+                y:        (h >> 9) & 0x1F,      // 内部 0〜24（JS側では -5 する）
+                useHold:  (h >> 14) & 0x1,
+                path
             });
         }
     }
