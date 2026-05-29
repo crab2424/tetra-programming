@@ -400,6 +400,9 @@ window.CPU6 = class {
                 groups.push({ isSd, start, end: i });
             }
         }
+        if (groups.length > 0 && groups[groups.length - 1].isSd) {
+            groups.pop();
+        }
 
         // (base → end) の移動・回転を順序付きでqueueへ
         const emitReorder = (base, end, order) => {
