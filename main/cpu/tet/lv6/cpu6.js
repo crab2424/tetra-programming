@@ -103,9 +103,12 @@ window.CPU6 = class {
         this.pcFallbackData = null;       // PC待機中にキャッシュするビームサーチ引数
         this.pcFallbackTimer = null;     // PC結果待ちのタイムアウト
 
-        this.PC_TIMEOUT_MS = 300;        // PC結果を待つ上限。超えたらビームサーチへ
+        this.PC_SEARCH_TIME_MS = 500;    // ★PC探索(WASM)のウォールクロック上限。超えたら none 扱い
+        this.PC_TIMEOUT_MS = 700;        // PC結果を待つ上限（探索上限+余裕）。超えたらビームサーチへ
         this.PC_MAX_BLOCKS = 40;         // PC探索を起動する最大ブロック数（10手×4）
         this.PC_MAX_DEPTH = 10;          // PC探索の最大手数
+        this.PC_READY_WAIT_MS = 1200;    // 空盤面で pcWorker のロード完了を待つ上限（リスタート対策）
+        this._pcReadyWaitStart = null;   // 空盤面待機の開始時刻
 
         this.pcWorker.onmessage = (e) => {
             if (e.data.type === 'ready') {
@@ -634,31 +637,51 @@ window.CPU6 = class {
 
     start() {
         this.isActive = true;
+
+        // ★リスタート(game.start の再呼び出し)時に CPU 側の PC 状態を確実にリセットするため
+        //   game.start をラップする（DEBUG_BOARD の有無に関わらず常時インストール）。
+        //   二重ラップ防止のためフラグで管理。
+        if (!this.game._cpu6StartWrapped) {
+            const origStart = this.game.start.bind(this.game);
+            const self = this;
+            this.game.start = function() {
+                origStart();
+                // ★PC 関連の持ち越し状態をリセット（リスタートで PC が動かなくなるのを防ぐ）
+                self.resetPCState();
+                // _initGameState() で field がリセットされた直後にデバッグ盤面を再適用
+                if (CPU6.DEBUG_BOARD !== null) {
+                    self.game.applyDebugBoard(CPU6.DEBUG_BOARD);
+                    if (typeof self.game.drawAll === 'function') self.game.drawAll();
+                }
+            };
+            this.game._cpu6StartWrapped = true;
+            this.game._cpu6OrigStart    = origStart;
+        }
+
         // ★デバッグ用初期盤面（CPU6.DEBUG_BOARD が null でなければ適用）
         if (CPU6.DEBUG_BOARD !== null) {
             this.game.applyDebugBoard(CPU6.DEBUG_BOARD);
             // カウントダウン中から盤面が見えるよう即時再描画
             if (typeof this.game.drawAll === 'function') this.game.drawAll();
-
-            // リスタート時（game.start の再呼び出し）にも盤面を再適用するため
-            // game.start をラップする（二重ラップ防止のためフラグで管理）
-            if (!this.game._debugBoardStartWrapped) {
-                const origStart = this.game.start.bind(this.game);
-                const self = this;
-                this.game.start = function() {
-                    origStart();
-                    // _initGameState() で field がリセットされた直後に再適用
-                    if (CPU6.DEBUG_BOARD !== null) {
-                        self.game.applyDebugBoard(CPU6.DEBUG_BOARD);
-                        if (typeof self.game.drawAll === 'function') self.game.drawAll();
-                    }
-                };
-                this.game._debugBoardStartWrapped = true;
-                this.game._debugBoardOrigStart   = origStart;
-            }
         }
+
         this.initEstimateContainer();
         this.updateLoop();
+    }
+
+    // ── ★PC 関連状態のリセット（リスタート時に呼ぶ）──
+    resetPCState() {
+        if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
+        this.pcSequence = null;
+        this.pcFallbackData = null;
+        this.pcSearchActive = false;
+        this.pcSearchId++;            // 進行中だった古い PC 結果を無効化
+        this.isExecutingAction = false;
+        this.isCalculating = false;
+        this.actionQueue = [];
+        this._pcReadyWaitStart = null;
+        this.currentMino = null;      // 新しい1ピース目で onMinoSpawned を再発火させる
+        if (this.game) this.game.gravityDisabled = false;
     }
 
     stop() {
@@ -684,11 +707,11 @@ window.CPU6 = class {
             this.pcWorker = null;
             this.pcWorkerReady = false;
         }
-        // ★デバッグ用 game.start ラップを解除
-        if (this.game && this.game._debugBoardStartWrapped) {
-            this.game.start = this.game._debugBoardOrigStart;
-            delete this.game._debugBoardStartWrapped;
-            delete this.game._debugBoardOrigStart;
+        // ★game.start ラップを解除（新しいコントローラが再ラップできるように）
+        if (this.game && this.game._cpu6StartWrapped) {
+            this.game.start = this.game._cpu6OrigStart;
+            delete this.game._cpu6StartWrapped;
+            delete this.game._cpu6OrigStart;
         }
     }
 
@@ -796,7 +819,24 @@ window.CPU6 = class {
         // ★追加：古い評価結果を破棄して、tryFinishによる誤った再実行（無限ホールド等）を防ぐ
         this.bestMoveData = null;
 
-        if (!this.workerReady) {
+        // ── ★リスタート対策：空盤面なのに pcWorker のロードが未完了なら、
+        //   PC 探索の唯一のチャンス（空盤面フレーム）を beam に消費させず少し待つ。──
+        if (this.isAutoPlay && this.game.field.blocks.length === 0 && !this.pcWorkerReady) {
+            if (this._pcReadyWaitStart === null) this._pcReadyWaitStart = performance.now();
+            if (performance.now() - this._pcReadyWaitStart < this.PC_READY_WAIT_MS) {
+                setTimeout(() => {
+                    if (this.isActive && this.game.mino === this.currentMino) this.onMinoSpawned();
+                }, 50);
+                return;
+            }
+            // 待機上限を超過 → 通常処理（beam）へフォールスルー
+        } else {
+            this._pcReadyWaitStart = null;
+        }
+
+        // beam ワーカー未ロード時のドロップ即時フォールバック。
+        // ただし PC 探索が可能な空盤面（pcWorker 準備済み）なら、PC のチャンスを残すため抑止する。
+        if (!this.workerReady && !this.shouldSearchPC()) {
             if (this.isAutoPlay) {
                 const tryDropFallback = () => {
                     if (!this.isActive || this.game.mino !== this.currentMino) return;
@@ -946,6 +986,7 @@ window.CPU6 = class {
             holdType: holdType,
             canHold: this.game.canHold ? 1 : 0,
             maxDepth: this.PC_MAX_DEPTH,
+            maxTimeMs: this.PC_SEARCH_TIME_MS,
             searchId: this.pcSearchId
         });
     }
@@ -971,9 +1012,19 @@ window.CPU6 = class {
     // ── ★PC探索結果のハンドラ ──
     handlePCResult(data) {
         if (data.searchId !== this.pcSearchId) return; // 古い結果は破棄
+        if (!this.isActive) { this.pcSearchActive = false; return; }
+
+        // ★直前の操作（前PCの最終ハードドロップ後処理など）が未完了の間は、
+        //   結果を破棄せず少し待って再試行する。破棄すると待機状態のままフリーズし、
+        //   直前PCのゴースト表示が残るバグになる。
+        //   （fallbackタイマーが先に発火すると searchId が更新され、本リトライは自然終了する）
+        if (this.isAutoPlay && this.game.mino === this.currentMino && this.isExecutingAction) {
+            setTimeout(() => this.handlePCResult(data), 20);
+            return;
+        }
+
         this.pcSearchActive = false;
         if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
-        if (!this.isActive) return;
 
         if (data.found && data.sequence && data.sequence.length > 0 &&
             this.isAutoPlay && this.game.mino === this.currentMino && !this.isExecutingAction) {
@@ -1043,6 +1094,7 @@ window.CPU6 = class {
             x: expected.x,
             y: expected.y - 5,        // 内部0〜24 → JS座標 -5〜19
             pcUseHold: expected.useHold,
+            path: expected.path,      // ★到達経路(ねじ込み対応)。1=左2=右3=SD4=CW5=CCW6=HD
             isPC: true
         };
         this.bestMoveData = move;     // ※p1を持たないので processActionQueue末尾の再実行は走らない
@@ -1055,29 +1107,50 @@ window.CPU6 = class {
 
         if (this.isAutoPlay) {
             this.isExecutingAction = true;
+            // ★CPU操作中は重力を無効化（ビーム同様）。これにより配置ピースが spawn に留まり、
+            //   buildPCActionQueue の spawn 起点シミュレーションと実機が一致する。
+            if (this.game) this.game.gravityDisabled = true;
             this.actionQueue = this.buildPCActionQueue(move);
             setTimeout(() => this.processActionQueue(), this.actionDelay);
         }
     }
 
     // ── ★PC手順用のアクションキュー構築 ──
-    //   スポーン直後(rotation=0)前提。PC配置は穴なし充填のため "上で回転→移動→落下" で到達可能。
+    //   buildActionQueue と同一の経路最適化（連続SDの multiSoftDrop 化・移動/回転の並べ替え・
+    //   即時落下判定）を流用する。HOLD する場合は先頭に hold を積み、配置ピースを spawn 位置へ
+    //   一時設置した上で buildActionQueue を呼ぶ（HOLD 実行後はそのピースが spawn で出現するため）。
     buildPCActionQueue(move) {
         let queue = [];
         if (move.pcUseHold) {
             queue.push({ type: 'hold', delay: this.actionDelay });
         }
-        const diff = move.rot & 3;
-        if (diff === 1) {
-            queue.push({ type: 'rotateCW', delay: this.actionDelay });
-        } else if (diff === 2) {
-            queue.push({ type: 'rotateCW', delay: this.actionDelay });
-            queue.push({ type: 'rotateCW', delay: this.actionDelay });
-        } else if (diff === 3) {
-            queue.push({ type: 'rotateCCW', delay: this.actionDelay });
+
+        // buildActionQueue に渡す擬似 bestResult（PC は spin 火力等は考慮しない）
+        const bestResult = {
+            action: 'play',
+            id: move.id,
+            x: move.x,
+            y: move.y,            // JS座標（executePCMove で expected.y-5 済み）
+            rot: move.rot,
+            path: move.path,
+            tSpinType: 0,
+            clearedLines: []
+        };
+
+        // ★配置ピースを spawn 位置に一時設置して buildActionQueue のシミュレーションを行う。
+        //   （HOLD 有無に関わらず、実行時には配置ピースが spawn から動き出すため整合する）
+        const savedMino = this.game.mino;
+        let pathQueue;
+        try {
+            const temp = new Mino(move.id);
+            if (typeof temp.spawn === 'function') temp.spawn();
+            this.game.mino = temp;
+            pathQueue = this.buildActionQueue(bestResult);
+        } finally {
+            this.game.mino = savedMino;
         }
-        queue.push({ type: 'moveToTargetX', targetX: move.x, delay: this.actionDelay });
-        queue.push({ type: 'harddrop', delay: this.harddropDelay });
+
+        for (const a of pathQueue) queue.push(a);
         return queue;
     }
 
