@@ -383,18 +383,13 @@ window.CPU6 = class {
             return queue;
         }
 
-        // ── SD/AC群分割ベースのパス最適化 ──
-        // pathをSD群(連続するSD)とAC群(移動・回転)に分類し、各群を順に処理する。
-        //
-        // 判定に使う「座標」はSD群の始点のみ。隣り合うSD始点同士（preSdState → 次SD.from）で
-        // 直接到達可能かを判定する。SD始点 = 直前AC群の終点は同一なので、AC群の終点は参照しない。
-        //   直接到達可能  → AC先出し → pendingSD後出し（「移動回転→SD落下」の順）
-        //   直接到達不可  → pendingSD先出し → AC rawそのまま（「SD落下→移動回転」の順）
-        //
-        // AC群はpendingACGroupとして保留し、次のSD群が来た時点で判定する。
-        // 末尾がSD→ACで終わる場合は後続のSD始点が存在しないため最適化不可。
-        //
-        // pendingSDなしのAC群は始点→終点で単独判定する（SD不在時の通常最適化）。
+        // ── SD/AC群分割ベースのパス最適化（連続SDの貪欲マージ対応版）──
+        // pathをSD群(連続するSD)とAC群(移動・回転)に分類する。
+        // SD群の始点(waypoint)を辿り、ある始点から「上の行で移動・回転 → 一直線落下」で
+        // 直接到達できる“最も遠い”後続SD始点まで貪欲にジャンプし、間のSD/AC群をまとめて省略する。
+        //   例: sd1→sd2, sd1→sd3 が到達可能なら sd2 を飛ばして sd1→sd3 を1回の落下で行う。
+        // canReachDirectAt が縦スパン込み(上の行での横移動掃引＋落下列の衝突)を検証するため、
+        // 途中のSD始点を飛ばしても安全。到達不可になった時点で打ち切り、そこを新たな起点とする。
         const groups = [];
         {
             let i = 0;
@@ -406,82 +401,89 @@ window.CPU6 = class {
             }
         }
 
-        let pendingSD      = null;   // まだ出力していないSD群のmultiSoftDropアクション
-        let preSdState     = null;   // pendingSDに対応するSD群の始点状態
-        let pendingACGroup = null;   // pendingSDと次のSD群の間のAC群（{start,end}）
-
-        for (const g of groups) {
-            const from = states[g.start];
-            const to   = states[g.end];
-
-            if (g.isSd) {
-                if (pendingSD) {
-                    // SD始点同士（preSdState → from）で直接到達可能か判定。
-                    // 落下先は from.y（=pendingSDのtargetY）。上の行で移動・回転してから
-                    // そこまで一直線に落下できるかを縦スパン込みで検証する。
-                    const order = canReachDirectAt(preSdState.x, preSdState.y, preSdState.rot, from.x, from.rot, from.y);
-                    if (order && pendingACGroup) {
-                        // 直接到達可能 → AC先出し → pendingSD後出し
-                        if (order === 'rotate_first') {
-                            emitRot(preSdState.rot, from.rot);
-                            if (from.x !== preSdState.x) queue.push({ type: 'moveToTargetX', targetX: from.x, delay: this.actionDelay });
-                        } else {
-                            if (from.x !== preSdState.x) queue.push({ type: 'moveToTargetX', targetX: from.x, delay: this.actionDelay });
-                            emitRot(preSdState.rot, from.rot);
-                        }
-                        queue.push(pendingSD);
-                    } else {
-                        // 直接到達不可 → pendingSD先出し → AC rawそのまま出力
-                        queue.push(pendingSD);
-                        if (pendingACGroup) {
-                            for (let i = pendingACGroup.start; i < pendingACGroup.end; i++) {
-                                const type = ACTION_MAP[path[i]];
-                                if (type) queue.push({ type, delay: this.actionDelay });
-                            }
-                        }
-                    }
-                    pendingSD      = null;
-                    preSdState     = null;
-                    pendingACGroup = null;
-                }
-                // to.y === from.y（JSシミュレーション上no-op）でも常に登録する。
-                // multiSoftDropはgame.mino.y >= targetYで即終了するため実害なし。
-                pendingSD  = { type: 'multiSoftDrop', targetY: to.y, delay: softDropDelay };
-                preSdState = from;
+        // (base → end) の移動・回転を順序付きでqueueへ
+        const emitReorder = (base, end, order) => {
+            if (order === 'rotate_first') {
+                emitRot(base.rot, end.rot);
+                if (end.x !== base.x) queue.push({ type: 'moveToTargetX', targetX: end.x, delay: this.actionDelay });
             } else {
-                if (pendingSD) {
-                    // pendingSD待機中 → AC群を保留して次のSD始点を待つ
-                    pendingACGroup = g;
-                } else {
-                    // pendingSDなし → AC群の始点→終点で単独直接到達判定
-                    const order = canReachDirectAt(from.x, from.y, from.rot, to.x, to.rot);
-                    if (order) {
-                        if (order === 'rotate_first') {
-                            emitRot(from.rot, to.rot);
-                            if (to.x !== from.x) queue.push({ type: 'moveToTargetX', targetX: to.x, delay: this.actionDelay });
-                        } else {
-                            if (to.x !== from.x) queue.push({ type: 'moveToTargetX', targetX: to.x, delay: this.actionDelay });
-                            emitRot(from.rot, to.rot);
-                        }
-                    } else {
-                        for (let i = g.start; i < g.end; i++) {
-                            const type = ACTION_MAP[path[i]];
-                            if (type) queue.push({ type, delay: this.actionDelay });
-                        }
-                    }
-                }
+                if (end.x !== base.x) queue.push({ type: 'moveToTargetX', targetX: end.x, delay: this.actionDelay });
+                emitRot(base.rot, end.rot);
+            }
+        };
+        // AC群を raw（path通りの素の操作列）でqueueへ
+        const emitRawAC = (acg) => {
+            if (!acg) return;
+            for (let i = acg.start; i < acg.end; i++) {
+                const type = ACTION_MAP[path[i]];
+                if (type) queue.push({ type, delay: this.actionDelay });
+            }
+        };
+
+        // SD群をwaypointとして抽出。各SDの始点状態・底Y・直後のAC群を保持。
+        const sd = [];
+        let leadAC = null; // 最初のSDより前のAC群（位置決め）
+        for (let gi = 0; gi < groups.length; gi++) {
+            const g = groups[gi];
+            if (g.isSd) {
+                const after = (gi + 1 < groups.length && !groups[gi + 1].isSd) ? groups[gi + 1] : null;
+                sd.push({ start: states[g.start], bottomY: states[g.end].y, acAfter: after });
+            } else if (sd.length === 0) {
+                leadAC = g;
             }
         }
 
-        // 末尾残り処理：後続SD群なし → pendingSD先出し、pendingACGroupはraw出し（最適化不可）
-        if (pendingSD) {
-            queue.push(pendingSD);
-            if (pendingACGroup) {
-                for (let i = pendingACGroup.start; i < pendingACGroup.end; i++) {
-                    const type = ACTION_MAP[path[i]];
-                    if (type) queue.push({ type, delay: this.actionDelay });
+        if (sd.length === 0) {
+            // SDなし → AC群のみ(高々1つ)。始点→終点で単独直接到達判定。
+            for (const g of groups) {
+                if (g.isSd) continue;
+                const from = states[g.start];
+                const to   = states[g.end];
+                const order = canReachDirectAt(from.x, from.y, from.rot, to.x, to.rot);
+                if (order) emitReorder(from, to, order);
+                else emitRawAC(g);
+            }
+        } else {
+            // 先頭AC群：最初のSD始点へ位置決め（落下なし＝単一行判定）
+            if (leadAC) {
+                const from = states[leadAC.start];
+                const to   = states[leadAC.end]; // = sd[0].start
+                const order = canReachDirectAt(from.x, from.y, from.rot, to.x, to.rot);
+                if (order) emitReorder(from, to, order);
+                else emitRawAC(leadAC);
+            }
+
+            // ── 連続SDの貪欲マージ ──
+            const m = sd.length;
+            let cur = 0; // 現在到達しているSD始点index（最初のSD始点に居る）
+            while (cur < m - 1) {
+                // curから直接到達できる“最も遠い”後続SD始点を、連続到達可能な限り延長して探す
+                let best = -1, bestOrder = null;
+                for (let j = cur + 1; j <= m - 1; j++) {
+                    const order = canReachDirectAt(
+                        sd[cur].start.x, sd[cur].start.y, sd[cur].start.rot,
+                        sd[j].start.x, sd[j].start.rot, sd[j].start.y
+                    );
+                    if (order) { best = j; bestOrder = order; }
+                    else break; // 到達不可になった時点で打ち切り
+                }
+                if (best === -1) {
+                    // 隣接SD始点へも直接到達不可 → SD_curの落下 + 直後AC群を raw 出力
+                    queue.push({ type: 'multiSoftDrop', targetY: sd[cur].bottomY, delay: softDropDelay });
+                    emitRawAC(sd[cur].acAfter);
+                    cur++;
+                } else {
+                    // cur→best へジャンプ：上の行で net 移動回転 → bestの始点行まで一直線落下。
+                    // 間の sd[cur+1..best-1] とそのAC群は省略される。
+                    emitReorder(sd[cur].start, sd[best].start, bestOrder);
+                    queue.push({ type: 'multiSoftDrop', targetY: sd[best].start.y, delay: softDropDelay });
+                    cur = best;
                 }
             }
+
+            // 末尾：最後のSD始点に到達済み → そのSDの落下 + 末尾AC群 raw（後続SDが無く最適化不可）
+            queue.push({ type: 'multiSoftDrop', targetY: sd[m - 1].bottomY, delay: softDropDelay });
+            emitRawAC(sd[m - 1].acAfter);
         }
 
         queue.push({ type: 'harddrop', delay: this.harddropDelay });
@@ -1370,27 +1372,6 @@ window.CPU6 = class {
 //   1 = ブロックあり、0 = なし
 //   行0 = 最上段（y=0）、列0 = 左端（x=0）
 // ─────────────────────────────────────────────
-    CPU6.DEBUG_BOARD =　[
-    [1,0,0,0,0,0,0,0,0,0], // row 0  (上)
-    [1,0,0,0,0,0,0,0,0,0], // row 1
-    [1,0,0,0,0,0,0,0,0,0], // row 2
-    [0,1,0,0,0,0,0,0,0,0], // row 3
-    [0,1,0,1,0,0,0,0,0,0], // row 4
-    [0,1,0,0,1,0,0,0,0,0], // row 5
-    [0,1,0,0,0,1,0,0,0,0], // row 6
-    [0,0,0,0,0,0,1,0,0,0], // row 7
-    [1,0,0,0,0,0,0,1,0,0], // row 8
-    [0,1,0,1,1,0,0,0,0,0], // row 9
-    [0,0,0,0,1,0,0,1,0,0], // row 10
-    [0,1,0,0,1,0,0,0,0,0], // row 11
-    [1,1,1,1,1,0,0,0,0,1], // row 12
-    [1,0,0,0,0,0,0,1,1,0], // row 13
-    [1,1,0,0,0,0,1,1,1,0], // row 14
-    [1,1,0,0,0,1,1,1,1,0], // row 15
-    [1,0,0,0,1,0,1,1,1,0], // row 16
-    [1,0,0,1,0,0,1,1,1,1], // row 17
-    [0,0,0,1,1,1,1,1,1,1], // row 18
-    [1,0,1,1,1,1,1,1,1,1], // row 19 (下)
-    ];
+    CPU6.DEBUG_BOARD =　null;
 // 使うときは以下のコメントを外して値を編集する:
     
