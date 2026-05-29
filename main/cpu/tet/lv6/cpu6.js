@@ -103,8 +103,8 @@ window.CPU6 = class {
         this.pcFallbackData = null;       // PC待機中にキャッシュするビームサーチ引数
         this.pcFallbackTimer = null;     // PC結果待ちのタイムアウト
 
-        this.PC_SEARCH_TIME_MS = 500;    // ★PC探索(WASM)のウォールクロック上限。超えたら none 扱い
-        this.PC_TIMEOUT_MS = 700;        // PC結果を待つ上限（探索上限+余裕）。超えたらビームサーチへ
+        this.PC_SEARCH_TIME_MS = 300;    // ★PC探索(WASM)のウォールクロック上限。超えたら none 扱い
+        this.PC_TIMEOUT_MS = 500;        // PC結果を待つ上限（探索上限+余裕）。超えたらビームサーチへ
         this.PC_MAX_BLOCKS = 40;         // PC探索を起動する最大ブロック数（10手×4）
         this.PC_MAX_DEPTH = 10;          // PC探索の最大手数
         this.PC_READY_WAIT_MS = 1200;    // 空盤面で pcWorker のロード完了を待つ上限（リスタート対策）
@@ -1336,6 +1336,8 @@ window.CPU6 = class {
 
         this.estimateContainer.innerHTML = '';
         if (!this.isActive) return;
+        // ★versusモードでは配置予測を表示しない（testモードのみ表示）
+        if (this.game.currentMode !== 'test') return;
 
         const allMoves = [];
         if (currentMove) {
@@ -1347,15 +1349,64 @@ window.CPU6 = class {
             }
         }
 
+        // ★ライン消去に応じて以降の配置を分断表示する（renderEstimatePlace と同様）
+        let simField = Array.from({ length: 25 }, () => Array(10).fill(0));
+        this.game.field.blocks.forEach(b => {
+            let by = b.y + 5;
+            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) simField[by][b.x] = 1;
+        });
+
+        let yMap = {};
+        for (let i = -10; i < 20; i++) yMap[i] = i;
+
         for (let i = 0; i < allMoves.length; i++) {
             const borderOpacity = i === 0 ? 0.9 : Math.max(0.25, 0.5 - i * 0.03);
             const bgOpacity     = i === 0 ? 0.3 : Math.max(0.05, 0.12 - i * 0.01);
             const zIndex        = Math.max(1, 11 - i);
-            this.renderPCSinglePiece(allMoves[i], borderOpacity, bgOpacity, zIndex);
+            this.renderPCSinglePiece(allMoves[i], borderOpacity, bgOpacity, zIndex, yMap);
+
+            // 配置ブロックを simField に反映
+            let simMino = new Mino(allMoves[i].id);
+            for (let r = 0; r < allMoves[i].rot; r++) simMino.rotate();
+            let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + allMoves[i].x, y: b.y + allMoves[i].y }));
+            for (let b of droppedBlocks) {
+                let by = b.y + 5;
+                if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) simField[by][b.x] = 1;
+            }
+
+            // ライン消去判定
+            let clearedSimLines = [];
+            for (let y = 0; y < 25; y++) {
+                let isFull = true;
+                for (let x = 0; x < 10; x++) {
+                    if (simField[y][x] === 0) { isFull = false; break; }
+                }
+                if (isFull) clearedSimLines.push(y);
+            }
+
+            if (clearedSimLines.length > 0) {
+                for (let y of clearedSimLines) {
+                    for (let ty = y; ty > 0; ty--) simField[ty] = [...simField[ty - 1]];
+                    simField[0] = Array(10).fill(0);
+                }
+
+                let newYMap = {};
+                let currentY_sim = 19;
+                for (let y_old_sim = 19; y_old_sim >= -10; y_old_sim--) {
+                    if (clearedSimLines.includes(y_old_sim + 5)) continue;
+                    newYMap[currentY_sim] = yMap[y_old_sim];
+                    currentY_sim--;
+                }
+                while (currentY_sim >= -10) {
+                    newYMap[currentY_sim] = yMap[currentY_sim] || currentY_sim;
+                    currentY_sim--;
+                }
+                yMap = newYMap;
+            }
         }
     }
 
-    renderPCSinglePiece(pData, borderOpacity, bgOpacity, zIndex) {
+    renderPCSinglePiece(pData, borderOpacity, bgOpacity, zIndex, yMap) {
         const colorMap = {
             0: '0, 240, 240',
             1: '240, 240, 0',
@@ -1372,7 +1423,11 @@ window.CPU6 = class {
 
         simMino.blocks.forEach(block => {
             const drawX = block.x + pData.x;
-            const drawY = block.y + pData.y;
+            let drawY = block.y + pData.y;
+
+            // ★ライン消去に応じた表示位置の補正
+            if (yMap && yMap[drawY] !== undefined) drawY = yMap[drawY];
+
             if (drawY < -5 || drawY >= 20) return;
 
             const div = document.createElement('div');
