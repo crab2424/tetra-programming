@@ -1161,6 +1161,8 @@ class PuyoGame {
                     this._eraseTimer = 0;
                     this.chainCount++;
                     if (this.chainCount > this.chainMax) this.chainMax = this.chainCount;
+                    // 連鎖ステップごとに再生。1〜7連鎖目で音を変え、7連鎖目以降は puyo_chain7 を共用
+                    this.playSe('puyo_chain' + Math.min(this.chainCount, 7));
 
                     this.pendingChainGroups = groups;
                     this._calcChainScore(groups);
@@ -1457,7 +1459,9 @@ class PuyoGame {
         }
     }
 
-    _fixPuyo() {
+    _fixPuyo(viaQuickDrop = false) {
+        // 設置音：クイックドロップ時は puyo_drop を鳴らしているので二重化を避ける
+        if (!viaQuickDrop) this.playSe('puyo_fix');
         let pr = Math.round(this.pivotY);
         let pc = this.pivotX;
         const DC = [0, 1, 0, -1];
@@ -1989,6 +1993,7 @@ class PuyoGame {
     }
 
     _beginGameOver() {
+        this.playSe('puyo_gameover');
         this._stopTimer();
         this._removeKeyHandlers();
         this._clearChainTextDOM();
@@ -2461,6 +2466,12 @@ class PuyoGame {
         }
     }
 
+    // SE再生の薄いラッパ（A案）。CPU操作の盤面では鳴らさない（人間側の操作音と二重化を防ぐ）
+    playSe(key) {
+        if (this.isCpuControlled) return;
+        window.SeManager?.play(key);
+    }
+
     _tryMove(dir) {
         if (this._gs !== 'falling') return;
         const newCol = this.pivotX + dir;
@@ -2469,6 +2480,7 @@ class PuyoGame {
             this.lockTimer = 0;
             this.quickTurnCount = 0;
             this.lastRotationInfo = null;
+            this.playSe('puyo_move');
             this._checkMoveLock();
         }
     }
@@ -2507,6 +2519,7 @@ class PuyoGame {
             this.lockTimer = 0;
             this.quickTurnCount = 0;
             this.lastRotationInfo = { pivotY: this.pivotY };
+            this.playSe('puyo_rotate');
             this._checkMoveLock();
         } else {
             if (isVertical) {
@@ -2534,6 +2547,7 @@ class PuyoGame {
                         this.lockTimer = 0;
                         this.quickTurnCount = 0;
                         this.lastRotationInfo = { pivotY: this.pivotY };
+                        this.playSe('puyo_rotate');
                         this._checkMoveLock();
                     }
                 }
@@ -2565,7 +2579,8 @@ class PuyoGame {
 
         // 設置猶予時間をカットして即時設置
         this.lockTimer = PConfig.lockDelayMs;
-        this._fixPuyo();
+        this.playSe('puyo_drop');
+        this._fixPuyo(true);
     }
 
     _checkMoveLock() {

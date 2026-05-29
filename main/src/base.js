@@ -98,6 +98,10 @@ window.onload = function () {
             // 初回ユーザー操作時にBGMが一時停止中（＝自動再生ブロック済み）なら再生する
             const unlockAudio = () => {
                 const bm = window.BgmManager;
+                // SE用のAudioContextも初回操作で解錠する（suspended状態だと初回SEが欠落するため）
+                if (window.AudioLoader && AudioLoader._ctx && AudioLoader._ctx.state === 'suspended') {
+                    AudioLoader._ctx.resume().catch(() => {});
+                }
                 // _audio が存在しつつ paused＝自動再生がブロックされたケース
                 const isBlocked = bm._audio && bm._audio.paused;
                 if (isBlocked || !bm.isCurrent('menu_bgm')) {
@@ -536,9 +540,12 @@ class AudioLoader {
         // seMap: { key: src, ... }
         const promises = Object.entries(seMap).map(([key, src]) => {
             return fetch(src)
-                .then(r => r.arrayBuffer())
+                .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
                 .then(buf => this.context.decodeAudioData(buf))
-                .then(decoded => { this._seBuffers[key] = decoded; });
+                .then(decoded => { this._seBuffers[key] = decoded; })
+                // 個別ファイルの欠損/デコード失敗で全体を巻き込まないようにする
+                // （音源未配置でもアプリは動作し、該当SEは無音になるだけ）
+                .catch(err => { console.warn(`[AudioLoader] SE "${key}" の読み込みに失敗: ${src}`, err); });
         });
         return Promise.all(promises);
     }
@@ -557,6 +564,8 @@ class BgmManager {
     static _volume     = 0.5;
     static _muted      = false;
     static _fadeTimer  = null;
+    static _ducked     = false;   // ポーズ中などにBGMを小音量で流し続ける状態
+    static _duckRatio  = 0.25;    // ダッキング時の音量倍率（通常音量に対する割合）
 
     static play(key) {
         const src = AudioLoader.getBgmSrc(key);
@@ -567,7 +576,7 @@ class BgmManager {
         }
 
         if (this._currentKey === key && this._audio) {
-            this._audio.volume = this._muted ? 0 : this._volume;
+            this._audio.volume = this._effectiveVolume();
             if (this._audio.paused) this._audio.play().catch(() => {});
             return;
         }
@@ -575,13 +584,15 @@ class BgmManager {
         this.stop(true);
         this._audio = new Audio();
         this._audio.loop   = true;
-        this._audio.volume = this._muted ? 0 : this._volume;
+        this._audio.volume = this._effectiveVolume();
         this._audio.src    = src;
         this._currentKey   = key;
         this._audio.play().catch(() => {});
     }
 
     static stop(immediate = false) {
+        // ダッキング状態を解除（次に流すBGMが小音量のまま始まるのを防ぐ）
+        this._ducked = false;
         if (!this._audio) return;
         if (this._fadeTimer) {
             clearInterval(this._fadeTimer);
@@ -607,14 +618,36 @@ class BgmManager {
     static resume() { this._audio?.play().catch(() => {}); }
     static isCurrent(key) { return this._currentKey === key && !!this._audio; }
 
+    // ミュート・ダッキングを加味した実効音量
+    static _effectiveVolume() {
+        if (this._muted) return 0;
+        return this._ducked ? this._volume * this._duckRatio : this._volume;
+    }
+
+    static _applyVolume() {
+        if (this._audio) this._audio.volume = this._effectiveVolume();
+    }
+
+    // ポーズ中などにBGMを止めず小音量で流し続ける（ratio省略時は既定値）
+    static duck(ratio = null) {
+        if (ratio !== null) this._duckRatio = Math.max(0, Math.min(1, ratio));
+        this._ducked = true;
+        this._applyVolume();
+    }
+
+    static unduck() {
+        this._ducked = false;
+        this._applyVolume();
+    }
+
     static setVolume(v) {
         this._volume = Math.max(0, Math.min(1, v));
-        if (this._audio && !this._muted) this._audio.volume = this._volume;
+        this._applyVolume();
     }
 
     static toggleMute() {
         this._muted = !this._muted;
-        if (this._audio) this._audio.volume = this._muted ? 0 : this._volume;
+        this._applyVolume();
         return this._muted;
     }
 
@@ -670,11 +703,74 @@ window.SeManager = SeManager;
 // ─── BGM 登録（ページロード時） ────────────────
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 AudioLoader.registerBgm('menu_bgm',   'assets/audio/bgm/menu_1.ogg');
+AudioLoader.registerBgm('quiz_bgm',   'assets/audio/bgm/quiz_1.ogg');
 
-// ─── SE 登録（ページロード時） ────────────────
+// ─── SE 登録（ページロード時に一括プリロード） ────────────────
+// 音源は assets/audio/se/{menu,tet,puyo}/ に配置する。
+// 未配置のキーは loadSe 側で個別にスキップされ、該当SEは無音になるだけで動作には影響しない。
 AudioLoader.loadSe({
-    'countdown': 'assets/audio/se/countdown_1.ogg'
+    // メニュー系
+    'countdown':    'assets/audio/se/menu/countdown.ogg',
+    'menu_select':  'assets/audio/se/menu/select.ogg',
+    'menu_decide':  'assets/audio/se/menu/decide.ogg',
+    'menu_cancel':  'assets/audio/se/menu/cancel.ogg',
+    // テトリス系
+    'move':      'assets/audio/se/tet/move.ogg',
+    'rotate':    'assets/audio/se/tet/rotate.ogg',
+    'harddrop':  'assets/audio/se/tet/harddrop.ogg',
+    'lock':      'assets/audio/se/tet/lock.ogg',
+    'hold':      'assets/audio/se/tet/hold.ogg',
+    'lineclear': 'assets/audio/se/tet/lineclear.ogg',
+    'tetris':    'assets/audio/se/tet/tetris.ogg',
+    'tspin':     'assets/audio/se/tet/tspin.ogg',
+    'gameover':  'assets/audio/se/tet/gameover.ogg',
+    // ぷよ系
+    'puyo_move':     'assets/audio/se/puyo/move.ogg',
+    'puyo_rotate':   'assets/audio/se/puyo/rotate.ogg',
+    'puyo_drop':     'assets/audio/se/puyo/drop.ogg',
+    'puyo_fix':      'assets/audio/se/puyo/fix.ogg',
+    'puyo_gameover': 'assets/audio/se/puyo/gameover.ogg',
+    // 連鎖SE（1〜7連鎖目で音を変える。7連鎖目以降は puyo_chain7 を共用）
+    'puyo_chain1': 'assets/audio/se/puyo/chain1.ogg',
+    'puyo_chain2': 'assets/audio/se/puyo/chain2.ogg',
+    'puyo_chain3': 'assets/audio/se/puyo/chain3.ogg',
+    'puyo_chain4': 'assets/audio/se/puyo/chain4.ogg',
+    'puyo_chain5': 'assets/audio/se/puyo/chain5.ogg',
+    'puyo_chain6': 'assets/audio/se/puyo/chain6.ogg',
+    'puyo_chain7': 'assets/audio/se/puyo/chain7.ogg'
 });
+
+// ─── メニューSE（クリック/ホバーへイベント委譲で付与） ────────────────
+// onclick の付け方に依存せず動くよう、document へキャプチャ段で1つだけ委譲する。
+// 戻る/キャンセル系ボタンは menu_cancel、それ以外の確定操作は menu_decide。
+(function setupMenuSe() {
+    // SE対象となるクリック可能要素のセレクタ
+    const CLICK_SELECTOR = '.menu-btn, .menu-btn-icon, .mode-btn, .pause-btn, .opt-btn, .btn, #title-page';
+    // ホバー（カーソル移動）でselect音を鳴らす対象
+    const HOVER_SELECTOR = '.menu-btn, .mode-btn, .pause-btn';
+
+    const isCancelBtn = (el) => {
+        const cls = el.className || '';
+        return cls.includes('back') || cls.includes('mainmenu') || cls.includes('cancel')
+            || el.dataset?.se === 'cancel';
+    };
+
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest(CLICK_SELECTOR);
+        if (!btn) return;
+        window.SeManager?.play(isCancelBtn(btn) ? 'menu_cancel' : 'menu_decide');
+    }, true);
+
+    // ホバー音：要素をまたいだ時のみ（同一要素内の移動では鳴らさない）
+    document.addEventListener('mouseover', (e) => {
+        const btn = e.target.closest(HOVER_SELECTOR);
+        if (!btn) return;
+        // 子要素間の移動（relatedTarget が同じボタン内）では再生しない
+        const from = e.relatedTarget;
+        if (from && btn.contains(from)) return;
+        window.SeManager?.play('menu_select');
+    }, true);
+})();
 
 // ==========================================
 // ※ メインメニュー演出（パーティクル）は src/particles.js に移動しました

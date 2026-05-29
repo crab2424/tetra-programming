@@ -608,6 +608,8 @@ function toggleVersusPause() {
     }
     if (window._game && typeof window._game.pause === 'function') window._game.pause();
     if (window._cpuGame && typeof window._cpuGame.pause === 'function') window._cpuGame.pause();
+    // ③ ポーズ中はBGMを止めず小音量で流し続ける（ぷよ専用インスタンス時もここで確実にダッキング）
+    window.BgmManager?.duck();
     overlay.classList.add('active');
   }
 }
@@ -617,6 +619,8 @@ function resumeVersus() {
   if (overlay) overlay.classList.remove('active');
   if (window._game && typeof window._game.resume === 'function') window._game.resume();
   if (window._cpuGame && typeof window._cpuGame.resume === 'function') window._cpuGame.resume();
+  // ③ ポーズ解除でBGM音量を元に戻す
+  window.BgmManager?.unduck();
 }
 
 function restartVersus() {
@@ -834,9 +838,21 @@ function switchPage(pageId) {
     if (window.BgmManager) window.BgmManager.play('menu_bgm');
   }
 
+  // QUIZリザルトでは quiz_bgm を止めてメニューBGMへ戻す（次レベルへ進む場合は再びgameでquiz_bgmが鳴る）
+  if (pageId === 'quiz-result') {
+    if (window.BgmManager) window.BgmManager.play('menu_bgm');
+  }
+
   // ゲーム画面に入るタイミングでメニューBGMを止める
+  // QUIZモードのみ専用BGM(quiz_bgm)を流す。それ以外（marathon/solo等）は従来通り無音。
   if (pageId === 'game' || pageId === 'versus') {
-    if (window.BgmManager) window.BgmManager.stop(true);
+    if (window.BgmManager) {
+      if (pageId === 'game' && currentGameMode && currentGameMode.id === 'quiz') {
+        window.BgmManager.play('quiz_bgm');
+      } else {
+        window.BgmManager.stop(true);
+      }
+    }
   }
 
   // ★ 追加: 設定から game に戻る際、ポーズ画面を復元する

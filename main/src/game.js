@@ -335,6 +335,12 @@ class Game {
     }
 
     // ポーズ切り替え
+    // SE再生の薄いラッパ（A案）。CPU操作の盤面では鳴らさない（人間側の操作音と二重化を防ぐ）
+    playSe(key) {
+        if (this.isCpuControlled) return;
+        window.SeManager?.play(key);
+    }
+
     togglePause() {
         if (this.isPaused) {
             this.resume()
@@ -346,6 +352,8 @@ class Game {
     pause() {
         if (this.isPaused) return
         this.isPaused = true
+        // ③ ポーズ中はBGMを止めず小音量で流し続ける
+        window.BgmManager?.duck()
         clearInterval(this.timer)
 
         // 接地猶予タイマーが動いていた場合、残り時間を計算して保存する
@@ -377,6 +385,8 @@ class Game {
     resume() {
         if (!this.isPaused) return
         this.isPaused = false
+        // ③ ポーズ解除でBGM音量を元に戻す
+        window.BgmManager?.unduck()
         this.hidePauseOverlay()
 
         // 接地中(lockTimer稼働中)だったか空中だったかで再開処理を分ける
@@ -434,6 +444,7 @@ class Game {
     // 引数に isClear（デフォルト false）を追加
     gameOver(isClear = false) {
         this.isClear = isClear;
+        if (!isClear) this.playSe('gameover');
         this.drawAll();
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
@@ -583,6 +594,7 @@ class Game {
                 // キックテーブルの5番目（index=4）がPoint 5（井戸抜け用）
                 this.lastRotUsedPoint5 = (i === 4);
                 this.lastActionWasRotation = true;
+                this.playSe('rotate');
                 return true
             }
         }
@@ -630,6 +642,7 @@ class Game {
         // VS設定：HOLDが無効な場合はホールド操作を受け付けない
         if (this.isVersusMode && this.vsHoldEnabled === false) return
         this.canHold = false
+        this.playSe('hold')
 
         if (this.holdMino === null) {
             this.holdMino = new Mino()
@@ -1129,7 +1142,7 @@ class Game {
     }
 
     // ミノを即座に固定する共通処理
-    secureMino() {
+    secureMino(viaHardDrop = false) {
         let isAllOutside = this.mino.blocks.every(block => (block.y + this.mino.y) < 0);
 
         // ─── T-spin判定（固定前に行う）───
@@ -1141,9 +1154,21 @@ class Game {
         })
         this.field.blocks = this.field.blocks.concat(this.mino.blocks)
 
+        // 固定音：ハードドロップ時は harddrop SE を鳴らしているので二重化を避ける
+        if (!viaHardDrop) this.playSe('lock');
+
         const renForCalc = this.ren; // ★ぷよ用火力計算のために加算前のRENを保持
 
         const linesCleared = this.field.checkLine()
+
+        // ─── ライン消去・T-spin のSE ───
+        if (tSpinResult !== null) {
+            this.playSe('tspin');
+        } else if (linesCleared >= 4) {
+            this.playSe('tetris');
+        } else if (linesCleared > 0) {
+            this.playSe('lineclear');
+        }
 
         const isBtBAction = (linesCleared > 0 && (linesCleared === 4 || tSpinResult !== null));
         const isB2BTriggered = isBtBAction && this.backToBack;
@@ -1364,7 +1389,8 @@ class Game {
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
 
-        this.secureMino()
+        this.playSe('harddrop')
+        this.secureMino(true)
         this.drawAll()
     }
 
@@ -1777,6 +1803,7 @@ class Game {
         if (this.valid(-1, 0)) {
             this.mino.x--;
             this.lastActionWasRotation = false;
+            this.playSe('move');
             return true;
         }
         return false;
@@ -1786,6 +1813,7 @@ class Game {
         if (this.valid(1, 0)) {
             this.mino.x++;
             this.lastActionWasRotation = false;
+            this.playSe('move');
             return true;
         }
         return false;
