@@ -73,7 +73,7 @@ window.CPU6 = class {
 
         this.isExecutingAction = false; 
         this.actionQueue = [];          
-        this.actionDelay = 100; 
+        this.actionDelay = 40; 
         this.harddropDelay = 80; 
         
         this.worker.onmessage = (e) => {
@@ -323,14 +323,21 @@ window.CPU6 = class {
         };
 
         // (fromX, fromY, fromRot) → (toX, fromY, toRot) に直接到達可能か
+        // dropTargetY: 並べ替え後はAC操作(移動・回転)を上の行(fromY)で行うため、
+        //   そこからtoX/toRotで dropTargetY まで一直線に落下できるかを必ず検証する。
+        //   省略時はfromY（単一行＝落下スパンなし＝従来挙動）。
+        //   ※preSdState.y(上の行)だけで折り返しを判定すると、x一致時に
+        //     canMoveHorizontalが無条件true・単一行落下も自明trueとなり、
+        //     縦の障害物を無視してsd群間の折り返しを潰すバグになる。
         // 'rotate_first' / 'move_first' / null を返す
-        const canReachDirectAt = (fromX, fromY, fromRot, toX, toRot) => {
+        const canReachDirectAt = (fromX, fromY, fromRot, toX, toRot, dropTargetY = fromY) => {
             if (this.canDropStraightFromTo(fromX, fromY, fromY, toRot, bestResult.id) &&
-                canMoveHorizontal(fromX, toX, fromY, toRot)) {
+                canMoveHorizontal(fromX, toX, fromY, toRot) &&
+                this.canDropStraightFromTo(toX, fromY, dropTargetY, toRot, bestResult.id)) {
                 return 'rotate_first';
             }
             if (canMoveHorizontal(fromX, toX, fromY, fromRot) &&
-                this.canDropStraightFromTo(toX, fromY, fromY, toRot, bestResult.id)) {
+                this.canDropStraightFromTo(toX, fromY, dropTargetY, toRot, bestResult.id)) {
                 return 'move_first';
             }
             return null;
@@ -409,8 +416,10 @@ window.CPU6 = class {
 
             if (g.isSd) {
                 if (pendingSD) {
-                    // SD始点同士（preSdState → from）で直接到達可能か判定
-                    const order = canReachDirectAt(preSdState.x, preSdState.y, preSdState.rot, from.x, from.rot);
+                    // SD始点同士（preSdState → from）で直接到達可能か判定。
+                    // 落下先は from.y（=pendingSDのtargetY）。上の行で移動・回転してから
+                    // そこまで一直線に落下できるかを縦スパン込みで検証する。
+                    const order = canReachDirectAt(preSdState.x, preSdState.y, preSdState.rot, from.x, from.rot, from.y);
                     if (order && pendingACGroup) {
                         // 直接到達可能 → AC先出し → pendingSD後出し
                         if (order === 'rotate_first') {
@@ -1362,26 +1371,26 @@ window.CPU6 = class {
 //   行0 = 最上段（y=0）、列0 = 左端（x=0）
 // ─────────────────────────────────────────────
     CPU6.DEBUG_BOARD =　[
-    [0,0,1,0,0,0,0,1,1,0], // row 0  (上)
-    [0,0,1,0,0,0,0,1,1,0], // row 1
-    [0,0,1,0,0,0,1,1,1,0], // row 2
-    [0,0,1,0,0,0,1,1,1,0], // row 3
-    [0,0,0,1,0,1,1,0,1,0], // row 4
-    [0,0,0,1,0,0,1,0,1,0], // row 5
-    [0,0,0,0,1,0,0,0,1,0], // row 6
-    [0,0,0,0,0,0,0,0,1,0], // row 7
-    [0,0,0,1,0,0,0,0,1,0], // row 8
-    [0,0,1,0,1,0,0,0,1,0], // row 9
-    [0,0,0,0,1,0,0,0,1,0], // row 10
-    [0,1,0,0,1,0,0,0,1,0], // row 11
-    [1,1,1,1,0,0,0,0,1,0], // row 12
+    [1,0,0,0,0,0,0,0,0,0], // row 0  (上)
+    [1,0,0,0,0,0,0,0,0,0], // row 1
+    [1,0,0,0,0,0,0,0,0,0], // row 2
+    [0,1,0,0,0,0,0,0,0,0], // row 3
+    [0,1,0,1,0,0,0,0,0,0], // row 4
+    [0,1,0,0,1,0,0,0,0,0], // row 5
+    [0,1,0,0,0,1,0,0,0,0], // row 6
+    [0,0,0,0,0,0,1,0,0,0], // row 7
+    [1,0,0,0,0,0,0,1,0,0], // row 8
+    [0,1,0,1,1,0,0,0,0,0], // row 9
+    [0,0,0,0,1,0,0,1,0,0], // row 10
+    [0,1,0,0,1,0,0,0,0,0], // row 11
+    [1,1,1,1,1,0,0,0,0,1], // row 12
     [1,0,0,0,0,0,0,1,1,0], // row 13
-    [1,1,1,0,0,0,0,1,1,0], // row 14
-    [1,1,1,0,0,0,0,1,1,0], // row 15
-    [1,1,1,0,0,0,1,1,1,0], // row 16
-    [1,1,1,1,0,0,1,1,1,0], // row 17
-    [1,1,1,1,0,1,1,1,1,0], // row 18
-    [1,1,1,1,0,1,1,1,1,0], // row 19 (下)
+    [1,1,0,0,0,0,1,1,1,0], // row 14
+    [1,1,0,0,0,1,1,1,1,0], // row 15
+    [1,0,0,0,1,0,1,1,1,0], // row 16
+    [1,0,0,1,0,0,1,1,1,1], // row 17
+    [0,0,0,1,1,1,1,1,1,1], // row 18
+    [1,0,1,1,1,1,1,1,1,1], // row 19 (下)
     ];
 // 使うときは以下のコメントを外して値を編集する:
     
