@@ -5,7 +5,7 @@
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // QUIZ レベルデータ定義 (JSONからの読み込み)
-// ※ データ自体は /quizlevels/tdata.json と /quizlevels/pdata.json に分離しています。
+// ※ データ自体は /assets/quizlevels/tdata.json と /assets/quizlevels/pdata.json に分離しています。
 //
 // 各レベルのフォーマット:
 // {
@@ -52,8 +52,8 @@ async function loadQuizLevels() {
     if (_isQuizLevelsLoaded) return;
     try {
         const [tetRes, puyoRes] = await Promise.all([
-            fetch('quizlevels/tdata.json?' + Date.now()), // キャッシュ対策
-            fetch('quizlevels/pdata.json?' + Date.now())  // キャッシュ対策
+            fetch('assets/quizlevels/tdata.json?' + Date.now()), // キャッシュ対策
+            fetch('assets/quizlevels/pdata.json?' + Date.now())  // キャッシュ対策
         ]);
         if (tetRes.ok) QUIZ_LEVELS.tet = await tetRes.json();
         if (puyoRes.ok) QUIZ_LEVELS.puyo = await puyoRes.json();

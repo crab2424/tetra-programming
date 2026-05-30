@@ -295,7 +295,7 @@ const PConfig = {
 };
 
 // ==========================================
-// 3. 共通データクラス（テトリス）
+// 3. 共通データクラス（テト）
 // ==========================================
 
 // ─────────────────────────────────────────────
@@ -714,14 +714,14 @@ AudioLoader.loadSe({
     'menu_select':  'assets/audio/se/menu/select.ogg',
     'menu_decide':  'assets/audio/se/menu/decide.ogg',
     'menu_cancel':  'assets/audio/se/menu/cancel.ogg',
-    // テトリス系
+    // テト系
     'move':      'assets/audio/se/tet/move.ogg',
     'rotate':    'assets/audio/se/tet/rotate.ogg',
     'harddrop':  'assets/audio/se/tet/harddrop.ogg',
     'lock':      'assets/audio/se/tet/lock.ogg',
     'hold':      'assets/audio/se/tet/hold.ogg',
     'lineclear': 'assets/audio/se/tet/lineclear.ogg',
-    'tetris':    'assets/audio/se/tet/tetris.ogg',
+    '4lines':    'assets/audio/se/tet/4lines.ogg',
     'tspin':     'assets/audio/se/tet/tspin.ogg',
     'gameover':  'assets/audio/se/tet/gameover.ogg',
     // ぷよ系
