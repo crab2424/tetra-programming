@@ -691,7 +691,7 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
 // ────────────────────────────────────────────────
 // 【報酬】evalPlacementEvent
 // その1手を置いたことで「今回だけ」発生したイベントを評価する（1回限り加算）。
-// 含む要素：ライン消去・テトリス・Tスピン・BtB・コンボ・接地ボーナス・ダウンスタック・tsdFillBonus
+// 含む要素：ライン消去・4-LINES・Tスピン・BtB・コンボ・接地ボーナス・ダウンスタック・tsdFillBonus
 //
 // 引数：
 //   afterBoard  : 配置＆ライン消去後の盤面
