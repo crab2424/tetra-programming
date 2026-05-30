@@ -1165,7 +1165,7 @@ class Game {
         if (tSpinResult !== null) {
             this.playSe('tspin');
         } else if (linesCleared >= 4) {
-            this.playSe('tetris');
+            this.playSe('4lines');
         } else if (linesCleared > 0) {
             this.playSe('lineclear');
         }
