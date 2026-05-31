@@ -389,28 +389,6 @@ h1 {
   min-width: 200px;
 }
 
-/* CREDITSボタン — ゴールド系アクセント */
-.menu-btn.btn-credits {
-  background: rgba(245, 197, 66, 0.1);
-  color: #f5c542;
-  border: 1px solid rgba(245, 197, 66, 0.4);
-}
-.menu-btn.btn-credits:hover {
-  background: rgba(245, 197, 66, 0.22);
-  border-color: #f5c542;
-}
-
-/* TITLEに戻るボタン — シアン系アクセント */
-.menu-btn.btn-title-back {
-  background: rgba(113, 197, 245, 0.1);
-  color: var(--accent3);
-  border: 1px solid rgba(113, 197, 245, 0.4);
-}
-.menu-btn.btn-title-back:hover {
-  background: rgba(113, 197, 245, 0.22);
-  border-color: var(--accent3);
-}
-
 .menu-btn {
   display: flex;
   align-items: center;
@@ -2606,5 +2584,164 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 #credits-buttons .menu-btn {
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   メインメニュー 情報系ユーティリティバー
+   （TITLE / CREDITS / CHANGELOG — 控えめなテキストリンク）
+───────────────────────────────────────────── */
+#main-menu-utility {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  width: 100%;
+  margin-top: 14px;
+}
+
+.util-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  padding: 6px 10px;
+  border-radius: 6px;
+  opacity: 0.6;
+  transition: color 0.2s, opacity 0.2s, background 0.2s;
+}
+
+.util-link:hover {
+  color: var(--text);
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.util-link .util-icon {
+  font-size: 12px;
+}
+
+.util-sep {
+  color: var(--text-dim);
+  opacity: 0.35;
+  font-size: 11px;
+  user-select: none;
+}
+
+/* ─────────────────────────────────────────────
+   変更履歴ページ（changelog-page）
+───────────────────────────────────────────── */
+#changelog-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+#changelog-container {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 84vh;
+  overflow-y: auto;
+  padding: 40px 32px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+#changelog-header {
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.changelog-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 4px;
+}
+
+.changelog-subtitle {
+  font-family: 'Orbitron', monospace;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 3px;
+  margin: 0;
+}
+
+.changelog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.changelog-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.changelog-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.changelog-ver {
+  font-family: 'Orbitron', monospace;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--accent);
+}
+
+.changelog-date {
+  font-family: 'Orbitron', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+
+.changelog-items {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.changelog-items li {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+#changelog-buttons {
+  margin-top: 4px;
+  width: 100%;
+}
+
+#changelog-buttons .menu-btn {
   width: 100%;
 }

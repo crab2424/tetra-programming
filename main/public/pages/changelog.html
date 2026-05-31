@@ -1,0 +1,52 @@
+<!-- ─────────────────────────────────────────────
+     変更履歴ページ（外部分離 / src/pages.js が動的に注入）
+───────────────────────────────────────────── -->
+<div id="changelog-page" class="page">
+  <div id="changelog-container">
+
+    <div id="changelog-header">
+      <h1 class="changelog-title">CHANGELOG</h1>
+      <p class="changelog-subtitle">変更履歴</p>
+    </div>
+
+    <div class="changelog-list">
+
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.1</span>
+          <span class="changelog-date">2025</span>
+        </div>
+        <ul class="changelog-items">
+          <li>CPU LV6 を追加（6手先読みビームサーチ）</li>
+          <li>VERSUS モードを刷新：自分とCPUのルール（TET / PUYO）を個別選択可能に</li>
+          <li>マージンタイム・火力補正・最小連鎖などの対戦設定を追加</li>
+          <li>BGM / 効果音システムを実装</li>
+          <li>タイトル・メニューのアニメーション演出を追加</li>
+          <li>各種バグ修正とパフォーマンス改善</li>
+        </ul>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.0</span>
+          <span class="changelog-date">2025</span>
+        </div>
+        <ul class="changelog-items">
+          <li>初回リリース</li>
+          <li>MARATHON / SPRINT / ULTRA / VERSUS / PUYO / QUIZ モードを実装</li>
+          <li>CPU LV1〜LV5 を実装</li>
+          <li>キーバインド・音量などの設定機能を実装</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <div id="changelog-buttons">
+      <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+        <span class="menu-btn-icon">◀</span>
+        <span>BACK</span>
+      </button>
+    </div>
+
+  </div>
+</div>
