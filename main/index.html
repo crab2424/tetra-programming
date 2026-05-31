@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png">
   
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="src/styles/style.css?v=25">
+    <link rel="stylesheet" href="src/styles/style.css?v=26">
     <link rel="stylesheet" href="src/styles/anime.css">
   </head>
   <body>
@@ -114,13 +114,20 @@
             <span class="menu-btn-icon">⚙</span>
             <span>SETTINGS</span>
           </button>
-          <button class="menu-btn btn-credits" onclick="switchPage('credits')">
-            <span class="menu-btn-icon">★</span>
-            <span>CREDITS</span>
+        </div>
+
+        <!-- 情報系リンク（見つけやすいが導線を邪魔しない控えめなバー） -->
+        <div id="main-menu-utility">
+          <button class="util-link" onclick="switchPage('title')">
+            <span class="util-icon">◀</span><span>TITLE</span>
           </button>
-          <button class="menu-btn btn-title-back" onclick="switchPage('title')">
-            <span class="menu-btn-icon">◀</span>
-            <span>TITLE</span>
+          <span class="util-sep">·</span>
+          <button class="util-link" onclick="openInfoPage('credits')">
+            <span class="util-icon">★</span><span>CREDITS</span>
+          </button>
+          <span class="util-sep">·</span>
+          <button class="util-link" onclick="openInfoPage('changelog')">
+            <span class="util-icon">📝</span><span>CHANGELOG</span>
           </button>
         </div>
       </div>
@@ -694,67 +701,11 @@
     <div id="settings-toast">SAVED ✓</div>
 
     <!-- ─────────────────────────────────────────────
-        クレジットページ
+        外部ページ注入先（CREDITS / CHANGELOG は src/pages.js が動的に読込）
     ───────────────────────────────────────────── -->
-    <div id="credits-page" class="page">
-      <div id="credits-container">
+    <div id="external-pages"></div>
 
-        <div id="credits-header">
-          <h1 class="credits-title">TETLABO</h1>
-          <p class="credits-version">v1.1</p>
-        </div>
-
-        <div class="credits-section">
-          <p class="credits-section-label">CREATED BY</p>
-          <p class="credits-name">GAME CIRCLE</p>
-        </div>
-
-        <div class="credits-divider"></div>
-
-        <div class="credits-section">
-          <p class="credits-section-label">PROGRAMMING</p>
-          <p class="credits-name">YOUR NAME</p>
-        </div>
-
-        <div class="credits-section">
-          <p class="credits-section-label">GAME DESIGN</p>
-          <p class="credits-name">YOUR NAME</p>
-        </div>
-
-        <div class="credits-section">
-          <p class="credits-section-label">GRAPHICS</p>
-          <p class="credits-name">YOUR NAME</p>
-        </div>
-
-        <div class="credits-section">
-          <p class="credits-section-label">SOUND</p>
-          <p class="credits-name">YOUR NAME</p>
-        </div>
-
-        <div class="credits-divider"></div>
-
-        <div class="credits-section">
-          <p class="credits-section-label">SPECIAL THANKS</p>
-          <p class="credits-name">GAME CIRCLE MEMBERS</p>
-        </div>
-
-        <div class="credits-divider"></div>
-
-        <div class="credits-section credits-copy">
-          <p>© 2025 GAME CIRCLE</p>
-          <p>ALL RIGHTS RESERVED.</p>
-        </div>
-
-        <div id="credits-buttons">
-          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
-            <span class="menu-btn-icon">◀</span>
-            <span>BACK</span>
-          </button>
-        </div>
-
-      </div>
-    </div>
-    
+    <script src="src/pages.js?v=1"></script>
     <script src="src/base.js?v=5"></script>
     <script src="src/particles.js?v=4"></script>
     <script src="src/manager.js?v=1"></script>
@@ -763,6 +714,6 @@
     <script src="src/game.js?v=19"></script>
     <script src="src/p_game.js?v=7"></script>
     <script src="src/quiz.js?v=4"></script>
-    <script src="src/router.js?v=30"></script>
+    <script src="src/router.js?v=31"></script>
   </body>
 </html>

@@ -826,7 +826,7 @@ function switchPage(pageId) {
   }
 
   // router.js の switchPage 関数内（既存の page 切り替え処理の後）に追記
-  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits'].includes(pageId)) {
+  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog'].includes(pageId)) {
       if (typeof initMenuAnimations === 'function') initMenuAnimations(pageId);
   } else {
       if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
