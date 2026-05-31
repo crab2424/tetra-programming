@@ -595,7 +595,8 @@ class Game {
                 // キックテーブルの5番目（index=4）がPoint 5（井戸抜け用）
                 this.lastRotUsedPoint5 = (i === 4);
                 this.lastActionWasRotation = true;
-                this.playSe('rotate');
+                // 回転後の位置がT-spin判定になる場合は専用SE（人間・CPU共通）
+                this.playSe(this.checkTSpin() !== null ? 'tspin_rot' : 'rotate');
                 return true
             }
         }

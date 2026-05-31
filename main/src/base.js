@@ -758,6 +758,7 @@ class SeManager {
         // テト系
         'move':          1.00,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
         'rotate':        1.65,  // -34.8 / -5.4
+        'tspin_rot':     1.00,  // 未配置（実測後に調整）
         'harddrop':      2.65,  // -39.9 / -9.6
         'lock':          1.85,  // -31.6 / -6.4
         'hold':          1.25,  // -24.0 / -6.4
@@ -822,10 +823,11 @@ AudioLoader.loadSe({
     'menu_cancel':  'assets/audio/se/menu/cancel.ogg',
     // ポーズ/リジューム（同一音源でも別パスでも可。未配置時は無音）
     'pause':        'assets/audio/se/menu/pause.ogg',
-    'resume':       'assets/audio/se/menu/resume.ogg',
+    'resume':       'assets/audio/se/menu/pause.ogg',
     // テト系
     'move':      'assets/audio/se/tet/move.ogg',
     'rotate':    'assets/audio/se/tet/rotate.ogg',
+    'tspin_rot': 'assets/audio/se/tet/tspin_rot.ogg',
     'harddrop':  'assets/audio/se/tet/harddrop.ogg',
     'lock':      'assets/audio/se/tet/lock.ogg',
     'hold':      'assets/audio/se/tet/hold.ogg',
