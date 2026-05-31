@@ -4,6 +4,10 @@
 // フローチャート: title screen → main menu → mode check → game screen
 // ─────────────────────────────────────────────
 
+// 開始カウントダウン（3→2→1→START!）の長さ。START!（=ゲーム開始）に到達するまで約2100ms。
+// runCountdown（base.js）が 700ms 間隔で進むのに合わせる。ゲーム開始時のメニューBGMフェードアウトに使用。
+const COUNTDOWN_TO_START_MS = 2100;
+
 // ─── モード定義 ───────────────────────────────
 const GAME_MODES = {
   marathon: {
@@ -138,11 +142,11 @@ const CPU_CONFIGS = {
 // 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
 function stopAllGames() {
     currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
-    // ★ メニューBGMは非ゲーム画面間で継続させ、それ以外のBGMだけ停止する
-    if (window.BgmManager && !window.BgmManager.isCurrent?.('menu_bgm')) {
-        window.BgmManager.stop(true);
-    }
-    
+    // ★ BGMの停止/継続は switchPage が遷移先ページに応じて判断する（ここでは止めない）。
+    //   これにより RETRY / NEXT LEVEL のようにゲームを再開する経路では BGM を途切れさせず継続できる。
+    //   ただしポーズ中のダッキングは解除する（継続するBGMが小音量のまま再開されるのを防ぐ）。
+    window.BgmManager?.unduck();
+
     const stopGameInstance = (gameInst) => {
         if (!gameInst) return;
         // ★ 修正: PuyoGame と Tet (Game) インスタンスを確実に区別して停止処理を行う
@@ -587,6 +591,7 @@ function toggleVersusPause() {
   if (!overlay) return;
   const isPaused = overlay.classList.contains('active');
   if (isPaused) {
+    window.SeManager?.play('resume');
     resumeVersus();
   } else {
     // ★ finish演出中はポーズを受け付けない（startカウントダウン中と同じ扱い）
@@ -606,6 +611,7 @@ function toggleVersusPause() {
         || isGameCounting(window._puyoGamePlayer) || isGameCounting(window._puyoGameCpu)) {
       return;
     }
+    window.SeManager?.play('pause');
     if (window._game && typeof window._game.pause === 'function') window._game.pause();
     if (window._cpuGame && typeof window._cpuGame.pause === 'function') window._cpuGame.pause();
     // ③ ポーズ中はBGMを止めず小音量で流し続ける（ぷよ専用インスタンス時もここで確実にダッキング）
@@ -697,7 +703,7 @@ function versusGameOver(loser) {
 
   showFinishOverlay('player-finish-overlay', 'player-finish-text', playerText, playerClass, 1400, null);
   showFinishOverlay('cpu-finish-overlay',    'cpu-finish-text',    cpuText,    cpuClass,    1400, () => {
-    if (window.BgmManager) window.BgmManager.stop(); // ★ // ★ フェードアウトしながら停止（デフォルト500ms）
+    // ★ リザルトでも versus_bgm を引き継ぐ（停止は main-menu / versus-check へ戻った時のみ）
     const winner = (loser === 'player') ? 'CPU' : 'YOU';
     const titleEl = document.getElementById('versus-result-title');
     const winnerEl = document.getElementById('versus-result-winner');
@@ -819,10 +825,11 @@ function switchPage(pageId) {
   // ★ BGM 切り替え処理
   // メインメニューやタイトルに戻る際はゲーム情報を完全に破棄
   if (pageId === 'main-menu' || pageId === 'title') {
-    stopAllGames(); // ← この中でBGMが止まる
+    stopAllGames();
     _switchToPuyoLayout(false);
-    // ★ stopAllGames()の後に鳴らす
-    if (window.BgmManager) window.BgmManager.play('menu_bgm');
+    // ★ リザルト等から戻る際、流れていたBGMをぶつ切りにせず menu_bgm へクロスフェード
+    //   （menu_bgm が既に流れていれば crossfadeTo は冪等に継続）
+    if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
   }
 
   // router.js の switchPage 関数内（既存の page 切り替え処理の後）に追記
@@ -832,25 +839,29 @@ function switchPage(pageId) {
       if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
   }
 
-  // 準備画面もメニューBGMを継続
+  // 準備画面（mode select 等）もメニューBGM。リザルトから戻った場合はクロスフェードで滑らかに切替。
   const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check'];
   if (menuPages.includes(pageId)) {
-    if (window.BgmManager) window.BgmManager.play('menu_bgm');
+    if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
   }
 
-  // QUIZリザルトでは quiz_bgm を止めてメニューBGMへ戻す（次レベルへ進む場合は再びgameでquiz_bgmが鳴る）
-  if (pageId === 'quiz-result') {
-    if (window.BgmManager) window.BgmManager.play('menu_bgm');
-  }
+  // リザルト画面ではプレイ中のBGMをそのまま引き継ぐ（消さない）。
+  // 停止は main-menu / mode select（mode-check・quiz-check・versus-check 等）へ戻った時のみ＝
+  // それらのページが menu_bgm に切り替えることで実現する。
+  // → quiz-result では quiz_bgm を継続させ、NEXT LEVEL / RETRY でも途切れさせない。
 
-  // ゲーム画面に入るタイミングでメニューBGMを止める
-  // QUIZモードのみ専用BGM(quiz_bgm)を流す。それ以外（marathon/solo等）は従来通り無音。
+  // ゲーム画面に入るタイミングのBGM制御。
+  // ・QUIZ：専用BGM(quiz_bgm)。既に流れていれば play() が冪等に継続（NEXT/RETRYで途切れない）。
+  // ・それ以外：メニューBGM(menu_bgm)が流れていればカウントダウンの長さに合わせてフェードアウト。
+  //   （versusは START! のタイミングで versus_bgm を鳴らす＝startVersusGame側。
+  //    RESTARTでversus_bgm継続中の場合はそのまま流し続ける。）
   if (pageId === 'game' || pageId === 'versus') {
     if (window.BgmManager) {
       if (pageId === 'game' && currentGameMode && currentGameMode.id === 'quiz') {
         window.BgmManager.play('quiz_bgm');
-      } else {
-        window.BgmManager.stop(true);
+      } else if (window.BgmManager.isCurrent?.('menu_bgm')) {
+        // runCountdown は 3→2→1→START! を 700ms間隔で進め、START!（=ゲーム開始）まで約2100ms。
+        window.BgmManager.stop(false, COUNTDOWN_TO_START_MS);
       }
     }
   }
@@ -1409,6 +1420,7 @@ function toggleGamePause() {
 
   const isPaused = overlay.classList.contains('active');
   if (isPaused) {
+    window.SeManager?.play('resume');
     handlePauseAction('resume');
   } else {
     // プレイ中のみポーズ発動
@@ -1421,6 +1433,7 @@ function toggleGamePause() {
         currentQuizLevel.rule === 'puyo';
     
     if (canPauseGame || canPausePuyo) {
+      window.SeManager?.play('pause');
       // QUIZぷよ中はtetインスタンスのpauseを呼ばない（resume時の暴発防止）
       if (window._game && typeof window._game.pause === 'function' && !_isQuizPuyo2) window._game.pause();
       if (window._puyoGame && typeof window._puyoGame.pause === 'function') window._puyoGame.pause();

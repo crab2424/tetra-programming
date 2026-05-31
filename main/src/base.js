@@ -593,13 +593,15 @@ class BgmManager {
         this.stop(true);
         this._audio = new Audio();
         this._audio.loop   = true;
+        // ★ 音量補正係数(_gain)は _currentKey を見て決まるので、volume を計算する前にキーを更新する。
+        //   （順序が逆だと直前のBGMの係数で鳴ってしまい、versus_bgm等の補正が効かない）
+        this._currentKey   = key;
         this._audio.volume = this._effectiveVolume();
         this._audio.src    = src;
-        this._currentKey   = key;
         this._audio.play().catch(() => {});
     }
 
-    static stop(immediate = false) {
+    static stop(immediate = false, fadeMs = 300) {
         // ダッキング状態を解除（次に流すBGMが小音量のまま始まるのを防ぐ）
         this._ducked = false;
         if (!this._audio) return;
@@ -613,7 +615,7 @@ class BgmManager {
             this._audio = null;
             this._currentKey = null;
         } else {
-            this.fadeOut(300, () => {
+            this.fadeOut(fadeMs, () => {
                 if (this._audio) {
                     this._audio.currentTime = 0;
                     this._audio = null;
@@ -626,6 +628,62 @@ class BgmManager {
     static pause()  { this._audio?.pause(); }
     static resume() { this._audio?.play().catch(() => {}); }
     static isCurrent(key) { return this._currentKey === key && !!this._audio; }
+
+    // 別BGMへクロスフェード：旧BGMを ms かけてフェードアウトしつつ、新BGMを同じ ms で
+    // 0→実効音量へフェードイン。ぶつ切りを避ける（リザルト→メニュー復帰などで使用）。
+    // 同一キーが既に再生中なら音量だけ整えて継続（冪等）。
+    static crossfadeTo(key, ms = 800) {
+        const src = AudioLoader.getBgmSrc(key);
+        if (!src) return;
+
+        if (this._currentKey === key && this._audio) {
+            this._applyVolume();
+            if (this._audio.paused) this._audio.play().catch(() => {});
+            return;
+        }
+
+        // 進行中のフェード（_fadeTimer）は止める
+        if (this._fadeTimer) { clearInterval(this._fadeTimer); this._fadeTimer = null; }
+
+        const stepCount = Math.max(1, Math.round(ms / 50));
+
+        // 旧BGMを独立タイマーでフェードアウト（this._audio はこの後 新BGMに差し替わるため捕捉しておく）
+        const old = this._audio;
+        if (old) {
+            const startVol = old.volume;
+            let i = 0;
+            const outTimer = setInterval(() => {
+                i++;
+                old.volume = Math.max(0, startVol * (1 - i / stepCount));
+                if (i >= stepCount) {
+                    clearInterval(outTimer);
+                    old.pause();
+                    try { old.currentTime = 0; } catch (e) {}
+                }
+            }, 50);
+        }
+
+        // 新BGMを 0 からフェードイン
+        this._ducked = false;
+        this._currentKey = key;
+        this._audio = new Audio();
+        this._audio.loop = true;
+        this._audio.src = src;
+        this._audio.volume = 0;
+        this._audio.play().catch(() => {});
+        const target = this._effectiveVolume();
+        let j = 0;
+        this._fadeTimer = setInterval(() => {
+            if (!this._audio) { clearInterval(this._fadeTimer); this._fadeTimer = null; return; }
+            j++;
+            this._audio.volume = Math.min(target, target * (j / stepCount));
+            if (j >= stepCount) {
+                clearInterval(this._fadeTimer);
+                this._fadeTimer = null;
+                this._audio.volume = this._effectiveVolume();
+            }
+        }, 50);
+    }
 
     // ミュート・ダッキングを加味した実効音量
     static _effectiveVolume() {
@@ -694,10 +752,11 @@ class SeManager {
         // メニュー系
         'menu_cancel':   1.90,  // -27.6 / -6.8
         'menu_decide':   1.80,  // -40.3 / -6.3
-        'menu_select':   1.00,  // 未配置（配置後に実測して調整）
+        'pause':         1.00,  // 未配置（配置後に実測して調整）
+        'resume':        1.00,  // 未配置（配置後に実測して調整）
         'countdown':     1.00,  // 未配置
         // テト系
-        'move':          0.20,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
+        'move':          1.00,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
         'rotate':        1.65,  // -34.8 / -5.4
         'harddrop':      2.65,  // -39.9 / -9.6
         'lock':          1.85,  // -31.6 / -6.4
@@ -759,9 +818,11 @@ AudioLoader.registerBgm('quiz_bgm',   'assets/audio/bgm/quiz_1.ogg');
 AudioLoader.loadSe({
     // メニュー系
     'countdown':    'assets/audio/se/menu/countdown.ogg',
-    'menu_select':  'assets/audio/se/menu/select.ogg',
     'menu_decide':  'assets/audio/se/menu/decide.ogg',
     'menu_cancel':  'assets/audio/se/menu/cancel.ogg',
+    // ポーズ/リジューム（同一音源でも別パスでも可。未配置時は無音）
+    'pause':        'assets/audio/se/menu/pause.ogg',
+    'resume':       'assets/audio/se/menu/resume.ogg',
     // テト系
     'move':      'assets/audio/se/tet/move.ogg',
     'rotate':    'assets/audio/se/tet/rotate.ogg',
@@ -793,9 +854,8 @@ AudioLoader.loadSe({
 // 戻る/キャンセル系ボタンは menu_cancel、それ以外の確定操作は menu_decide。
 (function setupMenuSe() {
     // SE対象となるクリック可能要素のセレクタ
-    const CLICK_SELECTOR = '.menu-btn, .menu-btn-icon, .mode-btn, .pause-btn, .opt-btn, .btn, #title-page';
-    // ホバー（カーソル移動）でselect音を鳴らす対象
-    const HOVER_SELECTOR = '.menu-btn, .mode-btn, .pause-btn';
+    // .util-link = TITLE/CREDITS/CHANGELOG、.quiz-level-btn = quizのレベルセレクト（オレンジ正方形）
+    const CLICK_SELECTOR = '.menu-btn, .menu-btn-icon, .mode-btn, .pause-btn, .opt-btn, .btn, #title-page, .util-link, .quiz-level-btn';
 
     const isCancelBtn = (el) => {
         const cls = el.className || '';
@@ -807,16 +867,6 @@ AudioLoader.loadSe({
         const btn = e.target.closest(CLICK_SELECTOR);
         if (!btn) return;
         window.SeManager?.play(isCancelBtn(btn) ? 'menu_cancel' : 'menu_decide');
-    }, true);
-
-    // ホバー音：要素をまたいだ時のみ（同一要素内の移動では鳴らさない）
-    document.addEventListener('mouseover', (e) => {
-        const btn = e.target.closest(HOVER_SELECTOR);
-        if (!btn) return;
-        // 子要素間の移動（relatedTarget が同じボタン内）では再生しない
-        const from = e.relatedTarget;
-        if (from && btn.contains(from)) return;
-        window.SeManager?.play('menu_select');
     }, true);
 })();
 
