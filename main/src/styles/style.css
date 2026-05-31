@@ -375,16 +375,24 @@ h1 {
   color: var(--text-dim);
 }
 
+/* 基準はメインキャンバス(#main-menu-container)。フッターをその基準ボックスとして
+   中央に SETTINGS+TITLE、左右の下隅に CREDITS / CHANGELOG を配置する。 */
 #main-menu-footer {
-  display: flex;
-  justify-content: center;
-  gap: 16px;
+  position: relative;
   width: 100%;
   margin-top: 16px;
-  flex-wrap: wrap;
+  min-height: 96px;
 }
 
-#main-menu-footer .menu-btn {
+/* 中央：SETTINGS の真下に TITLE を縦並び */
+#main-menu-footer-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+#main-menu-footer-center .menu-btn {
   width: auto;
   min-width: 200px;
 }
@@ -2588,19 +2596,9 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* ─────────────────────────────────────────────
-   メインメニュー 情報系ユーティリティバー
+   メインメニュー 情報系リンク
    （TITLE / CREDITS / CHANGELOG — 控えめなテキストリンク）
 ───────────────────────────────────────────── */
-#main-menu-utility {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 4px 6px;
-  width: 100%;
-  margin-top: 14px;
-}
-
 .util-link {
   display: inline-flex;
   align-items: center;
@@ -2629,11 +2627,19 @@ input[type="range"]::-webkit-slider-thumb:hover {
   font-size: 12px;
 }
 
-.util-sep {
-  color: var(--text-dim);
-  opacity: 0.35;
-  font-size: 11px;
-  user-select: none;
+/* 左下：CREDITS ／ 右下：CHANGELOG（基準は #main-menu-footer = メインキャンバス幅） */
+.util-link-credits,
+.util-link-changelog {
+  position: absolute;
+  bottom: 0;
+}
+
+.util-link-credits {
+  left: 0;
+}
+
+.util-link-changelog {
+  right: 0;
 }
 
 /* ─────────────────────────────────────────────

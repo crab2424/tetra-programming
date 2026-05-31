@@ -248,3 +248,30 @@ body::after {
     animation: menuEnter 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
     /* animation-delay は base.js の initMenuAnimations() が inline style で上書き */
 }
+
+/* menuEnter の減光版 — .util-link（TITLE/CREDITS/CHANGELOG）用。
+   終了時 opacity を 0.6 に保ち、控えめな見た目を維持する。 */
+@keyframes menuEnterDim {
+    0% {
+        opacity: 0;
+        transform: translateY(18px) scale(0.96);
+        filter: blur(2px);
+    }
+    60% {
+        opacity: 0.6;
+        filter: blur(0px);
+    }
+    80% {
+        transform: translateY(-3px) scale(1.01);
+    }
+    100% {
+        opacity: 0.6;
+        transform: translateY(0) scale(1);
+        filter: blur(0px);
+    }
+}
+
+.menu-enter-dim {
+    opacity: 0;
+    animation: menuEnterDim 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
