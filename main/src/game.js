@@ -342,8 +342,10 @@ class Game {
 
     togglePause() {
         if (this.isPaused) {
+            this.playSe('resume')
             this.resume()
         } else {
+            this.playSe('pause')
             this.pause()
         }
     }
