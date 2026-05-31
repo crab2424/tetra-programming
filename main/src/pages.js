@@ -38,7 +38,12 @@ function ensureExternalPage(id) {
     .then((html) => {
       // 既に注入済み（重複呼び出しの競合）なら何もしない
       if (!document.getElementById(id + '-page')) {
-        _getExternalPagesContainer().insertAdjacentHTML('beforeend', html);
+        const container = _getExternalPagesContainer();
+        container.insertAdjacentHTML('beforeend', html);
+        // 注入したページ内のバージョン表記を反映
+        if (typeof window.applyAppVersion === 'function') {
+          window.applyAppVersion(document.getElementById(id + '-page') || container);
+        }
       }
     })
     .catch((err) => {

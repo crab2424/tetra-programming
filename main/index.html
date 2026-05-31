@@ -10,8 +10,8 @@
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png">
   
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="src/styles/style.css?v=26">
-    <link rel="stylesheet" href="src/styles/anime.css">
+    <link rel="stylesheet" href="src/styles/style.css?v=27">
+    <link rel="stylesheet" href="src/styles/anime.css?v=2">
   </head>
   <body>
     <!-- 常時動作する背景演出レイヤー（全ページ共通） -->
@@ -34,7 +34,7 @@
         <div id="title-press-any">
           <span class="title-blink">PRESS ANY KEY</span>
         </div>
-        <div id="title-version"><span>v1.1</span></div>
+        <div id="title-version"><span data-app-version></span></div>
       </div>
     </div>
 
@@ -109,24 +109,23 @@
           </div>
         </div>
 
+        <!-- フッター：基準はメインキャンバス(#main-menu-container)。
+             SETTINGS の真下に TITLE、左下に CREDITS、右下に CHANGELOG を配置 -->
         <div id="main-menu-footer">
-          <button class="menu-btn btn-secondary" onclick="switchPage('settings')">
-            <span class="menu-btn-icon">⚙</span>
-            <span>SETTINGS</span>
-          </button>
-        </div>
+          <div id="main-menu-footer-center">
+            <button class="menu-btn btn-secondary" onclick="switchPage('settings')">
+              <span class="menu-btn-icon">⚙</span>
+              <span>SETTINGS</span>
+            </button>
+            <button class="util-link util-link-title" onclick="switchPage('title')">
+              <span class="util-icon">◀</span><span>TITLE</span>
+            </button>
+          </div>
 
-        <!-- 情報系リンク（見つけやすいが導線を邪魔しない控えめなバー） -->
-        <div id="main-menu-utility">
-          <button class="util-link" onclick="switchPage('title')">
-            <span class="util-icon">◀</span><span>TITLE</span>
-          </button>
-          <span class="util-sep">·</span>
-          <button class="util-link" onclick="openInfoPage('credits')">
+          <button class="util-link util-link-credits" onclick="openInfoPage('credits')">
             <span class="util-icon">★</span><span>CREDITS</span>
           </button>
-          <span class="util-sep">·</span>
-          <button class="util-link" onclick="openInfoPage('changelog')">
+          <button class="util-link util-link-changelog" onclick="openInfoPage('changelog')">
             <span class="util-icon">📝</span><span>CHANGELOG</span>
           </button>
         </div>
@@ -705,9 +704,10 @@
     ───────────────────────────────────────────── -->
     <div id="external-pages"></div>
 
-    <script src="src/pages.js?v=1"></script>
+    <script src="src/version.js?v=1"></script>
+    <script src="src/pages.js?v=2"></script>
     <script src="src/base.js?v=5"></script>
-    <script src="src/particles.js?v=4"></script>
+    <script src="src/particles.js?v=6"></script>
     <script src="src/manager.js?v=1"></script>
     <script src="src/settings.js?v=14"></script>
     <script src="src/vs_settings.js?v=1"></script>

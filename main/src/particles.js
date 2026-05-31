@@ -156,7 +156,11 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '.mode-btn-test',            cls: 'menu-enter',  delay: 3   },
             { sel: '.mode-btn-puyo',            cls: 'menu-enter',  delay: 2   },
             { sel: '.mode-btn-quiz',            cls: 'menu-enter',  delay: 3   },
-            { sel: '#main-menu-footer',         cls: 'menu-enter',  delay: 4   },
+            // フッターは各ボタンを個別 delay で登場させる
+            { sel: '#main-menu-footer-center .btn-secondary', cls: 'menu-enter',     delay: 4 }, // SETTINGS
+            { sel: '.util-link-title',          cls: 'menu-enter-dim', delay: 5   }, // TITLE
+            { sel: '.util-link-credits',        cls: 'menu-enter-dim', delay: 6   }, // CREDITS（左下）
+            { sel: '.util-link-changelog',      cls: 'menu-enter-dim', delay: 7   }, // CHANGELOG（右下）
         ];
     } else if (pageId === 'mode-check') {
         targets = [
@@ -195,16 +199,28 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '#result-stats',             cls: 'menu-enter',  delay: 1   },
             { sel: '#result-buttons',           cls: 'menu-enter',  delay: 2   },
         ];
+    } else if (pageId === 'settings') {
+        // settings-page は直下に各セクションが並ぶフラット構造。
+        // 子要素を順番にカスケード登場（delay は長くなりすぎないよう上限6でクランプ）。
+        targets = Array.from(page.children).map((el, i) => (
+            { el, cls: 'menu-enter', delay: Math.min(i, 6) }
+        ));
+    } else if (pageId === 'credits') {
+        // 項目が多いのでコンテナを一括で fade（賑やかにしすぎない）
+        targets = [{ sel: '#credits-container', cls: 'menu-enter', delay: 0 }];
+    } else if (pageId === 'changelog') {
+        targets = [{ sel: '#changelog-container', cls: 'menu-enter', delay: 0 }];
     }
 
-    targets.forEach(({ sel, cls, delay }) => {
-        const els = page.querySelectorAll(sel);
-        els.forEach(el => {
+    targets.forEach(({ sel, el, cls, delay }) => {
+        // sel 指定なら querySelectorAll、el 指定ならその要素を直接対象にする
+        const els = el ? [el] : page.querySelectorAll(sel);
+        els.forEach(node => {
             // クラスを一度外してリフローを挟み、再付与することで再アニメーション
-            el.classList.remove(cls);
-            el.style.animationDelay = `${delay * 0.08}s`;
-            void el.offsetWidth;            // reflow
-            el.classList.add(cls);
+            node.classList.remove(cls);
+            node.style.animationDelay = `${delay * 0.08}s`;
+            void node.offsetWidth;          // reflow
+            node.classList.add(cls);
         });
     });
 }
