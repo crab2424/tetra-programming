@@ -334,10 +334,10 @@ window.CPU4 = class {
                 this.game.tryRotate(-1);
                 break;
             case 'moveLeft':
-                if (this.game.valid(-1, 0)) this.game.mino.x--;
+                if (this.game.valid(-1, 0)) { this.game.mino.x--; this.game.playSe('move'); }
                 break;
             case 'moveRight':
-                if (this.game.valid(1, 0)) this.game.mino.x++;
+                if (this.game.valid(1, 0)) { this.game.mino.x++; this.game.playSe('move'); }
                 break;
             case 'softDrop':
                 if (this.game.valid(0, 1)) {
@@ -360,23 +360,27 @@ window.CPU4 = class {
                     }
                 }
                 break;
-            case 'moveToTargetX':
+            case 'moveToTargetX': {
+                const beforeX = this.game.mino.x;
                 if (this.game.mino.x < action.targetX) {
                     let prevX = this.game.mino.x;
                     if (this.game.valid(1, 0)) this.game.mino.x++;
                     if (this.game.mino.x < action.targetX) {
                         if (prevX === this.game.mino.x) this.game.mino.x = action.targetX;
-                        else this.actionQueue.unshift(action); 
+                        else this.actionQueue.unshift(action);
                     }
                 } else if (this.game.mino.x > action.targetX) {
                     let prevX = this.game.mino.x;
                     if (this.game.valid(-1, 0)) this.game.mino.x--;
                     if (this.game.mino.x > action.targetX) {
                         if (prevX === this.game.mino.x) this.game.mino.x = action.targetX;
-                        else this.actionQueue.unshift(action); 
+                        else this.actionQueue.unshift(action);
                     }
                 }
+                // 1マスでも実際に動いたら移動音を鳴らす（スナップ補正含む）
+                if (this.game.mino.x !== beforeX) this.game.playSe('move');
                 break;
+            }
             case 'harddrop':
                 this.game.hardDrop(); 
                 break;

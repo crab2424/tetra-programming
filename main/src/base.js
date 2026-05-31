@@ -567,6 +567,15 @@ class BgmManager {
     static _ducked     = false;   // ポーズ中などにBGMを小音量で流し続ける状態
     static _duckRatio  = 0.25;    // ダッキング時の音量倍率（通常音量に対する割合）
 
+    // ── キー別の音量補正係数（素材ごとの録音レベル差を吸収）─────────────
+    // 1.00 = 無補正。BGMはピークが0dB張り付きのため減衰のみで最も静かな menu に揃える。
+    // コメント = 実測 mean(dBFS)。値を 1.00 に戻せば元通り（＝完全可逆・無劣化）。
+    static _gain = {
+        'menu_bgm':   1.00,  // -14.1
+        'quiz_bgm':   0.63,  // -10.0
+        'versus_bgm': 0.50,  // -8.0
+    };
+
     static play(key) {
         const src = AudioLoader.getBgmSrc(key);
         if (!src) return;
@@ -621,7 +630,9 @@ class BgmManager {
     // ミュート・ダッキングを加味した実効音量
     static _effectiveVolume() {
         if (this._muted) return 0;
-        return this._ducked ? this._volume * this._duckRatio : this._volume;
+        const g = this._gain[this._currentKey] ?? 1;
+        const base = this._ducked ? this._volume * this._duckRatio : this._volume;
+        return Math.min(1, base * g);
     }
 
     static _applyVolume() {
@@ -674,6 +685,43 @@ class SeManager {
     static _volume = 0.8;
     static _muted  = false;
 
+    // ── キー別の音量補正係数（素材ごとの録音レベル差を吸収）─────────────
+    // 1.00 = 無補正。実効音量 = _volume × _gain[key]（GainNodeで乗算）。
+    // 初期値は ffmpeg volumedetect の実測 mean/max(dBFS) を基に、目標平均 ≈ -22dB へ
+    // 寄せつつピークがクリップしない範囲に収めたもの（コメント = 実測 mean / max）。
+    // 値を 1.00 に戻せば元通り（＝完全可逆・無劣化）。耳で微調整可。
+    static _gain = {
+        // メニュー系
+        'menu_cancel':   1.90,  // -27.6 / -6.8
+        'menu_decide':   1.80,  // -40.3 / -6.3
+        'menu_select':   1.00,  // 未配置（配置後に実測して調整）
+        'countdown':     1.00,  // 未配置
+        // テト系
+        'move':          0.20,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
+        'rotate':        1.65,  // -34.8 / -5.4
+        'harddrop':      2.65,  // -39.9 / -9.6
+        'lock':          1.85,  // -31.6 / -6.4
+        'hold':          1.25,  // -24.0 / -6.4
+        'lineclear':     0.90,  // -17.7 / -0.1（ピーク張り付き＝微減衰）
+        '4lines':        2.20,  // -29.0 / -8.8
+        'tspin':         0.90,  // -20.2 / -0.0（ピーク張り付き＝微減衰）
+        'gameover':      1.00,  // 未配置
+        // ぷよ系
+        'puyo_move':     3.50,  // -33.5 / -12.9
+        'puyo_rotate':   1.00,  // 未配置
+        'puyo_drop':     1.70,  // -15.9 / -5.6（fix.ogg）
+        'puyo_fix':      1.70,  // -15.9 / -5.6
+        'puyo_gameover': 1.00,  // 未配置
+        // 連鎖SE（未配置。配置後に実測して調整）
+        'puyo_chain1':   1.00,
+        'puyo_chain2':   1.00,
+        'puyo_chain3':   1.00,
+        'puyo_chain4':   1.00,
+        'puyo_chain5':   1.00,
+        'puyo_chain6':   1.00,
+        'puyo_chain7':   1.00,
+    };
+
     // AudioContextを使うことで同時再生・連打に対応
     static play(key) {
         if (this._muted) return;
@@ -683,7 +731,7 @@ class SeManager {
         const ctx    = AudioLoader.context;
         const source = ctx.createBufferSource();
         const gain   = ctx.createGain();
-        gain.gain.value = this._volume;
+        gain.gain.value = this._volume * (this._gain[key] ?? 1);
 
         source.buffer = buf;
         source.connect(gain);
@@ -727,7 +775,7 @@ AudioLoader.loadSe({
     // ぷよ系
     'puyo_move':     'assets/audio/se/puyo/move.ogg',
     'puyo_rotate':   'assets/audio/se/puyo/rotate.ogg',
-    'puyo_drop':     'assets/audio/se/puyo/drop.ogg',
+    'puyo_drop':     'assets/audio/se/puyo/fix.ogg',
     'puyo_fix':      'assets/audio/se/puyo/fix.ogg',
     'puyo_gameover': 'assets/audio/se/puyo/gameover.ogg',
     // 連鎖SE（1〜7連鎖目で音を変える。7連鎖目以降は puyo_chain7 を共用）

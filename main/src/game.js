@@ -335,9 +335,8 @@ class Game {
     }
 
     // ポーズ切り替え
-    // SE再生の薄いラッパ（A案）。CPU操作の盤面では鳴らさない（人間側の操作音と二重化を防ぐ）
+    // SE再生の薄いラッパ（A案）。人間・CPUどちらの盤面でもそれぞれの操作音を鳴らす。
     playSe(key) {
-        if (this.isCpuControlled) return;
         window.SeManager?.play(key);
     }
 
@@ -2015,6 +2014,7 @@ class Game {
                         if (this.valid(-1, 0)) {
                             this.mino.x--
                             this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                            this.playSe('move')
                             acted = true
                         }
                         this._lastMoveTimeLeft = now
@@ -2027,6 +2027,7 @@ class Game {
                             if (this.valid(-1, 0)) {
                                 this.mino.x--
                                 this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                                this.playSe('move')
                                 acted = true
                                 this._dasBlockedLeft = false
                             } else {
@@ -2048,6 +2049,7 @@ class Game {
                         if (this.valid(1, 0)) {
                             this.mino.x++
                             this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                            this.playSe('move')
                             acted = true
                         }
                         this._lastMoveTimeRight = now
@@ -2060,6 +2062,7 @@ class Game {
                             if (this.valid(1, 0)) {
                                 this.mino.x++
                                 this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                                this.playSe('move')
                                 acted = true
                                 this._dasBlockedRight = false
                             } else {
