@@ -102,6 +102,9 @@ window.onload = function () {
                 if (window.AudioLoader && AudioLoader._ctx && AudioLoader._ctx.state === 'suspended') {
                     AudioLoader._ctx.resume().catch(() => {});
                 }
+                // 出力デバイスのアイドル復帰（起床レイテンシ）対策：無音キープアライブを起動して
+                // デバイスを寝かせない。SE/BGM 全体で一律に乗る遅延を防ぐ（初回操作で一度だけ）。
+                if (window.AudioLoader) AudioLoader.startKeepAlive();
                 // _audio が存在しつつ paused＝自動再生がブロックされたケース
                 const isBlocked = bm._audio && bm._audio.paused;
                 if (isBlocked || !bm.isCurrent('menu_bgm')) {
@@ -520,6 +523,7 @@ class AudioLoader {
     static _seBuffers  = {};  // { key: AudioBuffer }
     static _bgmSrcMap  = {};  // { key: src }
     static _ctx        = null;
+    static _keepAlive  = null;  // 無音キープアライブのbufferSource（多重起動防止＆GC防止）
 
     static get context() {
         if (!this._ctx) this._ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -552,6 +556,26 @@ class AudioLoader {
 
     static getSeBuffer(key) {
         return this._seBuffers[key] ?? null;
+    }
+
+    // ── 無音キープアライブ ───────────────────────────────────────────
+    // macOS(CoreAudio)等では無音が続くと出力デバイスが省電力で寝てしまい、
+    // 次の音で「起床レイテンシ」が一律に乗る（SE/BGM が揃って同じだけ遅れる）。
+    // 実質無音のループ音源を destination へ流しっぱなしにしてデバイスを起こし続け、
+    // この起床遅延を防ぐ。出力デバイスは全音声で共有されるため、これ1本で
+    // Web Audio の SE も HTMLAudio の BGM も両方カバーされる。
+    // 解錠時（初回ユーザー操作）に一度だけ呼ぶ。多重起動は _keepAlive で防ぐ。
+    static startKeepAlive() {
+        if (this._keepAlive) return;          // 既に起動済み
+        const ctx = this.context;
+        // 1フレーム長の無音バッファをループ再生（中身ゼロ＝完全無音。ストリームを開いたままに保つのが目的）
+        const buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.loop   = true;
+        source.connect(ctx.destination);
+        source.start(0);
+        this._keepAlive = source;             // GC防止＆多重起動防止のため参照を保持
     }
 }
 
@@ -759,7 +783,7 @@ class SeManager {
         'move':          1.00,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
         'rotate':        1.40,  // -34.8 / -5.4
         'tspin_rot':     2.00,  // 未配置（実測後に調整）
-        'harddrop':      0.60,  // -39.9 / -9.6
+        'harddrop':      0.48,  // -39.9 / -9.6
         'lock':          1.85,  // -31.6 / -6.4
         'hold':          1.25,  // -24.0 / -6.4
         'lineclear':     0.90,  // -17.7 / -0.1（ピーク張り付き＝微減衰）
