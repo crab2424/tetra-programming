@@ -757,14 +757,15 @@ class SeManager {
         'countdown':     1.00,  // 未配置
         // テト系
         'move':          1.00,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
-        'rotate':        1.65,  // -34.8 / -5.4
-        'tspin_rot':     1.00,  // 未配置（実測後に調整）
-        'harddrop':      2.65,  // -39.9 / -9.6
+        'rotate':        1.40,  // -34.8 / -5.4
+        'tspin_rot':     2.00,  // 未配置（実測後に調整）
+        'harddrop':      0.60,  // -39.9 / -9.6
         'lock':          1.85,  // -31.6 / -6.4
         'hold':          1.25,  // -24.0 / -6.4
         'lineclear':     0.90,  // -17.7 / -0.1（ピーク張り付き＝微減衰）
         '4lines':        2.20,  // -29.0 / -8.8
         'tspin':         0.90,  // -20.2 / -0.0（ピーク張り付き＝微減衰）
+        'tspin_1':       0.90,  // -20.2 / -0.0（ピーク張り付き＝微減衰）
         'gameover':      1.00,  // 未配置
         // ぷよ系
         'puyo_move':     3.50,  // -33.5 / -12.9
@@ -834,6 +835,7 @@ AudioLoader.loadSe({
     'lineclear': 'assets/audio/se/tet/lineclear.ogg',
     '4lines':    'assets/audio/se/tet/4lines.ogg',
     'tspin':     'assets/audio/se/tet/tspin.ogg',
+    'tspin_1':   'assets/audio/se/tet/tspin_1.ogg',
     'gameover':  'assets/audio/se/tet/gameover.ogg',
     // ぷよ系
     'puyo_move':     'assets/audio/se/puyo/move.ogg',

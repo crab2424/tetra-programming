@@ -546,7 +546,12 @@ class Game {
     }
 
     // SRS回転
-    tryRotate(rotDir) {
+    // silent=true のときは回転処理・フラグ設定は行うがSEを鳴らさない。
+    // CPUのbuildActionQueueはパスを実機上で一度“再生”して状態を求める際に
+    // tryRotateを呼ぶ（その後位置はバックアップから復元される）。この再生中の
+    // 回転は画面に出ない最終位置近くで評価されるため、SEを鳴らすと出現位置の
+    // ミノに対して空中でtspin_rot等が鳴ってしまう。再生時は silent=true を渡す。
+    tryRotate(rotDir, silent = false) {
         const isI = this.mino.type === 0
         const from = this.mino.rotation
         const to = (from + (rotDir === 1 ? 1 : 3)) % 4
@@ -595,8 +600,11 @@ class Game {
                 // キックテーブルの5番目（index=4）がPoint 5（井戸抜け用）
                 this.lastRotUsedPoint5 = (i === 4);
                 this.lastActionWasRotation = true;
-                // 回転後の位置がT-spin判定になる場合は専用SE（人間・CPU共通）
-                this.playSe(this.checkTSpin() !== null ? 'tspin_rot' : 'rotate');
+                // 回転後の位置がT-spin判定になる場合は専用SE（人間・CPU共通）。
+                // silent（CPUのパス再生中）はSEを抑止する。
+                if (!silent) {
+                    this.playSe(this.checkTSpin() !== null ? 'tspin_rot' : 'rotate');
+                }
                 return true
             }
         }
@@ -1166,6 +1174,7 @@ class Game {
         // ─── ライン消去・T-spin のSE ───
         if (tSpinResult !== null) {
             this.playSe('tspin');
+            this.playSe('tspin_1');
         } else if (linesCleared >= 4) {
             this.playSe('4lines');
         } else if (linesCleared > 0) {
@@ -1424,9 +1433,13 @@ class Game {
             { x: px + 1, y: py + 1 }, // 右下
         ];
 
-        // 各隅が「埋まっているか」を判定（フィールド外も埋まりとして扱う）
+        // 各隅が「埋まっているか」を判定。
+        // 壁（左右）・床（下）の場外は埋まり扱いだが、フィールド上方（y<0）は
+        // ミノの出現領域＝開いた空間なので埋まり扱いにしない。これを埋まりにすると、
+        // スポーン直後（y=-2）など高い位置で回転した際に上2隅が常に埋まり判定となり、
+        // 実際には3隅を満たしていない空中でT-spin成立と誤判定して tspin_rot が鳴る。
         const occupied = corners.map(c =>
-            c.x < 0 || c.x >= COLS_COUNT || c.y < 0 || c.y >= ROWS_COUNT
+            c.x < 0 || c.x >= COLS_COUNT || c.y >= ROWS_COUNT
             || this.field.has(c.x, c.y)
         );
         // occupied[0]=左上, [1]=右上, [2]=左下, [3]=右下

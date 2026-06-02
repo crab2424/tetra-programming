@@ -300,8 +300,8 @@ window.CPU6 = class {
             if (actId === 1) { if (this.game.valid(-1, 0)) this.game.mino.x--; }
             else if (actId === 2) { if (this.game.valid(1, 0)) this.game.mino.x++; }
             else if (actId === 3) { if (this.game.valid(0, 1)) this.game.mino.y++; }
-            else if (actId === 4) { this.game.tryRotate(1); }
-            else if (actId === 5) { this.game.tryRotate(-1); }
+            else if (actId === 4) { this.game.tryRotate(1, true); }   // 再生はSE抑止
+            else if (actId === 5) { this.game.tryRotate(-1, true); }  // 再生はSE抑止
             else if (actId === 6) { break; }
             states.push({ x: this.game.mino.x, y: this.game.mino.y, rot: this.game.mino.rotation });
         }
