@@ -1164,8 +1164,8 @@ class Game {
         })
         this.field.blocks = this.field.blocks.concat(this.mino.blocks)
 
-        // 固定音：ハードドロップ時は harddrop SE を鳴らしているので二重化を避ける
-        if (!viaHardDrop) this.playSe('lock');
+        // 固定音：ハードドロップ時は harddrop と重ねて lock_hard（小音量）、通常時は lock（通常音量）
+        this.playSe(viaHardDrop ? 'lock_hard' : 'lock');
 
         const renForCalc = this.ren; // ★ぷよ用火力計算のために加算前のRENを保持
 
@@ -1401,7 +1401,7 @@ class Game {
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
 
         this.playSe('harddrop')
-        this.playSe('lock')
+        // lock 音は secureMino(true) 内で lock_hard（小音量）として鳴らすため、ここでは鳴らさない
         this.secureMino(true)
         this.drawAll()
     }

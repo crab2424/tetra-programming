@@ -784,7 +784,8 @@ class SeManager {
         'rotate':        1.40,  // -34.8 / -5.4
         'tspin_rot':     2.00,  // 未配置（実測後に調整）
         'harddrop':      0.30,  // -39.9 / -9.6
-        'lock':          0.32,  // -31.6 / -6.4
+        'lock':          1.85,  // -31.6 / -6.4（通常固定：そのまま鳴らす）
+        'lock_hard':     0.32,  // ハードドロップ時の重ね鳴らし用（harddropと同時のため小音量）
         'hold':          1.25,  // -24.0 / -6.4
         'lineclear':     0.90,  // -17.7 / -0.1（ピーク張り付き＝微減衰）
         '4lines':        2.20,  // -29.0 / -8.8
@@ -855,6 +856,7 @@ AudioLoader.loadSe({
     'tspin_rot': 'assets/audio/se/tet/tspin_rot.ogg',
     'harddrop':  'assets/audio/se/tet/harddrop.ogg',
     'lock':      'assets/audio/se/tet/lock.ogg',
+    'lock_hard': 'assets/audio/se/tet/lock.ogg', // 同一音源・別音量（ハードドロップ重ね用）
     'hold':      'assets/audio/se/tet/hold.ogg',
     'lineclear': 'assets/audio/se/tet/lineclear.ogg',
     '4lines':    'assets/audio/se/tet/4lines.ogg',

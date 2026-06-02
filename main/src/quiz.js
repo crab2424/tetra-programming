@@ -245,7 +245,7 @@ class QuizManager {
         // secureMino 実行後にキャプチャして _lastSecureResult へ保存する。
         // 元の secureMino をラップする形で差し込むことで、
         // 既存の固定・ライン消去・スコア処理には一切影響を与えない。
-        game.secureMino = function() {
+        game.secureMino = function(viaHardDrop = false) {
             // ── ラップ前：今回の固定で使うT-spin判定結果とRENを先取りする ──
             // ※ checkTSpin() は secureMino の内部でも呼ばれるが、
             //    同じ状態で呼ぶので結果は同一（副作用なし）
@@ -256,7 +256,7 @@ class QuizManager {
             self._isSecuring = true;
 
             // ── 元の secureMino を実行（固定・消去・スコア等すべて処理される） ──
-            self._originalSecureMino.call(this);
+            self._originalSecureMino.call(this, viaHardDrop);
 
             // ★追加：処理中フラグを解除
             self._isSecuring = false;
