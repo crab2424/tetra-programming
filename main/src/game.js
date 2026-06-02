@@ -1401,6 +1401,7 @@ class Game {
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
 
         this.playSe('harddrop')
+        this.playSe('lock')
         this.secureMino(true)
         this.drawAll()
     }
