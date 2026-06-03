@@ -1174,11 +1174,16 @@ class Game {
         // ─── ライン消去・T-spin のSE ───
         if (tSpinResult !== null) {
             this.playSe('tspin');
-            this.playSe('tspin_1');
-        } else if (linesCleared >= 4) {
+        }
+        
+        if (linesCleared >= 4) {
             this.playSe('4lines');
-        } else if (linesCleared > 0) {
-            this.playSe('lineclear');
+        } else if (linesCleared === 3) {
+            this.playSe('3lines');
+        } else if (linesCleared === 2) {
+            this.playSe('2lines');
+        } else if (linesCleared === 1) {
+            this.playSe('1line');
         }
 
         const isBtBAction = (linesCleared > 0 && (linesCleared === 4 || tSpinResult !== null));
