@@ -1367,9 +1367,14 @@ class Game {
         }
 
         if (this.mode === 'sprint' && this.lines >= this.goalLines) {
+            // 設置したミノのブロックはすでに絶対座標化されて field に追加済み。
+            // this.mino を残したまま gameOver→drawAll するとミノが二重描画され、
+            // mino.x/mino.y 分だけずれて（下にワープして）見えるので null にする。
+            this.mino = null;
             this.gameOver(true); // クリア！
             return;
         } else if (this.mode === 'marathon' && this.goalLines !== Infinity && this.lines >= this.goalLines) {
+            this.mino = null;
             this.gameOver(true); // クリア！
             return;
         }
