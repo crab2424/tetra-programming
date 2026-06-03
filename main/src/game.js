@@ -101,6 +101,13 @@ class Game {
 
         // カウントダウン開始
         runCountdown(overlayId, textElId, () => {
+            // START! のタイミングでBGM開始（versus は startVersusGame 側で鳴らすため除外）。
+            // CPU TEST モード(currentMode==='test')は専用BGM、それ以外のシングル(marathon/sprint/ultra)は single_bgm。
+            if (!this.isVersusMode && window.BgmManager) {
+                window.BgmManager.play(this.currentMode === 'test'
+                    ? 'test_bgm'
+                    : window.BgmManager.singleBgmKey(this.currentMode));
+            }
             this._startGameplay();
         }, null);
     }

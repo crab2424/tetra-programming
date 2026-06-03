@@ -27,6 +27,10 @@ class PuyoGame {
         this.state = 'idle';
         this._gs = 'spawn';
 
+        // fix.ogg（puyo_fix / puyo_drop）専用チャタリング防止用：
+        // この盤面で最後に fix.ogg を鳴らした時刻（performance.now基準）
+        this._lastFixSeTime = null;
+
         this.score = 0;
         this.chainMax = 0;
         this.chainCount = 0;
@@ -154,6 +158,13 @@ class PuyoGame {
 
             runCountdown(overlayId, textElId, () => {
                 if (this.state !== 'starting') return;
+                // START! のタイミングでBGM開始（versus は startVersusGame 側で鳴らすため除外）。
+                // CPU TEST モード(currentMode==='test')は専用BGM、それ以外のシングル(puyo)は single_bgm。
+                if (!this.isVersusMode && window.BgmManager) {
+                    window.BgmManager.play(this.currentMode === 'test'
+                        ? 'test_bgm'
+                        : window.BgmManager.singleBgmKey(this.currentMode));
+                }
                 this._startGameplay();
             }, null);
         });
@@ -1132,6 +1143,8 @@ class PuyoGame {
                     this._setCell(this.splitPuyo.col, Math.round(this.splitPuyo.y), this.splitPuyo.color);
 
                     this._addPuyoAnim(fr_s, this.splitPuyo.col, 3);
+                    // もう片方の操作ぷよが着地して固定による振動演出が起きた瞬間
+                    this.playSe('puyo_fix');
 
                     this.splitPuyo = null;
                     this._beginFixAnimWait();
@@ -1355,14 +1368,19 @@ class PuyoGame {
                     if (allDone) {
                         this._applyDropAnim();
 
+                        let anyChainVib = false;
                         for (const col of this._dropAnim) {
                             for (const cell of col.cells) {
                                 if (cell.color === 6) continue;
                                 let dropDist = cell.toR - cell.fromR;
                                 let cycles = dropDist >= 2 ? 4 : 3;
                                 this._addPuyoAnim(cell.toR, col.c, cycles);
+                                anyChainVib = true;
                             }
                         }
+                        // 連鎖中に落ちてきたぷよが振動演出を行なった場合にも鳴らす
+                        // （複数同時でもチャタリング防止により1盤面50ms間隔に間引かれる）
+                        if (anyChainVib) this.playSe('puyo_fix');
 
                         this._dropAnim = null;
                         this._beginFixAnimWait();
@@ -1460,8 +1478,9 @@ class PuyoGame {
     }
 
     _fixPuyo(viaQuickDrop = false) {
-        // 設置音：クイックドロップ時は puyo_drop を鳴らしているので二重化を避ける
-        if (!viaQuickDrop) this.playSe('puyo_fix');
+        // 設置音(fix.ogg)は固定時ではなく、操作ぷよが固定による「振動演出」を
+        // 開始した瞬間（_addPuyoAnim 呼び出し直後）に鳴らす。2つとも対象なので
+        // 分割落下する片割れの着地（splitting 着地）でも別途鳴らす。
         let pr = Math.round(this.pivotY);
         let pc = this.pivotX;
         const DC = [0, 1, 0, -1];
@@ -1480,12 +1499,16 @@ class PuyoGame {
         if (pivotFloating && !childFloating) {
             this._setCell(cc, cr, this.childColor);
             this._addPuyoAnim(fr_c, cc, cycles);
+            // 片方が固定して振動開始：クイックドロップ時は puyo_drop と重なるため避ける
+            if (!viaQuickDrop) this.playSe('puyo_fix');
 
             this.splitPuyo = { col: pc, y: pr, color: this.pivotColor };
             this._gs = 'splitting';
         } else if (!pivotFloating && childFloating) {
             this._setCell(pc, pr, this.pivotColor);
             this._addPuyoAnim(fr_p, pc, cycles);
+            // 片方が固定して振動開始：クイックドロップ時は puyo_drop と重なるため避ける
+            if (!viaQuickDrop) this.playSe('puyo_fix');
 
             this.splitPuyo = { col: cc, y: cr, color: this.childColor };
             this._gs = 'splitting';
@@ -1495,6 +1518,8 @@ class PuyoGame {
 
             this._addPuyoAnim(fr_p, pc, cycles);
             this._addPuyoAnim(fr_c, cc, cycles);
+            // 2つ同時に固定して振動開始：クイックドロップ時は puyo_drop と重なるため避ける
+            if (!viaQuickDrop) this.playSe('puyo_fix');
             this._beginFixAnimWait();
         }
     }
@@ -1993,7 +2018,7 @@ class PuyoGame {
     }
 
     _beginGameOver() {
-        this.playSe('puyo_gameover');
+        this.playSe('gameover');
         this._stopTimer();
         this._removeKeyHandlers();
         this._clearChainTextDOM();
@@ -2469,6 +2494,17 @@ class PuyoGame {
     // SE再生の薄いラッパ（A案）。CPU操作の盤面では鳴らさない（人間側の操作音と二重化を防ぐ）
     playSe(key) {
         if (this.isCpuControlled) return;
+
+        // fix.ogg（puyo_fix / puyo_drop）のみ、特殊なチャタリング防止を行う。
+        // ・「1盤面につき」50ms間隔（この timer はインスタンス毎なので盤面ごとに独立）。
+        // ・vsで両方ぷよでも、プレイヤー盤面とCPU盤面は別インスタンス＝別 timer のため、
+        //   両者の fix 間隔が50ms未満でも互いに抑制されず鳴る。
+        if (key === 'puyo_fix' || key === 'puyo_drop') {
+            const now = performance.now();
+            if (this._lastFixSeTime != null && now - this._lastFixSeTime < 50) return;
+            this._lastFixSeTime = now;
+        }
+
         window.SeManager?.play(key);
     }
 
