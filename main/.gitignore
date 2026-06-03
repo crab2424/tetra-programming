@@ -13,3 +13,6 @@ dist/
 # エディタ
 .vscode/
 .idea/
+
+# SE直下のoggファイルのみ（サブフォルダは除外）
+assets/audio/se/*.ogg
