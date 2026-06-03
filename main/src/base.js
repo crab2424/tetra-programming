@@ -598,7 +598,26 @@ class BgmManager {
         'menu_bgm':   1.00,  // -14.1
         'quiz_bgm':   0.63,  // -10.0
         'versus_bgm': 0.50,  // -8.0
+        // シングル各モードBGM（今は同一ファイル＝同係数。モード別音源にしたら個別に実測して調整）
+        'single_marathon_bgm': 1.00,
+        'single_sprint_bgm':   1.00,
+        'single_ultra_bgm':    1.00,
+        'single_puyo_bgm':     1.00,
     };
+
+    // ── シングルモードの mode → BGMキー対応 ───────────────────────────
+    // 将来モードごとに別BGMにしたくなったら、base.js 末尾の registerBgm のパスを
+    // モード別に書き換えるだけでよい（再生ロジックは変更不要）。
+    // 未登録の mode は 'single_bgm'（共通フォールバック）にフォールバックする。
+    static _singleBgmKeys = {
+        marathon: 'single_marathon_bgm',
+        sprint:   'single_sprint_bgm',
+        ultra:    'single_ultra_bgm',
+        puyo:     'single_puyo_bgm',
+    };
+    static singleBgmKey(mode) {
+        return this._singleBgmKeys[mode] || 'single_bgm';
+    }
 
     static play(key) {
         const src = AudioLoader.getBgmSrc(key);
@@ -779,6 +798,7 @@ class SeManager {
         'pause':         1.00,  // 未配置（配置後に実測して調整）
         'resume':        1.00,  // 未配置（配置後に実測して調整）
         'countdown':     1.00,  // 未配置
+        'gameover':      1.00,  // 未配置（tet/puyo共通）
         // テト系
         'move':          1.00,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
         'rotate':        1.40,  // -34.8 / -5.4
@@ -792,13 +812,11 @@ class SeManager {
         '3lines':        0.90,  // 未実測
         '4lines':        2.20,  // -29.0 / -8.8
         'tspin':         0.90,  // -20.2 / -0.0（ピーク張り付き＝微減衰）
-        'gameover':      1.00,  // 未配置
         // ぷよ系
         'puyo_move':     3.50,  // -33.5 / -12.9
         'puyo_rotate':   1.00,  // 未配置
         'puyo_drop':     1.70,  // -15.9 / -5.6（fix.ogg）
         'puyo_fix':      1.70,  // -15.9 / -5.6
-        'puyo_gameover': 1.00,  // 未配置
         // 連鎖SE（未配置。配置後に実測して調整）
         'puyo_chain1':   1.00,
         'puyo_chain2':   1.00,
@@ -836,9 +854,20 @@ window.BgmManager = BgmManager;
 window.SeManager = SeManager;
 
 // ─── BGM 登録（ページロード時） ────────────────
+// シングル4モード（marathon/sprint/ultra/puyo）は将来モードごとに別BGMにできるよう
+// 個別キーで登録する。今は全モード同一ファイル(single_1.ogg)を指す。
+// → モード別BGMにしたくなったら、下記4行のパスをそれぞれ差し替えるだけで適用される
+//   （再生ロジック・キー対応は BgmManager.singleBgmKey 側で完結済み）。
+AudioLoader.registerBgm('single_marathon_bgm', 'assets/audio/bgm/single_1.ogg');
+AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/single_1.ogg');
+AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/single_1.ogg');
+AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/single_1.ogg');
+// 共通フォールバック（未対応modeが singleBgmKey に来たとき用）
+AudioLoader.registerBgm('single_bgm', 'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 AudioLoader.registerBgm('menu_bgm',   'assets/audio/bgm/menu_1.ogg');
 AudioLoader.registerBgm('quiz_bgm',   'assets/audio/bgm/quiz_1.ogg');
+AudioLoader.registerBgm('test_bgm',   'assets/audio/bgm/cputest_1.ogg');
 
 // ─── SE 登録（ページロード時に一括プリロード） ────────────────
 // 音源は assets/audio/se/{menu,tet,puyo}/ に配置する。
@@ -851,6 +880,8 @@ AudioLoader.loadSe({
     // ポーズ/リジューム（同一音源でも別パスでも可。未配置時は無音）
     'pause':        'assets/audio/se/menu/pause.ogg',
     'resume':       'assets/audio/se/menu/pause.ogg',
+    // ゲームオーバー（tet/puyo共通の統一SE）
+    'gameover':     'assets/audio/se/menu/gameover.ogg',
     // テト系
     'move':      'assets/audio/se/tet/move.ogg',
     'rotate':    'assets/audio/se/tet/rotate.ogg',
@@ -864,13 +895,11 @@ AudioLoader.loadSe({
     '3lines':    'assets/audio/se/tet/3lines.ogg',
     '4lines':    'assets/audio/se/tet/4lines.ogg',
     'tspin':     'assets/audio/se/tet/tspin.ogg',
-    'gameover':  'assets/audio/se/tet/gameover.ogg',
     // ぷよ系
     'puyo_move':     'assets/audio/se/puyo/move.ogg',
     'puyo_rotate':   'assets/audio/se/puyo/rotate.ogg',
     'puyo_drop':     'assets/audio/se/puyo/fix.ogg',
     'puyo_fix':      'assets/audio/se/puyo/fix.ogg',
-    'puyo_gameover': 'assets/audio/se/puyo/gameover.ogg',
     // 連鎖SE（1〜7連鎖目で音を変える。7連鎖目以降は puyo_chain7 を共用）
     'puyo_chain1': 'assets/audio/se/puyo/chain1.ogg',
     'puyo_chain2': 'assets/audio/se/puyo/chain2.ogg',

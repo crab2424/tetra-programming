@@ -861,6 +861,8 @@ function switchPage(pageId) {
         window.BgmManager.play('quiz_bgm');
       } else if (window.BgmManager.isCurrent?.('menu_bgm')) {
         // runCountdown は 3→2→1→START! を 700ms間隔で進め、START!（=ゲーム開始）まで約2100ms。
+        // シングル/CPU TEST/versus はカウントダウン中に menu_bgm をフェードアウトし、
+        // START! のタイミングで各BGMを鳴らす（再生は game.js / p_game.js / startVersusGame 側）。
         window.BgmManager.stop(false, COUNTDOWN_TO_START_MS);
       }
     }
