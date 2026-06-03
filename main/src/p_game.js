@@ -1174,8 +1174,8 @@ class PuyoGame {
                     this._eraseTimer = 0;
                     this.chainCount++;
                     if (this.chainCount > this.chainMax) this.chainMax = this.chainCount;
-                    // 連鎖ステップごとに再生。1〜7連鎖目で音を変え、7連鎖目以降は puyo_chain7 を共用
-                    this.playSe('puyo_chain' + Math.min(this.chainCount, 7));
+                    // ※連鎖SEはここ（点滅開始時）ではなく、ぷよが消えて連鎖文字演出が出る瞬間
+                    //   （erasing→eraseWait遷移で _prepareChainTextDOM 後）に鳴らす
 
                     this.pendingChainGroups = groups;
                     this._calcChainScore(groups);
@@ -1313,6 +1313,10 @@ class PuyoGame {
                     if (this.pendingChainGroups) {
                         this._prepareChainTextDOM(this.pendingChainGroups);
                         this.pendingChainGroups = null;
+
+                        // 連鎖SE：ぷよが完全に消え、連鎖文字演出が出たこの瞬間に鳴らす
+                        // （1〜7連鎖目で音を変え、7連鎖目以降は puyo_chain7 を共用）
+                        this.playSe('puyo_chain' + Math.min(this.chainCount, 7));
 
                         // ★ 追加: 相手からの火力を相殺する時のみ、自分の火力が0でも最低1個だけ相殺する
                         let queuedOffset = this.ojamaUpdateQueue.reduce((sum, q) => sum + q.amount, 0);
