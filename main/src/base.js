@@ -787,10 +787,11 @@ class SeManager {
         'lock':          1.85,  // -31.6 / -6.4（通常固定：そのまま鳴らす）
         'lock_hard':     0.32,  // ハードドロップ時の重ね鳴らし用（harddropと同時のため小音量）
         'hold':          1.25,  // -24.0 / -6.4
-        'lineclear':     0.90,  // -17.7 / -0.1（ピーク張り付き＝微減衰）
+        '1line':         0.90,  // 未実測
+        '2lines':        0.90,  // 未実測
+        '3lines':        0.90,  // 未実測
         '4lines':        2.20,  // -29.0 / -8.8
         'tspin':         0.90,  // -20.2 / -0.0（ピーク張り付き＝微減衰）
-        'tspin_1':       0.90,  // -20.2 / -0.0（ピーク張り付き＝微減衰）
         'gameover':      1.00,  // 未配置
         // ぷよ系
         'puyo_move':     3.50,  // -33.5 / -12.9
@@ -858,10 +859,11 @@ AudioLoader.loadSe({
     'lock':      'assets/audio/se/tet/lock.ogg',
     'lock_hard': 'assets/audio/se/tet/lock.ogg', // 同一音源・別音量（ハードドロップ重ね用）
     'hold':      'assets/audio/se/tet/hold.ogg',
-    'lineclear': 'assets/audio/se/tet/lineclear.ogg',
+    '1line':     'assets/audio/se/tet/1line.ogg',
+    '2lines':    'assets/audio/se/tet/2lines.ogg',
+    '3lines':    'assets/audio/se/tet/3lines.ogg',
     '4lines':    'assets/audio/se/tet/4lines.ogg',
     'tspin':     'assets/audio/se/tet/tspin.ogg',
-    'tspin_1':   'assets/audio/se/tet/tspin_1.ogg',
     'gameover':  'assets/audio/se/tet/gameover.ogg',
     // ぷよ系
     'puyo_move':     'assets/audio/se/puyo/move.ogg',
