@@ -608,7 +608,7 @@ class BgmManager {
     // ── シングルモードの mode → BGMキー対応 ───────────────────────────
     // 将来モードごとに別BGMにしたくなったら、base.js 末尾の registerBgm のパスを
     // モード別に書き換えるだけでよい（再生ロジックは変更不要）。
-    // 未登録の mode は 'single_bgm'（共通フォールバック）にフォールバックする。
+    // 未登録の mode は 'single_marathon_bgm'（実在キー）にフォールバックする。
     static _singleBgmKeys = {
         marathon: 'single_marathon_bgm',
         sprint:   'single_sprint_bgm',
@@ -616,7 +616,7 @@ class BgmManager {
         puyo:     'single_puyo_bgm',
     };
     static singleBgmKey(mode) {
-        return this._singleBgmKeys[mode] || 'single_bgm';
+        return this._singleBgmKeys[mode] || 'single_marathon_bgm';
     }
 
     static play(key) {
@@ -862,8 +862,6 @@ AudioLoader.registerBgm('single_marathon_bgm', 'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/single_1.ogg');
-// 共通フォールバック（未対応modeが singleBgmKey に来たとき用）
-AudioLoader.registerBgm('single_bgm', 'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 AudioLoader.registerBgm('menu_bgm',   'assets/audio/bgm/menu_1.ogg');
 AudioLoader.registerBgm('quiz_bgm',   'assets/audio/bgm/quiz_1.ogg');

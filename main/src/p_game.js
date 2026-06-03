@@ -159,7 +159,7 @@ class PuyoGame {
             runCountdown(overlayId, textElId, () => {
                 if (this.state !== 'starting') return;
                 // START! のタイミングでBGM開始（versus は startVersusGame 側で鳴らすため除外）。
-                // CPU TEST モード(currentMode==='test')は専用BGM、それ以外のシングル(puyo)は single_bgm。
+                // CPU TEST(currentMode==='test')は専用BGM、それ以外のシングル(puyo)は singleBgmKey でモード別キーに解決。
                 if (!this.isVersusMode && window.BgmManager) {
                     window.BgmManager.play(this.currentMode === 'test'
                         ? 'test_bgm'

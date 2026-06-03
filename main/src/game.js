@@ -102,7 +102,7 @@ class Game {
         // カウントダウン開始
         runCountdown(overlayId, textElId, () => {
             // START! のタイミングでBGM開始（versus は startVersusGame 側で鳴らすため除外）。
-            // CPU TEST モード(currentMode==='test')は専用BGM、それ以外のシングル(marathon/sprint/ultra)は single_bgm。
+            // CPU TEST(currentMode==='test')は専用BGM、それ以外のシングル(marathon/sprint/ultra)は singleBgmKey でモード別キーに解決。
             if (!this.isVersusMode && window.BgmManager) {
                 window.BgmManager.play(this.currentMode === 'test'
                     ? 'test_bgm'
