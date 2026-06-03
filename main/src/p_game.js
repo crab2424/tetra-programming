@@ -2495,10 +2495,8 @@ class PuyoGame {
         }
     }
 
-    // SE再生の薄いラッパ（A案）。CPU操作の盤面では鳴らさない（人間側の操作音と二重化を防ぐ）
+    // SE再生の薄いラッパ。CPU操作の盤面でもSEを鳴らす（プレイヤーとの二重再生は許容する）
     playSe(key) {
-        if (this.isCpuControlled) return;
-
         // fix.ogg（puyo_fix / puyo_drop）のみ、特殊なチャタリング防止を行う。
         // ・「1盤面につき」50ms間隔（この timer はインスタンス毎なので盤面ごとに独立）。
         // ・vsで両方ぷよでも、プレイヤー盤面とCPU盤面は別インスタンス＝別 timer のため、
