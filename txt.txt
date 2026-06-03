@@ -2,6 +2,12 @@
 ・音楽，SE追加
   singleplay_1.ogg
   countdown_1.ogg
+
+TET SE
+ -ソフドロ (drop.ogg ?)
+ -1~3ライン消し
+ -パフェ
+
 ・VS設定の一部をシングルにも適用
 ・ぷよのおじゃまや連鎖UIを改善
 
