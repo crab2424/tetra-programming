@@ -45,6 +45,8 @@ const PongPayloadType = Struct({
 
 const ClosePayloadType = Struct({});
 
+type Uuid = `${string}-${string}-${string}-${string}-${string}`;
+
 export class Payload {
   private static estimateStringSize(value: string): number {
     return 8 + new TextEncoder().encode(value).length;
@@ -95,7 +97,7 @@ export class Payload {
     });
   }
 
-  static binaryPing(id: string): Uint8Array {
+  static binaryPing(id: Uuid): Uint8Array {
     const payloadSize = Payload.estimateUuidBytesSize();
     return Payload.encodeWithOp(Opcodes.Ping, payloadSize, (buffer) => {
       encode(
@@ -108,7 +110,7 @@ export class Payload {
     });
   }
 
-  static binaryPong(id: string): Uint8Array {
+  static binaryPong(id: Uuid): Uint8Array {
     const payloadSize = Payload.estimateUuidBytesSize();
     return Payload.encodeWithOp(Opcodes.Pong, payloadSize, (buffer) => {
       encode(
@@ -181,7 +183,7 @@ export class Payload {
     }
   }
 
-  static uuidToBytes(uuid: string): number[] & { readonly length: 16 } {
+  static uuidToBytes(uuid: Uuid): number[] & { readonly length: 16 } {
     const hex = uuid.replace(/-/g, "");
     if (hex.length !== 32) {
       throw new Error("Invalid UUID format");
@@ -210,7 +212,7 @@ export class Payload {
     );
   }
 
-  static bytesToUuid(bytes: number[]): string {
+  static bytesToUuid(bytes: number[]): Uuid {
     if (bytes.length !== 16) {
       throw new Error("Invalid UUID bytes length");
     }
@@ -220,7 +222,7 @@ export class Payload {
 }
 
 export interface JSONGetRoomsResponse {
-  id: string;
+  id: Uuid;
   rooms: {
     id: string;
     roomName: string;
@@ -229,6 +231,69 @@ export interface JSONGetRoomsResponse {
     locked: boolean;
     tags: RoomTag[];
   }[];
+}
+
+export interface CreateRoomRequest {
+  id: Uuid;
+  roomName: string;
+  maxPlayers: number;
+  password?: string;
+  tags: RoomTag[];
+}
+
+export interface CreateRoomResponse {
+  id: Uuid;
+  roomId: Uuid;
+}
+
+export interface JoinRoomRequest {
+  id: Uuid;
+  roomId: Uuid;
+  password?: string;
+}
+
+export interface JoinRoomResponse {
+  id: Uuid;
+  success: boolean;
+  message?: string;
+}
+
+export interface LeaveRoomRequest {
+  id: Uuid;
+  roomId: Uuid;
+}
+
+export interface LeaveRoomResponse {
+  id: Uuid;
+  success: boolean;
+  message?: string;
+}
+
+export interface UpdateRoomRequest {
+  id: Uuid;
+  roomId: Uuid;
+  roomName: string;
+  maxPlayers: number;
+  password: string;
+  tags: RoomTag[];
+}
+
+export interface UpdateRoomResponse {
+  id: Uuid;
+  success: boolean;
+  message?: string;
+}
+
+export interface RooInfoNotification {
+  roomId: Uuid;
+  roomName: string;
+  players: [Uuid, string][];
+  maxPlayers: number;
+  tags: RoomTag[];
+}
+
+export interface RoomLeaveNotification {
+  message: string;
 }
 
 export class JSONPayload {

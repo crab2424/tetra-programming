@@ -4,7 +4,17 @@ import {
   JSONPayload,
   type JSONGetRoomsResponse,
   Opcodes,
+  type CreateRoomRequest,
+  type CreateRoomResponse,
+  type JoinRoomRequest,
+  type JoinRoomResponse,
+  type LeaveRoomRequest,
+  type LeaveRoomResponse,
+  type UpdateRoomRequest,
+  type UpdateRoomResponse,
 } from "./payload.js";
+
+import { Logger } from "./logger";
 
 /**
  * ゲーム通信用コネクションクラス
@@ -35,37 +45,7 @@ export class GameConnection {
 
   public closed: boolean = false;
 
-  /**
-   * 通常ログ出力用の関数
-   * @param  {...any} args 追加のログ引数
-   */
-  log(...args: any[]) {
-    console.log("[ONLINE:Connection]", ...args);
-  }
-
-  /**
-   * 警告ログ出力用の関数
-   * @param  {...any} args 追加のログ引数
-   */
-  warn(...args: any[]) {
-    console.warn("[ONLINE:Connection]", ...args);
-  }
-
-  /**
-   * エラーログ出力用の関数
-   * @param  {...any} args 追加のログ引数
-   */
-  error(...args: any[]) {
-    console.error("[ONLINE:Connection]", ...args);
-  }
-
-  /**
-   * 情報ログ出力用の関数
-   * @param  {...any} args 追加のログ引数
-   */
-  info(...args: any[]) {
-    console.info("[ONLINE:Connection]", ...args);
-  }
+  private readonly logger = new Logger("ONLINE:Connection");
 
   /**
    * ゲーム通信用コネクションクラス
@@ -83,11 +63,11 @@ export class GameConnection {
     });
 
     this.rdc.onopen = () => {
-      this.log("Data channel opened");
+      this.logger.log("Data channel opened");
       this.dcReady = true;
     };
     this.urdc.onopen = () => {
-      this.log("Unreliable data channel opened");
+      this.logger.log("Unreliable data channel opened");
     };
 
     this.rdc.onmessage = (event) => {
@@ -100,28 +80,31 @@ export class GameConnection {
     };
 
     this.rdc.onerror = (event) => {
-      this.error(`Data channel ${RELIABLE_CHANNEL_LABEL} error:`, event);
+      this.logger.error(`Data channel ${RELIABLE_CHANNEL_LABEL} error:`, event);
     };
     this.urdc.onerror = (event) => {
-      this.error(`Data channel ${UNRELIABLE_CHANNEL_LABEL} error:`, event);
+      this.logger.error(
+        `Data channel ${UNRELIABLE_CHANNEL_LABEL} error:`,
+        event,
+      );
     };
 
     this.ws.onerror = (event) => {
-      this.error("WebSocket error:", event);
+      this.logger.error("WebSocket error:", event);
     };
 
     this.rdc.onclose = () => {
-      this.log("Data channel closed");
+      this.logger.log("Data channel closed");
       this.dcReady = false;
       if (onClose && !this.closed) onClose();
       this.closed = true;
     };
     this.urdc.onclose = () => {
-      this.log("Unreliable data channel closed");
+      this.logger.log("Unreliable data channel closed");
     };
 
     this.ws.onclose = () => {
-      this.log("WebSocket connection closed");
+      this.logger.log("WebSocket connection closed");
       if (onClose && !this.closed) onClose();
       this.closed = true;
     };
@@ -167,7 +150,7 @@ export class GameConnection {
           await this.pc.setRemoteDescription(
             new RTCSessionDescription(message),
           );
-          this.log("Received answer and set remote description");
+          this.logger.log("Received answer and set remote description");
 
           while (this.dcReady === false) {
             await sleep(10);
@@ -178,7 +161,9 @@ export class GameConnection {
           const sdpMLineIndex =
             message.sdpMLineIndex ?? message.sdp_m_line_index ?? null;
           if (sdpMid == null && sdpMLineIndex == null) {
-            this.warn("Ignoring ICE candidate without sdpMid/sdpMLineIndex");
+            this.logger.warn(
+              "Ignoring ICE candidate without sdpMid/sdpMLineIndex",
+            );
             return;
           }
           try {
@@ -190,7 +175,7 @@ export class GameConnection {
               }),
             );
           } catch (e) {
-            this.warn("Failed to add ICE candidate", e);
+            this.logger.warn("Failed to add ICE candidate", e);
           }
         }
       };
@@ -203,7 +188,7 @@ export class GameConnection {
    * 各種コネクションを閉じる
    */
   async close() {
-    this.log("Closing connection...");
+    this.logger.log("Closing connection...");
     this.dcReady = false;
     this.sendRDC(Payload.close());
 
@@ -216,7 +201,7 @@ export class GameConnection {
 
     this.pc.close();
     this.ws.close();
-    this.log("Connection closed");
+    this.logger.log("Connection closed");
   }
 
   addReaderFunction(func: (event: MessageEvent) => void) {
@@ -285,7 +270,7 @@ export class GameConnection {
     this.ws.send(message);
   }
 
-  async waitResponseBI<T>(op: Opcodes, data: Object): Promise<T> {
+  async waitResponseRDC<T>(op: Opcodes, data: Object): Promise<T> {
     if (!this.dcReady) {
       throw new Error("Data channel is not ready");
     }
@@ -403,15 +388,43 @@ export class GameConnection {
     });
   }
 
-  async sendJsonPing(): Promise<{ id: string }> {
-    return this.waitResponseBI<{ id: string }>(Opcodes.JSONRequest, {
+  sendJsonPing(): Promise<{ id: string }> {
+    return this.waitResponseRDC<{ id: string }>(Opcodes.JSONRequest, {
       type: "JSONPing",
     });
   }
 
   getRooms(): Promise<JSONGetRoomsResponse> {
-    return this.waitResponseBI<JSONGetRoomsResponse>(Opcodes.JSONRequest, {
+    return this.waitResponseRDC<JSONGetRoomsResponse>(Opcodes.JSONRequest, {
       type: "JSONGetRoomsRequest",
+    });
+  }
+
+  createRoom(data: Omit<CreateRoomRequest, "id">): Promise<CreateRoomResponse> {
+    return this.waitResponseRDC<CreateRoomResponse>(Opcodes.JSONRequest, {
+      type: "CreateRoomRequest",
+      ...data,
+    });
+  }
+
+  joinRoom(data: Omit<JoinRoomRequest, "id">): Promise<JoinRoomResponse> {
+    return this.waitResponseRDC<JoinRoomResponse>(Opcodes.JSONRequest, {
+      type: "JoinRoomRequest",
+      ...data,
+    });
+  }
+
+  leaveRoom(data: Omit<LeaveRoomRequest, "id">): Promise<LeaveRoomResponse> {
+    return this.waitResponseRDC<LeaveRoomResponse>(Opcodes.JSONRequest, {
+      type: "LeaveRoomRequest",
+      ...data,
+    });
+  }
+
+  updateRoom(data: Omit<UpdateRoomRequest, "id">): Promise<UpdateRoomResponse> {
+    return this.waitResponseRDC<UpdateRoomResponse>(Opcodes.JSONRequest, {
+      type: "UpdateRoomRequest",
+      ...data,
     });
   }
 }
