@@ -192,9 +192,11 @@ function runCountdown(overlayId, textElId, onStart, onComplete) {
         void textEl.offsetWidth;
         textEl.classList.add('countdown-pop');
 
-        // CPU側のタイマーでも呼ばれる場合は二重再生を防ぐ
+        // CPU側のタイマーでも呼ばれる場合は二重再生を防ぐ。
+        // カウント(3/2/1)は countdown_count、START! は countdown_start を鳴らし、
+        // 演出と同タイミングで count×3 + start×1 になるようにする。
         if (window.SeManager && overlayId !== 'cpu-countdown-overlay') {
-            window.SeManager.play('countdown');
+            window.SeManager.play(val === 'START!' ? 'countdown_start' : 'countdown_count');
         }
 
         if (val === 'START!' && onStart) {
@@ -797,7 +799,8 @@ class SeManager {
         'menu_decide':   1.80,  // -40.3 / -6.3
         'pause':         1.00,  // 未配置（配置後に実測して調整）
         'resume':        1.00,  // 未配置（配置後に実測して調整）
-        'countdown':     1.00,  // 未配置
+        'countdown_count': 0.50,  // 未配置（カウント3/2/1用）
+        'countdown_start': 1.00,  // 未配置（START!用）
         'gameover':      1.00,  // 未配置（tet/puyo共通）
         // テト系
         'move':          1.00,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
@@ -872,7 +875,8 @@ AudioLoader.registerBgm('test_bgm',   'assets/audio/bgm/cputest_1.ogg');
 // 未配置のキーは loadSe 側で個別にスキップされ、該当SEは無音になるだけで動作には影響しない。
 AudioLoader.loadSe({
     // メニュー系
-    'countdown':    'assets/audio/se/menu/countdown.ogg',
+    'countdown_count': 'assets/audio/se/menu/countdown_count.ogg',
+    'countdown_start': 'assets/audio/se/menu/countdown_start.ogg',
     'menu_decide':  'assets/audio/se/menu/decide.ogg',
     'menu_cancel':  'assets/audio/se/menu/cancel.ogg',
     // ポーズ/リジューム（同一音源でも別パスでも可。未配置時は無音）
