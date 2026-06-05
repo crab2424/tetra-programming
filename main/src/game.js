@@ -27,6 +27,7 @@ class Game {
         this.actionAlpha = 0;
         this.pendingAttack = 0;
         this.pendingInternalAttack = 0; // 追加：相殺用（テト基準）の内部保持火力
+        this._garbageTimers = []; // おじゃま降下猶予タイマー（ポーズで一時停止できるよう管理）
     }
 
     initMainCanvas() {
@@ -142,6 +143,11 @@ class Game {
             this.nextQueue.push(new Mino(this.getNextType()));
         }
         this.garbageQueue = [];
+        // おじゃま降下猶予タイマーをリセット（前ゲームの残りタイマーが発火しないように）
+        if (this._garbageTimers) {
+            this._garbageTimers.forEach(t => { if (t.id) clearTimeout(t.id); });
+        }
+        this._garbageTimers = [];
         this.updateGarbageGauge();
 
         this.pendingAttack = 0;
@@ -381,6 +387,17 @@ class Game {
             this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (performance.now() - this._vsMarginTimerStart);
         }
 
+        // おじゃま降下猶予タイマーの停止と残り時間の保存
+        if (this._garbageTimers && this._garbageTimers.length) {
+            for (const t of this._garbageTimers) {
+                if (t.id) {
+                    clearTimeout(t.id);
+                    t.id = null;
+                    t.remaining = Math.max(0, t.duration - (performance.now() - t.start));
+                }
+            }
+        }
+
         this.showPauseOverlay()
 
         if (this.isTimerRunning) {
@@ -412,6 +429,19 @@ class Game {
             this._vsMarginTimer = setTimeout(this._vsMarginTimerCb, this._vsMarginTimerDuration);
             this._vsMarginTimerStart = performance.now();
             this._vsMarginTimerRemaining = null;
+        }
+
+        // おじゃま降下猶予タイマーの再開（保存しておいた残り時間で再計時）
+        if (this._garbageTimers && this._garbageTimers.length) {
+            for (const t of this._garbageTimers) {
+                if (!t.id) {
+                    const rem = (t.remaining !== null && t.remaining !== undefined) ? t.remaining : t.duration;
+                    t.duration = rem; // 以降のポーズ計算用に残り時間を基準にする
+                    t.start = performance.now();
+                    t.remaining = null;
+                    t.id = setTimeout(t.cb, rem);
+                }
+            }
         }
 
         if (!this.isTimerRunning) {
@@ -456,6 +486,11 @@ class Game {
         this.drawAll();
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+        // おじゃま降下猶予タイマーを全て停止
+        if (this._garbageTimers && this._garbageTimers.length) {
+            this._garbageTimers.forEach(t => { if (t.id) clearTimeout(t.id); });
+            this._garbageTimers = [];
+        }
         this.isPaused = true;
 
         if (this.isTimerRunning) {
@@ -929,7 +964,11 @@ class Game {
         // 異種戦(ぷよ相手)なら1000ms後、テト同士なら1500ms後に降下可能に
         const delay = isOpponentPuyo ? 1000 : 1500;
 
-        setTimeout(() => {
+        // ポーズ中にこの猶予タイマーが止まるよう、opponent 側で管理する
+        if (!opponent._garbageTimers) opponent._garbageTimers = [];
+        const timerEntry = { obj: garbageObj, duration: delay, remaining: null, id: null };
+        timerEntry.cb = () => {
+            timerEntry.id = null;
             // タイマー発火時に相殺されて消滅していなければ状態変更
             if (opponent.garbageQueue.includes(garbageObj) && garbageObj.amount > 0) {
                 garbageObj.ready = true;
@@ -938,7 +977,19 @@ class Game {
                     opponent.updateGarbageGauge();
                 }
             }
-        }, delay);
+            // 発火済みエントリをリストから除去
+            const idx = opponent._garbageTimers.indexOf(timerEntry);
+            if (idx !== -1) opponent._garbageTimers.splice(idx, 1);
+        };
+        opponent._garbageTimers.push(timerEntry);
+
+        if (opponent.isPaused) {
+            // 受け手がポーズ中なら開始を保留し、resume 時に計時を始める
+            timerEntry.remaining = delay;
+        } else {
+            timerEntry.start = performance.now();
+            timerEntry.id = setTimeout(timerEntry.cb, delay);
+        }
     }
 
     applyGarbage() {
