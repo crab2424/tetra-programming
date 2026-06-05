@@ -1717,6 +1717,7 @@ class PuyoGame {
         // → 連鎖終了時: 最後の端数をmod70で次ターンへ持ち越す（tetDropScoreはリセット）
         //
         // スコア閾値テーブル (lines, score): (1,210)(2,420)(3,700)(4,1120)(5,2240)(6,5320)(7,13300)
+        //   ※ score は全て70の倍数。実際の閾値は (score/70)*おじゃまレート で算出しレート変動に追従
         // 消去ぷよ追加ラインテーブル (addLines, puyoCount): (1,8)(2,9)(3,12)(4,14)
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const _isOpponentTet = (() => {
@@ -1831,12 +1832,17 @@ class PuyoGame {
             currentA = scoreForAttack;
 
             // ─── スコア閾値で基本ライン数を決定 ───
+            // TET_ATTACK_SCORE_TABLE のスコアは全て 70 の倍数（おじゃまレート70基準で設計）。
+            // 実際の閾値は (基準スコア / 70) * 現在のおじゃまレート とし、マージンや
+            // ユーザー設定でレートが変動した場合に追従させる（レート70なら従来と同値）。
+            const _rate = (this.vsOjamaRate ?? PConfig.ojamaRate);
             let generatedLines = 0;
             let usedScore = 0;
             for (const threshold of TET_ATTACK_SCORE_TABLE) {
-                if (currentA >= threshold.score) {
+                const requiredScore = (threshold.score / 70) * _rate;
+                if (currentA >= requiredScore) {
                     generatedLines = threshold.lines;
-                    usedScore = threshold.score;
+                    usedScore = requiredScore;
                     break;
                 }
             }
