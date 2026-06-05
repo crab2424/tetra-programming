@@ -45,7 +45,7 @@ const PongPayloadType = Struct({
 
 const ClosePayloadType = Struct({});
 
-type Uuid = `${string}-${string}-${string}-${string}-${string}`;
+export type Uuid = `${string}-${string}-${string}-${string}-${string}`;
 
 export class Payload {
   private static estimateStringSize(value: string): number {

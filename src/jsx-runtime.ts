@@ -1,9 +1,13 @@
 interface HasChildren {
   id?: string;
+  style?: Partial<CSSStyleDeclaration>;
   class?: string;
   children?: any;
   onclick?: (event: MouseEvent) => void;
   disabled?: boolean;
+  type?: string;
+  value?: string;
+  oninput?: (event: InputEvent) => void;
 }
 
 declare global {
@@ -35,6 +39,8 @@ export function jsx(
         element.addEventListener(eventName, value);
       } else if (key === "className") {
         element.setAttribute("class", value);
+      } else if (key === "style" && typeof value === "object") {
+        Object.assign(element.style, value);
       } else if (value !== null && value !== undefined) {
         element.setAttribute(key, String(value));
       }
