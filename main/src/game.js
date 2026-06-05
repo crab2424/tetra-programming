@@ -1485,19 +1485,20 @@ class Game {
         const abFilled = abIdx.filter(i => occupied[i]).length; // A・B側の埋まり数
         const cdFilled = cdIdx.filter(i => occupied[i]).length; // C・D側の埋まり数
 
-        // Point 5使用 → 常にT-Spin
-        if (this.lastRotUsedPoint5) {
-            return 'tspin';
-        }
+        // ─── 3隅ルールを最優先で評価する ───
+        // Point 5（lastRotUsedPoint5）は T-Spin を保証するものではなく、
+        // あくまで「Mini にならない（Mini を T-Spin に昇格させる）」ためのフラグ。
+        // 3隅条件を満たさなければ Point 5 使用でも null。
 
         // A・B側2隅 + C・D側1隅以上 → T-Spin
         if (abFilled === 2 && cdFilled >= 1) {
             return 'tspin';
         }
 
-        // C・D側2隅 + A・B側1隅以上 → Mini T-Spin
+        // C・D側2隅 + A・B側1隅以上 → 本来 Mini。
+        // ただし Point 5 を使った回転なら Mini を T-Spin に昇格させる。
         if (cdFilled === 2 && abFilled >= 1) {
-            return 'mini';
+            return this.lastRotUsedPoint5 ? 'tspin' : 'mini';
         }
 
         return null;
