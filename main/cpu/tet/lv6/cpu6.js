@@ -16,61 +16,65 @@ window.CPU6 = class {
         this.isCalculatingSingle = false;
 
         this.weights = {
-            lineClear: 14,
-            hole: -40, 
-            heightLimit: -56, 
-            step3Plus: -128, 
+            lineClear: 100,
+            hole: -22, 
+            heightLimit: -560, 
+            step3Plus: -20, 
             flat: 4,
             step1Good: 3, 
             step1Bad: -2, 
-            step2: -54, 
+            step2: -24, 
             groundedBonus: 72, 
             touchingBonus: 36,   
-            underSpace: -6, 
-            singleWell: 5, 
-            multiWell: -170,
+            //underSpace: -6, 
+            //singleWell: 5, 
+            //multiWell: -170,
             
-            iWell: 60,           
-            iWellOver: -234,      
-            blocksOverHole: -125, 
-            
-            line4: 500,          
-            downstackGood: 68,   
-            downstackBad: -3,
+            iWell: 200,           
+            iWellOver: -800,      
+            blocksOverHole: -85,
 
-            tsdShape: 20,      
+            line4: 1000,
+            downstackGood: 120,
+            downstackBad: -600,
+
+            tsdShape: 300,      
             tsdShapeOver: -45, 
-            tsdFillBonus: 120,   
+            tsdFillBonus: 50,   
 
-            tssClear: 496,       
+            tssClear: 256,       
             tsdClear: 2560,      
-            tsdHolePenalty: -6000, 
-            pureHole: -50,         
+            tsdHolePenalty: -60, 
+            pureHole: -100,         
 
             comboBonus: 20,   
             btbKeep: 496,     
             renCutPenalty: -200,
 
-            tsmMiniPenalty: -1000,      
-            tMinoNoClearPenalty: -360, 
+            tsmMiniPenalty: -100,      
+            tMinoNoClearPenalty: -160, 
 
-            tsdSetup: 30,         
-            tsdSetupOver: -100,   
+            tsdSetup: 100,         
+            tsdSetupOver: -400,   
 
             slopeBonus: 72,       
             slopePenalty: -36,    
 
+            centerDip: 100,         // ★追加：凹みが中央(列3~6)にあるとボーナス、端にあるとペナルティ
+
+            fire: 5,             // ★追加：火力評価（火力>=4で正報酬、<=3で負報酬）
+
             P1_WEIGHT: 1.0,        
         };
 
-        this.worker = new Worker('cpu/tet/???/cpu_worker6.js');
+        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js');
         this.workerReady = false;
         this.isCalculating = false;
 
         this.isExecutingAction = false; 
         this.actionQueue = [];          
-        this.actionDelay = 45; 
-        this.harddropDelay = 150; 
+        this.actionDelay = 40; 
+        this.harddropDelay = 80; 
         
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
@@ -86,6 +90,36 @@ window.CPU6 = class {
 
         this.worker.onerror = (err) => {
             console.error("❌ Worker 6 Error: ", err.message, err.filename, err.lineno);
+        };
+
+        // ─────────────────────────────────────────────
+        // ★パフェ(全消し)探索 — 評価関数ビームサーチとは独立した別ワーカー
+        // ─────────────────────────────────────────────
+        this.pcWorker = new Worker('cpu/tet/lv6/pc_check/pc_worker6.js');
+        this.pcWorkerReady = false;
+        this.pcSequence = null;          // 実行中のPC手順 [{minoType,rot,x,y,useHold}, ...]
+        this.pcSearchId = 0;             // stale(古い)PC結果を破棄するためのID
+        this.pcSearchActive = false;     // 今ターンPC探索を投げているか
+        this.pcFallbackData = null;       // PC待機中にキャッシュするビームサーチ引数
+        this.pcFallbackTimer = null;     // PC結果待ちのタイムアウト
+
+        this.PC_SEARCH_TIME_MS = 300;    // ★PC探索(WASM)のウォールクロック上限。超えたら none 扱い
+        this.PC_TIMEOUT_MS = 500;        // PC結果を待つ上限（探索上限+余裕）。超えたらビームサーチへ
+        this.PC_MAX_BLOCKS = 40;         // PC探索を起動する最大ブロック数（10手×4）
+        this.PC_MAX_DEPTH = 10;          // PC探索の最大手数
+        this.PC_READY_WAIT_MS = 1200;    // 空盤面で pcWorker のロード完了を待つ上限（リスタート対策）
+        this._pcReadyWaitStart = null;   // 空盤面待機の開始時刻
+
+        this.pcWorker.onmessage = (e) => {
+            if (e.data.type === 'ready') {
+                console.log("💎 PC Worker 6 Ready!");
+                this.pcWorkerReady = true;
+            } else if (e.data.type === 'pc_result') {
+                this.handlePCResult(e.data);
+            }
+        };
+        this.pcWorker.onerror = (err) => {
+            console.error("❌ PC Worker 6 Error: ", err.message, err.filename, err.lineno);
         };
     }
 
@@ -180,8 +214,10 @@ window.CPU6 = class {
             if (this.isExecutingAction) return;
 
             this.isExecutingAction = true;
+            // CPU操作中は重力を無効にし、ソフトドロップとの干渉を防ぐ
+            if (this.game) this.game.gravityDisabled = true;
             this.actionQueue = this.buildActionQueue(bestResult);
-            
+
             setTimeout(() => {
                 this.processActionQueue();
             }, this.actionDelay);
@@ -264,8 +300,8 @@ window.CPU6 = class {
             if (actId === 1) { if (this.game.valid(-1, 0)) this.game.mino.x--; }
             else if (actId === 2) { if (this.game.valid(1, 0)) this.game.mino.x++; }
             else if (actId === 3) { if (this.game.valid(0, 1)) this.game.mino.y++; }
-            else if (actId === 4) { this.game.tryRotate(1); }
-            else if (actId === 5) { this.game.tryRotate(-1); }
+            else if (actId === 4) { this.game.tryRotate(1, true); }   // 再生はSE抑止
+            else if (actId === 5) { this.game.tryRotate(-1, true); }  // 再生はSE抑止
             else if (actId === 6) { break; }
             states.push({ x: this.game.mino.x, y: this.game.mino.y, rot: this.game.mino.rotation });
         }
@@ -279,133 +315,192 @@ window.CPU6 = class {
         this.game.lastActionWasRotation = backupLastActionWasRotation;
         this.game.lastRotUsedPoint5 = backupLastRotUsedPoint5;
 
-        let bestI = -1;
-        for (let i = states.length - 1; i >= 1; i--) {
-            let st = states[i];
-            if (this.canDropStraightFromTo(st.x, startY, st.y, st.rot, bestResult.id)) {
-                let canRotateTop = this.canDropStraightFromTo(startX, startY, startY, st.rot, bestResult.id);
-                let canMoveTop = true;
-                let step = st.x > startX ? 1 : -1;
-                for (let tx = startX; tx !== st.x + step; tx += step) {
-                    if (!this.canDropStraightFromTo(tx, startY, startY, st.rot, bestResult.id)) {
-                        canMoveTop = false;
-                        break;
-                    }
-                }
-                
-                if (canRotateTop && canMoveTop) {
-                    bestI = i;
-                    break;
-                }
+        // (x1→x2, y, rot) の水平移動が全て衝突なく通過できるか
+        const canMoveHorizontal = (x1, x2, y, rot) => {
+            if (x1 === x2) return true;
+            const step = x2 > x1 ? 1 : -1;
+            for (let tx = x1; tx !== x2 + step; tx += step) {
+                if (!this.canDropStraightFromTo(tx, y, y, rot, bestResult.id)) return false;
             }
-        }
-
-        const checkInstantDrop = (checkRot) => {
-            if (!this.canDropStraightFromTo(startX, startY, startY, checkRot, bestResult.id)) return false;
-            let step = bestResult.x > startX ? 1 : -1;
-            for (let tx = startX; tx !== bestResult.x + step; tx += step) {
-                if (!this.canDropStraightFromTo(tx, startY, startY, checkRot, bestResult.id)) return false;
-            }
-            return this.canDropStraightFromTo(bestResult.x, startY, bestResult.y, checkRot, bestResult.id);
+            return true;
         };
 
+        // (fromX, fromY, fromRot) → (toX, fromY, toRot) に直接到達可能か
+        // dropTargetY: 並べ替え後はAC操作(移動・回転)を上の行(fromY)で行うため、
+        //   そこからtoX/toRotで dropTargetY まで一直線に落下できるかを必ず検証する。
+        //   省略時はfromY（単一行＝落下スパンなし＝従来挙動）。
+        //   ※preSdState.y(上の行)だけで折り返しを判定すると、x一致時に
+        //     canMoveHorizontalが無条件true・単一行落下も自明trueとなり、
+        //     縦の障害物を無視してsd群間の折り返しを潰すバグになる。
+        // 'rotate_first' / 'move_first' / null を返す
+        const canReachDirectAt = (fromX, fromY, fromRot, toX, toRot, dropTargetY = fromY) => {
+            if (this.canDropStraightFromTo(fromX, fromY, fromY, toRot, bestResult.id) &&
+                canMoveHorizontal(fromX, toX, fromY, toRot) &&
+                this.canDropStraightFromTo(toX, fromY, dropTargetY, toRot, bestResult.id)) {
+                return 'rotate_first';
+            }
+            if (canMoveHorizontal(fromX, toX, fromY, fromRot) &&
+                this.canDropStraightFromTo(toX, fromY, dropTargetY, toRot, bestResult.id)) {
+                return 'move_first';
+            }
+            return null;
+        };
+
+        // 回転差分をqueueに追加
+        const emitRot = (from, to) => {
+            const diff = (to - from + 4) % 4;
+            if (diff === 1) queue.push({ type: 'rotateCW', delay: this.actionDelay });
+            else if (diff === 2) { queue.push({ type: 'rotateCW', delay: this.actionDelay }); queue.push({ type: 'rotateCW', delay: this.actionDelay }); }
+            else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay });
+        };
+
+        // BtB付きT-spinは即時落下を除外
         let skipInstantDrop = false;
         if (bestResult.tSpinType > 0 && bestResult.clearedLines && bestResult.clearedLines.length > 0 && this.game.backToBack) {
             skipInstantDrop = true;
         }
 
-        if (!skipInstantDrop && checkInstantDrop(bestResult.rot)) {
+        // 即時落下判定: スポーン高さから目標位置まで一直線に落下可能か
+        const checkInstantDrop = () => {
+            if (!this.canDropStraightFromTo(bestResult.x, startY, bestResult.y, bestResult.rot, bestResult.id)) return false;
+            return canReachDirectAt(startX, startY, startRot, bestResult.x, bestResult.rot);
+        };
+
+        let instantDropOrder = null;
+        if (!skipInstantDrop) instantDropOrder = checkInstantDrop();
+
+        if (instantDropOrder) {
             let targetRot = bestResult.rot;
-
+            // O/I/S/Z(id=0,1,5,6)はrot0とrot2が同形のため、現在rotと揃えて回転を省略
             if ([0, 1, 5, 6].includes(bestResult.id) && (bestResult.rot === 2 || bestResult.rot === 0)) {
-                if (checkInstantDrop(startRot)) {
-                    targetRot = startRot; 
-                }
+                if (startRot === 0 || startRot === 2) targetRot = startRot;
             }
-            
-            let diff = (targetRot - startRot + 4) % 4; 
-            if (diff === 1) queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
-            else if (diff === 2) { queue.push({ type: 'rotateCW', delay: this.actionDelay }); queue.push({ type: 'rotateCW', delay: this.actionDelay }); }
-            else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay }); 
-
-            if (bestResult.x !== startX) {
-                queue.push({ type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay });
+            if (instantDropOrder === 'rotate_first') {
+                emitRot(startRot, targetRot);
+                if (bestResult.x !== startX) queue.push({ type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay });
+            } else {
+                if (bestResult.x !== startX) queue.push({ type: 'moveToTargetX', targetX: bestResult.x, delay: this.actionDelay });
+                emitRot(startRot, targetRot);
             }
             queue.push({ type: 'harddrop', delay: this.harddropDelay });
             return queue;
         }
 
-        if (bestI > 0) {
-            let st = states[bestI];
-            
-            let diff = (st.rot - startRot + 4) % 4; 
-            if (diff === 1) queue.push({ type: 'rotateCW', delay: this.actionDelay }); 
-            else if (diff === 2) { queue.push({ type: 'rotateCW', delay: this.actionDelay }); queue.push({ type: 'rotateCW', delay: this.actionDelay }); }
-            else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay }); 
-            
-            if (st.x !== startX) {
-                queue.push({ type: 'moveToTargetX', targetX: st.x, delay: this.actionDelay });
+        // ── SD/AC群分割ベースのパス最適化（連続SDの貪欲マージ対応版）──
+        // pathをSD群(連続するSD)とAC群(移動・回転)に分類する。
+        // SD群の始点(waypoint)を辿り、ある始点から「上の行で移動・回転 → 一直線落下」で
+        // 直接到達できる“最も遠い”後続SD始点まで貪欲にジャンプし、間のSD/AC群をまとめて省略する。
+        //   例: sd1→sd2, sd1→sd3 が到達可能なら sd2 を飛ばして sd1→sd3 を1回の落下で行う。
+        // canReachDirectAt が縦スパン込み(上の行での横移動掃引＋落下列の衝突)を検証するため、
+        // 途中のSD始点を飛ばしても安全。到達不可になった時点で打ち切り、そこを新たな起点とする。
+        const groups = [];
+        {
+            let i = 0;
+            while (i < path.length && path[i] !== 6) {
+                const isSd = path[i] === 3;
+                const start = i;
+                while (i < path.length && path[i] !== 6 && (path[i] === 3) === isSd) i++;
+                groups.push({ isSd, start, end: i });
             }
-            
-            let dropDist = st.y - startY;
-            if (dropDist > 0) {
-                queue.push({ type: 'multiSoftDrop', targetY: st.y, delay: softDropDelay });
-            }
-            
-            let hasSoftDropSequence = false;
-            let softDropTargetY = -1;
-            for (let j = bestI; j < path.length; j++) {
-                let actId = path[j];
-                let type = ACTION_MAP[actId];
-                if (type === 'softDrop') {
-                    hasSoftDropSequence = true;
-                    softDropTargetY = states[j + 1].y;
-                } else {
-                    if (hasSoftDropSequence) {
-                        queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
-                        hasSoftDropSequence = false;
-                    }
-                    if (type) {
-                        let delay = type === 'harddrop' ? this.harddropDelay : this.actionDelay;
-                        queue.push({ type: type, delay: delay });
-                    }
-                }
-            }
-            if (hasSoftDropSequence) {
-                queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
-            }
-            
-            return queue;
+        }
+        if (groups.length > 0 && groups[groups.length - 1].isSd) {
+            groups.pop();
         }
 
-        let hasSoftDropSequence = false;
-        let softDropTargetY = -1;
-        for (let j = 0; j < path.length; j++) {
-            let actId = path[j];
-            let type = ACTION_MAP[actId];
-            if (type === 'softDrop') {
-                hasSoftDropSequence = true;
-                softDropTargetY = states[j + 1].y;
+        // (base → end) の移動・回転を順序付きでqueueへ
+        const emitReorder = (base, end, order) => {
+            if (order === 'rotate_first') {
+                emitRot(base.rot, end.rot);
+                if (end.x !== base.x) queue.push({ type: 'moveToTargetX', targetX: end.x, delay: this.actionDelay });
             } else {
-                if (hasSoftDropSequence) {
-                    queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
-                    hasSoftDropSequence = false;
-                }
-                if (type) {
-                    let delay = type === 'harddrop' ? this.harddropDelay : this.actionDelay;
-                    queue.push({ type: type, delay: delay });
-                }
+                if (end.x !== base.x) queue.push({ type: 'moveToTargetX', targetX: end.x, delay: this.actionDelay });
+                emitRot(base.rot, end.rot);
+            }
+        };
+        // AC群を raw（path通りの素の操作列）でqueueへ
+        const emitRawAC = (acg) => {
+            if (!acg) return;
+            for (let i = acg.start; i < acg.end; i++) {
+                const type = ACTION_MAP[path[i]];
+                if (type) queue.push({ type, delay: this.actionDelay });
+            }
+        };
+
+        // SD群をwaypointとして抽出。各SDの始点状態・底Y・直後のAC群を保持。
+        const sd = [];
+        let leadAC = null; // 最初のSDより前のAC群（位置決め）
+        for (let gi = 0; gi < groups.length; gi++) {
+            const g = groups[gi];
+            if (g.isSd) {
+                const after = (gi + 1 < groups.length && !groups[gi + 1].isSd) ? groups[gi + 1] : null;
+                sd.push({ start: states[g.start], bottomY: states[g.end].y, acAfter: after });
+            } else if (sd.length === 0) {
+                leadAC = g;
             }
         }
-        if (hasSoftDropSequence) {
-            queue.push({ type: 'multiSoftDrop', targetY: softDropTargetY, delay: softDropDelay });
+
+        if (sd.length === 0) {
+            // SDなし → AC群のみ(高々1つ)。始点→終点で単独直接到達判定。
+            for (const g of groups) {
+                if (g.isSd) continue;
+                const from = states[g.start];
+                const to   = states[g.end];
+                const order = canReachDirectAt(from.x, from.y, from.rot, to.x, to.rot);
+                if (order) emitReorder(from, to, order);
+                else emitRawAC(g);
+            }
+        } else {
+            // 先頭AC群：最初のSD始点へ位置決め（落下なし＝単一行判定）
+            if (leadAC) {
+                const from = states[leadAC.start];
+                const to   = states[leadAC.end]; // = sd[0].start
+                const order = canReachDirectAt(from.x, from.y, from.rot, to.x, to.rot);
+                if (order) emitReorder(from, to, order);
+                else emitRawAC(leadAC);
+            }
+
+            // ── 連続SDの貪欲マージ ──
+            const m = sd.length;
+            let cur = 0; // 現在到達しているSD始点index（最初のSD始点に居る）
+            while (cur < m - 1) {
+                // curから直接到達できる“最も遠い”後続SD始点を、連続到達可能な限り延長して探す
+                let best = -1, bestOrder = null;
+                for (let j = cur + 1; j <= m - 1; j++) {
+                    const order = canReachDirectAt(
+                        sd[cur].start.x, sd[cur].start.y, sd[cur].start.rot,
+                        sd[j].start.x, sd[j].start.rot, sd[j].start.y
+                    );
+                    if (order) { best = j; bestOrder = order; }
+                    else break; // 到達不可になった時点で打ち切り
+                }
+                if (best === -1) {
+                    // 隣接SD始点へも直接到達不可 → SD_curの落下 + 直後AC群を raw 出力
+                    queue.push({ type: 'multiSoftDrop', targetY: sd[cur].bottomY, delay: softDropDelay });
+                    emitRawAC(sd[cur].acAfter);
+                    cur++;
+                } else {
+                    // cur→best へジャンプ：上の行で net 移動回転 → bestの始点行まで一直線落下。
+                    // 間の sd[cur+1..best-1] とそのAC群は省略される。
+                    emitReorder(sd[cur].start, sd[best].start, bestOrder);
+                    queue.push({ type: 'multiSoftDrop', targetY: sd[best].start.y, delay: softDropDelay });
+                    cur = best;
+                }
+            }
+
+            // 末尾：最後のSD始点に到達済み → そのSDの落下 + 末尾AC群 raw（後続SDが無く最適化不可）
+            queue.push({ type: 'multiSoftDrop', targetY: sd[m - 1].bottomY, delay: softDropDelay });
+            emitRawAC(sd[m - 1].acAfter);
         }
 
+        queue.push({ type: 'harddrop', delay: this.harddropDelay });
         return queue;
     }
 
     processActionQueue() {
         if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
+            if (this.game && this.isExecutingAction) {
+                this.game.gravityDisabled = false; // 空キューの場合に重力が停止したままになるのを防ぐ
+            }
             this.isExecutingAction = false;
             return;
         }
@@ -437,49 +532,46 @@ window.CPU6 = class {
                 this.game.tryRotate(-1);
                 break;
             case 'moveLeft':
-                if (this.game.valid(-1, 0)) this.game.mino.x--;
+                this.game.moveLeft();
                 break;
             case 'moveRight':
-                if (this.game.valid(1, 0)) this.game.mino.x++;
+                this.game.moveRight();
                 break;
             case 'softDrop':
-                if (this.game.valid(0, 1)) {
-                    this.game.mino.y++;
-                    this.game.score += 1;
-                    this.game.updateLowestY();
-                }
+                this.game.softDropOne();
                 break;
             case 'multiSoftDrop':
                 if (this.game.mino.y >= action.targetY) {
                     action.delay = 0;
                 } else {
-                    if (this.game.valid(0, 1)) {
-                        this.game.mino.y++;
-                        this.game.score += 1;
-                        this.game.updateLowestY();
+                    if (this.game.softDropOne()) {
                         this.actionQueue.unshift(action);
                     } else {
                         action.delay = 0;
                     }
                 }
                 break;
-            case 'moveToTargetX':
+            case 'moveToTargetX': {
+                const beforeX = this.game.mino.x;
                 if (this.game.mino.x < action.targetX) {
                     let prevX = this.game.mino.x;
                     if (this.game.valid(1, 0)) this.game.mino.x++;
                     if (this.game.mino.x < action.targetX) {
                         if (prevX === this.game.mino.x) this.game.mino.x = action.targetX;
-                        else this.actionQueue.unshift(action); 
+                        else this.actionQueue.unshift(action);
                     }
                 } else if (this.game.mino.x > action.targetX) {
                     let prevX = this.game.mino.x;
                     if (this.game.valid(-1, 0)) this.game.mino.x--;
                     if (this.game.mino.x > action.targetX) {
                         if (prevX === this.game.mino.x) this.game.mino.x = action.targetX;
-                        else this.actionQueue.unshift(action); 
+                        else this.actionQueue.unshift(action);
                     }
                 }
+                // 1マスでも実際に動いたら移動音を鳴らす（スナップ補正含む）
+                if (this.game.mino.x !== beforeX) this.game.playSe('move');
                 break;
+            }
             case 'harddrop':
                 this.game.hardDrop(); 
                 break;
@@ -501,14 +593,21 @@ window.CPU6 = class {
             // ★待機時間中のポーズにも対応
             const tryFinish = () => {
                 if (!this.isActive || !this.isAutoPlay) return;
-                
+
                 if (this.game.isPaused || this.game.state === 'paused') {
                     setTimeout(tryFinish, 100);
                     return;
                 }
-                
+
+                // 操作完了 → 重力を再開してからisExecutingActionをリセット
+                if (this.game) this.game.gravityDisabled = false;
                 this.isExecutingAction = false;
-                if (this.bestMoveData && this.bestMoveData.p1 && 
+                // ★PC手順を実行した直後なら、次の手へ進む
+                if (this.bestMoveData && this.bestMoveData.isPC) {
+                    this.runNextPCMove();
+                    return;
+                }
+                if (this.bestMoveData && this.bestMoveData.p1 &&
                     this.game.mino && this.game.mino === this.currentMino) {
                     this.executeAction(this.bestMoveData);
                 }
@@ -542,13 +641,58 @@ window.CPU6 = class {
 
     start() {
         this.isActive = true;
+
+        // ★リスタート(game.start の再呼び出し)時に CPU 側の PC 状態を確実にリセットするため
+        //   game.start をラップする（DEBUG_BOARD の有無に関わらず常時インストール）。
+        //   二重ラップ防止のためフラグで管理。
+        if (!this.game._cpu6StartWrapped) {
+            const origStart = this.game.start.bind(this.game);
+            const self = this;
+            this.game.start = function() {
+                origStart();
+                // ★PC 関連の持ち越し状態をリセット（リスタートで PC が動かなくなるのを防ぐ）
+                self.resetPCState();
+                // _initGameState() で field がリセットされた直後にデバッグ盤面を再適用
+                if (CPU6.DEBUG_BOARD !== null) {
+                    self.game.applyDebugBoard(CPU6.DEBUG_BOARD);
+                    if (typeof self.game.drawAll === 'function') self.game.drawAll();
+                }
+            };
+            this.game._cpu6StartWrapped = true;
+            this.game._cpu6OrigStart    = origStart;
+        }
+
+        // ★デバッグ用初期盤面（CPU6.DEBUG_BOARD が null でなければ適用）
+        if (CPU6.DEBUG_BOARD !== null) {
+            this.game.applyDebugBoard(CPU6.DEBUG_BOARD);
+            // カウントダウン中から盤面が見えるよう即時再描画
+            if (typeof this.game.drawAll === 'function') this.game.drawAll();
+        }
+
         this.initEstimateContainer();
         this.updateLoop();
+    }
+
+    // ── ★PC 関連状態のリセット（リスタート時に呼ぶ）──
+    resetPCState() {
+        if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
+        this.pcSequence = null;
+        this.pcFallbackData = null;
+        this.pcSearchActive = false;
+        this.pcSearchId++;            // 進行中だった古い PC 結果を無効化
+        this.isExecutingAction = false;
+        this.isCalculating = false;
+        this.actionQueue = [];
+        this._pcReadyWaitStart = null;
+        this.currentMino = null;      // 新しい1ピース目で onMinoSpawned を再発火させる
+        if (this.game) this.game.gravityDisabled = false;
     }
 
     stop() {
         this.isActive = false;
         this.bestMoveData = null;
+        // 操作途中でstopされた場合も重力を必ず復元する
+        if (this.game) this.game.gravityDisabled = false;
         if (this.estimateContainer) {
             this.estimateContainer.innerHTML = '';
         }
@@ -556,6 +700,22 @@ window.CPU6 = class {
             this.worker.terminate();
             this.worker = null;
             this.workerReady = false;
+        }
+        // ★PC探索ワーカーと状態の後始末
+        if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
+        this.pcSequence = null;
+        this.pcFallbackData = null;
+        this.pcSearchActive = false;
+        if (this.pcWorker) {
+            this.pcWorker.terminate();
+            this.pcWorker = null;
+            this.pcWorkerReady = false;
+        }
+        // ★game.start ラップを解除（新しいコントローラが再ラップできるように）
+        if (this.game && this.game._cpu6StartWrapped) {
+            this.game.start = this.game._cpu6OrigStart;
+            delete this.game._cpu6StartWrapped;
+            delete this.game._cpu6OrigStart;
         }
     }
 
@@ -624,7 +784,9 @@ window.CPU6 = class {
             this.weights.tsdSetup,
             this.weights.tsdSetupOver,
             this.weights.slopeBonus,
-            this.weights.slopePenalty
+            this.weights.slopePenalty,
+            this.weights.centerDip,             // ★追加 [33]
+            this.weights.fire                   // ★追加 [34]
         ]);
 
         const currentRen = this.game.ren || 0;
@@ -648,12 +810,37 @@ window.CPU6 = class {
 
     onMinoSpawned() {
         const diffEl = document.getElementById('eval-diff');
-        if (diffEl) diffEl.textContent = ''; 
+        if (diffEl) diffEl.textContent = '';
 
         const mino = this.game.mino;
         if (!mino) return;
 
-        if (!this.workerReady) {
+        // ── ★PC手順を実行中はここでは何もしない ──
+        // 手順の進行は各手のアクション完了時に runNextPCMove が駆動する。
+        // （hold操作で中間的に game.mino が入れ替わっても誤発火しないようにするため）
+        if (this.pcSequence) return;
+
+        // ★追加：古い評価結果を破棄して、tryFinishによる誤った再実行（無限ホールド等）を防ぐ
+        this.bestMoveData = null;
+
+        // ── ★リスタート対策：空盤面なのに pcWorker のロードが未完了なら、
+        //   PC 探索の唯一のチャンス（空盤面フレーム）を beam に消費させず少し待つ。──
+        if (this.isAutoPlay && this.game.field.blocks.length === 0 && !this.pcWorkerReady) {
+            if (this._pcReadyWaitStart === null) this._pcReadyWaitStart = performance.now();
+            if (performance.now() - this._pcReadyWaitStart < this.PC_READY_WAIT_MS) {
+                setTimeout(() => {
+                    if (this.isActive && this.game.mino === this.currentMino) this.onMinoSpawned();
+                }, 50);
+                return;
+            }
+            // 待機上限を超過 → 通常処理（beam）へフォールスルー
+        } else {
+            this._pcReadyWaitStart = null;
+        }
+
+        // beam ワーカー未ロード時のドロップ即時フォールバック。
+        // ただし PC 探索が可能な空盤面（pcWorker 準備済み）なら、PC のチャンスを残すため抑止する。
+        if (!this.workerReady && !this.shouldSearchPC()) {
             if (this.isAutoPlay) {
                 const tryDropFallback = () => {
                     if (!this.isActive || this.game.mino !== this.currentMino) return;
@@ -669,32 +856,31 @@ window.CPU6 = class {
         }
 
         if (this.isCalculating) return;
-        this.isCalculating = true; 
 
         let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
             let by = b.y + 5;
             if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) {
-                boardBuffer[by * 10 + b.x] = 1; 
+                boardBuffer[by * 10 + b.x] = 1;
             }
         });
 
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
-            this.weights.step3Plus, this.weights.flat, this.weights.step1Good, 
-            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus, 
-            this.weights.touchingBonus, 
+            this.weights.step3Plus, this.weights.flat, this.weights.step1Good,
+            this.weights.step1Bad, this.weights.step2, this.weights.groundedBonus,
+            this.weights.touchingBonus,
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
-            Math.round(this.weights.P1_WEIGHT * 100), 
-            this.weights.tsdShape,                    
-            this.weights.tsdShapeOver,                
+            Math.round(this.weights.P1_WEIGHT * 100),
+            this.weights.tsdShape,
+            this.weights.tsdShapeOver,
             this.weights.tsdFillBonus,
-            this.weights.tssClear,                    
-            this.weights.tsdClear,                    
-            this.weights.tsdHolePenalty,              
-            this.weights.pureHole,                    
-            this.weights.comboBonus,                  
+            this.weights.tssClear,
+            this.weights.tsdClear,
+            this.weights.tsdHolePenalty,
+            this.weights.pureHole,
+            this.weights.comboBonus,
             this.weights.btbKeep,
             this.weights.renCutPenalty,
             this.weights.tsmMiniPenalty,
@@ -702,7 +888,9 @@ window.CPU6 = class {
             this.weights.tsdSetup,
             this.weights.tsdSetupOver,
             this.weights.slopeBonus,
-            this.weights.slopePenalty
+            this.weights.slopePenalty,
+            this.weights.centerDip,             // ★追加 [33]
+            this.weights.fire                   // ★追加 [34]
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
@@ -710,6 +898,37 @@ window.CPU6 = class {
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
 
+        // ── ★PC探索の起動判定（空盤面時のみ。ビームサーチは投げずPC結果を待つ）──
+        if (!this.pcSequence && this.shouldSearchPC()) {
+            this.pcSearchActive = true;
+            this.pcFallbackData = {
+                boardBuffer, currentType: mino.type, holdType,
+                next1: this.game.nextQueue[0].type,
+                next2: this.game.nextQueue[1].type,
+                next3: this.game.nextQueue[2].type,
+                next4: this.game.nextQueue[3].type,
+                next5: this.game.nextQueue[4].type,
+                canHold: this.game.canHold ? 1 : 0,
+                weightsArray, ren: currentRen, backToBack: currentBtB
+            };
+            this.requestPCSearch(mino, boardBuffer, holdType);
+            if (this.pcFallbackTimer) clearTimeout(this.pcFallbackTimer);
+            this.pcFallbackTimer = setTimeout(() => {
+                this.pcFallbackTimer = null;
+                if (!this.isActive) return;
+                if (this.pcSequence) return;
+                if (this.game.mino !== this.currentMino) return;
+                this.pcSearchActive = false;
+                this.pcSearchId++;
+                const fallback = this.pcFallbackData;
+                this.pcFallbackData = null;
+                this.startBeamSearch(fallback);
+            }, this.PC_TIMEOUT_MS);
+            return; // ビームサーチは投げない
+        }
+
+        this.pcSearchActive = false;
+        this.isCalculating = true;
         this.worker.postMessage({
             type: 'calculate',
             boardBuffer: boardBuffer,
@@ -717,18 +936,233 @@ window.CPU6 = class {
             holdType: holdType,
             next1: this.game.nextQueue[0].type,
             next2: this.game.nextQueue[1].type,
-            next3: this.game.nextQueue[2].type, 
-            next4: this.game.nextQueue[3].type, 
-            next5: this.game.nextQueue[4].type, 
+            next3: this.game.nextQueue[2].type,
+            next4: this.game.nextQueue[3].type,
+            next5: this.game.nextQueue[4].type,
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray,
-            ren: currentRen,       
-            backToBack: currentBtB 
+            ren: currentRen,
+            backToBack: currentBtB
         });
     }
 
+    // ── ★キャッシュ済みデータでビームサーチを起動する ──
+    startBeamSearch(data) {
+        if (!data || !this.workerReady || this.isCalculating) return;
+        if (!this.isActive || this.game.mino !== this.currentMino) return;
+        this.isCalculating = true;
+        this.worker.postMessage({
+            type: 'calculate',
+            boardBuffer: data.boardBuffer,
+            currentType: data.currentType,
+            holdType: data.holdType,
+            next1: data.next1,
+            next2: data.next2,
+            next3: data.next3,
+            next4: data.next4,
+            next5: data.next5,
+            canHold: data.canHold,
+            weightsArray: data.weightsArray,
+            ren: data.ren,
+            backToBack: data.backToBack
+        });
+    }
+
+    // ── ★PC探索を起動すべき盤面か ──
+    shouldSearchPC() {
+        if (!this.pcWorkerReady) return false;
+        return this.game.field.blocks.length === 0;
+    }
+
+    // ── ★PC探索リクエスト送信（ネクストを11個=current+next0..9 に拡張）──
+    requestPCSearch(mino, boardBuffer, holdType) {
+        this.pcSearchId++;
+        const pieces = new Int32Array(11);
+        pieces[0] = mino.type;
+        for (let i = 0; i < 10; i++) {
+            pieces[i + 1] = this.game.nextQueue[i] ? this.game.nextQueue[i].type : 0;
+        }
+        // boardBuffer はビームサーチ用と共有（postMessage で各ワーカーへ別々にクローンされる）
+        this.pcWorker.postMessage({
+            type: 'pc_search',
+            boardBuffer: boardBuffer,
+            pieces: pieces,
+            holdType: holdType,
+            canHold: this.game.canHold ? 1 : 0,
+            maxDepth: this.PC_MAX_DEPTH,
+            maxTimeMs: this.PC_SEARCH_TIME_MS,
+            searchId: this.pcSearchId
+        });
+    }
+
+    // ── ★PC手順1手の妥当性検証（盤面/ミノが想定通りか）──
+    validatePCStep(expected) {
+        if (!this.game.mino) return false;
+        const cur = this.game.mino.type;
+        const held = this.game.holdMino !== null ? this.game.holdMino.type : -1;
+        if (expected.useHold === 0) {
+            // そのまま現在ミノを置く想定
+            return cur === expected.minoType;
+        } else {
+            // ホールド入替後に置く想定
+            if (!this.game.canHold) return false;
+            const afterHold = (held === -1)
+                ? (this.game.nextQueue[0] ? this.game.nextQueue[0].type : -1)
+                : held;
+            return afterHold === expected.minoType;
+        }
+    }
+
+    // ── ★PC探索結果のハンドラ ──
+    handlePCResult(data) {
+        if (data.searchId !== this.pcSearchId) return; // 古い結果は破棄
+        if (!this.isActive) { this.pcSearchActive = false; return; }
+
+        // ★直前の操作（前PCの最終ハードドロップ後処理など）が未完了の間は、
+        //   結果を破棄せず少し待って再試行する。破棄すると待機状態のままフリーズし、
+        //   直前PCのゴースト表示が残るバグになる。
+        //   （fallbackタイマーが先に発火すると searchId が更新され、本リトライは自然終了する）
+        if (this.isAutoPlay && this.game.mino === this.currentMino && this.isExecutingAction) {
+            setTimeout(() => this.handlePCResult(data), 20);
+            return;
+        }
+
+        this.pcSearchActive = false;
+        if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
+
+        if (data.found && data.sequence && data.sequence.length > 0 &&
+            this.isAutoPlay && this.game.mino === this.currentMino && !this.isExecutingAction) {
+            const expected = data.sequence[0];
+            this.pcSequence = data.sequence;
+            if (this.validatePCStep(expected)) {
+                console.log(`💎 Perfect Clear found! ${this.pcSequence.length} moves → executing`);
+                this.pcSequence.shift();
+                if (this.pcSequence.length === 0) this.pcSequence = null;
+                this.executePCMove(expected);
+                this.pcFallbackData = null;
+                return;
+            } else {
+                this.pcSequence = null; // 第1手の検証に失敗
+            }
+        }
+        // PC見つからず or 検証失敗 → ビームサーチを起動
+        const fallback = this.pcFallbackData;
+        this.pcFallbackData = null;
+        if (this.isAutoPlay && this.isActive &&
+            this.game.mino === this.currentMino && !this.isExecutingAction) {
+            this.startBeamSearch(fallback);
+        }
+    }
+
+    // ── ★PC手順の次の1手を実行する（直前の手のアクション完了後に呼ばれる）──
+    runNextPCMove() {
+        if (!this.isActive) return;
+        if (!this.pcSequence || this.pcSequence.length === 0) {
+            this.pcSequence = null; // PC完了。次ピースは通常の onMinoSpawned が処理
+            return;
+        }
+        // 直前の操作の完了と次ピースの出現を待つ
+        if (this.isExecutingAction || !this.game.mino) {
+            setTimeout(() => this.runNextPCMove(), 20);
+            return;
+        }
+        this.currentMino = this.game.mino; // onMinoSpawned の重複発火を抑止
+        const expected = this.pcSequence[0];
+        if (!this.validatePCStep(expected)) {
+            // 盤面が想定とずれた（ガベージ等）→ 手順を破棄して通常モードへ
+            console.log("💎 PC sequence invalidated → fall back to eval");
+            this.pcSequence = null;
+            this.currentMino = null; // onMinoSpawned を再発火させ通常評価へ戻す
+            return;
+        }
+        this.pcSequence.shift();
+        if (this.pcSequence.length === 0) this.pcSequence = null; // 空配列はtruthy → onMinoSpawnedの早期returnを防ぐ
+        this.executePCMove(expected);
+    }
+
+    // ── ★PC手順1手の実行（ホールド→回転→移動→ハードドロップ）──
+    executePCMove(expected) {
+        if (!this.isActive) return;
+
+        // 前のアクション実行中（直前ハードドロップの後処理待ち等）なら少し待って再試行。
+        // ※ワーカー往復が無く同期的に呼ばれるため、isExecutingAction の解除待ちが必要。
+        if (this.isAutoPlay && this.isExecutingAction) {
+            setTimeout(() => { if (this.isActive) this.executePCMove(expected); }, 20);
+            return;
+        }
+
+        const move = {
+            action: 'play',
+            id: expected.minoType,
+            rot: expected.rot,
+            x: expected.x,
+            y: expected.y - 5,        // 内部0〜24 → JS座標 -5〜19
+            pcUseHold: expected.useHold,
+            path: expected.path,      // ★到達経路(ねじ込み対応)。1=左2=右3=SD4=CW5=CCW6=HD
+            isPC: true
+        };
+        this.bestMoveData = move;     // ※p1を持たないので processActionQueue末尾の再実行は走らない
+        this.bestEstimate = move;
+
+        // PCモード表示
+        const evalEl = document.getElementById('eval-value');
+        if (evalEl) evalEl.textContent = 'PC';
+        this.renderPCEstimate(move);
+
+        if (this.isAutoPlay) {
+            this.isExecutingAction = true;
+            // ★CPU操作中は重力を無効化（ビーム同様）。これにより配置ピースが spawn に留まり、
+            //   buildPCActionQueue の spawn 起点シミュレーションと実機が一致する。
+            if (this.game) this.game.gravityDisabled = true;
+            this.actionQueue = this.buildPCActionQueue(move);
+            setTimeout(() => this.processActionQueue(), this.actionDelay);
+        }
+    }
+
+    // ── ★PC手順用のアクションキュー構築 ──
+    //   buildActionQueue と同一の経路最適化（連続SDの multiSoftDrop 化・移動/回転の並べ替え・
+    //   即時落下判定）を流用する。HOLD する場合は先頭に hold を積み、配置ピースを spawn 位置へ
+    //   一時設置した上で buildActionQueue を呼ぶ（HOLD 実行後はそのピースが spawn で出現するため）。
+    buildPCActionQueue(move) {
+        let queue = [];
+        if (move.pcUseHold) {
+            queue.push({ type: 'hold', delay: this.actionDelay });
+        }
+
+        // buildActionQueue に渡す擬似 bestResult（PC は spin 火力等は考慮しない）
+        const bestResult = {
+            action: 'play',
+            id: move.id,
+            x: move.x,
+            y: move.y,            // JS座標（executePCMove で expected.y-5 済み）
+            rot: move.rot,
+            path: move.path,
+            tSpinType: 0,
+            clearedLines: []
+        };
+
+        // ★配置ピースを spawn 位置に一時設置して buildActionQueue のシミュレーションを行う。
+        //   （HOLD 有無に関わらず、実行時には配置ピースが spawn から動き出すため整合する）
+        const savedMino = this.game.mino;
+        let pathQueue;
+        try {
+            const temp = new Mino(move.id);
+            if (typeof temp.spawn === 'function') temp.spawn();
+            this.game.mino = temp;
+            pathQueue = this.buildActionQueue(bestResult);
+        } finally {
+            this.game.mino = savedMino;
+        }
+
+        for (const a of pathQueue) queue.push(a);
+        return queue;
+    }
+
     handleWorkerResult(res) {
-        this.isCalculating = false; 
+        this.isCalculating = false;
+
+        // ★PCモードが既に主導している場合、ビームサーチ結果は完全に無視する
+        if (this.pcSequence) return;
 
         let actionInt = res[0];
         
@@ -900,6 +1334,123 @@ window.CPU6 = class {
         }
     }
 
+    renderPCEstimate(currentMove) {
+        if (!this.estimateContainer) this.initEstimateContainer();
+        if (!this.estimateContainer) return;
+
+        this.estimateContainer.innerHTML = '';
+        if (!this.isActive) return;
+        // ★versusモードでは配置予測を表示しない（testモードのみ表示）
+        if (this.game.currentMode !== 'test') return;
+
+        const allMoves = [];
+        if (currentMove) {
+            allMoves.push({ id: currentMove.id, rot: currentMove.rot, x: currentMove.x, y: currentMove.y });
+        }
+        if (this.pcSequence) {
+            for (const m of this.pcSequence) {
+                allMoves.push({ id: m.minoType, rot: m.rot, x: m.x, y: m.y - 5 });
+            }
+        }
+
+        // ★ライン消去に応じて以降の配置を分断表示する（renderEstimatePlace と同様）
+        let simField = Array.from({ length: 25 }, () => Array(10).fill(0));
+        this.game.field.blocks.forEach(b => {
+            let by = b.y + 5;
+            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) simField[by][b.x] = 1;
+        });
+
+        let yMap = {};
+        for (let i = -10; i < 20; i++) yMap[i] = i;
+
+        for (let i = 0; i < allMoves.length; i++) {
+            const borderOpacity = i === 0 ? 0.9 : Math.max(0.25, 0.5 - i * 0.03);
+            const bgOpacity     = i === 0 ? 0.3 : Math.max(0.05, 0.12 - i * 0.01);
+            const zIndex        = Math.max(1, 11 - i);
+            this.renderPCSinglePiece(allMoves[i], borderOpacity, bgOpacity, zIndex, yMap);
+
+            // 配置ブロックを simField に反映
+            let simMino = new Mino(allMoves[i].id);
+            for (let r = 0; r < allMoves[i].rot; r++) simMino.rotate();
+            let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + allMoves[i].x, y: b.y + allMoves[i].y }));
+            for (let b of droppedBlocks) {
+                let by = b.y + 5;
+                if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) simField[by][b.x] = 1;
+            }
+
+            // ライン消去判定
+            let clearedSimLines = [];
+            for (let y = 0; y < 25; y++) {
+                let isFull = true;
+                for (let x = 0; x < 10; x++) {
+                    if (simField[y][x] === 0) { isFull = false; break; }
+                }
+                if (isFull) clearedSimLines.push(y);
+            }
+
+            if (clearedSimLines.length > 0) {
+                for (let y of clearedSimLines) {
+                    for (let ty = y; ty > 0; ty--) simField[ty] = [...simField[ty - 1]];
+                    simField[0] = Array(10).fill(0);
+                }
+
+                let newYMap = {};
+                let currentY_sim = 19;
+                for (let y_old_sim = 19; y_old_sim >= -10; y_old_sim--) {
+                    if (clearedSimLines.includes(y_old_sim + 5)) continue;
+                    newYMap[currentY_sim] = yMap[y_old_sim];
+                    currentY_sim--;
+                }
+                while (currentY_sim >= -10) {
+                    newYMap[currentY_sim] = yMap[currentY_sim] || currentY_sim;
+                    currentY_sim--;
+                }
+                yMap = newYMap;
+            }
+        }
+    }
+
+    renderPCSinglePiece(pData, borderOpacity, bgOpacity, zIndex, yMap) {
+        const colorMap = {
+            0: '0, 240, 240',
+            1: '240, 240, 0',
+            2: '160, 0, 240',
+            3: '0, 0, 240',
+            4: '240, 160, 0',
+            5: '0, 240, 0',
+            6: '240, 0, 0'
+        };
+        const rgb = colorMap[pData.id] ?? '255, 255, 255';
+
+        let simMino = new Mino(pData.id);
+        for (let i = 0; i < pData.rot; i++) simMino.rotate();
+
+        simMino.blocks.forEach(block => {
+            const drawX = block.x + pData.x;
+            let drawY = block.y + pData.y;
+
+            // ★ライン消去に応じた表示位置の補正
+            if (yMap && yMap[drawY] !== undefined) drawY = yMap[drawY];
+
+            if (drawY < -5 || drawY >= 20) return;
+
+            const div = document.createElement('div');
+            div.style.position = 'absolute';
+            div.style.width = '32px';
+            div.style.height = '32px';
+            div.style.boxSizing = 'border-box';
+            div.style.borderWidth = '2px';
+            div.style.borderStyle = 'solid';
+            div.style.borderRadius = '2px';
+            div.style.backgroundColor = `rgba(${rgb}, ${bgOpacity})`;
+            div.style.borderColor = `rgba(${rgb}, ${borderOpacity})`;
+            div.style.zIndex = String(zIndex);
+            div.style.left = `${drawX * 32}px`;
+            div.style.top = `${(drawY + 0.5) * 32}px`;
+            this.estimateContainer.appendChild(div);
+        });
+    }
+
     createEstimateBlocks(pData, stepClass, yMap) {
         let simMino = new Mino(pData.id);
         for(let i = 0; i < pData.rot; i++) simMino.rotate();
@@ -949,3 +1500,13 @@ window.CPU6 = class {
         });
     }
 };
+
+// ─────────────────────────────────────────────
+// ★デバッグ用初期盤面
+//   null にすると無効（通常プレイ）
+//   1 = ブロックあり、0 = なし
+//   行0 = 最上段（y=0）、列0 = 左端（x=0）
+// ─────────────────────────────────────────────
+    CPU6.DEBUG_BOARD =　null;
+// 使うときは以下のコメントを外して値を編集する:
+    
