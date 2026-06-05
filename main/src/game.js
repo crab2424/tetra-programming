@@ -101,6 +101,13 @@ class Game {
 
         // カウントダウン開始
         runCountdown(overlayId, textElId, () => {
+            // START! のタイミングでBGM開始（versus は startVersusGame 側で鳴らすため除外）。
+            // CPU TEST(currentMode==='test')は専用BGM、それ以外のシングル(marathon/sprint/ultra)は singleBgmKey でモード別キーに解決。
+            if (!this.isVersusMode && window.BgmManager) {
+                window.BgmManager.play(this.currentMode === 'test'
+                    ? 'test_bgm'
+                    : window.BgmManager.singleBgmKey(this.currentMode));
+            }
             this._startGameplay();
         }, null);
     }
@@ -127,9 +134,11 @@ class Game {
         }
 
         // 7バッグをリセット
+        // ★nextQueue は内部で11個保持（CPU6のパフェ探索が10手先まで読むため）。
+        //   ただし画面表示は先頭5個のみ（drawNext 参照）。
         this.bag = [];
         this.nextQueue = [];
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 11; i++) {
             this.nextQueue.push(new Mino(this.getNextType()));
         }
         this.garbageQueue = [];
@@ -138,6 +147,52 @@ class Game {
         this.pendingAttack = 0;
         this.pendingInternalAttack = 0; // 追加
         this.updateAttackGauge();
+
+        // VS設定：テトのマージンタイム管理
+        // マージン突入から [0, 32, 64, 96, 128, 160] 秒後にインデックス 0→1→2→3→4→5 へ進む
+        // null = マージン未突入（従来の固定火力を使用）、0〜5 = マージン中のステップ
+        this.vsMarginMultiplier = 1.0;   // 互換のため残す（ぷよ側との乗率計算では使用しない）
+        this._tetMarginStep = null;      // null = マージン未突入
+        if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
+        this._vsMarginTimerStart = 0;
+        this._vsMarginTimerDuration = 0;
+        this._vsMarginTimerCb = null;
+        this._vsMarginTimerRemaining = null;
+
+        if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
+            const TET_MARGIN_INTERVAL_MS = 32000; // 32秒ごとにステップアップ
+            const TET_MARGIN_MAX_STEP = 5;        // 最大インデックス（160秒で到達）
+            const startMargin = () => {
+                if (!this.isVersusMode) return;
+                // マージン突入直後：ステップ0（テーブルindex=0）を適用
+                this._tetMarginStep = 0;
+                const step = () => {
+                    if (this._tetMarginStep < TET_MARGIN_MAX_STEP) {
+                        this._tetMarginStep++;
+                    }
+                    if (this._tetMarginStep < TET_MARGIN_MAX_STEP) {
+                        this._vsMarginTimer = setTimeout(step, TET_MARGIN_INTERVAL_MS);
+                        this._vsMarginTimerStart = performance.now();
+                        this._vsMarginTimerDuration = TET_MARGIN_INTERVAL_MS;
+                        this._vsMarginTimerCb = step;
+                    } else {
+                        this._vsMarginTimer = null;
+                    }
+                };
+                this._vsMarginTimer = setTimeout(step, TET_MARGIN_INTERVAL_MS);
+                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimerDuration = TET_MARGIN_INTERVAL_MS;
+                this._vsMarginTimerCb = step;
+            };
+            if (this.vsMarginTimeMs === 0) {
+                startMargin(); // 即時発動
+            } else {
+                this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
+                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimerDuration = this.vsMarginTimeMs;
+                this._vsMarginTimerCb = startMargin;
+            }
+        }
 
         this.nextMino = null;
         this.field = new Field()
@@ -287,10 +342,17 @@ class Game {
     }
 
     // ポーズ切り替え
+    // SE再生の薄いラッパ（A案）。人間・CPUどちらの盤面でもそれぞれの操作音を鳴らす。
+    playSe(key) {
+        window.SeManager?.play(key);
+    }
+
     togglePause() {
         if (this.isPaused) {
+            this.playSe('resume')
             this.resume()
         } else {
+            this.playSe('pause')
             this.pause()
         }
     }
@@ -298,6 +360,8 @@ class Game {
     pause() {
         if (this.isPaused) return
         this.isPaused = true
+        // ③ ポーズ中はBGMを止めず小音量で流し続ける
+        window.BgmManager?.duck()
         clearInterval(this.timer)
 
         // 接地猶予タイマーが動いていた場合、残り時間を計算して保存する
@@ -308,6 +372,13 @@ class Game {
             this._wasLockingWhenPaused = true;
         } else {
             this._wasLockingWhenPaused = false;
+        }
+
+        // マージンタイマーの停止と残り時間の保存
+        if (this._vsMarginTimer) {
+            clearTimeout(this._vsMarginTimer);
+            this._vsMarginTimer = null;
+            this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (performance.now() - this._vsMarginTimerStart);
         }
 
         this.showPauseOverlay()
@@ -322,6 +393,8 @@ class Game {
     resume() {
         if (!this.isPaused) return
         this.isPaused = false
+        // ③ ポーズ解除でBGM音量を元に戻す
+        window.BgmManager?.unduck()
         this.hidePauseOverlay()
 
         // 接地中(lockTimer稼働中)だったか空中だったかで再開処理を分ける
@@ -331,6 +404,14 @@ class Game {
             this._wasLockingWhenPaused = false;
         } else if (!this.isGrounded) {
             this.startGravity();
+        }
+
+        // マージンタイマーの再開
+        if (this._vsMarginTimerRemaining !== null && this._vsMarginTimerCb) {
+            this._vsMarginTimerDuration = Math.max(0, this._vsMarginTimerRemaining);
+            this._vsMarginTimer = setTimeout(this._vsMarginTimerCb, this._vsMarginTimerDuration);
+            this._vsMarginTimerStart = performance.now();
+            this._vsMarginTimerRemaining = null;
         }
 
         if (!this.isTimerRunning) {
@@ -371,6 +452,7 @@ class Game {
     // 引数に isClear（デフォルト false）を追加
     gameOver(isClear = false) {
         this.isClear = isClear;
+        if (!isClear) this.playSe('gameover');
         this.drawAll();
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
@@ -471,7 +553,12 @@ class Game {
     }
 
     // SRS回転
-    tryRotate(rotDir) {
+    // silent=true のときは回転処理・フラグ設定は行うがSEを鳴らさない。
+    // CPUのbuildActionQueueはパスを実機上で一度“再生”して状態を求める際に
+    // tryRotateを呼ぶ（その後位置はバックアップから復元される）。この再生中の
+    // 回転は画面に出ない最終位置近くで評価されるため、SEを鳴らすと出現位置の
+    // ミノに対して空中でtspin_rot等が鳴ってしまう。再生時は silent=true を渡す。
+    tryRotate(rotDir, silent = false) {
         const isI = this.mino.type === 0
         const from = this.mino.rotation
         const to = (from + (rotDir === 1 ? 1 : 3)) % 4
@@ -520,6 +607,11 @@ class Game {
                 // キックテーブルの5番目（index=4）がPoint 5（井戸抜け用）
                 this.lastRotUsedPoint5 = (i === 4);
                 this.lastActionWasRotation = true;
+                // 回転後の位置がT-spin判定になる場合は専用SE（人間・CPU共通）。
+                // silent（CPUのパス再生中）はSEを抑止する。
+                if (!silent) {
+                    this.playSe(this.checkTSpin() !== null ? 'tspin_rot' : 'rotate');
+                }
                 return true
             }
         }
@@ -564,7 +656,10 @@ class Game {
     // ホールド
     holdCurrentMino() {
         if (!this.canHold) return
+        // VS設定：HOLDが無効な場合はホールド操作を受け付けない
+        if (this.isVersusMode && this.vsHoldEnabled === false) return
         this.canHold = false
+        this.playSe('hold')
 
         if (this.holdMino === null) {
             this.holdMino = new Mino()
@@ -685,37 +780,88 @@ class Game {
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // おじゃまブロック（火力）の計算
+        // _tetMarginStep === null : マージン未突入（従来の固定値を使用）
+        // _tetMarginStep === 0〜5 : マージン中（テーブルから値を参照）
+        // テーブルは [0秒, 32秒, 64秒, 96秒, 128秒, 160秒] 突入後のステップに対応
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         let generatedGarbage = 0;
 
-        if (isPerfectClear) {
-            // PCは10ライン固定（ボーナスなし）
-            generatedGarbage = 10;
-        } else if (linesCleared > 0) {
-            // 基本火力
-            if (tSpinType == 'tspin') {
-                // T-Spin時（miniは除く）は消去ライン数の2倍
-                generatedGarbage = linesCleared * 2;
-            } else {
-                // 通常消去
-                if (linesCleared === 2) generatedGarbage = 1;
-                else if (linesCleared === 3) generatedGarbage = 2;
-                else if (linesCleared === 4) generatedGarbage = 4;
-            }
+        const _ms = this._tetMarginStep; // null = 未突入、0〜5 = マージン中
 
-            // BtBボーナス
-            if (isB2BTriggered) {
-                generatedGarbage += 1;
+        if (_ms === null) {
+            // ────────────────────────────────────────
+            // マージン未突入：従来の固定テーブルをそのまま使用
+            // ────────────────────────────────────────
+            if (isPerfectClear) {
+                generatedGarbage = 10;
+            } else if (linesCleared > 0) {
+                // 基本火力
+                if (tSpinType === 'tspin') {
+                    generatedGarbage = linesCleared * 2;
+                } else {
+                    if (linesCleared === 2) generatedGarbage = 1;
+                    else if (linesCleared === 3) generatedGarbage = 2;
+                    else if (linesCleared === 4) generatedGarbage = 4;
+                }
+                // BtBボーナス
+                if (isB2BTriggered) generatedGarbage += 1;
+                // RENボーナス（従来テーブル）
+                let r = currentRenForGarbage;
+                if (r === 2 || r === 3) generatedGarbage += 1;
+                else if (r === 4 || r === 5) generatedGarbage += 2;
+                else if (r === 6 || r === 7) generatedGarbage += 3;
+                else if (r >= 8 && r <= 12) generatedGarbage += 4;
+                else if (r >= 13) generatedGarbage += 5;
             }
+        } else {
+            // ────────────────────────────────────────
+            // マージン中：各要素をテーブルから参照
+            // ────────────────────────────────────────
 
-            // RENボーナス
-            let r = currentRenForGarbage;
-            if (r === 2 || r === 3) generatedGarbage += 1;
-            else if (r === 4 || r === 5) generatedGarbage += 2;
-            else if (r === 6 || r === 7) generatedGarbage += 3;
-            else if (r >= 8 && r <= 12) generatedGarbage += 4;
-            else if (r >= 13) generatedGarbage += 5;
-            // r === 0, 1 (0REN, 1REN) は 0加算なのでそのまま
+            // ── 基本火力テーブル（clear lines） ──
+            const _garbageTables = {
+                lines1: [0, 0, 1, 1, 1, 2],
+                lines2: [1, 1, 2, 2, 3, 4],
+                lines3: [2, 2, 3, 4, 5, 6],
+                lines4: [4, 5, 5, 6, 8, 10],
+            };
+            // T-Spin（mini除く）火力テーブル
+            const _tspinTables = {
+                single: [2, 2, 3, 4, 5, 6],
+                double: [4, 5, 5, 6, 8, 10],
+                triple: [6, 7, 8, 10, 12, 16],
+            };
+            // BtBボーナステーブル
+            const _btbBonus = [1, 1, 2, 2, 3, 4];
+            // PCボーナステーブル（対テト相殺用）
+            const _pcBonus = [12, 13, 14, 15, 16, 18];
+            // REN追加ボーナステーブル（従来RENボーナスにさらに加算、2REN以降）
+            const _renBonus = [0, 0, 0, 1, 1, 1];
+
+            if (isPerfectClear) {
+                generatedGarbage = _pcBonus[_ms];
+            } else if (linesCleared > 0) {
+                // 基本火力
+                if (tSpinType === 'tspin') {
+                    if (linesCleared === 1) generatedGarbage = _tspinTables.single[_ms];
+                    else if (linesCleared === 2) generatedGarbage = _tspinTables.double[_ms];
+                    else if (linesCleared === 3) generatedGarbage = _tspinTables.triple[_ms];
+                } else {
+                    if (linesCleared === 1) generatedGarbage = _garbageTables.lines1[_ms];
+                    else if (linesCleared === 2) generatedGarbage = _garbageTables.lines2[_ms];
+                    else if (linesCleared === 3) generatedGarbage = _garbageTables.lines3[_ms];
+                    else if (linesCleared === 4) generatedGarbage = _garbageTables.lines4[_ms];
+                }
+                // BtBボーナス
+                if (isB2BTriggered) generatedGarbage += _btbBonus[_ms];
+                // RENボーナス：従来テーブル + マージン追加ボーナス（2REN以降の全ボーナスに加算）
+                let r = currentRenForGarbage;
+                if (r === 2 || r === 3) generatedGarbage += 1 + _renBonus[_ms];
+                else if (r === 4 || r === 5) generatedGarbage += 2 + _renBonus[_ms];
+                else if (r === 6 || r === 7) generatedGarbage += 3 + _renBonus[_ms];
+                else if (r >= 8 && r <= 12) generatedGarbage += 4 + _renBonus[_ms];
+                else if (r >= 13) generatedGarbage += 5 + _renBonus[_ms];
+            }
         }
 
         ////console.log(`[Scoring] prefix: ${this.canvasPrefix}, lines: ${linesCleared}, tSpin: ${tSpinType}, ren: ${currentRenForGarbage}, genGarbage: ${generatedGarbage}`);
@@ -726,6 +872,8 @@ class Game {
     sendGarbage(amount) {
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opponent || amount <= 0) return;
+
+        // ── 注意：火力補正乗率は secureMino 内で実効火力として計算済み。ここでは再計算しない ──
 
         let isOpponentPuyo = false;
         if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
@@ -758,7 +906,8 @@ class Game {
             if (i === 0) {
                 holeX = Math.floor(Math.random() * COLS_COUNT);
             } else {
-                if (Math.random() < 0.7) {
+                const rate = this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate / 100 : 0.7;
+                if (Math.random() < rate) {
                     holeX = prevHole;
                 } else {
                     const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1;
@@ -835,7 +984,8 @@ class Game {
                     currentHole = Math.floor(Math.random() * COLS_COUNT);
                 } else {
                     // 2段目以降は70%で同じ穴、30%で違う穴
-                    if (Math.random() < 0.7) {
+                    const rate = this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate / 100 : 0.7;
+                    if (Math.random() < rate) {
                         currentHole = lastHole;
                     } else {
                         const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1;
@@ -1009,7 +1159,7 @@ class Game {
     }
 
     // ミノを即座に固定する共通処理
-    secureMino() {
+    secureMino(viaHardDrop = false) {
         let isAllOutside = this.mino.blocks.every(block => (block.y + this.mino.y) < 0);
 
         // ─── T-spin判定（固定前に行う）───
@@ -1021,9 +1171,27 @@ class Game {
         })
         this.field.blocks = this.field.blocks.concat(this.mino.blocks)
 
+        // 固定音：ハードドロップ時は harddrop と重ねて lock_hard（小音量）、通常時は lock（通常音量）
+        this.playSe(viaHardDrop ? 'lock_hard' : 'lock');
+
         const renForCalc = this.ren; // ★ぷよ用火力計算のために加算前のRENを保持
 
         const linesCleared = this.field.checkLine()
+
+        // ─── ライン消去・T-spin のSE ───
+        if (tSpinResult !== null) {
+            this.playSe('tspin');
+        }
+        
+        if (linesCleared >= 4) {
+            this.playSe('4lines');
+        } else if (linesCleared === 3) {
+            this.playSe('3lines');
+        } else if (linesCleared === 2) {
+            this.playSe('2lines');
+        } else if (linesCleared === 1) {
+            this.playSe('1line');
+        }
 
         const isBtBAction = (linesCleared > 0 && (linesCleared === 4 || tSpinResult !== null));
         const isB2BTriggered = isBtBAction && this.backToBack;
@@ -1057,62 +1225,108 @@ class Game {
             if (isOpponentPuyo) {
                 // ★ 今回の新仕様：ライン消去時は今回発生分のみで相殺、設置時に溜まったゲージで相殺
                 if (linesCleared > 0) {
-                    // 1. ぷよ相手用のアタックゲージ火力を計算
+                    // ── マージンステップ取得（null = 未突入） ──
+                    const _ms = this._tetMarginStep; // null or 0〜5
+
+                    // ── 対ぷよ攻撃用火力テーブル（マージン中のみ使用） ──
+                    const _puyoTables = {
+                        lines1: [0, 0, 1, 1, 1, 2],
+                        lines2: [1, 1, 2, 2, 3, 4],
+                        lines3: [2, 2, 3, 4, 5, 6],
+                        lines4: [4, 5, 5, 6, 8, 10],
+                        tspinSingle: [2, 2, 3, 4, 5, 6],
+                        tspinDouble: [3, 3, 4, 5, 6, 8],
+                        tspinTriple: [4, 5, 5, 6, 8, 10],
+                    };
+                    const _puyoBtbBonus = [1, 1, 2, 2, 3, 4];
+                    const _puyoPcBonus  = [7, 7, 8, 9, 10, 12];
+                    // REN追加ボーナス（従来RENボーナスにさらに加算）
+                    const _puyoRenBonus = [0, 0, 1, 1, 1, 1];
+                    // 対テト相殺用REN追加ボーナス（Scoring()と同じ定義）
+                    const _tetRenBonus  = [0, 0, 1, 1, 1, 1];
+
+                    // 1. 対ぷよ用アタックゲージ火力を計算
                     let puyoAttack = 0;
                     if (isPerfectClear) {
-                        puyoAttack = 6;
+                        puyoAttack = (_ms === null) ? 6 : _puyoPcBonus[_ms];
                     } else {
-                        // 基本火力
-                        if (tSpinResult === 'tspin') {
-                            if (linesCleared === 1) puyoAttack = 2;
-                            else if (linesCleared === 2) puyoAttack = 3;
-                            else if (linesCleared === 3) puyoAttack = 5;
+                        if (_ms === null) {
+                            // ── マージン未突入：従来の固定値 ──
+                            if (tSpinResult === 'tspin') {
+                                if (linesCleared === 1) puyoAttack = 2;
+                                else if (linesCleared === 2) puyoAttack = 3;
+                                else if (linesCleared === 3) puyoAttack = 5;
+                            } else {
+                                if (linesCleared === 2) puyoAttack = 1;
+                                else if (linesCleared === 3) puyoAttack = 2;
+                                else if (linesCleared === 4) puyoAttack = 4;
+                            }
+                            if (isB2BTriggered) puyoAttack += 1;
+                            // 従来RENテーブル（2REN以降）
+                            const renTable = [0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5];
+                            let renVal = (renForCalc >= renTable.length) ? 5 : renTable[renForCalc];
+                            puyoAttack += renVal;
                         } else {
-                            if (linesCleared === 2) puyoAttack = 1;
-                            else if (linesCleared === 3) puyoAttack = 2;
-                            else if (linesCleared === 4) puyoAttack = 4;
+                            // ── マージン中：テーブル参照 ──
+                            if (tSpinResult === 'tspin') {
+                                if (linesCleared === 1) puyoAttack = _puyoTables.tspinSingle[_ms];
+                                else if (linesCleared === 2) puyoAttack = _puyoTables.tspinDouble[_ms];
+                                else if (linesCleared === 3) puyoAttack = _puyoTables.tspinTriple[_ms];
+                            } else {
+                                if (linesCleared === 1) puyoAttack = _puyoTables.lines1[_ms];
+                                else if (linesCleared === 2) puyoAttack = _puyoTables.lines2[_ms];
+                                else if (linesCleared === 3) puyoAttack = _puyoTables.lines3[_ms];
+                                else if (linesCleared === 4) puyoAttack = _puyoTables.lines4[_ms];
+                            }
+                            if (isB2BTriggered) puyoAttack += _puyoBtbBonus[_ms];
+                            // 従来RENテーブル + マージン追加ボーナス（2REN以降）
+                            const renTable = [0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5];
+                            let renVal = (renForCalc >= renTable.length) ? 5 : renTable[renForCalc];
+                            if (renForCalc >= 2) renVal += _puyoRenBonus[_ms];
+                            puyoAttack += renVal;
                         }
-
-                        // BtBボーナス
-                        if (isB2BTriggered) {
-                            puyoAttack += 1;
-                        }
-
-                        // RENボーナス
-                        const renTable = [0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5];
-                        let renVal = (renForCalc >= renTable.length) ? 5 : renTable[renForCalc];
-                        puyoAttack += renVal;
-
-                        // ★ 追加: 相殺用の内部火力(generatedGarbage)のRENボーナスを、攻撃用(ぷよ用RENテーブル)に合わせる
-                        let tetRenBonus = 0;
-                        if (renForCalc === 2 || renForCalc === 3) tetRenBonus = 1;
-                        else if (renForCalc === 4 || renForCalc === 5) tetRenBonus = 2;
-                        else if (renForCalc === 6 || renForCalc === 7) tetRenBonus = 3;
-                        else if (renForCalc >= 8 && renForCalc <= 12) tetRenBonus = 4;
-                        else if (renForCalc >= 13) tetRenBonus = 5;
-
-                        generatedGarbage = generatedGarbage - tetRenBonus + renVal;
                     }
 
-                    // 2. 「今回発生した火力(generatedGarbage)」のみを使って相殺を試みる（溜まっているゲージは使わない）
-                    let canceledGarbage = 0;
-                    let remainGenerated = generatedGarbage; // 今回のテト基準火力（RENはぷよ基準に書き換わった状態）
+                    // 2. 相殺用の内部火力（generatedGarbage）を対ぷよ用RENボーナス基準に揃え直す
+                    //    Scoring()で計算済みの generatedGarbage はテト用REN追加ボーナス込みなので、
+                    //    マージン中の場合のみ対ぷよ用REN追加ボーナスへ差し替える（未突入時は両方0なので変化なし）
+                    if (!isPerfectClear && linesCleared > 0 && _ms !== null) {
+                        const tetRenAdd  = (renForCalc >= 2) ? _tetRenBonus[_ms] : 0;
+                        const puyoRenAdd = (renForCalc >= 2) ? _puyoRenBonus[_ms] : 0;
+                        // 同じ値なので差し替えは不要だが、将来の変更に備えて明示的に処理
+                        generatedGarbage = generatedGarbage - tetRenAdd + puyoRenAdd;
+                    }
 
-                    if (this.garbageQueue.length > 0 && generatedGarbage > 0) {
-                        remainGenerated = this.offsetGarbage(generatedGarbage);
-                        canceledGarbage = generatedGarbage - remainGenerated;
+                    // ── 乗率適用（vsAttackMultiplierのみ。vsMarginMultiplierはぷよ側が管理） ──
+                    const _vsMultTvP = (this.vsAttackMultiplier ?? 1.0);
+                    const effectiveGenerated = (this.isVersusMode && generatedGarbage > 0)
+                        ? Math.max(1, Math.floor(generatedGarbage * _vsMultTvP))
+                        : generatedGarbage;
+                    const effectivePuyoAttack = (this.isVersusMode && puyoAttack > 0)
+                        ? Math.max(1, Math.floor(puyoAttack * _vsMultTvP))
+                        : puyoAttack;
+
+                    // 2. 「今回発生した実効火力」のみを使って相殺を試みる（溜まっているゲージは使わない）
+                    let canceledGarbage = 0;
+                    let remainGenerated = effectiveGenerated;
+
+                    if (this.garbageQueue.length > 0 && effectiveGenerated > 0) {
+                        remainGenerated = this.offsetGarbage(effectiveGenerated);
+                        canceledGarbage = effectiveGenerated - remainGenerated;
                     }
 
                     // 3. 相殺に使われなかった分(remainGenerated)を内部火力の貯蓄に追加
                     this.pendingInternalAttack += remainGenerated;
 
-                    // アタックゲージ(送信用)に貯める火力 = 今回のぷよ用火力 - 相殺ライン(負の場合は0)
-                    let attackToAdd = Math.max(0, puyoAttack - canceledGarbage);
+                    // アタックゲージ(送信用)に蓄える火力 = 今回の実効ぶよ用火力 - 相殺ライン(負の場合は0)
+                    let attackToAdd = Math.max(0, effectivePuyoAttack - canceledGarbage);
                     this.pendingAttack += attackToAdd;
 
-                    //console.log(`[secureMino] -> 消去あり: ぷよ用火力 ${puyoAttack}(内部 ${generatedGarbage}), 相殺使用 ${canceledGarbage}, 現在の貯蓄(表示): ${this.pendingAttack}(内部: ${this.pendingInternalAttack})`);
+                    //console.log(`[secureMino] -> 消去あり: 実効ぶよ用火力 ${effectivePuyoAttack}(内部 ${effectiveGenerated}), 相殺使用 ${canceledGarbage}, 現在の貯蓄(表示): ${this.pendingAttack}(内部: ${this.pendingInternalAttack})`);
+
                 } else {
                     // ライン消去がない（設置のみ）場合、溜まっているゲージ（内部火力）を放出して相殺・送信を行う
+                    // 内部火力は設置のたびに実効化された値を積み上げているので、ここでは再適用しない
                     let canceledGarbage = 0;
                     if (this.garbageQueue.length > 0 && this.pendingInternalAttack > 0) {
                         let beforeInternal = this.pendingInternalAttack;
@@ -1124,7 +1338,7 @@ class Game {
                     let sendAmount = Math.max(0, this.pendingAttack - canceledGarbage);
                     if (sendAmount > 0) {
                         //console.log(`[secureMino] -> 消去なし: 貯蓄から ${sendAmount} を相手に送信します`);
-                        this.sendGarbage(sendAmount); // sendGarbage内でぷよ個数への変換が行われます
+                        this.sendGarbage(sendAmount); // 実効化済み。sendGarbage内では再計算しない
                     }
 
                     // 放出後は両方ともリセット
@@ -1133,12 +1347,18 @@ class Game {
                 }
                 this.updateAttackGauge();
             } else {
-                // ★従来通り（テト同士）
+                // ★従来通り（テト同士）── マージンテーブル適用済みの generatedGarbage をそのまま使用
+                // （Scoring()内でマージンステップに応じた値を計算済みなので乗率補正は不要）
                 if (generatedGarbage > 0) {
-                    // 自分の待機中のおじゃまを相殺し、余った分（送り返し分）を受け取る
-                    const remainder = this.offsetGarbage(generatedGarbage);
+                    // vsAttackMultiplier のみ適用（マージン火力増加はテーブルで処理済み）
+                    const _vsMultTvT = (this.vsAttackMultiplier ?? 1.0);
+                    const effectiveGarbage = (this.isVersusMode && _vsMultTvT !== 1.0)
+                        ? Math.max(1, Math.floor(generatedGarbage * _vsMultTvT))
+                        : generatedGarbage;
 
-                    // 余った火力があれば相手に送る
+                    // 実効火力で相殺し、余った分を送信
+                    const remainder = this.offsetGarbage(effectiveGarbage);
+
                     if (remainder > 0) {
                         this.sendGarbage(remainder);
                     }
@@ -1147,9 +1367,14 @@ class Game {
         }
 
         if (this.mode === 'sprint' && this.lines >= this.goalLines) {
+            // 設置したミノのブロックはすでに絶対座標化されて field に追加済み。
+            // this.mino を残したまま gameOver→drawAll するとミノが二重描画され、
+            // mino.x/mino.y 分だけずれて（下にワープして）見えるので null にする。
+            this.mino = null;
             this.gameOver(true); // クリア！
             return;
         } else if (this.mode === 'marathon' && this.goalLines !== Infinity && this.lines >= this.goalLines) {
+            this.mino = null;
             this.gameOver(true); // クリア！
             return;
         }
@@ -1161,8 +1386,10 @@ class Game {
         }
 
         // 次のミノが出現する直前（今のミノが固定された瞬間）に、自分に届いている火力を適用
-        if (this.isVersusMode) {
-            this.applyGarbage();
+        if (this.isVersusMode || this.garbageQueue.length > 0) {
+            if (this.vsGarbageDamageOnClear !== false || linesCleared === 0) {
+                this.applyGarbage();
+            }
         }
 
         this.popMino()
@@ -1190,7 +1417,9 @@ class Game {
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
 
-        this.secureMino()
+        this.playSe('harddrop')
+        // lock 音は secureMino(true) 内で lock_hard（小音量）として鳴らすため、ここでは鳴らさない
+        this.secureMino(true)
         this.drawAll()
     }
 
@@ -1222,9 +1451,13 @@ class Game {
             { x: px + 1, y: py + 1 }, // 右下
         ];
 
-        // 各隅が「埋まっているか」を判定（フィールド外も埋まりとして扱う）
+        // 各隅が「埋まっているか」を判定。
+        // 壁（左右）・床（下）の場外は埋まり扱いだが、フィールド上方（y<0）は
+        // ミノの出現領域＝開いた空間なので埋まり扱いにしない。これを埋まりにすると、
+        // スポーン直後（y=-2）など高い位置で回転した際に上2隅が常に埋まり判定となり、
+        // 実際には3隅を満たしていない空中でT-spin成立と誤判定して tspin_rot が鳴る。
         const occupied = corners.map(c =>
-            c.x < 0 || c.x >= COLS_COUNT || c.y < 0 || c.y >= ROWS_COUNT
+            c.x < 0 || c.x >= COLS_COUNT || c.y >= ROWS_COUNT
             || this.field.has(c.x, c.y)
         );
         // occupied[0]=左上, [1]=右上, [2]=左下, [3]=右下
@@ -1430,6 +1663,14 @@ class Game {
         this.nextCtx.clearRect(0, 0, this.nextCanvas.width, this.nextCanvas.height)
         this.holdCtx.clearRect(0, 0, this.holdCanvas.width, this.holdCanvas.height)
 
+        // キャンバス背景を不透明に塗りつぶす（透明のままだと背後のパーティクルが透過して見えるため）
+        this.mainCtx.fillStyle = '#0a0a0f';
+        this.mainCtx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        this.nextCtx.fillStyle = '#0a0a0f';
+        this.nextCtx.fillRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
+        this.holdCtx.fillStyle = '#0a0a0f';
+        this.holdCtx.fillRect(0, 0, this.holdCanvas.width, this.holdCanvas.height);
+
         // 上に少し余白を作る（-1行目の一部を表示）
         this.mainCtx.save();
         this.mainCtx.translate(0, BLOCK_SIZE * VISIBLE_EXTRA_ROW_RATIO);
@@ -1451,9 +1692,9 @@ class Game {
 
         const minoScale = 0.8;
 
-        // Draw next queue vertically
+        // Draw next queue vertically（表示は先頭5個のみ。内部は11個保持）
         const spacing = 3;
-        this.nextQueue.forEach((mino, i) => {
+        this.nextQueue.slice(0, 5).forEach((mino, i) => {
             this.nextCtx.save();
             this.nextCtx.translate(0, i * spacing * BLOCK_SIZE * minoScale);
             this.nextCtx.scale(minoScale, minoScale);
@@ -1480,6 +1721,9 @@ class Game {
     }
 
     dropMino() {
+        // CPU操作中は重力を無効（ソフトドロップとの干渉を防ぐ）
+        // フリーズ（接地）はcheckGroundStateで別途管理されるため影響なし
+        if (this.gravityDisabled) return;
         if (this.valid(0, 1)) {
             this.mino.y++;
             this.updateLowestY();
@@ -1566,6 +1810,56 @@ class Game {
                 !this.field.has(block.x, block.y)
             )
         })
+    }
+
+    // ─────────────────────────────────────────
+    // デバッグ用：初期盤面を2D配列で設定する
+    //   board: 20行×10列の配列（board[0]が最上段、board[19]が最下段）
+    //          1=ブロックあり、0=なし
+    // ─────────────────────────────────────────
+    applyDebugBoard(board) {
+        if (!board) return;
+        this.field.blocks = [];
+        for (let row = 0; row < 20; row++) {
+            for (let col = 0; col < 10; col++) {
+                if (board[row][col] === 1) {
+                    this.field.blocks.push(new Block(col, row, 7)); // type7 = グレー（ゴミブロック色）
+                }
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────
+    // CPU / 外部から呼び出す単純移動ヘルパー
+    // ─────────────────────────────────────────
+    moveLeft() {
+        if (this.valid(-1, 0)) {
+            this.mino.x--;
+            this.lastActionWasRotation = false;
+            this.playSe('move');
+            return true;
+        }
+        return false;
+    }
+
+    moveRight() {
+        if (this.valid(1, 0)) {
+            this.mino.x++;
+            this.lastActionWasRotation = false;
+            this.playSe('move');
+            return true;
+        }
+        return false;
+    }
+
+    softDropOne() {
+        if (this.valid(0, 1)) {
+            this.mino.y++;
+            this.score += 1;
+            this.updateLowestY();
+            return true;
+        }
+        return false;
     }
 
     // ─────────────────────────────────────────
@@ -1754,6 +2048,7 @@ class Game {
                         if (this.valid(-1, 0)) {
                             this.mino.x--
                             this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                            this.playSe('move')
                             acted = true
                         }
                         this._lastMoveTimeLeft = now
@@ -1766,6 +2061,7 @@ class Game {
                             if (this.valid(-1, 0)) {
                                 this.mino.x--
                                 this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                                this.playSe('move')
                                 acted = true
                                 this._dasBlockedLeft = false
                             } else {
@@ -1787,6 +2083,7 @@ class Game {
                         if (this.valid(1, 0)) {
                             this.mino.x++
                             this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                            this.playSe('move')
                             acted = true
                         }
                         this._lastMoveTimeRight = now
@@ -1799,6 +2096,7 @@ class Game {
                             if (this.valid(1, 0)) {
                                 this.mino.x++
                                 this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                                this.playSe('move')
                                 acted = true
                                 this._dasBlockedRight = false
                             } else {

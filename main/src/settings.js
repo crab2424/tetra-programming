@@ -42,6 +42,23 @@ const DEFAULT_TUNING = {
   dcd: 3.0
 };
 
+// ─── デフォルト音量設定 ───────────────────────
+const DEFAULT_VOLUME = {
+  bgm: 0.8,
+  se:  0.8,
+};
+
+function loadVolume() {
+  const saved = localStorage.getItem('game_volume');
+  if (saved) {
+    try { return { ...DEFAULT_VOLUME, ...JSON.parse(saved) }; }
+    catch (e) { localStorage.removeItem('game_volume'); }
+  }
+  return { ...DEFAULT_VOLUME };
+}
+
+let currentVolume = loadVolume();
+
 /**
  * キー設定 (初期化時に読み込まれる)
  * @type {Object.<string, {code: string, label: string}>}
@@ -278,6 +295,26 @@ function renderTuning() {
   updateTuningDisplay();
 }
 
+function renderVolume() {
+  document.getElementById('slider-bgm-volume').value = Math.round(currentVolume.bgm * 100);
+  document.getElementById('slider-se-volume').value  = Math.round(currentVolume.se  * 100);
+  updateVolumeDisplay();
+}
+
+function updateVolumeDisplay() {
+  const bgmVal = parseInt(document.getElementById('slider-bgm-volume').value);
+  const seVal  = parseInt(document.getElementById('slider-se-volume').value);
+
+  document.getElementById('val-bgm-volume').textContent = bgmVal + '%';
+  document.getElementById('val-se-volume').textContent  = seVal  + '%';
+
+  // スライダー操作中にリアルタイムで反映
+  currentVolume.bgm = bgmVal / 100;
+  currentVolume.se  = seVal  / 100;
+  if (window.BgmManager) window.BgmManager.setVolume(currentVolume.bgm);
+  if (window.SeManager)  window.SeManager.setVolume(currentVolume.se);
+}
+
 function updateTuningDisplay() {
   const frameMs = 1000 / 60;
   const dasF = parseFloat(document.getElementById('slider-das').value);
@@ -401,12 +438,14 @@ function checkConflicts() {
 function resetToDefaults() {
   currentKeys = JSON.parse(JSON.stringify(DEFAULT_KEYS));
   currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
+  currentVolume  = JSON.parse(JSON.stringify(DEFAULT_VOLUME));
   localStorage.removeItem('game_gamepadconfig');
   localStorage.removeItem('game_gamepad_options');
   currentGamepadConfig = loadGamepadConfig();
   currentGamepadOptions = loadGamepadOptions();
   renderKeyConfig();
   renderTuning();
+  renderVolume();
   renderGamepadOptions();
   updateMenuControlsDisplay();
 }
@@ -508,12 +547,27 @@ function updateMenuControlsDisplay() {
       <span class="ctrl-key">${currentKeys.restart.label} / ${formatGamepadBindings(currentGamepadConfig.restart)}</span><span class="ctrl-desc">リスタート</span>
     `;
   }
+
+  // versus準備画面のコントロールグリッドも更新
+  const versusCheckGrid = document.getElementById('versus-check-controls-grid');
+  if (versusCheckGrid) {
+    versusCheckGrid.innerHTML = `
+      <span class="ctrl-key">${currentKeys.moveLeft.label}${currentKeys.moveRight.label} / ${formatGamepadBindings(currentGamepadConfig.moveLeft)} + ${formatGamepadBindings(currentGamepadConfig.moveRight)}</span><span class="ctrl-desc">移動</span>
+      <span class="ctrl-key">${currentKeys.rotateCW.label} / ${formatGamepadBindings(currentGamepadConfig.rotateCW)}</span><span class="ctrl-desc">右回転</span>
+      <span class="ctrl-key">${currentKeys.rotateCCW.label} / ${formatGamepadBindings(currentGamepadConfig.rotateCCW)}</span><span class="ctrl-desc">左回転</span>
+      <span class="ctrl-key">${currentKeys.softDrop.label} / ${formatGamepadBindings(currentGamepadConfig.softDrop)}</span><span class="ctrl-desc">ソフトドロップ</span>
+      <span class="ctrl-key">${currentKeys.hardDrop.label} / ${formatGamepadBindings(currentGamepadConfig.hardDrop)}</span><span class="ctrl-desc">ハードドロップ</span>
+      <span class="ctrl-key">${currentKeys.hold.label} / ${formatGamepadBindings(currentGamepadConfig.hold)}</span><span class="ctrl-desc">ホールド</span>
+      <span class="ctrl-key">${currentKeys.pause.label} / ${formatGamepadBindings(currentGamepadConfig.pause)}</span><span class="ctrl-desc">ポーズ</span>
+    `;
+  }
 }
 
 // 既存の saveSettings 関数を書き換えて、保存時にメニュー表示も更新するようにします
 function saveSettings() {
   localStorage.setItem('game_keyconfig', JSON.stringify(currentKeys));
   localStorage.setItem('game_tuning', JSON.stringify(currentTuning));
+  localStorage.setItem('game_volume',    JSON.stringify(currentVolume));
   saveGamepadConfig();
   saveGamepadOptions();
   if (window._game && typeof window._game.setKeyEvent === 'function' 
@@ -527,5 +581,6 @@ function saveSettings() {
 // ページ読み込み時の初期描画
 renderKeyConfig();
 renderTuning();
+renderVolume();
 renderGamepadOptions();
 updateMenuControlsDisplay(); // ★追加：初期表示でも実行

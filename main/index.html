@@ -10,9 +10,14 @@
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png">
   
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="style.css?v=21">
+    <link rel="stylesheet" href="src/styles/style.css?v=27">
+    <link rel="stylesheet" href="src/styles/anime.css?v=2">
   </head>
   <body>
+    <!-- 常時動作する背景演出レイヤー（全ページ共通） -->
+    <div id="bg-animation-layer">
+      <canvas id="menu-particle-canvas"></canvas>
+    </div>
     <div id="header-area" style="display:none;">
       <h1>TETLABO</h1>
     </div>
@@ -26,10 +31,10 @@
           <h1 class="title-main-title">TETLABO</h1>
           <p class="title-subtitle">CREATED BY GAME CIRCLE</p>
         </div>
-        <div id="title-press-any" class="title-blink">
-          PRESS ANY KEY
+        <div id="title-press-any">
+          <span class="title-blink">PRESS ANY KEY</span>
         </div>
-        <div id="title-version">v1.0.2</div>
+        <div id="title-version"><span data-app-version></span></div>
       </div>
     </div>
 
@@ -104,10 +109,24 @@
           </div>
         </div>
 
+        <!-- フッター：基準はメインキャンバス(#main-menu-container)。
+             SETTINGS の真下に TITLE、左下に CREDITS、右下に CHANGELOG を配置 -->
         <div id="main-menu-footer">
-          <button class="menu-btn btn-secondary" onclick="switchPage('settings')">
-            <span class="menu-btn-icon">⚙</span>
-            <span>SETTINGS</span>
+          <div id="main-menu-footer-center">
+            <button class="menu-btn btn-secondary" onclick="switchPage('settings')">
+              <span class="menu-btn-icon">⚙</span>
+              <span>SETTINGS</span>
+            </button>
+            <button class="util-link util-link-title" onclick="switchPage('title')">
+              <span class="util-icon">◀</span><span>TITLE</span>
+            </button>
+          </div>
+
+          <button class="util-link util-link-credits" onclick="openInfoPage('credits')">
+            <span class="util-icon">★</span><span>CREDITS</span>
+          </button>
+          <button class="util-link util-link-changelog" onclick="openInfoPage('changelog')">
+            <span class="util-icon">📝</span><span>CHANGELOG</span>
           </button>
         </div>
       </div>
@@ -163,15 +182,15 @@
           <div class="option-row">
             <span class="option-label">YOUR RULE</span>
             <div class="option-toggle" id="versus-player-rule-toggle">
-              <button class="opt-btn" id="opt-rule-player-tet" onclick="setVersusPlayerRule('tet')">TET</button>
-              <button class="opt-btn active" id="opt-rule-player-puyo" onclick="setVersusPlayerRule('puyo')">PUYO</button>
+              <button class="opt-btn active" id="opt-rule-player-tet" onclick="setVersusPlayerRule('tet')">TET</button>
+              <button class="opt-btn" id="opt-rule-player-puyo" onclick="setVersusPlayerRule('puyo')">PUYO</button>
             </div>
           </div>
           <div class="option-row">
             <span class="option-label">CPU RULE</span>
             <div class="option-toggle" id="versus-cpu-rule-toggle">
-              <button class="opt-btn" id="opt-rule-cpu-tet" onclick="setVersusCpuRule('tet')">TET</button>
-              <button class="opt-btn active" id="opt-rule-cpu-puyo" onclick="setVersusCpuRule('puyo')">PUYO</button>
+              <button class="opt-btn active" id="opt-rule-cpu-tet" onclick="setVersusCpuRule('tet')">TET</button>
+              <button class="opt-btn" id="opt-rule-cpu-puyo" onclick="setVersusCpuRule('puyo')">PUYO</button>
             </div>
           </div>
         </div>
@@ -188,6 +207,17 @@
           <div class="controls-grid" id="versus-check-controls-grid"></div>
         </div>
         <div id="versus-check-buttons">
+          <!-- VS SETTINGS ボタン + サマリー表示 -->
+          <div id="vs-settings-row">
+            <button class="menu-btn btn-vs-settings" id="vs-settings-open-btn" onclick="goToVsSettings()">
+              <span class="menu-btn-icon">⚙</span>
+              <span>VS SETTINGS</span>
+            </button>
+            <div id="vs-settings-summary-block">
+              <span class="vs-settings-summary-label">SETTINGS:</span>
+              <span id="vs-settings-summary">ALL DEFAULT</span>
+            </div>
+          </div>
           <button class="menu-btn btn-versus-primary" id="versus-check-start-btn" onclick="startVersusGame()">
             <span class="menu-btn-icon">▶</span>
             <span>START</span>
@@ -195,6 +225,47 @@
           <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
             <span class="menu-btn-icon">◀</span>
             <span>BACK</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         対戦ゲーム画面
+    ───────────────────────────────────────────── -->
+    <div id="vs-settings-page" class="page">
+      <div id="vs-settings-container">
+        <div id="vs-settings-header">
+          <span class="mode-check-icon" style="color: var(--versus-color, #f5c542);">⚙</span>
+          <h2 class="mode-check-label" style="color: var(--versus-color, #f5c542);">VS SETTINGS</h2>
+          <p class="vs-settings-subtitle">VERSUS MODE ONLY</p>
+        </div>
+
+        <!-- 設定項目エリア（将来ここにrenderVsSettingsPage()が動的生成） -->
+        <div id="vs-settings-items">
+          <!-- ─── 現在は設定項目なし ─── -->
+          <div id="vs-settings-empty">
+            <span class="vs-settings-empty-icon">🔧</span>
+            <p class="vs-settings-empty-title">COMING SOON</p>
+            <p class="vs-settings-empty-desc">詳細設定項目は近日追加予定です。</p>
+            <p class="vs-settings-empty-desc-en">Detailed settings will be available soon.</p>
+          </div>
+
+          <!-- ─── 将来の設定項目はここに追加 ───
+          <div class="vs-setting-section">
+            <p class="vs-setting-section-label">BALANCE</p>
+            <div class="vs-setting-row">
+              <span class="vs-setting-label">火力補正</span>
+              <div class="vs-setting-control">...</div>
+            </div>
+          </div>
+          ─── -->
+        </div>
+
+        <div id="vs-settings-buttons">
+          <button class="menu-btn btn-versus-primary" onclick="backFromVsSettings()">
+            <span class="menu-btn-icon">✓</span>
+            <span>DONE</span>
           </button>
         </div>
       </div>
@@ -313,6 +384,7 @@
           <div id="versus-pause-buttons">
             <button class="pause-btn btn-resume" onclick="resumeVersus()">▶ RESUME</button>
             <button class="pause-btn btn-restart" onclick="restartVersus()">↺ RESTART</button>
+            <button class="pause-btn btn-versus-primary" onclick="versusGoToModeSelect()">◀ MODE SELECT</button>
             <button class="pause-btn btn-mainmenu" onclick="switchPage('main-menu')">⌂ MAIN MENU</button>
           </div>
         </div>
@@ -413,14 +485,22 @@
             <span class="result-value" id="versus-result-cpu-score">0</span>
           </div>
           <div class="result-stat-row">
-            <span class="result-label">YOUR LINES</span>
+            <span class="result-label" id="versus-result-player-lines-label">YOUR LINES</span>
             <span class="result-value" id="versus-result-player-lines">0</span>
+          </div>
+          <div class="result-stat-row">
+            <span class="result-label" id="versus-result-cpu-lines-label">CPU LINES</span>
+            <span class="result-value" id="versus-result-cpu-lines">0</span>
           </div>
         </div>
         <div id="result-buttons">
           <button class="menu-btn btn-versus-primary" onclick="restartVersusFromResult()">
             <span class="menu-btn-icon">↺</span>
             <span>RETRY</span>
+          </button>
+          <button class="menu-btn btn-secondary" onclick="switchPage('versus-check')">
+            <span class="menu-btn-icon">◀</span>
+            <span>MODE SELECT</span>
           </button>
           <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
             <span class="menu-btn-icon">⌂</span>
@@ -480,6 +560,18 @@
             <span id="eval-diff" style="font-family: 'Orbitron', monospace; font-size: 16px; margin-left: 8px; font-weight: 700;"></span>
           </div>
         </div>
+        <div id="test-garbage-area" style="display: none;">
+          <span class="area-label">GARBAGE</span>
+          <div style="display: flex; align-items: center; gap: 5px; margin-top: 2px;">
+            <input id="test-garbage-input" type="number" min="1" max="20" value="4"
+              style="width: 42px; background: var(--bg2); color: var(--text); border: 1px solid var(--border);
+                     border-radius: 3px; padding: 2px 4px; font-family: 'Orbitron', monospace; font-size: 12px; text-align: center;">
+            <button onclick="testGarbage(document.getElementById('test-garbage-input').value)"
+              style="background: var(--accent3, #e05); color: #fff; border: none; border-radius: 3px;
+                     padding: 3px 7px; font-family: 'Orbitron', monospace; font-size: 10px;
+                     font-weight: 700; cursor: pointer; letter-spacing: 1px;">SEND</button>
+          </div>
+        </div>
         <button id="start-btn" style="display:none;"></button>
       </div>
     
@@ -499,6 +591,7 @@
               <button class="pause-btn btn-restart" onclick="handlePauseAction('restart')">↺ RESTART</button>
               <button class="pause-btn btn-quiz-primary" id="pause-quiz-level-select-btn"
               onclick="handlePauseAction('quiz-levelselect')" style="display:none;">◀ LEVEL SELECT</button>
+              <button class="pause-btn btn-secondary" id="pause-mode-select-btn" onclick="handlePauseAction('mode-select')">◀ MODE SELECT</button>
               <button class="pause-btn btn-mainmenu" onclick="handlePauseAction('mainmenu')">⌂ MAIN MENU</button>
             </div>
           </div>
@@ -535,6 +628,10 @@
             <span class="menu-btn-icon">↺</span>
             <span>RETRY</span>
           </button>
+          <button class="menu-btn btn-secondary" onclick="switchPage('mode-check')">
+            <span class="menu-btn-icon">◀</span>
+            <span>MODE SELECT</span>
+          </button>
           <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
             <span class="menu-btn-icon">⌂</span>
             <span>MAIN MENU</span>
@@ -548,16 +645,34 @@
     ───────────────────────────────────────────── -->
     <div id="settings-page" class="page">
       <div class="settings-header">
-        <h2 style="margin-bottom: 0;">⚙ KEY CONFIG</h2>
+        <h2 style="margin-bottom: 0;">⚙ SETTINGS</h2>
         <button class="btn btn-back" onclick="switchPage(window._prevPage || 'main-menu')">◀ BACK</button>
       </div>
+
+      <!-- ★ 追加: 音量設定セクション -->
+      <h2 style="margin-top: 0; margin-bottom: 20px;">🔊 VOLUME</h2>
+      <div class="tuning-container">
+        <div class="slider-row">
+          <div class="slider-label">BGM<span id="val-bgm-volume">50%</span></div>
+          <input type="range" id="slider-bgm-volume" min="0" max="100" step="1" value="50"
+                oninput="updateVolumeDisplay()">
+          <div class="slider-markers"><span>0%</span><span>50%</span><span>100%</span></div>
+        </div>
+        <div class="slider-row">
+          <div class="slider-label">SE<span id="val-se-volume">80%</span></div>
+          <input type="range" id="slider-se-volume" min="0" max="100" step="1" value="80"
+                oninput="updateVolumeDisplay()">
+          <div class="slider-markers"><span>0%</span><span>50%</span><span>100%</span></div>
+        </div>
+      </div>
       
+      <h2 style="margin-top: 32px; margin-bottom: 28px;">⌨️🎮 KEY CONFIG</h2>
       <div class="key-config-grid" id="key-config-grid"></div>
       <p class="conflict-warning" id="conflict-warning">
         ⚠ 同じキーが複数のアクションに割り当てられています
       </p>
 
-      <h2 style="margin-top: 32px; margin-bottom: 28px;">🛠 TUNING</h2>
+      <h2 style="margin-top: 32px; margin-bottom: 28px;">🛠 TUNING(TET)</h2>
       <div class="tuning-container">
         <div class="slider-row">
           <div class="slider-label">DAS <small>(Delayed Auto Shift)</small><span id="val-das">9.0f (150ms)</span></div>
@@ -583,13 +698,22 @@
     </div>
 
     <div id="settings-toast">SAVED ✓</div>
-    
-    <script src="base.js?v=2"></script>     
-    <script src="manager.js?v=1"></script>
-    <script src="settings.js?v=13"></script>
-    <script src="game.js?v=18"></script>
-    <script src="p_game.js?v=6"></script>
-    <script src="quiz.js?v=3"></script>
-    <script src="router.js?v=24"></script>
+
+    <!-- ─────────────────────────────────────────────
+        外部ページ注入先（CREDITS / CHANGELOG は src/pages.js が動的に読込）
+    ───────────────────────────────────────────── -->
+    <div id="external-pages"></div>
+
+    <script src="src/version.js?v=1"></script>
+    <script src="src/pages.js?v=2"></script>
+    <script src="src/base.js?v=19"></script>
+    <script src="src/particles.js?v=6"></script>
+    <script src="src/manager.js?v=1"></script>
+    <script src="src/settings.js?v=14"></script>
+    <script src="src/vs_settings.js?v=1"></script>
+    <script src="src/game.js?v=31"></script>
+    <script src="src/p_game.js?v=16"></script>
+    <script src="src/quiz.js?v=5"></script>
+    <script src="src/router.js?v=37"></script>
   </body>
 </html>

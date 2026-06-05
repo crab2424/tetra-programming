@@ -1,7 +1,6 @@
-現在CPUは tet:Lv.5, puyo:Lv.3 まで実装しています．
+現在CPUは tet:Lv.5, puyo:Lv.4 まで実装しています．
 
-プレイはこちらから
-[https://citgame.pptlabo.workers.dev/]
+プレイはこちらから https://citgame.pptlabo.workers.dev/
 
 ##ローカルサーバーの建て方##
 

@@ -1,0 +1,18 @@
+# node_modules はプロジェクト外 (/Users/crab2424/node_modules) に配置しているため不要
+node_modules/
+
+# Vite ビルド出力
+dist/
+
+# Vite キャッシュ
+.vite/
+
+# macOS
+.DS_Store
+
+# エディタ
+.vscode/
+.idea/
+
+# SE直下のoggファイルのみ（サブフォルダは除外）
+assets/audio/se/*.ogg

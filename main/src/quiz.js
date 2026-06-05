@@ -5,7 +5,7 @@
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // QUIZ レベルデータ定義 (JSONからの読み込み)
-// ※ データ自体は /quizlevels/tdata.json と /quizlevels/pdata.json に分離しています。
+// ※ データ自体は /assets/quizlevels/tdata.json と /assets/quizlevels/pdata.json に分離しています。
 //
 // 各レベルのフォーマット:
 // {
@@ -52,8 +52,8 @@ async function loadQuizLevels() {
     if (_isQuizLevelsLoaded) return;
     try {
         const [tetRes, puyoRes] = await Promise.all([
-            fetch('quizlevels/tdata.json?' + Date.now()), // キャッシュ対策
-            fetch('quizlevels/pdata.json?' + Date.now())  // キャッシュ対策
+            fetch('assets/quizlevels/tdata.json?' + Date.now()), // キャッシュ対策
+            fetch('assets/quizlevels/pdata.json?' + Date.now())  // キャッシュ対策
         ]);
         if (tetRes.ok) QUIZ_LEVELS.tet = await tetRes.json();
         if (puyoRes.ok) QUIZ_LEVELS.puyo = await puyoRes.json();
@@ -245,7 +245,7 @@ class QuizManager {
         // secureMino 実行後にキャプチャして _lastSecureResult へ保存する。
         // 元の secureMino をラップする形で差し込むことで、
         // 既存の固定・ライン消去・スコア処理には一切影響を与えない。
-        game.secureMino = function() {
+        game.secureMino = function(viaHardDrop = false) {
             // ── ラップ前：今回の固定で使うT-spin判定結果とRENを先取りする ──
             // ※ checkTSpin() は secureMino の内部でも呼ばれるが、
             //    同じ状態で呼ぶので結果は同一（副作用なし）
@@ -256,7 +256,7 @@ class QuizManager {
             self._isSecuring = true;
 
             // ── 元の secureMino を実行（固定・消去・スコア等すべて処理される） ──
-            self._originalSecureMino.call(this);
+            self._originalSecureMino.call(this, viaHardDrop);
 
             // ★追加：処理中フラグを解除
             self._isSecuring = false;
@@ -295,12 +295,19 @@ class QuizManager {
         game.popMino = function() {
             // secureMino フック内の _checkClearOnSecure() でクリア確定済みの場合は
             // ダミー検出・_checkClear を走らせずそのまま抜ける
-            if (self.isClear || self.isFailed) return;
+            if (self.isClear || self.isFailed) {
+                this.mino = null;
+                return;
+            }
             // 次のミノが出現する直前（前の一手が確定した瞬間）にクリア判定を行う
-            if (self._checkClear()) return;
+            if (self._checkClear()) {
+                this.mino = null;
+                return;
+            }
 
             const currentMino = this.nextQueue[0];
             if (currentMino && currentMino._quizDummy) {
+                this.mino = null;
                 // ★修正：secureMino の内部から同期的に呼ばれた場合は、
                 // クリア判定(_checkClearOnSecure)が完了するまでFAILEDを保留する
                 if (self._isSecuring) {
@@ -895,12 +902,14 @@ function _setQuizResultPage(isSuccess, levelData, currentIdx) {
         if (isSuccess) {
             titleEl.textContent = 'CLEAR!';
             titleEl.style.color = 'var(--success)';
-            titleEl.style.webkitTextFillColor = 'var(--success)';
             titleEl.style.background = 'none';
+            titleEl.style.webkitTextFillColor = 'var(--success)';
         } else {
-            titleEl.textContent = 'FAILED';
+            titleEl.textContent = 'FAILED...';
+            titleEl.style.color = '';
             titleEl.style.background = 'linear-gradient(90deg, var(--accent), var(--accent2))';
             titleEl.style.webkitBackgroundClip = 'text';
+            titleEl.style.backgroundClip = 'text';
             titleEl.style.webkitTextFillColor = 'transparent';
         }
     }
@@ -1097,6 +1106,10 @@ async function startQuizLevel(levelData) {
         // initGame してからカウントダウン経由でフィールド初期化
         await new Promise(resolve => pg.initGame(resolve));
 
+        // ★ initGame 完了で PuyoGame._sharedImages のロードが保証されたので、
+        //    NEXT一覧を共有画像で再描画する（初回コールドスタート時の描画漏れ対策）。
+        _renderQuizNextAll(levelData);
+
         // READY表示時に盤面とNEXTをロード
         window._quizManager.start(levelData, pg);
         // ロードした盤面を画面に即座に反映
@@ -1263,9 +1276,20 @@ const _PUYO_IMG_FILES = {
 const _puyoImgCache = {};
 
 function _getPuyoImg(colorId) {
+    const fileName = _PUYO_IMG_FILES[colorId] || 'puyo-5.png';
+
+    // ★ ぷよゲーム本体が事前ロード済みの共有画像(PuyoGame._sharedImages)を最優先で再利用する。
+    //    ファイル名 'puyo-N.png' と共有キー 'puyo-N' が対応するため、初回から complete=true の
+    //    画像が得られ、drawOne が onload フォールバック（描画漏れの原因）に入らずに済む。
+    if (typeof PuyoGame !== 'undefined' && PuyoGame._sharedImagesLoaded && PuyoGame._sharedImages) {
+        const shared = PuyoGame._sharedImages[fileName.replace(/\.png$/, '')];
+        if (shared) return shared;
+    }
+
+    // フォールバック：共有画像が未ロードのときのみ独自にロードする
     if (_puyoImgCache[colorId]) return _puyoImgCache[colorId];
     const img = new Image();
-    img.src = PConfig.imagePath + (_PUYO_IMG_FILES[colorId] || 'puyo-5.png');
+    img.src = PConfig.imagePath + fileName;
     _puyoImgCache[colorId] = img;
     return img;
 }

@@ -27,6 +27,10 @@ class PuyoGame {
         this.state = 'idle';
         this._gs = 'spawn';
 
+        // fix.ogg（puyo_fix / puyo_drop）専用チャタリング防止用：
+        // この盤面で最後に fix.ogg を鳴らした時刻（performance.now基準）
+        this._lastFixSeTime = null;
+
         this.score = 0;
         this.chainMax = 0;
         this.chainCount = 0;
@@ -99,6 +103,7 @@ class PuyoGame {
         this._dasDir = 0;
         this._dasTimer = 0;
         this._arrTimer = 0;
+        this._countdownLoopId = null; // ★ カウントダウン中にDASをチャージするための専用ループID
         this._priorityMove = false;
         this.inputBuffer = [];
 
@@ -145,6 +150,9 @@ class PuyoGame {
             if (this.state !== 'idle') return;
 
             this.state = 'starting';
+            // ★ カウントダウン中もDASをチャージしておく。これによりキー長押しでスタートした場合、
+            //    ぷよ出現直後から（ぷよ出現前のカット処理を効かせた状態で）横移動が可能になる。
+            this._startCountdownDas();
             const overlayId = this.isVersusMode
                 ? (this.canvasPrefix ? `${this.canvasPrefix}-countdown-overlay` : 'versus-countdown-overlay')
                 : 'countdown-overlay';
@@ -154,20 +162,56 @@ class PuyoGame {
 
             runCountdown(overlayId, textElId, () => {
                 if (this.state !== 'starting') return;
+                // START! のタイミングでBGM開始（versus は startVersusGame 側で鳴らすため除外）。
+                // CPU TEST(currentMode==='test')は専用BGM、それ以外のシングル(puyo)は singleBgmKey でモード別キーに解決。
+                if (!this.isVersusMode && window.BgmManager) {
+                    window.BgmManager.play(this.currentMode === 'test'
+                        ? 'test_bgm'
+                        : window.BgmManager.singleBgmKey(this.currentMode));
+                }
                 this._startGameplay();
             }, null);
         });
     }
 
     _startGameplay() {
+        this._stopCountdownDas(); // ★ カウントダウン用DASループを止めてから本編ループへ移行（DASのチャージ量は維持）
         this.state = 'playing';
         this.lastTime = performance.now();
         this._startTimer();
         this._loop();
     }
 
+    // カウントダウン中（state==='starting'）だけ回す軽量ループ。
+    // _updateDAS のみを呼び、ぷよはまだ falling ではない（_gs==='spawn'）ため、
+    // _updateDAS 内の「出現前カット」分岐が働き _arrTimer は arrMs でキャップされる。
+    // その結果、本編開始時には DAS がチャージ済みとなり、スタート直後から横移動できる。
+    _startCountdownDas() {
+        this._stopCountdownDas();
+        this.lastTime = performance.now();
+        const tick = () => {
+            if (this.state !== 'starting') { this._countdownLoopId = null; return; }
+            this._countdownLoopId = requestAnimationFrame(tick);
+            const now = performance.now();
+            let dt = now - this.lastTime;
+            if (dt > 100) dt = 100;
+            this.lastTime = now;
+            this._updateDAS(dt);
+            this._render();
+        };
+        this._countdownLoopId = requestAnimationFrame(tick);
+    }
+
+    _stopCountdownDas() {
+        if (this._countdownLoopId) {
+            cancelAnimationFrame(this._countdownLoopId);
+            this._countdownLoopId = null;
+        }
+    }
+
     stop(keepCanvas = false) {
         this._stopTimer();
+        this._stopCountdownDas(); // ★ カウントダウン用DASループが残っていれば止める
         this._removeKeyHandlers();
         this._clearChainTextDOM();
         this._clearYokokuDOM(); // ★ おじゃま予告をDOMからクリアする
@@ -191,6 +235,13 @@ class PuyoGame {
         this.state = 'paused';
         this.isPaused = true;
         this._stopTimer();
+
+        // マージンタイマーの停止と残り時間の保存
+        if (this._vsMarginTimer) {
+            clearTimeout(this._vsMarginTimer);
+            this._vsMarginTimer = null;
+            this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (performance.now() - this._vsMarginTimerStart);
+        }
     }
 
     resume() {
@@ -198,6 +249,14 @@ class PuyoGame {
         this.state = 'playing';
         this.isPaused = false;
         this.lastTime = performance.now();
+
+        // マージンタイマーの再開
+        if (this._vsMarginTimerRemaining !== null && this._vsMarginTimerCb) {
+            this._vsMarginTimerDuration = Math.max(0, this._vsMarginTimerRemaining);
+            this._vsMarginTimer = setTimeout(this._vsMarginTimerCb, this._vsMarginTimerDuration);
+            this._vsMarginTimerStart = performance.now();
+            this._vsMarginTimerRemaining = null;
+        }
 
         // ★ 修正箇所：再開時は this.elapsed をリセットしない
         this._timerRunning = true;
@@ -262,6 +321,55 @@ class PuyoGame {
         this.elapsed = 0;
         this._gs = 'spawn';
         this.isPaused = false;
+
+        // VS設定：マージンタイム管理
+        // ぷよのマージンは vsMarginMultiplier ではなく vsOjamaRate をテーブルで段階的に下げる方式
+        // テーブル: マージン突入から16秒ごとに [52, 34, 25, 16, 12, 8, 6, 4, 3, 2, 1] へ移行（160秒で上限）
+        this.vsMarginMultiplier = 1.0; // ぷよ側では常に1.0固定（テト側との互換のため残す）
+        this._puyoMarginStep = 0;      // 現在のマージンステップ（0=突入直後の最初値適用済み）
+        if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
+        this._vsMarginTimerStart = 0;
+        this._vsMarginTimerDuration = 0;
+        this._vsMarginTimerCb = null;
+        this._vsMarginTimerRemaining = null;
+
+        if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
+            const PUYO_MARGIN_RATE_TABLE = [52, 34, 25, 16, 12, 8, 6, 4, 3, 2, 1];
+            const startMargin = () => {
+                if (!this.isVersusMode) return;
+                // マージン突入直後：ステップ0のレートを即時適用
+                this._puyoMarginStep = 0;
+                this.vsOjamaRate = PUYO_MARGIN_RATE_TABLE[0];
+                const step = () => {
+                    this._puyoMarginStep++;
+                    if (this._puyoMarginStep < PUYO_MARGIN_RATE_TABLE.length) {
+                        this.vsOjamaRate = PUYO_MARGIN_RATE_TABLE[this._puyoMarginStep];
+                    }
+                    // 上限（ステップ10, レート1）未満なら次のタイマーをセット
+                    if (this._puyoMarginStep < PUYO_MARGIN_RATE_TABLE.length - 1) {
+                        this._vsMarginTimer = setTimeout(step, 16000);
+                        this._vsMarginTimerStart = performance.now();
+                        this._vsMarginTimerDuration = 16000;
+                        this._vsMarginTimerCb = step;
+                    } else {
+                        this._vsMarginTimer = null;
+                    }
+                };
+                // ステップ0適用後、16秒後にステップ1へ
+                this._vsMarginTimer = setTimeout(step, 16000);
+                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimerDuration = 16000;
+                this._vsMarginTimerCb = step;
+            };
+            if (this.vsMarginTimeMs === 0) {
+                startMargin();
+            } else {
+                this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
+                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimerDuration = this.vsMarginTimeMs;
+                this._vsMarginTimerCb = startMargin;
+            }
+        }
 
         this.splitPuyo = null;
         this._erasingCells = null;
@@ -660,6 +768,8 @@ class PuyoGame {
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opponent || amount <= 0) return;
 
+        // ── 注意：火力補正乗率は _applyOjamaOffset の入口で実効火力として計算済み。ここでは再計算しない ──
+
         const holes = [];
         let prevHole = -1;
         for (let i = 0; i < amount; i++) {
@@ -707,7 +817,7 @@ class PuyoGame {
         // ぷよ→テトへの火力送信は_applyOjamaOffsetで処理されるため、ここでの直接送信は行わない
 
         // 一連の連鎖が終了したため端数処理（仕様通り：最後の端数をmod70で次ターンへ持ち越す）
-        this.tetAttackCarry = this.tetAttackCarry % PConfig.ojamaRate;
+        this.tetAttackCarry = this.tetAttackCarry % (this.vsOjamaRate ?? PConfig.ojamaRate);
 
         if (isZenkeshi) {
             this.hasTetZenkeshi = true; // ★ 全消しボーナスの2ライン送付フラグを立てる
@@ -725,30 +835,37 @@ class PuyoGame {
     _applyOjamaOffset(amount, tetAmount = 0) {
         if (amount <= 0 && tetAmount <= 0) return;
 
-        const originalAmount = amount; // 相殺前のぷよ火力
+        // ── VS設定：火力補正乗率を「実効火力」としてここで一度だけ計算する ──
+        // 相殺（garbageQueueの減算）と送信（sendGarbage）の両方に同じ実効値を使用する
+        const _vsMult = (this.vsAttackMultiplier ?? 1.0) * (this.vsMarginMultiplier ?? 1.0);
+        const effectiveAmount    = (this.isVersusMode && amount    > 0) ? Math.max(1, Math.floor(amount    * _vsMult)) : amount;
+        const effectiveTetAmount = (this.isVersusMode && tetAmount > 0) ? Math.max(1, Math.floor(tetAmount * _vsMult)) : tetAmount;
+
+        const originalAmount = effectiveAmount; // 相殺前の実効ぷよ火力
 
         // 相殺はまず確定(ready: true)しているおじゃまから優先して行う
-        for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
+        let remaining = effectiveAmount;
+        for (let i = 0; i < this.garbageQueue.length && remaining > 0; i++) {
             if (this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
-                if (this.garbageQueue[i].amount <= amount) {
-                    amount -= this.garbageQueue[i].amount;
+                if (this.garbageQueue[i].amount <= remaining) {
+                    remaining -= this.garbageQueue[i].amount;
                     this.garbageQueue[i].amount = 0;
                 } else {
-                    this.garbageQueue[i].amount -= amount;
-                    amount = 0;
+                    this.garbageQueue[i].amount -= remaining;
+                    remaining = 0;
                 }
             }
         }
 
         // 次に未確定(ready: false)のおじゃまを相殺する
-        for (let i = 0; i < this.garbageQueue.length && amount > 0; i++) {
+        for (let i = 0; i < this.garbageQueue.length && remaining > 0; i++) {
             if (!this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
-                if (this.garbageQueue[i].amount <= amount) {
-                    amount -= this.garbageQueue[i].amount;
+                if (this.garbageQueue[i].amount <= remaining) {
+                    remaining -= this.garbageQueue[i].amount;
                     this.garbageQueue[i].amount = 0;
                 } else {
-                    this.garbageQueue[i].amount -= amount;
-                    amount = 0;
+                    this.garbageQueue[i].amount -= remaining;
+                    remaining = 0;
                 }
             }
         }
@@ -756,7 +873,7 @@ class PuyoGame {
         this.garbageQueue = this.garbageQueue.filter(g => g.amount > 0);
         this.updateGarbageGauge();
 
-        // ★ 相殺結果の送信処理
+        // ★ 相殺結果の送信処理（実効値 remaining / effectiveTetAmount を使う。sendGarbage 内で再計算しない）
         const _isOppTet = (() => {
             if (!this.isVersusMode) return false;
             const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
@@ -765,22 +882,21 @@ class PuyoGame {
         })();
 
         if (_isOppTet) {
-            // 相手がテトの場合、tetAmount（テト用のライン数）を送信する。
+            // 相手がテトの場合、effectiveTetAmount（テト用の実効ライン数）を送信する。
             // ぷよ火力が相殺で減った場合は、その割合に応じて送信する tetAmount も減らす。
             if (originalAmount > 0) {
-                let ratio = amount / originalAmount; // 残った割合 (0.0 〜 1.0)
-                let sendTetAmount = Math.ceil(tetAmount * ratio); // 割合が少しでもあれば最低1ラインは送る
+                let ratio = remaining / originalAmount; // 残った割合 (0.0 〜 1.0)
+                let sendTetAmount = Math.ceil(effectiveTetAmount * ratio);
                 if (sendTetAmount > 0) {
                     this.sendGarbage(sendTetAmount);
                 }
-            } else if (tetAmount > 0 && amount === 0) {
-                // 通常はぷよ火力と連動するが、万が一ぷよ火力が無いのにテト火力がある場合はそのまま送る
-                this.sendGarbage(tetAmount);
+            } else if (effectiveTetAmount > 0 && remaining === 0) {
+                this.sendGarbage(effectiveTetAmount);
             }
         } else {
-            // 相手がぷよの場合、残ったぷよ基準の火力を送る
-            if (amount > 0) {
-                this.sendGarbage(amount);
+            // 相手がぷよの場合、残った実効ぷよ基準の火力を送る
+            if (remaining > 0) {
+                this.sendGarbage(remaining);
             }
         }
     }
@@ -1060,6 +1176,8 @@ class PuyoGame {
                     this._setCell(this.splitPuyo.col, Math.round(this.splitPuyo.y), this.splitPuyo.color);
 
                     this._addPuyoAnim(fr_s, this.splitPuyo.col, 3);
+                    // もう片方の操作ぷよが着地して固定による振動演出が起きた瞬間
+                    this.playSe('puyo_fix');
 
                     this.splitPuyo = null;
                     this._beginFixAnimWait();
@@ -1089,6 +1207,8 @@ class PuyoGame {
                     this._eraseTimer = 0;
                     this.chainCount++;
                     if (this.chainCount > this.chainMax) this.chainMax = this.chainCount;
+                    // ※連鎖SEはここ（点滅開始時）ではなく、ぷよが消えて連鎖文字演出が出る瞬間
+                    //   （erasing→eraseWait遷移で _prepareChainTextDOM 後）に鳴らす
 
                     this.pendingChainGroups = groups;
                     this._calcChainScore(groups);
@@ -1098,7 +1218,7 @@ class PuyoGame {
 
                     // 連鎖を行ったターンの最後なら、未送信の火力を送り、端数を持ち越す
                     if (this.chainCount > 0) {
-                        this.attackScore = this.attackScore % PConfig.ojamaRate; // 端数持ち越し
+                        this.attackScore = this.attackScore % (this.vsOjamaRate ?? PConfig.ojamaRate); // 端数持ち越し
                         this.generatedOjamaTotal = 0; // 送信済みおじゃま量をリセット
                         if (this.pendingFire > 0 || this.tetPendingFire > 0) {
                             this.ojamaUpdateQueue.push({
@@ -1116,7 +1236,7 @@ class PuyoGame {
                     if (this._isFieldEmpty() && this.chainCount > 0) {
                         this.score += PConfig.zenkeshiBonus; // 2100点追加
 
-                        let zenkeshiOjama = Math.floor(PConfig.zenkeshiBonus / PConfig.ojamaRate);
+                        let zenkeshiOjama = Math.floor(PConfig.zenkeshiBonus / (this.vsOjamaRate ?? PConfig.ojamaRate));
                         this.pendingFire += zenkeshiOjama; // 連鎖後に火力スコア(pendingFire)に持ち越す
 
                         this._updateScoreDisplay();
@@ -1202,6 +1322,12 @@ class PuyoGame {
                         }
                     }
                     // ========================================================
+                    // 致命判定：NEXTアニメーション前にスポーン位置が埋まっていればゲームオーバー
+                    if (!this._isCellEmpty(2, 0)) {
+                        this._gs = 'gameover';
+                        this._beginGameOver();
+                        return;
+                    }
                     this._gs = 'spawnAnim';
                     this.spawnAnimTimer = 0;
                 }
@@ -1220,6 +1346,10 @@ class PuyoGame {
                     if (this.pendingChainGroups) {
                         this._prepareChainTextDOM(this.pendingChainGroups);
                         this.pendingChainGroups = null;
+
+                        // 連鎖SE：ぷよが完全に消え、連鎖文字演出が出たこの瞬間に鳴らす
+                        // （1〜7連鎖目で音を変え、7連鎖目以降は puyo_chain7 を共用）
+                        this.playSe('puyo_chain' + Math.min(this.chainCount, 7));
 
                         // ★ 追加: 相手からの火力を相殺する時のみ、自分の火力が0でも最低1個だけ相殺する
                         let queuedOffset = this.ojamaUpdateQueue.reduce((sum, q) => sum + q.amount, 0);
@@ -1275,14 +1405,19 @@ class PuyoGame {
                     if (allDone) {
                         this._applyDropAnim();
 
+                        let anyChainVib = false;
                         for (const col of this._dropAnim) {
                             for (const cell of col.cells) {
                                 if (cell.color === 6) continue;
                                 let dropDist = cell.toR - cell.fromR;
                                 let cycles = dropDist >= 2 ? 4 : 3;
                                 this._addPuyoAnim(cell.toR, col.c, cycles);
+                                anyChainVib = true;
                             }
                         }
+                        // 連鎖中に落ちてきたぷよが振動演出を行なった場合にも鳴らす
+                        // （複数同時でもチャタリング防止により1盤面50ms間隔に間引かれる）
+                        if (anyChainVib) this.playSe('puyo_fix');
 
                         this._dropAnim = null;
                         this._beginFixAnimWait();
@@ -1307,7 +1442,7 @@ class PuyoGame {
 
     _addDropScore(amount) {
         this.attackScore += amount;
-        let totalOjama = Math.floor(this.attackScore / PConfig.ojamaRate);
+        let totalOjama = Math.floor(this.attackScore / (this.vsOjamaRate ?? PConfig.ojamaRate));
         let newlyGenerated = totalOjama - this.generatedOjamaTotal;
         this.generatedOjamaTotal = totalOjama;
         // ★ 即座に相殺・送信せず、pendingFireに留めておく（連鎖まで保持）
@@ -1379,7 +1514,10 @@ class PuyoGame {
         }
     }
 
-    _fixPuyo() {
+    _fixPuyo(viaQuickDrop = false) {
+        // 設置音(fix.ogg)は固定時ではなく、操作ぷよが固定による「振動演出」を
+        // 開始した瞬間（_addPuyoAnim 呼び出し直後）に鳴らす。2つとも対象なので
+        // 分割落下する片割れの着地（splitting 着地）でも別途鳴らす。
         let pr = Math.round(this.pivotY);
         let pc = this.pivotX;
         const DC = [0, 1, 0, -1];
@@ -1398,12 +1536,16 @@ class PuyoGame {
         if (pivotFloating && !childFloating) {
             this._setCell(cc, cr, this.childColor);
             this._addPuyoAnim(fr_c, cc, cycles);
+            // 片方が固定して振動開始：クイックドロップ時は puyo_drop と重なるため避ける
+            if (!viaQuickDrop) this.playSe('puyo_fix');
 
             this.splitPuyo = { col: pc, y: pr, color: this.pivotColor };
             this._gs = 'splitting';
         } else if (!pivotFloating && childFloating) {
             this._setCell(pc, pr, this.pivotColor);
             this._addPuyoAnim(fr_p, pc, cycles);
+            // 片方が固定して振動開始：クイックドロップ時は puyo_drop と重なるため避ける
+            if (!viaQuickDrop) this.playSe('puyo_fix');
 
             this.splitPuyo = { col: cc, y: cr, color: this.childColor };
             this._gs = 'splitting';
@@ -1413,6 +1555,8 @@ class PuyoGame {
 
             this._addPuyoAnim(fr_p, pc, cycles);
             this._addPuyoAnim(fr_c, cc, cycles);
+            // 2つ同時に固定して振動開始：クイックドロップ時は puyo_drop と重なるため避ける
+            if (!viaQuickDrop) this.playSe('puyo_fix');
             this._beginFixAnimWait();
         }
     }
@@ -1448,7 +1592,7 @@ class PuyoGame {
                     }
                 }
 
-                if (group.length >= PConfig.eraseCount) {
+                if (group.length >= (this.vsEraseCount ?? PConfig.eraseCount)) {
                     groups.push(group);
                 }
             }
@@ -1555,7 +1699,7 @@ class PuyoGame {
         this.chainScoreStr = `${n * 10} × ${bonus}`;
 
         this.attackScore += add;
-        let totalOjama = Math.floor(this.attackScore / PConfig.ojamaRate);
+        let totalOjama = Math.floor(this.attackScore / (this.vsOjamaRate ?? PConfig.ojamaRate));
         let newlyGenerated = totalOjama - this.generatedOjamaTotal;
         this.generatedOjamaTotal = totalOjama;
         if (newlyGenerated > 0) {
@@ -1622,28 +1766,43 @@ class PuyoGame {
 
             // ★ 追加：テト相手の特殊相殺ルール
             let pendingOjamaCount = this.pendingOjama;
+            
+            // ── VS設定：火力補正乗率を「実効火力スコア」としてここで計算する ──
+            // ぷよ対テトの相殺のみ、ここでスコアを用いて相殺するため、乗率を適用してから計算する
+            const _vsMult = (this.vsAttackMultiplier ?? 1.0) * (this.vsMarginMultiplier ?? 1.0);
+            let effectiveA = currentA * _vsMult; // 相殺用の実効スコア
+
             let scoreForAttack = currentA; // デフォルトは全スコアを使用
             let carryOverFromOffset = 0; // 相殺しきれなかった場合の端数保持用
 
             if (pendingOjamaCount > 0) {
-                let requiredOffsetScore = pendingOjamaCount * PConfig.ojamaRate;
+                let requiredOffsetScore = pendingOjamaCount * (this.vsOjamaRate ?? PConfig.ojamaRate);
 
-                if (currentA >= requiredOffsetScore) {
+                if (effectiveA >= requiredOffsetScore) {
                     // 相殺しきれる場合
                     this.garbageQueue = []; // おじゃまはなかったものとする
                     this.updateGarbageGauge();
 
-                    if (baseCarry < requiredOffsetScore) {
-                        scoreForAttack = add; // 持ち越しスコアより相殺量が多いなら、攻撃には連鎖スコアのみ使用
+                    // 意図的な仕様の復元：
+                    // 持ち越した実効スコア(baseCarry)だけで相殺しきれない場合、不足分を今回の連鎖スコア(add)から引かず、
+                    // addをまるごと攻撃に使う（異種戦におけるぷよの優位拡大のための仕様）
+                    let effectiveBaseCarry = baseCarry * _vsMult;
+                    if (effectiveBaseCarry < requiredOffsetScore) {
+                        scoreForAttack = add; 
                     } else {
-                        scoreForAttack = add + (baseCarry - requiredOffsetScore); // 持ち越しで相殺しきれるなら、残った持ち越し+連鎖スコアを使用
+                        // 持ち越し実効スコアだけで相殺しきれた場合は、残った持ち越し分＋今回の連鎖スコアを使用
+                        let remainingEffectiveA = effectiveA - requiredOffsetScore;
+                        scoreForAttack = remainingEffectiveA / _vsMult;
                     }
                 } else {
                     // 相殺しきれない場合
-                    let offsetPuyoCount = Math.floor(currentA / PConfig.ojamaRate);
-                    carryOverFromOffset = currentA % PConfig.ojamaRate; // 相殺後の端数
+                    let offsetPuyoCount = Math.floor(effectiveA / (this.vsOjamaRate ?? PConfig.ojamaRate));
+                    let carryOverEffectiveA = effectiveA % (this.vsOjamaRate ?? PConfig.ojamaRate); // 相殺後の端数
+                    
+                    // 次に持ち越す端数を元のスケールに戻す
+                    carryOverFromOffset = carryOverEffectiveA / _vsMult;
 
-                    // キューから currentA 分のおじゃまを減らす
+                    // キューから offsetPuyoCount 分のおじゃまを減らす
                     let remainingToOffset = offsetPuyoCount;
                     // ready: true を優先
                     for (let i = 0; i < this.garbageQueue.length && remainingToOffset > 0; i++) {
@@ -1896,6 +2055,7 @@ class PuyoGame {
     }
 
     _beginGameOver() {
+        this.playSe('gameover');
         this._stopTimer();
         this._removeKeyHandlers();
         this._clearChainTextDOM();
@@ -2077,18 +2237,20 @@ class PuyoGame {
             if (this._gs !== 'falling') return;
 
             // ★ クイックドロップ処理の追加
+            // ★ キーリピート（長押し）時は受け付けない（1回押し直したときのみ有効）
             if (e.code === this._keyMap.quickDrop) {
                 e.preventDefault();
-                this._tryQuickDrop();
+                if (!isRepeat) this._tryQuickDrop();
                 return;
             }
 
+            // ★ 回転もキーリピート時は受け付けない（1回押し直したときのみ有効）
             if (e.code === this._keyMap.rotateCW) {
                 e.preventDefault();
-                this._tryRotate(1);
+                if (!isRepeat) this._tryRotate(1);
             } else if (e.code === this._keyMap.rotateCCW) {
                 e.preventDefault();
-                this._tryRotate(-1);
+                if (!isRepeat) this._tryRotate(-1);
             }
         };
 
@@ -2366,6 +2528,21 @@ class PuyoGame {
         }
     }
 
+    // SE再生の薄いラッパ。CPU操作の盤面でもSEを鳴らす（プレイヤーとの二重再生は許容する）
+    playSe(key) {
+        // fix.ogg（puyo_fix / puyo_drop）のみ、特殊なチャタリング防止を行う。
+        // ・「1盤面につき」50ms間隔（この timer はインスタンス毎なので盤面ごとに独立）。
+        // ・vsで両方ぷよでも、プレイヤー盤面とCPU盤面は別インスタンス＝別 timer のため、
+        //   両者の fix 間隔が50ms未満でも互いに抑制されず鳴る。
+        if (key === 'puyo_fix' || key === 'puyo_drop') {
+            const now = performance.now();
+            if (this._lastFixSeTime != null && now - this._lastFixSeTime < 50) return;
+            this._lastFixSeTime = now;
+        }
+
+        window.SeManager?.play(key);
+    }
+
     _tryMove(dir) {
         if (this._gs !== 'falling') return;
         const newCol = this.pivotX + dir;
@@ -2374,6 +2551,7 @@ class PuyoGame {
             this.lockTimer = 0;
             this.quickTurnCount = 0;
             this.lastRotationInfo = null;
+            this.playSe('puyo_move');
             this._checkMoveLock();
         }
     }
@@ -2412,6 +2590,7 @@ class PuyoGame {
             this.lockTimer = 0;
             this.quickTurnCount = 0;
             this.lastRotationInfo = { pivotY: this.pivotY };
+            this.playSe('puyo_rotate');
             this._checkMoveLock();
         } else {
             if (isVertical) {
@@ -2439,6 +2618,7 @@ class PuyoGame {
                         this.lockTimer = 0;
                         this.quickTurnCount = 0;
                         this.lastRotationInfo = { pivotY: this.pivotY };
+                        this.playSe('puyo_rotate');
                         this._checkMoveLock();
                     }
                 }
@@ -2470,7 +2650,8 @@ class PuyoGame {
 
         // 設置猶予時間をカットして即時設置
         this.lockTimer = PConfig.lockDelayMs;
-        this._fixPuyo();
+        this.playSe('puyo_drop');
+        this._fixPuyo(true);
     }
 
     _checkMoveLock() {
@@ -2763,16 +2944,9 @@ class PuyoGame {
             } else if (img && img.complete && img.naturalWidth > 0) {
                 // 連結画像が未ロードの場合は通常画像にフォールバック
                 ctx.drawImage(img, dx, dy, dw, dh);
-            } else {
-                // 画像が何もない場合はフォールバック描画（フォールバックは下記と共通）
-                // フォールバックはCanvasネイティブ描画なのでオーバーラップは不要
-                this._drawPuyoFallback(ctx, x, y, size, imageIndex);
             }
         } else if (img && img.complete && img.naturalWidth > 0) {
             ctx.drawImage(img, dx, dy, dw, dh);
-        } else {
-            // ── 画像未ロード時のフォールバック（丸＋目） ──
-            this._drawPuyoFallback(ctx, x, y, size, imageIndex);
         }
 
         // ── フラッシュエフェクト ──
