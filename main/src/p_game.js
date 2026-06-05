@@ -103,6 +103,7 @@ class PuyoGame {
         this._dasDir = 0;
         this._dasTimer = 0;
         this._arrTimer = 0;
+        this._countdownLoopId = null; // ★ カウントダウン中にDASをチャージするための専用ループID
         this._priorityMove = false;
         this.inputBuffer = [];
 
@@ -149,6 +150,9 @@ class PuyoGame {
             if (this.state !== 'idle') return;
 
             this.state = 'starting';
+            // ★ カウントダウン中もDASをチャージしておく。これによりキー長押しでスタートした場合、
+            //    ぷよ出現直後から（ぷよ出現前のカット処理を効かせた状態で）横移動が可能になる。
+            this._startCountdownDas();
             const overlayId = this.isVersusMode
                 ? (this.canvasPrefix ? `${this.canvasPrefix}-countdown-overlay` : 'versus-countdown-overlay')
                 : 'countdown-overlay';
@@ -171,14 +175,43 @@ class PuyoGame {
     }
 
     _startGameplay() {
+        this._stopCountdownDas(); // ★ カウントダウン用DASループを止めてから本編ループへ移行（DASのチャージ量は維持）
         this.state = 'playing';
         this.lastTime = performance.now();
         this._startTimer();
         this._loop();
     }
 
+    // カウントダウン中（state==='starting'）だけ回す軽量ループ。
+    // _updateDAS のみを呼び、ぷよはまだ falling ではない（_gs==='spawn'）ため、
+    // _updateDAS 内の「出現前カット」分岐が働き _arrTimer は arrMs でキャップされる。
+    // その結果、本編開始時には DAS がチャージ済みとなり、スタート直後から横移動できる。
+    _startCountdownDas() {
+        this._stopCountdownDas();
+        this.lastTime = performance.now();
+        const tick = () => {
+            if (this.state !== 'starting') { this._countdownLoopId = null; return; }
+            this._countdownLoopId = requestAnimationFrame(tick);
+            const now = performance.now();
+            let dt = now - this.lastTime;
+            if (dt > 100) dt = 100;
+            this.lastTime = now;
+            this._updateDAS(dt);
+            this._render();
+        };
+        this._countdownLoopId = requestAnimationFrame(tick);
+    }
+
+    _stopCountdownDas() {
+        if (this._countdownLoopId) {
+            cancelAnimationFrame(this._countdownLoopId);
+            this._countdownLoopId = null;
+        }
+    }
+
     stop(keepCanvas = false) {
         this._stopTimer();
+        this._stopCountdownDas(); // ★ カウントダウン用DASループが残っていれば止める
         this._removeKeyHandlers();
         this._clearChainTextDOM();
         this._clearYokokuDOM(); // ★ おじゃま予告をDOMからクリアする
