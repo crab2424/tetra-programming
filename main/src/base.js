@@ -939,9 +939,9 @@ window.SeManager = SeManager;
 // → モード別BGMにしたくなったら、下記4行のパスをそれぞれ差し替えるだけで適用される
 //   （再生ロジック・キー対応は BgmManager.singleBgmKey 側で完結済み）。
 AudioLoader.registerBgm('single_marathon_bgm', 'assets/audio/bgm/single_1.ogg');
-AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/single_1.ogg');
-AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/single_1.ogg');
-AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/puyo_1.ogg');
+AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/challenge_1.ogg');
+AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/challenge_1.ogg');
+AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 AudioLoader.registerBgm('menu_bgm',   'assets/audio/bgm/menu_1.ogg');
 AudioLoader.registerBgm('quiz_bgm',   'assets/audio/bgm/quiz_1.ogg');
