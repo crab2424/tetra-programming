@@ -993,8 +993,9 @@ class Game {
     }
 
     applyGarbage() {
-        const readyGarbage = this.garbageQueue.filter(g => g.ready);
-        this.garbageQueue = this.garbageQueue.filter(g => !g.ready);
+        // stage3(ready かつ internalでない)のみ落下対象。internal は ready でも残置（internal優先）
+        const readyGarbage = this.garbageQueue.filter(g => g.ready && !g.internal);
+        this.garbageQueue = this.garbageQueue.filter(g => !(g.ready && !g.internal));
 
         if (readyGarbage.length === 0) return;
 
@@ -1124,6 +1125,7 @@ class Game {
         let unreadyCount = 0;
 
         this.garbageQueue.forEach(g => {
+            if (g.internal) return; // stage1(内部のみ) は非表示
             if (g.ready) readyCount += g.amount;
             else unreadyCount += g.amount;
         });
