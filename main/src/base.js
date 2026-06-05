@@ -121,6 +121,14 @@ window.onload = function () {
             document.addEventListener('keydown', unlockAudio);
             document.addEventListener('touchstart', unlockAudio);
         }
+
+        // フォアグラウンド復帰時にAudioContextの劣化（出力レイテンシ蓄積）を点検し、
+        // 必要ならコンテキストを作り直してSEの再生遅延（ズレ）をリセットする。
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && window.AudioLoader) {
+                AudioLoader.recoverIfDegraded(true);
+            }
+        });
     })
 }
 
@@ -526,10 +534,31 @@ class AudioLoader {
     static _bgmSrcMap  = {};  // { key: src }
     static _ctx        = null;
     static _keepAlive  = null;  // 無音キープアライブのbufferSource（多重起動防止＆GC防止）
+    static _ctxCreatedAt = 0;
+    static _lastHealthCheckAt = 0;
+    static _healthCheckIntervalMs = 10000;
+    static _maxContextAgeMs = 10 * 60 * 1000;
 
     static get context() {
-        if (!this._ctx) this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (!this._ctx) this._ctx = this._createContext();
         return this._ctx;
+    }
+
+    // AudioContextを生成し、状態監視（②対策）を取り付けて返す。
+    // ②: OSのスリープ復帰・他アプリの音声割り込み・デバイス切替などで
+    // コンテキストが running から suspended/interrupted に落ちると、以降のSEが
+    // 取りこぼされる。statechange を監視し、ユーザーがページを見ている間は自動で
+    // resume して復帰させる（バックグラウンド中の復帰は visibilitychange 側に委譲）。
+    static _createContext() {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this._ctxCreatedAt = performance.now();
+        ctx.addEventListener('statechange', () => {
+            if (ctx !== this._ctx) return;      // 作り直し後の旧コンテキストのイベントは無視
+            if (ctx.state !== 'running' && document.visibilityState === 'visible') {
+                ctx.resume().catch(() => {});
+            }
+        });
+        return ctx;
     }
 
     // BGMのsrcを登録（ロードはしない）
@@ -578,6 +607,50 @@ class AudioLoader {
         source.connect(ctx.destination);
         source.start(0);
         this._keepAlive = source;             // GC防止＆多重起動防止のため参照を保持
+    }
+
+    // ── 劣化したAudioContextの作り直し ─────────────────────────────────
+    // 単一のAudioContextを長時間使い回すと、（特にタブのバックグラウンド化を経て）
+    // 出力レイテンシが蓄積し、SEの発音が視覚イベントに対してジワジワ遅れる。
+    // ここで劣化したコンテキストを破棄して新規生成することでリセットする。
+    // BGMはHTMLAudio経由でこのコンテキストを通らないため影響を受けない＝SEのみが対象。
+    // SEバッファ（decodeAudioData済みAudioBuffer）は現行ブラウザではコンテキスト間で
+    // 再利用可能なため、_seBuffers は作り直さずそのまま使える。
+    static recreateContext() {
+        const old = this._ctx;
+        if (!old) return;
+        // 新しいコンテキストへ差し替え（以後の play() は新コンテキストで鳴る）
+        this._ctx = this._createContext();
+        // keepAlive は古いコンテキストに紐づくので新コンテキストで張り直す
+        this._keepAlive = null;
+        this._lastHealthCheckAt = performance.now();
+        this.startKeepAlive();
+        this._ctx.resume().catch(() => {});
+        // 古いコンテキストは閉じて、溜まった出力レイテンシごとリソースを解放
+        old.close().catch(() => {});
+    }
+
+    // フォアグラウンド復帰時やSE再生時に呼ぶ。出力レイテンシが異常に膨らんでいれば
+    // コンテキストを作り直し、単に中断していただけなら resume で済ませる。
+    // SE再生時は頻繁に呼ばれるため、force=false では軽量な間引きチェックにする。
+    static recoverIfDegraded(force = false) {
+        const ctx = this._ctx;
+        if (!ctx) return;                       // 未解錠（コンテキスト未生成）なら何もしない
+        const now = performance.now();
+        if (!force && now - this._lastHealthCheckAt < this._healthCheckIntervalMs) return;
+        this._lastHealthCheckAt = now;
+
+        const latencyBad = typeof ctx.outputLatency === 'number' && ctx.outputLatency > 0.05;
+        // outputLatency が未対応/不正確なブラウザでも、開きっぱなしでの蓄積ズレを定期的に逃がす。
+        const ageBad = document.visibilityState === 'visible'
+            && this._ctxCreatedAt > 0
+            && now - this._ctxCreatedAt > this._maxContextAgeMs;
+
+        if (latencyBad || ageBad) {
+            this.recreateContext();             // ①: 蓄積した出力レイテンシを作り直しで解消
+        } else if (ctx.state !== 'running') {
+            ctx.resume().catch(() => {});       // 中断していただけなら resume で十分
+        }
     }
 }
 
@@ -836,7 +909,11 @@ class SeManager {
         const buf = AudioLoader.getSeBuffer(key);
         if (!buf) return;
 
+        AudioLoader.recoverIfDegraded();
         const ctx    = AudioLoader.context;
+        // ②対策（取りこぼし防止）：中断（suspended/interrupted）状態のまま start(0) すると
+        // この音が鳴らない。再生のたびに running 以外なら resume を試みて復帰させる。
+        if (ctx.state !== 'running') ctx.resume().catch(() => {});
         const source = ctx.createBufferSource();
         const gain   = ctx.createGain();
         gain.gain.value = this._volume * (this._gain[key] ?? 1);
