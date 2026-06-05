@@ -948,8 +948,15 @@ window.CPU6 = class {
 
     // ── ★キャッシュ済みデータでビームサーチを起動する ──
     startBeamSearch(data) {
-        if (!data || !this.workerReady || this.isCalculating) return;
+        if (!data || this.isCalculating) return;
         if (!this.isActive || this.game.mino !== this.currentMino) return;
+        // ★cold load対策: ビームワーカー未ロードのときは破棄せず準備完了を待って再試行する。
+        //   （初回ロードで PC未発見→ここに来たとき workerReady=false だと、従来は無言で
+        //    return して当該ピースを誰も駆動できず恒久的な待機状態になっていた）
+        if (!this.workerReady) {
+            setTimeout(() => this.startBeamSearch(data), 50);
+            return;
+        }
         this.isCalculating = true;
         this.worker.postMessage({
             type: 'calculate',
