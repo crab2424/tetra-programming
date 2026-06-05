@@ -716,7 +716,8 @@ class PuyoGame {
         if (!this.yokokuContainer) return;
         this.yokokuContainer.innerHTML = '';
 
-        let amount = this.pendingOjama;
+        // stage1(internal) は非表示。stage2/stage3 のみ予告として表示する
+        let amount = this.garbageQueue.reduce((sum, g) => sum + (g.internal ? 0 : g.amount), 0);
         if (amount <= 0) return;
 
         // ★ 桁ごとに色とサイズを変更して描画する
@@ -788,12 +789,42 @@ class PuyoGame {
             prevHole = holeX;
         }
 
-        // 常に1段階目(ready: false)として送る
-        const garbageObj = { amount: amount, holes: holes, ready: false };
+        // ★ stage1「内部のみ」(internal:true・非表示) として送る。
+        //    500ms 後に internal を解除して stage2「猶予(青)」へ移す（視覚遅延を受け手側で持つ）。
+        //    stage2→stage3(ready/点滅) への確定は従来どおり _confirmSentGarbage（送り手の連鎖終了）が行う。
+        const garbageObj = { amount: amount, holes: holes, ready: false, internal: true };
         opponent.garbageQueue.push(garbageObj);
 
         // 自分が送った火力をリストに保持しておく
         this.sentGarbageThisTurn.push(garbageObj);
+
+        // ── stage1(internal) → stage2(grace) の 500ms タイマー ──
+        const INTERNAL_MS = 500;
+        if (opponent instanceof PuyoGame) {
+            // ぷよ受け手：dt ベースで受け手の _update が減算する（ポーズ中は _update 非実行で自動停止）
+            garbageObj.internalTimer = INTERNAL_MS;
+        } else {
+            // テト受け手：game.js と同じ _garbageTimers(setTimeout) 方式でポーズ対応
+            if (!opponent._garbageTimers) opponent._garbageTimers = [];
+            const timerEntry = { obj: garbageObj, duration: INTERNAL_MS, remaining: null, id: null };
+            timerEntry.cb = () => {
+                timerEntry.id = null;
+                // 相殺で消滅していなければ stage2(青)へ移す
+                if (opponent.garbageQueue.includes(garbageObj) && garbageObj.amount > 0) {
+                    garbageObj.internal = false;
+                    if (typeof opponent.updateGarbageGauge === 'function') opponent.updateGarbageGauge();
+                }
+                const idx = opponent._garbageTimers.indexOf(timerEntry);
+                if (idx !== -1) opponent._garbageTimers.splice(idx, 1);
+            };
+            opponent._garbageTimers.push(timerEntry);
+            if (opponent.isPaused) {
+                timerEntry.remaining = INTERNAL_MS; // 受け手がポーズ中なら resume 時に計時開始
+            } else {
+                timerEntry.start = performance.now();
+                timerEntry.id = setTimeout(timerEntry.cb, INTERNAL_MS);
+            }
+        }
 
         if (typeof opponent.updateGarbageGauge === 'function') {
             opponent.updateGarbageGauge();
@@ -905,9 +936,9 @@ class PuyoGame {
         let drop = 0;
         let limit = 30;
 
-        // 降るおじゃまは、2段階目(ready: true)になっているもののみ
+        // 降るおじゃまは、stage3(ready:true かつ internalでない)もののみ（internal優先）
         for (let i = 0; i < this.garbageQueue.length && drop < limit; i++) {
-            if (this.garbageQueue[i].ready && this.garbageQueue[i].amount > 0) {
+            if (this.garbageQueue[i].ready && !this.garbageQueue[i].internal && this.garbageQueue[i].amount > 0) {
                 let take = Math.min(this.garbageQueue[i].amount, limit - drop);
                 this.garbageQueue[i].amount -= take;
                 drop += take;
@@ -1123,6 +1154,21 @@ class PuyoGame {
                 let q = this.ojamaUpdateQueue.shift();
                 this._applyOjamaOffset(q.amount, q.tetAmount || 0);
             }
+        }
+
+        // ★ stage1(internal) → stage2(grace): 受け手側で dt 減算（ポーズ中は _update 非実行で自動停止）
+        if (this.garbageQueue.length > 0) {
+            let anyCleared = false;
+            for (const g of this.garbageQueue) {
+                if (g.internal && g.internalTimer !== undefined) {
+                    g.internalTimer -= dt;
+                    if (g.internalTimer <= 0) {
+                        g.internal = false; // 青(予告)化。ready 確定は _confirmSentGarbage が行う
+                        anyCleared = true;
+                    }
+                }
+            }
+            if (anyCleared) this.updateGarbageGauge();
         }
 
         for (let anim of this.activeAnims) {
@@ -1358,14 +1404,12 @@ class PuyoGame {
                             this.pendingFire = 1;
                         }
 
-                        // ★ 連鎖表示が出たタイミングで、そこまでに溜まった微火力＋連鎖火力を0.5秒後に相殺・送信
+                        // ★ ぷよが消えた瞬間に、その場で相殺→送信を済ませる（旧+500ms遅延を撤去）。
+                        // 「常に送られた火力を送り手か受け手のどちらかに存在させる」ため、送り手キューでの
+                        // 滞留をなくす。視覚遅延の500msは受け手側の stage1(internal/非表示) へ移設している。
                         // （全消しで持ち越されたpendingFireも、ここで1連鎖目として送られる）
                         if (this.pendingFire > 0 || this.tetPendingFire > 0) {
-                            this.ojamaUpdateQueue.push({
-                                timer: 500,
-                                amount: this.pendingFire,
-                                tetAmount: this.tetPendingFire
-                            });
+                            this._applyOjamaOffset(this.pendingFire, this.tetPendingFire);
                             this.pendingFire = 0;
                             this.tetPendingFire = 0;
                         }
