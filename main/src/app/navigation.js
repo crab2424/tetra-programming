@@ -137,6 +137,46 @@ function updateMarathonLevelDisplay() {
   document.getElementById('marathon-level-val').textContent = val;
 }
 
+// ─── ページ遷移時のスクロールリセット ──────────────────────────
+// overflow:hidden で進行中の慣性スクロールを中断 → scrollTop=0 → 強制 reflow
+// → overflow を戻す。これによりペイントとヒットテストのスクロール状態を一致させる。
+let _resetScrollRafId = null;
+function resetPageScroll() {
+  const se = document.scrollingElement || document.documentElement;
+
+  const pin = () => {
+    se.scrollTop = 0;
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    window.scrollTo(0, 0);
+  };
+
+  // 慣性スクロールを打ち切る（overflow:hidden の間はスクロール自体ができない）
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
+  pin();
+  // 強制 reflow でレイアウトを確定
+  void document.body.offsetHeight;
+
+  // ★ overflow:hidden を「最低1フレーム」保持するのが肝。
+  //   同一フレーム内で overflow を戻すと、コンポジタが scroll=0 のヒットテスト
+  //   状態をコミットする前に macOS の慣性スクロールが復活し、
+  //   「見た目は上・当たり判定は元の位置」のズレが残る。
+  //   2フレーム後に再度 0 へ固定してから overflow を復元することで、
+  //   慣性が消えた状態でペイントとヒットテストを一致させる。
+  if (_resetScrollRafId) cancelAnimationFrame(_resetScrollRafId);
+  _resetScrollRafId = requestAnimationFrame(() => {
+    pin();
+    _resetScrollRafId = requestAnimationFrame(() => {
+      pin();
+      void document.body.offsetHeight;
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+      _resetScrollRafId = null;
+    });
+  });
+}
+
 function switchPage(pageId) {
   const currentActive = document.querySelector('.page.active');
   if (currentActive && currentActive.id !== 'settings-page') {
@@ -207,10 +247,13 @@ function switchPage(pageId) {
   // ★ スクロール位置をリセット（ページ遷移時）
   //   遷移元が縦に長くスクロールされた状態だと、display トグルだけでは
   //   古い scrollY が残り、game/versus の中央固定レイアウトでキャンバスが
-  //   上部に切れて固まることがある（特に低い画面高・スクロール中の遷移）。
-  //   scrollTo(0,0) + 強制 reflow で位置を正しくクランプ・再描画させる。
-  window.scrollTo(0, 0);
-  void document.body.offsetHeight;
+  //   上部に切れて固まることがある。
+  //   さらに「慣性スクロール(momentum)の最中」に遷移すると、scrollTo だけでは
+  //   ペイントは上に戻るのにヒットテスト用のスクロール状態が古いまま残り、
+  //   「見た目は上・ボタンの当たり判定は元の位置」というズレが発生する。
+  //   そこで overflow を一瞬 hidden にして進行中の慣性スクロールを打ち切り、
+  //   scrollTop=0 + 強制 reflow でレイアウト・ヒットテストを確定させてから戻す。
+  resetPageScroll();
 
   const header = document.getElementById('header-area');
   if (header) header.style.display = (pageId === 'settings') ? 'flex' : 'none';
