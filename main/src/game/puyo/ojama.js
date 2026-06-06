@@ -18,14 +18,16 @@ Object.assign(PuyoGame.prototype, {
             this.yokokuContainer = document.createElement('div');
             this.yokokuContainer.id = containerId;
             this.yokokuContainer.style.position = 'absolute';
-            // ★ フィールドに重ならないようにキャンバスの左上に表示
-            this.yokokuContainer.style.top = '-72px';
+            // ★ キャンバス上端を下限とし、そこから上方向に積む（フィールドに被らない）
+            //    bottom:100% でコンテナ下端をキャンバス上端に合わせ、行が増えると上へ伸びる
+            this.yokokuContainer.style.bottom = '100%';
+            this.yokokuContainer.style.top = 'auto';
             this.yokokuContainer.style.left = '0';
             this.yokokuContainer.style.width = '100%';
             this.yokokuContainer.style.display = 'flex';
-            this.yokokuContainer.style.justifyContent = 'flex-start';
-            this.yokokuContainer.style.alignItems = 'center';
-            this.yokokuContainer.style.flexWrap = 'wrap';
+            this.yokokuContainer.style.flexDirection = 'column'; // 上=1行目, 下=2行目
+            this.yokokuContainer.style.justifyContent = 'flex-end';
+            this.yokokuContainer.style.alignItems = 'flex-start'; // 左上基準
             this.yokokuContainer.style.gap = '1px';
             this.yokokuContainer.style.pointerEvents = 'none';
             this.yokokuContainer.style.zIndex = '20';
@@ -50,31 +52,70 @@ Object.assign(PuyoGame.prototype, {
         //    img: assets/images/p_images/Ojama/ 配下のファイル名（拡張子なし）
         //    size: 表示サイズ(px)。彗星は大きく、小石は小さめ
         const units = [
-            { val: 1440, img: 'comet', size: 40 }, // 彗星(水色)
-            { val: 720, img: 'crown', size: 34 }, // 王冠(橙)
-            { val: 360, img: 'moon', size: 34 }, // 月(黄)
-            { val: 180, img: 'star', size: 34 }, // 星(黄/五芒星)
-            { val: 30, img: 'rock', size: 34 }, // 岩(赤)
-            { val: 6, img: 'big', size: 34 }, // 石(白)
-            { val: 1, img: 'small', size: 26 }  // 小石(白)
+            { val: 1440, img: 'comet', size: 60 }, // 彗星(水色)
+            { val: 720, img: 'crown', size: 51 }, // 王冠(橙)
+            { val: 360, img: 'moon', size: 51 }, // 月(黄)
+            { val: 180, img: 'star', size: 51 }, // 星(黄/五芒星)
+            { val: 30, img: 'rock', size: 51 }, // 岩(赤)
+            { val: 6, img: 'big', size: 51 }, // 石(白)
+            { val: 1, img: 'small', size: 51 }  // 小石(白)
         ];
 
+        // ── 表示するアイコンを大きい桁から順に列挙 ──
+        const icons = [];
         for (let u of units) {
             let q = Math.floor(amount / u.val);
             amount = amount % u.val;
-            for (let i = 0; i < q; i++) {
-                let img = document.createElement('img');
-                img.src = PConfig.ojamaImagePath + u.img + '.png';
-                img.width = u.size;
-                img.height = u.size;
-                img.style.width = u.size + 'px';
-                img.style.height = u.size + 'px';
-                img.style.objectFit = 'contain';
-                img.style.filter = 'drop-shadow(0 0 3px #000)';
-                img.draggable = false;
-                this.yokokuContainer.appendChild(img);
+            for (let i = 0; i < q; i++) icons.push(u);
+        }
+        if (icons.length === 0) return;
+
+        const GAP = 1;
+        // コンテナ幅（=キャンバス表示幅）を1行目の折り返し基準にする
+        const maxW = this.yokokuContainer.clientWidth || (PConfig.cols * PConfig.cellSize);
+
+        const makeIcon = (u) => {
+            const img = document.createElement('img');
+            img.src = PConfig.ojamaImagePath + u.img + '.png';
+            img.width = u.size;
+            img.height = u.size;
+            img.style.width = u.size + 'px';
+            img.style.height = u.size + 'px';
+            img.style.objectFit = 'contain';
+            img.style.filter = 'drop-shadow(0 0 3px #000)';
+            img.draggable = false;
+            return img;
+        };
+        const makeRow = () => {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.flexWrap = 'nowrap'; // 行内は折り返さない（2行目は横にはみ出してよい）
+            row.style.alignItems = 'center';
+            row.style.gap = GAP + 'px';
+            return row;
+        };
+
+        // ── 最大2行に振り分け ──
+        //    1行目: 幅 maxW を超える手前まで。残りは全て2行目へ（横はみ出し許容）
+        const row1 = makeRow();
+        const row2 = makeRow();
+        let w = 0;
+        let useRow2 = false;
+        for (const u of icons) {
+            if (!useRow2) {
+                const add = u.size + (w > 0 ? GAP : 0);
+                if (w > 0 && w + add > maxW) useRow2 = true;
+            }
+            if (!useRow2) {
+                row1.appendChild(makeIcon(u));
+                w += u.size + GAP;
+            } else {
+                row2.appendChild(makeIcon(u));
             }
         }
+
+        this.yokokuContainer.appendChild(row1);
+        if (row2.childNodes.length > 0) this.yokokuContainer.appendChild(row2);
     },
 
     updateGarbageGauge() {
