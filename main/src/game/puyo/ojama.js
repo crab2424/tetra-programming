@@ -41,10 +41,19 @@ Object.assign(PuyoGame.prototype, {
     _updateOjamaYokoku() {
         if (!this.yokokuContainer) this._initOjamaYokokuDOM();
         if (!this.yokokuContainer) return;
+
+        // ★ 差分更新：表示するおじゃま総量が前回と同じなら DOM 再構築をスキップする。
+        //    予告の見た目はこの総量（とコンテナ幅）のみに依存するため、総量が不変なら
+        //    innerHTML破棄 → <img>全再生成（再デコード＋drop-shadow再計算）→ reflow を丸ごと省ける。
+        //    連鎖中は火力送信・相殺ごとに本メソッドが多発するため、ここでの早期returnが効く。
+        // stage1(internal) は非表示。stage2/stage3 のみ予告として表示する
+        const displayAmount = this.garbageQueue.reduce((sum, g) => sum + (g.internal ? 0 : g.amount), 0);
+        if (displayAmount === this._lastYokokuAmount) return;
+        this._lastYokokuAmount = displayAmount;
+
         this.yokokuContainer.innerHTML = '';
 
-        // stage1(internal) は非表示。stage2/stage3 のみ予告として表示する
-        let amount = this.garbageQueue.reduce((sum, g) => sum + (g.internal ? 0 : g.amount), 0);
+        let amount = displayAmount;
         if (amount <= 0) return;
 
         // ★ 桁ごとに「絵(アイコン)を個数分」並べて描画する

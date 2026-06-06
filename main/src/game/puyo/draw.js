@@ -116,6 +116,8 @@ Object.assign(PuyoGame.prototype, {
         if (this.yokokuContainer) {
             this.yokokuContainer.innerHTML = '';
         }
+        // ★ DOMを空にしたので差分更新キャッシュも無効化（次回の_updateOjamaYokokuで確実に再構築させる）
+        this._lastYokokuAmount = -1;
     },
 
     // ══════════════════════════════════════════════

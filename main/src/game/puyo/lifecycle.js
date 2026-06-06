@@ -190,6 +190,7 @@ Object.assign(PuyoGame.prototype, {
         this.hasTetZenkeshi = false;
 
         this.garbageQueue = [];
+        this._lastYokokuAmount = -1; // ★ おじゃま予告の差分更新キャッシュ（-1=未描画でリセット時に必ず再構築）
         this.ojamaUpdateQueue = [];
         this.sentGarbageThisTurn = [];
         this.hasDroppedOjamaThisTurn = false;
