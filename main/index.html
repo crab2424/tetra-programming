@@ -712,7 +712,15 @@
     <script src="src/settings.js?v=14"></script>
     <script src="src/vs_settings.js?v=1"></script>
     <script src="src/game.js?v=34"></script>
-    <script src="src/p_game.js?v=18"></script>
+    <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
+    <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
+    <script src="src/puyo/core.js?v=1"></script>
+    <script src="src/puyo/lifecycle.js?v=1"></script>
+    <script src="src/puyo/connect.js?v=1"></script>
+    <script src="src/puyo/ojama.js?v=1"></script>
+    <script src="src/puyo/engine.js?v=1"></script>
+    <script src="src/puyo/input.js?v=1"></script>
+    <script src="src/puyo/draw.js?v=1"></script>
     <script src="src/quiz.js?v=5"></script>
     <script src="src/router.js?v=38"></script>
   </body>
