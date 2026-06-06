@@ -279,7 +279,8 @@ const PConfig = {
     hiddenRows: 5,
 
     cellSize: 32,
-    imagePath: 'assets/images/p_images/',
+    imagePath: 'assets/images/p_images/puyo/',
+    ojamaImagePath: 'assets/images/p_images/Ojama/',
     colorCount: 4,
 
     dropSpeedNormal: 500,

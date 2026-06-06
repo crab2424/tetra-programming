@@ -24,10 +24,9 @@ Object.assign(PuyoGame.prototype, {
             this.yokokuContainer.style.width = '100%';
             this.yokokuContainer.style.display = 'flex';
             this.yokokuContainer.style.justifyContent = 'flex-start';
-            this.yokokuContainer.style.alignItems = 'baseline';
-            this.yokokuContainer.style.gap = '2px';
-            this.yokokuContainer.style.fontFamily = '"Orbitron", monospace';
-            this.yokokuContainer.style.fontWeight = '900';
+            this.yokokuContainer.style.alignItems = 'center';
+            this.yokokuContainer.style.flexWrap = 'wrap';
+            this.yokokuContainer.style.gap = '1px';
             this.yokokuContainer.style.pointerEvents = 'none';
             this.yokokuContainer.style.zIndex = '20';
 
@@ -46,30 +45,34 @@ Object.assign(PuyoGame.prototype, {
         let amount = this.garbageQueue.reduce((sum, g) => sum + (g.internal ? 0 : g.amount), 0);
         if (amount <= 0) return;
 
-        // ★ 桁ごとに色とサイズを変更して描画する
+        // ★ 桁ごとに「絵(アイコン)を個数分」並べて描画する
+        //    進数表記は据え置き。各桁の個数 q の分だけアイコン画像を並べる。
+        //    img: assets/images/p_images/Ojama/ 配下のファイル名（拡張子なし）
+        //    size: 表示サイズ(px)。彗星は大きく、小石は小さめ
         const units = [
-            { val: 1440, color: '#00e5ff', size: '64px' }, // 水色
-            { val: 720, color: '#ff8c00', size: '48px' }, // オレンジ
-            { val: 360, color: '#ffd700', size: '48px' }, // 黄色
-            { val: 180, color: '#ffd700', size: '48px' }, // 黄色
-            { val: 30, color: '#ff0000', size: '48px' }, // 赤
-            { val: 6, color: '#ffffff', size: '48px' }, // 白
-            { val: 1, color: '#ffffff', size: '36px' }  // 小白
+            { val: 1440, img: 'comet', size: 40 }, // 彗星(水色)
+            { val: 720, img: 'crown', size: 34 }, // 王冠(橙)
+            { val: 360, img: 'moon', size: 34 }, // 月(黄)
+            { val: 180, img: 'star', size: 34 }, // 星(黄/五芒星)
+            { val: 30, img: 'rock', size: 34 }, // 岩(赤)
+            { val: 6, img: 'big', size: 34 }, // 石(白)
+            { val: 1, img: 'small', size: 26 }  // 小石(白)
         ];
 
-        let started = false;
         for (let u of units) {
             let q = Math.floor(amount / u.val);
             amount = amount % u.val;
-            if (q > 0 || started) {
-                started = true;
-                let span = document.createElement('span');
-                span.textContent = q;
-                span.style.color = u.color;
-                span.style.fontSize = u.size;
-                span.style.lineHeight = '0.85';
-                span.style.textShadow = `0 0 4px #000, 0 0 8px ${u.color}, 2px 2px 0 #000`;
-                this.yokokuContainer.appendChild(span);
+            for (let i = 0; i < q; i++) {
+                let img = document.createElement('img');
+                img.src = PConfig.ojamaImagePath + u.img + '.png';
+                img.width = u.size;
+                img.height = u.size;
+                img.style.width = u.size + 'px';
+                img.style.height = u.size + 'px';
+                img.style.objectFit = 'contain';
+                img.style.filter = 'drop-shadow(0 0 3px #000)';
+                img.draggable = false;
+                this.yokokuContainer.appendChild(img);
             }
         }
     },
