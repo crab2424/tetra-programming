@@ -62,11 +62,19 @@ Object.assign(PuyoGame.prototype, {
         ];
 
         // ── 表示するアイコンを大きい桁から順に列挙 ──
+        //    各要素 { u, label }。label がある場合はアイコン1個＋「×N」表記にする。
+        //    ★ 彗星(1440)のみ、6個を超える大量描画を防ぐため ×N 表記に切り替える
+        const COMET_MAX_ICONS = 6;
         const icons = [];
         for (let u of units) {
             let q = Math.floor(amount / u.val);
             amount = amount % u.val;
-            for (let i = 0; i < q; i++) icons.push(u);
+            if (q <= 0) continue;
+            if (u.val === 1440 && q > COMET_MAX_ICONS) {
+                icons.push({ u, label: '×' + q });
+            } else {
+                for (let i = 0; i < q; i++) icons.push({ u });
+            }
         }
         if (icons.length === 0) return;
 
@@ -74,7 +82,7 @@ Object.assign(PuyoGame.prototype, {
         // コンテナ幅（=キャンバス表示幅）を1行目の折り返し基準にする
         const maxW = this.yokokuContainer.clientWidth || (PConfig.cols * PConfig.cellSize);
 
-        const makeIcon = (u) => {
+        const makeImg = (u) => {
             const img = document.createElement('img');
             img.src = PConfig.ojamaImagePath + u.img + '.png';
             img.width = u.size;
@@ -85,6 +93,25 @@ Object.assign(PuyoGame.prototype, {
             img.style.filter = 'drop-shadow(0 0 3px #000)';
             img.draggable = false;
             return img;
+        };
+        // item = { u, label? }。label があればアイコン＋「×N」をまとめた1要素を返す
+        const makeIcon = (item) => {
+            const img = makeImg(item.u);
+            if (!item.label) return img;
+            const wrap = document.createElement('div');
+            wrap.style.display = 'inline-flex';
+            wrap.style.alignItems = 'center';
+            wrap.appendChild(img);
+            const span = document.createElement('span');
+            span.textContent = item.label;
+            span.style.color = '#00e5ff';
+            span.style.fontFamily = '"Orbitron", monospace';
+            span.style.fontWeight = '900';
+            span.style.fontSize = Math.round(item.u.size * 0.6) + 'px';
+            span.style.lineHeight = '1';
+            span.style.textShadow = '0 0 4px #000, 0 0 8px #00e5ff, 2px 2px 0 #000';
+            wrap.appendChild(span);
+            return wrap;
         };
         const makeRow = () => {
             const row = document.createElement('div');
@@ -101,16 +128,18 @@ Object.assign(PuyoGame.prototype, {
         const row2 = makeRow();
         let w = 0;
         let useRow2 = false;
-        for (const u of icons) {
+        for (const item of icons) {
+            // ×N 表記の要素はラベル幅も概算で加味する
+            const itemW = item.u.size + (item.label ? item.label.length * Math.round(item.u.size * 0.6) * 0.6 : 0);
             if (!useRow2) {
-                const add = u.size + (w > 0 ? GAP : 0);
+                const add = itemW + (w > 0 ? GAP : 0);
                 if (w > 0 && w + add > maxW) useRow2 = true;
             }
             if (!useRow2) {
-                row1.appendChild(makeIcon(u));
-                w += u.size + GAP;
+                row1.appendChild(makeIcon(item));
+                w += itemW + GAP;
             } else {
-                row2.appendChild(makeIcon(u));
+                row2.appendChild(makeIcon(item));
             }
         }
 

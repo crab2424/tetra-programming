@@ -885,6 +885,17 @@ h1 {
   letter-spacing: 0.5px;
 }
 
+/* ── 幅広スライダー（マージンタイム等、ステップ数が多い行用） ── */
+.vs-setting-slider--wide,
+.vs-setting-markers--wide {
+  width: 440px;
+}
+
+.vs-setting-markers--wide span {
+  font-size: 8px;
+  letter-spacing: 0;
+}
+
 /* ── ボタングループ（選択肢ボタン列） ── */
 .vs-setting-btn-group {
   display: flex;

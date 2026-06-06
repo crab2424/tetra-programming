@@ -211,34 +211,48 @@ Object.assign(PuyoGame.prototype, {
 
         if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
             const PUYO_MARGIN_RATE_TABLE = [52, 34, 25, 16, 12, 8, 6, 4, 3, 2, 1];
-            const startMargin = () => {
+            const PUYO_MARGIN_INTERVAL_MS = 16000; // 16秒ごとにステップアップ
+            const PUYO_MARGIN_MAX_STEP = PUYO_MARGIN_RATE_TABLE.length - 1; // 上限ステップ(10, レート1)
+            // preElapsedMs: マージン突入時点で「すでに経過したものとして扱う」ミリ秒数。
+            // 負のマージンタイムで、テーブルを進めた状態でVSを開始するために使う。
+            const startMargin = (preElapsedMs = 0) => {
                 if (!this.isVersusMode) return;
-                // マージン突入直後：ステップ0のレートを即時適用
-                this._puyoMarginStep = 0;
-                this.vsOjamaRate = PUYO_MARGIN_RATE_TABLE[0];
+                // 事前経過ぶんステップを進めた状態で突入（上限はクランプ）
+                this._puyoMarginStep = Math.min(
+                    Math.floor(preElapsedMs / PUYO_MARGIN_INTERVAL_MS),
+                    PUYO_MARGIN_MAX_STEP
+                );
+                this.vsOjamaRate = PUYO_MARGIN_RATE_TABLE[this._puyoMarginStep];
                 const step = () => {
                     this._puyoMarginStep++;
                     if (this._puyoMarginStep < PUYO_MARGIN_RATE_TABLE.length) {
                         this.vsOjamaRate = PUYO_MARGIN_RATE_TABLE[this._puyoMarginStep];
                     }
                     // 上限（ステップ10, レート1）未満なら次のタイマーをセット
-                    if (this._puyoMarginStep < PUYO_MARGIN_RATE_TABLE.length - 1) {
-                        this._vsMarginTimer = setTimeout(step, 16000);
+                    if (this._puyoMarginStep < PUYO_MARGIN_MAX_STEP) {
+                        this._vsMarginTimer = setTimeout(step, PUYO_MARGIN_INTERVAL_MS);
                         this._vsMarginTimerStart = performance.now();
-                        this._vsMarginTimerDuration = 16000;
+                        this._vsMarginTimerDuration = PUYO_MARGIN_INTERVAL_MS;
                         this._vsMarginTimerCb = step;
                     } else {
                         this._vsMarginTimer = null;
                     }
                 };
-                // ステップ0適用後、16秒後にステップ1へ
-                this._vsMarginTimer = setTimeout(step, 16000);
-                this._vsMarginTimerStart = performance.now();
-                this._vsMarginTimerDuration = 16000;
-                this._vsMarginTimerCb = step;
+                if (this._puyoMarginStep < PUYO_MARGIN_MAX_STEP) {
+                    // 次ステップまでの残り（事前経過がステップ境界に満たない端数を差し引く）
+                    const nextDelay = PUYO_MARGIN_INTERVAL_MS - (preElapsedMs % PUYO_MARGIN_INTERVAL_MS);
+                    this._vsMarginTimer = setTimeout(step, nextDelay);
+                    this._vsMarginTimerStart = performance.now();
+                    this._vsMarginTimerDuration = nextDelay;
+                    this._vsMarginTimerCb = step;
+                } else {
+                    this._vsMarginTimer = null;
+                }
             };
             if (this.vsMarginTimeMs === 0) {
                 startMargin();
+            } else if (this.vsMarginTimeMs < 0) {
+                startMargin(-this.vsMarginTimeMs); // 負=テーブルを進めた状態で即突入
             } else {
                 this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
                 this._vsMarginTimerStart = performance.now();

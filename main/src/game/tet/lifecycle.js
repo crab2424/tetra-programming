@@ -88,10 +88,15 @@ Object.assign(Game.prototype, {
         if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
             const TET_MARGIN_INTERVAL_MS = 32000; // 32秒ごとにステップアップ
             const TET_MARGIN_MAX_STEP = 5;        // 最大インデックス（160秒で到達）
-            const startMargin = () => {
+            // preElapsedMs: マージン突入時点で「すでに経過したものとして扱う」ミリ秒数。
+            // 負のマージンタイムで、テーブルを進めた状態でVSを開始するために使う。
+            const startMargin = (preElapsedMs = 0) => {
                 if (!this.isVersusMode) return;
-                // マージン突入直後：ステップ0（テーブルindex=0）を適用
-                this._tetMarginStep = 0;
+                // 事前経過ぶんステップを進めた状態で突入（上限はクランプ）
+                this._tetMarginStep = Math.min(
+                    Math.floor(preElapsedMs / TET_MARGIN_INTERVAL_MS),
+                    TET_MARGIN_MAX_STEP
+                );
                 const step = () => {
                     if (this._tetMarginStep < TET_MARGIN_MAX_STEP) {
                         this._tetMarginStep++;
@@ -105,13 +110,21 @@ Object.assign(Game.prototype, {
                         this._vsMarginTimer = null;
                     }
                 };
-                this._vsMarginTimer = setTimeout(step, TET_MARGIN_INTERVAL_MS);
-                this._vsMarginTimerStart = performance.now();
-                this._vsMarginTimerDuration = TET_MARGIN_INTERVAL_MS;
-                this._vsMarginTimerCb = step;
+                if (this._tetMarginStep < TET_MARGIN_MAX_STEP) {
+                    // 次ステップまでの残り（事前経過がステップ境界に満たない端数を差し引く）
+                    const nextDelay = TET_MARGIN_INTERVAL_MS - (preElapsedMs % TET_MARGIN_INTERVAL_MS);
+                    this._vsMarginTimer = setTimeout(step, nextDelay);
+                    this._vsMarginTimerStart = performance.now();
+                    this._vsMarginTimerDuration = nextDelay;
+                    this._vsMarginTimerCb = step;
+                } else {
+                    this._vsMarginTimer = null;
+                }
             };
             if (this.vsMarginTimeMs === 0) {
                 startMargin(); // 即時発動
+            } else if (this.vsMarginTimeMs < 0) {
+                startMargin(-this.vsMarginTimeMs); // 負=テーブルを進めた状態で即突入
             } else {
                 this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
                 this._vsMarginTimerStart = performance.now();
