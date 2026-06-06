@@ -711,7 +711,16 @@
     <script src="src/manager.js?v=1"></script>
     <script src="src/settings.js?v=14"></script>
     <script src="src/vs_settings.js?v=1"></script>
-    <script src="src/game.js?v=34"></script>
+    <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
+    <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
+    <script src="src/tet/core.js?v=1"></script>
+    <script src="src/tet/lifecycle.js?v=1"></script>
+    <script src="src/tet/board.js?v=1"></script>
+    <script src="src/tet/rotation.js?v=1"></script>
+    <script src="src/tet/scoring.js?v=1"></script>
+    <script src="src/tet/garbage.js?v=1"></script>
+    <script src="src/tet/render.js?v=1"></script>
+    <script src="src/tet/input.js?v=1"></script>
     <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
     <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
     <script src="src/puyo/core.js?v=1"></script>
