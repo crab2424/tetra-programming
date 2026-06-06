@@ -731,6 +731,10 @@
     <script src="src/game/puyo/input.js?v=2"></script>
     <script src="src/game/puyo/draw.js?v=2"></script>
     <script src="src/quiz/quiz.js?v=6"></script>
-    <script src="src/app/router.js?v=39"></script>
+    <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
+    <script src="src/app/modes.js?v=1"></script>
+    <script src="src/app/cpu_loader.js?v=1"></script>
+    <script src="src/app/versus.js?v=1"></script>
+    <script src="src/app/navigation.js?v=2"></script>
   </body>
 </html>
