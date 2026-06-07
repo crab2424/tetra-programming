@@ -24,4 +24,5 @@ struct EvalWeights {
     int centerDip;           // ★追加：凹みが中央(列3~6)にあると正、端にあると負のスコア（初期値50）
     int tstClear;            // ★Phase1追加：TST(3ライン T-spin)消去ボーナス [34]（旧fireを置換）
     int b2bHold;             // ★追加[35]：配置後もBtBを保持している盤面への静的ボーナス（CC back_to_back相当）
+    int tSlotTst;            // ★Phase3追加[36]：T-slot先読みチェーンで TST(3ライン)スロットを発見した時の加点（CC tslot[3]相当）
 };

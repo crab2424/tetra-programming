@@ -49,11 +49,12 @@ bool isTSDShape(const Board& board, int cx, int cy, const int heights[COLS]) {
     return true;
 }
 
-// isTSDShape が保証する空きセル {(cx-1,cy),(cx,cy),(cx+1,cy),(cx,cy+1)} に一致する向き。
-// PRECALC_MINO_BLOCKS はテンプレート絶対座標(0..3)。T rot2 は水平バー(0,2)(1,2)(2,2)＋下バンプ(1,3)。
-// これを上記スロットへ重ねる原点は (ox,oy)=(cx-1, cy-2)。
-int cutoutTSpin(Board& b, int cx, int cy) {
-    const int rot = 2; // South（下向きT）
+// 原点 (ox,oy)=(cx-1, cy-2) に T(rot) を重ねて消去する。PRECALC_MINO_BLOCKS はテンプレ絶対座標(0..3)。
+//   rot2(South): 水平バー(0,2)(1,2)(2,2)＋下バンプ(1,3) → cx=バー中心列/cy=バー行（既存TSD/TSS）。
+//   rot1(East) : 縦バー(1,1)(1,2)(1,3)＋右バンプ(2,2) → cx=縦バー列/cy=バー中心行・ステム右。
+//   rot3(West) : 縦バー(1,1)(1,2)(1,3)＋左バンプ(0,2) → cx=縦バー列/cy=バー中心行・ステム左。
+// いずれも原点式 (cx-1, cy-2) が一致する（縦バーのテンプレ列=1, 中心行=2）。
+int cutoutTSpin(Board& b, int cx, int cy, int rot) {
     const int ox = cx - 1, oy = cy - 2;
     for (int i = 0; i < 4; i++) {
         b.set(PRECALC_MINO_BLOCKS[2][rot][i].x + ox,
@@ -62,26 +63,129 @@ int cutoutTSpin(Board& b, int cx, int cy) {
     return b.checkLineAndClear();
 }
 
-// 各反復で最初に見つかった TSD/TSS スロットへ T を仮想配置:
+// tst_twist / fin で見つけた縦置き T 候補の受理判定（CC: 4隅≥3埋まり かつ on_stack）。
+//   CX,CY は CC座標の T 中心、east=true で East(rot1,ステム右)/false で West(rot3,ステム左)。
+//   needCorner=false なら無条件採用（fin はシェイプ自体が妥当性を保証）。
+static TSlotHit acceptHit(const Board& b, int CX, int CY, bool east, bool needCorner) {
+    if (needCorner) {
+        int corners = (occCC(b, CX-1, CY-1) ? 1 : 0) + (occCC(b, CX+1, CY-1) ? 1 : 0)
+                    + (occCC(b, CX-1, CY+1) ? 1 : 0) + (occCC(b, CX+1, CY+1) ? 1 : 0);
+        if (corners < 3) return { 0, 0, 0, false };
+        // on_stack: 4セル{(CX,CY-1),(CX,CY),(CX,CY+1),(stemX,CY)} のいずれか直下(ccY-1)が埋まり
+        int sx = east ? CX + 1 : CX - 1;
+        bool onStack = occCC(b, CX, CY-2) || occCC(b, CX, CY-1) || occCC(b, CX, CY) || occCC(b, sx, CY-1);
+        if (!onStack) return { 0, 0, 0, false };
+    }
+    return { CX, ROWS - 1 - CY, east ? 1 : 3, true };
+}
+
+// CC tst_twist_left(→West) / tst_twist_right(→East) を逐語移植（occCC で座標変換）。
+TSlotHit detectTSTSlot(const Board& b, const int heights[COLS]) {
+    // tst_twist_left: heights[x]=h1, heights[x+1]=h2, 中心 cc(x+2, h2-2), West
+    for (int x = 0; x <= COLS - 3; x++) {
+        int h1 = heights[x], h2 = heights[x+1];
+        if (!(h1 <= h2)) continue;
+        if (occCC(b, x-1, h2) != occCC(b, x-1, h2+1)) continue;
+        if (!occCC(b, x+2, h2+1)) continue;
+        if (occCC(b, x+2, h2)) continue;
+        if (occCC(b, x+2, h2-1)) continue;
+        if (occCC(b, x+1, h2-2)) continue;
+        if (occCC(b, x+2, h2-2)) continue;
+        if (occCC(b, x+2, h2-3)) continue;
+        TSlotHit h = acceptHit(b, x+2, h2-2, false, true);
+        if (h.found) return h;
+    }
+    // tst_twist_right: heights[x+1]=h1, heights[x+2]=h2, 中心 cc(x, h1-2), East
+    for (int x = 0; x <= COLS - 3; x++) {
+        int h1 = heights[x+1], h2 = heights[x+2];
+        if (!(h2 <= h1)) continue;
+        if (occCC(b, x+3, h1) != occCC(b, x+3, h1+1)) continue;
+        if (!occCC(b, x, h1+1)) continue;
+        if (occCC(b, x, h1)) continue;
+        if (occCC(b, x, h1-1)) continue;
+        if (occCC(b, x, h1-2)) continue;
+        if (occCC(b, x+1, h1-2)) continue;
+        if (occCC(b, x, h1-3)) continue;
+        TSlotHit h = acceptHit(b, x, h1-2, true, true);
+        if (h.found) return h;
+    }
+    return { 0, 0, 0, false };
+}
+
+// CC fin_left(→West) / fin_right(→East) を逐語移植。シェイプが妥当性を保証するため corner 判定なし。
+TSlotHit detectFINSlot(const Board& b, const int heights[COLS]) {
+    // fin_left: heights[x]=h1, heights[x+1]=h2, 中心 cc(x+3, h2-1), West
+    for (int x = 0; x <= COLS - 4; x++) {
+        int h1 = heights[x], h2 = heights[x+1];
+        if (!(h1 <= h2 + 1)) continue;
+        if (!occCC(b, x+2, h2+2)) continue;
+        if (!occCC(b, x+3, h2+2)) continue;
+        if (occCC(b, x+2, h2+1)) continue;
+        if (occCC(b, x+3, h2+1)) continue;
+        if (occCC(b, x+2, h2)) continue;
+        if (occCC(b, x+3, h2)) continue;
+        if (!occCC(b, x+4, h2)) continue;
+        if (occCC(b, x+2, h2-1)) continue;
+        if (occCC(b, x+3, h2-1)) continue;
+        if (!occCC(b, x+2, h2-2)) continue;
+        if (occCC(b, x+3, h2-2)) continue;
+        if (!occCC(b, x+4, h2-2)) continue;
+        return { x+3, ROWS - 1 - (h2-1), 3, true };
+    }
+    // fin_right: heights[x+2]=h1, heights[x+3]=h2, 中心 cc(x, h1-1), East
+    for (int x = 0; x <= COLS - 4; x++) {
+        int h1 = heights[x+2], h2 = heights[x+3];
+        if (!(h2 <= h1 + 1)) continue;
+        if (!occCC(b, x-1, h1)) continue;
+        if (!occCC(b, x-1, h1-2)) continue;
+        if (!occCC(b, x, h1+2)) continue;
+        if (!occCC(b, x+1, h1+2)) continue;
+        if (occCC(b, x, h1+1)) continue;
+        if (occCC(b, x+1, h1+1)) continue;
+        if (occCC(b, x, h1)) continue;
+        if (occCC(b, x+1, h1)) continue;
+        if (occCC(b, x, h1-1)) continue;
+        if (occCC(b, x+1, h1-1)) continue;
+        if (occCC(b, x, h1-2)) continue;
+        if (!occCC(b, x+1, h1-2)) continue;
+        return { x, ROWS - 1 - (h1-1), 1, true };
+    }
+    return { 0, 0, 0, false };
+}
+
+// 各反復で CC 優先順(sky→tst+corner→fin)に最初に見つかったスロットへ T を仮想配置:
 //   0ライン = スロットは出来ているが両脇がまだ埋まっていない（建設途中）→ tSlotReady 加点して終了
 //   1ライン = TSS 実行可能 → tSlotTss 加点して終了（TSS後の連鎖は稀なため打ち切り）
 //   2ライン = TSD 実行可能 → tSlotTsd 加点し、消去後盤面で次のTへ継続
+//   3ライン = TST 実行可能 → tSlotTst 加点し、消去後盤面で次のTへ継続（CC: Tspin3 で Some(board) 継続）
 int evalTSlotChain(Board b, int maxIter, const EvalWeights& w) {
     int score = 0;
     for (int iter = 0; iter < maxIter; iter++) {
         uint32_t cols[COLS]; int heights[COLS];
         calcHeights(b, cols, heights); // cutout で盤面が変わるため毎回算出
 
-        int foundCx = -1, foundCy = -1;
-        for (int cy = 1; cy < ROWS - 1 && foundCx < 0; cy++) {
+        // 1. sky_tslot 相当（South T による開けた TSD/TSS）
+        int barCol = -1, midRow = -1, rot = 2;
+        for (int cy = 1; cy < ROWS - 1 && barCol < 0; cy++) {
             for (int cx = 1; cx < COLS - 1; cx++) {
-                if (isTSDShape(b, cx, cy, heights)) { foundCx = cx; foundCy = cy; break; }
+                if (isTSDShape(b, cx, cy, heights)) { barCol = cx; midRow = cy; rot = 2; break; }
             }
         }
-        if (foundCx < 0) break; // スロットなし
+        // 2. tst_twist（+3コーナー受理）による縦置き TST
+        if (barCol < 0) {
+            TSlotHit h = detectTSTSlot(b, heights);
+            if (h.found) { barCol = h.barCol; midRow = h.midRow; rot = h.rot; }
+        }
+        // 3. fin による縦置き TST
+        if (barCol < 0) {
+            TSlotHit h = detectFINSlot(b, heights);
+            if (h.found) { barCol = h.barCol; midRow = h.midRow; rot = h.rot; }
+        }
+        if (barCol < 0) break; // スロットなし
 
-        int lines = cutoutTSpin(b, foundCx, foundCy);
-        if (lines >= 2)      { score += w.tSlotTsd; continue; } // TSD：消去後盤面で次へ
+        int lines = cutoutTSpin(b, barCol, midRow, rot);
+        if (lines >= 3)      { score += w.tSlotTst; continue; } // TST：消去後盤面で次へ
+        else if (lines == 2) { score += w.tSlotTsd; continue; } // TSD：消去後盤面で次へ
         else if (lines == 1) { score += w.tSlotTss; break; }    // TSS
         else                 { score += w.tSlotReady; break; }  // 建設途中（まだ消えない）
     }

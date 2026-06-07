@@ -78,7 +78,7 @@ struct SearchState {
     }
 };
 
-// weightsArray[36] を EvalWeights へ展開する。メンバ順は weightsArray のインデックスと一致。
+// weightsArray[37] を EvalWeights へ展開する。メンバ順は weightsArray のインデックスと一致。
 static inline EvalWeights unpackWeights(const int* weightsArray) {
     return EvalWeights {
         weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
@@ -90,7 +90,8 @@ static inline EvalWeights unpackWeights(const int* weightsArray) {
         weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32],
         weightsArray[33], // centerDip
         weightsArray[34], // tstClear ★Phase1追加
-        weightsArray[35]  // b2bHold ★追加[35]
+        weightsArray[35], // b2bHold ★追加[35]
+        weightsArray[36]  // tSlotTst ★Phase3追加[36]
     };
 }
 
