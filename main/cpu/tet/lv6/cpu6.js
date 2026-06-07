@@ -17,7 +17,7 @@ window.CPU6 = class {
 
         this.weights = {
             lineClear: 100,
-            hole: -220, 
+            hole: -55, 
             heightLimit: -560, 
             step3Plus: -20, 
             flat: 4,
@@ -44,7 +44,7 @@ window.CPU6 = class {
 
             tssClear: 256,
             tsdClear: 2560,
-            tstClear: 4000,      // ★Phase1追加：TST(3ライン T-spin)消去ボーナス。TSDより上位
+            tstClear: 6000,      // ★Phase1追加：TST(3ライン T-spin)消去ボーナス。TSDより上位
             tsdHolePenalty: -60, // ★Phase2: 現在未使用(旧TSDスコアリング廃止に伴い)。[22]の枠は保持
             pureHole: -100,         
 
@@ -65,10 +65,12 @@ window.CPU6 = class {
 
             b2bHold: 150,           // ★追加[35]：配置後もBtBを保持している盤面への静的ボーナス（CC back_to_back相当）
 
+            tSlotTst: 5000,          // ★Phase3追加[36]：T-slot先読みでTST(3ライン)スロット発見時の加点（CC tslot[3]相当・暫定/要チューニング）
+
             P1_WEIGHT: 1.0,
         };
 
-        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=8'); // ★v=8: C++分割+fltoで再ビルド（importセット変更につき更新）
+        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=9'); // ★v=9: Phase3 TST/FIN検出追加で再ビルド（importセット変更につき更新）
         this.workerReady = false;
         this.isCalculating = false;
 
@@ -788,7 +790,8 @@ window.CPU6 = class {
             this.weights.slopePenalty,
             this.weights.centerDip,             // ★追加 [33]
             this.weights.tstClear,              // ★Phase1: [34]（旧fireを置換。C++ EvalWeights.tstClear）
-            this.weights.b2bHold                // ★追加 [35]
+            this.weights.b2bHold,               // ★追加 [35]
+            this.weights.tSlotTst               // ★Phase3追加 [36]
         ]);
 
         const currentRen = this.game.ren || 0;
@@ -893,7 +896,8 @@ window.CPU6 = class {
             this.weights.slopePenalty,
             this.weights.centerDip,             // ★追加 [33]
             this.weights.tstClear,              // ★Phase1: [34]（旧fireを置換。C++ EvalWeights.tstClear）
-            this.weights.b2bHold                // ★追加 [35]
+            this.weights.b2bHold,               // ★追加 [35]
+            this.weights.tSlotTst               // ★Phase3追加 [36]
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;

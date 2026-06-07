@@ -11,16 +11,16 @@ self.Module = {
     // SearchState(~616bytes) × 320 + Placement(~92bytes) × 80 × 各ステップ = ~200KB 超のため
     // 16MB(= 256 * 64KB pages)を確保して余裕を持たせる
     INITIAL_MEMORY: 32 * 1024 * 1024, // ★深さ8/幅12対応で 16MB→32MB（コンパイル時設定と一致）
-    // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=8 を取得させる）
+    // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=9 を取得させる）
     //   ★v=8: C++をファイル分割＋-fltoで再ビルド。importセットが変わったのでグルーjsとwasmを揃えて更新。
-    locateFile: function(path) { return path + '?v=8'; },
+    locateFile: function(path) { return path + '?v=9'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=8'); // ★再ビルドのキャッシュバスト（分割+flto, v=8）
+importScripts('cpu_wasm6.js?v=9'); // ★再ビルドのキャッシュバスト（Phase3 TST/FIN, v=9）
 
 let boardPtr = null;
 let resultPtr = null;
@@ -34,9 +34,9 @@ self.onmessage = function(e) {
     if (data.type === 'evaluate_single') {
         if (boardPtr === null) {
             boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
-            // ★修正: 重み要素数 36（[35] b2bHold 追加）に対応して確保サイズを 4 * 36 に変更
-            weightsPtr = Module._my_malloc(4 * 36);
-            resultPtr  = Module._my_malloc(4 * 43); 
+            // ★修正: 重み要素数 37（[36] tSlotTst 追加）に対応して確保サイズを 4 * 37 に変更
+            weightsPtr = Module._my_malloc(4 * 37);
+            resultPtr  = Module._my_malloc(4 * 43);
         }
 
         HEAPU8.set(data.boardBuffer, boardPtr);
@@ -68,9 +68,9 @@ self.onmessage = function(e) {
 
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
-        // ★修正: 重み要素数 36（[35] b2bHold 追加）に対応して確保サイズを 4 * 36 に変更
-        weightsPtr = Module._my_malloc(4 * 36); 
-        resultPtr  = Module._my_malloc(4 * 43); 
+        // ★修正: 重み要素数 37（[36] tSlotTst 追加）に対応して確保サイズを 4 * 37 に変更
+        weightsPtr = Module._my_malloc(4 * 37);
+        resultPtr  = Module._my_malloc(4 * 43);
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);

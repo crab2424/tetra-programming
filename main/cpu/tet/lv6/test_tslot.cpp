@@ -23,7 +23,7 @@ int main() {
     ensurePrecalc();
 
     EvalWeights w{};
-    w.tSlotTsd = 300; w.tSlotReady = 250; w.tSlotTss = 150;
+    w.tSlotTsd = 300; w.tSlotReady = 250; w.tSlotTss = 150; w.tSlotTst = 500;
 
     const int cy = 23; // cy+1=24=最下段
 
@@ -70,6 +70,64 @@ int main() {
         fillRow(b, 24, {0,1,2,3,5,6,7,8,9});
         b.set(3, 22);
         check("case4.maxIter0", evalTSlotChain(b, 0, w), 0);
+    }
+
+    // ── ケース5: TST(3ライン消去) — tst_twist_left(West/rot3) ──
+    //   縦スロット=col5、ステム=col4(int22に穴)、天井オーバーハング=(5,19)。
+    //   消去行=int21,22,23。Tバー(5,21)(5,22)(5,23)＋ステム(4,22)で3ライン成立。
+    {
+        Board b;
+        fillRow(b, 21, {0,1,2,3,4,6,7,8,9}); // col5を空ける
+        fillRow(b, 22, {0,1,2,3,6,7,8,9});   // col4,5を空ける（col4=ステム穴）
+        fillRow(b, 23, {0,1,2,3,4,6,7,8,9}); // col5を空ける
+        b.set(5, 19);                         // 天井オーバーハング
+        uint32_t cc[COLS]; int hh[COLS]; calcHeights(b, cc, hh);
+        TSlotHit ht = detectTSTSlot(b, hh);
+        check("tst.found",  ht.found ? 1 : 0, 1);
+        check("tst.barCol", ht.barCol, 5);
+        check("tst.rot",    ht.rot, 3);
+        check("tst.midRow", ht.midRow, 22);
+        Board t = b;
+        check("tst.cutout_lines", cutoutTSpin(t, ht.barCol, ht.midRow, ht.rot), 3);
+        check("tst.chain_score",  evalTSlotChain(b, 1, w), w.tSlotTst);
+    }
+
+    // ── ケース6: FIN(2ライン消去) — fin_left(West/rot3) ──
+    //   高さウィンドウ=col2,3(h2=col3=2)、シェイプ=col4,5,6。縦スロット=col5、ステム=col4。
+    //   天井=(4,20)(5,20)、フィン=(4,24)、右壁=(6,22)(6,24)。消去行=int23,24で2ライン。
+    {
+        Board b;
+        fillRow(b, 23, {0,1,2,3,6,7,8,9});     // col4,5を空ける
+        fillRow(b, 24, {0,1,2,3,4,6,7,8,9});   // col5を空ける（col4=フィン, col6=右壁）
+        b.set(4, 20); b.set(5, 20);             // 天井オーバーハング
+        b.set(6, 22);                            // 右壁の中段
+        uint32_t cc[COLS]; int hh[COLS]; calcHeights(b, cc, hh);
+        TSlotHit hf = detectFINSlot(b, hh);
+        check("fin.found",  hf.found ? 1 : 0, 1);
+        check("fin.barCol", hf.barCol, 5);
+        check("fin.rot",    hf.rot, 3);
+        check("fin.midRow", hf.midRow, 23);
+        Board t = b;
+        check("fin.cutout_lines", cutoutTSpin(t, hf.barCol, hf.midRow, hf.rot), 2);
+    }
+
+    // ── ケース7: TST(3ライン) — tst_twist_right(East/rot1) ──
+    //   East 版（ステム右）。縦スロット=col4、ステム=col5(int22に穴)、天井=(4,19)。rot1 cutout 経路を検証。
+    {
+        Board b;
+        fillRow(b, 21, {0,1,2,3,5,6,7,8,9}); // col4を空ける
+        fillRow(b, 22, {0,1,2,3,6,7,8,9});   // col4,5を空ける（col5=ステム穴）
+        fillRow(b, 23, {0,1,2,3,5,6,7,8,9}); // col4を空ける
+        b.set(4, 19);                         // 天井オーバーハング
+        uint32_t cc[COLS]; int hh[COLS]; calcHeights(b, cc, hh);
+        TSlotHit ht = detectTSTSlot(b, hh);
+        check("tstR.found",  ht.found ? 1 : 0, 1);
+        check("tstR.barCol", ht.barCol, 4);
+        check("tstR.rot",    ht.rot, 1);
+        check("tstR.midRow", ht.midRow, 22);
+        Board t = b;
+        check("tstR.cutout_lines", cutoutTSpin(t, ht.barCol, ht.midRow, ht.rot), 3);
+        check("tstR.chain_score",  evalTSlotChain(b, 1, w), w.tSlotTst);
     }
 
     printf("\n==== %d passed, %d failed ====\n", g_pass, g_fail);
