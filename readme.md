@@ -1,4 +1,4 @@
-現在CPUは tet:Lv.5, puyo:Lv.4 まで実装しています．
+現在CPUは tet:Lv.6, puyo:Lv.4 まで実装しています．
 
 プレイはこちらから https://citgame.pptlabo.workers.dev/
 
