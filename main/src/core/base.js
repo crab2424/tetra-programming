@@ -279,7 +279,8 @@ const PConfig = {
     hiddenRows: 5,
 
     cellSize: 32,
-    imagePath: 'assets/images/p_images/',
+    imagePath: 'assets/images/p_images/puyo/',
+    ojamaImagePath: 'assets/images/p_images/Ojama/',
     colorCount: 4,
 
     dropSpeedNormal: 500,
@@ -880,6 +881,7 @@ class SeManager {
         'rotate':        1.40,  // -34.8 / -5.4
         'tspin_rot':     2.00,  // 未配置（実測後に調整）
         'harddrop':      0.30,  // -39.9 / -9.6
+        'drop':          0.25,  // ソフトドロップ毎マス用（未実測・高頻度のため控えめ。耳で調整）
         'lock':          1.85,  // -31.6 / -6.4（通常固定：そのまま鳴らす）
         'lock_hard':     0.32,  // ハードドロップ時の重ね鳴らし用（harddropと同時のため小音量）
         'hold':          1.25,  // -24.0 / -6.4
@@ -966,6 +968,7 @@ AudioLoader.loadSe({
     'rotate':    'assets/audio/se/tet/rotate.ogg',
     'tspin_rot': 'assets/audio/se/tet/tspin_rot.ogg',
     'harddrop':  'assets/audio/se/tet/harddrop.ogg',
+    'drop':      'assets/audio/se/tet/drop.ogg', // ソフトドロップ（毎マス）
     'lock':      'assets/audio/se/tet/lock.ogg',
     'lock_hard': 'assets/audio/se/tet/lock.ogg', // 同一音源・別音量（ハードドロップ重ね用）
     'hold':      'assets/audio/se/tet/hold.ogg',
@@ -1011,5 +1014,5 @@ AudioLoader.loadSe({
 })();
 
 // ==========================================
-// ※ メインメニュー演出（パーティクル）は src/particles.js に移動しました
+// ※ メインメニュー演出（パーティクル）は src/core/particles.js に移動しました
 // ==========================================

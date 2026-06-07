@@ -19,9 +19,12 @@ const ATTACK_BIAS_TABLE = [33, 50, 75, 100, 133, 200, 300];
 
 /**
  * マージンタイムのステップ定義
- * null = OFF（機能無効）、数値 = 発動までの秒数（0 = 即時発動）
+ * null = OFF（機能無効）
+ * 正の数 = 発動までの秒数（0 = 即時発動）
+ * 負の数 = その秒数ぶん「すでにマージンが経過した状態」で即突入する
+ *          （マージンテーブルを進めた状態でVSを開始する）。-160でTET/PUYO両テーブルが上限。
  */
-const MARGIN_TIME_STEPS = [null, 0, 32, 64, 96, 128, 160, 192];
+const MARGIN_TIME_STEPS = [null, -160, -128, -96, -64, -32, 0, 32, 64, 96, 128, 160, 192];
 
 /** デフォルト設定値 */
 const DEFAULT_VS_SETTINGS = {
@@ -94,12 +97,12 @@ function getAttackMultiplier(side) {
 
 /**
  * マージンタイムをミリ秒で取得する。
- * @returns {number|null} null=OFF、0=即時、正数=ミリ秒
+ * @returns {number|null} null=OFF、0=即時、正数=突入までのms、負数=事前経過ms（テーブルを進めて即突入）
  */
 function getMarginTimeMs() {
     const val = currentVsSettings.all.marginTime;
     if (val === null) return null;   // OFF
-    return val * 1000;               // 0ms（即時）または正数ms
+    return val * 1000;               // 0ms（即時）/ 正数ms / 負数ms（事前経過）
 }
 
 /**
@@ -227,8 +230,8 @@ function _buildRow(labelText, subText, controlEl) {
 }
 
 // ── マージンタイム ──────────────────────────
-// MARGIN_TIME_STEPS: [null, 0, 32, 64, 96, 128, 160, 192]
-// null=OFF、0=即時発動、正数=秒数
+// MARGIN_TIME_STEPS: [null, -160, ..., -32, 0, 32, ..., 192]
+// null=OFF、0=即時発動、正数=突入までの秒数、負数=テーブルを進めた状態で即突入
 function _buildMarginTimeRow() {
     const current = currentVsSettings.all.marginTime;
 
@@ -237,7 +240,8 @@ function _buildMarginTimeRow() {
     const currentIdx = (() => {
         if (current === null) return 0;
         const idx = MARGIN_TIME_STEPS.indexOf(current);
-        return idx !== -1 ? idx : 4; // 見つからなければデフォルト(96s=index4)
+        // 見つからなければデフォルト値の位置にフォールバック
+        return idx !== -1 ? idx : MARGIN_TIME_STEPS.indexOf(DEFAULT_VS_SETTINGS.all.marginTime);
     })();
 
     const ctrl = document.createElement('div');
@@ -254,7 +258,8 @@ function _buildMarginTimeRow() {
     slider.max   = String(MARGIN_TIME_STEPS.length - 1);
     slider.step  = '1';
     slider.value = String(currentIdx);
-    slider.className = 'vs-setting-slider';
+    // ステップ数が多いため、この行だけスライダーを広げる
+    slider.className = 'vs-setting-slider vs-setting-slider--wide';
 
     slider.oninput = () => {
         const val = MARGIN_TIME_STEPS[parseInt(slider.value)];
@@ -268,7 +273,7 @@ function _buildMarginTimeRow() {
 
     // 目盛り
     const markers = document.createElement('div');
-    markers.className = 'vs-setting-markers';
+    markers.className = 'vs-setting-markers vs-setting-markers--wide';
     MARGIN_TIME_STEPS.forEach(s => {
         const m = document.createElement('span');
         m.textContent = _formatMarginTime(s);

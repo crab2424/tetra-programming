@@ -195,8 +195,13 @@ h1 {
   align-items: center;
   gap: 40px;
   padding-top: 32px;
-  width: 100%;
-  max-width: 900px;
+  /* ★ 横幅基準で縮小：設計幅 900px を基準に、画面が狭いときだけ縮小（上限1.0）。
+     高さは基準にしない（縦に長い場合はスクロール前提のため）。
+     transform:scale ではなく zoom を使う。zoom はレイアウト寸法ごと縮小するため、
+     縮小後に下部の余白が残らず、横スクロールも発生しない。 */
+  width: 900px;
+  max-width: none;
+  zoom: clamp(0.35, calc((100vw - 32px) / 900px), 1);
 }
 
 #main-menu-logo {
@@ -885,6 +890,17 @@ h1 {
   letter-spacing: 0.5px;
 }
 
+/* ── 幅広スライダー（マージンタイム等、ステップ数が多い行用） ── */
+.vs-setting-slider--wide,
+.vs-setting-markers--wide {
+  width: 440px;
+}
+
+.vs-setting-markers--wide span {
+  font-size: 8px;
+  letter-spacing: 0;
+}
+
 /* ── ボタングループ（選択肢ボタン列） ── */
 .vs-setting-btn-group {
   display: flex;
@@ -959,6 +975,10 @@ h1 {
    ★ 対戦ゲーム画面のレイアウト（レスポンシブスケール化） ★
 ───────────────────────────────────────────── */
 #versus-layout {
+  /* ★ #container と同様、fixed 中央固定でビューポート中心にスケール。 */
+  position: fixed;
+  top: 50%;
+  left: 50%;
   display: flex;
   flex-direction: row;
   align-items: center; /* 中央合わせ */
@@ -967,9 +987,10 @@ h1 {
   /* ウィンドウサイズに合わせて自動スケール
      キャンバスの距離を広げた分、基準となる横幅を少し広く（1300）設定
   */
-  transform: scale(
-    clamp(0.2, min(calc((100vw - 32px) / 1300), calc((100vh - 48px) / 700)), 2)
-  );
+  transform: translate(-50%, -50%)
+    scale(
+      clamp(0.2, min(calc((100vw - 32px) / 1300px), calc((100vh - 48px) / 700px)), 2)
+    );
   transform-origin: center;
 }
 
@@ -1136,6 +1157,9 @@ h1 {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  /* ★ 文字は非表示にするが、要素の寸法（盤面同士を離す余白）は維持するため
+     display:none ではなく visibility:hidden を使う。 */
+  visibility: hidden;
 }
 
 #versus-cpu-level-display {
@@ -1514,16 +1538,23 @@ h1 {
 }
 
 #container {
-  position: relative;
+  /* ★ position:fixed で常にビューポート中心へ固定してからスケール。
+     transform:scale はレイアウト寸法(320x640)を縮めないため、
+     flow 内で中央寄せするとビューポートが枠より小さいとき中心がずれて
+     はみ出す。fixed + translate(-50%,-50%) で枠中心を常に画面中心に置く。 */
+  position: fixed;
+  top: 50%;
+  left: 50%;
   width: 320px;
   height: 640px;
   /* ウィンドウサイズに合わせて自動スケール
      幅の基準：約750px、高さの基準：約700px
      上限スケールを2、下限を0.2に制限
   */
-  transform: scale(
-    clamp(0.2, min(calc((100vw - 32px) / 750), calc((100vh - 48px) / 700)), 2)
-  );
+  transform: translate(-50%, -50%)
+    scale(
+      clamp(0.2, min(calc((100vw - 32px) / 750px), calc((100vh - 48px) / 700px)), 2)
+    );
   transform-origin: center;
 }
 
