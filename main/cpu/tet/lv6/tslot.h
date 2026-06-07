@@ -24,6 +24,21 @@ struct TSlotHit { int barCol; int midRow; int rot; bool found; };
 // TSD地形(cx,cy)を判定する。heights が渡されれば clearCol チェックを O(1) 化する。
 bool isTSDShape(const Board& board, int cx, int cy, const int heights[COLS] = nullptr);
 
+// 列高さウィンドウから TSD スロット候補のみを isTSDShape で検証し、true のものを fn(cx,cy) に渡す。
+//   全セル走査 O(ROWS*COLS)≈250回 の置換 → 各列最大2候補のみ評価する O(COLS)。
+//   根拠: 左屋根TSDは clearCol2=cx+1 が cy より上で空・(cx+1,cy+1)が solid なので、
+//     cx+1 の最上ブロック行 = cy+1 = ROWS-heights[cx+1] となり cy が一意に定まる（右屋根は cx-1 基準）。
+//     よって各 (cx) につき「左屋根候補」「右屋根候補」の2つの cy だけ調べれば真のスロットを取りこぼさない。
+template<typename F>
+inline void forEachTSDSlot(const Board& b, const int heights[COLS], F&& fn) {
+    for (int cx = 1; cx < COLS - 1; cx++) {
+        int leftCy  = (heights[cx+1] > 0) ? (ROWS - heights[cx+1] - 1) : -1; // 左屋根候補（cx+1表面）
+        int rightCy = (heights[cx-1] > 0) ? (ROWS - heights[cx-1] - 1) : -1; // 右屋根候補（cx-1表面）
+        if (leftCy >= 0 && isTSDShape(b, cx, leftCy, heights)) fn(cx, leftCy);
+        if (rightCy >= 0 && rightCy != leftCy && isTSDShape(b, cx, rightCy, heights)) fn(cx, rightCy);
+    }
+}
+
 // スロット (cx,cy) に T を仮想配置してライン消去し、消去数を返す。rot=2(South,既定)/1(East)/3(West)。
 //   原点 (cx-1, cy-2)。South は cx=横バー中心列/cy=バー行、East/West は cx=縦バー列/cy=バー中心行。
 int cutoutTSpin(Board& b, int cx, int cy, int rot = 2);
