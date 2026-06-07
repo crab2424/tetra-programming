@@ -1,4 +1,8 @@
+#ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#else
+#define EMSCRIPTEN_KEEPALIVE   // ネイティブ単体テスト用：emscripten 非依存でコンパイル可能にする
+#endif
 #include <stdint.h>
 #include <algorithm>
 #include <cmath>
@@ -50,14 +54,6 @@ void ensurePrecalc() {
     }
     isPrecalcDone = true;
 }
-
-// 旧：毎度計算していた関数（比較用としてコメントアウト残し）
-/*
-void getRotatedBlocks(int type, int rot, int offsetX, int offsetY, GridBlock outBlocks[4]) {
-    MinoData tmpl = MINO_TEMPLATES[type];
-    for(int i = 0; i < 4; i++) { ... }
-}
-*/
 
 // ★最適化：Boardクラスをビットボード化（250バイト → 50バイトへ圧縮）
 class Board {
@@ -143,8 +139,8 @@ struct EvalWeights {
     int iWell, iWellOver, blocksOverHole; 
     int line4, downstackGood, downstackBad;
     int p1Weight; 
-    int tsdShape, tsdShapeOver, tsdFillBonus; 
-    int tssClear, tsdClear, tsdHolePenalty, pureHole; 
+    int tSlotTsd, tSlotReady, tSlotTss; // ★Phase2: 旧tsdShape[17]/tsdShapeOver[18]/tsdFillBonus[19]を改名・再利用
+    int tssClear, tsdClear, tsdHolePenalty, pureHole; // ★Phase2: tsdHolePenalty[22]は現在未使用
     int comboBonus; 
     int btbKeep;    
     int renCutPenalty; 
@@ -155,6 +151,7 @@ struct EvalWeights {
     int slopeBonus;          // ★追加：ゆるやかな下り坂のボーナス
     int slopePenalty;        // ★追加：ゆるやかな下り坂を満たさないペナルティ
     int centerDip;           // ★追加：凹みが中央(列3~6)にあると正、端にあると負のスコア（初期値50）
+    int tstClear;            // ★Phase1追加：TST(3ライン T-spin)消去ボーナス [34]（旧fireを置換）
 };
 
 // ★最適化：引数に const int heights[COLS] = nullptr を追加
@@ -171,9 +168,6 @@ bool isTSDShape(const Board& board, int cx, int cy, const int heights[COLS] = nu
     }; 
 
     // ★最適化：TSDの地形が存在する高さのI-Wellチェックは、この関数の外（スキャン処理）で事前に1回だけ計算して除外するように変更
-    /*
-    for (int k = 0; k < COLS; k++) { ... }
-    */
 
     if (!isSolid(cx - 1, cy + 1)) return false; // 左下の土台
     if (!isSolid(cx + 1, cy + 1)) return false; // 右下の土台
@@ -211,136 +205,57 @@ bool isTSDShape(const Board& board, int cx, int cy, const int heights[COLS] = nu
 
 static inline int calcHeights(const Board& b, uint32_t cols[COLS], int heights[COLS]);
 
-struct TSDAnalysis {
-    int multiplier; // 100 = 等倍。今後、盤面的に綺麗なTSD地形ならここを増減させる。
-    int fillCount;
-    int holeCount;
-};
 
-// TSD地形が盤面的に綺麗かどうかを解析し、評価値に掛ける倍率を返す。
-// ─────────────────────────────────────────────────────────────────────
-// 追加実装した条件（multiplier への影響）:
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ★Phase2: Cold Clear 方式の T-slot 先読み評価（TSD/TSS のみ）
 //
-// [1] 屋根の場所の確認 (isTSDShape の leftRoof と同じロジックで再判定)
-//     A(cx-1, cy-1) xor B(cx+1, cy-1) の埋まり方で屋根側を決定する。
-//
-// [2] Aが屋根(leftRoof)の場合:
-//     (a) (cx-2, cy-2) が埋まっていて かつ (cx-1, cy-2) が空白 かつ (cx+2, cy-1) が埋まっている
-//         → multiplier *= 0.5 (≒ 50)
-//     (b) (cx-1, cy-3), (cx+2, cy-2), (cx+2, cy-3) のいずれかが埋まっている
-//         → multiplier *= 0.5
-//
-// [3] Bが屋根(rightRoof)の場合: [2] の左右ミラー
-//     (a) (cx+2, cy-2) が埋まっていて かつ (cx+1, cy-2) が空白 かつ (cx-2, cy-1) が埋まっている
-//         → multiplier *= 0.5
-//     (b) (cx+1, cy-3), (cx-2, cy-2), (cx-2, cy-3) のいずれかが埋まっている
-//         → multiplier *= 0.5
-//
-// [4] y+2 行のブロック確認:
-//     列 a について (a, cy+2) が空白 かつ (a, cy-1) が埋まっている → multiplier *= 0.5
-// ─────────────────────────────────────────────────────────────────────
-static inline int analyzeTSD(const Board& board, int cx, int cy, const int heights[COLS], TSDAnalysis* outAnalysis) {
-    TSDAnalysis analysis = {100, 0, 0};
+// 方針：盤面に「今まさに回し入れられる TSD/TSS スロット」があるかを、実際に T を
+//   仮想配置してライン消去をシミュレート(cutout)して判定する。消えたら盤面を更新し、
+//   来るTの本数(upcomingT)を上限に「連続して何回 TSD を入れられるか」を先読みする。
+//   TST は地形が崩れやすく能動的に狙わせない方針のため、ここでは検出しない
+//   （TST が実際に発生した時の報酬は evalPlacementEvent の tstClear が担う）。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    // fillCount: TSD空間の2マスを除いた cy 行と cy+1 行の埋まり具合
-    uint16_t mask_cy  = ~( (1<<(cx-1)) | (1<<cx) | (1<<(cx+1)) ) & 0x3FF;
-    uint16_t mask_cy1 = ~( (1<<cx) ) & 0x3FF;
-    analysis.fillCount += __builtin_popcount(board.rows[cy]   & mask_cy);
-    analysis.fillCount += __builtin_popcount(board.rows[cy+1] & mask_cy1);
-
-    int localHeights[COLS];
-    uint32_t localCols[COLS];
-    const int* h = heights;
-    if (h == nullptr) {
-        calcHeights(board, localCols, localHeights);
-        h = localHeights;
+// TSD/TSS スロット (cx,cy) に T(South=rot2, 下向き) を仮想配置してライン消去し、消去数を返す。
+// isTSDShape が保証する空きセル {(cx-1,cy),(cx,cy),(cx+1,cy),(cx,cy+1)} に一致する向き。
+// PRECALC_MINO_BLOCKS はテンプレート絶対座標(0..3)。T rot2 は水平バー(0,2)(1,2)(2,2)＋下バンプ(1,3)。
+// これを上記スロットへ重ねる原点は (ox,oy)=(cx-1, cy-2)。
+static inline int cutoutTSpin(Board& b, int cx, int cy) {
+    const int rot = 2; // South（下向きT）
+    const int ox = cx - 1, oy = cy - 2;
+    for (int i = 0; i < 4; i++) {
+        b.set(PRECALC_MINO_BLOCKS[2][rot][i].x + ox,
+              PRECALC_MINO_BLOCKS[2][rot][i].y + oy);
     }
+    return b.checkLineAndClear();
+}
 
-    // holeCount: TSD空間より低い（ビットボード上でy番号が大きい）行に
-    // 他の列の穴がある場合にカウント
-    for (int x = 0; x < COLS; x++) {
-        if (x != cx - 1 && x != cx && x != cx + 1) {
-            if (cy > ROWS - h[x] && !((board.rows[cy] >> x) & 1)) analysis.holeCount++;
-        }
-        if (x != cx) {
-            if (cy + 1 > ROWS - h[x] && !((board.rows[cy+1] >> x) & 1)) analysis.holeCount++;
-        }
-    }
+// 盤面 b（コピー受け取り）から、来るTの本数 maxIter を上限に TSD/TSS チェーンを先読み評価する。
+// 各反復で最初に見つかった TSD/TSS スロットへ T を仮想配置:
+//   0ライン = スロットは出来ているが両脇がまだ埋まっていない（建設途中）→ tSlotReady 加点して終了
+//   1ライン = TSS 実行可能 → tSlotTss 加点して終了（TSS後の連鎖は稀なため打ち切り）
+//   2ライン = TSD 実行可能 → tSlotTsd 加点し、消去後盤面で次のTへ継続
+static inline int evalTSlotChain(Board b, int maxIter, const EvalWeights& w) {
+    int score = 0;
+    for (int iter = 0; iter < maxIter; iter++) {
+        uint32_t cols[COLS]; int heights[COLS];
+        calcHeights(b, cols, heights); // cutout で盤面が変わるため毎回算出
 
-    // ─── 追加実装: 屋根・周辺地形の綺麗さ評価 ────────────────────────────
-
-    // isTSDShape と同じロジックで屋根側を判定する
-    // isSolid: 盤面外は壁(true)、盤面上空は空(false)
-    auto isSolid = [&](int x, int y) -> bool {
-        if (x < 0 || x >= COLS || y >= ROWS) return true;
-        if (y < 0) return false;
-        return (board.rows[y] & (1 << x)) != 0;
-    };
-
-    // isTSDShape と同じ式で leftRoof / rightRoof を両方独立に計算する。
-    // leftRoof と rightRoof は isTSDShape 通過後は必ず XOR（片方だけ true）なので
-    // どちらが true かで屋根側を決定できる。
-    // ただし isTSDShape 側と完全に同じ式を使わないと、境界条件（cy-1<0 等）で
-    // 屋根側を誤判定して左右逆のペナルティを適用してしまうため、両方を再計算する。
-    bool leftRoof  = (isSolid(cx-1, cy-1) && isSolid(cx-2, cy));
-    bool rightRoof = (isSolid(cx+1, cy-1) && isSolid(cx+2, cy-1));
-    // isTSDShape を通過した時点で leftRoof ^ rightRoof が保証されているが、
-    // 万一どちらも false になった場合は評価をスキップして安全側に倒す。
-    if (!leftRoof && !rightRoof) {
-        if (outAnalysis != nullptr) *outAnalysis = analysis;
-        return analysis.multiplier;
-    }
-    // どちらも true の場合（境界条件由来）は leftRoof 優先で処理する（isTSDShape と同じ扱い）
-
-    // 整数倍率を使って *=0.5 を表現する（100 → 50 → 25 ...）。
-    // 各条件を評価し、該当すれば analysis.multiplier を半減させる。
-
-    if (leftRoof) {
-        // ── [2] Aが屋根の場合 ──────────────────────────────
-        // (a) (cx-2, cy-2) 埋まり & (cx-1, cy-2) 空白 & (cx+2, cy-1) 埋まり
-        if ( isSolid(cx-2, cy-2) && !isSolid(cx-1, cy-2) && isSolid(cx+2, cy-1) ) {
-            analysis.multiplier = analysis.multiplier * 90 / 100;
-        }
-        // (b) (cx-1, cy-3) or (cx+2, cy-2) or (cx+2, cy-3) のいずれかが埋まっている
-        if ( isSolid(cx-1, cy-3) || isSolid(cx+2, cy-2) || isSolid(cx+2, cy-3) ) {
-            analysis.multiplier = analysis.multiplier * 80 / 100;
-        }
-    } else {
-        // ── [3] Bが屋根の場合（左右ミラー） ─────────────────
-        // (a) (cx+2, cy-2) 埋まり & (cx+1, cy-2) 空白 & (cx-2, cy-1) 埋まり
-        if ( isSolid(cx+2, cy-2) && !isSolid(cx+1, cy-2) && isSolid(cx-2, cy-1) ) {
-            analysis.multiplier = analysis.multiplier * 90 / 100;
-        }
-        // (b) (cx+1, cy-3) or (cx-2, cy-2) or (cx-2, cy-3) のいずれかが埋まっている
-        if ( isSolid(cx+1, cy-3) || isSolid(cx-2, cy-2) || isSolid(cx-2, cy-3) ) {
-            analysis.multiplier = analysis.multiplier * 80 / 100;
-        }
-    }
-
-    // ── [4] y+2 行: 空白セルの真上 (cy-1) が埋まっていたら半減 ────────────
-    // cy+2 が盤面内の場合のみ評価する
-    if (cy + 2 < ROWS) {
-        for (int a = 0; a < COLS; a++) {
-            bool emptyAtCyPlus2 = !isSolid(a, cy + 2);
-            bool solidAtCyMinus1 = isSolid(a, cy - 1);
-            if (emptyAtCyPlus2 && solidAtCyMinus1) {
-                analysis.multiplier = analysis.multiplier * 30 / 100;
-                break; // 1列でも該当したら一度だけ半減（複数列で重ねて罰しない）
+        int foundCx = -1, foundCy = -1;
+        for (int cy = 1; cy < ROWS - 1 && foundCx < 0; cy++) {
+            for (int cx = 1; cx < COLS - 1; cx++) {
+                if (isTSDShape(b, cx, cy, heights)) { foundCx = cx; foundCy = cy; break; }
             }
         }
+        if (foundCx < 0) break; // スロットなし
+
+        int lines = cutoutTSpin(b, foundCx, foundCy);
+        if (lines >= 2)      { score += w.tSlotTsd; continue; } // TSD：消去後盤面で次へ
+        else if (lines == 1) { score += w.tSlotTss; break; }    // TSS
+        else                 { score += w.tSlotReady; break; }  // 建設途中（まだ消えない）
     }
-
-    // ─────────────────────────────────────────────────────────────────────
-
-    if (outAnalysis != nullptr) *outAnalysis = analysis;
-    return analysis.multiplier;
+    return score;
 }
-
-static inline int analyzeTSD(const Board& board, int cx, int cy, const int heights[COLS] = nullptr) {
-    return analyzeTSD(board, cx, cy, heights, nullptr);
-}
-
-struct TSDStats { int count; int fillCount; int holeCount; int multiplier; };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ★分割：旧 evaluateBoard を evalBoardState / evalPlacementEvent に分離
@@ -349,16 +264,7 @@ struct TSDStats { int count; int fillCount; int holeCount; int multiplier; };
 //                      穴・高さ・段差・TSD形状・Iウェル・下り坂など
 // ・evalPlacementEvent: その1手を置いたことで発生したイベントを評価する（1回限りの報酬）
 //                      ライン消去・Tスピン・BtB・コンボ・接地ボーナスなど
-//
-// 旧 evaluateBoard（1関数でまとめていた実装）はコメントアウトで残す
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-/*
-// ★旧実装：evaluateBoard（評価値と報酬を一括計算していた版）
-int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchingCount, const EvalWeights& w, int ren, bool backToBack, const GridBlock* droppedBlocks, int tSpinType, int* outMaxHeight) {
-    // ...（下記の evalBoardState + evalPlacementEvent に分割済み）
-}
-*/
 
 // ────────────────────────────────────────────────
 // 共通ヘルパー：ビットボードから列ごとの高さを算出し、cols / heights / maxHeight を埋める
@@ -389,7 +295,7 @@ static inline int calcHeights(const Board& b, uint32_t cols[COLS], int heights[C
 // これは毎ステップ加算される値であり、盤面が変わらない限り同じ値が出続ける。
 // 含む要素：穴・高さ・段差・flat・Iウェル・TSD形状・下り坂・TSDセットアップ・blocksOverHole
 // ────────────────────────────────────────────────
-int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nullptr) {
+int evalBoardState(const Board& b, const EvalWeights& w, int upcomingT, int* outMaxHeight = nullptr) {
     int score = 0;
 
     // ★最適化：ビットボードから一瞬で各列の高さを算出
@@ -442,8 +348,9 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
         }
     }
 
-    // 1回のスキャンでTSD判定
-    TSDStats tsd = {0, 0, 0, 100};
+    // TSDスロット地形のスキャン（穴・blocksOverHole の判定で「TSD空間は穴ではない」と扱うためのマスク生成）
+    // ★Phase2: 旧 tsd.count/multiplier ベースのスコアリングは廃止し、評価は evalTSlotChain（cutout先読み）へ移行。
+    //   ここでのスキャンはマスク(isTSDRowForBlocksOverHole / ignoreMask)を作る目的のみで残す。
     bool isTSDRowForBlocksOverHole[ROWS] = {false};
     uint32_t ignoreMask = 0; // 穴として数えない行のビットマスク
 
@@ -456,14 +363,6 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
                 if (maxHeight <= 10) {
                     ignoreMask |= (1 << cy);
                     ignoreMask |= (1 << (cy + 1));
-                }
-                tsd.count++;
-                if (tsd.count == 1) {
-                    TSDAnalysis analysis = {100, 0, 0};
-                    analyzeTSD(b, cx, cy, heights, &analysis);
-                    tsd.multiplier = analysis.multiplier;
-                    tsd.fillCount += analysis.fillCount;
-                    tsd.holeCount += analysis.holeCount;
                 }
             }
         }
@@ -569,15 +468,19 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
     }
     score += totalBlocksOverLowestHole * w.blocksOverHole;
 
-    // TSD形状評価 - 盤面の汚さに応じてTSDボーナスを減衰させる
-    // 穴が多い・穴の上に積みが多い場合にTSD追求を抑制し、掘り動作へ誘導する
-    if (tsd.count >= 1) {
+    // ★Phase2: T-slot 先読み評価（TSD/TSS チェーン, cutout シミュレート）
+    //   来るTの本数(upcomingT)を上限に、実際に回し入れられる TSD/TSS を最大2回先読みして加点。
+    //   盤面が汚い（穴・蓋が多い）ほど TSD 追求を抑制し掘りへ誘導する減衰は従来通り維持する。
+    // ★修正(回帰対応): upcomingT は実質下限1にクランプ。ビームの最終スコアは最深ノードの盤面評価を
+    //   使うが、深いノードは可視キューのTを消費して upcomingT=0 になりやすく、それだと TSD の価値が
+    //   選択スコアから消えて「TSDを全く建設しない」状態になっていた。TSD建設誘導は常時ONにする。
+    int effUpcomingT = std::max(upcomingT, 1);
+    int tSlotCap = std::min(effUpcomingT, 2);
+    if (tSlotCap >= 1) {
+        int rawTSlot = evalTSlotChain(b, tSlotCap, w);
         int dirtPenalty = holes * 10 + totalBlocksOverLowestHole * 4;
         int tsdFactor = std::max(10, 100 - dirtPenalty);
-        score += w.tsdShape * tsd.multiplier / 100 * tsdFactor / 100;
-        score += tsd.fillCount * w.tsdFillBonus;
-        score += tsd.holeCount * w.tsdHolePenalty;
-        if (tsd.count >= 2) score += (tsd.count - 1) * w.tsdShapeOver;
+        score += rawTSlot * tsdFactor / 100;
     }
 
     // TSDセットアップ評価
@@ -659,6 +562,9 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
             }
         }
     }
+    // ★Phase2: 来るTの本数を超えるセットアップは作っても使えないため上限を制限。
+    //   ただし下限1にクランプ（effUpcomingT）し、TSD土台の建設誘導は常時残す（回帰対応）。
+    if (tsdSetupCount > effUpcomingT) tsdSetupCount = effUpcomingT;
     if (tsdSetupCount > 0) {
         if (tsdSetupCount <= 2) score += tsdSetupCount * w.tsdSetup;
         else                    score += tsdSetupCount * w.tsdSetupOver;
@@ -691,7 +597,7 @@ int evalBoardState(const Board& b, const EvalWeights& w, int* outMaxHeight = nul
 // ────────────────────────────────────────────────
 // 【報酬】evalPlacementEvent
 // その1手を置いたことで「今回だけ」発生したイベントを評価する（1回限り加算）。
-// 含む要素：ライン消去・4-LINES・Tスピン・BtB・コンボ・接地ボーナス・ダウンスタック・tsdFillBonus
+// 含む要素：ライン消去・4-LINES・Tスピン(TSS/TSD/TST)・BtB・コンボ・接地ボーナス・ダウンスタック
 //
 // 引数：
 //   afterBoard  : 配置＆ライン消去後の盤面
@@ -771,7 +677,8 @@ int evalPlacementEvent(
     // ── Tスピン消去ボーナス / ミニTスピンペナルティ ──
     if (tSpinType == 1) {
         if (linesCleared == 1)      score += w.tssClear;
-        else if (linesCleared >= 2) score += w.tsdClear;
+        else if (linesCleared == 2) score += w.tsdClear;
+        else if (linesCleared >= 3) score += w.tstClear; // ★Phase1: TST(3ライン)
     } else if (tSpinType == 2) {
         score += w.tsmMiniPenalty;
     }
@@ -1097,12 +1004,14 @@ void evaluateSinglePlacementWasm(
         weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
         weightsArray[24], weightsArray[25], weightsArray[26], weightsArray[27], weightsArray[28],
         weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32],
-        weightsArray[33] // centerDip ★追加
+        weightsArray[33], // centerDip
+        weightsArray[34]  // tstClear ★Phase1追加
     };
 
     // ★分割対応：配置前盤面の評価値（baseScore）を evalBoardState で取得
     int baseMaxHeight = 0;
-    int baseScore = evalBoardState(baseBoard, w, &baseMaxHeight);
+    // 単発評価(表示/デバッグ用)はNEXT情報を持たないため upcomingT=1 を仮定
+    int baseScore = evalBoardState(baseBoard, w, 1, &baseMaxHeight);
 
     GridBlock blocks[4];
     for(int i=0; i<4; i++) {
@@ -1120,28 +1029,13 @@ void evaluateSinglePlacementWasm(
     int cleared = simBoard.checkLineAndClear();
 
     // ★分割対応：配置後盤面の評価値（stateScore）を evalBoardState で取得
-    int stateScore = evalBoardState(simBoard, w, nullptr);
+    int stateScore = evalBoardState(simBoard, w, 1, nullptr);
 
     // ★分割対応：配置イベントの報酬（eventScore）を evalPlacementEvent で取得
     int eventScore = evalPlacementEvent(
         simBoard, beforeClearBoard, cleared, info.isFullyGrounded, info.touchingCount,
         tSpinType, ren, backToBack != 0, blocks, baseMaxHeight, w
     );
-
-    // 旧：score = evaluateBoard(一括) + eventBonus の組み合わせだったものを分割
-    /*
-    int score = evaluateBoard(simBoard, cleared, info.isFullyGrounded, info.touchingCount, w, ren, backToBack != 0, blocks, tSpinType, nullptr);
-    int eventBonus = 0;
-    int multiplier = 6; 
-    if (cleared >= 4) eventBonus += w.line4 * multiplier;
-    if (tSpinType == 1) { 
-        if (cleared == 1) eventBonus += w.tssClear; 
-        else if (cleared >= 2) eventBonus += w.tsdClear * multiplier; 
-    } else if (tSpinType == 2) { 
-        eventBonus += w.tsmMiniPenalty * multiplier;
-    }
-    int stepScore = score * w.p1Weight / 100 + eventBonus;
-    */
 
     // ★分割後：stepScore = 評価値 * p1Weight + 報酬
     int stepScore = stateScore * w.p1Weight / 100 + eventScore;
@@ -1189,34 +1083,28 @@ void searchBestMoveWasm(
         weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
         weightsArray[24], weightsArray[25], weightsArray[26], weightsArray[27], weightsArray[28],
         weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32],
-        weightsArray[33] // centerDip ★追加
+        weightsArray[33], // centerDip
+        weightsArray[34]  // tstClear ★Phase1追加
     };
 
-    int baseMaxHeight = 0; 
-    // ★分割対応：初期盤面の評価値を evalBoardState で取得
-    int baseScore = evalBoardState(baseBoard, w, &baseMaxHeight);
-    
     // ★深さ8対応: current + next1..next8 + 終端0 = 10要素
     // （holdが空の開幕でインデックスが1ずれるため、深さ8で最大 index=8 を参照する）
     int next_queue[10] = { currentType, next1, next2, next3, next4, next5, next6, next7, next8, 0 };
-    auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; }; 
-    
-    // 旧：calcEventBonus は searchBestMoveWasm 内のローカルラムダとして重複スコアを加算していた。
-    // ★分割後：evalPlacementEvent に統合されたためこのラムダは不要になった（コメントアウトで残す）
-    /*
-    auto calcEventBonus = [&](const Placement& p, int step_num) {
-        int bonus = 0; int multiplier = 7 - step_num; 
-        if (p.linesCleared >= 4) bonus += w.line4 * multiplier;
-        if (p.tSpinType == 1) {
-            if (p.linesCleared == 1) bonus += w.tssClear; 
-            else if (p.linesCleared >= 2) bonus += w.tsdClear * multiplier; 
-        } else if (p.tSpinType == 2) {
-            bonus += w.tsmMiniPenalty * multiplier;
-        }
-        return bonus;
-    };
-    */
+    auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; };
 
+    // ★Phase2: ある手番から先に「見えているTの本数」を数える（next_queue[from..8] + hold）。
+    //   T-slot(TSD/TSS)先読み・TSDセットアップの上限に使う（Tが来ないのに土台を作らせない）。
+    auto countUpcomingT = [&](int from, int hold) -> int {
+        int n = 0;
+        for (int i = (from < 0 ? 0 : from); i <= 8; i++) if (next_queue[i] == 2) n++;
+        if (hold == 2) n++;
+        return n;
+    };
+
+    int baseMaxHeight = 0;
+    // ★分割対応：初期盤面の評価値を evalBoardState で取得（初期盤面の upcomingT は全可視キュー+hold）
+    int baseScore = evalBoardState(baseBoard, w, countUpcomingT(0, holdType), &baseMaxHeight);
+    
     std::vector<SearchState> final_states;
     std::vector<SearchState> current_states;
     std::vector<SearchState> next_states_N;
@@ -1265,7 +1153,8 @@ void searchBestMoveWasm(
 
             int current_max_height = 0;
             // ★分割対応：評価値（盤面の良さ）を evalBoardState で取得
-            int stateScore = evalBoardState(simBoard, w, &current_max_height);
+            // ★Phase2: この手番以降に使えるTの本数を T-slot 先読みに渡す（placed後の new_next_idx / new_hold 基準）
+            int stateScore = evalBoardState(simBoard, w, countUpcomingT(new_next_idx, new_hold), &current_max_height);
 
             // ★分割対応：報酬（その1手のイベント）を evalPlacementEvent で取得
             int prevHeight = is_first ? baseMaxHeight : s.max_height;
@@ -1273,13 +1162,6 @@ void searchBestMoveWasm(
                 simBoard, beforeClearBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount,
                 p.tSpinType, cur_ren, cur_btb, p.blocks, prevHeight, w
             );
-
-            // 旧：score = evaluateBoard(一括) + calcEventBonus の組み合わせだったものを分割
-            /*
-            int score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, cur_ren, cur_btb, p.blocks, p.tSpinType, &current_max_height);
-            int eventBonus = calcEventBonus(p, step_num);
-            int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
-            */
 
             // ★分割後：stepScore = 評価値 * p1Weight（1手目のみ）+ 報酬（total_score 用、従来互換で保持）
             int stepScore = is_first ? (stateScore * P1_WEIGHT_PCT / 100 + eventScore) : (stateScore + eventScore);
