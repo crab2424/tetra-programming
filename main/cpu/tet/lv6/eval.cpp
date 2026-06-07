@@ -69,19 +69,16 @@ int evalBoardState(const Board& b, const EvalWeights& w, int upcomingT, int* out
     bool isTSDRowForBlocksOverHole[ROWS] = {false};
     uint32_t ignoreMask = 0; // 穴として数えない行のビットマスク
 
-    for (int cy = 1; cy < ROWS - 1; cy++) {
-        if (hasIWellInRow[cy]) continue;
-        for (int cx = 1; cx < COLS - 1; cx++) {
-            if (isTSDShape(b, cx, cy, heights)) {
-                isTSDRowForBlocksOverHole[cy]     = true;
-                isTSDRowForBlocksOverHole[cy + 1] = true;
-                if (maxHeight <= 10) {
-                    ignoreMask |= (1 << cy);
-                    ignoreMask |= (1 << (cy + 1));
-                }
-            }
+    // ★最適化: 全セル走査の代わりに列高さウィンドウ候補のみ評価(forEachTSDSlot)。全スロット分マークする。
+    forEachTSDSlot(b, heights, [&](int cx, int cy) {
+        if (hasIWellInRow[cy]) return;
+        isTSDRowForBlocksOverHole[cy]     = true;
+        isTSDRowForBlocksOverHole[cy + 1] = true;
+        if (maxHeight <= 10) {
+            ignoreMask |= (1 << cy);
+            ignoreMask |= (1 << (cy + 1));
         }
-    }
+    });
 
     if (maxHeight <= 10) {
         for(int x = 0; x < COLS; x++) {

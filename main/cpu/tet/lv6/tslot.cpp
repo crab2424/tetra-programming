@@ -164,13 +164,14 @@ int evalTSlotChain(Board b, int maxIter, const EvalWeights& w) {
         uint32_t cols[COLS]; int heights[COLS];
         calcHeights(b, cols, heights); // cutout で盤面が変わるため毎回算出
 
-        // 1. sky_tslot 相当（South T による開けた TSD/TSS）
-        int barCol = -1, midRow = -1, rot = 2;
-        for (int cy = 1; cy < ROWS - 1 && barCol < 0; cy++) {
-            for (int cx = 1; cx < COLS - 1; cx++) {
-                if (isTSDShape(b, cx, cy, heights)) { barCol = cx; midRow = cy; rot = 2; break; }
-            }
-        }
+        // 1. sky_tslot 相当（South T による開けた TSD/TSS）。
+        //    ★最適化: 全セル走査の代わりに列高さウィンドウ候補のみ評価(forEachTSDSlot)。
+        //    元実装(cy外/cx内ループ)と同じ「最上(min cy)・同cyなら最左(min cx)」のスロットを選ぶ。
+        int barCol = -1, midRow = ROWS, rot = 2;
+        forEachTSDSlot(b, heights, [&](int cx, int cy) {
+            if (cy < midRow || (cy == midRow && (barCol < 0 || cx < barCol))) { midRow = cy; barCol = cx; }
+        });
+        if (barCol < 0) midRow = -1;
         // 2. tst_twist（+3コーナー受理）による縦置き TST
         if (barCol < 0) {
             TSlotHit h = detectTSTSlot(b, heights);
