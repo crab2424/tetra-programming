@@ -453,6 +453,7 @@ Object.assign(Game.prototype, {
             this.mino.y++;
             this.score += 1;
             this.updateLowestY();
+            this.playSe('drop'); // ソフトドロップ音（毎マス）
             return true;
         }
         return false;

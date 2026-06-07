@@ -277,6 +277,7 @@ Object.assign(Game.prototype, {
                         this.lastActionWasRotation = false;
                         acted = true;
                         this.score += 1;
+                        this.playSe('drop'); // ソフトドロップ音（毎マス）
                         this.updateStatsDisplay();
                     }
                 } else {
@@ -293,6 +294,7 @@ Object.assign(Game.prototype, {
                             if (this.valid(0, 1)) {
                                 this.mino.y++;
                                 actuallyDropped++;
+                                this.playSe('drop'); // ソフトドロップ音（毎マス）
                             } else {
                                 break; // 途中で接地したらループを抜ける
                             }
@@ -538,6 +540,7 @@ Object.assign(Game.prototype, {
                                 this.updateLowestY()
                                 this.lastActionWasRotation = false
                                 this.score += 1
+                                this.playSe('drop') // ソフトドロップ音（毎マス）
                                 this.updateStatsDisplay()
                             }
                         }

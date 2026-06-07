@@ -447,6 +447,7 @@ window.CPU5 = class {
                     this.game.mino.y++;
                     this.game.score += 1;
                     this.game.updateLowestY();
+                    this.game.playSe('drop'); // ソフトドロップ音（毎マス）
                 }
                 break;
             case 'multiSoftDrop':
@@ -457,6 +458,7 @@ window.CPU5 = class {
                         this.game.mino.y++;
                         this.game.score += 1;
                         this.game.updateLowestY();
+                        this.game.playSe('drop'); // ソフトドロップ音（毎マス）
                         this.actionQueue.unshift(action);
                     } else {
                         action.delay = 0;
