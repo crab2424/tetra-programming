@@ -17,7 +17,7 @@ window.CPU6 = class {
 
         this.weights = {
             lineClear: 100,
-            hole: -22, 
+            hole: -220, 
             heightLimit: -560, 
             step3Plus: -20, 
             flat: 4,
@@ -66,7 +66,7 @@ window.CPU6 = class {
             P1_WEIGHT: 1.0,
         };
 
-        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=5'); // ★Phase2(T-slot先読み)でキャッシュバスト
+        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=6'); // ★生存(pick_move)対応でキャッシュバスト
         this.workerReady = false;
         this.isCalculating = false;
 
@@ -896,6 +896,8 @@ window.CPU6 = class {
 
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
+        // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。ready+unready 合計（internalは除外＝ゲージ表示と一致）
+        const incoming = this.getIncomingGarbage();
 
         // ── ★PC探索の起動判定（空盤面時のみ。ビームサーチは投げずPC結果を待つ）──
         if (!this.pcSequence && this.shouldSearchPC()) {
@@ -911,7 +913,8 @@ window.CPU6 = class {
                 next7: this.game.nextQueue[6] ? this.game.nextQueue[6].type : 0, // ★深さ8対応
                 next8: this.game.nextQueue[7] ? this.game.nextQueue[7].type : 0, // ★深さ8対応
                 canHold: this.game.canHold ? 1 : 0,
-                weightsArray, ren: currentRen, backToBack: currentBtB
+                weightsArray, ren: currentRen, backToBack: currentBtB,
+                incoming: incoming
             };
             this.requestPCSearch(mino, boardBuffer, holdType);
             if (this.pcFallbackTimer) clearTimeout(this.pcFallbackTimer);
@@ -947,8 +950,21 @@ window.CPU6 = class {
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray,
             ren: currentRen,
-            backToBack: currentBtB
+            backToBack: currentBtB,
+            incoming: incoming
         });
+    }
+
+    // ── ★着弾予定のおじゃまライン数を集計（ready=確定 + unready=猶予中。internalは除外）──
+    //   Cold Clear の pick_move 相当（生存判定）に渡す。garbage.js の updateGarbageGauge と同じ集計基準。
+    getIncomingGarbage() {
+        if (!this.game || !this.game.garbageQueue) return 0;
+        let total = 0;
+        this.game.garbageQueue.forEach(g => {
+            if (g.internal) return;
+            total += g.amount;
+        });
+        return total;
     }
 
     // ── ★キャッシュ済みデータでビームサーチを起動する ──
@@ -979,7 +995,8 @@ window.CPU6 = class {
             canHold: data.canHold,
             weightsArray: data.weightsArray,
             ren: data.ren,
-            backToBack: data.backToBack
+            backToBack: data.backToBack,
+            incoming: data.incoming || 0
         });
     }
 

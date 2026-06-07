@@ -11,15 +11,15 @@ self.Module = {
     // SearchState(~616bytes) × 320 + Placement(~92bytes) × 80 × 各ステップ = ~200KB 超のため
     // 16MB(= 256 * 64KB pages)を確保して余裕を持たせる
     INITIAL_MEMORY: 32 * 1024 * 1024, // ★深さ8/幅12対応で 16MB→32MB（コンパイル時設定と一致）
-    // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=5 を取得させる）
-    locateFile: function(path) { return path + '?v=5'; },
+    // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=6 を取得させる）
+    locateFile: function(path) { return path + '?v=6'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=5'); // ★再ビルドのキャッシュバスト
+importScripts('cpu_wasm6.js?v=6'); // ★再ビルドのキャッシュバスト
 
 let boardPtr = null;
 let resultPtr = null;
@@ -90,10 +90,11 @@ self.onmessage = function(e) {
         data.next7, // ★深さ8対応
         data.next8, // ★深さ8対応
         data.canHold,
-        weightsPtr, 
+        weightsPtr,
         resultPtr,
-        data.ren,        
-        data.backToBack  
+        data.ren,
+        data.backToBack,
+        data.incoming || 0  // ★着弾おじゃまライン数（生存判定 pick_move 用）
     );
 
     const endTime = performance.now();
