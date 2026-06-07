@@ -10,14 +10,16 @@ self.Module = {
     // ★ WasmのHEAPサイズを明示的に設定（デフォルト256KBでは SearchState の大量確保で枯渇するため）
     // SearchState(~616bytes) × 320 + Placement(~92bytes) × 80 × 各ステップ = ~200KB 超のため
     // 16MB(= 256 * 64KB pages)を確保して余裕を持たせる
-    INITIAL_MEMORY: 16 * 1024 * 1024, // 16MB
+    INITIAL_MEMORY: 32 * 1024 * 1024, // ★深さ8/幅12対応で 16MB→32MB（コンパイル時設定と一致）
+    // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=2 を取得させる）
+    locateFile: function(path) { return path + '?v=2'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
-        self.postMessage({ type: 'ready' }); 
+        self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js');
+importScripts('cpu_wasm6.js?v=2'); // ★再ビルドのキャッシュバスト
 
 let boardPtr = null;
 let resultPtr = null;
@@ -84,6 +86,9 @@ self.onmessage = function(e) {
         data.next3,
         data.next4,
         data.next5,
+        data.next6, // ★深さ8対応
+        data.next7, // ★深さ8対応
+        data.next8, // ★深さ8対応
         data.canHold,
         weightsPtr, 
         resultPtr,

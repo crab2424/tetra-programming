@@ -1047,10 +1047,10 @@ struct SearchState {
     int beam_score;
     Board board;
 
-    bool has_p[6];      
-    Placement p[6];     
-    int step_score[6];  
-    int p_id[6];        
+    bool has_p[8];      // ★深さ8対応: 6→8 に拡張
+    Placement p[8];     // ★深さ8対応: 6→8 に拡張
+    int step_score[8];  // ★深さ8対応: 6→8 に拡張
+    int p_id[8];        // ★深さ8対応: 6→8 に拡張
 
     int max_height;     
     
@@ -1068,10 +1068,10 @@ struct SearchState {
         max_height = 0;
         ren = 0;        
         backToBack = false; 
-        for(int i = 0; i < 6; ++i) { 
-            has_p[i] = false; 
-            step_score[i] = 0; 
-            p_id[i] = -1; 
+        for(int i = 0; i < 8; ++i) {  // ★深さ8対応: 6→8
+            has_p[i] = false;
+            step_score[i] = 0;
+            p_id[i] = -1;
         }
     }
 };
@@ -1165,9 +1165,11 @@ void evaluateSinglePlacementWasm(
 
 EMSCRIPTEN_KEEPALIVE
 void searchBestMoveWasm(
-    uint8_t* boardData, int currentType, int holdType, int next1, int next2, int next3, int next4, int next5, int canHold,
+    uint8_t* boardData, int currentType, int holdType, int next1, int next2, int next3, int next4, int next5,
+    int next6, int next7, int next8, // ★深さ8対応: NEXTを5→8本に拡張
+    int canHold,
     int* weightsArray, int* outResult,
-    int ren, int backToBack 
+    int ren, int backToBack
 ){
     ensurePrecalc();
     
@@ -1194,7 +1196,9 @@ void searchBestMoveWasm(
     // ★分割対応：初期盤面の評価値を evalBoardState で取得
     int baseScore = evalBoardState(baseBoard, w, &baseMaxHeight);
     
-    int next_queue[7] = { currentType, next1, next2, next3, next4, next5, 0 };
+    // ★深さ8対応: current + next1..next8 + 終端0 = 10要素
+    // （holdが空の開幕でインデックスが1ずれるため、深さ8で最大 index=8 を参照する）
+    int next_queue[10] = { currentType, next1, next2, next3, next4, next5, next6, next7, next8, 0 };
     auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; }; 
     
     // 旧：calcEventBonus は searchBestMoveWasm 内のローカルラムダとして重複スコアを加算していた。
@@ -1218,7 +1222,7 @@ void searchBestMoveWasm(
     std::vector<SearchState> next_states_N;
     std::vector<SearchState> next_states_L;
     
-    const size_t BEAM_WIDTH = 8;
+    const size_t BEAM_WIDTH = 12; // ★探索拡張: 8→12
     const int P1_WEIGHT_PCT = w.p1Weight; 
 
     final_states.reserve(128);
@@ -1381,13 +1385,13 @@ void searchBestMoveWasm(
 
     trimAndMerge();
 
-    for (int depth = 1; depth < 6; depth++) {
+    for (int depth = 1; depth < 8; depth++) { // ★探索拡張: 深さ 6→8
         int step_num = depth + 1;
         next_states_N.clear();
         next_states_L.clear();
 
         for (const auto& state : current_states) {
-            int cur_mino = state.next_idx < 6 ? next_queue[state.next_idx] : 0;
+            int cur_mino = state.next_idx < 9 ? next_queue[state.next_idx] : 0; // ★深さ8対応: 境界 6→9
             
             expandState(state, cur_mino, state.hold_mino, state.next_idx + 1, step_num, false, -1);
             
