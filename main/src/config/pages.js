@@ -8,7 +8,7 @@
 // 外部 HTML 断片のマップ（?v= はキャッシュ対策）
 const EXTERNAL_PAGES = {
   credits:   'pages/credits.html?v=1',
-  changelog: 'pages/changelog.html?v=2',
+  changelog: 'pages/changelog.html?v=4',
 };
 
 // 読み込み済みフラグ（多重 fetch 防止 / Promise を保持して重複読込を共有）

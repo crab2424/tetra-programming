@@ -5,15 +5,24 @@
   <div id="changelog-container">
 
     <div id="changelog-header">
-      <button id="changelog-back" class="menu-btn btn-secondary" onclick="switchPage('main-menu')" aria-label="BACK">
-        <span class="menu-btn-icon">◀</span>
-        <span>BACK</span>
-      </button>
-      <h1 class="changelog-title">CHANGELOG</h1>
+      <div class="changelog-title-row">
+        <h1 class="changelog-title">CHANGELOG</h1>
+        <button class="btn btn-back" onclick="switchPage(window._prevPage || 'main-menu')">◀ BACK</button>
+      </div>
       <p class="changelog-subtitle">変更履歴</p>
     </div>
 
     <div class="changelog-list">
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.1.3</span>
+          <span class="changelog-date">2026/06/07</span>
+        </div>
+        <ul class="changelog-items">
+          <li>tet cpu lv6の挙動を修正</li>
+        </ul>
+      </div>
+
       <div class="changelog-entry">
         <div class="changelog-entry-head">
           <span class="changelog-ver">v1.1.2</span>
