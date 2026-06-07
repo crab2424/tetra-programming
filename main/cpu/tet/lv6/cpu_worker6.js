@@ -11,15 +11,15 @@ self.Module = {
     // SearchState(~616bytes) × 320 + Placement(~92bytes) × 80 × 各ステップ = ~200KB 超のため
     // 16MB(= 256 * 64KB pages)を確保して余裕を持たせる
     INITIAL_MEMORY: 32 * 1024 * 1024, // ★深さ8/幅12対応で 16MB→32MB（コンパイル時設定と一致）
-    // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=2 を取得させる）
-    locateFile: function(path) { return path + '?v=2'; },
+    // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=5 を取得させる）
+    locateFile: function(path) { return path + '?v=5'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=2'); // ★再ビルドのキャッシュバスト
+importScripts('cpu_wasm6.js?v=5'); // ★再ビルドのキャッシュバスト
 
 let boardPtr = null;
 let resultPtr = null;

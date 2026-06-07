@@ -38,13 +38,14 @@ window.CPU6 = class {
             downstackGood: 120,
             downstackBad: -600,
 
-            tsdShape: 300,      
-            tsdShapeOver: -45, 
-            tsdFillBonus: 50,   
+            tSlotTsd: 3000,       // ★Phase2: 実行可能なTSD(2ライン)スロットの先読みポテンシャル（旧tsdShape[17]）
+            tSlotReady: 450,     // ★Phase2: TSDスロットは出来たが両脇未充填(建設途中)の地形ボーナス（旧tsdShapeOver[18]）
+            tSlotTss: 150,       // ★Phase2: 実行可能なTSS(1ライン)スロットの先読みポテンシャル（旧tsdFillBonus[19]）
 
-            tssClear: 256,       
-            tsdClear: 2560,      
-            tsdHolePenalty: -60, 
+            tssClear: 256,
+            tsdClear: 2560,
+            tstClear: 4000,      // ★Phase1追加：TST(3ライン T-spin)消去ボーナス。TSDより上位
+            tsdHolePenalty: -60, // ★Phase2: 現在未使用(旧TSDスコアリング廃止に伴い)。[22]の枠は保持
             pureHole: -100,         
 
             comboBonus: 20,   
@@ -62,12 +63,10 @@ window.CPU6 = class {
 
             centerDip: 100,         // ★追加：凹みが中央(列3~6)にあるとボーナス、端にあるとペナルティ
 
-            fire: 5,             // ★追加：火力評価（火力>=4で正報酬、<=3で負報酬）
-
-            P1_WEIGHT: 1.0,        
+            P1_WEIGHT: 1.0,
         };
 
-        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=2'); // ★深さ8/幅12対応でキャッシュバスト
+        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=5'); // ★Phase2(T-slot先読み)でキャッシュバスト
         this.workerReady = false;
         this.isCalculating = false;
 
@@ -769,9 +768,9 @@ window.CPU6 = class {
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
             Math.round(this.weights.P1_WEIGHT * 100), 
-            this.weights.tsdShape,                    
-            this.weights.tsdShapeOver,                
-            this.weights.tsdFillBonus,
+            this.weights.tSlotTsd,                    // [17] ★Phase2改名
+            this.weights.tSlotReady,                  // [18] ★Phase2改名
+            this.weights.tSlotTss,                    // [19] ★Phase2改名
             this.weights.tssClear,                    
             this.weights.tsdClear,                    
             this.weights.tsdHolePenalty,              
@@ -786,7 +785,7 @@ window.CPU6 = class {
             this.weights.slopeBonus,
             this.weights.slopePenalty,
             this.weights.centerDip,             // ★追加 [33]
-            this.weights.fire                   // ★追加 [34]
+            this.weights.tstClear               // ★Phase1: [34]（旧fireを置換。C++ EvalWeights.tstClear）
         ]);
 
         const currentRen = this.game.ren || 0;
@@ -873,9 +872,9 @@ window.CPU6 = class {
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
             Math.round(this.weights.P1_WEIGHT * 100),
-            this.weights.tsdShape,
-            this.weights.tsdShapeOver,
-            this.weights.tsdFillBonus,
+            this.weights.tSlotTsd,                    // [17] ★Phase2改名
+            this.weights.tSlotReady,                  // [18] ★Phase2改名
+            this.weights.tSlotTss,                    // [19] ★Phase2改名
             this.weights.tssClear,
             this.weights.tsdClear,
             this.weights.tsdHolePenalty,
@@ -890,7 +889,7 @@ window.CPU6 = class {
             this.weights.slopeBonus,
             this.weights.slopePenalty,
             this.weights.centerDip,             // ★追加 [33]
-            this.weights.fire                   // ★追加 [34]
+            this.weights.tstClear               // ★Phase1: [34]（旧fireを置換。C++ EvalWeights.tstClear）
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
