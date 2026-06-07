@@ -67,7 +67,7 @@ window.CPU6 = class {
             P1_WEIGHT: 1.0,        
         };
 
-        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js');
+        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=2'); // ★深さ8/幅12対応でキャッシュバスト
         this.workerReady = false;
         this.isCalculating = false;
 
@@ -908,6 +908,9 @@ window.CPU6 = class {
                 next3: this.game.nextQueue[2].type,
                 next4: this.game.nextQueue[3].type,
                 next5: this.game.nextQueue[4].type,
+                next6: this.game.nextQueue[5] ? this.game.nextQueue[5].type : 0, // ★深さ8対応
+                next7: this.game.nextQueue[6] ? this.game.nextQueue[6].type : 0, // ★深さ8対応
+                next8: this.game.nextQueue[7] ? this.game.nextQueue[7].type : 0, // ★深さ8対応
                 canHold: this.game.canHold ? 1 : 0,
                 weightsArray, ren: currentRen, backToBack: currentBtB
             };
@@ -939,6 +942,9 @@ window.CPU6 = class {
             next3: this.game.nextQueue[2].type,
             next4: this.game.nextQueue[3].type,
             next5: this.game.nextQueue[4].type,
+            next6: this.game.nextQueue[5] ? this.game.nextQueue[5].type : 0, // ★深さ8対応
+            next7: this.game.nextQueue[6] ? this.game.nextQueue[6].type : 0, // ★深さ8対応
+            next8: this.game.nextQueue[7] ? this.game.nextQueue[7].type : 0, // ★深さ8対応
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray,
             ren: currentRen,
@@ -968,6 +974,9 @@ window.CPU6 = class {
             next3: data.next3,
             next4: data.next4,
             next5: data.next5,
+            next6: data.next6, // ★深さ8対応
+            next7: data.next7, // ★深さ8対応
+            next8: data.next8, // ★深さ8対応
             canHold: data.canHold,
             weightsArray: data.weightsArray,
             ren: data.ren,
