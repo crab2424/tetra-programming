@@ -8,7 +8,7 @@
 // 外部 HTML 断片のマップ（?v= はキャッシュ対策）
 const EXTERNAL_PAGES = {
   credits:   'pages/credits.html?v=1',
-  changelog: 'pages/changelog.html?v=1',
+  changelog: 'pages/changelog.html?v=2',
 };
 
 // 読み込み済みフラグ（多重 fetch 防止 / Promise を保持して重複読込を共有）
@@ -59,6 +59,13 @@ function ensureExternalPage(id) {
 async function openInfoPage(id) {
   await ensureExternalPage(id);
   if (typeof switchPage === 'function') switchPage(id);
+  // 再閲覧時に前回のスクロール位置（＝下＝古い履歴）が残らないよう先頭へ戻す
+  const page = document.getElementById(id + '-page');
+  if (page) {
+    page.querySelectorAll('.changelog-list, #changelog-container').forEach((el) => {
+      el.scrollTop = 0;
+    });
+  }
 }
 
 // 起動時に先読みしておく（クリック時の待ち時間をなくす）
