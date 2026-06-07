@@ -702,6 +702,39 @@ int evalPlacementEvent(
     return score;
 }
 
+// ────────────────────────────────────────────────
+// 【生存判定用】estimateAttack
+// その1手で相手へ送る火力(=自分の着弾おじゃまを相殺できる量)を概算する。
+// src/game/tet/scoring.js の「マージン未突入」固定テーブルに準拠（厳密値ではなく生存判定用の近似）。
+//   linesCleared: 消去ライン数 / tSpinType: 0=なし 1=通常Tスピン 2=ミニ
+//   b2bBefore: 配置前のBtB状態 / renBefore: 配置前のコンボ数(=火力計算上の currentRenForGarbage)
+// ────────────────────────────────────────────────
+static inline int estimateAttack(int linesCleared, int tSpinType, bool b2bBefore, int renBefore) {
+    if (linesCleared <= 0) return 0;
+    int g = 0;
+    if (tSpinType == 1) {            // 通常Tスピン: TSS=2, TSD=4, TST=6
+        g = linesCleared * 2;
+    } else if (tSpinType == 2) {     // ミニTスピン: 基本火力0扱い
+        g = 0;
+    } else {                         // 通常消し
+        if (linesCleared == 2) g = 1;
+        else if (linesCleared == 3) g = 2;
+        else if (linesCleared == 4) g = 4;
+        // single(1ライン)は0
+    }
+    // BtBボーナス（BtB対象手をBtB中に出した場合 +1）
+    bool isB2BAction = (linesCleared >= 4) || (tSpinType == 1 && linesCleared > 0);
+    if (b2bBefore && isB2BAction) g += 1;
+    // RENボーナス（固定テーブル。renBefore=加算前のコンボ数）
+    int r = renBefore;
+    if (r == 2 || r == 3)      g += 1;
+    else if (r == 4 || r == 5) g += 2;
+    else if (r == 6 || r == 7) g += 3;
+    else if (r >= 8 && r <= 12) g += 4;
+    else if (r >= 13)          g += 5;
+    return g;
+}
+
 struct PlacementMeta {
     int rot, x, y, spawnY;
     int linesCleared;
@@ -959,10 +992,15 @@ struct SearchState {
     int step_score[8];  // ★深さ8対応: 6→8 に拡張
     int p_id[8];        // ★深さ8対応: 6→8 に拡張
 
-    int max_height;     
-    
-    int ren;        
-    bool backToBack; 
+    int max_height;
+
+    int ren;
+    bool backToBack;
+
+    // ★pick_move(生存)用：1手目を実行した直後の中央列(3,4,5)の最大高さと、その1手の攻撃量(おじゃま相殺ぶん)
+    //   着弾おじゃまincomingがある時、これらを使って「中央が天井(20)を超えないか」を判定する。
+    int first_center_h;
+    int first_attack;
 
     SearchState() {
         first_action = -1;
@@ -973,8 +1011,10 @@ struct SearchState {
         cumulative_event_score = 0;
         beam_score = 0;
         max_height = 0;
-        ren = 0;        
-        backToBack = false; 
+        ren = 0;
+        backToBack = false;
+        first_center_h = 0;
+        first_attack = 0;
         for(int i = 0; i < 8; ++i) {  // ★深さ8対応: 6→8
             has_p[i] = false;
             step_score[i] = 0;
@@ -1063,7 +1103,8 @@ void searchBestMoveWasm(
     int next6, int next7, int next8, // ★深さ8対応: NEXTを5→8本に拡張
     int canHold,
     int* weightsArray, int* outResult,
-    int ren, int backToBack
+    int ren, int backToBack,
+    int incoming // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。0なら通常選択
 ){
     ensurePrecalc();
     
@@ -1203,6 +1244,20 @@ void searchBestMoveWasm(
             if (is_first) {
                 next_s.first_action = first_action;
                 next_s.p1_score = stateScore; // ★分割対応：旧 score → stateScore に変更
+                // ★pick_move(生存)用：この1手を実行した直後(simBoard=配置+ライン消去後)の
+                //   中央列(3,4,5)の最大高さと、その1手の攻撃量を記録する。子ノードへはコピーで継承される。
+                int center_h = 0;
+                for (int cx = 3; cx <= 5; cx++) {
+                    for (int y = 0; y < ROWS; y++) {
+                        if ((simBoard.rows[y] >> cx) & 1) { // 上から最初に埋まっている行
+                            int h = ROWS - y;
+                            if (h > center_h) center_h = h;
+                            break;
+                        }
+                    }
+                }
+                next_s.first_center_h = center_h;
+                next_s.first_attack = estimateAttack(p.linesCleared, p.tSpinType, cur_btb, cur_ren);
             }
             next_s.total_score += stepScore;
             next_s.board = simBoard;
@@ -1300,6 +1355,34 @@ void searchBestMoveWasm(
             bestTotalScore = state.beam_score;
             bestState = &state;
         }
+    }
+
+    // ────────────────────────────────────────────────
+    // ★Cold Clear の pick_move 相当：着弾おじゃま(incoming)で天井(20)を超える危険があるなら、
+    //   評価値が多少落ちても「中央が埋まらない手（消去/掘り手）」を優先採用する。
+    //   - safe判定: incoming - その手の攻撃量 + 1手目後の中央列最大高さ <= 20
+    //   - safeな手が在れば、その中で beam_score 最大を採用
+    //   - 1つもsafeでなければ、攻撃量(spike)最大の手にフォールバック（同点は beam_score 優先）
+    //   incoming<=0 のときは全手safe扱い＝従来どおり beam_score 最大が選ばれる。
+    // ────────────────────────────────────────────────
+    if (incoming > 0 && bestState != nullptr) {
+        const SearchState* bestSafe = nullptr;   int bestSafeScore = -2000000000;
+        const SearchState* bestSpike = nullptr;  int bestSpikeAtk = -1; int bestSpikeScore = -2000000000;
+        for (const auto& state : final_states) {
+            bool safe = (incoming - state.first_attack + state.first_center_h <= 20);
+            if (safe && state.beam_score > bestSafeScore) {
+                bestSafeScore = state.beam_score;
+                bestSafe = &state;
+            }
+            if (state.first_attack > bestSpikeAtk ||
+                (state.first_attack == bestSpikeAtk && state.beam_score > bestSpikeScore)) {
+                bestSpikeAtk = state.first_attack;
+                bestSpikeScore = state.beam_score;
+                bestSpike = &state;
+            }
+        }
+        if (bestSafe != nullptr)       bestState = bestSafe;
+        else if (bestSpike != nullptr) bestState = bestSpike;
     }
 
     if(bestState) {
