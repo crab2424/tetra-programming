@@ -1,0 +1,417 @@
+// ─────────────────────────────────────────────
+// puyo/draw.js  ―  PuyoGame.prototype mixin
+// 描画（連鎖テキストDOM・キャンバス描画・NEXT）
+// ※ core.js（class PuyoGame 定義）より後に読み込むこと
+// ─────────────────────────────────────────────
+
+Object.assign(PuyoGame.prototype, {
+
+    _prepareChainTextDOM(groups) {
+        let bestR = -1;
+        let bestC = 999;
+        let candidates = [];
+
+        for (const group of groups) {
+            let maxR = -1;
+            let minC = 999;
+            for (const cell of group) {
+                if (cell.r > maxR) {
+                    maxR = cell.r;
+                    minC = cell.c;
+                } else if (cell.r === maxR) {
+                    if (cell.c < minC) {
+                        minC = cell.c;
+                    }
+                }
+            }
+            if (maxR > bestR) {
+                bestR = maxR;
+                bestC = minC;
+                candidates = [group];
+            } else if (maxR === bestR) {
+                if (minC < bestC) {
+                    bestC = minC;
+                    candidates = [group];
+                } else if (minC === bestC) {
+                    candidates.push(group);
+                }
+            }
+        }
+
+        const targetGroup = candidates[Math.floor(this._random() * candidates.length)];
+
+        let sumC = 0, sumR = 0;
+        for (const cell of targetGroup) {
+            sumC += cell.c;
+            sumR += cell.r;
+        }
+        const avgC = sumC / targetGroup.length;
+        const avgR = sumR / targetGroup.length;
+
+        const targetC = avgC - 1;
+        const targetR = avgR + 1;
+
+        const logicalX = (targetC + 0.5) * PConfig.cellSize;
+        const logicalY = (targetR - PConfig.hiddenRows + 0.5) * PConfig.cellSize;
+
+        if (!this.canvas) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const scaleX = rect.width / (PConfig.cols * PConfig.cellSize);
+        const scaleY = rect.height / (PConfig.rows * PConfig.cellSize);
+
+        const finalX = logicalX * scaleX;
+        const finalY = logicalY * scaleY;
+
+        this._clearChainTextDOM();
+
+        const el = document.createElement('div');
+        el.style.position = 'absolute';
+
+        const pageX = rect.left + window.scrollX + finalX;
+        const pageY = rect.top + window.scrollY + finalY;
+
+        el.style.left = pageX + 'px';
+        el.style.top = pageY + 'px';
+        el.style.transform = 'translate(-50%, -50%)';
+        el.style.pointerEvents = 'none';
+        el.style.zIndex = '9999';
+        el.style.whiteSpace = 'nowrap';
+        el.style.display = 'flex';
+        el.style.alignItems = 'baseline';
+        el.style.justifyContent = 'center';
+
+        const numSize = 48;
+        const chainSize = 24;
+
+        el.innerHTML = `
+            <span style="font-family: 'Orbitron', monospace; font-size: ${numSize}px; font-weight: bold; color: #ff8c00; text-shadow: 0 0 4px #fff, 0 0 8px rgba(255,140,0,0.8); -webkit-text-stroke: 1.5px #fff; line-height: 1;">
+                ${this.chainCount}
+            </span>
+            <span style="font-family: 'Orbitron', monospace; font-size: ${chainSize}px; font-weight: bold; color: #ff8c00; text-shadow: 0 0 4px #fff, 0 0 8px rgba(255,140,0,0.8); -webkit-text-stroke: 1px #fff; margin-left: 6px; line-height: 1;">
+                CHAIN
+            </span>
+        `;
+
+        document.body.appendChild(el);
+
+        this.chainTextInfo = {
+            el: el,
+            baseY: pageY
+        };
+    },
+
+    _clearChainTextDOM() {
+        if (this.chainTextInfo && this.chainTextInfo.el) {
+            if (this.chainTextInfo.el.parentNode) {
+                this.chainTextInfo.el.parentNode.removeChild(this.chainTextInfo.el);
+            }
+        }
+        this.chainTextInfo = null;
+    },
+
+    _clearYokokuDOM() {
+        // ★ おじゃま予告コンテナの中身を空にする
+        // ゲーム停止・ルール切り替え時に残像が残らないようにする
+        if (this.yokokuContainer) {
+            this.yokokuContainer.innerHTML = '';
+        }
+        // ★ DOMを空にしたので差分更新キャッシュも無効化（次回の_updateOjamaYokokuで確実に再構築させる）
+        this._lastYokokuAmount = -1;
+    },
+
+    // ══════════════════════════════════════════════
+    // 描画・その他
+    // ══════════════════════════════════════════════
+
+    _render() {
+        if (!this.ctx) return;
+        const ctx = this.ctx;
+        const W = this.canvas.width;
+        const H = this.canvas.height;
+
+        ctx.clearRect(0, 0, W, H);
+
+        ctx.fillStyle = '#0a0a0f';
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.save();
+
+        const logicalW = PConfig.cols * PConfig.cellSize;
+        const logicalH = PConfig.rows * PConfig.cellSize;
+        ctx.scale(W / logicalW, H / logicalH);
+
+        const cs = PConfig.cellSize;
+
+        const deadX = 2 * cs;
+        const deadY = 0 * cs;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 80, 80, 0.7)';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        const pad = 6;
+        ctx.moveTo(deadX + pad, deadY + pad);
+        ctx.lineTo(deadX + cs - pad, deadY + cs - pad);
+        ctx.moveTo(deadX + cs - pad, deadY + pad);
+        ctx.lineTo(deadX + pad, deadY + cs - pad);
+        ctx.stroke();
+        ctx.restore();
+
+        let ghostEraseInfo = null;
+        if (this._gs === 'falling') {
+            ghostEraseInfo = this._getGhostEraseInfo();
+        }
+
+        for (let r = 0; r < PConfig.rows; r++) {
+            for (let c = 0; c < PConfig.cols; c++) {
+                const fr = r + PConfig.hiddenRows;
+                const color = this.field[fr][c];
+                if (color === 0) continue;
+
+                let flashType = 0;
+
+                if (this._erasingCells) {
+                    const isErasing = this._erasingCells.some(ec => ec.r === fr && ec.c === c);
+                    if (isErasing) {
+                        if (Math.floor(this._eraseTimer / 66.68) % 2 === 1) continue;
+                    }
+                }
+                else if (ghostEraseInfo && ghostEraseInfo.cells.length > 0) {
+                    if (ghostEraseInfo.cells.some(ec => ec.r === fr && ec.c === c)) {
+                        // ★ ゴースト時、おじゃまぷよ(color===6)は白光りさせない
+                        if (color !== 6) {
+                            flashType = 2;
+                        }
+                    }
+                }
+
+                const animState = this.activeAnims.find(a => a.fr === fr && a.c === c);
+                // ★ 振動アニメ中（animState あり）は連結画像を無効にする
+                const isVibrating = !!animState;
+                const connectInfo = this._getConnectImageInfo(c, r, color, isVibrating);
+                this._drawPuyo(ctx, c * cs, r * cs, color, cs, flashType, animState, connectInfo);
+            }
+        }
+
+        if (this._dropAnim) {
+            for (const col of this._dropAnim) {
+                for (const cell of col.cells) {
+                    // ★ _getDropConnectImageInfoで連結情報を取得する
+                    const connectInfo = this._getDropConnectImageInfo(col.c, cell.fromR, cell.color);
+                    this._drawPuyo(ctx, col.c * cs, cell.py, cell.color, cs, 0, null, connectInfo);
+                }
+            }
+        }
+
+        if (this._gs === 'falling') {
+            const targetDC = [0, 1, 0, -1];
+            const targetDR = [-1, 0, 1, 0];
+            const childCol = this.pivotX + targetDC[this.targetRot];
+
+            let ghostPivotY, ghostChildY;
+            if (this.targetRot === 0) {
+                ghostPivotY = this._calcLimitY_Single(this.pivotX, this.pivotY);
+                ghostChildY = ghostPivotY - 1;
+            } else if (this.targetRot === 2) {
+                ghostChildY = this._calcLimitY_Single(this.pivotX, this.pivotY + 1);
+                ghostPivotY = ghostChildY - 1;
+            } else {
+                ghostPivotY = this._calcLimitY_Single(this.pivotX, this.pivotY);
+                ghostChildY = this._calcLimitY_Single(childCol, this.pivotY);
+            }
+
+            ctx.globalAlpha = 0.22;
+            this._drawPuyo(ctx, this.pivotX * cs, ghostPivotY * cs, this.pivotColor, cs, 0);
+            this._drawPuyo(ctx, childCol * cs, ghostChildY * cs, this.childColor, cs, 0);
+            ctx.globalAlpha = 1.0;
+
+            const angle = -Math.PI / 2 + this.animRot * (Math.PI / 2);
+            const childOffsetX = Math.cos(angle);
+            const childOffsetY = Math.sin(angle);
+
+            const px = this.pivotX * cs;
+            const py = this.pivotY * cs;
+            const cx = px + childOffsetX * cs;
+            const cy = py + childOffsetY * cs;
+
+            const limitY = this._calcLimitY(this.pivotX, this.pivotY, this.targetRot);
+            const isFloating = (this.pivotY < limitY);
+
+            let pivotFlash = isFloating ? 1 : 0;
+
+            this._drawPuyo(ctx, px, py, this.pivotColor, cs, pivotFlash);
+            this._drawPuyo(ctx, cx, cy, this.childColor, cs, 0);
+        }
+
+        if (this.splitPuyo && this._gs === 'splitting') {
+            this._drawPuyo(ctx, this.splitPuyo.col * cs, this.splitPuyo.y * cs, this.splitPuyo.color, cs, 0);
+        }
+
+        ctx.restore();
+
+        if (this._gs === 'eraseWait' && this.chainTextInfo && this.chainTextInfo.el) {
+            const remaining = PConfig.eraseWaitMs - this.eraseWaitTimer;
+            const alpha = Math.max(0, Math.min(1, remaining / 150));
+
+            const progress = this.eraseWaitTimer / PConfig.eraseWaitMs;
+            const slideY = -12 * progress;
+
+            this.chainTextInfo.el.style.opacity = alpha;
+            this.chainTextInfo.el.style.top = (this.chainTextInfo.baseY + slideY) + 'px';
+        }
+
+        // ★ ALL CLEAR 永続表示
+        if (this.isAllClear) {
+            ctx.save();
+            // 時間経過でアルファ値を少し揺らす (0.85 〜 1.0)
+            const alpha = 0.85 + 0.15 * Math.sin(this.elapsed / 150);
+            ctx.globalAlpha = alpha;
+            ctx.font = 'bold 26px "Orbitron", monospace';
+            ctx.fillStyle = '#ffea00';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(255,234,0,1)';
+            ctx.shadowBlur = 15;
+
+            // 少しだけ黒縁をつけて見やすくする
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 4;
+            ctx.strokeText('ALL CLEAR', W / 2, H / 3);
+            ctx.fillText('ALL CLEAR', W / 2, H / 3);
+            ctx.restore();
+        }
+
+        this._renderNext();
+    },
+
+    /**
+     * ぷよ1個を描画する。
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} x - 描画左上X（論理座標）
+     * @param {number} y - 描画左上Y（論理座標）
+     * @param {number} color - ぷよ色（1〜6）
+     * @param {number} size - セルサイズ
+     * @param {number} flashType - 0:なし 1:操作中光り 2:消去予告光り
+     * @param {object|null} animState - 振動アニメ状態
+     * @param {{ key: string, angle: number }|null} connectInfo - ★ 連結画像情報（null=通常画像）
+     */
+    _drawPuyo(ctx, x, y, color, size, flashType = 0, animState = null, connectInfo = null) {
+        const imageIndex = color - 1;
+        const key = 'puyo-' + imageIndex;
+        const img = this._images[key];
+
+        ctx.save();
+
+        // ── 振動アニメによるスケール変換 ──
+        let cx = x + size / 2;
+        let cy = y + size;
+
+        let scaleX = 1;
+        let scaleY = 1;
+
+        if (animState) {
+            let phase = Math.floor(animState.timer / PConfig.vibPhaseMs) % 4;
+            if (phase === 0) scaleX = 0.8;
+            else if (phase === 2) scaleY = 0.8;
+        }
+
+        ctx.translate(cx, cy);
+        ctx.scale(scaleX, scaleY);
+        ctx.translate(-cx, -cy);
+
+        // ★ サブピクセルレンダリングによる隙間（1pxの境界線）を埋めるためのオーバーラップ値
+        // 論理座標(32px)に対して少し広げて描画することで、物理座標での小数の丸め誤差による隙間を重ね合わせて消す
+        const overlap = 0.6;
+        const dx = x - overlap / 2;
+        const dy = y - overlap / 2;
+        const dw = size + overlap;
+        const dh = size + overlap;
+
+        // ── 画像描画（連結あり / なし の分岐） ──
+        if (connectInfo) {
+            // ★ 連結画像：angle ラジアン分だけセル中心を軸に時計回り回転して描画
+            const connectImg = this._images[connectInfo.key];
+            if (connectImg && connectImg.complete && connectImg.naturalWidth > 0) {
+                // 連結画像を回転して描画（セル中心を回転軸とする）
+                const centerX = x + size / 2;
+                const centerY = y + size / 2;
+                ctx.translate(centerX, centerY);
+                ctx.rotate(connectInfo.angle);
+                ctx.translate(-centerX, -centerY);
+                ctx.drawImage(connectImg, dx, dy, dw, dh);
+            } else if (img && img.complete && img.naturalWidth > 0) {
+                // 連結画像が未ロードの場合は通常画像にフォールバック
+                ctx.drawImage(img, dx, dy, dw, dh);
+            }
+        } else if (img && img.complete && img.naturalWidth > 0) {
+            ctx.drawImage(img, dx, dy, dw, dh);
+        }
+
+        // ── フラッシュエフェクト ──
+        if (flashType > 0) {
+            const isErase = (flashType === 2);
+            const speed = isErase ? 40 : 60;
+            const maxAlpha = isErase ? 0.85 : 0.7;
+            const alpha = (Math.sin(this.elapsed / speed) + 1) / 2 * maxAlpha;
+
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.beginPath();
+            // エフェクトの中心とサイズは元のサイズのままでOK
+            ctx.arc(x + size * 0.5, y + size * 0.5, size * 0.45, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    },
+
+    _renderNext() {
+        if (!this.nextCtx || this.nextQueue.length === 0) return;
+        const ctx = this.nextCtx;
+        const W = this.nextCanvas.width;
+        const H = this.nextCanvas.height;
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = '#0a0a0f';
+        ctx.fillRect(0, 0, W, H);
+
+        const drawCs = 42;
+        const offsetX = (W - drawCs) / 2;
+
+        ctx.save();
+
+        let offsetY = 0;
+        let showThree = false;
+        const shiftDist = drawCs * 2.5;
+
+        if (this._gs === 'spawnAnim') {
+            const progress = Math.min(1, this.spawnAnimTimer / PConfig.spawnAnimMs);
+            offsetY = -shiftDist * progress;
+            showThree = true;
+        }
+
+        const next1 = this.nextQueue[0];
+        if (next1) {
+            this._drawPuyo(ctx, offsetX, 20 + offsetY, next1[1], drawCs, 0);
+            this._drawPuyo(ctx, offsetX, 20 + drawCs + offsetY, next1[0], drawCs, 0);
+        }
+
+        const next2 = this.nextQueue[1];
+        if (next2) {
+            this._drawPuyo(ctx, offsetX, 20 + drawCs * 2.5 + offsetY, next2[1], drawCs, 0);
+            this._drawPuyo(ctx, offsetX, 20 + drawCs * 3.5 + offsetY, next2[0], drawCs, 0);
+        }
+
+        if (showThree) {
+            const next3 = this.nextQueue[2];
+            if (next3) {
+                this._drawPuyo(ctx, offsetX, 20 + drawCs * 5.0 + offsetY, next3[1], drawCs, 0);
+                this._drawPuyo(ctx, offsetX, 20 + drawCs * 6.0 + offsetY, next3[0], drawCs, 0);
+            }
+        }
+
+        ctx.restore();
+    },
+});
