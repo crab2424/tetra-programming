@@ -1,7 +1,11 @@
 // Phase2 T-slot 幾何の単体テスト（ネイティブ実行）
-// build: g++ -std=c++17 -O2 test_tslot.cpp -o /tmp/test_tslot && /tmp/test_tslot
+// build: g++ -std=c++17 -O2 test_tslot.cpp common.cpp board.cpp tslot.cpp -o /tmp/test_tslot && /tmp/test_tslot
 #include <cstdio>
-#include "cpu6.cpp"
+#include <initializer_list>
+#include "common.h"
+#include "board.h"
+#include "weights.h"
+#include "tslot.h"
 
 static int g_pass = 0, g_fail = 0;
 static void check(const char* name, int got, int want) {

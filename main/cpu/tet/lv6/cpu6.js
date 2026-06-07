@@ -53,7 +53,7 @@ window.CPU6 = class {
             renCutPenalty: -200,
 
             tsmMiniPenalty: -100,      
-            tMinoNoClearPenalty: -160, 
+            tMinoNoClearPenalty: -200, 
 
             tsdSetup: 100,         
             tsdSetupOver: -400,   
@@ -63,10 +63,12 @@ window.CPU6 = class {
 
             centerDip: 100,         // ★追加：凹みが中央(列3~6)にあるとボーナス、端にあるとペナルティ
 
+            b2bHold: 150,           // ★追加[35]：配置後もBtBを保持している盤面への静的ボーナス（CC back_to_back相当）
+
             P1_WEIGHT: 1.0,
         };
 
-        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=6'); // ★生存(pick_move)対応でキャッシュバスト
+        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=8'); // ★v=8: C++分割+fltoで再ビルド（importセット変更につき更新）
         this.workerReady = false;
         this.isCalculating = false;
 
@@ -785,12 +787,13 @@ window.CPU6 = class {
             this.weights.slopeBonus,
             this.weights.slopePenalty,
             this.weights.centerDip,             // ★追加 [33]
-            this.weights.tstClear               // ★Phase1: [34]（旧fireを置換。C++ EvalWeights.tstClear）
+            this.weights.tstClear,              // ★Phase1: [34]（旧fireを置換。C++ EvalWeights.tstClear）
+            this.weights.b2bHold                // ★追加 [35]
         ]);
 
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
-        
+
         let tSpinType = this.checkTSpinAt(x, y, rot);
 
         this.worker.postMessage({
@@ -889,7 +892,8 @@ window.CPU6 = class {
             this.weights.slopeBonus,
             this.weights.slopePenalty,
             this.weights.centerDip,             // ★追加 [33]
-            this.weights.tstClear               // ★Phase1: [34]（旧fireを置換。C++ EvalWeights.tstClear）
+            this.weights.tstClear,              // ★Phase1: [34]（旧fireを置換。C++ EvalWeights.tstClear）
+            this.weights.b2bHold                // ★追加 [35]
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
