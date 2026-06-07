@@ -38,8 +38,8 @@ window.CPU6 = class {
             downstackGood: 120,
             downstackBad: -600,
 
-            tSlotTsd: 3000,       // ★Phase2: 実行可能なTSD(2ライン)スロットの先読みポテンシャル（旧tsdShape[17]）
-            tSlotReady: 450,     // ★Phase2: TSDスロットは出来たが両脇未充填(建設途中)の地形ボーナス（旧tsdShapeOver[18]）
+            tSlotTsd: 2000,       // ★Phase2: 実行可能なTSD(2ライン)スロットの先読みポテンシャル（旧tsdShape[17]）
+            tSlotReady: 750,     // ★Phase2: TSDスロットは出来たが両脇未充填(建設途中)の地形ボーナス（旧tsdShapeOver[18]）
             tSlotTss: 150,       // ★Phase2: 実行可能なTSS(1ライン)スロットの先読みポテンシャル（旧tsdFillBonus[19]）
 
             tssClear: 256,
@@ -65,7 +65,7 @@ window.CPU6 = class {
 
             b2bHold: 150,           // ★追加[35]：配置後もBtBを保持している盤面への静的ボーナス（CC back_to_back相当）
 
-            tSlotTst: 5000,          // ★Phase3追加[36]：T-slot先読みでTST(3ライン)スロット発見時の加点（CC tslot[3]相当・暫定/要チューニング）
+            tSlotTst: 3000,          // ★Phase3追加[36]：T-slot先読みでTST(3ライン)スロット発見時の加点（CC tslot[3]相当・暫定/要チューニング）
 
             P1_WEIGHT: 1.0,
         };
