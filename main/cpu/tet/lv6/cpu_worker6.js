@@ -11,16 +11,16 @@ self.Module = {
     // SearchState(~616bytes) × 320 + Placement(~92bytes) × 80 × 各ステップ = ~200KB 超のため
     // 16MB(= 256 * 64KB pages)を確保して余裕を持たせる
     INITIAL_MEMORY: 32 * 1024 * 1024, // ★深さ8/幅12対応で 16MB→32MB（コンパイル時設定と一致）
-    // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=9 を取得させる）
+    // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=10 を取得させる）
     //   ★v=8: C++をファイル分割＋-fltoで再ビルド。importセットが変わったのでグルーjsとwasmを揃えて更新。
-    locateFile: function(path) { return path + '?v=9'; },
+    locateFile: function(path) { return path + '?v=11'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=9'); // ★再ビルドのキャッシュバスト（Phase3 TST/FIN, v=9）
+importScripts('cpu_wasm6.js?v=11'); // ★再ビルドのキャッシュバスト（探索幅12→48, v=11）
 
 let boardPtr = null;
 let resultPtr = null;

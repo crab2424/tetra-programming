@@ -203,13 +203,13 @@ void searchBestMoveWasm(
     std::vector<SearchState> next_states_N;
     std::vector<SearchState> next_states_L;
 
-    const size_t BEAM_WIDTH = 12; // ★探索拡張: 8→12
+    const size_t BEAM_WIDTH = 24; // ★探索拡張: 8→12→48（TST能動化のため幅優先、予算〜100ms/手）
     const int P1_WEIGHT_PCT = w.p1Weight;
 
     final_states.reserve(128);
     current_states.reserve(BEAM_WIDTH * 2);
-    next_states_N.reserve(1024);
-    next_states_L.reserve(1024);
+    next_states_N.reserve(2048);
+    next_states_L.reserve(2048);
 
     auto expandState = [&](const SearchState& s, int piece, int new_hold, int new_next_idx, int step_num, bool is_first, int first_action) -> int {
         std::vector<Placement> p_list = getAllPlacements(is_first ? baseBoard : s.board, piece, getSpawnY(piece));
