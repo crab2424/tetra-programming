@@ -2693,7 +2693,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   width: 100%;
   max-width: 520px;
   max-height: 84vh;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 40px 32px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
@@ -2701,8 +2701,24 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 #changelog-header {
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
   margin-bottom: 4px;
+  flex-shrink: 0;
+}
+
+#changelog-header .changelog-title-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+#changelog-header .btn-back {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .changelog-title {
@@ -2729,6 +2745,10 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .changelog-entry {
@@ -2774,11 +2794,3 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--text);
 }
 
-#changelog-buttons {
-  margin-top: 4px;
-  width: 100%;
-}
-
-#changelog-buttons .menu-btn {
-  width: 100%;
-}
