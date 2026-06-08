@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png">
   
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="src/styles/style.css?v=35">
+    <link rel="stylesheet" href="src/styles/style.css?v=36">
     <link rel="stylesheet" href="src/styles/anime.css?v=2">
   </head>
   <body>
@@ -293,8 +293,8 @@
             <canvas id="player-hold-canvas"></canvas>
 
             <!-- PUYO Canvas -->
-            <canvas id="player-puyo-main-canvas" style="display:none; border:2px solid var(--border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
-            <canvas id="player-puyo-next-canvas" style="display:none; position:absolute; top:0; left:352px; border:2px solid var(--border); border-radius:2px; height: 259px;"></canvas>
+            <canvas id="player-puyo-main-canvas" style="display:none; border:3px solid var(--field-border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
+            <canvas id="player-puyo-next-canvas" style="display:none; position:absolute; top:0; left:352px; border:2px solid var(--field-border); border-radius:2px; height: 259px;"></canvas>
 
             <div id="player-action-label-container"></div>
             <div id="player-countdown-overlay" class="field-overlay countdown-overlay">
@@ -346,8 +346,8 @@
             <canvas id="cpu-hold-canvas"></canvas>
 
             <!-- PUYO Canvas -->
-            <canvas id="cpu-puyo-main-canvas" style="display:none; border:2px solid var(--border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
-            <canvas id="cpu-puyo-next-canvas" style="display:none; position:absolute; top:0; left:352px; border:2px solid var(--border); border-radius:2px; height: 259px;"></canvas>
+            <canvas id="cpu-puyo-main-canvas" style="display:none; border:3px solid var(--field-border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
+            <canvas id="cpu-puyo-next-canvas" style="display:none; position:absolute; top:0; left:352px; border:2px solid var(--field-border); border-radius:2px; height: 259px;"></canvas>
 
             <div id="cpu-action-label-container"></div>
             <div id="cpu-countdown-overlay" class="field-overlay countdown-overlay">
@@ -524,7 +524,7 @@
           </div>
         </div>
         <canvas id="main-canvas"></canvas>
-        <canvas id="puyo-main-canvas" style="display:none; border:2px solid var(--border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
+        <canvas id="puyo-main-canvas" style="display:none; border:3px solid var(--field-border); border-radius:2px; box-shadow:0 0 24px rgba(196,113,245,0.2);"></canvas>
         <div id="action-label-container"></div>
         <div id="countdown-overlay" class="field-overlay countdown-overlay">
           <span id="countdown-text" class="countdown-text"></span>
@@ -534,7 +534,7 @@
         </div>
         <span class="area-label" id="label-next">NEXT</span>
         <canvas id="next-canvas"></canvas>
-        <canvas id="puyo-next-canvas" style="display:none; position:absolute; top:0; left:352px; border:2px solid var(--border); border-radius:2px;"></canvas>
+        <canvas id="puyo-next-canvas" style="display:none; position:absolute; top:0; left:352px; border:2px solid var(--field-border); border-radius:2px;"></canvas>
         <span class="area-label" id="label-hold">HOLD</span>
         <canvas id="hold-canvas"></canvas>
         <div id="level-area">
@@ -735,6 +735,6 @@
     <script src="src/app/modes.js?v=2"></script>
     <script src="src/app/cpu_loader.js?v=2"></script>
     <script src="src/app/versus.js?v=1"></script>
-    <script src="src/app/navigation.js?v=4"></script>
+    <script src="src/app/navigation.js?v=5"></script>
   </body>
 </html>
