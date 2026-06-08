@@ -7,6 +7,7 @@
   --bg: #0a0a0f;
   --panel-bg: #12121a;
   --border: #2a2a3a;
+  --field-border: #6f6f95;
   --accent: #c471f5;
   --accent2: #fa71cd;
   --accent3: #71c5f5;
@@ -1060,7 +1061,7 @@ h1 {
   position: absolute;
   top: 0;
   left: 352px;
-  border: 2px solid var(--border);
+  border: 2px solid var(--field-border);
   border-radius: 2px;
 }
 #versus-player-container canvas#player-hold-canvas,
@@ -1068,13 +1069,13 @@ h1 {
   position: absolute;
   top: 0;
   left: -160px;
-  border: 2px solid var(--border);
+  border: 2px solid var(--field-border);
   border-radius: 2px;
 }
 
 #player-main-canvas,
 #cpu-main-canvas {
-  border: 2px solid var(--border);
+  border: 3px solid var(--field-border);
   border-radius: 2px;
   box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
   image-rendering: pixelated;
@@ -1083,7 +1084,7 @@ h1 {
 /* PUYO 対戦用Canvas */
 #player-puyo-main-canvas,
 #cpu-puyo-main-canvas {
-  border: 2px solid var(--border);
+  border: 3px solid var(--field-border);
   border-radius: 2px;
   box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
   image-rendering: pixelated;
@@ -1093,7 +1094,7 @@ h1 {
   position: absolute;
   top: 0;
   left: 352px;
-  border: 2px solid var(--border);
+  border: 2px solid var(--field-border);
   border-radius: 2px;
   image-rendering: pixelated;
   height: 259px;
@@ -1563,7 +1564,7 @@ canvas {
 }
 
 #main-canvas {
-  border: 2px solid var(--border);
+  border: 3px solid var(--field-border);
   border-radius: 2px;
   box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
 }
@@ -1571,7 +1572,7 @@ canvas {
 #next-canvas,
 #hold-canvas {
   position: absolute;
-  border: 2px solid var(--border);
+  border: 2px solid var(--field-border);
   border-radius: 2px;
 }
 #next-canvas {
@@ -2188,7 +2189,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   position: absolute;
   top: 0;
   left: 0;
-  border: 2px solid var(--border);
+  border: 3px solid var(--field-border);
   border-radius: 2px;
   box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
   image-rendering: pixelated;
@@ -2197,7 +2198,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   position: absolute;
   top: 0;
   left: 352px;
-  border: 2px solid var(--border);
+  border: 2px solid var(--field-border);
   border-radius: 2px;
   image-rendering: pixelated;
   height: 259px;
