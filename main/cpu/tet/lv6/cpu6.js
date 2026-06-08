@@ -65,15 +65,15 @@ window.CPU6 = class {
 
             b2bHold: 150,           // ★追加[35]：配置後もBtBを保持している盤面への静的ボーナス（CC back_to_back相当）
 
-            tSlotTst: 2000,          // ★Phase3追加[36]：T-slot先読みでTST(3ライン)スロット発見時の加点（CC tslot[3]相当・暫定/要チューニング）
+            tSlotTst: 8000,          // ★Phase3追加[36]：T-slot先読みでTST(3ライン)スロット発見時の加点（CC tslot[3]相当・暫定/要チューニング）
 
             tSlotReadyFin: 10,      // ★追加[37]：fin スロットの建設途中(0ライン)加点。tSlotReady[18](sky/TSD用)から分離（初期値は従来同値）
-            tSlotReadyTst: 1000,     // ★追加[38]：tst_twist スロットの建設途中(0ライン)加点。TST能動化のため tSlotReady より高めに設定（暫定/要チューニング）
+            tSlotReadyTst: 6000,     // ★追加[38]：tst_twist スロットの建設途中(0ライン)加点。TST能動化のため tSlotReady より高めに設定（暫定/要チューニング）
 
             P1_WEIGHT: 1.0,
         };
 
-        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=13'); // ★v=13: tSlotReady 3分割追加で再ビルド
+        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=14'); // ★v=14: TST建設途中をtComingゲートで再ビルド
         this.workerReady = false;
         this.isCalculating = false;
 
