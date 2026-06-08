@@ -13,7 +13,9 @@ function loadCpuScript(level, rule) {
 
     //  開発中のCPUスクリプトは毎回キャッシュをバイパスして再読み込みする
     // （他のCPUスクリプトは従来通りキャッシュを利用）
-    const isDevCpu = (config.className === 'PuyoCPU4');
+    // ここに登録したクラスは評価係数を変えるたび ?v=Date.now() で必ず最新が反映される
+    const DEV_CPU_CLASSES = ['PuyoCPU4', 'CPU6'];
+    const isDevCpu = DEV_CPU_CLASSES.includes(config.className);
 
     if (!isDevCpu && activeCpuClassName === config.className && window[config.className]) {
       return resolve(window[config.className]);
@@ -23,7 +25,8 @@ function loadCpuScript(level, rule) {
 
     const script = document.createElement('script');
     // ★ 開発中のみタイムスタンプをクエリパラメータとして付与し、ブラウザキャッシュを無効化
-    script.src = isDevCpu ? `${config.src}?v=${Date.now()}` : config.src;
+    //   （src に既存の ?v=… が付いていても剥がしてから付与し、?が二重にならないようにする）
+    script.src = isDevCpu ? `${config.src.split('?')[0]}?v=${Date.now()}` : config.src;
     script.id = `dynamic-cpu-script`;
     
     script.onload = () => {
