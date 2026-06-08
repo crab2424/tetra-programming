@@ -7,10 +7,11 @@
 set -e
 cd "$(dirname "$0")"
 SRCS="common.cpp board.cpp tslot.cpp eval.cpp placement.cpp cpu6.cpp"
-emcc $SRCS -o cpu_wasm6.js \
+# 成果物（グルーjs/.wasm）は隣の wasm/ に出力する（cpu_worker6.js と同居させるため）。
+emcc $SRCS -o ../wasm/cpu_wasm6.js \
   -O3 -flto -s WASM=1 \
   -s EXPORTED_FUNCTIONS='["_my_malloc","_my_free","_searchBestMoveWasm","_evaluateSinglePlacementWasm"]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","HEAP32"]' \
   -s ALLOW_MEMORY_GROWTH=0 \
   -s INITIAL_MEMORY=33554432
-echo "✅ build done: cpu_wasm6.js / cpu_wasm6.wasm"
+echo "✅ build done: ../wasm/cpu_wasm6.js / ../wasm/cpu_wasm6.wasm"
