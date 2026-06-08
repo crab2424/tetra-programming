@@ -189,7 +189,9 @@ int evalBoardState(const Board& b, const EvalWeights& w, int upcomingT, int* out
     int effUpcomingT = std::max(upcomingT, 1);
     int tSlotCap = std::min(effUpcomingT, 2);
     if (tSlotCap >= 1) {
-        int rawTSlot = evalTSlotChain(b, tSlotCap, w);
+        // tComing は「生の upcomingT>=1」（クランプ前）。TST/FIN の建設途中加点は実際にTが来る時だけ有効化。
+        //   tSlotCap 自体は effUpcomingT(下限1)を使うため TSD土台の常時建設誘導は維持される。
+        int rawTSlot = evalTSlotChain(b, tSlotCap, w, upcomingT >= 1);
         int dirtPenalty = holes * 10 + totalBlocksOverLowestHole * 4;
         int tsdFactor = std::max(10, 100 - dirtPenalty);
         score += rawTSlot * tsdFactor / 100;

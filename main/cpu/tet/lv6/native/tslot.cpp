@@ -158,7 +158,7 @@ TSlotHit detectFINSlot(const Board& b, const int heights[COLS]) {
 //   1ライン = TSS 実行可能 → tSlotTss 加点して終了（TSS後の連鎖は稀なため打ち切り）
 //   2ライン = TSD 実行可能 → tSlotTsd 加点し、消去後盤面で次のTへ継続
 //   3ライン = TST 実行可能 → tSlotTst 加点し、消去後盤面で次のTへ継続（CC: Tspin3 で Some(board) 継続）
-int evalTSlotChain(Board b, int maxIter, const EvalWeights& w) {
+int evalTSlotChain(Board b, int maxIter, const EvalWeights& w, bool tComing) {
     int score = 0;
     for (int iter = 0; iter < maxIter; iter++) {
         uint32_t cols[COLS]; int heights[COLS];
@@ -190,9 +190,13 @@ int evalTSlotChain(Board b, int maxIter, const EvalWeights& w) {
         else if (lines == 2) { score += w.tSlotTsd; continue; } // TSD：消去後盤面で次へ
         else if (lines == 1) { score += w.tSlotTss; break; }    // TSS
         else {                                                   // 建設途中（まだ消えない）：スロット種別ごとに加点を分離
-            score += (slotType == 1) ? w.tSlotReadyTst
-                   : (slotType == 2) ? w.tSlotReadyFin
-                                     : w.tSlotReady;             // slotType==0: sky/TSD
+            // ★TST/FIN の建設途中加点は「実際にTが来る(tComing)」時のみ有効化。
+            //   Tが来ないのに投機的にオーバーハングを建てて地形を崩すのを防ぐ。sky/TSDは従来通り常時。
+            int readyW;
+            if (slotType == 1)      readyW = tComing ? w.tSlotReadyTst : 0;
+            else if (slotType == 2) readyW = tComing ? w.tSlotReadyFin : 0;
+            else                    readyW = w.tSlotReady;        // slotType==0: sky/TSD
+            score += readyW;
             break;
         }
     }

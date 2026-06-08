@@ -1,5 +1,5 @@
 // Phase2 T-slot 幾何の単体テスト（ネイティブ実行）
-// build: g++ -std=c++17 -O2 test_tslot.cpp common.cpp board.cpp tslot.cpp -o /tmp/test_tslot && /tmp/test_tslot
+// build (native/test/ から実行): g++ -std=c++17 -O2 -I.. test_tslot.cpp ../common.cpp ../board.cpp ../tslot.cpp -o /tmp/test_tslot && /tmp/test_tslot
 #include <cstdio>
 #include <cstdlib>
 #include <initializer_list>
