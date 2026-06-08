@@ -1038,6 +1038,8 @@ window.CPU6 = class {
     //   存在する必要がある。満たす N が無い盤面は確実にPC不可能なので高価なソルバを起動しない。
     //   （B が奇数のときは 4N が常に偶数のため B+4N も奇数 → どの N でも不成立 → 早期に弾かれる）
     shouldSearchPC() {
+        // ★隠しトグル: 起動時に Digit7 で立てたフラグが真ならPC探索を全面停止（通常ビームのみ）
+        if (window.__cpu6DisablePC) return false;
         if (!this.pcWorkerReady) return false;
         const B = this.game.field.blocks.length;
         if (B === 0) return true;

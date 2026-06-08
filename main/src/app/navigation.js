@@ -971,11 +971,14 @@ function handlePauseAction(action) {
 // versus-check または mode-check(testモード) の準備画面で
 // 「6」キー（numキーではない）を押すと、
 // tetルールが選択されている場合のみ LV6 を呼び出してゲームを即スタートする
+//   ・「6」 → PC（パーフェクトクリア）探索あり（従来どおり）
+//   ・「7」 → PC探索なし（cpu6.js shouldSearchPC を window.__cpu6DisablePC で抑止）
 // ─────────────────────────────────────────────
 (function setupHiddenLv6Key() {
   document.addEventListener('keydown', function(e) {
-    // Digit6（テンキーではない「6」）のみ対象
-    if (e.code !== 'Digit6') return;
+    // Digit6 / Digit7（テンキーではない「6」「7」）のみ対象
+    if (e.code !== 'Digit6' && e.code !== 'Digit7') return;
+    const disablePC = (e.code === 'Digit7');
 
     const versusCheckPage = document.getElementById('versus-check-page');
     const modeCheckPage   = document.getElementById('mode-check-page');
@@ -992,6 +995,8 @@ function handlePauseAction(action) {
       if (versusCpuRule !== 'tet') return;
       e.preventDefault();
 
+      // PC探索の有無を起動前にフラグでセット（cpu6.js が参照）
+      window.__cpu6DisablePC = disablePC;
       // LV6 を強制設定してからゲームを開始
       selectedCpuLevel = 6;
       startVersusGame();
@@ -1003,6 +1008,8 @@ function handlePauseAction(action) {
       if (testRule !== 'tet') return;
       e.preventDefault();
 
+      // PC探索の有無を起動前にフラグでセット（cpu6.js が参照）
+      window.__cpu6DisablePC = disablePC;
       // LV6 を強制設定してからゲームを開始
       selectedCpuLevel = 6;
       startGameFromModeCheck();
