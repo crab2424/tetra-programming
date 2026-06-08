@@ -53,7 +53,7 @@ window.CPU6 = class {
             renCutPenalty: -200,
 
             tsmMiniPenalty: -100,      
-            tMinoNoClearPenalty: -200, 
+            tMinoNoClearPenalty: -300, 
 
             tsdSetup: 100,         
             tsdSetupOver: -400,   
