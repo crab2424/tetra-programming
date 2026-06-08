@@ -168,6 +168,7 @@ int evalTSlotChain(Board b, int maxIter, const EvalWeights& w) {
         //    ★最適化: 全セル走査の代わりに列高さウィンドウ候補のみ評価(forEachTSDSlot)。
         //    元実装(cy外/cx内ループ)と同じ「最上(min cy)・同cyなら最左(min cx)」のスロットを選ぶ。
         int barCol = -1, midRow = ROWS, rot = 2;
+        int slotType = 0; // 0=sky(TSD), 1=tst_twist, 2=fin（建設途中加点の重み選択に使用）
         forEachTSDSlot(b, heights, [&](int cx, int cy) {
             if (cy < midRow || (cy == midRow && (barCol < 0 || cx < barCol))) { midRow = cy; barCol = cx; }
         });
@@ -175,12 +176,12 @@ int evalTSlotChain(Board b, int maxIter, const EvalWeights& w) {
         // 2. tst_twist（+3コーナー受理）による縦置き TST
         if (barCol < 0) {
             TSlotHit h = detectTSTSlot(b, heights);
-            if (h.found) { barCol = h.barCol; midRow = h.midRow; rot = h.rot; }
+            if (h.found) { barCol = h.barCol; midRow = h.midRow; rot = h.rot; slotType = 1; }
         }
         // 3. fin による縦置き TST
         if (barCol < 0) {
             TSlotHit h = detectFINSlot(b, heights);
-            if (h.found) { barCol = h.barCol; midRow = h.midRow; rot = h.rot; }
+            if (h.found) { barCol = h.barCol; midRow = h.midRow; rot = h.rot; slotType = 2; }
         }
         if (barCol < 0) break; // スロットなし
 
@@ -188,7 +189,12 @@ int evalTSlotChain(Board b, int maxIter, const EvalWeights& w) {
         if (lines >= 3)      { score += w.tSlotTst; continue; } // TST：消去後盤面で次へ
         else if (lines == 2) { score += w.tSlotTsd; continue; } // TSD：消去後盤面で次へ
         else if (lines == 1) { score += w.tSlotTss; break; }    // TSS
-        else                 { score += w.tSlotReady; break; }  // 建設途中（まだ消えない）
+        else {                                                   // 建設途中（まだ消えない）：スロット種別ごとに加点を分離
+            score += (slotType == 1) ? w.tSlotReadyTst
+                   : (slotType == 2) ? w.tSlotReadyFin
+                                     : w.tSlotReady;             // slotType==0: sky/TSD
+            break;
+        }
     }
     return score;
 }

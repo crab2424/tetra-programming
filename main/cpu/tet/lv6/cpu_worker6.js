@@ -13,14 +13,14 @@ self.Module = {
     INITIAL_MEMORY: 32 * 1024 * 1024, // ★深さ8/幅12対応で 16MB→32MB（コンパイル時設定と一致）
     // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=10 を取得させる）
     //   ★v=8: C++をファイル分割＋-fltoで再ビルド。importセットが変わったのでグルーjsとwasmを揃えて更新。
-    locateFile: function(path) { return path + '?v=11'; },
+    locateFile: function(path) { return path + '?v=13'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=11'); // ★再ビルドのキャッシュバスト（探索幅12→48, v=11）
+importScripts('cpu_wasm6.js?v=13'); // ★再ビルドのキャッシュバスト（tSlotReady 3分割追加, v=13）
 
 let boardPtr = null;
 let resultPtr = null;
@@ -34,8 +34,8 @@ self.onmessage = function(e) {
     if (data.type === 'evaluate_single') {
         if (boardPtr === null) {
             boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
-            // ★修正: 重み要素数 37（[36] tSlotTst 追加）に対応して確保サイズを 4 * 37 に変更
-            weightsPtr = Module._my_malloc(4 * 37);
+            // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応
+            weightsPtr = Module._my_malloc(4 * 39);
             resultPtr  = Module._my_malloc(4 * 43);
         }
 
@@ -68,8 +68,8 @@ self.onmessage = function(e) {
 
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
-        // ★修正: 重み要素数 37（[36] tSlotTst 追加）に対応して確保サイズを 4 * 37 に変更
-        weightsPtr = Module._my_malloc(4 * 37);
+        // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応
+        weightsPtr = Module._my_malloc(4 * 39);
         resultPtr  = Module._my_malloc(4 * 43);
     }
 
