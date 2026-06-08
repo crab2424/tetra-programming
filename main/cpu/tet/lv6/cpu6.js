@@ -109,9 +109,14 @@ window.CPU6 = class {
         this.pcSearchActive = false;     // 今ターンPC探索を投げているか
         this.pcFallbackData = null;       // PC待機中にキャッシュするビームサーチ引数
         this.pcFallbackTimer = null;     // PC結果待ちのタイムアウト
+        this.pcSearchBoard = null;       // ★PC探索を投げた時点の盤面スナップショット(期待盤面の起点)
 
-        this.PC_SEARCH_TIME_MS = 300;    // ★PC探索(WASM)のウォールクロック上限。超えたら none 扱い
-        this.PC_TIMEOUT_MS = 500;        // PC結果を待つ上限（探索上限+余裕）。超えたらビームサーチへ
+        this.PC_SEARCH_TIME_MS = 300;    // ★空盤面PC探索のウォールクロック上限。超えたら none 扱い
+        this.PC_TIMEOUT_MS = 500;        // 空盤面PC結果を待つ上限（探索上限+余裕）。超えたらビームサーチへ
+        // ── ★プレイ途中PC探索（毎ピース・パリティ足切りで起動）──
+        //   毎ピース投げるため探索時間を短くして1手の遅延を抑える（見つからなければ即ビームへ）。
+        this.PC_MIDGAME_SEARCH_TIME_MS = 100; // プレイ途中PC探索のウォールクロック上限
+        this.PC_MIDGAME_TIMEOUT_MS = 250;     // プレイ途中PC結果を待つ上限（短縮版・超えたらビームへ）
         this.PC_MAX_BLOCKS = 40;         // PC探索を起動する最大ブロック数（10手×4）
         this.PC_MAX_DEPTH = 10;          // PC探索の最大手数
         this.PC_READY_WAIT_MS = 1200;    // 空盤面で pcWorker のロード完了を待つ上限（リスタート対策）
@@ -686,6 +691,7 @@ window.CPU6 = class {
         this.pcSequence = null;
         this.pcExpectedBoard = null;
         this.pcFallbackData = null;
+        this.pcSearchBoard = null;
         this.pcSearchActive = false;
         this.pcSearchId++;            // 進行中だった古い PC 結果を無効化
         this.isExecutingAction = false;
@@ -714,6 +720,7 @@ window.CPU6 = class {
         this.pcSequence = null;
         this.pcExpectedBoard = null;
         this.pcFallbackData = null;
+        this.pcSearchBoard = null;
         this.pcSearchActive = false;
         if (this.pcWorker) {
             this.pcWorker.terminate();
@@ -917,8 +924,14 @@ window.CPU6 = class {
         // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。ready+unready 合計（internalは除外＝ゲージ表示と一致）
         const incoming = this.getIncomingGarbage();
 
-        // ── ★PC探索の起動判定（空盤面時のみ。ビームサーチは投げずPC結果を待つ）──
+        // ── ★PC探索の起動判定（空盤面 or プレイ途中パリティ足切り。ビームは投げずPC結果を待つ）──
         if (!this.pcSequence && this.shouldSearchPC()) {
+            const isEmptyBoard = this.game.field.blocks.length === 0;
+            // 空盤面は十分な探索時間、プレイ途中は毎ピース投げるため短縮版を使う
+            const searchTimeMs = isEmptyBoard ? this.PC_SEARCH_TIME_MS : this.PC_MIDGAME_SEARCH_TIME_MS;
+            const timeoutMs = isEmptyBoard ? this.PC_TIMEOUT_MS : this.PC_MIDGAME_TIMEOUT_MS;
+            // ★探索を投げた時点の盤面を期待盤面の起点として保存（プレイ途中は非空）
+            this.pcSearchBoard = boardBuffer.slice();
             this.pcSearchActive = true;
             this.pcFallbackData = {
                 boardBuffer, currentType: mino.type, holdType,
@@ -934,7 +947,7 @@ window.CPU6 = class {
                 weightsArray, ren: currentRen, backToBack: currentBtB,
                 incoming: incoming
             };
-            this.requestPCSearch(mino, boardBuffer, holdType);
+            this.requestPCSearch(mino, boardBuffer, holdType, searchTimeMs);
             if (this.pcFallbackTimer) clearTimeout(this.pcFallbackTimer);
             this.pcFallbackTimer = setTimeout(() => {
                 this.pcFallbackTimer = null;
@@ -946,7 +959,7 @@ window.CPU6 = class {
                 const fallback = this.pcFallbackData;
                 this.pcFallbackData = null;
                 this.startBeamSearch(fallback);
-            }, this.PC_TIMEOUT_MS);
+            }, timeoutMs);
             return; // ビームサーチは投げない
         }
 
@@ -1019,13 +1032,26 @@ window.CPU6 = class {
     }
 
     // ── ★PC探索を起動すべき盤面か ──
+    //   空盤面: 従来どおり常に起動（開幕PC）。
+    //   プレイ途中: セル数パリティ足切り。PC成立には「既存ブロック B + 4N(=N手で増える分)」が
+    //   10 の倍数（=消去ライン数 H が整数）になる N が、探索手数かつ手持ちピース数の範囲に
+    //   存在する必要がある。満たす N が無い盤面は確実にPC不可能なので高価なソルバを起動しない。
+    //   （B が奇数のときは 4N が常に偶数のため B+4N も奇数 → どの N でも不成立 → 早期に弾かれる）
     shouldSearchPC() {
         if (!this.pcWorkerReady) return false;
-        return this.game.field.blocks.length === 0;
+        const B = this.game.field.blocks.length;
+        if (B === 0) return true;
+        // current(1) + 手持ちNEXT数 が探索に使えるピース数
+        const avail = 1 + (this.game.nextQueue ? this.game.nextQueue.length : 0);
+        const maxN = Math.min(this.PC_MAX_DEPTH, avail);
+        for (let N = 1; N <= maxN; N++) {
+            if ((B + 4 * N) % 10 === 0) return true;
+        }
+        return false;
     }
 
     // ── ★PC探索リクエスト送信（ネクストを11個=current+next0..9 に拡張）──
-    requestPCSearch(mino, boardBuffer, holdType) {
+    requestPCSearch(mino, boardBuffer, holdType, maxTimeMs) {
         this.pcSearchId++;
         const pieces = new Int32Array(11);
         pieces[0] = mino.type;
@@ -1040,7 +1066,7 @@ window.CPU6 = class {
             holdType: holdType,
             canHold: this.game.canHold ? 1 : 0,
             maxDepth: this.PC_MAX_DEPTH,
-            maxTimeMs: this.PC_SEARCH_TIME_MS,
+            maxTimeMs: maxTimeMs || this.PC_SEARCH_TIME_MS,
             searchId: this.pcSearchId
         });
     }
@@ -1051,6 +1077,17 @@ window.CPU6 = class {
     //   （おじゃま喰らい等で想定外の盤面になったら）PCを破棄して通常モードへ戻す。
     _pcEmptyBoard() {
         return Array.from({ length: 25 }, () => new Uint8Array(10));
+    }
+
+    // 250byte の盤面バッファ(25行×10列)を内部期待盤面(Uint8Array[25])へ変換
+    _pcBoardFromBuffer(buf) {
+        const grid = this._pcEmptyBoard();
+        for (let y = 0; y < 25; y++) {
+            for (let x = 0; x < 10; x++) {
+                if (buf[y * 10 + x]) grid[y][x] = 1;
+            }
+        }
+        return grid;
     }
 
     // expected手を期待盤面へ適用（配置＋揃った行の消去＋落下）
@@ -1132,8 +1169,11 @@ window.CPU6 = class {
             this.isAutoPlay && this.game.mino === this.currentMino && !this.isExecutingAction) {
             const expected = data.sequence[0];
             this.pcSequence = data.sequence;
-            // ★PC探索は空盤面起動なので期待盤面は空から開始（以後の手で順次更新）
-            this.pcExpectedBoard = this._pcEmptyBoard();
+            // ★探索を投げた時点の盤面スナップショットを期待盤面の起点にする（以後の手で順次更新）。
+            //   空盤面起動なら全ゼロ＝従来の _pcEmptyBoard と等価。プレイ途中起動では既存スタックを反映。
+            this.pcExpectedBoard = this.pcSearchBoard
+                ? this._pcBoardFromBuffer(this.pcSearchBoard)
+                : this._pcEmptyBoard();
             if (this.validatePCStep(expected)) {
                 console.log(`💎 Perfect Clear found! ${this.pcSequence.length} moves → executing`);
                 this.pcSequence.shift();
