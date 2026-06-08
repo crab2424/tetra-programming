@@ -13,14 +13,14 @@ self.Module = {
     INITIAL_MEMORY: 32 * 1024 * 1024, // ★深さ8/幅12対応で 16MB→32MB（コンパイル時設定と一致）
     // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=10 を取得させる）
     //   ★v=8: C++をファイル分割＋-fltoで再ビルド。importセットが変わったのでグルーjsとwasmを揃えて更新。
-    locateFile: function(path) { return path + '?v=13'; },
+    locateFile: function(path) { return path + '?v=14'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=13'); // ★再ビルドのキャッシュバスト（tSlotReady 3分割追加, v=13）
+importScripts('cpu_wasm6.js?v=14'); // ★再ビルドのキャッシュバスト（TST建設途中をtComingゲート, v=14）
 
 let boardPtr = null;
 let resultPtr = null;

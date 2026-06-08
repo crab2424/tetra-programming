@@ -51,4 +51,7 @@ TSlotHit detectTSTSlot(const Board& b, const int heights[COLS]);
 TSlotHit detectFINSlot(const Board& b, const int heights[COLS]);
 
 // 盤面 b（コピー受け取り）から、来るTの本数 maxIter を上限に T-spin チェーンを先読み評価する。
-int evalTSlotChain(Board b, int maxIter, const EvalWeights& w);
+// tComing = この手番以降に実際にTが来るか（生の upcomingT>=1、クランプ前）。
+//   false のとき tst_twist/fin の「建設途中(0ライン)」加点を0にし、Tの来ない投機的TST建設を抑止する。
+//   sky/TSD の建設途中加点・実行可能(1〜3ライン)加点は tComing に関係なく従来通り。
+int evalTSlotChain(Board b, int maxIter, const EvalWeights& w, bool tComing = true);
