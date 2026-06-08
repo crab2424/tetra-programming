@@ -17,7 +17,7 @@ window.CPU6 = class {
 
         this.weights = {
             lineClear: 100,
-            hole: -22, 
+            hole: -55, 
             heightLimit: -560, 
             step3Plus: -20, 
             flat: 4,
@@ -38,13 +38,14 @@ window.CPU6 = class {
             downstackGood: 120,
             downstackBad: -600,
 
-            tsdShape: 300,      
-            tsdShapeOver: -45, 
-            tsdFillBonus: 50,   
+            tSlotTsd: 2000,       // ★Phase2: 実行可能なTSD(2ライン)スロットの先読みポテンシャル（旧tsdShape[17]）
+            tSlotReady: 750,     // ★Phase2: TSDスロットは出来たが両脇未充填(建設途中)の地形ボーナス（旧tsdShapeOver[18]）
+            tSlotTss: 150,       // ★Phase2: 実行可能なTSS(1ライン)スロットの先読みポテンシャル（旧tsdFillBonus[19]）
 
-            tssClear: 256,       
-            tsdClear: 2560,      
-            tsdHolePenalty: -60, 
+            tssClear: 256,
+            tsdClear: 2560,
+            tstClear: 6000,      // ★Phase1追加：TST(3ライン T-spin)消去ボーナス。TSDより上位
+            tsdHolePenalty: -60, // ★Phase2: 現在未使用(旧TSDスコアリング廃止に伴い)。[22]の枠は保持
             pureHole: -100,         
 
             comboBonus: 20,   
@@ -52,7 +53,7 @@ window.CPU6 = class {
             renCutPenalty: -200,
 
             tsmMiniPenalty: -100,      
-            tMinoNoClearPenalty: -160, 
+            tMinoNoClearPenalty: -300, 
 
             tsdSetup: 100,         
             tsdSetupOver: -400,   
@@ -62,12 +63,17 @@ window.CPU6 = class {
 
             centerDip: 100,         // ★追加：凹みが中央(列3~6)にあるとボーナス、端にあるとペナルティ
 
-            fire: 5,             // ★追加：火力評価（火力>=4で正報酬、<=3で負報酬）
+            b2bHold: 150,           // ★追加[35]：配置後もBtBを保持している盤面への静的ボーナス（CC back_to_back相当）
 
-            P1_WEIGHT: 1.0,        
+            tSlotTst: 2000,          // ★Phase3追加[36]：T-slot先読みでTST(3ライン)スロット発見時の加点（CC tslot[3]相当・暫定/要チューニング）
+
+            tSlotReadyFin: 10,      // ★追加[37]：fin スロットの建設途中(0ライン)加点。tSlotReady[18](sky/TSD用)から分離（初期値は従来同値）
+            tSlotReadyTst: 1000,     // ★追加[38]：tst_twist スロットの建設途中(0ライン)加点。TST能動化のため tSlotReady より高めに設定（暫定/要チューニング）
+
+            P1_WEIGHT: 1.0,
         };
 
-        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js');
+        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=13'); // ★v=13: tSlotReady 3分割追加で再ビルド
         this.workerReady = false;
         this.isCalculating = false;
 
@@ -769,9 +775,9 @@ window.CPU6 = class {
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
             Math.round(this.weights.P1_WEIGHT * 100), 
-            this.weights.tsdShape,                    
-            this.weights.tsdShapeOver,                
-            this.weights.tsdFillBonus,
+            this.weights.tSlotTsd,                    // [17] ★Phase2改名
+            this.weights.tSlotReady,                  // [18] ★Phase2改名
+            this.weights.tSlotTss,                    // [19] ★Phase2改名
             this.weights.tssClear,                    
             this.weights.tsdClear,                    
             this.weights.tsdHolePenalty,              
@@ -786,12 +792,16 @@ window.CPU6 = class {
             this.weights.slopeBonus,
             this.weights.slopePenalty,
             this.weights.centerDip,             // ★追加 [33]
-            this.weights.fire                   // ★追加 [34]
+            this.weights.tstClear,              // ★Phase1: [34]（旧fireを置換。C++ EvalWeights.tstClear）
+            this.weights.b2bHold,               // ★追加 [35]
+            this.weights.tSlotTst,              // ★Phase3追加 [36]
+            this.weights.tSlotReadyFin,         // ★追加 [37]
+            this.weights.tSlotReadyTst          // ★追加 [38]
         ]);
 
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
-        
+
         let tSpinType = this.checkTSpinAt(x, y, rot);
 
         this.worker.postMessage({
@@ -873,9 +883,9 @@ window.CPU6 = class {
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
             this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
             Math.round(this.weights.P1_WEIGHT * 100),
-            this.weights.tsdShape,
-            this.weights.tsdShapeOver,
-            this.weights.tsdFillBonus,
+            this.weights.tSlotTsd,                    // [17] ★Phase2改名
+            this.weights.tSlotReady,                  // [18] ★Phase2改名
+            this.weights.tSlotTss,                    // [19] ★Phase2改名
             this.weights.tssClear,
             this.weights.tsdClear,
             this.weights.tsdHolePenalty,
@@ -890,13 +900,19 @@ window.CPU6 = class {
             this.weights.slopeBonus,
             this.weights.slopePenalty,
             this.weights.centerDip,             // ★追加 [33]
-            this.weights.fire                   // ★追加 [34]
+            this.weights.tstClear,              // ★Phase1: [34]（旧fireを置換。C++ EvalWeights.tstClear）
+            this.weights.b2bHold,               // ★追加 [35]
+            this.weights.tSlotTst,              // ★Phase3追加 [36]
+            this.weights.tSlotReadyFin,         // ★追加 [37]
+            this.weights.tSlotReadyTst          // ★追加 [38]
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
 
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
+        // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。ready+unready 合計（internalは除外＝ゲージ表示と一致）
+        const incoming = this.getIncomingGarbage();
 
         // ── ★PC探索の起動判定（空盤面時のみ。ビームサーチは投げずPC結果を待つ）──
         if (!this.pcSequence && this.shouldSearchPC()) {
@@ -908,8 +924,12 @@ window.CPU6 = class {
                 next3: this.game.nextQueue[2].type,
                 next4: this.game.nextQueue[3].type,
                 next5: this.game.nextQueue[4].type,
+                next6: this.game.nextQueue[5] ? this.game.nextQueue[5].type : 0, // ★深さ8対応
+                next7: this.game.nextQueue[6] ? this.game.nextQueue[6].type : 0, // ★深さ8対応
+                next8: this.game.nextQueue[7] ? this.game.nextQueue[7].type : 0, // ★深さ8対応
                 canHold: this.game.canHold ? 1 : 0,
-                weightsArray, ren: currentRen, backToBack: currentBtB
+                weightsArray, ren: currentRen, backToBack: currentBtB,
+                incoming: incoming
             };
             this.requestPCSearch(mino, boardBuffer, holdType);
             if (this.pcFallbackTimer) clearTimeout(this.pcFallbackTimer);
@@ -939,11 +959,27 @@ window.CPU6 = class {
             next3: this.game.nextQueue[2].type,
             next4: this.game.nextQueue[3].type,
             next5: this.game.nextQueue[4].type,
+            next6: this.game.nextQueue[5] ? this.game.nextQueue[5].type : 0, // ★深さ8対応
+            next7: this.game.nextQueue[6] ? this.game.nextQueue[6].type : 0, // ★深さ8対応
+            next8: this.game.nextQueue[7] ? this.game.nextQueue[7].type : 0, // ★深さ8対応
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray,
             ren: currentRen,
-            backToBack: currentBtB
+            backToBack: currentBtB,
+            incoming: incoming
         });
+    }
+
+    // ── ★着弾予定のおじゃまライン数を集計（ready=確定 + unready=猶予中。internalは除外）──
+    //   Cold Clear の pick_move 相当（生存判定）に渡す。garbage.js の updateGarbageGauge と同じ集計基準。
+    getIncomingGarbage() {
+        if (!this.game || !this.game.garbageQueue) return 0;
+        let total = 0;
+        this.game.garbageQueue.forEach(g => {
+            if (g.internal) return;
+            total += g.amount;
+        });
+        return total;
     }
 
     // ── ★キャッシュ済みデータでビームサーチを起動する ──
@@ -968,10 +1004,14 @@ window.CPU6 = class {
             next3: data.next3,
             next4: data.next4,
             next5: data.next5,
+            next6: data.next6, // ★深さ8対応
+            next7: data.next7, // ★深さ8対応
+            next8: data.next8, // ★深さ8対応
             canHold: data.canHold,
             weightsArray: data.weightsArray,
             ren: data.ren,
-            backToBack: data.backToBack
+            backToBack: data.backToBack,
+            incoming: data.incoming || 0
         });
     }
 

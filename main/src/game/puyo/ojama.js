@@ -32,7 +32,13 @@ Object.assign(PuyoGame.prototype, {
             this.yokokuContainer.style.pointerEvents = 'none';
             this.yokokuContainer.style.zIndex = '20';
 
-            canvas.parentNode.style.position = 'relative';
+            // ★ おじゃま予告コンテナ(position:absolute)の包含ブロックを確保する。
+            //    ただし親が既に配置済み（#container は fixed、versus-container は relative）
+            //    の場合は触らない。fixed を relative で上書きするとソロ画面の
+            //    中央スケール（translate(-50%,-50%)）が壊れ、盤面が右上へずれてしまう。
+            if (getComputedStyle(canvas.parentNode).position === 'static') {
+                canvas.parentNode.style.position = 'relative';
+            }
             canvas.parentNode.style.overflow = 'visible';
             canvas.parentNode.appendChild(this.yokokuContainer);
         }

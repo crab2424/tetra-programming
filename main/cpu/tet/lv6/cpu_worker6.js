@@ -10,14 +10,17 @@ self.Module = {
     // ★ WasmのHEAPサイズを明示的に設定（デフォルト256KBでは SearchState の大量確保で枯渇するため）
     // SearchState(~616bytes) × 320 + Placement(~92bytes) × 80 × 各ステップ = ~200KB 超のため
     // 16MB(= 256 * 64KB pages)を確保して余裕を持たせる
-    INITIAL_MEMORY: 16 * 1024 * 1024, // 16MB
+    INITIAL_MEMORY: 32 * 1024 * 1024, // ★深さ8/幅12対応で 16MB→32MB（コンパイル時設定と一致）
+    // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=10 を取得させる）
+    //   ★v=8: C++をファイル分割＋-fltoで再ビルド。importセットが変わったのでグルーjsとwasmを揃えて更新。
+    locateFile: function(path) { return path + '?v=13'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
-        self.postMessage({ type: 'ready' }); 
+        self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js');
+importScripts('cpu_wasm6.js?v=13'); // ★再ビルドのキャッシュバスト（tSlotReady 3分割追加, v=13）
 
 let boardPtr = null;
 let resultPtr = null;
@@ -31,9 +34,9 @@ self.onmessage = function(e) {
     if (data.type === 'evaluate_single') {
         if (boardPtr === null) {
             boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
-            // ★修正: JS側から渡される要素数が35に増えたため（fire追加）、確保サイズを 4 * 35 に変更
-            weightsPtr = Module._my_malloc(4 * 35); 
-            resultPtr  = Module._my_malloc(4 * 43); 
+            // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応
+            weightsPtr = Module._my_malloc(4 * 39);
+            resultPtr  = Module._my_malloc(4 * 43);
         }
 
         HEAPU8.set(data.boardBuffer, boardPtr);
@@ -65,9 +68,9 @@ self.onmessage = function(e) {
 
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
-        // ★修正: JS側から渡される要素数が35に増えたため（fire追加）、確保サイズを 4 * 35 に変更
-        weightsPtr = Module._my_malloc(4 * 35); 
-        resultPtr  = Module._my_malloc(4 * 43); 
+        // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応
+        weightsPtr = Module._my_malloc(4 * 39);
+        resultPtr  = Module._my_malloc(4 * 43);
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
@@ -84,11 +87,15 @@ self.onmessage = function(e) {
         data.next3,
         data.next4,
         data.next5,
+        data.next6, // ★深さ8対応
+        data.next7, // ★深さ8対応
+        data.next8, // ★深さ8対応
         data.canHold,
-        weightsPtr, 
+        weightsPtr,
         resultPtr,
-        data.ren,        
-        data.backToBack  
+        data.ren,
+        data.backToBack,
+        data.incoming || 0  // ★着弾おじゃまライン数（生存判定 pick_move 用）
     );
 
     const endTime = performance.now();
