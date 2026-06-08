@@ -131,6 +131,29 @@ int main() {
         check("tstR.chain_score",  evalTSlotChain(b, 1, w), w.tSlotTst);
     }
 
+    // ── ケース8: TSD最適化の等価性 — forEachTSDSlot が全セル走査と完全一致するか ──
+    //   ランダム盤面 2000 通りで「全(cx,cy)を isTSDShape した集合」と「forEachTSDSlot が返す集合」を比較。
+    {
+        srand(12345);
+        int mismatches = 0;
+        for (int trial = 0; trial < 2000; trial++) {
+            Board b;
+            for (int y = ROWS - 12; y < ROWS; y++)
+                for (int x = 0; x < COLS; x++)
+                    if (rand() % 100 < 55) b.set(x, y);
+            uint32_t cc[COLS]; int hh[COLS]; calcHeights(b, cc, hh);
+            bool bf[COLS][ROWS] = {}; bool opt[COLS][ROWS] = {};
+            for (int cx = 1; cx < COLS - 1; cx++)
+                for (int cy = 1; cy < ROWS - 1; cy++)
+                    if (isTSDShape(b, cx, cy, hh)) bf[cx][cy] = true;
+            forEachTSDSlot(b, hh, [&](int cx, int cy) { if (cy >= 0 && cy < ROWS) opt[cx][cy] = true; });
+            for (int cx = 0; cx < COLS; cx++)
+                for (int cy = 0; cy < ROWS; cy++)
+                    if (bf[cx][cy] != opt[cx][cy]) mismatches++;
+        }
+        check("tsdOpt.equivalence_mismatches", mismatches, 0);
+    }
+
     printf("\n==== %d passed, %d failed ====\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

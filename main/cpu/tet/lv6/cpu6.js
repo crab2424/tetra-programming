@@ -70,7 +70,7 @@ window.CPU6 = class {
             P1_WEIGHT: 1.0,
         };
 
-        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=9'); // ★v=9: Phase3 TST/FIN検出追加で再ビルド（importセット変更につき更新）
+        this.worker = new Worker('cpu/tet/lv6/cpu_worker6.js?v=11'); // ★v=11: 探索幅12→48で再ビルド
         this.workerReady = false;
         this.isCalculating = false;
 
