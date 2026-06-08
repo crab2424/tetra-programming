@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <vector>
+#include <unordered_map>
 
 #include "common.h"
 #include "board.h"
@@ -78,6 +79,53 @@ struct SearchState {
     }
 };
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ★重複除去（transposition）: 別経路で「同一の継続状態」に到達した枝を1つに集約する。
+//   継続が完全に同じ＝以後の展開・スコア増分が同じになる条件 ＝ (盤面 rows[25] + hold_mino +
+//   next_idx + ren + backToBack)。これらが一致する状態は将来も差が広がらないので beam_score 最大の
+//   1本だけ残せばよい（first_action 等の経路情報も beam_score 最大の枝のものを採用＝最終選択と整合）。
+//   max_height は盤面から一意に決まるためキーに含めない。N/L 分割は維持し各ベクタ内で個別に除去する
+//   （消去枝の多様性を壊さないため。N⇔L 跨ぎの稀な同一盤面は除去対象外＝従来どおり両方残す）。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+static inline uint64_t hashState(const SearchState& s) {
+    uint64_t h = 1469598103934665603ULL; // FNV-1a offset basis
+    const uint8_t* p = (const uint8_t*)s.board.rows;
+    for (size_t i = 0; i < sizeof(s.board.rows); i++) { h ^= p[i]; h *= 1099511628211ULL; }
+    auto mix = [&](uint64_t v){ h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2); };
+    mix((uint32_t)s.hold_mino);
+    mix((uint32_t)s.next_idx);
+    mix((uint32_t)s.ren);
+    mix(s.backToBack ? 1u : 0u);
+    return h;
+}
+static inline bool sameState(const SearchState& a, const SearchState& b) {
+    if (a.hold_mino != b.hold_mino || a.next_idx != b.next_idx ||
+        a.ren != b.ren || a.backToBack != b.backToBack) return false;
+    for (int y = 0; y < ROWS; y++) if (a.board.rows[y] != b.board.rows[y]) return false;
+    return true;
+}
+// v を「同一継続状態は beam_score 最大の1本」に圧縮する。ハッシュ衝突は sameState で厳密検証するので誤集約しない。
+static void dedupBeam(std::vector<SearchState>& v) {
+    if (v.size() <= 1) return;
+    std::unordered_map<uint64_t, int> seen; // hashState → 圧縮後ベクタ内の代表index
+    seen.reserve(v.size() * 2);
+    size_t out = 0;
+    for (size_t i = 0; i < v.size(); i++) {
+        uint64_t h = hashState(v[i]);
+        auto it = seen.find(h);
+        if (it != seen.end() && sameState(v[it->second], v[i])) {
+            int idx = it->second;
+            if (v[i].beam_score > v[idx].beam_score) v[idx] = v[i]; // より良い枝で代表を置換
+        } else {
+            int dst = (int)out;
+            if (out != i) v[out] = v[i];
+            seen[h] = dst; // 真のハッシュ衝突(別状態)時は代表を上書き=以後その旧状態は除去対象外（極稀・無害）
+            out++;
+        }
+    }
+    v.resize(out);
+}
+
 // weightsArray[37] を EvalWeights へ展開する。メンバ順は weightsArray のインデックスと一致。
 static inline EvalWeights unpackWeights(const int* weightsArray) {
     return EvalWeights {
@@ -91,7 +139,9 @@ static inline EvalWeights unpackWeights(const int* weightsArray) {
         weightsArray[33], // centerDip
         weightsArray[34], // tstClear ★Phase1追加
         weightsArray[35], // b2bHold ★追加[35]
-        weightsArray[36]  // tSlotTst ★Phase3追加[36]
+        weightsArray[36], // tSlotTst ★Phase3追加[36]
+        weightsArray[37], // tSlotReadyFin ★追加[37]
+        weightsArray[38]  // tSlotReadyTst ★追加[38]
     };
 }
 
@@ -203,7 +253,7 @@ void searchBestMoveWasm(
     std::vector<SearchState> next_states_N;
     std::vector<SearchState> next_states_L;
 
-    const size_t BEAM_WIDTH = 24; // ★探索拡張: 8→12→48（TST能動化のため幅優先、予算〜100ms/手）
+    const size_t BEAM_WIDTH = 16; // ★探索拡張: 8→16（TST能動化のため幅優先）
     const int P1_WEIGHT_PCT = w.p1Weight;
 
     final_states.reserve(128);
@@ -346,6 +396,9 @@ void searchBestMoveWasm(
     };
 
     auto trimAndMerge = [&]() {
+        // ★重複除去（transposition）: partial_sort 前に同一継続状態を集約。ビーム枠を重複に使わせない。
+        dedupBeam(next_states_N);
+        dedupBeam(next_states_L);
         // ★変更：枝切りの比較キーを total_score → beam_score に変更
         // beam_score = 最新盤面評価値 + 1手目からの累積報酬（n-1手目以前の盤面評価値を含まない）
         if(next_states_N.size() > BEAM_WIDTH) {

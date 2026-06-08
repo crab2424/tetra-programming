@@ -25,4 +25,6 @@ struct EvalWeights {
     int tstClear;            // ★Phase1追加：TST(3ライン T-spin)消去ボーナス [34]（旧fireを置換）
     int b2bHold;             // ★追加[35]：配置後もBtBを保持している盤面への静的ボーナス（CC back_to_back相当）
     int tSlotTst;            // ★Phase3追加[36]：T-slot先読みチェーンで TST(3ライン)スロットを発見した時の加点（CC tslot[3]相当）
+    int tSlotReadyFin;       // ★追加[37]：fin スロットの建設途中(0ライン)加点。tSlotReady[18](sky/TSD用)から分離
+    int tSlotReadyTst;       // ★追加[38]：tst_twist スロットの建設途中(0ライン)加点。tSlotReady[18]から分離（TST能動化用に独立チューニング）
 };
