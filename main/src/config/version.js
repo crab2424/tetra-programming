@@ -5,7 +5,7 @@
    （変更履歴ページは過去バージョンの一覧なので個別に記述する）
 ───────────────────────────────────────────── */
 
-window.APP_VERSION = 'v1.1.3';
+window.APP_VERSION = 'v1.1.4';
 
 // data-app-version を持つ要素にバージョン文字列を流し込む
 function applyAppVersion(root) {
