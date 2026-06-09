@@ -72,6 +72,13 @@
 
     // ── 簡易イベントバス ──
     on(ev, cb) { (this._handlers[ev] || (this._handlers[ev] = [])).push(cb); return this; }
+    off(ev, cb) {
+      const list = this._handlers[ev];
+      if (!list) return this;
+      const i = list.indexOf(cb);
+      if (i !== -1) list.splice(i, 1);
+      return this;
+    }
     _emit(ev, ...args) {
       const list = this._handlers[ev];
       if (!list) return;

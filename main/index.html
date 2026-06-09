@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png">
   
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="src/styles/style.css?v=38">
+    <link rel="stylesheet" href="src/styles/style.css?v=39">
     <link rel="stylesheet" href="src/styles/anime.css?v=2">
   </head>
   <body>
@@ -573,11 +573,11 @@
             <span class="menu-btn-icon">↺</span>
             <span>RETRY</span>
           </button>
-          <button class="menu-btn btn-secondary" onclick="switchPage('versus-check')">
+          <button class="menu-btn btn-secondary" onclick="versusResultModeSelect()">
             <span class="menu-btn-icon">◀</span>
             <span>MODE SELECT</span>
           </button>
-          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+          <button class="menu-btn btn-secondary" onclick="versusResultMainMenu()">
             <span class="menu-btn-icon">⌂</span>
             <span>MAIN MENU</span>
           </button>
@@ -789,31 +789,32 @@
     <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
     <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
     <script src="src/game/tet/core.js?v=2"></script>
-    <script src="src/game/tet/lifecycle.js?v=3"></script>
-    <script src="src/game/tet/board.js?v=3"></script>
-    <script src="src/game/tet/rotation.js?v=2"></script>
+    <script src="src/game/tet/lifecycle.js?v=4"></script>
+    <script src="src/game/tet/board.js?v=5"></script>
+    <script src="src/game/tet/rotation.js?v=3"></script>
     <script src="src/game/tet/scoring.js?v=2"></script>
-    <script src="src/game/tet/garbage.js?v=2"></script>
+    <script src="src/game/tet/garbage.js?v=4"></script>
     <script src="src/game/tet/render.js?v=2"></script>
     <script src="src/game/tet/input.js?v=3"></script>
     <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
     <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
-    <script src="src/game/puyo/core.js?v=2"></script>
-    <script src="src/game/puyo/lifecycle.js?v=4"></script>
+    <script src="src/game/puyo/core.js?v=3"></script>
+    <script src="src/game/puyo/lifecycle.js?v=5"></script>
     <script src="src/game/puyo/connect.js?v=2"></script>
-    <script src="src/game/puyo/ojama.js?v=8"></script>
-    <script src="src/game/puyo/engine.js?v=2"></script>
+    <script src="src/game/puyo/ojama.js?v=10"></script>
+    <script src="src/game/puyo/engine.js?v=4"></script>
     <script src="src/game/puyo/input.js?v=2"></script>
     <script src="src/game/puyo/draw.js?v=3"></script>
     <script src="src/quiz/quiz.js?v=6"></script>
     <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
     <script src="src/app/modes.js?v=2"></script>
     <script src="src/app/cpu_loader.js?v=2"></script>
-    <script src="src/app/versus.js?v=1"></script>
+    <script src="src/app/versus.js?v=2"></script>
     <script src="src/app/navigation.js?v=6"></script>
     <!-- オンライン対戦（B方式：ライブ状態ストリーミング）。subprotocol→net→online の順 -->
-    <script src="src/online/subprotocol.js?v=1"></script>
-    <script src="src/online/net.js?v=1"></script>
-    <script src="src/online/online.js?v=2"></script>
+    <script src="src/online/subprotocol.js?v=3"></script>
+    <script src="src/online/net.js?v=2"></script>
+    <script src="src/online/online.js?v=5"></script>
+    <script src="src/online/match.js?v=3"></script>
   </body>
 </html>

@@ -150,6 +150,7 @@ function createSeededRandom(seed) {
 
 async function startVersusGame() {
   window._versusFinishing = false; // ★ finish演出中フラグをリセット
+  window._onlineMatch = null; // ★ CPU対戦はオンライン文脈ではない（リザルト導線を CPU 側に固定）
   stopAllGames(); // 開始前に完全に状態をリセット
   const sessionId = currentSessionId; // カウントダウン後にセッションが有効か確認するために保持
 
@@ -192,6 +193,9 @@ async function startVersusGame() {
   }
 
   // ─── 共通設定 ───
+  // ★ オンライン対戦で設定された同ツモ用シードが残っていると CPU 対戦が決定論化するため解除
+  window._game.tumoRng = null;
+  window._cpuGame.tumoRng = null;
   window._game.currentMode = 'versus';
   window._game.marathonGoal = Infinity;
   window._game.isVersusMode = true;
@@ -365,8 +369,33 @@ function versusGoToModeSelect() {
   switchPage('versus-check');
 }
 
+// リザルト画面が「オンライン対戦」の文脈かどうか。
+//   オンライン対戦を開始/終了すると window._onlineMatch が残る（CPU対戦は startVersusGame で null 化）。
+function _isOnlineResultContext() { return !!window._onlineMatch; }
+
+// リザルトの RETRY。オンラインなら再戦ハンドシェイク、そうでなければ CPU 対戦を再開。
 function restartVersusFromResult() {
+  if (_isOnlineResultContext()) {
+    if (typeof onlineRematchFromResult === 'function') onlineRematchFromResult();
+    return;
+  }
   startVersusGame();
+}
+
+// リザルトの MODE SELECT。オンラインならロビーへ（在室のまま）、そうでなければ versus-check へ。
+function versusResultModeSelect() {
+  if (_isOnlineResultContext()) {
+    if (typeof onlineBackToLobbyFromResult === 'function') { onlineBackToLobbyFromResult(); return; }
+  }
+  switchPage('versus-check');
+}
+
+// リザルトの MAIN MENU。オンラインならルーム退出してからメインメニューへ。
+function versusResultMainMenu() {
+  if (_isOnlineResultContext()) {
+    if (typeof leaveOnlineAndBack === 'function') { leaveOnlineAndBack(); return; }
+  }
+  switchPage('main-menu');
 }
 
 function versusGameOver(loser) {
