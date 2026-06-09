@@ -14,6 +14,7 @@ class PuyoGame {
         this.isVersusMode = false;
         this.isCpuControlled = false;
         this.rng = null;
+        this.tumoRng = null; // オンライン対戦の同ツモ用（ツモ生成専用シード乱数）
 
         this.canvas = null;
         this.ctx = null;
@@ -130,6 +131,15 @@ class PuyoGame {
     _random() {
         if (this.rng) return this.rng();
         return Math.random();
+    }
+
+    // ツモ（色選択・ペア生成）専用の乱数。オンライン対戦で両者を同ツモにするため、
+    // tumoRng が設定されていればそれを使う（未設定時は通常の _random にフォールバック）。
+    // おじゃま生成の _random / Math.random とは分離しているため、受信おじゃま量が両者で
+    // 異なってもツモ列はずれない。
+    _tumoRandom() {
+        if (this.tumoRng) return this.tumoRng();
+        return this._random();
     }
 
     // ══════════════════════════════════════════════

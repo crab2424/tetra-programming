@@ -55,6 +55,13 @@ Object.assign(Game.prototype, {
             prevHole = holeX;
         }
 
+        // オンライン対戦: 相手はネット越し。ローカルのパペットへ積まず、ネットで送る。
+        //   actualAmount/holes は相手ルール向けに算出済み（受信側はそのまま積む）。
+        if (window.OnlineHooks && window.OnlineHooks.active && this === window._game) {
+            window.OnlineHooks.sendGarbage(actualAmount, holes, false);
+            return;
+        }
+
         const garbageObj = { amount: actualAmount, holes: holes, ready: false };
         opponent.garbageQueue.push(garbageObj);
 
@@ -243,6 +250,9 @@ Object.assign(Game.prototype, {
             block.className = 'gauge-block unready';
             gaugeEl.appendChild(block);
         }
+
+        // オンライン対戦: 自分の予告ゲージ状態（フェーズ別）を相手へ通知し、相手側に可視化させる
+        if (window.OnlineHooks) window.OnlineHooks.gaugeUpdate(this);
     },
 
     // ★追加: 攻撃(送る用)ゲージの更新
