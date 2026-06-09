@@ -224,7 +224,7 @@ export class Payload {
 export interface JSONGetRoomsResponse {
   id: Uuid;
   rooms: {
-    id: string;
+    id: Uuid;
     roomName: string;
     players: number;
     maxPlayers: number;
@@ -250,6 +250,7 @@ export interface JoinRoomRequest {
   id: Uuid;
   roomId: Uuid;
   password?: string;
+  username: string;
 }
 
 export interface JoinRoomResponse {
