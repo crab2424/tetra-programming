@@ -2137,3 +2137,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   align-items: center;
   justify-content: center;
 }
+
+.online-modal-active {
+  display: flex !important;
+}
