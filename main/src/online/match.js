@@ -40,6 +40,21 @@
       // 予告ゲージ送信の重複抑止（直近に送った ready/unready）
       this._lastGaugeReady = -1;
       this._lastGaugeUnready = -1;
+      // 相手 SE 用: 直近に受信した PieceState（x/rot の差分から move/rotate を鳴らす）
+      this._lastOppPs = null;
+      // ぷよ連鎖演出の自前再生用（駆動 rAF と、再生中に届いた Lock 補正盤面の保留）
+      this._puppetChainRAF = null;
+      this._pendingPuyoLockField = null;
+    }
+
+    // ── 相手（パペット）側 SE を鳴らす ──
+    //   パペットは実エンジンインスタンス（playSe = SeManager.play）。受信イベント反映時に
+    //   明示的に呼ぶことで「相手の操作音」を再生する（VS では両盤面が同時に鳴り得る＝仕様）。
+    _oppSe(key) {
+      try {
+        if (this.opp && typeof this.opp.playSe === 'function') this.opp.playSe(key);
+        else if (root.SeManager) root.SeManager.play(key);
+      } catch (_) {}
     }
 
     // ── GameStart 相対ミリ秒 ──
@@ -242,6 +257,18 @@
           const board = Subprotocol.buildPuyoBoard(g.field);
           self.net.sendGameEvent(Subprotocol.encodeLockPuyo({ t: self._t(), board }));
         },
+        // 連鎖直前のペア確定盤面を送る → 受信側パペットが連鎖演出を自前で再生する
+        puyoLockChain(g) {
+          if (!fromMe(g)) return;
+          const board = Subprotocol.buildPuyoBoard(g.field);
+          self.net.sendGameEvent(Subprotocol.encodeLockChainPuyo({ t: self._t(), board }));
+        },
+        // ぷよ設置音: 実際の着地（_fixPuyo / split 着地）の瞬間に相手へ送る（盤面イベントとは独立）。
+        //   盤面 Lock/LockChain は固定アニメ後の遅れたタイミングのため、発音だけ別経路で即時同期する。
+        puyoFixSe(g) {
+          if (!fromMe(g)) return;
+          self.net.sendGameEvent(Subprotocol.encodeSe({ t: self._t(), seId: Subprotocol.SE_ID.PUYO_FIX }));
+        },
 
         // ─ 共通: 予告ゲージ（自分に降ってくる予定の量をフェーズ別に相手へ通知）─
         //   相手側パペットのゲージ＝「相手に届いている火力」を可視化（①③）。
@@ -339,6 +366,7 @@
       let msg;
       try { msg = Subprotocol.decodePieceState(data, this.oppRule); } catch (_) { return; }
       const opp = this.opp;
+      const prev = this._lastOppPs;
       if (msg.rule === 'puyo') {
         opp._gs = 'falling';
         opp.pivotX = msg.pivotX;
@@ -346,9 +374,19 @@
         opp.targetRot = msg.orient;
         opp.targetAnimRot = msg.orient;
         opp.animRot = msg.orient;
+        // 直前サンプルとの差分で相手の操作音（横移動 / 回転）を鳴らす
+        if (prev) {
+          if (msg.pivotX !== prev.pivotX) this._oppSe('puyo_move');
+          if (msg.orient !== prev.orient) this._oppSe('puyo_rotate');
+        }
       } else {
         opp.mino = this._buildTetMino(msg.type, msg.x, msg.y, msg.rot);
+        if (prev) {
+          if (msg.x !== prev.x) this._oppSe('move');
+          if (msg.rot !== prev.rot) this._oppSe('rotate');
+        }
       }
+      this._lastOppPs = msg;
       this._renderPuppet();
     }
 
@@ -359,31 +397,49 @@
       switch (ev.kind) {
         case 'spawn':
           if (ev.rule === 'puyo') {
+            // 次ツモ＝前ツモの連鎖が終わった合図。まだ再生中なら確定させてから差し替える。
+            if (this._puppetChainRAF) this._finishPuppetChain();
             opp.pivotColor = ev.pivotColor;
             opp.childColor = ev.childColor;
             opp.nextQueue = (ev.next || []).map((p) => [p[0], p[1]]);
             opp._gs = 'falling';
+            // 新しいツモ＝連鎖カウント表示をリセット（連鎖数の最大値は維持）
+            opp.chainCount = 0;
+            if (typeof opp._updateChainDisplay === 'function') opp._updateChainDisplay(0);
           } else {
             opp.mino = this._buildTetMino(ev.type, COLS_COUNT / 2 - 2, (ev.type === 0 ? -1 : -2), 0);
             opp.nextQueue = (ev.next || []).map((t) => new Mino(t));
           }
+          // 新しいミノ/ぷよ＝座標がリセットされるので PieceState 差分の誤発火を防ぐ
+          this._lastOppPs = null;
           this._renderPuppet();
           break;
 
         case 'lock':
           if (ev.rule === 'puyo') {
-            opp.field = Subprotocol.puyoBoardToField(ev.board);
+            // 連鎖後＋おじゃま込みの確定盤面（補正）。puyo_fix は lockchain 側で鳴らすのでここでは鳴らさない。
+            //   連鎖演出を再生中なら、終わるまで適用を保留して演出を中断しない。
+            const field = Subprotocol.puyoBoardToField(ev.board);
+            if (this._puppetChainRAF) {
+              this._pendingPuyoLockField = field;
+            } else {
+              opp.field = field;
+              this._renderPuppet();
+            }
           } else {
             opp.field = opp.field || new Field();
             opp.field.blocks = Subprotocol.tetBoardToBlocks(ev.board)
               .map((b) => new Block(b.x, b.y, b.type));
+            this._oppSe('lock');
+            this._renderPuppet();
           }
-          this._renderPuppet();
+          this._lastOppPs = null;
           break;
 
         case 'hold':
           if (this.oppRule !== 'puyo') {
             opp.holdMino = this._buildTetMino(ev.heldType, 0, 0, 0);
+            this._oppSe('hold');
             this._renderPuppet();
           }
           break;
@@ -401,9 +457,24 @@
           this._renderPuppetGauge(ev.ready || 0, ev.unready || 0);
           break;
 
+        case 'lockchain':
+          // ぷよ: 連鎖前の確定盤面。パペットに連鎖演出を自前再生させる。
+          //   ※ puyo_fix の発音は SE(0x0a) イベントが着地の瞬間に別途鳴らす（ここでは鳴らさない）。
+          if (this.oppRule === 'puyo') {
+            opp.field = Subprotocol.puyoBoardToField(ev.board);
+            this._lastOppPs = null;
+            this._startPuppetChain();
+          }
+          break;
+
+        case 'se':
+          // 離散SE（発音タイミング同期）。現状 puyo_fix のみ。
+          if (ev.seKey) this._oppSe(ev.seKey);
+          break;
+
         case 'clear':
         default:
-          // v1 では Clear 演出は未使用（盤面は Lock が権威。puyo 連鎖演出は後続）
+          // v1 では Clear 演出は未使用（盤面は Lock が権威）
           break;
       }
     }
@@ -428,6 +499,74 @@
           if (typeof opp.drawAll === 'function') opp.drawAll();
         }
       } catch (_) {}
+    }
+
+    // ── 連鎖演出の自前再生（受信した「連鎖前盤面」から実エンジンのチェーンを駆動） ──
+    //   パペットは実 PuyoGame なので、その連鎖状態機械（checkErase→erasing→eraseWait→dropping）
+    //   を回せば点滅/連鎖文字/落下/連鎖SEが完全再現される。攻撃送信系は isVersusMode=false で
+    //   全て無効化されるため副作用なし。連鎖の終了（消せる組が無い checkErase）を検出して停止し、
+    //   その先の「おじゃま降下/次ツモ生成」（盤面外ロジック）には踏み込まない。
+    _startPuppetChain() {
+      const opp = this.opp;
+      if (!opp || this.oppRule !== 'puyo') return;
+      if (this._puppetChainRAF) { cancelAnimationFrame(this._puppetChainRAF); this._puppetChainRAF = null; }
+
+      // 連鎖再生用にチェーン関連状態を初期化（盤面 opp.field は受信済み・chainMax は累積維持）
+      opp._gs = 'checkErase';
+      opp.chainCount = 0;
+      opp._erasingCells = null;
+      opp._dropAnim = null;
+      opp.pendingChainGroups = null;
+      opp._eraseTimer = 0;
+      opp.eraseWaitTimer = 0;
+      opp.chainScoreAdd = 0;
+      opp.attackScore = 0;
+      opp.generatedOjamaTotal = 0;
+      opp.isAllClear = false;
+      opp.activeAnims = [];
+      opp.splitPuyo = null;
+
+      let last = performance.now();
+      const step = () => {
+        if (!this.active || this.oppRule !== 'puyo') { this._puppetChainRAF = null; return; }
+        // _update を呼ぶ前に「連鎖終了」を検出（checkErase で消せる組が無い）→ ここで停止する。
+        if (opp._gs === 'checkErase') {
+          let done = true;
+          try { const r = opp._findErasable(); done = !r || !r.groups || r.groups.length === 0; } catch (_) { done = true; }
+          if (done) { this._finishPuppetChain(); return; }
+        }
+        const now = performance.now();
+        let dt = now - last; last = now;
+        if (dt > 100) dt = 100;
+        try { opp._update(dt); } catch (_) {}
+        this._renderPuppet();
+        this._puppetChainRAF = requestAnimationFrame(step);
+      };
+      this._puppetChainRAF = requestAnimationFrame(step);
+    }
+
+    _finishPuppetChain() {
+      this._puppetChainRAF = null;
+      const opp = this.opp;
+      if (opp) {
+        opp._gs = 'idle';
+        try { if (typeof opp._clearChainTextDOM === 'function') opp._clearChainTextDOM(); } catch (_) {}
+        // 連鎖中に届いた Lock(0x02) 補正盤面（おじゃま込み）があれば、ここで反映する。
+        if (this._pendingPuyoLockField) {
+          opp.field = this._pendingPuyoLockField;
+          this._pendingPuyoLockField = null;
+        }
+      }
+      this._renderPuppet();
+    }
+
+    _stopPuppetChain() {
+      if (this._puppetChainRAF) { cancelAnimationFrame(this._puppetChainRAF); this._puppetChainRAF = null; }
+      this._pendingPuyoLockField = null;
+      const opp = this.opp;
+      if (opp && typeof opp._clearChainTextDOM === 'function') {
+        try { opp._clearChainTextDOM(); } catch (_) {}
+      }
     }
 
     // ── 相手パペットの予告ゲージを描画（受信した ready/unready から） ──
@@ -499,6 +638,7 @@
     _onOpponentGameOver() {
       if (!this.active) return;
       // 相手が topout → 自分の勝ち。VERSUS のリザルト演出を流用（loser='cpu'）。
+      this._oppSe('gameover');
       if (typeof versusGameOver === 'function') versusGameOver('cpu');
       this._teardown();
     }
@@ -508,6 +648,7 @@
     _teardown() {
       this.active = false;
       if (this._psTimer) { clearInterval(this._psTimer); this._psTimer = null; }
+      this._stopPuppetChain();
       // net リスナを解除（再戦で OnlineMatch を作り直してもリスナが累積しないように）
       if (this._netHandlers && this.net) {
         this.net.off('gameEvent', this._netHandlers.gameEvent);
