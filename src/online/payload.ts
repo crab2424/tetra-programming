@@ -285,7 +285,7 @@ export interface UpdateRoomResponse {
   message?: string;
 }
 
-export interface RooInfoNotification {
+export interface RoomInfoNotification {
   roomId: Uuid;
   roomName: string;
   players: [Uuid, string][];
