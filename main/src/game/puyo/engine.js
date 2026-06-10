@@ -274,7 +274,12 @@ Object.assign(PuyoGame.prototype, {
                 if (this.fw5fTimer >= PConfig.fixWait5fMs) {
                     // オンライン対戦: 連鎖判定の直前＝ペア確定盤面を相手へ送る。
                     //   受信側パペットはこの盤面から連鎖演出を自前で再生する（puyo_fix もここで鳴る）。
-                    if (window.OnlineHooks && window.OnlineHooks.puyoLockChain) {
+                    //   ★ fixWait5f は連鎖の各リンク（消去→落下→再固定）ごとに再入するため、
+                    //     ここを無条件で送ると N 連鎖が「1連鎖×N回」に分割され、受信側の連鎖再生が
+                    //     リンクごとに中断される（＝消去点滅も飛ぶ）。連鎖前の確定盤面を1枚だけ送れば
+                    //     受信側パペットが実エンジンで連鎖を自走再生できるので、ピース確定直後
+                    //     （まだ連鎖していない chainCount === 0）の最初の1回だけに限定する。
+                    if (this.chainCount === 0 && window.OnlineHooks && window.OnlineHooks.puyoLockChain) {
                         window.OnlineHooks.puyoLockChain(this);
                     }
                     this._gs = 'checkErase';
