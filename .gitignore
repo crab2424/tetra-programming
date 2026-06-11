@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+/source_assets
+*.psd
+puyomaking.html
+.claude
+/main/cpu/tet/lv6/reference
+/backup_v1.1.1
+/tetra-server/

@@ -1,0 +1,123 @@
+<!-- ─────────────────────────────────────────────
+     変更履歴ページ（外部分離 / src/pages.js が動的に注入）
+───────────────────────────────────────────── -->
+<div id="changelog-page" class="page">
+  <div id="changelog-container">
+
+    <div id="changelog-header">
+      <div class="changelog-title-row">
+        <h1 class="changelog-title">CHANGELOG</h1>
+        <button class="btn btn-back" onclick="switchPage(window._prevPage || 'main-menu')">◀ BACK</button>
+      </div>
+      <p class="changelog-subtitle">変更履歴</p>
+    </div>
+
+    <div class="changelog-list">
+      <!-- 以降、バージョンごとに .changelog-entry を追加。内容は適宜編集 -->
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.2</span>
+          <span class="changelog-date">2026/06/11</span>
+        </div>
+        <ul class="changelog-items">
+          <li>オンラインモード(開発中)を実装<br>
+            ※開発中なので対戦が不安定な場合があります。
+          </li>
+          <li>その他軽微なバグを修正</li>
+        </ul>
+      </div>
+      
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.1.5</span>
+          <span class="changelog-date">2026/06/08</span>
+        </div>
+        <ul class="changelog-items">
+          <li>ゲーム画面の枠線をはっきりと描画</li>
+          <li>TET CPU LV6 を強化（パフェあり/なし）:
+            <br>6: パフェ型、 7: パフェなし</li>
+          <li>その他軽微なバグを修正</li>
+        </ul>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.1.4</span>
+          <span class="changelog-date">2026/06/08</span>
+        </div>
+        <ul class="changelog-items">
+          <li>puyo のゲーム画面が正しく表示されないバグを修正</li>
+        </ul>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.1.3</span>
+          <span class="changelog-date">2026/06/07</span>
+        </div>
+        <ul class="changelog-items">
+          <li>tet cpu lv6の挙動を修正</li>
+          <li>changelogのレイアウトを変更</li>
+          <li>その他軽微なバグを修正</li>
+        </ul>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.1.2</span>
+          <span class="changelog-date">2026/06/07</span>
+        </div>
+        <ul class="changelog-items">
+          <li>puyo のおじゃま予告表示を改良（versusモード）</li>
+          <li>tet cpu lv6の挙動を修正</li>
+          <li>tet cpu lv6の戦い方について：
+            <br>versus準備画面で特定のキーを押すと...？</li>
+          <li>マージンタイム開始時間に負の値を追加</li>
+          <li>ゲーム画面の大きさをブラウザに追従</li>
+          <li>puyo対tetにおいて、puyoのマージンタイムに対応</li>
+          <li>画面遷移が一部条件下で正常に動作しない問題を修正</li>
+          <li>その他軽微なバグを修正</li>
+        </ul>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.1.1</span>
+          <span class="changelog-date">2026/06/05</span>
+        </div>
+        <ul class="changelog-items">
+          <li>change log, credits が表示されない問題を修正</li>
+        </ul>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.1</span>
+          <span class="changelog-date">2026/06/05</span>
+        </div>
+        <ul class="changelog-items">
+          <li>TET CPU LV6 を追加（パフェ探索込み）</li>
+          <li>マージンタイム・火力補正・最小連鎖などの対戦設定を追加</li>
+          <li>BGM / 効果音システムを実装</li>
+          <li>タイトル・メニューのアニメーション演出を追加</li>
+          <li>各種バグ修正とパフォーマンス改善</li>
+        </ul>
+      </div>
+
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v1.0</span>
+          <span class="changelog-date">2026/05/12</span>
+        </div>
+        <ul class="changelog-items">
+          <li>初回リリース</li>
+          <li>MARATHON / SPRINT / ULTRA / VERSUS / PUYO / QUIZ モードを実装</li>
+          <li>TET CPU LV1~5, PUYO CPU LV1~4を実装</li>
+          <li>キーバインド、チューニング設定機能を実装</li>
+        </ul>
+      </div>
+
+    </div>
+
+  </div>
+</div>
