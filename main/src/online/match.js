@@ -243,6 +243,15 @@
           if (!fromMe(g) || !g.holdMino) return;
           self.net.sendGameEvent(Subprotocol.encodeHold({ t: self._t(), heldType: g.holdMino.type }));
         },
+        // テト操作SE: 自分の playSe を相手パペットへ離散SEとして転送（move/rotate/drop/harddrop/
+        //   lock/lock_hard/hold/ライン消去/tspin）。盤面 Lock スナップショットでは表現できない発音を
+        //   即時同期する。未登録キー（gameover/pause/resume 等）は seId 無し＝送らない。
+        tetSe(g, key) {
+          if (!fromMe(g)) return;
+          const seId = Subprotocol.SE_KEY_TO_ID[key];
+          if (!seId) return;
+          self.net.sendGameEvent(Subprotocol.encodeSe({ t: self._t(), seId }));
+        },
 
         // ─ ぷよ ─
         puyoSpawn(g) {
@@ -332,13 +341,13 @@
           if (this.myRule === 'puyo') {
             if (g._gs === 'falling') {
               this.net.sendPieceState(Subprotocol.encodePieceStatePuyo({
-                t: this._t(), pivotX: g.pivotX, pivotY: g.pivotY, orient: g.targetRot,
+                t: this._t(), pivotX: g.pivotX, pivotY: g.pivotY, orient: g.targetRot, score: g.score || 0,
               }));
             }
           } else {
             if (g.mino && !g.isCountingDown) {
               this.net.sendPieceState(Subprotocol.encodePieceStateTet({
-                t: this._t(), type: g.mino.type, x: g.mino.x, y: g.mino.y, rot: g.mino.rotation,
+                t: this._t(), type: g.mino.type, x: g.mino.x, y: g.mino.y, rot: g.mino.rotation, score: g.score || 0,
               }));
             }
           }
@@ -387,13 +396,29 @@
         }
       } else {
         opp.mino = this._buildTetMino(msg.type, msg.x, msg.y, msg.rot);
-        if (prev) {
-          if (msg.x !== prev.x) this._oppSe('move');
-          if (msg.rot !== prev.rot) this._oppSe('rotate');
-        }
+        // ※ tet の操作SE（move/rotate 含む）は離散SE(0x0a)で同期するためここでは鳴らさない。
       }
+      // 相手スコア表示の同期（落下中も流れる PieceState に載るのでソフトドロップ加点も追従する）。
+      if (typeof msg.score === 'number') this._applyOppScore(msg.score);
       this._lastOppPs = msg;
       this._renderPuppet();
+    }
+
+    // ── パペットのスコアを反映し、ルールに応じた表示更新を呼ぶ ──
+    //   ※ tet の updateStatsDisplay は level/lines（テトでは未同期）も書き換えるため使わず、
+    //     score 要素のみを直接更新する。puyo の _updateScoreDisplay は scoreEl だけ触るのでそのまま使う。
+    _applyOppScore(score) {
+      const opp = this.opp;
+      if (!opp) return;
+      opp.score = score;
+      try {
+        if (this.oppRule === 'puyo') {
+          if (typeof opp._updateScoreDisplay === 'function') opp._updateScoreDisplay();
+        } else {
+          const el = document.getElementById(`${opp.statsPrefix || 'cpu'}-score-value`);
+          if (el) el.textContent = score;
+        }
+      } catch (_) {}
     }
 
     _onGameEvent(data) {
@@ -436,7 +461,7 @@
             opp.field = opp.field || new Field();
             opp.field.blocks = Subprotocol.tetBoardToBlocks(ev.board)
               .map((b) => new Block(b.x, b.y, b.type));
-            this._oppSe('lock');
+            // 設置音（lock / lock_hard / harddrop）は離散SE(0x0a)で着地と同時に鳴らすためここでは鳴らさない。
             this._renderPuppet();
           }
           this._lastOppPs = null;
@@ -445,7 +470,7 @@
         case 'hold':
           if (this.oppRule !== 'puyo') {
             opp.holdMino = this._buildTetMino(ev.heldType, 0, 0, 0);
-            this._oppSe('hold');
+            // hold 音は離散SE(0x0a)で同期するためここでは鳴らさない。
             this._renderPuppet();
           }
           break;
@@ -477,7 +502,8 @@
           break;
 
         case 'se':
-          // 離散SE（発音タイミング同期）。現状 puyo_fix のみ。
+          // 離散SE（発音タイミング同期）。ぷよ=puyo_fix/puyo_drop、テト=操作SE全般（move/rotate/
+          //   drop/harddrop/lock/lock_hard/hold/ライン消去/tspin）をこの経路で鳴らす。
           if (ev.seKey) this._oppSe(ev.seKey);
           break;
 
