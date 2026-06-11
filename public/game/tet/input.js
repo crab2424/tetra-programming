@@ -10,12 +10,6 @@ Object.assign(Game.prototype, {
     // SE再生の薄いラッパ（A案）。人間・CPUどちらの盤面でもそれぞれの操作音を鳴らす。
     playSe(key) {
         window.SeManager?.play(key);
-        // オンライン対戦: 自分の権威エンジンの操作SEを相手パペットへ同期する（離散SE 0x0a）。
-        //   パペット(window._cpuGame)が _oppSe で鳴らす playSe は this!==window._game なので転送されない＝エコーしない。
-        //   未登録キー（gameover/pause/resume 等）は tetSe 側で seId 無し＝送らない。
-        if (window.OnlineHooks?.active && this === window._game && window.OnlineHooks.tetSe) {
-            window.OnlineHooks.tetSe(this, key);
-        }
     },
 
     // ─────────────────────────────────────────

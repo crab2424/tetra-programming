@@ -501,9 +501,6 @@ Object.assign(PuyoGame.prototype, {
         // 設置猶予時間をカットして即時設置
         this.lockTimer = PConfig.lockDelayMs;
         this.playSe('puyo_drop');
-        // オンライン対戦: クイックドロップの設置音は puyo_drop。viaQuickDrop では _fixPuyo が
-        //   puyo_fix を鳴らさない（＝相手へも届かない）ため、ここで puyo_drop を相手へ送る。
-        if (window.OnlineHooks && window.OnlineHooks.puyoDropSe) window.OnlineHooks.puyoDropSe(this);
         this._fixPuyo(true);
     },
 

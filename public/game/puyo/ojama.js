@@ -164,8 +164,6 @@ Object.assign(PuyoGame.prototype, {
 
     updateGarbageGauge() {
         this._updateOjamaYokoku();
-        // オンライン対戦: 自分の予告ゲージ状態を相手へ通知（相手側パペットに可視化させる）
-        if (window.OnlineHooks) window.OnlineHooks.gaugeUpdate(this);
     },
 
     sendGarbage(amount) {
@@ -191,12 +189,6 @@ Object.assign(PuyoGame.prototype, {
             }
             holes.push(holeX);
             prevHole = holeX;
-        }
-
-        // オンライン対戦: 相手はネット越し。ローカルのパペットへ積まず、ネットで送る。
-        if (window.OnlineHooks && window.OnlineHooks.active && this === window._game) {
-            window.OnlineHooks.sendGarbage(amount, holes, true);
-            return;
         }
 
         // ★ stage1「内部のみ」(internal:true・非表示) として送る。
