@@ -181,18 +181,6 @@
 
       if (isMyPuyo) me.state = 'starting';
 
-      // ⑦ カウントダウン中の相手NEXT同期: 初期化済みの自分の nextQueue を相手へ先送りし、
-      //    相手のカウントダウン中も NEXT を正しく表示させる（_sendInitialNext 参照）。
-      //    ★初回試合は相手の initGame が遅く（初回のみアセット読込）net リスナ未接続で取りこぼす
-      //      ため、カウントダウン中に複数回 再送する。NEXT のみ設定で冪等＝重複送信は無害。
-      //      gameplay 開始(this.startedAt 設定)後は本物の初手 Spawn が来るので再送しない。
-      this._sendInitialNext();
-      // 初回試合は相手の initGame 完了（net リスナ接続）までの取りこぼしがあるため、
-      // 序盤を密に再送して「相手の init 完了直後」に届くようにし、体感遅延を最小化する。
-      [120, 280, 500, 900, 1500, 2200].forEach((ms) => setTimeout(() => {
-        if (this.active && !this.startedAt) this._sendInitialNext();
-      }, ms));
-
       runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
         if (!this.active) return;
         if (root.BgmManager) root.BgmManager.play('versus_bgm');
@@ -228,31 +216,6 @@
         opp.canHold = true;
         this._renderPuppet();
       }
-    }
-
-    // ⑦ カウントダウン中の相手NEXT同期: 初手出現前に「NEXTだけ」を1回送る。
-    //    初手はまだ盤面に出ていないので NEXT 先頭に含める（nextQueue.slice(0,..)＝初手込み）。
-    //    操作ミノ/ぷよは出さないため、現在ミノ欄に sentinel を載せる
-    //    （テト type=0xFF / ぷよ pivot=child=0）。受信側は sentinel を見て盤面を空のまま
-    //    NEXT だけ反映する。本物の初手 Spawn（カウントダウン後）が来ると盤面に初手が出て
-    //    NEXT が1つシフトし、本来の表示へ滑らかに移行する。既存 encodeSpawn 流用＝プロトコル不変。
-    _sendInitialNext() {
-      const me = this.me;
-      try {
-        const q = me.nextQueue || [];
-        if (q.length < 1) return;
-        if (this.myRule === 'puyo') {
-          const next = q.slice(0, 3).map((p) => [p[0], p[1]]);
-          this.net.sendGameEvent(Subprotocol.encodeSpawnPuyo({
-            t: this._t(), pivotColor: 0, childColor: 0, next, // 0,0 = pre-start sentinel
-          }));
-        } else {
-          const next = q.slice(0, 5).map((m) => m.type);
-          this.net.sendGameEvent(Subprotocol.encodeSpawnTet({
-            t: this._t(), type: 0xFF, next, // 0xFF = pre-start sentinel
-          }));
-        }
-      } catch (_) {}
     }
 
     // ════════════════════════════════════════════
@@ -464,36 +427,20 @@
       const opp = this.opp;
       switch (ev.kind) {
         case 'spawn':
-          let realSpawn = false;
           if (ev.rule === 'puyo') {
-            // ⑦ pre-start sentinel(pivot=child=0): カウントダウン中の NEXT だけ反映し操作ぷよは出さない。
-            const preStart = !ev.pivotColor && !ev.childColor;
             // 次ツモ＝前ツモの連鎖が終わった合図。まだ再生中なら確定させてから差し替える。
             if (this._puppetChainRAF) this._finishPuppetChain();
+            opp.pivotColor = ev.pivotColor;
+            opp.childColor = ev.childColor;
             opp.nextQueue = (ev.next || []).map((p) => [p[0], p[1]]);
-            if (preStart) {
-              opp._gs = 'idle';        // 操作ぷよ/ゴーストを描かない（盤面は空のまま）
-            } else {
-              realSpawn = true;
-              opp.pivotColor = ev.pivotColor;
-              opp.childColor = ev.childColor;
-              opp._gs = 'falling';
-              // 新しいツモ＝連鎖カウント表示をリセット（連鎖数の最大値は維持）
-              opp.chainCount = 0;
-              if (typeof opp._updateChainDisplay === 'function') opp._updateChainDisplay(0);
-            }
+            opp._gs = 'falling';
+            // 新しいツモ＝連鎖カウント表示をリセット（連鎖数の最大値は維持）
+            opp.chainCount = 0;
+            if (typeof opp._updateChainDisplay === 'function') opp._updateChainDisplay(0);
           } else {
-            // ⑦ pre-start sentinel(type=0xFF, 範囲外): NEXT だけ反映し操作ミノは出さない。
-            const preStart = ev.type > 6;
-            realSpawn = !preStart;
+            opp.mino = this._buildTetMino(ev.type, COLS_COUNT / 2 - 2, (ev.type === 0 ? -1 : -2), 0);
             opp.nextQueue = (ev.next || []).map((t) => new Mino(t));
-            opp.mino = preStart ? null
-              : this._buildTetMino(ev.type, COLS_COUNT / 2 - 2, (ev.type === 0 ? -1 : -2), 0);
           }
-          // ⑤ 相手の次ツモ出現＝相手の連鎖が完全に終わった合図（オフライン _confirmSentGarbage と同義）。
-          //    この時点で初めて、受信済みおじゃま（ready:false で保留中）を猶予後に降下可へ確定する。
-          //    連鎖の各リンクで届くおじゃまを途中で降らせず、連鎖が終わってからまとめて降らせる。
-          if (realSpawn) this._confirmReceivedGarbage();
           // 新しいミノ/ぷよ＝座標がリセットされるので PieceState 差分の誤発火を防ぐ
           this._lastOppPs = null;
           this._renderPuppet();
@@ -719,67 +666,35 @@
       if (!g || amount <= 0) return;
 
       if (this.myRule === 'puyo') {
-        // ぷよ受け手: phase2(予告表示・未降下) → phase3(ready・降下) の2段階を受信側で作る。
-        //   ・ぷよの予告アイコン表示(_updateOjamaYokoku)は internal のみで決まり ready は無関係。
-        //     よって internal を使わず {ready:false, internal:false} で積む＝受信直後から予告表示(phase2)。
-        //   ・降下可(ready)化はここでは行わない。送り手の連鎖は各リンクで garbage を不定間隔に
-        //     連続送信するため、到着起算のタイマー（個別/デバウンスとも）では連鎖途中で ready 化し
-        //     降ってしまう。→ ready化は「相手の次ツモ出現(Spawn)＝連鎖完全終了」を合図に
-        //     `_confirmReceivedGarbage` で行う（_onGameEvent の spawn 参照）。phase3 へ。
-        const obj = { amount, holes: holes.slice(), ready: false, internal: false };
+        // ぷよ受け手: internal(非表示)500ms → 青/点滅(ready)。降下は ready && !internal を満たす。
+        const obj = { amount, holes: holes.slice(), ready: true, internal: true, internalTimer: 500 };
         g.garbageQueue.push(obj);
         if (typeof g.updateGarbageGauge === 'function') g.updateGarbageGauge();
       } else {
         // テト受け手: ready:false → 猶予タイマーで ready 化（既存 applyGarbage が降らせる）。
         const obj = { amount, holes: holes.slice(), ready: false };
         g.garbageQueue.push(obj);
-        this._scheduleGarbageReady(g, obj, senderIsPuyo ? 1000 : 1500);
+        if (!g._garbageTimers) g._garbageTimers = [];
+        const delay = senderIsPuyo ? 1000 : 1500;
+        const entry = { obj, duration: delay, remaining: null, id: null };
+        entry.cb = () => {
+          entry.id = null;
+          if (g.garbageQueue.includes(obj) && obj.amount > 0) {
+            obj.ready = true;
+            if (typeof g.updateGarbageGauge === 'function') g.updateGarbageGauge();
+          }
+          const i = g._garbageTimers.indexOf(entry);
+          if (i !== -1) g._garbageTimers.splice(i, 1);
+        };
+        g._garbageTimers.push(entry);
+        if (g.isPaused) {
+          entry.remaining = delay;
+        } else {
+          entry.start = performance.now();
+          entry.id = setTimeout(entry.cb, delay);
+        }
         if (typeof g.updateGarbageGauge === 'function') g.updateGarbageGauge();
       }
-    }
-
-    // 受信おじゃまを delay 後に ready(確定/赤) へ昇格させる猶予タイマー（ポーズ対応）。
-    //   テト＝stage2→ready、ぷよ＝stage2(青)→stage3(赤/降下)。
-    _scheduleGarbageReady(g, obj, delay) {
-      if (!g._garbageTimers) g._garbageTimers = [];
-      const entry = { obj, duration: delay, remaining: null, id: null };
-      entry.cb = () => {
-        entry.id = null;
-        if (g.garbageQueue.includes(obj) && obj.amount > 0) {
-          obj.ready = true;
-          if (typeof g.updateGarbageGauge === 'function') g.updateGarbageGauge();
-        }
-        const i = g._garbageTimers.indexOf(entry);
-        if (i !== -1) g._garbageTimers.splice(i, 1);
-      };
-      g._garbageTimers.push(entry);
-      if (g.isPaused) {
-        entry.remaining = delay;
-      } else {
-        entry.start = performance.now();
-        entry.id = setTimeout(entry.cb, delay);
-      }
-    }
-
-    // ⑤ ぷよ受け手の ready 一括確定。相手の次ツモ出現（=連鎖完全終了）を合図に呼ばれ、
-    //   猶予(delay)後にキュー内の未降下(ready:false)おじゃまをまとめて ready 化する＝送り手の
-    //   連鎖が完全に終わってから（猶予を置いて）降り始める。連鎖途中の降下を防ぐ。
-    //   ・delay は「連鎖が終わってから降るまで」の視覚猶予（phase2 の表示時間）。
-    //   ・複数の攻撃ターンが続いても、各 Spawn で張り直すので最新の連鎖終了から起算される。
-    _confirmReceivedGarbage(delay = 800) {
-      const g = root._game;
-      if (!g || this.myRule !== 'puyo') return;
-      // 未降下のおじゃまが無ければ何もしない（タイマーも張らない）。
-      if (!g.garbageQueue.some((o) => !o.ready && o.amount > 0)) return;
-      if (this._garbageConfirmTimer) clearTimeout(this._garbageConfirmTimer);
-      this._garbageConfirmTimer = setTimeout(() => {
-        this._garbageConfirmTimer = null;
-        let changed = false;
-        for (const o of g.garbageQueue) {
-          if (!o.ready && o.amount > 0) { o.ready = true; changed = true; }
-        }
-        if (changed && typeof g.updateGarbageGauge === 'function') g.updateGarbageGauge();
-      }, delay);
     }
 
     // ════════════════════════════════════════════
@@ -798,7 +713,6 @@
     _teardown() {
       this.active = false;
       if (this._psTimer) { clearInterval(this._psTimer); this._psTimer = null; }
-      if (this._garbageConfirmTimer) { clearTimeout(this._garbageConfirmTimer); this._garbageConfirmTimer = null; }
       this._stopPuppetChain();
       // net リスナを解除（再戦で OnlineMatch を作り直してもリスナが累積しないように）
       if (this._netHandlers && this.net) {
