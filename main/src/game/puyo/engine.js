@@ -155,17 +155,6 @@ Object.assign(PuyoGame.prototype, {
         this.fixAnimTimer = 0;
         this.fixAnimDuration = maxDur;
         this._gs = 'fixAnim';
-
-        // オンライン対戦: 連鎖判定の直前＝ペア確定盤面を相手へ送る。
-        //   ★ 送信を「設置の固定振動が始まるこの瞬間」に行うことで、相手側パペットでも
-        //     設置SE・盤面反映・振動演出が同時に立ち上がる（固定アニメ後の fixWait5f で
-        //     送っていた旧実装は描画が ~200ms 遅れて見えた）。盤面内容は fixWait5f 時点と
-        //     同一（消去前）なので連鎖再生(①②)には影響しない。
-        //   ★ _beginFixAnimWait は連鎖の各リンク（落下後の再固定）でも呼ばれるため、
-        //     ピース確定直後（まだ連鎖していない chainCount === 0）の最初の1回だけに限定する。
-        if (this.chainCount === 0 && window.OnlineHooks && window.OnlineHooks.puyoLockChain) {
-            window.OnlineHooks.puyoLockChain(this);
-        }
     },
 
     _loop() {
@@ -283,8 +272,16 @@ Object.assign(PuyoGame.prototype, {
             case 'fixWait5f':
                 this.fw5fTimer += dt;
                 if (this.fw5fTimer >= PConfig.fixWait5fMs) {
-                    // オンライン対戦の盤面送信は _beginFixAnimWait（固定振動の開始）へ移設済み。
-                    //   ここでは状態遷移のみ行う。
+                    // オンライン対戦: 連鎖判定の直前＝ペア確定盤面を相手へ送る。
+                    //   受信側パペットはこの盤面から連鎖演出を自前で再生する（puyo_fix もここで鳴る）。
+                    //   ★ fixWait5f は連鎖の各リンク（消去→落下→再固定）ごとに再入するため、
+                    //     ここを無条件で送ると N 連鎖が「1連鎖×N回」に分割され、受信側の連鎖再生が
+                    //     リンクごとに中断される（＝消去点滅も飛ぶ）。連鎖前の確定盤面を1枚だけ送れば
+                    //     受信側パペットが実エンジンで連鎖を自走再生できるので、ピース確定直後
+                    //     （まだ連鎖していない chainCount === 0）の最初の1回だけに限定する。
+                    if (this.chainCount === 0 && window.OnlineHooks && window.OnlineHooks.puyoLockChain) {
+                        window.OnlineHooks.puyoLockChain(this);
+                    }
                     this._gs = 'checkErase';
                 }
                 break;

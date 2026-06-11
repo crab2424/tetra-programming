@@ -269,12 +269,6 @@
           if (!fromMe(g)) return;
           self.net.sendGameEvent(Subprotocol.encodeSe({ t: self._t(), seId: Subprotocol.SE_ID.PUYO_FIX }));
         },
-        // クイックドロップの設置音（puyo_drop）。viaQuickDrop では puyo_fix を鳴らさないため、
-        //   こちらを独立イベントで相手へ届ける（鳴らさないと相手側で設置音が欠落する）。
-        puyoDropSe(g) {
-          if (!fromMe(g)) return;
-          self.net.sendGameEvent(Subprotocol.encodeSe({ t: self._t(), seId: Subprotocol.SE_ID.PUYO_DROP }));
-        },
 
         // ─ 共通: 予告ゲージ（自分に降ってくる予定の量をフェーズ別に相手へ通知）─
         //   相手側パペットのゲージ＝「相手に届いている火力」を可視化（①③）。
@@ -467,12 +461,9 @@
           // ぷよ: 連鎖前の確定盤面。パペットに連鎖演出を自前再生させる。
           //   ※ puyo_fix の発音は SE(0x0a) イベントが着地の瞬間に別途鳴らす（ここでは鳴らさない）。
           if (this.oppRule === 'puyo') {
-            const newField = Subprotocol.puyoBoardToField(ev.board);
-            // 旧盤面との差分＝今置かれたぷよ。設置の固定振動をパペットでも再現するため拾う。
-            const placed = this._diffPlacedCells(opp.field, newField);
-            opp.field = newField;
+            opp.field = Subprotocol.puyoBoardToField(ev.board);
             this._lastOppPs = null;
-            this._startPuppetChain(placed);
+            this._startPuppetChain();
           }
           break;
 
@@ -515,7 +506,7 @@
     //   を回せば点滅/連鎖文字/落下/連鎖SEが完全再現される。攻撃送信系は isVersusMode=false で
     //   全て無効化されるため副作用なし。連鎖の終了（消せる組が無い checkErase）を検出して停止し、
     //   その先の「おじゃま降下/次ツモ生成」（盤面外ロジック）には踏み込まない。
-    _startPuppetChain(placedCells) {
+    _startPuppetChain() {
       const opp = this.opp;
       if (!opp || this.oppRule !== 'puyo') return;
       if (this._puppetChainRAF) { cancelAnimationFrame(this._puppetChainRAF); this._puppetChainRAF = null; }
@@ -534,17 +525,6 @@
       opp.isAllClear = false;
       opp.activeAnims = [];
       opp.splitPuyo = null;
-
-      // ── 設置の固定振動演出 ──
-      //   今置かれたぷよ（差分）に振動アニメを付け、固定アニメ待ち(fixAnim)を1回挟んでから
-      //   連鎖判定(checkErase)に入る＝ローカルと同じ「固定→振動→消去」順を再現する。
-      //   盤面がずれて差分が過大なときは振動を諦めて従来どおり checkErase から始める（安全側）。
-      if (placedCells && placedCells.length >= 1 && placedCells.length <= 4) {
-        for (const cell of placedCells) {
-          try { opp._addPuyoAnim(cell.fr, cell.c, 2); } catch (_) {}
-        }
-        try { opp._beginFixAnimWait(); } catch (_) { opp._gs = 'checkErase'; }
-      }
 
       let last = performance.now();
       const step = () => {
@@ -587,25 +567,6 @@
       if (opp && typeof opp._clearChainTextDOM === 'function') {
         try { opp._clearChainTextDOM(); } catch (_) {}
       }
-    }
-
-    // ── 旧盤面 → 新盤面で「新規に出現した通常色ぷよ」のセルを返す（＝今置かれたペア） ──
-    //   fr = field 配列の行 index（隠し行を含む）。おじゃま(6)・既存セルは除外。
-    //   差分が過大（盤面が大きくずれている）な場合の判定は呼び出し側で行う。
-    _diffPlacedCells(oldField, newField) {
-      const placed = [];
-      if (!newField) return placed;
-      for (let r = 0; r < newField.length; r++) {
-        const nrow = newField[r];
-        const orow = oldField && oldField[r];
-        if (!nrow) continue;
-        for (let c = 0; c < nrow.length; c++) {
-          const nv = nrow[c];
-          const ov = (orow && orow[c]) || 0;
-          if (nv >= 1 && nv <= 5 && ov === 0) placed.push({ fr: r, c });
-        }
-      }
-      return placed;
     }
 
     // ── 相手パペットの予告ゲージを描画（受信した ready/unready から） ──
