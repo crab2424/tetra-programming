@@ -8,11 +8,19 @@ interface HasChildren {
   type?: string;
   value?: string;
   oninput?: (event: InputEvent) => void;
+  src?: string;
+  alt?: string;
+}
+
+interface SpacingElement extends HasChildren {
+  space?: number;
 }
 
 declare global {
   namespace JSX {
     interface IntrinsicElements {
+      spaceRow: SpacingElement;
+      spaceCol: SpacingElement;
       [elemName: string]: HasChildren;
     }
   }
@@ -27,6 +35,18 @@ export function jsx(
     const fragment = document.createDocumentFragment();
     appendChildren(fragment, children);
     return fragment;
+  }
+
+  if (tag === "spaceRow") {
+    const space = props?.space ?? 0;
+    const rowSpaceElement = document.createElement("div");
+    rowSpaceElement.style = `height: ${space}px; width: 100%; opacity: 0; pointer-events: none; user-select: none;`;
+    return rowSpaceElement;
+  } else if (tag === "spaceCol") {
+    const space = props?.space ?? 0;
+    const colSpaceElement = document.createElement("div");
+    colSpaceElement.style = `width: ${space}px; height: 100%; opacity: 0; pointer-events: none; user-select: none;`;
+    return colSpaceElement;
   }
 
   const element = document.createElement(tag);

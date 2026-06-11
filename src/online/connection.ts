@@ -12,6 +12,10 @@ import {
   type LeaveRoomResponse,
   type UpdateRoomRequest,
   type UpdateRoomResponse,
+  type RoomInfoNotification,
+  type RoomInfoNotificationRequest,
+  isRoomInfoNotification,
+  type Uuid,
 } from "./payload.js";
 
 import { Logger } from "./logger";
@@ -25,6 +29,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const RELIABLE_CHANNEL_LABEL = "reliable-main";
 const UNRELIABLE_CHANNEL_LABEL = "unreliable-main";
 export class GameConnection {
+  public userId: Uuid | null = null;
+
   private ws: WebSocket;
   private pc: RTCPeerConnection;
 
@@ -38,8 +44,8 @@ export class GameConnection {
    */
   private urdc: RTCDataChannel;
 
-  private rdcFunctions: ((event: MessageEvent) => void)[] = [];
-  private urdcFunctions: ((event: MessageEvent) => void)[] = [];
+  private rdcFunctions: Map<Uuid, (event: MessageEvent) => void> = new Map();
+  private urdcFunctions: Map<Uuid, (event: MessageEvent) => void> = new Map();
 
   public dcReady: boolean = false;
 
@@ -116,6 +122,7 @@ export class GameConnection {
         candidate: event.candidate.candidate,
         sdp_mid: event.candidate.sdpMid,
         sdp_m_line_index: event.candidate.sdpMLineIndex,
+        user_id: this.userId,
       };
       if (this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify(msg));
@@ -160,6 +167,7 @@ export class GameConnection {
           const sdpMid = message.sdpMid ?? message.sdp_mid ?? null;
           const sdpMLineIndex =
             message.sdpMLineIndex ?? message.sdp_m_line_index ?? null;
+          const userId: Uuid | null = message.userId ?? message.user_id ?? null;
           if (sdpMid == null && sdpMLineIndex == null) {
             this.logger.warn(
               "Ignoring ICE candidate without sdpMid/sdpMLineIndex",
@@ -174,6 +182,7 @@ export class GameConnection {
                 sdpMLineIndex,
               }),
             );
+            this.userId = userId;
           } catch (e) {
             this.logger.warn("Failed to add ICE candidate", e);
           }
@@ -204,8 +213,42 @@ export class GameConnection {
     this.logger.log("Connection closed");
   }
 
-  addReaderFunction(func: (event: MessageEvent) => void) {
-    this.rdcFunctions.push(func);
+  addReaderFunction(func: (event: MessageEvent) => void): Uuid {
+    const id = crypto.randomUUID();
+    this.rdcFunctions.set(id, func);
+    return id;
+  }
+
+  removeReaderFunction(id: Uuid) {
+    this.rdcFunctions.delete(id);
+  }
+
+  private addJsonReaderFunction(
+    func: (event: { [key: string]: any }) => void,
+  ): Uuid {
+    const id = crypto.randomUUID();
+    this.rdcFunctions.set(id, async (event) => {
+      try {
+        const data = event.data;
+        let buf: Uint8Array;
+        if (data instanceof ArrayBuffer) buf = new Uint8Array(data);
+        else if (data instanceof Blob) {
+          const ab = await data.arrayBuffer();
+          buf = new Uint8Array(ab);
+        } else if (data instanceof Uint8Array) {
+          buf = data;
+        } else if (data.buffer instanceof ArrayBuffer) {
+          buf = new Uint8Array(data.buffer);
+        } else {
+          return;
+        }
+        const decoded = JSONPayload.fromPayload(buf);
+        func(decoded);
+      } catch (e) {
+        // ignore parse errors
+      }
+    });
+    return id;
   }
 
   private async handleInbound(event: MessageEvent) {
@@ -285,6 +328,7 @@ export class GameConnection {
 
     return new Promise((resolve) => {
       let responseReceived = false;
+      let handlerId: Uuid | null = null;
       const handler = (event: MessageEvent) => {
         if (responseReceived) return;
         try {
@@ -301,23 +345,24 @@ export class GameConnection {
               const decoded = JSONPayload.fromPayload(b);
               if ("id" in decoded && decoded.id === sendData.id) {
                 responseReceived = true;
-                this.rdcFunctions = this.rdcFunctions.filter(
-                  (f) => f !== handler,
-                );
+                this.rdcFunctions.delete(handlerId!);
                 resolve(decoded as T);
               }
             };
             reader.readAsArrayBuffer(data);
             return;
-          } else if (data instanceof Uint8Array) buf = data;
-          else if (data.buffer instanceof ArrayBuffer)
+          } else if (data instanceof Uint8Array) {
+            buf = data;
+          } else if (data.buffer instanceof ArrayBuffer) {
             buf = new Uint8Array(data.buffer);
-          else return;
+          } else {
+            return;
+          }
 
           const decoded = JSONPayload.fromPayload(buf);
           if ("id" in decoded && decoded.id === sendData.id) {
             responseReceived = true;
-            this.rdcFunctions = this.rdcFunctions.filter((f) => f !== handler);
+            this.rdcFunctions.delete(handlerId!);
             resolve(decoded as T);
           }
         } catch (e) {
@@ -325,19 +370,18 @@ export class GameConnection {
         }
       };
 
-      this.addReaderFunction(handler);
+      handlerId = this.addReaderFunction(handler);
     });
   }
 
-  async sendBinaryPing(): Promise<string> {
-    const id = crypto.randomUUID();
-    await this.sendRDC(Payload.binaryPing(id));
-    return this.waitBinaryPong(id);
-  }
+  async waitResponseRDCBinary<T>(id: string): Promise<T> {
+    if (!this.dcReady) {
+      throw new Error("Data channel is not ready");
+    }
 
-  async waitBinaryPong(id: string): Promise<string> {
     return new Promise((resolve) => {
       let responseReceived = false;
+      let handlerId: Uuid | null = null;
       const handler = (event: MessageEvent) => {
         if (responseReceived) return;
         try {
@@ -354,29 +398,27 @@ export class GameConnection {
                 const recvId = Payload.bytesToUuid(decoded.idBytes);
                 if (recvId === id) {
                   responseReceived = true;
-                  this.rdcFunctions = this.rdcFunctions.filter(
-                    (f) => f !== handler,
-                  );
-                  resolve(recvId);
+                  this.rdcFunctions.delete(handlerId!);
+                  resolve(recvId as unknown as T);
                 }
               }
             };
             reader.readAsArrayBuffer(data);
             return;
-          } else if (data instanceof Uint8Array) buf = data;
-          else if (data.buffer instanceof ArrayBuffer)
+          } else if (data instanceof Uint8Array) {
+            buf = data;
+          } else if (data.buffer instanceof ArrayBuffer) {
             buf = new Uint8Array(data.buffer);
-          else return;
-
+          } else {
+            return;
+          }
           const decoded = Payload.decode(buf);
           if (decoded.op === Opcodes.Pong) {
             const recvId = Payload.bytesToUuid(decoded.idBytes);
             if (recvId === id) {
               responseReceived = true;
-              this.rdcFunctions = this.rdcFunctions.filter(
-                (f) => f !== handler,
-              );
-              resolve(recvId);
+              this.rdcFunctions.delete(handlerId!);
+              resolve(recvId as unknown as T);
             }
           }
         } catch (e) {
@@ -384,7 +426,27 @@ export class GameConnection {
         }
       };
 
-      this.addReaderFunction(handler);
+      handlerId = this.addReaderFunction(handler);
+    });
+  }
+
+  async sendBinaryPing(): Promise<string> {
+    const id = crypto.randomUUID();
+    await this.sendRDC(Payload.binaryPing(id));
+    return this.waitBinaryPong(id);
+  }
+
+  async waitBinaryPong(id: string): Promise<string> {
+    return this.waitResponseRDCBinary(id);
+  }
+
+  onGetRoomInfoNotifications(
+    callback: (data: RoomInfoNotification) => void,
+  ): Uuid {
+    return this.addJsonReaderFunction((event) => {
+      if (isRoomInfoNotification(event)) {
+        callback(event);
+      }
     });
   }
 
@@ -402,28 +464,35 @@ export class GameConnection {
 
   createRoom(data: Omit<CreateRoomRequest, "id">): Promise<CreateRoomResponse> {
     return this.waitResponseRDC<CreateRoomResponse>(Opcodes.JSONRequest, {
-      type: "CreateRoomRequest",
+      type: "JSONCreateRoomRequest",
       ...data,
     });
   }
 
   joinRoom(data: Omit<JoinRoomRequest, "id">): Promise<JoinRoomResponse> {
     return this.waitResponseRDC<JoinRoomResponse>(Opcodes.JSONRequest, {
-      type: "JoinRoomRequest",
+      type: "JSONJoinRoomRequest",
       ...data,
     });
   }
 
   leaveRoom(data: Omit<LeaveRoomRequest, "id">): Promise<LeaveRoomResponse> {
     return this.waitResponseRDC<LeaveRoomResponse>(Opcodes.JSONRequest, {
-      type: "LeaveRoomRequest",
+      type: "JSONLeaveRoomRequest",
       ...data,
     });
   }
 
   updateRoom(data: Omit<UpdateRoomRequest, "id">): Promise<UpdateRoomResponse> {
     return this.waitResponseRDC<UpdateRoomResponse>(Opcodes.JSONRequest, {
-      type: "UpdateRoomRequest",
+      type: "JSONUpdateRoomRequest",
+      ...data,
+    });
+  }
+
+  roomInfoNotificationRequest(data: Omit<RoomInfoNotificationRequest, "id">): Promise<void> {
+    return this.waitResponseRDC<void>(Opcodes.JSONRequest, {
+      type: "JSONRoomInfoNotificationRequest",
       ...data,
     });
   }
