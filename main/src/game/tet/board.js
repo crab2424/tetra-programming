@@ -10,12 +10,8 @@ Object.assign(Game.prototype, {
         if (this.bag.length === 0) {
             this.bag = [0, 1, 2, 3, 4, 5, 6];
             // シャッフル（Fisher-Yates）
-            // オンライン対戦で両者を同ツモにするため、tumoRng が設定されていればそれを使う
-            // （未設定時=シングル/CPU対戦は従来どおり Math.random）。tumoRng はツモ生成専用で、
-            //   おじゃま穴の Math.random とは混ざらないため受信おじゃま量に依らず両者で一致する。
-            const rnd = this.tumoRng || Math.random;
             for (let i = this.bag.length - 1; i > 0; i--) {
-                const j = Math.floor(rnd() * (i + 1));
+                const j = Math.floor(Math.random() * (i + 1));
                 [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
             }
         }
@@ -39,9 +35,6 @@ Object.assign(Game.prototype, {
 
         this.nextQueue.push(new Mino(this.getNextType()));
         this.canHold = true
-
-        // オンライン対戦: 新ミノ出現を相手へ通知（自分が発火元のときのみ送信）
-        if (window.OnlineHooks) window.OnlineHooks.tetSpawn(this);
 
         // 状態・タイマー・カウントの初期化
         this.isGrounded = false;
@@ -291,9 +284,6 @@ Object.assign(Game.prototype, {
                 this.applyGarbage();
             }
         }
-
-        // オンライン対戦: 設置確定（おじゃま適用後）の盤面スナップショットを相手へ送る
-        if (window.OnlineHooks) window.OnlineHooks.tetLock(this);
 
         this.popMino()
     },

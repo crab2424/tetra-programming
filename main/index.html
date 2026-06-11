@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png">
   
     <!-- キャッシュクリアのためバージョンを更新 -->
-    <link rel="stylesheet" href="src/styles/style.css?v=39">
+    <link rel="stylesheet" href="src/styles/style.css?v=36">
     <link rel="stylesheet" href="src/styles/anime.css?v=2">
   </head>
   <body>
@@ -81,13 +81,6 @@
                 <span class="mode-btn-desc">CPU対戦モード</span>
               </div>
             </button>
-            <button class="mode-btn mode-btn-online" onclick="goToOnline()">
-              <span class="mode-btn-icon">🌐</span>
-              <div class="mode-btn-text">
-                <span class="mode-btn-label">ONLINE</span>
-                <span class="mode-btn-desc">オンライン対戦</span>
-              </div>
-            </button>
             <button class="mode-btn mode-btn-test" onclick="goToModeCheck('test')">
               <span class="mode-btn-icon">🤖</span>
               <div class="mode-btn-text">
@@ -134,74 +127,6 @@
           </button>
           <button class="util-link util-link-changelog" onclick="openInfoPage('changelog')">
             <span class="util-icon">📝</span><span>CHANGELOG</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ─────────────────────────────────────────────
-         オンライン対戦 ロビー / マッチング画面
-    ───────────────────────────────────────────── -->
-    <div id="online-page" class="page">
-      <div id="online-container">
-        <div id="online-header">
-          <span class="mode-check-icon" style="color: var(--online-color, #4ec9ff);">🌐</span>
-          <h2 class="mode-check-label" style="color: var(--online-color, #4ec9ff);">ONLINE</h2>
-        </div>
-
-        <p id="online-status" class="online-status">サーバーに接続中…</p>
-        <button id="online-reconnect-btn" class="opt-btn" style="display:none;" onclick="onlineReconnect()">RECONNECT</button>
-
-        <div class="online-section">
-          <div class="option-row">
-            <span class="option-label">NAME</span>
-            <input id="online-username" class="online-input" type="text" maxlength="12" value="player" />
-          </div>
-          <div class="option-row">
-            <span class="option-label">RULE</span>
-            <div class="option-toggle">
-              <button class="opt-btn active" id="online-rule-tet" onclick="setOnlineRule('tet')">TET</button>
-              <button class="opt-btn" id="online-rule-puyo" onclick="setOnlineRule('puyo')">PUYO</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="online-section">
-          <p class="online-section-label">FRIEND MATCH</p>
-          <div class="option-row">
-            <button class="menu-btn btn-primary" id="online-create-btn" disabled onclick="onlineCreateRoom()">
-              <span class="menu-btn-icon">＋</span><span>ルーム作成</span>
-            </button>
-            <span id="online-mycode" class="online-mycode"></span>
-          </div>
-          <div class="option-row">
-            <input id="online-code-input" class="online-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="123456" disabled oninput="this.value=this.value.replace(/\D/g,'').slice(0,6)" />
-            <button class="menu-btn btn-secondary" id="online-joincode-btn" disabled onclick="onlineJoinByCode()">
-              <span class="menu-btn-icon">→</span><span>コードで参加</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="online-section">
-          <p class="online-section-label">RANDOM MATCH</p>
-          <div class="option-row">
-            <button class="menu-btn btn-primary" id="online-random-btn" disabled onclick="onlineRandomMatch()">
-              <span class="menu-btn-icon">🎲</span><span>ランダムマッチ</span>
-            </button>
-            <button class="menu-btn btn-secondary" id="online-cancel-btn" disabled onclick="onlineCancelRandom()">
-              <span class="menu-btn-icon">✕</span><span>キャンセル</span>
-            </button>
-          </div>
-        </div>
-
-        <div id="online-room-info" class="online-room-info" style="display:none;"></div>
-
-        <div id="online-buttons">
-          <button class="menu-btn btn-secondary" id="online-leave-btn" disabled onclick="onlineLeaveRoom()">
-            <span class="menu-btn-icon">⮌</span><span>ルーム退出</span>
-          </button>
-          <button class="menu-btn btn-secondary" onclick="leaveOnlineAndBack()">
-            <span class="menu-btn-icon">◀</span><span>BACK</span>
           </button>
         </div>
       </div>
@@ -573,11 +498,11 @@
             <span class="menu-btn-icon">↺</span>
             <span>RETRY</span>
           </button>
-          <button class="menu-btn btn-secondary" onclick="versusResultModeSelect()">
+          <button class="menu-btn btn-secondary" onclick="switchPage('versus-check')">
             <span class="menu-btn-icon">◀</span>
             <span>MODE SELECT</span>
           </button>
-          <button class="menu-btn btn-secondary" onclick="versusResultMainMenu()">
+          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
             <span class="menu-btn-icon">⌂</span>
             <span>MAIN MENU</span>
           </button>
@@ -779,42 +704,37 @@
     ───────────────────────────────────────────── -->
     <div id="external-pages"></div>
 
-    <script src="src/config/version.js?v=5"></script>
+    <script src="src/config/version.js?v=4"></script>
     <script src="src/config/pages.js?v=5"></script>
-    <script src="src/core/base.js?v=23"></script>
-    <script src="src/core/particles.js?v=8"></script>
+    <script src="src/core/base.js?v=22"></script>
+    <script src="src/core/particles.js?v=7"></script>
     <script src="src/app/manager.js?v=2"></script>
     <script src="src/config/settings.js?v=15"></script>
     <script src="src/config/vs_settings.js?v=4"></script>
     <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
     <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
     <script src="src/game/tet/core.js?v=2"></script>
-    <script src="src/game/tet/lifecycle.js?v=4"></script>
-    <script src="src/game/tet/board.js?v=5"></script>
-    <script src="src/game/tet/rotation.js?v=3"></script>
+    <script src="src/game/tet/lifecycle.js?v=3"></script>
+    <script src="src/game/tet/board.js?v=3"></script>
+    <script src="src/game/tet/rotation.js?v=2"></script>
     <script src="src/game/tet/scoring.js?v=2"></script>
-    <script src="src/game/tet/garbage.js?v=4"></script>
+    <script src="src/game/tet/garbage.js?v=2"></script>
     <script src="src/game/tet/render.js?v=2"></script>
-    <script src="src/game/tet/input.js?v=4"></script>
+    <script src="src/game/tet/input.js?v=3"></script>
     <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
     <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
-    <script src="src/game/puyo/core.js?v=3"></script>
-    <script src="src/game/puyo/lifecycle.js?v=5"></script>
+    <script src="src/game/puyo/core.js?v=2"></script>
+    <script src="src/game/puyo/lifecycle.js?v=4"></script>
     <script src="src/game/puyo/connect.js?v=2"></script>
-    <script src="src/game/puyo/ojama.js?v=10"></script>
-    <script src="src/game/puyo/engine.js?v=9"></script>
-    <script src="src/game/puyo/input.js?v=3"></script>
+    <script src="src/game/puyo/ojama.js?v=8"></script>
+    <script src="src/game/puyo/engine.js?v=2"></script>
+    <script src="src/game/puyo/input.js?v=2"></script>
     <script src="src/game/puyo/draw.js?v=3"></script>
     <script src="src/quiz/quiz.js?v=6"></script>
     <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
     <script src="src/app/modes.js?v=2"></script>
     <script src="src/app/cpu_loader.js?v=2"></script>
-    <script src="src/app/versus.js?v=3"></script>
-    <script src="src/app/navigation.js?v=6"></script>
-    <!-- オンライン対戦（B方式：ライブ状態ストリーミング）。subprotocol→net→online の順 -->
-    <script src="src/online/subprotocol.js?v=8"></script>
-    <script src="src/online/net.js?v=3"></script>
-    <script src="src/online/online.js?v=7"></script>
-    <script src="src/online/match.js?v=12"></script>
+    <script src="src/app/versus.js?v=1"></script>
+    <script src="src/app/navigation.js?v=5"></script>
   </body>
 </html>
