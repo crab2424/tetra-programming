@@ -404,13 +404,18 @@ function versusGameOver(loser) {
   // ★ finish演出中フラグを立てる（ポーズキーを無効にするため）
   window._versusFinishing = true;
 
+  // ⑧ オンライン対戦では敗者(=相手パペット)の盤面も finish 演出中は残す。
+  //    オフラインCPU戦は従来どおり勝者側のみ残す。
+  const isOnline = !!window._onlineMatch;
+
   // ★ 修正: ここでも Tet と Puyo を確実に区別する
   const stopGame = (gameInst, isWinner) => {
       if (!gameInst) return;
       if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
           if (typeof gameInst.stop === 'function') {
-              // ★ 勝者側ぷよは演出中も盤面・NEXTを残すため、_versusFinishingフラグを立ててからstop()する
-              if (isWinner) {
+              // ★ 勝者側ぷよ（オンラインは敗者側も）は演出中も盤面・NEXTを残すため、
+              //    _versusFinishingフラグを立ててからstop()する
+              if (isWinner || isOnline) {
                   gameInst._versusFinishing = true;
               }
               gameInst.stop();
