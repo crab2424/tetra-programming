@@ -56,7 +56,7 @@ Object.assign(PuyoGame.prototype, {
         const unusedColors = this.activeColors.filter(c => !usedInFirst.has(c));
         let excludeColor = null;
         if (unusedColors.length > 0) {
-            excludeColor = unusedColors[Math.floor(this._tumoRandom() * unusedColors.length)];
+            excludeColor = unusedColors[Math.floor(this._random() * unusedColors.length)];
         }
 
         const pair2 = this._makePair(excludeColor);
@@ -73,8 +73,8 @@ Object.assign(PuyoGame.prototype, {
         if (excludeColor !== null) {
             availableColors = this.activeColors.filter(c => c !== excludeColor);
         }
-        const c1 = availableColors[Math.floor(this._tumoRandom() * availableColors.length)];
-        const c2 = availableColors[Math.floor(this._tumoRandom() * availableColors.length)];
+        const c1 = availableColors[Math.floor(this._random() * availableColors.length)];
+        const c2 = availableColors[Math.floor(this._random() * availableColors.length)];
         return [c1, c2];
     },
 
@@ -112,12 +112,6 @@ Object.assign(PuyoGame.prototype, {
 
         if (!this._isCellEmpty(this.pivotX, 0)) {
             return false;
-        }
-        // オンライン対戦: 直前ツモまでに確定した盤面スナップショット＋新ペアを相手へ送る
-        //   （ここに来た時点で前ツモの連鎖・おじゃま降下は解決済み＝盤面は settled）
-        if (window.OnlineHooks) {
-            window.OnlineHooks.puyoLock(this);
-            window.OnlineHooks.puyoSpawn(this);
         }
         return true;
     },
@@ -852,9 +846,6 @@ Object.assign(PuyoGame.prototype, {
         this._clearChainTextDOM();
         this.isAllClear = false; // ★ ゲームオーバー時にALL CLEARを消す
         this.state = 'gameover';
-
-        // オンライン対戦: 自分の topout を相手へ通知
-        if (window.OnlineHooks) window.OnlineHooks.gameOver(this);
 
         if (this.isVersusMode) {
             const loser = (this.canvasPrefix === 'cpu') ? 'cpu' : 'player';

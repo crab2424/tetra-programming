@@ -862,15 +862,6 @@ h1 {
   color: var(--text-dim);
 }
 
-/* 対戦前の準備状態（あなた / 相手 の READY 表示） */
-.online-ready-status {
-  margin-top: 8px;
-  font-family: "Orbitron", monospace;
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-}
-
 #online-buttons {
   display: flex;
   flex-direction: column;

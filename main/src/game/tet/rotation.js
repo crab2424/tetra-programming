@@ -153,8 +153,6 @@ Object.assign(Game.prototype, {
             }
             this.startGravity();
         }
-        // オンライン対戦: ホールド内容を相手へ通知
-        if (window.OnlineHooks) window.OnlineHooks.tetHold(this);
         this.drawAll()
     },
 
