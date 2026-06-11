@@ -21,8 +21,17 @@
   "use strict";
 
   // 接続先シグナリングサーバー。`window.ONLINE_SIGNALING_URL` で上書き可能。
-  // 既定はローカル開発（cargo run の listen アドレス）。本番は VPS の wss URL に差し替える。
-  const DEFAULT_SIGNALING_URL = "ws://127.0.0.1:8080";
+  // ローカル開発（file:// や localhost で開いた素の http ページ）では cargo run の
+  // listen アドレスへ。それ以外（https で配信＝Cloudflare 等にデプロイ済み）では、
+  // ws:// だと Mixed Content でブラウザにブロックされるため canary の wss へ繋ぐ。
+  const LOCAL_SIGNALING_URL = "ws://127.0.0.1:8080";
+  const CANARY_SIGNALING_URL = "wss://tetlabo-canary-server.nattyantv.info";
+  function defaultSignalingUrl() {
+    const loc = (typeof root.location === "object" && root.location) || null;
+    // https で配信されているページからは ws:// が使えない → canary(wss) を既定に
+    if (loc && loc.protocol === "https:") return CANARY_SIGNALING_URL;
+    return LOCAL_SIGNALING_URL;
+  }
 
   // ── wincode varint (u64, LittleEndian) ──
   function varintU64Encode(n) {
@@ -91,7 +100,7 @@
     // ── 接続開始 ──
     connect(url) {
       if (this.state === "connecting" || this.state === "signaling" || this.state === "ready") return;
-      url = url || root.ONLINE_SIGNALING_URL || DEFAULT_SIGNALING_URL;
+      url = url || root.ONLINE_SIGNALING_URL || defaultSignalingUrl();
       this._remoteSet = false;
       this._openCount = 0;
       this._pendingCandidates.length = 0;
