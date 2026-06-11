@@ -18,7 +18,6 @@ const onlineSession = {
   players: [],   // [[id, username, rule], ...]
   maxPlayers: 2,
   queued: false, // ランダムマッチ待機中
-  oppRule: null, // 相手の現在ルール（在室中の変更は CONTROL:RULE で更新。null=未確定）
 };
 
 // 開始/再戦の準備状態（クライアント間の READY ハンドシェイク）。
@@ -54,24 +53,19 @@ function leaveOnlineAndBack() {
 }
 
 // ── 対戦開始 / 再戦（step6: クライアント間 READY ハンドシェイクで同時開始） ──
-// 相手プレイヤーの players エントリ（自分と名前が異なる方。無ければ rule が異なる方）。
-function _deriveOpponentEntry() {
-  const myName = _onlineUsername();
-  const ps = onlineSession.players || [];
-  return ps.find((p) => p[1] !== myName) || ps.find((p) => p[2] !== onlineMyRule) || null;
-}
-
 function _onlineOpponentRule() {
-  // 在室中の変更を反映した追跡値を優先（CONTROL:RULE で更新）。未確定なら players から導出。
-  if (onlineSession.oppRule === 'tet' || onlineSession.oppRule === 'puyo') return onlineSession.oppRule;
-  const opp = _deriveOpponentEntry();
-  if (opp && (opp[2] === 'tet' || opp[2] === 'puyo')) return opp[2];
+  const ps = onlineSession.players || [];
+  const other = ps.find((p) => (p[2] === 'tet' || p[2] === 'puyo') && p[2] !== onlineMyRule);
+  if (other) return other[2];
   return onlineMyRule; // 同ルール同士、または rule 情報なし
 }
 
 function _onlineOpponentName() {
-  const opp = _deriveOpponentEntry();
-  return (opp && opp[1]) || 'OPPONENT';
+  const myName = _onlineUsername();
+  const ps = onlineSession.players || [];
+  // 相手＝自分と名前が異なるプレイヤー（無ければ rule が異なるプレイヤー）
+  const oppEntry = ps.find((p) => p[1] !== myName) || ps.find((p) => p[2] !== onlineMyRule);
+  return (oppEntry && oppEntry[1]) || 'OPPONENT';
 }
 
 function _resetOnlineReady() {
@@ -113,10 +107,6 @@ function _onLobbyGameEvent(data) {
   } else if (ev.action === Subprotocol.CTRL.UNREADY) {
     onlineReady.opp = false;
     _renderOnline();
-  } else if (ev.action === Subprotocol.CTRL.RULE) {
-    // 相手が在室中にルールを変更した → 追跡値を更新してバッジ等へ反映
-    onlineSession.oppRule = Subprotocol.codeToRule(ev.seed >>> 0);
-    _renderOnline();
   }
 }
 
@@ -153,19 +143,6 @@ function setOnlineRule(rule) {
   onlineMyRule = rule;
   $online('online-rule-tet')?.classList.toggle('active', rule === 'tet');
   $online('online-rule-puyo')?.classList.toggle('active', rule === 'puyo');
-  // 在室中（対戦前ロビー）にルールを変えたら相手へ通知する。
-  //   JSON 層はサーバー止まりで相手に届かないため、中継される CONTROL(0x08):RULE を使う。
-  if (onlineNet && onlineNet.isReady && onlineSession.roomId
-      && !(window._onlineMatch && window._onlineMatch.active)
-      && typeof Subprotocol !== 'undefined') {
-    try {
-      onlineNet.sendGameEvent(Subprotocol.encodeControl({
-        action: Subprotocol.CTRL.RULE, seed: Subprotocol.ruleToCode(rule),
-      }));
-    } catch (_) {}
-  }
-  // 自分のルームバッジ等にも即反映（ボタンの active 切替だけでは room-info が古いまま）
-  _renderOnline();
 }
 
 // ── 接続 ──
@@ -210,7 +187,6 @@ function _resetOnlineSession() {
   onlineSession.players = [];
   onlineSession.maxPlayers = 2;
   onlineSession.queued = false;
-  onlineSession.oppRule = null;
   _resetOnlineReady();
   const codeEl = $online('online-mycode');
   if (codeEl) codeEl.textContent = '';
@@ -307,11 +283,6 @@ function _onOnlineJson(msg) {
       onlineSession.players = Array.isArray(msg.players) ? msg.players : [];
       onlineSession.maxPlayers = msg.maxPlayers || 2;
       onlineSession.queued = false;
-      // メンバー変化時に相手ルールのベースラインを players から取り直す（以後は CONTROL:RULE が更新）
-      {
-        const _opp = _deriveOpponentEntry();
-        onlineSession.oppRule = (_opp && (_opp[2] === 'tet' || _opp[2] === 'puyo')) ? _opp[2] : null;
-      }
       if (onlineSession.players.length >= 2) {
         _setOnlineStatus('対戦相手が揃いました！「対戦開始」で準備完了を送れます。', 'ok');
       } else {
@@ -329,7 +300,6 @@ function _onOnlineJson(msg) {
     case 'JSONRoomLeaveNotification':
       // 相手が退出した
       onlineSession.players = Array.isArray(msg.players) ? msg.players : onlineSession.players.slice(0, 1);
-      onlineSession.oppRule = null;
       _resetOnlineReady();
       // 対戦中に相手が退出した場合は対戦を畳む（自分の勝ち扱い）
       if (window._onlineMatch && window._onlineMatch.active) {
@@ -378,8 +348,6 @@ function _renderOnline() {
   set('online-random-btn', !canMatch);
   set('online-cancel-btn', !(ready && queued));
   set('online-leave-btn', !(ready && inRoom));
-  // 名前はマッチング（在室 or ランダム待機）に入ったら変更不可（リクエスト時に送信済みのため）。
-  set('online-username', inRoom || queued);
 
   // RECONNECT は未接続時のみ表示
   const reconnectBtn = $online('online-reconnect-btn');
@@ -396,16 +364,10 @@ function _renderOnline() {
   const infoEl = $online('online-room-info');
   if (infoEl) {
     if (inRoom) {
-      // 各プレイヤーを「名前 + ルールバッジ(TET/PUYO)」で表示し、対戦前に相手のルールを知れるようにする。
-      //   自分=ローカルの現在値（onlineMyRule）を必ず使う／相手=追跡値（在室中の変更を反映）。
-      let names = '(自分のみ)';
-      if (onlineSession.players.length) {
-        const cells = [_playerBadge(_onlineUsername(), onlineMyRule)];
-        if (onlineSession.players.length >= 2) {
-          cells.push(_playerBadge(_onlineOpponentName(), _onlineOpponentRule()));
-        }
-        names = cells.join('<span class="online-vs">vs</span>');
-      }
+      // 各プレイヤーを「名前 + ルールバッジ(TET/PUYO)」で表示し、対戦前に相手のルールを知れるようにする
+      const names = onlineSession.players.length
+        ? onlineSession.players.map((p) => _playerBadge(p[1], p[2])).join('<span class="online-vs">vs</span>')
+        : '(自分のみ)';
       // 在室中は最低でも自分が居るため 0 ではなく 1 から数える
       const count = Math.max(onlineSession.players.length, 1);
       // 2 人揃ったら対戦開始ボタンを出す（READY ハンドシェイクで両者そろい次第 同時開始）
