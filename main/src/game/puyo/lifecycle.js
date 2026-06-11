@@ -143,8 +143,9 @@ Object.assign(PuyoGame.prototype, {
 
     _initActiveColors() {
         const allColors = [1, 2, 3, 4, 5];
+        // 使用色の選定もツモの一部（両者で一致させる）。同ツモ時は _tumoRandom で seed 駆動。
         for (let i = allColors.length - 1; i > 0; i--) {
-            const j = Math.floor(this._random() * (i + 1));
+            const j = Math.floor(this._tumoRandom() * (i + 1));
             [allColors[i], allColors[j]] = [allColors[j], allColors[i]];
         }
         this.activeColors = allColors.slice(0, PConfig.colorCount);

@@ -1,0 +1,415 @@
+// ─────────────────────────────────────────────────────────────
+// 内部サブプロトコル v1 コーデック（クライアント間合意）
+// 仕様: tetra-server/docs/internal-subprotocol.md
+//
+// このファイルは「GameEvent(0x06) / PieceState(0x07) の data 部（=opcode を除いた中身）」
+// のみを encode/decode する純粋ロジック。トランスポート（先頭 opcode 付与・チャンネル選択）
+// は呼び出し側の責務。
+//
+// クラシック script として読み込み、グローバル `Subprotocol` を公開する。
+// 本体(TETLABO)・testclient の双方からそのまま流用できる（依存なし）。
+// ※ tetra-server/testclient/subprotocol.js の正準実装をそのまま複製したもの。
+//    仕様改訂時は両者を必ず同期させること。
+// ─────────────────────────────────────────────────────────────
+(function (root) {
+  "use strict";
+
+  // ── 盤面寸法（仕様 §5） ──
+  // テト: 可視 20 行に加え、上方バッファ 20 行を含める。
+  //   おじゃまがせり上がると既存スタックは applyGarbage の `block.y -= 1` で y<0（上端より上）へ
+  //   押し上げられ、後のライン消去で降りてくると再び見える。これらを取りこぼさないため上方も含める。
+  //   盤面行 r=0 が最上段（y = −TET_BUFFER_ROWS）、r=TET_BUFFER_ROWS が可視最上段（y=0）。
+  const TET_COLS = 10, TET_ROWS = 20;          // 可視行数
+  const TET_BUFFER_ROWS = 20;                  // 上方バッファ行数
+  const TET_TOTAL_ROWS = TET_ROWS + TET_BUFFER_ROWS; // 40 行
+  const PUYO_COLS = 6, PUYO_ROWS = 17;         // cols6 × (rows12 + hidden5) = 102 セル（隠し行を内包）
+  const TET_EMPTY = 0xff;                       // テト盤面の空セル番兵
+  const PUYO_EMPTY = 0;                         // ぷよ盤面の空（field 生値 0）
+
+  // ── GameEvent サブタグ（仕様 §4） ──
+  const EV = Object.freeze({
+    SPAWN: 0x01,
+    LOCK: 0x02,
+    CLEAR: 0x03,
+    GARBAGE: 0x04, // ★ゲーム影響
+    HOLD: 0x05,
+    PENDING: 0x06,
+    GAMEOVER: 0x07,
+    CONTROL: 0x08, // 対戦の開始/再戦合意（ロビー段のクライアント間ハンドシェイク）
+    LOCKCHAIN: 0x09, // ぷよ: 連鎖前の確定盤面（受信側パペットが連鎖演出を自前で再生する起点）
+    SE: 0x0a, // 離散SE（発音タイミング同期用。盤面イベントから独立して相手へ「この音を今鳴らす」）
+  });
+
+  // SE イベントの音種コード（seId）。盤面スナップショットでは表現できない発音タイミングを同期する。
+  //   PUYO_FIX  = 通常の設置（固定振動）音
+  //   PUYO_DROP = クイックドロップ（ハードドロップ）の設置音。viaQuickDrop 時は puyo_fix を鳴らさず
+  //               こちらを鳴らすため、相手へも独立イベントで届ける（盤面 LockChain と別経路）。
+  //   tet は盤面スナップショット（Lock）だけでは操作音が表現できないため、操作SEを離散イベント
+  //   で同期する（move/rotate/drop/harddrop/lock/lock_hard/hold/ライン消去/tspin）。ぷよは連鎖SEを
+  //   受信側パペットが自前再生で鳴らすので、ここには tet の操作SEのみを足す。
+  //   ※ gameover/pause/resume は載せない（gameover は GameOver(0x07) 経由、pause/resume は同期不要）。
+  const SE_ID = Object.freeze({
+    PUYO_FIX: 1, PUYO_DROP: 2,
+    TET_MOVE: 3, TET_ROTATE: 4, TET_TSPIN_ROT: 5, TET_DROP: 6, TET_HARDDROP: 7,
+    TET_LOCK: 8, TET_LOCK_HARD: 9, TET_HOLD: 10,
+    TET_1LINE: 11, TET_2LINES: 12, TET_3LINES: 13, TET_4LINES: 14, TET_TSPIN: 15,
+  });
+  const SE_KEY = Object.freeze({
+    1: 'puyo_fix', 2: 'puyo_drop',
+    3: 'move', 4: 'rotate', 5: 'tspin_rot', 6: 'drop', 7: 'harddrop',
+    8: 'lock', 9: 'lock_hard', 10: 'hold',
+    11: '1line', 12: '2lines', 13: '3lines', 14: '4lines', 15: 'tspin',
+  });
+  // 送信側用の逆引き（SE キー文字列 → seId）。未登録キー（gameover 等）は undefined＝送らない。
+  const SE_KEY_TO_ID = Object.freeze(
+    Object.fromEntries(Object.entries(SE_KEY).map(([id, k]) => [k, Number(id)]))
+  );
+
+  // ── CONTROL アクション（仕様 §4・サブタグ 0x08） ──
+  //   READY   = 開始/再戦の準備完了（seed を持つ。両者の seed を XOR して共有シードにする）
+  //   UNREADY = 準備をキャンセル（seed は未使用）
+  //   RULE    = 在室中のルール変更通知（seed フィールドにルールコード 0=tet / 1=puyo を載せる）
+  const CTRL = Object.freeze({
+    READY: 0x01,
+    UNREADY: 0x02,
+    RULE: 0x03,
+  });
+
+  // CONTROL の RULE アクションで使うルールコード（seed フィールドに格納）
+  const RULE_CODE = Object.freeze({ tet: 0, puyo: 1 });
+  function ruleToCode(rule) { return rule === 'puyo' ? 1 : 0; }
+  function codeToRule(code) { return code === 1 ? 'puyo' : 'tet'; }
+
+  // ──────────────────────────────────────────
+  // 低レベル: ByteWriter / ByteReader（little-endian）
+  // ──────────────────────────────────────────
+  class Writer {
+    constructor(cap = 64) {
+      this._buf = new Uint8Array(cap);
+      this._len = 0;
+    }
+    _ensure(n) {
+      if (this._len + n <= this._buf.length) return;
+      let cap = this._buf.length * 2;
+      while (cap < this._len + n) cap *= 2;
+      const nb = new Uint8Array(cap);
+      nb.set(this._buf.subarray(0, this._len));
+      this._buf = nb;
+    }
+    u8(v) { this._ensure(1); this._buf[this._len++] = v & 0xff; return this; }
+    i8(v) { return this.u8(v < 0 ? v + 256 : v); }
+    u16(v) {
+      this._ensure(2);
+      this._buf[this._len++] = v & 0xff;
+      this._buf[this._len++] = (v >> 8) & 0xff;
+      return this;
+    }
+    u32(v) {
+      this._ensure(4);
+      this._buf[this._len++] = v & 0xff;
+      this._buf[this._len++] = (v >>> 8) & 0xff;
+      this._buf[this._len++] = (v >>> 16) & 0xff;
+      this._buf[this._len++] = (v >>> 24) & 0xff;
+      return this;
+    }
+    bytes(arr) {
+      this._ensure(arr.length);
+      this._buf.set(arr, this._len);
+      this._len += arr.length;
+      return this;
+    }
+    finish() { return this._buf.slice(0, this._len); }
+  }
+
+  class Reader {
+    constructor(data) {
+      this._d = data instanceof Uint8Array ? data : new Uint8Array(data);
+      this._off = 0;
+    }
+    get remaining() { return this._d.length - this._off; }
+    u8() { return this._d[this._off++]; }
+    i8() { const b = this._d[this._off++]; return b > 127 ? b - 256 : b; }
+    u16() {
+      const v = this._d[this._off] | (this._d[this._off + 1] << 8);
+      this._off += 2;
+      return v;
+    }
+    u32() {
+      const v =
+        (this._d[this._off] |
+          (this._d[this._off + 1] << 8) |
+          (this._d[this._off + 2] << 16) |
+          (this._d[this._off + 3] << 24)) >>> 0;
+      this._off += 4;
+      return v;
+    }
+    bytes(n) {
+      const s = this._d.subarray(this._off, this._off + n);
+      this._off += n;
+      return s;
+    }
+  }
+
+  // ──────────────────────────────────────────
+  // PieceState（0x07・unreliable・サブタグ無し・仕様 §3）
+  //   テト: t:u32, type:u8, x:i8, y:i8, rot:u8                → 8B
+  //   ぷよ: t:u32, pivotX:i8, pivotY2:i8(=pivotY*2), orient:u8 → 7B
+  // 色は載せない（受信側は直近 Spawn で既知）。
+  // ──────────────────────────────────────────
+  //   末尾に score:u32 を載せる（相手パペットのスコア表示用。落下中も 30〜60Hz で更新されるので
+  //   ソフトドロップの加点も追従する）。score は累積スナップショット＝最新優先で取りこぼしOK。
+  function encodePieceStateTet({ t, type, x, y, rot, score = 0 }) {
+    return new Writer(12).u32(t).u8(type).i8(x).i8(y).u8(rot).u32(score >>> 0).finish();
+  }
+  function encodePieceStatePuyo({ t, pivotX, pivotY, orient, score = 0 }) {
+    return new Writer(11).u32(t).i8(pivotX).i8(Math.round(pivotY * 2)).u8(orient).u32(score >>> 0).finish();
+  }
+  // rule: 'tet' | 'puyo'（受信側が相手の rule を文脈から知っている前提）
+  //   score は末尾拡張。旧フレーム（score 無し）とも混信しないよう remaining で防御的に読む。
+  function decodePieceState(data, rule) {
+    const r = new Reader(data);
+    const t = r.u32();
+    if (rule === "puyo") {
+      const pivotX = r.i8();
+      const pivotY = r.i8() / 2;
+      const orient = r.u8();
+      const score = r.remaining >= 4 ? r.u32() : 0;
+      return { kind: "piece", rule, t, pivotX, pivotY, orient, score };
+    }
+    const type = r.u8();
+    const x = r.i8();
+    const y = r.i8();
+    const rot = r.u8();
+    const score = r.remaining >= 4 ? r.u32() : 0;
+    return { kind: "piece", rule: "tet", t, type, x, y, rot, score };
+  }
+
+  // ──────────────────────────────────────────
+  // GameEvent（0x06・reliable・先頭1B=サブタグ + t:u32 + ボディ・仕様 §4）
+  // ──────────────────────────────────────────
+
+  // Spawn ── テト: type, nextCount, next[] / ぷよ: pivotColor, childColor, nextCount, next[(a,b)]
+  function encodeSpawnTet({ t, type, next = [] }) {
+    const w = new Writer(8 + next.length).u8(EV.SPAWN).u32(t).u8(type).u8(next.length);
+    for (const n of next) w.u8(n);
+    return w.finish();
+  }
+  function encodeSpawnPuyo({ t, pivotColor, childColor, next = [] }) {
+    const w = new Writer(9 + next.length * 2)
+      .u8(EV.SPAWN).u32(t).u8(pivotColor).u8(childColor).u8(next.length);
+    for (const pair of next) { w.u8(pair[0]); w.u8(pair[1]); }
+    return w.finish();
+  }
+
+  // Lock ── 盤面スナップショット（行優先・1セル1バイト・仕様 §5）。board は長さ cols*rows の配列/Uint8Array。
+  function encodeLockTet({ t, board }) {
+    _assertLen(board, TET_COLS * TET_TOTAL_ROWS, "tet board");
+    return new Writer(5 + board.length).u8(EV.LOCK).u32(t).bytes(board).finish();
+  }
+  function encodeLockPuyo({ t, board }) {
+    _assertLen(board, PUYO_COLS * PUYO_ROWS, "puyo board");
+    return new Writer(5 + board.length).u8(EV.LOCK).u32(t).bytes(board).finish();
+  }
+
+  // Clear ── 演出用・任意（盤面は Lock が権威）
+  //   テト: rows:u8, rowIdx:u8[rows], flags:u8(bit0 B2B / bit1 PC / bit2 T-spin)
+  //   ぷよ: chain:u8, clearedCells:u8
+  function encodeClearTet({ t, rowIdx = [], flags = 0 }) {
+    const w = new Writer(7 + rowIdx.length).u8(EV.CLEAR).u32(t).u8(rowIdx.length);
+    for (const i of rowIdx) w.u8(i);
+    w.u8(flags);
+    return w.finish();
+  }
+  function encodeClearPuyo({ t, chain, clearedCells }) {
+    return new Writer(7).u8(EV.CLEAR).u32(t).u8(chain).u8(clearedCells).finish();
+  }
+
+  // GarbageSend ── ★ゲーム影響: amount:u16, holes:u8[amount]
+  function encodeGarbage({ t, amount, holes = [] }) {
+    const w = new Writer(7 + holes.length).u8(EV.GARBAGE).u32(t).u16(amount);
+    for (const h of holes) w.u8(h);
+    return w.finish();
+  }
+
+  // Hold ── テトのみ: heldType:u8
+  function encodeHold({ t, heldType }) {
+    return new Writer(6).u8(EV.HOLD).u32(t).u8(heldType).finish();
+  }
+
+  // PendingUpdate ── ready:u16, unready:u16（相手の予告ゲージ表示用・フェーズ別）
+  //   ready   = 確定(降下可・赤/点滅) 段の合計（internal は含めない）
+  //   unready = 猶予(青) 段の合計（internal は含めない）
+  //   ※ v1 は pending:u16 単一だった。フェーズ表示のため 2 値へ拡張（VERSION 据置・両クライアントで合わせる）
+  function encodePending({ t, ready = 0, unready = 0 }) {
+    return new Writer(9).u8(EV.PENDING).u32(t).u16(ready).u16(unready).finish();
+  }
+
+  // GameOver ── result:u8（0=topout/負, 1=clear/勝）
+  function encodeGameOver({ t, result }) {
+    return new Writer(6).u8(EV.GAMEOVER).u32(t).u8(result).finish();
+  }
+
+  // LockChain ── ぷよ専用: 連鎖が始まる「直前」の確定盤面（操作ぷよ着地後・消去前）: board(102B)
+  //   送信側はペア固定時（fixWait5f→checkErase 遷移）に1回送る。
+  //   受信側はパペット盤面へ反映し、puyo_fix SE を鳴らしてから連鎖演出を**自前で再生**する
+  //   （実 PuyoGame の連鎖ロジックを駆動＝点滅/連鎖文字/落下/連鎖SEを完全再現）。
+  function encodeLockChainPuyo({ t, board }) {
+    _assertLen(board, PUYO_COLS * PUYO_ROWS, "puyo board");
+    return new Writer(5 + board.length).u8(EV.LOCKCHAIN).u32(t).bytes(board).finish();
+  }
+
+  // SE ── seId:u8（離散SE。発音タイミングを盤面イベントから独立して同期する）
+  function encodeSe({ t = 0, seId }) {
+    return new Writer(6).u8(EV.SE).u32(t).u8(seId).finish();
+  }
+
+  // Control ── action:u8 + seed:u32（開始/再戦合意。seed は READY 時の共有シード素材）
+  //   サーバーは中身を解釈しないため、CONTROL も既存の中継経路で相手へそのまま届く。
+  function encodeControl({ t = 0, action, seed = 0 }) {
+    return new Writer(10).u8(EV.CONTROL).u32(t).u8(action).u32(seed >>> 0).finish();
+  }
+
+  // ── 統合デコーダ（rule: 相手の 'tet' | 'puyo'） ──
+  function decodeGameEvent(data, rule) {
+    const r = new Reader(data);
+    const tag = r.u8();
+    const t = r.u32();
+    switch (tag) {
+      case EV.SPAWN: {
+        if (rule === "puyo") {
+          const pivotColor = r.u8();
+          const childColor = r.u8();
+          const count = r.u8();
+          const next = [];
+          for (let i = 0; i < count; i++) next.push([r.u8(), r.u8()]);
+          return { kind: "spawn", rule: "puyo", t, pivotColor, childColor, next };
+        }
+        const type = r.u8();
+        const count = r.u8();
+        const next = [];
+        for (let i = 0; i < count; i++) next.push(r.u8());
+        return { kind: "spawn", rule: "tet", t, type, next };
+      }
+      case EV.LOCK: {
+        const cells = rule === "puyo" ? PUYO_COLS * PUYO_ROWS : TET_COLS * TET_TOTAL_ROWS;
+        const board = r.bytes(cells);
+        return { kind: "lock", rule, t, board };
+      }
+      case EV.CLEAR: {
+        if (rule === "puyo") {
+          const chain = r.u8();
+          const clearedCells = r.u8();
+          return { kind: "clear", rule: "puyo", t, chain, clearedCells };
+        }
+        const rows = r.u8();
+        const rowIdx = [];
+        for (let i = 0; i < rows; i++) rowIdx.push(r.u8());
+        const flags = r.u8();
+        return {
+          kind: "clear", rule: "tet", t, rowIdx, flags,
+          b2b: !!(flags & 1), pc: !!(flags & 2), tspin: !!(flags & 4),
+        };
+      }
+      case EV.GARBAGE: {
+        const amount = r.u16();
+        const holes = [];
+        for (let i = 0; i < amount; i++) holes.push(r.u8());
+        return { kind: "garbage", t, amount, holes };
+      }
+      case EV.HOLD:
+        return { kind: "hold", t, heldType: r.u8() };
+      case EV.PENDING: {
+        const ready = r.u16();
+        const unready = r.u16();
+        return { kind: "pending", t, ready, unready, pending: ready + unready };
+      }
+      case EV.GAMEOVER:
+        return { kind: "gameover", t, result: r.u8() };
+      case EV.CONTROL: {
+        const action = r.u8();
+        const seed = r.u32();
+        return { kind: "control", t, action, seed };
+      }
+      case EV.LOCKCHAIN: {
+        const board = r.bytes(PUYO_COLS * PUYO_ROWS);
+        return { kind: "lockchain", rule: "puyo", t, board };
+      }
+      case EV.SE: {
+        const seId = r.u8();
+        return { kind: "se", t, seId, seKey: SE_KEY[seId] || null };
+      }
+      default:
+        return { kind: "unknown", t, tag };
+    }
+  }
+
+  // ──────────────────────────────────────────
+  // 盤面ビルダ（本体エンジン構造 → スナップショット）
+  // ──────────────────────────────────────────
+  // テト: Game.field.blocks（[{x,y,type}]、type 0-6色 / 7灰）→ 1セル1バイト（空=0xFF）。
+  //   盤面行 = y + TET_BUFFER_ROWS（上方バッファ含む）。範囲外（極端なオーバーフロー=実質ゲームオーバー時）は破棄。
+  function buildTetBoard(blocks) {
+    const board = new Uint8Array(TET_COLS * TET_TOTAL_ROWS).fill(TET_EMPTY);
+    for (const b of blocks) {
+      const row = b.y + TET_BUFFER_ROWS;
+      if (b.x < 0 || b.x >= TET_COLS || row < 0 || row >= TET_TOTAL_ROWS) continue;
+      board[row * TET_COLS + b.x] = b.type & 0xff;
+    }
+    return board;
+  }
+  // 逆変換: テト盤面 → [{x,y,type}]（y は上方バッファを考慮した実座標。空=0xFF は除外）。受信側パペット用。
+  function tetBoardToBlocks(board) {
+    const out = [];
+    for (let row = 0; row < TET_TOTAL_ROWS; row++) {
+      for (let c = 0; c < TET_COLS; c++) {
+        const v = board[row * TET_COLS + c];
+        if (v !== TET_EMPTY) out.push({ x: c, y: row - TET_BUFFER_ROWS, type: v });
+      }
+    }
+    return out;
+  }
+  // ぷよ: PuyoGame.field（[r][c]、0空/1-5色/6おじゃま、先頭 hiddenRows 含む 17 行）→ 行優先フラット
+  function buildPuyoBoard(field) {
+    const board = new Uint8Array(PUYO_COLS * PUYO_ROWS).fill(PUYO_EMPTY);
+    for (let r = 0; r < PUYO_ROWS; r++) {
+      const row = field[r];
+      if (!row) continue;
+      for (let c = 0; c < PUYO_COLS; c++) board[r * PUYO_COLS + c] = (row[c] || 0) & 0xff;
+    }
+    return board;
+  }
+  // 逆変換: ぷよ盤面 → 17×6 の 2D 配列。受信側パペット用。
+  function puyoBoardToField(board) {
+    const field = Array.from({ length: PUYO_ROWS }, () => new Array(PUYO_COLS).fill(0));
+    for (let r = 0; r < PUYO_ROWS; r++)
+      for (let c = 0; c < PUYO_COLS; c++) field[r][c] = board[r * PUYO_COLS + c];
+    return field;
+  }
+
+  function _assertLen(arr, n, label) {
+    if (arr.length !== n) throw new Error(`${label}: expected ${n} cells, got ${arr.length}`);
+  }
+
+  root.Subprotocol = {
+    VERSION: 1,
+    TET_COLS, TET_ROWS, TET_BUFFER_ROWS, TET_TOTAL_ROWS,
+    PUYO_COLS, PUYO_ROWS, TET_EMPTY, PUYO_EMPTY,
+    EV, CTRL, RULE_CODE, ruleToCode, codeToRule, SE_ID, SE_KEY, SE_KEY_TO_ID,
+    // PieceState
+    encodePieceStateTet, encodePieceStatePuyo, decodePieceState,
+    // GameEvent encoders
+    encodeSpawnTet, encodeSpawnPuyo,
+    encodeLockTet, encodeLockPuyo,
+    encodeClearTet, encodeClearPuyo,
+    encodeGarbage, encodeHold, encodePending, encodeGameOver, encodeControl,
+    encodeLockChainPuyo, encodeSe,
+    // GameEvent decoder
+    decodeGameEvent,
+    // board builders / inverse
+    buildTetBoard, buildPuyoBoard, tetBoardToBlocks, puyoBoardToField,
+    // low-level (テスト/拡張用)
+    Writer, Reader,
+  };
+
+  if (typeof module !== "undefined" && module.exports) module.exports = root.Subprotocol;
+})(typeof window !== "undefined" ? window : globalThis);
