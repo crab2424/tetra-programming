@@ -203,19 +203,6 @@ function getGamepadAlias(index, vendor) {
   return null;
 }
 
-// 汎用のグローバルトースト表示（任意のメッセージを表示）
-function showGlobalToast(message) {
-  let toast = document.getElementById('global-toast');
-  if (!toast) {
-    toast = document.createElement('div');
-    toast.id = 'global-toast';
-    toast.className = 'global-toast';
-    document.body.appendChild(toast);
-  }
-  toast.textContent = message;
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 2000);
-}
 // ─── 画面切り替え（SPA仕様） ───────────────────────────
 // ★ 注意：この関数は router.js の switchPage() に統合されました。
 //　 router.js が settings.js より後に読み込まれるため、

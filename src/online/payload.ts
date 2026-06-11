@@ -12,6 +12,9 @@ import {
 } from "bincode-ts";
 import { RoomTag } from "./room";
 
+import PuyoIcon from "../puyo-icon.png";
+import TetIcon from "../tet-icon.png";
+
 export enum Opcodes {
   /** バイナリPing */
   Ping = 0x01,
@@ -239,6 +242,8 @@ export interface CreateRoomRequest {
   maxPlayers: number;
   password?: string;
   tags: RoomTag[];
+  username: string;
+  rule: Games;
 }
 
 export interface CreateRoomResponse {
@@ -251,6 +256,7 @@ export interface JoinRoomRequest {
   roomId: Uuid;
   password?: string;
   username: string;
+  rule: Games;
 }
 
 export interface JoinRoomResponse {
@@ -275,7 +281,7 @@ export interface UpdateRoomRequest {
   roomId: Uuid;
   roomName: string;
   maxPlayers: number;
-  password: string;
+  password?: string;
   tags: RoomTag[];
 }
 
@@ -285,17 +291,54 @@ export interface UpdateRoomResponse {
   message?: string;
 }
 
+export type Games = "puyo" | "tet";
+
+export const Games = {
+  alt: {
+    puyo: "ぷよぷよ",
+    tet: "テトリス",
+  } as const satisfies Record<Games, string>,
+
+  toAlt(game: Games): string {
+    return this.alt[game];
+  },
+
+  icon: {
+    puyo: PuyoIcon,
+    tet: TetIcon,
+  } as const satisfies Record<Games, string>,
+
+  toIcon(game: Games): string {
+    return this.icon[game];
+  },
+};
+
+export interface RoomInfoNotificationRequest {
+  id: Uuid;
+}
+
 export interface RoomInfoNotification {
   roomId: Uuid;
+  ownerId: Uuid;
   roomName: string;
-  players: [Uuid, string][];
+  players: [Uuid, string, Games][];
   maxPlayers: number;
   tags: RoomTag[];
 }
-
-export interface RoomLeaveNotification {
-  message: string;
-}
+export const isRoomInfoNotification = (
+  data: any,
+): data is RoomInfoNotification => {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    typeof data.roomId === "string" &&
+    typeof data.ownerId === "string" &&
+    typeof data.roomName === "string" &&
+    Array.isArray(data.players) &&
+    typeof data.maxPlayers === "number" &&
+    Array.isArray(data.tags)
+  );
+};
 
 export class JSONPayload {
   static toPayload(op: Opcodes, data: string): Uint8Array {
