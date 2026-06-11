@@ -153,7 +153,8 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '.mode-btn-sprint',          cls: 'menu-enter',  delay: 2   },
             { sel: '.mode-btn-ultra',           cls: 'menu-enter',  delay: 3   },
             { sel: '.mode-btn-versus',          cls: 'menu-enter',  delay: 2   },
-            { sel: '.mode-btn-test',            cls: 'menu-enter',  delay: 3   },
+            { sel: '.mode-btn-online',          cls: 'menu-enter',  delay: 3   },
+            { sel: '.mode-btn-test',            cls: 'menu-enter',  delay: 4   },
             { sel: '.mode-btn-puyo',            cls: 'menu-enter',  delay: 2   },
             { sel: '.mode-btn-quiz',            cls: 'menu-enter',  delay: 3   },
             // フッターは各ボタンを個別 delay で登場させる
@@ -185,6 +186,17 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '#vs-settings-items',        cls: 'menu-enter',  delay: 1   },
             { sel: '#vs-settings-buttons',      cls: 'menu-enter',  delay: 2   },
         ];
+    } else if (pageId === 'online') {
+        // 他のメニュー画面と同じカスケード登場演出をオンライン画面にも適用する
+        targets = [
+            { sel: '#online-header',            cls: 'menu-enter',  delay: 0   },
+            { sel: '#online-status',            cls: 'menu-enter',  delay: 1   },
+        ];
+        page.querySelectorAll('.online-section').forEach((el, i) => {
+            targets.push({ el, cls: 'menu-enter', delay: 2 + i });
+        });
+        targets.push({ sel: '#online-room-info', cls: 'menu-enter', delay: 5 });
+        targets.push({ sel: '#online-buttons',   cls: 'menu-enter', delay: 6 });
     } else if (pageId === 'quiz-check') {
         targets = [
             { sel: '#quiz-check-header',        cls: 'menu-enter',  delay: 0   },
