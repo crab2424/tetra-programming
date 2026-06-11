@@ -264,8 +264,8 @@ window.CPU5 = class {
             if (actId === 1) { if (this.game.valid(-1, 0)) this.game.mino.x--; }
             else if (actId === 2) { if (this.game.valid(1, 0)) this.game.mino.x++; }
             else if (actId === 3) { if (this.game.valid(0, 1)) this.game.mino.y++; }
-            else if (actId === 4) { this.game.tryRotate(1); }
-            else if (actId === 5) { this.game.tryRotate(-1); }
+            else if (actId === 4) { this.game.tryRotate(1, true); }   // 再生はSE抑止
+            else if (actId === 5) { this.game.tryRotate(-1, true); }  // 再生はSE抑止
             else if (actId === 6) { break; }
             states.push({ x: this.game.mino.x, y: this.game.mino.y, rot: this.game.mino.rotation });
         }
@@ -437,16 +437,17 @@ window.CPU5 = class {
                 this.game.tryRotate(-1);
                 break;
             case 'moveLeft':
-                if (this.game.valid(-1, 0)) this.game.mino.x--;
+                if (this.game.valid(-1, 0)) { this.game.mino.x--; this.game.playSe('move'); }
                 break;
             case 'moveRight':
-                if (this.game.valid(1, 0)) this.game.mino.x++;
+                if (this.game.valid(1, 0)) { this.game.mino.x++; this.game.playSe('move'); }
                 break;
             case 'softDrop':
                 if (this.game.valid(0, 1)) {
                     this.game.mino.y++;
                     this.game.score += 1;
                     this.game.updateLowestY();
+                    this.game.playSe('drop'); // ソフトドロップ音（毎マス）
                 }
                 break;
             case 'multiSoftDrop':
@@ -457,29 +458,34 @@ window.CPU5 = class {
                         this.game.mino.y++;
                         this.game.score += 1;
                         this.game.updateLowestY();
+                        this.game.playSe('drop'); // ソフトドロップ音（毎マス）
                         this.actionQueue.unshift(action);
                     } else {
                         action.delay = 0;
                     }
                 }
                 break;
-            case 'moveToTargetX':
+            case 'moveToTargetX': {
+                const beforeX = this.game.mino.x;
                 if (this.game.mino.x < action.targetX) {
                     let prevX = this.game.mino.x;
                     if (this.game.valid(1, 0)) this.game.mino.x++;
                     if (this.game.mino.x < action.targetX) {
                         if (prevX === this.game.mino.x) this.game.mino.x = action.targetX;
-                        else this.actionQueue.unshift(action); 
+                        else this.actionQueue.unshift(action);
                     }
                 } else if (this.game.mino.x > action.targetX) {
                     let prevX = this.game.mino.x;
                     if (this.game.valid(-1, 0)) this.game.mino.x--;
                     if (this.game.mino.x > action.targetX) {
                         if (prevX === this.game.mino.x) this.game.mino.x = action.targetX;
-                        else this.actionQueue.unshift(action); 
+                        else this.actionQueue.unshift(action);
                     }
                 }
+                // 1マスでも実際に動いたら移動音を鳴らす（スナップ補正含む）
+                if (this.game.mino.x !== beforeX) this.game.playSe('move');
                 break;
+            }
             case 'harddrop':
                 this.game.hardDrop(); 
                 break;
