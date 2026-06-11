@@ -23,6 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 
+.vite/**
+
 /source_assets
 *.psd
 puyomaking.html
