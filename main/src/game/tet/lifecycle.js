@@ -246,9 +246,6 @@ Object.assign(Game.prototype, {
             this.updateTimeDisplay();
         }
 
-        // オンライン対戦: 自分の topout を相手へ通知（versusGameOver より前に送る）
-        if (window.OnlineHooks) window.OnlineHooks.gameOver(this);
-
         // 対戦モードの場合は versusGameOver() に委譲する
         if (this.isVersusMode) {
             const loser = (this.canvasPrefix === 'cpu') ? 'cpu' : 'player';
