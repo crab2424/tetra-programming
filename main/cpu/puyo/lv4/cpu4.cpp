@@ -8,6 +8,7 @@
 #include <emscripten.h>
 #include <stdint.h>
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -350,6 +351,25 @@ struct EvalWeights {
     int qChiWeight;     // [19] quiescence: 発火点の左右伸長余地ボーナス（正）
     int link2Weight;    // [20] 2連結ボーナス（正）
     int link3Weight;    // [21] 3連結ボーナス（正・発火直前形に近く価値大）
+
+    // ── Ama search_multi 由来：期待連鎖スコア選択（核心①）──
+    // 参考: source_assets/puyoAI/ama-beam/ai/search/beam/beam.cpp
+    int expChainWeight; // [22] 期待連鎖スコア選択の重み（0で無効＝従来の累積eval選択）
+    int knownNextCount; // [23] 既知のNEXTペア数（現在ペアを除く。擬似未来ツモの分岐開始位置）
+
+    // ── Ama form 由来：関係性テンプレート（相対方式・毎ターン・0で無効化）──
+    // 参考: source_assets/puyoAI/ama-beam/ai/search/beam/form.cpp
+    // 旧 templateBonus(絶対行固定)の上位版。GTR/SGTR/FRON のラベル+関係行列で評価。
+    int formWeight;     // [24] 関係性 form 一致スコアの重み（Ama build プロファイルは 50）
+
+    // ── 期待連鎖スコア選択の速度調整（JSから設定。0=従来の重い設定）──
+    int expBranch;      // [25] 擬似未来ツモ列の本数 1..6（0=6）。小さいほど軽い
+    int expMaxDepth;    // [26] 期待連鎖探索の深さ 1..8（0=8）。小さいほど軽い
+    int expBeamW;       // [27] depth>=1 のビーム幅（0=従来テーパ12/8/6/5）。小さいほど軽い
+
+    // ── 通常ビーム探索(searchBestMove)の速度調整（expChainWeight==0 のとき動く本命経路）──
+    int mainMaxDepth;   // [28] 確定先読みの深さ 1..10（0=10）。小さいほど軽い（50ms対策の主レバー）
+    int mainBeamW;      // [29] depth>=1 のビーム幅（0=従来テーパ8/6/4）。小さいほど軽い
 };
 
 static int getTemplateScore(const BitBoard& b, const uint8_t* pattern, int templateBonus, bool isGtr) {
@@ -595,6 +615,147 @@ static int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const 
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Ama 由来の「関係性 form テンプレート」（相対方式）
+//   原典: source_assets/puyoAI/ama-beam/ai/search/beam/form.{h,cpp}
+//
+//   旧 getTemplateScore は「絶対行(TEMPLATE_TOP_ROW=8)固定＋色グループ」方式。
+//   こちらは Ama を忠実に再現した相対方式：
+//     - dform[y][x] … セルに付ける「ラベル番号」(色ではなく役割ID)。0=don't care。
+//                     Ama 同様、上の行から記述し、読み出し時に上下反転する(y=0が下)。
+//     - matrix[i][j] … ラベル i と j が「同色であるべき(+)/異色であるべき(-)」かの関係行列。
+//   盤面の実関係(同色=+1/異色=-1)と matrix の符号が一致すれば加点、矛盾で即失格(-100)。
+//   絶対座標・色の取り方に依存しないため、土台が左右にずれても評価できる。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+namespace amaform {
+    constexpr int FH   = 6;   // form の高さ（盤面下から6段だけ見る）
+    constexpr int NLAB = 8;   // ラベル 0..7（GTR/SGTR/FRON が使う範囲）
+
+    struct FormData {
+        uint8_t dform[FH][COLS];   // Ama の dform をそのまま（行0=上）。lab() で上下反転
+        int8_t  matrix[NLAB][NLAB];
+        // 盤面下からの積み高さ y（y=0=下）に対応するラベル
+        inline uint8_t lab(int y, int x) const { return dform[FH - 1 - y][x]; }
+    };
+
+    // GTR（form.h GTR() と同一）
+    constexpr FormData GTR = {
+        {
+            { 0, 0, 0, 0, 0, 0 },
+            { 4, 4, 4, 0, 0, 0 },
+            { 3, 3, 3, 4, 0, 0 },
+            { 1, 2, 5, 0, 0, 0 },
+            { 1, 1, 2, 5, 0, 0 },
+            { 2, 2, 5, 0, 0, 0 }
+        },
+        {
+            { 0,  0,  0,  0,  0,  0,  0,  0 },
+            { 0,  1, -1, -1,  0,  0,  0,  0 },
+            { 0, -1,  1, -1,  0, -1,  0,  0 },
+            { 0, -1, -1,  2, -1, -1,  0,  0 },
+            { 0,  0,  0, -1,  0,  0,  0,  0 },
+            { 0,  0, -1, -1,  0,  0,  0,  0 },
+            { 0,  0,  0,  0,  0,  0,  0,  0 },
+            { 0,  0,  0,  0,  0,  0,  0,  0 }
+        }
+    };
+
+    // SGTR（form.h SGTR() と同一）
+    constexpr FormData SGTR = {
+        {
+            { 0, 0, 0, 0, 0, 0 },
+            { 5, 5, 5, 0, 0, 0 },
+            { 4, 4, 4, 5, 0, 0 },
+            { 1, 1, 3, 6, 0, 0 },
+            { 1, 2, 2, 3, 6, 0 },
+            { 2, 3, 3, 6, 0, 0 }
+        },
+        {
+            { 0,  0,  0,  0,  0,  0,  0,  0 },
+            { 0,  1, -1, -1, -1,  0,  0,  0 },
+            { 0, -1,  1, -1,  0,  0,  0,  0 },
+            { 0, -1, -1,  1, -1,  0, -1,  0 },
+            { 0, -1,  0, -1,  2, -1,  0,  0 },
+            { 0,  0,  0,  0, -1,  0,  0,  0 },
+            { 0,  0,  0, -1,  0,  0,  0,  0 },
+            { 0,  0,  0,  0,  0,  0,  0,  0 }
+        }
+    };
+
+    // FRON（form.h FRON() と同一）
+    constexpr FormData FRON = {
+        {
+            { 0, 0, 0, 0, 0, 0 },
+            { 5, 5, 5, 0, 0, 0 },
+            { 4, 4, 4, 5, 0, 0 },
+            { 1, 1, 3, 6, 0, 0 },
+            { 1, 2, 2, 7, 0, 0 },
+            { 3, 3, 2, 3, 6, 0 }
+        },
+        {
+            { 0,  0,  0,  0,  0,  0,  0,  0 },
+            { 0,  1, -1, -1, -1,  0,  0,  0 },
+            { 0, -1,  1, -1,  0,  0,  0, -1 },
+            { 0, -1, -1,  1, -1,  0, -1,  0 },
+            { 0, -1,  0, -1,  2, -1,  0,  0 },
+            { 0,  0,  0,  0, -1,  0,  0,  0 },
+            { 0,  0,  0, -1,  0,  0,  0,  0 },
+            { 0,  0, -1,  0,  0,  0,  0,  0 }
+        }
+    };
+}
+
+// 1テンプレートの一致度（Ama form::evaluate のスカラ移植）。矛盾があれば -100 を返す。
+static int amaFormEvaluate(const BitBoard& b, const int heights[COLS], const amaform::FormData& p) {
+    using namespace amaform;
+    int result = 0;
+    const int ERROR = -100;
+
+    for (int x0 = 0; x0 < COLS; ++x0) {
+        for (int y0 = 0; y0 < FH; ++y0) {
+            if (heights[x0] <= y0) break;          // 積まれていない高さは見ない
+            uint8_t l0 = p.lab(y0, x0);
+            if (l0 == 0) continue;                 // don't care セル
+            uint8_t c0 = b.get(x0, (TOTAL_ROWS - 1) - y0);   // 下から y0 段目の実セル
+
+            for (int x1 = x0; x1 < COLS; ++x1) {
+                for (int y1 = 0; y1 < FH; ++y1) {
+                    if (heights[x1] <= y1) break;
+                    uint8_t l1 = p.lab(y1, x1);
+                    if (l1 == 0) continue;
+                    if (x0 == x1 && y0 >= y1) continue;     // 同一ペアの重複を避ける
+
+                    int pattern_rel = p.matrix[l0][l1];
+                    if (pattern_rel == 0) continue;
+
+                    uint8_t c1 = b.get(x1, (TOTAL_ROWS - 1) - y1);
+                    int field_rel = (c0 == c1) ? 1 : -1;    // 盤面の実関係（同色=+1/異色=-1）
+
+                    if (field_rel * pattern_rel > 0) result += field_rel * pattern_rel;
+                    else return ERROR;                       // 関係が矛盾＝このテンプレ失格
+                }
+            }
+        }
+    }
+    return result;
+}
+
+// GTR/SGTR/FRON のうち最も一致するテンプレを採用（Ama eval.cpp と同じ max 選択）。
+// おじゃまが土台下部(左4列・下4段)にあるとフォーム照合を無効化(=0)する点も Ama 準拠。
+static int calcAmaFormScore(const BitBoard& b, const int heights[COLS]) {
+    for (int c = 0; c < 4; ++c) {
+        for (int r = TOTAL_ROWS - 4; r < TOTAL_ROWS; ++r) {
+            if (b.get(c, r) == 6) return 0;        // おじゃま混入時は形を強要しない
+        }
+    }
+    int best = -100;
+    int s;
+    s = amaFormEvaluate(b, heights, amaform::GTR);  if (s > best) best = s;
+    s = amaFormEvaluate(b, heights, amaform::SGTR); if (s > best) best = s;
+    s = amaFormEvaluate(b, heights, amaform::FRON); if (s > best) best = s;
+    return best;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 【評価値】盤面状態スコア計算（毎ターン加算）
 //   配置後の盤面状態のみを見て評価する。
 //   報酬パラメータは含まない。
@@ -642,6 +803,9 @@ static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heig
 
     // quiescence による連鎖ポテンシャル評価（連鎖の組みやすさを毎ターン誘導）
     score += calcQuiescenceEval(b, heights, w);
+
+    // Ama 由来の関係性 form テンプレート（GTR/SGTR/FRON の相対マッチ・毎ターン）
+    if (w.formWeight != 0) score += calcAmaFormScore(b, heights) * w.formWeight;
 
     return score;
 }
@@ -825,9 +989,229 @@ struct SearchNode {
     int col1, rot1;
     int col2, rot2;
     int col3, rot3;
+    int firstMoveIndex;   // どの初手candidate由来か（期待連鎖スコア選択用。未使用時 -1）
 
-    SearchNode() : accumulatedScore(0), col1(-1), rot1(-1), col2(-1), rot2(-1), col3(-1), rot3(-1) {}
+    SearchNode() : accumulatedScore(0), col1(-1), rot1(-1), col2(-1), rot2(-1), col3(-1), rot3(-1), firstMoveIndex(-1) {}
 };
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 期待連鎖スコア選択（Ama search_multi 移植・核心①）
+//   複数の擬似未来ツモ列でビーム探索し、各初手の subtree で実際に到達できた
+//   最大連鎖スコアをキュー横断で合算 → 「期待連鎖スコア」として初手評価へ加算する。
+//   既存の累積eval（盤面評価＋発火報酬）は初手の baseScore として保持し、その上に
+//   expChainWeight×期待連鎖スコアを上乗せして初手を選ぶ。expChainWeight==0 のときは
+//   この関数は呼ばれない（従来の累積eval最大選択のまま）。
+//   原典: source_assets/puyoAI/ama-beam/ai/search/beam/beam.cpp search_multi
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 以下は「上限（コンパイル時の配列サイズ／ループ天井）」。実際に使う本数・深さ・幅は
+// JS から渡す w.expBranch / w.expMaxDepth / w.expBeamW で実行時に絞れる（速度調整用）。
+static const int EXP_BRANCH   = 6;   // 擬似未来ツモ列の本数 上限（Ama準拠の6固定bag）
+static const int EXP_MAXDEPTH = 8;   // 期待連鎖探索の深さ 上限
+static const int EXP_MAXCAND  = 24;  // 初手candidate最大数（6列×4回転）
+
+// Ama get_queue_random と同じ6本の固定bag（色順を無視した全ペア種網羅）。
+// id 0..3 を実色 1..4 にマップして使う。
+static const uint8_t EXP_BAG[EXP_BRANCH][4] = {
+    {0,1,2,3},{0,2,1,3},{0,3,1,2},{1,2,0,3},{1,3,0,2},{2,3,0,1}
+};
+
+struct ExpCandidate {
+    int col, rot;
+    int depth0Score;                  // 初手単独の評価（フォールバック用）
+    long long bestAccum;              // 既存ビーム相当の累積eval最大（深い手まで考慮した baseScore）
+    int col2, rot2, col3, rot3;       // 表示用の先読み（bestAccumの手から取得）
+    long long expSum;                 // キュー横断の連鎖スコア合算（期待連鎖スコア×本数）
+};
+
+static int expBeamWidth(int depth, int cfgWidth) {
+    // depth0 は全初手をシードするため広く、以降は性能予算で絞る（連鎖記録は枝刈り前に行う）。
+    if (depth == 0) return EXP_MAXCAND;  // 全初手を必ず展開
+    // cfgWidth>0 なら depth>=1 をその値で一律に絞る（JSで速度調整）。0 は従来のテーパ。
+    if (cfgWidth > 0) return cfgWidth;
+    if (depth == 1) return 12;
+    if (depth == 2) return 8;
+    if (depth == 3) return 6;
+    return 5;
+}
+
+static void runExpectedChainSelection(
+    const BitBoard& baseBoard,
+    int* nextPairs,
+    const EvalWeights& w,
+    const uint8_t* gtrPattern,
+    const uint8_t* keyPattern,
+    int* outResult
+) {
+    // ── 速度調整パラメータ（JSから設定。0/未指定なら上限＝従来の重い設定）──
+    int branchCount = (w.expBranch   > 0) ? std::min(w.expBranch,   EXP_BRANCH)   : EXP_BRANCH;
+    int maxDepth    = (w.expMaxDepth > 0) ? std::min(w.expMaxDepth, EXP_MAXDEPTH) : EXP_MAXDEPTH;
+    int cfgWidth    = w.expBeamW;   // 0=従来テーパ / >0=depth>=1 を一律この幅に
+
+    // 既知ツモのペア数（現在ペア=depth0 を含む）。これ以降の depth は擬似bagで分岐する。
+    int knownPairs = 1 + std::max(0, std::min(w.knownNextCount, maxDepth - 1));
+
+    ExpCandidate cands[EXP_MAXCAND];
+    int  nCand = 0;
+    int  fmLookup[EXP_MAXCAND * 4];   // key = col*4+rot → fm index（-1=未登録）
+    for (int i = 0; i < EXP_MAXCAND * 4; i++) fmLookup[i] = -1;
+
+    // ── 1段ぶんビームを進める共通処理 ──
+    //   chainTarget[fm] にこの段で到達した連鎖スコアの最大を記録。
+    //   registerFirst: depth0 で初手candidateを登録。captureBase: baseScore/先読みを確定。
+    auto stepDepth = [&](std::vector<SearchNode>& cur, int pivot, int child, int depth,
+                         long long* chainTarget, bool registerFirst, bool captureBase) {
+        std::vector<SearchNode> nextNodes;
+        int beamWidth = expBeamWidth(depth, cfgWidth);
+
+        for (const auto& node : cur) {
+            std::vector<PairPlacement> placements = getAllPlacements(node.board);
+            if (placements.empty()) {
+                SearchNode deathNode = node;
+                deathNode.accumulatedScore -= 999999;
+                nextNodes.push_back(deathNode);
+                continue;
+            }
+
+            bool isEmergencyPre = false;
+            int avgH = 0, col2H = 0;
+            for (int c = 0; c < COLS; c++) {
+                int h = 0;
+                for (int r = HIDDEN; r < TOTAL_ROWS; r++) if (node.board.get(c, r) != 0) h++;
+                avgH += h;
+                if (c == 2) col2H = h;
+            }
+            avgH /= COLS;
+            if (avgH >= w.emergencyHeight || col2H >= 9) isEmergencyPre = true;
+
+            PotentialInfo prePot = calcChainPotential(node.board);
+
+            for (const auto& p : placements) {
+                BitBoard nb = applyPlacement(node.board, p, (uint8_t)pivot, (uint8_t)child);
+                ChainResult chain = simulateChain(nb);
+
+                int scoreRaw = evaluateBoard(node.board, nb, chain, w, gtrPattern, keyPattern, prePot, isEmergencyPre);
+                int score = scoreRaw;
+                if (depth == 0) score = score * w.p1Weight / 100;
+                for (int i = 0; i < depth; i++) score = (score * 9) / 10;
+
+                SearchNode nn = node;
+                nn.board = nb;
+                nn.accumulatedScore += score;
+
+                int fm;
+                if (registerFirst) {
+                    int key = p.col * 4 + p.rot;
+                    if (key < 0 || key >= EXP_MAXCAND * 4) continue;
+                    fm = fmLookup[key];
+                    if (fm < 0) {
+                        if (nCand >= EXP_MAXCAND) continue;
+                        fm = nCand++;
+                        fmLookup[key] = fm;
+                        cands[fm].col = p.col; cands[fm].rot = p.rot;
+                        cands[fm].depth0Score = score;
+                        cands[fm].bestAccum = LLONG_MIN;
+                        cands[fm].col2 = -1; cands[fm].rot2 = -1;
+                        cands[fm].col3 = -1; cands[fm].rot3 = -1;
+                        cands[fm].expSum = 0;
+                    }
+                    nn.firstMoveIndex = fm;
+                    nn.col1 = p.col; nn.rot1 = p.rot;
+                } else {
+                    fm = node.firstMoveIndex;
+                    if (depth == 1)      { nn.col2 = p.col; nn.rot2 = p.rot; }
+                    else if (depth == 2) { nn.col3 = p.col; nn.rot3 = p.rot; }
+                }
+
+                if (fm >= 0 && chain.score > 0 && (long long)chain.score > chainTarget[fm]) {
+                    chainTarget[fm] = chain.score;
+                }
+
+                nextNodes.push_back(nn);
+            }
+        }
+
+        std::sort(nextNodes.begin(), nextNodes.end(), [](const SearchNode& a, const SearchNode& b) {
+            return a.accumulatedScore > b.accumulatedScore;
+        });
+        if ((int)nextNodes.size() > beamWidth) nextNodes.resize(beamWidth);
+        cur = nextNodes;
+
+        // baseScore（深い手まで考慮した累積eval最大）と表示用先読みを確定
+        if (captureBase) {
+            for (const auto& nd : cur) {
+                int fm = nd.firstMoveIndex;
+                if (fm < 0 || fm >= nCand) continue;
+                if ((long long)nd.accumulatedScore > cands[fm].bestAccum) {
+                    cands[fm].bestAccum = nd.accumulatedScore;
+                    cands[fm].col2 = nd.col2; cands[fm].rot2 = nd.rot2;
+                    cands[fm].col3 = nd.col3; cands[fm].rot3 = nd.rot3;
+                }
+            }
+        }
+    };
+
+    // ── ① 既知ツモのプレフィックスを1回だけ計算（全キュー共通・最も広い前半層をここで消化）──
+    long long prefixChain[EXP_MAXCAND];
+    for (int i = 0; i < EXP_MAXCAND; i++) prefixChain[i] = 0;
+
+    std::vector<SearchNode> prefixNodes;
+    { SearchNode root; root.board = baseBoard; prefixNodes.push_back(root); }
+
+    bool prefixDead = false;
+    for (int depth = 0; depth < knownPairs && depth < maxDepth; depth++) {
+        stepDepth(prefixNodes, nextPairs[depth * 2], nextPairs[depth * 2 + 1], depth,
+                  prefixChain, /*registerFirst=*/depth == 0, /*captureBase=*/true);
+        if (prefixNodes.empty() || prefixNodes[0].accumulatedScore < -900000) { prefixDead = true; break; }
+    }
+
+    // プレフィックスで到達した連鎖は全キューに共通 → 本数ぶん合算
+    for (int fm = 0; fm < nCand; fm++) cands[fm].expSum += (long long)branchCount * prefixChain[fm];
+
+    // ── ② プレフィックスの先から、各キューは擬似bagで尾部だけ分岐 ──
+    if (!prefixDead) {
+        for (int branch = 0; branch < branchCount; branch++) {
+            const uint8_t* bag = EXP_BAG[branch];
+
+            long long branchChain[EXP_MAXCAND];
+            for (int i = 0; i < EXP_MAXCAND; i++) branchChain[i] = 0;
+
+            std::vector<SearchNode> cur = prefixNodes; // 共通プレフィックスから複製
+            for (int depth = knownPairs; depth < maxDepth; depth++) {
+                int idx = depth - knownPairs;          // bagストリーム上の位置
+                int pivot, child;
+                if ((idx & 1) == 0) { pivot = bag[0] + 1; child = bag[1] + 1; }
+                else                { pivot = bag[2] + 1; child = bag[3] + 1; }
+
+                // 尾部の baseScore 更新は1本目(branch0)のみ（最も妥当な未来）で行う
+                stepDepth(cur, pivot, child, depth, branchChain,
+                          /*registerFirst=*/false, /*captureBase=*/branch == 0);
+                if (cur.empty() || cur[0].accumulatedScore < -900000) break;
+            }
+
+            for (int fm = 0; fm < nCand; fm++) cands[fm].expSum += branchChain[fm];
+        }
+    }
+
+    // ── 初手選択：baseScore(累積eval) + expChainWeight×期待連鎖スコア ──
+    int bestFm = -1;
+    long long bestVal = LLONG_MIN;
+    for (int fm = 0; fm < nCand; fm++) {
+        long long base = (cands[fm].bestAccum == LLONG_MIN) ? cands[fm].depth0Score : cands[fm].bestAccum;
+        long long expAvg = cands[fm].expSum / branchCount;  // 期待連鎖スコア（本数で割る）
+        long long val = base + (long long)w.expChainWeight * expAvg / 100;
+        if (val > bestVal) { bestVal = val; bestFm = fm; }
+    }
+
+    if (bestFm >= 0) {
+        outResult[0] = cands[bestFm].col;
+        outResult[1] = cands[bestFm].rot;
+        outResult[2] = (int)bestVal;
+        outResult[3] = cands[bestFm].col2;
+        outResult[4] = cands[bestFm].rot2;
+        outResult[5] = cands[bestFm].col3;
+        outResult[6] = cands[bestFm].rot3;
+    }
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Wasm エクスポート
@@ -878,27 +1262,51 @@ void searchBestMovePuyoWasm(
     w.qChiWeight          = weightsArray[19];
     w.link2Weight         = weightsArray[20];
     w.link3Weight         = weightsArray[21];
+    // ── 期待連鎖スコア選択 ──
+    w.expChainWeight      = weightsArray[22];
+    w.knownNextCount      = weightsArray[23];
+
+    w.formWeight          = weightsArray[24];
+
+    w.expBranch           = weightsArray[25];
+    w.expMaxDepth         = weightsArray[26];
+    w.expBeamW            = weightsArray[27];
+
+    w.mainMaxDepth        = weightsArray[28];
+    w.mainBeamW           = weightsArray[29];
 
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
+
+    // ★ 期待連鎖スコア選択（Ama search_multi 移植）。重みが非0のときのみ有効。
+    //   0 のときは従来の累積eval最大ビーム選択（以下）にフォールバックする。
+    if (w.expChainWeight != 0) {
+        runExpectedChainSelection(baseBoard, nextPairs, w, gtrPattern, keyPattern, outResult);
+        return;
+    }
 
     std::vector<SearchNode> currentNodes;
     SearchNode rootNode;
     rootNode.board = baseBoard;
     currentNodes.push_back(rootNode);
 
-    const int MAX_DEPTH = 10; 
-    
+    // 確定的な先読み深さ・幅（JSから設定。NEXTは内部で20本確定しているので擬似ツモ不要＝
+    //   nextPairs[0..9] の10ペアを使った純粋な確定ビーム）。0/未指定なら従来の重い設定。
+    //   nextPairs は10ペア(20int)ぶんしか無いので深さは最大10にクランプする。
+    const int MAX_DEPTH = (w.mainMaxDepth > 0) ? std::min(w.mainMaxDepth, 10) : 10;
+    const int mainW      = w.mainBeamW;   // 0=従来テーパ(d0:10,d1:8,d2:6,d>=3:4) / >0=depth>=1を一律この幅
+
     for (int depth = 0; depth < MAX_DEPTH; depth++) {
         std::vector<SearchNode> nextNodes;
         int pivot = nextPairs[depth * 2];
         int child = nextPairs[depth * 2 + 1];
 
-        int beamWidth = 4;
-        if (depth == 0) beamWidth = 10;
-        else if (depth == 1) beamWidth = 8;
-        else if (depth == 2) beamWidth = 6;
-        else beamWidth = 4;
+        int beamWidth;
+        if (depth == 0)        beamWidth = 10;               // 初手は広めに維持
+        else if (mainW > 0)    beamWidth = mainW;            // depth>=1 を一律指定幅
+        else if (depth == 1)   beamWidth = 8;
+        else if (depth == 2)   beamWidth = 6;
+        else                   beamWidth = 4;
 
         for (const auto& node : currentNodes) {
             std::vector<PairPlacement> placements = getAllPlacements(node.board);
