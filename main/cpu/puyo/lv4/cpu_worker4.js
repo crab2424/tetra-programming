@@ -14,7 +14,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js');
+importScripts('cpu_wasm4.js?v=2');
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -30,9 +30,9 @@ self.onmessage = function (e) {
     if (data.type !== 'calculate') return;
 
     if (boardPtr === null) {
-        boardPtr     = Module._my_malloc(102);      
-        // ★ weightsArray の要素数が 13 に増えたためサイズを拡張
-        weightsPtr   = Module._my_malloc(4 * 13);   // 13要素(52 bytes)
+        boardPtr     = Module._my_malloc(102);
+        // ★ weightsArray の要素数が 22 に増えたためサイズを拡張（Ama由来9項目を追加）
+        weightsPtr   = Module._my_malloc(4 * 22);   // 22要素(88 bytes)
         resultPtr    = Module._my_malloc(4 * 7);    
         gtrPtr       = Module._my_malloc(24);       
         keyPtr       = Module._my_malloc(24);       

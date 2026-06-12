@@ -33,6 +33,18 @@ window.PuyoCPU4 = class {
             heightDiffPenalty:     -8,  // 高さ差ペナルティ（毎ターン）
             flatBonus:              2,  // 平坦ボーナス（毎ターン）
             colorConnBonus:         2,  // 同色隣接ボーナス（毎ターン）
+
+            // ── Ama 由来の評価値（参考: source_assets/puyoAI/ama-beam）──
+            //   いずれも加算式・0で無効化可。実機で要チューニング。
+            shapeWeight:           -8,  // 理想L字形からの偏差ペナルティ
+            wellWeight:           -10,  // 井戸（両隣より低い列）ペナルティ
+            bumpWeight:           -10,  // 凸（両隣より高い列）ペナルティ
+            qChainWeight:          60,  // quiescence 連鎖ポテンシャル数
+            qYWeight:              12,  // quiescence 発火列高さ（高く積める連鎖を評価）
+            qKeyWeight:           -30,  // quiescence 必要追加ぷよ数
+            qChiWeight:            20,  // quiescence 発火点の伸長余地
+            link2Weight:            6,  // 2連結
+            link3Weight:           30,  // 3連結（発火直前形に近く価値大）
         };
 
         this.controlWeights = {
@@ -85,7 +97,7 @@ window.PuyoCPU4 = class {
         this._softDropRafId    = null;
 
         this.workerReady = false;
-        this.worker = new Worker('cpu/puyo/lv4/cpu_worker4.js');
+        this.worker = new Worker('cpu/puyo/lv4/cpu_worker4.js?v=2');
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
@@ -230,6 +242,7 @@ window.PuyoCPU4 = class {
         //       [4]flatBonus [5]colorConnBonus [6]zenkeshiBonus [7]chainPotentialBonus
         //       [8]p1Weight [9]templateBonus [10]ignitionThreshold [11]emergencyHeight
         //       [12]ignitionScoreThreshold
+        //       [13]shape [14]well [15]bump [16]qChain [17]qY [18]qKey [19]qChi [20]link2 [21]link3
         const weightsArray = new Int32Array([
             this.rewardWeights.chainBonus,                             // [0]
             this.rewardWeights.erasedBonus,                            // [1]
@@ -243,7 +256,16 @@ window.PuyoCPU4 = class {
             this.templateActive ? this.rewardWeights.templateBonus : 0,// [9]
             dynamicIgnitionThreshold,                                  // [10] ★ 動的閾値
             this.controlWeights.emergencyHeight,                       // [11]
-            dynamicIgnitionScoreThreshold                              // [12] ★ 動的スコア閾値
+            dynamicIgnitionScoreThreshold,                             // [12] ★ 動的スコア閾値
+            this.evalWeights.shapeWeight,                             // [13]
+            this.evalWeights.wellWeight,                              // [14]
+            this.evalWeights.bumpWeight,                              // [15]
+            this.evalWeights.qChainWeight,                           // [16]
+            this.evalWeights.qYWeight,                               // [17]
+            this.evalWeights.qKeyWeight,                             // [18]
+            this.evalWeights.qChiWeight,                             // [19]
+            this.evalWeights.link2Weight,                            // [20]
+            this.evalWeights.link3Weight                             // [21]
         ]);
 
         this.worker.postMessage({
