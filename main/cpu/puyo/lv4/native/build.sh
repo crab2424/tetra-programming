@@ -3,11 +3,12 @@
 # 事前に emsdk_env.sh を source しておくこと:
 #   source ~/emsdk/emsdk_env.sh
 #
-# ⚠️ 再ビルドのたびに cpu_worker4.js の importScripts と
+# ⚠️ 再ビルドのたびに wasm/cpu_worker4.js の importScripts と
 #    cpu4.js の new Worker(...) の ?v= を必ず上げること（グルーjs/wasmのキャッシュ対策）。
+# 出力先は隣の wasm/ ディレクトリ（native/ にソース、wasm/ に生成物）。
 set -e
 cd "$(dirname "$0")"
-emcc cpu4.cpp -o cpu_wasm4.js \
+emcc cpu4.cpp -o ../wasm/cpu_wasm4.js \
   -O3 -s WASM=1 \
   -s EXPORTED_FUNCTIONS='["_my_malloc","_my_free","_searchBestMovePuyoWasm"]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","HEAP32"]' \

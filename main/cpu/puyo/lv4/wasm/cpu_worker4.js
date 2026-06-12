@@ -14,7 +14,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=6');
+importScripts('cpu_wasm4.js?v=7');
 
 let boardPtr     = null;
 let weightsPtr   = null;
