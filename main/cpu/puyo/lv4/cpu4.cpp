@@ -336,8 +336,20 @@ struct EvalWeights {
     // ── 制御パラメータ ──
     int p1Weight;
     int ignitionThreshold;
-    int emergencyHeight;  
-    int ignitionScoreThreshold; 
+    int emergencyHeight;
+    int ignitionScoreThreshold;
+
+    // ── Ama 由来の評価値（毎ターン・加算式・0で無効化可能）──
+    // 参考: source_assets/puyoAI/ama-beam/ai/search/beam/eval.cpp
+    int shapeWeight;    // [13] 理想L字形(左3列高/右3列低)からの偏差ペナルティ（負）
+    int wellWeight;     // [14] 井戸(両隣より低い列)の深さペナルティ（負）
+    int bumpWeight;     // [15] 凸(両隣より高い列)ペナルティ（負）
+    int qChainWeight;   // [16] quiescence: 連鎖ポテンシャル数ボーナス（正）
+    int qYWeight;       // [17] quiescence: 発火列の高さボーナス（正＝高く積める連鎖を評価）
+    int qKeyWeight;     // [18] quiescence: 発火に必要な追加ぷよ数ペナルティ（負）
+    int qChiWeight;     // [19] quiescence: 発火点の左右伸長余地ボーナス（正）
+    int link2Weight;    // [20] 2連結ボーナス（正）
+    int link3Weight;    // [21] 3連結ボーナス（正・発火直前形に近く価値大）
 };
 
 static int getTemplateScore(const BitBoard& b, const uint8_t* pattern, int templateBonus, bool isGtr) {
@@ -420,6 +432,169 @@ static int calcTemplateScore(const BitBoard& b, const uint8_t* gtrPattern, const
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Ama 由来のヘルパー（スカラ移植）
+//   原典: source_assets/puyoAI/ama-beam/ai/search/beam/eval.cpp / quiet.cpp
+//   SIMD/threadは移植せず、現lv4のスカラbitboardで同等の評価を再現する。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// 発火点 x が左右にどれだけ伸ばせるか（隣列が発火点以下で連続する数）
+static int getChi(const int heights[COLS], int x) {
+    int chi = 0;
+    if (x < COLS - 1) {
+        for (int i = x + 1; i < COLS; ++i) { if (heights[i] >  heights[x]) break; chi++; }
+        for (int i = x + 1; i < COLS; ++i) { if (heights[i] >= heights[x]) break; chi++; }
+    }
+    if (x > 0) {
+        for (int i = x - 1; i >= 0; --i) { if (heights[i] >  heights[x]) break; chi++; }
+        for (int i = x - 1; i >= 0; --i) { if (heights[i] >= heights[x]) break; chi++; }
+    }
+    return chi;
+}
+
+// 理想L字形 coef={1,1,1,-1,-1,-1}（左3列高・右3列低＝GTR土台）からの高さ偏差
+static int getShape(const int heights[COLS]) {
+    static const int coef[COLS] = { 1, 1, 1, -1, -1, -1 };
+    int avg = 0;
+    for (int i = 0; i < COLS; ++i) avg += heights[i];
+    avg /= COLS;
+    int shape = 0;
+    for (int i = 0; i < COLS; ++i) shape += std::abs(heights[i] - avg - coef[i]);
+    return shape;
+}
+
+// 井戸の深さ（両隣より低い列の落差合計）。端列は片隣のみで判定。
+static int getWell(const int heights[COLS]) {
+    int well = 0;
+    if (heights[0] < heights[1]) well += heights[1] - heights[0];
+    if (heights[COLS-1] < heights[COLS-2]) well += heights[COLS-2] - heights[COLS-1];
+    for (int i = 1; i < COLS - 1; ++i) {
+        if (heights[i] < heights[i-1] && heights[i] < heights[i+1])
+            well += std::min(heights[i-1], heights[i+1]) - heights[i];
+    }
+    return well;
+}
+
+// 凸（両隣より高い列の突出合計）
+static int getBump(const int heights[COLS]) {
+    int bump = 0;
+    for (int i = 1; i < COLS - 1; ++i) {
+        if (heights[i] > heights[i-1] && heights[i] > heights[i+1])
+            bump += heights[i] - std::max(heights[i-1], heights[i+1]);
+    }
+    return bump;
+}
+
+// 2連結・3連結の数を数える（各連結ぷよが属する連結成分サイズで分類）
+//   size==2 → link_2、size>=3 → link_3。おじゃま(6)は除外。
+static void getLink23(const BitBoard& b, int& link2, int& link3) {
+    link2 = 0; link3 = 0;
+    static bool seen[TOTAL_ROWS][COLS];
+    memset(seen, 0, sizeof(seen));
+    const int dr[] = {-1, 1, 0, 0};
+    const int dc[] = { 0, 0,-1, 1};
+    for (int r = HIDDEN; r < TOTAL_ROWS; ++r) {
+        for (int c = 0; c < COLS; ++c) {
+            if (seen[r][c]) continue;
+            uint8_t color = b.get(c, r);
+            if (color == 0 || color == 6) continue;
+            // 連結成分をBFS
+            std::vector<std::pair<int,int>> stack;
+            stack.push_back({r, c});
+            seen[r][c] = true;
+            int size = 0;
+            while (!stack.empty()) {
+                auto [cr, cc] = stack.back(); stack.pop_back();
+                size++;
+                for (int d = 0; d < 4; ++d) {
+                    int nr = cr + dr[d], nc = cc + dc[d];
+                    if (nr < HIDDEN || nr >= TOTAL_ROWS || nc < 0 || nc >= COLS) continue;
+                    if (seen[nr][nc]) continue;
+                    if (b.get(nc, nr) != color) continue;
+                    seen[nr][nc] = true;
+                    stack.push_back({nr, nc});
+                }
+            }
+            if (size == 2) link2++;
+            else if (size == 3) link3++;
+        }
+    }
+}
+
+// (col,row) を含む同色連結成分が4以上か（軽量チェック・全消去シミュ不要）
+static bool hasGroup4At(const BitBoard& b, int col, int row, uint8_t color) {
+    static bool seen[TOTAL_ROWS][COLS];
+    memset(seen, 0, sizeof(seen));
+    const int dr[] = {-1, 1, 0, 0};
+    const int dc[] = { 0, 0,-1, 1};
+    std::vector<std::pair<int,int>> stack;
+    stack.push_back({row, col});
+    seen[row][col] = true;
+    int size = 0;
+    while (!stack.empty()) {
+        auto [cr, cc] = stack.back(); stack.pop_back();
+        if (++size >= 4) return true;
+        for (int d = 0; d < 4; ++d) {
+            int nr = cr + dr[d], nc = cc + dc[d];
+            if (nr < HIDDEN || nr >= TOTAL_ROWS || nc < 0 || nc >= COLS) continue;
+            if (seen[nr][nc]) continue;
+            if (b.get(nc, nr) != color) continue;
+            seen[nr][nc] = true;
+            stack.push_back({nr, nc});
+        }
+    }
+    return false;
+}
+
+// quiescence: 各列に同色を最大3個まで（4連結が出来るまで）落として連鎖を試し、
+//   連鎖数・発火列高さ・必要追加ぷよ数(key)・伸長余地(chi) を q スコア化して最大値を返す。
+//   原典 quiet.cpp の探索を bounded 列範囲でスカラ再現。
+static const int MAX_QDROP = 3;
+static int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w) {
+    // 重みが全て0なら計算を省略（性能対策）
+    if (w.qChainWeight == 0 && w.qYWeight == 0 && w.qKeyWeight == 0 && w.qChiWeight == 0) return 0;
+
+    // 発火可能な列範囲（11段以下まで）
+    int xMin = 2, xMax = 2;
+    for (int x = 3; x < COLS; ++x) { if (heights[x] > 11) break; xMax++; }
+    for (int x = 1; x >= 0; --x)  { if (heights[x] > 11) break; xMin--; }
+
+    int best = 0;
+    bool found = false;
+
+    for (int x = xMin; x <= xMax; ++x) {
+        int dropMax = std::min(MAX_QDROP, 12 - heights[x]);
+        if (dropMax <= 0) continue;
+
+        for (uint8_t color = 1; color <= 5; ++color) {
+            BitBoard plan = b;
+            int placed = 0;
+            bool trig = false;
+            for (int i = 0; i < dropMax; ++i) {
+                int row = heights[x] + i;        // 内部下基準の高さ
+                plan.set(x, row + HIDDEN, color);
+                placed++;
+                // この列に4連結が出来たか（軽量チェック）
+                if (hasGroup4At(plan, x, row + HIDDEN, color)) { trig = true; break; }
+            }
+            if (!trig) continue;
+
+            BitBoard sim = plan;
+            ChainResult chain = simulateChain(sim);
+            if (chain.chains <= 0) continue;
+
+            int q = 0;
+            q += chain.chains * w.qChainWeight;   // 連鎖数
+            q += heights[x]   * w.qYWeight;        // 発火列高さ
+            q += placed       * w.qKeyWeight;      // 必要追加ぷよ数（負重み）
+            q += getChi(heights, x) * w.qChiWeight; // 伸長余地
+
+            if (!found || q > best) { best = q; found = true; }
+        }
+    }
+    return found ? best : 0;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 【評価値】盤面状態スコア計算（毎ターン加算）
 //   配置後の盤面状態のみを見て評価する。
 //   報酬パラメータは含まない。
@@ -451,6 +626,22 @@ static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heig
         }
     }
     score += connPairs * w.colorConnBonus;
+
+    // ── Ama 由来の盤面形状評価（加算式・各重み0で無効化）──
+    if (w.shapeWeight != 0) score += getShape(heights) * w.shapeWeight;
+    if (w.wellWeight  != 0) score += getWell(heights)  * w.wellWeight;
+    if (w.bumpWeight  != 0) score += getBump(heights)  * w.bumpWeight;
+
+    // 2連結/3連結（3連結は発火直前形に近いので別重み）
+    if (w.link2Weight != 0 || w.link3Weight != 0) {
+        int l2, l3;
+        getLink23(b, l2, l3);
+        score += l2 * w.link2Weight;
+        score += l3 * w.link3Weight;
+    }
+
+    // quiescence による連鎖ポテンシャル評価（連鎖の組みやすさを毎ターン誘導）
+    score += calcQuiescenceEval(b, heights, w);
 
     return score;
 }
@@ -674,9 +865,19 @@ void searchBestMovePuyoWasm(
     w.colorConnBonus      = weightsArray[5];
     // ── 制御パラメータ ──
     w.p1Weight            = weightsArray[8];
-    w.ignitionThreshold   = weightsArray[10]; 
-    w.emergencyHeight     = weightsArray[11]; 
-    w.ignitionScoreThreshold = weightsArray[12]; 
+    w.ignitionThreshold   = weightsArray[10];
+    w.emergencyHeight     = weightsArray[11];
+    w.ignitionScoreThreshold = weightsArray[12];
+    // ── Ama 由来の評価値 ──
+    w.shapeWeight         = weightsArray[13];
+    w.wellWeight          = weightsArray[14];
+    w.bumpWeight          = weightsArray[15];
+    w.qChainWeight        = weightsArray[16];
+    w.qYWeight            = weightsArray[17];
+    w.qKeyWeight          = weightsArray[18];
+    w.qChiWeight          = weightsArray[19];
+    w.link2Weight         = weightsArray[20];
+    w.link3Weight         = weightsArray[21];
 
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
