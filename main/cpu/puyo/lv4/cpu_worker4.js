@@ -14,7 +14,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=2');
+importScripts('cpu_wasm4.js?v=6');
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -31,8 +31,9 @@ self.onmessage = function (e) {
 
     if (boardPtr === null) {
         boardPtr     = Module._my_malloc(102);
-        // ★ weightsArray の要素数が 22 に増えたためサイズを拡張（Ama由来9項目を追加）
-        weightsPtr   = Module._my_malloc(4 * 22);   // 22要素(88 bytes)
+        // ★ weightsArray の要素数が 30 に増えたためサイズを拡張
+        //   （…+ 期待連鎖の速度調整3項目 + 通常ビームの速度調整 mainMaxDepth/mainBeamWidth 2項目）
+        weightsPtr   = Module._my_malloc(4 * 30);   // 30要素(120 bytes)
         resultPtr    = Module._my_malloc(4 * 7);    
         gtrPtr       = Module._my_malloc(24);       
         keyPtr       = Module._my_malloc(24);       

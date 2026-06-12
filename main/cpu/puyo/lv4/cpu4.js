@@ -25,7 +25,7 @@ window.PuyoCPU4 = class {
             erasedBonus:           10,  // 消去ぷよ数ボーナス
             zenkeshiBonus:        100,  // 全消しボーナス
             chainPotentialBonus:  200,  // ポテンシャル増加ボーナス（差分）
-            templateBonus:        800,  // テンプレート一致ボーナス（差分）
+            templateBonus:        0,  // テンプレート一致ボーナス（差分）
         };
 
         this.evalWeights = {
@@ -45,6 +45,11 @@ window.PuyoCPU4 = class {
             qChiWeight:            20,  // quiescence 発火点の伸長余地
             link2Weight:            6,  // 2連結
             link3Weight:           30,  // 3連結（発火直前形に近く価値大）
+
+            // ── Ama 関係性 form テンプレート（GTR/SGTR/FRON の相対マッチ）──
+            //   旧 templateBonus(絶対行固定)の上位版。0 で無効。Ama build は 50。
+            //   ※純粋に Ama 方式へ寄せたい場合は rewardWeights.templateBonus を 0 にする。
+            formWeight:            50,  // 関係性 form 一致スコア
         };
 
         this.controlWeights = {
@@ -52,6 +57,29 @@ window.PuyoCPU4 = class {
             ignitionThreshold:     10,  // 基本の発火閾値（おじゃまが少ない場合）
             ignitionScoreThreshold: 30000, // ★ 発火のスコア閾値
             emergencyHeight:       11,  // 緊急回避ライン
+
+            // ── Ama search_multi 由来：期待連鎖スコア選択（核心①）──
+            //   0 で無効（従来の累積eval最大選択）。正の値で、各初手が将来到達できる
+            //   最大連鎖スコア（6本の擬似未来ツモ列で合算した期待値）を初手選択に上乗せする。
+            //   ※有効時は擬似ツモ列の本数ぶん探索が重くなる（実機で遅延を要計測）。
+            expChainWeight:        0,  // 期待連鎖スコアの重み（0で無効）
+
+            // ── 期待連鎖スコア選択の探索コスト（速度調整。expChainWeight>0 のとき有効）──
+            //   コストは概ね expBranch × expMaxDepth × 幅 に比例。小さくすると軽くなる。
+            //   いずれも 0 で「従来の重い設定」(branch6 / depth8 / 幅テーパ12,8,6,5)。
+            //   ≈15ms を狙うなら下記の軽量プリセットが目安（実機で要計測）。
+            expBranch:             3,  // 擬似未来ツモ列の本数 1..6（0=6）
+            expMaxDepth:           6,  // 期待連鎖探索の深さ 1..8（0=8）
+            expBeamWidth:          5,  // depth>=1 のビーム幅（0=従来テーパ）
+
+            // ── 通常ビーム探索の速度調整（expChainWeight==0 のときの本命経路）──
+            //   NEXTは内部で20本確定しているため擬似ツモ分岐は不要。これは現在ペア＋NEXT9本=
+            //   10ペアを使う純粋な確定先読み。約50ms→軽量化の主レバーはこの深さ。
+            //   いずれも 0 で従来設定（深さ10 / 幅テーパ10,8,6,4）。
+            //   node実測の目安: d10≈55ms / d8≈40 / d6≈28 / d6w4≈22 / d5w4≈18 / d4w4≈13。
+            //   強さ重視なら深さ/幅を上げる（実機で要計測）。
+            mainMaxDepth:          5,  // 確定先読みの深さ 1..10（0=10）。約15ms狙いで5
+            mainBeamWidth:         4,  // depth>=1 のビーム幅（0=従来テーパ8,6,4）
         };
 
         // 後方互換のため旧 this.weights も参照可能にしておく（読み取り専用エイリアス）
@@ -97,7 +125,7 @@ window.PuyoCPU4 = class {
         this._softDropRafId    = null;
 
         this.workerReady = false;
-        this.worker = new Worker('cpu/puyo/lv4/cpu_worker4.js?v=2');
+        this.worker = new Worker('cpu/puyo/lv4/cpu_worker4.js?v=6');
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
@@ -199,14 +227,18 @@ window.PuyoCPU4 = class {
         this.lastPuyoCount = currentPuyoCount;
 
         const nextPairs = new Int32Array(20);
-        
+
         nextPairs[0] = game.pivotColor;
         nextPairs[1] = game.childColor;
-        
+
+        // ★ 実際に見えているNEXTの本数（現在ペアを除く）。
+        //   期待連鎖スコア選択で「ここから先は擬似未来ツモで分岐する」境界として使う。
+        let knownNextCount = 0;
         for (let i = 0; i < 9; i++) {
             if (game.nextQueue && game.nextQueue[i]) {
                 nextPairs[(i + 1) * 2]     = game.nextQueue[i][0];
                 nextPairs[(i + 1) * 2 + 1] = game.nextQueue[i][1];
+                if (knownNextCount === i) knownNextCount = i + 1; // 先頭から連続して既知の本数
             } else {
                 nextPairs[(i + 1) * 2]     = (i % 4) + 1;
                 nextPairs[(i + 1) * 2 + 1] = ((i + 1) % 4) + 1;
@@ -243,6 +275,9 @@ window.PuyoCPU4 = class {
         //       [8]p1Weight [9]templateBonus [10]ignitionThreshold [11]emergencyHeight
         //       [12]ignitionScoreThreshold
         //       [13]shape [14]well [15]bump [16]qChain [17]qY [18]qKey [19]qChi [20]link2 [21]link3
+        //       [22]expChain [23]knownNextCount [24]form
+        //       [25]expBranch [26]expMaxDepth [27]expBeamWidth
+        //       [28]mainMaxDepth [29]mainBeamWidth
         const weightsArray = new Int32Array([
             this.rewardWeights.chainBonus,                             // [0]
             this.rewardWeights.erasedBonus,                            // [1]
@@ -265,7 +300,15 @@ window.PuyoCPU4 = class {
             this.evalWeights.qKeyWeight,                             // [18]
             this.evalWeights.qChiWeight,                             // [19]
             this.evalWeights.link2Weight,                            // [20]
-            this.evalWeights.link3Weight                             // [21]
+            this.evalWeights.link3Weight,                            // [21]
+            this.controlWeights.expChainWeight,                      // [22] 期待連鎖スコア選択の重み
+            knownNextCount,                                          // [23] 既知NEXT本数
+            this.evalWeights.formWeight,                             // [24] 関係性 form テンプレート
+            this.controlWeights.expBranch,                           // [25] 期待連鎖: 擬似ツモ本数
+            this.controlWeights.expMaxDepth,                         // [26] 期待連鎖: 探索深さ
+            this.controlWeights.expBeamWidth,                        // [27] 期待連鎖: ビーム幅
+            this.controlWeights.mainMaxDepth,                        // [28] 通常ビーム: 探索深さ
+            this.controlWeights.mainBeamWidth                        // [29] 通常ビーム: ビーム幅
         ]);
 
         this.worker.postMessage({
