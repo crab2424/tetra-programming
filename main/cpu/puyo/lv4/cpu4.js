@@ -1,131 +1,48 @@
 // ─────────────────────────────────────────────
-// cpu4.js
+// cpu4.js（エントリ / Core・Lifecycle）
 // ぷよCPU lv4 - Web Worker + Wasm 連携版
-// 発火閾値・緊急回避の高さをパラメータとして追加
+//
+// ★ファイル分割について（プロトタイプ拡張パターン）
+//   PuyoCPU4 は責務ごとに複数ファイルへ分割されている。
+//   本ファイルが class 本体（constructor / start / stop / _updateLoop）を定義し、
+//   以下のファイルが Object.assign(PuyoCPU4.prototype, {...}) でメソッドを追加する：
+//     - cpu4_weights.js    … _initWeights / _buildWeightsArray（重み定義・動的閾値・配列組立）
+//     - cpu4_worker_io.js  … _requestCalculation / _handleWorkerResult（Worker/Wasm 連携）
+//     - cpu4_estimate.js   … 着手予測オーバーレイ描画（test モード）
+//     - cpu4_action.js     … 操作エミュレーション（移動・回転・ソフトドロップ）
+//
+//   ⚠️ ロード順: 本ファイル（class 定義）を必ず先頭に。残りは順不同で prototype を拡張する。
+//      読み込みは src/app/modes.js の CPU_CONFIGS（src 配列）と cpu_loader.js が担当。
 // ─────────────────────────────────────────────
 
 window.PuyoCPU4 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
 
-        // ────────────────────────────────
-        // ★ 評価パラメータ
-        //
-        // 【報酬 (rewardWeights)】
-        //   配置前後の盤面を比較し、配置後にのみ現れた変化に対して1回だけ加算する。
-        //
-        // 【評価値 (evalWeights)】
-        //   配置後の盤面状態をそのまま毎ターン評価する。
-        //
-        // 【制御パラメータ (controlWeights)】
-        //   発火閾値・緊急ラインなど、評価の振る舞いを制御するパラメータ。
-        // ────────────────────────────────
-        this.rewardWeights = {
-            chainBonus:           300,  // 発火時の基本ボーナス（C++側で連鎖の3乗倍などで増幅）
-            erasedBonus:           10,  // 消去ぷよ数ボーナス
-            zenkeshiBonus:        100,  // 全消しボーナス
-            chainPotentialBonus:  200,  // ポテンシャル増加ボーナス（差分）
-            templateBonus:        0,  // テンプレート一致ボーナス（差分）
-        };
-
-        this.evalWeights = {
-            heightPenalty:       -100,  // 高さペナルティ（毎ターン）
-            heightDiffPenalty:     -8,  // 高さ差ペナルティ（毎ターン）
-            flatBonus:              2,  // 平坦ボーナス（毎ターン）
-            colorConnBonus:         2,  // 同色隣接ボーナス（毎ターン）
-
-            // ── Ama 由来の評価値（参考: source_assets/puyoAI/ama-beam）──
-            //   いずれも加算式・0で無効化可。実機で要チューニング。
-            shapeWeight:           -8,  // 理想L字形からの偏差ペナルティ
-            wellWeight:           -10,  // 井戸（両隣より低い列）ペナルティ
-            bumpWeight:           -10,  // 凸（両隣より高い列）ペナルティ
-            qChainWeight:          60,  // quiescence 連鎖ポテンシャル数
-            qYWeight:              12,  // quiescence 発火列高さ（高く積める連鎖を評価）
-            qKeyWeight:           -30,  // quiescence 必要追加ぷよ数
-            qChiWeight:            20,  // quiescence 発火点の伸長余地
-            link2Weight:            6,  // 2連結
-            link3Weight:           30,  // 3連結（発火直前形に近く価値大）
-
-            // ── Ama 関係性 form テンプレート（GTR/SGTR/FRON の相対マッチ）──
-            //   旧 templateBonus(絶対行固定)の上位版。0 で無効。Ama build は 50。
-            //   ※純粋に Ama 方式へ寄せたい場合は rewardWeights.templateBonus を 0 にする。
-            formWeight:            50,  // 関係性 form 一致スコア
-        };
-
-        this.controlWeights = {
-            p1Weight:             100,  // 1手目の重み係数
-            ignitionThreshold:     10,  // 基本の発火閾値（おじゃまが少ない場合）
-            ignitionScoreThreshold: 30000, // ★ 発火のスコア閾値
-            emergencyHeight:       11,  // 緊急回避ライン
-
-            // ── Ama search_multi 由来：期待連鎖スコア選択（核心①）──
-            //   0 で無効（従来の累積eval最大選択）。正の値で、各初手が将来到達できる
-            //   最大連鎖スコア（6本の擬似未来ツモ列で合算した期待値）を初手選択に上乗せする。
-            //   ※有効時は擬似ツモ列の本数ぶん探索が重くなる（実機で遅延を要計測）。
-            expChainWeight:        0,  // 期待連鎖スコアの重み（0で無効）
-
-            // ── 期待連鎖スコア選択の探索コスト（速度調整。expChainWeight>0 のとき有効）──
-            //   コストは概ね expBranch × expMaxDepth × 幅 に比例。小さくすると軽くなる。
-            //   いずれも 0 で「従来の重い設定」(branch6 / depth8 / 幅テーパ12,8,6,5)。
-            //   ≈15ms を狙うなら下記の軽量プリセットが目安（実機で要計測）。
-            expBranch:             3,  // 擬似未来ツモ列の本数 1..6（0=6）
-            expMaxDepth:           6,  // 期待連鎖探索の深さ 1..8（0=8）
-            expBeamWidth:          5,  // depth>=1 のビーム幅（0=従来テーパ）
-
-            // ── 通常ビーム探索の速度調整（expChainWeight==0 のときの本命経路）──
-            //   NEXTは内部で20本確定しているため擬似ツモ分岐は不要。これは現在ペア＋NEXT9本=
-            //   10ペアを使う純粋な確定先読み。約50ms→軽量化の主レバーはこの深さ。
-            //   いずれも 0 で従来設定（深さ10 / 幅テーパ10,8,6,4）。
-            //   node実測の目安: d10≈55ms / d8≈40 / d6≈28 / d6w4≈22 / d5w4≈18 / d4w4≈13。
-            //   強さ重視なら深さ/幅を上げる（実機で要計測）。
-            mainMaxDepth:          5,  // 確定先読みの深さ 1..10（0=10）。約15ms狙いで5
-            mainBeamWidth:         4,  // depth>=1 のビーム幅（0=従来テーパ8,6,4）
-        };
-
-        // 後方互換のため旧 this.weights も参照可能にしておく（読み取り専用エイリアス）
-        // weightsArray への組み立ては _buildWeightsArray() で行う
-        this.weights = Object.assign({},
-            this.rewardWeights,
-            this.evalWeights,
-            this.controlWeights
-        );
-
-        this.TEMPLATE_PATTERNS = {
-            'gtr': [
-                4, 4, 4, 0, 0, 0,  // 盤面の上から数えて一番上の行は空洞（GTRは下3段で組むため）
-                2, 1, 3, 4, 6, 6, 
-                2, 2, 1, 3, 4, 4,
-                1, 1, 3, 4, 6, 6
-            ],
-            'key': [
-                1, 2, 3, 4, 5, 0,
-                2, 3, 4, 5, 1, 0,
-                1, 2, 3, 4, 5, 0,
-                1, 2, 3, 4, 5, 0,
-            ],
-        };
+        // ★ 評価パラメータ・テンプレートの初期化（cpu4_weights.js）
+        this._initWeights();
 
         this.isActive          = false;
         this.isAutoPlay        = true;
         this.isCalculating     = false;
-        this.hasCalculatedForCurrentPiece = false; 
-        this.bestMoveData      = null; 
+        this.hasCalculatedForCurrentPiece = false;
+        this.bestMoveData      = null;
         this.isExecutingAction = false;
         this.actionQueue       = [];
-        
+
         this.templateActive    = true; // テンプレを1プレイ1回に制限するためのフラグ
         this.lastPuyoCount     = 0;    // 盤面のぷよ数を監視して発火を検知
-        
-        this.thinkDelay        = 100;      
-        this.actionDelay       =  50;      
-        this.placeDelay        =  80;      
 
-        this.originalGravity   = null;     
-        this.lastDropTime      = null;     
+        this.thinkDelay        = 100;
+        this.actionDelay       =  50;
+        this.placeDelay        =  80;
+
+        this.originalGravity   = null;
+        this.lastDropTime      = null;
         this._softDropRafId    = null;
 
         this.workerReady = false;
-        this.worker = new Worker('cpu/puyo/lv4/cpu_worker4.js?v=6');
+        this.worker = new Worker('cpu/puyo/lv4/wasm/cpu_worker4.js?v=7');
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
@@ -140,7 +57,7 @@ window.PuyoCPU4 = class {
     start() {
         this.isActive = true;
         this.hasCalculatedForCurrentPiece = false;
-        this.templateActive = true; 
+        this.templateActive = true;
         this.lastPuyoCount = 0;
         this._initEstimateContainer();
         this._updateLoop();
@@ -153,13 +70,13 @@ window.PuyoCPU4 = class {
         this.actionQueue       = [];
         this.lastDropTime      = null;
         this.hasCalculatedForCurrentPiece = false;
-        
+
         if (this._softDropRafId !== null) {
             cancelAnimationFrame(this._softDropRafId);
             this._softDropRafId = null;
         }
 
-        this._restoreGravity(); 
+        this._restoreGravity();
 
         if (this.estimateContainer) {
             this.estimateContainer.innerHTML = '';
@@ -180,11 +97,11 @@ window.PuyoCPU4 = class {
         if (game._gs === 'falling') {
             if (!this.hasCalculatedForCurrentPiece && this.workerReady && !this.isCalculating && game && game.state === 'playing') {
                 this.hasCalculatedForCurrentPiece = true;
-                
+
                 this.isExecutingAction = false;
                 this.actionQueue       = [];
                 this.bestMoveData      = null;
-                this.lastDropTime      = null; 
+                this.lastDropTime      = null;
                 this._requestCalculation();
             }
         } else {
@@ -192,480 +109,5 @@ window.PuyoCPU4 = class {
         }
 
         requestAnimationFrame(() => this._updateLoop());
-    }
-
-    _requestCalculation() {
-        if (!this.workerReady || this.isCalculating) return;
-
-        const game = this.game;
-        if (!game || game.state !== 'playing') return;
-
-        this.isCalculating = true;
-
-        const TOTAL_ROWS = 17; 
-        const COLS       = 6;
-        let currentPuyoCount = 0;
-        let ojamaCount = 0; // ★ おじゃまぷよの数をカウント
-        const boardBuffer = new Uint8Array(TOTAL_ROWS * COLS);
-        
-        for (let r = 0; r < TOTAL_ROWS; r++) {
-            for (let c = 0; c < COLS; c++) {
-                boardBuffer[r * COLS + c] = game.field[r][c] || 0;
-                if (boardBuffer[r * COLS + c] !== 0) {
-                    currentPuyoCount++;
-                    if (boardBuffer[r * COLS + c] === 6) {
-                        ojamaCount++; // ★ 6はおじゃまぷよ
-                    }
-                }
-            }
-        }
-
-        // ぷよが減った（連鎖で消えた）場合は、テンプレ構築を完全に終了する
-        if (currentPuyoCount < this.lastPuyoCount - 2) {
-            this.templateActive = false;
-        }
-        this.lastPuyoCount = currentPuyoCount;
-
-        const nextPairs = new Int32Array(20);
-
-        nextPairs[0] = game.pivotColor;
-        nextPairs[1] = game.childColor;
-
-        // ★ 実際に見えているNEXTの本数（現在ペアを除く）。
-        //   期待連鎖スコア選択で「ここから先は擬似未来ツモで分岐する」境界として使う。
-        let knownNextCount = 0;
-        for (let i = 0; i < 9; i++) {
-            if (game.nextQueue && game.nextQueue[i]) {
-                nextPairs[(i + 1) * 2]     = game.nextQueue[i][0];
-                nextPairs[(i + 1) * 2 + 1] = game.nextQueue[i][1];
-                if (knownNextCount === i) knownNextCount = i + 1; // 先頭から連続して既知の本数
-            } else {
-                nextPairs[(i + 1) * 2]     = (i % 4) + 1;
-                nextPairs[(i + 1) * 2 + 1] = ((i + 1) % 4) + 1;
-            }
-        }
-
-        const gtrPattern    = this.TEMPLATE_PATTERNS['gtr'];
-        const keyPattern    = this.TEMPLATE_PATTERNS['key'];
-        const gtrBuffer     = new Uint8Array(24);
-        const keyBuffer     = new Uint8Array(24);
-        
-        for (let i = 0; i < 24; i++) {
-            gtrBuffer[i] = gtrPattern[i];
-            keyBuffer[i]   = keyPattern[i];
-        }
-
-        // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
-        let dynamicIgnitionThreshold = this.controlWeights.ignitionThreshold;
-        let dynamicIgnitionScoreThreshold = this.controlWeights.ignitionScoreThreshold;
-        if (ojamaCount >= 15) {
-            dynamicIgnitionThreshold = 2; // 15個以上で2連鎖妥協
-            dynamicIgnitionScoreThreshold = 320;
-        } else if (ojamaCount >= 10) {
-            dynamicIgnitionThreshold = 4; // 10個以上で4連鎖妥協
-            dynamicIgnitionScoreThreshold = 2000;
-        } else if (ojamaCount >= 5) {
-            dynamicIgnitionThreshold = 6; // 5個以上で6連鎖妥協
-            dynamicIgnitionScoreThreshold = 8000;
-        }
-
-        // weightsArray のインデックス順は C++ 側の weightsArray[N] と対応している。
-        // 順序: [0]chainBonus [1]erasedBonus [2]heightPenalty [3]heightDiffPenalty
-        //       [4]flatBonus [5]colorConnBonus [6]zenkeshiBonus [7]chainPotentialBonus
-        //       [8]p1Weight [9]templateBonus [10]ignitionThreshold [11]emergencyHeight
-        //       [12]ignitionScoreThreshold
-        //       [13]shape [14]well [15]bump [16]qChain [17]qY [18]qKey [19]qChi [20]link2 [21]link3
-        //       [22]expChain [23]knownNextCount [24]form
-        //       [25]expBranch [26]expMaxDepth [27]expBeamWidth
-        //       [28]mainMaxDepth [29]mainBeamWidth
-        const weightsArray = new Int32Array([
-            this.rewardWeights.chainBonus,                             // [0]
-            this.rewardWeights.erasedBonus,                            // [1]
-            this.evalWeights.heightPenalty,                            // [2]
-            this.evalWeights.heightDiffPenalty,                        // [3]
-            this.evalWeights.flatBonus,                                // [4]
-            this.evalWeights.colorConnBonus,                           // [5]
-            this.rewardWeights.zenkeshiBonus,                          // [6]
-            this.rewardWeights.chainPotentialBonus,                    // [7]
-            this.controlWeights.p1Weight,                              // [8]
-            this.templateActive ? this.rewardWeights.templateBonus : 0,// [9]
-            dynamicIgnitionThreshold,                                  // [10] ★ 動的閾値
-            this.controlWeights.emergencyHeight,                       // [11]
-            dynamicIgnitionScoreThreshold,                             // [12] ★ 動的スコア閾値
-            this.evalWeights.shapeWeight,                             // [13]
-            this.evalWeights.wellWeight,                              // [14]
-            this.evalWeights.bumpWeight,                              // [15]
-            this.evalWeights.qChainWeight,                           // [16]
-            this.evalWeights.qYWeight,                               // [17]
-            this.evalWeights.qKeyWeight,                             // [18]
-            this.evalWeights.qChiWeight,                             // [19]
-            this.evalWeights.link2Weight,                            // [20]
-            this.evalWeights.link3Weight,                            // [21]
-            this.controlWeights.expChainWeight,                      // [22] 期待連鎖スコア選択の重み
-            knownNextCount,                                          // [23] 既知NEXT本数
-            this.evalWeights.formWeight,                             // [24] 関係性 form テンプレート
-            this.controlWeights.expBranch,                           // [25] 期待連鎖: 擬似ツモ本数
-            this.controlWeights.expMaxDepth,                         // [26] 期待連鎖: 探索深さ
-            this.controlWeights.expBeamWidth,                        // [27] 期待連鎖: ビーム幅
-            this.controlWeights.mainMaxDepth,                        // [28] 通常ビーム: 探索深さ
-            this.controlWeights.mainBeamWidth                        // [29] 通常ビーム: ビーム幅
-        ]);
-
-        this.worker.postMessage({
-            type:           'calculate',
-            boardBuffer:    boardBuffer,
-            nextPairs:      nextPairs,      
-            weightsArray:   weightsArray,
-            gtrBuffer:      gtrBuffer,   
-            keyBuffer:      keyBuffer       
-        });
-    }
-
-    _handleWorkerResult(res) {
-        this.isCalculating = false;
-
-        if (res[0] === -1) {
-            console.warn('PuyoCPU: 配置候補なし');
-            if (this.isAutoPlay && this.isActive && !this.game.isPaused) {
-                this._executeMove(2, 0);
-            }
-            return;
-        }
-
-        this.bestMoveData = {
-            col1: res[0], rot1: res[1],
-            score: res[2],
-            col2: res[3], rot2: res[4],
-            col3: res[5], rot3: res[6],
-        };
-
-        const evalEl = document.getElementById('eval-value');
-        if (evalEl) evalEl.textContent = this.bestMoveData.score;
-
-        if (this.game.currentMode === 'test') {
-            this._renderEstimatePlace();
-        }
-
-        if (this.isAutoPlay && this.isActive && !this.game.isPaused) {
-            if (!this.isExecutingAction) {
-                this._executeMove(this.bestMoveData.col1, this.bestMoveData.rot1);
-            }
-        }
-    }
-
-    _initEstimateContainer() {
-        const canvasId = this.game.canvasPrefix ? `${this.game.canvasPrefix}-puyo-main-canvas` : 'puyo-main-canvas';
-        const canvas = document.getElementById(canvasId);
-        if (!canvas || !canvas.parentNode) return;
-
-        let containerId = `${canvasId}-estimate-overlay`;
-        this.estimateContainer = document.getElementById(containerId);
-
-        if (!this.estimateContainer) {
-            this.estimateContainer = document.createElement('div');
-            this.estimateContainer.id = containerId;
-            this.estimateContainer.style.position = 'absolute';
-            this.estimateContainer.style.top = '0';
-            this.estimateContainer.style.left = '0';
-            this.estimateContainer.style.width = '320px';
-            this.estimateContainer.style.height = '656px'; 
-            this.estimateContainer.style.pointerEvents = 'none'; 
-            this.estimateContainer.style.zIndex = '15'; 
-            this.estimateContainer.style.overflow = 'hidden'; 
-            canvas.parentNode.appendChild(this.estimateContainer);
-        }
-    }
-
-    _renderEstimatePlace() {
-        if (!this.estimateContainer) this._initEstimateContainer();
-        if (!this.estimateContainer) return;
-        this.estimateContainer.innerHTML = '';
-
-        if (!this.isActive || !this.bestMoveData || this.game.isVersusMode) return;
-
-        const simField = Array.from({ length: 17 }, (_, r) => [...this.game.field[r]]);
-
-        const steps = [
-            { col: this.bestMoveData.col1, rot: this.bestMoveData.rot1, colors: [this.game.pivotColor, this.game.childColor], name: 'step1' },
-            { col: this.bestMoveData.col2, rot: this.bestMoveData.rot2, colors: this.game.nextQueue[0] || [0,0], name: 'step2' },
-            { col: this.bestMoveData.col3, rot: this.bestMoveData.rot3, colors: this.game.nextQueue[1] || [0,0], name: 'step3' }
-        ];
-
-        for (const step of steps) {
-            if (step.col === -1) continue;
-            
-            const res = this._simulateDrop(simField, step.col, step.rot);
-            if (!res) continue;
-
-            this._createEstimatePuyo(res.pivotCol, res.pivotRow, step.colors[0], step.name);
-            this._createEstimatePuyo(res.childCol, res.childRow, step.colors[1], step.name);
-
-            simField[res.pivotRow][res.pivotCol] = step.colors[0];
-            simField[res.childRow][res.childCol] = step.colors[1];
-        }
-    }
-
-    _simulateDrop(field, pc, rot) {
-        const DC = [0, 1, 0, -1];
-        const cc = pc + DC[rot];
-
-        if (pc < 0 || pc >= 6 || cc < 0 || cc >= 6) return null;
-
-        const getDropRow = (c) => {
-            for (let r = 16; r >= 0; r--) {
-                if (field[r][c] === 0) return r;
-            }
-            return -1;
-        };
-
-        let pr, cr;
-        if (rot === 0) { 
-            pr = getDropRow(pc);
-            if (pr < 0) return null;
-            cr = pr - 1;
-            if (cr < 0 || field[cr][pc] !== 0) return null;
-        } else if (rot === 2) { 
-            cr = getDropRow(pc);
-            if (cr < 0) return null;
-            pr = cr - 1;
-            if (pr < 0 || field[pr][pc] !== 0) return null;
-        } else { 
-            pr = getDropRow(pc);
-            cr = getDropRow(cc);
-            if (pr < 0 || cr < 0) return null;
-        }
-
-        return { pivotCol: pc, pivotRow: pr, childCol: cc, childRow: cr };
-    }
-
-    _createEstimatePuyo(col, row, color, stepClass) {
-        if (row < 0 || col < 0 || col >= 6) return;
-
-        const scaleX = 320 / 192;
-        const scaleY = 656 / 384;
-
-        const dispWidth = 32 * scaleX;
-        const dispHeight = 32 * scaleY;
-
-        const displayRow = row - 5; 
-
-        const opacityMap = { 'step1': 0.8, 'step2': 0.5, 'step3': 0.3 };
-        const zIndexMap = { 'step1': '6', 'step2': '5', 'step3': '4' };
-        
-        const COLORS = ['#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f'];
-        const bgColor = COLORS[color - 1] || '#fff';
-
-        const div = document.createElement('div');
-        div.className = `cpu-estimate-puyo ${stepClass}`;
-        div.style.position = 'absolute';
-        
-        div.style.width = `${dispWidth}px`;
-        div.style.height = `${dispHeight}px`;
-        div.style.left = `${col * dispWidth}px`;
-        div.style.top = `${displayRow * dispHeight}px`;
-        
-        div.style.borderRadius = '50%';
-        div.style.backgroundColor = bgColor;
-        div.style.opacity = opacityMap[stepClass];
-        div.style.zIndex = zIndexMap[stepClass];
-        div.style.boxSizing = 'border-box';
-        div.style.border = '2px solid rgba(255,255,255,0.5)';
-        
-        this.estimateContainer.appendChild(div);
-    }
-
-    _executeMove(targetCol, targetRot) {
-        if (!this.isActive || !this.isAutoPlay) return;
-        if (this.isExecutingAction) return;
-
-        this.isExecutingAction = true;
-        this.actionQueue = this._buildActionQueue(targetCol, targetRot);
-
-        setTimeout(() => {
-            this._processActionQueue();
-        }, this.thinkDelay);
-    }
-
-    _buildActionQueue(targetCol, targetRot) {
-        const queue = [];
-        const game  = this.game;
-
-        const startCol = game.pivotX;
-        const startRot = game.targetRot;
-
-        const rotDiff = ((targetRot - startRot) % 4 + 4) % 4;
-        if (rotDiff === 1) queue.push({ type: 'rotateCW' });
-        else if (rotDiff === 2) { queue.push({ type: 'rotateCW' }); queue.push({ type: 'rotateCW' }); }
-        else if (rotDiff === 3) queue.push({ type: 'rotateCCW' });
-
-        const moveDiff = targetCol - startCol;
-        const moveType = moveDiff > 0 ? 'moveRight' : 'moveLeft';
-        for (let i = 0; i < Math.abs(moveDiff); i++) {
-            queue.push({ type: moveType });
-        }
-
-        queue.push({ type: 'softDropUntilLock' });
-
-        return queue;
-    }
-
-    _processActionQueue() {
-        if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
-            this.isExecutingAction = false;
-            this._restoreGravity();
-            return;
-        }
-
-        if (this.game.isPaused || this.game.state === 'paused') {
-            setTimeout(() => {
-                if (this.isActive && this.isAutoPlay) this._processActionQueue();
-            }, 100);
-            return;
-        }
-
-        if (this.game._gs !== 'falling') {
-            this.isExecutingAction = false;
-            this._restoreGravity();
-            return;
-        }
-
-        const action = this.actionQueue.shift();
-
-        switch (action.type) {
-            case 'rotateCW':
-                this.game._tryRotate(1);
-                break;
-            case 'rotateCCW':
-                this.game._tryRotate(-1);
-                break;
-            case 'moveLeft':
-                this.game._tryMove(-1);
-                break;
-            case 'moveRight':
-                this.game._tryMove(1);
-                break;
-            case 'softDropUntilLock':
-                this._startSoftDropLoop();
-                return; 
-        }
-
-        if (this.actionQueue.length > 0) {
-            setTimeout(() => {
-                if (this.isActive && this.isAutoPlay) this._processActionQueue();
-            }, this.actionDelay);
-        } else {
-            this._restoreGravity();
-            this.isExecutingAction = false;
-        }
-    }
-
-    _startSoftDropLoop() {
-        if (this._softDropRafId !== null) {
-            cancelAnimationFrame(this._softDropRafId);
-            this._softDropRafId = null;
-        }
-
-        if (this.game.fallTimer !== undefined) this.game.fallTimer = 0;
-        if (this.game.dropTimer !== undefined) this.game.dropTimer = 0;
-
-        if (this.originalGravity === null && this.game.gravity !== undefined) {
-            this.originalGravity = this.game.gravity;
-            this.game.gravity = 0;
-        }
-
-        const dropSpeedFast = 500 / 12; 
-
-        let prevTime = performance.now();
-
-        const tick = (now) => {
-            if (!this.isActive || !this.isAutoPlay) {
-                this._softDropRafId = null;
-                this._restoreGravity();
-                this.isExecutingAction = false;
-                return;
-            }
-
-            if (this.game.isPaused || this.game.state === 'paused') {
-                this._softDropRafId = requestAnimationFrame(tick);
-                prevTime = now; 
-                return;
-            }
-
-            if (this.game._gs !== 'falling') {
-                this._softDropRafId = null;
-                this._restoreGravity();
-                setTimeout(() => {
-                    if (this.isActive && this.isAutoPlay) {
-                        if (this.game._gs === 'falling') this._forceLock();
-                    }
-                    this.isExecutingAction = false;
-                }, this.placeDelay);
-                return;
-            }
-
-            let dt = now - prevTime;
-            if (dt > 100) dt = 100; 
-            prevTime = now;
-
-            const limitY = this.game._calcLimitY(
-                this.game.pivotX,
-                this.game.pivotY,
-                this.game.targetRot
-            );
-
-            if (this.game.pivotY < limitY) {
-                const dropDist = dt / dropSpeedFast;
-                const prevY = this.game.pivotY;
-                this.game.pivotY = Math.min(this.game.pivotY + dropDist, limitY);
-                const actualDist = this.game.pivotY - prevY;
-
-                this.game.scoreFloat += actualDist;
-                if (this.game.scoreFloat >= 1) {
-                    const add = Math.floor(this.game.scoreFloat);
-                    this.game.score += add;
-                    this.game.scoreFloat -= add;
-                    if (typeof this.game._addDropScore === 'function') {
-                        this.game._addDropScore(add);
-                    }
-                    this.game._updateScoreDisplay();
-                }
-
-                this._softDropRafId = requestAnimationFrame(tick);
-            } else {
-                this.game.pivotY = limitY;
-                this._softDropRafId = null;
-                this._restoreGravity();
-
-                setTimeout(() => {
-                    if (this.isActive && this.isAutoPlay) {
-                        if (this.game._gs === 'falling') this._forceLock();
-                    }
-                    this.isExecutingAction = false;
-                }, this.placeDelay);
-            }
-        };
-
-        this._softDropRafId = requestAnimationFrame(tick);
-    }
-
-    _restoreGravity() {
-        if (this.originalGravity !== null && this.game) {
-            this.game.gravity = this.originalGravity;
-            this.originalGravity = null;
-        }
-    }
-
-    _forceLock() {
-        this._restoreGravity();
-        if (!this.isActive) return;
-        if (this.game._gs !== 'falling') return;
-
-        const limitY = this.game._calcLimitY(
-            this.game.pivotX,
-            this.game.pivotY,
-            this.game.targetRot
-        );
-        this.game.pivotY = limitY;
-        this.game.lockTimer = 99999; 
     }
 };
