@@ -8,7 +8,23 @@
 # 出力先は隣の wasm/ ディレクトリ（native/ にソース、wasm/ に生成物）。
 set -e
 cd "$(dirname "$0")"
-emcc cpu4.cpp -o ../wasm/cpu_wasm4.js \
+
+# ★ ファイル分割（ama-beam 構成を参考）。全 .cpp をまとめて1つの wasm にリンクする。
+#   include は native ルート相対（例: "core/bitboard.h"）。-I. で解決する。
+#   モード追加時（free/fast/allClell 等）は対応する .cpp をこのリストに足すこと。
+SRCS=(
+  cpu4.cpp
+  core/bitboard.cpp
+  core/chain.cpp
+  eval/template.cpp
+  eval/shape.cpp
+  eval/form.cpp
+  eval/eval.cpp
+  build/build.cpp
+)
+
+emcc "${SRCS[@]}" -o ../wasm/cpu_wasm4.js \
+  -I. \
   -O3 -s WASM=1 \
   -s EXPORTED_FUNCTIONS='["_my_malloc","_my_free","_searchBestMovePuyoWasm"]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","HEAP32"]' \
