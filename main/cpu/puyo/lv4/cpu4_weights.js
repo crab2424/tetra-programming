@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────
-// cpu4_weights.js（重み定義・テンプレート・weightsArray 組立）
+// cpu4_weights.js（重み定義・weightsArray 組立）
 //   PuyoCPU4.prototype を拡張する（cpu4.js が class 本体を定義済みであること）。
 //
-//   _initWeights()       … rewardWeights / evalWeights / controlWeights / TEMPLATE_PATTERNS を初期化
+//   _initWeights()       … rewardWeights / evalWeights / controlWeights を初期化
 //   _buildWeightsArray() … おじゃま数に応じた動的閾値を反映し、C++ 側に渡す Int32Array を組み立てる
 // ─────────────────────────────────────────────
 
@@ -26,14 +26,11 @@ Object.assign(window.PuyoCPU4.prototype, {
             erasedBonus:           10,  // 消去ぷよ数ボーナス
             zenkeshiBonus:        100,  // 全消しボーナス
             chainPotentialBonus:  200,  // ポテンシャル増加ボーナス（差分）
-            templateBonus:        0,  // テンプレート一致ボーナス（差分）
         };
 
         this.evalWeights = {
             heightPenalty:       -100,  // 高さペナルティ（毎ターン）
             heightDiffPenalty:     -8,  // 高さ差ペナルティ（毎ターン）
-            flatBonus:              0,  // 平坦ボーナス（毎ターン）
-            colorConnBonus:         0,  // 同色隣接ボーナス（毎ターン）
 
             // ── Ama 由来の評価値（参考: source_assets/puyoAI/ama-beam）──
             //   いずれも加算式・0で無効化可。実機で要チューニング。
@@ -48,8 +45,7 @@ Object.assign(window.PuyoCPU4.prototype, {
             link3Weight:           30,  // 3連結（発火直前形に近く価値大）
 
             // ── Ama 関係性 form テンプレート（GTR/SGTR/FRON の相対マッチ）──
-            //   旧 templateBonus(絶対行固定)の上位版。0 で無効。Ama build は 50。
-            //   ※純粋に Ama 方式へ寄せたい場合は rewardWeights.templateBonus を 0 にする。
+            //   0 で無効。Ama build は 50。
             formWeight:            50,  // 関係性 form 一致スコア
         };
 
@@ -90,21 +86,6 @@ Object.assign(window.PuyoCPU4.prototype, {
             this.evalWeights,
             this.controlWeights
         );
-
-        this.TEMPLATE_PATTERNS = {
-            'gtr': [
-                4, 4, 4, 0, 0, 0,  // 盤面の上から数えて一番上の行は空洞（GTRは下3段で組むため）
-                2, 1, 3, 4, 6, 6,
-                2, 2, 1, 3, 4, 4,
-                1, 1, 3, 4, 6, 6
-            ],
-            'key': [
-                1, 2, 3, 4, 5, 0,
-                2, 3, 4, 5, 1, 0,
-                1, 2, 3, 4, 5, 0,
-                1, 2, 3, 4, 5, 0,
-            ],
-        };
     },
 
     // ★ おじゃま数（ojamaCount）と既知NEXT本数（knownNextCount）を受け取り、
@@ -112,13 +93,13 @@ Object.assign(window.PuyoCPU4.prototype, {
     //
     // weightsArray のインデックス順は C++ 側の weightsArray[N] と対応している。
     // 順序: [0]chainBonus [1]erasedBonus [2]heightPenalty [3]heightDiffPenalty
-    //       [4]flatBonus [5]colorConnBonus [6]zenkeshiBonus [7]chainPotentialBonus
-    //       [8]p1Weight [9]templateBonus [10]ignitionThreshold [11]emergencyHeight
-    //       [12]ignitionScoreThreshold
-    //       [13]shape [14]well [15]bump [16]qChain [17]qY [18]qKey [19]qChi [20]link2 [21]link3
-    //       [22]expChain [23]knownNextCount [24]form
-    //       [25]expBranch [26]expMaxDepth [27]expBeamWidth
-    //       [28]mainMaxDepth [29]mainBeamWidth
+    //       [4]zenkeshiBonus [5]chainPotentialBonus
+    //       [6]p1Weight [7]ignitionThreshold [8]emergencyHeight
+    //       [9]ignitionScoreThreshold
+    //       [10]shape [11]well [12]bump [13]qChain [14]qY [15]qKey [16]qChi [17]link2 [18]link3
+    //       [19]expChain [20]knownNextCount [21]form
+    //       [22]expBranch [23]expMaxDepth [24]expBeamWidth
+    //       [25]mainMaxDepth [26]mainBeamWidth
     _buildWeightsArray(ojamaCount, knownNextCount) {
         // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
         let dynamicIgnitionThreshold = this.controlWeights.ignitionThreshold;
@@ -139,32 +120,29 @@ Object.assign(window.PuyoCPU4.prototype, {
             this.rewardWeights.erasedBonus,                            // [1]
             this.evalWeights.heightPenalty,                            // [2]
             this.evalWeights.heightDiffPenalty,                        // [3]
-            this.evalWeights.flatBonus,                                // [4]
-            this.evalWeights.colorConnBonus,                           // [5]
-            this.rewardWeights.zenkeshiBonus,                          // [6]
-            this.rewardWeights.chainPotentialBonus,                    // [7]
-            this.controlWeights.p1Weight,                              // [8]
-            this.templateActive ? this.rewardWeights.templateBonus : 0,// [9]
-            dynamicIgnitionThreshold,                                  // [10] ★ 動的閾値
-            this.controlWeights.emergencyHeight,                       // [11]
-            dynamicIgnitionScoreThreshold,                             // [12] ★ 動的スコア閾値
-            this.evalWeights.shapeWeight,                             // [13]
-            this.evalWeights.wellWeight,                              // [14]
-            this.evalWeights.bumpWeight,                              // [15]
-            this.evalWeights.qChainWeight,                           // [16]
-            this.evalWeights.qYWeight,                               // [17]
-            this.evalWeights.qKeyWeight,                             // [18]
-            this.evalWeights.qChiWeight,                             // [19]
-            this.evalWeights.link2Weight,                            // [20]
-            this.evalWeights.link3Weight,                            // [21]
-            this.controlWeights.expChainWeight,                      // [22] 期待連鎖スコア選択の重み
-            knownNextCount,                                          // [23] 既知NEXT本数
-            this.evalWeights.formWeight,                             // [24] 関係性 form テンプレート
-            this.controlWeights.expBranch,                           // [25] 期待連鎖: 擬似ツモ本数
-            this.controlWeights.expMaxDepth,                         // [26] 期待連鎖: 探索深さ
-            this.controlWeights.expBeamWidth,                        // [27] 期待連鎖: ビーム幅
-            this.controlWeights.mainMaxDepth,                        // [28] 通常ビーム: 探索深さ
-            this.controlWeights.mainBeamWidth                        // [29] 通常ビーム: ビーム幅
+            this.rewardWeights.zenkeshiBonus,                          // [4]
+            this.rewardWeights.chainPotentialBonus,                    // [5]
+            this.controlWeights.p1Weight,                              // [6]
+            dynamicIgnitionThreshold,                                  // [7] ★ 動的閾値
+            this.controlWeights.emergencyHeight,                       // [8]
+            dynamicIgnitionScoreThreshold,                             // [9] ★ 動的スコア閾値
+            this.evalWeights.shapeWeight,                             // [10]
+            this.evalWeights.wellWeight,                              // [11]
+            this.evalWeights.bumpWeight,                              // [12]
+            this.evalWeights.qChainWeight,                           // [13]
+            this.evalWeights.qYWeight,                               // [14]
+            this.evalWeights.qKeyWeight,                             // [15]
+            this.evalWeights.qChiWeight,                             // [16]
+            this.evalWeights.link2Weight,                            // [17]
+            this.evalWeights.link3Weight,                            // [18]
+            this.controlWeights.expChainWeight,                      // [19] 期待連鎖スコア選択の重み
+            knownNextCount,                                          // [20] 既知NEXT本数
+            this.evalWeights.formWeight,                             // [21] 関係性 form テンプレート
+            this.controlWeights.expBranch,                           // [22] 期待連鎖: 擬似ツモ本数
+            this.controlWeights.expMaxDepth,                         // [23] 期待連鎖: 探索深さ
+            this.controlWeights.expBeamWidth,                        // [24] 期待連鎖: ビーム幅
+            this.controlWeights.mainMaxDepth,                        // [25] 通常ビーム: 探索深さ
+            this.controlWeights.mainBeamWidth                        // [26] 通常ビーム: ビーム幅
         ]);
     },
 });

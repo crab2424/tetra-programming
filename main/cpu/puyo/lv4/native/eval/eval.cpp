@@ -4,7 +4,6 @@
 #include "eval/eval.h"
 #include "eval/shape.h"
 #include "eval/form.h"
-#include "eval/template.h"
 
 #include <algorithm>
 #include <cmath>
@@ -22,24 +21,11 @@ static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heig
         if (heights[c] >= 10) score += (heights[c] - 9) * (w.heightPenalty / 3);
     }
 
-    // 隣接列の高さ差ペナルティ・平坦ボーナス
+    // 隣接列の高さ差ペナルティ
     for (int c = 0; c < COLS - 1; c++) {
         int diff = std::abs(heights[c] - heights[c+1]);
         score += diff * w.heightDiffPenalty;
-        if (diff == 0) score += w.flatBonus;
     }
-
-    // 同色隣接ボーナス
-    int connPairs = 0;
-    for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
-        for (int c = 0; c < COLS; c++) {
-            uint8_t col_val = b.get(c, r);
-            if (col_val == 0 || col_val == 6) continue;
-            if (c + 1 < COLS && b.get(c+1, r) == col_val) connPairs++;
-            if (r + 1 < TOTAL_ROWS && b.get(c, r+1) == col_val) connPairs++;
-        }
-    }
-    score += connPairs * w.colorConnBonus;
 
     // ── Ama 由来の盤面形状評価（加算式・各重み0で無効化）──
     if (w.shapeWeight != 0) score += getShape(heights) * w.shapeWeight;
@@ -71,10 +57,7 @@ static int calcRewardScore(
     const BitBoard& postBoard,          // 配置後の盤面
     const ChainResult& chain,           // 配置後の連鎖結果
     const EvalWeights& w,
-    const uint8_t* gtrPattern,
-    const uint8_t* keyPattern,
     const PotentialInfo& prePot,        // 配置前のポテンシャル
-    int preTemplateScore,               // 配置前のテンプレートスコア
     bool isEmergencyPre,                // ★ 配置前の盤面で判定した緊急事態フラグ
     int currentIgnitionThreshold,
     int currentIgnitionScoreThreshold
@@ -170,14 +153,6 @@ static int calcRewardScore(
         }
     }
 
-    // ── templateBonus ──
-    // 配置前後のテンプレートスコア差分に対して報酬を与える。
-    if (gtrPattern != nullptr && keyPattern != nullptr && w.templateBonus > 0) {
-        int postTemplateScore = calcTemplateScore(postBoard, gtrPattern, keyPattern, w.templateBonus);
-        int templateGain = postTemplateScore - preTemplateScore;
-        if (templateGain > 0) score += templateGain;
-    }
-
     return score;
 }
 
@@ -186,12 +161,9 @@ static int calcRewardScore(
 //   報酬（1手限り）と評価値（毎ターン）を合算して返す。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 int evaluateBoard(
-    const BitBoard& preBoard,           // 配置前の盤面（報酬差分計算用）
     const BitBoard& postBoard,          // 配置後の盤面
     const ChainResult& chain,
     const EvalWeights& w,
-    const uint8_t* gtrPattern,
-    const uint8_t* keyPattern,
     const PotentialInfo& prePot,        // 配置前のポテンシャル（searchBestMove側で計算済み）
     bool isEmergencyPre                 // ★ 配置前の盤面で判定した緊急事態フラグ
 ) {
@@ -209,16 +181,10 @@ int evaluateBoard(
     int currentIgnitionThreshold      = isEmergencyPre ? 1 : w.ignitionThreshold;
     int currentIgnitionScoreThreshold = isEmergencyPre ? 0 : w.ignitionScoreThreshold;
 
-    // ── 配置前のテンプレートスコア（templateBonus差分計算用）
-    int preTemplateScore = (gtrPattern != nullptr && keyPattern != nullptr && w.templateBonus > 0)
-        ? calcTemplateScore(preBoard, gtrPattern, keyPattern, w.templateBonus)
-        : 0;
-
     // ── 【報酬】1手限りの変化に対するスコア
     int rewardScore = calcRewardScore(
         postBoard, chain, w,
-        gtrPattern, keyPattern,
-        prePot, preTemplateScore,
+        prePot,
         isEmergencyPre,
         currentIgnitionThreshold, currentIgnitionScoreThreshold
     );
