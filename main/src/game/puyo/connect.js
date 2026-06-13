@@ -56,7 +56,10 @@ Object.assign(PuyoGame.prototype, {
             if (this.field[nr][nc] !== color) return false;
             // ★ 隣のセルが振動アニメ中（設置直後）なら連結を待機する
             // 　 自分が振動中でないのに隣が振動中の場合、タイミングをそろえるため連結しない
-            const neighborIsVibrating = this.activeAnims.some(a => a.fr === nr && a.c === nc);
+            //   _render が毎フレーム構築する _animMap で O(1) 判定（無ければ従来の線形走査にフォールバック）
+            const neighborIsVibrating = this._animMap
+                ? this._animMap.has(nr * PConfig.cols + nc)
+                : this.activeAnims.some(a => a.fr === nr && a.c === nc);
             if (neighborIsVibrating) return false;
             return true;
         };
