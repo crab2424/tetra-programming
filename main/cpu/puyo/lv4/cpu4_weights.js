@@ -56,6 +56,12 @@ Object.assign(window.PuyoCPU4.prototype, {
             //   0 で無効（Ama build プロファイルも 0）。使う場合の目安は小さめの正値。
             sideWeight:             0,  // 致死列 side bias（0で無効）
 
+            // ── ちぎり(tear)ペナルティ（Ama beam/eval.cpp:105 node.score.action += tear*w.tear）──
+            //   横置きで2列に分かれてバラバラに落ちる配置に、配置時1回だけ加算（負＝ちぎり回避）。
+            //   Ama build 比 -250 を lv4 の縮尺（link3 250→qLink3 12 ≒ 1/20）に合わせ小さく。
+            //   ちぎりは連鎖構築上やむを得ない場合もあるので強くしすぎない。0 で無効。実機で要チューニング。
+            tearWeight:           -20,  // ちぎりペナルティ（負。0で無効）
+
             // ── Ama 関係性 form テンプレート（GTR/SGTR/FRON の相対マッチ）──
             //   0 で無効。Ama build は 50。
             formWeight:            50,  // 関係性 form 一致スコア
@@ -112,7 +118,7 @@ Object.assign(window.PuyoCPU4.prototype, {
     //       [19]expChain [20]knownNextCount [21]form
     //       [22]expBranch [23]expMaxDepth [24]expBeamWidth
     //       [25]mainMaxDepth [26]mainBeamWidth
-    //       [27]qLink2 [28]qLink3 [29]side
+    //       [27]qLink2 [28]qLink3 [29]side [30]tear
     _buildWeightsArray(ojamaCount, knownNextCount) {
         // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
         let dynamicIgnitionThreshold = this.controlWeights.ignitionThreshold;
@@ -158,7 +164,8 @@ Object.assign(window.PuyoCPU4.prototype, {
             this.controlWeights.mainBeamWidth,                       // [26] 通常ビーム: ビーム幅
             this.evalWeights.qLink2Weight,                           // [27] quiescence remain の2連結
             this.evalWeights.qLink3Weight,                           // [28] quiescence remain の3連結
-            this.evalWeights.sideWeight                              // [29] 致死列 side bias
+            this.evalWeights.sideWeight,                             // [29] 致死列 side bias
+            this.evalWeights.tearWeight                              // [30] ちぎりペナルティ
         ]);
     },
 });

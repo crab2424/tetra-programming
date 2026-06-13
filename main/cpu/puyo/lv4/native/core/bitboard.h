@@ -91,3 +91,9 @@ std::vector<PairPlacement> getAllPlacements(const BitBoard& b);
 
 // 配置 p を pivot/child の色で盤面に適用した新しい盤面を返す。
 BitBoard applyPlacement(const BitBoard& b, const PairPlacement& p, uint8_t pivotColor, uint8_t childColor);
+
+// 配置 p で「ちぎり（tear）」が発生するか（0 or 1）を返す。
+//   Ama get_drop_pair_frame と等価: 横置き(pivot/childが別列)で、その2列の落下行が
+//   異なる＝ペアが2列に分かれてバラバラに落ちる場合のみ 1。縦置きは常に 0。
+//   原典: source_assets/puyoAI/ama-beam/core/field.cpp get_drop_pair_frame
+int placementTear(const PairPlacement& p);

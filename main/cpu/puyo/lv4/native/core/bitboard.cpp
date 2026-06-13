@@ -57,3 +57,9 @@ BitBoard applyPlacement(const BitBoard& b, const PairPlacement& p, uint8_t pivot
     nb.set(p.childCol, p.childRow + HIDDEN, childColor);
     return nb;
 }
+
+int placementTear(const PairPlacement& p) {
+    // 横置き（pivot と child が別列：rot 1/3）で、2列の着地行が違うときちぎり。
+    // 縦置き（rot 0/2、childCol==col）は着地行が連続するのでちぎらない。
+    return (p.childCol != p.col && p.pivotRow != p.childRow) ? 1 : 0;
+}

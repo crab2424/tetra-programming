@@ -49,6 +49,9 @@ struct EvalWeights {
     int qLink3Weight;   // [28] quiescence remain の3連結ボーナス（正・次連鎖の種）
     // 致死列(第3列)bias（Ama eval.cpp:99-102。max(左2,右3)-h[2] に乗じる。正で致死列を低く保つ誘導）
     int sideWeight;     // [29] 致死列 side bias の重み（Ama build は 0）
+    // ちぎり(tear)ペナルティ（Ama beam/eval.cpp:105 node.score.action += tear*w.tear）。
+    // 横置きで2列に分かれて落ちる配置に対し、配置時1回だけ加算（負＝ちぎり回避誘導）。
+    int tearWeight;     // [30] ちぎりペナルティの重み（負。0で無効）
 
     // ── Ama search_multi 由来：期待連鎖スコア選択（核心①）──
     // 参考: source_assets/puyoAI/ama-beam/ai/search/beam/beam.cpp
