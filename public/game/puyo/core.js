@@ -152,6 +152,15 @@ class PuyoGame {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PuyoGame._sharedImages = null;
 PuyoGame._sharedImagesLoaded = false;
+// 先読み（preloadImages）の多重起動防止と、ロード完了待ちコールバックのキュー。
+// 起動時の裏読みと初回 start() が重なっても画像ロードを1回に集約する。
+PuyoGame._sharedImagesLoading = false;
+PuyoGame._sharedImagesPending = [];
+
+// ★ おじゃま予告アイコンの共有キャッシュ（盤面ぷよ画像と同じく全インスタンス共有）。
+//    予告は表示更新が頻繁なため、デコード済みの Image を保持して clone で使い回す。
+//    { img名: HTMLImageElement }。null = 未先読み。
+PuyoGame._sharedOjamaImages = null;
 
 // ★ 連鎖文字グリフのウォームアップ済みフラグ（ページ単位で1度だけ実行）
 PuyoGame._chainGlyphsWarmed = false;
