@@ -44,6 +44,12 @@ Object.assign(window.PuyoCPU4.prototype, {
             link2Weight:            6,  // 2連結
             link3Weight:           30,  // 3連結（発火直前形に近く価値大）
 
+            // ── quiescence 発火直前盤面(remain)の連結数（Ama eval.cpp:62-65）──
+            //   発火直前の形に次連鎖の種がどれだけ仕込まれているかを評価。0で無効。
+            //   暫定値（要チューニング）。Ama build 比(link_2:150/link_3:250)を qChain 縮尺に合わせて縮小。
+            qLink2Weight:           4,  // quiescence remain の2連結
+            qLink3Weight:          12,  // quiescence remain の3連結（次連鎖の種）
+
             // ── Ama 関係性 form テンプレート（GTR/SGTR/FRON の相対マッチ）──
             //   0 で無効。Ama build は 50。
             formWeight:            50,  // 関係性 form 一致スコア
@@ -100,6 +106,7 @@ Object.assign(window.PuyoCPU4.prototype, {
     //       [19]expChain [20]knownNextCount [21]form
     //       [22]expBranch [23]expMaxDepth [24]expBeamWidth
     //       [25]mainMaxDepth [26]mainBeamWidth
+    //       [27]qLink2 [28]qLink3
     _buildWeightsArray(ojamaCount, knownNextCount) {
         // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
         let dynamicIgnitionThreshold = this.controlWeights.ignitionThreshold;
@@ -142,7 +149,9 @@ Object.assign(window.PuyoCPU4.prototype, {
             this.controlWeights.expMaxDepth,                         // [23] 期待連鎖: 探索深さ
             this.controlWeights.expBeamWidth,                        // [24] 期待連鎖: ビーム幅
             this.controlWeights.mainMaxDepth,                        // [25] 通常ビーム: 探索深さ
-            this.controlWeights.mainBeamWidth                        // [26] 通常ビーム: ビーム幅
+            this.controlWeights.mainBeamWidth,                       // [26] 通常ビーム: ビーム幅
+            this.evalWeights.qLink2Weight,                           // [27] quiescence remain の2連結
+            this.evalWeights.qLink3Weight                            // [28] quiescence remain の3連結
         ]);
     },
 });

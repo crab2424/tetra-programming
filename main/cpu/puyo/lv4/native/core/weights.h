@@ -44,6 +44,9 @@ struct EvalWeights {
     int qChiWeight;     // [16] quiescence: 発火点の左右伸長余地ボーナス（正）
     int link2Weight;    // [17] 2連結ボーナス（正）
     int link3Weight;    // [18] 3連結ボーナス（正・発火直前形に近く価値大）
+    // quiescence の発火直前盤面(remain)の連結数（核心②の remain link 評価。Ama eval.cpp:62-65）
+    int qLink2Weight;   // [27] quiescence remain の2連結ボーナス（正）
+    int qLink3Weight;   // [28] quiescence remain の3連結ボーナス（正・次連鎖の種）
 
     // ── Ama search_multi 由来：期待連鎖スコア選択（核心①）──
     // 参考: source_assets/puyoAI/ama-beam/ai/search/beam/beam.cpp
