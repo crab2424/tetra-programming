@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <climits>
 #include <vector>
+#include <unordered_map>
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 期待連鎖スコア選択（Ama search_multi 移植・核心①）
@@ -152,8 +153,35 @@ static void runExpectedChainSelection(
                     chainTarget[fm] = chain.score;
                 }
 
+                // ★ 発火枝刈り（ama PRUNE）：大連鎖を発火したノードは連鎖を chainTarget に記録済み。
+                //   depth>=1 で閾値以上なら次層に伝播させない（崩れた盤面で枠を浪費せず組み途中に集中）。
+                //   depth0 は全初手をシードする層なので枝刈りしない（ama も初期 expand では PRUNE しない）。
+                if (w.pruneChainScore > 0 && depth >= 1 && chain.score >= w.pruneChainScore) {
+                    continue;   // chainTarget は上で記録済み → このノードは捨ててOK
+                }
+
                 nextNodes.push_back(nn);
             }
+        }
+
+        // ★ 置換表（ama Layer::add）：同一盤面に複数経路で到達したら accumulatedScore 最大の
+        //   1ノードだけ残す。限られたビーム幅を多様な盤面に使えるようにする（実質的に深く探れる）。
+        {
+            std::unordered_map<uint64_t, int> seen;
+            seen.reserve(nextNodes.size() * 2);
+            std::vector<SearchNode> uniq;
+            uniq.reserve(nextNodes.size());
+            for (const auto& nd : nextNodes) {
+                uint64_t hkey = hashBoard(nd.board);
+                auto it = seen.find(hkey);
+                if (it == seen.end()) {
+                    seen.emplace(hkey, (int)uniq.size());
+                    uniq.push_back(nd);
+                } else if (nd.accumulatedScore > uniq[it->second].accumulatedScore) {
+                    uniq[it->second] = nd;
+                }
+            }
+            nextNodes.swap(uniq);
         }
 
         std::sort(nextNodes.begin(), nextNodes.end(), [](const SearchNode& a, const SearchNode& b) {
@@ -252,123 +280,12 @@ static void runExpectedChainSelection(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 通常ビーム探索（確定NEXTのみ。expChainWeight==0 のときの本命経路）
-//   NEXTは内部で20本確定しているので擬似ツモ不要＝ nextPairs[0..9] の10ペアを使った
-//   純粋な確定ビーム。深さ・幅は w.mainMaxDepth / w.mainBeamW で速度調整できる。
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-static void runMainBeamSearch(
-    const BitBoard& baseBoard,
-    int* nextPairs,
-    const EvalWeights& w,
-    int* outResult
-) {
-    std::vector<SearchNode> currentNodes;
-    SearchNode rootNode;
-    rootNode.board = baseBoard;
-    currentNodes.push_back(rootNode);
-
-    // 確定的な先読み深さ・幅（JSから設定。0/未指定なら従来の重い設定）。
-    //   nextPairs は10ペア(20int)ぶんしか無いので深さは最大10にクランプする。
-    const int MAX_DEPTH = (w.mainMaxDepth > 0) ? std::min(w.mainMaxDepth, 10) : 10;
-    const int mainW      = w.mainBeamW;   // 0=従来テーパ(d0:10,d1:8,d2:6,d>=3:4) / >0=depth>=1を一律この幅
-
-    for (int depth = 0; depth < MAX_DEPTH; depth++) {
-        std::vector<SearchNode> nextNodes;
-        int pivot = nextPairs[depth * 2];
-        int child = nextPairs[depth * 2 + 1];
-
-        int beamWidth;
-        if (depth == 0)        beamWidth = 10;               // 初手は広めに維持
-        else if (mainW > 0)    beamWidth = mainW;            // depth>=1 を一律指定幅
-        else if (depth == 1)   beamWidth = 8;
-        else if (depth == 2)   beamWidth = 6;
-        else                   beamWidth = 4;
-
-        for (const auto& node : currentNodes) {
-            std::vector<PairPlacement> placements = getAllPlacements(node.board);
-            if (placements.empty()) {
-                SearchNode deathNode = node;
-                deathNode.accumulatedScore -= 999999;
-                nextNodes.push_back(deathNode);
-                continue;
-            }
-
-            // ★ 配置前（連鎖前）の盤面で緊急事態かどうかを判定する
-            bool isEmergencyPre = false;
-            int avgH = 0;
-            int col2H = 0;
-            for (int c = 0; c < COLS; c++) {
-                int h = 0;
-                for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
-                    if (node.board.get(c, r) != 0) h++;
-                }
-                avgH += h;
-                if (c == 2) col2H = h;
-            }
-            avgH /= COLS;
-            if (avgH >= w.emergencyHeight || col2H >= 9) {
-                isEmergencyPre = true;
-            }
-
-            PotentialInfo prePot = calcChainPotential(node.board);
-
-            for (const auto& p : placements) {
-                BitBoard nb = applyPlacement(node.board, p, (uint8_t)pivot, (uint8_t)child);
-                ChainResult chain = simulateChain(nb);
-
-                // ★ 配置後の盤面（nb）を渡す。報酬の差分計算には事前計算済みの prePot を使う
-                int scoreRaw = evaluateBoard(nb, chain, w, prePot, isEmergencyPre);
-                // ★ ちぎり(tear)ペナルティ：配置時1回（評価値ではなく配置コスト）。
-                if (w.tearWeight != 0) scoreRaw += placementTear(p) * w.tearWeight;
-
-                int score = scoreRaw;
-                if (depth == 0) score = score * w.p1Weight / 100;
-                for(int i = 0; i < depth; i++) score = (score * 9) / 10;
-
-                SearchNode nextNode = node;
-                nextNode.board = nb;
-                nextNode.accumulatedScore += score;
-
-                if (depth == 0) {
-                    nextNode.col1 = p.col; nextNode.rot1 = p.rot;
-                } else if (depth == 1) {
-                    nextNode.col2 = p.col; nextNode.rot2 = p.rot;
-                } else if (depth == 2) {
-                    nextNode.col3 = p.col; nextNode.rot3 = p.rot;
-                }
-
-                nextNodes.push_back(nextNode);
-            }
-        }
-
-        std::sort(nextNodes.begin(), nextNodes.end(), [](const SearchNode& a, const SearchNode& b) {
-            return a.accumulatedScore > b.accumulatedScore;
-        });
-
-        if ((int)nextNodes.size() > beamWidth) {
-            nextNodes.resize(beamWidth);
-        }
-        currentNodes = nextNodes;
-
-        if (!currentNodes.empty() && currentNodes[0].accumulatedScore < -900000) {
-            break;
-        }
-    }
-
-    if (!currentNodes.empty()) {
-        const auto& bestNode = currentNodes.front();
-        outResult[0] = bestNode.col1;
-        outResult[1] = bestNode.rot1;
-        outResult[2] = bestNode.accumulatedScore;
-        outResult[3] = bestNode.col2;
-        outResult[4] = bestNode.rot2;
-        outResult[5] = bestNode.col3;
-        outResult[6] = bestNode.rot3;
-    }
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// build モードのエントリ：期待連鎖スコア選択 or 通常ビームに振り分ける。
+// build モードのエントリ。
+//   lv4 はNEXTを多数確定で持てるため、擬似ツモ予測（旧 search_multi の分岐）は実際には
+//   発生せず（knownPairs が maxDepth に達して分岐ループが回らない）、runExpectedChainSelection
+//   は「確定NEXTビーム＋連鎖到達力(expChainWeight)による初手選定」として機能する。
+//   expChainWeight==0 のときは expAvg 項が消え、base（累積eval最大）だけで選ぶ＝
+//   旧 runMainBeamSearch 相当に退化する。よって経路は1本に統合した。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 void searchBuildMode(
     const BitBoard& baseBoard,
@@ -376,11 +293,5 @@ void searchBuildMode(
     const EvalWeights& w,
     int* outResult
 ) {
-    // ★ 期待連鎖スコア選択（Ama search_multi 移植）。重みが非0のときのみ有効。
-    //   0 のときは従来の累積eval最大ビーム選択にフォールバックする。
-    if (w.expChainWeight != 0) {
-        runExpectedChainSelection(baseBoard, nextPairs, w, outResult);
-        return;
-    }
-    runMainBeamSearch(baseBoard, nextPairs, w, outResult);
+    runExpectedChainSelection(baseBoard, nextPairs, w, outResult);
 }

@@ -3,7 +3,20 @@
 // ─────────────────────────────────────────────
 #pragma once
 
+#include <stdint.h>
 #include "core/bitboard.h"
+
+// 盤面ハッシュ（置換表＝同一盤面の重複除去に使う）。
+//   BitBoard.cols[COLS]（uint64×6）を FNV-1a で素直に混ぜる。
+//   層内の重複判定に十分な 64bit mix（ama Layer::add の rapidhash 相当を軽量化）。
+inline uint64_t hashBoard(const BitBoard& b) {
+    uint64_t h = 1469598103934665603ULL;   // FNV offset basis
+    for (int c = 0; c < COLS; c++) {
+        h ^= b.cols[c];
+        h *= 1099511628211ULL;             // FNV prime
+    }
+    return h;
+}
 
 struct SearchNode {
     BitBoard board;

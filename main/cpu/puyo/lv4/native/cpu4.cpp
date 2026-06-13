@@ -78,18 +78,22 @@ void searchBestMovePuyoWasm(
     w.expMaxDepth         = weightsArray[23];
     w.expBeamW            = weightsArray[24];
 
-    w.mainMaxDepth        = weightsArray[25];
-    w.mainBeamW           = weightsArray[26];
-
     // ── quiescence remain link（核心②の remain link 評価）──
-    w.qLink2Weight        = weightsArray[27];
-    w.qLink3Weight        = weightsArray[28];
+    w.qLink2Weight        = weightsArray[25];
+    w.qLink3Weight        = weightsArray[26];
 
     // ── 致死列 side bias ──
-    w.sideWeight          = weightsArray[29];
+    w.sideWeight          = weightsArray[27];
 
     // ── ちぎり(tear)ペナルティ ──
-    w.tearWeight          = weightsArray[30];
+    w.tearWeight          = weightsArray[28];
+
+    // ── Ama 由来の発火枝刈り（PRUNE）──
+    w.pruneChainScore     = weightsArray[29];
+
+    // ── Ama 型 eval（A/B切替フラグ＋waste ペナルティ）──
+    w.amaEvalMode         = weightsArray[30];
+    w.wasteWeight         = weightsArray[31];
 
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);

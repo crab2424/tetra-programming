@@ -177,6 +177,19 @@ int evaluateBoard(
         }
     }
 
+    // ── 【評価値】配置後の盤面状態スコア（構築品質。ama 相当・両モード共通）
+    //   ※ ama モードより先に計算しておく（早期 return で共用するため）。
+    // ── Ama 型 eval（amaEvalMode==1）──
+    //   発火報酬/−5000ペナルティ/chainPotential/緊急/全消し/動的閾値（＝calcRewardScore）を
+    //   一切使わず、構築品質＋waste（消したぷよ数への小ペナルティ）だけでビームを駆動する。
+    //   発火の価値は探索側 chainTarget/expSum 経由で初手選択(expChainWeight)に集約される。
+    //   原典: source_assets/puyoAI/ama-beam/ai/search/beam/eval.cpp
+    //         （node.score.action += waste * w.waste, waste=pop数）。
+    if (w.amaEvalMode) {
+        int evalScoreAma = calcEvalScore(postBoard, w, heights);
+        return evalScoreAma + chain.totalErased * w.wasteWeight;
+    }
+
     // ── 発火閾値（緊急時は緩和）
     // ★ 連鎖前の判定（isEmergencyPre）を使用する
     int currentIgnitionThreshold      = isEmergencyPre ? 1 : w.ignitionThreshold;
