@@ -85,6 +85,9 @@ void searchBestMovePuyoWasm(
     w.qLink2Weight        = weightsArray[27];
     w.qLink3Weight        = weightsArray[28];
 
+    // ── 致死列 side bias ──
+    w.sideWeight          = weightsArray[29];
+
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
 

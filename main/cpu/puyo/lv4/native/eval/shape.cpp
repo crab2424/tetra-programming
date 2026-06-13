@@ -44,6 +44,13 @@ int getWell(const int heights[COLS]) {
     return well;
 }
 
+int getSide(const int heights[COLS]) {
+    // Ama eval.cpp:99-102 と同じ。COLS=6 前提（左2列 / 右3列 / 第3列=index2）。
+    int heightLeft  = heights[0] + heights[1];
+    int heightRight = heights[3] + heights[4] + heights[5];
+    return std::max(heightLeft, heightRight) - heights[2];
+}
+
 int getBump(const int heights[COLS]) {
     int bump = 0;
     for (int i = 1; i < COLS - 1; ++i) {

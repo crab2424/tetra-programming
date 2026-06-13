@@ -31,6 +31,7 @@ static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heig
     if (w.shapeWeight != 0) score += getShape(heights) * w.shapeWeight;
     if (w.wellWeight  != 0) score += getWell(heights)  * w.wellWeight;
     if (w.bumpWeight  != 0) score += getBump(heights)  * w.bumpWeight;
+    if (w.sideWeight  != 0) score += getSide(heights)  * w.sideWeight;  // 致死列を相対的に低く保つbias
 
     // 2連結/3連結（3連結は発火直前形に近いので別重み）
     if (w.link2Weight != 0 || w.link3Weight != 0) {
