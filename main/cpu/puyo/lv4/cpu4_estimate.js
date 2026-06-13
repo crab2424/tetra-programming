@@ -42,10 +42,17 @@ Object.assign(window.PuyoCPU4.prototype, {
 
         const simField = Array.from({ length: 17 }, (_, r) => [...this.game.field[r]]);
 
+        // ★ 探索に使った3手分の色（_requestCalculation が控える）を優先して使う。
+        //   前倒し計算では pivotColor/childColor がまだ前ツモのままなので game から読むとズレる。
+        const ec = this._estimateColors;
+        const c1 = ec ? ec[0] : [this.game.pivotColor, this.game.childColor];
+        const c2 = ec ? ec[1] : (this.game.nextQueue[0] || [0, 0]);
+        const c3 = ec ? ec[2] : (this.game.nextQueue[1] || [0, 0]);
+
         const steps = [
-            { col: this.bestMoveData.col1, rot: this.bestMoveData.rot1, colors: [this.game.pivotColor, this.game.childColor], name: 'step1' },
-            { col: this.bestMoveData.col2, rot: this.bestMoveData.rot2, colors: this.game.nextQueue[0] || [0,0], name: 'step2' },
-            { col: this.bestMoveData.col3, rot: this.bestMoveData.rot3, colors: this.game.nextQueue[1] || [0,0], name: 'step3' }
+            { col: this.bestMoveData.col1, rot: this.bestMoveData.rot1, colors: c1, name: 'step1' },
+            { col: this.bestMoveData.col2, rot: this.bestMoveData.rot2, colors: c2, name: 'step2' },
+            { col: this.bestMoveData.col3, rot: this.bestMoveData.rot3, colors: c3, name: 'step3' }
         ];
 
         for (const step of steps) {

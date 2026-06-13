@@ -32,7 +32,7 @@ window.PuyoCPU4 = class {
 
         this.thinkDelay        = 100;
         this.actionDelay       =  50;
-        this.placeDelay        =  80;
+        this.placeDelay        =  20;
 
         this.originalGravity   = null;
         this.lastDropTime      = null;
@@ -88,21 +88,41 @@ window.PuyoCPU4 = class {
         if (!this.isActive) return;
 
         const game = this.game;
+        const gs   = game ? game._gs : null;
 
-        if (game._gs === 'falling') {
-            if (!this.hasCalculatedForCurrentPiece && this.workerReady && !this.isCalculating && game && game.state === 'playing') {
+        // ★ 前倒し計算（操作を軽くする）：
+        //   spawnAnim は「前ツモの連鎖解決＋おじゃま着弾が完了し、盤面が確定した」状態。
+        //   ここから falling 中は盤面が変化しないため、次に出るペア(nextQueue[0])で
+        //   先行して探索しておく。falling 突入時には結果が揃っているので、ぷよ出現と
+        //   探索レイテンシのスパイクが重ならず操作がスムーズになる。
+        if (gs === 'spawnAnim') {
+            if (!this.hasCalculatedForCurrentPiece && this.workerReady && !this.isCalculating && game.state === 'playing') {
                 this.hasCalculatedForCurrentPiece = true;
-
-                this.isExecutingAction = false;
-                this.actionQueue       = [];
-                this.bestMoveData      = null;
-                this.lastDropTime      = null;
-                this._requestCalculation();
+                this._beginCalculation(true); // precompute: nextQueue[0] を現ペアとして探索
             }
-        } else {
+        } else if (gs === 'falling') {
+            // フォールバック：何らかの理由で前倒しできていなければ falling でここで計算する
+            if (!this.hasCalculatedForCurrentPiece && this.workerReady && !this.isCalculating && game.state === 'playing') {
+                this.hasCalculatedForCurrentPiece = true;
+                this._beginCalculation(false);
+            }
+            // 前倒し計算の結果が既に揃っていれば、falling 突入後に着手を開始する
+            this._tryStartExecution();
+        } else if (gs !== 'spawn') {
+            // 着手完了〜次の spawnAnim までのフェーズ（fix/erase/drop 等）でフラグをリセット。
+            // ※ spawn は spawnAnim→falling の同期遷移中の一瞬なので除外（前倒しフラグを保持する）
             this.hasCalculatedForCurrentPiece = false;
         }
 
         requestAnimationFrame(() => this._updateLoop());
+    }
+
+    // 新規計算を開始する前に着手状態をクリアしてから _requestCalculation を呼ぶ。
+    _beginCalculation(precompute) {
+        this.isExecutingAction = false;
+        this.actionQueue       = [];
+        this.bestMoveData      = null;
+        this.lastDropTime      = null;
+        this._requestCalculation(precompute);
     }
 };
