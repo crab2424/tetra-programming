@@ -81,6 +81,10 @@ void searchBestMovePuyoWasm(
     w.mainMaxDepth        = weightsArray[25];
     w.mainBeamW           = weightsArray[26];
 
+    // ── quiescence remain link（核心②の remain link 評価）──
+    w.qLink2Weight        = weightsArray[27];
+    w.qLink3Weight        = weightsArray[28];
+
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
 

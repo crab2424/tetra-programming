@@ -117,6 +117,35 @@ ChainResult simulateChain(BitBoard& b) {
     return res;
 }
 
+// (col,row) を含む同色連結成分が4以上か（軽量・bounded BFS、消去シミュ不要）。
+//   1個落とした直後は「落としたマスを含む成分」だけが新規に4連結に届き得る。
+//   それが4未満なら simulateChain は必ず連鎖0・スコア0を返す（盤面全走査が空振り）ため、
+//   ここで弾けば挙動不変のまま支配的な無駄シミュを削れる。
+static bool potentialFormsGroup4At(const BitBoard& b, int col, int ar, uint8_t color) {
+    static bool seen[TOTAL_ROWS][COLS];
+    static std::vector<std::pair<int,int>> stack;
+    memset(seen, 0, sizeof(seen));
+    stack.clear();
+    stack.push_back({ar, col});
+    seen[ar][col] = true;
+    int size = 0;
+    const int dr[] = {-1, 1, 0, 0};
+    const int dc[] = { 0, 0,-1, 1};
+    while (!stack.empty()) {
+        auto [cr, cc] = stack.back(); stack.pop_back();
+        if (++size >= 4) return true;
+        for (int d = 0; d < 4; ++d) {
+            int nr = cr + dr[d], nc = cc + dc[d];
+            if (nr < HIDDEN || nr >= TOTAL_ROWS || nc < 0 || nc >= COLS) continue;
+            if (seen[nr][nc]) continue;
+            if (b.get(nc, nr) != color) continue;
+            seen[nr][nc] = true;
+            stack.push_back({nr, nc});
+        }
+    }
+    return false;
+}
+
 PotentialInfo calcChainPotential(const BitBoard& b) {
     PotentialInfo best = {0, 0, -1, -1, 0, false};
     for (int col = 0; col < COLS; col++) {
@@ -138,6 +167,10 @@ PotentialInfo calcChainPotential(const BitBoard& b) {
 
             BitBoard tmp = b;
             tmp.set(col, ar, color);
+            // ★ 性能対策(B): 近傍に同色があっても連結成分が4未満なら消去は起きず、
+            //   simulateChain は必ず連鎖0・スコア0（盤面全走査が空振り）になる。
+            //   局所BFSで group>=4 を事前判定し、満たす時だけシミュする（挙動不変）。
+            if (!potentialFormsGroup4At(tmp, col, ar, color)) continue;
             ChainResult res = simulateChain(tmp);
 
             if (res.score > best.maxScore || (res.score == best.maxScore && res.chains > best.maxChains)) {

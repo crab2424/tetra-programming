@@ -118,7 +118,8 @@ static bool hasGroup4At(const BitBoard& b, int col, int row, uint8_t color) {
 static const int MAX_QDROP = 3;
 int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w) {
     // 重みが全て0なら計算を省略（性能対策）
-    if (w.qChainWeight == 0 && w.qYWeight == 0 && w.qKeyWeight == 0 && w.qChiWeight == 0) return 0;
+    if (w.qChainWeight == 0 && w.qYWeight == 0 && w.qKeyWeight == 0 && w.qChiWeight == 0
+        && w.qLink2Weight == 0 && w.qLink3Weight == 0) return 0;
 
     // 発火可能な列範囲（11段以下まで）
     int xMin = 2, xMax = 2;
@@ -154,6 +155,16 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
             q += heights[x]   * w.qYWeight;        // 発火列高さ
             q += placed       * w.qKeyWeight;      // 必要追加ぷよ数（負重み）
             q += getChi(heights, x) * w.qChiWeight; // 伸長余地
+
+            // ── 発火直前盤面(remain)の連結数（Ama eval.cpp:62-65 の remain link）──
+            //   plan は key ぷよを落とした pop 前の盤面＝ama の quiet.remain に相当。
+            //   発火直前の形に2/3連結がどれだけ仕込まれているか＝次連鎖の種を評価する。
+            if (w.qLink2Weight != 0 || w.qLink3Weight != 0) {
+                int rl2, rl3;
+                getLink23(plan, rl2, rl3);
+                q += rl2 * w.qLink2Weight;
+                q += rl3 * w.qLink3Weight;
+            }
 
             if (!found || q > best) { best = q; found = true; }
         }
