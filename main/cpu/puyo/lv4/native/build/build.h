@@ -18,7 +18,5 @@ void searchBuildMode(
     const BitBoard& baseBoard,
     int* nextPairs,
     const EvalWeights& w,
-    const uint8_t* gtrPattern,
-    const uint8_t* keyPattern,
     int* outResult
 );

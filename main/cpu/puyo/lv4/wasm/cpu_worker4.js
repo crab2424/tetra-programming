@@ -14,14 +14,12 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=7');
+importScripts('cpu_wasm4.js?v=8');
 
 let boardPtr     = null;
 let weightsPtr   = null;
 let resultPtr    = null;
-let gtrPtr       = null; // stairsPtrから変更
-let keyPtr       = null; 
-let nextPairsPtr = null; 
+let nextPairsPtr = null;
 
 self.onmessage = function (e) {
     if (!wasmReady) return;
@@ -31,36 +29,23 @@ self.onmessage = function (e) {
 
     if (boardPtr === null) {
         boardPtr     = Module._my_malloc(102);
-        // ★ weightsArray の要素数が 30 に増えたためサイズを拡張
-        //   （…+ 期待連鎖の速度調整3項目 + 通常ビームの速度調整 mainMaxDepth/mainBeamWidth 2項目）
-        weightsPtr   = Module._my_malloc(4 * 30);   // 30要素(120 bytes)
-        resultPtr    = Module._my_malloc(4 * 7);    
-        gtrPtr       = Module._my_malloc(24);       
-        keyPtr       = Module._my_malloc(24);       
-        nextPairsPtr = Module._my_malloc(4 * 20); 
+        // ★ weightsArray の要素数は 27（flatBonus/colorConnBonus/templateBonus を削除）
+        weightsPtr   = Module._my_malloc(4 * 27);   // 27要素(108 bytes)
+        resultPtr    = Module._my_malloc(4 * 7);
+        nextPairsPtr = Module._my_malloc(4 * 20);
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
     HEAP32.set(data.weightsArray, weightsPtr / 4);
     HEAP32.set(data.nextPairs, nextPairsPtr / 4);
-    
-    if (data.gtrBuffer && data.keyBuffer) {
-        HEAPU8.set(data.gtrBuffer, gtrPtr);
-        HEAPU8.set(data.keyBuffer, keyPtr);
-    } else {
-        HEAPU8.fill(0, gtrPtr, gtrPtr + 24);
-        HEAPU8.fill(0, keyPtr, keyPtr + 24);
-    }
 
     const startTime = performance.now();
 
     Module._searchBestMovePuyoWasm(
         boardPtr,
-        nextPairsPtr, 
+        nextPairsPtr,
         weightsPtr,
-        resultPtr,
-        gtrPtr,
-        keyPtr
+        resultPtr
     );
 
     const endTime   = performance.now();

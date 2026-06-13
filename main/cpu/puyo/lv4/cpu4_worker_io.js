@@ -18,27 +18,17 @@ Object.assign(window.PuyoCPU4.prototype, {
 
         const TOTAL_ROWS = 17;
         const COLS       = 6;
-        let currentPuyoCount = 0;
         let ojamaCount = 0; // ★ おじゃまぷよの数をカウント
         const boardBuffer = new Uint8Array(TOTAL_ROWS * COLS);
 
         for (let r = 0; r < TOTAL_ROWS; r++) {
             for (let c = 0; c < COLS; c++) {
                 boardBuffer[r * COLS + c] = game.field[r][c] || 0;
-                if (boardBuffer[r * COLS + c] !== 0) {
-                    currentPuyoCount++;
-                    if (boardBuffer[r * COLS + c] === 6) {
-                        ojamaCount++; // ★ 6はおじゃまぷよ
-                    }
+                if (boardBuffer[r * COLS + c] === 6) {
+                    ojamaCount++; // ★ 6はおじゃまぷよ
                 }
             }
         }
-
-        // ぷよが減った（連鎖で消えた）場合は、テンプレ構築を完全に終了する
-        if (currentPuyoCount < this.lastPuyoCount - 2) {
-            this.templateActive = false;
-        }
-        this.lastPuyoCount = currentPuyoCount;
 
         const nextPairs = new Int32Array(20);
 
@@ -59,16 +49,6 @@ Object.assign(window.PuyoCPU4.prototype, {
             }
         }
 
-        const gtrPattern    = this.TEMPLATE_PATTERNS['gtr'];
-        const keyPattern    = this.TEMPLATE_PATTERNS['key'];
-        const gtrBuffer     = new Uint8Array(24);
-        const keyBuffer     = new Uint8Array(24);
-
-        for (let i = 0; i < 24; i++) {
-            gtrBuffer[i] = gtrPattern[i];
-            keyBuffer[i]   = keyPattern[i];
-        }
-
         // ★ おじゃま数に応じた動的閾値を反映した weightsArray を組み立てる（cpu4_weights.js）
         const weightsArray = this._buildWeightsArray(ojamaCount, knownNextCount);
 
@@ -76,9 +56,7 @@ Object.assign(window.PuyoCPU4.prototype, {
             type:           'calculate',
             boardBuffer:    boardBuffer,
             nextPairs:      nextPairs,
-            weightsArray:   weightsArray,
-            gtrBuffer:      gtrBuffer,
-            keyBuffer:      keyBuffer
+            weightsArray:   weightsArray
         });
     },
 

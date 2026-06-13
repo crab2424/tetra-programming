@@ -16,7 +16,6 @@ SRCS=(
   cpu4.cpp
   core/bitboard.cpp
   core/chain.cpp
-  eval/template.cpp
   eval/shape.cpp
   eval/form.cpp
   eval/eval.cpp

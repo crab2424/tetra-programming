@@ -9,7 +9,6 @@
 //     core/bitboard    … BitBoard / 配置生成
 //     core/chain       … 連鎖シミュレーション / 連鎖ポテンシャル
 //     core/weights.h   … EvalWeights 構造体
-//     eval/template    … 旧式テンプレート一致
 //     eval/shape       … Ama 由来の形状ヘルパー + quiescence
 //     eval/form        … Ama 由来の関係性 form テンプレート
 //     eval/eval        … 評価値 + 報酬 + 統合 evaluateBoard
@@ -41,9 +40,7 @@ void searchBestMovePuyoWasm(
     uint8_t* boardData,
     int* nextPairs,
     int* weightsArray,
-    int* outResult,
-    uint8_t* gtrPattern,
-    uint8_t* keyPattern
+    int* outResult
 ) {
     for (int i = 0; i < 7; i++) outResult[i] = -1;
 
@@ -51,48 +48,45 @@ void searchBestMovePuyoWasm(
     // ── 報酬 (reward) ──
     w.chainBonus          = weightsArray[0];
     w.erasedBonus         = weightsArray[1];
-    w.zenkeshiBonus       = weightsArray[6];
-    w.chainPotentialBonus = weightsArray[7];
-    w.templateBonus       = weightsArray[9];
+    w.zenkeshiBonus       = weightsArray[4];
+    w.chainPotentialBonus = weightsArray[5];
     // ── 評価値 (eval) ──
     w.heightPenalty       = weightsArray[2];
     w.heightDiffPenalty   = weightsArray[3];
-    w.flatBonus           = weightsArray[4];
-    w.colorConnBonus      = weightsArray[5];
     // ── 制御パラメータ ──
-    w.p1Weight            = weightsArray[8];
-    w.ignitionThreshold   = weightsArray[10];
-    w.emergencyHeight     = weightsArray[11];
-    w.ignitionScoreThreshold = weightsArray[12];
+    w.p1Weight            = weightsArray[6];
+    w.ignitionThreshold   = weightsArray[7];
+    w.emergencyHeight     = weightsArray[8];
+    w.ignitionScoreThreshold = weightsArray[9];
     // ── Ama 由来の評価値 ──
-    w.shapeWeight         = weightsArray[13];
-    w.wellWeight          = weightsArray[14];
-    w.bumpWeight          = weightsArray[15];
-    w.qChainWeight        = weightsArray[16];
-    w.qYWeight            = weightsArray[17];
-    w.qKeyWeight          = weightsArray[18];
-    w.qChiWeight          = weightsArray[19];
-    w.link2Weight         = weightsArray[20];
-    w.link3Weight         = weightsArray[21];
+    w.shapeWeight         = weightsArray[10];
+    w.wellWeight          = weightsArray[11];
+    w.bumpWeight          = weightsArray[12];
+    w.qChainWeight        = weightsArray[13];
+    w.qYWeight            = weightsArray[14];
+    w.qKeyWeight          = weightsArray[15];
+    w.qChiWeight          = weightsArray[16];
+    w.link2Weight         = weightsArray[17];
+    w.link3Weight         = weightsArray[18];
     // ── 期待連鎖スコア選択 ──
-    w.expChainWeight      = weightsArray[22];
-    w.knownNextCount      = weightsArray[23];
+    w.expChainWeight      = weightsArray[19];
+    w.knownNextCount      = weightsArray[20];
 
-    w.formWeight          = weightsArray[24];
+    w.formWeight          = weightsArray[21];
 
-    w.expBranch           = weightsArray[25];
-    w.expMaxDepth         = weightsArray[26];
-    w.expBeamW            = weightsArray[27];
+    w.expBranch           = weightsArray[22];
+    w.expMaxDepth         = weightsArray[23];
+    w.expBeamW            = weightsArray[24];
 
-    w.mainMaxDepth        = weightsArray[28];
-    w.mainBeamW           = weightsArray[29];
+    w.mainMaxDepth        = weightsArray[25];
+    w.mainBeamW           = weightsArray[26];
 
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
 
     // ★ 現状は build（連鎖を組む）モードのみ。
     //   今後 free / fast / allClear モードを追加する際はここで振り分ける。
-    searchBuildMode(baseBoard, nextPairs, w, gtrPattern, keyPattern, outResult);
+    searchBuildMode(baseBoard, nextPairs, w, outResult);
 }
 
 } // extern "C"

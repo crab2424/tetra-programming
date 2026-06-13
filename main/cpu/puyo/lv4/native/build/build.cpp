@@ -54,8 +54,6 @@ static void runExpectedChainSelection(
     const BitBoard& baseBoard,
     int* nextPairs,
     const EvalWeights& w,
-    const uint8_t* gtrPattern,
-    const uint8_t* keyPattern,
     int* outResult
 ) {
     // ── 速度調整パラメータ（JSから設定。0/未指定なら上限＝従来の重い設定）──
@@ -105,7 +103,7 @@ static void runExpectedChainSelection(
                 BitBoard nb = applyPlacement(node.board, p, (uint8_t)pivot, (uint8_t)child);
                 ChainResult chain = simulateChain(nb);
 
-                int scoreRaw = evaluateBoard(node.board, nb, chain, w, gtrPattern, keyPattern, prePot, isEmergencyPre);
+                int scoreRaw = evaluateBoard(nb, chain, w, prePot, isEmergencyPre);
                 int score = scoreRaw;
                 if (depth == 0) score = score * w.p1Weight / 100;
                 for (int i = 0; i < depth; i++) score = (score * 9) / 10;
@@ -238,8 +236,6 @@ static void runMainBeamSearch(
     const BitBoard& baseBoard,
     int* nextPairs,
     const EvalWeights& w,
-    const uint8_t* gtrPattern,
-    const uint8_t* keyPattern,
     int* outResult
 ) {
     std::vector<SearchNode> currentNodes;
@@ -296,9 +292,8 @@ static void runMainBeamSearch(
                 BitBoard nb = applyPlacement(node.board, p, (uint8_t)pivot, (uint8_t)child);
                 ChainResult chain = simulateChain(nb);
 
-                // ★ 配置前の盤面（node.board）と配置後の盤面（nb）を両方渡す
-                //    報酬は前後差分で、評価値は配置後のみで計算される
-                int scoreRaw = evaluateBoard(node.board, nb, chain, w, gtrPattern, keyPattern, prePot, isEmergencyPre);
+                // ★ 配置後の盤面（nb）を渡す。報酬の差分計算には事前計算済みの prePot を使う
+                int scoreRaw = evaluateBoard(nb, chain, w, prePot, isEmergencyPre);
 
                 int score = scoreRaw;
                 if (depth == 0) score = score * w.p1Weight / 100;
@@ -353,15 +348,13 @@ void searchBuildMode(
     const BitBoard& baseBoard,
     int* nextPairs,
     const EvalWeights& w,
-    const uint8_t* gtrPattern,
-    const uint8_t* keyPattern,
     int* outResult
 ) {
     // ★ 期待連鎖スコア選択（Ama search_multi 移植）。重みが非0のときのみ有効。
     //   0 のときは従来の累積eval最大ビーム選択にフォールバックする。
     if (w.expChainWeight != 0) {
-        runExpectedChainSelection(baseBoard, nextPairs, w, gtrPattern, keyPattern, outResult);
+        runExpectedChainSelection(baseBoard, nextPairs, w, outResult);
         return;
     }
-    runMainBeamSearch(baseBoard, nextPairs, w, gtrPattern, keyPattern, outResult);
+    runMainBeamSearch(baseBoard, nextPairs, w, outResult);
 }

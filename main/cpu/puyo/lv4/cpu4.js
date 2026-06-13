@@ -30,9 +30,6 @@ window.PuyoCPU4 = class {
         this.isExecutingAction = false;
         this.actionQueue       = [];
 
-        this.templateActive    = true; // テンプレを1プレイ1回に制限するためのフラグ
-        this.lastPuyoCount     = 0;    // 盤面のぷよ数を監視して発火を検知
-
         this.thinkDelay        = 100;
         this.actionDelay       =  50;
         this.placeDelay        =  80;
@@ -42,7 +39,7 @@ window.PuyoCPU4 = class {
         this._softDropRafId    = null;
 
         this.workerReady = false;
-        this.worker = new Worker('cpu/puyo/lv4/wasm/cpu_worker4.js?v=7');
+        this.worker = new Worker('cpu/puyo/lv4/wasm/cpu_worker4.js?v=8');
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
@@ -57,8 +54,6 @@ window.PuyoCPU4 = class {
     start() {
         this.isActive = true;
         this.hasCalculatedForCurrentPiece = false;
-        this.templateActive = true;
-        this.lastPuyoCount = 0;
         this._initEstimateContainer();
         this._updateLoop();
     }
