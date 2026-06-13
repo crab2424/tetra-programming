@@ -326,57 +326,101 @@ Object.assign(PuyoGame.prototype, {
     },
 
     _loadImages(callback) {
-        // ★ 画像は全インスタンスで共有する（クラス静的プロパティ）
-        // 　 2回目以降の initGame / start では即座に callback() を呼ぶことで
-        // 　 new Image() → onload の非同期サイクルによる約200msの遅延を解消する
-        if (PuyoGame._sharedImagesLoaded) {
+        // ★ 画像は全インスタンスで共有する（クラス静的プロパティ）。
+        // 　 実体のロードは静的 PuyoGame.preloadImages に委譲する。起動時に先読み済み
+        // 　 ならここで即座に callback() が呼ばれ、new Image()→onload の遅延を回避できる。
+        PuyoGame.preloadImages(() => {
             this._images = PuyoGame._sharedImages;
             this._imagesLoaded = true;
             callback();
-            return;
-        }
-
-        // ─── 初回のみ：全画像をロードしてクラス静的プロパティに保存 ───
-
-        // ベース画像（おじゃま含む6色）
-        const baseTargets = ['puyo-0', 'puyo-1', 'puyo-2', 'puyo-3', 'puyo-4', 'puyo-5'];
-
-        // ★ 連結用画像キー
-        // puyo-x_1  : 1方向（右向き基準）
-        // puyo-x_2a : 2方向直角（右+下基準）
-        // puyo-x_2b : 2方向直線（右+左基準、つまり左右）
-        // puyo-x_3  : 3方向（右+上+下基準）
-        // puyo-x_4  : 4方向（全方向）
-        // ※ x は色インデックス 0〜4（おじゃまぷよ=color6 は連結対象外）
-        const connectSuffixes = ['_1', '_2a', '_2b', '_3', '_4'];
-        const connectTargets = [];
-        for (let i = 0; i <= 4; i++) {
-            for (const suffix of connectSuffixes) {
-                connectTargets.push(`puyo-${i}${suffix}`);
-            }
-        }
-
-        const targets = [...baseTargets, ...connectTargets];
-        let remaining = targets.length;
-        // 初回ロード用の一時オブジェクト（完了後にクラス静的プロパティへ昇格）
-        const sharedImages = {};
-        targets.forEach(key => {
-            const img = new Image();
-            const done = () => {
-                remaining--;
-                if (remaining <= 0) {
-                    // ★ ロード完了：クラス静的プロパティへ保存し、以降の全インスタンスで再利用
-                    PuyoGame._sharedImages = sharedImages;
-                    PuyoGame._sharedImagesLoaded = true;
-                    this._images = sharedImages;
-                    this._imagesLoaded = true;
-                    callback();
-                }
-            };
-            img.onload = done;
-            img.onerror = done;
-            img.src = PConfig.imagePath + key + '.png';
-            sharedImages[key] = img;
         });
     },
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ★ 画像プリロード（静的）
+//    全インスタンス共有のクラス静的キャッシュ（PuyoGame._sharedImages）を1回だけ生成する。
+//    起動時（window.onload）に裏で先読みしておくと、初回 start() の画像待ちが消える。
+//    ・ロード済み      → 即 callback
+//    ・ロード中        → 完了待ちキューに callback を積む（先読みと初回 start() の二重ロード防止）
+//    ・未ロード        → 全画像をロードして静的プロパティへ保存
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PuyoGame.preloadImages = function (callback) {
+    if (PuyoGame._sharedImagesLoaded) {
+        if (callback) callback();
+        return;
+    }
+    if (PuyoGame._sharedImagesLoading) {
+        if (callback) PuyoGame._sharedImagesPending.push(callback);
+        return;
+    }
+    PuyoGame._sharedImagesLoading = true;
+    PuyoGame._sharedImagesPending = callback ? [callback] : [];
+
+    // おじゃま予告アイコンも併せて先読みする（盤面ぷよ画像と同じ扱い）。
+    // gameplay 描画には不要なので start() の callback ゲートには含めず fire-and-forget。
+    PuyoGame.preloadOjamaImages();
+
+    // ベース画像（おじゃま含む6色）
+    const baseTargets = ['puyo-0', 'puyo-1', 'puyo-2', 'puyo-3', 'puyo-4', 'puyo-5'];
+
+    // ★ 連結用画像キー
+    // puyo-x_1  : 1方向（右向き基準）
+    // puyo-x_2a : 2方向直角（右+下基準）
+    // puyo-x_2b : 2方向直線（右+左基準、つまり左右）
+    // puyo-x_3  : 3方向（右+上+下基準）
+    // puyo-x_4  : 4方向（全方向）
+    // ※ x は色インデックス 0〜4（おじゃまぷよ=color6 は連結対象外）
+    const connectSuffixes = ['_1', '_2a', '_2b', '_3', '_4'];
+    const connectTargets = [];
+    for (let i = 0; i <= 4; i++) {
+        for (const suffix of connectSuffixes) {
+            connectTargets.push(`puyo-${i}${suffix}`);
+        }
+    }
+
+    const targets = [...baseTargets, ...connectTargets];
+    let remaining = targets.length;
+    // ロード用の一時オブジェクト（完了後にクラス静的プロパティへ昇格）
+    const sharedImages = {};
+    targets.forEach(key => {
+        const img = new Image();
+        const done = () => {
+            remaining--;
+            if (remaining <= 0) {
+                // ★ ロード完了：クラス静的プロパティへ保存し、以降の全インスタンスで再利用
+                PuyoGame._sharedImages = sharedImages;
+                PuyoGame._sharedImagesLoaded = true;
+                PuyoGame._sharedImagesLoading = false;
+                const pending = PuyoGame._sharedImagesPending;
+                PuyoGame._sharedImagesPending = [];
+                pending.forEach(cb => cb());
+            }
+        };
+        img.onload = done;
+        img.onerror = done;
+        img.src = PConfig.imagePath + key + '.png';
+        sharedImages[key] = img;
+    });
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ★ おじゃま予告アイコンのプリロード（静的）
+//    予告表示（_updateOjamaYokoku）は更新が頻繁で、都度 <img> を作ると再fetch/再デコードが
+//    走りカクつきの原因になる。盤面ぷよ画像と同様に、デコード済み Image を一度だけ用意して
+//    PuyoGame._sharedOjamaImages にキャッシュし、表示時は cloneNode で使い回す。
+//    ※ アイコン名は _updateOjamaYokoku の units[].img と一致させること。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PuyoGame.preloadOjamaImages = function () {
+    if (PuyoGame._sharedOjamaImages) return; // 先読み済み
+    const names = ['comet', 'crown', 'moon', 'star', 'rock', 'big', 'small'];
+    const cache = {};
+    names.forEach(name => {
+        const img = new Image();
+        img.src = PConfig.ojamaImagePath + name + '.png';
+        // デコードを前倒しして初回表示時の同期デコードを避ける（失敗は無視）
+        if (img.decode) img.decode().catch(() => {});
+        cache[name] = img;
+    });
+    PuyoGame._sharedOjamaImages = cache;
+};
