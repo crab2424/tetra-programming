@@ -62,6 +62,11 @@ Object.assign(window.PuyoCPU4.prototype, {
             //   ちぎりは連鎖構築上やむを得ない場合もあるので強くしすぎない。0 で無効。実機で要チューニング。
             tearWeight:           -20,  // ちぎりペナルティ（負。0で無効）
 
+            // ── ama 型 eval の waste ペナルティ（amaEvalMode=1 のときのみ作用）──
+            //   消したぷよ数(chain.totalErased)に乗じる小さな負値。組み途中の無駄な小発火を弱く抑制。
+            //   ama beam/eval.cpp: node.score.action += waste * w.waste。強くしすぎると発火自体を嫌う。
+            wasteWeight:           -2,  // ama型 waste ペナルティ（負）
+
             // ── Ama 関係性 form テンプレート（GTR/SGTR/FRON の相対マッチ）──
             //   0 で無効。Ama build は 50。
             formWeight:            50,  // 関係性 form 一致スコア
@@ -77,24 +82,31 @@ Object.assign(window.PuyoCPU4.prototype, {
             //   0 で無効（従来の累積eval最大選択）。正の値で、各初手が将来到達できる
             //   最大連鎖スコア（6本の擬似未来ツモ列で合算した期待値）を初手選択に上乗せする。
             //   ※有効時は擬似ツモ列の本数ぶん探索が重くなる（実機で遅延を要計測）。
-            expChainWeight:        2,  // 期待連鎖スコアの重み（0で無効）
+            expChainWeight:        50,  // 期待連鎖スコアの重み（0で無効）
 
             // ── 期待連鎖スコア選択の探索コスト（速度調整。expChainWeight>0 のとき有効）──
             //   コストは概ね expBranch × expMaxDepth × 幅 に比例。小さくすると軽くなる。
             //   いずれも 0 で「従来の重い設定」(branch6 / depth8 / 幅テーパ12,8,6,5)。
             //   ≈15ms を狙うなら下記の軽量プリセットが目安（実機で要計測）。
             expBranch:             1,  // 擬似未来ツモ列の本数 1..6（0=6）
-            expMaxDepth:           6,  // 期待連鎖探索の深さ 1..8（0=8）
-            expBeamWidth:          5,  // depth>=1 のビーム幅（0=従来テーパ）
+            expMaxDepth:           8,  // 期待連鎖探索の深さ 1..8（0=8）
+            expBeamWidth:          10,  // depth>=1 のビーム幅（0=従来テーパ）
 
-            // ── 通常ビーム探索の速度調整（expChainWeight==0 のときの本命経路）──
-            //   NEXTは内部で20本確定しているため擬似ツモ分岐は不要。これは現在ペア＋NEXT9本=
-            //   10ペアを使う純粋な確定先読み。約50ms→軽量化の主レバーはこの深さ。
-            //   いずれも 0 で従来設定（深さ10 / 幅テーパ10,8,6,4）。
-            //   node実測の目安: d10≈55ms / d8≈40 / d6≈28 / d6w4≈22 / d5w4≈18 / d4w4≈13。
-            //   強さ重視なら深さ/幅を上げる（実機で要計測）。
-            mainMaxDepth:          5,  // 確定先読みの深さ 1..10（0=10）。約15ms狙いで5
-            mainBeamWidth:         4,  // depth>=1 のビーム幅（0=従来テーパ8,6,4）
+            // ── Ama 由来の発火枝刈り（PRUNE。参考: ama-beam beam.cpp PRUNE=5000）──
+            //   連鎖スコアがこの値以上のノードは、連鎖を記録した上で次層に伝播させない（捨てる）。
+            //   発火後の崩れた盤面でビーム枠を浪費せず「組み途中」の盤面に集中させる＝同じ幅で深く探れる。
+            //   閾値が低すぎると小さな消えで枝が切れすぎ、高すぎると枝刈りがほぼ効かない（要実機チューニング）。
+            //   0 で無効＝従来動作。期待連鎖スコア選択（expChainWeight>0）の探索でのみ作用する。
+            pruneChainScore:      10,  // 発火枝刈り閾値（0=無効）
+
+            // ── Ama 型 eval への A/B 切替（核心。参考: ama-beam beam/eval.cpp）──
+            //   1 にすると evaluateBoard が calcRewardScore（発火報酬/−5000ペナルティ/chainPotential/
+            //   緊急/全消し/おじゃま動的閾値）を一切使わず、構築品質(quiescence/shape/well/bump/link/
+            //   side/form)＋waste だけでビームを駆動する。発火価値は expSum 経由で初手選択に集約。
+            //   ★ama型を有効化するときは expChainWeight を高め（目安50〜）にし、pruneChainScore を
+            //     有効値（目安5000）、wasteWeight を小さな負（目安-2）に設定すること。
+            //   0 = 従来動作（完全不変）。緊急回避/全消し/おじゃま動的発火は ama 型では無効になる。
+            amaEvalMode:           1,  // 0=現行eval / 1=ama型（構築品質のみで駆動）
         };
 
         // 後方互換のため旧 this.weights も参照可能にしておく（読み取り専用エイリアス）
@@ -117,8 +129,8 @@ Object.assign(window.PuyoCPU4.prototype, {
     //       [10]shape [11]well [12]bump [13]qChain [14]qY [15]qKey [16]qChi [17]link2 [18]link3
     //       [19]expChain [20]knownNextCount [21]form
     //       [22]expBranch [23]expMaxDepth [24]expBeamWidth
-    //       [25]mainMaxDepth [26]mainBeamWidth
-    //       [27]qLink2 [28]qLink3 [29]side [30]tear
+    //       [25]qLink2 [26]qLink3 [27]side [28]tear
+    //       [29]pruneChainScore [30]amaEvalMode [31]wasteWeight
     _buildWeightsArray(ojamaCount, knownNextCount) {
         // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
         let dynamicIgnitionThreshold = this.controlWeights.ignitionThreshold;
@@ -160,12 +172,13 @@ Object.assign(window.PuyoCPU4.prototype, {
             this.controlWeights.expBranch,                           // [22] 期待連鎖: 擬似ツモ本数
             this.controlWeights.expMaxDepth,                         // [23] 期待連鎖: 探索深さ
             this.controlWeights.expBeamWidth,                        // [24] 期待連鎖: ビーム幅
-            this.controlWeights.mainMaxDepth,                        // [25] 通常ビーム: 探索深さ
-            this.controlWeights.mainBeamWidth,                       // [26] 通常ビーム: ビーム幅
-            this.evalWeights.qLink2Weight,                           // [27] quiescence remain の2連結
-            this.evalWeights.qLink3Weight,                           // [28] quiescence remain の3連結
-            this.evalWeights.sideWeight,                             // [29] 致死列 side bias
-            this.evalWeights.tearWeight                              // [30] ちぎりペナルティ
+            this.evalWeights.qLink2Weight,                           // [25] quiescence remain の2連結
+            this.evalWeights.qLink3Weight,                           // [26] quiescence remain の3連結
+            this.evalWeights.sideWeight,                             // [27] 致死列 side bias
+            this.evalWeights.tearWeight,                             // [28] ちぎりペナルティ
+            this.controlWeights.pruneChainScore,                     // [29] 発火枝刈り閾値（0=無効）
+            this.controlWeights.amaEvalMode,                         // [30] ama型eval切替（0/1）
+            this.evalWeights.wasteWeight                             // [31] ama型 waste ペナルティ
         ]);
     },
 });

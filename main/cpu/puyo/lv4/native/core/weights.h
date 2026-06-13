@@ -45,13 +45,13 @@ struct EvalWeights {
     int link2Weight;    // [17] 2連結ボーナス（正）
     int link3Weight;    // [18] 3連結ボーナス（正・発火直前形に近く価値大）
     // quiescence の発火直前盤面(remain)の連結数（核心②の remain link 評価。Ama eval.cpp:62-65）
-    int qLink2Weight;   // [27] quiescence remain の2連結ボーナス（正）
-    int qLink3Weight;   // [28] quiescence remain の3連結ボーナス（正・次連鎖の種）
+    int qLink2Weight;   // [25] quiescence remain の2連結ボーナス（正）
+    int qLink3Weight;   // [26] quiescence remain の3連結ボーナス（正・次連鎖の種）
     // 致死列(第3列)bias（Ama eval.cpp:99-102。max(左2,右3)-h[2] に乗じる。正で致死列を低く保つ誘導）
-    int sideWeight;     // [29] 致死列 side bias の重み（Ama build は 0）
+    int sideWeight;     // [27] 致死列 side bias の重み（Ama build は 0）
     // ちぎり(tear)ペナルティ（Ama beam/eval.cpp:105 node.score.action += tear*w.tear）。
     // 横置きで2列に分かれて落ちる配置に対し、配置時1回だけ加算（負＝ちぎり回避誘導）。
-    int tearWeight;     // [30] ちぎりペナルティの重み（負。0で無効）
+    int tearWeight;     // [28] ちぎりペナルティの重み（負。0で無効）
 
     // ── Ama search_multi 由来：期待連鎖スコア選択（核心①）──
     // 参考: source_assets/puyoAI/ama-beam/ai/search/beam/beam.cpp
@@ -67,7 +67,17 @@ struct EvalWeights {
     int expMaxDepth;    // [23] 期待連鎖探索の深さ 1..8（0=8）。小さいほど軽い
     int expBeamW;       // [24] depth>=1 のビーム幅（0=従来テーパ12/8/6/5）。小さいほど軽い
 
-    // ── 通常ビーム探索(searchBestMove)の速度調整（expChainWeight==0 のとき動く本命経路）──
-    int mainMaxDepth;   // [25] 確定先読みの深さ 1..10（0=10）。小さいほど軽い（50ms対策の主レバー）
-    int mainBeamW;      // [26] depth>=1 のビーム幅（0=従来テーパ8/6/4）。小さいほど軽い
+    // ── Ama 由来の発火枝刈り（PRUNE）──
+    //   連鎖スコアがこの値以上のノードは、連鎖を記録した上で次層に伝播させない（捨てる）。
+    //   発火後の崩れた盤面でビーム枠を浪費せず「組み途中」の盤面に集中させる＝同じ幅で深く探れる。
+    //   0 で無効＝従来動作。原典: source_assets/puyoAI/ama-beam/ai/search/beam/beam.cpp PRUNE=5000
+    int pruneChainScore; // [29] 発火枝刈り閾値（0=無効）
+
+    // ── Ama 型 eval（発火価値を eval から分離するA/B切替フラグ）──
+    //   1 のとき evaluateBoard は calcRewardScore（発火報酬/−5000ペナルティ/chainPotential/緊急/
+    //   全消し/動的閾値）を呼ばず、構築品質(calcEvalScore)＋waste のみでビームを駆動する。
+    //   発火価値は chainTarget/expSum 経由で選択(expChainWeight)に集約する＝ama search_multi 方式。
+    //   0 で従来動作（完全不変）。原典: source_assets/puyoAI/ama-beam/ai/search/beam/eval.cpp
+    int amaEvalMode;     // [30] 0=現行eval / 1=ama型（構築品質のみで駆動）
+    int wasteWeight;     // [31] ama型: 消したぷよ数への小ペナルティ（負。ama waste 相当）
 };
