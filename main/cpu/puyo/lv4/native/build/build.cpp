@@ -104,6 +104,9 @@ static void runExpectedChainSelection(
                 ChainResult chain = simulateChain(nb);
 
                 int scoreRaw = evaluateBoard(nb, chain, w, prePot, isEmergencyPre);
+                // ★ ちぎり(tear)ペナルティ：配置時1回（評価値ではなく配置コスト）。
+                //   scoreRaw に足し込むことで、以降の p1Weight/深さ減衰を eval と同様に受ける。
+                if (w.tearWeight != 0) scoreRaw += placementTear(p) * w.tearWeight;
                 int score = scoreRaw;
                 if (depth == 0) score = score * w.p1Weight / 100;
                 for (int i = 0; i < depth; i++) score = (score * 9) / 10;
@@ -294,6 +297,8 @@ static void runMainBeamSearch(
 
                 // ★ 配置後の盤面（nb）を渡す。報酬の差分計算には事前計算済みの prePot を使う
                 int scoreRaw = evaluateBoard(nb, chain, w, prePot, isEmergencyPre);
+                // ★ ちぎり(tear)ペナルティ：配置時1回（評価値ではなく配置コスト）。
+                if (w.tearWeight != 0) scoreRaw += placementTear(p) * w.tearWeight;
 
                 int score = scoreRaw;
                 if (depth == 0) score = score * w.p1Weight / 100;

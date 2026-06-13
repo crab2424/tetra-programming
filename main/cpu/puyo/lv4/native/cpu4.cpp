@@ -88,6 +88,9 @@ void searchBestMovePuyoWasm(
     // ── 致死列 side bias ──
     w.sideWeight          = weightsArray[29];
 
+    // ── ちぎり(tear)ペナルティ ──
+    w.tearWeight          = weightsArray[30];
+
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
 
