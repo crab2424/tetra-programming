@@ -8,13 +8,18 @@ let wasmReady = false;
 
 self.Module = {
     INITIAL_MEMORY: 8 * 1024 * 1024,
+    // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
+    //   （グルーjs/worker と同じバージョンに揃えること）。
+    locateFile: function (path) {
+        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=9' : path;
+    },
     onRuntimeInitialized: function () {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm4.js?v=8');
+importScripts('cpu_wasm4.js?v=9');
 
 let boardPtr     = null;
 let weightsPtr   = null;

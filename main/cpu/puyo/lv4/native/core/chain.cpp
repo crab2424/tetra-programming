@@ -15,12 +15,18 @@ static const int GROUP_BONUS_TABLE[] = {0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10};
 
 ChainResult simulateChain(BitBoard& b) {
     ChainResult res = {0, 0, 0, 0};
+    // ★ 性能対策: 作業バッファは毎回確保せず静的に再利用する（clear() は容量を保持）。
+    //   simulateChain は再帰・再入しないため共有しても安全（visited も同様に static）。
     static bool visited[TOTAL_ROWS][COLS];
+    static std::vector<std::pair<int,int>> toErase;
+    static std::vector<std::pair<int,int>> toEraseOjama;
+    static std::vector<std::pair<int,int>> group;
+    static std::vector<std::pair<int,int>> queue;
 
     while (true) {
         memset(visited, 0, sizeof(visited));
-        std::vector<std::pair<int,int>> toErase;
-        std::vector<std::pair<int,int>> toEraseOjama;
+        toErase.clear();
+        toEraseOjama.clear();
         bool found = false;
 
         int stepErasedPuyo = 0;
@@ -33,8 +39,8 @@ ChainResult simulateChain(BitBoard& b) {
                 uint8_t color = b.get(c, r);
                 if (color == 0 || color == 6) continue;
 
-                std::vector<std::pair<int,int>> group;
-                std::vector<std::pair<int,int>> queue;
+                group.clear();
+                queue.clear();
                 queue.push_back({r, c});
                 visited[r][c] = true;
 
@@ -117,9 +123,21 @@ PotentialInfo calcChainPotential(const BitBoard& b) {
         int r = calcDropRow(b, col);
         if (r < 0) continue;
 
+        // ★ 性能対策: 着地マスの上下左右に同色が1つも無い色はスキップする。
+        //   1個落としただけでは連結最大1個＝4連結（消去）に絶対届かず、
+        //   必ず連鎖0・スコア0になるため best を更新し得ない（挙動不変）。
+        const int ar = r + HIDDEN;  // 着地マスの絶対行
+        uint8_t up    = b.get(col,     ar - 1);
+        uint8_t down  = b.get(col,     ar + 1);
+        uint8_t left  = b.get(col - 1, ar);
+        uint8_t right = b.get(col + 1, ar);
+
         for (uint8_t color = 1; color <= 5; color++) {
+            // 4方向のいずれにも同色が無ければ連鎖し得ない → 試行不要
+            if (up != color && down != color && left != color && right != color) continue;
+
             BitBoard tmp = b;
-            tmp.set(col, r + HIDDEN, color);
+            tmp.set(col, ar, color);
             ChainResult res = simulateChain(tmp);
 
             if (res.score > best.maxScore || (res.score == best.maxScore && res.chains > best.maxChains)) {
