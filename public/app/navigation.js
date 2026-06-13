@@ -801,15 +801,18 @@ function toggleGamePause() {
     const canPauseGame = window._game && (window._game.state === 'playing' || window._game.state === 'active');
     const canPausePuyo = window._puyoGame && (window._puyoGame.state === 'playing' || window._puyoGame.state === 'active');
 
-    // QUIZぷよ中かどうかを判定（tetインスタンスへの操作を抑制するために使用）
+    // ぷよプレイ中（CPUテスト/QUIZぷよ）かどうかを判定（tetインスタンスへの操作を抑制するために使用）
+    // ※ resume 側（handlePauseAction）の _suppressTet と対称にすること。
     const _isQuizPuyo2 = (currentGameMode && currentGameMode.id === 'quiz') &&
         typeof currentQuizLevel !== 'undefined' && currentQuizLevel &&
         currentQuizLevel.rule === 'puyo';
-    
+    const _isTestPuyo2 = (currentGameMode && currentGameMode.id === 'test') && testRule === 'puyo';
+    const _suppressTet2 = _isQuizPuyo2 || _isTestPuyo2;
+
     if (canPauseGame || canPausePuyo) {
       window.SeManager?.play('pause');
-      // QUIZぷよ中はtetインスタンスのpauseを呼ばない（resume時の暴発防止）
-      if (window._game && typeof window._game.pause === 'function' && !_isQuizPuyo2) window._game.pause();
+      // ぷよプレイ中はtetインスタンスのpauseを呼ばない（resume時の暴発防止）
+      if (window._game && typeof window._game.pause === 'function' && !_suppressTet2) window._game.pause();
       if (window._puyoGame && typeof window._puyoGame.pause === 'function') window._puyoGame.pause();
 
       const isQuiz = currentGameMode && currentGameMode.id === 'quiz';
@@ -859,12 +862,15 @@ function handlePauseAction(action) {
 
   switch (action) {
     case 'resume': {
-      // PUYOモード・QUIZぷよモード中はtetインスタンスのresumeを呼ばない
+      // PUYOプレイ中（単体/CPUテスト/QUIZぷよ）は休眠中の tet インスタンスの resume を呼ばない。
+      // ※ ぷよTESTモードでは window._game が base.js の未起動 tet のまま残るため、ここで
+      //   resume してしまうと mino 不在のまま startGravity が回りエラーを吐き続ける。
       const _modeId = currentGameMode && currentGameMode.id;
       const _isQuizPuyo = _modeId === 'quiz' &&
           typeof currentQuizLevel !== 'undefined' && currentQuizLevel &&
           currentQuizLevel.rule === 'puyo';
-      const _suppressTet = _modeId === 'puyo' || _isQuizPuyo;
+      const _isTestPuyo = _modeId === 'test' && testRule === 'puyo';
+      const _suppressTet = _modeId === 'puyo' || _isTestPuyo || _isQuizPuyo;
       if (window._game && typeof window._game.resume === 'function' && !_suppressTet) {
         window._game.resume();
       }

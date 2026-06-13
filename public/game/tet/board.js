@@ -317,6 +317,9 @@ Object.assign(Game.prototype, {
     },
 
     dropMino() {
+        // ★ 保険: ミノ未生成（出現前/ゲーム間/休眠インスタンス）のとき重力tickは何もしない。
+        //   取り残された gravity interval が valid()→this.mino.getNewBlocks で落ちるのを防ぐ。
+        if (!this.mino) return;
         // CPU操作中は重力を無効（ソフトドロップとの干渉を防ぐ）
         // フリーズ（接地）はcheckGroundStateで別途管理されるため影響なし
         if (this.gravityDisabled) return;
