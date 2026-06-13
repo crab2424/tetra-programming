@@ -16,6 +16,7 @@ Object.assign(PuyoGame.prototype, {
             this.state = 'idle';
             this._setKeyHandlers();
             this._render();
+            this._warmChainTextGlyphs(); // ★ 連鎖文字フォントを事前ラスタライズ（1連鎖目のカクつき防止）
             if (callback) callback();
         });
     },
@@ -89,7 +90,7 @@ Object.assign(PuyoGame.prototype, {
         this._stopTimer();
         this._stopCountdownDas(); // ★ カウントダウン用DASループが残っていれば止める
         this._removeKeyHandlers();
-        this._clearChainTextDOM();
+        this._destroyChainTextEl(); // ★ 連鎖文字の永続要素をDOMから完全に除去（リーク防止）
         this._clearYokokuDOM(); // ★ おじゃま予告をDOMからクリアする
         // ★ keepCanvas=true または versus終了演出中フラグが立っているとき、
         //    キャンバスをクリアせず描画ループも止めない（勝者側の盤面・NEXTを残すため）
