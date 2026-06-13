@@ -35,8 +35,15 @@ struct ExpCandidate {
     int col, rot;
     int depth0Score;                  // 初手単独の評価（フォールバック用）
     long long bestAccum;              // 既存ビーム相当の累積eval最大（深い手まで考慮した baseScore）
-    int col2, rot2, col3, rot3;       // 表示用の先読み（bestAccumの手から取得）
+    int col2, rot2, col3, rot3;       // 表示用の先読み（最深ノードを辿って取得）
     long long expSum;                 // キュー横断の連鎖スコア合算（期待連鎖スコア×本数）
+
+    // ── 表示用先読み(col2/col3)を辿るための補助 ──
+    //   col2/col3 を「累積eval最大ノード」に紐付けると、初手が連鎖を発火したとき
+    //   depth0 ノードが累積最大になり col2/col3=-1 のまま残る（estimateがstep1だけになる）。
+    //   そこで選択用の bestAccum とは分離し、表示は「実際に最も深く辿れたノード」から拾う。
+    int dispDepth;                    // col2/col3 を捕捉したノードの深さ（深いほど優先）
+    long long dispScore;              // 同深さ内での比較用（累積eval最大を採用）
 };
 
 static int expBeamWidth(int depth, int cfgWidth) {
@@ -130,6 +137,8 @@ static void runExpectedChainSelection(
                         cands[fm].col2 = -1; cands[fm].rot2 = -1;
                         cands[fm].col3 = -1; cands[fm].rot3 = -1;
                         cands[fm].expSum = 0;
+                        cands[fm].dispDepth = -1;
+                        cands[fm].dispScore = LLONG_MIN;
                     }
                     nn.firstMoveIndex = fm;
                     nn.col1 = p.col; nn.rot1 = p.rot;
@@ -158,8 +167,20 @@ static void runExpectedChainSelection(
             for (const auto& nd : cur) {
                 int fm = nd.firstMoveIndex;
                 if (fm < 0 || fm >= nCand) continue;
+
+                // ① 選択用 baseScore：累積eval最大（従来どおり）。
                 if ((long long)nd.accumulatedScore > cands[fm].bestAccum) {
                     cands[fm].bestAccum = nd.accumulatedScore;
+                }
+
+                // ② 表示用先読み col2/col3：累積最大ではなく「最も深く辿れたノード」を採用する。
+                //   col2/col3 は depth1/depth2 を通過したノードにのみ載る（節点が経路として保持）。
+                //   累積最大に紐付けると初手発火時に depth0 が勝ち col2/col3=-1 のまま残るため分離。
+                //   深さ優先（深いほど確かな先読み）／同深さなら累積eval最大を採用する。
+                if (depth > cands[fm].dispDepth ||
+                    (depth == cands[fm].dispDepth && (long long)nd.accumulatedScore > cands[fm].dispScore)) {
+                    cands[fm].dispDepth = depth;
+                    cands[fm].dispScore = nd.accumulatedScore;
                     cands[fm].col2 = nd.col2; cands[fm].rot2 = nd.rot2;
                     cands[fm].col3 = nd.col3; cands[fm].rot3 = nd.rot3;
                 }
