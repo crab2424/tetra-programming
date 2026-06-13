@@ -11,7 +11,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=11' : path;
+        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=12' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -19,7 +19,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=11');
+importScripts('cpu_wasm4.js?v=12');
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -34,8 +34,8 @@ self.onmessage = function (e) {
 
     if (boardPtr === null) {
         boardPtr     = Module._my_malloc(102);
-        // ★ weightsArray の要素数は 29（[27]qLink2 [28]qLink3 を追加）
-        weightsPtr   = Module._my_malloc(4 * 29);   // 29要素(116 bytes)
+        // ★ weightsArray の要素数は 30（[27]qLink2 [28]qLink3 [29]side を追加）
+        weightsPtr   = Module._my_malloc(4 * 30);   // 30要素(120 bytes)
         resultPtr    = Module._my_malloc(4 * 7);
         nextPairsPtr = Module._my_malloc(4 * 20);
     }

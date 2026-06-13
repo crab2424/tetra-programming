@@ -47,6 +47,8 @@ struct EvalWeights {
     // quiescence の発火直前盤面(remain)の連結数（核心②の remain link 評価。Ama eval.cpp:62-65）
     int qLink2Weight;   // [27] quiescence remain の2連結ボーナス（正）
     int qLink3Weight;   // [28] quiescence remain の3連結ボーナス（正・次連鎖の種）
+    // 致死列(第3列)bias（Ama eval.cpp:99-102。max(左2,右3)-h[2] に乗じる。正で致死列を低く保つ誘導）
+    int sideWeight;     // [29] 致死列 side bias の重み（Ama build は 0）
 
     // ── Ama search_multi 由来：期待連鎖スコア選択（核心①）──
     // 参考: source_assets/puyoAI/ama-beam/ai/search/beam/beam.cpp

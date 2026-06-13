@@ -20,5 +20,9 @@ int getBump(const int heights[COLS]);
 // 2連結・3連結の数を数える（連結成分サイズで分類。おじゃま除外）。
 void getLink23(const BitBoard& b, int& link2, int& link3);
 
+// 致死列(第3列=heights[2])bias: max(左2列和, 右3列和) - heights[2]。
+//   大きいほど3列目が周囲より低い＝致死列を低く保てている（Ama eval.cpp:99-102）。
+int getSide(const int heights[COLS]);
+
 // quiescence: 各列に同色を最大3個まで落として連鎖を試し、qスコアの最大値を返す。
 int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w);
