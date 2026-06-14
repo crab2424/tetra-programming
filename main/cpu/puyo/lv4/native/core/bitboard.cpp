@@ -80,8 +80,12 @@ std::vector<PairPlacement> getAllPlacements(const BitBoard& b) {
 
     auto idxOK = [&](int pr) { return (pr + PR_OFF) >= 0 && (pr + PR_OFF) < PR_RANGE; };
 
-    const int SPAWN_PR = 0, SPAWN_COL = 2, SPAWN_ROT = 0;
-    if (!canPlaceGrid(SPAWN_COL, SPAWN_PR, SPAWN_ROT)) return result; // 窒息＝候補なし
+    // ★ 実機 _spawnPuyo は pivotY=-0.5（論理行 -0.5 ＝ 配列行 HIDDEN-0.5）で発生し、
+    //   入力は半マス下げた canPlace(py=-0.5→論理{-1,0}＝配列{HIDDEN-1,HIDDEN}) で判定される。
+    //   旧 SPAWN_PR=0（配列最上段＝論理 -HIDDEN）は約 HIDDEN 行も上で、高積み局面の
+    //   横移動/壁蹴り/窒息判定が実機とずれ、到達不能手を候補化していた（弾かれの原因）。
+    const int SPAWN_PR = HIDDEN - 1, SPAWN_COL = 2, SPAWN_ROT = 0;
+    if (!canPlace(SPAWN_COL, SPAWN_PR, SPAWN_ROT)) return result; // 窒息＝可視最上段(配列行HIDDEN)が埋まり発生不可
 
     struct QNode { int rot, pr, col; };
     static QNode queue[4 * 20 * COLS];
