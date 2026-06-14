@@ -103,6 +103,10 @@ void searchBestMovePuyoWasm(
     w.emergencyFireMinRatio  = weightsArray[36];
     w.emergencyHardCol2      = weightsArray[37];
 
+    w.link3FacL           = weightsArray[38];
+    w.link3FacH           = weightsArray[39];
+    w.link3FacV           = weightsArray[40];
+
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
 

@@ -35,11 +35,11 @@ static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heig
     if (w.sideWeight  != 0) score += getSide(heights)  * w.sideWeight;  // 致死列を相対的に低く保つbias
 
     // 2連結/3連結（3連結は発火直前形に近いので別重み）
+    //   3連結は形状で価値が異なるため細分化：L字/横一直線=×1.0、縦一直線=×0.6（weightedLink3）。
     if (w.link2Weight != 0 || w.link3Weight != 0) {
-        int l2, l3;
-        getLink23(b, l2, l3);
-        score += l2 * w.link2Weight;
-        score += l3 * w.link3Weight;
+        Link3Counts lc = getLink23(b);
+        score += lc.link2 * w.link2Weight;
+        score += weightedLink3(lc, w.link3Weight, w.link3FacL, w.link3FacH, w.link3FacV);
     }
 
     // quiescence による連鎖ポテンシャル評価（連鎖の組みやすさを毎ターン誘導）
