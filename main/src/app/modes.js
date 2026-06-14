@@ -121,11 +121,11 @@ const CPU_CONFIGS = {
     // ★ lv4 はプロトタイプ拡張で複数ファイルに分割。class 定義(cpu4.js)を必ず先頭に置く。
     //   残りは順不同で PuyoCPU4.prototype を拡張する。cpu_loader.js が配列を順次ロードする。
     4: { className: 'PuyoCPU4', src: [
-        'cpu/puyo/lv4/cpu4.js',
-        'cpu/puyo/lv4/cpu4_weights.js',
-        'cpu/puyo/lv4/cpu4_worker_io.js',
-        'cpu/puyo/lv4/cpu4_estimate.js',
-        'cpu/puyo/lv4/cpu4_action.js',
+        'cpu/puyo/lv4/js/cpu4.js',
+        'cpu/puyo/lv4/js/cpu4_weights.js',
+        'cpu/puyo/lv4/js/cpu4_worker_io.js',
+        'cpu/puyo/lv4/js/cpu4_estimate.js',
+        'cpu/puyo/lv4/js/cpu4_action.js',
     ] },
     5: { className: 'PuyoCPU5', src: 'cpu/puyo/lv5/cpu5.js' }  
   }
