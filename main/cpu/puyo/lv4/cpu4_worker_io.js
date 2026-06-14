@@ -100,11 +100,28 @@ Object.assign(window.PuyoCPU4.prototype, {
             return;
         }
 
+        // ★ 選択初手への到達操作列(path)を復号する（res[27..29] に 3bit×10/int で packing）。
+        //   コード 1=左 2=右 4=回転CW 5=回転CCW（0=終端）。BFS(getAllPlacements)が出した
+        //   実機到達経路で、_buildActionQueue がこれを再生して「上部回し」を実現する。
+        const path = [];
+        if (res.length >= 30) {
+            outer:
+            for (let w = 0; w < 3; w++) {
+                const packed = res[27 + w];
+                for (let s = 0; s < 10; s++) {
+                    const code = (packed >> (s * 3)) & 0x7;
+                    if (code === 0) break outer; // 終端
+                    path.push(code);
+                }
+            }
+        }
+
         this.bestMoveData = {
             col1: res[0], rot1: res[1],
             score: res[2],
             col2: res[3], rot2: res[4],
             col3: res[5], rot3: res[6],
+            path: path,
         };
 
         const evalEl = document.getElementById('eval-value');
@@ -126,6 +143,6 @@ Object.assign(window.PuyoCPU4.prototype, {
         if (!this.game || this.game.isPaused) return;
         if (this.game._gs !== 'falling') return;
         if (this.isExecutingAction) return;
-        this._executeMove(this.bestMoveData.col1, this.bestMoveData.rot1);
+        this._executeMove(this.bestMoveData.col1, this.bestMoveData.rot1, this.bestMoveData.path);
     },
 });
