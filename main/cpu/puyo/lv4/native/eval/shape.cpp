@@ -154,11 +154,17 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
             int placed = 0;
             bool trig = false;
             for (int i = 0; i < dropMax; ++i) {
-                int row = heights[x] + i;        // 内部下基準の高さ
-                plan.set(x, row + HIDDEN, color);
+                // ★ 実際の着地行に積む。calcDropRow は内部行（11=床..0=天井）を返し、
+                //   可視フィールドが満杯なら -1（=HIDDEN行へは積まない）。
+                //   旧実装は heights[x]+i で「絶対行HIDDEN=床」と誤仮定し上下反転していた
+                //   （高さ≥6で既存ぷよを上書き＝幻の潜在連鎖／高さ<6で浮いて取りこぼし）。
+                int row = calcDropRow(plan, x);
+                if (row < 0) break;
+                int ar = row + HIDDEN;           // 着地マスの絶対行
+                plan.set(x, ar, color);
                 placed++;
                 // この列に4連結が出来たか（軽量チェック）
-                if (hasGroup4At(plan, x, row + HIDDEN, color)) { trig = true; break; }
+                if (hasGroup4At(plan, x, ar, color)) { trig = true; break; }
             }
             if (!trig) continue;
 

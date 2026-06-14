@@ -11,7 +11,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=28' : path;
+        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=29' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -19,7 +19,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=28');
+importScripts('cpu_wasm4.js?v=29');
 
 let boardPtr     = null;
 let weightsPtr   = null;
