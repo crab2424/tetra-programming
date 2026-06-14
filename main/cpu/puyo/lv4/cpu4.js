@@ -39,7 +39,7 @@ window.PuyoCPU4 = class {
         this._softDropRafId    = null;
 
         this.workerReady = false;
-        this.worker = new Worker('cpu/puyo/lv4/wasm/cpu_worker4.js?v=20');
+        this.worker = new Worker('cpu/puyo/lv4/wasm/cpu_worker4.js?v=21');
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {

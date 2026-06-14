@@ -124,8 +124,9 @@ static bool hasGroup4At(const BitBoard& b, int col, int row, uint8_t color) {
 //   原典 quiet.cpp の探索を bounded 列範囲でスカラ再現。
 static const int MAX_QDROP = 3;
 int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w,
-                       int* outChainScore) {
+                       int* outChainScore, int* outChainCount) {
     if (outChainScore) *outChainScore = 0;
+    if (outChainCount) *outChainCount = 0;
     // 重みが全て0なら計算を省略（性能対策）。
     // ★トラップ注意：この早期returnは outChainScore も 0 のまま返す。outChainScore は
     //   探索側(build.cpp)の chainTarget 巻き上げ＝初手選択の中核信号にも使われるため、
@@ -166,7 +167,10 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
             if (chain.chains <= 0) continue;
 
             // 「今撃てば出る最大連鎖スコア」を q とは独立に追跡（発火価値の巻き上げ元）
-            if (outChainScore && chain.score > *outChainScore) *outChainScore = chain.score;
+            if (outChainScore && chain.score > *outChainScore) {
+                *outChainScore = chain.score;
+                if (outChainCount) *outChainCount = chain.chains;  // 同候補の段数（期待連鎖数）
+            }
 
             int q = 0;
             q += chain.chains * w.qChainWeight;   // 連鎖数

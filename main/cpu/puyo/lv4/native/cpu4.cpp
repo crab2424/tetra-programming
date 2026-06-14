@@ -98,6 +98,7 @@ void searchBestMovePuyoWasm(
     // ── 発火トリガ（ama型の「いつ撃つか」）──
     w.fireChainCount      = weightsArray[32];
     w.fireEmergency       = weightsArray[33];
+    w.fireScoreThreshold  = weightsArray[34];
 
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);

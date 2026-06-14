@@ -38,6 +38,7 @@ struct ExpCandidate {
     long long bestAccum;              // 累積eval最大（構築品質 base。順位付け/同点崩し用）
     int col2, rot2, col3, rot3;       // 表示用の先読み（最深ノードを辿って取得）
     long long chainTarget;            // この初手から到達できる最大連鎖スコア（潜在＋実発火）
+    int chainTargetChains;            // ↑chainTarget に対応する連鎖『段数』（デバッグ期待連鎖数）
 
     // ── 表示用先読み(col2/col3)を辿るための補助 ──
     //   col2/col3 を「累積eval最大ノード」に紐付けると、初手が連鎖を発火したとき
@@ -117,8 +118,8 @@ static void runExpectedChainSelection(
 
                 // ★ 配置後盤面の「今撃てば出る最大連鎖スコア」(potChain)を eval と同じ
                 //   quiescence シミュから受け取る（追加コストなし）。
-                int potChain = 0;
-                int scoreRaw = evaluateBoard(nb, chain, w, prePot, isEmergencyPre, &potChain);
+                int potChain = 0, potChainCount = 0;
+                int scoreRaw = evaluateBoard(nb, chain, w, prePot, isEmergencyPre, &potChain, &potChainCount);
                 // ★ ちぎり(tear)ペナルティ：配置時1回（評価値ではなく配置コスト）。
                 if (w.tearWeight != 0) scoreRaw += placementTear(p) * w.tearWeight;
                 int score = scoreRaw;
@@ -144,6 +145,7 @@ static void runExpectedChainSelection(
                         cands[fm].col2 = -1; cands[fm].rot2 = -1;
                         cands[fm].col3 = -1; cands[fm].rot3 = -1;
                         cands[fm].chainTarget = 0;
+                        cands[fm].chainTargetChains = 0;
                         cands[fm].dispDepth = -1;
                         cands[fm].dispScore = LLONG_MIN;
                         cands[fm].fireChains = 0;
@@ -166,7 +168,12 @@ static void runExpectedChainSelection(
                 //   chain.score で拾う＝「撃つ手・組む手」を統一して到達連鎖として評価。
                 if (fm >= 0) {
                     long long reach = std::max((long long)potChain, (long long)chain.score);
-                    if (reach > cands[fm].chainTarget) cands[fm].chainTarget = reach;
+                    if (reach > cands[fm].chainTarget) {
+                        cands[fm].chainTarget = reach;
+                        // 到達連鎖の段数も同じ出所（実発火 chain.chains か 潜在 potChainCount）で更新
+                        cands[fm].chainTargetChains =
+                            (chain.score >= potChain) ? chain.chains : potChainCount;
+                    }
                 }
 
                 // ★ 発火枝刈り（ama PRUNE）：実際に大連鎖を発火したノードは到達連鎖を記録済み。
@@ -259,6 +266,7 @@ static void runExpectedChainSelection(
     long long maxBase = LLONG_MIN, minBase = LLONG_MAX;
     int nWithChain = 0;            // chainTarget>0（連鎖を組める）初手の数
     long long selBase = 0, selChain = 0;
+    int selChainChains = 0;        // 選択初手の到達連鎖の段数（期待連鎖数。デバッグ）
     for (int fm = 0; fm < nCand; fm++) {
         long long base = (cands[fm].bestAccum == LLONG_MIN) ? cands[fm].depth0Score : cands[fm].bestAccum;
         if (base > maxBase) maxBase = base;
@@ -269,6 +277,7 @@ static void runExpectedChainSelection(
             if (base > bestBase) {
                 bestBase = base; bestFm = fm;
                 selBase = base; selChain = cands[fm].chainTarget;
+                selChainChains = cands[fm].chainTargetChains;
             }
         }
     }
@@ -301,7 +310,11 @@ static void runExpectedChainSelection(
         for (int fm = 0; fm < nCand; fm++) {
             if (cands[fm].fireChains <= 0) continue;            // この初手では発火しない
             if (cands[fm].fireScore > fireBestAny) { fireBestAny = cands[fm].fireScore; fireFmAny = fm; }
-            if (w.fireChainCount > 0 && cands[fm].fireChains >= w.fireChainCount) {
+            // ① 目標発火の成立条件（和集合）：目標段数到達 OR 連鎖スコアが閾値到達のどちらかで発火対象。
+            //   段数だけだと「段数は浅いが点数の大きい連鎖」を撃ち逃すため、スコア側も OR で見る。
+            bool tgtByCount = (w.fireChainCount    > 0 && cands[fm].fireChains >= w.fireChainCount);
+            bool tgtByScore = (w.fireScoreThreshold > 0 && cands[fm].fireScore  >= w.fireScoreThreshold);
+            if (tgtByCount || tgtByScore) {
                 if (cands[fm].fireScore > fireBestTgt) { fireBestTgt = cands[fm].fireScore; fireFmTgt = fm; }
             }
         }
@@ -313,6 +326,7 @@ static void runExpectedChainSelection(
         if (fireFm >= 0) {
             bestFm = fireFm;
             selChain = cands[fireFm].fireScore;   // 表示は実発火スコア
+            selChainChains = cands[fireFm].fireChains; // 表示の期待連鎖数も実発火段数に合わせる
             dbgFireChains = cands[fireFm].fireChains; // デバッグ：発火した連鎖段数
         }
     }
@@ -344,6 +358,12 @@ static void runExpectedChainSelection(
     outResult[17] = (int)bestChain;                              // = maxChain（互換のため重複）
     outResult[18] = (int)((maxBase == LLONG_MIN) ? 0 : (maxBase - minBase)); // base のばらつき幅
     outResult[19] = 1;                                           // branchCount（確定NEXTなので常に1）
+    // ── 追加デバッグ[20..22]：潜在(到達連鎖)と「今撃てる実発火」の乖離を可視化 ──
+    //   selChain(到達連鎖スコア) は潜在見込み＝今は撃てないことが多い。選択初手を『今そのまま
+    //   置いたら』出る実発火(fireChains/fireScore)を併記し、撃たない理由を切り分ける。
+    outResult[20] = selChainChains;                              // 選択初手の到達連鎖の段数（期待連鎖数）
+    outResult[21] = (bestFm >= 0) ? cands[bestFm].fireChains : 0;        // 選択初手を今置くと出る実発火段数
+    outResult[22] = (bestFm >= 0) ? (int)cands[bestFm].fireScore : 0;    // 同・実発火スコア
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

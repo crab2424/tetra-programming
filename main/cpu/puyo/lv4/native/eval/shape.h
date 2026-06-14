@@ -29,5 +29,7 @@ int getSide(const int heights[COLS]);
 //   連鎖スコアの最大値（＝「今撃てば出る最大連鎖スコア」）も書き出す。
 //   ※ qスコア(best)は重み付き評価の最大、outChainScore は生の連鎖スコアの最大で、
 //     別々に追跡する（argmax が一致するとは限らない）。発火価値の巻き上げ用。
+//   outChainCount != nullptr のとき、その最大連鎖スコアに対応する連鎖『段数』も書き出す
+//   （デバッグの「期待連鎖数」表示用。outChainScore の argmax と同じ候補の chains）。
 int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w,
-                       int* outChainScore = nullptr);
+                       int* outChainScore = nullptr, int* outChainCount = nullptr);

@@ -88,4 +88,5 @@ struct EvalWeights {
     //   下記いずれかが成立したら『今撃てる最大連鎖の初手』を選ぶ。
     int fireChainCount;  // [32] 目標連鎖数。今撃てる連鎖がこの段数以上なら発火（0=目標発火 無効）
     int fireEmergency;   // [33] 緊急発火 1/0。盤面が緊急(emergencyHeight到達/致死列高)なら出せる最大連鎖を即発火
+    int fireScoreThreshold; // [34] 目標発火の和集合条件：今撃てる連鎖スコアがこの値以上なら段数未満でも発火（0=スコア条件 無効）
 };
