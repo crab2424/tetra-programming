@@ -22,22 +22,22 @@ Object.assign(window.PuyoCPU4.prototype, {
     // ────────────────────────────────
     _initWeights() {
         this.rewardWeights = {
-            chainBonus:           300,  // 発火時の基本ボーナス（C++側で連鎖の3乗倍などで増幅）
+            chainBonus:            10,  // 発火時の基本ボーナス（C++側で連鎖の3乗倍などで増幅）
             erasedBonus:           10,  // 消去ぷよ数ボーナス
             zenkeshiBonus:        100,  // 全消しボーナス
             chainPotentialBonus:  200,  // ポテンシャル増加ボーナス（差分）
         };
 
         this.evalWeights = {
-            heightPenalty:       -100,  // 高さペナルティ（毎ターン）
-            heightDiffPenalty:     -8,  // 高さ差ペナルティ（毎ターン）
+            heightPenalty:          0,  // 高さペナルティ（毎ターン）
+            heightDiffPenalty:      0,  // 高さ差ペナルティ（毎ターン）
 
             // ── Ama 由来の評価値（参考: source_assets/puyoAI/ama-beam）──
             //   いずれも加算式・0で無効化可。実機で要チューニング。
             shapeWeight:           -8,  // 理想L字形からの偏差ペナルティ
             wellWeight:           -10,  // 井戸（両隣より低い列）ペナルティ
             bumpWeight:           -10,  // 凸（両隣より高い列）ペナルティ
-            qChainWeight:        1000,  // quiescence 連鎖ポテンシャル数
+            qChainWeight:        7000,  // quiescence 連鎖ポテンシャル数
             qYWeight:              12,  // quiescence 発火列高さ（高く積める連鎖を評価）
             qKeyWeight:           -30,  // quiescence 必要追加ぷよ数
             qChiWeight:            20,  // quiescence 発火点の伸長余地
@@ -75,8 +75,8 @@ Object.assign(window.PuyoCPU4.prototype, {
         this.controlWeights = {
             p1Weight:             100,  // 1手目の重み係数
             ignitionThreshold:     10,  // 基本の発火閾値（おじゃまが少ない場合）
-            ignitionScoreThreshold: 30000, // ★ 発火のスコア閾値
-            emergencyHeight:       11,  // 緊急回避ライン
+            ignitionScoreThreshold: 1000, // ★ 発火のスコア閾値
+            emergencyHeight:       12,  // 緊急回避ライン
 
             // ── 初手選択：連鎖スコア主体の「同点崩しband」（旧 expChainWeight を流用）──
             //   選択は「到達連鎖スコア chainTarget 最大」が主体（Ama「最終選択は連鎖スコア」）。
@@ -97,7 +97,7 @@ Object.assign(window.PuyoCPU4.prototype, {
             //   発火後の崩れた盤面でビーム枠を浪費せず「組み途中」の盤面に集中させる＝同じ幅で深く探れる。
             //   閾値が低すぎると小さな消えで枝が切れすぎ、高すぎると枝刈りがほぼ効かない（要実機チューニング）。
             //   0 で無効＝従来動作。期待連鎖スコア選択（expChainWeight>0）の探索でのみ作用する。
-            pruneChainScore:      3000,  // 発火枝刈り閾値（0=無効）
+            pruneChainScore:     3000,  // 発火枝刈り閾値（0=無効）
 
             // ── eval スコア関数の A/B 切替（核心。参考: ama-beam beam/eval.cpp）──
             //   ★この値が切り替えるのは evaluateBoard 内の「1ノードの盤面スコア関数」だけ。
@@ -121,6 +121,9 @@ Object.assign(window.PuyoCPU4.prototype, {
             //   fireChainCount=0 で目標発火を無効化（緊急発火だけにできる）。
             fireChainCount:       10,  // 目標連鎖数。今撃てる連鎖がこの段数以上で発火（0=無効）
             fireEmergency:         2,  // 緊急発火 1/0。盤面緊急時に出せる最大連鎖を即発火
+            //   ③ 和集合条件：今撃てる連鎖スコアがこの値以上なら段数未満でも発火（0=無効）。
+            //   段数だけだと「段数は浅いが点数の大きい連鎖」を撃ち逃すための補完。
+            fireScoreThreshold:   30000,  // 目標発火のスコア閾値（連鎖スコア単位。0=スコア条件 無効）
         };
 
         // 後方互換のため旧 this.weights も参照可能にしておく（読み取り専用エイリアス）
@@ -145,7 +148,7 @@ Object.assign(window.PuyoCPU4.prototype, {
     //       [22]expBranch [23]expMaxDepth [24]expBeamWidth
     //       [25]qLink2 [26]qLink3 [27]side [28]tear
     //       [29]pruneChainScore [30]amaEvalMode [31]wasteWeight
-    //       [32]fireChainCount [33]fireEmergency
+    //       [32]fireChainCount [33]fireEmergency [34]fireScoreThreshold
     _buildWeightsArray(ojamaCount, knownNextCount) {
         // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
         let dynamicIgnitionThreshold = this.controlWeights.ignitionThreshold;
@@ -195,7 +198,8 @@ Object.assign(window.PuyoCPU4.prototype, {
             this.controlWeights.amaEvalMode,                         // [30] ama型eval切替（0/1）
             this.evalWeights.wasteWeight,                            // [31] ama型 waste ペナルティ
             this.controlWeights.fireChainCount,                      // [32] 発火トリガ: 目標連鎖数（0=無効）
-            this.controlWeights.fireEmergency                        // [33] 発火トリガ: 緊急発火 0/1
+            this.controlWeights.fireEmergency,                       // [33] 発火トリガ: 緊急発火 0/1
+            this.controlWeights.fireScoreThreshold                   // [34] 発火トリガ: スコア閾値（和集合。0=無効）
         ]);
     },
 });

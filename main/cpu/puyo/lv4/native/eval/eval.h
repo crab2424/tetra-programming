@@ -14,11 +14,14 @@
 //   isEmergencyPre: 配置前の盤面で判定した緊急事態フラグ
 //   outPotChainScore != nullptr のとき、配置後盤面の「今撃てば出る最大連鎖スコア」
 //     （quiescence 由来）を書き出す。探索側の発火価値巻き上げ(chainTarget)に使う。
+//   outPotChainCount != nullptr のとき、その潜在連鎖スコアに対応する『段数』も書き出す
+//     （デバッグの期待連鎖数表示用）。
 int evaluateBoard(
     const BitBoard& postBoard,
     const ChainResult& chain,
     const EvalWeights& w,
     const PotentialInfo& prePot,
     bool isEmergencyPre,
-    int* outPotChainScore = nullptr
+    int* outPotChainScore = nullptr,
+    int* outPotChainCount = nullptr
 );
