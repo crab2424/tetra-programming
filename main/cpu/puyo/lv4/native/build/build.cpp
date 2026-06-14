@@ -12,32 +12,32 @@
 #include <unordered_map>
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 期待連鎖スコア選択（Ama search_multi 移植・核心①）
-//   複数の擬似未来ツモ列でビーム探索し、各初手の subtree で実際に到達できた
-//   最大連鎖スコアをキュー横断で合算 → 「期待連鎖スコア」として初手評価へ加算する。
-//   既存の累積eval（盤面評価＋発火報酬）は初手の baseScore として保持し、その上に
-//   expChainWeight×期待連鎖スコアを上乗せして初手を選ぶ。expChainWeight==0 のときは
-//   この関数は呼ばれない（従来の累積eval最大選択のまま）。
+// 潜在連鎖スコア選択（Ama search_multi 移植・核心①／TETLABO向け確定NEXT版）
+//
+//   ★ TETLABO は内部で 20 個の NEXT をあらかじめ確定保持している。よって Ama 原典の
+//     「擬似ランダム未来ツモ列(6本bag)で分岐して期待値平均」は不要＝確定NEXTを1本の
+//     ビームで深く読むだけでよい（擬似bag/branch機構は撤去した）。
+//
+//   各初手 candidate の subtree を走査し、各ノードで quiescence が返す
+//   「今撃てば出る最大連鎖スコア」(potChain) と、実際に発火した連鎖スコアの大きい方を
+//   キュー横断で巻き上げる → その初手から到達できる最大連鎖スコア chainTarget[fm]。
+//
+//   ★ 初手選択は「連鎖スコア主体」（Ama「最終選択は連鎖スコア」）：
+//     到達連鎖スコア chainTarget が最大の初手を選ぶ。base(構築品質eval)は順位付け
+//     （ビーム生存）と、到達連鎖が近接する初手間の同点崩しにのみ使う。
+//     近接判定の許容幅(band)は w.expChainWeight を流用（連鎖スコア単位。0=厳密最大）。
+//
 //   原典: source_assets/puyoAI/ama-beam/ai/search/beam/beam.cpp search_multi
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 以下は「上限（コンパイル時の配列サイズ／ループ天井）」。実際に使う本数・深さ・幅は
-// JS から渡す w.expBranch / w.expMaxDepth / w.expBeamW で実行時に絞れる（速度調整用）。
-static const int EXP_BRANCH   = 6;   // 擬似未来ツモ列の本数 上限（Ama準拠の6固定bag）
-static const int EXP_MAXDEPTH = 8;   // 期待連鎖探索の深さ 上限
+static const int EXP_MAXDEPTH = 8;   // 確定NEXTビームの深さ 上限
 static const int EXP_MAXCAND  = 24;  // 初手candidate最大数（6列×4回転）
-
-// Ama get_queue_random と同じ6本の固定bag（色順を無視した全ペア種網羅）。
-// id 0..3 を実色 1..4 にマップして使う。
-static const uint8_t EXP_BAG[EXP_BRANCH][4] = {
-    {0,1,2,3},{0,2,1,3},{0,3,1,2},{1,2,0,3},{1,3,0,2},{2,3,0,1}
-};
 
 struct ExpCandidate {
     int col, rot;
     int depth0Score;                  // 初手単独の評価（フォールバック用）
-    long long bestAccum;              // 既存ビーム相当の累積eval最大（深い手まで考慮した baseScore）
+    long long bestAccum;              // 累積eval最大（構築品質 base。順位付け/同点崩し用）
     int col2, rot2, col3, rot3;       // 表示用の先読み（最深ノードを辿って取得）
-    long long expSum;                 // キュー横断の連鎖スコア合算（期待連鎖スコア×本数）
+    long long chainTarget;            // この初手から到達できる最大連鎖スコア（潜在＋実発火）
 
     // ── 表示用先読み(col2/col3)を辿るための補助 ──
     //   col2/col3 を「累積eval最大ノード」に紐付けると、初手が連鎖を発火したとき
@@ -45,6 +45,10 @@ struct ExpCandidate {
     //   そこで選択用の bestAccum とは分離し、表示は「実際に最も深く辿れたノード」から拾う。
     int dispDepth;                    // col2/col3 を捕捉したノードの深さ（深いほど優先）
     long long dispScore;              // 同深さ内での比較用（累積eval最大を採用）
+
+    // ── 発火トリガ用：この初手を「今そのまま置いたら」実発火する連鎖（depth0 の実結果）──
+    int  fireChains;                  // 今撃てる連鎖段数（0=この初手では発火しない）
+    long long fireScore;             // 今撃てる連鎖スコア
 };
 
 static int expBeamWidth(int depth, int cfgWidth) {
@@ -64,24 +68,24 @@ static void runExpectedChainSelection(
     const EvalWeights& w,
     int* outResult
 ) {
-    // ── 速度調整パラメータ（JSから設定。0/未指定なら上限＝従来の重い設定）──
-    int branchCount = (w.expBranch   > 0) ? std::min(w.expBranch,   EXP_BRANCH)   : EXP_BRANCH;
-    int maxDepth    = (w.expMaxDepth > 0) ? std::min(w.expMaxDepth, EXP_MAXDEPTH) : EXP_MAXDEPTH;
-    int cfgWidth    = w.expBeamW;   // 0=従来テーパ / >0=depth>=1 を一律この幅に
-
-    // 既知ツモのペア数（現在ペア=depth0 を含む）。これ以降の depth は擬似bagで分岐する。
-    int knownPairs = 1 + std::max(0, std::min(w.knownNextCount, maxDepth - 1));
+    // ── 速度調整パラメータ（JSから設定。0/未指定なら上限）──
+    int maxDepth = (w.expMaxDepth > 0) ? std::min(w.expMaxDepth, EXP_MAXDEPTH) : EXP_MAXDEPTH;
+    int cfgWidth = w.expBeamW;   // 0=従来テーパ / >0=depth>=1 を一律この幅に
 
     ExpCandidate cands[EXP_MAXCAND];
     int  nCand = 0;
     int  fmLookup[EXP_MAXCAND * 4];   // key = col*4+rot → fm index（-1=未登録）
     for (int i = 0; i < EXP_MAXCAND * 4; i++) fmLookup[i] = -1;
 
+    // ── デバッグカウンタ（outResult[7..] に出して JS 側で可視化する。リリース時は撤去）──
+    int dbgPrune = 0;   // PRUNE で捨てたノード数
+    int dbgDedup = 0;   // 置換表(dedup)で除去したノード数
+
     // ── 1段ぶんビームを進める共通処理 ──
-    //   chainTarget[fm] にこの段で到達した連鎖スコアの最大を記録。
-    //   registerFirst: depth0 で初手candidateを登録。captureBase: baseScore/先読みを確定。
+    //   各ノードで quiescence の潜在連鎖スコア／実発火スコアを chainTarget[fm] に巻き上げる。
+    //   registerFirst: depth0 で初手candidateを登録。captureBase: base/先読みを確定。
     auto stepDepth = [&](std::vector<SearchNode>& cur, int pivot, int child, int depth,
-                         long long* chainTarget, bool registerFirst, bool captureBase) {
+                         bool registerFirst, bool captureBase) {
         std::vector<SearchNode> nextNodes;
         int beamWidth = expBeamWidth(depth, cfgWidth);
 
@@ -111,9 +115,11 @@ static void runExpectedChainSelection(
                 BitBoard nb = applyPlacement(node.board, p, (uint8_t)pivot, (uint8_t)child);
                 ChainResult chain = simulateChain(nb);
 
-                int scoreRaw = evaluateBoard(nb, chain, w, prePot, isEmergencyPre);
+                // ★ 配置後盤面の「今撃てば出る最大連鎖スコア」(potChain)を eval と同じ
+                //   quiescence シミュから受け取る（追加コストなし）。
+                int potChain = 0;
+                int scoreRaw = evaluateBoard(nb, chain, w, prePot, isEmergencyPre, &potChain);
                 // ★ ちぎり(tear)ペナルティ：配置時1回（評価値ではなく配置コスト）。
-                //   scoreRaw に足し込むことで、以降の p1Weight/深さ減衰を eval と同様に受ける。
                 if (w.tearWeight != 0) scoreRaw += placementTear(p) * w.tearWeight;
                 int score = scoreRaw;
                 if (depth == 0) score = score * w.p1Weight / 100;
@@ -137,10 +143,16 @@ static void runExpectedChainSelection(
                         cands[fm].bestAccum = LLONG_MIN;
                         cands[fm].col2 = -1; cands[fm].rot2 = -1;
                         cands[fm].col3 = -1; cands[fm].rot3 = -1;
-                        cands[fm].expSum = 0;
+                        cands[fm].chainTarget = 0;
                         cands[fm].dispDepth = -1;
                         cands[fm].dispScore = LLONG_MIN;
+                        cands[fm].fireChains = 0;
+                        cands[fm].fireScore = 0;
                     }
+                    // ★ 発火トリガ用：この初手を「今そのまま置いた」ときの実発火連鎖を記録。
+                    //   depth0 の chain は現ペアを置いた瞬間の連鎖結果＝「今撃てる連鎖」。
+                    cands[fm].fireChains = chain.chains;
+                    cands[fm].fireScore  = chain.score;
                     nn.firstMoveIndex = fm;
                     nn.col1 = p.col; nn.rot1 = p.rot;
                 } else {
@@ -149,15 +161,19 @@ static void runExpectedChainSelection(
                     else if (depth == 2) { nn.col3 = p.col; nn.rot3 = p.rot; }
                 }
 
-                if (fm >= 0 && chain.score > 0 && (long long)chain.score > chainTarget[fm]) {
-                    chainTarget[fm] = chain.score;
+                // ★ 連鎖スコアの巻き上げ：潜在(potChain)と実発火(chain.score)の大きい方。
+                //   実発火盤面(collapse後)の potChain は小さいが、撃った連鎖そのものは
+                //   chain.score で拾う＝「撃つ手・組む手」を統一して到達連鎖として評価。
+                if (fm >= 0) {
+                    long long reach = std::max((long long)potChain, (long long)chain.score);
+                    if (reach > cands[fm].chainTarget) cands[fm].chainTarget = reach;
                 }
 
-                // ★ 発火枝刈り（ama PRUNE）：大連鎖を発火したノードは連鎖を chainTarget に記録済み。
-                //   depth>=1 で閾値以上なら次層に伝播させない（崩れた盤面で枠を浪費せず組み途中に集中）。
-                //   depth0 は全初手をシードする層なので枝刈りしない（ama も初期 expand では PRUNE しない）。
+                // ★ 発火枝刈り（ama PRUNE）：実際に大連鎖を発火したノードは到達連鎖を記録済み。
+                //   depth>=1 で閾値以上なら次層に伝播させない（崩れた盤面で枠を浪費しない）。
                 if (w.pruneChainScore > 0 && depth >= 1 && chain.score >= w.pruneChainScore) {
-                    continue;   // chainTarget は上で記録済み → このノードは捨ててOK
+                    dbgPrune++;
+                    continue;
                 }
 
                 nextNodes.push_back(nn);
@@ -165,7 +181,7 @@ static void runExpectedChainSelection(
         }
 
         // ★ 置換表（ama Layer::add）：同一盤面に複数経路で到達したら accumulatedScore 最大の
-        //   1ノードだけ残す。限られたビーム幅を多様な盤面に使えるようにする（実質的に深く探れる）。
+        //   1ノードだけ残す。限られたビーム幅を多様な盤面に使えるようにする。
         {
             std::unordered_map<uint64_t, int> seen;
             seen.reserve(nextNodes.size() * 2);
@@ -181,6 +197,7 @@ static void runExpectedChainSelection(
                     uniq[it->second] = nd;
                 }
             }
+            dbgDedup += (int)(nextNodes.size() - uniq.size());
             nextNodes.swap(uniq);
         }
 
@@ -190,21 +207,17 @@ static void runExpectedChainSelection(
         if ((int)nextNodes.size() > beamWidth) nextNodes.resize(beamWidth);
         cur = nextNodes;
 
-        // baseScore（深い手まで考慮した累積eval最大）と表示用先読みを確定
+        // base（深い手まで考慮した累積eval最大）と表示用先読みを確定
         if (captureBase) {
             for (const auto& nd : cur) {
                 int fm = nd.firstMoveIndex;
                 if (fm < 0 || fm >= nCand) continue;
 
-                // ① 選択用 baseScore：累積eval最大（従来どおり）。
                 if ((long long)nd.accumulatedScore > cands[fm].bestAccum) {
                     cands[fm].bestAccum = nd.accumulatedScore;
                 }
 
-                // ② 表示用先読み col2/col3：累積最大ではなく「最も深く辿れたノード」を採用する。
-                //   col2/col3 は depth1/depth2 を通過したノードにのみ載る（節点が経路として保持）。
-                //   累積最大に紐付けると初手発火時に depth0 が勝ち col2/col3=-1 のまま残るため分離。
-                //   深さ優先（深いほど確かな先読み）／同深さなら累積eval最大を採用する。
+                // 表示用先読み col2/col3：累積最大ではなく「最も深く辿れたノード」を採用する。
                 if (depth > cands[fm].dispDepth ||
                     (depth == cands[fm].dispDepth && (long long)nd.accumulatedScore > cands[fm].dispScore)) {
                     cands[fm].dispDepth = depth;
@@ -216,76 +229,128 @@ static void runExpectedChainSelection(
         }
     };
 
-    // ── ① 既知ツモのプレフィックスを1回だけ計算（全キュー共通・最も広い前半層をここで消化）──
-    long long prefixChain[EXP_MAXCAND];
-    for (int i = 0; i < EXP_MAXCAND; i++) prefixChain[i] = 0;
+    // ── 確定NEXTを1本のビームで深さ maxDepth まで読む（擬似分岐なし）──
+    std::vector<SearchNode> beam;
+    { SearchNode root; root.board = baseBoard; beam.push_back(root); }
 
-    std::vector<SearchNode> prefixNodes;
-    { SearchNode root; root.board = baseBoard; prefixNodes.push_back(root); }
-
-    bool prefixDead = false;
-    for (int depth = 0; depth < knownPairs && depth < maxDepth; depth++) {
-        stepDepth(prefixNodes, nextPairs[depth * 2], nextPairs[depth * 2 + 1], depth,
-                  prefixChain, /*registerFirst=*/depth == 0, /*captureBase=*/true);
-        if (prefixNodes.empty() || prefixNodes[0].accumulatedScore < -900000) { prefixDead = true; break; }
+    for (int depth = 0; depth < maxDepth; depth++) {
+        stepDepth(beam, nextPairs[depth * 2], nextPairs[depth * 2 + 1], depth,
+                  /*registerFirst=*/depth == 0, /*captureBase=*/true);
+        if (beam.empty() || beam[0].accumulatedScore < -900000) break;
     }
 
-    // プレフィックスで到達した連鎖は全キューに共通 → 本数ぶん合算
-    for (int fm = 0; fm < nCand; fm++) cands[fm].expSum += (long long)branchCount * prefixChain[fm];
+    // ── 初手選択：連鎖スコア主体（base は同点崩し）──
+    //   ① 到達連鎖スコア chainTarget の最大 bestChain を求める。
+    //   ② bestChain との差が band 以内の初手の中で base(構築品質) 最大を選ぶ。
+    //      band=w.expChainWeight（連鎖スコア単位）。bestChain==0（まだ連鎖が組めない序盤）
+    //      なら全初手が band 内＝base のみで選ぶ（構築品質最大＝素直に積む）。
+    long long band = (w.expChainWeight > 0) ? w.expChainWeight : 0;
 
-    // ── ② プレフィックスの先から、各キューは擬似bagで尾部だけ分岐 ──
-    if (!prefixDead) {
-        for (int branch = 0; branch < branchCount; branch++) {
-            const uint8_t* bag = EXP_BAG[branch];
+    long long bestChain = 0;
+    for (int fm = 0; fm < nCand; fm++) {
+        if (cands[fm].chainTarget > bestChain) bestChain = cands[fm].chainTarget;
+    }
+    long long chainFloor = bestChain - band;
 
-            long long branchChain[EXP_MAXCAND];
-            for (int i = 0; i < EXP_MAXCAND; i++) branchChain[i] = 0;
-
-            std::vector<SearchNode> cur = prefixNodes; // 共通プレフィックスから複製
-            for (int depth = knownPairs; depth < maxDepth; depth++) {
-                int idx = depth - knownPairs;          // bagストリーム上の位置
-                int pivot, child;
-                if ((idx & 1) == 0) { pivot = bag[0] + 1; child = bag[1] + 1; }
-                else                { pivot = bag[2] + 1; child = bag[3] + 1; }
-
-                // 尾部の baseScore 更新は1本目(branch0)のみ（最も妥当な未来）で行う
-                stepDepth(cur, pivot, child, depth, branchChain,
-                          /*registerFirst=*/false, /*captureBase=*/branch == 0);
-                if (cur.empty() || cur[0].accumulatedScore < -900000) break;
+    int bestFm = -1;
+    long long bestBase = LLONG_MIN;
+    int dbgFireChains = 0;   // 発火した連鎖段数（0=発火せず＝育成）。デバッグ outResult[15]
+    // ── デバッグ集計（スケール/差別化の可視化用）──
+    long long maxBase = LLONG_MIN, minBase = LLONG_MAX;
+    int nWithChain = 0;            // chainTarget>0（連鎖を組める）初手の数
+    long long selBase = 0, selChain = 0;
+    for (int fm = 0; fm < nCand; fm++) {
+        long long base = (cands[fm].bestAccum == LLONG_MIN) ? cands[fm].depth0Score : cands[fm].bestAccum;
+        if (base > maxBase) maxBase = base;
+        if (base < minBase) minBase = base;
+        if (cands[fm].chainTarget > 0) nWithChain++;
+        // 連鎖主体：到達連鎖が bestChain の band 以内の初手だけを base で比較
+        if (cands[fm].chainTarget >= chainFloor) {
+            if (base > bestBase) {
+                bestBase = base; bestFm = fm;
+                selBase = base; selChain = cands[fm].chainTarget;
             }
-
-            for (int fm = 0; fm < nCand; fm++) cands[fm].expSum += branchChain[fm];
         }
     }
 
-    // ── 初手選択：baseScore(累積eval) + expChainWeight×期待連鎖スコア ──
-    int bestFm = -1;
-    long long bestVal = LLONG_MIN;
-    for (int fm = 0; fm < nCand; fm++) {
-        long long base = (cands[fm].bestAccum == LLONG_MIN) ? cands[fm].depth0Score : cands[fm].bestAccum;
-        long long expAvg = cands[fm].expSum / branchCount;  // 期待連鎖スコア（本数で割る）
-        long long val = base + (long long)w.expChainWeight * expAvg / 100;
-        if (val > bestVal) { bestVal = val; bestFm = fm; }
+    // ── ★ 発火トリガ（fire gate）──
+    //   ここまでで bestFm は「育成（撃たずに最大連鎖へ伸ばす）」初手。ama型はこのままだと
+    //   永遠に積み続けるので、下記いずれかが成立したら『今そのまま置けば実発火する初手』に上書きする。
+    //     ① 目標連鎖到達：今撃てる連鎖が fireChainCount 段以上（育てた本線を一定サイズで放つ）
+    //     ② 緊急回避：盤面が緊急（致死列高 or 平均高さ emergencyHeight 到達）なら出せる最大連鎖を即発火
+    //   発火時は「今撃てる連鎖スコア最大の初手」を採る（① では目標段数を満たす候補の中から）。
+    //   どちらも未成立、または発火可能な初手が無ければ育成（bestFm）のまま。
+    {
+        // 盤面緊急判定（baseBoard。stepDepth 内の isEmergencyPre と同じ基準）
+        bool emergency = false;
+        if (w.fireEmergency) {
+            int avgH = 0, col2H = 0;
+            for (int c = 0; c < COLS; c++) {
+                int h = 0;
+                for (int r = HIDDEN; r < TOTAL_ROWS; r++) if (baseBoard.get(c, r) != 0) h++;
+                avgH += h;
+                if (c == 2) col2H = h;
+            }
+            avgH /= COLS;
+            if (avgH >= w.emergencyHeight || col2H >= 9) emergency = true;
+        }
+
+        // 「今撃てる」最大連鎖の初手（緊急発火用）と、目標段数を満たす最大連鎖の初手（目標発火用）
+        int  fireFmAny = -1;    long long fireBestAny = -1;     // 発火可能なら最大スコア
+        int  fireFmTgt = -1;    long long fireBestTgt = -1;     // 目標段数到達のうち最大スコア
+        for (int fm = 0; fm < nCand; fm++) {
+            if (cands[fm].fireChains <= 0) continue;            // この初手では発火しない
+            if (cands[fm].fireScore > fireBestAny) { fireBestAny = cands[fm].fireScore; fireFmAny = fm; }
+            if (w.fireChainCount > 0 && cands[fm].fireChains >= w.fireChainCount) {
+                if (cands[fm].fireScore > fireBestTgt) { fireBestTgt = cands[fm].fireScore; fireFmTgt = fm; }
+            }
+        }
+
+        int fireFm = -1;
+        if (fireFmTgt >= 0)               fireFm = fireFmTgt;   // ① 目標連鎖に到達 → 発火
+        else if (emergency && fireFmAny >= 0) fireFm = fireFmAny; // ② 緊急 → 出せる最大を即発火
+
+        if (fireFm >= 0) {
+            bestFm = fireFm;
+            selChain = cands[fireFm].fireScore;   // 表示は実発火スコア
+            dbgFireChains = cands[fireFm].fireChains; // デバッグ：発火した連鎖段数
+        }
     }
 
     if (bestFm >= 0) {
         outResult[0] = cands[bestFm].col;
         outResult[1] = cands[bestFm].rot;
-        outResult[2] = (int)bestVal;
+        outResult[2] = (int)selChain;          // 合計scoreは「到達連鎖スコア」を表示（eval-value表示用）
         outResult[3] = cands[bestFm].col2;
         outResult[4] = cands[bestFm].rot2;
         outResult[5] = cands[bestFm].col3;
         outResult[6] = cands[bestFm].rot3;
     }
+
+    // ── デバッグ出力（outResult[7..19]）。JS worker が console.log で可視化する ──
+    //   観点①scale: selChain(選択初手の到達連鎖) と selBase / base幅(maxBase-minBase)。
+    //   観点②PRUNE/dedup: dbgPrune/dbgDedup が >0 なら実際に発動。
+    //   観点③差別化: nWithChain と bestChain/maxChain で初手間の連鎖記録差を見る。
+    outResult[7]  = dbgPrune;                                      // PRUNE 発動数
+    outResult[8]  = dbgDedup;                                      // dedup 除去数
+    outResult[9]  = nCand;                                         // 初手候補数
+    outResult[10] = maxDepth;                                      // 探索深さ
+    outResult[11] = (int)band;                                     // 同点崩しband（連鎖スコア単位）
+    outResult[12] = (int)bestChain;                               // 全候補の到達連鎖スコア最大
+    outResult[13] = (int)selBase;                                 // 選択初手の base
+    outResult[14] = (int)selChain;                                // 選択初手の到達連鎖スコア
+    outResult[15] = dbgFireChains;                               // 発火した連鎖段数（0=育成）
+    outResult[16] = nWithChain;                                   // 連鎖を組める初手数
+    outResult[17] = (int)bestChain;                              // = maxChain（互換のため重複）
+    outResult[18] = (int)((maxBase == LLONG_MIN) ? 0 : (maxBase - minBase)); // base のばらつき幅
+    outResult[19] = 1;                                           // branchCount（確定NEXTなので常に1）
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // build モードのエントリ。
-//   lv4 はNEXTを多数確定で持てるため、擬似ツモ予測（旧 search_multi の分岐）は実際には
-//   発生せず（knownPairs が maxDepth に達して分岐ループが回らない）、runExpectedChainSelection
-//   は「確定NEXTビーム＋連鎖到達力(expChainWeight)による初手選定」として機能する。
-//   expChainWeight==0 のときは expAvg 項が消え、base（累積eval最大）だけで選ぶ＝
-//   旧 runMainBeamSearch 相当に退化する。よって経路は1本に統合した。
+//   TETLABO は内部で 20 NEXT を確定保持するため擬似ツモ分岐は不要。確定NEXTを1本の
+//   ビームで深く読み、各初手の到達連鎖スコア(potChain/実発火)を巻き上げて
+//   「連鎖スコア主体・base同点崩し」で初手を選ぶ。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 void searchBuildMode(
     const BitBoard& baseBoard,

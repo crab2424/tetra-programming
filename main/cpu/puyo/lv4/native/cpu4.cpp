@@ -42,7 +42,7 @@ void searchBestMovePuyoWasm(
     int* weightsArray,
     int* outResult
 ) {
-    for (int i = 0; i < 7; i++) outResult[i] = -1;
+    for (int i = 0; i < 20; i++) outResult[i] = -1;   // [0..6]=着手結果 / [7..19]=デバッグ統計
 
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -94,6 +94,10 @@ void searchBestMovePuyoWasm(
     // ── Ama 型 eval（A/B切替フラグ＋waste ペナルティ）──
     w.amaEvalMode         = weightsArray[30];
     w.wasteWeight         = weightsArray[31];
+
+    // ── 発火トリガ（ama型の「いつ撃つか」）──
+    w.fireChainCount      = weightsArray[32];
+    w.fireEmergency       = weightsArray[33];
 
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);

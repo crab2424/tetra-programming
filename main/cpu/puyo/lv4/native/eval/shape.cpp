@@ -123,8 +123,16 @@ static bool hasGroup4At(const BitBoard& b, int col, int row, uint8_t color) {
 //   連鎖数・発火列高さ・必要追加ぷよ数(key)・伸長余地(chi) を q スコア化して最大値を返す。
 //   原典 quiet.cpp の探索を bounded 列範囲でスカラ再現。
 static const int MAX_QDROP = 3;
-int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w) {
-    // 重みが全て0なら計算を省略（性能対策）
+int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w,
+                       int* outChainScore) {
+    if (outChainScore) *outChainScore = 0;
+    // 重みが全て0なら計算を省略（性能対策）。
+    // ★トラップ注意：この早期returnは outChainScore も 0 のまま返す。outChainScore は
+    //   探索側(build.cpp)の chainTarget 巻き上げ＝初手選択の中核信号にも使われるため、
+    //   q重みを全て0にすると「quiescenceの評価加点を切る」つもりでも『潜在連鎖の到達価値』
+    //   まで失われ、選択が base(構築品質)のみに退化する。q評価だけ無効化したい場合は
+    //   どれか1つを微小値に残すか、この早期returnを外して chain.score 走査だけ生かすこと。
+    //   （現行デフォルトは q重み非0なので発動しない。）
     if (w.qChainWeight == 0 && w.qYWeight == 0 && w.qKeyWeight == 0 && w.qChiWeight == 0
         && w.qLink2Weight == 0 && w.qLink3Weight == 0) return 0;
 
@@ -156,6 +164,9 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
             BitBoard sim = plan;
             ChainResult chain = simulateChain(sim);
             if (chain.chains <= 0) continue;
+
+            // 「今撃てば出る最大連鎖スコア」を q とは独立に追跡（発火価値の巻き上げ元）
+            if (outChainScore && chain.score > *outChainScore) *outChainScore = chain.score;
 
             int q = 0;
             q += chain.chains * w.qChainWeight;   // 連鎖数

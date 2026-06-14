@@ -12,7 +12,8 @@
 // 【評価値】盤面状態スコア計算（毎ターン加算）
 //   配置後の盤面状態のみを見て評価する。報酬パラメータは含まない。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heights[COLS]) {
+static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heights[COLS],
+                         int* outPotChainScore = nullptr) {
     int score = 0;
 
     // 高さペナルティ（3列目は特に重要）
@@ -42,7 +43,8 @@ static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heig
     }
 
     // quiescence による連鎖ポテンシャル評価（連鎖の組みやすさを毎ターン誘導）
-    score += calcQuiescenceEval(b, heights, w);
+    //   outPotChainScore を渡し、同じ発火シミュから「今撃てば出る最大連鎖スコア」も得る。
+    score += calcQuiescenceEval(b, heights, w, outPotChainScore);
 
     // Ama 由来の関係性 form テンプレート（GTR/SGTR/FRON の相対マッチ・毎ターン）
     if (w.formWeight != 0) score += calcAmaFormScore(b, heights) * w.formWeight;
@@ -166,8 +168,10 @@ int evaluateBoard(
     const ChainResult& chain,
     const EvalWeights& w,
     const PotentialInfo& prePot,        // 配置前のポテンシャル（searchBestMove側で計算済み）
-    bool isEmergencyPre                 // ★ 配置前の盤面で判定した緊急事態フラグ
+    bool isEmergencyPre,                // ★ 配置前の盤面で判定した緊急事態フラグ
+    int* outPotChainScore               // ★ 配置後盤面の潜在連鎖スコア（巻き上げ用・nullptr可）
 ) {
+    if (outPotChainScore) *outPotChainScore = 0;
     // ── 配置後の高さを計算（評価値・緊急報酬で共用）
     int heights[COLS];
     for (int c = 0; c < COLS; c++) {
@@ -182,11 +186,11 @@ int evaluateBoard(
     // ── Ama 型 eval（amaEvalMode==1）──
     //   発火報酬/−5000ペナルティ/chainPotential/緊急/全消し/動的閾値（＝calcRewardScore）を
     //   一切使わず、構築品質＋waste（消したぷよ数への小ペナルティ）だけでビームを駆動する。
-    //   発火の価値は探索側 chainTarget/expSum 経由で初手選択(expChainWeight)に集約される。
+    //   発火の価値は探索側 chainTarget（quiescence潜在＋実発火の巻き上げ）経由で初手選択に集約される。
     //   原典: source_assets/puyoAI/ama-beam/ai/search/beam/eval.cpp
     //         （node.score.action += waste * w.waste, waste=pop数）。
     if (w.amaEvalMode) {
-        int evalScoreAma = calcEvalScore(postBoard, w, heights);
+        int evalScoreAma = calcEvalScore(postBoard, w, heights, outPotChainScore);
         return evalScoreAma + chain.totalErased * w.wasteWeight;
     }
 
@@ -204,7 +208,7 @@ int evaluateBoard(
     );
 
     // ── 【評価値】配置後の盤面状態スコア（毎ターン）
-    int evalScore = calcEvalScore(postBoard, w, heights);
+    int evalScore = calcEvalScore(postBoard, w, heights, outPotChainScore);
 
     return rewardScore + evalScore;
 }

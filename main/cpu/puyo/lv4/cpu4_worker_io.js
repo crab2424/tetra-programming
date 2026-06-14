@@ -52,7 +52,10 @@ Object.assign(window.PuyoCPU4.prototype, {
         nextPairs[1] = curPair[1];
 
         // ★ 実際に見えているNEXTの本数（現在ペアを除く）。
-        //   期待連鎖スコア選択で「ここから先は擬似未来ツモで分岐する」境界として使う。
+        //   ※ かつて「ここから先は擬似未来ツモで分岐する」境界に使う想定だったが、TETLABO は
+        //     内部20NEXTを確定保持するため擬似分岐機構は撤去済み。C++ 側は weightsArray[20] に
+        //     渡るものの参照しない（cpu4.cpp で w.knownNextCount に代入されるだけのデッド配線）。
+        //     現状は単に未充足NEXTをダミー埋めするためのカウンタとしてのみ機能する。
         let knownNextCount = 0;
         for (let i = 0; i < 9; i++) {
             const qp = q[i + queueOffset];

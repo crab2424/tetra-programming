@@ -37,7 +37,7 @@ Object.assign(window.PuyoCPU4.prototype, {
             shapeWeight:           -8,  // 理想L字形からの偏差ペナルティ
             wellWeight:           -10,  // 井戸（両隣より低い列）ペナルティ
             bumpWeight:           -10,  // 凸（両隣より高い列）ペナルティ
-            qChainWeight:          60,  // quiescence 連鎖ポテンシャル数
+            qChainWeight:        1000,  // quiescence 連鎖ポテンシャル数
             qYWeight:              12,  // quiescence 発火列高さ（高く積める連鎖を評価）
             qKeyWeight:           -30,  // quiescence 必要追加ぷよ数
             qChiWeight:            20,  // quiescence 発火点の伸長余地
@@ -78,18 +78,18 @@ Object.assign(window.PuyoCPU4.prototype, {
             ignitionScoreThreshold: 30000, // ★ 発火のスコア閾値
             emergencyHeight:       11,  // 緊急回避ライン
 
-            // ── Ama search_multi 由来：期待連鎖スコア選択（核心①）──
-            //   0 で無効（従来の累積eval最大選択）。正の値で、各初手が将来到達できる
-            //   最大連鎖スコア（6本の擬似未来ツモ列で合算した期待値）を初手選択に上乗せする。
-            //   ※有効時は擬似ツモ列の本数ぶん探索が重くなる（実機で遅延を要計測）。
-            expChainWeight:        50,  // 期待連鎖スコアの重み（0で無効）
+            // ── 初手選択：連鎖スコア主体の「同点崩しband」（旧 expChainWeight を流用）──
+            //   選択は「到達連鎖スコア chainTarget 最大」が主体（Ama「最終選択は連鎖スコア」）。
+            //   このbandは “到達連鎖が最大値からこの差(連鎖スコア単位)以内なら base(構築品質)で選ぶ”
+            //   許容幅。0=厳密に連鎖最大のみ（同値は最初の候補）。大きいほど構築品質寄りになる。
+            //   ★ TETLABO は内部20NEXT確定保持のため擬似未来ツモ列は不要＝1本の確定NEXTビーム。
+            expChainWeight:      1500,  // 同点崩しband（連鎖スコア単位。0=厳密連鎖最大）
 
-            // ── 期待連鎖スコア選択の探索コスト（速度調整。expChainWeight>0 のとき有効）──
-            //   コストは概ね expBranch × expMaxDepth × 幅 に比例。小さくすると軽くなる。
-            //   いずれも 0 で「従来の重い設定」(branch6 / depth8 / 幅テーパ12,8,6,5)。
-            //   ≈15ms を狙うなら下記の軽量プリセットが目安（実機で要計測）。
-            expBranch:             1,  // 擬似未来ツモ列の本数 1..6（0=6）
-            expMaxDepth:           8,  // 期待連鎖探索の深さ 1..8（0=8）
+            // ── 確定NEXTビームの探索コスト（速度調整）──
+            //   コストは概ね expMaxDepth × 幅 に比例。小さくすると軽くなる。
+            //   expBranch は擬似分岐撤去により未使用（後方互換のため配線のみ残置）。
+            expBranch:             1,  // ※未使用（擬似分岐撤去済み）
+            expMaxDepth:           8,  // 確定NEXTビームの深さ 1..8（0=8）
             expBeamWidth:          10,  // depth>=1 のビーム幅（0=従来テーパ）
 
             // ── Ama 由来の発火枝刈り（PRUNE。参考: ama-beam beam.cpp PRUNE=5000）──
@@ -97,16 +97,30 @@ Object.assign(window.PuyoCPU4.prototype, {
             //   発火後の崩れた盤面でビーム枠を浪費せず「組み途中」の盤面に集中させる＝同じ幅で深く探れる。
             //   閾値が低すぎると小さな消えで枝が切れすぎ、高すぎると枝刈りがほぼ効かない（要実機チューニング）。
             //   0 で無効＝従来動作。期待連鎖スコア選択（expChainWeight>0）の探索でのみ作用する。
-            pruneChainScore:      10,  // 発火枝刈り閾値（0=無効）
+            pruneChainScore:      3000,  // 発火枝刈り閾値（0=無効）
 
-            // ── Ama 型 eval への A/B 切替（核心。参考: ama-beam beam/eval.cpp）──
-            //   1 にすると evaluateBoard が calcRewardScore（発火報酬/−5000ペナルティ/chainPotential/
-            //   緊急/全消し/おじゃま動的閾値）を一切使わず、構築品質(quiescence/shape/well/bump/link/
-            //   side/form)＋waste だけでビームを駆動する。発火価値は expSum 経由で初手選択に集約。
-            //   ★ama型を有効化するときは expChainWeight を高め（目安50〜）にし、pruneChainScore を
-            //     有効値（目安5000）、wasteWeight を小さな負（目安-2）に設定すること。
-            //   0 = 従来動作（完全不変）。緊急回避/全消し/おじゃま動的発火は ama 型では無効になる。
-            amaEvalMode:           1,  // 0=現行eval / 1=ama型（構築品質のみで駆動）
+            // ── eval スコア関数の A/B 切替（核心。参考: ama-beam beam/eval.cpp）──
+            //   ★この値が切り替えるのは evaluateBoard 内の「1ノードの盤面スコア関数」だけ。
+            //     探索構造（確定NEXTビーム／chainTarget 巻き上げ／後述の fire gate）は
+            //     main 経路削除（commit ba18423）以降このフラグに依存せず常に走る。
+            //   1 = ama型：calcRewardScore（発火報酬/−5000ペナルティ/chainPotential/緊急/全消し/
+            //     おじゃま動的閾値）を使わず、構築品質(quiescence/shape/well/bump/link/side/form)＋
+            //     waste だけでスコアリング。発火価値は chainTarget 経由で初手選択に集約。
+            //   0 = 旧 eval：calcRewardScore を使う。ただし“従来動作”ではなく「ama探索＋旧eval」の
+            //     ハイブリッドになる（旧 main 探索は削除済み）。基本は 1 運用。
+            //   ★ama型(1)では expChainWeight を高め（目安50〜）、pruneChainScore を有効値（目安5000）、
+            //     wasteWeight を小さな負（目安-2）に設定すること。
+            amaEvalMode:           1,  // 1=ama型eval / 0=旧eval(calcRewardScore)。探索構造は不変
+
+            // ── 発火トリガ（fire gate。「いつ撃つか」を初手選択直前で決める）──
+            //   ※ amaEvalMode に依存せず常に作用する（build.cpp の初手選択末尾で無条件実行）。
+            //   ama型evalは「撃たずに育てる」器なので、これが無いと無限に積み続ける。
+            //   初手選択の直前に「今そのまま置けば実発火する連鎖（depth0）」で各初手を測り、
+            //   ① 今撃てる連鎖が fireChainCount 段以上、または ② fireEmergency かつ盤面緊急、
+            //   のとき『今撃てる最大連鎖の初手』を選ぶ（①は目標段数を満たす中で最大）。
+            //   fireChainCount=0 で目標発火を無効化（緊急発火だけにできる）。
+            fireChainCount:       10,  // 目標連鎖数。今撃てる連鎖がこの段数以上で発火（0=無効）
+            fireEmergency:         2,  // 緊急発火 1/0。盤面緊急時に出せる最大連鎖を即発火
         };
 
         // 後方互換のため旧 this.weights も参照可能にしておく（読み取り専用エイリアス）
@@ -131,6 +145,7 @@ Object.assign(window.PuyoCPU4.prototype, {
     //       [22]expBranch [23]expMaxDepth [24]expBeamWidth
     //       [25]qLink2 [26]qLink3 [27]side [28]tear
     //       [29]pruneChainScore [30]amaEvalMode [31]wasteWeight
+    //       [32]fireChainCount [33]fireEmergency
     _buildWeightsArray(ojamaCount, knownNextCount) {
         // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
         let dynamicIgnitionThreshold = this.controlWeights.ignitionThreshold;
@@ -178,7 +193,9 @@ Object.assign(window.PuyoCPU4.prototype, {
             this.evalWeights.tearWeight,                             // [28] ちぎりペナルティ
             this.controlWeights.pruneChainScore,                     // [29] 発火枝刈り閾値（0=無効）
             this.controlWeights.amaEvalMode,                         // [30] ama型eval切替（0/1）
-            this.evalWeights.wasteWeight                             // [31] ama型 waste ペナルティ
+            this.evalWeights.wasteWeight,                            // [31] ama型 waste ペナルティ
+            this.controlWeights.fireChainCount,                      // [32] 発火トリガ: 目標連鎖数（0=無効）
+            this.controlWeights.fireEmergency                        // [33] 発火トリガ: 緊急発火 0/1
         ]);
     },
 });
