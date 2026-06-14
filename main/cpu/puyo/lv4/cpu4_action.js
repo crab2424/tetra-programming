@@ -12,16 +12,36 @@
 
 Object.assign(window.PuyoCPU4.prototype, {
 
-    _executeMove(targetCol, targetRot) {
+    _executeMove(targetCol, targetRot, path) {
         if (!this.isActive || !this.isAutoPlay) return;
         if (this.isExecutingAction) return;
 
         this.isExecutingAction = true;
-        this.actionQueue = this._buildActionQueue(targetCol, targetRot);
+        // ★ BFS(getAllPlacements)が出した到達操作列 path があればそれを再生する（上部回し対応）。
+        //   path は spawn(列2/rot0)起点の絶対操作列で、着手開始時のピースも spawn なので整合する。
+        //   path 無し（無候補フォールバック等）のときは従来の「回転→移動」で組み立てる。
+        this.actionQueue = Array.isArray(path)
+            ? this._buildActionQueueFromPath(path)
+            : this._buildActionQueue(targetCol, targetRot);
 
         setTimeout(() => {
             this._processActionQueue();
         }, this.thinkDelay);
+    },
+
+    // ★ BFS の操作列(path)をそのままアクションキューへ変換する。
+    //   コード 1=左 2=右 4=回転CW 5=回転CCW。クイックターンは path 上に回転コードが
+    //   2個連続で並ぶので、_tryRotate の quickTurnCount 蓄積で実機どおり 180°反転する。
+    _buildActionQueueFromPath(path) {
+        const queue = [];
+        for (const code of path) {
+            if (code === 1)      queue.push({ type: 'moveLeft' });
+            else if (code === 2) queue.push({ type: 'moveRight' });
+            else if (code === 4) queue.push({ type: 'rotateCW' });
+            else if (code === 5) queue.push({ type: 'rotateCCW' });
+        }
+        queue.push({ type: 'softDropUntilLock' });
+        return queue;
     },
 
     _buildActionQueue(targetCol, targetRot) {

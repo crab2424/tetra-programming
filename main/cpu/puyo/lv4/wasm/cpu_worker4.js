@@ -11,7 +11,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=29' : path;
+        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=30' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -19,7 +19,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=29');
+importScripts('cpu_wasm4.js?v=30');
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -36,7 +36,7 @@ self.onmessage = function (e) {
         boardPtr     = Module._my_malloc(102);
         // ★ weightsArray の要素数は 38（…[35]growthFireForbidChains [36]emergencyFireMinRatio [37]emergencyHardCol2）
         weightsPtr   = Module._my_malloc(4 * 38);   // 38要素(152 bytes)
-        resultPtr    = Module._my_malloc(4 * 27);   // [0..6]=着手 / [7..26]=デバッグ統計
+        resultPtr    = Module._my_malloc(4 * 30);   // [0..6]=着手 / [7..26]=デバッグ統計 / [27..29]=path(操作列)
         nextPairsPtr = Module._my_malloc(4 * 20);
     }
 
@@ -56,7 +56,7 @@ self.onmessage = function (e) {
     const endTime   = performance.now();
     const timeTaken = (endTime - startTime).toFixed(2);
 
-    console.log(`⚡ Wasm Bitboard PuyoCPU4 (Depth:10) Calculated in: ${timeTaken} ms`);
+    console.log(`⚡ Wasm Bitboard PuyoCPU4 Calculated in: ${timeTaken} ms`);
 
     // ── ★ ama探索デバッグ（outResult[7..19]）──
     //   ①scale: 到達連鎖(selChain) と base(構築品質) / base幅(spread)
@@ -87,10 +87,11 @@ self.onmessage = function (e) {
         );
     }
 
-    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 7);
+    // [0..6]=着手結果 / [27..29]=選択初手への到達操作列(path packing)。JS 側で復号して再生する。
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 30);
 
     self.postMessage({
         type:   'result',
-        result: new Int32Array(resultArray) 
+        result: new Int32Array(resultArray)
     });
 };

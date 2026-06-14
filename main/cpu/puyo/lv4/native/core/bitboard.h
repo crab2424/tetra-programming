@@ -75,12 +75,20 @@ struct BitBoard {
     }
 };
 
+// 1配置あたりの操作列（path）最大長。spawn行での横移動(最大5)＋回転(最大3, QTは2個)＋余裕。
+constexpr int MAX_PATH = 24;
+
 struct PairPlacement {
     int col;
     int rot;
     int pivotRow;
     int childRow;
     int childCol;
+    // ── spawn から この配置へ到達する操作列（実機 _tryMove/_tryRotate 再生用）──
+    //   コード: 1=左移動 2=右移動 4=回転CW 5=回転CCW（0=終端）。
+    //   クイックターンは同じ回転コードを2個連続で積む（実機の入力2回ぶん）。
+    uint8_t path[MAX_PATH];
+    int pathLen;
 };
 
 // 列 col のぷよが落下して着地する行（内部下基準）。置けなければ -1。

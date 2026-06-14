@@ -52,6 +52,10 @@ struct ExpCandidate {
     // ── 発火トリガ用：この初手を「今そのまま置いたら」実発火する連鎖（depth0 の実結果）──
     int  fireChains;                  // 今撃てる連鎖段数（0=この初手では発火しない）
     long long fireScore;             // 今撃てる連鎖スコア
+
+    // ── 実機再生用：spawn からこの初手配置へ到達する操作列（getAllPlacements の path）──
+    uint8_t path[MAX_PATH];
+    int pathLen;
 };
 
 static int expBeamWidth(int depth, int cfgWidth) {
@@ -154,6 +158,9 @@ static void runExpectedChainSelection(
                         cands[fm].dispScore = LLONG_MIN;
                         cands[fm].fireChains = 0;
                         cands[fm].fireScore = 0;
+                        // ★ この初手配置への到達操作列を控える（実機再生用）。
+                        cands[fm].pathLen = p.pathLen;
+                        for (int k = 0; k < p.pathLen && k < MAX_PATH; k++) cands[fm].path[k] = p.path[k];
                     }
                     // ★ 発火トリガ用：この初手を「今そのまま置いた」ときの実発火連鎖を記録。
                     //   depth0 の chain は現ペアを置いた瞬間の連鎖結果＝「今撃てる連鎖」。
@@ -421,6 +428,20 @@ static void runExpectedChainSelection(
     // ── 追加デバッグ[26]：到達連鎖の出所 1=実発火(chain.score) / 0=潜在(potChain)──
     //   潜在(0)のときは depth0 でも「今すぐ撃てる」意味ではなく「組めば届く見込み」。実発火は[21]で確認。
     outResult[26] = selChainIsFire;
+
+    // ── [27..29]：選択初手への到達操作列(path)を packing（実機再生用）──
+    //   コード 1=左 2=右 4=回転CW 5=回転CCW（0=終端）。3bit×10/int で 3 int = 最大30コード。
+    //   JS(cpu4_worker_io.js → cpu4_action.js)が復号し、_buildActionQueue で再生する。
+    outResult[27] = 0; outResult[28] = 0; outResult[29] = 0;
+    if (bestFm >= 0) {
+        int n = cands[bestFm].pathLen;
+        if (n > 30) n = 30;
+        for (int i = 0; i < n; i++) {
+            int idx = i / 10;
+            int shift = (i % 10) * 3;
+            outResult[27 + idx] |= (cands[bestFm].path[i] & 0x7) << shift;
+        }
+    }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
