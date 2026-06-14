@@ -34,7 +34,7 @@ Object.assign(window.PuyoCPU4.prototype, {
 
             // ── Ama 由来の評価値（参考: source_assets/puyoAI/ama-beam）──
             //   いずれも加算式・0で無効化可。実機で要チューニング。
-            shapeWeight:          -80,  // 理想L字形からの偏差ペナルティ
+            shapeWeight:          -10,  // 理想L字形からの偏差ペナルティ
             wellWeight:           -10,  // 井戸（両隣より低い列）ペナルティ
             bumpWeight:          -500,  // 凸（両隣より高い列）ペナルティ
             qChainWeight:         700,  // quiescence 連鎖ポテンシャル数
@@ -70,6 +70,13 @@ Object.assign(window.PuyoCPU4.prototype, {
             // ── Ama 関係性 form テンプレート（GTR/SGTR/FRON の相対マッチ）──
             //   0 で無効。Ama build は 50。
             formWeight:            50,  // 関係性 form 一致スコア
+
+            // ── 3連結の形状別倍率（百分率＝×100。link3Weight / qLink3Weight の両方に共通で乗る）──
+            //   3連結トリオミノは縦一直線/横一直線/L字の3種。形状で発火直前形の価値が違うため細分化。
+            //   100=×1.0、60=×0.6。実機で要チューニング。
+            link3FacL:            100,  // L字（折れ）  ×1.0
+            link3FacH:            100,  // 横一直線      ×1.0
+            link3FacV:             30,  // 縦一直線      ×0.6
         };
 
         this.controlWeights = {
@@ -167,6 +174,7 @@ Object.assign(window.PuyoCPU4.prototype, {
     //       [29]pruneChainScore [30]amaEvalMode [31]wasteWeight
     //       [32]fireChainCount [33]fireEmergency [34]fireScoreThreshold [35]growthFireForbidChains
     //       [36]emergencyFireMinRatio [37]emergencyHardCol2
+    //       [38]link3FacL [39]link3FacH [40]link3FacV
     _buildWeightsArray(ojamaCount, knownNextCount) {
         // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
         let dynamicIgnitionThreshold = this.controlWeights.ignitionThreshold;
@@ -220,7 +228,10 @@ Object.assign(window.PuyoCPU4.prototype, {
             this.controlWeights.fireScoreThreshold,                  // [34] 発火トリガ: スコア閾値（和集合。0=無効）
             this.controlWeights.growthFireForbidChains,              // [35] 育成こぼし抑制: 発火段数の除外下限（0=無効）
             this.controlWeights.emergencyFireMinRatio,               // [36] 緊急発火の潜在比ガード(%)（0=無効）
-            this.controlWeights.emergencyHardCol2                    // [37] 窒息寸前の延命発火 致死列高（0=なし）
+            this.controlWeights.emergencyHardCol2,                   // [37] 窒息寸前の延命発火 致死列高（0=なし）
+            this.evalWeights.link3FacL,                              // [38] 3連結 L字の倍率(%)
+            this.evalWeights.link3FacH,                              // [39] 3連結 横一直線の倍率(%)
+            this.evalWeights.link3FacV                               // [40] 3連結 縦一直線の倍率(%)
         ]);
     },
 });

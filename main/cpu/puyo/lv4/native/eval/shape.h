@@ -17,8 +17,25 @@ int getWell(const int heights[COLS]);
 // 凸（両隣より高い列の突出合計）
 int getBump(const int heights[COLS]);
 
-// 2連結・3連結の数を数える（連結成分サイズで分類。おじゃま除外）。
-void getLink23(const BitBoard& b, int& link2, int& link3);
+// 2連結数 + 3連結を「形状別」に分類したカウント（連結成分サイズで分類・おじゃま除外）。
+//   3連結トリオミノは『縦一直線 / 横一直線 / L字(折れ)』の3種しか存在しない。
+//   発火直前形としての価値が形状で異なるため、3連結だけ細分化して数える。
+struct Link3Counts {
+    int link2;  // 2連結の数
+    int l3L;    // 3連結：L字（折れ）
+    int l3H;    // 3連結：横一直線（同一行に3個）
+    int l3V;    // 3連結：縦一直線（同一列に3個）
+};
+Link3Counts getLink23(const BitBoard& b);
+
+// 形状別3連結カウントに base 重みを乗じた合計（整数百分率で丸め）。
+//   facL/facH/facV は L字/横一直線/縦一直線の倍率（百分率＝×100。JS から実行時設定）。
+//   カウントを先に集約してから1回だけ /100 する＝丸め誤差を最小化。
+//   base link3 と quiescence remain link3 の両系統が同じ係数を共有する。
+inline int weightedLink3(const Link3Counts& lc, int link3Weight,
+                         int facL, int facH, int facV) {
+    return (lc.l3L * facL + lc.l3H * facH + lc.l3V * facV) * link3Weight / 100;
+}
 
 // 致死列(第3列=heights[2])bias: max(左2列和, 右3列和) - heights[2]。
 //   大きいほど3列目が周囲より低い＝致死列を低く保てている（Ama eval.cpp:99-102）。

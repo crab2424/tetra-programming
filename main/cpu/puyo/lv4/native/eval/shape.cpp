@@ -60,8 +60,8 @@ int getBump(const int heights[COLS]) {
     return bump;
 }
 
-void getLink23(const BitBoard& b, int& link2, int& link3) {
-    link2 = 0; link3 = 0;
+Link3Counts getLink23(const BitBoard& b) {
+    Link3Counts out = {0, 0, 0, 0};
     static bool seen[TOTAL_ROWS][COLS];
     memset(seen, 0, sizeof(seen));
     const int dr[] = {-1, 1, 0, 0};
@@ -71,14 +71,19 @@ void getLink23(const BitBoard& b, int& link2, int& link3) {
             if (seen[r][c]) continue;
             uint8_t color = b.get(c, r);
             if (color == 0 || color == 6) continue;
-            // 連結成分をBFS
+            // 連結成分をBFS（scan順より seed(r,c)＝この成分の最上段・最左セル）
             std::vector<std::pair<int,int>> stack;
             stack.push_back({r, c});
             seen[r][c] = true;
             int size = 0;
+            // 3連結の形状判定: 全セルが seed と同一行なら横一直線、同一列なら縦一直線、
+            //   どちらでもなければ L字（折れ）。比較はセル毎に2回だけ＝追加コストはほぼ無い。
+            bool sameRow = true, sameCol = true;
             while (!stack.empty()) {
                 auto [cr, cc] = stack.back(); stack.pop_back();
                 size++;
+                if (cr != r) sameRow = false;  // seed と異なる行が出たら横一直線でない
+                if (cc != c) sameCol = false;  // seed と異なる列が出たら縦一直線でない
                 for (int d = 0; d < 4; ++d) {
                     int nr = cr + dr[d], nc = cc + dc[d];
                     if (nr < HIDDEN || nr >= TOTAL_ROWS || nc < 0 || nc >= COLS) continue;
@@ -88,10 +93,15 @@ void getLink23(const BitBoard& b, int& link2, int& link3) {
                     stack.push_back({nr, nc});
                 }
             }
-            if (size == 2) link2++;
-            else if (size == 3) link3++;
+            if (size == 2) out.link2++;
+            else if (size == 3) {
+                if      (sameRow) out.l3H++;  // 全セル同一行＝横一直線
+                else if (sameCol) out.l3V++;  // 全セル同一列＝縦一直線
+                else              out.l3L++;  // それ以外＝L字（折れ）
+            }
         }
     }
+    return out;
 }
 
 // (col,row) を含む同色連結成分が4以上か（軽量チェック・全消去シミュ不要）
@@ -192,10 +202,9 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
             //   plan は key ぷよを落とした pop 前の盤面＝ama の quiet.remain に相当。
             //   発火直前の形に2/3連結がどれだけ仕込まれているか＝次連鎖の種を評価する。
             if (w.qLink2Weight != 0 || w.qLink3Weight != 0) {
-                int rl2, rl3;
-                getLink23(plan, rl2, rl3);
-                q += rl2 * w.qLink2Weight;
-                q += rl3 * w.qLink3Weight;
+                Link3Counts lc = getLink23(plan);
+                q += lc.link2 * w.qLink2Weight;
+                q += weightedLink3(lc, w.qLink3Weight, w.link3FacL, w.link3FacH, w.link3FacV);  // 3連結は形状別倍率
             }
 
             if (!found || q > best) { best = q; found = true; }

@@ -24,6 +24,10 @@ int calcDropRow(const BitBoard& b, int col) {
 //   操作列 path[] を持たせる（実行系はこれを再生する）。方針:
 //     - 庇下が無いので下方遷移(ソフトドロップ)は持たず、spawn 行付近での横移動・回転のみ。
 //       着地は従来どおり各列 calcDropRow（ちぎり反映）で一意に決める＝最後に1回落とす。
+//     - ★ 横移動/回転の到達判定は「ピースが半マス下がった位置(py=pr+0.5)にいる」前提の
+//       canPlace（pr と pr+1 の2行チェック＝実機 _canPlace の小数 py 再現）で行う。
+//       連続落下中に壁/盤面へ弾かれ実機では通れない経路を除外するため。spawn の窒息判定
+//       だけは実機 spawn(pivotY=-0.5≒1行) に合わせ canPlaceGrid(1行)のまま。
 //     - 持ち上げ(回転)で pr<0 に出た状態からの横移動は禁止（配列上端より上での自由
 //       スライドを防ぐ＝塞がり判定の破綻防止）。
 //     - クイックターン(縦向きで通常回転＋壁蹴り失敗時の180°)は入力2回ぶん＝回転コードを
@@ -53,6 +57,15 @@ std::vector<PairPlacement> getAllPlacements(const BitBoard& b) {
         if (pr >= TOTAL_ROWS) return false;
         if (cr >= TOTAL_ROWS) return false;
         return cellEmpty(pc, pr) && cellEmpty(cc, cr);
+    };
+
+    // ── 半マス下げた到達判定（実機 input.js _canPlace の小数 py 再現）──
+    //   実機はピースが連続落下する都合上、横移動/回転は整数行ぴったりではなく小数 py で
+    //   発生する。_canPlace(py) は py=pr+0.5 のとき floor=pr と ceil=pr+1 の2行が
+    //   ともに空でないと不可。BFS を「常にピースが半マス下がった位置(py=pr+0.5)にいる」
+    //   前提に変えることで、落下中に壁/盤面へ弾かれて実機では通れない経路を除外する。
+    auto canPlace = [&](int pc, int pr, int rot) -> bool {
+        return canPlaceGrid(pc, pr, rot) && canPlaceGrid(pc, pr + 1, rot);
     };
 
     // ── BFS バッファ（単スレッド wasm 前提の static。毎回 memset）──
@@ -141,8 +154,8 @@ std::vector<PairPlacement> getAllPlacements(const BitBoard& b) {
 
         // ── 横移動（pr>=0 のみ。持ち上げで pr<0 に出た状態からの自由スライドを防ぐ）──
         if (pr >= 0) {
-            if (canPlaceGrid(col - 1, pr, rot)) tryPush(rot, pr, col - 1, rot, pr, col, 1, 0);
-            if (canPlaceGrid(col + 1, pr, rot)) tryPush(rot, pr, col + 1, rot, pr, col, 2, 0);
+            if (canPlace(col - 1, pr, rot)) tryPush(rot, pr, col - 1, rot, pr, col, 1, 0);
+            if (canPlace(col + 1, pr, rot)) tryPush(rot, pr, col + 1, rot, pr, col, 2, 0);
         }
 
         // ── 回転（実機 _tryRotate を再現。dir=+1:CW(act4) / dir=-1:CCW(act5)）──
@@ -154,17 +167,17 @@ std::vector<PairPlacement> getAllPlacements(const BitBoard& b) {
 
             if (newRot == 2 && !isVertical) {
                 // 横→下化：同行→ダメなら上1段持ち上げ
-                if (canPlaceGrid(col, pr, newRot)) {
+                if (canPlace(col, pr, newRot)) {
                     tryPush(newRot, pr, col, rot, pr, col, act, 0); success = true;
-                } else if (canPlaceGrid(col, pr - 1, newRot)) {
+                } else if (canPlace(col, pr - 1, newRot)) {
                     tryPush(newRot, pr - 1, col, rot, pr, col, act, 0); success = true;
                 }
             } else {
-                if (canPlaceGrid(col, pr, newRot)) {
+                if (canPlace(col, pr, newRot)) {
                     tryPush(newRot, pr, col, rot, pr, col, act, 0); success = true;
                 } else {
                     for (int kick = -1; kick <= 1; kick += 2) {       // 壁蹴り ±1列
-                        if (canPlaceGrid(col + kick, pr, newRot)) {
+                        if (canPlace(col + kick, pr, newRot)) {
                             tryPush(newRot, pr, col + kick, rot, pr, col, act, 0);
                             success = true; break;
                         }
@@ -176,9 +189,9 @@ std::vector<PairPlacement> getAllPlacements(const BitBoard& b) {
             if (!success && isVertical) {
                 int qtRot = ((rot + 2) % 4 + 4) % 4;
                 if (rot == 0) {
-                    if (canPlaceGrid(col, pr - 1, qtRot)) tryPush(qtRot, pr - 1, col, rot, pr, col, act, 1);
+                    if (canPlace(col, pr - 1, qtRot)) tryPush(qtRot, pr - 1, col, rot, pr, col, act, 1);
                 } else { // rot == 2
-                    if (canPlaceGrid(col, pr, qtRot)) tryPush(qtRot, pr, col, rot, pr, col, act, 1);
+                    if (canPlace(col, pr, qtRot)) tryPush(qtRot, pr, col, rot, pr, col, act, 1);
                 }
             }
         }
