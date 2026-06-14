@@ -39,6 +39,7 @@ struct ExpCandidate {
     int col2, rot2, col3, rot3;       // 表示用の先読み（最深ノードを辿って取得）
     long long chainTarget;            // この初手から到達できる最大連鎖スコア（潜在＋実発火）
     int chainTargetChains;            // ↑chainTarget に対応する連鎖『段数』（デバッグ期待連鎖数）
+    int chainTargetDepth;             // ↑chainTarget を達成したビーム深さ（=何手後。depth0=今そのまま発火）
 
     // ── 表示用先読み(col2/col3)を辿るための補助 ──
     //   col2/col3 を「累積eval最大ノード」に紐付けると、初手が連鎖を発火したとき
@@ -146,6 +147,7 @@ static void runExpectedChainSelection(
                         cands[fm].col3 = -1; cands[fm].rot3 = -1;
                         cands[fm].chainTarget = 0;
                         cands[fm].chainTargetChains = 0;
+                        cands[fm].chainTargetDepth = -1;
                         cands[fm].dispDepth = -1;
                         cands[fm].dispScore = LLONG_MIN;
                         cands[fm].fireChains = 0;
@@ -173,6 +175,9 @@ static void runExpectedChainSelection(
                         // 到達連鎖の段数も同じ出所（実発火 chain.chains か 潜在 potChainCount）で更新
                         cands[fm].chainTargetChains =
                             (chain.score >= potChain) ? chain.chains : potChainCount;
+                        // この到達連鎖を達成したビーム深さ（=この初手を含め何手目で組み上がるか）。
+                        //   depth0=今そのまま置いた瞬間／depthN=N手後の盤面でその連鎖に届く。
+                        cands[fm].chainTargetDepth = depth;
                     }
                 }
 
@@ -262,22 +267,40 @@ static void runExpectedChainSelection(
     int bestFm = -1;
     long long bestBase = LLONG_MIN;
     int dbgFireChains = 0;   // 発火した連鎖段数（0=発火せず＝育成）。デバッグ outResult[15]
+    int dbgFireReason = 0;   // 発火理由 0=育成(発火せず) / 1=目標到達 / 2=緊急(盤面整理)。outResult[23]
+    // ── デバッグ[21][22]用：理論上「今この瞬間に撃てる最大連鎖」（実行動とは独立）──
+    //   全候補のうち今そのまま置けば実発火する手の最大スコア。育成中でも >0 になり、
+    //   「撃てるのに育成している」のか「そもそも撃てない」のかを切り分けられる。
+    int       fireFmAny   = -1;   // 今撃てる最大連鎖の初手（-1=どの初手でも発火しない）
+    long long fireBestAny = -1;   // その実発火スコア
     // ── デバッグ集計（スケール/差別化の可視化用）──
     long long maxBase = LLONG_MIN, minBase = LLONG_MAX;
     int nWithChain = 0;            // chainTarget>0（連鎖を組める）初手の数
     long long selBase = 0, selChain = 0;
     int selChainChains = 0;        // 選択初手の到達連鎖の段数（期待連鎖数。デバッグ）
+    int selChainDepth = -1;        // 選択初手の到達連鎖を達成した深さ（=何手後。デバッグ）
+    // デバッグ集計（スケール/差別化）は全候補で先に取る
     for (int fm = 0; fm < nCand; fm++) {
         long long base = (cands[fm].bestAccum == LLONG_MIN) ? cands[fm].depth0Score : cands[fm].bestAccum;
         if (base > maxBase) maxBase = base;
         if (base < minBase) minBase = base;
         if (cands[fm].chainTarget > 0) nWithChain++;
-        // 連鎖主体：到達連鎖が bestChain の band 以内の初手だけを base で比較
-        if (cands[fm].chainTarget >= chainFloor) {
+    }
+    // ── 初手選択（連鎖主体：到達連鎖が bestChain の band 以内の初手だけを base で比較）──
+    //   育成こぼし抑制：今そのまま置くと growthFireForbidChains 段「以上」を発火する初手は
+    //   育成選択から除外する（pass0=フィルタ有り）。band内の全候補がこぼす場合のみ pass1 で
+    //   フィルタを外して再選択し、手が必ず1つ残るようにする（[[何も置けない]]を防ぐ）。
+    for (int pass = 0; pass < 2 && bestFm < 0; pass++) {
+        bool filter = (pass == 0 && w.growthFireForbidChains > 0);
+        for (int fm = 0; fm < nCand; fm++) {
+            if (cands[fm].chainTarget < chainFloor) continue;
+            if (filter && cands[fm].fireChains >= w.growthFireForbidChains) continue;
+            long long base = (cands[fm].bestAccum == LLONG_MIN) ? cands[fm].depth0Score : cands[fm].bestAccum;
             if (base > bestBase) {
                 bestBase = base; bestFm = fm;
                 selBase = base; selChain = cands[fm].chainTarget;
                 selChainChains = cands[fm].chainTargetChains;
+                selChainDepth  = cands[fm].chainTargetDepth;
             }
         }
     }
@@ -291,9 +314,11 @@ static void runExpectedChainSelection(
     //   どちらも未成立、または発火可能な初手が無ければ育成（bestFm）のまま。
     {
         // 盤面緊急判定（baseBoard。stepDepth 内の isEmergencyPre と同じ基準）
+        //   col2H（致死列＝第3列の高さ）は窒息寸前の延命発火[37]でも使うため外で保持。
         bool emergency = false;
+        int col2H = 0;
         if (w.fireEmergency) {
-            int avgH = 0, col2H = 0;
+            int avgH = 0;
             for (int c = 0; c < COLS; c++) {
                 int h = 0;
                 for (int r = HIDDEN; r < TOTAL_ROWS; r++) if (baseBoard.get(c, r) != 0) h++;
@@ -304,8 +329,8 @@ static void runExpectedChainSelection(
             if (avgH >= w.emergencyHeight || col2H >= 9) emergency = true;
         }
 
-        // 「今撃てる」最大連鎖の初手（緊急発火用）と、目標段数を満たす最大連鎖の初手（目標発火用）
-        int  fireFmAny = -1;    long long fireBestAny = -1;     // 発火可能なら最大スコア
+        // 「今撃てる」最大連鎖の初手（緊急発火用＋デバッグ[21][22]用。上のスコープで宣言済み）と、
+        //  目標段数を満たす最大連鎖の初手（目標発火用）
         int  fireFmTgt = -1;    long long fireBestTgt = -1;     // 目標段数到達のうち最大スコア
         for (int fm = 0; fm < nCand; fm++) {
             if (cands[fm].fireChains <= 0) continue;            // この初手では発火しない
@@ -320,13 +345,27 @@ static void runExpectedChainSelection(
         }
 
         int fireFm = -1;
-        if (fireFmTgt >= 0)               fireFm = fireFmTgt;   // ① 目標連鎖に到達 → 発火
-        else if (emergency && fireFmAny >= 0) fireFm = fireFmAny; // ② 緊急 → 出せる最大を即発火
+        if (fireFmTgt >= 0)               { fireFm = fireFmTgt; dbgFireReason = 1; } // ① 目標連鎖に到達 → 発火
+        else if (emergency && fireFmAny >= 0) {
+            // ② 緊急回避。ただし無条件に最大即発火を撃つと、本線がまだ未完成のとき
+            //   「部分連鎖／横の暴発」で組み上げた本線を巻き込んで壊す。これを防ぐため：
+            //   (a) 潜在比ガード[36]：今撃てる最大連鎖 fireBestAny が本線潜在 bestChain の
+            //       emergencyFireMinRatio% 以上＝本線がほぼ完成している時のみ発火を許す。
+            //   (b) 窒息寸前の延命[37]：致死列 col2H が emergencyHardCol2 段以上なら、
+            //       比ガードを無視して延命のため出せる最大を即発火（最終手段）。
+            bool ratioOk = (w.emergencyFireMinRatio <= 0) || (bestChain <= 0) ||
+                           (fireBestAny * 100 >= bestChain * (long long)w.emergencyFireMinRatio);
+            bool hard    = (w.emergencyHardCol2 > 0 && col2H >= w.emergencyHardCol2);
+            if (ratioOk)    { fireFm = fireFmAny; dbgFireReason = 2; } // 緊急（本線がほぼ完成→発火）
+            else if (hard)  { fireFm = fireFmAny; dbgFireReason = 3; } // 緊急延命（最終手段＝制限無視）
+            // どちらも不成立＝本線を守って育成継続（bestFm のまま撃たない）
+        }
 
         if (fireFm >= 0) {
             bestFm = fireFm;
             selChain = cands[fireFm].fireScore;   // 表示は実発火スコア
             selChainChains = cands[fireFm].fireChains; // 表示の期待連鎖数も実発火段数に合わせる
+            selChainDepth  = 0;                   // 発火は今そのまま置く＝0手後
             dbgFireChains = cands[fireFm].fireChains; // デバッグ：発火した連鎖段数
         }
     }
@@ -358,12 +397,19 @@ static void runExpectedChainSelection(
     outResult[17] = (int)bestChain;                              // = maxChain（互換のため重複）
     outResult[18] = (int)((maxBase == LLONG_MIN) ? 0 : (maxBase - minBase)); // base のばらつき幅
     outResult[19] = 1;                                           // branchCount（確定NEXTなので常に1）
-    // ── 追加デバッグ[20..22]：潜在(到達連鎖)と「今撃てる実発火」の乖離を可視化 ──
-    //   selChain(到達連鎖スコア) は潜在見込み＝今は撃てないことが多い。選択初手を『今そのまま
-    //   置いたら』出る実発火(fireChains/fireScore)を併記し、撃たない理由を切り分ける。
+    // ── 追加デバッグ[20..22]：潜在(到達連鎖)と「理論上いま撃てる最大連鎖」の乖離を可視化 ──
+    //   selChain(到達連鎖スコア) は潜在見込み＝伸ばした先の連鎖。これに対し、全候補のうち
+    //   『今そのまま置けば実発火する手の最大連鎖』(fireFmAny/fireBestAny)を併記する。
+    //   実際に撃つか否かは「発火:」が示すので、ここは実行動と独立した「撃とうと思えば撃てる最大」。
+    //   ＞0 なのに「発火:育成」なら "撃てるが育成中"、＝0 なら "そもそも撃てない" と切り分く。
     outResult[20] = selChainChains;                              // 選択初手の到達連鎖の段数（期待連鎖数）
-    outResult[21] = (bestFm >= 0) ? cands[bestFm].fireChains : 0;        // 選択初手を今置くと出る実発火段数
-    outResult[22] = (bestFm >= 0) ? (int)cands[bestFm].fireScore : 0;    // 同・実発火スコア
+    outResult[21] = (fireFmAny >= 0) ? cands[fireFmAny].fireChains : 0;  // 理論上いま撃てる最大連鎖の段数
+    outResult[22] = (fireFmAny >= 0) ? (int)fireBestAny : 0;             // 同・実発火スコア
+    outResult[23] = dbgFireReason;   // 発火理由 0=育成 / 1=目標到達 / 2=緊急(盤面整理)
+    outResult[24] = (bestFm >= 0) ? cands[bestFm].fireChains : 0;  // 選択(着手)初手を今置くと実際にこぼれる連鎖段数
+    // ── 追加デバッグ[25]：選択初手の到達連鎖を達成した深さ（=何手後に発火/組み上がるか）──
+    //   depth0=今そのまま発火／-1=連鎖未到達(育てる候補が無い)。selChainChains(段数)と併読する。
+    outResult[25] = selChainDepth;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
