@@ -56,7 +56,7 @@ struct EvalWeights {
     // ── Ama search_multi 由来：期待連鎖スコア選択（核心①）──
     // 参考: source_assets/puyoAI/ama-beam/ai/search/beam/beam.cpp
     int expChainWeight; // [19] 期待連鎖スコア選択の重み（0で無効＝従来の累積eval選択）
-    int knownNextCount; // [20] 既知のNEXTペア数（現在ペアを除く。擬似未来ツモの分岐開始位置）
+    int knownNextCount; // [20] ※未使用（擬似未来ツモ分岐の撤去で死んだ配線。代入のみ・どこも参照しない）
 
     // ── Ama form 由来：関係性テンプレート（相対方式・毎ターン・0で無効化）──
     // 参考: source_assets/puyoAI/ama-beam/ai/search/beam/form.cpp
@@ -76,8 +76,16 @@ struct EvalWeights {
     // ── Ama 型 eval（発火価値を eval から分離するA/B切替フラグ）──
     //   1 のとき evaluateBoard は calcRewardScore（発火報酬/−5000ペナルティ/chainPotential/緊急/
     //   全消し/動的閾値）を呼ばず、構築品質(calcEvalScore)＋waste のみでビームを駆動する。
-    //   発火価値は chainTarget/expSum 経由で選択(expChainWeight)に集約する＝ama search_multi 方式。
+    //   発火価値は chainTarget（quiescence潜在＋実発火の巻き上げ）経由で初手選択に集約する＝ama 方式。
     //   0 で従来動作（完全不変）。原典: source_assets/puyoAI/ama-beam/ai/search/beam/eval.cpp
     int amaEvalMode;     // [30] 0=現行eval / 1=ama型（構築品質のみで駆動）
     int wasteWeight;     // [31] ama型: 消したぷよ数への小ペナルティ（負。ama waste 相当）
+
+    // ── 発火トリガ（ama型の「いつ撃つか」。育成選択の直前に判定する fire gate）──
+    //   ama型(amaEvalMode=1)はビームを「撃たずに育てる」器として使うため、別途
+    //   発火基準を持たないと無限に積み続ける（ama-main の gaze/TRIGGER 相当が無い）。
+    //   各初手を「今そのまま置いたら実発火する連鎖（depth0 の simulateChain）」で測り、
+    //   下記いずれかが成立したら『今撃てる最大連鎖の初手』を選ぶ。
+    int fireChainCount;  // [32] 目標連鎖数。今撃てる連鎖がこの段数以上なら発火（0=目標発火 無効）
+    int fireEmergency;   // [33] 緊急発火 1/0。盤面が緊急(emergencyHeight到達/致死列高)なら出せる最大連鎖を即発火
 };

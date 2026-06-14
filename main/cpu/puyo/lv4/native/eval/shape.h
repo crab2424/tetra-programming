@@ -25,4 +25,9 @@ void getLink23(const BitBoard& b, int& link2, int& link3);
 int getSide(const int heights[COLS]);
 
 // quiescence: 各列に同色を最大3個まで落として連鎖を試し、qスコアの最大値を返す。
-int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w);
+//   outChainScore != nullptr のとき、発火候補(col×color)の中で実際に到達した
+//   連鎖スコアの最大値（＝「今撃てば出る最大連鎖スコア」）も書き出す。
+//   ※ qスコア(best)は重み付き評価の最大、outChainScore は生の連鎖スコアの最大で、
+//     別々に追跡する（argmax が一致するとは限らない）。発火価値の巻き上げ用。
+int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w,
+                       int* outChainScore = nullptr);

@@ -11,7 +11,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=17' : path;
+        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=20' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -19,7 +19,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=17');
+importScripts('cpu_wasm4.js?v=20');
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -34,9 +34,9 @@ self.onmessage = function (e) {
 
     if (boardPtr === null) {
         boardPtr     = Module._my_malloc(102);
-        // ★ weightsArray の要素数は 32（…[29]pruneChainScore [30]amaEvalMode [31]wasteWeight）
-        weightsPtr   = Module._my_malloc(4 * 32);   // 32要素(128 bytes)
-        resultPtr    = Module._my_malloc(4 * 7);
+        // ★ weightsArray の要素数は 34（…[31]wasteWeight [32]fireChainCount [33]fireEmergency）
+        weightsPtr   = Module._my_malloc(4 * 34);   // 34要素(136 bytes)
+        resultPtr    = Module._my_malloc(4 * 20);   // [0..6]=着手 / [7..19]=デバッグ統計
         nextPairsPtr = Module._my_malloc(4 * 20);
     }
 
@@ -57,6 +57,21 @@ self.onmessage = function (e) {
     const timeTaken = (endTime - startTime).toFixed(2);
 
     console.log(`⚡ Wasm Bitboard PuyoCPU4 (Depth:10) Calculated in: ${timeTaken} ms`);
+
+    // ── ★ ama探索デバッグ（outResult[7..19]）──
+    //   ①scale: 到達連鎖(selChain) と base(構築品質) / base幅(spread)
+    //   ②PRUNE/dedup: 実発動数（0なら効いていない）
+    //   ③差別化: nWithChain(連鎖を組める初手数) と bestChain(到達連鎖スコア最大)
+    const dbg = new Int32Array(HEAP32.buffer, resultPtr, 20);
+    if (dbg[9] >= 0) { // nCand>=0 なら探索成立
+        console.log(
+            `[ama dbg] nCand=${dbg[9]} maxDepth=${dbg[10]} band(同点崩し)=${dbg[11]}\n` +
+            `  PRUNE発動=${dbg[7]} dedup除去=${dbg[8]}\n` +
+            `  選択初手: 到達連鎖selChain=${dbg[14]} base=${dbg[13]}\n` +
+            `  差別化: 連鎖を組める初手数 nWithChain=${dbg[16]}/${dbg[9]}  bestChain=${dbg[12]}  base幅(spread)=${dbg[18]}\n` +
+            `  発火: ${dbg[15] > 0 ? `★${dbg[15]}連鎖を発火` : '育成（撃たず）'}`
+        );
+    }
 
     const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 7);
 
