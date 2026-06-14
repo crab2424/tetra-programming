@@ -99,6 +99,9 @@ void searchBestMovePuyoWasm(
     w.fireChainCount      = weightsArray[32];
     w.fireEmergency       = weightsArray[33];
     w.fireScoreThreshold  = weightsArray[34];
+    w.growthFireForbidChains = weightsArray[35];
+    w.emergencyFireMinRatio  = weightsArray[36];
+    w.emergencyHardCol2      = weightsArray[37];
 
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
