@@ -22,27 +22,27 @@ Object.assign(window.PuyoCPU4.prototype, {
     // ────────────────────────────────
     _initWeights() {
         this.rewardWeights = {
-            chainBonus:            10,  // 発火時の基本ボーナス（C++側で連鎖の3乗倍などで増幅）
+            chainBonus:           100,  // 発火時の基本ボーナス（C++側で連鎖の3乗倍などで増幅）
             erasedBonus:           10,  // 消去ぷよ数ボーナス
             zenkeshiBonus:        100,  // 全消しボーナス
             chainPotentialBonus:  200,  // ポテンシャル増加ボーナス（差分）
         };
 
         this.evalWeights = {
-            heightPenalty:          0,  // 高さペナルティ（毎ターン）
-            heightDiffPenalty:      0,  // 高さ差ペナルティ（毎ターン）
+            heightPenalty:         -8,  // 高さペナルティ（毎ターン）
+            heightDiffPenalty:    -10,  // 高さ差ペナルティ（毎ターン）
 
             // ── Ama 由来の評価値（参考: source_assets/puyoAI/ama-beam）──
             //   いずれも加算式・0で無効化可。実機で要チューニング。
-            shapeWeight:           -8,  // 理想L字形からの偏差ペナルティ
+            shapeWeight:          -80,  // 理想L字形からの偏差ペナルティ
             wellWeight:           -10,  // 井戸（両隣より低い列）ペナルティ
-            bumpWeight:           -10,  // 凸（両隣より高い列）ペナルティ
-            qChainWeight:        7000,  // quiescence 連鎖ポテンシャル数
-            qYWeight:              12,  // quiescence 発火列高さ（高く積める連鎖を評価）
+            bumpWeight:          -500,  // 凸（両隣より高い列）ペナルティ
+            qChainWeight:         700,  // quiescence 連鎖ポテンシャル数
+            qYWeight:             120,  // quiescence 発火列高さ（高く積める連鎖を評価）
             qKeyWeight:           -30,  // quiescence 必要追加ぷよ数
             qChiWeight:            20,  // quiescence 発火点の伸長余地
-            link2Weight:            6,  // 2連結
-            link3Weight:           30,  // 3連結（発火直前形に近く価値大）
+            link2Weight:            2,  // 2連結
+            link3Weight:            4,  // 3連結（発火直前形に近く価値大）
 
             // ── quiescence 発火直前盤面(remain)の連結数（Ama eval.cpp:62-65）──
             //   発火直前の形に次連鎖の種がどれだけ仕込まれているかを評価。0で無効。
@@ -119,11 +119,28 @@ Object.assign(window.PuyoCPU4.prototype, {
             //   ① 今撃てる連鎖が fireChainCount 段以上、または ② fireEmergency かつ盤面緊急、
             //   のとき『今撃てる最大連鎖の初手』を選ぶ（①は目標段数を満たす中で最大）。
             //   fireChainCount=0 で目標発火を無効化（緊急発火だけにできる）。
-            fireChainCount:       10,  // 目標連鎖数。今撃てる連鎖がこの段数以上で発火（0=無効）
+            fireChainCount:        8,  // 目標連鎖数。今撃てる連鎖がこの段数以上で発火（0=無効）
             fireEmergency:         2,  // 緊急発火 1/0。盤面緊急時に出せる最大連鎖を即発火
             //   ③ 和集合条件：今撃てる連鎖スコアがこの値以上なら段数未満でも発火（0=無効）。
             //   段数だけだと「段数は浅いが点数の大きい連鎖」を撃ち逃すための補完。
             fireScoreThreshold:   30000,  // 目標発火のスコア閾値（連鎖スコア単位。0=スコア条件 無効）
+            // ── 育成こぼし抑制 ──
+            //   「育成（撃たず）」と判定された手でも、置いた瞬間に小連鎖を巻き込む（無駄消し）ことがある。
+            //   今そのまま置くとこの段数「以上」を発火する初手を育成選択から除外する。
+            //   0=無効（従来どおり） / 1=こぼし全面禁止 / 2=1連鎖こぼしまで許容 / 3=2連鎖まで許容 …
+            //   band内の全候補がこぼす場合はフィルタを外して再選択する（必ず手は残る）。
+            growthFireForbidChains: 2,  // 育成手が発火を許す段数の下限を除外（0=無効/1=全こぼし禁止）
+
+            // ── 緊急発火の発火対象制限（本線を巻き込む部分発火の防止）──
+            //   緊急回避(②)は無条件に「今撃てる最大連鎖」を撃つが、本線が未完成だと部分連鎖や
+            //   横の暴発で組み上げた本線を巻き込んで壊す。これを潜在比でガードする。
+            //   (a) 潜在比ガード：今撃てる最大連鎖が本線潜在(bestChain)のこの割合以上＝本線がほぼ
+            //       完成している時のみ緊急発火を許す。0=無効（従来どおり無制限）。
+            //       連鎖スコアは段数に対し超線形なので、70 で「本線の最大潜在から約1連鎖以内」が目安。
+            emergencyFireMinRatio:  70,  // 緊急発火を許す潜在比(%)（0=無効＝無制限）
+            //   (b) 窒息寸前の延命：致死列(第3列)がこの段数以上なら比ガードを無視して延命発火（最終手段）。
+            //       可視12段で窒息=12。既定11＝窒息1歩手前。0=最終手段なし（比ガードを常に適用）。
+            emergencyHardCol2:      11,  // 延命発火する致死列の高さ（0=最終手段なし）
         };
 
         // 後方互換のため旧 this.weights も参照可能にしておく（読み取り専用エイリアス）
@@ -148,7 +165,8 @@ Object.assign(window.PuyoCPU4.prototype, {
     //       [22]expBranch [23]expMaxDepth [24]expBeamWidth
     //       [25]qLink2 [26]qLink3 [27]side [28]tear
     //       [29]pruneChainScore [30]amaEvalMode [31]wasteWeight
-    //       [32]fireChainCount [33]fireEmergency [34]fireScoreThreshold
+    //       [32]fireChainCount [33]fireEmergency [34]fireScoreThreshold [35]growthFireForbidChains
+    //       [36]emergencyFireMinRatio [37]emergencyHardCol2
     _buildWeightsArray(ojamaCount, knownNextCount) {
         // ★ おじゃまぷよの数に応じて発火閾値を動的に変更
         let dynamicIgnitionThreshold = this.controlWeights.ignitionThreshold;
@@ -199,7 +217,10 @@ Object.assign(window.PuyoCPU4.prototype, {
             this.evalWeights.wasteWeight,                            // [31] ama型 waste ペナルティ
             this.controlWeights.fireChainCount,                      // [32] 発火トリガ: 目標連鎖数（0=無効）
             this.controlWeights.fireEmergency,                       // [33] 発火トリガ: 緊急発火 0/1
-            this.controlWeights.fireScoreThreshold                   // [34] 発火トリガ: スコア閾値（和集合。0=無効）
+            this.controlWeights.fireScoreThreshold,                  // [34] 発火トリガ: スコア閾値（和集合。0=無効）
+            this.controlWeights.growthFireForbidChains,              // [35] 育成こぼし抑制: 発火段数の除外下限（0=無効）
+            this.controlWeights.emergencyFireMinRatio,               // [36] 緊急発火の潜在比ガード(%)（0=無効）
+            this.controlWeights.emergencyHardCol2                    // [37] 窒息寸前の延命発火 致死列高（0=なし）
         ]);
     },
 });
