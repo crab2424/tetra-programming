@@ -166,8 +166,12 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
             ChainResult chain = simulateChain(sim);
             if (chain.chains <= 0) continue;
 
-            // 「今撃てば出る最大連鎖スコア」を q とは独立に追跡（発火価値の巻き上げ元）
-            if (outChainScore && chain.score > *outChainScore) {
+            // 「キーぷよ1個で着火できる連鎖」だけを potChain として巻き上げる。
+            //   placed>=2（単色を複数積まないと着火しない＝まだ組み途中／ペアでは作りにくい）は
+            //   selChain に計上しない。これにより selChain は常に「いま発火ツモ1個で撃てる連鎖」
+            //   を意味し、「理論上は届くが実際にはペアで作れない」幻の潜在を排除する。
+            //   ※ 下の q 評価（構築品質）は placed 1..3 を使い続ける＝組み途中の連鎖も育てる。
+            if (placed == 1 && outChainScore && chain.score > *outChainScore) {
                 *outChainScore = chain.score;
                 if (outChainCount) *outChainCount = chain.chains;  // 同候補の段数（期待連鎖数）
             }

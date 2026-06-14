@@ -39,7 +39,8 @@ struct ExpCandidate {
     int col2, rot2, col3, rot3;       // 表示用の先読み（最深ノードを辿って取得）
     long long chainTarget;            // この初手から到達できる最大連鎖スコア（潜在＋実発火）
     int chainTargetChains;            // ↑chainTarget に対応する連鎖『段数』（デバッグ期待連鎖数）
-    int chainTargetDepth;             // ↑chainTarget を達成したビーム深さ（=何手後。depth0=今そのまま発火）
+    int chainTargetDepth;             // ↑chainTarget を達成したビーム深さ（=何手後の盤面で見えたか）
+    int chainTargetIsFire;            // ↑chainTarget の出所 1=実発火(chain.score) / 0=潜在(potChain)
 
     // ── 表示用先読み(col2/col3)を辿るための補助 ──
     //   col2/col3 を「累積eval最大ノード」に紐付けると、初手が連鎖を発火したとき
@@ -148,6 +149,7 @@ static void runExpectedChainSelection(
                         cands[fm].chainTarget = 0;
                         cands[fm].chainTargetChains = 0;
                         cands[fm].chainTargetDepth = -1;
+                        cands[fm].chainTargetIsFire = 0;
                         cands[fm].dispDepth = -1;
                         cands[fm].dispScore = LLONG_MIN;
                         cands[fm].fireChains = 0;
@@ -173,11 +175,14 @@ static void runExpectedChainSelection(
                     if (reach > cands[fm].chainTarget) {
                         cands[fm].chainTarget = reach;
                         // 到達連鎖の段数も同じ出所（実発火 chain.chains か 潜在 potChainCount）で更新
-                        cands[fm].chainTargetChains =
-                            (chain.score >= potChain) ? chain.chains : potChainCount;
-                        // この到達連鎖を達成したビーム深さ（=この初手を含め何手目で組み上がるか）。
-                        //   depth0=今そのまま置いた瞬間／depthN=N手後の盤面でその連鎖に届く。
-                        cands[fm].chainTargetDepth = depth;
+                        bool isFire = (chain.score >= potChain);
+                        cands[fm].chainTargetChains = isFire ? chain.chains : potChainCount;
+                        // この到達連鎖が見えたビーム深さ（=何手後の盤面か）と、その出所。
+                        //   出所が実発火(isFire)なら「depthN手後に実際に消える連鎖」、
+                        //   潜在(potChain)なら「depthN手後の盤面で“組めば届く”見込み（実発火には別途
+                        //   発火色のツモが必要）」。depth0=現盤面(初手を置いた直後)で既にその値。
+                        cands[fm].chainTargetDepth  = depth;
+                        cands[fm].chainTargetIsFire = isFire ? 1 : 0;
                     }
                 }
 
@@ -279,6 +284,7 @@ static void runExpectedChainSelection(
     long long selBase = 0, selChain = 0;
     int selChainChains = 0;        // 選択初手の到達連鎖の段数（期待連鎖数。デバッグ）
     int selChainDepth = -1;        // 選択初手の到達連鎖を達成した深さ（=何手後。デバッグ）
+    int selChainIsFire = 0;        // 選択初手の到達連鎖の出所 1=実発火 / 0=潜在（デバッグ）
     // デバッグ集計（スケール/差別化）は全候補で先に取る
     for (int fm = 0; fm < nCand; fm++) {
         long long base = (cands[fm].bestAccum == LLONG_MIN) ? cands[fm].depth0Score : cands[fm].bestAccum;
@@ -301,6 +307,7 @@ static void runExpectedChainSelection(
                 selBase = base; selChain = cands[fm].chainTarget;
                 selChainChains = cands[fm].chainTargetChains;
                 selChainDepth  = cands[fm].chainTargetDepth;
+                selChainIsFire = cands[fm].chainTargetIsFire;
             }
         }
     }
@@ -366,6 +373,7 @@ static void runExpectedChainSelection(
             selChain = cands[fireFm].fireScore;   // 表示は実発火スコア
             selChainChains = cands[fireFm].fireChains; // 表示の期待連鎖数も実発火段数に合わせる
             selChainDepth  = 0;                   // 発火は今そのまま置く＝0手後
+            selChainIsFire = 1;                   // 発火経路＝実発火
             dbgFireChains = cands[fireFm].fireChains; // デバッグ：発火した連鎖段数
         }
     }
@@ -408,8 +416,11 @@ static void runExpectedChainSelection(
     outResult[23] = dbgFireReason;   // 発火理由 0=育成 / 1=目標到達 / 2=緊急(盤面整理)
     outResult[24] = (bestFm >= 0) ? cands[bestFm].fireChains : 0;  // 選択(着手)初手を今置くと実際にこぼれる連鎖段数
     // ── 追加デバッグ[25]：選択初手の到達連鎖を達成した深さ（=何手後に発火/組み上がるか）──
-    //   depth0=今そのまま発火／-1=連鎖未到達(育てる候補が無い)。selChainChains(段数)と併読する。
+    //   depth0=現盤面で既にその値／-1=連鎖未到達(育てる候補が無い)。selChainChains(段数)と併読する。
     outResult[25] = selChainDepth;
+    // ── 追加デバッグ[26]：到達連鎖の出所 1=実発火(chain.score) / 0=潜在(potChain)──
+    //   潜在(0)のときは depth0 でも「今すぐ撃てる」意味ではなく「組めば届く見込み」。実発火は[21]で確認。
+    outResult[26] = selChainIsFire;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

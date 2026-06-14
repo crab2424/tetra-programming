@@ -191,7 +191,7 @@ ama 型 eval は放っておくと**無限に積み続ける**ため、§3.6 で
 
 ### 3.8 出力（build.cpp:320）
 
-`outResult[0,1]=col1,rot1`（選択初手）, `[2]=selChain`（到達 or 実発火の連鎖スコア＝eval-value 表示用）, `[3..6]=col2,rot2,col3,rot3`（表示先読み）。`[7..19]` は PRUNE数/dedup数/候補数/深さ/band/bestChain/selBase/selChain/発火段数 等のデバッグ統計。
+`outResult[0,1]=col1,rot1`（選択初手）, `[2]=selChain`（到達 or 実発火の連鎖スコア＝eval-value 表示用）, `[3..6]=col2,rot2,col3,rot3`（表示先読み）。`[7..19]` は PRUNE数/dedup数/候補数/深さ/band/bestChain/selBase/selChain/発火段数 等のデバッグ統計。`[20..25]` は追加デバッグ（[20]=選択初手の到達連鎖段数, [21][22]=理論上いま撃てる最大連鎖の段数/スコア, [23]=発火理由, [24]=選択手の実こぼし段数, [25]=到達連鎖を達成した深さ＝何手後）。
 
 ---
 
