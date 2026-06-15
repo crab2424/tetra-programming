@@ -90,6 +90,23 @@ window.PuyoCPU4 = class {
         const game = this.game;
         const gs   = game ? game._gs : null;
 
+        // ★ VERSUS：相手ぷよの「発火中連鎖」を毎フレーム監視し、全段打ち切り時の総おじゃま量を保持する。
+        //   おじゃまは1段ごとに即送信される(engine.js)ため、CPUの自ツモ単位の計算だけでは
+        //   連鎖を盤面上で捕まえられず（読む頃には解決済み）予測量が常に0になる。毎RAFで推定し、
+        //   連鎖中は不変＝全段量となる値(_estimateOpponentPuyoChainOjama)を _oppChainFull に控える。
+        //   連鎖が終われば 0 に戻る（attackScore が %rate でリセットされ推定が0になる）。
+        if (game && game.isVersusMode && this.workerReady) {
+            const opp = (typeof this._getOpponentGame === 'function') ? this._getOpponentGame() : null;
+            if (opp && (opp instanceof PuyoGame) && opp.chainCount > 0) {
+                const estimated = this._estimateOpponentPuyoChainOjama(opp);
+                this._oppChainFull = Math.max(this._oppChainFull || 0, estimated || 0);
+            } else {
+                this._oppChainFull = 0;
+            }
+        } else {
+            this._oppChainFull = 0;
+        }
+
         // ★ 前倒し計算（操作を軽くする）：
         //   spawnAnim は「前ツモの連鎖解決＋おじゃま着弾が完了し、盤面が確定した」状態。
         //   ここから falling 中は盤面が変化しないため、次に出るペア(nextQueue[0])で
