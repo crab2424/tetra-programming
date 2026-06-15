@@ -11,7 +11,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=34' : path;
+        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=35' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -19,7 +19,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=34');
+importScripts('cpu_wasm4.js?v=35');
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -36,7 +36,7 @@ self.onmessage = function (e) {
         boardPtr     = Module._my_malloc(102);
         // ★ weightsArray の要素数は 41（…[37]emergencyHardCol2 [38]link3FacL [39]link3FacH [40]link3FacV）
         weightsPtr   = Module._my_malloc(4 * 41);   // 41要素(164 bytes)
-        resultPtr    = Module._my_malloc(4 * 30);   // [0..6]=着手 / [7..26]=デバッグ統計 / [27..29]=path(操作列)
+        resultPtr    = Module._my_malloc(4 * 31);   // [0..6]=着手 / [7..26]=デバッグ統計 / [27..29]=path(操作列) / [30]=致命セル枝刈り数
         nextPairsPtr = Module._my_malloc(4 * 20);
     }
 
@@ -62,7 +62,7 @@ self.onmessage = function (e) {
     //   ①scale: 到達連鎖(selChain) と base(構築品質) / base幅(spread)
     //   ②PRUNE/dedup: 実発動数（0なら効いていない）
     //   ③差別化: nWithChain(連鎖を組める初手数) と bestChain(到達連鎖スコア最大)
-    const dbg = new Int32Array(HEAP32.buffer, resultPtr, 27);
+    const dbg = new Int32Array(HEAP32.buffer, resultPtr, 31);
     if (dbg[9] >= 0) { // nCand>=0 なら探索成立
         // 到達連鎖[25]=見えた深さ / [26]=出所(1実発火/0潜在)。
         //   実発火: depthN手後に実際に消える連鎖。
@@ -77,7 +77,7 @@ self.onmessage = function (e) {
                 : (selDepth === 0 ? '潜在・現盤面で到達(要発火ツモ)' : `潜在・${selDepth}手後の盤面で到達(要発火ツモ)`);
         console.log(
             `[ama dbg] nCand=${dbg[9]} maxDepth=${dbg[10]} band(同点崩し)=${dbg[11]}\n` +
-            `  PRUNE発動=${dbg[7]} dedup除去=${dbg[8]}\n` +
+            `  PRUNE発動=${dbg[7]} dedup除去=${dbg[8]} 致命セル枝刈り=${dbg[30]}\n` +
             `  選択初手: 到達連鎖selChain=${dbg[14]} (期待${dbg[20]}連鎖／${selDepthStr})  base=${dbg[13]}\n` +
             `  理論上いま撃てる最大: ${dbg[21]}連鎖 (${dbg[22]}点) \n` +
             `  差別化: 連鎖を組める初手数 nWithChain=${dbg[16]}/${dbg[9]}  bestChain=${dbg[12]}  base幅(spread)=${dbg[18]}\n` +
@@ -88,7 +88,7 @@ self.onmessage = function (e) {
     }
 
     // [0..6]=着手結果 / [27..29]=選択初手への到達操作列(path packing)。JS 側で復号して再生する。
-    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 30);
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 31);
 
     self.postMessage({
         type:   'result',
