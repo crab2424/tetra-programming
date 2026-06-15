@@ -33,7 +33,7 @@ async function loadCpuScript(level, rule) {
   //  開発中のCPUスクリプトは毎回キャッシュをバイパスして再読み込みする
   // （他のCPUスクリプトは従来通りキャッシュを利用）
   // ここに登録したクラスは評価係数を変えるたび ?v=Date.now() で必ず最新が反映される
-  const DEV_CPU_CLASSES = ['PuyoCPU4', 'CPU6'];
+  const DEV_CPU_CLASSES = ['PuyoCPU5', 'CPU6'];
   const isDevCpu = DEV_CPU_CLASSES.includes(config.className);
 
   if (!isDevCpu && activeCpuClassName === config.className && window[config.className]) {
