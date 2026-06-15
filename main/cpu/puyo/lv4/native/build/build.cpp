@@ -87,6 +87,7 @@ static void runExpectedChainSelection(
     // ── デバッグカウンタ（outResult[7..] に出して JS 側で可視化する。リリース時は撤去）──
     int dbgPrune = 0;   // PRUNE で捨てたノード数
     int dbgDedup = 0;   // 置換表(dedup)で除去したノード数
+    int dbgDeathPrune = 0;   // 致命セル枝刈り（自殺手）で捨てたノード数
 
     // ── 1段ぶんビームを進める共通処理 ──
     //   各ノードで quiescence の潜在連鎖スコア／実発火スコアを chainTarget[fm] に巻き上げる。
@@ -121,6 +122,20 @@ static void runExpectedChainSelection(
             for (const auto& p : placements) {
                 BitBoard nb = applyPlacement(node.board, p, (uint8_t)pivot, (uint8_t)child);
                 ChainResult chain = simulateChain(nb);
+
+                // ── ★ 致命セル枝刈り（自殺手の除外。重み非依存の構造的フィルタ）──
+                //   実機の窒息判定は次ペア spawn 時に _isCellEmpty(2, 0)（列index2=第3列／最上段visible）を
+                //   見る（src/game/puyo/engine.js）。BitBoard では get(2, HIDDEN) に対応する。
+                //   simulateChain は nb を「連鎖の消去・落下まで解決した確定盤面」に更新済みなので、
+                //   ここで死セルが埋まっている＝「致命セルにぷよが配置され、かつ連鎖でも消えない」手。
+                //   そのまま置けば次ツモで即ゲームオーバーになるため、評価・候補登録・巻き上げを行わず
+                //   探索枝ごと捨てる。連鎖で死セルが消える手は nb 上で空くので自然に生き残る
+                //   （＝ユーザー要件「死セル配置 かつ 第3列消去なし」の2条件を nb の一発判定で表現）。
+                //   ※ 全候補が死ぬ既に詰んだ局面では nCand=0 → JS が中央落としにフォールバックする。
+                if (nb.get(2, HIDDEN) != 0) {
+                    dbgDeathPrune++;
+                    continue;
+                }
 
                 // ★ 配置後盤面の「今撃てば出る最大連鎖スコア」(potChain)を eval と同じ
                 //   quiescence シミュから受け取る（追加コストなし）。
@@ -442,6 +457,9 @@ static void runExpectedChainSelection(
             outResult[27 + idx] |= (cands[bestFm].path[i] & 0x7) << shift;
         }
     }
+
+    // ── [30]：致命セル枝刈り（自殺手）で捨てたノード数（デバッグ）──
+    outResult[30] = dbgDeathPrune;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
