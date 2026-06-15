@@ -1,12 +1,12 @@
 // ─────────────────────────────────────────────
 // cpu5_worker_io.js（Worker / Wasm 連携）
-//   PuyoCPU4.prototype を拡張する（cpu5.js が class 本体を定義済みであること）。
+//   PuyoCPU5.prototype を拡張する（cpu5.js が class 本体を定義済みであること）。
 //
 //   _requestCalculation()  … 盤面/NEXT/重みをバッファ化して Worker へ postMessage
 //   _handleWorkerResult()  … Wasm の探索結果を受け取り、bestMoveData 反映・着手開始
 // ─────────────────────────────────────────────
 
-Object.assign(window.PuyoCPU4.prototype, {
+Object.assign(window.PuyoCPU5.prototype, {
 
     // precompute=true のときは「これから出るペア(nextQueue[0])」を現ペアとして探索する
     // （spawnAnim 時点の前倒し計算）。falling 時の通常計算では pivotColor/childColor を使う。
@@ -170,6 +170,13 @@ Object.assign(window.PuyoCPU4.prototype, {
         const game = this.game;
         if (!game || !game.isVersusMode) return null;
         return game.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+    },
+
+    // ★ VERSUS：相手がテト（非ぷよ）なら true。相手は PuyoGame のインスタンスでなければテト。
+    //   build モードの分岐（build ↔ vsTet）に使う。VERSUS 以外／相手不在では false。
+    _isOpponentTet() {
+        const opp = this._getOpponentGame();
+        return !!opp && !(opp instanceof PuyoGame);
     },
 
     // ★ VERSUS：相手の garbageQueue に積まれている総量（個）を返す。
@@ -384,7 +391,9 @@ Object.assign(window.PuyoCPU4.prototype, {
             this.controlWeights.fireScoreThreshold = (incomingGross + 1) * rate;
             this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
         } else {
-            if (this.cpuMode !== 'build') this.setMode('build');
+            // カウンター不要時の本線構築モード：相手がテトなら vsTet、それ以外（ぷよ）は build。
+            const buildMode = this._isOpponentTet() ? 'vsTet' : 'build';
+            if (this.cpuMode !== buildMode) this.setMode(buildMode);
             this._counterActive = false;
         }
 

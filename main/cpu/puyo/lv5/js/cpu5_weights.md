@@ -1,6 +1,6 @@
 # cpu5_weights パラメータ解説
 
-`cpu5_weights.js`（`PuyoCPU4.prototype._initWeights` / `_modeProfiles` / `_buildWeightsArray`）で定義する重みの詳細解説。
+`cpu5_weights.js`（`PuyoCPU5.prototype._initWeights` / `_modeProfiles` / `_buildWeightsArray`）で定義する重みの詳細解説。
 JS 側には各値の末尾に1行の要約コメントだけを残し、変数そのものの長い説明はこのファイルに集約する。
 
 参考実装: `source_assets/puyoAI/ama-beam`（Ama）。⚠️ 値はすべて暫定＝実機で要チューニング（[[feedback-versus-cpu-verification]]）。
@@ -218,3 +218,11 @@ Ama `config.json` の fast プロファイル（build比）の相対値を lv5 �
 - 小さい連鎖でも早く撃つ（発火トリガを浅く・こぼし抑制を外す）
 
 ＝「多少汚くても浅い連鎖を速く返す」挙動。
+
+### vsTet — 相手がテトのときの本線構築
+
+`_updateVersusCounterMode()` がカウンター（fast）不要と判定したとき、相手種別で build を分岐する:
+相手がぷよ（またはソロ）なら `build`、相手がテト（`_isOpponentTet()` ＝ 相手が `PuyoGame` でない）なら `vsTet`。
+おじゃま着弾の早さ・攻撃ゲージ特性がぷよ相手と異なるため、テト専用の構築プロファイルを分離する狙い。
+
+★ 現状はモード分岐のみ＝`build` と同一（差分なし）。挙動は build から変わらない。テト相手向けの重み調整は今後。

@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────
 // cpu5_weights.js（重み定義・weightsArray 組立）
-//   PuyoCPU4.prototype を拡張する（cpu5.js が class 本体を定義済みであること）。
+//   PuyoCPU5.prototype を拡張する（cpu5.js が class 本体を定義済みであること）。
 //
 //   _initWeights()       … rewardWeights / evalWeights / controlWeights を初期化
 //   _buildWeightsArray() … C++ 側に渡す Int32Array を組み立てる
@@ -9,7 +9,7 @@
 //     JS には各値の末尾に1行の要約コメントだけを残す。
 // ─────────────────────────────────────────────
 
-Object.assign(window.PuyoCPU4.prototype, {
+Object.assign(window.PuyoCPU5.prototype, {
 
     // ★ 評価パラメータの初期化（3グループの詳細は cpu5_weights.md「重みの3グループ」）。
     //   報酬=配置で現れた変化に1回加算 / 評価値=配置後の盤面を毎ターン評価 / 制御=発火・緊急などの振る舞い。
@@ -107,8 +107,13 @@ Object.assign(window.PuyoCPU4.prototype, {
     //   ⚠️ 値はすべて暫定＝実機で要チューニング（[[feedback-versus-cpu-verification]]）。
     _modeProfiles() {
         return {
-            // build：従来どおりの本線構築（基準値・差分なし）。
+            // build：従来どおりの本線構築（基準値・差分なし）。相手がぷよ／ソロ時の既定。
             build: {},
+
+            // vsTet：相手がテトのときの本線構築（詳細: cpu5_weights.md）。
+            //   ★ まずはモード分岐のみ＝現状 build と同一（差分なし）。
+            //     今後テト相手向け（おじゃま着弾の早さ・攻撃ゲージ特性）にチューニングする。
+            vsTet: {},
 
             // fast：速攻型（「多少汚くても浅い連鎖を速く返す」。詳細: cpu5_weights.md）。
             fast: {

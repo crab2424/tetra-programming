@@ -1,16 +1,19 @@
 // ─────────────────────────────────────────────
-// cpu5_action.js（操作エミュレーション / 移動・回転・ソフトドロップ）
-//   PuyoCPU4.prototype を拡張する（cpu5.js が class 本体を定義済みであること）。
+// cpu5_action.js（操作エミュレーション / 移動・回転・クイックドロップ）
+//   PuyoCPU5.prototype を拡張する（cpu5.js が class 本体を定義済みであること）。
 //
 //   _executeMove()        … 目標 col/rot へ向けた操作キューを起動
 //   _buildActionQueue()   … 回転・移動・着地までの操作列を組み立て
 //   _processActionQueue() … キューを 1 手ずつ消化
-//   _startSoftDropLoop()  … 重力を退避して高速ソフトドロップ
-//   _restoreGravity()     … 退避した重力を復元
-//   _forceLock()          … 落下中ピースを強制ロック
+//   _startQuickDrop()     … クイックドロップ（ハードドロップ）で即着地・即設置
+//   _restoreGravity()     … 退避した重力を復元（クイックドロップでは未使用の安全弁）
+//
+//   ★ 高速化：従来は重力を退避して RAF ループで疑似ソフトドロップしていたが、
+//     ゲーム本体の _tryQuickDrop()（着地計算→lockTimer→設置音→_fixPuyo）を
+//     直接呼ぶハードドロップに置き換え、落下アニメ分のフレームを丸ごと削減する。
 // ─────────────────────────────────────────────
 
-Object.assign(window.PuyoCPU4.prototype, {
+Object.assign(window.PuyoCPU5.prototype, {
 
     _executeMove(targetCol, targetRot, path) {
         if (!this.isActive || !this.isAutoPlay) return;
@@ -40,7 +43,7 @@ Object.assign(window.PuyoCPU4.prototype, {
             else if (code === 4) queue.push({ type: 'rotateCW' });
             else if (code === 5) queue.push({ type: 'rotateCCW' });
         }
-        queue.push({ type: 'softDropUntilLock' });
+        queue.push({ type: 'quickDrop' });
         return queue;
     },
 
@@ -62,7 +65,7 @@ Object.assign(window.PuyoCPU4.prototype, {
             queue.push({ type: moveType });
         }
 
-        queue.push({ type: 'softDropUntilLock' });
+        queue.push({ type: 'quickDrop' });
 
         return queue;
     },
@@ -102,8 +105,8 @@ Object.assign(window.PuyoCPU4.prototype, {
             case 'moveRight':
                 this.game._tryMove(1);
                 break;
-            case 'softDropUntilLock':
-                this._startSoftDropLoop();
+            case 'quickDrop':
+                this._startQuickDrop();
                 return;
         }
 
@@ -117,113 +120,44 @@ Object.assign(window.PuyoCPU4.prototype, {
         }
     },
 
-    _startSoftDropLoop() {
-        if (this._softDropRafId !== null) {
-            cancelAnimationFrame(this._softDropRafId);
-            this._softDropRafId = null;
+    // ★ クイックドロップ（ハードドロップ）：移動・回転が終わったピースを即着地・即設置する。
+    //   ゲーム本体の _tryQuickDrop() が「着地Y算出 → lockTimer 設定 → 設置音 → _fixPuyo(true)」を
+    //   すべて行うため、CPU 側は重力退避も RAF ループも不要。落下アニメ分のフレームを丸ごと省く。
+    _startQuickDrop() {
+        if (!this.isActive || !this.isAutoPlay) {
+            this.isExecutingAction = false;
+            return;
         }
 
-        if (this.game.fallTimer !== undefined) this.game.fallTimer = 0;
-        if (this.game.dropTimer !== undefined) this.game.dropTimer = 0;
-
-        if (this.originalGravity === null && this.game.gravity !== undefined) {
-            this.originalGravity = this.game.gravity;
-            this.game.gravity = 0;
+        // ポーズ中は falling に戻るまで待ってからドロップする。
+        if (this.game.isPaused || this.game.state === 'paused') {
+            setTimeout(() => {
+                if (this.isActive && this.isAutoPlay) this._startQuickDrop();
+            }, 100);
+            return;
         }
 
-        const dropSpeedFast = 500 / 12;
+        // 既に落下が終わっている（連鎖中・ロック済み等）なら何もせず終了。
+        if (this.game._gs !== 'falling') {
+            this.isExecutingAction = false;
+            return;
+        }
 
-        let prevTime = performance.now();
+        // 一気に着地させて即設置。
+        this.game._tryQuickDrop();
 
-        const tick = (now) => {
-            if (!this.isActive || !this.isAutoPlay) {
-                this._softDropRafId = null;
-                this._restoreGravity();
-                this.isExecutingAction = false;
-                return;
-            }
-
-            if (this.game.isPaused || this.game.state === 'paused') {
-                this._softDropRafId = requestAnimationFrame(tick);
-                prevTime = now;
-                return;
-            }
-
-            if (this.game._gs !== 'falling') {
-                this._softDropRafId = null;
-                this._restoreGravity();
-                setTimeout(() => {
-                    if (this.isActive && this.isAutoPlay) {
-                        if (this.game._gs === 'falling') this._forceLock();
-                    }
-                    this.isExecutingAction = false;
-                }, this.placeDelay);
-                return;
-            }
-
-            let dt = now - prevTime;
-            if (dt > 100) dt = 100;
-            prevTime = now;
-
-            const limitY = this.game._calcLimitY(
-                this.game.pivotX,
-                this.game.pivotY,
-                this.game.targetRot
-            );
-
-            if (this.game.pivotY < limitY) {
-                const dropDist = dt / dropSpeedFast;
-                const prevY = this.game.pivotY;
-                this.game.pivotY = Math.min(this.game.pivotY + dropDist, limitY);
-                const actualDist = this.game.pivotY - prevY;
-
-                this.game.scoreFloat += actualDist;
-                if (this.game.scoreFloat >= 1) {
-                    const add = Math.floor(this.game.scoreFloat);
-                    this.game.score += add;
-                    this.game.scoreFloat -= add;
-                    if (typeof this.game._addDropScore === 'function') {
-                        this.game._addDropScore(add);
-                    }
-                    this.game._updateScoreDisplay();
-                }
-
-                this._softDropRafId = requestAnimationFrame(tick);
-            } else {
-                this.game.pivotY = limitY;
-                this._softDropRafId = null;
-                this._restoreGravity();
-
-                setTimeout(() => {
-                    if (this.isActive && this.isAutoPlay) {
-                        if (this.game._gs === 'falling') this._forceLock();
-                    }
-                    this.isExecutingAction = false;
-                }, this.placeDelay);
-            }
-        };
-
-        this._softDropRafId = requestAnimationFrame(tick);
+        // 設置後に少し間を置いてから次の手の実行を許可する（演出の間）。
+        setTimeout(() => {
+            this.isExecutingAction = false;
+        }, this.placeDelay);
     },
 
+    // 旧ソフトドロップ実装の重力退避の後始末（クイックドロップ化後は退避しないので実質 no-op）。
+    //   stop() / _processActionQueue() からの呼び出し互換のため安全弁として残す。
     _restoreGravity() {
         if (this.originalGravity !== null && this.game) {
             this.game.gravity = this.originalGravity;
             this.originalGravity = null;
         }
-    },
-
-    _forceLock() {
-        this._restoreGravity();
-        if (!this.isActive) return;
-        if (this.game._gs !== 'falling') return;
-
-        const limitY = this.game._calcLimitY(
-            this.game.pivotX,
-            this.game.pivotY,
-            this.game.targetRot
-        );
-        this.game.pivotY = limitY;
-        this.game.lockTimer = 99999;
     },
 });
