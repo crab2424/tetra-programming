@@ -172,6 +172,20 @@ Object.assign(window.PuyoCPU4.prototype, {
         return game.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
     },
 
+    // ★ VERSUS：相手の garbageQueue に積まれている総量（個）を返す。
+    //   相手キューの中身＝CPU が sendGarbage で送り込んだ「自分の発火おじゃま」で、
+    //   相手が連鎖を撃つ際は engine._applyOjamaOffset でまずこれを相殺してからでないと
+    //   CPU へ届かない。つまり「相手のカウンター火力を吸収する CPU の居座り火力」。
+    //   ※ 1v1 では相手キュー＝CPU 送出分のみ。internal/grace 段階も相殺対象なので全量を合算する。
+    _getOpponentQueueGross(opp) {
+        if (!opp || !opp.garbageQueue || !opp.garbageQueue.length) return 0;
+        let total = 0;
+        for (const g of opp.garbageQueue) {
+            if (g && g.amount > 0) total += g.amount;
+        }
+        return total;
+    },
+
     // ★ VERSUS：テト相手の「まだ撃っていないが間もなく送ってくる」予測量（個）を返す。
     //   攻撃ゲージ pendingAttack（ライン消去なし設置で放出＝チャージ中は未着弾）を、送信時と同じ
     //   変換テーブル（tet/garbage.js sendGarbage、n>=18 は (n^2-21n+204)/2）でおじゃま個数へ換算。
@@ -275,28 +289,44 @@ Object.assign(window.PuyoCPU4.prototype, {
     //   発火は本来「実際に送られてから」だが、確定着弾→降下まで約1秒しか無く間に合わないため、
     //   予測分も基準に含めて先んじてカウンターを仕込む（ユーザー方針）。
     //
-    //   ・ぷよ相手が発火中(_oppChainFull>0)：おじゃまは1段ごとに即送信されキュー(garbageQueue)へ
-    //     積まれていくが、連鎖がまだ続く以上それらも「確定」ではなく発火中連鎖の一部。よって
-    //       予測(anticipated) = 発火中連鎖の全段量 _oppChainFull
-    //       確定(committed)   = キュー総量 − この連鎖で既に送られた分(opp.generatedOjamaTotal)
-    //     とし、二重計上なく「基準＝過去確定分＋発火中連鎖の全段量」になる（連鎖終了で全部が確定へ移る）。
+    //   ・ぷよ相手が発火中(_oppChainFull>0)：相殺(engine._applyOjamaOffset)を織り込んだ
+    //     「ネット受け量」を計算する。相殺カスケードは次の順で起きる:
+    //       ① CPU 自身の未送出火力(pendingFire)が、まず自分の受けキュー(committed)を相殺する。
+    //       ② 相殺しきれず余った CPU 火力(leftoverSelfFire)は相手キューへ回り、相手の火力を吸収する。
+    //       ③ 既に相手キューに居る CPU 送出分(oppQueueGross)も相手の火力を吸収する。
+    //       ④ 相手の残り火力(全段見込み − 既送出分) が ②③の吸収を上回った差分だけが CPU に届く。
+    //     例: CPU が先に9連鎖を放つと oppQueueGross が大きく、相手の8連鎖は全て吸収され
+    //         anticipated=0（fast に入らない）。相手が11連鎖なら差分のみ anticipated に乗る。
     //   ・それ以外（ぷよ相手が非発火／テト相手）：確定＝キュー総量、予測＝テトゲージ換算 or 0。
     _getIncomingBaseline() {
         const game = this.game;
         if (!game || !game.isVersusMode) return 0;
 
-        const grossQueue = this._getIncomingOjamaGross();
-        const opp        = this._getOpponentGame();
+        const grossQueue   = this._getIncomingOjamaGross();
+        const opp          = this._getOpponentGame();
         const oppChainFull = this._oppChainFull || 0;
 
         let committed, anticipated;
         if (opp && (opp instanceof PuyoGame) && oppChainFull > 0) {
-            const sentThisChain = Math.max(0, opp.generatedOjamaTotal || 0);
-            anticipated = oppChainFull;
-            committed   = Math.max(0, grossQueue - sentThisChain);
+            // ── 相殺カスケード（個単位）──
+            const selfFire         = Math.max(0, game.pendingFire || 0);          // CPU 未送出火力
+            const oppQueueGross    = this._getOpponentQueueGross(opp);            // CPU 既送出（相手キュー）
+            const oppGenerated     = Math.max(0, opp.generatedOjamaTotal || 0);   // 相手が既に送った分
+
+            const committedNet     = Math.max(0, grossQueue - selfFire);          // ①自キュー相殺後
+            const leftoverSelfFire = Math.max(0, selfFire - grossQueue);          // ②相手へ回る余剰
+            const absorbAtOpp      = oppQueueGross + leftoverSelfFire;            // ②③相手側の吸収力
+            const oppRemainingFire = Math.max(0, oppChainFull - oppGenerated);    // 相手の残り火力(二重計上回避)
+
+            committed   = committedNet;
+            anticipated = Math.max(0, oppRemainingFire - absorbAtOpp);            // ④届く差分
+
+            // デバッグ内訳（コンソール表示用）
+            this._offsetDbg = { selfFire, committedNet, leftoverSelfFire, oppQueueGross, absorbAtOpp, oppChainFull, oppRemainingFire };
         } else {
             anticipated = this._getAnticipatedTetOjama(opp);
             committed   = grossQueue;
+            this._offsetDbg = null;
         }
 
         this._committedOjama   = committed;
@@ -369,10 +399,15 @@ Object.assign(window.PuyoCPU4.prototype, {
             const antic     = this._anticipatedOjama ?? 0;
             const tag       = modeChanged ? `★切替 ${prevMode} → ${this.cpuMode}` : `mode=${this.cpuMode}`;
             // 予測=相手の発火中連鎖を全段打ち切った時の見込みおじゃま総量（途中段でも全段ぶん）。
+            //   相殺込みのネット受け量。相殺内訳(_offsetDbg)があれば併記する。
+            const od = this._offsetDbg;
+            const offsetStr = od
+                ? `｜相殺[相手連鎖${od.oppChainFull}−吸収${od.absorbAtOpp}(相手キュー${od.oppQueueGross}+自余剰${od.leftoverSelfFire})＝届く${antic}]`
+                : '';
             console.log(
-                `[cpu4 versus] ${tag}｜基準受け量=${incomingGross}個(既着弾/確定待ち${committed}+予測${antic}〔全段見込み〕, 発動>${COUNTER_TRIGGER_OJAMA}) / 自カバー(参考)=${coverage}個` +
+                `[cpu4 versus] ${tag}｜ネット受け量=${incomingGross}個(既着弾/確定待ち${committed}+予測${antic}〔全段見込み〕, 発動>${COUNTER_TRIGGER_OJAMA})${offsetStr} / 自カバー(参考)=${coverage}個` +
                 (this.cpuMode === 'fast'
-                    ? `｜カウンター発火閾値=${thr}点(≒${thrOjama}個＝確定+予測を上回ったら発火)`
+                    ? `｜カウンター発火閾値=${thr}点(≒${thrOjama}個＝差分+αを上回ったら発火)`
                     : `｜発火閾値=${thr}点(標準)`)
             );
         }
