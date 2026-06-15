@@ -56,7 +56,7 @@ self.onmessage = function (e) {
     const endTime   = performance.now();
     const timeTaken = (endTime - startTime).toFixed(2);
 
-    console.log(`⚡ Wasm Bitboard PuyoCPU4 Calculated in: ${timeTaken} ms`);
+    console.log(`⚡ Wasm Bitboard PuyoCPU5 Calculated in: ${timeTaken} ms`);
 
     // ── ★ ama探索デバッグ（outResult[7..19]）──
     //   ①scale: 到達連鎖(selChain) と base(構築品質) / base幅(spread)

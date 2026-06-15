@@ -3,9 +3,9 @@
 // ぷよCPU lv5 - Web Worker + Wasm 連携版
 //
 // ★ファイル分割について（プロトタイプ拡張パターン）
-//   PuyoCPU4 は責務ごとに複数ファイルへ分割されている。
+//   PuyoCPU5 は責務ごとに複数ファイルへ分割されている。
 //   本ファイルが class 本体（constructor / start / stop / _updateLoop）を定義し、
-//   以下のファイルが Object.assign(PuyoCPU4.prototype, {...}) でメソッドを追加する：
+//   以下のファイルが Object.assign(PuyoCPU5.prototype, {...}) でメソッドを追加する：
 //     - cpu5_weights.js    … _initWeights / _buildWeightsArray（重み定義・動的閾値・配列組立）
 //     - cpu5_worker_io.js  … _requestCalculation / _handleWorkerResult（Worker/Wasm 連携）
 //     - cpu5_estimate.js   … 着手予測オーバーレイ描画（test モード）
@@ -15,7 +15,7 @@
 //      読み込みは src/app/modes.js の CPU_CONFIGS（src 配列）と cpu_loader.js が担当。
 // ─────────────────────────────────────────────
 
-window.PuyoCPU4 = class {
+window.PuyoCPU5 = class {
     constructor(gameInstance) {
         this.game = gameInstance;
 
@@ -43,7 +43,7 @@ window.PuyoCPU4 = class {
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
-                console.log('🚀 Wasm PuyoCPU4 Worker Ready!');
+                console.log('🚀 Wasm PuyoCPU5 Worker Ready!');
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 this._handleWorkerResult(e.data.result);

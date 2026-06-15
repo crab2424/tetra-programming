@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────
 // cpu5_estimate.js（着手予測オーバーレイ描画 / test モード）
-//   PuyoCPU4.prototype を拡張する（cpu5.js が class 本体を定義済みであること）。
+//   PuyoCPU5.prototype を拡張する（cpu5.js が class 本体を定義済みであること）。
 //
 //   _initEstimateContainer() … 予測表示用のオーバーレイ DOM を用意
 //   _renderEstimatePlace()   … bestMoveData の 3 手先までを半透明ぷよで描画
@@ -8,7 +8,7 @@
 //   _createEstimatePuyo()    … 1 個分の予測ぷよ DOM を生成
 // ─────────────────────────────────────────────
 
-Object.assign(window.PuyoCPU4.prototype, {
+Object.assign(window.PuyoCPU5.prototype, {
 
     _initEstimateContainer() {
         const canvasId = this.game.canvasPrefix ? `${this.game.canvasPrefix}-puyo-main-canvas` : 'puyo-main-canvas';
