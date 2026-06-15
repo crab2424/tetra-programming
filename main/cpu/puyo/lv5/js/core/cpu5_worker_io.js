@@ -365,6 +365,14 @@ Object.assign(window.PuyoCPU5.prototype, {
         // カウンター発動の受け量しきい値（これ「を超えたら」発動）。
         const COUNTER_TRIGGER_OJAMA = 5;
 
+        // ★ カウンター発火スコアの相手別倍率（受け量に対しどれだけ上回って返すか）。
+        //   fireScoreThreshold = (受け量+1) × rate × margin。
+        //     ・対ぷよ(build)：返すこと優先＝ぎりぎり上回れば撃つ（1.0）。
+        //     ・対テト(vsTet)：余裕を持って返す＝大きめに上回らせてから撃つ（>1.0）。
+        //   ⚠️ 暫定値＝実機で要チューニング（[[feedback-versus-cpu-verification]]）。
+        const COUNTER_MARGIN_VSPUYO = 1.0;
+        const COUNTER_MARGIN_VSTET  = 1.3;
+
         const rate = game.vsOjamaRate ?? PConfig.ojamaRate;
 
         // 自分が今いつでも組める最大潜在連鎖で相殺できるおじゃま量（カバー量）。
@@ -387,8 +395,10 @@ Object.assign(window.PuyoCPU5.prototype, {
             // ★ カウンター閾値：発火スコア閾値を「受け量を上回る連鎖」に設定する。
             //   おじゃま量 incomingGross+1 個ぶんの連鎖スコア = (incomingGross+1) × rate。
             //   段数トリガ(fireChainCount)は切り、この受け量超えスコアだけを発火条件にする。
+            //   ★ 相手別倍率：対テトは余裕を持って返す（>1.0）、対ぷよは返す優先（1.0）。
+            const margin = this._isOpponentTet() ? COUNTER_MARGIN_VSTET : COUNTER_MARGIN_VSPUYO;
             this.controlWeights.fireChainCount     = 0;
-            this.controlWeights.fireScoreThreshold = (incomingGross + 1) * rate;
+            this.controlWeights.fireScoreThreshold = Math.ceil((incomingGross + 1) * rate * margin);
             this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
         } else {
             // カウンター不要時の本線構築モード：相手がテトなら vsTet、それ以外（ぷよ）は build。
