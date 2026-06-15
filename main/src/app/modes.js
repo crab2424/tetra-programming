@@ -103,7 +103,7 @@ const CPU_LEVELS = {
   // ★ 隠し要素: 準備画面で「6」キーを押すと出現（tet限定）
   6: { label: 'LV 6', desc: '???', gravityLevel: 2 },
 };
-let selectedCpuLevel = 4; 
+let selectedCpuLevel = 5; 
 
 const CPU_CONFIGS = {
   tet: {
@@ -120,6 +120,7 @@ const CPU_CONFIGS = {
     3: { className: 'PuyoCPU3', src: 'cpu/puyo/lv3/cpu3.js' },
     // ★ lv4 はプロトタイプ拡張で複数ファイルに分割。class 定義(cpu4.js)を必ず先頭に置く。
     //   残りは順不同で PuyoCPU4.prototype を拡張する。cpu_loader.js が配列を順次ロードする。
+    //   lv4 は実装に一旦区切りをつけた完成版（DEV_CPU_CLASSES から外しキャッシュ利用）。
     4: { className: 'PuyoCPU4', src: [
         'cpu/puyo/lv4/js/cpu4.js',
         'cpu/puyo/lv4/js/cpu4_weights.js',
@@ -127,6 +128,14 @@ const CPU_CONFIGS = {
         'cpu/puyo/lv4/js/cpu4_estimate.js',
         'cpu/puyo/lv4/js/cpu4_action.js',
     ] },
-    5: { className: 'PuyoCPU5', src: 'cpu/puyo/lv5/cpu5.js' }  
+    // ★ lv5 は開発中。lv4 同様プロトタイプ拡張で複数ファイルに分割し、class 定義(cpu5.js)を先頭に置く。
+    //   DEV_CPU_CLASSES に登録され ?v=Date.now() で毎回最新の js が反映される。
+    5: { className: 'PuyoCPU5', src: [
+        'cpu/puyo/lv5/js/cpu5.js',
+        'cpu/puyo/lv5/js/cpu5_weights.js',
+        'cpu/puyo/lv5/js/cpu5_worker_io.js',
+        'cpu/puyo/lv5/js/cpu5_estimate.js',
+        'cpu/puyo/lv5/js/cpu5_action.js',
+    ] }
   }
 };
