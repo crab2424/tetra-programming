@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 
 # ★ ファイル分割（ama-beam 構成を参考）。全 .cpp をまとめて1つの wasm にリンクする。
 #   include は native ルート相対（例: "core/bitboard.h"）。-I. で解決する。
-#   モード追加時（free/fast/allClell 等）は対応する .cpp をこのリストに足すこと。
+#   モード追加時は対応する .cpp をこのリストに足すこと（手順は MODES.md 参照）。
 SRCS=(
   cpu5.cpp
   core/bitboard.cpp
