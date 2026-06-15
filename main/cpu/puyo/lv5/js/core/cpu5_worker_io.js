@@ -389,6 +389,9 @@ Object.assign(window.PuyoCPU5.prototype, {
 
         const prevMode = this.cpuMode;
 
+        // 適用したカウンター倍率（ログ表示用。非カウンター時は 1.0）。
+        let appliedMargin = 1.0;
+
         if (wantCounter) {
             if (this.cpuMode !== 'fast') this.setMode('fast');
             this._counterActive = true;
@@ -397,6 +400,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             //   段数トリガ(fireChainCount)は切り、この受け量超えスコアだけを発火条件にする。
             //   ★ 相手別倍率：対テトは余裕を持って返す（>1.0）、対ぷよは返す優先（1.0）。
             const margin = this._isOpponentTet() ? COUNTER_MARGIN_VSTET : COUNTER_MARGIN_VSPUYO;
+            appliedMargin = margin;
             this.controlWeights.fireChainCount     = 0;
             this.controlWeights.fireScoreThreshold = Math.ceil((incomingGross + 1) * rate * margin);
             this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
@@ -426,7 +430,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             console.log(
                 `[cpu5 versus] ${tag}｜ネット受け量=${incomingGross}個(既着弾/確定待ち${committed}+予測${antic}〔全段見込み〕, 発動>${COUNTER_TRIGGER_OJAMA})${offsetStr} / 自カバー(参考)=${coverage}個` +
                 (this.cpuMode === 'fast'
-                    ? `｜カウンター発火閾値=${thr}点(≒${thrOjama}個＝差分+αを上回ったら発火)`
+                    ? `｜カウンター発火閾値=${thr}点(≒${thrOjama}個＝差分+αを上回ったら発火, 倍率×${appliedMargin}${this._isOpponentTet() ? '対テト' : '対ぷよ'})`
                     : `｜発火閾値=${thr}点(標準)`)
             );
         }
