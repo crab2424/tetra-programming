@@ -40,9 +40,9 @@ Object.assign(window.PuyoCPU5.prototype, {
                     wellWeight:   { x: 0.1 },    // 井戸ペナルティを緩和
                     bumpWeight:   { x: 0.05 },   // 凸ペナルティを大幅緩和（速く積む）
                     tearWeight:   { x: 2.0 },    // ちぎりを許容して速度優先
-                    link3FacL:    { x: 2.0 },    // L字（折れ）  
+                    link3FacL:    { x: 1.0 },    // L字（折れ）  
                     link3FacH:    { x: 1.0 },    // 横一直線      
-                    link3FacV:    { x: 0.6 },    // 縦一直線      
+                    link3FacV:    { x: 4.0 },    // 縦一直線      
                     formWeight:   0,             // vstet は form を持たない（build 専用）
                 },
                 controlWeights: {
