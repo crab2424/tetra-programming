@@ -131,11 +131,12 @@ const CPU_CONFIGS = {
     // ★ lv5 は開発中。lv4 同様プロトタイプ拡張で複数ファイルに分割し、class 定義(cpu5.js)を先頭に置く。
     //   DEV_CPU_CLASSES に登録され ?v=Date.now() で毎回最新の js が反映される。
     5: { className: 'PuyoCPU5', src: [
-        'cpu/puyo/lv5/js/cpu5.js',
-        'cpu/puyo/lv5/js/cpu5_weights.js',
-        'cpu/puyo/lv5/js/cpu5_worker_io.js',
-        'cpu/puyo/lv5/js/cpu5_estimate.js',
-        'cpu/puyo/lv5/js/cpu5_action.js',
+        'cpu/puyo/lv5/js/core/cpu5.js',
+        'cpu/puyo/lv5/js/weights/cpu5_weights.js',
+        'cpu/puyo/lv5/js/weights/cpu5_modes.js',
+        'cpu/puyo/lv5/js/core/cpu5_worker_io.js',
+        'cpu/puyo/lv5/js/core/cpu5_estimate.js',
+        'cpu/puyo/lv5/js/core/cpu5_action.js',
     ] }
   }
 };
