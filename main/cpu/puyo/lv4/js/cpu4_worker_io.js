@@ -197,7 +197,12 @@ Object.assign(window.PuyoCPU4.prototype, {
     //   発火していない（settled）盤面は4連結が立たないので 0 を返す（過大評価しない）。
     _estimateOpponentPuyoChainOjama(opp) {
         if (!opp || !opp.field) return 0;
-        const PC = window.PConfig;
+        // ★ PConfig は base.js のトップレベル const（=グローバルレキシカル束縛）。
+        //   classic script では const/class は window のプロパティにならないため
+        //   window.PConfig は undefined になり、ここで常に return 0 して
+        //   「ぷよ相手の発火中連鎖の予測量」が恒久的に 0 になっていた（コンソール予測が常に0）。
+        //   同ファイルで bare の PuyoGame が解決できるのと同様、bare の PConfig を直接参照する。
+        const PC = PConfig;
         if (!PC) return 0;
         const totalRows = PC.rows + PC.hiddenRows;
         const cols = PC.cols;
@@ -323,7 +328,7 @@ Object.assign(window.PuyoCPU4.prototype, {
         // カウンター発動の受け量しきい値（これ「を超えたら」発動）。
         const COUNTER_TRIGGER_OJAMA = 5;
 
-        const rate = game.vsOjamaRate ?? (window.PConfig ? PConfig.ojamaRate : 70);
+        const rate = game.vsOjamaRate ?? PConfig.ojamaRate;
 
         // 自分が今いつでも組める最大潜在連鎖で相殺できるおじゃま量（カバー量）。
         //   ※ 判定には使わず、コンソール表示の参考値としてのみ算出する。
