@@ -16,3 +16,5 @@ dist/
 
 # SE直下のoggファイルのみ（サブフォルダは除外）
 assets/audio/se/*.ogg
+
+/cpu/puyo/lv4/tests/estimate_ojama.test.mjs
