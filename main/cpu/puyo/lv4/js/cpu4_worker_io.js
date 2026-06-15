@@ -73,10 +73,13 @@ Object.assign(window.PuyoCPU4.prototype, {
             [nextPairs[4], nextPairs[5]],
         ];
 
-        // ★ VERSUS 限定：相手が放った連鎖のグロス着弾量（今降ってくるおじゃま総量）を受け取り、
+        // ★ VERSUS 限定：受け量を「確定(committed)＋予測(anticipated)」の純基準で評価し、
         //   build（本線構築）／fast（カウンター速攻）を自動で切り替える。
-        //   ※ 受け量＝表示予告(相殺後・internal除外)ではなく garbageQueue 全量（internal含む）。
-        const incomingGross = this._getIncomingOjamaGross();
+        //   ・committed   … 既に自分の garbageQueue に積まれた“これから降る確定おじゃま”（internal含む）。
+        //   ・anticipated … 相手がまだ撃っていないが間もなく送ってくる予測量（テト=攻撃ゲージ変換／ぷよ=pendingFire）。
+        //   確定が着弾してから降下までは約1秒しか無く、その間に育成→発火は間に合わないため、
+        //   発火閾値・モード突入の両方に予測量を加味して“先に”カウンターを仕込む。
+        const incomingGross = this._getIncomingBaseline();
         this._incomingOjamaGross = incomingGross;
         this._updateVersusCounterMode(incomingGross);
 
@@ -162,6 +165,140 @@ Object.assign(window.PuyoCPU4.prototype, {
         return total;
     },
 
+    // ★ VERSUS：CPU から見た相手インスタンスを返す（CPU は canvasPrefix='cpu' なので相手は window._game）。
+    _getOpponentGame() {
+        const game = this.game;
+        if (!game || !game.isVersusMode) return null;
+        return game.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+    },
+
+    // ★ VERSUS：テト相手の「まだ撃っていないが間もなく送ってくる」予測量（個）を返す。
+    //   攻撃ゲージ pendingAttack（ライン消去なし設置で放出＝チャージ中は未着弾）を、送信時と同じ
+    //   変換テーブル（tet/garbage.js sendGarbage、n>=18 は (n^2-21n+204)/2）でおじゃま個数へ換算。
+    //   ※ ぷよ相手の予測（発火中連鎖の全段量）は _updateLoop が控える _oppChainFull を使う（_getIncomingBaseline）。
+    _getAnticipatedTetOjama(opp) {
+        if (!opp || (opp instanceof PuyoGame)) return 0;
+        const gauge = Math.max(0, opp.pendingAttack || 0);
+        if (gauge <= 0) return 0;
+        const table = [0, 4, 5, 6, 8, 10, 13, 16, 20, 24, 28, 33, 38, 43, 49, 55, 61, 68];
+        return gauge < table.length
+            ? table[gauge]
+            : Math.floor((gauge * gauge - 21 * gauge + 204) / 2);
+    },
+
+    // ★ VERSUS：ぷよ相手の「いま発火中の連鎖を最後まで打ち切った時の総おじゃま量(個)」を推定する。
+    //   連鎖は1段ずつアニメ解決され、火力は連鎖終了まで pendingFire に貯められてから送られる
+    //   （engine.js checkErase）。よって途中段で読むと pendingFire はそこまでの段数ぶんしかない。
+    //   ここでは相手盤面のコピーに対し残りの連鎖をシミュレートし、全段ぶんのスコア→おじゃま量を出す。
+    //   ・段数ボーナスを正しくするため chainCount は相手の現在値から継続する。
+    //   ・スコアも相手の累積 attackScore から継続加算する（既に消えた段の火力を含めるため）。
+    //   ・点滅中(_erasingCells)の段は attackScore に算入済みだが盤面にまだ残るので、二重計上を避けるため
+    //     コピーから先に消して重力を適用してからシミュレートする。
+    //   発火していない（settled）盤面は4連結が立たないので 0 を返す（過大評価しない）。
+    _estimateOpponentPuyoChainOjama(opp) {
+        if (!opp || !opp.field) return 0;
+        const PC = window.PConfig;
+        if (!PC) return 0;
+        const totalRows = PC.rows + PC.hiddenRows;
+        const cols = PC.cols;
+        const rate = opp.vsOjamaRate ?? PC.ojamaRate;
+
+        // 盤面コピー
+        const f = opp.field.map(row => row.slice());
+
+        // 点滅中の段（算入済み・未消去）はコピーから除去して重力を適用する
+        const applyGravity = () => {
+            for (let c = 0; c < cols; c++) {
+                const stack = [];
+                for (let r = totalRows - 1; r >= 0; r--) if (f[r][c] !== 0) stack.push(f[r][c]);
+                for (let r = totalRows - 1; r >= 0; r--) {
+                    const k = totalRows - 1 - r;
+                    f[r][c] = k < stack.length ? stack[k] : 0;
+                }
+            }
+        };
+
+        const cbTab = PC.chainBonusTable, clTab = PC.colorBonusTable, grTab = PC.groupBonusTable;
+        const calcGroupsScore = (groups, chainCnt) => {
+            let n = 0;
+            const usedColors = new Set();
+            let groupB = 0;
+            for (const g of groups) {
+                n += g.length;
+                for (const cell of g) usedColors.add(cell.color);
+                groupB += grTab[Math.min(g.length, grTab.length - 1)];
+            }
+            const cb = cbTab[Math.min(Math.max(0, chainCnt - 1), cbTab.length - 1)];
+            const colorB = clTab[Math.min(Math.max(0, usedColors.size - 1), clTab.length - 1)];
+            const bonus = Math.max(1, cb + colorB + groupB);
+            return PC.scoreBase * n * bonus;
+        };
+
+        let pendingErasingScore = 0;
+        if (opp._erasingCells && opp._erasingCells.length) {
+            const erasingGroups = opp.pendingChainGroups || [];
+            if (erasingGroups.length > 0 && (opp.pendingFire || 0) === 0 && (opp.generatedOjamaTotal || 0) === 0) {
+                pendingErasingScore = calcGroupsScore(erasingGroups, Math.max(1, opp.chainCount || 1));
+            }
+            for (const cell of opp._erasingCells) {
+                if (cell && f[cell.r]) f[cell.r][cell.c] = 0;
+            }
+            applyGravity();
+        }
+
+        let chainCnt = opp.chainCount || 0;
+        let score    = (opp.attackScore || 0) + pendingErasingScore;
+
+        for (let iter = 0; iter < 40; iter++) {
+            const { groups, ojamaToErase } = opp._findErasableInField(f);
+            if (!groups || groups.length === 0) break;
+            chainCnt++;
+
+            // _calcChainScore と同じ式でこの段のスコアを算出
+            score += calcGroupsScore(groups, chainCnt);
+
+            // 消去して重力
+            for (const g of groups) for (const cell of g) if (f[cell.r]) f[cell.r][cell.c] = 0;
+            for (const cell of ojamaToErase) if (f[cell.r]) f[cell.r][cell.c] = 0;
+            applyGravity();
+        }
+
+        return rate > 0 ? Math.floor(score / rate) : 0;
+    },
+
+    // ★ VERSUS：カウンター判定の基準受け量＝確定(committed)＋予測(anticipated)。
+    //   発火は本来「実際に送られてから」だが、確定着弾→降下まで約1秒しか無く間に合わないため、
+    //   予測分も基準に含めて先んじてカウンターを仕込む（ユーザー方針）。
+    //
+    //   ・ぷよ相手が発火中(_oppChainFull>0)：おじゃまは1段ごとに即送信されキュー(garbageQueue)へ
+    //     積まれていくが、連鎖がまだ続く以上それらも「確定」ではなく発火中連鎖の一部。よって
+    //       予測(anticipated) = 発火中連鎖の全段量 _oppChainFull
+    //       確定(committed)   = キュー総量 − この連鎖で既に送られた分(opp.generatedOjamaTotal)
+    //     とし、二重計上なく「基準＝過去確定分＋発火中連鎖の全段量」になる（連鎖終了で全部が確定へ移る）。
+    //   ・それ以外（ぷよ相手が非発火／テト相手）：確定＝キュー総量、予測＝テトゲージ換算 or 0。
+    _getIncomingBaseline() {
+        const game = this.game;
+        if (!game || !game.isVersusMode) return 0;
+
+        const grossQueue = this._getIncomingOjamaGross();
+        const opp        = this._getOpponentGame();
+        const oppChainFull = this._oppChainFull || 0;
+
+        let committed, anticipated;
+        if (opp && (opp instanceof PuyoGame) && oppChainFull > 0) {
+            const sentThisChain = Math.max(0, opp.generatedOjamaTotal || 0);
+            anticipated = oppChainFull;
+            committed   = Math.max(0, grossQueue - sentThisChain);
+        } else {
+            anticipated = this._getAnticipatedTetOjama(opp);
+            committed   = grossQueue;
+        }
+
+        this._committedOjama   = committed;
+        this._anticipatedOjama = anticipated;
+        return committed + anticipated;
+    },
+
     // ★ VERSUS：受け取ったグロス着弾量に応じて build ↔ fast(カウンター) を切り替える。
     //   方針（ユーザー要望「相手発火→受けおじゃま量を逆算→上回る連鎖で返す」）:
     //     ・受け量が一定個数（COUNTER_TRIGGER_OJAMA）を超えたら fast(カウンター)へ。
@@ -169,7 +306,10 @@ Object.assign(window.PuyoCPU4.prototype, {
     //         bestChain は“まだ撃っていない潜在連鎖スコア”ゆえ育成中は過大評価され、
     //         coverage が受け量を恒常的に上回って実質カウンターが発動しなかった。
     //         よって受け量そのもののしきい値判定に変更（カバー量は表示の参考値としてのみ残す）。
-    //     ・カウンター時は発火目標を「受け量を上回る連鎖」に設定（fireChainCount=0＝段数では撃たず、
+    //     ・受け量は「確定(committed=garbageQueue) ＋ 予測(anticipated=相手の未送出火力)」の純基準。
+    //       確定着弾→降下まで約1秒しか無く育成→発火が間に合わないため、予測分も基準に含めて
+    //       モード突入・発火閾値を先んじて設定する（ユーザー方針）。
+    //     ・カウンター時は発火目標を「基準受け量を上回る連鎖」に設定（fireChainCount=0＝段数では撃たず、
     //       受け量超えスコアだけを発火条件にする）。盤面が緊急になれば fast プロファイルの
     //       emergencyFireMinRatio=0 により出せる最大連鎖を緊急発火する。
     //   ヒステリシス：一度カウンターに入ったら受け量が尽きる(0)まで継続し、build へ戻る。
@@ -218,13 +358,16 @@ Object.assign(window.PuyoCPU4.prototype, {
         //   受け量0で build のときは静かにする（ログのスパム防止）。
         const modeChanged = (prevMode !== this.cpuMode);
         if (incomingGross > 0 || this._counterActive || modeChanged) {
-            const thr      = this.controlWeights.fireScoreThreshold;
-            const thrOjama = rate > 0 ? Math.floor(thr / rate) : 0;
-            const tag      = modeChanged ? `★切替 ${prevMode} → ${this.cpuMode}` : `mode=${this.cpuMode}`;
+            const thr       = this.controlWeights.fireScoreThreshold;
+            const thrOjama  = rate > 0 ? Math.floor(thr / rate) : 0;
+            const committed = this._committedOjama   ?? incomingGross;
+            const antic     = this._anticipatedOjama ?? 0;
+            const tag       = modeChanged ? `★切替 ${prevMode} → ${this.cpuMode}` : `mode=${this.cpuMode}`;
+            // 予測=相手の発火中連鎖を全段打ち切った時の見込みおじゃま総量（途中段でも全段ぶん）。
             console.log(
-                `[cpu4 versus] ${tag}｜受け量=${incomingGross}個(発動>${COUNTER_TRIGGER_OJAMA}) / 自カバー(参考)=${coverage}個` +
+                `[cpu4 versus] ${tag}｜基準受け量=${incomingGross}個(既着弾/確定待ち${committed}+予測${antic}〔全段見込み〕, 発動>${COUNTER_TRIGGER_OJAMA}) / 自カバー(参考)=${coverage}個` +
                 (this.cpuMode === 'fast'
-                    ? `｜カウンター発火閾値=${thr}点(≒${thrOjama}個＝受け量超えで発火)`
+                    ? `｜カウンター発火閾値=${thr}点(≒${thrOjama}個＝確定+予測を上回ったら発火)`
                     : `｜発火閾値=${thr}点(標準)`)
             );
         }
