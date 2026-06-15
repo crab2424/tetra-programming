@@ -3,8 +3,10 @@
 //   PuyoCPU5.prototype を拡張する（cpu5.js が class 本体を定義済みであること）。
 //
 //   _initWeights()       … rewardWeights / evalWeights / controlWeights を初期化
+//   setMode()            … build 基準値へ復帰 → モード差分を上書き
 //   _buildWeightsArray() … C++ 側に渡す Int32Array を組み立てる
 //
+//   ★ モード別差分（build からの上書き）の定義は cpu5_modes.js（同 weights/）。
 //   ★ 各重みの詳細な意味・由来・チューニング指針は cpu5_weights.md を参照。
 //     JS には各値の末尾に1行の要約コメントだけを残す。
 // ─────────────────────────────────────────────
@@ -46,7 +48,7 @@ Object.assign(window.PuyoCPU5.prototype, {
 
             wasteWeight:           -2,  // ama型 waste ペナルティ（負。amaEvalMode=1 のみ作用。詳細: cpu5_weights.md）
 
-            formWeight:            50,  // 関係性 form 一致(GTR/SGTR/FRON)（0で無効。詳細: cpu5_weights.md）
+            formWeight:            80,  // 関係性 form 一致(GTR/SGTR/FRON)（0で無効。詳細: cpu5_weights.md）
 
             // ── 3連結の形状別倍率（百分率。link3Weight/qLink3Weight に共通で乗る。詳細: cpu5_weights.md）──
             link3FacL:            100,  // L字（折れ）  ×1.0
@@ -102,57 +104,36 @@ Object.assign(window.PuyoCPU5.prototype, {
         this.cpuMode = 'build';
     },
 
-    // ★ モード別プロファイル（build からの差分上書き定義。詳細: cpu5_weights.md「モードプロファイル」）。
-    //   build=基準（差分なし）/ fast=速攻型。JS 重みのみで表現し native 探索は build と共通（searchBuildMode）。
-    //   ⚠️ 値はすべて暫定＝実機で要チューニング（[[feedback-versus-cpu-verification]]）。
-    _modeProfiles() {
-        return {
-            // build：従来どおりの本線構築（基準値・差分なし）。相手がぷよ／ソロ時の既定。
-            build: {},
-
-            // vsTet：相手がテトのときの本線構築（詳細: cpu5_weights.md）。
-            //   ★ まずはモード分岐のみ＝現状 build と同一（差分なし）。
-            //     今後テト相手向け（おじゃま着弾の早さ・攻撃ゲージ特性）にチューニングする。
-            vsTet: {},
-
-            // fast：速攻型（「多少汚くても浅い連鎖を速く返す」。詳細: cpu5_weights.md）。
-            fast: {
-                evalWeights: {
-                    qChainWeight:  350,  // 700 ×0.5：連鎖規模への執着を半減
-                    qYWeight:       40,  // 120 ×0.27：発火点を高く積まない（速攻の核）
-                    qChiWeight:     11,  // 20  ×0.54：伸長余地の重視を下げる
-                    link2Weight:     1,  // 2   ×0.37
-                    link3Weight:     2,  // 4   ×0.59
-                    qLink2Weight:    2,  // 4   ×0.37：remain の種仕込みを軽く
-                    qLink3Weight:    7,  // 12  ×0.59
-                    shapeWeight:    -1,  // -10 ×0.08：理想L字の強制をほぼ解除
-                    wellWeight:     -1,  // -10 ×0.05：井戸ペナルティを緩和
-                    bumpWeight:    -25,  // -500×0.05：凸ペナルティを大幅緩和（速く積む）
-                    tearWeight:     -8,  // -20 ×0.42：ちぎりを許容して速度優先
-                    formWeight:      0,  // ama fast は form を持たない（build 専用）
-                },
-                controlWeights: {
-                    fireChainCount:          3,  // 3連鎖以上が撃てれば発火（12→3：早撃ち）
-                    fireScoreThreshold:   3000,  // 浅いが点の出る連鎖も拾う（50000→3000）
-                    growthFireForbidChains:  0,  // 速攻ではこぼし（小連鎖）を抑制しない
-                    emergencyFireMinRatio:   0,  // 守るべき本線が無いので緊急発火を絞らない
-                },
-            },
-        };
+    // ★ build 基準値へ差分グループを適用する内部ヘルパー。
+    //   差分の値の書き方は2通り（詳細: cpu5_modes.js 冒頭・cpu5_weights.md「モードプロファイル」）:
+    //     ・数値          … その絶対値で上書き（閾値系: fireChainCount:3 など）
+    //     ・{ x: 倍率 }    … base値 × 倍率を四捨五入して上書き（評価重み: { x:0.5 } など）。
+    //                        base が変われば追従し、倍率がそのまま設計意図になる（コメント陳腐化を防ぐ）。
+    _applyModeGroup(baseGroup, diffGroup) {
+        const out = Object.assign({}, baseGroup);
+        for (const key in (diffGroup || {})) {
+            const v = diffGroup[key];
+            if (v && typeof v === 'object' && typeof v.x === 'number') {
+                out[key] = Math.round((baseGroup[key] || 0) * v.x);
+            } else {
+                out[key] = v;
+            }
+        }
+        return out;
     },
 
     // ★ CPU のモードを切り替える（build 基準値へ復帰してから差分を上書き）。
     //   例: cpuInstance.setMode('fast') / setMode('build')。
-    //   未知のモード名は build へフォールバックする。
+    //   差分定義は _modeProfiles()（cpu5_modes.js）。未知のモード名は build へフォールバックする。
     setMode(mode) {
         if (!this._buildBaseline) this._initWeights();
         const profiles = this._modeProfiles();
         const known    = Object.prototype.hasOwnProperty.call(profiles, mode);
         const prof     = known ? profiles[mode] : profiles.build;
 
-        this.rewardWeights  = Object.assign({}, this._buildBaseline.rewardWeights,  prof.rewardWeights  || {});
-        this.evalWeights    = Object.assign({}, this._buildBaseline.evalWeights,    prof.evalWeights    || {});
-        this.controlWeights = Object.assign({}, this._buildBaseline.controlWeights, prof.controlWeights || {});
+        this.rewardWeights  = this._applyModeGroup(this._buildBaseline.rewardWeights,  prof.rewardWeights);
+        this.evalWeights    = this._applyModeGroup(this._buildBaseline.evalWeights,    prof.evalWeights);
+        this.controlWeights = this._applyModeGroup(this._buildBaseline.controlWeights, prof.controlWeights);
         this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
 
         this.cpuMode = known ? mode : 'build';

@@ -5,13 +5,16 @@
 // ★ファイル分割について（プロトタイプ拡張パターン）
 //   PuyoCPU5 は責務ごとに複数ファイルへ分割されている。
 //   本ファイルが class 本体（constructor / start / stop / _updateLoop）を定義し、
-//   以下のファイルが Object.assign(PuyoCPU5.prototype, {...}) でメソッドを追加する：
-//     - cpu5_weights.js    … _initWeights / _buildWeightsArray（重み定義・動的閾値・配列組立）
-//     - cpu5_worker_io.js  … _requestCalculation / _handleWorkerResult（Worker/Wasm 連携）
-//     - cpu5_estimate.js   … 着手予測オーバーレイ描画（test モード）
-//     - cpu5_action.js     … 操作エミュレーション（移動・回転・ソフトドロップ）
+//   以下のファイルが Object.assign(PuyoCPU5.prototype, {...}) でメソッドを追加する。
+//   ディレクトリは weights/（重み）と core/（本体・I/O）に分かれる：
+//     - weights/cpu5_weights.js … _initWeights / setMode / _buildWeightsArray（重み定義・配列組立）
+//     - weights/cpu5_modes.js   … _modeProfiles（モード別の差分＝build からの上書き）
+//     - core/cpu5_worker_io.js  … _requestCalculation / _handleWorkerResult（Worker/Wasm 連携）
+//     - core/cpu5_estimate.js   … 着手予測オーバーレイ描画（test モード）
+//     - core/cpu5_action.js     … 操作エミュレーション（移動・回転・ソフトドロップ）
 //
-//   ⚠️ ロード順: 本ファイル（class 定義）を必ず先頭に。残りは順不同で prototype を拡張する。
+//   ⚠️ ロード順: 本ファイル（class 定義）を必ず先頭に。次に cpu5_weights.js →
+//      cpu5_modes.js（setMode が _modeProfiles を参照）。残りは順不同で prototype を拡張する。
 //      読み込みは src/app/modes.js の CPU_CONFIGS（src 配列）と cpu_loader.js が担当。
 // ─────────────────────────────────────────────
 

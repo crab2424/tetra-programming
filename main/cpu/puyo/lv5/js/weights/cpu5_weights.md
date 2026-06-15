@@ -202,11 +202,21 @@ ama型evalは「撃たずに育てる」器なので、これが無いと無限�
 
 ---
 
-## モードプロファイル（`_modeProfiles`）
+## モードプロファイル（`_modeProfiles` ＝ `cpu5_modes.js`）
 
 build = 基準（差分なし）。各モードは build からの差分だけを書き、`setMode()` で「基準値へ復帰 → 差分を上書き」する。
+定義は `weights/cpu5_modes.js`、適用ロジック（`setMode` / `_applyModeGroup`）は `weights/cpu5_weights.js`。
 native 側は無改造（探索は build を流用＝`searchBuildMode`）で、モードの違いは重み（評価値の重み付け＋発火トリガ）だけで表現する。
 `_initWeights()` 末尾で build 基準値を `this._buildBaseline` に退避しておく。
+
+### 差分の書き方（倍率 or 絶対値）
+
+`_modeProfiles()` が返す各値は2通りで書ける（`_applyModeGroup` が解釈）:
+
+- **数値** … その絶対値で上書きする。閾値系（`fireChainCount: 3` など、base比に意味がない値）に使う。
+- **`{ x: 倍率 }`** … `base値 × 倍率`（`Math.round`）で上書きする。評価重み（`qChainWeight: { x: 0.5 }` など）に使う。
+  倍率そのものが設計意図（「半減」など）になり、base を変えても自動追従する
+  ＝旧来の「絶対値 + 手計算した比率コメント」が陳腐化する問題を構造的に解消する。
 
 ### fast — 速攻型
 
