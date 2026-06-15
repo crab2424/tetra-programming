@@ -4,7 +4,7 @@
 #include "build/build.h"
 #include "core/chain.h"
 #include "eval/eval.h"
-#include "search/node.h"
+#include "core/node.h"
 
 #include <algorithm>
 #include <climits>

@@ -9,12 +9,12 @@
 //     core/bitboard    … BitBoard / 配置生成
 //     core/chain       … 連鎖シミュレーション / 連鎖ポテンシャル
 //     core/weights.h   … EvalWeights 構造体
+//     core/node.h      … SearchNode / 盤面ハッシュ（全モード共通）
 //     eval/shape       … Ama 由来の形状ヘルパー + quiescence
 //     eval/form        … Ama 由来の関係性 form テンプレート
 //     eval/eval        … 評価値 + 報酬 + 統合 evaluateBoard
-//     search/node.h    … SearchNode
 //     build/build      … build（連鎖を組む）モードの探索
-//     free/ fast/ allClear/ … 今後追加するモード用（現状は空）
+//     ※ モード一覧と追加手順は native/MODES.md を参照（現状は build のみ）
 // ─────────────────────────────────────────────
 #include <emscripten.h>
 #include <stdint.h>
