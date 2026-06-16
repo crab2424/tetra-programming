@@ -98,8 +98,11 @@ Object.assign(PuyoGame.prototype, {
         const maxW = this.yokokuContainer.clientWidth || (PConfig.cols * PConfig.cellSize);
 
         const makeImg = (u) => {
-            const img = document.createElement('img');
-            img.src = PConfig.ojamaImagePath + u.img + '.png';
+            // 先読み済みのデコード済み Image があれば clone して使い回す（再fetch/再デコード回避）。
+            // 未先読み時は従来どおり都度生成（フォールバック）。
+            const cached = PuyoGame._sharedOjamaImages && PuyoGame._sharedOjamaImages[u.img];
+            const img = cached ? cached.cloneNode(false) : document.createElement('img');
+            if (!cached) img.src = PConfig.ojamaImagePath + u.img + '.png';
             img.width = u.size;
             img.height = u.size;
             img.style.width = u.size + 'px';
