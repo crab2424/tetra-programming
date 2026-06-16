@@ -729,6 +729,27 @@ Object.assign(PuyoGame.prototype, {
     },
 
     _getGhostEraseInfo() {
+        // ★ この関数は 'falling' 中ほぼ毎フレーム(120Hzで120回/秒)呼ばれるが、
+        //   結果（ゴースト着地時の消去予告セル）が変わるのは
+        //   「操作(pivotX/targetRot)」「ペア色」「盤面」のいずれかが変化したときだけ。
+        //   _calcLimitY は常に床まで走査するため着地行は現在の pivotY に依存しない。
+        //   そこで安価な整数シグネチャでキャッシュし、変化が無いフレームでは
+        //   盤面まるごと複製＋flood fill＋配列spread（毎フレ ~数十KB のゴミ）を完全に省く。
+        const field = this.field;
+        let sig = (this.targetRot * 7 + this.pivotX) * 31;
+        sig = (sig * 31 + (this.pivotColor | 0)) | 0;
+        sig = (sig * 31 + (this.childColor | 0)) | 0;
+        for (let r = 0; r < field.length; r++) {
+            const row = field[r];
+            for (let c = 0; c < row.length; c++) {
+                sig = (sig * 33 + row[c]) | 0;
+            }
+        }
+        if (this._ghostSig === sig && this._ghostEraseCache) {
+            return this._ghostEraseCache;
+        }
+        this._ghostSig = sig;
+
         const rot = this.targetRot;
         const limitY = this._calcLimitY(this.pivotX, this.pivotY, rot);
         const pr = Math.round(limitY);
@@ -753,7 +774,16 @@ Object.assign(PuyoGame.prototype, {
         }
 
         const totalRows = PConfig.rows + PConfig.hiddenRows;
-        const vField = Array.from({ length: totalRows }, (_, r) => [...this.field[r]]);
+        const cols = PConfig.cols;
+        // ★ vField バッファを使い回す（毎フレーム新規確保しない）。
+        let vField = this._ghostVField;
+        if (!vField || vField.length !== totalRows || vField[0].length !== cols) {
+            vField = this._ghostVField = Array.from({ length: totalRows }, () => new Array(cols));
+        }
+        for (let r = 0; r < totalRows; r++) {
+            const src = field[r], dst = vField[r];
+            for (let c = 0; c < cols; c++) dst[c] = src[c];
+        }
 
         const actualPivotR = fpR + PConfig.hiddenRows;
         const actualChildR = fcR + PConfig.hiddenRows;
@@ -762,9 +792,16 @@ Object.assign(PuyoGame.prototype, {
         if (actualChildR >= 0 && actualChildR < totalRows) vField[actualChildR][cc] = this.childColor;
 
         const { groups, ojamaToErase } = this._findErasableInField(vField);
-        return {
-            cells: [...groups.flat(), ...ojamaToErase]
-        };
+
+        // ★ 戻り値オブジェクトと cells 配列も使い回す（再計算は稀なのでここでの構築コストは無視できる）。
+        const result = this._ghostEraseCache || (this._ghostEraseCache = { cells: [] });
+        const cells = result.cells;
+        cells.length = 0;
+        for (const group of groups) {
+            for (const cell of group) cells.push(cell);
+        }
+        for (const oc of ojamaToErase) cells.push(oc);
+        return result;
     },
 
     _applyErase() {
