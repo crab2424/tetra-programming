@@ -45,12 +45,12 @@ Object.assign(window.PuyoCPU5.prototype, {
                     link3FacV:    { x: 4.0 },    // 縦一直線
                     formWeight:   0,             // vstet は form を持たない（build 専用）
                     // ── vsTet 専用評価値（base=0 なので絶対値で指定。要実機チューニング）──
-                    puyosWeight:   10,           // 盤面のぷよ量（おじゃま除く）が多いほど正
+                    puyosWeight:    2,           // 盤面のぷよ量（おじゃま除く）が多いほど正
                     height3Weight: -100,         // 致死列(第3列)高さ>4 の超過分にペナルティ（負）
                 },
                 controlWeights: {
                     fireChainCount:          7,  // 7連鎖以上が撃てれば発火（早撃ち）
-                    fireScoreThreshold:   5000,  // 浅いが点の出る連鎖も拾う
+                    fireScoreThreshold:  12000,  // 浅いが点の出る連鎖も拾う
                     growthFireForbidChains:  1,  // 速攻ではこぼし（小連鎖）を抑制しない
                     emergencyFireMinRatio:   0,  // 守るべき本線が無いので緊急発火を絞らない
                 },},
@@ -99,7 +99,7 @@ Object.assign(window.PuyoCPU5.prototype, {
                     tearWeight:   { x: 2.4 },    // ちぎりを許容して速度優先
                     formWeight:   0,             // form を持たない（build 専用）
                     // ── fastVsTet 専用評価値（base=0 なので絶対値で指定。要実機チューニング）──
-                    puyosWeight:    2,           // 盤面のぷよ量（おじゃま除く）が多いほど正
+                    puyosWeight:    0,           // 盤面のぷよ量（おじゃま除く）が多いほど正
                     height3Weight: -100,         // 致死列(第3列)高さ>4 の超過分にペナルティ（負）
                 },
                 controlWeights: {

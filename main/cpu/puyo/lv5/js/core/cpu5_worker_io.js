@@ -368,7 +368,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         //     ・対テト(vsTet)：おじゃま着弾が早く相殺猶予が乏しい＝低め＝早めにカウンターへ。
         //   ⚠️ 暫定値＝実機で要チューニング（[[feedback-versus-cpu-verification]]）。
         const COUNTER_TRIGGER_OJAMA_VSPUYO = 5;
-        const COUNTER_TRIGGER_OJAMA_VSTET  = 13;
+        const COUNTER_TRIGGER_OJAMA_VSTET  = 6;
         const COUNTER_TRIGGER_OJAMA = this._isOpponentTet()
             ? COUNTER_TRIGGER_OJAMA_VSTET
             : COUNTER_TRIGGER_OJAMA_VSPUYO;
