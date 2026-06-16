@@ -277,6 +277,16 @@ function switchPage(pageId) {
     // QUIZモード選択画面のレンダリング（quiz.js）
     if (typeof renderQuizCheck === 'function') renderQuizCheck();
   }
+
+  // ★ キーボードフォーカスナビゲーション（focus_nav.js）
+  if (window.FocusNav) {
+    if (['main-menu','mode-check','versus-check','quiz-check',
+         'result','versus-result','quiz-result','settings'].includes(pageId)) {
+      window.FocusNav.activate(pageId);
+    } else {
+      window.FocusNav.deactivate();
+    }
+  }
 }
 
 function goToModeCheck(modeId) {
