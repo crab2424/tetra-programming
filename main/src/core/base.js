@@ -129,6 +129,15 @@ window.onload = function () {
                 AudioLoader.recoverIfDegraded(true);
             }
         });
+
+        // ★ ぷよ画像を起動時に先読み（tetブロック画像と同じく即時キャッシュ化）。
+        //   初回 startPuyoGame() 時の画像ロード待ち（約200ms）を解消する。
+        //   総容量は約250KB程度で、ゲーム開始前のこの時点なら体感に影響しない。
+        //   ※ アイドル遅延（requestIdleCallback）にすると発火が序盤プレイへずれ込み、
+        //     fetch/onload がメインスレッドを奪ってカクつく原因になるため即時起動する。
+        if (typeof PuyoGame !== 'undefined' && PuyoGame.preloadImages) {
+            PuyoGame.preloadImages();
+        }
     })
 }
 

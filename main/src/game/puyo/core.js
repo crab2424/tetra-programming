@@ -110,12 +110,16 @@ class PuyoGame {
         this.inputBuffer = [];
 
         this._erasingCells = null;
+        this._animMap = null;    // ★ _render が毎フレーム再利用する (fr*cols+c)->anim ルックアップ
+        this._erasingSet = null; // ★ 同上 (fr*cols+c) の消去対象セル集合
         this._eraseTimer = 0;
         this.eraseWaitTimer = 0;
         this._dropAnim = null;
 
         this.pendingChainGroups = null;
         this.chainTextInfo = null;
+        this._chainTextEl = null;   // ★ 連鎖文字の永続DOM要素（使い回し）
+        this._chainNumEl = null;    // ★ 連鎖数字span（連鎖毎にテキストだけ更新）
         this.moveLockCount = 0;
 
         this.isAllClear = false; // ★ 全消し表示フラグ
@@ -148,6 +152,18 @@ class PuyoGame {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PuyoGame._sharedImages = null;
 PuyoGame._sharedImagesLoaded = false;
+// 先読み（preloadImages）の多重起動防止と、ロード完了待ちコールバックのキュー。
+// 起動時の裏読みと初回 start() が重なっても画像ロードを1回に集約する。
+PuyoGame._sharedImagesLoading = false;
+PuyoGame._sharedImagesPending = [];
+
+// ★ おじゃま予告アイコンの共有キャッシュ（盤面ぷよ画像と同じく全インスタンス共有）。
+//    予告は表示更新が頻繁なため、デコード済みの Image を保持して clone で使い回す。
+//    { img名: HTMLImageElement }。null = 未先読み。
+PuyoGame._sharedOjamaImages = null;
+
+// ★ 連鎖文字グリフのウォームアップ済みフラグ（ページ単位で1度だけ実行）
+PuyoGame._chainGlyphsWarmed = false;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // グローバル公開 API

@@ -63,37 +63,19 @@ Object.assign(PuyoGame.prototype, {
         const finalX = logicalX * scaleX;
         const finalY = logicalY * scaleY;
 
-        this._clearChainTextDOM();
-
-        const el = document.createElement('div');
-        el.style.position = 'absolute';
-
         const pageX = rect.left + window.scrollX + finalX;
         const pageY = rect.top + window.scrollY + finalY;
 
+        // ★ 連鎖文字DOMは使い回す（毎連鎖の createElement/innerHTML を廃止）。
+        //   1連鎖目で Orbitron グリフ（48px+stroke+shadow）を初回ラスタライズする際の
+        //   カクつきを避けるため、要素は1個だけ生成し位置と数字だけ更新する。
+        const el = this._ensureChainTextEl();
+        this._chainNumEl.textContent = this.chainCount;
+
         el.style.left = pageX + 'px';
         el.style.top = pageY + 'px';
-        el.style.transform = 'translate(-50%, -50%)';
-        el.style.pointerEvents = 'none';
-        el.style.zIndex = '9999';
-        el.style.whiteSpace = 'nowrap';
+        el.style.opacity = '1';
         el.style.display = 'flex';
-        el.style.alignItems = 'baseline';
-        el.style.justifyContent = 'center';
-
-        const numSize = 48;
-        const chainSize = 24;
-
-        el.innerHTML = `
-            <span style="font-family: 'Orbitron', monospace; font-size: ${numSize}px; font-weight: bold; color: #ff8c00; text-shadow: 0 0 4px #fff, 0 0 8px rgba(255,140,0,0.8); -webkit-text-stroke: 1.5px #fff; line-height: 1;">
-                ${this.chainCount}
-            </span>
-            <span style="font-family: 'Orbitron', monospace; font-size: ${chainSize}px; font-weight: bold; color: #ff8c00; text-shadow: 0 0 4px #fff, 0 0 8px rgba(255,140,0,0.8); -webkit-text-stroke: 1px #fff; margin-left: 6px; line-height: 1;">
-                CHAIN
-            </span>
-        `;
-
-        document.body.appendChild(el);
 
         this.chainTextInfo = {
             el: el,
@@ -101,12 +83,90 @@ Object.assign(PuyoGame.prototype, {
         };
     },
 
-    _clearChainTextDOM() {
-        if (this.chainTextInfo && this.chainTextInfo.el) {
-            if (this.chainTextInfo.el.parentNode) {
-                this.chainTextInfo.el.parentNode.removeChild(this.chainTextInfo.el);
-            }
+    // 連鎖文字用の永続DOM要素を遅延生成して返す。
+    // 数字部は this._chainNumEl で参照し、連鎖毎にテキストだけ書き換える。
+    _ensureChainTextEl() {
+        if (this._chainTextEl && this._chainTextEl.isConnected) return this._chainTextEl;
+
+        const numSize = 48;
+        const chainSize = 24;
+
+        const el = document.createElement('div');
+        el.style.position = 'absolute';
+        el.style.transform = 'translate(-50%, -50%)';
+        el.style.pointerEvents = 'none';
+        el.style.zIndex = '9999';
+        el.style.whiteSpace = 'nowrap';
+        el.style.display = 'none';
+        el.style.alignItems = 'baseline';
+        el.style.justifyContent = 'center';
+
+        const numEl = document.createElement('span');
+        numEl.style.cssText = `font-family: 'Orbitron', monospace; font-size: ${numSize}px; font-weight: bold; color: #ff8c00; text-shadow: 0 0 4px #fff, 0 0 8px rgba(255,140,0,0.8); -webkit-text-stroke: 1.5px #fff; line-height: 1;`;
+
+        const labelEl = document.createElement('span');
+        labelEl.style.cssText = `font-family: 'Orbitron', monospace; font-size: ${chainSize}px; font-weight: bold; color: #ff8c00; text-shadow: 0 0 4px #fff, 0 0 8px rgba(255,140,0,0.8); -webkit-text-stroke: 1px #fff; margin-left: 6px; line-height: 1;`;
+        labelEl.textContent = 'CHAIN';
+
+        el.appendChild(numEl);
+        el.appendChild(labelEl);
+        document.body.appendChild(el);
+
+        this._chainTextEl = el;
+        this._chainNumEl = numEl;
+        return el;
+    },
+
+    // ★ 連鎖文字グリフのウォームアップ。
+    //   初回連鎖で Orbitron（48px+stroke+shadow）を初めて描く瞬間に発生する
+    //   フォント取得＋グリフラスタライズのスパイクを、ゲーム開始前に済ませておく。
+    //   グリフatlas・webフォントはページ単位で共有されるため、静的フラグで1度だけ実行する。
+    _warmChainTextGlyphs() {
+        if (PuyoGame._chainGlyphsWarmed) return;
+        PuyoGame._chainGlyphsWarmed = true;
+
+        const finish = () => {
+            const el = this._ensureChainTextEl();
+            this._chainNumEl.textContent = '0123456789';
+            // 画面外で1フレームだけ実ペイントさせてグリフをラスタライズしてから隠す
+            el.style.left = '-9999px';
+            el.style.top = '0px';
+            el.style.opacity = '1';
+            el.style.display = 'flex';
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    el.style.display = 'none';
+                    el.style.opacity = '0';
+                });
+            });
+        };
+
+        if (document.fonts && document.fonts.load) {
+            Promise.all([
+                document.fonts.load("bold 48px 'Orbitron'"),
+                document.fonts.load("bold 24px 'Orbitron'")
+            ]).then(finish).catch(finish);
+        } else {
+            finish();
         }
+    },
+
+    _clearChainTextDOM() {
+        // 永続要素は破棄せず隠すだけ（次連鎖で再ラスタライズしないため）
+        if (this._chainTextEl) {
+            this._chainTextEl.style.display = 'none';
+            this._chainTextEl.style.opacity = '0';
+        }
+        this.chainTextInfo = null;
+    },
+
+    // ゲーム停止時に連鎖文字の永続要素をDOMから完全に取り除く（インスタンス破棄時のリーク防止）
+    _destroyChainTextEl() {
+        if (this._chainTextEl && this._chainTextEl.parentNode) {
+            this._chainTextEl.parentNode.removeChild(this._chainTextEl);
+        }
+        this._chainTextEl = null;
+        this._chainNumEl = null;
         this.chainTextInfo = null;
     },
 
@@ -164,6 +224,22 @@ Object.assign(PuyoGame.prototype, {
             ghostEraseInfo = this._getGhostEraseInfo();
         }
 
+        // ★ セル毎の線形スキャン（activeAnims.find/some・_erasingCells.some）を排除するため、
+        //   このフレームで使う (fr,c) -> 値 のルックアップを先に1回だけ構築する。
+        //   インスタンスを使い回し clear() するのでフレーム毎のGC負荷も抑える。
+        const cols = PConfig.cols;
+        const animMap = this._animMap || (this._animMap = new Map());
+        animMap.clear();
+        for (const a of this.activeAnims) animMap.set(a.fr * cols + a.c, a);
+
+        const erasingSet = this._erasingSet || (this._erasingSet = new Set());
+        erasingSet.clear();
+        if (this._erasingCells) {
+            for (const ec of this._erasingCells) erasingSet.add(ec.r * cols + ec.c);
+        }
+
+        const erasingHidden = this._erasingCells && (Math.floor(this._eraseTimer / 66.68) % 2 === 1);
+
         for (let r = 0; r < PConfig.rows; r++) {
             for (let c = 0; c < PConfig.cols; c++) {
                 const fr = r + PConfig.hiddenRows;
@@ -173,10 +249,8 @@ Object.assign(PuyoGame.prototype, {
                 let flashType = 0;
 
                 if (this._erasingCells) {
-                    const isErasing = this._erasingCells.some(ec => ec.r === fr && ec.c === c);
-                    if (isErasing) {
-                        if (Math.floor(this._eraseTimer / 66.68) % 2 === 1) continue;
-                    }
+                    // 消去点滅：消去対象セルは点滅の「消えている」位相で描画スキップ
+                    if (erasingHidden && erasingSet.has(fr * cols + c)) continue;
                 }
                 else if (ghostEraseInfo && ghostEraseInfo.cells.length > 0) {
                     if (ghostEraseInfo.cells.some(ec => ec.r === fr && ec.c === c)) {
@@ -187,7 +261,7 @@ Object.assign(PuyoGame.prototype, {
                     }
                 }
 
-                const animState = this.activeAnims.find(a => a.fr === fr && a.c === c);
+                const animState = animMap.get(fr * cols + c);
                 // ★ 振動アニメ中（animState あり）は連結画像を無効にする
                 const isVibrating = !!animState;
                 const connectInfo = this._getConnectImageInfo(c, r, color, isVibrating);

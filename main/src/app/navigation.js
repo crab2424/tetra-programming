@@ -801,15 +801,18 @@ function toggleGamePause() {
     const canPauseGame = window._game && (window._game.state === 'playing' || window._game.state === 'active');
     const canPausePuyo = window._puyoGame && (window._puyoGame.state === 'playing' || window._puyoGame.state === 'active');
 
-    // QUIZぷよ中かどうかを判定（tetインスタンスへの操作を抑制するために使用）
+    // ぷよプレイ中（CPUテスト/QUIZぷよ）かどうかを判定（tetインスタンスへの操作を抑制するために使用）
+    // ※ resume 側（handlePauseAction）の _suppressTet と対称にすること。
     const _isQuizPuyo2 = (currentGameMode && currentGameMode.id === 'quiz') &&
         typeof currentQuizLevel !== 'undefined' && currentQuizLevel &&
         currentQuizLevel.rule === 'puyo';
-    
+    const _isTestPuyo2 = (currentGameMode && currentGameMode.id === 'test') && testRule === 'puyo';
+    const _suppressTet2 = _isQuizPuyo2 || _isTestPuyo2;
+
     if (canPauseGame || canPausePuyo) {
       window.SeManager?.play('pause');
-      // QUIZぷよ中はtetインスタンスのpauseを呼ばない（resume時の暴発防止）
-      if (window._game && typeof window._game.pause === 'function' && !_isQuizPuyo2) window._game.pause();
+      // ぷよプレイ中はtetインスタンスのpauseを呼ばない（resume時の暴発防止）
+      if (window._game && typeof window._game.pause === 'function' && !_suppressTet2) window._game.pause();
       if (window._puyoGame && typeof window._puyoGame.pause === 'function') window._puyoGame.pause();
 
       const isQuiz = currentGameMode && currentGameMode.id === 'quiz';
@@ -853,18 +856,52 @@ function toggleGamePause() {
   }
 }
 
+// ─── CPUテスト(ぷよ)のリスタート ───────────────────────────
+//   盤面リセット（_puyoGame.start）に加えて CPUコントローラを完全に作り直す。
+//   コントローラを stop しないと、旧 worker / soft-drop RAF / 着手予測オーバーレイ
+//   （estimateContainer のゴーストぷよ）が残留して盤面が消えないため。
+//   R キー（puyo/input.js）とポーズメニュー RESTART の両経路から呼ばれる。
+function restartPuyoCpuTest() {
+  if (!window._puyoGame || typeof window._puyoGame.start !== 'function') return;
+
+  // クラスはロード済み（DEV_CPU はロード後 window に残る）なので再ロードせず再利用する。
+  const CPUClass = (window._cpuController && window._cpuController.constructor) || window.PuyoCPU4;
+
+  // 旧コントローラを停止：worker.terminate / RAF キャンセル / オーバーレイ innerHTML='' を行う
+  if (window._cpuController && typeof window._cpuController.stop === 'function') {
+    window._cpuController.stop();
+  }
+  window._cpuController = null;
+
+  // 盤面リセット＆カウントダウン再開
+  window._puyoGame.isCpuControlled = testCpuControl;
+  window._puyoGame.start();
+
+  // CPUコントローラを作り直してアタッチ（_updateLoop は state==='playing' まで待機するので即時生成でOK）
+  if (typeof CPUClass === 'function') {
+    window._cpuController = new CPUClass(window._puyoGame);
+    window._cpuController.isAutoPlay = testCpuControl;
+    if (typeof window._cpuController.start === 'function') {
+      window._cpuController.start();
+    }
+  }
+}
+
 function handlePauseAction(action) {
   const overlay = document.getElementById('pause-overlay');
   if (overlay) overlay.classList.remove('active');
 
   switch (action) {
     case 'resume': {
-      // PUYOモード・QUIZぷよモード中はtetインスタンスのresumeを呼ばない
+      // PUYOプレイ中（単体/CPUテスト/QUIZぷよ）は休眠中の tet インスタンスの resume を呼ばない。
+      // ※ ぷよTESTモードでは window._game が base.js の未起動 tet のまま残るため、ここで
+      //   resume してしまうと mino 不在のまま startGravity が回りエラーを吐き続ける。
       const _modeId = currentGameMode && currentGameMode.id;
       const _isQuizPuyo = _modeId === 'quiz' &&
           typeof currentQuizLevel !== 'undefined' && currentQuizLevel &&
           currentQuizLevel.rule === 'puyo';
-      const _suppressTet = _modeId === 'puyo' || _isQuizPuyo;
+      const _isTestPuyo = _modeId === 'test' && testRule === 'puyo';
+      const _suppressTet = _modeId === 'puyo' || _isTestPuyo || _isQuizPuyo;
       if (window._game && typeof window._game.resume === 'function' && !_suppressTet) {
         window._game.resume();
       }
@@ -883,6 +920,9 @@ function handlePauseAction(action) {
           if (typeof startQuizLevel === 'function' && typeof currentQuizLevel !== 'undefined' && currentQuizLevel) {
               startQuizLevel(currentQuizLevel);
           }
+      } else if (currentGameMode && currentGameMode.id === 'test' && testRule === 'puyo') {
+          // ★ CPUテスト(ぷよ): 盤面リセットに加えてCPUコントローラも作り直す（pause/resume と対称）
+          restartPuyoCpuTest();
       } else if (currentGameMode && currentGameMode.id === 'puyo') {
           if (window._puyoGame && typeof window._puyoGame.start === 'function') window._puyoGame.start();
       } else {
