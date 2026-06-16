@@ -922,13 +922,9 @@ class SeManager {
 
         AudioLoader.recoverIfDegraded();
         const ctx    = AudioLoader.context;
-        // 中断（suspended/interrupted）中はキューに積まず捨てる（resume は試みるがこの音は鳴らさない）。
-        //   理由＝suspended のまま start(0) すると、ブラウザによっては再生されず内部キューに溜まり、
-        //   次に running へ戻った瞬間（多くは自分の操作＝ユーザージェスチャでの resume 時）に
-        //   溜まった音が一斉に鳴る「バースト」になる。オンライン対戦では自分が無操作で相手のSEが
-        //   流れ続ける間にコンテキストが suspended に落ちると、自分のキー操作で相手の溜まった操作SEが
-        //   一斉に鳴る症状が出る。中断中の音は取りこぼし（無音）にして、復帰後の音だけ正しく鳴らす。
-        if (ctx.state !== 'running') { ctx.resume().catch(() => {}); return; }
+        // ②対策（取りこぼし防止）：中断（suspended/interrupted）状態のまま start(0) すると
+        // この音が鳴らない。再生のたびに running 以外なら resume を試みて復帰させる。
+        if (ctx.state !== 'running') ctx.resume().catch(() => {});
         const source = ctx.createBufferSource();
         const gain   = ctx.createGain();
         gain.gain.value = this._volume * (this._gain[key] ?? 1);

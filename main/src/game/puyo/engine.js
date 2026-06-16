@@ -56,7 +56,7 @@ Object.assign(PuyoGame.prototype, {
         const unusedColors = this.activeColors.filter(c => !usedInFirst.has(c));
         let excludeColor = null;
         if (unusedColors.length > 0) {
-            excludeColor = unusedColors[Math.floor(this._tumoRandom() * unusedColors.length)];
+            excludeColor = unusedColors[Math.floor(this._random() * unusedColors.length)];
         }
 
         const pair2 = this._makePair(excludeColor);
@@ -73,8 +73,8 @@ Object.assign(PuyoGame.prototype, {
         if (excludeColor !== null) {
             availableColors = this.activeColors.filter(c => c !== excludeColor);
         }
-        const c1 = availableColors[Math.floor(this._tumoRandom() * availableColors.length)];
-        const c2 = availableColors[Math.floor(this._tumoRandom() * availableColors.length)];
+        const c1 = availableColors[Math.floor(this._random() * availableColors.length)];
+        const c2 = availableColors[Math.floor(this._random() * availableColors.length)];
         return [c1, c2];
     },
 
@@ -113,12 +113,6 @@ Object.assign(PuyoGame.prototype, {
         if (!this._isCellEmpty(this.pivotX, 0)) {
             return false;
         }
-        // オンライン対戦: 直前ツモまでに確定した盤面スナップショット＋新ペアを相手へ送る
-        //   （ここに来た時点で前ツモの連鎖・おじゃま降下は解決済み＝盤面は settled）
-        if (window.OnlineHooks) {
-            window.OnlineHooks.puyoLock(this);
-            window.OnlineHooks.puyoSpawn(this);
-        }
         return true;
     },
 
@@ -155,17 +149,6 @@ Object.assign(PuyoGame.prototype, {
         this.fixAnimTimer = 0;
         this.fixAnimDuration = maxDur;
         this._gs = 'fixAnim';
-
-        // オンライン対戦: 連鎖判定の直前＝ペア確定盤面を相手へ送る。
-        //   ★ 送信を「設置の固定振動が始まるこの瞬間」に行うことで、相手側パペットでも
-        //     設置SE・盤面反映・振動演出が同時に立ち上がる（固定アニメ後の fixWait5f で
-        //     送っていた旧実装は描画が ~200ms 遅れて見えた）。盤面内容は fixWait5f 時点と
-        //     同一（消去前）なので連鎖再生(①②)には影響しない。
-        //   ★ _beginFixAnimWait は連鎖の各リンク（落下後の再固定）でも呼ばれるため、
-        //     ピース確定直後（まだ連鎖していない chainCount === 0）の最初の1回だけに限定する。
-        if (this.chainCount === 0 && window.OnlineHooks && window.OnlineHooks.puyoLockChain) {
-            window.OnlineHooks.puyoLockChain(this);
-        }
     },
 
     _loop() {
@@ -265,7 +248,6 @@ Object.assign(PuyoGame.prototype, {
                     this._addPuyoAnim(fr_s, this.splitPuyo.col, 3);
                     // もう片方の操作ぷよが着地して固定による振動演出が起きた瞬間
                     this.playSe('puyo_fix');
-                    if (window.OnlineHooks && window.OnlineHooks.puyoFixSe) window.OnlineHooks.puyoFixSe(this);
 
                     this.splitPuyo = null;
                     this._beginFixAnimWait();
@@ -283,8 +265,6 @@ Object.assign(PuyoGame.prototype, {
             case 'fixWait5f':
                 this.fw5fTimer += dt;
                 if (this.fw5fTimer >= PConfig.fixWait5fMs) {
-                    // オンライン対戦の盤面送信は _beginFixAnimWait（固定振動の開始）へ移設済み。
-                    //   ここでは状態遷移のみ行う。
                     this._gs = 'checkErase';
                 }
                 break;
@@ -629,10 +609,7 @@ Object.assign(PuyoGame.prototype, {
             this._setCell(cc, cr, this.childColor);
             this._addPuyoAnim(fr_c, cc, cycles);
             // 片方が固定して振動開始：クイックドロップ時は puyo_drop と重なるため避ける
-            if (!viaQuickDrop) {
-                this.playSe('puyo_fix');
-                if (window.OnlineHooks && window.OnlineHooks.puyoFixSe) window.OnlineHooks.puyoFixSe(this);
-            }
+            if (!viaQuickDrop) this.playSe('puyo_fix');
 
             this.splitPuyo = { col: pc, y: pr, color: this.pivotColor };
             this._gs = 'splitting';
@@ -640,10 +617,7 @@ Object.assign(PuyoGame.prototype, {
             this._setCell(pc, pr, this.pivotColor);
             this._addPuyoAnim(fr_p, pc, cycles);
             // 片方が固定して振動開始：クイックドロップ時は puyo_drop と重なるため避ける
-            if (!viaQuickDrop) {
-                this.playSe('puyo_fix');
-                if (window.OnlineHooks && window.OnlineHooks.puyoFixSe) window.OnlineHooks.puyoFixSe(this);
-            }
+            if (!viaQuickDrop) this.playSe('puyo_fix');
 
             this.splitPuyo = { col: cc, y: cr, color: this.childColor };
             this._gs = 'splitting';
@@ -654,10 +628,7 @@ Object.assign(PuyoGame.prototype, {
             this._addPuyoAnim(fr_p, pc, cycles);
             this._addPuyoAnim(fr_c, cc, cycles);
             // 2つ同時に固定して振動開始：クイックドロップ時は puyo_drop と重なるため避ける
-            if (!viaQuickDrop) {
-                this.playSe('puyo_fix');
-                if (window.OnlineHooks && window.OnlineHooks.puyoFixSe) window.OnlineHooks.puyoFixSe(this);
-            }
+            if (!viaQuickDrop) this.playSe('puyo_fix');
             this._beginFixAnimWait();
         }
     },
@@ -912,9 +883,6 @@ Object.assign(PuyoGame.prototype, {
         this._clearChainTextDOM();
         this.isAllClear = false; // ★ ゲームオーバー時にALL CLEARを消す
         this.state = 'gameover';
-
-        // オンライン対戦: 自分の topout を相手へ通知
-        if (window.OnlineHooks) window.OnlineHooks.gameOver(this);
 
         if (this.isVersusMode) {
             const loser = (this.canvasPrefix === 'cpu') ? 'cpu' : 'player';
