@@ -105,7 +105,7 @@ Object.assign(window.PuyoCPU5.prototype, {
                 controlWeights: {
                     fireChainCount:          3,  // 3連鎖以上が撃てれば発火（早撃ち）
                     fireScoreThreshold:   3000,  // 浅いが点の出る連鎖も拾う
-                    growthFireForbidChains:  0,  // 速攻ではこぼし（小連鎖）を抑制しない
+                    growthFireForbidChains:  1,  // 速攻ではこぼし（小連鎖）を抑制しない
                     emergencyFireMinRatio:   0,  // 守るべき本線が無いので緊急発火を絞らない
                 },
             },
