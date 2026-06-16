@@ -42,6 +42,23 @@ static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heig
         score += weightedLink3(lc, w.link3Weight, w.link3FacL, w.link3FacH, w.link3FacV);
     }
 
+    // ── vsTet / fastVsTet 専用評価値（重み0の build/fast では計算ごと無効）──
+    //   puyos：盤面のぷよ量（おじゃま色6・空0を除く非空セル数）。多いほど正＝育成量を評価。
+    if (w.puyosWeight != 0) {
+        int puyoCount = 0;
+        for (int c = 0; c < COLS; c++) {
+            for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
+                uint8_t v = b.get(c, r);
+                if (v != 0 && v != 6) puyoCount++;
+            }
+        }
+        score += puyoCount * w.puyosWeight;
+    }
+    //   height3：致死列(第3列=heights[2])のみの高さ。4 を超えた超過分にペナルティ（負の重み想定）。
+    if (w.height3Weight != 0 && heights[2] > 4) {
+        score += (heights[2] - 4) * w.height3Weight;
+    }
+
     // quiescence による連鎖ポテンシャル評価（連鎖の組みやすさを毎ターン誘導）
     //   outPotChainScore を渡し、同じ発火シミュから「今撃てば出る最大連鎖スコア」も得る。
     score += calcQuiescenceEval(b, heights, w, outPotChainScore, outPotChainCount);

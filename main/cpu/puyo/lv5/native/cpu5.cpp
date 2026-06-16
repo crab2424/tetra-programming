@@ -107,6 +107,10 @@ void searchBestMovePuyoWasm(
     w.link3FacH           = weightsArray[39];
     w.link3FacV           = weightsArray[40];
 
+    // ── vsTet / fastVsTet 専用評価値（build/fast では 0）──
+    w.puyosWeight         = weightsArray[41];
+    w.height3Weight       = weightsArray[42];
+
     BitBoard baseBoard;
     baseBoard.fromArray(boardData);
 

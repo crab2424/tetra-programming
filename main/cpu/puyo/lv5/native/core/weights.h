@@ -99,4 +99,10 @@ struct EvalWeights {
     int link3FacL;      // [38] L字（折れ）の倍率（%）
     int link3FacH;      // [39] 横一直線の倍率（%）
     int link3FacV;      // [40] 縦一直線の倍率（%）
+
+    // ── vsTet / fastVsTet 専用の評価値（build/fast プロファイルでは 0＝無効）──
+    //   モード差は重みだけで表現する設計（native 探索は共通）に従い、calcEvalScore で
+    //   常に計算するが weight==0 のときは寄与しない。対テト系プロファイルでのみ非0にする。
+    int puyosWeight;    // [41] 盤面のぷよ量（おじゃま除く非空セル数）ボーナス（正＝多いほど良い）
+    int height3Weight;  // [42] 致死列(第3列)のみの高さペナルティ。高さ>4 の超過分に乗じる（負）
 };
