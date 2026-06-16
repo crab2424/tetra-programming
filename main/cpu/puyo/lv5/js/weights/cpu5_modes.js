@@ -30,7 +30,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             vsTet: {
                 evalWeights: {
                     qChainWeight: { x: 0.5 },    // 連鎖規模への執着を半減
-                    qYWeight:     { x: 1.0 },    // 発火点を高く積む（速攻の核）
+                    qYWeight:     { x: 2.0 },    // 発火点を高く積む（速攻の核）
                     qChiWeight:   { x: 1.0 },    // 伸長余地の重視
                     link2Weight:  { x: 0.8 },    // 2連結の価値を下げる
                     link3Weight:  { x: 1.5 },    // 3連結の価値を上げる
@@ -42,12 +42,15 @@ Object.assign(window.PuyoCPU5.prototype, {
                     tearWeight:   { x: 2.0 },    // ちぎりを許容して速度優先
                     link3FacL:    { x: 1.0 },    // L字（折れ）  
                     link3FacH:    { x: 1.0 },    // 横一直線      
-                    link3FacV:    { x: 4.0 },    // 縦一直線      
+                    link3FacV:    { x: 4.0 },    // 縦一直線
                     formWeight:   0,             // vstet は form を持たない（build 専用）
+                    // ── vsTet 専用評価値（base=0 なので絶対値で指定。要実機チューニング）──
+                    puyosWeight:   10,           // 盤面のぷよ量（おじゃま除く）が多いほど正
+                    height3Weight: -100,         // 致死列(第3列)高さ>4 の超過分にペナルティ（負）
                 },
                 controlWeights: {
                     fireChainCount:          7,  // 7連鎖以上が撃てれば発火（早撃ち）
-                    fireScoreThreshold:  12000,  // 浅いが点の出る連鎖も拾う
+                    fireScoreThreshold:   5000,  // 浅いが点の出る連鎖も拾う
                     growthFireForbidChains:  1,  // 速攻ではこぼし（小連鎖）を抑制しない
                     emergencyFireMinRatio:   0,  // 守るべき本線が無いので緊急発火を絞らない
                 },},
@@ -84,7 +87,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             fastVsTet: {
                 evalWeights: {
                     qChainWeight: { x: 0.5 },    // 連鎖規模への執着を半減
-                    qYWeight:     { x: 0.333 },  // 発火点を高く積まない（速攻の核）
+                    qYWeight:     { x: 5.0 },    // 発火点を高く積む（速攻の核）
                     qChiWeight:   { x: 0.55 },   // 伸長余地の重視を下げる
                     link2Weight:  { x: 2.5 },    // 2連結の価値を上げる
                     link3Weight:  { x: 2.5 },    // 3連結の価値を上げる
@@ -95,6 +98,9 @@ Object.assign(window.PuyoCPU5.prototype, {
                     bumpWeight:   { x: 0.05 },   // 凸ペナルティを大幅緩和（速く積む）
                     tearWeight:   { x: 2.4 },    // ちぎりを許容して速度優先
                     formWeight:   0,             // form を持たない（build 専用）
+                    // ── fastVsTet 専用評価値（base=0 なので絶対値で指定。要実機チューニング）──
+                    puyosWeight:    2,           // 盤面のぷよ量（おじゃま除く）が多いほど正
+                    height3Weight: -100,         // 致死列(第3列)高さ>4 の超過分にペナルティ（負）
                 },
                 controlWeights: {
                     fireChainCount:          3,  // 3連鎖以上が撃てれば発火（早撃ち）
