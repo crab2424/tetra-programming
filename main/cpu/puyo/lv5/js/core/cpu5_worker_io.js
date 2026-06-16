@@ -362,8 +362,16 @@ Object.assign(window.PuyoCPU5.prototype, {
         const game = this.game;
         if (!game || !game.isVersusMode) return;
 
-        // カウンター発動の受け量しきい値（これ「を超えたら」発動）。
-        const COUNTER_TRIGGER_OJAMA = 5;
+        // カウンター発動の受け量しきい値（これ「を超えたら」fast へ）。
+        //   ★ 相手別に分ける（build↔fast の発動条件を vsTet で独立させる）：
+        //     ・対ぷよ(build)：相手の連鎖は相殺で受けやすく、無理に速攻へ振らない＝高め。
+        //     ・対テト(vsTet)：おじゃま着弾が早く相殺猶予が乏しい＝低め＝早めにカウンターへ。
+        //   ⚠️ 暫定値＝実機で要チューニング（[[feedback-versus-cpu-verification]]）。
+        const COUNTER_TRIGGER_OJAMA_VSPUYO = 5;
+        const COUNTER_TRIGGER_OJAMA_VSTET  = 13;
+        const COUNTER_TRIGGER_OJAMA = this._isOpponentTet()
+            ? COUNTER_TRIGGER_OJAMA_VSTET
+            : COUNTER_TRIGGER_OJAMA_VSPUYO;
 
         // ★ カウンター発火スコアの相手別倍率（受け量に対しどれだけ上回って返すか）。
         //   fireScoreThreshold = (受け量+1) × rate × margin。
@@ -392,8 +400,12 @@ Object.assign(window.PuyoCPU5.prototype, {
         // 適用したカウンター倍率（ログ表示用。非カウンター時は 1.0）。
         let appliedMargin = 1.0;
 
+        // カウンター（速攻）モードも相手別に分ける：対テトは fastVsTet、対ぷよは fast。
+        //   fast↔fastVsTet は cpu5_modes.js で独立した重みプロファイル＝互いに波及しない。
+        const counterMode = this._isOpponentTet() ? 'fastVsTet' : 'fast';
+
         if (wantCounter) {
-            if (this.cpuMode !== 'fast') this.setMode('fast');
+            if (this.cpuMode !== counterMode) this.setMode(counterMode);
             this._counterActive = true;
             // ★ カウンター閾値：発火スコア閾値を「受け量を上回る連鎖」に設定する。
             //   おじゃま量 incomingGross+1 個ぶんの連鎖スコア = (incomingGross+1) × rate。
@@ -429,8 +441,8 @@ Object.assign(window.PuyoCPU5.prototype, {
                 : '';
             console.log(
                 `[cpu5 versus] ${tag}｜ネット受け量=${incomingGross}個(既着弾/確定待ち${committed}+予測${antic}〔全段見込み〕, 発動>${COUNTER_TRIGGER_OJAMA})${offsetStr} / 自カバー(参考)=${coverage}個` +
-                (this.cpuMode === 'fast'
-                    ? `｜カウンター発火閾値=${thr}点(≒${thrOjama}個＝差分+αを上回ったら発火, 倍率×${appliedMargin}${this._isOpponentTet() ? '対テト' : '対ぷよ'})`
+                (this._counterActive
+                    ? `｜カウンター発火閾値=${thr}点(≒${thrOjama}個＝差分+αを上回ったら発火, 倍率×${appliedMargin}${this._isOpponentTet() ? '対テト' : '対ぷよ'}, mode=${this.cpuMode})`
                     : `｜発火閾値=${thr}点(標準)`)
             );
         }
