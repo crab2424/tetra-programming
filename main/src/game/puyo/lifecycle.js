@@ -401,6 +401,11 @@ PuyoGame.preloadImages = function (callback) {
         img.onload = done;
         img.onerror = done;
         img.src = PConfig.imagePath + key + '.png';
+        // ★ ピクセルデコードを前倒しし、各画像が初めて drawImage される瞬間の
+        //   同期デコードによるカクつきを防ぐ（おじゃまアイコンと同じ手法）。
+        //   連結画像（puyo-x_1/_2a/...）は色×形が初登場するたびに点々とスパイクを
+        //   出すため、起動時にまとめて潰しておく。失敗は無視（onload/onerror で done 済み）。
+        if (img.decode) img.decode().catch(() => {});
         sharedImages[key] = img;
     });
 };
