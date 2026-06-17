@@ -280,7 +280,7 @@ function switchPage(pageId) {
 
   // ★ キーボードフォーカスナビゲーション（focus_nav.js）
   if (window.FocusNav) {
-    if (['main-menu','mode-check','versus-check','quiz-check',
+    if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
          'result','versus-result','quiz-result','settings'].includes(pageId)) {
       window.FocusNav.activate(pageId);
     } else {
