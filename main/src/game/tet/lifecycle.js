@@ -221,11 +221,39 @@ Object.assign(Game.prototype, {
     },
 
     // ─── 重力の開始 ───
+    // rAF駆動に変更：従来の setInterval は rAF と非同期で発火し、
+    // 高リフレッシュレート(120Hz+)モニターで「ミノが瞬間移動」して見える原因だった。
+    // フラグ+時刻だけ保持し、実際の落下は render.js の rAF ループから
+    // _applyGravityTick() 経由で「経過時間に応じたマス数」を一括処理する
+    // （ソフトドロップ側の方式と統一）。
+    // this.timer は引き続き「重力が ON か」のフラグとして使う：truthy=ON / falsy=OFF。
+    // 既存の clearInterval(this.timer) 呼び出しは安全な no-op として残してOK。
     startGravity() {
-        if (this.timer) clearInterval(this.timer);
-        // 現在のレベルに応じた速度を取得（15を超えた場合は最速の7ms）
+        this.timer = true;
+        this._gravityLastTime = performance.now();
+    },
+
+    // ─── 重力 tick (rAF ループから毎フレ呼ばれる) ───
+    _applyGravityTick() {
+        if (!this.timer) return;                          // OFF
+        // 動かない局面では「時刻だけ前進」させる＝ポーズ復帰やカウントダウン明け
+        // の瞬間に溜まった経過時間で多重落下するのを防ぐ
+        if (this.isPaused || this.isCountingDown || !this.mino || this.gravityDisabled) {
+            this._gravityLastTime = performance.now();
+            return;
+        }
         const speed = LEVEL_SPEEDS[this.level] || 7;
-        this.timer = setInterval(() => this.dropMino(), speed);
+        const now = performance.now();
+        const elapsed = now - this._gravityLastTime;
+        if (elapsed < speed) return;
+        const dropCount = Math.floor(elapsed / speed);
+        // 余り時間を次フレに持ち越し（高速落下時のドリフト防止）
+        this._gravityLastTime = now - (elapsed % speed);
+        for (let i = 0; i < dropCount; i++) {
+            this.dropMino();
+            // 接地で this.timer=null になったら終了
+            if (!this.timer) break;
+        }
     },
 
     // ゲームオーバー処理

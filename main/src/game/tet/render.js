@@ -124,6 +124,10 @@ Object.assign(Game.prototype, {
         const loop = () => {
             // 入力ポーリング（player側のみ this._pollInput が設定される）
             if (this._pollInput) this._pollInput();
+            // 重力 tick：rAF と同期して経過時間に応じた回数だけ落下を適用する。
+            // 旧 setInterval ベースの実装は rAF と非同期で発火し、高Hzモニターで
+            // 「ミノが瞬間移動」する原因になっていたので統合。
+            this._applyGravityTick();
             // ダーティ時のみ描画
             if (this._needsRedraw) {
                 this._needsRedraw = false;
