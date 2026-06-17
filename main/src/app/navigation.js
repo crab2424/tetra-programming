@@ -691,8 +691,12 @@ window.testGarbage = function(lines) {
     if (!document.getElementById('title-page').classList.contains('active')) return;
     if (['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12',
         'Tab','CapsLock','ScrollLock','NumLock','PrintScreen','Pause'].includes(e.key)) return;
+    // 同一keydownが focus_nav.js の Enter ハンドラに伝播して
+    // メインメニュー先頭ボタン(MARATHON)を起動してしまうのを防ぐ
+    e.preventDefault();
+    e.stopImmediatePropagation();
     switchPage('main-menu');
-  });
+  }, true);
 
   // 初期ロード時（HTMLのactiveクラスで表示）もメニューと同じ登場演出を再生
   if (typeof initMenuAnimations === 'function') initMenuAnimations('title');

@@ -94,7 +94,8 @@
   function scrollItemIntoView(el, instant){
     if (!el || typeof el.scrollIntoView !== 'function') return;
     try {
-      el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: instant ? 'auto' : 'smooth' });
+      // 縦中心に寄せる。スクロール余地が無い (キャンバス端等) ならブラウザが自動で no-op になる
+      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: instant ? 'auto' : 'smooth' });
     } catch (e) {
       el.scrollIntoView(false);
     }
@@ -152,6 +153,14 @@
     }
     return null;
   }
+  function _nearestInRow(row, curX){
+    let best = row.items[0], bestD = Math.abs(best.cx - curX);
+    for (let k = 1; k < row.items.length; k++) {
+      const d = Math.abs(row.items[k].cx - curX);
+      if (d < bestD) { best = row.items[k]; bestD = d; }
+    }
+    return { best, bestD };
+  }
   function defaultMove2D(dir, cur, items){
     const rows = _buildVisualGrid(items);
     if (!rows.length) return null;
@@ -168,17 +177,22 @@
       const delta = dir === 'down' ? +1 : -1;
       const curX = rows[pos.row].items[pos.col].cx;
       const X_TOL = 120;
-      for (let step = 1; step <= rows.length; step++) {
-        const row = rows[wrap(pos.row + delta * step, rows.length)];
-        // 単独行（フルワイド項目）は X 一致を要求しない（=必ず受け入れる）
-        if (row.items.length === 1) return row.items[0].i;
-        let best = row.items[0], bestD = Math.abs(best.cx - curX);
-        for (let k = 1; k < row.items.length; k++) {
-          const d = Math.abs(row.items[k].cx - curX);
-          if (d < bestD) { best = row.items[k]; bestD = d; }
-        }
-        if (bestD <= X_TOL || step === rows.length) return best.i;
+      const nrows = rows.length;
+      // 方向順に探索（wrapしない）: 最初に X_TOL 以内に収まる行があれば即採用
+      // 見つからなければ「隣接行 (step=1) の nearest」を採用
+      // それも無ければ（端から動けない場合）逆端へ wrap
+      let firstAdjacent = null;
+      for (let step = 1; step < nrows; step++) {
+        const ri = pos.row + delta * step;
+        if (ri < 0 || ri >= nrows) break;
+        const { best, bestD } = _nearestInRow(rows[ri], curX);
+        if (step === 1) firstAdjacent = best.i;
+        if (bestD <= X_TOL) return best.i;
       }
+      if (firstAdjacent !== null) return firstAdjacent;
+      // 端で wrap: 逆端の行の nearest
+      const wrapRow = rows[delta > 0 ? 0 : nrows - 1];
+      return _nearestInRow(wrapRow, curX).best.i;
     }
     return null;
   }
