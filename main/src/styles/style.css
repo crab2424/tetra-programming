@@ -2826,17 +2826,18 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
    入力モードが kbd の時のみ枠を表示。pointer 時はクラス自体付与しない
 ───────────────────────────────────────────── */
 body.input-mode-kbd .is-focused {
+  /* 要素の内側に描画 (負のoffset)。box-shadow inset で淡いハロー。
+     要素の外側には一切はみ出さないので、ビューポート/キャンバス端でも絶対に切れない */
   outline: 2px solid var(--accent);
-  outline-offset: 3px;
-  box-shadow: 0 0 0 4px rgba(196, 113, 245, 0.25);
+  outline-offset: 0px;
+  box-shadow: inset 0 0 0 1px rgba(196, 113, 245, 0.45);
   border-radius: inherit;
 }
-/* 行型フォーカス（設定/対戦準備のラベル行） */
 body.input-mode-kbd .slider-row.is-focused,
 body.input-mode-kbd .option-row.is-focused {
   outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  box-shadow: 0 0 0 4px rgba(196, 113, 245, 0.25);
+  outline-offset: -1px;
+  box-shadow: inset 0 0 0 1px rgba(196, 113, 245, 0.45);
   border-radius: 8px;
 }
 
