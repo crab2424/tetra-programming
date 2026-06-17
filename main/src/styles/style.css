@@ -2821,3 +2821,22 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   color: var(--text);
 }
 
+/* ─────────────────────────────────────────────
+   キーボードフォーカス枠（focus_nav.js）
+   入力モードが kbd の時のみ枠を表示。pointer 時はクラス自体付与しない
+───────────────────────────────────────────── */
+body.input-mode-kbd .is-focused {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(196, 113, 245, 0.25);
+  border-radius: inherit;
+}
+/* 行型フォーカス（設定/対戦準備のラベル行） */
+body.input-mode-kbd .slider-row.is-focused,
+body.input-mode-kbd .option-row.is-focused {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  box-shadow: 0 0 0 4px rgba(196, 113, 245, 0.25);
+  border-radius: 8px;
+}
+
