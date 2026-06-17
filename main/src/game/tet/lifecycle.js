@@ -207,6 +207,10 @@ Object.assign(Game.prototype, {
         this.popMino();
         this.drawAll();
 
+        // rAF駆動の描画ループ＆入力ポーリング開始
+        // （CPU側インスタンスも _pollInput 未設定なので描画専用ループとして回る）
+        this.startRenderLoop();
+
         // タイマー開始
         this.startTime = performance.now();
         this.isTimerRunning = true;
@@ -230,6 +234,8 @@ Object.assign(Game.prototype, {
         this.isClear = isClear;
         if (!isClear) this.playSe('gameover');
         this.drawAll();
+        // rAF描画＆入力ループを停止
+        this.stopRenderLoop();
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
         if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
         // おじゃま降下猶予タイマーを全て停止
