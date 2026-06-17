@@ -40,15 +40,32 @@
     active.index = idx;
   }
 
+  function currentIndex(btns){
+    for (let i = 0; i < btns.length; i++) {
+      if (btns[i].classList.contains(FOCUS_CLASS)) return i;
+    }
+    return (active.index >= 0 && active.index < btns.length) ? active.index : 0;
+  }
+
   function move(delta){
     const btns = currentButtons();
     if (!btns.length) return;
-    let cur = -1;
-    for (let i = 0; i < btns.length; i++) {
-      if (btns[i].classList.contains(FOCUS_CLASS)) { cur = i; break; }
+    applyFocus(currentIndex(btns) + delta);
+  }
+
+  function move2D(dir){
+    const btns = currentButtons();
+    if (!btns.length) return;
+    if (typeof active.onMove2D === 'function') {
+      const next = active.onMove2D(dir, currentIndex(btns), btns);
+      if (typeof next === 'number' && next >= 0 && next < btns.length) {
+        applyFocus(next);
+        return;
+      }
     }
-    if (cur < 0) cur = (active.index >= 0 && active.index < btns.length) ? active.index : 0;
-    applyFocus(cur + delta);
+    // フォールバック: 1次元
+    const delta = (dir === 'down' || dir === 'right') ? +1 : -1;
+    move(delta);
   }
 
   function activateButton(btn){
@@ -96,12 +113,10 @@
       }
     }
 
-    if (key === 'ArrowUp' || key === 'ArrowLeft' || code === 'KeyW' || code === 'KeyA') {
-      e.preventDefault(); move(-1); return;
-    }
-    if (key === 'ArrowDown' || key === 'ArrowRight' || code === 'KeyS' || code === 'KeyD') {
-      e.preventDefault(); move(+1); return;
-    }
+    if (key === 'ArrowUp'    || code === 'KeyW') { e.preventDefault(); move2D('up');    return; }
+    if (key === 'ArrowDown'  || code === 'KeyS') { e.preventDefault(); move2D('down');  return; }
+    if (key === 'ArrowLeft'  || code === 'KeyA') { e.preventDefault(); move2D('left');  return; }
+    if (key === 'ArrowRight' || code === 'KeyD') { e.preventDefault(); move2D('right'); return; }
     if (key === 'Enter' || code === 'Space') {
       const btns = currentButtons();
       const idx = (active.index >= 0 && active.index < btns.length) ? active.index : 0;
@@ -173,12 +188,80 @@
 
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
-  // メインメニュー
+  // メインメニュー: 視覚配置(getBoundingClientRect)から行を再構築して2D移動
+  function _buildVisualGrid(btns){
+    const items = btns.map((b, i) => {
+      const r = b.getBoundingClientRect();
+      return { i, cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+    }).filter(it => it.cx || it.cy); // 不可視は除外
+
+    const sorted = [...items].sort((a, b) => a.cy - b.cy);
+    const rows = [];
+    const tol = 24; // 同じ行とみなすy差の閾値
+    for (const it of sorted) {
+      const row = rows.find(r => Math.abs(r.cy - it.cy) <= tol);
+      if (row) {
+        row.items.push(it);
+        row.cy = row.items.reduce((s, x) => s + x.cy, 0) / row.items.length;
+      } else {
+        rows.push({ cy: it.cy, items: [it] });
+      }
+    }
+    rows.forEach(r => r.items.sort((a, b) => a.cx - b.cx));
+    return rows;
+  }
+  function _locate(idx, rows){
+    for (let r = 0; r < rows.length; r++) {
+      const c = rows[r].items.findIndex(it => it.i === idx);
+      if (c >= 0) return { row: r, col: c };
+    }
+    return null;
+  }
+  function _nearestInRow(targetX, row){
+    let best = row.items[0];
+    let bestD = Math.abs(best.cx - targetX);
+    for (let k = 1; k < row.items.length; k++) {
+      const d = Math.abs(row.items[k].cx - targetX);
+      if (d < bestD) { best = row.items[k]; bestD = d; }
+    }
+    return best.i;
+  }
   register('main-menu', {
     getButtons: () => [
       ...$$('#main-menu-modes-grid button'),
       ...$$('#main-menu-footer button'),
     ],
+    onMove2D: (dir, cur, btns) => {
+      const rows = _buildVisualGrid(btns);
+      if (!rows.length) return null;
+      const pos = _locate(cur, rows);
+      if (!pos) return null;
+      const wrap = (v, n) => ((v % n) + n) % n;
+
+      if (dir === 'left' || dir === 'right') {
+        const row = rows[pos.row];
+        const delta = dir === 'right' ? +1 : -1;
+        return row.items[wrap(pos.col + delta, row.items.length)].i;
+      }
+      if (dir === 'up' || dir === 'down') {
+        const delta = dir === 'down' ? +1 : -1;
+        const curX = rows[pos.row].items[pos.col].cx;
+        // x方向に十分近いボタンを持つ行を、進行方向に向かって探す（同じ列を保ちたい）
+        const X_TOL = 120; // この距離以内に候補があれば「同じ列」とみなす
+        for (let step = 1; step <= rows.length; step++) {
+          const row = rows[wrap(pos.row + delta * step, rows.length)];
+          let best = row.items[0], bestD = Math.abs(best.cx - curX);
+          for (let k = 1; k < row.items.length; k++) {
+            const d = Math.abs(row.items[k].cx - curX);
+            if (d < bestD) { best = row.items[k]; bestD = d; }
+          }
+          if (bestD <= X_TOL || step === rows.length) return best.i;
+        }
+        // フォールバック: 隣接行のx最近
+        return _nearestInRow(curX, rows[wrap(pos.row + delta, rows.length)]);
+      }
+      return null;
+    },
   });
 
   // 準備画面（シングル）
