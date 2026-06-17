@@ -261,7 +261,8 @@ h1 {
   text-align: left;
 }
 
-.mode-btn:hover {
+.mode-btn:hover,
+.mode-btn.is-focused {
   transform: translateY(-2px);
 }
 .mode-btn:active {
@@ -271,7 +272,8 @@ h1 {
 .mode-btn-marathon {
   border-color: rgba(196, 113, 245, 0.35);
 }
-.mode-btn-marathon:hover {
+.mode-btn-marathon:hover,
+.mode-btn-marathon.is-focused {
   background: rgba(196, 113, 245, 0.12);
   border-color: var(--accent);
 }
@@ -279,7 +281,8 @@ h1 {
 .mode-btn-sprint {
   border-color: rgba(113, 197, 245, 0.35);
 }
-.mode-btn-sprint:hover {
+.mode-btn-sprint:hover,
+.mode-btn-sprint.is-focused {
   background: rgba(113, 197, 245, 0.12);
   border-color: var(--accent3);
 }
@@ -287,7 +290,8 @@ h1 {
 .mode-btn-ultra {
   border-color: rgba(250, 113, 205, 0.35);
 }
-.mode-btn-ultra:hover {
+.mode-btn-ultra:hover,
+.mode-btn-ultra.is-focused {
   background: rgba(250, 113, 205, 0.12);
   border-color: var(--accent2);
 }
@@ -295,7 +299,8 @@ h1 {
 .mode-btn-versus {
   border-color: rgba(245, 197, 66, 0.35);
 }
-.mode-btn-versus:hover {
+.mode-btn-versus:hover,
+.mode-btn-versus.is-focused {
   background: rgba(245, 197, 66, 0.12);
   border-color: #f5c542;
 }
@@ -303,7 +308,8 @@ h1 {
 .mode-btn-test {
   border-color: rgba(90, 245, 160, 0.35);
 }
-.mode-btn-test:hover {
+.mode-btn-test:hover,
+.mode-btn-test.is-focused {
   background: rgba(90, 245, 160, 0.12);
   border-color: var(--success);
 }
@@ -311,7 +317,8 @@ h1 {
 .mode-btn-puyo {
   border-color: rgba(250, 113, 205, 0.35);
 }
-.mode-btn-puyo:hover {
+.mode-btn-puyo:hover,
+.mode-btn-puyo.is-focused {
   background: rgba(250, 113, 205, 0.12);
   border-color: var(--accent2);
 }
@@ -421,7 +428,8 @@ h1 {
     transform 0.1s;
 }
 
-.menu-btn:hover {
+.menu-btn:hover,
+.menu-btn.is-focused {
   opacity: 0.85;
   transform: translateY(-2px);
 }
@@ -440,7 +448,8 @@ h1 {
   color: var(--accent);
   border: 1px solid rgba(196, 113, 245, 0.35);
 }
-.menu-btn.btn-secondary:hover {
+.menu-btn.btn-secondary:hover,
+.menu-btn.btn-secondary.is-focused {
   background: rgba(196, 113, 245, 0.22);
 }
 .menu-btn-icon {
@@ -610,7 +619,8 @@ h1 {
   font-weight: 700;
   width: 100%;
 }
-.btn-versus-primary:hover {
+.btn-versus-primary:hover,
+.btn-versus-primary.is-focused {
   opacity: 0.88;
 }
 
@@ -665,7 +675,8 @@ h1 {
   font-size: 11px;
   letter-spacing: 2px;
 }
-.btn-vs-settings:hover {
+.btn-vs-settings:hover,
+.btn-vs-settings.is-focused {
   background: rgba(245, 197, 66, 0.2);
   border-color: #f5c542;
 }
@@ -926,7 +937,8 @@ h1 {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.vs-setting-step-btn:hover {
+.vs-setting-step-btn:hover,
+.vs-setting-step-btn.is-focused {
   background: rgba(255, 255, 255, 0.09);
   color: var(--text);
   border-color: rgba(255, 255, 255, 0.25);
@@ -1702,7 +1714,8 @@ canvas {
     opacity 0.2s,
     transform 0.1s;
 }
-#start-btn:hover {
+#start-btn:hover,
+#start-btn.is-focused {
   opacity: 0.88;
   transform: translateY(-1px);
 }
@@ -1734,7 +1747,8 @@ canvas {
   border: 1px solid var(--border);
   color: var(--text-dim);
 }
-.btn-back:hover {
+.btn-back:hover,
+.btn-back.is-focused {
   border-color: var(--accent3);
   color: var(--accent3);
 }
@@ -1796,7 +1810,8 @@ canvas {
   user-select: none;
   transition: all 0.2s;
 }
-.key-badge:hover {
+.key-badge:hover,
+.key-badge.is-focused {
   background: rgba(196, 113, 245, 0.28);
 }
 .key-badge.listening {
@@ -1862,7 +1877,8 @@ canvas {
   border: 1px solid var(--border);
   color: var(--text-dim);
 }
-.btn-reset:hover {
+.btn-reset:hover,
+.btn-reset.is-focused {
   border-color: var(--danger);
   color: var(--danger);
 }
@@ -1871,7 +1887,8 @@ canvas {
   background: linear-gradient(135deg, var(--accent), var(--accent2));
   color: #fff;
 }
-.btn-save:hover {
+.btn-save:hover,
+.btn-save.is-focused {
   opacity: 0.85;
 }
 
@@ -1999,7 +2016,8 @@ canvas {
     transform 0.1s;
   width: 100%;
 }
-.pause-btn:hover {
+.pause-btn:hover,
+.pause-btn.is-focused {
   opacity: 0.85;
   transform: translateY(-1px);
 }
@@ -2016,7 +2034,8 @@ canvas {
   color: var(--accent);
   border: 1px solid var(--border);
 }
-.btn-settings:hover {
+.btn-settings:hover,
+.btn-settings.is-focused {
   background: rgba(196, 113, 245, 0.28);
 }
 .btn-restart {
@@ -2024,7 +2043,8 @@ canvas {
   border: 1px solid var(--border);
   color: var(--text-dim);
 }
-.btn-restart:hover {
+.btn-restart:hover,
+.btn-restart.is-focused {
   border-color: var(--accent3);
   color: var(--accent3);
   opacity: 1;
@@ -2035,7 +2055,8 @@ canvas {
   color: var(--text-dim);
   margin-top: 8px;
 }
-.btn-mainmenu:hover {
+.btn-mainmenu:hover,
+.btn-mainmenu.is-focused {
   border-color: var(--text-dim);
   color: var(--text);
   opacity: 1;
@@ -2168,7 +2189,8 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 0 8px rgba(196, 113, 245, 0.6);
   transition: transform 0.1s;
 }
-input[type="range"]::-webkit-slider-thumb:hover {
+input[type="range"]::-webkit-slider-thumb:hover,
+input[type="range"]::-webkit-slider-thumb.is-focused {
   transform: scale(1.2);
 }
 .slider-markers {
@@ -2250,7 +2272,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .mode-btn-quiz {
     border-color: rgba(245, 197, 66, 0.35);
 }
-.mode-btn-quiz:hover {
+.mode-btn-quiz:hover,
+.mode-btn-quiz.is-focused {
     background: rgba(245, 197, 66, 0.12);
     border-color: #f58542;
 }
@@ -2308,7 +2331,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
     text-align: center;
     transition: background 0.2s, border-color 0.2s, transform 0.1s;
 }
-.quiz-level-btn:hover {
+.quiz-level-btn:hover,
+.quiz-level-btn.is-focused {
     background: rgba(245, 197, 66, 0.14);
     border-color: #f58542;
     transform: scale(1.08);
@@ -2446,7 +2470,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
     font-weight: 700;
     width: 100%;
 }
-.btn-quiz-primary:hover {
+.btn-quiz-primary:hover,
+.btn-quiz-primary.is-focused {
     opacity: 0.88;
 }
 
@@ -2649,7 +2674,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   transition: color 0.2s, opacity 0.2s, background 0.2s;
 }
 
-.util-link:hover {
+.util-link:hover,
+.util-link.is-focused {
   color: var(--text);
   opacity: 1;
   background: rgba(255, 255, 255, 0.05);
@@ -2793,5 +2819,25 @@ input[type="range"]::-webkit-slider-thumb:hover {
   font-size: 0.85rem;
   line-height: 1.6;
   color: var(--text);
+}
+
+/* ─────────────────────────────────────────────
+   キーボードフォーカス枠（focus_nav.js）
+   入力モードが kbd の時のみ枠を表示。pointer 時はクラス自体付与しない
+───────────────────────────────────────────── */
+body.input-mode-kbd .is-focused {
+  /* 要素の内側に描画 (負のoffset)。box-shadow inset で淡いハロー。
+     要素の外側には一切はみ出さないので、ビューポート/キャンバス端でも絶対に切れない */
+  outline: 2px solid var(--accent);
+  outline-offset: 0px;
+  box-shadow: inset 0 0 0 1px rgba(196, 113, 245, 0.45);
+  border-radius: inherit;
+}
+body.input-mode-kbd .slider-row.is-focused,
+body.input-mode-kbd .option-row.is-focused {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  box-shadow: inset 0 0 0 1px rgba(196, 113, 245, 0.45);
+  border-radius: 8px;
 }
 
