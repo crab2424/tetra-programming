@@ -108,6 +108,43 @@ Object.assign(Game.prototype, {
         return ghostY
     },
 
+    // ─────────────────────────────────────────
+    // rAF駆動の描画ループ＆入力ポーリング統合点
+    // ・hot-path側は this.requestRedraw() でダーティフラグを立てるだけにし、
+    //   実際の drawAll は 1フレーム最大1回に集約する。
+    // ・入力ポーリング (_pollInput) も同じ rAF で回す。
+    //   従来の setInterval(…, 4) を撤廃して、描画タイミングと同期させる。
+    // ─────────────────────────────────────────
+    requestRedraw() {
+        this._needsRedraw = true;
+    },
+
+    startRenderLoop() {
+        if (this._renderLoopId) cancelAnimationFrame(this._renderLoopId);
+        const loop = () => {
+            // 入力ポーリング（player側のみ this._pollInput が設定される）
+            if (this._pollInput) this._pollInput();
+            // 重力 tick：rAF と同期して経過時間に応じた回数だけ落下を適用する。
+            // 旧 setInterval ベースの実装は rAF と非同期で発火し、高Hzモニターで
+            // 「ミノが瞬間移動」する原因になっていたので統合。
+            this._applyGravityTick();
+            // ダーティ時のみ描画
+            if (this._needsRedraw) {
+                this._needsRedraw = false;
+                this.drawAll();
+            }
+            this._renderLoopId = requestAnimationFrame(loop);
+        };
+        this._renderLoopId = requestAnimationFrame(loop);
+    },
+
+    stopRenderLoop() {
+        if (this._renderLoopId) {
+            cancelAnimationFrame(this._renderLoopId);
+            this._renderLoopId = null;
+        }
+    },
+
     drawAll() {
         this.mainCtx.clearRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
         this.nextCtx.clearRect(0, 0, this.nextCanvas.width, this.nextCanvas.height)

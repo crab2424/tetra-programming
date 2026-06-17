@@ -53,7 +53,9 @@ Object.assign(Game.prototype, {
         // 既存のリスナー解除
         if (this._keyDownHandler) document.removeEventListener('keydown', this._keyDownHandler)
         if (this._keyUpHandler) document.removeEventListener('keyup', this._keyUpHandler)
-        if (this._keyLoop) clearInterval(this._keyLoop)
+        // 旧 setInterval ベースのループを撤去（rAF駆動に統合済み）
+        if (this._keyLoop) { clearInterval(this._keyLoop); this._keyLoop = null; }
+        this._pollInput = null;
 
         /**
          * キー設定
@@ -158,8 +160,11 @@ Object.assign(Game.prototype, {
         const gamePage = document.getElementById(activePageId);
 
         // 毎フレーム入力処理（同時入力対応）
+        // ループ本体は rAF 駆動の startRenderLoop() から this._pollInput() として呼ばれる。
+        // setInterval(…, 4) で 250Hz 回していた頃と違い rAF と同期するため、
+        // tick が貯まらず描画と同フレームでキー反映される＝体感ラグが減る。
         this._lastFrameTime = performance.now()
-        this._keyLoop = setInterval(() => {
+        this._pollInput = () => {
             if (!gamePage || !gamePage.classList.contains('active')) return
             if (this.isPaused) return
             // カウントダウン中はDASの時間を裏で記録するだけで、操作の実行はしない
@@ -357,10 +362,10 @@ Object.assign(Game.prototype, {
             // アクションが起きたら接地状態を再評価（15回制限もここで処理される）
             if (acted) {
                 this.checkGroundState(true, wasGrounded);
-                this.drawAll()
+                this.requestRedraw();
             }
 
-        }, 4) // （最小実行間隔の4ms、つまり秒間約250回ループ）
+        }; // _pollInput end — rAFループ (startRenderLoop) から毎フレーム呼ばれる
 
         // ─────────────────────────────────────────
         // Gamepad サポート

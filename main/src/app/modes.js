@@ -59,7 +59,7 @@ const GAME_MODES = {
 };
 
 let testCpuControl = true; 
-let testRule = 'puyo';
+let testRule = 'tet';
 
 function setTestCpuControl(isOn) {
   testCpuControl = isOn;
@@ -103,7 +103,7 @@ const CPU_LEVELS = {
   // ★ 隠し要素: 準備画面で「6」キーを押すと出現（tet限定）
   6: { label: 'LV 6', desc: '???', gravityLevel: 2 },
 };
-let selectedCpuLevel = 5; 
+let selectedCpuLevel = 1; 
 
 const CPU_CONFIGS = {
   tet: {
