@@ -36,3 +36,7 @@ puyomaking.html
 /tetra-server/
 
 /tools
+.DS_Store
+
+/cpu/puyo/lv4/tests/estimate_ojama.test.mjs
+/cpu/puyo/lv5/tests/estimate_ojama.test.mjs

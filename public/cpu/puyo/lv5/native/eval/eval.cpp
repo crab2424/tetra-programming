@@ -1,0 +1,233 @@
+// ─────────────────────────────────────────────
+// eval/eval.cpp — 盤面評価（評価値・報酬・統合）
+// ─────────────────────────────────────────────
+#include "eval/eval.h"
+#include "eval/shape.h"
+#include "eval/form.h"
+
+#include <algorithm>
+#include <cmath>
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 【評価値】盤面状態スコア計算（毎ターン加算）
+//   配置後の盤面状態のみを見て評価する。報酬パラメータは含まない。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+static int calcEvalScore(const BitBoard& b, const EvalWeights& w, const int heights[COLS],
+                         int* outPotChainScore = nullptr, int* outPotChainCount = nullptr) {
+    int score = 0;
+
+    // 高さペナルティ（3列目は特に重要）
+    if (heights[2] >= 8) score += (heights[2] - 7) * w.heightPenalty;
+    for (int c = 0; c < COLS; c++) {
+        if (heights[c] >= 10) score += (heights[c] - 9) * (w.heightPenalty / 3);
+    }
+
+    // 隣接列の高さ差ペナルティ
+    for (int c = 0; c < COLS - 1; c++) {
+        int diff = std::abs(heights[c] - heights[c+1]);
+        score += diff * w.heightDiffPenalty;
+    }
+
+    // ── Ama 由来の盤面形状評価（加算式・各重み0で無効化）──
+    if (w.shapeWeight != 0) score += getShape(heights) * w.shapeWeight;
+    if (w.wellWeight  != 0) score += getWell(heights)  * w.wellWeight;
+    if (w.bumpWeight  != 0) score += getBump(heights)  * w.bumpWeight;
+    if (w.sideWeight  != 0) score += getSide(heights)  * w.sideWeight;  // 致死列を相対的に低く保つbias
+
+    // 2連結/3連結（3連結は発火直前形に近いので別重み）
+    //   3連結は形状で価値が異なるため細分化：L字/横一直線=×1.0、縦一直線=×0.6（weightedLink3）。
+    if (w.link2Weight != 0 || w.link3Weight != 0) {
+        Link3Counts lc = getLink23(b);
+        score += lc.link2 * w.link2Weight;
+        score += weightedLink3(lc, w.link3Weight, w.link3FacL, w.link3FacH, w.link3FacV);
+    }
+
+    // ── vsTet / fastVsTet 専用評価値（重み0の build/fast では計算ごと無効）──
+    //   puyos：盤面のぷよ量（おじゃま色6・空0を除く非空セル数）。多いほど正＝育成量を評価。
+    if (w.puyosWeight != 0) {
+        int puyoCount = 0;
+        for (int c = 0; c < COLS; c++) {
+            for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
+                uint8_t v = b.get(c, r);
+                if (v != 0 && v != 6) puyoCount++;
+            }
+        }
+        score += puyoCount * w.puyosWeight;
+    }
+    //   height3：致死列(第3列=heights[2])のみの高さ。4 を超えた超過分にペナルティ（負の重み想定）。
+    if (w.height3Weight != 0 && heights[2] > 4) {
+        score += (heights[2] - 4) * w.height3Weight;
+    }
+
+    // quiescence による連鎖ポテンシャル評価（連鎖の組みやすさを毎ターン誘導）
+    //   outPotChainScore を渡し、同じ発火シミュから「今撃てば出る最大連鎖スコア」も得る。
+    score += calcQuiescenceEval(b, heights, w, outPotChainScore, outPotChainCount);
+
+    // Ama 由来の関係性 form テンプレート（GTR/SGTR/FRON の相対マッチ・毎ターン）
+    if (w.formWeight != 0) score += calcAmaFormScore(b, heights) * w.formWeight;
+
+    return score;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 【報酬】配置による変化スコア計算（1手限り）
+//   配置前後の差分として初めて現れた変化にのみ加算する。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+static int calcRewardScore(
+    const BitBoard& postBoard,          // 配置後の盤面
+    const ChainResult& chain,           // 配置後の連鎖結果
+    const EvalWeights& w,
+    const PotentialInfo& prePot,        // 配置前のポテンシャル
+    bool isEmergencyPre,                // ★ 配置前の盤面で判定した緊急事態フラグ
+    int currentIgnitionThreshold,
+    int currentIgnitionScoreThreshold
+) {
+    int score = 0;
+    bool isIgnitionMode = (prePot.maxChains >= currentIgnitionThreshold || prePot.maxScore >= currentIgnitionScoreThreshold);
+
+    // ── chainBonus / erasedBonus ──
+    // 連鎖は配置により初めて発生するので前後差分は不要。発火条件に応じて1回だけ加算。
+    if (chain.chains > 0) {
+        bool triggersIgnition = (chain.chains >= currentIgnitionThreshold || chain.score >= currentIgnitionScoreThreshold);
+        bool fulfillsPotential = isIgnitionMode && (chain.chains >= prePot.maxChains || chain.score >= prePot.maxScore);
+
+        if (triggersIgnition || fulfillsPotential) {
+            int effectiveChains = std::max(chain.chains, prePot.maxChains);
+            score += (effectiveChains * effectiveChains * effectiveChains) * w.chainBonus * 10;
+            score += (chain.score / 100) * w.chainBonus;
+            score += chain.totalErased * std::abs(w.erasedBonus);
+        } else if (isEmergencyPre || postBoard.isEmptyAll()) {
+            score += (chain.chains * chain.chains) * w.chainBonus * 5;
+            score += (chain.score / 100) * w.chainBonus / 2;
+            score += chain.totalErased * std::abs(w.erasedBonus);
+
+            // ★ 緊急事態時は、連鎖後に3列目（致死列）の高さが低いほど特大ボーナスを与える
+            if (isEmergencyPre) {
+                int postH2 = 0;
+                for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
+                    if (postBoard.get(2, r) != 0) postH2++;
+                }
+                int col2_reduction = std::max(0, 12 - postH2);
+                score += col2_reduction * 20000;
+            }
+        } else if (isIgnitionMode) {
+            PotentialInfo postPot = calcChainPotential(postBoard);
+            bool keepsPotential = (postPot.maxChains >= currentIgnitionThreshold || postPot.maxScore >= currentIgnitionScoreThreshold);
+            if (keepsPotential && postPot.isSafe) {
+                score += chain.totalErased * std::abs(w.erasedBonus);
+            } else {
+                score -= (chain.chains * chain.chains) * 5000;
+            }
+        } else {
+            score -= (chain.chains * chain.chains) * 5000;
+        }
+    }
+
+    // ── zenkeshiBonus ──
+    // 配置後に全消しが成立した場合のみ1回加算。
+    if (postBoard.isEmptyAll()) score += w.zenkeshiBonus;
+
+    // ── chainPotentialBonus ──
+    // 配置後のポテンシャルを計算し、配置前からの増加分（差分）に対して報酬を与える。
+    if (chain.chains == 0) {
+        // 連鎖が起きなかった場合のみ（連鎖時はchainBonusで評価済み）
+        PotentialInfo postPot = calcChainPotential(postBoard);
+        int postPotScore = postPot.maxScore;
+        int postPotChains = postPot.maxChains;
+        // 差分：配置後が配置前を上回った分だけ報酬
+        int potChainGain = postPotChains - prePot.maxChains;
+        int potScoreGain = postPotScore  - prePot.maxScore;
+
+        if (isIgnitionMode) {
+            bool keepsPotential = (postPotChains >= currentIgnitionThreshold || postPotScore >= currentIgnitionScoreThreshold);
+            if (keepsPotential) {
+                if (postPot.isSafe) {
+                    // ポテンシャルを維持できているので、絶対値でも報酬を与える（維持自体に価値がある）
+                    score += (postPotChains * postPotChains) * w.chainPotentialBonus * 5;
+                    score += (postPotScore / 1000) * w.chainPotentialBonus;
+                } else {
+                    score -= 10000;
+                }
+            } else {
+                score -= 10000;
+            }
+        } else {
+            if (postPotChains > 0 || postPotScore > 0) {
+                if (postPot.isSafe) {
+                    if (postPotChains >= currentIgnitionThreshold || postPotScore >= currentIgnitionScoreThreshold) {
+                        // 発火閾値に到達した場合は大きな報酬（絶対値＋差分）
+                        score += (postPotChains * postPotChains) * w.chainPotentialBonus * 5;
+                        score += (postPotScore / 1000) * w.chainPotentialBonus * 2;
+                        score += std::max(0, potChainGain) * w.chainPotentialBonus;
+                        score += std::max(0, potScoreGain / 1000) * w.chainPotentialBonus;
+                    } else {
+                        // 閾値未満は差分のみ報酬
+                        score += std::max(0, potChainGain) * w.chainPotentialBonus;
+                        score += std::max(0, potScoreGain / 1000) * w.chainPotentialBonus;
+                    }
+                } else {
+                    // 発火点が不安定な場合は半額
+                    score += std::max(0, potChainGain) * (w.chainPotentialBonus / 2);
+                }
+            }
+        }
+    }
+
+    return score;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 盤面評価関数
+//   報酬（1手限り）と評価値（毎ターン）を合算して返す。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+int evaluateBoard(
+    const BitBoard& postBoard,          // 配置後の盤面
+    const ChainResult& chain,
+    const EvalWeights& w,
+    const PotentialInfo& prePot,        // 配置前のポテンシャル（searchBestMove側で計算済み）
+    bool isEmergencyPre,                // ★ 配置前の盤面で判定した緊急事態フラグ
+    int* outPotChainScore,              // ★ 配置後盤面の潜在連鎖スコア（巻き上げ用・nullptr可）
+    int* outPotChainCount               // ★ その潜在連鎖スコアの段数（デバッグ期待連鎖数・nullptr可）
+) {
+    if (outPotChainScore) *outPotChainScore = 0;
+    if (outPotChainCount) *outPotChainCount = 0;
+    // ── 配置後の高さを計算（評価値・緊急報酬で共用）
+    int heights[COLS];
+    for (int c = 0; c < COLS; c++) {
+        heights[c] = 0;
+        for (int r = HIDDEN; r < TOTAL_ROWS; r++) {
+            if (postBoard.get(c, r) != 0) heights[c]++;
+        }
+    }
+
+    // ── 【評価値】配置後の盤面状態スコア（構築品質。ama 相当・両モード共通）
+    //   ※ ama モードより先に計算しておく（早期 return で共用するため）。
+    // ── Ama 型 eval（amaEvalMode==1）──
+    //   発火報酬/−5000ペナルティ/chainPotential/緊急/全消し/動的閾値（＝calcRewardScore）を
+    //   一切使わず、構築品質＋waste（消したぷよ数への小ペナルティ）だけでビームを駆動する。
+    //   発火の価値は探索側 chainTarget（quiescence潜在＋実発火の巻き上げ）経由で初手選択に集約される。
+    //   原典: source_assets/puyoAI/ama-beam/ai/search/beam/eval.cpp
+    //         （node.score.action += waste * w.waste, waste=pop数）。
+    if (w.amaEvalMode) {
+        int evalScoreAma = calcEvalScore(postBoard, w, heights, outPotChainScore, outPotChainCount);
+        return evalScoreAma + chain.totalErased * w.wasteWeight;
+    }
+
+    // ── 発火閾値（緊急時は緩和）
+    // ★ 連鎖前の判定（isEmergencyPre）を使用する
+    int currentIgnitionThreshold      = isEmergencyPre ? 1 : w.ignitionThreshold;
+    int currentIgnitionScoreThreshold = isEmergencyPre ? 0 : w.ignitionScoreThreshold;
+
+    // ── 【報酬】1手限りの変化に対するスコア
+    int rewardScore = calcRewardScore(
+        postBoard, chain, w,
+        prePot,
+        isEmergencyPre,
+        currentIgnitionThreshold, currentIgnitionScoreThreshold
+    );
+
+    // ── 【評価値】配置後の盤面状態スコア（毎ターン）
+    int evalScore = calcEvalScore(postBoard, w, heights, outPotChainScore, outPotChainCount);
+
+    return rewardScore + evalScore;
+}

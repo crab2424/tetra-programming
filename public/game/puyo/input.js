@@ -40,7 +40,13 @@ Object.assign(PuyoGame.prototype, {
                 if (!this.isVersusMode) {
                     const pauseOverlay = document.getElementById('pause-overlay');
                     if (pauseOverlay) pauseOverlay.classList.remove('active');
-                    this.start();
+                    // ★ CPUテスト(ぷよ)は盤面リセットに加えてCPUコントローラも作り直す。
+                    //   this.start() だけだと旧コントローラの worker / RAF / 着手予測オーバーレイが残留する。
+                    if (this.currentMode === 'test' && typeof restartPuyoCpuTest === 'function') {
+                        restartPuyoCpuTest();
+                    } else {
+                        this.start();
+                    }
                 }
                 return;
             }

@@ -12,6 +12,17 @@
 // MenuParticles  パーティクル降下
 // main-menu-page の背景canvasに光の粒を降らせる
 // ─────────────────────────────────────────────
+// 粒子数とフレームレートの定数（軽量化チューニングはここ）
+const MP_COUNT        = 120;          // 固定数：使い回しでGCを発生させない
+const MP_TARGET_FPS   = 60;           // 高リフレッシュレート端末でも60fpsに制限
+const MP_FRAME_MS     = 1000 / MP_TARGET_FPS;
+// 色パレットは生成のたびに作らず使い回す
+const MP_PALETTE = [
+    'rgba(180, 220, 255, ',  // 薄青
+    'rgba(255, 255, 255, ',  // 白
+    'rgba(196, 113, 245, ',  // パープル
+];
+
 class MenuParticles {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -19,6 +30,7 @@ class MenuParticles {
         this.ctx = this.canvas.getContext('2d');
         this.particles = [];
         this.animId = null;
+        this._lastFrame = 0;
         this._resize = this._resize.bind(this);
         this._loop   = this._loop.bind(this);
         window.addEventListener('resize', this._resize);
@@ -35,76 +47,71 @@ class MenuParticles {
     }
 
     // 初期パーティクルを画面全体にばらまく（起動時の空白感をなくす）
+    // 以後この配列の長さは変えず、画面外に出た粒子はオブジェクトを使い回して再初期化する
     _spawn() {
-        // リサイズ後に呼ぶので this.canvas.width/height は必ず正の値になっている
         const W = this.canvas.width;
         const H = this.canvas.height;
-        const COUNT = 150;
-        for (let i = 0; i < COUNT; i++) {
-            this.particles.push(this._make(W, H, true));
+        for (let i = 0; i < MP_COUNT; i++) {
+            const p = { x: 0, y: 0, size: 0, speed: 0, drift: 0, color: '', alpha: 0, twinkle: 0 };
+            this._reset(p, W, H, true);
+            this.particles.push(p);
         }
     }
 
-    _make(W, H, randomY = false) {
-        const size  = Math.random() * 2.5 + 0.5;      // 0.5〜3px
-        const speed = Math.random() * 0.6 + 0.2;      // ゆっくり落下
-        const drift = (Math.random() - 0.5) * 0.3;    // わずかに横ブレ
-        // 色: シアン / ホワイト / パープル の3トーンをランダムに
-        const palette = [
-            `rgba(180, 220, 255, `,  // 薄青
-            `rgba(255, 255, 255, `,  // 白
-            `rgba(196, 113, 245, `,  // パープル
-        ];
-        const color = palette[Math.floor(Math.random() * palette.length)];
-        return {
-            x:     Math.random() * W,
-            y:     randomY ? Math.random() * H : -size,
-            size,
-            speed,
-            drift,
-            color,
-            alpha: Math.random() * 0.5 + 0.2,   // 0.2〜0.7
-            twinkle: Math.random() * Math.PI * 2, // ちらつき位相
-        };
+    // 既存オブジェクトのプロパティを書き換える形で「新しい粒子」に作り変える
+    _reset(p, W, H, randomY) {
+        p.size    = Math.random() * 2.5 + 0.5;        // 0.5〜3px
+        p.speed   = Math.random() * 0.6 + 0.2;        // ゆっくり落下
+        p.drift   = (Math.random() - 0.5) * 0.3;      // わずかに横ブレ
+        p.color   = MP_PALETTE[Math.floor(Math.random() * MP_PALETTE.length)];
+        p.x       = Math.random() * W;
+        p.y       = randomY ? Math.random() * H : -p.size;
+        p.alpha   = Math.random() * 0.5 + 0.2;        // 0.2〜0.7
+        p.twinkle = Math.random() * Math.PI * 2;      // ちらつき位相
     }
 
-    _loop() {
+    _loop(now) {
+        this.animId = requestAnimationFrame(this._loop);
+
+        // 60fpsより速い端末では描画スキップ（負荷・電力削減）
+        const last = this._lastFrame;
+        if (last && (now - last) < MP_FRAME_MS) return;
+        // 次フレーム基準を「理想時刻」に寄せてドリフトを抑える
+        this._lastFrame = last ? last + MP_FRAME_MS : now;
+        if (now - this._lastFrame > MP_FRAME_MS) this._lastFrame = now;
+
         const W = this.canvas.width;
         const H = this.canvas.height;
-        this.ctx.clearRect(0, 0, W, H);
+        const ctx = this.ctx;
+        ctx.clearRect(0, 0, W, H);
 
-        for (let i = this.particles.length - 1; i >= 0; i--) {
-            const p = this.particles[i];
+        const particles = this.particles;
+        for (let i = 0, len = particles.length; i < len; i++) {
+            const p = particles[i];
 
             // ちらつき: sinで alpha をゆっくり変動
             p.twinkle += 0.02;
             const a = p.alpha * (0.7 + 0.3 * Math.sin(p.twinkle));
 
-            this.ctx.beginPath();
-            this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-            this.ctx.fillStyle = p.color + a + ')';
-            this.ctx.fill();
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fillStyle = p.color + a + ')';
+            ctx.fill();
 
             // 移動
             p.y += p.speed;
             p.x += p.drift;
 
-            // 画面外に出たら上から再生成
+            // 画面外に出たら同じオブジェクトを再初期化（new しない＝GC churn 防止）
             if (p.y > H + p.size) {
-                this.particles[i] = this._make(W, H, false);
+                this._reset(p, W, H, false);
             }
         }
-
-        // 上限未満のときだけ新粒子を追加（古い粒子を強制削除しない）
-        if (this.particles.length < 200 && Math.random() < 0.6) {
-            this.particles.push(this._make(W, H, false));
-        }
-
-        this.animId = requestAnimationFrame(this._loop);
     }
 
     start() {
         if (this.animId) return;
+        this._lastFrame = 0;
         this.animId = requestAnimationFrame(this._loop);
     }
 
