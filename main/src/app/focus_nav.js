@@ -278,13 +278,14 @@
       const idx = (active.index >= 0 && active.index < items.length) ? active.index : 0;
       if (items[idx]) {
         e.preventDefault();
+        e.stopImmediatePropagation();
         activateButton(items[idx]);
       }
       return;
     }
     if (key === 'Escape') {
-      const back = findByText(/^(◀|⌂)?\s*(BACK|MAIN\s*MENU|MODE\s*SELECT|LEVEL\s*SELECT|DONE|RESUME)/i);
-      if (back) { e.preventDefault(); activateButton(back); }
+      const back = findByText(/^(▶|◀|⌂)?\s*(BACK|MAIN\s*MENU|MODE\s*SELECT|LEVEL\s*SELECT|DONE|RESUME)/i);
+      if (back) { e.preventDefault(); e.stopImmediatePropagation(); activateButton(back); }
       return;
     }
   }
