@@ -1,3 +1,5 @@
+/// JSX風構文を提供するLibrary
+
 interface HasChildren {
   id?: string;
   style?: Partial<CSSStyleDeclaration>;
@@ -6,10 +8,18 @@ interface HasChildren {
   onclick?: (event: MouseEvent) => void;
   disabled?: boolean;
   type?: string;
-  value?: string;
+  value?: string | number;
   oninput?: (event: InputEvent) => void;
+  onchange?: (event: Event) => void;
   src?: string;
   alt?: string;
+  title?: string;
+  min?: string | number;
+  max?: string | number;
+  step?: string | number;
+  placeholder?: string;
+  name?: string;
+  checked?: boolean;
 }
 
 interface SpacingElement extends HasChildren {
@@ -19,7 +29,9 @@ interface SpacingElement extends HasChildren {
 declare global {
   namespace JSX {
     interface IntrinsicElements {
+      /** Row方向の余白を追加するエレメント (拡張) */
       spaceRow: SpacingElement;
+      /** Column方向の余白を追加するエレメント (拡張) */
       spaceCol: SpacingElement;
       [elemName: string]: HasChildren;
     }

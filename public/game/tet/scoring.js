@@ -107,8 +107,8 @@ Object.assign(Game.prototype, {
                     else if (linesCleared === 3) generatedGarbage = 2;
                     else if (linesCleared === 4) generatedGarbage = 4;
                 }
-                // BtBボーナス
-                if (isB2BTriggered) generatedGarbage += 1;
+                // BtBボーナス（オンライン設定 vsB2bBonusEnabled=false で無効化。未設定時は有効）
+                if (isB2BTriggered && this.vsB2bBonusEnabled !== false) generatedGarbage += 1;
                 // RENボーナス（従来テーブル）
                 let r = currentRenForGarbage;
                 if (r === 2 || r === 3) generatedGarbage += 1;
@@ -156,8 +156,8 @@ Object.assign(Game.prototype, {
                     else if (linesCleared === 3) generatedGarbage = _garbageTables.lines3[_ms];
                     else if (linesCleared === 4) generatedGarbage = _garbageTables.lines4[_ms];
                 }
-                // BtBボーナス
-                if (isB2BTriggered) generatedGarbage += _btbBonus[_ms];
+                // BtBボーナス（オンライン設定 vsB2bBonusEnabled=false で無効化。未設定時は有効）
+                if (isB2BTriggered && this.vsB2bBonusEnabled !== false) generatedGarbage += _btbBonus[_ms];
                 // RENボーナス：従来テーブル + マージン追加ボーナス（2REN以降の全ボーナスに加算）
                 let r = currentRenForGarbage;
                 if (r === 2 || r === 3) generatedGarbage += 1 + _renBonus[_ms];

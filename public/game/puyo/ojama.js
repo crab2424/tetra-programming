@@ -239,7 +239,9 @@ Object.assign(PuyoGame.prototype, {
     _confirmSentGarbage(isZenkeshi = false) {
         if (!this.isVersusMode) return;
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
-        if (!opponent) return;
+        // オンライン対戦では opponent オブジェクトは存在しない（送信は sendGarbage フックが担う）。
+        // opponentRule が注入されていれば、端数持ち越し等のリセット処理を継続する。
+        if (!opponent && !this.opponentRule) return;
 
         let changed = false;
         // 保持していた1段階目のおじゃまを全て2段階目(ready: true)に確定させる
@@ -263,7 +265,7 @@ Object.assign(PuyoGame.prototype, {
         this.tetDropScore = 0; // 落下点数は連鎖終了時にリセット（次ツモから新たに積む）
         this.sentGarbageThisTurn = []; // クリア
 
-        if (changed && typeof opponent.updateGarbageGauge === 'function') {
+        if (changed && opponent && typeof opponent.updateGarbageGauge === 'function') {
             opponent.updateGarbageGauge();
         }
     },
@@ -312,6 +314,7 @@ Object.assign(PuyoGame.prototype, {
         // ★ 相殺結果の送信処理（実効値 remaining / effectiveTetAmount を使う。sendGarbage 内で再計算しない）
         const _isOppTet = (() => {
             if (!this.isVersusMode) return false;
+            if (this.opponentRule) return this.opponentRule === 'tet'; // オンライン: 注入ルールを優先
             const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
             if (!opponent) return false;
             return !(opponent instanceof PuyoGame) && (typeof opponent.gameOver === 'function');
@@ -333,6 +336,13 @@ Object.assign(PuyoGame.prototype, {
             // 相手がぷよの場合、残った実効ぷよ基準の火力を送る
             if (remaining > 0) {
                 this.sendGarbage(remaining);
+            }
+            // ★ 混在多人数戦: 同時にテト相手へは tet ライン火力を送る（相殺で減った割合を反映）。
+            //   1v1の対ぷよでは _hasTetOpp=false なので何も起きない。
+            if (this._hasTetOpp && typeof this.sendGarbageCrossTet === 'function' && effectiveTetAmount > 0) {
+                const ratio = originalAmount > 0 ? (remaining / originalAmount) : (remaining === 0 ? 1 : 0);
+                const sendTetAmount = Math.ceil(effectiveTetAmount * ratio);
+                if (sendTetAmount > 0) this.sendGarbageCrossTet(sendTetAmount);
             }
         }
     },
@@ -407,6 +417,7 @@ Object.assign(PuyoGame.prototype, {
     _resolveTetAttack() {
         const _isOpponentTet = (() => {
             if (!this.isVersusMode) return false;
+            if (this.opponentRule) return this.opponentRule === 'tet'; // オンライン: 注入ルールを優先
             const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
             if (!opponent) return false;
             // PuyoGame インスタンスでなければテトとみなす
