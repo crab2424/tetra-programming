@@ -26,6 +26,10 @@ interface SpacingElement extends HasChildren {
   space?: number;
 }
 
+interface BreakableDiv extends HasChildren {
+  body?: string;
+}
+
 declare global {
   namespace JSX {
     interface IntrinsicElements {
@@ -33,6 +37,9 @@ declare global {
       spaceRow: SpacingElement;
       /** Column方向の余白を追加するエレメント (拡張) */
       spaceCol: SpacingElement;
+      /** "\n"による改行を許可するエレメント (拡張) */
+      breakableDiv: BreakableDiv;
+
       [elemName: string]: HasChildren;
     }
   }
@@ -59,6 +66,16 @@ export function jsx(
     const colSpaceElement = document.createElement("div");
     colSpaceElement.style = `width: ${space}px; height: 100%; opacity: 0; pointer-events: none; user-select: none;`;
     return colSpaceElement;
+  } else if (tag === "breakableDiv") {
+    const div = document.createElement("div");
+    const body: string = (props?.body as string) ?? "";
+    body.split("\n").forEach((line, index) => {
+      div.appendChild(document.createTextNode(line));
+      if (index < body.split("\n").length - 1) {
+        div.appendChild(document.createElement("br"));
+      }
+    });
+    return div;
   }
 
   const element = document.createElement(tag);
