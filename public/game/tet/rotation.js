@@ -153,7 +153,7 @@ Object.assign(Game.prototype, {
             }
             this.startGravity();
         }
-        this.drawAll()
+        this.requestRedraw();
     },
 
     // ─────────────────────────────────────────

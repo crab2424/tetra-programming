@@ -327,7 +327,7 @@ Object.assign(Game.prototype, {
         this.playSe('harddrop')
         // lock 音は secureMino(true) 内で lock_hard（小音量）として鳴らすため、ここでは鳴らさない
         this.secureMino(true)
-        this.drawAll()
+        this.requestRedraw();
     },
 
     dropMino() {
@@ -342,7 +342,7 @@ Object.assign(Game.prototype, {
             this.updateLowestY();
         }
         this.checkGroundState();
-        this.drawAll();
+        this.requestRedraw();
     },
 
     // 接地状態をチェックし、重力と固定猶予タイマーを切り替える
@@ -408,7 +408,7 @@ Object.assign(Game.prototype, {
         this.lockTimer = setTimeout(() => {
             this.lockTimer = null;
             this.secureMino();
-            this.drawAll();
+            this.requestRedraw();
         }, delay);
     },
 

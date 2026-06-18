@@ -277,6 +277,16 @@ function switchPage(pageId) {
     // QUIZモード選択画面のレンダリング（quiz.js）
     if (typeof renderQuizCheck === 'function') renderQuizCheck();
   }
+
+  // ★ キーボードフォーカスナビゲーション（focus_nav.js）
+  if (window.FocusNav) {
+    if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
+         'result','versus-result','quiz-result','settings'].includes(pageId)) {
+      window.FocusNav.activate(pageId);
+    } else {
+      window.FocusNav.deactivate();
+    }
+  }
 }
 
 function goToModeCheck(modeId) {
@@ -681,8 +691,12 @@ window.testGarbage = function(lines) {
     if (!document.getElementById('title-page').classList.contains('active')) return;
     if (['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12',
         'Tab','CapsLock','ScrollLock','NumLock','PrintScreen','Pause'].includes(e.key)) return;
+    // 同一keydownが focus_nav.js の Enter ハンドラに伝播して
+    // メインメニュー先頭ボタン(MARATHON)を起動してしまうのを防ぐ
+    e.preventDefault();
+    e.stopImmediatePropagation();
     switchPage('main-menu');
-  });
+  }, true);
 
   // 初期ロード時（HTMLのactiveクラスで表示）もメニューと同じ登場演出を再生
   if (typeof initMenuAnimations === 'function') initMenuAnimations('title');
@@ -856,6 +870,37 @@ function toggleGamePause() {
   }
 }
 
+// ─── CPUテスト(ぷよ)のリスタート ───────────────────────────
+//   盤面リセット（_puyoGame.start）に加えて CPUコントローラを完全に作り直す。
+//   コントローラを stop しないと、旧 worker / soft-drop RAF / 着手予測オーバーレイ
+//   （estimateContainer のゴーストぷよ）が残留して盤面が消えないため。
+//   R キー（puyo/input.js）とポーズメニュー RESTART の両経路から呼ばれる。
+function restartPuyoCpuTest() {
+  if (!window._puyoGame || typeof window._puyoGame.start !== 'function') return;
+
+  // クラスはロード済み（DEV_CPU はロード後 window に残る）なので再ロードせず再利用する。
+  const CPUClass = (window._cpuController && window._cpuController.constructor) || window.PuyoCPU4;
+
+  // 旧コントローラを停止：worker.terminate / RAF キャンセル / オーバーレイ innerHTML='' を行う
+  if (window._cpuController && typeof window._cpuController.stop === 'function') {
+    window._cpuController.stop();
+  }
+  window._cpuController = null;
+
+  // 盤面リセット＆カウントダウン再開
+  window._puyoGame.isCpuControlled = testCpuControl;
+  window._puyoGame.start();
+
+  // CPUコントローラを作り直してアタッチ（_updateLoop は state==='playing' まで待機するので即時生成でOK）
+  if (typeof CPUClass === 'function') {
+    window._cpuController = new CPUClass(window._puyoGame);
+    window._cpuController.isAutoPlay = testCpuControl;
+    if (typeof window._cpuController.start === 'function') {
+      window._cpuController.start();
+    }
+  }
+}
+
 function handlePauseAction(action) {
   const overlay = document.getElementById('pause-overlay');
   if (overlay) overlay.classList.remove('active');
@@ -889,6 +934,9 @@ function handlePauseAction(action) {
           if (typeof startQuizLevel === 'function' && typeof currentQuizLevel !== 'undefined' && currentQuizLevel) {
               startQuizLevel(currentQuizLevel);
           }
+      } else if (currentGameMode && currentGameMode.id === 'test' && testRule === 'puyo') {
+          // ★ CPUテスト(ぷよ): 盤面リセットに加えてCPUコントローラも作り直す（pause/resume と対称）
+          restartPuyoCpuTest();
       } else if (currentGameMode && currentGameMode.id === 'puyo') {
           if (window._puyoGame && typeof window._puyoGame.start === 'function') window._puyoGame.start();
       } else {
