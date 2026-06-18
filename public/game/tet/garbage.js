@@ -13,7 +13,10 @@ Object.assign(Game.prototype, {
         // ── 注意：火力補正乗率は secureMino 内で実効火力として計算済み。ここでは再計算しない ──
 
         let isOpponentPuyo = false;
-        if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
+        if (this.opponentRule) {
+            // オンライン対戦: コントローラが注入する相手ルールを最優先で使う
+            isOpponentPuyo = this.opponentRule === 'puyo';
+        } else if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
             isOpponentPuyo = (this.canvasPrefix === 'cpu') ? (versusPlayerRule === 'puyo') : (versusCpuRule === 'puyo');
         } else if (opponent) {
             isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
@@ -103,7 +106,10 @@ Object.assign(Game.prototype, {
 
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         let isOpponentPuyo = false;
-        if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
+        if (this.opponentRule) {
+            // オンライン対戦: コントローラが注入する相手ルールを最優先で使う
+            isOpponentPuyo = this.opponentRule === 'puyo';
+        } else if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
             isOpponentPuyo = (this.canvasPrefix === 'cpu') ? (versusPlayerRule === 'puyo') : (versusCpuRule === 'puyo');
         } else if (opponent) {
             isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
@@ -126,14 +132,12 @@ Object.assign(Game.prototype, {
                 }
                 this.field.blocks.forEach(block => block.y -= 1);
 
-                // ---------------------------------------------------------------------
-                // ★ 旧仕様：送られた時点で計算されたholesを使用（バラバラに送られたら途切れる）
-                // const currentHole = (g.holes && g.holes[i] !== undefined) ? g.holes[i] : Math.floor(Math.random() * COLS_COUNT);
-                // ---------------------------------------------------------------------
-
-                // ★ 新仕様：まとめて受けるおじゃまは、ここで一括で穴バラを計算する
+                // ★ 送信側で確定した穴があればそれを使う（オンライン: 全員の盤面表示が一致する）。
+                //   無ければ従来どおり受信側で一括計算する。
                 let currentHole;
-                if (droppedLines === 0) {
+                if (g.holes && g.holes[i] !== undefined && g.holes[i] !== null) {
+                    currentHole = g.holes[i];
+                } else if (droppedLines === 0) {
                     // 今回受ける一番下の段（最初の1段目）は完全にランダム
                     currentHole = Math.floor(Math.random() * COLS_COUNT);
                 } else {
@@ -202,6 +206,13 @@ Object.assign(Game.prototype, {
             }
         }
 
+        // 相殺で amount が減ったエントリは holes も整合させる（先頭側から相殺された扱いで末尾を残す）
+        this.garbageQueue.forEach(g => {
+            if (g.holes && g.holes.length > g.amount) {
+                g.holes = g.holes.slice(g.holes.length - g.amount);
+            }
+        });
+
         // 相殺しきって amount が 0 になったキューを削除
         this.garbageQueue = this.garbageQueue.filter(g => g.amount > 0);
 
@@ -251,7 +262,10 @@ Object.assign(Game.prototype, {
 
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         let isOpponentPuyo = false;
-        if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
+        if (this.opponentRule) {
+            // オンライン対戦: コントローラが注入する相手ルールを最優先で使う
+            isOpponentPuyo = this.opponentRule === 'puyo';
+        } else if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
             isOpponentPuyo = (this.canvasPrefix === 'cpu') ? (versusPlayerRule === 'puyo') : (versusCpuRule === 'puyo');
         } else if (opponent) {
             isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');

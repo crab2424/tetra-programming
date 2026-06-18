@@ -936,6 +936,23 @@ class SeManager {
         // 再生終了後は自動でGCされるため明示的な破棄は不要
     }
 
+    // gainMultiplier を掛けて再生（相手のSE等を小音量で鳴らす用途）
+    static playWithGain(key, gainMultiplier) {
+        if (this._muted) return;
+        const buf = AudioLoader.getSeBuffer(key);
+        if (!buf) return;
+        AudioLoader.recoverIfDegraded();
+        const ctx = AudioLoader.context;
+        if (ctx.state !== 'running') ctx.resume().catch(() => {});
+        const source = ctx.createBufferSource();
+        const gain = ctx.createGain();
+        gain.gain.value = this._volume * (this._gain[key] ?? 1) * gainMultiplier;
+        source.buffer = buf;
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        source.start(0);
+    }
+
     static setVolume(v) { this._volume = Math.max(0, Math.min(1, v)); }
     static toggleMute() { this._muted = !this._muted; return this._muted; }
 }

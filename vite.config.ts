@@ -10,4 +10,8 @@ export default defineConfig(async () => ({
   define: {
     APP_VERSION: JSON.stringify(process.env.npm_package_version),
   },
+  server: {
+    host: true,
+    allowedHosts: ["tetlabo-canary-client.nattyantv.info"],
+  },
 }));

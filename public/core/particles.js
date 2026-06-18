@@ -154,8 +154,9 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '.mode-btn-ultra',           cls: 'menu-enter',  delay: 3   },
             { sel: '.mode-btn-versus',          cls: 'menu-enter',  delay: 2   },
             { sel: '.mode-btn-test',            cls: 'menu-enter',  delay: 3   },
-            { sel: '.mode-btn-puyo',            cls: 'menu-enter',  delay: 2   },
-            { sel: '.mode-btn-quiz',            cls: 'menu-enter',  delay: 3   },
+            { sel: '.mode-btn-online',          cls: 'menu-enter',  delay: 4   },
+            { sel: '.mode-btn-puyo',            cls: 'menu-enter',  delay: 3   },
+            { sel: '.mode-btn-quiz',            cls: 'menu-enter',  delay: 4   },
             // フッターは各ボタンを個別 delay で登場させる
             { sel: '#main-menu-footer-center .btn-secondary', cls: 'menu-enter',     delay: 4 }, // SETTINGS
             { sel: '.util-link-title',          cls: 'menu-enter-dim', delay: 5   }, // TITLE

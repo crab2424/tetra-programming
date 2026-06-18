@@ -1,6 +1,7 @@
 import {
   jsx,
 } from "./jsx-runtime";
+import { randomUUID } from "./online/uuid";
 
 export const ToastColor = {
   Success: ["#4CAF50", "#144929"],
@@ -10,11 +11,17 @@ export const ToastColor = {
 } as const;
 type ToastColor = typeof ToastColor[keyof typeof ToastColor];
 
-export const showToast = (title: string, message: string, color: ToastColor) => {
+/**
+ * トーストメッセージを表示する
+ * @param title メッセージタイトル
+ * @param message メッセージ本文
+ * @param color トーストの色 (ToastColor)
+ */
+export const showToast = (title: string, message: string, color: ToastColor): void => {
   const toast = document.getElementById("global-toast") as HTMLDivElement | null;
   if (!toast) return;
 
-  const toastId = crypto.randomUUID();
+  const toastId = randomUUID();
 
   const newToast = <div id={`global-toast-${toastId}`} class="flex flex-col toast" style={{ backgroundColor: color[0], borderColor: color[1], boxShadow: `0 2px 4px ${color[1]}` }}>
     <div class="flex flex-row space-between" style={{ fontWeight: "bold", fontSize: "16px" }}>

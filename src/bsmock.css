@@ -1,3 +1,5 @@
+/** bootstrapのようなclass指定だけでよく使うスタイルを適応するための定義 */
+
 .flex {
   display: flex;
 }

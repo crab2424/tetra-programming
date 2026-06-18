@@ -96,8 +96,8 @@
           <button id="online-mode-button" class="mode-btn mode-btn-online">
             <span class="mode-btn-icon">🌐</span>
             <div class="mode-btn-text">
-              <span class="mode-btn-label">ONLINE BETA</span>
-              <span class="mode-btn-desc">オンラインモード (BETA版)</span>
+              <span class="mode-btn-label">ONLINE</span>
+              <span class="mode-btn-desc">オンラインモード</span>
             </div>
           </button>
         </div>
@@ -564,6 +564,144 @@
           <span class="menu-btn-icon">⌂</span>
           <span>MAIN MENU</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+    MARK: オンライン対戦画面
+    ───────────────────────────────────────────── -->
+  <div id="online-battle-page" class="page">
+    <div id="ol-battle-layout">
+      <!-- 左側：自分のフィールド（相手スロットと同一のDOM構造で統一） -->
+      <div id="ol-player-area">
+        <div id="ol-player-container" class="ol-opponent-slot ol-self-slot">
+          <!-- tet用 -->
+          <div class="ol-opp-field ol-opp-tet-field" id="ol-p-tet-field">
+            <canvas id="ol-p-hold-canvas" class="ol-opp-hold-canvas"></canvas>
+            <div class="ol-opp-main-wrap">
+              <div id="ol-p-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <!-- 異種戦(対ぷよ)で溜まる攻撃ゲージ。盤面右側に表示 -->
+              <div id="ol-p-attack-gauge" class="ol-opp-attack-gauge" style="display:none"></div>
+              <canvas id="ol-p-main-canvas" class="ol-opp-main-canvas"></canvas>
+              <div id="ol-p-action-label-container"></div>
+              <div id="ol-p-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay">
+                <span id="ol-p-countdown-text" class="countdown-text"></span>
+              </div>
+              <div id="ol-p-finish-overlay" class="field-overlay finish-overlay ol-fill-overlay">
+                <span id="ol-p-finish-text" class="finish-text"></span>
+              </div>
+            </div>
+            <canvas id="ol-p-next-canvas" class="ol-opp-next-canvas"></canvas>
+          </div>
+          <!-- puyo用（ルール=puyoの場合のみ表示） -->
+          <div class="ol-opp-field ol-opp-puyo-field" id="ol-p-puyo-field" style="display:none">
+            <div class="ol-opp-main-wrap">
+              <div id="ol-p-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <canvas id="ol-p-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
+              <div id="ol-p-puyo-action-label-container"></div>
+            </div>
+            <canvas id="ol-p-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+          </div>
+          <!-- 名前は盤面の下（相手と同じ ol-opp-name 構造） -->
+          <div class="ol-opp-name ol-self-name" id="ol-p-name" style="color: var(--accent3)">YOU</div>
+        </div>
+      </div>
+
+      <!-- 右側：相手たち -->
+      <div id="ol-opponents-area">
+        <div id="ol-opp-slot-0" class="ol-opponent-slot" style="display:none">
+          <!-- tet用 -->
+          <div class="ol-opp-field ol-opp-tet-field" id="ol-opp-0-tet-field">
+            <canvas id="ol-opp-0-hold-canvas" class="ol-opp-hold-canvas"></canvas>
+            <div class="ol-opp-main-wrap">
+              <div id="ol-opp-0-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <canvas id="ol-opp-0-main-canvas" class="ol-opp-main-canvas"></canvas>
+              <div id="ol-opp-0-action-label-container"></div>
+            </div>
+            <canvas id="ol-opp-0-next-canvas" class="ol-opp-next-canvas"></canvas>
+          </div>
+          <!-- puyo用 -->
+          <div class="ol-opp-field ol-opp-puyo-field" id="ol-opp-0-puyo-field" style="display:none">
+            <div class="ol-opp-main-wrap">
+              <div id="ol-opp-0-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <canvas id="ol-opp-0-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
+              <div id="ol-opp-0-puyo-action-label-container"></div>
+            </div>
+            <canvas id="ol-opp-0-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+          </div>
+          <!-- 名前は盤面の下 -->
+          <div class="ol-opp-name" id="ol-opp-name-0"></div>
+        </div>
+        <div id="ol-opp-slot-1" class="ol-opponent-slot" style="display:none">
+          <!-- tet用 -->
+          <div class="ol-opp-field ol-opp-tet-field" id="ol-opp-1-tet-field">
+            <canvas id="ol-opp-1-hold-canvas" class="ol-opp-hold-canvas"></canvas>
+            <div class="ol-opp-main-wrap">
+              <div id="ol-opp-1-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <canvas id="ol-opp-1-main-canvas" class="ol-opp-main-canvas"></canvas>
+              <div id="ol-opp-1-action-label-container"></div>
+            </div>
+            <canvas id="ol-opp-1-next-canvas" class="ol-opp-next-canvas"></canvas>
+          </div>
+          <div class="ol-opp-field ol-opp-puyo-field" id="ol-opp-1-puyo-field" style="display:none">
+            <div class="ol-opp-main-wrap">
+              <div id="ol-opp-1-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <canvas id="ol-opp-1-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
+              <div id="ol-opp-1-puyo-action-label-container"></div>
+            </div>
+            <canvas id="ol-opp-1-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+          </div>
+          <div class="ol-opp-name" id="ol-opp-name-1"></div>
+        </div>
+        <div id="ol-opp-slot-2" class="ol-opponent-slot" style="display:none">
+          <!-- tet用 -->
+          <div class="ol-opp-field ol-opp-tet-field" id="ol-opp-2-tet-field">
+            <canvas id="ol-opp-2-hold-canvas" class="ol-opp-hold-canvas"></canvas>
+            <div class="ol-opp-main-wrap">
+              <div id="ol-opp-2-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <canvas id="ol-opp-2-main-canvas" class="ol-opp-main-canvas"></canvas>
+              <div id="ol-opp-2-action-label-container"></div>
+            </div>
+            <canvas id="ol-opp-2-next-canvas" class="ol-opp-next-canvas"></canvas>
+          </div>
+          <div class="ol-opp-field ol-opp-puyo-field" id="ol-opp-2-puyo-field" style="display:none">
+            <div class="ol-opp-main-wrap">
+              <div id="ol-opp-2-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <canvas id="ol-opp-2-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
+              <div id="ol-opp-2-puyo-action-label-container"></div>
+            </div>
+            <canvas id="ol-opp-2-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+          </div>
+          <div class="ol-opp-name" id="ol-opp-name-2"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 勝者表示オーバーレイ -->
+    <div id="ol-winner-overlay" class="ol-overlay" style="display:none">
+      <div class="ol-overlay-content">
+        <div id="ol-winner-title" class="ol-result-title">WINNER</div>
+        <div id="ol-winner-name" class="ol-result-name"></div>
+        <div id="ol-post-match-buttons">
+          <button id="ol-btn-rematch" class="menu-btn btn-primary">
+            <span class="menu-btn-icon">↺</span><span>REMATCH</span>
+          </button>
+          <button id="ol-btn-room" class="menu-btn btn-secondary">
+            <span class="menu-btn-icon">🏠</span><span>ROOM</span>
+          </button>
+          <button id="ol-btn-leave" class="menu-btn btn-secondary">
+            <span class="menu-btn-icon">◀</span><span>LEAVE</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ポーズオーバーレイ -->
+    <div id="ol-pause-overlay" class="ol-overlay" style="display:none">
+      <div class="ol-overlay-content">
+        <div class="ol-result-title">PAUSED</div>
+        <div id="ol-paused-by" class="ol-result-name"></div>
       </div>
     </div>
   </div>

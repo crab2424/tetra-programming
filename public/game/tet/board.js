@@ -10,8 +10,10 @@ Object.assign(Game.prototype, {
         if (this.bag.length === 0) {
             this.bag = [0, 1, 2, 3, 4, 5, 6];
             // シャッフル（Fisher-Yates）
+            // オンライン対戦では this.tumoRng（共有シードRNG）が注入され、全員同じツモ列になる
+            const rng = this.tumoRng || Math.random;
             for (let i = this.bag.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
+                const j = Math.floor(rng() * (i + 1));
                 [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
             }
         }
@@ -107,7 +109,11 @@ Object.assign(Game.prototype, {
         if (this.isVersusMode) {
             const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
             let isOpponentPuyo = false;
-            if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
+            if (this.opponentRule) {
+                // オンライン対戦: コントローラが相手ルールを明示注入する。
+                // window._cpuGame / versus* グローバルはオンラインでは未設定のため、これを最優先で使う。
+                isOpponentPuyo = this.opponentRule === 'puyo';
+            } else if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
                 isOpponentPuyo = (this.canvasPrefix === 'cpu') ? (versusPlayerRule === 'puyo') : (versusCpuRule === 'puyo');
             } else if (opponent) {
                 isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
@@ -227,11 +233,19 @@ Object.assign(Game.prototype, {
                         canceledGarbage = beforeInternal - this.pendingInternalAttack;
                     }
 
-                    // 余った火力を計算して相手に送信
+                    // 余った火力を計算して相手に送信（対ぷよ＝おじゃま個数）
                     let sendAmount = Math.max(0, this.pendingAttack - canceledGarbage);
                     if (sendAmount > 0) {
                         //console.log(`[secureMino] -> 消去なし: 貯蓄から ${sendAmount} を相手に送信します`);
                         this.sendGarbage(sendAmount); // 実効化済み。sendGarbage内では再計算しない
+                    }
+
+                    // ★ 混在多人数戦: 同時にテト相手へは tet ライン火力（相殺後の内部火力残り）を送る。
+                    //   pendingInternalAttack は generatedGarbage 相当を実効化して積んだ tet ライン量。
+                    //   テト相手が居ない通常の異種戦(1v1)では _hasTetOpp=false なので何も起きない。
+                    const tetLeftover = this.pendingInternalAttack;
+                    if (this._hasTetOpp && tetLeftover > 0 && typeof this.sendGarbageCrossTet === 'function') {
+                        this.sendGarbageCrossTet(tetLeftover);
                     }
 
                     // 放出後は両方ともリセット
