@@ -136,7 +136,6 @@ export class GameConnection {
     this.onReconnecting = callbacks?.onReconnecting;
     this.onReconnected = callbacks?.onReconnected;
     this.setupSignaling();
-    this.setupPeerConnection();
   }
 
   /** シグナリング用WebSocketを生成しハンドラを張る（初回・再接続の両方で使う） */
@@ -154,8 +153,8 @@ export class GameConnection {
   }
 
   /** PeerConnection と Reliable/Unreliable DataChannel を生成しハンドラを張る（初回・再接続で使う） */
-  private setupPeerConnection(): void {
-    this.pc = new RTCPeerConnection();
+  private setupPeerConnection(config: RTCConfiguration = {}): void {
+    this.pc = new RTCPeerConnection(config);
 
     this.rdc = this.pc.createDataChannel(RELIABLE_CHANNEL_LABEL);
     this.urdc = this.pc.createDataChannel(UNRELIABLE_CHANNEL_LABEL, {
@@ -273,7 +272,7 @@ export class GameConnection {
         return;
       }
 
-      let authResolved = false;
+      let rtcConfig: RTCConfiguration | null = null;
 
       this.ws.onmessage = (event) => {
         const message = JSON.parse(event.data);
@@ -284,7 +283,9 @@ export class GameConnection {
             return;
           }
           this.logger.log("Authentication successful");
-          authResolved = true;
+          let config: string =
+            message.rtcPeerIceConfig ?? message.rtc_peer_ice_config ?? "{}";
+          rtcConfig = JSON.parse(config);
         }
       };
 
@@ -295,9 +296,11 @@ export class GameConnection {
         }),
       );
 
-      while (!authResolved) {
+      while (rtcConfig === null) {
         await sleep(10);
       }
+
+      this.setupPeerConnection(rtcConfig);
 
       const offer = await this.pc.createOffer();
       await this.pc.setLocalDescription(offer);
