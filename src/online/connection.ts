@@ -1,4 +1,6 @@
 // @ts-check
+declare const APP_VERSION: string;
+
 import { randomUUID } from "./uuid";
 import {
   Payload,
@@ -54,14 +56,14 @@ import { parseMatchFrame, type MatchFrame } from "./game_protocol.js";
 
 import { Logger } from "./logger";
 
-/**
- * ゲーム通信用コネクションクラス
- */
-
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const RELIABLE_CHANNEL_LABEL = "reliable-main";
 const UNRELIABLE_CHANNEL_LABEL = "unreliable-main";
+
+/**
+ * ゲーム通信用コネクションクラス
+ */
 export class GameConnection {
   public userId: Uuid | null = null;
 
@@ -81,7 +83,8 @@ export class GameConnection {
 
   private rdcFunctions: Map<Uuid, (event: MessageEvent) => void> = new Map();
   private urdcFunctions: Map<Uuid, (event: MessageEvent) => void> = new Map();
-  private matchEventHandlers: Map<Uuid, (frame: MatchFrame) => void> = new Map();
+  private matchEventHandlers: Map<Uuid, (frame: MatchFrame) => void> =
+    new Map();
 
   public dcReady: boolean = false;
 
@@ -181,19 +184,21 @@ export class GameConnection {
     this.rdc.onmessage = (event) => {
       (async () => {
         const buf = await this.eventToBuffer(event);
-        if (buf && buf[0] >= 0x20 && buf[0] <= 0x3F) {
+        if (buf && buf[0] >= 0x20 && buf[0] <= 0x3f) {
           const frame = parseMatchFrame(buf);
           if (frame) this.matchEventHandlers.forEach((h) => h(frame));
           return;
         }
-        try { await this.handleInbound(event); } catch {}
+        try {
+          await this.handleInbound(event);
+        } catch {}
         this.rdcFunctions.forEach((func) => func(event));
       })();
     };
     this.urdc.onmessage = (event) => {
       (async () => {
         const buf = await this.eventToBuffer(event);
-        if (buf && buf[0] >= 0x20 && buf[0] <= 0x3F) {
+        if (buf && buf[0] >= 0x20 && buf[0] <= 0x3f) {
           const frame = parseMatchFrame(buf);
           if (frame) this.matchEventHandlers.forEach((h) => h(frame));
           return;
@@ -266,6 +271,32 @@ export class GameConnection {
       if (this.ws.readyState === WebSocket.CLOSED) {
         reject(new Error("WebSocket connection failed"));
         return;
+      }
+
+      let authResolved = false;
+
+      this.ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+
+        if (message.type === "authresult") {
+          if (!message.success) {
+            reject(new Error("Authentication failed: " + message.message));
+            return;
+          }
+          this.logger.log("Authentication successful");
+          authResolved = true;
+        }
+      };
+
+      this.ws.send(
+        JSON.stringify({
+          type: "auth",
+          version: APP_VERSION,
+        }),
+      );
+
+      while (!authResolved) {
+        await sleep(10);
       }
 
       const offer = await this.pc.createOffer();
@@ -348,29 +379,42 @@ export class GameConnection {
   private tryReconnect(): void {
     if (this.reconnecting || this.closed || this.intentionalClose) return;
     this.reconnecting = true;
-    this.logger.warn("Connection lost. Attempting reconnect (rebind by player_id)...");
+    this.logger.warn(
+      "Connection lost. Attempting reconnect (rebind by player_id)...",
+    );
     this.onReconnecting?.();
     this.reconnectLoop();
   }
 
   private async reconnectLoop(): Promise<void> {
     const targetId = this.userId; // 再バインド先（初回接続でサーバーから受領済みのID）
-    for (let attempt = 1; attempt <= GameConnection.RECONNECT_MAX_ATTEMPTS; attempt++) {
+    for (
+      let attempt = 1;
+      attempt <= GameConnection.RECONNECT_MAX_ATTEMPTS;
+      attempt++
+    ) {
       if (this.closed || this.intentionalClose) {
         this.reconnecting = false;
         return;
       }
-      this.logger.log(`Reconnect attempt ${attempt}/${GameConnection.RECONNECT_MAX_ATTEMPTS} (id=${targetId})`);
+      this.logger.log(
+        `Reconnect attempt ${attempt}/${GameConnection.RECONNECT_MAX_ATTEMPTS} (id=${targetId})`,
+      );
       try {
-        this.teardownTransport();   // 旧PC/WS/チャネルを後始末（ハンドラは無効化済み）
+        this.teardownTransport(); // 旧PC/WS/チャネルを後始末（ハンドラは無効化済み）
         this.dcReady = false;
         this.setupSignaling();
         this.setupPeerConnection();
-        await this.withTimeout(this.ready(targetId), GameConnection.RECONNECT_ATTEMPT_TIMEOUT_MS);
+        await this.withTimeout(
+          this.ready(targetId),
+          GameConnection.RECONNECT_ATTEMPT_TIMEOUT_MS,
+        );
         // ready() は DataChannel が開く（dcReady=true）と解決する＝接続確立。
         // サーバーが再バインドに成功していれば userId は変わらない。新規IDを振られていたら再バインド失敗。
         if (targetId && this.userId !== targetId) {
-          this.logger.warn(`Rebind failed: server issued a new id (${this.userId} != ${targetId}).`);
+          this.logger.warn(
+            `Rebind failed: server issued a new id (${this.userId} != ${targetId}).`,
+          );
           this.finishReconnect(false);
           return;
         }
@@ -386,21 +430,45 @@ export class GameConnection {
   /** Promise に時間制限をかける（再接続1回あたりのタイムアウト） */
   private withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error("reconnect attempt timed out")), ms);
-      p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+      const t = setTimeout(
+        () => reject(new Error("reconnect attempt timed out")),
+        ms,
+      );
+      p.then(
+        (v) => {
+          clearTimeout(t);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(t);
+          reject(e);
+        },
+      );
     });
   }
 
   /** 旧トランスポートを後始末する。再接続のたびに呼ぶ（致命扱いやtryReconnectを誘発しないようハンドラを外す） */
   private teardownTransport(): void {
-    try { this.rdc.onclose = null; this.rdc.onmessage = null; this.rdc.close(); } catch {}
-    try { this.urdc.onclose = null; this.urdc.onmessage = null; this.urdc.close(); } catch {}
+    try {
+      this.rdc.onclose = null;
+      this.rdc.onmessage = null;
+      this.rdc.close();
+    } catch {}
+    try {
+      this.urdc.onclose = null;
+      this.urdc.onmessage = null;
+      this.urdc.close();
+    } catch {}
     try {
       this.pc.onconnectionstatechange = null;
       this.pc.onicecandidate = null;
       this.pc.close();
     } catch {}
-    try { this.ws.onclose = null; this.ws.onmessage = null; this.ws.close(); } catch {}
+    try {
+      this.ws.onclose = null;
+      this.ws.onmessage = null;
+      this.ws.close();
+    } catch {}
     this.stopKeepalive();
   }
 
@@ -430,7 +498,11 @@ export class GameConnection {
       await sleep(250);
       if (!this.reconnecting) {
         // 復旧していれば dcReady かつ userId 維持
-        return this.dcReady && (!targetId || this.userId === targetId) && !this.closed;
+        return (
+          this.dcReady &&
+          (!targetId || this.userId === targetId) &&
+          !this.closed
+        );
       }
     }
     return false;
@@ -479,12 +551,17 @@ export class GameConnection {
         await this.sendBinaryPing();
         const rtt = Math.round(performance.now() - t0);
         this.lastRttMs = rtt;
-        this.sendRDC(Payload.jsonRequest(Opcodes.JSONRequest, JSON.stringify({
-          type: "JSONUpdatePlayerPingRequest",
-          id: randomUUID(),
-          roomId,
-          pingMs: rtt,
-        })));
+        this.sendRDC(
+          Payload.jsonRequest(
+            Opcodes.JSONRequest,
+            JSON.stringify({
+              type: "JSONUpdatePlayerPingRequest",
+              id: randomUUID(),
+              roomId,
+              pingMs: rtt,
+            }),
+          ),
+        );
       } catch {
         // 接続断時は keepalive/onclose 側で処理される
       }
@@ -800,14 +877,21 @@ export class GameConnection {
     });
   }
 
-  updateMatchSetting(data: Omit<UpdateMatchSettingRequest, "id">): Promise<UpdateMatchSettingResponse> {
-    return this.waitResponseRDC<UpdateMatchSettingResponse>(Opcodes.JSONRequest, {
-      type: "JSONUpdateMatchSettingRequest",
-      ...data,
-    });
+  updateMatchSetting(
+    data: Omit<UpdateMatchSettingRequest, "id">,
+  ): Promise<UpdateMatchSettingResponse> {
+    return this.waitResponseRDC<UpdateMatchSettingResponse>(
+      Opcodes.JSONRequest,
+      {
+        type: "JSONUpdateMatchSettingRequest",
+        ...data,
+      },
+    );
   }
 
-  updatePlayerRule(data: Omit<UpdatePlayerRuleRequest, "id">): Promise<UpdatePlayerRuleResponse> {
+  updatePlayerRule(
+    data: Omit<UpdatePlayerRuleRequest, "id">,
+  ): Promise<UpdatePlayerRuleResponse> {
     return this.waitResponseRDC<UpdatePlayerRuleResponse>(Opcodes.JSONRequest, {
       type: "JSONUpdatePlayerRuleRequest",
       ...data,
@@ -834,7 +918,9 @@ export class GameConnection {
     });
   }
 
-  joinRandomMatch(data: Omit<JoinRandomMatchRequest, "id">): Promise<JoinRandomMatchResponse> {
+  joinRandomMatch(
+    data: Omit<JoinRandomMatchRequest, "id">,
+  ): Promise<JoinRandomMatchResponse> {
     return this.waitResponseRDC<JoinRandomMatchResponse>(Opcodes.JSONRequest, {
       type: "JSONJoinRandomMatchRequest",
       ...data,
@@ -842,28 +928,43 @@ export class GameConnection {
   }
 
   cancelRandomMatch(): Promise<CancelRandomMatchResponse> {
-    return this.waitResponseRDC<CancelRandomMatchResponse>(Opcodes.JSONRequest, {
-      type: "JSONCancelRandomMatchRequest",
-    });
+    return this.waitResponseRDC<CancelRandomMatchResponse>(
+      Opcodes.JSONRequest,
+      {
+        type: "JSONCancelRandomMatchRequest",
+      },
+    );
   }
 
   sendPause(data: Omit<PauseRequest, "id">): void {
-    this.sendRDC(Payload.jsonRequest(Opcodes.JSONRequest, JSON.stringify({
-      type: "JSONPauseRequest",
-      id: randomUUID(),
-      ...data,
-    })));
+    this.sendRDC(
+      Payload.jsonRequest(
+        Opcodes.JSONRequest,
+        JSON.stringify({
+          type: "JSONPauseRequest",
+          id: randomUUID(),
+          ...data,
+        }),
+      ),
+    );
   }
 
   sendResume(data: { roomId: Uuid }): void {
-    this.sendRDC(Payload.jsonRequest(Opcodes.JSONRequest, JSON.stringify({
-      type: "JSONResumeRequest",
-      id: randomUUID(),
-      ...data,
-    })));
+    this.sendRDC(
+      Payload.jsonRequest(
+        Opcodes.JSONRequest,
+        JSON.stringify({
+          type: "JSONResumeRequest",
+          id: randomUUID(),
+          ...data,
+        }),
+      ),
+    );
   }
 
-  notifyGameOver(data: Omit<NotifyGameOverRequest, "id">): Promise<NotifyGameOverResponse> {
+  notifyGameOver(
+    data: Omit<NotifyGameOverRequest, "id">,
+  ): Promise<NotifyGameOverResponse> {
     return this.waitResponseRDC<NotifyGameOverResponse>(Opcodes.JSONRequest, {
       type: "JSONNotifyGameOverRequest",
       ...data,
@@ -871,41 +972,60 @@ export class GameConnection {
   }
 
   sendPostMatchAction(data: Omit<PostMatchActionRequest, "id">): void {
-    this.sendRDC(Payload.jsonRequest(Opcodes.JSONRequest, JSON.stringify({
-      type: "JSONPostMatchActionRequest",
-      id: randomUUID(),
-      ...data,
-    })));
+    this.sendRDC(
+      Payload.jsonRequest(
+        Opcodes.JSONRequest,
+        JSON.stringify({
+          type: "JSONPostMatchActionRequest",
+          id: randomUUID(),
+          ...data,
+        }),
+      ),
+    );
   }
 
   // ── Match notification subscriptions ──────────────────────────────
 
   onStartMatchNotification(cb: (n: StartMatchNotification) => void): Uuid {
-    return this.addJsonReaderFunction((e) => { if (isStartMatchNotification(e)) cb(e as any); });
+    return this.addJsonReaderFunction((e) => {
+      if (isStartMatchNotification(e)) cb(e as any);
+    });
   }
 
   onUpdateMatchSetting(cb: (n: UpdateMatchSettingNotification) => void): Uuid {
-    return this.addJsonReaderFunction((e) => { if (isUpdateMatchSettingNotification(e)) cb(e as any); });
+    return this.addJsonReaderFunction((e) => {
+      if (isUpdateMatchSettingNotification(e)) cb(e as any);
+    });
   }
 
   onPauseNotification(cb: (n: PauseNotification) => void): Uuid {
-    return this.addJsonReaderFunction((e) => { if (isPauseNotification(e)) cb(e as any); });
+    return this.addJsonReaderFunction((e) => {
+      if (isPauseNotification(e)) cb(e as any);
+    });
   }
 
   onResumeNotification(cb: (n: ResumeNotification) => void): Uuid {
-    return this.addJsonReaderFunction((e) => { if (isResumeNotification(e)) cb(e as any); });
+    return this.addJsonReaderFunction((e) => {
+      if (isResumeNotification(e)) cb(e as any);
+    });
   }
 
   onWinnerNotification(cb: (n: WinnerNotification) => void): Uuid {
-    return this.addJsonReaderFunction((e) => { if (isWinnerNotification(e)) cb(e as any); });
+    return this.addJsonReaderFunction((e) => {
+      if (isWinnerNotification(e)) cb(e as any);
+    });
   }
 
   onPostMatchAction(cb: (n: PostMatchActionNotification) => void): Uuid {
-    return this.addJsonReaderFunction((e) => { if (isPostMatchActionNotification(e)) cb(e as any); });
+    return this.addJsonReaderFunction((e) => {
+      if (isPostMatchActionNotification(e)) cb(e as any);
+    });
   }
 
   onPlayerDisconnected(cb: (n: PlayerDisconnectedNotification) => void): Uuid {
-    return this.addJsonReaderFunction((e) => { if (isPlayerDisconnectedNotification(e)) cb(e as any); });
+    return this.addJsonReaderFunction((e) => {
+      if (isPlayerDisconnectedNotification(e)) cb(e as any);
+    });
   }
 
   sendJsonPing(): Promise<{ id: string }> {
@@ -948,7 +1068,9 @@ export class GameConnection {
     });
   }
 
-  roomInfoNotificationRequest(data: Omit<RoomInfoNotificationRequest, "id">): Promise<void> {
+  roomInfoNotificationRequest(
+    data: Omit<RoomInfoNotificationRequest, "id">,
+  ): Promise<void> {
     return this.waitResponseRDC<void>(Opcodes.JSONRequest, {
       type: "JSONRoomInfoNotificationRequest",
       ...data,

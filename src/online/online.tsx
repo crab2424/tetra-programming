@@ -61,7 +61,7 @@ class Modal {
           }}
         >
           {title && <h2>{title}</h2>}
-          <div>{message}</div>
+          <breakableDiv body={message} />
           <div>
             <button
               class="btn btn-save"
@@ -594,9 +594,9 @@ class OnlineMode {
 
               const confirmLeave = await Modal.confirm(
                 isOnlyPlayer
-                  ? "ルームから退出しますか？　退出するとこのルームは解散されます。"
+                  ? "ルームから退出しますか？\n退出するとこのルームは解散されます。"
                   : isOwner
-                    ? "ルームから退出しますか？　ルームのオーナー権は別のプレイヤーに渡ります。"
+                    ? "ルームから退出しますか？\nルームのオーナーは別のプレイヤーになります。"
                     : "ルームから退出しますか？",
                 "ルーム退出の確認",
                 "退出",
@@ -1694,9 +1694,9 @@ class OnlineMode {
 
         this.logger.info("Successfully connected to the online server.");
       } catch (e) {
-        this.logger.error("Failed to connect to the online server:", e);
-        await Modal.alert("オンラインサーバーに接続できませんでした。");
         errorOccurred = true;
+        this.logger.error("Failed to connect to the online server:", e);
+        await Modal.alert(`オンラインサーバーに接続できませんでした。\n\n${e}`);
 
         this.backToMainMenu();
       }
