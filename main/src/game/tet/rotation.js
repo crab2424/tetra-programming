@@ -74,37 +74,32 @@ Object.assign(Game.prototype, {
 
     // 回転後にキックオフセットを加えた位置が有効かどうかを検証
     // （valid/getNewBlocks とは独立した専用メソッド）
+    //
+    // SRS のキックテーブルは最大5回試行されるため、validRotated は1フレに
+    // 最大5回呼ばれる。旧実装は毎回 Array.map で {x,y} を4個生成していた。
+    // 配列確保とクロージャを廃して直接ループ＆早期 return に書き換える。
     validRotated(rotDir, kickX, kickY) {
         const pivot = this.mino.pivot
-        const newBlocks = this.mino.blocks.map(block => {
-            // 1. pivot 基準で回転
-            let relX = block.x - pivot.x
-            let relY = block.y - pivot.y
+        const px = pivot.x
+        const py = pivot.y
+        const mx = this.mino.x + kickX
+        const my = this.mino.y + kickY
+        const blocks = this.mino.blocks
+        const field = this.field
+        for (let i = 0; i < blocks.length; i++) {
+            const b = blocks[i]
+            const relX = b.x - px
+            const relY = b.y - py
             let rx, ry
-            if (rotDir === 1) {
-                rx = -relY
-                ry = relX
-            } else {
-                rx = relY
-                ry = -relX
-            }
-            const rotatedX = Math.round(rx + pivot.x)
-            const rotatedY = Math.round(ry + pivot.y)
-
-            // 2. ミノのワールド座標 + キックオフセットを加算
-            return {
-                x: rotatedX + this.mino.x + kickX,
-                y: rotatedY + this.mino.y + kickY
-            }
-        })
-
-        return newBlocks.every(block =>
-            block.x >= 0 &&
-            block.x < COLS_COUNT &&
-            block.y >= -5 &&
-            block.y < ROWS_COUNT &&
-            !this.field.has(block.x, block.y)
-        )
+            if (rotDir === 1) { rx = -relY; ry = relX }
+            else              { rx =  relY; ry = -relX }
+            const wx = Math.round(rx + px) + mx
+            const wy = Math.round(ry + py) + my
+            if (wx < 0 || wx >= COLS_COUNT) return false
+            if (wy < -5 || wy >= ROWS_COUNT) return false
+            if (field.has(wx, wy)) return false
+        }
+        return true
     },
 
     // ホールド
