@@ -168,6 +168,9 @@ Object.assign(Game.prototype, {
             }
         }
 
+        // ブロック座標を直接ずらした＆push したので占有マップを再構築させる
+        this.field.markDirty();
+
         // おじゃまがフィールドに出現したのでゲージを減らす
         this.updateGarbageGauge();
     },

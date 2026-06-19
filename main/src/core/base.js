@@ -466,34 +466,42 @@ class Mino {
     }
 
     getNewBlocks(moveX, moveY, rot) {
-        let newBlocks = this.blocks.map(block => {
-            return new Block(block.x, block.y)
-        })
-        newBlocks.forEach(block => {
-            if (moveX || moveY) {
-                block.x += moveX
-                block.y += moveY
-            }
+        // 旧実装は呼び出しのたびに new Block × 4 + map/forEach のクロージャを
+        // 生成しており、valid() が DAS/重力tick/回転試行のたび回るため GC churn の
+        // 主要因になっていた。Mino インスタンスごとに固定の小さなバッファ（{x,y} × 4）
+        // を持ち、呼び出し側がそのフレーム内で読みきる前提で使い回す。
+        // JS はシングルスレッドなので、同一 Mino に対する getNewBlocks の結果が
+        // 入れ違うことはない。
+        let buf = this._tmpBuf
+        if (!buf) {
+            buf = this._tmpBuf = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }]
+        }
+        const blocks = this.blocks
+        const px = this.pivot.x
+        const py = this.pivot.y
+        const tx = this.x
+        const ty = this.y
+        for (let i = 0; i < blocks.length; i++) {
+            const src = blocks[i]
+            let bx = src.x
+            let by = src.y
+            if (moveX) bx += moveX
+            if (moveY) by += moveY
             if (rot === 1 || rot === -1) {
-                let relX = block.x - this.pivot.x
-                let relY = block.y - this.pivot.y
-
+                const relX = bx - px
+                const relY = by - py
                 let newX, newY
-                if (rot === 1) {
-                    newX = -relY
-                    newY = relX
-                } else {
-                    newX = relY
-                    newY = -relX
-                }
-
-                block.x = Math.round(newX + this.pivot.x)
-                block.y = Math.round(newY + this.pivot.y)
+                if (rot === 1) { newX = -relY; newY = relX }
+                else           { newX =  relY; newY = -relX }
+                bx = Math.round(newX + px)
+                by = Math.round(newY + py)
             }
-            block.x += this.x
-            block.y += this.y
-        })
-        return newBlocks
+            const dst = buf[i]
+            dst.x = bx + tx
+            dst.y = by + ty
+        }
+        buf.length = blocks.length
+        return buf
     }
 }
 
@@ -503,6 +511,65 @@ class Mino {
 class Field {
     constructor() {
         this.blocks = []
+        // 占有マップ（O(1) ルックアップ用）。
+        // has() / getGhostY() が rAF ループから何度も呼ばれるため、
+        // blocks.some() の線形探索と、ゴースト計算で毎フレ生成していた
+        // Set + 'x,y' 文字列を排除する。
+        // valid() は y >= -5 まで参照するため上方 5 行ぶんのマージンを確保。
+        // 部分オーバーフローして y<0 にロックされたブロックも保持できる。
+        this._occ = new Uint8Array(COLS_COUNT * (ROWS_COUNT + Field.TOP_PAD))
+        this._occDirty = true
+
+        // 固定ブロックのオフスクリーンキャッシュ。
+        // ロック/ライン消去/おじゃま着弾でしか変化しない盤面を毎フレ drawImage で
+        // 全ブロック描画していたのが drawAll の主要負荷だった。
+        // y=-1 まで含めるため縦に +1 行ぶん大きく確保し、上に 1 行ぶんオフセットして描く。
+        // 高 DPR では実ピクセル解像度が高いほどコストが効くため、内部解像度は論理px。
+        this._fixedCanvas = document.createElement('canvas')
+        this._fixedCanvas.width  = COLS_COUNT * BLOCK_SIZE
+        this._fixedCanvas.height = (ROWS_COUNT + 1) * BLOCK_SIZE
+        this._fixedCtx = this._fixedCanvas.getContext('2d')
+        this._fixedDirty = true
+    }
+
+    // blocks に直接 push/concat した呼び出し側からマークしてもらう。
+    // checkLine など Field 内部で blocks を書き換える処理は末尾でこれを呼ぶ。
+    markDirty() {
+        this._occDirty = true
+        this._fixedDirty = true
+    }
+
+    // 固定ブロックキャッシュを必要なときだけ再構築する。
+    // drawAll から毎フレ呼ばれるので、_fixedDirty=false なら即 return（数命令）。
+    syncFixedCache() {
+        if (!this._fixedDirty) return
+        const cctx = this._fixedCtx
+        cctx.clearRect(0, 0, this._fixedCanvas.width, this._fixedCanvas.height)
+        // 内部座標: ゲーム y=-1 ⇄ キャンバス y=0 になるよう 1 行ぶん下にずらす
+        cctx.save()
+        cctx.translate(0, BLOCK_SIZE)
+        const bs = this.blocks
+        for (let i = 0; i < bs.length; i++) {
+            bs[i].draw(0, 0, cctx)
+        }
+        cctx.restore()
+        this._fixedDirty = false
+    }
+
+    syncOcc() {
+        if (!this._occDirty) return
+        const occ = this._occ
+        occ.fill(0)
+        const bs = this.blocks
+        const pad = Field.TOP_PAD
+        for (let i = 0; i < bs.length; i++) {
+            const b = bs[i]
+            const yy = b.y + pad
+            if (yy >= 0 && yy < ROWS_COUNT + pad && b.x >= 0 && b.x < COLS_COUNT) {
+                occ[yy * COLS_COUNT + b.x] = 1
+            }
+        }
+        this._occDirty = false
     }
 
     drawFixedBlocks(ctx) {
@@ -520,13 +587,19 @@ class Field {
                 r--
             }
         }
+        if (linesCleared > 0) this._occDirty = true
         return linesCleared
     }
 
     has(x, y) {
-        return this.blocks.some(block => block.x == x && block.y == y)
+        const pad = Field.TOP_PAD
+        const yy = y + pad
+        if (yy < 0 || yy >= ROWS_COUNT + pad || x < 0 || x >= COLS_COUNT) return false
+        if (this._occDirty) this.syncOcc()
+        return this._occ[yy * COLS_COUNT + x] === 1
     }
 }
+Field.TOP_PAD = 5
 
 
 // ==========================================

@@ -9,7 +9,10 @@ Object.assign(Game.prototype, {
     initMainCanvas() {
         const id = this.canvasPrefix ? `${this.canvasPrefix}-main-canvas` : MAIN_CANVAS_ID;
         this.mainCanvas = document.getElementById(id);
-        this.mainCtx = this.mainCanvas.getContext("2d");
+        // desynchronized: true は Chrome の Canvas2D で compositor を経由しない
+        // 低遅延パスを要求するヒント。キー入力→画面反映のレイテンシ短縮に効く。
+        // 非対応ブラウザは無視して通常の 2d コンテキストを返すだけ。
+        this.mainCtx = this.mainCanvas.getContext("2d", { desynchronized: true });
         this.mainCanvas.width = SCREEN_WIDTH;
         this.mainCanvas.height = SCREEN_HEIGHT;
 
@@ -76,14 +79,12 @@ Object.assign(Game.prototype, {
     },
 
     getGhostY() {
-        // 落下シミュレーションは盤面を高さぶんスキャンするため、毎ステップ field.has
-        // （O(n) 線形探索）を呼ぶと O(n×h) になる。占有セルを 1 度だけ Set 化して
-        // O(1) 参照に落とす（drawAll のたびに 1 回構築：O(n+h)）。
-        const occupied = new Set()
-        const fb = this.field.blocks
-        for (let i = 0; i < fb.length; i++) {
-            occupied.add(fb[i].x + ',' + fb[i].y)
-        }
+        // Field の占有 Uint8Array を直接参照して O(1) ルックアップ。
+        // 旧実装は毎フレ new Set() + 'x,y' 文字列を盤面ブロック数ぶん生成しており、
+        // 120Hz モニタで顕著な GC churn の原因になっていた。
+        this.field.syncOcc()
+        const occ = this.field._occ
+        const pad = Field.TOP_PAD
 
         const mx = this.mino.x
         const blocks = this.mino.blocks
@@ -93,8 +94,12 @@ Object.assign(Game.prototype, {
             for (let i = 0; i < blocks.length; i++) {
                 const bx = blocks[i].x + mx
                 const by = blocks[i].y + ghostY + 1
-                if (bx < 0 || bx >= COLS_COUNT || by >= ROWS_COUNT ||
-                    occupied.has(bx + ',' + by)) {
+                if (bx < 0 || bx >= COLS_COUNT || by >= ROWS_COUNT) {
+                    canMove = false
+                    break
+                }
+                const yy = by + pad
+                if (yy >= 0 && occ[yy * COLS_COUNT + bx] === 1) {
                     canMove = false
                     break
                 }
@@ -166,7 +171,13 @@ Object.assign(Game.prototype, {
         this.mainCtx.save();
         this.mainCtx.translate(0, BLOCK_SIZE * VISIBLE_EXTRA_ROW_RATIO);
 
-        this.field.drawFixedBlocks(this.mainCtx);
+        // 固定ブロックはオフスクリーンキャッシュを 1 枚 blit するだけ。
+        // 中身が変わるのはロック・ライン消去・おじゃま着弾時のみで、その瞬間に
+        // Field.markDirty() が呼ばれて自動再構築される。
+        this.field.syncFixedCache();
+        // キャッシュ内部はゲーム y=-1 ⇄ 画像 y=0 にオフセット済みなので、
+        // 描画位置を 1 行ぶん上にずらして貼り付ける。
+        this.mainCtx.drawImage(this.field._fixedCanvas, 0, -BLOCK_SIZE);
 
         // this.mino が存在するときだけゴーストを描画
         if (this.mino) {
@@ -181,14 +192,17 @@ Object.assign(Game.prototype, {
         const minoScale = 0.8;
 
         // Draw next queue vertically（表示は先頭5個のみ。内部は11個保持）
+        // slice + forEach は毎フレ配列とクロージャを作るため素のループに置換。
         const spacing = 3;
-        this.nextQueue.slice(0, 5).forEach((mino, i) => {
+        const nq = this.nextQueue;
+        const nqLen = Math.min(5, nq.length);
+        for (let i = 0; i < nqLen; i++) {
             this.nextCtx.save();
             this.nextCtx.translate(0, i * spacing * BLOCK_SIZE * minoScale);
             this.nextCtx.scale(minoScale, minoScale);
-            mino.drawNext(this.nextCtx);
+            nq[i].drawNext(this.nextCtx);
             this.nextCtx.restore();
-        });
+        }
 
         // this.mino が存在するときだけ本体を描画
         if (this.mino) {
