@@ -449,7 +449,11 @@ Object.assign(Game.prototype, {
         // keyboard のキーコードに対応するフラグを `this.keyState` に書き込みます。
         // またボタンの押下遷移は即時アクション（ホールド、ハードドロップ、回転等）を呼び出します。
 
-        if (this._gamepadLoop) clearInterval(this._gamepadLoop)
+        if (this._gamepadLoop) {
+            clearInterval(this._gamepadLoop)
+            cancelAnimationFrame(this._gamepadLoop)
+            this._gamepadLoop = null
+        }
         if (this._gpConnectedHandler) window.removeEventListener('gamepadconnected', this._gpConnectedHandler)
         if (this._gpDisconnectedHandler) window.removeEventListener('gamepaddisconnected', this._gpDisconnectedHandler)
 
@@ -532,8 +536,10 @@ Object.assign(Game.prototype, {
         window.addEventListener('gamepadconnected', this._gpConnectedHandler)
         window.addEventListener('gamepaddisconnected', this._gpDisconnectedHandler)
 
-        // ゲームパッド用ポーリングループ（60FPS程度）
-        this._gamepadLoop = setInterval(() => {
+        // ゲームパッド用ポーリングループ。
+        // setInterval は rAF と別タイミングで発火して入力反映が揺れやすいため、
+        // キーボード入力・重力と同じく描画フレームへ寄せる。
+        const pollGamepad = () => {
             const pads = (navigator.getGamepads) ? navigator.getGamepads() : []
             let pad = null
             if (this._gamepadIndex !== null && pads[this._gamepadIndex]) pad = pads[this._gamepadIndex]
@@ -541,7 +547,10 @@ Object.assign(Game.prototype, {
                 // 最初に見つかったパッドを採用
                 for (let i = 0; i < pads.length; i++) { if (pads[i]) { pad = pads[i]; break } }
             }
-            if (!pad) return
+            if (!pad) {
+                this._gamepadLoop = requestAnimationFrame(pollGamepad)
+                return
+            }
 
             const stickX = (pad.axes && pad.axes.length > 0) ? pad.axes[0] : 0;
             const stickY = (pad.axes && pad.axes.length > 1) ? pad.axes[1] : 0;
@@ -616,12 +625,15 @@ Object.assign(Game.prototype, {
                             this._lastSoftDropTime = now
                             if (!this.mino) break;
                             if (this.valid(0, 1)) {
+                                const wasGrounded = this.isGrounded
                                 this.mino.y++
                                 this.updateLowestY()
                                 this.lastActionWasRotation = false
                                 this.score += 1
                                 this.playSe('drop') // ソフトドロップ音（毎マス）
                                 this.updateStatsDisplay()
+                                this.checkGroundState(true, wasGrounded)
+                                this.requestRedraw()
                             }
                         }
                     }
@@ -648,6 +660,8 @@ Object.assign(Game.prototype, {
 
                 this._prevGamepadState[action] = pressed
             }
-        }, 16)
+            this._gamepadLoop = requestAnimationFrame(pollGamepad)
+        }
+        this._gamepadLoop = requestAnimationFrame(pollGamepad)
     },
 });
