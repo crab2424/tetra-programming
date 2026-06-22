@@ -327,7 +327,7 @@
       else if (typeof cfg.initialIndex === 'function') init = cfg.initialIndex(items.map(it => it.el)) || 0;
       else if (typeof cfg.initialIndex === 'number') init = cfg.initialIndex;
       if (init < 0 || init >= items.length) init = 0;
-      applyFocus(init);
+      applyFocus(init, { skipScroll: cfg.skipInitialScroll === true });
     });
   }
 
@@ -424,6 +424,7 @@
 
   register('main-menu', {
     rememberIndex: true,
+    skipInitialScroll: true,
     getItems: () => [
       ...withAnchor($$('#main-menu-modes-grid button'), document.getElementById('main-menu-modes-grid')),
       ...withAnchor($$('#main-menu-footer button'), document.getElementById('main-menu-footer')),
