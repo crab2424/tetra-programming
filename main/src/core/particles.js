@@ -219,16 +219,29 @@ function initMenuAnimations(pageId = 'main-menu') {
         targets = [{ sel: '#changelog-container', cls: 'menu-enter', delay: 0 }];
     }
 
+    const nodes = [];
     targets.forEach(({ sel, el, cls, delay }) => {
         const els = el ? [el] : page.querySelectorAll(sel);
         els.forEach(node => {
-            node.classList.remove(cls);
-            node.style.animation = 'none';
-            void node.offsetWidth;
-            node.style.animation = '';
-            node.style.animationDelay = `${delay * 0.08}s`;
-            node.classList.add(cls);
+            nodes.push({ node, cls, delay });
         });
+    });
+
+    nodes.forEach(({ node }) => {
+        node.classList.remove('menu-enter', 'menu-enter-dim');
+        node.style.opacity = '0';
+        node.style.animation = 'none';
+        node.style.animationDelay = '';
+    });
+
+    void page.offsetWidth;
+
+    nodes.forEach(({ node, cls, delay }) => {
+        node.style.animation = 'none';
+        node.style.animation = '';
+        node.style.animationDelay = `${delay * 0.08}s`;
+        node.style.opacity = '';
+        node.classList.add(cls);
     });
 }
 
