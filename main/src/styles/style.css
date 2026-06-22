@@ -394,7 +394,7 @@ h1 {
   position: relative;
   width: 100%;
   margin-top: 16px;
-  min-height: 96px;
+  min-height: 100px;
 }
 
 /* 中央：SETTINGS の真下に TITLE を縦並び */
@@ -2700,7 +2700,7 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
 .util-link-credits,
 .util-link-changelog {
   position: absolute;
-  bottom: 0;
+  bottom: 4px;
 }
 
 .util-link-credits {
@@ -2837,19 +2837,17 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
    入力モードが kbd の時のみ枠を表示。pointer 時はクラス自体付与しない
 ───────────────────────────────────────────── */
 body.input-mode-kbd .is-focused {
-  /* 要素の内側だけに描画する。outline は外側へ描かれるため、
-     下端にある CREDITS / CHANGELOG で枠が切れて見える。 */
-  outline: none;
-  box-shadow:
-    inset 0 0 0 2px var(--accent),
-    inset 0 0 0 3px rgba(196, 113, 245, 0.45);
+  /* フォーカス枠は要素の外側へ描画する。下端の情報リンクは
+     #main-menu-footer 側で枠ぶんの余白を確保する。 */
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(196, 113, 245, 0.45);
   border-radius: inherit;
 }
 body.input-mode-kbd .slider-row.is-focused,
 body.input-mode-kbd .option-row.is-focused {
-  outline: none;
-  box-shadow:
-    inset 0 0 0 2px var(--accent),
-    inset 0 0 0 3px rgba(196, 113, 245, 0.45);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(196, 113, 245, 0.45);
   border-radius: 8px;
 }
