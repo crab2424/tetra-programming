@@ -95,7 +95,7 @@
   function scrollGroupIntoView(anchor){
     if (!anchor || typeof anchor.scrollIntoView !== 'function') return;
     try {
-      anchor.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+      anchor.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
     } catch (e) {
       anchor.scrollIntoView(false);
     }
