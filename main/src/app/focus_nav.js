@@ -92,14 +92,18 @@
     document.querySelectorAll('.' + FOCUS_CLASS).forEach(el => el.classList.remove(FOCUS_CLASS));
   }
 
-  function scrollItemIntoView(el){
-    if (!el || typeof el.scrollIntoView !== 'function') return;
+  function scrollGroupIntoView(anchor){
+    if (!anchor || typeof anchor.scrollIntoView !== 'function') return;
     try {
-      // 縦中心に寄せる。スクロール余地が無い (キャンバス端等) ならブラウザが自動で no-op になる
-      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+      anchor.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
     } catch (e) {
-      el.scrollIntoView(false);
+      anchor.scrollIntoView(false);
     }
+  }
+
+  function getScrollAnchor(it){
+    if (it.scrollAnchor) return it.scrollAnchor;
+    return it.el;
   }
 
   function applyFocus(idx, opts){
@@ -109,12 +113,19 @@
     if (!items.length) { if (active) active.index = 0; return; }
     if (idx < 0) idx = items.length - 1;
     if (idx >= items.length) idx = 0;
+    const prevIdx = active.index;
     active.index = idx;
     if (active.rememberIndex) rememberedIndex[active.pageId] = idx;
-    if (inputMode !== 'kbd') return; // pointer中は class を付けない（=枠無し）
+    if (inputMode !== 'kbd') return;
     const it = items[idx];
     it.el.classList.add(FOCUS_CLASS);
-    if (!opts.skipScroll) scrollItemIntoView(it.el);
+    if (!opts.skipScroll) {
+      const prevAnchor = (prevIdx >= 0 && prevIdx < items.length) ? getScrollAnchor(items[prevIdx]) : null;
+      const newAnchor = getScrollAnchor(it);
+      if (newAnchor !== prevAnchor || active._firstFocus) {
+        scrollGroupIntoView(newAnchor);
+      }
+    }
     active._firstFocus = false;
   }
 
@@ -390,6 +401,14 @@
       onRight: () => stepSlider(slider, +1),
     };
   }
+  function withAnchor(items, anchor) {
+    return items.map(it => {
+      if (it instanceof Element) return { el: it, scrollAnchor: anchor };
+      if (it.el) return Object.assign({}, it, { scrollAnchor: anchor });
+      return it;
+    });
+  }
+
   // .option-row 内の slider があれば優先、無ければ option-toggle を ±
   function rowAuto(el){
     const slider = el.querySelector('input[type="range"]');
@@ -406,22 +425,22 @@
   register('main-menu', {
     rememberIndex: true,
     getItems: () => [
-      ...$$('#main-menu-modes-grid button'),
-      ...$$('#main-menu-footer button'),
+      ...withAnchor($$('#main-menu-modes-grid button'), document.getElementById('main-menu-modes-grid')),
+      ...withAnchor($$('#main-menu-footer button'), document.getElementById('main-menu-footer')),
     ],
-    // main-menu は既定の 2D で問題ない（同じロジック）
   });
 
   register('mode-check', {
     getItems: () => {
+      const optAnchor = document.getElementById('mode-check-options');
+      const btnAnchor = document.getElementById('mode-check-buttons');
       const items = [];
       $$('#mode-check-options .option-row').forEach(row => {
         const it = rowAuto(row);
-        if (it) items.push(it);
+        if (it) { it.scrollAnchor = optAnchor; items.push(it); }
       });
-      // option-row 外に裸で置かれたボタンがあれば拾う
-      $$('#mode-check-options > button').forEach(b => items.push(b));
-      $$('#mode-check-buttons button').forEach(b => items.push(b));
+      $$('#mode-check-options > button').forEach(b => items.push({ el: b, scrollAnchor: optAnchor }));
+      items.push(...withAnchor($$('#mode-check-buttons button'), btnAnchor));
       return items;
     },
     initialIndex: (els) => els.findIndex(b => b && b.id === 'mode-check-start-btn'),
@@ -429,14 +448,17 @@
 
   register('versus-check', {
     getItems: () => {
+      const ruleAnchor  = document.getElementById('versus-rule-options');
+      const cpuAnchor   = document.getElementById('versus-cpu-options');
+      const btnAnchor   = document.getElementById('versus-check-buttons');
       const items = [];
       const playerRow = document.querySelector('#versus-rule-options .option-row:nth-child(1)');
       const cpuRow    = document.querySelector('#versus-rule-options .option-row:nth-child(2)');
       const cpuLvRow  = document.querySelector('#versus-cpu-options .option-row');
-      if (playerRow) items.push(rowToggle(playerRow, document.getElementById('versus-player-rule-toggle')));
-      if (cpuRow)    items.push(rowToggle(cpuRow,    document.getElementById('versus-cpu-rule-toggle')));
-      if (cpuLvRow)  items.push(rowToggle(cpuLvRow,  document.getElementById('cpu-level-toggle')));
-      $$('#versus-check-buttons button').forEach(b => items.push(b));
+      if (playerRow) { const it = rowToggle(playerRow, document.getElementById('versus-player-rule-toggle')); it.scrollAnchor = ruleAnchor; items.push(it); }
+      if (cpuRow)    { const it = rowToggle(cpuRow,    document.getElementById('versus-cpu-rule-toggle'));    it.scrollAnchor = ruleAnchor; items.push(it); }
+      if (cpuLvRow)  { const it = rowToggle(cpuLvRow,  document.getElementById('cpu-level-toggle'));         it.scrollAnchor = cpuAnchor;  items.push(it); }
+      items.push(...withAnchor($$('#versus-check-buttons button'), btnAnchor));
       return items;
     },
     initialIndex: (els) => els.findIndex(b => b && b.id === 'versus-check-start-btn'),
@@ -447,12 +469,11 @@
     initialIndex: 0,
   });
 
-  // QUIZ 準備画面（レベルリストは 10×N の2D配置を維持＝既定2D移動が対応）
   register('quiz-check', {
     getItems: () => [
-      ...$$('#quiz-rule-select button'),
-      ...$$('#quiz-level-list button'),
-      ...$$('#quiz-check-page .menu-btn'),
+      ...withAnchor($$('#quiz-rule-select button'), document.getElementById('quiz-rule-select')),
+      ...withAnchor($$('#quiz-level-list button'), document.getElementById('quiz-level-list')),
+      ...withAnchor($$('#quiz-check-page .menu-btn'), document.querySelector('#quiz-check-page > div:last-child') || document.getElementById('quiz-check-page')),
     ],
     initialIndex: (els) => {
       const i = els.findIndex(b => b.classList.contains('quiz-level-btn'));
@@ -493,30 +514,30 @@
     },
   });
 
-  // 設定画面: 音量スライダー/キー設定badge群/チューニングスライダー/RESET・SAVE をまとめて item 化
   register('settings', {
     getItems: () => {
+      const headerAnchor  = document.querySelector('.settings-header');
+      const keyAnchor     = document.getElementById('key-config-grid');
+      const actionsAnchor = document.querySelector('#settings-page .settings-actions');
       const items = [];
-      $$('.settings-header .btn-back').forEach(b => items.push(b));
-      // 音量
+      $$('.settings-header .btn-back').forEach(b => items.push({ el: b, scrollAnchor: headerAnchor }));
       const bgmSlider = document.getElementById('slider-bgm-volume');
       const seSlider  = document.getElementById('slider-se-volume');
       const bgmRow = bgmSlider && bgmSlider.closest('.slider-row');
       const seRow  = seSlider  && seSlider.closest('.slider-row');
-      if (bgmRow) items.push(rowSlider(bgmRow, bgmSlider));
-      if (seRow)  items.push(rowSlider(seRow,  seSlider));
-      // キー設定: 各 .key-row 内の .key-badge を 1個ずつ button として登録（左右で badge 間遷移）
+      const volAnchor = bgmRow && bgmRow.closest('.tuning-container');
+      if (bgmRow) { const it = rowSlider(bgmRow, bgmSlider); it.scrollAnchor = volAnchor; items.push(it); }
+      if (seRow)  { const it = rowSlider(seRow,  seSlider);   it.scrollAnchor = volAnchor; items.push(it); }
       $$('#key-config-grid .key-row').forEach(row => {
-        $$('.key-badge', row).forEach(b => items.push(b));
+        $$('.key-badge', row).forEach(b => items.push({ el: b, scrollAnchor: keyAnchor }));
       });
-      // チューニング
+      const tuningContainer = document.querySelector('#settings-page .tuning-container:last-of-type');
       ['slider-das', 'slider-arr', 'slider-dcd'].forEach(id => {
         const s = document.getElementById(id);
         const row = s && s.closest('.slider-row');
-        if (row) items.push(rowSlider(row, s));
+        if (row) { const it = rowSlider(row, s); it.scrollAnchor = tuningContainer || row; items.push(it); }
       });
-      // RESET / SAVE
-      $$('#settings-page .btn-reset, #settings-page .btn-save').forEach(b => items.push(b));
+      $$('#settings-page .btn-reset, #settings-page .btn-save').forEach(b => items.push({ el: b, scrollAnchor: actionsAnchor }));
       return items;
     },
     initialIndex: 0,
