@@ -192,18 +192,12 @@
       const curX = rows[pos.row].items[pos.col].cx;
       const X_TOL = 120;
       const nrows = rows.length;
-      // 方向順に探索（wrapしない）: 最初に X_TOL 以内に収まる行があれば即採用
-      // 見つからなければ「隣接行 (step=1) の nearest」を採用
-      // それも無ければ（端から動けない場合）逆端へ wrap
-      let firstAdjacent = null;
-      for (let step = 1; step < nrows; step++) {
-        const ri = pos.row + delta * step;
-        if (ri < 0 || ri >= nrows) break;
-        const { best, bestD } = _nearestInRow(rows[ri], curX);
-        if (step === 1) firstAdjacent = best.i;
-        if (bestD <= X_TOL) return best.i;
+      // 隣接行の nearest を常に採用（行をスキップしない）
+      // 隣接行が無ければ逆端へ wrap
+      const adjRi = pos.row + delta;
+      if (adjRi >= 0 && adjRi < nrows) {
+        return _nearestInRow(rows[adjRi], curX).best.i;
       }
-      if (firstAdjacent !== null) return firstAdjacent;
       // 端で wrap: 逆端の行の nearest
       const wrapRow = rows[delta > 0 ? 0 : nrows - 1];
       return _nearestInRow(wrapRow, curX).best.i;
@@ -466,7 +460,34 @@
   });
 
   register('vs-settings', {
-    getItems: () => $$('#vs-settings-buttons button'),
+    getItems: () => {
+      const itemsContainer = document.getElementById('vs-settings-items');
+      const btnAnchor      = document.getElementById('vs-settings-buttons');
+      const items = [];
+      if (itemsContainer) {
+        $$('.vs-setting-section', itemsContainer).forEach(section => {
+          $$('.vs-setting-row', section).forEach(row => {
+            const slider = row.querySelector('input[type="range"]');
+            if (slider) {
+              const it = rowSlider(row, slider); it.scrollAnchor = section; items.push(it);
+            } else {
+              const btnGroup = row.querySelector('.vs-setting-btn-group');
+              if (btnGroup) {
+                const btns = $$('.vs-setting-step-btn', btnGroup);
+                items.push({
+                  type: 'row', el: row, scrollAnchor: section,
+                  onLeft:  () => { const cur = btns.findIndex(b => b.classList.contains('active')); if (cur > 0) btns[cur - 1].click(); },
+                  onRight: () => { const cur = btns.findIndex(b => b.classList.contains('active')); if (cur < btns.length - 1) btns[cur + 1].click(); },
+                });
+              }
+            }
+          });
+        });
+        $$('.vs-settings-reset-btn', itemsContainer).forEach(b => items.push({ el: b, scrollAnchor: btnAnchor }));
+      }
+      $$('#vs-settings-buttons button').forEach(b => items.push({ el: b, scrollAnchor: btnAnchor }));
+      return items;
+    },
     initialIndex: 0,
   });
 
