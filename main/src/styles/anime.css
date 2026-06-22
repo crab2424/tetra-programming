@@ -245,7 +245,7 @@ body::after {
 .menu-enter {
     /* 初期状態は非表示にしておく（アニメーション開始まで見えない） */
     opacity: 0;
-    animation: menuEnter 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation: menuEnter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
     /* animation-delay は base.js の initMenuAnimations() が inline style で上書き */
 }
 
@@ -273,5 +273,5 @@ body::after {
 
 .menu-enter-dim {
     opacity: 0;
-    animation: menuEnterDim 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation: menuEnterDim 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
