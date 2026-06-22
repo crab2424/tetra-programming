@@ -2837,18 +2837,19 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
    入力モードが kbd の時のみ枠を表示。pointer 時はクラス自体付与しない
 ───────────────────────────────────────────── */
 body.input-mode-kbd .is-focused {
-  /* 要素の内側に描画 (負のoffset)。box-shadow inset で淡いハロー。
-     要素の外側には一切はみ出さないので、ビューポート/キャンバス端でも絶対に切れない */
-  outline: 2px solid var(--accent);
-  outline-offset: 0px;
-  box-shadow: inset 0 0 0 1px rgba(196, 113, 245, 0.45);
+  /* 要素の内側だけに描画する。outline は外側へ描かれるため、
+     下端にある CREDITS / CHANGELOG で枠が切れて見える。 */
+  outline: none;
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    inset 0 0 0 3px rgba(196, 113, 245, 0.45);
   border-radius: inherit;
 }
 body.input-mode-kbd .slider-row.is-focused,
 body.input-mode-kbd .option-row.is-focused {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-  box-shadow: inset 0 0 0 1px rgba(196, 113, 245, 0.45);
+  outline: none;
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    inset 0 0 0 3px rgba(196, 113, 245, 0.45);
   border-radius: 8px;
 }
-
