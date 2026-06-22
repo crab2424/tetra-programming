@@ -12,6 +12,7 @@
 (function(){
   const FOCUS_CLASS = 'is-focused';
   const registry = {};
+  const rememberedIndex = {};
   let active = null;
   let inputMode = 'pointer'; // 初期はpointer。最初のキー入力でkbdへ
   document.body.classList.add('input-mode-pointer');
@@ -91,27 +92,29 @@
     document.querySelectorAll('.' + FOCUS_CLASS).forEach(el => el.classList.remove(FOCUS_CLASS));
   }
 
-  function scrollItemIntoView(el, instant){
+  function scrollItemIntoView(el){
     if (!el || typeof el.scrollIntoView !== 'function') return;
     try {
       // 縦中心に寄せる。スクロール余地が無い (キャンバス端等) ならブラウザが自動で no-op になる
-      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: instant ? 'auto' : 'smooth' });
+      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
     } catch (e) {
       el.scrollIntoView(false);
     }
   }
 
-  function applyFocus(idx){
+  function applyFocus(idx, opts){
+    opts = opts || {};
     const items = currentItems();
     clearFocus();
     if (!items.length) { if (active) active.index = 0; return; }
     if (idx < 0) idx = items.length - 1;
     if (idx >= items.length) idx = 0;
     active.index = idx;
+    if (active.rememberIndex) rememberedIndex[active.pageId] = idx;
     if (inputMode !== 'kbd') return; // pointer中は class を付けない（=枠無し）
     const it = items[idx];
     it.el.classList.add(FOCUS_CLASS);
-    scrollItemIntoView(it.el, active._firstFocus);
+    if (!opts.skipScroll) scrollItemIntoView(it.el);
     active._firstFocus = false;
   }
 
@@ -209,7 +212,8 @@
       if (typeof handler === 'function') {
         handler(it);
         // 値変更後に表示が更新される可能性があるため、フォーカスを再適用
-        applyFocus(active.index);
+        // 左右で値を変えるだけの操作ではページを縦スクロールさせない
+        applyFocus(active.index, { skipScroll: true });
       }
       return;
     }
@@ -308,7 +312,8 @@
       const items = currentItems();
       if (!items.length) return;
       let init = 0;
-      if (typeof cfg.initialIndex === 'function') init = cfg.initialIndex(items.map(it => it.el)) || 0;
+      if (cfg.rememberIndex && typeof rememberedIndex[pageId] === 'number') init = rememberedIndex[pageId];
+      else if (typeof cfg.initialIndex === 'function') init = cfg.initialIndex(items.map(it => it.el)) || 0;
       else if (typeof cfg.initialIndex === 'number') init = cfg.initialIndex;
       if (init < 0 || init >= items.length) init = 0;
       applyFocus(init);
@@ -399,6 +404,7 @@
   // ─────────────────────────────────────────────
 
   register('main-menu', {
+    rememberIndex: true,
     getItems: () => [
       ...$$('#main-menu-modes-grid button'),
       ...$$('#main-menu-footer button'),
