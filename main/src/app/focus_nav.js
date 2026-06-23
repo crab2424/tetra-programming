@@ -218,7 +218,8 @@
         handler(it);
         // 値変更後に表示が更新される可能性があるため、フォーカスを再適用
         // 左右で値を変えるだけの操作ではページを縦スクロールさせない
-        applyFocus(active.index, { skipScroll: true });
+        // active.index は mouseover で汚染されうるので .is-focused 由来の cur を使う
+        applyFocus(cur, { skipScroll: true });
       }
       return;
     }
@@ -330,8 +331,11 @@
   }
 
   // マウスhoverでindex追従（キー操作再開時の起点を合わせる）
+  // kbdモード中は無視: スムーズスクロール中に mouseover が発火して active.index を汚染し、
+  // 直後の横キーで applyFocus(active.index) がフォーカス枠を別行へ飛ばす不具合があったため
   document.addEventListener('mouseover', (e) => {
     if (!active) return;
+    if (inputMode !== 'pointer') return;
     const target = e.target && e.target.closest && e.target.closest('button, .slider-row, .option-row');
     if (!target) return;
     const items = currentItems();
