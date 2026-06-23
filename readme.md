@@ -1,18 +1,48 @@
-現在CPUは tet:Lv.6, puyo:Lv.4 まで実装しています．
+# TETLABO
 
-プレイはこちらから https://citgame.pptlabo.workers.dev/
+https://citgame.pptlabo.workers.dev/
 
-##ローカルサーバーの建て方##
+# ローカルでの開発方法
 
-ターミナルまたはコマンドプロンプトで
+## 依存関係
 
-1. cd /main
-2. python -m http.server 8000
+- Node.js
+- pnpm
 
-と打ち，ブラウザで
+## セットアップ
 
-3. http://localhost:8000/
+```bash
+$ pnpm install # パッケージのインストール
+$ pnpm dev:client # クライアントサーバーの起動
+```
 
-と打てば起動できます．サーバーの立てっぱなしには注意してください．
+Viteが起動して， [http://localhost:5173/](http://localhost:5173/) でアクセスできるようになります．
 
+なお，バックエンドサーバーを同じディレクトリでCloneしている場合は，以下のコマンドでバックエンドサーバーも起動できます．
 
+```bash
+$ pnpm dev:server # バックエンドサーバーの起動
+```
+
+(ただし，これを実行するには事前にcargo-watchをインストールしておく必要があります．)
+
+> `cargo install cargo-watch` でインストールできます．
+
+これら2つをまとめて，
+
+```bash
+$ pnpm dev # クライアントサーバーとバックエンドサーバー
+```
+
+で，フロントエンドサーバーとバックエンドサーバーを同時に起動することもできます．
+
+ちなみに，同じディレクトリでCloneされているとは，
+
+```bash
+player@tetlabo /home/User/Documents $ ls -al
+total 2
+drwxr-xr-x 14 player users  4096  6月 18 20:00 tetra-programming
+drwxr-xr-x  9 player users  4096  6月 18 20:00 tetra-server
+```
+
+のような状態を指します．

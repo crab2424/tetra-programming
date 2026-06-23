@@ -1,0 +1,46 @@
+#global-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+}
+
+.toast {
+  color: white;
+  padding: 16px;
+  border-radius: 8px;
+  margin-top: 10px;
+  min-width: 200px;
+  text-align: center;
+  font-family: Arial, sans-serif;
+  border: 4px solid;
+  transition: opacity 0.5s ease;
+  text-align: left;
+  animation: fadein 0.5s ease forwards;
+}
+
+.toast:hover {
+  opacity: 0.9;
+}
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeout {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+}
