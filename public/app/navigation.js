@@ -193,12 +193,7 @@ function switchPage(pageId) {
     if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
   }
 
-  // router.js の switchPage 関数内（既存の page 切り替え処理の後）に追記
-  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog'].includes(pageId)) {
-      if (typeof initMenuAnimations === 'function') initMenuAnimations(pageId);
-  } else {
-      if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
-  }
+  const _animPageId = pageId;
 
   // 準備画面（mode select 等）もメニューBGM。リザルトから戻った場合はクロスフェードで滑らかに切替。
   const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check'];
@@ -243,6 +238,12 @@ function switchPage(pageId) {
 
   const target = document.getElementById(pageId + '-page');
   if (target) target.classList.add('active');
+
+  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog'].includes(_animPageId)) {
+      if (typeof initMenuAnimations === 'function') initMenuAnimations(_animPageId);
+  } else {
+      if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
+  }
 
   // ★ スクロール位置をリセット（ページ遷移時）
   //   遷移元が縦に長くスクロールされた状態だと、display トグルだけでは

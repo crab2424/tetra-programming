@@ -94,15 +94,90 @@ Object.assign(Game.prototype, {
             this.keyState[e.code] = true
 
             const now = performance.now()
+
+            // ─── 即時反応させたいアクションは keydown 内で直接実行する ───
+            // _pollInput は rAF 駆動のため、key イベントから最大 1 フレ分の遅延が
+            // 生じていた（表示の遅延 28ms ≒ 3フレの一因）。初動とロテートを
+            // 同期実行することで、入力 → 画面反映までの経路を 1 フレ短縮する。
+            // DAS/ARR や soft drop の連続落下は引き続き _pollInput が担当。
+            const canActNow = this.mino && !this.isCountingDown
+            let immediateActed = false
+            let immediateWasGrounded = this.isGrounded
+
             if (e.code === keys.moveLeft.code && this._leftPressTime === null) {
                 this._leftPressTime = now
-                this._lastMoveTimeLeft = 0
                 this._lastHorizontal = 'left'
+                if (canActNow) {
+                    if (this.valid(-1, 0)) {
+                        this.mino.x--
+                        this.lastActionWasRotation = false
+                        this.playSe('move')
+                        immediateActed = true
+                    }
+                    // DAS 計測の基準を keydown 時刻に揃える（_pollInput 側で
+                    // _lastMoveTimeLeft===0 を「未実行」として扱わなくて済む）
+                    this._lastMoveTimeLeft = now
+                    this._dasBlockedLeft = false
+                } else {
+                    this._lastMoveTimeLeft = 0
+                }
             }
             if (e.code === keys.moveRight.code && this._rightPressTime === null) {
                 this._rightPressTime = now
-                this._lastMoveTimeRight = 0
                 this._lastHorizontal = 'right'
+                if (canActNow) {
+                    if (this.valid(1, 0)) {
+                        this.mino.x++
+                        this.lastActionWasRotation = false
+                        this.playSe('move')
+                        immediateActed = true
+                    }
+                    this._lastMoveTimeRight = now
+                    this._dasBlockedRight = false
+                } else {
+                    this._lastMoveTimeRight = 0
+                }
+            }
+
+            // 回転（押した瞬間のみ単発）
+            if (canActNow && e.code === keys.rotateCW.code && !e.repeat && !this._rotCWPressed) {
+                if (this.tryRotate(1)) {
+                    this.updateLowestY()
+                    immediateActed = true
+                }
+                this._rotCWPressed = true
+            }
+            if (canActNow && e.code === keys.rotateCCW.code && !e.repeat && !this._rotCCWPressed) {
+                if (this.tryRotate(-1)) {
+                    this.updateLowestY()
+                    immediateActed = true
+                }
+                this._rotCCWPressed = true
+            }
+
+            // ソフトドロップ初動（1マス）も即時に
+            if (canActNow && e.code === keys.softDrop.code && this._lastSoftDropTime === 0) {
+                this._lastSoftDropTime = now
+                if (this.valid(0, 1)) {
+                    this.mino.y++
+                    this.updateLowestY()
+                    this.lastActionWasRotation = false
+                    this.score += 1
+                    this.playSe('drop')
+                    this.updateStatsDisplay()
+                    immediateActed = true
+                }
+            }
+
+            if (immediateActed) {
+                this.checkGroundState(true, immediateWasGrounded)
+                this.requestRedraw()
+                // _pollInput を待たずに同フレ中に描画完了させる。
+                // _needsRedraw を消し、rAF が来てもダブル描画しないようにする。
+                if (this._needsRedraw) {
+                    this._needsRedraw = false
+                    this.drawAll()
+                }
             }
 
             // 単発系（押した瞬間のみ）
@@ -374,7 +449,11 @@ Object.assign(Game.prototype, {
         // keyboard のキーコードに対応するフラグを `this.keyState` に書き込みます。
         // またボタンの押下遷移は即時アクション（ホールド、ハードドロップ、回転等）を呼び出します。
 
-        if (this._gamepadLoop) clearInterval(this._gamepadLoop)
+        if (this._gamepadLoop) {
+            clearInterval(this._gamepadLoop)
+            cancelAnimationFrame(this._gamepadLoop)
+            this._gamepadLoop = null
+        }
         if (this._gpConnectedHandler) window.removeEventListener('gamepadconnected', this._gpConnectedHandler)
         if (this._gpDisconnectedHandler) window.removeEventListener('gamepaddisconnected', this._gpDisconnectedHandler)
 
@@ -457,8 +536,10 @@ Object.assign(Game.prototype, {
         window.addEventListener('gamepadconnected', this._gpConnectedHandler)
         window.addEventListener('gamepaddisconnected', this._gpDisconnectedHandler)
 
-        // ゲームパッド用ポーリングループ（60FPS程度）
-        this._gamepadLoop = setInterval(() => {
+        // ゲームパッド用ポーリングループ。
+        // setInterval は rAF と別タイミングで発火して入力反映が揺れやすいため、
+        // キーボード入力・重力と同じく描画フレームへ寄せる。
+        const pollGamepad = () => {
             const pads = (navigator.getGamepads) ? navigator.getGamepads() : []
             let pad = null
             if (this._gamepadIndex !== null && pads[this._gamepadIndex]) pad = pads[this._gamepadIndex]
@@ -466,7 +547,10 @@ Object.assign(Game.prototype, {
                 // 最初に見つかったパッドを採用
                 for (let i = 0; i < pads.length; i++) { if (pads[i]) { pad = pads[i]; break } }
             }
-            if (!pad) return
+            if (!pad) {
+                this._gamepadLoop = requestAnimationFrame(pollGamepad)
+                return
+            }
 
             const stickX = (pad.axes && pad.axes.length > 0) ? pad.axes[0] : 0;
             const stickY = (pad.axes && pad.axes.length > 1) ? pad.axes[1] : 0;
@@ -541,12 +625,15 @@ Object.assign(Game.prototype, {
                             this._lastSoftDropTime = now
                             if (!this.mino) break;
                             if (this.valid(0, 1)) {
+                                const wasGrounded = this.isGrounded
                                 this.mino.y++
                                 this.updateLowestY()
                                 this.lastActionWasRotation = false
                                 this.score += 1
                                 this.playSe('drop') // ソフトドロップ音（毎マス）
                                 this.updateStatsDisplay()
+                                this.checkGroundState(true, wasGrounded)
+                                this.requestRedraw()
                             }
                         }
                     }
@@ -573,6 +660,8 @@ Object.assign(Game.prototype, {
 
                 this._prevGamepadState[action] = pressed
             }
-        }, 16)
+            this._gamepadLoop = requestAnimationFrame(pollGamepad)
+        }
+        this._gamepadLoop = requestAnimationFrame(pollGamepad)
     },
 });

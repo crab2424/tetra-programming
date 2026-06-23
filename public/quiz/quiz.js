@@ -387,6 +387,7 @@ class QuizManager {
                 }
             });
         });
+        if (game.field.markDirty) game.field.markDirty();
     }
 
     // ─── ぷよ用初期化 ────────────────────────────
@@ -815,6 +816,7 @@ class QuizManager {
                 // エラー回避: フィールドが存在する場合のみクリアと再描画を行う
                 if (this.gameInstance.field) {
                     this.gameInstance.field.blocks = [];
+                    if (this.gameInstance.field.markDirty) this.gameInstance.field.markDirty();
                     if (typeof this.gameInstance.drawAll === 'function') this.gameInstance.drawAll();
                 }
                 this.gameInstance.nextQueue = [];
@@ -1048,6 +1050,7 @@ async function startQuizLevel(levelData) {
     if (window._game) {
         if (window._game.field) {
             window._game.field.blocks = [];
+            if (window._game.field.markDirty) window._game.field.markDirty();
             if (typeof window._game.drawAll === 'function') window._game.drawAll();
         }
         window._game.nextQueue = [];
