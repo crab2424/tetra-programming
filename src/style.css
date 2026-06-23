@@ -1,0 +1,3530 @@
+@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&family=Press+Start+2P&family=Russo+One&family=Rajdhani:wght@400;700&display=swap");
+
+/* ─────────────────────────────────────────────
+  CSS 変数（テーマカラー）
+───────────────────────────────────────────── */
+:root {
+  --bg: #0a0a0f;
+  --panel-bg: #12121a;
+  --border: #2a2a3a;
+  --field-border: #6f6f95;
+  --accent: #c471f5;
+  --accent2: #fa71cd;
+  --accent3: #71c5f5;
+  --text: #e0e0f0;
+  --text-dim: #888;
+  --danger: #f55a5a;
+  --success: #5af5a0;
+  /* フォント変数 */
+  --font-main: "Noto Sans JP", sans-serif;
+  --font-orbitron: "Orbitron", monospace;
+  --font-pixel: "Press Start 2P", monospace;
+  --font-tech: "Russo One", sans-serif;
+  --font-modern: "Rajdhani", sans-serif;
+}
+
+/* ─────────────────────────────────────────────
+  リセット・ベース
+───────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-main);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+}
+
+/* ─────────────────────────────────────────────
+  ヘッダーエリア
+───────────────────────────────────────────── */
+#header-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  max-width: 700px;
+  margin-bottom: 20px;
+}
+
+h1 {
+  font-family: "Orbitron", monospace;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+/* ─────────────────────────────────────────────
+  ページ切り替え（完全独立）
+───────────────────────────────────────────── */
+.page {
+  display: none;
+  position: relative;
+  z-index: 1;
+}
+
+/* ★ シングルプレイ画面・対戦画面のアクティブ時共通スタイル ★ */
+#game-page.active,
+#versus-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  flex: 1;
+  overflow: hidden;
+}
+
+#settings-page.active {
+  display: block;
+}
+
+#result-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+  タイトル画面（title-page）
+───────────────────────────────────────────── */
+#title-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 80vh;
+  cursor: pointer;
+}
+
+#title-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+}
+
+/* JS が menu-enter を付与するまで非表示（リロード時のFOUC防止） */
+.title-main-title,
+.title-subtitle,
+#title-press-any,
+#title-version {
+  opacity: 0;
+}
+
+.title-main-title {
+  font-family: "Orbitron", monospace;
+  font-size: 64px;
+  font-weight: 900;
+  letter-spacing: 14px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 8px 0;
+  line-height: 1;
+  text-shadow: none;
+}
+
+.title-subtitle {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0;
+  text-align: center;
+}
+
+.title-blink {
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  letter-spacing: 5px;
+  color: var(--text-dim);
+  animation: title-blink-anim 1.2s ease-in-out infinite;
+}
+
+@keyframes title-blink-anim {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
+#title-version {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+}
+
+/* menu-enter が #title-version の opacity を 1 にするため、減光は内側spanで保持 */
+#title-version span {
+  opacity: 0.5;
+}
+
+/* ─────────────────────────────────────────────
+   メインメニューページ（main-menu-page）
+───────────────────────────────────────────── */
+#main-menu-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#main-menu-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding-top: 32px;
+  /* ★ 横幅基準で縮小：設計幅 900px を基準に、画面が狭いときだけ縮小（上限1.0）。
+     高さは基準にしない（縦に長い場合はスクロール前提のため）。
+     transform:scale ではなく zoom を使う。zoom はレイアウト寸法ごと縮小するため、
+     縮小後に下部の余白が残らず、横スクロールも発生しない。 */
+  width: 900px;
+  max-width: none;
+  zoom: clamp(0.35, calc((100vw - 32px) / 900px), 1);
+}
+
+#main-menu-logo {
+  text-align: center;
+}
+
+.menu-title {
+  font-family: "Orbitron", monospace;
+  font-size: 52px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 8px 0;
+  line-height: 1;
+}
+
+.menu-subtitle {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+#main-menu-modes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  width: 100%;
+}
+
+.menu-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  padding: 20px 28px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    transform 0.1s;
+  text-align: left;
+}
+
+.mode-btn:hover,
+.mode-btn.is-focused {
+  transform: translateY(-2px);
+}
+.mode-btn:active {
+  transform: translateY(0);
+}
+
+.mode-btn-marathon {
+  border-color: rgba(196, 113, 245, 0.35);
+}
+.mode-btn-marathon:hover,
+.mode-btn-marathon.is-focused {
+  background: rgba(196, 113, 245, 0.12);
+  border-color: var(--accent);
+}
+
+.mode-btn-sprint {
+  border-color: rgba(113, 197, 245, 0.35);
+}
+.mode-btn-sprint:hover,
+.mode-btn-sprint.is-focused {
+  background: rgba(113, 197, 245, 0.12);
+  border-color: var(--accent3);
+}
+
+.mode-btn-ultra {
+  border-color: rgba(250, 113, 205, 0.35);
+}
+.mode-btn-ultra:hover,
+.mode-btn-ultra.is-focused {
+  background: rgba(250, 113, 205, 0.12);
+  border-color: var(--accent2);
+}
+
+.mode-btn-versus {
+  border-color: rgba(245, 197, 66, 0.35);
+}
+.mode-btn-versus:hover,
+.mode-btn-versus.is-focused {
+  background: rgba(245, 197, 66, 0.12);
+  border-color: #f5c542;
+}
+
+.mode-btn-test {
+  border-color: rgba(90, 245, 160, 0.35);
+}
+.mode-btn-test:hover,
+.mode-btn-test.is-focused {
+  background: rgba(90, 245, 160, 0.12);
+  border-color: var(--success);
+}
+
+.mode-btn-puyo {
+  border-color: rgba(250, 113, 205, 0.35);
+}
+.mode-btn-puyo:hover,
+.mode-btn-puyo.is-focused {
+  background: rgba(250, 113, 205, 0.12);
+  border-color: var(--accent2);
+}
+
+.mode-btn-online {
+  border-color: rgba(113, 188, 250, 0.35);
+}
+.mode-btn-online:hover {
+  background: rgba(113, 168, 250, 0.12);
+  border-color: var(--accent3);
+}
+
+.mode-btn-icon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 40px;
+  text-align: center;
+}
+
+.mode-btn-marathon .mode-btn-icon {
+  color: var(--accent);
+}
+.mode-btn-sprint .mode-btn-icon {
+  color: var(--accent3);
+}
+.mode-btn-ultra .mode-btn-icon {
+  color: var(--accent2);
+}
+.mode-btn-versus .mode-btn-icon {
+  color: #f5c542;
+}
+.mode-btn-test .mode-btn-icon {
+  color: var(--success);
+}
+.mode-btn-puyo .mode-btn-icon {
+  color: var(--accent2);
+}
+.mode-btn-online .mode-btn-icon {
+  color: var(--accent3);
+}
+
+.mode-btn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mode-btn-label {
+  font-family: "Orbitron", monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text);
+}
+
+.mode-btn-marathon .mode-btn-label {
+  color: var(--accent);
+}
+.mode-btn-sprint .mode-btn-label {
+  color: var(--accent3);
+}
+.mode-btn-ultra .mode-btn-label {
+  color: var(--accent2);
+}
+.mode-btn-versus .mode-btn-label {
+  color: #f5c542;
+}
+.mode-btn-test .mode-btn-label {
+  color: var(--success);
+}
+.mode-btn-puyo .mode-btn-label {
+  color: var(--accent2);
+}
+.mode-btn-online .mode-btn-label {
+  color: var(--accent3);
+}
+
+.mode-btn-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* 基準はメインキャンバス(#main-menu-container)。フッターをその基準ボックスとして
+   中央に SETTINGS+TITLE、左右の下隅に CREDITS / CHANGELOG を配置する。 */
+#main-menu-footer {
+  position: relative;
+  width: 100%;
+  margin-top: 16px;
+  min-height: 100px;
+}
+
+/* 中央：SETTINGS の真下に TITLE を縦並び */
+#main-menu-footer-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+#main-menu-footer-center .menu-btn {
+  width: auto;
+  min-width: 200px;
+}
+
+.menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  padding: 18px 32px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition:
+    opacity 0.2s,
+    transform 0.1s;
+}
+
+.menu-btn:hover,
+.menu-btn.is-focused {
+  opacity: 0.85;
+  transform: translateY(-2px);
+}
+.menu-btn:active {
+  transform: translateY(0);
+}
+
+.menu-btn.btn-primary {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  color: #fff;
+  width: 100%;
+}
+
+.menu-btn.btn-secondary {
+  background: rgba(196, 113, 245, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(196, 113, 245, 0.35);
+}
+.menu-btn.btn-secondary:hover,
+.menu-btn.btn-secondary.is-focused {
+  background: rgba(196, 113, 245, 0.22);
+}
+.menu-btn-icon {
+  font-size: 16px;
+}
+
+/* ─────────────────────────────────────────────
+   準備画面（mode-check-page）
+───────────────────────────────────────────── */
+#mode-check-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#mode-check-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 36px;
+  padding-top: 32px;
+  width: 660px;
+}
+
+#mode-check-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.mode-check-icon {
+  font-size: 52px;
+  line-height: 1;
+}
+.mode-check-label {
+  font-family: "Orbitron", monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  margin: 0;
+}
+
+#mode-check-desc-block {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  text-align: center;
+}
+.mode-check-desc-ja {
+  font-size: 14px;
+  color: var(--text);
+  margin: 0 0 8px 0;
+  line-height: 1.6;
+}
+.mode-check-desc-en {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.5;
+}
+
+#mode-check-controls {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+
+.controls-title {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0 0 16px 0;
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+.ctrl-key {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(196, 113, 245, 0.15);
+  border: 1px solid rgba(196, 113, 245, 0.35);
+  color: var(--accent);
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+}
+.ctrl-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+#mode-check-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+.option-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.option-label {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+}
+.option-toggle {
+  display: flex;
+  gap: 8px;
+}
+.opt-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.opt-btn.active {
+  background: rgba(196, 113, 245, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.option-slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 160px;
+}
+.option-slider input {
+  flex: 1;
+}
+.option-val {
+  font-family: "Orbitron", monospace;
+  font-size: 14px;
+  color: var(--accent);
+  width: 20px;
+  text-align: right;
+}
+
+/* ─────────────────────────────────────────────
+   対戦モード確認画面
+───────────────────────────────────────────── */
+.btn-versus-primary {
+  background: linear-gradient(135deg, #f5c542 0%, #fa71cd 100%);
+  color: #0a0a0f;
+  font-weight: 700;
+  width: 100%;
+}
+.btn-versus-primary:hover,
+.btn-versus-primary.is-focused {
+  opacity: 0.88;
+}
+
+#versus-check-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#versus-check-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding-top: 32px;
+  width: 660px;
+}
+
+#versus-cpu-options {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#versus-check-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+/* VS SETTINGSボタン行（準備画面内） */
+#vs-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.btn-vs-settings {
+  background: rgba(245, 197, 66, 0.1);
+  color: #f5c542;
+  border: 1px solid rgba(245, 197, 66, 0.4);
+  flex-shrink: 0;
+  padding: 14px 20px;
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+.btn-vs-settings:hover,
+.btn-vs-settings.is-focused {
+  background: rgba(245, 197, 66, 0.2);
+  border-color: #f5c542;
+}
+
+#vs-settings-summary-block {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vs-settings-summary-label {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#vs-settings-summary {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #f5c542;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─────────────────────────────────────────────
+   VS SETTINGSページ
+───────────────────────────────────────────── */
+#vs-settings-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#vs-settings-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  padding-top: 32px;
+  width: 660px;
+}
+
+#vs-settings-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.vs-settings-subtitle {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: rgba(245, 197, 66, 0.55);
+  margin: 0;
+}
+
+/* 設定項目コンテナ */
+#vs-settings-items {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 空状態（COMING SOON） */
+#vs-settings-empty {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(245, 197, 66, 0.25);
+  border-radius: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.vs-settings-empty-icon {
+  font-size: 40px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.vs-settings-empty-title {
+  font-family: "Orbitron", monospace;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: rgba(245, 197, 66, 0.6);
+  margin: 0;
+}
+
+.vs-settings-empty-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.6;
+}
+
+.vs-settings-empty-desc-en {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.2);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* セクションヘッダー（将来の設定グループ用） */
+.vs-setting-section {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vs-setting-section-label {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 4px;
+  color: rgba(245, 197, 66, 0.6);
+  margin: 0;
+}
+
+/* 設定行（将来の各設定項目用） */
+.vs-setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.vs-setting-label {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text);
+}
+
+.vs-setting-control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ─── オンライン MATCH SETTINGS（ルーム画面） ─── */
+.ms-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ms-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+}
+.ms-label {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.ms-readonly {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: "Orbitron", monospace;
+}
+/* ON/OFF セグメント */
+.ms-segment {
+  display: inline-flex;
+  flex-direction: row;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ms-seg-btn {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  padding: 5px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ms-seg-btn + .ms-seg-btn {
+  border-left: 1px solid var(--border);
+}
+.ms-seg-btn.active {
+  color: #fff;
+  background: var(--accent);
+}
+.ms-seg-btn:not(.active):hover {
+  background: rgba(196, 113, 245, 0.15);
+}
+/* スライダー + カスタム数値 */
+.ms-slider-wrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: flex-end;
+}
+.ms-slider {
+  flex: 1;
+  max-width: 200px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.ms-number {
+  width: 64px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent);
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  padding: 4px 6px;
+  text-align: right;
+}
+.ms-number:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.ms-unit {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  width: 16px;
+}
+
+/* VS SETTINGSページのボタン */
+#vs-settings-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  padding-bottom: 32px;
+}
+
+/* ── 設定行：ラベル2段組み ── */
+.vs-setting-label-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 120px;
+}
+
+.vs-setting-sublabel {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+/* ── 現在値表示ラベル ── */
+.vs-setting-value-label {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--accent, #c471ed);
+  min-width: 100px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── コントロール列：縦並び（スライダー系） ── */
+.vs-setting-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* ── スライダー ── */
+.vs-setting-slider {
+  width: 260px;
+  accent-color: var(--accent, #c471ed);
+  cursor: pointer;
+}
+
+/* ── スライダー目盛り ── */
+.vs-setting-markers {
+  display: flex;
+  justify-content: space-between;
+  width: 260px;
+  padding: 0 2px;
+}
+
+.vs-setting-markers span {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+}
+
+/* ── 幅広スライダー（マージンタイム等、ステップ数が多い行用） ── */
+.vs-setting-slider--wide,
+.vs-setting-markers--wide {
+  width: 440px;
+}
+
+.vs-setting-markers--wide span {
+  font-size: 8px;
+  letter-spacing: 0;
+}
+
+/* ── ボタングループ（選択肢ボタン列） ── */
+.vs-setting-btn-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ── 選択肢ボタン（単体） ── */
+.vs-setting-step-btn {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 6px 10px;
+  min-width: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.vs-setting-step-btn:hover,
+.vs-setting-step-btn.is-focused {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.vs-setting-step-btn.active {
+  background: rgba(196, 113, 245, 0.18);
+  color: var(--accent, #c471ed);
+  border-color: var(--accent, #c471ed);
+}
+
+/* ── リセットボタン（#vs-settings-items 末尾） ── */
+.vs-settings-reset-btn {
+  align-self: center;
+  margin-top: 8px;
+}
+
+/* ── versus-check-page のサマリー表示 ── */
+#vs-settings-summary-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.vs-settings-summary-label {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+#vs-settings-summary {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────
+   ★ 対戦ゲーム画面のレイアウト（レスポンシブスケール化） ★
+───────────────────────────────────────────── */
+#versus-layout {
+  /* ★ #container と同様、fixed 中央固定でビューポート中心にスケール。 */
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: row;
+  align-items: center; /* 中央合わせ */
+  justify-content: center;
+  gap: 0;
+  /* ウィンドウサイズに合わせて自動スケール
+     キャンバスの距離を広げた分、基準となる横幅を少し広く（1300）設定
+  */
+  transform: translate(-50%, -50%)
+    scale(
+      clamp(
+        0.2,
+        min(calc((100vw - 32px) / 1300px), calc((100vh - 48px) / 700px)),
+        2
+      )
+    );
+  transform-origin: center;
+}
+
+.versus-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ★ 変更：キャンバス（コンテナ）の下に文字をくっつけるためのスタイル */
+.versus-side-label {
+  position: absolute;
+  top: auto;
+  bottom: -40px; /* キャンバスからの相対的な下部の位置 */
+  left: 0;
+  width: 100%;
+  text-align: center;
+  font-family: "Orbitron", monospace;
+  font-size: 18px; /* スケール(0.8)されるため少し大きめに設定 */
+  font-weight: 700;
+  letter-spacing: 4px;
+}
+
+.player-label {
+  color: var(--accent3);
+}
+.cpu-label {
+  color: var(--danger);
+}
+
+.versus-container {
+  position: relative;
+  width: 320px;
+  height: 656px;
+  transform: scale(0.8);
+  transform-origin: center;
+  /* ★ コンテナ間の距離を以前の距離（80px）に戻す */
+  margin: 0 80px;
+}
+
+.versus-label-next,
+.versus-label-next-cpu {
+  position: absolute;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: 352px;
+}
+.versus-label-hold,
+.versus-label-hold-cpu {
+  position: absolute;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: -160px;
+}
+
+#versus-player-container canvas#player-next-canvas,
+#versus-cpu-container canvas#cpu-next-canvas {
+  position: absolute;
+  top: 0;
+  left: 352px;
+  border: 2px solid var(--field-border);
+  border-radius: 2px;
+}
+#versus-player-container canvas#player-hold-canvas,
+#versus-cpu-container canvas#cpu-hold-canvas {
+  position: absolute;
+  top: 0;
+  left: -160px;
+  border: 2px solid var(--field-border);
+  border-radius: 2px;
+}
+
+#player-main-canvas,
+#cpu-main-canvas {
+  border: 3px solid var(--field-border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  image-rendering: pixelated;
+  will-change: transform;
+  transform: translateZ(0);
+  contain: layout style paint;
+}
+
+/* PUYO 対戦用Canvas */
+#player-puyo-main-canvas,
+#cpu-puyo-main-canvas {
+  border: 3px solid var(--field-border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  image-rendering: pixelated;
+}
+#player-puyo-next-canvas,
+#cpu-puyo-next-canvas {
+  position: absolute;
+  top: 0;
+  left: 352px;
+  border: 2px solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  height: 259px;
+}
+
+.versus-stats-left,
+.versus-stats-left-cpu {
+  position: absolute;
+  left: -160px;
+  top: 450px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.versus-stats-right,
+.versus-stats-right-cpu {
+  position: absolute;
+  left: 352px;
+  top: 450px;
+}
+
+.versus-stats-left .versus-stat-block:nth-child(1),
+.versus-stats-left-cpu .versus-stat-block:nth-child(1) {
+  display: none;
+}
+
+.versus-stat-block {
+  display: flex;
+  flex-direction: column;
+}
+.versus-stat-block .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 2px;
+}
+.versus-stat-value {
+  font-family: "Orbitron", monospace;
+  font-size: 24px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#versus-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
+}
+
+#versus-vs-label {
+  font-family: "Orbitron", monospace;
+  font-size: 32px;
+  top: 0;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* ★ 文字は非表示にするが、要素の寸法（盤面同士を離す余白）は維持するため
+     display:none ではなく visibility:hidden を使う。 */
+  visibility: hidden;
+}
+
+#versus-cpu-level-display {
+  display: none;
+}
+
+#player-action-label-container,
+#cpu-action-label-container {
+  position: absolute;
+  left: -200px;
+  top: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#versus-pause-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 10, 15, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+
+#versus-pause-overlay.active {
+  display: flex;
+}
+
+.versus-pause-modal {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 56px;
+  text-align: center;
+  box-shadow: 0 0 48px rgba(245, 197, 66, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+#versus-pause-title {
+  font-family: "Orbitron", monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  color: #f5c542;
+  margin: 0;
+}
+
+#versus-pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   対戦リザルトページ
+───────────────────────────────────────────── */
+#versus-result-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* ★ 被弾（くらう）用のゲージ（左側） */
+.garbage-gauge {
+  position: absolute;
+  left: -16px;
+  bottom: 0;
+  width: 10px;
+  height: 640px;
+  display: flex;
+  flex-direction: column-reverse;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.gauge-block {
+  width: 10px;
+  height: 32px;
+  box-sizing: border-box;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+}
+.gauge-block.unready {
+  background-color: var(--accent3);
+  box-shadow: 0 0 8px var(--accent3);
+}
+.gauge-block.ready {
+  background-color: var(--danger);
+  box-shadow: 0 0 8px var(--danger);
+  animation: gauge-blink 0.4s infinite alternate;
+}
+
+@keyframes gauge-blink {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.2;
+  }
+}
+
+/* ★ 攻撃（送る・貯蓄）用のゲージ（右側） */
+.attack-gauge {
+  position: absolute;
+  right: -16px;
+  bottom: 0;
+  width: 10px;
+  height: 640px;
+  display: flex;
+  flex-direction: column-reverse;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.attack-block {
+  width: 10px;
+  height: 32px;
+  box-sizing: border-box;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+}
+.attack-block.c-0 {
+  background-color: #5af5a0;
+  box-shadow: 0 0 8px #5af5a0;
+}
+.attack-block.c-1 {
+  background-color: #f5e05a;
+  box-shadow: 0 0 8px #f5e05a;
+}
+.attack-block.c-2 {
+  background-color: #f58a5a;
+  box-shadow: 0 0 8px #f58a5a;
+}
+.attack-block.c-3 {
+  background-color: #5acdf5;
+  box-shadow: 0 0 8px #5acdf5;
+}
+
+/* ─────────────────────────────────────────────
+   カウントダウン／終了演出オーバーレイ
+───────────────────────────────────────────── */
+.field-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  height: 656px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+#countdown-overlay,
+#finish-overlay {
+  height: 656px;
+}
+.field-overlay.active {
+  display: flex;
+}
+.countdown-overlay {
+  background: transparent;
+}
+
+.countdown-text {
+  font-family: "Orbitron", monospace;
+  font-weight: 900;
+  font-size: 96px;
+  letter-spacing: 4px;
+  color: #fff;
+  text-shadow:
+    0 0 20px rgba(196, 113, 245, 0.8),
+    0 0 60px rgba(196, 113, 245, 0.4),
+    0 4px 16px rgba(0, 0, 0, 0.8);
+  line-height: 1;
+  user-select: none;
+}
+.countdown-text:not(:empty) {
+  white-space: nowrap;
+}
+
+@keyframes countdown-pop-anim {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  40% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  65% {
+    transform: scale(0.95);
+  }
+  80% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.countdown-text.countdown-pop {
+  animation: countdown-pop-anim 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.finish-overlay {
+  background: transparent;
+  transition: opacity 0.5s ease;
+}
+.finish-overlay.fadeout {
+  opacity: 0;
+}
+
+.finish-text {
+  font-family: "Orbitron", monospace;
+  font-weight: 900;
+  font-size: 44px;
+  letter-spacing: 4px;
+  text-align: center;
+  line-height: 1.2;
+  user-select: none;
+  animation: finish-appear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.finish-text.finish-clear {
+  color: var(--success);
+  text-shadow:
+    0 0 24px rgba(90, 245, 160, 0.7),
+    0 0 60px rgba(90, 245, 160, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.8);
+}
+.finish-text.finish-gameover {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 0 16px rgba(196, 113, 245, 0.6);
+}
+
+@keyframes finish-appear {
+  0% {
+    transform: scale(0.6) translateY(20px);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08) translateY(-4px);
+    opacity: 1;
+  }
+  80% {
+    transform: scale(0.97) translateY(2px);
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+#player-countdown-overlay,
+#player-finish-overlay,
+#cpu-countdown-overlay,
+#cpu-finish-overlay {
+  width: 320px;
+  height: 640px;
+  top: 0;
+  left: 0;
+}
+
+/* ─────────────────────────────────────────────
+   リザルトページ
+───────────────────────────────────────────── */
+#result-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding-top: 32px;
+  width: 420px;
+}
+
+#result-title,
+#quiz-result-title {
+  font-family: "Orbitron", monospace;
+  font-size: 40px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+  animation: result-appear 0.5s ease-out both;
+}
+
+@keyframes result-appear {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#result-stats {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  animation: result-appear 0.5s 0.1s ease-out both;
+}
+
+.result-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--border);
+}
+.result-stat-row:last-child {
+  border-bottom: none;
+}
+
+.result-label {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+}
+.result-value {
+  font-family: "Orbitron", monospace;
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.result-stat-time .result-value {
+  font-size: 22px;
+}
+
+#result-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  animation: result-appear 0.5s 0.2s ease-out both;
+}
+
+/* ─────────────────────────────────────────────
+   ★ ゲームページ（シングルプレイのレイアウト＆スケール） ★
+───────────────────────────────────────────── */
+#game-page {
+  position: relative;
+  z-index: 1;
+}
+
+#container {
+  /* ★ position:fixed で常にビューポート中心へ固定してからスケール。
+     transform:scale はレイアウト寸法(320x640)を縮めないため、
+     flow 内で中央寄せするとビューポートが枠より小さいとき中心がずれて
+     はみ出す。fixed + translate(-50%,-50%) で枠中心を常に画面中心に置く。 */
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 320px;
+  height: 640px;
+  /* ウィンドウサイズに合わせて自動スケール
+     幅の基準：約750px、高さの基準：約700px
+     上限スケールを2、下限を0.2に制限
+  */
+  transform: translate(-50%, -50%)
+    scale(
+      clamp(
+        0.2,
+        min(calc((100vw - 32px) / 750px), calc((100vh - 48px) / 700px)),
+        2
+      )
+    );
+  transform-origin: center;
+}
+
+canvas {
+  image-rendering: pixelated;
+}
+
+#main-canvas {
+  border: 3px solid var(--field-border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  /* compositor に「この canvas は頻繁に更新される独立レイヤ」と明示。
+     親 #container の transform:scale と共存させつつ、canvas 更新ごとに
+     親レイヤを再合成しないよう paint を分離する。
+     desynchronized:true を getContext で要求しているため、レイヤ単独で
+     低遅延パスに乗りやすくなる。 */
+  will-change: transform;
+  transform: translateZ(0);
+  contain: layout style paint;
+}
+
+#next-canvas,
+#hold-canvas {
+  position: absolute;
+  border: 2px solid var(--field-border);
+  border-radius: 2px;
+}
+#next-canvas {
+  top: 0;
+  left: 352px;
+}
+#hold-canvas {
+  top: 0;
+  left: -160px;
+}
+
+.area-label {
+  position: absolute;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+}
+
+#label-next {
+  top: -18px;
+  left: 352px;
+}
+#label-hold {
+  top: -18px;
+  left: -160px;
+}
+
+#level-area {
+  position: absolute;
+  left: -160px;
+  top: 450px;
+}
+#level-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+#level-value {
+  font-family: "Orbitron", monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#lines-area {
+  position: absolute;
+  left: -160px;
+  top: 510px;
+}
+#lines-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+#lines-value {
+  font-family: "Orbitron", monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#score-area {
+  position: absolute;
+  left: 352px;
+  top: 450px;
+}
+#score-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+#score-value {
+  font-family: "Orbitron", monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#time-area {
+  position: absolute;
+  left: 352px;
+  top: 510px;
+}
+#time-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+#time-value {
+  font-family: "Orbitron", monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#start-btn {
+  position: absolute;
+  left: 352px;
+  bottom: 0;
+  width: 160px;
+  text-align: center;
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  cursor: pointer;
+  transition:
+    opacity 0.2s,
+    transform 0.1s;
+}
+#start-btn:hover,
+#start-btn.is-focused {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+#start-btn:active {
+  transform: translateY(0);
+}
+
+/* ─────────────────────────────────────────────
+   設定ページ
+───────────────────────────────────────────── */
+#settings-page {
+  width: 900px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  position: relative;
+  z-index: 2;
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+.btn-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.btn-back:hover,
+.btn-back.is-focused {
+  border-color: var(--accent3);
+  color: var(--accent3);
+}
+
+#settings-page h2 {
+  font-family: "Orbitron", monospace;
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.key-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.key-action-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.key-action-name small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.key-badge {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 80px;
+  padding: 6px 12px;
+  border-radius: 5px;
+  border: 1px solid rgba(196, 113, 245, 0.35);
+  background: rgba(196, 113, 245, 0.15);
+  color: var(--accent);
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+.key-badge:hover,
+.key-badge.is-focused {
+  background: rgba(196, 113, 245, 0.28);
+}
+.key-badge.listening {
+  border-color: var(--accent2);
+  background: rgba(250, 113, 205, 0.2);
+  color: var(--accent2);
+  animation: pulse 0.8s infinite;
+}
+
+.gp-bind-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gp-badge {
+  min-width: 74px;
+  padding: 6px 8px;
+  font-size: 10px;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.conflict-warning {
+  display: none;
+  margin-top: -8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--danger);
+}
+.conflict-warning.show {
+  display: block;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.btn {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 10px 24px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(80%);
+}
+
+.btn-reset {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.btn-reset:hover,
+.btn-reset.is-focused {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn-save {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff;
+}
+.btn-save:hover,
+.btn-save.is-focused {
+  opacity: 0.85;
+}
+
+/* ─────────────────────────────────────────────
+   各種アクション表示など
+───────────────────────────────────────────── */
+#action-label-container {
+  position: absolute;
+  left: -200px;
+  top: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.action-label {
+  font-family: var(--font-orbitron);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin: 4px 0;
+  opacity: 1;
+  transition: opacity 0.3s linear;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
+}
+.action-label.pc {
+  color: #ffea00;
+}
+.action-label.tspin {
+  color: #c471f5;
+}
+.action-label.mini {
+  color: #71c5f5;
+}
+.action-label.four {
+  color: #00e5ff;
+}
+.action-label.b2b {
+  color: #f5a623;
+}
+.action-label.ren {
+  color: #a6f523;
+}
+
+.font-orbitron {
+  font-family: var(--font-orbitron);
+}
+.font-pixel {
+  font-family: var(--font-pixel);
+  font-size: 14px;
+}
+.font-tech {
+  font-family: var(--font-tech);
+}
+.font-modern {
+  font-family: var(--font-modern);
+}
+
+/* ─────────────────────────────────────────────
+   ポーズオーバーレイ
+───────────────────────────────────────────── */
+#pause-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 10, 15, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+#pause-overlay.active {
+  display: flex;
+}
+
+#pause-modal {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 56px;
+  text-align: center;
+  box-shadow: 0 0 48px rgba(196, 113, 245, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+#pause-title {
+  font-family: "Orbitron", monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+#pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.pause-btn {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  padding: 14px 40px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition:
+    opacity 0.2s,
+    transform 0.1s;
+  width: 100%;
+}
+.pause-btn:hover,
+.pause-btn.is-focused {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+.pause-btn:active {
+  transform: translateY(0);
+}
+
+.btn-resume {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff;
+}
+.btn-settings {
+  background: rgba(196, 113, 245, 0.15);
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+.btn-settings:hover,
+.btn-settings.is-focused {
+  background: rgba(196, 113, 245, 0.28);
+}
+.btn-restart {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.btn-restart:hover,
+.btn-restart.is-focused {
+  border-color: var(--accent3);
+  color: var(--accent3);
+  opacity: 1;
+}
+.btn-mainmenu {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+.btn-mainmenu:hover,
+.btn-mainmenu.is-focused {
+  border-color: var(--text-dim);
+  color: var(--text);
+  opacity: 1;
+}
+
+/* ─────────────────────────────────────────────
+   トースト通知
+───────────────────────────────────────────── */
+#settings-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--success);
+  color: #0a0a0f;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 10px 28px;
+  border-radius: 100px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 999;
+  transition:
+    opacity 0.3s,
+    transform 0.3s;
+}
+#settings-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ─────────────────────────────────────────────
+   チューニングセクション
+───────────────────────────────────────────── */
+.tuning-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.slider-label {
+  display: flex;
+  align-items: baseline;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.slider-label small {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+.slider-label span {
+  margin-left: auto;
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  color: var(--accent3);
+}
+
+input[type="range"] {
+  width: 100%;
+  background: transparent;
+}
+input[type="range"]:focus {
+  outline: none;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: var(--border);
+  border-radius: 3px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  -webkit-appearance: none;
+  margin-top: -5px;
+  box-shadow: 0 0 8px rgba(196, 113, 245, 0.6);
+  transition: transform 0.1s;
+}
+input[type="range"]::-webkit-slider-thumb:hover,
+input[type="range"]::-webkit-slider-thumb.is-focused {
+  transform: scale(1.2);
+}
+.slider-markers {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 6px;
+  margin-top: -4px;
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+/* ─────────────────────────────────────────────
+   PUYOモード用スタイル
+───────────────────────────────────────────── */
+#puyo-main-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 3px solid var(--field-border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  image-rendering: pixelated;
+}
+#puyo-next-canvas {
+  position: absolute;
+  top: 0;
+  left: 352px;
+  border: 2px solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  height: 259px;
+}
+
+#eval-area {
+  position: absolute;
+  left: 352px;
+  top: 570px;
+}
+#eval-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+#eval-value {
+  font-family: "Orbitron", monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.eval-diff-plus {
+  color: var(--accent3);
+}
+.eval-diff-minus {
+  color: var(--danger);
+}
+
+#test-garbage-area {
+  position: absolute;
+  left: -160px;
+  top: 580px;
+}
+#test-garbage-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* ─────────────────────────────────────────────
+   QUIZモード スタイル
+───────────────────────────────────────────── */
+
+/* メインメニューのQUIZボタン */
+.mode-btn-quiz {
+  border-color: rgba(245, 197, 66, 0.35);
+}
+.mode-btn-quiz:hover,
+.mode-btn-quiz.is-focused {
+  background: rgba(245, 197, 66, 0.12);
+  border-color: #f58542;
+}
+.mode-btn-quiz .mode-btn-icon {
+  color: #f58542;
+}
+.mode-btn-quiz .mode-btn-label {
+  color: #f58542;
+}
+
+/* QUIZチェック画面（レベル選択） */
+#quiz-check-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#quiz-check-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding-top: 32px;
+  width: 660px;
+}
+
+#quiz-check-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* レベルリスト */
+#quiz-level-list {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.quiz-level-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 57px;
+  height: 57px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 197, 66, 0.3);
+  background: rgba(245, 197, 66, 0.04);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    transform 0.1s;
+}
+.quiz-level-btn:hover,
+.quiz-level-btn.is-focused {
+  background: rgba(245, 197, 66, 0.14);
+  border-color: #f58542;
+  transform: scale(1.08);
+}
+.quiz-level-btn:active {
+  transform: scale(1.03);
+}
+
+.quiz-level-num {
+  font-family: "Orbitron", monospace;
+  font-size: 18px;
+  font-weight: 900;
+  color: #f58542;
+  text-align: center;
+  line-height: 1;
+}
+
+.quiz-level-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.quiz-level-title {
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #f58542;
+}
+
+.quiz-level-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.quiz-level-cond {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* =========================================================
+  QUIZ Preview Overlay
+   ========================================================= */
+#quiz-preview-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  /* ★ 表示位置の変更 ★
+      元の -50% (中央揃え) の位置から、さらに左に200px、上に100px移動させます。
+      数値を変更すれば好きな位置に微調整できます。 */
+  transform: translate(calc(-50% - 300px), calc(-50% - 20px));
+  z-index: 100;
+  text-align: center;
+
+  /* ★ 背景の黒色度合い（0.0〜1.0） 
+    今回は0.4くらいにすると元の0.7よりかなり薄く（透けて）見えます。
+    もっと薄くしたい場合は 0.2 や 0.3 にしてみてください。 */
+  background: rgba(0, 0, 0, 0.7);
+
+  /* 枠線は前回薄くしてしまいましたが、元のスタイル（テーマカラー）に戻しています */
+  border: 2px solid var(--accent);
+
+  padding: 15px 30px;
+  border-radius: 8px;
+
+  /* ★ 共有いただいたCSS変数を使用してフォントを統一
+       もし別のフォントが良ければ var(--font-tech) や var(--font-pixel) に変更してください */
+  font-family: var(--font-orbitron);
+  color: var(--text);
+
+  font-weight: bold;
+  font-size: 1.2rem;
+  pointer-events: none;
+  letter-spacing: 1px;
+  line-height: 1.4;
+
+  /* ★ 点滅間隔の調整
+    2.5s の数値を変更することで点滅のスピードが変わります。
+    (数値を大きくする＝遅くなる、小さくする＝速くなる) */
+  animation: quiz-preview-pulse 2.5s infinite ease-in-out;
+}
+
+#quiz-preview-overlay .quiz-preview-sub {
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
+@keyframes quiz-preview-pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  } /* 点滅で一番薄くなったときの透明度 */
+  100% {
+    opacity: 1;
+  }
+}
+
+/* ─── QUIZ NEXT一覧 ─────────────────────────── */
+#quiz-next-all-container {
+  margin-top: 8px;
+  line-height: 0; /* canvas下の余白を消す */
+}
+
+#quiz-next-all-canvas {
+  display: block;
+  image-rendering: pixelated; /* ブロック画像をくっきり拡縮 */
+  image-rendering: crisp-edges; /* Firefox向け */
+}
+
+#quiz-field-overlay {
+  overflow-y: auto; /* NEXTが多くなった場合にスクロール可能にする */
+}
+
+/* QUIZリザルト: quiz-result-page */
+#quiz-result-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* QUIZリザルト: NEXT LEVELボタン */
+.btn-quiz-primary {
+  background: linear-gradient(135deg, #f58542 0%, #fa71cd 100%);
+  color: #0a0a0f;
+  font-weight: 700;
+  width: 100%;
+}
+.btn-quiz-primary:hover,
+.btn-quiz-primary.is-focused {
+  opacity: 0.88;
+}
+
+.cpu-estimate-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  height: 656px;
+  pointer-events: none;
+  z-index: 15;
+  overflow: hidden;
+}
+.cpu-estimate-block {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  box-sizing: border-box;
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 2px;
+}
+.cpu-estimate-block.step1 {
+  background: rgba(0, 255, 213, 0.25);
+  border-color: rgba(0, 255, 213, 0.8);
+  z-index: 2;
+}
+.cpu-estimate-block.step2 {
+  background: rgba(255, 0, 160, 0.2);
+  border-color: rgba(255, 0, 160, 0.6);
+  z-index: 1;
+}
+
+.online-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+}
+
+#online-top-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.online-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.online-top-content {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  padding-top: 32px;
+  width: 660px;
+}
+
+/* ─── ルーム一覧ページ: 縦積みレイアウト ─── */
+.online-list-layout {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+}
+
+.online-list-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.online-list-title {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+.online-list-footer {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  width: 100%;
+}
+.online-list-footer .btn {
+  flex: 1;
+}
+
+#online-rooms-container {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.online-rooms-empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 24px 0;
+}
+
+.online-room {
+  transition: background 0.2s;
+  padding: 10px 16px;
+  border-radius: 6px;
+  width: 100%;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.online-room-main {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.online-room-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.online-room-count {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.online-room-tags {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ─── ルームコード コピー UI ─── */
+.online-code-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.online-code-label {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+.online-code-value {
+  font-family: "Orbitron", monospace;
+  font-size: 16px;
+  letter-spacing: 4px;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(196, 113, 245, 0.12);
+  border: 1px solid rgba(196, 113, 245, 0.4);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: all 0.15s;
+}
+.online-code-value:hover {
+  background: rgba(196, 113, 245, 0.25);
+  border-color: var(--accent);
+}
+.online-code-value:active {
+  transform: scale(0.97);
+}
+
+@media (hover) {
+  .online-room:hover {
+    background: rgba(57, 154, 233, 0.226);
+  }
+}
+@media (hover: none) {
+  .online-room:active {
+    background: rgba(57, 154, 233, 0.226);
+  }
+}
+
+.settings-online-input {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: "NotoSans", sans-serif;
+  transition: all 0.2s;
+}
+
+.settings-online-input:focus {
+  background: rgba(196, 113, 245, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#online-modal-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 10, 15, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.online-modal-active {
+  display: flex !important;
+}
+
+.online-room-tag {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  white-space: nowrap;
+  margin: 4px;
+  cursor: pointer;
+}
+
+.online-room-tag-enabled {
+  color: var(--accent);
+  background: rgba(196, 113, 245, 0.15);
+  border-color: rgba(196, 113, 245, 0.35);
+}
+
+/* ─── PAUSE モーダル / フィールドヘッダー 共通 QUIZ レベル情報ブロック ─── */
+#pause-quiz-info,
+#quiz-field-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 16px;
+  margin-bottom: 4px;
+  background: rgba(245, 133, 66, 0.07);
+  border: 1px solid rgba(245, 133, 66, 0.3);
+  border-radius: 8px;
+}
+
+#pause-quiz-info-rule-title,
+#quiz-field-info-rule-title {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #f58542;
+}
+
+#pause-quiz-info-desc,
+#quiz-field-info-desc {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+#pause-quiz-info-goal,
+#quiz-field-info-goal {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #f58542;
+  opacity: 0.85;
+}
+
+/* ─────────────────────────────────────────────
+   クレジットページ
+───────────────────────────────────────────── */
+#credits-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+#credits-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 420px;
+  padding: 40px 32px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+/* タイトルヘッダー */
+#credits-header {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.credits-title {
+  font-family: "Orbitron", monospace;
+  font-size: 2.4rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 4px;
+}
+
+.credits-version {
+  font-family: "Orbitron", monospace;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  letter-spacing: 3px;
+  margin: 0;
+}
+
+/* 各セクション */
+.credits-section {
+  text-align: center;
+  line-height: 1.6;
+}
+
+.credits-section-label {
+  font-family: "Orbitron", monospace;
+  font-size: 0.65rem;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+
+.credits-name {
+  font-family: "Orbitron", monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text);
+  margin: 0;
+}
+
+/* 区切り線 */
+.credits-divider {
+  width: 60%;
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* コピーライト */
+.credits-copy {
+  font-family: "Orbitron", monospace;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  gap: 2px;
+}
+
+.credits-copy p {
+  margin: 2px 0;
+}
+
+/* BACKボタン */
+#credits-buttons {
+  margin-top: 8px;
+  width: 100%;
+}
+
+#credits-buttons .menu-btn {
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   メインメニュー 情報系リンク
+   （TITLE / CREDITS / CHANGELOG — 控えめなテキストリンク）
+───────────────────────────────────────────── */
+.util-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  padding: 6px 10px;
+  border-radius: 6px;
+  opacity: 0.6;
+  transition:
+    color 0.2s,
+    opacity 0.2s,
+    background 0.2s;
+}
+
+.util-link:hover,
+.util-link.is-focused {
+  color: var(--text);
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.util-link .util-icon {
+  font-size: 12px;
+}
+
+/* 左下：CREDITS ／ 右下：CHANGELOG（基準は #main-menu-footer = メインキャンバス幅） */
+.util-link-credits,
+.util-link-changelog {
+  position: absolute;
+  bottom: 4px;
+}
+
+.util-link-credits {
+  left: 0;
+}
+
+.util-link-changelog {
+  right: 0;
+}
+
+/* ─────────────────────────────────────────────
+   変更履歴ページ（changelog-page）
+───────────────────────────────────────────── */
+#changelog-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+#changelog-container {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 84vh;
+  overflow: hidden;
+  padding: 40px 32px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+#changelog-header {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+
+#changelog-header .changelog-title-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+#changelog-header .btn-back {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.changelog-title {
+  font-family: "Orbitron", monospace;
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 4px;
+}
+
+.changelog-subtitle {
+  font-family: "Orbitron", monospace;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 3px;
+  margin: 0;
+}
+
+.changelog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.changelog-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.changelog-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.changelog-ver {
+  font-family: "Orbitron", monospace;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--accent);
+}
+
+.changelog-date {
+  font-family: "Orbitron", monospace;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+
+.changelog-items {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ─────────────────────────────────────────────
+  MARK: オンライン対戦画面
+───────────────────────────────────────────── */
+
+#online-battle-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  flex: 1;
+  overflow: hidden;
+}
+
+#ol-battle-layout {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  transform: translate(-50%, -50%)
+    scale(
+      clamp(
+        0.2,
+        min(calc((100vw - 32px) / 1300px), calc((100vh - 48px) / 700px)),
+        2
+      )
+    );
+  transform-origin: center;
+}
+
+/* Player field (left side) */
+#ol-player-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* 自プレイヤーは相手スロット(.ol-opponent-slot)と同一構造・同一クラスを使う。
+   差別化は枠の発光（self はアクセント色）と名前ラベル色のみ。 */
+.ol-self-slot .ol-opp-main-canvas,
+.ol-self-slot .ol-opp-puyo-main-canvas {
+  box-shadow: 0 0 20px rgba(113, 197, 245, 0.3);
+}
+
+.ol-self-name {
+  font-size: 13px !important;
+  max-width: 360px !important;
+}
+
+/* tet/puyo フィールド内オーバーレイ(カウントダウン/フィニッシュ)を
+   ol-opp-main-wrap いっぱいに広げ、キャンバスの拡縮に追従させる */
+.ol-fill-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+.ol-fill-overlay .finish-text {
+  font-size: 22px;
+  letter-spacing: 2px;
+}
+
+/* Opponents area: display:contents でフレックス親 (#ol-battle-layout) の直接子にフラット化 */
+#ol-opponents-area {
+  display: contents;
+}
+
+.ol-opponent-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.ol-opp-name {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-opp-field {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 2px;
+  position: relative;
+}
+
+.ol-opp-main-wrap {
+  position: relative;
+}
+
+.ol-opp-main-canvas {
+  width: 128px;
+  height: 262px;
+  border: 2px solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  display: block;
+}
+
+/* hold: BLOCK_SIZE(32)*4 = 128px → CSS scale 0.375 = 48px */
+.ol-opp-hold-canvas {
+  width: 48px;
+  height: 48px;
+  image-rendering: pixelated;
+  display: block;
+  align-self: flex-start;
+  border: 1px solid var(--field-border);
+  border-radius: 2px;
+}
+
+/* next: 128×432px → CSS scale 0.375 = 48×162px */
+.ol-opp-next-canvas {
+  width: 48px;
+  height: 162px;
+  image-rendering: pixelated;
+  display: block;
+  align-self: flex-start;
+}
+
+/* 相手の予告ゲージ: ol-opp-main-wrap 左側に縦棒として絶対配置 */
+.ol-opp-garbage-gauge {
+  position: absolute;
+  left: -10px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* 攻撃(送る・貯蓄)ゲージ: ol-opp-main-wrap 右側に縦棒として絶対配置。
+   異種戦(対ぷよ)で自分のフィールドにのみ表示する */
+.ol-opp-attack-gauge {
+  position: absolute;
+  right: -10px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+.ol-opp-attack-gauge .attack-block {
+  width: 7px;
+  height: 18px;
+}
+
+/* ぷよ相手キャンバス: 論理320×656 → CSS128×262 (scale 0.4) */
+.ol-opp-puyo-main-canvas {
+  width: 128px;
+  height: 262px;
+  border: 2px solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  display: block;
+}
+
+/* ぷよNEXT: 論理128×259 → CSS52×104 */
+.ol-opp-puyo-next-canvas {
+  width: 52px;
+  height: 104px;
+  image-rendering: pixelated;
+  display: block;
+  align-self: flex-start;
+}
+
+/* ─── 人数別レイアウト ─── */
+
+/* 2P: 全員等サイズ・横並び */
+#ol-battle-layout[data-player-count="2"] .ol-opp-garbage-gauge {
+  left: -12px;
+  width: 9px;
+}
+#ol-battle-layout[data-player-count="2"] .ol-opp-attack-gauge {
+  right: -12px;
+  width: 9px;
+}
+#ol-battle-layout[data-player-count="2"] .ol-opp-attack-gauge .attack-block {
+  width: 9px;
+  height: 32px;
+}
+#ol-battle-layout[data-player-count="2"] .ol-opp-main-canvas {
+  width: 320px;
+  height: 656px;
+}
+#ol-battle-layout[data-player-count="2"] .ol-opp-hold-canvas {
+  width: 96px;
+  height: 96px;
+  align-self: flex-start;
+}
+#ol-battle-layout[data-player-count="2"] .ol-opp-next-canvas {
+  width: 96px;
+  height: 324px;
+}
+#ol-battle-layout[data-player-count="2"] .ol-opp-puyo-main-canvas {
+  width: 320px;
+  height: 656px;
+}
+#ol-battle-layout[data-player-count="2"] .ol-opp-puyo-next-canvas {
+  width: 100px;
+  height: 200px;
+}
+#ol-battle-layout[data-player-count="2"] .ol-opp-name {
+  font-size: 13px;
+  max-width: 360px;
+}
+
+/* 3P: 全員横並び、間隔を詰める、自分は少し小さく */
+#ol-battle-layout[data-player-count="3"] {
+  gap: 20px;
+}
+#ol-battle-layout[data-player-count="3"] .ol-opp-main-canvas {
+  width: 192px;
+  height: 394px;
+}
+#ol-battle-layout[data-player-count="3"] .ol-opp-hold-canvas {
+  width: 72px;
+  height: 72px;
+}
+#ol-battle-layout[data-player-count="3"] .ol-opp-next-canvas {
+  width: 72px;
+  height: 243px;
+}
+#ol-battle-layout[data-player-count="3"] .ol-opp-puyo-main-canvas {
+  width: 192px;
+  height: 394px;
+}
+#ol-battle-layout[data-player-count="3"] .ol-opp-puyo-next-canvas {
+  width: 72px;
+  height: 144px;
+}
+
+/* 4P: 全員横並び・コンパクト */
+#ol-battle-layout[data-player-count="4"] {
+  gap: 14px;
+}
+#ol-battle-layout[data-player-count="4"] .ol-opp-main-canvas {
+  width: 166px;
+  height: 341px;
+}
+#ol-battle-layout[data-player-count="4"] .ol-opp-hold-canvas {
+  width: 60px;
+  height: 60px;
+}
+#ol-battle-layout[data-player-count="4"] .ol-opp-next-canvas {
+  width: 60px;
+  height: 203px;
+}
+#ol-battle-layout[data-player-count="4"] .ol-opp-puyo-main-canvas {
+  width: 166px;
+  height: 341px;
+}
+#ol-battle-layout[data-player-count="4"] .ol-opp-puyo-next-canvas {
+  width: 60px;
+  height: 120px;
+}
+
+/* 5P+: flex-wrap で折り返し */
+#ol-battle-layout[data-player-count="5"] {
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Overlays */
+.ol-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 10, 15, 0.82);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+
+.ol-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 40px 48px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.ol-result-title {
+  font-family: "Orbitron", monospace;
+  font-size: 42px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.ol-result-name {
+  font-family: "Orbitron", monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text);
+  min-height: 28px;
+}
+
+#ol-post-match-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 220px;
+}
+
+/* REMATCH 投票済み状態: 押すと取消できることが分かるよう強調表示 */
+#ol-btn-rematch.rematch-voted {
+  background: linear-gradient(135deg, var(--success), #2e7d50);
+  box-shadow: 0 0 16px rgba(90, 245, 160, 0.5);
+  color: #fff;
+}
+
+#ol-rematch-status {
+  color: var(--text-dim);
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.changelog-items li {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+/* ─────────────────────────────────────────────
+   キーボードフォーカス枠（focus_nav.js）
+   入力モードが kbd の時のみ枠を表示。pointer 時はクラス自体付与しない
+───────────────────────────────────────────── */
+body.input-mode-kbd .is-focused {
+  /* フォーカス枠は要素の外側へ描画する。下端の情報リンクは
+     #main-menu-footer 側で枠ぶんの余白を確保する。 */
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(196, 113, 245, 0.45);
+  border-radius: inherit;
+}
+body.input-mode-kbd .slider-row.is-focused,
+body.input-mode-kbd .option-row.is-focused {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(196, 113, 245, 0.45);
+  border-radius: 8px;
+}
