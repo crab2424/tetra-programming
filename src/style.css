@@ -408,7 +408,7 @@ h1 {
   position: relative;
   width: 100%;
   margin-top: 16px;
-  min-height: 96px;
+  min-height: 100px;
 }
 
 /* 中央：SETTINGS の真下に TITLE を縦並び */
@@ -1203,6 +1203,9 @@ h1 {
   border-radius: 2px;
   box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
   image-rendering: pixelated;
+  will-change: transform;
+  transform: translateZ(0);
+  contain: layout style paint;
 }
 
 /* PUYO 対戦用Canvas */
@@ -1694,6 +1697,14 @@ canvas {
   border: 3px solid var(--field-border);
   border-radius: 2px;
   box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  /* compositor に「この canvas は頻繁に更新される独立レイヤ」と明示。
+     親 #container の transform:scale と共存させつつ、canvas 更新ごとに
+     親レイヤを再合成しないよう paint を分離する。
+     desynchronized:true を getContext で要求しているため、レイヤ単独で
+     低遅延パスに乗りやすくなる。 */
+  will-change: transform;
+  transform: translateZ(0);
+  contain: layout style paint;
 }
 
 #next-canvas,
@@ -3011,7 +3022,7 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
 .util-link-credits,
 .util-link-changelog {
   position: absolute;
-  bottom: 0;
+  bottom: 4px;
 }
 
 .util-link-credits {
@@ -3503,17 +3514,17 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
    入力モードが kbd の時のみ枠を表示。pointer 時はクラス自体付与しない
 ───────────────────────────────────────────── */
 body.input-mode-kbd .is-focused {
-  /* 要素の内側に描画 (負のoffset)。box-shadow inset で淡いハロー。
-     要素の外側には一切はみ出さないので、ビューポート/キャンバス端でも絶対に切れない */
+  /* フォーカス枠は要素の外側へ描画する。下端の情報リンクは
+     #main-menu-footer 側で枠ぶんの余白を確保する。 */
   outline: 2px solid var(--accent);
-  outline-offset: 0px;
-  box-shadow: inset 0 0 0 1px rgba(196, 113, 245, 0.45);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(196, 113, 245, 0.45);
   border-radius: inherit;
 }
 body.input-mode-kbd .slider-row.is-focused,
 body.input-mode-kbd .option-row.is-focused {
   outline: 2px solid var(--accent);
-  outline-offset: -1px;
-  box-shadow: inset 0 0 0 1px rgba(196, 113, 245, 0.45);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(196, 113, 245, 0.45);
   border-radius: 8px;
 }

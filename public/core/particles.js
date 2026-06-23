@@ -220,16 +220,29 @@ function initMenuAnimations(pageId = 'main-menu') {
         targets = [{ sel: '#changelog-container', cls: 'menu-enter', delay: 0 }];
     }
 
+    const nodes = [];
     targets.forEach(({ sel, el, cls, delay }) => {
-        // sel 指定なら querySelectorAll、el 指定ならその要素を直接対象にする
         const els = el ? [el] : page.querySelectorAll(sel);
         els.forEach(node => {
-            // クラスを一度外してリフローを挟み、再付与することで再アニメーション
-            node.classList.remove(cls);
-            node.style.animationDelay = `${delay * 0.08}s`;
-            void node.offsetWidth;          // reflow
-            node.classList.add(cls);
+            nodes.push({ node, cls, delay });
         });
+    });
+
+    nodes.forEach(({ node }) => {
+        node.classList.remove('menu-enter', 'menu-enter-dim');
+        node.style.opacity = '0';
+        node.style.animation = 'none';
+        node.style.animationDelay = '';
+    });
+
+    void page.offsetWidth;
+
+    nodes.forEach(({ node, cls, delay }) => {
+        node.style.animation = 'none';
+        node.style.animation = '';
+        node.style.animationDelay = `${delay * 0.08}s`;
+        node.style.opacity = '';
+        node.classList.add(cls);
     });
 }
 

@@ -65,6 +65,7 @@ Object.assign(Game.prototype, {
             e.y += this.mino.y
         })
         this.field.blocks = this.field.blocks.concat(this.mino.blocks)
+        this.field.markDirty()
 
         // 固定音：ハードドロップ時は harddrop と重ねて lock_hard（小音量）、通常時は lock（通常音量）
         this.playSe(viaHardDrop ? 'lock_hard' : 'lock');
@@ -413,16 +414,15 @@ Object.assign(Game.prototype, {
     },
 
     valid(moveX, moveY, rot = 0) {
-        let newBlocks = this.mino.getNewBlocks(moveX, moveY, rot)
-        return newBlocks.every(block => {
-            return (
-                block.x >= 0 &&
-                block.y >= -5 &&
-                block.x < COLS_COUNT &&
-                block.y < ROWS_COUNT &&
-                !this.field.has(block.x, block.y)
-            )
-        })
+        const newBlocks = this.mino.getNewBlocks(moveX, moveY, rot)
+        const field = this.field
+        for (let i = 0; i < newBlocks.length; i++) {
+            const b = newBlocks[i]
+            if (b.x < 0 || b.x >= COLS_COUNT) return false
+            if (b.y < -5 || b.y >= ROWS_COUNT) return false
+            if (field.has(b.x, b.y)) return false
+        }
+        return true
     },
 
     // ─────────────────────────────────────────
@@ -440,6 +440,7 @@ Object.assign(Game.prototype, {
                 }
             }
         }
+        this.field.markDirty();
     },
 
     // ─────────────────────────────────────────
