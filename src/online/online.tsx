@@ -226,6 +226,8 @@ function gameIcon(game: Games, size: number) {
   );
 }
 
+const isSecureContext = window.isSecureContext || location.protocol === "https:";
+
 class OnlineMode {
   private readonly logger = new Logger("ONLINE:Loader");
   private userName: string = "さすらいの研究者";
@@ -1627,7 +1629,7 @@ class OnlineMode {
       );
 
       const tetlaboServerUrl =
-        localStorage.getItem("tetlaboServerUrl") || "wss://example.com/ws";
+        `ws${isSecureContext ? "s" : ""}://` + (localStorage.getItem("tetlaboServerUrl") || "example.com") + "/ws";
 
       const pages = document.querySelectorAll(".page");
       pages.forEach((p) => p.classList.remove("active"));

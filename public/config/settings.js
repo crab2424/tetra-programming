@@ -339,8 +339,8 @@ function updateGamepadOptionsDisplay() {
 }
 
 function renderOnlineSettings() {
-  const signalUrlInput = document.getElementById('settings-online-signalurl');
-  if (signalUrlInput) signalUrlInput.value = localStorage.getItem('tetlaboServerUrl') || '';
+  const backendUrlInput = document.getElementById('settings-online-backend');
+  if (backendUrlInput) backendUrlInput.value = localStorage.getItem('tetlaboServerUrl') || '';
 }
 
 document.getElementById('slider-das').addEventListener('input', updateTuningDisplay);
@@ -568,8 +568,17 @@ function saveSettings() {
     && currentGameMode && currentGameMode.id !== 'puyo') window._game.setKeyEvent();
   if (window._puyoGame && typeof window._puyoGame._setKeyHandlers === 'function') window._puyoGame._setKeyHandlers();
 
-  const signalUrl = document.getElementById('settings-online-signalurl')?.value || '';
-  localStorage.setItem('tetlaboServerUrl', signalUrl);
+  /** @type {string} */
+  let backendUrl = document.getElementById('settings-online-backend')?.value || '';
+
+  if (backendUrl.includes("/")) {
+    backendUrl = backendUrl.replace(/(http|ws)s?:\/\//, ''); // 先頭のスラッシュを削除
+    backendUrl = backendUrl.replace(/\/+$/, ''); // 末尾のスラッシュを削除
+  }
+
+  document.getElementById('settings-online-backend').value = backendUrl;
+
+  localStorage.setItem('tetlaboServerUrl', backendUrl);
 
   updateMenuControlsDisplay(); // ★追加：保存時にメインメニューの表示を更新
   showToast();
