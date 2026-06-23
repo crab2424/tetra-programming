@@ -91,7 +91,163 @@ export class OnlineGameController {
   private myRematchVoted = false;
   private rematchStarting = false;
 
+  /** 対戦本編（カウントダウン明け〜決着前）が進行中か。バックグラウンド駆動の対象判定に使う。 */
+  private matchInProgress = false;
+  /** visibilitychange リスナーを登録済みか（多重登録防止）。 */
+  private visibilityListenerActive = false;
+  /** バックグラウンドでゲームを進めるためのクロックWorker（rAFの代替）。 */
+  private bgClockWorker: Worker | null = null;
+  /** Worker生成に使った Blob URL（破棄用に保持）。 */
+  private bgClockUrl: string | null = null;
+  /** バックグラウンドクロックが現在動作中か。 */
+  private bgClockRunning = false;
+
   private readonly logger = new Logger("ONLINE:Game");
+
+  // ── バックグラウンド進行（タブ非表示でも対戦を止めない） ─────────────────────
+  //
+  // ★ 背景: 重力・描画・状態遷移は requestAnimationFrame 駆動で、ブラウザはタブ非表示中
+  //   rAF を完全に停止する。一方データチャネルの keepalive(25秒) は動き続けるため接続は切れない。
+  //   結果、相手から見ると「ミノが落ちず・ツモも進まず・絶対に死なない不死身の相手」になる（報告の不具合）。
+  //   そこで、タブが hidden の間は「スロットリングされない Web Worker のタイマー」でゲームの
+  //   1フレーム更新（tet=_applyGravityTick / puyo=_update(dt)）を駆動し続け、ミノ/ぷよが落ち続け・
+  //   接地で固定され・最終的に決着するようにする。入力は非表示中に発生しないので、操作なしの
+  //   「自然落下のみ」で進む（放置すれば自滅）＝公平。表示に戻れば rAF が自動的に再開する。
+
+  private readonly handleVisibilityChange = (): void => {
+    this.syncBackgroundClock();
+  };
+
+  /** 表示状態に応じてバックグラウンドクロックを開始/停止する（hidden 検知時・対戦開始時に呼ぶ）。 */
+  private syncBackgroundClock(): void {
+    const hidden = typeof document !== "undefined" && document.hidden;
+    if (hidden && this.matchInProgress && this.myAlive && this.game) {
+      this.startBackgroundClock();
+    } else {
+      this.stopBackgroundClock();
+    }
+  }
+
+  /** Worker（停止しないクロック）を必要に応じて生成する。 */
+  private ensureBgWorker(): void {
+    if (this.bgClockWorker || typeof Worker === "undefined") return;
+    // 非表示タブでもスロットリングされにくい Worker 内 setInterval で tick を送る。
+    const code =
+      "let t=null;self.onmessage=function(e){" +
+      "if(e.data==='start'){if(t===null)t=setInterval(function(){self.postMessage(0);},16);}" +
+      "else if(e.data==='stop'){if(t!==null){clearInterval(t);t=null;}}};";
+    try {
+      const blob = new Blob([code], { type: "application/javascript" });
+      this.bgClockUrl = URL.createObjectURL(blob);
+      this.bgClockWorker = new Worker(this.bgClockUrl);
+      this.bgClockWorker.onmessage = () => this.backgroundTick();
+    } catch (e) {
+      this.logger.error("Failed to create background clock worker:", e);
+      this.bgClockWorker = null;
+    }
+  }
+
+  private startBackgroundClock(): void {
+    if (this.bgClockRunning) return;
+    this.ensureBgWorker();
+    if (!this.bgClockWorker) return;
+    this.bgClockRunning = true;
+    // tet: rAFが止まる直前の経過時間で多重落下しないよう基準時刻をリセット
+    if (this.game && this.myRule !== "puyo") {
+      this.game._gravityLastTime = performance.now();
+    }
+    if (this.game && this.myRule === "puyo") {
+      this.game.lastTime = performance.now();
+    }
+    this.bgClockWorker.postMessage("start");
+    this.logger.log("Background clock started (tab hidden).");
+  }
+
+  private stopBackgroundClock(): void {
+    if (!this.bgClockRunning) return;
+    this.bgClockRunning = false;
+    this.bgClockWorker?.postMessage("stop");
+    // 表示に戻った直後の大ジャンプを避けるため基準時刻を現在に合わせる
+    if (this.game && this.myRule !== "puyo") {
+      this.game._gravityLastTime = performance.now();
+    }
+    if (this.game && this.myRule === "puyo") {
+      this.game.lastTime = performance.now();
+    }
+    this.logger.log("Background clock stopped (tab visible).");
+  }
+
+  private teardownBackgroundClock(): void {
+    this.stopBackgroundClock();
+    if (this.bgClockWorker) {
+      try {
+        this.bgClockWorker.terminate();
+      } catch {}
+      this.bgClockWorker = null;
+    }
+    if (this.bgClockUrl) {
+      try {
+        URL.revokeObjectURL(this.bgClockUrl);
+      } catch {}
+      this.bgClockUrl = null;
+    }
+  }
+
+  /** Worker tick ごとに呼ばれ、非表示中のみゲームを1フレーム進める。 */
+  private backgroundTick(): void {
+    // 表示中は rAF が駆動するので二重進行を避ける
+    if (typeof document !== "undefined" && !document.hidden) return;
+    if (!this.matchInProgress || !this.myAlive || !this.game) {
+      this.stopBackgroundClock();
+      return;
+    }
+    const g = this.game;
+    if (g.isPaused) return; // ネットワークポーズ中は進めない
+    try {
+      if (this.myRule === "puyo") {
+        // ぷよ: _loop() の更新部分を再現（描画は非表示中なので省略）
+        const now = performance.now();
+        let dt = now - g.lastTime;
+        if (dt > 100) dt = 100;
+        if (dt < 0) dt = 0;
+        g.lastTime = now;
+        if (g.state === "playing") g._update(dt);
+      } else {
+        // tet: rAFループ相当の重力tickを進める
+        g._applyGravityTick();
+        // 接地後の固定は lockTimer(setTimeout) 依存で、非表示中はthrottleされ ~1s 遅れる。
+        // 猶予を過ぎていれば手動で固定し、相手への Lock/Spawn 送信が滞らないようにする。
+        if (g.isGrounded && g.lockTimer && typeof g.lockStartTime === "number") {
+          const due =
+            typeof g.lockRemaining === "number" ? g.lockRemaining : (g.lockDelay ?? 0);
+          if (performance.now() - g.lockStartTime >= due) {
+            clearTimeout(g.lockTimer);
+            g.lockTimer = null;
+            g.secureMino();
+            g.requestRedraw?.();
+          }
+        }
+      }
+      // 相手の盤面に落下中ミノ/ぷよの動きを反映させる（throttleされた interval の代替）
+      this.sendPieceStateNow();
+    } catch (e) {
+      this.logger.error("backgroundTick failed:", e);
+    }
+  }
+
+  /** visibilitychange リスナーを登録する（対戦開始時）。 */
+  private addVisibilityListener(): void {
+    if (this.visibilityListenerActive || typeof document === "undefined") return;
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    this.visibilityListenerActive = true;
+  }
+
+  /** visibilitychange リスナーを解除する（cleanup 時）。 */
+  private removeVisibilityListener(): void {
+    if (!this.visibilityListenerActive || typeof document === "undefined") return;
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    this.visibilityListenerActive = false;
+  }
 
   /** 対戦画面上部の「残り生存者数」表示を更新する */
   private updateAliveDisplay(): void {
@@ -208,6 +364,8 @@ export class OnlineGameController {
   /** Transition to the battle page and begin the match */
   private startBattle(notif: StartMatchNotification): void {
     this.myAlive = true;
+    this.matchInProgress = false; // 本編開始（カウントダウン明け）でtrueにする
+    this.addVisibilityListener();
     this.aliveSet = new Set(this.roomInfo.players.map(([id]) => id));
     this.clearFinishOverlay();
     this.rematchStarting = false;
@@ -349,6 +507,10 @@ export class OnlineGameController {
     setTimeout(() => {
       this.game._startGameplay();
       this.startPieceStateInterval();
+      this.matchInProgress = true;
+      // カウントダウン中にタブを隠したまま開始した場合、visibilitychange は発火しないので
+      // ここで明示的にバックグラウンドクロックを同期する。
+      this.syncBackgroundClock();
     }, delay);
   }
 
@@ -406,6 +568,9 @@ export class OnlineGameController {
       setTimeout(() => {
         this.game._startGameplay();
         this.startPieceStateInterval();
+        this.matchInProgress = true;
+        // カウントダウン中にタブを隠したまま開始した場合の取りこぼし防止
+        this.syncBackgroundClock();
       }, remaining);
     });
   }
@@ -501,6 +666,7 @@ export class OnlineGameController {
     game.gameOver = (_isClear = false) => {
       if (!this.myAlive) return;
       this.myAlive = false;
+      this.matchInProgress = false;
       this.markDead(this.myUserId);
       this.stopPieceStateInterval();
       this.freezeGame();
@@ -640,6 +806,7 @@ export class OnlineGameController {
     game.gameOver = (_isClear = false) => {
       if (!this.myAlive) return;
       this.myAlive = false;
+      this.matchInProgress = false;
       this.markDead(this.myUserId);
       this.stopPieceStateInterval();
       this.freezeGame();
@@ -902,6 +1069,7 @@ export class OnlineGameController {
   // ── Re-listen for next StartMatchNotification (REMATCH) ─────────────────
 
   private relistenForStart(): void {
+    this.matchInProgress = false;
     this.stopPieceStateInterval();
 
     // ゲームエンジン停止
@@ -1278,23 +1446,26 @@ export class OnlineGameController {
 
   // ── PieceState broadcast ─────────────────────────────────────────────────
 
+  /** 現在の操作中ミノ/ぷよの位置を1回送信する（interval と backgroundTick の両方から呼ぶ）。 */
+  private sendPieceStateNow(): void {
+    const g = this.game;
+    if (!g || g.isPaused) return;
+    if (this.myRule === 'puyo') {
+      // ぷよ: _gs が 'falling' または関連フェーズのときだけ送信
+      if (g._gs !== 'falling' && g._gs !== 'fixing') return;
+      this.connection.sendPieceState(
+        encodePuyoPieceState(g.pivotColor, g.childColor, g.pivotX, g.pivotY, g.targetRot),
+      );
+    } else {
+      if (!g.mino) return;
+      this.connection.sendPieceState(
+        encodePieceState(g.mino.type, g.mino.x, g.mino.y, g.mino.rotation),
+      );
+    }
+  }
+
   private startPieceStateInterval(): void {
-    this.pieceStateIntervalId = window.setInterval(() => {
-      const g = this.game;
-      if (!g || g.isPaused) return;
-      if (this.myRule === 'puyo') {
-        // ぷよ: _gs が 'falling' または関連フェーズのときだけ送信
-        if (g._gs !== 'falling' && g._gs !== 'fixing') return;
-        this.connection.sendPieceState(
-          encodePuyoPieceState(g.pivotColor, g.childColor, g.pivotX, g.pivotY, g.targetRot),
-        );
-      } else {
-        if (!g.mino) return;
-        this.connection.sendPieceState(
-          encodePieceState(g.mino.type, g.mino.x, g.mino.y, g.mino.rotation),
-        );
-      }
-    }, 16);
+    this.pieceStateIntervalId = window.setInterval(() => this.sendPieceStateNow(), 16);
   }
 
   private stopPieceStateInterval(): void {
@@ -1357,6 +1528,7 @@ export class OnlineGameController {
 
   private showWinner(winnerId: Uuid | null): void {
     this.logger.log("WinnerNotification received. winner:", winnerId);
+    this.matchInProgress = false;
     this.stopPieceStateInterval();
     // 勝敗確定: 生存中でもゲームを停止する
     this.freezeGame();
@@ -1505,6 +1677,9 @@ export class OnlineGameController {
   // ── Cleanup ──────────────────────────────────────────────────────────────
 
   cleanup(): void {
+    this.matchInProgress = false;
+    this.removeVisibilityListener();
+    this.teardownBackgroundClock();
     this.controlEventsSubscribed = false;
     this.postMatchNavigating = false;
     this.rematchVotes.clear();
