@@ -152,6 +152,33 @@ export class GameConnection {
     };
   }
 
+  /**
+   * シグナリングサーバーから受け取った RTC 設定を `RTCPeerConnection` が受理できる形へ正規化する。
+   *
+   * ★ Cloudflare の `generate-ice-servers` は `iceServers` を「単一オブジェクト」で返す:
+   *     { "iceServers": { "urls": [...], "username": "...", "credential": "..." } }
+   *   一方 WebRTC 仕様の `RTCConfiguration.iceServers` は `sequence<RTCIceServer>`（＝配列）。
+   *   オブジェクトのまま `new RTCPeerConnection()` に渡すと、ブラウザによっては TypeError で
+   *   即失敗、あるいは黙って無視され TURN(relay) 候補が一切収集されない。
+   *   後者の場合、relay が必須な一部ネットワークでは脆弱な reflexive ペアで一瞬 `connected` に
+   *   なった後 consent freshness が落ちて `failed` に転落する（＝報告された不具合）。
+   *   ここで必ず配列へ正規化し、TURN が確実に効くようにする。
+   */
+  private static normalizeRtcConfig(raw: any): RTCConfiguration {
+    if (!raw || typeof raw !== "object") return {};
+    const cfg: RTCConfiguration = { ...raw };
+    const servers = (raw as any).iceServers;
+    if (Array.isArray(servers)) {
+      cfg.iceServers = servers;
+    } else if (servers && typeof servers === "object") {
+      // Cloudflare 形式（単一オブジェクト）→ 配列へラップ
+      cfg.iceServers = [servers];
+    } else if (servers == null) {
+      delete (cfg as any).iceServers;
+    }
+    return cfg;
+  }
+
   /** PeerConnection と Reliable/Unreliable DataChannel を生成しハンドラを張る（初回・再接続で使う） */
   private setupPeerConnection(config: RTCConfiguration = {}): void {
     this.pc = new RTCPeerConnection(config);
@@ -285,7 +312,7 @@ export class GameConnection {
           this.logger.log("Authentication successful");
           let config: string =
             message.rtcPeerIceConfig ?? message.rtc_peer_ice_config ?? "{}";
-          rtcConfig = JSON.parse(config);
+          rtcConfig = GameConnection.normalizeRtcConfig(JSON.parse(config));
         }
       };
 
