@@ -226,7 +226,7 @@ function gameIcon(game: Games, size: number) {
   );
 }
 
-const isSecureContext = window.isSecureContext || location.protocol === "https:";
+const isSecureProtocol = location.protocol === "https:";
 
 class OnlineMode {
   private readonly logger = new Logger("ONLINE:Loader");
@@ -1629,7 +1629,7 @@ class OnlineMode {
       );
 
       const tetlaboServerUrl =
-        `ws${isSecureContext ? "s" : ""}://` + (localStorage.getItem("tetlaboServerUrl") || "example.com") + "/ws";
+        `ws${isSecureProtocol ? "s" : ""}://` + (localStorage.getItem("tetlaboServerUrl") || "example.com") + "/ws";
 
       const pages = document.querySelectorAll(".page");
       pages.forEach((p) => p.classList.remove("active"));

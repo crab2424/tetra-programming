@@ -572,8 +572,8 @@ function saveSettings() {
   let backendUrl = document.getElementById('settings-online-backend')?.value || '';
 
   if (backendUrl.includes("/")) {
-    backendUrl = backendUrl.replace(/(http|ws)s?:\/\//, ''); // 先頭のスラッシュを削除
-    backendUrl = backendUrl.replace(/\/+$/, ''); // 末尾のスラッシュを削除
+    backendUrl = backendUrl.replace(/(http|ws)s*:\/\//, '');
+    backendUrl = backendUrl.replace(/\/+$/, '');
   }
 
   document.getElementById('settings-online-backend').value = backendUrl;
