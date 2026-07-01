@@ -106,9 +106,14 @@ export class GameConnection {
   private reconnecting = false;
   /** close() による意図的な切断か（true のときは再接続を起動しない） */
   private intentionalClose = false;
-  /** 再接続の最大試行回数と1回あたりのタイムアウト */
+  /**
+   * 再接続の最大試行回数と1回あたりのタイムアウト。
+   * サーバー側のICEタイムアウト(disconnected+failed=30s、main.rs参照)より短いと、
+   * 低品質な回線でICEチェックが完了する前にクライアントが毎回ゼロから
+   * やり直してしまい、いつまでも接続が成立しない(大学WIFI等での接続断の主因だった)。
+   */
   private static readonly RECONNECT_MAX_ATTEMPTS = 4;
-  private static readonly RECONNECT_ATTEMPT_TIMEOUT_MS = 6000;
+  private static readonly RECONNECT_ATTEMPT_TIMEOUT_MS = 18000;
 
   /**
    * サーバー時刻 − ローカル時刻 のオフセット (ms)。syncClock() で確定する。
