@@ -430,11 +430,20 @@
     onMove2D: (dir, cur, items) => {
       const curEl = items[cur] && items[cur].el;
       if (!curEl) return null;
+      // CPU TEST → ONLINE → SETTINGS を上下キーで直結する
       if (dir === 'down' && curEl.classList.contains('mode-btn-test')) {
+        const idx = items.findIndex(it => it.el.classList.contains('mode-btn-online'));
+        if (idx >= 0) return idx;
+      }
+      if (dir === 'down' && curEl.classList.contains('mode-btn-online')) {
         const idx = items.findIndex(it => it.el.classList.contains('btn-secondary') && /SETTINGS/i.test(it.el.textContent));
         if (idx >= 0) return idx;
       }
       if (dir === 'up' && curEl.classList.contains('btn-secondary') && /SETTINGS/i.test(curEl.textContent)) {
+        const idx = items.findIndex(it => it.el.classList.contains('mode-btn-online'));
+        if (idx >= 0) return idx;
+      }
+      if (dir === 'up' && curEl.classList.contains('mode-btn-online')) {
         const idx = items.findIndex(it => it.el.classList.contains('mode-btn-test'));
         if (idx >= 0) return idx;
       }
