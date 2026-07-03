@@ -106,9 +106,14 @@ export class GameConnection {
   private reconnecting = false;
   /** close() による意図的な切断か（true のときは再接続を起動しない） */
   private intentionalClose = false;
-  /** 再接続の最大試行回数と1回あたりのタイムアウト */
+  /**
+   * 再接続の最大試行回数と1回あたりのタイムアウト。
+   * サーバー側のICEタイムアウト(disconnected+failed=30s、main.rs参照)より短いと、
+   * 低品質な回線でICEチェックが完了する前にクライアントが毎回ゼロから
+   * やり直してしまい、いつまでも接続が成立しない(大学WIFI等での接続断の主因だった)。
+   */
   private static readonly RECONNECT_MAX_ATTEMPTS = 4;
-  private static readonly RECONNECT_ATTEMPT_TIMEOUT_MS = 6000;
+  private static readonly RECONNECT_ATTEMPT_TIMEOUT_MS = 18000;
 
   /**
    * サーバー時刻 − ローカル時刻 のオフセット (ms)。syncClock() で確定する。
@@ -267,7 +272,15 @@ export class GameConnection {
     };
 
     this.pc.onicecandidate = (event) => {
-      if (!event.candidate) return;
+      if (!event.candidate) {
+        this.logger.log("ICE candidate gathering finished (null candidate)");
+        return;
+      }
+      // ★ candidate 文字列から type(host/srflx/relay)・protocol・ip:port を
+      //   ログしておく。relay 候補が全く出てこない/relay だけ失敗する、といった
+      //   ネットワーク固有の不具合（例: 特定Wi-Fiでのみ TURN が通らない）を
+      //   再現時に切り分けるための手がかり。
+      this.logger.log("Local ICE candidate:", event.candidate.candidate);
       const msg = {
         type: "candidate",
         candidate: event.candidate.candidate,
@@ -278,6 +291,30 @@ export class GameConnection {
       if (this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify(msg));
       }
+    };
+
+    // ★ STUN/TURN サーバーへの疎通・割り当て失敗を直接報告するイベント。
+    //   onconnectionstatechange の failed だけでは「どの ICE サーバーが」
+    //   「どのエラーコードで」失敗したか分からない。ここで url/errorCode/errorText
+    //   をログしておけば、次に大学Wi-Fi等で再現した際にコンソールから
+    //   一目で原因（例: 401=認証不可、TCP接続不可 等）を特定できる。
+    this.pc.onicecandidateerror = (event) => {
+      const e = event as RTCPeerConnectionIceErrorEvent;
+      this.logger.error("ICE candidate error:", {
+        url: e.url,
+        errorCode: e.errorCode,
+        errorText: e.errorText,
+        address: e.address,
+        port: e.port,
+      });
+    };
+
+    this.pc.oniceconnectionstatechange = () => {
+      this.logger.log("ICE connection state:", this.pc.iceConnectionState);
+    };
+
+    this.pc.onicegatheringstatechange = () => {
+      this.logger.log("ICE gathering state:", this.pc.iceGatheringState);
     };
   }
 
