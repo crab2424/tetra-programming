@@ -1263,6 +1263,10 @@ export class OnlineGameController {
           }
         }
         puppet.field.blocks = blocks;
+        // Field は固定ブロックの描画・占有キャッシュを持つため、blocks を
+        // 直接差し替えたときは必ず無効化する。これを行わないと Lock は
+        // 受信できても、初期化時の空盤面キャッシュが描画され続ける。
+        puppet.field.markDirty?.();
         puppet.mino = null;
         puppet.drawAll();
         break;
