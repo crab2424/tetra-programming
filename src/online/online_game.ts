@@ -22,19 +22,10 @@ import {
   encodePuyoLock,
   encodeGarbagePuyo,
   encodePuyoChain,
-  decodePuyoChain,
-  decodePieceState,
-  decodeLock,
-  decodeSpawn,
   decodeGarbage,
-  decodeClear,
   decodePendingUpdate,
-  decodePuyoPieceState,
-  decodePuyoSpawn,
-  decodePuyoLock,
   fieldBlocksToArray,
   MatchOpcode,
-  BOARD_BUFFER_ROWS,
   BOARD_COLS,
   SE_IDS,
   SE_NAMES,
@@ -55,6 +46,7 @@ import {
   hideOnlineOppSlots,
   setOnlinePlayerCount,
 } from "../battle/layout";
+import { NetworkDriver } from "../battle/driver";
 
 type AnyFn = (...args: any[]) => any;
 
@@ -84,7 +76,7 @@ export class OnlineGameController {
   /** 相手集団にテト/ぷよがそれぞれ含まれるか。混在多人数戦で「受信ルール別に火力を送る」ために使う。 */
   private matchHasTetOpp = false;
   private matchHasPuyoOpp = false;
-  private puppets: Map<Uuid, any> = new Map();
+  private puppets: Map<Uuid, NetworkDriver> = new Map();
   private puppetRules: Map<Uuid, 'tet' | 'puyo'> = new Map();
   private puppetIndices: Map<Uuid, number> = new Map();
   private playerNames: Map<Uuid, string> = new Map();
@@ -292,12 +284,7 @@ export class OnlineGameController {
 
   /** パペットに紐づく一時タイマー（連鎖点滅など）を停止する */
   private stopPuppetTimers(): void {
-    for (const puppet of this.puppets.values()) {
-      if (puppet && puppet._netChainBlink) {
-        clearInterval(puppet._netChainBlink);
-        puppet._netChainBlink = null;
-      }
-    }
+    for (const driver of this.puppets.values()) driver.stop();
   }
 
   /** 自分の盤面の tet/puyo フィールド表示を切り替える（実体は battle/layout.ts） */
@@ -464,25 +451,18 @@ export class OnlineGameController {
       this.puppetRules.set(id, oppRule);
       setOnlineOppRule(index, oppRule);
 
-      if (oppRule === 'puyo') {
-        const puppet = new PuyoGame(`ol-opp-${index}`);
-        puppet._setupCanvas();
-        puppet._initField?.();  // field が undefined だと _render() でクラッシュするため初期化
-        puppet.nextQueue = [];
-        puppet.rng = null;
-        puppet._loadImages(() => { puppet._render?.(); });
-        this.puppets.set(id, puppet);
-      } else {
-        const puppet = new Game(`ol-opp-${index}`);
-        puppet.field = new Field();
-        puppet.field.blocks = [];
-        puppet.mino = null;
-        puppet.nextQueue = [];
-        puppet.holdMino = null;
-        puppet.isVersusMode = true;
-        puppet.drawAll();
-        this.puppets.set(id, puppet);
-      }
+      const driver = new NetworkDriver({
+        id,
+        index,
+        rule: oppRule,
+        onDead: (playerId) => this.markDead(playerId as Uuid),
+        onNameDead: (deadIndex) => {
+          const deadName = document.getElementById(`ol-opp-name-${deadIndex}`);
+          if (deadName) deadName.textContent += " ☠";
+        },
+      });
+      driver.start();
+      this.puppets.set(id, driver);
       this.puppetIndices.set(id, index);
     });
 
@@ -515,6 +495,7 @@ export class OnlineGameController {
     this.game = new Game("ol-p");
     (window as any)._olGame = this.game; // E2Eテスト用フック
     this.game.isVersusMode = true;
+    this.game.anchorPageId = "versus-page";
     this.game.currentMode = "marathon";
     this.game.isOnline = true;
     this.game.opponentRule = this.matchOpponentRule; // 異種戦判定をエンジンへ注入
@@ -533,12 +514,6 @@ export class OnlineGameController {
     this.game.tumoRng = createSeededRng(notif.seed);
     this.game._initGameState();
     this.game.setKeyEvent();
-
-    const versusPage = document.getElementById("versus-page");
-    if (versusPage) {
-      versusPage.classList.add("active");
-      versusPage.style.display = "none";
-    }
 
     this.matchHandlerId = this.connection.onMatchEvent((frame) => this.handleMatchFrame(frame));
 
@@ -576,6 +551,7 @@ export class OnlineGameController {
     this.game = new PuyoGame("ol-p");
     (window as any)._olGame = this.game; // E2Eテスト用フック
     this.game.isVersusMode = true;
+    this.game.anchorPageId = "versus-page";
     this.game.currentMode = "marathon";
     this.game.isOnline = true;
     this.game.opponentRule = this.matchOpponentRule; // 異種戦判定をエンジンへ注入
@@ -590,13 +566,6 @@ export class OnlineGameController {
     const initStart = performance.now();
     this.game.initGame(() => {
       this.hookPuyoGameMethods(matchSetting);
-
-      // PuyoGame._setKeyHandlers checks 'versus-page'.active for key input registration
-      const versusPage = document.getElementById("versus-page");
-      if (versusPage) {
-        versusPage.classList.add("active");
-        versusPage.style.display = "none";
-      }
 
       this.subscribeToControlEvents();
 
@@ -629,12 +598,21 @@ export class OnlineGameController {
   }
 
   private switchToBattlePage(): void {
+    // CPU戦とオンライン戦は同じ対戦ページを共有する。オンライン用の盤面パネルは
+    // 初回利用時にCPUページへ移動し、以後は同じ .page の配下だけを切り替える。
+    const versusPage = document.getElementById("versus-page");
+    const onlinePanel = document.getElementById("online-battle-page");
+    if (versusPage && onlinePanel && onlinePanel.parentElement !== versusPage) {
+      onlinePanel.classList.remove("page");
+      onlinePanel.classList.add("battle-panel");
+      versusPage.appendChild(onlinePanel);
+    }
     document.querySelectorAll<HTMLElement>(".page").forEach((p) => {
       p.classList.remove("active");
       p.style.display = "";
     });
-    const battlePage = document.getElementById("online-battle-page");
-    if (battlePage) battlePage.classList.add("active");
+    if (versusPage) versusPage.classList.add("active", "online-battle-active");
+    if (onlinePanel) onlinePanel.classList.add("active");
   }
 
   // ── Hook game engine methods ─────────────────────────────────────────────
@@ -1161,8 +1139,9 @@ export class OnlineGameController {
 
   /** ぷよ相手の予告おじゃまを、相手フィールド上部にアイコンで表示する（_updateOjamaYokoku を再利用） */
   private updateOpponentPuyoYokoku(senderId: Uuid, totalOjama: number): void {
-    const puppet = this.puppets.get(senderId);
-    if (!puppet) return;
+    const driver = this.puppets.get(senderId);
+    if (!driver) return;
+    const puppet = driver.puppet;
     puppet.garbageQueue = totalOjama > 0
       ? [{ amount: totalOjama, ready: false, internal: false }]
       : [];
@@ -1229,11 +1208,11 @@ export class OnlineGameController {
       return;
     }
 
-    const puppet = this.puppets.get(frame.senderId);
-    if (!puppet) return;
-    const senderRule = this.puppetRules.get(frame.senderId) ?? 'tet';
-
-    switch (frame.opcode) {
+    const driver = this.puppets.get(frame.senderId);
+    if (!driver) return;
+    driver.applyFrame(frame.opcode, frame.payload);
+    return;
+    /*
       // ── テト系フレーム ──────────────────────────────────────────────────
       case MatchOpcode.PieceState: {
         if (senderRule !== 'tet') break;
@@ -1391,6 +1370,7 @@ export class OnlineGameController {
         break;
       }
     }
+    */
   }
 
   // ── Garbage delivery ─────────────────────────────────────────────────────
@@ -1620,17 +1600,8 @@ export class OnlineGameController {
 
   private handleOpponentDisconnect(playerId: Uuid): void {
     this.markDead(playerId);
-    const puppet = this.puppets.get(playerId);
-    const rule = this.puppetRules.get(playerId) ?? 'tet';
-    if (puppet) {
-      if (rule === 'puyo') {
-        puppet.isPaused = true;
-        puppet._render?.();
-      } else {
-        puppet.mino = null;
-        puppet.drawAll?.();
-      }
-    }
+    const driver = this.puppets.get(playerId);
+    driver?.setDisconnected();
     const idx = this.puppetIndices.get(playerId);
     if (idx !== undefined) {
       const nameEl = document.getElementById(`ol-opp-name-${idx}`);
@@ -1696,16 +1667,10 @@ export class OnlineGameController {
 
     this.stopPuppetTimers();
 
+    this.puppets.forEach((driver) => driver.stop());
     this.puppets.clear();
     this.puppetRules.clear();
     this.puppetIndices.clear();
-
-    // Restore versus-page state (used as hidden key-event anchor when isVersusMode=true)
-    const versusPage = document.getElementById("versus-page");
-    if (versusPage) {
-      versusPage.classList.remove("active");
-      versusPage.style.display = "";
-    }
 
     // Reset battle layout state
     setOnlinePlayerCount(null);
@@ -1735,8 +1700,9 @@ export class OnlineGameController {
     document.getElementById("ol-alive-count")?.remove();
 
     // Switch back to online-top-page if battle page is still visible
-    const battlePage = document.getElementById("online-battle-page");
+    const battlePage = document.getElementById("versus-page");
     if (battlePage?.classList.contains("active")) {
+      battlePage.classList.remove("online-battle-active");
       document.querySelectorAll<HTMLElement>(".page").forEach((p) => {
         p.classList.remove("active");
         p.style.display = "";

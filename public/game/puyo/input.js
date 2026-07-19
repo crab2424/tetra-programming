@@ -30,7 +30,7 @@ Object.assign(PuyoGame.prototype, {
             // ★ 【修正】待機中のインスタンスは無視
             if (this.state === 'idle') return;
 
-            const activePageId = this.isVersusMode ? 'versus-page' : 'game-page';
+            const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page');
             const gamePage = document.getElementById(activePageId);
             if (!gamePage || !gamePage.classList.contains('active')) return;
 
@@ -239,7 +239,7 @@ Object.assign(PuyoGame.prototype, {
         };
 
         this._gamepadLoop = setInterval(() => {
-            const activePageId = this.isVersusMode ? 'versus-page' : 'game-page';
+            const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page');
             const gamePage = document.getElementById(activePageId);
             if (!gamePage || !gamePage.classList.contains('active')) return;
 
