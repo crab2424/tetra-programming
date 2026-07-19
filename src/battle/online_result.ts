@@ -6,7 +6,8 @@ export interface OnlineResultModel {
   outcome: OnlineOutcome;
   winnerName: string | null;
   selfScore: number | null;
-  selfLines: number | null;
+  selfPrimaryLabel: "LINES" | "MAX CHAIN";
+  selfPrimaryValue: number | null;
 }
 
 function setText(id: string, value: string): void {
@@ -38,7 +39,8 @@ export function renderOnlineResult(model: OnlineResultModel): void {
     model.outcome === "win" ? "WIN" : model.outcome === "lose" ? "LOSE" : "DRAW",
   );
   setText("ol-result-self-score", model.selfScore === null ? "—" : String(model.selfScore));
-  setText("ol-result-self-lines", model.selfLines === null ? "—" : String(model.selfLines));
+  setText("ol-result-self-lines", model.selfPrimaryValue === null ? "—" : String(model.selfPrimaryValue));
+  setText("ol-result-self-lines-label", `YOUR ${model.selfPrimaryLabel}`);
 }
 
 export function resetOnlineResult(): void {
@@ -46,6 +48,7 @@ export function resetOnlineResult(): void {
     outcome: "draw",
     winnerName: null,
     selfScore: null,
-    selfLines: null,
+    selfPrimaryLabel: "LINES",
+    selfPrimaryValue: null,
   });
 }

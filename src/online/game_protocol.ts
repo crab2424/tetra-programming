@@ -17,6 +17,8 @@ export const MatchOpcode = {
   ChainReplay: 0x27,   // reliable: puyo chain board snapshot
   SE: 0x28,            // reliable: sound effect sync
   PendingUpdate: 0x29, // reliable: self incoming-garbage gauge state
+  HoldState: 0x2a,    // reliable: current hold availability (0/1)
+  StatsUpdate: 0x2b,  // reliable: display-only score/lines/chains snapshot
   // ── Puyo frames (0x3N) ──────────────────────────────────────────────
   PuyoPieceState: 0x30, // unreliable: puyo pair position/rotation (high-freq)
   PuyoSpawn: 0x31,      // reliable: new pair spawned + next queue
@@ -166,6 +168,46 @@ export function encodePendingUpdate(ready: number, unready: number): Uint8Array 
 export interface PendingUpdateData { ready: number; unready: number; }
 export function decodePendingUpdate(p: Uint8Array): PendingUpdateData {
   return { ready: p[0] ?? 0, unready: p[1] ?? 0 };
+}
+
+export function encodeHoldState(canHold: boolean): Uint8Array {
+  return new Uint8Array([MatchOpcode.HoldState, canHold ? 1 : 0]);
+}
+
+export function decodeHoldState(p: Uint8Array): boolean {
+  return (p[0] ?? 0) !== 0;
+}
+
+export type StatsRule = "tet" | "puyo";
+export interface StatsUpdateData {
+  rule: StatsRule;
+  score: number;
+  lines: number;
+  chainMax: number;
+}
+
+// StatsUpdate: opcode + rule(0=tet/1=puyo) + score(u32 LE) + lines(u16 LE) + chainMax(u16 LE)
+export function encodeStatsUpdate(
+  rule: StatsRule, score: number, lines: number, chainMax: number,
+): Uint8Array {
+  const buf = new Uint8Array(10);
+  const view = new DataView(buf.buffer);
+  buf[0] = MatchOpcode.StatsUpdate;
+  buf[1] = rule === "puyo" ? 1 : 0;
+  view.setUint32(2, Math.max(0, Math.min(0xffffffff, Math.trunc(score))), true);
+  view.setUint16(6, Math.max(0, Math.min(0xffff, Math.trunc(lines))), true);
+  view.setUint16(8, Math.max(0, Math.min(0xffff, Math.trunc(chainMax))), true);
+  return buf;
+}
+
+export function decodeStatsUpdate(p: Uint8Array): StatsUpdateData {
+  const view = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  return {
+    rule: p[0] === 1 ? "puyo" : "tet",
+    score: p.byteLength >= 5 ? view.getUint32(1, true) : 0,
+    lines: p.byteLength >= 7 ? view.getUint16(5, true) : 0,
+    chainMax: p.byteLength >= 9 ? view.getUint16(7, true) : 0,
+  };
 }
 
 // ── SE name → ID table (送受信ともに使用) ─────────────────────────────
