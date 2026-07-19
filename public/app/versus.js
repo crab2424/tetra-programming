@@ -77,65 +77,9 @@ function setCpuLevel(lv) {
   if (descEl) descEl.textContent = CPU_LEVELS[lv].desc;
 }
 
-function _switchToVersusPuyoLayout(isPuyo) {
-    const tetCanvases = [
-        'player-main-canvas', 'player-next-canvas', 'player-hold-canvas',
-        'cpu-main-canvas', 'cpu-next-canvas', 'cpu-hold-canvas'
-    ];
-    const puyoCanvases = [
-        'player-puyo-main-canvas', 'player-puyo-next-canvas',
-        'cpu-puyo-main-canvas', 'cpu-puyo-next-canvas'
-    ];
-
-    tetCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isPuyo ? 'none' : '';
-    });
-    puyoCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isPuyo ? '' : 'none';
-    });
-
-    document.querySelectorAll('.versus-label-hold, .versus-label-hold-cpu').forEach(el => {
-        el.style.display = isPuyo ? 'none' : '';
-    });
-}
-
+// レイアウト切替の実体は src/battle/layout.ts（CPU戦・オンライン戦共通の唯一の編集場所）
 function _switchToVersusMixedLayout(playerRule, cpuRule) {
-    const isPlayerPuyo = playerRule === 'puyo';
-    const isCpuPuyo = cpuRule === 'puyo';
-
-    // Player側のキャンバス切り替え
-    const playerTetCanvases = ['player-main-canvas', 'player-next-canvas', 'player-hold-canvas'];
-    const playerPuyoCanvases = ['player-puyo-main-canvas', 'player-puyo-next-canvas'];
-
-    playerTetCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isPlayerPuyo ? 'none' : '';
-    });
-    playerPuyoCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isPlayerPuyo ? '' : 'none';
-    });
-    document.querySelectorAll('.versus-label-hold').forEach(el => {
-        el.style.display = isPlayerPuyo ? 'none' : '';
-    });
-
-    // CPU側のキャンバス切り替え
-    const cpuTetCanvases = ['cpu-main-canvas', 'cpu-next-canvas', 'cpu-hold-canvas'];
-    const cpuPuyoCanvases = ['cpu-puyo-main-canvas', 'cpu-puyo-next-canvas'];
-
-    cpuTetCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isCpuPuyo ? 'none' : '';
-    });
-    cpuPuyoCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isCpuPuyo ? '' : 'none';
-    });
-    document.querySelectorAll('.versus-label-hold-cpu').forEach(el => {
-        el.style.display = isCpuPuyo ? 'none' : '';
-    });
+    window.BattleLayout.applyVersusLayout(playerRule, cpuRule);
 }
 
 function createSeededRandom(seed) {

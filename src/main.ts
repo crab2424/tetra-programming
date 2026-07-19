@@ -1,5 +1,10 @@
 declare const APP_VERSION: string;
 
+// 対戦共通モジュール（window.BattleGarbage / window.BattleLayout を登録。
+// プレーンJSエンジン(public/)からの参照はこの副作用importで成立する）
+import "./battle/garbage_router";
+import "./battle/layout";
+
 document.addEventListener("DOMContentLoaded", () => {
   const versionElement = document.getElementById("title-version");
   if (versionElement) {

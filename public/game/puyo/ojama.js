@@ -176,64 +176,27 @@ Object.assign(PuyoGame.prototype, {
 
         // ── 注意：火力補正乗率は _applyOjamaOffset の入口で実効火力として計算済み。ここでは再計算しない ──
 
-        const holes = [];
-        let prevHole = -1;
-        for (let i = 0; i < amount; i++) {
-            let holeX;
-            if (i === 0) {
-                holeX = Math.floor(Math.random() * PConfig.cols);
-            } else {
-                if (Math.random() < 0.7) {
-                    holeX = prevHole;
-                } else {
-                    const offset = Math.floor(Math.random() * (PConfig.cols - 1)) + 1;
-                    holeX = (prevHole + offset) % PConfig.cols;
-                }
-            }
-            holes.push(holeX);
-            prevHole = holeX;
-        }
-
-        // ★ stage1「内部のみ」(internal:true・非表示) として送る。
-        //    500ms 後に internal を解除して stage2「猶予(青)」へ移す（視覚遅延を受け手側で持つ）。
+        // 穴パターン・配送は BattleGarbage(src/battle/garbage_router.ts)に集約。
+        // ★ stage1「内部のみ」(internal:true・非表示) として送り、500ms 後に stage2「猶予(青)」へ。
         //    stage2→stage3(ready/点滅) への確定は従来どおり _confirmSentGarbage（送り手の連鎖終了）が行う。
-        const garbageObj = { amount: amount, holes: holes, ready: false, internal: true };
-        opponent.garbageQueue.push(garbageObj);
-
-        // 自分が送った火力をリストに保持しておく
-        this.sentGarbageThisTurn.push(garbageObj);
-
-        // ── stage1(internal) → stage2(grace) の 500ms タイマー ──
+        const BG = window.BattleGarbage;
+        const isOppPuyo = opponent instanceof PuyoGame;
         const INTERNAL_MS = 500;
-        if (opponent instanceof PuyoGame) {
-            // ぷよ受け手：dt ベースで受け手の _update が減算する（ポーズ中は _update 非実行で自動停止）
-            garbageObj.internalTimer = INTERNAL_MS;
-        } else {
-            // テト受け手：game.js と同じ _garbageTimers(setTimeout) 方式でポーズ対応
-            if (!opponent._garbageTimers) opponent._garbageTimers = [];
-            const timerEntry = { obj: garbageObj, duration: INTERNAL_MS, remaining: null, id: null };
-            timerEntry.cb = () => {
-                timerEntry.id = null;
-                // 相殺で消滅していなければ stage2(青)へ移す
-                if (opponent.garbageQueue.includes(garbageObj) && garbageObj.amount > 0) {
-                    garbageObj.internal = false;
-                    if (typeof opponent.updateGarbageGauge === 'function') opponent.updateGarbageGauge();
-                }
-                const idx = opponent._garbageTimers.indexOf(timerEntry);
-                if (idx !== -1) opponent._garbageTimers.splice(idx, 1);
-            };
-            opponent._garbageTimers.push(timerEntry);
-            if (opponent.isPaused) {
-                timerEntry.remaining = INTERNAL_MS; // 受け手がポーズ中なら resume 時に計時開始
-            } else {
-                timerEntry.start = performance.now();
-                timerEntry.id = setTimeout(timerEntry.cb, INTERNAL_MS);
-            }
-        }
-
-        if (typeof opponent.updateGarbageGauge === 'function') {
-            opponent.updateGarbageGauge();
-        }
+        const deliver = (garbageObj) => {
+            BG.deliverLocalStaged(opponent, garbageObj, INTERNAL_MS, isOppPuyo);
+            // 自分が送った火力をリストに保持しておく（連鎖終了時に ready 化するため）
+            this.sentGarbageThisTurn.push(garbageObj);
+        };
+        BG.routeGarbage({
+            amount: amount,
+            targetRule: isOppPuyo ? 'puyo' : 'tet',
+            // テト受け手の盤面列数で穴を作る（旧実装は PConfig.cols=6 で生成しており 0〜5列にしか穴が開かなかった）
+            cols: typeof COLS_COUNT !== 'undefined' ? COLS_COUNT : 10,
+            holeRatePercent: this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate : 70,
+        }, {
+            sendTetLines: (lines, holes) => deliver({ amount: lines, holes: holes, ready: false }),
+            sendOjama: (count) => deliver({ amount: count, holes: [], ready: false }),
+        });
     },
 
     _confirmSentGarbage(isZenkeshi = false) {
