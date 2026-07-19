@@ -407,6 +407,10 @@ export const isUpdateMatchSettingNotification = (d: any): d is UpdateMatchSettin
 export interface UpdatePlayerRuleRequest { id: Uuid; roomId: Uuid; rule: string; }
 export interface UpdatePlayerRuleResponse { id: Uuid; success: boolean; message?: string; }
 
+/** 表示名の変更。待機列中など在室していない場合は roomId を null にする */
+export interface UpdatePlayerNameRequest { id: Uuid; roomId: Uuid | null; username: string; }
+export interface UpdatePlayerNameResponse { id: Uuid; success: boolean; message?: string; }
+
 export interface SetReadyRequest { id: Uuid; roomId: Uuid; ready: boolean; }
 export interface SetReadyResponse { id: Uuid; success: boolean; message?: string; }
 

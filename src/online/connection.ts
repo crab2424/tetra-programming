@@ -29,6 +29,8 @@ import {
   isUpdateMatchSettingNotification,
   type UpdatePlayerRuleRequest,
   type UpdatePlayerRuleResponse,
+  type UpdatePlayerNameRequest,
+  type UpdatePlayerNameResponse,
   type SetReadyRequest,
   type SetReadyResponse,
   type TimeSyncResponse,
@@ -924,6 +926,15 @@ export class GameConnection {
   ): Promise<UpdatePlayerRuleResponse> {
     return this.waitResponseRDC<UpdatePlayerRuleResponse>(Opcodes.JSONRequest, {
       type: "JSONUpdatePlayerRuleRequest",
+      ...data,
+    });
+  }
+
+  updatePlayerName(
+    data: Omit<UpdatePlayerNameRequest, "id">,
+  ): Promise<UpdatePlayerNameResponse> {
+    return this.waitResponseRDC<UpdatePlayerNameResponse>(Opcodes.JSONRequest, {
+      type: "JSONUpdatePlayerNameRequest",
       ...data,
     });
   }

@@ -41,6 +41,15 @@ import {
   createSeededRng,
 } from "./game_protocol";
 import { Logger } from "./logger";
+import { BattleLifecycle } from "../battle/lifecycle";
+import { routeGarbage, type GarbageSink } from "../battle/garbage_router";
+import {
+  setOnlineSelfRule,
+  setOnlineOppRule,
+  showOnlineOppSlot,
+  hideOnlineOppSlots,
+  setOnlinePlayerCount,
+} from "../battle/layout";
 
 type AnyFn = (...args: any[]) => any;
 
@@ -85,14 +94,20 @@ export class OnlineGameController {
   private aliveSet: Set<Uuid> = new Set();
   private rematchVotes = new Map<Uuid, number>();
   private controlEventsSubscribed = false;
-  private postMatchNavigating = false;
   private isRandomMatchRoom = false;
   private countdownOverlay: HTMLElement | null = null;
   private myRematchVoted = false;
-  private rematchStarting = false;
+
+  /**
+   * 終了処理の状態機械。開始/決着/再戦/退出の排他はすべてここを通す。
+   * 旧 matchInProgress / rematchStarting / postMatchNavigating フラグ群の置き換え。
+   */
+  private lifecycle = new BattleLifecycle({ log: (m) => this.logger.log(m) });
 
   /** 対戦本編（カウントダウン明け〜決着前）が進行中か。バックグラウンド駆動の対象判定に使う。 */
-  private matchInProgress = false;
+  private get matchInProgress(): boolean {
+    return this.lifecycle.phase === "playing";
+  }
   /** visibilitychange リスナーを登録済みか（多重登録防止）。 */
   private visibilityListenerActive = false;
   /** バックグラウンドでゲームを進めるためのクロックWorker（rAFの代替）。 */
@@ -280,12 +295,49 @@ export class OnlineGameController {
     }
   }
 
-  /** 自分の盤面の tet/puyo フィールド表示を切り替える */
+  /** 自分の盤面の tet/puyo フィールド表示を切り替える（実体は battle/layout.ts） */
   private setSelfFieldVisibility(rule: 'tet' | 'puyo'): void {
-    const tetField = document.getElementById("ol-p-tet-field");
-    const puyoField = document.getElementById("ol-p-puyo-field");
-    if (tetField) tetField.style.display = rule === 'tet' ? '' : 'none';
-    if (puyoField) puyoField.style.display = rule === 'puyo' ? '' : 'none';
+    setOnlineSelfRule(rule);
+  }
+
+  /**
+   * ネットワーク配送 sink とルーティング設定を作り、game.sendGarbage /
+   * sendGarbageCrossTet として注入する（tet/puyo 送り手共通。実体は battle/garbage_router.ts）。
+   *
+   * ★ 同種戦: amount はそのまま相手ルールのフレームで送る（tet=ライン+穴 / puyo=おじゃま個数）。
+   * ★ 異種戦: エンジン側(secureMino/_applyOjamaOffset)が相手ルール向けの実効値を渡すため、
+   *    ここでは変換しない（gaugeToOjama なし）。受信側は自分ルールのフレームだけを直接適用する。
+   * ★ 混在多人数戦: 主送信とは別に sendGarbageCrossTet がテト相手へ tet ライン火力を送る。
+   */
+  private hookGarbageSending(matchSetting: OnlineMatchSetting): void {
+    const game = this.game;
+    const conn = this.connection;
+    const sink: GarbageSink = {
+      sendTetLines: (lines, holes) => conn.sendMatchEvent(encodeGarbage(lines, holes)),
+      sendOjama: (count) => conn.sendMatchEvent(encodeGarbagePuyo(count)),
+    };
+    const routeOpts = {
+      cols: BOARD_COLS,
+      holeRatePercent: matchSetting.garbageHoleRate,
+      multiplier: matchSetting.garbageMultiplier,
+      maxAmount: 255,
+    };
+
+    game.sendGarbage = (amount: number) => {
+      routeGarbage(
+        {
+          ...routeOpts,
+          amount,
+          targetRule: game.opponentRule === 'puyo' ? 'puyo' : 'tet',
+        },
+        sink,
+      );
+    };
+
+    game.sendGarbageCrossTet = (lines: number) => {
+      if (!this.matchHasTetOpp) return;
+      routeGarbage({ ...routeOpts, amount: lines, targetRule: 'tet' }, sink);
+    };
   }
 
   /** 自分の盤面の FINISH/GAME OVER オーバーレイを消す（次マッチ用にリセット） */
@@ -347,6 +399,7 @@ export class OnlineGameController {
   listenForStart(callbacks: PostMatchCallbacks): void {
     this.postMatchCallbacks = callbacks;
     this.isRandomMatchRoom = callbacks.isRandomMatch ?? false;
+    this.lifecycle.transition("preparing", "listenForStart");
     this.startNotifHandlerId = this.connection.onStartMatchNotification(
       (notif) => {
         if (notif.roomId === this.roomInfo.roomId) {
@@ -363,12 +416,13 @@ export class OnlineGameController {
 
   /** Transition to the battle page and begin the match */
   private startBattle(notif: StartMatchNotification): void {
+    // 二重の開始通知・決着処理中の遅延通知はここで捨てる
+    if (!this.lifecycle.transition("countdown", "StartMatchNotification")) return;
+    this.lifecycle.beginRound();
     this.myAlive = true;
-    this.matchInProgress = false; // 本編開始（カウントダウン明け）でtrueにする
     this.addVisibilityListener();
     this.aliveSet = new Set(this.roomInfo.players.map(([id]) => id));
     this.clearFinishOverlay();
-    this.rematchStarting = false;
     this.myRematchVoted = false;
     this.rematchVotes.clear();
 
@@ -397,23 +451,15 @@ export class OnlineGameController {
     const opponents = this.roomInfo.players.filter(([id]) => id !== this.myUserId);
     opponents.forEach(([id, name, rule], index) => {
       const globalIndex = this.roomInfo.players.findIndex(([pid]) => pid === id);
-      const slot = document.getElementById(`ol-opp-slot-${index}`);
+      showOnlineOppSlot(index, globalIndex);
       const nameEl = document.getElementById(`ol-opp-name-${index}`);
-      if (slot) {
-        slot.style.display = "";
-        slot.style.order = String(globalIndex);
-      }
       if (nameEl) nameEl.textContent = name;
 
       const oppRule: 'tet' | 'puyo' = rule === 'puyo' ? 'puyo' : 'tet';
       this.puppetRules.set(id, oppRule);
-
-      const tetField = document.getElementById(`ol-opp-${index}-tet-field`);
-      const puyoField = document.getElementById(`ol-opp-${index}-puyo-field`);
+      setOnlineOppRule(index, oppRule);
 
       if (oppRule === 'puyo') {
-        if (tetField) tetField.style.display = 'none';
-        if (puyoField) puyoField.style.display = '';
         const puppet = new PuyoGame(`ol-opp-${index}`);
         puppet._setupCanvas();
         puppet._initField?.();  // field が undefined だと _render() でクラッシュするため初期化
@@ -422,8 +468,6 @@ export class OnlineGameController {
         puppet._loadImages(() => { puppet._render?.(); });
         this.puppets.set(id, puppet);
       } else {
-        if (tetField) tetField.style.display = '';
-        if (puyoField) puyoField.style.display = 'none';
         const puppet = new Game(`ol-opp-${index}`);
         puppet.field = new Field();
         puppet.field.blocks = [];
@@ -505,9 +549,11 @@ export class OnlineGameController {
     }
 
     setTimeout(() => {
+      // カウントダウン中に決着（相手切断）やcleanupが起きていたら本編を開始しない
+      if (!this.game || !this.lifecycle.transition("playing", "countdown finished"))
+        return;
       this.game._startGameplay();
       this.startPieceStateInterval();
-      this.matchInProgress = true;
       // カウントダウン中にタブを隠したまま開始した場合、visibilitychange は発火しないので
       // ここで明示的にバックグラウンドクロックを同期する。
       this.syncBackgroundClock();
@@ -566,9 +612,11 @@ export class OnlineGameController {
       const elapsed = performance.now() - initStart;
       const remaining = Math.max(0, delay - elapsed);
       setTimeout(() => {
+        // カウントダウン中に決着（相手切断）やcleanupが起きていたら本編を開始しない
+        if (!this.game || !this.lifecycle.transition("playing", "countdown finished"))
+          return;
         this.game._startGameplay();
         this.startPieceStateInterval();
-        this.matchInProgress = true;
         // カウントダウン中にタブを隠したまま開始した場合の取りこぼし防止
         this.syncBackgroundClock();
       }, remaining);
@@ -635,38 +683,18 @@ export class OnlineGameController {
       };
     }
 
-    // sendGarbage: route over network with multiplier
+    // sendGarbage / sendGarbageCrossTet: ネットワーク送信へルーティング（battle/garbage_router.ts）。
     // ★ 異種戦(対ぷよ): secureMino から渡る amount は「おじゃま個数」（VERSUS同様、消去なし設置時に
     //    溜めた pendingAttack をまとめて放出）。GarbagePuyo として送る（受信ぷよはそのまま受ける）。
     // ★ 同種戦(対テト): amount は tet ライン数。即時に Garbage(穴同梱)として送る。
-    game.sendGarbage = (amount: number) => {
-      if (amount <= 0) return;
-      const adjusted = Math.round(amount * matchSetting.garbageMultiplier);
-      if (adjusted <= 0) return;
-      if (game.opponentRule === 'puyo') {
-        conn.sendMatchEvent(encodeGarbagePuyo(Math.min(adjusted, 255)));
-      } else {
-        const holes = this.buildGarbageHoles(Math.min(adjusted, 255), matchSetting.garbageHoleRate);
-        conn.sendMatchEvent(encodeGarbage(Math.min(adjusted, 255), holes));
-      }
-    };
-
-    // sendGarbageCrossTet: 混在多人数戦で、主送信(対ぷよ=GarbagePuyo)とは別に
-    // テト相手へ tet ライン火力を Garbage(穴同梱)で送る。テト相手が居ない場合は呼ばれない。
-    // 受信側は自分のルールのフレームだけを直接適用する（変換しない）ため、ぷよ相手はこのフレームを無視する。
-    game.sendGarbageCrossTet = (lines: number) => {
-      if (lines <= 0 || !this.matchHasTetOpp) return;
-      const adjusted = Math.round(lines * matchSetting.garbageMultiplier);
-      if (adjusted <= 0) return;
-      const holes = this.buildGarbageHoles(Math.min(adjusted, 255), matchSetting.garbageHoleRate);
-      conn.sendMatchEvent(encodeGarbage(Math.min(adjusted, 255), holes));
-    };
+    this.hookGarbageSending(matchSetting);
 
     // gameOver: stop game and notify server
+    // ※ ラウンド自体(lifecycle: playing)は WinnerNotification まで続く（観戦状態）。
+    //   myAlive=false でバックグラウンド駆動・送信系は止まる。
     game.gameOver = (_isClear = false) => {
       if (!this.myAlive) return;
       this.myAlive = false;
-      this.matchInProgress = false;
       this.markDead(this.myUserId);
       this.stopPieceStateInterval();
       this.freezeGame();
@@ -776,37 +804,17 @@ export class OnlineGameController {
       game.gameOver?.();
     };
 
-    // sendGarbage: ぷよ→ネットワーク送信
+    // sendGarbage / sendGarbageCrossTet: ネットワーク送信へルーティング（battle/garbage_router.ts）。
     // ★ 同種戦(対ぷよ): amount は「おじゃま個数」（_applyOjamaOffset で確定）→ GarbagePuyo。
     // ★ 異種戦(対テト): amount は「tet ライン数」（_resolveTetAttack のスコアベース算出を
     //    _applyOjamaOffset が送る）→ Garbage(穴同梱)。これで ojamaToTetLines 逆変換による過少を回避。
-    game.sendGarbage = (amount: number) => {
-      if (amount <= 0) return;
-      const adjusted = Math.round(amount * matchSetting.garbageMultiplier);
-      if (adjusted <= 0) return;
-      if (game.opponentRule === 'tet') {
-        const holes = this.buildGarbageHoles(Math.min(adjusted, 255), matchSetting.garbageHoleRate);
-        conn.sendMatchEvent(encodeGarbage(Math.min(adjusted, 255), holes));
-      } else {
-        conn.sendMatchEvent(encodeGarbagePuyo(Math.min(adjusted, 255)));
-      }
-    };
-
-    // sendGarbageCrossTet: 混在多人数戦で、主送信(対ぷよ=GarbagePuyo)とは別に
-    // テト相手へ tet ライン火力（_applyOjamaOffset がスコアベースで算出）を Garbage で送る。
-    game.sendGarbageCrossTet = (lines: number) => {
-      if (lines <= 0 || !this.matchHasTetOpp) return;
-      const adjusted = Math.round(lines * matchSetting.garbageMultiplier);
-      if (adjusted <= 0) return;
-      const holes = this.buildGarbageHoles(Math.min(adjusted, 255), matchSetting.garbageHoleRate);
-      conn.sendMatchEvent(encodeGarbage(Math.min(adjusted, 255), holes));
-    };
+    this.hookGarbageSending(matchSetting);
 
     // gameOver
+    // ※ ラウンド自体(lifecycle: playing)は WinnerNotification まで続く（観戦状態）。
     game.gameOver = (_isClear = false) => {
       if (!this.myAlive) return;
       this.myAlive = false;
-      this.matchInProgress = false;
       this.markDead(this.myUserId);
       this.stopPieceStateInterval();
       this.freezeGame();
@@ -958,7 +966,8 @@ export class OnlineGameController {
 
   /** REMATCH ボタンを押したときのトグル投票 */
   private toggleRematchVote(): void {
-    if (this.rematchStarting) return;
+    // 再戦準備(preparing)へ進んだ後の連打は無視。結果表示中のみ受け付ける
+    if (this.lifecycle.phase !== "roundResult") return;
     const roomId = this.roomInfo.roomId;
     this.myRematchVoted = !this.myRematchVoted;
 
@@ -1000,11 +1009,10 @@ export class OnlineGameController {
   }
 
   private handlePostMatchVote(playerId: Uuid, action: number): void {
-    if (this.postMatchNavigating) return;
-
     if (action === 1 || action === 2) {
-      // 誰かがルームへ戻る / 退出 → 全員ルームへ戻る
-      this.postMatchNavigating = true;
+      // 誰かがルームへ戻る / 退出 → 全員ルームへ戻る。
+      // 遷移が成立しない場合（既に postMatch へ進んでいる・対戦中の迷い通知など）は無視。
+      if (!this.lifecycle.transition("postMatch", "peer navigation")) return;
       const playerName = this.playerNames.get(playerId) || playerId;
       if (playerId !== this.myUserId) {
         const msg = action === 2
@@ -1032,7 +1040,7 @@ export class OnlineGameController {
 
   /** 全員が REMATCH に投票していたら（オーナーが）開始する */
   private maybeTriggerRematch(): void {
-    if (this.rematchStarting) return;
+    if (this.lifecycle.phase !== "roundResult") return;
     const allVoted = this.roomInfo.players.every(([id]) => this.rematchVotes.get(id) === 0);
     if (allVoted) this.triggerRematch();
   }
@@ -1040,12 +1048,13 @@ export class OnlineGameController {
   // ── Rematch trigger ──────────────────────────────────────────────────────
 
   private triggerRematch(): void {
-    if (this.rematchStarting) return;
-    this.rematchStarting = true;
+    // roundResult → preparing の遷移が再戦開始の排他を兼ねる（二重呼び出しは弾かれる）
+    if (this.lifecycle.phase !== "roundResult") return;
     const roomId = this.roomInfo.roomId;
     this.rematchVotes.clear();
 
     // 全員のリスナーを再登録してから、オーナーが startMatch を送る
+    // （relistenForStart 内で preparing へ遷移する）
     this.relistenForStart();
 
     const isOwner = this.roomInfo.ownerId === this.myUserId;
@@ -1055,13 +1064,13 @@ export class OnlineGameController {
           if (!res?.success) {
             this.logger.log("startMatch rejected:", res?.message);
             showToast("ONLINE", `再戦の開始に失敗: ${res?.message ?? "unknown"}`, ToastColor["Error"]);
-            this.rematchStarting = false;
+            this.lifecycle.transition("roundResult", "rematch start failed");
           }
         })
         .catch((err) => {
           this.logger.log("Failed to start rematch:", err);
           showToast("ONLINE", "再戦の開始に失敗しました", ToastColor["Error"]);
-          this.rematchStarting = false;
+          this.lifecycle.transition("roundResult", "rematch start failed");
         });
     }
   }
@@ -1069,7 +1078,8 @@ export class OnlineGameController {
   // ── Re-listen for next StartMatchNotification (REMATCH) ─────────────────
 
   private relistenForStart(): void {
-    this.matchInProgress = false;
+    // 次の開始通知待ちへ。以降のテアダウンは冪等なので遷移可否に関わらず実行する
+    this.lifecycle.transition("preparing", "await next match");
     this.stopPieceStateInterval();
 
     // ゲームエンジン停止
@@ -1143,27 +1153,6 @@ export class OnlineGameController {
   }
 
   // ── Binary match frame dispatch ──────────────────────────────────────────
-
-  /** tetガベージの穴パターンを送信側で確定する（受信側で再計算しない＝全員の盤面表示が一致） */
-  private buildGarbageHoles(n: number, holeRatePercent: number): number[] {
-    const holes: number[] = [];
-    const rate = holeRatePercent / 100;
-    let prev = -1;
-    for (let i = 0; i < n; i++) {
-      let h: number;
-      if (prev < 0) {
-        h = Math.floor(Math.random() * BOARD_COLS);
-      } else if (Math.random() < rate) {
-        h = prev;
-      } else {
-        const offset = Math.floor(Math.random() * (BOARD_COLS - 1)) + 1;
-        h = (prev + offset) % BOARD_COLS;
-      }
-      holes.push(h);
-      prev = h;
-    }
-    return holes;
-  }
 
   /** ぷよ相手の予告おじゃまを、相手フィールド上部にアイコンで表示する（_updateOjamaYokoku を再利用） */
   private updateOpponentPuyoYokoku(senderId: Uuid, totalOjama: number): void {
@@ -1516,19 +1505,18 @@ export class OnlineGameController {
 
   // ── Battle layout ────────────────────────────────────────────────────────
 
-  /** 人数に応じてバトル画面レイアウトを調整する */
+  /** 人数に応じてバトル画面レイアウトを調整する（実体は battle/layout.ts） */
   private applyBattleLayout(playerCount: number): void {
-    const layout = document.getElementById("ol-battle-layout");
-    if (!layout) return;
-    // 5人以上は全員5扱い（HTMLスロットは3つまでだが、将来の拡張に備えてクランプ）
-    layout.setAttribute("data-player-count", String(Math.min(playerCount, 5)));
+    setOnlinePlayerCount(playerCount);
   }
 
   // ── Winner display ───────────────────────────────────────────────────────
 
   private showWinner(winnerId: Uuid | null): void {
     this.logger.log("WinnerNotification received. winner:", winnerId);
-    this.matchInProgress = false;
+    // 二重通知・決着後の遅延通知はここで捨てる（カウントダウン中の相手切断勝ちも受理する）
+    if (!this.lifecycle.transition("roundResolving", "WinnerNotification")) return;
+    this.lifecycle.recordWinner(winnerId);
     this.stopPieceStateInterval();
     // 勝敗確定: 生存中でもゲームを停止する
     this.freezeGame();
@@ -1599,9 +1587,9 @@ export class OnlineGameController {
     const roomBtn = document.getElementById("ol-btn-room") as HTMLButtonElement | null;
     const leaveBtn = document.getElementById("ol-btn-leave") as HTMLButtonElement | null;
 
-    this.postMatchNavigating = false;
+    // 結果表示状態へ（以後 REMATCH/ROOM/LEAVE の操作を受け付ける）
+    this.lifecycle.transition("roundResult", "result shown");
     this.myRematchVoted = false;
-    this.rematchStarting = false;
 
     if (rematchBtn) {
       // ランダムマッチは再マッチメイキングボタンに変える
@@ -1642,7 +1630,7 @@ export class OnlineGameController {
       // 退出: 自分は onLeave で退出、他プレイヤーは handlePostMatchVote → onRoom
       leaveBtn.onclick = () => {
         leaveBtn.disabled = true;
-        this.postMatchNavigating = true;
+        this.lifecycle.transition("postMatch", "leave button");
         this.connection.sendPostMatchAction({ roomId, action: 2 });
         setTimeout(() => {
           this.cleanup();
@@ -1677,14 +1665,13 @@ export class OnlineGameController {
   // ── Cleanup ──────────────────────────────────────────────────────────────
 
   cleanup(): void {
-    this.matchInProgress = false;
+    // どの状態からでも idle へ戻せる。テアダウン本体は冪等なので遷移可否に関わらず実行
+    this.lifecycle.transition("idle", "cleanup");
     this.removeVisibilityListener();
     this.teardownBackgroundClock();
     this.controlEventsSubscribed = false;
-    this.postMatchNavigating = false;
     this.rematchVotes.clear();
     this.myRematchVoted = false;
-    this.rematchStarting = false;
     this.clearFinishOverlay();
     if (this.countdownOverlay) {
       this.countdownOverlay.remove();
@@ -1745,8 +1732,7 @@ export class OnlineGameController {
     }
 
     // Reset battle layout state
-    const layout = document.getElementById("ol-battle-layout");
-    if (layout) layout.removeAttribute("data-player-count");
+    setOnlinePlayerCount(null);
 
     // Restore self-player name label
     const selfLabel = document.getElementById("ol-p-name");
@@ -1755,10 +1741,7 @@ export class OnlineGameController {
     // Hide opponent slots and reset order
     const playerArea = document.getElementById('ol-player-area');
     if (playerArea) playerArea.style.order = '';
-    for (let i = 0; i < 3; i++) {
-      const slot = document.getElementById(`ol-opp-slot-${i}`);
-      if (slot) { slot.style.display = "none"; slot.style.order = ''; }
-    }
+    hideOnlineOppSlots();
 
     // ぷよ予告おじゃまアイコン（自分・相手とも）・攻撃ゲージ・TET横ガベージ予告ゲージをクリア
     document.querySelectorAll('[id$="-ojama-yokoku"]').forEach((el) => { (el as HTMLElement).innerHTML = ''; });
