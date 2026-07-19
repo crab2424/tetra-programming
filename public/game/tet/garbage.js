@@ -22,79 +22,23 @@ Object.assign(Game.prototype, {
             isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
         }
 
-        // ★追加：異種戦（ぷよ相手）の場合はゲージ量をおじゃまぷよの個数に変換する
-        let actualAmount = amount;
-        if (isOpponentPuyo) {
-            const table = [0, 4, 5, 6, 8, 10, 13, 16, 20, 24, 28, 33, 38, 43, 49, 55, 61, 68];
-            if (amount < table.length) {
-                actualAmount = table[amount];
-            } else {
-                // n>=18の場合の階差数列の一般項: an = (n^2 - 21n + 204)/2
-                actualAmount = Math.floor((amount * amount - 21 * amount + 204) / 2);
-            }
-            //console.log(`[sendGarbage] ぷよ相手用にゲージ ${amount} をおじゃまぷよ ${actualAmount} 個に変換して送信`);
-        } else {
-            //console.log(`[sendGarbage] ${this.canvasPrefix || 'player'} から相手へ ${amount} 送信`);
-        }
-
-        // 穴の計算（テト相手のみ意味があるが、エラーを防ぐため actualAmount 回ループする）
-        const holes = [];
-        let prevHole = -1;
-
-        for (let i = 0; i < actualAmount; i++) {
-            let holeX;
-            if (i === 0) {
-                holeX = Math.floor(Math.random() * COLS_COUNT);
-            } else {
-                const rate = this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate / 100 : 0.7;
-                if (Math.random() < rate) {
-                    holeX = prevHole;
-                } else {
-                    const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1;
-                    holeX = (prevHole + offset) % COLS_COUNT;
-                }
-            }
-            holes.push(holeX);
-            prevHole = holeX;
-        }
-
-        const garbageObj = { amount: actualAmount, holes: holes, ready: false };
-        opponent.garbageQueue.push(garbageObj);
-
-        // 相手のゲージを更新（青色のゲージが増える）
-        if (typeof opponent.updateGarbageGauge === 'function') {
-            opponent.updateGarbageGauge();
-        }
-
-        // 異種戦(ぷよ相手)なら1000ms後、テト同士なら1500ms後に降下可能に
-        const delay = isOpponentPuyo ? 1000 : 1500;
-
-        // ポーズ中にこの猶予タイマーが止まるよう、opponent 側で管理する
-        if (!opponent._garbageTimers) opponent._garbageTimers = [];
-        const timerEntry = { obj: garbageObj, duration: delay, remaining: null, id: null };
-        timerEntry.cb = () => {
-            timerEntry.id = null;
-            // タイマー発火時に相殺されて消滅していなければ状態変更
-            if (opponent.garbageQueue.includes(garbageObj) && garbageObj.amount > 0) {
-                garbageObj.ready = true;
-                // 相手のゲージを更新（青→赤点滅に変わる）
-                if (typeof opponent.updateGarbageGauge === 'function') {
-                    opponent.updateGarbageGauge();
-                }
-            }
-            // 発火済みエントリをリストから除去
-            const idx = opponent._garbageTimers.indexOf(timerEntry);
-            if (idx !== -1) opponent._garbageTimers.splice(idx, 1);
-        };
-        opponent._garbageTimers.push(timerEntry);
-
-        if (opponent.isPaused) {
-            // 受け手がポーズ中なら開始を保留し、resume 時に計時を始める
-            timerEntry.remaining = delay;
-        } else {
-            timerEntry.start = performance.now();
-            timerEntry.id = setTimeout(timerEntry.cb, delay);
-        }
+        // 変換(tetゲージ→おじゃまぷよ)・穴パターン・配送タイマーは BattleGarbage(src/battle/garbage_router.ts)に集約。
+        // 異種戦(ぷよ相手)なら1000ms後、テト同士なら1500ms後に降下可能になる。
+        const BG = window.BattleGarbage;
+        BG.routeGarbage({
+            amount: amount,
+            targetRule: isOpponentPuyo ? 'puyo' : 'tet',
+            cols: COLS_COUNT,
+            holeRatePercent: this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate : 70,
+            gaugeToOjama: true,
+        }, {
+            sendTetLines: (lines, holes) => {
+                BG.deliverLocalWithReadyTimer(opponent, { amount: lines, holes: holes, ready: false }, 1500);
+            },
+            sendOjama: (count) => {
+                BG.deliverLocalWithReadyTimer(opponent, { amount: count, holes: [], ready: false }, 1000);
+            },
+        });
     },
 
     applyGarbage() {
