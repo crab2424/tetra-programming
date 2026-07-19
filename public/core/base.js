@@ -756,6 +756,7 @@ class BgmManager {
         'menu_bgm':   1.00,  // -14.1
         'quiz_bgm':   0.63,  // -10.0
         'versus_bgm': 0.50,  // -8.0
+        'online_bgm': 0.50,
         // シングル各モードBGM（今は同一ファイル＝同係数。モード別音源にしたら個別に実測して調整）
         'single_marathon_bgm': 0.90,
         'single_sprint_bgm':   0.90,
@@ -1044,6 +1045,8 @@ AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/challenge_1.ogg
 AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/challenge_1.ogg');
 AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
+// オンライン対戦BGMは、ここでパスだけ差し替えれば変更できる。
+AudioLoader.registerBgm('online_bgm',  'assets/audio/bgm/vs_1.ogg');
 AudioLoader.registerBgm('menu_bgm',   'assets/audio/bgm/menu_1.ogg');
 AudioLoader.registerBgm('quiz_bgm',   'assets/audio/bgm/quiz_1.ogg');
 AudioLoader.registerBgm('test_bgm',   'assets/audio/bgm/cputest_1.ogg');

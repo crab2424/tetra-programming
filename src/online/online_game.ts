@@ -45,8 +45,10 @@ import {
   showOnlineOppSlot,
   hideOnlineOppSlots,
   setOnlinePlayerCount,
+  applyOnlineSelfSide,
 } from "../battle/layout";
 import { NetworkDriver } from "../battle/driver";
+import { renderOnlineResult, resetOnlineResult } from "../battle/online_result";
 
 type AnyFn = (...args: any[]) => any;
 
@@ -425,6 +427,9 @@ export class OnlineGameController {
     // Switch page first so canvas elements are in the DOM
     this.switchToBattlePage();
     this.applyBattleLayout(this.roomInfo.players.length);
+    applyOnlineSelfSide();
+    // オンライン専用BGM。音源パスは public/core/base.js の登録だけ差し替えればよい。
+    (window as any).BgmManager?.play("online_bgm");
     this.updateAliveDisplay();
 
     // 自分のプレイヤー名を盤面下ラベルに表示
@@ -434,16 +439,13 @@ export class OnlineGameController {
       if (me) selfLabel.textContent = me[1];
     }
 
-    // プレイヤー参加順に基づいて CSS order を設定（全プレイヤーで一貫した配置になる）
-    const myJoinIndex = this.roomInfo.players.findIndex(([id]) => id === this.myUserId);
-    const playerArea = document.getElementById('ol-player-area');
-    if (playerArea) playerArea.style.order = String(myJoinIndex);
+    // 自分の表示位置は各クライアントのローカル設定で決める。
+    // 相手の画面配置や参加順を同期しない。
 
     // Build opponent puppets based on each player's rule
     const opponents = this.roomInfo.players.filter(([id]) => id !== this.myUserId);
     opponents.forEach(([id, name, rule], index) => {
-      const globalIndex = this.roomInfo.players.findIndex(([pid]) => pid === id);
-      showOnlineOppSlot(index, globalIndex);
+      showOnlineOppSlot(index);
       const nameEl = document.getElementById(`ol-opp-name-${index}`);
       if (nameEl) nameEl.textContent = name;
 
@@ -1503,18 +1505,15 @@ export class OnlineGameController {
 
     const iWin = winnerId !== null && winnerId === this.myUserId;
 
-    // Result text
-    if (winnerId === null) {
-      titleEl.textContent = "DRAW";
-      nameEl.textContent = "";
-    } else if (iWin) {
-      titleEl.textContent = "YOU WIN!";
-      nameEl.textContent = "";
-    } else {
-      titleEl.textContent = "YOU LOSE";
-      const winnerName = this.playerNames.get(winnerId) || winnerId;
-      nameEl.textContent = `WINNER: ${winnerName}`;
-    }
+    const winnerName = winnerId === null
+      ? null
+      : this.playerNames.get(winnerId) || winnerId;
+    renderOnlineResult({
+      outcome: winnerId === null ? "draw" : iWin ? "win" : "lose",
+      winnerName,
+      selfScore: typeof this.game?.score === "number" ? this.game.score : null,
+      selfLines: typeof this.game?.lines === "number" ? this.game.lines : null,
+    });
 
     // ★ VERSUSモード同様、まず自分のフィールドに WIN!/LOSE... の大きな演出を出し、
     //   それが終わってから結果オーバーレイ（ボタンUI）を表示する。
@@ -1693,6 +1692,7 @@ export class OnlineGameController {
     // Hide overlays
     const winOverlay = document.getElementById("ol-winner-overlay");
     if (winOverlay) winOverlay.style.display = "none";
+    resetOnlineResult();
     const pauseOverlay = document.getElementById("ol-pause-overlay");
     if (pauseOverlay) pauseOverlay.style.display = "none";
 
