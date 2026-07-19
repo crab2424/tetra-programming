@@ -5,6 +5,7 @@ declare const APP_VERSION: string;
 import "./battle/garbage_router";
 import "./battle/layout";
 import "./battle/lifecycle";
+import "./battle/driver";
 
 document.addEventListener("DOMContentLoaded", () => {
   const versionElement = document.getElementById("title-version");
