@@ -7,6 +7,8 @@ import {
   decodePuyoPieceState,
   decodePuyoSpawn,
   decodeSpawn,
+  decodeHoldState,
+  decodeStatsUpdate,
   MatchOpcode,
   BOARD_BUFFER_ROWS,
   BOARD_COLS,
@@ -38,6 +40,7 @@ export type NetworkDriverOptions = {
   rule: NetworkRule;
   onDead: (id: string) => void;
   onNameDead: (index: number) => void;
+  onStats?: (index: number, stats: ReturnType<typeof decodeStatsUpdate>) => void;
 };
 
 /**
@@ -54,6 +57,7 @@ export class NetworkDriver implements OpponentDriver {
   readonly puppet: any;
   private readonly onDead: (id: string) => void;
   private readonly onNameDead: (index: number) => void;
+  private readonly onStats?: NetworkDriverOptions["onStats"];
 
   constructor(options: NetworkDriverOptions) {
     this.id = options.id;
@@ -61,6 +65,7 @@ export class NetworkDriver implements OpponentDriver {
     this.rule = options.rule;
     this.onDead = options.onDead;
     this.onNameDead = options.onNameDead;
+    this.onStats = options.onStats;
 
     if (this.rule === "puyo") {
       this.puppet = new PuyoGame(`ol-opp-${this.index}`);
@@ -170,6 +175,14 @@ export class NetworkDriver implements OpponentDriver {
       }
       case MatchOpcode.GameOver:
         this.markDead();
+        return;
+      case MatchOpcode.HoldState:
+        if (this.rule !== "tet") return;
+        puppet.canHold = decodeHoldState(payload);
+        puppet.drawAll?.();
+        return;
+      case MatchOpcode.StatsUpdate:
+        this.onStats?.(this.index, decodeStatsUpdate(payload));
         return;
       case MatchOpcode.PuyoPieceState: {
         if (this.rule !== "puyo" || !puppet._imagesLoaded) return;

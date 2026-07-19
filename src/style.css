@@ -3332,6 +3332,34 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   white-space: nowrap;
 }
 
+.ol-live-stats {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+
+.ol-live-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.ol-live-stat b {
+  font-size: 8px;
+  font-weight: 500;
+}
+
+.ol-live-stat strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
 .ol-opp-field {
   display: flex;
   flex-direction: row;

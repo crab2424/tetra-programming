@@ -17,6 +17,9 @@ import {
   encodeClear,
   encodeSE,
   encodePendingUpdate,
+  encodeHoldState,
+  encodeStatsUpdate,
+  type StatsUpdateData,
   encodePuyoPieceState,
   encodePuyoSpawn,
   encodePuyoLock,
@@ -51,6 +54,27 @@ import { NetworkDriver } from "../battle/driver";
 import { renderOnlineResult, resetOnlineResult } from "../battle/online_result";
 
 type AnyFn = (...args: any[]) => any;
+
+function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void {
+  const slotId = slot === "self" ? "ol-player-container" : `ol-opp-slot-${slot}`;
+  const parent = document.getElementById(slotId);
+  if (!parent) return;
+  let statsEl = parent.querySelector<HTMLElement>(".ol-live-stats");
+  if (!statsEl) {
+    statsEl = document.createElement("div");
+    statsEl.className = "ol-live-stats";
+    statsEl.innerHTML =
+      '<span class="ol-live-stat"><b>SCORE</b><strong data-stat="score">0</strong></span>' +
+      '<span class="ol-live-stat"><b data-stat-label="primary">LINES</b><strong data-stat="primary">0</strong></span>';
+    parent.appendChild(statsEl);
+  }
+  const score = statsEl.querySelector<HTMLElement>('[data-stat="score"]');
+  const primary = statsEl.querySelector<HTMLElement>('[data-stat="primary"]');
+  const label = statsEl.querySelector<HTMLElement>('[data-stat-label="primary"]');
+  if (score) score.textContent = String(stats.score);
+  if (primary) primary.textContent = String(stats.rule === "puyo" ? stats.chainMax : stats.lines);
+  if (label) label.textContent = stats.rule === "puyo" ? "MAX CHAIN" : "LINES";
+}
 
 declare const Mino: new (type?: number | null) => any;
 declare const Block: new (x: number, y: number, type: number) => any;
@@ -462,6 +486,7 @@ export class OnlineGameController {
           const deadName = document.getElementById(`ol-opp-name-${deadIndex}`);
           if (deadName) deadName.textContent += " ☠";
         },
+        onStats: (statsIndex, stats) => updateOnlineStats(statsIndex, stats),
       });
       driver.start();
       this.puppets.set(id, driver);
@@ -623,6 +648,14 @@ export class OnlineGameController {
     const game = this.game;
     const conn = this.connection;
     const roomId = this.roomInfo.roomId;
+    const sendStats = () => {
+      const stats = encodeStatsUpdate("tet", game.score ?? 0, game.lines ?? 0, 0);
+      conn.sendMatchEvent(stats);
+      updateOnlineStats("self", { rule: "tet", score: game.score ?? 0, lines: game.lines ?? 0, chainMax: 0 });
+    };
+    const sendHoldState = () => conn.sendMatchEvent(
+      encodeHoldState(!!game.canHold && matchSetting.holdEnabled),
+    );
 
     // popMino: origPopMino() でミノをフィールドに固定してから Lock を送信する
     const origPopMino: AnyFn = game.popMino.bind(game);
@@ -643,6 +676,8 @@ export class OnlineGameController {
         conn.sendMatchEvent(
           encodeSpawn(game.mino.type, holdType, nextTypes),
         );
+        sendHoldState();
+        sendStats();
       }
     };
 
@@ -664,6 +699,8 @@ export class OnlineGameController {
           conn.sendMatchEvent(
             encodeSpawn(game.mino.type, holdType, nextTypes),
           );
+          sendHoldState();
+          sendStats();
         }
       };
     }
@@ -730,6 +767,7 @@ export class OnlineGameController {
       if (isB2B) flags |= 2;
       if (isPerfectClear) flags |= 4;
       conn.sendMatchEvent(encodeClear(linesCleared, flags, renCount));
+      sendStats();
     };
 
     // playSe: 重要な SE を相手へ同期する
@@ -776,6 +814,16 @@ export class OnlineGameController {
     const game = this.game;
     const conn = this.connection;
     const roomId = this.roomInfo.roomId;
+    const sendStats = () => {
+      const stats = {
+        rule: "puyo" as const,
+        score: game.score ?? 0,
+        lines: 0,
+        chainMax: game.chainMax ?? 0,
+      };
+      conn.sendMatchEvent(encodeStatsUpdate("puyo", stats.score, 0, stats.chainMax));
+      updateOnlineStats("self", stats);
+    };
 
     // _beginGameOver がグローバルの versusGameOver() を呼ぶのを防ぐ
     // (versusGameOver はCPU対戦用でオンライン対戦では不要)
@@ -827,6 +875,7 @@ export class OnlineGameController {
       // ペア + NEXT 送信
       const nextPairs = (game.nextQueue as any[]).slice(0, 3).map((p: any): [number, number] => [p[0], p[1]]);
       conn.sendMatchEvent(encodePuyoSpawn(game.pivotColor, game.childColor, nextPairs));
+      sendStats();
       return result;
     };
 
@@ -854,6 +903,7 @@ export class OnlineGameController {
         if (this.myAlive && Array.isArray(game._erasingCells) && game._erasingCells.length) {
           conn.sendMatchEvent(encodePuyoChain(game.chainCount ?? 1, game._erasingCells));
         }
+        sendStats();
         return r;
       };
     }
@@ -1512,7 +1562,10 @@ export class OnlineGameController {
       outcome: winnerId === null ? "draw" : iWin ? "win" : "lose",
       winnerName,
       selfScore: typeof this.game?.score === "number" ? this.game.score : null,
-      selfLines: typeof this.game?.lines === "number" ? this.game.lines : null,
+      selfPrimaryLabel: this.myRule === "puyo" ? "MAX CHAIN" : "LINES",
+      selfPrimaryValue: this.myRule === "puyo"
+        ? (typeof this.game?.chainMax === "number" ? this.game.chainMax : null)
+        : (typeof this.game?.lines === "number" ? this.game.lines : null),
     });
 
     // ★ VERSUSモード同様、まず自分のフィールドに WIN!/LOSE... の大きな演出を出し、
