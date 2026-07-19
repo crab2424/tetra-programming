@@ -92,8 +92,21 @@ function createSeededRandom(seed) {
     }
 }
 
+// 終了演出中（versusGameOver〜リザルト表示）か。旧 window._versusFinishing の置き換えで、
+// 状態の実体は BattleLifecycle(src/battle/lifecycle.ts) が一元管理する
+function _versusFinishingNow() {
+  const p = window.BattleVersusLifecycle.phase;
+  return p === 'roundResolving' || p === 'roundResult';
+}
+
 async function startVersusGame() {
-  window._versusFinishing = false; // ★ finish演出中フラグをリセット
+  // 開始/再スタートの状態遷移（リトライはどこからでも idle を経由して開始できる）
+  const lc = window.BattleVersusLifecycle;
+  lc.transition('idle', 'startVersusGame');
+  lc.transition('preparing', 'startVersusGame');
+  lc.beginRound();
+  lc.transition('countdown', 'startVersusGame');
+  lc.transition('playing', 'startVersusGame'); // カウントダウンはエンジン内で行うため即 playing 扱い
   stopAllGames(); // 開始前に完全に状態をリセット
   const sessionId = currentSessionId; // カウントダウン後にセッションが有効か確認するために保持
 
@@ -240,7 +253,7 @@ function setupVersusPauseKey() {
       if (e.repeat) return;
       e.preventDefault();
       // finish演出中はリスタートを受け付けない
-      if (window._versusFinishing) return;
+      if (_versusFinishingNow()) return;
       restartVersus();
       return;
     }
@@ -262,7 +275,7 @@ function toggleVersusPause() {
     resumeVersus();
   } else {
     // ★ finish演出中はポーズを受け付けない（startカウントダウン中と同じ扱い）
-    if (window._versusFinishing) return;
+    if (_versusFinishingNow()) return;
 
     // カウントダウン中はポーズを受け付けない（シングルモードと同じ挙動）
     // Tet(Game)は isCountingDown、PuyoGame は state === 'starting' でカウントダウン中を判定する
@@ -305,6 +318,7 @@ function restartVersus() {
 function versusGoToModeSelect() {
   const overlay = document.getElementById('versus-pause-overlay');
   if (overlay) overlay.classList.remove('active');
+  window.BattleVersusLifecycle.transition('idle', 'mode select');
   stopAllGames();
   switchPage('versus-check');
 }
@@ -314,10 +328,10 @@ function restartVersusFromResult() {
 }
 
 function versusGameOver(loser) {
-  // ★ 二重呼び出しガード（同時KO等で2回呼ばれると登場アニメが飛ぶため）
-  if (window._versusFinishing) return;
-  // ★ finish演出中フラグを立てる（ポーズキーを無効にするため）
-  window._versusFinishing = true;
+  // ★ 二重呼び出し（同時KO等で2回呼ばれると登場アニメが飛ぶ）は遷移不成立で弾く。
+  //   roundResolving 中はポーズ/リスタートキーも _versusFinishingNow() で無効になる。
+  if (!window.BattleVersusLifecycle.transition('roundResolving', `versusGameOver(${loser})`)) return;
+  window.BattleVersusLifecycle.recordWinner(loser === 'player' ? 'cpu' : 'player');
 
   // ★ 修正: ここでも Tet と Puyo を確実に区別する
   const stopGame = (gameInst, isWinner) => {
@@ -429,6 +443,7 @@ function versusGameOver(loser) {
       cpuLinesValEl.textContent = cStat;
     }
 
+    window.BattleVersusLifecycle.transition('roundResult', 'result shown');
     switchPage('versus-result');
   });
 }

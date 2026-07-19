@@ -4,6 +4,7 @@ declare const APP_VERSION: string;
 // プレーンJSエンジン(public/)からの参照はこの副作用importで成立する）
 import "./battle/garbage_router";
 import "./battle/layout";
+import "./battle/lifecycle";
 
 document.addEventListener("DOMContentLoaded", () => {
   const versionElement = document.getElementById("title-version");
