@@ -14,6 +14,11 @@ import {
 import { showToast, ToastColor } from "../toast";
 import { AllTags, getTagName } from "./room";
 import { OnlineGameController } from "./online_game";
+import {
+  getOnlineSelfSide,
+  setOnlineSelfSide,
+  type OnlineSelfSide,
+} from "../battle/layout";
 
 enum OnlineModeState {
   Disconnected,
@@ -1762,24 +1767,24 @@ class OnlineMode {
   }
 
   private async settingsModal() {
+    const selfSide = getOnlineSelfSide();
+    const applySelfSide = (side: OnlineSelfSide) => {
+      setOnlineSelfSide(side);
+      document.querySelectorAll<HTMLButtonElement>(".online-side-btn").forEach((button) => {
+        button.classList.toggle("active", button.dataset.side === side);
+      });
+    };
     const modalContent = (
-      <div
-        style={{
-          backgroundColor: "#000",
-          padding: "20px",
-          borderRadius: "8px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "10px",
-          minWidth: "300px",
-          color: "#fff",
-        }}
-      >
-        <h2>Settings</h2>
-        <div>
+      <div class="online-settings-modal">
+        <div class="online-settings-heading">
+          <span class="online-settings-kicker">ONLINE</span>
+          <h2>SETTINGS</h2>
+        </div>
+        <div class="online-settings-section">
+          <div class="online-settings-label">USER NAME</div>
           <label>
-            ユーザー名:
             <input
+              class="settings-online-input"
               id="online-mode-username-input"
               type="text"
               value={this.userName}
@@ -1819,6 +1824,30 @@ class OnlineMode {
           >
             Save
           </button>
+        </div>
+        <div class="online-settings-section">
+          <div class="online-settings-label">YOUR FIELD POSITION</div>
+          <div class="online-settings-help">
+            This changes only your screen. Your opponent's layout is independent.
+          </div>
+          <div class="online-side-segment">
+            <button
+              id="online-side-left-btn"
+              class={"online-side-btn" + (selfSide === "left" ? " active" : "")}
+              data-side="left"
+              onclick={() => applySelfSide("left")}
+            >
+              LEFT
+            </button>
+            <button
+              id="online-side-right-btn"
+              class={"online-side-btn" + (selfSide === "right" ? " active" : "")}
+              data-side="right"
+              onclick={() => applySelfSide("right")}
+            >
+              RIGHT
+            </button>
+          </div>
         </div>
         <div style="display: none;">
           <hr />

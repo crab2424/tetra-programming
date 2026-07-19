@@ -53,6 +53,39 @@ function onlineOppSlot(index: number): SlotElements {
 /** オンライン相手スロット数（index.html の ol-opp-slot-* と一致させる） */
 export const ONLINE_OPP_SLOT_COUNT = 3;
 
+/** オンライン対戦での自分側表示位置。相手へは送信しないローカル設定。 */
+export type OnlineSelfSide = "left" | "right";
+const ONLINE_SELF_SIDE_KEY = "tetlaboOnlineSelfSide";
+
+export function getOnlineSelfSide(): OnlineSelfSide {
+  if (typeof localStorage === "undefined") return "left";
+  return localStorage.getItem(ONLINE_SELF_SIDE_KEY) === "right" ? "right" : "left";
+}
+
+/**
+ * 自分の表示位置を、現在のオンライン対戦DOMへ適用する。
+ * player/opponent の順序は参加順ではなく、この端末の自分視点だけで決める。
+ */
+export function applyOnlineSelfSide(): void {
+  const side = getOnlineSelfSide();
+  const layout = document.getElementById("ol-battle-layout");
+  const playerArea = document.getElementById("ol-player-area");
+  if (layout) layout.dataset.selfSide = side;
+  if (playerArea) playerArea.style.order = side === "left" ? "0" : "999";
+
+  for (let i = 0; i < ONLINE_OPP_SLOT_COUNT; i++) {
+    const slot = document.getElementById(`ol-opp-slot-${i}`);
+    if (slot) slot.style.order = side === "left" ? String(i + 1) : String(i);
+  }
+}
+
+export function setOnlineSelfSide(side: OnlineSelfSide): void {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(ONLINE_SELF_SIDE_KEY, side);
+  }
+  applyOnlineSelfSide();
+}
+
 /** スロット内の要素表示をルールに合わせて切り替える共通処理 */
 function applySlotRule(slot: SlotElements, rule: Rule): void {
   const isPuyo = rule === "puyo";
@@ -92,11 +125,13 @@ export function setOnlineOppRule(index: number, rule: Rule): void {
 }
 
 /** 相手スロットを表示し、参加順に基づく CSS order を設定する */
-export function showOnlineOppSlot(index: number, order: number): void {
+export function showOnlineOppSlot(index: number, order?: number): void {
   const slot = document.getElementById(`ol-opp-slot-${index}`);
   if (slot) {
     slot.style.display = "";
-    slot.style.order = String(order);
+    slot.style.order = order === undefined
+      ? (getOnlineSelfSide() === "left" ? String(index + 1) : String(index))
+      : String(order);
   }
 }
 
@@ -132,6 +167,9 @@ export const BattleLayout = {
   showOnlineOppSlot,
   hideOnlineOppSlots,
   setOnlinePlayerCount,
+  getOnlineSelfSide,
+  setOnlineSelfSide,
+  applyOnlineSelfSide,
   ONLINE_OPP_SLOT_COUNT,
 };
 
