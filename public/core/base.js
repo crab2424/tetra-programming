@@ -172,8 +172,9 @@ class Asset {
 // textEl      : 数字/テキストを表示する要素
 // onStart     : "START!" 表示の瞬間（入力受付開始）に呼ぶコールバック
 // onComplete  : 演出が完全に終了したときのコールバック（任意）
+// startDelayMs: START! までの時間。省略時はCPU戦と同じ2100ms。
 // ─────────────────────────────────────────────
-function runCountdown(overlayId, textElId, onStart, onComplete) {
+function runCountdown(overlayId, textElId, onStart, onComplete, startDelayMs = 2100) {
     const overlay = document.getElementById(overlayId);
     const textEl = document.getElementById(textElId);
     if (!overlay || !textEl) {
@@ -199,6 +200,8 @@ function runCountdown(overlayId, textElId, onStart, onComplete) {
     overlay.classList.add('active');
 
     const steps = ['3', '2', '1', 'START!'];
+    const countdownDelay = Math.max(0, Number(startDelayMs) || 0);
+    const countInterval = countdownDelay / 3;
     let stepIdx = 0;
 
     const showStep = () => {
@@ -223,7 +226,7 @@ function runCountdown(overlayId, textElId, onStart, onComplete) {
         stepIdx++;
 
         if (stepIdx < steps.length) {
-            overlay.countdownTimer = setTimeout(showStep, 700);
+            overlay.countdownTimer = setTimeout(showStep, countInterval);
         } else {
             overlay.countdownTimer = setTimeout(() => {
                 clearCountdownText();
