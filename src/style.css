@@ -3250,6 +3250,29 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   position: relative;
 }
 
+/* action-label-container(T-SPIN/4-LINES/B2B等の演出): CPU戦(#versus-page)の
+   #player/#cpu-action-label-container(left:-200px/top:200px、320x656基準)と
+   同じ見た目になるよう、盤面サイズに対する比率で配置する（2P時は320x656で完全一致、
+   3P/4P時も縮小した盤面サイズに追従する）。演出のPXオフセット自体(scoring.js labelLayout)は
+   両モード共通で、コンテナの位置だけがモードごとに異なる。 */
+#ol-p-action-label-container,
+#ol-p-puyo-action-label-container,
+#ol-opp-0-action-label-container,
+#ol-opp-0-puyo-action-label-container,
+#ol-opp-1-action-label-container,
+#ol-opp-1-puyo-action-label-container,
+#ol-opp-2-action-label-container,
+#ol-opp-2-puyo-action-label-container {
+  position: absolute;
+  left: -62.5%; /* -200px / 320px（CPU戦と同じ比率） */
+  top: 30.49%; /* 200px / 656px（CPU戦と同じ比率） */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
 .ol-opp-main-canvas {
   width: 128px;
   height: 262px;

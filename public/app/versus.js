@@ -204,18 +204,10 @@ async function startVersusGame() {
 
 
   // ★ カウントダウンの開始と同時に非同期でCPUのスクリプト読み込みを開始し、インスタンス化まで済ませる
-  let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, versusCpuRule).then(CPUClass => {
-    if (CPUClass && currentSessionId === sessionId) {
-        if (window._cpuController && typeof window._cpuController.stop === 'function') {
-            window._cpuController.stop();
-        }
-        window._cpuController = new CPUClass(window._cpuGame);
-    }
-    return CPUClass;
-  }).catch(e => {
-    console.warn("CPUスクリプトの読み込みに失敗しました。自由落下になります。");
-    return null;
-  });
+  // （実体は src/battle/driver.ts の loadLocalCpu。挙動は変えていない）
+  let cpuLoadPromise = window.BattleDriver.loadLocalCpu(
+    window._cpuGame, selectedCpuLevel, versusCpuRule, () => currentSessionId !== sessionId,
+  );
 
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
     if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
