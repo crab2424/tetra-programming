@@ -254,6 +254,7 @@ class OnlineMode {
       }
       this.connection?.stopPingReporting();
       this.isRandomMatchRoom = false;
+      this.clearRmConfirm();
     }
     if (value !== OnlineModeState.RoomList) {
       this.stopRoomListAutoRefresh();
@@ -267,8 +268,22 @@ class OnlineMode {
   private roomListRefreshId: number | null = null;
   /** ルーム画面の「ping以外の状態」シグネチャ。pingだけの更新で全再構築しないための差分判定用 */
   private lastRoomSig: string | null = null;
-  /** ランダムマッチで入室したルームは自動READY→オーナーが全員READY確認次第自動START */
+  /** ランダムマッチで入室したルームは両者の確認(OK)を経てオーナーがSTART */
   private isRandomMatchRoom = false;
+  /** ランダムマッチ確認: 自分がOKを押したか（非オーナー=READY送信、オーナー=開始許可） */
+  private rmConfirmed = false;
+  /** ランダムマッチ確認: startMatch送信済み or StartMatchNotification受信済み */
+  private rmStarting = false;
+  /** ランダムマッチ確認のカウントダウン・タイムアウト用タイマー */
+  private rmConfirmTimer: ReturnType<typeof setInterval> | null = null;
+  private rmConfirmDeadline = 0;
+  /** 確認パネル用の StartMatchNotification リスナーID */
+  private rmStartNotifId: Uuid | null = null;
+  /** 最後に受け取ったランダムマッチルームの情報（OK押下時の開始条件判定用） */
+  private rmLatestRoom: RoomInfoNotification | null = null;
+  /** 辞退・再キューの退出処理中（遅延通知による確認パネルの再描画・二重requeueを防ぐ） */
+  private rmLeaving = false;
+  private static readonly RM_CONFIRM_TIMEOUT_MS = 15000;
 
   /** 最後に選択したルール（TET/PUYO）を記憶・取得する */
   private getPreferredRule(): Games {
@@ -418,52 +433,14 @@ class OnlineMode {
     const allReady = nonOwners.every(([id]) => readySet.has(id));
     const iAmReady = readySet.has(myUserId);
 
-    // ── ランダムマッチ: ルーム設定画面は一切出さず「対戦準備中」だけ表示する ──
+    // ── ランダムマッチ: ルーム設定画面は一切出さず「両者確認パネル」を表示する ──
     //    （ROOMボタンや一覧戻りで「謎のランダム用ルーム設定画面」が露出するのを防ぐ）
-    //    gameController の初期化は上で完了済みなので、ここで設定UIを作らず即returnしてよい。
+    //    gameController の初期化は上で完了済み。両者がOKを押すまで対戦は始まらない:
+    //    非オーナーのOK=READY送信、オーナーのOK=開始許可。両方揃った時点でSTART。
     if (this.isRandomMatchRoom) {
-      const rmContainer = document.getElementById("online-top-container");
-      if (rmContainer && !document.getElementById("ol-rm-waiting")) {
-        rmContainer.replaceChildren(
-          <>
-            <div class="online-header">
-              <button class="btn btn-secondary" disabled>
-                ◀ BACK
-              </button>
-              <h1>🌐 ONLINE</h1>
-              <button class="btn btn-settings" disabled>
-                ⚙ SETTINGS
-              </button>
-            </div>
-            <div
-              class="online-top-content"
-              id="ol-rm-waiting"
-              style={{ textAlign: "center" }}
-            >
-              <h2>🔍 対戦準備中…</h2>
-              <div style={{ color: "var(--text-dim)" }}>
-                まもなく対戦が始まります
-              </div>
-            </div>
-          </>,
-        );
-      }
-      // 非オーナーは自動READY、オーナーは全員READY次第自動START
-      if (!isOwner && !iAmReady) {
-        setTimeout(() => {
-          this.connection!.setReady({
-            roomId: roomData.roomId,
-            ready: true,
-          }).catch(() => { });
-        }, 100);
-      }
-      if (isOwner && allReady && roomData.players.length >= 2) {
-        setTimeout(() => {
-          this.connection!.startMatch({ roomId: roomData.roomId }).catch(
-            () => { },
-          );
-        }, 300);
-      }
+      this.rmLatestRoom = roomData;
+      this.renderRandomMatchConfirm(roomData, isOwner);
+      this.tryRmStart();
       return;
     }
 
@@ -805,13 +782,23 @@ class OnlineMode {
                       ))}
                   </span>
                   {id === myUserId ? (
-                    <div style={{ display: "flex", gap: "4px" }}>
+                    // READY 中はルール変更不可（相手が見た条件と食い違うのを防ぐ）。
+                    // READY を解除すれば再び変更できる。
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "4px",
+                        ...(iAmReady ? { opacity: "0.4" } : {}),
+                      }}
+                    >
                       <button
                         class={
                           "online-room-tag" +
                           (game === "tet" ? " online-room-tag-enabled" : "")
                         }
+                        disabled={iAmReady || undefined}
                         onclick={() => {
+                          if (iAmReady) return;
                           this.setPreferredRule("tet");
                           this.connection!.updatePlayerRule({
                             roomId: roomData.roomId,
@@ -826,7 +813,9 @@ class OnlineMode {
                           "online-room-tag" +
                           (game === "puyo" ? " online-room-tag-enabled" : "")
                         }
+                        disabled={iAmReady || undefined}
                         onclick={() => {
+                          if (iAmReady) return;
                           this.setPreferredRule("puyo");
                           this.connection!.updatePlayerRule({
                             roomId: roomData.roomId,
@@ -1215,10 +1204,14 @@ class OnlineMode {
     this.joinRoom(roomId, false);
   }
 
-  /** ランダムマッチ開始。ルール選択 → マッチング → 成立次第自動スタート */
-  private async startRandomMatch() {
+  /** ランダムマッチ開始。ルール選択 → マッチング → 成立したら両者確認(OK)へ
+   * @param skipRuleSelect 再キュー時など、ルール選択モーダルを出さず前回ルールで探す */
+  private async startRandomMatch(skipRuleSelect = false) {
+    this.rmLeaving = false; // 新しい探索の開始で退出中状態は無効化
     // まず自分のルールを選択してもらう
-    const selectedRule = await new Promise<Games | null>((resolve) => {
+    const selectedRule = skipRuleSelect
+      ? this.getPreferredRule()
+      : await new Promise<Games | null>((resolve) => {
       let chosen: Games = this.getPreferredRule();
       const makeBtn = (rule: Games, label: string) => (
         <button
@@ -1359,6 +1352,238 @@ class OnlineMode {
     );
   }
 
+  /** ランダムマッチ成立後の両者確認パネルを描画・更新する（RoomInfoNotificationごとに呼ばれる） */
+  private renderRandomMatchConfirm(
+    roomData: RoomInfoNotification,
+    isOwner: boolean,
+  ) {
+    const myUserId = this.connection!.userId!;
+    const opponent =
+      roomData.players.find(([id]) => id !== myUserId) ?? null;
+    const container = document.getElementById("online-top-container");
+    if (!container) return;
+    if (this.rmLeaving) return; // 退出処理中の遅延通知は無視
+
+    const panelExists = !!document.getElementById("ol-rm-confirm");
+
+    // 確認中に相手が退出した → 自動で再マッチング
+    if (panelExists && !this.rmStarting && roomData.players.length < 2) {
+      this.requeueRandomMatch(
+        roomData.roomId,
+        "相手がマッチングを辞退しました。再度相手を探します…",
+      );
+      return;
+    }
+
+    if (!panelExists) {
+      // ── 初回描画: 確認状態を初期化 ──
+      this.rmConfirmed = false;
+      this.rmStarting = false;
+      this.rmLeaving = false;
+      this.rmConfirmDeadline = Date.now() + OnlineMode.RM_CONFIRM_TIMEOUT_MS;
+      // 対戦開始通知が来たらタイマーを確実に止める（開始処理自体は gameController 側が行う）
+      this.rmStartNotifId = this.connection!.onStartMatchNotification(() => {
+        this.rmStarting = true;
+        this.clearRmConfirmTimer();
+        if (this.rmStartNotifId) {
+          this.connection?.removeReaderFunction(this.rmStartNotifId);
+          this.rmStartNotifId = null;
+        }
+      });
+      container.replaceChildren(
+        <>
+          <div class="online-header">
+            <button class="btn btn-secondary" disabled>
+              ◀ BACK
+            </button>
+            <h1>🌐 ONLINE</h1>
+            <button class="btn btn-settings" disabled>
+              ⚙ SETTINGS
+            </button>
+          </div>
+          <div
+            class="online-top-content"
+            id="ol-rm-confirm"
+            style={{ textAlign: "center" }}
+          >
+            <h2>⚔ 対戦相手が見つかりました！</h2>
+            <div style={{ fontSize: "20px", margin: "8px 0" }}>
+              <span id="ol-rm-opp-name">???</span>{" "}
+              <span
+                id="ol-rm-opp-rule"
+                class="online-room-tag online-room-tag-enabled"
+                style={{ fontSize: "12px" }}
+              ></span>
+            </div>
+            <div style={{ color: "var(--text-dim)" }}>
+              残り <span id="ol-rm-count">
+                {Math.ceil(OnlineMode.RM_CONFIRM_TIMEOUT_MS / 1000)}
+              </span>{" "}
+              秒
+            </div>
+            <div
+              id="ol-rm-status"
+              style={{ color: "var(--text-dim)", minHeight: "20px" }}
+            ></div>
+            <div
+              style={{
+                display: "flex",
+                gap: "12px",
+                justifyContent: "center",
+                marginTop: "12px",
+              }}
+            >
+              <button
+                class="btn btn-secondary"
+                onclick={() => this.declineRandomMatch(roomData.roomId)}
+              >
+                辞退する
+              </button>
+              <button
+                class="btn btn-primary"
+                id="ol-rm-ok"
+                onclick={() => this.confirmRandomMatch(roomData.roomId, isOwner)}
+              >
+                OK！対戦する
+              </button>
+            </div>
+          </div>
+        </>,
+      );
+      this.rmConfirmTimer = setInterval(() => {
+        if (this.rmStarting) {
+          this.clearRmConfirmTimer();
+          return;
+        }
+        const remain = Math.max(0, this.rmConfirmDeadline - Date.now());
+        const el = document.getElementById("ol-rm-count");
+        if (el) el.textContent = `${Math.ceil(remain / 1000)}`;
+        if (remain <= 0) {
+          this.requeueRandomMatch(
+            roomData.roomId,
+            this.rmConfirmed
+              ? "相手の確認がありませんでした。再度相手を探します…"
+              : "時間切れです。再度相手を探します…",
+          );
+        }
+      }, 250);
+    }
+
+    // 相手情報は通知のたびに更新（在室中の名前・ルール変更に追従）
+    const nameEl = document.getElementById("ol-rm-opp-name");
+    if (nameEl) nameEl.textContent = opponent ? opponent[1] : "???";
+    const ruleEl = document.getElementById("ol-rm-opp-rule");
+    if (ruleEl) {
+      ruleEl.textContent = opponent
+        ? opponent[2] === "puyo"
+          ? "PUYO"
+          : "TET"
+        : "";
+    }
+  }
+
+  /** 確認パネルのOKボタン。非オーナー=READY送信、オーナー=開始許可を立てて条件チェック */
+  private confirmRandomMatch(roomId: Uuid, isOwner: boolean) {
+    if (this.rmConfirmed || this.rmStarting) return;
+    this.rmConfirmed = true;
+    const okBtn = document.getElementById("ol-rm-ok") as HTMLButtonElement | null;
+    if (okBtn) okBtn.disabled = true;
+    const status = document.getElementById("ol-rm-status");
+    if (status) status.textContent = "相手の確認を待っています…";
+    if (!isOwner) {
+      this.connection!
+        .setReady({ roomId, ready: true })
+        .then((r) => this.notifyIfFailed(r, "準備完了の送信"))
+        .catch(() => { });
+    } else {
+      // 相手のREADYが先に届いているケースがあるので、通知を待たずここでも開始条件を見る
+      this.tryRmStart();
+    }
+  }
+
+  /** オーナー側: 自分がOK済み かつ 非オーナー全員READY なら対戦開始要求を送る */
+  private tryRmStart() {
+    const rd = this.rmLatestRoom;
+    if (
+      !rd ||
+      !this.isRandomMatchRoom ||
+      this.rmStarting ||
+      this.rmLeaving ||
+      !this.rmConfirmed
+    )
+      return;
+    const myUserId = this.connection?.userId;
+    if (!myUserId || rd.ownerId !== myUserId) return;
+    const readySet = new Set(rd.readyPlayers ?? []);
+    const nonOwners = rd.players.filter(([id]) => id !== rd.ownerId);
+    if (rd.players.length < 2 || !nonOwners.every(([id]) => readySet.has(id)))
+      return;
+    this.rmStarting = true;
+    const status = document.getElementById("ol-rm-status");
+    if (status) status.textContent = "対戦を開始します…";
+    this.connection!
+      .startMatch({ roomId: rd.roomId })
+      .then((r) => {
+        if (!r.success) {
+          this.rmStarting = false;
+          this.notifyIfFailed(r, "対戦開始");
+        }
+      })
+      .catch(() => {
+        this.rmStarting = false;
+      });
+  }
+
+  /** 確認パネルの「辞退する」。ルームを抜けてロビーへ戻る */
+  private async declineRandomMatch(roomId: Uuid) {
+    if (this.rmStarting || this.rmLeaving) return;
+    this.rmLeaving = true;
+    this.clearRmConfirm();
+    try {
+      await this.connection!.leaveRoom({ roomId });
+    } catch { }
+    this.currentRoom = null;
+    showToast("ONLINE", "マッチングを辞退しました。", ToastColor["Info"]);
+    // state setter (InRoom→RoomList) が gameController / isRandomMatchRoom を後始末する
+    this.onlineTopPage();
+  }
+
+  /** 確認のタイムアウト・相手退出時: ルームを抜けて同じルールで自動再マッチング */
+  private async requeueRandomMatch(roomId: Uuid, message: string) {
+    if (this.rmLeaving) return;
+    this.rmLeaving = true;
+    this.clearRmConfirm();
+    showToast("ONLINE", message, ToastColor["Info"]);
+    try {
+      await this.connection!.leaveRoom({ roomId });
+    } catch { }
+    this.currentRoom = null;
+    try {
+      this.gameController?.cleanup();
+    } catch { }
+    this.gameController = null;
+    this.isRandomMatchRoom = false;
+    await this.startRandomMatch(true);
+  }
+
+  private clearRmConfirmTimer() {
+    if (this.rmConfirmTimer !== null) {
+      clearInterval(this.rmConfirmTimer);
+      this.rmConfirmTimer = null;
+    }
+  }
+
+  /** 確認パネル関連の状態・リスナー・タイマーを全て破棄する */
+  private clearRmConfirm() {
+    this.clearRmConfirmTimer();
+    if (this.rmStartNotifId) {
+      this.connection?.removeReaderFunction(this.rmStartNotifId);
+      this.rmStartNotifId = null;
+    }
+    this.rmConfirmed = false;
+    this.rmLatestRoom = null;
+  }
+
   /** 6桁コードでルームに参加する */
   private async joinRoomByCode() {
     const code = await Modal.prompt(
@@ -1487,7 +1712,7 @@ class OnlineMode {
           <div class="online-list-footer">
             <button
               class="btn btn-primary"
-              onclick={this.startRandomMatch.bind(this)}
+              onclick={() => this.startRandomMatch()}
             >
               🎲 ランダムマッチ
             </button>
@@ -1515,6 +1740,25 @@ class OnlineMode {
         this.stopRoomListAutoRefresh();
       }
     }, 10000);
+  }
+
+  /** 保存済みユーザー名をサーバーへ反映する。在室中はルーム全員の表示、
+   * ランダムマッチ待機中は待機列エントリが更新される（未接続時は何もしない） */
+  private pushNameToServer() {
+    if (
+      !this.connection ||
+      (this.state !== OnlineModeState.RoomList &&
+        this.state !== OnlineModeState.InRoom)
+    )
+      return;
+    const roomId =
+      this.state === OnlineModeState.InRoom && this.currentRoom
+        ? this.currentRoom.roomId
+        : null;
+    this.connection
+      .updatePlayerName({ roomId, username: this.userName })
+      .then((r) => this.notifyIfFailed(r, "名前の変更"))
+      .catch(() => { });
   }
 
   private async settingsModal() {
@@ -1553,7 +1797,19 @@ class OnlineMode {
                 );
                 return;
               }
-              localStorage.setItem("tetlaboUserName", input.value);
+              const newName = input.value.trim();
+              if (!newName || [...newName].length > 16) {
+                showToast(
+                  "ONLINE",
+                  "名前は1〜16文字で入力してください。",
+                  ToastColor["Warning"],
+                );
+                return;
+              }
+              localStorage.setItem("tetlaboUserName", newName);
+              this.userName = newName;
+              // 在室・待機列中ならサーバー側の表示名も即時更新する
+              this.pushNameToServer();
               showToast(
                 "ONLINE",
                 "ユーザー名を保存しました！",
