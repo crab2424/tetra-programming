@@ -3152,13 +3152,23 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   MARK: オンライン対戦画面
 ───────────────────────────────────────────── */
 
-#online-battle-page.active {
+#versus-page.active #online-battle-page.active {
   display: flex;
   justify-content: center;
   align-items: center;
   width: 100%;
   flex: 1;
   overflow: hidden;
+}
+
+/* オンライン盤面はCPU戦と同じ対戦ページ配下のパネルとして表示する。 */
+#versus-page.active.online-battle-active #versus-layout {
+  display: none;
+}
+
+#online-battle-page.battle-panel {
+  position: relative;
+  width: 100%;
 }
 
 #ol-battle-layout {

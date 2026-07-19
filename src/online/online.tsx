@@ -1732,7 +1732,7 @@ class OnlineMode {
     this.stopRoomListAutoRefresh();
     this.roomListRefreshId = window.setInterval(() => {
       const battleActive = document
-        .getElementById("online-battle-page")
+        .getElementById("versus-page")
         ?.classList.contains("active");
       if (this.state === OnlineModeState.RoomList && !battleActive) {
         this.onlineTopPage();
