@@ -34,7 +34,7 @@ import {
   decodePuyoLock,
   fieldBlocksToArray,
   MatchOpcode,
-  BOARD_ROWS,
+  BOARD_BUFFER_ROWS,
   BOARD_COLS,
   SE_IDS,
   SE_NAMES,
@@ -42,7 +42,12 @@ import {
 } from "./game_protocol";
 import { Logger } from "./logger";
 import { BattleLifecycle } from "../battle/lifecycle";
-import { routeGarbage, type GarbageSink } from "../battle/garbage_router";
+import {
+  routeGarbage,
+  deliverLocalWithReadyTimer,
+  deliverLocalSimple,
+  type GarbageSink,
+} from "../battle/garbage_router";
 import {
   setOnlineSelfRule,
   setOnlineOppRule,
@@ -1245,11 +1250,16 @@ export class OnlineGameController {
         if (senderRule !== 'tet') break;
         const boardArr = decodeLock(frame.payload);
         const blocks: any[] = [];
-        for (let i = 0; i < BOARD_ROWS * BOARD_COLS; i++) {
+        for (let i = 0; i < boardArr.length; i++) {
           const v = boardArr[i];
-          // wireは「0=空, 1〜7=type 0〜6」。Iミノ(type0)を空と区別するため -1 で復元。
+          // wireは「0=空, 1〜8=type 0〜7」。Iミノ(type0)を空と区別するため -1 で復元。
+          // row 0 = y=-BOARD_BUFFER_ROWS（せり上がりで上端からはみ出した地形も再現する）
           if (v !== 0) {
-            blocks.push(new Block(i % BOARD_COLS, Math.floor(i / BOARD_COLS), v - 1));
+            blocks.push(new Block(
+              i % BOARD_COLS,
+              Math.floor(i / BOARD_COLS) - BOARD_BUFFER_ROWS,
+              v - 1,
+            ));
           }
         }
         puppet.field.blocks = blocks;
@@ -1381,56 +1391,18 @@ export class OnlineGameController {
 
   // ── Garbage delivery ─────────────────────────────────────────────────────
 
+  /** tet受け手: 猶予1500ms・ポーズ対応（実体は battle/garbage_router.ts、CPU戦と共通） */
   private deliverGarbageToPlayer(amount: number, holes: number[] = []): void {
     if (amount <= 0 || !this.game || !this.myAlive) return;
-    const game = this.game;
-    const garbageObj: any = { amount, holes, ready: false };
-    if (!game.garbageQueue) game.garbageQueue = [];
-    game.garbageQueue.push(garbageObj);
-    game.updateGarbageGauge?.();
-
-    const delay = 1500;
-    const timerEntry: any = {
-      obj: garbageObj,
-      duration: delay,
-      remaining: null,
-      id: null,
-      start: 0,
-    };
-    timerEntry.cb = () => {
-      timerEntry.id = null;
-      if (game.garbageQueue.includes(garbageObj) && garbageObj.amount > 0) {
-        garbageObj.ready = true;
-        game.updateGarbageGauge?.();
-      }
-      const idx = (game._garbageTimers as any[] | undefined)?.indexOf(timerEntry) ?? -1;
-      if (idx !== -1) game._garbageTimers.splice(idx, 1);
-    };
-    if (!game._garbageTimers) game._garbageTimers = [];
-    game._garbageTimers.push(timerEntry);
-    if (game.isPaused) {
-      timerEntry.remaining = delay;
-    } else {
-      timerEntry.start = performance.now();
-      timerEntry.id = setTimeout(timerEntry.cb, delay);
-    }
+    deliverLocalWithReadyTimer(this.game, { amount, holes, ready: false }, 1500);
   }
 
   // ── Ojama delivery (puyo受け手) ─────────────────────────────────────────
 
+  /** puyo受け手: 猶予800ms。ぷよは _garbageTimers のポーズ再開を持たないため単純タイマー方式 */
   private deliverOjamaToPlayer(amount: number): void {
     if (amount <= 0 || !this.game || !this.myAlive) return;
-    const game = this.game;
-    const garbageObj: any = { amount, ready: false, internal: false };
-    if (!game.garbageQueue) game.garbageQueue = [];
-    game.garbageQueue.push(garbageObj);
-    game.updateGarbageGauge?.();
-    setTimeout(() => {
-      if (game.garbageQueue?.includes(garbageObj) && garbageObj.amount > 0) {
-        garbageObj.ready = true;
-        game.updateGarbageGauge?.();
-      }
-    }, 800);
+    deliverLocalSimple(this.game, { amount, holes: [], ready: false, internal: false }, 800);
   }
 
   // ── PieceState broadcast ─────────────────────────────────────────────────

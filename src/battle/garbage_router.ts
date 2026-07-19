@@ -118,6 +118,7 @@ export function deliverLocalWithReadyTimer(
   garbageObj: LocalGarbageObj,
   delayMs: number,
 ): void {
+  if (!opponent.garbageQueue) opponent.garbageQueue = [];
   opponent.garbageQueue.push(garbageObj);
   if (typeof opponent.updateGarbageGauge === "function") {
     opponent.updateGarbageGauge();
@@ -151,6 +152,31 @@ export function deliverLocalWithReadyTimer(
     timerEntry.start = performance.now();
     timerEntry.id = setTimeout(timerEntry.cb, delayMs);
   }
+}
+
+/**
+ * 単純タイマー方式: {ready:false} で積み、delayMs 後に ready 化する（ポーズ非対応）。
+ * ぷよエンジンは _garbageTimers のポーズ再開処理を持たないため、ぷよ受け手には
+ * こちらを使う（ポーズ中に remaining 保留すると永久に ready 化しなくなる）。
+ */
+export function deliverLocalSimple(
+  opponent: any,
+  garbageObj: LocalGarbageObj,
+  delayMs: number,
+): void {
+  if (!opponent.garbageQueue) opponent.garbageQueue = [];
+  opponent.garbageQueue.push(garbageObj);
+  if (typeof opponent.updateGarbageGauge === "function") {
+    opponent.updateGarbageGauge();
+  }
+  setTimeout(() => {
+    if (opponent.garbageQueue?.includes(garbageObj) && garbageObj.amount > 0) {
+      garbageObj.ready = true;
+      if (typeof opponent.updateGarbageGauge === "function") {
+        opponent.updateGarbageGauge();
+      }
+    }
+  }, delayMs);
 }
 
 /**
@@ -209,6 +235,7 @@ export const BattleGarbage = {
   buildGarbageHoles,
   tetGaugeToOjama,
   deliverLocalWithReadyTimer,
+  deliverLocalSimple,
   deliverLocalStaged,
 };
 

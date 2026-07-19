@@ -126,3 +126,20 @@ export class BattleLifecycle {
     return { target: this.target, round: this.round, wins: new Map(this.wins) };
   }
 }
+
+/**
+ * CPU戦(#versus-page)用の共有インスタンス。オンライン戦は OnlineGameController が
+ * 自前のインスタンスを持つ（対戦セッションごとに独立させるため）。
+ * versus.js（プレーンJS）からは window.BattleVersusLifecycle 経由で使う。
+ * 旧 window._versusFinishing フラグの置き換え。
+ */
+export const versusLifecycle = new BattleLifecycle({
+  log: (m) => console.log(`[VERSUS]${m}`),
+});
+
+declare global {
+  interface Window {
+    BattleVersusLifecycle: BattleLifecycle;
+  }
+}
+window.BattleVersusLifecycle = versusLifecycle;

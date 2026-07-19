@@ -29,7 +29,14 @@ export type MatchOpcodeValue = typeof MatchOpcode[keyof typeof MatchOpcode];
 // ── Board constants ────────────────────────────────────────────────────
 export const BOARD_ROWS = 20;
 export const BOARD_COLS = 10;
-export const BOARD_SIZE = BOARD_ROWS * BOARD_COLS; // 200 bytes
+/**
+ * 可視20行の上に持つバッファ行数。おじゃませり上がりで applyGarbage が全ブロックを
+ * y-=1 するため、スタックは y<0（盤面上端より上）へはみ出す。可視行だけを送ると
+ * せり上がった地形が相手の盤面から消えるので、y=-20..19 の40行を送る。
+ */
+export const BOARD_BUFFER_ROWS = 20;
+export const BOARD_TOTAL_ROWS = BOARD_ROWS + BOARD_BUFFER_ROWS; // 40
+export const BOARD_SIZE = BOARD_TOTAL_ROWS * BOARD_COLS; // 400 bytes
 
 // ── Puyo board constants (PConfig.rows+hiddenRows × PConfig.cols) ──────
 export const PUYO_ROWS = 17; // PConfig.rows(12) + PConfig.hiddenRows(5)
@@ -106,8 +113,9 @@ export function encodeSpawn(
   return buf;
 }
 
-// Lock: 1 + BOARD_SIZE bytes (opcode + 200 board bytes, row-major)
-// boardTypes[row * 10 + col] = block type (0 = empty, 1-7 = color)
+// Lock: 1 + BOARD_SIZE bytes (opcode + 400 board bytes, row-major)
+// boardTypes[row * 10 + col] = block type (0 = empty, 1-8 = type 0-7)
+// row 0 = y=-BOARD_BUFFER_ROWS（上方バッファ最上段）, row 20 = y=0（可視最上段）
 export function encodeLock(boardTypes: number[]): Uint8Array {
   const buf = new Uint8Array(1 + BOARD_SIZE);
   buf[0] = MatchOpcode.Lock;
@@ -233,11 +241,13 @@ export function decodeHold(p: Uint8Array): number { return p[0]; }
 // ★ wire上は「0=空セル」「1〜7=ミノtype 0〜6」とする(+1オフセット)。
 //   Iミノは type 0 のため、+1しないと空セルと区別できず相手盤面で消える。
 //   デコード側 (Lock handler) は値が非0のとき type = 値-1 で復元する。
+// ★ おじゃませり上がりでスタックが y<0 へはみ出すため、y=-BOARD_BUFFER_ROWS..BOARD_ROWS-1
+//   の40行を row = y + BOARD_BUFFER_ROWS で格納する。バッファ外(y<-20)は実質トップアウトなので破棄。
 export function fieldBlocksToArray(blocks: Array<{x: number; y: number; type: number}>): number[] {
   const arr = new Array(BOARD_SIZE).fill(0);
   for (const b of blocks) {
-    if (b.x >= 0 && b.x < BOARD_COLS && b.y >= 0 && b.y < BOARD_ROWS) {
-      arr[b.y * BOARD_COLS + b.x] = ((b.type ?? 6) + 1);
+    if (b.x >= 0 && b.x < BOARD_COLS && b.y >= -BOARD_BUFFER_ROWS && b.y < BOARD_ROWS) {
+      arr[(b.y + BOARD_BUFFER_ROWS) * BOARD_COLS + b.x] = ((b.type ?? 6) + 1);
     }
   }
   return arr;
