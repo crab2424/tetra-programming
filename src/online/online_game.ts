@@ -118,7 +118,6 @@ export class OnlineGameController {
   private rematchVotes = new Map<Uuid, number>();
   private controlEventsSubscribed = false;
   private isRandomMatchRoom = false;
-  private countdownOverlay: HTMLElement | null = null;
   private myRematchVoted = false;
 
   /**
@@ -502,8 +501,6 @@ export class OnlineGameController {
     const matchSetting = parseMatchSetting(notif.matchSetting);
     const now = this.connection.serverNow();
     const delay = Math.max(0, notif.startTimeMs - now);
-    this.showCountdown(Math.max(3000, delay), delay);
-
     if (this.myRule === 'puyo') {
       this.initPuyoBattle(notif, matchSetting, delay);
     } else {
@@ -541,6 +538,7 @@ export class OnlineGameController {
     this.game.tumoRng = createSeededRng(notif.seed);
     this.game._initGameState();
     this.game.setKeyEvent();
+    this.showCountdown(delay);
 
     this.matchHandlerId = this.connection.onMatchEvent((frame) => this.handleMatchFrame(frame));
 
@@ -612,6 +610,7 @@ export class OnlineGameController {
 
       const elapsed = performance.now() - initStart;
       const remaining = Math.max(0, delay - elapsed);
+      this.showCountdown(remaining);
       setTimeout(() => {
         // カウントダウン中に決着（相手切断）やcleanupが起きていたら本編を開始しない
         if (!this.game || !this.lifecycle.transition("playing", "countdown finished"))
@@ -1474,41 +1473,12 @@ export class OnlineGameController {
 
   // ── Countdown display ────────────────────────────────────────────────────
 
-  private showCountdown(totalDisplayMs: number, startDelayMs: number): void {
-    // transform: scale() の stacking context に影響されないよう body に直接追加する
-    const overlay = document.createElement('div');
-    overlay.style.cssText =
-      'position:fixed;top:0;left:0;width:100vw;height:100vh;' +
-      'display:flex;align-items:center;justify-content:center;' +
-      'background:rgba(0,0,0,0.45);z-index:9999;pointer-events:none;';
-    const textEl = document.createElement('span');
-    textEl.style.cssText =
-      "font-family:'Orbitron',monospace;font-size:120px;font-weight:900;" +
-      'color:#fff;text-shadow:0 0 60px rgba(196,113,245,0.9),0 0 20px rgba(196,113,245,0.6);' +
-      'letter-spacing:8px;';
-    overlay.appendChild(textEl);
-    document.body.appendChild(overlay);
-    this.countdownOverlay = overlay;
-
-    const setWithAnim = (text: string) => {
-      textEl.textContent = text;
-      textEl.style.animation = 'none';
-      void textEl.offsetWidth;
-      textEl.style.animation = 'countdown-pop-anim 0.45s cubic-bezier(0.34,1.56,0.64,1) both';
-    };
-
-    const steps = Math.ceil(totalDisplayMs / 1000);
-    for (let i = 0; i < steps; i++) {
-      const remaining = steps - i;
-      setTimeout(() => setWithAnim(String(remaining)), totalDisplayMs - remaining * 1000);
+  private showCountdown(startDelayMs: number): void {
+    // CPU戦と同じ盤面内の透明オーバーレイを使う。オンラインだけbody全体を暗転させない。
+    const run = (window as any).runCountdown;
+    if (typeof run === 'function') {
+      run('ol-p-countdown-overlay', 'ol-p-countdown-text', () => {}, null, startDelayMs);
     }
-
-    setTimeout(() => setWithAnim('START!'), startDelayMs);
-
-    setTimeout(() => {
-      overlay.remove();
-      if (this.countdownOverlay === overlay) this.countdownOverlay = null;
-    }, startDelayMs + 800);
   }
 
   // ── Battle layout ────────────────────────────────────────────────────────
@@ -1672,10 +1642,16 @@ export class OnlineGameController {
     this.rematchVotes.clear();
     this.myRematchVoted = false;
     this.clearFinishOverlay();
-    if (this.countdownOverlay) {
-      this.countdownOverlay.remove();
-      this.countdownOverlay = null;
+    const countdownOverlay = document.getElementById("ol-p-countdown-overlay");
+    const countdownText = document.getElementById("ol-p-countdown-text");
+    if (countdownOverlay) {
+      if ((countdownOverlay as any).countdownTimer) {
+        clearTimeout((countdownOverlay as any).countdownTimer);
+      }
+      (countdownOverlay as any).countdownTimer = null;
+      countdownOverlay.classList.remove("active");
     }
+    if (countdownText) countdownText.textContent = "";
     this.stopPieceStateInterval();
 
     if (this.matchHandlerId) {
