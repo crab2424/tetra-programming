@@ -954,11 +954,11 @@ class OnlineMode {
                 }}
               >
                 MATCH SETTINGS{" "}
-                {!isOwner && (
-                  <span style={{ fontSize: "10px" }}>
-                    （オーナーのみ変更可）
-                  </span>
-                )}
+                <span style={{ fontSize: "10px" }}>
+                  {isOwner
+                    ? "（変更すると全員のREADYが解除されます）"
+                    : "（オーナーのみ変更可）"}
+                </span>
               </div>
               <div class="ms-grid">
                 {toggleRow("HOLD", "holdEnabled", ms.holdEnabled)}
