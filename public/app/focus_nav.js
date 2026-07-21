@@ -37,6 +37,9 @@
   const NAV_CODES = new Set(['KeyW','KeyA','KeyS','KeyD','Space']);
 
   window.addEventListener('keydown', (e) => {
+    // <input>/<textarea>/contenteditable にフォーカスがある間は
+    // ボタン遷移用のkbdモード切替も抑止（WASD等の文字入力と衝突するため）
+    if (isTypingTarget(document.activeElement)) return;
     if (NAV_KEYS.has(e.key) || NAV_CODES.has(e.code)) {
       setInputMode('kbd');
     }
