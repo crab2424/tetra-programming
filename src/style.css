@@ -77,6 +77,12 @@ h1 {
   z-index: 1;
 }
 
+/* 固定配置のゲーム盤面が、ページ遷移後に他ページへ重ならないようにする。
+   inline style が残った場合でも、非アクティブなページは必ず隠す。 */
+.page:not(.active) {
+  display: none !important;
+}
+
 /* ★ シングルプレイ画面・対戦画面のアクティブ時共通スタイル ★ */
 #game-page.active,
 #versus-page.active {
