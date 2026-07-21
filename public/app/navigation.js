@@ -234,7 +234,11 @@ function switchPage(pageId) {
         });
     }
 
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.remove('active');
+    // 固定配置のゲームコンテナが前画面の inline 表示を持ち越さないようにする。
+    p.style.display = '';
+  });
 
   const target = document.getElementById(pageId + '-page');
   if (target) target.classList.add('active');
