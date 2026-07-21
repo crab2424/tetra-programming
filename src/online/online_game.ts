@@ -119,6 +119,8 @@ export class OnlineGameController {
   private controlEventsSubscribed = false;
   private isRandomMatchRoom = false;
   private myRematchVoted = false;
+  /** 現在のセットに設定を適用済みか。cleanup後の再入室では再初期化する。 */
+  private setConfigured = false;
 
   /**
    * 終了処理の状態機械。開始/決着/再戦/退出の排他はすべてここを通す。
@@ -302,6 +304,18 @@ export class OnlineGameController {
     el.textContent = `ALIVE: ${this.aliveSet.size} / ${this.roomInfo.players.length}`;
   }
 
+  /** ラウンド番号と先取スコアを結果インタースティシャルへ反映する。 */
+  private updateSetScore(): void {
+    const snapshot = this.lifecycle.snapshot();
+    const score = this.roomInfo.players
+      .map(([id, name]) => `${name} ${"★".repeat(snapshot.wins.get(id) ?? 0)}${"☆".repeat(Math.max(0, snapshot.target - (snapshot.wins.get(id) ?? 0)))}`)
+      .join("  ·  ");
+    const round = document.getElementById("ol-result-round");
+    const setScore = document.getElementById("ol-result-set-score");
+    if (round) round.textContent = `ROUND ${snapshot.round} / FIRST TO ${snapshot.target}`;
+    if (setScore) setScore.textContent = score;
+  }
+
   private markDead(playerId: Uuid): void {
     this.aliveSet.delete(playerId);
     this.updateAliveDisplay();
@@ -435,7 +449,6 @@ export class OnlineGameController {
   private startBattle(notif: StartMatchNotification): void {
     // 二重の開始通知・決着処理中の遅延通知はここで捨てる
     if (!this.lifecycle.transition("countdown", "StartMatchNotification")) return;
-    this.lifecycle.beginRound();
     this.myAlive = true;
     this.addVisibilityListener();
     this.aliveSet = new Set(this.roomInfo.players.map(([id]) => id));
@@ -499,6 +512,11 @@ export class OnlineGameController {
     this.matchHasPuyoOpp = oppRules.includes('puyo');
 
     const matchSetting = parseMatchSetting(notif.matchSetting);
+    if (!this.setConfigured) {
+      this.lifecycle.configureSet(matchSetting.setTarget);
+      this.setConfigured = true;
+    }
+    this.lifecycle.beginRound();
     const now = this.connection.serverNow();
     const delay = Math.max(0, notif.startTimeMs - now);
     if (this.myRule === 'puyo') {
@@ -519,7 +537,6 @@ export class OnlineGameController {
     this.game = new Game("ol-p");
     (window as any)._olGame = this.game; // E2Eテスト用フック
     this.game.isVersusMode = true;
-    this.game.anchorPageId = "versus-page";
     this.game.currentMode = "marathon";
     this.game.isOnline = true;
     this.game.opponentRule = this.matchOpponentRule; // 異種戦判定をエンジンへ注入
@@ -576,7 +593,6 @@ export class OnlineGameController {
     this.game = new PuyoGame("ol-p");
     (window as any)._olGame = this.game; // E2Eテスト用フック
     this.game.isVersusMode = true;
-    this.game.anchorPageId = "versus-page";
     this.game.currentMode = "marathon";
     this.game.isOnline = true;
     this.game.opponentRule = this.matchOpponentRule; // 異種戦判定をエンジンへ注入
@@ -638,7 +654,6 @@ export class OnlineGameController {
       p.style.display = "";
     });
     if (versusPage) versusPage.classList.add("active", "online-battle-active");
-    if (onlinePanel) onlinePanel.classList.add("active");
   }
 
   // ── Hook game engine methods ─────────────────────────────────────────────
@@ -1032,13 +1047,15 @@ export class OnlineGameController {
     const span = rematchBtn.querySelector('span:last-child');
     const total = this.roomInfo.players.length;
     const votes = this.roomInfo.players.filter(([id]) => this.rematchVotes.get(id) === 0).length;
+    const isSet = this.lifecycle.snapshot().target > 1;
+    const actionLabel = isSet ? "NEXT ROUND" : "REMATCH";
 
     if (this.myRematchVoted) {
       rematchBtn.classList.add("rematch-voted");
-      if (span) span.textContent = `REMATCH ✓ (${votes}/${total})`;
+      if (span) span.textContent = `${actionLabel} ✓ (${votes}/${total})`;
     } else {
       rematchBtn.classList.remove("rematch-voted");
-      if (span) span.textContent = votes > 0 ? `REMATCH (${votes}/${total})` : "REMATCH";
+      if (span) span.textContent = votes > 0 ? `${actionLabel} (${votes}/${total})` : actionLabel;
     }
   }
 
@@ -1495,6 +1512,7 @@ export class OnlineGameController {
     // 二重通知・決着後の遅延通知はここで捨てる（カウントダウン中の相手切断勝ちも受理する）
     if (!this.lifecycle.transition("roundResolving", "WinnerNotification")) return;
     this.lifecycle.recordWinner(winnerId);
+    this.updateSetScore();
     this.stopPieceStateInterval();
     // 勝敗確定: 生存中でもゲームを停止する
     this.freezeGame();
@@ -1536,6 +1554,11 @@ export class OnlineGameController {
       selfPrimaryValue: this.myRule === "puyo"
         ? (typeof this.game?.chainMax === "number" ? this.game.chainMax : null)
         : (typeof this.game?.lines === "number" ? this.game.lines : null),
+      round: this.lifecycle.snapshot().round,
+      target: this.lifecycle.snapshot().target,
+      score: this.roomInfo.players.map(([id, name]) =>
+        `${name} ${"★".repeat(this.lifecycle.winsOf(id))}${"☆".repeat(Math.max(0, this.lifecycle.snapshot().target - this.lifecycle.winsOf(id)))}`
+      ).join("  ·  "),
     });
 
     // ★ VERSUSモード同様、まず自分のフィールドに WIN!/LOSE... の大きな演出を出し、
@@ -1570,8 +1593,10 @@ export class OnlineGameController {
     this.myRematchVoted = false;
 
     if (rematchBtn) {
+      const setDecided = this.lifecycle.isSetDecided() && this.lifecycle.snapshot().target > 1;
+      rematchBtn.style.display = setDecided ? "none" : "";
       // ランダムマッチは再マッチメイキングボタンに変える
-      if (this.isRandomMatchRoom) {
+      if (this.isRandomMatchRoom && !setDecided) {
         const span = rematchBtn.querySelector('span:last-child');
         if (span) span.textContent = '再マッチメイキング';
         rematchBtn.onclick = () => {
@@ -1636,6 +1661,7 @@ export class OnlineGameController {
   cleanup(): void {
     // どの状態からでも idle へ戻せる。テアダウン本体は冪等なので遷移可否に関わらず実行
     this.lifecycle.transition("idle", "cleanup");
+    this.setConfigured = false;
     this.removeVisibilityListener();
     this.teardownBackgroundClock();
     this.controlEventsSubscribed = false;

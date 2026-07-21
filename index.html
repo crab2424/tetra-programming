@@ -571,7 +571,8 @@
   <!-- ─────────────────────────────────────────────
     MARK: オンライン対戦画面
     ───────────────────────────────────────────── -->
-  <div id="online-battle-page" class="page">
+  <!-- オンライン盤面は #versus-page に移される共有バトルパネル。独立ページにしない。 -->
+  <div id="online-battle-page" class="battle-panel">
     <div id="ol-battle-layout">
       <!-- 左側：自分のフィールド（相手スロットと同一のDOM構造で統一） -->
       <div id="ol-player-area">
@@ -684,6 +685,8 @@
         <div class="ol-result-kicker">ONLINE RESULT</div>
         <div id="ol-winner-title" class="ol-result-title">WINNER</div>
         <div id="ol-winner-name" class="ol-result-name"></div>
+        <div id="ol-result-round" class="ol-result-round"></div>
+        <div id="ol-result-set-score" class="ol-result-set-score"></div>
         <div id="ol-result-stats" class="ol-result-stats">
           <div class="ol-result-stat-row">
             <span>RESULT</span><strong id="ol-result-outcome">—</strong>

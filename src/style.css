@@ -3236,15 +3236,6 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   MARK: オンライン対戦画面
 ───────────────────────────────────────────── */
 
-#versus-page.active #online-battle-page.active {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-  flex: 1;
-  overflow: hidden;
-}
-
 /* オンライン盤面はCPU戦と同じ対戦ページ配下のパネルとして表示する。 */
 #versus-page.active.online-battle-active #versus-layout {
   display: none;
@@ -3253,6 +3244,24 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
 #online-battle-page.battle-panel {
   position: relative;
   width: 100%;
+  display: block;
+}
+
+.ol-result-round,
+.ol-result-set-score {
+  color: var(--accent3);
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-align: center;
+  min-height: 16px;
+}
+
+.ol-result-set-score {
+  color: var(--text);
+  font-size: 14px;
+  letter-spacing: 1px;
+  margin: 4px 0 10px;
 }
 
 #ol-battle-layout {

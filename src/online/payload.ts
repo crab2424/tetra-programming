@@ -421,6 +421,8 @@ export interface UpdatePlayerPingRequest { id: Uuid; roomId: Uuid; pingMs: numbe
 
 /** MatchSettingのJSONスキーマ (matchSetting文字列をパースした型) */
 export interface OnlineMatchSetting {
+  /** セットの先取本数。1 = 1本勝負 */
+  setTarget: number;
   holdEnabled: boolean;
   b2bBonus: boolean;
   garbageMultiplier: number; // 1.0 = 等倍
@@ -435,6 +437,7 @@ export interface OnlineMatchSetting {
 }
 
 export const defaultMatchSetting: OnlineMatchSetting = {
+  setTarget: 1,
   holdEnabled: true,
   b2bBonus: true,
   garbageMultiplier: 1.0,
@@ -448,6 +451,9 @@ export function parseMatchSetting(json: string): OnlineMatchSetting {
   try {
     const parsed = JSON.parse(json);
     return {
+      setTarget: typeof parsed.setTarget === "number"
+        ? Math.max(1, Math.min(9, Math.floor(parsed.setTarget)))
+        : defaultMatchSetting.setTarget,
       holdEnabled: parsed.holdEnabled ?? defaultMatchSetting.holdEnabled,
       b2bBonus: parsed.b2bBonus ?? defaultMatchSetting.b2bBonus,
       garbageMultiplier: typeof parsed.garbageMultiplier === "number" ? parsed.garbageMultiplier : defaultMatchSetting.garbageMultiplier,
