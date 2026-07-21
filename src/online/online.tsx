@@ -964,6 +964,7 @@ class OnlineMode {
                 {toggleRow("HOLD", "holdEnabled", ms.holdEnabled)}
                 {toggleRow("B2B BONUS", "b2bBonus", ms.b2bBonus)}
                 {toggleRow("DMG ON CLEAR", "garbageDamageOnClear", ms.garbageDamageOnClear,)}
+                {sliderRow("SET TO", "setTarget", ms.setTarget, 1, 9, 1, " wins",)}
                 {sliderRow("GARBAGE ×", "garbageMultiplier", ms.garbageMultiplier, 0, 3, 0.1, "x",)}
                 {sliderRow("MARGIN TIME", "marginTime", ms.marginTime, 0, 300, 1, "s",)}
                 {sliderRow("HOLE RATE", "garbageHoleRate", ms.garbageHoleRate, 0, 100, 1, "%",)}

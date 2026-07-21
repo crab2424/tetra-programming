@@ -8,6 +8,9 @@ export interface OnlineResultModel {
   selfScore: number | null;
   selfPrimaryLabel: "LINES" | "MAX CHAIN";
   selfPrimaryValue: number | null;
+  round?: number;
+  target?: number;
+  score?: string;
 }
 
 function setText(id: string, value: string): void {
@@ -41,6 +44,9 @@ export function renderOnlineResult(model: OnlineResultModel): void {
   setText("ol-result-self-score", model.selfScore === null ? "—" : String(model.selfScore));
   setText("ol-result-self-lines", model.selfPrimaryValue === null ? "—" : String(model.selfPrimaryValue));
   setText("ol-result-self-lines-label", `YOUR ${model.selfPrimaryLabel}`);
+  setText("ol-result-round", model.round && model.target
+    ? `ROUND ${model.round} / FIRST TO ${model.target}` : "");
+  setText("ol-result-set-score", model.score ?? "");
 }
 
 export function resetOnlineResult(): void {
@@ -50,5 +56,8 @@ export function resetOnlineResult(): void {
     selfScore: null,
     selfPrimaryLabel: "LINES",
     selfPrimaryValue: null,
+    round: undefined,
+    target: undefined,
+    score: "",
   });
 }
