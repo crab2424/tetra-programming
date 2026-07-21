@@ -313,13 +313,26 @@ Object.assign(PuyoGame.prototype, {
     _generateOjama() {
         let drop = 0;
         let limit = 30;
+        let appliedColumns = [];
 
         // 降るおじゃまは、stage3(ready:true かつ internalでない)もののみ（internal優先）
         for (let i = 0; i < this.garbageQueue.length && drop < limit; i++) {
             if (this.garbageQueue[i].ready && !this.garbageQueue[i].internal && this.garbageQueue[i].amount > 0) {
                 let take = Math.min(this.garbageQueue[i].amount, limit - drop);
+                const garbage = this.garbageQueue[i];
+                const holes = Array.isArray(garbage.holes) ? garbage.holes : [];
+                // 受信した列配列は、端数行の配置に使う。フル行は全列が埋まるため
+                // 列情報を消費するだけで、盤面上の選択には影響しない。
+                const holeOffset = Math.max(0, holes.length - garbage.amount);
                 this.garbageQueue[i].amount -= take;
                 drop += take;
+
+                if (holes.length > 0) {
+                    garbage.holes = holes.slice(Math.min(take, holes.length));
+                }
+
+                // 後段の端数行が送信側と同じ列になるよう、今回の段階で記録する。
+                appliedColumns.push(...holes.slice(holeOffset, holeOffset + take));
             }
         }
 
@@ -344,10 +357,13 @@ Object.assign(PuyoGame.prototype, {
 
         if (fractions > 0) {
             let r = PConfig.hiddenRows - 1 - rows;
-            let cols = [0, 1, 2, 3, 4, 5];
-            for (let i = cols.length - 1; i > 0; i--) {
-                let j = Math.floor(this._random() * (i + 1));
-                [cols[i], cols[j]] = [cols[j], cols[i]];
+            // _generateOjama は複数キューをまとめて処理するため、各キューの
+            // 列情報を一時的に連結して使う。情報がない旧ローカル経路は乱数へフォールバック。
+            let cols = appliedColumns.slice(rows * PConfig.cols, rows * PConfig.cols + fractions)
+                .filter(c => Number.isInteger(c) && c >= 0 && c < PConfig.cols);
+            while (cols.length < fractions) {
+                const available = [0, 1, 2, 3, 4, 5].filter(c => !cols.includes(c));
+                cols.push(available.length > 0 ? available[Math.floor(this._random() * available.length)] : Math.floor(this._random() * PConfig.cols));
             }
             for (let i = 0; i < fractions; i++) {
                 this.field[r][cols[i]] = 6;

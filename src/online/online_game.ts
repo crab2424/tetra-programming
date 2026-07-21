@@ -1237,21 +1237,16 @@ export class OnlineGameController {
 
   private handleMatchFrame(frame: { opcode: number; senderId: Uuid; payload: Uint8Array }): void {
     // ── ローカルプレイヤーへのルーティング（送信元に関係なく自分に届く） ──
-    // ★ ガベージは「受信ルール別フレーム」を自分のルールに一致するものだけ直接適用する（変換しない）。
-    //   送信側が相手ルールに合わせて Garbage(tetライン) / GarbagePuyo(おじゃま) を作り分け、混在多人数では
-    //   両方を送る。これにより ojamaToTetLines/tetLinesToOjama の逆変換による過少を完全に排除する。
+    // ★ Garbage(0x24) は受信側ルールに応じて穴/列配列の意味だけが変わる。
+    //   サーバーはゲームルールを再計算せず、クライアントが自分のルールに適用する。
     if (frame.opcode === MatchOpcode.Garbage) {
-      // tet 形式フレーム: テトプレイヤーのみが直接ラインとして受ける。ぷよ宛ではないので無視。
-      if (this.myRule === 'puyo') return;
-      const g = decodeGarbage(frame.payload);
-      this.deliverGarbageToPlayer(g.amount, g.holes ?? []);
-      return;
-    }
-    if (frame.opcode === MatchOpcode.GarbagePuyo) {
-      // ぷよ形式フレーム: ぷよプレイヤーのみが直接おじゃまとして受ける。テト宛ではないので無視。
-      if (this.myRule !== 'puyo') return;
-      const ojama = frame.payload[0] ?? 0;
-      this.deliverOjamaToPlayer(ojama);
+      try {
+        const g = decodeGarbage(frame.payload);
+        if (this.myRule === 'puyo') this.deliverOjamaToPlayer(g.amount, g.holes);
+        else this.deliverGarbageToPlayer(g.amount, g.holes);
+      } catch (e) {
+        this.logger.warn("Invalid Garbage frame:", e);
+      }
       return;
     }
     // SE: 相手の音を低音量で再生
@@ -1452,9 +1447,9 @@ export class OnlineGameController {
   // ── Ojama delivery (puyo受け手) ─────────────────────────────────────────
 
   /** puyo受け手: 猶予800ms。ぷよは _garbageTimers のポーズ再開を持たないため単純タイマー方式 */
-  private deliverOjamaToPlayer(amount: number): void {
+  private deliverOjamaToPlayer(amount: number, columns: number[] = []): void {
     if (amount <= 0 || !this.game || !this.myAlive) return;
-    deliverLocalSimple(this.game, { amount, holes: [], ready: false, internal: false }, 800);
+    deliverLocalSimple(this.game, { amount, holes: columns, ready: false, internal: false }, 800);
   }
 
   // ── PieceState broadcast ─────────────────────────────────────────────────

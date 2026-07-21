@@ -19,12 +19,13 @@ export const MatchOpcode = {
   PendingUpdate: 0x29, // reliable: self incoming-garbage gauge state
   HoldState: 0x2a,    // reliable: current hold availability (0/1)
   StatsUpdate: 0x2b,  // reliable: display-only score/lines/chains snapshot
-  // ── Puyo frames (0x3N) ──────────────────────────────────────────────
-  PuyoPieceState: 0x30, // unreliable: puyo pair position/rotation (high-freq)
-  PuyoSpawn: 0x31,      // reliable: new pair spawned + next queue
-  PuyoLock: 0x32,       // reliable: full field snapshot
-  GarbagePuyo: 0x33,    // reliable: ojama count incoming (puyo sender)
-  PuyoChain: 0x34,      // reliable: 連鎖消去開始（点滅するセル一覧 + 連鎖数）
+  // ── Rule-dependent payloads share the 0x20..0x28 opcodes ───────────
+  // 受信側のルールはルーム情報で既知なので、TET/PUYO で opcode を分けない。
+  PuyoPieceState: 0x20, // unreliable: puyo pair position/rotation (high-freq)
+  PuyoSpawn: 0x21,      // reliable: new pair spawned + next queue
+  PuyoLock: 0x22,       // reliable: full field snapshot
+  GarbagePuyo: 0x24,    // reliable: ojama count + column sequence
+  PuyoChain: 0x27,      // reliable: 連鎖消去開始（点滅するセル一覧 + 連鎖数）
 } as const;
 export type MatchOpcodeValue = typeof MatchOpcode[keyof typeof MatchOpcode];
 
@@ -131,16 +132,19 @@ export function encodeClear(lines: number, flags: number, combo: number): Uint8A
   return new Uint8Array([MatchOpcode.Clear, lines & 0xff, flags & 0xff, combo & 0xff]);
 }
 
-// Garbage: 2 + N bytes (opcode + amount + holes[amount])
-// holes: 各おじゃま段の穴のX座標（送信側で確定＝両者の盤面表示が一致する）
+const GARBAGE_PROTOCOL_VERSION = 1;
+const MAX_GARBAGE_AMOUNT = 1000;
+
+// Garbage: opcode + version:u8 + amount:u16(LE) + holes:u8[amount]
+// TET受信時の holes は穴X座標、PUYO受信時はおじゃま列番号。
 export function encodeGarbage(lines: number, holes?: number[]): Uint8Array {
-  const n = lines & 0xff;
-  const withHoles = holes && holes.length > 0;
-  const buf = new Uint8Array(2 + (withHoles ? n : 0));
+  const n = Math.max(0, Math.min(MAX_GARBAGE_AMOUNT, Math.trunc(lines)));
+  const buf = new Uint8Array(1 + 1 + 2 + n);
   buf[0] = MatchOpcode.Garbage;
-  buf[1] = n;
-  if (withHoles) {
-    for (let i = 0; i < n; i++) buf[2 + i] = (holes[i] ?? 0) & 0xff;
+  buf[1] = GARBAGE_PROTOCOL_VERSION;
+  new DataView(buf.buffer).setUint16(2, n, true);
+  for (let i = 0; i < n; i++) {
+    buf[4 + i] = (holes?.[i] ?? 0) & 0xff;
   }
   return buf;
 }
@@ -267,13 +271,16 @@ export function decodeClear(p: Uint8Array): ClearData {
   return { lines: p[0], flags: p[1], combo: p[2] };
 }
 
-export interface GarbageData { amount: number; holes: number[] | null; }
-// 旧形式（amountのみ・穴なし）も受理する後方互換デコード
+export interface GarbageData { amount: number; holes: number[]; }
 export function decodeGarbage(p: Uint8Array): GarbageData {
-  const amount = p[0];
-  const holes = p.length >= 1 + amount && amount > 0
-    ? Array.from(p.slice(1, 1 + amount))
-    : null;
+  if (p.length < 3 || p[0] !== GARBAGE_PROTOCOL_VERSION) {
+    throw new Error("Unsupported Garbage payload");
+  }
+  const amount = new DataView(p.buffer, p.byteOffset, p.byteLength).getUint16(1, true);
+  if (amount < 1 || amount > MAX_GARBAGE_AMOUNT || p.length !== 3 + amount) {
+    throw new Error("Invalid Garbage amount/length");
+  }
+  const holes = Array.from(p.slice(3, 3 + amount));
   return { amount, holes };
 }
 export function decodeHold(p: Uint8Array): number { return p[0]; }
@@ -377,9 +384,11 @@ export function decodePuyoLock(p: Uint8Array): number[][] {
   return field;
 }
 
-// GarbagePuyo: 1 byte payload (ojama count)
+// PUYO のおじゃまも unified Garbage(0x24) を使う。各おじゃまの列を送信側で確定する。
 export function encodeGarbagePuyo(amount: number): Uint8Array {
-  return new Uint8Array([MatchOpcode.GarbagePuyo, amount & 0xff]);
+  const n = Math.max(0, Math.min(MAX_GARBAGE_AMOUNT, Math.trunc(amount)));
+  const columns = Array.from({ length: n }, () => Math.floor(Math.random() * PUYO_COLS));
+  return encodeGarbage(n, columns);
 }
 
 // PuyoChain: [chainCount][count][r,c × count] — 連鎖消去開始時の点滅セル
