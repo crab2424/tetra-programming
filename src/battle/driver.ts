@@ -123,7 +123,16 @@ export class NetworkDriver implements OpponentDriver {
     const puppet = this.puppet;
     switch (opcode) {
       case MatchOpcode.PieceState: {
-        if (this.rule !== "tet") return;
+        if (this.rule === "puyo") {
+          if (!puppet._imagesLoaded) return;
+          const ps = decodePuyoPieceState(payload);
+          puppet.pivotColor = ps.pivotColor; puppet.childColor = ps.childColor;
+          puppet.pivotX = ps.pivotX; puppet.pivotY = ps.pivotY;
+          puppet.targetRot = ps.rotation; puppet.animRot = ps.rotation; puppet.targetAnimRot = ps.rotation;
+          puppet._gs = "falling";
+          requestAnimationFrame(() => { if (puppet._imagesLoaded) puppet._render?.(); });
+          return;
+        }
         const ps = decodePieceState(payload);
         const mino = new Mino(ps.type);
         for (let r = 0; r < ps.rotation; r++) mino.rotate();
@@ -133,7 +142,13 @@ export class NetworkDriver implements OpponentDriver {
         return;
       }
       case MatchOpcode.Lock: {
-        if (this.rule !== "tet") return;
+        if (this.rule === "puyo") {
+          if (puppet._netChainBlink) clearInterval(puppet._netChainBlink);
+          puppet._netChainBlink = null; puppet._erasingCells = null;
+          puppet.field = decodePuyoLock(payload); puppet._gs = "idle";
+          if (puppet._imagesLoaded) puppet._render?.();
+          return;
+        }
         const boardArr = decodeLock(payload);
         const blocks: any[] = [];
         for (let i = 0; i < boardArr.length; i++) {
@@ -151,7 +166,18 @@ export class NetworkDriver implements OpponentDriver {
         return;
       }
       case MatchOpcode.Spawn: {
-        if (this.rule !== "tet") return;
+        if (this.rule === "puyo") {
+          const sp = decodePuyoSpawn(payload);
+          puppet.nextQueue = puppet.nextQueue ?? [];
+          if (sp.nextPairs.length > 0) puppet.nextQueue = sp.nextPairs.map((p: [number, number]) => [p[0], p[1]]);
+          if (sp.pivotColor !== 0 || sp.childColor !== 0) {
+            puppet.pivotColor = sp.pivotColor; puppet.childColor = sp.childColor;
+            puppet.pivotX = 2; puppet.pivotY = -0.5;
+            puppet.targetRot = 0; puppet.animRot = 0; puppet.targetAnimRot = 0; puppet._gs = "falling";
+          }
+          if (puppet._imagesLoaded) puppet._render?.();
+          return;
+        }
         const sp = decodeSpawn(payload);
         if (sp.type === 0xff) {
           puppet.nextQueue = sp.nextTypes.filter((t: number) => t !== 0xff).map((t: number) => new Mino(t));
@@ -184,38 +210,7 @@ export class NetworkDriver implements OpponentDriver {
       case MatchOpcode.StatsUpdate:
         this.onStats?.(this.index, decodeStatsUpdate(payload));
         return;
-      case MatchOpcode.PuyoPieceState: {
-        if (this.rule !== "puyo" || !puppet._imagesLoaded) return;
-        const ps = decodePuyoPieceState(payload);
-        puppet.pivotColor = ps.pivotColor; puppet.childColor = ps.childColor;
-        puppet.pivotX = ps.pivotX; puppet.pivotY = ps.pivotY;
-        puppet.targetRot = ps.rotation; puppet.animRot = ps.rotation; puppet.targetAnimRot = ps.rotation;
-        puppet._gs = "falling";
-        requestAnimationFrame(() => { if (puppet._imagesLoaded) puppet._render?.(); });
-        return;
-      }
-      case MatchOpcode.PuyoSpawn: {
-        if (this.rule !== "puyo") return;
-        const sp = decodePuyoSpawn(payload);
-        puppet.nextQueue = puppet.nextQueue ?? [];
-        if (sp.nextPairs.length > 0) puppet.nextQueue = sp.nextPairs.map((p: [number, number]) => [p[0], p[1]]);
-        if (sp.pivotColor !== 0 || sp.childColor !== 0) {
-          puppet.pivotColor = sp.pivotColor; puppet.childColor = sp.childColor;
-          puppet.pivotX = 2; puppet.pivotY = -0.5;
-          puppet.targetRot = 0; puppet.animRot = 0; puppet.targetAnimRot = 0; puppet._gs = "falling";
-        }
-        if (puppet._imagesLoaded) puppet._render?.();
-        return;
-      }
-      case MatchOpcode.PuyoLock: {
-        if (this.rule !== "puyo") return;
-        if (puppet._netChainBlink) clearInterval(puppet._netChainBlink);
-        puppet._netChainBlink = null; puppet._erasingCells = null;
-        puppet.field = decodePuyoLock(payload); puppet._gs = "idle";
-        if (puppet._imagesLoaded) puppet._render?.();
-        return;
-      }
-      case MatchOpcode.PuyoChain: {
+      case MatchOpcode.ChainReplay: {
         if (this.rule !== "puyo") return;
         const chain = decodePuyoChain(payload);
         puppet._erasingCells = chain.cells; puppet._eraseTimer = 0; puppet._gs = "erasing";
