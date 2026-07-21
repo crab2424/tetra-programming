@@ -571,8 +571,10 @@
   <!-- ─────────────────────────────────────────────
     MARK: オンライン対戦画面
     ───────────────────────────────────────────── -->
-  <!-- オンライン盤面は #versus-page に移される共有バトルパネル。独立ページにしない。 -->
-  <div id="online-battle-page" class="battle-panel">
+  <!-- オンライン盤面は #versus-page に移される共有バトルパネル。独立ページにしない。
+       初期状態は.pageのまま(対戦未開始でも.page:not(.active)で隠すため)。
+       switchToBattlePage()が対戦開始時にbattle-panelへ差し替える。 -->
+  <div id="online-battle-page" class="page">
     <div id="ol-battle-layout">
       <!-- 左側：自分のフィールド（相手スロットと同一のDOM構造で統一） -->
       <div id="ol-player-area">
