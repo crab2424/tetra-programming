@@ -60,6 +60,8 @@ export class NetworkDriver implements OpponentDriver {
   private readonly onStats?: NetworkDriverOptions["onStats"];
   private puyoSnapshot: number[][] | null = null;
   private puyoDropFrame: number | null = null;
+  /** 進行中パペットアニメの世代トークン。新スナップショット到着で旧 RAF tick を無効化する。 */
+  private puyoAnimGen = 0;
 
   constructor(options: NetworkDriverOptions) {
     this.id = options.id;
@@ -233,10 +235,128 @@ export class NetworkDriver implements OpponentDriver {
     }
   }
 
-  /** ネットワーク盤面の差分から、ちぎり・連鎖後の落下を既存描画器で再生する。 */
+  /**
+   * ネットワーク盤面スナップショットを描画へ反映する。
+   *
+   * 送信側は fix(_beginFixAnimWait)／erase(_applyErase)／drop(_applyDropAnim) の各直後に
+   * 同じ opcode(0x22) でフル盤面を送るため、受信側は盤面差分の形から種類を判別する:
+   *   - 純増分(色→追加のみ・通常色1〜5が1〜2個)  = 設置(fix) → 実エンジンと同じ「その場振動＋ちぎり落下」
+   *   - それ以外(色→0の消去・移動・おじゃま色6)   = 連鎖/おじゃま → 従来の差分落下で近似（案D で置換予定）
+   */
   private applyPuyoSnapshot(next: number[][]): void {
+    const previous = this.puyoSnapshot ?? this.copyPuyoField(this.puppet.field);
+    const rows = next.length;
+    const cols = rows > 0 ? next[0].length : 6;
+
+    const newCells: Array<{ r: number; c: number; color: number }> = [];
+    let hasRemovalOrChange = false;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const nx = next[r]?.[c] ?? 0;
+        const pv = previous[r]?.[c] ?? 0;
+        if (nx === pv) continue;
+        if (pv === 0 && nx !== 0) newCells.push({ r, c, color: nx });
+        else hasRemovalOrChange = true; // 消去(色→0) / 落下移動 / おじゃま上端退避
+      }
+    }
+
+    // 設置(fix)判定: 消去/移動を含まず、通常色(1..5)のペアが1〜2個だけ増えた純増分のみ。
+    // おじゃま(色6・多数・上端から落下)は hasRemovalOrChange か色/個数条件で自然に除外される。
+    const isPlacement =
+      !hasRemovalOrChange &&
+      newCells.length >= 1 && newCells.length <= 2 &&
+      newCells.every((cell) => cell.color >= 1 && cell.color <= 5);
+
+    if (isPlacement) this.applyPuyoPlacement(next, newCells);
+    else this.applyPuyoChainDiff(previous, next);
+  }
+
+  /**
+   * 設置(fix)スナップショットを実エンジン(engine.js の _fixPuyo/_addPuyoAnim)と同じ表現で再生する:
+   *   - 通常設置: 各ぷよを最終位置で「その場振動(squash)」させる（上端からの落下はしない）。
+   *   - ちぎり  : 別列・別行の2セルは、上(接地)側は静止、下側だけロック接地行から実際に落として着地時に振動。
+   * パペットは _loop を持たないため、振動タイマー(activeAnims)と落下(_dropAnim)を専用 RAF tick で進める。
+   */
+  private applyPuyoPlacement(
+    next: number[][],
+    newCells: Array<{ r: number; c: number; color: number }>,
+  ): void {
     const puppet = this.puppet;
-    const previous = this.puyoSnapshot ?? this.copyPuyoField(puppet.field);
+    this.puyoSnapshot = this.copyPuyoField(next);
+
+    const CS = 32;      // PConfig.cellSize
+    const HIDDEN = 5;   // PConfig.hiddenRows
+    const CYCLES = 2;   // 実エンジン _calcFixCycles の非ソフトドロップ既定と同値
+
+    // ちぎり: 別列・別行 → 上(小行=ロック接地)側は静止、下(大行)側が接地行から落下する。
+    let falling: { c: number; fromR: number; toR: number; color: number } | null = null;
+    let staticCells = newCells;
+    if (newCells.length === 2 && newCells[0].c !== newCells[1].c && newCells[0].r !== newCells[1].r) {
+      const [hi, lo] = newCells[0].r < newCells[1].r ? [newCells[0], newCells[1]] : [newCells[1], newCells[0]];
+      falling = { c: lo.c, fromR: hi.r, toR: lo.r, color: lo.color };
+      staticCells = [hi];
+    }
+
+    // 表示フィールド: 落下中セルだけ一時的に空にして二重描画を防ぐ。
+    const field = this.copyPuyoField(next);
+    if (falling) field[falling.toR][falling.c] = 0;
+    puppet.field = field;
+    puppet.mino = null;
+    puppet._erasingCells = null;
+    puppet._gs = "idle";
+
+    // 静止セルは即振動。
+    for (const cell of staticCells) puppet._addPuyoAnim?.(cell.r, cell.c, CYCLES);
+
+    puppet._dropAnim = falling
+      ? [{ c: falling.c, cells: [{ fromR: falling.fromR, color: falling.color, py: (falling.fromR - HIDDEN) * CS }] }]
+      : null;
+
+    const gen = this.beginPuyoAnim();
+    const dropDurMs = falling ? Math.max(60, (falling.toR - falling.fromR) * 40) : 0;
+    const start = performance.now();
+    let last = start;
+    const tick = (now: number) => {
+      if (gen !== this.puyoAnimGen) return; // 新スナップショットで無効化された
+      const dt = now - last;
+      last = now;
+
+      // 振動タイマー前進（engine.js:198-201 と同じ: 進めて満了を除去）。
+      for (const a of puppet.activeAnims) a.timer += dt;
+      puppet.activeAnims = puppet.activeAnims.filter((a: any) => a.timer < a.duration);
+
+      // ちぎり落下前進。着地したら最終盤面へ戻して着地セルを振動させる。
+      let dropDone = true;
+      if (falling && puppet._dropAnim) {
+        const progress = Math.min(1, (now - start) / dropDurMs);
+        puppet._dropAnim[0].cells[0].py = (falling.fromR - HIDDEN) * CS + (falling.toR - falling.fromR) * CS * progress;
+        if (progress >= 1) {
+          puppet.field = this.copyPuyoField(next);
+          puppet._dropAnim = null;
+          puppet._addPuyoAnim?.(falling.toR, falling.c, CYCLES);
+          falling = null;
+        } else {
+          dropDone = false;
+        }
+      }
+
+      puppet._render?.();
+
+      if (dropDone && puppet.activeAnims.length === 0) {
+        puppet._dropAnim = null;
+        puppet._gs = "idle";
+        puppet._render?.();
+        this.puyoDropFrame = null;
+        return;
+      }
+      this.puyoDropFrame = requestAnimationFrame(tick);
+    };
+    this.puyoDropFrame = requestAnimationFrame(tick);
+  }
+
+  /** 連鎖の消去後落下・おじゃま落下を、盤面差分から落下アニメで近似する（案D で正式再生へ置換予定）。 */
+  private applyPuyoChainDiff(previous: number[][], next: number[][]): void {
+    const puppet = this.puppet;
     const field = this.copyPuyoField(next);
     const anims: Array<{ c: number; cells: Array<{ fromR: number; toR: number; color: number; py: number }> }> = [];
     const rows = next.length;
@@ -259,8 +379,6 @@ export class NetworkDriver implements OpponentDriver {
             break;
           }
         }
-        // 新たに届いたちぎり／ロック片は盤面上端から落として、相手盤面にも
-        // CPU戦と同じ「配置された」感覚を残す。
         if (fromR < 0) fromR = Math.min(toR - 1, 0);
         if (fromR >= toR) continue;
         used.add(fromR);
@@ -274,11 +392,13 @@ export class NetworkDriver implements OpponentDriver {
     puppet.field = field;
     puppet._dropAnim = anims.length > 0 ? anims : null;
     puppet._gs = anims.length > 0 ? "dropping" : "idle";
+
+    const gen = this.beginPuyoAnim();
     if (anims.length === 0) return;
 
     const start = performance.now();
     const tick = (now: number) => {
-      if (puppet._dropAnim !== anims) return;
+      if (gen !== this.puyoAnimGen) return;
       const progress = Math.min(1, (now - start) / 180);
       let done = progress >= 1;
       for (const column of anims) {
@@ -300,6 +420,15 @@ export class NetworkDriver implements OpponentDriver {
       }
     };
     this.puyoDropFrame = requestAnimationFrame(tick);
+  }
+
+  /** 新しいパペットアニメを開始する。旧 RAF tick を無効化し、新しい世代トークンを返す。 */
+  private beginPuyoAnim(): number {
+    if (this.puyoDropFrame !== null) {
+      cancelAnimationFrame(this.puyoDropFrame);
+      this.puyoDropFrame = null;
+    }
+    return ++this.puyoAnimGen;
   }
 
   private copyPuyoField(field: number[][] | undefined): number[][] {
