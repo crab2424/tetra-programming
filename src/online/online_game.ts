@@ -23,6 +23,7 @@ import {
   encodePuyoPieceState,
   encodePuyoSpawn,
   encodePuyoLock,
+  PuyoLockPhase,
   encodeGarbagePuyo,
   encodePuyoChain,
   decodeGarbage,
@@ -899,18 +900,27 @@ export class OnlineGameController {
       return result;
     };
 
-    // 連鎖中・着地時に盤面が変化するたびにスナップショットを送る。
+    // 連鎖中・着地時に盤面が変化するたびに、段階(phase)付きスナップショットを送る。
+    // 受信側(driver.ts の連鎖リプレイ)がこの phase を使って点滅→消去→落下を実タイミングで再生する。
     // これがないと、相手の盤面は新ペア出現（連鎖完了後）まで一切更新されない。
-    const sendFieldSnapshot = () => {
+    const sendFieldSnapshot = (phase: number) => {
       if (!this.myAlive) return;
-      conn.sendMatchEvent(encodePuyoLock(game.field as number[][]));
+      conn.sendMatchEvent(encodePuyoLock(game.field as number[][], phase));
     };
-    for (const method of ['_beginFixAnimWait', '_applyErase', '_applyDropAnim'] as const) {
+    // [メソッド, phase, 連鎖外(chainCount===0)のときだけ送るか]
+    // _beginFixAnimWait は「初手着地(chainCount===0)」と「連鎖リンクの落下後(chainCount>0)」の
+    // 両方で発火する。後者は直前の _applyDropAnim(Drop) と同一盤面の重複なので、初手着地のみ送る。
+    const snapshotHooks: Array<[string, number, boolean]> = [
+      ['_beginFixAnimWait', PuyoLockPhase.Fix, true],
+      ['_applyErase', PuyoLockPhase.Erase, false],
+      ['_applyDropAnim', PuyoLockPhase.Drop, false],
+    ];
+    for (const [method, phase, onlyOutsideChain] of snapshotHooks) {
       if (typeof game[method] !== 'function') continue;
       const orig: AnyFn = game[method].bind(game);
       game[method] = (...args: any[]) => {
         const r = orig(...args);
-        sendFieldSnapshot();
+        if (!onlyOutsideChain || (game.chainCount ?? 0) === 0) sendFieldSnapshot(phase);
         return r;
       };
     }

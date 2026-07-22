@@ -359,12 +359,20 @@ export function decodePuyoSpawn(p: Uint8Array): PuyoSpawnData {
   return { pivotColor: p[0], childColor: p[1], nextPairs };
 }
 
-// PuyoLock: 102 bytes (field[r][c] row-major, 0=empty 1-5=color 6=ojama)
-// field is the 17×6 internal field array (rows include hidden rows)
-export function encodePuyoLock(field: number[][]): Uint8Array {
-  const buf = new Uint8Array(1 + PUYO_FIELD_SIZE);
+/**
+ * PuyoLock のスナップショット種別（連鎖再生のペーシングに使う）。
+ * opcode は 0x22 のまま payload 先頭に 1 バイト付与する。サーバーは中身を見ないため
+ * プロトコル/サーバー変更なしで受信側が「どの段階の盤面か」を確定できる。
+ */
+export const PuyoLockPhase = { Fix: 0, Erase: 1, Drop: 2 } as const;
+export type PuyoLockPhaseValue = typeof PuyoLockPhase[keyof typeof PuyoLockPhase];
+
+// PuyoLock: 1(phase) + 102(field) bytes。field は 17×6 の内部盤面（hidden 行込み）。
+export function encodePuyoLock(field: number[][], phase: number = PuyoLockPhase.Fix): Uint8Array {
+  const buf = new Uint8Array(2 + PUYO_FIELD_SIZE);
   buf[0] = MatchOpcode.PuyoLock;
-  let idx = 1;
+  buf[1] = phase & 0xff;
+  let idx = 2;
   for (let r = 0; r < PUYO_ROWS; r++) {
     for (let c = 0; c < PUYO_COLS; c++) {
       buf[idx++] = (field[r]?.[c] ?? 0) & 0xff;
@@ -372,16 +380,19 @@ export function encodePuyoLock(field: number[][]): Uint8Array {
   }
   return buf;
 }
-export function decodePuyoLock(p: Uint8Array): number[][] {
+export interface PuyoLockData { field: number[][]; phase: number; }
+export function decodePuyoLock(p: Uint8Array): PuyoLockData {
+  // payload は受信層で opcode + 送信元UUID(16B) を除去済み → [phase, ...field]
+  const phase = p[0] ?? 0;
   const field: number[][] = [];
   for (let r = 0; r < PUYO_ROWS; r++) {
     const row: number[] = [];
     for (let c = 0; c < PUYO_COLS; c++) {
-      row.push(p[r * PUYO_COLS + c] ?? 0);
+      row.push(p[1 + r * PUYO_COLS + c] ?? 0);
     }
     field.push(row);
   }
-  return field;
+  return { field, phase };
 }
 
 // PUYO のおじゃまも unified Garbage(0x24) を使う。各おじゃまの列を送信側で確定する。

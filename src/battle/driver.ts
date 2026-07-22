@@ -10,6 +10,7 @@ import {
   decodeHoldState,
   decodeStatsUpdate,
   MatchOpcode,
+  PuyoLockPhase,
   BOARD_BUFFER_ROWS,
   BOARD_COLS,
 } from "../online/game_protocol";
@@ -33,6 +34,31 @@ export interface OpponentDriver {
 }
 
 type NetworkRule = "tet" | "puyo";
+
+// ── PUYO 相手盤面リプレイ用の定数（実エンジン PConfig と同値に揃える） ───────────
+const PUYO_CELL = 32;                          // PConfig.cellSize
+const PUYO_HIDDEN = 5;                         // PConfig.hiddenRows
+const PUYO_ERASE_MS = 28 * (1000 / 60);        // PConfig.eraseMs（点滅時間 ≈ 466.7ms）
+const PUYO_ERASE_WAIT_MS = 270;                // PConfig.eraseWaitMs（消去後の間）
+const PUYO_CHAIN_DROP_PX_PER_MS = PUYO_CELL / 50;        // dropping 状態: cellSize/50 px/ms
+const PUYO_CHIGIRI_PX_PER_MS = PUYO_CELL / (500 / 6);    // splitDropSpeed: 1セル/83.3ms
+const PUYO_FIX_CYCLES = 2;                     // 設置振動 _calcFixCycles の非ソフトドロップ既定
+
+type PuyoReplayPhase = "idle" | "blink" | "wait" | "drop" | "vib";
+
+/** driver に積まれる相手ぷよの演出イベント（到着順を保持し、実タイミングで再生する）。 */
+type PuyoReplayItem =
+  | { kind: "blink"; cells: Array<{ r: number; c: number }>; chainCount: number }
+  | { kind: "lock"; phase: number; field: number[][] }
+  | { kind: "spawn"; nextQueue: number[][] | null; pivotColor: number; childColor: number; hasPair: boolean };
+
+/** 進行中の落下アニメ（ちぎり／連鎖後落下で共用）。 */
+interface PuyoDropState {
+  target: number[][];
+  anims: Array<{ c: number; cells: Array<{ fromR: number; toR: number; color: number; py: number }> }>;
+  pxPerMs: number;
+  vibCycles: (dropDist: number) => number;
+}
 
 export type NetworkDriverOptions = {
   id: string;
@@ -58,10 +84,13 @@ export class NetworkDriver implements OpponentDriver {
   private readonly onDead: (id: string) => void;
   private readonly onNameDead: (index: number) => void;
   private readonly onStats?: NetworkDriverOptions["onStats"];
-  private puyoSnapshot: number[][] | null = null;
-  private puyoDropFrame: number | null = null;
-  /** 進行中パペットアニメの世代トークン。新スナップショット到着で旧 RAF tick を無効化する。 */
-  private puyoAnimGen = 0;
+  // ── 相手ぷよの連鎖/設置リプレイ（案D: 到着順キュー + 実タイミング再生） ──
+  private puyoReplayQueue: PuyoReplayItem[] = [];
+  private puyoReplayPhase: PuyoReplayPhase = "idle";
+  private puyoReplayTimer = 0;
+  private puyoReplayFrame: number | null = null;
+  private puyoReplayLastNow = 0;
+  private puyoDrop: PuyoDropState | null = null;
 
   constructor(options: NetworkDriverOptions) {
     this.id = options.id;
@@ -75,7 +104,6 @@ export class NetworkDriver implements OpponentDriver {
       this.puppet = new PuyoGame(`ol-opp-${this.index}`);
       this.puppet._setupCanvas();
       this.puppet._initField?.();
-      this.puyoSnapshot = this.copyPuyoField(this.puppet.field);
       this.puppet.nextQueue = [];
       this.puppet.rng = null;
       this.puppet._loadImages(() => { this.puppet._render?.(); });
@@ -94,20 +122,14 @@ export class NetworkDriver implements OpponentDriver {
   start(): void { /* NetworkDriver is driven by incoming frames. */ }
 
   stop(): void {
-    if (this.puyoDropFrame !== null) {
-      cancelAnimationFrame(this.puyoDropFrame);
-      this.puyoDropFrame = null;
-    }
-    if (this.puppet?._netChainBlink) {
-      clearInterval(this.puppet._netChainBlink);
-      this.puppet._netChainBlink = null;
-    }
+    this.stopPuyoReplay();
     this.puppet?.stop?.();
   }
 
   markDead(): void {
     this.onDead(this.id);
     if (this.rule === "puyo") {
+      this.stopPuyoReplay();
       this.puppet.isPaused = true;
       this.puppet._render?.();
     } else {
@@ -120,6 +142,7 @@ export class NetworkDriver implements OpponentDriver {
 
   setDisconnected(): void {
     if (this.rule === "puyo") {
+      this.stopPuyoReplay();
       this.puppet.isPaused = true;
       this.puppet._render?.();
     } else {
@@ -134,6 +157,8 @@ export class NetworkDriver implements OpponentDriver {
       case MatchOpcode.PieceState: {
         if (this.rule === "puyo") {
           if (!puppet._imagesLoaded) return;
+          // 連鎖/設置リプレイ中は操作ぷよを描かない（古い落下ぷよが演出に重なるのを防ぐ）。
+          if (this.puyoReplayPhase !== "idle" || this.puyoReplayQueue.length > 0) return;
           const ps = decodePuyoPieceState(payload);
           puppet.pivotColor = ps.pivotColor; puppet.childColor = ps.childColor;
           puppet.pivotX = ps.pivotX; puppet.pivotY = ps.pivotY;
@@ -152,10 +177,9 @@ export class NetworkDriver implements OpponentDriver {
       }
       case MatchOpcode.Lock: {
         if (this.rule === "puyo") {
-          if (puppet._netChainBlink) clearInterval(puppet._netChainBlink);
-          puppet._netChainBlink = null; puppet._erasingCells = null;
-          this.applyPuyoSnapshot(decodePuyoLock(payload));
-          if (puppet._imagesLoaded) puppet._render?.();
+          const { field, phase } = decodePuyoLock(payload);
+          this.puyoReplayQueue.push({ kind: "lock", phase, field });
+          this.ensurePuyoReplay();
           return;
         }
         const boardArr = decodeLock(payload);
@@ -177,14 +201,15 @@ export class NetworkDriver implements OpponentDriver {
       case MatchOpcode.Spawn: {
         if (this.rule === "puyo") {
           const sp = decodePuyoSpawn(payload);
-          puppet.nextQueue = puppet.nextQueue ?? [];
-          if (sp.nextPairs.length > 0) puppet.nextQueue = sp.nextPairs.map((p: [number, number]) => [p[0], p[1]]);
-          if (sp.pivotColor !== 0 || sp.childColor !== 0) {
-            puppet.pivotColor = sp.pivotColor; puppet.childColor = sp.childColor;
-            puppet.pivotX = 2; puppet.pivotY = -0.5;
-            puppet.targetRot = 0; puppet.animRot = 0; puppet.targetAnimRot = 0; puppet._gs = "falling";
-          }
-          if (puppet._imagesLoaded) puppet._render?.();
+          // 連鎖リプレイの後に新ペアを出すため、キューへ積んで順序を保つ。
+          this.puyoReplayQueue.push({
+            kind: "spawn",
+            nextQueue: sp.nextPairs.length > 0 ? sp.nextPairs.map((p: [number, number]) => [p[0], p[1]]) : null,
+            pivotColor: sp.pivotColor,
+            childColor: sp.childColor,
+            hasPair: sp.pivotColor !== 0 || sp.childColor !== 0,
+          });
+          this.ensurePuyoReplay();
           return;
         }
         const sp = decodeSpawn(payload);
@@ -222,73 +247,153 @@ export class NetworkDriver implements OpponentDriver {
       case MatchOpcode.ChainReplay: {
         if (this.rule !== "puyo") return;
         const chain = decodePuyoChain(payload);
-        puppet._erasingCells = chain.cells; puppet._eraseTimer = 0; puppet._gs = "erasing";
-        if (puppet._netChainBlink) clearInterval(puppet._netChainBlink);
-        const start = performance.now();
-        puppet._netChainBlink = setInterval(() => {
-          puppet._eraseTimer = performance.now() - start;
-          if (puppet._imagesLoaded) puppet._render?.();
-          if (puppet._eraseTimer > 320) { clearInterval(puppet._netChainBlink); puppet._netChainBlink = null; }
-        }, 50);
+        this.puyoReplayQueue.push({ kind: "blink", cells: chain.cells, chainCount: chain.chainCount });
+        this.ensurePuyoReplay();
         return;
       }
     }
   }
 
-  /**
-   * ネットワーク盤面スナップショットを描画へ反映する。
-   *
-   * 送信側は fix(_beginFixAnimWait)／erase(_applyErase)／drop(_applyDropAnim) の各直後に
-   * 同じ opcode(0x22) でフル盤面を送るため、受信側は盤面差分の形から種類を判別する:
-   *   - 純増分(色→追加のみ・通常色1〜5が1〜2個)  = 設置(fix) → 実エンジンと同じ「その場振動＋ちぎり落下」
-   *   - それ以外(色→0の消去・移動・おじゃま色6)   = 連鎖/おじゃま → 従来の差分落下で近似（案D で置換予定）
-   */
-  private applyPuyoSnapshot(next: number[][]): void {
-    const previous = this.puyoSnapshot ?? this.copyPuyoField(this.puppet.field);
-    const rows = next.length;
-    const cols = rows > 0 ? next[0].length : 6;
+  // ── 相手ぷよ 連鎖/設置リプレイ（案D） ─────────────────────────────────────
+  //
+  // 送信側は各段階で phase 付き PuyoLock を送る:
+  //   Fix   = 初手着地（_beginFixAnimWait, chainCount===0）
+  //   Erase = 連鎖の消去直後（_applyErase, 該当セルを消した盤面）
+  //   Drop  = 連鎖の落下確定後（_applyDropAnim, 落ち終わった盤面）
+  // さらに連鎖開始時の点滅セルは ChainReplay(0x27) で届く。
+  // これらを到着順にキューへ積み、実エンジン(PConfig)と同じ時間で
+  //   点滅(eraseMs) → 消去swap → 間(eraseWaitMs) → 落下(gravity) → 着地振動
+  // と再生する。reliable channel のバースト到着でも「一瞬で確定」せず本来の速度で見える。
+  // PuyoGame 本体には触れず driver 内で完結するので、物理/RNG/SE/おじゃまの二重発火は起きない。
 
-    const newCells: Array<{ r: number; c: number; color: number }> = [];
-    let hasRemovalOrChange = false;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const nx = next[r]?.[c] ?? 0;
-        const pv = previous[r]?.[c] ?? 0;
-        if (nx === pv) continue;
-        if (pv === 0 && nx !== 0) newCells.push({ r, c, color: nx });
-        else hasRemovalOrChange = true; // 消去(色→0) / 落下移動 / おじゃま上端退避
-      }
+  /** 再生ループを（動いていなければ）開始する。 */
+  private ensurePuyoReplay(): void {
+    if (this.puyoReplayFrame !== null) return;
+    this.puyoReplayLastNow = performance.now();
+    this.puyoReplayFrame = requestAnimationFrame((n) => this.stepPuyoReplay(n));
+  }
+
+  /** 再生を止めてキューを捨てる（stop / markDead / 切断時）。 */
+  private stopPuyoReplay(): void {
+    if (this.puyoReplayFrame !== null) {
+      cancelAnimationFrame(this.puyoReplayFrame);
+      this.puyoReplayFrame = null;
+    }
+    this.puyoReplayQueue = [];
+    this.puyoReplayPhase = "idle";
+    this.puyoDrop = null;
+  }
+
+  /** 毎フレーム: 振動を進め、現フェーズを1段進め、描画する。 */
+  private stepPuyoReplay(now: number): void {
+    const puppet = this.puppet;
+    const dt = Math.min(100, now - this.puyoReplayLastNow);
+    this.puyoReplayLastNow = now;
+
+    // 振動タイマーは実エンジン _update 同様、フェーズ非依存で毎フレーム前進させる。
+    if (puppet.activeAnims?.length) {
+      for (const a of puppet.activeAnims) a.timer += dt;
+      puppet.activeAnims = puppet.activeAnims.filter((x: any) => x.timer < x.duration);
     }
 
-    // 設置(fix)判定: 消去/移動を含まず、通常色(1..5)のペアが1〜2個だけ増えた純増分のみ。
-    // おじゃま(色6・多数・上端から落下)は hasRemovalOrChange か色/個数条件で自然に除外される。
-    const isPlacement =
-      !hasRemovalOrChange &&
-      newCells.length >= 1 && newCells.length <= 2 &&
-      newCells.every((cell) => cell.color >= 1 && cell.color <= 5);
+    if (this.puyoReplayPhase === "idle") {
+      this.startNextPuyoItem();
+    } else if (this.advancePuyoPhase(dt)) {
+      this.puyoReplayPhase = "idle";
+      this.startNextPuyoItem();
+    }
 
-    if (isPlacement) this.applyPuyoPlacement(next, newCells);
-    else this.applyPuyoChainDiff(previous, next);
+    if (puppet._imagesLoaded) puppet._render?.();
+
+    if (
+      this.puyoReplayPhase === "idle" &&
+      this.puyoReplayQueue.length === 0 &&
+      (puppet.activeAnims?.length ?? 0) === 0
+    ) {
+      this.puyoReplayFrame = null; // やることがない → 停止
+      return;
+    }
+    this.puyoReplayFrame = requestAnimationFrame((n) => this.stepPuyoReplay(n));
+  }
+
+  /** キューから次アイテムを取り出し、時間のかかるフェーズが始まるまで瞬時アイテムを消化する。 */
+  private startNextPuyoItem(): void {
+    while (this.puyoReplayQueue.length > 0) {
+      const item = this.puyoReplayQueue.shift()!;
+      if (this.beginPuyoItem(item)) return; // timed フェーズ開始（次フレームで進める）
+      // spawn / settle 等の瞬時アイテムは適用済み → 次へ
+    }
+  }
+
+  /** 1アイテムを開始する。timed フェーズ(blink/wait/drop/vib)を始めたら true。 */
+  private beginPuyoItem(item: PuyoReplayItem): boolean {
+    const puppet = this.puppet;
+    if (item.kind === "blink") {
+      puppet._dropAnim = null;
+      puppet._erasingCells = item.cells;
+      puppet._eraseTimer = 0;
+      puppet._gs = "erasing";
+      this.puyoReplayTimer = 0;
+      this.puyoReplayPhase = "blink";
+      return true;
+    }
+    if (item.kind === "spawn") {
+      if (item.nextQueue) puppet.nextQueue = item.nextQueue;
+      if (item.hasPair) {
+        puppet.pivotColor = item.pivotColor; puppet.childColor = item.childColor;
+        puppet.pivotX = 2; puppet.pivotY = -0.5;
+        puppet.targetRot = 0; puppet.animRot = 0; puppet.targetAnimRot = 0;
+        puppet._dropAnim = null; puppet._erasingCells = null;
+        puppet._gs = "falling";
+      }
+      return false; // 瞬時
+    }
+    // item.kind === "lock"
+    if (item.phase === PuyoLockPhase.Erase) {
+      puppet._dropAnim = null;
+      puppet._erasingCells = null;
+      puppet.field = this.copyPuyoField(item.field);
+      puppet._gs = "idle";
+      this.puyoReplayTimer = 0;
+      this.puyoReplayPhase = "wait"; // 消去後の間(eraseWaitMs)
+      return true;
+    }
+    if (item.phase === PuyoLockPhase.Drop) {
+      if (this.setupPuyoDrop(item.field, PUYO_CHAIN_DROP_PX_PER_MS, (d) => (d >= 2 ? 4 : 3))) {
+        this.puyoReplayPhase = "drop";
+        return true;
+      }
+      // 落下差分なし（既に現盤面と一致）→ 確定のみ
+      puppet._dropAnim = null;
+      puppet.field = this.copyPuyoField(item.field);
+      puppet._gs = "idle";
+      return false;
+    }
+    // item.phase === Fix
+    return this.beginPuyoFix(item.field);
   }
 
   /**
-   * 設置(fix)スナップショットを実エンジン(engine.js の _fixPuyo/_addPuyoAnim)と同じ表現で再生する:
-   *   - 通常設置: 各ぷよを最終位置で「その場振動(squash)」させる（上端からの落下はしない）。
-   *   - ちぎり  : 別列・別行の2セルは、上(接地)側は静止、下側だけロック接地行から実際に落として着地時に振動。
-   * パペットは _loop を持たないため、振動タイマー(activeAnims)と落下(_dropAnim)を専用 RAF tick で進める。
+   * 設置(Fix)スナップショットを実エンジン(engine.js の _fixPuyo/_addPuyoAnim)と同じ表現で始める:
+   *   - 通常設置: 最終位置で「その場振動(squash)」（上端からの落下はしない）。
+   *   - ちぎり  : 別列・別行の2セルは上(接地)側は静止、下側だけ接地行から落下し着地で振動。
+   * 設置でない Fix（連鎖後の重複・おじゃま等）は盤面を確定するだけ。timed フェーズ開始なら true。
    */
-  private applyPuyoPlacement(
-    next: number[][],
-    newCells: Array<{ r: number; c: number; color: number }>,
-  ): void {
+  private beginPuyoFix(next: number[][]): boolean {
     const puppet = this.puppet;
-    this.puyoSnapshot = this.copyPuyoField(next);
+    const { newCells, hasRemovalOrChange } = this.diffPuyo(puppet.field as number[][], next);
+    const isPlacement =
+      !hasRemovalOrChange &&
+      newCells.length >= 1 && newCells.length <= 2 &&
+      newCells.every((c) => c.color >= 1 && c.color <= 5);
+    if (!isPlacement) {
+      puppet._dropAnim = null;
+      puppet.field = this.copyPuyoField(next);
+      puppet._gs = "idle";
+      return false;
+    }
 
-    const CS = 32;      // PConfig.cellSize
-    const HIDDEN = 5;   // PConfig.hiddenRows
-    const CYCLES = 2;   // 実エンジン _calcFixCycles の非ソフトドロップ既定と同値
-
-    // ちぎり: 別列・別行 → 上(小行=ロック接地)側は静止、下(大行)側が接地行から落下する。
+    // ちぎり: 別列・別行 → 上(小行=ロック接地)側は静止、下(大行)側が接地行から落下。
     let falling: { c: number; fromR: number; toR: number; color: number } | null = null;
     let staticCells = newCells;
     if (newCells.length === 2 && newCells[0].c !== newCells[1].c && newCells[0].r !== newCells[1].r) {
@@ -297,68 +402,89 @@ export class NetworkDriver implements OpponentDriver {
       staticCells = [hi];
     }
 
-    // 表示フィールド: 落下中セルだけ一時的に空にして二重描画を防ぐ。
     const field = this.copyPuyoField(next);
-    if (falling) field[falling.toR][falling.c] = 0;
+    if (falling) field[falling.toR][falling.c] = 0; // 落下中セルは一時的に空
     puppet.field = field;
     puppet.mino = null;
     puppet._erasingCells = null;
     puppet._gs = "idle";
+    for (const cell of staticCells) puppet._addPuyoAnim?.(cell.r, cell.c, PUYO_FIX_CYCLES);
 
-    // 静止セルは即振動。
-    for (const cell of staticCells) puppet._addPuyoAnim?.(cell.r, cell.c, CYCLES);
-
-    puppet._dropAnim = falling
-      ? [{ c: falling.c, cells: [{ fromR: falling.fromR, color: falling.color, py: (falling.fromR - HIDDEN) * CS }] }]
-      : null;
-
-    const gen = this.beginPuyoAnim();
-    const dropDurMs = falling ? Math.max(60, (falling.toR - falling.fromR) * 40) : 0;
-    const start = performance.now();
-    let last = start;
-    const tick = (now: number) => {
-      if (gen !== this.puyoAnimGen) return; // 新スナップショットで無効化された
-      const dt = now - last;
-      last = now;
-
-      // 振動タイマー前進（engine.js:198-201 と同じ: 進めて満了を除去）。
-      for (const a of puppet.activeAnims) a.timer += dt;
-      puppet.activeAnims = puppet.activeAnims.filter((a: any) => a.timer < a.duration);
-
-      // ちぎり落下前進。着地したら最終盤面へ戻して着地セルを振動させる。
-      let dropDone = true;
-      if (falling && puppet._dropAnim) {
-        const progress = Math.min(1, (now - start) / dropDurMs);
-        puppet._dropAnim[0].cells[0].py = (falling.fromR - HIDDEN) * CS + (falling.toR - falling.fromR) * CS * progress;
-        if (progress >= 1) {
-          puppet.field = this.copyPuyoField(next);
-          puppet._dropAnim = null;
-          puppet._addPuyoAnim?.(falling.toR, falling.c, CYCLES);
-          falling = null;
-        } else {
-          dropDone = false;
-        }
-      }
-
-      puppet._render?.();
-
-      if (dropDone && puppet.activeAnims.length === 0) {
-        puppet._dropAnim = null;
-        puppet._gs = "idle";
-        puppet._render?.();
-        this.puyoDropFrame = null;
-        return;
-      }
-      this.puyoDropFrame = requestAnimationFrame(tick);
-    };
-    this.puyoDropFrame = requestAnimationFrame(tick);
+    if (falling) {
+      puppet._dropAnim = [{
+        c: falling.c,
+        cells: [{ fromR: falling.fromR, toR: falling.toR, color: falling.color, py: (falling.fromR - PUYO_HIDDEN) * PUYO_CELL }],
+      }];
+      this.puyoDrop = {
+        target: this.copyPuyoField(next),
+        anims: puppet._dropAnim,
+        pxPerMs: PUYO_CHIGIRI_PX_PER_MS,
+        vibCycles: () => PUYO_FIX_CYCLES,
+      };
+      this.puyoReplayPhase = "drop";
+      return true;
+    }
+    puppet._dropAnim = null;
+    this.puyoReplayPhase = "vib";
+    return true;
   }
 
-  /** 連鎖の消去後落下・おじゃま落下を、盤面差分から落下アニメで近似する（案D で正式再生へ置換予定）。 */
-  private applyPuyoChainDiff(previous: number[][], next: number[][]): void {
+  /** 現フェーズを dt 進める。アイテム完了で true（次アイテムへ）。 */
+  private advancePuyoPhase(dt: number): boolean {
     const puppet = this.puppet;
+    switch (this.puyoReplayPhase) {
+      case "blink": {
+        // eraseMs 点滅。消去(Erase)ロックが到着していれば消去へ、未着なら点滅継続。
+        this.puyoReplayTimer += dt;
+        puppet._eraseTimer = this.puyoReplayTimer;
+        return this.puyoReplayTimer >= PUYO_ERASE_MS && this.puyoReplayQueue.length > 0;
+      }
+      case "wait": {
+        // 消去後の間(eraseWaitMs)。次アイテム（落下 or 次連鎖 or spawn）が来ていれば進む。
+        this.puyoReplayTimer += dt;
+        return this.puyoReplayTimer >= PUYO_ERASE_WAIT_MS && this.puyoReplayQueue.length > 0;
+      }
+      case "drop": {
+        const drop = this.puyoDrop;
+        if (!drop) return true;
+        let allDone = true;
+        for (const col of drop.anims) {
+          for (const cell of col.cells) {
+            const targetY = (cell.toR - PUYO_HIDDEN) * PUYO_CELL;
+            cell.py = Math.min(cell.py + drop.pxPerMs * dt, targetY);
+            if (cell.py < targetY) allDone = false;
+          }
+        }
+        if (!allDone) return false;
+        // 着地: 最終盤面へ確定し、落ちたセルを振動させて vib へ継続（同アイテム内）。
+        puppet.field = this.copyPuyoField(drop.target);
+        puppet._dropAnim = null;
+        for (const col of drop.anims) {
+          for (const cell of col.cells) {
+            if (cell.color === 6) continue; // おじゃまは振動しない
+            puppet._addPuyoAnim?.(cell.toR, col.c, drop.vibCycles(cell.toR - cell.fromR));
+          }
+        }
+        this.puyoDrop = null;
+        puppet._gs = "idle";
+        this.puyoReplayPhase = "vib";
+        return false;
+      }
+      case "vib":
+        return puppet.activeAnims.length === 0;
+    }
+    return true;
+  }
+
+  /**
+   * 現盤面 → next の落下差分（同色が上から降りてきたセル）を落下アニメ化する。
+   * 連鎖後落下で使う。落下対象があれば true。
+   */
+  private setupPuyoDrop(next: number[][], pxPerMs: number, vibCycles: (d: number) => number): boolean {
+    const puppet = this.puppet;
+    const prev = puppet.field as number[][];
     const field = this.copyPuyoField(next);
-    const anims: Array<{ c: number; cells: Array<{ fromR: number; toR: number; color: number; py: number }> }> = [];
+    const anims: PuyoDropState["anims"] = [];
     const rows = next.length;
     const cols = rows > 0 ? next[0].length : 6;
 
@@ -368,67 +494,47 @@ export class NetworkDriver implements OpponentDriver {
       for (let toR = 0; toR < rows; toR++) {
         const color = next[toR]?.[c] ?? 0;
         if (!color) continue;
-        if ((previous[toR]?.[c] ?? 0) === color) {
-          used.add(toR);
-          continue;
-        }
+        if ((prev[toR]?.[c] ?? 0) === color) { used.add(toR); continue; }
         let fromR = -1;
         for (let r = toR - 1; r >= 0; r--) {
-          if (!used.has(r) && (previous[r]?.[c] ?? 0) === color) {
-            fromR = r;
-            break;
-          }
+          if (!used.has(r) && (prev[r]?.[c] ?? 0) === color) { fromR = r; break; }
         }
         if (fromR < 0) fromR = Math.min(toR - 1, 0);
         if (fromR >= toR) continue;
         used.add(fromR);
         field[toR][c] = 0;
-        cells.push({ fromR, toR, color, py: (fromR - 5) * 32 });
+        cells.push({ fromR, toR, color, py: (fromR - PUYO_HIDDEN) * PUYO_CELL });
       }
       if (cells.length > 0) anims.push({ c, cells });
     }
 
-    this.puyoSnapshot = this.copyPuyoField(next);
+    if (anims.length === 0) return false;
     puppet.field = field;
-    puppet._dropAnim = anims.length > 0 ? anims : null;
-    puppet._gs = anims.length > 0 ? "dropping" : "idle";
-
-    const gen = this.beginPuyoAnim();
-    if (anims.length === 0) return;
-
-    const start = performance.now();
-    const tick = (now: number) => {
-      if (gen !== this.puyoAnimGen) return;
-      const progress = Math.min(1, (now - start) / 180);
-      let done = progress >= 1;
-      for (const column of anims) {
-        for (const cell of column.cells) {
-          const targetY = (cell.toR - 5) * 32;
-          cell.py = (cell.fromR - 5) * 32 + (targetY - (cell.fromR - 5) * 32) * progress;
-          if (progress < 1) done = false;
-        }
-      }
-      puppet._render?.();
-      if (done) {
-        puppet.field = this.copyPuyoField(next);
-        puppet._dropAnim = null;
-        puppet._gs = "idle";
-        puppet._render?.();
-        this.puyoDropFrame = null;
-      } else {
-        this.puyoDropFrame = requestAnimationFrame(tick);
-      }
-    };
-    this.puyoDropFrame = requestAnimationFrame(tick);
+    puppet._dropAnim = anims;
+    puppet._gs = "dropping";
+    this.puyoDrop = { target: this.copyPuyoField(next), anims, pxPerMs, vibCycles };
+    return true;
   }
 
-  /** 新しいパペットアニメを開始する。旧 RAF tick を無効化し、新しい世代トークンを返す。 */
-  private beginPuyoAnim(): number {
-    if (this.puyoDropFrame !== null) {
-      cancelAnimationFrame(this.puyoDropFrame);
-      this.puyoDropFrame = null;
+  /** prev → next の盤面差分。純増分セルと「消去/移動を含むか」を返す。 */
+  private diffPuyo(
+    prev: number[][],
+    next: number[][],
+  ): { newCells: Array<{ r: number; c: number; color: number }>; hasRemovalOrChange: boolean } {
+    const rows = next.length;
+    const cols = rows > 0 ? next[0].length : 6;
+    const newCells: Array<{ r: number; c: number; color: number }> = [];
+    let hasRemovalOrChange = false;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const nx = next[r]?.[c] ?? 0;
+        const pv = prev[r]?.[c] ?? 0;
+        if (nx === pv) continue;
+        if (pv === 0 && nx !== 0) newCells.push({ r, c, color: nx });
+        else hasRemovalOrChange = true;
+      }
     }
-    return ++this.puyoAnimGen;
+    return { newCells, hasRemovalOrChange };
   }
 
   private copyPuyoField(field: number[][] | undefined): number[][] {
