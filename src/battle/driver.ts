@@ -58,6 +58,8 @@ export class NetworkDriver implements OpponentDriver {
   private readonly onDead: (id: string) => void;
   private readonly onNameDead: (index: number) => void;
   private readonly onStats?: NetworkDriverOptions["onStats"];
+  private puyoSnapshot: number[][] | null = null;
+  private puyoDropFrame: number | null = null;
 
   constructor(options: NetworkDriverOptions) {
     this.id = options.id;
@@ -71,6 +73,7 @@ export class NetworkDriver implements OpponentDriver {
       this.puppet = new PuyoGame(`ol-opp-${this.index}`);
       this.puppet._setupCanvas();
       this.puppet._initField?.();
+      this.puyoSnapshot = this.copyPuyoField(this.puppet.field);
       this.puppet.nextQueue = [];
       this.puppet.rng = null;
       this.puppet._loadImages(() => { this.puppet._render?.(); });
@@ -89,6 +92,10 @@ export class NetworkDriver implements OpponentDriver {
   start(): void { /* NetworkDriver is driven by incoming frames. */ }
 
   stop(): void {
+    if (this.puyoDropFrame !== null) {
+      cancelAnimationFrame(this.puyoDropFrame);
+      this.puyoDropFrame = null;
+    }
     if (this.puppet?._netChainBlink) {
       clearInterval(this.puppet._netChainBlink);
       this.puppet._netChainBlink = null;
@@ -145,7 +152,7 @@ export class NetworkDriver implements OpponentDriver {
         if (this.rule === "puyo") {
           if (puppet._netChainBlink) clearInterval(puppet._netChainBlink);
           puppet._netChainBlink = null; puppet._erasingCells = null;
-          puppet.field = decodePuyoLock(payload); puppet._gs = "idle";
+          this.applyPuyoSnapshot(decodePuyoLock(payload));
           if (puppet._imagesLoaded) puppet._render?.();
           return;
         }
@@ -224,6 +231,79 @@ export class NetworkDriver implements OpponentDriver {
         return;
       }
     }
+  }
+
+  /** ネットワーク盤面の差分から、ちぎり・連鎖後の落下を既存描画器で再生する。 */
+  private applyPuyoSnapshot(next: number[][]): void {
+    const puppet = this.puppet;
+    const previous = this.puyoSnapshot ?? this.copyPuyoField(puppet.field);
+    const field = this.copyPuyoField(next);
+    const anims: Array<{ c: number; cells: Array<{ fromR: number; toR: number; color: number; py: number }> }> = [];
+    const rows = next.length;
+    const cols = rows > 0 ? next[0].length : 6;
+
+    for (let c = 0; c < cols; c++) {
+      const used = new Set<number>();
+      const cells: Array<{ fromR: number; toR: number; color: number; py: number }> = [];
+      for (let toR = 0; toR < rows; toR++) {
+        const color = next[toR]?.[c] ?? 0;
+        if (!color) continue;
+        if ((previous[toR]?.[c] ?? 0) === color) {
+          used.add(toR);
+          continue;
+        }
+        let fromR = -1;
+        for (let r = toR - 1; r >= 0; r--) {
+          if (!used.has(r) && (previous[r]?.[c] ?? 0) === color) {
+            fromR = r;
+            break;
+          }
+        }
+        // 新たに届いたちぎり／ロック片は盤面上端から落として、相手盤面にも
+        // CPU戦と同じ「配置された」感覚を残す。
+        if (fromR < 0) fromR = Math.min(toR - 1, 0);
+        if (fromR >= toR) continue;
+        used.add(fromR);
+        field[toR][c] = 0;
+        cells.push({ fromR, toR, color, py: (fromR - 5) * 32 });
+      }
+      if (cells.length > 0) anims.push({ c, cells });
+    }
+
+    this.puyoSnapshot = this.copyPuyoField(next);
+    puppet.field = field;
+    puppet._dropAnim = anims.length > 0 ? anims : null;
+    puppet._gs = anims.length > 0 ? "dropping" : "idle";
+    if (anims.length === 0) return;
+
+    const start = performance.now();
+    const tick = (now: number) => {
+      if (puppet._dropAnim !== anims) return;
+      const progress = Math.min(1, (now - start) / 180);
+      let done = progress >= 1;
+      for (const column of anims) {
+        for (const cell of column.cells) {
+          const targetY = (cell.toR - 5) * 32;
+          cell.py = (cell.fromR - 5) * 32 + (targetY - (cell.fromR - 5) * 32) * progress;
+          if (progress < 1) done = false;
+        }
+      }
+      puppet._render?.();
+      if (done) {
+        puppet.field = this.copyPuyoField(next);
+        puppet._dropAnim = null;
+        puppet._gs = "idle";
+        puppet._render?.();
+        this.puyoDropFrame = null;
+      } else {
+        this.puyoDropFrame = requestAnimationFrame(tick);
+      }
+    };
+    this.puyoDropFrame = requestAnimationFrame(tick);
+  }
+
+  private copyPuyoField(field: number[][] | undefined): number[][] {
+    return (field ?? []).map((row) => [...row]);
   }
 }
 

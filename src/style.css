@@ -3278,7 +3278,7 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 40px;
+  gap: 0;
   transform: translate(-50%, -50%)
     scale(
       clamp(
@@ -3287,6 +3287,15 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
         2
       )
     );
+  transform-origin: center;
+}
+
+/* CPU戦の .versus-container と同じ基準スケール・左右余白をオンラインにも適用する。 */
+.ol-self-slot,
+.ol-opponent-slot {
+  position: relative;
+  margin: 0 80px;
+  transform: scale(0.8);
   transform-origin: center;
 }
 
@@ -3382,6 +3391,20 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   gap: 2px;
   position: relative;
 }
+
+.ol-opp-label {
+  position: absolute;
+  top: -20px;
+  color: var(--text-dim);
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  pointer-events: none;
+}
+
+.ol-opp-label-hold { left: 0; }
+.ol-opp-label-next { right: 0; }
 
 .ol-opp-main-wrap {
   position: relative;
@@ -3604,8 +3627,19 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   z-index: 100;
+  pointer-events: auto;
   align-items: center;
   justify-content: center;
+}
+
+#ol-winner-overlay {
+  z-index: 1000;
+}
+
+#ol-winner-overlay button {
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
 }
 
 .ol-overlay-content {
