@@ -3253,6 +3253,12 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   display: block;
 }
 
+/* CPU戦復帰時にオンライン盤面パネル(#ol-battle-layout は position:fixed)が
+   中央に残るのを防ぐ。online-battle-active が付いているときだけ表示する。 */
+#versus-page:not(.online-battle-active) #online-battle-page.battle-panel {
+  display: none;
+}
+
 .ol-result-round,
 .ol-result-set-score {
   color: var(--accent3);
