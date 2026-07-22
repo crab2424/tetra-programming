@@ -39,7 +39,6 @@ import { BattleLifecycle } from "../battle/lifecycle";
 import {
   routeGarbage,
   deliverLocalWithReadyTimer,
-  deliverLocalSimple,
   type GarbageSink,
 } from "../battle/garbage_router";
 import {
@@ -336,8 +335,8 @@ export class OnlineGameController {
    * sendGarbageCrossTet として注入する（tet/puyo 送り手共通。実体は battle/garbage_router.ts）。
    *
    * ★ 同種戦: amount はそのまま相手ルールのフレームで送る（tet=ライン+穴 / puyo=おじゃま個数）。
-   * ★ 異種戦: エンジン側(secureMino/_applyOjamaOffset)が相手ルール向けの実効値を渡すため、
-   *    ここでは変換しない（gaugeToOjama なし）。受信側は自分ルールのフレームだけを直接適用する。
+   * ★ 異種戦: TETのゲージ値は相手PUYO向けのおじゃま個数へここで変換する。
+   *    PUYO側はエンジンが相殺後のPUYO個数を渡すため、PUYO→TETでは再変換しない。
    * ★ 混在多人数戦: 主送信とは別に sendGarbageCrossTet がテト相手へ tet ライン火力を送る。
    */
   private hookGarbageSending(matchSetting: OnlineMatchSetting): void {
@@ -355,11 +354,13 @@ export class OnlineGameController {
     };
 
     game.sendGarbage = (amount: number) => {
+      const targetRule = game.opponentRule === 'puyo' ? 'puyo' : 'tet';
       routeGarbage(
         {
           ...routeOpts,
           amount,
-          targetRule: game.opponentRule === 'puyo' ? 'puyo' : 'tet',
+          targetRule,
+          gaugeToOjama: this.myRule === 'tet' && targetRule === 'puyo',
         },
         sink,
       );
@@ -393,6 +394,11 @@ export class OnlineGameController {
     if (game._garbageTimers?.length) {
       for (const t of game._garbageTimers) if (t.id) clearTimeout(t.id);
       game._garbageTimers = [];
+    }
+    if (game._onlinePuyoGarbageBatch?.timer !== null) {
+      clearTimeout(game._onlinePuyoGarbageBatch.timer);
+      game._onlinePuyoGarbageBatch.timer = null;
+      game._onlinePuyoGarbageBatch.entries = [];
     }
     if (game.isTimerRunning) {
       game.elapsedTime += performance.now() - game.startTime;
@@ -1138,6 +1144,11 @@ export class OnlineGameController {
       if (this.myRule === 'puyo') {
         this.game.stop?.();
         this.game.rng = null;
+        if (this.game._onlinePuyoGarbageBatch?.timer !== null) {
+          clearTimeout(this.game._onlinePuyoGarbageBatch.timer);
+          this.game._onlinePuyoGarbageBatch.timer = null;
+          this.game._onlinePuyoGarbageBatch.entries = [];
+        }
       } else {
         if (this.game.timer) clearInterval(this.game.timer);
         if (this.game.lockTimer) clearTimeout(this.game.lockTimer);
@@ -1446,10 +1457,30 @@ export class OnlineGameController {
 
   // ── Ojama delivery (puyo受け手) ─────────────────────────────────────────
 
-  /** puyo受け手: 猶予800ms。ぷよは _garbageTimers のポーズ再開を持たないため単純タイマー方式 */
+  /**
+   * puyo受け手: 予告はパケットごとに分けて表示するが、同一猶予窓に届いた
+   * 予告は同じready遷移で解放する。これにより連鎖中の複数攻撃が落下トリガー
+   * を分割してしまうことを防ぐ。
+   */
   private deliverOjamaToPlayer(amount: number, columns: number[] = []): void {
     if (amount <= 0 || !this.game || !this.myAlive) return;
-    deliverLocalSimple(this.game, { amount, holes: columns, ready: false, internal: false }, 800);
+    const game = this.game as any;
+    game.garbageQueue ??= [];
+    const entry = { amount, holes: [...columns], ready: false, internal: false };
+    game.garbageQueue.push(entry);
+    game.updateGarbageGauge?.();
+    const batch = game._onlinePuyoGarbageBatch ??= { entries: [], timer: null as number | null };
+    batch.entries.push(entry);
+    if (batch.timer === null) {
+      batch.timer = window.setTimeout(() => {
+        for (const queued of batch.entries) {
+          if (game.garbageQueue?.includes(queued)) queued.ready = true;
+        }
+        game.updateGarbageGauge?.();
+        batch.entries = [];
+        batch.timer = null;
+      }, 800);
+    }
   }
 
   // ── PieceState broadcast ─────────────────────────────────────────────────
@@ -1486,10 +1517,16 @@ export class OnlineGameController {
   // ── Countdown display ────────────────────────────────────────────────────
 
   private showCountdown(startDelayMs: number): void {
-    // CPU戦と同じ盤面内の透明オーバーレイを使う。オンラインだけbody全体を暗転させない。
+    // CPU戦と同じ盤面内の透明オーバーレイを、自分と全相手へ同時に表示する。
     const run = (window as any).runCountdown;
-    if (typeof run === 'function') {
-      run('ol-p-countdown-overlay', 'ol-p-countdown-text', () => {}, null, startDelayMs);
+    if (typeof run !== 'function') return;
+    const selfPrefix = this.myRule === 'puyo' ? 'ol-p-puyo-' : 'ol-p-';
+    run(`${selfPrefix}countdown-overlay`, `${selfPrefix}countdown-text`, () => {}, null, startDelayMs);
+    for (const [id, driver] of this.puppets) {
+      const index = this.puppetIndices.get(id);
+      if (index === undefined) continue;
+      const prefix = driver.rule === 'puyo' ? `ol-opp-${index}-puyo-` : `ol-opp-${index}-`;
+      run(`${prefix}countdown-overlay`, `${prefix}countdown-text`, () => {}, null, startDelayMs);
     }
   }
 
@@ -1627,13 +1664,12 @@ export class OnlineGameController {
     if (leaveBtn) {
       // 退出: 自分は onLeave で退出、他プレイヤーは handlePostMatchVote → onRoom
       leaveBtn.onclick = () => {
+        if (leaveBtn.disabled) return;
         leaveBtn.disabled = true;
         this.lifecycle.transition("postMatch", "leave button");
         this.connection.sendPostMatchAction({ roomId, action: 2 });
-        setTimeout(() => {
-          this.cleanup();
-          this.postMatchCallbacks?.onLeave();
-        }, 100);
+        this.cleanup();
+        this.postMatchCallbacks?.onLeave();
       };
     }
   }
