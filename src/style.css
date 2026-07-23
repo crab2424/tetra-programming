@@ -27,11 +27,14 @@
      いずれも public/game 側の canvas.width/height 実値（唯一の真実）と一致させること。 */
   --field-w: 320px; /* 盤面本体: tet(SCREEN_WIDTH)・puyo(lifecycle.js)とも共通 */
   --field-h: 656px;
-  --tet-hold-w: 128px; /* BLOCK_SIZE(32)*4, tet/render.js initHoldCanvas */
+  /* HOLD/NEXTの横幅はtet/puyoとも128px(BLOCK_SIZE(32)*4)で偶然ではなく共通なので、
+     tet/puyoで混同しないよう幅は1つの共有トークンにまとめる。高さだけがtet/puyo・HOLD/NEXTで違う。 */
+  --field-side-w: 128px;
+  --tet-hold-w: var(--field-side-w); /* tet/render.js initHoldCanvas */
   --tet-hold-h: 128px;
-  --tet-next-w: 128px; /* BLOCK_SIZE*4, tet/render.js initNextCanvas */
+  --tet-next-w: var(--field-side-w); /* tet/render.js initNextCanvas */
   --tet-next-h: 432px; /* BLOCK_SIZE*13.5 */
-  --puyo-next-w: 128px; /* puyo/lifecycle.js _setupCanvas */
+  --puyo-next-w: var(--field-side-w); /* puyo/lifecycle.js _setupCanvas */
   --puyo-next-h: 259px;
   --field-border-w-main: 3px; /* 盤面本体の枠太さ */
   --field-border-w-sub: 2px; /* HOLD/NEXTの枠太さ */
@@ -3392,12 +3395,18 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   white-space: nowrap;
 }
 
+/* CPU戦がSCOREをNEXT列の下(盤面の真横)に出すのに合わせ、.ol-opp-next-wrap内に
+   絶対配置する（JS側 updateOnlineStats がこの要素の子として生成する）。 */
 .ol-live-stats {
-  display: flex;
-  justify-content: center;
-  gap: 16px;
+  position: absolute;
+  top: 100%;
+  left: 0;
   width: 100%;
-  margin-top: 4px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   color: var(--text-dim);
   font-family: "Orbitron", monospace;
   font-size: 9px;
@@ -3441,10 +3450,27 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
 }
 
 .ol-opp-label-hold { left: 0; }
-.ol-opp-label-next { right: 0; }
+/* NEXTラベルは.ol-opp-next-wrap基準でHOLDラベルと同じ「自分の枠の左端に揃える」を踏襲する
+   （CPU戦の.versus-label-next/-holdも共に左揃え）。以前はol-opp-field右端基準のright:0で、
+   HOLDが無いぷよ側や複数人数側でNEXT本体の左端とズレて右に寄って見えていた。 */
+.ol-opp-label-next { left: 0; }
 
 .ol-opp-main-wrap {
   position: relative;
+}
+
+.ol-opp-next-wrap {
+  position: relative;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+/* HOLDが無いぷよ側フィールドの左右対称を保つための透明スペーサー。
+   TET側のHOLD幅(--field-side-w)と同じ幅を確保し、NEXTだけがある非対称な行を
+   HOLD/本体/NEXTと同じ対称構造にする（ぷよ盤面の中心が名前ラベルの中心とズレる原因だった）。 */
+.ol-opp-side-spacer {
+  width: calc(var(--field-side-w) * var(--ol-scale));
+  flex-shrink: 0;
 }
 
 /* action-label-container(T-SPIN/4-LINES/B2B等の演出): CPU戦(#versus-page)の
@@ -3501,7 +3527,6 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   border-radius: 2px;
   image-rendering: pixelated;
   display: block;
-  align-self: flex-start;
 }
 
 /* 相手の予告ゲージ: ol-opp-main-wrap 左側に縦棒として絶対配置 */
@@ -3561,7 +3586,6 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   border-radius: 2px;
   image-rendering: pixelated;
   display: block;
-  align-self: flex-start;
 }
 
 /* ─── 人数別レイアウト ───

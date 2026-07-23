@@ -56,8 +56,11 @@ import { renderOnlineResult, resetOnlineResult } from "../battle/online_result";
 type AnyFn = (...args: any[]) => any;
 
 function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void {
-  const slotId = slot === "self" ? "ol-player-container" : `ol-opp-slot-${slot}`;
-  const parent = document.getElementById(slotId);
+  // CPU戦がSCOREをNEXT列の下に出すのに合わせ、対応するルールのNEXTラップ配下に表示する
+  // （src/battle/layout.tsのtetIds/puyoIds命名と同じ "-puyo" 接尾辞規則）。
+  const fieldPrefix = slot === "self" ? "ol-p" : `ol-opp-${slot}`;
+  const ruleSuffix = stats.rule === "puyo" ? "-puyo" : "";
+  const parent = document.getElementById(`${fieldPrefix}${ruleSuffix}-next-wrap`);
   if (!parent) return;
   let statsEl = parent.querySelector<HTMLElement>(".ol-live-stats");
   if (!statsEl) {
