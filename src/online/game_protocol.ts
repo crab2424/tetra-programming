@@ -19,6 +19,13 @@ export const MatchOpcode = {
   PendingUpdate: 0x29, // reliable: self incoming-garbage gauge state
   HoldState: 0x2a,    // reliable: current hold availability (0/1)
   StatsUpdate: 0x2b,  // reliable: display-only score/lines/chains snapshot
+  /**
+   * reliable: puyo送り手の連鎖終了トリガー（_confirmSentGarbage 発火の通知）。
+   * CPU戦は送信元と着弾先が同一メモリ空間のためオブジェクト参照で ready 化できるが、
+   * online は別プロセスなので明示フレームが要る。Hold(0x25) と opcode を共有するが
+   * Hold(tetのホールド確定)は encodeHold/decodeHold とも未使用のため衝突しない。
+   */
+  GarbageConfirm: 0x25,
   // ── Rule-dependent payloads share the 0x20..0x28 opcodes ───────────
   // 受信側のルールはルーム情報で既知なので、TET/PUYO で opcode を分けない。
   PuyoPieceState: 0x20, // unreliable: puyo pair position/rotation (high-freq)
@@ -180,6 +187,11 @@ export function encodeHoldState(canHold: boolean): Uint8Array {
 
 export function decodeHoldState(p: Uint8Array): boolean {
   return (p[0] ?? 0) !== 0;
+}
+
+// GarbageConfirm: 1 byte (opcode only)
+export function encodeGarbageConfirm(): Uint8Array {
+  return new Uint8Array([MatchOpcode.GarbageConfirm]);
 }
 
 export type StatsRule = "tet" | "puyo";

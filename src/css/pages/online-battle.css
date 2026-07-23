@@ -126,82 +126,70 @@
   white-space: nowrap;
 }
 
-/* CPU戦がSCOREをNEXT列の下(盤面の真横)に出すのに合わせ、.ol-opp-next-wrap内に
-   絶対配置する（JS側 updateOnlineStats がこの要素の子として生成する）。 */
-.ol-live-stats {
+/* SCORE/LINES/MAX CHAIN: CPU戦(.versus-stats-left/-right > .versus-stat-block >
+   .area-label + .versus-stat-value)と同じマークアップ・同じクラスを .ol-opp-field
+   （CPU戦の.versus-container相当）配下に複製する（JS側 updateOnlineStats が生成）。
+   位置はCPU戦と同じ左右下オフセット(-160/352, 450)を --ol-scale ぶん縮めて再現する。
+   旧 .ol-live-stats/.ol-live-stat（NEXT下・別クラス・8〜11pxプレーン）はCPU戦のスタイル
+   （24pxグラデーション等）が一切適用されない別物だったため撤去した。 */
+.ol-stats-left,
+.ol-stats-right {
   position: absolute;
-  top: 100%;
-  left: 0;
-  width: 100%;
-  margin-top: 6px;
+  top: calc(450px * var(--ol-scale));
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  color: var(--text-dim);
-  font-family: "Orbitron", monospace;
-  font-size: 9px;
-  letter-spacing: 1px;
+  gap: calc(8px * var(--ol-scale));
+}
+.ol-stats-left { left: calc(-160px * var(--ol-scale)); }
+.ol-stats-right { left: calc(352px * var(--ol-scale)); }
+
+/* 2P(--ol-scale:1)はCPU戦の.versus-stat-value(24px)/.area-label(11px)と完全一致するが、
+   3P以降は本体ごと縮小するためフォントサイズも追従させる。.ol-opp-field配下限定の
+   スコープ付き上書きなので、CPU戦側で使う共通クラス定義そのものには影響しない。 */
+.ol-opp-field .versus-stat-value {
+  font-size: calc(24px * var(--ol-scale));
+}
+.ol-opp-field .versus-stat-block .area-label {
+  font-size: calc(11px * var(--ol-scale));
 }
 
-.ol-live-stat {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-}
-
-.ol-live-stat b {
-  font-size: 8px;
-  font-weight: 500;
-}
-
-.ol-live-stat strong {
-  color: var(--text);
-  font-size: 11px;
-}
-
+/* ★ CPU戦の.versus-containerと同じ絶対配置モデル。盤面サイズちょうどの箱にし、
+   HOLD/NEXT/ラベル/statsは全てこの箱を基準にした絶対配置で配置する
+   （旧実装はHOLD/NEXTが実flex子でスロット幅が本体+HOLD+NEXT分に膨張し、
+   盤面同士がCPU戦より大きく離れて見えていた）。 */
 .ol-opp-field {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  /* CPU戦の盤面⇔HOLD/NEXT間隔(--field-gap: 32px)を--ol-scaleぶん縮めて踏襲する */
-  gap: calc(var(--field-gap) * var(--ol-scale));
   position: relative;
+  width: calc(var(--field-w) * var(--ol-scale));
+  height: calc(var(--field-h) * var(--ol-scale));
 }
 
 .ol-opp-label {
   position: absolute;
-  top: -20px;
+  top: calc(-18px * var(--ol-scale));
   color: var(--text-dim);
   font-family: "Orbitron", monospace;
-  font-size: 11px;
+  font-size: calc(11px * var(--ol-scale));
   font-weight: 700;
   letter-spacing: 3px;
   pointer-events: none;
 }
 
-.ol-opp-label-hold { left: 0; }
-/* NEXTラベルは.ol-opp-next-wrap基準でHOLDラベルと同じ「自分の枠の左端に揃える」を踏襲する
-   （CPU戦の.versus-label-next/-holdも共に左揃え）。以前はol-opp-field右端基準のright:0で、
-   HOLDが無いぷよ側や複数人数側でNEXT本体の左端とズレて右に寄って見えていた。 */
+/* HOLDラベルはHOLD本体(.ol-opp-hold-canvas)と同じleft式で揃える（CPU戦.versus-label-hold準拠） */
+.ol-opp-label-hold {
+  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)) * var(--ol-scale));
+}
+/* NEXTラベルは.ol-opp-next-wrap基準（wrap自体がNEXT位置へ絶対配置済みなのでleft:0でよい） */
 .ol-opp-label-next { left: 0; }
 
 .ol-opp-main-wrap {
   position: relative;
 }
 
+/* NEXT一式(ラベル+canvas)をCPU戦のNEXT canvasと同じleft式で本体の右側へ絶対配置する */
 .ol-opp-next-wrap {
-  position: relative;
-  flex-shrink: 0;
-  align-self: flex-start;
-}
-
-/* HOLDが無いぷよ側フィールドの左右対称を保つための透明スペーサー。
-   TET側のHOLD幅(--field-side-w)と同じ幅を確保し、NEXTだけがある非対称な行を
-   HOLD/本体/NEXTと同じ対称構造にする（ぷよ盤面の中心が名前ラベルの中心とズレる原因だった）。 */
-.ol-opp-side-spacer {
-  width: calc(var(--field-side-w) * var(--ol-scale));
-  flex-shrink: 0;
+  position: absolute;
+  top: 0;
+  left: calc((var(--field-w) + var(--field-gap)) * var(--ol-scale));
 }
 
 /* action-label-container(T-SPIN/4-LINES/B2B等の演出): CPU戦(#versus-page)の
@@ -241,12 +229,15 @@
   display: block;
 }
 
+/* HOLDは.ol-opp-field基準でCPU戦のHOLD canvasと同じleft式で本体の左側へ絶対配置する */
 .ol-opp-hold-canvas {
+  position: absolute;
+  top: 0;
+  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)) * var(--ol-scale));
   width: calc(var(--tet-hold-w) * var(--ol-scale));
   height: calc(var(--tet-hold-h) * var(--ol-scale));
   image-rendering: pixelated;
   display: block;
-  align-self: flex-start;
   border: var(--field-border-w-sub) solid var(--field-border);
   border-radius: 2px;
 }

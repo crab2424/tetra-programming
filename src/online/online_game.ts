@@ -26,6 +26,7 @@ import {
   PuyoLockPhase,
   encodeGarbagePuyo,
   encodePuyoChain,
+  encodeGarbageConfirm,
   decodeGarbage,
   decodePendingUpdate,
   fieldBlocksToArray,
@@ -40,6 +41,7 @@ import { BattleLifecycle } from "../battle/lifecycle";
 import {
   routeGarbage,
   deliverLocalWithReadyTimer,
+  deliverLocalStaged,
   type GarbageSink,
 } from "../battle/garbage_router";
 import {
@@ -55,25 +57,39 @@ import { renderOnlineResult, resetOnlineResult } from "../battle/online_result";
 
 type AnyFn = (...args: any[]) => any;
 
+/**
+ * CPU戦(.versus-stats-left/-right > .versus-stat-block > .area-label + .versus-stat-value)と
+ * 同じマークアップ・同じクラスを .ol-opp-field（CPU戦の .versus-container 相当。盤面サイズ
+ * ちょうどの絶対配置アンカー）配下に複製する。位置は online-battle.css の .ol-stats-left/-right
+ * が calc(px * --ol-scale) で CPU戦と同じ左右下オフセットを再現する。
+ */
 function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void {
-  // CPU戦がSCOREをNEXT列の下に出すのに合わせ、対応するルールのNEXTラップ配下に表示する
-  // （src/battle/layout.tsのtetIds/puyoIds命名と同じ "-puyo" 接尾辞規則）。
   const fieldPrefix = slot === "self" ? "ol-p" : `ol-opp-${slot}`;
-  const ruleSuffix = stats.rule === "puyo" ? "-puyo" : "";
-  const parent = document.getElementById(`${fieldPrefix}${ruleSuffix}-next-wrap`);
-  if (!parent) return;
-  let statsEl = parent.querySelector<HTMLElement>(".ol-live-stats");
-  if (!statsEl) {
-    statsEl = document.createElement("div");
-    statsEl.className = "ol-live-stats";
-    statsEl.innerHTML =
-      '<span class="ol-live-stat"><b>SCORE</b><strong data-stat="score">0</strong></span>' +
-      '<span class="ol-live-stat"><b data-stat-label="primary">LINES</b><strong data-stat="primary">0</strong></span>';
-    parent.appendChild(statsEl);
+  const fieldEl = document.getElementById(`${fieldPrefix}-${stats.rule}-field`);
+  if (!fieldEl) return;
+  let leftEl = fieldEl.querySelector<HTMLElement>(".ol-stats-left");
+  let rightEl = fieldEl.querySelector<HTMLElement>(".ol-stats-right");
+  if (!leftEl || !rightEl) {
+    leftEl = document.createElement("div");
+    leftEl.className = "ol-stats-left";
+    leftEl.innerHTML =
+      '<div class="versus-stat-block">' +
+      '<span class="area-label" data-stat-label="primary">LINES</span>' +
+      '<span class="versus-stat-value" data-stat="primary">0</span>' +
+      '</div>';
+    rightEl = document.createElement("div");
+    rightEl.className = "ol-stats-right";
+    rightEl.innerHTML =
+      '<div class="versus-stat-block">' +
+      '<span class="area-label">SCORE</span>' +
+      '<span class="versus-stat-value" data-stat="score">0</span>' +
+      '</div>';
+    fieldEl.appendChild(leftEl);
+    fieldEl.appendChild(rightEl);
   }
-  const score = statsEl.querySelector<HTMLElement>('[data-stat="score"]');
-  const primary = statsEl.querySelector<HTMLElement>('[data-stat="primary"]');
-  const label = statsEl.querySelector<HTMLElement>('[data-stat-label="primary"]');
+  const score = rightEl.querySelector<HTMLElement>('[data-stat="score"]');
+  const primary = leftEl.querySelector<HTMLElement>('[data-stat="primary"]');
+  const label = leftEl.querySelector<HTMLElement>('[data-stat-label="primary"]');
   if (score) score.textContent = String(stats.score);
   if (primary) primary.textContent = String(stats.rule === "puyo" ? stats.chainMax : stats.lines);
   if (label) label.textContent = stats.rule === "puyo" ? "MAX CHAIN" : "LINES";
@@ -398,11 +414,6 @@ export class OnlineGameController {
     if (game._garbageTimers?.length) {
       for (const t of game._garbageTimers) if (t.id) clearTimeout(t.id);
       game._garbageTimers = [];
-    }
-    if (game._onlinePuyoGarbageBatch?.timer !== null) {
-      clearTimeout(game._onlinePuyoGarbageBatch.timer);
-      game._onlinePuyoGarbageBatch.timer = null;
-      game._onlinePuyoGarbageBatch.entries = [];
     }
     if (game.isTimerRunning) {
       game.elapsedTime += performance.now() - game.startTime;
@@ -906,9 +917,9 @@ export class OnlineGameController {
     // 連鎖中・着地時に盤面が変化するたびに、段階(phase)付きスナップショットを送る。
     // 受信側(driver.ts の連鎖リプレイ)がこの phase を使って点滅→消去→落下を実タイミングで再生する。
     // これがないと、相手の盤面は新ペア出現（連鎖完了後）まで一切更新されない。
-    const sendFieldSnapshot = (phase: number) => {
+    const sendFieldSnapshot = (phase: number, field?: number[][]) => {
       if (!this.myAlive) return;
-      conn.sendMatchEvent(encodePuyoLock(game.field as number[][], phase));
+      conn.sendMatchEvent(encodePuyoLock((field ?? game.field) as number[][], phase));
     };
     // [メソッド, phase, 連鎖外(chainCount===0)のときだけ送るか]
     // _beginFixAnimWait は「初手着地(chainCount===0)」と「連鎖リンクの落下後(chainCount>0)」の
@@ -916,7 +927,6 @@ export class OnlineGameController {
     const snapshotHooks: Array<[string, number, boolean]> = [
       ['_beginFixAnimWait', PuyoLockPhase.Fix, true],
       ['_applyErase', PuyoLockPhase.Erase, false],
-      ['_applyDropAnim', PuyoLockPhase.Drop, false],
     ];
     for (const [method, phase, onlyOutsideChain] of snapshotHooks) {
       if (typeof game[method] !== 'function') continue;
@@ -924,6 +934,54 @@ export class OnlineGameController {
       game[method] = (...args: any[]) => {
         const r = orig(...args);
         if (!onlyOutsideChain || (game.chainCount ?? 0) === 0) sendFieldSnapshot(phase);
+        return r;
+      };
+    }
+
+    // _generateOjama: おじゃま降下の「開始時点」で、落下先が確定した最終盤面を Drop
+    // スナップショットとして即送信する。従来は _applyDropAnim（落下し終わった後）でしか
+    // Drop を送っておらず、相手盤面での降下開始が実際より遅れて見えていた。
+    // ここで _dropAnim（_buildDropAnim 済み＝fromR→toR が確定済み）を先読みして最終盤面を
+    // 組み立て、_applyDropAnim 側の重複送信はフラグで抑止する。
+    if (typeof game._generateOjama === 'function') {
+      const origGenerateOjama: AnyFn = game._generateOjama.bind(game);
+      game._generateOjama = (...args: any[]) => {
+        const r = origGenerateOjama(...args);
+        if (r && Array.isArray(game._dropAnim)) {
+          const finalField = (game.field as number[][]).map((row: number[]) => [...row]);
+          for (const col of game._dropAnim) {
+            for (const cell of col.cells) finalField[cell.toR][col.c] = cell.color;
+          }
+          sendFieldSnapshot(PuyoLockPhase.Drop, finalField);
+          game._ojamaDropSnapshotSent = true;
+        }
+        return r;
+      };
+    }
+    // _applyDropAnim: 通常の連鎖落下は確定後に Drop を送る。おじゃま落下は上の
+    // _generateOjama フックで開始時に既に送信済みのため、その場合だけ重複送信を防ぐ。
+    if (typeof game._applyDropAnim === 'function') {
+      const origApplyDropAnim: AnyFn = game._applyDropAnim.bind(game);
+      game._applyDropAnim = (...args: any[]) => {
+        const r = origApplyDropAnim(...args);
+        if (game._ojamaDropSnapshotSent) {
+          game._ojamaDropSnapshotSent = false;
+        } else {
+          sendFieldSnapshot(PuyoLockPhase.Drop);
+        }
+        return r;
+      };
+    }
+
+    // _confirmSentGarbage: このターンに送信したおじゃまを連鎖終了時に確定(ready)させる
+    // トリガー。CPU戦は送信元/着弾先が同一メモリ空間のためオブジェクト参照で ready 化
+    // できるが、online は別プロセスなので GarbageConfirm フレームで明示的に伝える。
+    if (typeof game._confirmSentGarbage === 'function') {
+      const origConfirmSentGarbage: AnyFn = game._confirmSentGarbage.bind(game);
+      game._confirmSentGarbage = (...args: any[]) => {
+        const hadSent = (game.sentGarbageThisTurn?.length ?? 0) > 0;
+        const r = origConfirmSentGarbage(...args);
+        if (hadSent && this.myAlive) conn.sendMatchEvent(encodeGarbageConfirm());
         return r;
       };
     }
@@ -1157,10 +1215,11 @@ export class OnlineGameController {
       if (this.myRule === 'puyo') {
         this.game.stop?.();
         this.game.rng = null;
-        if (this.game._onlinePuyoGarbageBatch?.timer !== null) {
-          clearTimeout(this.game._onlinePuyoGarbageBatch.timer);
-          this.game._onlinePuyoGarbageBatch.timer = null;
-          this.game._onlinePuyoGarbageBatch.entries = [];
+        // 対テト送り手からの攻撃は _garbageTimers(setTimeout) 経由で ready 化されるため、
+        // 次戦開始前に古いタイマーが残らないよう止める（puyo同士の internalTimer は
+        // dt駆動で _update 停止と共に自動停止するのでここでは不要）。
+        if (this.game._garbageTimers?.length) {
+          for (const t of this.game._garbageTimers) if (t.id) clearTimeout(t.id);
         }
       } else {
         if (this.game.timer) clearInterval(this.game.timer);
@@ -1266,11 +1325,26 @@ export class OnlineGameController {
     if (frame.opcode === MatchOpcode.Garbage) {
       try {
         const g = decodeGarbage(frame.payload);
-        if (this.myRule === 'puyo') this.deliverOjamaToPlayer(g.amount, g.holes);
-        else this.deliverGarbageToPlayer(g.amount, g.holes);
+        if (this.myRule === 'puyo') this.deliverOjamaToPlayer(g.amount, g.holes, frame.senderId);
+        else this.deliverGarbageToPlayer(g.amount, g.holes, frame.senderId);
       } catch (e) {
         this.logger.warn("Invalid Garbage frame:", e);
       }
+      return;
+    }
+    // GarbageConfirm: puyo送り手の連鎖終了トリガー。この送信者からの未確定(ready:false)分を
+    // 全て確定させる（CPU戦の _confirmSentGarbage 相当。送り手がpuyoのときのみ発火する）。
+    if (frame.opcode === MatchOpcode.GarbageConfirm) {
+      const game = this.game as any;
+      if (!game?.garbageQueue?.length) return;
+      let changed = false;
+      for (const g of game.garbageQueue) {
+        if (!g.ready && g._srcSender === frame.senderId) {
+          g.ready = true;
+          changed = true;
+        }
+      }
+      if (changed) game.updateGarbageGauge?.();
       return;
     }
     // SE: 相手の音を低音量で再生
@@ -1462,37 +1536,41 @@ export class OnlineGameController {
 
   // ── Garbage delivery ─────────────────────────────────────────────────────
 
-  /** tet受け手: 猶予1500ms・ポーズ対応（実体は battle/garbage_router.ts、CPU戦と共通） */
-  private deliverGarbageToPlayer(amount: number, holes: number[] = []): void {
+  /**
+   * tet受け手。送り手のルールでCPU戦と同じ配送方式に分岐する（battle/garbage_router.ts）:
+   *  - 送り手がpuyo: stage1(internal 500ms)→stage2(pending)→stage3(ready)。ready化は送り手の
+   *    連鎖終了(GarbageConfirm)を待つ（固定タイマーでは連鎖終了より早く/遅く落ちてしまうため）。
+   *  - 送り手がtet: 従来どおり固定1500ms（tetの攻撃はチェイン終了という概念を持たない）。
+   */
+  private deliverGarbageToPlayer(amount: number, holes: number[] = [], senderId?: Uuid): void {
     if (amount <= 0 || !this.game || !this.myAlive) return;
-    deliverLocalWithReadyTimer(this.game, { amount, holes, ready: false }, 1500);
+    const senderRule = senderId !== undefined ? this.puppetRules.get(senderId) : undefined;
+    if (senderRule === 'puyo') {
+      const entry: any = { amount, holes: [...holes], ready: false };
+      entry._srcSender = senderId;
+      deliverLocalStaged(this.game, entry, 500, false);
+    } else {
+      deliverLocalWithReadyTimer(this.game, { amount, holes, ready: false }, 1500);
+    }
   }
 
   // ── Ojama delivery (puyo受け手) ─────────────────────────────────────────
 
   /**
-   * puyo受け手: 予告はパケットごとに分けて表示するが、同一猶予窓に届いた
-   * 予告は同じready遷移で解放する。これにより連鎖中の複数攻撃が落下トリガー
-   * を分割してしまうことを防ぐ。
+   * puyo受け手。送り手のルールでCPU戦と同じ配送方式に分岐する:
+   *  - 送り手がpuyo: stage1(internal 500ms)→stage2(pending)→stage3(ready)。ready化は送り手の
+   *    連鎖終了(GarbageConfirm)を待つ。
+   *  - 送り手がtet: 従来どおり固定1000ms（tetの攻撃はチェイン終了という概念を持たない）。
    */
-  private deliverOjamaToPlayer(amount: number, columns: number[] = []): void {
+  private deliverOjamaToPlayer(amount: number, columns: number[] = [], senderId?: Uuid): void {
     if (amount <= 0 || !this.game || !this.myAlive) return;
-    const game = this.game as any;
-    game.garbageQueue ??= [];
-    const entry = { amount, holes: [...columns], ready: false, internal: false };
-    game.garbageQueue.push(entry);
-    game.updateGarbageGauge?.();
-    const batch = game._onlinePuyoGarbageBatch ??= { entries: [], timer: null as number | null };
-    batch.entries.push(entry);
-    if (batch.timer === null) {
-      batch.timer = window.setTimeout(() => {
-        for (const queued of batch.entries) {
-          if (game.garbageQueue?.includes(queued)) queued.ready = true;
-        }
-        game.updateGarbageGauge?.();
-        batch.entries = [];
-        batch.timer = null;
-      }, 800);
+    const senderRule = senderId !== undefined ? this.puppetRules.get(senderId) : undefined;
+    const entry: any = { amount, holes: [...columns], ready: false };
+    entry._srcSender = senderId;
+    if (senderRule === 'puyo') {
+      deliverLocalStaged(this.game, entry, 500, true);
+    } else {
+      deliverLocalWithReadyTimer(this.game, entry, 1000);
     }
   }
 
