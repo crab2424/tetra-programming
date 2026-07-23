@@ -126,60 +126,13 @@
   white-space: nowrap;
 }
 
-/* SCORE/LINES/MAX CHAIN: CPU戦(.versus-stats-left/-right > .versus-stat-block >
-   .area-label + .versus-stat-value)と同じマークアップ・同じクラスを .ol-opp-field
-   （CPU戦の.versus-container相当）配下に複製する（JS側 updateOnlineStats が生成）。
-   位置はCPU戦と同じ左右下オフセット(-160/352, 450)を --ol-scale ぶん縮めて再現する。
-   旧 .ol-live-stats/.ol-live-stat（NEXT下・別クラス・8〜11pxプレーン）はCPU戦のスタイル
-   （24pxグラデーション等）が一切適用されない別物だったため撤去した。 */
-.ol-stats-left,
-.ol-stats-right {
-  position: absolute;
-  top: calc(450px * var(--ol-scale));
-  display: flex;
-  flex-direction: column;
-  gap: calc(8px * var(--ol-scale));
-}
-.ol-stats-left { left: calc(-160px * var(--ol-scale)); }
-.ol-stats-right { left: calc(352px * var(--ol-scale)); }
-
-/* 2P(--ol-scale:1)はCPU戦の.versus-stat-value(24px)/.area-label(11px)と完全一致するが、
-   3P以降は本体ごと縮小するためフォントサイズも追従させる。.ol-opp-field配下限定の
-   スコープ付き上書きなので、CPU戦側で使う共通クラス定義そのものには影響しない。 */
-.ol-opp-field .versus-stat-value {
-  font-size: calc(24px * var(--ol-scale));
-}
-.ol-opp-field .versus-stat-block .area-label {
-  font-size: calc(11px * var(--ol-scale));
-}
-
-/* ★ CPU戦の.versus-containerと同じ絶対配置モデル。盤面サイズちょうどの箱にし、
-   HOLD/NEXT/ラベル/statsは全てこの箱を基準にした絶対配置で配置する
-   （旧実装はHOLD/NEXTが実flex子でスロット幅が本体+HOLD+NEXT分に膨張し、
-   盤面同士がCPU戦より大きく離れて見えていた）。 */
-.ol-opp-field {
-  position: relative;
-  width: calc(var(--field-w) * var(--ol-scale));
-  height: calc(var(--field-h) * var(--ol-scale));
-}
-
-.ol-opp-label {
-  position: absolute;
-  top: calc(-18px * var(--ol-scale));
-  color: var(--text-dim);
-  font-family: "Orbitron", monospace;
-  font-size: calc(11px * var(--ol-scale));
-  font-weight: 700;
-  letter-spacing: 3px;
-  pointer-events: none;
-}
-
-/* HOLDラベルはHOLD本体(.ol-opp-hold-canvas)と同じleft式で揃える（CPU戦.versus-label-hold準拠） */
-.ol-opp-label-hold {
-  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)) * var(--ol-scale));
-}
-/* NEXTラベルは.ol-opp-next-wrap基準（wrap自体がNEXT位置へ絶対配置済みなのでleft:0でよい） */
-.ol-opp-label-next { left: 0; }
+/* SCORE/LINES/MAX CHAIN・フィールド外枠・HOLD/NEXTラベルの寸法と位置は
+   versus-layout.css の共有ジオメトリ規則（.ol-opp-field / .ol-opp-label /
+   .ol-stats-left/-right をCPU戦セレクタと併記し var(--ol-scale, 1) 化）に一本化した。
+   JS側 updateOnlineStats がCPU戦と同じマークアップ（.versus-stat-block >
+   .area-label + .versus-stat-value）を .ol-opp-field 配下へ複製し、
+   .versus-stat-value(24px)/.area-label(11px) も --ol-scale を継承して縮小する。
+   ここに残すのは online 固有の DOM 構造（.ol-opp-main-wrap / .ol-opp-next-wrap）だけ。 */
 
 .ol-opp-main-wrap {
   position: relative;
@@ -215,41 +168,10 @@
   z-index: 10;
 }
 
-/* 盤面本体・HOLD・NEXTとも、CPU戦と共通のトークン(--field-*)に--ol-scaleを
-   掛けるだけの計算式にする。人数ブレークポイントは--ol-scaleの値だけ差し替えれば
-   全部位（本体/HOLD/NEXT/ゲージ）が連動して縮小する（旧実装は部位ごとに手打ちの
-   固定pxで、本体とHOLD/NEXTの縮小率がズレていた＝2P TETでHOLD/NEXTだけCPU戦より
-   小さく表示される原因だった）。 */
-.ol-opp-main-canvas {
-  width: calc(var(--field-w) * var(--ol-scale));
-  height: calc(var(--field-h) * var(--ol-scale));
-  border: var(--field-border-w-main) solid var(--field-border);
-  border-radius: 2px;
-  image-rendering: pixelated;
-  display: block;
-}
-
-/* HOLDは.ol-opp-field基準でCPU戦のHOLD canvasと同じleft式で本体の左側へ絶対配置する */
-.ol-opp-hold-canvas {
-  position: absolute;
-  top: 0;
-  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)) * var(--ol-scale));
-  width: calc(var(--tet-hold-w) * var(--ol-scale));
-  height: calc(var(--tet-hold-h) * var(--ol-scale));
-  image-rendering: pixelated;
-  display: block;
-  border: var(--field-border-w-sub) solid var(--field-border);
-  border-radius: 2px;
-}
-
-.ol-opp-next-canvas {
-  width: calc(var(--tet-next-w) * var(--ol-scale));
-  height: calc(var(--tet-next-h) * var(--ol-scale));
-  border: var(--field-border-w-sub) solid var(--field-border);
-  border-radius: 2px;
-  image-rendering: pixelated;
-  display: block;
-}
+/* 盤面本体(tet/puyo)・HOLD・NEXT canvas の寸法/枠/配置は versus-layout.css の
+   共有ジオメトリ規則（.ol-opp-main-canvas 等をCPU戦セレクタと併記し
+   calc(トークン * var(--ol-scale, 1)) 化）へ移動した。人数別の縮小は --ol-scale の
+   値差し替えだけで全部位が連動する（旧実装は部位ごとに手打ち固定pxで縮小率がズレていた）。 */
 
 /* 相手の予告ゲージ: ol-opp-main-wrap 左側に縦棒として絶対配置 */
 .ol-opp-garbage-gauge {
@@ -292,23 +214,7 @@
   height: calc(32px * var(--ol-scale));
 }
 
-.ol-opp-puyo-main-canvas {
-  width: calc(var(--field-w) * var(--ol-scale));
-  height: calc(var(--field-h) * var(--ol-scale));
-  border: var(--field-border-w-main) solid var(--field-border);
-  border-radius: 2px;
-  image-rendering: pixelated;
-  display: block;
-}
-
-.ol-opp-puyo-next-canvas {
-  width: calc(var(--puyo-next-w) * var(--ol-scale));
-  height: calc(var(--puyo-next-h) * var(--ol-scale));
-  border: var(--field-border-w-sub) solid var(--field-border);
-  border-radius: 2px;
-  image-rendering: pixelated;
-  display: block;
-}
+/* puyo 盤面本体・NEXT canvas の寸法/枠も versus-layout.css の共有ジオメトリへ移動済み。 */
 
 /* ─── 人数別レイアウト ───
    寸法はすべて.ol-opp-*側の calc(トークン * --ol-scale) に委譲済みなので、

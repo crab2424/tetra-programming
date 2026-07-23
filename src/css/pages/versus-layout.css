@@ -53,111 +53,170 @@
   color: var(--danger);
 }
 
-.versus-container {
+/* ══════════════════════════════════════════════════════════════
+   ★ 対戦フィールドの共有ジオメトリ（CPU戦 #versus-page と online戦 .ol-* の一本化） ★
+
+   寸法・オフセットはすべて共有トークン(--field-*)に var(--ol-scale, 1) を掛ける。
+   - CPU戦: --ol-scale は未定義なのでフォールバック 1 が効き、式は従来のリテラルと同値
+     （見た目は一切変わらない）。0.8倍表示は .versus-container の transform が担う。
+   - online戦: #ol-battle-layout の人数別 --ol-scale が子孫に継承され、同じ式のまま
+     人数に応じて縮小する（0.8倍表示は .ol-self-slot/.ol-opponent-slot の transform）。
+   これにより「値の二重管理」を解消し、レイアウト定義の唯一の場所を versus-layout.css に集約する。
+   意図的なモード差（自分盤面だけ青グロー・演出コンテナの配置など）だけを各ファイルの
+   スコープ付きオーバーライドとして残す。
+   ══════════════════════════════════════════════════════════════ */
+
+/* --- フィールド外枠（盤面サイズちょうどの絶対配置アンカー） --- */
+.versus-container,
+.ol-opp-field {
   position: relative;
-  width: var(--field-w);
-  height: var(--field-h);
+  width: calc(var(--field-w) * var(--ol-scale, 1));
+  height: calc(var(--field-h) * var(--ol-scale, 1));
+}
+/* CPU戦のみ: 0.8倍表示と盤面間の余白。online側は .ol-self-slot/.ol-opponent-slot が持つ。 */
+.versus-container {
   transform: scale(0.8);
   transform-origin: center;
   /* ★ コンテナ間の距離を以前の距離（80px）に戻す */
   margin: 0 80px;
 }
 
-.versus-label-next,
-.versus-label-next-cpu {
-  position: absolute;
-  font-family: "Orbitron", monospace;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 3px;
-  color: var(--text-dim);
-  top: -18px;
-  left: calc(var(--field-w) + var(--field-gap));
-}
-.versus-label-hold,
-.versus-label-hold-cpu {
-  position: absolute;
-  font-family: "Orbitron", monospace;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 3px;
-  color: var(--text-dim);
-  top: -18px;
-  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)));
-}
-
-#versus-player-container canvas#player-next-canvas,
-#versus-cpu-container canvas#cpu-next-canvas {
-  position: absolute;
-  top: 0;
-  left: calc(var(--field-w) + var(--field-gap));
-  width: var(--tet-next-w);
-  height: var(--tet-next-h);
-  border: var(--field-border-w-sub) solid var(--field-border);
-  border-radius: 2px;
-}
-#versus-player-container canvas#player-hold-canvas,
-#versus-cpu-container canvas#cpu-hold-canvas {
-  position: absolute;
-  top: 0;
-  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)));
-  width: var(--tet-hold-w);
-  height: var(--tet-hold-h);
-  border: var(--field-border-w-sub) solid var(--field-border);
-  border-radius: 2px;
-}
-
+/* --- 盤面本体 canvas（tet / puyo 共通の寸法・枠） --- */
 #player-main-canvas,
-#cpu-main-canvas {
-  width: var(--field-w);
-  height: var(--field-h);
+#cpu-main-canvas,
+.ol-opp-main-canvas,
+#player-puyo-main-canvas,
+#cpu-puyo-main-canvas,
+.ol-opp-puyo-main-canvas {
+  width: calc(var(--field-w) * var(--ol-scale, 1));
+  height: calc(var(--field-h) * var(--ol-scale, 1));
   border: var(--field-border-w-main) solid var(--field-border);
   border-radius: 2px;
-  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
   image-rendering: pixelated;
+  display: block;
+}
+/* CPU戦のみ: 紫グロー（online は自分=青グロー / 相手=無し を維持する）。 */
+#player-main-canvas,
+#cpu-main-canvas,
+#player-puyo-main-canvas,
+#cpu-puyo-main-canvas {
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+}
+/* CPU戦 tet 本体のみ: 描画最適化ヒント（元からの指定を維持）。 */
+#player-main-canvas,
+#cpu-main-canvas {
   will-change: transform;
   transform: translateZ(0);
   contain: layout style paint;
 }
 
-/* PUYO 対戦用Canvas */
-#player-puyo-main-canvas,
-#cpu-puyo-main-canvas {
-  width: var(--field-w);
-  height: var(--field-h);
-  border: var(--field-border-w-main) solid var(--field-border);
+/* --- HOLD canvas（tet） --- */
+#player-hold-canvas,
+#cpu-hold-canvas,
+.ol-opp-hold-canvas {
+  position: absolute;
+  top: 0;
+  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)) * var(--ol-scale, 1));
+  width: calc(var(--tet-hold-w) * var(--ol-scale, 1));
+  height: calc(var(--tet-hold-h) * var(--ol-scale, 1));
+  border: var(--field-border-w-sub) solid var(--field-border);
   border-radius: 2px;
-  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
   image-rendering: pixelated;
+  display: block;
+}
+
+/* --- NEXT canvas（tet）: 寸法・枠は共有、絶対配置は各モードで異なる --- */
+#player-next-canvas,
+#cpu-next-canvas,
+.ol-opp-next-canvas {
+  width: calc(var(--tet-next-w) * var(--ol-scale, 1));
+  height: calc(var(--tet-next-h) * var(--ol-scale, 1));
+  border: var(--field-border-w-sub) solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  display: block;
+}
+/* CPU戦のみ: NEXT を盤面の右へ直接絶対配置（online は .ol-opp-next-wrap が担う）。 */
+#player-next-canvas,
+#cpu-next-canvas {
+  position: absolute;
+  top: 0;
+  left: calc((var(--field-w) + var(--field-gap)) * var(--ol-scale, 1));
+}
+
+/* --- NEXT canvas（puyo）: 寸法・枠は共有、絶対配置は各モードで異なる --- */
+#player-puyo-next-canvas,
+#cpu-puyo-next-canvas,
+.ol-opp-puyo-next-canvas {
+  width: calc(var(--puyo-next-w) * var(--ol-scale, 1));
+  height: calc(var(--puyo-next-h) * var(--ol-scale, 1));
+  border: var(--field-border-w-sub) solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  display: block;
 }
 #player-puyo-next-canvas,
 #cpu-puyo-next-canvas {
   position: absolute;
   top: 0;
-  left: calc(var(--field-w) + var(--field-gap));
-  width: var(--puyo-next-w);
-  border: var(--field-border-w-sub) solid var(--field-border);
-  border-radius: 2px;
-  image-rendering: pixelated;
-  height: var(--puyo-next-h);
+  left: calc((var(--field-w) + var(--field-gap)) * var(--ol-scale, 1));
 }
 
-.versus-stats-left,
-.versus-stats-left-cpu {
+/* --- NEXT / HOLD ラベル --- */
+.versus-label-next,
+.versus-label-next-cpu,
+.versus-label-hold,
+.versus-label-hold-cpu,
+.ol-opp-label {
   position: absolute;
-  left: -160px;
-  top: 450px;
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  font-size: calc(11px * var(--ol-scale, 1));
+  top: calc(-18px * var(--ol-scale, 1));
+  pointer-events: none;
+}
+/* HOLD ラベルは HOLD canvas と同じ左オフセット。 */
+.versus-label-hold,
+.versus-label-hold-cpu,
+.ol-opp-label-hold {
+  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)) * var(--ol-scale, 1));
+}
+/* NEXT ラベル: CPU戦は盤面の右へ直接、online は .ol-opp-next-wrap 基準(left:0)。 */
+.versus-label-next,
+.versus-label-next-cpu {
+  left: calc((var(--field-w) + var(--field-gap)) * var(--ol-scale, 1));
+}
+.ol-opp-label-next {
+  left: 0;
+}
+
+/* --- スコア類ステータス（LEVEL/LINES/SCORE/MAX CHAIN）の配置 --- */
+.versus-stats-left,
+.versus-stats-left-cpu,
+.ol-stats-left,
+.versus-stats-right,
+.versus-stats-right-cpu,
+.ol-stats-right {
+  position: absolute;
+  top: calc(450px * var(--ol-scale, 1));
+}
+.versus-stats-left,
+.versus-stats-left-cpu,
+.ol-stats-left {
+  left: calc(-160px * var(--ol-scale, 1));
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: calc(8px * var(--ol-scale, 1));
 }
 .versus-stats-right,
-.versus-stats-right-cpu {
-  position: absolute;
-  left: 352px;
-  top: 450px;
+.versus-stats-right-cpu,
+.ol-stats-right {
+  left: calc(352px * var(--ol-scale, 1));
 }
 
+/* CPU戦のみ: 左カラム先頭(LEVEL)を隠す。online は LEVEL ブロックを生成しないので対象外。 */
 .versus-stats-left .versus-stat-block:nth-child(1),
 .versus-stats-left-cpu .versus-stat-block:nth-child(1) {
   display: none;
@@ -171,10 +230,11 @@
   position: static;
   display: block;
   margin-bottom: 2px;
+  font-size: calc(11px * var(--ol-scale, 1));
 }
 .versus-stat-value {
   font-family: "Orbitron", monospace;
-  font-size: 24px;
+  font-size: calc(24px * var(--ol-scale, 1));
   font-weight: 700;
   background: linear-gradient(90deg, var(--accent3), var(--accent));
   -webkit-background-clip: text;
@@ -268,4 +328,3 @@
   gap: 12px;
   width: 100%;
 }
-
