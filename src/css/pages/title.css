@@ -1,0 +1,81 @@
+/* ─────────────────────────────────────────────
+  タイトル画面（title-page）
+───────────────────────────────────────────── */
+#title-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 80vh;
+  cursor: pointer;
+}
+
+#title-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+}
+
+/* JS が menu-enter を付与するまで非表示（リロード時のFOUC防止） */
+.title-main-title,
+.title-subtitle,
+#title-press-any,
+#title-version {
+  opacity: 0;
+}
+
+.title-main-title {
+  font-family: "Orbitron", monospace;
+  font-size: 64px;
+  font-weight: 900;
+  letter-spacing: 14px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 8px 0;
+  line-height: 1;
+  text-shadow: none;
+}
+
+.title-subtitle {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0;
+  text-align: center;
+}
+
+.title-blink {
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  letter-spacing: 5px;
+  color: var(--text-dim);
+  animation: title-blink-anim 1.2s ease-in-out infinite;
+}
+
+@keyframes title-blink-anim {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
+#title-version {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+}
+
+/* menu-enter が #title-version の opacity を 1 にするため、減光は内側spanで保持 */
+#title-version span {
+  opacity: 0.5;
+}
+

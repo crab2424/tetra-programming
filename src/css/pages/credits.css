@@ -1,0 +1,106 @@
+/* ─────────────────────────────────────────────
+   クレジットページ
+───────────────────────────────────────────── */
+#credits-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+#credits-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 420px;
+  padding: 40px 32px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+/* タイトルヘッダー */
+#credits-header {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.credits-title {
+  font-family: "Orbitron", monospace;
+  font-size: 2.4rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 4px;
+}
+
+.credits-version {
+  font-family: "Orbitron", monospace;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  letter-spacing: 3px;
+  margin: 0;
+}
+
+/* 各セクション */
+.credits-section {
+  text-align: center;
+  line-height: 1.6;
+}
+
+.credits-section-label {
+  font-family: "Orbitron", monospace;
+  font-size: 0.65rem;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+
+.credits-name {
+  font-family: "Orbitron", monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text);
+  margin: 0;
+}
+
+/* 区切り線 */
+.credits-divider {
+  width: 60%;
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* コピーライト */
+.credits-copy {
+  font-family: "Orbitron", monospace;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  gap: 2px;
+}
+
+.credits-copy p {
+  margin: 2px 0;
+}
+
+/* BACKボタン */
+#credits-buttons {
+  margin-top: 8px;
+  width: 100%;
+}
+
+#credits-buttons .menu-btn {
+  width: 100%;
+}
+

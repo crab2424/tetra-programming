@@ -1,0 +1,271 @@
+/* ─────────────────────────────────────────────
+   ★ 対戦ゲーム画面のレイアウト（レスポンシブスケール化） ★
+───────────────────────────────────────────── */
+#versus-layout {
+  /* ★ #container と同様、fixed 中央固定でビューポート中心にスケール。 */
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: row;
+  align-items: center; /* 中央合わせ */
+  justify-content: center;
+  gap: 0;
+  /* ウィンドウサイズに合わせて自動スケール
+     キャンバスの距離を広げた分、基準となる横幅を少し広く（1300）設定
+  */
+  transform: translate(-50%, -50%)
+    scale(
+      clamp(
+        0.2,
+        min(calc((100vw - 32px) / 1300px), calc((100vh - 48px) / 700px)),
+        2
+      )
+    );
+  transform-origin: center;
+}
+
+.versus-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ★ 変更：キャンバス（コンテナ）の下に文字をくっつけるためのスタイル */
+.versus-side-label {
+  position: absolute;
+  top: auto;
+  bottom: -40px; /* キャンバスからの相対的な下部の位置 */
+  left: 0;
+  width: 100%;
+  text-align: center;
+  font-family: "Orbitron", monospace;
+  font-size: 18px; /* スケール(0.8)されるため少し大きめに設定 */
+  font-weight: 700;
+  letter-spacing: 4px;
+}
+
+.player-label {
+  color: var(--accent3);
+}
+.cpu-label {
+  color: var(--danger);
+}
+
+.versus-container {
+  position: relative;
+  width: var(--field-w);
+  height: var(--field-h);
+  transform: scale(0.8);
+  transform-origin: center;
+  /* ★ コンテナ間の距離を以前の距離（80px）に戻す */
+  margin: 0 80px;
+}
+
+.versus-label-next,
+.versus-label-next-cpu {
+  position: absolute;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: calc(var(--field-w) + var(--field-gap));
+}
+.versus-label-hold,
+.versus-label-hold-cpu {
+  position: absolute;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  top: -18px;
+  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)));
+}
+
+#versus-player-container canvas#player-next-canvas,
+#versus-cpu-container canvas#cpu-next-canvas {
+  position: absolute;
+  top: 0;
+  left: calc(var(--field-w) + var(--field-gap));
+  width: var(--tet-next-w);
+  height: var(--tet-next-h);
+  border: var(--field-border-w-sub) solid var(--field-border);
+  border-radius: 2px;
+}
+#versus-player-container canvas#player-hold-canvas,
+#versus-cpu-container canvas#cpu-hold-canvas {
+  position: absolute;
+  top: 0;
+  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)));
+  width: var(--tet-hold-w);
+  height: var(--tet-hold-h);
+  border: var(--field-border-w-sub) solid var(--field-border);
+  border-radius: 2px;
+}
+
+#player-main-canvas,
+#cpu-main-canvas {
+  width: var(--field-w);
+  height: var(--field-h);
+  border: var(--field-border-w-main) solid var(--field-border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  image-rendering: pixelated;
+  will-change: transform;
+  transform: translateZ(0);
+  contain: layout style paint;
+}
+
+/* PUYO 対戦用Canvas */
+#player-puyo-main-canvas,
+#cpu-puyo-main-canvas {
+  width: var(--field-w);
+  height: var(--field-h);
+  border: var(--field-border-w-main) solid var(--field-border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  image-rendering: pixelated;
+}
+#player-puyo-next-canvas,
+#cpu-puyo-next-canvas {
+  position: absolute;
+  top: 0;
+  left: calc(var(--field-w) + var(--field-gap));
+  width: var(--puyo-next-w);
+  border: var(--field-border-w-sub) solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  height: var(--puyo-next-h);
+}
+
+.versus-stats-left,
+.versus-stats-left-cpu {
+  position: absolute;
+  left: -160px;
+  top: 450px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.versus-stats-right,
+.versus-stats-right-cpu {
+  position: absolute;
+  left: 352px;
+  top: 450px;
+}
+
+.versus-stats-left .versus-stat-block:nth-child(1),
+.versus-stats-left-cpu .versus-stat-block:nth-child(1) {
+  display: none;
+}
+
+.versus-stat-block {
+  display: flex;
+  flex-direction: column;
+}
+.versus-stat-block .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 2px;
+}
+.versus-stat-value {
+  font-family: "Orbitron", monospace;
+  font-size: 24px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#versus-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
+}
+
+#versus-vs-label {
+  font-family: "Orbitron", monospace;
+  font-size: 32px;
+  top: 0;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* ★ 文字は非表示にするが、要素の寸法（盤面同士を離す余白）は維持するため
+     display:none ではなく visibility:hidden を使う。 */
+  visibility: hidden;
+}
+
+#versus-cpu-level-display {
+  display: none;
+}
+
+#player-action-label-container,
+#cpu-action-label-container {
+  position: absolute;
+  left: -200px;
+  top: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#versus-pause-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 10, 15, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+
+#versus-pause-overlay.active {
+  display: flex;
+}
+
+.versus-pause-modal {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 56px;
+  text-align: center;
+  box-shadow: 0 0 48px rgba(245, 197, 66, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+#versus-pause-title {
+  font-family: "Orbitron", monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  color: #f5c542;
+  margin: 0;
+}
+
+#versus-pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
