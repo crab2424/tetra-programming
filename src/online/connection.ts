@@ -619,18 +619,33 @@ export class GameConnection {
     this.reconnecting = false;
     this.stopKeepalive();
     this.stopPingReporting();
+
+    // Close フレームは「チャネルが実際に open のとき」だけ送る。
+    // 未確立/切断済みで sendRDC が例外を投げても後続のリソース解放を必ず行うため、
+    // dcReady=false は送信後に設定し、送信自体も try/catch で握りつぶす。
+    // （旧実装は dcReady=false を先に立てていたため sendRDC が必ず throw し、
+    //   rdc/urdc/pc/ws.close() に到達せず接続リソースが leak → 次回接続が失敗していた）
+    try {
+      if (this.dcReady && this.rdc?.readyState === "open") {
+        this.sendRDC(Payload.close());
+      }
+    } catch (e) {
+      this.logger.log("close(): Close フレーム送信をスキップしました", e);
+    }
     this.dcReady = false;
-    this.sendRDC(Payload.close());
 
     try {
-      this.rdc.close();
+      this.rdc?.close();
     } catch (e) {}
     try {
-      this.urdc.close();
+      this.urdc?.close();
     } catch (e) {}
-
-    this.pc.close();
-    this.ws.close();
+    try {
+      this.pc?.close();
+    } catch (e) {}
+    try {
+      this.ws?.close();
+    } catch (e) {}
     this.logger.log("Connection closed");
   }
 
