@@ -7,7 +7,7 @@ import type {
   OnlineMatchSetting,
 } from "./payload";
 import { parseMatchSetting } from "./payload";
-import { showToast, ToastColor } from "../toast";
+import { showToast, ToastColor } from "../components/toast";
 import {
   encodePieceState,
   encodeLock,
