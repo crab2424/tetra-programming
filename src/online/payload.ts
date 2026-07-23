@@ -12,8 +12,8 @@ import {
 } from "bincode-ts";
 import { RoomTag } from "./room";
 
-import PuyoIcon from "../puyo-icon.png";
-import TetIcon from "../tet-icon.png";
+import PuyoIcon from "../assets/icons/puyo-icon.png";
+import TetIcon from "../assets/icons/tet-icon.png";
 
 export enum Opcodes {
   /** バイナリPing */

@@ -11,7 +11,7 @@ import {
   parseMatchSetting,
   type OnlineMatchSetting,
 } from "./payload";
-import { showToast, ToastColor } from "../toast";
+import { showToast, ToastColor } from "../components/toast";
 import { AllTags, getTagName } from "./room";
 import { OnlineGameController } from "./online_game";
 import {
