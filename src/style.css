@@ -21,6 +21,23 @@
   --font-pixel: "Press Start 2P", monospace;
   --font-tech: "Russo One", sans-serif;
   --font-modern: "Rajdhani", sans-serif;
+
+  /* ★ 対戦フィールド寸法トークン（CPU戦 #versus-page と online戦 .ol-opp-* が共有）
+     tet/puyoで実寸が異なる箇所は接頭辞(tet-/puyo-)で明確に分離する。
+     いずれも public/game 側の canvas.width/height 実値（唯一の真実）と一致させること。 */
+  --field-w: 320px; /* 盤面本体: tet(SCREEN_WIDTH)・puyo(lifecycle.js)とも共通 */
+  --field-h: 656px;
+  --tet-hold-w: 128px; /* BLOCK_SIZE(32)*4, tet/render.js initHoldCanvas */
+  --tet-hold-h: 128px;
+  --tet-next-w: 128px; /* BLOCK_SIZE*4, tet/render.js initNextCanvas */
+  --tet-next-h: 432px; /* BLOCK_SIZE*13.5 */
+  --puyo-next-w: 128px; /* puyo/lifecycle.js _setupCanvas */
+  --puyo-next-h: 259px;
+  --field-border-w-main: 3px; /* 盤面本体の枠太さ */
+  --field-border-w-sub: 2px; /* HOLD/NEXTの枠太さ */
+  --field-gap: 32px; /* 盤面本体とHOLD/NEXTの間隔（CPU戦の352px/-160pxオフセットの由来） */
+  --field-gauge-w: 10px; /* おじゃま/攻撃ゲージの太さ */
+  --field-gauge-offset: 16px; /* 盤面端からゲージまでの距離 */
 }
 
 /* ─────────────────────────────────────────────
@@ -1155,8 +1172,8 @@ h1 {
 
 .versus-container {
   position: relative;
-  width: 320px;
-  height: 656px;
+  width: var(--field-w);
+  height: var(--field-h);
   transform: scale(0.8);
   transform-origin: center;
   /* ★ コンテナ間の距離を以前の距離（80px）に戻す */
@@ -1172,7 +1189,7 @@ h1 {
   letter-spacing: 3px;
   color: var(--text-dim);
   top: -18px;
-  left: 352px;
+  left: calc(var(--field-w) + var(--field-gap));
 }
 .versus-label-hold,
 .versus-label-hold-cpu {
@@ -1183,29 +1200,35 @@ h1 {
   letter-spacing: 3px;
   color: var(--text-dim);
   top: -18px;
-  left: -160px;
+  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)));
 }
 
 #versus-player-container canvas#player-next-canvas,
 #versus-cpu-container canvas#cpu-next-canvas {
   position: absolute;
   top: 0;
-  left: 352px;
-  border: 2px solid var(--field-border);
+  left: calc(var(--field-w) + var(--field-gap));
+  width: var(--tet-next-w);
+  height: var(--tet-next-h);
+  border: var(--field-border-w-sub) solid var(--field-border);
   border-radius: 2px;
 }
 #versus-player-container canvas#player-hold-canvas,
 #versus-cpu-container canvas#cpu-hold-canvas {
   position: absolute;
   top: 0;
-  left: -160px;
-  border: 2px solid var(--field-border);
+  left: calc(-1 * (var(--tet-hold-w) + var(--field-gap)));
+  width: var(--tet-hold-w);
+  height: var(--tet-hold-h);
+  border: var(--field-border-w-sub) solid var(--field-border);
   border-radius: 2px;
 }
 
 #player-main-canvas,
 #cpu-main-canvas {
-  border: 3px solid var(--field-border);
+  width: var(--field-w);
+  height: var(--field-h);
+  border: var(--field-border-w-main) solid var(--field-border);
   border-radius: 2px;
   box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
   image-rendering: pixelated;
@@ -1217,7 +1240,9 @@ h1 {
 /* PUYO 対戦用Canvas */
 #player-puyo-main-canvas,
 #cpu-puyo-main-canvas {
-  border: 3px solid var(--field-border);
+  width: var(--field-w);
+  height: var(--field-h);
+  border: var(--field-border-w-main) solid var(--field-border);
   border-radius: 2px;
   box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
   image-rendering: pixelated;
@@ -1226,11 +1251,12 @@ h1 {
 #cpu-puyo-next-canvas {
   position: absolute;
   top: 0;
-  left: 352px;
-  border: 2px solid var(--field-border);
+  left: calc(var(--field-w) + var(--field-gap));
+  width: var(--puyo-next-w);
+  border: var(--field-border-w-sub) solid var(--field-border);
   border-radius: 2px;
   image-rendering: pixelated;
-  height: 259px;
+  height: var(--puyo-next-h);
 }
 
 .versus-stats-left,
@@ -1373,9 +1399,9 @@ h1 {
 /* ★ 被弾（くらう）用のゲージ（左側） */
 .garbage-gauge {
   position: absolute;
-  left: -16px;
+  left: calc(-1 * var(--field-gauge-offset));
   bottom: 0;
-  width: 10px;
+  width: var(--field-gauge-w);
   height: 640px;
   display: flex;
   flex-direction: column-reverse;
@@ -1384,7 +1410,7 @@ h1 {
 }
 
 .gauge-block {
-  width: 10px;
+  width: var(--field-gauge-w);
   height: 32px;
   box-sizing: border-box;
   border-bottom: 1px solid rgba(0, 0, 0, 0.5);
@@ -1412,9 +1438,9 @@ h1 {
 /* ★ 攻撃（送る・貯蓄）用のゲージ（右側） */
 .attack-gauge {
   position: absolute;
-  right: -16px;
+  right: calc(-1 * var(--field-gauge-offset));
   bottom: 0;
-  width: 10px;
+  width: var(--field-gauge-w);
   height: 640px;
   display: flex;
   flex-direction: column-reverse;
@@ -1423,7 +1449,7 @@ h1 {
 }
 
 .attack-block {
-  width: 10px;
+  width: var(--field-gauge-w);
   height: 32px;
   box-sizing: border-box;
   border-bottom: 1px solid rgba(0, 0, 0, 0.5);
@@ -3277,6 +3303,10 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
 }
 
 #ol-battle-layout {
+  /* ★ 盤面本体をCPU戦(#versus-page)と同じ実寸トークンに対して何倍で見せるかの
+     一本化スケール。1人数分のブロックは以下でこの値だけ上書きする。
+     2P(=1)のときCPU戦の.versus-container(scale 0.8)と完全に同じ実寸系列になる。 */
+  --ol-scale: 0.4;
   position: fixed;
   top: 50%;
   left: 50%;
@@ -3394,7 +3424,8 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 2px;
+  /* CPU戦の盤面⇔HOLD/NEXT間隔(--field-gap: 32px)を--ol-scaleぶん縮めて踏襲する */
+  gap: calc(var(--field-gap) * var(--ol-scale));
   position: relative;
 }
 
@@ -3439,30 +3470,35 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   z-index: 10;
 }
 
+/* 盤面本体・HOLD・NEXTとも、CPU戦と共通のトークン(--field-*)に--ol-scaleを
+   掛けるだけの計算式にする。人数ブレークポイントは--ol-scaleの値だけ差し替えれば
+   全部位（本体/HOLD/NEXT/ゲージ）が連動して縮小する（旧実装は部位ごとに手打ちの
+   固定pxで、本体とHOLD/NEXTの縮小率がズレていた＝2P TETでHOLD/NEXTだけCPU戦より
+   小さく表示される原因だった）。 */
 .ol-opp-main-canvas {
-  width: 128px;
-  height: 262px;
-  border: 2px solid var(--field-border);
+  width: calc(var(--field-w) * var(--ol-scale));
+  height: calc(var(--field-h) * var(--ol-scale));
+  border: var(--field-border-w-main) solid var(--field-border);
   border-radius: 2px;
   image-rendering: pixelated;
   display: block;
 }
 
-/* hold: BLOCK_SIZE(32)*4 = 128px → CSS scale 0.375 = 48px */
 .ol-opp-hold-canvas {
-  width: 48px;
-  height: 48px;
+  width: calc(var(--tet-hold-w) * var(--ol-scale));
+  height: calc(var(--tet-hold-h) * var(--ol-scale));
   image-rendering: pixelated;
   display: block;
   align-self: flex-start;
-  border: 1px solid var(--field-border);
+  border: var(--field-border-w-sub) solid var(--field-border);
   border-radius: 2px;
 }
 
-/* next: 128×432px → CSS scale 0.375 = 48×162px */
 .ol-opp-next-canvas {
-  width: 48px;
-  height: 162px;
+  width: calc(var(--tet-next-w) * var(--ol-scale));
+  height: calc(var(--tet-next-h) * var(--ol-scale));
+  border: var(--field-border-w-sub) solid var(--field-border);
+  border-radius: 2px;
   image-rendering: pixelated;
   display: block;
   align-self: flex-start;
@@ -3471,10 +3507,10 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
 /* 相手の予告ゲージ: ol-opp-main-wrap 左側に縦棒として絶対配置 */
 .ol-opp-garbage-gauge {
   position: absolute;
-  left: -10px;
+  left: calc(-1 * var(--field-gauge-offset) * var(--ol-scale));
   top: 0;
   bottom: 0;
-  width: 7px;
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
   display: flex;
   flex-direction: column-reverse;
   align-items: center;
@@ -3483,15 +3519,19 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   pointer-events: none;
   z-index: 5;
 }
+.ol-opp-garbage-gauge .gauge-block {
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
+  height: calc(32px * var(--ol-scale));
+}
 
 /* 攻撃(送る・貯蓄)ゲージ: ol-opp-main-wrap 右側に縦棒として絶対配置。
    異種戦(対ぷよ)で自分のフィールドにのみ表示する */
 .ol-opp-attack-gauge {
   position: absolute;
-  right: -10px;
+  right: calc(-1 * var(--field-gauge-offset) * var(--ol-scale));
   top: 0;
   bottom: 0;
-  width: 7px;
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
   display: flex;
   flex-direction: column-reverse;
   align-items: center;
@@ -3501,64 +3541,36 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
   z-index: 5;
 }
 .ol-opp-attack-gauge .attack-block {
-  width: 7px;
-  height: 18px;
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
+  height: calc(32px * var(--ol-scale));
 }
 
-/* ぷよ相手キャンバス: 論理320×656 → CSS128×262 (scale 0.4) */
 .ol-opp-puyo-main-canvas {
-  width: 128px;
-  height: 262px;
-  border: 2px solid var(--field-border);
+  width: calc(var(--field-w) * var(--ol-scale));
+  height: calc(var(--field-h) * var(--ol-scale));
+  border: var(--field-border-w-main) solid var(--field-border);
   border-radius: 2px;
   image-rendering: pixelated;
   display: block;
 }
 
-/* ぷよNEXT: 論理128×259 → CSS52×104 */
 .ol-opp-puyo-next-canvas {
-  width: 52px;
-  height: 104px;
+  width: calc(var(--puyo-next-w) * var(--ol-scale));
+  height: calc(var(--puyo-next-h) * var(--ol-scale));
+  border: var(--field-border-w-sub) solid var(--field-border);
+  border-radius: 2px;
   image-rendering: pixelated;
   display: block;
   align-self: flex-start;
 }
 
-/* ─── 人数別レイアウト ─── */
+/* ─── 人数別レイアウト ───
+   寸法はすべて.ol-opp-*側の calc(トークン * --ol-scale) に委譲済みなので、
+   ここでは --ol-scale の値と、人数固有のガター/折返しだけを指定する。 */
 
-/* 2P: 全員等サイズ・横並び */
-#ol-battle-layout[data-player-count="2"] .ol-opp-garbage-gauge {
-  left: -12px;
-  width: 9px;
-}
-#ol-battle-layout[data-player-count="2"] .ol-opp-attack-gauge {
-  right: -12px;
-  width: 9px;
-}
-#ol-battle-layout[data-player-count="2"] .ol-opp-attack-gauge .attack-block {
-  width: 9px;
-  height: 32px;
-}
-#ol-battle-layout[data-player-count="2"] .ol-opp-main-canvas {
-  width: 320px;
-  height: 656px;
-}
-#ol-battle-layout[data-player-count="2"] .ol-opp-hold-canvas {
-  width: 96px;
-  height: 96px;
-  align-self: flex-start;
-}
-#ol-battle-layout[data-player-count="2"] .ol-opp-next-canvas {
-  width: 96px;
-  height: 324px;
-}
-#ol-battle-layout[data-player-count="2"] .ol-opp-puyo-main-canvas {
-  width: 320px;
-  height: 656px;
-}
-#ol-battle-layout[data-player-count="2"] .ol-opp-puyo-next-canvas {
-  width: 100px;
-  height: 200px;
+/* 2P: 全員等サイズ・横並び。--ol-scale:1 → CPU戦(#versus-page)と実寸完全一致 */
+#ol-battle-layout[data-player-count="2"] {
+  --ol-scale: 1;
 }
 #ol-battle-layout[data-player-count="2"] .ol-opp-name {
   font-size: 13px;
@@ -3567,56 +3579,19 @@ input[type="range"]::-webkit-slider-thumb.is-focused {
 
 /* 3P: 全員横並び、間隔を詰める、自分は少し小さく */
 #ol-battle-layout[data-player-count="3"] {
+  --ol-scale: 0.6;
   gap: 20px;
-}
-#ol-battle-layout[data-player-count="3"] .ol-opp-main-canvas {
-  width: 192px;
-  height: 394px;
-}
-#ol-battle-layout[data-player-count="3"] .ol-opp-hold-canvas {
-  width: 72px;
-  height: 72px;
-}
-#ol-battle-layout[data-player-count="3"] .ol-opp-next-canvas {
-  width: 72px;
-  height: 243px;
-}
-#ol-battle-layout[data-player-count="3"] .ol-opp-puyo-main-canvas {
-  width: 192px;
-  height: 394px;
-}
-#ol-battle-layout[data-player-count="3"] .ol-opp-puyo-next-canvas {
-  width: 72px;
-  height: 144px;
 }
 
 /* 4P: 全員横並び・コンパクト */
 #ol-battle-layout[data-player-count="4"] {
+  --ol-scale: 0.51875;
   gap: 14px;
-}
-#ol-battle-layout[data-player-count="4"] .ol-opp-main-canvas {
-  width: 166px;
-  height: 341px;
-}
-#ol-battle-layout[data-player-count="4"] .ol-opp-hold-canvas {
-  width: 60px;
-  height: 60px;
-}
-#ol-battle-layout[data-player-count="4"] .ol-opp-next-canvas {
-  width: 60px;
-  height: 203px;
-}
-#ol-battle-layout[data-player-count="4"] .ol-opp-puyo-main-canvas {
-  width: 166px;
-  height: 341px;
-}
-#ol-battle-layout[data-player-count="4"] .ol-opp-puyo-next-canvas {
-  width: 60px;
-  height: 120px;
 }
 
 /* 5P+: flex-wrap で折り返し */
 #ol-battle-layout[data-player-count="5"] {
+  --ol-scale: 0.4;
   gap: 8px;
   flex-wrap: wrap;
   justify-content: center;
