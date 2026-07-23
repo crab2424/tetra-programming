@@ -247,7 +247,11 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 20px;
+  /* 盤面間の中央余白。従来は「padding 0 20px ＋ VSラベルの実幅」で 111px 分あったが、
+     online 2P と値を共有するため共通トークン化し、幅を明示する（見た目は従来と同一）。 */
+  width: var(--versus-center-gap);
+  padding: 0;
+  box-sizing: border-box;
 }
 
 #versus-vs-label {
