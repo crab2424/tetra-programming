@@ -1984,6 +1984,11 @@ class OnlineMode {
       } catch (e) {
         errorOccurred = true;
         this.logger.error("Failed to connect to the online server:", e);
+        // ready() が失敗した場合 this.connection は未セットのため、
+        // 半開きの PeerConnection/WebSocket をここで明示的に解放する。
+        try {
+          connection?.close();
+        } catch { }
         await Modal.alert(`オンラインサーバーに接続できませんでした。\n\n${e}`);
 
         this.backToMainMenu();
