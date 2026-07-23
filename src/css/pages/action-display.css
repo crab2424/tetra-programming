@@ -1,0 +1,57 @@
+/* ─────────────────────────────────────────────
+   各種アクション表示など
+───────────────────────────────────────────── */
+#action-label-container {
+  position: absolute;
+  left: -200px;
+  top: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.action-label {
+  font-family: var(--font-orbitron);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin: 4px 0;
+  opacity: 1;
+  transition: opacity 0.3s linear;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
+}
+.action-label.pc {
+  color: #ffea00;
+}
+.action-label.tspin {
+  color: #c471f5;
+}
+.action-label.mini {
+  color: #71c5f5;
+}
+.action-label.four {
+  color: #00e5ff;
+}
+.action-label.b2b {
+  color: #f5a623;
+}
+.action-label.ren {
+  color: #a6f523;
+}
+
+.font-orbitron {
+  font-family: var(--font-orbitron);
+}
+.font-pixel {
+  font-family: var(--font-pixel);
+  font-size: 14px;
+}
+.font-tech {
+  font-family: var(--font-tech);
+}
+.font-modern {
+  font-family: var(--font-modern);
+}
+

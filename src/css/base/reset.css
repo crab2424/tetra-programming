@@ -1,0 +1,82 @@
+/* ─────────────────────────────────────────────
+  リセット・ベース
+───────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-main);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+}
+
+/* ─────────────────────────────────────────────
+  ヘッダーエリア
+───────────────────────────────────────────── */
+#header-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  max-width: 700px;
+  margin-bottom: 20px;
+}
+
+h1 {
+  font-family: "Orbitron", monospace;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+/* ─────────────────────────────────────────────
+  ページ切り替え（完全独立）
+───────────────────────────────────────────── */
+.page {
+  display: none;
+  position: relative;
+  z-index: 1;
+}
+
+/* 固定配置のゲーム盤面が、ページ遷移後に他ページへ重ならないようにする。
+   inline style が残った場合でも、非アクティブなページは必ず隠す。 */
+.page:not(.active) {
+  display: none !important;
+}
+
+/* ★ シングルプレイ画面・対戦画面のアクティブ時共通スタイル ★ */
+#game-page.active,
+#versus-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  flex: 1;
+  overflow: hidden;
+}
+
+#settings-page.active {
+  display: block;
+}
+
+#result-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+

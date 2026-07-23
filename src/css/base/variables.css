@@ -1,0 +1,45 @@
+@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&family=Press+Start+2P&family=Russo+One&family=Rajdhani:wght@400;700&display=swap");
+
+/* ─────────────────────────────────────────────
+  CSS 変数（テーマカラー）
+───────────────────────────────────────────── */
+:root {
+  --bg: #0a0a0f;
+  --panel-bg: #12121a;
+  --border: #2a2a3a;
+  --field-border: #6f6f95;
+  --accent: #c471f5;
+  --accent2: #fa71cd;
+  --accent3: #71c5f5;
+  --text: #e0e0f0;
+  --text-dim: #888;
+  --danger: #f55a5a;
+  --success: #5af5a0;
+  /* フォント変数 */
+  --font-main: "Noto Sans JP", sans-serif;
+  --font-orbitron: "Orbitron", monospace;
+  --font-pixel: "Press Start 2P", monospace;
+  --font-tech: "Russo One", sans-serif;
+  --font-modern: "Rajdhani", sans-serif;
+
+  /* ★ 対戦フィールド寸法トークン（CPU戦 #versus-page と online戦 .ol-opp-* が共有）
+     tet/puyoで実寸が異なる箇所は接頭辞(tet-/puyo-)で明確に分離する。
+     いずれも public/game 側の canvas.width/height 実値（唯一の真実）と一致させること。 */
+  --field-w: 320px; /* 盤面本体: tet(SCREEN_WIDTH)・puyo(lifecycle.js)とも共通 */
+  --field-h: 656px;
+  /* HOLD/NEXTの横幅はtet/puyoとも128px(BLOCK_SIZE(32)*4)で偶然ではなく共通なので、
+     tet/puyoで混同しないよう幅は1つの共有トークンにまとめる。高さだけがtet/puyo・HOLD/NEXTで違う。 */
+  --field-side-w: 128px;
+  --tet-hold-w: var(--field-side-w); /* tet/render.js initHoldCanvas */
+  --tet-hold-h: 128px;
+  --tet-next-w: var(--field-side-w); /* tet/render.js initNextCanvas */
+  --tet-next-h: 432px; /* BLOCK_SIZE*13.5 */
+  --puyo-next-w: var(--field-side-w); /* puyo/lifecycle.js _setupCanvas */
+  --puyo-next-h: 259px;
+  --field-border-w-main: 3px; /* 盤面本体の枠太さ */
+  --field-border-w-sub: 2px; /* HOLD/NEXTの枠太さ */
+  --field-gap: 32px; /* 盤面本体とHOLD/NEXTの間隔（CPU戦の352px/-160pxオフセットの由来） */
+  --field-gauge-w: 10px; /* おじゃま/攻撃ゲージの太さ */
+  --field-gauge-offset: 16px; /* 盤面端からゲージまでの距離 */
+}
+

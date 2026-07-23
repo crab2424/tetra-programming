@@ -1,0 +1,503 @@
+/* ─────────────────────────────────────────────
+  MARK: オンライン対戦画面
+───────────────────────────────────────────── */
+
+/* オンライン盤面はCPU戦と同じ対戦ページ配下のパネルとして表示する。 */
+#versus-page.active.online-battle-active #versus-layout {
+  display: none;
+}
+
+#online-battle-page.battle-panel {
+  position: relative;
+  width: 100%;
+  display: block;
+}
+
+/* CPU戦復帰時にオンライン盤面パネル(#ol-battle-layout は position:fixed)が
+   中央に残るのを防ぐ。online-battle-active が付いているときだけ表示する。 */
+#versus-page:not(.online-battle-active) #online-battle-page.battle-panel {
+  display: none;
+}
+
+.ol-result-round,
+.ol-result-set-score {
+  color: var(--accent3);
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-align: center;
+  min-height: 16px;
+}
+
+.ol-result-set-score {
+  color: var(--text);
+  font-size: 14px;
+  letter-spacing: 1px;
+  margin: 4px 0 10px;
+}
+
+#ol-battle-layout {
+  /* ★ 盤面本体をCPU戦(#versus-page)と同じ実寸トークンに対して何倍で見せるかの
+     一本化スケール。1人数分のブロックは以下でこの値だけ上書きする。
+     2P(=1)のときCPU戦の.versus-container(scale 0.8)と完全に同じ実寸系列になる。 */
+  --ol-scale: 0.4;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  transform: translate(-50%, -50%)
+    scale(
+      clamp(
+        0.2,
+        min(calc((100vw - 32px) / 1300px), calc((100vh - 48px) / 700px)),
+        2
+      )
+    );
+  transform-origin: center;
+}
+
+/* CPU戦の .versus-container と同じ基準スケール・左右余白をオンラインにも適用する。 */
+.ol-self-slot,
+.ol-opponent-slot {
+  position: relative;
+  margin: 0 80px;
+  transform: scale(0.8);
+  transform-origin: center;
+}
+
+/* Player field (left side) */
+#ol-player-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* 自プレイヤーは相手スロット(.ol-opponent-slot)と同一構造・同一クラスを使う。
+   差別化は枠の発光（self はアクセント色）と名前ラベル色のみ。 */
+.ol-self-slot .ol-opp-main-canvas,
+.ol-self-slot .ol-opp-puyo-main-canvas {
+  box-shadow: 0 0 20px rgba(113, 197, 245, 0.3);
+}
+
+.ol-self-name {
+  font-size: 13px !important;
+  max-width: 360px !important;
+}
+
+/* tet/puyo フィールド内オーバーレイ(カウントダウン/フィニッシュ)を
+   ol-opp-main-wrap いっぱいに広げ、キャンバスの拡縮に追従させる */
+.ol-fill-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+.ol-fill-overlay .finish-text {
+  font-size: 22px;
+  letter-spacing: 2px;
+}
+
+/* Opponents area: display:contents でフレックス親 (#ol-battle-layout) の直接子にフラット化 */
+#ol-opponents-area {
+  display: contents;
+}
+
+.ol-opponent-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.ol-opp-name {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* CPU戦がSCOREをNEXT列の下(盤面の真横)に出すのに合わせ、.ol-opp-next-wrap内に
+   絶対配置する（JS側 updateOnlineStats がこの要素の子として生成する）。 */
+.ol-live-stats {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-dim);
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+
+.ol-live-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.ol-live-stat b {
+  font-size: 8px;
+  font-weight: 500;
+}
+
+.ol-live-stat strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.ol-opp-field {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  /* CPU戦の盤面⇔HOLD/NEXT間隔(--field-gap: 32px)を--ol-scaleぶん縮めて踏襲する */
+  gap: calc(var(--field-gap) * var(--ol-scale));
+  position: relative;
+}
+
+.ol-opp-label {
+  position: absolute;
+  top: -20px;
+  color: var(--text-dim);
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  pointer-events: none;
+}
+
+.ol-opp-label-hold { left: 0; }
+/* NEXTラベルは.ol-opp-next-wrap基準でHOLDラベルと同じ「自分の枠の左端に揃える」を踏襲する
+   （CPU戦の.versus-label-next/-holdも共に左揃え）。以前はol-opp-field右端基準のright:0で、
+   HOLDが無いぷよ側や複数人数側でNEXT本体の左端とズレて右に寄って見えていた。 */
+.ol-opp-label-next { left: 0; }
+
+.ol-opp-main-wrap {
+  position: relative;
+}
+
+.ol-opp-next-wrap {
+  position: relative;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+/* HOLDが無いぷよ側フィールドの左右対称を保つための透明スペーサー。
+   TET側のHOLD幅(--field-side-w)と同じ幅を確保し、NEXTだけがある非対称な行を
+   HOLD/本体/NEXTと同じ対称構造にする（ぷよ盤面の中心が名前ラベルの中心とズレる原因だった）。 */
+.ol-opp-side-spacer {
+  width: calc(var(--field-side-w) * var(--ol-scale));
+  flex-shrink: 0;
+}
+
+/* action-label-container(T-SPIN/4-LINES/B2B等の演出): CPU戦(#versus-page)の
+   #player/#cpu-action-label-container(left:-200px/top:200px、320x656基準)と
+   同じ見た目になるよう、盤面サイズに対する比率で配置する（2P時は320x656で完全一致、
+   3P/4P時も縮小した盤面サイズに追従する）。演出のPXオフセット自体(scoring.js labelLayout)は
+   両モード共通で、コンテナの位置だけがモードごとに異なる。 */
+#ol-p-action-label-container,
+#ol-p-puyo-action-label-container,
+#ol-opp-0-action-label-container,
+#ol-opp-0-puyo-action-label-container,
+#ol-opp-1-action-label-container,
+#ol-opp-1-puyo-action-label-container,
+#ol-opp-2-action-label-container,
+#ol-opp-2-puyo-action-label-container {
+  position: absolute;
+  left: -62.5%; /* -200px / 320px（CPU戦と同じ比率） */
+  top: 30.49%; /* 200px / 656px（CPU戦と同じ比率） */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* 盤面本体・HOLD・NEXTとも、CPU戦と共通のトークン(--field-*)に--ol-scaleを
+   掛けるだけの計算式にする。人数ブレークポイントは--ol-scaleの値だけ差し替えれば
+   全部位（本体/HOLD/NEXT/ゲージ）が連動して縮小する（旧実装は部位ごとに手打ちの
+   固定pxで、本体とHOLD/NEXTの縮小率がズレていた＝2P TETでHOLD/NEXTだけCPU戦より
+   小さく表示される原因だった）。 */
+.ol-opp-main-canvas {
+  width: calc(var(--field-w) * var(--ol-scale));
+  height: calc(var(--field-h) * var(--ol-scale));
+  border: var(--field-border-w-main) solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  display: block;
+}
+
+.ol-opp-hold-canvas {
+  width: calc(var(--tet-hold-w) * var(--ol-scale));
+  height: calc(var(--tet-hold-h) * var(--ol-scale));
+  image-rendering: pixelated;
+  display: block;
+  align-self: flex-start;
+  border: var(--field-border-w-sub) solid var(--field-border);
+  border-radius: 2px;
+}
+
+.ol-opp-next-canvas {
+  width: calc(var(--tet-next-w) * var(--ol-scale));
+  height: calc(var(--tet-next-h) * var(--ol-scale));
+  border: var(--field-border-w-sub) solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  display: block;
+}
+
+/* 相手の予告ゲージ: ol-opp-main-wrap 左側に縦棒として絶対配置 */
+.ol-opp-garbage-gauge {
+  position: absolute;
+  left: calc(-1 * var(--field-gauge-offset) * var(--ol-scale));
+  top: 0;
+  bottom: 0;
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+.ol-opp-garbage-gauge .gauge-block {
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
+  height: calc(32px * var(--ol-scale));
+}
+
+/* 攻撃(送る・貯蓄)ゲージ: ol-opp-main-wrap 右側に縦棒として絶対配置。
+   異種戦(対ぷよ)で自分のフィールドにのみ表示する */
+.ol-opp-attack-gauge {
+  position: absolute;
+  right: calc(-1 * var(--field-gauge-offset) * var(--ol-scale));
+  top: 0;
+  bottom: 0;
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+.ol-opp-attack-gauge .attack-block {
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
+  height: calc(32px * var(--ol-scale));
+}
+
+.ol-opp-puyo-main-canvas {
+  width: calc(var(--field-w) * var(--ol-scale));
+  height: calc(var(--field-h) * var(--ol-scale));
+  border: var(--field-border-w-main) solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  display: block;
+}
+
+.ol-opp-puyo-next-canvas {
+  width: calc(var(--puyo-next-w) * var(--ol-scale));
+  height: calc(var(--puyo-next-h) * var(--ol-scale));
+  border: var(--field-border-w-sub) solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  display: block;
+}
+
+/* ─── 人数別レイアウト ───
+   寸法はすべて.ol-opp-*側の calc(トークン * --ol-scale) に委譲済みなので、
+   ここでは --ol-scale の値と、人数固有のガター/折返しだけを指定する。 */
+
+/* 2P: 全員等サイズ・横並び。--ol-scale:1 → CPU戦(#versus-page)と実寸完全一致 */
+#ol-battle-layout[data-player-count="2"] {
+  --ol-scale: 1;
+}
+#ol-battle-layout[data-player-count="2"] .ol-opp-name {
+  font-size: 13px;
+  max-width: 360px;
+}
+
+/* 3P: 全員横並び、間隔を詰める、自分は少し小さく */
+#ol-battle-layout[data-player-count="3"] {
+  --ol-scale: 0.6;
+  gap: 20px;
+}
+
+/* 4P: 全員横並び・コンパクト */
+#ol-battle-layout[data-player-count="4"] {
+  --ol-scale: 0.51875;
+  gap: 14px;
+}
+
+/* 5P+: flex-wrap で折り返し */
+#ol-battle-layout[data-player-count="5"] {
+  --ol-scale: 0.4;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Overlays */
+.ol-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 10, 15, 0.82);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 100;
+  pointer-events: auto;
+  align-items: center;
+  justify-content: center;
+}
+
+#ol-winner-overlay {
+  z-index: 1000;
+}
+
+#ol-winner-overlay button {
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.ol-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 40px 48px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.ol-result-card {
+  width: min(420px, calc(100vw - 40px));
+  gap: 14px;
+  padding: 32px 36px;
+  text-align: center;
+}
+
+.ol-result-kicker {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+}
+
+.ol-result-stats {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin: 4px 0 6px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.ol-result-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 2px;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.ol-result-stat-row + .ol-result-stat-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ol-result-stat-row strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.ol-result-title.ol-result-win {
+  color: var(--success);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.ol-result-title.ol-result-lose {
+  color: var(--danger);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.ol-result-title.ol-result-draw {
+  color: var(--text-dim);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.ol-result-title {
+  font-family: "Orbitron", monospace;
+  font-size: 42px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.ol-result-name {
+  font-family: "Orbitron", monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text);
+  min-height: 28px;
+}
+
+#ol-post-match-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 220px;
+}
+
+/* REMATCH 投票済み状態: 押すと取消できることが分かるよう強調表示 */
+#ol-btn-rematch.rematch-voted {
+  background: linear-gradient(135deg, var(--success), #2e7d50);
+  box-shadow: 0 0 16px rgba(90, 245, 160, 0.5);
+  color: #fff;
+}
+
+#ol-rematch-status {
+  color: var(--text-dim);
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.changelog-items li {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
