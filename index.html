@@ -570,19 +570,25 @@
                 <span id="ol-p-finish-text" class="finish-text"></span>
               </div>
             </div>
-            <span class="ol-opp-label ol-opp-label-next">NEXT</span>
-            <canvas id="ol-p-next-canvas" class="ol-opp-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-p-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-p-next-canvas" class="ol-opp-next-canvas"></canvas>
+            </div>
           </div>
           <!-- puyo用（ルール=puyoの場合のみ表示） -->
           <div class="ol-opp-field ol-opp-puyo-field" id="ol-p-puyo-field" style="display:none">
+            <!-- HOLDが無いぷよ側の左右対称を保つための透明スペーサー(TET側のHOLD幅と同じ) -->
+            <div class="ol-opp-side-spacer" aria-hidden="true"></div>
             <div class="ol-opp-main-wrap">
               <div id="ol-p-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
               <canvas id="ol-p-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
               <div id="ol-p-puyo-action-label-container"></div>
               <div id="ol-p-puyo-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-p-puyo-countdown-text" class="countdown-text"></span></div>
             </div>
-            <span class="ol-opp-label ol-opp-label-next">NEXT</span>
-            <canvas id="ol-p-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-p-puyo-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-p-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            </div>
           </div>
           <!-- 名前は盤面の下（相手と同じ ol-opp-name 構造） -->
           <div class="ol-opp-name ol-self-name" id="ol-p-name" style="color: var(--accent3)">YOU</div>
@@ -602,19 +608,24 @@
               <div id="ol-opp-0-action-label-container"></div>
               <div id="ol-opp-0-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-0-countdown-text" class="countdown-text"></span></div>
             </div>
-            <span class="ol-opp-label ol-opp-label-next">NEXT</span>
-            <canvas id="ol-opp-0-next-canvas" class="ol-opp-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-0-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-0-next-canvas" class="ol-opp-next-canvas"></canvas>
+            </div>
           </div>
           <!-- puyo用 -->
           <div class="ol-opp-field ol-opp-puyo-field" id="ol-opp-0-puyo-field" style="display:none">
+            <div class="ol-opp-side-spacer" aria-hidden="true"></div>
             <div class="ol-opp-main-wrap">
               <div id="ol-opp-0-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
               <canvas id="ol-opp-0-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
               <div id="ol-opp-0-puyo-action-label-container"></div>
               <div id="ol-opp-0-puyo-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-0-puyo-countdown-text" class="countdown-text"></span></div>
             </div>
-            <span class="ol-opp-label ol-opp-label-next">NEXT</span>
-            <canvas id="ol-opp-0-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-0-puyo-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-0-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            </div>
           </div>
           <!-- 名前は盤面の下 -->
           <div class="ol-opp-name" id="ol-opp-name-0"></div>
@@ -630,18 +641,23 @@
               <div id="ol-opp-1-action-label-container"></div>
               <div id="ol-opp-1-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-1-countdown-text" class="countdown-text"></span></div>
             </div>
-            <span class="ol-opp-label ol-opp-label-next">NEXT</span>
-            <canvas id="ol-opp-1-next-canvas" class="ol-opp-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-1-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-1-next-canvas" class="ol-opp-next-canvas"></canvas>
+            </div>
           </div>
           <div class="ol-opp-field ol-opp-puyo-field" id="ol-opp-1-puyo-field" style="display:none">
+            <div class="ol-opp-side-spacer" aria-hidden="true"></div>
             <div class="ol-opp-main-wrap">
               <div id="ol-opp-1-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
               <canvas id="ol-opp-1-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
               <div id="ol-opp-1-puyo-action-label-container"></div>
               <div id="ol-opp-1-puyo-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-1-puyo-countdown-text" class="countdown-text"></span></div>
             </div>
-            <span class="ol-opp-label ol-opp-label-next">NEXT</span>
-            <canvas id="ol-opp-1-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-1-puyo-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-1-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            </div>
           </div>
           <div class="ol-opp-name" id="ol-opp-name-1"></div>
         </div>
@@ -656,18 +672,23 @@
               <div id="ol-opp-2-action-label-container"></div>
               <div id="ol-opp-2-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-2-countdown-text" class="countdown-text"></span></div>
             </div>
-            <span class="ol-opp-label ol-opp-label-next">NEXT</span>
-            <canvas id="ol-opp-2-next-canvas" class="ol-opp-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-2-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-2-next-canvas" class="ol-opp-next-canvas"></canvas>
+            </div>
           </div>
           <div class="ol-opp-field ol-opp-puyo-field" id="ol-opp-2-puyo-field" style="display:none">
+            <div class="ol-opp-side-spacer" aria-hidden="true"></div>
             <div class="ol-opp-main-wrap">
               <div id="ol-opp-2-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
               <canvas id="ol-opp-2-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
               <div id="ol-opp-2-puyo-action-label-container"></div>
               <div id="ol-opp-2-puyo-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-2-puyo-countdown-text" class="countdown-text"></span></div>
             </div>
-            <span class="ol-opp-label ol-opp-label-next">NEXT</span>
-            <canvas id="ol-opp-2-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-2-puyo-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-2-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            </div>
           </div>
           <div class="ol-opp-name" id="ol-opp-name-2"></div>
         </div>
