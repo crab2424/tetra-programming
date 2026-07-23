@@ -111,6 +111,8 @@ export class GameConnection {
   /** 再接続の最大試行回数と1回あたりのタイムアウト */
   private static readonly RECONNECT_MAX_ATTEMPTS = 4;
   private static readonly RECONNECT_ATTEMPT_TIMEOUT_MS = 6000;
+  /** 初回接続（ready()）でDataChannelが開くまでの上限。超えたら reject して呼び出し元にエラーを返す。 */
+  private static readonly INITIAL_CONNECT_TIMEOUT_MS = 15000;
 
   /**
    * サーバー時刻 − ローカル時刻 のオフセット (ms)。syncClock() で確定する。
@@ -343,7 +345,13 @@ export class GameConnection {
           );
           this.logger.log("Received answer and set remote description");
 
+          const deadline =
+            Date.now() + GameConnection.INITIAL_CONNECT_TIMEOUT_MS;
           while (this.dcReady === false) {
+            if (Date.now() > deadline) {
+              reject(new Error("DataChannel connection timed out"));
+              return;
+            }
             await sleep(10);
           }
           resolve();
