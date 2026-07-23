@@ -220,9 +220,12 @@
    寸法はすべて.ol-opp-*側の calc(トークン * --ol-scale) に委譲済みなので、
    ここでは --ol-scale の値と、人数固有のガター/折返しだけを指定する。 */
 
-/* 2P: 全員等サイズ・横並び。--ol-scale:1 → CPU戦(#versus-page)と実寸完全一致 */
+/* 2P: 全員等サイズ・横並び。--ol-scale:1 → CPU戦(#versus-page)と実寸完全一致。
+   さらに flex gap に --versus-center-gap を入れ、CPU戦の #versus-center 相当の中央余白を
+   盤面間に再現する（これが無いと両盤面が中央に約106px寄ってCPU戦より近づいて見える）。 */
 #ol-battle-layout[data-player-count="2"] {
   --ol-scale: 1;
+  gap: var(--versus-center-gap);
 }
 #ol-battle-layout[data-player-count="2"] .ol-opp-name {
   font-size: 13px;
