@@ -363,8 +363,14 @@ export class OnlineGameController {
     const game = this.game;
     const conn = this.connection;
     const sink: GarbageSink = {
-      sendTetLines: (lines, holes) => conn.sendMatchEvent(encodeGarbage(lines, holes)),
-      sendOjama: (count) => conn.sendMatchEvent(encodeGarbagePuyo(count)),
+      sendTetLines: (lines, holes) => {
+        conn.sendMatchEvent(encodeGarbage(lines, holes));
+        game._olGarbageSentThisChain = true;
+      },
+      sendOjama: (count) => {
+        conn.sendMatchEvent(encodeGarbagePuyo(count));
+        game._olGarbageSentThisChain = true;
+      },
     };
     const routeOpts = {
       cols: BOARD_COLS,
@@ -976,12 +982,17 @@ export class OnlineGameController {
     // _confirmSentGarbage: このターンに送信したおじゃまを連鎖終了時に確定(ready)させる
     // トリガー。CPU戦は送信元/着弾先が同一メモリ空間のためオブジェクト参照で ready 化
     // できるが、online は別プロセスなので GarbageConfirm フレームで明示的に伝える。
+    // ★ game.sendGarbage はネットワーク送信版で完全に上書きされており（hookGarbageSending）、
+    //   ojama.js 本来の sendGarbage（sentGarbageThisTurn.push を含む）は実行されない。
+    //   そのため hadSent 判定は sentGarbageThisTurn ではなく、sink 側で実際に送信した
+    //   ときだけ立つ _olGarbageSentThisChain フラグを見る。
     if (typeof game._confirmSentGarbage === 'function') {
       const origConfirmSentGarbage: AnyFn = game._confirmSentGarbage.bind(game);
       game._confirmSentGarbage = (...args: any[]) => {
-        const hadSent = (game.sentGarbageThisTurn?.length ?? 0) > 0;
+        const hadSent = game._olGarbageSentThisChain === true;
         const r = origConfirmSentGarbage(...args);
         if (hadSent && this.myAlive) conn.sendMatchEvent(encodeGarbageConfirm());
+        game._olGarbageSentThisChain = false;
         return r;
       };
     }
