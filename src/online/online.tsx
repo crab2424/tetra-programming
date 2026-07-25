@@ -411,22 +411,17 @@ class OnlineMode {
           }
         },
         isRandomMatch: this.isRandomMatchRoom,
-        onRandomRematch: async () => {
-          // ランダムマッチ終了後: 現在のルームを退出して新たなランダムマッチを開始する
-          if (this.connection) {
-            try {
-              await this.connection.leaveRoom({ roomId: roomData.roomId });
-            } catch { }
-            this.currentRoom = null;
-            this.gameController = null;
-            this.isRandomMatchRoom = false;
-            await this.startRandomMatch();
-          }
-        },
       });
     } else {
       this.gameController.updateRoomInfo(roomData);
     }
+
+    // ★ 対戦画面（カウントダウン〜リザルト〜遷移）が出ている間は、ルーム通知で
+    //   ロビー/ランダムマッチ確認パネルを描き直さない。
+    //   これが無いと、対戦後に相手が退出した通知で確認パネルが再生成され、
+    //   players.length < 2 を検知して自動再マッチング（「マッチング中…」）へ飛んでしまう。
+    //   対戦後の遷移は必ずリザルト画面のボタン（RETRY / ROOM / LEAVE）起点にする。
+    if (this.gameController.isBattleActive) return;
 
     const isOwner = roomData.ownerId === myUserId;
     const ms = parseMatchSetting(roomData.matchSetting);
