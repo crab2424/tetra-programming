@@ -1,0 +1,147 @@
+/* ─────────────────────────────────────────────
+   オンライン対戦のロード画面
+   マッチング成立→開始承認のあと、素材を読み込み終えるまで表示する。
+
+   ★ アニメーションは CSS のみ（rAF/JS タイマーを使わない）。
+     ロード中にメインスレッドを奪うと、まさに読み込みたい素材のデコードが遅れるため。
+     動かすのは transform / opacity だけに限定してレイアウト再計算を避ける。
+   ───────────────────────────────────────────── */
+
+.ol-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 6, 16, 0.92);
+  backdrop-filter: blur(4px);
+  animation: ol-loading-fadein 0.25s ease both;
+}
+
+@keyframes ol-loading-fadein {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ol-loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  min-width: 300px;
+  max-width: 88vw;
+  padding: 32px 40px;
+  border: 1px solid rgba(196, 113, 245, 0.35);
+  border-radius: 14px;
+  background: rgba(20, 16, 34, 0.92);
+  box-shadow: 0 0 40px rgba(196, 113, 245, 0.18);
+}
+
+.ol-loading-kicker {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+}
+
+/* 4つのドットが順に光る。テトリミノ/ぷよの「1マス」を模した控えめなインジケータ */
+.ol-loading-dots {
+  display: flex;
+  gap: 10px;
+}
+
+.ol-loading-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  opacity: 0.25;
+  will-change: transform, opacity;
+  animation: ol-loading-dot-pulse 1.2s ease-in-out infinite;
+}
+
+.ol-loading-dot:nth-child(2) { animation-delay: 0.15s; }
+.ol-loading-dot:nth-child(3) { animation-delay: 0.3s; }
+.ol-loading-dot:nth-child(4) { animation-delay: 0.45s; }
+
+@keyframes ol-loading-dot-pulse {
+  0%, 70%, 100% {
+    opacity: 0.25;
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.12);
+  }
+}
+
+.ol-loading-label {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text);
+  text-align: center;
+  min-height: 16px;
+}
+
+.ol-loading-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 幅ではなく scaleX を動かす（レイアウトを発生させない） */
+.ol-loading-bar-fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  transition: transform 0.3s ease;
+  will-change: transform;
+}
+
+.ol-loading-players {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.ol-loading-players:empty {
+  display: none;
+}
+
+.ol-loading-player {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-dim);
+}
+
+.ol-loading-player.is-ready {
+  color: var(--success);
+}
+
+.ol-loading-player .ol-loading-player-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 動きを減らす設定を尊重する */
+@media (prefers-reduced-motion: reduce) {
+  .ol-loading-overlay,
+  .ol-loading-dot {
+    animation: none;
+  }
+  .ol-loading-dot {
+    opacity: 0.7;
+  }
+}

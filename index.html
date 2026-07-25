@@ -1083,6 +1083,26 @@
   <div id="global-toast"></div>
 
   <!-- ─────────────────────────────────────────────
+        オンライン対戦のロード画面
+        マッチング成立→対戦開始の承認後に表示し、素材を読み込み終えてから READY を送る。
+        全ページの上に出す必要があるので .page の外（body直下）に置く。
+       ───────────────────────────────────────────── -->
+  <div id="ol-loading-overlay" class="ol-loading-overlay" style="display:none">
+    <div class="ol-loading-card">
+      <div class="ol-loading-kicker">PREPARING MATCH</div>
+      <div class="ol-loading-dots" aria-hidden="true">
+        <span class="ol-loading-dot"></span>
+        <span class="ol-loading-dot"></span>
+        <span class="ol-loading-dot"></span>
+        <span class="ol-loading-dot"></span>
+      </div>
+      <div id="ol-loading-label" class="ol-loading-label">読み込み中…</div>
+      <div class="ol-loading-bar"><div id="ol-loading-bar-fill" class="ol-loading-bar-fill"></div></div>
+      <div id="ol-loading-players" class="ol-loading-players"></div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
         外部ページ注入先（CREDITS / CHANGELOG は src/pages.js が動的に読込）
     ───────────────────────────────────────────── -->
   <div id="external-pages"></div>
