@@ -618,6 +618,8 @@ class AudioLoader {
     // SEはAudioContextで扱うためArrayBufferとしてキャッシュ
     static _seBuffers  = {};  // { key: AudioBuffer }
     static _bgmSrcMap  = {};  // { key: src }
+    static _seReady    = null;  // loadSe() 全体の完了Promise（ロード画面の待機に使う）
+    static _bgmPrefetch = {};   // { key: HTMLAudioElement } 先読み済みBGM
     static _ctx        = null;
     static _keepAlive  = null;  // 無音キープアライブのbufferSource（多重起動防止＆GC防止）
     static _ctxCreatedAt = 0;
@@ -668,11 +670,55 @@ class AudioLoader {
                 // （音源未配置でもアプリは動作し、該当SEは無音になるだけ）
                 .catch(err => { console.warn(`[AudioLoader] SE "${key}" の読み込みに失敗: ${src}`, err); });
         });
-        return Promise.all(promises);
+        // 起動時プリロードの完了を待てるよう保持する（オンライン対戦のロード画面が参照する）
+        this._seReady = Promise.all(promises);
+        return this._seReady;
     }
 
     static getSeBuffer(key) {
         return this._seBuffers[key] ?? null;
+    }
+
+    /** 起動時SEプリロードの完了を待つ。既に完了していれば即解決する。 */
+    static whenSeReady() {
+        return this._seReady ?? Promise.resolve();
+    }
+
+    // ── BGMの先読み ────────────────────────────────────────────────
+    // BgmManager.play() は毎回 new Audio() して src を張るだけなので、実データは
+    // 再生開始と同時にストリーミングされる。対戦開始直後にこれが走ると回線状況次第で
+    // 出だしが途切れる。ロード画面で canplaythrough まで先読みし、play() 側は
+    // このキャッシュ済み要素を使い回す。
+    static prefetchBgm(key) {
+        const src = this.getBgmSrc(key);
+        if (!src) return Promise.resolve();
+        const cached = this._bgmPrefetch[key];
+        if (cached && cached.readyState >= 4) return Promise.resolve();
+        const audio = cached ?? new Audio();
+        audio.preload = 'auto';
+        audio.loop = true;
+        if (audio.src !== src) audio.src = src;
+        this._bgmPrefetch[key] = audio;
+        if (audio.readyState >= 4) return Promise.resolve();
+        return new Promise((resolve) => {
+            const done = () => {
+                audio.removeEventListener('canplaythrough', done);
+                audio.removeEventListener('error', done);
+                resolve();
+            };
+            audio.addEventListener('canplaythrough', done, { once: true });
+            // 取得失敗でもロード画面を止めない（該当BGMが無音になるだけ）
+            audio.addEventListener('error', done, { once: true });
+            audio.load();
+        });
+    }
+
+    /** 先読み済みのBGM要素を取り出す（BgmManager.play が使う）。 */
+    static takePrefetchedBgm(key) {
+        const audio = this._bgmPrefetch[key];
+        if (!audio) return null;
+        delete this._bgmPrefetch[key];
+        return audio;
     }
 
     // ── 無音キープアライブ ───────────────────────────────────────────
@@ -796,13 +842,23 @@ class BgmManager {
         }
 
         this.stop(true);
-        this._audio = new Audio();
+        // ロード画面で先読み済みならその要素を使う（出だしのストリーミング待ちを避ける）
+        this._audio = AudioLoader.takePrefetchedBgm(key) ?? new Audio();
         this._audio.loop   = true;
         // ★ 音量補正係数(_gain)は _currentKey を見て決まるので、volume を計算する前にキーを更新する。
         //   （順序が逆だと直前のBGMの係数で鳴ってしまい、versus_bgm等の補正が効かない）
         this._currentKey   = key;
         this._audio.volume = this._effectiveVolume();
-        this._audio.src    = src;
+        // ★ src への代入は同じURLでも media load algorithm を再実行し、先読み済みの
+        //   バッファを捨ててしまう。先読み要素をそのまま使えるよう、違うときだけ張り替える。
+        if (!this._audio.src || new URL(src, location.href).href !== this._audio.src) {
+            this._audio.src = src;
+        }
+        // 先読み要素を使い回すときのみ頭出しする。メタデータ未読込の要素へ currentTime を
+        // 代入すると環境によっては例外になるため、必要なときだけ触る。
+        if (this._audio.currentTime > 0) {
+            try { this._audio.currentTime = 0; } catch (e) { /* 未読込時は無視 */ }
+        }
         this._audio.play().catch(() => {});
     }
 

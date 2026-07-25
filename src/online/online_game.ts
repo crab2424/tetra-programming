@@ -62,6 +62,7 @@ import {
   onlineFieldPrefix,
   allOnlineFieldPrefixes,
 } from "../battle/finish_overlay";
+import { runBattlePreload, hideLoadingOverlay } from "../battle/loading_screen";
 
 type AnyFn = (...args: any[]) => any;
 
@@ -564,6 +565,8 @@ export class OnlineGameController {
   private startBattle(notif: StartMatchNotification): void {
     // 二重の開始通知・決着処理中の遅延通知はここで捨てる
     if (!this.lifecycle.transition("countdown", "StartMatchNotification")) return;
+    // 全員のロードが終わって対戦が始まる → ロード画面を閉じる
+    hideLoadingOverlay();
     this.myAlive = true;
     this.matchHalted = false;
     this.clearWinnerFallback();
@@ -1199,7 +1202,7 @@ export class OnlineGameController {
   }
 
   /** RETRY ボタンを押したときのトグル投票（部屋モード・ランダムマッチ共通） */
-  private toggleRematchVote(): void {
+  private async toggleRematchVote(): Promise<void> {
     // 再戦準備(preparing)へ進んだ後の連打は無視。結果表示中のみ受け付ける
     if (this.lifecycle.phase !== "roundResult") return;
 
@@ -1216,6 +1219,15 @@ export class OnlineGameController {
     this.myRematchVoted = !this.myRematchVoted;
 
     if (this.myRematchVoted) {
+      // ★ 再戦でも READY = 「素材ロード完了」の意味を保つ。2戦目以降はキャッシュ済みで即完了する。
+      await runBattlePreload({
+        rules: [...new Set(this.roomInfo.players.map(([, , r]) => (r === "puyo" ? "puyo" : "tet") as "tet" | "puyo"))],
+      });
+      // ロード中に結果画面を離れていたら送らない
+      if (this.lifecycle.phase !== "roundResult" || !this.myRematchVoted) {
+        hideLoadingOverlay();
+        return;
+      }
       // READY を立ててからvote → サーバーは同一接続を順序処理するため、
       // オーナーが startMatch を送る時点で全員 READY 済みになる
       this.connection.setReady({ roomId, ready: true }).catch((e) =>

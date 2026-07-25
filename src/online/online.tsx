@@ -19,6 +19,12 @@ import {
   setOnlineSelfSide,
   type OnlineSelfSide,
 } from "../battle/layout";
+import {
+  runBattlePreload,
+  hideLoadingOverlay,
+  isLoadingOverlayVisible,
+  setLoadingPlayers,
+} from "../battle/loading_screen";
 
 enum OnlineModeState {
   Disconnected,
@@ -260,6 +266,7 @@ class OnlineMode {
       this.connection?.stopPingReporting();
       this.isRandomMatchRoom = false;
       this.clearRmConfirm();
+      hideLoadingOverlay();
     }
     if (value !== OnlineModeState.RoomList) {
       this.stopRoomListAutoRefresh();
@@ -304,6 +311,35 @@ class OnlineMode {
       clearInterval(this.roomListRefreshId);
       this.roomListRefreshId = null;
     }
+  }
+
+  /**
+   * 対戦開始を承認したあとのロード画面。素材を読み終えてから解決する。
+   *
+   * ★ ここで待ってから READY / startMatch を送ることで、サーバー側の
+   *   「オーナー以外の全員 READY で開始」判定がそのまま「全員のロードが終わるまで
+   *   対戦が始まらない」として機能する（プロトコル・サーバーとも無改造）。
+   *   ロード画面は StartMatchNotification 受信時に OnlineGameController が閉じる。
+   */
+  private async preloadForMatch(roomData: RoomInfoNotification): Promise<void> {
+    const rules = roomData.players.map(([, , rule]) =>
+      rule === "puyo" ? ("puyo" as const) : ("tet" as const),
+    );
+    this.updateLoadingPlayers(roomData);
+    await runBattlePreload({ rules: [...new Set(rules)] });
+    this.updateLoadingPlayers(roomData);
+  }
+
+  /** ロード画面の「各プレイヤーの準備状況」を RoomInfoNotification から更新する */
+  private updateLoadingPlayers(roomData: RoomInfoNotification): void {
+    const readySet = new Set(roomData.readyPlayers ?? []);
+    setLoadingPlayers(
+      roomData.players.map(([id, name]) => ({
+        name,
+        // オーナーは READY を持たない（開始操作が READY 相当）ので、開始通知まで準備中扱い
+        ready: readySet.has(id),
+      })),
+    );
   }
 
   /** success:false 応答をトーストで通知する共通ヘルパー */
@@ -415,6 +451,9 @@ class OnlineMode {
     } else {
       this.gameController.updateRoomInfo(roomData);
     }
+
+    // ロード画面表示中は「相手の準備状況」だけ更新する（READY = ロード完了）
+    if (isLoadingOverlayVisible()) this.updateLoadingPlayers(roomData);
 
     // ★ 対戦画面（カウントダウン〜リザルト〜遷移）が出ている間は、ルーム通知で
     //   ロビー/ランダムマッチ確認パネルを描き直さない。
@@ -853,10 +892,13 @@ class OnlineMode {
                   class="menu-btn btn-versus-primary"
                   style={{ width: "100%" }}
                   onclick={async () => {
+                    // 先に自分の素材を読み終えてから開始要求を送る（全員のロード完了後に開始）
+                    await this.preloadForMatch(roomData);
                     const result = await this.connection!.startMatch({
                       roomId: roomData.roomId,
                     });
                     if (!result.success) {
+                      hideLoadingOverlay();
                       await Modal.alert(
                         result.message || "ゲーム開始に失敗しました。",
                         "エラー",
@@ -904,11 +946,16 @@ class OnlineMode {
                     (iAmReady ? "btn-secondary" : "btn-versus-primary")
                   }
                   style={{ width: "100%" }}
-                  onclick={() => {
-                    this.connection!.setReady({
+                  onclick={async () => {
+                    // ★ READY = 「素材のロードまで終わって本当に開始できる」の意味。
+                    //   READY を立てるときだけロード画面を挟み、解除時はそのまま送る。
+                    if (!iAmReady) await this.preloadForMatch(roomData);
+                    const r = await this.connection!.setReady({
                       roomId: roomData.roomId,
                       ready: !iAmReady,
-                    }).then((r) => this.notifyIfFailed(r, "READY変更"));
+                    });
+                    if (!r.success) hideLoadingOverlay();
+                    this.notifyIfFailed(r, "READY変更");
                   }}
                 >
                   <span class="menu-btn-icon">{iAmReady ? "↩" : "✔"}</span>
@@ -1484,13 +1531,20 @@ class OnlineMode {
   }
 
   /** 確認パネルのOKボタン。非オーナー=READY送信、オーナー=開始許可を立てて条件チェック */
-  private confirmRandomMatch(roomId: Uuid, isOwner: boolean) {
+  private async confirmRandomMatch(roomId: Uuid, isOwner: boolean) {
     if (this.rmConfirmed || this.rmStarting) return;
     this.rmConfirmed = true;
     const okBtn = document.getElementById("ol-rm-ok") as HTMLButtonElement | null;
     if (okBtn) okBtn.disabled = true;
     const status = document.getElementById("ol-rm-status");
     if (status) status.textContent = "相手の確認を待っています…";
+
+    // ★ OK（対戦開始の承認）の直後にロード画面。読み終えてから READY / 開始要求を送る。
+    //   確認パネルのタイムアウトはロード中に走らせない（辞退扱いにしないため）。
+    this.clearRmConfirmTimer();
+    if (this.rmLatestRoom) await this.preloadForMatch(this.rmLatestRoom);
+    if (this.rmLeaving) { hideLoadingOverlay(); return; } // ロード中に辞退/相手退出
+
     if (!isOwner) {
       this.connection!
         .setReady({ roomId, ready: true })
@@ -1540,6 +1594,7 @@ class OnlineMode {
     if (this.rmStarting || this.rmLeaving) return;
     this.rmLeaving = true;
     this.clearRmConfirm();
+    hideLoadingOverlay();
     try {
       await this.connection!.leaveRoom({ roomId });
     } catch { }
@@ -1554,6 +1609,7 @@ class OnlineMode {
     if (this.rmLeaving) return;
     this.rmLeaving = true;
     this.clearRmConfirm();
+    hideLoadingOverlay();
     showToast("ONLINE", message, ToastColor["Info"]);
     try {
       await this.connection!.leaveRoom({ roomId });
