@@ -91,6 +91,8 @@ export class NetworkDriver implements OpponentDriver {
   private puyoReplayFrame: number | null = null;
   private puyoReplayLastNow = 0;
   private puyoDrop: PuyoDropState | null = null;
+  /** 決着後に凍結済みか。以後の受信フレームは全て捨てる。 */
+  private frozen = false;
 
   constructor(options: NetworkDriverOptions) {
     this.id = options.id;
@@ -140,6 +142,29 @@ export class NetworkDriver implements OpponentDriver {
     this.onNameDead(this.index);
   }
 
+  /**
+   * 決着時に相手スロットを凍結する（`stop()` と違い盤面は残す）。
+   * 進行中の連鎖リプレイ rAF を止め、以後 applyFrame が来ても何も反映しない。
+   */
+  freeze(): void {
+    if (this.frozen) return;
+    this.frozen = true;
+    this.stopPuyoReplay();
+    this.puyoReplayQueue.length = 0;
+    if (this.rule === "puyo") {
+      // 実エンジンの停止条件は state。keepCanvas 相当で盤面だけ残す（freeze.ts と同じ作法）。
+      this.puppet._versusFinishing = true;
+      this.puppet.state = "gameover";
+      this.puppet._gs = "gameover";
+      this.puppet.isPaused = true;
+      this.puppet._render?.();
+    } else {
+      this.puppet.mino = null;
+      this.puppet.isPaused = true;
+      this.puppet.drawAll?.();
+    }
+  }
+
   setDisconnected(): void {
     if (this.rule === "puyo") {
       this.stopPuyoReplay();
@@ -152,6 +177,7 @@ export class NetworkDriver implements OpponentDriver {
   }
 
   applyFrame(opcode: number, payload: Uint8Array): void {
+    if (this.frozen) return; // 決着後に届いた遅延フレームで盤面が動くのを防ぐ
     const puppet = this.puppet;
     switch (opcode) {
       case MatchOpcode.PieceState: {

@@ -6,6 +6,7 @@ import "./battle/garbage_router";
 import "./battle/layout";
 import "./battle/lifecycle";
 import "./battle/driver";
+import "./battle/freeze";
 
 document.addEventListener("DOMContentLoaded", () => {
   const versionElement = document.getElementById("title-version");
