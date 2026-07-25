@@ -349,13 +349,10 @@ function versusGameOver(loser) {
   const overlay = document.getElementById('versus-pause-overlay');
   if (overlay) overlay.classList.remove('active');
 
-  const playerText  = (loser === 'player') ? 'LOSE...' : 'WIN!';
-  const cpuText     = (loser === 'cpu')    ? 'LOSE...' : 'WIN!';
-  const playerClass = (loser === 'player') ? 'finish-gameover' : 'finish-clear';
-  const cpuClass    = (loser === 'cpu')    ? 'finish-gameover' : 'finish-clear';
-
-  showFinishOverlay('player-finish-overlay', 'player-finish-text', playerText, playerClass, 1400, null);
-  showFinishOverlay('cpu-finish-overlay',    'cpu-finish-text',    cpuText,    cpuClass,    1400, () => {
+  // ★ 文言・クラス・表示時間は src/battle/finish_overlay.ts（window.BattleFinish）に一本化。
+  //   オンライン戦も同じ関数を使うので、ここで文字列を書かない。
+  window.BattleFinish.showFieldFinish('player-', loser === 'player' ? 'lose' : 'win');
+  window.BattleFinish.showFieldFinish('cpu-', loser === 'cpu' ? 'lose' : 'win', () => {
     // ★ リザルトでも versus_bgm を引き継ぐ（停止は main-menu / versus-check へ戻った時のみ）
     const winner = (loser === 'player') ? 'CPU' : 'YOU';
     const titleEl = document.getElementById('versus-result-title');

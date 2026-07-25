@@ -96,10 +96,9 @@
   width: 100% !important;
   height: 100% !important;
 }
-.ol-fill-overlay .finish-text {
-  font-size: 22px;
-  letter-spacing: 2px;
-}
+/* ※ .finish-text のフォントサイズは countdown-overlay.css の共有規則
+   （calc(var(--finish-font-size) * var(--ol-scale, 1))）が担う。
+   ここで online 専用に固定px で上書きすると CPU戦とズレるので上書きしない。 */
 
 /* Opponents area: display:contents でフレックス親 (#ol-battle-layout) の直接子にフラット化 */
 #ol-opponents-area {

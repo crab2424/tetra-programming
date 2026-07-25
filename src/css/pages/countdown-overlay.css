@@ -78,8 +78,10 @@
 .finish-text {
   font-family: "Orbitron", monospace;
   font-weight: 900;
-  font-size: 44px;
-  letter-spacing: 4px;
+  /* CPU戦は --ol-scale 未定義＝1 で従来どおり 44px/4px。
+     online戦は #ol-battle-layout の人数別 --ol-scale が継承され、盤面と同率で縮小する。 */
+  font-size: calc(var(--finish-font-size) * var(--ol-scale, 1));
+  letter-spacing: calc(var(--finish-letter-spacing) * var(--ol-scale, 1));
   text-align: center;
   line-height: 1.2;
   user-select: none;

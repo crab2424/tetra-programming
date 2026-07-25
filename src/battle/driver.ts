@@ -14,6 +14,7 @@ import {
   BOARD_BUFFER_ROWS,
   BOARD_COLS,
 } from "../online/game_protocol";
+import { showFieldFinish, onlineFieldPrefix } from "./finish_overlay";
 
 declare const Mino: new (type?: number | null) => any;
 declare const Block: new (x: number, y: number, type: number) => any;
@@ -139,6 +140,9 @@ export class NetworkDriver implements OpponentDriver {
       this.puppet.isPaused = true;
       this.puppet.drawAll?.();
     }
+    // 自分の盤面と同じく、脱落した相手の盤面にも GAME OVER を出す
+    // （CPU戦が両盤面へ演出を出すのに合わせる。決着時は showWinner が WIN/LOSE で上書きする）
+    showFieldFinish(onlineFieldPrefix(this.index, this.rule), "gameover");
     this.onNameDead(this.index);
   }
 
