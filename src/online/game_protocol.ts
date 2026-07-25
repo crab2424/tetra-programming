@@ -189,9 +189,12 @@ export function decodeHoldState(p: Uint8Array): boolean {
   return (p[0] ?? 0) !== 0;
 }
 
-// GarbageConfirm: 1 byte (opcode only)
+// GarbageConfirm: 2 bytes (opcode + 1 dummy byte).
+// ★ サーバー(reliable.rs)は data.len() < 2 のフレームを opcode 判定前に破棄するため、
+//   opcode 1バイトだけだと中継されず相手に届かない。ダミー1バイトを足して最小長を満たす。
+//   受信側は opcode しか見ないので2バイト目の値は不問。
 export function encodeGarbageConfirm(): Uint8Array {
-  return new Uint8Array([MatchOpcode.GarbageConfirm]);
+  return new Uint8Array([MatchOpcode.GarbageConfirm, 0]);
 }
 
 export type StatsRule = "tet" | "puyo";
