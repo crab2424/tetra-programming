@@ -325,42 +325,22 @@ function versusGameOver(loser) {
   if (!window.BattleVersusLifecycle.transition('roundResolving', `versusGameOver(${loser})`)) return;
   window.BattleVersusLifecycle.recordWinner(loser === 'player' ? 'cpu' : 'player');
 
-  // ★ 修正: ここでも Tet と Puyo を確実に区別する
-  const stopGame = (gameInst, isWinner) => {
+  // ★ 停止処理の実体は src/battle/freeze.ts（window.BattleFreeze）に一本化してある。
+  //   オンライン戦も同じ関数を使う。ぷよは isPaused を停止条件に使わず、stop() の後に
+  //   state='gameover' を代入しないと _loop() が回り続ける、という作法をここで二重管理しない。
+  const stopGame = (gameInst) => {
       if (!gameInst) return;
-      if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
-          if (typeof gameInst.stop === 'function') {
-              // ★ 勝者側ぷよは演出中も盤面・NEXTを残すため、_versusFinishingフラグを立ててからstop()する
-              if (isWinner) {
-                  gameInst._versusFinishing = true;
-              }
-              gameInst.stop();
-              gameInst.state = 'gameover';
-          }
-      } else {
-          if (typeof gameInst.gameOver === 'function') { 
-              // tet
-              if (gameInst.timer) clearInterval(gameInst.timer);
-              gameInst.timer = null;
-              if (gameInst.lockTimer) clearTimeout(gameInst.lockTimer);
-              gameInst.lockTimer = null;
-              gameInst.isPaused = true;
-              if (gameInst.isTimerRunning) {
-                  gameInst.elapsedTime += performance.now() - gameInst.startTime;
-                  gameInst.isTimerRunning = false;
-                  if (gameInst.timerReqId) cancelAnimationFrame(gameInst.timerReqId);
-              }
-              if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
-              if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
-              if (gameInst._keyLoop)        clearInterval(gameInst._keyLoop);
-          }
-      }
+      const isPuyo = gameInst === window._puyoGame
+          || gameInst === window._puyoGamePlayer
+          || gameInst === window._puyoGameCpu;
+      // 演出中は勝者/敗者とも盤面・NEXTを残す（keepCanvas）
+      window.BattleFreeze.freezeGameByRule(gameInst, isPuyo ? 'puyo' : 'tet', { keepCanvas: true });
   };
 
-  // loser === 'player' のとき: _game が敗者、_cpuGame が勝者
-  // loser === 'cpu'    のとき: _cpuGame が敗者、_game が勝者
-  stopGame(window._game,    loser === 'cpu');    // loser=cpu なら _game が勝者
-  stopGame(window._cpuGame, loser === 'player'); // loser=player なら _cpuGame が勝者
+  // 勝者・敗者とも同じ手順で止める（旧実装は勝者だけ _versusFinishing を立てていたが、
+  // 敗者側も _beginGameOver で既に立っているため実質同じ。keepCanvas に統一した）
+  stopGame(window._game);
+  stopGame(window._cpuGame);
   
   if (window._cpuController && typeof window._cpuController.stop === 'function') {
       window._cpuController.stop();

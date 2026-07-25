@@ -53,6 +53,7 @@ import {
   applyOnlineSelfSide,
 } from "../battle/layout";
 import { NetworkDriver } from "../battle/driver";
+import { freezeGameByRule } from "../battle/freeze";
 import { renderOnlineResult, resetOnlineResult } from "../battle/online_result";
 
 type AnyFn = (...args: any[]) => any;
@@ -140,6 +141,12 @@ export class OnlineGameController {
   private myRematchVoted = false;
   /** 現在のセットに設定を適用済みか。cleanup後の再入室では再初期化する。 */
   private setConfigured = false;
+  /** haltMatch 済みか（進行停止の冪等ガード）。 */
+  private matchHalted = false;
+  /** ローカルで残り1人を検知してから WinnerNotification を待つタイマー。 */
+  private winnerFallbackTimer: number | null = null;
+  /** サーバーの WinnerNotification を待つ猶予。超えたらローカル判定で結果を出す。 */
+  private static readonly WINNER_FALLBACK_MS = 2000;
 
   /**
    * 終了処理の状態機械。開始/決着/再戦/退出の排他はすべてここを通す。
@@ -179,7 +186,7 @@ export class OnlineGameController {
   /** 表示状態に応じてバックグラウンドクロックを開始/停止する（hidden 検知時・対戦開始時に呼ぶ）。 */
   private syncBackgroundClock(): void {
     const hidden = typeof document !== "undefined" && document.hidden;
-    if (hidden && this.matchInProgress && this.myAlive && this.game) {
+    if (hidden && this.matchInProgress && !this.matchHalted && this.myAlive && this.game) {
       this.startBackgroundClock();
     } else {
       this.stopBackgroundClock();
@@ -255,7 +262,7 @@ export class OnlineGameController {
   private backgroundTick(): void {
     // 表示中は rAF が駆動するので二重進行を避ける
     if (typeof document !== "undefined" && !document.hidden) return;
-    if (!this.matchInProgress || !this.myAlive || !this.game) {
+    if (!this.matchInProgress || this.matchHalted || !this.myAlive || !this.game) {
       this.stopBackgroundClock();
       return;
     }
@@ -338,6 +345,38 @@ export class OnlineGameController {
   private markDead(playerId: Uuid): void {
     this.aliveSet.delete(playerId);
     this.updateAliveDisplay();
+    this.checkLocalMatchEnd();
+  }
+
+  /**
+   * ローカルの生存者集合だけで決着を検知する（サーバー通知に依存しないフェイルセーフ）。
+   *
+   * aliveSet は「自分の gameOver」「相手の GameOver(0x26)」「PlayerDisconnected」の
+   * すべてで減るので、全端末がほぼ同時に残り1人を検知できる。ここでは**進行を止めるだけ**で
+   * 勝敗表示は行わず、正式な WinnerNotification を待つ（勝敗はサーバー権威のまま）。
+   * 通知が落ちた/遅れた場合のみ、猶予後にローカル判定で結果を出す。
+   */
+  private checkLocalMatchEnd(): void {
+    if (this.lifecycle.phase !== "playing" && this.lifecycle.phase !== "countdown") return;
+    if (this.aliveSet.size > 1) return;
+    this.haltMatch(`local alive=${this.aliveSet.size}`);
+    if (this.winnerFallbackTimer !== null) return;
+    this.winnerFallbackTimer = window.setTimeout(() => {
+      this.winnerFallbackTimer = null;
+      if (this.lifecycle.phase !== "playing" && this.lifecycle.phase !== "countdown") return;
+      const survivor = this.aliveSet.size === 1 ? [...this.aliveSet][0] : null;
+      this.logger.warn(
+        "WinnerNotification did not arrive in time. Falling back to local result.",
+      );
+      this.showWinner(survivor);
+    }, OnlineGameController.WINNER_FALLBACK_MS);
+  }
+
+  private clearWinnerFallback(): void {
+    if (this.winnerFallbackTimer !== null) {
+      clearTimeout(this.winnerFallbackTimer);
+      this.winnerFallbackTimer = null;
+    }
   }
 
   /** パペットに紐づく一時タイマー（連鎖点滅など）を停止する */
@@ -411,22 +450,35 @@ export class OnlineGameController {
     }
   }
 
-  /** ゲーム本体のタイマー類を止めて盤面を凍結する（送信は行わない） */
-  private freezeGame(): void {
-    const game = this.game;
-    if (!game) return;
-    if (game.timer) clearInterval(game.timer);
-    if (game.lockTimer) clearTimeout(game.lockTimer);
-    if (game._garbageTimers?.length) {
-      for (const t of game._garbageTimers) if (t.id) clearTimeout(t.id);
-      game._garbageTimers = [];
-    }
-    if (game.isTimerRunning) {
-      game.elapsedTime += performance.now() - game.startTime;
-      game.isTimerRunning = false;
-      cancelAnimationFrame(game.timerReqId);
-    }
-    game.isPaused = true;
+  /**
+   * 自分のゲーム本体だけを凍結する（盤面・NEXTは残す。送信は行わない）。
+   * 実体は battle/freeze.ts。★ PuyoGame は isPaused を見ないため、旧実装のように
+   * isPaused を立てるだけでは止まらない（決着後もぷよが落ち続ける）。
+   */
+  private freezeSelfGame(): void {
+    if (!this.game) return;
+    freezeGameByRule(this.game, this.myRule, { keepCanvas: true });
+  }
+
+  /**
+   * 対戦の進行を全て止める単一の入口。決着（WinnerNotification / ローカルの残り1人検知）で呼ぶ。
+   * 冪等。ここでは lifecycle の状態遷移も勝敗表示も行わない（表示は showWinner の責務）。
+   *
+   * 「生存者が1人になった時点で全端末の進行を止める」という要件は、
+   *  - 自分のエンジン（freezeSelfGame）
+   *  - 相手パペット全員（driver.freeze: 連鎖リプレイ rAF を含む）
+   *  - 送信 interval / バックグラウンドクロック
+   *  - 以後の受信フレーム（matchHalted で破棄）
+   * の4つを同時に止めて初めて満たされる。
+   */
+  private haltMatch(reason: string): void {
+    if (this.matchHalted) return;
+    this.matchHalted = true;
+    this.logger.log(`Halting match progress (${reason}).`);
+    this.stopPieceStateInterval();
+    this.stopBackgroundClock();
+    this.freezeSelfGame();
+    for (const driver of this.puppets.values()) driver.freeze();
   }
 
   constructor(
@@ -477,6 +529,8 @@ export class OnlineGameController {
     // 二重の開始通知・決着処理中の遅延通知はここで捨てる
     if (!this.lifecycle.transition("countdown", "StartMatchNotification")) return;
     this.myAlive = true;
+    this.matchHalted = false;
+    this.clearWinnerFallback();
     this.addVisibilityListener();
     this.aliveSet = new Set(this.roomInfo.players.map(([id]) => id));
     this.clearFinishOverlay();
@@ -758,9 +812,11 @@ export class OnlineGameController {
     game.gameOver = (_isClear = false) => {
       if (!this.myAlive) return;
       this.myAlive = false;
-      this.markDead(this.myUserId);
       this.stopPieceStateInterval();
-      this.freezeGame();
+      this.freezeSelfGame();
+      // ★ markDead は「残り1人ならローカルでも全進行を止める」判定を含むので、
+      //   自分の停止を済ませてから呼ぶ。
+      this.markDead(this.myUserId);
       game.drawAll();
 
       this.logger.log("Local game over. Notifying server...");
@@ -889,9 +945,9 @@ export class OnlineGameController {
     game.gameOver = (_isClear = false) => {
       if (!this.myAlive) return;
       this.myAlive = false;
-      this.markDead(this.myUserId);
       this.stopPieceStateInterval();
-      this.freezeGame();
+      this.freezeSelfGame();
+      this.markDead(this.myUserId);
       game._render?.();
 
       this.logger.log("Local puyo game over. Notifying server...");
@@ -1220,6 +1276,8 @@ export class OnlineGameController {
     // 次の開始通知待ちへ。以降のテアダウンは冪等なので遷移可否に関わらず実行する
     this.lifecycle.transition("preparing", "await next match");
     this.stopPieceStateInterval();
+    this.clearWinnerFallback();
+    this.matchHalted = false;
 
     // ゲームエンジン停止
     if (this.game) {
@@ -1330,6 +1388,12 @@ export class OnlineGameController {
   }
 
   private handleMatchFrame(frame: { opcode: number; senderId: Uuid; payload: Uint8Array }): void {
+    // 決着後に届いた遅延フレーム（おじゃま・連鎖演出など）で盤面が動かないよう全て捨てる。
+    // GameOver だけは生存者集合の整合のため反映する（パペットは凍結済みなので表示は変えない）。
+    if (this.matchHalted) {
+      if (frame.opcode === MatchOpcode.GameOver) this.markDead(frame.senderId);
+      return;
+    }
     // ── ローカルプレイヤーへのルーティング（送信元に関係なく自分に届く） ──
     // ★ Garbage(0x24) は受信側ルールに応じて穴/列配列の意味だけが変わる。
     //   サーバーはゲームルールを再計算せず、クライアントが自分のルールに適用する。
@@ -1647,15 +1711,12 @@ export class OnlineGameController {
     if (!this.lifecycle.transition("roundResolving", "WinnerNotification")) return;
     this.lifecycle.recordWinner(winnerId);
     this.updateSetScore();
-    this.stopPieceStateInterval();
-    // 勝敗確定: 生存中でもゲームを停止する
-    this.freezeGame();
-    if (this.myRule === 'puyo') {
-      // ★ stop(true)=keepCanvas で盤面・NEXTを残す（VERSUS同様）。keepCanvas省略だと
-      //   _clearCanvases() でキャンバスが消され、勝敗確定時に自分の盤面が真っ暗になる。
-      this.game?.stop?.(true);
-      this.game?._clearChainTextDOM?.();
-    }
+    this.clearWinnerFallback();
+    // 勝敗確定: 生存中でもゲームを停止する（自分・相手パペット・送信・受信すべて）。
+    // ★ 旧実装は freezeGame(=isPaused) + stop(true) だったが、PuyoGame は isPaused を見ず、
+    //   stop(true) は state='idle' も cancelAnimationFrame もスキップするため、勝者側の
+    //   ぷよが決着後も落ち続けていた。停止の作法は battle/freeze.ts に一本化した。
+    this.haltMatch("WinnerNotification");
     this.game?.drawAll?.();
 
     // 前マッチのボタン状態・投票UIをリセット
@@ -1795,6 +1856,8 @@ export class OnlineGameController {
     // どの状態からでも idle へ戻せる。テアダウン本体は冪等なので遷移可否に関わらず実行
     this.lifecycle.transition("idle", "cleanup");
     this.setConfigured = false;
+    this.clearWinnerFallback();
+    this.matchHalted = false;
     this.removeVisibilityListener();
     this.teardownBackgroundClock();
     this.controlEventsSubscribed = false;
