@@ -110,11 +110,20 @@ declare const Game: new (prefix?: string | null) => any;
 declare const PuyoGame: new (prefix?: string | null) => any;
 
 export type PostMatchCallbacks = {
+  /** 部屋（ルーム設定画面）へ戻る。ランダムマッチでは使わない。 */
   onRoom: () => void;
+  /** ルームを退出してロビー（ルーム一覧）へ戻る。 */
   onLeave: () => void;
   isRandomMatch?: boolean;
-  onRandomRematch?: () => void;
 };
+
+/** リザルト画面から他プレイヤーへ通知する行動。PostMatchAction のワイヤー値と一致させる。 */
+const PostMatchAction = {
+  Retry: 0,   // 再戦申請
+  Room: 1,    // 部屋へ戻る
+  Leave: 2,   // 退出（ロビーへ）
+  Cancel: 3,  // 再戦申請の取消
+} as const;
 
 export class OnlineGameController {
   private connection: GameConnection;
@@ -150,6 +159,12 @@ export class OnlineGameController {
   private setConfigured = false;
   /** haltMatch 済みか（進行停止の冪等ガード）。 */
   private matchHalted = false;
+  /**
+   * リザルト画面で「この対戦から離脱した」プレイヤー（値は PostMatchAction.Room/Leave、
+   * 切断は Leave 扱い）。★ 相手の離脱で自分の画面を勝手に遷移させないための状態。
+   * 自分がボタンを押したときに初めて参照し、通知してから遷移する。
+   */
+  private departed = new Map<Uuid, number>();
   /** ローカルで残り1人を検知してから WinnerNotification を待つタイマー。 */
   private winnerFallbackTimer: number | null = null;
   /** サーバーの WinnerNotification を待つ猶予。超えたらローカル判定で結果を出す。 */
@@ -504,6 +519,17 @@ export class OnlineGameController {
     }
   }
 
+  /**
+   * 対戦画面（カウントダウン〜リザルト〜遷移処理）が出ている最中か。
+   * online.tsx がルーム通知でロビー/確認パネルを描き直してよいかの判定に使う。
+   * ★ これが無いと、対戦後に相手が抜けた RoomInfoNotification で
+   *   ランダムマッチ確認パネルが再描画され、自動再マッチング（「マッチング中…」）へ飛ぶ。
+   */
+  get isBattleActive(): boolean {
+    const phase = this.lifecycle.phase;
+    return phase !== "idle" && phase !== "preparing";
+  }
+
   /** Called from online.tsx when the room state changes mid-match */
   updateRoomInfo(info: RoomInfoNotification): void {
     this.roomInfo = info;
@@ -546,6 +572,7 @@ export class OnlineGameController {
     this.clearFinishOverlay();
     this.myRematchVoted = false;
     this.rematchVotes.clear();
+    this.departed.clear();
 
     // Determine my rule from room info
     const myPlayer = this.roomInfo.players.find(([id]) => id === this.myUserId);
@@ -1160,10 +1187,31 @@ export class OnlineGameController {
 
   // ── Post-match vote handling ─────────────────────────────────────────────
 
-  /** REMATCH ボタンを押したときのトグル投票 */
+  /** 自分以外のプレイヤーID一覧 */
+  private opponentIds(): Uuid[] {
+    return this.roomInfo.players.filter(([id]) => id !== this.myUserId).map(([id]) => id);
+  }
+
+  /** 対戦相手が全員この対戦から離脱済みか（再戦が成立しえない状態か） */
+  private allOpponentsDeparted(): boolean {
+    const opponents = this.opponentIds();
+    return opponents.length === 0 || opponents.every((id) => this.departed.has(id));
+  }
+
+  /** RETRY ボタンを押したときのトグル投票（部屋モード・ランダムマッチ共通） */
   private toggleRematchVote(): void {
     // 再戦準備(preparing)へ進んだ後の連打は無視。結果表示中のみ受け付ける
     if (this.lifecycle.phase !== "roundResult") return;
+
+    // ★ 相手が既に離脱していれば再戦は成立しない。ここで初めて通知し、遷移させる
+    //   （相手の離脱時点では遷移させない＝自分のペースで選べるようにするため）。
+    if (this.allOpponentsDeparted()) {
+      this.navigateAfterMatch(this.isRandomMatchRoom ? "leave" : "room", {
+        notice: "相手が退出したため再戦できません",
+      });
+      return;
+    }
+
     const roomId = this.roomInfo.roomId;
     this.myRematchVoted = !this.myRematchVoted;
 
@@ -1173,29 +1221,31 @@ export class OnlineGameController {
       this.connection.setReady({ roomId, ready: true }).catch((e) =>
         this.logger.log("setReady(true) failed:", e),
       );
-      this.connection.sendPostMatchAction({ roomId, action: 0 });
-      this.rematchVotes.set(this.myUserId, 0);
+      this.connection.sendPostMatchAction({ roomId, action: PostMatchAction.Retry });
+      this.rematchVotes.set(this.myUserId, PostMatchAction.Retry);
     } else {
       this.connection.setReady({ roomId, ready: false }).catch((e) =>
         this.logger.log("setReady(false) failed:", e),
       );
-      this.connection.sendPostMatchAction({ roomId, action: 3 }); // 3 = 投票取消
+      this.connection.sendPostMatchAction({ roomId, action: PostMatchAction.Cancel });
       this.rematchVotes.delete(this.myUserId);
     }
     this.updateRematchButton();
+    this.renderPostMatchStatus();
     this.maybeTriggerRematch();
   }
 
-  /** REMATCH ボタンの見た目（投票状態・人数）を現在の状態に合わせて更新 */
+  /** RETRY ボタンの見た目（投票状態・人数）を現在の状態に合わせて更新 */
   private updateRematchButton(): void {
-    if (this.isRandomMatchRoom) return;
     const rematchBtn = document.getElementById("ol-btn-rematch") as HTMLButtonElement | null;
     if (!rematchBtn) return;
     const span = rematchBtn.querySelector('span:last-child');
     const total = this.roomInfo.players.length;
-    const votes = this.roomInfo.players.filter(([id]) => this.rematchVotes.get(id) === 0).length;
+    const votes = this.roomInfo.players.filter(
+      ([id]) => this.rematchVotes.get(id) === PostMatchAction.Retry,
+    ).length;
     const isSet = this.lifecycle.snapshot().target > 1;
-    const actionLabel = isSet ? "NEXT ROUND" : "REMATCH";
+    const actionLabel = isSet ? "NEXT ROUND" : "RETRY";
 
     if (this.myRematchVoted) {
       rematchBtn.classList.add("rematch-voted");
@@ -1206,33 +1256,137 @@ export class OnlineGameController {
     }
   }
 
-  private handlePostMatchVote(playerId: Uuid, action: number): void {
-    if (action === 1 || action === 2) {
-      // 誰かがルームへ戻る / 退出 → 全員ルームへ戻る。
-      // 遷移が成立しない場合（既に postMatch へ進んでいる・対戦中の迷い通知など）は無視。
-      if (!this.lifecycle.transition("postMatch", "peer navigation")) return;
-      const playerName = this.playerNames.get(playerId) || playerId;
-      if (playerId !== this.myUserId) {
-        const msg = action === 2
-          ? `${playerName} がルームを退出しました`
-          : `${playerName} がルームに戻りました`;
-        showToast("ONLINE", msg, ToastColor["Info"]);
+  /**
+   * リザルト画面に各プレイヤーの選択状態を表示する。
+   * 「先に申請した側が、相手の応答を待っていると分かる」ためのUI。
+   */
+  private renderPostMatchStatus(): void {
+    const el = document.getElementById("ol-post-match-status");
+    if (!el) return;
+    el.innerHTML = "";
+    for (const [id, name] of this.roomInfo.players) {
+      const isMe = id === this.myUserId;
+      const gone = this.departed.get(id);
+      let state: string;
+      let cls: string;
+      if (gone !== undefined) {
+        state = gone === PostMatchAction.Room ? "部屋に戻りました" : "退出しました";
+        cls = "ol-pm-left";
+      } else if (this.rematchVotes.get(id) === PostMatchAction.Retry) {
+        state = "RETRY 申請中 ✓";
+        cls = "ol-pm-ready";
+      } else {
+        state = "選択中…";
+        cls = "ol-pm-waiting";
       }
-      setTimeout(() => {
-        this.cleanup();
-        this.postMatchCallbacks?.onRoom();
-      }, 600);
+      const row = document.createElement("div");
+      row.className = `ol-pm-row ${cls}`;
+      const nameEl = document.createElement("span");
+      nameEl.className = "ol-pm-name";
+      nameEl.textContent = isMe ? `${name}（あなた）` : name;
+      const stateEl = document.createElement("span");
+      stateEl.className = "ol-pm-state";
+      stateEl.textContent = state;
+      row.appendChild(nameEl);
+      row.appendChild(stateEl);
+      el.appendChild(row);
+    }
+    // 自分が申請済みで、まだ応答していない相手が居るときだけ待機メッセージを出す
+    const waiting = this.myRematchVoted
+      && this.opponentIds().some(
+        (id) => !this.departed.has(id) && this.rematchVotes.get(id) !== PostMatchAction.Retry,
+      );
+    if (waiting) {
+      const note = document.createElement("div");
+      note.className = "ol-pm-note";
+      note.textContent = "相手の応答を待っています…";
+      el.appendChild(note);
+    }
+  }
+
+  /**
+   * リザルト画面から画面遷移する（**自分がボタンを押したときだけ**呼ばれる）。
+   *
+   * ★ 旧実装は「誰かが ROOM/LEAVE を送ったら全員が強制遷移」だったため、
+   *   相手が抜けた瞬間に自分の意思と無関係に画面が飛んでいた（ランダムマッチでは
+   *   さらに自動再マッチングまで走っていた）。相手の離脱は状態として持つだけにして、
+   *   遷移は必ず自分の操作起点にする。相手が既に居ないときは、押した"後に"通知してから遷移する。
+   */
+  private navigateAfterMatch(
+    target: "room" | "leave",
+    options: { notice?: string } = {},
+  ): void {
+    if (!this.lifecycle.transition("postMatch", `navigate:${target}`)) return;
+    this.setPostMatchButtonsEnabled(false);
+
+    const roomId = this.roomInfo.roomId;
+    this.connection.sendPostMatchAction({
+      roomId,
+      action: target === "room" ? PostMatchAction.Room : PostMatchAction.Leave,
+    });
+
+    // 相手が先に抜けていた場合は、その事実を"押した後に"知らせてから遷移する
+    const notice = options.notice
+      ?? (this.allOpponentsDeparted() ? "相手はすでに退出しています" : undefined);
+    if (notice) showToast("ONLINE", notice, ToastColor["Info"]);
+
+    const go = () => {
+      this.cleanup();
+      if (target === "room") this.postMatchCallbacks?.onRoom();
+      else this.postMatchCallbacks?.onLeave();
+    };
+    if (notice) setTimeout(go, 1200); // 通知を読む時間を取ってから遷移
+    else go();
+  }
+
+  private setPostMatchButtonsEnabled(enabled: boolean): void {
+    for (const id of ["ol-btn-rematch", "ol-btn-room", "ol-btn-leave"]) {
+      const btn = document.getElementById(id) as HTMLButtonElement | null;
+      if (btn) btn.disabled = !enabled;
+    }
+  }
+
+  /** 相手の離脱（PostMatchAction Room/Leave・切断）を記録し、UIへ反映する */
+  private markDeparted(playerId: Uuid, action: number): void {
+    if (playerId === this.myUserId) return;
+    if (this.departed.has(playerId)) return;
+    this.departed.set(playerId, action);
+    this.renderPostMatchStatus();
+
+    const playerName = this.playerNames.get(playerId) || playerId;
+    showToast(
+      "ONLINE",
+      action === PostMatchAction.Room
+        ? `${playerName} がルームに戻りました`
+        : `${playerName} がルームを退出しました`,
+      ToastColor["Info"],
+    );
+
+    // ★ 自分が既に RETRY を申請して待っている場合だけは強制的に切り上げる
+    //   （待ち続けても成立しないため）。まだ何も押していない場合は据え置き。
+    if (this.lifecycle.phase === "roundResult" && this.myRematchVoted && this.allOpponentsDeparted()) {
+      this.navigateAfterMatch(this.isRandomMatchRoom ? "leave" : "room", {
+        notice: "相手が退出したため再戦できません",
+      });
+    }
+  }
+
+  private handlePostMatchVote(playerId: Uuid, action: number): void {
+    if (action === PostMatchAction.Room || action === PostMatchAction.Leave) {
+      // ★ 自分の画面は遷移させない。相手の離脱は状態として持つだけにする。
+      this.markDeparted(playerId, action);
       return;
     }
 
-    if (action === 0) {
-      this.rematchVotes.set(playerId, 0);
-    } else if (action === 3) {
+    if (action === PostMatchAction.Retry) {
+      this.rematchVotes.set(playerId, PostMatchAction.Retry);
+    } else if (action === PostMatchAction.Cancel) {
       this.rematchVotes.delete(playerId);
     } else {
       return;
     }
     this.updateRematchButton();
+    this.renderPostMatchStatus();
     this.maybeTriggerRematch();
   }
 
@@ -1335,6 +1489,9 @@ export class OnlineGameController {
 
     // 投票状態をリセット（次マッチで使えるように）
     this.myRematchVoted = false;
+    this.departed.clear();
+    const statusRL = document.getElementById("ol-post-match-status");
+    if (statusRL) statusRL.innerHTML = "";
     document.getElementById("ol-rematch-status")?.remove();
     const rematchBtnRL = document.getElementById("ol-btn-rematch") as HTMLButtonElement | null;
     if (rematchBtnRL) rematchBtnRL.disabled = false;
@@ -1724,12 +1881,12 @@ export class OnlineGameController {
 
     // 前マッチのボタン状態・投票UIをリセット
     this.rematchVotes.clear();
+    this.setPostMatchButtonsEnabled(true);
     const prevRematchBtn = document.getElementById("ol-btn-rematch") as HTMLButtonElement | null;
     if (prevRematchBtn) {
-      prevRematchBtn.disabled = false;
       prevRematchBtn.classList.remove("rematch-voted");
       const spanText = prevRematchBtn.querySelector('span:last-child');
-      if (spanText && !this.isRandomMatchRoom) spanText.textContent = 'REMATCH';
+      if (spanText) spanText.textContent = 'RETRY';
     }
     document.getElementById("ol-rematch-status")?.remove();
 
@@ -1788,7 +1945,6 @@ export class OnlineGameController {
       revealResult(); // DRAW（通常発生しない）やフォールバック
     }
 
-    const roomId = this.roomInfo.roomId;
     const rematchBtn = document.getElementById("ol-btn-rematch") as HTMLButtonElement | null;
     const roomBtn = document.getElementById("ol-btn-room") as HTMLButtonElement | null;
     const leaveBtn = document.getElementById("ol-btn-leave") as HTMLButtonElement | null;
@@ -1800,23 +1956,13 @@ export class OnlineGameController {
     if (rematchBtn) {
       const setDecided = this.lifecycle.isSetDecided() && this.lifecycle.snapshot().target > 1;
       rematchBtn.style.display = setDecided ? "none" : "";
-      // ランダムマッチは再マッチメイキングボタンに変える
-      if (this.isRandomMatchRoom && !setDecided) {
-        const span = rematchBtn.querySelector('span:last-child');
-        if (span) span.textContent = '再マッチメイキング';
-        rematchBtn.onclick = () => {
-          rematchBtn.disabled = true;
-          this.cleanup();
-          this.postMatchCallbacks?.onRandomRematch?.();
-        };
-      } else {
-        // REMATCH はトグル投票: 押すと READY+投票、もう一度押すと取消。
-        // 全員が投票したらオーナーが startMatch を送る。
-        rematchBtn.onclick = () => {
-          this.toggleRematchVote();
-        };
-        this.updateRematchButton();
-      }
+      // ★ RETRY は部屋モード・ランダムマッチとも同じ「現在の相手への再戦申請」。
+      //   （旧: ランダムマッチだけ「再マッチメイキング」= 別の相手を探し直す挙動だった）
+      //   トグル投票: 押すと READY+申請、もう一度押すと取消。全員申請でオーナーが startMatch。
+      rematchBtn.onclick = () => {
+        this.toggleRematchVote();
+      };
+      this.updateRematchButton();
     }
 
     if (roomBtn) {
@@ -1826,25 +1972,16 @@ export class OnlineGameController {
         roomBtn.style.display = "none";
       } else {
         roomBtn.style.display = "";
-        // ルームに戻る: 自分の送信 → サーバーが全員に broadcast → handlePostMatchVote で遷移
-        roomBtn.onclick = () => {
-          roomBtn.disabled = true;
-          this.connection.sendPostMatchAction({ roomId, action: 1 });
-        };
+        roomBtn.onclick = () => this.navigateAfterMatch("room");
       }
     }
 
     if (leaveBtn) {
-      // 退出: 自分は onLeave で退出、他プレイヤーは handlePostMatchVote → onRoom
-      leaveBtn.onclick = () => {
-        if (leaveBtn.disabled) return;
-        leaveBtn.disabled = true;
-        this.lifecycle.transition("postMatch", "leave button");
-        this.connection.sendPostMatchAction({ roomId, action: 2 });
-        this.cleanup();
-        this.postMatchCallbacks?.onLeave();
-      };
+      // 退出: 押した本人だけがロビー（ルーム一覧）へ。残った側はこの画面に留まる。
+      leaveBtn.onclick = () => this.navigateAfterMatch("leave");
     }
+
+    this.renderPostMatchStatus();
   }
 
   // ── Disconnect handling ──────────────────────────────────────────────────
@@ -1858,6 +1995,8 @@ export class OnlineGameController {
       const nameEl = document.getElementById(`ol-opp-name-${idx}`);
       if (nameEl) nameEl.textContent += " (DC)";
     }
+    // 切断は「退出」と同じ扱い（再戦は成立しない）。ただし遷移は自分の操作起点のまま。
+    this.markDeparted(playerId, PostMatchAction.Leave);
   }
 
   // ── Cleanup ──────────────────────────────────────────────────────────────
@@ -1873,6 +2012,9 @@ export class OnlineGameController {
     this.controlEventsSubscribed = false;
     this.rematchVotes.clear();
     this.myRematchVoted = false;
+    this.departed.clear();
+    const pmStatus = document.getElementById("ol-post-match-status");
+    if (pmStatus) pmStatus.innerHTML = "";
     this.clearFinishOverlay();
     const countdownOverlay = document.getElementById("ol-p-countdown-overlay");
     const countdownText = document.getElementById("ol-p-countdown-text");

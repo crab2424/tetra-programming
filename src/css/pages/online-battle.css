@@ -378,6 +378,78 @@
   min-width: 220px;
 }
 
+/* リザルトの選択状態一覧（誰がRETRY申請済みか・誰が抜けたかを待っている側に見せる） */
+.ol-post-match-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 220px;
+  margin-bottom: 14px;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.ol-post-match-status:empty {
+  display: none;
+}
+
+.ol-pm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 2px solid transparent;
+}
+
+.ol-pm-name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-pm-state {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.ol-pm-row.ol-pm-ready {
+  border-left-color: var(--success);
+}
+.ol-pm-row.ol-pm-ready .ol-pm-state {
+  color: var(--success);
+}
+
+.ol-pm-row.ol-pm-left {
+  border-left-color: var(--danger);
+  opacity: 0.65;
+}
+.ol-pm-row.ol-pm-left .ol-pm-state {
+  color: var(--danger);
+}
+
+/* 応答待ちの点滅（相手の選択を待っていることを穏やかに示す） */
+.ol-pm-row.ol-pm-waiting .ol-pm-state {
+  animation: ol-pm-waiting-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ol-pm-waiting-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+.ol-pm-note {
+  margin-top: 4px;
+  text-align: center;
+  color: var(--text-dim);
+  animation: ol-pm-waiting-pulse 1.6s ease-in-out infinite;
+}
+
 /* REMATCH 投票済み状態: 押すと取消できることが分かるよう強調表示 */
 #ol-btn-rematch.rematch-voted {
   background: linear-gradient(135deg, var(--success), #2e7d50);
