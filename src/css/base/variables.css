@@ -41,6 +41,10 @@
   --field-gap: 32px; /* 盤面本体とHOLD/NEXTの間隔（CPU戦の352px/-160pxオフセットの由来） */
   --field-gauge-w: 10px; /* おじゃま/攻撃ゲージの太さ */
   --field-gauge-offset: 16px; /* 盤面端からゲージまでの距離 */
+  /* 終了演出（WIN! / LOSE... / GAME OVER）の文字。CPU戦・online戦で共有し、
+     online は --ol-scale を掛けて盤面の縮小に追従させる（旧: online だけ22px固定でズレていた）。 */
+  --finish-font-size: 44px;
+  --finish-letter-spacing: 4px;
   /* 1v1 時に左右の盤面を離す中央余白。CPU戦 #versus-center の実幅（VSラベル71px＋左右padding40px）
      に一致させ、online 2P では #ol-battle-layout の flex gap にこの値を使って同じ間隔を再現する。
      ※ 0.8倍表示より外側（#versus-layout / #ol-battle-layout 直下）に効く余白なので、盤面本体の

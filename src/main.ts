@@ -7,6 +7,7 @@ import "./battle/layout";
 import "./battle/lifecycle";
 import "./battle/driver";
 import "./battle/freeze";
+import "./battle/finish_overlay";
 
 document.addEventListener("DOMContentLoaded", () => {
   const versionElement = document.getElementById("title-version");

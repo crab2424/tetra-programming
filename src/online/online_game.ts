@@ -51,10 +51,17 @@ import {
   hideOnlineOppSlots,
   setOnlinePlayerCount,
   applyOnlineSelfSide,
+  ONLINE_OPP_SLOT_COUNT,
 } from "../battle/layout";
 import { NetworkDriver } from "../battle/driver";
 import { freezeGameByRule } from "../battle/freeze";
 import { renderOnlineResult, resetOnlineResult } from "../battle/online_result";
+import {
+  showFieldFinish,
+  clearFieldFinish,
+  onlineFieldPrefix,
+  allOnlineFieldPrefixes,
+} from "../battle/finish_overlay";
 
 type AnyFn = (...args: any[]) => any;
 
@@ -437,17 +444,20 @@ export class OnlineGameController {
     };
   }
 
-  /** 自分の盤面の FINISH/GAME OVER オーバーレイを消す（次マッチ用にリセット） */
+  /**
+   * 全スロット（自分・相手 × tet/puyo）の FINISH/GAME OVER オーバーレイを消す。
+   * ★ 旧実装は自分の TET 用1枚しか消しておらず、自分が PUYO のときや相手スロットの
+   *   演出が次マッチへ持ち越されていた。
+   */
   private clearFinishOverlay(): void {
-    const finOverlay = document.getElementById("ol-p-finish-overlay");
-    const finText = document.getElementById("ol-p-finish-text");
-    if (finOverlay) {
-      finOverlay.classList.remove("active", "fadeout", "finish-gameover", "finish-clear");
+    for (const prefix of allOnlineFieldPrefixes(ONLINE_OPP_SLOT_COUNT)) {
+      clearFieldFinish(prefix);
     }
-    if (finText) {
-      finText.textContent = "";
-      finText.classList.remove("finish-gameover", "finish-clear");
-    }
+  }
+
+  /** 自分の盤面に終了演出を出す（ルールに応じて tet/puyo の正しいオーバーレイを選ぶ） */
+  private showSelfFinish(kind: "win" | "lose" | "gameover", onComplete?: () => void): void {
+    showFieldFinish(onlineFieldPrefix("self", this.myRule), kind, onComplete);
   }
 
   /**
@@ -825,13 +835,10 @@ export class OnlineGameController {
         .notifyGameOver({ roomId })
         .then((res) => this.logger.log("NotifyGameOver response:", res));
 
-      // Show game over on player's field
-      const finOverlay = document.getElementById("ol-p-finish-overlay");
-      const finText = document.getElementById("ol-p-finish-text");
-      if (finOverlay && finText) {
-        finText.textContent = "GAME OVER";
-        finOverlay.classList.add("active", "finish-gameover");
-      }
+      // 自分の盤面に GAME OVER を出す。★ ルールに応じたオーバーレイを選ぶ
+      //   （旧実装は常に tet 用の ol-p-finish-overlay を叩いていたため、
+      //     自分が PUYO のときは display:none の要素に書いていて何も見えなかった）
+      this.showSelfFinish("gameover");
     };
 
     // Pause: send network pause/resume instead of local toggle
@@ -954,12 +961,8 @@ export class OnlineGameController {
       conn.sendMatchEvent(encodeGameOver());
       conn.notifyGameOver({ roomId }).then((res) => this.logger.log("NotifyGameOver response:", res));
 
-      const finOverlay = document.getElementById("ol-p-finish-overlay");
-      const finText = document.getElementById("ol-p-finish-text");
-      if (finOverlay && finText) {
-        finText.textContent = "GAME OVER";
-        finOverlay.classList.add("active", "finish-gameover");
-      }
+      // 自分の盤面に GAME OVER を出す（ルールに応じたオーバーレイ）
+      this.showSelfFinish("gameover");
     };
 
     // _spawnPuyo: 新ペア出現後にフィールドスナップショット + スポーン情報を送信
@@ -1756,8 +1759,9 @@ export class OnlineGameController {
       ).join("  ·  "),
     });
 
-    // ★ VERSUSモード同様、まず自分のフィールドに WIN!/LOSE... の大きな演出を出し、
+    // ★ CPU戦(versus.js)と同様、まず**全ての盤面**に WIN!/LOSE... の大きな演出を出し、
     //   それが終わってから結果オーバーレイ（ボタンUI）を表示する。
+    //   文言・クラス・表示時間は battle/finish_overlay.ts に一本化してある。
     this.clearFinishOverlay(); // 敗者の「GAME OVER」バナーを消してから WIN/LOSE を出す
     if (buttonsEl) buttonsEl.style.opacity = "0";
 
@@ -1769,11 +1773,17 @@ export class OnlineGameController {
       }
     };
 
-    const finishFn = (window as any).showFinishOverlay;
-    if (winnerId !== null && typeof finishFn === "function") {
-      const text = iWin ? "WIN!" : "LOSE...";
-      const cls = iWin ? "finish-clear" : "finish-gameover";
-      finishFn("ol-p-finish-overlay", "ol-p-finish-text", text, cls, 1600, revealResult);
+    if (winnerId !== null) {
+      // 完了コールバック（結果カード表示）は自分の1枚だけに付ける（多重発火防止）
+      this.showSelfFinish(iWin ? "win" : "lose", revealResult);
+      for (const [id, driver] of this.puppets) {
+        const index = this.puppetIndices.get(id);
+        if (index === undefined) continue;
+        showFieldFinish(
+          onlineFieldPrefix(index, driver.rule),
+          winnerId === id ? "win" : "lose",
+        );
+      }
     } else {
       revealResult(); // DRAW（通常発生しない）やフォールバック
     }
