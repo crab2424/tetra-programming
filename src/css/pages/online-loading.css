@@ -19,9 +19,20 @@
   animation: ol-loading-fadein 0.25s ease both;
 }
 
+/* 画面全体（暗い背景ごと）をフェードアウトさせる。loading_screen.ts の hideLoadingOverlay が
+   display:none にする直前の300msだけこのクラスを付与する。 */
+.ol-loading-overlay.ol-loading-overlay--closing {
+  animation: ol-loading-fadeout 0.3s ease both;
+}
+
 @keyframes ol-loading-fadein {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes ol-loading-fadeout {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 .ol-loading-card {
@@ -138,6 +149,7 @@
 /* 動きを減らす設定を尊重する */
 @media (prefers-reduced-motion: reduce) {
   .ol-loading-overlay,
+  .ol-loading-overlay.ol-loading-overlay--closing,
   .ol-loading-dot {
     animation: none;
   }

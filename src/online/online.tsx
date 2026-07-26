@@ -266,7 +266,7 @@ class OnlineMode {
       this.connection?.stopPingReporting();
       this.isRandomMatchRoom = false;
       this.clearRmConfirm();
-      hideLoadingOverlay();
+      hideLoadingOverlay(true);
     }
     if (value !== OnlineModeState.RoomList) {
       this.stopRoomListAutoRefresh();
@@ -898,7 +898,7 @@ class OnlineMode {
                       roomId: roomData.roomId,
                     });
                     if (!result.success) {
-                      hideLoadingOverlay();
+                      hideLoadingOverlay(true);
                       await Modal.alert(
                         result.message || "ゲーム開始に失敗しました。",
                         "エラー",
@@ -954,7 +954,7 @@ class OnlineMode {
                       roomId: roomData.roomId,
                       ready: !iAmReady,
                     });
-                    if (!r.success) hideLoadingOverlay();
+                    if (!r.success) hideLoadingOverlay(true);
                     this.notifyIfFailed(r, "READY変更");
                   }}
                 >
@@ -1543,7 +1543,7 @@ class OnlineMode {
     //   確認パネルのタイムアウトはロード中に走らせない（辞退扱いにしないため）。
     this.clearRmConfirmTimer();
     if (this.rmLatestRoom) await this.preloadForMatch(this.rmLatestRoom);
-    if (this.rmLeaving) { hideLoadingOverlay(); return; } // ロード中に辞退/相手退出
+    if (this.rmLeaving) { hideLoadingOverlay(true); return; } // ロード中に辞退/相手退出
 
     if (!isOwner) {
       this.connection!
@@ -1594,7 +1594,7 @@ class OnlineMode {
     if (this.rmStarting || this.rmLeaving) return;
     this.rmLeaving = true;
     this.clearRmConfirm();
-    hideLoadingOverlay();
+    hideLoadingOverlay(true);
     try {
       await this.connection!.leaveRoom({ roomId });
     } catch { }
@@ -1609,7 +1609,7 @@ class OnlineMode {
     if (this.rmLeaving) return;
     this.rmLeaving = true;
     this.clearRmConfirm();
-    hideLoadingOverlay();
+    hideLoadingOverlay(true);
     showToast("ONLINE", message, ToastColor["Info"]);
     try {
       await this.connection!.leaveRoom({ roomId });

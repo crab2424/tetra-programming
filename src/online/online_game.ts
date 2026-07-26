@@ -1412,7 +1412,7 @@ export class OnlineGameController {
       });
       // ロード中に結果画面を離れていたら送らない
       if (this.lifecycle.phase !== "roundResult" || !this.myRematchVoted) {
-        hideLoadingOverlay();
+        hideLoadingOverlay(true);
         return;
       }
       // READY を立ててからvote → サーバーは同一接続を順序処理するため、
