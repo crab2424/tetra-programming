@@ -823,14 +823,52 @@ export class OnlineGameController {
     const game = this.game;
     const conn = this.connection;
     const roomId = this.roomInfo.roomId;
+    // ★ ソフトドロップは1マス毎にスコア+1され updateStatsDisplay() が呼ばれる（input.js）。
+    //   これを毎回そのまま送信すると高速落下時に通信が過多になるため、100ms間隔で間引く
+    //   （末尾の変化は setTimeout で必ず送る＝取りこぼさない）。自分の画面表示だけは
+    //   間引かず毎回即時更新する（updateStatsRealtime参照）。
+    const STATS_THROTTLE_MS = 100;
+    let lastStatsSentAt = 0;
+    let statsThrottleTimer: number | null = null;
     const sendStats = () => {
+      lastStatsSentAt = performance.now();
+      if (statsThrottleTimer !== null) {
+        clearTimeout(statsThrottleTimer);
+        statsThrottleTimer = null;
+      }
       const stats = encodeStatsUpdate("tet", game.score ?? 0, game.lines ?? 0, 0);
       conn.sendMatchEvent(stats);
       updateOnlineStats("self", { rule: "tet", score: game.score ?? 0, lines: game.lines ?? 0, chainMax: 0 });
     };
+    // 自分の表示は即時、相手への送信だけスロットルする（ソフトドロップ連打用）。
+    const updateStatsRealtime = () => {
+      updateOnlineStats("self", { rule: "tet", score: game.score ?? 0, lines: game.lines ?? 0, chainMax: 0 });
+      const elapsed = performance.now() - lastStatsSentAt;
+      if (elapsed >= STATS_THROTTLE_MS) {
+        sendStats();
+      } else if (statsThrottleTimer === null) {
+        statsThrottleTimer = window.setTimeout(() => {
+          statsThrottleTimer = null;
+          sendStats();
+        }, STATS_THROTTLE_MS - elapsed);
+      }
+    };
     const sendHoldState = () => conn.sendMatchEvent(
       encodeHoldState(!!game.canHold && matchSetting.holdEnabled),
     );
+
+    // updateStatsDisplay: スコア変化のたび（ソフトドロップ含む）に自分の画面へ即時反映する。
+    // ★ statsPrefix が online では未設定のため、元の実装は単発プレイ用の #score-value 等
+    //   （画面に存在しない）へ書き込むだけで何も見えていなかった。ここで online 表示
+    //   （updateOnlineStats）へ橋渡しする。
+    if (typeof game.updateStatsDisplay === 'function') {
+      const origUpdateStatsDisplay: AnyFn = game.updateStatsDisplay.bind(game);
+      game.updateStatsDisplay = (...args: any[]) => {
+        origUpdateStatsDisplay(...args);
+        if (!this.myAlive) return;
+        updateStatsRealtime();
+      };
+    }
 
     // popMino: origPopMino() でミノをフィールドに固定してから Lock を送信する
     const origPopMino: AnyFn = game.popMino.bind(game);
@@ -999,7 +1037,18 @@ export class OnlineGameController {
     const game = this.game;
     const conn = this.connection;
     const roomId = this.roomInfo.roomId;
+    // ★ 高速落下は _update 内でフレーム毎に加算(scoreFloat)され、1点貯まるたび
+    //   _updateScoreDisplay() が呼ばれる（engine.js）。TET同様に相手への送信だけ
+    //   100msへ間引き、自分の画面は毎回即時更新する。
+    const STATS_THROTTLE_MS = 100;
+    let lastStatsSentAt = 0;
+    let statsThrottleTimer: number | null = null;
     const sendStats = () => {
+      lastStatsSentAt = performance.now();
+      if (statsThrottleTimer !== null) {
+        clearTimeout(statsThrottleTimer);
+        statsThrottleTimer = null;
+      }
       const stats = {
         rule: "puyo" as const,
         score: game.score ?? 0,
@@ -1009,6 +1058,30 @@ export class OnlineGameController {
       conn.sendMatchEvent(encodeStatsUpdate("puyo", stats.score, 0, stats.chainMax));
       updateOnlineStats("self", stats);
     };
+    const updateStatsRealtime = () => {
+      updateOnlineStats("self", { rule: "puyo", score: game.score ?? 0, lines: 0, chainMax: game.chainMax ?? 0 });
+      const elapsed = performance.now() - lastStatsSentAt;
+      if (elapsed >= STATS_THROTTLE_MS) {
+        sendStats();
+      } else if (statsThrottleTimer === null) {
+        statsThrottleTimer = window.setTimeout(() => {
+          statsThrottleTimer = null;
+          sendStats();
+        }, STATS_THROTTLE_MS - elapsed);
+      }
+    };
+
+    // _updateScoreDisplay: online では scoreEl(#ol-p-score-value) が存在しない
+    // （online のスコア表示は updateOnlineStats が動的生成するため）ので何も
+    //   見えていなかった。ここで online 表示・相手への間引き送信へ橋渡しする。
+    if (typeof game._updateScoreDisplay === 'function') {
+      const origUpdateScoreDisplay: AnyFn = game._updateScoreDisplay.bind(game);
+      game._updateScoreDisplay = (...args: any[]) => {
+        origUpdateScoreDisplay(...args);
+        if (!this.myAlive) return;
+        updateStatsRealtime();
+      };
+    }
 
     // _beginGameOver がグローバルの versusGameOver() を呼ぶのを防ぐ
     // (versusGameOver はCPU対戦用でオンライン対戦では不要)
