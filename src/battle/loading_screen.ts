@@ -14,13 +14,25 @@ const OVERLAY_ID = "ol-loading-overlay";
 const LABEL_ID = "ol-loading-label";
 const BAR_ID = "ol-loading-bar-fill";
 const PLAYERS_ID = "ol-loading-players";
+const CARD_ID = "ol-loading-card";
+const DARKENING_CLASS = "ol-loading-overlay--darkening";
 const CLOSING_CLASS = "ol-loading-overlay--closing";
 
 // ★ ロードが速すぎて画面がほぼ一瞬で切り替わる（体感上の「唐突さ」）のを防ぐための
-//   最低表示時間とフェードアウト時間。実データ待ちが一瞬で解決しても、この2つの
-//   合計分だけは必ず画面に残る。開始タイミング(startTimeMs)自体は動かさない。
+//   最低表示時間と、閉じる演出の各段階。開始タイミング(startTimeMs)自体は動かさない。
+//
+// 閉じる流れ（ユーザー指定）:
+//   1. DARKEN  : ロードUIはそのまま、背景だけを「完全に暗く」する
+//   2. CARD_OUT: ロードUI（カード）だけを消す（画面は真っ暗のまま）
+//   3. FADE_IN : 真っ暗を晴らして対戦画面をフェードインで見せる
+//   → これが終わってから READY カウントダウンを開始する（online_game.ts）
 const MIN_VISIBLE_MS = 900;
-const FADE_OUT_MS = 300;
+const DARKEN_MS = 320;
+const CARD_OUT_MS = 220;
+const FADE_IN_MS = 420;
+
+/** 閉じる演出（暗転→UI消し→フェードイン）の総所要時間。カウントダウンの尺取りに使う。 */
+export const LOADING_CLOSE_MS = DARKEN_MS + CARD_OUT_MS + FADE_IN_MS;
 
 export interface LoadingPlayerState {
   name: string;
@@ -41,43 +53,77 @@ export function showLoadingOverlay(): void {
   generation++;
   const overlay = el(OVERLAY_ID);
   if (overlay) {
-    overlay.classList.remove(CLOSING_CLASS);
+    overlay.classList.remove(DARKENING_CLASS, CLOSING_CLASS);
     overlay.style.display = "flex";
   }
+  const card = el(CARD_ID);
+  if (card) card.classList.remove("is-hidden");
   shownAt = performance.now();
   setLoadingProgress(0, "");
 }
 
+/** 実際にオーバーレイを消す（DOM状態を初期化して次回の show に備える）。 */
+function teardownOverlay(overlay: HTMLElement): void {
+  overlay.style.display = "none";
+  overlay.classList.remove(DARKENING_CLASS, CLOSING_CLASS);
+  const card = el(CARD_ID);
+  if (card) card.classList.remove("is-hidden");
+  const players = el(PLAYERS_ID);
+  if (players) players.innerHTML = "";
+  shownAt = null;
+}
+
 /**
- * ロード画面を閉じる。既定では最低表示時間を満たしてから画面全体をフェードアウトさせる。
- * @param immediate true の場合は演出を挟まず即座に閉じる（エラー/辞退/離脱などの中断経路用）。
+ * ロード画面を即座に閉じる（エラー・辞退・離脱などの中断経路用）。
+ * 対戦開始の正規ルートでは closeLoadingScreen() を使うこと。
  */
-export function hideLoadingOverlay(immediate = false): void {
+export function hideLoadingOverlay(_immediate = true): void {
+  generation++; // 進行中の closeLoadingScreen を無効化する
   const overlay = el(OVERLAY_ID);
   if (!overlay || overlay.style.display === "none") {
     shownAt = null;
     return;
   }
-  const myGeneration = generation;
-  const finish = () => {
-    if (myGeneration !== generation) return; // その間に再表示された
-    overlay.style.display = "none";
-    overlay.classList.remove(CLOSING_CLASS);
-    const players = el(PLAYERS_ID);
-    if (players) players.innerHTML = "";
+  teardownOverlay(overlay);
+}
+
+/**
+ * ロード画面を「暗転 → ロードUIを消す → フェードインで対戦画面を出す」の順で閉じる。
+ * 解決した時点で画面は完全に対戦画面（オーバーレイなし）になっているので、
+ * 呼び出し側はそのあとで READY カウントダウンを始める。
+ *
+ * 最低表示時間(MIN_VISIBLE_MS)に満たない場合はその分だけ待ってから演出を始める
+ * （素材が全てキャッシュ済みだと数十msで完了してしまい、画面変化が唐突になるため）。
+ */
+export function closeLoadingScreen(): Promise<void> {
+  const overlay = el(OVERLAY_ID);
+  if (!overlay || overlay.style.display === "none") {
     shownAt = null;
-  };
-  if (immediate) {
-    finish();
-    return;
+    return Promise.resolve();
   }
+  const myGeneration = generation;
+  const alive = () => myGeneration === generation;
+  const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+
   const elapsed = shownAt !== null ? performance.now() - shownAt : MIN_VISIBLE_MS;
-  const wait = Math.max(0, MIN_VISIBLE_MS - elapsed);
-  window.setTimeout(() => {
-    if (myGeneration !== generation) return;
+
+  return (async () => {
+    await wait(Math.max(0, MIN_VISIBLE_MS - elapsed));
+    if (!alive()) return;
+    // 1. 背景を完全な暗転へ（ロードUIはそのまま）
+    overlay.classList.add(DARKENING_CLASS);
+    await wait(DARKEN_MS);
+    if (!alive()) return;
+    // 2. ロードUIだけを消す（画面は真っ暗のまま）
+    el(CARD_ID)?.classList.add("is-hidden");
+    await wait(CARD_OUT_MS);
+    if (!alive()) return;
+    // 3. 真っ暗を晴らして対戦画面をフェードインで見せる
     overlay.classList.add(CLOSING_CLASS);
-    window.setTimeout(finish, FADE_OUT_MS);
-  }, wait);
+    await wait(FADE_IN_MS);
+    if (!alive()) return;
+    teardownOverlay(overlay);
+  })();
 }
 
 export function isLoadingOverlayVisible(): boolean {
