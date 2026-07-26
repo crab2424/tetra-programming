@@ -214,14 +214,23 @@ export class NetworkDriver implements OpponentDriver {
     }
   }
 
+  /** ワイヤー上の位置情報から実 Mino を組み立てる（PieceState / Spawn / Lock / GameOver 共通）。 */
+  private buildMino(p: { type: number; x: number; y: number; rotation: number }): any {
+    const mino = new Mino(p.type);
+    for (let r = 0; r < p.rotation; r++) mino.rotate();
+    mino.x = p.x;
+    mino.y = p.y;
+    return mino;
+  }
+
   applyFrame(opcode: number, payload: Uint8Array): void {
     if (this.frozen) {
-      // ★ TETのblock-outだけは、freeze()直後にGameOver→Lock(最終盤面)→PieceState(衝突ミノ)
-      //   の順で追送される「最終スナップショット」を短い猶予内だけ通す（online_game.ts の
-      //   popMino フック参照）。それ以外（連鎖リプレイ・古いPieceState等）は従来どおり捨てる。
+      // ★ TETのblock-outだけは、freeze()直後に追送される Lock（最終盤面＋衝突ミノを同梱）
+      //   を短い猶予内だけ通す（online_game.ts の popMino フック参照）。
+      //   それ以外（連鎖リプレイ・遅れて届いた古いPieceState等）は従来どおり捨てる。
       const isFinalSnapshot =
         this.rule === "tet" &&
-        (opcode === MatchOpcode.Lock || opcode === MatchOpcode.PieceState) &&
+        opcode === MatchOpcode.Lock &&
         this.acceptFinalSnapshotUntil !== null &&
         performance.now() < this.acceptFinalSnapshotUntil;
       if (!isFinalSnapshot) return;
@@ -241,11 +250,7 @@ export class NetworkDriver implements OpponentDriver {
           requestAnimationFrame(() => { if (puppet._imagesLoaded) puppet._render?.(); });
           return;
         }
-        const ps = decodePieceState(payload);
-        const mino = new Mino(ps.type);
-        for (let r = 0; r < ps.rotation; r++) mino.rotate();
-        mino.x = ps.x; mino.y = ps.y;
-        puppet.mino = mino;
+        puppet.mino = this.buildMino(decodePieceState(payload));
         requestAnimationFrame(() => puppet.drawAll());
         return;
       }
@@ -256,10 +261,10 @@ export class NetworkDriver implements OpponentDriver {
           this.ensurePuyoReplay();
           return;
         }
-        const boardArr = decodeLock(payload);
+        const { board, dyingMino } = decodeLock(payload);
         const blocks: any[] = [];
-        for (let i = 0; i < boardArr.length; i++) {
-          const value = boardArr[i];
+        for (let i = 0; i < board.length; i++) {
+          const value = board[i];
           if (value !== 0) blocks.push(new Block(
             i % BOARD_COLS,
             Math.floor(i / BOARD_COLS) - BOARD_BUFFER_ROWS,
@@ -268,7 +273,9 @@ export class NetworkDriver implements OpponentDriver {
         }
         puppet.field.blocks = blocks;
         puppet.field.markDirty?.();
-        puppet.mino = null;
+        // ★ 致命(block-out)時は、盤面へ固定されなかった衝突ミノが同梱されてくる。
+        //   通常の設置Lockでは null（＝次のSpawnまで操作ミノなし）が正しい。
+        puppet.mino = dyingMino ? this.buildMino(dyingMino) : null;
         puppet.drawAll();
         return;
       }
@@ -292,9 +299,12 @@ export class NetworkDriver implements OpponentDriver {
           puppet.nextQueue = sp.nextTypes.filter((t: number) => t !== 0xff).map((t: number) => new Mino(t));
           puppet.holdMino = sp.holdType !== 0xff ? new Mino(sp.holdType) : null;
         } else {
-          const mino = new Mino(sp.type);
-          mino.spawn();
-          puppet.mino = mino;
+          // ★ 出現位置は送信側の実値を使う。Mino.spawn() の既定位置で描くと、
+          //   board.js popMino の「衝突時は1マス上へずらす」補正を取りこぼし、
+          //   次のPieceStateが届くまで約1フレーム、ミノがスタックに埋まって見える。
+          puppet.mino = sp.placement
+            ? this.buildMino(sp.placement)
+            : (() => { const m = new Mino(sp.type); m.spawn(); return m; })();
           puppet.nextQueue = sp.nextTypes.filter((t: number) => t !== 0xff).map((t: number) => new Mino(t));
           puppet.holdMino = sp.holdType !== 0xff ? new Mino(sp.holdType) : null;
         }
@@ -312,15 +322,10 @@ export class NetworkDriver implements OpponentDriver {
         // ★ TET の block-out（出現位置での致命判定）は、衝突した操作ミノを GameOver
         //   フレームに同梱して送ってくる（online_game.ts）。適用してから凍結することで、
         //   相手にも「本人が見ていた死亡直前の画面」と同じ絵が出る。
+        //   直後に届く Lock（最終盤面＋同じ衝突ミノ）が最終的な絵を確定させる。
         if (this.rule === "tet") {
           const { mino } = decodeGameOver(payload);
-          if (mino) {
-            const m = new Mino(mino.type);
-            for (let r = 0; r < mino.rotation; r++) m.rotate();
-            m.x = mino.x;
-            m.y = mino.y;
-            puppet.mino = m;
-          }
+          if (mino) puppet.mino = this.buildMino(mino);
         }
         this.markDead();
         return;
