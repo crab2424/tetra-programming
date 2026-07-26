@@ -86,6 +86,11 @@ export function freezeTetGame(game: AnyGame, options: FreezeOptions = {}): void 
  *   - `_versusFinishing` を立てずに stop(false) するとキャンバスがクリアされ盤面が真っ暗になる。
  *   - `state='gameover'` を代入しないと `_loop()` の `state === 'playing'` 判定が真のままで
  *     `_update(dt)` が回り続ける＝止まらない（keepCanvas は loop を止めないため）。
+ *
+ * ★ `_gs`（描画フェーズ）は意図的に触らない。停止に必要なのは `state` だけで、
+ *   `_gs` を 'gameover' に潰すと draw.js の `_gs === 'falling'` 分岐が効かなくなり、
+ *   決着直前の操作ぷよ・ゴーストが消えて盤面だけの静止画になってしまう（2026-07-26 不具合）。
+ *   `_gs` を素通しにすることで「決着直前の盤面をそのままスナップショット表示」になる。
  */
 export function freezePuyoGame(game: AnyGame, options: FreezeOptions = {}): void {
   if (!game) return;
@@ -100,7 +105,6 @@ export function freezePuyoGame(game: AnyGame, options: FreezeOptions = {}): void
   }
   // ここが停止の本体。stop() 後に代入しないと keepCanvas 経路で state が 'playing' のまま残る。
   game.state = "gameover";
-  game._gs = "gameover";
   game.isPaused = true; // 参照はされないが、外から状態を見る箇所との互換のため揃える
   game._clearChainTextDOM?.();
 }

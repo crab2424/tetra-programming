@@ -136,7 +136,9 @@ export class NetworkDriver implements OpponentDriver {
       this.puppet.isPaused = true;
       this.puppet._render?.();
     } else {
-      this.puppet.mino = null;
+      // ★ mino を null にしない: TET の本来の block-out は「出現位置と衝突したミノ」を
+      //   残したまま gameOver() を呼ぶ（board.js popMino）。ここで null 化すると死亡直前の
+      //   操作ミノだけ消え、実エンジンの見た目（CPU戦と同じ）と異なってしまう。
       this.puppet.isPaused = true;
       this.puppet.drawAll?.();
     }
@@ -149,6 +151,9 @@ export class NetworkDriver implements OpponentDriver {
   /**
    * 決着時に相手スロットを凍結する（`stop()` と違い盤面は残す）。
    * 進行中の連鎖リプレイ rAF を止め、以後 applyFrame が来ても何も反映しない。
+   *
+   * ★ `_gs`（puyo）・`mino`（tet）は意図的に触らない。決着直前の操作ぷよ/ミノの
+   *   スナップショットをそのまま残すため（2026-07-26 不具合の修正、freeze.ts と同じ理由）。
    */
   freeze(): void {
     if (this.frozen) return;
@@ -159,11 +164,9 @@ export class NetworkDriver implements OpponentDriver {
       // 実エンジンの停止条件は state。keepCanvas 相当で盤面だけ残す（freeze.ts と同じ作法）。
       this.puppet._versusFinishing = true;
       this.puppet.state = "gameover";
-      this.puppet._gs = "gameover";
       this.puppet.isPaused = true;
       this.puppet._render?.();
     } else {
-      this.puppet.mino = null;
       this.puppet.isPaused = true;
       this.puppet.drawAll?.();
     }
