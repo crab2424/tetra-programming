@@ -67,6 +67,74 @@ import { runBattlePreload, hideLoadingOverlay, setLoadingProgress } from "../bat
 type AnyFn = (...args: any[]) => any;
 
 /**
+ * 相手スコアの 60fps 表示。
+ *
+ * ネットワークの StatsUpdate は 100ms 間隔に間引いてあるため（通信量のため。
+ * hookTetGameMethods / hookPuyoGameMethods 参照）、届いた値をそのまま書くと
+ * 相手のスコアだけ 10fps のカクついた更新に見える。ここで「受信済みの最新値へ
+ * 100ms かけて詰める」補間を rAF で回し、通信量を増やさずに表示だけ 60fps 化する。
+ *
+ * ★ CPU負荷: 差がある間だけ rAF が回り、1フレームあたり数個の textContent 更新のみ。
+ *   全スロットが目標値に到達したらループ自体を止める（常駐しない）。
+ */
+const SCORE_TWEEN_MS = 100; // 送信スロットル間隔と同じ＝遅れは常に最大1間隔ぶん
+interface ScoreTweenState { el: HTMLElement; shown: number; target: number; perMs: number }
+const scoreTweens = new Map<string, ScoreTweenState>();
+let scoreTweenFrame: number | null = null;
+let scoreTweenLast = 0;
+
+function stepScoreTweens(now: number): void {
+  const dt = Math.min(100, now - scoreTweenLast);
+  scoreTweenLast = now;
+  for (const [key, st] of scoreTweens) {
+    const diff = st.target - st.shown;
+    if (Math.abs(diff) < 1) {
+      st.shown = st.target;
+      st.el.textContent = String(st.target);
+      scoreTweens.delete(key);
+      continue;
+    }
+    const step = st.perMs * dt;
+    st.shown = Math.abs(step) >= Math.abs(diff) ? st.target : st.shown + step;
+    st.el.textContent = String(Math.round(st.shown));
+  }
+  scoreTweenFrame = scoreTweens.size > 0
+    ? requestAnimationFrame(stepScoreTweens)
+    : null;
+}
+
+/** 相手スコアを 60fps で目標値へ補間表示する（同じ要素への再指定は目標だけ差し替え）。 */
+function setScoreAnimated(key: string, el: HTMLElement, value: number): void {
+  const prev = scoreTweens.get(key);
+  const shown = prev ? prev.shown : Number(el.textContent) || 0;
+  if (shown === value) {
+    scoreTweens.delete(key);
+    el.textContent = String(value);
+    return;
+  }
+  scoreTweens.set(key, { el, shown, target: value, perMs: (value - shown) / SCORE_TWEEN_MS });
+  if (scoreTweenFrame === null) {
+    scoreTweenLast = performance.now();
+    scoreTweenFrame = requestAnimationFrame(stepScoreTweens);
+  }
+}
+
+/** 補間ループを止める。決着時は最終値へ即スナップ、cleanup時は表示に触れず破棄する。 */
+function stopScoreTweens(snapToTarget: boolean): void {
+  if (snapToTarget) {
+    for (const st of scoreTweens.values()) st.el.textContent = String(st.target);
+  }
+  scoreTweens.clear();
+  if (scoreTweenFrame !== null) {
+    cancelAnimationFrame(scoreTweenFrame);
+    scoreTweenFrame = null;
+  }
+}
+
+/** 決着時: 補間の途中で止めず、受信済みの最終スコアを確定表示する。 */
+function settleScoreTweens(): void { stopScoreTweens(true); }
+
+/**
  * CPU戦(.versus-stats-left/-right > .versus-stat-block > .area-label + .versus-stat-value)と
  * 同じマークアップ・同じクラスを .ol-opp-field（CPU戦の .versus-container 相当。盤面サイズ
  * ちょうどの絶対配置アンカー）配下に複製する。位置は online-battle.css の .ol-stats-left/-right
@@ -99,7 +167,12 @@ function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void 
   const score = rightEl.querySelector<HTMLElement>('[data-stat="score"]');
   const primary = leftEl.querySelector<HTMLElement>('[data-stat="primary"]');
   const label = leftEl.querySelector<HTMLElement>('[data-stat-label="primary"]');
-  if (score) score.textContent = String(stats.score);
+  if (score) {
+    // 自分は毎回の実値変化でここへ来る（＝すでに実時間）ので即時反映。
+    // 相手は100ms間隔の受信なので、60fpsで目標値へ詰める補間表示にする。
+    if (slot === "self") score.textContent = String(stats.score);
+    else setScoreAnimated(`${fieldPrefix}-${stats.rule}`, score, stats.score);
+  }
   if (primary) primary.textContent = String(stats.rule === "puyo" ? stats.chainMax : stats.lines);
   if (label) label.textContent = stats.rule === "puyo" ? "MAX CHAIN" : "LINES";
 }
@@ -506,6 +579,8 @@ export class OnlineGameController {
     this.stopBackgroundClock();
     this.freezeSelfGame();
     for (const driver of this.puppets.values()) driver.freeze();
+    // 決着時は相手スコアを補間の途中で止めず、受信済みの最終値を即座に確定表示する。
+    settleScoreTweens();
   }
 
   constructor(
@@ -2230,6 +2305,7 @@ export class OnlineGameController {
     this.setConfigured = false;
     this.clearWinnerFallback();
     this.matchHalted = false;
+    stopScoreTweens(false); // 次戦へ古い目標値・rAFを持ち越さない
     this.removeVisibilityListener();
     this.teardownBackgroundClock();
     this.controlEventsSubscribed = false;
