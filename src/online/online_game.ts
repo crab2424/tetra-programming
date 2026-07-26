@@ -1322,11 +1322,16 @@ export class OnlineGameController {
    * ★ 旧実装は「誰かが ROOM/LEAVE を送ったら全員が強制遷移」だったため、
    *   相手が抜けた瞬間に自分の意思と無関係に画面が飛んでいた（ランダムマッチでは
    *   さらに自動再マッチングまで走っていた）。相手の離脱は状態として持つだけにして、
-   *   遷移は必ず自分の操作起点にする。相手が既に居ないときは、押した"後に"通知してから遷移する。
+   *   遷移は必ず自分の操作起点にする。
+   *
+   * ★ 1.2秒の遅延は `forced: true`（＝ markDeparted からの強制切り上げ。RETRY待ち中に
+   *   相手が抜けたので "押していないのに" 遷移させられるケース）のときだけ入れる。
+   *   自分でボタンを押した場合は、相手が既に退出済みでもトーストは出しつつ即座に遷移する
+   *   （2026-07-26 不具合: 後から LEAVE を押した側だけ遅延が乗って反応が遅く感じられていた）。
    */
   private navigateAfterMatch(
     target: "room" | "leave",
-    options: { notice?: string } = {},
+    options: { notice?: string; forced?: boolean } = {},
   ): void {
     if (!this.lifecycle.transition("postMatch", `navigate:${target}`)) return;
     this.setPostMatchButtonsEnabled(false);
@@ -1337,7 +1342,7 @@ export class OnlineGameController {
       action: target === "room" ? PostMatchAction.Room : PostMatchAction.Leave,
     });
 
-    // 相手が先に抜けていた場合は、その事実を"押した後に"知らせてから遷移する
+    // 相手が先に抜けていた場合は、その事実を知らせる
     const notice = options.notice
       ?? (this.allOpponentsDeparted() ? "相手はすでに退出しています" : undefined);
     if (notice) showToast("ONLINE", notice, ToastColor["Info"]);
@@ -1347,7 +1352,8 @@ export class OnlineGameController {
       if (target === "room") this.postMatchCallbacks?.onRoom();
       else this.postMatchCallbacks?.onLeave();
     };
-    if (notice) setTimeout(go, 1200); // 通知を読む時間を取ってから遷移
+    // 強制切り上げのときだけ、通知を読む時間を取ってから遷移する
+    if (options.forced && notice) setTimeout(go, 1200);
     else go();
   }
 
@@ -1379,6 +1385,7 @@ export class OnlineGameController {
     if (this.lifecycle.phase === "roundResult" && this.myRematchVoted && this.allOpponentsDeparted()) {
       this.navigateAfterMatch(this.isRandomMatchRoom ? "leave" : "room", {
         notice: "相手が退出したため再戦できません",
+        forced: true,
       });
     }
   }
@@ -1451,6 +1458,11 @@ export class OnlineGameController {
     // ゲームエンジン停止
     if (this.game) {
       if (this.myRule === 'puyo') {
+        // ★ 決着時に freezePuyoGame が立てた _versusFinishing を先に下ろす。
+        //   立ったままだと stop() がキャンバスクリア/rAF停止(cancelAnimationFrame)を
+        //   スキップし(lifecycle.js)、旧ゲームの _loop が生き残ったまま毎フレーム描画を続け、
+        //   次マッチの READY 中に旧盤面が残って見える（2026-07-26 不具合）。
+        this.game._versusFinishing = false;
         this.game.stop?.();
         this.game.rng = null;
         // 対テト送り手からの攻撃は _garbageTimers(setTimeout) 経由で ready 化されるため、
@@ -2055,6 +2067,8 @@ export class OnlineGameController {
       if (this.myRule === 'puyo') {
         // PuyoGame のタイマー/ループを停止、連鎖演出DOMを除去
         this.game._clearChainTextDOM?.();
+        // ★ relistenForStart と同じ理由: _versusFinishing を下ろしてから stop() する。
+        this.game._versusFinishing = false;
         this.game.stop?.();
         this.game.rng = null;
       } else {
