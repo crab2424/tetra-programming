@@ -880,22 +880,21 @@ export class OnlineGameController {
       //   一生相手に送られなくなる。呼び出し時点の生存状態で判定する。
       const wasAlive = this.myAlive;
       origPopMino();
-      // origPopMino() 後にブロックが field.blocks に追加済みなのでスナップショットが正しい
-      if (hadMino && wasAlive) {
-        const boardData = fieldBlocksToArray(game.field.blocks);
-        conn.sendMatchEvent(encodeLock(boardData));
-      }
       // ★ block-out: この呼び出しの中で致命した場合、衝突したミノは game.mino に
-      //   残ったまま field には固定されない（board.js popMino）。GameOver フレームに
-      //   同梱したミノは「即時表示用の速報」に過ぎず、直後に必ず届くこの Lock
-      //   （直前の盤面、上記で送信済み）に対して受信側は mino=null を適用するため、
-      //   その後に同じミノを PieceState として明示的に送り直し「本人が見ていた
-      //   死亡直前の画面」を Lock 確定後にもう一度正しく重ねる。GameOver→Lock→
-      //   このPieceState の順（reliable channel なので到着順もこの順で保証される）。
-      if (game.mino && !this.myAlive && wasAlive) {
-        conn.sendMatchEvent(
-          encodePieceState(game.mino.type, game.mino.x, game.mino.y, game.mino.rotation),
-        );
+      //   残ったまま field には固定されない（board.js popMino）。その衝突ミノを
+      //   最終盤面の Lock に同梱して送り、「本人が見ていた死亡直前の画面」を
+      //   受信側が盤面とミノまとめて1フレームで再現できるようにする。
+      //   ★ PieceState(0x20) では送れない: サーバーが reliable チャネルでの PieceState を
+      //     明示的に拒否する（tetra-server の connection/reliable.rs）ため、送っても
+      //     相手に一切届かない（送信側からは成功に見える罠）。
+      const diedHere = wasAlive && !this.myAlive;
+      const dyingMino = diedHere && game.mino
+        ? { type: game.mino.type, x: game.mino.x, y: game.mino.y, rotation: game.mino.rotation }
+        : undefined;
+      // origPopMino() 後にブロックが field.blocks に追加済みなのでスナップショットが正しい
+      if ((hadMino || diedHere) && wasAlive) {
+        const boardData = fieldBlocksToArray(game.field.blocks);
+        conn.sendMatchEvent(encodeLock(boardData, dyingMino));
       }
       // Don't send Spawn if game just ended inside origPopMino
       if (game.mino && this.myAlive) {
@@ -904,7 +903,9 @@ export class OnlineGameController {
           .slice(0, 5)
           .map((m) => m.type);
         conn.sendMatchEvent(
-          encodeSpawn(game.mino.type, holdType, nextTypes),
+          encodeSpawn(game.mino.type, holdType, nextTypes, {
+            type: game.mino.type, x: game.mino.x, y: game.mino.y, rotation: game.mino.rotation,
+          }),
         );
         sendHoldState();
         sendStats();
@@ -927,7 +928,9 @@ export class OnlineGameController {
             .slice(0, 5)
             .map((m) => m.type);
           conn.sendMatchEvent(
-            encodeSpawn(game.mino.type, holdType, nextTypes),
+            encodeSpawn(game.mino.type, holdType, nextTypes, {
+              type: game.mino.type, x: game.mino.x, y: game.mino.y, rotation: game.mino.rotation,
+            }),
           );
           sendHoldState();
           sendStats();
@@ -1766,10 +1769,10 @@ export class OnlineGameController {
         this.markDead(frame.senderId);
         return;
       }
-      // ★ TETのblock-out時、GameOverの直後に届く Lock(最終盤面)/PieceState(衝突ミノ) だけは
+      // ★ TETのblock-out時、GameOverの直後に届く Lock(最終盤面＋衝突ミノ同梱) だけは
       //   例外的にドライバへ渡す。実際に通すかどうかは driver 側の猶予窓
-      //   (acceptFinalSnapshotUntil) が判定する（online_game.ts の popMino フック参照）。
-      if (frame.opcode === MatchOpcode.Lock || frame.opcode === MatchOpcode.PieceState) {
+      //   (acceptFinalSnapshotUntil) が判定する（上の popMino フック参照）。
+      if (frame.opcode === MatchOpcode.Lock) {
         this.puppets.get(frame.senderId)?.applyFrame(frame.opcode, frame.payload);
       }
       return;

@@ -111,25 +111,53 @@ export function encodePieceState(
   ]);
 }
 
+/**
+ * 操作ミノの位置。Spawn / Lock に同梱して「相手が実際に見ている絵」を1フレームの
+ * ずれもなく再現するために使う（x/y は負値を扱うため +64 オフセットで格納する）。
+ */
+export interface MinoPlacement { type: number; x: number; y: number; rotation: number }
+
 // Spawn: 8 bytes (opcode + type + holdType + next[5])
+//        出現位置つきの場合は 11 bytes (+ x+64, y+64, rotation)。
+// ★ 位置を必ず同梱する理由: board.js popMino は出現位置が既存ブロックと衝突するとき
+//   `mino.y -= 1` で1マス上へずらす（致命判定間際に必ず起きる）。受信側が Mino.spawn() の
+//   既定位置で描くと、この補正を取りこぼしてミノがスタックに埋まった絵が
+//   次の PieceState(16ms間隔・unreliable) が届くまで約1フレーム表示されてしまう。
 export function encodeSpawn(
-  type: number, holdType: number, nextTypes: number[],
+  type: number, holdType: number, nextTypes: number[], placement?: MinoPlacement,
 ): Uint8Array {
-  const buf = new Uint8Array(8);
+  const buf = new Uint8Array(placement ? 11 : 8);
   buf[0] = MatchOpcode.Spawn;
   buf[1] = type & 0xff;
   buf[2] = holdType & 0xff; // 0xff = no hold
   for (let i = 0; i < 5; i++) buf[3 + i] = (nextTypes[i] ?? 0xff) & 0xff;
+  if (placement) {
+    buf[8] = (placement.x + 64) & 0xff;
+    buf[9] = (placement.y + 64) & 0xff;
+    buf[10] = placement.rotation & 0xff;
+  }
   return buf;
 }
 
 // Lock: 1 + BOARD_SIZE bytes (opcode + 400 board bytes, row-major)
 // boardTypes[row * 10 + col] = block type (0 = empty, 1-8 = type 0-7)
 // row 0 = y=-BOARD_BUFFER_ROWS（上方バッファ最上段）, row 20 = y=0（可視最上段）
-export function encodeLock(boardTypes: number[]): Uint8Array {
-  const buf = new Uint8Array(1 + BOARD_SIZE);
+// 致命時のみ末尾4バイト(type, x+64, y+64, rotation)に「盤面へ固定されなかった衝突ミノ」を同梱する。
+//
+// ★ なぜ Lock に相乗りするのか: PieceState(0x20) はサーバーが reliable チャネルで
+//   明示的に拒否する（tetra-server の connection/reliable.rs）ため、致命直後の確定した
+//   絵を PieceState で送ることはできない。Lock(0x22) は reliable 中継が許可されており、
+//   盤面と衝突ミノを1フレームで原子的に送れるので順序の心配もない。
+export function encodeLock(boardTypes: number[], dyingMino?: MinoPlacement): Uint8Array {
+  const buf = new Uint8Array(1 + BOARD_SIZE + (dyingMino ? 4 : 0));
   buf[0] = MatchOpcode.Lock;
   for (let i = 0; i < BOARD_SIZE; i++) buf[1 + i] = (boardTypes[i] ?? 0) & 0xff;
+  if (dyingMino) {
+    buf[1 + BOARD_SIZE] = dyingMino.type & 0xff;
+    buf[2 + BOARD_SIZE] = (dyingMino.x + 64) & 0xff;
+    buf[3 + BOARD_SIZE] = (dyingMino.y + 64) & 0xff;
+    buf[4 + BOARD_SIZE] = dyingMino.rotation & 0xff;
+  }
   return buf;
 }
 
@@ -295,14 +323,35 @@ export function decodePieceState(p: Uint8Array): PieceStateData {
 
 export interface SpawnData {
   type: number; holdType: number; nextTypes: number[];
+  /** 出現位置。旧形式(8バイト)や NEXT/HOLD だけの sentinel では null。 */
+  placement: MinoPlacement | null;
 }
 export function decodeSpawn(p: Uint8Array): SpawnData {
-  return { type: p[0], holdType: p[1], nextTypes: Array.from(p.slice(2, 7)) };
+  const type = p[0];
+  return {
+    type,
+    holdType: p[1],
+    nextTypes: Array.from(p.slice(2, 7)),
+    placement: p.length >= 10
+      ? { type, x: p[7] - 64, y: p[8] - 64, rotation: p[9] }
+      : null,
+  };
 }
 
-// Returns 200-element array (row-major, 0=empty)
-export function decodeLock(p: Uint8Array): number[] {
-  return Array.from(p.slice(0, BOARD_SIZE));
+// board: 400要素(row-major, 0=空)。dyingMino は致命時のみ（盤面へ固定されなかった衝突ミノ）。
+export interface LockData { board: number[]; dyingMino: MinoPlacement | null }
+export function decodeLock(p: Uint8Array): LockData {
+  return {
+    board: Array.from(p.slice(0, BOARD_SIZE)),
+    dyingMino: p.length >= BOARD_SIZE + 4
+      ? {
+        type: p[BOARD_SIZE],
+        x: p[BOARD_SIZE + 1] - 64,
+        y: p[BOARD_SIZE + 2] - 64,
+        rotation: p[BOARD_SIZE + 3],
+      }
+      : null,
+  };
 }
 
 export interface ClearData { lines: number; flags: number; combo: number; }
