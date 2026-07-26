@@ -14,6 +14,13 @@ const OVERLAY_ID = "ol-loading-overlay";
 const LABEL_ID = "ol-loading-label";
 const BAR_ID = "ol-loading-bar-fill";
 const PLAYERS_ID = "ol-loading-players";
+const CLOSING_CLASS = "ol-loading-overlay--closing";
+
+// ★ ロードが速すぎて画面がほぼ一瞬で切り替わる（体感上の「唐突さ」）のを防ぐための
+//   最低表示時間とフェードアウト時間。実データ待ちが一瞬で解決しても、この2つの
+//   合計分だけは必ず画面に残る。開始タイミング(startTimeMs)自体は動かさない。
+const MIN_VISIBLE_MS = 900;
+const FADE_OUT_MS = 300;
 
 export interface LoadingPlayerState {
   name: string;
@@ -25,17 +32,52 @@ function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
 }
 
+let shownAt: number | null = null;
+// hideLoadingOverlay() が非同期で進行中のときに、show→hide が交錯しても
+// 古い hide が新しい show を巻き込んで消さないようにする世代カウンタ。
+let generation = 0;
+
 export function showLoadingOverlay(): void {
+  generation++;
   const overlay = el(OVERLAY_ID);
-  if (overlay) overlay.style.display = "flex";
+  if (overlay) {
+    overlay.classList.remove(CLOSING_CLASS);
+    overlay.style.display = "flex";
+  }
+  shownAt = performance.now();
   setLoadingProgress(0, "");
 }
 
-export function hideLoadingOverlay(): void {
+/**
+ * ロード画面を閉じる。既定では最低表示時間を満たしてから画面全体をフェードアウトさせる。
+ * @param immediate true の場合は演出を挟まず即座に閉じる（エラー/辞退/離脱などの中断経路用）。
+ */
+export function hideLoadingOverlay(immediate = false): void {
   const overlay = el(OVERLAY_ID);
-  if (overlay) overlay.style.display = "none";
-  const players = el(PLAYERS_ID);
-  if (players) players.innerHTML = "";
+  if (!overlay || overlay.style.display === "none") {
+    shownAt = null;
+    return;
+  }
+  const myGeneration = generation;
+  const finish = () => {
+    if (myGeneration !== generation) return; // その間に再表示された
+    overlay.style.display = "none";
+    overlay.classList.remove(CLOSING_CLASS);
+    const players = el(PLAYERS_ID);
+    if (players) players.innerHTML = "";
+    shownAt = null;
+  };
+  if (immediate) {
+    finish();
+    return;
+  }
+  const elapsed = shownAt !== null ? performance.now() - shownAt : MIN_VISIBLE_MS;
+  const wait = Math.max(0, MIN_VISIBLE_MS - elapsed);
+  window.setTimeout(() => {
+    if (myGeneration !== generation) return;
+    overlay.classList.add(CLOSING_CLASS);
+    window.setTimeout(finish, FADE_OUT_MS);
+  }, wait);
 }
 
 export function isLoadingOverlayVisible(): boolean {
