@@ -95,6 +95,14 @@ export class NetworkDriver implements OpponentDriver {
   private puyoDrop: PuyoDropState | null = null;
   /** 決着後に凍結済みか。以後の受信フレームは全て捨てる。 */
   private frozen = false;
+  /**
+   * frozen 後も「決着直後に追送される最終スナップショット」（Lock→PieceState、
+   * TETのblock-out用）だけは、この時刻までは例外的に受理する。
+   * ★ GameOver 受信できずしなくても markDead() 経由で freeze() が同期的に呼ばれるため、
+   *   Lock/PieceState は必ず freeze() より後に別メッセージとして届く。ここで短い猶予を
+   *   設けないと、致命の原因になった最終盤面と衝突ミノが恒久的に相手へ表示されない。
+   */
+  private acceptFinalSnapshotUntil: number | null = null;
   /** 相手の初回データ（Spawn/PuyoSpawn＝NEXT等）を受信済みか。ロード画面の待機に使う。 */
   private dataReceived = false;
   private dataResolvers: Array<() => void> = [];
@@ -177,6 +185,10 @@ export class NetworkDriver implements OpponentDriver {
   freeze(): void {
     if (this.frozen) return;
     this.frozen = true;
+    // ★ TETのblock-outは、freeze()がGameOverフレーム処理と同じ呼び出しスタック内で
+    //   同期的に呼ばれる（applyFrame内のmarkDead→onDead→…→freeze）。その直後に
+    //   別メッセージとして届くLock/PieceStateを取りこぼさないよう、短い猶予を与える。
+    if (this.rule === "tet") this.acceptFinalSnapshotUntil = performance.now() + 1500;
     this.stopPuyoReplay();
     this.puyoReplayQueue.length = 0;
     if (this.rule === "puyo") {
@@ -203,7 +215,17 @@ export class NetworkDriver implements OpponentDriver {
   }
 
   applyFrame(opcode: number, payload: Uint8Array): void {
-    if (this.frozen) return; // 決着後に届いた遅延フレームで盤面が動くのを防ぐ
+    if (this.frozen) {
+      // ★ TETのblock-outだけは、freeze()直後にGameOver→Lock(最終盤面)→PieceState(衝突ミノ)
+      //   の順で追送される「最終スナップショット」を短い猶予内だけ通す（online_game.ts の
+      //   popMino フック参照）。それ以外（連鎖リプレイ・古いPieceState等）は従来どおり捨てる。
+      const isFinalSnapshot =
+        this.rule === "tet" &&
+        (opcode === MatchOpcode.Lock || opcode === MatchOpcode.PieceState) &&
+        this.acceptFinalSnapshotUntil !== null &&
+        performance.now() < this.acceptFinalSnapshotUntil;
+      if (!isFinalSnapshot) return;
+    }
     const puppet = this.puppet;
     switch (opcode) {
       case MatchOpcode.PieceState: {

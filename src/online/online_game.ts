@@ -885,6 +885,18 @@ export class OnlineGameController {
         const boardData = fieldBlocksToArray(game.field.blocks);
         conn.sendMatchEvent(encodeLock(boardData));
       }
+      // ★ block-out: この呼び出しの中で致命した場合、衝突したミノは game.mino に
+      //   残ったまま field には固定されない（board.js popMino）。GameOver フレームに
+      //   同梱したミノは「即時表示用の速報」に過ぎず、直後に必ず届くこの Lock
+      //   （直前の盤面、上記で送信済み）に対して受信側は mino=null を適用するため、
+      //   その後に同じミノを PieceState として明示的に送り直し「本人が見ていた
+      //   死亡直前の画面」を Lock 確定後にもう一度正しく重ねる。GameOver→Lock→
+      //   このPieceState の順（reliable channel なので到着順もこの順で保証される）。
+      if (game.mino && !this.myAlive && wasAlive) {
+        conn.sendMatchEvent(
+          encodePieceState(game.mino.type, game.mino.x, game.mino.y, game.mino.rotation),
+        );
+      }
       // Don't send Spawn if game just ended inside origPopMino
       if (game.mino && this.myAlive) {
         const holdType = game.holdMino ? game.holdMino.type : 0xff;
@@ -1750,7 +1762,16 @@ export class OnlineGameController {
     // 決着後に届いた遅延フレーム（おじゃま・連鎖演出など）で盤面が動かないよう全て捨てる。
     // GameOver だけは生存者集合の整合のため反映する（パペットは凍結済みなので表示は変えない）。
     if (this.matchHalted) {
-      if (frame.opcode === MatchOpcode.GameOver) this.markDead(frame.senderId);
+      if (frame.opcode === MatchOpcode.GameOver) {
+        this.markDead(frame.senderId);
+        return;
+      }
+      // ★ TETのblock-out時、GameOverの直後に届く Lock(最終盤面)/PieceState(衝突ミノ) だけは
+      //   例外的にドライバへ渡す。実際に通すかどうかは driver 側の猶予窓
+      //   (acceptFinalSnapshotUntil) が判定する（online_game.ts の popMino フック参照）。
+      if (frame.opcode === MatchOpcode.Lock || frame.opcode === MatchOpcode.PieceState) {
+        this.puppets.get(frame.senderId)?.applyFrame(frame.opcode, frame.payload);
+      }
       return;
     }
     // ── ローカルプレイヤーへのルーティング（送信元に関係なく自分に届く） ──
