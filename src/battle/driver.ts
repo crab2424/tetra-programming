@@ -544,8 +544,16 @@ export class NetworkDriver implements OpponentDriver {
   }
 
   /**
-   * 現盤面 → next の落下差分（同色が上から降りてきたセル）を落下アニメ化する。
-   * 連鎖後落下で使う。落下対象があれば true。
+   * 現盤面(prev) → next への落下をアニメ化する。連鎖後落下・おじゃま落下で使う。
+   * 落下対象があれば true。
+   *
+   * ★ 実エンジンの `_buildDropAnim`（engine.js）と同じ「列を下から走査し、空白の
+   *   連続数(emptyBelow)を積んで fromR→toR を決める」純粋な重力コラプスを prev だけから
+   *   導出する。旧実装は next 側の各セルに対して「直近の未使用の同色セル」を貪欲に
+   *   マッチングしていたため、同じ列に同色が複数段積まれている場合に上下の対応が
+   *   反転しうる不具合があった（例: 3段のおじゃまが降る際、本来いちばん近い(浅い)段が
+   *   いちばん遠くまで落ちるように誤って対応付けられ、「複数段が同じ高さから降ってくる」
+   *   ように見えていた）。prev 単体からの走査は相対順序を必ず保つため反転しない。
    */
   private setupPuyoDrop(next: number[][], pxPerMs: number, vibCycles: (d: number) => number): boolean {
     const puppet = this.puppet;
@@ -556,21 +564,17 @@ export class NetworkDriver implements OpponentDriver {
     const cols = rows > 0 ? next[0].length : 6;
 
     for (let c = 0; c < cols; c++) {
-      const used = new Set<number>();
+      let emptyBelow = 0;
       const cells: Array<{ fromR: number; toR: number; color: number; py: number }> = [];
-      for (let toR = 0; toR < rows; toR++) {
-        const color = next[toR]?.[c] ?? 0;
-        if (!color) continue;
-        if ((prev[toR]?.[c] ?? 0) === color) { used.add(toR); continue; }
-        let fromR = -1;
-        for (let r = toR - 1; r >= 0; r--) {
-          if (!used.has(r) && (prev[r]?.[c] ?? 0) === color) { fromR = r; break; }
+      for (let r = rows - 1; r >= 0; r--) {
+        const color = prev[r]?.[c] ?? 0;
+        if (!color) {
+          emptyBelow++;
+        } else if (emptyBelow > 0) {
+          const toR = r + emptyBelow;
+          cells.push({ fromR: r, toR, color, py: (r - PUYO_HIDDEN) * PUYO_CELL });
+          field[toR][c] = 0;
         }
-        if (fromR < 0) fromR = Math.min(toR - 1, 0);
-        if (fromR >= toR) continue;
-        used.add(fromR);
-        field[toR][c] = 0;
-        cells.push({ fromR, toR, color, py: (fromR - PUYO_HIDDEN) * PUYO_CELL });
       }
       if (cells.length > 0) anims.push({ c, cells });
     }
