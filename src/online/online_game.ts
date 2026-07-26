@@ -62,7 +62,7 @@ import {
   onlineFieldPrefix,
   allOnlineFieldPrefixes,
 } from "../battle/finish_overlay";
-import { runBattlePreload, hideLoadingOverlay } from "../battle/loading_screen";
+import { runBattlePreload, hideLoadingOverlay, setLoadingProgress } from "../battle/loading_screen";
 
 type AnyFn = (...args: any[]) => any;
 
@@ -109,6 +109,7 @@ declare const Block: new (x: number, y: number, type: number) => any;
 declare const Field: new () => any;
 declare const Game: new (prefix?: string | null) => any;
 declare const PuyoGame: new (prefix?: string | null) => any;
+declare const PConfig: any;
 
 export type PostMatchCallbacks = {
   /** 部屋（ルーム設定画面）へ戻る。ランダムマッチでは使わない。 */
@@ -565,8 +566,8 @@ export class OnlineGameController {
   private startBattle(notif: StartMatchNotification): void {
     // 二重の開始通知・決着処理中の遅延通知はここで捨てる
     if (!this.lifecycle.transition("countdown", "StartMatchNotification")) return;
-    // 全員のロードが終わって対戦が始まる → ロード画面を閉じる
-    hideLoadingOverlay();
+    // ★ ロード画面はここでは閉じない。相手パペットの初回データ（NEXT等）が届くまで
+    //   （またはタイムアウトまで）画面上に残す。閉じるのは revealBattleAfterSync。
     this.myAlive = true;
     this.matchHalted = false;
     this.clearWinnerFallback();
@@ -640,11 +641,47 @@ export class OnlineGameController {
     this.lifecycle.beginRound();
     const now = this.connection.serverNow();
     const delay = Math.max(0, notif.startTimeMs - now);
+    // ★ ここで即座に自分のエンジン初期化を始める（＝相手への sentinel 送信も即座に始まる）。
+    //   ロード画面を閉じるタイミングだけを別途 revealBattleAfterSync で遅らせる設計にしないと、
+    //   全員が「相手のデータを待ってから自分のデータを送る」ことになりデッドロックする。
     if (this.myRule === 'puyo') {
       this.initPuyoBattle(notif, matchSetting, delay);
     } else {
       this.initTetBattle(notif, matchSetting, delay);
     }
+    this.revealBattleAfterSync(delay);
+  }
+
+  /**
+   * ロード画面を「相手パペットの初回データ（NEXT/盤面）が揃うまで」残してから閉じる。
+   *
+   * ★ 背景: 自分の盤面はローカルの initGame 完了ですぐ描画されるが、相手パペットは
+   *   生成直後は完全に空（driver.ts）で、相手からの sentinel Spawn/PuyoSpawn フレームが
+   *   ネットワーク越しに届くまで NEXT/HOLD が空のまま描画される。従来はロード画面を
+   *   即座に閉じていたため、対戦開始直後に相手盤面が空 → 数百ms後に一斉に埋まる、
+   *   というポップインが見えていた（2026-07-26 不具合）。
+   *
+   * ★ 開始時刻(startTimeMs)はサーバー権威のまま動かさない。カウントダウン自体は
+   *   showCountdown 側で即座に開始しており（自分の初期化と並行）、ここで待つのは
+   *   「ロード画面という覆いを外すタイミング」だけ＝カウントダウンの残り時間が
+   *   そのぶん短く見える形で吸収される（runCountdown は残り時間に自動スケールする）。
+   */
+  private revealBattleAfterSync(delay: number): void {
+    const waits = [...this.puppets.values()].map((d) => d.waitForFirstData());
+    if (waits.length === 0) {
+      hideLoadingOverlay();
+      return;
+    }
+    setLoadingProgress(1, "対戦データを同期しています…");
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      hideLoadingOverlay();
+    };
+    Promise.all(waits).then(finish);
+    // 開始直前ギリギリまで相手を待ち続けて演出が破綻しないよう、少し余白を残す。
+    setTimeout(finish, Math.max(0, delay - 300));
   }
 
   private initTetBattle(
@@ -658,7 +695,9 @@ export class OnlineGameController {
     this.game = new Game("ol-p");
     (window as any)._olGame = this.game; // E2Eテスト用フック
     this.game.isVersusMode = true;
-    this.game.currentMode = "marathon";
+    // ★ CPU戦(versus.js)と同じ 'versus' モード。'marathon' のままだと10ライン毎に
+    //   レベルが上昇し(scoring.js)、150ライン到達で誤ってクリア扱いにもなる(board.js)。
+    this.game.currentMode = "versus";
     this.game.isOnline = true;
     this.game.opponentRule = this.matchOpponentRule; // 異種戦判定をエンジンへ注入
     this.game._hasTetOpp = this.matchHasTetOpp;   // 混在多人数: テト相手が居るか
@@ -675,6 +714,7 @@ export class OnlineGameController {
 
     this.game.tumoRng = createSeededRng(notif.seed);
     this.game._initGameState();
+    this.game.level = 2; // CPU戦(versus.js)と同じ固定レベル
     this.game.setKeyEvent();
     this.showCountdown(delay);
 
@@ -714,7 +754,7 @@ export class OnlineGameController {
     this.game = new PuyoGame("ol-p");
     (window as any)._olGame = this.game; // E2Eテスト用フック
     this.game.isVersusMode = true;
-    this.game.currentMode = "marathon";
+    this.game.currentMode = "versus"; // CPU戦(versus.js)と揃える
     this.game.isOnline = true;
     this.game.opponentRule = this.matchOpponentRule; // 異種戦判定をエンジンへ注入
     this.game._hasTetOpp = this.matchHasTetOpp;   // 混在多人数: テト相手が居るか
@@ -796,9 +836,14 @@ export class OnlineGameController {
     const origPopMino: AnyFn = game.popMino.bind(game);
     game.popMino = () => {
       const hadMino = game.mino !== null;
+      // ★ block-out（出現位置での致命判定）は origPopMino() の内部で gameOver() まで
+      //   呼び切ってしまい、その中で this.myAlive が false へ落ちる。呼び出し後の
+      //   this.myAlive で判定すると、直前に確定した設置(致命の原因となった盤面)が
+      //   一生相手に送られなくなる。呼び出し時点の生存状態で判定する。
+      const wasAlive = this.myAlive;
       origPopMino();
       // origPopMino() 後にブロックが field.blocks に追加済みなのでスナップショットが正しい
-      if (hadMino && this.myAlive) {
+      if (hadMino && wasAlive) {
         const boardData = fieldBlocksToArray(game.field.blocks);
         conn.sendMatchEvent(encodeLock(boardData));
       }
@@ -851,6 +896,12 @@ export class OnlineGameController {
     //   myAlive=false でバックグラウンド駆動・送信系は止まる。
     game.gameOver = (_isClear = false) => {
       if (!this.myAlive) return;
+      // ★ block-out（出現位置での致命判定）は popMino が衝突ミノを game.mino に
+      //   残したまま gameOver() を呼ぶ（board.js）。ここでまだ null 化されていないので、
+      //   死亡直前の自分の画面と同じ絵を GameOver フレームに同梱して相手へ送る。
+      const dyingMino = game.mino
+        ? { type: game.mino.type, x: game.mino.x, y: game.mino.y, rotation: game.mino.rotation }
+        : undefined;
       this.myAlive = false;
       this.stopPieceStateInterval();
       this.freezeSelfGame();
@@ -860,7 +911,7 @@ export class OnlineGameController {
       game.drawAll();
 
       this.logger.log("Local game over. Notifying server...");
-      conn.sendMatchEvent(encodeGameOver());
+      conn.sendMatchEvent(encodeGameOver(dyingMino));
       conn
         .notifyGameOver({ roomId })
         .then((res) => this.logger.log("NotifyGameOver response:", res));
@@ -1016,11 +1067,8 @@ export class OnlineGameController {
       if (!this.myAlive) return;
       conn.sendMatchEvent(encodePuyoLock((field ?? game.field) as number[][], phase));
     };
-    // [メソッド, phase, 連鎖外(chainCount===0)のときだけ送るか]
-    // _beginFixAnimWait は「初手着地(chainCount===0)」と「連鎖リンクの落下後(chainCount>0)」の
-    // 両方で発火する。後者は直前の _applyDropAnim(Drop) と同一盤面の重複なので、初手着地のみ送る。
+    // _applyErase は毎回そのまま送る（連鎖中も含む）。
     const snapshotHooks: Array<[string, number, boolean]> = [
-      ['_beginFixAnimWait', PuyoLockPhase.Fix, true],
       ['_applyErase', PuyoLockPhase.Erase, false],
     ];
     for (const [method, phase, onlyOutsideChain] of snapshotHooks) {
@@ -1033,17 +1081,71 @@ export class OnlineGameController {
       };
     }
 
+    // _fixPuyo: ちぎり（片方だけ先に固定＝別列/別行の設置）を検出したその場で、
+    // 両方確定した最終盤面を先読み送信する。
+    // ★ 従来は _beginFixAnimWait（= splitting 状態が splitDropSpeed で着地しきった後）
+    //   でしか送っておらず、片割れが落ちきるまでの間（最大 500ms/6 ≈ 83ms×落下距離）
+    //   相手の盤面が一切更新されなかった。ここで開始時点に最終形を送ることで、
+    //   受信側の driver.ts（beginPuyoFix）が実タイミングでちぎり落下を再生できる。
+    if (typeof game._fixPuyo === 'function') {
+      const origFixPuyo: AnyFn = game._fixPuyo.bind(game);
+      game._fixPuyo = (...args: any[]) => {
+        const r = origFixPuyo(...args);
+        if (game._gs === 'splitting' && game.splitPuyo && this.myAlive) {
+          const finalField = (game.field as number[][]).map((row: number[]) => [...row]);
+          const fr = Math.round(game._calcLimitY_Single(game.splitPuyo.col, game.splitPuyo.y)) + PConfig.hiddenRows;
+          if (finalField[fr]) finalField[fr][game.splitPuyo.col] = game.splitPuyo.color;
+          sendFieldSnapshot(PuyoLockPhase.Fix, finalField);
+          game._chigiriFixSnapshotSent = true;
+        }
+        return r;
+      };
+    }
+    // _beginFixAnimWait は「初手着地(chainCount===0)」と「連鎖リンクの落下後(chainCount>0)」の
+    // 両方で発火する。後者は直前の _applyDropAnim(Drop) と同一盤面の重複なので送らない。
+    // ちぎりで既に _fixPuyo フックが最終盤面を送信済みのときも重複送信を抑止する。
+    if (typeof game._beginFixAnimWait === 'function') {
+      const origBeginFixAnimWait: AnyFn = game._beginFixAnimWait.bind(game);
+      game._beginFixAnimWait = (...args: any[]) => {
+        const r = origBeginFixAnimWait(...args);
+        if ((game.chainCount ?? 0) === 0) {
+          if (game._chigiriFixSnapshotSent) {
+            game._chigiriFixSnapshotSent = false;
+          } else {
+            sendFieldSnapshot(PuyoLockPhase.Fix);
+          }
+        }
+        return r;
+      };
+    }
+
     // _generateOjama: おじゃま降下の「開始時点」で、落下先が確定した最終盤面を Drop
     // スナップショットとして即送信する。従来は _applyDropAnim（落下し終わった後）でしか
     // Drop を送っておらず、相手盤面での降下開始が実際より遅れて見えていた。
     // ここで _dropAnim（_buildDropAnim 済み＝fromR→toR が確定済み）を先読みして最終盤面を
     // 組み立て、_applyDropAnim 側の重複送信はフラグで抑止する。
+    //
+    // ★ さらに「降下前（隠し行に段積みされた状態）」の盤面も Fix として先に送る。
+    //   これが無いと受信側の setupPuyoDrop は落下元(fromR)の情報を一切持たず、
+    //   全セルが同じ既定値(row0付近)から降り始めてしまい「複数段のおじゃまが同じ高さから
+    //   落ちてくる」ように見えていた（2026-07-26 不具合）。_generateOjama は内部で
+    //   _buildDropAnim を呼ぶ直前まで「隠し行に積んだ状態」を this.field に保持しているので、
+    //   その瞬間だけ _buildDropAnim を横取りしてスナップショットを取る。
     if (typeof game._generateOjama === 'function') {
       const origGenerateOjama: AnyFn = game._generateOjama.bind(game);
+      const realBuildDropAnim: AnyFn = game._buildDropAnim.bind(game);
       game._generateOjama = (...args: any[]) => {
+        let preFallField: number[][] | null = null;
+        game._buildDropAnim = (...bArgs: any[]) => {
+          preFallField = (game.field as number[][]).map((row: number[]) => [...row]);
+          return realBuildDropAnim(...bArgs);
+        };
         const r = origGenerateOjama(...args);
-        if (r && Array.isArray(game._dropAnim)) {
-          const finalField = (game.field as number[][]).map((row: number[]) => [...row]);
+        game._buildDropAnim = realBuildDropAnim; // 通常の連鎖落下用に元へ戻す
+        if (r && preFallField && Array.isArray(game._dropAnim)) {
+          const preFall: number[][] = preFallField;
+          sendFieldSnapshot(PuyoLockPhase.Fix, preFall);
+          const finalField = preFall.map((row: number[]) => [...row]);
           for (const col of game._dropAnim) {
             for (const cell of col.cells) finalField[cell.toR][col.c] = cell.color;
           }
