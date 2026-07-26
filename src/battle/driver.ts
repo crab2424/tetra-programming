@@ -1,5 +1,6 @@
 import {
   decodeClear,
+  decodeGameOver,
   decodeLock,
   decodePieceState,
   decodePuyoChain,
@@ -94,6 +95,9 @@ export class NetworkDriver implements OpponentDriver {
   private puyoDrop: PuyoDropState | null = null;
   /** 決着後に凍結済みか。以後の受信フレームは全て捨てる。 */
   private frozen = false;
+  /** 相手の初回データ（Spawn/PuyoSpawn＝NEXT等）を受信済みか。ロード画面の待機に使う。 */
+  private dataReceived = false;
+  private dataResolvers: Array<() => void> = [];
 
   constructor(options: NetworkDriverOptions) {
     this.id = options.id;
@@ -127,6 +131,21 @@ export class NetworkDriver implements OpponentDriver {
   stop(): void {
     this.stopPuyoReplay();
     this.puppet?.stop?.();
+  }
+
+  /** 相手からの最初の Spawn/PuyoSpawn（NEXT等）を受信したときに呼ぶ。 */
+  private notifyDataReceived(): void {
+    if (this.dataReceived) return;
+    this.dataReceived = true;
+    const resolvers = this.dataResolvers;
+    this.dataResolvers = [];
+    for (const r of resolvers) r();
+  }
+
+  /** 相手の初回データが届くまで待つ（ロード画面の同期待ちに使う）。既に届いていれば即解決。 */
+  waitForFirstData(): Promise<void> {
+    if (this.dataReceived) return Promise.resolve();
+    return new Promise((resolve) => this.dataResolvers.push(resolve));
   }
 
   markDead(): void {
@@ -232,6 +251,7 @@ export class NetworkDriver implements OpponentDriver {
         return;
       }
       case MatchOpcode.Spawn: {
+        this.notifyDataReceived();
         if (this.rule === "puyo") {
           const sp = decodePuyoSpawn(payload);
           // 連鎖リプレイの後に新ペアを出すため、キューへ積んで順序を保つ。
@@ -266,9 +286,23 @@ export class NetworkDriver implements OpponentDriver {
         puppet.showActionLabels?.(tspin, c.lines, !!(c.flags & 2), c.combo, !!(c.flags & 4), c.lines === 4 && !tspin);
         return;
       }
-      case MatchOpcode.GameOver:
+      case MatchOpcode.GameOver: {
+        // ★ TET の block-out（出現位置での致命判定）は、衝突した操作ミノを GameOver
+        //   フレームに同梱して送ってくる（online_game.ts）。適用してから凍結することで、
+        //   相手にも「本人が見ていた死亡直前の画面」と同じ絵が出る。
+        if (this.rule === "tet") {
+          const { mino } = decodeGameOver(payload);
+          if (mino) {
+            const m = new Mino(mino.type);
+            for (let r = 0; r < mino.rotation; r++) m.rotate();
+            m.x = mino.x;
+            m.y = mino.y;
+            puppet.mino = m;
+          }
+        }
         this.markDead();
         return;
+      }
       case MatchOpcode.HoldState:
         if (this.rule !== "tet") return;
         puppet.canHold = decodeHoldState(payload);

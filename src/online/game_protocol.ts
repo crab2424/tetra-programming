@@ -161,9 +161,33 @@ export function encodeHold(type: number): Uint8Array {
   return new Uint8Array([MatchOpcode.Hold, type & 0xff]);
 }
 
-// GameOver: 2 bytes (opcode + 0)
-export function encodeGameOver(): Uint8Array {
-  return new Uint8Array([MatchOpcode.GameOver, 0]);
+// GameOver: 2 bytes (opcode + hasMino=0), or 6 bytes with a colliding TET piece attached.
+// ★ TET の block-out（出現位置での致命判定）は、衝突した操作ミノをフィールドに固定せず
+//   this.mino に残したまま gameOver() を呼ぶ（board.js popMino）。このミノを同梱しないと、
+//   相手側パペットは「death直前の1手前」の盤面で止まったまま見える。
+export interface GameOverMino { type: number; x: number; y: number; rotation: number }
+export function encodeGameOver(mino?: GameOverMino): Uint8Array {
+  if (!mino) return new Uint8Array([MatchOpcode.GameOver, 0]);
+  return new Uint8Array([
+    MatchOpcode.GameOver,
+    1,
+    mino.type & 0xff,
+    (mino.x + 64) & 0xff,
+    (mino.y + 64) & 0xff,
+    mino.rotation & 0xff,
+  ]);
+}
+export interface GameOverData { mino: GameOverMino | null }
+export function decodeGameOver(p: Uint8Array): GameOverData {
+  if ((p[0] ?? 0) !== 1) return { mino: null };
+  return {
+    mino: {
+      type: p[1] ?? 0,
+      x: (p[2] ?? 64) - 64,
+      y: (p[3] ?? 64) - 64,
+      rotation: p[4] ?? 0,
+    },
+  };
 }
 
 // SE: 2 bytes (opcode + seId)
