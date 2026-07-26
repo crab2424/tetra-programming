@@ -19,20 +19,42 @@
   animation: ol-loading-fadein 0.25s ease both;
 }
 
-/* 画面全体（暗い背景ごと）をフェードアウトさせる。loading_screen.ts の hideLoadingOverlay が
-   display:none にする直前の300msだけこのクラスを付与する。 */
+/* ─── 閉じる演出（loading_screen.ts の closeLoadingScreen が3段階でクラスを付ける） ───
+   1. --darkening : ロードUIはそのまま、背景だけを「完全に暗く」する
+   2. .ol-loading-card.is-hidden : ロードUIだけを消す（画面は真っ暗のまま）
+   3. --closing   : 真っ暗を晴らして対戦画面をフェードインで見せる
+   この3段階が終わってから READY カウントダウンが始まる。 */
+
+/* 1. 完全暗転。backdrop-filter は不要になる（下が見えないため）ので切って負荷も下げる。 */
+.ol-loading-overlay.ol-loading-overlay--darkening {
+  animation: none; /* fadein アニメの both を打ち切って transition を効かせる */
+  background: #000;
+  backdrop-filter: none;
+  transition: background-color 0.32s ease, backdrop-filter 0.32s ease;
+}
+
+/* 2. カードだけフェードアウト（背景の真っ暗はそのまま維持） */
+.ol-loading-card {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.ol-loading-card.is-hidden {
+  opacity: 0;
+  transform: scale(0.98);
+  pointer-events: none;
+}
+
+/* 3. 真っ暗→対戦画面へフェードイン */
 .ol-loading-overlay.ol-loading-overlay--closing {
-  animation: ol-loading-fadeout 0.3s ease both;
+  animation: none;
+  opacity: 0;
+  transition: opacity 0.42s ease;
+  pointer-events: none;
 }
 
 @keyframes ol-loading-fadein {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-
-@keyframes ol-loading-fadeout {
-  from { opacity: 1; }
-  to { opacity: 0; }
 }
 
 .ol-loading-card {
@@ -146,12 +168,17 @@
   white-space: nowrap;
 }
 
-/* 動きを減らす設定を尊重する */
+/* 動きを減らす設定を尊重する。
+   ★ 暗転・フェードインの transition は「そのぶん待ってからカウントダウンを始める」
+     タイミング設計と一体なので、時間は変えず transform だけ止める。 */
 @media (prefers-reduced-motion: reduce) {
   .ol-loading-overlay,
   .ol-loading-overlay.ol-loading-overlay--closing,
   .ol-loading-dot {
     animation: none;
+  }
+  .ol-loading-card.is-hidden {
+    transform: none;
   }
   .ol-loading-dot {
     opacity: 0.7;

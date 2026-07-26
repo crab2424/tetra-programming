@@ -62,7 +62,13 @@ import {
   onlineFieldPrefix,
   allOnlineFieldPrefixes,
 } from "../battle/finish_overlay";
-import { runBattlePreload, hideLoadingOverlay, setLoadingProgress } from "../battle/loading_screen";
+import {
+  runBattlePreload,
+  hideLoadingOverlay,
+  closeLoadingScreen,
+  setLoadingProgress,
+  LOADING_CLOSE_MS,
+} from "../battle/loading_screen";
 
 type AnyFn = (...args: any[]) => any;
 
@@ -244,6 +250,13 @@ export class OnlineGameController {
   private winnerFallbackTimer: number | null = null;
   /** サーバーの WinnerNotification を待つ猶予。超えたらローカル判定で結果を出す。 */
   private static readonly WINNER_FALLBACK_MS = 2000;
+  /**
+   * startBattle（＝本編開始までの delay の起点）を通過した時刻。
+   * ロード画面を閉じ終えたあとのカウントダウン残り時間を出すのに使う。
+   */
+  private battleStartedAtMs: number | null = null;
+  /** ロード画面を閉じ始めるデッドラインで最低限確保するカウントダウン時間。 */
+  private static readonly MIN_COUNTDOWN_MS = 900;
 
   /**
    * 終了処理の状態機械。開始/決着/再戦/退出の排他はすべてここを通す。
@@ -716,6 +729,7 @@ export class OnlineGameController {
     this.lifecycle.beginRound();
     const now = this.connection.serverNow();
     const delay = Math.max(0, notif.startTimeMs - now);
+    this.battleStartedAtMs = performance.now(); // カウントダウン残り時間の起点
     // ★ ここで即座に自分のエンジン初期化を始める（＝相手への sentinel 送信も即座に始まる）。
     //   ロード画面を閉じるタイミングだけを別途 revealBattleAfterSync で遅らせる設計にしないと、
     //   全員が「相手のデータを待ってから自分のデータを送る」ことになりデッドロックする。
@@ -728,7 +742,8 @@ export class OnlineGameController {
   }
 
   /**
-   * ロード画面を「相手パペットの初回データ（NEXT/盤面）が揃うまで」残してから閉じる。
+   * ロード画面を「相手パペットの初回データ（NEXT/盤面）が揃うまで」残し、
+   * 暗転→ロードUI消し→フェードインで閉じてから READY カウントダウンを始める。
    *
    * ★ 背景: 自分の盤面はローカルの initGame 完了ですぐ描画されるが、相手パペットは
    *   生成直後は完全に空（driver.ts）で、相手からの sentinel Spawn/PuyoSpawn フレームが
@@ -736,27 +751,41 @@ export class OnlineGameController {
    *   即座に閉じていたため、対戦開始直後に相手盤面が空 → 数百ms後に一斉に埋まる、
    *   というポップインが見えていた（2026-07-26 不具合）。
    *
-   * ★ 開始時刻(startTimeMs)はサーバー権威のまま動かさない。カウントダウン自体は
-   *   showCountdown 側で即座に開始しており（自分の初期化と並行）、ここで待つのは
-   *   「ロード画面という覆いを外すタイミング」だけ＝カウントダウンの残り時間が
-   *   そのぶん短く見える形で吸収される（runCountdown は残り時間に自動スケールする）。
+   * ★ 開始時刻(startTimeMs)はサーバー権威のまま動かさない（本編開始の setTimeout は
+   *   initTet/PuyoBattle 側で delay に固定されている）。ここで動かすのは「覆いを外し、
+   *   カウントダウンを始める」タイミングだけで、カウントダウンは残り時間へ自動的に
+   *   縮む（runCountdown は startDelayMs を3等分する）。
    */
   private revealBattleAfterSync(delay: number): void {
     const waits = [...this.puppets.values()].map((d) => d.waitForFirstData());
-    if (waits.length === 0) {
-      hideLoadingOverlay();
-      return;
-    }
-    setLoadingProgress(1, "対戦データを同期しています…");
     let settled = false;
     const finish = () => {
       if (settled) return;
       settled = true;
-      hideLoadingOverlay();
+      // 閉じ演出が終わってから（＝対戦画面が完全に見えてから）カウントダウン開始。
+      closeLoadingScreen().then(() => this.startCountdownForRemaining(delay));
     };
+    if (waits.length === 0) {
+      finish();
+      return;
+    }
+    setLoadingProgress(1, "対戦データを同期しています…");
     Promise.all(waits).then(finish);
-    // 開始直前ギリギリまで相手を待ち続けて演出が破綻しないよう、少し余白を残す。
-    setTimeout(finish, Math.max(0, delay - 300));
+    // 相手を待ち続けてカウントダウンが出せなくなるのを防ぐ。閉じ演出の尺と
+    // 最低限のカウントダウン時間を確保できる時刻には必ず閉じ始める。
+    setTimeout(
+      finish,
+      Math.max(0, delay - LOADING_CLOSE_MS - OnlineGameController.MIN_COUNTDOWN_MS),
+    );
+  }
+
+  /** 残り時間（本編開始まで）に合わせて READY カウントダウンを開始する。 */
+  private startCountdownForRemaining(delay: number): void {
+    if (this.lifecycle.phase !== "countdown") return; // 既に開始/決着済み
+    const startedAt = this.battleStartedAtMs;
+    const elapsed = startedAt !== null ? performance.now() - startedAt : 0;
+    const remaining = Math.max(0, delay - elapsed);
+    this.showCountdown(remaining);
   }
 
   private initTetBattle(
@@ -791,7 +820,8 @@ export class OnlineGameController {
     this.game._initGameState();
     this.game.level = 2; // CPU戦(versus.js)と同じ固定レベル
     this.game.setKeyEvent();
-    this.showCountdown(delay);
+    // ★ カウントダウンはロード画面を閉じ終えてから開始する（revealBattleAfterSync）。
+    //   本編開始そのものは下の setTimeout(delay) 固定＝サーバー権威のまま。
 
     this.matchHandlerId = this.connection.onMatchEvent((frame) => this.handleMatchFrame(frame));
 
@@ -862,7 +892,8 @@ export class OnlineGameController {
 
       const elapsed = performance.now() - initStart;
       const remaining = Math.max(0, delay - elapsed);
-      this.showCountdown(remaining);
+      // ★ カウントダウンはロード画面を閉じ終えてから開始する（revealBattleAfterSync）。
+      //   本編開始そのものは下の setTimeout(remaining) 固定＝サーバー権威のまま。
       setTimeout(() => {
         // カウントダウン中に決着（相手切断）やcleanupが起きていたら本編を開始しない
         if (!this.game || !this.lifecycle.transition("playing", "countdown finished"))
