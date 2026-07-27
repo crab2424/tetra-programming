@@ -286,16 +286,20 @@ class OnlineMode {
   private rmConfirmed = false;
   /** ランダムマッチ確認: startMatch送信済み or StartMatchNotification受信済み */
   private rmStarting = false;
-  /** ランダムマッチ確認のカウントダウン・タイムアウト用タイマー */
-  private rmConfirmTimer: ReturnType<typeof setInterval> | null = null;
-  private rmConfirmDeadline = 0;
+  /**
+   * 確認パネルの無表示タイムアウト（安全網）。ユーザーに急かす表示はしないが、
+   * 相手がタブを閉じた等で応答が返らない場合に片側が永久に固まらないよう、
+   * 一定時間で自動的に再マッチングへ倒す。
+   */
+  private rmConfirmTimer: ReturnType<typeof setTimeout> | null = null;
   /** 確認パネル用の StartMatchNotification リスナーID */
   private rmStartNotifId: Uuid | null = null;
   /** 最後に受け取ったランダムマッチルームの情報（OK押下時の開始条件判定用） */
   private rmLatestRoom: RoomInfoNotification | null = null;
   /** 辞退・再キューの退出処理中（遅延通知による確認パネルの再描画・二重requeueを防ぐ） */
   private rmLeaving = false;
-  private static readonly RM_CONFIRM_TIMEOUT_MS = 15000;
+  /** 確認の無表示安全網タイムアウト（相手の応答が無いまま固まらないようにするだけで、UIには出さない） */
+  private static readonly RM_CONFIRM_TIMEOUT_MS = 60000;
 
   /** 最後に選択したルール（TET/PUYO）を記憶・取得する */
   private getPreferredRule(): Games {
@@ -1420,6 +1424,7 @@ class OnlineMode {
     isOwner: boolean,
   ) {
     const myUserId = this.connection!.userId!;
+    const me = roomData.players.find(([id]) => id === myUserId) ?? null;
     const opponent =
       roomData.players.find(([id]) => id !== myUserId) ?? null;
     const container = document.getElementById("online-top-container");
@@ -1442,7 +1447,8 @@ class OnlineMode {
       this.rmConfirmed = false;
       this.rmStarting = false;
       this.rmLeaving = false;
-      this.rmConfirmDeadline = Date.now() + OnlineMode.RM_CONFIRM_TIMEOUT_MS;
+      this.applyLobbyBgm();
+      showToast("ONLINE", "⚔ 対戦相手が見つかりました！", ToastColor["Success"]);
       // 対戦開始通知が来たらタイマーを確実に止める（開始処理自体は gameController 側が行う）
       this.rmStartNotifId = this.connection!.onStartMatchNotification(() => {
         this.rmStarting = true;
@@ -1463,38 +1469,25 @@ class OnlineMode {
               ⚙ SETTINGS
             </button>
           </div>
-          <div
-            class="online-top-content"
-            id="ol-rm-confirm"
-            style={{ textAlign: "center" }}
-          >
-            <h2>⚔ 対戦相手が見つかりました！</h2>
-            <div style={{ fontSize: "20px", margin: "8px 0" }}>
-              <span id="ol-rm-opp-name">???</span>{" "}
-              <span
-                id="ol-rm-opp-rule"
-                class="online-room-tag online-room-tag-enabled"
-                style={{ fontSize: "12px" }}
-              ></span>
+          <div class="ol-rm-confirm" id="ol-rm-confirm">
+            <div class="ol-vs-row">
+              <div class="ol-vs-player ol-vs-player-self">
+                <span class="ol-vs-player-name">{me ? me[1] : this.userName}</span>
+                <span class="online-room-tag online-room-tag-enabled">
+                  {me && me[2] === "puyo" ? "PUYO" : "TET"}
+                </span>
+              </div>
+              <div class="ol-vs-badge">VS</div>
+              <div class="ol-vs-player ol-vs-player-opp">
+                <span class="ol-vs-player-name" id="ol-rm-opp-name">???</span>
+                <span
+                  id="ol-rm-opp-rule"
+                  class="online-room-tag online-room-tag-enabled"
+                ></span>
+              </div>
             </div>
-            <div style={{ color: "var(--text-dim)" }}>
-              残り <span id="ol-rm-count">
-                {Math.ceil(OnlineMode.RM_CONFIRM_TIMEOUT_MS / 1000)}
-              </span>{" "}
-              秒
-            </div>
-            <div
-              id="ol-rm-status"
-              style={{ color: "var(--text-dim)", minHeight: "20px" }}
-            ></div>
-            <div
-              style={{
-                display: "flex",
-                gap: "12px",
-                justifyContent: "center",
-                marginTop: "12px",
-              }}
-            >
+            <div id="ol-rm-status" class="ol-rm-status"></div>
+            <div class="ol-rm-actions">
               <button
                 class="btn btn-secondary"
                 onclick={() => this.declineRandomMatch(roomData.roomId)}
@@ -1512,23 +1505,17 @@ class OnlineMode {
           </div>
         </>,
       );
-      this.rmConfirmTimer = setInterval(() => {
-        if (this.rmStarting) {
-          this.clearRmConfirmTimer();
-          return;
-        }
-        const remain = Math.max(0, this.rmConfirmDeadline - Date.now());
-        const el = document.getElementById("ol-rm-count");
-        if (el) el.textContent = `${Math.ceil(remain / 1000)}`;
-        if (remain <= 0) {
-          this.requeueRandomMatch(
-            roomData.roomId,
-            this.rmConfirmed
-              ? "相手の確認がありませんでした。再度相手を探します…"
-              : "時間切れです。再度相手を探します…",
-          );
-        }
-      }, 250);
+      // ★ 表示上のカウントダウンは出さない（ユーザー指定）。ただし相手がタブを閉じた等で
+      //   応答が返らないまま片側が永久に固まらないよう、無表示の安全網だけ残す。
+      this.rmConfirmTimer = setTimeout(() => {
+        if (this.rmStarting) return;
+        this.requeueRandomMatch(
+          roomData.roomId,
+          this.rmConfirmed
+            ? "相手の確認がありませんでした。再度相手を探します…"
+            : "時間切れです。再度相手を探します…",
+        );
+      }, OnlineMode.RM_CONFIRM_TIMEOUT_MS);
     }
 
     // 相手情報は通知のたびに更新（在室中の名前・ルール変更に追従）
@@ -1639,7 +1626,7 @@ class OnlineMode {
 
   private clearRmConfirmTimer() {
     if (this.rmConfirmTimer !== null) {
-      clearInterval(this.rmConfirmTimer);
+      clearTimeout(this.rmConfirmTimer);
       this.rmConfirmTimer = null;
     }
   }
