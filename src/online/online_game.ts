@@ -1774,6 +1774,9 @@ export class OnlineGameController {
     options: { notice?: string; forced?: boolean } = {},
   ): void {
     if (!this.lifecycle.transition("postMatch", `navigate:${target}`)) return;
+    // ★ RETRY投票中に出したロード画面(runBattlePreload)は、forcedの1.2秒待ちの間も
+    //   ここで消しておく（cleanup()は遷移直前まで走らないため）。S2⑦。
+    hideLoadingOverlay(true);
     this.setPostMatchButtonsEnabled(false);
 
     const roomId = this.roomInfo.roomId;
@@ -1831,7 +1834,21 @@ export class OnlineGameController {
   }
 
   private handlePostMatchVote(playerId: Uuid, action: number): void {
-    if (action === PostMatchAction.Room || action === PostMatchAction.Leave) {
+    if (action === PostMatchAction.Room) {
+      // ★ ユーザー決定（S2⑦）: 「ルームに戻る」は "全員で集合する" の語義に合わせ、
+      //   自分がまだ何も選んでいない（＝roundResultに留まっている）なら一緒にルームへ戻る。
+      //   LEAVE(退出)は引き続き他人を巻き込まない（下のLeave分岐で現状維持）。
+      this.markDeparted(playerId, action);
+      if (this.lifecycle.phase === "roundResult" && !this.isRandomMatchRoom) {
+        const playerName = this.playerNames.get(playerId) || playerId;
+        this.navigateAfterMatch("room", {
+          notice: `${playerName} がルームに戻りました`,
+          forced: true,
+        });
+      }
+      return;
+    }
+    if (action === PostMatchAction.Leave) {
       // ★ 自分の画面は遷移させない。相手の離脱は状態として持つだけにする。
       this.markDeparted(playerId, action);
       return;
@@ -1895,6 +1912,8 @@ export class OnlineGameController {
    *   そのまま RETRY をやり直せる状態に戻る。
    */
   private abortRematch(): void {
+    // 再戦開始要求の失敗も、開始前のRETRY待ちロード画面が残る同型のバグを踏むため閉じる。S2⑦。
+    hideLoadingOverlay(true);
     this.lifecycle.transition("roundResult", "rematch start failed");
     this.updateRematchButton();
     this.renderPostMatchStatus();
@@ -2557,6 +2576,10 @@ export class OnlineGameController {
   cleanup(): void {
     // どの状態からでも idle へ戻せる。テアダウン本体は冪等なので遷移可否に関わらず実行
     this.lifecycle.transition("idle", "cleanup");
+    // ★ RETRY待機中に相手がROOM/LEAVEを押してルームへ遷移した場合、toggleRematchVote()の
+    //   runBattlePreload()で出したロード画面(z-index:1100)を誰も閉じていなかった＝
+    //   遷移後もルーム画面の上に残り続けるバグの後始末（S2⑦）。
+    hideLoadingOverlay(true);
     this.setConfigured = false;
     this.clearWinnerFallback();
     this.matchHalted = false;
