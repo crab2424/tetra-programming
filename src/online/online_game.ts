@@ -1110,6 +1110,10 @@ export class OnlineGameController {
     //   myAlive=false でバックグラウンド駆動・送信系は止まる。
     game.gameOver = (_isClear = false) => {
       if (!this.myAlive) return;
+      // ★ 実エンジン(tet/lifecycle.js gameOver)は先頭で playSe('gameover') を鳴らすが、
+      //   このオーバーライドは元実装を呼ばない全面置き換えなので明示的に鳴らす。
+      //   myAlive を false にする前に鳴らすこと＝playSe フックの送信条件を満たす。
+      if (!_isClear) game.playSe?.('gameover');
       // ★ block-out（出現位置での致命判定）は popMino が衝突ミノを game.mino に
       //   残したまま gameOver() を呼ぶ（board.js）。ここでまだ null 化されていないので、
       //   死亡直前の自分の画面と同じ絵を GameOver フレームに同梱して相手へ送る。
@@ -1263,7 +1267,12 @@ export class OnlineGameController {
 
     // _beginGameOver がグローバルの versusGameOver() を呼ぶのを防ぐ
     // (versusGameOver はCPU対戦用でオンライン対戦では不要)
+    // ★ 実エンジン(engine.js _beginGameOver)は先頭で playSe('gameover') を鳴らすが、
+    //   このオーバーライドは元実装を呼ばない全面置き換えなので、明示的に鳴らす必要がある
+    //   （鳴らさないと自分にも相手にもゲームオーバー音が出ない）。myAlive がまだ true の
+    //   この時点で鳴らすこと＝playSe フックの送信条件を満たす（gameOver() 後だと送られない）。
     game._beginGameOver = () => {
+      game.playSe?.('gameover');
       game._stopTimer?.();
       game._removeKeyHandlers?.();
       game._clearChainTextDOM?.();
