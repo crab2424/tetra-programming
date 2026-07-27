@@ -67,7 +67,9 @@ import {
   hideLoadingOverlay,
   enterBlackout,
   revealBattle,
+  setLoadingProgress,
   LOADING_CLOSE_MS,
+  COVER_MS,
 } from "../battle/loading_screen";
 
 type AnyFn = (...args: any[]) => any;
@@ -670,6 +672,13 @@ export class OnlineGameController {
    *   サーバー・プロトコルとも無改造のまま全端末の同期は維持される。
    *   （旧実装は startTimeMs を本編開始時刻のまま扱い、ロード演出で消費した時間の残りを
    *   そのままカウントダウン尺にしていたため、CPU戦の固定2100msより速く刻まれていた）。
+   *
+   * ★ 暗転を開始する「タイミング」自体もここで遅らせる（第11ラウンド設計）。
+   *   サーバーの StartMatchNotification〜カウントダウン開始(既定3000ms)を全部暗転で
+   *   覆うと「完全な黒」が2秒以上になり無駄に長い。カウントダウン開始時刻から
+   *   COVER_MS だけ手前で暗転を始めれば、切替・初期化・同期待ちを隠すには十分。
+   *   delay/startedAt は絶対時刻起点のまま渡すので、setupBattleUnderCover /
+   *   revealBattleAfterSync 側の式は無変更で正しいまま機能する。
    */
   private startBattle(notif: StartMatchNotification): void {
     // 二重の開始通知・決着処理中の遅延通知はここで捨てる
@@ -694,7 +703,17 @@ export class OnlineGameController {
     const startedAt = performance.now();
     this.battleStartedAtMs = startedAt; // カウントダウン開始残り時間の起点（暗転前のこの時点で固定）
 
-    enterBlackout().then(() => this.setupBattleUnderCover(notif, delay, startedAt));
+    const coverWait = Math.max(0, delay - COVER_MS);
+    if (coverWait > 0) {
+      // 全員READY済みで開始が確定しているので、待たせている間は文言を更新する
+      // （旧「相手の準備を待っています…」のままだと開始が確定した後も嘘になる）。
+      setLoadingProgress(1, "まもなく対戦開始…");
+    }
+    window.setTimeout(() => {
+      // 待機中に決着・cleanup（相手切断等）が起きていたら何もしない
+      if (this.lifecycle.phase !== "countdown") return;
+      enterBlackout().then(() => this.setupBattleUnderCover(notif, delay, startedAt));
+    }, coverWait);
   }
 
   /**

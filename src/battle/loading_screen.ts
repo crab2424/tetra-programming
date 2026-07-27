@@ -39,9 +39,9 @@ const CLOSING_CLASS = "ol-loading-overlay--closing";
 // 「画面のどこで何を見せるか」だけで、遅くなった分はカウントダウンの残り時間が縮む
 // （runCountdown が startDelayMs を3等分する性質を利用）。
 const MIN_VISIBLE_MS = 900;   // フェーズA最低表示時間（速すぎる切替の唐突さを防ぐ）
-const BLACKOUT_MS = 320;      // enterBlackout: 背景の暗転
+const BLACKOUT_MS = 240;      // enterBlackout: 背景の暗転
 const CARD_OUT_MS = 220;      // enterBlackout: ロードUIのフェードアウト（暗転と並走）
-const FADE_IN_MS = 420;       // revealBattle: 真っ暗→対戦画面のフェードイン
+const FADE_IN_MS = 360;       // revealBattle: 真っ暗→対戦画面のフェードイン
 
 /**
  * 相手との同期待ち後に残る「必ず消費する」閉じ演出の所要時間（revealBattle 分のみ）。
@@ -49,6 +49,15 @@ const FADE_IN_MS = 420;       // revealBattle: 真っ暗→対戦画面のフェ
  * 自然に反映されるため、ここには含めない。
  */
 export const LOADING_CLOSE_MS = FADE_IN_MS;
+
+/**
+ * StartMatchNotification 受信から「暗転を開始すべき時刻」までの猶予（online_game.ts が使う）。
+ * ★ サーバーの開始通知〜カウントダウン開始まで(既定3000ms)を全部暗転で覆うと
+ *   「完全な黒」が2秒以上になり無駄に長い。暗転はこの尺だけ手前から始めれば足りるので、
+ *   カウントダウン開始時刻から逆算して開始を遅らせる（online_game.ts 側の責務）。
+ *   内訳: 暗転(BLACKOUT_MS) + 完全な黒(実作業＋余裕) + フェードイン(FADE_IN_MS)。
+ */
+export const COVER_MS = 1300;
 
 export interface LoadingPlayerState {
   name: string;
