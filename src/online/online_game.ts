@@ -688,7 +688,9 @@ export class OnlineGameController {
     this.clearWinnerFallback();
     this.addVisibilityListener();
     this.aliveSet = new Set(this.roomInfo.players.map(([id]) => id));
-    this.clearFinishOverlay();
+    // ★ WIN/LOSE・GAME OVER 表示のクリアはここでは行わない（前ラウンドの見た目なので
+    //   teardownFinishedRound で暗転後にまとめて消す）。ここで消すと「まもなく対戦開始…」の
+    //   ロード表示中に決着画面だけが先に欠ける。
     this.myRematchVoted = false;
     this.rematchVotes.clear();
     this.departed.clear();
@@ -727,6 +729,11 @@ export class OnlineGameController {
   ): void {
     // 暗転中に決着・cleanup（相手切断等）が起きていたら何もしない
     if (this.lifecycle.phase !== "countdown") return;
+
+    // ★ 前ラウンドの後片付け（リザルト画面・盤面・ゲージの破棄）は必ずここで行う。
+    //   画面が完全に不可視になってから消し、次の盤面を作る前に旧エンジン/パペットを
+    //   破棄する順序を保証する（再戦時に見えている画面が欠けないようにするため）。
+    this.teardownFinishedRound();
 
     // 暗転待ちで消費した時間ぶんを差し引いた、この時点から「カウントダウン開始」までの残り時間。
     // setTimeout(...) はここから数えるので、開始時刻(startTimeMs)自体は変えず
@@ -1876,19 +1883,43 @@ export class OnlineGameController {
           if (!res?.success) {
             this.logger.log("startMatch rejected:", res?.message);
             showToast("ONLINE", `再戦の開始に失敗: ${res?.message ?? "unknown"}`, ToastColor["Error"]);
-            this.lifecycle.transition("roundResult", "rematch start failed");
+            this.abortRematch();
           }
         })
         .catch((err) => {
           this.logger.log("Failed to start rematch:", err);
           showToast("ONLINE", "再戦の開始に失敗しました", ToastColor["Error"]);
-          this.lifecycle.transition("roundResult", "rematch start failed");
+          this.abortRematch();
         });
     }
   }
 
+  /**
+   * 再戦の開始要求が失敗したときにリザルト画面へ戻す。
+   *
+   * ★ 前ラウンドの後片付け（teardownFinishedRound）は暗転後まで遅らせてあるので、
+   *   この経路ではまだ何も消えていない＝リザルト画面も盤面もそのまま残っている。
+   *   投票UIだけ現在の状態（relistenForStart で投票フラグは解除済み）から描き直せば、
+   *   そのまま RETRY をやり直せる状態に戻る。
+   */
+  private abortRematch(): void {
+    this.lifecycle.transition("roundResult", "rematch start failed");
+    this.updateRematchButton();
+    this.renderPostMatchStatus();
+  }
+
   // ── Re-listen for next StartMatchNotification (REMATCH) ─────────────────
 
+  /**
+   * 再戦（RETRY）が確定した時点で呼ぶ。次の StartMatchNotification を待てる状態に戻すが、
+   * **前ラウンドの見た目（リザルト画面・自分/相手の盤面・ゲージ類）はここでは消さない**。
+   *
+   * ★ 見た目の後片付けは teardownFinishedRound() へ分離し、暗転が完了してから実行する。
+   *   ここで消してしまうと「まもなく対戦開始…」のロード表示中（＝まだ画面が見えている間）に
+   *   リザルトとぷよ盤面だけが先に消え、真っ暗な待ち時間が始まる前に画面が空になる
+   *   （暗転開始を後ろへずらした第11ラウンド①以降、この空白が約1.7秒に伸びて顕在化した）。
+   *   ロード中は決着時の画面をそのまま残し、暗転の下で一気に片付ける。
+   */
   private relistenForStart(): void {
     // 次の開始通知待ちへ。以降のテアダウンは冪等なので遷移可否に関わらず実行する
     this.lifecycle.transition("preparing", "await next match");
@@ -1896,6 +1927,43 @@ export class OnlineGameController {
     this.clearWinnerFallback();
     this.matchHalted = false;
 
+    // ★ 受信ハンドラだけは即座に外す。次マッチのフレームが旧パペットへ流れ込むのを防ぐため、
+    //   これは見た目ではなく結線の問題なので遅延させない（実際の破棄は暗転後）。
+    if (this.matchHandlerId) {
+      this.connection.removeMatchEventHandler(this.matchHandlerId);
+      this.matchHandlerId = null;
+    }
+
+    // 投票状態（フラグ）は次マッチ用に即リセットする。対応するボタン/ステータスの
+    // DOM書き換えはリザルト画面の見た目なので teardownFinishedRound 側で行う。
+    this.myRematchVoted = false;
+    this.departed.clear();
+
+    // StartMatchNotification を再登録（1回限り）
+    this.startNotifHandlerId = this.connection.onStartMatchNotification((notif) => {
+      if (notif.roomId === this.roomInfo.roomId) {
+        if (this.startNotifHandlerId) {
+          this.connection.removeReaderFunction(this.startNotifHandlerId);
+          this.startNotifHandlerId = null;
+        }
+        this.startBattle(notif);
+      }
+    });
+  }
+
+  /**
+   * 前ラウンドの後片付け（エンジン破棄・パペット破棄・リザルト画面/盤面/ゲージのクリア）。
+   * **必ず暗転が完了してから**（setupBattleUnderCover の先頭で）呼ぶこと。
+   *
+   * ★ 盤面は「非表示」ではなく破棄している: PuyoGame/Game は毎ラウンド new し直す実装
+   *   （initPuyoBattle / initTetBattle）で、ここで stop()（_clearCanvases でピクセル消去）
+   *   したうえで this.game = null と参照を切るため、旧ラウンドの field は次の initGame を
+   *   待たずに解放される。相手パペットも driver.stop() → puppets.clear() で同様に破棄する。
+   *   唯一の外部参照 window._olGame も次ラウンドの init で上書きされる。
+   *
+   * 冪等。初回マッチ（前ラウンドが無い）で呼んでも何も起きない。
+   */
+  private teardownFinishedRound(): void {
     // ゲームエンジン停止
     if (this.game) {
       if (this.myRule === 'puyo') {
@@ -1927,11 +1995,7 @@ export class OnlineGameController {
       this.game = null;
     }
 
-    if (this.matchHandlerId) {
-      this.connection.removeMatchEventHandler(this.matchHandlerId);
-      this.matchHandlerId = null;
-    }
-
+    // 相手パペットの破棄（driver.stop() が相手キャンバスもクリアする）
     this.stopPuppetTimers();
 
     this.puppets.clear();
@@ -1939,7 +2003,7 @@ export class OnlineGameController {
     this.puppetIndices.clear();
     this.lastOpponentFixSeTime.clear();
 
-    // 勝者オーバーレイを隠す
+    // 勝者オーバーレイ（リザルト画面）を隠す
     const winOverlay = document.getElementById("ol-winner-overlay");
     if (winOverlay) winOverlay.style.display = "none";
     document.getElementById("ol-alive-count")?.remove();
@@ -1958,9 +2022,7 @@ export class OnlineGameController {
       (el as HTMLElement).style.display = 'none';
     });
 
-    // 投票状態をリセット（次マッチで使えるように）
-    this.myRematchVoted = false;
-    this.departed.clear();
+    // リザルト画面の投票UI（ボタン・ステータス）を次マッチ用に戻す
     const statusRL = document.getElementById("ol-post-match-status");
     if (statusRL) statusRL.innerHTML = "";
     document.getElementById("ol-rematch-status")?.remove();
@@ -1973,17 +2035,6 @@ export class OnlineGameController {
 
     // フィールド表示を tet 既定に戻す（次マッチ開始時に再設定される）
     this.setSelfFieldVisibility('tet');
-
-    // StartMatchNotification を再登録（1回限り）
-    this.startNotifHandlerId = this.connection.onStartMatchNotification((notif) => {
-      if (notif.roomId === this.roomInfo.roomId) {
-        if (this.startNotifHandlerId) {
-          this.connection.removeReaderFunction(this.startNotifHandlerId);
-          this.startNotifHandlerId = null;
-        }
-        this.startBattle(notif);
-      }
-    });
   }
 
   // ── Binary match frame dispatch ──────────────────────────────────────────
