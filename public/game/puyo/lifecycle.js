@@ -91,13 +91,18 @@ Object.assign(PuyoGame.prototype, {
         this._stopCountdownDas(); // ★ カウントダウン用DASループが残っていれば止める
         this._removeKeyHandlers();
         this._destroyChainTextEl(); // ★ 連鎖文字の永続要素をDOMから完全に除去（リーク防止）
-        this._clearYokokuDOM(); // ★ おじゃま予告をDOMからクリアする
         // ★ keepCanvas=true または versus終了演出中フラグが立っているとき、
         //    キャンバスをクリアせず描画ループも止めない（勝者側の盤面・NEXTを残すため）
         //    また state も gameover のまま維持し、_loop() の描画継続条件を保つ
         if (!keepCanvas && !this._versusFinishing) {
             this.state = 'idle';
             this._clearCanvases(); // ★ キャンバスをクリア
+            // ★ おじゃま予告のDOMクリアはこの「完全停止」経路でのみ行う。
+            //    決着時の停止（keepCanvas=true／_versusFinishing）では、盤面と同じく
+            //    予告もその瞬間のまま残す＝「予告を受けた状態で力尽きた」画面を保つ。
+            //    次戦は _resetState が garbageQueue を空にし _lastYokokuAmount=-1 で
+            //    必ず再構築するため、持ち越されることはない。
+            this._clearYokokuDOM();
             if (this._loopId) {
                 cancelAnimationFrame(this._loopId);
                 this._loopId = null;
