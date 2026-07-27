@@ -53,6 +53,10 @@ import {
   isPostMatchActionNotification,
   type PlayerDisconnectedNotification,
   isPlayerDisconnectedNotification,
+  type PlayerConnectionLostNotification,
+  isPlayerConnectionLostNotification,
+  type PlayerReconnectedNotification,
+  isPlayerReconnectedNotification,
 } from "./payload.js";
 import { parseMatchFrame, type MatchFrame } from "./game_protocol.js";
 
@@ -1099,6 +1103,18 @@ export class GameConnection {
   onPlayerDisconnected(cb: (n: PlayerDisconnectedNotification) => void): Uuid {
     return this.addJsonReaderFunction((e) => {
       if (isPlayerDisconnectedNotification(e)) cb(e as any);
+    });
+  }
+
+  onPlayerConnectionLost(cb: (n: PlayerConnectionLostNotification) => void): Uuid {
+    return this.addJsonReaderFunction((e) => {
+      if (isPlayerConnectionLostNotification(e)) cb(e as any);
+    });
+  }
+
+  onPlayerReconnected(cb: (n: PlayerReconnectedNotification) => void): Uuid {
+    return this.addJsonReaderFunction((e) => {
+      if (isPlayerReconnectedNotification(e)) cb(e as any);
     });
   }
 

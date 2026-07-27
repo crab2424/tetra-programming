@@ -250,6 +250,21 @@ export class NetworkDriver implements OpponentDriver {
     }
   }
 
+  /**
+   * setDisconnected() の対（S4: PlayerReconnectedNotification受信時）。
+   * 猶予中に本当の決着（freeze）が来ていればここでは何もしない。
+   * 停止した replay キューは受信済みフレームが無いので再開不要（次のフレームから自然に再生される）。
+   */
+  resumeFromDisconnect(): void {
+    if (this.frozen) return;
+    this.puppet.isPaused = false;
+    if (this.rule === "puyo") {
+      this.puppet._render?.();
+    } else {
+      this.puppet.drawAll?.();
+    }
+  }
+
   /** ワイヤー上の位置情報から実 Mino を組み立てる（PieceState / Spawn / Lock / GameOver 共通）。 */
   private buildMino(p: { type: number; x: number; y: number; rotation: number }): any {
     const mino = new Mino(p.type);
