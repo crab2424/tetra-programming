@@ -1687,6 +1687,9 @@ export class OnlineGameController {
       this.connection.sendPostMatchAction({ roomId, action: PostMatchAction.Retry });
       this.rematchVotes.set(this.myUserId, PostMatchAction.Retry);
     } else {
+      // ★ ここはロード画面表示中（承認後キャンセルボタン、S3⑤）からも呼ばれるようになったため、
+      //   素通しで残ると「Cancel投票は届くのにロード画面だけ消えない」状態になる。必ず閉じる。
+      hideLoadingOverlay(true);
       this.connection.setReady({ roomId, ready: false }).catch((e) =>
         this.logger.log("setReady(false) failed:", e),
       );
