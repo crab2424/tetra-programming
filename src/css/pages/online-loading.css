@@ -16,7 +16,11 @@
 .ol-loading-overlay {
   position: fixed;
   inset: 0;
-  z-index: 900;
+  /* ★ #ol-winner-overlay(リザルト画面, z-index:1000) より必ず上に置く。
+     下だと (a) 再戦のロード中はリザルト画面がロードUIを覆い隠してしまい、
+     (b) 暗転してもリザルト画面だけが黒の上に残って「暗転で隠してから片付ける」が
+     成立しない。トースト(9999)より下は維持する（通知は常に最前面）。 */
+  z-index: 1100;
   display: flex;
   align-items: center;
   justify-content: center;
