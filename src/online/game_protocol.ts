@@ -282,7 +282,11 @@ export function decodeStatsUpdate(p: Uint8Array): StatsUpdateData {
 }
 
 // ── SE name → ID table (送受信ともに使用) ─────────────────────────────
-// move/drop/rotate 等の高頻度 SE は除外し、インパクトのある音だけを同期する
+// 相手の操作音も自分と同じように聞こえるよう、操作系(move/rotate/softdrop)も含めて
+// エンジンが鳴らす SE は原則すべて同期する。1フレーム2バイト・reliable 中継で、
+// 高頻度なもの（softdrop は毎マス、move は DAS 中に連続）でも実測の帯域影響は小さい。
+// ★ ID は追加専用（既存の値は変えない）。未知IDは受信側で SE_NAMES 逆引きが失敗して
+//   無視されるだけなので、新旧クライアントの混在でも安全。
 export const SE_IDS: Record<string, number> = {
   // tet
   lock: 1,
@@ -294,9 +298,8 @@ export const SE_IDS: Record<string, number> = {
   '1line': 7,
   harddrop: 8,
   hold: 9,
-  gameover: 10,
-  // 注: tet の 'drop' はソフトドロップ音（毎マス発火）で高頻度のため同期しない
-  // puyo（move は高頻度なので除外。rotate は相手側の回転演出を実装したため同期する）
+  gameover: 10, // tet/puyo 共通のゲームオーバー音
+  // puyo
   puyo_fix: 12,
   puyo_drop: 13,
   puyo_chain1: 14,
@@ -307,6 +310,12 @@ export const SE_IDS: Record<string, number> = {
   puyo_chain6: 19,
   puyo_chain7: 20,
   puyo_rotate: 21,
+  // 操作系（旧実装では「高頻度」を理由に同期対象外だった分）
+  rotate: 22,      // tet 通常回転
+  tspin_rot: 23,   // tet T-spin 成立回転
+  move: 24,        // tet 横移動
+  drop: 25,        // tet ソフトドロップ（毎マス）
+  puyo_move: 26,   // puyo 横移動
 };
 // ID → name の逆引き
 export const SE_NAMES: Record<number, string> = Object.fromEntries(
