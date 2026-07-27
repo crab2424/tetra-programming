@@ -1950,7 +1950,9 @@ export class OnlineGameController {
     puppet.garbageQueue = totalOjama > 0
       ? [{ amount: totalOjama, ready: false, internal: false }]
       : [];
-    puppet._lastYokokuAmount = undefined; // dedup を無効化して必ず再描画させる
+    // ★ _lastYokokuAmount のdedupは無効化しない。displayAmount(=totalOjama)が前回と
+    //   同じなら再構築不要なのは自明で、無効化すると毎回フル再構築させてしまい
+    //   ちらつきの原因になる（[[project_ojama_yokoku_diff]]のノード再利用対応と対）。
     if (typeof puppet.updateGarbageGauge === 'function') puppet.updateGarbageGauge();
   }
 

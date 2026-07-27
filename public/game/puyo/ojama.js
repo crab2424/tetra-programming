@@ -42,25 +42,58 @@ Object.assign(PuyoGame.prototype, {
             canvas.parentNode.style.overflow = 'visible';
             canvas.parentNode.appendChild(this.yokokuContainer);
         }
+
+        // ★ ノード再利用プール（種類別）＋ row1/row2（使い回す固定コンテナ）。
+        //    全消し→作り直しだと、生成直後の要素は cloneNode 済みでも
+        //    デコード済みビットマップが未紐付けのままで、更新の瞬間だけ
+        //    全アイコンが一瞬空白になる（詳細は [[project_ojama_yokoku_diff]]）。
+        //    既にマウント済み/プールに退避済みのノードは動かすだけなら
+        //    再デコードが走らないため、位置差分で再利用してちらつきを消す。
+        //    yokokuContainer 自体は使い回されることがある（_clearYokokuDOM は
+        //    innerHTML='' でコンテナの中身だけ消す）ため、row1/row2 が無い
+        //    （＝直前でクリアされた）場合はここで再生成する。
+        if (!this._yokokuRow1 || !this._yokokuRow1.parentNode) {
+            this._yokokuPool = {};
+            this._yokokuMounted = [];
+
+            // row2は空のとき display:none にするだけでDOMからは外さない。
+            const makeRow = () => {
+                const row = document.createElement('div');
+                row.style.display = 'flex';
+                row.style.flexWrap = 'nowrap'; // 行内は折り返さない（2行目は横にはみ出してよい）
+                row.style.alignItems = 'center';
+                row.style.gap = '1px';
+                return row;
+            };
+            this._yokokuRow1 = makeRow();
+            this._yokokuRow2 = makeRow();
+            this._yokokuRow2.style.display = 'none';
+            this.yokokuContainer.appendChild(this._yokokuRow1);
+            this.yokokuContainer.appendChild(this._yokokuRow2);
+        }
     },
 
     _updateOjamaYokoku() {
-        if (!this.yokokuContainer) this._initOjamaYokokuDOM();
+        // ★ _initOjamaYokokuDOM は yokokuContainer 既存時もrow1/row2の有無だけ見て
+        //   軽量に早期returnするので、呼び出しコストは無視できる（_clearYokokuDOM で
+        //   row1/row2 だけ吹き飛んだケースをここで確実に拾うため毎回呼ぶ）。
+        if (!this.yokokuContainer || !this._yokokuRow1 || !this._yokokuRow1.parentNode) {
+            this._initOjamaYokokuDOM();
+        }
         if (!this.yokokuContainer) return;
 
         // ★ 差分更新：表示するおじゃま総量が前回と同じなら DOM 再構築をスキップする。
-        //    予告の見た目はこの総量（とコンテナ幅）のみに依存するため、総量が不変なら
-        //    innerHTML破棄 → <img>全再生成（再デコード＋drop-shadow再計算）→ reflow を丸ごと省ける。
         //    連鎖中は火力送信・相殺ごとに本メソッドが多発するため、ここでの早期returnが効く。
         // stage1(internal) は非表示。stage2/stage3 のみ予告として表示する
         const displayAmount = this.garbageQueue.reduce((sum, g) => sum + (g.internal ? 0 : g.amount), 0);
         if (displayAmount === this._lastYokokuAmount) return;
         this._lastYokokuAmount = displayAmount;
 
-        this.yokokuContainer.innerHTML = '';
-
         let amount = displayAmount;
-        if (amount <= 0) return;
+        if (amount <= 0) {
+            this._unmountAllYokokuIcons();
+            return;
+        }
 
         // ★ 桁ごとに「絵(アイコン)を個数分」並べて描画する
         //    進数表記は据え置き。各桁の個数 q の分だけアイコン画像を並べる。
@@ -91,59 +124,19 @@ Object.assign(PuyoGame.prototype, {
                 for (let i = 0; i < q; i++) icons.push({ u });
             }
         }
-        if (icons.length === 0) return;
+        if (icons.length === 0) {
+            this._unmountAllYokokuIcons();
+            return;
+        }
 
         const GAP = 1;
         // コンテナ幅（=キャンバス表示幅）を1行目の折り返し基準にする
         const maxW = this.yokokuContainer.clientWidth || (PConfig.cols * PConfig.cellSize);
 
-        const makeImg = (u) => {
-            // 先読み済みのデコード済み Image があれば clone して使い回す（再fetch/再デコード回避）。
-            // 未先読み時は従来どおり都度生成（フォールバック）。
-            const cached = PuyoGame._sharedOjamaImages && PuyoGame._sharedOjamaImages[u.img];
-            const img = cached ? cached.cloneNode(false) : document.createElement('img');
-            if (!cached) img.src = PConfig.ojamaImagePath + u.img + '.png';
-            img.width = u.size;
-            img.height = u.size;
-            img.style.width = u.size + 'px';
-            img.style.height = u.size + 'px';
-            img.style.objectFit = 'contain';
-            img.style.filter = 'drop-shadow(0 0 3px #000)';
-            img.draggable = false;
-            return img;
-        };
-        // item = { u, label? }。label があればアイコン＋「×N」をまとめた1要素を返す
-        const makeIcon = (item) => {
-            const img = makeImg(item.u);
-            if (!item.label) return img;
-            const wrap = document.createElement('div');
-            wrap.style.display = 'inline-flex';
-            wrap.style.alignItems = 'center';
-            wrap.appendChild(img);
-            const span = document.createElement('span');
-            span.textContent = item.label;
-            span.style.color = '#00e5ff';
-            span.style.fontFamily = '"Orbitron", monospace';
-            span.style.fontWeight = '900';
-            span.style.fontSize = Math.round(item.u.size * 0.6) + 'px';
-            span.style.lineHeight = '1';
-            span.style.textShadow = '0 0 4px #000, 0 0 8px #00e5ff, 2px 2px 0 #000';
-            wrap.appendChild(span);
-            return wrap;
-        };
-        const makeRow = () => {
-            const row = document.createElement('div');
-            row.style.display = 'flex';
-            row.style.flexWrap = 'nowrap'; // 行内は折り返さない（2行目は横にはみ出してよい）
-            row.style.alignItems = 'center';
-            row.style.gap = GAP + 'px';
-            return row;
-        };
-
         // ── 最大2行に振り分け ──
         //    1行目: 幅 maxW を超える手前まで。残りは全て2行目へ（横はみ出し許容）
-        const row1 = makeRow();
-        const row2 = makeRow();
+        const row1Items = [];
+        const row2Items = [];
         let w = 0;
         let useRow2 = false;
         for (const item of icons) {
@@ -154,15 +147,124 @@ Object.assign(PuyoGame.prototype, {
                 if (w > 0 && w + add > maxW) useRow2 = true;
             }
             if (!useRow2) {
-                row1.appendChild(makeIcon(item));
+                row1Items.push(item);
                 w += itemW + GAP;
             } else {
-                row2.appendChild(makeIcon(item));
+                row2Items.push(item);
             }
         }
 
-        this.yokokuContainer.appendChild(row1);
-        if (row2.childNodes.length > 0) this.yokokuContainer.appendChild(row2);
+        this._reconcileYokokuRow(this._yokokuRow1, row1Items, 1);
+        this._reconcileYokokuRow(this._yokokuRow2, row2Items, 2);
+        this._yokokuRow2.style.display = row2Items.length > 0 ? '' : 'none';
+    },
+
+    /**
+     * row(1/2)を items（{u, label?}の並び）に合わせて更新する。
+     * 位置ごとに既存ノードと種類(key=u.img)・ラベル有無を比較し、
+     *  - 一致: そのまま使う（ラベル文字だけ更新）
+     *  - 不一致: プールから同種を取り出して差し替え。無ければ新規生成
+     * を行い、全消し→作り直しによるデコード待ち（ちらつき）を避ける。
+     */
+    _reconcileYokokuRow(rowEl, items, rowNum) {
+        const prevForRow = this._yokokuMounted.filter(m => m.row === rowNum);
+        const others = this._yokokuMounted.filter(m => m.row !== rowNum);
+
+        const nextForRow = [];
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const key = item.u.img;
+            const hasLabel = !!item.label;
+            const entry = prevForRow[i];
+
+            if (entry && entry.key === key && entry.hasLabel === hasLabel) {
+                if (hasLabel && entry.labelSpan) entry.labelSpan.textContent = item.label;
+                nextForRow.push(entry);
+                continue;
+            }
+
+            if (entry) this._releaseYokokuEntry(entry);
+
+            const reused = this._takeYokokuFromPool(key, hasLabel);
+            const newEntry = reused || this._makeYokokuEntry(item.u, hasLabel);
+            newEntry.key = key;
+            newEntry.hasLabel = hasLabel;
+            if (hasLabel && newEntry.labelSpan) newEntry.labelSpan.textContent = item.label;
+            nextForRow.push(newEntry);
+        }
+
+        // 余ったentryはプールへ退避（破棄しない＝次回同種が来たら再利用できる）
+        for (let i = items.length; i < prevForRow.length; i++) {
+            this._releaseYokokuEntry(prevForRow[i]);
+        }
+
+        // DOM順序をitemsの順に合わせる（既に正しい位置ならappendChildは無害な自己移動）
+        for (const entry of nextForRow) {
+            entry.row = rowNum;
+            rowEl.appendChild(entry.el);
+        }
+
+        this._yokokuMounted = others.concat(nextForRow);
+    },
+
+    _takeYokokuFromPool(key, hasLabel) {
+        const bucket = this._yokokuPool[key];
+        if (!bucket || bucket.length === 0) return null;
+        for (let i = 0; i < bucket.length; i++) {
+            if (bucket[i].hasLabel === hasLabel) return bucket.splice(i, 1)[0];
+        }
+        return null;
+    },
+
+    _releaseYokokuEntry(entry) {
+        if (entry.el.parentNode) entry.el.parentNode.removeChild(entry.el);
+        if (!this._yokokuPool[entry.key]) this._yokokuPool[entry.key] = [];
+        // プール肥大化防止（種類ごとに上限を設ける）
+        if (this._yokokuPool[entry.key].length < 16) {
+            this._yokokuPool[entry.key].push(entry);
+        }
+    },
+
+    _unmountAllYokokuIcons() {
+        if (!this._yokokuMounted || this._yokokuMounted.length === 0) return;
+        for (const entry of this._yokokuMounted) this._releaseYokokuEntry(entry);
+        this._yokokuMounted = [];
+    },
+
+    /** 先読み済みのデコード済み Image があれば clone して使い回す（再fetch/再デコード回避）。
+     *  未先読み時は従来どおり都度生成（フォールバック）。 */
+    _makeYokokuImg(u) {
+        const cached = PuyoGame._sharedOjamaImages && PuyoGame._sharedOjamaImages[u.img];
+        const img = cached ? cached.cloneNode(false) : document.createElement('img');
+        if (!cached) img.src = PConfig.ojamaImagePath + u.img + '.png';
+        img.width = u.size;
+        img.height = u.size;
+        img.style.width = u.size + 'px';
+        img.style.height = u.size + 'px';
+        img.style.objectFit = 'contain';
+        img.style.filter = 'drop-shadow(0 0 3px #000)';
+        img.draggable = false;
+        return img;
+    },
+
+    // entry = { el, img, labelSpan }。label があればアイコン＋「×N」をまとめた1要素にする
+    _makeYokokuEntry(u, hasLabel) {
+        const img = this._makeYokokuImg(u);
+        if (!hasLabel) return { el: img, img, labelSpan: null };
+
+        const wrap = document.createElement('div');
+        wrap.style.display = 'inline-flex';
+        wrap.style.alignItems = 'center';
+        wrap.appendChild(img);
+        const span = document.createElement('span');
+        span.style.color = '#00e5ff';
+        span.style.fontFamily = '"Orbitron", monospace';
+        span.style.fontWeight = '900';
+        span.style.fontSize = Math.round(u.size * 0.6) + 'px';
+        span.style.lineHeight = '1';
+        span.style.textShadow = '0 0 4px #000, 0 0 8px #00e5ff, 2px 2px 0 #000';
+        wrap.appendChild(span);
+        return { el: wrap, img, labelSpan: span };
     },
 
     updateGarbageGauge() {
