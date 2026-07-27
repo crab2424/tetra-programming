@@ -104,6 +104,8 @@ export class GameConnection {
   private onReconnecting?: () => void;
   /** 再接続に成功したとき呼ぶ（UI: 「再接続しました」表示用） */
   private onReconnected?: () => void;
+  /** 初回接続(ready())の進捗。UI側の「接続中…」ステップ表示用（第11ラウンド③） */
+  private onProgress?: (stage: "signaling" | "peer" | "datachannel") => void;
   /** 再接続シーケンス進行中フラグ */
   private reconnecting = false;
   /** close() による意図的な切断か（true のときは再接続を起動しない） */
@@ -133,12 +135,17 @@ export class GameConnection {
   constructor(
     url: string,
     onClose?: () => void,
-    callbacks?: { onReconnecting?: () => void; onReconnected?: () => void },
+    callbacks?: {
+      onReconnecting?: () => void;
+      onReconnected?: () => void;
+      onProgress?: (stage: "signaling" | "peer" | "datachannel") => void;
+    },
   ) {
     this.serverUrl = url;
     this.onCloseCb = onClose;
     this.onReconnecting = callbacks?.onReconnecting;
     this.onReconnected = callbacks?.onReconnected;
+    this.onProgress = callbacks?.onProgress;
     this.setupSignaling();
   }
 
@@ -314,6 +321,7 @@ export class GameConnection {
             return;
           }
           this.logger.log("Authentication successful");
+          this.onProgress?.("signaling");
           let config: string =
             message.rtcPeerIceConfig ?? message.rtc_peer_ice_config ?? "{}";
           rtcConfig = GameConnection.normalizeRtcConfig(JSON.parse(config));
@@ -332,6 +340,7 @@ export class GameConnection {
       }
 
       this.setupPeerConnection(rtcConfig);
+      this.onProgress?.("peer");
 
       const offer = await this.pc.createOffer();
       await this.pc.setLocalDescription(offer);
@@ -354,6 +363,7 @@ export class GameConnection {
             }
             await sleep(10);
           }
+          this.onProgress?.("datachannel");
           resolve();
         } else if (message.type === "candidate") {
           const sdpMid = message.sdpMid ?? message.sdp_mid ?? null;

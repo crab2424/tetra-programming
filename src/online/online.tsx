@@ -1939,114 +1939,204 @@ class OnlineMode {
     Modal.showModal(modalContent);
   }
 
-  public async init() {
-    {
-      this.state = OnlineModeState.Connecting;
+  /** 接続中UI（.ol-connect-card）のステップ定義。順番どおりに埋まっていく。 */
+  private static readonly CONNECT_STEPS: Array<{
+    key: "signaling" | "peer" | "datachannel" | "clock";
+    label: string;
+  }> = [
+    { key: "signaling", label: "サーバーへ接続" },
+    { key: "peer", label: "通信経路を確立" },
+    { key: "datachannel", label: "データチャネル確立" },
+    { key: "clock", label: "時刻同期" },
+  ];
 
-      const onlineTopContainer = document.getElementById(
-        "online-top-container",
-      ) as HTMLDivElement | null;
-      if (!onlineTopContainer) {
-        throw new Error("Failed to find online top container element");
-      }
+  /** 現在の接続試行を取り消すためのフラグ（cancel/retry のたびに張り直す） */
+  private connectCancelled = false;
 
-      onlineTopContainer.replaceChildren(
-        <>
-          <div class="online-header">
-            <button class="btn btn-secondary" disabled>
-              ◀ BACK
-            </button>
-            <h1>🌐 ONLINE</h1>
-            <button class="btn btn-settings" disabled>
-              ⚙ SETTINGS
-            </button>
+  /** 接続中カードのステップ表示を更新する（done件数だけ渡す。0..4） */
+  private renderConnectSteps(doneCount: number): void {
+    const wrap = document.getElementById("ol-connect-steps");
+    if (!wrap) return;
+    wrap.replaceChildren(
+      ...OnlineMode.CONNECT_STEPS.map((step, i) => {
+        const done = i < doneCount;
+        const active = i === doneCount;
+        return (
+          <div class={`ol-connect-step${done ? " is-done" : ""}${active ? " is-active" : ""}`}>
+            <span class="ol-connect-step-mark">{done ? "✓" : active ? "" : "○"}</span>
+            <span>{step.label}</span>
+            {active && (
+              <span class="ol-connect-step-dots"><span></span><span></span><span></span></span>
+            )}
           </div>
-          <div class="online-top-content">
-            <div>CONNECTING...</div>
-          </div>
-        </>,
-      );
-
-      const tetlaboServerUrl =
-        `ws${isSecureProtocol ? "s" : ""}://` + (localStorage.getItem("tetlaboServerUrl") || "example.com") + "/ws";
-
-      const pages = document.querySelectorAll(".page");
-      pages.forEach((p) => p.classList.remove("active"));
-
-      const onlinePage = document.getElementById("online-top-page");
-      if (onlinePage) onlinePage.classList.add("active");
-
-      let connection: GameConnection | null = null;
-
-      let errorOccurred = false;
-
-      try {
-        connection = new GameConnection(
-          tetlaboServerUrl,
-          async () => {
-            if (!errorOccurred) {
-              await Modal.alert("オンラインサーバーとの接続が切断されました。");
-              this.logger.warn(
-                "Connection to the online server has been closed.",
-              );
-              this.backToMainMenu();
-            } else {
-              this.logger.warn(
-                "Connection closed during initialization, not showing alert.",
-              );
-            }
-          },
-          {
-            // 瞬断時: ICE restart で復旧を試みている間の表示
-            onReconnecting: () => {
-              showToast(
-                "再接続中…",
-                "通信が不安定です。接続の復旧を試みています。",
-                ToastColor.Warning,
-              );
-            },
-            onReconnected: () => {
-              showToast(
-                "再接続しました",
-                "接続が回復しました。",
-                ToastColor.Success,
-              );
-            },
-          },
         );
-        if (!connection) {
-          throw new Error("Failed to create GameConnection");
-        }
-        await connection.ready();
-        this.connection = connection;
-        (window as any)._olConn = connection; // E2Eテスト用フック（再接続検証など）
-
-        console.log(await connection.sendBinaryPing());
-        console.log(await connection.sendJsonPing());
-
-        // サーバーとの時刻オフセットを確定（開始同期・マージン公平性の基盤）
-        try {
-          await connection.syncClock();
-        } catch (e) {
-          this.logger.warn("Clock sync failed (continuing with offset=0):", e);
-        }
-
-        this.onlineTopPage();
-
-        this.logger.info("Successfully connected to the online server.");
-      } catch (e) {
-        errorOccurred = true;
-        this.logger.error("Failed to connect to the online server:", e);
-        // ready() が失敗した場合 this.connection は未セットのため、
-        // 半開きの PeerConnection/WebSocket をここで明示的に解放する。
-        try {
-          connection?.close();
-        } catch { }
-        await Modal.alert(`オンラインサーバーに接続できませんでした。\n\n${e}`);
-
-        this.backToMainMenu();
-      }
+      }),
+    );
+    const bar = document.getElementById("ol-connect-bar-fill");
+    if (bar) {
+      bar.style.transform = `scaleX(${doneCount / OnlineMode.CONNECT_STEPS.length})`;
     }
+  }
+
+  /** 接続に失敗したときの表示へ切り替える（再試行 / メインメニューへ戻る の2ボタン） */
+  private renderConnectError(message: string): void {
+    const card = document.getElementById("ol-connect-card");
+    if (!card) return;
+    card.replaceChildren(
+      <>
+        <div class="ol-connect-error">接続できませんでした<br />{message}</div>
+        <div class="ol-connect-actions">
+          <button class="btn btn-secondary" onclick={() => this.backToMainMenu()}>
+            メインメニューへ戻る
+          </button>
+          <button class="btn btn-primary" onclick={() => this.attemptConnect()}>
+            再試行
+          </button>
+        </div>
+      </>,
+    );
+  }
+
+  /** 接続中カードのDOMを（初回・再試行とも）出す */
+  private renderConnectingUI(): void {
+    const onlineTopContainer = document.getElementById(
+      "online-top-container",
+    ) as HTMLDivElement | null;
+    if (!onlineTopContainer) {
+      throw new Error("Failed to find online top container element");
+    }
+    onlineTopContainer.replaceChildren(
+      <>
+        <div class="online-header">
+          <button
+            class="btn btn-secondary"
+            onclick={() => {
+              this.connectCancelled = true;
+              try { this.connection?.close(); } catch { }
+              this.backToMainMenu();
+            }}
+          >
+            ◀ キャンセル
+          </button>
+          <h1>🌐 ONLINE</h1>
+          <button class="btn btn-settings" disabled>
+            ⚙ SETTINGS
+          </button>
+        </div>
+        <div class="ol-connect-card" id="ol-connect-card">
+          <div class="ol-connect-steps" id="ol-connect-steps"></div>
+          <div class="ol-connect-bar">
+            <div class="ol-connect-bar-fill" id="ol-connect-bar-fill"></div>
+          </div>
+        </div>
+      </>,
+    );
+    this.renderConnectSteps(0);
+  }
+
+  /** サーバーへの初回接続を試みる。init() からと、失敗時の「再試行」ボタンから呼ばれる。 */
+  private async attemptConnect(): Promise<void> {
+    this.state = OnlineModeState.Connecting;
+    this.connectCancelled = false;
+    this.renderConnectingUI();
+
+    const pages = document.querySelectorAll(".page");
+    pages.forEach((p) => p.classList.remove("active"));
+    const onlinePage = document.getElementById("online-top-page");
+    if (onlinePage) onlinePage.classList.add("active");
+
+    const tetlaboServerUrl =
+      `ws${isSecureProtocol ? "s" : ""}://` + (localStorage.getItem("tetlaboServerUrl") || "example.com") + "/ws";
+
+    let connection: GameConnection | null = null;
+    // ★ ready() が解決する（＝データチャネル確立）まで true にしない。
+    //   旧実装は「catch側で errorOccurred=true を立てる」非同期フラグに頼っており、
+    //   初回接続中に WebSocket が閉じたとき、ws.onclose起点のこのコールバックが
+    //   catch より先に走る競合で「接続失敗」なのに Modal.alert＋即メインメニュー行きに
+    //   化けることがあった（新設の再試行UIが一瞬も見えない）。
+    //   ready() が成功して初めて立つこのフラグなら競合しない。
+    let connectionEstablished = false;
+
+    try {
+      connection = new GameConnection(
+        tetlaboServerUrl,
+        async () => {
+          if (this.connectCancelled) return;
+          if (connectionEstablished) {
+            await Modal.alert("オンラインサーバーとの接続が切断されました。");
+            this.logger.warn(
+              "Connection to the online server has been closed.",
+            );
+            this.backToMainMenu();
+          } else {
+            // 初回接続中の切断は connection.ready() 側が reject するので、
+            // その catch (renderConnectError) に UI を任せる。ここでは何もしない。
+            this.logger.warn(
+              "Connection closed during initialization, not showing alert.",
+            );
+          }
+        },
+        {
+          // 瞬断時: ICE restart で復旧を試みている間の表示
+          onReconnecting: () => {
+            showToast(
+              "再接続中…",
+              "通信が不安定です。接続の復旧を試みています。",
+              ToastColor.Warning,
+            );
+          },
+          onReconnected: () => {
+            showToast(
+              "再接続しました",
+              "接続が回復しました。",
+              ToastColor.Success,
+            );
+          },
+          onProgress: (stage) => {
+            if (this.connectCancelled) return;
+            const idx = OnlineMode.CONNECT_STEPS.findIndex((s) => s.key === stage);
+            if (idx >= 0) this.renderConnectSteps(idx + 1);
+          },
+        },
+      );
+      if (!connection) {
+        throw new Error("Failed to create GameConnection");
+      }
+      await connection.ready();
+      if (this.connectCancelled) return;
+      connectionEstablished = true;
+      this.connection = connection;
+      (window as any)._olConn = connection; // E2Eテスト用フック（再接続検証など）
+
+      console.log(await connection.sendBinaryPing());
+      console.log(await connection.sendJsonPing());
+
+      // サーバーとの時刻オフセットを確定（開始同期・マージン公平性の基盤）
+      try {
+        await connection.syncClock();
+      } catch (e) {
+        this.logger.warn("Clock sync failed (continuing with offset=0):", e);
+      }
+      if (this.connectCancelled) return;
+      this.renderConnectSteps(OnlineMode.CONNECT_STEPS.length);
+
+      this.onlineTopPage();
+
+      this.logger.info("Successfully connected to the online server.");
+    } catch (e) {
+      if (this.connectCancelled) return;
+      this.logger.error("Failed to connect to the online server:", e);
+      // ready() が失敗した場合 this.connection は未セットのため、
+      // 半開きの PeerConnection/WebSocket をここで明示的に解放する。
+      try {
+        connection?.close();
+      } catch { }
+      this.renderConnectError(`${e}`);
+    }
+  }
+
+  public async init() {
+    await this.attemptConnect();
   }
 }
 
