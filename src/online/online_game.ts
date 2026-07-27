@@ -1750,17 +1750,10 @@ export class OnlineGameController {
       row.appendChild(stateEl);
       el.appendChild(row);
     }
-    // 自分が申請済みで、まだ応答していない相手が居るときだけ待機メッセージを出す
-    const waiting = this.myRematchVoted
-      && this.opponentIds().some(
-        (id) => !this.departed.has(id) && this.rematchVotes.get(id) !== PostMatchAction.Retry,
-      );
-    if (waiting) {
-      const note = document.createElement("div");
-      note.className = "ol-pm-note";
-      note.textContent = "相手の応答を待っています…";
-      el.appendChild(note);
-    }
+    // ★ 待機メッセージ("相手の応答を待っています…")はここでは出さない。
+    //   この行の有無でリザルトカードの高さが変わり、scale()追従サイズがガクッと
+    //   ずれて見える（S1で見切れを直した副作用）。ロード画面（runBattlePreload）側で
+    //   既に同じ意味のメッセージを表示しているので、ここでは各行の「選択中…」表示のみで足りる。
   }
 
   /**
