@@ -75,7 +75,10 @@
   width: 100%;
   max-height: 50vh;
   overflow-y: auto;
-  padding-right: 4px;
+  /* overflow-y:auto は overflow-x も auto へ強制するため、フォーカス枠(outline 2px +
+     offset 2px = 外側4px)とホバー(translateY(-2px))ぶんの余白を全辺に確保する。 */
+  padding: 6px 4px;
+  scroll-padding: 6px;
 }
 
 .online-rooms-empty {

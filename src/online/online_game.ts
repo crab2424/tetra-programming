@@ -765,7 +765,10 @@ export class OnlineGameController {
     opponents.forEach(([id, name, rule], index) => {
       showOnlineOppSlot(index);
       const nameEl = document.getElementById(`ol-opp-name-${index}`);
-      if (nameEl) nameEl.textContent = name;
+      if (nameEl) {
+        nameEl.textContent = name;
+        nameEl.classList.remove("is-dead", "is-disconnected");
+      }
 
       const oppRule: 'tet' | 'puyo' = rule === 'puyo' ? 'puyo' : 'tet';
       this.puppetRules.set(id, oppRule);
@@ -776,10 +779,6 @@ export class OnlineGameController {
         index,
         rule: oppRule,
         onDead: (playerId) => this.markDead(playerId as Uuid),
-        onNameDead: (deadIndex) => {
-          const deadName = document.getElementById(`ol-opp-name-${deadIndex}`);
-          if (deadName) deadName.textContent += " ☠";
-        },
         onStats: (statsIndex, stats) => updateOnlineStats(statsIndex, stats),
       });
       driver.start();
@@ -2553,8 +2552,8 @@ export class OnlineGameController {
     driver?.setDisconnected();
     const idx = this.puppetIndices.get(playerId);
     if (idx !== undefined) {
-      const nameEl = document.getElementById(`ol-opp-name-${idx}`);
-      if (nameEl) nameEl.textContent += " (DC)";
+      // ★ 名前テキストは書き換えない（S1②: レイアウトが動くバグの再発防止）。色クラスだけ付ける。
+      document.getElementById(`ol-opp-name-${idx}`)?.classList.add("is-disconnected");
     }
     // 切断は「退出」と同じ扱い（再戦は成立しない）。ただし遷移は自分の操作起点のまま。
     this.markDeparted(playerId, PostMatchAction.Leave);

@@ -84,7 +84,6 @@ export type NetworkDriverOptions = {
   index: number;
   rule: NetworkRule;
   onDead: (id: string) => void;
-  onNameDead: (index: number) => void;
   onStats?: (index: number, stats: ReturnType<typeof decodeStatsUpdate>) => void;
 };
 
@@ -101,7 +100,6 @@ export class NetworkDriver implements OpponentDriver {
   readonly rule: NetworkRule;
   readonly puppet: any;
   private readonly onDead: (id: string) => void;
-  private readonly onNameDead: (index: number) => void;
   private readonly onStats?: NetworkDriverOptions["onStats"];
   // ── 相手ぷよの連鎖/設置リプレイ（案D: 到着順キュー + 実タイミング再生） ──
   private puyoReplayQueue: PuyoReplayItem[] = [];
@@ -133,7 +131,6 @@ export class NetworkDriver implements OpponentDriver {
     this.index = options.index;
     this.rule = options.rule;
     this.onDead = options.onDead;
-    this.onNameDead = options.onNameDead;
     this.onStats = options.onStats;
 
     if (this.rule === "puyo") {
@@ -210,7 +207,8 @@ export class NetworkDriver implements OpponentDriver {
     // 自分の盤面と同じく、脱落した相手の盤面にも GAME OVER を出す
     // （CPU戦が両盤面へ演出を出すのに合わせる。決着時は showWinner が WIN/LOSE で上書きする）
     showFieldFinish(onlineFieldPrefix(this.index, this.rule), "gameover");
-    this.onNameDead(this.index);
+    // ★ 名前テキストは書き換えない（レイアウトが動くバグの再発防止）。色クラスだけ付ける。
+    document.getElementById(`ol-opp-name-${this.index}`)?.classList.add("is-dead");
   }
 
   /**

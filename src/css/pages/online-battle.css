@@ -123,6 +123,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* ゲーム中はテキストを書き換えない（死亡/切断は色クラスだけで表す）。
+     行の高さを固定し、将来テキストが変わっても #ol-battle-layout の
+     align-items:center 再計算で盤面がずれないようにする。 */
+  line-height: 1.4;
+  min-height: calc(10px * 1.4);
+}
+
+/* 死亡/切断はテキストを追記せず色だけで表す（行の高さを変えないため）。 */
+.ol-opp-name.is-dead {
+  color: var(--danger);
+}
+
+.ol-opp-name.is-disconnected {
+  color: var(--text-dim);
+  opacity: 0.6;
 }
 
 /* SCORE/LINES/MAX CHAIN・フィールド外枠・HOLD/NEXTラベルの寸法と位置は
@@ -229,6 +244,7 @@
 #ol-battle-layout[data-player-count="2"] .ol-opp-name {
   font-size: 13px;
   max-width: 360px;
+  min-height: calc(13px * 1.4);
 }
 
 /* 3P: 全員横並び、間隔を詰める、自分は少し小さく */
@@ -262,8 +278,9 @@
   background: rgba(8, 6, 12, 0.9);
   z-index: 100;
   pointer-events: auto;
-  align-items: center;
+  align-items: safe center;
   justify-content: center;
+  overflow-y: auto;
 }
 
 #ol-winner-overlay {
@@ -292,6 +309,11 @@
   gap: 14px;
   padding: 32px 36px;
   text-align: center;
+  /* #ol-battle-layout と同じ「ビューポート追従スケール」。中身の行数で高さが可変なため、
+     基準高さ(--result-card-base-h)に対する縦の余裕から縮小率を決める。 */
+  transform: scale(clamp(0.6, calc((100vh - 32px) / var(--result-card-base-h)), 1));
+  transform-origin: center;
+  max-height: none;
 }
 
 .ol-result-kicker {

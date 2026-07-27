@@ -50,5 +50,8 @@
      ※ 0.8倍表示より外側（#versus-layout / #ol-battle-layout 直下）に効く余白なので、盤面本体の
         --field-* とは違い --ol-scale は掛けない。 */
   --versus-center-gap: 111px;
+  /* リザルトカード(.ol-result-card)の基準高さ。中身(セットスコア/選択状態行)で高さが
+     可変なため、実戦相当の中身で実測した値を基準に画面高さへ scale() で追従させる。 */
+  --result-card-base-h: 760px;
 }
 
