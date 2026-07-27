@@ -223,14 +223,35 @@ export function encodeSE(seId: number): Uint8Array {
   return new Uint8Array([MatchOpcode.SE, seId & 0xff]);
 }
 
-// PendingUpdate: 3 bytes (opcode + ready u8 + unready u8)
-// 自分の incoming-garbage ゲージ状態を相手へ通知する（相手スロットの予告ゲージ表示に使用）
-export function encodePendingUpdate(ready: number, unready: number): Uint8Array {
-  return new Uint8Array([MatchOpcode.PendingUpdate, ready & 0xff, unready & 0xff]);
+// PendingUpdate: 自分の incoming-garbage ゲージ状態（＋TETのアタックゲージ状態）を
+// 相手へ通知する（相手スロットの予告ゲージ／アタックゲージ表示に使用）。
+// 6 bytes: opcode + ready(u8) + unready(u8) + attack(u16 LE) + attackVisible(u8)。
+// ★ 新opcodeは切らず既存0x29のpayloadを後方互換拡張。サーバー(reliable.rs)は
+//   opcode 0x20-0x2Bをそのまま中継するだけでpayload長は見ないため、サーバー変更不要。
+// attack/attackVisible は tet が対ぷよ戦で溜める送信用火力(pendingAttack)の表示同期用
+// （tet同士・puyo送信では常に 0/false。旧クライアント(3バイト)から見ればready/unready
+// はそのまま読め、attackはbyteLengthガードで0扱いになる＝相互に安全）。
+export function encodePendingUpdate(
+  ready: number, unready: number, attack: number = 0, attackVisible: boolean = false,
+): Uint8Array {
+  const buf = new Uint8Array(6);
+  const view = new DataView(buf.buffer);
+  buf[0] = MatchOpcode.PendingUpdate;
+  buf[1] = ready & 0xff;
+  buf[2] = unready & 0xff;
+  view.setUint16(3, Math.max(0, Math.min(0xffff, Math.trunc(attack))), true);
+  buf[5] = attackVisible ? 1 : 0;
+  return buf;
 }
-export interface PendingUpdateData { ready: number; unready: number; }
+export interface PendingUpdateData { ready: number; unready: number; attack: number; attackVisible: boolean; }
 export function decodePendingUpdate(p: Uint8Array): PendingUpdateData {
-  return { ready: p[0] ?? 0, unready: p[1] ?? 0 };
+  const view = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  return {
+    ready: p[0] ?? 0,
+    unready: p[1] ?? 0,
+    attack: p.byteLength >= 4 ? view.getUint16(2, true) : 0,
+    attackVisible: p.byteLength >= 5 ? p[4] !== 0 : false,
+  };
 }
 
 export function encodeHoldState(canHold: boolean): Uint8Array {
