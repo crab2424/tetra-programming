@@ -1277,11 +1277,40 @@ export class OnlineGameController {
       this.showSelfFinish("gameover");
     };
 
-    // _spawnPuyo: 新ペア出現後にフィールドスナップショット + スポーン情報を送信
+    // _beginSpawnAnim: NEXT遷移(spawnAnim)の開始時点でフィールド+次ペア情報を先行送信する。
+    // ★ 従来は _spawnPuyo（＝62msのspawnAnimが完了した後）で送っていたため、相手のNEXT遷移が
+    //   自分より62ms＋通信遅延ぶん遅れて始まって見えていた。この時点ではまだ _dequeueNext
+    //   していないので、nextQueue[0] がこれから falling になるペア（= 従来 pivotColor/childColor
+    //   として送っていた値）、nextQueue.slice(1,4) がその次のNEXT3枚（= 従来 nextPairs として
+    //   送っていた値）に一致する。_dequeueNext は shift() のみで、この62msの間にQUIZモード以外は
+    //   キューへ触らないため、この先読みは確定的（第9ラウンド設計参照）。
+    const origBeginSpawnAnim: AnyFn = game._beginSpawnAnim.bind(game);
+    game._beginSpawnAnim = () => {
+      const result = origBeginSpawnAnim();
+      if (this.myAlive) {
+        conn.sendMatchEvent(encodePuyoLock(game.field as number[][]));
+        const nq = game.nextQueue as any[];
+        const nextPair = nq[0] ?? [0, 0];
+        const followingPairs = nq.slice(1, 4).map((p: any): [number, number] => [p[0], p[1]]);
+        conn.sendMatchEvent(encodePuyoSpawn(nextPair[0], nextPair[1], followingPairs));
+        sendStats();
+        game._olSpawnSentEarly = true;
+      }
+      return result;
+    };
+
+    // _spawnPuyo: 新ペア出現時にフィールドスナップショット + スポーン情報を送信。
+    // ★ 通常は上の _beginSpawnAnim フックで既に先行送信済み（_olSpawnSentEarly）なので
+    //   ここでは重複送信を抑止するだけ。初手（_gs の初期値 'spawn' で spawnAnim を経由せず
+    //   直接 _spawnPuyo が呼ばれる）だけは _beginSpawnAnim を通らないため、従来どおりここで送る。
     const origSpawnPuyo: AnyFn = game._spawnPuyo.bind(game);
     game._spawnPuyo = () => {
       const result = origSpawnPuyo();
       if (!this.myAlive || !result) return result;
+      if (game._olSpawnSentEarly) {
+        game._olSpawnSentEarly = false;
+        return result;
+      }
       // フィールドスナップショット送信
       conn.sendMatchEvent(encodePuyoLock(game.field as number[][]));
       // ペア + NEXT 送信
