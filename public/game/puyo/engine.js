@@ -170,6 +170,8 @@ Object.assign(PuyoGame.prototype, {
     },
 
     _update(dt) {
+        this._animMs += dt; // ★ 描画アニメ用クロック。elapsed(ストップウォッチ)とは別に毎フレーム進める
+
         this._updateDAS(dt);
 
         if (this.ojamaUpdateQueue.length > 0) {

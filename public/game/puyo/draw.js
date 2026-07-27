@@ -354,7 +354,7 @@ Object.assign(PuyoGame.prototype, {
         if (this.isAllClear) {
             ctx.save();
             // 時間経過でアルファ値を少し揺らす (0.85 〜 1.0)
-            const alpha = 0.85 + 0.15 * Math.sin(this.elapsed / 150);
+            const alpha = 0.85 + 0.15 * Math.sin(this._animMs / 150);
             ctx.globalAlpha = alpha;
             ctx.font = 'bold 26px "Orbitron", monospace';
             ctx.fillStyle = '#ffea00';
@@ -442,7 +442,7 @@ Object.assign(PuyoGame.prototype, {
             const isErase = (flashType === 2);
             const speed = isErase ? 40 : 60;
             const maxAlpha = isErase ? 0.85 : 0.7;
-            const alpha = (Math.sin(this.elapsed / speed) + 1) / 2 * maxAlpha;
+            const alpha = (Math.sin(this._animMs / speed) + 1) / 2 * maxAlpha;
 
             ctx.globalCompositeOperation = 'lighter';
             ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;

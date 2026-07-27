@@ -139,9 +139,9 @@ export class NetworkDriver implements OpponentDriver {
       this.puppet._initField?.();
       this.puppet.nextQueue = [];
       this.puppet.rng = null;
-      // ★ ALL CLEAR明滅・浮遊フラッシュは実エンジンの this.elapsed 基準（draw.js）。
-      //   パペットは _startTimer を回さないため放置すると 0 のまま静止する。
-      this.puppet.elapsed = 0;
+      // ★ ALL CLEAR明滅・浮遊フラッシュは実エンジンの this._animMs 基準（draw.js）。
+      //   パペットは _update を回さないため、毎フレーム自前で進める必要がある(下のapplyFrame内)。
+      this.puppet._animMs = 0;
       // ★ 連鎖文字(48px固定DOM)を --ol-scale に合わせて縮小する（3P以降で相対的に
       //   巨大化しないため）。CPU戦の PuyoGame は既定の undefined(=1倍)のまま。
       this.puppet._chainTextScale = readOlScale();
@@ -455,9 +455,9 @@ export class NetworkDriver implements OpponentDriver {
     const dt = Math.min(100, now - this.puyoReplayLastNow);
     this.puyoReplayLastNow = now;
 
-    // ★ ALL CLEAR明滅・浮遊フラッシュ(draw.js)は this.elapsed 基準。パペットは
-    //   _startTimer を回さないので、ここで自前に進めないと常に静止したままになる。
-    puppet.elapsed = (puppet.elapsed ?? 0) + dt;
+    // ★ ALL CLEAR明滅・浮遊フラッシュ(draw.js)は this._animMs 基準。パペットは
+    //   _update を回さないので、ここで自前に進めないと常に静止したままになる。
+    puppet._animMs = (puppet._animMs ?? 0) + dt;
     // 設置振動は実エンジンの _update と同様、フェーズ非依存で毎フレーム前進させる。
     puppet._stepVibAnims(dt);
     // 回転補間はPieceState受信で _gs='falling' になっている間、常に追従させる。
