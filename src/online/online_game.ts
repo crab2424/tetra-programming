@@ -257,6 +257,8 @@ export class OnlineGameController {
   private battleStartedAtMs: number | null = null;
   /** ロード画面を閉じ始めるデッドラインで最低限確保するカウントダウン時間。 */
   private static readonly MIN_COUNTDOWN_MS = 900;
+  /** カウントダウンの尺（CPU戦のrunCountdown既定値=2100msと同じ、700ms間隔）。 */
+  private static readonly COUNTDOWN_MS = 2100;
   /** 相手SEの音量倍率。自分と同じ音量にする（以前は 0.4 で小さく鳴らしていた）。 */
   private static readonly OPPONENT_SE_GAIN = 1.0;
   /** 相手PUYOの puyo_fix/puyo_drop 受信を送信元ごとに間引くための直近再生時刻。 */
@@ -660,9 +662,14 @@ export class OnlineGameController {
    *
    * ★ ユーザー指定の演出順: プリロード/READY送信/相手待ち（フェーズA）は明るめのblurの
    *   まま進める。盤面の切り替えが透けて見えるのを防ぐため、暗転が完了してからのみ
-   *   DOM切り替え・エンジン初期化を行う。開始時刻(startTimeMs)はサーバー権威のまま
-   *   動かさない＝ここで消費した時間はカウントダウンの残り時間から自動的に差し引かれる
-   *   （setupBattleUnderCover 側で setTimeout 用に補正する）。
+   *   DOM切り替え・エンジン初期化を行う。
+   *
+   * ★ startTimeMs の意味を「本編開始時刻」ではなく「カウントダウン開始時刻」と読み替える
+   *   （第9ラウンド設計）。本編開始 = startTimeMs + COUNTDOWN_MS の絶対時刻とし、
+   *   カウントダウン開始・本編開始とも同じサーバー権威時刻(startTimeMs)から導出するので
+   *   サーバー・プロトコルとも無改造のまま全端末の同期は維持される。
+   *   （旧実装は startTimeMs を本編開始時刻のまま扱い、ロード演出で消費した時間の残りを
+   *   そのままカウントダウン尺にしていたため、CPU戦の固定2100msより速く刻まれていた）。
    */
   private startBattle(notif: StartMatchNotification): void {
     // 二重の開始通知・決着処理中の遅延通知はここで捨てる
@@ -682,9 +689,10 @@ export class OnlineGameController {
     this.myRule = myPlayer?.[2] === 'puyo' ? 'puyo' : 'tet';
 
     const now = this.connection.serverNow();
+    // delay = 「カウントダウンを開始すべき時刻」までの残り時間（本編開始ではない）。
     const delay = Math.max(0, notif.startTimeMs - now);
     const startedAt = performance.now();
-    this.battleStartedAtMs = startedAt; // カウントダウン残り時間の起点（暗転前のこの時点で固定）
+    this.battleStartedAtMs = startedAt; // カウントダウン開始残り時間の起点（暗転前のこの時点で固定）
 
     enterBlackout().then(() => this.setupBattleUnderCover(notif, delay, startedAt));
   }
@@ -701,10 +709,12 @@ export class OnlineGameController {
     // 暗転中に決着・cleanup（相手切断等）が起きていたら何もしない
     if (this.lifecycle.phase !== "countdown") return;
 
-    // 暗転待ちで消費した時間ぶんを差し引いた、この時点からの残り時間。
+    // 暗転待ちで消費した時間ぶんを差し引いた、この時点から「カウントダウン開始」までの残り時間。
     // setTimeout(...) はここから数えるので、開始時刻(startTimeMs)自体は変えず
     // スケジュールだけ補正する（両者を組み合わせれば元の絶対時刻と一致する）。
     const adjustedDelay = Math.max(0, delay - (performance.now() - startedAt));
+    // 本編開始までの残り時間 = カウントダウン開始までの残り時間 + カウントダウン尺(固定)。
+    const adjustedDelayToBattleStart = adjustedDelay + OnlineGameController.COUNTDOWN_MS;
 
     // Switch page first so canvas elements are in the DOM
     this.switchToBattlePage();
@@ -767,16 +777,16 @@ export class OnlineGameController {
     //   ロード画面を閉じるタイミングだけを別途 revealBattleAfterSync で遅らせる設計にしないと、
     //   全員が「相手のデータを待ってから自分のデータを送る」ことになりデッドロックする。
     if (this.myRule === 'puyo') {
-      this.initPuyoBattle(notif, matchSetting, adjustedDelay);
+      this.initPuyoBattle(notif, matchSetting, adjustedDelayToBattleStart);
     } else {
-      this.initTetBattle(notif, matchSetting, adjustedDelay);
+      this.initTetBattle(notif, matchSetting, adjustedDelayToBattleStart);
     }
     this.revealBattleAfterSync(delay);
   }
 
   /**
-   * 相手パペットの初回データ（NEXT/盤面）が揃うまで（またはタイムアウトまで）真っ暗を維持し、
-   * 揃ったら対戦画面へフェードインしてから READY カウントダウンを始める。
+   * 相手パペットの初回データ（NEXT/盤面）が揃うまで真っ暗を維持しつつ、フェードイン
+   * (revealBattle)の完了が「カウントダウン開始時刻」ちょうどになるようタイミングを合わせる。
    *
    * ★ 背景: 自分の盤面はローカルの initGame 完了ですぐ描画されるが、相手パペットは
    *   生成直後は完全に空（driver.ts）で、相手からの sentinel Spawn/PuyoSpawn フレームが
@@ -784,43 +794,51 @@ export class OnlineGameController {
    *   フェードインすることで、対戦画面が見えた瞬間には相手盤面も埋まっている
    *   （2026-07-26 不具合の対策を維持）。
    *
-   * ★ 開始時刻(startTimeMs)はサーバー権威のまま動かさない。ここで動かすのは「覆いを外し、
-   *   カウントダウンを始める」タイミングだけで、カウントダウンは残り時間へ自動的に
-   *   縮む（runCountdown は startDelayMs を3等分する）。delay は startBattle 時点の
-   *   （暗転前の）値のまま渡す＝battleStartedAtMs と対になった同じ基準点を保つため。
+   * ★ カウントダウンは runCountdown 内で開始から固定 COUNTDOWN_MS(2100ms、CPU戦と同じ
+   *   700ms間隔)かけて進む。本編開始の setTimeout は setupBattleUnderCover 側で既に
+   *   「battleStartedAtMs + delay + COUNTDOWN_MS」の絶対時刻に固定済みなので、
+   *   カウントダウンが「ちょうど battleStartedAtMs + delay に開始する」ことさえ保証すれば、
+   *   カウントダウン終了(=STARTの表示)と本編開始が自然に一致する。そのため
+   *   revealBattle() の呼び出しを、相手パペットが揃っていても
+   *   「battleStartedAtMs + delay - LOADING_CLOSE_MS(フェードイン尺)」の時刻まで遅らせる
+   *   （早くフェードインを終えてしまうとカウントダウンも早く終わり、本編開始との間に
+   *   ギャップが空いてしまう）。
+   *
+   * ★ 相手パペットの同期が間に合わない場合だけ、上記の時刻に達した時点で強制的に
+   *   reveal を進める（それ以上待たない）。この場合カウントダウンの尺を
+   *   「本編開始の絶対時刻までの残り時間」へ短縮する（下限 MIN_COUNTDOWN_MS）。
+   *   本編開始の絶対時刻自体は変えないので、同期が崩れるのはカウントダウンの見た目の
+   *   長さだけ（旧実装からの縮退動作を維持）。
    */
   private revealBattleAfterSync(delay: number): void {
-    const waits = [...this.puppets.values()].map((d) => d.waitForFirstData());
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      // 閉じ演出が終わってから（＝対戦画面が完全に見えてから）カウントダウン開始。
-      revealBattle().then(() => this.startCountdownForRemaining(delay));
-    };
-    if (waits.length === 0) {
-      finish();
-      return;
-    }
-    Promise.all(waits).then(finish);
-    // 相手を待ち続けてカウントダウンが出せなくなるのを防ぐ。閉じ演出の尺と
-    // 最低限のカウントダウン時間を確保できる時刻には必ず閉じ始める。
-    // ★ delay は battleStartedAtMs（暗転前）を起点にした値なので、この setTimeout の
-    //   「今から」との差分（=enterBlackoutで既に消費した時間）を差し引く必要がある。
-    const elapsedSinceStart = performance.now() - (this.battleStartedAtMs ?? performance.now());
-    setTimeout(
-      finish,
-      Math.max(0, delay - LOADING_CLOSE_MS - OnlineGameController.MIN_COUNTDOWN_MS - elapsedSinceStart),
-    );
-  }
+    const startedAt = this.battleStartedAtMs ?? performance.now();
+    const countdownStartAbs = startedAt + delay;
+    const revealTriggerAbs = countdownStartAbs - LOADING_CLOSE_MS;
 
-  /** 残り時間（本編開始まで）に合わせて READY カウントダウンを開始する。 */
-  private startCountdownForRemaining(delay: number): void {
-    if (this.lifecycle.phase !== "countdown") return; // 既に開始/決着済み
-    const startedAt = this.battleStartedAtMs;
-    const elapsed = startedAt !== null ? performance.now() - startedAt : 0;
-    const remaining = Math.max(0, delay - elapsed);
-    this.showCountdown(remaining);
+    const waits = [...this.puppets.values()].map((d) => d.waitForFirstData());
+    const dataReady: Promise<void> = waits.length === 0 ? Promise.resolve() : Promise.all(waits).then(() => {});
+    const fallbackDeadline = new Promise<void>((resolve) => {
+      setTimeout(resolve, Math.max(0, revealTriggerAbs - performance.now()));
+    });
+
+    Promise.race([dataReady, fallbackDeadline]).then(() => {
+      if (this.lifecycle.phase !== "countdown") return; // 待機中に決着/cleanupが起きていたら何もしない
+      // 相手が早く揃っても revealTriggerAbs より前には進めない（カウントダウン開始を早めない）。
+      const waitBeforeReveal = Math.max(0, revealTriggerAbs - performance.now());
+      setTimeout(() => {
+        if (this.lifecycle.phase !== "countdown") return;
+        revealBattle().then(() => {
+          if (this.lifecycle.phase !== "countdown") return;
+          const battleStartAbs = startedAt + delay + OnlineGameController.COUNTDOWN_MS;
+          const remaining = battleStartAbs - performance.now();
+          const countdownMs = Math.max(
+            OnlineGameController.MIN_COUNTDOWN_MS,
+            Math.min(OnlineGameController.COUNTDOWN_MS, remaining),
+          );
+          this.showCountdown(countdownMs);
+        });
+      }, waitBeforeReveal);
+    });
   }
 
   private initTetBattle(
@@ -855,8 +873,9 @@ export class OnlineGameController {
     this.game._initGameState();
     this.game.level = 2; // CPU戦(versus.js)と同じ固定レベル
     this.game.setKeyEvent();
-    // ★ カウントダウンはロード画面を閉じ終えてから開始する（revealBattleAfterSync）。
-    //   本編開始そのものは下の setTimeout(delay) 固定＝サーバー権威のまま。
+    // ★ カウントダウンの見た目はロード画面を閉じ終えてから開始する（revealBattleAfterSync）。
+    //   本編開始そのものは下の setTimeout(delay) 固定＝サーバー権威の startTimeMs +
+    //   COUNTDOWN_MS（絶対時刻）から算出済み。
 
     this.matchHandlerId = this.connection.onMatchEvent((frame) => this.handleMatchFrame(frame));
 
@@ -927,8 +946,9 @@ export class OnlineGameController {
 
       const elapsed = performance.now() - initStart;
       const remaining = Math.max(0, delay - elapsed);
-      // ★ カウントダウンはロード画面を閉じ終えてから開始する（revealBattleAfterSync）。
-      //   本編開始そのものは下の setTimeout(remaining) 固定＝サーバー権威のまま。
+      // ★ カウントダウンの見た目はロード画面を閉じ終えてから開始する（revealBattleAfterSync）。
+      //   本編開始そのものは下の setTimeout(remaining) 固定＝サーバー権威の startTimeMs +
+      //   COUNTDOWN_MS（絶対時刻）から算出済み。
       setTimeout(() => {
         // カウントダウン中に決着（相手切断）やcleanupが起きていたら本編を開始しない
         if (!this.game || !this.lifecycle.transition("playing", "countdown finished"))
@@ -2268,7 +2288,9 @@ export class OnlineGameController {
       const index = this.puppetIndices.get(id);
       if (index === undefined) continue;
       const prefix = driver.rule === 'puyo' ? `ol-opp-${index}-puyo-` : `ol-opp-${index}-`;
-      run(`${prefix}countdown-overlay`, `${prefix}countdown-text`, () => {}, null, startDelayMs);
+      // silent: 自分側で既にカウントダウンSEを鳴らしているため、相手全員ぶんの
+      // オーバーレイでは鳴らさない（人数分の多重再生を防ぐ）。
+      run(`${prefix}countdown-overlay`, `${prefix}countdown-text`, () => {}, null, startDelayMs, true);
     }
   }
 

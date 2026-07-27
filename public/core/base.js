@@ -173,8 +173,11 @@ class Asset {
 // onStart     : "START!" 表示の瞬間（入力受付開始）に呼ぶコールバック
 // onComplete  : 演出が完全に終了したときのコールバック（任意）
 // startDelayMs: START! までの時間。省略時はCPU戦と同じ2100ms。
+// silent      : trueならこの呼び出しではSEを鳴らさない（同じカウントダウンSEを複数
+//               オーバーレイに同時に鳴らして二重・多重再生になるのを防ぐため。
+//               CPU戦のcpu側オーバーレイ、online戦の相手スロットで使う）。
 // ─────────────────────────────────────────────
-function runCountdown(overlayId, textElId, onStart, onComplete, startDelayMs = 2100) {
+function runCountdown(overlayId, textElId, onStart, onComplete, startDelayMs = 2100, silent = false) {
     const overlay = document.getElementById(overlayId);
     const textEl = document.getElementById(textElId);
     if (!overlay || !textEl) {
@@ -212,10 +215,11 @@ function runCountdown(overlayId, textElId, onStart, onComplete, startDelayMs = 2
         void textEl.offsetWidth;
         textEl.classList.add('countdown-pop');
 
-        // CPU側のタイマーでも呼ばれる場合は二重再生を防ぐ。
+        // 同じカウントダウンに複数オーバーレイ(CPU戦のcpu側、online戦の相手全員)が
+        // 連動する場合の二重再生を防ぐため、silent指定時はSEを鳴らさない。
         // カウント(3/2/1)は countdown_count、START! は countdown_start を鳴らし、
         // 演出と同タイミングで count×3 + start×1 になるようにする。
-        if (window.SeManager && overlayId !== 'cpu-countdown-overlay') {
+        if (window.SeManager && !silent) {
             window.SeManager.play(val === 'START!' ? 'countdown_start' : 'countdown_count');
         }
 
