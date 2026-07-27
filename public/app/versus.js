@@ -226,7 +226,7 @@ async function startVersusGame() {
     if (window._cpuController && typeof window._cpuController.start === 'function' && currentSessionId === sessionId) {
         window._cpuController.start();
     }
-  }, null);
+  }, null, undefined, true); // silent: player側と同時に鳴るSEの二重再生を防ぐ
 
   setupVersusPauseKey();
 }
