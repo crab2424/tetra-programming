@@ -464,13 +464,6 @@
   50% { opacity: 1; }
 }
 
-.ol-pm-note {
-  margin-top: 4px;
-  text-align: center;
-  color: var(--text-dim);
-  animation: ol-pm-waiting-pulse 1.6s ease-in-out infinite;
-}
-
 /* REMATCH 投票済み状態: 押すと取消できることが分かるよう強調表示 */
 #ol-btn-rematch.rematch-voted {
   background: linear-gradient(135deg, var(--success), #2e7d50);
