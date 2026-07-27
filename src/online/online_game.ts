@@ -68,6 +68,7 @@ import {
   enterBlackout,
   revealBattle,
   setLoadingProgress,
+  setLoadingCancel,
   LOADING_CLOSE_MS,
   COVER_MS,
 } from "../battle/loading_screen";
@@ -1675,6 +1676,9 @@ export class OnlineGameController {
         hideLoadingOverlay(true);
         return;
       }
+      // ★ 承認後もキャンセルできるようにする（S3⑤）。既存のトグルを呼び直すだけで
+      //   READY解除+Cancel投票が走る。
+      setLoadingCancel({ label: "キャンセル", onCancel: () => { this.toggleRematchVote(); } });
       // READY を立ててからvote → サーバーは同一接続を順序処理するため、
       // オーナーが startMatch を送る時点で全員 READY 済みになる
       this.connection.setReady({ roomId, ready: true }).catch((e) =>
