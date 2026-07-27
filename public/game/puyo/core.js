@@ -64,6 +64,9 @@ class PuyoGame {
         this.yokokuContainer = null;
 
         this.elapsed = 0;
+        // ★ 描画アニメ（軸ぷよ点滅・消去予告点滅・ALL CLEAR明滅）専用の経過時間。
+        //   elapsed はストップウォッチ用でプレイ中は0のまま進まない（_stopTimerでのみ加算）ため分離。
+        this._animMs = 0;
         this._timerRunning = false;
         this._timerStart = 0;
         this._timerReqId = null;
