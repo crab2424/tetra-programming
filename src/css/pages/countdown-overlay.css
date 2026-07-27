@@ -103,6 +103,27 @@
   text-shadow: 0 0 16px rgba(196, 113, 245, 0.6);
 }
 
+/* 途中切断UI（S4）: 相手/自分の接続喪失〜再接続猶予の表示。
+   finish-overlay より上に出す必要はないが、演出中に切断が来ることは無いので z-index は共通のままでよい。 */
+.dc-overlay {
+  background: rgba(10, 10, 16, 0.72);
+  z-index: 21;
+}
+
+.dc-text {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: calc(15px * var(--ol-scale, 1));
+  letter-spacing: 1px;
+  line-height: 1.6;
+  color: var(--danger, #f56565);
+  text-align: center;
+  white-space: pre-line;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  padding: 0 12px;
+  user-select: none;
+}
+
 @keyframes finish-appear {
   0% {
     transform: scale(0.6) translateY(20px);

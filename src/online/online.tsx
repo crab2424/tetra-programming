@@ -463,6 +463,18 @@ class OnlineMode {
             this.onlineTopPage();
           }
         },
+        // S4: 切断の安全網（相手/自分どちらの復帰も間に合わなかった場合）が発火したときの強制終了。
+        onForceLeave: async (message: string) => {
+          await Modal.alert(message, "対戦終了");
+          if (this.connection) {
+            try {
+              await this.connection.leaveRoom({ roomId: roomData.roomId });
+            } catch { }
+          }
+          this.currentRoom = null;
+          this.gameController = null;
+          this.onlineTopPage();
+        },
         isRandomMatch: this.isRandomMatchRoom,
       });
     } else {
@@ -2146,6 +2158,15 @@ class OnlineMode {
         async () => {
           if (this.connectCancelled) return;
           if (connectionEstablished) {
+            // S4③: 対戦中に自分の再接続が尽きた場合は、相手切断時の強制LEAVEと同じ経路
+            // （Modal + leaveRoom + ロビーへ）に寄せる。backToMainMenu だと戻り先が重い。
+            if (this.gameController?.isBattleActive) {
+              this.logger.warn(
+                "Connection to the online server has been closed during a battle.",
+              );
+              this.gameController.forceLeaveDueToSelfDisconnect();
+              return;
+            }
             await Modal.alert("オンラインサーバーとの接続が切断されました。");
             this.logger.warn(
               "Connection to the online server has been closed.",
@@ -2167,6 +2188,8 @@ class OnlineMode {
               "通信が不安定です。接続の復旧を試みています。",
               ToastColor.Warning,
             );
+            // S4③: 対戦中はトーストだけでは気づけないため、自分の盤面にも切断UIを出す。
+            this.gameController?.showSelfDisconnected();
           },
           onReconnected: () => {
             showToast(
@@ -2174,6 +2197,7 @@ class OnlineMode {
               "接続が回復しました。",
               ToastColor.Success,
             );
+            this.gameController?.hideSelfDisconnected();
           },
           onProgress: (stage) => {
             if (this.connectCancelled) return;

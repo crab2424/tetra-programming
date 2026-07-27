@@ -493,6 +493,14 @@ export interface PlayerDisconnectedNotification { roomId: Uuid; playerId: Uuid; 
 export const isPlayerDisconnectedNotification = (d: any): d is PlayerDisconnectedNotification =>
   d && d.type === "JSONPlayerDisconnectedNotification";
 
+export interface PlayerConnectionLostNotification { roomId: Uuid; playerId: Uuid; graceMs: number; }
+export const isPlayerConnectionLostNotification = (d: any): d is PlayerConnectionLostNotification =>
+  d && d.type === "JSONPlayerConnectionLostNotification";
+
+export interface PlayerReconnectedNotification { roomId: Uuid; playerId: Uuid; }
+export const isPlayerReconnectedNotification = (d: any): d is PlayerReconnectedNotification =>
+  d && d.type === "JSONPlayerReconnectedNotification";
+
 export class JSONPayload {
   static toPayload(op: Opcodes, data: string): Uint8Array {
     return Payload.jsonRequest(op, data);

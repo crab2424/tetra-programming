@@ -63,6 +63,10 @@ import {
   allOnlineFieldPrefixes,
 } from "../battle/finish_overlay";
 import {
+  showDisconnectOverlay,
+  type DisconnectOverlayHandle,
+} from "../battle/disconnect_overlay";
+import {
   runBattlePreload,
   hideLoadingOverlay,
   enterBlackout,
@@ -198,6 +202,11 @@ export type PostMatchCallbacks = {
   onRoom: () => void;
   /** ルームを退出してロビー（ルーム一覧）へ戻る。 */
   onLeave: () => void;
+  /**
+   * S4: 切断猶予（grace_ms + 5000ms）を過ぎても決着通知が届かない、または自分の再接続が
+   * 尽きたときの強制終了。メッセージをユーザーへ提示したうえでロビー等へ戻す。
+   */
+  onForceLeave?: (message: string) => void;
   isRandomMatch?: boolean;
 };
 
@@ -266,6 +275,16 @@ export class OnlineGameController {
   private static readonly OPPONENT_SE_GAIN = 1.0;
   /** 相手PUYOの puyo_fix/puyo_drop 受信を送信元ごとに間引くための直近再生時刻。 */
   private lastOpponentFixSeTime = new Map<Uuid, number>();
+
+  // ── S4: 途中切断UI ──────────────────────────────────────────────────────
+  /** PlayerConnectionLostNotification受信で表示中の切断オーバーレイ（相手ごと）。 */
+  private disconnectOverlays = new Map<Uuid, DisconnectOverlayHandle>();
+  /** grace_ms + 5000ms 経っても決着通知が来ない場合の強制LEAVE安全網タイマー。 */
+  private disconnectWatchdogs = new Map<Uuid, number>();
+  /** 自分自身の切断中に表示するオーバーレイ（onReconnecting〜onReconnected/onClose間）。 */
+  private selfDisconnectOverlay: DisconnectOverlayHandle | null = null;
+  /** 相手切断からの強制LEAVE安全網の猶予（サーバーのgrace_msに追加する余裕）。 */
+  private static readonly DISCONNECT_WATCHDOG_MARGIN_MS = 5000;
 
   /**
    * 終了処理の状態機械。開始/決着/再戦/退出の排他はすべてここを通す。
@@ -1627,13 +1646,26 @@ export class OnlineGameController {
       this.handleOpponentDisconnect(n.playerId as Uuid);
     });
 
+    // S4: 即時通知(猶予に入った瞬間)。最終確定は従来どおり onPlayerDisconnected が担う。
+    const connLostId = conn.onPlayerConnectionLost((n) => {
+      if (n.roomId !== this.roomInfo.roomId) return;
+      this.handleOpponentConnectionLost(n.playerId as Uuid, n.graceMs);
+    });
+
+    const reconnectedId = conn.onPlayerReconnected((n) => {
+      if (n.roomId !== this.roomInfo.roomId) return;
+      this.handleOpponentReconnected(n.playerId as Uuid);
+    });
+
     const postMatchId = conn.onPostMatchAction((n) => {
       if (n.roomId !== this.roomInfo.roomId) return;
       this.rematchVotes.set(n.playerId as Uuid, n.action);
       this.handlePostMatchVote(n.playerId as Uuid, n.action);
     });
 
-    this.subscriptionIds.push(pauseId, resumeId, winnerId, disconnId, postMatchId);
+    this.subscriptionIds.push(
+      pauseId, resumeId, winnerId, disconnId, connLostId, reconnectedId, postMatchId,
+    );
   }
 
   // ── Post-match vote handling ─────────────────────────────────────────────
@@ -2566,6 +2598,8 @@ export class OnlineGameController {
   // ── Disconnect handling ──────────────────────────────────────────────────
 
   private handleOpponentDisconnect(playerId: Uuid): void {
+    // S4: 最終確定なので猶予UI・安全網は不要になる。
+    this.clearDisconnectWatch(playerId);
     this.markDead(playerId);
     const driver = this.puppets.get(playerId);
     driver?.setDisconnected();
@@ -2576,6 +2610,94 @@ export class OnlineGameController {
     }
     // 切断は「退出」と同じ扱い（再戦は成立しない）。ただし遷移は自分の操作起点のまま。
     this.markDeparted(playerId, PostMatchAction.Leave);
+  }
+
+  /**
+   * S4①: サーバーが切断猶予に入った瞬間に届く即時通知。
+   * 「無表示の8秒」を無くすため、相手スロットへ切断UI＋残り秒数カウントダウンを出す。
+   * 猶予後もまだ決着していなければ強制LEAVEする安全網もここで張る。
+   */
+  private handleOpponentConnectionLost(playerId: Uuid, graceMs: number): void {
+    if (playerId === this.myUserId) return;
+    if (this.lifecycle.phase !== "playing" && this.lifecycle.phase !== "countdown") return;
+    if (!this.aliveSet.has(playerId)) return; // 既に決着/離脱済みなら何もしない
+    const rule = this.puppetRules.get(playerId);
+    const idx = this.puppetIndices.get(playerId);
+    if (rule === undefined || idx === undefined) return;
+
+    this.puppets.get(playerId)?.setDisconnected();
+    document.getElementById(`ol-opp-name-${idx}`)?.classList.add("is-disconnected");
+
+    this.disconnectOverlays.get(playerId)?.stop();
+    this.disconnectOverlays.set(playerId, showDisconnectOverlay(onlineFieldPrefix(idx, rule), graceMs));
+
+    const prevWatchdog = this.disconnectWatchdogs.get(playerId);
+    if (prevWatchdog !== undefined) window.clearTimeout(prevWatchdog);
+    this.disconnectWatchdogs.set(
+      playerId,
+      window.setTimeout(() => {
+        this.disconnectWatchdogs.delete(playerId);
+        if (this.lifecycle.phase !== "playing" && this.lifecycle.phase !== "countdown") return;
+        if (!this.aliveSet.has(playerId)) return; // 通常経路で既に決着済み
+        this.forceLeaveAfterConnectionLoss();
+      }, graceMs + OnlineGameController.DISCONNECT_WATCHDOG_MARGIN_MS),
+    );
+  }
+
+  /** S4①: 猶予中に相手が復帰したときの通知。切断UIを消してパペットを再開する。 */
+  private handleOpponentReconnected(playerId: Uuid): void {
+    if (playerId === this.myUserId) return;
+    this.clearDisconnectWatch(playerId);
+    const idx = this.puppetIndices.get(playerId);
+    if (idx !== undefined) {
+      document.getElementById(`ol-opp-name-${idx}`)?.classList.remove("is-disconnected");
+    }
+    this.puppets.get(playerId)?.resumeFromDisconnect();
+  }
+
+  /** 指定プレイヤーの切断UI・安全網タイマーを後始末する（復帰・最終切断・cleanup 共通）。 */
+  private clearDisconnectWatch(playerId: Uuid): void {
+    const watchdog = this.disconnectWatchdogs.get(playerId);
+    if (watchdog !== undefined) {
+      window.clearTimeout(watchdog);
+      this.disconnectWatchdogs.delete(playerId);
+    }
+    this.disconnectOverlays.get(playerId)?.stop();
+    this.disconnectOverlays.delete(playerId);
+  }
+
+  /**
+   * S4①安全網: 切断猶予＋余裕を過ぎても WinnerNotification も PlayerDisconnected も
+   * 届かない場合の強制終了（要望どおりの「強制LEAVE」）。
+   */
+  private forceLeaveAfterConnectionLoss(): void {
+    this.haltMatch("connection lost watchdog timeout");
+    this.cleanup();
+    this.postMatchCallbacks?.onForceLeave?.(
+      "相手との接続が失われたため対戦を終了します",
+    );
+  }
+
+  /** S4③: 自分自身が瞬断〜再接続中のあいだ、自分の盤面にも切断UIを出す。 */
+  showSelfDisconnected(): void {
+    if (!this.isBattleActive || this.selfDisconnectOverlay) return;
+    this.selfDisconnectOverlay = showDisconnectOverlay(onlineFieldPrefix("self", this.myRule));
+  }
+
+  /** S4③: 自分の再接続成功時、自分の切断UIを消す。 */
+  hideSelfDisconnected(): void {
+    this.selfDisconnectOverlay?.stop();
+    this.selfDisconnectOverlay = null;
+  }
+
+  /** S4③: 自分の再接続が尽きた（GameConnectionのonCloseCb）ときの強制終了。 */
+  forceLeaveDueToSelfDisconnect(): void {
+    if (!this.isBattleActive) return;
+    this.haltMatch("self connection lost, giving up reconnect");
+    this.cleanup();
+    this.postMatchCallbacks?.onForceLeave?.(
+      "通信が回復しなかったため対戦を終了しました",
+    );
   }
 
   // ── Cleanup ──────────────────────────────────────────────────────────────
@@ -2597,6 +2719,13 @@ export class OnlineGameController {
     this.rematchVotes.clear();
     this.myRematchVoted = false;
     this.departed.clear();
+    // S4: 切断UI・安全網タイマーを持ち越さない
+    this.disconnectWatchdogs.forEach((id) => window.clearTimeout(id));
+    this.disconnectWatchdogs.clear();
+    this.disconnectOverlays.forEach((h) => h.stop());
+    this.disconnectOverlays.clear();
+    this.selfDisconnectOverlay?.stop();
+    this.selfDisconnectOverlay = null;
     const pmStatus = document.getElementById("ol-post-match-status");
     if (pmStatus) pmStatus.innerHTML = "";
     this.clearFinishOverlay();
