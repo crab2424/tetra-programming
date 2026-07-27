@@ -65,8 +65,8 @@ import {
 import {
   runBattlePreload,
   hideLoadingOverlay,
-  closeLoadingScreen,
-  setLoadingProgress,
+  enterBlackout,
+  revealBattle,
   LOADING_CLOSE_MS,
 } from "../battle/loading_screen";
 
@@ -650,12 +650,19 @@ export class OnlineGameController {
     );
   }
 
-  /** Transition to the battle page and begin the match */
+  /**
+   * StartMatchNotification 受信。まず暗転させ、その後（真っ暗の下で）実際の
+   * 盤面切り替え・エンジン初期化・相手パペットの同期待ちを行う（setupBattleUnderCover）。
+   *
+   * ★ ユーザー指定の演出順: プリロード/READY送信/相手待ち（フェーズA）は明るめのblurの
+   *   まま進める。盤面の切り替えが透けて見えるのを防ぐため、暗転が完了してからのみ
+   *   DOM切り替え・エンジン初期化を行う。開始時刻(startTimeMs)はサーバー権威のまま
+   *   動かさない＝ここで消費した時間はカウントダウンの残り時間から自動的に差し引かれる
+   *   （setupBattleUnderCover 側で setTimeout 用に補正する）。
+   */
   private startBattle(notif: StartMatchNotification): void {
     // 二重の開始通知・決着処理中の遅延通知はここで捨てる
     if (!this.lifecycle.transition("countdown", "StartMatchNotification")) return;
-    // ★ ロード画面はここでは閉じない。相手パペットの初回データ（NEXT等）が届くまで
-    //   （またはタイムアウトまで）画面上に残す。閉じるのは revealBattleAfterSync。
     this.myAlive = true;
     this.matchHalted = false;
     this.clearWinnerFallback();
@@ -669,6 +676,31 @@ export class OnlineGameController {
     // Determine my rule from room info
     const myPlayer = this.roomInfo.players.find(([id]) => id === this.myUserId);
     this.myRule = myPlayer?.[2] === 'puyo' ? 'puyo' : 'tet';
+
+    const now = this.connection.serverNow();
+    const delay = Math.max(0, notif.startTimeMs - now);
+    const startedAt = performance.now();
+    this.battleStartedAtMs = startedAt; // カウントダウン残り時間の起点（暗転前のこの時点で固定）
+
+    enterBlackout().then(() => this.setupBattleUnderCover(notif, delay, startedAt));
+  }
+
+  /**
+   * enterBlackout() が解決した後（＝画面が完全に不可視）に呼ばれる。盤面切り替え・
+   * エンジン初期化・相手パペットの同期待ちをすべてここで行う。
+   */
+  private setupBattleUnderCover(
+    notif: StartMatchNotification,
+    delay: number,
+    startedAt: number,
+  ): void {
+    // 暗転中に決着・cleanup（相手切断等）が起きていたら何もしない
+    if (this.lifecycle.phase !== "countdown") return;
+
+    // 暗転待ちで消費した時間ぶんを差し引いた、この時点からの残り時間。
+    // setTimeout(...) はここから数えるので、開始時刻(startTimeMs)自体は変えず
+    // スケジュールだけ補正する（両者を組み合わせれば元の絶対時刻と一致する）。
+    const adjustedDelay = Math.max(0, delay - (performance.now() - startedAt));
 
     // Switch page first so canvas elements are in the DOM
     this.switchToBattlePage();
@@ -727,34 +759,31 @@ export class OnlineGameController {
       this.setConfigured = true;
     }
     this.lifecycle.beginRound();
-    const now = this.connection.serverNow();
-    const delay = Math.max(0, notif.startTimeMs - now);
-    this.battleStartedAtMs = performance.now(); // カウントダウン残り時間の起点
-    // ★ ここで即座に自分のエンジン初期化を始める（＝相手への sentinel 送信も即座に始まる）。
+    // ★ ここで自分のエンジン初期化を始める（＝相手への sentinel 送信も始まる）。
     //   ロード画面を閉じるタイミングだけを別途 revealBattleAfterSync で遅らせる設計にしないと、
     //   全員が「相手のデータを待ってから自分のデータを送る」ことになりデッドロックする。
     if (this.myRule === 'puyo') {
-      this.initPuyoBattle(notif, matchSetting, delay);
+      this.initPuyoBattle(notif, matchSetting, adjustedDelay);
     } else {
-      this.initTetBattle(notif, matchSetting, delay);
+      this.initTetBattle(notif, matchSetting, adjustedDelay);
     }
     this.revealBattleAfterSync(delay);
   }
 
   /**
-   * ロード画面を「相手パペットの初回データ（NEXT/盤面）が揃うまで」残し、
-   * 暗転→ロードUI消し→フェードインで閉じてから READY カウントダウンを始める。
+   * 相手パペットの初回データ（NEXT/盤面）が揃うまで（またはタイムアウトまで）真っ暗を維持し、
+   * 揃ったら対戦画面へフェードインしてから READY カウントダウンを始める。
    *
    * ★ 背景: 自分の盤面はローカルの initGame 完了ですぐ描画されるが、相手パペットは
    *   生成直後は完全に空（driver.ts）で、相手からの sentinel Spawn/PuyoSpawn フレームが
-   *   ネットワーク越しに届くまで NEXT/HOLD が空のまま描画される。従来はロード画面を
-   *   即座に閉じていたため、対戦開始直後に相手盤面が空 → 数百ms後に一斉に埋まる、
-   *   というポップインが見えていた（2026-07-26 不具合）。
+   *   ネットワーク越しに届くまで NEXT/HOLD が空のまま描画される。ここで待ってから
+   *   フェードインすることで、対戦画面が見えた瞬間には相手盤面も埋まっている
+   *   （2026-07-26 不具合の対策を維持）。
    *
-   * ★ 開始時刻(startTimeMs)はサーバー権威のまま動かさない（本編開始の setTimeout は
-   *   initTet/PuyoBattle 側で delay に固定されている）。ここで動かすのは「覆いを外し、
+   * ★ 開始時刻(startTimeMs)はサーバー権威のまま動かさない。ここで動かすのは「覆いを外し、
    *   カウントダウンを始める」タイミングだけで、カウントダウンは残り時間へ自動的に
-   *   縮む（runCountdown は startDelayMs を3等分する）。
+   *   縮む（runCountdown は startDelayMs を3等分する）。delay は startBattle 時点の
+   *   （暗転前の）値のまま渡す＝battleStartedAtMs と対になった同じ基準点を保つため。
    */
   private revealBattleAfterSync(delay: number): void {
     const waits = [...this.puppets.values()].map((d) => d.waitForFirstData());
@@ -763,19 +792,21 @@ export class OnlineGameController {
       if (settled) return;
       settled = true;
       // 閉じ演出が終わってから（＝対戦画面が完全に見えてから）カウントダウン開始。
-      closeLoadingScreen().then(() => this.startCountdownForRemaining(delay));
+      revealBattle().then(() => this.startCountdownForRemaining(delay));
     };
     if (waits.length === 0) {
       finish();
       return;
     }
-    setLoadingProgress(1, "対戦データを同期しています…");
     Promise.all(waits).then(finish);
     // 相手を待ち続けてカウントダウンが出せなくなるのを防ぐ。閉じ演出の尺と
     // 最低限のカウントダウン時間を確保できる時刻には必ず閉じ始める。
+    // ★ delay は battleStartedAtMs（暗転前）を起点にした値なので、この setTimeout の
+    //   「今から」との差分（=enterBlackoutで既に消費した時間）を差し引く必要がある。
+    const elapsedSinceStart = performance.now() - (this.battleStartedAtMs ?? performance.now());
     setTimeout(
       finish,
-      Math.max(0, delay - LOADING_CLOSE_MS - OnlineGameController.MIN_COUNTDOWN_MS),
+      Math.max(0, delay - LOADING_CLOSE_MS - OnlineGameController.MIN_COUNTDOWN_MS - elapsedSinceStart),
     );
   }
 
@@ -1382,13 +1413,19 @@ export class OnlineGameController {
       };
     }
 
-    // _calcChainScore: 連鎖消去の開始時に点滅セルを相手へ送る（連鎖フラッシュ演出）
+    // _calcChainScore: 連鎖消去の開始時に点滅セルを相手へ送る（連鎖フラッシュ演出）。
+    // ★ グループ境界(groups)を保ったまま送る。受信側の _prepareChainTextDOM（実エンジンと
+    //   同じ関数）が「最下段・最左のグループ」選択にグループ単位の構造を要求するため、
+    //   game._erasingCells（groups.flat()+ojamaToErase を平坦化した配列）では境界情報が失われる。
+    //   おじゃまセルは _erasingCells の groups.flat() 分より後ろ（checkErase の代入順）。
     if (typeof game._calcChainScore === 'function') {
       const origCalc: AnyFn = game._calcChainScore.bind(game);
       game._calcChainScore = (groups: any) => {
         const r = origCalc(groups);
         if (this.myAlive && Array.isArray(game._erasingCells) && game._erasingCells.length) {
-          conn.sendMatchEvent(encodePuyoChain(game.chainCount ?? 1, game._erasingCells));
+          const groupCellCount = Array.isArray(groups) ? groups.reduce((n: number, g: any[]) => n + g.length, 0) : 0;
+          const ojamaCells = (game._erasingCells as any[]).slice(groupCellCount);
+          conn.sendMatchEvent(encodePuyoChain(game.chainCount ?? 1, groups ?? [], ojamaCells));
         }
         sendStats();
         return r;
@@ -2148,7 +2185,7 @@ export class OnlineGameController {
       // ぷよ: _gs が 'falling' または関連フェーズのときだけ送信
       if (g._gs !== 'falling' && g._gs !== 'fixing') return;
       this.connection.sendPieceState(
-        encodePuyoPieceState(g.pivotColor, g.childColor, g.pivotX, g.pivotY, g.targetRot),
+        encodePuyoPieceState(g.pivotColor, g.childColor, g.pivotX, g.pivotY, g.targetRot, g.targetAnimRot),
       );
     } else {
       if (!g.mino) return;

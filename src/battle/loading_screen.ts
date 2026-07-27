@@ -18,21 +18,37 @@ const CARD_ID = "ol-loading-card";
 const DARKENING_CLASS = "ol-loading-overlay--darkening";
 const CLOSING_CLASS = "ol-loading-overlay--closing";
 
-// ★ ロードが速すぎて画面がほぼ一瞬で切り替わる（体感上の「唐突さ」）のを防ぐための
-//   最低表示時間と、閉じる演出の各段階。開始タイミング(startTimeMs)自体は動かさない。
+// ★ 演出の全体像（ユーザー指定の流れ）:
 //
-// 閉じる流れ（ユーザー指定）:
-//   1. DARKEN  : ロードUIはそのまま、背景だけを「完全に暗く」する
-//   2. CARD_OUT: ロードUI（カード）だけを消す（画面は真っ暗のまま）
-//   3. FADE_IN : 真っ暗を晴らして対戦画面をフェードインで見せる
-//   → これが終わってから READY カウントダウンを開始する（online_game.ts）
-const MIN_VISIBLE_MS = 900;
-const DARKEN_MS = 320;
-const CARD_OUT_MS = 220;
-const FADE_IN_MS = 420;
+//   [承認] ── 明るめのblur背景・ロードUI表示 ──────────────┐
+//            プリロード / READY送信 / 相手を待つ              │ フェーズA（見せてよい段階）
+//            （StartMatchNotification 受信まで、ここに留まる）│
+//   ────────────────────────────────────────────────┘
+//   [StartMatchNotification受信] → enterBlackout()
+//            背景を完全な黒へ（320ms）＋ロードUIをフェードアウト（220ms、並走）
+//   ────────────────────────────────────────────────
+//   ★ ここから真っ暗（=ロードUIも背面も一切見えない）の下で、
+//      盤面切り替え・エンジン初期化・相手パペットの初回データ待ち（実質的な「ロード」）
+//      を行う（online_game.ts の startBattle 側の責務）。ここでは何もCSS変化を起こさない。
+//   ────────────────────────────────────────────────
+//   [相手パペットの同期完了 or タイムアウト] → revealBattle()
+//            真っ暗から対戦画面へフェードイン（420ms）
+//   → その後 READY カウントダウン開始（online_game.ts）
+//
+// 開始時刻(startTimeMs)はサーバー権威のまま動かさない。ここで動かすのは
+// 「画面のどこで何を見せるか」だけで、遅くなった分はカウントダウンの残り時間が縮む
+// （runCountdown が startDelayMs を3等分する性質を利用）。
+const MIN_VISIBLE_MS = 900;   // フェーズA最低表示時間（速すぎる切替の唐突さを防ぐ）
+const BLACKOUT_MS = 320;      // enterBlackout: 背景の暗転
+const CARD_OUT_MS = 220;      // enterBlackout: ロードUIのフェードアウト（暗転と並走）
+const FADE_IN_MS = 420;       // revealBattle: 真っ暗→対戦画面のフェードイン
 
-/** 閉じる演出（暗転→UI消し→フェードイン）の総所要時間。カウントダウンの尺取りに使う。 */
-export const LOADING_CLOSE_MS = DARKEN_MS + CARD_OUT_MS + FADE_IN_MS;
+/**
+ * 相手との同期待ち後に残る「必ず消費する」閉じ演出の所要時間（revealBattle 分のみ）。
+ * enterBlackout の分はサーバー権威の開始時刻カウントに対してすでに経過済み時間として
+ * 自然に反映されるため、ここには含めない。
+ */
+export const LOADING_CLOSE_MS = FADE_IN_MS;
 
 export interface LoadingPlayerState {
   name: string;
@@ -45,8 +61,8 @@ function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
 }
 
 let shownAt: number | null = null;
-// hideLoadingOverlay() が非同期で進行中のときに、show→hide が交錯しても
-// 古い hide が新しい show を巻き込んで消さないようにする世代カウンタ。
+// 進行中の enterBlackout/revealBattle が、その後の show/hide と交錯しても
+// 古い方が新しい状態を巻き込んで動かさないようにする世代カウンタ。
 let generation = 0;
 
 export function showLoadingOverlay(): void {
@@ -75,10 +91,10 @@ function teardownOverlay(overlay: HTMLElement): void {
 
 /**
  * ロード画面を即座に閉じる（エラー・辞退・離脱などの中断経路用）。
- * 対戦開始の正規ルートでは closeLoadingScreen() を使うこと。
+ * 対戦開始の正規ルートでは enterBlackout() / revealBattle() を使うこと。
  */
 export function hideLoadingOverlay(_immediate = true): void {
-  generation++; // 進行中の closeLoadingScreen を無効化する
+  generation++; // 進行中の enterBlackout/revealBattle を無効化する
   const overlay = el(OVERLAY_ID);
   if (!overlay || overlay.style.display === "none") {
     shownAt = null;
@@ -88,14 +104,14 @@ export function hideLoadingOverlay(_immediate = true): void {
 }
 
 /**
- * ロード画面を「暗転 → ロードUIを消す → フェードインで対戦画面を出す」の順で閉じる。
- * 解決した時点で画面は完全に対戦画面（オーバーレイなし）になっているので、
- * 呼び出し側はそのあとで READY カウントダウンを始める。
+ * StartMatchNotification 受信直後に呼ぶ。背景を完全な黒にし、ロードUI(カード)を
+ * フェードアウトさせてから解決する。呼び出し側（online_game.ts）はこれが解決してから
+ * 盤面切り替え・エンジン初期化・相手パペットの同期待ちを行う（＝すべて真っ暗の下で進む）。
  *
- * 最低表示時間(MIN_VISIBLE_MS)に満たない場合はその分だけ待ってから演出を始める
+ * フェーズA表示が最低表示時間(MIN_VISIBLE_MS)に満たない場合はその分だけ待つ
  * （素材が全てキャッシュ済みだと数十msで完了してしまい、画面変化が唐突になるため）。
  */
-export function closeLoadingScreen(): Promise<void> {
+export function enterBlackout(): Promise<void> {
   const overlay = el(OVERLAY_ID);
   if (!overlay || overlay.style.display === "none") {
     shownAt = null;
@@ -110,15 +126,28 @@ export function closeLoadingScreen(): Promise<void> {
   return (async () => {
     await wait(Math.max(0, MIN_VISIBLE_MS - elapsed));
     if (!alive()) return;
-    // 1. 背景を完全な暗転へ（ロードUIはそのまま）
     overlay.classList.add(DARKENING_CLASS);
-    await wait(DARKEN_MS);
-    if (!alive()) return;
-    // 2. ロードUIだけを消す（画面は真っ暗のまま）
     el(CARD_ID)?.classList.add("is-hidden");
-    await wait(CARD_OUT_MS);
-    if (!alive()) return;
-    // 3. 真っ暗を晴らして対戦画面をフェードインで見せる
+    await wait(Math.max(BLACKOUT_MS, CARD_OUT_MS));
+  })();
+}
+
+/**
+ * 相手パペットの同期が終わった（or タイムアウトした）後に呼ぶ。真っ暗な画面から
+ * 対戦画面へフェードインし、完了したらオーバーレイを完全に閉じてから解決する。
+ * 呼び出し側はこれが解決してから READY カウントダウンを始める。
+ */
+export function revealBattle(): Promise<void> {
+  const overlay = el(OVERLAY_ID);
+  if (!overlay || overlay.style.display === "none") {
+    shownAt = null;
+    return Promise.resolve();
+  }
+  const myGeneration = generation;
+  const alive = () => myGeneration === generation;
+  const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+
+  return (async () => {
     overlay.classList.add(CLOSING_CLASS);
     await wait(FADE_IN_MS);
     if (!alive()) return;
@@ -165,7 +194,7 @@ export function setLoadingPlayers(players: LoadingPlayerState[]): void {
  * ロード画面を出して素材を読み込み、完了したら解決する。**必ず解決する**
  * （失敗・タイムアウトでも reject しない。相手を待たせ続けないため）。
  * オーバーレイは閉じない: 呼び出し側が READY を送ったあと「相手の準備待ち」表示へ
- * 切り替え、対戦開始通知(StartMatchNotification)のタイミングで hide する。
+ * 切り替え、対戦開始通知(StartMatchNotification)のタイミングで enterBlackout() へ進む。
  */
 export async function runBattlePreload(options: PreloadOptions = {}): Promise<void> {
   showLoadingOverlay();

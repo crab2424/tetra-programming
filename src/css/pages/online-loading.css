@@ -7,6 +7,9 @@
      動かすのは transform / opacity だけに限定してレイアウト再計算を避ける。
    ───────────────────────────────────────────── */
 
+/* フェーズA（プリロード／READY送信／相手を待つ間）: 背面がうっすら見える明るめのblur。
+   ★ StartMatchNotification 受信まではこの見た目のまま
+   （盤面の切り替え自体はまだ起きていないので、透けて見えても問題ない）。 */
 .ol-loading-overlay {
   position: fixed;
   inset: 0;
@@ -14,16 +17,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(8, 6, 16, 0.92);
-  backdrop-filter: blur(4px);
+  background: rgba(24, 20, 40, 0.6);
+  backdrop-filter: blur(8px);
   animation: ol-loading-fadein 0.25s ease both;
 }
 
-/* ─── 閉じる演出（loading_screen.ts の closeLoadingScreen が3段階でクラスを付ける） ───
-   1. --darkening : ロードUIはそのまま、背景だけを「完全に暗く」する
-   2. .ol-loading-card.is-hidden : ロードUIだけを消す（画面は真っ暗のまま）
-   3. --closing   : 真っ暗を晴らして対戦画面をフェードインで見せる
-   この3段階が終わってから READY カウントダウンが始まる。 */
+/* ─── 演出（loading_screen.ts の enterBlackout / revealBattle がクラスを付ける） ───
+   1. --darkening (enterBlackout) : 背景を完全な黒にしつつ、ロードUIをフェードアウト
+      （並走。ここまでで画面は完全に不可視になり、この裏で盤面切り替え・エンジン初期化・
+      相手パペットの同期待ちが行われる）
+   2. --closing (revealBattle)   : 真っ暗を晴らして対戦画面をフェードインで見せる
+   この2段階の間（--darkening 完了後、--closing 開始前）が「実際のロード」区間。 */
 
 /* 1. 完全暗転。backdrop-filter は不要になる（下が見えないため）ので切って負荷も下げる。 */
 .ol-loading-overlay.ol-loading-overlay--darkening {
@@ -33,7 +37,7 @@
   transition: background-color 0.32s ease, backdrop-filter 0.32s ease;
 }
 
-/* 2. カードだけフェードアウト（背景の真っ暗はそのまま維持） */
+/* カードのフェードアウトは --darkening と並走する（暗転と同時にロードUIも消える）。 */
 .ol-loading-card {
   transition: opacity 0.22s ease, transform 0.22s ease;
 }
@@ -44,7 +48,7 @@
   pointer-events: none;
 }
 
-/* 3. 真っ暗→対戦画面へフェードイン */
+/* 2. 真っ暗→対戦画面へフェードイン */
 .ol-loading-overlay.ol-loading-overlay--closing {
   animation: none;
   opacity: 0;

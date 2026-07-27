@@ -37,6 +37,9 @@ class PuyoGame {
         this.clearedPuyos = 0;
         this.chainScoreAdd = 0;
         this.chainScoreStr = "";
+        // ★ 連鎖文字DOM(48px固定)の縮小率。online対戦の相手パペットが --ol-scale に
+        //   合わせて上書きする（src/battle/driver.ts）。CPU戦・単発プレイは常に1倍のまま。
+        this._chainTextScale = 1;
 
         // ★ 火力・おじゃま管理用変数
         this.attackScore = 0;

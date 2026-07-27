@@ -22,6 +22,9 @@ declare const Block: new (x: number, y: number, type: number) => any;
 declare const Field: new () => any;
 declare const Game: new (prefix?: string | null) => any;
 declare const PuyoGame: new (prefix?: string | null) => any;
+/** ぷよエンジンの定数(cellSize/hiddenRows/eraseMs等)。CPU戦と同じ値を bare 参照で使う
+ *  （[[project_pconfig_global_gotcha]]と同じ理由でwindow.PConfigは存在しない）。 */
+declare const PConfig: any;
 
 /**
  * 対戦相手（オポネント）の生成・駆動を表す抽象。CPU戦の相手=AIが操作する実エンジン、
@@ -37,20 +40,34 @@ export interface OpponentDriver {
 
 type NetworkRule = "tet" | "puyo";
 
-// ── PUYO 相手盤面リプレイ用の定数（実エンジン PConfig と同値に揃える） ───────────
-const PUYO_CELL = 32;                          // PConfig.cellSize
-const PUYO_HIDDEN = 5;                         // PConfig.hiddenRows
-const PUYO_ERASE_MS = 28 * (1000 / 60);        // PConfig.eraseMs（点滅時間 ≈ 466.7ms）
-const PUYO_ERASE_WAIT_MS = 270;                // PConfig.eraseWaitMs（消去後の間）
-const PUYO_CHAIN_DROP_PX_PER_MS = PUYO_CELL / 50;        // dropping 状態: cellSize/50 px/ms
-const PUYO_CHIGIRI_PX_PER_MS = PUYO_CELL / (500 / 6);    // splitDropSpeed: 1セル/83.3ms
-const PUYO_FIX_CYCLES = 2;                     // 設置振動 _calcFixCycles の非ソフトドロップ既定
+// PUYO_FIX_CYCLES: 設置振動 _calcFixCycles() の非ソフトドロップ既定値。PConfig 由来ではなく
+// エンジンの分岐結果を写した値なので定数として残す（ソフトドロップ状態は相手には送っていない）。
+const PUYO_FIX_CYCLES = 2;
 
-type PuyoReplayPhase = "idle" | "blink" | "wait" | "drop" | "vib";
+/**
+ * `#ol-battle-layout` に人数別で設定される `--ol-scale`（src/css/pages/online-battle.css）を
+ * 実測して返す。連鎖文字(48px固定DOM)を盤面と同じ縮小率に合わせるために使う
+ * （2P=1でCPU戦と実寸一致、3P以降は0.6/0.51875/0.4）。要素が無い/値が読めない場合は1。
+ */
+function readOlScale(): number {
+  const el = document.getElementById("ol-battle-layout");
+  if (!el) return 1;
+  const raw = getComputedStyle(el).getPropertyValue("--ol-scale").trim();
+  const v = parseFloat(raw);
+  return Number.isFinite(v) && v > 0 ? v : 1;
+}
+
+type PuyoReplayPhase = "idle" | "blink" | "wait" | "drop" | "vib" | "spawnAnim";
 
 /** driver に積まれる相手ぷよの演出イベント（到着順を保持し、実タイミングで再生する）。 */
 type PuyoReplayItem =
-  | { kind: "blink"; cells: Array<{ r: number; c: number }>; chainCount: number }
+  | {
+      kind: "blink";
+      cells: Array<{ r: number; c: number }>;
+      chainCount: number;
+      /** _prepareChainTextDOM（実エンジンと同じ関数）に渡すグループ境界。 */
+      groups: Array<Array<{ r: number; c: number }>>;
+    }
   | { kind: "lock"; phase: number; field: number[][] }
   | { kind: "spawn"; nextQueue: number[][] | null; pivotColor: number; childColor: number; hasPair: boolean };
 
@@ -89,10 +106,14 @@ export class NetworkDriver implements OpponentDriver {
   // ── 相手ぷよの連鎖/設置リプレイ（案D: 到着順キュー + 実タイミング再生） ──
   private puyoReplayQueue: PuyoReplayItem[] = [];
   private puyoReplayPhase: PuyoReplayPhase = "idle";
-  private puyoReplayTimer = 0;
   private puyoReplayFrame: number | null = null;
   private puyoReplayLastNow = 0;
   private puyoDrop: PuyoDropState | null = null;
+  /** _prepareChainTextDOM に渡すグループ境界。blink開始〜Erase(wait)適用まで保持する
+   *  （実エンジンの this.pendingChainGroups と同じ役割）。 */
+  private pendingChainGroups: Array<Array<{ r: number; c: number }>> | null = null;
+  /** NEXT遷移(spawnAnim)中に保持する、遷移完了後に適用するspawnアイテム。 */
+  private pendingSpawn: Extract<PuyoReplayItem, { kind: "spawn" }> | null = null;
   /** 決着後に凍結済みか。以後の受信フレームは全て捨てる。 */
   private frozen = false;
   /**
@@ -121,6 +142,12 @@ export class NetworkDriver implements OpponentDriver {
       this.puppet._initField?.();
       this.puppet.nextQueue = [];
       this.puppet.rng = null;
+      // ★ ALL CLEAR明滅・浮遊フラッシュは実エンジンの this.elapsed 基準（draw.js）。
+      //   パペットは _startTimer を回さないため放置すると 0 のまま静止する。
+      this.puppet.elapsed = 0;
+      // ★ 連鎖文字(48px固定DOM)を --ol-scale に合わせて縮小する（3P以降で相対的に
+      //   巨大化しないため）。CPU戦の PuyoGame は既定の undefined(=1倍)のまま。
+      this.puppet._chainTextScale = readOlScale();
       this.puppet._loadImages(() => { this.puppet._render?.(); });
     } else {
       this.puppet = new Game(`ol-opp-${this.index}`);
@@ -134,10 +161,20 @@ export class NetworkDriver implements OpponentDriver {
     }
   }
 
-  start(): void { /* NetworkDriver is driven by incoming frames. */ }
+  start(): void {
+    // ★ 回転補間・ALL CLEAR明滅・浮遊フラッシュはキューが空でも毎フレーム進む必要があるため、
+    //   対戦開始〜stop/freeze/markDeadまで常駐で回す（CPU戦の各PuyoGame自前_loopと同じ本数）。
+    if (this.rule === "puyo") this.startPuyoLoop();
+  }
 
   stop(): void {
     this.stopPuyoReplay();
+    if (this.rule === "puyo") {
+      // ★ freeze() が立てた _versusFinishing を戻す。放置すると puppet.stop() の
+      //   キャンバスクリア/cancelAnimationFrame が丸ごとスキップされ続ける
+      //   （第4ラウンド③で自分側のPuyoGameに起きた rAF リークと同じ罠）。
+      this.puppet._versusFinishing = false;
+    }
     this.puppet?.stop?.();
   }
 
@@ -160,6 +197,7 @@ export class NetworkDriver implements OpponentDriver {
     this.onDead(this.id);
     if (this.rule === "puyo") {
       this.stopPuyoReplay();
+      this.puppet.isAllClear = false; // ★ ゲームオーバー時にALL CLEARを消す（engine.js _beginGameOver と同じ）
       this.puppet.isPaused = true;
       this.puppet._render?.();
     } else {
@@ -245,7 +283,15 @@ export class NetworkDriver implements OpponentDriver {
           const ps = decodePuyoPieceState(payload);
           puppet.pivotColor = ps.pivotColor; puppet.childColor = ps.childColor;
           puppet.pivotX = ps.pivotX; puppet.pivotY = ps.pivotY;
-          puppet.targetRot = ps.rotation; puppet.animRot = ps.rotation; puppet.targetAnimRot = ps.rotation;
+          puppet.targetRot = ps.rotation;
+          // ★ targetAnimRot は mod を取らない累積値（engine.js）。ワイヤーは mod 256 の
+          //   1バイトなので、現在の animRot に最も近い合同値へ復元する（回転演出用）。
+          //   animRot 自体はここで代入しない＝_stepRotationAnim が実エンジンと同じ式で追従する。
+          const base = Math.round((puppet.animRot ?? 0) / 256) * 256;
+          let candidate = base + ps.targetAnimRot;
+          if (candidate - puppet.animRot > 128) candidate -= 256;
+          else if (candidate - puppet.animRot < -128) candidate += 256;
+          puppet.targetAnimRot = candidate;
           puppet._gs = "falling";
           requestAnimationFrame(() => { if (puppet._imagesLoaded) puppet._render?.(); });
           return;
@@ -258,7 +304,6 @@ export class NetworkDriver implements OpponentDriver {
         if (this.rule === "puyo") {
           const { field, phase } = decodePuyoLock(payload);
           this.puyoReplayQueue.push({ kind: "lock", phase, field });
-          this.ensurePuyoReplay();
           return;
         }
         const { board, dyingMino } = decodeLock(payload);
@@ -291,7 +336,6 @@ export class NetworkDriver implements OpponentDriver {
             childColor: sp.childColor,
             hasPair: sp.pivotColor !== 0 || sp.childColor !== 0,
           });
-          this.ensurePuyoReplay();
           return;
         }
         const sp = decodeSpawn(payload);
@@ -341,8 +385,12 @@ export class NetworkDriver implements OpponentDriver {
       case MatchOpcode.ChainReplay: {
         if (this.rule !== "puyo") return;
         const chain = decodePuyoChain(payload);
-        this.puyoReplayQueue.push({ kind: "blink", cells: chain.cells, chainCount: chain.chainCount });
-        this.ensurePuyoReplay();
+        this.puyoReplayQueue.push({
+          kind: "blink",
+          cells: chain.cells,
+          chainCount: chain.chainCount,
+          groups: chain.groups,
+        });
         return;
       }
     }
@@ -358,16 +406,24 @@ export class NetworkDriver implements OpponentDriver {
   // これらを到着順にキューへ積み、実エンジン(PConfig)と同じ時間で
   //   点滅(eraseMs) → 消去swap → 間(eraseWaitMs) → 落下(gravity) → 着地振動
   // と再生する。reliable channel のバースト到着でも「一瞬で確定」せず本来の速度で見える。
-  // PuyoGame 本体には触れず driver 内で完結するので、物理/RNG/SE/おじゃまの二重発火は起きない。
+  //
+  // ★ タイマーの前進は実エンジン(engine.js)から抽出した _step*Anim 系メソッドをそのまま呼ぶ
+  //   （PuyoGame.prototype に mixin されているので puppet からも同じ関数が呼べる＝
+  //   「CPU戦とコードレベルで統一」）。PuyoGame 本体の状態遷移(_gs)自体には触れないので
+  //   物理/RNG/SE/おじゃまの二重発火は起きない。
+  //
+  // ループは対戦開始(start)〜停止(stop/freeze/markDead)まで常駐で回す。回転補間・
+  // ALL CLEAR明滅・浮遊フラッシュはキューが空でも毎フレーム進む必要があるため
+  // （旧実装は「やることがない間はrAFを止める」形だったが、これらは常時動く演出のため不可）。
 
-  /** 再生ループを（動いていなければ）開始する。 */
-  private ensurePuyoReplay(): void {
+  /** 常駐ループを（動いていなければ）開始する。start() から呼ぶ。 */
+  private startPuyoLoop(): void {
     if (this.puyoReplayFrame !== null) return;
     this.puyoReplayLastNow = performance.now();
-    this.puyoReplayFrame = requestAnimationFrame((n) => this.stepPuyoReplay(n));
+    this.puyoReplayFrame = requestAnimationFrame((n) => this.stepPuyoLoop(n));
   }
 
-  /** 再生を止めてキューを捨てる（stop / markDead / 切断時）。 */
+  /** ループを止めてキューを捨てる（stop / freeze / markDead から呼ぶ）。 */
   private stopPuyoReplay(): void {
     if (this.puyoReplayFrame !== null) {
       cancelAnimationFrame(this.puyoReplayFrame);
@@ -376,19 +432,23 @@ export class NetworkDriver implements OpponentDriver {
     this.puyoReplayQueue = [];
     this.puyoReplayPhase = "idle";
     this.puyoDrop = null;
+    this.pendingChainGroups = null;
+    this.pendingSpawn = null;
   }
 
-  /** 毎フレーム: 振動を進め、現フェーズを1段進め、描画する。 */
-  private stepPuyoReplay(now: number): void {
+  /** 毎フレーム: 振動・回転・elapsedを進め、現フェーズを1段進め、描画する。 */
+  private stepPuyoLoop(now: number): void {
     const puppet = this.puppet;
     const dt = Math.min(100, now - this.puyoReplayLastNow);
     this.puyoReplayLastNow = now;
 
-    // 振動タイマーは実エンジン _update 同様、フェーズ非依存で毎フレーム前進させる。
-    if (puppet.activeAnims?.length) {
-      for (const a of puppet.activeAnims) a.timer += dt;
-      puppet.activeAnims = puppet.activeAnims.filter((x: any) => x.timer < x.duration);
-    }
+    // ★ ALL CLEAR明滅・浮遊フラッシュ(draw.js)は this.elapsed 基準。パペットは
+    //   _startTimer を回さないので、ここで自前に進めないと常に静止したままになる。
+    puppet.elapsed = (puppet.elapsed ?? 0) + dt;
+    // 設置振動は実エンジンの _update と同様、フェーズ非依存で毎フレーム前進させる。
+    puppet._stepVibAnims(dt);
+    // 回転補間はPieceState受信で _gs='falling' になっている間、常に追従させる。
+    if (puppet._gs === "falling") puppet._stepRotationAnim(dt);
 
     if (this.puyoReplayPhase === "idle") {
       this.startNextPuyoItem();
@@ -399,15 +459,7 @@ export class NetworkDriver implements OpponentDriver {
 
     if (puppet._imagesLoaded) puppet._render?.();
 
-    if (
-      this.puyoReplayPhase === "idle" &&
-      this.puyoReplayQueue.length === 0 &&
-      (puppet.activeAnims?.length ?? 0) === 0
-    ) {
-      this.puyoReplayFrame = null; // やることがない → 停止
-      return;
-    }
-    this.puyoReplayFrame = requestAnimationFrame((n) => this.stepPuyoReplay(n));
+    this.puyoReplayFrame = requestAnimationFrame((n) => this.stepPuyoLoop(n));
   }
 
   /** キューから次アイテムを取り出し、時間のかかるフェーズが始まるまで瞬時アイテムを消化する。 */
@@ -415,11 +467,11 @@ export class NetworkDriver implements OpponentDriver {
     while (this.puyoReplayQueue.length > 0) {
       const item = this.puyoReplayQueue.shift()!;
       if (this.beginPuyoItem(item)) return; // timed フェーズ開始（次フレームで進める）
-      // spawn / settle 等の瞬時アイテムは適用済み → 次へ
+      // spawn(sentinel) / settle 等の瞬時アイテムは適用済み → 次へ
     }
   }
 
-  /** 1アイテムを開始する。timed フェーズ(blink/wait/drop/vib)を始めたら true。 */
+  /** 1アイテムを開始する。timed フェーズ(blink/wait/drop/vib/spawnAnim)を始めたら true。 */
   private beginPuyoItem(item: PuyoReplayItem): boolean {
     const puppet = this.puppet;
     if (item.kind === "blink") {
@@ -427,33 +479,43 @@ export class NetworkDriver implements OpponentDriver {
       puppet._erasingCells = item.cells;
       puppet._eraseTimer = 0;
       puppet._gs = "erasing";
-      this.puyoReplayTimer = 0;
+      puppet.chainCount = item.chainCount;
+      puppet.isAllClear = false; // ★ 1連鎖発生でALL CLEAR表示を消す（engine.js と同じ）
+      this.pendingChainGroups = item.groups;
       this.puyoReplayPhase = "blink";
       return true;
     }
     if (item.kind === "spawn") {
-      if (item.nextQueue) puppet.nextQueue = item.nextQueue;
-      if (item.hasPair) {
-        puppet.pivotColor = item.pivotColor; puppet.childColor = item.childColor;
-        puppet.pivotX = 2; puppet.pivotY = -0.5;
-        puppet.targetRot = 0; puppet.animRot = 0; puppet.targetAnimRot = 0;
-        puppet._dropAnim = null; puppet._erasingCells = null;
-        puppet._gs = "falling";
+      if (!item.hasPair) {
+        // sentinel: カウントダウン中のNEXT早期同期のみ。演出は不要。
+        if (item.nextQueue) puppet.nextQueue = item.nextQueue;
+        return false;
       }
-      return false; // 瞬時
+      // ★ NEXT遷移: 実エンジンと同じ spawnAnim(PConfig.spawnAnimMs) を挟んでから適用する。
+      //   受信時点で保持しているnextQueueは「シフト前」の3ペア（PuyoSpawnは_spawnPuyo後に
+      //   シフト済みの値を送るため）＝_renderNextの既存スライド演出がそのまま動く。
+      this.pendingSpawn = item;
+      puppet.spawnAnimTimer = 0;
+      puppet._gs = "spawnAnim";
+      this.puyoReplayPhase = "spawnAnim";
+      return true;
     }
     // item.kind === "lock"
     if (item.phase === PuyoLockPhase.Erase) {
       puppet._dropAnim = null;
       puppet._erasingCells = null;
       puppet.field = this.copyPuyoField(item.field);
-      puppet._gs = "idle";
-      this.puyoReplayTimer = 0;
+      if (this.pendingChainGroups) {
+        puppet._prepareChainTextDOM(this.pendingChainGroups); // 実エンジンと同じ関数
+        this.pendingChainGroups = null;
+      }
+      puppet._gs = "eraseWait";
+      puppet.eraseWaitTimer = 0;
       this.puyoReplayPhase = "wait"; // 消去後の間(eraseWaitMs)
       return true;
     }
     if (item.phase === PuyoLockPhase.Drop) {
-      if (this.setupPuyoDrop(item.field, PUYO_CHAIN_DROP_PX_PER_MS, (d) => (d >= 2 ? 4 : 3))) {
+      if (this.setupPuyoDrop(item.field, PConfig.cellSize / 50, (d) => (d >= 2 ? 4 : 3))) {
         this.puyoReplayPhase = "drop";
         return true;
       }
@@ -461,6 +523,7 @@ export class NetworkDriver implements OpponentDriver {
       puppet._dropAnim = null;
       puppet.field = this.copyPuyoField(item.field);
       puppet._gs = "idle";
+      this.maybeSetAllClear();
       return false;
     }
     // item.phase === Fix
@@ -484,6 +547,7 @@ export class NetworkDriver implements OpponentDriver {
       puppet._dropAnim = null;
       puppet.field = this.copyPuyoField(next);
       puppet._gs = "idle";
+      this.maybeSetAllClear();
       return false;
     }
 
@@ -507,12 +571,17 @@ export class NetworkDriver implements OpponentDriver {
     if (falling) {
       puppet._dropAnim = [{
         c: falling.c,
-        cells: [{ fromR: falling.fromR, toR: falling.toR, color: falling.color, py: (falling.fromR - PUYO_HIDDEN) * PUYO_CELL }],
+        cells: [{
+          fromR: falling.fromR, toR: falling.toR, color: falling.color,
+          py: (falling.fromR - PConfig.hiddenRows) * PConfig.cellSize,
+        }],
       }];
       this.puyoDrop = {
         target: this.copyPuyoField(next),
         anims: puppet._dropAnim,
-        pxPerMs: PUYO_CHIGIRI_PX_PER_MS,
+        // splitting状態(ちぎり)と同じ落下速度。real _stepDropAnim は cellSize/50 固定
+        // （'dropping'状態専用）なのでここでは使えず、パラメタライズした自前ループで進める。
+        pxPerMs: PConfig.cellSize / PConfig.splitDropSpeed,
         vibCycles: () => PUYO_FIX_CYCLES,
       };
       this.puyoReplayPhase = "drop";
@@ -529,14 +598,34 @@ export class NetworkDriver implements OpponentDriver {
     switch (this.puyoReplayPhase) {
       case "blink": {
         // eraseMs 点滅。消去(Erase)ロックが到着していれば消去へ、未着なら点滅継続。
-        this.puyoReplayTimer += dt;
-        puppet._eraseTimer = this.puyoReplayTimer;
-        return this.puyoReplayTimer >= PUYO_ERASE_MS && this.puyoReplayQueue.length > 0;
+        puppet._stepEraseBlink(dt);
+        return puppet._eraseTimer >= PConfig.eraseMs && this.puyoReplayQueue.length > 0;
       }
       case "wait": {
         // 消去後の間(eraseWaitMs)。次アイテム（落下 or 次連鎖 or spawn）が来ていれば進む。
-        this.puyoReplayTimer += dt;
-        return this.puyoReplayTimer >= PUYO_ERASE_WAIT_MS && this.puyoReplayQueue.length > 0;
+        puppet._stepEraseWait(dt);
+        if (puppet.eraseWaitTimer >= PConfig.eraseWaitMs && this.puyoReplayQueue.length > 0) {
+          puppet._clearChainTextDOM(); // 実エンジンと同じタイミング(eraseWait完了時)
+          return true;
+        }
+        return false;
+      }
+      case "spawnAnim": {
+        // NEXT遷移。時間のかかるフェーズだが対応するキュー項目は既に消費済み（pendingSpawn）。
+        puppet._stepSpawnAnim(dt);
+        if (puppet.spawnAnimTimer < PConfig.spawnAnimMs) return false;
+        const item = this.pendingSpawn;
+        this.pendingSpawn = null;
+        if (item) {
+          if (item.nextQueue) puppet.nextQueue = item.nextQueue;
+          puppet.pivotColor = item.pivotColor; puppet.childColor = item.childColor;
+          puppet.pivotX = 2; puppet.pivotY = -0.5;
+          puppet.targetRot = 0; puppet.animRot = 0; puppet.targetAnimRot = 0;
+          puppet._dropAnim = null; puppet._erasingCells = null;
+        }
+        puppet.chainCount = 0; // 実エンジンの spawnAnim→spawn 遷移と同じ
+        puppet._gs = "falling";
+        return true;
       }
       case "drop": {
         const drop = this.puyoDrop;
@@ -544,7 +633,7 @@ export class NetworkDriver implements OpponentDriver {
         let allDone = true;
         for (const col of drop.anims) {
           for (const cell of col.cells) {
-            const targetY = (cell.toR - PUYO_HIDDEN) * PUYO_CELL;
+            const targetY = (cell.toR - PConfig.hiddenRows) * PConfig.cellSize;
             cell.py = Math.min(cell.py + drop.pxPerMs * dt, targetY);
             if (cell.py < targetY) allDone = false;
           }
@@ -561,6 +650,7 @@ export class NetworkDriver implements OpponentDriver {
         }
         this.puyoDrop = null;
         puppet._gs = "idle";
+        this.maybeSetAllClear();
         this.puyoReplayPhase = "vib";
         return false;
       }
@@ -568,6 +658,18 @@ export class NetworkDriver implements OpponentDriver {
         return puppet.activeAnims.length === 0;
     }
     return true;
+  }
+
+  /**
+   * ALL CLEAR判定を導出する（ワイヤー変更なし）。連鎖の最終Drop/Fixスナップショットを
+   * 適用した直後に呼ぶ。★ spawnまで待つと実エンジンの順序（全消し判定→おじゃま降下→
+   * spawnAnim）からずれ、おじゃまが降った後の盤面を見て見逃す（engine.js checkErase参照）。
+   */
+  private maybeSetAllClear(): void {
+    const puppet = this.puppet;
+    if (puppet.chainCount > 0 && puppet._isFieldEmpty?.()) {
+      puppet.isAllClear = true;
+    }
   }
 
   /**
@@ -599,7 +701,7 @@ export class NetworkDriver implements OpponentDriver {
           emptyBelow++;
         } else if (emptyBelow > 0) {
           const toR = r + emptyBelow;
-          cells.push({ fromR: r, toR, color, py: (r - PUYO_HIDDEN) * PUYO_CELL });
+          cells.push({ fromR: r, toR, color, py: (r - PConfig.hiddenRows) * PConfig.cellSize });
           field[toR][c] = 0;
         }
       }
