@@ -296,7 +296,7 @@ export const SE_IDS: Record<string, number> = {
   hold: 9,
   gameover: 10,
   // 注: tet の 'drop' はソフトドロップ音（毎マス発火）で高頻度のため同期しない
-  // puyo（move/rotate も高頻度なので除外）
+  // puyo（move は高頻度なので除外。rotate は相手側の回転演出を実装したため同期する）
   puyo_fix: 12,
   puyo_drop: 13,
   puyo_chain1: 14,
@@ -306,6 +306,7 @@ export const SE_IDS: Record<string, number> = {
   puyo_chain5: 18,
   puyo_chain6: 19,
   puyo_chain7: 20,
+  puyo_rotate: 21,
 };
 // ID → name の逆引き
 export const SE_NAMES: Record<number, string> = Object.fromEntries(
@@ -392,11 +393,13 @@ export function fieldBlocksToArray(blocks: Array<{x: number; y: number; type: nu
 
 // ── Puyo encode/decode helpers ────────────────────────────────────────
 
-// PuyoPieceState: 5 bytes (opcode + pivotColor + childColor + pivotX + pivotY_encoded + rotation)
+// PuyoPieceState: 6 bytes (opcode + pivotColor + childColor + pivotX + pivotY_encoded + rotation + targetAnimRot_encoded)
 // pivotY: float, encoded as round(pivotY * 2) + 64 → 8-bit unsigned
+// targetAnimRot: 回転演出用の非mod累積値（engine.js targetAnimRot）。byte1個(mod 256)で送り、
+// 受信側(driver.ts)は現在のanimRotに最も近い合同値へ復元する（256ラップは長時間の空中回転でしか起きない想定）。
 export function encodePuyoPieceState(
   pivotColor: number, childColor: number,
-  pivotX: number, pivotY: number, rotation: number,
+  pivotX: number, pivotY: number, rotation: number, targetAnimRot: number = rotation,
 ): Uint8Array {
   return new Uint8Array([
     MatchOpcode.PuyoPieceState,
@@ -405,11 +408,12 @@ export function encodePuyoPieceState(
     (pivotX + 16) & 0xff,
     (Math.round(pivotY * 2) + 64) & 0xff,
     rotation & 0xff,
+    (Math.round(targetAnimRot) + 128) & 0xff,
   ]);
 }
 export interface PuyoPieceStateData {
   pivotColor: number; childColor: number;
-  pivotX: number; pivotY: number; rotation: number;
+  pivotX: number; pivotY: number; rotation: number; targetAnimRot: number;
 }
 export function decodePuyoPieceState(p: Uint8Array): PuyoPieceStateData {
   return {
@@ -418,6 +422,8 @@ export function decodePuyoPieceState(p: Uint8Array): PuyoPieceStateData {
     pivotX: p[2] - 16,
     pivotY: (p[3] - 64) / 2,
     rotation: p[4],
+    // 後方互換: 旧5バイトフレーム（targetAnimRot未送信）は rotation を代用値にする
+    targetAnimRot: p.length > 5 ? p[5] - 128 : p[4],
   };
 }
 
@@ -490,30 +496,67 @@ export function encodeGarbagePuyo(amount: number): Uint8Array {
   return encodeGarbage(n, columns);
 }
 
-// PuyoChain: [chainCount][count][r,c × count] — 連鎖消去開始時の点滅セル
+// PuyoChain: [chainCount][groupCount][groupLen × groupCount][cells(r,c) …グループ順][ojamaCount][ojama cells(r,c)]
+// 連鎖消去開始時の点滅セル。グループ境界を持つのは _prepareChainTextDOM（実エンジンと
+// 同じ関数、driver.tsから流用）が「最下段・最左のグループ」を選ぶのにグループ単位の
+// 構造が必要なため（cells をフラットにしただけでは境界もおじゃまとの区別も失われる）。
 export function encodePuyoChain(
-  chainCount: number, cells: Array<{ r: number; c: number }>,
+  chainCount: number,
+  groups: Array<Array<{ r: number; c: number }>>,
+  ojamaCells: Array<{ r: number; c: number }> = [],
 ): Uint8Array {
-  const n = Math.min(cells.length, 255);
-  const buf = new Uint8Array(3 + n * 2);
-  buf[0] = MatchOpcode.PuyoChain;
-  buf[1] = chainCount & 0xff;
-  buf[2] = n;
-  for (let i = 0; i < n; i++) {
-    buf[3 + i * 2] = cells[i].r & 0xff;
-    buf[4 + i * 2] = cells[i].c & 0xff;
+  const groupCount = Math.min(groups.length, 255);
+  const groupLens = groups.slice(0, groupCount).map((g) => Math.min(g.length, 255));
+  const totalGroupCells = groupLens.reduce((a, b) => a + b, 0);
+  const n = Math.min(ojamaCells.length, 255);
+  const buf = new Uint8Array(1 + 1 + 1 + groupCount + totalGroupCells * 2 + 1 + n * 2);
+  let i = 0;
+  buf[i++] = MatchOpcode.PuyoChain;
+  buf[i++] = chainCount & 0xff;
+  buf[i++] = groupCount;
+  for (let g = 0; g < groupCount; g++) buf[i++] = groupLens[g];
+  for (let g = 0; g < groupCount; g++) {
+    for (let k = 0; k < groupLens[g]; k++) {
+      buf[i++] = groups[g][k].r & 0xff;
+      buf[i++] = groups[g][k].c & 0xff;
+    }
+  }
+  buf[i++] = n;
+  for (let j = 0; j < n; j++) {
+    buf[i++] = ojamaCells[j].r & 0xff;
+    buf[i++] = ojamaCells[j].c & 0xff;
   }
   return buf;
 }
-export interface PuyoChainData { chainCount: number; cells: Array<{ r: number; c: number }>; }
+export interface PuyoChainData {
+  chainCount: number;
+  groups: Array<Array<{ r: number; c: number }>>;
+  ojamaCells: Array<{ r: number; c: number }>;
+  /** groups.flat() + ojamaCells（消去点滅の対象セル全体。従来の _erasingCells 相当）。 */
+  cells: Array<{ r: number; c: number }>;
+}
 export function decodePuyoChain(p: Uint8Array): PuyoChainData {
-  const chainCount = p[0] ?? 0;
-  const n = p[1] ?? 0;
-  const cells: Array<{ r: number; c: number }> = [];
-  for (let i = 0; i < n; i++) {
-    cells.push({ r: p[2 + i * 2] ?? 0, c: p[3 + i * 2] ?? 0 });
+  let i = 0;
+  const chainCount = p[i++] ?? 0;
+  const groupCount = p[i++] ?? 0;
+  const groupLens: number[] = [];
+  for (let g = 0; g < groupCount; g++) groupLens.push(p[i++] ?? 0);
+  const groups: Array<Array<{ r: number; c: number }>> = [];
+  for (let g = 0; g < groupCount; g++) {
+    const grp: Array<{ r: number; c: number }> = [];
+    for (let k = 0; k < groupLens[g]; k++) {
+      grp.push({ r: p[i] ?? 0, c: p[i + 1] ?? 0 });
+      i += 2;
+    }
+    groups.push(grp);
   }
-  return { chainCount, cells };
+  const n = p[i++] ?? 0;
+  const ojamaCells: Array<{ r: number; c: number }> = [];
+  for (let j = 0; j < n; j++) {
+    ojamaCells.push({ r: p[i] ?? 0, c: p[i + 1] ?? 0 });
+    i += 2;
+  }
+  return { chainCount, groups, ojamaCells, cells: [...groups.flat(), ...ojamaCells] };
 }
 
 // ── Cross-game conversion tables (same as garbage.js) ────────────────

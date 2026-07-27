@@ -90,10 +90,15 @@ Object.assign(PuyoGame.prototype, {
 
         const numSize = 48;
         const chainSize = 24;
+        // ★ online対戦の相手パペットは --ol-scale に合わせてこの倍率が1未満になる
+        //   （盤面全体が縮小されるのに文字だけ固定pxだと3P以降で相対的に巨大化するため）。
+        //   CSS transform の scale() で丸ごと縮小すればstroke/text-shadow/marginも
+        //   比率を保ったまま一緒に縮む。CPU戦(常に1)は見た目が変わらない。
+        const scale = this._chainTextScale ?? 1;
 
         const el = document.createElement('div');
         el.style.position = 'absolute';
-        el.style.transform = 'translate(-50%, -50%)';
+        el.style.transform = `translate(-50%, -50%) scale(${scale})`;
         el.style.pointerEvents = 'none';
         el.style.zIndex = '9999';
         el.style.whiteSpace = 'nowrap';
