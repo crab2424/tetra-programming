@@ -257,6 +257,10 @@ export class OnlineGameController {
   private battleStartedAtMs: number | null = null;
   /** ロード画面を閉じ始めるデッドラインで最低限確保するカウントダウン時間。 */
   private static readonly MIN_COUNTDOWN_MS = 900;
+  /** 相手SEの音量倍率。自分と同じ音量にする（以前は 0.4 で小さく鳴らしていた）。 */
+  private static readonly OPPONENT_SE_GAIN = 1.0;
+  /** 相手PUYOの puyo_fix/puyo_drop 受信を送信元ごとに間引くための直近再生時刻。 */
+  private lastOpponentFixSeTime = new Map<Uuid, number>();
 
   /**
    * 終了処理の状態機械。開始/決着/再戦/退出の排他はすべてここを通す。
@@ -1146,10 +1150,12 @@ export class OnlineGameController {
     };
 
     // playSe: 重要な SE を相手へ同期する
+    // ★ playSe の戻り値（実際に鳴らしたか）を見てから送る。チャタリング防止で間引かれた
+    //   呼び出しまで送ると、送り手には鳴らなかった音が受け手にだけ二重に鳴る。
     const origPlaySe: AnyFn = game.playSe.bind(game);
     game.playSe = (key: string) => {
-      origPlaySe(key);
-      if (!this.myAlive) return;
+      const played = origPlaySe(key);
+      if (!this.myAlive || played === false) return;
       const id = SE_IDS[key];
       if (id !== undefined) {
         conn.sendMatchEvent(encodeSE(id));
@@ -1433,10 +1439,13 @@ export class OnlineGameController {
     }
 
     // playSe: 重要な SE を相手へ同期する（puyo_fix/連鎖/設置/gameover 等。move/rotate は除外）
+    // ★ playSe の戻り値（実際に鳴らしたか）を見てから送る。puyo_fix/puyo_drop は
+    //   1インスタンス50msのチャタリング防止(puyo/input.js)があるが、間引かれた呼び出しまで
+    //   送っていたため、送り手には1回しか鳴らない設置音が受け手には二重に鳴っていた。
     const origPlaySe: AnyFn = game.playSe.bind(game);
     game.playSe = (key: string) => {
-      origPlaySe(key);
-      if (!this.myAlive) return;
+      const played = origPlaySe(key);
+      if (!this.myAlive || played === false) return;
       const id = SE_IDS[key];
       if (id !== undefined) conn.sendMatchEvent(encodeSE(id));
     };
@@ -1829,6 +1838,7 @@ export class OnlineGameController {
     this.puppets.clear();
     this.puppetRules.clear();
     this.puppetIndices.clear();
+    this.lastOpponentFixSeTime.clear();
 
     // 勝者オーバーレイを隠す
     const winOverlay = document.getElementById("ol-winner-overlay");
@@ -1948,10 +1958,21 @@ export class OnlineGameController {
       if (changed) game.updateGarbageGauge?.();
       return;
     }
-    // SE: 相手の音を低音量で再生
+    // SE: 相手の音を再生
+    // ★ puyo_fix/puyo_drop は保険として送信元(senderId)ごとに50ms間引く。送信側
+    //   (playSe フック)で既にチャタリング抑制済みだが、再送や複数相手の混在に備えて
+    //   受信側にも同じ間隔ガードを置く。senderIdごとに独立させ、他の相手の音を
+    //   誤って消さないようにする。
     if (frame.opcode === MatchOpcode.SE) {
       const seName = SE_NAMES[frame.payload[0]];
-      if (seName) (window as any).SeManager?.playWithGain(seName, 0.4);
+      if (!seName) return;
+      if (seName === 'puyo_fix' || seName === 'puyo_drop') {
+        const now = performance.now();
+        const last = this.lastOpponentFixSeTime.get(frame.senderId);
+        if (last !== undefined && now - last < 50) return;
+        this.lastOpponentFixSeTime.set(frame.senderId, now);
+      }
+      (window as any).SeManager?.playWithGain(seName, OnlineGameController.OPPONENT_SE_GAIN);
       return;
     }
     // PendingUpdate: 送信者の予告ゲージを更新
@@ -2442,6 +2463,7 @@ export class OnlineGameController {
     this.puppets.clear();
     this.puppetRules.clear();
     this.puppetIndices.clear();
+    this.lastOpponentFixSeTime.clear();
 
     // Reset battle layout state
     setOnlinePlayerCount(null);
