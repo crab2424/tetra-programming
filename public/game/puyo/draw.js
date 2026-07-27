@@ -181,6 +181,15 @@ Object.assign(PuyoGame.prototype, {
         if (this.yokokuContainer) {
             this.yokokuContainer.innerHTML = '';
         }
+        // ★ innerHTML='' は row1/row2 の固定コンテナごと・プール中のノードも道連れに
+        //   吹き飛ばす。参照を持ったままにすると次回 _updateOjamaYokoku が「もう
+        //   DOMに無いノード」へ appendChild し続けて描画が復活しなくなるため、
+        //   ノード管理用の状態を丸ごとリセットし、次回 _initOjamaYokokuDOM 相当の
+        //   再構築（row1/row2再生成）から入り直させる。
+        this._yokokuRow1 = null;
+        this._yokokuRow2 = null;
+        this._yokokuMounted = [];
+        this._yokokuPool = {};
         // ★ DOMを空にしたので差分更新キャッシュも無効化（次回の_updateOjamaYokokuで確実に再構築させる）
         this._lastYokokuAmount = -1;
     },
