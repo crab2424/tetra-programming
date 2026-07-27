@@ -7,9 +7,12 @@
      動かすのは transform / opacity だけに限定してレイアウト再計算を避ける。
    ───────────────────────────────────────────── */
 
-/* フェーズA（プリロード／READY送信／相手を待つ間）: 背面がうっすら見える明るめのblur。
+/* フェーズA（プリロード／READY送信／相手を待つ間）: 背面はぼかさずくっきりしたまま暗くする。
    ★ StartMatchNotification 受信まではこの見た目のまま
-   （盤面の切り替え自体はまだ起きていないので、透けて見えても問題ない）。 */
+   （盤面の切り替え自体はまだ起きていないので、透けて見えても問題ない）。
+   ★ backdrop-filter(blur)は撤去。全画面の再合成を毎フレーム走らせる重い指定で、
+     まさに素材デコード中に効いていたため負荷面でも無い方がよい。暗さは背景の
+     不透明度だけで表現する。 */
 .ol-loading-overlay {
   position: fixed;
   inset: 0;
@@ -17,8 +20,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(24, 20, 40, 0.6);
-  backdrop-filter: blur(8px);
+  background: rgba(8, 6, 16, 0.72);
   animation: ol-loading-fadein 0.25s ease both;
 }
 
@@ -29,12 +31,11 @@
    2. --closing (revealBattle)   : 真っ暗を晴らして対戦画面をフェードインで見せる
    この2段階の間（--darkening 完了後、--closing 開始前）が「実際のロード」区間。 */
 
-/* 1. 完全暗転。backdrop-filter は不要になる（下が見えないため）ので切って負荷も下げる。 */
+/* 1. 完全暗転。 */
 .ol-loading-overlay.ol-loading-overlay--darkening {
   animation: none; /* fadein アニメの both を打ち切って transition を効かせる */
   background: #000;
-  backdrop-filter: none;
-  transition: background-color 0.32s ease, backdrop-filter 0.32s ease;
+  transition: background-color 0.32s ease;
 }
 
 /* カードのフェードアウトは --darkening と並走する（暗転と同時にロードUIも消える）。 */
