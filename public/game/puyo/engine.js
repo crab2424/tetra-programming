@@ -387,8 +387,7 @@ Object.assign(PuyoGame.prototype, {
                         this._beginGameOver();
                         return;
                     }
-                    this._gs = 'spawnAnim';
-                    this.spawnAnimTimer = 0;
+                    this._beginSpawnAnim();
                 }
                 break;
             }
@@ -547,6 +546,16 @@ Object.assign(PuyoGame.prototype, {
     /** NEXT遷移(spawnAnimMs)タイマーを1フレーム進める。 */
     _stepSpawnAnim(dt) {
         this.spawnAnimTimer += dt;
+    },
+
+    /**
+     * NEXT遷移(spawnAnim)を開始する。checkErase の末尾からのフック点として抽出しただけで、
+     * 挙動は従来のインライン代入（_gs='spawnAnim'; spawnAnimTimer=0）と完全に同じ。
+     * online側はここをフックして、遷移完了(_spawnPuyo)を待たずに次ペア情報を先行送信する。
+     */
+    _beginSpawnAnim() {
+        this._gs = 'spawnAnim';
+        this.spawnAnimTimer = 0;
     },
 
     /** 落下アニメ(_dropAnim)のセル位置を1フレーム進める。全セル到達で true。 */
