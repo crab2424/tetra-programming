@@ -1,0 +1,358 @@
+/* ─────────────────────────────────────────────
+   オンラインロビー系
+   ルーム一覧・ルーム詳細・ランダムマッチ確認パネル・接続中UI。
+   （旧 quiz.css からの移設。誤って quiz 専用ファイルに同居していただけで
+   quiz とは無関係）
+───────────────────────────────────────────── */
+
+#online-top-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.online-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.online-top-content {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  padding-top: 32px;
+  width: 660px;
+  max-width: none;
+  /* メインメニューと同じ考え方: 狭い画面では zoom で縮小し、横スクロール・要素の
+     食い込みを防ぐ（改行ずれの再発防止。上限1.0 = 通常幅では従来どおり）。 */
+  zoom: clamp(0.55, calc((100vw - 32px) / 660px), 1);
+}
+
+/* ─── ルーム一覧ページ: 縦積みレイアウト ─── */
+.online-list-layout {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+}
+
+.online-list-header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.online-list-title {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+.online-list-footer {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  width: 100%;
+}
+.online-list-footer .btn {
+  flex: 1;
+}
+
+#online-rooms-container {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.online-rooms-empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 24px 0;
+}
+
+.online-room {
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+  padding: 10px 16px;
+  border-radius: 6px;
+  width: 100%;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.online-room:active {
+  transform: translateY(0);
+}
+
+.online-room-main {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.online-room-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.online-room-count {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.online-room-tags {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ─── ルームコード コピー UI ─── */
+.online-code-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.online-code-label {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+.online-code-value {
+  font-family: "Orbitron", monospace;
+  font-size: 16px;
+  letter-spacing: 4px;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(196, 113, 245, 0.12);
+  border: 1px solid rgba(196, 113, 245, 0.4);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: all 0.15s;
+}
+.online-code-value:hover {
+  background: rgba(196, 113, 245, 0.25);
+  border-color: var(--accent);
+}
+.online-code-value:active {
+  transform: scale(0.97);
+}
+
+@media (hover) {
+  .online-room:hover {
+    background: rgba(113, 188, 250, 0.12);
+    border-color: var(--accent3);
+    transform: translateY(-2px);
+  }
+}
+@media (hover: none) {
+  .online-room:active {
+    background: rgba(113, 188, 250, 0.18);
+    border-color: var(--accent3);
+  }
+}
+
+/* ─────────────────────────────────────────────
+   ランダムマッチ確認パネル（.ol-rm-confirm）
+
+   ★ 旧実装は横並びflexの .online-top-content をそのまま流用しており、
+     h2/名前/残り秒/status/ボタン列の5要素が660px幅に押し込まれて
+     ボタンラベルまで縦書きに折り返す不具合があった。専用の縦積みレイアウトにする。
+───────────────────────────────────────────── */
+.ol-rm-confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+  width: 100%;
+  max-width: 520px;
+  margin: 32px auto 0;
+}
+
+.ol-vs-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+}
+
+.ol-vs-player {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ol-vs-player-self {
+  border-color: rgba(113, 188, 250, 0.4);
+}
+
+.ol-vs-player-name {
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-vs-badge {
+  flex-shrink: 0;
+  font-family: "Orbitron", monospace;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+
+.ol-rm-status {
+  min-height: 20px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.ol-rm-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  justify-content: center;
+}
+.ol-rm-actions .btn {
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────
+   接続中UI（.ol-connect-card）
+───────────────────────────────────────────── */
+.ol-connect-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
+  max-width: 420px;
+  margin: 40px auto 0;
+  padding: 28px 32px;
+  border: 1px solid rgba(196, 113, 245, 0.35);
+  border-radius: 14px;
+  background: rgba(20, 16, 34, 0.6);
+}
+
+.ol-connect-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ol-connect-step {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim);
+  transition: color 0.2s;
+}
+
+.ol-connect-step.is-active {
+  color: var(--text);
+}
+
+.ol-connect-step.is-done {
+  color: var(--success);
+}
+
+.ol-connect-step-mark {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  font-family: "Orbitron", monospace;
+}
+
+.ol-connect-step-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.ol-connect-step-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.3;
+  animation: ol-connect-dot-pulse 1.1s ease-in-out infinite;
+}
+.ol-connect-step.is-active .ol-connect-step-dots span {
+  opacity: 1;
+}
+.ol-connect-step-dots span:nth-child(2) { animation-delay: 0.15s; }
+.ol-connect-step-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes ol-connect-dot-pulse {
+  0%, 70%, 100% { opacity: 0.25; }
+  35% { opacity: 1; }
+}
+
+.ol-connect-bar {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+.ol-connect-bar-fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  transition: transform 0.3s linear;
+}
+
+.ol-connect-error {
+  color: var(--danger);
+  text-align: center;
+}
+
+.ol-connect-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ol-connect-step-dots span {
+    animation: none;
+    opacity: 0.7;
+  }
+}
