@@ -314,6 +314,18 @@ class OnlineMode {
   }
 
   /**
+   * 対戦画面以外の online ページ（ロビー一覧・ルーム・ランダムマッチ確認）に入るたびに呼ぶ。
+   * ★ online系ページは switchPage() を通らず .page の active を直接操作するため、
+   *   BGM のページ連動（navigation.js の switchPage 内）が一切効かず、対戦後も
+   *   online_bgm が鳴り続けていた。backToMainMenu() だけが switchPage を呼ぶため
+   *   「メインメニューまで戻ると直る」という報告と一致する。
+   *   crossfadeTo は isCurrent を見て冪等なので毎回呼んでよい。
+   */
+  private applyLobbyBgm(): void {
+    (window as any).BgmManager?.crossfadeTo("menu_bgm");
+  }
+
+  /**
    * 対戦開始を承認したあとのロード画面。素材を読み終えてから解決する。
    *
    * ★ ここで待ってから READY / startMatch を送ることで、サーバー側の
@@ -461,6 +473,8 @@ class OnlineMode {
     //   players.length < 2 を検知して自動再マッチング（「マッチング中…」）へ飛んでしまう。
     //   対戦後の遷移は必ずリザルト画面のボタン（RETRY / ROOM / LEAVE）起点にする。
     if (this.gameController.isBattleActive) return;
+    // 対戦中でないルーム通知（入室直後・RETRY後の戻り等）はロビーBGMへ戻す。
+    this.applyLobbyBgm();
 
     const isOwner = roomData.ownerId === myUserId;
     const ms = parseMatchSetting(roomData.matchSetting);
@@ -1680,6 +1694,7 @@ class OnlineMode {
    */
   private async onlineTopPage() {
     this.state = OnlineModeState.RoomList;
+    this.applyLobbyBgm();
 
     const { rooms } = await this.connection!.getRooms();
     this.logger.log("Received rooms from server:", rooms);
