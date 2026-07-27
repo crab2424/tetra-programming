@@ -8,8 +8,10 @@ Object.assign(Game.prototype, {
 
     // ポーズ切り替え
     // SE再生の薄いラッパ（A案）。人間・CPUどちらの盤面でもそれぞれの操作音を鳴らす。
+    // 戻り値は常に true（tetにはチャタリング防止が無いため、puyo側とインターフェースを揃えるだけ）。
     playSe(key) {
         window.SeManager?.play(key);
+        return true;
     },
 
     // ─────────────────────────────────────────
