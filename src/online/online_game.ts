@@ -1186,22 +1186,44 @@ export class OnlineGameController {
       }
     };
 
-    // updateGarbageGauge: 自分の予告ゲージ変化を相手へ送信 (PendingUpdate frame)
-    let lastPendingReady = -1, lastPendingUnready = -1;
-    const origUpdateGarbageGauge: AnyFn = game.updateGarbageGauge.bind(game);
-    game.updateGarbageGauge = () => {
-      origUpdateGarbageGauge();
+    // 予告ゲージ(ready/unready)とアタックゲージ(pendingAttack/表示可否)をまとめて
+    // 1つの PendingUpdate frame で送る（4値の組でdedup）。相手スロットのアタックゲージ
+    // 同期のため updateGarbageGauge・updateAttackGauge の両方をフックする。
+    let lastPendingReady = -1, lastPendingUnready = -1, lastPendingAttack = -1, lastPendingAttackVisible = false;
+    const sendGaugeState = () => {
       let ready = 0, unready = 0;
       for (const g of (game.garbageQueue ?? [])) {
         if (g.internal) continue;
         if (g.ready) ready += g.amount;
         else unready += g.amount;
       }
-      if (ready !== lastPendingReady || unready !== lastPendingUnready) {
+      const attack = game.pendingAttack ?? 0;
+      // ★ 表示可否は送信者(=このgame)が実際に判定した結果をそのまま送る。受信側で
+      //   相手ルールを再判定すると多人数混在戦で送信者の見え方とズレる恐れがある。
+      const attackGaugeEl = document.getElementById(`${game.canvasPrefix}-attack-gauge`);
+      const attackVisible = !!attackGaugeEl && attackGaugeEl.style.display !== "none";
+      if (ready !== lastPendingReady || unready !== lastPendingUnready
+        || attack !== lastPendingAttack || attackVisible !== lastPendingAttackVisible) {
         lastPendingReady = ready;
         lastPendingUnready = unready;
-        conn.sendMatchEvent(encodePendingUpdate(Math.min(ready, 255), Math.min(unready, 255)));
+        lastPendingAttack = attack;
+        lastPendingAttackVisible = attackVisible;
+        conn.sendMatchEvent(encodePendingUpdate(Math.min(ready, 255), Math.min(unready, 255), attack, attackVisible));
       }
+    };
+
+    // updateGarbageGauge: 自分の予告ゲージ変化を相手へ送信 (PendingUpdate frame)
+    const origUpdateGarbageGauge: AnyFn = game.updateGarbageGauge.bind(game);
+    game.updateGarbageGauge = () => {
+      origUpdateGarbageGauge();
+      sendGaugeState();
+    };
+
+    // updateAttackGauge: 自分のアタックゲージ(対ぷよ戦の送信用火力)変化を相手へ送信
+    const origUpdateAttackGauge: AnyFn = game.updateAttackGauge.bind(game);
+    game.updateAttackGauge = () => {
+      origUpdateAttackGauge();
+      sendGaugeState();
     };
 
     // Pause overlays: use the online overlays
@@ -1907,10 +1929,15 @@ export class OnlineGameController {
     this.clearFinishOverlay();
 
     // ぷよ予告おじゃまアイコン・攻撃ゲージ・TET横ガベージ予告ゲージを次マッチに残さないようクリア
-    document.querySelectorAll('[id$="-ojama-yokoku"]').forEach((el) => { (el as HTMLElement).innerHTML = ''; });
-    document.querySelectorAll('[id$="-garbage-gauge"]').forEach((el) => { (el as HTMLElement).innerHTML = ''; });
-    const atkGauge = document.getElementById("ol-p-attack-gauge");
-    if (atkGauge) { atkGauge.innerHTML = ''; atkGauge.style.display = 'none'; }
+    // ★ #ol-battle-layout配下に必ずスコープする。無条件の [id$="..."] だとCPU戦の
+    //   player-attack-gauge/cpu-attack-gauge等まで巻き込んで消してしまう。
+    const battleLayout = document.getElementById("ol-battle-layout");
+    battleLayout?.querySelectorAll('[id$="-ojama-yokoku"]').forEach((el) => { (el as HTMLElement).innerHTML = ''; });
+    battleLayout?.querySelectorAll('[id$="-garbage-gauge"]').forEach((el) => { (el as HTMLElement).innerHTML = ''; });
+    battleLayout?.querySelectorAll('[id$="-attack-gauge"]').forEach((el) => {
+      (el as HTMLElement).innerHTML = '';
+      (el as HTMLElement).style.display = 'none';
+    });
 
     // 投票状態をリセット（次マッチで使えるように）
     this.myRematchVoted = false;
@@ -1972,6 +1999,20 @@ export class OnlineGameController {
         gaugeEl.appendChild(b);
       }
     }
+  }
+
+  /** 相手TETの送信用火力(pendingAttack)ゲージを、実エンジンの描画(updateAttackGauge)に
+   *  そのまま委譲して更新する。色サイクル・20個で1周・下から積む挙動をCPU戦と一致させるため、
+   *  描画ロジックをここで複製しない（パペットへ値を注入して既存メソッドを呼ぶだけ）。 */
+  private updateOpponentAttackGauge(senderId: Uuid, attack: number, visible: boolean): void {
+    const driver = this.puppets.get(senderId);
+    if (!driver) return;
+    const puppet = driver.puppet as any;
+    if (typeof puppet.updateAttackGauge !== 'function') return;
+    puppet.isVersusMode = true;
+    puppet.opponentRule = visible ? 'puyo' : 'tet';
+    puppet.pendingAttack = attack;
+    puppet.updateAttackGauge();
   }
 
   private handleMatchFrame(frame: { opcode: number; senderId: Uuid; payload: Uint8Array }): void {
@@ -2046,6 +2087,7 @@ export class OnlineGameController {
           this.updateOpponentPuyoYokoku(frame.senderId, d.ready + d.unready);
         } else {
           this.updateOpponentGauge(idx, d.ready, d.unready);
+          this.updateOpponentAttackGauge(frame.senderId, d.attack, d.attackVisible);
         }
       }
       return;
@@ -2540,10 +2582,14 @@ export class OnlineGameController {
     hideOnlineOppSlots();
 
     // ぷよ予告おじゃまアイコン（自分・相手とも）・攻撃ゲージ・TET横ガベージ予告ゲージをクリア
-    document.querySelectorAll('[id$="-ojama-yokoku"]').forEach((el) => { (el as HTMLElement).innerHTML = ''; });
-    document.querySelectorAll('[id$="-garbage-gauge"]').forEach((el) => { (el as HTMLElement).innerHTML = ''; });
-    const atkGaugeC = document.getElementById("ol-p-attack-gauge");
-    if (atkGaugeC) { atkGaugeC.innerHTML = ''; atkGaugeC.style.display = 'none'; }
+    // ★ #ol-battle-layout配下に必ずスコープする（理由は上の同種クリア処理と同じ）。
+    const battleLayoutC = document.getElementById("ol-battle-layout");
+    battleLayoutC?.querySelectorAll('[id$="-ojama-yokoku"]').forEach((el) => { (el as HTMLElement).innerHTML = ''; });
+    battleLayoutC?.querySelectorAll('[id$="-garbage-gauge"]').forEach((el) => { (el as HTMLElement).innerHTML = ''; });
+    battleLayoutC?.querySelectorAll('[id$="-attack-gauge"]').forEach((el) => {
+      (el as HTMLElement).innerHTML = '';
+      (el as HTMLElement).style.display = 'none';
+    });
 
     // Hide overlays
     const winOverlay = document.getElementById("ol-winner-overlay");
