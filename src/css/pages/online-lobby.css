@@ -222,12 +222,29 @@
   border-color: rgba(113, 188, 250, 0.4);
 }
 
+/* READY状態の反映（S3④）: 枠を成功色で光らせる */
+.ol-vs-player.is-ready {
+  border-color: var(--success);
+  box-shadow: 0 0 12px rgba(90, 245, 160, 0.25);
+}
+
 .ol-vs-player-name {
   font-weight: 600;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ol-vs-player-state {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.ol-vs-player.is-ready .ol-vs-player-state {
+  color: var(--success);
 }
 
 .ol-vs-badge {

@@ -160,6 +160,17 @@
   display: none;
 }
 
+.ol-loading-cancel {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.ol-loading-cancel:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .ol-loading-player {
   display: flex;
   justify-content: space-between;

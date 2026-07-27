@@ -15,6 +15,7 @@ const LABEL_ID = "ol-loading-label";
 const BAR_ID = "ol-loading-bar-fill";
 const PLAYERS_ID = "ol-loading-players";
 const CARD_ID = "ol-loading-card";
+const CANCEL_ID = "ol-loading-cancel";
 const DARKENING_CLASS = "ol-loading-overlay--darkening";
 const CLOSING_CLASS = "ol-loading-overlay--closing";
 
@@ -85,6 +86,9 @@ export function showLoadingOverlay(): void {
   if (card) card.classList.remove("is-hidden");
   shownAt = performance.now();
   setLoadingProgress(0, "");
+  // ★ 前の承認入口（RM OK / ルームREADY / GAME START / RETRY）のハンドラが残らないよう、
+  //   表示のたび必ずリセットする。
+  setLoadingCancel(null);
 }
 
 /** 実際にオーバーレイを消す（DOM状態を初期化して次回の show に備える）。 */
@@ -96,6 +100,30 @@ function teardownOverlay(overlay: HTMLElement): void {
   const players = el(PLAYERS_ID);
   if (players) players.innerHTML = "";
   shownAt = null;
+  setLoadingCancel(null);
+}
+
+/**
+ * ロード画面(フェーズA)にキャンセルボタンを出す/消す。承認の入口（RM OK / ルームREADY /
+ * GAME START / RETRY）が `runBattlePreload()` の直後に呼び、各々の「取り消す」意味の
+ * ハンドラを渡す。`handler===null` で非表示にする。
+ *
+ * ★ `enterBlackout()` に入った時点（= StartMatchNotification 受信後、引き返せない点を
+ *   過ぎた後）では自動的に無効化される（`disableLoadingCancel()` 参照）。
+ */
+export function setLoadingCancel(handler: null | { label: string; onCancel: () => void }): void {
+  const btn = el<HTMLButtonElement>(CANCEL_ID);
+  if (!btn) return;
+  if (!handler) {
+    btn.style.display = "none";
+    btn.onclick = null;
+    btn.disabled = false;
+    return;
+  }
+  btn.textContent = handler.label;
+  btn.style.display = "";
+  btn.disabled = false;
+  btn.onclick = handler.onCancel;
 }
 
 /**
@@ -135,6 +163,10 @@ export function enterBlackout(): Promise<void> {
   return (async () => {
     await wait(Math.max(0, MIN_VISIBLE_MS - elapsed));
     if (!alive()) return;
+    // ★ StartMatchNotification を受けた時点で「引き返せない点」を過ぎている。
+    //   以後キャンセルを押されても意味が無い（サーバーは既に開始済み）ので無効化する。
+    const cancelBtn = el<HTMLButtonElement>(CANCEL_ID);
+    if (cancelBtn) cancelBtn.disabled = true;
     overlay.classList.add(DARKENING_CLASS);
     el(CARD_ID)?.classList.add("is-hidden");
     await wait(Math.max(BLACKOUT_MS, CARD_OUT_MS));
