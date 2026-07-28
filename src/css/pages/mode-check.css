@@ -1,0 +1,256 @@
+/* ─────────────────────────────────────────────
+   準備画面（mode-check-page）
+───────────────────────────────────────────── */
+#mode-check-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#mode-check-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 36px;
+  padding-top: 32px;
+  width: 660px;
+}
+
+#mode-check-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.mode-check-icon {
+  font-size: 52px;
+  line-height: 1;
+}
+.mode-check-label {
+  font-family: "Orbitron", monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  margin: 0;
+}
+
+#mode-check-desc-block {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  text-align: center;
+}
+.mode-check-desc-ja {
+  font-size: 14px;
+  color: var(--text);
+  margin: 0 0 8px 0;
+  line-height: 1.6;
+}
+.mode-check-desc-en {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.5;
+}
+
+#mode-check-controls {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+
+.controls-title {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0 0 16px 0;
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+.ctrl-key {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(196, 113, 245, 0.15);
+  border: 1px solid rgba(196, 113, 245, 0.35);
+  color: var(--accent);
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+}
+.ctrl-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+#mode-check-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+.option-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.option-label {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+}
+.option-toggle {
+  display: flex;
+  gap: 8px;
+}
+.opt-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.opt-btn.active {
+  background: rgba(196, 113, 245, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.option-slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 160px;
+}
+.option-slider input {
+  flex: 1;
+}
+.option-val {
+  font-family: "Orbitron", monospace;
+  font-size: 14px;
+  color: var(--accent);
+  width: 20px;
+  text-align: right;
+}
+
+/* ─────────────────────────────────────────────
+   対戦モード確認画面
+───────────────────────────────────────────── */
+.btn-versus-primary {
+  background: linear-gradient(135deg, #f5c542 0%, #fa71cd 100%);
+  color: #0a0a0f;
+  font-weight: 700;
+  width: 100%;
+}
+.btn-versus-primary:hover,
+.btn-versus-primary.is-focused {
+  opacity: 0.88;
+}
+
+#versus-check-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#versus-check-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding-top: 32px;
+  width: 660px;
+}
+
+#versus-cpu-options {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#versus-check-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+/* VS SETTINGSボタン行（準備画面内） */
+#vs-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.btn-vs-settings {
+  background: rgba(245, 197, 66, 0.1);
+  color: #f5c542;
+  border: 1px solid rgba(245, 197, 66, 0.4);
+  flex-shrink: 0;
+  padding: 14px 20px;
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+.btn-vs-settings:hover,
+.btn-vs-settings.is-focused {
+  background: rgba(245, 197, 66, 0.2);
+  border-color: #f5c542;
+}
+
+#vs-settings-summary-block {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vs-settings-summary-label {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#vs-settings-summary {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #f5c542;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+

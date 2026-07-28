@@ -1,0 +1,115 @@
+/* ─────────────────────────────────────────────
+   変更履歴ページ（changelog-page）
+───────────────────────────────────────────── */
+#changelog-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+#changelog-container {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 84vh;
+  overflow: hidden;
+  padding: 40px 32px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+#changelog-header {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+
+#changelog-header .changelog-title-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+#changelog-header .btn-back {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.changelog-title {
+  font-family: "Orbitron", monospace;
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 4px;
+}
+
+.changelog-subtitle {
+  font-family: "Orbitron", monospace;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 3px;
+  margin: 0;
+}
+
+.changelog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.changelog-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.changelog-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.changelog-ver {
+  font-family: "Orbitron", monospace;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--accent);
+}
+
+.changelog-date {
+  font-family: "Orbitron", monospace;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+
+.changelog-items {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+

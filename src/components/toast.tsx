@@ -1,7 +1,7 @@
 import {
   jsx,
-} from "./jsx-runtime";
-import { randomUUID } from "./online/uuid";
+} from "../jsx-runtime";
+import { randomUUID } from "../online/uuid";
 
 export const ToastColor = {
   Success: ["#4CAF50", "#144929"],

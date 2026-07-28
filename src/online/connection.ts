@@ -29,6 +29,8 @@ import {
   isUpdateMatchSettingNotification,
   type UpdatePlayerRuleRequest,
   type UpdatePlayerRuleResponse,
+  type UpdatePlayerNameRequest,
+  type UpdatePlayerNameResponse,
   type SetReadyRequest,
   type SetReadyResponse,
   type TimeSyncResponse,
@@ -51,6 +53,10 @@ import {
   isPostMatchActionNotification,
   type PlayerDisconnectedNotification,
   isPlayerDisconnectedNotification,
+  type PlayerConnectionLostNotification,
+  isPlayerConnectionLostNotification,
+  type PlayerReconnectedNotification,
+  isPlayerReconnectedNotification,
 } from "./payload.js";
 import { parseMatchFrame, type MatchFrame } from "./game_protocol.js";
 
@@ -102,6 +108,8 @@ export class GameConnection {
   private onReconnecting?: () => void;
   /** 再接続に成功したとき呼ぶ（UI: 「再接続しました」表示用） */
   private onReconnected?: () => void;
+  /** 初回接続(ready())の進捗。UI側の「接続中…」ステップ表示用（第11ラウンド③） */
+  private onProgress?: (stage: "signaling" | "peer" | "datachannel") => void;
   /** 再接続シーケンス進行中フラグ */
   private reconnecting = false;
   /** close() による意図的な切断か（true のときは再接続を起動しない） */
@@ -114,6 +122,8 @@ export class GameConnection {
    */
   private static readonly RECONNECT_MAX_ATTEMPTS = 4;
   private static readonly RECONNECT_ATTEMPT_TIMEOUT_MS = 18000;
+  /** 初回接続（ready()）でDataChannelが開くまでの上限。超えたら reject して呼び出し元にエラーを返す。 */
+  private static readonly INITIAL_CONNECT_TIMEOUT_MS = 15000;
 
   /**
    * サーバー時刻 − ローカル時刻 のオフセット (ms)。syncClock() で確定する。
@@ -134,12 +144,17 @@ export class GameConnection {
   constructor(
     url: string,
     onClose?: () => void,
-    callbacks?: { onReconnecting?: () => void; onReconnected?: () => void },
+    callbacks?: {
+      onReconnecting?: () => void;
+      onReconnected?: () => void;
+      onProgress?: (stage: "signaling" | "peer" | "datachannel") => void;
+    },
   ) {
     this.serverUrl = url;
     this.onCloseCb = onClose;
     this.onReconnecting = callbacks?.onReconnecting;
     this.onReconnected = callbacks?.onReconnected;
+    this.onProgress = callbacks?.onProgress;
     this.setupSignaling();
   }
 
@@ -347,6 +362,7 @@ export class GameConnection {
             return;
           }
           this.logger.log("Authentication successful");
+          this.onProgress?.("signaling");
           let config: string =
             message.rtcPeerIceConfig ?? message.rtc_peer_ice_config ?? "{}";
           rtcConfig = GameConnection.normalizeRtcConfig(JSON.parse(config));
@@ -365,6 +381,7 @@ export class GameConnection {
       }
 
       this.setupPeerConnection(rtcConfig);
+      this.onProgress?.("peer");
 
       const offer = await this.pc.createOffer();
       await this.pc.setLocalDescription(offer);
@@ -378,9 +395,16 @@ export class GameConnection {
           );
           this.logger.log("Received answer and set remote description");
 
+          const deadline =
+            Date.now() + GameConnection.INITIAL_CONNECT_TIMEOUT_MS;
           while (this.dcReady === false) {
+            if (Date.now() > deadline) {
+              reject(new Error("DataChannel connection timed out"));
+              return;
+            }
             await sleep(10);
           }
+          this.onProgress?.("datachannel");
           resolve();
         } else if (message.type === "candidate") {
           const sdpMid = message.sdpMid ?? message.sdp_mid ?? null;
@@ -654,18 +678,33 @@ export class GameConnection {
     this.reconnecting = false;
     this.stopKeepalive();
     this.stopPingReporting();
+
+    // Close フレームは「チャネルが実際に open のとき」だけ送る。
+    // 未確立/切断済みで sendRDC が例外を投げても後続のリソース解放を必ず行うため、
+    // dcReady=false は送信後に設定し、送信自体も try/catch で握りつぶす。
+    // （旧実装は dcReady=false を先に立てていたため sendRDC が必ず throw し、
+    //   rdc/urdc/pc/ws.close() に到達せず接続リソースが leak → 次回接続が失敗していた）
+    try {
+      if (this.dcReady && this.rdc?.readyState === "open") {
+        this.sendRDC(Payload.close());
+      }
+    } catch (e) {
+      this.logger.log("close(): Close フレーム送信をスキップしました", e);
+    }
     this.dcReady = false;
-    this.sendRDC(Payload.close());
 
     try {
-      this.rdc.close();
+      this.rdc?.close();
     } catch (e) {}
     try {
-      this.urdc.close();
+      this.urdc?.close();
     } catch (e) {}
-
-    this.pc.close();
-    this.ws.close();
+    try {
+      this.pc?.close();
+    } catch (e) {}
+    try {
+      this.ws?.close();
+    } catch (e) {}
     this.logger.log("Connection closed");
   }
 
@@ -965,6 +1004,15 @@ export class GameConnection {
     });
   }
 
+  updatePlayerName(
+    data: Omit<UpdatePlayerNameRequest, "id">,
+  ): Promise<UpdatePlayerNameResponse> {
+    return this.waitResponseRDC<UpdatePlayerNameResponse>(Opcodes.JSONRequest, {
+      type: "JSONUpdatePlayerNameRequest",
+      ...data,
+    });
+  }
+
   setReady(data: Omit<SetReadyRequest, "id">): Promise<SetReadyResponse> {
     return this.waitResponseRDC<SetReadyResponse>(Opcodes.JSONRequest, {
       type: "JSONSetReadyRequest",
@@ -1092,6 +1140,18 @@ export class GameConnection {
   onPlayerDisconnected(cb: (n: PlayerDisconnectedNotification) => void): Uuid {
     return this.addJsonReaderFunction((e) => {
       if (isPlayerDisconnectedNotification(e)) cb(e as any);
+    });
+  }
+
+  onPlayerConnectionLost(cb: (n: PlayerConnectionLostNotification) => void): Uuid {
+    return this.addJsonReaderFunction((e) => {
+      if (isPlayerConnectionLostNotification(e)) cb(e as any);
+    });
+  }
+
+  onPlayerReconnected(cb: (n: PlayerReconnectedNotification) => void): Uuid {
+    return this.addJsonReaderFunction((e) => {
+      if (isPlayerReconnectedNotification(e)) cb(e as any);
     });
   }
 

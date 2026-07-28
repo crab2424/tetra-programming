@@ -8,8 +8,10 @@ Object.assign(Game.prototype, {
 
     // ポーズ切り替え
     // SE再生の薄いラッパ（A案）。人間・CPUどちらの盤面でもそれぞれの操作音を鳴らす。
+    // 戻り値は常に true（tetにはチャタリング防止が無いため、puyo側とインターフェースを揃えるだけ）。
     playSe(key) {
         window.SeManager?.play(key);
+        return true;
     },
 
     // ─────────────────────────────────────────
@@ -65,7 +67,7 @@ Object.assign(Game.prototype, {
 
         this._keyDownHandler = (e) => {
             // 対戦モードでは versus-page がアクティブな場合のみ動作
-            const activePageId = this.isVersusMode ? 'versus-page' : 'game-page';
+            const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page');
             const gamePage = document.getElementById(activePageId)
             if (!gamePage || !gamePage.classList.contains('active')) return
 
@@ -231,7 +233,7 @@ Object.assign(Game.prototype, {
 
         // 最適化：ループ内で毎回ID検索すると流石にチリツモで重くなるため、外で取得しておく
         // 対戦モードでは versus-page を参照する
-        const activePageId = this.isVersusMode ? 'versus-page' : 'game-page';
+        const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page');
         const gamePage = document.getElementById(activePageId);
 
         // 毎フレーム入力処理（同時入力対応）

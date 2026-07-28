@@ -1,0 +1,509 @@
+/* ─────────────────────────────────────────────
+  MARK: オンライン対戦画面
+───────────────────────────────────────────── */
+
+/* オンライン盤面はCPU戦と同じ対戦ページ配下のパネルとして表示する。 */
+#versus-page.active.online-battle-active #versus-layout {
+  display: none;
+}
+
+#online-battle-page.battle-panel {
+  position: relative;
+  width: 100%;
+  display: block;
+}
+
+/* CPU戦復帰時にオンライン盤面パネル(#ol-battle-layout は position:fixed)が
+   中央に残るのを防ぐ。online-battle-active が付いているときだけ表示する。 */
+#versus-page:not(.online-battle-active) #online-battle-page.battle-panel {
+  display: none;
+}
+
+.ol-result-round,
+.ol-result-set-score {
+  color: var(--accent3);
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-align: center;
+  min-height: 16px;
+}
+
+.ol-result-set-score {
+  color: var(--text);
+  font-size: 14px;
+  letter-spacing: 1px;
+  margin: 4px 0 10px;
+}
+
+#ol-battle-layout {
+  /* ★ 盤面本体をCPU戦(#versus-page)と同じ実寸トークンに対して何倍で見せるかの
+     一本化スケール。1人数分のブロックは以下でこの値だけ上書きする。
+     2P(=1)のときCPU戦の.versus-container(scale 0.8)と完全に同じ実寸系列になる。 */
+  --ol-scale: 0.4;
+  /* 上部固定の ALIVE 表示(#ol-alive-count)ぶんの帯を縦スケールから常に差し引く。
+     こうしないと縦に余裕のない画面で盤面の上端と重なる。 */
+  --ol-hud-reserve: 88px;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  transform: translate(-50%, -50%)
+    scale(
+      clamp(
+        0.2,
+        min(
+          calc((100vw - 32px) / 1300px),
+          calc((100vh - var(--ol-hud-reserve)) / 700px)
+        ),
+        2
+      )
+    );
+  transform-origin: center;
+}
+
+/* 残り生存者数(3人戦以上のみ表示)。座標系を盤面(#ol-battle-layout, fixed基準)と
+   揃えるため、こちらも fixed + ビューポート基準で配置する。 */
+#ol-alive-count {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  z-index: 60;
+  pointer-events: none;
+}
+
+/* CPU戦の .versus-container と同じ基準スケール・左右余白をオンラインにも適用する。 */
+.ol-self-slot,
+.ol-opponent-slot {
+  position: relative;
+  margin: 0 80px;
+  transform: scale(0.8);
+  transform-origin: center;
+}
+
+/* Player field (left side) */
+#ol-player-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* 自プレイヤーは相手スロット(.ol-opponent-slot)と同一構造・同一クラスを使う。
+   差別化は枠の発光（self はアクセント色）と名前ラベル色のみ。 */
+.ol-self-slot .ol-opp-main-canvas,
+.ol-self-slot .ol-opp-puyo-main-canvas {
+  box-shadow: 0 0 20px rgba(113, 197, 245, 0.3);
+}
+
+.ol-self-name {
+  font-size: 13px !important;
+  max-width: 360px !important;
+}
+
+/* tet/puyo フィールド内オーバーレイ(カウントダウン/フィニッシュ)を
+   ol-opp-main-wrap いっぱいに広げ、キャンバスの拡縮に追従させる */
+.ol-fill-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+/* ※ .finish-text のフォントサイズは countdown-overlay.css の共有規則
+   （calc(var(--finish-font-size) * var(--ol-scale, 1))）が担う。
+   ここで online 専用に固定px で上書きすると CPU戦とズレるので上書きしない。 */
+
+/* Opponents area: display:contents でフレックス親 (#ol-battle-layout) の直接子にフラット化 */
+#ol-opponents-area {
+  display: contents;
+}
+
+.ol-opponent-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.ol-opp-name {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* ゲーム中はテキストを書き換えない（死亡/切断は色クラスだけで表す）。
+     行の高さを固定し、将来テキストが変わっても #ol-battle-layout の
+     align-items:center 再計算で盤面がずれないようにする。 */
+  line-height: 1.4;
+  min-height: calc(10px * 1.4);
+}
+
+/* 死亡/切断はテキストを追記せず色だけで表す（行の高さを変えないため）。 */
+.ol-opp-name.is-dead {
+  color: var(--danger);
+}
+
+.ol-opp-name.is-disconnected {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+/* SCORE/LINES/MAX CHAIN・フィールド外枠・HOLD/NEXTラベルの寸法と位置は
+   versus-layout.css の共有ジオメトリ規則（.ol-opp-field / .ol-opp-label /
+   .ol-stats-left/-right をCPU戦セレクタと併記し var(--ol-scale, 1) 化）に一本化した。
+   JS側 updateOnlineStats がCPU戦と同じマークアップ（.versus-stat-block >
+   .area-label + .versus-stat-value）を .ol-opp-field 配下へ複製し、
+   .versus-stat-value(24px)/.area-label(11px) も --ol-scale を継承して縮小する。
+   ここに残すのは online 固有の DOM 構造（.ol-opp-main-wrap / .ol-opp-next-wrap）だけ。 */
+
+.ol-opp-main-wrap {
+  position: relative;
+}
+
+/* NEXT一式(ラベル+canvas)をCPU戦のNEXT canvasと同じleft式で本体の右側へ絶対配置する */
+.ol-opp-next-wrap {
+  position: absolute;
+  top: 0;
+  left: calc((var(--field-w) + var(--field-gap)) * var(--ol-scale));
+}
+
+/* action-label-container(T-SPIN/4-LINES/B2B等の演出): CPU戦(#versus-page)の
+   #player/#cpu-action-label-container(left:-200px/top:200px、320x656基準)と
+   同じ見た目になるよう、盤面サイズに対する比率で配置する（2P時は320x656で完全一致、
+   3P/4P時も縮小した盤面サイズに追従する）。演出のPXオフセット自体(scoring.js labelLayout)は
+   両モード共通で、コンテナの位置だけがモードごとに異なる。 */
+#ol-p-action-label-container,
+#ol-p-puyo-action-label-container,
+#ol-opp-0-action-label-container,
+#ol-opp-0-puyo-action-label-container,
+#ol-opp-1-action-label-container,
+#ol-opp-1-puyo-action-label-container,
+#ol-opp-2-action-label-container,
+#ol-opp-2-puyo-action-label-container {
+  position: absolute;
+  left: -62.5%; /* -200px / 320px（CPU戦と同じ比率） */
+  top: 30.49%; /* 200px / 656px（CPU戦と同じ比率） */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* 盤面本体(tet/puyo)・HOLD・NEXT canvas の寸法/枠/配置は versus-layout.css の
+   共有ジオメトリ規則（.ol-opp-main-canvas 等をCPU戦セレクタと併記し
+   calc(トークン * var(--ol-scale, 1)) 化）へ移動した。人数別の縮小は --ol-scale の
+   値差し替えだけで全部位が連動する（旧実装は部位ごとに手打ち固定pxで縮小率がズレていた）。 */
+
+/* 相手の予告ゲージ: ol-opp-main-wrap 左側に縦棒として絶対配置 */
+.ol-opp-garbage-gauge {
+  position: absolute;
+  left: calc(-1 * var(--field-gauge-offset) * var(--ol-scale));
+  top: 0;
+  bottom: 0;
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+.ol-opp-garbage-gauge .gauge-block {
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
+  height: calc(32px * var(--ol-scale));
+}
+
+/* 攻撃(送る・貯蓄)ゲージ: ol-opp-main-wrap 右側に縦棒として絶対配置。
+   異種戦(対ぷよ)で自分のフィールドにのみ表示する */
+.ol-opp-attack-gauge {
+  position: absolute;
+  right: calc(-1 * var(--field-gauge-offset) * var(--ol-scale));
+  top: 0;
+  bottom: 0;
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 1px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+.ol-opp-attack-gauge .attack-block {
+  width: calc(var(--field-gauge-w) * var(--ol-scale));
+  height: calc(32px * var(--ol-scale));
+}
+
+/* puyo 盤面本体・NEXT canvas の寸法/枠も versus-layout.css の共有ジオメトリへ移動済み。 */
+
+/* ─── 人数別レイアウト ───
+   寸法はすべて.ol-opp-*側の calc(トークン * --ol-scale) に委譲済みなので、
+   ここでは --ol-scale の値と、人数固有のガター/折返しだけを指定する。 */
+
+/* 2P: 全員等サイズ・横並び。--ol-scale:1 → CPU戦(#versus-page)と実寸完全一致。
+   さらに flex gap に --versus-center-gap を入れ、CPU戦の #versus-center 相当の中央余白を
+   盤面間に再現する（これが無いと両盤面が中央に約106px寄ってCPU戦より近づいて見える）。 */
+#ol-battle-layout[data-player-count="2"] {
+  --ol-scale: 1;
+  gap: var(--versus-center-gap);
+}
+#ol-battle-layout[data-player-count="2"] .ol-opp-name {
+  font-size: 13px;
+  max-width: 360px;
+  min-height: calc(13px * 1.4);
+}
+
+/* 3P: 全員横並び、間隔を詰める、自分は少し小さく */
+#ol-battle-layout[data-player-count="3"] {
+  --ol-scale: 0.6;
+  gap: 20px;
+}
+
+/* 4P: 全員横並び・コンパクト */
+#ol-battle-layout[data-player-count="4"] {
+  --ol-scale: 0.51875;
+  gap: 14px;
+}
+
+/* 5P+: flex-wrap で折り返し */
+#ol-battle-layout[data-player-count="5"] {
+  --ol-scale: 0.4;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Overlays（勝者オーバーレイ／ポーズ。後者はonline対戦の仕様上出ない想定だが同クラスを共有）
+   ★ backdrop-filter(blur)は撤去し、背面をぼかさずくっきりしたまま暗さで奥に引く。 */
+.ol-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: var(--overlay-scrim);
+  z-index: 100;
+  pointer-events: auto;
+  align-items: safe center;
+  justify-content: center;
+  overflow-y: auto;
+}
+
+#ol-winner-overlay {
+  z-index: 1000;
+}
+
+#ol-winner-overlay button {
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.ol-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 40px 48px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.ol-result-card {
+  width: min(420px, calc(100vw - 40px));
+  gap: 14px;
+  padding: 32px 36px;
+  text-align: center;
+  /* #ol-battle-layout と同じ「ビューポート追従スケール」。中身の行数で高さが可変なため、
+     基準高さ(--result-card-base-h)に対する縦の余裕から縮小率を決める。 */
+  transform: scale(clamp(0.6, calc((100vh - 32px) / var(--result-card-base-h)), 1));
+  transform-origin: center;
+  max-height: none;
+}
+
+.ol-result-kicker {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+}
+
+.ol-result-stats {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin: 4px 0 6px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.ol-result-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 2px;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.ol-result-stat-row + .ol-result-stat-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ol-result-stat-row strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.ol-result-title.ol-result-win {
+  color: var(--success);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.ol-result-title.ol-result-lose {
+  color: var(--danger);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.ol-result-title.ol-result-draw {
+  color: var(--text-dim);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.ol-result-title {
+  font-family: "Orbitron", monospace;
+  font-size: 42px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.ol-result-name {
+  font-family: "Orbitron", monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text);
+  min-height: 28px;
+}
+
+#ol-post-match-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 220px;
+}
+
+/* リザルトの選択状態一覧（誰がRETRY申請済みか・誰が抜けたかを待っている側に見せる） */
+.ol-post-match-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 220px;
+  margin-bottom: 14px;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.ol-post-match-status:empty {
+  display: none;
+}
+
+.ol-pm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 2px solid transparent;
+}
+
+.ol-pm-name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-pm-state {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.ol-pm-row.ol-pm-ready {
+  border-left-color: var(--success);
+}
+.ol-pm-row.ol-pm-ready .ol-pm-state {
+  color: var(--success);
+}
+
+.ol-pm-row.ol-pm-left {
+  border-left-color: var(--danger);
+  opacity: 0.65;
+}
+.ol-pm-row.ol-pm-left .ol-pm-state {
+  color: var(--danger);
+}
+
+/* 応答待ちの点滅（相手の選択を待っていることを穏やかに示す） */
+.ol-pm-row.ol-pm-waiting .ol-pm-state {
+  animation: ol-pm-waiting-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ol-pm-waiting-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+/* REMATCH 投票済み状態: 押すと取消できることが分かるよう強調表示 */
+#ol-btn-rematch.rematch-voted {
+  background: linear-gradient(135deg, var(--success), #2e7d50);
+  box-shadow: 0 0 16px rgba(90, 245, 160, 0.5);
+  color: #fff;
+}
+
+#ol-rematch-status {
+  color: var(--text-dim);
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.changelog-items li {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+

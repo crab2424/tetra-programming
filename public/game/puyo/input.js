@@ -30,7 +30,7 @@ Object.assign(PuyoGame.prototype, {
             // ★ 【修正】待機中のインスタンスは無視
             if (this.state === 'idle') return;
 
-            const activePageId = this.isVersusMode ? 'versus-page' : 'game-page';
+            const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page');
             const gamePage = document.getElementById(activePageId);
             if (!gamePage || !gamePage.classList.contains('active')) return;
 
@@ -239,7 +239,7 @@ Object.assign(PuyoGame.prototype, {
         };
 
         this._gamepadLoop = setInterval(() => {
-            const activePageId = this.isVersusMode ? 'versus-page' : 'game-page';
+            const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page');
             const gamePage = document.getElementById(activePageId);
             if (!gamePage || !gamePage.classList.contains('active')) return;
 
@@ -385,6 +385,8 @@ Object.assign(PuyoGame.prototype, {
     },
 
     // SE再生の薄いラッパ。CPU操作の盤面でもSEを鳴らす（プレイヤーとの二重再生は許容する）
+    // 戻り値: 実際に鳴らしたら true、チャタリング防止で間引いたら false
+    // （online側の送信フックが「間引かれた音を相手にだけ送ってしまう」二重鳴りを防ぐのに使う）。
     playSe(key) {
         // fix.ogg（puyo_fix / puyo_drop）のみ、特殊なチャタリング防止を行う。
         // ・「1盤面につき」50ms間隔（この timer はインスタンス毎なので盤面ごとに独立）。
@@ -392,11 +394,12 @@ Object.assign(PuyoGame.prototype, {
         //   両者の fix 間隔が50ms未満でも互いに抑制されず鳴る。
         if (key === 'puyo_fix' || key === 'puyo_drop') {
             const now = performance.now();
-            if (this._lastFixSeTime != null && now - this._lastFixSeTime < 50) return;
+            if (this._lastFixSeTime != null && now - this._lastFixSeTime < 50) return false;
             this._lastFixSeTime = now;
         }
 
         window.SeManager?.play(key);
+        return true;
     },
 
     _tryMove(dir) {

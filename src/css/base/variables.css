@@ -1,0 +1,75 @@
+@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&family=Press+Start+2P&family=Russo+One&family=Rajdhani:wght@400;700&display=swap");
+
+/* ─────────────────────────────────────────────
+  CSS 変数（テーマカラー）
+───────────────────────────────────────────── */
+:root {
+  --bg: #0a0a0f;
+  --panel-bg: #12121a;
+  --border: #2a2a3a;
+  --field-border: #6f6f95;
+  --accent: #c471f5;
+  --accent2: #fa71cd;
+  --accent3: #71c5f5;
+  --text: #e0e0f0;
+  --text-dim: #888;
+  --danger: #f55a5a;
+  --success: #5af5a0;
+  /* オーバーレイの暗さ（第12ラウンドS6設計: くっきりしたままblur無しで暗さのみ）。
+     全オーバーレイ共通でシングルプレイのポーズ背景と同じ濃度に統一
+     （対戦系オーバーレイは元々より濃い値を使っていたが「暗すぎる」とのフィードバックで統一）。 */
+  --overlay-scrim: rgba(10, 10, 15, 0.72);
+  /* フォント変数 */
+  --font-main: "Noto Sans JP", sans-serif;
+  --font-orbitron: "Orbitron", monospace;
+  --font-pixel: "Press Start 2P", monospace;
+  --font-tech: "Russo One", sans-serif;
+  --font-modern: "Rajdhani", sans-serif;
+
+  /* ★ 対戦フィールド寸法トークン（CPU戦 #versus-page と online戦 .ol-opp-* が共有）
+     tet/puyoで実寸が異なる箇所は接頭辞(tet-/puyo-)で明確に分離する。
+     いずれも public/game 側の canvas.width/height 実値（唯一の真実）と一致させること。 */
+  --field-w: 320px; /* 盤面本体: tet(SCREEN_WIDTH)・puyo(lifecycle.js)とも共通 */
+  --field-h: 656px;
+  /* HOLD/NEXTの横幅はtet/puyoとも128px(BLOCK_SIZE(32)*4)で偶然ではなく共通なので、
+     tet/puyoで混同しないよう幅は1つの共有トークンにまとめる。高さだけがtet/puyo・HOLD/NEXTで違う。 */
+  --field-side-w: 128px;
+  --tet-hold-w: var(--field-side-w); /* tet/render.js initHoldCanvas */
+  --tet-hold-h: 128px;
+  --tet-next-w: var(--field-side-w); /* tet/render.js initNextCanvas */
+  --tet-next-h: 432px; /* BLOCK_SIZE*13.5 */
+  --puyo-next-w: var(--field-side-w); /* puyo/lifecycle.js _setupCanvas */
+  --puyo-next-h: 259px;
+  --field-border-w-main: 3px; /* 盤面本体の枠太さ */
+  --field-border-w-sub: 2px; /* HOLD/NEXTの枠太さ */
+  --field-gap: 32px; /* 盤面本体とHOLD/NEXTの間隔（CPU戦の352px/-160pxオフセットの由来） */
+  --field-gauge-w: 10px; /* おじゃま/攻撃ゲージの太さ */
+  --field-gauge-offset: 16px; /* 盤面端からゲージまでの距離 */
+  /* 終了演出（WIN! / LOSE... / GAME OVER）の文字。CPU戦・online戦で共有し、
+     online は --ol-scale を掛けて盤面の縮小に追従させる（旧: online だけ22px固定でズレていた）。 */
+  --finish-font-size: 44px;
+  --finish-letter-spacing: 4px;
+  /* 1v1 時に左右の盤面を離す中央余白。CPU戦 #versus-center の実幅（VSラベル71px＋左右padding40px）
+     に一致させ、online 2P では #ol-battle-layout の flex gap にこの値を使って同じ間隔を再現する。
+     ※ 0.8倍表示より外側（#versus-layout / #ol-battle-layout 直下）に効く余白なので、盤面本体の
+        --field-* とは違い --ol-scale は掛けない。 */
+  --versus-center-gap: 111px;
+  /* リザルトカード(.ol-result-card)の基準高さ。中身(セットスコア/選択状態行)で高さが
+     可変なため、実戦相当の中身で実測した値を基準に画面高さへ scale() で追従させる。 */
+  --result-card-base-h: 760px;
+
+  /* 共有ボタン配色トークン（.btn-primary/-secondary/-danger、components/buttons.css参照）。
+     primary/secondaryの値は旧 .menu-btn.btn-primary/-secondary(main-menu.css)と数値一致。 */
+  --btn-primary-bg: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  --btn-primary-fg: #fff;
+  --btn-secondary-bg: rgba(196, 113, 245, 0.12);
+  --btn-secondary-border: rgba(196, 113, 245, 0.35);
+  --btn-secondary-hover-bg: rgba(196, 113, 245, 0.22);
+  --btn-secondary-fg: var(--accent);
+  --btn-danger-bg: rgba(245, 90, 90, 0.12);
+  --btn-danger-border: rgba(245, 90, 90, 0.4);
+  --btn-danger-fg: var(--danger);
+  --btn-danger-hover-bg: var(--danger);
+  --btn-danger-hover-fg: #fff;
+}
+

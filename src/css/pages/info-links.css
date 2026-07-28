@@ -1,0 +1,51 @@
+/* ─────────────────────────────────────────────
+   メインメニュー 情報系リンク
+   （TITLE / CREDITS / CHANGELOG — 控えめなテキストリンク）
+───────────────────────────────────────────── */
+.util-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  padding: 6px 10px;
+  border-radius: 6px;
+  opacity: 0.6;
+  transition:
+    color 0.2s,
+    opacity 0.2s,
+    background 0.2s;
+}
+
+.util-link:hover,
+.util-link.is-focused {
+  color: var(--text);
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.util-link .util-icon {
+  font-size: 12px;
+}
+
+/* 左下：CREDITS ／ 右下：CHANGELOG（基準は #main-menu-footer = メインキャンバス幅） */
+.util-link-credits,
+.util-link-changelog {
+  position: absolute;
+  bottom: 4px;
+}
+
+.util-link-credits {
+  left: 0;
+}
+
+.util-link-changelog {
+  right: 0;
+}
+

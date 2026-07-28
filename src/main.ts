@@ -1,6 +1,14 @@
 declare const APP_VERSION: string;
 
-import { showToast, ToastColor } from "./toast";
+// 対戦共通モジュール（window.BattleGarbage / window.BattleLayout を登録。
+// プレーンJSエンジン(public/)からの参照はこの副作用importで成立する）
+import "./battle/garbage_router";
+import "./battle/layout";
+import "./battle/lifecycle";
+import "./battle/driver";
+import "./battle/freeze";
+import "./battle/finish_overlay";
+import { showToast, ToastColor } from "./components/toast";
 
 document.addEventListener("DOMContentLoaded", () => {
   const urlParams = new URLSearchParams(window.location.search);

@@ -12,8 +12,8 @@ import {
 } from "bincode-ts";
 import { RoomTag } from "./room";
 
-import PuyoIcon from "../puyo-icon.png";
-import TetIcon from "../tet-icon.png";
+import PuyoIcon from "../assets/icons/puyo-icon.png";
+import TetIcon from "../assets/icons/tet-icon.png";
 
 export enum Opcodes {
   /** バイナリPing */
@@ -234,6 +234,12 @@ export interface JSONGetRoomsResponse {
     locked: boolean;
     tags: RoomTag[];
   }[];
+  /** 現在接続中の人数（集計値のみ、個人が追える情報は含まない）。旧サーバー未対応時は undefined。 */
+  onlineCount?: number;
+  /** 対戦中の人数 */
+  inMatchCount?: number;
+  /** ランダムマッチ待機中の人数 */
+  matchingCount?: number;
 }
 
 export interface CreateRoomRequest {
@@ -407,6 +413,10 @@ export const isUpdateMatchSettingNotification = (d: any): d is UpdateMatchSettin
 export interface UpdatePlayerRuleRequest { id: Uuid; roomId: Uuid; rule: string; }
 export interface UpdatePlayerRuleResponse { id: Uuid; success: boolean; message?: string; }
 
+/** 表示名の変更。待機列中など在室していない場合は roomId を null にする */
+export interface UpdatePlayerNameRequest { id: Uuid; roomId: Uuid | null; username: string; }
+export interface UpdatePlayerNameResponse { id: Uuid; success: boolean; message?: string; }
+
 export interface SetReadyRequest { id: Uuid; roomId: Uuid; ready: boolean; }
 export interface SetReadyResponse { id: Uuid; success: boolean; message?: string; }
 
@@ -417,6 +427,8 @@ export interface UpdatePlayerPingRequest { id: Uuid; roomId: Uuid; pingMs: numbe
 
 /** MatchSettingのJSONスキーマ (matchSetting文字列をパースした型) */
 export interface OnlineMatchSetting {
+  /** セットの先取本数。1 = 1本勝負 */
+  setTarget: number;
   holdEnabled: boolean;
   b2bBonus: boolean;
   garbageMultiplier: number; // 1.0 = 等倍
@@ -431,6 +443,7 @@ export interface OnlineMatchSetting {
 }
 
 export const defaultMatchSetting: OnlineMatchSetting = {
+  setTarget: 1,
   holdEnabled: true,
   b2bBonus: true,
   garbageMultiplier: 1.0,
@@ -444,6 +457,9 @@ export function parseMatchSetting(json: string): OnlineMatchSetting {
   try {
     const parsed = JSON.parse(json);
     return {
+      setTarget: typeof parsed.setTarget === "number"
+        ? Math.max(1, Math.min(9, Math.floor(parsed.setTarget)))
+        : defaultMatchSetting.setTarget,
       holdEnabled: parsed.holdEnabled ?? defaultMatchSetting.holdEnabled,
       b2bBonus: parsed.b2bBonus ?? defaultMatchSetting.b2bBonus,
       garbageMultiplier: typeof parsed.garbageMultiplier === "number" ? parsed.garbageMultiplier : defaultMatchSetting.garbageMultiplier,
@@ -482,6 +498,14 @@ export const isPostMatchActionNotification = (d: any): d is PostMatchActionNotif
 export interface PlayerDisconnectedNotification { roomId: Uuid; playerId: Uuid; }
 export const isPlayerDisconnectedNotification = (d: any): d is PlayerDisconnectedNotification =>
   d && d.type === "JSONPlayerDisconnectedNotification";
+
+export interface PlayerConnectionLostNotification { roomId: Uuid; playerId: Uuid; graceMs: number; }
+export const isPlayerConnectionLostNotification = (d: any): d is PlayerConnectionLostNotification =>
+  d && d.type === "JSONPlayerConnectionLostNotification";
+
+export interface PlayerReconnectedNotification { roomId: Uuid; playerId: Uuid; }
+export const isPlayerReconnectedNotification = (d: any): d is PlayerReconnectedNotification =>
+  d && d.type === "JSONPlayerReconnectedNotification";
 
 export class JSONPayload {
   static toPayload(op: Opcodes, data: string): Uint8Array {

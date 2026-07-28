@@ -90,10 +90,15 @@ Object.assign(PuyoGame.prototype, {
 
         const numSize = 48;
         const chainSize = 24;
+        // ★ online対戦の相手パペットは --ol-scale に合わせてこの倍率が1未満になる
+        //   （盤面全体が縮小されるのに文字だけ固定pxだと3P以降で相対的に巨大化するため）。
+        //   CSS transform の scale() で丸ごと縮小すればstroke/text-shadow/marginも
+        //   比率を保ったまま一緒に縮む。CPU戦(常に1)は見た目が変わらない。
+        const scale = this._chainTextScale ?? 1;
 
         const el = document.createElement('div');
         el.style.position = 'absolute';
-        el.style.transform = 'translate(-50%, -50%)';
+        el.style.transform = `translate(-50%, -50%) scale(${scale})`;
         el.style.pointerEvents = 'none';
         el.style.zIndex = '9999';
         el.style.whiteSpace = 'nowrap';
@@ -176,6 +181,15 @@ Object.assign(PuyoGame.prototype, {
         if (this.yokokuContainer) {
             this.yokokuContainer.innerHTML = '';
         }
+        // ★ innerHTML='' は row1/row2 の固定コンテナごと・プール中のノードも道連れに
+        //   吹き飛ばす。参照を持ったままにすると次回 _updateOjamaYokoku が「もう
+        //   DOMに無いノード」へ appendChild し続けて描画が復活しなくなるため、
+        //   ノード管理用の状態を丸ごとリセットし、次回 _initOjamaYokokuDOM 相当の
+        //   再構築（row1/row2再生成）から入り直させる。
+        this._yokokuRow1 = null;
+        this._yokokuRow2 = null;
+        this._yokokuMounted = [];
+        this._yokokuPool = {};
         // ★ DOMを空にしたので差分更新キャッシュも無効化（次回の_updateOjamaYokokuで確実に再構築させる）
         this._lastYokokuAmount = -1;
     },
@@ -340,7 +354,7 @@ Object.assign(PuyoGame.prototype, {
         if (this.isAllClear) {
             ctx.save();
             // 時間経過でアルファ値を少し揺らす (0.85 〜 1.0)
-            const alpha = 0.85 + 0.15 * Math.sin(this.elapsed / 150);
+            const alpha = 0.85 + 0.15 * Math.sin(this._animMs / 150);
             ctx.globalAlpha = alpha;
             ctx.font = 'bold 26px "Orbitron", monospace';
             ctx.fillStyle = '#ffea00';
@@ -424,11 +438,11 @@ Object.assign(PuyoGame.prototype, {
         }
 
         // ── フラッシュエフェクト ──
-        if (flashType > 0) {
+        if (flashType > 0 && !this.suppressBlink) {
             const isErase = (flashType === 2);
             const speed = isErase ? 40 : 60;
             const maxAlpha = isErase ? 0.85 : 0.7;
-            const alpha = (Math.sin(this.elapsed / speed) + 1) / 2 * maxAlpha;
+            const alpha = (Math.sin(this._animMs / speed) + 1) / 2 * maxAlpha;
 
             ctx.globalCompositeOperation = 'lighter';
             ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;

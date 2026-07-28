@@ -170,6 +170,8 @@ Object.assign(PuyoGame.prototype, {
     },
 
     _update(dt) {
+        this._animMs += dt; // ★ 描画アニメ用クロック。elapsed(ストップウォッチ)とは別に毎フレーム進める
+
         this._updateDAS(dt);
 
         if (this.ojamaUpdateQueue.length > 0) {
@@ -195,10 +197,7 @@ Object.assign(PuyoGame.prototype, {
             if (anyCleared) this.updateGarbageGauge();
         }
 
-        for (let anim of this.activeAnims) {
-            anim.timer += dt;
-        }
-        this.activeAnims = this.activeAnims.filter(a => a.timer < a.duration);
+        this._stepVibAnims(dt);
 
         switch (this._gs) {
             case 'spawn':
@@ -222,15 +221,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'falling':
-                if (this.animRot !== this.targetAnimRot) {
-                    const diff = this.targetAnimRot - this.animRot;
-                    const speed = (1000 / PConfig.rotateDurationMs) * (dt / 1000);
-                    if (Math.abs(diff) <= speed) {
-                        this.animRot = this.targetAnimRot;
-                    } else {
-                        this.animRot += Math.sign(diff) * speed;
-                    }
-                }
+                this._stepRotationAnim(dt);
                 this._handleGravity(dt);
                 break;
 
@@ -398,14 +389,13 @@ Object.assign(PuyoGame.prototype, {
                         this._beginGameOver();
                         return;
                     }
-                    this._gs = 'spawnAnim';
-                    this.spawnAnimTimer = 0;
+                    this._beginSpawnAnim();
                 }
                 break;
             }
 
             case 'erasing':
-                this._eraseTimer += dt;
+                this._stepEraseBlink(dt);
                 if (this._eraseTimer >= PConfig.eraseMs) {
                     this._applyErase();
                     this._buildDropAnim();
@@ -446,7 +436,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'eraseWait':
-                this.eraseWaitTimer += dt;
+                this._stepEraseWait(dt);
                 if (this.eraseWaitTimer >= PConfig.eraseWaitMs) {
                     if (this.chainScoreAdd > 0) {
                         this.score += this.chainScoreAdd;
@@ -465,16 +455,7 @@ Object.assign(PuyoGame.prototype, {
 
             case 'dropping':
                 if (this._dropAnim) {
-                    let allDone = true;
-                    for (const col of this._dropAnim) {
-                        for (const cell of col.cells) {
-                            const targetY = (cell.toR - PConfig.hiddenRows) * PConfig.cellSize;
-                            const speed = PConfig.cellSize / 50;
-                            cell.py = Math.min(cell.py + speed * dt, targetY);
-                            if (cell.py < targetY) allDone = false;
-                        }
-                    }
-                    if (allDone) {
+                    if (this._stepDropAnim(dt)) {
                         this._applyDropAnim();
 
                         let anyChainVib = false;
@@ -500,7 +481,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'spawnAnim':
-                this.spawnAnimTimer += dt;
+                this._stepSpawnAnim(dt);
                 if (this.spawnAnimTimer >= PConfig.spawnAnimMs) {
                     this.chainCount = 0;
                     this._gs = 'spawn';
@@ -523,6 +504,74 @@ Object.assign(PuyoGame.prototype, {
         }
         // ★ ぷよ→テト火力変換用：落下点数を独立して記録（連鎖開始時の1連鎖目計算に使用）
         this.tetDropScore += amount;
+    },
+
+    // ══════════════════════════════════════════════
+    // アニメ用タイマーの前進だけを担うステップ関数群。
+    // オンライン相手パペット(src/battle/driver.ts)が「CPU戦とコードレベルで統一」
+    // した見た目にするため、_update() 内の該当箇所からもここへ委譲して同じ関数を呼ぶ。
+    // ここに切り出した関数はタイマー加算のみで、状態遷移（_gs の切り替え）は
+    // 呼び出し元（_update または driver.ts）の責務のまま変えない。
+    // ══════════════════════════════════════════════
+
+    /** 設置振動(activeAnims)を1フレーム進める。フェーズ非依存で毎フレーム呼ばれる。 */
+    _stepVibAnims(dt) {
+        for (let anim of this.activeAnims) {
+            anim.timer += dt;
+        }
+        this.activeAnims = this.activeAnims.filter(a => a.timer < a.duration);
+    },
+
+    /** 操作ぷよの回転アニメ(animRot→targetAnimRot)を1フレーム進める。 */
+    _stepRotationAnim(dt) {
+        if (this.animRot !== this.targetAnimRot) {
+            const diff = this.targetAnimRot - this.animRot;
+            const speed = (1000 / PConfig.rotateDurationMs) * (dt / 1000);
+            if (Math.abs(diff) <= speed) {
+                this.animRot = this.targetAnimRot;
+            } else {
+                this.animRot += Math.sign(diff) * speed;
+            }
+        }
+    },
+
+    /** 連鎖の消去点滅タイマーを1フレーム進める。 */
+    _stepEraseBlink(dt) {
+        this._eraseTimer += dt;
+    },
+
+    /** 消去後の間(eraseWaitMs)タイマーを1フレーム進める。 */
+    _stepEraseWait(dt) {
+        this.eraseWaitTimer += dt;
+    },
+
+    /** NEXT遷移(spawnAnimMs)タイマーを1フレーム進める。 */
+    _stepSpawnAnim(dt) {
+        this.spawnAnimTimer += dt;
+    },
+
+    /**
+     * NEXT遷移(spawnAnim)を開始する。checkErase の末尾からのフック点として抽出しただけで、
+     * 挙動は従来のインライン代入（_gs='spawnAnim'; spawnAnimTimer=0）と完全に同じ。
+     * online側はここをフックして、遷移完了(_spawnPuyo)を待たずに次ペア情報を先行送信する。
+     */
+    _beginSpawnAnim() {
+        this._gs = 'spawnAnim';
+        this.spawnAnimTimer = 0;
+    },
+
+    /** 落下アニメ(_dropAnim)のセル位置を1フレーム進める。全セル到達で true。 */
+    _stepDropAnim(dt) {
+        let allDone = true;
+        for (const col of this._dropAnim) {
+            for (const cell of col.cells) {
+                const targetY = (cell.toR - PConfig.hiddenRows) * PConfig.cellSize;
+                const speed = PConfig.cellSize / 50;
+                cell.py = Math.min(cell.py + speed * dt, targetY);
+                if (cell.py < targetY) allDone = false;
+            }
+        }
+        return allDone;
     },
 
     _handleGravity(dt) {

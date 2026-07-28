@@ -1,0 +1,60 @@
+/* ─────────────────────────────────────────────
+   PUYOモード用スタイル
+───────────────────────────────────────────── */
+#puyo-main-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 3px solid var(--field-border);
+  border-radius: 2px;
+  box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
+  image-rendering: pixelated;
+}
+#puyo-next-canvas {
+  position: absolute;
+  top: 0;
+  left: 352px;
+  border: 2px solid var(--field-border);
+  border-radius: 2px;
+  image-rendering: pixelated;
+  height: 259px;
+}
+
+#eval-area {
+  position: absolute;
+  left: 352px;
+  top: 570px;
+}
+#eval-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+#eval-value {
+  font-family: "Orbitron", monospace;
+  font-size: 30px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.eval-diff-plus {
+  color: var(--accent3);
+}
+.eval-diff-minus {
+  color: var(--danger);
+}
+
+#test-garbage-area {
+  position: absolute;
+  left: -160px;
+  top: 580px;
+}
+#test-garbage-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+

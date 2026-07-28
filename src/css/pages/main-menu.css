@@ -1,0 +1,281 @@
+/* ─────────────────────────────────────────────
+   メインメニューページ（main-menu-page）
+───────────────────────────────────────────── */
+#main-menu-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#main-menu-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding-top: 32px;
+  /* ★ 横幅基準で縮小：設計幅 900px を基準に、画面が狭いときだけ縮小（上限1.0）。
+     高さは基準にしない（縦に長い場合はスクロール前提のため）。
+     transform:scale ではなく zoom を使う。zoom はレイアウト寸法ごと縮小するため、
+     縮小後に下部の余白が残らず、横スクロールも発生しない。 */
+  width: 900px;
+  max-width: none;
+  zoom: clamp(0.35, calc((100vw - 32px) / 900px), 1);
+}
+
+#main-menu-logo {
+  text-align: center;
+}
+
+.menu-title {
+  font-family: "Orbitron", monospace;
+  font-size: 52px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 8px 0;
+  line-height: 1;
+}
+
+.menu-subtitle {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+#main-menu-modes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  width: 100%;
+}
+
+.menu-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  padding: 20px 28px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    transform 0.1s;
+  text-align: left;
+}
+
+.mode-btn:hover,
+.mode-btn.is-focused {
+  transform: translateY(-2px);
+}
+.mode-btn:active {
+  transform: translateY(0);
+}
+
+.mode-btn-marathon {
+  border-color: rgba(196, 113, 245, 0.35);
+}
+.mode-btn-marathon:hover,
+.mode-btn-marathon.is-focused {
+  background: rgba(196, 113, 245, 0.12);
+  border-color: var(--accent);
+}
+
+.mode-btn-sprint {
+  border-color: rgba(113, 197, 245, 0.35);
+}
+.mode-btn-sprint:hover,
+.mode-btn-sprint.is-focused {
+  background: rgba(113, 197, 245, 0.12);
+  border-color: var(--accent3);
+}
+
+.mode-btn-ultra {
+  border-color: rgba(250, 113, 205, 0.35);
+}
+.mode-btn-ultra:hover,
+.mode-btn-ultra.is-focused {
+  background: rgba(250, 113, 205, 0.12);
+  border-color: var(--accent2);
+}
+
+.mode-btn-versus {
+  border-color: rgba(245, 197, 66, 0.35);
+}
+.mode-btn-versus:hover,
+.mode-btn-versus.is-focused {
+  background: rgba(245, 197, 66, 0.12);
+  border-color: #f5c542;
+}
+
+.mode-btn-test {
+  border-color: rgba(90, 245, 160, 0.35);
+}
+.mode-btn-test:hover,
+.mode-btn-test.is-focused {
+  background: rgba(90, 245, 160, 0.12);
+  border-color: var(--success);
+}
+
+.mode-btn-puyo {
+  border-color: rgba(250, 113, 205, 0.35);
+}
+.mode-btn-puyo:hover,
+.mode-btn-puyo.is-focused {
+  background: rgba(250, 113, 205, 0.12);
+  border-color: var(--accent2);
+}
+
+.mode-btn-online {
+  border-color: rgba(113, 188, 250, 0.35);
+}
+.mode-btn-online:hover {
+  background: rgba(113, 168, 250, 0.12);
+  border-color: var(--accent3);
+}
+
+.mode-btn-icon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 40px;
+  text-align: center;
+}
+
+.mode-btn-marathon .mode-btn-icon {
+  color: var(--accent);
+}
+.mode-btn-sprint .mode-btn-icon {
+  color: var(--accent3);
+}
+.mode-btn-ultra .mode-btn-icon {
+  color: var(--accent2);
+}
+.mode-btn-versus .mode-btn-icon {
+  color: #f5c542;
+}
+.mode-btn-test .mode-btn-icon {
+  color: var(--success);
+}
+.mode-btn-puyo .mode-btn-icon {
+  color: var(--accent2);
+}
+.mode-btn-online .mode-btn-icon {
+  color: var(--accent3);
+}
+
+.mode-btn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mode-btn-label {
+  font-family: "Orbitron", monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text);
+}
+
+.mode-btn-marathon .mode-btn-label {
+  color: var(--accent);
+}
+.mode-btn-sprint .mode-btn-label {
+  color: var(--accent3);
+}
+.mode-btn-ultra .mode-btn-label {
+  color: var(--accent2);
+}
+.mode-btn-versus .mode-btn-label {
+  color: #f5c542;
+}
+.mode-btn-test .mode-btn-label {
+  color: var(--success);
+}
+.mode-btn-puyo .mode-btn-label {
+  color: var(--accent2);
+}
+.mode-btn-online .mode-btn-label {
+  color: var(--accent3);
+}
+
+.mode-btn-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* 基準はメインキャンバス(#main-menu-container)。フッターをその基準ボックスとして
+   中央に SETTINGS+TITLE、左右の下隅に CREDITS / CHANGELOG を配置する。 */
+#main-menu-footer {
+  position: relative;
+  width: 100%;
+  margin-top: 16px;
+  min-height: 100px;
+}
+
+/* 中央：SETTINGS の真下に TITLE を縦並び */
+#main-menu-footer-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+#main-menu-footer-center .menu-btn {
+  width: auto;
+  min-width: 200px;
+}
+
+.menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  padding: 18px 32px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition:
+    opacity 0.2s,
+    transform 0.1s;
+}
+
+.menu-btn:hover,
+.menu-btn.is-focused {
+  opacity: 0.85;
+  transform: translateY(-2px);
+}
+.menu-btn:active {
+  transform: translateY(0);
+}
+
+/* 色は components/buttons.css の .btn-primary/.btn-secondary が担当（.menu-btnから独立）。
+   ここは menu-btn 文脈でのレイアウトのみ。 */
+.menu-btn.btn-primary {
+  width: 100%;
+}
+
+.menu-btn-icon {
+  font-size: 16px;
+}
+

@@ -1,0 +1,36 @@
+/* TETLABO スタイル集約エントリ。@importの順序は元style.css/index.htmlの
+   カスケード順（anime.css → style.css内の各セクション → bsmock.css → toast.css）と一致させている。
+   新しいページ用CSSを追加する場合はここに1行足す。 */
+
+@import "./base/animations.css";
+@import "./base/variables.css";
+@import "./base/reset.css";
+
+@import "./components/buttons.css";
+
+@import "./pages/title.css";
+@import "./pages/main-menu.css";
+@import "./pages/mode-check.css";
+@import "./pages/vs-settings.css";
+@import "./pages/versus-layout.css";
+@import "./pages/versus-result.css";
+@import "./pages/countdown-overlay.css";
+@import "./pages/single-play.css";
+@import "./pages/settings.css";
+@import "./pages/action-display.css";
+@import "./pages/pause.css";
+@import "./pages/settings-toast.css";
+@import "./pages/tuning.css";
+@import "./pages/puyo-mode.css";
+@import "./pages/quiz.css";
+@import "./pages/online-lobby.css";
+@import "./pages/credits.css";
+@import "./pages/info-links.css";
+@import "./pages/changelog.css";
+@import "./pages/online-battle.css";
+@import "./pages/online-loading.css";
+
+@import "./base/focus.css";
+
+@import "./base/utilities.css";
+@import "./components/toast.css";
