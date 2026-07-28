@@ -275,7 +275,7 @@
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: var(--overlay-scrim-strong);
+  background: var(--overlay-scrim);
   z-index: 100;
   pointer-events: auto;
   align-items: safe center;
