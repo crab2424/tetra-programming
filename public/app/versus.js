@@ -164,6 +164,7 @@ async function startVersusGame() {
   window._cpuGame.statsPrefix = 'cpu';
   window._cpuGame.isCpuControlled = true;
   window._cpuGame._labelsInitialized = false;
+  if (isCpuPuyo) window._cpuGame.suppressBlink = true; // ★ 操作不可のCPU側盤面はPUYO点滅を止める
 
   // ─── VS設定をエンジンへ注入 ───
   if (typeof applyVsSettings === 'function') {

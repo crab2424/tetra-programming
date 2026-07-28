@@ -142,6 +142,8 @@ export class NetworkDriver implements OpponentDriver {
       // ★ ALL CLEAR明滅・浮遊フラッシュは実エンジンの this._animMs 基準（draw.js）。
       //   パペットは _update を回さないため、毎フレーム自前で進める必要がある(下のapplyFrame内)。
       this.puppet._animMs = 0;
+      // ★ この端末では操作不可能な相手パペットなので、PUYO点滅(flashType)を止める。
+      this.puppet.suppressBlink = true;
       // ★ 連鎖文字(48px固定DOM)を --ol-scale に合わせて縮小する（3P以降で相対的に
       //   巨大化しないため）。CPU戦の PuyoGame は既定の undefined(=1倍)のまま。
       this.puppet._chainTextScale = readOlScale();

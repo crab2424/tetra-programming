@@ -13,6 +13,10 @@ class PuyoGame {
         this.canvasPrefix = canvasPrefix;
         this.isVersusMode = false;
         this.isCpuControlled = false;
+        // ★ その端末で操作不可能な盤面（CPU側・オンライン相手パペット）で
+        //   軸ぷよ点滅/消去予告点滅(_drawPuyo flashType)を止めるためのフラグ。
+        //   versus.js（CPU戦）・driver.ts（online相手パペット）が生成直後にtrueへ設定する。
+        this.suppressBlink = false;
         this.rng = null;
 
         this.canvas = null;
