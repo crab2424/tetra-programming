@@ -8,9 +8,7 @@
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(10, 10, 15, 0.72);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  background: var(--overlay-scrim);
   z-index: 1000;
   align-items: center;
   justify-content: center;

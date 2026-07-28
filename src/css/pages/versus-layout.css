@@ -293,7 +293,7 @@
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(8, 6, 12, 0.88);
+  background: var(--overlay-scrim-strong);
   z-index: 1000;
   align-items: center;
   justify-content: center;
