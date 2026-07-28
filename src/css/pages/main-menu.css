@@ -269,21 +269,12 @@
   transform: translateY(0);
 }
 
+/* 色は components/buttons.css の .btn-primary/.btn-secondary が担当（.menu-btnから独立）。
+   ここは menu-btn 文脈でのレイアウトのみ。 */
 .menu-btn.btn-primary {
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
-  color: #fff;
   width: 100%;
 }
 
-.menu-btn.btn-secondary {
-  background: rgba(196, 113, 245, 0.12);
-  color: var(--accent);
-  border: 1px solid rgba(196, 113, 245, 0.35);
-}
-.menu-btn.btn-secondary:hover,
-.menu-btn.btn-secondary.is-focused {
-  background: rgba(196, 113, 245, 0.22);
-}
 .menu-btn-icon {
   font-size: 16px;
 }

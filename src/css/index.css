@@ -6,6 +6,8 @@
 @import "./base/variables.css";
 @import "./base/reset.css";
 
+@import "./components/buttons.css";
+
 @import "./pages/title.css";
 @import "./pages/main-menu.css";
 @import "./pages/mode-check.css";

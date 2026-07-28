@@ -53,5 +53,19 @@
   /* リザルトカード(.ol-result-card)の基準高さ。中身(セットスコア/選択状態行)で高さが
      可変なため、実戦相当の中身で実測した値を基準に画面高さへ scale() で追従させる。 */
   --result-card-base-h: 760px;
+
+  /* 共有ボタン配色トークン（.btn-primary/-secondary/-danger、components/buttons.css参照）。
+     primary/secondaryの値は旧 .menu-btn.btn-primary/-secondary(main-menu.css)と数値一致。 */
+  --btn-primary-bg: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  --btn-primary-fg: #fff;
+  --btn-secondary-bg: rgba(196, 113, 245, 0.12);
+  --btn-secondary-border: rgba(196, 113, 245, 0.35);
+  --btn-secondary-hover-bg: rgba(196, 113, 245, 0.22);
+  --btn-secondary-fg: var(--accent);
+  --btn-danger-bg: rgba(245, 90, 90, 0.12);
+  --btn-danger-border: rgba(245, 90, 90, 0.4);
+  --btn-danger-fg: var(--danger);
+  --btn-danger-hover-bg: var(--danger);
+  --btn-danger-hover-fg: #fff;
 }
 

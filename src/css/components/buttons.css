@@ -1,0 +1,33 @@
+/* ─────────────────────────────────────────────
+   共有ボタン配色（.btn-primary / .btn-secondary / .btn-danger）
+   サイズ(padding/font-size/border-radius)は呼び出し側のベースクラス
+   （.btn = settings.css、.menu-btn = main-menu.css）が担当し、
+   ここでは色（background/color/border）だけを定義する。
+   .menu-btn と .btn のどちらに付けても同じ色になる。
+───────────────────────────────────────────── */
+
+.btn-primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+}
+
+.btn-secondary {
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  border: 1px solid var(--btn-secondary-border);
+}
+.btn-secondary:hover,
+.btn-secondary.is-focused {
+  background: var(--btn-secondary-hover-bg);
+}
+
+.btn-danger {
+  background: var(--btn-danger-bg);
+  color: var(--btn-danger-fg);
+  border: 1px solid var(--btn-danger-border);
+}
+.btn-danger:hover,
+.btn-danger.is-focused {
+  background: var(--btn-danger-hover-bg);
+  color: var(--btn-danger-hover-fg);
+}

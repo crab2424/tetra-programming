@@ -96,6 +96,7 @@ class Modal {
     title?: string,
     okMessage: string = "OK",
     cancelMessage: string = "Cancel",
+    danger: boolean = false,
   ): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       const modalContent = (
@@ -126,7 +127,7 @@ class Modal {
               {cancelMessage}
             </button>
             <button
-              class="btn btn-primary"
+              class={"btn " + (danger ? "btn-danger" : "btn-primary")}
               onclick={() => {
                 Modal.hideModal();
                 resolve(true);
@@ -647,7 +648,7 @@ class OnlineMode {
       <>
         <div class="online-header">
           <button
-            class="btn btn-secondary"
+            class="btn btn-danger"
             onclick={async () => {
               const isOnlyPlayer = roomData.players.length === 1;
 
@@ -660,6 +661,7 @@ class OnlineMode {
                 "ルーム退出の確認",
                 "退出",
                 "キャンセル",
+                true,
               );
               if (confirmLeave) {
                 await this.connection!.leaveRoom({ roomId: roomData.roomId });
@@ -1537,7 +1539,7 @@ class OnlineMode {
             <div id="ol-rm-status" class="ol-rm-status"></div>
             <div class="ol-rm-actions">
               <button
-                class="btn btn-secondary"
+                class="btn btn-danger"
                 onclick={() => this.declineRandomMatch(roomData.roomId)}
               >
                 辞退する

@@ -377,25 +377,7 @@
   display: flex !important;
 }
 
-.online-room-tag {
-  font-family: "Orbitron", monospace;
-  font-size: 10px;
-  letter-spacing: 1px;
-  color: var(--text-dim);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
-  white-space: nowrap;
-  margin: 4px;
-  cursor: pointer;
-}
-
-.online-room-tag-enabled {
-  color: var(--accent);
-  background: rgba(196, 113, 245, 0.15);
-  border-color: rgba(196, 113, 245, 0.35);
-}
+/* online-room-tag は src/css/pages/online-lobby.css へ移設済み。 */
 
 /* ─── PAUSE モーダル / フィールドヘッダー 共通 QUIZ レベル情報ブロック ─── */
 #pause-quiz-info,
