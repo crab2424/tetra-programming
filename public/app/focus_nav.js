@@ -665,6 +665,16 @@
   // ─────────────────────────────────────────────
   // watchAttr: 'class'なら overlay.active クラス、'style'なら display!=='none' を可視判定に使う
   // （online系の一部オーバーレイは class ではなく style.display で開閉するため）。
+  //
+  // ★ 複数オーバーレイの重ね表示に対応する（online対戦のリザルト画面(ol-winner-overlay)の
+  //   上にロード画面(ol-loading-overlay)が被って開く等）。各オーバーレイのMutationObserverは
+  //   「自分自身のstyle/class変化」でしか発火しないため、上に被さっていた方だけが閉じても
+  //   下のオーバーレイ側では何もイベントが起きない。そのままdeactivate()するとFocusNavが
+  //   非activeのまま固定され、下のオーバーレイがまだ開いているのに矢印キーが一切効かなく
+  //   なる不具合があった（RETRY→ロード画面キャンセル後にリザルト画面のRETRY/ROOM/LEAVEへ
+  //   フォーカスが戻らない）。閉じた側が今のactiveだった場合、他に開いたままのオーバーレイが
+  //   無いか探し、あればそちらへactivateし直す。
+  const overlayWatchers = [];
   function setupOverlayWatcher(overlayId, getButtons, initialSelector, extra){
     const overlay = document.getElementById(overlayId);
     if (!overlay) return;
@@ -673,6 +683,8 @@
     const isOpen = watchAttr === 'style'
       ? () => overlay.style.display !== 'none'
       : () => overlay.classList.contains('active');
+
+    overlayWatchers.push({ overlayId, isOpen });
 
     register(overlayId, Object.assign({
       root: overlay,
@@ -689,7 +701,9 @@
       if (isOpen()) {
         activate(overlayId);
       } else if (active && active.pageId === overlayId) {
-        deactivate();
+        const stillOpen = overlayWatchers.find(w => w.overlayId !== overlayId && w.isOpen());
+        if (stillOpen) activate(stillOpen.overlayId);
+        else deactivate();
       }
     });
     obs.observe(overlay, { attributes: true, attributeFilter: [watchAttr] });
