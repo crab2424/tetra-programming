@@ -202,7 +202,13 @@ class Modal {
     modalContainer.classList.remove("online-modal-active");
     // モーダルは常にonline-topの上に開く前提。閉じたらフォーカスを元の画面へ返す
     // （モーダルの内容はここで消えるため、二度と参照できなくなる前に必ず戻す）。
-    syncOnlineTopFocus();
+    // ★ syncOnlineTopFocus() は使わない: その関数は「アクティブページが既に online-modal
+    //   なら何もしない」ガードを持つ（＝他のrender関数がモーダル表示中に誤って呼んで
+    //   フォーカスを奪わないための保護）。しかしここは online-modal から抜ける瞬間そのものなので
+    //   ガードに毎回引っかかり、FocusNavが online-modal に固定されたまま二度と online-top へ
+    //   戻らず、以降キー操作が一切効かなくなる不具合があった。ここでは直接 activate する。
+    ensureOnlineTopFocusPage();
+    focusNav()?.activate("online-top");
     modalContainer.replaceChildren();
   }
 
