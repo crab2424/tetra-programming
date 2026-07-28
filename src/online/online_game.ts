@@ -452,16 +452,17 @@ export class OnlineGameController {
     this.visibilityListenerActive = false;
   }
 
-  /** 対戦画面上部の「残り生存者数」表示を更新する */
+  /** 対戦画面上部の「残り生存者数」表示を更新する。
+   *  2人戦は 2/2→1/2 にしかならず情報量が無いため3人戦以上でのみ表示する。 */
   private updateAliveDisplay(): void {
+    if (this.roomInfo.players.length <= 2) {
+      document.getElementById("ol-alive-count")?.remove();
+      return;
+    }
     let el = document.getElementById("ol-alive-count");
     if (!el) {
       el = document.createElement("div");
       el.id = "ol-alive-count";
-      el.style.cssText =
-        "position:absolute;top:8px;left:50%;transform:translateX(-50%);" +
-        "font-family:'Orbitron',monospace;font-size:12px;letter-spacing:2px;" +
-        "color:var(--text-dim);z-index:10;pointer-events:none;";
       const battlePage = document.getElementById("online-battle-page");
       battlePage?.appendChild(el);
     }

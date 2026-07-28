@@ -1922,7 +1922,7 @@ class OnlineMode {
     this.state = OnlineModeState.RoomList;
     this.applyLobbyBgm();
 
-    const { rooms } = await this.connection!.getRooms();
+    const { rooms, onlineCount, inMatchCount } = await this.connection!.getRooms();
     this.logger.log("Received rooms from server:", rooms);
 
     // 直後に state が変わっていたら描画しない（自動更新とページ遷移の競合防止）
@@ -1957,6 +1957,11 @@ class OnlineMode {
             ⚙ SETTINGS
           </button>
         </div>
+        {onlineCount !== undefined && (
+          <div class="online-count-badge">
+            ● {onlineCount} ONLINE{inMatchCount ? `  ·  ${inMatchCount} IN MATCH` : ""}
+          </div>
+        )}
         <div class="online-top-content online-list-layout">
           {/* 上段: [ルーム一覧 + 更新] ... [ルーム作成] */}
           <div class="online-list-header">

@@ -234,6 +234,12 @@ export interface JSONGetRoomsResponse {
     locked: boolean;
     tags: RoomTag[];
   }[];
+  /** 現在接続中の人数（集計値のみ、個人が追える情報は含まない）。旧サーバー未対応時は undefined。 */
+  onlineCount?: number;
+  /** 対戦中の人数 */
+  inMatchCount?: number;
+  /** ランダムマッチ待機中の人数 */
+  matchingCount?: number;
 }
 
 export interface CreateRoomRequest {
