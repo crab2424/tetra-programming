@@ -54,6 +54,134 @@ function applyEnterAnimation(nodes: (Element | null)[]): void {
   });
 }
 
+// ─────────────────────────────────────────────
+// FocusNav（キーボード操作、public/app/focus_nav.js）連携（第13ラウンド②b）
+//
+// online系はDOM構造がCPU戦の固定ページ体系と違い、ひとつの #online-top-container の中身が
+// 状態遷移のたびに丸ごと置き換わる（接続中/エラー/ロビー/ルーム詳細/RM確認）。そのため
+// FocusNavの登録は「online-top」1つに統一し、getItemsが呼ばれるたびに現在のDOMを見て
+// どのビューかを判定する（既存の各render関数は一切変更しない＝マーカー用DOM追加も不要）。
+// モーダル（Modal.showModal/hideModal）は #online-modal-container を専用ページ「online-modal」
+// として扱い、開閉のたびにFocusNav側を明示的に切り替える。
+type FocusItem = { el: HTMLElement; key?: string; onActivate?: (it: { el: HTMLElement }) => void };
+
+function focusNav(): any {
+  return (window as any).FocusNav;
+}
+
+/** ルーム一覧の10秒自動更新でDOMが作り直されても、同じ項目へフォーカスを戻すための識別子。
+ * 静的ボタンは各所で data-focus-key を明示、ルーム項目は data-room-id から合成する。 */
+function focusKeyOf(el: HTMLElement): string | undefined {
+  if (el.dataset.focusKey) return el.dataset.focusKey;
+  const room = el.closest<HTMLElement>(".online-room");
+  if (room?.dataset.roomId) return "room:" + room.dataset.roomId;
+  return undefined;
+}
+
+function toFocusItem(el: HTMLElement): FocusItem {
+  const item: FocusItem = { el, key: focusKeyOf(el) };
+  if (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA") {
+    item.onActivate = (it) => {
+      (it.el as HTMLInputElement).focus();
+      const withSelect = it.el as { select?: () => void };
+      if (typeof withSelect.select === "function") {
+        try { withSelect.select(); } catch { /* 非対応要素は無視 */ }
+      }
+    };
+  }
+  return item;
+}
+
+function collectFocusable(root: HTMLElement): FocusItem[] {
+  // .online-room はクリックで入室する div（buttonではない）なので明示的に含める。
+  return Array.from(root.querySelectorAll<HTMLElement>("button, input, select, .online-room"))
+    .filter((el) => !el.matches(":disabled"))
+    .map(toFocusItem);
+}
+
+/** #online-top-container 配下、モーダルや`.btn-danger`(破壊的操作)を除いた中から
+ * キャンセル/CLOSE相当のボタンだけをEscape対象として選ぶ。複数ボタンがある画面で
+ * 誤って退出・辞退等を選ばないよう、ラベル一致か.btn-secondaryのみを対象にする
+ * （単一ボタンの画面＝alert等は、そのボタン自体が実質的なCLOSEとみなして許可）。 */
+function pickEscapeButton(root: HTMLElement): HTMLElement | null {
+  const buttons = Array.from(root.querySelectorAll<HTMLElement>("button"))
+    .filter((b) => !b.matches(":disabled") && b.offsetParent !== null);
+  const safe = buttons.filter((b) => !b.classList.contains("btn-danger"));
+  const byLabel = safe.find((b) => /^(キャンセル|cancel|close|閉じる)$/i.test((b.textContent || "").trim()));
+  if (byLabel) return byLabel;
+  const bySecondary = safe.find((b) => b.classList.contains("btn-secondary"));
+  if (bySecondary) return bySecondary;
+  if (safe.length === 1) return safe[0];
+  return null;
+}
+
+function onlineTopContainerEl(): HTMLElement | null {
+  return document.getElementById("online-top-container");
+}
+
+function onlineTopGetItems(): FocusItem[] {
+  const container = onlineTopContainerEl();
+  return container ? collectFocusable(container) : [];
+}
+
+/** connecting中/接続失敗/ロビー/ルーム詳細/RM確認のどれかを、既存の目印DOMだけで判定する。 */
+function onlineTopEscapeTarget(): HTMLElement | null {
+  const container = onlineTopContainerEl();
+  if (!container) return null;
+  // RM確認・ルーム詳細: 退出/辞退はいずれも破壊的操作なので安全な対象が無い（意図的にnull）。
+  if (container.querySelector("#ol-rm-confirm")) return null;
+  if (container.querySelector(".online-header .btn-danger")) return null; // ルーム詳細(LEAVE)
+  if (container.querySelector(".ol-connect-error")) {
+    return pickEscapeButton(container.querySelector<HTMLElement>(".ol-connect-actions") || container);
+  }
+  if (container.querySelector("#ol-connect-card")) {
+    return pickEscapeButton(container.querySelector<HTMLElement>(".online-header") || container);
+  }
+  if (container.querySelector("#online-rooms-container")) {
+    return pickEscapeButton(container.querySelector<HTMLElement>(".online-header") || container);
+  }
+  return null;
+}
+
+function ensureOnlineTopFocusPage(): void {
+  const FN = focusNav();
+  if (!FN || FN.__onlineTopRegistered) return;
+  FN.__onlineTopRegistered = true;
+  FN.register("online-top", {
+    root: document.getElementById("online-top-page"),
+    getItems: onlineTopGetItems,
+    escapeAction: onlineTopEscapeTarget,
+  });
+  FN.register("online-modal", {
+    root: document.getElementById("online-modal-container"),
+    rootActiveClass: "online-modal-active",
+    getItems: () => {
+      const container = document.getElementById("online-modal-container");
+      return container ? collectFocusable(container) : [];
+    },
+    escapeAction: () => {
+      const container = document.getElementById("online-modal-container");
+      return container ? pickEscapeButton(container) : null;
+    },
+  });
+}
+
+/** レンダー関数の末尾で呼ぶ。モーダル表示中はここでは何もしない
+ * （Modal.showModal/hideModal側でonline-modalへの切替を専任している）。
+ * preserveKey指定時（ロビーの10秒自動更新）は同じ項目へフォーカスを復元し、
+ * 未指定時は素直にactivateしてトップへ戻す（登場アニメ再生時などと揃える）。 */
+function syncOnlineTopFocus(preserveKey?: string | null): void {
+  ensureOnlineTopFocusPage();
+  const FN = focusNav();
+  if (!FN) return;
+  if (FN.getActivePageId() === "online-modal") return;
+  if (FN.getActivePageId() === "online-top") {
+    FN.restoreFocus(preserveKey ?? null);
+  } else {
+    FN.activate("online-top");
+  }
+}
+
 class Modal {
   static showModal(content: HTMLElement) {
     const modalContainer = document.getElementById("online-modal-container");
@@ -62,6 +190,8 @@ class Modal {
     }
     modalContainer.replaceChildren(content);
     modalContainer.classList.add("online-modal-active");
+    ensureOnlineTopFocusPage();
+    focusNav()?.activate("online-modal");
   }
 
   static hideModal() {
@@ -70,6 +200,9 @@ class Modal {
       throw new Error("Failed to find modal container element");
     }
     modalContainer.classList.remove("online-modal-active");
+    // モーダルは常にonline-topの上に開く前提。閉じたらフォーカスを元の画面へ返す
+    // （モーダルの内容はここで消えるため、二度と参照できなくなる前に必ず戻す）。
+    syncOnlineTopFocus();
     modalContainer.replaceChildren();
   }
 
@@ -1091,6 +1224,7 @@ class OnlineMode {
         </div>
       </>,
     );
+    syncOnlineTopFocus();
   }
 
   /**
@@ -1599,6 +1733,7 @@ class OnlineMode {
           ? "相手の確認を待っています…"
           : "OKを押すと対戦を開始します";
     }
+    syncOnlineTopFocus();
   }
 
   /** 確認パネルのOKボタン。非オーナー=READY送信、オーナー=開始許可を立てて条件チェック */
@@ -1792,11 +1927,14 @@ class OnlineMode {
     if (!onlineTopContainer) {
       throw new Error("Failed to find online top container element");
     }
+    // 10秒毎の自動更新でも同じ項目へフォーカスを戻せるよう、作り直す前に記録しておく。
+    const focusKeyBeforeRebuild = skipEnterAnim ? focusNav()?.currentFocusKey?.() ?? null : null;
     onlineTopContainer.replaceChildren(
       <>
         <div class="online-header">
           <button
             class="btn btn-secondary"
+            data-focus-key="lobby-back"
             onclick={this.backToMainMenu.bind(this)}
           >
             ◀ BACK
@@ -1804,6 +1942,7 @@ class OnlineMode {
           <h1>🌐 ONLINE</h1>
           <button
             class="btn btn-settings"
+            data-focus-key="lobby-settings"
             onclick={this.settingsModal.bind(this)}
           >
             ⚙ SETTINGS
@@ -1816,6 +1955,7 @@ class OnlineMode {
               <h2 style={{ margin: "0" }}>ルーム一覧</h2>
               <button
                 class="btn btn-secondary"
+                data-focus-key="lobby-refresh"
                 onclick={() => this.onlineTopPage()}
               >
                 🔄 更新
@@ -1823,6 +1963,7 @@ class OnlineMode {
             </div>
             <button
               class="btn btn-save"
+              data-focus-key="lobby-create"
               onclick={this.createRoomPage.bind(this)}
             >
               ＋ ルーム作成
@@ -1835,6 +1976,7 @@ class OnlineMode {
               rooms.map((room) => (
                 <div
                   class="online-room"
+                  data-room-id={room.id}
                   onclick={() => this.joinRoom(room.id, true)}
                 >
                   <div class="online-room-main">
@@ -1866,12 +2008,14 @@ class OnlineMode {
           <div class="online-list-footer">
             <button
               class="btn btn-primary"
+              data-focus-key="lobby-random"
               onclick={() => this.startRandomMatch()}
             >
               🎲 ランダムマッチ
             </button>
             <button
               class="btn btn-primary"
+              data-focus-key="lobby-code"
               onclick={this.joinRoomByCode.bind(this)}
             >
               🔢 コードで参加
@@ -1889,6 +2033,7 @@ class OnlineMode {
         onlineTopContainer.querySelector(".online-list-footer"),
       ]);
     }
+    syncOnlineTopFocus(focusKeyBeforeRebuild);
 
     // 一覧表示中は10秒ごとに自動更新する。
     // ルームに入っている間は絶対に発火させない（一覧が一瞬表示される不具合の防止）。
@@ -2099,6 +2244,7 @@ class OnlineMode {
         </div>
       </>,
     );
+    syncOnlineTopFocus();
   }
 
   /** 接続中カードのDOMを（初回・再試行とも）出す */
@@ -2136,6 +2282,7 @@ class OnlineMode {
       </>,
     );
     this.renderConnectSteps(0);
+    syncOnlineTopFocus();
   }
 
   /** サーバーへの初回接続を試みる。init() からと、失敗時の「再試行」ボタンから呼ばれる。 */
@@ -2148,6 +2295,7 @@ class OnlineMode {
     pages.forEach((p) => p.classList.remove("active"));
     const onlinePage = document.getElementById("online-top-page");
     if (onlinePage) onlinePage.classList.add("active");
+    syncOnlineTopFocus();
 
     const tetlaboServerUrl =
       `ws${isSecureProtocol ? "s" : ""}://` + (localStorage.getItem("tetlaboServerUrl") || "example.com") + "/ws";

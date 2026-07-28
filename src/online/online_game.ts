@@ -1021,6 +1021,9 @@ export class OnlineGameController {
       p.style.display = "";
     });
     if (versusPage) versusPage.classList.add("active", "online-battle-active");
+    // online-top-page が'active'を失う（＝FocusNavのrootIsActive判定が false になる）ので、
+    // 明示的にdeactivateしないとキー入力が対戦画面に届かないまま無反応の登録が残り続ける。
+    (window as any).FocusNav?.deactivate();
   }
 
   // ── Hook game engine methods ─────────────────────────────────────────────
@@ -2832,6 +2835,9 @@ export class OnlineGameController {
       });
       const onlinePage = document.getElementById("online-top-page");
       if (onlinePage) onlinePage.classList.add("active");
+      // 直後に postMatchCallbacks(onRoom/onLeave)がロビー/ルーム詳細を再描画し、
+      // その中で改めてFocusNavを同期する。ここでの再activateは念のための保険。
+      (window as any).FocusNav?.activate("online-top");
     }
   }
 }

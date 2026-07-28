@@ -259,8 +259,29 @@
 
   function rootIsActive(){
     if (!active || !active.root) return false;
-    return active.root.classList.contains('active');
+    if (typeof active.isActive === 'function') return !!active.isActive();
+    const cls = active.rootActiveClass || 'active';
+    return active.root.classList.contains(cls);
   }
+
+  // typing対象（input/select/textarea）にフォーカスが移っている間、onKeyは早期returnして
+  // ネイティブ操作（文字入力・range矢印キー・select開閉）に譲る。Escapeだけはここで拾い、
+  // 対象を blur してナビゲーション（フォーカス枠）を再開する。
+  document.addEventListener('keydown', (e) => {
+    if (!active) return;
+    if (e.key !== 'Escape') return;
+    const el = document.activeElement;
+    if (!isTypingTarget(el)) return;
+    const items = currentItems();
+    if (!items.some(it => it.el === el)) return;
+    e.preventDefault();
+    // blur直後にbubbleフェーズのonKey（同じEscape押下）まで走ると、既にblur済みで
+    // isTypingTarget判定を通過してしまい、同じ一回の押下でescapeAction（キャンセル等の
+    // クリック）まで発火してしまう。ここで伝播を止めて「今回はblurだけ」を保証する。
+    e.stopPropagation();
+    el.blur();
+    applyFocus(active.index, { skipScroll: true });
+  }, true);
 
   function onKey(e){
     if (!active) return;
@@ -297,6 +318,13 @@
       return;
     }
     if (key === 'Escape') {
+      // escapeAction を明示指定したページはそれだけに従う（未指定=既定のBACK/RESUME等探索、
+      // 指定してnull/undefinedが返れば「今は安全な対象が無い」= 何もしない）。
+      if ('escapeAction' in active) {
+        const target = typeof active.escapeAction === 'function' ? active.escapeAction(currentItems()) : null;
+        if (target) { e.preventDefault(); e.stopImmediatePropagation(); activateButton(normalizeItem(target)); }
+        return;
+      }
       const back = findByText(/^(▶|◀|⌂)?\s*(BACK|MAIN\s*MENU|MODE\s*SELECT|LEVEL\s*SELECT|DONE|RESUME)/i);
       if (back) { e.preventDefault(); e.stopImmediatePropagation(); activateButton(back); }
       return;
@@ -333,6 +361,31 @@
     registry[pageId] = cfg;
   }
 
+  function getActivePageId(){
+    return active ? active.pageId : null;
+  }
+
+  // DOM再生成（一覧の自動更新など）で要素参照が失われた後、同じ`key`を持つ項目へ
+  // フォーカスを復元する。見つからなければ現在のindexをクランプするだけに留める
+  // （スクロールは動かさない＝背景更新でビューが動く体験を避ける）。
+  function restoreFocus(key){
+    if (!active) return;
+    const items = currentItems();
+    if (key != null) {
+      const idx = items.findIndex(it => it.key === key);
+      if (idx >= 0) { applyFocus(idx, { skipScroll: true }); return; }
+    }
+    const clamped = Math.max(0, Math.min(active.index || 0, items.length - 1));
+    applyFocus(items.length ? clamped : 0, { skipScroll: true });
+  }
+
+  function currentFocusKey(){
+    if (!active) return null;
+    const items = currentItems();
+    const it = items[currentIndex(items)];
+    return (it && it.key != null) ? it.key : null;
+  }
+
   // マウスhoverでindex追従（キー操作再開時の起点を合わせる）
   // kbdモード中は無視: スムーズスクロール中に mouseover が発火して active.index を汚染し、
   // 直後の横キーで applyFocus(active.index) がフォーカス枠を別行へ飛ばす不具合があったため
@@ -354,6 +407,9 @@
     deactivate,
     refresh: () => { if (active) applyFocus(active.index || 0); },
     getInputMode: () => inputMode,
+    getActivePageId,
+    restoreFocus,
+    currentFocusKey,
   };
 
   // ─────────────────────────────────────────────
@@ -597,11 +653,18 @@
   // ─────────────────────────────────────────────
   // ポーズオーバーレイ
   // ─────────────────────────────────────────────
-  function setupOverlayWatcher(overlayId, getButtons, initialSelector){
+  // watchAttr: 'class'なら overlay.active クラス、'style'なら display!=='none' を可視判定に使う
+  // （online系の一部オーバーレイは class ではなく style.display で開閉するため）。
+  function setupOverlayWatcher(overlayId, getButtons, initialSelector, extra){
     const overlay = document.getElementById(overlayId);
     if (!overlay) return;
+    extra = extra || {};
+    const watchAttr = extra.watchAttr || 'class';
+    const isOpen = watchAttr === 'style'
+      ? () => overlay.style.display !== 'none'
+      : () => overlay.classList.contains('active');
 
-    register(overlayId, {
+    register(overlayId, Object.assign({
       root: overlay,
       getItems: getButtons,
       initialIndex: (els) => {
@@ -609,16 +672,17 @@
         const idx = els.findIndex(b => b.matches && b.matches(initialSelector));
         return idx >= 0 ? idx : 0;
       },
-    });
+      isActive: isOpen,
+    }, extra.pageCfg || {}));
 
     const obs = new MutationObserver(() => {
-      if (overlay.classList.contains('active')) {
+      if (isOpen()) {
         activate(overlayId);
       } else if (active && active.pageId === overlayId) {
         deactivate();
       }
     });
-    obs.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+    obs.observe(overlay, { attributes: true, attributeFilter: [watchAttr] });
   }
 
   function setupOverlays(){
@@ -631,6 +695,38 @@
       'versus-pause-overlay',
       () => $$('#versus-pause-overlay #versus-pause-buttons button'),
       '.btn-resume'
+    );
+
+    // ── online対戦オーバーレイ（class ではなく style.display で開閉するため watchAttr:'style'）──
+    setupOverlayWatcher(
+      'ol-winner-overlay',
+      () => $$('#ol-winner-overlay #ol-post-match-buttons button:not(:disabled)'),
+      '#ol-btn-rematch',
+      {
+        watchAttr: 'style',
+        // RETRY/ROOMは遷移を伴い、LEAVEは破壊的操作＝安全なEscape対象が無いため明示的に無効化。
+        pageCfg: { escapeAction: () => null },
+      }
+    );
+    setupOverlayWatcher(
+      'ol-pause-overlay',
+      () => $$('#ol-pause-overlay button:not(:disabled)'),
+      null,
+      { watchAttr: 'style' }
+    );
+    setupOverlayWatcher(
+      'ol-loading-overlay',
+      () => $$('#ol-loading-overlay button:not(:disabled)'),
+      '#ol-loading-cancel',
+      {
+        watchAttr: 'style',
+        pageCfg: {
+          escapeAction: () => {
+            const btn = document.getElementById('ol-loading-cancel');
+            return (btn && btn.style.display !== 'none' && !btn.disabled) ? btn : null;
+          },
+        },
+      }
     );
   }
 
