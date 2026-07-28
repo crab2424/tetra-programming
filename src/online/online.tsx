@@ -34,6 +34,26 @@ enum OnlineModeState {
   InRoom,
 }
 
+/** online系ページ用の簡易登場アニメ。CPU戦/メインメニュー等が使う initMenuAnimations
+ * （particles.js、pageId固定の switch 文）はページID体系が違うため流用せず、
+ * 対象ノードだけを渡す軽量版として個別実装する（第13ラウンド①）。 */
+function applyEnterAnimation(nodes: (Element | null)[]): void {
+  const targets = nodes.filter((n): n is HTMLElement => n instanceof HTMLElement);
+  targets.forEach((node) => {
+    node.classList.remove("menu-enter");
+    node.style.opacity = "0";
+    node.style.animation = "none";
+    node.style.animationDelay = "";
+  });
+  void document.body.offsetWidth;
+  targets.forEach((node, i) => {
+    node.style.animation = "";
+    node.style.animationDelay = `${i * 0.08}s`;
+    node.style.opacity = "";
+    node.classList.add("menu-enter");
+  });
+}
+
 class Modal {
   static showModal(content: HTMLElement) {
     const modalContainer = document.getElementById("online-modal-container");
@@ -1141,7 +1161,7 @@ class OnlineMode {
         <div class="online-header">
           <button
             class="btn btn-secondary"
-            onclick={this.onlineTopPage.bind(this)}
+            onclick={() => this.onlineTopPage()}
           >
             ◀ BACK
           </button>
@@ -1752,7 +1772,9 @@ class OnlineMode {
   /**
    * オンラインのルーム一覧の画面
    */
-  private async onlineTopPage() {
+  /** skipEnterAnim: 10秒毎の自動更新からの再描画時のみ true にする
+   *  （毎回アニメすると一覧が定期的に再登場する新規バグになるため）。 */
+  private async onlineTopPage(skipEnterAnim = false) {
     this.state = OnlineModeState.RoomList;
     this.applyLobbyBgm();
 
@@ -1859,6 +1881,15 @@ class OnlineMode {
       </>,
     );
 
+    if (!skipEnterAnim) {
+      applyEnterAnimation([
+        onlineTopContainer.querySelector(".online-header"),
+        onlineTopContainer.querySelector(".online-list-header"),
+        document.getElementById("online-rooms-container"),
+        onlineTopContainer.querySelector(".online-list-footer"),
+      ]);
+    }
+
     // 一覧表示中は10秒ごとに自動更新する。
     // ルームに入っている間は絶対に発火させない（一覧が一瞬表示される不具合の防止）。
     this.stopRoomListAutoRefresh();
@@ -1867,7 +1898,7 @@ class OnlineMode {
         .getElementById("versus-page")
         ?.classList.contains("active");
       if (this.state === OnlineModeState.RoomList && !battleActive) {
-        this.onlineTopPage();
+        this.onlineTopPage(true);
       } else {
         this.stopRoomListAutoRefresh();
       }
