@@ -275,3 +275,24 @@ body::after {
     opacity: 0;
     animation: menuEnterDim 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+/* ---------------------------------------------------------------------------
+    中央ダイアログ用の短い登場アニメ — .dialog-enter クラス
+    menuEnter（18px上昇+blur+オーバーシュート）は中央ダイアログには過剰
+    （特にblurがテキストと相性最悪）なため、scale+fadeだけの控えめな別演出にする。
+    対象: .ol-dialog / .online-settings-modal / .ol-rm-confirm / .ol-connect-card。
+--------------------------------------------------------------------------- */
+@keyframes dialogEnter {
+    0% {
+        opacity: 0;
+        transform: scale(0.96) translateY(6px);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.dialog-enter {
+    animation: dialogEnter 0.2s ease-out both;
+}

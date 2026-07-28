@@ -1532,7 +1532,8 @@ class OnlineMode {
     });
     if (selectedRule === null) {
       // ルール選択キャンセル: 再マッチ経路では既にルームを退出済みなので、確実にロビーへ戻す
-      this.onlineTopPage();
+      // （背後のロビーは表示済みのままモーダルだけ閉じる操作なので登場アニメは再生しない）
+      this.onlineTopPage(true);
       return;
     }
 
@@ -1587,7 +1588,8 @@ class OnlineMode {
               ToastColor["Info"],
             );
             // 謎のランダム用ルーム画面を出さず、確実にロビーへ戻す
-            this.onlineTopPage();
+            // （背後のロビーは表示済みのままモーダルだけ閉じる操作なので登場アニメは再生しない）
+            this.onlineTopPage(true);
           }}
         >
           キャンセル
@@ -1830,7 +1832,8 @@ class OnlineMode {
     this.currentRoom = null;
     showToast("ONLINE", "マッチングを辞退しました。", ToastColor["Info"]);
     // state setter (InRoom→RoomList) が gameController / isRandomMatchRoom を後始末する
-    this.onlineTopPage();
+    // ランダムマッチのキャンセル系操作と同様、直前までロビー由来のフローに居たため登場アニメは再生しない
+    this.onlineTopPage(true);
   }
 
   /** 確認のタイムアウト・相手退出時: ルームを抜けて同じルールで自動再マッチング */
@@ -1956,7 +1959,7 @@ class OnlineMode {
               <button
                 class="btn btn-secondary"
                 data-focus-key="lobby-refresh"
-                onclick={() => this.onlineTopPage()}
+                onclick={() => this.onlineTopPage(true)}
               >
                 🔄 更新
               </button>

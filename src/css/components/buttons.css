@@ -6,9 +6,36 @@
    .menu-btn と .btn のどちらに付けても同じ色になる。
 ───────────────────────────────────────────── */
 
+.btn-primary,
+.btn-secondary,
+.btn-danger {
+  transition:
+    opacity 0.2s,
+    background 0.2s,
+    color 0.2s,
+    transform 0.1s;
+}
+.btn-primary:hover,
+.btn-primary.is-focused,
+.btn-secondary:hover,
+.btn-secondary.is-focused,
+.btn-danger:hover,
+.btn-danger.is-focused {
+  transform: translateY(-2px);
+}
+.btn-primary:active,
+.btn-secondary:active,
+.btn-danger:active {
+  transform: translateY(0);
+}
+
 .btn-primary {
   background: var(--btn-primary-bg);
   color: var(--btn-primary-fg);
+}
+.btn-primary:hover,
+.btn-primary.is-focused {
+  opacity: 0.85;
 }
 
 .btn-secondary {

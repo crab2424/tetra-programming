@@ -336,6 +336,11 @@
     active = null;
   }
 
+  // online系は activate() 呼び出し時点でまだページに 'active' が付いていない（描画→表示が
+  // 非同期に分かれている）ケースがあり、items が一時的に空(=不可視)なことがある。単発の rAF で
+  // 諦めると「表示された後にキーを押しても最初の数回は無反応」になるため、ページが実際に
+  // アクティブになって items が見つかるまで数フレーム分だけ再試行する。
+  const ACTIVATE_RETRY_FRAMES = 60; // 約1秒（60Hz想定）で諦める
   function activate(pageId){
     const cfg = registry[pageId];
     deactivate();
@@ -344,17 +349,22 @@
     if (!root) return;
     active = Object.assign({ pageId, root, index: 0, _firstFocus: true }, cfg);
 
-    requestAnimationFrame(() => {
+    let framesLeft = ACTIVATE_RETRY_FRAMES;
+    const tryInit = () => {
       if (!active || active.pageId !== pageId) return;
       const items = currentItems();
-      if (!items.length) return;
+      if (!items.length) {
+        if (--framesLeft > 0) requestAnimationFrame(tryInit);
+        return;
+      }
       let init = 0;
       if (cfg.rememberIndex && typeof rememberedIndex[pageId] === 'number') init = rememberedIndex[pageId];
       else if (typeof cfg.initialIndex === 'function') init = cfg.initialIndex(items.map(it => it.el)) || 0;
       else if (typeof cfg.initialIndex === 'number') init = cfg.initialIndex;
       if (init < 0 || init >= items.length) init = 0;
       applyFocus(init, { skipScroll: cfg.skipInitialScroll === true });
-    });
+    };
+    requestAnimationFrame(tryInit);
   }
 
   function register(pageId, cfg){
