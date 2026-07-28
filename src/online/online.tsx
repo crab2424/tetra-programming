@@ -61,15 +61,11 @@ class Modal {
     return new Promise<void>((resolve) => {
       const modalContent = (
         <div
+          class="ol-dialog"
           style={{
-            backgroundColor: "#000",
             padding: "20px",
-            borderRadius: "8px",
-            display: "flex",
-            flexDirection: "column",
             gap: "10px",
             minWidth: "300px",
-            color: "#fff",
           }}
         >
           {title && <h2>{title}</h2>}
@@ -101,15 +97,11 @@ class Modal {
     return new Promise<boolean>((resolve) => {
       const modalContent = (
         <div
+          class="ol-dialog"
           style={{
-            backgroundColor: "#000",
             padding: "20px",
-            borderRadius: "8px",
-            display: "flex",
-            flexDirection: "column",
             gap: "10px",
             minWidth: "300px",
-            color: "#fff",
           }}
         >
           {title && <h2>{title}</h2>}
@@ -152,15 +144,11 @@ class Modal {
     return new Promise<string | null>((resolve) => {
       const modalContent = (
         <div
+          class="ol-dialog"
           style={{
-            backgroundColor: "#000",
             padding: "20px",
-            borderRadius: "8px",
-            display: "flex",
-            flexDirection: "column",
             gap: "10px",
             minWidth: "300px",
-            color: "#fff",
           }}
         >
           {title && <h2>{title}</h2>}
@@ -1223,15 +1211,11 @@ class OnlineMode {
       };
       const modalContent = (
         <div
+          class="ol-dialog"
           style={{
-            backgroundColor: "#000",
             padding: "20px",
-            borderRadius: "8px",
-            display: "flex",
-            flexDirection: "column",
             gap: "12px",
             minWidth: "320px",
-            color: "#fff",
           }}
         >
           <h2>ルーム作成</h2>
@@ -1349,15 +1333,11 @@ class OnlineMode {
       );
       const content = (
         <div
+          class="ol-dialog"
           style={{
-            backgroundColor: "#000",
             padding: "24px",
-            borderRadius: "8px",
-            display: "flex",
-            flexDirection: "column",
             gap: "16px",
             minWidth: "300px",
-            color: "#fff",
             alignItems: "center",
           }}
         >
@@ -1428,15 +1408,11 @@ class OnlineMode {
 
     Modal.showModal(
       <div
+        class="ol-dialog"
         style={{
-          backgroundColor: "#000",
           padding: "24px",
-          borderRadius: "8px",
-          display: "flex",
-          flexDirection: "column",
           gap: "16px",
           minWidth: "300px",
-          color: "#fff",
           alignItems: "center",
         }}
       >
@@ -1973,13 +1949,13 @@ class OnlineMode {
               );
             }}
           >
-            Save
+            SAVE
           </button>
         </div>
         <div class="online-settings-section">
           <div class="online-settings-label">YOUR FIELD POSITION</div>
           <div class="online-settings-help">
-            This changes only your screen. Your opponent's layout is independent.
+            この設定は自分の画面にのみ反映されます。相手の表示には影響しません。
           </div>
           <div class="online-side-segment">
             <button
@@ -2028,7 +2004,7 @@ class OnlineMode {
               Modal.hideModal();
             }}
           >
-            Close
+            CLOSE
           </button>
         </div>
       </div>
