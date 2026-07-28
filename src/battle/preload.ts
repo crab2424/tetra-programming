@@ -68,8 +68,15 @@ function whenPuyoImagesReady(): Promise<void> {
   return new Promise<void>((resolve) => {
     // preloadImages は in-flight ガード付きで、完了済みなら即コールバックする
     puyo.preloadImages(() => resolve());
-  }).then(() => {
-    puyo.preloadOjamaImages?.();
+  });
+}
+
+function whenOjamaImagesReady(): Promise<void> {
+  const puyo = (window as any).PuyoGame;
+  if (!puyo?.preloadOjamaImages) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    // preloadOjamaImages も in-flight ガード付きで、完了済みなら即コールバックする
+    puyo.preloadOjamaImages(() => resolve());
   });
 }
 
@@ -126,6 +133,7 @@ export async function preloadBattleAssets(options: PreloadOptions = {}): Promise
   }
   if (rules.includes("puyo")) {
     steps.push({ label: "ぷよ画像", run: whenPuyoImagesReady });
+    steps.push({ label: "おじゃまアイコン", run: whenOjamaImagesReady });
   }
   steps.push({ label: "効果音", run: whenSeReady });
   steps.push({ label: "BGM", run: () => whenBgmReady(bgmKey) });

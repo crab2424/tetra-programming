@@ -41,6 +41,9 @@
      一本化スケール。1人数分のブロックは以下でこの値だけ上書きする。
      2P(=1)のときCPU戦の.versus-container(scale 0.8)と完全に同じ実寸系列になる。 */
   --ol-scale: 0.4;
+  /* 上部固定の ALIVE 表示(#ol-alive-count)ぶんの帯を縦スケールから常に差し引く。
+     こうしないと縦に余裕のない画面で盤面の上端と重なる。 */
+  --ol-hud-reserve: 88px;
   position: fixed;
   top: 50%;
   left: 50%;
@@ -53,11 +56,29 @@
     scale(
       clamp(
         0.2,
-        min(calc((100vw - 32px) / 1300px), calc((100vh - 48px) / 700px)),
+        min(
+          calc((100vw - 32px) / 1300px),
+          calc((100vh - var(--ol-hud-reserve)) / 700px)
+        ),
         2
       )
     );
   transform-origin: center;
+}
+
+/* 残り生存者数(3人戦以上のみ表示)。座標系を盤面(#ol-battle-layout, fixed基準)と
+   揃えるため、こちらも fixed + ビューポート基準で配置する。 */
+#ol-alive-count {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  z-index: 60;
+  pointer-events: none;
 }
 
 /* CPU戦の .versus-container と同じ基準スケール・左右余白をオンラインにも適用する。 */

@@ -420,17 +420,42 @@ PuyoGame.preloadImages = function (callback) {
 //    走りカクつきの原因になる。盤面ぷよ画像と同様に、デコード済み Image を一度だけ用意して
 //    PuyoGame._sharedOjamaImages にキャッシュし、表示時は cloneNode で使い回す。
 //    ※ アイコン名は _updateOjamaYokoku の units[].img と一致させること。
+//    callback は7種全ての読み込み（onload/onerror）完了後に呼ばれる。preloadImages と
+//    同じ多重起動防止・完了待ちキュー構造（オンライン戦ロード画面が実際の完了を待てるように）。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PuyoGame.preloadOjamaImages = function () {
-    if (PuyoGame._sharedOjamaImages) return; // 先読み済み
+PuyoGame.preloadOjamaImages = function (callback) {
+    if (PuyoGame._sharedOjamaImagesLoaded) {
+        if (callback) callback();
+        return;
+    }
+    if (PuyoGame._sharedOjamaImagesLoading) {
+        if (callback) PuyoGame._sharedOjamaImagesPending.push(callback);
+        return;
+    }
+    PuyoGame._sharedOjamaImagesLoading = true;
+    PuyoGame._sharedOjamaImagesPending = callback ? [callback] : [];
+
     const names = ['comet', 'crown', 'moon', 'star', 'rock', 'big', 'small'];
+    let remaining = names.length;
     const cache = {};
     names.forEach(name => {
         const img = new Image();
+        const done = () => {
+            remaining--;
+            if (remaining <= 0) {
+                PuyoGame._sharedOjamaImages = cache;
+                PuyoGame._sharedOjamaImagesLoaded = true;
+                PuyoGame._sharedOjamaImagesLoading = false;
+                const pending = PuyoGame._sharedOjamaImagesPending;
+                PuyoGame._sharedOjamaImagesPending = [];
+                pending.forEach(cb => cb());
+            }
+        };
+        img.onload = done;
+        img.onerror = done;
         img.src = PConfig.ojamaImagePath + name + '.png';
         // デコードを前倒しして初回表示時の同期デコードを避ける（失敗は無視）
         if (img.decode) img.decode().catch(() => {});
         cache[name] = img;
     });
-    PuyoGame._sharedOjamaImages = cache;
 };

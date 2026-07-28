@@ -171,6 +171,11 @@ PuyoGame._sharedImagesPending = [];
 //    予告は表示更新が頻繁なため、デコード済みの Image を保持して clone で使い回す。
 //    { img名: HTMLImageElement }。null = 未先読み。
 PuyoGame._sharedOjamaImages = null;
+PuyoGame._sharedOjamaImagesLoaded = false;
+// preloadImages と同じ多重起動防止・完了待ちキュー（オンライン戦ロード画面が
+// 「本当に7種のデコードが終わっているか」を待てるようにするため）。
+PuyoGame._sharedOjamaImagesLoading = false;
+PuyoGame._sharedOjamaImagesPending = [];
 
 // ★ 連鎖文字グリフのウォームアップ済みフラグ（ページ単位で1度だけ実行）
 PuyoGame._chainGlyphsWarmed = false;
