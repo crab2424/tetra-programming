@@ -408,6 +408,10 @@ class OnlineMode {
         this.connection!.removeReaderFunction(this.roomEventHandlerId);
         this.roomEventHandlerId = null;
       }
+      if (this.matchSettingHandlerId) {
+        this.connection!.removeReaderFunction(this.matchSettingHandlerId);
+        this.matchSettingHandlerId = null;
+      }
       if (this.gameController) {
         this.gameController.cleanup();
         this.gameController = null;
@@ -425,10 +429,15 @@ class OnlineMode {
 
   public currentRoom: Omit<UpdateRoomRequest, "id"> | null = null;
   public roomEventHandlerId: Uuid | null = null;
+  /** オーナーの対戦設定変更をメンバーへ通知するための購読ID */
+  private matchSettingHandlerId: Uuid | null = null;
   private gameController: OnlineGameController | null = null;
   private roomListRefreshId: number | null = null;
   /** ルーム画面の「ping以外の状態」シグネチャ。pingだけの更新で全再構築しないための差分判定用 */
   private lastRoomSig: string | null = null;
+  /** 直近のRoomInfoNotification（ownerId判定用。UpdateMatchSettingNotificationには
+   *  ownerIdが含まれないため、通知が届いた時点の「自分がオーナーか」をここから引く）。 */
+  private lastRoomInfo: RoomInfoNotification | null = null;
   /** ランダムマッチで入室したルームは両者の確認(OK)を経てオーナーがSTART */
   private isRandomMatchRoom = false;
   /** ランダムマッチ確認: 自分がOKを押したか（非オーナー=READY送信、オーナー=開始許可） */
@@ -575,6 +584,7 @@ class OnlineMode {
     // ルームに居ないときの通知では描画しない（遅延通知でルーム一覧の上に被さるのを防ぐ）
     if (this.state !== OnlineModeState.InRoom) return;
 
+    this.lastRoomInfo = roomData;
     this.currentRoom = {
       roomId: roomData.roomId,
       roomName: roomData.roomName,
@@ -1242,6 +1252,7 @@ class OnlineMode {
     // ルームに入る瞬間に一覧の自動更新を確実に止める（放置中に一覧が一瞬表示される不具合の防止）
     this.stopRoomListAutoRefresh();
     this.lastRoomSig = null; // 新しいルームでは必ず一度フル描画する
+    this.lastRoomInfo = null;
     this.state = OnlineModeState.InRoom;
 
     const onlineTopContainer = document.getElementById(
@@ -1340,6 +1351,29 @@ class OnlineMode {
         }
       },
     );
+
+    // オーナーの対戦設定変更をメンバーへ通知する。サーバーは設定変更時にREADYを
+    // 全解除するが(update_match_setting)、READY承認後のロード画面（「ホストの
+    // ゲーム開始を待っています…」）は自分から明示的にキャンセルするまで閉じない実装
+    // のため、これが無いと非オーナーは「承認したままなのに開始できない」状態で
+    // 気付けず固まって見える。設定が変わったことを知らせ、ロード画面表示中なら閉じる。
+    if (this.matchSettingHandlerId) {
+      this.connection!.removeReaderFunction(this.matchSettingHandlerId);
+      this.matchSettingHandlerId = null;
+    }
+    this.matchSettingHandlerId = this.connection!.onUpdateMatchSetting((notif) => {
+      if (notif.roomId !== roomId) return;
+      const myUserId = this.connection!.userId!;
+      if (this.lastRoomInfo?.ownerId === myUserId) return; // 自分の変更なので通知不要
+      showToast(
+        "ONLINE",
+        "オーナーが対戦設定を変更しました。READYをやり直してください。",
+        ToastColor["Info"],
+      );
+      if (isLoadingOverlayVisible()) {
+        hideLoadingOverlay(true);
+      }
+    });
 
     this.connection!.roomInfoNotificationRequest({});
     this.connection!.startPingReporting(roomId);
