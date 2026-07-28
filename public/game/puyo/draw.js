@@ -438,7 +438,7 @@ Object.assign(PuyoGame.prototype, {
         }
 
         // ── フラッシュエフェクト ──
-        if (flashType > 0) {
+        if (flashType > 0 && !this.suppressBlink) {
             const isErase = (flashType === 2);
             const speed = isErase ? 40 : 60;
             const maxAlpha = isErase ? 0.85 : 0.7;
