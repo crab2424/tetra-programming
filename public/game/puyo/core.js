@@ -13,6 +13,10 @@ class PuyoGame {
         this.canvasPrefix = canvasPrefix;
         this.isVersusMode = false;
         this.isCpuControlled = false;
+        // ★ その端末で操作不可能な盤面（CPU側・オンライン相手パペット）で
+        //   軸ぷよ点滅/消去予告点滅(_drawPuyo flashType)を止めるためのフラグ。
+        //   versus.js（CPU戦）・driver.ts（online相手パペット）が生成直後にtrueへ設定する。
+        this.suppressBlink = false;
         this.rng = null;
 
         this.canvas = null;
@@ -37,6 +41,9 @@ class PuyoGame {
         this.clearedPuyos = 0;
         this.chainScoreAdd = 0;
         this.chainScoreStr = "";
+        // ★ 連鎖文字DOM(48px固定)の縮小率。online対戦の相手パペットが --ol-scale に
+        //   合わせて上書きする（src/battle/driver.ts）。CPU戦・単発プレイは常に1倍のまま。
+        this._chainTextScale = 1;
 
         // ★ 火力・おじゃま管理用変数
         this.attackScore = 0;
@@ -61,6 +68,9 @@ class PuyoGame {
         this.yokokuContainer = null;
 
         this.elapsed = 0;
+        // ★ 描画アニメ（軸ぷよ点滅・消去予告点滅・ALL CLEAR明滅）専用の経過時間。
+        //   elapsed はストップウォッチ用でプレイ中は0のまま進まない（_stopTimerでのみ加算）ため分離。
+        this._animMs = 0;
         this._timerRunning = false;
         this._timerStart = 0;
         this._timerReqId = null;
@@ -161,6 +171,11 @@ PuyoGame._sharedImagesPending = [];
 //    予告は表示更新が頻繁なため、デコード済みの Image を保持して clone で使い回す。
 //    { img名: HTMLImageElement }。null = 未先読み。
 PuyoGame._sharedOjamaImages = null;
+PuyoGame._sharedOjamaImagesLoaded = false;
+// preloadImages と同じ多重起動防止・完了待ちキュー（オンライン戦ロード画面が
+// 「本当に7種のデコードが終わっているか」を待てるようにするため）。
+PuyoGame._sharedOjamaImagesLoading = false;
+PuyoGame._sharedOjamaImagesPending = [];
 
 // ★ 連鎖文字グリフのウォームアップ済みフラグ（ページ単位で1度だけ実行）
 PuyoGame._chainGlyphsWarmed = false;

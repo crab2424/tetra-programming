@@ -1,0 +1,295 @@
+/* ─────────────────────────────────────────────
+   QUIZモード スタイル
+───────────────────────────────────────────── */
+
+/* メインメニューのQUIZボタン */
+.mode-btn-quiz {
+  border-color: rgba(245, 197, 66, 0.35);
+}
+.mode-btn-quiz:hover,
+.mode-btn-quiz.is-focused {
+  background: rgba(245, 197, 66, 0.12);
+  border-color: #f58542;
+}
+.mode-btn-quiz .mode-btn-icon {
+  color: #f58542;
+}
+.mode-btn-quiz .mode-btn-label {
+  color: #f58542;
+}
+
+/* QUIZチェック画面（レベル選択） */
+#quiz-check-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+#quiz-check-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding-top: 32px;
+  width: 660px;
+}
+
+#quiz-check-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* レベルリスト */
+#quiz-level-list {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.quiz-level-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 57px;
+  height: 57px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 197, 66, 0.3);
+  background: rgba(245, 197, 66, 0.04);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    transform 0.1s;
+}
+.quiz-level-btn:hover,
+.quiz-level-btn.is-focused {
+  background: rgba(245, 197, 66, 0.14);
+  border-color: #f58542;
+  transform: scale(1.08);
+}
+.quiz-level-btn:active {
+  transform: scale(1.03);
+}
+
+.quiz-level-num {
+  font-family: "Orbitron", monospace;
+  font-size: 18px;
+  font-weight: 900;
+  color: #f58542;
+  text-align: center;
+  line-height: 1;
+}
+
+.quiz-level-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.quiz-level-title {
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #f58542;
+}
+
+.quiz-level-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.quiz-level-cond {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* =========================================================
+  QUIZ Preview Overlay
+   ========================================================= */
+#quiz-preview-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  /* ★ 表示位置の変更 ★
+      元の -50% (中央揃え) の位置から、さらに左に200px、上に100px移動させます。
+      数値を変更すれば好きな位置に微調整できます。 */
+  transform: translate(calc(-50% - 300px), calc(-50% - 20px));
+  z-index: 100;
+  text-align: center;
+
+  /* ★ 背景の黒色度合い（0.0〜1.0） 
+    今回は0.4くらいにすると元の0.7よりかなり薄く（透けて）見えます。
+    もっと薄くしたい場合は 0.2 や 0.3 にしてみてください。 */
+  background: rgba(0, 0, 0, 0.7);
+
+  /* 枠線は前回薄くしてしまいましたが、元のスタイル（テーマカラー）に戻しています */
+  border: 2px solid var(--accent);
+
+  padding: 15px 30px;
+  border-radius: 8px;
+
+  /* ★ 共有いただいたCSS変数を使用してフォントを統一
+       もし別のフォントが良ければ var(--font-tech) や var(--font-pixel) に変更してください */
+  font-family: var(--font-orbitron);
+  color: var(--text);
+
+  font-weight: bold;
+  font-size: 1.2rem;
+  pointer-events: none;
+  letter-spacing: 1px;
+  line-height: 1.4;
+
+  /* ★ 点滅間隔の調整
+    2.5s の数値を変更することで点滅のスピードが変わります。
+    (数値を大きくする＝遅くなる、小さくする＝速くなる) */
+  animation: quiz-preview-pulse 2.5s infinite ease-in-out;
+}
+
+#quiz-preview-overlay .quiz-preview-sub {
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+
+@keyframes quiz-preview-pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  } /* 点滅で一番薄くなったときの透明度 */
+  100% {
+    opacity: 1;
+  }
+}
+
+/* ─── QUIZ NEXT一覧 ─────────────────────────── */
+#quiz-next-all-container {
+  margin-top: 8px;
+  line-height: 0; /* canvas下の余白を消す */
+}
+
+#quiz-next-all-canvas {
+  display: block;
+  image-rendering: pixelated; /* ブロック画像をくっきり拡縮 */
+  image-rendering: crisp-edges; /* Firefox向け */
+}
+
+#quiz-field-overlay {
+  overflow-y: auto; /* NEXTが多くなった場合にスクロール可能にする */
+}
+
+/* QUIZリザルト: quiz-result-page */
+#quiz-result-page.active {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* QUIZリザルト: NEXT LEVELボタン */
+.btn-quiz-primary {
+  background: linear-gradient(135deg, #f58542 0%, #fa71cd 100%);
+  color: #0a0a0f;
+  font-weight: 700;
+  width: 100%;
+}
+.btn-quiz-primary:hover,
+.btn-quiz-primary.is-focused {
+  opacity: 0.88;
+}
+
+.cpu-estimate-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  height: 656px;
+  pointer-events: none;
+  z-index: 15;
+  overflow: hidden;
+}
+.cpu-estimate-block {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  box-sizing: border-box;
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 2px;
+}
+.cpu-estimate-block.step1 {
+  background: rgba(0, 255, 213, 0.25);
+  border-color: rgba(0, 255, 213, 0.8);
+  z-index: 2;
+}
+.cpu-estimate-block.step2 {
+  background: rgba(255, 0, 160, 0.2);
+  border-color: rgba(255, 0, 160, 0.6);
+  z-index: 1;
+}
+
+/* ─── オンライン系のスタイルは全て src/css/pages/online-lobby.css へ移設した
+     （online-container, settings-online-input, online-settings 系, online-side 系,
+     online-modal-container, online-modal-active, ol-dialog を含む。誤って
+     quiz専用ファイルに同居していただけで quiz とは無関係）。 ─── */
+
+/* online-room-tag は src/css/pages/online-lobby.css へ移設済み。 */
+
+/* ─── PAUSE モーダル / フィールドヘッダー 共通 QUIZ レベル情報ブロック ─── */
+#pause-quiz-info,
+#quiz-field-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 16px;
+  margin-bottom: 4px;
+  background: rgba(245, 133, 66, 0.07);
+  border: 1px solid rgba(245, 133, 66, 0.3);
+  border-radius: 8px;
+}
+
+#pause-quiz-info-rule-title,
+#quiz-field-info-rule-title {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #f58542;
+}
+
+#pause-quiz-info-desc,
+#quiz-field-info-desc {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+#pause-quiz-info-goal,
+#quiz-field-info-goal {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #f58542;
+  opacity: 0.85;
+}
+

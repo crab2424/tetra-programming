@@ -12,10 +12,7 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png" />
 
-  <link rel="stylesheet" href="/src/anime.css" />
-  <link rel="stylesheet" href="/src/style.css" />
-  <link rel="stylesheet" href="/src/bsmock.css" />
-  <link rel="stylesheet" href="/src/toast.css" />
+  <link rel="stylesheet" href="/src/css/index.css" />
 </head>
 
 <body>
@@ -352,21 +349,8 @@
           <canvas id="player-hold-canvas"></canvas>
 
           <!-- PUYO Canvas -->
-          <canvas id="player-puyo-main-canvas" style="
-                display: none;
-                border: 3px solid var(--field-border);
-                border-radius: 2px;
-                box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
-              "></canvas>
-          <canvas id="player-puyo-next-canvas" style="
-                display: none;
-                position: absolute;
-                top: 0;
-                left: 352px;
-                border: 2px solid var(--field-border);
-                border-radius: 2px;
-                height: 259px;
-              "></canvas>
+          <canvas id="player-puyo-main-canvas" style="display: none"></canvas>
+          <canvas id="player-puyo-next-canvas" style="display: none"></canvas>
 
           <div id="player-action-label-container"></div>
           <div id="player-countdown-overlay" class="field-overlay countdown-overlay">
@@ -420,21 +404,8 @@
           <canvas id="cpu-hold-canvas"></canvas>
 
           <!-- PUYO Canvas -->
-          <canvas id="cpu-puyo-main-canvas" style="
-                display: none;
-                border: 3px solid var(--field-border);
-                border-radius: 2px;
-                box-shadow: 0 0 24px rgba(196, 113, 245, 0.2);
-              "></canvas>
-          <canvas id="cpu-puyo-next-canvas" style="
-                display: none;
-                position: absolute;
-                top: 0;
-                left: 352px;
-                border: 2px solid var(--field-border);
-                border-radius: 2px;
-                height: 259px;
-              "></canvas>
+          <canvas id="cpu-puyo-main-canvas" style="display: none"></canvas>
+          <canvas id="cpu-puyo-next-canvas" style="display: none"></canvas>
 
           <div id="cpu-action-label-container"></div>
           <div id="cpu-countdown-overlay" class="field-overlay countdown-overlay">
@@ -571,6 +542,9 @@
   <!-- ─────────────────────────────────────────────
     MARK: オンライン対戦画面
     ───────────────────────────────────────────── -->
+  <!-- オンライン盤面は #versus-page に移される共有バトルパネル。独立ページにしない。
+       初期状態は.pageのまま(対戦未開始でも.page:not(.active)で隠すため)。
+       switchToBattlePage()が対戦開始時にbattle-panelへ差し替える。 -->
   <div id="online-battle-page" class="page">
     <div id="ol-battle-layout">
       <!-- 左側：自分のフィールド（相手スロットと同一のDOM構造で統一） -->
@@ -579,6 +553,7 @@
           <!-- tet用 -->
           <div class="ol-opp-field ol-opp-tet-field" id="ol-p-tet-field">
             <canvas id="ol-p-hold-canvas" class="ol-opp-hold-canvas"></canvas>
+            <span class="ol-opp-label ol-opp-label-hold">HOLD</span>
             <div class="ol-opp-main-wrap">
               <div id="ol-p-garbage-gauge" class="ol-opp-garbage-gauge"></div>
               <!-- 異種戦(対ぷよ)で溜まる攻撃ゲージ。盤面右側に表示 -->
@@ -591,8 +566,14 @@
               <div id="ol-p-finish-overlay" class="field-overlay finish-overlay ol-fill-overlay">
                 <span id="ol-p-finish-text" class="finish-text"></span>
               </div>
+              <div id="ol-p-dc-overlay" class="field-overlay dc-overlay ol-fill-overlay">
+                <span id="ol-p-dc-text" class="dc-text"></span>
+              </div>
             </div>
-            <canvas id="ol-p-next-canvas" class="ol-opp-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-p-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-p-next-canvas" class="ol-opp-next-canvas"></canvas>
+            </div>
           </div>
           <!-- puyo用（ルール=puyoの場合のみ表示） -->
           <div class="ol-opp-field ol-opp-puyo-field" id="ol-p-puyo-field" style="display:none">
@@ -600,8 +581,14 @@
               <div id="ol-p-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
               <canvas id="ol-p-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
               <div id="ol-p-puyo-action-label-container"></div>
+              <div id="ol-p-puyo-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-p-puyo-countdown-text" class="countdown-text"></span></div>
+              <div id="ol-p-puyo-finish-overlay" class="field-overlay finish-overlay ol-fill-overlay"><span id="ol-p-puyo-finish-text" class="finish-text"></span></div>
+              <div id="ol-p-puyo-dc-overlay" class="field-overlay dc-overlay ol-fill-overlay"><span id="ol-p-puyo-dc-text" class="dc-text"></span></div>
             </div>
-            <canvas id="ol-p-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-p-puyo-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-p-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            </div>
           </div>
           <!-- 名前は盤面の下（相手と同じ ol-opp-name 構造） -->
           <div class="ol-opp-name ol-self-name" id="ol-p-name" style="color: var(--accent3)">YOU</div>
@@ -614,12 +601,20 @@
           <!-- tet用 -->
           <div class="ol-opp-field ol-opp-tet-field" id="ol-opp-0-tet-field">
             <canvas id="ol-opp-0-hold-canvas" class="ol-opp-hold-canvas"></canvas>
+            <span class="ol-opp-label ol-opp-label-hold">HOLD</span>
             <div class="ol-opp-main-wrap">
               <div id="ol-opp-0-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <div id="ol-opp-0-attack-gauge" class="ol-opp-attack-gauge" style="display:none"></div>
               <canvas id="ol-opp-0-main-canvas" class="ol-opp-main-canvas"></canvas>
               <div id="ol-opp-0-action-label-container"></div>
+              <div id="ol-opp-0-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-0-countdown-text" class="countdown-text"></span></div>
+              <div id="ol-opp-0-finish-overlay" class="field-overlay finish-overlay ol-fill-overlay"><span id="ol-opp-0-finish-text" class="finish-text"></span></div>
+              <div id="ol-opp-0-dc-overlay" class="field-overlay dc-overlay ol-fill-overlay"><span id="ol-opp-0-dc-text" class="dc-text"></span></div>
             </div>
-            <canvas id="ol-opp-0-next-canvas" class="ol-opp-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-0-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-0-next-canvas" class="ol-opp-next-canvas"></canvas>
+            </div>
           </div>
           <!-- puyo用 -->
           <div class="ol-opp-field ol-opp-puyo-field" id="ol-opp-0-puyo-field" style="display:none">
@@ -627,8 +622,14 @@
               <div id="ol-opp-0-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
               <canvas id="ol-opp-0-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
               <div id="ol-opp-0-puyo-action-label-container"></div>
+              <div id="ol-opp-0-puyo-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-0-puyo-countdown-text" class="countdown-text"></span></div>
+              <div id="ol-opp-0-puyo-finish-overlay" class="field-overlay finish-overlay ol-fill-overlay"><span id="ol-opp-0-puyo-finish-text" class="finish-text"></span></div>
+              <div id="ol-opp-0-puyo-dc-overlay" class="field-overlay dc-overlay ol-fill-overlay"><span id="ol-opp-0-puyo-dc-text" class="dc-text"></span></div>
             </div>
-            <canvas id="ol-opp-0-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-0-puyo-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-0-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            </div>
           </div>
           <!-- 名前は盤面の下 -->
           <div class="ol-opp-name" id="ol-opp-name-0"></div>
@@ -637,20 +638,34 @@
           <!-- tet用 -->
           <div class="ol-opp-field ol-opp-tet-field" id="ol-opp-1-tet-field">
             <canvas id="ol-opp-1-hold-canvas" class="ol-opp-hold-canvas"></canvas>
+            <span class="ol-opp-label ol-opp-label-hold">HOLD</span>
             <div class="ol-opp-main-wrap">
               <div id="ol-opp-1-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <div id="ol-opp-1-attack-gauge" class="ol-opp-attack-gauge" style="display:none"></div>
               <canvas id="ol-opp-1-main-canvas" class="ol-opp-main-canvas"></canvas>
               <div id="ol-opp-1-action-label-container"></div>
+              <div id="ol-opp-1-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-1-countdown-text" class="countdown-text"></span></div>
+              <div id="ol-opp-1-finish-overlay" class="field-overlay finish-overlay ol-fill-overlay"><span id="ol-opp-1-finish-text" class="finish-text"></span></div>
+              <div id="ol-opp-1-dc-overlay" class="field-overlay dc-overlay ol-fill-overlay"><span id="ol-opp-1-dc-text" class="dc-text"></span></div>
             </div>
-            <canvas id="ol-opp-1-next-canvas" class="ol-opp-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-1-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-1-next-canvas" class="ol-opp-next-canvas"></canvas>
+            </div>
           </div>
           <div class="ol-opp-field ol-opp-puyo-field" id="ol-opp-1-puyo-field" style="display:none">
             <div class="ol-opp-main-wrap">
               <div id="ol-opp-1-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
               <canvas id="ol-opp-1-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
               <div id="ol-opp-1-puyo-action-label-container"></div>
+              <div id="ol-opp-1-puyo-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-1-puyo-countdown-text" class="countdown-text"></span></div>
+              <div id="ol-opp-1-puyo-finish-overlay" class="field-overlay finish-overlay ol-fill-overlay"><span id="ol-opp-1-puyo-finish-text" class="finish-text"></span></div>
+              <div id="ol-opp-1-puyo-dc-overlay" class="field-overlay dc-overlay ol-fill-overlay"><span id="ol-opp-1-puyo-dc-text" class="dc-text"></span></div>
             </div>
-            <canvas id="ol-opp-1-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-1-puyo-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-1-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            </div>
           </div>
           <div class="ol-opp-name" id="ol-opp-name-1"></div>
         </div>
@@ -658,20 +673,34 @@
           <!-- tet用 -->
           <div class="ol-opp-field ol-opp-tet-field" id="ol-opp-2-tet-field">
             <canvas id="ol-opp-2-hold-canvas" class="ol-opp-hold-canvas"></canvas>
+            <span class="ol-opp-label ol-opp-label-hold">HOLD</span>
             <div class="ol-opp-main-wrap">
               <div id="ol-opp-2-garbage-gauge" class="ol-opp-garbage-gauge"></div>
+              <div id="ol-opp-2-attack-gauge" class="ol-opp-attack-gauge" style="display:none"></div>
               <canvas id="ol-opp-2-main-canvas" class="ol-opp-main-canvas"></canvas>
               <div id="ol-opp-2-action-label-container"></div>
+              <div id="ol-opp-2-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-2-countdown-text" class="countdown-text"></span></div>
+              <div id="ol-opp-2-finish-overlay" class="field-overlay finish-overlay ol-fill-overlay"><span id="ol-opp-2-finish-text" class="finish-text"></span></div>
+              <div id="ol-opp-2-dc-overlay" class="field-overlay dc-overlay ol-fill-overlay"><span id="ol-opp-2-dc-text" class="dc-text"></span></div>
             </div>
-            <canvas id="ol-opp-2-next-canvas" class="ol-opp-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-2-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-2-next-canvas" class="ol-opp-next-canvas"></canvas>
+            </div>
           </div>
           <div class="ol-opp-field ol-opp-puyo-field" id="ol-opp-2-puyo-field" style="display:none">
             <div class="ol-opp-main-wrap">
               <div id="ol-opp-2-puyo-garbage-gauge" class="ol-opp-garbage-gauge"></div>
               <canvas id="ol-opp-2-puyo-main-canvas" class="ol-opp-puyo-main-canvas"></canvas>
               <div id="ol-opp-2-puyo-action-label-container"></div>
+              <div id="ol-opp-2-puyo-countdown-overlay" class="field-overlay countdown-overlay ol-fill-overlay"><span id="ol-opp-2-puyo-countdown-text" class="countdown-text"></span></div>
+              <div id="ol-opp-2-puyo-finish-overlay" class="field-overlay finish-overlay ol-fill-overlay"><span id="ol-opp-2-puyo-finish-text" class="finish-text"></span></div>
+              <div id="ol-opp-2-puyo-dc-overlay" class="field-overlay dc-overlay ol-fill-overlay"><span id="ol-opp-2-puyo-dc-text" class="dc-text"></span></div>
             </div>
-            <canvas id="ol-opp-2-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            <div class="ol-opp-next-wrap" id="ol-opp-2-puyo-next-wrap">
+              <span class="ol-opp-label ol-opp-label-next">NEXT</span>
+              <canvas id="ol-opp-2-puyo-next-canvas" class="ol-opp-puyo-next-canvas"></canvas>
+            </div>
           </div>
           <div class="ol-opp-name" id="ol-opp-name-2"></div>
         </div>
@@ -680,17 +709,33 @@
 
     <!-- 勝者表示オーバーレイ -->
     <div id="ol-winner-overlay" class="ol-overlay" style="display:none">
-      <div class="ol-overlay-content">
+      <div class="ol-overlay-content ol-result-card">
+        <div class="ol-result-kicker">ONLINE RESULT</div>
         <div id="ol-winner-title" class="ol-result-title">WINNER</div>
         <div id="ol-winner-name" class="ol-result-name"></div>
+        <div id="ol-result-round" class="ol-result-round"></div>
+        <div id="ol-result-set-score" class="ol-result-set-score"></div>
+        <div id="ol-result-stats" class="ol-result-stats">
+          <div class="ol-result-stat-row">
+            <span>RESULT</span><strong id="ol-result-outcome">—</strong>
+          </div>
+          <div class="ol-result-stat-row">
+            <span>YOUR SCORE</span><strong id="ol-result-self-score">—</strong>
+          </div>
+          <div class="ol-result-stat-row">
+            <span id="ol-result-self-lines-label">YOUR LINES</span><strong id="ol-result-self-lines">—</strong>
+          </div>
+        </div>
+        <!-- 各プレイヤーの選択状態（RETRY申請中 / 選択中 / 退出済み）。online_game.ts が生成する -->
+        <div id="ol-post-match-status" class="ol-post-match-status"></div>
         <div id="ol-post-match-buttons">
           <button id="ol-btn-rematch" class="menu-btn btn-primary">
-            <span class="menu-btn-icon">↺</span><span>REMATCH</span>
+            <span class="menu-btn-icon">↺</span><span>RETRY</span>
           </button>
           <button id="ol-btn-room" class="menu-btn btn-secondary">
             <span class="menu-btn-icon">🏠</span><span>ROOM</span>
           </button>
-          <button id="ol-btn-leave" class="menu-btn btn-secondary">
+          <button id="ol-btn-leave" class="menu-btn btn-danger">
             <span class="menu-btn-icon">◀</span><span>LEAVE</span>
           </button>
         </div>
@@ -1051,12 +1096,33 @@
   <div id="global-toast"></div>
 
   <!-- ─────────────────────────────────────────────
+        オンライン対戦のロード画面
+        マッチング成立→対戦開始の承認後に表示し、素材を読み込み終えてから READY を送る。
+        全ページの上に出す必要があるので .page の外（body直下）に置く。
+       ───────────────────────────────────────────── -->
+  <div id="ol-loading-overlay" class="ol-loading-overlay" style="display:none">
+    <div id="ol-loading-card" class="ol-loading-card">
+      <div class="ol-loading-kicker">PREPARING MATCH</div>
+      <div class="ol-loading-dots" aria-hidden="true">
+        <span class="ol-loading-dot"></span>
+        <span class="ol-loading-dot"></span>
+        <span class="ol-loading-dot"></span>
+        <span class="ol-loading-dot"></span>
+      </div>
+      <div id="ol-loading-label" class="ol-loading-label">読み込み中…</div>
+      <div class="ol-loading-bar"><div id="ol-loading-bar-fill" class="ol-loading-bar-fill"></div></div>
+      <div id="ol-loading-players" class="ol-loading-players"></div>
+      <button id="ol-loading-cancel" class="btn btn-secondary ol-loading-cancel" type="button" style="display:none"></button>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
         外部ページ注入先（CREDITS / CHANGELOG は src/pages.js が動的に読込）
     ───────────────────────────────────────────── -->
   <div id="external-pages"></div>
 
   <script src="config/pages.js"></script>
-  <script src="core/base.js"></script>
+  <script src="core/base.js?v=3"></script>
   <script src="core/particles.js"></script>
   <script src="app/manager.js"></script>
   <script src="config/settings.js"></script>
@@ -1070,23 +1136,23 @@
   <script src="game/tet/scoring.js"></script>
   <script src="game/tet/garbage.js"></script>
   <script src="game/tet/render.js"></script>
-  <script src="game/tet/input.js"></script>
+  <script src="game/tet/input.js?v=1"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
-  <script src="game/puyo/core.js"></script>
-  <script src="game/puyo/lifecycle.js"></script>
+  <script src="game/puyo/core.js?v=3"></script>
+  <script src="game/puyo/lifecycle.js?v=2"></script>
   <script src="game/puyo/connect.js"></script>
-  <script src="game/puyo/ojama.js?"></script>
-  <script src="game/puyo/engine.js"></script>
-  <script src="game/puyo/input.js"></script>
-  <script src="game/puyo/draw.js"></script>
+  <script src="game/puyo/ojama.js?v=1"></script>
+  <script src="game/puyo/engine.js?v=3"></script>
+  <script src="game/puyo/input.js?v=3"></script>
+  <script src="game/puyo/draw.js?v=3"></script>
   <script src="quiz/quiz.js"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
   <script src="app/modes.js"></script>
   <script src="app/cpu_loader.js"></script>
   <script src="app/versus.js"></script>
   <script src="app/navigation.js"></script>
-  <script src="app/focus_nav.js"></script>
+  <script src="app/focus_nav.js?v=1"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 

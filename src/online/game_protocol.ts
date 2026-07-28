@@ -17,19 +17,36 @@ export const MatchOpcode = {
   ChainReplay: 0x27,   // reliable: puyo chain board snapshot
   SE: 0x28,            // reliable: sound effect sync
   PendingUpdate: 0x29, // reliable: self incoming-garbage gauge state
-  // ── Puyo frames (0x3N) ──────────────────────────────────────────────
-  PuyoPieceState: 0x30, // unreliable: puyo pair position/rotation (high-freq)
-  PuyoSpawn: 0x31,      // reliable: new pair spawned + next queue
-  PuyoLock: 0x32,       // reliable: full field snapshot
-  GarbagePuyo: 0x33,    // reliable: ojama count incoming (puyo sender)
-  PuyoChain: 0x34,      // reliable: 連鎖消去開始（点滅するセル一覧 + 連鎖数）
+  HoldState: 0x2a,    // reliable: current hold availability (0/1)
+  StatsUpdate: 0x2b,  // reliable: display-only score/lines/chains snapshot
+  /**
+   * reliable: puyo送り手の連鎖終了トリガー（_confirmSentGarbage 発火の通知）。
+   * CPU戦は送信元と着弾先が同一メモリ空間のためオブジェクト参照で ready 化できるが、
+   * online は別プロセスなので明示フレームが要る。Hold(0x25) と opcode を共有するが
+   * Hold(tetのホールド確定)は encodeHold/decodeHold とも未使用のため衝突しない。
+   */
+  GarbageConfirm: 0x25,
+  // ── Rule-dependent payloads share the 0x20..0x28 opcodes ───────────
+  // 受信側のルールはルーム情報で既知なので、TET/PUYO で opcode を分けない。
+  PuyoPieceState: 0x20, // unreliable: puyo pair position/rotation (high-freq)
+  PuyoSpawn: 0x21,      // reliable: new pair spawned + next queue
+  PuyoLock: 0x22,       // reliable: full field snapshot
+  GarbagePuyo: 0x24,    // reliable: ojama count + column sequence
+  PuyoChain: 0x27,      // reliable: 連鎖消去開始（点滅するセル一覧 + 連鎖数）
 } as const;
 export type MatchOpcodeValue = typeof MatchOpcode[keyof typeof MatchOpcode];
 
 // ── Board constants ────────────────────────────────────────────────────
 export const BOARD_ROWS = 20;
 export const BOARD_COLS = 10;
-export const BOARD_SIZE = BOARD_ROWS * BOARD_COLS; // 200 bytes
+/**
+ * 可視20行の上に持つバッファ行数。おじゃませり上がりで applyGarbage が全ブロックを
+ * y-=1 するため、スタックは y<0（盤面上端より上）へはみ出す。可視行だけを送ると
+ * せり上がった地形が相手の盤面から消えるので、y=-20..19 の40行を送る。
+ */
+export const BOARD_BUFFER_ROWS = 20;
+export const BOARD_TOTAL_ROWS = BOARD_ROWS + BOARD_BUFFER_ROWS; // 40
+export const BOARD_SIZE = BOARD_TOTAL_ROWS * BOARD_COLS; // 400 bytes
 
 // ── Puyo board constants (PConfig.rows+hiddenRows × PConfig.cols) ──────
 export const PUYO_ROWS = 17; // PConfig.rows(12) + PConfig.hiddenRows(5)
@@ -94,24 +111,53 @@ export function encodePieceState(
   ]);
 }
 
+/**
+ * 操作ミノの位置。Spawn / Lock に同梱して「相手が実際に見ている絵」を1フレームの
+ * ずれもなく再現するために使う（x/y は負値を扱うため +64 オフセットで格納する）。
+ */
+export interface MinoPlacement { type: number; x: number; y: number; rotation: number }
+
 // Spawn: 8 bytes (opcode + type + holdType + next[5])
+//        出現位置つきの場合は 11 bytes (+ x+64, y+64, rotation)。
+// ★ 位置を必ず同梱する理由: board.js popMino は出現位置が既存ブロックと衝突するとき
+//   `mino.y -= 1` で1マス上へずらす（致命判定間際に必ず起きる）。受信側が Mino.spawn() の
+//   既定位置で描くと、この補正を取りこぼしてミノがスタックに埋まった絵が
+//   次の PieceState(16ms間隔・unreliable) が届くまで約1フレーム表示されてしまう。
 export function encodeSpawn(
-  type: number, holdType: number, nextTypes: number[],
+  type: number, holdType: number, nextTypes: number[], placement?: MinoPlacement,
 ): Uint8Array {
-  const buf = new Uint8Array(8);
+  const buf = new Uint8Array(placement ? 11 : 8);
   buf[0] = MatchOpcode.Spawn;
   buf[1] = type & 0xff;
   buf[2] = holdType & 0xff; // 0xff = no hold
   for (let i = 0; i < 5; i++) buf[3 + i] = (nextTypes[i] ?? 0xff) & 0xff;
+  if (placement) {
+    buf[8] = (placement.x + 64) & 0xff;
+    buf[9] = (placement.y + 64) & 0xff;
+    buf[10] = placement.rotation & 0xff;
+  }
   return buf;
 }
 
-// Lock: 1 + BOARD_SIZE bytes (opcode + 200 board bytes, row-major)
-// boardTypes[row * 10 + col] = block type (0 = empty, 1-7 = color)
-export function encodeLock(boardTypes: number[]): Uint8Array {
-  const buf = new Uint8Array(1 + BOARD_SIZE);
+// Lock: 1 + BOARD_SIZE bytes (opcode + 400 board bytes, row-major)
+// boardTypes[row * 10 + col] = block type (0 = empty, 1-8 = type 0-7)
+// row 0 = y=-BOARD_BUFFER_ROWS（上方バッファ最上段）, row 20 = y=0（可視最上段）
+// 致命時のみ末尾4バイト(type, x+64, y+64, rotation)に「盤面へ固定されなかった衝突ミノ」を同梱する。
+//
+// ★ なぜ Lock に相乗りするのか: PieceState(0x20) はサーバーが reliable チャネルで
+//   明示的に拒否する（tetra-server の connection/reliable.rs）ため、致命直後の確定した
+//   絵を PieceState で送ることはできない。Lock(0x22) は reliable 中継が許可されており、
+//   盤面と衝突ミノを1フレームで原子的に送れるので順序の心配もない。
+export function encodeLock(boardTypes: number[], dyingMino?: MinoPlacement): Uint8Array {
+  const buf = new Uint8Array(1 + BOARD_SIZE + (dyingMino ? 4 : 0));
   buf[0] = MatchOpcode.Lock;
   for (let i = 0; i < BOARD_SIZE; i++) buf[1 + i] = (boardTypes[i] ?? 0) & 0xff;
+  if (dyingMino) {
+    buf[1 + BOARD_SIZE] = dyingMino.type & 0xff;
+    buf[2 + BOARD_SIZE] = (dyingMino.x + 64) & 0xff;
+    buf[3 + BOARD_SIZE] = (dyingMino.y + 64) & 0xff;
+    buf[4 + BOARD_SIZE] = dyingMino.rotation & 0xff;
+  }
   return buf;
 }
 
@@ -121,16 +167,19 @@ export function encodeClear(lines: number, flags: number, combo: number): Uint8A
   return new Uint8Array([MatchOpcode.Clear, lines & 0xff, flags & 0xff, combo & 0xff]);
 }
 
-// Garbage: 2 + N bytes (opcode + amount + holes[amount])
-// holes: 各おじゃま段の穴のX座標（送信側で確定＝両者の盤面表示が一致する）
+const GARBAGE_PROTOCOL_VERSION = 1;
+const MAX_GARBAGE_AMOUNT = 1000;
+
+// Garbage: opcode + version:u8 + amount:u16(LE) + holes:u8[amount]
+// TET受信時の holes は穴X座標、PUYO受信時はおじゃま列番号。
 export function encodeGarbage(lines: number, holes?: number[]): Uint8Array {
-  const n = lines & 0xff;
-  const withHoles = holes && holes.length > 0;
-  const buf = new Uint8Array(2 + (withHoles ? n : 0));
+  const n = Math.max(0, Math.min(MAX_GARBAGE_AMOUNT, Math.trunc(lines)));
+  const buf = new Uint8Array(1 + 1 + 2 + n);
   buf[0] = MatchOpcode.Garbage;
-  buf[1] = n;
-  if (withHoles) {
-    for (let i = 0; i < n; i++) buf[2 + i] = (holes[i] ?? 0) & 0xff;
+  buf[1] = GARBAGE_PROTOCOL_VERSION;
+  new DataView(buf.buffer).setUint16(2, n, true);
+  for (let i = 0; i < n; i++) {
+    buf[4 + i] = (holes?.[i] ?? 0) & 0xff;
   }
   return buf;
 }
@@ -140,9 +189,33 @@ export function encodeHold(type: number): Uint8Array {
   return new Uint8Array([MatchOpcode.Hold, type & 0xff]);
 }
 
-// GameOver: 2 bytes (opcode + 0)
-export function encodeGameOver(): Uint8Array {
-  return new Uint8Array([MatchOpcode.GameOver, 0]);
+// GameOver: 2 bytes (opcode + hasMino=0), or 6 bytes with a colliding TET piece attached.
+// ★ TET の block-out（出現位置での致命判定）は、衝突した操作ミノをフィールドに固定せず
+//   this.mino に残したまま gameOver() を呼ぶ（board.js popMino）。このミノを同梱しないと、
+//   相手側パペットは「death直前の1手前」の盤面で止まったまま見える。
+export interface GameOverMino { type: number; x: number; y: number; rotation: number }
+export function encodeGameOver(mino?: GameOverMino): Uint8Array {
+  if (!mino) return new Uint8Array([MatchOpcode.GameOver, 0]);
+  return new Uint8Array([
+    MatchOpcode.GameOver,
+    1,
+    mino.type & 0xff,
+    (mino.x + 64) & 0xff,
+    (mino.y + 64) & 0xff,
+    mino.rotation & 0xff,
+  ]);
+}
+export interface GameOverData { mino: GameOverMino | null }
+export function decodeGameOver(p: Uint8Array): GameOverData {
+  if ((p[0] ?? 0) !== 1) return { mino: null };
+  return {
+    mino: {
+      type: p[1] ?? 0,
+      x: (p[2] ?? 64) - 64,
+      y: (p[3] ?? 64) - 64,
+      rotation: p[4] ?? 0,
+    },
+  };
 }
 
 // SE: 2 bytes (opcode + seId)
@@ -150,18 +223,91 @@ export function encodeSE(seId: number): Uint8Array {
   return new Uint8Array([MatchOpcode.SE, seId & 0xff]);
 }
 
-// PendingUpdate: 3 bytes (opcode + ready u8 + unready u8)
-// 自分の incoming-garbage ゲージ状態を相手へ通知する（相手スロットの予告ゲージ表示に使用）
-export function encodePendingUpdate(ready: number, unready: number): Uint8Array {
-  return new Uint8Array([MatchOpcode.PendingUpdate, ready & 0xff, unready & 0xff]);
+// PendingUpdate: 自分の incoming-garbage ゲージ状態（＋TETのアタックゲージ状態）を
+// 相手へ通知する（相手スロットの予告ゲージ／アタックゲージ表示に使用）。
+// 6 bytes: opcode + ready(u8) + unready(u8) + attack(u16 LE) + attackVisible(u8)。
+// ★ 新opcodeは切らず既存0x29のpayloadを後方互換拡張。サーバー(reliable.rs)は
+//   opcode 0x20-0x2Bをそのまま中継するだけでpayload長は見ないため、サーバー変更不要。
+// attack/attackVisible は tet が対ぷよ戦で溜める送信用火力(pendingAttack)の表示同期用
+// （tet同士・puyo送信では常に 0/false。旧クライアント(3バイト)から見ればready/unready
+// はそのまま読め、attackはbyteLengthガードで0扱いになる＝相互に安全）。
+export function encodePendingUpdate(
+  ready: number, unready: number, attack: number = 0, attackVisible: boolean = false,
+): Uint8Array {
+  const buf = new Uint8Array(6);
+  const view = new DataView(buf.buffer);
+  buf[0] = MatchOpcode.PendingUpdate;
+  buf[1] = ready & 0xff;
+  buf[2] = unready & 0xff;
+  view.setUint16(3, Math.max(0, Math.min(0xffff, Math.trunc(attack))), true);
+  buf[5] = attackVisible ? 1 : 0;
+  return buf;
 }
-export interface PendingUpdateData { ready: number; unready: number; }
+export interface PendingUpdateData { ready: number; unready: number; attack: number; attackVisible: boolean; }
 export function decodePendingUpdate(p: Uint8Array): PendingUpdateData {
-  return { ready: p[0] ?? 0, unready: p[1] ?? 0 };
+  const view = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  return {
+    ready: p[0] ?? 0,
+    unready: p[1] ?? 0,
+    attack: p.byteLength >= 4 ? view.getUint16(2, true) : 0,
+    attackVisible: p.byteLength >= 5 ? p[4] !== 0 : false,
+  };
+}
+
+export function encodeHoldState(canHold: boolean): Uint8Array {
+  return new Uint8Array([MatchOpcode.HoldState, canHold ? 1 : 0]);
+}
+
+export function decodeHoldState(p: Uint8Array): boolean {
+  return (p[0] ?? 0) !== 0;
+}
+
+// GarbageConfirm: 2 bytes (opcode + 1 dummy byte).
+// ★ サーバー(reliable.rs)は data.len() < 2 のフレームを opcode 判定前に破棄するため、
+//   opcode 1バイトだけだと中継されず相手に届かない。ダミー1バイトを足して最小長を満たす。
+//   受信側は opcode しか見ないので2バイト目の値は不問。
+export function encodeGarbageConfirm(): Uint8Array {
+  return new Uint8Array([MatchOpcode.GarbageConfirm, 0]);
+}
+
+export type StatsRule = "tet" | "puyo";
+export interface StatsUpdateData {
+  rule: StatsRule;
+  score: number;
+  lines: number;
+  chainMax: number;
+}
+
+// StatsUpdate: opcode + rule(0=tet/1=puyo) + score(u32 LE) + lines(u16 LE) + chainMax(u16 LE)
+export function encodeStatsUpdate(
+  rule: StatsRule, score: number, lines: number, chainMax: number,
+): Uint8Array {
+  const buf = new Uint8Array(10);
+  const view = new DataView(buf.buffer);
+  buf[0] = MatchOpcode.StatsUpdate;
+  buf[1] = rule === "puyo" ? 1 : 0;
+  view.setUint32(2, Math.max(0, Math.min(0xffffffff, Math.trunc(score))), true);
+  view.setUint16(6, Math.max(0, Math.min(0xffff, Math.trunc(lines))), true);
+  view.setUint16(8, Math.max(0, Math.min(0xffff, Math.trunc(chainMax))), true);
+  return buf;
+}
+
+export function decodeStatsUpdate(p: Uint8Array): StatsUpdateData {
+  const view = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  return {
+    rule: p[0] === 1 ? "puyo" : "tet",
+    score: p.byteLength >= 5 ? view.getUint32(1, true) : 0,
+    lines: p.byteLength >= 7 ? view.getUint16(5, true) : 0,
+    chainMax: p.byteLength >= 9 ? view.getUint16(7, true) : 0,
+  };
 }
 
 // ── SE name → ID table (送受信ともに使用) ─────────────────────────────
-// move/drop/rotate 等の高頻度 SE は除外し、インパクトのある音だけを同期する
+// 相手の操作音も自分と同じように聞こえるよう、操作系(move/rotate/softdrop)も含めて
+// エンジンが鳴らす SE は原則すべて同期する。1フレーム2バイト・reliable 中継で、
+// 高頻度なもの（softdrop は毎マス、move は DAS 中に連続）でも実測の帯域影響は小さい。
+// ★ ID は追加専用（既存の値は変えない）。未知IDは受信側で SE_NAMES 逆引きが失敗して
+//   無視されるだけなので、新旧クライアントの混在でも安全。
 export const SE_IDS: Record<string, number> = {
   // tet
   lock: 1,
@@ -173,9 +319,8 @@ export const SE_IDS: Record<string, number> = {
   '1line': 7,
   harddrop: 8,
   hold: 9,
-  gameover: 10,
-  // 注: tet の 'drop' はソフトドロップ音（毎マス発火）で高頻度のため同期しない
-  // puyo（move/rotate も高頻度なので除外）
+  gameover: 10, // tet/puyo 共通のゲームオーバー音
+  // puyo
   puyo_fix: 12,
   puyo_drop: 13,
   puyo_chain1: 14,
@@ -185,6 +330,13 @@ export const SE_IDS: Record<string, number> = {
   puyo_chain5: 18,
   puyo_chain6: 19,
   puyo_chain7: 20,
+  puyo_rotate: 21,
+  // 操作系（旧実装では「高頻度」を理由に同期対象外だった分）
+  rotate: 22,      // tet 通常回転
+  tspin_rot: 23,   // tet T-spin 成立回転
+  move: 24,        // tet 横移動
+  drop: 25,        // tet ソフトドロップ（毎マス）
+  puyo_move: 26,   // puyo 横移動
 };
 // ID → name の逆引き
 export const SE_NAMES: Record<number, string> = Object.fromEntries(
@@ -202,14 +354,35 @@ export function decodePieceState(p: Uint8Array): PieceStateData {
 
 export interface SpawnData {
   type: number; holdType: number; nextTypes: number[];
+  /** 出現位置。旧形式(8バイト)や NEXT/HOLD だけの sentinel では null。 */
+  placement: MinoPlacement | null;
 }
 export function decodeSpawn(p: Uint8Array): SpawnData {
-  return { type: p[0], holdType: p[1], nextTypes: Array.from(p.slice(2, 7)) };
+  const type = p[0];
+  return {
+    type,
+    holdType: p[1],
+    nextTypes: Array.from(p.slice(2, 7)),
+    placement: p.length >= 10
+      ? { type, x: p[7] - 64, y: p[8] - 64, rotation: p[9] }
+      : null,
+  };
 }
 
-// Returns 200-element array (row-major, 0=empty)
-export function decodeLock(p: Uint8Array): number[] {
-  return Array.from(p.slice(0, BOARD_SIZE));
+// board: 400要素(row-major, 0=空)。dyingMino は致命時のみ（盤面へ固定されなかった衝突ミノ）。
+export interface LockData { board: number[]; dyingMino: MinoPlacement | null }
+export function decodeLock(p: Uint8Array): LockData {
+  return {
+    board: Array.from(p.slice(0, BOARD_SIZE)),
+    dyingMino: p.length >= BOARD_SIZE + 4
+      ? {
+        type: p[BOARD_SIZE],
+        x: p[BOARD_SIZE + 1] - 64,
+        y: p[BOARD_SIZE + 2] - 64,
+        rotation: p[BOARD_SIZE + 3],
+      }
+      : null,
+  };
 }
 
 export interface ClearData { lines: number; flags: number; combo: number; }
@@ -217,13 +390,16 @@ export function decodeClear(p: Uint8Array): ClearData {
   return { lines: p[0], flags: p[1], combo: p[2] };
 }
 
-export interface GarbageData { amount: number; holes: number[] | null; }
-// 旧形式（amountのみ・穴なし）も受理する後方互換デコード
+export interface GarbageData { amount: number; holes: number[]; }
 export function decodeGarbage(p: Uint8Array): GarbageData {
-  const amount = p[0];
-  const holes = p.length >= 1 + amount && amount > 0
-    ? Array.from(p.slice(1, 1 + amount))
-    : null;
+  if (p.length < 3 || p[0] !== GARBAGE_PROTOCOL_VERSION) {
+    throw new Error("Unsupported Garbage payload");
+  }
+  const amount = new DataView(p.buffer, p.byteOffset, p.byteLength).getUint16(1, true);
+  if (amount < 1 || amount > MAX_GARBAGE_AMOUNT || p.length !== 3 + amount) {
+    throw new Error("Invalid Garbage amount/length");
+  }
+  const holes = Array.from(p.slice(3, 3 + amount));
   return { amount, holes };
 }
 export function decodeHold(p: Uint8Array): number { return p[0]; }
@@ -233,11 +409,13 @@ export function decodeHold(p: Uint8Array): number { return p[0]; }
 // ★ wire上は「0=空セル」「1〜7=ミノtype 0〜6」とする(+1オフセット)。
 //   Iミノは type 0 のため、+1しないと空セルと区別できず相手盤面で消える。
 //   デコード側 (Lock handler) は値が非0のとき type = 値-1 で復元する。
+// ★ おじゃませり上がりでスタックが y<0 へはみ出すため、y=-BOARD_BUFFER_ROWS..BOARD_ROWS-1
+//   の40行を row = y + BOARD_BUFFER_ROWS で格納する。バッファ外(y<-20)は実質トップアウトなので破棄。
 export function fieldBlocksToArray(blocks: Array<{x: number; y: number; type: number}>): number[] {
   const arr = new Array(BOARD_SIZE).fill(0);
   for (const b of blocks) {
-    if (b.x >= 0 && b.x < BOARD_COLS && b.y >= 0 && b.y < BOARD_ROWS) {
-      arr[b.y * BOARD_COLS + b.x] = ((b.type ?? 6) + 1);
+    if (b.x >= 0 && b.x < BOARD_COLS && b.y >= -BOARD_BUFFER_ROWS && b.y < BOARD_ROWS) {
+      arr[(b.y + BOARD_BUFFER_ROWS) * BOARD_COLS + b.x] = ((b.type ?? 6) + 1);
     }
   }
   return arr;
@@ -245,11 +423,13 @@ export function fieldBlocksToArray(blocks: Array<{x: number; y: number; type: nu
 
 // ── Puyo encode/decode helpers ────────────────────────────────────────
 
-// PuyoPieceState: 5 bytes (opcode + pivotColor + childColor + pivotX + pivotY_encoded + rotation)
+// PuyoPieceState: 6 bytes (opcode + pivotColor + childColor + pivotX + pivotY_encoded + rotation + targetAnimRot_encoded)
 // pivotY: float, encoded as round(pivotY * 2) + 64 → 8-bit unsigned
+// targetAnimRot: 回転演出用の非mod累積値（engine.js targetAnimRot）。byte1個(mod 256)で送り、
+// 受信側(driver.ts)は現在のanimRotに最も近い合同値へ復元する（256ラップは長時間の空中回転でしか起きない想定）。
 export function encodePuyoPieceState(
   pivotColor: number, childColor: number,
-  pivotX: number, pivotY: number, rotation: number,
+  pivotX: number, pivotY: number, rotation: number, targetAnimRot: number = rotation,
 ): Uint8Array {
   return new Uint8Array([
     MatchOpcode.PuyoPieceState,
@@ -258,11 +438,12 @@ export function encodePuyoPieceState(
     (pivotX + 16) & 0xff,
     (Math.round(pivotY * 2) + 64) & 0xff,
     rotation & 0xff,
+    (Math.round(targetAnimRot) + 128) & 0xff,
   ]);
 }
 export interface PuyoPieceStateData {
   pivotColor: number; childColor: number;
-  pivotX: number; pivotY: number; rotation: number;
+  pivotX: number; pivotY: number; rotation: number; targetAnimRot: number;
 }
 export function decodePuyoPieceState(p: Uint8Array): PuyoPieceStateData {
   return {
@@ -271,6 +452,8 @@ export function decodePuyoPieceState(p: Uint8Array): PuyoPieceStateData {
     pivotX: p[2] - 16,
     pivotY: (p[3] - 64) / 2,
     rotation: p[4],
+    // 後方互換: 旧5バイトフレーム（targetAnimRot未送信）は rotation を代用値にする
+    targetAnimRot: p.length > 5 ? p[5] - 128 : p[4],
   };
 }
 
@@ -300,12 +483,20 @@ export function decodePuyoSpawn(p: Uint8Array): PuyoSpawnData {
   return { pivotColor: p[0], childColor: p[1], nextPairs };
 }
 
-// PuyoLock: 102 bytes (field[r][c] row-major, 0=empty 1-5=color 6=ojama)
-// field is the 17×6 internal field array (rows include hidden rows)
-export function encodePuyoLock(field: number[][]): Uint8Array {
-  const buf = new Uint8Array(1 + PUYO_FIELD_SIZE);
+/**
+ * PuyoLock のスナップショット種別（連鎖再生のペーシングに使う）。
+ * opcode は 0x22 のまま payload 先頭に 1 バイト付与する。サーバーは中身を見ないため
+ * プロトコル/サーバー変更なしで受信側が「どの段階の盤面か」を確定できる。
+ */
+export const PuyoLockPhase = { Fix: 0, Erase: 1, Drop: 2 } as const;
+export type PuyoLockPhaseValue = typeof PuyoLockPhase[keyof typeof PuyoLockPhase];
+
+// PuyoLock: 1(phase) + 102(field) bytes。field は 17×6 の内部盤面（hidden 行込み）。
+export function encodePuyoLock(field: number[][], phase: number = PuyoLockPhase.Fix): Uint8Array {
+  const buf = new Uint8Array(2 + PUYO_FIELD_SIZE);
   buf[0] = MatchOpcode.PuyoLock;
-  let idx = 1;
+  buf[1] = phase & 0xff;
+  let idx = 2;
   for (let r = 0; r < PUYO_ROWS; r++) {
     for (let c = 0; c < PUYO_COLS; c++) {
       buf[idx++] = (field[r]?.[c] ?? 0) & 0xff;
@@ -313,47 +504,89 @@ export function encodePuyoLock(field: number[][]): Uint8Array {
   }
   return buf;
 }
-export function decodePuyoLock(p: Uint8Array): number[][] {
+export interface PuyoLockData { field: number[][]; phase: number; }
+export function decodePuyoLock(p: Uint8Array): PuyoLockData {
+  // payload は受信層で opcode + 送信元UUID(16B) を除去済み → [phase, ...field]
+  const phase = p[0] ?? 0;
   const field: number[][] = [];
   for (let r = 0; r < PUYO_ROWS; r++) {
     const row: number[] = [];
     for (let c = 0; c < PUYO_COLS; c++) {
-      row.push(p[r * PUYO_COLS + c] ?? 0);
+      row.push(p[1 + r * PUYO_COLS + c] ?? 0);
     }
     field.push(row);
   }
-  return field;
+  return { field, phase };
 }
 
-// GarbagePuyo: 1 byte payload (ojama count)
+// PUYO のおじゃまも unified Garbage(0x24) を使う。各おじゃまの列を送信側で確定する。
 export function encodeGarbagePuyo(amount: number): Uint8Array {
-  return new Uint8Array([MatchOpcode.GarbagePuyo, amount & 0xff]);
+  const n = Math.max(0, Math.min(MAX_GARBAGE_AMOUNT, Math.trunc(amount)));
+  const columns = Array.from({ length: n }, () => Math.floor(Math.random() * PUYO_COLS));
+  return encodeGarbage(n, columns);
 }
 
-// PuyoChain: [chainCount][count][r,c × count] — 連鎖消去開始時の点滅セル
+// PuyoChain: [chainCount][groupCount][groupLen × groupCount][cells(r,c) …グループ順][ojamaCount][ojama cells(r,c)]
+// 連鎖消去開始時の点滅セル。グループ境界を持つのは _prepareChainTextDOM（実エンジンと
+// 同じ関数、driver.tsから流用）が「最下段・最左のグループ」を選ぶのにグループ単位の
+// 構造が必要なため（cells をフラットにしただけでは境界もおじゃまとの区別も失われる）。
 export function encodePuyoChain(
-  chainCount: number, cells: Array<{ r: number; c: number }>,
+  chainCount: number,
+  groups: Array<Array<{ r: number; c: number }>>,
+  ojamaCells: Array<{ r: number; c: number }> = [],
 ): Uint8Array {
-  const n = Math.min(cells.length, 255);
-  const buf = new Uint8Array(3 + n * 2);
-  buf[0] = MatchOpcode.PuyoChain;
-  buf[1] = chainCount & 0xff;
-  buf[2] = n;
-  for (let i = 0; i < n; i++) {
-    buf[3 + i * 2] = cells[i].r & 0xff;
-    buf[4 + i * 2] = cells[i].c & 0xff;
+  const groupCount = Math.min(groups.length, 255);
+  const groupLens = groups.slice(0, groupCount).map((g) => Math.min(g.length, 255));
+  const totalGroupCells = groupLens.reduce((a, b) => a + b, 0);
+  const n = Math.min(ojamaCells.length, 255);
+  const buf = new Uint8Array(1 + 1 + 1 + groupCount + totalGroupCells * 2 + 1 + n * 2);
+  let i = 0;
+  buf[i++] = MatchOpcode.PuyoChain;
+  buf[i++] = chainCount & 0xff;
+  buf[i++] = groupCount;
+  for (let g = 0; g < groupCount; g++) buf[i++] = groupLens[g];
+  for (let g = 0; g < groupCount; g++) {
+    for (let k = 0; k < groupLens[g]; k++) {
+      buf[i++] = groups[g][k].r & 0xff;
+      buf[i++] = groups[g][k].c & 0xff;
+    }
+  }
+  buf[i++] = n;
+  for (let j = 0; j < n; j++) {
+    buf[i++] = ojamaCells[j].r & 0xff;
+    buf[i++] = ojamaCells[j].c & 0xff;
   }
   return buf;
 }
-export interface PuyoChainData { chainCount: number; cells: Array<{ r: number; c: number }>; }
+export interface PuyoChainData {
+  chainCount: number;
+  groups: Array<Array<{ r: number; c: number }>>;
+  ojamaCells: Array<{ r: number; c: number }>;
+  /** groups.flat() + ojamaCells（消去点滅の対象セル全体。従来の _erasingCells 相当）。 */
+  cells: Array<{ r: number; c: number }>;
+}
 export function decodePuyoChain(p: Uint8Array): PuyoChainData {
-  const chainCount = p[0] ?? 0;
-  const n = p[1] ?? 0;
-  const cells: Array<{ r: number; c: number }> = [];
-  for (let i = 0; i < n; i++) {
-    cells.push({ r: p[2 + i * 2] ?? 0, c: p[3 + i * 2] ?? 0 });
+  let i = 0;
+  const chainCount = p[i++] ?? 0;
+  const groupCount = p[i++] ?? 0;
+  const groupLens: number[] = [];
+  for (let g = 0; g < groupCount; g++) groupLens.push(p[i++] ?? 0);
+  const groups: Array<Array<{ r: number; c: number }>> = [];
+  for (let g = 0; g < groupCount; g++) {
+    const grp: Array<{ r: number; c: number }> = [];
+    for (let k = 0; k < groupLens[g]; k++) {
+      grp.push({ r: p[i] ?? 0, c: p[i + 1] ?? 0 });
+      i += 2;
+    }
+    groups.push(grp);
   }
-  return { chainCount, cells };
+  const n = p[i++] ?? 0;
+  const ojamaCells: Array<{ r: number; c: number }> = [];
+  for (let j = 0; j < n; j++) {
+    ojamaCells.push({ r: p[i] ?? 0, c: p[i + 1] ?? 0 });
+    i += 2;
+  }
+  return { chainCount, groups, ojamaCells, cells: [...groups.flat(), ...ojamaCells] };
 }
 
 // ── Cross-game conversion tables (same as garbage.js) ────────────────

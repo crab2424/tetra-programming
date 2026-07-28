@@ -1,0 +1,154 @@
+/* ─────────────────────────────────────────────
+   カウントダウン／終了演出オーバーレイ
+───────────────────────────────────────────── */
+.field-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  height: 656px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+#countdown-overlay,
+#finish-overlay {
+  height: 656px;
+}
+.field-overlay.active {
+  display: flex;
+}
+.countdown-overlay {
+  background: transparent;
+}
+
+.countdown-text {
+  font-family: "Orbitron", monospace;
+  font-weight: 900;
+  font-size: 96px;
+  letter-spacing: 4px;
+  color: #fff;
+  text-shadow:
+    0 0 20px rgba(196, 113, 245, 0.8),
+    0 0 60px rgba(196, 113, 245, 0.4),
+    0 4px 16px rgba(0, 0, 0, 0.8);
+  line-height: 1;
+  user-select: none;
+}
+.countdown-text:not(:empty) {
+  white-space: nowrap;
+}
+
+@keyframes countdown-pop-anim {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  40% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  65% {
+    transform: scale(0.95);
+  }
+  80% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.countdown-text.countdown-pop {
+  animation: countdown-pop-anim 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.finish-overlay {
+  background: transparent;
+  transition: opacity 0.5s ease;
+}
+.finish-overlay.fadeout {
+  opacity: 0;
+}
+
+.finish-text {
+  font-family: "Orbitron", monospace;
+  font-weight: 900;
+  /* CPU戦は --ol-scale 未定義＝1 で従来どおり 44px/4px。
+     online戦は #ol-battle-layout の人数別 --ol-scale が継承され、盤面と同率で縮小する。 */
+  font-size: calc(var(--finish-font-size) * var(--ol-scale, 1));
+  letter-spacing: calc(var(--finish-letter-spacing) * var(--ol-scale, 1));
+  text-align: center;
+  line-height: 1.2;
+  user-select: none;
+  animation: finish-appear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.finish-text.finish-clear {
+  color: var(--success);
+  text-shadow:
+    0 0 24px rgba(90, 245, 160, 0.7),
+    0 0 60px rgba(90, 245, 160, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.8);
+}
+.finish-text.finish-gameover {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 0 16px rgba(196, 113, 245, 0.6);
+}
+
+/* 途中切断UI（S4）: 相手/自分の接続喪失〜再接続猶予の表示。
+   finish-overlay より上に出す必要はないが、演出中に切断が来ることは無いので z-index は共通のままでよい。 */
+.dc-overlay {
+  background: rgba(10, 10, 16, 0.72);
+  z-index: 21;
+}
+
+.dc-text {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: calc(15px * var(--ol-scale, 1));
+  letter-spacing: 1px;
+  line-height: 1.6;
+  color: var(--danger, #f56565);
+  text-align: center;
+  white-space: pre-line;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  padding: 0 12px;
+  user-select: none;
+}
+
+@keyframes finish-appear {
+  0% {
+    transform: scale(0.6) translateY(20px);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08) translateY(-4px);
+    opacity: 1;
+  }
+  80% {
+    transform: scale(0.97) translateY(2px);
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+#player-countdown-overlay,
+#player-finish-overlay,
+#cpu-countdown-overlay,
+#cpu-finish-overlay {
+  width: 320px;
+  height: 640px;
+  top: 0;
+  left: 0;
+}
+

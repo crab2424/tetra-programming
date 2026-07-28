@@ -11,15 +11,175 @@ import {
   parseMatchSetting,
   type OnlineMatchSetting,
 } from "./payload";
-import { showToast, ToastColor } from "../toast";
+import { showToast, ToastColor } from "../components/toast";
 import { AllTags, getTagName } from "./room";
 import { OnlineGameController } from "./online_game";
+import {
+  getOnlineSelfSide,
+  setOnlineSelfSide,
+  type OnlineSelfSide,
+} from "../battle/layout";
+import {
+  runBattlePreload,
+  hideLoadingOverlay,
+  isLoadingOverlayVisible,
+  setLoadingPlayers,
+  setLoadingCancel,
+} from "../battle/loading_screen";
 
 enum OnlineModeState {
   Disconnected,
   Connecting,
   RoomList,
   InRoom,
+}
+
+/** online系ページ用の簡易登場アニメ。CPU戦/メインメニュー等が使う initMenuAnimations
+ * （particles.js、pageId固定の switch 文）はページID体系が違うため流用せず、
+ * 対象ノードだけを渡す軽量版として個別実装する（第13ラウンド①）。 */
+function applyEnterAnimation(nodes: (Element | null)[]): void {
+  const targets = nodes.filter((n): n is HTMLElement => n instanceof HTMLElement);
+  targets.forEach((node) => {
+    node.classList.remove("menu-enter");
+    node.style.opacity = "0";
+    node.style.animation = "none";
+    node.style.animationDelay = "";
+  });
+  void document.body.offsetWidth;
+  targets.forEach((node, i) => {
+    node.style.animation = "";
+    node.style.animationDelay = `${i * 0.08}s`;
+    node.style.opacity = "";
+    node.classList.add("menu-enter");
+  });
+}
+
+// ─────────────────────────────────────────────
+// FocusNav（キーボード操作、public/app/focus_nav.js）連携（第13ラウンド②b）
+//
+// online系はDOM構造がCPU戦の固定ページ体系と違い、ひとつの #online-top-container の中身が
+// 状態遷移のたびに丸ごと置き換わる（接続中/エラー/ロビー/ルーム詳細/RM確認）。そのため
+// FocusNavの登録は「online-top」1つに統一し、getItemsが呼ばれるたびに現在のDOMを見て
+// どのビューかを判定する（既存の各render関数は一切変更しない＝マーカー用DOM追加も不要）。
+// モーダル（Modal.showModal/hideModal）は #online-modal-container を専用ページ「online-modal」
+// として扱い、開閉のたびにFocusNav側を明示的に切り替える。
+type FocusItem = { el: HTMLElement; key?: string; onActivate?: (it: { el: HTMLElement }) => void };
+
+function focusNav(): any {
+  return (window as any).FocusNav;
+}
+
+/** ルーム一覧の10秒自動更新でDOMが作り直されても、同じ項目へフォーカスを戻すための識別子。
+ * 静的ボタンは各所で data-focus-key を明示、ルーム項目は data-room-id から合成する。 */
+function focusKeyOf(el: HTMLElement): string | undefined {
+  if (el.dataset.focusKey) return el.dataset.focusKey;
+  const room = el.closest<HTMLElement>(".online-room");
+  if (room?.dataset.roomId) return "room:" + room.dataset.roomId;
+  return undefined;
+}
+
+function toFocusItem(el: HTMLElement): FocusItem {
+  const item: FocusItem = { el, key: focusKeyOf(el) };
+  if (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA") {
+    item.onActivate = (it) => {
+      (it.el as HTMLInputElement).focus();
+      const withSelect = it.el as { select?: () => void };
+      if (typeof withSelect.select === "function") {
+        try { withSelect.select(); } catch { /* 非対応要素は無視 */ }
+      }
+    };
+  }
+  return item;
+}
+
+function collectFocusable(root: HTMLElement): FocusItem[] {
+  // .online-room はクリックで入室する div（buttonではない）なので明示的に含める。
+  return Array.from(root.querySelectorAll<HTMLElement>("button, input, select, .online-room"))
+    .filter((el) => !el.matches(":disabled"))
+    .map(toFocusItem);
+}
+
+/** #online-top-container 配下、モーダルや`.btn-danger`(破壊的操作)を除いた中から
+ * キャンセル/CLOSE相当のボタンだけをEscape対象として選ぶ。複数ボタンがある画面で
+ * 誤って退出・辞退等を選ばないよう、ラベル一致か.btn-secondaryのみを対象にする
+ * （単一ボタンの画面＝alert等は、そのボタン自体が実質的なCLOSEとみなして許可）。 */
+function pickEscapeButton(root: HTMLElement): HTMLElement | null {
+  const buttons = Array.from(root.querySelectorAll<HTMLElement>("button"))
+    .filter((b) => !b.matches(":disabled") && b.offsetParent !== null);
+  const safe = buttons.filter((b) => !b.classList.contains("btn-danger"));
+  const byLabel = safe.find((b) => /^(キャンセル|cancel|close|閉じる)$/i.test((b.textContent || "").trim()));
+  if (byLabel) return byLabel;
+  const bySecondary = safe.find((b) => b.classList.contains("btn-secondary"));
+  if (bySecondary) return bySecondary;
+  if (safe.length === 1) return safe[0];
+  return null;
+}
+
+function onlineTopContainerEl(): HTMLElement | null {
+  return document.getElementById("online-top-container");
+}
+
+function onlineTopGetItems(): FocusItem[] {
+  const container = onlineTopContainerEl();
+  return container ? collectFocusable(container) : [];
+}
+
+/** connecting中/接続失敗/ロビー/ルーム詳細/RM確認のどれかを、既存の目印DOMだけで判定する。 */
+function onlineTopEscapeTarget(): HTMLElement | null {
+  const container = onlineTopContainerEl();
+  if (!container) return null;
+  // RM確認・ルーム詳細: 退出/辞退はいずれも破壊的操作なので安全な対象が無い（意図的にnull）。
+  if (container.querySelector("#ol-rm-confirm")) return null;
+  if (container.querySelector(".online-header .btn-danger")) return null; // ルーム詳細(LEAVE)
+  if (container.querySelector(".ol-connect-error")) {
+    return pickEscapeButton(container.querySelector<HTMLElement>(".ol-connect-actions") || container);
+  }
+  if (container.querySelector("#ol-connect-card")) {
+    return pickEscapeButton(container.querySelector<HTMLElement>(".online-header") || container);
+  }
+  if (container.querySelector("#online-rooms-container")) {
+    return pickEscapeButton(container.querySelector<HTMLElement>(".online-header") || container);
+  }
+  return null;
+}
+
+function ensureOnlineTopFocusPage(): void {
+  const FN = focusNav();
+  if (!FN || FN.__onlineTopRegistered) return;
+  FN.__onlineTopRegistered = true;
+  FN.register("online-top", {
+    root: document.getElementById("online-top-page"),
+    getItems: onlineTopGetItems,
+    escapeAction: onlineTopEscapeTarget,
+  });
+  FN.register("online-modal", {
+    root: document.getElementById("online-modal-container"),
+    rootActiveClass: "online-modal-active",
+    getItems: () => {
+      const container = document.getElementById("online-modal-container");
+      return container ? collectFocusable(container) : [];
+    },
+    escapeAction: () => {
+      const container = document.getElementById("online-modal-container");
+      return container ? pickEscapeButton(container) : null;
+    },
+  });
+}
+
+/** レンダー関数の末尾で呼ぶ。モーダル表示中はここでは何もしない
+ * （Modal.showModal/hideModal側でonline-modalへの切替を専任している）。
+ * preserveKey指定時（ロビーの10秒自動更新）は同じ項目へフォーカスを復元し、
+ * 未指定時は素直にactivateしてトップへ戻す（登場アニメ再生時などと揃える）。 */
+function syncOnlineTopFocus(preserveKey?: string | null): void {
+  ensureOnlineTopFocusPage();
+  const FN = focusNav();
+  if (!FN) return;
+  if (FN.getActivePageId() === "online-modal") return;
+  if (FN.getActivePageId() === "online-top") {
+    FN.restoreFocus(preserveKey ?? null);
+  } else {
+    FN.activate("online-top");
+  }
 }
 
 class Modal {
@@ -30,6 +190,8 @@ class Modal {
     }
     modalContainer.replaceChildren(content);
     modalContainer.classList.add("online-modal-active");
+    ensureOnlineTopFocusPage();
+    focusNav()?.activate("online-modal");
   }
 
   static hideModal() {
@@ -38,6 +200,15 @@ class Modal {
       throw new Error("Failed to find modal container element");
     }
     modalContainer.classList.remove("online-modal-active");
+    // モーダルは常にonline-topの上に開く前提。閉じたらフォーカスを元の画面へ返す
+    // （モーダルの内容はここで消えるため、二度と参照できなくなる前に必ず戻す）。
+    // ★ syncOnlineTopFocus() は使わない: その関数は「アクティブページが既に online-modal
+    //   なら何もしない」ガードを持つ（＝他のrender関数がモーダル表示中に誤って呼んで
+    //   フォーカスを奪わないための保護）。しかしここは online-modal から抜ける瞬間そのものなので
+    //   ガードに毎回引っかかり、FocusNavが online-modal に固定されたまま二度と online-top へ
+    //   戻らず、以降キー操作が一切効かなくなる不具合があった。ここでは直接 activate する。
+    ensureOnlineTopFocusPage();
+    focusNav()?.activate("online-top");
     modalContainer.replaceChildren();
   }
 
@@ -49,15 +220,11 @@ class Modal {
     return new Promise<void>((resolve) => {
       const modalContent = (
         <div
+          class="ol-dialog"
           style={{
-            backgroundColor: "#000",
             padding: "20px",
-            borderRadius: "8px",
-            display: "flex",
-            flexDirection: "column",
             gap: "10px",
             minWidth: "300px",
-            color: "#fff",
           }}
         >
           {title && <h2>{title}</h2>}
@@ -84,19 +251,16 @@ class Modal {
     title?: string,
     okMessage: string = "OK",
     cancelMessage: string = "Cancel",
+    danger: boolean = false,
   ): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       const modalContent = (
         <div
+          class="ol-dialog"
           style={{
-            backgroundColor: "#000",
             padding: "20px",
-            borderRadius: "8px",
-            display: "flex",
-            flexDirection: "column",
             gap: "10px",
             minWidth: "300px",
-            color: "#fff",
           }}
         >
           {title && <h2>{title}</h2>}
@@ -114,7 +278,7 @@ class Modal {
               {cancelMessage}
             </button>
             <button
-              class="btn btn-primary"
+              class={"btn " + (danger ? "btn-danger" : "btn-primary")}
               onclick={() => {
                 Modal.hideModal();
                 resolve(true);
@@ -139,15 +303,11 @@ class Modal {
     return new Promise<string | null>((resolve) => {
       const modalContent = (
         <div
+          class="ol-dialog"
           style={{
-            backgroundColor: "#000",
             padding: "20px",
-            borderRadius: "8px",
-            display: "flex",
-            flexDirection: "column",
             gap: "10px",
             minWidth: "300px",
-            color: "#fff",
           }}
         >
           {title && <h2>{title}</h2>}
@@ -248,12 +408,18 @@ class OnlineMode {
         this.connection!.removeReaderFunction(this.roomEventHandlerId);
         this.roomEventHandlerId = null;
       }
+      if (this.matchSettingHandlerId) {
+        this.connection!.removeReaderFunction(this.matchSettingHandlerId);
+        this.matchSettingHandlerId = null;
+      }
       if (this.gameController) {
         this.gameController.cleanup();
         this.gameController = null;
       }
       this.connection?.stopPingReporting();
       this.isRandomMatchRoom = false;
+      this.clearRmConfirm();
+      hideLoadingOverlay(true);
     }
     if (value !== OnlineModeState.RoomList) {
       this.stopRoomListAutoRefresh();
@@ -263,12 +429,35 @@ class OnlineMode {
 
   public currentRoom: Omit<UpdateRoomRequest, "id"> | null = null;
   public roomEventHandlerId: Uuid | null = null;
+  /** オーナーの対戦設定変更をメンバーへ通知するための購読ID */
+  private matchSettingHandlerId: Uuid | null = null;
   private gameController: OnlineGameController | null = null;
   private roomListRefreshId: number | null = null;
   /** ルーム画面の「ping以外の状態」シグネチャ。pingだけの更新で全再構築しないための差分判定用 */
   private lastRoomSig: string | null = null;
-  /** ランダムマッチで入室したルームは自動READY→オーナーが全員READY確認次第自動START */
+  /** 直近のRoomInfoNotification（ownerId判定用。UpdateMatchSettingNotificationには
+   *  ownerIdが含まれないため、通知が届いた時点の「自分がオーナーか」をここから引く）。 */
+  private lastRoomInfo: RoomInfoNotification | null = null;
+  /** ランダムマッチで入室したルームは両者の確認(OK)を経てオーナーがSTART */
   private isRandomMatchRoom = false;
+  /** ランダムマッチ確認: 自分がOKを押したか（非オーナー=READY送信、オーナー=開始許可） */
+  private rmConfirmed = false;
+  /** ランダムマッチ確認: startMatch送信済み or StartMatchNotification受信済み */
+  private rmStarting = false;
+  /**
+   * 確認パネルの無表示タイムアウト（安全網）。ユーザーに急かす表示はしないが、
+   * 相手がタブを閉じた等で応答が返らない場合に片側が永久に固まらないよう、
+   * 一定時間で自動的に再マッチングへ倒す。
+   */
+  private rmConfirmTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 確認パネル用の StartMatchNotification リスナーID */
+  private rmStartNotifId: Uuid | null = null;
+  /** 最後に受け取ったランダムマッチルームの情報（OK押下時の開始条件判定用） */
+  private rmLatestRoom: RoomInfoNotification | null = null;
+  /** 辞退・再キューの退出処理中（遅延通知による確認パネルの再描画・二重requeueを防ぐ） */
+  private rmLeaving = false;
+  /** 確認の無表示安全網タイムアウト（相手の応答が無いまま固まらないようにするだけで、UIには出さない） */
+  private static readonly RM_CONFIRM_TIMEOUT_MS = 60000;
 
   /** 最後に選択したルール（TET/PUYO）を記憶・取得する */
   private getPreferredRule(): Games {
@@ -284,6 +473,47 @@ class OnlineMode {
       clearInterval(this.roomListRefreshId);
       this.roomListRefreshId = null;
     }
+  }
+
+  /**
+   * 対戦画面以外の online ページ（ロビー一覧・ルーム・ランダムマッチ確認）に入るたびに呼ぶ。
+   * ★ online系ページは switchPage() を通らず .page の active を直接操作するため、
+   *   BGM のページ連動（navigation.js の switchPage 内）が一切効かず、対戦後も
+   *   online_bgm が鳴り続けていた。backToMainMenu() だけが switchPage を呼ぶため
+   *   「メインメニューまで戻ると直る」という報告と一致する。
+   *   crossfadeTo は isCurrent を見て冪等なので毎回呼んでよい。
+   */
+  private applyLobbyBgm(): void {
+    (window as any).BgmManager?.crossfadeTo("menu_bgm");
+  }
+
+  /**
+   * 対戦開始を承認したあとのロード画面。素材を読み終えてから解決する。
+   *
+   * ★ ここで待ってから READY / startMatch を送ることで、サーバー側の
+   *   「オーナー以外の全員 READY で開始」判定がそのまま「全員のロードが終わるまで
+   *   対戦が始まらない」として機能する（プロトコル・サーバーとも無改造）。
+   *   ロード画面は StartMatchNotification 受信時に OnlineGameController が閉じる。
+   */
+  private async preloadForMatch(roomData: RoomInfoNotification): Promise<void> {
+    const rules = roomData.players.map(([, , rule]) =>
+      rule === "puyo" ? ("puyo" as const) : ("tet" as const),
+    );
+    this.updateLoadingPlayers(roomData);
+    await runBattlePreload({ rules: [...new Set(rules)] });
+    this.updateLoadingPlayers(roomData);
+  }
+
+  /** ロード画面の「各プレイヤーの準備状況」を RoomInfoNotification から更新する */
+  private updateLoadingPlayers(roomData: RoomInfoNotification): void {
+    const readySet = new Set(roomData.readyPlayers ?? []);
+    setLoadingPlayers(
+      roomData.players.map(([id, name]) => ({
+        name,
+        // オーナーは READY を持たない（開始操作が READY 相当）ので、開始通知まで準備中扱い
+        ready: readySet.has(id),
+      })),
+    );
   }
 
   /** success:false 応答をトーストで通知する共通ヘルパー */
@@ -354,6 +584,7 @@ class OnlineMode {
     // ルームに居ないときの通知では描画しない（遅延通知でルーム一覧の上に被さるのを防ぐ）
     if (this.state !== OnlineModeState.InRoom) return;
 
+    this.lastRoomInfo = roomData;
     this.currentRoom = {
       roomId: roomData.roomId,
       roomName: roomData.roomName,
@@ -390,23 +621,35 @@ class OnlineMode {
             this.onlineTopPage();
           }
         },
-        isRandomMatch: this.isRandomMatchRoom,
-        onRandomRematch: async () => {
-          // ランダムマッチ終了後: 現在のルームを退出して新たなランダムマッチを開始する
+        // S4: 切断の安全網（相手/自分どちらの復帰も間に合わなかった場合）が発火したときの強制終了。
+        onForceLeave: async (message: string) => {
+          await Modal.alert(message, "対戦終了");
           if (this.connection) {
             try {
               await this.connection.leaveRoom({ roomId: roomData.roomId });
             } catch { }
-            this.currentRoom = null;
-            this.gameController = null;
-            this.isRandomMatchRoom = false;
-            await this.startRandomMatch();
           }
+          this.currentRoom = null;
+          this.gameController = null;
+          this.onlineTopPage();
         },
+        isRandomMatch: this.isRandomMatchRoom,
       });
     } else {
       this.gameController.updateRoomInfo(roomData);
     }
+
+    // ロード画面表示中は「相手の準備状況」だけ更新する（READY = ロード完了）
+    if (isLoadingOverlayVisible()) this.updateLoadingPlayers(roomData);
+
+    // ★ 対戦画面（カウントダウン〜リザルト〜遷移）が出ている間は、ルーム通知で
+    //   ロビー/ランダムマッチ確認パネルを描き直さない。
+    //   これが無いと、対戦後に相手が退出した通知で確認パネルが再生成され、
+    //   players.length < 2 を検知して自動再マッチング（「マッチング中…」）へ飛んでしまう。
+    //   対戦後の遷移は必ずリザルト画面のボタン（RETRY / ROOM / LEAVE）起点にする。
+    if (this.gameController.isBattleActive) return;
+    // 対戦中でないルーム通知（入室直後・RETRY後の戻り等）はロビーBGMへ戻す。
+    this.applyLobbyBgm();
 
     const isOwner = roomData.ownerId === myUserId;
     const ms = parseMatchSetting(roomData.matchSetting);
@@ -418,52 +661,24 @@ class OnlineMode {
     const allReady = nonOwners.every(([id]) => readySet.has(id));
     const iAmReady = readySet.has(myUserId);
 
-    // ── ランダムマッチ: ルーム設定画面は一切出さず「対戦準備中」だけ表示する ──
+    // ★ 非オーナーとしてREADY待ち中（ロード画面表示中）に、オーナーが退出して自分に
+    //   オーナー権限が委譲されると、StartMatchNotificationが二度と来ずロード画面が
+    //   永久に残り進行不能になる（ユーザー報告で発覚）。「READY済み(iAmReady) かつ
+    //   今の通知で自分がオーナーになっている」を検知したら自動で閉じる。
+    if (!this.isRandomMatchRoom && isLoadingOverlayVisible() && isOwner && iAmReady) {
+      hideLoadingOverlay(true);
+      this.connection!.setReady({ roomId: roomData.roomId, ready: false }).catch(() => { });
+      showToast("ONLINE", "オーナーが退出したため待機を中止しました", ToastColor["Info"]);
+    }
+
+    // ── ランダムマッチ: ルーム設定画面は一切出さず「両者確認パネル」を表示する ──
     //    （ROOMボタンや一覧戻りで「謎のランダム用ルーム設定画面」が露出するのを防ぐ）
-    //    gameController の初期化は上で完了済みなので、ここで設定UIを作らず即returnしてよい。
+    //    gameController の初期化は上で完了済み。両者がOKを押すまで対戦は始まらない:
+    //    非オーナーのOK=READY送信、オーナーのOK=開始許可。両方揃った時点でSTART。
     if (this.isRandomMatchRoom) {
-      const rmContainer = document.getElementById("online-top-container");
-      if (rmContainer && !document.getElementById("ol-rm-waiting")) {
-        rmContainer.replaceChildren(
-          <>
-            <div class="online-header">
-              <button class="btn btn-secondary" disabled>
-                ◀ BACK
-              </button>
-              <h1>🌐 ONLINE</h1>
-              <button class="btn btn-settings" disabled>
-                ⚙ SETTINGS
-              </button>
-            </div>
-            <div
-              class="online-top-content"
-              id="ol-rm-waiting"
-              style={{ textAlign: "center" }}
-            >
-              <h2>🔍 対戦準備中…</h2>
-              <div style={{ color: "var(--text-dim)" }}>
-                まもなく対戦が始まります
-              </div>
-            </div>
-          </>,
-        );
-      }
-      // 非オーナーは自動READY、オーナーは全員READY次第自動START
-      if (!isOwner && !iAmReady) {
-        setTimeout(() => {
-          this.connection!.setReady({
-            roomId: roomData.roomId,
-            ready: true,
-          }).catch(() => { });
-        }, 100);
-      }
-      if (isOwner && allReady && roomData.players.length >= 2) {
-        setTimeout(() => {
-          this.connection!.startMatch({ roomId: roomData.roomId }).catch(
-            () => { },
-          );
-        }, 300);
-      }
+      this.rmLatestRoom = roomData;
+      this.renderRandomMatchConfirm(roomData, isOwner);
+      this.tryRmStart();
       return;
     }
 
@@ -590,7 +805,7 @@ class OnlineMode {
       <>
         <div class="online-header">
           <button
-            class="btn btn-secondary"
+            class="btn btn-danger"
             onclick={async () => {
               const isOnlyPlayer = roomData.players.length === 1;
 
@@ -603,6 +818,7 @@ class OnlineMode {
                 "ルーム退出の確認",
                 "退出",
                 "キャンセル",
+                true,
               );
               if (confirmLeave) {
                 await this.connection!.leaveRoom({ roomId: roomData.roomId });
@@ -805,13 +1021,23 @@ class OnlineMode {
                       ))}
                   </span>
                   {id === myUserId ? (
-                    <div style={{ display: "flex", gap: "4px" }}>
+                    // READY 中はルール変更不可（相手が見た条件と食い違うのを防ぐ）。
+                    // READY を解除すれば再び変更できる。
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "4px",
+                        ...(iAmReady ? { opacity: "0.4" } : {}),
+                      }}
+                    >
                       <button
                         class={
                           "online-room-tag" +
                           (game === "tet" ? " online-room-tag-enabled" : "")
                         }
+                        disabled={iAmReady || undefined}
                         onclick={() => {
+                          if (iAmReady) return;
                           this.setPreferredRule("tet");
                           this.connection!.updatePlayerRule({
                             roomId: roomData.roomId,
@@ -826,7 +1052,9 @@ class OnlineMode {
                           "online-room-tag" +
                           (game === "puyo" ? " online-room-tag-enabled" : "")
                         }
+                        disabled={iAmReady || undefined}
                         onclick={() => {
+                          if (iAmReady) return;
                           this.setPreferredRule("puyo");
                           this.connection!.updatePlayerRule({
                             roomId: roomData.roomId,
@@ -864,10 +1092,24 @@ class OnlineMode {
                   class="menu-btn btn-versus-primary"
                   style={{ width: "100%" }}
                   onclick={async () => {
+                    // 先に自分の素材を読み終えてから開始要求を送る（全員のロード完了後に開始）
+                    let cancelled = false;
+                    await this.preloadForMatch(roomData);
+                    // ★ preloadBattleAssets は必ず解決するため、中断はフラグで表現する（S3⑤）。
+                    setLoadingCancel({
+                      label: "キャンセル",
+                      onCancel: () => {
+                        cancelled = true;
+                        hideLoadingOverlay(true);
+                      },
+                    });
+                    if (cancelled) return;
                     const result = await this.connection!.startMatch({
                       roomId: roomData.roomId,
                     });
+                    if (cancelled) return;
                     if (!result.success) {
+                      hideLoadingOverlay(true);
                       await Modal.alert(
                         result.message || "ゲーム開始に失敗しました。",
                         "エラー",
@@ -915,11 +1157,28 @@ class OnlineMode {
                     (iAmReady ? "btn-secondary" : "btn-versus-primary")
                   }
                   style={{ width: "100%" }}
-                  onclick={() => {
-                    this.connection!.setReady({
+                  onclick={async () => {
+                    // ★ READY = 「素材のロードまで終わって本当に開始できる」の意味。
+                    //   READY を立てるときだけロード画面を挟み、解除時はそのまま送る。
+                    if (!iAmReady) {
+                      await this.preloadForMatch(roomData);
+                      // ★ 承認後もキャンセルできるようにする（S3⑤）。
+                      setLoadingCancel({
+                        label: "キャンセル",
+                        onCancel: () => {
+                          this.connection!
+                            .setReady({ roomId: roomData.roomId, ready: false })
+                            .catch(() => { });
+                          hideLoadingOverlay(true);
+                        },
+                      });
+                    }
+                    const r = await this.connection!.setReady({
                       roomId: roomData.roomId,
                       ready: !iAmReady,
-                    }).then((r) => this.notifyIfFailed(r, "READY変更"));
+                    });
+                    if (!r.success) hideLoadingOverlay(true);
+                    this.notifyIfFailed(r, "READY変更");
                   }}
                 >
                   <span class="menu-btn-icon">{iAmReady ? "↩" : "✔"}</span>
@@ -960,16 +1219,17 @@ class OnlineMode {
                 }}
               >
                 MATCH SETTINGS{" "}
-                {!isOwner && (
-                  <span style={{ fontSize: "10px" }}>
-                    （オーナーのみ変更可）
-                  </span>
-                )}
+                <span style={{ fontSize: "10px" }}>
+                  {isOwner
+                    ? "（変更すると全員のREADYが解除されます）"
+                    : "（オーナーのみ変更可）"}
+                </span>
               </div>
               <div class="ms-grid">
                 {toggleRow("HOLD", "holdEnabled", ms.holdEnabled)}
                 {toggleRow("B2B BONUS", "b2bBonus", ms.b2bBonus)}
                 {toggleRow("DMG ON CLEAR", "garbageDamageOnClear", ms.garbageDamageOnClear,)}
+                {sliderRow("SET TO", "setTarget", ms.setTarget, 1, 9, 1, " wins",)}
                 {sliderRow("GARBAGE ×", "garbageMultiplier", ms.garbageMultiplier, 0, 3, 0.1, "x",)}
                 {sliderRow("MARGIN TIME", "marginTime", ms.marginTime, 0, 300, 1, "s",)}
                 {sliderRow("HOLE RATE", "garbageHoleRate", ms.garbageHoleRate, 0, 100, 1, "%",)}
@@ -980,6 +1240,7 @@ class OnlineMode {
         </div>
       </>,
     );
+    syncOnlineTopFocus();
   }
 
   /**
@@ -991,6 +1252,7 @@ class OnlineMode {
     // ルームに入る瞬間に一覧の自動更新を確実に止める（放置中に一覧が一瞬表示される不具合の防止）
     this.stopRoomListAutoRefresh();
     this.lastRoomSig = null; // 新しいルームでは必ず一度フル描画する
+    this.lastRoomInfo = null;
     this.state = OnlineModeState.InRoom;
 
     const onlineTopContainer = document.getElementById(
@@ -1050,7 +1312,7 @@ class OnlineMode {
         <div class="online-header">
           <button
             class="btn btn-secondary"
-            onclick={this.onlineTopPage.bind(this)}
+            onclick={() => this.onlineTopPage()}
           >
             ◀ BACK
           </button>
@@ -1090,6 +1352,29 @@ class OnlineMode {
       },
     );
 
+    // オーナーの対戦設定変更をメンバーへ通知する。サーバーは設定変更時にREADYを
+    // 全解除するが(update_match_setting)、READY承認後のロード画面（「ホストの
+    // ゲーム開始を待っています…」）は自分から明示的にキャンセルするまで閉じない実装
+    // のため、これが無いと非オーナーは「承認したままなのに開始できない」状態で
+    // 気付けず固まって見える。設定が変わったことを知らせ、ロード画面表示中なら閉じる。
+    if (this.matchSettingHandlerId) {
+      this.connection!.removeReaderFunction(this.matchSettingHandlerId);
+      this.matchSettingHandlerId = null;
+    }
+    this.matchSettingHandlerId = this.connection!.onUpdateMatchSetting((notif) => {
+      if (notif.roomId !== roomId) return;
+      const myUserId = this.connection!.userId!;
+      if (this.lastRoomInfo?.ownerId === myUserId) return; // 自分の変更なので通知不要
+      showToast(
+        "ONLINE",
+        "オーナーが対戦設定を変更しました。READYをやり直してください。",
+        ToastColor["Info"],
+      );
+      if (isLoadingOverlayVisible()) {
+        hideLoadingOverlay(true);
+      }
+    });
+
     this.connection!.roomInfoNotificationRequest({});
     this.connection!.startPingReporting(roomId);
   }
@@ -1120,15 +1405,11 @@ class OnlineMode {
       };
       const modalContent = (
         <div
+          class="ol-dialog"
           style={{
-            backgroundColor: "#000",
             padding: "20px",
-            borderRadius: "8px",
-            display: "flex",
-            flexDirection: "column",
             gap: "12px",
             minWidth: "320px",
-            color: "#fff",
           }}
         >
           <h2>ルーム作成</h2>
@@ -1215,10 +1496,14 @@ class OnlineMode {
     this.joinRoom(roomId, false);
   }
 
-  /** ランダムマッチ開始。ルール選択 → マッチング → 成立次第自動スタート */
-  private async startRandomMatch() {
+  /** ランダムマッチ開始。ルール選択 → マッチング → 成立したら両者確認(OK)へ
+   * @param skipRuleSelect 再キュー時など、ルール選択モーダルを出さず前回ルールで探す */
+  private async startRandomMatch(skipRuleSelect = false) {
+    this.rmLeaving = false; // 新しい探索の開始で退出中状態は無効化
     // まず自分のルールを選択してもらう
-    const selectedRule = await new Promise<Games | null>((resolve) => {
+    const selectedRule = skipRuleSelect
+      ? this.getPreferredRule()
+      : await new Promise<Games | null>((resolve) => {
       let chosen: Games = this.getPreferredRule();
       const makeBtn = (rule: Games, label: string) => (
         <button
@@ -1242,15 +1527,11 @@ class OnlineMode {
       );
       const content = (
         <div
+          class="ol-dialog"
           style={{
-            backgroundColor: "#000",
             padding: "24px",
-            borderRadius: "8px",
-            display: "flex",
-            flexDirection: "column",
             gap: "16px",
             minWidth: "300px",
-            color: "#fff",
             alignItems: "center",
           }}
         >
@@ -1291,7 +1572,8 @@ class OnlineMode {
     });
     if (selectedRule === null) {
       // ルール選択キャンセル: 再マッチ経路では既にルームを退出済みなので、確実にロビーへ戻す
-      this.onlineTopPage();
+      // （背後のロビーは表示済みのままモーダルだけ閉じる操作なので登場アニメは再生しない）
+      this.onlineTopPage(true);
       return;
     }
 
@@ -1321,15 +1603,11 @@ class OnlineMode {
 
     Modal.showModal(
       <div
+        class="ol-dialog"
         style={{
-          backgroundColor: "#000",
           padding: "24px",
-          borderRadius: "8px",
-          display: "flex",
-          flexDirection: "column",
           gap: "16px",
           minWidth: "300px",
-          color: "#fff",
           alignItems: "center",
         }}
       >
@@ -1350,13 +1628,289 @@ class OnlineMode {
               ToastColor["Info"],
             );
             // 謎のランダム用ルーム画面を出さず、確実にロビーへ戻す
-            this.onlineTopPage();
+            // （背後のロビーは表示済みのままモーダルだけ閉じる操作なので登場アニメは再生しない）
+            this.onlineTopPage(true);
           }}
         >
           キャンセル
         </button>
       </div>,
     );
+  }
+
+  /** ランダムマッチ成立後の両者確認パネルを描画・更新する（RoomInfoNotificationごとに呼ばれる） */
+  private renderRandomMatchConfirm(
+    roomData: RoomInfoNotification,
+    isOwner: boolean,
+  ) {
+    const myUserId = this.connection!.userId!;
+    const me = roomData.players.find(([id]) => id === myUserId) ?? null;
+    const opponent =
+      roomData.players.find(([id]) => id !== myUserId) ?? null;
+    const container = document.getElementById("online-top-container");
+    if (!container) return;
+    if (this.rmLeaving) return; // 退出処理中の遅延通知は無視
+
+    const panelExists = !!document.getElementById("ol-rm-confirm");
+
+    // 確認中に相手が退出した → 自動で再マッチング
+    if (panelExists && !this.rmStarting && roomData.players.length < 2) {
+      this.requeueRandomMatch(
+        roomData.roomId,
+        "相手がマッチングを辞退しました。再度相手を探します…",
+      );
+      return;
+    }
+
+    if (!panelExists) {
+      // ── 初回描画: 確認状態を初期化 ──
+      this.rmConfirmed = false;
+      this.rmStarting = false;
+      this.rmLeaving = false;
+      this.applyLobbyBgm();
+      showToast("ONLINE", "⚔ 対戦相手が見つかりました！", ToastColor["Success"]);
+      // 対戦開始通知が来たらタイマーを確実に止める（開始処理自体は gameController 側が行う）
+      this.rmStartNotifId = this.connection!.onStartMatchNotification(() => {
+        this.rmStarting = true;
+        this.clearRmConfirmTimer();
+        if (this.rmStartNotifId) {
+          this.connection?.removeReaderFunction(this.rmStartNotifId);
+          this.rmStartNotifId = null;
+        }
+      });
+      container.replaceChildren(
+        <>
+          <div class="online-header">
+            <button class="btn btn-secondary" disabled>
+              ◀ BACK
+            </button>
+            <h1>🌐 ONLINE</h1>
+            <button class="btn btn-settings" disabled>
+              ⚙ SETTINGS
+            </button>
+          </div>
+          <div class="ol-rm-confirm" id="ol-rm-confirm">
+            <div class="ol-vs-row">
+              <div class="ol-vs-player ol-vs-player-self" id="ol-rm-self-card">
+                <span class="ol-vs-player-name">{me ? me[1] : this.userName}</span>
+                <span class="online-room-tag online-room-tag-enabled">
+                  {me && me[2] === "puyo" ? "PUYO" : "TET"}
+                </span>
+                <span class="ol-vs-player-state" id="ol-rm-self-state">確認中…</span>
+              </div>
+              <div class="ol-vs-badge">VS</div>
+              <div class="ol-vs-player ol-vs-player-opp" id="ol-rm-opp-card">
+                <span class="ol-vs-player-name" id="ol-rm-opp-name">???</span>
+                <span
+                  id="ol-rm-opp-rule"
+                  class="online-room-tag online-room-tag-enabled"
+                ></span>
+                <span class="ol-vs-player-state" id="ol-rm-opp-state">確認中…</span>
+              </div>
+            </div>
+            <div id="ol-rm-status" class="ol-rm-status"></div>
+            <div class="ol-rm-actions">
+              <button
+                class="btn btn-danger"
+                onclick={() => this.declineRandomMatch(roomData.roomId)}
+              >
+                辞退する
+              </button>
+              <button
+                class="btn btn-primary"
+                id="ol-rm-ok"
+                onclick={() => this.confirmRandomMatch(roomData.roomId, isOwner)}
+              >
+                OK！対戦する
+              </button>
+            </div>
+          </div>
+        </>,
+      );
+      // ★ 表示上のカウントダウンは出さない（ユーザー指定）。ただし相手がタブを閉じた等で
+      //   応答が返らないまま片側が永久に固まらないよう、無表示の安全網だけ残す。
+      this.rmConfirmTimer = setTimeout(() => {
+        if (this.rmStarting) return;
+        this.requeueRandomMatch(
+          roomData.roomId,
+          this.rmConfirmed
+            ? "相手の確認がありませんでした。再度相手を探します…"
+            : "時間切れです。再度相手を探します…",
+        );
+      }, OnlineMode.RM_CONFIRM_TIMEOUT_MS);
+    }
+
+    // 相手情報は通知のたびに更新（在室中の名前・ルール変更に追従）
+    const nameEl = document.getElementById("ol-rm-opp-name");
+    if (nameEl) nameEl.textContent = opponent ? opponent[1] : "???";
+    const ruleEl = document.getElementById("ol-rm-opp-rule");
+    if (ruleEl) {
+      ruleEl.textContent = opponent
+        ? opponent[2] === "puyo"
+          ? "PUYO"
+          : "TET"
+        : "";
+    }
+
+    // ── READY状態の反映（S3④） ──
+    // 自分のバッジは rmConfirmed（楽観表示）ではなく、サーバーの readyPlayers を真とする
+    // （setReady 送信に失敗した場合に「押した」表示のまま嘘をつかないため）。
+    const readySet = new Set(roomData.readyPlayers ?? []);
+    const meReady = me ? readySet.has(me[0]) : false;
+    const oppReady = opponent ? readySet.has(opponent[0]) : false;
+    const selfCard = document.getElementById("ol-rm-self-card");
+    const selfState = document.getElementById("ol-rm-self-state");
+    if (selfCard) selfCard.classList.toggle("is-ready", meReady);
+    if (selfState) selfState.textContent = meReady ? "READY ✓" : "確認中…";
+    const oppCard = document.getElementById("ol-rm-opp-card");
+    const oppState = document.getElementById("ol-rm-opp-state");
+    if (oppCard) oppCard.classList.toggle("is-ready", oppReady);
+    if (oppState) oppState.textContent = opponent ? (oppReady ? "READY ✓" : "確認中…") : "";
+
+    const status = document.getElementById("ol-rm-status");
+    if (status && !this.rmStarting) {
+      status.textContent = meReady && oppReady
+        ? "開始します…"
+        : meReady
+          ? "相手の確認を待っています…"
+          : "OKを押すと対戦を開始します";
+    }
+    syncOnlineTopFocus();
+  }
+
+  /** 確認パネルのOKボタン。非オーナー=READY送信、オーナー=開始許可を立てて条件チェック */
+  private async confirmRandomMatch(roomId: Uuid, isOwner: boolean) {
+    if (this.rmConfirmed || this.rmStarting) return;
+    this.rmConfirmed = true;
+    const okBtn = document.getElementById("ol-rm-ok") as HTMLButtonElement | null;
+    if (okBtn) okBtn.disabled = true;
+    const status = document.getElementById("ol-rm-status");
+    if (status) status.textContent = "相手の確認を待っています…";
+
+    // ★ OK（対戦開始の承認）の直後にロード画面。読み終えてから READY / 開始要求を送る。
+    //   確認パネルのタイムアウトはロード中に走らせない（辞退扱いにしないため）。
+    this.clearRmConfirmTimer();
+    if (this.rmLatestRoom) await this.preloadForMatch(this.rmLatestRoom);
+    if (this.rmLeaving) { hideLoadingOverlay(true); return; } // ロード中に辞退/相手退出
+
+    // ★ 承認後もキャンセルできるようにする（S3⑤）。押すと READY を解除して確認パネルへ戻る。
+    setLoadingCancel({
+      label: "キャンセル",
+      onCancel: () => {
+        this.connection!.setReady({ roomId, ready: false }).catch(() => { });
+        this.rmConfirmed = false;
+        if (okBtn) okBtn.disabled = false;
+        hideLoadingOverlay(true);
+        // プリロード開始時に一度止めた安全網タイマーを張り直す
+        this.rmConfirmTimer = setTimeout(() => {
+          if (this.rmStarting) return;
+          this.requeueRandomMatch(
+            roomId,
+            this.rmConfirmed
+              ? "相手の確認がありませんでした。再度相手を探します…"
+              : "時間切れです。再度相手を探します…",
+          );
+        }, OnlineMode.RM_CONFIRM_TIMEOUT_MS);
+      },
+    });
+
+    // ★ オーナーも setReady(true) を送る（サーバーの start_match 判定は「オーナー以外の
+    //   全員READY」なのでオーナーのREADYは開始条件に影響しない＝確認パネルの表示目的だけに使える）。
+    //   非オーナーからオーナーのOKが見えるようにするための送信（S3④）。
+    this.connection!
+      .setReady({ roomId, ready: true })
+      .then((r) => this.notifyIfFailed(r, "準備完了の送信"))
+      .catch(() => { });
+    if (isOwner) {
+      // 相手のREADYが先に届いているケースがあるので、通知を待たずここでも開始条件を見る
+      this.tryRmStart();
+    }
+  }
+
+  /** オーナー側: 自分がOK済み かつ 非オーナー全員READY なら対戦開始要求を送る */
+  private tryRmStart() {
+    const rd = this.rmLatestRoom;
+    if (
+      !rd ||
+      !this.isRandomMatchRoom ||
+      this.rmStarting ||
+      this.rmLeaving ||
+      !this.rmConfirmed
+    )
+      return;
+    const myUserId = this.connection?.userId;
+    if (!myUserId || rd.ownerId !== myUserId) return;
+    const readySet = new Set(rd.readyPlayers ?? []);
+    const nonOwners = rd.players.filter(([id]) => id !== rd.ownerId);
+    if (rd.players.length < 2 || !nonOwners.every(([id]) => readySet.has(id)))
+      return;
+    this.rmStarting = true;
+    const status = document.getElementById("ol-rm-status");
+    if (status) status.textContent = "対戦を開始します…";
+    this.connection!
+      .startMatch({ roomId: rd.roomId })
+      .then((r) => {
+        if (!r.success) {
+          this.rmStarting = false;
+          this.notifyIfFailed(r, "対戦開始");
+        }
+      })
+      .catch(() => {
+        this.rmStarting = false;
+      });
+  }
+
+  /** 確認パネルの「辞退する」。ルームを抜けてロビーへ戻る */
+  private async declineRandomMatch(roomId: Uuid) {
+    if (this.rmStarting || this.rmLeaving) return;
+    this.rmLeaving = true;
+    this.clearRmConfirm();
+    hideLoadingOverlay(true);
+    try {
+      await this.connection!.leaveRoom({ roomId });
+    } catch { }
+    this.currentRoom = null;
+    showToast("ONLINE", "マッチングを辞退しました。", ToastColor["Info"]);
+    // state setter (InRoom→RoomList) が gameController / isRandomMatchRoom を後始末する
+    // ランダムマッチのキャンセル系操作と同様、直前までロビー由来のフローに居たため登場アニメは再生しない
+    this.onlineTopPage(true);
+  }
+
+  /** 確認のタイムアウト・相手退出時: ルームを抜けて同じルールで自動再マッチング */
+  private async requeueRandomMatch(roomId: Uuid, message: string) {
+    if (this.rmLeaving) return;
+    this.rmLeaving = true;
+    this.clearRmConfirm();
+    hideLoadingOverlay(true);
+    showToast("ONLINE", message, ToastColor["Info"]);
+    try {
+      await this.connection!.leaveRoom({ roomId });
+    } catch { }
+    this.currentRoom = null;
+    try {
+      this.gameController?.cleanup();
+    } catch { }
+    this.gameController = null;
+    this.isRandomMatchRoom = false;
+    await this.startRandomMatch(true);
+  }
+
+  private clearRmConfirmTimer() {
+    if (this.rmConfirmTimer !== null) {
+      clearTimeout(this.rmConfirmTimer);
+      this.rmConfirmTimer = null;
+    }
+  }
+
+  /** 確認パネル関連の状態・リスナー・タイマーを全て破棄する */
+  private clearRmConfirm() {
+    this.clearRmConfirmTimer();
+    if (this.rmStartNotifId) {
+      this.connection?.removeReaderFunction(this.rmStartNotifId);
+      this.rmStartNotifId = null;
+    }
+    this.rmConfirmed = false;
+    this.rmLatestRoom = null;
   }
 
   /** 6桁コードでルームに参加する */
@@ -1396,10 +1950,13 @@ class OnlineMode {
   /**
    * オンラインのルーム一覧の画面
    */
-  private async onlineTopPage() {
+  /** skipEnterAnim: 10秒毎の自動更新からの再描画時のみ true にする
+   *  （毎回アニメすると一覧が定期的に再登場する新規バグになるため）。 */
+  private async onlineTopPage(skipEnterAnim = false) {
     this.state = OnlineModeState.RoomList;
+    this.applyLobbyBgm();
 
-    const { rooms } = await this.connection!.getRooms();
+    const { rooms, onlineCount, inMatchCount } = await this.connection!.getRooms();
     this.logger.log("Received rooms from server:", rooms);
 
     // 直後に state が変わっていたら描画しない（自動更新とページ遷移の競合防止）
@@ -1413,11 +1970,14 @@ class OnlineMode {
     if (!onlineTopContainer) {
       throw new Error("Failed to find online top container element");
     }
+    // 10秒毎の自動更新でも同じ項目へフォーカスを戻せるよう、作り直す前に記録しておく。
+    const focusKeyBeforeRebuild = skipEnterAnim ? focusNav()?.currentFocusKey?.() ?? null : null;
     onlineTopContainer.replaceChildren(
       <>
         <div class="online-header">
           <button
             class="btn btn-secondary"
+            data-focus-key="lobby-back"
             onclick={this.backToMainMenu.bind(this)}
           >
             ◀ BACK
@@ -1425,11 +1985,17 @@ class OnlineMode {
           <h1>🌐 ONLINE</h1>
           <button
             class="btn btn-settings"
+            data-focus-key="lobby-settings"
             onclick={this.settingsModal.bind(this)}
           >
             ⚙ SETTINGS
           </button>
         </div>
+        {onlineCount !== undefined && (
+          <div class="online-count-badge">
+            ● {onlineCount} ONLINE{inMatchCount ? `  ·  ${inMatchCount} IN MATCH` : ""}
+          </div>
+        )}
         <div class="online-top-content online-list-layout">
           {/* 上段: [ルーム一覧 + 更新] ... [ルーム作成] */}
           <div class="online-list-header">
@@ -1437,13 +2003,15 @@ class OnlineMode {
               <h2 style={{ margin: "0" }}>ルーム一覧</h2>
               <button
                 class="btn btn-secondary"
-                onclick={() => this.onlineTopPage()}
+                data-focus-key="lobby-refresh"
+                onclick={() => this.onlineTopPage(true)}
               >
                 🔄 更新
               </button>
             </div>
             <button
               class="btn btn-save"
+              data-focus-key="lobby-create"
               onclick={this.createRoomPage.bind(this)}
             >
               ＋ ルーム作成
@@ -1456,6 +2024,7 @@ class OnlineMode {
               rooms.map((room) => (
                 <div
                   class="online-room"
+                  data-room-id={room.id}
                   onclick={() => this.joinRoom(room.id, true)}
                 >
                   <div class="online-room-main">
@@ -1487,12 +2056,14 @@ class OnlineMode {
           <div class="online-list-footer">
             <button
               class="btn btn-primary"
-              onclick={this.startRandomMatch.bind(this)}
+              data-focus-key="lobby-random"
+              onclick={() => this.startRandomMatch()}
             >
               🎲 ランダムマッチ
             </button>
             <button
               class="btn btn-primary"
+              data-focus-key="lobby-code"
               onclick={this.joinRoomByCode.bind(this)}
             >
               🔢 コードで参加
@@ -1502,40 +2073,69 @@ class OnlineMode {
       </>,
     );
 
+    if (!skipEnterAnim) {
+      applyEnterAnimation([
+        onlineTopContainer.querySelector(".online-header"),
+        onlineTopContainer.querySelector(".online-list-header"),
+        document.getElementById("online-rooms-container"),
+        onlineTopContainer.querySelector(".online-list-footer"),
+      ]);
+    }
+    syncOnlineTopFocus(focusKeyBeforeRebuild);
+
     // 一覧表示中は10秒ごとに自動更新する。
     // ルームに入っている間は絶対に発火させない（一覧が一瞬表示される不具合の防止）。
     this.stopRoomListAutoRefresh();
     this.roomListRefreshId = window.setInterval(() => {
       const battleActive = document
-        .getElementById("online-battle-page")
+        .getElementById("versus-page")
         ?.classList.contains("active");
       if (this.state === OnlineModeState.RoomList && !battleActive) {
-        this.onlineTopPage();
+        this.onlineTopPage(true);
       } else {
         this.stopRoomListAutoRefresh();
       }
     }, 10000);
   }
 
+  /** 保存済みユーザー名をサーバーへ反映する。在室中はルーム全員の表示、
+   * ランダムマッチ待機中は待機列エントリが更新される（未接続時は何もしない） */
+  private pushNameToServer() {
+    if (
+      !this.connection ||
+      (this.state !== OnlineModeState.RoomList &&
+        this.state !== OnlineModeState.InRoom)
+    )
+      return;
+    const roomId =
+      this.state === OnlineModeState.InRoom && this.currentRoom
+        ? this.currentRoom.roomId
+        : null;
+    this.connection
+      .updatePlayerName({ roomId, username: this.userName })
+      .then((r) => this.notifyIfFailed(r, "名前の変更"))
+      .catch(() => { });
+  }
+
   private async settingsModal() {
+    const selfSide = getOnlineSelfSide();
+    const applySelfSide = (side: OnlineSelfSide) => {
+      setOnlineSelfSide(side);
+      document.querySelectorAll<HTMLButtonElement>(".online-side-btn").forEach((button) => {
+        button.classList.toggle("active", button.dataset.side === side);
+      });
+    };
     const modalContent = (
-      <div
-        style={{
-          backgroundColor: "#000",
-          padding: "20px",
-          borderRadius: "8px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "10px",
-          minWidth: "300px",
-          color: "#fff",
-        }}
-      >
-        <h2>Settings</h2>
-        <div>
+      <div class="online-settings-modal">
+        <div class="online-settings-heading">
+          <span class="online-settings-kicker">ONLINE</span>
+          <h2>SETTINGS</h2>
+        </div>
+        <div class="online-settings-section">
+          <div class="online-settings-label">USER NAME</div>
           <label>
-            ユーザー名:
             <input
+              class="settings-online-input"
               id="online-mode-username-input"
               type="text"
               value={this.userName}
@@ -1553,7 +2153,19 @@ class OnlineMode {
                 );
                 return;
               }
-              localStorage.setItem("tetlaboUserName", input.value);
+              const newName = input.value.trim();
+              if (!newName || [...newName].length > 16) {
+                showToast(
+                  "ONLINE",
+                  "名前は1〜16文字で入力してください。",
+                  ToastColor["Warning"],
+                );
+                return;
+              }
+              localStorage.setItem("tetlaboUserName", newName);
+              this.userName = newName;
+              // 在室・待機列中ならサーバー側の表示名も即時更新する
+              this.pushNameToServer();
               showToast(
                 "ONLINE",
                 "ユーザー名を保存しました！",
@@ -1561,8 +2173,32 @@ class OnlineMode {
               );
             }}
           >
-            Save
+            SAVE
           </button>
+        </div>
+        <div class="online-settings-section">
+          <div class="online-settings-label">YOUR FIELD POSITION</div>
+          <div class="online-settings-help">
+            この設定は自分の画面にのみ反映されます。相手の表示には影響しません。
+          </div>
+          <div class="online-side-segment">
+            <button
+              id="online-side-left-btn"
+              class={"online-side-btn" + (selfSide === "left" ? " active" : "")}
+              data-side="left"
+              onclick={() => applySelfSide("left")}
+            >
+              LEFT
+            </button>
+            <button
+              id="online-side-right-btn"
+              class={"online-side-btn" + (selfSide === "right" ? " active" : "")}
+              data-side="right"
+              onclick={() => applySelfSide("right")}
+            >
+              RIGHT
+            </button>
+          </div>
         </div>
         <div style="display: none;">
           <hr />
@@ -1592,7 +2228,7 @@ class OnlineMode {
               Modal.hideModal();
             }}
           >
-            Close
+            CLOSE
           </button>
         </div>
       </div>
@@ -1600,109 +2236,219 @@ class OnlineMode {
     Modal.showModal(modalContent);
   }
 
-  public async init() {
-    {
-      this.state = OnlineModeState.Connecting;
+  /** 接続中UI（.ol-connect-card）のステップ定義。順番どおりに埋まっていく。 */
+  private static readonly CONNECT_STEPS: Array<{
+    key: "signaling" | "peer" | "datachannel" | "clock";
+    label: string;
+  }> = [
+    { key: "signaling", label: "サーバーへ接続" },
+    { key: "peer", label: "通信経路を確立" },
+    { key: "datachannel", label: "データチャネル確立" },
+    { key: "clock", label: "時刻同期" },
+  ];
 
-      const onlineTopContainer = document.getElementById(
-        "online-top-container",
-      ) as HTMLDivElement | null;
-      if (!onlineTopContainer) {
-        throw new Error("Failed to find online top container element");
-      }
+  /** 現在の接続試行を取り消すためのフラグ（cancel/retry のたびに張り直す） */
+  private connectCancelled = false;
 
-      onlineTopContainer.replaceChildren(
-        <>
-          <div class="online-header">
-            <button class="btn btn-secondary" disabled>
-              ◀ BACK
-            </button>
-            <h1>🌐 ONLINE</h1>
-            <button class="btn btn-settings" disabled>
-              ⚙ SETTINGS
-            </button>
+  /** 接続中カードのステップ表示を更新する（done件数だけ渡す。0..4） */
+  private renderConnectSteps(doneCount: number): void {
+    const wrap = document.getElementById("ol-connect-steps");
+    if (!wrap) return;
+    wrap.replaceChildren(
+      ...OnlineMode.CONNECT_STEPS.map((step, i) => {
+        const done = i < doneCount;
+        const active = i === doneCount;
+        return (
+          <div class={`ol-connect-step${done ? " is-done" : ""}${active ? " is-active" : ""}`}>
+            <span class="ol-connect-step-mark">{done ? "✓" : active ? "" : "○"}</span>
+            <span>{step.label}</span>
+            {active && (
+              <span class="ol-connect-step-dots"><span></span><span></span><span></span></span>
+            )}
           </div>
-          <div class="online-top-content">
-            <div>CONNECTING...</div>
-          </div>
-        </>,
-      );
-
-      const tetlaboServerUrl =
-        `ws${isSecureProtocol ? "s" : ""}://` + (localStorage.getItem("tetlaboServerUrl") || "example.com") + "/ws";
-
-      const pages = document.querySelectorAll(".page");
-      pages.forEach((p) => p.classList.remove("active"));
-
-      const onlinePage = document.getElementById("online-top-page");
-      if (onlinePage) onlinePage.classList.add("active");
-
-      let connection: GameConnection | null = null;
-
-      let errorOccurred = false;
-
-      try {
-        connection = new GameConnection(
-          tetlaboServerUrl,
-          async () => {
-            if (!errorOccurred) {
-              await Modal.alert("オンラインサーバーとの接続が切断されました。");
-              this.logger.warn(
-                "Connection to the online server has been closed.",
-              );
-              this.backToMainMenu();
-            } else {
-              this.logger.warn(
-                "Connection closed during initialization, not showing alert.",
-              );
-            }
-          },
-          {
-            // 瞬断時: ICE restart で復旧を試みている間の表示
-            onReconnecting: () => {
-              showToast(
-                "再接続中…",
-                "通信が不安定です。接続の復旧を試みています。",
-                ToastColor.Warning,
-              );
-            },
-            onReconnected: () => {
-              showToast(
-                "再接続しました",
-                "接続が回復しました。",
-                ToastColor.Success,
-              );
-            },
-          },
         );
-        if (!connection) {
-          throw new Error("Failed to create GameConnection");
-        }
-        await connection.ready();
-        this.connection = connection;
-        (window as any)._olConn = connection; // E2Eテスト用フック（再接続検証など）
-
-        console.log(await connection.sendBinaryPing());
-        console.log(await connection.sendJsonPing());
-
-        // サーバーとの時刻オフセットを確定（開始同期・マージン公平性の基盤）
-        try {
-          await connection.syncClock();
-        } catch (e) {
-          this.logger.warn("Clock sync failed (continuing with offset=0):", e);
-        }
-
-        this.onlineTopPage();
-
-        this.logger.info("Successfully connected to the online server.");
-      } catch (e) {
-        errorOccurred = true;
-        this.logger.error("Failed to connect to the online server:", e);
-        await Modal.alert(`オンラインサーバーに接続できませんでした。\n\n${e}`);
-
-        this.backToMainMenu();
-      }
+      }),
+    );
+    const bar = document.getElementById("ol-connect-bar-fill");
+    if (bar) {
+      bar.style.transform = `scaleX(${doneCount / OnlineMode.CONNECT_STEPS.length})`;
     }
+  }
+
+  /** 接続に失敗したときの表示へ切り替える（再試行 / メインメニューへ戻る の2ボタン） */
+  private renderConnectError(message: string): void {
+    const card = document.getElementById("ol-connect-card");
+    if (!card) return;
+    card.replaceChildren(
+      <>
+        <div class="ol-connect-error">接続できませんでした<br />{message}</div>
+        <div class="ol-connect-actions">
+          <button class="btn btn-secondary" onclick={() => this.backToMainMenu()}>
+            メインメニューへ戻る
+          </button>
+          <button class="btn btn-primary" onclick={() => this.attemptConnect()}>
+            再試行
+          </button>
+        </div>
+      </>,
+    );
+    syncOnlineTopFocus();
+  }
+
+  /** 接続中カードのDOMを（初回・再試行とも）出す */
+  private renderConnectingUI(): void {
+    const onlineTopContainer = document.getElementById(
+      "online-top-container",
+    ) as HTMLDivElement | null;
+    if (!onlineTopContainer) {
+      throw new Error("Failed to find online top container element");
+    }
+    onlineTopContainer.replaceChildren(
+      <>
+        <div class="online-header">
+          <button
+            class="btn btn-secondary"
+            onclick={() => {
+              this.connectCancelled = true;
+              try { this.connection?.close(); } catch { }
+              this.backToMainMenu();
+            }}
+          >
+            ◀ キャンセル
+          </button>
+          <h1>🌐 ONLINE</h1>
+          <button class="btn btn-settings" disabled>
+            ⚙ SETTINGS
+          </button>
+        </div>
+        <div class="ol-connect-card" id="ol-connect-card">
+          <div class="ol-connect-steps" id="ol-connect-steps"></div>
+          <div class="ol-connect-bar">
+            <div class="ol-connect-bar-fill" id="ol-connect-bar-fill"></div>
+          </div>
+        </div>
+      </>,
+    );
+    this.renderConnectSteps(0);
+    syncOnlineTopFocus();
+  }
+
+  /** サーバーへの初回接続を試みる。init() からと、失敗時の「再試行」ボタンから呼ばれる。 */
+  private async attemptConnect(): Promise<void> {
+    this.state = OnlineModeState.Connecting;
+    this.connectCancelled = false;
+    this.renderConnectingUI();
+
+    const pages = document.querySelectorAll(".page");
+    pages.forEach((p) => p.classList.remove("active"));
+    const onlinePage = document.getElementById("online-top-page");
+    if (onlinePage) onlinePage.classList.add("active");
+    syncOnlineTopFocus();
+
+    const tetlaboServerUrl =
+      `ws${isSecureProtocol ? "s" : ""}://` + (localStorage.getItem("tetlaboServerUrl") || "example.com") + "/ws";
+
+    let connection: GameConnection | null = null;
+    // ★ ready() が解決する（＝データチャネル確立）まで true にしない。
+    //   旧実装は「catch側で errorOccurred=true を立てる」非同期フラグに頼っており、
+    //   初回接続中に WebSocket が閉じたとき、ws.onclose起点のこのコールバックが
+    //   catch より先に走る競合で「接続失敗」なのに Modal.alert＋即メインメニュー行きに
+    //   化けることがあった（新設の再試行UIが一瞬も見えない）。
+    //   ready() が成功して初めて立つこのフラグなら競合しない。
+    let connectionEstablished = false;
+
+    try {
+      connection = new GameConnection(
+        tetlaboServerUrl,
+        async () => {
+          if (this.connectCancelled) return;
+          if (connectionEstablished) {
+            // S4③: 対戦中に自分の再接続が尽きた場合は、相手切断時の強制LEAVEと同じ経路
+            // （Modal + leaveRoom + ロビーへ）に寄せる。backToMainMenu だと戻り先が重い。
+            if (this.gameController?.isBattleActive) {
+              this.logger.warn(
+                "Connection to the online server has been closed during a battle.",
+              );
+              this.gameController.forceLeaveDueToSelfDisconnect();
+              return;
+            }
+            await Modal.alert("オンラインサーバーとの接続が切断されました。");
+            this.logger.warn(
+              "Connection to the online server has been closed.",
+            );
+            this.backToMainMenu();
+          } else {
+            // 初回接続中の切断は connection.ready() 側が reject するので、
+            // その catch (renderConnectError) に UI を任せる。ここでは何もしない。
+            this.logger.warn(
+              "Connection closed during initialization, not showing alert.",
+            );
+          }
+        },
+        {
+          // 瞬断時: ICE restart で復旧を試みている間の表示
+          onReconnecting: () => {
+            showToast(
+              "再接続中…",
+              "通信が不安定です。接続の復旧を試みています。",
+              ToastColor.Warning,
+            );
+            // S4③: 対戦中はトーストだけでは気づけないため、自分の盤面にも切断UIを出す。
+            this.gameController?.showSelfDisconnected();
+          },
+          onReconnected: () => {
+            showToast(
+              "再接続しました",
+              "接続が回復しました。",
+              ToastColor.Success,
+            );
+            this.gameController?.hideSelfDisconnected();
+          },
+          onProgress: (stage) => {
+            if (this.connectCancelled) return;
+            const idx = OnlineMode.CONNECT_STEPS.findIndex((s) => s.key === stage);
+            if (idx >= 0) this.renderConnectSteps(idx + 1);
+          },
+        },
+      );
+      if (!connection) {
+        throw new Error("Failed to create GameConnection");
+      }
+      await connection.ready();
+      if (this.connectCancelled) return;
+      connectionEstablished = true;
+      this.connection = connection;
+      (window as any)._olConn = connection; // E2Eテスト用フック（再接続検証など）
+
+      console.log(await connection.sendBinaryPing());
+      console.log(await connection.sendJsonPing());
+
+      // サーバーとの時刻オフセットを確定（開始同期・マージン公平性の基盤）
+      try {
+        await connection.syncClock();
+      } catch (e) {
+        this.logger.warn("Clock sync failed (continuing with offset=0):", e);
+      }
+      if (this.connectCancelled) return;
+      this.renderConnectSteps(OnlineMode.CONNECT_STEPS.length);
+
+      this.onlineTopPage();
+
+      this.logger.info("Successfully connected to the online server.");
+    } catch (e) {
+      if (this.connectCancelled) return;
+      this.logger.error("Failed to connect to the online server:", e);
+      // ready() が失敗した場合 this.connection は未セットのため、
+      // 半開きの PeerConnection/WebSocket をここで明示的に解放する。
+      try {
+        connection?.close();
+      } catch { }
+      this.renderConnectError(`${e}`);
+    }
+  }
+
+  public async init() {
+    await this.attemptConnect();
   }
 }
 

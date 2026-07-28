@@ -1,0 +1,111 @@
+/* ─────────────────────────────────────────────
+   ポーズオーバーレイ
+───────────────────────────────────────────── */
+#pause-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: var(--overlay-scrim);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+#pause-overlay.active {
+  display: flex;
+}
+
+#pause-modal {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 56px;
+  text-align: center;
+  box-shadow: 0 0 48px rgba(196, 113, 245, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+#pause-title {
+  font-family: "Orbitron", monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+#pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.pause-btn {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  padding: 14px 40px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition:
+    opacity 0.2s,
+    transform 0.1s;
+  width: 100%;
+}
+.pause-btn:hover,
+.pause-btn.is-focused {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+.pause-btn:active {
+  transform: translateY(0);
+}
+
+.btn-resume {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff;
+}
+.btn-settings {
+  background: rgba(196, 113, 245, 0.15);
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+.btn-settings:hover,
+.btn-settings.is-focused {
+  background: rgba(196, 113, 245, 0.28);
+}
+.btn-restart {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.btn-restart:hover,
+.btn-restart.is-focused {
+  border-color: var(--accent3);
+  color: var(--accent3);
+  opacity: 1;
+}
+.btn-mainmenu {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+.btn-mainmenu:hover,
+.btn-mainmenu.is-focused {
+  border-color: var(--text-dim);
+  color: var(--text);
+  opacity: 1;
+}
+

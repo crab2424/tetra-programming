@@ -77,65 +77,9 @@ function setCpuLevel(lv) {
   if (descEl) descEl.textContent = CPU_LEVELS[lv].desc;
 }
 
-function _switchToVersusPuyoLayout(isPuyo) {
-    const tetCanvases = [
-        'player-main-canvas', 'player-next-canvas', 'player-hold-canvas',
-        'cpu-main-canvas', 'cpu-next-canvas', 'cpu-hold-canvas'
-    ];
-    const puyoCanvases = [
-        'player-puyo-main-canvas', 'player-puyo-next-canvas',
-        'cpu-puyo-main-canvas', 'cpu-puyo-next-canvas'
-    ];
-
-    tetCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isPuyo ? 'none' : '';
-    });
-    puyoCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isPuyo ? '' : 'none';
-    });
-
-    document.querySelectorAll('.versus-label-hold, .versus-label-hold-cpu').forEach(el => {
-        el.style.display = isPuyo ? 'none' : '';
-    });
-}
-
+// レイアウト切替の実体は src/battle/layout.ts（CPU戦・オンライン戦共通の唯一の編集場所）
 function _switchToVersusMixedLayout(playerRule, cpuRule) {
-    const isPlayerPuyo = playerRule === 'puyo';
-    const isCpuPuyo = cpuRule === 'puyo';
-
-    // Player側のキャンバス切り替え
-    const playerTetCanvases = ['player-main-canvas', 'player-next-canvas', 'player-hold-canvas'];
-    const playerPuyoCanvases = ['player-puyo-main-canvas', 'player-puyo-next-canvas'];
-
-    playerTetCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isPlayerPuyo ? 'none' : '';
-    });
-    playerPuyoCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isPlayerPuyo ? '' : 'none';
-    });
-    document.querySelectorAll('.versus-label-hold').forEach(el => {
-        el.style.display = isPlayerPuyo ? 'none' : '';
-    });
-
-    // CPU側のキャンバス切り替え
-    const cpuTetCanvases = ['cpu-main-canvas', 'cpu-next-canvas', 'cpu-hold-canvas'];
-    const cpuPuyoCanvases = ['cpu-puyo-main-canvas', 'cpu-puyo-next-canvas'];
-
-    cpuTetCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isCpuPuyo ? 'none' : '';
-    });
-    cpuPuyoCanvases.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = isCpuPuyo ? '' : 'none';
-    });
-    document.querySelectorAll('.versus-label-hold-cpu').forEach(el => {
-        el.style.display = isCpuPuyo ? 'none' : '';
-    });
+    window.BattleLayout.applyVersusLayout(playerRule, cpuRule);
 }
 
 function createSeededRandom(seed) {
@@ -148,8 +92,21 @@ function createSeededRandom(seed) {
     }
 }
 
+// 終了演出中（versusGameOver〜リザルト表示）か。旧 window._versusFinishing の置き換えで、
+// 状態の実体は BattleLifecycle(src/battle/lifecycle.ts) が一元管理する
+function _versusFinishingNow() {
+  const p = window.BattleVersusLifecycle.phase;
+  return p === 'roundResolving' || p === 'roundResult';
+}
+
 async function startVersusGame() {
-  window._versusFinishing = false; // ★ finish演出中フラグをリセット
+  // 開始/再スタートの状態遷移（リトライはどこからでも idle を経由して開始できる）
+  const lc = window.BattleVersusLifecycle;
+  lc.transition('idle', 'startVersusGame');
+  lc.transition('preparing', 'startVersusGame');
+  lc.beginRound();
+  lc.transition('countdown', 'startVersusGame');
+  lc.transition('playing', 'startVersusGame'); // カウントダウンはエンジン内で行うため即 playing 扱い
   stopAllGames(); // 開始前に完全に状態をリセット
   const sessionId = currentSessionId; // カウントダウン後にセッションが有効か確認するために保持
 
@@ -207,6 +164,7 @@ async function startVersusGame() {
   window._cpuGame.statsPrefix = 'cpu';
   window._cpuGame.isCpuControlled = true;
   window._cpuGame._labelsInitialized = false;
+  if (isCpuPuyo) window._cpuGame.suppressBlink = true; // ★ 操作不可のCPU側盤面はPUYO点滅を止める
 
   // ─── VS設定をエンジンへ注入 ───
   if (typeof applyVsSettings === 'function') {
@@ -247,18 +205,10 @@ async function startVersusGame() {
 
 
   // ★ カウントダウンの開始と同時に非同期でCPUのスクリプト読み込みを開始し、インスタンス化まで済ませる
-  let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, versusCpuRule).then(CPUClass => {
-    if (CPUClass && currentSessionId === sessionId) {
-        if (window._cpuController && typeof window._cpuController.stop === 'function') {
-            window._cpuController.stop();
-        }
-        window._cpuController = new CPUClass(window._cpuGame);
-    }
-    return CPUClass;
-  }).catch(e => {
-    console.warn("CPUスクリプトの読み込みに失敗しました。自由落下になります。");
-    return null;
-  });
+  // （実体は src/battle/driver.ts の loadLocalCpu。挙動は変えていない）
+  let cpuLoadPromise = window.BattleDriver.loadLocalCpu(
+    window._cpuGame, selectedCpuLevel, versusCpuRule, () => currentSessionId !== sessionId,
+  );
 
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
     if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
@@ -277,7 +227,7 @@ async function startVersusGame() {
     if (window._cpuController && typeof window._cpuController.start === 'function' && currentSessionId === sessionId) {
         window._cpuController.start();
     }
-  }, null);
+  }, null, undefined, true); // silent: player側と同時に鳴るSEの二重再生を防ぐ
 
   setupVersusPauseKey();
 }
@@ -296,7 +246,7 @@ function setupVersusPauseKey() {
       if (e.repeat) return;
       e.preventDefault();
       // finish演出中はリスタートを受け付けない
-      if (window._versusFinishing) return;
+      if (_versusFinishingNow()) return;
       restartVersus();
       return;
     }
@@ -318,7 +268,7 @@ function toggleVersusPause() {
     resumeVersus();
   } else {
     // ★ finish演出中はポーズを受け付けない（startカウントダウン中と同じ扱い）
-    if (window._versusFinishing) return;
+    if (_versusFinishingNow()) return;
 
     // カウントダウン中はポーズを受け付けない（シングルモードと同じ挙動）
     // Tet(Game)は isCountingDown、PuyoGame は state === 'starting' でカウントダウン中を判定する
@@ -361,6 +311,7 @@ function restartVersus() {
 function versusGoToModeSelect() {
   const overlay = document.getElementById('versus-pause-overlay');
   if (overlay) overlay.classList.remove('active');
+  window.BattleVersusLifecycle.transition('idle', 'mode select');
   stopAllGames();
   switchPage('versus-check');
 }
@@ -370,47 +321,27 @@ function restartVersusFromResult() {
 }
 
 function versusGameOver(loser) {
-  // ★ 二重呼び出しガード（同時KO等で2回呼ばれると登場アニメが飛ぶため）
-  if (window._versusFinishing) return;
-  // ★ finish演出中フラグを立てる（ポーズキーを無効にするため）
-  window._versusFinishing = true;
+  // ★ 二重呼び出し（同時KO等で2回呼ばれると登場アニメが飛ぶ）は遷移不成立で弾く。
+  //   roundResolving 中はポーズ/リスタートキーも _versusFinishingNow() で無効になる。
+  if (!window.BattleVersusLifecycle.transition('roundResolving', `versusGameOver(${loser})`)) return;
+  window.BattleVersusLifecycle.recordWinner(loser === 'player' ? 'cpu' : 'player');
 
-  // ★ 修正: ここでも Tet と Puyo を確実に区別する
-  const stopGame = (gameInst, isWinner) => {
+  // ★ 停止処理の実体は src/battle/freeze.ts（window.BattleFreeze）に一本化してある。
+  //   オンライン戦も同じ関数を使う。ぷよは isPaused を停止条件に使わず、stop() の後に
+  //   state='gameover' を代入しないと _loop() が回り続ける、という作法をここで二重管理しない。
+  const stopGame = (gameInst) => {
       if (!gameInst) return;
-      if (gameInst === window._puyoGame || gameInst === window._puyoGamePlayer || gameInst === window._puyoGameCpu) {
-          if (typeof gameInst.stop === 'function') {
-              // ★ 勝者側ぷよは演出中も盤面・NEXTを残すため、_versusFinishingフラグを立ててからstop()する
-              if (isWinner) {
-                  gameInst._versusFinishing = true;
-              }
-              gameInst.stop();
-              gameInst.state = 'gameover';
-          }
-      } else {
-          if (typeof gameInst.gameOver === 'function') { 
-              // tet
-              if (gameInst.timer) clearInterval(gameInst.timer);
-              gameInst.timer = null;
-              if (gameInst.lockTimer) clearTimeout(gameInst.lockTimer);
-              gameInst.lockTimer = null;
-              gameInst.isPaused = true;
-              if (gameInst.isTimerRunning) {
-                  gameInst.elapsedTime += performance.now() - gameInst.startTime;
-                  gameInst.isTimerRunning = false;
-                  if (gameInst.timerReqId) cancelAnimationFrame(gameInst.timerReqId);
-              }
-              if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
-              if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
-              if (gameInst._keyLoop)        clearInterval(gameInst._keyLoop);
-          }
-      }
+      const isPuyo = gameInst === window._puyoGame
+          || gameInst === window._puyoGamePlayer
+          || gameInst === window._puyoGameCpu;
+      // 演出中は勝者/敗者とも盤面・NEXTを残す（keepCanvas）
+      window.BattleFreeze.freezeGameByRule(gameInst, isPuyo ? 'puyo' : 'tet', { keepCanvas: true });
   };
 
-  // loser === 'player' のとき: _game が敗者、_cpuGame が勝者
-  // loser === 'cpu'    のとき: _cpuGame が敗者、_game が勝者
-  stopGame(window._game,    loser === 'cpu');    // loser=cpu なら _game が勝者
-  stopGame(window._cpuGame, loser === 'player'); // loser=player なら _cpuGame が勝者
+  // 勝者・敗者とも同じ手順で止める（旧実装は勝者だけ _versusFinishing を立てていたが、
+  // 敗者側も _beginGameOver で既に立っているため実質同じ。keepCanvas に統一した）
+  stopGame(window._game);
+  stopGame(window._cpuGame);
   
   if (window._cpuController && typeof window._cpuController.stop === 'function') {
       window._cpuController.stop();
@@ -419,13 +350,10 @@ function versusGameOver(loser) {
   const overlay = document.getElementById('versus-pause-overlay');
   if (overlay) overlay.classList.remove('active');
 
-  const playerText  = (loser === 'player') ? 'LOSE...' : 'WIN!';
-  const cpuText     = (loser === 'cpu')    ? 'LOSE...' : 'WIN!';
-  const playerClass = (loser === 'player') ? 'finish-gameover' : 'finish-clear';
-  const cpuClass    = (loser === 'cpu')    ? 'finish-gameover' : 'finish-clear';
-
-  showFinishOverlay('player-finish-overlay', 'player-finish-text', playerText, playerClass, 1400, null);
-  showFinishOverlay('cpu-finish-overlay',    'cpu-finish-text',    cpuText,    cpuClass,    1400, () => {
+  // ★ 文言・クラス・表示時間は src/battle/finish_overlay.ts（window.BattleFinish）に一本化。
+  //   オンライン戦も同じ関数を使うので、ここで文字列を書かない。
+  window.BattleFinish.showFieldFinish('player-', loser === 'player' ? 'lose' : 'win');
+  window.BattleFinish.showFieldFinish('cpu-', loser === 'cpu' ? 'lose' : 'win', () => {
     // ★ リザルトでも versus_bgm を引き継ぐ（停止は main-menu / versus-check へ戻った時のみ）
     const winner = (loser === 'player') ? 'CPU' : 'YOU';
     const titleEl = document.getElementById('versus-result-title');
@@ -485,6 +413,7 @@ function versusGameOver(loser) {
       cpuLinesValEl.textContent = cStat;
     }
 
+    window.BattleVersusLifecycle.transition('roundResult', 'result shown');
     switchPage('versus-result');
   });
 }

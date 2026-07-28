@@ -91,13 +91,18 @@ Object.assign(PuyoGame.prototype, {
         this._stopCountdownDas(); // ★ カウントダウン用DASループが残っていれば止める
         this._removeKeyHandlers();
         this._destroyChainTextEl(); // ★ 連鎖文字の永続要素をDOMから完全に除去（リーク防止）
-        this._clearYokokuDOM(); // ★ おじゃま予告をDOMからクリアする
         // ★ keepCanvas=true または versus終了演出中フラグが立っているとき、
         //    キャンバスをクリアせず描画ループも止めない（勝者側の盤面・NEXTを残すため）
         //    また state も gameover のまま維持し、_loop() の描画継続条件を保つ
         if (!keepCanvas && !this._versusFinishing) {
             this.state = 'idle';
             this._clearCanvases(); // ★ キャンバスをクリア
+            // ★ おじゃま予告のDOMクリアはこの「完全停止」経路でのみ行う。
+            //    決着時の停止（keepCanvas=true／_versusFinishing）では、盤面と同じく
+            //    予告もその瞬間のまま残す＝「予告を受けた状態で力尽きた」画面を保つ。
+            //    次戦は _resetState が garbageQueue を空にし _lastYokokuAmount=-1 で
+            //    必ず再構築するため、持ち越されることはない。
+            this._clearYokokuDOM();
             if (this._loopId) {
                 cancelAnimationFrame(this._loopId);
                 this._loopId = null;
@@ -415,17 +420,42 @@ PuyoGame.preloadImages = function (callback) {
 //    走りカクつきの原因になる。盤面ぷよ画像と同様に、デコード済み Image を一度だけ用意して
 //    PuyoGame._sharedOjamaImages にキャッシュし、表示時は cloneNode で使い回す。
 //    ※ アイコン名は _updateOjamaYokoku の units[].img と一致させること。
+//    callback は7種全ての読み込み（onload/onerror）完了後に呼ばれる。preloadImages と
+//    同じ多重起動防止・完了待ちキュー構造（オンライン戦ロード画面が実際の完了を待てるように）。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PuyoGame.preloadOjamaImages = function () {
-    if (PuyoGame._sharedOjamaImages) return; // 先読み済み
+PuyoGame.preloadOjamaImages = function (callback) {
+    if (PuyoGame._sharedOjamaImagesLoaded) {
+        if (callback) callback();
+        return;
+    }
+    if (PuyoGame._sharedOjamaImagesLoading) {
+        if (callback) PuyoGame._sharedOjamaImagesPending.push(callback);
+        return;
+    }
+    PuyoGame._sharedOjamaImagesLoading = true;
+    PuyoGame._sharedOjamaImagesPending = callback ? [callback] : [];
+
     const names = ['comet', 'crown', 'moon', 'star', 'rock', 'big', 'small'];
+    let remaining = names.length;
     const cache = {};
     names.forEach(name => {
         const img = new Image();
+        const done = () => {
+            remaining--;
+            if (remaining <= 0) {
+                PuyoGame._sharedOjamaImages = cache;
+                PuyoGame._sharedOjamaImagesLoaded = true;
+                PuyoGame._sharedOjamaImagesLoading = false;
+                const pending = PuyoGame._sharedOjamaImagesPending;
+                PuyoGame._sharedOjamaImagesPending = [];
+                pending.forEach(cb => cb());
+            }
+        };
+        img.onload = done;
+        img.onerror = done;
         img.src = PConfig.ojamaImagePath + name + '.png';
         // デコードを前倒しして初回表示時の同期デコードを避ける（失敗は無視）
         if (img.decode) img.decode().catch(() => {});
         cache[name] = img;
     });
-    PuyoGame._sharedOjamaImages = cache;
 };
