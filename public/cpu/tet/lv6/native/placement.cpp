@@ -41,17 +41,16 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
     std::vector<Placement> placements;
     placements.reserve(64);
 
-    static bool visited[4][35][19];
-    static bool placementFound[4][35][19];
+    // ★最適化: 呼び出しごとに2660要素×3配列をmemset/ループで初期化していたのをやめ、
+    //   世代スタンプ方式にした（呼び出しごとに generation をインクリメントし、
+    //   スタンプが現在の generation と一致するかどうかで「今回のBFSで書き込み済みか」を判定する）。
+    //   意味的にはmemsetによる全クリアと同一（int32が一周するのは実運用上あり得ない）。
+    static int visitedStamp[4][35][19];
+    static int foundStamp[4][35][19];
+    static int parentStamp[4][35][19];
     static ParentInfo parent[4][35][19];
-
-    std::memset(visited, 0, sizeof(visited));
-    std::memset(placementFound, 0, sizeof(placementFound));
-
-    for(int r=0; r<4; r++)
-        for(int y=0; y<35; y++)
-            for(int x=0; x<19; x++)
-                parent[r][y][x].x = -100;
+    static int generation = 0;
+    ++generation;
 
     int spawnX = COLS / 2 - 2;
     int initialRot = 0;
@@ -76,7 +75,7 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
 
     bfsQueue[qTail++] = {spawnX, spawnY, initialRot, false, false};
     if (spawnY + 5 >= 0 && spawnY + 5 < 35 && spawnX + 4 >= 0 && spawnX + 4 < 19) {
-        visited[initialRot][spawnY + 5][spawnX + 4] = true;
+        visitedStamp[initialRot][spawnY + 5][spawnX + 4] = generation;
     }
 
     while(qHead < qTail) {
@@ -91,8 +90,8 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
 
         if (!canMoveDown) {
             if (curr.y + 5 >= 0 && curr.y + 5 < 35 && curr.x + 4 >= 0 && curr.x + 4 < 19) {
-                if (!placementFound[curr.rot][curr.y + 5][curr.x + 4]) {
-                    placementFound[curr.rot][curr.y + 5][curr.x + 4] = true;
+                if (foundStamp[curr.rot][curr.y + 5][curr.x + 4] != generation) {
+                    foundStamp[curr.rot][curr.y + 5][curr.x + 4] = generation;
 
                     GridBlock droppedBlocks[4];
                     for(int i=0; i<4; i++) {
@@ -139,8 +138,8 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
                     int traceX = curr.x, traceY = curr.y, traceRot = curr.rot;
                     while(true) {
                         if (traceY + 5 < 0 || traceY + 5 >= 35 || traceX + 4 < 0 || traceX + 4 >= 19) break;
+                        if (parentStamp[traceRot][traceY + 5][traceX + 4] != generation) break;
                         ParentInfo& pInfo = parent[traceRot][traceY + 5][traceX + 4];
-                        if (pInfo.x == -100) break;
                         if (pathLen < 63) path[pathLen++] = (uint8_t)pInfo.action;
                         traceX = pInfo.x; traceY = pInfo.y; traceRot = pInfo.rot;
                     }
@@ -168,9 +167,10 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
 
         auto tryPush = [&](int nx, int ny, int nrot, bool isRot, bool isPoint5, int action) {
             if (ny + 5 >= 0 && ny + 5 < 35 && nx + 4 >= 0 && nx + 4 < 19) {
-                if (!visited[nrot][ny + 5][nx + 4]) {
-                    visited[nrot][ny + 5][nx + 4] = true;
+                if (visitedStamp[nrot][ny + 5][nx + 4] != generation) {
+                    visitedStamp[nrot][ny + 5][nx + 4] = generation;
                     parent[nrot][ny + 5][nx + 4] = { (int8_t)curr.x, (int8_t)curr.y, (int8_t)curr.rot, (int8_t)action };
+                    parentStamp[nrot][ny + 5][nx + 4] = generation;
                     bfsQueue[qTail++] = {nx, ny, nrot, isRot, isPoint5};
                 }
             }
