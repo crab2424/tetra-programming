@@ -1041,7 +1041,7 @@
     <h2 style="margin-top: 32px; margin-bottom: 28px">⌨️🎮 KEY CONFIG</h2>
     <div class="key-config-grid" id="key-config-grid"></div>
     <p class="conflict-warning" id="conflict-warning">
-      ⚠ 同じキーが複数のアクションに割り当てられています
+      ⚠ 同じキー/ボタンが複数の項目に割り当てられています
     </p>
 
     <h2 style="margin-top: 32px; margin-bottom: 28px">🛠 TUNING (TET)</h2>
@@ -1124,8 +1124,8 @@
   <script src="config/pages.js"></script>
   <script src="core/base.js?v=3"></script>
   <script src="core/particles.js"></script>
-  <script src="app/manager.js"></script>
-  <script src="config/settings.js"></script>
+  <script src="app/manager.js?v=1"></script>
+  <script src="config/settings.js?v=1"></script>
   <script src="config/vs_settings.js"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
@@ -1136,7 +1136,7 @@
   <script src="game/tet/scoring.js"></script>
   <script src="game/tet/garbage.js"></script>
   <script src="game/tet/render.js"></script>
-  <script src="game/tet/input.js?v=1"></script>
+  <script src="game/tet/input.js?v=2"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=3"></script>
@@ -1144,15 +1144,15 @@
   <script src="game/puyo/connect.js"></script>
   <script src="game/puyo/ojama.js?v=1"></script>
   <script src="game/puyo/engine.js?v=3"></script>
-  <script src="game/puyo/input.js?v=3"></script>
+  <script src="game/puyo/input.js?v=4"></script>
   <script src="game/puyo/draw.js?v=3"></script>
   <script src="quiz/quiz.js"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
   <script src="app/modes.js"></script>
   <script src="app/cpu_loader.js"></script>
-  <script src="app/versus.js"></script>
-  <script src="app/navigation.js"></script>
-  <script src="app/focus_nav.js?v=1"></script>
+  <script src="app/versus.js?v=1"></script>
+  <script src="app/navigation.js?v=1"></script>
+  <script src="app/focus_nav.js?v=2"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 

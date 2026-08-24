@@ -22,7 +22,11 @@ Object.assign(Game.prototype, {
         if (this.isCpuControlled) return;
 
         // 押されているキーを管理
+        // keyState はアクション名で管理（1アクションに複数キーを割り当てられるため）。
+        // _heldCodes は物理キーコードの押下状態を保持し、keyState はそこから導出する
+        // （複数キーの片方だけを離してもアクションが継続して押されている状態を保てる）。
         this.keyState = {}
+        this._heldCodes = new Set()
 
         // 設定を読み込み
         /**
@@ -73,7 +77,7 @@ Object.assign(Game.prototype, {
 
             // リスタート (ポーズ中・プレイ中問わず即座にやり直し)
             // 対戦モードではリスタートキーは router.js 側で管理するためスキップ
-            if (!this.isVersusMode && e.code === keys.restart.code) {
+            if (!this.isVersusMode && keys.restart.codes.includes(e.code)) {
                 e.preventDefault()
                 if (e.repeat) return; // 長押しによる連続発火を防止
                 this.start()
@@ -82,7 +86,7 @@ Object.assign(Game.prototype, {
 
             // ポーズ
             // 対戦モードではポーズは router.js の toggleVersusPause() に委譲
-            if (!this.isVersusMode && e.code === keys.pause.code) {
+            if (!this.isVersusMode && keys.pause.codes.includes(e.code)) {
                 e.preventDefault()
                 if (e.repeat) return; // 長押しによる連続発火を防止
                 if (this.isCountingDown) return;
@@ -93,7 +97,10 @@ Object.assign(Game.prototype, {
             // ポーズ中は他のキー入力を無視
             if (this.isPaused) return
 
-            this.keyState[e.code] = true
+            this._heldCodes.add(e.code)
+            for (const action in keys) {
+                if (keys[action].codes.includes(e.code)) this.keyState[action] = true
+            }
 
             const now = performance.now()
 
@@ -106,7 +113,7 @@ Object.assign(Game.prototype, {
             let immediateActed = false
             let immediateWasGrounded = this.isGrounded
 
-            if (e.code === keys.moveLeft.code && this._leftPressTime === null) {
+            if (keys.moveLeft.codes.includes(e.code) && this._leftPressTime === null) {
                 this._leftPressTime = now
                 this._lastHorizontal = 'left'
                 if (canActNow) {
@@ -124,7 +131,7 @@ Object.assign(Game.prototype, {
                     this._lastMoveTimeLeft = 0
                 }
             }
-            if (e.code === keys.moveRight.code && this._rightPressTime === null) {
+            if (keys.moveRight.codes.includes(e.code) && this._rightPressTime === null) {
                 this._rightPressTime = now
                 this._lastHorizontal = 'right'
                 if (canActNow) {
@@ -142,14 +149,14 @@ Object.assign(Game.prototype, {
             }
 
             // 回転（押した瞬間のみ単発）
-            if (canActNow && e.code === keys.rotateCW.code && !e.repeat && !this._rotCWPressed) {
+            if (canActNow && keys.rotateCW.codes.includes(e.code) && !e.repeat && !this._rotCWPressed) {
                 if (this.tryRotate(1)) {
                     this.updateLowestY()
                     immediateActed = true
                 }
                 this._rotCWPressed = true
             }
-            if (canActNow && e.code === keys.rotateCCW.code && !e.repeat && !this._rotCCWPressed) {
+            if (canActNow && keys.rotateCCW.codes.includes(e.code) && !e.repeat && !this._rotCCWPressed) {
                 if (this.tryRotate(-1)) {
                     this.updateLowestY()
                     immediateActed = true
@@ -158,7 +165,7 @@ Object.assign(Game.prototype, {
             }
 
             // ソフトドロップ初動（1マス）も即時に
-            if (canActNow && e.code === keys.softDrop.code && this._lastSoftDropTime === 0) {
+            if (canActNow && keys.softDrop.codes.includes(e.code) && this._lastSoftDropTime === 0) {
                 this._lastSoftDropTime = now
                 if (this.valid(0, 1)) {
                     this.mino.y++
@@ -183,7 +190,7 @@ Object.assign(Game.prototype, {
             }
 
             // 単発系（押した瞬間のみ）
-            if (e.code === keys.hardDrop.code) {
+            if (keys.hardDrop.codes.includes(e.code)) {
                 e.preventDefault()
                 if (e.repeat) return;            // 長押しによる連続発火を防止
                 if (this.isCountingDown) return; // カウントダウン中は無効
@@ -194,7 +201,7 @@ Object.assign(Game.prototype, {
                 }
                 this.hardDrop()
             }
-            if (e.code === keys.hold.code) {
+            if (keys.hold.codes.includes(e.code)) {
                 e.preventDefault()
                 if (e.repeat) return;            // 長押し防止
                 if (this.isCountingDown) return; // カウントダウン中は無効
@@ -203,26 +210,32 @@ Object.assign(Game.prototype, {
         }
 
         this._keyUpHandler = (e) => {
-            this.keyState[e.code] = false
+            this._heldCodes.delete(e.code)
+            // このコードに紐づくアクションのうち、他に押されているキーが残っていなければ解除する
+            for (const action in keys) {
+                if (keys[action].codes.includes(e.code) && !keys[action].codes.some(c => this._heldCodes.has(c))) {
+                    this.keyState[action] = false
+                }
+            }
 
-            if (e.code === keys.moveLeft.code) {
+            if (keys.moveLeft.codes.includes(e.code) && !this.keyState.moveLeft) {
                 this._leftPressTime = null
                 this._dasBlockedLeft = false
                 this._dcdUntil = 0
 
                 // 左を離したとき、右が押されていれば右を優先
-                if (this.keyState[keys.moveRight.code]) {
+                if (this.keyState.moveRight) {
                     this._lastHorizontal = 'right'
                 }
             }
 
-            if (e.code === keys.moveRight.code) {
+            if (keys.moveRight.codes.includes(e.code) && !this.keyState.moveRight) {
                 this._rightPressTime = null
                 this._dasBlockedRight = false
                 this._dcdUntil = 0
 
                 // 右を離したとき、左が押されていれば左を優先
-                if (this.keyState[keys.moveLeft.code]) {
+                if (this.keyState.moveLeft) {
                     this._lastHorizontal = 'left'
                 }
             }
@@ -257,8 +270,8 @@ Object.assign(Game.prototype, {
 
             const now = nowPerf
 
-            const leftPressed = this.keyState[keys.moveLeft.code];
-            const rightPressed = this.keyState[keys.moveRight.code];
+            const leftPressed = this.keyState.moveLeft;
+            const rightPressed = this.keyState.moveRight;
 
             // 優先方向を決定（後押し優先）
             let dir = null;
@@ -349,7 +362,7 @@ Object.assign(Game.prototype, {
             const currentLevelSpeed = LEVEL_SPEEDS[this.level] || 7;
             const currentSoftDropArr = currentLevelSpeed / 20;
 
-            if (this.keyState[keys.softDrop.code]) {
+            if (this.keyState.softDrop) {
                 // 初回押し込み時は即座に1段落とす
                 if (this._lastSoftDropTime === 0) {
                     this._lastSoftDropTime = now;
@@ -399,7 +412,7 @@ Object.assign(Game.prototype, {
             }
 
             // 回転（即時反応させる）
-            if (this.keyState[keys.rotateCW.code]) {
+            if (this.keyState.rotateCW) {
                 if (!this._rotCWPressed) {
                     if (this.tryRotate(1)) {
                         this.updateLowestY(); // キック等でY座標が下がった時のため
@@ -408,11 +421,11 @@ Object.assign(Game.prototype, {
                     this._rotCWPressed = true
                 }
             }
-            if (!this.keyState[keys.rotateCW.code]) {
+            if (!this.keyState.rotateCW) {
                 this._rotCWPressed = false
             }
 
-            if (this.keyState[keys.rotateCCW.code]) {
+            if (this.keyState.rotateCCW) {
                 if (!this._rotCCWPressed) {
                     if (this.tryRotate(-1)) {
                         this.updateLowestY(); // キック等でY座標が下がった時のため
@@ -421,7 +434,7 @@ Object.assign(Game.prototype, {
                     this._rotCCWPressed = true
                 }
             }
-            if (!this.keyState[keys.rotateCCW.code]) {
+            if (!this.keyState.rotateCCW) {
                 this._rotCCWPressed = false
             }
 
@@ -429,8 +442,8 @@ Object.assign(Game.prototype, {
             // DASが効いていて動けない（空振り）状態で回転が入力された場合にDCDを開始する
             if (this.DCD_DELAY > 0 && acted) {
                 const rotActed =
-                    (this.keyState[keys.rotateCW.code] && this._rotCWPressed) ||
-                    (this.keyState[keys.rotateCCW.code] && this._rotCCWPressed)
+                    (this.keyState.rotateCW && this._rotCWPressed) ||
+                    (this.keyState.rotateCCW && this._rotCCWPressed)
                 if (rotActed && (this._dasBlockedLeft || this._dasBlockedRight)) {
                     this._dcdUntil = now + this.DCD_DELAY
                 }
@@ -558,7 +571,6 @@ Object.assign(Game.prototype, {
             const stickY = (pad.axes && pad.axes.length > 1) ? pad.axes[1] : 0;
 
             // 各アクションについて現在押されているかを判定
-            const keysForAction = keys; // from outer scope
             for (const action in gpConfig) {
                 const mappings = Array.isArray(gpConfig[action]) ? gpConfig[action] : (gpConfig[action] ? [gpConfig[action]] : [])
                 let pressed = false
@@ -581,7 +593,6 @@ Object.assign(Game.prototype, {
                 if (action === 'softDrop') pressed = pressed || (stickY >= GP_STICK_DEADZONE)
                 if (action === 'hardDrop') pressed = pressed || (stickY <= -GP_STICK_DEADZONE)
 
-                const keyCode = (keysForAction[action] && keysForAction[action].code) ? keysForAction[action].code : null
                 const prev = !!this._prevGamepadState[action]
 
                 // 単発系アクションは遷移で実行
@@ -608,55 +619,53 @@ Object.assign(Game.prototype, {
                 }
 
                 // 継続系は keyState に反映して既存のロジックを再利用
-                if (keyCode) {
-                    if (pressed && !this.keyState[keyCode]) {
-                        // キーダウンと同等の初回処理
-                        this.keyState[keyCode] = true
-                        const now = performance.now()
-                        if (action === 'moveLeft' && this._leftPressTime === null) {
-                            this._leftPressTime = now
-                            this._lastMoveTimeLeft = 0
-                            this._lastHorizontal = 'left'
-                        }
-                        if (action === 'moveRight' && this._rightPressTime === null) {
-                            this._rightPressTime = now
-                            this._lastMoveTimeRight = 0
-                            this._lastHorizontal = 'right'
-                        }
-                        if (action === 'softDrop' && this._lastSoftDropTime === 0) {
-                            this._lastSoftDropTime = now
-                            if (!this.mino) break;
-                            if (this.valid(0, 1)) {
-                                const wasGrounded = this.isGrounded
-                                this.mino.y++
-                                this.updateLowestY()
-                                this.lastActionWasRotation = false
-                                this.score += 1
-                                this.playSe('drop') // ソフトドロップ音（毎マス）
-                                this.updateStatsDisplay()
-                                this.checkGroundState(true, wasGrounded)
-                                this.requestRedraw()
-                            }
+                if (pressed && !this.keyState[action]) {
+                    // キーダウンと同等の初回処理
+                    this.keyState[action] = true
+                    const now = performance.now()
+                    if (action === 'moveLeft' && this._leftPressTime === null) {
+                        this._leftPressTime = now
+                        this._lastMoveTimeLeft = 0
+                        this._lastHorizontal = 'left'
+                    }
+                    if (action === 'moveRight' && this._rightPressTime === null) {
+                        this._rightPressTime = now
+                        this._lastMoveTimeRight = 0
+                        this._lastHorizontal = 'right'
+                    }
+                    if (action === 'softDrop' && this._lastSoftDropTime === 0) {
+                        this._lastSoftDropTime = now
+                        if (!this.mino) break;
+                        if (this.valid(0, 1)) {
+                            const wasGrounded = this.isGrounded
+                            this.mino.y++
+                            this.updateLowestY()
+                            this.lastActionWasRotation = false
+                            this.score += 1
+                            this.playSe('drop') // ソフトドロップ音（毎マス）
+                            this.updateStatsDisplay()
+                            this.checkGroundState(true, wasGrounded)
+                            this.requestRedraw()
                         }
                     }
-                    if (!pressed && this.keyState[keyCode]) {
-                        // キーアップ相当の処理
-                        this.keyState[keyCode] = false
-                        if (action === 'moveLeft') {
-                            this._leftPressTime = null
-                            this._dasBlockedLeft = false
-                            this._dcdUntil = 0
-                            if (this.keyState[keysForAction.moveRight.code]) this._lastHorizontal = 'right'
-                        }
-                        if (action === 'moveRight') {
-                            this._rightPressTime = null
-                            this._dasBlockedRight = false
-                            this._dcdUntil = 0
-                            if (this.keyState[keysForAction.moveLeft.code]) this._lastHorizontal = 'left'
-                        }
-                        if (action === 'softDrop') {
-                            this._lastSoftDropTime = 0
-                        }
+                }
+                if (!pressed && this.keyState[action]) {
+                    // キーアップ相当の処理
+                    this.keyState[action] = false
+                    if (action === 'moveLeft') {
+                        this._leftPressTime = null
+                        this._dasBlockedLeft = false
+                        this._dcdUntil = 0
+                        if (this.keyState.moveRight) this._lastHorizontal = 'right'
+                    }
+                    if (action === 'moveRight') {
+                        this._rightPressTime = null
+                        this._dasBlockedRight = false
+                        this._dcdUntil = 0
+                        if (this.keyState.moveLeft) this._lastHorizontal = 'left'
+                    }
+                    if (action === 'softDrop') {
+                        this._lastSoftDropTime = 0
                     }
                 }
 
