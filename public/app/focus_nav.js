@@ -294,8 +294,8 @@
 
     if (typeof active.onRestart === 'function') {
       const keys = (typeof loadKeys === 'function') ? loadKeys() : null;
-      const restartCode = (keys && keys.restart && keys.restart.code) ? keys.restart.code : 'KeyR';
-      if (code === restartCode) {
+      const restartCodes = (keys && keys.restart && keys.restart.codes && keys.restart.codes.length) ? keys.restart.codes : ['KeyR'];
+      if (restartCodes.includes(code)) {
         if (e.repeat) return;
         e.preventDefault();
         active.onRestart();

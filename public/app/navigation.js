@@ -178,6 +178,11 @@ function resetPageScroll() {
 }
 
 function switchPage(pageId) {
+  // キーコンフィグの入力待ち状態を残したまま設定画面から離れると、
+  // focus_nav.js のキーボードナビが「待機中バッジあり」判定のまま全ページで停止してしまう。
+  // ページ遷移のたびに必ず解除しておく（待機していなければ何もしない）。
+  if (typeof stopListeningBind === 'function') stopListeningBind();
+
   const currentActive = document.querySelector('.page.active');
   if (currentActive && currentActive.id !== 'settings-page') {
     window._prevPage = currentActive.id.replace('-page', '');
@@ -263,10 +268,6 @@ function switchPage(pageId) {
   const header = document.getElementById('header-area');
   if (header) header.style.display = (pageId === 'settings') ? 'flex' : 'none';
 
-  if (pageId === 'game' || pageId === 'settings' || pageId === 'versus') {
-    if (typeof stopListening === 'function') stopListening();
-  }
-  
   if (pageId === 'settings') {
     if (typeof renderKeyConfig === 'function') renderKeyConfig();
     if (typeof renderTuning    === 'function') renderTuning();
@@ -756,16 +757,17 @@ function setupGlobalCpuPauseKey() {
   if (window._globalCpuPauseHandler) {
     document.removeEventListener('keydown', window._globalCpuPauseHandler);
   }
-  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { code: 'Escape' } };
-  
+  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { codes: ['Escape'] } };
+  const pauseCodes = (keys.pause && keys.pause.codes && keys.pause.codes.length) ? keys.pause.codes : ['Escape'];
+
   window._globalCpuPauseHandler = function(e) {
     const gamePage = document.getElementById('game-page');
     // シングルプレイ画面以外なら何もしない
     if (!gamePage || !gamePage.classList.contains('active')) return;
-    
+
     // ★ ぷよ側は p_game.js 自身がポーズを処理するので、テト側のみここで補完する
     if (currentGameMode && currentGameMode.id === 'test' && testRule === 'tet' && window._game && window._game.isCpuControlled) {
-        if (e.code === keys.pause.code) {
+        if (pauseCodes.includes(e.code)) {
             if (e.defaultPrevented) return;
             e.preventDefault();
             
