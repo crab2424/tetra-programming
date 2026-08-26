@@ -57,6 +57,19 @@
   line-height: 1.5;
 }
 
+#mode-check-best {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-align: center;
+  margin: -4px 0 0;
+}
+#mode-check-best strong {
+  color: var(--accent3);
+  font-weight: 700;
+}
+
 #mode-check-controls {
   width: 100%;
   background: rgba(255, 255, 255, 0.03);

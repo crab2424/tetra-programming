@@ -276,19 +276,29 @@ export interface StatsUpdateData {
   score: number;
   lines: number;
   chainMax: number;
+  /** APM/LPM算出用の累積送信攻撃量（tet単位）。旧クライアント(v2.1.0以前)からは常に0 */
+  attackSent: number;
+  /** APM/LPM算出用の実プレイ経過ms（ポーズ除く）。旧クライアントからは常に0 */
+  activeMs: number;
 }
 
 // StatsUpdate: opcode + rule(0=tet/1=puyo) + score(u32 LE) + lines(u16 LE) + chainMax(u16 LE)
+//              + attackSent(u16 LE) + activeMs(u32 LE)
+// ★ 末尾2フィールドはv2.1.1で追加。decode側はbyteLengthガード付きなので、
+//   旧v2.1.0クライアント(10byte)からの受信でも安全に0として解釈できる（後方互換）。
 export function encodeStatsUpdate(
   rule: StatsRule, score: number, lines: number, chainMax: number,
+  attackSent = 0, activeMs = 0,
 ): Uint8Array {
-  const buf = new Uint8Array(10);
+  const buf = new Uint8Array(16);
   const view = new DataView(buf.buffer);
   buf[0] = MatchOpcode.StatsUpdate;
   buf[1] = rule === "puyo" ? 1 : 0;
   view.setUint32(2, Math.max(0, Math.min(0xffffffff, Math.trunc(score))), true);
   view.setUint16(6, Math.max(0, Math.min(0xffff, Math.trunc(lines))), true);
   view.setUint16(8, Math.max(0, Math.min(0xffff, Math.trunc(chainMax))), true);
+  view.setUint16(10, Math.max(0, Math.min(0xffff, Math.trunc(attackSent))), true);
+  view.setUint32(12, Math.max(0, Math.min(0xffffffff, Math.trunc(activeMs))), true);
   return buf;
 }
 
@@ -299,6 +309,8 @@ export function decodeStatsUpdate(p: Uint8Array): StatsUpdateData {
     score: p.byteLength >= 5 ? view.getUint32(1, true) : 0,
     lines: p.byteLength >= 7 ? view.getUint16(5, true) : 0,
     chainMax: p.byteLength >= 9 ? view.getUint16(7, true) : 0,
+    attackSent: p.byteLength >= 11 ? view.getUint16(9, true) : 0,
+    activeMs: p.byteLength >= 15 ? view.getUint32(11, true) : 0,
   };
 }
 

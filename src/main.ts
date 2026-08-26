@@ -40,4 +40,17 @@ document.addEventListener("DOMContentLoaded", () => {
   if (versionElement) {
     versionElement.textContent = `v${APP_VERSION}`;
   }
+
+  applyAppVersion(document);
 });
+
+/**
+ * [data-app-version] 属性を持つ要素へバージョン文字列を流し込む。
+ * config/pages.js が外部ページ(CREDITS等)注入直後にも呼ぶため window に公開する。
+ */
+function applyAppVersion(root: ParentNode): void {
+  root.querySelectorAll<HTMLElement>("[data-app-version]").forEach((el) => {
+    el.textContent = `v${APP_VERSION}`;
+  });
+}
+(window as any).applyAppVersion = applyAppVersion;

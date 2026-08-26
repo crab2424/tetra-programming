@@ -271,6 +271,20 @@ Object.assign(PuyoGame.prototype, {
         this._updateOjamaYokoku();
     },
 
+    // 攻撃量の累積を1回だけ加算する（APM計測用。sendGarbage/sendGarbageCrossTetはonlineで
+    // 丸ごと上書きされるため、呼び出し側=_applyOjamaOffset()で送信直前に呼ぶ）
+    _countAttackSent(amount) {
+        if (!(amount > 0)) return;
+        this.attackSent = (this.attackSent || 0) + amount;
+    },
+
+    // ポーズ時間を除いた実プレイ経過ms（APM/LPM・記録保存で使用。tet側getActiveMs()と同じ思想）
+    getActiveMs() {
+        let ms = this.elapsed || 0;
+        if (this._timerRunning) ms += performance.now() - this._timerStart;
+        return ms;
+    },
+
     sendGarbage(amount) {
         if (!this.isVersusMode) return;
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
@@ -392,14 +406,17 @@ Object.assign(PuyoGame.prototype, {
                 let ratio = remaining / originalAmount; // 残った割合 (0.0 〜 1.0)
                 let sendTetAmount = Math.ceil(effectiveTetAmount * ratio);
                 if (sendTetAmount > 0) {
+                    this._countAttackSent(sendTetAmount);
                     this.sendGarbage(sendTetAmount);
                 }
             } else if (effectiveTetAmount > 0 && remaining === 0) {
+                this._countAttackSent(effectiveTetAmount);
                 this.sendGarbage(effectiveTetAmount);
             }
         } else {
             // 相手がぷよの場合、残った実効ぷよ基準の火力を送る
             if (remaining > 0) {
+                this._countAttackSent(remaining);
                 this.sendGarbage(remaining);
             }
             // ★ 混在多人数戦: 同時にテト相手へは tet ライン火力を送る（相殺で減った割合を反映）。
@@ -407,7 +424,10 @@ Object.assign(PuyoGame.prototype, {
             if (this._hasTetOpp && typeof this.sendGarbageCrossTet === 'function' && effectiveTetAmount > 0) {
                 const ratio = originalAmount > 0 ? (remaining / originalAmount) : (remaining === 0 ? 1 : 0);
                 const sendTetAmount = Math.ceil(effectiveTetAmount * ratio);
-                if (sendTetAmount > 0) this.sendGarbageCrossTet(sendTetAmount);
+                if (sendTetAmount > 0) {
+                    this._countAttackSent(sendTetAmount);
+                    this.sendGarbageCrossTet(sendTetAmount);
+                }
             }
         }
     },

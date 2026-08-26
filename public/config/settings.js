@@ -50,6 +50,37 @@ const DEFAULT_VOLUME = {
   se: 0.8,
 };
 
+// ─── デフォルト表示設定（上級者向けHUD要素のON/OFF） ─────────
+const DEFAULT_DISPLAY = {
+  apm: false,       // APM/LPM表示（シングル・対戦とも）
+  versusTime: true, // 対戦画面のTIME表示
+};
+
+function loadDisplay() {
+  const saved = localStorage.getItem('game_display');
+  if (saved) {
+    try { return { ...DEFAULT_DISPLAY, ...JSON.parse(saved) }; }
+    catch (e) { localStorage.removeItem('game_display'); }
+  }
+  return { ...DEFAULT_DISPLAY };
+}
+
+let currentDisplay = loadDisplay();
+// トップレベルlet/constはwindowに乗らないため、TS側(src/online/*)から参照できるよう
+// 明示的にエイリアスする（以後はcurrentDisplayへのプロパティ変更がそのまま反映される）
+window.currentDisplay = currentDisplay;
+
+function saveDisplay() {
+  localStorage.setItem('game_display', JSON.stringify(currentDisplay));
+}
+
+// APM/LPM・対戦TIMEの表示可否をbodyクラスへ反映する（CSS側はbodyクラスで一括制御）
+function applyDisplayClasses() {
+  document.body.classList.toggle('hud-apm-visible', !!currentDisplay.apm);
+  document.body.classList.toggle('hud-versus-time-visible', !!currentDisplay.versusTime);
+}
+applyDisplayClasses();
+
 function loadVolume() {
   const saved = localStorage.getItem('game_volume');
   if (saved) {
@@ -386,6 +417,37 @@ function updateTuningDisplay() {
   currentTuning.dcd = dcdF;
 }
 
+// ─── DISPLAY設定（APM/LPM・対戦TIME表示のON/OFF） ────────
+function renderDisplayOptions() {
+  const apmToggle = document.getElementById('display-apm-toggle');
+  if (apmToggle) {
+    apmToggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.apm);
+    });
+  }
+  const timeToggle = document.getElementById('display-versus-time-toggle');
+  if (timeToggle) {
+    timeToggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.versusTime);
+    });
+  }
+}
+
+// クリックで即時反映・即時保存（TUNING/VOLUMEと異なりSAVEボタンを介さない）
+function setDisplayOption(key, value) {
+  currentDisplay[key] = value;
+  saveDisplay();
+  renderDisplayOptions();
+  applyDisplayClasses();
+}
+
+function resetRecords() {
+  if (!window.Records) return;
+  if (!confirm('保存されている最高記録をすべて消去します。よろしいですか？')) return;
+  window.Records.reset();
+  showToast();
+}
+
 function renderGamepadOptions() {
   const slider = document.getElementById('slider-deadzone');
   const label = document.getElementById('val-deadzone');
@@ -650,6 +712,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderKeyConfig();
   renderTuning();
   renderVolume();
+  renderDisplayOptions();
   renderGamepadOptions();
   renderOnlineSettings();
   updateMenuControlsDisplay(); // ★追加：初期表示でも実行
