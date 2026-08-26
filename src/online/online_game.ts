@@ -153,6 +153,19 @@ function settleScoreTweens(): void { stopScoreTweens(true); }
  * ちょうどの絶対配置アンカー）配下に複製する。位置は online-battle.css の .ol-stats-left/-right
  * が calc(px * --ol-scale) で CPU戦と同じ左右下オフセットを再現する。
  */
+/** APM/LPM/TIME（上級者向けHUD）の表示整形。tet/puyo/hud_extras.jsと同じ書式に揃える */
+function fmtHudTime(ms: number): string {
+  const clamped = ms >= 0 ? ms : 0;
+  const m = Math.floor(clamped / 60000);
+  const s = Math.floor((clamped % 60000) / 1000);
+  const cs = Math.floor((clamped % 1000) / 10);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
+}
+function fmtHudRate(count: number, activeMs: number): string {
+  if (!(activeMs >= 3000)) return "--";
+  return ((count || 0) / (activeMs / 60000)).toFixed(1);
+}
+
 function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void {
   const fieldPrefix = slot === "self" ? "ol-p" : `ol-opp-${slot}`;
   const fieldEl = document.getElementById(`${fieldPrefix}-${stats.rule}-field`);
@@ -166,14 +179,27 @@ function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void 
       '<div class="versus-stat-block">' +
       '<span class="area-label" data-stat-label="primary">LINES</span>' +
       '<span class="versus-stat-value" data-stat="primary">0</span>' +
-      '</div>';
+      "</div>" +
+      // APM/LPMはtet専用（v2.1.1追加）。puyoスロットでは.ol-tetonlyをinline styleで隠す。
+      '<div class="versus-stat-block hud-apm-block ol-tetonly">' +
+      '<span class="area-label">LPM</span>' +
+      '<span class="versus-stat-value" data-stat="lpm">--</span>' +
+      "</div>";
     rightEl = document.createElement("div");
     rightEl.className = "ol-stats-right";
     rightEl.innerHTML =
       '<div class="versus-stat-block">' +
       '<span class="area-label">SCORE</span>' +
       '<span class="versus-stat-value" data-stat="score">0</span>' +
-      '</div>';
+      "</div>" +
+      '<div class="versus-stat-block hud-apm-block ol-tetonly">' +
+      '<span class="area-label">APM</span>' +
+      '<span class="versus-stat-value" data-stat="apm">--</span>' +
+      "</div>" +
+      '<div class="versus-stat-block hud-time-block">' +
+      '<span class="area-label">TIME</span>' +
+      '<span class="versus-stat-value versus-time-value" data-stat="time">00:00.00</span>' +
+      "</div>";
     fieldEl.appendChild(leftEl);
     fieldEl.appendChild(rightEl);
   }
@@ -188,6 +214,19 @@ function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void 
   }
   if (primary) primary.textContent = String(stats.rule === "puyo" ? stats.chainMax : stats.lines);
   if (label) label.textContent = stats.rule === "puyo" ? "MAX CHAIN" : "LINES";
+
+  // APM/LPM（tetのみ。旧バージョンの相手からはattackSent/activeMsが常に0で届く＝"--"表示になる）
+  fieldEl.querySelectorAll<HTMLElement>(".ol-tetonly").forEach((el) => {
+    el.style.display = stats.rule === "tet" ? "" : "none";
+  });
+  if (stats.rule === "tet") {
+    const apmEl = rightEl.querySelector<HTMLElement>('[data-stat="apm"]');
+    const lpmEl = leftEl.querySelector<HTMLElement>('[data-stat="lpm"]');
+    if (apmEl) apmEl.textContent = fmtHudRate(stats.attackSent, stats.activeMs);
+    if (lpmEl) lpmEl.textContent = fmtHudRate(stats.lines, stats.activeMs);
+  }
+  const timeEl = rightEl.querySelector<HTMLElement>('[data-stat="time"]');
+  if (timeEl) timeEl.textContent = fmtHudTime(stats.activeMs);
 }
 
 declare const Mino: new (type?: number | null) => any;
@@ -1046,13 +1085,17 @@ export class OnlineGameController {
         clearTimeout(statsThrottleTimer);
         statsThrottleTimer = null;
       }
-      const stats = encodeStatsUpdate("tet", game.score ?? 0, game.lines ?? 0, 0);
+      const attackSent = game.attackSent ?? 0;
+      const activeMs = (typeof game.getActiveMs === 'function') ? game.getActiveMs() : 0;
+      const stats = encodeStatsUpdate("tet", game.score ?? 0, game.lines ?? 0, 0, attackSent, activeMs);
       conn.sendMatchEvent(stats);
-      updateOnlineStats("self", { rule: "tet", score: game.score ?? 0, lines: game.lines ?? 0, chainMax: 0 });
+      updateOnlineStats("self", { rule: "tet", score: game.score ?? 0, lines: game.lines ?? 0, chainMax: 0, attackSent, activeMs });
     };
     // 自分の表示は即時、相手への送信だけスロットルする（ソフトドロップ連打用）。
     const updateStatsRealtime = () => {
-      updateOnlineStats("self", { rule: "tet", score: game.score ?? 0, lines: game.lines ?? 0, chainMax: 0 });
+      const attackSent = game.attackSent ?? 0;
+      const activeMs = (typeof game.getActiveMs === 'function') ? game.getActiveMs() : 0;
+      updateOnlineStats("self", { rule: "tet", score: game.score ?? 0, lines: game.lines ?? 0, chainMax: 0, attackSent, activeMs });
       const elapsed = performance.now() - lastStatsSentAt;
       if (elapsed >= STATS_THROTTLE_MS) {
         sendStats();
@@ -1302,17 +1345,21 @@ export class OnlineGameController {
         clearTimeout(statsThrottleTimer);
         statsThrottleTimer = null;
       }
+      const activeMs = (typeof game.getActiveMs === 'function') ? game.getActiveMs() : 0;
       const stats = {
         rule: "puyo" as const,
         score: game.score ?? 0,
         lines: 0,
         chainMax: game.chainMax ?? 0,
+        attackSent: 0, // puyoはAPM/LPM非表示（design参照）。フィールドのみ揃える
+        activeMs,
       };
-      conn.sendMatchEvent(encodeStatsUpdate("puyo", stats.score, 0, stats.chainMax));
+      conn.sendMatchEvent(encodeStatsUpdate("puyo", stats.score, 0, stats.chainMax, 0, activeMs));
       updateOnlineStats("self", stats);
     };
     const updateStatsRealtime = () => {
-      updateOnlineStats("self", { rule: "puyo", score: game.score ?? 0, lines: 0, chainMax: game.chainMax ?? 0 });
+      const activeMs = (typeof game.getActiveMs === 'function') ? game.getActiveMs() : 0;
+      updateOnlineStats("self", { rule: "puyo", score: game.score ?? 0, lines: 0, chainMax: game.chainMax ?? 0, attackSent: 0, activeMs });
       const elapsed = performance.now() - lastStatsSentAt;
       if (elapsed >= STATS_THROTTLE_MS) {
         sendStats();

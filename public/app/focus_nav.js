@@ -227,6 +227,17 @@
       return;
     }
 
+    // scrollPane 指定ページ（CREDITS/CHANGELOG等）は上下キーを内部スクロールに割り当てる。
+    // ブラウザのネイティブスクロールとは onKey() 側の e.preventDefault() で二重発火しない。
+    if ((dir === 'up' || dir === 'down') && typeof active.scrollPane === 'function') {
+      const pane = active.scrollPane();
+      if (pane) {
+        const step = Math.max(60, Math.round(pane.clientHeight * 0.25));
+        pane.scrollTop += (dir === 'down' ? step : -step);
+        return;
+      }
+    }
+
     if (typeof active.onMove2D === 'function') {
       const next = active.onMove2D(dir, cur, items);
       if (typeof next === 'number' && next >= 0 && next < items.length) {
@@ -631,6 +642,18 @@
     },
   });
 
+  register('credits', {
+    getItems: () => $$('#credits-buttons button'),
+    initialIndex: 0,
+    scrollPane: () => document.querySelector('#credits-page .credits-list'),
+  });
+
+  register('changelog', {
+    getItems: () => $$('#changelog-page .btn-back'),
+    initialIndex: 0,
+    scrollPane: () => document.querySelector('#changelog-page .changelog-list'),
+  });
+
   register('settings', {
     getItems: () => {
       const headerAnchor  = document.querySelector('.settings-header');
@@ -648,11 +671,21 @@
       $$('#key-config-grid .key-row').forEach(row => {
         $$('.key-badge', row).forEach(b => items.push({ el: b, scrollAnchor: keyAnchor }));
       });
-      const tuningContainer = document.querySelector('#settings-page .tuning-container:last-of-type');
+      const tuningContainer = document.getElementById('tuning-tet-section');
       ['slider-das', 'slider-arr', 'slider-dcd'].forEach(id => {
         const s = document.getElementById(id);
         const row = s && s.closest('.slider-row');
         if (row) { const it = rowSlider(row, s); it.scrollAnchor = tuningContainer || row; items.push(it); }
+      });
+      const displaySection = document.getElementById('display-section');
+      $$('#display-section .option-row').forEach(row => {
+        const it = rowAuto(row);
+        if (it) { it.scrollAnchor = displaySection; items.push(it); }
+        else {
+          // RESET RECORDS 行はトグルではなくボタン単体
+          const btn = row.querySelector('button');
+          if (btn) items.push({ el: btn, scrollAnchor: displaySection });
+        }
       });
       $$('#settings-page .btn-reset, #settings-page .btn-save').forEach(b => items.push({ el: b, scrollAnchor: actionsAnchor }));
       return items;

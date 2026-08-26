@@ -160,6 +160,7 @@ Object.assign(Game.prototype, {
         this.updateStatsDisplay();
         this.elapsedTime = 0;
         this.isTimerRunning = false;
+        this.attackSent = 0; // APM計測用（相手へ送った実効火力の累積）
 
         // リスタート時にタイマー表示をリセット
         this.updateTimeDisplay();
@@ -319,6 +320,27 @@ Object.assign(Game.prototype, {
             }
 
             if (typeof switchPage === 'function') switchPage('result');
+
+            // 最高記録の更新判定・表示（NEW RECORD!バッジ＋BEST行）
+            if (typeof this._submitRecordIfEligible === 'function') {
+                this._submitRecordIfEligible(isClear).then((res) => {
+                    const badge = document.getElementById('result-new-record');
+                    if (badge) badge.style.display = (res && res.isNew) ? 'block' : 'none';
+                    const bestRow = document.getElementById('result-best-row');
+                    const bestVal = document.getElementById('result-best-value');
+                    if (bestRow && bestVal) {
+                        if (res && res.record && window.Records) {
+                            const key = (this.mode === 'marathon')
+                                ? ((this.goalLines === Infinity) ? 'marathon:endless' : 'marathon:150')
+                                : (this.mode === 'sprint' ? 'sprint:40' : this.mode);
+                            bestVal.textContent = window.Records.format(key, res.record);
+                            bestRow.style.display = '';
+                        } else {
+                            bestRow.style.display = 'none';
+                        }
+                    }
+                });
+            }
         });
     },
 
@@ -501,5 +523,12 @@ Object.assign(Game.prototype, {
         if (timeEl) {
             timeEl.textContent = formattedTime;
         }
+    },
+
+    // ポーズ時間を除いた実プレイ経過ms（APM/LPM・記録保存で使用）
+    getActiveMs() {
+        let ms = this.elapsedTime;
+        if (this.isTimerRunning) ms += performance.now() - this.startTime;
+        return ms;
     },
 });

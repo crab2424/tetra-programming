@@ -273,6 +273,30 @@
   display: none;
 }
 
+/* APM/LPM/TIME（上級者向けHUD）: SETTINGS > DISPLAY のON/OFFに body クラスで連動する。
+   APM/LPMはtet専用のためBattleLayout側でルールに応じたinline displayも別途制御する。 */
+.hud-apm-block {
+  display: none;
+}
+body.hud-apm-visible .hud-apm-block {
+  display: flex;
+}
+
+#versus-time-display.hud-time-block {
+  display: none;
+}
+body.hud-versus-time-visible #versus-time-display.hud-time-block {
+  display: block;
+}
+.versus-time-value {
+  font-family: "Orbitron", monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
 #player-action-label-container,
 #cpu-action-label-container {
   position: absolute;

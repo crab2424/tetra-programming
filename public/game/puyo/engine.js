@@ -974,6 +974,27 @@ Object.assign(PuyoGame.prototype, {
 
         if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(true);
         if (typeof switchPage === 'function') switchPage('result');
+
+        // 最高記録の更新判定・表示（NEW RECORD!バッジ＋BEST行。主指標は最大連鎖）
+        if (!this.isCpuControlled && window.Records) {
+            window.Records.submit('puyo', {
+                chainMax: this.chainMax,
+                score: this.score,
+                clearedPuyos: this.clearedPuyos,
+                timeMs: this.elapsed,
+            }).then((res) => {
+                const badge = document.getElementById('result-new-record');
+                if (badge) badge.style.display = (res && res.isNew) ? 'block' : 'none';
+                const bestRow = document.getElementById('result-best-row');
+                const bestVal = document.getElementById('result-best-value');
+                if (bestRow && bestVal && res && res.record) {
+                    bestVal.textContent = window.Records.format('puyo', res.record);
+                    bestRow.style.display = '';
+                } else if (bestRow) {
+                    bestRow.style.display = 'none';
+                }
+            });
+        }
     },
 
     _startTimer() {

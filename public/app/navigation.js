@@ -130,6 +130,8 @@ function setMarathonGoal(goal) {
   if (linesGoalEl && currentGameMode && currentGameMode.id === 'marathon') {
     linesGoalEl.textContent = goal === 'endless' ? '' : '/' + goal;
   }
+
+  renderModeCheckBest();
 }
 
 function updateMarathonLevelDisplay() {
@@ -272,6 +274,7 @@ function switchPage(pageId) {
     if (typeof renderKeyConfig === 'function') renderKeyConfig();
     if (typeof renderTuning    === 'function') renderTuning();
     if (typeof renderVolume    === 'function') renderVolume();
+    if (typeof renderDisplayOptions === 'function') renderDisplayOptions();
   } else if (pageId === 'versus-check') {
     renderVersusCheck();
     renderVsSettingsSummary();
@@ -287,7 +290,7 @@ function switchPage(pageId) {
   // ★ キーボードフォーカスナビゲーション（focus_nav.js）
   if (window.FocusNav) {
     if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
-         'result','versus-result','quiz-result','settings'].includes(pageId)) {
+         'result','versus-result','quiz-result','settings','credits','changelog'].includes(pageId)) {
       window.FocusNav.activate(pageId);
     } else {
       window.FocusNav.deactivate();
@@ -305,6 +308,26 @@ function goToModeCheck(modeId) {
   }
 }
 
+
+// モード確認画面に自己ベストを表示（記録対象外モードでは非表示）
+function renderModeCheckBest() {
+  const el = document.getElementById('mode-check-best');
+  if (!el) return;
+  if (!window.Records) { el.style.display = 'none'; return; }
+
+  const mode = currentGameMode || GAME_MODES.marathon;
+  let key = null;
+  if (mode.id === 'marathon') key = (marathonSelectedGoal === 'endless') ? 'marathon:endless' : 'marathon:150';
+  else if (mode.id === 'sprint') key = 'sprint:40';
+  else if (mode.id === 'ultra') key = 'ultra';
+  else if (mode.id === 'puyo') key = 'puyo';
+
+  if (!key) { el.style.display = 'none'; return; }
+  const record = window.Records.get(key);
+  if (!record) { el.style.display = 'none'; return; }
+  el.innerHTML = `BEST <strong>${window.Records.format(key, record)}</strong>`;
+  el.style.display = '';
+}
 
 function renderModeCheck() {
   const mode = currentGameMode || GAME_MODES.marathon;
@@ -326,6 +349,8 @@ function renderModeCheck() {
 
   const descEnEl = document.getElementById('mode-check-desc-en');
   if (descEnEl) descEnEl.textContent = mode.descriptionEn;
+
+  renderModeCheckBest();
 
   const optionsEl = document.getElementById('mode-check-options');
   if (optionsEl) {

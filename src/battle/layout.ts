@@ -27,12 +27,13 @@ const VERSUS_SLOTS: Record<"player" | "cpu", SlotElements> = {
   player: {
     tetIds: ["player-main-canvas", "player-next-canvas", "player-hold-canvas"],
     puyoIds: ["player-puyo-main-canvas", "player-puyo-next-canvas"],
-    tetOnlySelectors: [".versus-label-hold"],
+    // APM/LPMはtetのライン/攻撃量が前提のためpuyo側スロットでは非表示にする（TIMEは両ルール共通で表示）
+    tetOnlySelectors: [".versus-label-hold", ".versus-apm-lpm-player"],
   },
   cpu: {
     tetIds: ["cpu-main-canvas", "cpu-next-canvas", "cpu-hold-canvas"],
     puyoIds: ["cpu-puyo-main-canvas", "cpu-puyo-next-canvas"],
-    tetOnlySelectors: [".versus-label-hold-cpu"],
+    tetOnlySelectors: [".versus-label-hold-cpu", ".versus-apm-lpm-cpu"],
   },
 };
 

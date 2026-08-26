@@ -238,6 +238,7 @@ Object.assign(Game.prototype, {
                     let sendAmount = Math.max(0, this.pendingAttack - canceledGarbage);
                     if (sendAmount > 0) {
                         //console.log(`[secureMino] -> 消去なし: 貯蓄から ${sendAmount} を相手に送信します`);
+                        this._countAttackSent(sendAmount); // APM計測（呼び出し側で数える。sendGarbageはonlineで丸ごと上書きされるため）
                         this.sendGarbage(sendAmount); // 実効化済み。sendGarbage内では再計算しない
                     }
 
@@ -246,6 +247,7 @@ Object.assign(Game.prototype, {
                     //   テト相手が居ない通常の異種戦(1v1)では _hasTetOpp=false なので何も起きない。
                     const tetLeftover = this.pendingInternalAttack;
                     if (this._hasTetOpp && tetLeftover > 0 && typeof this.sendGarbageCrossTet === 'function') {
+                        this._countAttackSent(tetLeftover);
                         this.sendGarbageCrossTet(tetLeftover);
                     }
 
@@ -268,6 +270,7 @@ Object.assign(Game.prototype, {
                     const remainder = this.offsetGarbage(effectiveGarbage);
 
                     if (remainder > 0) {
+                        this._countAttackSent(remainder);
                         this.sendGarbage(remainder);
                     }
                 }

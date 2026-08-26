@@ -305,4 +305,38 @@ Object.assign(Game.prototype, {
         const linesEl = document.getElementById(`${prefix}lines-value`);
         if (linesEl) linesEl.textContent = this.lines;
     },
+
+    // 攻撃量の累積を1回だけ加算する（APM計測用。sendGarbageはonlineで丸ごと上書きされるため
+    // 呼び出し側=board.jsのsecureMino()で送信直前に呼ぶ）
+    _countAttackSent(amount) {
+        if (!(amount > 0)) return;
+        this.attackSent = (this.attackSent || 0) + amount;
+    },
+
+    // シングルプレイのゲームオーバー/クリア時に最高記録へ提出する。
+    // CPUテスト・QUIZ・対戦は対象外（対戦はgameOver()内でここに到達しない）。
+    async _submitRecordIfEligible(isClear) {
+        if (this.isCpuControlled) return null;
+        if (!window.Records) return null;
+
+        let key = null;
+        let record = null;
+        const timeMs = (typeof this.getActiveMs === 'function') ? this.getActiveMs() : this.elapsedTime;
+
+        if (this.mode === 'marathon') {
+            key = (this.goalLines === Infinity) ? 'marathon:endless' : 'marathon:150';
+            record = { score: this.score, level: this.level, lines: this.lines, timeMs, startLevel: this.startLevel };
+        } else if (this.mode === 'sprint') {
+            if (!isClear) return null; // 40ライン未達成はタイム記録の対象外
+            key = 'sprint:40';
+            record = { timeMs, score: this.score };
+        } else if (this.mode === 'ultra') {
+            key = 'ultra';
+            record = { score: this.score, lines: this.lines, timeMs };
+        } else {
+            return null;
+        }
+
+        return window.Records.submit(key, record);
+    },
 });
