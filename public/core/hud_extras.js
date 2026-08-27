@@ -19,7 +19,7 @@
   }
 
   function fmtRate(count, activeMs) {
-    if (!(activeMs >= 3000)) return '--';
+    if (!(activeMs > 0)) return '--';
     const perMin = (count || 0) / (activeMs / 60000);
     return perMin.toFixed(1);
   }
