@@ -162,7 +162,7 @@ function fmtHudTime(ms: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
 }
 function fmtHudRate(count: number, activeMs: number): string {
-  if (!(activeMs >= 3000)) return "--";
+  if (!(activeMs > 0)) return "--";
   return ((count || 0) / (activeMs / 60000)).toFixed(1);
 }
 
