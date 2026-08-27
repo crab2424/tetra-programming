@@ -44,7 +44,7 @@
   letter-spacing: 4px;
   color: var(--success);
   text-shadow: 0 0 12px var(--success);
-  animation: result-appear 0.5s 0.2s ease-out both, record-pulse 1.4s 0.5s ease-in-out infinite;
+  animation: result-appear 0.5s 0.2s ease-out both, record-pulse 1.4s 0.7s ease-in-out infinite;
 }
 
 @keyframes record-pulse {
