@@ -293,8 +293,11 @@ body.hud-versus-time-visible #versus-time-display.hud-time-block {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 1px;
-  color: var(--text-dim);
   white-space: nowrap;
+  background: linear-gradient(90deg, var(--accent3), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 #player-action-label-container,
