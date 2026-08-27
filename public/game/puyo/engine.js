@@ -943,12 +943,12 @@ Object.assign(PuyoGame.prototype, {
             return;
         }
 
-        showFinishOverlay('finish-overlay', 'finish-text', 'GAME OVER', 'finish-gameover', 1200, () => {
-            this._showResult();
+        showFinishOverlay('finish-overlay', 'finish-text', 'GAME OVER', 'finish-gameover', 1200, async () => {
+            await this._showResult();
         });
     },
 
-    _showResult() {
+    async _showResult() {
         const titleEl = document.getElementById('result-title');
         if (titleEl) {
             titleEl.textContent = 'GAME OVER';
@@ -973,28 +973,34 @@ Object.assign(PuyoGame.prototype, {
         if (timeEl) timeEl.textContent = this._formatTime(this.elapsed);
 
         if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(true);
-        if (typeof switchPage === 'function') switchPage('result');
 
-        // 最高記録の更新判定・表示（NEW RECORD!バッジ＋BEST行。主指標は最大連鎖）
+        // 最高記録の更新判定・表示（NEW RECORD!バッジ＋BEST行。主指標は最大連鎖）。
+        // switchPage('result')より前に確定させる：result-stats等の登場アニメと同じ
+        // スタイル再計算パスに乗せないと、バッジだけ1フレーム遅れてアニメが生成されず
+        // 出現アニメなしでポップインして見える（非同期.then()内でDOM変更していたのが原因）。
+        const badge = document.getElementById('result-new-record');
+        const bestRow = document.getElementById('result-best-row');
+        const bestVal = document.getElementById('result-best-value');
         if (!this.isCpuControlled && window.Records) {
-            window.Records.submit('puyo', {
+            const res = await window.Records.submit('puyo', {
                 chainMax: this.chainMax,
                 score: this.score,
                 clearedPuyos: this.clearedPuyos,
                 timeMs: this.elapsed,
-            }).then((res) => {
-                const badge = document.getElementById('result-new-record');
-                if (badge) badge.style.display = (res && res.isNew) ? 'block' : 'none';
-                const bestRow = document.getElementById('result-best-row');
-                const bestVal = document.getElementById('result-best-value');
-                if (bestRow && bestVal && res && res.record) {
-                    bestVal.textContent = window.Records.format('puyo', res.record);
-                    bestRow.style.display = '';
-                } else if (bestRow) {
-                    bestRow.style.display = 'none';
-                }
             });
+            if (badge) badge.style.display = (res && res.isNew) ? 'block' : 'none';
+            if (bestRow && bestVal && res && res.record) {
+                bestVal.textContent = window.Records.format('puyo', res.record);
+                bestRow.style.display = '';
+            } else if (bestRow) {
+                bestRow.style.display = 'none';
+            }
+        } else {
+            if (badge) badge.style.display = 'none';
+            if (bestRow) bestRow.style.display = 'none';
         }
+
+        if (typeof switchPage === 'function') switchPage('result');
     },
 
     _startTimer() {
