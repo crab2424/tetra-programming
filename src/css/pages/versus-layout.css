@@ -247,6 +247,10 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* TIME表示を盤面下端より下に絶対配置するための基準。行の高さいっぱいに伸ばし、
+     bottom基準で位置決めする（--ol-scale等で盤面高さが変わっても追随させるため）。 */
+  position: relative;
+  align-self: stretch;
   /* 盤面間の中央余白。従来は「padding 0 20px ＋ VSラベルの実幅」で 111px 分あったが、
      online 2P と値を共有するため共通トークン化し、幅を明示する（見た目は従来と同一）。 */
   width: var(--versus-center-gap);
@@ -287,6 +291,12 @@ body.hud-apm-visible .hud-apm-block {
 }
 body.hud-versus-time-visible #versus-time-display.hud-time-block {
   display: block;
+  /* 中央の余白幅(--versus-center-gap)よりTIME文字列の方が広く、盤面の高さ中央に置くと
+     NEXT/HOLDパネルに食い込む。盤面下端より下＝YOU/CPUラベルと同じ高さ帯に逃がす。 */
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 32px;
 }
 .versus-time-value {
   font-family: "Orbitron", monospace;
