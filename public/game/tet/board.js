@@ -100,6 +100,14 @@ Object.assign(Game.prototype, {
         let generatedGarbage = this.Scoring(tSpinResult, linesCleared, isPerfectClear);
         this.updateStatsDisplay();
 
+        // APM計測（生成基準）：相殺・対戦有無に関わらず、この設置で生成した火力をそのまま積む。
+        // 相殺で無駄になった火力も評価対象にする／シングルプレイでも計測できるようにするため、
+        // 送信直前ではなくここで数える（呼び出し側で数える理由はsendGarbageがonlineで丸ごと
+        // 上書きされるためだが、生成基準に変えた今はそもそも送信経路を通らなくても数えられる）。
+        if (generatedGarbage > 0) {
+            this._countAttackSent(generatedGarbage);
+        }
+
         if (tSpinResult !== null || isB2BTriggered || currentRen > 0 || isPerfectClear || is4Lines) {
             this.showActionLabels(tSpinResult, linesCleared, isB2BTriggered, currentRen, isPerfectClear, is4Lines);
         }
@@ -238,7 +246,6 @@ Object.assign(Game.prototype, {
                     let sendAmount = Math.max(0, this.pendingAttack - canceledGarbage);
                     if (sendAmount > 0) {
                         //console.log(`[secureMino] -> 消去なし: 貯蓄から ${sendAmount} を相手に送信します`);
-                        this._countAttackSent(sendAmount); // APM計測（呼び出し側で数える。sendGarbageはonlineで丸ごと上書きされるため）
                         this.sendGarbage(sendAmount); // 実効化済み。sendGarbage内では再計算しない
                     }
 
@@ -247,7 +254,6 @@ Object.assign(Game.prototype, {
                     //   テト相手が居ない通常の異種戦(1v1)では _hasTetOpp=false なので何も起きない。
                     const tetLeftover = this.pendingInternalAttack;
                     if (this._hasTetOpp && tetLeftover > 0 && typeof this.sendGarbageCrossTet === 'function') {
-                        this._countAttackSent(tetLeftover);
                         this.sendGarbageCrossTet(tetLeftover);
                     }
 
@@ -270,7 +276,6 @@ Object.assign(Game.prototype, {
                     const remainder = this.offsetGarbage(effectiveGarbage);
 
                     if (remainder > 0) {
-                        this._countAttackSent(remainder);
                         this.sendGarbage(remainder);
                     }
                 }

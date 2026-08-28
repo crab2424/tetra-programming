@@ -306,8 +306,9 @@ Object.assign(Game.prototype, {
         if (linesEl) linesEl.textContent = this.lines;
     },
 
-    // 攻撃量の累積を1回だけ加算する（APM計測用。sendGarbageはonlineで丸ごと上書きされるため
-    // 呼び出し側=board.jsのsecureMino()で送信直前に呼ぶ）
+    // 攻撃量の累積を加算する（APM計測用・生成基準）。相殺で無駄になった火力も対象に含めるため、
+    // 送信直前ではなく board.js の secureMino() 内で Scoring() 直後（相殺判定より前）に呼ぶ。
+    // シングルプレイ・対戦のどちらでも呼ばれる（isVersusMode による分岐なし）。
     _countAttackSent(amount) {
         if (!(amount > 0)) return;
         this.attackSent = (this.attackSent || 0) + amount;
