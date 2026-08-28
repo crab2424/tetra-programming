@@ -44,22 +44,7 @@
   letter-spacing: 4px;
   color: var(--success);
   text-shadow: 0 0 12px var(--success);
-  /* タイトル/STATSと同じ result-appear だと全体のフェードに紛れて「記録が出た」ことが
-     読み取れないため、STATSボックス着地後(0.5s)に独立してポップインさせる。
-     record-pulse は pop 完了(0.5+0.45=0.95s)後に開始し、登場演出と opacity を奪い合わせない。 */
-  animation: record-pop 0.45s 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.35) both,
-             record-pulse 1.4s 0.95s ease-in-out infinite;
-}
-
-@keyframes record-pop {
-  from {
-    opacity: 0;
-    transform: scale(0.55);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  animation: result-appear 0.5s 0.2s ease-out both, record-pulse 1.4s 0.7s ease-in-out infinite;
 }
 
 @keyframes record-pulse {
@@ -85,24 +70,6 @@
 }
 .result-stat-row:last-child {
   border-bottom: none;
-}
-
-/* BEST行は親(#result-stats)のフェードに便乗するだけで固有のアニメを持たず、
-   「最初からそこにあった」ように見えていた。STATSボックス着地(0.08s+0.5s)直後に
-   行だけが独立して現れるよう、専用の登場アニメを与える。 */
-#result-best-row {
-  animation: result-best-in 0.4s 0.62s ease-out both;
-}
-
-@keyframes result-best-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .result-label {
