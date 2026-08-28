@@ -29,8 +29,25 @@
     if (el && el.textContent !== text) el.textContent = text;
   }
 
+  // 前局の値が画面に残らないよう、HUD拡張の表示を一括で初期値へ戻す。
+  // ゲーム開始（READY表示）より前に呼ぶこと。
+  const RATE_IDS = [
+    'apm-value', 'lpm-value',
+    'player-apm-value', 'player-lpm-value',
+    'cpu-apm-value', 'cpu-lpm-value',
+  ];
+  function blank() {
+    RATE_IDS.forEach((id) => setText(id, '--'));
+    setText('versus-time-value', fmtTime(0));
+  }
+
   function updateSingle(game) {
-    if (!game || typeof game.getActiveMs !== 'function') return;
+    // ゲーム未生成（モード切替直後など）の間に前局の数値を残さない。
+    if (!game || typeof game.getActiveMs !== 'function') {
+      setText('apm-value', '--');
+      setText('lpm-value', '--');
+      return;
+    }
     const activeMs = game.getActiveMs();
     setText('apm-value', fmtRate(game.attackSent, activeMs));
     setText('lpm-value', fmtRate(game.lines, activeMs));
@@ -70,13 +87,20 @@
       // 経過時間を共有表示に使う（ルール混在でも tet/puyo 両方に getActiveMs() を実装済み）。
       if (wantTime) setText('versus-time-value', fmtTime((window._game && typeof window._game.getActiveMs === 'function') ? window._game.getActiveMs() : 0));
       if (doApm) {
+        // ゲーム未生成の間に前局の数値を残さない（'--'へ戻す）。
         if (window._game && typeof window._game.lines === 'number') {
           setText('player-apm-value', fmtRate(window._game.attackSent, window._game.getActiveMs()));
           setText('player-lpm-value', fmtRate(window._game.lines, window._game.getActiveMs()));
+        } else {
+          setText('player-apm-value', '--');
+          setText('player-lpm-value', '--');
         }
         if (window._cpuGame && typeof window._cpuGame.lines === 'number') {
           setText('cpu-apm-value', fmtRate(window._cpuGame.attackSent, window._cpuGame.getActiveMs()));
           setText('cpu-lpm-value', fmtRate(window._cpuGame.lines, window._cpuGame.getActiveMs()));
+        } else {
+          setText('cpu-apm-value', '--');
+          setText('cpu-lpm-value', '--');
         }
       }
     }
@@ -91,8 +115,13 @@
     }
   }
 
-  // rAFループの起動有無だけを監視する軽量タイマー（実際の描画はrAFが担う）。
-  // SETTINGS > DISPLAY のON切替やページ遷移から最大500ms遅れて再開する。
+  // rAFループの起動有無を監視する保険のタイマー（実際の描画はrAFが担う）。
+  // ページ遷移時は switchPage() が HudExtras.reset()/refresh() を即時に呼ぶため、
+  // このタイマーは SETTINGS > DISPLAY のON切替など経路外の変化を拾うだけ。
   setInterval(ensureRunning, 500);
   ensureRunning();
+
+  // switchPage() から呼ぶ。reset() で前局の値を即座に'--'へ戻し（READY表示より前）、
+  // refresh() で500ms待たずにrAFループを起動する。
+  window.HudExtras = { reset: blank, refresh: ensureRunning };
 })();
