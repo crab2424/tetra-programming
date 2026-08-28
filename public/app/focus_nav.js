@@ -231,9 +231,12 @@
 
     const vMax = Math.max(400, pane.clientHeight * 2.2); // px/s
     if (ps.held) {
+      // 初速をvMaxの半分から始める（0からだと押した直後の反応が鈍く感じるため）。
+      // そこから二次関数で加速し、約0.35秒でvMaxに到達する。
+      const vInit = vMax * 0.5;
       const heldSec = (ts - ps.startTs) / 1000;
-      const kAccel = vMax / (0.35 * 0.35); // 約0.35秒でvMaxに到達する二次関数加速
-      ps.v = Math.min(vMax, kAccel * heldSec * heldSec);
+      const kAccel = (vMax - vInit) / (0.35 * 0.35);
+      ps.v = Math.min(vMax, vInit + kAccel * heldSec * heldSec);
     } else {
       // 離した後は指数減衰でease-out的に止める（1フレーム≈16.7ms換算）
       ps.v *= Math.pow(0.86, (dt * 1000) / 16.7);
