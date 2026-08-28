@@ -250,6 +250,15 @@ function switchPage(pageId) {
   const target = document.getElementById(pageId + '-page');
   if (target) target.classList.add('active');
 
+  // APM/LPM/TIME（HUD拡張）は前局の値をDOMに残したままなので、ゲーム画面へ入る瞬間に
+  // '--'へ戻す。ゲーム実体(window._game)の生成はこの後なので、reset しないと
+  // 前局の数値がREADY表示中まで残って見える。refresh() は監視タイマー(500ms)を
+  // 待たずにrAFループを起こすため（active付与後に呼ぶ必要がある）。
+  if ((pageId === 'game' || pageId === 'versus') && window.HudExtras) {
+    window.HudExtras.reset();
+    window.HudExtras.refresh();
+  }
+
   if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog'].includes(_animPageId)) {
       if (typeof initMenuAnimations === 'function') initMenuAnimations(_animPageId);
   } else {
