@@ -174,9 +174,12 @@ function initMenuAnimations(pageId = 'main-menu') {
         targets = [
             { sel: '#mode-check-header',        cls: 'menu-enter',  delay: 0   },
             { sel: '#mode-check-desc-block',    cls: 'menu-enter',  delay: 1   },
-            { sel: '#mode-check-options',       cls: 'menu-enter',  delay: 2   },
-            { sel: '#mode-check-controls',      cls: 'menu-enter',  delay: 3   },
-            { sel: '#mode-check-buttons',       cls: 'menu-enter',  delay: 4   },
+            // 自己ベスト表示。登録漏れがあり、他がカスケード登場する中でここだけ
+            // 静的にポップインしていた。DOM順（desc-block と options の間）に合わせる。
+            { sel: '#mode-check-best',          cls: 'menu-enter',  delay: 2   },
+            { sel: '#mode-check-options',       cls: 'menu-enter',  delay: 3   },
+            { sel: '#mode-check-controls',      cls: 'menu-enter',  delay: 4   },
+            { sel: '#mode-check-buttons',       cls: 'menu-enter',  delay: 5   },
         ];
     } else if (pageId === 'versus-check') {
         targets = [
