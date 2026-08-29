@@ -69,8 +69,18 @@ async function openInfoPage(id) {
 }
 
 // 起動時に先読みしておく（クリック時の待ち時間をなくす）
+// ★ ただし DOMContentLoaded で即取りに行くと、起動時に本当に必要な素材
+//   （ブロック画像・ぷよ画像・SE・BGM）と回線と帯域を奪い合う。
+//   CREDITS / CHANGELOG はクリックされて初めて必要になり、openInfoPage() は
+//   ensureExternalPage() の完了を await するため、間に合わなくても壊れない。
+//   そこでアイドル時間に回す（対応していない環境では従来どおり読み込み後すぐ）。
 window.addEventListener('DOMContentLoaded', () => {
-  Object.keys(EXTERNAL_PAGES).forEach((id) => ensureExternalPage(id));
+  const prefetchAll = () => Object.keys(EXTERNAL_PAGES).forEach((id) => ensureExternalPage(id));
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(prefetchAll, { timeout: 5000 });
+  } else {
+    setTimeout(prefetchAll, 1500);
+  }
 });
 
 // グローバル公開（onclick から参照するため）

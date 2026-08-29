@@ -54,7 +54,13 @@ function stopAllGames() {
         window._cpuController.stop();
     }
     window._cpuController = null;
-    unloadCpuScript();
+    // ★ ここで unloadCpuScript() は呼ばない。
+    //   stopAllGames() は startVersusGame() / startGameFromModeCheck() の冒頭でも走るため、
+    //   ここでアンロードすると loadCpuScript() の「同じクラスなら再利用する」短絡が
+    //   構造的に必ず空振りし、リスタート・再戦のたびに CPU のクラスJSを取り直していた。
+    //   コントローラの stop()（worker.terminate / RAF キャンセル / 着手予測オーバーレイ消去）は
+    //   上で必ず行っているので、残留バグの対策としては従来どおり十分。
+    //   スクリプト本体の破棄は switchPage() でメインメニュー / タイトルへ戻るときに行う。
 
     // カウントダウン・フィニッシュのオーバーレイを消去し、リセット
     document.querySelectorAll('.field-overlay').forEach(el => {
@@ -194,6 +200,11 @@ function switchPage(pageId) {
   // メインメニューやタイトルに戻る際はゲーム情報を完全に破棄
   if (pageId === 'main-menu' || pageId === 'title') {
     stopAllGames();
+    // ★ CPUスクリプトの破棄はここ（ゲーム文脈から完全に抜けるとき）だけで行う。
+    //   stopAllGames() 側でやってしまうとリスタート・再戦のたびに再ダウンロードになるため。
+    //   mode-check や vs-settings を経由して同じLVで再開する場合はロード済みのまま使い回し、
+    //   別のLVを選んだ場合は loadCpuScript() が中で unload→load してくれる。
+    unloadCpuScript();
     _switchToPuyoLayout(false);
     // ★ リザルト等から戻る際、流れていたBGMをぶつ切りにせず menu_bgm へクロスフェード
     //   （menu_bgm が既に流れていれば crossfadeTo は冪等に継続）

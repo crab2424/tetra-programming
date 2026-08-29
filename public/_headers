@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────
+# _headers — Cloudflare Workers Static Assets 用のレスポンスヘッダ設定
+# （Vite が public/ ごと dist/ へコピーするので dist/_headers として配信される）
+#
+# 既定では全アセットに `public, max-age=0, must-revalidate` が付き、
+# リロードのたびに全ファイルぶんの再検証(304)往復が発生する。
+# ここでは「URL が変われば必ず取り直せる」ものだけキャッシュ期間を延ばす。
+#
+# ★ 大原則 ★
+#   ・ここに書かないパスは既定のまま＝ ETag による再検証
+#     （変化なし→304 で本文なし／変化あり→200 で再取得。取りこぼしは起きない）
+#   ・ここに書くパスは「内容が変わったら URL も変わる」ことが保証されているものだけ
+# ─────────────────────────────────────────────
+
+# ── Vite が出力するコンテンツハッシュ付きバンドル ──────────────
+# ファイル名にビルド内容のハッシュが入るため、内容が変われば URL が必ず変わる。
+# よって永久キャッシュ(immutable)にしても取りこぼしは原理的に起こらない。
+/assets/*.js
+  Cache-Control: public, max-age=31536000, immutable
+/assets/*.css
+  Cache-Control: public, max-age=31536000, immutable
+
+# ── 音源・画像 ────────────────────────────────
+# URL には core/base.js の ASSET_VERSION が `?v=` として必ず付く。
+# **音源や画像を差し替えたら base.js の ASSET_VERSION を +1 すること**
+# （URL が変わるので全ユーザーが確実に取り直す）。
+# immutable にはせず 7 日で自然に切れるようにしてあるので、
+# 万一 ASSET_VERSION の更新を忘れても最長 7 日で自己回復する。
+/assets/audio/*
+  Cache-Control: public, max-age=604800
+/assets/images/*
+  Cache-Control: public, max-age=604800
+
+# ── ここに書かないもの（＝既定の must-revalidate + ETag のまま） ──
+#  /                      … index.html。常に最新を取りに行く
+#  /core /app /game /config /quiz  … `?v=` が付いていないファイルが残っているため
+#  /cpu/*                 … emscripten の glue が読む .wasm に `?v=` を付けられないため
+#  /assets/quizlevels/*   … quiz.js 側が `?` + Date.now() で明示的にキャッシュを外している
+#  /pages/*               … CREDITS / CHANGELOG。更新を即座に反映したい
