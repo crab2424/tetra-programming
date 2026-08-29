@@ -404,7 +404,7 @@ PuyoGame.preloadImages = function (callback) {
         };
         img.onload = done;
         img.onerror = done;
-        img.src = PConfig.imagePath + key + '.png';
+        img.src = assetUrl(PConfig.imagePath + key + '.png');
         // ★ ピクセルデコードを前倒しし、各画像が初めて drawImage される瞬間の
         //   同期デコードによるカクつきを防ぐ（おじゃまアイコンと同じ手法）。
         //   連結画像（puyo-x_1/_2a/...）は色×形が初登場するたびに点々とスパイクを
@@ -453,7 +453,7 @@ PuyoGame.preloadOjamaImages = function (callback) {
         };
         img.onload = done;
         img.onerror = done;
-        img.src = PConfig.ojamaImagePath + name + '.png';
+        img.src = assetUrl(PConfig.ojamaImagePath + name + '.png');
         // デコードを前倒しして初回表示時の同期デコードを避ける（失敗は無視）
         if (img.decode) img.decode().catch(() => {});
         cache[name] = img;

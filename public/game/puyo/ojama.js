@@ -236,7 +236,7 @@ Object.assign(PuyoGame.prototype, {
     _makeYokokuImg(u) {
         const cached = PuyoGame._sharedOjamaImages && PuyoGame._sharedOjamaImages[u.img];
         const img = cached ? cached.cloneNode(false) : document.createElement('img');
-        if (!cached) img.src = PConfig.ojamaImagePath + u.img + '.png';
+        if (!cached) img.src = assetUrl(PConfig.ojamaImagePath + u.img + '.png');
         img.width = u.size;
         img.height = u.size;
         img.style.width = u.size + 'px';

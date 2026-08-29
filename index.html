@@ -8,6 +8,12 @@
 
   <script type="module" src="/src/main.ts"></script>
 
+  <!-- Webフォント(Orbitron等)は src/css/base/variables.css の @import で読み込むため、
+       CSS を読み終わるまで接続先が判明せず待ちが直列化する。
+       接続の確立だけ先に済ませておき、フォント取得の立ち上がりを早める。 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
   <link rel="icon" href="favicon.ico" sizes="any" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png" />
@@ -1176,8 +1182,8 @@
     ───────────────────────────────────────────── -->
   <div id="external-pages"></div>
 
-  <script src="config/pages.js?v=1"></script>
-  <script src="core/base.js?v=3"></script>
+  <script src="config/pages.js?v=2"></script>
+  <script src="core/base.js?v=4"></script>
   <script src="core/particles.js?v=1"></script>
   <script src="app/manager.js?v=1"></script>
   <script src="config/settings.js?v=2"></script>
@@ -1197,18 +1203,18 @@
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=4"></script>
-  <script src="game/puyo/lifecycle.js?v=2"></script>
+  <script src="game/puyo/lifecycle.js?v=3"></script>
   <script src="game/puyo/connect.js"></script>
-  <script src="game/puyo/ojama.js?v=2"></script>
+  <script src="game/puyo/ojama.js?v=3"></script>
   <script src="game/puyo/engine.js?v=5"></script>
   <script src="game/puyo/input.js?v=4"></script>
   <script src="game/puyo/draw.js?v=3"></script>
-  <script src="quiz/quiz.js"></script>
+  <script src="quiz/quiz.js?v=1"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
   <script src="app/modes.js"></script>
-  <script src="app/cpu_loader.js"></script>
+  <script src="app/cpu_loader.js?v=1"></script>
   <script src="app/versus.js?v=1"></script>
-  <script src="app/navigation.js?v=3"></script>
+  <script src="app/navigation.js?v=4"></script>
   <script src="app/focus_nav.js?v=5"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>

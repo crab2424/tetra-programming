@@ -32,8 +32,15 @@ async function loadCpuScript(level, rule) {
 
   //  開発中のCPUスクリプトは毎回キャッシュをバイパスして再読み込みする
   // （他のCPUスクリプトは従来通りキャッシュを利用）
-  // ここに登録したクラスは評価係数を変えるたび ?v=Date.now() で必ず最新が反映される
-  const DEV_CPU_CLASSES = ['PuyoCPU5', 'CPU6'];
+  // ここに登録したクラスは評価係数を変えるたび ?v=Date.now() で必ず最新が反映される。
+  //
+  // ★ 注意：ここに載せると「リスタート・再戦のたびにクラスJSを実ネットワークから
+  //   再ダウンロードする」ことになる（CPU6 なら 1 回あたり約 75KB）。
+  //   チューニング中のCPUだけを載せ、実装が固まったら外して `CPU_CONFIGS` 側の
+  //   `?v=` 運用（＝編集したら app/modes.js の ?v を上げる）に戻すこと。
+  //   2026-08-29: CPU6 は当面チューニング予定が無いためここから外した。
+  //   再びチューニングを始めるときは 'CPU6' をこの配列へ戻せばよい。
+  const DEV_CPU_CLASSES = ['PuyoCPU5'];
   const isDevCpu = DEV_CPU_CLASSES.includes(config.className);
 
   if (!isDevCpu && activeCpuClassName === config.className && window[config.className]) {
