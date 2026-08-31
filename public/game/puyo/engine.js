@@ -609,14 +609,18 @@ Object.assign(PuyoGame.prototype, {
                 this._updateScoreDisplay();
             }
         } else {
-            this.fallTimer += dt;
-            while (this.fallTimer >= 250) {
-                this.fallTimer -= 250;
-                this.pivotY += 0.5;
-                let lim = this._calcLimitY(this.pivotX, this.pivotY, this.targetRot);
-                if (this.pivotY > lim) {
-                    this.pivotY = lim;
-                    break;
+            // 自由落下の間隔。PRACTICE は practiceFallMs で可変にでき、0 なら自然落下しない。
+            const fallMs = (typeof this.practiceFallMs === 'number') ? this.practiceFallMs : 250;
+            if (fallMs > 0) {
+                this.fallTimer += dt;
+                while (this.fallTimer >= fallMs) {
+                    this.fallTimer -= fallMs;
+                    this.pivotY += 0.5;
+                    let lim = this._calcLimitY(this.pivotX, this.pivotY, this.targetRot);
+                    if (this.pivotY > lim) {
+                        this.pivotY = lim;
+                        break;
+                    }
                 }
             }
         }
@@ -625,6 +629,12 @@ Object.assign(PuyoGame.prototype, {
 
         if (this.pivotY >= limitY) {
             this.pivotY = limitY;
+            // PRACTICE・自由落下0（practiceNoLock）では「置くまで固定しない」＝
+            // ソフトドロップ押下中のみ固定タイマーを進め、離したら 0 に戻す（設計 §8.2）。
+            if (this.practiceNoLock && !isSoftDrop) {
+                this.lockTimer = 0;
+                return;
+            }
             let lockSpeed = isSoftDrop ? 12 : 1;
             this.lockTimer += dt * lockSpeed;
             if (this.lockTimer >= PConfig.lockDelayMs) {
@@ -981,7 +991,10 @@ Object.assign(PuyoGame.prototype, {
         const badge = document.getElementById('result-new-record');
         const bestRow = document.getElementById('result-best-row');
         const bestVal = document.getElementById('result-best-value');
-        if (!this.isCpuControlled && window.Records) {
+        // PRACTICE は記録を残さない（設計 §1.1）。tet 側は _submitRecordIfEligible が
+        // 未知の mode で null を返すため自然に対象外だが、ぷよは無条件 submit だったのでガードする。
+        const _recordEligible = !this.isCpuControlled && this.currentMode !== 'practice';
+        if (_recordEligible && window.Records) {
             const res = await window.Records.submit('puyo', {
                 chainMax: this.chainMax,
                 score: this.score,

@@ -1,0 +1,77 @@
+/* ─────────────────────────────────────────────
+   PRACTICE モード
+   設計: source_assets/memory/tetlabo-practice-mode-design.md
+   Phase 1 の範囲（メニューボタン / 準備画面の目標値スピナー /
+   ポーズの FINISH ボタン / APM・LPM の非表示）だけを持つ。
+   ゲーム内設定パネル（Phase 2）のスタイルは後から追記する。
+───────────────────────────────────────────── */
+
+/* ─── メインメニューのモードボタン ─── */
+.mode-btn-practice {
+  border-color: rgba(90, 245, 160, 0.35);
+}
+.mode-btn-practice:hover,
+.mode-btn-practice.is-focused {
+  background: rgba(90, 245, 160, 0.12);
+  border-color: var(--success);
+}
+.mode-btn-practice .mode-btn-icon,
+.mode-btn-practice .mode-btn-label {
+  color: var(--success);
+}
+
+/* ─── ポーズ画面の FINISH ボタン（PRACTICE時のみ表示） ─── */
+.btn-practice-primary {
+  background: linear-gradient(135deg, var(--success) 0%, #42f5c8 100%);
+  color: #0a0a0f;
+  font-weight: 700;
+  width: 100%;
+}
+.btn-practice-primary:hover,
+.btn-practice-primary.is-focused {
+  opacity: 0.88;
+}
+
+/* ─── 準備画面：目標値（VALUE行） ─── */
+.practice-value {
+  font-family: "Orbitron", monospace;
+  font-size: 16px;
+  letter-spacing: 2px;
+  color: var(--success);
+}
+
+/* 編集モード（桁スピナー）：値を1桁ずつのボックスに割る */
+.practice-value.is-editing {
+  display: flex;
+  gap: 4px;
+}
+.practice-digit {
+  display: inline-block;
+  min-width: 18px;
+  padding: 2px 0;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+}
+.practice-digit.is-active {
+  border-color: var(--success);
+  color: var(--success);
+  background: rgba(90, 245, 160, 0.12);
+}
+
+.practice-value-hint {
+  margin: -8px 0 0;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+/* ─── PRACTICE は APM/LPM を表示しない（設計 §1.1） ───
+   DISPLAY 設定が ON（body.hud-apm-visible）でも隠す必要があるので、
+   ID セレクタと同じ詳細度で勝てるようモード側クラスを併記する。 */
+body.practice-mode #apm-area,
+body.practice-mode #lpm-area {
+  display: none;
+}

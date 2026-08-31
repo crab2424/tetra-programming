@@ -355,6 +355,10 @@
   function onKey(e){
     if (!active) return;
     if (!rootIsActive()) { deactivate(); return; }
+    // 数値の桁スピナー編集モード（PRACTICEの目標値・ツモ順エディタ）が開いている間は、
+    // 行移動・2D移動・Enter/Escape をすべて編集側へ譲る。isTypingTarget と同じ役割を
+    // 「ネイティブのinputを使わないUI」に対して果たすフラグ。
+    if (window.FocusNav && window.FocusNav.suspended) return;
     if (isTypingTarget(document.activeElement)) return;
     if (document.querySelector('.key-badge.listening')) return;
 
@@ -516,6 +520,10 @@
   });
 
   window.FocusNav = {
+    // suspended: 独自の数値編集UIがキー入力を占有している間 true（PRACTICEの桁スピナー等）。
+    // rowHandlers: data-nav-row="<name>" の行に紐づく操作ハンドラの登録先。
+    suspended: false,
+    rowHandlers: {},
     register,
     activate,
     deactivate,
@@ -582,6 +590,19 @@
 
   // .option-row 内の slider があれば優先、無ければ option-toggle を ±
   function rowAuto(el){
+    // data-nav-row="<name>" が付いた行は、FocusNav.rowHandlers[name] に登録された
+    // ハンドラ（onLeft/onRight/onActivate）で操作する。スライダーもトグルも持たない
+    // 独自UI（PRACTICEの目標値スピナー等）を items に載せるための口。
+    const custom = el.dataset && el.dataset.navRow;
+    if (custom && window.FocusNav && window.FocusNav.rowHandlers[custom]) {
+      const h = window.FocusNav.rowHandlers[custom];
+      return {
+        type: 'row', el,
+        onLeft:     typeof h.onLeft     === 'function' ? () => h.onLeft(el)     : undefined,
+        onRight:    typeof h.onRight    === 'function' ? () => h.onRight(el)    : undefined,
+        onActivate: typeof h.onActivate === 'function' ? () => h.onActivate(el) : undefined,
+      };
+    }
     const slider = el.querySelector('input[type="range"]');
     if (slider) return rowSlider(el, slider);
     const toggle = el.querySelector('.option-toggle');
