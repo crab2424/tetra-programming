@@ -96,13 +96,13 @@
   animation: pulse 0.8s infinite;
 }
 
-.gp-bind-group {
+.bind-group {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.gp-badge {
+.bind-badge {
   min-width: 74px;
   padding: 6px 8px;
   font-size: 10px;
@@ -153,13 +153,16 @@
   filter: grayscale(80%);
 }
 
-.btn-reset {
+.btn-reset,
+.btn-reset-records {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text-dim);
 }
 .btn-reset:hover,
-.btn-reset.is-focused {
+.btn-reset.is-focused,
+.btn-reset-records:hover,
+.btn-reset-records.is-focused {
   border-color: var(--danger);
   color: var(--danger);
 }

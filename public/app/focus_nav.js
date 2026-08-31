@@ -208,6 +208,72 @@
     return null;
   }
 
+  // ─────────────────────────────────────────────
+  // scrollPane（CREDITS/CHANGELOG等）の慣性スクロール
+  // OSのキーリピート間隔には依存せず、押下継続時間から自前で二次関数加速する
+  // （DASなし＝押した瞬間から加速が始まる）。離すとease-out的に減衰して止まる。
+  // ─────────────────────────────────────────────
+  let paneScroll = null; // { pane, dir, held, v, rafId, startTs, lastTs }
+
+  function stopPaneScroll(){
+    if (paneScroll && paneScroll.rafId) cancelAnimationFrame(paneScroll.rafId);
+    paneScroll = null;
+  }
+
+  function _paneScrollLoop(ts){
+    const ps = paneScroll;
+    if (!ps) return;
+    const pane = ps.pane;
+    if (!pane.isConnected || pane.offsetParent === null) { stopPaneScroll(); return; }
+
+    const dt = Math.min(64, ts - ps.lastTs) / 1000; // 秒。タブ復帰直後の暴走を防ぐため上限
+    ps.lastTs = ts;
+
+    const vMax = Math.max(400, pane.clientHeight * 2.2); // px/s
+    if (ps.held) {
+      // 初速をvMaxの半分から始める（0からだと押した直後の反応が鈍く感じるため）。
+      // そこから二次関数で加速し、約0.35秒でvMaxに到達する。
+      const vInit = vMax * 0.5;
+      const heldSec = (ts - ps.startTs) / 1000;
+      const kAccel = (vMax - vInit) / (0.35 * 0.35);
+      ps.v = Math.min(vMax, vInit + kAccel * heldSec * heldSec);
+    } else {
+      // 離した後は指数減衰でease-out的に止める（1フレーム≈16.7ms換算）
+      ps.v *= Math.pow(0.86, (dt * 1000) / 16.7);
+      if (ps.v < 20) { stopPaneScroll(); return; }
+    }
+
+    const sign = ps.dir === 'down' ? 1 : -1;
+    const before = pane.scrollTop;
+    pane.scrollTop += sign * ps.v * dt;
+    if (pane.scrollTop === before) ps.v = 0; // 端に到達＝次の押下から加速やり直し
+
+    ps.rafId = requestAnimationFrame(_paneScrollLoop);
+  }
+
+  function startPaneScroll(pane, dir){
+    if (paneScroll && paneScroll.pane === pane) {
+      if (paneScroll.dir !== dir) {
+        // 方向反転：前の速度を引き継がず、この方向で加速をやり直す
+        paneScroll.dir = dir;
+        paneScroll.v = 0;
+        paneScroll.startTs = performance.now();
+      }
+      paneScroll.held = true;
+      return;
+    }
+    stopPaneScroll();
+    const now = performance.now();
+    paneScroll = { pane, dir, held: true, v: 0, rafId: null, startTs: now, lastTs: now };
+    paneScroll.rafId = requestAnimationFrame(_paneScrollLoop);
+  }
+
+  function releasePaneScroll(pane, dir){
+    if (paneScroll && paneScroll.pane === pane && paneScroll.dir === dir) {
+      paneScroll.held = false;
+    }
+  }
+
   function move2D(dir){
     const items = currentItems();
     if (!items.length) return;
@@ -226,6 +292,9 @@
       }
       return;
     }
+
+    // scrollPane 指定ページ（CREDITS/CHANGELOG等）の上下キーは onKey() 側で
+    // startPaneScroll()/releasePaneScroll() に直接ルーティングされるため、ここには来ない。
 
     if (typeof active.onMove2D === 'function') {
       const next = active.onMove2D(dir, cur, items);
@@ -294,12 +363,29 @@
 
     if (typeof active.onRestart === 'function') {
       const keys = (typeof loadKeys === 'function') ? loadKeys() : null;
-      const restartCode = (keys && keys.restart && keys.restart.code) ? keys.restart.code : 'KeyR';
-      if (code === restartCode) {
+      const restartCodes = (keys && keys.restart && keys.restart.codes && keys.restart.codes.length) ? keys.restart.codes : ['KeyR'];
+      if (restartCodes.includes(code)) {
         if (e.repeat) return;
         e.preventDefault();
         active.onRestart();
         return;
+      }
+    }
+
+    // scrollPane 指定ページ（CREDITS/CHANGELOG等）は上下キーを内部スクロールに割り当てる。
+    // OSのキーリピートには乗らず（e.repeatは無視）、押下継続はkeyupまでの経過時間で
+    // startPaneScroll()側が自前のrAFループで加速する。preventDefaultによりブラウザの
+    // ネイティブスクロールとは二重発火しない。
+    {
+      const isUp = key === 'ArrowUp' || code === 'KeyW';
+      const isDown = key === 'ArrowDown' || code === 'KeyS';
+      if ((isUp || isDown) && typeof active.scrollPane === 'function') {
+        const pane = active.scrollPane();
+        if (pane) {
+          e.preventDefault();
+          if (!e.repeat) startPaneScroll(pane, isDown ? 'down' : 'up');
+          return;
+        }
       }
     }
 
@@ -334,6 +420,7 @@
   function deactivate(){
     clearFocus();
     active = null;
+    stopPaneScroll();
   }
 
   // online系は activate() 呼び出し時点でまだページに 'active' が付いていない（描画→表示が
@@ -410,6 +497,23 @@
   });
 
   document.addEventListener('keydown', onKey);
+
+  // scrollPaneの慣性スクロールを止める側（離した瞬間にease-out減衰へ移行）。
+  // onKeyより先/後どちらで発火しても構わない（held=falseを立てるだけ）。
+  document.addEventListener('keyup', (e) => {
+    if (!paneScroll) return;
+    const isUp = e.key === 'ArrowUp' || e.code === 'KeyW';
+    const isDown = e.key === 'ArrowDown' || e.code === 'KeyS';
+    if ((isUp && paneScroll.dir === 'up') || (isDown && paneScroll.dir === 'down')) {
+      releasePaneScroll(paneScroll.pane, paneScroll.dir);
+    }
+  });
+
+  // alt+tab等でウィンドウがフォーカスを失うとkeyupが発火しないことがあり、
+  // held状態のままvMaxで回り続けてしまう。blur時は問答無用で減衰フェーズに移す。
+  window.addEventListener('blur', () => {
+    if (paneScroll) paneScroll.held = false;
+  });
 
   window.FocusNav = {
     register,
@@ -631,6 +735,18 @@
     },
   });
 
+  register('credits', {
+    getItems: () => $$('#credits-buttons button'),
+    initialIndex: 0,
+    scrollPane: () => document.querySelector('#credits-page .credits-list'),
+  });
+
+  register('changelog', {
+    getItems: () => $$('#changelog-page .btn-back'),
+    initialIndex: 0,
+    scrollPane: () => document.querySelector('#changelog-page .changelog-list'),
+  });
+
   register('settings', {
     getItems: () => {
       const headerAnchor  = document.querySelector('.settings-header');
@@ -648,11 +764,21 @@
       $$('#key-config-grid .key-row').forEach(row => {
         $$('.key-badge', row).forEach(b => items.push({ el: b, scrollAnchor: keyAnchor }));
       });
-      const tuningContainer = document.querySelector('#settings-page .tuning-container:last-of-type');
+      const tuningContainer = document.getElementById('tuning-tet-section');
       ['slider-das', 'slider-arr', 'slider-dcd'].forEach(id => {
         const s = document.getElementById(id);
         const row = s && s.closest('.slider-row');
         if (row) { const it = rowSlider(row, s); it.scrollAnchor = tuningContainer || row; items.push(it); }
+      });
+      const displaySection = document.getElementById('display-section');
+      $$('#display-section .option-row').forEach(row => {
+        const it = rowAuto(row);
+        if (it) { it.scrollAnchor = displaySection; items.push(it); }
+        else {
+          // RESET RECORDS 行はトグルではなくボタン単体
+          const btn = row.querySelector('button');
+          if (btn) items.push({ el: btn, scrollAnchor: displaySection });
+        }
       });
       $$('#settings-page .btn-reset, #settings-page .btn-save').forEach(b => items.push({ el: b, scrollAnchor: actionsAnchor }));
       return items;

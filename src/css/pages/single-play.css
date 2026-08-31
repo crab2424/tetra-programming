@@ -36,6 +36,22 @@
   }
 }
 
+#result-new-record {
+  margin: -32px 0 0;
+  font-family: "Orbitron", monospace;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--success);
+  text-shadow: 0 0 12px var(--success);
+  animation: result-appear 0.5s 0.2s ease-out both, record-pulse 1.4s 0.7s ease-in-out infinite;
+}
+
+@keyframes record-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
 #result-stats {
   width: 100%;
   background: rgba(255, 255, 255, 0.03);
@@ -245,6 +261,35 @@ canvas {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+#lpm-area {
+  position: absolute;
+  left: -160px;
+  top: 570px;
+}
+#apm-area {
+  position: absolute;
+  left: 352px;
+  top: 570px;
+}
+/* .hud-apm-block の既定display:noneを上書き（ID優先度でDISPLAY設定OFF時はnoneのまま維持） */
+body.hud-apm-visible #lpm-area,
+body.hud-apm-visible #apm-area {
+  display: block;
+}
+#lpm-area .area-label,
+#apm-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+}
+#lpm-value,
+#apm-value {
+  font-family: "Orbitron", monospace;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-dim);
 }
 
 #start-btn {

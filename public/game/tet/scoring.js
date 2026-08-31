@@ -305,4 +305,39 @@ Object.assign(Game.prototype, {
         const linesEl = document.getElementById(`${prefix}lines-value`);
         if (linesEl) linesEl.textContent = this.lines;
     },
+
+    // 攻撃量の累積を加算する（APM計測用・生成基準）。相殺で無駄になった火力も対象に含めるため、
+    // 送信直前ではなく board.js の secureMino() 内で Scoring() 直後（相殺判定より前）に呼ぶ。
+    // シングルプレイ・対戦のどちらでも呼ばれる（isVersusMode による分岐なし）。
+    _countAttackSent(amount) {
+        if (!(amount > 0)) return;
+        this.attackSent = (this.attackSent || 0) + amount;
+    },
+
+    // シングルプレイのゲームオーバー/クリア時に最高記録へ提出する。
+    // CPUテスト・QUIZ・対戦は対象外（対戦はgameOver()内でここに到達しない）。
+    async _submitRecordIfEligible(isClear) {
+        if (this.isCpuControlled) return null;
+        if (!window.Records) return null;
+
+        let key = null;
+        let record = null;
+        const timeMs = (typeof this.getActiveMs === 'function') ? this.getActiveMs() : this.elapsedTime;
+
+        if (this.mode === 'marathon') {
+            key = (this.goalLines === Infinity) ? 'marathon:endless' : 'marathon:150';
+            record = { score: this.score, level: this.level, lines: this.lines, timeMs, startLevel: this.startLevel };
+        } else if (this.mode === 'sprint') {
+            if (!isClear) return null; // 40ライン未達成はタイム記録の対象外
+            key = 'sprint:40';
+            record = { timeMs, score: this.score };
+        } else if (this.mode === 'ultra') {
+            key = 'ultra';
+            record = { score: this.score, lines: this.lines, timeMs };
+        } else {
+            return null;
+        }
+
+        return window.Records.submit(key, record);
+    },
 });

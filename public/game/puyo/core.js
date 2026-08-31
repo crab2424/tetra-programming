@@ -39,6 +39,7 @@ class PuyoGame {
         this.chainMax = 0;
         this.chainCount = 0;
         this.clearedPuyos = 0;
+        this.attackSent = 0; // APM計測用（相手へ送った実効火力の累積）
         this.chainScoreAdd = 0;
         this.chainScoreStr = "";
         // ★ 連鎖文字DOM(48px固定)の縮小率。online対戦の相手パペットが --ol-scale に

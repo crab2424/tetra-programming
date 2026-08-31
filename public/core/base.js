@@ -24,6 +24,27 @@ const SCREEN_HEIGHT = (ROWS_COUNT + VISIBLE_EXTRA_ROW_RATIO) * BLOCK_SIZE;
 const NEXT_AREA_SIZE = 160;
 
 // ─────────────────────────────────────────────
+// ★ アセット（音源・画像）のキャッシュ用バージョン
+//
+// public/_headers で /assets/audio/* と /assets/images/* に7日間のブラウザキャッシュを
+// 付けている。キャッシュが効いている間ブラウザはサーバーへ問い合わせないため、
+// 素材を差し替えたときに古いファイルが使われ続けないよう URL 側で世代を分ける。
+//
+// ★★ 音源(.ogg)や画像(.png)を差し替えたら、この数字を +1 すること ★★
+//     → URL が変わるので、全ユーザーが確実に新しいファイルを取り直す。
+//     （src/*.js の `?v=` を index.html 側で上げるのと同じ考え方。
+//       スクリプトと違って素材は参照箇所が多いので、ここ1箇所に集約している）
+//
+// 逆にこの数字が変わらない限り、ブラウザはキャッシュから読むだけで通信しない。
+// ─────────────────────────────────────────────
+const ASSET_VERSION = 1;
+
+// 素材URLにキャッシュ用バージョンを付ける。音源・画像の取得は必ずこれを通す。
+function assetUrl(path) {
+    return `${path}?v=${ASSET_VERSION}`;
+}
+
+// ─────────────────────────────────────────────
 // ★ミノのIDと画像ファイルの対応
 // 画像の色が合わない場合は、ここのファイル名を実際の色に合わせて入れ替えてください。
 // ─────────────────────────────────────────────
@@ -161,7 +182,7 @@ class Asset {
                     callback()
                 }
             }
-            img.src = BLOCK_SOURCES[i];
+            img.src = assetUrl(BLOCK_SOURCES[i]);
         }
     }
 }
@@ -654,8 +675,9 @@ class AudioLoader {
     }
 
     // BGMのsrcを登録（ロードはしない）
+    // 登録の時点でキャッシュ用バージョンを付けるので、呼び出し側は素のパスを書けばよい。
     static registerBgm(key, src) {
-        this._bgmSrcMap[key] = src;
+        this._bgmSrcMap[key] = assetUrl(src);
     }
 
     static getBgmSrc(key) {
@@ -665,14 +687,25 @@ class AudioLoader {
     // SE群を一括プリロード（起動時に呼ぶ）
     static loadSe(seMap) {
         // seMap: { key: src, ... }
-        const promises = Object.entries(seMap).map(([key, src]) => {
-            return fetch(src)
+        // ★ 同じ音源を複数キーで共有しているものがある（pause/resume, lock/lock_hard,
+        //   puyo_drop/puyo_fix）。キー単位で fetch すると同じURLを二重に取得し
+        //   decodeAudioData も二重に走るため、URL単位にまとめてから取得し、
+        //   得られた AudioBuffer を該当する全キーへ配る。
+        const keysBySrc = new Map();
+        for (const [key, src] of Object.entries(seMap)) {
+            const url = assetUrl(src);
+            if (!keysBySrc.has(url)) keysBySrc.set(url, []);
+            keysBySrc.get(url).push(key);
+        }
+
+        const promises = Array.from(keysBySrc, ([url, keys]) => {
+            return fetch(url)
                 .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
                 .then(buf => this.context.decodeAudioData(buf))
-                .then(decoded => { this._seBuffers[key] = decoded; })
+                .then(decoded => { for (const key of keys) this._seBuffers[key] = decoded; })
                 // 個別ファイルの欠損/デコード失敗で全体を巻き込まないようにする
                 // （音源未配置でもアプリは動作し、該当SEは無音になるだけ）
-                .catch(err => { console.warn(`[AudioLoader] SE "${key}" の読み込みに失敗: ${src}`, err); });
+                .catch(err => { console.warn(`[AudioLoader] SE "${keys.join('/')}" の読み込みに失敗: ${url}`, err); });
         });
         // 起動時プリロードの完了を待てるよう保持する（オンライン対戦のロード画面が参照する）
         this._seReady = Promise.all(promises);

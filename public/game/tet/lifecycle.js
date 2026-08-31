@@ -160,6 +160,7 @@ Object.assign(Game.prototype, {
         this.updateStatsDisplay();
         this.elapsedTime = 0;
         this.isTimerRunning = false;
+        this.attackSent = 0; // APM計測用（相手へ送った実効火力の累積）
 
         // リスタート時にタイマー表示をリセット
         this.updateTimeDisplay();
@@ -290,7 +291,7 @@ Object.assign(Game.prototype, {
         // シングルプレイの終了演出（FINISH!）を表示してからリザルトへ
         const finishText = isClear ? 'FINISH!' : 'GAME OVER';
         const finishClass = isClear ? 'finish-clear' : 'finish-gameover';
-        showFinishOverlay('finish-overlay', 'finish-text', finishText, finishClass, 1200, () => {
+        showFinishOverlay('finish-overlay', 'finish-text', finishText, finishClass, 1200, async () => {
             const timeEl = document.getElementById('time-value');
             const resultTitle = document.getElementById('result-title');
 
@@ -316,6 +317,32 @@ Object.assign(Game.prototype, {
                 document.getElementById('result-time').textContent = "--:--.--";
             } else {
                 document.getElementById('result-time').textContent = timeEl ? timeEl.textContent : '00:00.00';
+            }
+
+            // 最高記録の更新判定・表示（NEW RECORD!バッジ＋BEST行）。
+            // switchPage('result')より前に確定させる：result-stats等の登場アニメと同じ
+            // スタイル再計算パスに乗せないと、バッジだけ1フレーム遅れてアニメが生成されず
+            // 出現アニメなしでポップインして見える（非同期.then()内でDOM変更していたのが原因）。
+            const badge = document.getElementById('result-new-record');
+            const bestRow = document.getElementById('result-best-row');
+            const bestVal = document.getElementById('result-best-value');
+            if (typeof this._submitRecordIfEligible === 'function') {
+                const res = await this._submitRecordIfEligible(isClear);
+                if (badge) badge.style.display = (res && res.isNew) ? 'block' : 'none';
+                if (bestRow && bestVal) {
+                    if (res && res.record && window.Records) {
+                        const key = (this.mode === 'marathon')
+                            ? ((this.goalLines === Infinity) ? 'marathon:endless' : 'marathon:150')
+                            : (this.mode === 'sprint' ? 'sprint:40' : this.mode);
+                        bestVal.textContent = window.Records.format(key, res.record);
+                        bestRow.style.display = '';
+                    } else {
+                        bestRow.style.display = 'none';
+                    }
+                }
+            } else {
+                if (badge) badge.style.display = 'none';
+                if (bestRow) bestRow.style.display = 'none';
             }
 
             if (typeof switchPage === 'function') switchPage('result');
@@ -501,5 +528,12 @@ Object.assign(Game.prototype, {
         if (timeEl) {
             timeEl.textContent = formattedTime;
         }
+    },
+
+    // ポーズ時間を除いた実プレイ経過ms（APM/LPM・記録保存で使用）
+    getActiveMs() {
+        let ms = this.elapsedTime;
+        if (this.isTimerRunning) ms += performance.now() - this.startTime;
+        return ms;
     },
 });

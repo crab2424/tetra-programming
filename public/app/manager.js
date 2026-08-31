@@ -33,10 +33,11 @@ class GameManager {
             const gamePage = document.getElementById('game-page');
             if (!gamePage || !gamePage.classList.contains('active')) return;
 
-            const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { code: 'Escape' } };
+            const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { codes: ['Escape'] } };
+            const pauseCodes = (keys.pause && keys.pause.codes && keys.pause.codes.length) ? keys.pause.codes : ['Escape'];
 
             // 1. ポーズの処理（keydownの時のみ判定）
-            if (isDown && e.code === keys.pause.code) {
+            if (isDown && pauseCodes.includes(e.code)) {
                 if (!GameManager.state.isCountingDown) {
                     GameManager.togglePause();
                 }

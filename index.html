@@ -8,6 +8,12 @@
 
   <script type="module" src="/src/main.ts"></script>
 
+  <!-- Webフォント(Orbitron等)は src/css/base/variables.css の @import で読み込むため、
+       CSS を読み終わるまで接続先が判明せず待ちが直列化する。
+       接続の確立だけ先に済ませておき、フォント取得の立ち上がりを早める。 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
   <link rel="icon" href="favicon.ico" sizes="any" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="apple-touch-icon-precomposed" href="apple-touch-icon-precomposed.png" />
@@ -154,6 +160,7 @@
         <p id="mode-check-desc-ja" class="mode-check-desc-ja"></p>
         <p id="mode-check-desc-en" class="mode-check-desc-en"></p>
       </div>
+      <p id="mode-check-best" style="display: none"></p>
       <div id="mode-check-options" style="display: none; width: 100%; flex-direction: column; gap: 16px"></div>
       <div id="mode-check-controls">
         <p class="controls-title">CONTROLS</p>
@@ -369,11 +376,19 @@
               <span class="area-label">LINES</span>
               <span id="player-lines-value" class="versus-stat-value">0</span>
             </div>
+            <div class="versus-stat-block hud-apm-block versus-apm-lpm-player">
+              <span class="area-label">LPM</span>
+              <span id="player-lpm-value" class="versus-stat-value">--</span>
+            </div>
           </div>
           <div class="versus-stats-right">
             <div class="versus-stat-block">
               <span class="area-label">SCORE</span>
               <span id="player-score-value" class="versus-stat-value">0</span>
+            </div>
+            <div class="versus-stat-block hud-apm-block versus-apm-lpm-player">
+              <span class="area-label">APM</span>
+              <span id="player-apm-value" class="versus-stat-value">--</span>
             </div>
           </div>
         </div>
@@ -383,6 +398,9 @@
       <div id="versus-center">
         <div id="versus-vs-label">VS</div>
         <div id="versus-cpu-level-display"></div>
+        <div id="versus-time-display" class="hud-time-block">
+          <span id="versus-time-value" class="versus-time-value">00:00.00</span>
+        </div>
       </div>
 
       <!-- 右側：CPU -->
@@ -424,11 +442,19 @@
               <span class="area-label">LINES</span>
               <span id="cpu-lines-value" class="versus-stat-value">0</span>
             </div>
+            <div class="versus-stat-block hud-apm-block versus-apm-lpm-cpu">
+              <span class="area-label">LPM</span>
+              <span id="cpu-lpm-value" class="versus-stat-value">--</span>
+            </div>
           </div>
           <div class="versus-stats-right-cpu">
             <div class="versus-stat-block">
               <span class="area-label">SCORE</span>
               <span id="cpu-score-value" class="versus-stat-value">0</span>
+            </div>
+            <div class="versus-stat-block hud-apm-block versus-apm-lpm-cpu">
+              <span class="area-label">APM</span>
+              <span id="cpu-apm-value" class="versus-stat-value">--</span>
             </div>
           </div>
         </div>
@@ -874,6 +900,14 @@
         <span class="area-label">TIME</span>
         <span id="time-value">00:00.00</span>
       </div>
+      <div id="apm-area" class="hud-apm-block">
+        <span class="area-label">APM</span>
+        <span id="apm-value">--</span>
+      </div>
+      <div id="lpm-area" class="hud-apm-block">
+        <span class="area-label">LPM</span>
+        <span id="lpm-value">--</span>
+      </div>
       <div id="eval-area" style="display: none">
         <span class="area-label">EVAL</span>
         <div style="display: flex; align-items: baseline">
@@ -969,6 +1003,7 @@
   <div id="result-page" class="page">
     <div id="result-container">
       <h2 id="result-title">GAME OVER</h2>
+      <p id="result-new-record" style="display: none">NEW RECORD!</p>
       <div id="result-stats">
         <div class="result-stat-row">
           <span class="result-label" id="result-label-score">SCORE</span>
@@ -985,6 +1020,10 @@
         <div class="result-stat-row result-stat-time">
           <span class="result-label" id="result-label-time">TIME</span>
           <span class="result-value" id="result-time">00:00.00</span>
+        </div>
+        <div class="result-stat-row" id="result-best-row" style="display: none">
+          <span class="result-label">BEST</span>
+          <span class="result-value" id="result-best-value">—</span>
         </div>
       </div>
       <div id="result-buttons">
@@ -1041,11 +1080,11 @@
     <h2 style="margin-top: 32px; margin-bottom: 28px">⌨️🎮 KEY CONFIG</h2>
     <div class="key-config-grid" id="key-config-grid"></div>
     <p class="conflict-warning" id="conflict-warning">
-      ⚠ 同じキーが複数のアクションに割り当てられています
+      ⚠ 同じキー/ボタンが複数の項目に割り当てられています
     </p>
 
     <h2 style="margin-top: 32px; margin-bottom: 28px">🛠 TUNING (TET)</h2>
-    <div class="tuning-container">
+    <div class="tuning-container" id="tuning-tet-section">
       <div class="slider-row">
         <div class="slider-label">
           DAS <small>(Delayed Auto Shift)</small><span id="val-das">9.0f (150ms)</span>
@@ -1072,6 +1111,28 @@
         <div class="slider-markers">
           <span>0f</span><span>5f</span><span>10f</span>
         </div>
+      </div>
+    </div>
+
+    <h2 style="margin-top: 32px; margin-bottom: 28px">📊 DISPLAY</h2>
+    <div class="tuning-container" id="display-section">
+      <div class="option-row">
+        <span class="option-label">APM / LPM</span>
+        <div class="option-toggle" id="display-apm-toggle">
+          <button class="opt-btn" data-value="on" onclick="setDisplayOption('apm', true)">ON</button>
+          <button class="opt-btn" data-value="off" onclick="setDisplayOption('apm', false)">OFF</button>
+        </div>
+      </div>
+      <div class="option-row">
+        <span class="option-label">TIME (VERSUS)</span>
+        <div class="option-toggle" id="display-versus-time-toggle">
+          <button class="opt-btn" data-value="on" onclick="setDisplayOption('versusTime', true)">ON</button>
+          <button class="opt-btn" data-value="off" onclick="setDisplayOption('versusTime', false)">OFF</button>
+        </div>
+      </div>
+      <div class="option-row">
+        <span class="option-label">最高記録</span>
+        <button class="btn btn-reset-records" onclick="resetRecords()">RESET RECORDS</button>
       </div>
     </div>
 
@@ -1121,38 +1182,40 @@
     ───────────────────────────────────────────── -->
   <div id="external-pages"></div>
 
-  <script src="config/pages.js"></script>
-  <script src="core/base.js?v=3"></script>
-  <script src="core/particles.js"></script>
-  <script src="app/manager.js"></script>
-  <script src="config/settings.js"></script>
+  <script src="config/pages.js?v=2"></script>
+  <script src="core/base.js?v=4"></script>
+  <script src="core/particles.js?v=1"></script>
+  <script src="app/manager.js?v=1"></script>
+  <script src="config/settings.js?v=2"></script>
+  <script src="config/records.js?v=1"></script>
+  <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js"></script>
-  <script src="game/tet/lifecycle.js"></script>
-  <script src="game/tet/board.js"></script>
+  <script src="game/tet/lifecycle.js?v=2"></script>
+  <script src="game/tet/board.js?v=2"></script>
   <script src="game/tet/rotation.js"></script>
-  <script src="game/tet/scoring.js"></script>
+  <script src="game/tet/scoring.js?v=2"></script>
   <script src="game/tet/garbage.js"></script>
   <script src="game/tet/render.js"></script>
-  <script src="game/tet/input.js?v=1"></script>
+  <script src="game/tet/input.js?v=2"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
-  <script src="game/puyo/core.js?v=3"></script>
-  <script src="game/puyo/lifecycle.js?v=2"></script>
+  <script src="game/puyo/core.js?v=4"></script>
+  <script src="game/puyo/lifecycle.js?v=3"></script>
   <script src="game/puyo/connect.js"></script>
-  <script src="game/puyo/ojama.js?v=1"></script>
-  <script src="game/puyo/engine.js?v=3"></script>
-  <script src="game/puyo/input.js?v=3"></script>
+  <script src="game/puyo/ojama.js?v=3"></script>
+  <script src="game/puyo/engine.js?v=5"></script>
+  <script src="game/puyo/input.js?v=4"></script>
   <script src="game/puyo/draw.js?v=3"></script>
-  <script src="quiz/quiz.js"></script>
+  <script src="quiz/quiz.js?v=1"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
   <script src="app/modes.js"></script>
-  <script src="app/cpu_loader.js"></script>
-  <script src="app/versus.js"></script>
-  <script src="app/navigation.js"></script>
-  <script src="app/focus_nav.js?v=1"></script>
+  <script src="app/cpu_loader.js?v=1"></script>
+  <script src="app/versus.js?v=1"></script>
+  <script src="app/navigation.js?v=4"></script>
+  <script src="app/focus_nav.js?v=5"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 
