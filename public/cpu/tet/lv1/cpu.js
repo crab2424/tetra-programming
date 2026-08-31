@@ -38,6 +38,11 @@ window.CPU = class{
         this.isActive = false;
     }
 
+    isEvalDisplayVisible() {
+        if (!this._evalAreaEl) this._evalAreaEl = document.getElementById('eval-area');
+        return !!this._evalAreaEl && this._evalAreaEl.style.display !== 'none';
+    }
+
     updateLoop() {
         if (!this.isActive) return;
 
@@ -46,7 +51,8 @@ window.CPU = class{
             this.onMinoSpawned();
         }
 
-        if (this.game.mino && !this.game.isPaused) {
+        // ★EVAL表示(#eval-area)が非表示の間は毎フレームの盤面複製・評価をスキップする（トリガー=表示状態）
+        if (this.game.mino && !this.game.isPaused && this.isEvalDisplayVisible()) {
             this.updateGhostEval();
         }
 

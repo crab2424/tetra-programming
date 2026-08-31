@@ -54,7 +54,13 @@ function stopAllGames() {
         window._cpuController.stop();
     }
     window._cpuController = null;
-    unloadCpuScript();
+    // ★ ここで unloadCpuScript() は呼ばない。
+    //   stopAllGames() は startVersusGame() / startGameFromModeCheck() の冒頭でも走るため、
+    //   ここでアンロードすると loadCpuScript() の「同じクラスなら再利用する」短絡が
+    //   構造的に必ず空振りし、リスタート・再戦のたびに CPU のクラスJSを取り直していた。
+    //   コントローラの stop()（worker.terminate / RAF キャンセル / 着手予測オーバーレイ消去）は
+    //   上で必ず行っているので、残留バグの対策としては従来どおり十分。
+    //   スクリプト本体の破棄は switchPage() でメインメニュー / タイトルへ戻るときに行う。
 
     // カウントダウン・フィニッシュのオーバーレイを消去し、リセット
     document.querySelectorAll('.field-overlay').forEach(el => {
@@ -130,6 +136,8 @@ function setMarathonGoal(goal) {
   if (linesGoalEl && currentGameMode && currentGameMode.id === 'marathon') {
     linesGoalEl.textContent = goal === 'endless' ? '' : '/' + goal;
   }
+
+  renderModeCheckBest();
 }
 
 function updateMarathonLevelDisplay() {
@@ -178,6 +186,11 @@ function resetPageScroll() {
 }
 
 function switchPage(pageId) {
+  // キーコンフィグの入力待ち状態を残したまま設定画面から離れると、
+  // focus_nav.js のキーボードナビが「待機中バッジあり」判定のまま全ページで停止してしまう。
+  // ページ遷移のたびに必ず解除しておく（待機していなければ何もしない）。
+  if (typeof stopListeningBind === 'function') stopListeningBind();
+
   const currentActive = document.querySelector('.page.active');
   if (currentActive && currentActive.id !== 'settings-page') {
     window._prevPage = currentActive.id.replace('-page', '');
@@ -187,6 +200,11 @@ function switchPage(pageId) {
   // メインメニューやタイトルに戻る際はゲーム情報を完全に破棄
   if (pageId === 'main-menu' || pageId === 'title') {
     stopAllGames();
+    // ★ CPUスクリプトの破棄はここ（ゲーム文脈から完全に抜けるとき）だけで行う。
+    //   stopAllGames() 側でやってしまうとリスタート・再戦のたびに再ダウンロードになるため。
+    //   mode-check や vs-settings を経由して同じLVで再開する場合はロード済みのまま使い回し、
+    //   別のLVを選んだ場合は loadCpuScript() が中で unload→load してくれる。
+    unloadCpuScript();
     _switchToPuyoLayout(false);
     // ★ リザルト等から戻る際、流れていたBGMをぶつ切りにせず menu_bgm へクロスフェード
     //   （menu_bgm が既に流れていれば crossfadeTo は冪等に継続）
@@ -243,6 +261,15 @@ function switchPage(pageId) {
   const target = document.getElementById(pageId + '-page');
   if (target) target.classList.add('active');
 
+  // APM/LPM/TIME（HUD拡張）は前局の値をDOMに残したままなので、ゲーム画面へ入る瞬間に
+  // '--'へ戻す。ゲーム実体(window._game)の生成はこの後なので、reset しないと
+  // 前局の数値がREADY表示中まで残って見える。refresh() は監視タイマー(500ms)を
+  // 待たずにrAFループを起こすため（active付与後に呼ぶ必要がある）。
+  if ((pageId === 'game' || pageId === 'versus') && window.HudExtras) {
+    window.HudExtras.reset();
+    window.HudExtras.refresh();
+  }
+
   if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog'].includes(_animPageId)) {
       if (typeof initMenuAnimations === 'function') initMenuAnimations(_animPageId);
   } else {
@@ -263,14 +290,11 @@ function switchPage(pageId) {
   const header = document.getElementById('header-area');
   if (header) header.style.display = (pageId === 'settings') ? 'flex' : 'none';
 
-  if (pageId === 'game' || pageId === 'settings' || pageId === 'versus') {
-    if (typeof stopListening === 'function') stopListening();
-  }
-  
   if (pageId === 'settings') {
     if (typeof renderKeyConfig === 'function') renderKeyConfig();
     if (typeof renderTuning    === 'function') renderTuning();
     if (typeof renderVolume    === 'function') renderVolume();
+    if (typeof renderDisplayOptions === 'function') renderDisplayOptions();
   } else if (pageId === 'versus-check') {
     renderVersusCheck();
     renderVsSettingsSummary();
@@ -286,7 +310,7 @@ function switchPage(pageId) {
   // ★ キーボードフォーカスナビゲーション（focus_nav.js）
   if (window.FocusNav) {
     if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
-         'result','versus-result','quiz-result','settings'].includes(pageId)) {
+         'result','versus-result','quiz-result','settings','credits','changelog'].includes(pageId)) {
       window.FocusNav.activate(pageId);
     } else {
       window.FocusNav.deactivate();
@@ -304,6 +328,26 @@ function goToModeCheck(modeId) {
   }
 }
 
+
+// モード確認画面に自己ベストを表示（記録対象外モードでは非表示）
+function renderModeCheckBest() {
+  const el = document.getElementById('mode-check-best');
+  if (!el) return;
+  if (!window.Records) { el.style.display = 'none'; return; }
+
+  const mode = currentGameMode || GAME_MODES.marathon;
+  let key = null;
+  if (mode.id === 'marathon') key = (marathonSelectedGoal === 'endless') ? 'marathon:endless' : 'marathon:150';
+  else if (mode.id === 'sprint') key = 'sprint:40';
+  else if (mode.id === 'ultra') key = 'ultra';
+  else if (mode.id === 'puyo') key = 'puyo';
+
+  if (!key) { el.style.display = 'none'; return; }
+  const record = window.Records.get(key);
+  if (!record) { el.style.display = 'none'; return; }
+  el.innerHTML = `BEST <strong>${window.Records.format(key, record)}</strong>`;
+  el.style.display = '';
+}
 
 function renderModeCheck() {
   const mode = currentGameMode || GAME_MODES.marathon;
@@ -325,6 +369,8 @@ function renderModeCheck() {
 
   const descEnEl = document.getElementById('mode-check-desc-en');
   if (descEnEl) descEnEl.textContent = mode.descriptionEn;
+
+  renderModeCheckBest();
 
   const optionsEl = document.getElementById('mode-check-options');
   if (optionsEl) {
@@ -756,16 +802,17 @@ function setupGlobalCpuPauseKey() {
   if (window._globalCpuPauseHandler) {
     document.removeEventListener('keydown', window._globalCpuPauseHandler);
   }
-  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { code: 'Escape' } };
-  
+  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { codes: ['Escape'] } };
+  const pauseCodes = (keys.pause && keys.pause.codes && keys.pause.codes.length) ? keys.pause.codes : ['Escape'];
+
   window._globalCpuPauseHandler = function(e) {
     const gamePage = document.getElementById('game-page');
     // シングルプレイ画面以外なら何もしない
     if (!gamePage || !gamePage.classList.contains('active')) return;
-    
+
     // ★ ぷよ側は p_game.js 自身がポーズを処理するので、テト側のみここで補完する
     if (currentGameMode && currentGameMode.id === 'test' && testRule === 'tet' && window._game && window._game.isCpuControlled) {
-        if (e.code === keys.pause.code) {
+        if (pauseCodes.includes(e.code)) {
             if (e.defaultPrevented) return;
             e.preventDefault();
             

@@ -107,11 +107,11 @@ let selectedCpuLevel = 1;
 
 const CPU_CONFIGS = {
   tet: {
-    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js' },  
+    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=2' },
     2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js' },
     3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js' },
     4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=4' },
-    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=4' },
+    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=5' },
     6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=23' }
   },
   puyo: {

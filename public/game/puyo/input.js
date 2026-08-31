@@ -15,16 +15,28 @@ Object.assign(PuyoGame.prototype, {
         // ★ CPU操作モードであっても、PauseとRestartはプレイヤーの操作を受け付けるため、ここで早期リターンはしない
 
         const ks = (typeof loadKeys === 'function') ? loadKeys() : {};
-        this._keyMap = {
-            moveLeft: ks.moveLeft ? ks.moveLeft.code : 'ArrowLeft',
-            moveRight: ks.moveRight ? ks.moveRight.code : 'ArrowRight',
-            softDrop: ks.softDrop ? ks.softDrop.code : 'ArrowDown',
-            quickDrop: ks.hardDrop ? ks.hardDrop.code : 'Space', // ★ クイックドロップ追加
-            rotateCW: ks.rotateCW ? ks.rotateCW.code : 'ArrowUp',
-            rotateCCW: ks.rotateCCW ? ks.rotateCCW.code : 'KeyZ',
-            pause: ks.pause ? ks.pause.code : 'Escape',
-            restart: ks.restart ? ks.restart.code : 'KeyR',
+        // アクション名 → 割り当てキーcode一覧（1アクションに複数キーを割り当てられる）
+        const keyCodes = {
+            moveLeft: ks.moveLeft ? ks.moveLeft.codes : ['ArrowLeft'],
+            moveRight: ks.moveRight ? ks.moveRight.codes : ['ArrowRight'],
+            softDrop: ks.softDrop ? ks.softDrop.codes : ['ArrowDown'],
+            quickDrop: ks.hardDrop ? ks.hardDrop.codes : ['Space'], // ★ クイックドロップ追加
+            rotateCW: ks.rotateCW ? ks.rotateCW.codes : ['ArrowUp'],
+            rotateCCW: ks.rotateCCW ? ks.rotateCCW.codes : ['KeyZ'],
+            pause: ks.pause ? ks.pause.codes : ['Escape'],
+            restart: ks.restart ? ks.restart.codes : ['KeyR'],
         };
+        // _keys/engine.js からはアクション名そのものをキーとして参照する（identity map）。
+        // ゲームパッド側も同じ _keyMap 経由で this._keys[action] を書き込むため、
+        // キーボード/ゲームパッドどちらの入力でも同じフラグに反映される。
+        this._keyMap = {
+            moveLeft: 'moveLeft', moveRight: 'moveRight', softDrop: 'softDrop',
+            quickDrop: 'quickDrop', rotateCW: 'rotateCW', rotateCCW: 'rotateCCW',
+            pause: 'pause', restart: 'restart',
+        };
+        // 物理キーコードの押下状態。複数キーが同じアクションに割り当てられている場合、
+        // 片方を離してももう片方が押されていればアクション継続中として扱うために使う。
+        this._heldCodes = new Set();
 
         this._keyHandlerDown = (e) => {
             // ★ 【修正】待機中のインスタンスは無視
@@ -35,7 +47,7 @@ Object.assign(PuyoGame.prototype, {
             if (!gamePage || !gamePage.classList.contains('active')) return;
 
             // ★ PauseとRestartキーは、CPU操作時であっても処理を優先して通す
-            if (e.code === this._keyMap.restart) {
+            if (keyCodes.restart.includes(e.code)) {
                 e.preventDefault();
                 if (!this.isVersusMode) {
                     const pauseOverlay = document.getElementById('pause-overlay');
@@ -51,7 +63,7 @@ Object.assign(PuyoGame.prototype, {
                 return;
             }
 
-            if (e.code === this._keyMap.pause) {
+            if (keyCodes.pause.includes(e.code)) {
                 e.preventDefault();
                 if (!this.isVersusMode) {
                     this._onPauseKey();
@@ -63,16 +75,19 @@ Object.assign(PuyoGame.prototype, {
             if (this.isCpuControlled) return;
 
             const isRepeat = e.repeat;
-            this._keys[e.code] = true;
-
-            if (this._gs === 'spawnAnim' && !isRepeat) {
-                if (e.code === this._keyMap.moveLeft) this.inputBuffer.push('left');
-                if (e.code === this._keyMap.moveRight) this.inputBuffer.push('right');
-                if (e.code === this._keyMap.rotateCW) this.inputBuffer.push('cw');
-                if (e.code === this._keyMap.rotateCCW) this.inputBuffer.push('ccw');
+            this._heldCodes.add(e.code);
+            for (const action in keyCodes) {
+                if (keyCodes[action].includes(e.code)) this._keys[this._keyMap[action]] = true;
             }
 
-            if (e.code === this._keyMap.moveLeft) {
+            if (this._gs === 'spawnAnim' && !isRepeat) {
+                if (keyCodes.moveLeft.includes(e.code)) this.inputBuffer.push('left');
+                if (keyCodes.moveRight.includes(e.code)) this.inputBuffer.push('right');
+                if (keyCodes.rotateCW.includes(e.code)) this.inputBuffer.push('cw');
+                if (keyCodes.rotateCCW.includes(e.code)) this.inputBuffer.push('ccw');
+            }
+
+            if (keyCodes.moveLeft.includes(e.code)) {
                 e.preventDefault();
                 if (this._dasDir !== -1) {
                     this._dasDir = -1;
@@ -80,7 +95,7 @@ Object.assign(PuyoGame.prototype, {
                     this._arrTimer = 0;
                     if (this._gs === 'falling') this._tryMove(-1);
                 }
-            } else if (e.code === this._keyMap.moveRight) {
+            } else if (keyCodes.moveRight.includes(e.code)) {
                 e.preventDefault();
                 if (this._dasDir !== 1) {
                     this._dasDir = 1;
@@ -94,17 +109,17 @@ Object.assign(PuyoGame.prototype, {
 
             // ★ クイックドロップ処理の追加
             // ★ キーリピート（長押し）時は受け付けない（1回押し直したときのみ有効）
-            if (e.code === this._keyMap.quickDrop) {
+            if (keyCodes.quickDrop.includes(e.code)) {
                 e.preventDefault();
                 if (!isRepeat) this._tryQuickDrop();
                 return;
             }
 
             // ★ 回転もキーリピート時は受け付けない（1回押し直したときのみ有効）
-            if (e.code === this._keyMap.rotateCW) {
+            if (keyCodes.rotateCW.includes(e.code)) {
                 e.preventDefault();
                 if (!isRepeat) this._tryRotate(1);
-            } else if (e.code === this._keyMap.rotateCCW) {
+            } else if (keyCodes.rotateCCW.includes(e.code)) {
                 e.preventDefault();
                 if (!isRepeat) this._tryRotate(-1);
             }
@@ -114,9 +129,14 @@ Object.assign(PuyoGame.prototype, {
             // ★ CPU制御時はキーの解放も無視する
             if (this.isCpuControlled) return;
 
-            delete this._keys[e.code];
-            if (e.code === this._keyMap.moveLeft && this._dasDir === -1) this._dasDir = 0;
-            if (e.code === this._keyMap.moveRight && this._dasDir === 1) this._dasDir = 0;
+            this._heldCodes.delete(e.code);
+            for (const action in keyCodes) {
+                if (keyCodes[action].includes(e.code) && !keyCodes[action].some(c => this._heldCodes.has(c))) {
+                    delete this._keys[this._keyMap[action]];
+                }
+            }
+            if (keyCodes.moveLeft.includes(e.code) && this._dasDir === -1 && !this._keys[this._keyMap.moveLeft]) this._dasDir = 0;
+            if (keyCodes.moveRight.includes(e.code) && this._dasDir === 1 && !this._keys[this._keyMap.moveRight]) this._dasDir = 0;
         };
 
         document.addEventListener('keydown', this._keyHandlerDown);

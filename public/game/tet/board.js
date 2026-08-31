@@ -100,6 +100,14 @@ Object.assign(Game.prototype, {
         let generatedGarbage = this.Scoring(tSpinResult, linesCleared, isPerfectClear);
         this.updateStatsDisplay();
 
+        // APM計測（生成基準）：相殺・対戦有無に関わらず、この設置で生成した火力をそのまま積む。
+        // 相殺で無駄になった火力も評価対象にする／シングルプレイでも計測できるようにするため、
+        // 送信直前ではなくここで数える（呼び出し側で数える理由はsendGarbageがonlineで丸ごと
+        // 上書きされるためだが、生成基準に変えた今はそもそも送信経路を通らなくても数えられる）。
+        if (generatedGarbage > 0) {
+            this._countAttackSent(generatedGarbage);
+        }
+
         if (tSpinResult !== null || isB2BTriggered || currentRen > 0 || isPerfectClear || is4Lines) {
             this.showActionLabels(tSpinResult, linesCleared, isB2BTriggered, currentRen, isPerfectClear, is4Lines);
         }

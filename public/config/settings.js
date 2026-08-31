@@ -3,21 +3,23 @@
 // キーコンフィグおよびチューニング設定画面の UI ロジック
 // ─────────────────────────────────────────────
 
-// ─── デフォルトキー設定 ───────────────────────
+// ─── デフォルトキー/ボタン割り当て ───────────────────────
+// 各アクションにつき最大3枠。枠ごとにキーボード(type:'key')／ゲームパッド(type:'button'|'axis')
+// のどちらでも割り当てられる（枠の位置による制限はない）。空き枠は null。
 /**
- * キーコードと表示ラベルのマッピング (またはデフォルト設定)
- * @type {Object.<string, {code: string, label: string}>}
+ * @typedef {{type:'key', code:string, label:string} | {type:'button'|'axis', index:number} | null} Bind
+ * @type {Object.<string, [Bind, Bind, Bind]>}
  */
-const DEFAULT_KEYS = {
-  moveLeft: { code: 'ArrowLeft', label: '←' },
-  moveRight: { code: 'ArrowRight', label: '→' },
-  softDrop: { code: 'ArrowDown', label: '↓' },
-  hardDrop: { code: 'Space', label: 'SPACE' },
-  rotateCW: { code: 'ArrowUp', label: '↑' },
-  rotateCCW: { code: 'KeyZ', label: 'Z' },
-  hold: { code: 'ShiftLeft', label: 'SHIFT' },
-  pause: { code: 'Escape', label: 'ESC' },
-  restart: { code: 'KeyR', label: 'R' },
+const DEFAULT_BINDS = {
+  moveLeft: [{ type: 'key', code: 'ArrowLeft', label: '←' }, { type: 'button', index: 14 }, null],
+  moveRight: [{ type: 'key', code: 'ArrowRight', label: '→' }, { type: 'button', index: 15 }, null],
+  softDrop: [{ type: 'key', code: 'ArrowDown', label: '↓' }, { type: 'button', index: 13 }, null],
+  hardDrop: [{ type: 'key', code: 'Space', label: 'SPACE' }, { type: 'button', index: 12 }, null],
+  rotateCW: [{ type: 'key', code: 'ArrowUp', label: '↑' }, { type: 'button', index: 0 }, null],
+  rotateCCW: [{ type: 'key', code: 'KeyZ', label: 'Z' }, { type: 'button', index: 1 }, null],
+  hold: [{ type: 'key', code: 'ShiftLeft', label: 'SHIFT' }, { type: 'button', index: 4 }, { type: 'button', index: 5 }],
+  pause: [{ type: 'key', code: 'Escape', label: 'ESC' }, { type: 'button', index: 9 }, null],
+  restart: [{ type: 'key', code: 'KeyR', label: 'R' }, { type: 'button', index: 8 }, null],
 };
 
 const ACTION_LABELS = {
@@ -48,6 +50,37 @@ const DEFAULT_VOLUME = {
   se: 0.8,
 };
 
+// ─── デフォルト表示設定（上級者向けHUD要素のON/OFF） ─────────
+const DEFAULT_DISPLAY = {
+  apm: false,       // APM/LPM表示（シングル・対戦とも）
+  versusTime: true, // 対戦画面のTIME表示
+};
+
+function loadDisplay() {
+  const saved = localStorage.getItem('game_display');
+  if (saved) {
+    try { return { ...DEFAULT_DISPLAY, ...JSON.parse(saved) }; }
+    catch (e) { localStorage.removeItem('game_display'); }
+  }
+  return { ...DEFAULT_DISPLAY };
+}
+
+let currentDisplay = loadDisplay();
+// トップレベルlet/constはwindowに乗らないため、TS側(src/online/*)から参照できるよう
+// 明示的にエイリアスする（以後はcurrentDisplayへのプロパティ変更がそのまま反映される）
+window.currentDisplay = currentDisplay;
+
+function saveDisplay() {
+  localStorage.setItem('game_display', JSON.stringify(currentDisplay));
+}
+
+// APM/LPM・対戦TIMEの表示可否をbodyクラスへ反映する（CSS側はbodyクラスで一括制御）
+function applyDisplayClasses() {
+  document.body.classList.toggle('hud-apm-visible', !!currentDisplay.apm);
+  document.body.classList.toggle('hud-versus-time-visible', !!currentDisplay.versusTime);
+}
+applyDisplayClasses();
+
 function loadVolume() {
   const saved = localStorage.getItem('game_volume');
   if (saved) {
@@ -60,35 +93,150 @@ function loadVolume() {
 let currentVolume = loadVolume();
 
 /**
- * キー設定 (初期化時に読み込まれる)
- * @type {Object.<string, {code: string, label: string}>}
+ * キー/ボタン割り当て (初期化時に読み込まれる。各アクション最大3枠)
+ * @type {Object.<string, [Bind, Bind, Bind]>}
  */
-let currentKeys = loadKeys();
+let currentBinds = loadBinds();
+
+/**
+ * currentBinds から導出する後方互換ビュー。
+ * currentKeys[action] = { code, label, codes[] } … codes は割り当て済みキーのcode一覧（0〜3個）
+ * currentGamepadConfig[action] = [{type:'button'|'axis', index}, ...] … ボタン/軸の一覧（0〜3個）
+ * ゲーム側(input.js等)やメニュー表示側は従来通りこの2つのグローバルを参照する。
+ * @type {Object.<string, {code: string, label: string, codes: string[]}>}
+ */
+let currentKeys = {};
+/** @type {Object.<string, Array<{type:string, index:number}>>} */
+let currentGamepadConfig = {};
+recomputeDerivedBinds();
 
 /**
  * チューニング設定
  * @type {{das: number, arr: number, dcd: number}}
  */
 let currentTuning = loadTuning();
-let listeningAction = null;
-let _onKeyDown = null;
-// ゲームパッド設定
-let currentGamepadConfig = loadGamepadConfig();
+// 入力待ち状態（キーボード/ゲームパッド共通の単一セッション。同時に片方だけが待機する）
+let listeningBind = null; // { action: string, slot: number }
+let _listenKeydownHandler = null;
+let _listenGamepadInterval = null;
+let _listenPrevButtons = null;
+// ゲームパッド設定（デッドゾーン等、割り当てとは別の設定）
 let currentGamepadOptions = loadGamepadOptions();
-let listeningGamepad = null; // { action: string, slot: number }
-let _gpListenInterval = null;
 
-function loadKeys() {
-  const saved = localStorage.getItem('game_keyconfig');
+function normalizeBind(b) {
+  if (!b || typeof b !== 'object') return null;
+  if (b.type === 'key' && typeof b.code === 'string' && b.code) {
+    return { type: 'key', code: b.code, label: (typeof b.label === 'string' && b.label) ? b.label : b.code };
+  }
+  if ((b.type === 'button' || b.type === 'axis') && Number.isFinite(b.index)) {
+    return { type: b.type, index: b.index };
+  }
+  return null;
+}
+
+function normalizeBinds(raw) {
+  const out = {};
+  for (const action in DEFAULT_BINDS) {
+    const arr = Array.isArray(raw && raw[action]) ? raw[action] : DEFAULT_BINDS[action];
+    out[action] = [0, 1, 2].map(i => normalizeBind(arr[i]));
+  }
+  return out;
+}
+
+// 導出: currentBinds から currentKeys(キーボード用) / currentGamepadConfig(パッド用) を再構築する。
+// currentBinds を書き換えた後は必ず呼ぶこと。
+function recomputeDerivedBinds() {
+  const keys = {};
+  const gp = {};
+  for (const action in currentBinds) {
+    const slots = currentBinds[action];
+    const keyBinds = slots.filter(b => b && b.type === 'key');
+    const gpBinds = slots.filter(b => b && (b.type === 'button' || b.type === 'axis'));
+    const first = keyBinds[0];
+    keys[action] = {
+      code: first ? first.code : '',
+      label: first ? first.label : '',
+      codes: keyBinds.map(b => b.code),
+    };
+    gp[action] = gpBinds.map(b => ({ type: b.type, index: b.index }));
+  }
+  currentKeys = keys;
+  currentGamepadConfig = gp;
+}
+
+// 旧形式(game_keyconfig + game_gamepadconfig)からの一度きりの移行。
+// game_binds が既にあれば何もしない。
+function migrateLegacyBinds() {
+  let keyCfg = null, gpCfg = null;
+  try {
+    const raw = localStorage.getItem('game_keyconfig');
+    if (raw) keyCfg = JSON.parse(raw);
+  } catch (e) { localStorage.removeItem('game_keyconfig'); }
+  try {
+    const raw = localStorage.getItem('game_gamepadconfig');
+    if (raw) gpCfg = JSON.parse(raw);
+  } catch (e) { localStorage.removeItem('game_gamepadconfig'); }
+  if (!keyCfg && !gpCfg) return null;
+
+  const out = {};
+  for (const action in DEFAULT_BINDS) {
+    const kb = keyCfg && keyCfg[action] && typeof keyCfg[action].code === 'string'
+      ? { type: 'key', code: keyCfg[action].code, label: keyCfg[action].label || keyCfg[action].code }
+      : DEFAULT_BINDS[action][0];
+    let gpList = gpCfg ? gpCfg[action] : null;
+    if (!Array.isArray(gpList)) gpList = gpList ? [gpList] : [];
+    const gp0 = gpList[0] ? normalizeBind(gpList[0]) : null;
+    const gp1 = gpList[1] ? normalizeBind(gpList[1]) : null;
+    out[action] = [kb, gp0, gp1];
+  }
+  return out;
+}
+
+function loadBinds() {
+  const saved = localStorage.getItem('game_binds');
   if (saved) {
     try {
-      return { ...DEFAULT_KEYS, ...JSON.parse(saved) };
+      return normalizeBinds(JSON.parse(saved));
     } catch (e) {
-      // JSON-parseエラーしか起きないので、エラーが起きたら保存データをリセットする
-      localStorage.removeItem('game_keyconfig');
+      localStorage.removeItem('game_binds');
     }
   }
-  return JSON.parse(JSON.stringify(DEFAULT_KEYS));
+  const migrated = migrateLegacyBinds();
+  if (migrated) return normalizeBinds(migrated);
+  return normalizeBinds(DEFAULT_BINDS);
+}
+
+function saveBinds() {
+  localStorage.setItem('game_binds', JSON.stringify(currentBinds));
+}
+
+// 後方互換: ゲームエンジン側(input.js等)はこの関数でキー設定を取得する。
+// currentKeys と等価な内容を常に最新のlocalStorageから読み直して返す。
+function loadKeys() {
+  const binds = loadBinds();
+  const keys = {};
+  for (const action in binds) {
+    const keyBinds = binds[action].filter(b => b && b.type === 'key');
+    const first = keyBinds[0];
+    keys[action] = {
+      code: first ? first.code : '',
+      label: first ? first.label : '',
+      codes: keyBinds.map(b => b.code),
+    };
+  }
+  return keys;
+}
+
+// 後方互換: ゲームエンジン側はこの関数でパッド割り当てを取得する。
+function loadGamepadConfig() {
+  const binds = loadBinds();
+  const gp = {};
+  for (const action in binds) {
+    gp[action] = binds[action]
+      .filter(b => b && (b.type === 'button' || b.type === 'axis'))
+      .map(b => ({ type: b.type, index: b.index }));
+  }
+  return gp;
 }
 
 function loadTuning() {
@@ -101,49 +249,6 @@ function loadTuning() {
     }
   }
   return JSON.parse(JSON.stringify(DEFAULT_TUNING));
-}
-
-function loadGamepadConfig() {
-  const DEFAULT_GAMEPAD = {
-    moveLeft: [{ type: 'button', index: 14 }],
-    moveRight: [{ type: 'button', index: 15 }],
-    softDrop: [{ type: 'button', index: 13 }],
-    hardDrop: [{ type: 'button', index: 12 }],
-    rotateCW: [{ type: 'button', index: 0 }],
-    rotateCCW: [{ type: 'button', index: 1 }],
-    hold: [{ type: 'button', index: 4 }, { type: 'button', index: 5 }],
-    pause: [{ type: 'button', index: 9 }],
-    restart: [{ type: 'button', index: 8 }],
-  };
-
-  const normalize = (raw) => {
-    const out = {};
-    for (const action in DEFAULT_GAMEPAD) {
-      const v = raw && raw[action];
-      if (Array.isArray(v)) {
-        out[action] = v.slice(0, 2);
-      } else if (v && typeof v === 'object') {
-        out[action] = [v];
-      } else {
-        out[action] = DEFAULT_GAMEPAD[action];
-      }
-    }
-    return out;
-  };
-
-  const saved = localStorage.getItem('game_gamepadconfig');
-  if (saved) {
-    try {
-      return normalize({ ...DEFAULT_GAMEPAD, ...JSON.parse(saved) });
-    } catch (e) {
-      localStorage.removeItem('game_gamepadconfig');
-    }
-  }
-  return normalize(DEFAULT_GAMEPAD);
-}
-
-function saveGamepadConfig() {
-  localStorage.setItem('game_gamepadconfig', JSON.stringify(currentGamepadConfig));
 }
 
 function loadGamepadOptions() {
@@ -236,19 +341,24 @@ function getGamepadAlias(index, vendor) {
 //   if (target) target.classList.add('active');
 
 // ─── 設定画面の描画 (キー) ────────────────────
+function formatBindLabel(bind) {
+  if (!bind) return '';
+  if (bind.type === 'key') return bind.label || bind.code;
+  return formatGamepadLabel(bind);
+}
+
 function renderKeyConfig() {
   const grid = document.getElementById('key-config-grid');
   grid.innerHTML = '';
 
   for (const action in ACTION_LABELS) {
     const info = ACTION_LABELS[action];
-    const keyInfo = currentKeys[action];
+    const slots = currentBinds[action];
 
-    const gpBinds = Array.isArray(currentGamepadConfig[action])
-      ? currentGamepadConfig[action]
-      : (currentGamepadConfig[action] ? [currentGamepadConfig[action]] : []);
-    const gp0 = gpBinds[0] || null;
-    const gp1 = gpBinds[1] || null;
+    const badges = [0, 1, 2].map(i => `
+        <div class="key-badge bind-badge" id="bind-${action}-${i}" onclick="startListeningBind('${action}', ${i})">
+          ${formatBindLabel(slots[i]) || '+'}
+        </div>`).join('');
 
     const row = document.createElement('div');
     row.className = 'key-row';
@@ -257,17 +367,7 @@ function renderKeyConfig() {
         ${info.name}
         <small>${info.en}</small>
       </div>
-      <div class="key-badge" id="badge-${action}" onclick="startListening('${action}')">
-        ${keyInfo.label}
-      </div>
-      <div class="gp-bind-group">
-        <div class="key-badge gp-badge" id="gpb-${action}-0" onclick="startListeningGamepad('${action}', 0)">
-          ${formatGamepadLabel(gp0) || '未設定'}
-        </div>
-        <div class="key-badge gp-badge" id="gpb-${action}-1" onclick="startListeningGamepad('${action}', 1)">
-          ${formatGamepadLabel(gp1) || '+'}
-        </div>
-      </div>
+      <div class="bind-group">${badges}</div>
     `;
     grid.appendChild(row);
   }
@@ -317,6 +417,37 @@ function updateTuningDisplay() {
   currentTuning.dcd = dcdF;
 }
 
+// ─── DISPLAY設定（APM/LPM・対戦TIME表示のON/OFF） ────────
+function renderDisplayOptions() {
+  const apmToggle = document.getElementById('display-apm-toggle');
+  if (apmToggle) {
+    apmToggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.apm);
+    });
+  }
+  const timeToggle = document.getElementById('display-versus-time-toggle');
+  if (timeToggle) {
+    timeToggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.versusTime);
+    });
+  }
+}
+
+// クリックで即時反映・即時保存（TUNING/VOLUMEと異なりSAVEボタンを介さない）
+function setDisplayOption(key, value) {
+  currentDisplay[key] = value;
+  saveDisplay();
+  renderDisplayOptions();
+  applyDisplayClasses();
+}
+
+function resetRecords() {
+  if (!window.Records) return;
+  if (!confirm('保存されている最高記録をすべて消去します。よろしいですか？')) return;
+  window.Records.reset();
+  showToast();
+}
+
 function renderGamepadOptions() {
   const slider = document.getElementById('slider-deadzone');
   const label = document.getElementById('val-deadzone');
@@ -350,38 +481,80 @@ const _deadzoneSlider = document.getElementById('slider-deadzone');
 if (_deadzoneSlider) _deadzoneSlider.addEventListener('input', updateGamepadOptionsDisplay);
 
 
-// ─── キー入力待ち ─────────────────────────
-function startListening(action) {
-  // 同じボタンをもう一度押すとキャンセル
-  if (listeningAction === action) {
-    stopListening();
+// ─── 入力待ち（キーボード/ゲームパッド共通の単一セッション） ─────────────────
+// 1枠につきキーボードのキー入力とゲームパッドのボタン押下を同時に待ち受け、
+// 先に検出できた方をその枠に割り当てる。待機中に別の枠をクリックすると
+// 今の待機は解除されてから新しい枠の待機が始まる（同じ枠を再クリックした場合はキャンセルのみ）。
+// 待機中に Delete / BackSpace を押すとその枠の割り当てを解除する。
+function startListeningBind(action, slot) {
+  if (listeningBind && listeningBind.action === action && listeningBind.slot === slot) {
+    stopListeningBind();
     return;
   }
-  stopListening();
-  listeningAction = action;
+  stopListeningBind();
+  listeningBind = { action, slot };
 
-  const badge = document.getElementById('badge-' + action);
-  if (badge) { badge.classList.add('listening'); badge.textContent = 'キーを入力...'; }
+  const badge = document.getElementById(`bind-${action}-${slot}`);
+  if (badge) { badge.classList.add('listening'); badge.textContent = '入力待ち...'; }
 
-  _onKeyDown = function (e) {
+  _listenKeydownHandler = function (e) {
     e.preventDefault();
-    currentKeys[action] = { code: e.code, label: getKeyLabel(e) };
-    stopListening();
-    renderKeyConfig();
+    if (e.code === 'Delete' || e.code === 'Backspace') {
+      setBind(action, slot, null);
+      stopListeningBind();
+      return;
+    }
+    setBind(action, slot, { type: 'key', code: e.code, label: getKeyLabel(e) });
+    stopListeningBind();
   };
-  document.addEventListener('keydown', _onKeyDown);
+  document.addEventListener('keydown', _listenKeydownHandler);
+
+  _listenPrevButtons = null;
+  _listenGamepadInterval = setInterval(() => {
+    const pads = (navigator.getGamepads) ? navigator.getGamepads() : [];
+    let pad = null;
+    for (let i = 0; i < pads.length; i++) { if (pads[i]) { pad = pads[i]; break } }
+    if (!pad) return;
+    // 初回に prev を初期化
+    if (!_listenPrevButtons) { _listenPrevButtons = pad.buttons.map(b => !!(b && b.pressed)); return; }
+    for (let i = 0; i < pad.buttons.length; i++) {
+      const pressed = !!(pad.buttons[i] && pad.buttons[i].pressed);
+      if (pressed && !_listenPrevButtons[i]) {
+        setBind(action, slot, { type: 'button', index: i });
+        stopListeningBind();
+        return;
+      }
+    }
+    _listenPrevButtons = pad.buttons.map(b => !!(b && b.pressed));
+  }, 100);
 }
 
-function stopListening() {
-  if (_onKeyDown) {
-    document.removeEventListener('keydown', _onKeyDown);
-    _onKeyDown = null;
+function stopListeningBind() {
+  if (_listenKeydownHandler) {
+    document.removeEventListener('keydown', _listenKeydownHandler);
+    _listenKeydownHandler = null;
   }
-  if (listeningAction) {
-    const badge = document.getElementById('badge-' + listeningAction);
-    if (badge) badge.classList.remove('listening');
-    listeningAction = null;
+  if (_listenGamepadInterval) {
+    clearInterval(_listenGamepadInterval);
+    _listenGamepadInterval = null;
   }
+  _listenPrevButtons = null;
+  if (listeningBind) {
+    const { action, slot } = listeningBind;
+    const badge = document.getElementById(`bind-${action}-${slot}`);
+    if (badge) {
+      badge.classList.remove('listening');
+      badge.textContent = formatBindLabel(currentBinds[action][slot]) || '+';
+    }
+    listeningBind = null;
+  }
+}
+
+function setBind(action, slot, bind) {
+  currentBinds[action][slot] = bind;
+  recomputeDerivedBinds();
+  renderKeyConfig();
+  updateMenuControlsDisplay();
 }
 
 function getKeyLabel(e) {
@@ -407,34 +580,44 @@ function getKeyLabel(e) {
   return e.code.replace('Key', '').replace('Digit', '');
 }
 
+// キー同士・ボタン同士の重複を全枠横断でチェックする（枠の位置は問わない）
 function checkConflicts() {
-  const codes = Object.values(currentKeys).map(k => k.code);
-  const hasDup = codes.length !== new Set(codes).size;
-
-  document.getElementById('conflict-warning').classList.toggle('show', hasDup);
+  const identity = (b) => b ? (b.type === 'key' ? ('key:' + b.code) : (b.type + ':' + b.index)) : null;
 
   const count = {};
-  codes.forEach(c => { count[c] = (count[c] || 0) + 1; });
-
-  for (const action in currentKeys) {
-    const badge = document.getElementById('badge-' + action);
-    if (!badge) continue;
-    const isDup = count[currentKeys[action].code] > 1;
-    badge.style.borderColor = isDup ? 'var(--danger)' : '';
-    badge.style.color = isDup ? 'var(--danger)' : '';
+  for (const action in currentBinds) {
+    currentBinds[action].forEach(b => {
+      const id = identity(b);
+      if (id) count[id] = (count[id] || 0) + 1;
+    });
   }
+
+  let hasDup = false;
+  for (const action in currentBinds) {
+    currentBinds[action].forEach((b, i) => {
+      const badge = document.getElementById(`bind-${action}-${i}`);
+      if (!badge) return;
+      const id = identity(b);
+      const isDup = !!id && count[id] > 1;
+      if (isDup) hasDup = true;
+      badge.style.borderColor = isDup ? 'var(--danger)' : '';
+      badge.style.color = isDup ? 'var(--danger)' : '';
+    });
+  }
+
+  const warnEl = document.getElementById('conflict-warning');
+  if (warnEl) warnEl.classList.toggle('show', hasDup);
 
   return hasDup;
 }
 
 function resetToDefaults() {
-  currentKeys = JSON.parse(JSON.stringify(DEFAULT_KEYS));
+  currentBinds = normalizeBinds(JSON.parse(JSON.stringify(DEFAULT_BINDS)));
+  recomputeDerivedBinds();
   currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
   currentVolume = JSON.parse(JSON.stringify(DEFAULT_VOLUME));
-  localStorage.removeItem('game_gamepadconfig');
+  currentGamepadOptions = { deadzone: 0.45 };
   localStorage.removeItem('game_gamepad_options');
-  currentGamepadConfig = loadGamepadConfig();
-  currentGamepadOptions = loadGamepadOptions();
   localStorage.removeItem('tetlaboServerUrl');
   renderKeyConfig();
   renderTuning();
@@ -449,65 +632,6 @@ function showToast() {
   if (!toast) return;
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 2000);
-}
-
-// ゲームパッド向けのキー受け取り
-function startListeningGamepad(action, slot = 0) {
-  // 同じボタンをもう一度押すとキャンセル
-  if (listeningGamepad && listeningGamepad.action === action && listeningGamepad.slot === slot) {
-    stopListeningGamepad();
-    return;
-  }
-  stopListeningGamepad();
-  listeningGamepad = { action, slot };
-
-  const badge = document.getElementById(`gpb-${action}-${slot}`);
-  if (badge) { badge.classList.add('listening'); badge.textContent = 'ボタンを入力...'; }
-
-  // 前状態を取り、ポーリングで押下を検出する
-  let prev = [];
-  _gpListenInterval = setInterval(() => {
-    const pads = (navigator.getGamepads) ? navigator.getGamepads() : [];
-    let pad = null;
-    for (let i = 0; i < pads.length; i++) { if (pads[i]) { pad = pads[i]; break } }
-    if (!pad) return;
-    // 初回に prev を初期化
-    if (prev.length === 0) { prev = pad.buttons.map(b => !!(b && b.pressed)); return; }
-    for (let i = 0; i < pad.buttons.length; i++) {
-      const pressed = !!(pad.buttons[i] && pad.buttons[i].pressed);
-      if (pressed && !prev[i]) {
-        // 新規押下を検出 -> 保存
-        const arr = Array.isArray(currentGamepadConfig[action])
-          ? currentGamepadConfig[action].slice(0, 2)
-          : (currentGamepadConfig[action] ? [currentGamepadConfig[action]] : []);
-        arr[slot] = { type: 'button', index: i };
-        currentGamepadConfig[action] = arr.filter(Boolean).slice(0, 2);
-        saveGamepadConfig();
-        stopListeningGamepad();
-        renderKeyConfig();
-        updateMenuControlsDisplay();
-        return;
-      }
-    }
-    prev = pad.buttons.map(b => !!(b && b.pressed));
-  }, 100);
-}
-
-function stopListeningGamepad() {
-  if (_gpListenInterval) { clearInterval(_gpListenInterval); _gpListenInterval = null; }
-  if (listeningGamepad) {
-    const { action, slot } = listeningGamepad;
-    const badge = document.getElementById(`gpb-${action}-${slot}`);
-    const arr = Array.isArray(currentGamepadConfig[action])
-      ? currentGamepadConfig[action]
-      : (currentGamepadConfig[action] ? [currentGamepadConfig[action]] : []);
-    const mapping = arr[slot] || null;
-    if (badge) {
-      badge.classList.remove('listening');
-      badge.textContent = formatGamepadLabel(mapping) || (slot === 0 ? '未設定' : '+');
-    }
-    listeningGamepad = null;
-  }
 }
 
 // メインメニューのコントロール表示を更新する関数
@@ -559,10 +683,9 @@ function updateMenuControlsDisplay() {
 
 // 既存の saveSettings 関数を書き換えて、保存時にメニュー表示も更新するようにします
 function saveSettings() {
-  localStorage.setItem('game_keyconfig', JSON.stringify(currentKeys));
+  saveBinds();
   localStorage.setItem('game_tuning', JSON.stringify(currentTuning));
   localStorage.setItem('game_volume', JSON.stringify(currentVolume));
-  saveGamepadConfig();
   saveGamepadOptions();
   if (window._game && typeof window._game.setKeyEvent === 'function'
     && currentGameMode && currentGameMode.id !== 'puyo') window._game.setKeyEvent();
@@ -589,6 +712,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderKeyConfig();
   renderTuning();
   renderVolume();
+  renderDisplayOptions();
   renderGamepadOptions();
   renderOnlineSettings();
   updateMenuControlsDisplay(); // ★追加：初期表示でも実行

@@ -1292,7 +1292,7 @@ function _getPuyoImg(colorId) {
     // フォールバック：共有画像が未ロードのときのみ独自にロードする
     if (_puyoImgCache[colorId]) return _puyoImgCache[colorId];
     const img = new Image();
-    img.src = PConfig.imagePath + fileName;
+    img.src = assetUrl(PConfig.imagePath + fileName);
     _puyoImgCache[colorId] = img;
     return img;
 }

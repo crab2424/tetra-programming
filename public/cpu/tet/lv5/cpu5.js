@@ -565,9 +565,14 @@ window.CPU5 = class {
         }
     }
 
+    isEvalDisplayVisible() {
+        if (!this._evalAreaEl) this._evalAreaEl = document.getElementById('eval-area');
+        return !!this._evalAreaEl && this._evalAreaEl.style.display !== 'none';
+    }
+
     updateLoop() {
         if (!this.isActive) return;
-        
+
         if (this.game.mino && this.game.mino !== this.currentMino) {
             this.currentMino = this.game.mino;
             this.onMinoSpawned();
@@ -578,14 +583,15 @@ window.CPU5 = class {
             let gy = this.getGhostY();
             let rot = this.game.mino.rotation;
             let type = this.game.mino.type;
-            
+
             let stateStr = `${type}_${gx}_${gy}_${rot}`;
             if (this.lastGhostState !== stateStr) {
                 this.lastGhostState = stateStr;
                 this.pendingGhostState = { type, rot, x: gx, y: gy };
             }
 
-            if (this.pendingGhostState && !this.isCalculating && !this.isCalculatingSingle) {
+            // ★EVAL表示(#eval-area)が非表示の間は評価Worker通信自体をスキップする（トリガー=表示状態）
+            if (this.pendingGhostState && !this.isCalculating && !this.isCalculatingSingle && this.isEvalDisplayVisible()) {
                 let p = this.pendingGhostState;
                 this.pendingGhostState = null;
                 this.requestSingleEvaluation(p.type, p.rot, p.x, p.y);

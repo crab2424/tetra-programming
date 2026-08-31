@@ -236,13 +236,15 @@ function setupVersusPauseKey() {
   if (window._versusPauseHandler) {
     document.removeEventListener('keydown', window._versusPauseHandler);
   }
-  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { code: 'Escape' }, restart: { code: 'KeyR' } };
+  const keys = (typeof loadKeys === 'function') ? loadKeys() : { pause: { codes: ['Escape'] }, restart: { codes: ['KeyR'] } };
+  const restartCodes = (keys.restart && keys.restart.codes && keys.restart.codes.length) ? keys.restart.codes : ['KeyR'];
+  const pauseCodes = (keys.pause && keys.pause.codes && keys.pause.codes.length) ? keys.pause.codes : ['Escape'];
   window._versusPauseHandler = function(e) {
     const versusPage = document.getElementById('versus-page');
     if (!versusPage || !versusPage.classList.contains('active')) return;
 
     // ★ リスタートキー（versusモードではここで処理する）
-    if (e.code === (keys.restart ? keys.restart.code : 'KeyR')) {
+    if (restartCodes.includes(e.code)) {
       if (e.repeat) return;
       e.preventDefault();
       // finish演出中はリスタートを受け付けない
@@ -251,7 +253,7 @@ function setupVersusPauseKey() {
       return;
     }
 
-    if (e.code === keys.pause.code) {
+    if (pauseCodes.includes(e.code)) {
       e.preventDefault();
       toggleVersusPause();
     }
