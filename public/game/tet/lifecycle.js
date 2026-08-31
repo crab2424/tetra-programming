@@ -236,6 +236,20 @@ Object.assign(Game.prototype, {
 
     // ─── 重力 tick (rAF ループから毎フレ呼ばれる) ───
     _applyGravityTick() {
+        // ─── PRACTICE: 自由落下0のときの固定仕様（設計 §8.1）───
+        // ソフトドロップ押下中だけ固定タイマーを動かし、離した瞬間に 0 へ戻す。
+        // 接地後は soft drop が落下距離を生まない＝_pollInput が acted を立てず
+        // checkGroundState も呼ばれないため、「接地したまま押し直した」ケースの
+        // 再開はこのフレーム処理が受け持つ。接地中は this.timer が falsy なので、
+        // 下の早期returnより前で判定する必要がある。
+        if (this.practiceNoLock && this.mino && !this.isPaused && !this.isCountingDown) {
+            const softHeld = !!(this.keyState && this.keyState.softDrop);
+            if (!softHeld) {
+                if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+            } else if (!this.lockTimer && this.isGrounded) {
+                this.startLockTimer();
+            }
+        }
         if (!this.timer) return;                          // OFF
         // 動かない局面では「時刻だけ前進」させる＝ポーズ復帰やカウントダウン明け
         // の瞬間に溜まった経過時間で多重落下するのを防ぐ

@@ -121,6 +121,14 @@
               <span class="mode-btn-desc">謎解きパズル</span>
             </div>
           </button>
+          <!-- ★ PRACTICEモードボタン -->
+          <button class="mode-btn mode-btn-practice" onclick="goToModeCheck('practice')">
+            <span class="mode-btn-icon">🎯</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">PRACTICE</span>
+              <span class="mode-btn-desc">自由練習・巻き戻し</span>
+            </div>
+          </button>
         </div>
       </div>
 
@@ -984,6 +992,11 @@
               onclick="handlePauseAction('quiz-levelselect')" style="display: none">
               ◀ LEVEL SELECT
             </button>
+            <!-- ★ PRACTICEモード専用: 任意のタイミングでリザルトへ抜ける -->
+            <button class="pause-btn btn-practice-primary" id="pause-practice-finish-btn"
+              onclick="handlePauseAction('practice-finish')" style="display: none">
+              ■ FINISH
+            </button>
             <button class="pause-btn btn-secondary" id="pause-mode-select-btn"
               onclick="handlePauseAction('mode-select')">
               ◀ MODE SELECT
@@ -1183,18 +1196,18 @@
   <div id="external-pages"></div>
 
   <script src="config/pages.js?v=2"></script>
-  <script src="core/base.js?v=4"></script>
+  <script src="core/base.js?v=5"></script>
   <script src="core/particles.js?v=1"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=2"></script>
+  <script src="config/settings.js?v=3"></script>
   <script src="config/records.js?v=1"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js"></script>
-  <script src="game/tet/lifecycle.js?v=2"></script>
-  <script src="game/tet/board.js?v=2"></script>
+  <script src="game/tet/lifecycle.js?v=3"></script>
+  <script src="game/tet/board.js?v=3"></script>
   <script src="game/tet/rotation.js"></script>
   <script src="game/tet/scoring.js?v=2"></script>
   <script src="game/tet/garbage.js"></script>
@@ -1206,16 +1219,19 @@
   <script src="game/puyo/lifecycle.js?v=3"></script>
   <script src="game/puyo/connect.js"></script>
   <script src="game/puyo/ojama.js?v=3"></script>
-  <script src="game/puyo/engine.js?v=5"></script>
+  <script src="game/puyo/engine.js?v=6"></script>
   <script src="game/puyo/input.js?v=4"></script>
   <script src="game/puyo/draw.js?v=3"></script>
   <script src="quiz/quiz.js?v=1"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js"></script>
+  <script src="app/modes.js?v=2"></script>
   <script src="app/cpu_loader.js?v=1"></script>
   <script src="app/versus.js?v=1"></script>
-  <script src="app/navigation.js?v=4"></script>
-  <script src="app/focus_nav.js?v=5"></script>
+  <script src="app/navigation.js?v=5"></script>
+  <script src="app/focus_nav.js?v=6"></script>
+  <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
+  <script src="practice/practice_snapshot.js?v=1"></script>
+  <script src="practice/practice.js?v=1"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 

@@ -371,6 +371,19 @@ Object.assign(Game.prototype, {
                 }
             }
 
+            // ─── PRACTICE: 自由落下0のときの固定仕様（設計 §8.1）───
+            // 「置くまで固定しない」＝ソフトドロップ押下中のみ固定タイマーを進め、
+            // 離したら 0 にリセットする（リセット側は _applyGravityTick が毎フレ担当）。
+            // 15回操作での強制固定も同条件下では無効化する。
+            if (this.practiceNoLock) {
+                if (!(this.keyState && this.keyState.softDrop)) {
+                    if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+                    return;
+                }
+                this.startLockTimer();
+                return;
+            }
+
             // カウントが15回以上の場合は即座に強制固定
             if (this.moveCount >= 15) {
                 if (this.lockTimer) {

@@ -56,7 +56,67 @@ const GAME_MODES = {
     descriptionEn: 'Puzzle challenge mode for both Tet and Puyo.',
     color:       '#f58542',
   },
+  // ─── PRACTICEモード ───────────────────────────
+  // 1人用の練習モード。記録は残さない（tet は _submitRecordIfEligible が未知modeで
+  // null を返すので自然に対象外、puyo は engine.js に practice ガードを追加している）。
+  practice: {
+    id:          'practice',
+    label:       'PRACTICE',
+    icon:        '🎯',
+    description: '自由に練習できるモード。巻き戻し可能・記録なし。',
+    descriptionEn: 'Free practice with rewind. No records.',
+    color:       'var(--success)',
+  },
 };
+
+// ─── PRACTICEモード用の共有state ────────────────
+// 準備画面（renderModeCheck）で編集し、startGameFromModeCheck が PracticeManager へ渡す。
+// Phase 1 では RULE / GOAL(NONE・LINES/PUYOS・SCORE) / VALUE のみ。
+// 落下速度・NEXT表示数などのゲーム内設定パネルは Phase 2 でここに追加する。
+let practiceRule = 'tet';           // 'tet' | 'puyo'
+let practiceGoalType = 'none';      // 'none' | 'lines' | 'puyos' | 'score'
+// 目標値はGOAL種別ごとに別々に覚える（LINES↔SCOREを行き来しても値が壊れないように）
+let practiceGoalValues = { lines: 40, puyos: 100, score: 10000 };
+
+// PRACTICE: 目標値のプリセット送り（1-2-5系）。←/→ で1段ずつ動かす。
+const PRACTICE_GOAL_PRESETS = {
+  lines: [10, 20, 40, 50, 100, 200, 500, 999],
+  puyos: [10, 20, 50, 100, 200, 500, 999],
+  score: [1000, 2000, 5000, 10000, 20000, 50000, 100000,
+          200000, 500000, 1000000, 2000000, 5000000, 10000000],
+};
+// 桁スピナー編集モード（§4.2）の桁数と有効範囲
+const PRACTICE_GOAL_RANGE = {
+  lines: { min: 10,   max: 999,      digits: 3 },
+  puyos: { min: 10,   max: 999,      digits: 3 },
+  score: { min: 1000, max: 10000000, digits: 8 },
+};
+
+// ルールで名前が入れ替わる「消した量」系の目標キー
+function practiceCountGoalType(rule) {
+  return (rule === 'puyo') ? 'puyos' : 'lines';
+}
+
+function practiceGoalValue() {
+  const v = practiceGoalValues[practiceGoalType];
+  return (typeof v === 'number') ? v : 0;
+}
+
+function setPracticeRule(rule) {
+  if (practiceRule === rule) return;
+  practiceRule = rule;
+  // ルールを変えると LINES ⇄ PUYOS が入れ替わるので、選択中ならキーを差し替える
+  if (practiceGoalType === 'lines' || practiceGoalType === 'puyos') {
+    practiceGoalType = practiceCountGoalType(rule);
+  }
+  renderModeCheck();
+}
+
+function setPracticeGoalType(type) {
+  if (practiceGoalType === type) return;
+  practiceGoalType = type;
+  renderModeCheck();
+}
 
 let testCpuControl = true; 
 let testRule = 'tet';

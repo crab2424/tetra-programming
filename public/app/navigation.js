@@ -76,6 +76,9 @@ function stopAllGames() {
     // ─── QUIZマネージャーの破棄（quiz.js）───
     if (typeof _stopQuizIfActive === 'function') _stopQuizIfActive();
 
+    // ─── PRACTICEマネージャーの破棄（practice/practice.js）───
+    if (typeof _stopPracticeIfActive === 'function') _stopPracticeIfActive();
+
     // オーバーレイ内のテキストも消去
     document.querySelectorAll('.countdown-text, .finish-text').forEach(el => {
         el.textContent = '';
@@ -307,6 +310,10 @@ function switchPage(pageId) {
     if (typeof renderQuizCheck === 'function') renderQuizCheck();
   }
 
+  // PRACTICE の目標値スピナーが開いたままページを離れると FocusNav.suspended が
+  // 残ってキー操作が全ページで止まるため、遷移のたびに必ず畳む。
+  if (typeof _practiceResetSpinner === 'function') _practiceResetSpinner();
+
   // ★ キーボードフォーカスナビゲーション（focus_nav.js）
   if (window.FocusNav) {
     if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
@@ -443,6 +450,9 @@ function renderModeCheck() {
         };
         toggle.appendChild(btn);
       }
+    } else if (mode.id === 'practice') {
+      optionsEl.style.display = 'flex';
+      optionsEl.innerHTML = renderPracticeModeCheckOptions(mode);
     } else if (mode.id === 'puyo') {
       optionsEl.style.display = 'none';
       optionsEl.innerHTML = '';
@@ -561,6 +571,19 @@ async function startGameFromModeCheck() {
     if (typeof startQuizLevel === 'function' && currentQuizLevel) {
       startQuizLevel(currentQuizLevel);
     }
+    return;
+  }
+
+  // ─── PRACTICEモード専用処理 ───────────────────
+  // tet/puyo どちらのエンジンも使うため、共通の下ごしらえ（EVAL/GARBAGEエリアを隠す・
+  // レイアウト切替・インスタンス生成）をここで済ませ、進行は PracticeManager に委ねる。
+  if (modeId === 'practice') {
+    const evalArea = document.getElementById('eval-area');
+    if (evalArea) evalArea.style.display = 'none';
+    const garbageArea = document.getElementById('test-garbage-area');
+    if (garbageArea) garbageArea.style.display = 'none';
+
+    if (typeof startPracticeGame === 'function') startPracticeGame();
     return;
   }
 
@@ -989,11 +1012,19 @@ function handlePauseAction(action) {
       } else if (currentGameMode && currentGameMode.id === 'test' && testRule === 'puyo') {
           // ★ CPUテスト(ぷよ): 盤面リセットに加えてCPUコントローラも作り直す（pause/resume と対称）
           restartPuyoCpuTest();
+      } else if (currentGameMode && currentGameMode.id === 'practice') {
+          // PRACTICE: 巻き戻し履歴・フックごと作り直す（startPracticeGame が destroy→再構築する）
+          if (typeof startPracticeGame === 'function') startPracticeGame();
       } else if (currentGameMode && currentGameMode.id === 'puyo') {
           if (window._puyoGame && typeof window._puyoGame.start === 'function') window._puyoGame.start();
       } else {
           if (window._game && typeof window._game.start === 'function') window._game.start();
       }
+      break;
+    case 'practice-finish':
+      // PRACTICE: ポーズメニューからの任意終了（§4.5）。目標達成済みなら
+      // 達成時点の成績を、未達成ならその時点の成績をリザルトへ出す。
+      if (window._practiceManager) window._practiceManager.finish();
       break;
     case 'quiz-levelselect':
       stopAllGames();
@@ -1019,6 +1050,15 @@ function handlePauseAction(action) {
   if (!overlay) return;
 
   const observer = new MutationObserver(() => {
+    // PRACTICE の FINISH ボタンは、ポーズ画面が開くどの経路（キー/ボタン/ぷよ側の自前ポーズ）
+    // でも出したいので、quizInfo の有無に関わらず先に出し分けを済ませる。
+    const practiceFinishBtn = document.getElementById('pause-practice-finish-btn');
+    if (practiceFinishBtn) {
+      const isPractice = currentGameMode && currentGameMode.id === 'practice';
+      practiceFinishBtn.style.display =
+        (overlay.classList.contains('active') && isPractice) ? '' : 'none';
+    }
+
     const isQuiz = currentGameMode && currentGameMode.id === 'quiz';
     const quizInfo = document.getElementById('pause-quiz-info');
     if (!quizInfo) return;

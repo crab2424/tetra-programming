@@ -848,6 +848,7 @@ class BgmManager {
         'single_sprint_bgm':   0.90,
         'single_ultra_bgm':    0.90,
         'single_puyo_bgm':     0.90,
+        'single_practice_bgm': 0.90,
     };
 
     // ── シングルモードの mode → BGMキー対応 ───────────────────────────
@@ -859,6 +860,7 @@ class BgmManager {
         sprint:   'single_sprint_bgm',
         ultra:    'single_ultra_bgm',
         puyo:     'single_puyo_bgm',
+        practice: 'single_practice_bgm',
     };
     static singleBgmKey(mode) {
         return this._singleBgmKeys[mode] || 'single_marathon_bgm';
@@ -1140,6 +1142,9 @@ AudioLoader.registerBgm('single_marathon_bgm', 'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/challenge_1.ogg');
 AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/challenge_1.ogg');
 AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/single_1.ogg');
+// PRACTICE は専用曲を用意する予定。素材が入るまでは single_1.ogg を指す
+// （差し替えはこの1行のパスを変えるだけでよい）。
+AudioLoader.registerBgm('single_practice_bgm', 'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 // オンライン対戦BGMは、ここでパスだけ差し替えれば変更できる。
 AudioLoader.registerBgm('online_bgm',  'assets/audio/bgm/vs_1.ogg');
