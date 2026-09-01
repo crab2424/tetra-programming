@@ -44,6 +44,17 @@ Object.assign(Game.prototype, {
         this.nextCanvas.height = BLOCK_SIZE * 13.5;
     },
 
+    // PRACTICE設定パネル：NEXT表示数（practiceNextCount）の変更に合わせて
+    // キャンバスサイズを再計算する。既定(5個)までは現行サイズ、超過分は縮小＋2列。
+    resizeNextCanvas() {
+        const count = Math.max(1, Math.min(10, this.practiceNextCount || 5));
+        const cols = count > 5 ? 2 : 1;
+        const rows = Math.ceil(count / cols);
+        const scale = cols > 1 ? 0.6 : 0.8;
+        this.nextCanvas.width = BLOCK_SIZE * 4 * cols;
+        this.nextCanvas.height = Math.ceil(rows * 3 * BLOCK_SIZE * scale + BLOCK_SIZE * scale);
+    },
+
     initHoldCanvas() {
         const id = this.canvasPrefix ? `${this.canvasPrefix}-hold-canvas` : HOLD_CANVAS_ID;
         this.holdCanvas = document.getElementById(id);
@@ -179,8 +190,8 @@ Object.assign(Game.prototype, {
         // 描画位置を 1 行ぶん上にずらして貼り付ける。
         this.mainCtx.drawImage(this.field._fixedCanvas, 0, -BLOCK_SIZE);
 
-        // this.mino が存在するときだけゴーストを描画
-        if (this.mino) {
+        // this.mino が存在するときだけゴーストを描画（PRACTICE設定パネルでOFFにできる）
+        if (this.mino && this.showGhost !== false) {
             const ghostY = this.getGhostY()
             if (ghostY !== this.mino.y) {
                 this.mainCtx.globalAlpha = 0.25
@@ -191,15 +202,22 @@ Object.assign(Game.prototype, {
 
         const minoScale = 0.8;
 
-        // Draw next queue vertically（表示は先頭5個のみ。内部は11個保持）
+        // Draw next queue vertically（表示は既定5個。PRACTICEでは practiceNextCount で可変。
+        // 内部は11個保持。既定を超える分は縮小＋2列で表示する）
         // slice + forEach は毎フレ配列とクロージャを作るため素のループに置換。
         const spacing = 3;
         const nq = this.nextQueue;
-        const nqLen = Math.min(5, nq.length);
+        const nextCount = Math.max(1, Math.min(10, this.practiceNextCount || 5));
+        const nqLen = Math.min(nextCount, nq.length);
+        const nqCols = nextCount > 5 ? 2 : 1;
+        const nqScale = nqCols > 1 ? 0.6 : minoScale;
+        const colWidthPx = BLOCK_SIZE * 4;
         for (let i = 0; i < nqLen; i++) {
+            const col = nqCols > 1 ? (i % 2) : 0;
+            const row = nqCols > 1 ? Math.floor(i / 2) : i;
             this.nextCtx.save();
-            this.nextCtx.translate(0, i * spacing * BLOCK_SIZE * minoScale);
-            this.nextCtx.scale(minoScale, minoScale);
+            this.nextCtx.translate(col * colWidthPx, row * spacing * BLOCK_SIZE * nqScale);
+            this.nextCtx.scale(nqScale, nqScale);
             nq[i].drawNext(this.nextCtx);
             this.nextCtx.restore();
         }

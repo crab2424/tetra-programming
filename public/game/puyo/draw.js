@@ -465,41 +465,60 @@ Object.assign(PuyoGame.prototype, {
         ctx.fillStyle = '#0a0a0f';
         ctx.fillRect(0, 0, W, H);
 
-        const drawCs = 42;
-        const offsetX = (W - drawCs) / 2;
+        // PRACTICE設定パネル：NEXT表示数（practiceNextCount）を可変化。既定は2ペア。
+        // 既定を超える分は縮小＋2列で表示する。
+        const count = Math.max(1, Math.min(10, this.practiceNextCount || 2));
+        const cols = count > 2 ? 2 : 1;
+        const drawCs = cols > 1 ? 30 : 42;
+        const colWidth = W / cols;
 
         ctx.save();
 
-        let offsetY = 0;
-        let showThree = false;
-        const shiftDist = drawCs * 2.5;
-
-        if (this._gs === 'spawnAnim') {
-            const progress = Math.min(1, this.spawnAnimTimer / PConfig.spawnAnimMs);
-            offsetY = -shiftDist * progress;
-            showThree = true;
-        }
-
-        const next1 = this.nextQueue[0];
-        if (next1) {
-            this._drawPuyo(ctx, offsetX, 20 + offsetY, next1[1], drawCs, 0);
-            this._drawPuyo(ctx, offsetX, 20 + drawCs + offsetY, next1[0], drawCs, 0);
-        }
-
-        const next2 = this.nextQueue[1];
-        if (next2) {
-            this._drawPuyo(ctx, offsetX, 20 + drawCs * 2.5 + offsetY, next2[1], drawCs, 0);
-            this._drawPuyo(ctx, offsetX, 20 + drawCs * 3.5 + offsetY, next2[0], drawCs, 0);
-        }
-
-        if (showThree) {
-            const next3 = this.nextQueue[2];
-            if (next3) {
-                this._drawPuyo(ctx, offsetX, 20 + drawCs * 5.0 + offsetY, next3[1], drawCs, 0);
-                this._drawPuyo(ctx, offsetX, 20 + drawCs * 6.0 + offsetY, next3[0], drawCs, 0);
+        if (cols === 1) {
+            // 既定レイアウト：1列。出現アニメ中は表示数+1個ぶんを上へスライドさせ、
+            // アニメ完了で1手分シフトして見える従来の演出を表示数ぶんに一般化する。
+            const offsetX = (colWidth - drawCs) / 2;
+            const shiftDist = drawCs * 2.5;
+            let offsetY = 0;
+            let rowsToShow = count;
+            if (this._gs === 'spawnAnim') {
+                const progress = Math.min(1, this.spawnAnimTimer / PConfig.spawnAnimMs);
+                offsetY = -shiftDist * progress;
+                rowsToShow = count + 1;
+            }
+            for (let i = 0; i < rowsToShow; i++) {
+                const pair = this.nextQueue[i];
+                if (!pair) continue;
+                const y = 20 + i * shiftDist + offsetY;
+                this._drawPuyo(ctx, offsetX, y, pair[1], drawCs, 0);
+                this._drawPuyo(ctx, offsetX, y + drawCs, pair[0], drawCs, 0);
+            }
+        } else {
+            // 縮小＋2列（表示数が既定を超えたとき）。出現アニメの演出は割愛する。
+            const rowH = drawCs * 2.5;
+            for (let i = 0; i < count; i++) {
+                const pair = this.nextQueue[i];
+                if (!pair) continue;
+                const col = i % 2;
+                const row = Math.floor(i / 2);
+                const offsetX = col * colWidth + (colWidth - drawCs) / 2;
+                const y = 16 + row * rowH;
+                this._drawPuyo(ctx, offsetX, y, pair[1], drawCs, 0);
+                this._drawPuyo(ctx, offsetX, y + drawCs, pair[0], drawCs, 0);
             }
         }
 
         ctx.restore();
+    },
+
+    // PRACTICE設定パネル：NEXT表示数の変更に合わせてキャンバスサイズを再計算する
+    resizeNextCanvas() {
+        if (!this.nextCanvas) return;
+        const count = Math.max(1, Math.min(10, this.practiceNextCount || 2));
+        const cols = count > 2 ? 2 : 1;
+        const drawCs = cols > 1 ? 30 : 42;
+        const rows = cols > 1 ? Math.ceil(count / 2) : count;
+        this.nextCanvas.width = 128 * cols;
+        this.nextCanvas.height = Math.ceil(20 + rows * drawCs * 2.5 + drawCs);
     },
 });
