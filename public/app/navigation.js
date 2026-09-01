@@ -245,16 +245,6 @@ function switchPage(pageId) {
     }
   }
 
-  // ★ 追加: 設定から game に戻る際、ポーズ画面を復元する
-    if (pageId === 'game' && window._returnToPause) {
-        window._returnToPause = false;
-        // 次フレームで overlay を active に戻す（DOM更新後）
-        requestAnimationFrame(() => {
-            const overlay = document.getElementById('pause-overlay');
-            if (overlay) overlay.classList.add('active');
-        });
-    }
-
   document.querySelectorAll('.page').forEach(p => {
     p.classList.remove('active');
     // 固定配置のゲームコンテナが前画面の inline 表示を持ち越さないようにする。
@@ -263,6 +253,17 @@ function switchPage(pageId) {
 
   const target = document.getElementById(pageId + '-page');
   if (target) target.classList.add('active');
+
+  // ★ 設定から game に戻る際、ポーズ画面を復元する。
+  // 以前は requestAnimationFrame 1回で次フレームに遅延していたが、タブがバックグラウンド化
+  // した瞬間に戻ってくるとrAFが発火せず、ポーズ画面が二度と再表示されない（ゲームは
+  // isPaused=true のまま固まる）バグがあった。DOM更新（直上の active 付け替え）は
+  // 既に同期的に終わっているので、rAFを待たずその場でクラスを付ける。
+  if (pageId === 'game' && window._returnToPause) {
+    window._returnToPause = false;
+    const overlay = document.getElementById('pause-overlay');
+    if (overlay) overlay.classList.add('active');
+  }
 
   // APM/LPM/TIME（HUD拡張）は前局の値をDOMに残したままなので、ゲーム画面へ入る瞬間に
   // '--'へ戻す。ゲーム実体(window._game)の生成はこの後なので、reset しないと

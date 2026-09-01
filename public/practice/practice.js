@@ -286,7 +286,7 @@ class PracticeManager {
                 titleEl.style.color = 'var(--success)';
                 titleEl.style.webkitTextFillColor = 'var(--success)';
             } else {
-                titleEl.textContent = (kind === 'gameover') ? 'GAME OVER' : 'PRACTICE END';
+                titleEl.textContent = (kind === 'gameover') ? 'GAME OVER' : 'FINISH';
                 titleEl.style.color = '';
                 titleEl.style.background = 'linear-gradient(90deg, var(--accent), var(--accent2))';
                 titleEl.style.webkitBackgroundClip = 'text';
@@ -398,17 +398,17 @@ function _practiceGoalLabel(type, rule) {
     return 'NONE';
 }
 
-// VALUE 行の中身（通常表示 / 編集中の桁ボックス）を組み立てる
+// VALUE 行の中身（通常表示 / 編集中の桁ボックス / GOAL=NONE時のプレースホルダ）を組み立てる
 function _practiceValueHtml() {
     const range = PRACTICE_GOAL_RANGE[practiceGoalType];
-    if (!range) return '';
+    if (!range) return '<div class="practice-value is-disabled">-</div>';
     if (_practiceSpinner) {
         const boxes = _practiceSpinner.digits.map((d, i) =>
             `<span class="practice-digit${i === _practiceSpinner.pos ? ' is-active' : ''}">${d}</span>`
         ).join('');
         return `<div class="practice-value is-editing">${boxes}</div>`;
     }
-    return `<div class="practice-value">${practiceGoalValue().toLocaleString('en-US')}</div>`;
+    return `<div class="practice-value" onclick="_practiceOpenSpinner()">${practiceGoalValue().toLocaleString('en-US')}</div>`;
 }
 
 function renderPracticeModeCheckOptions(mode) {
@@ -416,14 +416,19 @@ function renderPracticeModeCheckOptions(mode) {
     const goalBtn = (type) => `<button class="opt-btn ${practiceGoalType === type ? 'active' : ''}"
         onclick="setPracticeGoalType('${type}')">${_practiceGoalLabel(type, practiceRule)}</button>`;
 
-    const valueRow = (practiceGoalType === 'none') ? '' : `
-        <div class="option-row" data-nav-row="practice-goal-value">
+    // VALUE 行は GOAL=NONE でも折りたたまず常に表示し、"-" で「値なし」を示す（畳むと違和感があるため）
+    const isNone = (practiceGoalType === 'none');
+    const hint = isNone
+        ? ''
+        : (_practiceSpinner
+            ? '0-9 で入力 / ←→ 桁移動 / ↑↓ その桁を増減 / Enter 確定 / Esc 取消'
+            : '←→ でプリセット送り、Enter またはクリックで桁ごとに編集');
+    const valueRow = `
+        <div class="option-row"${isNone ? '' : ' data-nav-row="practice-goal-value"'}>
           <span class="option-label">VALUE</span>
           ${_practiceValueHtml()}
         </div>
-        <p class="practice-value-hint">${_practiceSpinner
-            ? '0-9 で入力 / ←→ 桁移動 / ↑↓ その桁を増減 / Enter 確定 / Esc 取消'
-            : '←→ でプリセット送り、Enter で桁ごとに編集'}</p>`;
+        ${hint ? `<p class="practice-value-hint">${hint}</p>` : ''}`;
 
     return `
       <div class="option-row">
@@ -443,87 +448,81 @@ function renderPracticeModeCheckOptions(mode) {
     `;
 }
 
-// ─── 桁スピナー（§4.2）───────────────────────
-// 通常時: ←/→ で 1-2-5系プリセット送り / Enter で編集モードへ
-// 編集中: ←/→ 桁移動、↑/↓ その桁を±1、数字キーで直接入力、Enter 確定、Esc 取消
+// ─── 桁スピナー（§4.2。フィードバックにより一部変更）─────────
+// 通常時: ←/→ で 1-2-5系プリセット送り / Enter またはクリックで編集モードへ
+// 編集中: 一番左の桁からフォーカス。数字キーはその桁を確定して1つ右へ進む
+//         （最終桁では上書きし続ける）。←/→ で桁移動、↑/↓ でその桁を±1、
+//         Enter 確定、Esc 取消。
+function _practiceStepPreset(delta) {
+    const list = PRACTICE_GOAL_PRESETS[practiceGoalType];
+    if (!list) return;
+    const cur = practiceGoalValue();
+    // 現在値がプリセット上にないときは、進む向きの最も近い値へ寄せる
+    let idx = list.indexOf(cur);
+    if (idx < 0) {
+        idx = (delta > 0)
+            ? list.findIndex(v => v > cur)
+            : (() => { let last = -1; list.forEach((v, i) => { if (v < cur) last = i; }); return last; })();
+        if (idx < 0) idx = (delta > 0) ? list.length - 1 : 0;
+    } else {
+        idx = Math.max(0, Math.min(list.length - 1, idx + delta));
+    }
+    practiceGoalValues[practiceGoalType] = list[idx];
+    renderModeCheck();
+}
+
+function _practiceOpenSpinner() {
+    const range = PRACTICE_GOAL_RANGE[practiceGoalType];
+    if (!range) return; // GOAL=NONE では編集対象がない
+    const s = String(practiceGoalValue()).padStart(range.digits, '0').slice(-range.digits);
+    // 一番左の桁からフォーカスする
+    _practiceSpinner = { digits: s.split('').map(Number), pos: 0 };
+    // 編集中は行移動・2D移動・Enter/Escape を FocusNav から奪う
+    if (window.FocusNav) window.FocusNav.suspended = true;
+    renderModeCheck();
+}
+
+function _practiceCloseSpinner(commit) {
+    const range = PRACTICE_GOAL_RANGE[practiceGoalType];
+    if (commit && _practiceSpinner && range) {
+        let v = parseInt(_practiceSpinner.digits.join(''), 10) || 0;
+        v = Math.max(range.min, Math.min(range.max, v));
+        practiceGoalValues[practiceGoalType] = v;
+    }
+    _practiceSpinner = null;
+    if (window.FocusNav) window.FocusNav.suspended = false;
+    renderModeCheck();
+}
+
 (function setupPracticeGoalValueNav() {
     if (!window.FocusNav) return;
 
-    function stepPreset(delta) {
-        const list = PRACTICE_GOAL_PRESETS[practiceGoalType];
-        if (!list) return;
-        const cur = practiceGoalValue();
-        // 現在値がプリセット上にないときは、進む向きの最も近い値へ寄せる
-        let idx = list.indexOf(cur);
-        if (idx < 0) {
-            idx = (delta > 0)
-                ? list.findIndex(v => v > cur)
-                : (() => { let last = -1; list.forEach((v, i) => { if (v < cur) last = i; }); return last; })();
-            if (idx < 0) idx = (delta > 0) ? list.length - 1 : 0;
-        } else {
-            idx = Math.max(0, Math.min(list.length - 1, idx + delta));
-        }
-        practiceGoalValues[practiceGoalType] = list[idx];
-        renderModeCheck();
-    }
-
-    function openSpinner() {
-        const range = PRACTICE_GOAL_RANGE[practiceGoalType];
-        if (!range) return;
-        const s = String(practiceGoalValue()).padStart(range.digits, '0').slice(-range.digits);
-        // typedAny: 数字キーがまだ一度も押されていない間は true にしない。
-        // 最初の1打で既存値を捨てて 0 から打ち直せるようにするためのフラグ。
-        _practiceSpinner = { digits: s.split('').map(Number), pos: range.digits - 1, typedAny: false };
-        // 編集中は行移動・2D移動・Enter/Escape を FocusNav から奪う
-        window.FocusNav.suspended = true;
-        renderModeCheck();
-    }
-
-    function closeSpinner(commit) {
-        const range = PRACTICE_GOAL_RANGE[practiceGoalType];
-        if (commit && _practiceSpinner && range) {
-            let v = parseInt(_practiceSpinner.digits.join(''), 10) || 0;
-            v = Math.max(range.min, Math.min(range.max, v));
-            practiceGoalValues[practiceGoalType] = v;
-        }
-        _practiceSpinner = null;
-        window.FocusNav.suspended = false;
-        renderModeCheck();
-    }
-
     window.FocusNav.rowHandlers['practice-goal-value'] = {
-        onLeft:     () => stepPreset(-1),
-        onRight:    () => stepPreset(+1),
-        onActivate: () => openSpinner(),
+        onLeft:     () => _practiceStepPreset(-1),
+        onRight:    () => _practiceStepPreset(+1),
+        onActivate: () => _practiceOpenSpinner(),
     };
 
     // 編集モード中だけ働くキーハンドラ。FocusNav より先に拾いたいので capture 段で受ける。
     document.addEventListener('keydown', (e) => {
         if (!_practiceSpinner) return;
         const page = document.getElementById('mode-check-page');
-        if (!page || !page.classList.contains('active')) { closeSpinner(false); return; }
+        if (!page || !page.classList.contains('active')) { _practiceCloseSpinner(false); return; }
 
         const range = PRACTICE_GOAL_RANGE[practiceGoalType];
         const last = range.digits - 1;
         let handled = true;
 
-        if (e.key === 'Enter')            closeSpinner(true);
-        else if (e.key === 'Escape')      closeSpinner(false);
-        else if (e.key === 'ArrowLeft')  { _practiceSpinner.typedAny = true; _practiceSpinner.pos = Math.max(0, _practiceSpinner.pos - 1); renderModeCheck(); }
-        else if (e.key === 'ArrowRight') { _practiceSpinner.typedAny = true; _practiceSpinner.pos = Math.min(last, _practiceSpinner.pos + 1); renderModeCheck(); }
-        else if (e.key === 'ArrowUp')    { _practiceSpinner.typedAny = true; const p = _practiceSpinner.pos; _practiceSpinner.digits[p] = (_practiceSpinner.digits[p] + 1) % 10; renderModeCheck(); }
-        else if (e.key === 'ArrowDown')  { _practiceSpinner.typedAny = true; const p = _practiceSpinner.pos; _practiceSpinner.digits[p] = (_practiceSpinner.digits[p] + 9) % 10; renderModeCheck(); }
+        if (e.key === 'Enter')            _practiceCloseSpinner(true);
+        else if (e.key === 'Escape')      _practiceCloseSpinner(false);
+        else if (e.key === 'ArrowLeft')  { _practiceSpinner.pos = Math.max(0, _practiceSpinner.pos - 1); renderModeCheck(); }
+        else if (e.key === 'ArrowRight') { _practiceSpinner.pos = Math.min(last, _practiceSpinner.pos + 1); renderModeCheck(); }
+        else if (e.key === 'ArrowUp')    { const p = _practiceSpinner.pos; _practiceSpinner.digits[p] = (_practiceSpinner.digits[p] + 1) % 10; renderModeCheck(); }
+        else if (e.key === 'ArrowDown')  { const p = _practiceSpinner.pos; _practiceSpinner.digits[p] = (_practiceSpinner.digits[p] + 9) % 10; renderModeCheck(); }
         else if (e.key >= '0' && e.key <= '9') {
-            // 数字キーは「下位から詰めて打ち込む」＝電卓と同じ挙動。
-            // 1つ打つごとに全体を左へ1桁シフトして最下位に入れるので、
-            // 「1・5・0・Enter」の4打鍵で 150 になり、スコアの8桁でも上位桁は 0 のまま触らずに済む。
-            if (!_practiceSpinner.typedAny) {
-                _practiceSpinner.digits.fill(0);
-                _practiceSpinner.typedAny = true;
-            }
-            _practiceSpinner.digits.shift();
-            _practiceSpinner.digits.push(parseInt(e.key, 10));
-            _practiceSpinner.pos = last;
+            // その桁を確定して1つ右へ進む（最終桁では上書きし続ける）
+            _practiceSpinner.digits[_practiceSpinner.pos] = parseInt(e.key, 10);
+            _practiceSpinner.pos = Math.min(last, _practiceSpinner.pos + 1);
             renderModeCheck();
         } else {
             handled = false;
