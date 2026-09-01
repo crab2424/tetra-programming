@@ -49,6 +49,7 @@ class PracticeManager {
 
         this._goalLoopId = null;
         this._keyHandler = null;
+        this._origUpdateChainDisplay = null; // puyo + 'puyos'ゴール時のみ使う（下記 attach() 参照）
     }
 
     // ─────────────────────────────────────────
@@ -92,6 +93,20 @@ class PracticeManager {
             this._origBeginGameOver = game._beginGameOver;
             game._beginGameOver = function () {
                 self._onGameOver(() => self._origBeginGameOver.call(this));
+            }.bind(game);
+        }
+
+        // ─── puyo + 'puyos' ゴールの進捗をライブ表示（設計にない追加分） ───
+        // puyo の HUD は「LINES」枠を「CHAIN」に転用しているため、そのままでは
+        // 累計クリア数の "/N" を出す場所がない。ぷよ数ゴールのときだけラベルを
+        // "PUYOS" に変え、連鎖表示のたびに累計クリア数へ上書きする。
+        if (this.rule === 'puyo' && this.goal.type === 'puyos') {
+            const labelEl = document.getElementById('label-lines');
+            if (labelEl) labelEl.textContent = 'PUYOS';
+            this._origUpdateChainDisplay = game._updateChainDisplay;
+            game._updateChainDisplay = function (chain) {
+                self._origUpdateChainDisplay.call(this, chain);
+                if (this.linesEl) this.linesEl.textContent = this.clearedPuyos;
             }.bind(game);
         }
 
@@ -189,12 +204,18 @@ class PracticeManager {
         }
     }
 
-    // LINESゴール表示（tet の LINES 横の "/N"）を目標に合わせる
+    // 目標値の "/N" 表示（LINES・PUYOS は lines-goal、SCORE は score-goal）
     _updateGoalDisplay() {
-        const el = document.getElementById('lines-goal');
-        if (!el) return;
-        el.textContent = (this.rule === 'tet' && this.goal.type === 'lines')
-            ? '/' + this.goal.value : '';
+        const linesGoalEl = document.getElementById('lines-goal');
+        if (linesGoalEl) {
+            const showOnLines = (this.rule === 'tet' && this.goal.type === 'lines')
+                || (this.rule === 'puyo' && this.goal.type === 'puyos');
+            linesGoalEl.textContent = showOnLines ? '/' + this.goal.value : '';
+        }
+        const scoreGoalEl = document.getElementById('score-goal');
+        if (scoreGoalEl) {
+            scoreGoalEl.textContent = (this.goal.type === 'score') ? '/' + this.goal.value : '';
+        }
     }
 
     // ─────────────────────────────────────────
@@ -281,7 +302,7 @@ class PracticeManager {
         const titleEl = document.getElementById('result-title');
         if (titleEl) {
             if (kind === 'goal') {
-                titleEl.textContent = 'GOAL CLEARED!';
+                titleEl.textContent = 'CLEARED !';
                 titleEl.style.background = 'none';
                 titleEl.style.color = 'var(--success)';
                 titleEl.style.webkitTextFillColor = 'var(--success)';
@@ -358,13 +379,19 @@ class PracticeManager {
             if (this._origGameOver) g.gameOver = this._origGameOver;
             if (this._origSpawnPuyo) g._spawnPuyo = this._origSpawnPuyo;
             if (this._origBeginGameOver) g._beginGameOver = this._origBeginGameOver;
+            if (this._origUpdateChainDisplay) g._updateChainDisplay = this._origUpdateChainDisplay;
             // 練習用に立てたフラグを共通エンジンから外す（VERSUS/ONLINEへ持ち越さない）
             delete g.practiceNoLock;
             delete g.practiceFallMs;
             if (this.rule === 'tet') g.gravityDisabled = false;
         }
+        if (this.rule === 'puyo') {
+            const labelEl = document.getElementById('label-lines');
+            if (labelEl) labelEl.textContent = 'CHAIN';
+        }
         this._origPopMino = this._origGameOver = null;
         this._origSpawnPuyo = this._origBeginGameOver = null;
+        this._origUpdateChainDisplay = null;
         this.gameInstance = null;
         this.history = [];
         this.cursor = -1;
@@ -372,6 +399,8 @@ class PracticeManager {
         document.body.classList.remove('practice-mode');
         const linesGoalEl = document.getElementById('lines-goal');
         if (linesGoalEl) linesGoalEl.textContent = '';
+        const scoreGoalEl = document.getElementById('score-goal');
+        if (scoreGoalEl) scoreGoalEl.textContent = '';
     }
 }
 
@@ -404,7 +433,7 @@ function _practiceValueHtml() {
     if (!range) return '<div class="practice-value is-disabled">-</div>';
     if (_practiceSpinner) {
         const boxes = _practiceSpinner.digits.map((d, i) =>
-            `<span class="practice-digit${i === _practiceSpinner.pos ? ' is-active' : ''}">${d}</span>`
+            `<span class="practice-digit${i === _practiceSpinner.pos ? ' is-active' : ''}" onclick="_practiceFocusDigit(${i})">${d}</span>`
         ).join('');
         return `<div class="practice-value is-editing">${boxes}</div>`;
     }
@@ -479,6 +508,13 @@ function _practiceOpenSpinner() {
     _practiceSpinner = { digits: s.split('').map(Number), pos: 0 };
     // 編集中は行移動・2D移動・Enter/Escape を FocusNav から奪う
     if (window.FocusNav) window.FocusNav.suspended = true;
+    renderModeCheck();
+}
+
+// 編集中、桁ボックスをクリックしてそこへフォーカスを移す
+function _practiceFocusDigit(i) {
+    if (!_practiceSpinner) return;
+    _practiceSpinner.pos = i;
     renderModeCheck();
 }
 
