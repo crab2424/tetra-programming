@@ -257,7 +257,8 @@ Object.assign(Game.prototype, {
             this._gravityLastTime = performance.now();
             return;
         }
-        const speed = LEVEL_SPEEDS[this.level] || 7;
+        // PRACTICE設定パネル：レベルに依存しない速度を直接指定できる（未指定時は通常どおりレベル依存）
+        const speed = (typeof this.practiceFallSpeedMs === 'number') ? this.practiceFallSpeedMs : (LEVEL_SPEEDS[this.level] || 7);
         const now = performance.now();
         const elapsed = now - this._gravityLastTime;
         if (elapsed < speed) return;

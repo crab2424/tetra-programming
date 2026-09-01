@@ -50,6 +50,13 @@ class PracticeManager {
         this._goalLoopId = null;
         this._keyHandler = null;
         this._origUpdateChainDisplay = null; // puyo + 'puyos'ゴール時のみ使う（下記 attach() 参照）
+        this._origUpdateTimeDisplay = null;      // tet。GOAL=TIME のときだけ使う
+        this._origUpdateTimeDisplayPuyo = null;  // puyo。GOAL=TIME のときだけ使う
+        this._origInitActiveColors = null;       // puyo。色数パネル用（§2.1a の _colorOrder 凍結）
+        this._origColorCount = null;             // puyo。パネルで変更した PConfig.colorCount の復元用
+
+        // ゲーム内設定パネル（Phase 2 §6）の現在値。パネル未使用時は既定のまま。
+        this.fallLevel = 0; // 0=速度0（Phase 1既定） / tet:1〜15=LEVEL_SPEEDS / puyo:1〜=段階
     }
 
     // ─────────────────────────────────────────
@@ -67,6 +74,23 @@ class PracticeManager {
         } else {
             game.practiceFallMs = 0;       // 自然落下なし
             game.practiceNoLock = true;
+
+            // ─── 色数パネル用：_colorOrder の凍結（設計 §2.1a / §6.2d）───
+            // _initActiveColors() は毎回シャッフルして colorCount ぶん切り詰めるだけで、
+            // 切り詰め前の並び（_colorOrder）を保持しない。パネルで色数を変えても
+            // 「多い色数が少ない色数を包含する」ようにするため、同じロジックに
+            // _colorOrder の保存だけ足して差し替える。
+            this._origColorCount = PConfig.colorCount;
+            this._origInitActiveColors = game._initActiveColors;
+            game._initActiveColors = function () {
+                const allColors = [1, 2, 3, 4, 5];
+                for (let i = allColors.length - 1; i > 0; i--) {
+                    const j = Math.floor(this._random() * (i + 1));
+                    [allColors[i], allColors[j]] = [allColors[j], allColors[i]];
+                }
+                this._colorOrder = allColors;
+                this.activeColors = allColors.slice(0, PConfig.colorCount);
+            }.bind(game);
         }
 
         // ─── スナップショット地点のフック（設計 §5.1）───
@@ -110,8 +134,43 @@ class PracticeManager {
             }.bind(game);
         }
 
+        // ─── GOAL=TIME のカウントダウン表示（設計 §4.4）───
+        // 達成判定は他のGOALと同じ汎用ループ（_currentGoalMetric）に任せ、ここでは
+        // TIME表示を「経過時間」から「残り時間」へ描き替えるだけの見た目の上書きに留める。
+        // 各エンジンの時刻表示関数の直後に上書きするので、rAFの実行順に依存しない。
+        if (this.goal.type === 'time') {
+            const limitMs = this.goal.value * 1000;
+            const paintCountdown = (timeEl, elapsedMs, formatFn) => {
+                if (!timeEl) return;
+                const remain = Math.max(0, limitMs - elapsedMs);
+                timeEl.textContent = formatFn(remain);
+                const danger = remain > 0 && remain <= 10000;
+                timeEl.style.color = danger ? 'var(--danger)' : '';
+                timeEl.style.webkitTextFillColor = danger ? 'var(--danger)' : '';
+            };
+            if (this.rule === 'tet') {
+                this._origUpdateTimeDisplay = game.updateTimeDisplay;
+                game.updateTimeDisplay = function () {
+                    self._origUpdateTimeDisplay.call(this);
+                    const elapsed = this.elapsedTime + (this.isTimerRunning ? performance.now() - this.startTime : 0);
+                    paintCountdown(document.getElementById('time-value'), elapsed, (ms) => {
+                        const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000), cs = Math.floor((ms % 1000) / 10);
+                        return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(cs).padStart(2, '0');
+                    });
+                }.bind(game);
+            } else {
+                this._origUpdateTimeDisplayPuyo = game._updateTimeDisplay;
+                game._updateTimeDisplay = function (ms) {
+                    self._origUpdateTimeDisplayPuyo.call(this, ms);
+                    paintCountdown(this.timeEl || document.getElementById('time-value'), ms, (remain) => this._formatTime(remain));
+                }.bind(game);
+            }
+        }
+
         this._installKeyHandler();
         this._startGoalLoop();
+
+        if (typeof _initPracticePanel === 'function') _initPracticePanel(this);
     }
 
     // ─────────────────────────────────────────
@@ -165,8 +224,18 @@ class PracticeManager {
         }
         // puyo は _gs='spawn' に戻してあるので、次フレームの _update が自分で出し直す
 
-        // 巻き戻したら目標達成の判定もやり直す（達成表示は出し直さない＝
-        // goalAchievedStats は「最初に達成した瞬間の値」を保つ、という決定に従う）
+        // 巻き戻したら目標達成の判定もやり直す（TIMEは巻き戻し対象外＝時間は進めたままなので除く）。
+        // 達成済みの手より前に戻った場合は再び未達成に戻し、再度その場に進めば
+        // 通常の goal ループが _onGoalAchieved() を呼び直す（達成表示は出し直る）。
+        if (this.goal.type !== 'none' && this.goal.type !== 'time') {
+            const stillAchieved = this._currentGoalMetric() >= this.goal.value;
+            if (!stillAchieved) {
+                this.isGoalAchieved = false;
+                this.goalAchievedStats = null;
+            } else {
+                this.isGoalAchieved = true;
+            }
+        }
         this._updateGoalDisplay();
     }
 
@@ -180,8 +249,19 @@ class PracticeManager {
             case 'lines': return g.lines || 0;
             case 'puyos': return g.clearedPuyos || 0;
             case 'score': return g.score || 0;
+            case 'time':  return Math.floor(this._elapsedMs() / 1000);
             default:      return 0;
         }
+    }
+
+    // 経過時間（ミリ秒）。設計 §1.4 の決定どおり、巻き戻しの対象外（進み続ける）。
+    _elapsedMs() {
+        const g = this.gameInstance;
+        if (!g) return 0;
+        if (this.rule === 'tet') {
+            return g.elapsedTime + (g.isTimerRunning ? performance.now() - g.startTime : 0);
+        }
+        return g.elapsed + (g._timerRunning ? performance.now() - g._timerStart : 0);
     }
 
     _startGoalLoop() {
@@ -298,6 +378,8 @@ class PracticeManager {
     _renderResult(kind, stats) {
         this.isFinished = true;
         if (this._goalLoopId) { cancelAnimationFrame(this._goalLoopId); this._goalLoopId = null; }
+        const panel = document.getElementById('practice-panel');
+        if (panel) panel.classList.remove('is-open');
 
         const titleEl = document.getElementById('result-title');
         if (titleEl) {
@@ -327,8 +409,52 @@ class PracticeManager {
         if (badge) badge.style.display = 'none';
         if (bestRow) bestRow.style.display = 'none';
 
+        // 「巻き戻す」ボタン（設計 §4.5-6）。戻れる手が残っているときだけ出す。
+        const rewindBtn = document.getElementById('result-practice-rewind-btn');
+        if (rewindBtn) rewindBtn.style.display = (this.cursor > 0) ? '' : 'none';
+
         if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(this.rule === 'puyo');
         if (typeof switchPage === 'function') switchPage('result');
+    }
+
+    // ─────────────────────────────────────────
+    // リザルトからの巻き戻し（設計 §4.5-6・§10 Phase2）
+    // 停止済みのエンジンを1手戻し、ゲーム画面へ戻して再開する。
+    // 巻き戻し履歴はリザルトを挟んでも生きたままなので、複数回呼べる。
+    // ─────────────────────────────────────────
+    rewindFromResult() {
+        if (!this.isFinished || this.cursor <= 0) return false;
+        this.cursor -= 1;
+        this.isFinished = false;
+        this._restoreCurrent();
+        this._resumeEngine();
+        if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(this.rule === 'puyo');
+        if (typeof switchPage === 'function') switchPage('game');
+        return true;
+    }
+
+    // gameOver()/finish() で完全停止させたエンジンを、カウントダウンなしで再開する。
+    // start()（tet）/ start()（puyo）はモード初期化からやり直してしまうため使えない。
+    _resumeEngine() {
+        const g = this.gameInstance;
+        if (this.rule === 'tet') {
+            g.isPaused = false;
+            g.isCountingDown = false;
+            g.startTime = performance.now();
+            g.isTimerRunning = true;
+            g.startTimerLoop();
+            g.startGravity();
+            g.startRenderLoop();
+        } else {
+            g.state = 'playing';
+            g.isPaused = false;
+            g.lastTime = performance.now();
+            g._timerRunning = true;
+            g._timerStart = performance.now();
+            g._timerTick();
+            g._loop();
+        }
+        this._startGoalLoop();
     }
 
     // ─────────────────────────────────────────
@@ -380,18 +506,33 @@ class PracticeManager {
             if (this._origSpawnPuyo) g._spawnPuyo = this._origSpawnPuyo;
             if (this._origBeginGameOver) g._beginGameOver = this._origBeginGameOver;
             if (this._origUpdateChainDisplay) g._updateChainDisplay = this._origUpdateChainDisplay;
+            if (this._origUpdateTimeDisplay) g.updateTimeDisplay = this._origUpdateTimeDisplay;
+            if (this._origUpdateTimeDisplayPuyo) g._updateTimeDisplay = this._origUpdateTimeDisplayPuyo;
+            if (this._origInitActiveColors) g._initActiveColors = this._origInitActiveColors;
             // 練習用に立てたフラグを共通エンジンから外す（VERSUS/ONLINEへ持ち越さない）
             delete g.practiceNoLock;
             delete g.practiceFallMs;
-            if (this.rule === 'tet') g.gravityDisabled = false;
+            delete g.practiceFallSpeedMs;
+            delete g.practiceNextCount;
+            delete g.practiceHoldEnabled;
+            delete g.showGhost;
+            delete g._colorOrder;
+            if (this.rule === 'tet') {
+                g.gravityDisabled = false;
+                if (typeof _setHoldOverlayVisible === 'function') _setHoldOverlayVisible(false);
+            }
         }
         if (this.rule === 'puyo') {
             const labelEl = document.getElementById('label-lines');
             if (labelEl) labelEl.textContent = 'CHAIN';
+            if (typeof this._origColorCount === 'number') PConfig.colorCount = this._origColorCount;
         }
+        if (typeof _closePracticePanel === 'function') _closePracticePanel();
         this._origPopMino = this._origGameOver = null;
         this._origSpawnPuyo = this._origBeginGameOver = null;
         this._origUpdateChainDisplay = null;
+        this._origUpdateTimeDisplay = this._origUpdateTimeDisplayPuyo = null;
+        this._origInitActiveColors = null;
         this.gameInstance = null;
         this.history = [];
         this.cursor = -1;
@@ -424,6 +565,7 @@ function _practiceGoalLabel(type, rule) {
     if (type === 'lines') return 'LINES';
     if (type === 'puyos') return 'PUYOS';
     if (type === 'score') return 'SCORE';
+    if (type === 'time') return 'TIME';
     return 'NONE';
 }
 
@@ -470,7 +612,7 @@ function renderPracticeModeCheckOptions(mode) {
       <div class="option-row">
         <span class="option-label">GOAL</span>
         <div class="option-toggle" id="practice-goal-toggle">
-          ${goalBtn('none')}${goalBtn(countType)}${goalBtn('score')}
+          ${goalBtn('none')}${goalBtn(countType)}${goalBtn('score')}${goalBtn('time')}
         </div>
       </div>
       ${valueRow}
@@ -639,6 +781,11 @@ function startPracticeGame() {
     switchPage('game');
     setupGlobalCpuPauseKey();
     window._game.start();
+}
+
+// リザルト画面の「巻き戻す」ボタン（index.html #result-practice-rewind-btn）から呼ばれる。
+function practiceRewindFromResult() {
+    if (window._practiceManager) window._practiceManager.rewindFromResult();
 }
 
 // stopAllGames() から呼ばれる。フックを外してマネージャを破棄する。

@@ -107,6 +107,8 @@ Object.assign(Game.prototype, {
         if (!this.canHold) return
         // VS設定：HOLDが無効な場合はホールド操作を受け付けない
         if (this.isVersusMode && this.vsHoldEnabled === false) return
+        // PRACTICE設定パネル：HOLDがOFFのときは操作を受け付けない（中身は破棄せず保持）
+        if (this.practiceHoldEnabled === false) return
         this.canHold = false
         this.playSe('hold')
 

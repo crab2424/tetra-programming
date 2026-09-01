@@ -76,9 +76,9 @@ const GAME_MODES = {
 // Phase 1 では RULE / GOAL(NONE・LINES/PUYOS・SCORE) / VALUE のみ。
 // 落下速度・NEXT表示数などのゲーム内設定パネルは Phase 2 でここに追加する。
 let practiceRule = 'tet';           // 'tet' | 'puyo'
-let practiceGoalType = 'none';      // 'none' | 'lines' | 'puyos' | 'score'
+let practiceGoalType = 'none';      // 'none' | 'lines' | 'puyos' | 'score' | 'time'
 // 目標値はGOAL種別ごとに別々に覚える（LINES↔SCOREを行き来しても値が壊れないように）
-let practiceGoalValues = { lines: 40, puyos: 100, score: 10000 };
+let practiceGoalValues = { lines: 40, puyos: 100, score: 10000, time: 180 };
 
 // PRACTICE: 目標値のプリセット送り（1-2-5系）。←/→ で1段ずつ動かす。
 const PRACTICE_GOAL_PRESETS = {
@@ -86,12 +86,15 @@ const PRACTICE_GOAL_PRESETS = {
   puyos: [10, 20, 50, 100, 200, 500, 999],
   score: [1000, 2000, 5000, 10000, 20000, 50000, 100000,
           200000, 500000, 1000000, 2000000, 5000000, 10000000],
+  // 秒単位。GOAL=TIMEのときは残り時間をカウントダウン表示する（設計 §4.4）
+  time: [10, 20, 30, 60, 120, 180, 300, 600, 900, 1800, 3600],
 };
 // 桁スピナー編集モード（§4.2）の桁数と有効範囲
 const PRACTICE_GOAL_RANGE = {
   lines: { min: 10,   max: 999,      digits: 3 },
   puyos: { min: 10,   max: 999,      digits: 3 },
   score: { min: 1000, max: 10000000, digits: 8 },
+  time:  { min: 10,   max: 3600,     digits: 4 },
 };
 
 // ルールで名前が入れ替わる「消した量」系の目標キー
