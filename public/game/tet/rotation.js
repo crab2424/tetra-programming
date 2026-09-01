@@ -104,11 +104,13 @@ Object.assign(Game.prototype, {
 
     // ホールド
     holdCurrentMino() {
-        if (!this.canHold) return
+        // PRACTICE設定パネル：HOLDがFREEのときは1手1回の制約を外す
+        const practiceFreeHold = this.practiceHoldMode === 'free'
+        if (!this.canHold && !practiceFreeHold) return
         // VS設定：HOLDが無効な場合はホールド操作を受け付けない
         if (this.isVersusMode && this.vsHoldEnabled === false) return
         // PRACTICE設定パネル：HOLDがOFFのときは操作を受け付けない（中身は破棄せず保持）
-        if (this.practiceHoldEnabled === false) return
+        if (this.practiceHoldMode === 'off') return
         this.canHold = false
         this.playSe('hold')
 

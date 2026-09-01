@@ -466,10 +466,8 @@ Object.assign(PuyoGame.prototype, {
         ctx.fillRect(0, 0, W, H);
 
         // PRACTICE設定パネル：NEXT表示数（practiceNextCount）を可変化。既定は2ペア。
-        // 既定を超える分は縮小＋2列で表示する。
-        const count = Math.max(1, Math.min(10, this.practiceNextCount || 2));
-        const cols = count > 2 ? 2 : 1;
-        const drawCs = cols > 1 ? 30 : 42;
+        // 既定を超える分は2列で表示する（縮小率は_computeNextLayout参照）。
+        const { count, cols, drawCs } = this._computeNextLayout();
         const colWidth = W / cols;
 
         ctx.save();
@@ -511,14 +509,24 @@ Object.assign(PuyoGame.prototype, {
         ctx.restore();
     },
 
+    // PRACTICE設定パネル：NEXT表示数（practiceNextCount）に応じたレイアウトを計算する。
+    // 既定(2ペア)までは現行サイズ・1列。超過分は2列にした上で、縦の枠は常に
+    // PRACTICE_NEXT_MAX_HEIGHT（tetの既定NEXT高さ）で揃える。drawCsは
+    // 「2列でもその高さに収まる最大サイズ」を逆算するので、行数が少ないうちは
+    // 縮小されない（tetから見て小さく見えすぎる問題への対応。base.js参照）。
+    _computeNextLayout() {
+        const count = Math.max(1, Math.min(10, this.practiceNextCount || 2));
+        const cols = count > 2 ? 2 : 1;
+        const rows = cols > 1 ? Math.ceil(count / 2) : count;
+        const drawCs = Math.max(18, Math.min(42, (PRACTICE_NEXT_MAX_HEIGHT - 20 - 42) / (rows * 2.5)));
+        return { count, cols, rows, drawCs };
+    },
+
     // PRACTICE設定パネル：NEXT表示数の変更に合わせてキャンバスサイズを再計算する
     resizeNextCanvas() {
         if (!this.nextCanvas) return;
-        const count = Math.max(1, Math.min(10, this.practiceNextCount || 2));
-        const cols = count > 2 ? 2 : 1;
-        const drawCs = cols > 1 ? 30 : 42;
-        const rows = cols > 1 ? Math.ceil(count / 2) : count;
+        const { cols } = this._computeNextLayout();
         this.nextCanvas.width = 128 * cols;
-        this.nextCanvas.height = Math.ceil(20 + rows * drawCs * 2.5 + drawCs);
+        this.nextCanvas.height = PRACTICE_NEXT_MAX_HEIGHT;
     },
 });

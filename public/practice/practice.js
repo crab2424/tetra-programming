@@ -514,7 +514,7 @@ class PracticeManager {
             delete g.practiceFallMs;
             delete g.practiceFallSpeedMs;
             delete g.practiceNextCount;
-            delete g.practiceHoldEnabled;
+            delete g.practiceHoldMode;
             delete g.showGhost;
             delete g._colorOrder;
             if (this.rule === 'tet') {
@@ -755,6 +755,10 @@ function startPracticeGame() {
         // start() は内部で stop()→initGame()→カウントダウン。フックは prototype ではなく
         // インスタンスに載せているので、この再初期化でも外れない。
         window._puyoGame.start();
+        // start()→initGame()→_setupCanvas() が nextCanvas を既定サイズ(128×259)へ
+        // 同期的に上書きするため、attach()内で先に呼んだ resizeNextCanvas() の結果が
+        // 消えてしまう。start() 呼び出し（_setupCanvas() までは同期）の直後に取り直す。
+        if (typeof window._puyoGame.resizeNextCanvas === 'function') window._puyoGame.resizeNextCanvas();
         return;
     }
 
