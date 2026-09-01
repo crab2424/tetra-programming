@@ -65,7 +65,9 @@ const GAME_MODES = {
     icon:        '🎯',
     description: '自由に練習できるモード。巻き戻し可能・記録なし。',
     descriptionEn: 'Free practice with rewind. No records.',
-    color:       'var(--success)',
+    // CPU TEST が --success（緑）を使っているため、外枠色が被らないよう
+    // ホーム画面の他ボタンにない灰色系にする（他モードカラーとの兼ね合いで新規追加）。
+    color:       'var(--practice-color)',
   },
 };
 

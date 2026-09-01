@@ -8,21 +8,21 @@
 
 /* ─── メインメニューのモードボタン ─── */
 .mode-btn-practice {
-  border-color: rgba(90, 245, 160, 0.35);
+  border-color: rgba(156, 167, 184, 0.35);
 }
 .mode-btn-practice:hover,
 .mode-btn-practice.is-focused {
-  background: rgba(90, 245, 160, 0.12);
-  border-color: var(--success);
+  background: rgba(156, 167, 184, 0.12);
+  border-color: var(--practice-color);
 }
 .mode-btn-practice .mode-btn-icon,
 .mode-btn-practice .mode-btn-label {
-  color: var(--success);
+  color: var(--practice-color);
 }
 
 /* ─── ポーズ画面の FINISH ボタン（PRACTICE時のみ表示） ─── */
 .btn-practice-primary {
-  background: linear-gradient(135deg, var(--success) 0%, #42f5c8 100%);
+  background: linear-gradient(135deg, var(--practice-color) 0%, #6b7690 100%);
   color: #0a0a0f;
   font-weight: 700;
   width: 100%;
@@ -37,7 +37,13 @@
   font-family: "Orbitron", monospace;
   font-size: 16px;
   letter-spacing: 2px;
-  color: var(--success);
+  color: var(--practice-color);
+  cursor: pointer;
+}
+/* GOAL=NONE のときの "-" プレースホルダ。編集対象がないのでクリックできない見た目にする */
+.practice-value.is-disabled {
+  color: var(--text-dim);
+  cursor: default;
 }
 
 /* 編集モード（桁スピナー）：値を1桁ずつのボックスに割る */
@@ -55,9 +61,9 @@
   color: var(--text-dim);
 }
 .practice-digit.is-active {
-  border-color: var(--success);
-  color: var(--success);
-  background: rgba(90, 245, 160, 0.12);
+  border-color: var(--practice-color);
+  color: var(--practice-color);
+  background: rgba(156, 167, 184, 0.12);
 }
 
 .practice-value-hint {
