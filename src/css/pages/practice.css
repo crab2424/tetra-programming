@@ -89,14 +89,17 @@ body.practice-mode #lpm-area {
 }
 
 /* ─── Phase 2: ゲーム内設定パネル（設計 §6） ───
-   #next-canvas / #puyo-next-canvas は既定で left:352px、幅は最大256px（NEXT表示数10のとき）
-   まで広がるので、パネルはそのさらに右（left:650px）に置いて衝突を避ける。 */
+   #container は基準750×700pxでスケールされる（single-play.css）。NEXT枠の右側
+   （left:650px付近）に置くと、その基準を超えてウィンドウ幅が足りない環境では
+   画面外にはみ出て操作できなくなる。#next-canvas / #puyo-next-canvas の
+   最大幅256px（NEXT表示数10のとき）・高さ432px(PRACTICE_NEXT_MAX_HEIGHT)は
+   常に固定なので、その直下（container内側）に置けば基準内に収まり安全。 */
 .practice-panel {
   display: none;
   position: absolute;
-  top: 0;
-  left: 650px;
-  width: 190px;
+  top: 440px;
+  left: 352px;
+  width: 256px;
 }
 .practice-panel.is-visible {
   display: block;
@@ -104,16 +107,16 @@ body.practice-mode #lpm-area {
 
 .practice-panel-tab {
   position: absolute;
-  top: 0;
-  left: -34px;
-  width: 34px;
-  height: 40px;
+  top: -32px;
+  left: 0;
+  width: 100%;
+  height: 28px;
   border: 2px solid var(--border);
-  border-right: none;
-  border-radius: 6px 0 0 6px;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
   background: rgba(10, 10, 15, 0.9);
   color: var(--practice-color);
-  font-size: 16px;
+  font-size: 14px;
   cursor: pointer;
 }
 .practice-panel-tab:hover {
@@ -123,11 +126,11 @@ body.practice-mode #lpm-area {
 .practice-panel-body {
   display: none;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
   border: 2px solid var(--border);
   border-radius: 6px;
-  background: rgba(10, 10, 15, 0.9);
+  background: rgba(10, 10, 15, 0.92);
 }
 .practice-panel.is-open .practice-panel-body {
   display: flex;
@@ -196,4 +199,41 @@ body.practice-mode #lpm-area {
 .practice-panel-clear-btn:hover {
   background: rgba(255, 90, 90, 0.12);
   border-color: var(--danger);
+}
+
+/* キーボード操作中のフォーカス行（Tabキーでパネルを開いた後、↑↓で移動） */
+.practice-panel-row.is-focused {
+  outline: 1px solid var(--practice-color);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.practice-panel-row.is-focused .practice-panel-label {
+  color: var(--practice-color);
+}
+
+/* HOLD行はON/OFF/FREEの3択になるため、幅に収まるよう少し詰める */
+.practice-panel-toggle-3 {
+  transform: scale(0.75);
+}
+.practice-panel-toggle-3 .opt-btn {
+  padding: 5px 6px;
+}
+
+/* パネルが開いている＝ポーズ中であることを示すインジケーター（設計 §6.1「開いている間はポーズ」） */
+.practice-settings-overlay {
+  background: rgba(10, 10, 16, 0.55);
+  z-index: 20;
+}
+.practice-settings-text {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 6px;
+  color: var(--practice-color);
+  text-shadow: 0 0 16px rgba(156, 167, 184, 0.6);
+  animation: practice-settings-pulse 1.6s ease-in-out infinite;
+}
+@keyframes practice-settings-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }

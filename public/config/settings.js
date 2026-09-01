@@ -23,6 +23,7 @@ const DEFAULT_BINDS = {
   // ─── PRACTICEモード専用（他モードでは使われない） ───
   rewind:  [{ type: 'key', code: 'KeyQ', label: 'Q' }, { type: 'button', index: 6 }, null],
   advance: [{ type: 'key', code: 'KeyE', label: 'E' }, { type: 'button', index: 7 }, null],
+  practicePanel: [{ type: 'key', code: 'Tab', label: 'TAB' }, { type: 'button', index: 10 }, null],
 };
 
 const ACTION_LABELS = {
@@ -39,6 +40,7 @@ const ACTION_LABELS = {
   // キーコンフィグ画面にだけ行を出す。
   rewind:  { name: '1手戻す (PRACTICE)', en: 'Rewind (Practice)' },
   advance: { name: '1手進める (PRACTICE)', en: 'Advance (Practice)' },
+  practicePanel: { name: '設定パネル開閉 (PRACTICE)', en: 'Settings Panel (Practice)' },
 };
 
 /**

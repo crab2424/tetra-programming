@@ -73,6 +73,12 @@ Object.assign(PuyoGame.prototype, {
 
             // ★ これ以降の操作（移動、回転、ドロップ等）は、CPU制御時にはプレイヤーの入力を無視する
             if (this.isCpuControlled) return;
+            // ★ ポーズ中（PRACTICE設定パネルを開いている間を含む）は操作を無視する。
+            //   tetの isPaused チェック（input.js）と同種。これが無いと _loop() 自体は
+            //   state!=='playing' で止まっていても _tryMove/_tryRotate/_tryQuickDrop が
+            //   直接盤面を書き換えてしまい、画面には反映されないままポーズ解除の瞬間に
+            //   一気に反映される不具合になる。
+            if (this.state !== 'playing') return;
 
             const isRepeat = e.repeat;
             this._heldCodes.add(e.code);

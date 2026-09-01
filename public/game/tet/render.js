@@ -44,15 +44,24 @@ Object.assign(Game.prototype, {
         this.nextCanvas.height = BLOCK_SIZE * 13.5;
     },
 
-    // PRACTICE設定パネル：NEXT表示数（practiceNextCount）の変更に合わせて
-    // キャンバスサイズを再計算する。既定(5個)までは現行サイズ、超過分は縮小＋2列。
-    resizeNextCanvas() {
+    // PRACTICE設定パネル：NEXT表示数（practiceNextCount）に応じたレイアウトを計算する。
+    // 既定(5個)までは現行サイズ・1列。超過分は2列にした上で、縦の枠は常に
+    // PRACTICE_NEXT_MAX_HEIGHT（tetの既定NEXT高さ）で揃える。scaleは
+    // 「2列でもその高さに収まる最大サイズ」を逆算するので、行数が少ないうちは
+    // 縮小されない（puyo側と共通の考え方。base.js参照）。
+    _computeNextLayout() {
         const count = Math.max(1, Math.min(10, this.practiceNextCount || 5));
         const cols = count > 5 ? 2 : 1;
         const rows = Math.ceil(count / cols);
-        const scale = cols > 1 ? 0.6 : 0.8;
+        const scale = Math.min(0.8, (PRACTICE_NEXT_MAX_HEIGHT - BLOCK_SIZE * 0.8) / (rows * 3 * BLOCK_SIZE));
+        return { count, cols, rows, scale };
+    },
+
+    // PRACTICE設定パネル：NEXT表示数の変更に合わせてキャンバスサイズを再計算する
+    resizeNextCanvas() {
+        const { cols } = this._computeNextLayout();
         this.nextCanvas.width = BLOCK_SIZE * 4 * cols;
-        this.nextCanvas.height = Math.ceil(rows * 3 * BLOCK_SIZE * scale + BLOCK_SIZE * scale);
+        this.nextCanvas.height = PRACTICE_NEXT_MAX_HEIGHT;
     },
 
     initHoldCanvas() {
@@ -203,14 +212,12 @@ Object.assign(Game.prototype, {
         const minoScale = 0.8;
 
         // Draw next queue vertically（表示は既定5個。PRACTICEでは practiceNextCount で可変。
-        // 内部は11個保持。既定を超える分は縮小＋2列で表示する）
+        // 内部は11個保持。既定を超える分は2列で表示する＝_computeNextLayout参照）
         // slice + forEach は毎フレ配列とクロージャを作るため素のループに置換。
         const spacing = 3;
         const nq = this.nextQueue;
-        const nextCount = Math.max(1, Math.min(10, this.practiceNextCount || 5));
+        const { count: nextCount, cols: nqCols, scale: nqScale } = this._computeNextLayout();
         const nqLen = Math.min(nextCount, nq.length);
-        const nqCols = nextCount > 5 ? 2 : 1;
-        const nqScale = nqCols > 1 ? 0.6 : minoScale;
         const colWidthPx = BLOCK_SIZE * 4;
         for (let i = 0; i < nqLen; i++) {
             const col = nqCols > 1 ? (i % 2) : 0;
@@ -231,7 +238,8 @@ Object.assign(Game.prototype, {
 
         if (this.holdMino) {
             this.holdCtx.save();
-            if (!this.canHold) {
+            // PRACTICE設定パネル：HOLDがFREEのときは薄暗くしない（何度でも使えるため）
+            if (!this.canHold && this.practiceHoldMode !== 'free') {
                 this.holdCtx.globalAlpha = 0.4;
             }
             this.holdCtx.scale(minoScale, minoScale);

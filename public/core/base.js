@@ -22,6 +22,10 @@ const VISIBLE_EXTRA_ROW_RATIO = 0.5;
 const SCREEN_WIDTH = COLS_COUNT * BLOCK_SIZE;
 const SCREEN_HEIGHT = (ROWS_COUNT + VISIBLE_EXTRA_ROW_RATIO) * BLOCK_SIZE;
 const NEXT_AREA_SIZE = 160;
+// PRACTICE設定パネル：NEXT表示数を増やしたとき、tet/puyoどちらも枠の縦幅を
+// このtetの既定NEXT高さ(BLOCK_SIZE*13.5)まで揃える（puyoだけ縦が伸びず
+// 小さく見えてしまう問題への対応）。
+const PRACTICE_NEXT_MAX_HEIGHT = BLOCK_SIZE * 13.5;
 
 // ─────────────────────────────────────────────
 // ★ アセット（音源・画像）のキャッシュ用バージョン

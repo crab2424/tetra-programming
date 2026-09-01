@@ -5,7 +5,7 @@
 // 設計: source_assets/memory/tetlabo-practice-mode-design.md §6
 //   ・右側に折りたたみ。開いている間はポーズ（TIMEも停止）
 //   ・設定は変更した瞬間に盤面へ反映（ツモ順設定のみ例外＝Phase 3で扱う）
-//   ・項目: 落下速度 / NEXT表示数 / HOLD / 色数(puyo) / ゴースト(tet) / 盤面クリア
+//   ・項目: 落下速度 / NEXT表示数 / HOLD(ON/OFF/FREE) / 色数(puyo) / ゴースト(tet) / 盤面クリア
 //
 // PracticeManager（practice.js）の attach()/destroy() から
 // _initPracticePanel(manager) / _closePracticePanel() が呼ばれる。
@@ -13,6 +13,10 @@
 
 // puyoの自由落下速度の段階（0=自然落下なし＝Phase1既定 / 1=既定250ms / 以降は高速段階）
 const PRACTICE_PUYO_FALL_TABLE = [0, 250, 180, 120, 80, 50, 30];
+
+// tetのHOLDモード（左→右のボタン順）。ONは通常どおり1手1回、
+// OFFは操作を受け付けない、FREEは1手に何度でも使え枠も薄暗くしない。
+const PRACTICE_HOLD_MODES = ['on', 'off', 'free'];
 
 function _practiceFallMax() {
     const mgr = window._practiceManager;
@@ -26,6 +30,13 @@ function _practiceFallLabel(lv) {
     return 'LV' + lv;
 }
 
+// パネル内のキーボード操作でフォーカスする行の並び（rule別）
+function _practicePanelRowKeys(mgr) {
+    return (mgr.rule === 'tet')
+        ? ['speed', 'next', 'hold', 'ghost', 'clear']
+        : ['speed', 'next', 'colors', 'clear'];
+}
+
 // ─────────────────────────────────────────
 // 開閉（開く＝ポーズ、閉じる＝再開）
 // ─────────────────────────────────────────
@@ -35,6 +46,7 @@ function togglePracticePanel() {
     if (!panel || !mgr || !mgr.gameInstance) return;
     const opening = !panel.classList.contains('is-open');
     panel.classList.toggle('is-open', opening);
+    _practicePanelFocusIndex = 0;
 
     const g = mgr.gameInstance;
     if (opening) {
@@ -45,15 +57,25 @@ function togglePracticePanel() {
     } else {
         g.resume();
     }
+
+    // 「設定変更中（＝ポーズ中）」を示すインジケーター（バグ報告への対応）
+    const overlay = document.getElementById('practice-settings-overlay');
+    if (overlay) overlay.classList.toggle('active', opening);
+
+    _practicePanelRefresh();
 }
 
 function _closePracticePanel() {
     const panel = document.getElementById('practice-panel');
-    if (!panel) return;
-    panel.classList.remove('is-open');
-    panel.classList.remove('is-visible');
+    if (panel) {
+        panel.classList.remove('is-open');
+        panel.classList.remove('is-visible');
+    }
     const body = document.getElementById('practice-panel-body');
     if (body) body.innerHTML = '';
+    const overlay = document.getElementById('practice-settings-overlay');
+    if (overlay) overlay.classList.remove('active');
+    _removePracticePanelKeyHandler();
 }
 
 // ─────────────────────────────────────────
@@ -70,12 +92,15 @@ function _initPracticePanel(manager) {
     if (manager.rule === 'puyo') g.practiceFallMs = 0;
     g.practiceNoLock = true;
     g.practiceNextCount = (manager.rule === 'tet') ? 5 : 2;
-    g.practiceHoldEnabled = true;
+    g.practiceHoldMode = 'on';
     g.showGhost = true;
+    if (typeof g.resizeNextCanvas === 'function') g.resizeNextCanvas();
 
     panel.classList.add('is-visible');
     panel.classList.remove('is-open');
+    _practicePanelFocusIndex = 0;
     _practicePanelRefresh();
+    _installPracticePanelKeyHandler();
 }
 
 // ─────────────────────────────────────────
@@ -87,9 +112,13 @@ function _practicePanelRefresh() {
     if (!mgr || !mgr.gameInstance || !body) return;
     const g = mgr.gameInstance;
     const isTet = (mgr.rule === 'tet');
+    const panel = document.getElementById('practice-panel');
+    const isOpen = !!(panel && panel.classList.contains('is-open'));
+    const rowKeys = _practicePanelRowKeys(mgr);
+    const focusCls = (key) => (isOpen && rowKeys[_practicePanelFocusIndex] === key) ? ' is-focused' : '';
 
-    const stepRow = (label, valueHtml, onDec, onInc) => `
-      <div class="practice-panel-row">
+    const stepRow = (key, label, valueHtml, onDec, onInc) => `
+      <div class="practice-panel-row${focusCls(key)}">
         <span class="practice-panel-label">${label}</span>
         <div class="practice-panel-stepper">
           <button onmousedown="event.preventDefault()" onclick="${onDec}">−</button>
@@ -98,8 +127,8 @@ function _practicePanelRefresh() {
         </div>
       </div>`;
 
-    const toggleRow = (label, isOn, onOnClick, onOffClick) => `
-      <div class="practice-panel-row">
+    const toggleRow = (key, label, isOn, onOnClick, onOffClick) => `
+      <div class="practice-panel-row${focusCls(key)}">
         <span class="practice-panel-label">${label}</span>
         <div class="option-toggle practice-panel-toggle">
           <button class="opt-btn ${isOn ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="${onOnClick}">ON</button>
@@ -107,21 +136,123 @@ function _practicePanelRefresh() {
         </div>
       </div>`;
 
+    const holdMode = g.practiceHoldMode || 'on';
+    const holdRow = `
+      <div class="practice-panel-row${focusCls('hold')}">
+        <span class="practice-panel-label">HOLD</span>
+        <div class="option-toggle practice-panel-toggle practice-panel-toggle-3">
+          <button class="opt-btn ${holdMode === 'on' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeHoldMode('on')">ON</button>
+          <button class="opt-btn ${holdMode === 'off' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeHoldMode('off')">OFF</button>
+          <button class="opt-btn ${holdMode === 'free' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeHoldMode('free')">FREE</button>
+        </div>
+      </div>`;
+
     let html = '';
-    html += stepRow('SPEED', _practiceFallLabel(mgr.fallLevel), 'practiceStepFallLevel(-1)', 'practiceStepFallLevel(1)');
-    html += stepRow('NEXT', g.practiceNextCount, 'practiceStepNextCount(-1)', 'practiceStepNextCount(1)');
+    html += stepRow('speed', 'SPEED', _practiceFallLabel(mgr.fallLevel), 'practiceStepFallLevel(-1)', 'practiceStepFallLevel(1)');
+    html += stepRow('next', 'NEXT', g.practiceNextCount, 'practiceStepNextCount(-1)', 'practiceStepNextCount(1)');
     if (isTet) {
-        html += toggleRow('HOLD', g.practiceHoldEnabled !== false, 'setPracticeHoldEnabled(true)', 'setPracticeHoldEnabled(false)');
-        html += toggleRow('GHOST', g.showGhost !== false, 'setPracticeGhostEnabled(true)', 'setPracticeGhostEnabled(false)');
+        html += holdRow;
+        html += toggleRow('ghost', 'GHOST', g.showGhost !== false, 'setPracticeGhostEnabled(true)', 'setPracticeGhostEnabled(false)');
     } else {
-        html += stepRow('COLORS', PConfig.colorCount, 'practiceStepColorCount(-1)', 'practiceStepColorCount(1)');
+        html += stepRow('colors', 'COLORS', PConfig.colorCount, 'practiceStepColorCount(-1)', 'practiceStepColorCount(1)');
     }
     html += `
-      <div class="practice-panel-row practice-panel-row-action">
+      <div class="practice-panel-row practice-panel-row-action${focusCls('clear')}">
         <button class="practice-panel-clear-btn" onmousedown="event.preventDefault()" onclick="practiceClearBoard()">盤面クリア</button>
       </div>`;
 
     body.innerHTML = html;
+}
+
+// ─────────────────────────────────────────
+// キーボード操作（新規: パネルの開閉・項目移動・値変更）
+// ─────────────────────────────────────────
+let _practicePanelFocusIndex = 0;
+let _practicePanelKeyHandler = null;
+
+function _practicePanelOpenKeyCodes() {
+    const keys = (typeof loadKeys === 'function') ? loadKeys() : null;
+    const k = keys && keys.practicePanel;
+    return (k && k.codes && k.codes.length) ? k.codes : ['Tab'];
+}
+
+// キー方向(-1/+1)を各項目の操作へ変換する
+function _practicePanelApplyDir(rowKey, dir) {
+    switch (rowKey) {
+        case 'speed':  practiceStepFallLevel(dir); break;
+        case 'next':   practiceStepNextCount(dir); break;
+        case 'hold':   practiceStepHoldMode(dir); break;
+        case 'ghost':  setPracticeGhostEnabled(dir > 0); break;
+        case 'colors': practiceStepColorCount(dir); break;
+    }
+}
+
+function _practicePanelActivate(rowKey) {
+    if (rowKey === 'clear') practiceClearBoard();
+    else if (rowKey === 'hold') practiceStepHoldMode(1);
+    else if (rowKey === 'ghost') {
+        const g = window._practiceManager && window._practiceManager.gameInstance;
+        if (g) setPracticeGhostEnabled(g.showGhost === false);
+    }
+}
+
+// game-page がアクティブな間、PRACTICEのパネル開閉キー(既定Tab)を常時監視し、
+// パネルが開いている間だけ上下左右/Enter/Escapeを奪ってゲーム本体に渡さない
+// （奪わないと、パネル操作のつもりの矢印キーがそのままミノ移動等に使われてしまう）。
+function _installPracticePanelKeyHandler() {
+    _removePracticePanelKeyHandler();
+    _practicePanelKeyHandler = (e) => {
+        const mgr = window._practiceManager;
+        if (!mgr) return;
+        const gamePage = document.getElementById('game-page');
+        if (!gamePage || !gamePage.classList.contains('active')) return;
+
+        const panel = document.getElementById('practice-panel');
+        const isOpen = !!(panel && panel.classList.contains('is-open'));
+
+        if (_practicePanelOpenKeyCodes().includes(e.code)) {
+            if (e.repeat) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            togglePracticePanel();
+            return;
+        }
+
+        if (!isOpen) return; // 閉じている間は他のキーに介入しない
+
+        const rows = _practicePanelRowKeys(mgr);
+        let handled = true;
+        if (e.code === 'ArrowUp') {
+            _practicePanelFocusIndex = (_practicePanelFocusIndex - 1 + rows.length) % rows.length;
+        } else if (e.code === 'ArrowDown') {
+            _practicePanelFocusIndex = (_practicePanelFocusIndex + 1) % rows.length;
+        } else if (e.code === 'ArrowLeft') {
+            _practicePanelApplyDir(rows[_practicePanelFocusIndex], -1);
+        } else if (e.code === 'ArrowRight') {
+            _practicePanelApplyDir(rows[_practicePanelFocusIndex], 1);
+        } else if (e.code === 'Enter' || e.code === 'Space') {
+            _practicePanelActivate(rows[_practicePanelFocusIndex]);
+        } else if (e.code === 'Escape') {
+            togglePracticePanel();
+        } else {
+            handled = false;
+        }
+
+        if (handled) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            _practicePanelRefresh();
+        }
+    };
+    // capture段階で先取りする（tet/puyoそれぞれのキー入力ハンドラより先に奪うため）
+    document.addEventListener('keydown', _practicePanelKeyHandler, true);
+}
+
+function _removePracticePanelKeyHandler() {
+    if (_practicePanelKeyHandler) {
+        document.removeEventListener('keydown', _practicePanelKeyHandler, true);
+        _practicePanelKeyHandler = null;
+    }
 }
 
 // ─────────────────────────────────────────
@@ -169,14 +300,25 @@ function practiceStepNextCount(delta) {
 }
 
 // ─────────────────────────────────────────
-// HOLD ON/OFF（tetのみ。設計 §6.2c）
+// HOLD ON/OFF/FREE（tetのみ）
+// FREE: 1手につき何度でもホールドでき、枠のミノも薄暗くしない
 // ─────────────────────────────────────────
-function setPracticeHoldEnabled(on) {
+function setPracticeHoldMode(mode) {
     const mgr = window._practiceManager;
     if (!mgr || mgr.rule !== 'tet' || !mgr.gameInstance) return;
-    mgr.gameInstance.practiceHoldEnabled = on;
-    if (typeof _setHoldOverlayVisible === 'function') _setHoldOverlayVisible(!on);
+    const g = mgr.gameInstance;
+    g.practiceHoldMode = mode;
+    if (typeof _setHoldOverlayVisible === 'function') _setHoldOverlayVisible(mode === 'off');
+    g.drawAll();
     _practicePanelRefresh();
+}
+
+function practiceStepHoldMode(dir) {
+    const mgr = window._practiceManager;
+    if (!mgr || mgr.rule !== 'tet' || !mgr.gameInstance) return;
+    const cur = PRACTICE_HOLD_MODES.indexOf(mgr.gameInstance.practiceHoldMode || 'on');
+    const next = (cur + dir + PRACTICE_HOLD_MODES.length) % PRACTICE_HOLD_MODES.length;
+    setPracticeHoldMode(PRACTICE_HOLD_MODES[next]);
 }
 
 // ─────────────────────────────────────────
