@@ -256,3 +256,141 @@ body.practice-mode #lpm-area {
   color: var(--practice-color);
 }
 
+/* ─── Phase 3: おじゃま投下（設計 §6.2e）───
+   既存の practice-panel-* をそのまま使い、SEND用のアクションボタンだけ追加する。 */
+.practice-panel-send-btn {
+  width: 100%;
+  padding: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--practice-color);
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.practice-panel-send-btn:hover {
+  background: rgba(156, 167, 184, 0.12);
+  border-color: var(--practice-color);
+}
+
+/* ─── Phase 3: ツモ順設定（設計 §7）─── */
+.practice-seq-edit-btn {
+  width: 100%;
+  margin-top: -8px;
+  padding: 8px 0;
+  border: 1px solid var(--practice-color);
+  border-radius: 6px;
+  background: rgba(156, 167, 184, 0.08);
+  color: var(--practice-color);
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.practice-seq-edit-btn:hover,
+.practice-seq-edit-btn.is-focused {
+  background: rgba(156, 167, 184, 0.18);
+}
+
+/* 準備画面に被せるフルスクリーンモーダル（mode-check-pageの外、bodyの直下に配置） */
+#practice-seq-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(6, 6, 10, 0.88);
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+#practice-seq-modal.active {
+  display: flex;
+}
+.practice-seq-modal-card {
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 2px solid var(--practice-color);
+  border-radius: 10px;
+  background: rgba(10, 10, 15, 0.97);
+}
+.practice-seq-modal-title {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 4px;
+  color: var(--practice-color);
+  text-align: center;
+}
+.practice-seq-row {
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.practice-seq-row.is-focused {
+  outline: 1px solid var(--practice-color);
+  outline-offset: 2px;
+}
+.practice-seq-row.is-focused .option-label {
+  color: var(--practice-color);
+}
+.practice-seq-value {
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  color: var(--practice-color);
+}
+.practice-seq-note {
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.practice-seq-slots-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  cursor: default;
+}
+.practice-seq-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+.practice-seq-slot-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.practice-seq-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.practice-seq-slot:hover {
+  border-color: var(--practice-color);
+}
+.practice-seq-slot.is-focused {
+  border-color: var(--practice-color);
+  color: var(--practice-color);
+  background: rgba(156, 167, 184, 0.18);
+}
+.practice-seq-modal-buttons {
+  display: flex;
+  justify-content: center;
+}
+

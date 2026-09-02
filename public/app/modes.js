@@ -123,6 +123,16 @@ function setPracticeGoalType(type) {
   renderModeCheck();
 }
 
+// ─── PRACTICE: ツモ順設定（SEQUENCE, Phase 3 §7）───────────────
+// RULE を切り替えても消えないよう、tet/puyo で別々に持つ。
+// bags[].items: tet は要素1つが「ミノ種別(0-6)または'?'(null)」の配列。
+// puyo は要素1つが [上色,下色]（各 1-5 または '?'=null）のペアの配列。
+// 実際の編集操作・ランタイム消費は practice_sequence.js が持つ。
+let practiceSequence = {
+  tet:  { enabled: false, order: 'loop', bags: [{ items: new Array(7).fill(null) }] },
+  puyo: { enabled: false, order: 'loop', bags: [{ items: [[null, null]] }] },
+};
+
 let testCpuControl = true; 
 let testRule = 'tet';
 
