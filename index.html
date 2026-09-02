@@ -874,10 +874,20 @@
       <div id="finish-overlay" class="field-overlay finish-overlay">
         <span id="finish-text" class="finish-text"></span>
       </div>
-      <!-- ★ PRACTICEモード専用: 設定パネルを開いている間（＝ポーズ中）を示すインジケーター -->
-      <div id="practice-settings-overlay" class="field-overlay practice-settings-overlay">
-        <span class="practice-settings-text">SETTINGS</span>
+      <!-- ★ PRACTICEモード専用: ゲーム内設定パネル（practice_panel.jsが表示制御・中身を描画）。
+           プレイフィールドに被せるモーダル形式＝設定変更中はどのみちポーズしているので、
+           HOLD/NEXT/SCORE等のHUDと場所を取り合わない。 -->
+      <button id="practice-panel-tab" class="practice-panel-tab"
+        onmousedown="event.preventDefault()" onclick="togglePracticePanel()">⚙</button>
+      <div id="practice-panel-overlay" class="field-overlay practice-panel-overlay">
+        <div class="practice-panel-card">
+          <div class="practice-panel-title">SETTINGS</div>
+          <div id="practice-panel-body" class="practice-panel-body"></div>
+        </div>
       </div>
+      <!-- ★ PRACTICEモード専用: パネルを開かなくても現在の設定値が見えるミニ表示 -->
+      <div id="practice-status-left" class="practice-status practice-status-left"></div>
+      <div id="practice-status-right" class="practice-status practice-status-right"></div>
       <span class="area-label" id="label-next">NEXT</span>
       <canvas id="next-canvas"></canvas>
       <canvas id="puyo-next-canvas" style="
@@ -976,13 +986,6 @@
         </div>
       </div>
       <button id="start-btn" style="display: none"></button>
-
-      <!-- ★ PRACTICEモード専用: ゲーム内設定パネル（practice_panel.jsが表示制御・中身を描画） -->
-      <div id="practice-panel" class="practice-panel">
-        <button id="practice-panel-tab" class="practice-panel-tab"
-          onmousedown="event.preventDefault()" onclick="togglePracticePanel()">⚙</button>
-        <div id="practice-panel-body" class="practice-panel-body"></div>
-      </div>
     </div>
 
     <div id="pause-overlay">
@@ -1233,7 +1236,7 @@
   <script src="game/tet/rotation.js?v=2"></script>
   <script src="game/tet/scoring.js?v=2"></script>
   <script src="game/tet/garbage.js"></script>
-  <script src="game/tet/render.js?v=2"></script>
+  <script src="game/tet/render.js?v=3"></script>
   <script src="game/tet/input.js?v=2"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
@@ -1243,7 +1246,7 @@
   <script src="game/puyo/ojama.js?v=3"></script>
   <script src="game/puyo/engine.js?v=6"></script>
   <script src="game/puyo/input.js?v=5"></script>
-  <script src="game/puyo/draw.js?v=5"></script>
+  <script src="game/puyo/draw.js?v=6"></script>
   <script src="quiz/quiz.js?v=1"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
   <script src="app/modes.js?v=3"></script>
@@ -1253,8 +1256,8 @@
   <script src="app/focus_nav.js?v=6"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=1"></script>
-  <script src="practice/practice_panel.js?v=2"></script>
-  <script src="practice/practice.js?v=4"></script>
+  <script src="practice/practice_panel.js?v=3"></script>
+  <script src="practice/practice.js?v=5"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 

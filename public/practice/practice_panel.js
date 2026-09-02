@@ -3,9 +3,14 @@
 // PRACTICEモードのゲーム内設定パネル（Phase 2 §6）
 //
 // 設計: source_assets/memory/tetlabo-practice-mode-design.md §6
-//   ・右側に折りたたみ。開いている間はポーズ（TIMEも停止）
+//   ・開いている間はポーズ（TIMEも停止）
 //   ・設定は変更した瞬間に盤面へ反映（ツモ順設定のみ例外＝Phase 3で扱う）
-//   ・項目: 落下速度 / NEXT表示数 / HOLD(ON/OFF/FREE) / 色数(puyo) / ゴースト(tet) / 盤面クリア
+//   ・項目: 落下速度 / NEXT表示数 / HOLD(FREE/ON/OFF) / 色数(puyo) / ゴースト(tet) / 盤面クリア
+//
+// 実機フィードバックにより、パネル本体はメインキャンバスに被せるモーダル
+// （#practice-panel-overlay。開いている＝ポーズ中なので盤面に被せて問題ない）
+// にした。常時見えるのは開閉タブ（#practice-panel-tab）と、パネルを開かなくても
+// 現在値を確認できるミニステータス（#practice-status-left/right）の2つだけ。
 //
 // PracticeManager（practice.js）の attach()/destroy() から
 // _initPracticePanel(manager) / _closePracticePanel() が呼ばれる。
@@ -14,9 +19,9 @@
 // puyoの自由落下速度の段階（0=自然落下なし＝Phase1既定 / 1=既定250ms / 以降は高速段階）
 const PRACTICE_PUYO_FALL_TABLE = [0, 250, 180, 120, 80, 50, 30];
 
-// tetのHOLDモード（左→右のボタン順）。ONは通常どおり1手1回、
-// OFFは操作を受け付けない、FREEは1手に何度でも使え枠も薄暗くしない。
-const PRACTICE_HOLD_MODES = ['on', 'off', 'free'];
+// tetのHOLDモード（左→右のボタン順）。FREEは1手に何度でも使え枠も薄暗くしない、
+// ONは通常どおり1手1回、OFFは操作を受け付けない。
+const PRACTICE_HOLD_MODES = ['free', 'on', 'off'];
 
 function _practiceFallMax() {
     const mgr = window._practiceManager;
@@ -41,11 +46,11 @@ function _practicePanelRowKeys(mgr) {
 // 開閉（開く＝ポーズ、閉じる＝再開）
 // ─────────────────────────────────────────
 function togglePracticePanel() {
-    const panel = document.getElementById('practice-panel');
+    const overlay = document.getElementById('practice-panel-overlay');
     const mgr = window._practiceManager;
-    if (!panel || !mgr || !mgr.gameInstance) return;
-    const opening = !panel.classList.contains('is-open');
-    panel.classList.toggle('is-open', opening);
+    if (!overlay || !mgr || !mgr.gameInstance) return;
+    const opening = !overlay.classList.contains('active');
+    overlay.classList.toggle('active', opening);
     _practicePanelFocusIndex = 0;
 
     const g = mgr.gameInstance;
@@ -58,23 +63,20 @@ function togglePracticePanel() {
         g.resume();
     }
 
-    // 「設定変更中（＝ポーズ中）」を示すインジケーター（バグ報告への対応）
-    const overlay = document.getElementById('practice-settings-overlay');
-    if (overlay) overlay.classList.toggle('active', opening);
-
     _practicePanelRefresh();
 }
 
 function _closePracticePanel() {
-    const panel = document.getElementById('practice-panel');
-    if (panel) {
-        panel.classList.remove('is-open');
-        panel.classList.remove('is-visible');
-    }
+    const overlay = document.getElementById('practice-panel-overlay');
+    if (overlay) overlay.classList.remove('active');
+    const tab = document.getElementById('practice-panel-tab');
+    if (tab) tab.classList.remove('is-visible');
     const body = document.getElementById('practice-panel-body');
     if (body) body.innerHTML = '';
-    const overlay = document.getElementById('practice-settings-overlay');
-    if (overlay) overlay.classList.remove('active');
+    ['practice-status-left', 'practice-status-right'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.classList.remove('is-visible'); el.innerHTML = ''; }
+    });
     _removePracticePanelKeyHandler();
 }
 
@@ -82,8 +84,9 @@ function _closePracticePanel() {
 // 初期化（PracticeManager.attach() の最後で呼ばれる）
 // ─────────────────────────────────────────
 function _initPracticePanel(manager) {
-    const panel = document.getElementById('practice-panel');
-    if (!panel) return;
+    const tab = document.getElementById('practice-panel-tab');
+    const overlay = document.getElementById('practice-panel-overlay');
+    if (!tab || !overlay) return;
     const g = manager.gameInstance;
 
     // 既定値（設計 §1.3/§6.2 の初期状態）
@@ -96,15 +99,20 @@ function _initPracticePanel(manager) {
     g.showGhost = true;
     if (typeof g.resizeNextCanvas === 'function') g.resizeNextCanvas();
 
-    panel.classList.add('is-visible');
-    panel.classList.remove('is-open');
+    tab.classList.add('is-visible');
+    overlay.classList.remove('active');
+    ['practice-status-left', 'practice-status-right'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('is-visible');
+    });
+
     _practicePanelFocusIndex = 0;
     _practicePanelRefresh();
     _installPracticePanelKeyHandler();
 }
 
 // ─────────────────────────────────────────
-// 描画
+// 描画（設定パネルの中身 ＋ 常時表示のミニステータス）
 // ─────────────────────────────────────────
 function _practicePanelRefresh() {
     const mgr = window._practiceManager;
@@ -112,8 +120,8 @@ function _practicePanelRefresh() {
     if (!mgr || !mgr.gameInstance || !body) return;
     const g = mgr.gameInstance;
     const isTet = (mgr.rule === 'tet');
-    const panel = document.getElementById('practice-panel');
-    const isOpen = !!(panel && panel.classList.contains('is-open'));
+    const overlay = document.getElementById('practice-panel-overlay');
+    const isOpen = !!(overlay && overlay.classList.contains('active'));
     const rowKeys = _practicePanelRowKeys(mgr);
     const focusCls = (key) => (isOpen && rowKeys[_practicePanelFocusIndex] === key) ? ' is-focused' : '';
 
@@ -136,14 +144,15 @@ function _practicePanelRefresh() {
         </div>
       </div>`;
 
+    // HOLDはFREE/ON/OFFの3択。ボタンの大きさはGHOST等と同じ(.practice-panel-toggleのみ)にする。
     const holdMode = g.practiceHoldMode || 'on';
     const holdRow = `
       <div class="practice-panel-row${focusCls('hold')}">
         <span class="practice-panel-label">HOLD</span>
-        <div class="option-toggle practice-panel-toggle practice-panel-toggle-3">
+        <div class="option-toggle practice-panel-toggle">
+          <button class="opt-btn ${holdMode === 'free' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeHoldMode('free')">FREE</button>
           <button class="opt-btn ${holdMode === 'on' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeHoldMode('on')">ON</button>
           <button class="opt-btn ${holdMode === 'off' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeHoldMode('off')">OFF</button>
-          <button class="opt-btn ${holdMode === 'free' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeHoldMode('free')">FREE</button>
         </div>
       </div>`;
 
@@ -162,10 +171,26 @@ function _practicePanelRefresh() {
       </div>`;
 
     body.innerHTML = html;
+    _practiceStatusRefresh(mgr, g, isTet);
+}
+
+// パネルを開かなくても現在値が見えるミニステータス（APM/LPMの空き位置を流用）
+function _practiceStatusRefresh(mgr, g, isTet) {
+    const right = document.getElementById('practice-status-right');
+    const left = document.getElementById('practice-status-left');
+    if (right) right.innerHTML = `SPEED <b>${_practiceFallLabel(mgr.fallLevel)}</b>&emsp;NEXT <b>${g.practiceNextCount}</b>`;
+    if (left) {
+        if (isTet) {
+            const holdLabel = (g.practiceHoldMode || 'on').toUpperCase();
+            left.innerHTML = `HOLD <b>${holdLabel}</b><br>GHOST <b>${g.showGhost !== false ? 'ON' : 'OFF'}</b>`;
+        } else {
+            left.innerHTML = `COLORS <b>${PConfig.colorCount}</b>`;
+        }
+    }
 }
 
 // ─────────────────────────────────────────
-// キーボード操作（新規: パネルの開閉・項目移動・値変更）
+// キーボード操作（パネルの開閉・項目移動・値変更）
 // ─────────────────────────────────────────
 let _practicePanelFocusIndex = 0;
 let _practicePanelKeyHandler = null;
@@ -207,8 +232,8 @@ function _installPracticePanelKeyHandler() {
         const gamePage = document.getElementById('game-page');
         if (!gamePage || !gamePage.classList.contains('active')) return;
 
-        const panel = document.getElementById('practice-panel');
-        const isOpen = !!(panel && panel.classList.contains('is-open'));
+        const overlay = document.getElementById('practice-panel-overlay');
+        const isOpen = !!(overlay && overlay.classList.contains('active'));
 
         if (_practicePanelOpenKeyCodes().includes(e.code)) {
             if (e.repeat) return;
@@ -300,7 +325,7 @@ function practiceStepNextCount(delta) {
 }
 
 // ─────────────────────────────────────────
-// HOLD ON/OFF/FREE（tetのみ）
+// HOLD FREE/ON/OFF（tetのみ）
 // FREE: 1手につき何度でもホールドでき、枠のミノも薄暗くしない
 // ─────────────────────────────────────────
 function setPracticeHoldMode(mode) {
