@@ -3,14 +3,11 @@
 // PRACTICEモード（1人用の練習モード）の進行管理
 //
 // 設計: source_assets/memory/tetlabo-practice-mode-design.md
-// このファイルは Phase 1（§10）の範囲を実装する：
-//   ・モード追加（準備画面の RULE / GOAL / VALUE）
-//   ・自由落下速度0と、それに伴う固定仕様（§8）
-//   ・1手ごとの巻き戻し（§5。直列化は practice_snapshot.js）
-//   ・目標 LINES / PUYOS / SCORE と桁スピナー入力（§4.2）
-//   ・記録除外・APM/LPM非表示
-// Phase 2（ゲーム内設定パネル・時間目標・リザルトからの巻き戻し）と
-// Phase 3（おじゃま投下・ツモ順設定）は未実装。
+// Phase 1（§10）: モード追加（準備画面の RULE / GOAL / VALUE）/ 自由落下速度0と
+//   それに伴う固定仕様（§8）/ 1手ごとの巻き戻し（§5。直列化は practice_snapshot.js）/
+//   目標 LINES / PUYOS / SCORE と桁スピナー入力（§4.2）/ 記録除外・APM/LPM非表示
+// Phase 2: ゲーム内設定パネル（practice_panel.js）/ 時間目標 / リザルトからの巻き戻し
+// Phase 3: おじゃま手動/自動投下（本ファイル）/ ツモ順設定（practice_sequence.js）
 //
 // QUIZ と同じく「単独ディレクトリ ＋ マネージャ1つ」構成。プレーン <script> 方式で
 // グローバルスコープを共有する（index.html の ?v= を上げること）。
@@ -57,6 +54,22 @@ class PracticeManager {
 
         // ゲーム内設定パネル（Phase 2 §6）の現在値。パネル未使用時は既定のまま。
         this.fallLevel = 0; // 0=速度0（Phase 1既定） / tet:1〜15=LEVEL_SPEEDS / puyo:1〜=段階
+
+        // ツモ順設定（Phase 3 §7）。ゲーム開始時点の practiceSequence[rule] を凍結して使う。
+        this.sequenceEnabled = false;
+        this.seqConfig = null;   // 凍結済みのバッグ列（プレイ中は編集不可）
+        this.seqRunner = null;   // {bagOrder, bagPos, itemPos}
+        this._origGetNextType = null; // tet
+        this._origMakePair = null;    // puyo
+
+        // おじゃま手動/自動投下（Phase 3 §6.2e）
+        this.ojama = {
+            auto: false,
+            amount: (rule === 'puyo') ? 6 : 4,
+            intervalSec: 10,
+            timerId: null,          // setInterval（自動投下）
+            pendingTimeouts: [],    // 予告→着弾の setTimeout（rewind時のゴースト書き込み防止に includes チェックで対処）
+        };
     }
 
     // ─────────────────────────────────────────
@@ -90,6 +103,23 @@ class PracticeManager {
                 }
                 this._colorOrder = allColors;
                 this.activeColors = allColors.slice(0, PConfig.colorCount);
+
+                // ─── ツモ順設定との整合（設計 §7.5）───
+                // カスタム列で使われている色は、色数設定に関わらず必ず activeColors に
+                // 含まれるよう、必要なら colorCount を自動で引き上げる
+                // （colorOrder上の最大インデックス+1 まで）。
+                if (self.seqConfig && self.rule === 'puyo') {
+                    const used = PracticeSequence.usedPuyoColors(self.seqConfig);
+                    let neededN = PConfig.colorCount;
+                    used.forEach(c => {
+                        const idx = this._colorOrder.indexOf(c);
+                        if (idx >= 0) neededN = Math.max(neededN, idx + 1);
+                    });
+                    if (neededN > PConfig.colorCount) {
+                        PConfig.colorCount = neededN;
+                        this.activeColors = this._colorOrder.slice(0, neededN);
+                    }
+                }
             }.bind(game);
         }
 
@@ -167,6 +197,30 @@ class PracticeManager {
             }
         }
 
+        // ─── ツモ順設定（設計 §7）───
+        // 準備画面で編集した practiceSequence[rule] をゲーム開始時点で凍結し（プレイ中に
+        // エディタ側から書き換わっても影響を受けないように）、getNextType/_makePair を
+        // ラップして差し込む（QUIZが同じ2関数を差し替えている実績あり）。
+        const seqSrc = (typeof PracticeSequence !== 'undefined') ? PracticeSequence.config(this.rule) : null;
+        this.sequenceEnabled = !!(seqSrc && seqSrc.enabled && seqSrc.bags.length);
+        if (this.sequenceEnabled) {
+            this.seqConfig = JSON.parse(JSON.stringify(seqSrc));
+            this.seqRunner = PracticeSequence.createRunner(this.seqConfig);
+
+            if (this.rule === 'tet') {
+                this._origGetNextType = game.getNextType;
+                game.getNextType = function () {
+                    return PracticeSequence.nextTetType(self.seqConfig, self.seqRunner);
+                }.bind(game);
+            } else {
+                this._origMakePair = game._makePair;
+                game._makePair = function (excludeColor = null) {
+                    const pair = PracticeSequence.nextPuyoPair(self.seqConfig, self.seqRunner, this.activeColors);
+                    return pair || self._origMakePair.call(this, excludeColor);
+                }.bind(game);
+            }
+        }
+
         this._installKeyHandler();
         this._startGoalLoop();
 
@@ -178,7 +232,10 @@ class PracticeManager {
     // ─────────────────────────────────────────
     _capture() {
         if (this._skipNextCapture) { this._skipNextCapture = false; return; }
-        const line = PracticeSnapshot.capture(this.gameInstance, this.rule);
+        // ツモ順設定の消費位置（設計 §7.1「カスタム列は巻き戻し対象」）。
+        // popMino/_spawnPuyo 実行前＝runner がまだこの手の枠を読んでいない時点の状態を保存する。
+        const seqState = this.sequenceEnabled ? PracticeSequence.cloneRunnerState(this.seqRunner) : undefined;
+        const line = PracticeSnapshot.capture(this.gameInstance, this.rule, seqState);
 
         // 巻き戻した先から打ち直したら、それより先の履歴は無効になる
         if (this.cursor < this.history.length - 1) {
@@ -214,6 +271,12 @@ class PracticeManager {
         if (!PracticeSnapshot.restore(g, this.rule, line)) {
             this._skipNextCapture = false;
             return;
+        }
+
+        // ツモ順設定の消費位置も一緒に復元する（popMino/_spawnPuyo が次の枠を読む前に必要）
+        if (this.sequenceEnabled) {
+            const seqState = PracticeSnapshot.restoreSeqState(this.rule, line);
+            if (seqState) PracticeSequence.applyRunnerState(this.seqRunner, seqState);
         }
 
         if (this.rule === 'tet') {
@@ -458,6 +521,53 @@ class PracticeManager {
     }
 
     // ─────────────────────────────────────────
+    // おじゃま手動/自動投下（設計 §6.2e。相殺は既存エンジンが自動で行う＝§2.1b）
+    // ─────────────────────────────────────────
+    // amount 省略時は現在の設定値を使う（手動SENDボタン・自動タイマーの両方から呼ばれる）
+    sendOjama(amount) {
+        const g = this.gameInstance;
+        if (!g || this.isFinished) return;
+        amount = Math.max(1, amount || this.ojama.amount);
+        const obj = { amount, holes: [], ready: false };
+        g.garbageQueue.push(obj);
+        if (this.rule === 'puyo' && typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
+
+        // testGarbage（navigation.js）と同じ「予告→着弾」の猶予（1500ms）。
+        // rewind でキューごと差し替わった後にreadyフラグだけ立ってしまわないよう、
+        // includes で自分のオブジェクトがまだキューに残っているかを確認してから確定する。
+        const id = setTimeout(() => {
+            this.ojama.pendingTimeouts = this.ojama.pendingTimeouts.filter(t => t !== id);
+            if (g.garbageQueue.includes(obj) && obj.amount > 0) {
+                obj.ready = true;
+                if (this.rule === 'puyo' && typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
+            }
+        }, 1500);
+        this.ojama.pendingTimeouts.push(id);
+
+        if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
+    }
+
+    // 自動投下ON/OFF。タイマーは実時間ベースで、パネルの開閉(pause)やrewindを挟んでも
+    // クリアせず継続する（設計 §5.5）。ただし「今この瞬間プレイ中でない」ティックは
+    // 投げっぱなしにせずスキップする（再開時にまとめて何本も降ってくるのを防ぐ）。
+    setOjamaAuto(on) {
+        this.ojama.auto = on;
+        if (this.ojama.timerId) { clearInterval(this.ojama.timerId); this.ojama.timerId = null; }
+        if (on) {
+            this.ojama.timerId = setInterval(() => {
+                if (!this._isLive()) return;
+                this.sendOjama(this.ojama.amount);
+            }, this.ojama.intervalSec * 1000);
+        }
+    }
+
+    // 自動投下の間隔を変更する。タイマーが動いていれば新しい間隔で張り直す
+    setOjamaIntervalSec(sec) {
+        this.ojama.intervalSec = Math.max(1, Math.min(60, sec));
+        if (this.ojama.auto) this.setOjamaAuto(true);
+    }
+
+    // ─────────────────────────────────────────
     // 巻き戻しキー（設計 §5.6）
     // ─────────────────────────────────────────
     _installKeyHandler() {
@@ -499,6 +609,11 @@ class PracticeManager {
         this._removeKeyHandler();
         if (this._goalLoopId) { cancelAnimationFrame(this._goalLoopId); this._goalLoopId = null; }
 
+        // おじゃま自動投下・予告タイマーを止める（設計 §6.2e）
+        if (this.ojama.timerId) { clearInterval(this.ojama.timerId); this.ojama.timerId = null; }
+        this.ojama.pendingTimeouts.forEach(id => clearTimeout(id));
+        this.ojama.pendingTimeouts = [];
+
         const g = this.gameInstance;
         if (g) {
             if (this._origPopMino) g.popMino = this._origPopMino;
@@ -509,6 +624,8 @@ class PracticeManager {
             if (this._origUpdateTimeDisplay) g.updateTimeDisplay = this._origUpdateTimeDisplay;
             if (this._origUpdateTimeDisplayPuyo) g._updateTimeDisplay = this._origUpdateTimeDisplayPuyo;
             if (this._origInitActiveColors) g._initActiveColors = this._origInitActiveColors;
+            if (this._origGetNextType) g.getNextType = this._origGetNextType;
+            if (this._origMakePair) g._makePair = this._origMakePair;
             // 練習用に立てたフラグを共通エンジンから外す（VERSUS/ONLINEへ持ち越さない）
             delete g.practiceNoLock;
             delete g.practiceFallMs;
@@ -533,6 +650,9 @@ class PracticeManager {
         this._origUpdateChainDisplay = null;
         this._origUpdateTimeDisplay = this._origUpdateTimeDisplayPuyo = null;
         this._origInitActiveColors = null;
+        this._origGetNextType = this._origMakePair = null;
+        this.sequenceEnabled = false;
+        this.seqConfig = this.seqRunner = null;
         this.gameInstance = null;
         this.history = [];
         this.cursor = -1;
@@ -556,9 +676,12 @@ let _practiceSpinner = null;
 // ページを離れるときに編集モードを必ず畳む。開いたまま遷移すると
 // FocusNav.suspended が立ちっぱなしになり、全ページでキー操作が止まる。
 function _practiceResetSpinner() {
-    if (!_practiceSpinner) return;
-    _practiceSpinner = null;
-    if (window.FocusNav) window.FocusNav.suspended = false;
+    if (_practiceSpinner) {
+        _practiceSpinner = null;
+        if (window.FocusNav) window.FocusNav.suspended = false;
+    }
+    // ツモ順設定エディタ（Phase 3 §7）も同じ理由で必ず畳む
+    if (typeof PracticeSequence !== 'undefined') PracticeSequence.closeEditor();
 }
 
 function _practiceGoalLabel(type, rule) {
@@ -616,6 +739,23 @@ function renderPracticeModeCheckOptions(mode) {
         </div>
       </div>
       ${valueRow}
+      ${_practiceSequenceRowHtml()}
+    `;
+}
+
+// ─── SEQUENCE 行（設計 §7）───────────────────────
+// OFF/ON トグル＋（ON時のみ）エディタを開くボタン。
+function _practiceSequenceRowHtml() {
+    const enabled = (typeof PracticeSequence !== 'undefined') && PracticeSequence.isEnabled(practiceRule);
+    return `
+      <div class="option-row">
+        <span class="option-label">SEQUENCE</span>
+        <div class="option-toggle" id="practice-sequence-toggle">
+          <button class="opt-btn ${!enabled ? 'active' : ''}" onclick="setPracticeSequenceEnabled(false)">OFF</button>
+          <button class="opt-btn ${enabled ? 'active' : ''}" onclick="setPracticeSequenceEnabled(true)">ON</button>
+        </div>
+      </div>
+      ${enabled ? `<button class="practice-seq-edit-btn" onclick="openPracticeSequenceEditor()">EDIT SEQUENCE →</button>` : ''}
     `;
 }
 

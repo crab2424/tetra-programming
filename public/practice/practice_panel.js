@@ -6,6 +6,7 @@
 //   ・開いている間はポーズ（TIMEも停止）
 //   ・設定は変更した瞬間に盤面へ反映（ツモ順設定のみ例外＝Phase 3で扱う）
 //   ・項目: 落下速度 / NEXT表示数 / HOLD(FREE/ON/OFF) / 色数(puyo) / ゴースト(tet) / 盤面クリア
+//   ・Phase 3 §6.2e: おじゃま手動/自動投下（AMT/INTERVAL/AUTO/SEND）もここに同居させた
 //
 // 実機フィードバックにより、パネル本体はメインキャンバスに被せるモーダル
 // （#practice-panel-overlay。開いている＝ポーズ中なので盤面に被せて問題ない）
@@ -37,9 +38,10 @@ function _practiceFallLabel(lv) {
 
 // パネル内のキーボード操作でフォーカスする行の並び（rule別）
 function _practicePanelRowKeys(mgr) {
-    return (mgr.rule === 'tet')
-        ? ['speed', 'next', 'hold', 'ghost', 'clear']
-        : ['speed', 'next', 'colors', 'clear'];
+    const base = (mgr.rule === 'tet')
+        ? ['speed', 'next', 'hold', 'ghost']
+        : ['speed', 'next', 'colors'];
+    return base.concat(['ojamaAmount', 'ojamaInterval', 'ojamaAuto', 'ojamaSend', 'clear']);
 }
 
 // ─────────────────────────────────────────
@@ -165,6 +167,16 @@ function _practicePanelRefresh() {
     } else {
         html += stepRow('colors', 'COLORS', PConfig.colorCount, 'practiceStepColorCount(-1)', 'practiceStepColorCount(1)');
     }
+
+    // ─── おじゃま投下（設計 §6.2e）───
+    html += stepRow('ojamaAmount', 'OJAMA AMT', mgr.ojama.amount, 'practiceStepOjamaAmount(-1)', 'practiceStepOjamaAmount(1)');
+    html += stepRow('ojamaInterval', 'INTERVAL', mgr.ojama.intervalSec + 's', 'practiceStepOjamaInterval(-1)', 'practiceStepOjamaInterval(1)');
+    html += toggleRow('ojamaAuto', 'AUTO', mgr.ojama.auto, 'setPracticeOjamaAuto(true)', 'setPracticeOjamaAuto(false)');
+    html += `
+      <div class="practice-panel-row practice-panel-row-action${focusCls('ojamaSend')}">
+        <button class="practice-panel-send-btn" onmousedown="event.preventDefault()" onclick="practiceOjamaSend()">おじゃま送る</button>
+      </div>`;
+
     html += `
       <div class="practice-panel-row practice-panel-row-action${focusCls('clear')}">
         <button class="practice-panel-clear-btn" onmousedown="event.preventDefault()" onclick="practiceClearBoard()">盤面クリア</button>
@@ -178,7 +190,9 @@ function _practicePanelRefresh() {
 function _practiceStatusRefresh(mgr, g, isTet) {
     const right = document.getElementById('practice-status-right');
     const left = document.getElementById('practice-status-left');
-    if (right) right.innerHTML = `SPEED <b>${_practiceFallLabel(mgr.fallLevel)}</b>&emsp;NEXT <b>${g.practiceNextCount}</b>`;
+    const pending = Array.isArray(g.garbageQueue) ? g.garbageQueue.reduce((s, o) => s + (o.amount || 0), 0) : 0;
+    const ready = Array.isArray(g.garbageQueue) ? g.garbageQueue.reduce((s, o) => s + (o.ready ? (o.amount || 0) : 0), 0) : 0;
+    if (right) right.innerHTML = `SPEED <b>${_practiceFallLabel(mgr.fallLevel)}</b>&emsp;NEXT <b>${g.practiceNextCount}</b><br>OJAMA <b>${ready}/${pending}</b>`;
     if (left) {
         if (isTet) {
             const holdLabel = (g.practiceHoldMode || 'on').toUpperCase();
@@ -204,11 +218,14 @@ function _practicePanelOpenKeyCodes() {
 // キー方向(-1/+1)を各項目の操作へ変換する
 function _practicePanelApplyDir(rowKey, dir) {
     switch (rowKey) {
-        case 'speed':  practiceStepFallLevel(dir); break;
-        case 'next':   practiceStepNextCount(dir); break;
-        case 'hold':   practiceStepHoldMode(dir); break;
-        case 'ghost':  setPracticeGhostEnabled(dir > 0); break;
-        case 'colors': practiceStepColorCount(dir); break;
+        case 'speed':         practiceStepFallLevel(dir); break;
+        case 'next':          practiceStepNextCount(dir); break;
+        case 'hold':          practiceStepHoldMode(dir); break;
+        case 'ghost':         setPracticeGhostEnabled(dir > 0); break;
+        case 'colors':        practiceStepColorCount(dir); break;
+        case 'ojamaAmount':   practiceStepOjamaAmount(dir); break;
+        case 'ojamaInterval': practiceStepOjamaInterval(dir); break;
+        case 'ojamaAuto':     setPracticeOjamaAuto(dir > 0); break;
     }
 }
 
@@ -218,6 +235,11 @@ function _practicePanelActivate(rowKey) {
     else if (rowKey === 'ghost') {
         const g = window._practiceManager && window._practiceManager.gameInstance;
         if (g) setPracticeGhostEnabled(g.showGhost === false);
+    } else if (rowKey === 'ojamaAuto') {
+        const mgr = window._practiceManager;
+        if (mgr) setPracticeOjamaAuto(!mgr.ojama.auto);
+    } else if (rowKey === 'ojamaSend') {
+        practiceOjamaSend();
     }
 }
 
@@ -375,6 +397,43 @@ function practiceStepColorCount(delta) {
     while (g.nextQueue.length < 20) g.nextQueue.push(g._makePair());
     if (typeof g._renderNext === 'function') g._renderNext();
     _practicePanelRefresh();
+}
+
+// ─────────────────────────────────────────
+// おじゃま手動/自動投下（設計 §6.2e）
+// 実際の投入・タイマー管理は PracticeManager 側（practice.js）に持たせ、
+// ここではパネルの表示値のステップ操作だけを行う。
+// ─────────────────────────────────────────
+function _practiceOjamaAmountMax(mgr) {
+    return (mgr.rule === 'puyo') ? 30 : 20;
+}
+
+function practiceStepOjamaAmount(delta) {
+    const mgr = window._practiceManager;
+    if (!mgr) return;
+    const max = _practiceOjamaAmountMax(mgr);
+    mgr.ojama.amount = Math.max(1, Math.min(max, mgr.ojama.amount + delta));
+    _practicePanelRefresh();
+}
+
+function practiceStepOjamaInterval(delta) {
+    const mgr = window._practiceManager;
+    if (!mgr) return;
+    mgr.setOjamaIntervalSec(mgr.ojama.intervalSec + delta);
+    _practicePanelRefresh();
+}
+
+function setPracticeOjamaAuto(on) {
+    const mgr = window._practiceManager;
+    if (!mgr) return;
+    mgr.setOjamaAuto(on);
+    _practicePanelRefresh();
+}
+
+function practiceOjamaSend() {
+    const mgr = window._practiceManager;
+    if (!mgr) return;
+    mgr.sendOjama(mgr.ojama.amount);
 }
 
 // ─────────────────────────────────────────

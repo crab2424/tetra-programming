@@ -254,13 +254,27 @@ const PracticeSnapshot = (() => {
     // ══════════════════════════════════════════════
     // 公開API
     // ══════════════════════════════════════════════
+    // ツモ順設定（Phase 3 §7）の消費位置。既存のフィールド数の直後に追加フィールドとして
+    // 付け足すだけなので、captureTet/restoreTet・capturePuyo/restorePuyo 側の固定インデックス
+    // 読み取りには影響しない（末尾の余剰フィールドは無視される）。
+    const SEQ_FIELD_INDEX = { tet: 14, puyo: 16 };
+
     return {
-        capture(game, rule) {
-            return (rule === 'puyo') ? capturePuyo(game) : captureTet(game);
+        // extra が渡されたときだけ、末尾に1フィールド追加する（ツモ順設定の消費位置）
+        capture(game, rule, extra) {
+            const base = (rule === 'puyo') ? capturePuyo(game) : captureTet(game);
+            return (extra !== undefined) ? (base + '|' + JSON.stringify(extra)) : base;
         },
         restore(game, rule, line) {
             if (!line) return false;
             return (rule === 'puyo') ? restorePuyo(game, line) : restoreTet(game, line);
+        },
+        restoreSeqState(rule, line) {
+            if (!line) return null;
+            const p = line.split('|');
+            const idx = SEQ_FIELD_INDEX[rule];
+            if (p.length <= idx) return null;
+            try { return JSON.parse(p[idx]); } catch (e) { return null; }
         },
     };
 })();

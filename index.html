@@ -188,6 +188,24 @@
   </div>
 
   <!-- ─────────────────────────────────────────────
+    MARK: PRACTICE ツモ順設定エディタ（Phase 3 §7）
+    mode-check-page に被せるフルスクリーンモーダル。.page ではないので
+    switchPage() の管理対象外＝PracticeSequence.openEditor/closeEditor が直接開閉する。
+    ───────────────────────────────────────────── -->
+  <div id="practice-seq-modal">
+    <div class="practice-seq-modal-card">
+      <div class="practice-seq-modal-title">SEQUENCE</div>
+      <div id="practice-seq-modal-body"></div>
+      <div class="practice-seq-modal-buttons">
+        <button class="menu-btn btn-primary" onclick="PracticeSequence.closeEditor()">
+          <span class="menu-btn-icon">✓</span>
+          <span>DONE</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
     MARK: 対戦モード確認画面
     ───────────────────────────────────────────── -->
   <div id="versus-check-page" class="page">
@@ -1249,15 +1267,16 @@
   <script src="game/puyo/draw.js?v=6"></script>
   <script src="quiz/quiz.js?v=1"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=3"></script>
+  <script src="app/modes.js?v=4"></script>
   <script src="app/cpu_loader.js?v=1"></script>
   <script src="app/versus.js?v=1"></script>
   <script src="app/navigation.js?v=5"></script>
   <script src="app/focus_nav.js?v=6"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
-  <script src="practice/practice_snapshot.js?v=1"></script>
-  <script src="practice/practice_panel.js?v=3"></script>
-  <script src="practice/practice.js?v=5"></script>
+  <script src="practice/practice_snapshot.js?v=2"></script>
+  <script src="practice/practice_sequence.js?v=1"></script>
+  <script src="practice/practice_panel.js?v=4"></script>
+  <script src="practice/practice.js?v=6"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 
