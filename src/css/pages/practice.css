@@ -89,51 +89,96 @@ body.practice-mode #lpm-area {
 }
 
 /* ─── Phase 2: ゲーム内設定パネル（設計 §6） ───
-   #container は基準750×700pxでスケールされる（single-play.css）。NEXT枠の右側
-   （left:650px付近）に置くと、その基準を超えてウィンドウ幅が足りない環境では
-   画面外にはみ出て操作できなくなる。#next-canvas / #puyo-next-canvas の
-   最大幅256px（NEXT表示数10のとき）・高さ432px(PRACTICE_NEXT_MAX_HEIGHT)は
-   常に固定なので、その直下（container内側）に置けば基準内に収まり安全。 */
-.practice-panel {
+   #container は基準750×700pxでスケールされる（single-play.css）ため、
+   常設のドッキングパネルをどこに置いても左右のHUD（HOLD/LEVEL/LINES/
+   NEXT/SCORE/TIME）と衝突しやすい。設定変更中はどのみちプレイが
+   止まっている（pause()する）ので、代わりにメインキャンバス（.field-overlay
+   と同じ 320×656 の領域）へ被せるモーダルカードにした。
+   常時見えるタブボタンだけは、フィールド右端(320px)とNEXT枠(352px〜)の
+   間の隙間（32px）に小さく置く＝どのHUDとも重ならない。 */
+.practice-panel-tab {
   display: none;
   position: absolute;
-  top: 440px;
-  left: 352px;
-  width: 256px;
+  top: 6px;
+  left: 288px;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(10, 10, 15, 0.8);
+  color: var(--practice-color);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 16;
 }
-.practice-panel.is-visible {
+.practice-panel-tab.is-visible {
   display: block;
 }
-
-.practice-panel-tab {
-  position: absolute;
-  top: -32px;
-  left: 0;
-  width: 100%;
-  height: 28px;
-  border: 2px solid var(--border);
-  border-bottom: none;
-  border-radius: 6px 6px 0 0;
-  background: rgba(10, 10, 15, 0.9);
-  color: var(--practice-color);
-  font-size: 14px;
-  cursor: pointer;
-}
 .practice-panel-tab:hover {
-  background: rgba(156, 167, 184, 0.15);
+  background: rgba(156, 167, 184, 0.18);
+}
+
+.practice-panel-overlay {
+  background: rgba(10, 10, 16, 0.72);
+  z-index: 20;
+  /* .field-overlay は既定 pointer-events:none（表示専用のオーバーレイ用）。
+     このオーバーレイだけは中のボタンをクリックできる必要がある。 */
+  pointer-events: auto;
+}
+
+.practice-panel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 260px;
+  padding: 16px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: rgba(10, 10, 15, 0.95);
+}
+.practice-panel-title {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 5px;
+  color: var(--practice-color);
+  text-align: center;
+  text-shadow: 0 0 12px rgba(156, 167, 184, 0.5);
 }
 
 .practice-panel-body {
-  display: none;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  border: 2px solid var(--border);
-  border-radius: 6px;
-  background: rgba(10, 10, 15, 0.92);
-}
-.practice-panel.is-open .practice-panel-body {
   display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* ─── 常時表示のミニステータス（設計外・実機フィードバックで追加） ───
+   パネルを開かなくても現在の設定値を確認できるよう、PRACTICEでは
+   非表示になるAPM/LPM欄の位置（single-play.css）をそのまま流用する。 */
+.practice-status {
+  display: none;
+  position: absolute;
+  top: 570px;
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.practice-status.is-visible {
+  display: block;
+}
+.practice-status-left {
+  left: -160px;
+}
+.practice-status-right {
+  left: 352px;
+}
+.practice-status b {
+  color: var(--practice-color);
+  font-weight: 700;
 }
 
 .practice-panel-row {
@@ -211,29 +256,3 @@ body.practice-mode #lpm-area {
   color: var(--practice-color);
 }
 
-/* HOLD行はON/OFF/FREEの3択になるため、幅に収まるよう少し詰める */
-.practice-panel-toggle-3 {
-  transform: scale(0.75);
-}
-.practice-panel-toggle-3 .opt-btn {
-  padding: 5px 6px;
-}
-
-/* パネルが開いている＝ポーズ中であることを示すインジケーター（設計 §6.1「開いている間はポーズ」） */
-.practice-settings-overlay {
-  background: rgba(10, 10, 16, 0.55);
-  z-index: 20;
-}
-.practice-settings-text {
-  font-family: "Orbitron", monospace;
-  font-weight: 700;
-  font-size: 22px;
-  letter-spacing: 6px;
-  color: var(--practice-color);
-  text-shadow: 0 0 16px rgba(156, 167, 184, 0.6);
-  animation: practice-settings-pulse 1.6s ease-in-out infinite;
-}
-@keyframes practice-settings-pulse {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 1; }
-}

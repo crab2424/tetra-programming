@@ -466,23 +466,24 @@ Object.assign(PuyoGame.prototype, {
         ctx.fillRect(0, 0, W, H);
 
         // PRACTICE設定パネル：NEXT表示数（practiceNextCount）を可変化。既定は2ペア。
-        // 既定を超える分は2列で表示する（縮小率は_computeNextLayout参照）。
+        // 直近5個は左列に従来どおり縦に流し、6個目以降は右列に縦に流す
+        // （列優先＝tetと同じ考え方。行優先のジグザグにはしない。縮小率は_computeNextLayout参照）。
         const { count, cols, drawCs } = this._computeNextLayout();
         const colWidth = W / cols;
+        const col0Count = Math.min(count, 5);
 
         ctx.save();
 
-        if (cols === 1) {
-            // 既定レイアウト：1列。出現アニメ中は表示数+1個ぶんを上へスライドさせ、
-            // アニメ完了で1手分シフトして見える従来の演出を表示数ぶんに一般化する。
+        // 左列（index 0-4）：従来どおりの縦流れ＋出現アニメのスライド演出
+        {
             const offsetX = (colWidth - drawCs) / 2;
             const shiftDist = drawCs * 2.5;
             let offsetY = 0;
-            let rowsToShow = count;
+            let rowsToShow = col0Count;
             if (this._gs === 'spawnAnim') {
                 const progress = Math.min(1, this.spawnAnimTimer / PConfig.spawnAnimMs);
                 offsetY = -shiftDist * progress;
-                rowsToShow = count + 1;
+                rowsToShow = col0Count + 1; // 次の1個（右列の先頭、無ければ何も無い）を覗かせる
             }
             for (let i = 0; i < rowsToShow; i++) {
                 const pair = this.nextQueue[i];
@@ -491,16 +492,16 @@ Object.assign(PuyoGame.prototype, {
                 this._drawPuyo(ctx, offsetX, y, pair[1], drawCs, 0);
                 this._drawPuyo(ctx, offsetX, y + drawCs, pair[0], drawCs, 0);
             }
-        } else {
-            // 縮小＋2列（表示数が既定を超えたとき）。出現アニメの演出は割愛する。
-            const rowH = drawCs * 2.5;
-            for (let i = 0; i < count; i++) {
+        }
+
+        // 右列（index 5以降）：アニメなしで縦に流すだけ
+        if (cols > 1) {
+            const offsetX = colWidth + (colWidth - drawCs) / 2;
+            const shiftDist = drawCs * 2.5;
+            for (let i = 5; i < count; i++) {
                 const pair = this.nextQueue[i];
                 if (!pair) continue;
-                const col = i % 2;
-                const row = Math.floor(i / 2);
-                const offsetX = col * colWidth + (colWidth - drawCs) / 2;
-                const y = 16 + row * rowH;
+                const y = 20 + (i - 5) * shiftDist;
                 this._drawPuyo(ctx, offsetX, y, pair[1], drawCs, 0);
                 this._drawPuyo(ctx, offsetX, y + drawCs, pair[0], drawCs, 0);
             }
@@ -510,16 +511,15 @@ Object.assign(PuyoGame.prototype, {
     },
 
     // PRACTICE設定パネル：NEXT表示数（practiceNextCount）に応じたレイアウトを計算する。
-    // 既定(2ペア)までは現行サイズ・1列。超過分は2列にした上で、縦の枠は常に
-    // PRACTICE_NEXT_MAX_HEIGHT（tetの既定NEXT高さ）で揃える。drawCsは
-    // 「2列でもその高さに収まる最大サイズ」を逆算するので、行数が少ないうちは
-    // 縮小されない（tetから見て小さく見えすぎる問題への対応。base.js参照）。
+    // 列は列優先（左列=直近5個、右列=6個目以降）で割り当てるため、列あたり
+    // 最大5個。縦の枠を常にPRACTICE_NEXT_MAX_HEIGHT（tetの既定NEXT高さ）で
+    // 揃えても、5個ぶんなら縮小せず収まる（base.js参照）。
     _computeNextLayout() {
         const count = Math.max(1, Math.min(10, this.practiceNextCount || 2));
-        const cols = count > 2 ? 2 : 1;
-        const rows = cols > 1 ? Math.ceil(count / 2) : count;
-        const drawCs = Math.max(18, Math.min(42, (PRACTICE_NEXT_MAX_HEIGHT - 20 - 42) / (rows * 2.5)));
-        return { count, cols, rows, drawCs };
+        const cols = count > 5 ? 2 : 1;
+        const rowsPerCol = 5;
+        const drawCs = Math.max(18, Math.min(42, (PRACTICE_NEXT_MAX_HEIGHT - 20 - 42) / (rowsPerCol * 2.5)));
+        return { count, cols, drawCs };
     },
 
     // PRACTICE設定パネル：NEXT表示数の変更に合わせてキャンバスサイズを再計算する

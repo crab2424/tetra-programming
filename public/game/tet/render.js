@@ -45,16 +45,16 @@ Object.assign(Game.prototype, {
     },
 
     // PRACTICE設定パネル：NEXT表示数（practiceNextCount）に応じたレイアウトを計算する。
-    // 既定(5個)までは現行サイズ・1列。超過分は2列にした上で、縦の枠は常に
-    // PRACTICE_NEXT_MAX_HEIGHT（tetの既定NEXT高さ）で揃える。scaleは
-    // 「2列でもその高さに収まる最大サイズ」を逆算するので、行数が少ないうちは
-    // 縮小されない（puyo側と共通の考え方。base.js参照）。
+    // 列は「流れる順」を保つため列優先（左列=直近5個を従来どおり縦に流し、
+    // 6個目以降は右列に縦に流す）で割り当てる（drawAll参照）。列あたり最大5個
+    // なので、縦の枠を常にPRACTICE_NEXT_MAX_HEIGHT（tetの既定NEXT高さ）で揃えても
+    // 縮小せずに収まる。
     _computeNextLayout() {
         const count = Math.max(1, Math.min(10, this.practiceNextCount || 5));
         const cols = count > 5 ? 2 : 1;
-        const rows = Math.ceil(count / cols);
-        const scale = Math.min(0.8, (PRACTICE_NEXT_MAX_HEIGHT - BLOCK_SIZE * 0.8) / (rows * 3 * BLOCK_SIZE));
-        return { count, cols, rows, scale };
+        const rowsPerCol = 5;
+        const scale = Math.min(0.8, (PRACTICE_NEXT_MAX_HEIGHT - BLOCK_SIZE * 0.8) / (rowsPerCol * 3 * BLOCK_SIZE));
+        return { count, cols, scale };
     },
 
     // PRACTICE設定パネル：NEXT表示数の変更に合わせてキャンバスサイズを再計算する
@@ -212,16 +212,18 @@ Object.assign(Game.prototype, {
         const minoScale = 0.8;
 
         // Draw next queue vertically（表示は既定5個。PRACTICEでは practiceNextCount で可変。
-        // 内部は11個保持。既定を超える分は2列で表示する＝_computeNextLayout参照）
+        // 内部は11個保持。既定を超える分は右列に出す＝_computeNextLayout参照。
+        // 直近5個は常に左列（従来どおり縦に流れる）、6個目以降は右列に縦に流す
+        // （列優先＝index<5が左列、5以上が右列。行優先のジグザグにはしない）。
         // slice + forEach は毎フレ配列とクロージャを作るため素のループに置換。
         const spacing = 3;
         const nq = this.nextQueue;
-        const { count: nextCount, cols: nqCols, scale: nqScale } = this._computeNextLayout();
+        const { count: nextCount, scale: nqScale } = this._computeNextLayout();
         const nqLen = Math.min(nextCount, nq.length);
         const colWidthPx = BLOCK_SIZE * 4;
         for (let i = 0; i < nqLen; i++) {
-            const col = nqCols > 1 ? (i % 2) : 0;
-            const row = nqCols > 1 ? Math.floor(i / 2) : i;
+            const col = i < 5 ? 0 : 1;
+            const row = i < 5 ? i : i - 5;
             this.nextCtx.save();
             this.nextCtx.translate(col * colWidthPx, row * spacing * BLOCK_SIZE * nqScale);
             this.nextCtx.scale(nqScale, nqScale);
