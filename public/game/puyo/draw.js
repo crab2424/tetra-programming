@@ -512,13 +512,17 @@ Object.assign(PuyoGame.prototype, {
 
     // PRACTICE設定パネル：NEXT表示数（practiceNextCount）に応じたレイアウトを計算する。
     // 列は列優先（左列=直近5個、右列=6個目以降）で割り当てるため、列あたり
-    // 最大5個。縦の枠を常にPRACTICE_NEXT_MAX_HEIGHT（tetの既定NEXT高さ）で
-    // 揃えても、5個ぶんなら縮小せず収まる（base.js参照）。
+    // 最大5個。縦の枠は常にPRACTICE_NEXT_MAX_HEIGHT（tetの既定NEXT高さ）で揃える。
+    // 縮小率は「実際に描画する行数」(effRows)から算出する（Phase5 §2）。
+    // 旧実装は常にrowsPerCol=5固定で計算していたため、既定のNEXT=2でも
+    // 「5ペアぶんを432pxに収める」前提の縮小がかかってしまっていた
+    // （本来42pxで収まるはずが29.6pxまで縮む不具合）。
     _computeNextLayout() {
         const count = Math.max(1, Math.min(10, this.practiceNextCount || 2));
         const cols = count > 5 ? 2 : 1;
         const rowsPerCol = 5;
-        const drawCs = Math.max(18, Math.min(42, (PRACTICE_NEXT_MAX_HEIGHT - 20 - 42) / (rowsPerCol * 2.5)));
+        const effRows = Math.min(count, rowsPerCol);
+        const drawCs = Math.max(18, Math.min(42, (PRACTICE_NEXT_MAX_HEIGHT - 20 - 42) / (effRows * 2.5)));
         return { count, cols, drawCs };
     },
 

@@ -51,6 +51,9 @@ function togglePracticePanel() {
     const overlay = document.getElementById('practice-panel-overlay');
     const mgr = window._practiceManager;
     if (!overlay || !mgr || !mgr.gameInstance) return;
+    // GAME OVER/FINISH演出中・リザルト中はパネルを開閉させない（設計 Phase5 §4.2）。
+    // ここを塞がないと g.pause()/resume() が呼ばれ、止めたはずのエンジンが復活する。
+    if (mgr.isEnding || mgr.isFinished) return;
     const opening = !overlay.classList.contains('active');
     overlay.classList.toggle('active', opening);
     _practicePanelFocusIndex = 0;
@@ -294,6 +297,8 @@ function _installPracticePanelKeyHandler() {
         if (!mgr) return;
         const gamePage = document.getElementById('game-page');
         if (!gamePage || !gamePage.classList.contains('active')) return;
+        // GAME OVER/FINISH演出中・リザルト中はパネル開閉キー(Tab)ごと無効化する（設計 Phase5 §4.2）
+        if (mgr.isEnding || mgr.isFinished) return;
 
         // SEQUENCEエディタが開いている間は、その専用ハンドラ（capture段）に矢印/Enter/Escを
         // 譲る（ここで奪うとエディタが操作不能になる。設計 §5.1）

@@ -88,6 +88,13 @@ body.practice-mode #lpm-area {
   display: none;
 }
 
+/* ─── Phase5 §2: puyo-mode.css の #puyo-next-canvas{height:259px} を PRACTICE だけ外す ───
+   resizeNextCanvas() が canvas.height を PRACTICE_NEXT_MAX_HEIGHT(432px) に設定しても、
+   CSS の固定 height がそれを上書きして縦0.6倍に押し潰していた。 */
+body.practice-mode #puyo-next-canvas {
+  height: auto;
+}
+
 /* ─── Phase 2: ゲーム内設定パネル（設計 §6） ───
    #container は基準750×700pxでスケールされる（single-play.css）ため、
    常設のドッキングパネルをどこに置いても左右のHUD（HOLD/LEVEL/LINES/
