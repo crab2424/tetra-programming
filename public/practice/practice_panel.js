@@ -41,7 +41,7 @@ function _practicePanelRowKeys(mgr) {
     const base = (mgr.rule === 'tet')
         ? ['speed', 'next', 'hold', 'ghost']
         : ['speed', 'next', 'colors'];
-    return base.concat(['ojamaAmount', 'ojamaInterval', 'ojamaAuto', 'ojamaSend', 'clear']);
+    return base.concat(['sequence', 'sequenceEdit', 'ojamaAmount', 'ojamaInterval', 'ojamaAuto', 'ojamaSend', 'ojamaClearAmount', 'ojamaClearGo', 'clear']);
 }
 
 // ─────────────────────────────────────────
@@ -179,6 +179,21 @@ function _practicePanelRefresh() {
         html += stepRow('colors', 'COLORS', PConfig.colorCount, 'practiceStepColorCount(-1)', 'practiceStepColorCount(1)');
     }
 
+    // ─── SEQUENCE（設計 §5.1）：ゲーム中でもON/OFF切替とエディタ編集ができる ───
+    const seqEnabled = (typeof PracticeSequence !== 'undefined') && PracticeSequence.isEnabled(mgr.rule);
+    html += `
+      <div class="practice-panel-row${focusCls('sequence')}">
+        <span class="practice-panel-label">SEQUENCE</span>
+        <div class="option-toggle practice-panel-toggle">
+          <button class="opt-btn ${!seqEnabled ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="practicePanelSetSequenceEnabled(false)">OFF</button>
+          <button class="opt-btn ${seqEnabled ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="practicePanelSetSequenceEnabled(true)">ON</button>
+        </div>
+      </div>`;
+    html += `
+      <div class="practice-panel-row practice-panel-row-action${focusCls('sequenceEdit')}">
+        <button class="practice-panel-send-btn" onmousedown="event.preventDefault()" onclick="practicePanelOpenSequenceEditor()">EDIT SEQUENCE →</button>
+      </div>`;
+
     // ─── おじゃま投下（設計 §6.2e）───
     html += stepRow('ojamaAmount', 'OJAMA AMT', mgr.ojama.amount, 'practiceStepOjamaAmount(-1)', 'practiceStepOjamaAmount(1)');
     html += stepRow('ojamaInterval', 'INTERVAL', mgr.ojama.intervalSec + 's', 'practiceStepOjamaInterval(-1)', 'practiceStepOjamaInterval(1)');
@@ -186,6 +201,14 @@ function _practicePanelRefresh() {
     html += `
       <div class="practice-panel-row practice-panel-row-action${focusCls('ojamaSend')}">
         <button class="practice-panel-send-btn" onmousedown="event.preventDefault()" onclick="practiceOjamaSend()">おじゃま送る</button>
+      </div>`;
+
+    // ─── 盤面クリア：おじゃま部分削除（設計 §4.2）───
+    html += stepRow('ojamaClearAmount', 'CLEAR OJAMA', mgr.ojamaClearAmount,
+        'practiceStepOjamaClearAmount(-1)', 'practiceStepOjamaClearAmount(1)');
+    html += `
+      <div class="practice-panel-row practice-panel-row-action${focusCls('ojamaClearGo')}">
+        <button class="practice-panel-clear-btn" onmousedown="event.preventDefault()" onclick="practiceOjamaClearGo()">DELETE</button>
       </div>`;
 
     html += `
@@ -234,6 +257,12 @@ function _practicePanelApplyDir(rowKey, dir) {
         case 'ojamaAmount':   practiceStepOjamaAmount(dir); break;
         case 'ojamaInterval': practiceStepOjamaInterval(dir); break;
         case 'ojamaAuto':     if (mgr) setPracticeOjamaAuto(!mgr.ojama.auto); break;
+        case 'ojamaClearAmount': practiceStepOjamaClearAmount(dir); break;
+        case 'sequence':
+            if (mgr && typeof PracticeSequence !== 'undefined') {
+                practicePanelSetSequenceEnabled(!PracticeSequence.isEnabled(mgr.rule));
+            }
+            break;
     }
 }
 
@@ -248,6 +277,10 @@ function _practicePanelActivate(rowKey) {
         if (mgr) setPracticeOjamaAuto(!mgr.ojama.auto);
     } else if (rowKey === 'ojamaSend') {
         practiceOjamaSend();
+    } else if (rowKey === 'ojamaClearGo') {
+        practiceOjamaClearGo();
+    } else if (rowKey === 'sequenceEdit') {
+        practicePanelOpenSequenceEditor();
     }
 }
 
@@ -261,6 +294,11 @@ function _installPracticePanelKeyHandler() {
         if (!mgr) return;
         const gamePage = document.getElementById('game-page');
         if (!gamePage || !gamePage.classList.contains('active')) return;
+
+        // SEQUENCEエディタが開いている間は、その専用ハンドラ（capture段）に矢印/Enter/Escを
+        // 譲る（ここで奪うとエディタが操作不能になる。設計 §5.1）
+        const seqModal = document.getElementById('practice-seq-modal');
+        if (seqModal && seqModal.classList.contains('active')) return;
 
         const overlay = document.getElementById('practice-panel-overlay');
         const isOpen = !!(overlay && overlay.classList.contains('active'));
@@ -443,6 +481,46 @@ function practiceOjamaSend() {
     const mgr = window._practiceManager;
     if (!mgr) return;
     mgr.sendOjama(mgr.ojama.amount);
+}
+
+// ─────────────────────────────────────────
+// 盤面クリア：おじゃま部分削除（設計 §4.2）
+// 投下量と同じレンジ（tet 1〜20ライン / puyo 1〜30個）にする。
+// ─────────────────────────────────────────
+function _practiceOjamaClearMax(mgr) {
+    return (mgr.rule === 'puyo') ? 30 : 20;
+}
+
+function practiceStepOjamaClearAmount(delta) {
+    const mgr = window._practiceManager;
+    if (!mgr) return;
+    const max = _practiceOjamaClearMax(mgr);
+    mgr.ojamaClearAmount = Math.max(1, Math.min(max, (mgr.ojamaClearAmount || 1) + delta));
+    _practicePanelRefresh();
+}
+
+function practiceOjamaClearGo() {
+    const mgr = window._practiceManager;
+    if (!mgr) return;
+    mgr.clearOjamaPartial(mgr.ojamaClearAmount || 1);
+}
+
+// ─────────────────────────────────────────
+// ゲーム中の SEQUENCE 編集（設計 §5.1）
+// ─────────────────────────────────────────
+function practicePanelSetSequenceEnabled(on) {
+    const mgr = window._practiceManager;
+    if (!mgr || typeof PracticeSequence === 'undefined') return;
+    PracticeSequence.setEnabled(mgr.rule, on);
+    if (typeof mgr.applySequenceEdit === 'function') mgr.applySequenceEdit();
+}
+
+function practicePanelOpenSequenceEditor() {
+    const mgr = window._practiceManager;
+    if (!mgr || typeof PracticeSequence === 'undefined') return;
+    PracticeSequence.openEditor(mgr.rule, () => {
+        if (typeof mgr.applySequenceEdit === 'function') mgr.applySequenceEdit();
+    });
 }
 
 // ─────────────────────────────────────────
