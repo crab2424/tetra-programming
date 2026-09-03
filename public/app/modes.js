@@ -128,9 +128,11 @@ function setPracticeGoalType(type) {
 // bags[].items: tet は要素1つが「ミノ種別(0-6)または'?'(null)」の配列。
 // puyo は要素1つが [上色,下色]（各 1-5 または '?'=null）のペアの配列。
 // 実際の編集操作・ランタイム消費は practice_sequence.js が持つ。
+// bagOrder: バッグ列の並びを周回ごとにシャッフルするか / slotOrder: バッグ内スロットの
+// 並びを周回ごとにシャッフルするか（Phase 4 §5.2。旧 order は bagOrder に一本化した）。
 let practiceSequence = {
-  tet:  { enabled: false, order: 'loop', bags: [{ items: new Array(7).fill(null) }] },
-  puyo: { enabled: false, order: 'loop', bags: [{ items: [[null, null]] }] },
+  tet:  { enabled: false, bagOrder: 'loop', slotOrder: 'loop', bags: [{ items: new Array(7).fill(null) }] },
+  puyo: { enabled: false, bagOrder: 'loop', slotOrder: 'loop', bags: [{ items: [[null, null]] }] },
 };
 
 let testCpuControl = true; 

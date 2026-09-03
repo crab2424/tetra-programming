@@ -70,6 +70,9 @@ class PracticeManager {
             timerId: null,          // setInterval（自動投下）
             pendingTimeouts: [],    // 予告→着弾の setTimeout（rewind時のゴースト書き込み防止に includes チェックで対処）
         };
+
+        // 盤面クリアのおじゃま部分削除（Phase 4 §4.2）。パネルの本数/個数指定に使う。
+        this.ojamaClearAmount = 1;
     }
 
     // ─────────────────────────────────────────
@@ -207,14 +210,16 @@ class PracticeManager {
             }
         }
 
-        // ─── ツモ順設定（設計 §7）───
+        // ─── ツモ順設定（設計 §7・Phase 4 §5.1）───
         // 準備画面で編集した practiceSequence[rule] をゲーム開始時点で凍結し（プレイ中に
-        // エディタ側から書き換わっても影響を受けないように）、getNextType/_makePair を
+        // 準備画面へ戻って弄っても影響を受けないように）、getNextType/_makePair を
         // ラップして差し込む（QUIZが同じ2関数を差し替えている実績あり）。
+        // ゲーム内パネルのSEQUENCE編集（applySequenceEdit()）は改めてこの凍結をやり直す。
         const seqSrc = (typeof PracticeSequence !== 'undefined') ? PracticeSequence.config(this.rule) : null;
         this.sequenceEnabled = !!(seqSrc && seqSrc.enabled && seqSrc.bags.length);
         if (this.sequenceEnabled) {
             this.seqConfig = JSON.parse(JSON.stringify(seqSrc));
+            this.seqConfig.gen = 0; // 編集世代番号（巻き戻し整合用。設計 §5.1）
             this.seqRunner = PracticeSequence.createRunner(this.seqConfig);
 
             if (this.rule === 'tet') {
@@ -244,7 +249,10 @@ class PracticeManager {
         if (this._skipNextCapture) { this._skipNextCapture = false; return; }
         // ツモ順設定の消費位置（設計 §7.1「カスタム列は巻き戻し対象」）。
         // popMino/_spawnPuyo 実行前＝runner がまだこの手の枠を読んでいない時点の状態を保存する。
-        const seqState = this.sequenceEnabled ? PracticeSequence.cloneRunnerState(this.seqRunner) : undefined;
+        // gen は「この時点で使っていた列の世代」の記録（設計 §5.1）。
+        const seqState = this.sequenceEnabled
+            ? Object.assign(PracticeSequence.cloneRunnerState(this.seqRunner), { gen: this.seqConfig.gen || 0 })
+            : undefined;
         const line = PracticeSnapshot.capture(this.gameInstance, this.rule, seqState);
 
         // 巻き戻した先から打ち直したら、それより先の履歴は無効になる
@@ -287,10 +295,16 @@ class PracticeManager {
             return;
         }
 
-        // ツモ順設定の消費位置も一緒に復元する（popMino/_spawnPuyo が次の枠を読む前に必要）
+        // ツモ順設定の消費位置も一緒に復元する（popMino/_spawnPuyo が次の枠を読む前に必要）。
+        // ただし gen が現在の列と異なる（＝この局面より後でSEQUENCEを編集した）場合は
+        // 古い bagOrder/itemPos を今の列に当てても意味がないため復元しない。
+        // runnerはそのまま今の列を使い続ける（設計 §5.1）。
         if (this.sequenceEnabled) {
             const seqState = PracticeSnapshot.restoreSeqState(this.rule, line);
-            if (seqState) PracticeSequence.applyRunnerState(this.seqRunner, seqState);
+            const curGen = this.seqConfig ? (this.seqConfig.gen || 0) : 0;
+            if (seqState && (seqState.gen || 0) === curGen) {
+                PracticeSequence.applyRunnerState(this.seqRunner, seqState);
+            }
         }
 
         if (this.rule === 'tet') {
@@ -432,6 +446,72 @@ class PracticeManager {
         const fwdBtn = document.getElementById('practice-rewind-fwd');
         if (backBtn) backBtn.classList.toggle('is-disabled', backCount <= 0);
         if (fwdBtn) fwdBtn.classList.toggle('is-disabled', fwdCount <= 0);
+    }
+
+    // ─────────────────────────────────────────
+    // ゲーム中の SEQUENCE 編集を反映する（設計 §5.1）
+    // 設定パネルの SEQUENCE OFF/ON トグル、および EDIT → エディタの DONE/Esc から呼ばれる。
+    // ─────────────────────────────────────────
+    applySequenceEdit() {
+        const g = this.gameInstance;
+        if (!g) return;
+        const self = this;
+        const seqSrc = (typeof PracticeSequence !== 'undefined') ? PracticeSequence.config(this.rule) : null;
+        const wasEnabled = this.sequenceEnabled;
+        this.sequenceEnabled = !!(seqSrc && seqSrc.enabled && seqSrc.bags.length);
+
+        if (this.sequenceEnabled) {
+            const prevGen = (this.seqConfig && this.seqConfig.gen) || 0;
+            this.seqConfig = JSON.parse(JSON.stringify(seqSrc));
+            this.seqConfig.gen = prevGen + 1; // 編集のたびに世代を進める（巻き戻し整合用）
+            // 新しい列の先頭から開始する（途中のbagPos/itemPosは引き継がない。設計 §5.1）。
+            // 既に生成済みのNEXTキューはそのまま残り、以降 getNextType()/_makePair() が
+            // 呼ばれた分（＝NEXT表示数ぶん遅れて）から新しい列を使う。
+            this.seqRunner = PracticeSequence.createRunner(this.seqConfig);
+
+            if (!wasEnabled) {
+                // OFF→ON: フックをここで新規に張る（attach()時点では未設置だったため）
+                if (this.rule === 'tet' && !this._origGetNextType) {
+                    this._origGetNextType = g.getNextType;
+                    g.getNextType = function () {
+                        return PracticeSequence.nextTetType(self.seqConfig, self.seqRunner);
+                    }.bind(g);
+                } else if (this.rule === 'puyo' && !this._origMakePair) {
+                    this._origMakePair = g._makePair;
+                    g._makePair = function (excludeColor = null) {
+                        const pair = PracticeSequence.nextPuyoPair(self.seqConfig, self.seqRunner, this.activeColors);
+                        return pair || self._origMakePair.call(this, excludeColor);
+                    }.bind(g);
+                }
+            }
+
+            // puyoの色数自動引き上げ（設計 §7.5）をゲーム中の編集でも再評価する
+            if (this.rule === 'puyo') {
+                const used = PracticeSequence.usedPuyoColors(this.seqConfig);
+                let neededN = PConfig.colorCount;
+                used.forEach(c => {
+                    const idx = (g._colorOrder || []).indexOf(c);
+                    if (idx >= 0) neededN = Math.max(neededN, idx + 1);
+                });
+                if (neededN > PConfig.colorCount) {
+                    PConfig.colorCount = neededN;
+                    g.activeColors = (g._colorOrder || []).slice(0, neededN);
+                }
+            }
+        } else if (wasEnabled) {
+            // ON→OFF: フックを外して通常生成に戻す
+            if (this.rule === 'tet' && this._origGetNextType) {
+                g.getNextType = this._origGetNextType;
+                this._origGetNextType = null;
+            } else if (this.rule === 'puyo' && this._origMakePair) {
+                g._makePair = this._origMakePair;
+                this._origMakePair = null;
+            }
+            this.seqConfig = null;
+            this.seqRunner = null;
+        }
+
+        if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
     }
 
     // ─────────────────────────────────────────
@@ -643,6 +723,69 @@ class PracticeManager {
     setOjamaIntervalSec(sec) {
         this.ojama.intervalSec = Math.max(1, Math.min(60, sec));
         if (this.ojama.auto) this.setOjamaAuto(true);
+    }
+
+    // ─────────────────────────────────────────
+    // 盤面クリア：おじゃま部分削除（設計 §4.2）
+    // 全消し（practiceClearBoard）と同じ扱いで巻き戻し履歴には積まない（§9-1）。
+    // ─────────────────────────────────────────
+    clearOjamaPartial(amount) {
+        const g = this.gameInstance;
+        if (!g) return;
+        amount = Math.max(1, amount || 1);
+        if (this.rule === 'tet') {
+            // おじゃまライン＝その行に存在するブロックが全て種別7（garbage.jsが生成する種別）の行。
+            // 下(yが大きい)から数えてamount本まで、非該当行はスキップして探す。
+            const field = g.field;
+            let removed = 0;
+            let r = ROWS_COUNT - 1;
+            while (r >= 0 && removed < amount) {
+                const rowBlocks = field.blocks.filter(b => b.y === r);
+                const isGarbageLine = rowBlocks.length > 0 && rowBlocks.every(b => b.type === 7);
+                if (isGarbageLine) {
+                    // 通常のライン消去と同じ詰め処理（Field.checkLine()と同型）：
+                    // 該当行を除去し、上にあるブロック(y<r)を1段ずつ下げる。
+                    field.blocks = field.blocks.filter(b => b.y !== r);
+                    field.blocks.filter(b => b.y < r).forEach(b => b.y++);
+                    removed++;
+                    // 詰め処理で1つ上の内容がこの行へ落ちてきたので、同じrを再チェックする
+                } else {
+                    r--;
+                }
+            }
+            if (removed > 0) {
+                field.markDirty();
+                g.drawAll();
+            }
+        } else {
+            // おじゃまぷよ＝色6（PConfigに専用定数はなく practice_snapshot.js の CELL_CHARS 等でも
+            // 6を使っている）。上(r昇順)・列は左から走査してamount個を0にする。
+            const totalRows = PConfig.rows + PConfig.hiddenRows;
+            let removed = 0;
+            outer:
+            for (let r = 0; r < totalRows; r++) {
+                for (let c = 0; c < PConfig.cols; c++) {
+                    if (removed >= amount) break outer;
+                    if (g.field[r][c] === 6) {
+                        g.field[r][c] = 0;
+                        removed++;
+                    }
+                }
+            }
+            if (removed > 0) {
+                // 既存の落下アニメ構築(_buildDropAnim)をそのまま即時確定させる（アニメを挟まない）。
+                // 連鎖判定は誘発させない＝_render()のみ（設計 §4.2）。
+                if (typeof g._buildDropAnim === 'function') {
+                    g._buildDropAnim();
+                    if (g._dropAnim) {
+                        g._applyDropAnim();
+                        g._dropAnim = null;
+                    }
+                }
+                if (typeof g._render === 'function') g._render();
+            }
+        }
+        if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
     }
 
     // ─────────────────────────────────────────

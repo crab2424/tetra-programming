@@ -3,15 +3,21 @@
 // PRACTICEモードのツモ順設定（Phase 3 §7）
 //
 // 設計: source_assets/memory/tetlabo-practice-mode-design.md §7
-//   ・モデル: bags[1〜10] × order('loop'|'random')。枠は確定値または'?'（一様ランダム）
+//        + source_assets/memory/tetlabo-practice-mode-phase4-design.md §5
+//   ・モデル: bags[1〜10] × bagOrder('loop'|'random') × slotOrder('loop'|'random')。
+//     枠は確定値または'?'（一様ランダム）。bagOrder=バッグ列の並び、slotOrder=バッグ内
+//     スロットの並び（Phase 4 §5.2。バッグが1個だとbagOrderは無意味になるため独立させた）
 //   ・tet: バッグ長 1〜10（値=ミノ種別0-6） / puyo: バッグ長 1〜25（値=[上色,下色]、色1〜5）
-//   ・重複・欠けを許す。'?'だけの1バッグ・random で完全ランダムと等価
+//   ・重複・欠けを許す。'?'だけの1バッグ・bagOrder=randomで完全ランダムと等価
 //   ・巻き戻し対象（カスタム列＋消費位置）。RULEを切り替えても他方の列は消えない
+//   ・ゲーム中の編集にも対応（Phase 4 §5.1）。反映は次のNEXT補充分から（既存キューは維持）。
+//     編集ごとに seqConfig.gen をインクリメントし、巻き戻し復元時は gen が一致する
+//     スナップショットのときだけ seqState を適用する（世代の異なる位置情報の誤適用を防ぐ）
 //
 // このファイルは3つの役割を持つ:
 //   1) PracticeSequence: ランタイムの消費ロジック（getNextType/_makePair のフック先）
-//   2) 準備画面（mode-check-page）のSEQUENCE行・エディタモーダルのUI
-//   3) 編集操作（バッグ数/長さ/枠の値/order の変更）
+//   2) 準備画面（mode-check-page）／ゲーム中パネル 両方のSEQUENCE行・エディタモーダルのUI
+//   3) 編集操作（バッグ数/長さ/枠の値/bagOrder・slotOrder の変更）
 // ─────────────────────────────────────────────
 
 const PracticeSequence = (() => {
@@ -38,21 +44,38 @@ const PracticeSequence = (() => {
         }
     }
 
-    // 巻き戻しで復元できるよう、状態は {bagOrder, bagPos, itemPos} という素の値だけで持つ
+    // 巻き戻しで復元できるよう、状態は {bagOrder, bagPos, itemPos, itemOrder} という
+    // 素の値だけで持つ。itemOrder は「今のバッグ」のスロット並び（§5.2 slotOrder用）。
+    function _makeItemOrder(len, slotOrder) {
+        const arr = [];
+        for (let i = 0; i < len; i++) arr.push(i);
+        if (slotOrder === 'random') shuffleInPlace(arr);
+        return arr;
+    }
+
     function createRunner(seqConfig) {
         const bagOrder = seqConfig.bags.map((_, i) => i);
-        if (seqConfig.order === 'random') shuffleInPlace(bagOrder);
-        return { bagOrder, bagPos: 0, itemPos: 0 };
+        if (seqConfig.bagOrder === 'random') shuffleInPlace(bagOrder);
+        const firstBag = seqConfig.bags[bagOrder[0]];
+        const itemOrder = _makeItemOrder(firstBag ? firstBag.items.length : 0, seqConfig.slotOrder);
+        return { bagOrder, bagPos: 0, itemPos: 0, itemOrder };
     }
 
     function cloneRunnerState(runner) {
-        return { bagOrder: runner.bagOrder.slice(), bagPos: runner.bagPos, itemPos: runner.itemPos };
+        return {
+            bagOrder: runner.bagOrder.slice(),
+            bagPos: runner.bagPos,
+            itemPos: runner.itemPos,
+            itemOrder: runner.itemOrder.slice(),
+        };
     }
 
     function applyRunnerState(runner, state) {
         runner.bagOrder = state.bagOrder.slice();
         runner.bagPos = state.bagPos;
         runner.itemPos = state.itemPos;
+        // 旧セーブ（§5.2以前）には itemOrder が無いので、その場合は連番で補う
+        runner.itemOrder = Array.isArray(state.itemOrder) ? state.itemOrder.slice() : [];
     }
 
     // 現在位置の枠を読んでから、次の位置へポインタを進める
@@ -64,16 +87,28 @@ const PracticeSequence = (() => {
             runner.bagPos++;
             if (runner.bagPos >= runner.bagOrder.length) {
                 runner.bagPos = 0;
-                if (seqConfig.order === 'random') shuffleInPlace(runner.bagOrder);
+                if (seqConfig.bagOrder === 'random') shuffleInPlace(runner.bagOrder);
             }
+            // 新しいバッグに入るたびにスロット順を作り直す（§5.2）
+            const nextBag = seqConfig.bags[runner.bagOrder[runner.bagPos]];
+            runner.itemOrder = _makeItemOrder(nextBag ? nextBag.items.length : 0, seqConfig.slotOrder);
         }
+    }
+
+    // itemOrder が壊れている/未生成（旧セーブ復元直後 等）ならその場で作り直す
+    function _resolveSlotIndex(runner, bag) {
+        if (!Array.isArray(runner.itemOrder) || runner.itemOrder.length !== bag.items.length) {
+            runner.itemOrder = _makeItemOrder(bag.items.length, 'loop');
+        }
+        const idx = runner.itemOrder[runner.itemPos];
+        return (idx === undefined) ? runner.itemPos : idx;
     }
 
     function nextTetType(seqConfig, runner) {
         if (!seqConfig || !seqConfig.bags.length) return Math.floor(Math.random() * 7);
         const bag = seqConfig.bags[runner.bagOrder[runner.bagPos]];
         if (!bag || !bag.items.length) return Math.floor(Math.random() * 7);
-        const slot = bag.items[runner.itemPos];
+        const slot = bag.items[_resolveSlotIndex(runner, bag)];
         _advance(runner, seqConfig);
         return (slot === null || slot === undefined) ? Math.floor(Math.random() * 7) : slot;
     }
@@ -83,7 +118,7 @@ const PracticeSequence = (() => {
         if (!seqConfig || !seqConfig.bags.length) return null;
         const bag = seqConfig.bags[runner.bagOrder[runner.bagPos]];
         if (!bag || !bag.items.length) return null;
-        const pairSlot = bag.items[runner.itemPos];
+        const pairSlot = bag.items[_resolveSlotIndex(runner, bag)];
         _advance(runner, seqConfig);
         const colors = (activeColors && activeColors.length) ? activeColors : PUYO_COLOR_LIST;
         const resolve = (v) => (v === null || v === undefined) ? colors[Math.floor(Math.random() * colors.length)] : v;
@@ -116,10 +151,17 @@ const PracticeSequence = (() => {
         c.enabled = on;
     }
 
-    function setOrder(rule, order) {
+    // §5.2: バッグの並び(bagOrder)とバッグ内スロットの並び(slotOrder)を独立指定にする
+    function setBagOrder(rule, order) {
         const c = config(rule);
         if (!c) return;
-        c.order = (order === 'random') ? 'random' : 'loop';
+        c.bagOrder = (order === 'random') ? 'random' : 'loop';
+    }
+
+    function setSlotOrder(rule, order) {
+        const c = config(rule);
+        if (!c) return;
+        c.slotOrder = (order === 'random') ? 'random' : 'loop';
     }
 
     function defaultItems(rule) {
@@ -169,7 +211,7 @@ const PracticeSequence = (() => {
     let editor = null; // { rule, section: 'bagcount'|'bagindex'|'length'|'order'|'slots', flatIndex, editingSlots }
     let keyHandler = null;
 
-    function _sectionOrder() { return ['bagcount', 'bagindex', 'length', 'order', 'slots', 'done']; }
+    function _sectionOrder() { return ['bagcount', 'bagindex', 'length', 'bagorder', 'slotorder', 'slots', 'done']; }
 
     function labelForSlot(rule, value) {
         if (value === null || value === undefined) return '?';
@@ -195,9 +237,11 @@ const PracticeSequence = (() => {
         setPuyoSlot(bagIndex, col, row, value);
     }
 
-    function openEditor(rule) {
+    // onDone: ゲーム中（PRACTICEパネル）からの呼び出し時だけ渡す、閉じた後に呼ぶコールバック（設計 §5.1）。
+    // 準備画面からの呼び出し（onDone省略）では従来どおり renderModeCheck() のみ行う。
+    function openEditor(rule, onDone) {
         if (!config(rule)) return;
-        editor = { rule, section: 'bagcount', bagIndex: 0, flatIndex: 0, editingSlots: false };
+        editor = { rule, section: 'bagcount', bagIndex: 0, flatIndex: 0, editingSlots: false, onDone: onDone || null };
         const modal = document.getElementById('practice-seq-modal');
         if (modal) modal.classList.add('active');
         if (window.FocusNav) window.FocusNav.suspended = true;
@@ -207,25 +251,28 @@ const PracticeSequence = (() => {
 
     function closeEditor() {
         if (!editor) return; // 未オープン時は何もしない（switchPage毎に呼ばれるため）
+        const onDone = editor.onDone;
+        const rule = editor.rule;
         editor = null;
         const modal = document.getElementById('practice-seq-modal');
         if (modal) modal.classList.remove('active');
         if (window.FocusNav) window.FocusNav.suspended = false;
         _removeKeyHandler();
         if (typeof renderModeCheck === 'function') renderModeCheck();
+        if (typeof onDone === 'function') onDone(rule);
     }
 
     function _installKeyHandler() {
         _removeKeyHandler();
         keyHandler = (e) => {
             if (!editor) return;
-            let handled = true;
-            if (editor.editingSlots) {
-                handled = _handleSlotKey(e);
-            } else {
-                handled = _handleSectionKey(e);
-            }
-            if (handled) { e.preventDefault(); e.stopImmediatePropagation(); _render(); }
+            const handled = editor.editingSlots ? _handleSlotKey(e) : _handleSectionKey(e);
+            // モーダルが開いている間は、対応しないキーも含めて常に奪う（設計 §5.1）。
+            // ゲーム中に開いた場合、ここで止めないと未対応キーが下の tet/puyo 入力へ
+            // 素通りしてしまう（例: DONE行にフォーカス中の矢印キー等）。
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (handled) _render();
         };
         document.addEventListener('keydown', keyHandler, true);
     }
@@ -263,9 +310,14 @@ const PracticeSequence = (() => {
             const bag = c.bags[bagIndex];
             if (e.key === 'ArrowLeft')  { setBagLength(editor.rule, bagIndex, bag.items.length - 1); return true; }
             if (e.key === 'ArrowRight') { setBagLength(editor.rule, bagIndex, bag.items.length + 1); return true; }
-        } else if (editor.section === 'order') {
+        } else if (editor.section === 'bagorder') {
             if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Enter') {
-                setOrder(editor.rule, c.order === 'loop' ? 'random' : 'loop');
+                setBagOrder(editor.rule, c.bagOrder === 'loop' ? 'random' : 'loop');
+                return true;
+            }
+        } else if (editor.section === 'slotorder') {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Enter') {
+                setSlotOrder(editor.rule, c.slotOrder === 'loop' ? 'random' : 'loop');
                 return true;
             }
         } else if (editor.section === 'slots') {
@@ -343,12 +395,21 @@ const PracticeSequence = (() => {
         html += stepRow('bagcount', 'BAGS', c.bags.length, ' (←→)');
         html += stepRow('bagindex', 'BAG', (bagIndex + 1) + ' / ' + c.bags.length, ' (←→)');
         html += stepRow('length', 'LENGTH', bag.items.length, ' (←→)');
+        // §5.2: バッグの並び(BAG ORDER)とバッグ内スロットの並び(SLOT ORDER)を独立して選べる
         html += `
-          <div class="option-row practice-seq-row${cls('order')}" onclick="PracticeSequence.setSection('order')">
-            <span class="option-label">ORDER</span>
+          <div class="option-row practice-seq-row${cls('bagorder')}" onclick="PracticeSequence.setSection('bagorder')">
+            <span class="option-label">BAG ORDER</span>
             <div class="option-toggle">
-              <button class="opt-btn ${c.order === 'loop' ? 'active' : ''}" onclick="event.stopPropagation();PracticeSequence.setOrderAndRender('${editor.rule}','loop')">LOOP</button>
-              <button class="opt-btn ${c.order === 'random' ? 'active' : ''}" onclick="event.stopPropagation();PracticeSequence.setOrderAndRender('${editor.rule}','random')">RANDOM</button>
+              <button class="opt-btn ${c.bagOrder === 'loop' ? 'active' : ''}" onclick="event.stopPropagation();PracticeSequence.setBagOrderAndRender('${editor.rule}','loop')">LOOP</button>
+              <button class="opt-btn ${c.bagOrder === 'random' ? 'active' : ''}" onclick="event.stopPropagation();PracticeSequence.setBagOrderAndRender('${editor.rule}','random')">RANDOM</button>
+            </div>
+          </div>`;
+        html += `
+          <div class="option-row practice-seq-row${cls('slotorder')}" onclick="PracticeSequence.setSection('slotorder')">
+            <span class="option-label">SLOT ORDER</span>
+            <div class="option-toggle">
+              <button class="opt-btn ${c.slotOrder === 'loop' ? 'active' : ''}" onclick="event.stopPropagation();PracticeSequence.setSlotOrderAndRender('${editor.rule}','loop')">LOOP</button>
+              <button class="opt-btn ${c.slotOrder === 'random' ? 'active' : ''}" onclick="event.stopPropagation();PracticeSequence.setSlotOrderAndRender('${editor.rule}','random')">RANDOM</button>
             </div>
           </div>`;
 
@@ -369,7 +430,8 @@ const PracticeSequence = (() => {
           <div class="option-row practice-seq-row practice-seq-slots-row${cls('slots')}">
             <span class="option-label">SLOTS</span>
             <div class="practice-seq-slots">${slotsHtml}</div>
-          </div>`;
+          </div>
+          <p class="practice-value-hint" style="text-align:center;">LOOP = 表示どおりの順 / RANDOM = 1周ごとに並べ替え（SLOTSは編集用の並びで、実行時の並びではありません）</p>`;
 
         const hint = editor.editingSlots
             ? '0-9で入力(0=?) / ←→で移動 / ↑↓で増減 / Enter・Escで抜ける'
@@ -383,8 +445,13 @@ const PracticeSequence = (() => {
         if (doneBtn) doneBtn.classList.toggle('is-focused', !editor.editingSlots && editor.section === 'done');
     }
 
-    function setOrderAndRender(rule, order) {
-        setOrder(rule, order);
+    function setBagOrderAndRender(rule, order) {
+        setBagOrder(rule, order);
+        _render();
+    }
+
+    function setSlotOrderAndRender(rule, order) {
+        setSlotOrder(rule, order);
         _render();
     }
 
@@ -395,7 +462,7 @@ const PracticeSequence = (() => {
         isEnabled, setEnabled,
         config,
         // エディタ
-        openEditor, closeEditor, focusSlot, setSection, setOrderAndRender,
+        openEditor, closeEditor, focusSlot, setSection, setBagOrderAndRender, setSlotOrderAndRender,
     };
 })();
 
