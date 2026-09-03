@@ -893,18 +893,19 @@
         <span id="finish-text" class="finish-text"></span>
       </div>
       <!-- ★ PRACTICEモード専用: ゲーム内設定パネル（practice_panel.jsが表示制御・中身を描画）。
-           プレイフィールドに被せるモーダル形式＝設定変更中はどのみちポーズしているので、
-           HOLD/NEXT/SCORE等のHUDと場所を取り合わない。 -->
-      <button id="practice-panel-tab" class="practice-panel-tab"
-        onmousedown="event.preventDefault()" onclick="togglePracticePanel()">⚙</button>
-      <div id="practice-panel-overlay" class="field-overlay practice-panel-overlay" onclick="_practicePanelOverlayClick(event)">
-        <div class="practice-panel-card" onclick="event.stopPropagation()">
+           左サイドの折りたたみドック形式（Phase 5 §6）＝盤面には被せない。
+           開いている間はポーズする（従来どおり）。 -->
+      <div id="practice-panel-dock" class="practice-panel-dock">
+        <button id="practice-panel-tab" class="practice-panel-tab"
+          onmousedown="event.preventDefault()" onclick="togglePracticePanel()">⚙</button>
+        <div id="practice-panel-card" class="practice-panel-card">
           <div class="practice-panel-title">SETTINGS</div>
           <div id="practice-panel-body" class="practice-panel-body"></div>
         </div>
       </div>
       <!-- ★ PRACTICEモード専用: 巻き戻しインジケータ（Phase 4 §2）。
-           旧ミニステータス(HOLD/GHOST)の位置(practice-status-left)を用途変更。 -->
+           旧ミニステータス(HOLD/GHOST)の位置(practice-status-left)を用途変更。
+           左ドック(Phase5 §6)が開いている間は隠れる（設計 §6.5・実機判断待ち）。 -->
       <div id="practice-status-left" class="practice-status practice-status-left">
         <div class="practice-rewind-label">REWIND</div>
         <div class="practice-rewind-row">
@@ -914,6 +915,12 @@
             onmousedown="event.preventDefault()" onclick="practiceRewindStep(1)">⟳<b id="practice-rewind-fwd-count">0</b></span>
         </div>
         <div class="practice-rewind-keys" id="practice-rewind-keys">Q / E</div>
+      </div>
+      <!-- ★ PRACTICEモード専用: REWIND/ADVANCEの移動エフェクト（Phase 5 §5）。盤面中央に一瞬光る。 -->
+      <div id="practice-rewind-flash" class="practice-rewind-flash">
+        <span id="practice-rewind-flash-icon">⟲</span>
+        <span id="practice-rewind-flash-text">REWIND</span>
+        <span id="practice-rewind-flash-pos">0 / 0</span>
       </div>
       <!-- ★ PRACTICEモード専用(puyoのみ): SPEED表示(§3.1)＋COLORS併記(§3.3) -->
       <div id="practice-speed-area" class="practice-status practice-hud-block">
@@ -1292,8 +1299,8 @@
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=2"></script>
   <script src="practice/practice_sequence.js?v=3"></script>
-  <script src="practice/practice_panel.js?v=8"></script>
-  <script src="practice/practice.js?v=10"></script>
+  <script src="practice/practice_panel.js?v=9"></script>
+  <script src="practice/practice.js?v=11"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 

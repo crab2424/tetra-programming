@@ -95,19 +95,30 @@ body.practice-mode #puyo-next-canvas {
   height: auto;
 }
 
-/* ─── Phase 2: ゲーム内設定パネル（設計 §6） ───
-   #container は基準750×700pxでスケールされる（single-play.css）ため、
-   常設のドッキングパネルをどこに置いても左右のHUD（HOLD/LEVEL/LINES/
-   NEXT/SCORE/TIME）と衝突しやすい。設定変更中はどのみちプレイが
-   止まっている（pause()する）ので、代わりにメインキャンバス（.field-overlay
-   と同じ 320×656 の領域）へ被せるモーダルカードにした。
-   常時見えるタブボタンだけは、フィールド右端(320px)とNEXT枠(352px〜)の
-   間の隙間（32px）に小さく置く＝どのHUDとも重ならない。 */
-.practice-panel-tab {
+/* ─── Phase 5 §6: ゲーム内設定パネル（左サイドの折りたたみドック） ───
+   Phase 2〜4は盤面に被せるモーダルだったが、項目が増え（12行超）＋盤面を見ながら
+   設定を確認したい要件（おじゃまゲージ・SEQUENCE即時反映）が出てきたため、
+   HOLD/LEVEL/LINESのHUDに被せる形の左ドックへ移行した。
+   #container の横方向設計予算は750px、既存占有(-160〜512)は672pxなので
+   左に78pxの余裕がある → ドックはleft:-232px, width:208pxで、
+   おじゃまゲージ(-16〜-6)は隠さない（設計 Phase5 §6.2）。 */
+.practice-panel-dock {
   display: none;
   position: absolute;
+  top: 0;
+  left: -232px;
+  width: 208px;
+  z-index: 22;
+  pointer-events: auto;
+}
+.practice-panel-dock.is-visible {
+  display: block;
+}
+
+.practice-panel-tab {
+  position: absolute;
   top: 6px;
-  left: 288px;
+  left: 182px;
   width: 26px;
   height: 26px;
   border: 1px solid var(--border);
@@ -119,36 +130,30 @@ body.practice-mode #puyo-next-canvas {
   cursor: pointer;
   z-index: 16;
 }
-.practice-panel-tab.is-visible {
-  display: block;
-}
 .practice-panel-tab:hover {
   background: rgba(156, 167, 184, 0.18);
 }
 
-.practice-panel-overlay {
-  background: rgba(10, 10, 16, 0.72);
-  z-index: 20;
-  /* .field-overlay は既定 pointer-events:none（表示専用のオーバーレイ用）。
-     このオーバーレイだけは中のボタンをクリックできる必要がある。 */
-  pointer-events: auto;
-}
-
 .practice-panel-card {
-  display: flex;
+  display: none;
   flex-direction: column;
-  gap: 10px;
-  width: 260px;
-  padding: 16px;
+  gap: 8px;
+  width: 208px;
+  max-height: 656px;
+  overflow-y: auto;
+  padding: 10px;
   border: 2px solid var(--border);
   border-radius: 8px;
   background: rgba(10, 10, 15, 0.95);
 }
+.practice-panel-dock.is-open .practice-panel-card {
+  display: flex;
+}
 .practice-panel-title {
   font-family: "Orbitron", monospace;
   font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 5px;
+  font-size: 14px;
+  letter-spacing: 4px;
   color: var(--practice-color);
   text-align: center;
   text-shadow: 0 0 12px rgba(156, 167, 184, 0.5);
@@ -157,7 +162,7 @@ body.practice-mode #puyo-next-canvas {
 .practice-panel-body {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 7px;
 }
 
 /* ─── 常時表示のミニ表示（設計外・実機フィードバックで追加） ───
@@ -217,6 +222,55 @@ body.practice-mode #puyo-next-canvas {
   opacity: 0.7;
 }
 
+/* ─── Phase 5 §5: REWIND/ADVANCEの移動エフェクト ───
+   盤面中央に一瞬フラッシュを出す。ポーズ中でもCSSアニメは進行する（step()はゲーム
+   停止中でも呼べるため、JSのrAF駆動に依存させない）。 */
+.practice-rewind-flash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 326px;
+  height: 662px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 19;
+  opacity: 0;
+}
+.practice-rewind-flash.is-active {
+  animation: practiceRewindFlash 620ms ease-out;
+}
+#practice-rewind-flash-icon {
+  font-size: 40px;
+  color: var(--practice-color);
+  text-shadow: 0 0 16px rgba(156, 167, 184, 0.6);
+}
+#practice-rewind-flash-text {
+  font-family: "Orbitron", monospace;
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--practice-color);
+}
+#practice-rewind-flash-pos {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+/* ADVANCE(進む)は戻すと区別するため text-dim 寄りの色にする */
+.practice-rewind-flash.is-advance #practice-rewind-flash-icon,
+.practice-rewind-flash.is-advance #practice-rewind-flash-text {
+  color: var(--text-dim);
+  text-shadow: none;
+}
+@keyframes practiceRewindFlash {
+  0%   { opacity: 0; transform: scale(1.25); }
+  18%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.96); }
+}
+
 /* ─── Phase 4 §3.1: puyoのSPEED+COLORS表示（廃止した practice-status-right の位置を流用） ─── */
 .practice-hud-block {
   top: 570px;
@@ -250,45 +304,52 @@ body.practice-mode #puyo-next-canvas {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 .practice-panel-label {
   font-family: "Orbitron", monospace;
-  font-size: 11px;
-  letter-spacing: 1px;
+  font-size: 10px;
+  letter-spacing: 0.5px;
   color: var(--text-dim);
 }
 
 .practice-panel-stepper {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 .practice-panel-stepper button {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border: 1px solid var(--border);
   border-radius: 3px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
   line-height: 1;
+  font-size: 11px;
 }
 .practice-panel-stepper button:hover {
   border-color: var(--practice-color);
   color: var(--practice-color);
 }
 .practice-panel-value {
-  min-width: 40px;
+  min-width: 32px;
   text-align: center;
   font-family: "Orbitron", monospace;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--practice-color);
 }
 
+/* 208px幅のドックに収めるため、opt-btn自体を縮める（transform:scaleだと見た目だけ
+   縮んでレイアウト上の占有幅は変わらず、HOLDのFREE/ON/OFF3択で右にはみ出していた）。 */
 .practice-panel-toggle {
-  transform: scale(0.85);
-  transform-origin: right center;
+  display: flex;
+  gap: 4px;
+}
+.practice-panel-toggle .opt-btn {
+  padding: 2px 5px;
+  font-size: 9px;
 }
 
 .practice-panel-row-action {

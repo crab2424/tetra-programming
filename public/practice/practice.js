@@ -280,17 +280,17 @@ class PracticeManager {
         return g.state === 'playing';
     }
 
-    // GAME OVER/FINISH演出中(isEnding)は⚙タブ・巻き戻しインジケータをクリック経路ごと隠す
-    // （設計 Phase5 §4.2）。rewindFromResult() / _resumeEngine() で表示を戻す。
+    // GAME OVER/FINISH演出中(isEnding)は設定パネルのドック（⚙タブ含む）・巻き戻しインジケータを
+    // クリック経路ごと隠す（設計 Phase5 §4.2）。rewindFromResult() / _resumeEngine() で表示を戻す。
     _hideEndingControls() {
-        const tab = document.getElementById('practice-panel-tab');
-        if (tab) tab.classList.remove('is-visible');
+        const dock = document.getElementById('practice-panel-dock');
+        if (dock) dock.classList.remove('is-visible');
         const left = document.getElementById('practice-status-left');
         if (left) left.classList.remove('is-visible');
     }
     _showEndingControls() {
-        const tab = document.getElementById('practice-panel-tab');
-        if (tab) tab.classList.add('is-visible');
+        const dock = document.getElementById('practice-panel-dock');
+        if (dock) dock.classList.add('is-visible');
         const left = document.getElementById('practice-status-left');
         if (left) left.classList.add('is-visible');
     }
@@ -302,7 +302,26 @@ class PracticeManager {
         if (next < 0 || next >= this.history.length) return false;
         this.cursor = next;
         this._restoreCurrent();
+        this._flashRewind(delta);
         return true;
+    }
+
+    // 盤面中央に「何か移動した」ことを示す一瞬のフラッシュを出す（設計 Phase5 §5）。
+    // dir<0: 戻る(⟲REWIND) / dir>0: 進む(⟲ADVANCE)。連打対応のため強制リフローで
+    // アニメを毎回リスタートする。
+    _flashRewind(dir) {
+        const el = document.getElementById('practice-rewind-flash');
+        if (!el) return;
+        const iconEl = document.getElementById('practice-rewind-flash-icon');
+        const textEl = document.getElementById('practice-rewind-flash-text');
+        const posEl = document.getElementById('practice-rewind-flash-pos');
+        el.classList.toggle('is-advance', dir > 0);
+        if (iconEl) iconEl.textContent = (dir > 0) ? '⟳' : '⟲';
+        if (textEl) textEl.textContent = (dir > 0) ? 'ADVANCE' : 'REWIND';
+        if (posEl) posEl.textContent = this.cursor + ' / ' + Math.max(0, this.history.length - 1);
+        el.classList.remove('is-active');
+        void el.offsetWidth; // 強制リフロー。外すだけだと連打の2回目以降が光らない
+        el.classList.add('is-active');
     }
 
     _restoreCurrent() {
@@ -624,8 +643,8 @@ class PracticeManager {
     _renderResult(kind, stats) {
         this.isFinished = true;
         if (this._goalLoopId) { cancelAnimationFrame(this._goalLoopId); this._goalLoopId = null; }
-        const panel = document.getElementById('practice-panel-overlay');
-        if (panel) panel.classList.remove('active');
+        const panel = document.getElementById('practice-panel-dock');
+        if (panel) panel.classList.remove('is-open');
 
         const titleEl = document.getElementById('result-title');
         if (titleEl) {
@@ -681,6 +700,8 @@ class PracticeManager {
         this._resumeEngine();
         if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(this.rule === 'puyo');
         if (typeof switchPage === 'function') switchPage('game');
+        // game-pageがactiveになった後に光らせる（非activeなDOMではCSSアニメが進行しないため）
+        this._flashRewind(-1);
         return true;
     }
 
