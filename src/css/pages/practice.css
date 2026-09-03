@@ -153,9 +153,10 @@ body.practice-mode #lpm-area {
   gap: 9px;
 }
 
-/* ─── 常時表示のミニステータス（設計外・実機フィードバックで追加） ───
+/* ─── 常時表示のミニ表示（設計外・実機フィードバックで追加） ───
    パネルを開かなくても現在の設定値を確認できるよう、PRACTICEでは
-   非表示になるAPM/LPM欄の位置（single-play.css）をそのまま流用する。 */
+   非表示になるAPM/LPM欄の位置（single-play.css）をそのまま流用する。
+   Phase 4 §3.3 で右側(practice-status-right)は廃止し、左側は巻き戻しインジケータに用途変更した。 */
 .practice-status {
   display: none;
   position: absolute;
@@ -173,12 +174,69 @@ body.practice-mode #lpm-area {
 .practice-status-left {
   left: -160px;
 }
-.practice-status-right {
-  left: 352px;
-}
 .practice-status b {
   color: var(--practice-color);
   font-weight: 700;
+}
+
+/* ─── Phase 4 §2: 巻き戻しインジケータ（practice-status-leftの用途変更） ─── */
+.practice-rewind-label {
+  margin-bottom: 4px;
+}
+.practice-rewind-row {
+  display: flex;
+  gap: 10px;
+  font-size: 14px;
+}
+.practice-rewind-btn {
+  cursor: pointer;
+  color: var(--practice-color);
+}
+.practice-rewind-btn b {
+  margin-left: 2px;
+  color: var(--practice-color);
+  font-weight: 700;
+}
+.practice-rewind-btn.is-disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+.practice-rewind-btn.is-disabled b {
+  color: var(--text-dim);
+}
+.practice-rewind-keys {
+  margin-top: 4px;
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+/* ─── Phase 4 §3.1: puyoのSPEED+COLORS表示（廃止した practice-status-right の位置を流用） ─── */
+.practice-hud-block {
+  top: 570px;
+  left: 352px;
+  font-size: 11px;
+}
+.practice-hud-block .area-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+}
+#practice-speed-value {
+  font-family: "Orbitron", monospace;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--practice-color);
+}
+.practice-hud-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+/* ─── Phase 4 §3.2: tetのおじゃまゲージ（versusの.garbage-gaugeを流用、高さだけ実寸に合わせる） ─── */
+#practice-garbage-gauge {
+  height: 656px;
 }
 
 .practice-panel-row {

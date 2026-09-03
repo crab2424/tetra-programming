@@ -82,10 +82,12 @@ function _closePracticePanel() {
     if (tab) tab.classList.remove('is-visible');
     const body = document.getElementById('practice-panel-body');
     if (body) body.innerHTML = '';
-    ['practice-status-left', 'practice-status-right'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) { el.classList.remove('is-visible'); el.innerHTML = ''; }
-    });
+    // #practice-status-left は巻き戻しインジケータの静的マークアップ（index.html）を持つため
+    // innerHTML は消さず、表示だけ落とす（設計 §2.2）。
+    const left = document.getElementById('practice-status-left');
+    if (left) left.classList.remove('is-visible');
+    const speedArea = document.getElementById('practice-speed-area');
+    if (speedArea) speedArea.classList.remove('is-visible');
     _removePracticePanelKeyHandler();
 }
 
@@ -107,13 +109,15 @@ function _initPracticePanel(manager) {
     g.practiceHoldMode = 'on';
     g.showGhost = true;
     if (typeof g.resizeNextCanvas === 'function') g.resizeNextCanvas();
+    if (typeof manager._syncLevelDisplay === 'function') manager._syncLevelDisplay();
 
     tab.classList.add('is-visible');
     overlay.classList.remove('active');
-    ['practice-status-left', 'practice-status-right'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.classList.add('is-visible');
-    });
+    const left = document.getElementById('practice-status-left');
+    if (left) left.classList.add('is-visible');
+    // SPEED+COLORSブロックはpuyoのみ（tetはLEVEL枠を流用する。設計 §3.1）
+    const speedArea = document.getElementById('practice-speed-area');
+    if (speedArea) speedArea.classList.toggle('is-visible', manager.rule === 'puyo');
 
     _practicePanelFocusIndex = 0;
     _practicePanelRefresh();
@@ -193,21 +197,14 @@ function _practicePanelRefresh() {
     _practiceStatusRefresh(mgr, g, isTet);
 }
 
-// パネルを開かなくても現在値が見えるミニステータス（APM/LPMの空き位置を流用）
+// NEXT/GHOST/HOLD/OJAMAは盤面を見れば分かるためミニステータスから撤去済み（設計 §3.3）。
+// 残るpuyoのSPEED/COLORSは #practice-speed-area（tetのLEVEL枠に相当するHUDブロック）へ集約する。
 function _practiceStatusRefresh(mgr, g, isTet) {
-    const right = document.getElementById('practice-status-right');
-    const left = document.getElementById('practice-status-left');
-    const pending = Array.isArray(g.garbageQueue) ? g.garbageQueue.reduce((s, o) => s + (o.amount || 0), 0) : 0;
-    const ready = Array.isArray(g.garbageQueue) ? g.garbageQueue.reduce((s, o) => s + (o.ready ? (o.amount || 0) : 0), 0) : 0;
-    if (right) right.innerHTML = `SPEED <b>${_practiceFallLabel(mgr.fallLevel)}</b>&emsp;NEXT <b>${g.practiceNextCount}</b><br>OJAMA <b>${ready}/${pending}</b>`;
-    if (left) {
-        if (isTet) {
-            const holdLabel = (g.practiceHoldMode || 'on').toUpperCase();
-            left.innerHTML = `HOLD <b>${holdLabel}</b><br>GHOST <b>${g.showGhost !== false ? 'ON' : 'OFF'}</b>`;
-        } else {
-            left.innerHTML = `COLORS <b>${PConfig.colorCount}</b>`;
-        }
-    }
+    if (isTet) return; // tetはLEVEL枠(#level-value)にSPEEDを表示済み（§3.1）
+    const valueEl = document.getElementById('practice-speed-value');
+    const colorsEl = document.getElementById('practice-speed-colors');
+    if (valueEl) valueEl.textContent = _practiceFallLabel(mgr.fallLevel);
+    if (colorsEl) colorsEl.textContent = 'COLORS ' + PConfig.colorCount;
 }
 
 // ─────────────────────────────────────────
@@ -332,6 +329,7 @@ function practiceStepFallLevel(delta) {
             g.practiceFallSpeedMs = LEVEL_SPEEDS[mgr.fallLevel] || 7;
         }
         g.practiceNoLock = (mgr.fallLevel <= 0);
+        mgr._syncLevelDisplay(); // updateStatsDisplay()の次回呼び出しを待たず即時反映（設計 §3.1）
     } else {
         g.practiceFallMs = PRACTICE_PUYO_FALL_TABLE[mgr.fallLevel] || 0;
         g.practiceNoLock = (g.practiceFallMs <= 0);
