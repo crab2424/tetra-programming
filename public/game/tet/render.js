@@ -240,8 +240,9 @@ Object.assign(Game.prototype, {
 
         if (this.holdMino) {
             this.holdCtx.save();
-            // PRACTICE設定パネル：HOLDがFREEのときは薄暗くしない（何度でも使えるため）
-            if (!this.canHold && this.practiceHoldMode !== 'free') {
+            // PRACTICE設定パネル：HOLD=OFFのときは常に薄暗く／FREEのときは薄暗くしない（何度でも使えるため）
+            const dimHold = (this.practiceHoldMode === 'off') || (!this.canHold && this.practiceHoldMode !== 'free');
+            if (dimHold) {
                 this.holdCtx.globalAlpha = 0.4;
             }
             this.holdCtx.scale(minoScale, minoScale);

@@ -441,8 +441,8 @@ class PracticeManager {
     _renderResult(kind, stats) {
         this.isFinished = true;
         if (this._goalLoopId) { cancelAnimationFrame(this._goalLoopId); this._goalLoopId = null; }
-        const panel = document.getElementById('practice-panel');
-        if (panel) panel.classList.remove('is-open');
+        const panel = document.getElementById('practice-panel-overlay');
+        if (panel) panel.classList.remove('active');
 
         const titleEl = document.getElementById('result-title');
         if (titleEl) {
@@ -616,6 +616,30 @@ class PracticeManager {
 
         const g = this.gameInstance;
         if (g) {
+            // ─── エンジン本体の停止（設計 §7.D）───
+            // マネージャを捨てるならエンジンも必ず止める。ここを抜けると、ポーズメニューの
+            // RESTART（stopAllGames() を通らない経路）で旧インスタンスが孤児化し、
+            // document のキー入力を裏で食い続ける不具合になる。
+            if (this.rule === 'tet') {
+                if (typeof g.stopRenderLoop === 'function') g.stopRenderLoop();
+                if (g.timer) { clearInterval(g.timer); g.timer = null; }
+                if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+                if (g._keyLoop) { clearInterval(g._keyLoop); g._keyLoop = null; }
+                if (g._garbageTimers && g._garbageTimers.length) {
+                    g._garbageTimers.forEach(t => { if (t.id) clearTimeout(t.id); });
+                    g._garbageTimers = [];
+                }
+                if (g._keyDownHandler) document.removeEventListener('keydown', g._keyDownHandler);
+                if (g._keyUpHandler) document.removeEventListener('keyup', g._keyUpHandler);
+                g.isPaused = true;
+                if (g.isTimerRunning) {
+                    g.isTimerRunning = false;
+                    if (g.timerReqId) cancelAnimationFrame(g.timerReqId);
+                }
+            } else if (typeof g.stop === 'function') {
+                g.stop();
+            }
+
             if (this._origPopMino) g.popMino = this._origPopMino;
             if (this._origGameOver) g.gameOver = this._origGameOver;
             if (this._origSpawnPuyo) g._spawnPuyo = this._origSpawnPuyo;
@@ -710,19 +734,18 @@ function renderPracticeModeCheckOptions(mode) {
     const goalBtn = (type) => `<button class="opt-btn ${practiceGoalType === type ? 'active' : ''}"
         onclick="setPracticeGoalType('${type}')">${_practiceGoalLabel(type, practiceRule)}</button>`;
 
-    // VALUE 行は GOAL=NONE でも折りたたまず常に表示し、"-" で「値なし」を示す（畳むと違和感があるため）
+    // VALUE 行は GOAL=NONE でも折りたたまず常に表示し、"-" で「値なし」を示す（畳むと違和感があるため）。
+    // ヒント文も同様に常に同じ高さで出し、無効時は文言を残したまま dim する（設計 §6.5：行数が変わるとガタつく）。
     const isNone = (practiceGoalType === 'none');
-    const hint = isNone
-        ? ''
-        : (_practiceSpinner
-            ? '0-9 で入力 / ←→ 桁移動 / ↑↓ その桁を増減 / Enter 確定 / Esc 取消'
-            : '←→ でプリセット送り、Enter またはクリックで桁ごとに編集');
+    const hint = _practiceSpinner
+        ? '0-9 で入力 / ←→ 桁移動 / ↑↓ その桁を増減 / Enter 確定 / Esc 取消'
+        : '←→ でプリセット送り、Enter またはクリックで桁ごとに編集';
     const valueRow = `
         <div class="option-row"${isNone ? '' : ' data-nav-row="practice-goal-value"'}>
           <span class="option-label">VALUE</span>
           ${_practiceValueHtml()}
         </div>
-        ${hint ? `<p class="practice-value-hint">${hint}</p>` : ''}`;
+        <p class="practice-value-hint${isNone ? ' is-disabled' : ''}">${hint}</p>`;
 
     return `
       <div class="option-row">
@@ -747,6 +770,8 @@ function renderPracticeModeCheckOptions(mode) {
 // OFF/ON トグル＋（ON時のみ）エディタを開くボタン。
 function _practiceSequenceRowHtml() {
     const enabled = (typeof PracticeSequence !== 'undefined') && PracticeSequence.isEnabled(practiceRule);
+    // EDIT SEQUENCE ボタンは OFF でも常に表示し、無効時は disabled + dim にする
+    // （設計 §6.5：出たり消えたりすると下の要素がガタつくため）。
     return `
       <div class="option-row">
         <span class="option-label">SEQUENCE</span>
@@ -755,7 +780,8 @@ function _practiceSequenceRowHtml() {
           <button class="opt-btn ${enabled ? 'active' : ''}" onclick="setPracticeSequenceEnabled(true)">ON</button>
         </div>
       </div>
-      ${enabled ? `<button class="practice-seq-edit-btn" onclick="openPracticeSequenceEditor()">EDIT SEQUENCE →</button>` : ''}
+      <button class="practice-seq-edit-btn${enabled ? '' : ' is-disabled'}"
+        ${enabled ? '' : 'disabled'} onclick="openPracticeSequenceEditor()">EDIT SEQUENCE →</button>
     `;
 }
 

@@ -197,7 +197,7 @@
       <div class="practice-seq-modal-title">SEQUENCE</div>
       <div id="practice-seq-modal-body"></div>
       <div class="practice-seq-modal-buttons">
-        <button class="menu-btn btn-primary" onclick="PracticeSequence.closeEditor()">
+        <button id="practice-seq-done-btn" class="menu-btn btn-primary" onclick="PracticeSequence.closeEditor()">
           <span class="menu-btn-icon">✓</span>
           <span>DONE</span>
         </button>
@@ -897,8 +897,8 @@
            HOLD/NEXT/SCORE等のHUDと場所を取り合わない。 -->
       <button id="practice-panel-tab" class="practice-panel-tab"
         onmousedown="event.preventDefault()" onclick="togglePracticePanel()">⚙</button>
-      <div id="practice-panel-overlay" class="field-overlay practice-panel-overlay">
-        <div class="practice-panel-card">
+      <div id="practice-panel-overlay" class="field-overlay practice-panel-overlay" onclick="_practicePanelOverlayClick(event)">
+        <div class="practice-panel-card" onclick="event.stopPropagation()">
           <div class="practice-panel-title">SETTINGS</div>
           <div id="practice-panel-body" class="practice-panel-body"></div>
         </div>
@@ -1087,11 +1087,11 @@
           <span class="menu-btn-icon">↺</span>
           <span>RETRY</span>
         </button>
-        <button class="menu-btn btn-secondary" onclick="switchPage('mode-check')">
+        <button class="menu-btn btn-secondary" onclick="stopAllGames();switchPage('mode-check')">
           <span class="menu-btn-icon">◀</span>
           <span>MODE SELECT</span>
         </button>
-        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+        <button class="menu-btn btn-secondary" onclick="stopAllGames();switchPage('main-menu')">
           <span class="menu-btn-icon">⌂</span>
           <span>MAIN MENU</span>
         </button>
@@ -1239,7 +1239,7 @@
   <div id="external-pages"></div>
 
   <script src="config/pages.js?v=2"></script>
-  <script src="core/base.js?v=6"></script>
+  <script src="core/base.js?v=7"></script>
   <script src="core/particles.js?v=1"></script>
   <script src="app/manager.js?v=1"></script>
   <script src="config/settings.js?v=4"></script>
@@ -1254,8 +1254,8 @@
   <script src="game/tet/rotation.js?v=2"></script>
   <script src="game/tet/scoring.js?v=2"></script>
   <script src="game/tet/garbage.js"></script>
-  <script src="game/tet/render.js?v=3"></script>
-  <script src="game/tet/input.js?v=2"></script>
+  <script src="game/tet/render.js?v=4"></script>
+  <script src="game/tet/input.js?v=3"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=4"></script>
@@ -1270,13 +1270,13 @@
   <script src="app/modes.js?v=4"></script>
   <script src="app/cpu_loader.js?v=1"></script>
   <script src="app/versus.js?v=1"></script>
-  <script src="app/navigation.js?v=5"></script>
+  <script src="app/navigation.js?v=6"></script>
   <script src="app/focus_nav.js?v=6"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=2"></script>
-  <script src="practice/practice_sequence.js?v=1"></script>
-  <script src="practice/practice_panel.js?v=4"></script>
-  <script src="practice/practice.js?v=6"></script>
+  <script src="practice/practice_sequence.js?v=2"></script>
+  <script src="practice/practice_panel.js?v=5"></script>
+  <script src="practice/practice.js?v=7"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 

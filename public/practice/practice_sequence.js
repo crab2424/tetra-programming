@@ -169,7 +169,7 @@ const PracticeSequence = (() => {
     let editor = null; // { rule, section: 'bagcount'|'bagindex'|'length'|'order'|'slots', flatIndex, editingSlots }
     let keyHandler = null;
 
-    function _sectionOrder() { return ['bagcount', 'bagindex', 'length', 'order', 'slots']; }
+    function _sectionOrder() { return ['bagcount', 'bagindex', 'length', 'order', 'slots', 'done']; }
 
     function labelForSlot(rule, value) {
         if (value === null || value === undefined) return '?';
@@ -270,6 +270,8 @@ const PracticeSequence = (() => {
             }
         } else if (editor.section === 'slots') {
             if (e.key === 'Enter') { editor.editingSlots = true; editor.flatIndex = 0; return true; }
+        } else if (editor.section === 'done') {
+            if (e.key === 'Enter') { closeEditor(); return true; }
         }
         return false;
     }
@@ -371,10 +373,14 @@ const PracticeSequence = (() => {
 
         const hint = editor.editingSlots
             ? '0-9で入力(0=?) / ←→で移動 / ↑↓で増減 / Enter・Escで抜ける'
-            : '↑↓で項目移動 / ←→で値変更 / SLOTSでEnterして枠を編集 / Escで閉じる';
+            : '↑↓で項目移動 / ←→で値変更 / SLOTSでEnterして枠を編集 / DONEでEnterして閉じる / Escで閉じる';
         html += `<p class="practice-value-hint" style="text-align:center;margin-top:8px;">${hint}</p>`;
 
         body.innerHTML = html;
+
+        // DONEボタンは body の外（practice-seq-modal-buttons）にあるため、フォーカス表示だけここで同期する
+        const doneBtn = document.getElementById('practice-seq-done-btn');
+        if (doneBtn) doneBtn.classList.toggle('is-focused', !editor.editingSlots && editor.section === 'done');
     }
 
     function setOrderAndRender(rule, order) {

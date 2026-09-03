@@ -68,6 +68,13 @@ function togglePracticePanel() {
     _practicePanelRefresh();
 }
 
+// 背景（カード外）クリックで閉じる（設計 §6.1）。カード内は index.html 側で
+// stopPropagation() 済みなのでここに来るのは常に背景クリック。
+function _practicePanelOverlayClick(e) {
+    const overlay = document.getElementById('practice-panel-overlay');
+    if (overlay && overlay.classList.contains('active')) togglePracticePanel();
+}
+
 function _closePracticePanel() {
     const overlay = document.getElementById('practice-panel-overlay');
     if (overlay) overlay.classList.remove('active');
@@ -215,17 +222,21 @@ function _practicePanelOpenKeyCodes() {
     return (k && k.codes && k.codes.length) ? k.codes : ['Tab'];
 }
 
-// キー方向(-1/+1)を各項目の操作へ変換する
+// キー方向(-1/+1)を各項目の操作へ変換する。
+// ボタンの並びは常に左=ON/右=OFF なので、2値トグルは方向をそのまま on/off に
+// 割り当てず「現在値を反転」させる（＝端で止めずに反対側へ回り込む。設計 §6.2）。
 function _practicePanelApplyDir(rowKey, dir) {
+    const mgr = window._practiceManager;
+    const g = mgr && mgr.gameInstance;
     switch (rowKey) {
         case 'speed':         practiceStepFallLevel(dir); break;
         case 'next':          practiceStepNextCount(dir); break;
         case 'hold':          practiceStepHoldMode(dir); break;
-        case 'ghost':         setPracticeGhostEnabled(dir > 0); break;
+        case 'ghost':         if (g) setPracticeGhostEnabled(g.showGhost === false); break;
         case 'colors':        practiceStepColorCount(dir); break;
         case 'ojamaAmount':   practiceStepOjamaAmount(dir); break;
         case 'ojamaInterval': practiceStepOjamaInterval(dir); break;
-        case 'ojamaAuto':     setPracticeOjamaAuto(dir > 0); break;
+        case 'ojamaAuto':     if (mgr) setPracticeOjamaAuto(!mgr.ojama.auto); break;
     }
 }
 

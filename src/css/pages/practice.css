@@ -292,6 +292,11 @@ body.practice-mode #lpm-area {
 .practice-seq-edit-btn.is-focused {
   background: rgba(156, 167, 184, 0.18);
 }
+.practice-seq-edit-btn.is-disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
 
 /* 準備画面に被せるフルスクリーンモーダル（mode-check-pageの外、bodyの直下に配置） */
 #practice-seq-modal {

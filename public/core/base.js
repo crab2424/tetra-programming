@@ -92,16 +92,11 @@ window.onload = function () {
         window._cpuGame = cpuGame
 
         // リザルト画面の「RETRY」ボタン
-        // ★ 修正: puyoモードとtetモードで異なるハンドラーを設定
+        // ★ 全モード共通で startGameFromModeCheck() に統一する（Phase 4 §7.A）。
+        //   以前は tet 側だけ起動時にキャプチャした Game インスタンスを直接 start() していたため、
+        //   RETRY が正規の開始経路を通らず、PracticeManager 等の再構築が起きない不具合があった。
         document.getElementById('result-retry-btn').onclick = function () {
-            if (currentGameMode && currentGameMode.id === 'puyo') {
-                // puyoモード：startGameFromModeCheck を呼び出す
-                startGameFromModeCheck();
-            } else {
-                // tetモード：従来のgame.startを呼び出す
-                switchPage('game');
-                game.start();
-            }
+            startGameFromModeCheck();
             this.blur();
         }
 
