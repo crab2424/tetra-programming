@@ -322,6 +322,18 @@ body.practice-mode #puyo-next-canvas {
   color: var(--text-dim);
 }
 
+/* ─── Phase 5 §8.3: AUTO OFF中のリアルタイム調整プレビュー表示 ─── */
+.practice-panel-live {
+  font-size: 9px;
+  letter-spacing: 0;
+  color: var(--practice-color);
+  animation: practicePanelLivePulse 1.4s ease-in-out infinite;
+}
+@keyframes practicePanelLivePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .practice-panel-stepper {
   display: flex;
   align-items: center;

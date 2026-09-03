@@ -40,7 +40,11 @@ function _practicePanelRowKeys(mgr) {
     const base = (mgr.rule === 'tet')
         ? ['speed', 'next', 'hold', 'ghost']
         : ['speed', 'next', 'colors'];
-    return base.concat(['sequence', 'sequenceEdit', 'ojamaAmount', 'ojamaInterval', 'ojamaAuto', 'ojamaSend', 'ojamaClearAmount', 'ojamaClearGo', 'clear']);
+    // HOLE RATE（直列確率）はtet限定（設計 Phase5 §8.2。puyoに「直列」の概念が無いため）
+    const ojamaKeys = ['ojamaAmount', 'ojamaInterval'];
+    if (mgr.rule === 'tet') ojamaKeys.push('ojamaHoleRate');
+    ojamaKeys.push('ojamaAuto', 'ojamaSend');
+    return base.concat(['sequence', 'sequenceEdit'], ojamaKeys, ['ojamaClearAmount', 'ojamaClearGo', 'clear']);
 }
 
 // ─────────────────────────────────────────
@@ -68,6 +72,8 @@ function togglePracticePanel() {
         if (mgr.rule === 'tet' && typeof g.hidePauseOverlay === 'function') g.hidePauseOverlay();
     } else {
         g.resume();
+        // パネルを閉じた時点でAUTO OFF中のリアルタイム調整プレビューを確定させる（設計 Phase5 §8.3）
+        mgr.ojamaLive = null;
     }
 
     _practicePanelRefresh();
@@ -103,6 +109,7 @@ function _initPracticePanel(manager) {
     g.practiceNextCount = (manager.rule === 'tet') ? 5 : 2;
     g.practiceHoldMode = 'on';
     g.showGhost = true;
+    if (manager.rule === 'tet') g.vsGarbageHoleRate = manager.ojama.holeRate; // 直列確率(§8.2)の初期値を明示
     if (typeof g.resizeNextCanvas === 'function') g.resizeNextCanvas();
     if (typeof manager._syncLevelDisplay === 'function') manager._syncLevelDisplay();
 
@@ -189,9 +196,17 @@ function _practicePanelRefresh() {
         <button class="practice-panel-send-btn" onmousedown="event.preventDefault()" onclick="practicePanelOpenSequenceEditor()">EDIT SEQUENCE →</button>
       </div>`;
 
-    // ─── おじゃま投下（設計 §6.2e）───
-    html += stepRow('ojamaAmount', 'OJAMA AMT', mgr.ojama.amount, 'practiceStepOjamaAmount(-1)', 'practiceStepOjamaAmount(1)');
+    // ─── おじゃま投下（設計 §6.2e・Phase5 §8）───
+    // AUTO OFF中はOJAMA AMTを動かすとリアルタイムで着弾ぶんが増減する（§8.3）。
+    // 生きている間は「● LIVE」をラベル横に出す（パネルを閉じるまで有効）。
+    const ojamaLiveBadge = mgr.ojamaLive ? ' <span class="practice-panel-live">● LIVE</span>' : '';
+    html += stepRow('ojamaAmount', 'OJAMA AMT' + ojamaLiveBadge, mgr.ojama.amount, 'practiceStepOjamaAmount(-1)', 'practiceStepOjamaAmount(1)');
     html += stepRow('ojamaInterval', 'INTERVAL', mgr.ojama.intervalSec + 's', 'practiceStepOjamaInterval(-1)', 'practiceStepOjamaInterval(1)');
+    if (isTet) {
+        // 直列確率（穴が同じ列に揃う確率）。puyoには「直列」の概念が無いため出さない
+        html += stepRow('ojamaHoleRate', 'HOLE RATE', mgr.ojama.holeRate + '%',
+            'practiceStepOjamaHoleRate(-1)', 'practiceStepOjamaHoleRate(1)');
+    }
     html += toggleRow('ojamaAuto', 'AUTO', mgr.ojama.auto, 'setPracticeOjamaAuto(true)', 'setPracticeOjamaAuto(false)');
     html += `
       <div class="practice-panel-row practice-panel-row-action${focusCls('ojamaSend')}">
@@ -251,6 +266,7 @@ function _practicePanelApplyDir(rowKey, dir) {
         case 'colors':        practiceStepColorCount(dir); break;
         case 'ojamaAmount':   practiceStepOjamaAmount(dir); break;
         case 'ojamaInterval': practiceStepOjamaInterval(dir); break;
+        case 'ojamaHoleRate': practiceStepOjamaHoleRate(dir); break;
         case 'ojamaAuto':     if (mgr) setPracticeOjamaAuto(!mgr.ojama.auto); break;
         case 'ojamaClearAmount': practiceStepOjamaClearAmount(dir); break;
         case 'sequence':
@@ -457,6 +473,16 @@ function practiceStepOjamaAmount(delta) {
     if (!mgr) return;
     const max = _practiceOjamaAmountMax(mgr);
     mgr.ojama.amount = Math.max(1, Math.min(max, mgr.ojama.amount + delta));
+    // AUTO OFF中に一度でも投下していれば(ojamaLive生存中)、値を動かすだけで
+    // リアルタイムに着弾ぶんが増減する（設計 Phase5 §8.3）
+    if (mgr.ojamaLive) mgr.redropOjamaLive(mgr.ojama.amount);
+    _practicePanelRefresh();
+}
+
+function practiceStepOjamaHoleRate(delta) {
+    const mgr = window._practiceManager;
+    if (!mgr) return;
+    mgr.setOjamaHoleRate(mgr.ojama.holeRate + delta * 10);
     _practicePanelRefresh();
 }
 
@@ -526,6 +552,7 @@ function practicePanelOpenSequenceEditor() {
 function practiceClearBoard() {
     const mgr = window._practiceManager;
     if (!mgr || !mgr.gameInstance) return;
+    mgr.ojamaLive = null; // 盤面をここで書き換えるため退避済みのプレビューは無効化する（Phase5 §8.3）
     const g = mgr.gameInstance;
     if (mgr.rule === 'tet') {
         g.field = new Field();

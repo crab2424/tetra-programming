@@ -71,9 +71,13 @@ class PracticeManager {
             auto: false,
             amount: (rule === 'puyo') ? 6 : 4,
             intervalSec: 10,
+            holeRate: 70,           // 直列確率(%)。tetのみ有効（設計 Phase5 §8.2）
             timerId: null,          // setInterval（自動投下）
             pendingTimeouts: [],    // 予告→着弾の setTimeout（rewind時のゴースト書き込み防止に includes チェックで対処）
         };
+        // AUTO OFF時の即時投下プレビュー（設計 Phase5 §8.3）。パネルを閉じるまでの間、
+        // OJAMA AMTを動かすたびに退避した盤面へ戻してから再投下し直す。
+        this.ojamaLive = null;
 
         // 盤面クリアのおじゃま部分削除（Phase 4 §4.2）。パネルの本数/個数指定に使う。
         this.ojamaClearAmount = 1;
@@ -327,6 +331,7 @@ class PracticeManager {
     _restoreCurrent() {
         const g = this.gameInstance;
         const line = this.history[this.cursor];
+        this.ojamaLive = null; // 巻き戻しで退避済みの盤面が無効になる（設計 Phase5 §8.3）
         this._skipNextCapture = true;
         if (!PracticeSnapshot.restore(g, this.rule, line)) {
             this._skipNextCapture = false;
@@ -503,8 +508,8 @@ class PracticeManager {
             this.seqConfig = JSON.parse(JSON.stringify(seqSrc));
             this.seqConfig.gen = prevGen + 1; // 編集のたびに世代を進める（巻き戻し整合用）
             // 新しい列の先頭から開始する（途中のbagPos/itemPosは引き継がない。設計 §5.1）。
-            // 既に生成済みのNEXTキューはそのまま残り、以降 getNextType()/_makePair() が
-            // 呼ばれた分（＝NEXT表示数ぶん遅れて）から新しい列を使う。
+            // NEXTキューは末尾の_rebuildNextQueue()で丸ごと作り直すため即座に反映される
+            // （Phase4-Cでは既存キューを残し遅延反映させていたが、Phase5 §7で即時反映に変更）。
             this.seqRunner = PracticeSequence.createRunner(this.seqConfig);
 
             if (!wasEnabled) {
@@ -549,7 +554,31 @@ class PracticeManager {
             this.seqRunner = null;
         }
 
+        // ─── 即時反映（設計 Phase5 §7）───
+        // 既存のNEXTキューを丸ごと作り直し、ON/OFF/EDIT確定のどの操作でも即座に効かせる。
+        // OFFにした場合もここを通るため、REWINDせずOFFボタンだけで通常生成に戻る
+        // （フックは直前で既に外れているので getNextType()/_makePair() は元の実装を使う）。
+        this._rebuildNextQueue();
+
         if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
+    }
+
+    // NEXTキューを丸ごと作り直す（設計 Phase5 §7.2）。操作中のミノ/ぷよ自体は変えない。
+    // 巻き戻し履歴には積まない（手の境界ではないため。§7.4のとおりnextQueue/bagは
+    // スナップショットに丸ごと保存されているので、この場で捨てても過去は壊れない）。
+    _rebuildNextQueue() {
+        const g = this.gameInstance;
+        if (!g) return;
+        if (this.rule === 'tet') {
+            g.nextQueue = [];
+            g.bag = [];
+            while (g.nextQueue.length < 11) g.nextQueue.push(new Mino(g.getNextType()));
+            if (typeof g.drawAll === 'function') g.drawAll();
+        } else {
+            g.nextQueue = [];
+            while (g.nextQueue.length < 20) g.nextQueue.push(g._makePair());
+            if (typeof g._renderNext === 'function') g._renderNext();
+        }
     }
 
     // ─────────────────────────────────────────
@@ -584,6 +613,7 @@ class PracticeManager {
     _onGameOver(playOriginal) {
         if (this.isFinished || this.isEnding) return;
         this.isEnding = true;
+        this.ojamaLive = null;
         this._hideEndingControls();
         const g = this.gameInstance;
         // 詰んだ瞬間の盤面（tetは被せたミノ／puyoは窒息したぷよ）を1枚描いてから止める。
@@ -609,6 +639,7 @@ class PracticeManager {
     _showResult(kind) {
         if (this.isFinished || this.isEnding) return;
         this.isEnding = true;
+        this.ojamaLive = null;
         const stats = (kind === 'goal' && this.goalAchievedStats)
             ? this.goalAchievedStats : this._collectStats();
         this._stopEngine();
@@ -737,6 +768,15 @@ class PracticeManager {
         const g = this.gameInstance;
         if (!g || this.isFinished) return;
         amount = Math.max(1, amount || this.ojama.amount);
+
+        // AUTO OFF時は予告を挟まず即着弾させる（設計 Phase5 §8.1）。AUTO ONは
+        // 従来どおり予告つきの経路を使う（対戦の練習として正しい挙動を維持する）。
+        if (!this.ojama.auto) {
+            this._dropOjamaNow(amount);
+            if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
+            return;
+        }
+
         const obj = { amount, holes: [], ready: false };
         g.garbageQueue.push(obj);
         if (this.rule === 'puyo' && typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
@@ -758,6 +798,103 @@ class PracticeManager {
         if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
     }
 
+    // 直列確率(§8.2)にもとづいて穴位置の列をn個ぶん事前生成する。tetのgarbage.jsの
+    // 計算式と同型にすることで、versusと同じ見た目の穴になる。
+    _makeHoleList(n) {
+        const rate = (this.ojama.holeRate ?? 70) / 100;
+        const out = [];
+        let last = -1;
+        for (let i = 0; i < n; i++) {
+            let h;
+            if (i === 0) h = Math.floor(Math.random() * COLS_COUNT);
+            else if (Math.random() < rate) h = last;
+            else h = (last + 1 + Math.floor(Math.random() * (COLS_COUNT - 1))) % COLS_COUNT;
+            out.push(h);
+            last = h;
+        }
+        return out;
+    }
+
+    // AUTO OFF時の即時投下本体（設計 Phase5 §8.1・§8.3）。holesOverrideを渡すとその列を
+    // そのまま使う（redropOjamaLive経由）。keepLive=trueのときはojamaLiveの退避をやり直さない
+    // （既に退避済みの盤面へ戻してから呼ばれるため）。
+    _dropOjamaNow(amount, holesOverride, keepLive) {
+        const g = this.gameInstance;
+        if (!g) return;
+        const max = (typeof _practiceOjamaAmountMax === 'function') ? _practiceOjamaAmountMax(this) : amount;
+        if (!keepLive) {
+            this.ojamaLive = {
+                field: this._snapshotFieldOnly(),
+                minoY: (this.rule === 'tet' && g.mino) ? g.mino.y : null,
+                holes: this._makeHoleList(max),
+                amount,
+            };
+        }
+        const holes = holesOverride || (this.ojamaLive ? this.ojamaLive.holes.slice(0, amount) : this._makeHoleList(amount));
+
+        if (this.rule === 'tet') {
+            g.garbageQueue.push({ amount, holes, ready: true });
+            g.applyGarbage();
+            // applyGarbage()は既存ブロックを上へずらして最下段に積むため、操作中のミノも
+            // 一緒に持ち上げないと山に埋まって見える（相対位置を保つ＝体感どおり）。
+            if (g.mino) {
+                g.mino.y -= amount;
+                let guard = 0;
+                while (!g.valid(0, 0) && guard++ < 8) g.mino.y -= 1;
+            }
+            g.field.markDirty();
+            g.drawAll();
+            this._renderGarbageGauge();
+        } else {
+            g.garbageQueue.push({ amount, holes: [], ready: true });
+            const prevGs = g._gs;
+            const prevDropped = g.hasDroppedOjamaThisTurn;
+            if (g._generateOjama()) {
+                // アニメを挟まず即時確定させる（パネル操作中＝ポーズ中のため）。
+                // 連鎖は誘発させない＝_render()のみ（設計 §4.2と同じ方針）。
+                if (g._dropAnim) { g._applyDropAnim(); g._dropAnim = null; }
+                g._gs = prevGs; // 'dropping'のまま抜けるとターン進行が壊れる
+                // _generateOjama()が立てるhasDroppedOjamaThisTurnをそのままにすると
+                // このターンのAUTO由来の落下が抑止されてしまうため元に戻す
+                g.hasDroppedOjamaThisTurn = prevDropped;
+                g._render();
+            }
+            if (typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
+        }
+    }
+
+    // OJAMA AMTをいじるたびに呼ばれる（設計 Phase5 §8.3）。退避しておいた投下直前の
+    // 盤面へ戻してから、同じ穴列(先頭amount個)で再投下する。
+    redropOjamaLive(amount) {
+        if (!this.ojamaLive) return;
+        const g = this.gameInstance;
+        if (!g) return;
+        this._restoreFieldOnly(this.ojamaLive.field);
+        if (this.rule === 'tet' && this.ojamaLive.minoY !== null && g.mino) {
+            g.mino.y = this.ojamaLive.minoY;
+        }
+        this._dropOjamaNow(amount, this.ojamaLive.holes.slice(0, amount), true);
+        this.ojamaLive.amount = amount;
+    }
+
+    // 盤面のみを退避/復元する（PracticeSnapshot.restore()は次のツモ/スコア等まで
+    // 巻き戻してしまい手元のミノが消えるため使えない。設計 Phase5 §8.3）。
+    _snapshotFieldOnly() {
+        const g = this.gameInstance;
+        if (this.rule === 'tet') return g.field.blocks.map(b => ({ x: b.x, y: b.y, type: b.type }));
+        return g.field.map(row => row.slice());
+    }
+    _restoreFieldOnly(snap) {
+        const g = this.gameInstance;
+        if (this.rule === 'tet') {
+            g.field = new Field();
+            snap.forEach(b => g.field.blocks.push(new Block(b.x, b.y, b.type)));
+            g.field.markDirty(); // 忘れると_occ/_fixedCanvasに残像（設計 v5 §5.7の罠）
+        } else {
+            for (let r = 0; r < snap.length; r++) g.field[r] = snap[r].slice();
+        }
+    }
+
     // 自動投下ON/OFF。タイマーは実時間ベースで、パネルの開閉(pause)やrewindを挟んでも
     // クリアせず継続する（設計 §5.5）。ただし「今この瞬間プレイ中でない」ティックは
     // 投げっぱなしにせずスキップする（再開時にまとめて何本も降ってくるのを防ぐ）。
@@ -765,6 +902,8 @@ class PracticeManager {
         this.ojama.auto = on;
         if (this.ojama.timerId) { clearInterval(this.ojama.timerId); this.ojama.timerId = null; }
         if (on) {
+            // 予告つきの経路に切り替わるため、AUTO OFF中のリアルタイム調整プレビューは確定させる
+            this.ojamaLive = null;
             this.ojama.timerId = setInterval(() => {
                 if (!this._isLive()) return;
                 this.sendOjama(this.ojama.amount);
@@ -778,6 +917,15 @@ class PracticeManager {
         if (this.ojama.auto) this.setOjamaAuto(true);
     }
 
+    // 直列確率（設計 Phase5 §8.2）。tetのgarbage.jsが既に読んでいるg.vsGarbageHoleRate
+    // にそのまま書き込む＝エンジン改変ゼロで済む（versusの仕組みを間借りする）。
+    // puyoには「直列」の概念が無いため呼ばれない（パネル側でtet限定にガード）。
+    setOjamaHoleRate(pct) {
+        this.ojama.holeRate = Math.max(0, Math.min(100, pct));
+        const g = this.gameInstance;
+        if (g && this.rule === 'tet') g.vsGarbageHoleRate = this.ojama.holeRate;
+    }
+
     // ─────────────────────────────────────────
     // 盤面クリア：おじゃま部分削除（設計 §4.2）
     // 全消し（practiceClearBoard）と同じ扱いで巻き戻し履歴には積まない（§9-1）。
@@ -785,6 +933,7 @@ class PracticeManager {
     clearOjamaPartial(amount) {
         const g = this.gameInstance;
         if (!g) return;
+        this.ojamaLive = null; // 盤面をここで書き換えるため退避済みのプレビューは無効化する
         amount = Math.max(1, amount || 1);
         if (this.rule === 'tet') {
             // おじゃまライン＝その行に存在するブロックが全て種別7（garbage.jsが生成する種別）の行。
@@ -952,6 +1101,7 @@ class PracticeManager {
             delete g.practiceHoldMode;
             delete g.showGhost;
             delete g._colorOrder;
+            delete g.vsGarbageHoleRate; // §8.2。versusモードに持ち越さない
             if (this.rule === 'tet') {
                 g.gravityDisabled = false;
                 if (typeof _setHoldOverlayVisible === 'function') _setHoldOverlayVisible(false);
