@@ -84,6 +84,16 @@ class PracticeManager {
         if (this.rule === 'tet') {
             game.gravityDisabled = true;   // 自然落下なし
             game.practiceNoLock = true;    // 接地してもソフトドロップ押下中しか固定タイマーを進めない
+
+            // ─── SPEED を LEVEL 表示に統合（設計 §3.1）───
+            // PRACTICEは mode!=='marathon' のため game.level は自動で変化しない（スコア倍率
+            // への影響もない）。updateStatsDisplay() が毎回 #level-value を game.level で
+            // 上書きするので、直接書き換えるのではなく元の呼び出し直後に上書きする形で差し込む。
+            this._origUpdateStatsDisplay = game.updateStatsDisplay;
+            game.updateStatsDisplay = function () {
+                self._origUpdateStatsDisplay.call(this);
+                self._syncLevelDisplay();
+            }.bind(game);
         } else {
             game.practiceFallMs = 0;       // 自然落下なし
             game.practiceNoLock = true;
@@ -244,6 +254,10 @@ class PracticeManager {
         this.history.push(line);
         if (this.history.length > PRACTICE_HISTORY_MAX) this.history.shift();
         this.cursor = this.history.length - 1;
+
+        // 着弾直後の反映もここで拾える（applyGarbage() は popMino() の直前に走るため）（設計 §3.2）
+        if (this.rule === 'tet') this._renderGarbageGauge();
+        this._refreshRewindIndicator();
     }
 
     // 現在プレイ可能か（巻き戻しを受け付けてよい状態か）
@@ -300,6 +314,10 @@ class PracticeManager {
             }
         }
         this._updateGoalDisplay();
+
+        // おじゃまキューは巻き戻し対象外（保留分クリア）なので、ゲージも空の状態を描き直す（設計 §3.2）
+        if (this.rule === 'tet') this._renderGarbageGauge();
+        this._refreshRewindIndicator();
     }
 
     // ─────────────────────────────────────────
@@ -359,6 +377,61 @@ class PracticeManager {
         if (scoreGoalEl) {
             scoreGoalEl.textContent = (this.goal.type === 'score') ? '/' + this.goal.value : '';
         }
+    }
+
+    // ─────────────────────────────────────────
+    // HUD: SPEED→LEVEL統合（tetのみ・設計 §3.1）
+    // ─────────────────────────────────────────
+    _syncLevelDisplay() {
+        if (this.rule !== 'tet') return;
+        const el = document.getElementById('level-value');
+        if (el) el.textContent = this.fallLevel;
+    }
+
+    // ─────────────────────────────────────────
+    // HUD: おじゃまゲージ（tetのみ・versusと同じ見た目。設計 §3.2）
+    // 共通エンジンの updateGarbageGauge() はシングル用のDOMを持たないため、
+    // PRACTICE側に閉じた描画を独自に持つ（エンジンには一切触らない）。
+    // ─────────────────────────────────────────
+    _renderGarbageGauge() {
+        const gaugeEl = document.getElementById('practice-garbage-gauge');
+        const g = this.gameInstance;
+        if (!gaugeEl || !g) return;
+        gaugeEl.innerHTML = '';
+
+        let readyCount = 0, unreadyCount = 0;
+        (g.garbageQueue || []).forEach(o => {
+            if (o.internal) return;
+            if (o.ready) readyCount += o.amount;
+            else unreadyCount += o.amount;
+        });
+
+        // 下から積む：ready(赤)を先に、unready(青)を後に
+        for (let i = 0; i < readyCount; i++) {
+            const block = document.createElement('div');
+            block.className = 'gauge-block ready';
+            gaugeEl.appendChild(block);
+        }
+        for (let i = 0; i < unreadyCount; i++) {
+            const block = document.createElement('div');
+            block.className = 'gauge-block unready';
+            gaugeEl.appendChild(block);
+        }
+    }
+
+    // ─────────────────────────────────────────
+    // HUD: 巻き戻しインジケータ（設計 §2.2）
+    // ─────────────────────────────────────────
+    _refreshRewindIndicator() {
+        const backCount = Math.max(0, this.cursor);
+        const fwdCount = Math.max(0, this.history.length - 1 - this.cursor);
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        set('practice-rewind-back-count', backCount);
+        set('practice-rewind-fwd-count', fwdCount);
+        const backBtn = document.getElementById('practice-rewind-back');
+        const fwdBtn = document.getElementById('practice-rewind-fwd');
+        if (backBtn) backBtn.classList.toggle('is-disabled', backCount <= 0);
+        if (fwdBtn) fwdBtn.classList.toggle('is-disabled', fwdCount <= 0);
     }
 
     // ─────────────────────────────────────────
@@ -472,9 +545,12 @@ class PracticeManager {
         if (badge) badge.style.display = 'none';
         if (bestRow) bestRow.style.display = 'none';
 
-        // 「巻き戻す」ボタン（設計 §4.5-6）。戻れる手が残っているときだけ出す。
+        // 「巻き戻す」ボタン（設計 §4.5-6・§2.3）。戻れる手が残っているときだけ出し、
+        // 残り手数をラベルに出す（「1手しか戻せない」誤解を防ぐ）。
         const rewindBtn = document.getElementById('result-practice-rewind-btn');
         if (rewindBtn) rewindBtn.style.display = (this.cursor > 0) ? '' : 'none';
+        const rewindCountEl = document.getElementById('result-practice-rewind-count');
+        if (rewindCountEl) rewindCountEl.textContent = this.cursor;
 
         if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(this.rule === 'puyo');
         if (typeof switchPage === 'function') switchPage('result');
@@ -531,6 +607,7 @@ class PracticeManager {
         const obj = { amount, holes: [], ready: false };
         g.garbageQueue.push(obj);
         if (this.rule === 'puyo' && typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
+        if (this.rule === 'tet') this._renderGarbageGauge();
 
         // testGarbage（navigation.js）と同じ「予告→着弾」の猶予（1500ms）。
         // rewind でキューごと差し替わった後にreadyフラグだけ立ってしまわないよう、
@@ -540,6 +617,7 @@ class PracticeManager {
             if (g.garbageQueue.includes(obj) && obj.amount > 0) {
                 obj.ready = true;
                 if (this.rule === 'puyo' && typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
+                if (this.rule === 'tet') this._renderGarbageGauge();
             }
         }, 1500);
         this.ojama.pendingTimeouts.push(id);
@@ -580,6 +658,11 @@ class PracticeManager {
         const rewindCodes = codesOf('rewind', 'KeyQ');
         const advanceCodes = codesOf('advance', 'KeyE');
 
+        // インジケータのキー表記を実際の割り当てに合わせる（設計 §2.2）
+        const shortLabel = (code) => code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '');
+        const keysLabelEl = document.getElementById('practice-rewind-keys');
+        if (keysLabelEl) keysLabelEl.textContent = shortLabel(rewindCodes[0]) + ' / ' + shortLabel(advanceCodes[0]);
+
         this._keyHandler = (e) => {
             if (e.repeat) return;
             const gamePage = document.getElementById('game-page');
@@ -593,6 +676,7 @@ class PracticeManager {
             }
         };
         document.addEventListener('keydown', this._keyHandler);
+        this._refreshRewindIndicator();
     }
 
     _removeKeyHandler() {
@@ -650,6 +734,7 @@ class PracticeManager {
             if (this._origInitActiveColors) g._initActiveColors = this._origInitActiveColors;
             if (this._origGetNextType) g.getNextType = this._origGetNextType;
             if (this._origMakePair) g._makePair = this._origMakePair;
+            if (this._origUpdateStatsDisplay) g.updateStatsDisplay = this._origUpdateStatsDisplay;
             // 練習用に立てたフラグを共通エンジンから外す（VERSUS/ONLINEへ持ち越さない）
             delete g.practiceNoLock;
             delete g.practiceFallMs;
@@ -675,6 +760,7 @@ class PracticeManager {
         this._origUpdateTimeDisplay = this._origUpdateTimeDisplayPuyo = null;
         this._origInitActiveColors = null;
         this._origGetNextType = this._origMakePair = null;
+        this._origUpdateStatsDisplay = null;
         this.sequenceEnabled = false;
         this.seqConfig = this.seqRunner = null;
         this.gameInstance = null;
@@ -686,6 +772,17 @@ class PracticeManager {
         if (linesGoalEl) linesGoalEl.textContent = '';
         const scoreGoalEl = document.getElementById('score-goal');
         if (scoreGoalEl) scoreGoalEl.textContent = '';
+
+        // 巻き戻しインジケータ／SPEED表示ブロックを初期状態に戻す（設計 §2・§3.1）
+        const rewindBack = document.getElementById('practice-rewind-back');
+        const rewindFwd = document.getElementById('practice-rewind-fwd');
+        if (rewindBack) rewindBack.classList.add('is-disabled');
+        if (rewindFwd) rewindFwd.classList.add('is-disabled');
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        set('practice-rewind-back-count', 0);
+        set('practice-rewind-fwd-count', 0);
+        const speedArea = document.getElementById('practice-speed-area');
+        if (speedArea) speedArea.classList.remove('is-visible');
     }
 }
 
@@ -956,6 +1053,11 @@ function startPracticeGame() {
 // リザルト画面の「巻き戻す」ボタン（index.html #result-practice-rewind-btn）から呼ばれる。
 function practiceRewindFromResult() {
     if (window._practiceManager) window._practiceManager.rewindFromResult();
+}
+
+// ゲーム内の常設インジケータ（⟲/⟳）のクリック操作から呼ばれる（設計 §2.2）。
+function practiceRewindStep(delta) {
+    if (window._practiceManager) window._practiceManager.step(delta);
 }
 
 // stopAllGames() から呼ばれる。フックを外してマネージャを破棄する。

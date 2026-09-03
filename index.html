@@ -903,9 +903,26 @@
           <div id="practice-panel-body" class="practice-panel-body"></div>
         </div>
       </div>
-      <!-- ★ PRACTICEモード専用: パネルを開かなくても現在の設定値が見えるミニ表示 -->
-      <div id="practice-status-left" class="practice-status practice-status-left"></div>
-      <div id="practice-status-right" class="practice-status practice-status-right"></div>
+      <!-- ★ PRACTICEモード専用: 巻き戻しインジケータ（Phase 4 §2）。
+           旧ミニステータス(HOLD/GHOST)の位置(practice-status-left)を用途変更。 -->
+      <div id="practice-status-left" class="practice-status practice-status-left">
+        <div class="practice-rewind-label">REWIND</div>
+        <div class="practice-rewind-row">
+          <span id="practice-rewind-back" class="practice-rewind-btn is-disabled"
+            onmousedown="event.preventDefault()" onclick="practiceRewindStep(-1)">⟲<b id="practice-rewind-back-count">0</b></span>
+          <span id="practice-rewind-fwd" class="practice-rewind-btn is-disabled"
+            onmousedown="event.preventDefault()" onclick="practiceRewindStep(1)">⟳<b id="practice-rewind-fwd-count">0</b></span>
+        </div>
+        <div class="practice-rewind-keys" id="practice-rewind-keys">Q / E</div>
+      </div>
+      <!-- ★ PRACTICEモード専用(puyoのみ): SPEED表示(§3.1)＋COLORS併記(§3.3) -->
+      <div id="practice-speed-area" class="practice-status practice-hud-block">
+        <span class="area-label">SPEED</span>
+        <span id="practice-speed-value">0</span>
+        <span id="practice-speed-colors" class="practice-hud-sub"></span>
+      </div>
+      <!-- ★ PRACTICEモード専用(tetのみ): versusと同じ見た目のおじゃまゲージ(§3.2) -->
+      <div id="practice-garbage-gauge" class="garbage-gauge"></div>
       <span class="area-label" id="label-next">NEXT</span>
       <canvas id="next-canvas"></canvas>
       <canvas id="puyo-next-canvas" style="
@@ -1081,7 +1098,7 @@
         <!-- ★ PRACTICEモード専用: 巻き戻し履歴が残っているときだけ表示（practice.jsが制御） -->
         <button class="menu-btn btn-primary" id="result-practice-rewind-btn" onclick="practiceRewindFromResult()" style="display: none">
           <span class="menu-btn-icon">⟲</span>
-          <span>REWIND</span>
+          <span>REWIND (<span id="result-practice-rewind-count">0</span>)</span>
         </button>
         <button class="menu-btn btn-primary" id="result-retry-btn" onclick="startGameFromModeCheck()">
           <span class="menu-btn-icon">↺</span>
@@ -1275,8 +1292,8 @@
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=2"></script>
   <script src="practice/practice_sequence.js?v=2"></script>
-  <script src="practice/practice_panel.js?v=5"></script>
-  <script src="practice/practice.js?v=7"></script>
+  <script src="practice/practice_panel.js?v=6"></script>
+  <script src="practice/practice.js?v=8"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 
