@@ -101,13 +101,18 @@ body.practice-mode #puyo-next-canvas {
    HOLD/LEVEL/LINESのHUDに被せる形の左ドックへ移行した。
    #container の横方向設計予算は750px、既存占有(-160〜512)は672pxなので
    左に78pxの余裕がある → ドックはleft:-232px, width:208pxで、
-   おじゃまゲージ(-16〜-6)は隠さない（設計 Phase5 §6.2）。 */
+   おじゃまゲージ(-16〜-6)は隠さない（設計 Phase5 §6.2）。
+   実機フィードバックで「もう少し大きくしたい」と指摘され、幅を208→240pxに拡張
+   （左端を-232→-264pxへ8px刻みでない微調整。占有幅は750px予算を26pxほど超えるが、
+   750はscale()を求めるための目安であってハード制限ではないため許容している。
+   §7.C以降で行数が増える見込みも踏まえた措置。将来的に画面左端に固定配置する案は
+   §11の検討事項として保留）。 */
 .practice-panel-dock {
   display: none;
   position: absolute;
   top: 0;
-  left: -232px;
-  width: 208px;
+  left: -264px;
+  width: 240px;
   z-index: 22;
   pointer-events: auto;
 }
@@ -118,7 +123,7 @@ body.practice-mode #puyo-next-canvas {
 .practice-panel-tab {
   position: absolute;
   top: 6px;
-  left: 182px;
+  left: 214px;
   width: 26px;
   height: 26px;
   border: 1px solid var(--border);
@@ -138,10 +143,10 @@ body.practice-mode #puyo-next-canvas {
   display: none;
   flex-direction: column;
   gap: 8px;
-  width: 208px;
+  width: 240px;
   max-height: 656px;
   overflow-y: auto;
-  padding: 10px;
+  padding: 12px;
   border: 2px solid var(--border);
   border-radius: 8px;
   background: rgba(10, 10, 15, 0.95);
@@ -241,7 +246,10 @@ body.practice-mode #puyo-next-canvas {
   opacity: 0;
 }
 .practice-rewind-flash.is-active {
-  animation: practiceRewindFlash 620ms ease-out;
+  /* 実機フィードバックで「光っている時間を+0.5秒」と指摘され、620ms→1120msに延長。
+     単純な線形フェードだと延長ぶんが間延びして見えるため、55%まで全開のまま
+     保持してから消える形にした（フェードイン/アウトの速さ自体は従来と揃える）。 */
+  animation: practiceRewindFlash 1120ms ease-out;
 }
 #practice-rewind-flash-icon {
   font-size: 40px;
@@ -267,7 +275,8 @@ body.practice-mode #puyo-next-canvas {
 }
 @keyframes practiceRewindFlash {
   0%   { opacity: 0; transform: scale(1.25); }
-  18%  { opacity: 1; transform: scale(1); }
+  10%  { opacity: 1; transform: scale(1); }
+  55%  { opacity: 1; transform: scale(1); }
   100% { opacity: 0; transform: scale(0.96); }
 }
 
@@ -308,8 +317,8 @@ body.practice-mode #puyo-next-canvas {
 }
 .practice-panel-label {
   font-family: "Orbitron", monospace;
-  font-size: 10px;
-  letter-spacing: 0.5px;
+  font-size: 11px;
+  letter-spacing: 1px;
   color: var(--text-dim);
 }
 
@@ -319,37 +328,37 @@ body.practice-mode #puyo-next-canvas {
   gap: 4px;
 }
 .practice-panel-stepper button {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border: 1px solid var(--border);
   border-radius: 3px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
   line-height: 1;
-  font-size: 11px;
+  font-size: 12px;
 }
 .practice-panel-stepper button:hover {
   border-color: var(--practice-color);
   color: var(--practice-color);
 }
 .practice-panel-value {
-  min-width: 32px;
+  min-width: 36px;
   text-align: center;
   font-family: "Orbitron", monospace;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--practice-color);
 }
 
-/* 208px幅のドックに収めるため、opt-btn自体を縮める（transform:scaleだと見た目だけ
+/* 240px幅のドックに収めるため、opt-btn自体を縮める（transform:scaleだと見た目だけ
    縮んでレイアウト上の占有幅は変わらず、HOLDのFREE/ON/OFF3択で右にはみ出していた）。 */
 .practice-panel-toggle {
   display: flex;
   gap: 4px;
 }
 .practice-panel-toggle .opt-btn {
-  padding: 2px 5px;
-  font-size: 9px;
+  padding: 3px 7px;
+  font-size: 10px;
 }
 
 .practice-panel-row-action {
