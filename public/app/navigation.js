@@ -98,6 +98,12 @@ function stopAllGames() {
     // LINESゴール表示をリセット
     const linesGoalEl = document.getElementById('lines-goal');
     if (linesGoalEl) linesGoalEl.textContent = '';
+
+    // ─── PRACTICEのリザルト「REWIND」ボタンをリセット（設計 Phase5 §1）───
+    // PracticeManager._renderResult() が display='' にした後、隠す側の処理が
+    // どこにも無かったため他モードのリザルトにも残ってしまっていた。
+    const practiceRewindBtn = document.getElementById('result-practice-rewind-btn');
+    if (practiceRewindBtn) practiceRewindBtn.style.display = 'none';
 }
 // ─── LINESゴール表示の更新 ──────────────────────
 // marathon(150ライン目標時)は "/150"、sprintは "/40"、それ以外は非表示

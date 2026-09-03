@@ -37,6 +37,10 @@ class PracticeManager {
         this.isGoalAchieved = false;
         this.goalAchievedStats = null;   // 達成した瞬間の成績（リザルトはこれを優先表示）
         this.isFinished = false;         // リザルトへ抜けたあとの多重発火よけ
+        // GAME OVER/FINISH演出中（isFinishedが立つ前）の締め出し用フラグ（設計 Phase5 §4.2）。
+        // isFinishedは showFinishOverlay() のコールバック後にしか立たないため、1200msの
+        // 演出中はこのフラグで操作を止める。resumeEngine/rewindFromResultでfalseに戻す。
+        this.isEnding = false;
 
         // 差し替えたメソッドの復元用
         this._origPopMino = null;
@@ -271,9 +275,24 @@ class PracticeManager {
     // 現在プレイ可能か（巻き戻しを受け付けてよい状態か）
     _isLive() {
         const g = this.gameInstance;
-        if (!g || this.isFinished) return false;
+        if (!g || this.isFinished || this.isEnding) return false;
         if (this.rule === 'tet') return !g.isPaused && !!g.mino;
         return g.state === 'playing';
+    }
+
+    // GAME OVER/FINISH演出中(isEnding)は⚙タブ・巻き戻しインジケータをクリック経路ごと隠す
+    // （設計 Phase5 §4.2）。rewindFromResult() / _resumeEngine() で表示を戻す。
+    _hideEndingControls() {
+        const tab = document.getElementById('practice-panel-tab');
+        if (tab) tab.classList.remove('is-visible');
+        const left = document.getElementById('practice-status-left');
+        if (left) left.classList.remove('is-visible');
+    }
+    _showEndingControls() {
+        const tab = document.getElementById('practice-panel-tab');
+        if (tab) tab.classList.add('is-visible');
+        const left = document.getElementById('practice-status-left');
+        if (left) left.classList.add('is-visible');
     }
 
     // delta = -1 で1手戻る / +1 で1手進める（巻き戻しの取消）
@@ -544,8 +563,17 @@ class PracticeManager {
 
     // ゲームオーバー（詰み）。目標達成済みなら達成時点の値を出す（設計 §4.5-4）。
     _onGameOver(playOriginal) {
-        if (this.isFinished) return;
+        if (this.isFinished || this.isEnding) return;
+        this.isEnding = true;
+        this._hideEndingControls();
         const g = this.gameInstance;
+        // 詰んだ瞬間の盤面（tetは被せたミノ／puyoは窒息したぷよ）を1枚描いてから止める。
+        // 止めてから描くとrAFが既に切れて最後の1フレームが出ない（設計 Phase5 §4.1）。
+        if (this.rule === 'tet') {
+            if (typeof g.drawAll === 'function') g.drawAll();
+        } else {
+            if (typeof g._render === 'function') g._render();
+        }
         if (g && typeof g.playSe === 'function') g.playSe('gameover');
         this._stopEngine();
         const stats = this.goalAchievedStats || this._collectStats();
@@ -560,6 +588,8 @@ class PracticeManager {
     }
 
     _showResult(kind) {
+        if (this.isFinished || this.isEnding) return;
+        this.isEnding = true;
         const stats = (kind === 'goal' && this.goalAchievedStats)
             ? this.goalAchievedStats : this._collectStats();
         this._stopEngine();
@@ -645,6 +675,8 @@ class PracticeManager {
         if (!this.isFinished || this.cursor <= 0) return false;
         this.cursor -= 1;
         this.isFinished = false;
+        this.isEnding = false;
+        this._showEndingControls();
         this._restoreCurrent();
         this._resumeEngine();
         if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(this.rule === 'puyo');
@@ -800,6 +832,10 @@ class PracticeManager {
         };
         const rewindCodes = codesOf('rewind', 'KeyQ');
         const advanceCodes = codesOf('advance', 'KeyE');
+        // GAME OVER/FINISH演出中(isEnding)の締め出し対象（設計 Phase5 §4.2）。
+        // リスタート/ポーズが素通りすると、止めたはずのエンジンが復活してしまう。
+        const restartCodes = codesOf('restart', 'KeyR');
+        const pauseCodes = codesOf('pause', 'Escape');
 
         // インジケータのキー表記を実際の割り当てに合わせる（設計 §2.2）
         const shortLabel = (code) => code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '');
@@ -810,6 +846,14 @@ class PracticeManager {
             if (e.repeat) return;
             const gamePage = document.getElementById('game-page');
             if (!gamePage || !gamePage.classList.contains('active')) return;
+            // 演出中はリスタート/ポーズをここで奪って止める（本体の入力ハンドラより先に、
+            // capture段で登録しているので確実に先取りできる）。
+            if ((this.isEnding || this.isFinished) &&
+                (restartCodes.includes(e.code) || pauseCodes.includes(e.code))) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                return;
+            }
             if (rewindCodes.includes(e.code)) {
                 e.preventDefault();
                 this.step(-1);
@@ -818,13 +862,14 @@ class PracticeManager {
                 this.step(+1);
             }
         };
-        document.addEventListener('keydown', this._keyHandler);
+        // capture段（第3引数true）で登録し、tet/puyoそれぞれの本体キーハンドラより先に奪う。
+        document.addEventListener('keydown', this._keyHandler, true);
         this._refreshRewindIndicator();
     }
 
     _removeKeyHandler() {
         if (this._keyHandler) {
-            document.removeEventListener('keydown', this._keyHandler);
+            document.removeEventListener('keydown', this._keyHandler, true);
             this._keyHandler = null;
         }
     }
