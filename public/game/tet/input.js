@@ -194,6 +194,7 @@ Object.assign(Game.prototype, {
                 e.preventDefault()
                 if (e.repeat) return;            // 長押しによる連続発火を防止
                 if (this.isCountingDown) return; // カウントダウン中は無効
+                if (!this.mino) return;          // 孤児インスタンス等、盤面を持たない状態での誤操作を防ぐ（設計 §7.D-2）
 
                 if (this.DCD_DELAY > 0 &&
                     (this._dasBlockedLeft || this._dasBlockedRight)) {
@@ -205,6 +206,7 @@ Object.assign(Game.prototype, {
                 e.preventDefault()
                 if (e.repeat) return;            // 長押し防止
                 if (this.isCountingDown) return; // カウントダウン中は無効
+                if (!this.mino) return;          // 同上
                 this.holdCurrentMino()
             }
         }

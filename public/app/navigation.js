@@ -25,7 +25,10 @@ function stopAllGames() {
             }
         } else {
             // tet の停止処理
-            if (typeof gameInst.gameOver === 'function') { 
+            if (typeof gameInst.gameOver === 'function') {
+                // ★ 修正: startRenderLoop() の rAF ループは終了条件を持たず、stopRenderLoop() でしか
+                //   止まらない（設計 §7.C）。これを呼ばないとメニューに戻った後もループが回り続ける。
+                if (typeof gameInst.stopRenderLoop === 'function') gameInst.stopRenderLoop();
                 if (gameInst.timer) { clearInterval(gameInst.timer); gameInst.timer = null; }
                 if (gameInst.lockTimer) { clearTimeout(gameInst.lockTimer); gameInst.lockTimer = null; }
                 gameInst.isPaused = true;
