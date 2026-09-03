@@ -75,6 +75,15 @@ Object.assign(Game.prototype, {
             const gamePage = document.getElementById(activePageId)
             if (!gamePage || !gamePage.classList.contains('active')) return
 
+            // GAMEOVER/FINISHの演出中（switchPage('result')まで）はリスタート/ポーズを
+            // ここで奪って無効化する。isFinishingはisPausedと違いリスタートが素通りする
+            // 抜け道になっていたため、演出中に押すと詰んだ状態のままstart()が走ってしまっていた
+            // （MARATHON/SPRINT/ULTRA共通のバグ。設計 Phase5 §4.2）。
+            if (this.isFinishing && (keys.restart.codes.includes(e.code) || keys.pause.codes.includes(e.code))) {
+                e.preventDefault()
+                return
+            }
+
             // リスタート (ポーズ中・プレイ中問わず即座にやり直し)
             // 対戦モードではリスタートキーは router.js 側で管理するためスキップ
             if (!this.isVersusMode && keys.restart.codes.includes(e.code)) {
@@ -609,9 +618,9 @@ Object.assign(Game.prototype, {
                                 if (this.isCountingDown) { /* ignore */ }
                                 else this.holdCurrentMino()
                             } else if (action === 'pause') {
-                                if (!this.isVersusMode && !this.isCountingDown) this.togglePause()
+                                if (!this.isVersusMode && !this.isCountingDown && !this.isFinishing) this.togglePause()
                             } else if (action === 'restart') {
-                                if (!this.isVersusMode) this.start()
+                                if (!this.isVersusMode && !this.isFinishing) this.start()
                             }
                         } catch (e) {/* 防御的に例外握り潰す */ }
                     }

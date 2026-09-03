@@ -37,6 +37,8 @@ Object.assign(Game.prototype, {
     // ゲーム状態の初期化（カウントダウン前に呼ぶ）
     // ─────────────────────────────────────────
     _initGameState() {
+        this.isFinishing = false; // 前局のGAMEOVER演出締め出しフラグをリセット
+
         // モードごとの初期化
         this.mode = this.currentMode || 'marathon';
         if (this.mode === 'sprint') {
@@ -304,6 +306,12 @@ Object.assign(Game.prototype, {
         }
 
         // シングルプレイの終了演出（FINISH!）を表示してからリザルトへ
+        // ─── 演出中(switchPage('result')まで)のリスタート/ポーズ締め出し用フラグ ───
+        // isPausedは既にtrueだが、リスタートキーは「ポーズ中・プレイ中問わず即座にやり直し」
+        // 仕様のためisPausedチェックをすり抜ける。演出中に押すと詰んだ状態のままstart()が
+        // 走ってしまう（MARATHON/SPRINT/ULTRA共通のバグ。設計 Phase5 §4.2 参照）。
+        // _initGameState()（start()の先頭）でfalseに戻す。
+        this.isFinishing = true;
         const finishText = isClear ? 'FINISH!' : 'GAME OVER';
         const finishClass = isClear ? 'finish-clear' : 'finish-gameover';
         showFinishOverlay('finish-overlay', 'finish-text', finishText, finishClass, 1200, async () => {
