@@ -283,7 +283,7 @@ function switchPage(pageId) {
     window.HudExtras.refresh();
   }
 
-  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog'].includes(_animPageId)) {
+  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog', 'practice-help'].includes(_animPageId)) {
       if (typeof initMenuAnimations === 'function') initMenuAnimations(_animPageId);
   } else {
       if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
@@ -318,6 +318,9 @@ function switchPage(pageId) {
   } else if (pageId === 'quiz-check') {
     // QUIZモード選択画面のレンダリング（quiz.js）
     if (typeof renderQuizCheck === 'function') renderQuizCheck();
+  } else if (pageId === 'practice-help') {
+    // KEYS欄を実際のキー割り当てで埋める（設計 Phase6 §9.4）
+    if (typeof renderPracticeHelpKeys === 'function') renderPracticeHelpKeys();
   }
 
   // PRACTICE の目標値スピナーが開いたままページを離れると FocusNav.suspended が
@@ -327,7 +330,7 @@ function switchPage(pageId) {
   // ★ キーボードフォーカスナビゲーション（focus_nav.js）
   if (window.FocusNav) {
     if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
-         'result','versus-result','quiz-result','settings','credits','changelog'].includes(pageId)) {
+         'result','versus-result','quiz-result','settings','credits','changelog','practice-help'].includes(pageId)) {
       window.FocusNav.activate(pageId);
     } else {
       window.FocusNav.deactivate();

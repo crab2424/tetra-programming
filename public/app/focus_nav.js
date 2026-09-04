@@ -768,6 +768,12 @@
     scrollPane: () => document.querySelector('#changelog-page .changelog-list'),
   });
 
+  register('practice-help', {
+    getItems: () => $$('#practice-help-buttons button'),
+    initialIndex: 0,
+    scrollPane: () => document.querySelector('#practice-help-page .practice-help-list'),
+  });
+
   register('settings', {
     getItems: () => {
       const headerAnchor  = document.querySelector('.settings-header');
