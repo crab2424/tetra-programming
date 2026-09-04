@@ -8,9 +8,12 @@
 //   ・項目: 落下速度 / NEXT表示数 / HOLD(FREE/ON/OFF) / 色数(puyo) / ゴースト(tet) / 盤面クリア
 //   ・Phase 3 §6.2e: おじゃま手動/自動投下（AMT/INTERVAL/AUTO/SEND）もここに同居させた
 //
-// パネル本体は左サイドの折りたたみドック（#practice-panel-dock。設計 Phase5 §6）。
-// 開いている＝ポーズ中。常時見えるのは開閉タブ（#practice-panel-tab、ドック内）と、
-// パネルを開かなくても現在値を確認できるミニステータス（#practice-status-left/right）。
+// パネル本体（#practice-panel-dock）はビューポート左端にposition:fixedで固定配置
+// （設計 Phase6 §8。#containerの外にありスケールの影響を受けない）。開閉タブ
+// （#practice-panel-tab）は#container内に残り、盤面と一緒にスケールする。
+// 開閉状態は別々のDOM階層にあるためbody.classList（practice-panel-open）で持つ。
+// 開いている＝ポーズ中。パネルを開かなくても現在値を確認できるミニステータスは
+// #practice-status-left（REWIND）と#practice-cycle-area（CYCLE）。
 //
 // PracticeManager（practice.js）の attach()/destroy() から
 // _initPracticePanel(manager) / _closePracticePanel() が呼ばれる。
@@ -49,19 +52,18 @@ function _practicePanelRowKeys(mgr) {
 
 // ─────────────────────────────────────────
 // 開閉（開く＝ポーズ、閉じる＝再開）
-// 左サイドの折りたたみドック形式（設計 Phase5 §6）。カード外クリックで閉じる動作は
-// 廃止した（オーバーレイが無くなり「カード外＝盤面」になったため。閉じる手段は
-// ⚙タブ・Tabキー・Escの3つ）。
+// カード本体はビューポート左端に固定配置（設計 Phase6 §8）。開閉状態はカードと
+// タブが別のDOM階層にあるため body.classList（practice-panel-open）で統一して持つ。
+// カード外クリックで閉じる動作は廃止済み（Phase5。閉じる手段は⚙タブ・Tabキー・Escの3つ）。
 // ─────────────────────────────────────────
 function togglePracticePanel() {
-    const dock = document.getElementById('practice-panel-dock');
     const mgr = window._practiceManager;
-    if (!dock || !mgr || !mgr.gameInstance) return;
+    if (!mgr || !mgr.gameInstance) return;
     // GAME OVER/FINISH演出中・リザルト中はパネルを開閉させない（設計 Phase5 §4.2）。
     // ここを塞がないと g.pause()/resume() が呼ばれ、止めたはずのエンジンが復活する。
     if (mgr.isEnding || mgr.isFinished) return;
-    const opening = !dock.classList.contains('is-open');
-    dock.classList.toggle('is-open', opening);
+    const opening = !document.body.classList.contains('practice-panel-open');
+    document.body.classList.toggle('practice-panel-open', opening);
     _practicePanelFocusIndex = 0;
 
     const g = mgr.gameInstance;
@@ -80,8 +82,7 @@ function togglePracticePanel() {
 }
 
 function _closePracticePanel() {
-    const dock = document.getElementById('practice-panel-dock');
-    if (dock) { dock.classList.remove('is-visible'); dock.classList.remove('is-open'); }
+    document.body.classList.remove('practice-panel-open');
     const body = document.getElementById('practice-panel-body');
     if (body) body.innerHTML = '';
     // #practice-status-left は巻き戻しインジケータの静的マークアップ（index.html）を持つため
@@ -97,9 +98,8 @@ function _closePracticePanel() {
 // 初期化（PracticeManager.attach() の最後で呼ばれる）
 // ─────────────────────────────────────────
 function _initPracticePanel(manager) {
-    const dock = document.getElementById('practice-panel-dock');
-    if (!dock) return;
     const g = manager.gameInstance;
+    if (!g) return;
 
     // 既定値（設計 §1.3/§6.2 の初期状態）
     manager.fallLevel = 0;
@@ -113,8 +113,12 @@ function _initPracticePanel(manager) {
     if (typeof g.resizeNextCanvas === 'function') g.resizeNextCanvas();
     if (typeof manager._syncLevelDisplay === 'function') manager._syncLevelDisplay();
 
-    dock.classList.add('is-visible');
-    dock.classList.remove('is-open');
+    // パネルは閉じた状態から始める（前局の開閉状態を持ち越さない）
+    document.body.classList.remove('practice-panel-open');
+    // 前局のGAME OVER演出中にタブを隠したまま(is-hidden)destroy()された場合の保険
+    // （RETRYで新しいセッションを始めるたびに必ずクリアする）
+    const tab = document.getElementById('practice-panel-tab');
+    if (tab) tab.classList.remove('is-hidden');
     const left = document.getElementById('practice-status-left');
     if (left) left.classList.add('is-visible');
     // CYCLEインジケータはtet/puyo共通で表示する（実機FBで右側へ移設。設計 実機FB）
@@ -135,8 +139,7 @@ function _practicePanelRefresh() {
     if (!mgr || !mgr.gameInstance || !body) return;
     const g = mgr.gameInstance;
     const isTet = (mgr.rule === 'tet');
-    const dock = document.getElementById('practice-panel-dock');
-    const isOpen = !!(dock && dock.classList.contains('is-open'));
+    const isOpen = document.body.classList.contains('practice-panel-open');
     const rowKeys = _practicePanelRowKeys(mgr);
     const focusCls = (key) => (isOpen && rowKeys[_practicePanelFocusIndex] === key) ? ' is-focused' : '';
 
@@ -315,8 +318,7 @@ function _installPracticePanelKeyHandler() {
         const seqModal = document.getElementById('practice-seq-modal');
         if (seqModal && seqModal.classList.contains('active')) return;
 
-        const dock = document.getElementById('practice-panel-dock');
-        const isOpen = !!(dock && dock.classList.contains('is-open'));
+        const isOpen = document.body.classList.contains('practice-panel-open');
 
         if (_practicePanelOpenKeyCodes().includes(e.code)) {
             if (e.repeat) return;

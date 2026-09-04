@@ -892,17 +892,11 @@
       <div id="finish-overlay" class="field-overlay finish-overlay">
         <span id="finish-text" class="finish-text"></span>
       </div>
-      <!-- ★ PRACTICEモード専用: ゲーム内設定パネル（practice_panel.jsが表示制御・中身を描画）。
-           左サイドの折りたたみドック形式（Phase 5 §6）＝盤面には被せない。
-           開いている間はポーズする（従来どおり）。 -->
-      <div id="practice-panel-dock" class="practice-panel-dock">
-        <button id="practice-panel-tab" class="practice-panel-tab"
-          onmousedown="event.preventDefault()" onclick="togglePracticePanel()">⚙</button>
-        <div id="practice-panel-card" class="practice-panel-card">
-          <div class="practice-panel-title">SETTINGS</div>
-          <div id="practice-panel-body" class="practice-panel-body"></div>
-        </div>
-      </div>
+      <!-- ★ PRACTICEモード専用: 設定パネルの開閉タブ（Phase 6 §8）。
+           タブは#containerと一緒にスケールする（今までどおりの位置感）。
+           カード本体(#practice-panel-dock)は#containerの外・画面固定配置にした。 -->
+      <button id="practice-panel-tab" class="practice-panel-tab"
+        onmousedown="event.preventDefault()" onclick="togglePracticePanel()">⚙</button>
       <!-- ★ PRACTICEモード専用: 巻き戻しインジケータ（Phase 4 §2）。
            旧ミニステータス(HOLD/GHOST)の位置(practice-status-left)を用途変更。
            左ドック(Phase5 §6)が開いている間は隠れる（設計 §6.5・実機判断待ち）。 -->
@@ -1035,6 +1029,17 @@
         </div>
       </div>
       <button id="start-btn" style="display: none"></button>
+    </div>
+
+    <!-- ★ PRACTICEモード専用: ゲーム内設定パネル本体（Phase 6 §8）。
+         #containerのスケールから独立させ、ビューポート左端にposition:fixedで固定する
+         （それまでは#container内のローカル座標に間借りした左ドックだったが、項目が
+         増えて750px予算を圧迫していたため）。開いている間はポーズする（従来どおり）。 -->
+    <div id="practice-panel-dock" class="practice-panel-dock">
+      <div id="practice-panel-card" class="practice-panel-card">
+        <div class="practice-panel-title">SETTINGS</div>
+        <div id="practice-panel-body" class="practice-panel-body"></div>
+      </div>
     </div>
 
     <div id="pause-overlay">
@@ -1306,8 +1311,8 @@
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=2"></script>
   <script src="practice/practice_sequence.js?v=4"></script>
-  <script src="practice/practice_panel.js?v=13"></script>
-  <script src="practice/practice.js?v=16"></script>
+  <script src="practice/practice_panel.js?v=14"></script>
+  <script src="practice/practice.js?v=17"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 
