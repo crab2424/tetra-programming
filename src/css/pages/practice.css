@@ -227,6 +227,11 @@ body.practice-mode #puyo-next-canvas {
   opacity: 0.7;
 }
 
+/* ─── Phase 6 §7: 即時ツモ変化インジケータ（REWINDブロックの下に増設） ─── */
+.practice-cycle-label {
+  margin-top: 10px;
+}
+
 /* ─── Phase 5 §5: REWIND/ADVANCEの移動エフェクト ───
    盤面中央に一瞬フラッシュを出す。ポーズ中でもCSSアニメは進行する（step()はゲーム
    停止中でも呼べるため、JSのrAF駆動に依存させない）。 */
