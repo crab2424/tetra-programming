@@ -44,7 +44,7 @@ function _practicePanelRowKeys(mgr) {
     const ojamaKeys = ['ojamaAmount', 'ojamaInterval'];
     if (mgr.rule === 'tet') ojamaKeys.push('ojamaHoleRate');
     ojamaKeys.push('ojamaAuto', 'ojamaSend');
-    return base.concat(['sequence', 'sequenceEdit'], ojamaKeys, ['ojamaClearAmount', 'ojamaClearGo', 'clear']);
+    return base.concat(['sequence', 'sequenceEdit'], ojamaKeys, ['clearAmount', 'clearGo', 'clear']);
 }
 
 // ─────────────────────────────────────────
@@ -208,17 +208,19 @@ function _practicePanelRefresh() {
             'practiceStepOjamaHoleRate(-1)', 'practiceStepOjamaHoleRate(1)');
     }
     html += toggleRow('ojamaAuto', 'AUTO', mgr.ojama.auto, 'setPracticeOjamaAuto(true)', 'setPracticeOjamaAuto(false)');
+    // AMT=0のときは送るものが無いためdim（設計 Phase6 §3）
+    const sendDisabled = mgr.ojama.amount <= 0;
     html += `
       <div class="practice-panel-row practice-panel-row-action${focusCls('ojamaSend')}">
-        <button class="practice-panel-send-btn" onmousedown="event.preventDefault()" onclick="practiceOjamaSend()">おじゃま送る</button>
+        <button class="practice-panel-send-btn${sendDisabled ? ' is-disabled' : ''}" onmousedown="event.preventDefault()" onclick="practiceOjamaSend()">おじゃま送る</button>
       </div>`;
 
-    // ─── 盤面クリア：おじゃま部分削除（設計 §4.2）───
-    html += stepRow('ojamaClearAmount', 'CLEAR OJAMA', mgr.ojamaClearAmount,
-        'practiceStepOjamaClearAmount(-1)', 'practiceStepOjamaClearAmount(1)');
+    // ─── 盤面クリア：部分削除（設計 Phase5 §4.2・Phase6 §2でおじゃま限定を撤廃） ───
+    html += stepRow('clearAmount', isTet ? 'DELETE LINES' : 'DELETE PUYOS', mgr.clearAmount,
+        'practiceStepClearAmount(-1)', 'practiceStepClearAmount(1)');
     html += `
-      <div class="practice-panel-row practice-panel-row-action${focusCls('ojamaClearGo')}">
-        <button class="practice-panel-clear-btn" onmousedown="event.preventDefault()" onclick="practiceOjamaClearGo()">DELETE</button>
+      <div class="practice-panel-row practice-panel-row-action${focusCls('clearGo')}">
+        <button class="practice-panel-clear-btn" onmousedown="event.preventDefault()" onclick="practiceClearGo()">DELETE</button>
       </div>`;
 
     html += `
@@ -268,7 +270,7 @@ function _practicePanelApplyDir(rowKey, dir) {
         case 'ojamaInterval': practiceStepOjamaInterval(dir); break;
         case 'ojamaHoleRate': practiceStepOjamaHoleRate(dir); break;
         case 'ojamaAuto':     if (mgr) setPracticeOjamaAuto(!mgr.ojama.auto); break;
-        case 'ojamaClearAmount': practiceStepOjamaClearAmount(dir); break;
+        case 'clearAmount': practiceStepClearAmount(dir); break;
         case 'sequence':
             if (mgr && typeof PracticeSequence !== 'undefined') {
                 practicePanelSetSequenceEnabled(!PracticeSequence.isEnabled(mgr.rule));
@@ -288,8 +290,8 @@ function _practicePanelActivate(rowKey) {
         if (mgr) setPracticeOjamaAuto(!mgr.ojama.auto);
     } else if (rowKey === 'ojamaSend') {
         practiceOjamaSend();
-    } else if (rowKey === 'ojamaClearGo') {
-        practiceOjamaClearGo();
+    } else if (rowKey === 'clearGo') {
+        practiceClearGo();
     } else if (rowKey === 'sequenceEdit') {
         practicePanelOpenSequenceEditor();
     }
@@ -473,7 +475,8 @@ function practiceStepOjamaAmount(delta) {
     const mgr = window._practiceManager;
     if (!mgr) return;
     const max = _practiceOjamaAmountMax(mgr);
-    mgr.ojama.amount = Math.max(1, Math.min(max, mgr.ojama.amount + delta));
+    // 下限0＝投下キャンセル（LIVE中に0まで下げると投下前の盤面へ戻る。設計 Phase6 §3）
+    mgr.ojama.amount = Math.max(0, Math.min(max, mgr.ojama.amount + delta));
     // AUTO OFF中に一度でも投下していれば(ojamaLive生存中)、値を動かすだけで
     // リアルタイムに着弾ぶんが増減する（設計 Phase5 §8.3）
     if (mgr.ojamaLive) mgr.redropOjamaLive(mgr.ojama.amount);
@@ -511,22 +514,22 @@ function practiceOjamaSend() {
 // 盤面クリア：おじゃま部分削除（設計 §4.2）
 // 投下量と同じレンジ（tet 1〜20ライン / puyo 1〜30個）にする。
 // ─────────────────────────────────────────
-function _practiceOjamaClearMax(mgr) {
+function _practiceClearMax(mgr) {
     return (mgr.rule === 'puyo') ? 30 : 20;
 }
 
-function practiceStepOjamaClearAmount(delta) {
+function practiceStepClearAmount(delta) {
     const mgr = window._practiceManager;
     if (!mgr) return;
-    const max = _practiceOjamaClearMax(mgr);
-    mgr.ojamaClearAmount = Math.max(1, Math.min(max, (mgr.ojamaClearAmount || 1) + delta));
+    const max = _practiceClearMax(mgr);
+    mgr.clearAmount = Math.max(1, Math.min(max, (mgr.clearAmount || 1) + delta));
     _practicePanelRefresh();
 }
 
-function practiceOjamaClearGo() {
+function practiceClearGo() {
     const mgr = window._practiceManager;
     if (!mgr) return;
-    mgr.clearOjamaPartial(mgr.ojamaClearAmount || 1);
+    mgr.clearPartial(mgr.clearAmount || 1);
 }
 
 // ─────────────────────────────────────────
