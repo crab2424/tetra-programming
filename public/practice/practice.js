@@ -76,6 +76,10 @@ class PracticeManager {
         this.seqRunner = null;   // {bagOrder, bagPos, itemPos}
         this._origGetNextType = null; // tet
         this._origMakePair = null;    // puyo
+        // OFF→ON にした瞬間のNEXT/BAGと色数の退避（設計 Phase6 §6）。
+        // ON→OFF に戻したときにここへ書き戻す。巻き戻し・destroy・ゲームオーバーで無効化する。
+        this._seqVanilla = null;            // { next, bag? }
+        this._seqVanillaColorCount = null;  // puyoのみ
 
         // おじゃま手動/自動投下（Phase 3 §6.2e）
         this.ojama = {
@@ -348,6 +352,7 @@ class PracticeManager {
     cycleTsumo() {
         if (this.rule === 'tet') this._cycleTsumoTet();
         else this._cycleTsumoPuyo();
+        this._refreshRewindIndicator(); // 「次に出るツモ」表示を更新する（設計 §7.2）
     }
 
     _cycleTsumoTet() {
@@ -411,6 +416,9 @@ class PracticeManager {
         const line = this.history[this.cursor];
         this.ojamaLive = null; // 巻き戻しで退避済みの盤面が無効になる（設計 Phase5 §8.3）
         this._cycleCount = 0; // 巻き戻し先のツモに合わせてリセット（設計 Phase5 §9.4）
+        // SEQUENCE OFF復帰用の退避も、この時点の履歴とは食い違うため無効化する（設計 Phase6 §6.3）
+        this._seqVanilla = null;
+        this._seqVanillaColorCount = null;
         this._skipNextCapture = true;
         if (!PracticeSnapshot.restore(g, this.rule, line)) {
             this._skipNextCapture = false;
@@ -568,6 +576,25 @@ class PracticeManager {
         const fwdBtn = document.getElementById('practice-rewind-fwd');
         if (backBtn) backBtn.classList.toggle('is-disabled', backCount <= 0);
         if (fwdBtn) fwdBtn.classList.toggle('is-disabled', fwdCount <= 0);
+
+        // 即時ツモ変化（設計 Phase6 §7）: 次に押したときに出るツモを表示する
+        set('practice-cycle-next', this._cycleNextLabel());
+        const cycleBtn = document.getElementById('practice-cycle-btn');
+        if (cycleBtn) cycleBtn.classList.toggle('is-disabled', !this._isLive());
+    }
+
+    // 次に cycleTsumo() を押したときに出る内容のラベル（盤面インジケータ表示用。設計 §7.2）
+    _cycleNextLabel() {
+        if (this.rule === 'tet') {
+            return TET_CYCLE_LABEL[TET_CYCLE[this._cycleCount % TET_CYCLE.length]];
+        }
+        const g = this.gameInstance;
+        const n = (g && g.activeColors || []).length;
+        if (!n) return '?-?';
+        const i = this._cycleCount % (n * n);
+        const axis = g.activeColors[Math.floor(i / n)];
+        const child = g.activeColors[i % n];
+        return (PUYO_COLOR_LABEL[axis] || '?') + '-' + (PUYO_COLOR_LABEL[child] || '?');
     }
 
     // ─────────────────────────────────────────
@@ -583,6 +610,14 @@ class PracticeManager {
         this.sequenceEnabled = !!(seqSrc && seqSrc.enabled && seqSrc.bags.length);
 
         if (this.sequenceEnabled) {
+            if (!wasEnabled) {
+                // OFF→ON: 何も変える前に「元の状態」を退避しておく（設計 Phase6 §6）。
+                // OFFへ戻したときにここへ書き戻すことで、SEQUENCEを試す前のNEXT/BAG/色数を
+                // 完全に復元できる。
+                this._seqVanilla = this._captureVanillaQueue();
+                if (this.rule === 'puyo') this._seqVanillaColorCount = PConfig.colorCount;
+            }
+
             const prevGen = (this.seqConfig && this.seqConfig.gen) || 0;
             this.seqConfig = JSON.parse(JSON.stringify(seqSrc));
             this.seqConfig.gen = prevGen + 1; // 編集のたびに世代を進める（巻き戻し整合用）
@@ -631,15 +666,53 @@ class PracticeManager {
             }
             this.seqConfig = null;
             this.seqRunner = null;
+
+            // puyoの色数自動引き上げ（あれば）を、退避時点の値へ戻す（設計 Phase6 §6.5）
+            if (this.rule === 'puyo' && this._seqVanillaColorCount != null) {
+                PConfig.colorCount = this._seqVanillaColorCount;
+                g.activeColors = (g._colorOrder || []).slice(0, this._seqVanillaColorCount);
+            }
         }
 
-        // ─── 即時反映（設計 Phase5 §7）───
-        // 既存のNEXTキューを丸ごと作り直し、ON/OFF/EDIT確定のどの操作でも即座に効かせる。
-        // OFFにした場合もここを通るため、REWINDせずOFFボタンだけで通常生成に戻る
-        // （フックは直前で既に外れているので getNextType()/_makePair() は元の実装を使う）。
-        this._rebuildNextQueue();
+        // ─── 即時反映（設計 Phase5 §7・Phase6 §6）───
+        // ONにした場合はNEXTキューを丸ごと作り直して即座に効かせる。
+        // OFFにした場合は、退避しておいたNEXT/BAGがあればそれを書き戻す（＝SEQUENCEを
+        // 試す前の状態にそのまま戻る）。巻き戻しを挟んでいて退避が無効化されていた場合のみ
+        // 従来どおり新規に作り直す。
+        if (this.sequenceEnabled || !this._restoreVanillaQueue(wasEnabled ? this._seqVanilla : null)) {
+            this._rebuildNextQueue();
+        }
+        if (!this.sequenceEnabled) { this._seqVanilla = null; this._seqVanillaColorCount = null; }
 
         if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
+    }
+
+    // SEQUENCEをONにする直前のNEXT/BAGを退避する（設計 Phase6 §6.2）
+    _captureVanillaQueue() {
+        const g = this.gameInstance;
+        if (!g) return null;
+        if (this.rule === 'tet') {
+            return { next: g.nextQueue.map(m => m.type), bag: g.bag.slice() };
+        }
+        return { next: g.nextQueue.map(p => p.slice()) };
+    }
+
+    // ON→OFFで退避済みのNEXT/BAGを書き戻す。snapが無ければ何もせずfalseを返す
+    // （呼び出し側は_rebuildNextQueue()にフォールバックする。設計 Phase6 §6.2）
+    _restoreVanillaQueue(snap) {
+        const g = this.gameInstance;
+        if (!g || !snap) return false;
+        if (this.rule === 'tet') {
+            g.nextQueue = snap.next.map(t => new Mino(t));
+            g.bag = snap.bag.slice();
+            while (g.nextQueue.length < 11) g.nextQueue.push(new Mino(g.getNextType()));
+            if (typeof g.drawAll === 'function') g.drawAll();
+        } else {
+            g.nextQueue = snap.next.map(p => p.slice());
+            while (g.nextQueue.length < 20) g.nextQueue.push(g._makePair());
+            if (typeof g._renderNext === 'function') g._renderNext();
+        }
+        return true;
     }
 
     // NEXTキューを丸ごと作り直す（設計 Phase5 §7.2）。操作中のミノ/ぷよ自体は変えない。
@@ -693,6 +766,8 @@ class PracticeManager {
         if (this.isFinished || this.isEnding) return;
         this.isEnding = true;
         this.ojamaLive = null;
+        this._seqVanilla = null;
+        this._seqVanillaColorCount = null;
         this._hideEndingControls();
         const g = this.gameInstance;
         // 詰んだ瞬間の盤面（tetは被せたミノ／puyoは窒息したぷよ）を1枚描いてから止める。
@@ -945,9 +1020,13 @@ class PracticeManager {
     }
 
     // OJAMA AMTをいじるたびに呼ばれる（設計 Phase5 §8.3）。退避しておいた投下直前の
-    // 盤面へ戻してから、同じ穴列(先頭amount個。足りなければ末尾を継ぎ足す＝設計 Phase6 §4)で
-    // 再投下する。amount<=0のときは投下前の盤面に戻すだけ＝投下キャンセル。LIVEは外さない
-    // （設計 Phase6 §3）。
+    // 盤面へ戻してから、穴列を使って再投下する。amount<=0のときは投下前の盤面に戻すだけ
+    // ＝投下キャンセル。LIVEは外さない（設計 Phase6 §3）。
+    //
+    // 穴列の扱い（設計 Phase6 §4・ユーザーからの補足で修正）: 減らした分の穴は
+    // 「消えた」ものとして配列から切り捨てる。そのため 4→3→4 のように一度減らしてから
+    // 同じ本数へ戻すと、消えていた段（一番下＝最後に足された段）だけ改めて抽選され、
+    // 残っていた段（4→3で切り捨てられなかった上の段）は元の穴のまま変わらない。
     redropOjamaLive(amount) {
         if (!this.ojamaLive) return;
         const g = this.gameInstance;
@@ -957,6 +1036,8 @@ class PracticeManager {
             g.mino.y = this.ojamaLive.minoY;
         }
         this.ojamaLive.amount = amount;
+        // 減らした分の穴は捨てる。再度増やしたときはその段だけ新規抽選になる
+        if (amount < this.ojamaLive.holes.length) this.ojamaLive.holes.length = amount;
         if (amount <= 0) {
             // _restoreFieldOnly()は描画までは行わないため、ここで描き直す
             if (this.rule === 'tet') { g.field.markDirty(); g.drawAll(); this._renderGarbageGauge(); }
@@ -1103,6 +1184,9 @@ class PracticeManager {
         const shortLabel = (code) => code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '');
         const keysLabelEl = document.getElementById('practice-rewind-keys');
         if (keysLabelEl) keysLabelEl.textContent = shortLabel(rewindCodes[0]) + ' / ' + shortLabel(advanceCodes[0]);
+        // 即時ツモ変化のキー表記も同様に実バインドから埋める（設計 Phase6 §7.2）
+        const cycleKeysLabelEl = document.getElementById('practice-cycle-keys');
+        if (cycleKeysLabelEl) cycleKeysLabelEl.textContent = shortLabel(cycleCodes[0]);
 
         this._keyHandler = (e) => {
             if (e.repeat) return;
@@ -1517,6 +1601,11 @@ function practiceRewindFromResult() {
 // ゲーム内の常設インジケータ（⟲/⟳）のクリック操作から呼ばれる（設計 §2.2）。
 function practiceRewindStep(delta) {
     if (window._practiceManager) window._practiceManager.step(delta);
+}
+
+// 即時ツモ変化インジケータ（⟳）のクリック操作から呼ばれる（設計 Phase6 §7.2）。
+function practiceCycleTsumo() {
+    if (window._practiceManager) window._practiceManager.cycleTsumo();
 }
 
 // stopAllGames() から呼ばれる。フックを外してマネージャを破棄する。
