@@ -452,6 +452,7 @@ function practiceStepColorCount(delta) {
     if (n === PConfig.colorCount) return;
     PConfig.colorCount = n;
     g.activeColors = (g._colorOrder || [1, 2, 3, 4, 5]).slice(0, n);
+    mgr._cycleCount = 0; // COLORS変更でn×n通りが変わるため即時ツモ変化のカウンタもリセット（設計 §9.3）
     // 内部キュー（20個）を作り直す（設計 §6.2d）
     g.nextQueue = [];
     while (g.nextQueue.length < 20) g.nextQueue.push(g._makePair());

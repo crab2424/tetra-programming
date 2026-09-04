@@ -280,6 +280,38 @@ body.practice-mode #puyo-next-canvas {
   100% { opacity: 0; transform: scale(0.96); }
 }
 
+/* ─── Phase 5 §9.6: 即時ツモ変化の結果表示 ───
+   REWINDフラッシュ(§5)より軽量・短時間。連打時の視認性のためtransformは付けず
+   opacityのみで出し引きする。 */
+.practice-cycle-flash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 326px;
+  height: 662px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 19;
+  opacity: 0;
+}
+.practice-cycle-flash.is-active {
+  animation: practiceCycleFlash 300ms ease-out;
+}
+#practice-cycle-flash-text {
+  font-family: "Orbitron", monospace;
+  font-size: 20px;
+  letter-spacing: 2px;
+  color: var(--practice-color);
+  text-shadow: 0 0 10px rgba(156, 167, 184, 0.5);
+}
+@keyframes practiceCycleFlash {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* ─── Phase 4 §3.1: puyoのSPEED+COLORS表示（廃止した practice-status-right の位置を流用） ─── */
 .practice-hud-block {
   top: 570px;

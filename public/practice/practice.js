@@ -16,6 +16,14 @@
 // 巻き戻しの保持手数（設計 §1.4）。メモリのみ・永続化なし。
 const PRACTICE_HISTORY_MAX = 100;
 
+// ─── 即時ツモ変化（設計 Phase5 §9）───
+// tet: Mino.typeは 0:I 1:O 2:T 3:J 4:L 5:S 6:Z（core.js）なので、
+// 要求サイクル I,T,S,Z,J,L,O をtype値の並びに変換する。
+const TET_CYCLE = [0, 2, 5, 6, 3, 4, 1];
+const TET_CYCLE_LABEL = ['I', 'O', 'T', 'J', 'L', 'S', 'Z']; // type値→表示ラベル
+// puyo: 色番号 1:R 2:B 3:G 4:Y 5:P
+const PUYO_COLOR_LABEL = { 1: 'R', 2: 'B', 3: 'G', 4: 'Y', 5: 'P' };
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PracticeManager
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -41,6 +49,9 @@ class PracticeManager {
         // isFinishedは showFinishOverlay() のコールバック後にしか立たないため、1200msの
         // 演出中はこのフラグで操作を止める。resumeEngine/rewindFromResultでfalseに戻す。
         this.isEnding = false;
+
+        // 即時ツモ変化（設計 Phase5 §9）。新しいツモが出るたびにリセットされるカウンタ。
+        this._cycleCount = 0;
 
         // 差し替えたメソッドの復元用
         this._origPopMino = null;
@@ -151,6 +162,7 @@ class PracticeManager {
             this._origPopMino = game.popMino;
             game.popMino = function () {
                 self._capture();
+                self._cycleCount = 0; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1）
                 self._origPopMino.call(this);
             }.bind(game);
 
@@ -162,6 +174,7 @@ class PracticeManager {
             this._origSpawnPuyo = game._spawnPuyo;
             game._spawnPuyo = function () {
                 self._capture();
+                self._cycleCount = 0; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1）
                 return self._origSpawnPuyo.call(this);
             }.bind(game);
 
@@ -328,10 +341,76 @@ class PracticeManager {
         el.classList.add('is-active');
     }
 
+    // ─────────────────────────────────────────
+    // 即時ツモ変化（設計 Phase5 §9）。操作パネルには入れない隠し機能＝REWINDと同じ扱い。
+    // 現在操作中のミノ/ぷよのみを固定サイクルで変化させる（NEXT/HOLDには触らない）。
+    // ─────────────────────────────────────────
+    cycleTsumo() {
+        if (this.rule === 'tet') this._cycleTsumoTet();
+        else this._cycleTsumoPuyo();
+    }
+
+    _cycleTsumoTet() {
+        const g = this.gameInstance;
+        if (!this._isLive() || !g.mino) return;
+        const type = TET_CYCLE[this._cycleCount % TET_CYCLE.length];
+        this._cycleCount++;
+        const m = new Mino(type);
+        m.spawn(); // 出現位置と初期回転（0）をセットする。回転を引き継ぐと型ごとの
+                   // 壁蹴りの前提が崩れるため、常に出現時の向きへリセットする。
+        m.x = g.mino.x;
+        m.y = g.mino.y;
+        const prev = g.mino;
+        g.mino = m;
+        // 形が変わって埋まる場合は上へ逃がす。それでも駄目なら出現位置に戻す。
+        let guard = 0;
+        while (!g.valid(0, 0) && guard++ < 4) g.mino.y -= 1;
+        if (!g.valid(0, 0)) { g.mino = new Mino(type); g.mino.spawn(); }
+        if (!g.valid(0, 0)) { g.mino = prev; return; } // 詰んでいるなら何もしない（GAMEOVERにしない）
+        // 接地・ロック関連の状態をpopMino()と同じに初期化する（canHoldは変えない＝ツモ未消費）
+        g.isGrounded = false;
+        g.lowestY = g.mino.y;
+        g.moveCount = 0;
+        g.lastActionWasRotation = false;
+        g.lastRotUsedPoint5 = false;
+        if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+        g.drawAll();
+        this._flashCycle('⟳ ' + TET_CYCLE_LABEL[type]);
+    }
+
+    _cycleTsumoPuyo() {
+        const g = this.gameInstance;
+        if (!this._isLive()) return;
+        const n = (g.activeColors || []).length;
+        if (!n) return;
+        const i = this._cycleCount % (n * n);
+        this._cycleCount++;
+        // 2桁n進数扱い：上位桁＝軸（下のぷよ）、下位桁＝子（上のぷよ）（設計 §9.3）
+        g.pivotColor = g.activeColors[Math.floor(i / n)];
+        g.childColor = g.activeColors[i % n];
+        if (typeof g._render === 'function') g._render();
+        const axisLabel = PUYO_COLOR_LABEL[g.pivotColor] || '?';
+        const childLabel = PUYO_COLOR_LABEL[g.childColor] || '?';
+        this._flashCycle('⟳ ' + axisLabel + '-' + childLabel);
+    }
+
+    // 即時ツモ変化の結果を盤面中央に一瞬出す（§5のREWINDフラッシュとは別の軽量な表示。
+    // 連打時の視認性のためopacityのみでtransformは付けない。持続300ms）。
+    _flashCycle(text) {
+        const el = document.getElementById('practice-cycle-flash');
+        if (!el) return;
+        const textEl = document.getElementById('practice-cycle-flash-text');
+        if (textEl) textEl.textContent = text;
+        el.classList.remove('is-active');
+        void el.offsetWidth; // 強制リフロー（連打対応）
+        el.classList.add('is-active');
+    }
+
     _restoreCurrent() {
         const g = this.gameInstance;
         const line = this.history[this.cursor];
         this.ojamaLive = null; // 巻き戻しで退避済みの盤面が無効になる（設計 Phase5 §8.3）
+        this._cycleCount = 0; // 巻き戻し先のツモに合わせてリセット（設計 Phase5 §9.4）
         this._skipNextCapture = true;
         if (!PracticeSnapshot.restore(g, this.rule, line)) {
             this._skipNextCapture = false;
@@ -1006,6 +1085,9 @@ class PracticeManager {
         // リスタート/ポーズが素通りすると、止めたはずのエンジンが復活してしまう。
         const restartCodes = codesOf('restart', 'KeyR');
         const pauseCodes = codesOf('pause', 'Escape');
+        // 即時ツモ変化（設計 Phase5 §9）。操作パネルには入れないキー専用の隠し機能。
+        const cycleCodes = codesOf('cycleTsumo', 'KeyC');
+        const holdCodes = codesOf('hold', 'ShiftLeft');
 
         // インジケータのキー表記を実際の割り当てに合わせる（設計 §2.2）
         const shortLabel = (code) => code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '');
@@ -1030,6 +1112,13 @@ class PracticeManager {
             } else if (advanceCodes.includes(e.code)) {
                 e.preventDefault();
                 this.step(+1);
+            } else if (cycleCodes.includes(e.code)) {
+                e.preventDefault();
+                this.cycleTsumo();
+            } else if (holdCodes.includes(e.code)) {
+                // ホールドで手元のミノが入れ替わるため、サイクルの起点をやり直す
+                // （設計 §9.4）。ホールド自体はここで奪わず本体のハンドラに渡す。
+                this._cycleCount = 0;
             }
         };
         // capture段（第3引数true）で登録し、tet/puyoそれぞれの本体キーハンドラより先に奪う。
