@@ -88,8 +88,8 @@ function _closePracticePanel() {
     // innerHTML は消さず、表示だけ落とす（設計 §2.2）。
     const left = document.getElementById('practice-status-left');
     if (left) left.classList.remove('is-visible');
-    const speedArea = document.getElementById('practice-speed-area');
-    if (speedArea) speedArea.classList.remove('is-visible');
+    const cycleArea = document.getElementById('practice-cycle-area');
+    if (cycleArea) cycleArea.classList.remove('is-visible');
     _removePracticePanelKeyHandler();
 }
 
@@ -117,9 +117,9 @@ function _initPracticePanel(manager) {
     dock.classList.remove('is-open');
     const left = document.getElementById('practice-status-left');
     if (left) left.classList.add('is-visible');
-    // SPEED+COLORSブロックはpuyoのみ（tetはLEVEL枠を流用する。設計 §3.1）
-    const speedArea = document.getElementById('practice-speed-area');
-    if (speedArea) speedArea.classList.toggle('is-visible', manager.rule === 'puyo');
+    // CYCLEインジケータはtet/puyo共通で表示する（実機FBで右側へ移設。設計 実機FB）
+    const cycleArea = document.getElementById('practice-cycle-area');
+    if (cycleArea) cycleArea.classList.add('is-visible');
 
     _practicePanelFocusIndex = 0;
     _practicePanelRefresh();
@@ -233,13 +233,13 @@ function _practicePanelRefresh() {
 }
 
 // NEXT/GHOST/HOLD/OJAMAは盤面を見れば分かるためミニステータスから撤去済み（設計 §3.3）。
-// 残るpuyoのSPEED/COLORSは #practice-speed-area（tetのLEVEL枠に相当するHUDブロック）へ集約する。
+// puyoのSPEEDは #lines-area（旧CHAIN枠。実機FBでCHAIN表示を撤去し置き換えた）へ集約する。
+// tetはLEVEL枠(#level-value)にSPEEDを表示済み（§3.1）。GOAL=PUYOSのときは#lines-areaを
+// 進捗表示（attach()側の別ロジック）に使っているため触らない。
 function _practiceStatusRefresh(mgr, g, isTet) {
-    if (isTet) return; // tetはLEVEL枠(#level-value)にSPEEDを表示済み（§3.1）
-    const valueEl = document.getElementById('practice-speed-value');
-    const colorsEl = document.getElementById('practice-speed-colors');
+    if (isTet || (mgr.goal && mgr.goal.type === 'puyos')) return;
+    const valueEl = document.getElementById('lines-value');
     if (valueEl) valueEl.textContent = _practiceFallLabel(mgr.fallLevel);
-    if (colorsEl) colorsEl.textContent = 'COLORS ' + PConfig.colorCount;
 }
 
 // ─────────────────────────────────────────
