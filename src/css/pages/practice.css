@@ -452,6 +452,12 @@ body.practice-mode #puyo-next-canvas {
   background: rgba(156, 167, 184, 0.12);
   border-color: var(--practice-color);
 }
+/* AMT=0のとき「送るものが無い」ことを示す（設計 Phase6 §3） */
+.practice-panel-send-btn.is-disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
 
 /* ─── Phase 3: ツモ順設定（設計 §7）─── */
 .practice-seq-edit-btn {

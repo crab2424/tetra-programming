@@ -237,11 +237,19 @@ const PracticeSequence = (() => {
         setPuyoSlot(bagIndex, col, row, value);
     }
 
+    // Enter / Space のどちらでも確定できるようにする（設定パネルと操作感を揃える。Phase6 §1）
+    function isConfirmKey(e) { return e.key === 'Enter' || e.key === ' ' || e.code === 'Space'; }
+
     // onDone: ゲーム中（PRACTICEパネル）からの呼び出し時だけ渡す、閉じた後に呼ぶコールバック（設計 §5.1）。
     // 準備画面からの呼び出し（onDone省略）では従来どおり renderModeCheck() のみ行う。
     function openEditor(rule, onDone) {
-        if (!config(rule)) return;
-        editor = { rule, section: 'bagcount', bagIndex: 0, flatIndex: 0, editingSlots: false, onDone: onDone || null };
+        const c = config(rule);
+        if (!c) return;
+        editor = {
+            rule, section: 'bagcount', bagIndex: 0, flatIndex: 0, editingSlots: false,
+            onDone: onDone || null,
+            backup: JSON.parse(JSON.stringify(c)), // ← Phase6 §5: Escで戻す用のスナップショット
+        };
         const modal = document.getElementById('practice-seq-modal');
         if (modal) modal.classList.add('active');
         if (window.FocusNav) window.FocusNav.suspended = true;
@@ -249,17 +257,23 @@ const PracticeSequence = (() => {
         _render();
     }
 
-    function closeEditor() {
+    // commit=true: DONE（保存して閉じる） / commit=false: Esc等（編集前へ戻して閉じる。設計 Phase6 §5）
+    function closeEditor(commit = true) {
         if (!editor) return; // 未オープン時は何もしない（switchPage毎に呼ばれるため）
         const onDone = editor.onDone;
         const rule = editor.rule;
+        const backup = editor.backup;
+        if (!commit && backup) {
+            const c = config(rule);
+            if (c) { c.bags = backup.bags; c.bagOrder = backup.bagOrder; c.slotOrder = backup.slotOrder; }
+        }
         editor = null;
         const modal = document.getElementById('practice-seq-modal');
         if (modal) modal.classList.remove('active');
         if (window.FocusNav) window.FocusNav.suspended = false;
         _removeKeyHandler();
         if (typeof renderModeCheck === 'function') renderModeCheck();
-        if (typeof onDone === 'function') onDone(rule);
+        if (commit && typeof onDone === 'function') onDone(rule); // 取消時はコールバックを呼ばない
     }
 
     function _installKeyHandler() {
@@ -289,7 +303,7 @@ const PracticeSequence = (() => {
         const sections = _sectionOrder();
         const c = config(editor.rule);
         const bagIndex = editor.bagIndex || 0;
-        if (e.key === 'Escape') { closeEditor(); return true; }
+        if (e.key === 'Escape') { closeEditor(false); return true; }
         if (e.key === 'ArrowUp') {
             const i = sections.indexOf(editor.section);
             editor.section = sections[(i - 1 + sections.length) % sections.length];
@@ -311,19 +325,19 @@ const PracticeSequence = (() => {
             if (e.key === 'ArrowLeft')  { setBagLength(editor.rule, bagIndex, bag.items.length - 1); return true; }
             if (e.key === 'ArrowRight') { setBagLength(editor.rule, bagIndex, bag.items.length + 1); return true; }
         } else if (editor.section === 'bagorder') {
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Enter') {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || isConfirmKey(e)) {
                 setBagOrder(editor.rule, c.bagOrder === 'loop' ? 'random' : 'loop');
                 return true;
             }
         } else if (editor.section === 'slotorder') {
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Enter') {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || isConfirmKey(e)) {
                 setSlotOrder(editor.rule, c.slotOrder === 'loop' ? 'random' : 'loop');
                 return true;
             }
         } else if (editor.section === 'slots') {
-            if (e.key === 'Enter') { editor.editingSlots = true; editor.flatIndex = 0; return true; }
+            if (isConfirmKey(e)) { editor.editingSlots = true; editor.flatIndex = 0; return true; }
         } else if (editor.section === 'done') {
-            if (e.key === 'Enter') { closeEditor(); return true; }
+            if (isConfirmKey(e)) { closeEditor(true); return true; }
         }
         return false;
     }
@@ -332,7 +346,7 @@ const PracticeSequence = (() => {
         const bagIndex = editor.bagIndex || 0;
         const bag = _currentBag();
         const count = _flatCount(editor.rule, bag);
-        if (e.key === 'Escape' || e.key === 'Enter') { editor.editingSlots = false; return true; }
+        if (e.key === 'Escape' || isConfirmKey(e)) { editor.editingSlots = false; return true; }
         if (e.key === 'ArrowLeft')  { editor.flatIndex = (editor.flatIndex - 1 + count) % count; return true; }
         if (e.key === 'ArrowRight') { editor.flatIndex = (editor.flatIndex + 1) % count; return true; }
         const maxVal = (editor.rule === 'tet') ? 6 : 5;
@@ -434,8 +448,8 @@ const PracticeSequence = (() => {
           <p class="practice-value-hint" style="text-align:center;">LOOP = 表示どおりの順 / RANDOM = 1周ごとに並べ替え（SLOTSは編集用の並びで、実行時の並びではありません）</p>`;
 
         const hint = editor.editingSlots
-            ? '0-9で入力(0=?) / ←→で移動 / ↑↓で増減 / Enter・Escで抜ける'
-            : '↑↓で項目移動 / ←→で値変更 / SLOTSでEnterして枠を編集 / DONEでEnterして閉じる / Escで閉じる';
+            ? '0-9で入力(0=?) / ←→で移動 / ↑↓で増減 / Enter・Spaceで確定 / Escで取消'
+            : '↑↓で項目移動 / ←→で値変更 / SLOTSで枠を編集 / DONEで保存して閉じる / Escで取消';
         html += `<p class="practice-value-hint" style="text-align:center;margin-top:8px;">${hint}</p>`;
 
         body.innerHTML = html;

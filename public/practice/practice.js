@@ -91,7 +91,7 @@ class PracticeManager {
         this.ojamaLive = null;
 
         // 盤面クリアのおじゃま部分削除（Phase 4 §4.2）。パネルの本数/個数指定に使う。
-        this.ojamaClearAmount = 1;
+        this.clearAmount = 1;
     }
 
     // ─────────────────────────────────────────
@@ -846,7 +846,8 @@ class PracticeManager {
     sendOjama(amount) {
         const g = this.gameInstance;
         if (!g || this.isFinished) return;
-        amount = Math.max(1, amount || this.ojama.amount);
+        amount = Math.max(0, (amount === undefined ? this.ojama.amount : amount));
+        if (amount <= 0) return; // 0は「送らない」（設計 Phase6 §3）
 
         // AUTO OFF時は予告を挟まず即着弾させる（設計 Phase5 §8.1）。AUTO ONは
         // 従来どおり予告つきの経路を使う（対戦の練習として正しい挙動を維持する）。
@@ -877,22 +878,22 @@ class PracticeManager {
         if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
     }
 
-    // 直列確率(§8.2)にもとづいて穴位置の列をn個ぶん事前生成する。tetのgarbage.jsの
-    // 計算式と同型にすることで、versusと同じ見た目の穴になる。
-    _makeHoleList(n) {
+    // 直列確率(§8.2)にもとづいて穴位置の列をholesの末尾からn本目まで継ぎ足す（設計 Phase6 §4）。
+    // 既存要素は絶対に書き換えない＝AMTを増減してもすでに使った穴の位置はズレない。
+    // tetのgarbage.jsの計算式と同型にすることで、versusと同じ見た目の穴になる。
+    _extendHoleList(holes, n) {
         const rate = (this.ojama.holeRate ?? 70) / 100;
-        const out = [];
-        let last = -1;
-        for (let i = 0; i < n; i++) {
+        while (holes.length < n) {
+            const last = holes.length ? holes[holes.length - 1] : -1;
             let h;
-            if (i === 0) h = Math.floor(Math.random() * COLS_COUNT);
+            if (last < 0) h = Math.floor(Math.random() * COLS_COUNT);
             else if (Math.random() < rate) h = last;
             else h = (last + 1 + Math.floor(Math.random() * (COLS_COUNT - 1))) % COLS_COUNT;
-            out.push(h);
-            last = h;
+            holes.push(h);
         }
-        return out;
+        return holes;
     }
+    _makeHoleList(n) { return this._extendHoleList([], n); }
 
     // AUTO OFF時の即時投下本体（設計 Phase5 §8.1・§8.3）。holesOverrideを渡すとその列を
     // そのまま使う（redropOjamaLive経由）。keepLive=trueのときはojamaLiveの退避をやり直さない
@@ -900,16 +901,17 @@ class PracticeManager {
     _dropOjamaNow(amount, holesOverride, keepLive) {
         const g = this.gameInstance;
         if (!g) return;
-        const max = (typeof _practiceOjamaAmountMax === 'function') ? _practiceOjamaAmountMax(this) : amount;
         if (!keepLive) {
             this.ojamaLive = {
                 field: this._snapshotFieldOnly(),
                 minoY: (this.rule === 'tet' && g.mino) ? g.mino.y : null,
-                holes: this._makeHoleList(max),
+                holes: [],
                 amount,
             };
         }
-        const holes = holesOverride || (this.ojamaLive ? this.ojamaLive.holes.slice(0, amount) : this._makeHoleList(amount));
+        const holes = holesOverride || (this.ojamaLive
+            ? this._extendHoleList(this.ojamaLive.holes, amount).slice(0, amount)
+            : this._makeHoleList(amount));
 
         if (this.rule === 'tet') {
             g.garbageQueue.push({ amount, holes, ready: true });
@@ -943,7 +945,9 @@ class PracticeManager {
     }
 
     // OJAMA AMTをいじるたびに呼ばれる（設計 Phase5 §8.3）。退避しておいた投下直前の
-    // 盤面へ戻してから、同じ穴列(先頭amount個)で再投下する。
+    // 盤面へ戻してから、同じ穴列(先頭amount個。足りなければ末尾を継ぎ足す＝設計 Phase6 §4)で
+    // 再投下する。amount<=0のときは投下前の盤面に戻すだけ＝投下キャンセル。LIVEは外さない
+    // （設計 Phase6 §3）。
     redropOjamaLive(amount) {
         if (!this.ojamaLive) return;
         const g = this.gameInstance;
@@ -952,8 +956,15 @@ class PracticeManager {
         if (this.rule === 'tet' && this.ojamaLive.minoY !== null && g.mino) {
             g.mino.y = this.ojamaLive.minoY;
         }
-        this._dropOjamaNow(amount, this.ojamaLive.holes.slice(0, amount), true);
         this.ojamaLive.amount = amount;
+        if (amount <= 0) {
+            // _restoreFieldOnly()は描画までは行わないため、ここで描き直す
+            if (this.rule === 'tet') { g.field.markDirty(); g.drawAll(); this._renderGarbageGauge(); }
+            else if (typeof g._render === 'function') g._render();
+            return;
+        }
+        const holes = this._extendHoleList(this.ojamaLive.holes, amount).slice(0, amount);
+        this._dropOjamaNow(amount, holes, true);
     }
 
     // 盤面のみを退避/復元する（PracticeSnapshot.restore()は次のツモ/スコア等まで
@@ -1006,24 +1017,24 @@ class PracticeManager {
     }
 
     // ─────────────────────────────────────────
-    // 盤面クリア：おじゃま部分削除（設計 §4.2）
+    // 盤面クリア：部分削除（設計 Phase5 §4.2）。おじゃま限定はPhase6 §2で撤廃し、
+    // 中身を問わず「空でない行/セル」を対象にした（拡張性のため）。
     // 全消し（practiceClearBoard）と同じ扱いで巻き戻し履歴には積まない（§9-1）。
     // ─────────────────────────────────────────
-    clearOjamaPartial(amount) {
+    clearPartial(amount) {
         const g = this.gameInstance;
         if (!g) return;
         this.ojamaLive = null; // 盤面をここで書き換えるため退避済みのプレビューは無効化する
         amount = Math.max(1, amount || 1);
         if (this.rule === 'tet') {
-            // おじゃまライン＝その行に存在するブロックが全て種別7（garbage.jsが生成する種別）の行。
-            // 下(yが大きい)から数えてamount本まで、非該当行はスキップして探す。
+            // 下(yが大きい)から数えてamount行まで、空行はスキップして非空の行を消す。
             const field = g.field;
             let removed = 0;
             let r = ROWS_COUNT - 1;
             while (r >= 0 && removed < amount) {
                 const rowBlocks = field.blocks.filter(b => b.y === r);
-                const isGarbageLine = rowBlocks.length > 0 && rowBlocks.every(b => b.type === 7);
-                if (isGarbageLine) {
+                const isTarget = rowBlocks.length > 0;
+                if (isTarget) {
                     // 通常のライン消去と同じ詰め処理（Field.checkLine()と同型）：
                     // 該当行を除去し、上にあるブロック(y<r)を1段ずつ下げる。
                     field.blocks = field.blocks.filter(b => b.y !== r);
@@ -1039,15 +1050,14 @@ class PracticeManager {
                 g.drawAll();
             }
         } else {
-            // おじゃまぷよ＝色6（PConfigに専用定数はなく practice_snapshot.js の CELL_CHARS 等でも
-            // 6を使っている）。上(r昇順)・列は左から走査してamount個を0にする。
+            // 上(r昇順)・列は左から走査してamount個の空でないセルを0にする。
             const totalRows = PConfig.rows + PConfig.hiddenRows;
             let removed = 0;
             outer:
             for (let r = 0; r < totalRows; r++) {
                 for (let c = 0; c < PConfig.cols; c++) {
                     if (removed >= amount) break outer;
-                    if (g.field[r][c] === 6) {
+                    if (g.field[r][c] !== 0) {
                         g.field[r][c] = 0;
                         removed++;
                     }
@@ -1249,8 +1259,9 @@ function _practiceResetSpinner() {
         _practiceSpinner = null;
         if (window.FocusNav) window.FocusNav.suspended = false;
     }
-    // ツモ順設定エディタ（Phase 3 §7）も同じ理由で必ず畳む
-    if (typeof PracticeSequence !== 'undefined') PracticeSequence.closeEditor();
+    // ツモ順設定エディタ（Phase 3 §7）も同じ理由で必ず畳む。ページを離れるのは
+    // 「確定」ではないので取消扱いにする（設計 Phase6 §5.3）
+    if (typeof PracticeSequence !== 'undefined') PracticeSequence.closeEditor(false);
 }
 
 function _practiceGoalLabel(type, rule) {
