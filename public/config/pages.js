@@ -9,6 +9,9 @@
 const EXTERNAL_PAGES = {
   credits:   'pages/credits.html?v=2',
   changelog: 'pages/changelog.html?v=5',
+  // PRACTICEモード関連ファイルは public/practice/ にまとめている（設計 Phase6 §9.1）。
+  // このマップはパスに制約が無く、'pages/' 配下である必要はない。
+  'practice-help': 'practice/help.html?v=1',
 };
 
 // 読み込み済みフラグ（多重 fetch 防止 / Promise を保持して重複読込を共有）
@@ -62,7 +65,7 @@ async function openInfoPage(id) {
   // 再閲覧時に前回のスクロール位置（＝下＝古い履歴）が残らないよう先頭へ戻す
   const page = document.getElementById(id + '-page');
   if (page) {
-    page.querySelectorAll('.changelog-list, #changelog-container, .credits-list').forEach((el) => {
+    page.querySelectorAll('.changelog-list, #changelog-container, .credits-list, .practice-help-list').forEach((el) => {
       el.scrollTop = 0;
     });
   }

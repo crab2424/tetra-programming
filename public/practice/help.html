@@ -1,0 +1,125 @@
+<!-- ─────────────────────────────────────────────
+     PRACTICE 説明ページ（外部分離 / config/pages.js が動的に注入）
+     設計: source_assets/memory/tetlabo-practice-mode-phase6-design.md §9
+───────────────────────────────────────────── -->
+<div id="practice-help-page" class="page">
+  <div id="practice-help-container">
+
+    <div id="practice-help-header">
+      <h1 class="practice-help-title">PRACTICE</h1>
+      <p class="practice-help-subtitle">HELP</p>
+    </div>
+
+    <div class="practice-help-list">
+
+      <div class="practice-help-entry">
+        <div class="practice-help-entry-head">GOAL</div>
+        <ul class="practice-help-items">
+          <li>NONE / LINES・PUYOS / SCORE / TIME から選べる。VALUE で目標値を設定する</li>
+          <li>目標を達成すると、続けるか達成時点の成績でリザルトへ進むか選べる</li>
+          <li>PRACTICE の記録は保存されない（自己ベストや対戦記録の対象外）</li>
+        </ul>
+      </div>
+
+      <div class="practice-help-entry">
+        <div class="practice-help-entry-head">REWIND（巻き戻し）</div>
+        <ul class="practice-help-items">
+          <li>直近100手まで、いつでも1手ずつ戻したり進めたりできる</li>
+          <li>盤面左のインジケータの ⟲ / ⟳ をクリック、またはキー
+            <b>[<span data-practice-key="rewind"></span> / <span data-practice-key="advance"></span>]</b>
+            で操作する</li>
+          <li>盤面クリア・DELETE（部分削除）・SEQUENCE の編集は手の境界ではないため、
+            巻き戻し履歴には積まれない</li>
+          <li>GAME OVER / FINISH 後のリザルト画面にも「REWIND」ボタンがあり、
+            そこから直接プレイへ戻れる</li>
+        </ul>
+      </div>
+
+      <div class="practice-help-entry">
+        <div class="practice-help-entry-head">CYCLE PIECE（即時ツモ変化）</div>
+        <ul class="practice-help-items">
+          <li>操作中のミノ／ぷよだけを、固定サイクルの順に即座に入れ替える隠し機能。
+            NEXT やホールドの中身は変えない</li>
+          <li>盤面右下のインジケータをクリック、またはキー
+            <b>[<span data-practice-key="cycleTsumo"></span>]</b> で操作する</li>
+          <li>tet のサイクル順: I → T → S → Z → J → L → O（最後まで行くと I に戻る）</li>
+          <li>puyo は現在の COLORS 内の色のみを、軸色×子色の全組み合わせで巡回する</li>
+          <li>カウンタは「新しいツモが出現するたび」「巻き戻したとき」「COLORS を変更したとき」
+            「ホールドしたとき」にリセットされ、次の1回目は必ず先頭（tet なら I）に戻る</li>
+        </ul>
+      </div>
+
+      <div class="practice-help-entry">
+        <div class="practice-help-entry-head">SETTINGS PANEL（設定パネル）</div>
+        <ul class="practice-help-items">
+          <li>盤面左の ⚙ タブから開閉する。開いている間はゲームが一時停止する</li>
+          <li>SPEED: 自由落下の速さ。0（既定）は自然落下なし</li>
+          <li>NEXT: 表示するネクスト数（1〜10）</li>
+          <li>HOLD（tet）: FREE（1手に何度でも使える）／ ON（通常どおり1手1回）／ OFF</li>
+          <li>GHOST（tet）: 接地位置プレビューの表示切替</li>
+          <li>COLORS（puyo）: 使用する色数。少ない色数は多い色数に含まれる並びになる</li>
+          <li>SEQUENCE / OJAMA / DELETE の各項目は下記の対応する節を参照</li>
+          <li>盤面クリア: 盤面を全て空にする（巻き戻し履歴には積まれない）</li>
+        </ul>
+      </div>
+
+      <div class="practice-help-entry">
+        <div class="practice-help-entry-head">OJAMA（おじゃま）</div>
+        <ul class="practice-help-items">
+          <li>AUTO OFF（既定）: 「おじゃま送る」を押した瞬間に AMT ぶん即座に着弾する</li>
+          <li>AUTO ON: INTERVAL 秒ごとに自動送信し、対戦と同じ予告つき（約1.5秒後に着弾）で降る</li>
+          <li>AUTO OFF で着弾させた直後は、パネルを閉じるまでの間 AMT を動かすだけで
+            着弾ぶんをリアルタイムに増減できる（減らして0にすると投下前の盤面に戻る＝キャンセル）</li>
+          <li>一度減らして消えた段は「無かったこと」になり、再び増やすとその段だけ新しい
+            穴で抽選し直される（減らしていない段の穴はそのまま変わらない）</li>
+          <li>HOLE RATE（tet のみ）: 隣り合うおじゃま行の穴が同じ列に揃う確率（10%刻み）</li>
+        </ul>
+      </div>
+
+      <div class="practice-help-entry">
+        <div class="practice-help-entry-head">DELETE / 盤面クリア</div>
+        <ul class="practice-help-items">
+          <li>DELETE LINES（tet）: 下から指定した本数ぶん、空でない行を消して詰める</li>
+          <li>DELETE PUYOS（puyo）: 上から指定した個数ぶん、空でないぷよを消す</li>
+          <li>おじゃまに限らず通常のブロック・ぷよも対象になる（種類を問わない）</li>
+          <li>盤面クリアと同様、巻き戻し履歴には積まれない</li>
+        </ul>
+      </div>
+
+      <div class="practice-help-entry">
+        <div class="practice-help-entry-head">SEQUENCE（ツモ順設定）</div>
+        <ul class="practice-help-items">
+          <li>準備画面またはゲーム中のパネルから、ツモの出現順を自分で組める</li>
+          <li>バッグ（枠の列）を複数用意でき、BAG ORDER（バッグの並び：LOOP／RANDOM）と
+            SLOT ORDER（バッグ内の枠の並び：LOOP／RANDOM）を別々に設定できる</li>
+          <li>枠の値は固定するか「?」（その場でランダム抽選）にできる</li>
+          <li>エディタは <b>Enter</b> または <b>Space</b> で確定、<b>Esc</b> で編集前の内容に戻して閉じる
+            （DONE を押したときだけ保存される）</li>
+          <li>ゲーム中に ON / OFF / 編集確定のいずれを行っても、NEXT とツモ生成へ即座に反映される</li>
+          <li>OFF に戻すと、ON にする直前の NEXT・BAG（tet）・COLORS（puyo）がそのまま復元される</li>
+        </ul>
+      </div>
+
+      <div class="practice-help-entry">
+        <div class="practice-help-entry-head">KEYS（隠しキー操作）</div>
+        <ul class="practice-help-items">
+          <li>REWIND（戻す）: <b><span data-practice-key="rewind"></span></b></li>
+          <li>ADVANCE（進める）: <b><span data-practice-key="advance"></span></b></li>
+          <li>CYCLE PIECE（即時ツモ変化）: <b><span data-practice-key="cycleTsumo"></span></b></li>
+          <li>SETTINGS PANEL（設定パネル開閉）: <b><span data-practice-key="practicePanel"></span></b></li>
+          <li>これらは SETTINGS のキーコンフィグ画面で変更できる
+            （通常の CONTROLS 一覧には表示されない）</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <div id="practice-help-buttons">
+      <button class="menu-btn btn-secondary" onclick="switchPage('mode-check')">
+        <span class="menu-btn-icon">◀</span>
+        <span>BACK</span>
+      </button>
+    </div>
+
+  </div>
+</div>

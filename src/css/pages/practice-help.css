@@ -1,0 +1,104 @@
+/* ─────────────────────────────────────────────
+   PRACTICE 説明ページ（practice-help-page）
+   設計: source_assets/memory/tetlabo-practice-mode-phase6-design.md §9.5
+   changelog.css の構造（左寄せヘッダー＋スクロールするセクション一覧）を踏襲する。
+───────────────────────────────────────────── */
+#practice-help-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+#practice-help-container {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 84vh;
+  overflow: hidden;
+  padding: 40px 32px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-sizing: border-box;
+}
+
+#practice-help-header {
+  text-align: left;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+
+.practice-help-title {
+  font-family: "Orbitron", monospace;
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  color: var(--practice-color);
+  margin: 0 0 4px;
+}
+
+.practice-help-subtitle {
+  font-family: "Orbitron", monospace;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 3px;
+  margin: 0;
+}
+
+.practice-help-list {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.practice-help-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.practice-help-entry-head {
+  font-family: "Orbitron", monospace;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--practice-color);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.practice-help-items {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.practice-help-items b {
+  color: var(--practice-color);
+  font-weight: 700;
+}
+
+#practice-help-buttons {
+  margin-top: 4px;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+#practice-help-buttons .menu-btn {
+  width: 100%;
+}

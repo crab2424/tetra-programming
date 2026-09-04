@@ -1458,7 +1458,30 @@ function _practiceSequenceRowHtml() {
       </div>
       <button class="practice-seq-edit-btn${enabled ? '' : ' is-disabled'}"
         ${enabled ? '' : 'disabled'} onclick="openPracticeSequenceEditor()">EDIT SEQUENCE →</button>
+      <button class="practice-help-btn" onclick="openInfoPage('practice-help')">HELP →</button>
     `;
+}
+
+// ─── HELPページ（設計 Phase6 §9.4）: KEYS欄を実バインドから埋める ───────
+// switchPage()の pageId==='practice-help' 分岐から呼ばれる。
+// [data-practice-key="xxx"] のプレースホルダにshortLabel化したキー名を差し込む。
+function renderPracticeHelpKeys() {
+    const keys = (typeof loadKeys === 'function') ? loadKeys() : null;
+    const codesOf = (action, fallback) => {
+        const k = keys && keys[action];
+        return (k && k.codes && k.codes.length) ? k.codes : [fallback];
+    };
+    const shortLabel = (code) => code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '');
+    const set = (action, fallback) => {
+        const label = shortLabel(codesOf(action, fallback)[0]);
+        document.querySelectorAll('[data-practice-key="' + action + '"]').forEach(el => {
+            el.textContent = label;
+        });
+    };
+    set('rewind', 'KeyQ');
+    set('advance', 'KeyE');
+    set('cycleTsumo', 'KeyC');
+    set('practicePanel', 'Tab');
 }
 
 // ─── 桁スピナー（§4.2。フィードバックにより一部変更）─────────

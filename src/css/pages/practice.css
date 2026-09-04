@@ -495,6 +495,27 @@ body.practice-panel-open .practice-panel-dock {
   pointer-events: none;
 }
 
+/* ─── Phase 6 §9: HELPページへの導線（準備画面）。EDIT SEQUENCEと見た目を揃える ─── */
+.practice-help-btn {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.practice-help-btn:hover,
+.practice-help-btn.is-focused {
+  background: rgba(156, 167, 184, 0.12);
+  border-color: var(--practice-color);
+  color: var(--practice-color);
+}
+
 /* 準備画面に被せるフルスクリーンモーダル（mode-check-pageの外、bodyの直下に配置） */
 #practice-seq-modal {
   display: none;
