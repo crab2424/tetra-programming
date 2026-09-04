@@ -24,6 +24,7 @@ const DEFAULT_BINDS = {
   rewind:  [{ type: 'key', code: 'KeyQ', label: 'Q' }, { type: 'button', index: 6 }, null],
   advance: [{ type: 'key', code: 'KeyE', label: 'E' }, { type: 'button', index: 7 }, null],
   practicePanel: [{ type: 'key', code: 'Tab', label: 'TAB' }, { type: 'button', index: 10 }, null],
+  cycleTsumo: [{ type: 'key', code: 'KeyC', label: 'C' }, { type: 'button', index: 11 }, null],
 };
 
 const ACTION_LABELS = {
@@ -41,6 +42,7 @@ const ACTION_LABELS = {
   rewind:  { name: '1手戻す (PRACTICE)', en: 'Rewind (Practice)' },
   advance: { name: '1手進める (PRACTICE)', en: 'Advance (Practice)' },
   practicePanel: { name: '設定パネル開閉 (PRACTICE)', en: 'Settings Panel (Practice)' },
+  cycleTsumo: { name: '即時ツモ変化 (PRACTICE)', en: 'Cycle Piece (Practice)' },
 };
 
 /**

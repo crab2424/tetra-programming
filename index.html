@@ -922,6 +922,11 @@
         <span id="practice-rewind-flash-text">REWIND</span>
         <span id="practice-rewind-flash-pos">0 / 0</span>
       </div>
+      <!-- ★ PRACTICEモード専用: 即時ツモ変化の結果表示（Phase 5 §9.6）。隠しキー操作のため
+           操作パネルには入れない。盤面中央に短く出す。 -->
+      <div id="practice-cycle-flash" class="practice-cycle-flash">
+        <span id="practice-cycle-flash-text">⟳ I</span>
+      </div>
       <!-- ★ PRACTICEモード専用(puyoのみ): SPEED表示(§3.1)＋COLORS併記(§3.3) -->
       <div id="practice-speed-area" class="practice-status practice-hud-block">
         <span class="area-label">SPEED</span>
@@ -1266,7 +1271,7 @@
   <script src="core/base.js?v=7"></script>
   <script src="core/particles.js?v=1"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=4"></script>
+  <script src="config/settings.js?v=5"></script>
   <script src="config/records.js?v=1"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
@@ -1299,8 +1304,8 @@
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=2"></script>
   <script src="practice/practice_sequence.js?v=3"></script>
-  <script src="practice/practice_panel.js?v=10"></script>
-  <script src="practice/practice.js?v=12"></script>
+  <script src="practice/practice_panel.js?v=11"></script>
+  <script src="practice/practice.js?v=13"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 
