@@ -915,13 +915,6 @@
             onmousedown="event.preventDefault()" onclick="practiceRewindStep(1)">⟳<b id="practice-rewind-fwd-count">0</b></span>
         </div>
         <div class="practice-rewind-keys" id="practice-rewind-keys">Q / E</div>
-        <!-- ★ Phase6 §7: 即時ツモ変化（キー専用だった機能の可視化）。次に出るツモを表示する。 -->
-        <div class="practice-rewind-label practice-cycle-label">CYCLE</div>
-        <div class="practice-rewind-row">
-          <span id="practice-cycle-btn" class="practice-rewind-btn"
-            onmousedown="event.preventDefault()" onclick="practiceCycleTsumo()">⟳<b id="practice-cycle-next">I</b></span>
-        </div>
-        <div class="practice-rewind-keys" id="practice-cycle-keys">C</div>
       </div>
       <!-- ★ PRACTICEモード専用: REWIND/ADVANCEの移動エフェクト（Phase 5 §5）。盤面中央に一瞬光る。 -->
       <div id="practice-rewind-flash" class="practice-rewind-flash">
@@ -934,11 +927,13 @@
       <div id="practice-cycle-flash" class="practice-cycle-flash">
         <span id="practice-cycle-flash-text">⟳ I</span>
       </div>
-      <!-- ★ PRACTICEモード専用(puyoのみ): SPEED表示(§3.1)＋COLORS併記(§3.3) -->
-      <div id="practice-speed-area" class="practice-status practice-hud-block">
-        <span class="area-label">SPEED</span>
-        <span id="practice-speed-value">0</span>
-        <span id="practice-speed-colors" class="practice-hud-sub"></span>
+      <!-- ★ PRACTICEモード専用: 即時ツモ変化インジケータ（右下・APM枠の位置。tet/puyo共通で表示。
+           実機FBによりtet/puyoとも左のREWINDから分離し右側へ配置し直した）。 -->
+      <div id="practice-cycle-area" class="practice-status practice-hud-block">
+        <span class="area-label">CYCLE</span>
+        <span id="practice-cycle-btn" class="practice-rewind-btn"
+          onmousedown="event.preventDefault()" onclick="practiceCycleTsumo()">⟳<b id="practice-cycle-next">I</b></span>
+        <span class="practice-hud-sub" id="practice-cycle-keys">C</span>
       </div>
       <!-- ★ PRACTICEモード専用(tetのみ): versusと同じ見た目のおじゃまゲージ(§3.2) -->
       <div id="practice-garbage-gauge" class="garbage-gauge"></div>
@@ -1311,8 +1306,8 @@
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=2"></script>
   <script src="practice/practice_sequence.js?v=4"></script>
-  <script src="practice/practice_panel.js?v=12"></script>
-  <script src="practice/practice.js?v=15"></script>
+  <script src="practice/practice_panel.js?v=13"></script>
+  <script src="practice/practice.js?v=16"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 

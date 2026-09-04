@@ -21,8 +21,11 @@ const PRACTICE_HISTORY_MAX = 100;
 // 要求サイクル I,T,S,Z,J,L,O をtype値の並びに変換する。
 const TET_CYCLE = [0, 2, 5, 6, 3, 4, 1];
 const TET_CYCLE_LABEL = ['I', 'O', 'T', 'J', 'L', 'S', 'Z']; // type値→表示ラベル
-// puyo: 色番号 1:R 2:B 3:G 4:Y 5:P
-const PUYO_COLOR_LABEL = { 1: 'R', 2: 'B', 3: 'G', 4: 'Y', 5: 'P' };
+// puyo: 色番号 1:R 2:B 3:P 4:G 5:Y
+// 実際の描画（draw.js _drawPuyo の imageIndex = color - 1、画像は puyo-0=赤/puyo-1=青/
+// puyo-2=紫/puyo-3=緑/puyo-4=黄）に合わせた対応表。practice_sequence.jsのPUYO_COLOR_LABELS
+// と同じ並びにする必要がある（Phase6実機フィードバックで3〜5番のズレが発覚し修正）。
+const PUYO_COLOR_LABEL = { 1: 'R', 2: 'B', 3: 'P', 4: 'G', 5: 'Y' };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PracticeManager
@@ -199,6 +202,17 @@ class PracticeManager {
             game._updateChainDisplay = function (chain) {
                 self._origUpdateChainDisplay.call(this, chain);
                 if (this.linesEl) this.linesEl.textContent = this.clearedPuyos;
+            }.bind(game);
+        } else if (this.rule === 'puyo') {
+            // ─── puyoの「CHAIN」表示をSPEEDに置き換える（実機FB）───
+            // 「LINES」枠は元々「CHAIN」（現在の連鎖数、連鎖が起きた時だけ更新）に
+            // 転用されていたが、練習中は常時見えるSPEEDのほうが有用なため撤去して置き換える。
+            const labelEl = document.getElementById('label-lines');
+            if (labelEl) labelEl.textContent = 'SPEED';
+            this._origUpdateChainDisplay = game._updateChainDisplay;
+            game._updateChainDisplay = function (chain) {
+                self._origUpdateChainDisplay.call(this, chain);
+                if (this.linesEl) this.linesEl.textContent = _practiceFallLabel(self.fallLevel);
             }.bind(game);
         }
 
@@ -524,12 +538,19 @@ class PracticeManager {
     }
 
     // ─────────────────────────────────────────
-    // HUD: SPEED→LEVEL統合（tetのみ・設計 §3.1）
+    // HUD: SPEED表示（設計 §3.1・実機FBでpuyoも追加）
+    // tet: LEVEL枠(#level-value)に統合。puyo: 旧CHAIN枠(#lines-value)を置き換え
+    // （GOAL=PUYOSのときはその枠を進捗表示に使っているため触らない）。
     // ─────────────────────────────────────────
     _syncLevelDisplay() {
-        if (this.rule !== 'tet') return;
-        const el = document.getElementById('level-value');
-        if (el) el.textContent = this.fallLevel;
+        if (this.rule === 'tet') {
+            const el = document.getElementById('level-value');
+            if (el) el.textContent = this.fallLevel;
+            return;
+        }
+        if (this.goal.type === 'puyos') return;
+        const el = document.getElementById('lines-value');
+        if (el) el.textContent = _practiceFallLabel(this.fallLevel);
     }
 
     // ─────────────────────────────────────────
@@ -993,10 +1014,12 @@ class PracticeManager {
             g.applyGarbage();
             // applyGarbage()は既存ブロックを上へずらして最下段に積むため、操作中のミノも
             // 一緒に持ち上げないと山に埋まって見える（相対位置を保つ＝体感どおり）。
+            // ただし出現位置（spawn()のy）より上へは押し出さない（設計 Phase6 実機FB）。
             if (g.mino) {
-                g.mino.y -= amount;
+                const spawnY = (g.mino.type === 0) ? -1 : -2;
+                g.mino.y = Math.max(spawnY, g.mino.y - amount);
                 let guard = 0;
-                while (!g.valid(0, 0) && guard++ < 8) g.mino.y -= 1;
+                while (!g.valid(0, 0) && g.mino.y > spawnY && guard++ < 8) g.mino.y -= 1;
             }
             g.field.markDirty();
             g.drawAll();
@@ -1323,8 +1346,19 @@ class PracticeManager {
         const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
         set('practice-rewind-back-count', 0);
         set('practice-rewind-fwd-count', 0);
-        const speedArea = document.getElementById('practice-speed-area');
-        if (speedArea) speedArea.classList.remove('is-visible');
+        set('practice-cycle-next', '');
+        const cycleArea = document.getElementById('practice-cycle-area');
+        if (cycleArea) cycleArea.classList.remove('is-visible');
+
+        // REWIND/CYCLEのフラッシュ演出を強制的に止める（実機FB）。ページを離れて
+        // #game-pageがdisplay:noneになるとCSSアニメが途中で止まったまま.is-activeが
+        // 残り続け、RETRYで#game-pageが再表示された瞬間にアニメが最初から再生され、
+        // 古いテキスト（前回の巻き戻し手数など）が一瞬見えてしまうため、破棄時に
+        // 必ずクラスを外して止める。
+        const rewindFlash = document.getElementById('practice-rewind-flash');
+        if (rewindFlash) rewindFlash.classList.remove('is-active', 'is-advance');
+        const cycleFlash = document.getElementById('practice-cycle-flash');
+        if (cycleFlash) cycleFlash.classList.remove('is-active');
     }
 }
 

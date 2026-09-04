@@ -227,11 +227,6 @@ body.practice-mode #puyo-next-canvas {
   opacity: 0.7;
 }
 
-/* ─── Phase 6 §7: 即時ツモ変化インジケータ（REWINDブロックの下に増設） ─── */
-.practice-cycle-label {
-  margin-top: 10px;
-}
-
 /* ─── Phase 5 §5: REWIND/ADVANCEの移動エフェクト ───
    盤面中央に一瞬フラッシュを出す。ポーズ中でもCSSアニメは進行する（step()はゲーム
    停止中でも呼べるため、JSのrAF駆動に依存させない）。 */
@@ -317,7 +312,9 @@ body.practice-mode #puyo-next-canvas {
   100% { opacity: 0; }
 }
 
-/* ─── Phase 4 §3.1: puyoのSPEED+COLORS表示（廃止した practice-status-right の位置を流用） ─── */
+/* ─── 右下(旧APM枠)のHUDブロック（廃止した practice-status-right の位置を流用）。
+   Phase4 §3.1ではpuyoのSPEED+COLORS表示だったが、実機FBによりCYCLEインジケータ
+   （tet/puyo共通）へ用途変更した。puyoのSPEEDは#lines-area（旧CHAIN枠）へ移設。 ─── */
 .practice-hud-block {
   top: 570px;
   left: 352px;
@@ -328,11 +325,15 @@ body.practice-mode #puyo-next-canvas {
   margin-bottom: 4px;
   font-size: 10px;
 }
-#practice-speed-value {
-  font-family: "Orbitron", monospace;
+#practice-cycle-btn {
   font-size: 18px;
-  font-weight: 700;
+  cursor: pointer;
   color: var(--practice-color);
+}
+#practice-cycle-btn b {
+  margin-left: 2px;
+  color: var(--practice-color);
+  font-weight: 700;
 }
 .practice-hud-sub {
   display: block;
