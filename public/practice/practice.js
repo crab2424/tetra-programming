@@ -315,17 +315,20 @@ class PracticeManager {
         return g.state === 'playing';
     }
 
-    // GAME OVER/FINISH演出中(isEnding)は設定パネルのドック（⚙タブ含む）・巻き戻しインジケータを
+    // GAME OVER/FINISH演出中(isEnding)は設定パネルの開閉タブ・巻き戻しインジケータを
     // クリック経路ごと隠す（設計 Phase5 §4.2）。rewindFromResult() / _resumeEngine() で表示を戻す。
+    // カード本体（設計 Phase6 §8でビューポート固定配置に変更）は念のため閉じておく
+    // （開いたままisEndingに入ることは togglePracticePanel() のガードにより実質起きない）。
     _hideEndingControls() {
-        const dock = document.getElementById('practice-panel-dock');
-        if (dock) dock.classList.remove('is-visible');
+        const tab = document.getElementById('practice-panel-tab');
+        if (tab) tab.classList.add('is-hidden');
+        document.body.classList.remove('practice-panel-open');
         const left = document.getElementById('practice-status-left');
         if (left) left.classList.remove('is-visible');
     }
     _showEndingControls() {
-        const dock = document.getElementById('practice-panel-dock');
-        if (dock) dock.classList.add('is-visible');
+        const tab = document.getElementById('practice-panel-tab');
+        if (tab) tab.classList.remove('is-hidden');
         const left = document.getElementById('practice-status-left');
         if (left) left.classList.add('is-visible');
     }
@@ -849,8 +852,7 @@ class PracticeManager {
     _renderResult(kind, stats) {
         this.isFinished = true;
         if (this._goalLoopId) { cancelAnimationFrame(this._goalLoopId); this._goalLoopId = null; }
-        const panel = document.getElementById('practice-panel-dock');
-        if (panel) panel.classList.remove('is-open');
+        document.body.classList.remove('practice-panel-open');
 
         const titleEl = document.getElementById('result-title');
         if (titleEl) {
