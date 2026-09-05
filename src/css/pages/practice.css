@@ -350,20 +350,29 @@ body.practice-panel-open .practice-panel-dock {
   margin-bottom: 4px;
   font-size: 10px;
 }
+/* CYCLEの前後2ボタン。REWINDの.practice-rewind-rowと同型（設計 Phase8 §2.5）。
+   puyoのラベルは"Y-P"と3文字あり19pxのままでは横に伸びすぎるため15pxへ落とした
+   （旧18px→19px→2つ並べるため15pxの経緯。設計 Phase7 §5 / Phase8 §2.5）。 */
+.practice-cycle-row {
+  display: flex;
+  gap: 10px;
+}
+#practice-cycle-back,
 #practice-cycle-btn {
-  font-size: 19px; /* 18px→19px（設計 Phase7 §5） */
+  font-size: 15px;
   cursor: pointer;
   color: var(--practice-color-hi);
   text-shadow: 0 0 8px rgba(156, 167, 184, 0.45);
 }
+#practice-cycle-back b,
 #practice-cycle-btn b {
   margin-left: 2px;
   color: var(--practice-color-hi);
   font-weight: 700;
 }
 /* REWINDと同じ「押せない」表現（設計 Phase7 §5。_isLive()がfalseのときis-disabledが付く） */
-#practice-cycle-btn.is-disabled,
-#practice-cycle-btn.is-disabled b {
+#practice-cycle-back.is-disabled, #practice-cycle-back.is-disabled b,
+#practice-cycle-btn.is-disabled,  #practice-cycle-btn.is-disabled b {
   color: var(--text-dim);
   text-shadow: none;
 }

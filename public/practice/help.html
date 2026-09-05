@@ -40,14 +40,17 @@
         <ul class="practice-help-items">
           <li>操作中のミノ／ぷよだけを、固定サイクルの順に即座に入れ替える隠し機能。
             NEXT やホールドの中身は変えない</li>
-          <li>盤面右下のインジケータをクリック、またはキー
-            <b>[<span data-practice-key="cycleTsumo"></span>]</b> で操作する</li>
-          <li>tet のサイクル順: I → T → S → Z → J → L → O（最後まで行くと I に戻る）</li>
+          <li>盤面右下のインジケータをクリック、またはキーで操作する。
+            <b>[<span data-practice-key="cycleTsumoBack"></span>]</b> が逆方向、
+            <b>[<span data-practice-key="cycleTsumo"></span>]</b> が順方向</li>
+          <li>tet のサイクル順: I → T → S → Z → J → L → O（最後まで行くと I に戻る。
+            逆方向は同じ並びを逆にたどる）</li>
           <li>puyo は現在の COLORS 内の色のみを、軸色×子色の全組み合わせで巡回する。
             並び順は使用色数に関わらず常に R → B → G → Y → P の固定順（使う色自体は
             局ごとに抽選される）</li>
-          <li>カウンタは「新しいツモが出現するたび」「巻き戻したとき」「COLORS を変更したとき」
-            「ホールドしたとき」にリセットされ、次の1回目は必ず先頭（tet なら I）に戻る</li>
+          <li>「新しいツモが出現するたび」「巻き戻したとき」「COLORS を変更したとき」
+            「ホールドしたとき」に元のツモへ戻り、次の1回目は順方向なら先頭
+            （tet なら I）、逆方向なら末尾（tet なら O）に入る</li>
         </ul>
       </div>
 
@@ -72,7 +75,8 @@
           <li>ON: AMOUNT を動かした差分だけ盤面へ即座に反映する。プレイ中でも有効で、
             何手か進めた後で AMOUNT を触っても、それまでに置いたミノ／ぷよは消えない</li>
           <li>FIXED: ON と同じく差分反映だが、プレイでおじゃまが自然に消えた分（ライン消去・
-            連鎖に巻き込まれた等）も自動で AMOUNT まで補充し、常に段数を維持し続ける</li>
+            連鎖に巻き込まれた等）も自動で AMOUNT まで補充し、常に段数を維持し続ける。
+            puyo はこの自動補充が AUTO と同じ落下アニメーションつきで降る（tet は即時）</li>
           <li>AUTO: INTERVAL 秒ごとに自動送信し、対戦と同じ予告つき（約1.5秒後に着弾）で降る</li>
           <li>ON/FIXED で AMOUNT を下げると、その場で該当ぶんの段を実際に取り除く
             （一度取り除いた段の穴は「無かったこと」になり、再び増やすとその段だけ
@@ -115,7 +119,8 @@
         <ul class="practice-help-items">
           <li>REWIND（戻す）: <b><span data-practice-key="rewind"></span></b></li>
           <li>ADVANCE（進める）: <b><span data-practice-key="advance"></span></b></li>
-          <li>CYCLE PIECE（即時ツモ変化）: <b><span data-practice-key="cycleTsumo"></span></b></li>
+          <li>CYCLE PIECE FWD（即時ツモ変化・順）: <b><span data-practice-key="cycleTsumo"></span></b></li>
+          <li>CYCLE PIECE BACK（即時ツモ変化・逆）: <b><span data-practice-key="cycleTsumoBack"></span></b></li>
           <li>SETTINGS PANEL（設定パネル開閉）: <b><span data-practice-key="practicePanel"></span></b></li>
           <li>これらは SETTINGS のキーコンフィグ画面で変更できる
             （通常の CONTROLS 一覧には表示されない）</li>

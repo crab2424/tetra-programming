@@ -62,8 +62,9 @@ class PracticeManager {
         // 演出中はこのフラグで操作を止める。resumeEngine/rewindFromResultでfalseに戻す。
         this.isEnding = false;
 
-        // 即時ツモ変化（設計 Phase5 §9）。新しいツモが出るたびにリセットされるカウンタ。
-        this._cycleCount = 0;
+        // 即時ツモ変化（設計 Phase5 §9・Phase8 §2）。サイクル上の現在位置。nullは
+        // 「まだ一度も変化させていない＝元のツモ」。新しいツモ出現・HOLD・巻き戻しでnullに戻す。
+        this._cycleIndex = null;
 
         // 差し替えたメソッドの復元用
         this._origPopMino = null;
@@ -179,7 +180,7 @@ class PracticeManager {
             game.popMino = function () {
                 // _capture()内でHUD更新が走るため、リセットは_capture()より前に置く
                 // （順序が逆だとCYCLE表示が1手古いままになる。設計 Phase7 §2）
-                self._cycleCount = 0; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1）
+                self._cycleIndex = null; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1・Phase8 §2.1）
                 self._capture();
                 // FIXED中の自動補充は、直前のツモのライン消去が解決した直後＝次のツモの
                 // 出現直前(spawn妥当性チェック前)に行う（設計 Phase7 追補3）
@@ -194,7 +195,7 @@ class PracticeManager {
         } else {
             this._origSpawnPuyo = game._spawnPuyo;
             game._spawnPuyo = function () {
-                self._cycleCount = 0; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1・Phase7 §2）
+                self._cycleIndex = null; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1・Phase7 §2・Phase8 §2.1）
                 self._capture();
                 // FIXEDの自動補充は_beginSpawnAnimフックへ移設した（設計 Phase8 §1.2）。
                 // ここで呼ぶとエンジンのおじゃま投下ポイント(checkErase末尾)を過ぎており、
@@ -396,20 +397,39 @@ class PracticeManager {
     }
 
     // ─────────────────────────────────────────
-    // 即時ツモ変化（設計 Phase5 §9）。操作パネルには入れない隠し機能＝REWINDと同じ扱い。
-    // 現在操作中のミノ/ぷよのみを固定サイクルで変化させる（NEXT/HOLDには触らない）。
+    // 即時ツモ変化（設計 Phase5 §9・Phase8 §2）。操作パネルには入れない隠し機能＝
+    // REWINDと同じ扱い。現在操作中のミノ/ぷよのみを固定サイクルで変化させる
+    // （NEXT/HOLDには触らない）。dir>0=順方向 / dir<0=逆方向。
     // ─────────────────────────────────────────
-    cycleTsumo() {
-        if (this.rule === 'tet') this._cycleTsumoTet();
-        else this._cycleTsumoPuyo();
+    cycleTsumo(dir = 1) {
+        const idx = this._cycleStepIndex(dir);
+        if (idx === null) return;
+        const ok = (this.rule === 'tet') ? this._cycleTsumoTet(idx, dir) : this._cycleTsumoPuyo(idx, dir);
+        if (ok) this._cycleIndex = idx;
         this._refreshRewindIndicator(); // 「次に出るツモ」表示を更新する（設計 §7.2）
     }
 
-    _cycleTsumoTet() {
+    // サイクル長。tetは7固定、puyoは色数の2乗（2桁n進数＝軸色×子色。設計 §9.3）。
+    _cycleLen() {
+        if (this.rule === 'tet') return TET_CYCLE.length;
+        const n = ((this.gameInstance && this.gameInstance.activeColors) || []).length;
+        return n * n;
+    }
+
+    // dir方向に1つ動かしたときのサイクル上の位置。元のツモ(_cycleIndex===null)からは
+    // 順方向で先頭・逆方向で末尾へ入る＝リング上で対称になるように揃える（設計 §2.2）。
+    _cycleStepIndex(dir) {
+        const L = this._cycleLen();
+        if (!L) return null;
+        if (this._cycleIndex === null) return (dir > 0) ? 0 : L - 1;
+        return ((this._cycleIndex + dir) % L + L) % L;
+    }
+
+    // idxを適用できたらtrueを返す（設計 Phase8 §2.1：適用に失敗したら位置を進めない）。
+    _cycleTsumoTet(idx, dir) {
         const g = this.gameInstance;
-        if (!this._isLive() || !g.mino) return;
-        const type = TET_CYCLE[this._cycleCount % TET_CYCLE.length];
-        this._cycleCount++;
+        if (!this._isLive() || !g.mino) return false;
+        const type = TET_CYCLE[idx];
         const m = new Mino(type);
         m.spawn(); // 出現位置と初期回転（0）をセットする。回転を引き継ぐと型ごとの
                    // 壁蹴りの前提が崩れるため、常に出現時の向きへリセットする。
@@ -421,7 +441,7 @@ class PracticeManager {
         let guard = 0;
         while (!g.valid(0, 0) && guard++ < 4) g.mino.y -= 1;
         if (!g.valid(0, 0)) { g.mino = new Mino(type); g.mino.spawn(); }
-        if (!g.valid(0, 0)) { g.mino = prev; return; } // 詰んでいるなら何もしない（GAMEOVERにしない）
+        if (!g.valid(0, 0)) { g.mino = prev; return false; } // 詰んでいるなら何もしない（GAMEOVERにしない）
         // 接地・ロック関連の状態をpopMino()と同じに初期化する（canHoldは変えない＝ツモ未消費）
         g.isGrounded = false;
         g.lowestY = g.mino.y;
@@ -430,23 +450,23 @@ class PracticeManager {
         g.lastRotUsedPoint5 = false;
         if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
         g.drawAll();
-        this._flashCycle('⟳ ' + TET_CYCLE_LABEL[type]);
+        this._flashCycle((dir > 0 ? '⟳ ' : '⟲ ') + TET_CYCLE_LABEL[type]);
+        return true;
     }
 
-    _cycleTsumoPuyo() {
+    _cycleTsumoPuyo(idx, dir) {
         const g = this.gameInstance;
-        if (!this._isLive()) return;
+        if (!this._isLive()) return false;
         const n = (g.activeColors || []).length;
-        if (!n) return;
-        const i = this._cycleCount % (n * n);
-        this._cycleCount++;
+        if (!n) return false;
         // 2桁n進数扱い：上位桁＝軸（下のぷよ）、下位桁＝子（上のぷよ）（設計 §9.3）
-        g.pivotColor = g.activeColors[Math.floor(i / n)];
-        g.childColor = g.activeColors[i % n];
+        g.pivotColor = g.activeColors[Math.floor(idx / n)];
+        g.childColor = g.activeColors[idx % n];
         if (typeof g._render === 'function') g._render();
         const axisLabel = PUYO_COLOR_LABEL[g.pivotColor] || '?';
         const childLabel = PUYO_COLOR_LABEL[g.childColor] || '?';
-        this._flashCycle('⟳ ' + axisLabel + '-' + childLabel);
+        this._flashCycle((dir > 0 ? '⟳ ' : '⟲ ') + axisLabel + '-' + childLabel);
+        return true;
     }
 
     // 即時ツモ変化の結果を盤面中央に一瞬出す（§5のREWINDフラッシュとは別の軽量な表示。
@@ -467,7 +487,7 @@ class PracticeManager {
         // 巻き戻し先の盤面と穴列の対応が切れるため、次の投下は新規抽選から始める
         // （モード自体は維持＝AUTOのまま巻き戻せる。設計 Phase7 §8.6）
         this.ojama.holes.length = 0;
-        this._cycleCount = 0; // 巻き戻し先のツモに合わせてリセット（設計 Phase5 §9.4）
+        this._cycleIndex = null; // 巻き戻し先のツモに合わせてリセット（設計 Phase5 §9.4）
         // SEQUENCE OFF復帰用の退避も、この時点の履歴とは食い違うため無効化する（設計 Phase6 §6.3）
         this._seqVanilla = null;
         this._seqVanillaColorCount = null;
@@ -636,23 +656,26 @@ class PracticeManager {
         if (backBtn) backBtn.classList.toggle('is-disabled', backCount <= 0);
         if (fwdBtn) fwdBtn.classList.toggle('is-disabled', fwdCount <= 0);
 
-        // 即時ツモ変化（設計 Phase6 §7）: 次に押したときに出るツモを表示する
-        set('practice-cycle-next', this._cycleNextLabel());
-        const cycleBtn = document.getElementById('practice-cycle-btn');
-        if (cycleBtn) cycleBtn.classList.toggle('is-disabled', !this._isLive());
+        // 即時ツモ変化（設計 Phase6 §7・Phase8 §2.5）: 次に押したときに出るツモを
+        // 順方向・逆方向の両方ぶん表示する
+        set('practice-cycle-prev', this._cycleLabelAt(this._cycleStepIndex(-1)));
+        set('practice-cycle-next', this._cycleLabelAt(this._cycleStepIndex(+1)));
+        const live = this._isLive();
+        ['practice-cycle-back', 'practice-cycle-btn'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.toggle('is-disabled', !live);
+        });
     }
 
-    // 次に cycleTsumo() を押したときに出る内容のラベル（盤面インジケータ表示用。設計 §7.2）
-    _cycleNextLabel() {
-        if (this.rule === 'tet') {
-            return TET_CYCLE_LABEL[TET_CYCLE[this._cycleCount % TET_CYCLE.length]];
-        }
+    // サイクル位置idxのラベル（tet='I' / puyo='G-R'）。盤面インジケータ表示用（設計 §7.2・Phase8 §2.5）。
+    _cycleLabelAt(idx) {
+        if (idx === null) return this.rule === 'tet' ? '?' : '?-?';
+        if (this.rule === 'tet') return TET_CYCLE_LABEL[TET_CYCLE[idx]];
         const g = this.gameInstance;
-        const n = (g && g.activeColors || []).length;
+        const n = ((g && g.activeColors) || []).length;
         if (!n) return '?-?';
-        const i = this._cycleCount % (n * n);
-        const axis = g.activeColors[Math.floor(i / n)];
-        const child = g.activeColors[i % n];
+        const axis = g.activeColors[Math.floor(idx / n)];
+        const child = g.activeColors[idx % n];
         return (PUYO_COLOR_LABEL[axis] || '?') + '-' + (PUYO_COLOR_LABEL[child] || '?');
     }
 
@@ -1357,17 +1380,19 @@ class PracticeManager {
         // リスタート/ポーズが素通りすると、止めたはずのエンジンが復活してしまう。
         const restartCodes = codesOf('restart', 'KeyR');
         const pauseCodes = codesOf('pause', 'Escape');
-        // 即時ツモ変化（設計 Phase5 §9）。操作パネルには入れないキー専用の隠し機能。
-        const cycleCodes = codesOf('cycleTsumo', 'KeyC');
+        // 即時ツモ変化（設計 Phase5 §9・Phase8 §2）。操作パネルには入れないキー専用の
+        // 隠し機能。cycleTsumoは順方向・cycleTsumoBackは逆方向。
+        const cycleCodes = codesOf('cycleTsumo', 'KeyD');
+        const cycleBackCodes = codesOf('cycleTsumoBack', 'KeyS');
         const holdCodes = codesOf('hold', 'ShiftLeft');
 
         // インジケータのキー表記を実際の割り当てに合わせる（設計 §2.2）
         const shortLabel = (code) => code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Arrow/, '');
         const keysLabelEl = document.getElementById('practice-rewind-keys');
         if (keysLabelEl) keysLabelEl.textContent = shortLabel(rewindCodes[0]) + ' / ' + shortLabel(advanceCodes[0]);
-        // 即時ツモ変化のキー表記も同様に実バインドから埋める（設計 Phase6 §7.2）
+        // 即時ツモ変化のキー表記も同様に実バインドから埋める（設計 Phase6 §7.2・Phase8 §2.4）
         const cycleKeysLabelEl = document.getElementById('practice-cycle-keys');
-        if (cycleKeysLabelEl) cycleKeysLabelEl.textContent = shortLabel(cycleCodes[0]);
+        if (cycleKeysLabelEl) cycleKeysLabelEl.textContent = shortLabel(cycleBackCodes[0]) + ' / ' + shortLabel(cycleCodes[0]);
 
         this._keyHandler = (e) => {
             if (e.repeat) return;
@@ -1387,13 +1412,17 @@ class PracticeManager {
             } else if (advanceCodes.includes(e.code)) {
                 e.preventDefault();
                 this.step(+1);
+            } else if (cycleBackCodes.includes(e.code)) {
+                // 同じキーがcycleCodesにも割り当てられていた場合は逆回し優先で決め打つ
+                e.preventDefault();
+                this.cycleTsumo(-1);
             } else if (cycleCodes.includes(e.code)) {
                 e.preventDefault();
-                this.cycleTsumo();
+                this.cycleTsumo(1);
             } else if (holdCodes.includes(e.code)) {
                 // ホールドで手元のミノが入れ替わるため、サイクルの起点をやり直す
                 // （設計 §9.4）。ホールド自体はここで奪わず本体のハンドラに渡す。
-                this._cycleCount = 0;
+                this._cycleIndex = null;
             }
         };
         // capture段（第3引数true）で登録し、tet/puyoそれぞれの本体キーハンドラより先に奪う。
@@ -1506,6 +1535,7 @@ class PracticeManager {
         const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
         set('practice-rewind-back-count', 0);
         set('practice-rewind-fwd-count', 0);
+        set('practice-cycle-prev', '');
         set('practice-cycle-next', '');
         const cycleArea = document.getElementById('practice-cycle-area');
         if (cycleArea) cycleArea.classList.remove('is-visible');
@@ -1638,7 +1668,8 @@ function renderPracticeHelpKeys() {
     };
     set('rewind', 'KeyQ');
     set('advance', 'KeyE');
-    set('cycleTsumo', 'KeyC');
+    set('cycleTsumo', 'KeyD');
+    set('cycleTsumoBack', 'KeyS');
     set('practicePanel', 'Tab');
 }
 
@@ -1821,8 +1852,8 @@ function practiceRewindStep(delta) {
 }
 
 // 即時ツモ変化インジケータ（⟳）のクリック操作から呼ばれる（設計 Phase6 §7.2）。
-function practiceCycleTsumo() {
-    if (window._practiceManager) window._practiceManager.cycleTsumo();
+function practiceCycleTsumo(dir = 1) {
+    if (window._practiceManager) window._practiceManager.cycleTsumo(dir);
 }
 
 // stopAllGames() から呼ばれる。フックを外してマネージャを破棄する。
