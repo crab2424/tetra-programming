@@ -398,6 +398,11 @@ body.practice-panel-open .practice-panel-dock {
 .practice-panel-row.is-inert .practice-panel-stepper {
   opacity: 0.45;
 }
+/* FIXED中のDELETE行のように、操作自体を塞ぐ行（設計 Phase7 追補3） */
+.practice-panel-row.is-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
 
 .practice-panel-stepper {
   display: flex;
@@ -436,6 +441,12 @@ body.practice-panel-open .practice-panel-dock {
 .practice-panel-toggle .opt-btn {
   padding: 3px 7px;
   font-size: 10px;
+}
+/* OJAMA(OFF/ON/FIXED/AUTO)の4択用。ボタンの大きさ(.opt-btnのpadding/font-size)は
+   変えず、1行に収まらないので2列×2行に折り返す（設計 Phase7 追補3）。 */
+.practice-panel-toggle.practice-panel-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
 }
 
 .practice-panel-row-action {
