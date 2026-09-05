@@ -160,10 +160,12 @@ body.practice-panel-open .practice-panel-dock {
   border: 2px solid var(--border);
   border-radius: 8px;
   /* 開いている間は必ずポーズ中＝盤面は静止画なので透けても読み違えない。
-     背後の盤面/枠が見えることで「今どこが隠れているか」も分かる（設計 Phase7 §4）。 */
-  background: rgba(10, 10, 15, 0.86);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+     背後の盤面/枠が見えることで「今どこが隠れているか」も分かる（設計 Phase7 §4）。
+     実機FBで0.86では体感できないと指摘され0.62へ再調整（背景自体がほぼ黒に近いため、
+     さらに下げないと透過が知覚できなかった）。 */
+  background: rgba(10, 10, 15, 0.62);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   pointer-events: auto;
 }
 .practice-panel-title {
@@ -273,26 +275,29 @@ body.practice-panel-open .practice-panel-dock {
      保持してから消える形にした（フェードイン/アウトの速さ自体は従来と揃える）。 */
   animation: practiceRewindFlash 1120ms ease-out;
 }
+/* 盤面中央のREWIND/ADVANCEフラッシュ本体。CYCLEフラッシュと同じくHUD可読性強調の
+   対象だが、こちらだけ--practice-colorのまま直し忘れていた（実機FBで発覚。設計 Phase7 追補）。 */
 #practice-rewind-flash-icon {
   font-size: 40px;
-  color: var(--practice-color);
+  color: var(--practice-color-hi);
   text-shadow: 0 0 16px rgba(156, 167, 184, 0.6);
 }
 #practice-rewind-flash-text {
   font-family: "Orbitron", monospace;
   font-size: 14px;
   letter-spacing: 4px;
-  color: var(--practice-color);
+  color: var(--practice-color-hi);
 }
 #practice-rewind-flash-pos {
   font-family: "Orbitron", monospace;
   font-size: 11px;
-  color: var(--text-dim);
+  color: #9aa5b6;
 }
-/* ADVANCE(進む)は戻すと区別するため text-dim 寄りの色にする */
+/* ADVANCE(進む)はREWIND(戻す)と区別するため、明るいままトーンだけ落とす
+   （--text-dimまで沈めると「はっきり映したい」に逆行するため--practice-color止まりにする） */
 .practice-rewind-flash.is-advance #practice-rewind-flash-icon,
 .practice-rewind-flash.is-advance #practice-rewind-flash-text {
-  color: var(--text-dim);
+  color: var(--practice-color);
   text-shadow: none;
 }
 @keyframes practiceRewindFlash {
