@@ -180,6 +180,9 @@ class PracticeManager {
                 // （順序が逆だとCYCLE表示が1手古いままになる。設計 Phase7 §2）
                 self._cycleCount = 0; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1）
                 self._capture();
+                // FIXED中の自動補充は、直前のツモのライン消去が解決した直後＝次のツモの
+                // 出現直前(spawn妥当性チェック前)に行う（設計 Phase7 追補3）
+                self._maintainOjamaFixed();
                 self._origPopMino.call(this);
             }.bind(game);
 
@@ -192,6 +195,9 @@ class PracticeManager {
             game._spawnPuyo = function () {
                 self._cycleCount = 0; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1・Phase7 §2）
                 self._capture();
+                // FIXED中の自動補充は、直前の連鎖解決が終わった直後＝次のぷよ出現直前に行う
+                // （設計 Phase7 追補3）
+                self._maintainOjamaFixed();
                 return self._origSpawnPuyo.call(this);
             }.bind(game);
 
@@ -956,9 +962,12 @@ class PracticeManager {
     }
 
     // ─────────────────────────────────────────
-    // おじゃまはOFF/ON/AUTOの3状態（設計 Phase7 §8。相殺は既存エンジンが自動で行う＝§2.1b）
+    // おじゃまはOFF/ON/FIXED/AUTOの4状態（設計 Phase7 §8＋追補3。相殺は既存エンジンが
+    // 自動で行う＝§2.1b）。FIXEDはONの一種だが「常にAMOUNT段を維持し続ける」＝
+    // プレイで自然に消えた分も自動でせり上げる（実機FBで新設。ON自体の一撃投下の
+    // 挙動は変えない＝既存の使い方を壊さないため別状態に分けた）。
     // ─────────────────────────────────────────
-    // モード切替の本体。パネルのOFF/ON/AUTOボタンから呼ばれる。
+    // モード切替の本体。パネルのOFF/ON/FIXED/AUTOボタンから呼ばれる。
     setOjamaMode(mode) {
         if (mode === this.ojama.mode) return;
         this.ojama.mode = mode;
@@ -968,9 +977,9 @@ class PracticeManager {
             this._cancelPendingOjama();
             this._removeOjamaUnits(Infinity); // 値に関わらず盤面のおじゃまを全部消す
             this.ojama.holes.length = 0;
-        } else if (mode === 'on') {
+        } else if (mode === 'on' || mode === 'fixed') {
             this._cancelPendingOjama(); // 予告中のぶんは無かったことにする
-            this.ojama.holes.length = 0; // ONに入るたびに穴列は引き直す
+            this.ojama.holes.length = 0; // ON/FIXEDに入るたびに穴列は引き直す
             // OFF/AUTOから入る場合はどちらも既に盤面に乗っている実量を実測してから
             // AMTとの差分だけを投下する（AUTOで既に積み上がっているぶんを二重に
             // 足さないため。OFFの直後は0のはずなので従来どおりAMTぶん丸ごと入る）
@@ -979,6 +988,17 @@ class PracticeManager {
             this._restartOjamaTimer();
         }
         if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
+    }
+
+    // FIXED専用：プレイで自然におじゃまが減った分（ライン消去・連鎖に巻き込まれた等）を
+    // 検知して自動でAMOUNTまで補充する。tetのpopMino/puyoの_spawnPuyoフック
+    // （＝直前のツモのライン消去/連鎖解決が完全に終わった直後）から呼ぶ（設計 Phase7 追補3）。
+    // 巻き戻し(_restoreCurrent)は「その時点の履歴」を尊重するためここでは呼ばない＝
+    // 次に実際に手を進めたときから補充を再開する。
+    _maintainOjamaFixed() {
+        if (this.ojama.mode !== 'fixed') return;
+        const need = this.ojama.amount - this._countOjamaUnits();
+        if (need > 0) this._dropOjamaNow(need);
     }
 
     // AUTOのタイマーを（再）起動する。実時間ベースで、パネルの開閉(pause)やrewindを
@@ -1125,6 +1145,32 @@ class PracticeManager {
         let count = 0;
         for (const row of g.field) for (const cell of row) if (cell === 6) count++;
         return count;
+    }
+
+    // 盤面クリア（practiceClearBoard）でFIXED中だけ「おじゃまだけ残す」ために使う。
+    // 穴列(holes)から逆算せず、今の盤面に実際に乗っている座標をそのまま記録/復元する
+    // ＝tet/puyoどちらも同じ考え方で書け、DELETEが常にFIXEDで無効な設計とも矛盾しない
+    // （設計 Phase7 追補3）。
+    _captureOjamaCells() {
+        const g = this.gameInstance;
+        if (!g) return [];
+        if (this.rule === 'tet') {
+            return g.field.blocks.filter(b => b.type === 7).map(b => ({ x: b.x, y: b.y }));
+        }
+        const cells = [];
+        for (let r = 0; r < g.field.length; r++) {
+            for (let c = 0; c < g.field[r].length; c++) if (g.field[r][c] === 6) cells.push([r, c]);
+        }
+        return cells;
+    }
+    _restoreOjamaCells(cells) {
+        const g = this.gameInstance;
+        if (!g) return;
+        if (this.rule === 'tet') {
+            cells.forEach(({ x, y }) => g.field.blocks.push(new Block(x, y, 7)));
+        } else {
+            cells.forEach(([r, c]) => { g.field[r][c] = 6; });
+        }
     }
 
     _removeOjamaUnits(n) {

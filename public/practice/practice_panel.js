@@ -205,12 +205,15 @@ function _practicePanelRefresh() {
     // AUTO=INTERVAL秒ごとに予告つきで自動投下。今のモードで効かない行はis-inertで薄く
     // 見せるが操作自体は塞がない（Phase6 §3.2と同じ「不可視のルールを作らない」方針）。
     const ojamaMode = mgr.ojama.mode;
+    // OFF/ON/FIXED/AUTOの4択。ボタンサイズは他の2択/3択と揃えたまま、幅に収まらないので
+    // 2x2のグリッドに折り返す（実機FBでFIXED追加時に指摘。設計 Phase7 追補3）。
     const ojamaModeRow = `
       <div class="practice-panel-row${focusCls('ojamaMode')}">
         <span class="practice-panel-label">OJAMA</span>
-        <div class="option-toggle practice-panel-toggle">
+        <div class="option-toggle practice-panel-toggle practice-panel-toggle-grid">
           <button class="opt-btn ${ojamaMode === 'off' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeOjamaMode('off')">OFF</button>
           <button class="opt-btn ${ojamaMode === 'on' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeOjamaMode('on')">ON</button>
+          <button class="opt-btn ${ojamaMode === 'fixed' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeOjamaMode('fixed')">FIXED</button>
           <button class="opt-btn ${ojamaMode === 'auto' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeOjamaMode('auto')">AUTO</button>
         </div>
       </div>`;
@@ -225,11 +228,13 @@ function _practicePanelRefresh() {
             (ojamaMode === 'off') ? ' is-inert' : '');
     }
 
-    // ─── 盤面クリア：部分削除（設計 Phase5 §4.2・Phase6 §2でおじゃま限定を撤廃） ───
+    // ─── 盤面クリア：部分削除（設計 Phase5 §4.2・Phase6 §2でおじゃま限定を撤廃）───
+    // FIXED中はDELETEが段数の整合性を崩すため無効化する（ユーザー回答。設計 Phase7 追補3）
+    const deleteDisabled = (ojamaMode === 'fixed');
     html += stepRow('clearAmount', isTet ? 'DELETE LINES' : 'DELETE PUYOS', mgr.clearAmount,
-        'practiceStepClearAmount(-1)', 'practiceStepClearAmount(1)');
+        'practiceStepClearAmount(-1)', 'practiceStepClearAmount(1)', deleteDisabled ? ' is-disabled' : '');
     html += `
-      <div class="practice-panel-row practice-panel-row-action${focusCls('clearGo')}">
+      <div class="practice-panel-row practice-panel-row-action${focusCls('clearGo')}${deleteDisabled ? ' is-disabled' : ''}">
         <button class="practice-panel-clear-btn" onmousedown="event.preventDefault()" onclick="practiceClearGo()">DELETE</button>
       </div>`;
 
@@ -484,8 +489,8 @@ function practiceStepOjamaAmount(delta) {
     const next = Math.max(0, Math.min(max, mgr.ojama.amount + delta));
     const d = next - mgr.ojama.amount; // 端で止まったときは0＝盤面を触らない
     mgr.ojama.amount = next;
-    // ON中はAMTの差分だけ盤面へ即座に反映する（プレイ中でも有効。設計 Phase7 §8.2）
-    if (d && mgr.ojama.mode === 'on') mgr._applyOjamaDelta(d);
+    // ON/FIXED中はAMTの差分だけ盤面へ即座に反映する（プレイ中でも有効。設計 Phase7 §8.2）
+    if (d && (mgr.ojama.mode === 'on' || mgr.ojama.mode === 'fixed')) mgr._applyOjamaDelta(d);
     _practicePanelRefresh();
 }
 
@@ -504,7 +509,7 @@ function practiceStepOjamaInterval(delta) {
 }
 
 // おじゃまOFF/ON/AUTOの3択（設計 Phase7 §8.5）
-const PRACTICE_OJAMA_MODES = ['off', 'on', 'auto'];
+const PRACTICE_OJAMA_MODES = ['off', 'on', 'fixed', 'auto'];
 
 function setPracticeOjamaMode(mode) {
     const mgr = window._practiceManager;
@@ -532,7 +537,9 @@ function _practiceClearMax(mgr) {
 
 function practiceStepClearAmount(delta) {
     const mgr = window._practiceManager;
-    if (!mgr) return;
+    // FIXED中はDELETEを無効化する（パネルの pointer-events:none だけでなく
+    // キーボード操作も塞ぐ。設計 Phase7 追補3）
+    if (!mgr || mgr.ojama.mode === 'fixed') return;
     const max = _practiceClearMax(mgr);
     mgr.clearAmount = Math.max(1, Math.min(max, (mgr.clearAmount || 1) + delta));
     _practicePanelRefresh();
@@ -540,7 +547,7 @@ function practiceStepClearAmount(delta) {
 
 function practiceClearGo() {
     const mgr = window._practiceManager;
-    if (!mgr) return;
+    if (!mgr || mgr.ojama.mode === 'fixed') return;
     mgr.clearPartial(mgr.clearAmount || 1);
 }
 
@@ -568,10 +575,15 @@ function practicePanelOpenSequenceEditor() {
 function practiceClearBoard() {
     const mgr = window._practiceManager;
     if (!mgr || !mgr.gameInstance) return;
-    mgr.ojama.holes.length = 0; // 盤面をここで書き換えるため穴列の対応が切れる（設計 Phase7 §8.6）
     const g = mgr.gameInstance;
+    // FIXED中は「おじゃまだけ残す」（ユーザー回答。設計 Phase7 追補3）。
+    // holesは実際に乗っているおじゃま量が変わらないぶんそのまま維持する
+    const keepOjama = mgr.ojama.mode === 'fixed';
+    const savedCells = keepOjama ? mgr._captureOjamaCells() : null;
+    if (!keepOjama) mgr.ojama.holes.length = 0; // 盤面をここで書き換えるため穴列の対応が切れる（設計 Phase7 §8.6）
     if (mgr.rule === 'tet') {
         g.field = new Field();
+        if (savedCells) mgr._restoreOjamaCells(savedCells);
         g.field.markDirty();
         g.drawAll();
     } else {
@@ -579,6 +591,7 @@ function practiceClearBoard() {
         for (let r = 0; r < totalRows; r++) {
             for (let c = 0; c < PConfig.cols; c++) g.field[r][c] = 0;
         }
+        if (savedCells) mgr._restoreOjamaCells(savedCells);
         if (typeof g._render === 'function') g._render();
     }
 }
