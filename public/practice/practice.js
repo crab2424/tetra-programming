@@ -75,6 +75,9 @@ class PracticeManager {
 
         this._goalLoopId = null;
         this._keyHandler = null;
+        // ゲームパッド対応（設計 Phase9）。独自ポーリングで完結させ、共通エンジンには触らない。
+        this._gpLoopId = null;      // requestAnimationFrame の id
+        this._gpPrevState = {};     // アクション名→前フレームの押下状態（エッジ検出用）
         this._origUpdateChainDisplay = null; // puyo + 'puyos'ゴール時のみ使う（下記 attach() 参照）
         this._origUpdateTimeDisplay = null;      // tet。GOAL=TIME のときだけ使う
         this._origUpdateTimeDisplayPuyo = null;  // puyo。GOAL=TIME のときだけ使う
@@ -304,6 +307,7 @@ class PracticeManager {
         }
 
         this._installKeyHandler();
+        this._installGamepadHandler();
         this._startGoalLoop();
 
         if (typeof _initPracticePanel === 'function') _initPracticePanel(this);
@@ -1438,10 +1442,93 @@ class PracticeManager {
     }
 
     // ─────────────────────────────────────────
+    // 巻き戻し・即時ツモ変化等のゲームパッド対応（設計 Phase9）。
+    // キーボード用の_installKeyHandler()と同じ5アクションを、独自のrAFループで
+    // エッジ検出する。パッド選択はエンジンの this.gameInstance._gamepadIndex を
+    // 読むだけ（書き換えない）＝tet/puyoのpollGamepad()と同じパッドを見る。
+    // 共通エンジン（public/game/**）には1行も触らない。
+    // ─────────────────────────────────────────
+    _installGamepadHandler() {
+        this._removeGamepadHandler();
+        const g = this.gameInstance;
+        if (!g) return;
+
+        const isPressed = (pad, mappings) => {
+            if (!Array.isArray(mappings)) return false;
+            for (const m of mappings) {
+                if (!m) continue;
+                if (m.type === 'button') {
+                    const b = pad.buttons[m.index];
+                    if (b && b.pressed) return true;
+                } else if (m.type === 'axis') {
+                    const a = pad.axes[m.index];
+                    if (a !== undefined && Math.abs(a) > 0.5) return true;
+                }
+            }
+            return false;
+        };
+
+        const poll = () => {
+            this._gpLoopId = requestAnimationFrame(poll);
+            const gamePage = document.getElementById('game-page');
+            if (!gamePage || !gamePage.classList.contains('active')) return;
+
+            const pads = (navigator.getGamepads) ? navigator.getGamepads() : [];
+            let pad = null;
+            if (typeof g._gamepadIndex === 'number' && pads[g._gamepadIndex]) {
+                pad = pads[g._gamepadIndex];
+            } else {
+                for (let i = 0; i < pads.length; i++) { if (pads[i]) { pad = pads[i]; break; } }
+            }
+            if (!pad) return;
+
+            // 設定変更・パッドの挿し直しをすぐ反映するため毎フレーム読み直す
+            // （PRACTICEは1画面に留まり続けるモードで負荷は無視できる。設計 Phase9 §3）。
+            const gpConfig = (typeof loadGamepadConfig === 'function') ? loadGamepadConfig() : null;
+            if (!gpConfig) return;
+
+            const fire = (action, dir) => {
+                const pressed = isPressed(pad, gpConfig[action]);
+                const prev = !!this._gpPrevState[action];
+                if (pressed && !prev) dir();
+                this._gpPrevState[action] = pressed;
+            };
+
+            // 演出中(isEnding/isFinished)はキーボード側と同じくREWIND/CYCLE系を締め出す。
+            // restart/pauseは本体側pollGamepadが処理するためここでは介入しない（設計 §3・§5）。
+            if (this.isEnding || this.isFinished) {
+                ['rewind', 'advance', 'practicePanel', 'cycleTsumo', 'cycleTsumoBack'].forEach(a => {
+                    this._gpPrevState[a] = isPressed(pad, gpConfig[a]);
+                });
+                return;
+            }
+
+            fire('rewind', () => this.step(-1));
+            fire('advance', () => this.step(1));
+            fire('practicePanel', () => { if (typeof togglePracticePanel === 'function') togglePracticePanel(); });
+            fire('cycleTsumoBack', () => this.cycleTsumo(-1));
+            fire('cycleTsumo', () => this.cycleTsumo(1));
+
+            // holdのゲームパッド押下でもサイクルの起点をやり直す（キーボード側と揃える。
+            // holdの実行自体は本体側pollGamepadが担うのでここでは状態リセットのみ）。
+            const holdPressed = isPressed(pad, gpConfig.hold);
+            if (holdPressed && !this._gpPrevState.hold) this._cycleIndex = null;
+            this._gpPrevState.hold = holdPressed;
+        };
+        this._gpLoopId = requestAnimationFrame(poll);
+    }
+
+    _removeGamepadHandler() {
+        if (this._gpLoopId) { cancelAnimationFrame(this._gpLoopId); this._gpLoopId = null; }
+        this._gpPrevState = {};
+    }
+
+    // ─────────────────────────────────────────
     // 破棄（stopAllGames から呼ばれる）
     // ─────────────────────────────────────────
     destroy() {
         this._removeKeyHandler();
+        this._removeGamepadHandler();
         if (this._goalLoopId) { cancelAnimationFrame(this._goalLoopId); this._goalLoopId = null; }
 
         // おじゃま自動投下・予告タイマーを止める（設計 §6.2e）
