@@ -107,8 +107,10 @@ body.practice-mode #puyo-next-canvas {
 .practice-panel-tab {
   display: none;
   position: absolute;
-  top: 6px;
-  left: -46px;
+  /* HOLD枠の真下（Phase7 §3）。旧位置(top:6/left:-46)はHOLDキャンバス右端(-30)と
+     16px重なっていた。HOLD下端(約130px)〜LEVEL枠(450px)は完全に空いている。 */
+  top: 146px;
+  left: -160px;
   width: 26px;
   height: 26px;
   border: 1px solid var(--border);
@@ -157,7 +159,11 @@ body.practice-panel-open .practice-panel-dock {
   padding: 12px;
   border: 2px solid var(--border);
   border-radius: 8px;
-  background: rgba(10, 10, 15, 0.95);
+  /* 開いている間は必ずポーズ中＝盤面は静止画なので透けても読み違えない。
+     背後の盤面/枠が見えることで「今どこが隠れているか」も分かる（設計 Phase7 §4）。 */
+  background: rgba(10, 10, 15, 0.86);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   pointer-events: auto;
 }
 .practice-panel-title {
@@ -185,11 +191,17 @@ body.practice-panel-open .practice-panel-dock {
   position: absolute;
   top: 570px;
   font-family: "Orbitron", monospace;
-  font-size: 10px;
+  font-size: 11px; /* 実機FBで読みにくいとの指摘。10px→11px（設計 Phase7 §5） */
   letter-spacing: 1px;
   line-height: 1.7;
-  color: var(--text-dim);
+  color: #a7b2c4; /* --text-dim(#888)から明度を上げる（設計 Phase7 §5） */
   white-space: nowrap;
+}
+/* GAME OVER/FINISH演出中: 表示は残したまま操作だけ封じる（設計 Phase7 §6。
+   演出中に消えると位置が変わったように見えるため「暗くして押せない」方式に変更） */
+.practice-status.is-inert {
+  opacity: 0.4;
+  pointer-events: none;
 }
 .practice-status.is-visible {
   display: block;
@@ -209,19 +221,22 @@ body.practice-panel-open .practice-panel-dock {
 .practice-rewind-row {
   display: flex;
   gap: 10px;
-  font-size: 14px;
+  font-size: 16px; /* 14px→16px（設計 Phase7 §5） */
 }
 .practice-rewind-btn {
   cursor: pointer;
-  color: var(--practice-color);
+  color: var(--practice-color-hi); /* 操作できるものだけ明るくする（設計 Phase7 §5） */
+  text-shadow: 0 0 8px rgba(156, 167, 184, 0.45);
 }
 .practice-rewind-btn b {
   margin-left: 2px;
-  color: var(--practice-color);
+  color: var(--practice-color-hi);
   font-weight: 700;
 }
+/* 無効時は従来どおり沈める＝明暗差で押せる/押せないを示す（設計 Phase7 §5） */
 .practice-rewind-btn.is-disabled {
   color: var(--text-dim);
+  text-shadow: none;
   cursor: default;
 }
 .practice-rewind-btn.is-disabled b {
@@ -230,7 +245,8 @@ body.practice-panel-open .practice-panel-dock {
 .practice-rewind-keys {
   margin-top: 4px;
   font-size: 9px;
-  opacity: 0.7;
+  opacity: 0.9; /* 0.7→0.9（設計 Phase7 §5） */
+  color: #9aa5b6;
 }
 
 /* ─── Phase 5 §5: REWIND/ADVANCEの移動エフェクト ───
@@ -307,9 +323,9 @@ body.practice-panel-open .practice-panel-dock {
 }
 #practice-cycle-flash-text {
   font-family: "Orbitron", monospace;
-  font-size: 20px;
+  font-size: 24px; /* 20px→24px（設計 Phase7 §5） */
   letter-spacing: 2px;
-  color: var(--practice-color);
+  color: var(--practice-color-hi);
   text-shadow: 0 0 10px rgba(156, 167, 184, 0.5);
 }
 @keyframes practiceCycleFlash {
@@ -327,25 +343,34 @@ body.practice-panel-open .practice-panel-dock {
   font-size: 11px;
 }
 .practice-hud-block .area-label {
+  position: static;
   display: block;
   margin-bottom: 4px;
   font-size: 10px;
 }
 #practice-cycle-btn {
-  font-size: 18px;
+  font-size: 19px; /* 18px→19px（設計 Phase7 §5） */
   cursor: pointer;
-  color: var(--practice-color);
+  color: var(--practice-color-hi);
+  text-shadow: 0 0 8px rgba(156, 167, 184, 0.45);
 }
 #practice-cycle-btn b {
   margin-left: 2px;
-  color: var(--practice-color);
+  color: var(--practice-color-hi);
   font-weight: 700;
+}
+/* REWINDと同じ「押せない」表現（設計 Phase7 §5。_isLive()がfalseのときis-disabledが付く） */
+#practice-cycle-btn.is-disabled,
+#practice-cycle-btn.is-disabled b {
+  color: var(--text-dim);
+  text-shadow: none;
 }
 .practice-hud-sub {
   display: block;
   margin-top: 2px;
   font-size: 9px;
-  color: var(--text-dim);
+  opacity: 0.9;
+  color: #9aa5b6;
 }
 
 /* ─── Phase 4 §3.2: tetのおじゃまゲージ（versusの.garbage-gaugeを流用、高さだけ実寸に合わせる） ─── */

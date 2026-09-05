@@ -120,10 +120,10 @@ function _initPracticePanel(manager) {
     const tab = document.getElementById('practice-panel-tab');
     if (tab) tab.classList.remove('is-hidden');
     const left = document.getElementById('practice-status-left');
-    if (left) left.classList.add('is-visible');
+    if (left) { left.classList.add('is-visible'); left.classList.remove('is-inert'); }
     // CYCLEインジケータはtet/puyo共通で表示する（実機FBで右側へ移設。設計 実機FB）
     const cycleArea = document.getElementById('practice-cycle-area');
-    if (cycleArea) cycleArea.classList.add('is-visible');
+    if (cycleArea) { cycleArea.classList.add('is-visible'); cycleArea.classList.remove('is-inert'); }
 
     _practicePanelFocusIndex = 0;
     _practicePanelRefresh();
@@ -455,7 +455,7 @@ function practiceStepColorCount(delta) {
     const n = Math.max(3, Math.min(5, PConfig.colorCount + delta));
     if (n === PConfig.colorCount) return;
     PConfig.colorCount = n;
-    g.activeColors = (g._colorOrder || [1, 2, 3, 4, 5]).slice(0, n);
+    g.activeColors = sortPuyoColors((g._colorOrder || [1, 2, 3, 4, 5]).slice(0, n));
     mgr._cycleCount = 0; // COLORS変更でn×n通りが変わるため即時ツモ変化のカウンタもリセット（設計 §9.3）
     // 内部キュー（20個）を作り直す（設計 §6.2d）
     g.nextQueue = [];

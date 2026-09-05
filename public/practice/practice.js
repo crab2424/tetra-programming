@@ -27,6 +27,15 @@ const TET_CYCLE_LABEL = ['I', 'O', 'T', 'J', 'L', 'S', 'Z']; // type値→表示
 // と同じ並びにする必要がある（Phase6実機フィードバックで3〜5番のズレが発覚し修正）。
 const PUYO_COLOR_LABEL = { 1: 'R', 2: 'B', 3: 'P', 4: 'G', 5: 'Y' };
 
+// CYCLEのサイクル表はactiveColorsの並び順をそのまま2桁n進数の桁に使うため、
+// 並びが局ごとに変わると「次に何色が来るか」を覚え直すことになる。使う色の抽選
+// （_colorOrderのシャッフル）は変えず、activeColorsへ入れる直前に正準順(R,B,G,Y,P)
+// へ並べ替えるだけにする（設計 Phase7 §7）。
+const PUYO_COLOR_RANK = { 1: 0, 2: 1, 4: 2, 5: 3, 3: 4 }; // R=1,B=2,G=4,Y=5,P=3
+function sortPuyoColors(list) {
+    return list.slice().sort((a, b) => PUYO_COLOR_RANK[a] - PUYO_COLOR_RANK[b]);
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PracticeManager
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -141,7 +150,7 @@ class PracticeManager {
                     [allColors[i], allColors[j]] = [allColors[j], allColors[i]];
                 }
                 this._colorOrder = allColors;
-                this.activeColors = allColors.slice(0, PConfig.colorCount);
+                this.activeColors = sortPuyoColors(allColors.slice(0, PConfig.colorCount));
 
                 // ─── ツモ順設定との整合（設計 §7.5）───
                 // カスタム列で使われている色は、色数設定に関わらず必ず activeColors に
@@ -156,7 +165,7 @@ class PracticeManager {
                     });
                     if (neededN > PConfig.colorCount) {
                         PConfig.colorCount = neededN;
-                        this.activeColors = this._colorOrder.slice(0, neededN);
+                        this.activeColors = sortPuyoColors(this._colorOrder.slice(0, neededN));
                     }
                 }
             }.bind(game);
@@ -168,8 +177,10 @@ class PracticeManager {
         if (this.rule === 'tet') {
             this._origPopMino = game.popMino;
             game.popMino = function () {
-                self._capture();
+                // _capture()内でHUD更新が走るため、リセットは_capture()より前に置く
+                // （順序が逆だとCYCLE表示が1手古いままになる。設計 Phase7 §2）
                 self._cycleCount = 0; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1）
+                self._capture();
                 self._origPopMino.call(this);
             }.bind(game);
 
@@ -180,8 +191,8 @@ class PracticeManager {
         } else {
             this._origSpawnPuyo = game._spawnPuyo;
             game._spawnPuyo = function () {
+                self._cycleCount = 0; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1・Phase7 §2）
                 self._capture();
-                self._cycleCount = 0; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1）
                 return self._origSpawnPuyo.call(this);
             }.bind(game);
 
@@ -323,14 +334,20 @@ class PracticeManager {
         const tab = document.getElementById('practice-panel-tab');
         if (tab) tab.classList.add('is-hidden');
         document.body.classList.remove('practice-panel-open');
-        const left = document.getElementById('practice-status-left');
-        if (left) left.classList.remove('is-visible');
+        // REWIND/CYCLEは消さず、暗くして操作だけ封じる（設計 Phase7 §6。演出中に
+        // HUDが消えると位置が変わったように見えるとの実機FB）
+        ['practice-status-left', 'practice-cycle-area'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.add('is-inert');
+        });
     }
     _showEndingControls() {
         const tab = document.getElementById('practice-panel-tab');
         if (tab) tab.classList.remove('is-hidden');
-        const left = document.getElementById('practice-status-left');
-        if (left) left.classList.add('is-visible');
+        ['practice-status-left', 'practice-cycle-area'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('is-inert');
+        });
     }
 
     // delta = -1 で1手戻る / +1 で1手進める（巻き戻しの取消）
@@ -676,7 +693,7 @@ class PracticeManager {
                 });
                 if (neededN > PConfig.colorCount) {
                     PConfig.colorCount = neededN;
-                    g.activeColors = (g._colorOrder || []).slice(0, neededN);
+                    g.activeColors = sortPuyoColors((g._colorOrder || []).slice(0, neededN));
                 }
             }
         } else if (wasEnabled) {
@@ -694,7 +711,7 @@ class PracticeManager {
             // puyoの色数自動引き上げ（あれば）を、退避時点の値へ戻す（設計 Phase6 §6.5）
             if (this.rule === 'puyo' && this._seqVanillaColorCount != null) {
                 PConfig.colorCount = this._seqVanillaColorCount;
-                g.activeColors = (g._colorOrder || []).slice(0, this._seqVanillaColorCount);
+                g.activeColors = sortPuyoColors((g._colorOrder || []).slice(0, this._seqVanillaColorCount));
             }
         }
 
