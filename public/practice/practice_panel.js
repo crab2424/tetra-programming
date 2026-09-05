@@ -44,9 +44,8 @@ function _practicePanelRowKeys(mgr) {
         ? ['speed', 'next', 'hold', 'ghost']
         : ['speed', 'next', 'colors'];
     // HOLE RATE（直列確率）はtet限定（設計 Phase5 §8.2。puyoに「直列」の概念が無いため）
-    const ojamaKeys = ['ojamaAmount', 'ojamaInterval'];
+    const ojamaKeys = ['ojamaMode', 'ojamaAmount', 'ojamaInterval'];
     if (mgr.rule === 'tet') ojamaKeys.push('ojamaHoleRate');
-    ojamaKeys.push('ojamaAuto', 'ojamaSend');
     return base.concat(['sequence', 'sequenceEdit'], ojamaKeys, ['clearAmount', 'clearGo', 'clear']);
 }
 
@@ -74,8 +73,8 @@ function togglePracticePanel() {
         if (mgr.rule === 'tet' && typeof g.hidePauseOverlay === 'function') g.hidePauseOverlay();
     } else {
         g.resume();
-        // パネルを閉じた時点でAUTO OFF中のリアルタイム調整プレビューを確定させる（設計 Phase5 §8.3）
-        mgr.ojamaLive = null;
+        // おじゃまは差分方式(設計 Phase7 §8)のためパネルを閉じても状態は変わらない＝
+        // ここで何かを確定する必要は無くなった（Phase5 §8.3の退避確定処理は廃止）。
     }
 
     _practicePanelRefresh();
@@ -143,8 +142,10 @@ function _practicePanelRefresh() {
     const rowKeys = _practicePanelRowKeys(mgr);
     const focusCls = (key) => (isOpen && rowKeys[_practicePanelFocusIndex] === key) ? ' is-focused' : '';
 
-    const stepRow = (key, label, valueHtml, onDec, onInc) => `
-      <div class="practice-panel-row${focusCls(key)}">
+    // extraCls: 今のモードでは効かない行を薄く見せる用（is-inert。設計 Phase7 §8.5）。
+    // 操作自体は塞がない＝pointer-eventsは殺さない
+    const stepRow = (key, label, valueHtml, onDec, onInc, extraCls = '') => `
+      <div class="practice-panel-row${focusCls(key)}${extraCls}">
         <span class="practice-panel-label">${label}</span>
         <div class="practice-panel-stepper">
           <button onmousedown="event.preventDefault()" onclick="${onDec}">−</button>
@@ -199,24 +200,30 @@ function _practicePanelRefresh() {
         <button class="practice-panel-send-btn" onmousedown="event.preventDefault()" onclick="practicePanelOpenSequenceEditor()">EDIT SEQUENCE →</button>
       </div>`;
 
-    // ─── おじゃま投下（設計 §6.2e・Phase5 §8）───
-    // AUTO OFF中はOJAMA AMTを動かすとリアルタイムで着弾ぶんが増減する（§8.3）。
-    // 生きている間は「● LIVE」をラベル横に出す（パネルを閉じるまで有効）。
-    const ojamaLiveBadge = mgr.ojamaLive ? ' <span class="practice-panel-live">● LIVE</span>' : '';
-    html += stepRow('ojamaAmount', 'OJAMA AMT' + ojamaLiveBadge, mgr.ojama.amount, 'practiceStepOjamaAmount(-1)', 'practiceStepOjamaAmount(1)');
-    html += stepRow('ojamaInterval', 'INTERVAL', mgr.ojama.intervalSec + 's', 'practiceStepOjamaInterval(-1)', 'practiceStepOjamaInterval(1)');
+    // ─── おじゃま投下：OFF/ON/AUTOの3択（設計 Phase7 §8）───
+    // OFF=盤面のおじゃまを消す／ON=AMTの差分を即座に反映（プレイ中でも有効）／
+    // AUTO=INTERVAL秒ごとに予告つきで自動投下。今のモードで効かない行はis-inertで薄く
+    // 見せるが操作自体は塞がない（Phase6 §3.2と同じ「不可視のルールを作らない」方針）。
+    const ojamaMode = mgr.ojama.mode;
+    const ojamaModeRow = `
+      <div class="practice-panel-row${focusCls('ojamaMode')}">
+        <span class="practice-panel-label">OJAMA</span>
+        <div class="option-toggle practice-panel-toggle">
+          <button class="opt-btn ${ojamaMode === 'off' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeOjamaMode('off')">OFF</button>
+          <button class="opt-btn ${ojamaMode === 'on' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeOjamaMode('on')">ON</button>
+          <button class="opt-btn ${ojamaMode === 'auto' ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="setPracticeOjamaMode('auto')">AUTO</button>
+        </div>
+      </div>`;
+    html += ojamaModeRow;
+    html += stepRow('ojamaAmount', 'AMOUNT', mgr.ojama.amount, 'practiceStepOjamaAmount(-1)', 'practiceStepOjamaAmount(1)');
+    html += stepRow('ojamaInterval', 'INTERVAL', mgr.ojama.intervalSec + 's', 'practiceStepOjamaInterval(-1)', 'practiceStepOjamaInterval(1)',
+        (ojamaMode !== 'auto') ? ' is-inert' : '');
     if (isTet) {
         // 直列確率（穴が同じ列に揃う確率）。puyoには「直列」の概念が無いため出さない
         html += stepRow('ojamaHoleRate', 'HOLE RATE', mgr.ojama.holeRate + '%',
-            'practiceStepOjamaHoleRate(-1)', 'practiceStepOjamaHoleRate(1)');
+            'practiceStepOjamaHoleRate(-1)', 'practiceStepOjamaHoleRate(1)',
+            (ojamaMode === 'off') ? ' is-inert' : '');
     }
-    html += toggleRow('ojamaAuto', 'AUTO', mgr.ojama.auto, 'setPracticeOjamaAuto(true)', 'setPracticeOjamaAuto(false)');
-    // AMT=0のときは送るものが無いためdim（設計 Phase6 §3）
-    const sendDisabled = mgr.ojama.amount <= 0;
-    html += `
-      <div class="practice-panel-row practice-panel-row-action${focusCls('ojamaSend')}">
-        <button class="practice-panel-send-btn${sendDisabled ? ' is-disabled' : ''}" onmousedown="event.preventDefault()" onclick="practiceOjamaSend()">おじゃま送る</button>
-      </div>`;
 
     // ─── 盤面クリア：部分削除（設計 Phase5 §4.2・Phase6 §2でおじゃま限定を撤廃） ───
     html += stepRow('clearAmount', isTet ? 'DELETE LINES' : 'DELETE PUYOS', mgr.clearAmount,
@@ -269,10 +276,10 @@ function _practicePanelApplyDir(rowKey, dir) {
         case 'hold':          practiceStepHoldMode(dir); break;
         case 'ghost':         if (g) setPracticeGhostEnabled(g.showGhost === false); break;
         case 'colors':        practiceStepColorCount(dir); break;
+        case 'ojamaMode':     practiceStepOjamaMode(dir); break;
         case 'ojamaAmount':   practiceStepOjamaAmount(dir); break;
         case 'ojamaInterval': practiceStepOjamaInterval(dir); break;
         case 'ojamaHoleRate': practiceStepOjamaHoleRate(dir); break;
-        case 'ojamaAuto':     if (mgr) setPracticeOjamaAuto(!mgr.ojama.auto); break;
         case 'clearAmount': practiceStepClearAmount(dir); break;
         case 'sequence':
             if (mgr && typeof PracticeSequence !== 'undefined') {
@@ -288,11 +295,8 @@ function _practicePanelActivate(rowKey) {
     else if (rowKey === 'ghost') {
         const g = window._practiceManager && window._practiceManager.gameInstance;
         if (g) setPracticeGhostEnabled(g.showGhost === false);
-    } else if (rowKey === 'ojamaAuto') {
-        const mgr = window._practiceManager;
-        if (mgr) setPracticeOjamaAuto(!mgr.ojama.auto);
-    } else if (rowKey === 'ojamaSend') {
-        practiceOjamaSend();
+    } else if (rowKey === 'ojamaMode') {
+        practiceStepOjamaMode(1);
     } else if (rowKey === 'clearGo') {
         practiceClearGo();
     } else if (rowKey === 'sequenceEdit') {
@@ -477,11 +481,11 @@ function practiceStepOjamaAmount(delta) {
     const mgr = window._practiceManager;
     if (!mgr) return;
     const max = _practiceOjamaAmountMax(mgr);
-    // 下限0＝投下キャンセル（LIVE中に0まで下げると投下前の盤面へ戻る。設計 Phase6 §3）
-    mgr.ojama.amount = Math.max(0, Math.min(max, mgr.ojama.amount + delta));
-    // AUTO OFF中に一度でも投下していれば(ojamaLive生存中)、値を動かすだけで
-    // リアルタイムに着弾ぶんが増減する（設計 Phase5 §8.3）
-    if (mgr.ojamaLive) mgr.redropOjamaLive(mgr.ojama.amount);
+    const next = Math.max(0, Math.min(max, mgr.ojama.amount + delta));
+    const d = next - mgr.ojama.amount; // 端で止まったときは0＝盤面を触らない
+    mgr.ojama.amount = next;
+    // ON中はAMTの差分だけ盤面へ即座に反映する（プレイ中でも有効。設計 Phase7 §8.2）
+    if (d && mgr.ojama.mode === 'on') mgr._applyOjamaDelta(d);
     _practicePanelRefresh();
 }
 
@@ -499,17 +503,23 @@ function practiceStepOjamaInterval(delta) {
     _practicePanelRefresh();
 }
 
-function setPracticeOjamaAuto(on) {
+// おじゃまOFF/ON/AUTOの3択（設計 Phase7 §8.5）
+const PRACTICE_OJAMA_MODES = ['off', 'on', 'auto'];
+
+function setPracticeOjamaMode(mode) {
     const mgr = window._practiceManager;
     if (!mgr) return;
-    mgr.setOjamaAuto(on);
+    mgr.setOjamaMode(mode);
     _practicePanelRefresh();
 }
 
-function practiceOjamaSend() {
+// キー操作用：現在のモードから左右へ1つ巡回する（HOLDのpracticeStepHoldModeと同型）
+function practiceStepOjamaMode(dir) {
     const mgr = window._practiceManager;
     if (!mgr) return;
-    mgr.sendOjama(mgr.ojama.amount);
+    const i = PRACTICE_OJAMA_MODES.indexOf(mgr.ojama.mode);
+    const next = PRACTICE_OJAMA_MODES[(i + (dir > 0 ? 1 : -1) + PRACTICE_OJAMA_MODES.length) % PRACTICE_OJAMA_MODES.length];
+    setPracticeOjamaMode(next);
 }
 
 // ─────────────────────────────────────────
@@ -558,7 +568,7 @@ function practicePanelOpenSequenceEditor() {
 function practiceClearBoard() {
     const mgr = window._practiceManager;
     if (!mgr || !mgr.gameInstance) return;
-    mgr.ojamaLive = null; // 盤面をここで書き換えるため退避済みのプレビューは無効化する（Phase5 §8.3）
+    mgr.ojama.holes.length = 0; // 盤面をここで書き換えるため穴列の対応が切れる（設計 Phase7 §8.6）
     const g = mgr.gameInstance;
     if (mgr.rule === 'tet') {
         g.field = new Field();
