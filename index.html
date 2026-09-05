@@ -922,12 +922,17 @@
         <span id="practice-cycle-flash-text">⟳ I</span>
       </div>
       <!-- ★ PRACTICEモード専用: 即時ツモ変化インジケータ（右下・APM枠の位置。tet/puyo共通で表示。
-           実機FBによりtet/puyoとも左のREWINDから分離し右側へ配置し直した）。 -->
+           実機FBによりtet/puyoとも左のREWINDから分離し右側へ配置し直した）。
+           Phase8 §2.5で逆方向ボタンを追加し、REWINDと同じ前後2ボタン構成にした。 -->
       <div id="practice-cycle-area" class="practice-status practice-hud-block">
         <span class="area-label">CYCLE</span>
-        <span id="practice-cycle-btn" class="practice-rewind-btn"
-          onmousedown="event.preventDefault()" onclick="practiceCycleTsumo()">⟳<b id="practice-cycle-next">I</b></span>
-        <span class="practice-hud-sub" id="practice-cycle-keys">C</span>
+        <div class="practice-cycle-row">
+          <span id="practice-cycle-back" class="practice-rewind-btn"
+            onmousedown="event.preventDefault()" onclick="practiceCycleTsumo(-1)">⟲<b id="practice-cycle-prev">Z</b></span>
+          <span id="practice-cycle-btn" class="practice-rewind-btn"
+            onmousedown="event.preventDefault()" onclick="practiceCycleTsumo(1)">⟳<b id="practice-cycle-next">I</b></span>
+        </div>
+        <span class="practice-hud-sub" id="practice-cycle-keys">S / D</span>
       </div>
       <!-- ★ PRACTICEモード専用(tetのみ): versusと同じ見た目のおじゃまゲージ(§3.2) -->
       <div id="practice-garbage-gauge" class="garbage-gauge"></div>
@@ -1278,7 +1283,7 @@
   <script src="core/base.js?v=7"></script>
   <script src="core/particles.js?v=1"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=5"></script>
+  <script src="config/settings.js?v=6"></script>
   <script src="config/records.js?v=1"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
@@ -1312,7 +1317,7 @@
   <script src="practice/practice_snapshot.js?v=2"></script>
   <script src="practice/practice_sequence.js?v=4"></script>
   <script src="practice/practice_panel.js?v=17"></script>
-  <script src="practice/practice.js?v=23"></script>
+  <script src="practice/practice.js?v=24"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 
