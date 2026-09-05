@@ -17,6 +17,9 @@
   --success: #5af5a0;
   /* PRACTICE専用の外枠・アイコン色。CPU TEST(--success)と被らない灰色系（ユーザー希望） */
   --practice-color: #9ca7b8;
+  /* PRACTICEのHUD（REWIND/CYCLE）の可読性強調用。パネル本体の--practice-colorは
+     据え置きのまま、操作できるHUDだけ明るくする（設計 Phase7 §5） */
+  --practice-color-hi: #e3e9f5;
   /* オーバーレイの暗さ（第12ラウンドS6設計: くっきりしたままblur無しで暗さのみ）。
      全オーバーレイ共通でシングルプレイのポーズ背景と同じ濃度に統一
      （対戦系オーバーレイは元々より濃い値を使っていたが「暗すぎる」とのフィードバックで統一）。 */
