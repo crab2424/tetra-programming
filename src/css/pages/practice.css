@@ -162,10 +162,10 @@ body.practice-panel-open .practice-panel-dock {
   /* 開いている間は必ずポーズ中＝盤面は静止画なので透けても読み違えない。
      背後の盤面/枠が見えることで「今どこが隠れているか」も分かる（設計 Phase7 §4）。
      実機FBで0.86では体感できないと指摘され0.62へ再調整（背景自体がほぼ黒に近いため、
-     さらに下げないと透過が知覚できなかった）。 */
+     さらに下げないと透過が知覚できなかった）。ぼかしは「背後をはっきり確認したい」
+     との実機FBで撤去した（テキスト自体は不透明のまま＝可読性は背景の不透明度だけで
+     担保する。設計 Phase7 追補2）。 */
   background: rgba(10, 10, 15, 0.62);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   pointer-events: auto;
 }
 .practice-panel-title {
@@ -293,13 +293,8 @@ body.practice-panel-open .practice-panel-dock {
   font-size: 11px;
   color: #9aa5b6;
 }
-/* ADVANCE(進む)はREWIND(戻す)と区別するため、明るいままトーンだけ落とす
-   （--text-dimまで沈めると「はっきり映したい」に逆行するため--practice-color止まりにする） */
-.practice-rewind-flash.is-advance #practice-rewind-flash-icon,
-.practice-rewind-flash.is-advance #practice-rewind-flash-text {
-  color: var(--practice-color);
-  text-shadow: none;
-}
+/* ADVANCE(進む)もREWIND(戻す)と同じ明るさにする（実機FBでADVANCEだけ薄いと再指摘。
+   区別は⟲/⟳のアイコン差だけで十分＝色を沈めるのはやめる。設計 Phase7 追補2） */
 @keyframes practiceRewindFlash {
   0%   { opacity: 0; transform: scale(1.25); }
   10%  { opacity: 1; transform: scale(1); }
@@ -324,7 +319,8 @@ body.practice-panel-open .practice-panel-dock {
   opacity: 0;
 }
 .practice-cycle-flash.is-active {
-  animation: practiceCycleFlash 300ms ease-out;
+  /* REWINDフラッシュと同じ持続時間にする（実機FBで短すぎると指摘。設計 Phase7 追補2） */
+  animation: practiceCycleFlash 1120ms ease-out;
 }
 #practice-cycle-flash-text {
   font-family: "Orbitron", monospace;
@@ -335,7 +331,8 @@ body.practice-panel-open .practice-panel-dock {
 }
 @keyframes practiceCycleFlash {
   0%   { opacity: 0; }
-  20%  { opacity: 1; }
+  10%  { opacity: 1; }
+  55%  { opacity: 1; }
   100% { opacity: 0; }
 }
 

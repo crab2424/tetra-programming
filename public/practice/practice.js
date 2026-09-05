@@ -971,7 +971,10 @@ class PracticeManager {
         } else if (mode === 'on') {
             this._cancelPendingOjama(); // 予告中のぶんは無かったことにする
             this.ojama.holes.length = 0; // ONに入るたびに穴列は引き直す
-            this._applyOjamaDelta(this.ojama.amount);
+            // OFF/AUTOから入る場合はどちらも既に盤面に乗っている実量を実測してから
+            // AMTとの差分だけを投下する（AUTOで既に積み上がっているぶんを二重に
+            // 足さないため。OFFの直後は0のはずなので従来どおりAMTぶん丸ごと入る）
+            this._applyOjamaDelta(this.ojama.amount - this._countOjamaUnits());
         } else { // 'auto'：盤面は今のまま、以後は予告つきの自動投下
             this._restartOjamaTimer();
         }
@@ -1106,6 +1109,24 @@ class PracticeManager {
     // 消すと宙に浮いたブロックが残りtetのフィールド不変条件を壊すため、この単位にする
     // （穴が埋まった時点で通常のライン消去として既に消えているはずなので、実際には
     // 穴の中にブロックが残ること自体が無い。設計 Phase7 §8.6）。
+    //
+    // 盤面に実際に乗っているおじゃまの単位数（tet=行 / puyo=個）を数える。
+    // AUTO→ONのようにモードを跨いだ直後は「今の盤面に何段/何個乗っているか」を
+    // 実測してからAMTとの差分を投下しないと、ON突入のたびに満量投下されて
+    // 二重に積み上がってしまう（実機FBで発覚。設計 Phase7 追補2）。
+    _countOjamaUnits() {
+        const g = this.gameInstance;
+        if (!g) return 0;
+        if (this.rule === 'tet') {
+            const rows = new Set();
+            g.field.blocks.forEach(b => { if (b.type === 7) rows.add(b.y); });
+            return rows.size;
+        }
+        let count = 0;
+        for (const row of g.field) for (const cell of row) if (cell === 6) count++;
+        return count;
+    }
+
     _removeOjamaUnits(n) {
         const g = this.gameInstance;
         if (!g || n <= 0) return 0;
