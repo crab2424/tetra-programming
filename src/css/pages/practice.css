@@ -396,16 +396,10 @@ body.practice-panel-open .practice-panel-dock {
   color: var(--text-dim);
 }
 
-/* ─── Phase 5 §8.3: AUTO OFF中のリアルタイム調整プレビュー表示 ─── */
-.practice-panel-live {
-  font-size: 9px;
-  letter-spacing: 0;
-  color: var(--practice-color);
-  animation: practicePanelLivePulse 1.4s ease-in-out infinite;
-}
-@keyframes practicePanelLivePulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+/* 今のモードでは効かない行を薄く見せる（操作自体は塞がない。設計 Phase7 §8.5） */
+.practice-panel-row.is-inert .practice-panel-label,
+.practice-panel-row.is-inert .practice-panel-stepper {
+  opacity: 0.45;
 }
 
 .practice-panel-stepper {
@@ -493,12 +487,6 @@ body.practice-panel-open .practice-panel-dock {
 .practice-panel-send-btn:hover {
   background: rgba(156, 167, 184, 0.12);
   border-color: var(--practice-color);
-}
-/* AMT=0のとき「送るものが無い」ことを示す（設計 Phase6 §3） */
-.practice-panel-send-btn.is-disabled {
-  opacity: 0.4;
-  cursor: default;
-  pointer-events: none;
 }
 
 /* ─── Phase 3: ツモ順設定（設計 §7）─── */

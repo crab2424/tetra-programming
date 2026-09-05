@@ -93,18 +93,17 @@ class PracticeManager {
         this._seqVanilla = null;            // { next, bag? }
         this._seqVanillaColorCount = null;  // puyoのみ
 
-        // おじゃま手動/自動投下（Phase 3 §6.2e）
+        // おじゃまはOFF/ON/AUTOの3状態（設計 Phase7 §8）。ONは「AMTの差分を即座に
+        // 盤面へ反映」する差分方式＝盤面の退避スナップショットは持たない。
         this.ojama = {
-            auto: false,
+            mode: 'off',            // 'off' | 'on' | 'auto'
             amount: (rule === 'puyo') ? 6 : 4,
             intervalSec: 10,
             holeRate: 70,           // 直列確率(%)。tetのみ有効（設計 Phase5 §8.2）
-            timerId: null,          // setInterval（自動投下）
+            holes: [],              // ON中に積み上げてきた穴列（直列確率の連続性用）
+            timerId: null,          // setInterval（AUTO投下）
             pendingTimeouts: [],    // 予告→着弾の setTimeout（rewind時のゴースト書き込み防止に includes チェックで対処）
         };
-        // AUTO OFF時の即時投下プレビュー（設計 Phase5 §8.3）。パネルを閉じるまでの間、
-        // OJAMA AMTを動かすたびに退避した盤面へ戻してから再投下し直す。
-        this.ojamaLive = null;
 
         // 盤面クリアのおじゃま部分削除（Phase 4 §4.2）。パネルの本数/個数指定に使う。
         this.clearAmount = 1;
@@ -448,7 +447,9 @@ class PracticeManager {
     _restoreCurrent() {
         const g = this.gameInstance;
         const line = this.history[this.cursor];
-        this.ojamaLive = null; // 巻き戻しで退避済みの盤面が無効になる（設計 Phase5 §8.3）
+        // 巻き戻し先の盤面と穴列の対応が切れるため、次の投下は新規抽選から始める
+        // （モード自体は維持＝AUTOのまま巻き戻せる。設計 Phase7 §8.6）
+        this.ojama.holes.length = 0;
         this._cycleCount = 0; // 巻き戻し先のツモに合わせてリセット（設計 Phase5 §9.4）
         // SEQUENCE OFF復帰用の退避も、この時点の履歴とは食い違うため無効化する（設計 Phase6 §6.3）
         this._seqVanilla = null;
@@ -806,7 +807,7 @@ class PracticeManager {
     _onGameOver(playOriginal) {
         if (this.isFinished || this.isEnding) return;
         this.isEnding = true;
-        this.ojamaLive = null;
+        this.ojama.holes.length = 0;
         this._seqVanilla = null;
         this._seqVanillaColorCount = null;
         this._hideEndingControls();
@@ -834,7 +835,7 @@ class PracticeManager {
     _showResult(kind) {
         if (this.isFinished || this.isEnding) return;
         this.isEnding = true;
-        this.ojamaLive = null;
+        this.ojama.holes.length = 0;
         const stats = (kind === 'goal' && this.goalAchievedStats)
             ? this.goalAchievedStats : this._collectStats();
         this._stopEngine();
@@ -955,22 +956,66 @@ class PracticeManager {
     }
 
     // ─────────────────────────────────────────
-    // おじゃま手動/自動投下（設計 §6.2e。相殺は既存エンジンが自動で行う＝§2.1b）
+    // おじゃまはOFF/ON/AUTOの3状態（設計 Phase7 §8。相殺は既存エンジンが自動で行う＝§2.1b）
     // ─────────────────────────────────────────
-    // amount 省略時は現在の設定値を使う（手動SENDボタン・自動タイマーの両方から呼ばれる）
-    sendOjama(amount) {
+    // モード切替の本体。パネルのOFF/ON/AUTOボタンから呼ばれる。
+    setOjamaMode(mode) {
+        if (mode === this.ojama.mode) return;
+        this.ojama.mode = mode;
+        if (this.ojama.timerId) { clearInterval(this.ojama.timerId); this.ojama.timerId = null; }
+
+        if (mode === 'off') {
+            this._cancelPendingOjama();
+            this._removeOjamaUnits(Infinity); // 値に関わらず盤面のおじゃまを全部消す
+            this.ojama.holes.length = 0;
+        } else if (mode === 'on') {
+            this._cancelPendingOjama(); // 予告中のぶんは無かったことにする
+            this.ojama.holes.length = 0; // ONに入るたびに穴列は引き直す
+            this._applyOjamaDelta(this.ojama.amount);
+        } else { // 'auto'：盤面は今のまま、以後は予告つきの自動投下
+            this._restartOjamaTimer();
+        }
+        if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
+    }
+
+    // AUTOのタイマーを（再）起動する。実時間ベースで、パネルの開閉(pause)やrewindを
+    // 挟んでもクリアせず継続する（設計 §5.5）。ただし「今この瞬間プレイ中でない」
+    // ティックは投げっぱなしにせずスキップする（再開時にまとめて何本も降ってくるのを防ぐ）。
+    _restartOjamaTimer() {
+        if (this.ojama.timerId) { clearInterval(this.ojama.timerId); this.ojama.timerId = null; }
+        if (this.ojama.mode !== 'auto') return;
+        this.ojama.timerId = setInterval(() => {
+            if (!this._isLive()) return;
+            this._sendOjamaTelegraphed(this.ojama.amount);
+        }, this.ojama.intervalSec * 1000);
+    }
+
+    // ON中にAMTが動いたぶんを盤面へ反映する（正なら投下・負なら削除。設計 Phase7 §8.2）
+    _applyOjamaDelta(delta) {
+        if (!delta) return;
+        if (delta > 0) this._dropOjamaNow(delta);
+        else this._removeOjamaUnits(-delta);
+    }
+
+    // 予告中のおじゃま（garbageQueue＋着弾予約のsetTimeout）を破棄する。
+    // PRACTICEには対戦相手がいない＝garbageQueueの中身は全て自前の投入なので丸ごと空にできる。
+    _cancelPendingOjama() {
+        const g = this.gameInstance;
+        this.ojama.pendingTimeouts.forEach(id => clearTimeout(id));
+        this.ojama.pendingTimeouts = [];
+        if (!g) return;
+        g.garbageQueue = [];
+        if (this.rule === 'tet') this._renderGarbageGauge();
+        else if (typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
+    }
+
+    // AUTO専用：予告つきでおじゃまを送る（旧sendOjama。設計 Phase7 §8.4で改名し、
+    // AUTO OFF時の即時投下分岐を削除した＝即時投下は_dropOjamaNow()に一本化）。
+    _sendOjamaTelegraphed(amount) {
         const g = this.gameInstance;
         if (!g || this.isFinished) return;
-        amount = Math.max(0, (amount === undefined ? this.ojama.amount : amount));
-        if (amount <= 0) return; // 0は「送らない」（設計 Phase6 §3）
-
-        // AUTO OFF時は予告を挟まず即着弾させる（設計 Phase5 §8.1）。AUTO ONは
-        // 従来どおり予告つきの経路を使う（対戦の練習として正しい挙動を維持する）。
-        if (!this.ojama.auto) {
-            this._dropOjamaNow(amount);
-            if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
-            return;
-        }
+        amount = Math.max(0, amount);
+        if (amount <= 0) return;
 
         const obj = { amount, holes: [], ready: false };
         g.garbageQueue.push(obj);
@@ -1010,23 +1055,15 @@ class PracticeManager {
     }
     _makeHoleList(n) { return this._extendHoleList([], n); }
 
-    // AUTO OFF時の即時投下本体（設計 Phase5 §8.1・§8.3）。holesOverrideを渡すとその列を
-    // そのまま使う（redropOjamaLive経由）。keepLive=trueのときはojamaLiveの退避をやり直さない
-    // （既に退避済みの盤面へ戻してから呼ばれるため）。
-    _dropOjamaNow(amount, holesOverride, keepLive) {
+    // ONの即時投下本体（設計 Phase7 §8.4）。セッション中に積み上げてきた穴列
+    // （this.ojama.holes）の続きとして生成し、末尾ぶんだけをこの投下に使う
+    // （直列確率の連続性を保つ＝Phase6 §4と同じ考え方）。
+    _dropOjamaNow(amount) {
         const g = this.gameInstance;
-        if (!g) return;
-        if (!keepLive) {
-            this.ojamaLive = {
-                field: this._snapshotFieldOnly(),
-                minoY: (this.rule === 'tet' && g.mino) ? g.mino.y : null,
-                holes: [],
-                amount,
-            };
-        }
-        const holes = holesOverride || (this.ojamaLive
-            ? this._extendHoleList(this.ojamaLive.holes, amount).slice(0, amount)
-            : this._makeHoleList(amount));
+        if (!g || amount <= 0) return;
+        const start = this.ojama.holes.length;
+        this._extendHoleList(this.ojama.holes, start + amount);
+        const holes = this.ojama.holes.slice(start);
 
         if (this.rule === 'tet') {
             g.garbageQueue.push({ amount, holes, ready: true });
@@ -1061,73 +1098,69 @@ class PracticeManager {
         }
     }
 
-    // OJAMA AMTをいじるたびに呼ばれる（設計 Phase5 §8.3）。退避しておいた投下直前の
-    // 盤面へ戻してから、穴列を使って再投下する。amount<=0のときは投下前の盤面に戻すだけ
-    // ＝投下キャンセル。LIVEは外さない（設計 Phase6 §3）。
-    //
-    // 穴列の扱い（設計 Phase6 §4・ユーザーからの補足で修正）: 減らした分の穴は
-    // 「消えた」ものとして配列から切り捨てる。そのため 4→3→4 のように一度減らしてから
-    // 同じ本数へ戻すと、消えていた段（一番下＝最後に足された段）だけ改めて抽選され、
-    // 残っていた段（4→3で切り捨てられなかった上の段）は元の穴のまま変わらない。
-    redropOjamaLive(amount) {
-        if (!this.ojamaLive) return;
+    // 盤面のおじゃまを最大n単位ぶん取り除く（tet=行 / puyo=個）。実際に消した数を返す。
+    // nにInfinityを渡すと「全部消す」（OFFへの切り替え時）。走査順・詰め処理は
+    // clearPartial()（Phase6 §2で種別非依存にした汎用DELETE）と同型で、「おじゃまかどうか」
+    // の判定だけを戻した形。巻き戻し履歴には積まない（Phase5 §9-1）。
+    // tetは行ごと消す＝穴に置いたプレイヤーのブロックも一緒に消える。列単位でtype7だけ
+    // 消すと宙に浮いたブロックが残りtetのフィールド不変条件を壊すため、この単位にする
+    // （穴が埋まった時点で通常のライン消去として既に消えているはずなので、実際には
+    // 穴の中にブロックが残ること自体が無い。設計 Phase7 §8.6）。
+    _removeOjamaUnits(n) {
         const g = this.gameInstance;
-        if (!g) return;
-        this._restoreFieldOnly(this.ojamaLive.field);
-        if (this.rule === 'tet' && this.ojamaLive.minoY !== null && g.mino) {
-            g.mino.y = this.ojamaLive.minoY;
-        }
-        this.ojamaLive.amount = amount;
-        // 減らした分の穴は捨てる。再度増やしたときはその段だけ新規抽選になる
-        if (amount < this.ojamaLive.holes.length) this.ojamaLive.holes.length = amount;
-        if (amount <= 0) {
-            // _restoreFieldOnly()は描画までは行わないため、ここで描き直す
-            if (this.rule === 'tet') { g.field.markDirty(); g.drawAll(); this._renderGarbageGauge(); }
-            else if (typeof g._render === 'function') g._render();
-            return;
-        }
-        const holes = this._extendHoleList(this.ojamaLive.holes, amount).slice(0, amount);
-        this._dropOjamaNow(amount, holes, true);
-    }
-
-    // 盤面のみを退避/復元する（PracticeSnapshot.restore()は次のツモ/スコア等まで
-    // 巻き戻してしまい手元のミノが消えるため使えない。設計 Phase5 §8.3）。
-    _snapshotFieldOnly() {
-        const g = this.gameInstance;
-        if (this.rule === 'tet') return g.field.blocks.map(b => ({ x: b.x, y: b.y, type: b.type }));
-        return g.field.map(row => row.slice());
-    }
-    _restoreFieldOnly(snap) {
-        const g = this.gameInstance;
+        if (!g || n <= 0) return 0;
+        let removed = 0;
         if (this.rule === 'tet') {
-            g.field = new Field();
-            snap.forEach(b => g.field.blocks.push(new Block(b.x, b.y, b.type)));
-            g.field.markDirty(); // 忘れると_occ/_fixedCanvasに残像（設計 v5 §5.7の罠）
+            const field = g.field;
+            let r = ROWS_COUNT - 1;
+            while (r >= 0 && removed < n) {
+                const rowBlocks = field.blocks.filter(b => b.y === r);
+                if (rowBlocks.some(b => b.type === 7)) {
+                    field.blocks = field.blocks.filter(b => b.y !== r);
+                    field.blocks.filter(b => b.y < r).forEach(b => b.y++);
+                    removed++; // 上の行が落ちてくるので同じrを再チェック
+                } else {
+                    r--;
+                }
+            }
+            if (removed > 0) {
+                // 投下時に持ち上げた操作中ミノを、消したぶんだけ下ろす（山に埋めない範囲で）
+                if (g.mino) {
+                    for (let i = 0; i < removed; i++) {
+                        g.mino.y += 1;
+                        if (!g.valid(0, 0)) { g.mino.y -= 1; break; }
+                    }
+                }
+                this.ojama.holes.length = Math.max(0, this.ojama.holes.length - removed);
+                field.markDirty(); // 忘れると_occ/_fixedCanvasに残像（v5 §5.7の罠）
+                g.drawAll();
+                this._renderGarbageGauge();
+            }
         } else {
-            for (let r = 0; r < snap.length; r++) g.field[r] = snap[r].slice();
+            const totalRows = PConfig.rows + PConfig.hiddenRows;
+            outer:
+            for (let r = 0; r < totalRows; r++) { // 上から＝後で積んだおじゃまが先に消える
+                for (let c = 0; c < PConfig.cols; c++) {
+                    if (removed >= n) break outer;
+                    if (g.field[r][c] === 6) { g.field[r][c] = 0; removed++; }
+                }
+            }
+            if (removed > 0) {
+                if (typeof g._buildDropAnim === 'function') {
+                    g._buildDropAnim();
+                    if (g._dropAnim) { g._applyDropAnim(); g._dropAnim = null; }
+                }
+                if (typeof g._render === 'function') g._render();
+                if (typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
+            }
         }
-    }
-
-    // 自動投下ON/OFF。タイマーは実時間ベースで、パネルの開閉(pause)やrewindを挟んでも
-    // クリアせず継続する（設計 §5.5）。ただし「今この瞬間プレイ中でない」ティックは
-    // 投げっぱなしにせずスキップする（再開時にまとめて何本も降ってくるのを防ぐ）。
-    setOjamaAuto(on) {
-        this.ojama.auto = on;
-        if (this.ojama.timerId) { clearInterval(this.ojama.timerId); this.ojama.timerId = null; }
-        if (on) {
-            // 予告つきの経路に切り替わるため、AUTO OFF中のリアルタイム調整プレビューは確定させる
-            this.ojamaLive = null;
-            this.ojama.timerId = setInterval(() => {
-                if (!this._isLive()) return;
-                this.sendOjama(this.ojama.amount);
-            }, this.ojama.intervalSec * 1000);
-        }
+        return removed;
     }
 
     // 自動投下の間隔を変更する。タイマーが動いていれば新しい間隔で張り直す
     setOjamaIntervalSec(sec) {
         this.ojama.intervalSec = Math.max(1, Math.min(60, sec));
-        if (this.ojama.auto) this.setOjamaAuto(true);
+        this._restartOjamaTimer();
     }
 
     // 直列確率（設計 Phase5 §8.2）。tetのgarbage.jsが既に読んでいるg.vsGarbageHoleRate
@@ -1147,7 +1180,7 @@ class PracticeManager {
     clearPartial(amount) {
         const g = this.gameInstance;
         if (!g) return;
-        this.ojamaLive = null; // 盤面をここで書き換えるため退避済みのプレビューは無効化する
+        this.ojama.holes.length = 0; // 盤面をここで書き換えるため穴列の対応が切れる（設計 Phase7 §8.6）
         amount = Math.max(1, amount || 1);
         if (this.rule === 'tet') {
             // 下(yが大きい)から数えてamount行まで、空行はスキップして非空の行を消す。
