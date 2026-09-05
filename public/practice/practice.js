@@ -70,6 +70,7 @@ class PracticeManager {
         this._origSpawnPuyo = null;
         this._origGameOver = null;
         this._origBeginGameOver = null;
+        this._origBeginSpawnAnim = null; // puyo。FIXEDの自動補充フック（設計 Phase8 §1.2）
 
         this._goalLoopId = null;
         this._keyHandler = null;
@@ -195,10 +196,20 @@ class PracticeManager {
             game._spawnPuyo = function () {
                 self._cycleCount = 0; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1・Phase7 §2）
                 self._capture();
-                // FIXED中の自動補充は、直前の連鎖解決が終わった直後＝次のぷよ出現直前に行う
-                // （設計 Phase7 追補3）
-                self._maintainOjamaFixed();
+                // FIXEDの自動補充は_beginSpawnAnimフックへ移設した（設計 Phase8 §1.2）。
+                // ここで呼ぶとエンジンのおじゃま投下ポイント(checkErase末尾)を過ぎており、
+                // 落下アニメに乗せられない。
                 return self._origSpawnPuyo.call(this);
+            }.bind(game);
+
+            // FIXEDの自動補充をエンジン本来のおじゃま投下ポイントへ差し込む（設計 Phase8 §1.2）。
+            // _generateOjama()が_gs='dropping'を立てるので、投下した回はspawnAnimへ進ませずに
+            // 抜ける＝AUTOと同じ dropping→fixAnim→fixWait5f→checkErase を一巡してから
+            // 改めてここへ戻る（2周目は不足0なので素通りしてspawnAnimへ進む）。
+            this._origBeginSpawnAnim = game._beginSpawnAnim;
+            game._beginSpawnAnim = function () {
+                if (self._fixedRefillViaEngine()) return;
+                self._origBeginSpawnAnim.call(this);
             }.bind(game);
 
             this._origBeginGameOver = game._beginGameOver;
@@ -990,15 +1001,30 @@ class PracticeManager {
         if (typeof _practicePanelRefresh === 'function') _practicePanelRefresh();
     }
 
-    // FIXED専用：プレイで自然におじゃまが減った分（ライン消去・連鎖に巻き込まれた等）を
-    // 検知して自動でAMOUNTまで補充する。tetのpopMino/puyoの_spawnPuyoフック
-    // （＝直前のツモのライン消去/連鎖解決が完全に終わった直後）から呼ぶ（設計 Phase7 追補3）。
+    // FIXED専用：プレイで自然におじゃまが減った分（ライン消去に巻き込まれた等）を
+    // 検知して自動でAMOUNTまで補充する。tetのpopMinoフック（＝直前のツモのライン消去が
+    // 完全に終わった直後）から呼ぶ（設計 Phase7 追補3）。puyoは_fixedRefillViaEngine()
+    // （設計 Phase8 §1）に一本化した＝落下アニメに乗せるためエンジン本来の投下ポイント
+    // （_beginSpawnAnimフック）から呼ぶ必要があり、ここでは何もしない。
     // 巻き戻し(_restoreCurrent)は「その時点の履歴」を尊重するためここでは呼ばない＝
     // 次に実際に手を進めたときから補充を再開する。
     _maintainOjamaFixed() {
-        if (this.ojama.mode !== 'fixed') return;
+        if (this.rule !== 'tet' || this.ojama.mode !== 'fixed') return;
         const need = this.ojama.amount - this._countOjamaUnits();
         if (need > 0) this._dropOjamaNow(need);
+    }
+
+    // puyo専用：FIXEDの不足分をエンジンの落下アニメ経路へ流し込む（設計 Phase8 §1.2）。
+    // game._beginSpawnAnimフックから呼ばれ、投下した回はtrueを返す＝呼び出し元は
+    // spawnAnimへ進まずに抜け、_generateOjama()が立てた'dropping'に処理を委ねる。
+    _fixedRefillViaEngine() {
+        const g = this.gameInstance;
+        if (!g || this.rule !== 'puyo') return false;
+        if (this.ojama.mode !== 'fixed' || this.isFinished || this.isEnding) return false;
+        if (g.hasDroppedOjamaThisTurn) return false; // このターンは既にAUTO/前回補充で降っている
+        const need = this.ojama.amount - this._countOjamaUnits();
+        if (need <= 0) return false;
+        return this._dropOjamaNow(need, true); // animate=true
     }
 
     // AUTOのタイマーを（再）起動する。実時間ベースで、パネルの開閉(pause)やrewindを
@@ -1081,9 +1107,12 @@ class PracticeManager {
     // ONの即時投下本体（設計 Phase7 §8.4）。セッション中に積み上げてきた穴列
     // （this.ojama.holes）の続きとして生成し、末尾ぶんだけをこの投下に使う
     // （直列確率の連続性を保つ＝Phase6 §4と同じ考え方）。
-    _dropOjamaNow(amount) {
+    // puyoのanimate=trueはFIXEDの自動補充専用（設計 Phase8 §1.3）：エンジン本来の
+    // 落下アニメ経路（_generateOjama()が立てる'dropping'）に処理を委ね、即時確定しない。
+    // 戻り値は「実際に投下したか」（tetは常にtrue＝amount>0チェック済みのため）。
+    _dropOjamaNow(amount, animate = false) {
         const g = this.gameInstance;
-        if (!g || amount <= 0) return;
+        if (!g || amount <= 0) return false;
         const start = this.ojama.holes.length;
         this._extendHoleList(this.ojama.holes, start + amount);
         const holes = this.ojama.holes.slice(start);
@@ -1103,22 +1132,32 @@ class PracticeManager {
             g.field.markDirty();
             g.drawAll();
             this._renderGarbageGauge();
-        } else {
-            g.garbageQueue.push({ amount, holes: [], ready: true });
-            const prevGs = g._gs;
-            const prevDropped = g.hasDroppedOjamaThisTurn;
-            if (g._generateOjama()) {
-                // アニメを挟まず即時確定させる（パネル操作中＝ポーズ中のため）。
-                // 連鎖は誘発させない＝_render()のみ（設計 §4.2と同じ方針）。
-                if (g._dropAnim) { g._applyDropAnim(); g._dropAnim = null; }
-                g._gs = prevGs; // 'dropping'のまま抜けるとターン進行が壊れる
-                // _generateOjama()が立てるhasDroppedOjamaThisTurnをそのままにすると
-                // このターンのAUTO由来の落下が抑止されてしまうため元に戻す
-                g.hasDroppedOjamaThisTurn = prevDropped;
-                g._render();
-            }
-            if (typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
+            return true;
         }
+        g.garbageQueue.push({ amount, holes: [], ready: true });
+        if (animate) {
+            // エンジン本来の経路。_generateOjama()が盤面へ書き込み→_buildDropAnim()→
+            // _gs='dropping'→hasDroppedOjamaThisTurn=trueまでやるので、こちらは
+            // _gs/hasDroppedOjamaThisTurnの退避・復元を絶対にしないこと（二重投下防止のため
+            // trueのまま残す必要がある）。
+            const dropped = g._generateOjama();
+            if (dropped && typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
+            return dropped;
+        }
+        const prevGs = g._gs;
+        const prevDropped = g.hasDroppedOjamaThisTurn;
+        if (g._generateOjama()) {
+            // アニメを挟まず即時確定させる（パネル操作中＝ポーズ中のため）。
+            // 連鎖は誘発させない＝_render()のみ（設計 §4.2と同じ方針）。
+            if (g._dropAnim) { g._applyDropAnim(); g._dropAnim = null; }
+            g._gs = prevGs; // 'dropping'のまま抜けるとターン進行が壊れる
+            // _generateOjama()が立てるhasDroppedOjamaThisTurnをそのままにすると
+            // このターンのAUTO由来の落下が抑止されてしまうため元に戻す
+            g.hasDroppedOjamaThisTurn = prevDropped;
+            g._render();
+        }
+        if (typeof g._updateOjamaYokoku === 'function') g._updateOjamaYokoku();
+        return true;
     }
 
     // 盤面のおじゃまを最大n単位ぶん取り除く（tet=行 / puyo=個）。実際に消した数を返す。
@@ -1410,6 +1449,7 @@ class PracticeManager {
             if (this._origPopMino) g.popMino = this._origPopMino;
             if (this._origGameOver) g.gameOver = this._origGameOver;
             if (this._origSpawnPuyo) g._spawnPuyo = this._origSpawnPuyo;
+            if (this._origBeginSpawnAnim) g._beginSpawnAnim = this._origBeginSpawnAnim;
             if (this._origBeginGameOver) g._beginGameOver = this._origBeginGameOver;
             if (this._origUpdateChainDisplay) g._updateChainDisplay = this._origUpdateChainDisplay;
             if (this._origUpdateTimeDisplay) g.updateTimeDisplay = this._origUpdateTimeDisplay;
@@ -1440,6 +1480,7 @@ class PracticeManager {
         if (typeof _closePracticePanel === 'function') _closePracticePanel();
         this._origPopMino = this._origGameOver = null;
         this._origSpawnPuyo = this._origBeginGameOver = null;
+        this._origBeginSpawnAnim = null;
         this._origUpdateChainDisplay = null;
         this._origUpdateTimeDisplay = this._origUpdateTimeDisplayPuyo = null;
         this._origInitActiveColors = null;
