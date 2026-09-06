@@ -78,7 +78,9 @@ Object.assign(Game.prototype, {
         if (linesCleared > 0) {
             this.lines += linesCleared;
             if (this.mode === 'marathon') {
+                const prevLevel = this.level;
                 this.level = Math.min(15, this.startLevel + Math.floor(this.lines / 10));
+                if (this.level > prevLevel) this.playSe('levelup');
             }
         }
 

@@ -108,6 +108,11 @@ Object.assign(Game.prototype, {
             this._countAttackSent(generatedGarbage);
         }
 
+        // ライン消去音(1line〜4lines/tspin)に重ねて鳴らすボーナス音。
+        // RENは意図的に無音のまま（消去音と鳴り続けて煩いため）。
+        if (isB2BTriggered) this.playSe('b2b');
+        if (isPerfectClear && linesCleared > 0) this.playSe('perfect_clear');
+
         if (tSpinResult !== null || isB2BTriggered || currentRen > 0 || isPerfectClear || is4Lines) {
             this.showActionLabels(tSpinResult, linesCleared, isB2BTriggered, currentRen, isPerfectClear, is4Lines);
         }

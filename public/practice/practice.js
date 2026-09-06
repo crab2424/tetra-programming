@@ -429,6 +429,14 @@ class PracticeManager {
     }
 
     // delta = -1 で1手戻る / +1 で1手進める（巻き戻しの取消）
+    // SE再生の共通入口。エンジン(tet/puyo)のplaySeはSeManagerへの薄いラッパなので、
+    // エンジン未生成・SE未配置のどちらでも安全に無視されるようここで一本化する。
+    _playSe(key) {
+        const g = this.gameInstance;
+        if (g && typeof g.playSe === 'function') { g.playSe(key); return; }
+        if (window.SeManager) window.SeManager.play(key);
+    }
+
     step(delta) {
         if (!this._isLive()) return false;
         const next = this.cursor + delta;
@@ -436,6 +444,7 @@ class PracticeManager {
         this.cursor = next;
         this._restoreCurrent();
         this._flashRewind(delta);
+        this._playSe(delta > 0 ? 'practice_advance' : 'practice_rewind');
         return true;
     }
 
@@ -477,7 +486,10 @@ class PracticeManager {
             if (ok) break;
             idx = ((idx + dir) % L + L) % L;
         }
-        if (ok) this._cycleIndex = idx;
+        if (ok) {
+            this._cycleIndex = idx;
+            this._playSe('practice_cycle'); // 1周して全滅（ok=false）なら無反応＝無音のまま
+        }
         this._refreshRewindIndicator(); // 「次に出るツモ」表示を更新する（設計 §7.2）
     }
 
@@ -656,6 +668,8 @@ class PracticeManager {
     _onGoalAchieved() {
         this.isGoalAchieved = true;
         this.goalAchievedStats = this._collectStats();
+        // GOAL達成音はシングルのクリア音・QUIZ正解音と同一キー('clear')に統一。
+        this._playSe('clear');
         // 達成表示だけ出して続行する（設計 §4.5-1）。ゲームは止めない。
         if (typeof showFinishOverlay === 'function') {
             showFinishOverlay('finish-overlay', 'finish-text', 'GOAL!', 'finish-clear', 1200, null);
@@ -963,7 +977,9 @@ class PracticeManager {
         } else {
             if (typeof g._render === 'function') g._render();
         }
-        if (g && typeof g.playSe === 'function') g.playSe('gameover');
+        // 目標達成済みなら FINISH!（＝positiveな終了）なのでクリア音、
+        // 未達成の詰みだけゲームオーバー音にする。
+        this._playSe(this.isGoalAchieved ? 'clear' : 'gameover');
         this._stopEngine();
         const stats = this.goalAchievedStats || this._collectStats();
         if (typeof showFinishOverlay === 'function') {

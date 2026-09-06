@@ -68,6 +68,8 @@ function togglePracticePanel() {
     if (typeof mgr._isCountingDown === 'function' && mgr._isCountingDown()) return;
     const opening = !document.body.classList.contains('practice-panel-open');
     document.body.classList.toggle('practice-panel-open', opening);
+    // ⚙タブのクリック・Tab・Escの全経路がここを通るので、開閉音はここ1箇所で鳴らす。
+    window.SeManager?.play(opening ? 'practice_panel_open' : 'practice_panel_close');
     _practicePanelFocusIndex = 0;
 
     const g = mgr.gameInstance;
@@ -351,10 +353,16 @@ function _installPracticePanelKeyHandler() {
         } else if (e.code === 'ArrowDown') {
             _practicePanelFocusIndex = (_practicePanelFocusIndex + 1) % rows.length;
         } else if (e.code === 'ArrowLeft') {
+            // 値変更・決定の操作音。マウス経路は base.js の CLICK_SELECTOR が
+            // 同じ menu_decide を鳴らすので、こちらはキーボード経路だけを補う。
+            window.SeManager?.play('menu_decide');
             _practicePanelApplyDir(rows[_practicePanelFocusIndex], -1);
         } else if (e.code === 'ArrowRight') {
+            window.SeManager?.play('menu_decide');
             _practicePanelApplyDir(rows[_practicePanelFocusIndex], 1);
         } else if (e.code === 'Enter' || e.code === 'Space') {
+            // 'clear' は practiceClearBoard() が専用SEを鳴らすため二重に鳴らさない。
+            if (rows[_practicePanelFocusIndex] !== 'clear') window.SeManager?.play('menu_decide');
             _practicePanelActivate(rows[_practicePanelFocusIndex]);
         } else if (e.code === 'Escape') {
             togglePracticePanel();
@@ -580,6 +588,9 @@ function practicePanelOpenSequenceEditor() {
 function practiceClearBoard() {
     const mgr = window._practiceManager;
     if (!mgr || !mgr.gameInstance) return;
+    // マウス（.practice-panel-clear-btn）・キーボード（Enter/Space）両経路がここを通る。
+    // base.js の CLICK_SELECTOR には clear-btn を入れていないので二重にならない。
+    window.SeManager?.play('practice_board_clear');
     const g = mgr.gameInstance;
     // FIXED中は「おじゃまだけ残す」（ユーザー回答。設計 Phase7 追補3）。
     // holesは実際に乗っているおじゃま量が変わらないぶんそのまま維持する
