@@ -294,11 +294,11 @@ body.practice-panel-open .practice-panel-dock {
   gap: 4px;
   padding: 14px 26px;
   border-radius: 10px;
-  background: rgba(8, 10, 16, 0.82);
-  border: 1px solid rgba(156, 167, 184, 0.4);
+  background: rgba(8, 10, 16, 0.5);
+  border: 1px solid rgba(156, 167, 184, 0.5);
   box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.6),
-    0 6px 22px rgba(0, 0, 0, 0.55);
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 6px 22px rgba(0, 0, 0, 0.45);
 }
 /* 盤面中央のREWIND/ADVANCEフラッシュ本体。CYCLEフラッシュと同じくHUD可読性強調の
    対象だが、こちらだけ--practice-colorのまま直し忘れていた（実機FBで発覚。設計 Phase7 追補）。
@@ -317,7 +317,7 @@ body.practice-panel-open .practice-panel-dock {
 #practice-rewind-flash-pos {
   font-family: "Orbitron", monospace;
   font-size: 11px;
-  color: #9aa5b6;
+  color: #ffffff;
 }
 /* ADVANCE(進む)もREWIND(戻す)と同じ明るさにする（実機FBでADVANCEだけ薄いと再指摘。
    区別は⟲/⟳のアイコン差だけで十分＝色を沈めるのはやめる。設計 Phase7 追補2） */
@@ -343,6 +343,12 @@ body.practice-panel-open .practice-panel-dock {
   pointer-events: none;
   z-index: 19;
   opacity: 0;
+  /* REWINDフラッシュ(.practice-rewind-flash)と同じ326x662の中央寄せ枠のため、
+     両者が同時に見えると完全に同じ位置に重なって読めなくなる（実機FB）。
+     REWINDは中央のまま、CYCLEだけ上へ退避させる。keyframesはopacityのみで
+     transformを使わないため、ここに静的なtranslateYを足しても連打時の
+     アニメーションとは干渉しない。 */
+  transform: translateY(-140px);
 }
 .practice-cycle-flash.is-active {
   /* REWINDフラッシュと同じ持続時間にする（実機FBで短すぎると指摘。設計 Phase7 追補2） */
