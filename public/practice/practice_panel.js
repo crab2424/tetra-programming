@@ -61,6 +61,11 @@ function togglePracticePanel() {
     // GAME OVER/FINISH演出中・リザルト中はパネルを開閉させない（設計 Phase5 §4.2）。
     // ここを塞がないと g.pause()/resume() が呼ばれ、止めたはずのエンジンが復活する。
     if (mgr.isEnding || mgr.isFinished) return;
+    // READY(カウントダウン)中は開かせない（設計 Phase10 §3）。
+    // tetはpause()にカウントダウンガードが無く「盤面は止まるのにTIMEだけ進む」、
+    // puyoはpause()が早期returnして「パネルだけ開いてゲームは止まらない」という
+    // 別々の壊れ方をするため、入口で一括して塞ぐ。
+    if (typeof mgr._isCountingDown === 'function' && mgr._isCountingDown()) return;
     const opening = !document.body.classList.contains('practice-panel-open');
     document.body.classList.toggle('practice-panel-open', opening);
     _practicePanelFocusIndex = 0;

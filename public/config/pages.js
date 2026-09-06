@@ -11,7 +11,7 @@ const EXTERNAL_PAGES = {
   changelog: 'pages/changelog.html?v=5',
   // PRACTICEモード関連ファイルは public/practice/ にまとめている（設計 Phase6 §9.1）。
   // このマップはパスに制約が無く、'pages/' 配下である必要はない。
-  'practice-help': 'practice/help.html?v=3',
+  'practice-help': 'practice/help.html?v=4',
 };
 
 // 読み込み済みフラグ（多重 fetch 防止 / Promise を保持して重複読込を共有）

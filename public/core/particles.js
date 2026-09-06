@@ -222,6 +222,15 @@ function initMenuAnimations(pageId = 'main-menu') {
         targets = [{ sel: '#credits-container', cls: 'menu-enter', delay: 0 }];
     } else if (pageId === 'changelog') {
         targets = [{ sel: '#changelog-container', cls: 'menu-enter', delay: 0 }];
+    } else if (pageId === 'practice-help') {
+        // CREDITS/CHANGELOGはコンテナ一括fadeだが、HELPは
+        // 「見出し → 本文 → BACK」の3ブロック構造がはっきりしているので
+        // 軽いカスケードにする（設計 Phase10 §1）。
+        targets = [
+            { sel: '#practice-help-header',  cls: 'menu-enter', delay: 0 },
+            { sel: '.practice-help-list',    cls: 'menu-enter', delay: 1 },
+            { sel: '#practice-help-buttons', cls: 'menu-enter', delay: 2 },
+        ];
     }
 
     const nodes = [];
