@@ -910,16 +910,28 @@
         </div>
         <div class="practice-rewind-keys" id="practice-rewind-keys">Q / E</div>
       </div>
-      <!-- ★ PRACTICEモード専用: REWIND/ADVANCEの移動エフェクト（Phase 5 §5）。盤面中央に一瞬光る。 -->
+      <!-- ★ PRACTICEモード専用: 設定パネルで停止中であることを盤面中央に示す
+           （Phase 10 §4）。表示切替はCSSのみ（body.practice-panel-open）。 -->
+      <div id="practice-pause-mark" class="practice-pause-mark">
+        <span class="practice-pause-mark-icon">❚❚</span>
+        <span class="practice-pause-mark-text">PAUSED</span>
+      </div>
+      <!-- ★ PRACTICEモード専用: REWIND/ADVANCEの移動エフェクト（Phase 5 §5）。盤面中央に一瞬光る。
+           盤面が埋まると明るい文字が明るいブロックに埋もれるため、内容ぶんだけの
+           暗いプレートを敷く（Phase 10 §5）。 -->
       <div id="practice-rewind-flash" class="practice-rewind-flash">
-        <span id="practice-rewind-flash-icon">⟲</span>
-        <span id="practice-rewind-flash-text">REWIND</span>
-        <span id="practice-rewind-flash-pos">0 / 0</span>
+        <div class="practice-flash-plate">
+          <span id="practice-rewind-flash-icon">⟲</span>
+          <span id="practice-rewind-flash-text">REWIND</span>
+          <span id="practice-rewind-flash-pos">0 / 0</span>
+        </div>
       </div>
       <!-- ★ PRACTICEモード専用: 即時ツモ変化の結果表示（Phase 5 §9.6）。隠しキー操作のため
            操作パネルには入れない。盤面中央に短く出す。 -->
       <div id="practice-cycle-flash" class="practice-cycle-flash">
-        <span id="practice-cycle-flash-text">⟳ I</span>
+        <div class="practice-flash-plate">
+          <span id="practice-cycle-flash-text">⟳ I</span>
+        </div>
       </div>
       <!-- ★ PRACTICEモード専用: 即時ツモ変化インジケータ（右下・APM枠の位置。tet/puyo共通で表示。
            実機FBによりtet/puyoとも左のREWINDから分離し右側へ配置し直した）。
@@ -1279,9 +1291,9 @@
     ───────────────────────────────────────────── -->
   <div id="external-pages"></div>
 
-  <script src="config/pages.js?v=4"></script>
+  <script src="config/pages.js?v=5"></script>
   <script src="core/base.js?v=7"></script>
-  <script src="core/particles.js?v=1"></script>
+  <script src="core/particles.js?v=2"></script>
   <script src="app/manager.js?v=1"></script>
   <script src="config/settings.js?v=6"></script>
   <script src="config/records.js?v=1"></script>
@@ -1316,8 +1328,8 @@
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=2"></script>
   <script src="practice/practice_sequence.js?v=4"></script>
-  <script src="practice/practice_panel.js?v=17"></script>
-  <script src="practice/practice.js?v=25"></script>
+  <script src="practice/practice_panel.js?v=18"></script>
+  <script src="practice/practice.js?v=26"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 

@@ -108,16 +108,19 @@ body.practice-mode #puyo-next-canvas {
   display: none;
   position: absolute;
   /* HOLD枠の真下（Phase7 §3）。旧位置(top:6/left:-46)はHOLDキャンバス右端(-30)と
-     16px重なっていた。HOLD下端(約130px)〜LEVEL枠(450px)は完全に空いている。 */
+     16px重なっていた。HOLD下端(約130px)〜LEVEL枠(450px)は完全に空いている。
+     実機FBで「小さすぎる」。26→36pxへ拡大した（設計 Phase10 §2）。
+     topは146pxのまま＝下端182pxとなり、アクションラベル
+     (#action-label-container top:200px)との間に18px残る。 */
   top: 146px;
   left: -160px;
-  width: 26px;
-  height: 26px;
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   background: rgba(10, 10, 15, 0.8);
   color: var(--practice-color);
-  font-size: 13px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
   z-index: 16;
@@ -132,6 +135,13 @@ body.practice-mode .practice-panel-tab.is-hidden {
 }
 .practice-panel-tab:hover {
   background: rgba(156, 167, 184, 0.18);
+}
+/* READY(カウントダウン)中は押せない（設計 Phase10 §3.3.3）。
+   .is-hidden(display:none)と違い位置は保ったまま減光する＝
+   カウントダウンが明けた瞬間にタブが「生えてくる」ように見えるのを避ける。 */
+body.practice-mode.practice-countdown .practice-panel-tab {
+  opacity: 0.35;
+  pointer-events: none;
 }
 
 .practice-panel-dock {
@@ -261,10 +271,8 @@ body.practice-panel-open .practice-panel-dock {
   width: 326px;
   height: 662px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
   pointer-events: none;
   z-index: 19;
   opacity: 0;
@@ -275,12 +283,30 @@ body.practice-panel-open .practice-panel-dock {
      保持してから消える形にした（フェードイン/アウトの速さ自体は従来と揃える）。 */
   animation: practiceRewindFlash 1120ms ease-out;
 }
+/* ─── Phase 10 §5: フラッシュの下敷きプレート ───
+   盤面が埋まると明るい文字(--practice-color-hi)が明るいブロックに埋もれる
+   （実機FB）。盤面全体を暗幕で覆うと「何が起きたか盤面で確認する」目的を
+   潰すので、内容ぶんだけ(fit-content)の暗いプレートに留める。 */
+.practice-flash-plate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 26px;
+  border-radius: 10px;
+  background: rgba(8, 10, 16, 0.82);
+  border: 1px solid rgba(156, 167, 184, 0.4);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 6px 22px rgba(0, 0, 0, 0.55);
+}
 /* 盤面中央のREWIND/ADVANCEフラッシュ本体。CYCLEフラッシュと同じくHUD可読性強調の
-   対象だが、こちらだけ--practice-colorのまま直し忘れていた（実機FBで発覚。設計 Phase7 追補）。 */
+   対象だが、こちらだけ--practice-colorのまま直し忘れていた（実機FBで発覚。設計 Phase7 追補）。
+   プレートが付いたので発光は弱めて輪郭を締める（設計 Phase10 §5）。 */
 #practice-rewind-flash-icon {
   font-size: 40px;
   color: var(--practice-color-hi);
-  text-shadow: 0 0 16px rgba(156, 167, 184, 0.6);
+  text-shadow: 0 0 10px rgba(156, 167, 184, 0.45);
 }
 #practice-rewind-flash-text {
   font-family: "Orbitron", monospace;
@@ -327,13 +353,54 @@ body.practice-panel-open .practice-panel-dock {
   font-size: 24px; /* 20px→24px（設計 Phase7 §5） */
   letter-spacing: 2px;
   color: var(--practice-color-hi);
-  text-shadow: 0 0 10px rgba(156, 167, 184, 0.5);
+  text-shadow: 0 0 8px rgba(156, 167, 184, 0.4); /* プレート追加で発光を弱めた（設計 Phase10 §5） */
 }
 @keyframes practiceCycleFlash {
   0%   { opacity: 0; }
   10%  { opacity: 1; }
   55%  { opacity: 1; }
   100% { opacity: 0; }
+}
+
+/* ─── Phase 10 §4: 設定パネルで停止中であることを盤面中央に示す ───
+   Phase6 §8でポーズモーダルを消した(hidePauseOverlay)ため、盤面上に
+   「止まっている」手掛かりが無くなっていた。JSは書かず
+   body.practice-panel-open だけで出し入れする。 */
+.practice-pause-mark {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 326px;
+  height: 662px;      /* REWIND/CYCLEフラッシュと同じ「盤面ぴったり」の枠 */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 17;        /* フラッシュ(19)より下・カウントダウン(20)より下 */
+  animation: practicePauseMark 2.4s ease-in-out infinite;
+}
+body.practice-mode.practice-panel-open .practice-pause-mark {
+  display: flex;
+}
+.practice-pause-mark-icon {
+  font-size: 34px;
+  letter-spacing: 4px;
+  color: var(--practice-color-hi);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+}
+.practice-pause-mark-text {
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: var(--practice-color-hi);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+}
+@keyframes practicePauseMark {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 0.9; }
 }
 
 /* ─── 右下(旧APM枠)のHUDブロック（廃止した practice-status-right の位置を流用）。

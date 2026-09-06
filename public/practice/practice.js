@@ -21,6 +21,28 @@ const PRACTICE_HISTORY_MAX = 100;
 // 要求サイクル I,T,S,Z,J,L,O をtype値の並びに変換する。
 const TET_CYCLE = [0, 2, 5, 6, 3, 4, 1];
 const TET_CYCLE_LABEL = ['I', 'O', 'T', 'J', 'L', 'S', 'Z']; // type値→表示ラベル
+
+// 4×4箱の原点(mino.y)ではなく「見た目の下端」を基準に載せ替えるための補正
+// （設計 Phase10 §6.4）。Iはブロック定義が相対行1のみ、他は相対行1〜2を占める
+// （core/base.js の initBlocks）。Mino.spawn() が y を -1/-2 と出し分けているのと同じ理由。
+const CYCLE_BOTTOM_OFFSET = (type) => (type === 0) ? 1 : 2;
+
+// ツモ変化の置き換え候補を探す順（設計 Phase10 §6.5）。
+// 「見た目の位置がなるべく動かない」順に並べ、下方向(dy>0)は入れない
+// ＝勝手に沈み込むと別の操作（ハードドロップ）に見えてしまうため。
+// [-2,0]/[2,0]まで見るのは、非Iから幅4のIへ変える際に壁際でも収まるようにするため。
+const TET_CYCLE_KICKS = [
+    [ 0,  0],
+    [-1,  0], [ 1,  0],
+    [-2,  0], [ 2,  0],
+    [ 0, -1],
+    [-1, -1], [ 1, -1],
+    [-2, -1], [ 2, -1],
+    [ 0, -2],
+    [-1, -2], [ 1, -2],
+    [ 0, -3],
+    [ 0, -4],
+];
 // puyo: 色番号 1:R 2:B 3:P 4:G 5:Y
 // 実際の描画（draw.js _drawPuyo の imageIndex = color - 1、画像は puyo-0=赤/puyo-1=青/
 // puyo-2=紫/puyo-3=緑/puyo-4=黄）に合わせた対応表。practice_sequence.jsのPUYO_COLOR_LABELS
@@ -78,6 +100,7 @@ class PracticeManager {
         // ゲームパッド対応（設計 Phase9）。独自ポーリングで完結させ、共通エンジンには触らない。
         this._gpLoopId = null;      // requestAnimationFrame の id
         this._gpPrevState = {};     // アクション名→前フレームの押下状態（エッジ検出用）
+        this._cdWatchId = null;     // READY(カウントダウン)監視のrAF id（設計 Phase10 §3）
         this._origUpdateChainDisplay = null; // puyo + 'puyos'ゴール時のみ使う（下記 attach() 参照）
         this._origUpdateTimeDisplay = null;      // tet。GOAL=TIME のときだけ使う
         this._origUpdateTimeDisplayPuyo = null;  // puyo。GOAL=TIME のときだけ使う
@@ -309,8 +332,32 @@ class PracticeManager {
         this._installKeyHandler();
         this._installGamepadHandler();
         this._startGoalLoop();
+        this._startCountdownWatch();
 
         if (typeof _initPracticePanel === 'function') _initPracticePanel(this);
+    }
+
+    // READY(カウントダウン)中だけ⚙タブを減光して「今は押せない」ことを示す
+    // （実際の封じ込めは togglePracticePanel() 側。設計 Phase10 §3.3.3）。
+    // カウントダウンの終了を知る手段が共通エンジン側に無い（イベントもフックも
+    // 生えていない）ため、rAFで常時ポーリングする。
+    // ★ 使い捨て（明けたら自分で止まる）にはできない: キーボードのRESTART(R)や
+    // ゲームパッドのRESTARTボタンは Game.start() を直接呼ぶだけで
+    // PracticeManager.attach() を経由しない（public/game/tet/input.js:89,622等）ため、
+    // 2回目以降のカウントダウンに監視が追随できなくなる。destroy()まで常駐させる。
+    _startCountdownWatch() {
+        this._stopCountdownWatch();
+        const tick = () => {
+            if (!this.gameInstance) { this._cdWatchId = null; return; }
+            document.body.classList.toggle('practice-countdown', this._isCountingDown());
+            this._cdWatchId = requestAnimationFrame(tick);
+        };
+        this._cdWatchId = requestAnimationFrame(tick);
+    }
+
+    _stopCountdownWatch() {
+        if (this._cdWatchId) { cancelAnimationFrame(this._cdWatchId); this._cdWatchId = null; }
+        document.body.classList.remove('practice-countdown');
     }
 
     // ─────────────────────────────────────────
@@ -345,6 +392,16 @@ class PracticeManager {
         if (!g || this.isFinished || this.isEnding) return false;
         if (this.rule === 'tet') return !g.isPaused && !!g.mino;
         return g.state === 'playing';
+    }
+
+    // カウントダウン(READY)中か。tetは isCountingDown、puyoは state==='starting'
+    // でカウントダウン中を表す（判定方法は public/app/versus.js:276 のコメントと同じ）。
+    // 設定パネルの開閉を封じるために使う（設計 Phase10 §3）。
+    _isCountingDown() {
+        const g = this.gameInstance;
+        if (!g) return false;
+        if (this.rule === 'tet') return !!g.isCountingDown;
+        return g.state === 'starting';
     }
 
     // GAME OVER/FINISH演出中(isEnding)は設定パネルの開閉タブ・巻き戻しインジケータを
@@ -406,9 +463,20 @@ class PracticeManager {
     // （NEXT/HOLDには触らない）。dir>0=順方向 / dir<0=逆方向。
     // ─────────────────────────────────────────
     cycleTsumo(dir = 1) {
-        const idx = this._cycleStepIndex(dir);
+        const L = this._cycleLen();
+        if (!L) return;
+        let idx = this._cycleStepIndex(dir);
         if (idx === null) return;
-        const ok = (this.rule === 'tet') ? this._cycleTsumoTet(idx, dir) : this._cycleTsumoPuyo(idx, dir);
+        // 置けない形状はサイクル上の次へ自動で送る（設計 Phase10 §6.6）。
+        // 従来は失敗しても _cycleIndex を進めなかったため、1つでも置けない形状に
+        // 当たるとそこで永久に詰まり「CYCLEが効かない」ように見えていた。
+        // 1周して全滅した場合だけ無反応にする＝その局面ではどの形も物理的に置けない。
+        let ok = false;
+        for (let i = 0; i < L; i++) {
+            ok = (this.rule === 'tet') ? this._cycleTsumoTet(idx, dir) : this._cycleTsumoPuyo(idx, dir);
+            if (ok) break;
+            idx = ((idx + dir) % L + L) % L;
+        }
         if (ok) this._cycleIndex = idx;
         this._refreshRewindIndicator(); // 「次に出るツモ」表示を更新する（設計 §7.2）
     }
@@ -429,23 +497,32 @@ class PracticeManager {
         return ((this._cycleIndex + dir) % L + L) % L;
     }
 
+    // 指定typeを「今の見た目の位置」に載せ替えられるか試す。置ければ g.mino を
+    // 差し替えて true、どのキックでも無理なら g.mino を元に戻して false
+    // （設計 Phase10 §6.4-6.5）。
+    _cycleFitTet(type) {
+        const g = this.gameInstance;
+        const prev = g.mino;
+        const baseX = prev.x;
+        const baseY = prev.y + CYCLE_BOTTOM_OFFSET(prev.type) - CYCLE_BOTTOM_OFFSET(type);
+        const m = new Mino(type);
+        m.spawn(); // 向きは常に0へ。回転を引き継ぐと型ごとの壁蹴りの前提が崩れる
+        g.mino = m;
+        for (let i = 0; i < TET_CYCLE_KICKS.length; i++) {
+            m.x = baseX + TET_CYCLE_KICKS[i][0];
+            m.y = baseY + TET_CYCLE_KICKS[i][1];
+            if (g.valid(0, 0)) return true;
+        }
+        g.mino = prev;
+        return false;
+    }
+
     // idxを適用できたらtrueを返す（設計 Phase8 §2.1：適用に失敗したら位置を進めない）。
     _cycleTsumoTet(idx, dir) {
         const g = this.gameInstance;
         if (!this._isLive() || !g.mino) return false;
         const type = TET_CYCLE[idx];
-        const m = new Mino(type);
-        m.spawn(); // 出現位置と初期回転（0）をセットする。回転を引き継ぐと型ごとの
-                   // 壁蹴りの前提が崩れるため、常に出現時の向きへリセットする。
-        m.x = g.mino.x;
-        m.y = g.mino.y;
-        const prev = g.mino;
-        g.mino = m;
-        // 形が変わって埋まる場合は上へ逃がす。それでも駄目なら出現位置に戻す。
-        let guard = 0;
-        while (!g.valid(0, 0) && guard++ < 4) g.mino.y -= 1;
-        if (!g.valid(0, 0)) { g.mino = new Mino(type); g.mino.spawn(); }
-        if (!g.valid(0, 0)) { g.mino = prev; return false; } // 詰んでいるなら何もしない（GAMEOVERにしない）
+        if (!this._cycleFitTet(type)) return false; // 出現位置へのワープは廃止（設計 Phase10 §6.2④）
         // 接地・ロック関連の状態をpopMino()と同じに初期化する（canHoldは変えない＝ツモ未消費）
         g.isGrounded = false;
         g.lowestY = g.mino.y;
@@ -661,9 +738,11 @@ class PracticeManager {
         if (fwdBtn) fwdBtn.classList.toggle('is-disabled', fwdCount <= 0);
 
         // 即時ツモ変化（設計 Phase6 §7・Phase8 §2.5）: 次に押したときに出るツモを
-        // 順方向・逆方向の両方ぶん表示する
-        set('practice-cycle-prev', this._cycleLabelAt(this._cycleStepIndex(-1)));
-        set('practice-cycle-next', this._cycleLabelAt(this._cycleStepIndex(+1)));
+        // 順方向・逆方向の両方ぶん表示する。tetは置けない形状を自動で読み飛ばす
+        // （設計 Phase10 §6.6）ため、表示側も同じスキップを掛けて食い違いを防ぐ
+        // （設計 Phase10 §6.7）。
+        set('practice-cycle-prev', this._cycleLabelAtSkipping(-1));
+        set('practice-cycle-next', this._cycleLabelAtSkipping(+1));
         const live = this._isLive();
         ['practice-cycle-back', 'practice-cycle-btn'].forEach(id => {
             const el = document.getElementById(id);
@@ -681,6 +760,27 @@ class PracticeManager {
         const axis = g.activeColors[Math.floor(idx / n)];
         const child = g.activeColors[idx % n];
         return (PUYO_COLOR_LABEL[axis] || '?') + '-' + (PUYO_COLOR_LABEL[child] || '?');
+    }
+
+    // 実際に置ける形状だけを辿ってラベルを出す（設計 Phase10 §6.7）。
+    // _cycleFitTet はg.minoを一時的に差し替えるため、必ず元に戻してから返す。
+    _cycleLabelAtSkipping(dir) {
+        const L = this._cycleLen();
+        if (!L) return '';
+        let idx = this._cycleStepIndex(dir);
+        if (idx === null) return '';
+        if (this.rule !== 'tet' || !this._isLive() || !this.gameInstance.mino) {
+            return this._cycleLabelAt(idx);
+        }
+        const g = this.gameInstance;
+        const keep = g.mino;
+        for (let i = 0; i < L; i++) {
+            const fits = this._cycleFitTet(TET_CYCLE[idx]);
+            g.mino = keep; // 試行の副作用を必ず戻す
+            if (fits) return this._cycleLabelAt(idx);
+            idx = ((idx + dir) % L + L) % L;
+        }
+        return this._cycleLabelAt(this._cycleStepIndex(dir)); // 全滅時は従来表示
     }
 
     // ─────────────────────────────────────────
@@ -1529,6 +1629,7 @@ class PracticeManager {
     destroy() {
         this._removeKeyHandler();
         this._removeGamepadHandler();
+        this._stopCountdownWatch();
         if (this._goalLoopId) { cancelAnimationFrame(this._goalLoopId); this._goalLoopId = null; }
 
         // おじゃま自動投下・予告タイマーを止める（設計 §6.2e）
