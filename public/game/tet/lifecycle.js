@@ -278,7 +278,9 @@ Object.assign(Game.prototype, {
     // 引数に isClear（デフォルト false）を追加
     gameOver(isClear = false) {
         this.isClear = isClear;
-        if (!isClear) this.playSe('gameover');
+        // クリア(SPRINT完走/ULTRA終了/MARATHON達成)は専用のクリア音。
+        // QUIZ正解・PRACTICE GOAL達成とも同じ 'clear' に統一している。
+        this.playSe(isClear ? 'clear' : 'gameover');
         this.drawAll();
         // rAF描画＆入力ループを停止
         this.stopRenderLoop();

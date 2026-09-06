@@ -1055,7 +1055,9 @@ class SeManager {
         'resume':        1.00,  // 未配置（配置後に実測して調整）
         'countdown_count': 0.50,  // 未配置（カウント3/2/1用）
         'countdown_start': 1.00,  // 未配置（START!用）
-        'gameover':      1.00,  // 未配置（tet/puyo共通）
+        'gameover':      1.00,  // 未配置（tet/puyo共通。QUIZ不正解と共用）
+        'clear':         1.00,  // 未配置（クリア／GOAL達成／QUIZ正解を1音に統一）
+        'levelup':       1.00,  // 未配置（MARATHONのレベルアップ）
         // テト系
         'move':          1.00,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
         'rotate':        1.40,  // -34.8 / -5.4
@@ -1070,6 +1072,9 @@ class SeManager {
         '3lines':        0.90,  // 未実測
         '4lines':        2.20,  // -29.0 / -8.8
         'tspin':         0.90,  // -20.2 / -0.0（ピーク張り付き＝微減衰）
+        'b2b':           1.00,  // 未配置（BACK TO BACK 成立）
+        'perfect_clear': 1.00,  // 未配置（PERFECT CLEAR 成立）
+        'garbage':       1.00,  // 未配置（おじゃまライン着弾。予告点灯には鳴らさない）
         // ぷよ系
         'puyo_move':     3.50,  // -33.5 / -12.9
         'puyo_rotate':   1.00,  // 未配置
@@ -1083,6 +1088,15 @@ class SeManager {
         'puyo_chain5':   1.00,
         'puyo_chain6':   1.00,
         'puyo_chain7':   1.00,
+        'puyo_allclear': 1.00,  // 未配置（全消し）
+        'puyo_ojama':    1.00,  // 未配置（おじゃまぷよ着弾。予告点灯には鳴らさない）
+        // PRACTICE系（未配置。配置後に実測して調整）
+        'practice_rewind':      1.00,
+        'practice_advance':     1.00,
+        'practice_cycle':       1.00,
+        'practice_panel_open':  1.00,
+        'practice_panel_close': 1.00,
+        'practice_board_clear': 1.00,
     };
 
     // AudioContextを使うことで同時再生・連打に対応
@@ -1165,6 +1179,9 @@ AudioLoader.loadSe({
     'resume':       'assets/audio/se/menu/pause.ogg',
     // ゲームオーバー（tet/puyo共通の統一SE）
     'gameover':     'assets/audio/se/menu/gameover.ogg',
+    // クリア音。SPRINT/ULTRA/MARATHON完走・PRACTICE GOAL達成・QUIZ正解を1音に統一する
+    // （不正解／ゲームオーバー側は上の gameover を共用）。
+    'clear':        'assets/audio/se/menu/clear.ogg',
     // テト系
     'move':      'assets/audio/se/tet/move.ogg',
     'rotate':    'assets/audio/se/tet/rotate.ogg',
@@ -1179,6 +1196,10 @@ AudioLoader.loadSe({
     '3lines':    'assets/audio/se/tet/3lines.ogg',
     '4lines':    'assets/audio/se/tet/4lines.ogg',
     'tspin':     'assets/audio/se/tet/tspin.ogg',
+    'b2b':           'assets/audio/se/tet/b2b.ogg',
+    'perfect_clear': 'assets/audio/se/tet/perfect_clear.ogg',
+    'levelup':       'assets/audio/se/tet/levelup.ogg',
+    'garbage':       'assets/audio/se/tet/garbage.ogg', // おじゃまラインの着弾
     // ぷよ系
     'puyo_move':     'assets/audio/se/puyo/move.ogg',
     'puyo_rotate':   'assets/audio/se/puyo/rotate.ogg',
@@ -1191,7 +1212,17 @@ AudioLoader.loadSe({
     'puyo_chain4': 'assets/audio/se/puyo/chain4.ogg',
     'puyo_chain5': 'assets/audio/se/puyo/chain5.ogg',
     'puyo_chain6': 'assets/audio/se/puyo/chain6.ogg',
-    'puyo_chain7': 'assets/audio/se/puyo/chain7.ogg'
+    'puyo_chain7': 'assets/audio/se/puyo/chain7.ogg',
+    'puyo_allclear': 'assets/audio/se/puyo/allclear.ogg',
+    'puyo_ojama':    'assets/audio/se/puyo/ojama.ogg', // おじゃまぷよの着弾
+
+    // PRACTICE専用（se/practice/ に配置）
+    'practice_rewind':      'assets/audio/se/practice/rewind.ogg',
+    'practice_advance':     'assets/audio/se/practice/advance.ogg',
+    'practice_cycle':       'assets/audio/se/practice/cycle.ogg',
+    'practice_panel_open':  'assets/audio/se/practice/panel_open.ogg',
+    'practice_panel_close': 'assets/audio/se/practice/panel_close.ogg',
+    'practice_board_clear': 'assets/audio/se/practice/board_clear.ogg'
 });
 
 // ─── メニューSE（クリック/ホバーへイベント委譲で付与） ────────────────
@@ -1200,7 +1231,11 @@ AudioLoader.loadSe({
 (function setupMenuSe() {
     // SE対象となるクリック可能要素のセレクタ
     // .util-link = TITLE/CREDITS/CHANGELOG、.quiz-level-btn = quizのレベルセレクト（オレンジ正方形）
-    const CLICK_SELECTOR = '.menu-btn, .menu-btn-icon, .mode-btn, .pause-btn, .opt-btn, .btn, #title-page, .util-link, .quiz-level-btn';
+    const CLICK_SELECTOR = '.menu-btn, .menu-btn-icon, .mode-btn, .pause-btn, .opt-btn, .btn, #title-page, .util-link, .quiz-level-btn,'
+        + ' .practice-panel-stepper, .practice-panel-send-btn, .practice-seq-slot';
+    // ※ .practice-panel-clear-btn（盤面クリア）はここに入れない＝専用SE
+    //   'practice_board_clear' を practiceClearBoard() 側で鳴らしており、
+    //   マウス経路だけ menu_decide と二重に鳴ってしまうため。
 
     const isCancelBtn = (el) => {
         const cls = el.className || '';

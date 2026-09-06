@@ -302,6 +302,7 @@ Object.assign(PuyoGame.prototype, {
 
                         this._updateScoreDisplay();
                         this.isAllClear = true; // ★ ALL CLEARフラグON
+                        this.playSe('puyo_allclear'); // 全消し音（連鎖音に重ねて鳴らす）
                         isZenkeshi = true;
                     }
 
