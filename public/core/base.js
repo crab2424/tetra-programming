@@ -1074,7 +1074,7 @@ class SeManager {
         'tspin':         0.90,  // -20.2 / -0.0（ピーク張り付き＝微減衰）
         'b2b':           1.00,  // 未配置（BACK TO BACK 成立）
         'perfect_clear': 1.00,  // PERFECT CLEAR成立。puyo_allclearと同一音源（容量削減）
-        'garbage':       1.00,  // おじゃまライン着弾。puyo_ojamaと同一音源（容量削減）。予告点灯には鳴らさない
+        'garbage':       0.60,  // おじゃまライン着弾。puyo_ojamaと同一音源（容量削減）。予告点灯には鳴らさない
         // ぷよ系
         'puyo_move':     3.50,  // -33.5 / -12.9
         'puyo_rotate':   1.00,  // 未配置
