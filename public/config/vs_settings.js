@@ -121,11 +121,14 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
     if (playerGame) {
         playerGame.vsAttackMultiplier = getAttackMultiplier('player');
         playerGame.vsMarginTimeMs     = getMarginTimeMs();
+        // HOLE RATE/DAMAGE ON CLEAR は「TET側の盤面に積むおじゃま」の設定。
+        // 送信元が puyo でも tet 盤面へのおじゃま生成で参照されるため、
+        // playerRule に関係なく常に注入する。
+        playerGame.vsGarbageHoleRate = s.tet.garbageHoleRate;
+        playerGame.vsGarbageDamageOnClear = s.tet.garbageDamageOnClear;
 
         if (playerRule === 'tet') {
             playerGame.vsHoldEnabled = s.tet.holdEnabled;
-            playerGame.vsGarbageHoleRate = s.tet.garbageHoleRate;
-            playerGame.vsGarbageDamageOnClear = s.tet.garbageDamageOnClear;
         }
         if (playerRule === 'puyo') {
             playerGame.vsOjamaRate  = s.puyo.ojamaRate;
@@ -137,11 +140,11 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
     if (cpuGame) {
         cpuGame.vsAttackMultiplier = getAttackMultiplier('cpu');
         cpuGame.vsMarginTimeMs     = getMarginTimeMs();
+        cpuGame.vsGarbageHoleRate = s.tet.garbageHoleRate;
+        cpuGame.vsGarbageDamageOnClear = s.tet.garbageDamageOnClear;
 
         if (cpuRule === 'tet') {
             cpuGame.vsHoldEnabled = s.tet.holdEnabled;
-            cpuGame.vsGarbageHoleRate = s.tet.garbageHoleRate;
-            cpuGame.vsGarbageDamageOnClear = s.tet.garbageDamageOnClear;
         }
         if (cpuRule === 'puyo') {
             cpuGame.vsOjamaRate  = s.puyo.ojamaRate;
