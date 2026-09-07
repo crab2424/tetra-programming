@@ -1073,8 +1073,8 @@ class SeManager {
         '4lines':        2.20,  // -29.0 / -8.8
         'tspin':         0.90,  // -20.2 / -0.0（ピーク張り付き＝微減衰）
         'b2b':           1.00,  // 未配置（BACK TO BACK 成立）
-        'perfect_clear': 1.00,  // 未配置（PERFECT CLEAR 成立）
-        'garbage':       1.00,  // 未配置（おじゃまライン着弾。予告点灯には鳴らさない）
+        'perfect_clear': 1.00,  // PERFECT CLEAR成立。puyo_allclearと同一音源（容量削減）
+        'garbage':       1.00,  // おじゃまライン着弾。puyo_ojamaと同一音源（容量削減）。予告点灯には鳴らさない
         // ぷよ系
         'puyo_move':     3.50,  // -33.5 / -12.9
         'puyo_rotate':   1.00,  // 未配置
@@ -1094,9 +1094,9 @@ class SeManager {
         'practice_rewind':      1.00,
         'practice_advance':     1.00,
         'practice_cycle':       1.00,
-        'practice_panel_open':  1.00,
-        'practice_panel_close': 1.00,
-        'practice_board_clear': 1.00,
+        'practice_panel_open':  1.00,  // pauseと同一音源（容量削減）
+        'practice_panel_close': 1.00,  // pauseと同一音源（容量削減）
+        'practice_board_clear': 1.00,  // menu_decideと同一音源（容量削減）
     };
 
     // AudioContextを使うことで同時再生・連打に対応
@@ -1197,9 +1197,11 @@ AudioLoader.loadSe({
     '4lines':    'assets/audio/se/tet/4lines.ogg',
     'tspin':     'assets/audio/se/tet/tspin.ogg',
     'b2b':           'assets/audio/se/tet/b2b.ogg',
-    'perfect_clear': 'assets/audio/se/tet/perfect_clear.ogg',
+    // 容量削減のため puyo_allclear と同一音源を共用（tet/puyoで統一感も出る）
+    'perfect_clear': 'assets/audio/se/puyo/allclear.ogg',
     'levelup':       'assets/audio/se/tet/levelup.ogg',
-    'garbage':       'assets/audio/se/tet/garbage.ogg', // おじゃまラインの着弾
+    // 容量削減のため puyo_ojama と同一音源を共用（tet/puyoのおじゃま着弾で統一）
+    'garbage':       'assets/audio/se/puyo/ojama.ogg', // おじゃまラインの着弾
     // ぷよ系
     'puyo_move':     'assets/audio/se/puyo/move.ogg',
     'puyo_rotate':   'assets/audio/se/puyo/rotate.ogg',
@@ -1216,13 +1218,15 @@ AudioLoader.loadSe({
     'puyo_allclear': 'assets/audio/se/puyo/allclear.ogg',
     'puyo_ojama':    'assets/audio/se/puyo/ojama.ogg', // おじゃまぷよの着弾
 
-    // PRACTICE専用（se/practice/ に配置）
+    // PRACTICE専用（一部は容量削減のため既存キーと音源を共用）
     'practice_rewind':      'assets/audio/se/practice/rewind.ogg',
     'practice_advance':     'assets/audio/se/practice/advance.ogg',
     'practice_cycle':       'assets/audio/se/practice/cycle.ogg',
-    'practice_panel_open':  'assets/audio/se/practice/panel_open.ogg',
-    'practice_panel_close': 'assets/audio/se/practice/panel_close.ogg',
-    'practice_board_clear': 'assets/audio/se/practice/board_clear.ogg'
+    // pause と同一音源を共用（開閉どちらも同じ音）
+    'practice_panel_open':  'assets/audio/se/menu/pause.ogg',
+    'practice_panel_close': 'assets/audio/se/menu/pause.ogg',
+    // menu_decide と同一音源を共用
+    'practice_board_clear': 'assets/audio/se/menu/decide.ogg'
 });
 
 // ─── メニューSE（クリック/ホバーへイベント委譲で付与） ────────────────
