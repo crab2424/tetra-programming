@@ -8,7 +8,7 @@
 // 外部 HTML 断片のマップ（?v= はキャッシュ対策）
 const EXTERNAL_PAGES = {
   credits:   'pages/credits.html?v=2',
-  changelog: 'pages/changelog.html?v=5',
+  changelog: 'pages/changelog.html?v=6',
   // PRACTICEモード関連ファイルは public/practice/ にまとめている（設計 Phase6 §9.1）。
   // このマップはパスに制約が無く、'pages/' 配下である必要はない。
   'practice-help': 'practice/help.html?v=4',
