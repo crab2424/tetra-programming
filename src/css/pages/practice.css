@@ -1,0 +1,727 @@
+/* ─────────────────────────────────────────────
+   PRACTICE モード
+   設計: source_assets/memory/tetlabo-practice-mode-design.md
+   Phase 1 の範囲（メニューボタン / 準備画面の目標値スピナー /
+   ポーズの FINISH ボタン / APM・LPM の非表示）だけを持つ。
+   ゲーム内設定パネル（Phase 2）のスタイルは後から追記する。
+───────────────────────────────────────────── */
+
+/* ─── メインメニューのモードボタン ─── */
+.mode-btn-practice {
+  border-color: rgba(156, 167, 184, 0.35);
+}
+.mode-btn-practice:hover,
+.mode-btn-practice.is-focused {
+  background: rgba(156, 167, 184, 0.12);
+  border-color: var(--practice-color);
+}
+.mode-btn-practice .mode-btn-icon,
+.mode-btn-practice .mode-btn-label {
+  color: var(--practice-color);
+}
+
+/* ─── ポーズ画面の FINISH ボタン（PRACTICE時のみ表示） ─── */
+.btn-practice-primary {
+  background: linear-gradient(135deg, var(--practice-color) 0%, #6b7690 100%);
+  color: #0a0a0f;
+  font-weight: 700;
+  width: 100%;
+}
+.btn-practice-primary:hover,
+.btn-practice-primary.is-focused {
+  opacity: 0.88;
+}
+
+/* ─── 準備画面：目標値（VALUE行） ─── */
+.practice-value {
+  font-family: "Orbitron", monospace;
+  font-size: 16px;
+  letter-spacing: 2px;
+  color: var(--practice-color);
+  cursor: pointer;
+}
+/* GOAL=NONE のときの "-" プレースホルダ。編集対象がないのでクリックできない見た目にする */
+.practice-value.is-disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+/* 編集モード（桁スピナー）：値を1桁ずつのボックスに割る */
+.practice-value.is-editing {
+  display: flex;
+  gap: 4px;
+}
+.practice-digit {
+  display: inline-block;
+  min-width: 18px;
+  padding: 2px 0;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+}
+.practice-digit.is-active {
+  border-color: var(--practice-color);
+  color: var(--practice-color);
+  background: rgba(156, 167, 184, 0.12);
+}
+
+/* GOAL行はNONE/LINES(PUYOS)/SCORE/TIMEの4択になるため、狭い画面では折り返す */
+#practice-goal-toggle {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.practice-value-hint {
+  margin: -8px 0 0;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+/* ─── PRACTICE は APM/LPM を表示しない（設計 §1.1） ───
+   DISPLAY 設定が ON（body.hud-apm-visible）でも隠す必要があるので、
+   ID セレクタと同じ詳細度で勝てるようモード側クラスを併記する。 */
+body.practice-mode #apm-area,
+body.practice-mode #lpm-area {
+  display: none;
+}
+
+/* ─── Phase5 §2: puyo-mode.css の #puyo-next-canvas{height:259px} を PRACTICE だけ外す ───
+   resizeNextCanvas() が canvas.height を PRACTICE_NEXT_MAX_HEIGHT(432px) に設定しても、
+   CSS の固定 height がそれを上書きして縦0.6倍に押し潰していた。 */
+body.practice-mode #puyo-next-canvas {
+  height: auto;
+}
+
+/* ─── Phase 6 §8: ゲーム内設定パネル（ビューポート左端に固定配置） ───
+   Phase 5 §6では#containerのローカル座標に間借りする左ドック（left:-264px,幅240px）
+   だったが、項目が増えるほど#containerの横方向設計予算(750px)を圧迫していた
+   （240px幅の時点で既に26pxオーバー）。カード本体を#containerの外（#game-page直下）
+   へ出し、position:fixedでビューポート左端に直接固定することで予算から独立させる。
+   タブ(⚙)だけは#container内に残し、今までどおり盤面と一緒にスケールする。
+   開閉状態はdockとtabで別々のDOM階層になったため、body.classListで統一して持つ
+   （body.practice-mode＝PRACTICE中は常にtabを表示／body.practice-panel-open＝
+   カードを開いている間だけ表示）。 */
+.practice-panel-tab {
+  display: none;
+  position: absolute;
+  /* HOLD枠の真下（Phase7 §3）。旧位置(top:6/left:-46)はHOLDキャンバス右端(-30)と
+     16px重なっていた。HOLD下端(約130px)〜LEVEL枠(450px)は完全に空いている。
+     実機FBで「小さすぎる」。26→36pxへ拡大した（設計 Phase10 §2）。
+     topは146pxのまま＝下端182pxとなり、アクションラベル
+     (#action-label-container top:200px)との間に18px残る。 */
+  top: 146px;
+  left: -160px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(10, 10, 15, 0.8);
+  color: var(--practice-color);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 16;
+}
+body.practice-mode .practice-panel-tab {
+  display: block;
+}
+/* GAME OVER/FINISH演出中はタブ操作を封じる（設計 Phase5 §4.2・_hideEndingControls()）。
+   body.practice-mode .practice-panel-tab より詳細度を上げて確実に上書きする。 */
+body.practice-mode .practice-panel-tab.is-hidden {
+  display: none;
+}
+.practice-panel-tab:hover {
+  background: rgba(156, 167, 184, 0.18);
+}
+/* READY(カウントダウン)中は押せない（設計 Phase10 §3.3.3）。
+   .is-hidden(display:none)と違い位置は保ったまま減光する＝
+   カウントダウンが明けた瞬間にタブが「生えてくる」ように見えるのを避ける。 */
+body.practice-mode.practice-countdown .practice-panel-tab {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.practice-panel-dock {
+  display: none;
+  position: fixed;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 240px;
+  max-height: calc(100vh - 16px);
+  z-index: 500; /* #container(z-index:1)より上、ポーズオーバーレイ(1000)より下 */
+  pointer-events: none;
+}
+body.practice-panel-open .practice-panel-dock {
+  display: block;
+}
+
+.practice-panel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 240px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  /* 開いている間は必ずポーズ中＝盤面は静止画なので透けても読み違えない。
+     背後の盤面/枠が見えることで「今どこが隠れているか」も分かる（設計 Phase7 §4）。
+     実機FBで0.86では体感できないと指摘され0.62へ再調整（背景自体がほぼ黒に近いため、
+     さらに下げないと透過が知覚できなかった）。ぼかしは「背後をはっきり確認したい」
+     との実機FBで撤去した（テキスト自体は不透明のまま＝可読性は背景の不透明度だけで
+     担保する。設計 Phase7 追補2）。 */
+  background: rgba(10, 10, 15, 0.62);
+  pointer-events: auto;
+}
+.practice-panel-title {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--practice-color);
+  text-align: center;
+  text-shadow: 0 0 12px rgba(156, 167, 184, 0.5);
+}
+
+.practice-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* ─── 常時表示のミニ表示（設計外・実機フィードバックで追加） ───
+   パネルを開かなくても現在の設定値を確認できるよう、PRACTICEでは
+   非表示になるAPM/LPM欄の位置（single-play.css）をそのまま流用する。
+   Phase 4 §3.3 で右側(practice-status-right)は廃止し、左側は巻き戻しインジケータに用途変更した。 */
+.practice-status {
+  display: none;
+  position: absolute;
+  top: 570px;
+  font-family: "Orbitron", monospace;
+  font-size: 11px; /* 実機FBで読みにくいとの指摘。10px→11px（設計 Phase7 §5） */
+  letter-spacing: 1px;
+  line-height: 1.7;
+  color: #a7b2c4; /* --text-dim(#888)から明度を上げる（設計 Phase7 §5） */
+  white-space: nowrap;
+}
+/* GAME OVER/FINISH演出中: 表示は残したまま操作だけ封じる（設計 Phase7 §6。
+   演出中に消えると位置が変わったように見えるため「暗くして押せない」方式に変更） */
+.practice-status.is-inert {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.practice-status.is-visible {
+  display: block;
+}
+.practice-status-left {
+  left: -160px;
+}
+.practice-status b {
+  color: var(--practice-color);
+  font-weight: 700;
+}
+
+/* ─── Phase 4 §2: 巻き戻しインジケータ（practice-status-leftの用途変更） ─── */
+.practice-rewind-label {
+  margin-bottom: 4px;
+}
+.practice-rewind-row {
+  display: flex;
+  gap: 10px;
+  font-size: 16px; /* 14px→16px（設計 Phase7 §5） */
+}
+.practice-rewind-btn {
+  cursor: pointer;
+  color: var(--practice-color-hi); /* 操作できるものだけ明るくする（設計 Phase7 §5） */
+  text-shadow: 0 0 8px rgba(156, 167, 184, 0.45);
+}
+.practice-rewind-btn b {
+  margin-left: 2px;
+  color: var(--practice-color-hi);
+  font-weight: 700;
+}
+/* 無効時は従来どおり沈める＝明暗差で押せる/押せないを示す（設計 Phase7 §5） */
+.practice-rewind-btn.is-disabled {
+  color: var(--text-dim);
+  text-shadow: none;
+  cursor: default;
+}
+.practice-rewind-btn.is-disabled b {
+  color: var(--text-dim);
+}
+.practice-rewind-keys {
+  margin-top: 4px;
+  font-size: 9px;
+  opacity: 0.9; /* 0.7→0.9（設計 Phase7 §5） */
+  color: #9aa5b6;
+}
+
+/* ─── Phase 5 §5: REWIND/ADVANCEの移動エフェクト ───
+   盤面中央に一瞬フラッシュを出す。ポーズ中でもCSSアニメは進行する（step()はゲーム
+   停止中でも呼べるため、JSのrAF駆動に依存させない）。 */
+.practice-rewind-flash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 326px;
+  height: 662px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 19;
+  opacity: 0;
+}
+.practice-rewind-flash.is-active {
+  /* 実機フィードバックで「光っている時間を+0.5秒」と指摘され、620ms→1120msに延長。
+     単純な線形フェードだと延長ぶんが間延びして見えるため、55%まで全開のまま
+     保持してから消える形にした（フェードイン/アウトの速さ自体は従来と揃える）。 */
+  animation: practiceRewindFlash 1120ms ease-out;
+}
+/* ─── Phase 10 §5: フラッシュの下敷きプレート ───
+   盤面が埋まると明るい文字(--practice-color-hi)が明るいブロックに埋もれる
+   （実機FB）。盤面全体を暗幕で覆うと「何が起きたか盤面で確認する」目的を
+   潰すので、内容ぶんだけ(fit-content)の暗いプレートに留める。 */
+.practice-flash-plate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 26px;
+  border-radius: 10px;
+  background: rgba(8, 10, 16, 0.5);
+  border: 1px solid rgba(156, 167, 184, 0.5);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 6px 22px rgba(0, 0, 0, 0.45);
+}
+/* 盤面中央のREWIND/ADVANCEフラッシュ本体。CYCLEフラッシュと同じくHUD可読性強調の
+   対象だが、こちらだけ--practice-colorのまま直し忘れていた（実機FBで発覚。設計 Phase7 追補）。
+   プレートが付いたので発光は弱めて輪郭を締める（設計 Phase10 §5）。 */
+#practice-rewind-flash-icon {
+  font-size: 40px;
+  color: var(--practice-color-hi);
+  text-shadow: 0 0 10px rgba(156, 167, 184, 0.45);
+}
+#practice-rewind-flash-text {
+  font-family: "Orbitron", monospace;
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--practice-color-hi);
+}
+#practice-rewind-flash-pos {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  color: #ffffff;
+}
+/* ADVANCE(進む)もREWIND(戻す)と同じ明るさにする（実機FBでADVANCEだけ薄いと再指摘。
+   区別は⟲/⟳のアイコン差だけで十分＝色を沈めるのはやめる。設計 Phase7 追補2） */
+@keyframes practiceRewindFlash {
+  0%   { opacity: 0; transform: scale(1.25); }
+  10%  { opacity: 1; transform: scale(1); }
+  55%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.96); }
+}
+
+/* ─── Phase 5 §9.6: 即時ツモ変化の結果表示 ───
+   REWINDフラッシュ(§5)より軽量・短時間。連打時の視認性のためtransformは付けず
+   opacityのみで出し引きする。 */
+.practice-cycle-flash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 326px;
+  height: 662px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 19;
+  opacity: 0;
+  /* REWINDフラッシュ(.practice-rewind-flash)と同じ326x662の中央寄せ枠のため、
+     両者が同時に見えると完全に同じ位置に重なって読めなくなる（実機FB）。
+     REWINDは中央のまま、CYCLEだけ上へ退避させる。keyframesはopacityのみで
+     transformを使わないため、ここに静的なtranslateYを足しても連打時の
+     アニメーションとは干渉しない。 */
+  transform: translateY(-140px);
+}
+.practice-cycle-flash.is-active {
+  /* REWINDフラッシュと同じ持続時間にする（実機FBで短すぎると指摘。設計 Phase7 追補2） */
+  animation: practiceCycleFlash 1120ms ease-out;
+}
+#practice-cycle-flash-text {
+  font-family: "Orbitron", monospace;
+  font-size: 24px; /* 20px→24px（設計 Phase7 §5） */
+  letter-spacing: 2px;
+  color: var(--practice-color-hi);
+  text-shadow: 0 0 8px rgba(156, 167, 184, 0.4); /* プレート追加で発光を弱めた（設計 Phase10 §5） */
+}
+@keyframes practiceCycleFlash {
+  0%   { opacity: 0; }
+  10%  { opacity: 1; }
+  55%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ─── Phase 10 §4: 設定パネルで停止中であることを盤面中央に示す ───
+   Phase6 §8でポーズモーダルを消した(hidePauseOverlay)ため、盤面上に
+   「止まっている」手掛かりが無くなっていた。JSは書かず
+   body.practice-panel-open だけで出し入れする。 */
+.practice-pause-mark {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 326px;
+  height: 662px;      /* REWIND/CYCLEフラッシュと同じ「盤面ぴったり」の枠 */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 17;        /* フラッシュ(19)より下・カウントダウン(20)より下 */
+  animation: practicePauseMark 2.4s ease-in-out infinite;
+}
+body.practice-mode.practice-panel-open .practice-pause-mark {
+  display: flex;
+}
+.practice-pause-mark-icon {
+  font-size: 34px;
+  letter-spacing: 4px;
+  color: var(--practice-color-hi);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+}
+.practice-pause-mark-text {
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: var(--practice-color-hi);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+}
+@keyframes practicePauseMark {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 0.9; }
+}
+
+/* ─── 右下(旧APM枠)のHUDブロック（廃止した practice-status-right の位置を流用）。
+   Phase4 §3.1ではpuyoのSPEED+COLORS表示だったが、実機FBによりCYCLEインジケータ
+   （tet/puyo共通）へ用途変更した。puyoのSPEEDは#lines-area（旧CHAIN枠）へ移設。 ─── */
+.practice-hud-block {
+  top: 570px;
+  left: 352px;
+  font-size: 11px;
+}
+.practice-hud-block .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+}
+/* CYCLEの前後2ボタン。REWINDの.practice-rewind-rowと同型（設計 Phase8 §2.5）。
+   puyoのラベルは"Y-P"と3文字あり19pxのままでは横に伸びすぎるため15pxへ落とした
+   （旧18px→19px→2つ並べるため15pxの経緯。設計 Phase7 §5 / Phase8 §2.5）。 */
+.practice-cycle-row {
+  display: flex;
+  gap: 10px;
+}
+#practice-cycle-back,
+#practice-cycle-btn {
+  font-size: 15px;
+  cursor: pointer;
+  color: var(--practice-color-hi);
+  text-shadow: 0 0 8px rgba(156, 167, 184, 0.45);
+}
+#practice-cycle-back b,
+#practice-cycle-btn b {
+  margin-left: 2px;
+  color: var(--practice-color-hi);
+  font-weight: 700;
+}
+/* REWINDと同じ「押せない」表現（設計 Phase7 §5。_isLive()がfalseのときis-disabledが付く） */
+#practice-cycle-back.is-disabled, #practice-cycle-back.is-disabled b,
+#practice-cycle-btn.is-disabled,  #practice-cycle-btn.is-disabled b {
+  color: var(--text-dim);
+  text-shadow: none;
+}
+.practice-hud-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  opacity: 0.9;
+  color: #9aa5b6;
+}
+
+/* ─── Phase 4 §3.2: tetのおじゃまゲージ（versusの.garbage-gaugeを流用、高さだけ実寸に合わせる） ─── */
+#practice-garbage-gauge {
+  height: 656px;
+}
+
+.practice-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.practice-panel-label {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+/* 今のモードでは効かない行を薄く見せる（操作自体は塞がない。設計 Phase7 §8.5） */
+.practice-panel-row.is-inert .practice-panel-label,
+.practice-panel-row.is-inert .practice-panel-stepper {
+  opacity: 0.45;
+}
+/* FIXED中のDELETE行のように、操作自体を塞ぐ行（設計 Phase7 追補3） */
+.practice-panel-row.is-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.practice-panel-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.practice-panel-stepper button {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 12px;
+}
+.practice-panel-stepper button:hover {
+  border-color: var(--practice-color);
+  color: var(--practice-color);
+}
+.practice-panel-value {
+  min-width: 36px;
+  text-align: center;
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  color: var(--practice-color);
+}
+
+/* 240px幅のドックに収めるため、opt-btn自体を縮める（transform:scaleだと見た目だけ
+   縮んでレイアウト上の占有幅は変わらず、HOLDのFREE/ON/OFF3択で右にはみ出していた）。 */
+.practice-panel-toggle {
+  display: flex;
+  gap: 4px;
+}
+.practice-panel-toggle .opt-btn {
+  padding: 3px 7px;
+  font-size: 10px;
+}
+/* OJAMA(OFF/ON/FIXED/AUTO)の4択用。ボタンの大きさ(.opt-btnのpadding/font-size)は
+   変えず、1行に収まらないので2列×2行に折り返す（設計 Phase7 追補3）。 */
+.practice-panel-toggle.practice-panel-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+}
+
+.practice-panel-row-action {
+  justify-content: center;
+  margin-top: 2px;
+}
+.practice-panel-clear-btn {
+  width: 100%;
+  padding: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--danger);
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.practice-panel-clear-btn:hover {
+  background: rgba(255, 90, 90, 0.12);
+  border-color: var(--danger);
+}
+
+/* キーボード操作中のフォーカス行（Tabキーでパネルを開いた後、↑↓で移動） */
+.practice-panel-row.is-focused {
+  outline: 1px solid var(--practice-color);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.practice-panel-row.is-focused .practice-panel-label {
+  color: var(--practice-color);
+}
+
+/* ─── Phase 3: おじゃま投下（設計 §6.2e）───
+   既存の practice-panel-* をそのまま使い、SEND用のアクションボタンだけ追加する。 */
+.practice-panel-send-btn {
+  width: 100%;
+  padding: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--practice-color);
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.practice-panel-send-btn:hover {
+  background: rgba(156, 167, 184, 0.12);
+  border-color: var(--practice-color);
+}
+
+/* ─── Phase 3: ツモ順設定（設計 §7）─── */
+.practice-seq-edit-btn {
+  width: 100%;
+  margin-top: -8px;
+  padding: 8px 0;
+  border: 1px solid var(--practice-color);
+  border-radius: 6px;
+  background: rgba(156, 167, 184, 0.08);
+  color: var(--practice-color);
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.practice-seq-edit-btn:hover,
+.practice-seq-edit-btn.is-focused {
+  background: rgba(156, 167, 184, 0.18);
+}
+.practice-seq-edit-btn.is-disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ─── Phase 6 §9: HELPページへの導線（準備画面）。EDIT SEQUENCEと見た目を揃える ─── */
+.practice-help-btn {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.practice-help-btn:hover,
+.practice-help-btn.is-focused {
+  background: rgba(156, 167, 184, 0.12);
+  border-color: var(--practice-color);
+  color: var(--practice-color);
+}
+
+/* 準備画面に被せるフルスクリーンモーダル（mode-check-pageの外、bodyの直下に配置） */
+#practice-seq-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(6, 6, 10, 0.88);
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+#practice-seq-modal.active {
+  display: flex;
+}
+.practice-seq-modal-card {
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 2px solid var(--practice-color);
+  border-radius: 10px;
+  background: rgba(10, 10, 15, 0.97);
+}
+.practice-seq-modal-title {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 4px;
+  color: var(--practice-color);
+  text-align: center;
+}
+.practice-seq-row {
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.practice-seq-row.is-focused {
+  outline: 1px solid var(--practice-color);
+  outline-offset: 2px;
+}
+.practice-seq-row.is-focused .option-label {
+  color: var(--practice-color);
+}
+.practice-seq-value {
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  color: var(--practice-color);
+}
+.practice-seq-note {
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.practice-seq-slots-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  cursor: default;
+}
+.practice-seq-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+.practice-seq-slot-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.practice-seq-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.practice-seq-slot:hover {
+  border-color: var(--practice-color);
+}
+.practice-seq-slot.is-focused {
+  border-color: var(--practice-color);
+  color: var(--practice-color);
+  background: rgba(156, 167, 184, 0.18);
+}
+.practice-seq-modal-buttons {
+  display: flex;
+  justify-content: center;
+}
+

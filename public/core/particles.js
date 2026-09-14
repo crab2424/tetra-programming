@@ -164,6 +164,7 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '.mode-btn-online',          cls: 'menu-enter',  delay: 4   },
             { sel: '.mode-btn-puyo',            cls: 'menu-enter',  delay: 3   },
             { sel: '.mode-btn-quiz',            cls: 'menu-enter',  delay: 4   },
+            { sel: '.mode-btn-practice',        cls: 'menu-enter',  delay: 5   },
             // フッターは各ボタンを個別 delay で登場させる
             { sel: '#main-menu-footer-center .btn-secondary', cls: 'menu-enter',     delay: 4 }, // SETTINGS
             { sel: '.util-link-title',          cls: 'menu-enter-dim', delay: 5   }, // TITLE
@@ -221,6 +222,15 @@ function initMenuAnimations(pageId = 'main-menu') {
         targets = [{ sel: '#credits-container', cls: 'menu-enter', delay: 0 }];
     } else if (pageId === 'changelog') {
         targets = [{ sel: '#changelog-container', cls: 'menu-enter', delay: 0 }];
+    } else if (pageId === 'practice-help') {
+        // CREDITS/CHANGELOGはコンテナ一括fadeだが、HELPは
+        // 「見出し → 本文 → BACK」の3ブロック構造がはっきりしているので
+        // 軽いカスケードにする（設計 Phase10 §1）。
+        targets = [
+            { sel: '#practice-help-header',  cls: 'menu-enter', delay: 0 },
+            { sel: '.practice-help-list',    cls: 'menu-enter', delay: 1 },
+            { sel: '#practice-help-buttons', cls: 'menu-enter', delay: 2 },
+        ];
     }
 
     const nodes = [];

@@ -75,6 +75,15 @@ Object.assign(Game.prototype, {
             const gamePage = document.getElementById(activePageId)
             if (!gamePage || !gamePage.classList.contains('active')) return
 
+            // GAMEOVER/FINISHの演出中（switchPage('result')まで）はリスタート/ポーズを
+            // ここで奪って無効化する。isFinishingはisPausedと違いリスタートが素通りする
+            // 抜け道になっていたため、演出中に押すと詰んだ状態のままstart()が走ってしまっていた
+            // （MARATHON/SPRINT/ULTRA共通のバグ。設計 Phase5 §4.2）。
+            if (this.isFinishing && (keys.restart.codes.includes(e.code) || keys.pause.codes.includes(e.code))) {
+                e.preventDefault()
+                return
+            }
+
             // リスタート (ポーズ中・プレイ中問わず即座にやり直し)
             // 対戦モードではリスタートキーは router.js 側で管理するためスキップ
             if (!this.isVersusMode && keys.restart.codes.includes(e.code)) {
@@ -194,6 +203,7 @@ Object.assign(Game.prototype, {
                 e.preventDefault()
                 if (e.repeat) return;            // 長押しによる連続発火を防止
                 if (this.isCountingDown) return; // カウントダウン中は無効
+                if (!this.mino) return;          // 孤児インスタンス等、盤面を持たない状態での誤操作を防ぐ（設計 §7.D-2）
 
                 if (this.DCD_DELAY > 0 &&
                     (this._dasBlockedLeft || this._dasBlockedRight)) {
@@ -205,6 +215,7 @@ Object.assign(Game.prototype, {
                 e.preventDefault()
                 if (e.repeat) return;            // 長押し防止
                 if (this.isCountingDown) return; // カウントダウン中は無効
+                if (!this.mino) return;          // 同上
                 this.holdCurrentMino()
             }
         }
@@ -607,9 +618,9 @@ Object.assign(Game.prototype, {
                                 if (this.isCountingDown) { /* ignore */ }
                                 else this.holdCurrentMino()
                             } else if (action === 'pause') {
-                                if (!this.isVersusMode && !this.isCountingDown) this.togglePause()
+                                if (!this.isVersusMode && !this.isCountingDown && !this.isFinishing) this.togglePause()
                             } else if (action === 'restart') {
-                                if (!this.isVersusMode) this.start()
+                                if (!this.isVersusMode && !this.isFinishing) this.start()
                             }
                         } catch (e) {/* 防御的に例外握り潰す */ }
                     }

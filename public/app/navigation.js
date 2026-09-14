@@ -25,7 +25,10 @@ function stopAllGames() {
             }
         } else {
             // tet の停止処理
-            if (typeof gameInst.gameOver === 'function') { 
+            if (typeof gameInst.gameOver === 'function') {
+                // ★ 修正: startRenderLoop() の rAF ループは終了条件を持たず、stopRenderLoop() でしか
+                //   止まらない（設計 §7.C）。これを呼ばないとメニューに戻った後もループが回り続ける。
+                if (typeof gameInst.stopRenderLoop === 'function') gameInst.stopRenderLoop();
                 if (gameInst.timer) { clearInterval(gameInst.timer); gameInst.timer = null; }
                 if (gameInst.lockTimer) { clearTimeout(gameInst.lockTimer); gameInst.lockTimer = null; }
                 gameInst.isPaused = true;
@@ -76,6 +79,9 @@ function stopAllGames() {
     // ─── QUIZマネージャーの破棄（quiz.js）───
     if (typeof _stopQuizIfActive === 'function') _stopQuizIfActive();
 
+    // ─── PRACTICEマネージャーの破棄（practice/practice.js）───
+    if (typeof _stopPracticeIfActive === 'function') _stopPracticeIfActive();
+
     // オーバーレイ内のテキストも消去
     document.querySelectorAll('.countdown-text, .finish-text').forEach(el => {
         el.textContent = '';
@@ -92,6 +98,12 @@ function stopAllGames() {
     // LINESゴール表示をリセット
     const linesGoalEl = document.getElementById('lines-goal');
     if (linesGoalEl) linesGoalEl.textContent = '';
+
+    // ─── PRACTICEのリザルト「REWIND」ボタンをリセット（設計 Phase5 §1）───
+    // PracticeManager._renderResult() が display='' にした後、隠す側の処理が
+    // どこにも無かったため他モードのリザルトにも残ってしまっていた。
+    const practiceRewindBtn = document.getElementById('result-practice-rewind-btn');
+    if (practiceRewindBtn) practiceRewindBtn.style.display = 'none';
 }
 // ─── LINESゴール表示の更新 ──────────────────────
 // marathon(150ライン目標時)は "/150"、sprintは "/40"、それ以外は非表示
@@ -242,16 +254,6 @@ function switchPage(pageId) {
     }
   }
 
-  // ★ 追加: 設定から game に戻る際、ポーズ画面を復元する
-    if (pageId === 'game' && window._returnToPause) {
-        window._returnToPause = false;
-        // 次フレームで overlay を active に戻す（DOM更新後）
-        requestAnimationFrame(() => {
-            const overlay = document.getElementById('pause-overlay');
-            if (overlay) overlay.classList.add('active');
-        });
-    }
-
   document.querySelectorAll('.page').forEach(p => {
     p.classList.remove('active');
     // 固定配置のゲームコンテナが前画面の inline 表示を持ち越さないようにする。
@@ -260,6 +262,17 @@ function switchPage(pageId) {
 
   const target = document.getElementById(pageId + '-page');
   if (target) target.classList.add('active');
+
+  // ★ 設定から game に戻る際、ポーズ画面を復元する。
+  // 以前は requestAnimationFrame 1回で次フレームに遅延していたが、タブがバックグラウンド化
+  // した瞬間に戻ってくるとrAFが発火せず、ポーズ画面が二度と再表示されない（ゲームは
+  // isPaused=true のまま固まる）バグがあった。DOM更新（直上の active 付け替え）は
+  // 既に同期的に終わっているので、rAFを待たずその場でクラスを付ける。
+  if (pageId === 'game' && window._returnToPause) {
+    window._returnToPause = false;
+    const overlay = document.getElementById('pause-overlay');
+    if (overlay) overlay.classList.add('active');
+  }
 
   // APM/LPM/TIME（HUD拡張）は前局の値をDOMに残したままなので、ゲーム画面へ入る瞬間に
   // '--'へ戻す。ゲーム実体(window._game)の生成はこの後なので、reset しないと
@@ -270,7 +283,7 @@ function switchPage(pageId) {
     window.HudExtras.refresh();
   }
 
-  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog'].includes(_animPageId)) {
+  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog', 'practice-help'].includes(_animPageId)) {
       if (typeof initMenuAnimations === 'function') initMenuAnimations(_animPageId);
   } else {
       if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
@@ -305,12 +318,19 @@ function switchPage(pageId) {
   } else if (pageId === 'quiz-check') {
     // QUIZモード選択画面のレンダリング（quiz.js）
     if (typeof renderQuizCheck === 'function') renderQuizCheck();
+  } else if (pageId === 'practice-help') {
+    // KEYS欄を実際のキー割り当てで埋める（設計 Phase6 §9.4）
+    if (typeof renderPracticeHelpKeys === 'function') renderPracticeHelpKeys();
   }
+
+  // PRACTICE の目標値スピナーが開いたままページを離れると FocusNav.suspended が
+  // 残ってキー操作が全ページで止まるため、遷移のたびに必ず畳む。
+  if (typeof _practiceResetSpinner === 'function') _practiceResetSpinner();
 
   // ★ キーボードフォーカスナビゲーション（focus_nav.js）
   if (window.FocusNav) {
     if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
-         'result','versus-result','quiz-result','settings','credits','changelog'].includes(pageId)) {
+         'result','versus-result','quiz-result','settings','credits','changelog','practice-help'].includes(pageId)) {
       window.FocusNav.activate(pageId);
     } else {
       window.FocusNav.deactivate();
@@ -443,6 +463,9 @@ function renderModeCheck() {
         };
         toggle.appendChild(btn);
       }
+    } else if (mode.id === 'practice') {
+      optionsEl.style.display = 'flex';
+      optionsEl.innerHTML = renderPracticeModeCheckOptions(mode);
     } else if (mode.id === 'puyo') {
       optionsEl.style.display = 'none';
       optionsEl.innerHTML = '';
@@ -561,6 +584,19 @@ async function startGameFromModeCheck() {
     if (typeof startQuizLevel === 'function' && currentQuizLevel) {
       startQuizLevel(currentQuizLevel);
     }
+    return;
+  }
+
+  // ─── PRACTICEモード専用処理 ───────────────────
+  // tet/puyo どちらのエンジンも使うため、共通の下ごしらえ（EVAL/GARBAGEエリアを隠す・
+  // レイアウト切替・インスタンス生成）をここで済ませ、進行は PracticeManager に委ねる。
+  if (modeId === 'practice') {
+    const evalArea = document.getElementById('eval-area');
+    if (evalArea) evalArea.style.display = 'none';
+    const garbageArea = document.getElementById('test-garbage-area');
+    if (garbageArea) garbageArea.style.display = 'none';
+
+    if (typeof startPracticeGame === 'function') startPracticeGame();
     return;
   }
 
@@ -989,11 +1025,19 @@ function handlePauseAction(action) {
       } else if (currentGameMode && currentGameMode.id === 'test' && testRule === 'puyo') {
           // ★ CPUテスト(ぷよ): 盤面リセットに加えてCPUコントローラも作り直す（pause/resume と対称）
           restartPuyoCpuTest();
+      } else if (currentGameMode && currentGameMode.id === 'practice') {
+          // PRACTICE: 巻き戻し履歴・フックごと作り直す（startPracticeGame が destroy→再構築する）
+          if (typeof startPracticeGame === 'function') startPracticeGame();
       } else if (currentGameMode && currentGameMode.id === 'puyo') {
           if (window._puyoGame && typeof window._puyoGame.start === 'function') window._puyoGame.start();
       } else {
           if (window._game && typeof window._game.start === 'function') window._game.start();
       }
+      break;
+    case 'practice-finish':
+      // PRACTICE: ポーズメニューからの任意終了（§4.5）。目標達成済みなら
+      // 達成時点の成績を、未達成ならその時点の成績をリザルトへ出す。
+      if (window._practiceManager) window._practiceManager.finish();
       break;
     case 'quiz-levelselect':
       stopAllGames();
@@ -1019,6 +1063,15 @@ function handlePauseAction(action) {
   if (!overlay) return;
 
   const observer = new MutationObserver(() => {
+    // PRACTICE の FINISH ボタンは、ポーズ画面が開くどの経路（キー/ボタン/ぷよ側の自前ポーズ）
+    // でも出したいので、quizInfo の有無に関わらず先に出し分けを済ませる。
+    const practiceFinishBtn = document.getElementById('pause-practice-finish-btn');
+    if (practiceFinishBtn) {
+      const isPractice = currentGameMode && currentGameMode.id === 'practice';
+      practiceFinishBtn.style.display =
+        (overlay.classList.contains('active') && isPractice) ? '' : 'none';
+    }
+
     const isQuiz = currentGameMode && currentGameMode.id === 'quiz';
     const quizInfo = document.getElementById('pause-quiz-info');
     if (!quizInfo) return;

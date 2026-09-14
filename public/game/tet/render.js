@@ -44,6 +44,26 @@ Object.assign(Game.prototype, {
         this.nextCanvas.height = BLOCK_SIZE * 13.5;
     },
 
+    // PRACTICE設定パネル：NEXT表示数（practiceNextCount）に応じたレイアウトを計算する。
+    // 列は「流れる順」を保つため列優先（左列=直近5個を従来どおり縦に流し、
+    // 6個目以降は右列に縦に流す）で割り当てる（drawAll参照）。列あたり最大5個
+    // なので、縦の枠を常にPRACTICE_NEXT_MAX_HEIGHT（tetの既定NEXT高さ）で揃えても
+    // 縮小せずに収まる。
+    _computeNextLayout() {
+        const count = Math.max(1, Math.min(10, this.practiceNextCount || 5));
+        const cols = count > 5 ? 2 : 1;
+        const rowsPerCol = 5;
+        const scale = Math.min(0.8, (PRACTICE_NEXT_MAX_HEIGHT - BLOCK_SIZE * 0.8) / (rowsPerCol * 3 * BLOCK_SIZE));
+        return { count, cols, scale };
+    },
+
+    // PRACTICE設定パネル：NEXT表示数の変更に合わせてキャンバスサイズを再計算する
+    resizeNextCanvas() {
+        const { cols } = this._computeNextLayout();
+        this.nextCanvas.width = BLOCK_SIZE * 4 * cols;
+        this.nextCanvas.height = PRACTICE_NEXT_MAX_HEIGHT;
+    },
+
     initHoldCanvas() {
         const id = this.canvasPrefix ? `${this.canvasPrefix}-hold-canvas` : HOLD_CANVAS_ID;
         this.holdCanvas = document.getElementById(id);
@@ -179,8 +199,8 @@ Object.assign(Game.prototype, {
         // 描画位置を 1 行ぶん上にずらして貼り付ける。
         this.mainCtx.drawImage(this.field._fixedCanvas, 0, -BLOCK_SIZE);
 
-        // this.mino が存在するときだけゴーストを描画
-        if (this.mino) {
+        // this.mino が存在するときだけゴーストを描画（PRACTICE設定パネルでOFFにできる）
+        if (this.mino && this.showGhost !== false) {
             const ghostY = this.getGhostY()
             if (ghostY !== this.mino.y) {
                 this.mainCtx.globalAlpha = 0.25
@@ -191,15 +211,22 @@ Object.assign(Game.prototype, {
 
         const minoScale = 0.8;
 
-        // Draw next queue vertically（表示は先頭5個のみ。内部は11個保持）
+        // Draw next queue vertically（表示は既定5個。PRACTICEでは practiceNextCount で可変。
+        // 内部は11個保持。既定を超える分は右列に出す＝_computeNextLayout参照。
+        // 直近5個は常に左列（従来どおり縦に流れる）、6個目以降は右列に縦に流す
+        // （列優先＝index<5が左列、5以上が右列。行優先のジグザグにはしない）。
         // slice + forEach は毎フレ配列とクロージャを作るため素のループに置換。
         const spacing = 3;
         const nq = this.nextQueue;
-        const nqLen = Math.min(5, nq.length);
+        const { count: nextCount, scale: nqScale } = this._computeNextLayout();
+        const nqLen = Math.min(nextCount, nq.length);
+        const colWidthPx = BLOCK_SIZE * 4;
         for (let i = 0; i < nqLen; i++) {
+            const col = i < 5 ? 0 : 1;
+            const row = i < 5 ? i : i - 5;
             this.nextCtx.save();
-            this.nextCtx.translate(0, i * spacing * BLOCK_SIZE * minoScale);
-            this.nextCtx.scale(minoScale, minoScale);
+            this.nextCtx.translate(col * colWidthPx, row * spacing * BLOCK_SIZE * nqScale);
+            this.nextCtx.scale(nqScale, nqScale);
             nq[i].drawNext(this.nextCtx);
             this.nextCtx.restore();
         }
@@ -213,7 +240,9 @@ Object.assign(Game.prototype, {
 
         if (this.holdMino) {
             this.holdCtx.save();
-            if (!this.canHold) {
+            // PRACTICE設定パネル：HOLD=OFFのときは常に薄暗く／FREEのときは薄暗くしない（何度でも使えるため）
+            const dimHold = (this.practiceHoldMode === 'off') || (!this.canHold && this.practiceHoldMode !== 'free');
+            if (dimHold) {
                 this.holdCtx.globalAlpha = 0.4;
             }
             this.holdCtx.scale(minoScale, minoScale);

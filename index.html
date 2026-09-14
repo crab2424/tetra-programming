@@ -121,6 +121,14 @@
               <span class="mode-btn-desc">謎解きパズル</span>
             </div>
           </button>
+          <!-- ★ PRACTICEモードボタン -->
+          <button class="mode-btn mode-btn-practice" onclick="goToModeCheck('practice')">
+            <span class="mode-btn-icon">🎯</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">PRACTICE</span>
+              <span class="mode-btn-desc">自由練習・巻き戻し</span>
+            </div>
+          </button>
         </div>
       </div>
 
@@ -174,6 +182,24 @@
         <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
           <span class="menu-btn-icon">◀</span>
           <span>BACK</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+    MARK: PRACTICE ツモ順設定エディタ（Phase 3 §7）
+    mode-check-page に被せるフルスクリーンモーダル。.page ではないので
+    switchPage() の管理対象外＝PracticeSequence.openEditor/closeEditor が直接開閉する。
+    ───────────────────────────────────────────── -->
+  <div id="practice-seq-modal">
+    <div class="practice-seq-modal-card">
+      <div class="practice-seq-modal-title">SEQUENCE</div>
+      <div id="practice-seq-modal-body"></div>
+      <div class="practice-seq-modal-buttons">
+        <button id="practice-seq-done-btn" class="menu-btn btn-primary" onclick="PracticeSequence.closeEditor(true)">
+          <span class="menu-btn-icon">✓</span>
+          <span>DONE</span>
         </button>
       </div>
     </div>
@@ -866,6 +892,62 @@
       <div id="finish-overlay" class="field-overlay finish-overlay">
         <span id="finish-text" class="finish-text"></span>
       </div>
+      <!-- ★ PRACTICEモード専用: 設定パネルの開閉タブ（Phase 6 §8）。
+           タブは#containerと一緒にスケールする（今までどおりの位置感）。
+           カード本体(#practice-panel-dock)は#containerの外・画面固定配置にした。 -->
+      <button id="practice-panel-tab" class="practice-panel-tab"
+        onmousedown="event.preventDefault()" onclick="togglePracticePanel()">⚙</button>
+      <!-- ★ PRACTICEモード専用: 巻き戻しインジケータ（Phase 4 §2）。
+           旧ミニステータス(HOLD/GHOST)の位置(practice-status-left)を用途変更。
+           左ドック(Phase5 §6)が開いている間は隠れる（設計 §6.5・実機判断待ち）。 -->
+      <div id="practice-status-left" class="practice-status practice-status-left">
+        <div class="practice-rewind-label">REWIND</div>
+        <div class="practice-rewind-row">
+          <span id="practice-rewind-back" class="practice-rewind-btn is-disabled"
+            onmousedown="event.preventDefault()" onclick="practiceRewindStep(-1)">⟲<b id="practice-rewind-back-count">0</b></span>
+          <span id="practice-rewind-fwd" class="practice-rewind-btn is-disabled"
+            onmousedown="event.preventDefault()" onclick="practiceRewindStep(1)">⟳<b id="practice-rewind-fwd-count">0</b></span>
+        </div>
+        <div class="practice-rewind-keys" id="practice-rewind-keys">Q / E</div>
+      </div>
+      <!-- ★ PRACTICEモード専用: 設定パネルで停止中であることを盤面中央に示す
+           （Phase 10 §4）。表示切替はCSSのみ（body.practice-panel-open）。 -->
+      <div id="practice-pause-mark" class="practice-pause-mark">
+        <span class="practice-pause-mark-icon">❚❚</span>
+        <span class="practice-pause-mark-text">PAUSED</span>
+      </div>
+      <!-- ★ PRACTICEモード専用: REWIND/ADVANCEの移動エフェクト（Phase 5 §5）。盤面中央に一瞬光る。
+           盤面が埋まると明るい文字が明るいブロックに埋もれるため、内容ぶんだけの
+           暗いプレートを敷く（Phase 10 §5）。 -->
+      <div id="practice-rewind-flash" class="practice-rewind-flash">
+        <div class="practice-flash-plate">
+          <span id="practice-rewind-flash-icon">⟲</span>
+          <span id="practice-rewind-flash-text">REWIND</span>
+          <span id="practice-rewind-flash-pos">0 / 0</span>
+        </div>
+      </div>
+      <!-- ★ PRACTICEモード専用: 即時ツモ変化の結果表示（Phase 5 §9.6）。隠しキー操作のため
+           操作パネルには入れない。盤面中央に短く出す。 -->
+      <div id="practice-cycle-flash" class="practice-cycle-flash">
+        <div class="practice-flash-plate">
+          <span id="practice-cycle-flash-text">⟳ I</span>
+        </div>
+      </div>
+      <!-- ★ PRACTICEモード専用: 即時ツモ変化インジケータ（右下・APM枠の位置。tet/puyo共通で表示。
+           実機FBによりtet/puyoとも左のREWINDから分離し右側へ配置し直した）。
+           Phase8 §2.5で逆方向ボタンを追加し、REWINDと同じ前後2ボタン構成にした。 -->
+      <div id="practice-cycle-area" class="practice-status practice-hud-block">
+        <span class="area-label">CYCLE</span>
+        <div class="practice-cycle-row">
+          <span id="practice-cycle-back" class="practice-rewind-btn"
+            onmousedown="event.preventDefault()" onclick="practiceCycleTsumo(-1)">⟲<b id="practice-cycle-prev">Z</b></span>
+          <span id="practice-cycle-btn" class="practice-rewind-btn"
+            onmousedown="event.preventDefault()" onclick="practiceCycleTsumo(1)">⟳<b id="practice-cycle-next">I</b></span>
+        </div>
+        <span class="practice-hud-sub" id="practice-cycle-keys">S / D</span>
+      </div>
+      <!-- ★ PRACTICEモード専用(tetのみ): versusと同じ見た目のおじゃまゲージ(§3.2) -->
+      <div id="practice-garbage-gauge" class="garbage-gauge"></div>
       <span class="area-label" id="label-next">NEXT</span>
       <canvas id="next-canvas"></canvas>
       <canvas id="puyo-next-canvas" style="
@@ -894,7 +976,13 @@
       </div>
       <div id="score-area">
         <span class="area-label">SCORE</span>
-        <span id="score-value">0</span>
+        <span id="score-value">0</span><span id="score-goal" style="
+              font-family: &quot;Orbitron&quot;, monospace;
+              font-size: 13px;
+              color: var(--text-dim);
+              font-weight: 400;
+              letter-spacing: 1px;
+            "></span>
       </div>
       <div id="time-area">
         <span class="area-label">TIME</span>
@@ -960,6 +1048,17 @@
       <button id="start-btn" style="display: none"></button>
     </div>
 
+    <!-- ★ PRACTICEモード専用: ゲーム内設定パネル本体（Phase 6 §8）。
+         #containerのスケールから独立させ、ビューポート左端にposition:fixedで固定する
+         （それまでは#container内のローカル座標に間借りした左ドックだったが、項目が
+         増えて750px予算を圧迫していたため）。開いている間はポーズする（従来どおり）。 -->
+    <div id="practice-panel-dock" class="practice-panel-dock">
+      <div id="practice-panel-card" class="practice-panel-card">
+        <div class="practice-panel-title">SETTINGS</div>
+        <div id="practice-panel-body" class="practice-panel-body"></div>
+      </div>
+    </div>
+
     <div id="pause-overlay">
       <div id="pause-modal">
         <h2 id="pause-title">PAUSE</h2>
@@ -983,6 +1082,11 @@
             <button class="pause-btn btn-quiz-primary" id="pause-quiz-level-select-btn"
               onclick="handlePauseAction('quiz-levelselect')" style="display: none">
               ◀ LEVEL SELECT
+            </button>
+            <!-- ★ PRACTICEモード専用: 任意のタイミングでリザルトへ抜ける -->
+            <button class="pause-btn btn-practice-primary" id="pause-practice-finish-btn"
+              onclick="handlePauseAction('practice-finish')" style="display: none">
+              ■ FINISH
             </button>
             <button class="pause-btn btn-secondary" id="pause-mode-select-btn"
               onclick="handlePauseAction('mode-select')">
@@ -1027,15 +1131,20 @@
         </div>
       </div>
       <div id="result-buttons">
+        <!-- ★ PRACTICEモード専用: 巻き戻し履歴が残っているときだけ表示（practice.jsが制御） -->
+        <button class="menu-btn btn-primary" id="result-practice-rewind-btn" onclick="practiceRewindFromResult()" style="display: none">
+          <span class="menu-btn-icon">⟲</span>
+          <span>REWIND (<span id="result-practice-rewind-count">0</span>)</span>
+        </button>
         <button class="menu-btn btn-primary" id="result-retry-btn" onclick="startGameFromModeCheck()">
           <span class="menu-btn-icon">↺</span>
           <span>RETRY</span>
         </button>
-        <button class="menu-btn btn-secondary" onclick="switchPage('mode-check')">
+        <button class="menu-btn btn-secondary" onclick="stopAllGames();switchPage('mode-check')">
           <span class="menu-btn-icon">◀</span>
           <span>MODE SELECT</span>
         </button>
-        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+        <button class="menu-btn btn-secondary" onclick="stopAllGames();switchPage('main-menu')">
           <span class="menu-btn-icon">⌂</span>
           <span>MAIN MENU</span>
         </button>
@@ -1182,40 +1291,45 @@
     ───────────────────────────────────────────── -->
   <div id="external-pages"></div>
 
-  <script src="config/pages.js?v=2"></script>
-  <script src="core/base.js?v=4"></script>
-  <script src="core/particles.js?v=1"></script>
+  <script src="config/pages.js?v=7"></script>
+  <script src="core/base.js?v=11"></script>
+  <script src="core/particles.js?v=2"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=2"></script>
+  <script src="config/settings.js?v=6"></script>
   <script src="config/records.js?v=1"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js"></script>
-  <script src="game/tet/lifecycle.js?v=2"></script>
-  <script src="game/tet/board.js?v=2"></script>
-  <script src="game/tet/rotation.js"></script>
-  <script src="game/tet/scoring.js?v=2"></script>
-  <script src="game/tet/garbage.js"></script>
-  <script src="game/tet/render.js"></script>
-  <script src="game/tet/input.js?v=2"></script>
+  <script src="game/tet/lifecycle.js?v=6"></script>
+  <script src="game/tet/board.js?v=4"></script>
+  <script src="game/tet/rotation.js?v=2"></script>
+  <script src="game/tet/scoring.js?v=3"></script>
+  <script src="game/tet/garbage.js?v=1"></script>
+  <script src="game/tet/render.js?v=4"></script>
+  <script src="game/tet/input.js?v=4"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=4"></script>
   <script src="game/puyo/lifecycle.js?v=3"></script>
   <script src="game/puyo/connect.js"></script>
-  <script src="game/puyo/ojama.js?v=3"></script>
-  <script src="game/puyo/engine.js?v=5"></script>
-  <script src="game/puyo/input.js?v=4"></script>
-  <script src="game/puyo/draw.js?v=3"></script>
-  <script src="quiz/quiz.js?v=1"></script>
+  <script src="game/puyo/ojama.js?v=4"></script>
+  <script src="game/puyo/engine.js?v=7"></script>
+  <script src="game/puyo/input.js?v=5"></script>
+  <script src="game/puyo/draw.js?v=7"></script>
+  <script src="quiz/quiz.js?v=2"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js"></script>
+  <script src="app/modes.js?v=5"></script>
   <script src="app/cpu_loader.js?v=1"></script>
   <script src="app/versus.js?v=1"></script>
-  <script src="app/navigation.js?v=4"></script>
-  <script src="app/focus_nav.js?v=5"></script>
+  <script src="app/navigation.js?v=8"></script>
+  <script src="app/focus_nav.js?v=7"></script>
+  <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
+  <script src="practice/practice_snapshot.js?v=2"></script>
+  <script src="practice/practice_sequence.js?v=4"></script>
+  <script src="practice/practice_panel.js?v=19"></script>
+  <script src="practice/practice.js?v=27"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>
 
