@@ -482,9 +482,12 @@ class OnlineMode {
    *   online_bgm が鳴り続けていた。backToMainMenu() だけが switchPage を呼ぶため
    *   「メインメニューまで戻ると直る」という報告と一致する。
    *   crossfadeTo は isCurrent を見て冪等なので毎回呼んでよい。
+   * ★ 2026-09-14: ロビー専用BGM(online_lobby_bgm＝online_1.ogg)に変更。対戦中は
+   *   online_bgm(vs_1.ogg)のまま（変更なし）。対戦開始時のフェードは
+   *   OnlineGameController.startBattle() 側（online_game.ts）が個別に行う。
    */
   private applyLobbyBgm(): void {
-    (window as any).BgmManager?.crossfadeTo("menu_bgm");
+    (window as any).BgmManager?.crossfadeTo("online_lobby_bgm");
   }
 
   /**

@@ -743,6 +743,13 @@ export class OnlineGameController {
   private startBattle(notif: StartMatchNotification): void {
     // 二重の開始通知・決着処理中の遅延通知はここで捨てる
     if (!this.lifecycle.transition("countdown", "StartMatchNotification")) return;
+    // ★ BGMのリセット可否をここで確定させる（setupBattleUnderCover が setConfigured を
+    //   立てる前）。setConfigured は cleanup()（ROOM/LEAVE・強制終了等の完全な対戦終了）
+    //   でしか false に戻らないため、「false のまま呼ばれた」＝このルームでの新しい
+    //   マッチの1本目。複数本先取(Best-of-N)の2本目以降は true のまま呼ばれる。
+    //   → 新しいマッチだけ online_bgm を頭から鳴らし直し、同一マッチ内の再戦は
+    //   鳴らしっぱなしで継続する（設計 §1.2）。
+    const isFreshMatch = !this.setConfigured;
     this.myAlive = true;
     this.matchHalted = false;
     this.clearWinnerFallback();
@@ -774,7 +781,16 @@ export class OnlineGameController {
     window.setTimeout(() => {
       // 待機中に決着・cleanup（相手切断等）が起きていたら何もしない
       if (this.lifecycle.phase !== "countdown") return;
-      enterBlackout().then(() => this.setupBattleUnderCover(notif, delay, startedAt));
+      // ★ ロビーBGMのフェードアウトを、この瞬間から「明転(revealBattle)が始まる予定
+      //   時刻」までの残り時間をかけて行う（設計 §1.2）。revealBattleAfterSync() と
+      //   同じ式で算出（そちらは相手パペット同期待ちでこれより後ろへずれることはあっても
+      //   前へは進まない＝この時間はフェードの下限として安全に使える）。
+      //   対戦BGM(online_bgm)自体は、この後 revealBattle() を呼ぶ直前（＝明転が始まる
+      //   瞬間）に再生を始める。真っ暗な間はロビーBGMがフェードアウトしながら鳴っている。
+      const revealTriggerAbs = startedAt + delay - LOADING_CLOSE_MS;
+      const lobbyFadeMs = Math.max(0, revealTriggerAbs - performance.now());
+      (window as any).BgmManager?.stop(false, lobbyFadeMs);
+      enterBlackout().then(() => this.setupBattleUnderCover(notif, delay, startedAt, isFreshMatch));
     }, coverWait);
   }
 
@@ -786,6 +802,7 @@ export class OnlineGameController {
     notif: StartMatchNotification,
     delay: number,
     startedAt: number,
+    isFreshMatch: boolean,
   ): void {
     // 暗転中に決着・cleanup（相手切断等）が起きていたら何もしない
     if (this.lifecycle.phase !== "countdown") return;
@@ -806,8 +823,8 @@ export class OnlineGameController {
     this.switchToBattlePage();
     this.applyBattleLayout(this.roomInfo.players.length);
     applyOnlineSelfSide();
-    // オンライン専用BGM。音源パスは public/core/base.js の登録だけ差し替えればよい。
-    (window as any).BgmManager?.play("online_bgm");
+    // オンライン専用BGM(online_bgm)の再生開始は revealBattleAfterSync() 側
+    // （明転が始まる瞬間）へ移した。音源パスは public/core/base.js の登録を差し替えればよい。
     this.updateAliveDisplay();
 
     // 自分のプレイヤー名を盤面下ラベルに表示
@@ -866,7 +883,7 @@ export class OnlineGameController {
     } else {
       this.initTetBattle(notif, matchSetting, adjustedDelayToBattleStart);
     }
-    this.revealBattleAfterSync(delay);
+    this.revealBattleAfterSync(delay, isFreshMatch);
   }
 
   /**
@@ -894,8 +911,15 @@ export class OnlineGameController {
    *   「本編開始の絶対時刻までの残り時間」へ短縮する（下限 MIN_COUNTDOWN_MS）。
    *   本編開始の絶対時刻自体は変えないので、同期が崩れるのはカウントダウンの見た目の
    *   長さだけ（旧実装からの縮退動作を維持）。
+   *
+   * ★ 2026-09-14: オンライン対戦BGM(online_bgm)は、この revealBattle() を呼ぶ
+   *   直前（＝明転が始まる瞬間）に鳴らし始める（設計 §1.2）。
+   *   isFreshMatch（このルームでの新しいマッチの1本目）のときだけ明示的に stop(true)
+   *   してから鳴らし直す＝頭出し。Best-of-N の2本目以降（isFreshMatch=false）は
+   *   キーが同じ限り BgmManager.play() が自動的に継続再生する（冪等）ので、
+   *   ラウンド間でBGMが途切れない。
    */
-  private revealBattleAfterSync(delay: number): void {
+  private revealBattleAfterSync(delay: number, isFreshMatch: boolean): void {
     const startedAt = this.battleStartedAtMs ?? performance.now();
     const countdownStartAbs = startedAt + delay;
     const revealTriggerAbs = countdownStartAbs - LOADING_CLOSE_MS;
@@ -912,6 +936,8 @@ export class OnlineGameController {
       const waitBeforeReveal = Math.max(0, revealTriggerAbs - performance.now());
       setTimeout(() => {
         if (this.lifecycle.phase !== "countdown") return;
+        if (isFreshMatch) (window as any).BgmManager?.stop(true);
+        (window as any).BgmManager?.play("online_bgm");
         revealBattle().then(() => {
           if (this.lifecycle.phase !== "countdown") return;
           const battleStartAbs = startedAt + delay + OnlineGameController.COUNTDOWN_MS;
