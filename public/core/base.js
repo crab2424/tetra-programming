@@ -41,7 +41,7 @@ const PRACTICE_NEXT_MAX_HEIGHT = BLOCK_SIZE * 13.5;
 //
 // 逆にこの数字が変わらない限り、ブラウザはキャッシュから読むだけで通信しない。
 // ─────────────────────────────────────────────
-const ASSET_VERSION = 2;
+const ASSET_VERSION = 3;
 
 // 素材URLにキャッシュ用バージョンを付ける。音源・画像の取得は必ずこれを通す。
 function assetUrl(path) {
@@ -1155,8 +1155,6 @@ AudioLoader.registerBgm('single_marathon_bgm', 'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/challenge_1.ogg');
 AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/challenge_1.ogg');
 AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/single_1.ogg');
-// PRACTICE は専用曲を用意する予定。素材が入るまでは single_1.ogg を指す
-// （差し替えはこの1行のパスを変えるだけでよい）。
 AudioLoader.registerBgm('single_practice_bgm', 'assets/audio/bgm/practice_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 // オンライン対戦BGMは、ここでパスだけ差し替えれば変更できる。
