@@ -1,7 +1,7 @@
 {
   "name": "tetra-programming",
   "private": true,
-  "version": "2.2.0",
+  "version": "2.2.1",
   "type": "module",
   "scripts": {
     "dev": "run-p dev:server dev:client",
@@ -21,3 +21,4 @@
     "bincode-ts": "^1.0.0"
   }
 }
+  
