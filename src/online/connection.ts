@@ -2,6 +2,7 @@
 declare const APP_VERSION: string;
 
 import { randomUUID } from "./uuid";
+import { PROTOCOL_VERSION } from "./protocol_version";
 import {
   Payload,
   JSONPayload,
@@ -352,13 +353,31 @@ export class GameConnection {
       }
 
       let rtcConfig: RTCConfiguration | null = null;
+      let authFailed = false;
 
       this.ws.onmessage = (event) => {
         const message = JSON.parse(event.data);
 
         if (message.type === "authresult") {
           if (!message.success) {
-            reject(new Error("Authentication failed: " + message.message));
+            authFailed = true;
+            const serverProtocol: number | undefined =
+              message.protocol ?? undefined;
+            // サーバーが protocol を返してきた（＝新サーバー）のに拒否された場合、
+            // 自分の PROTOCOL_VERSION と比べてどちらが古いかを案内する
+            // （設計: source_assets/memory/v2.2.1/tetlabo-protocol-version-design.md）。
+            let hint = "";
+            if (typeof serverProtocol === "number") {
+              hint =
+                serverProtocol > PROTOCOL_VERSION
+                  ? "新しいバージョンが公開されています。ページを再読み込みしてください。"
+                  : "サーバーの更新待ちです。しばらくしてから再度お試しください。";
+            }
+            reject(
+              new Error(
+                "Authentication failed: " + message.message + (hint ? "\n" + hint : ""),
+              ),
+            );
             return;
           }
           this.logger.log("Authentication successful");
@@ -373,10 +392,12 @@ export class GameConnection {
         JSON.stringify({
           type: "auth",
           version: APP_VERSION,
+          protocol: PROTOCOL_VERSION,
         }),
       );
 
       while (rtcConfig === null) {
+        if (authFailed) return; // reject済み。ready()を空回りさせない
         await sleep(10);
       }
 
