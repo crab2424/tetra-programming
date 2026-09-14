@@ -56,6 +56,83 @@ const GAME_MODES = {
     descriptionEn: 'Puzzle challenge mode for both Tet and Puyo.',
     color:       '#f58542',
   },
+  // ─── PRACTICEモード ───────────────────────────
+  // 1人用の練習モード。記録は残さない（tet は _submitRecordIfEligible が未知modeで
+  // null を返すので自然に対象外、puyo は engine.js に practice ガードを追加している）。
+  practice: {
+    id:          'practice',
+    label:       'PRACTICE',
+    icon:        '🎯',
+    description: '自由に練習できるモード。巻き戻し可能・記録なし。',
+    descriptionEn: 'Free practice with rewind. No records.',
+    // CPU TEST が --success（緑）を使っているため、外枠色が被らないよう
+    // ホーム画面の他ボタンにない灰色系にする（他モードカラーとの兼ね合いで新規追加）。
+    color:       'var(--practice-color)',
+  },
+};
+
+// ─── PRACTICEモード用の共有state ────────────────
+// 準備画面（renderModeCheck）で編集し、startGameFromModeCheck が PracticeManager へ渡す。
+// Phase 1 では RULE / GOAL(NONE・LINES/PUYOS・SCORE) / VALUE のみ。
+// 落下速度・NEXT表示数などのゲーム内設定パネルは Phase 2 でここに追加する。
+let practiceRule = 'tet';           // 'tet' | 'puyo'
+let practiceGoalType = 'none';      // 'none' | 'lines' | 'puyos' | 'score' | 'time'
+// 目標値はGOAL種別ごとに別々に覚える（LINES↔SCOREを行き来しても値が壊れないように）
+let practiceGoalValues = { lines: 40, puyos: 100, score: 10000, time: 180 };
+
+// PRACTICE: 目標値のプリセット送り（1-2-5系）。←/→ で1段ずつ動かす。
+const PRACTICE_GOAL_PRESETS = {
+  lines: [10, 20, 40, 50, 100, 200, 500, 999],
+  puyos: [10, 20, 50, 100, 200, 500, 999],
+  score: [1000, 2000, 5000, 10000, 20000, 50000, 100000,
+          200000, 500000, 1000000, 2000000, 5000000, 10000000],
+  // 秒単位。GOAL=TIMEのときは残り時間をカウントダウン表示する（設計 §4.4）
+  time: [10, 20, 30, 60, 120, 180, 300, 600, 900, 1800, 3600],
+};
+// 桁スピナー編集モード（§4.2）の桁数と有効範囲
+const PRACTICE_GOAL_RANGE = {
+  lines: { min: 10,   max: 999,      digits: 3 },
+  puyos: { min: 10,   max: 999,      digits: 3 },
+  score: { min: 1000, max: 10000000, digits: 8 },
+  time:  { min: 10,   max: 3600,     digits: 4 },
+};
+
+// ルールで名前が入れ替わる「消した量」系の目標キー
+function practiceCountGoalType(rule) {
+  return (rule === 'puyo') ? 'puyos' : 'lines';
+}
+
+function practiceGoalValue() {
+  const v = practiceGoalValues[practiceGoalType];
+  return (typeof v === 'number') ? v : 0;
+}
+
+function setPracticeRule(rule) {
+  if (practiceRule === rule) return;
+  practiceRule = rule;
+  // ルールを変えると LINES ⇄ PUYOS が入れ替わるので、選択中ならキーを差し替える
+  if (practiceGoalType === 'lines' || practiceGoalType === 'puyos') {
+    practiceGoalType = practiceCountGoalType(rule);
+  }
+  renderModeCheck();
+}
+
+function setPracticeGoalType(type) {
+  if (practiceGoalType === type) return;
+  practiceGoalType = type;
+  renderModeCheck();
+}
+
+// ─── PRACTICE: ツモ順設定（SEQUENCE, Phase 3 §7）───────────────
+// RULE を切り替えても消えないよう、tet/puyo で別々に持つ。
+// bags[].items: tet は要素1つが「ミノ種別(0-6)または'?'(null)」の配列。
+// puyo は要素1つが [上色,下色]（各 1-5 または '?'=null）のペアの配列。
+// 実際の編集操作・ランタイム消費は practice_sequence.js が持つ。
+// bagOrder: バッグ列の並びを周回ごとにシャッフルするか / slotOrder: バッグ内スロットの
+// 並びを周回ごとにシャッフルするか（Phase 4 §5.2。旧 order は bagOrder に一本化した）。
+let practiceSequence = {
+  tet:  { enabled: false, bagOrder: 'loop', slotOrder: 'loop', bags: [{ items: new Array(7).fill(null) }] },
+  puyo: { enabled: false, bagOrder: 'loop', slotOrder: 'loop', bags: [{ items: [[null, null]] }] },
 };
 
 let testCpuControl = true; 

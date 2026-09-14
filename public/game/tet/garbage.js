@@ -48,6 +48,10 @@ Object.assign(Game.prototype, {
 
         if (readyGarbage.length === 0) return;
 
+        // おじゃまラインの着弾音。予告ゲージの点灯（stage1/2）では鳴らさず、
+        // 実際に盤面がせり上がるこの瞬間だけ1回鳴らす。
+        this.playSe('garbage');
+
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         let isOpponentPuyo = false;
         if (this.opponentRule) {

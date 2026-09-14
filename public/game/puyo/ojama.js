@@ -463,6 +463,10 @@ Object.assign(PuyoGame.prototype, {
 
         if (drop <= 0) return false;
 
+        // おじゃまぷよの着弾音。予告表示（_updateOjamaYokoku）では鳴らさず、
+        // 実際に盤面へ書き込むこの瞬間だけ1回鳴らす。
+        this.playSe('puyo_ojama');
+
         let rows = Math.floor(drop / PConfig.cols);
         let fractions = drop % PConfig.cols;
 

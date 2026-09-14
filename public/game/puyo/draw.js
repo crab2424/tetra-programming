@@ -465,41 +465,72 @@ Object.assign(PuyoGame.prototype, {
         ctx.fillStyle = '#0a0a0f';
         ctx.fillRect(0, 0, W, H);
 
-        const drawCs = 42;
-        const offsetX = (W - drawCs) / 2;
+        // PRACTICE設定パネル：NEXT表示数（practiceNextCount）を可変化。既定は2ペア。
+        // 直近5個は左列に従来どおり縦に流し、6個目以降は右列に縦に流す
+        // （列優先＝tetと同じ考え方。行優先のジグザグにはしない。縮小率は_computeNextLayout参照）。
+        const { count, cols, drawCs } = this._computeNextLayout();
+        const colWidth = W / cols;
+        const col0Count = Math.min(count, 5);
 
         ctx.save();
 
-        let offsetY = 0;
-        let showThree = false;
-        const shiftDist = drawCs * 2.5;
-
-        if (this._gs === 'spawnAnim') {
-            const progress = Math.min(1, this.spawnAnimTimer / PConfig.spawnAnimMs);
-            offsetY = -shiftDist * progress;
-            showThree = true;
+        // 左列（index 0-4）：従来どおりの縦流れ＋出現アニメのスライド演出
+        {
+            const offsetX = (colWidth - drawCs) / 2;
+            const shiftDist = drawCs * 2.5;
+            let offsetY = 0;
+            let rowsToShow = col0Count;
+            if (this._gs === 'spawnAnim') {
+                const progress = Math.min(1, this.spawnAnimTimer / PConfig.spawnAnimMs);
+                offsetY = -shiftDist * progress;
+                rowsToShow = col0Count + 1; // 次の1個（右列の先頭、無ければ何も無い）を覗かせる
+            }
+            for (let i = 0; i < rowsToShow; i++) {
+                const pair = this.nextQueue[i];
+                if (!pair) continue;
+                const y = 20 + i * shiftDist + offsetY;
+                this._drawPuyo(ctx, offsetX, y, pair[1], drawCs, 0);
+                this._drawPuyo(ctx, offsetX, y + drawCs, pair[0], drawCs, 0);
+            }
         }
 
-        const next1 = this.nextQueue[0];
-        if (next1) {
-            this._drawPuyo(ctx, offsetX, 20 + offsetY, next1[1], drawCs, 0);
-            this._drawPuyo(ctx, offsetX, 20 + drawCs + offsetY, next1[0], drawCs, 0);
-        }
-
-        const next2 = this.nextQueue[1];
-        if (next2) {
-            this._drawPuyo(ctx, offsetX, 20 + drawCs * 2.5 + offsetY, next2[1], drawCs, 0);
-            this._drawPuyo(ctx, offsetX, 20 + drawCs * 3.5 + offsetY, next2[0], drawCs, 0);
-        }
-
-        if (showThree) {
-            const next3 = this.nextQueue[2];
-            if (next3) {
-                this._drawPuyo(ctx, offsetX, 20 + drawCs * 5.0 + offsetY, next3[1], drawCs, 0);
-                this._drawPuyo(ctx, offsetX, 20 + drawCs * 6.0 + offsetY, next3[0], drawCs, 0);
+        // 右列（index 5以降）：アニメなしで縦に流すだけ
+        if (cols > 1) {
+            const offsetX = colWidth + (colWidth - drawCs) / 2;
+            const shiftDist = drawCs * 2.5;
+            for (let i = 5; i < count; i++) {
+                const pair = this.nextQueue[i];
+                if (!pair) continue;
+                const y = 20 + (i - 5) * shiftDist;
+                this._drawPuyo(ctx, offsetX, y, pair[1], drawCs, 0);
+                this._drawPuyo(ctx, offsetX, y + drawCs, pair[0], drawCs, 0);
             }
         }
 
         ctx.restore();
+    },
+
+    // PRACTICE設定パネル：NEXT表示数（practiceNextCount）に応じたレイアウトを計算する。
+    // 列は列優先（左列=直近5個、右列=6個目以降）で割り当てるため、列あたり
+    // 最大5個。縦の枠は常にPRACTICE_NEXT_MAX_HEIGHT（tetの既定NEXT高さ）で揃える。
+    // 縮小率は「実際に描画する行数」(effRows)から算出する（Phase5 §2）。
+    // 旧実装は常にrowsPerCol=5固定で計算していたため、既定のNEXT=2でも
+    // 「5ペアぶんを432pxに収める」前提の縮小がかかってしまっていた
+    // （本来42pxで収まるはずが29.6pxまで縮む不具合）。
+    _computeNextLayout() {
+        const count = Math.max(1, Math.min(10, this.practiceNextCount || 2));
+        const cols = count > 5 ? 2 : 1;
+        const rowsPerCol = 5;
+        const effRows = Math.min(count, rowsPerCol);
+        const drawCs = Math.max(18, Math.min(42, (PRACTICE_NEXT_MAX_HEIGHT - 20 - 42) / (effRows * 2.5)));
+        return { count, cols, drawCs };
+    },
+
+    // PRACTICE設定パネル：NEXT表示数の変更に合わせてキャンバスサイズを再計算する
+    resizeNextCanvas() {
+        if (!this.nextCanvas) return;
+        const { cols } = this._computeNextLayout();
+        this.nextCanvas.width = 128 * cols;
+        this.nextCanvas.height = PRACTICE_NEXT_MAX_HEIGHT;
     },
 });

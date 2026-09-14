@@ -20,6 +20,12 @@ const DEFAULT_BINDS = {
   hold: [{ type: 'key', code: 'ShiftLeft', label: 'SHIFT' }, { type: 'button', index: 4 }, { type: 'button', index: 5 }],
   pause: [{ type: 'key', code: 'Escape', label: 'ESC' }, { type: 'button', index: 9 }, null],
   restart: [{ type: 'key', code: 'KeyR', label: 'R' }, { type: 'button', index: 8 }, null],
+  // ─── PRACTICEモード専用（他モードでは使われない） ───
+  rewind:  [{ type: 'key', code: 'KeyQ', label: 'Q' }, { type: 'button', index: 6 }, null],
+  advance: [{ type: 'key', code: 'KeyE', label: 'E' }, { type: 'button', index: 7 }, null],
+  practicePanel: [{ type: 'key', code: 'Tab', label: 'TAB' }, { type: 'button', index: 10 }, null],
+  cycleTsumo:     [{ type: 'key', code: 'KeyD', label: 'D' }, { type: 'button', index: 3 }, null],
+  cycleTsumoBack: [{ type: 'key', code: 'KeyS', label: 'S' }, { type: 'button', index: 2 }, null],
 };
 
 const ACTION_LABELS = {
@@ -32,6 +38,13 @@ const ACTION_LABELS = {
   hold: { name: 'ホールド', en: 'Hold' },
   pause: { name: 'ポーズ', en: 'Pause' },
   restart: { name: 'リスタート', en: 'Restart' },
+  // PRACTICEモード専用。各モードのCONTROLS一覧（updateMenuControlsDisplay）には出さず、
+  // キーコンフィグ画面にだけ行を出す。
+  rewind:  { name: '1手戻す (PRACTICE)', en: 'Rewind (Practice)' },
+  advance: { name: '1手進める (PRACTICE)', en: 'Advance (Practice)' },
+  practicePanel: { name: '設定パネル開閉 (PRACTICE)', en: 'Settings Panel (Practice)' },
+  cycleTsumo:     { name: '即時ツモ変化・順 (PRACTICE)', en: 'Cycle Piece Fwd (Practice)' },
+  cycleTsumoBack: { name: '即時ツモ変化・逆 (PRACTICE)', en: 'Cycle Piece Back (Practice)' },
 };
 
 /**

@@ -37,6 +37,8 @@ Object.assign(Game.prototype, {
     // ゲーム状態の初期化（カウントダウン前に呼ぶ）
     // ─────────────────────────────────────────
     _initGameState() {
+        this.isFinishing = false; // 前局のGAMEOVER演出締め出しフラグをリセット
+
         // モードごとの初期化
         this.mode = this.currentMode || 'marathon';
         if (this.mode === 'sprint') {
@@ -236,6 +238,20 @@ Object.assign(Game.prototype, {
 
     // ─── 重力 tick (rAF ループから毎フレ呼ばれる) ───
     _applyGravityTick() {
+        // ─── PRACTICE: 自由落下0のときの固定仕様（設計 §8.1）───
+        // ソフトドロップ押下中だけ固定タイマーを動かし、離した瞬間に 0 へ戻す。
+        // 接地後は soft drop が落下距離を生まない＝_pollInput が acted を立てず
+        // checkGroundState も呼ばれないため、「接地したまま押し直した」ケースの
+        // 再開はこのフレーム処理が受け持つ。接地中は this.timer が falsy なので、
+        // 下の早期returnより前で判定する必要がある。
+        if (this.practiceNoLock && this.mino && !this.isPaused && !this.isCountingDown) {
+            const softHeld = !!(this.keyState && this.keyState.softDrop);
+            if (!softHeld) {
+                if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+            } else if (!this.lockTimer && this.isGrounded) {
+                this.startLockTimer();
+            }
+        }
         if (!this.timer) return;                          // OFF
         // 動かない局面では「時刻だけ前進」させる＝ポーズ復帰やカウントダウン明け
         // の瞬間に溜まった経過時間で多重落下するのを防ぐ
@@ -243,7 +259,8 @@ Object.assign(Game.prototype, {
             this._gravityLastTime = performance.now();
             return;
         }
-        const speed = LEVEL_SPEEDS[this.level] || 7;
+        // PRACTICE設定パネル：レベルに依存しない速度を直接指定できる（未指定時は通常どおりレベル依存）
+        const speed = (typeof this.practiceFallSpeedMs === 'number') ? this.practiceFallSpeedMs : (LEVEL_SPEEDS[this.level] || 7);
         const now = performance.now();
         const elapsed = now - this._gravityLastTime;
         if (elapsed < speed) return;
@@ -261,7 +278,9 @@ Object.assign(Game.prototype, {
     // 引数に isClear（デフォルト false）を追加
     gameOver(isClear = false) {
         this.isClear = isClear;
-        if (!isClear) this.playSe('gameover');
+        // クリア(SPRINT完走/ULTRA終了/MARATHON達成)は専用のクリア音。
+        // QUIZ正解・PRACTICE GOAL達成とも同じ 'clear' に統一している。
+        this.playSe(isClear ? 'clear' : 'gameover');
         this.drawAll();
         // rAF描画＆入力ループを停止
         this.stopRenderLoop();
@@ -289,6 +308,12 @@ Object.assign(Game.prototype, {
         }
 
         // シングルプレイの終了演出（FINISH!）を表示してからリザルトへ
+        // ─── 演出中(switchPage('result')まで)のリスタート/ポーズ締め出し用フラグ ───
+        // isPausedは既にtrueだが、リスタートキーは「ポーズ中・プレイ中問わず即座にやり直し」
+        // 仕様のためisPausedチェックをすり抜ける。演出中に押すと詰んだ状態のままstart()が
+        // 走ってしまう（MARATHON/SPRINT/ULTRA共通のバグ。設計 Phase5 §4.2 参照）。
+        // _initGameState()（start()の先頭）でfalseに戻す。
+        this.isFinishing = true;
         const finishText = isClear ? 'FINISH!' : 'GAME OVER';
         const finishClass = isClear ? 'finish-clear' : 'finish-gameover';
         showFinishOverlay('finish-overlay', 'finish-text', finishText, finishClass, 1200, async () => {

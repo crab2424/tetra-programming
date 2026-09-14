@@ -22,6 +22,10 @@ const VISIBLE_EXTRA_ROW_RATIO = 0.5;
 const SCREEN_WIDTH = COLS_COUNT * BLOCK_SIZE;
 const SCREEN_HEIGHT = (ROWS_COUNT + VISIBLE_EXTRA_ROW_RATIO) * BLOCK_SIZE;
 const NEXT_AREA_SIZE = 160;
+// PRACTICE設定パネル：NEXT表示数を増やしたとき、tet/puyoどちらも枠の縦幅を
+// このtetの既定NEXT高さ(BLOCK_SIZE*13.5)まで揃える（puyoだけ縦が伸びず
+// 小さく見えてしまう問題への対応）。
+const PRACTICE_NEXT_MAX_HEIGHT = BLOCK_SIZE * 13.5;
 
 // ─────────────────────────────────────────────
 // ★ アセット（音源・画像）のキャッシュ用バージョン
@@ -37,7 +41,7 @@ const NEXT_AREA_SIZE = 160;
 //
 // 逆にこの数字が変わらない限り、ブラウザはキャッシュから読むだけで通信しない。
 // ─────────────────────────────────────────────
-const ASSET_VERSION = 1;
+const ASSET_VERSION = 3;
 
 // 素材URLにキャッシュ用バージョンを付ける。音源・画像の取得は必ずこれを通す。
 function assetUrl(path) {
@@ -88,16 +92,11 @@ window.onload = function () {
         window._cpuGame = cpuGame
 
         // リザルト画面の「RETRY」ボタン
-        // ★ 修正: puyoモードとtetモードで異なるハンドラーを設定
+        // ★ 全モード共通で startGameFromModeCheck() に統一する（Phase 4 §7.A）。
+        //   以前は tet 側だけ起動時にキャプチャした Game インスタンスを直接 start() していたため、
+        //   RETRY が正規の開始経路を通らず、PracticeManager 等の再構築が起きない不具合があった。
         document.getElementById('result-retry-btn').onclick = function () {
-            if (currentGameMode && currentGameMode.id === 'puyo') {
-                // puyoモード：startGameFromModeCheck を呼び出す
-                startGameFromModeCheck();
-            } else {
-                // tetモード：従来のgame.startを呼び出す
-                switchPage('game');
-                game.start();
-            }
+            startGameFromModeCheck();
             this.blur();
         }
 
@@ -848,6 +847,7 @@ class BgmManager {
         'single_sprint_bgm':   0.90,
         'single_ultra_bgm':    0.90,
         'single_puyo_bgm':     0.90,
+        'single_practice_bgm': 0.90,
     };
 
     // ── シングルモードの mode → BGMキー対応 ───────────────────────────
@@ -859,6 +859,7 @@ class BgmManager {
         sprint:   'single_sprint_bgm',
         ultra:    'single_ultra_bgm',
         puyo:     'single_puyo_bgm',
+        practice: 'single_practice_bgm',
     };
     static singleBgmKey(mode) {
         return this._singleBgmKeys[mode] || 'single_marathon_bgm';
@@ -1054,7 +1055,9 @@ class SeManager {
         'resume':        1.00,  // 未配置（配置後に実測して調整）
         'countdown_count': 0.50,  // 未配置（カウント3/2/1用）
         'countdown_start': 1.00,  // 未配置（START!用）
-        'gameover':      1.00,  // 未配置（tet/puyo共通）
+        'gameover':      1.00,  // 未配置（tet/puyo共通。QUIZ不正解と共用）
+        'clear':         1.00,  // 未配置（クリア／GOAL達成／QUIZ正解を1音に統一）
+        'levelup':       1.00,  // 未配置（MARATHONのレベルアップ）
         // テト系
         'move':          1.00,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
         'rotate':        1.40,  // -34.8 / -5.4
@@ -1069,6 +1072,9 @@ class SeManager {
         '3lines':        0.90,  // 未実測
         '4lines':        2.20,  // -29.0 / -8.8
         'tspin':         0.90,  // -20.2 / -0.0（ピーク張り付き＝微減衰）
+        'b2b':           1.00,  // 未配置（BACK TO BACK 成立）
+        'perfect_clear': 1.00,  // PERFECT CLEAR成立。puyo_allclearと同一音源（容量削減）
+        'garbage':       0.60,  // おじゃまライン着弾。puyo_ojamaと同一音源（容量削減）。予告点灯には鳴らさない
         // ぷよ系
         'puyo_move':     3.50,  // -33.5 / -12.9
         'puyo_rotate':   1.00,  // 未配置
@@ -1082,6 +1088,15 @@ class SeManager {
         'puyo_chain5':   1.00,
         'puyo_chain6':   1.00,
         'puyo_chain7':   1.00,
+        'puyo_allclear': 1.00,  // 未配置（全消し）
+        'puyo_ojama':    1.00,  // 未配置（おじゃまぷよ着弾。予告点灯には鳴らさない）
+        // PRACTICE系（未配置。配置後に実測して調整）
+        'practice_rewind':      1.00,
+        'practice_advance':     1.00,
+        'practice_cycle':       1.00,
+        'practice_panel_open':  1.00,  // pauseと同一音源（容量削減）
+        'practice_panel_close': 1.00,  // pauseと同一音源（容量削減）
+        'practice_board_clear': 1.00,  // menu_decideと同一音源（容量削減）
     };
 
     // AudioContextを使うことで同時再生・連打に対応
@@ -1140,6 +1155,7 @@ AudioLoader.registerBgm('single_marathon_bgm', 'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/challenge_1.ogg');
 AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/challenge_1.ogg');
 AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/single_1.ogg');
+AudioLoader.registerBgm('single_practice_bgm', 'assets/audio/bgm/practice_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 // オンライン対戦BGMは、ここでパスだけ差し替えれば変更できる。
 AudioLoader.registerBgm('online_bgm',  'assets/audio/bgm/vs_1.ogg');
@@ -1161,6 +1177,9 @@ AudioLoader.loadSe({
     'resume':       'assets/audio/se/menu/pause.ogg',
     // ゲームオーバー（tet/puyo共通の統一SE）
     'gameover':     'assets/audio/se/menu/gameover.ogg',
+    // クリア音。SPRINT/ULTRA/MARATHON完走・PRACTICE GOAL達成・QUIZ正解を1音に統一する
+    // （不正解／ゲームオーバー側は上の gameover を共用）。
+    'clear':        'assets/audio/se/menu/clear.ogg',
     // テト系
     'move':      'assets/audio/se/tet/move.ogg',
     'rotate':    'assets/audio/se/tet/rotate.ogg',
@@ -1175,6 +1194,12 @@ AudioLoader.loadSe({
     '3lines':    'assets/audio/se/tet/3lines.ogg',
     '4lines':    'assets/audio/se/tet/4lines.ogg',
     'tspin':     'assets/audio/se/tet/tspin.ogg',
+    'b2b':           'assets/audio/se/tet/b2b.ogg',
+    // 容量削減のため puyo_allclear と同一音源を共用（tet/puyoで統一感も出る）
+    'perfect_clear': 'assets/audio/se/puyo/allclear.ogg',
+    'levelup':       'assets/audio/se/tet/levelup.ogg',
+    // 容量削減のため puyo_ojama と同一音源を共用（tet/puyoのおじゃま着弾で統一）
+    'garbage':       'assets/audio/se/puyo/ojama.ogg', // おじゃまラインの着弾
     // ぷよ系
     'puyo_move':     'assets/audio/se/puyo/move.ogg',
     'puyo_rotate':   'assets/audio/se/puyo/rotate.ogg',
@@ -1187,7 +1212,19 @@ AudioLoader.loadSe({
     'puyo_chain4': 'assets/audio/se/puyo/chain4.ogg',
     'puyo_chain5': 'assets/audio/se/puyo/chain5.ogg',
     'puyo_chain6': 'assets/audio/se/puyo/chain6.ogg',
-    'puyo_chain7': 'assets/audio/se/puyo/chain7.ogg'
+    'puyo_chain7': 'assets/audio/se/puyo/chain7.ogg',
+    'puyo_allclear': 'assets/audio/se/puyo/allclear.ogg',
+    'puyo_ojama':    'assets/audio/se/puyo/ojama.ogg', // おじゃまぷよの着弾
+
+    // PRACTICE専用（一部は容量削減のため既存キーと音源を共用）
+    'practice_rewind':      'assets/audio/se/practice/rewind.ogg',
+    'practice_advance':     'assets/audio/se/practice/advance.ogg',
+    'practice_cycle':       'assets/audio/se/practice/cycle.ogg',
+    // pause と同一音源を共用（開閉どちらも同じ音）
+    'practice_panel_open':  'assets/audio/se/menu/pause.ogg',
+    'practice_panel_close': 'assets/audio/se/menu/pause.ogg',
+    // menu_decide と同一音源を共用
+    'practice_board_clear': 'assets/audio/se/menu/decide.ogg'
 });
 
 // ─── メニューSE（クリック/ホバーへイベント委譲で付与） ────────────────
@@ -1196,7 +1233,11 @@ AudioLoader.loadSe({
 (function setupMenuSe() {
     // SE対象となるクリック可能要素のセレクタ
     // .util-link = TITLE/CREDITS/CHANGELOG、.quiz-level-btn = quizのレベルセレクト（オレンジ正方形）
-    const CLICK_SELECTOR = '.menu-btn, .menu-btn-icon, .mode-btn, .pause-btn, .opt-btn, .btn, #title-page, .util-link, .quiz-level-btn';
+    const CLICK_SELECTOR = '.menu-btn, .menu-btn-icon, .mode-btn, .pause-btn, .opt-btn, .btn, #title-page, .util-link, .quiz-level-btn,'
+        + ' .practice-panel-stepper, .practice-panel-send-btn, .practice-seq-slot';
+    // ※ .practice-panel-clear-btn（盤面クリア）はここに入れない＝専用SE
+    //   'practice_board_clear' を practiceClearBoard() 側で鳴らしており、
+    //   マウス経路だけ menu_decide と二重に鳴ってしまうため。
 
     const isCancelBtn = (el) => {
         const cls = el.className || '';

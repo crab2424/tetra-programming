@@ -746,6 +746,8 @@ class QuizManager {
     _onClear() {
         if (this.isClear || this.isFailed) return;
         this.isClear = true;
+        // 正解音はシングルのクリア音・PRACTICEのGOAL達成音と同一キー('clear')に統一。
+        window.SeManager?.play('clear');
         this._stopGame();
 
         setTimeout(() => {
@@ -759,6 +761,9 @@ class QuizManager {
     _onFailed() {
         if (this.isClear || this.isFailed) return;
         this.isFailed = true;
+        // 不正解音はゲームオーバー音と統一。_onFailed は本来の gameOver() を
+        // 置き換える形で呼ばれる（gameOver 内の playSe を通らない）ためここで鳴らす。
+        window.SeManager?.play('gameover');
         this._stopGame();
 
         setTimeout(() => {
