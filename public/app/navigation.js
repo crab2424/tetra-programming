@@ -242,6 +242,9 @@ function switchPage(pageId) {
   //   （versusは START! のタイミングで versus_bgm を鳴らす＝startVersusGame側。
   //    RESTARTでversus_bgm継続中の場合はそのまま流し続ける。）
   if (pageId === 'game' || pageId === 'versus') {
+    // 起動時プリロードで取りこぼした（一時的な通信失敗等）SEがあれば、モード開始のたびに
+    // 読み直しを試みる（無ければ即座に解決する。読み込み方式自体は変えない）。
+    window.AudioLoader?.ensureSeAll?.();
     if (window.BgmManager) {
       if (pageId === 'game' && currentGameMode && currentGameMode.id === 'quiz') {
         window.BgmManager.play('quiz_bgm');
