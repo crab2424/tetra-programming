@@ -76,6 +76,20 @@ class PracticeManager {
         // （復元処理自身が popMino / _spawnPuyo を通るため、同じ局面を二重に積まない）
         this._skipNextCapture = false;
 
+        // ─── ツモ記録（設計 §5。20手以上戻すとNEXTの順番が変わるバグの修正）───
+        // 生成したツモを生成順に記録する。tsumoLog[i] = { v, st }（i=生成の通し番号、
+        // v=生成された値、st=その生成直後の内部状態のスナップショット）。巻き戻して
+        // 打ち直しても、記録がある限り元と同じ値・同じ内部状態で再生する。
+        this.tsumoLog = [];
+        this.tsumoPos = 0;
+        // 「今どちらの方式でツモを生成しているか」への参照。SEQUENCEのON/OFF切替
+        // （applySequenceEdit）はこの2つだけを差し替える。game.getNextType/_makePair
+        // 自体（外側のツモ記録ラッパー）は attach() で1回だけ差し替え、destroy()まで固定する。
+        this._innerNextType = null; // tet
+        this._innerMakePair = null; // puyo
+        this._origInitGameState = null; // tet。Rキー等のリスタート安全網（設計 §5.5）
+        this._origInitNextQueue = null; // puyo。同上
+
         this.isGoalAchieved = false;
         this.goalAchievedStats = null;   // 達成した瞬間の成績（リザルトはこれを優先表示）
         this.isFinished = false;         // リザルトへ抜けたあとの多重発火よけ
@@ -245,6 +259,45 @@ class PracticeManager {
             }.bind(game);
         }
 
+        // ─── リスタート安全網（設計 §5.5）───
+        // Rキー/ゲームパッドのRESTARTはこのエンジンの Game.start()/initGame() を直接
+        // 呼び、PracticeManager.attach() を経由しない（tet/input.js・puyo/input.js）。
+        // エンジンの初期化フック（_initGameState/_initNextQueue。start()の最初で必ず
+        // 1回だけ呼ばれる）にツモ記録と巻き戻し履歴のリセットを差し込んでおくことで、
+        // 「前のゲームの記録に巻き戻れてしまう」事故を防ぐ。
+        if (this.rule === 'tet') {
+            this._origInitGameState = game._initGameState;
+            game._initGameState = function () {
+                self._resetTsumoLog();
+                self.history = [];
+                self.cursor = -1;
+                self._origInitGameState.call(this);
+            }.bind(game);
+        } else {
+            this._origInitNextQueue = game._initNextQueue;
+            game._initNextQueue = function () {
+                self._resetTsumoLog();
+                self.history = [];
+                self.cursor = -1;
+                self._origInitNextQueue.call(this);
+            }.bind(game);
+        }
+
+        // ─── ツモ記録の外側ラッパー（設計 §5）───
+        // game.getNextType / game._makePair を「記録があれば再生し、無ければ生成して
+        // 記録する」外側ラッパーに差し替える。実際の生成方法（通常の7バッグ抽選 or
+        // 下のSEQUENCE）は self._innerNextType / self._innerMakePair が指す関数に委ねる。
+        // ツモ順設定(SEQUENCE)のON/OFF切替（applySequenceEdit）はこの2つの参照先だけを
+        // 差し替え、この外側ラッパー自体は destroy() まで固定する（そうしないと
+        // SEQUENCEを切り替えるたびに記録が外れてしまう）。
+        if (this.rule === 'tet') {
+            this._origGetNextType = game.getNextType;
+            this._innerNextType = this._origGetNextType.bind(game);
+        } else {
+            this._origMakePair = game._makePair;
+            this._innerMakePair = this._origMakePair.bind(game);
+        }
+
         // ─── puyo + 'puyos' ゴールの進捗をライブ表示（設計にない追加分） ───
         // puyo の HUD は「LINES」枠を「CHAIN」に転用しているため、そのままでは
         // 累計クリア数の "/N" を出す場所がない。ぷよ数ゴールのときだけラベルを
@@ -304,10 +357,12 @@ class PracticeManager {
         }
 
         // ─── ツモ順設定（設計 §7・Phase 4 §5.1）───
-        // 準備画面で編集した practiceSequence[rule] をゲーム開始時点で凍結し（プレイ中に
-        // 準備画面へ戻って弄っても影響を受けないように）、getNextType/_makePair を
-        // ラップして差し込む（QUIZが同じ2関数を差し替えている実績あり）。
-        // ゲーム内パネルのSEQUENCE編集（applySequenceEdit()）は改めてこの凍結をやり直す。
+        // 準備画面で編集した practiceSequence[rule] をゲーム開始時点で凍結する（プレイ中に
+        // 準備画面へ戻って弄っても影響を受けないように）。ゲーム内パネルのSEQUENCE編集
+        // （applySequenceEdit()）は改めてこの凍結をやり直す。
+        // ★ 実際の getNextType/_makePair の差し替えは上の「ツモ記録の外側ラッパー」が
+        //   担う。ここでは self._innerNextType/_innerMakePair の参照先を切り替えるだけ
+        //   （SEQUENCEを介さない通常抽選 → SEQUENCE経由 へ）。
         const seqSrc = (typeof PracticeSequence !== 'undefined') ? PracticeSequence.config(this.rule) : null;
         this.sequenceEnabled = !!(seqSrc && seqSrc.enabled && seqSrc.bags.length);
         if (this.sequenceEnabled) {
@@ -316,18 +371,16 @@ class PracticeManager {
             this.seqRunner = PracticeSequence.createRunner(this.seqConfig);
 
             if (this.rule === 'tet') {
-                this._origGetNextType = game.getNextType;
-                game.getNextType = function () {
-                    return PracticeSequence.nextTetType(self.seqConfig, self.seqRunner);
-                }.bind(game);
+                this._innerNextType = () => PracticeSequence.nextTetType(self.seqConfig, self.seqRunner);
             } else {
-                this._origMakePair = game._makePair;
-                game._makePair = function (excludeColor = null) {
-                    const pair = PracticeSequence.nextPuyoPair(self.seqConfig, self.seqRunner, this.activeColors);
-                    return pair || self._origMakePair.call(this, excludeColor);
-                }.bind(game);
+                this._innerMakePair = (excludeColor = null) => {
+                    const pair = PracticeSequence.nextPuyoPair(self.seqConfig, self.seqRunner, game.activeColors);
+                    return pair || self._origMakePair.call(game, excludeColor);
+                };
             }
         }
+
+        this._installTsumoLog(game);
 
         this._installKeyHandler();
         this._installGamepadHandler();
@@ -335,6 +388,77 @@ class PracticeManager {
         this._startCountdownWatch();
 
         if (typeof _initPracticePanel === 'function') _initPracticePanel(this);
+    }
+
+    // ─────────────────────────────────────────
+    // ツモ記録（設計 §5）
+    // ─────────────────────────────────────────
+    _resetTsumoLog() {
+        this.tsumoLog = [];
+        this.tsumoPos = 0;
+    }
+
+    // game.getNextType（tet）/ game._makePair（puyo）を、記録つきの外側ラッパーに
+    // 差し替える。tsumoPos番目の記録が既にあればそれをそのまま返し（巻き戻し後の
+    // 打ち直し）、無ければ self._innerNextType/_innerMakePair（通常抽選 or SEQUENCE。
+    // applySequenceEdit()が随時差し替える）で新規生成して記録する。
+    _installTsumoLog(game) {
+        const self = this;
+        if (this.rule === 'tet') {
+            game.getNextType = function () {
+                const i = self.tsumoPos++;
+                const rec = self.tsumoLog[i];
+                if (rec) {
+                    self._applyTsumoState(rec.st);
+                    return rec.v;
+                }
+                const v = self._innerNextType();
+                self.tsumoLog[i] = { v, st: self._captureTsumoState() };
+                return v;
+            };
+        } else {
+            game._makePair = function (excludeColor = null) {
+                const i = self.tsumoPos++;
+                const rec = self.tsumoLog[i];
+                if (rec) {
+                    self._applyTsumoState(rec.st);
+                    return rec.v.slice(); // 呼び出し元での書き換えに巻き込まれないようコピーを返す
+                }
+                const v = self._innerMakePair(excludeColor);
+                self.tsumoLog[i] = { v: v.slice(), st: self._captureTsumoState() };
+                return v;
+            };
+        }
+    }
+
+    // 1回の生成の直後の「内部状態」を記録する。巻き戻し後この記録を再生するとき、
+    // 次の生成（記録があるかどうかに関わらず）が元と同じ内部状態から始まるようにするため。
+    // ・tet(通常抽選): 7バッグの残り
+    // ・SEQUENCE有効: ランナーの読み位置（bagOrder上の位置等）。gen(編集世代)も一緒に
+    //   持たせ、記録後にSEQUENCEを編集していたら（gen不一致）再生時に無視する
+    //   （通常は編集のたびに§5.4のトリムで先の記録ごと消えるため実際には起きない想定）。
+    // ・puyo(通常抽選): 状態を持たない（毎回 activeColors から独立に抽選するだけ）
+    _captureTsumoState() {
+        if (this.sequenceEnabled) {
+            return { seq: true, gen: this.seqConfig.gen || 0, s: PracticeSequence.cloneRunnerState(this.seqRunner) };
+        }
+        if (this.rule === 'tet') {
+            return { bag: this.gameInstance.bag.slice() };
+        }
+        return null;
+    }
+
+    _applyTsumoState(st) {
+        if (!st) return;
+        if (st.seq) {
+            if (this.sequenceEnabled && (this.seqConfig.gen || 0) === st.gen) {
+                PracticeSequence.applyRunnerState(this.seqRunner, st.s);
+            }
+            return;
+        }
+        if (st.bag && this.rule === 'tet') {
+            this.gameInstance.bag = st.bag.slice();
+        }
     }
 
     // READY(カウントダウン)中だけ⚙タブを減光して「今は押せない」ことを示す
@@ -365,13 +489,16 @@ class PracticeManager {
     // ─────────────────────────────────────────
     _capture() {
         if (this._skipNextCapture) { this._skipNextCapture = false; return; }
-        // ツモ順設定の消費位置（設計 §7.1「カスタム列は巻き戻し対象」）。
-        // popMino/_spawnPuyo 実行前＝runner がまだこの手の枠を読んでいない時点の状態を保存する。
+        // ツモ記録の再生位置（設計 §5）。popMino/_spawnPuyo 実行前＝この手のツモを
+        // まだ消費していない時点の tsumoPos を保存する。
+        // ツモ順設定の消費位置（設計 §7.1「カスタム列は巻き戻し対象」）も同様に、
+        // runner がまだこの手の枠を読んでいない時点の状態を保存する。
         // gen は「この時点で使っていた列の世代」の記録（設計 §5.1）。
-        const seqState = this.sequenceEnabled
-            ? Object.assign(PracticeSequence.cloneRunnerState(this.seqRunner), { gen: this.seqConfig.gen || 0 })
-            : undefined;
-        const line = PracticeSnapshot.capture(this.gameInstance, this.rule, seqState);
+        const extra = { tp: this.tsumoPos };
+        if (this.sequenceEnabled) {
+            extra.seq = Object.assign(PracticeSequence.cloneRunnerState(this.seqRunner), { gen: this.seqConfig.gen || 0 });
+        }
+        const line = PracticeSnapshot.capture(this.gameInstance, this.rule, extra);
 
         // 巻き戻した先から打ち直したら、それより先の履歴は無効になる
         if (this.cursor < this.history.length - 1) {
@@ -590,12 +717,15 @@ class PracticeManager {
             return;
         }
 
-        // ツモ順設定の消費位置も一緒に復元する（popMino/_spawnPuyo が次の枠を読む前に必要）。
-        // ただし gen が現在の列と異なる（＝この局面より後でSEQUENCEを編集した）場合は
+        // ツモ記録の再生位置（設計 §5）とツモ順設定の消費位置を一緒に復元する
+        // （popMino/_spawnPuyo が次の枠を読む前に必要）。
+        const extra = PracticeSnapshot.restoreExtra(this.rule, line);
+        if (extra && Number.isFinite(extra.tp)) this.tsumoPos = extra.tp;
+        // SEQUENCEのgenが現在の列と異なる（＝この局面より後でSEQUENCEを編集した）場合は
         // 古い bagOrder/itemPos を今の列に当てても意味がないため復元しない。
         // runnerはそのまま今の列を使い続ける（設計 §5.1）。
         if (this.sequenceEnabled) {
-            const seqState = PracticeSnapshot.restoreSeqState(this.rule, line);
+            const seqState = extra && extra.seq;
             const curGen = this.seqConfig ? (this.seqConfig.gen || 0) : 0;
             if (seqState && (seqState.gen || 0) === curGen) {
                 PracticeSequence.applyRunnerState(this.seqRunner, seqState);
@@ -826,20 +956,16 @@ class PracticeManager {
             // （Phase4-Cでは既存キューを残し遅延反映させていたが、Phase5 §7で即時反映に変更）。
             this.seqRunner = PracticeSequence.createRunner(this.seqConfig);
 
-            if (!wasEnabled) {
-                // OFF→ON: フックをここで新規に張る（attach()時点では未設置だったため）
-                if (this.rule === 'tet' && !this._origGetNextType) {
-                    this._origGetNextType = g.getNextType;
-                    g.getNextType = function () {
-                        return PracticeSequence.nextTetType(self.seqConfig, self.seqRunner);
-                    }.bind(g);
-                } else if (this.rule === 'puyo' && !this._origMakePair) {
-                    this._origMakePair = g._makePair;
-                    g._makePair = function (excludeColor = null) {
-                        const pair = PracticeSequence.nextPuyoPair(self.seqConfig, self.seqRunner, this.activeColors);
-                        return pair || self._origMakePair.call(this, excludeColor);
-                    }.bind(g);
-                }
+            // 内側ジェネレータをSEQUENCE側へ切り替える。外側のツモ記録ラッパー
+            // （game.getNextType/_makePair 自体）は attach() で固定済みなので触らない
+            // （設計 §5。ここで直接 game.getNextType 等を差し替えると記録が外れてしまう）。
+            if (this.rule === 'tet') {
+                this._innerNextType = () => PracticeSequence.nextTetType(self.seqConfig, self.seqRunner);
+            } else {
+                this._innerMakePair = (excludeColor = null) => {
+                    const pair = PracticeSequence.nextPuyoPair(self.seqConfig, self.seqRunner, g.activeColors);
+                    return pair || self._origMakePair.call(g, excludeColor);
+                };
             }
 
             // puyoの色数自動引き上げ（設計 §7.5）をゲーム中の編集でも再評価する
@@ -856,13 +982,11 @@ class PracticeManager {
                 }
             }
         } else if (wasEnabled) {
-            // ON→OFF: フックを外して通常生成に戻す
-            if (this.rule === 'tet' && this._origGetNextType) {
-                g.getNextType = this._origGetNextType;
-                this._origGetNextType = null;
-            } else if (this.rule === 'puyo' && this._origMakePair) {
-                g._makePair = this._origMakePair;
-                this._origMakePair = null;
+            // ON→OFF: 内側ジェネレータを通常抽選に戻す
+            if (this.rule === 'tet') {
+                this._innerNextType = this._origGetNextType.bind(g);
+            } else {
+                this._innerMakePair = this._origMakePair.bind(g);
             }
             this.seqConfig = null;
             this.seqRunner = null;
@@ -873,6 +997,14 @@ class PracticeManager {
                 g.activeColors = sortPuyoColors((g._colorOrder || []).slice(0, this._seqVanillaColorCount));
             }
         }
+
+        // ─── ツモ記録のトリム（設計 §5.4）───
+        // これから先の生成方法が変わる（通常⇔SEQUENCE、または列そのものの差し替え）。
+        // tsumoPosより先に残った記録をそのまま再生してしまうと変更が反映されない
+        // （＝NEXTが変わらないバグの一種）ため、先の記録は切り捨てて以後は新しい
+        // 設定で生成し直す。tsumoPosより前（＝既に確定した過去の手）はそのまま残す
+        // ので、その範囲内への巻き戻しはこの変更の影響を受けない。
+        this.tsumoLog.length = this.tsumoPos;
 
         // ─── 即時反映（設計 Phase5 §7・Phase6 §6）───
         // ONにした場合はNEXTキューを丸ごと作り直して即座に効かせる。
@@ -1690,6 +1822,8 @@ class PracticeManager {
             if (this._origInitActiveColors) g._initActiveColors = this._origInitActiveColors;
             if (this._origGetNextType) g.getNextType = this._origGetNextType;
             if (this._origMakePair) g._makePair = this._origMakePair;
+            if (this._origInitGameState) g._initGameState = this._origInitGameState;
+            if (this._origInitNextQueue) g._initNextQueue = this._origInitNextQueue;
             if (this._origUpdateStatsDisplay) g.updateStatsDisplay = this._origUpdateStatsDisplay;
             // 練習用に立てたフラグを共通エンジンから外す（VERSUS/ONLINEへ持ち越さない）
             delete g.practiceNoLock;
@@ -1718,7 +1852,10 @@ class PracticeManager {
         this._origUpdateTimeDisplay = this._origUpdateTimeDisplayPuyo = null;
         this._origInitActiveColors = null;
         this._origGetNextType = this._origMakePair = null;
+        this._origInitGameState = this._origInitNextQueue = null;
         this._origUpdateStatsDisplay = null;
+        this._innerNextType = this._innerMakePair = null;
+        this._resetTsumoLog();
         this.sequenceEnabled = false;
         this.seqConfig = this.seqRunner = null;
         this.gameInstance = null;
