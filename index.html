@@ -1158,7 +1158,7 @@
   <div id="settings-page" class="page">
     <div class="settings-header">
       <h2 style="margin-bottom: 0">⚙ SETTINGS</h2>
-      <button class="btn btn-back" onclick="switchPage(window._prevPage || 'main-menu')">
+      <button class="btn btn-back" onclick="requestLeaveSettings()">
         ◀ BACK
       </button>
     </div>
@@ -1265,6 +1265,9 @@
 
   <div id="global-toast"></div>
 
+  <!-- TetDialog（public/core/dialog.js）汎用確認ダイアログのマウント先。中身はJSが差し込む -->
+  <div id="app-dialog"></div>
+
   <!-- ─────────────────────────────────────────────
         オンライン対戦のロード画面
         マッチング成立→対戦開始の承認後に表示し、素材を読み込み終えてから READY を送る。
@@ -1293,9 +1296,10 @@
 
   <script src="config/pages.js?v=7"></script>
   <script src="core/base.js?v=13"></script>
+  <script src="core/dialog.js?v=1"></script>
   <script src="core/particles.js?v=2"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=6"></script>
+  <script src="config/settings.js?v=7"></script>
   <script src="config/records.js?v=1"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
