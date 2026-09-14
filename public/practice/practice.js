@@ -82,6 +82,11 @@ class PracticeManager {
         // 打ち直しても、記録がある限り元と同じ値・同じ内部状態で再生する。
         this.tsumoLog = [];
         this.tsumoPos = 0;
+        // ツモ記録の「ゲーム番号」。Rキーのリスタートで+1する。記録とスナップショットの
+        // 両方に持たせ、別のゲームの記録を再生しないようにする（リスタートしても前の
+        // ゲームへ巻き戻せるよう、履歴と記録は消さずに残すため）。
+        this.tsumoSeg = 0;
+        this._tsumoSegCount = 0;
         // 「今どちらの方式でツモを生成しているか」への参照。SEQUENCEのON/OFF切替
         // （applySequenceEdit）はこの2つだけを差し替える。game.getNextType/_makePair
         // 自体（外側のツモ記録ラッパー）は attach() で1回だけ差し替え、destroy()まで固定する。
@@ -263,22 +268,19 @@ class PracticeManager {
         // Rキー/ゲームパッドのRESTARTはこのエンジンの Game.start()/initGame() を直接
         // 呼び、PracticeManager.attach() を経由しない（tet/input.js・puyo/input.js）。
         // エンジンの初期化フック（_initGameState/_initNextQueue。start()の最初で必ず
-        // 1回だけ呼ばれる）にツモ記録と巻き戻し履歴のリセットを差し込んでおくことで、
-        // 「前のゲームの記録に巻き戻れてしまう」事故を防ぐ。
+        // 1回だけ呼ばれる）で、ツモ記録に新しいゲーム番号の区切りを入れる。
+        // 巻き戻し履歴は消さない（仕様: リスタートしても前のゲームの盤面へ巻き戻せる）。
+        // 前のゲームのスナップショットへ戻ったときは、そのゲーム番号の記録だけを再生する。
         if (this.rule === 'tet') {
             this._origInitGameState = game._initGameState;
             game._initGameState = function () {
-                self._resetTsumoLog();
-                self.history = [];
-                self.cursor = -1;
+                self._beginTsumoSegment();
                 self._origInitGameState.call(this);
             }.bind(game);
         } else {
             this._origInitNextQueue = game._initNextQueue;
             game._initNextQueue = function () {
-                self._resetTsumoLog();
-                self.history = [];
-                self.cursor = -1;
+                self._beginTsumoSegment();
                 self._origInitNextQueue.call(this);
             }.bind(game);
         }
@@ -396,6 +398,25 @@ class PracticeManager {
     _resetTsumoLog() {
         this.tsumoLog = [];
         this.tsumoPos = 0;
+        this.tsumoSeg = 0;
+        this._tsumoSegCount = 0;
+    }
+
+    // リスタート時（Rキー・ポーズのRESTART）: 新しいゲームのツモは既存の記録の後ろへ、
+    // 新しいゲーム番号で記録する。初回の start()（attach直後）でも呼ばれるが、
+    // 記録が空なので実質何もしない。
+    _beginTsumoSegment() {
+        this._skipNextCapture = false; // 巻き戻し直後にリスタートした場合の取り残し
+        // 前のゲームの目標達成を持ち越さない（新しいゲームでもGOAL!を出し直す）。
+        // 前のゲームへ巻き戻したときは _restoreCurrent() が判定し直す。
+        this.isGoalAchieved = false;
+        this.goalAchievedStats = null;
+        this.ojama.holes.length = 0;
+        this._seqVanilla = null;
+        this._seqVanillaColorCount = null;
+        if (!this.tsumoLog.length) return;
+        this.tsumoSeg = ++this._tsumoSegCount;
+        this.tsumoPos = this.tsumoLog.length;
     }
 
     // game.getNextType（tet）/ game._makePair（puyo）を、記録つきの外側ラッパーに
@@ -408,24 +429,24 @@ class PracticeManager {
             game.getNextType = function () {
                 const i = self.tsumoPos++;
                 const rec = self.tsumoLog[i];
-                if (rec) {
+                if (rec && rec.g === self.tsumoSeg) {
                     self._applyTsumoState(rec.st);
                     return rec.v;
                 }
                 const v = self._innerNextType();
-                self.tsumoLog[i] = { v, st: self._captureTsumoState() };
+                self.tsumoLog[i] = { v, st: self._captureTsumoState(), g: self.tsumoSeg };
                 return v;
             };
         } else {
             game._makePair = function (excludeColor = null) {
                 const i = self.tsumoPos++;
                 const rec = self.tsumoLog[i];
-                if (rec) {
+                if (rec && rec.g === self.tsumoSeg) {
                     self._applyTsumoState(rec.st);
                     return rec.v.slice(); // 呼び出し元での書き換えに巻き込まれないようコピーを返す
                 }
                 const v = self._innerMakePair(excludeColor);
-                self.tsumoLog[i] = { v: v.slice(), st: self._captureTsumoState() };
+                self.tsumoLog[i] = { v: v.slice(), st: self._captureTsumoState(), g: self.tsumoSeg };
                 return v;
             };
         }
@@ -494,7 +515,7 @@ class PracticeManager {
         // ツモ順設定の消費位置（設計 §7.1「カスタム列は巻き戻し対象」）も同様に、
         // runner がまだこの手の枠を読んでいない時点の状態を保存する。
         // gen は「この時点で使っていた列の世代」の記録（設計 §5.1）。
-        const extra = { tp: this.tsumoPos };
+        const extra = { tp: this.tsumoPos, tg: this.tsumoSeg };
         if (this.sequenceEnabled) {
             extra.seq = Object.assign(PracticeSequence.cloneRunnerState(this.seqRunner), { gen: this.seqConfig.gen || 0 });
         }
@@ -721,6 +742,7 @@ class PracticeManager {
         // （popMino/_spawnPuyo が次の枠を読む前に必要）。
         const extra = PracticeSnapshot.restoreExtra(this.rule, line);
         if (extra && Number.isFinite(extra.tp)) this.tsumoPos = extra.tp;
+        if (extra && Number.isFinite(extra.tg)) this.tsumoSeg = extra.tg;
         // SEQUENCEのgenが現在の列と異なる（＝この局面より後でSEQUENCEを編集した）場合は
         // 古い bagOrder/itemPos を今の列に当てても意味がないため復元しない。
         // runnerはそのまま今の列を使い続ける（設計 §5.1）。

@@ -261,7 +261,7 @@ const PracticeSnapshot = (() => {
     const EXTRA_FIELD_INDEX = { tet: 14, puyo: 16 };
 
     return {
-        // extra: { tp: tsumoPos, seq？: {...} }。常に末尾へ1フィールド追加する。
+        // extra: { tp: tsumoPos, tg: tsumoSeg, seq？: {...} }。常に末尾へ1フィールド追加する。
         capture(game, rule, extra) {
             const base = (rule === 'puyo') ? capturePuyo(game) : captureTet(game);
             return base + '|' + JSON.stringify(extra);
