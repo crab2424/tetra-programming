@@ -299,11 +299,14 @@ const PracticeSequence = (() => {
         return c.bags[Math.min(editor.bagIndex || 0, c.bags.length - 1)];
     }
 
+    // キー操作のSEについて: このエディタはマウスのCLICK_SELECTOR委譲（base.js）を経由せず
+    // 状態を直接書き換えるため、値変更・確定系のキー操作はここで明示的にSEを鳴らす
+    // （行移動のような単なるフォーカス移動は、マウス版の.option-rowクリックも無音なのでSEなし）。
     function _handleSectionKey(e) {
         const sections = _sectionOrder();
         const c = config(editor.rule);
         const bagIndex = editor.bagIndex || 0;
-        if (e.key === 'Escape') { closeEditor(false); return true; }
+        if (e.key === 'Escape') { window.SeManager?.play('menu_cancel'); closeEditor(false); return true; }
         if (e.key === 'ArrowUp') {
             const i = sections.indexOf(editor.section);
             editor.section = sections[(i - 1 + sections.length) % sections.length];
@@ -315,29 +318,31 @@ const PracticeSequence = (() => {
             return true;
         }
         if (editor.section === 'bagcount') {
-            if (e.key === 'ArrowLeft')  { setBagCount(editor.rule, c.bags.length - 1); if (bagIndex >= c.bags.length) editor.bagIndex = c.bags.length - 1; return true; }
-            if (e.key === 'ArrowRight') { setBagCount(editor.rule, c.bags.length + 1); return true; }
+            if (e.key === 'ArrowLeft')  { window.SeManager?.play('menu_decide'); setBagCount(editor.rule, c.bags.length - 1); if (bagIndex >= c.bags.length) editor.bagIndex = c.bags.length - 1; return true; }
+            if (e.key === 'ArrowRight') { window.SeManager?.play('menu_decide'); setBagCount(editor.rule, c.bags.length + 1); return true; }
         } else if (editor.section === 'bagindex') {
-            if (e.key === 'ArrowLeft')  { editor.bagIndex = (bagIndex - 1 + c.bags.length) % c.bags.length; return true; }
-            if (e.key === 'ArrowRight') { editor.bagIndex = (bagIndex + 1) % c.bags.length; return true; }
+            if (e.key === 'ArrowLeft')  { window.SeManager?.play('menu_decide'); editor.bagIndex = (bagIndex - 1 + c.bags.length) % c.bags.length; return true; }
+            if (e.key === 'ArrowRight') { window.SeManager?.play('menu_decide'); editor.bagIndex = (bagIndex + 1) % c.bags.length; return true; }
         } else if (editor.section === 'length') {
             const bag = c.bags[bagIndex];
-            if (e.key === 'ArrowLeft')  { setBagLength(editor.rule, bagIndex, bag.items.length - 1); return true; }
-            if (e.key === 'ArrowRight') { setBagLength(editor.rule, bagIndex, bag.items.length + 1); return true; }
+            if (e.key === 'ArrowLeft')  { window.SeManager?.play('menu_decide'); setBagLength(editor.rule, bagIndex, bag.items.length - 1); return true; }
+            if (e.key === 'ArrowRight') { window.SeManager?.play('menu_decide'); setBagLength(editor.rule, bagIndex, bag.items.length + 1); return true; }
         } else if (editor.section === 'bagorder') {
             if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || isConfirmKey(e)) {
+                window.SeManager?.play('menu_decide');
                 setBagOrder(editor.rule, c.bagOrder === 'loop' ? 'random' : 'loop');
                 return true;
             }
         } else if (editor.section === 'slotorder') {
             if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || isConfirmKey(e)) {
+                window.SeManager?.play('menu_decide');
                 setSlotOrder(editor.rule, c.slotOrder === 'loop' ? 'random' : 'loop');
                 return true;
             }
         } else if (editor.section === 'slots') {
-            if (isConfirmKey(e)) { editor.editingSlots = true; editor.flatIndex = 0; return true; }
+            if (isConfirmKey(e)) { window.SeManager?.play('menu_decide'); editor.editingSlots = true; editor.flatIndex = 0; return true; }
         } else if (editor.section === 'done') {
-            if (isConfirmKey(e)) { closeEditor(true); return true; }
+            if (isConfirmKey(e)) { window.SeManager?.play('menu_decide'); closeEditor(true); return true; }
         }
         return false;
     }
@@ -346,9 +351,13 @@ const PracticeSequence = (() => {
         const bagIndex = editor.bagIndex || 0;
         const bag = _currentBag();
         const count = _flatCount(editor.rule, bag);
-        if (e.key === 'Escape' || isConfirmKey(e)) { editor.editingSlots = false; return true; }
-        if (e.key === 'ArrowLeft')  { editor.flatIndex = (editor.flatIndex - 1 + count) % count; return true; }
-        if (e.key === 'ArrowRight') { editor.flatIndex = (editor.flatIndex + 1) % count; return true; }
+        if (e.key === 'Escape' || isConfirmKey(e)) {
+            window.SeManager?.play(e.key === 'Escape' ? 'menu_cancel' : 'menu_decide');
+            editor.editingSlots = false;
+            return true;
+        }
+        if (e.key === 'ArrowLeft')  { window.SeManager?.play('menu_decide'); editor.flatIndex = (editor.flatIndex - 1 + count) % count; return true; }
+        if (e.key === 'ArrowRight') { window.SeManager?.play('menu_decide'); editor.flatIndex = (editor.flatIndex + 1) % count; return true; }
         const maxVal = (editor.rule === 'tet') ? 6 : 5;
         const minVal = (editor.rule === 'tet') ? 0 : 1;
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -361,14 +370,16 @@ const PracticeSequence = (() => {
                 if (nextVal > maxVal) nextVal = null;
                 else if (nextVal < minVal) nextVal = null;
             }
+            window.SeManager?.play('menu_decide');
             _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, nextVal);
             return true;
         }
-        if (e.key === '0') { _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, null); editor.flatIndex = (editor.flatIndex + 1) % count; return true; }
+        if (e.key === '0') { window.SeManager?.play('menu_decide'); _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, null); editor.flatIndex = (editor.flatIndex + 1) % count; return true; }
         if (e.key >= '1' && e.key <= '9') {
             const n = parseInt(e.key, 10);
             const value = (editor.rule === 'tet') ? (n - 1) : n; // tet: 1-7→0-6 / puyo: 1-5→1-5
             if (value >= minVal && value <= maxVal) {
+                window.SeManager?.play('menu_decide');
                 _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, value);
                 editor.flatIndex = (editor.flatIndex + 1) % count;
                 return true;

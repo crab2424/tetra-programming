@@ -454,9 +454,18 @@ function setDisplayOption(key, value) {
   applyDisplayClasses();
 }
 
-function resetRecords() {
+async function resetRecords() {
   if (!window.Records) return;
-  if (!confirm('保存されている最高記録をすべて消去します。よろしいですか？')) return;
+  const r = await TetDialog.choose({
+    title: 'RESET RECORDS',
+    message: '保存されている最高記録をすべて消去します。よろしいですか？',
+    buttons: [
+      { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+      { label: 'RESET', value: 'reset', kind: 'danger' },
+    ],
+    initial: 'cancel',
+  });
+  if (r !== 'reset') return;
   window.Records.reset();
   showToast();
 }
@@ -625,18 +634,24 @@ function checkConflicts() {
 }
 
 function resetToDefaults() {
+  // ★ 2026-09-14: ここでlocalStorageを直接消していたのをやめた。SAVEを押すまでは
+  //   確定させない（設定画面の他の項目と扱いを揃える）＝ SAVE で確定、DISCARD
+  //   （保存せずに戻る）で元の保存値に戻せる。
+  //   設計 source_assets/memory/tetlabo-v2.2.1-design.md §3.2 問題B。
   currentBinds = normalizeBinds(JSON.parse(JSON.stringify(DEFAULT_BINDS)));
   recomputeDerivedBinds();
   currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
   currentVolume = JSON.parse(JSON.stringify(DEFAULT_VOLUME));
   currentGamepadOptions = { deadzone: 0.45 };
-  localStorage.removeItem('game_gamepad_options');
-  localStorage.removeItem('tetlaboServerUrl');
+  // Backend URL 入力欄には専用のメモリ変数が無く、DOM要素の値そのものが「現在値」
+  // なので、ここで直接空にする（renderOnlineSettings()は呼ばない＝保存値で
+  // 上書きされてしまうため）。
+  const backendInput = document.getElementById('settings-online-backend');
+  if (backendInput) backendInput.value = '';
   renderKeyConfig();
   renderTuning();
-  renderVolume();
+  renderVolume(); // 内部でBgmManager/SeManagerへも反映される（updateVolumeDisplay経由）
   renderGamepadOptions();
-  renderOnlineSettings();
   updateMenuControlsDisplay();
 }
 
@@ -694,8 +709,21 @@ function updateMenuControlsDisplay() {
   }
 }
 
+// Backend URL 入力欄の生値を正規化する（scheme/末尾スラッシュの除去）。
+// saveSettings() と isSettingsDirty() の両方で同じ正規化を通すことで、
+// 「保存済み値と現在値を比較する」判定が正しく機能する。
+function normalizeBackendUrl(raw) {
+  let backendUrl = raw || '';
+  if (backendUrl.includes('/')) {
+    backendUrl = backendUrl.replace(/(http|ws)s*:\/\//, '');
+    backendUrl = backendUrl.replace(/\/+$/, '');
+  }
+  return backendUrl;
+}
+
 // 既存の saveSettings 関数を書き換えて、保存時にメニュー表示も更新するようにします
-function saveSettings() {
+// opts.silent: true でトーストを出さない（画面を離れるついでの保存等、見えない場所での保存用）
+function saveSettings(opts = {}) {
   saveBinds();
   localStorage.setItem('game_tuning', JSON.stringify(currentTuning));
   localStorage.setItem('game_volume', JSON.stringify(currentVolume));
@@ -704,20 +732,82 @@ function saveSettings() {
     && currentGameMode && currentGameMode.id !== 'puyo') window._game.setKeyEvent();
   if (window._puyoGame && typeof window._puyoGame._setKeyHandlers === 'function') window._puyoGame._setKeyHandlers();
 
-  /** @type {string} */
-  let backendUrl = document.getElementById('settings-online-backend')?.value || '';
-
-  if (backendUrl.includes("/")) {
-    backendUrl = backendUrl.replace(/(http|ws)s*:\/\//, '');
-    backendUrl = backendUrl.replace(/\/+$/, '');
-  }
-
-  document.getElementById('settings-online-backend').value = backendUrl;
-
+  const backendInput = document.getElementById('settings-online-backend');
+  const backendUrl = normalizeBackendUrl(backendInput ? backendInput.value : '');
+  if (backendInput) backendInput.value = backendUrl;
   localStorage.setItem('tetlaboServerUrl', backendUrl);
 
   updateMenuControlsDisplay(); // ★追加：保存時にメインメニューの表示を更新
-  showToast();
+  if (!opts.silent) showToast();
+}
+
+// ─── 未保存の変更の検知（設計 §3.3）────────────────────
+// 「画面に入った時点の状態」を別途記録するのではなく、メモリ上の現在値と
+// localStorageの保存値を毎回比較する。入口が複数（メインメニュー／ポーズ）
+// あっても取りこぼしが起きない。
+function settingsSnapshot() {
+  const backendInput = document.getElementById('settings-online-backend');
+  return JSON.stringify({
+    b: currentBinds,
+    t: currentTuning,
+    v: currentVolume,
+    g: currentGamepadOptions,
+    u: normalizeBackendUrl(backendInput ? backendInput.value : ''),
+  });
+}
+function savedSnapshot() {
+  return JSON.stringify({
+    b: loadBinds(),
+    t: loadTuning(),
+    v: loadVolume(),
+    g: loadGamepadOptions(),
+    u: localStorage.getItem('tetlaboServerUrl') || '',
+  });
+}
+function isSettingsDirty() {
+  return settingsSnapshot() !== savedSnapshot();
+}
+
+// DISCARD（保存せずに戻る）: メモリ上の状態を保存済みの値へ戻す。
+// 音量はBgmManager/SeManagerへも反映しないと、戻った後も変更後の音量のまま
+// 鳴り続けてしまう（設計 §3.2 問題A）。
+function revertSettings() {
+  currentBinds = loadBinds();
+  recomputeDerivedBinds();
+  currentTuning = loadTuning();
+  currentVolume = loadVolume();
+  currentGamepadOptions = loadGamepadOptions();
+  renderKeyConfig();
+  renderTuning();
+  renderVolume(); // 内部でBgmManager/SeManagerへも反映される（updateVolumeDisplay経由）
+  renderGamepadOptions();
+  renderOnlineSettings();
+  updateMenuControlsDisplay();
+}
+
+// SETTINGS画面のBACK（Escapeもfocus_nav経由でここに来る）。未保存の変更が無ければ
+// 即座に戻り、あれば自作ダイアログで確認する（設計 §3）。
+async function requestLeaveSettings() {
+  // キー入力待ち状態を残したまま離れないよう、判定より前に解除しておく
+  // （待機中はcurrentBinds自体は変わっていないので判定への影響はないが、
+  //   navigation.js側のswitchPage()も同じ理由で先頭で呼んでいるのに合わせる）
+  if (typeof stopListeningBind === 'function') stopListeningBind();
+  const dest = window._prevPage || 'main-menu';
+  if (!isSettingsDirty()) { switchPage(dest); return; }
+
+  const choice = await TetDialog.choose({
+    title: 'UNSAVED CHANGES',
+    message: '変更が保存されていません。保存してから戻りますか？',
+    buttons: [
+      { label: 'SAVE & BACK', value: 'save', kind: 'primary' },
+      { label: 'DISCARD', value: 'discard', kind: 'danger' },
+      { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+    ],
+    initial: 'save',
+  });
+  if (choice === 'save') { saveSettings({ silent: true }); switchPage(dest); }
+  else if (choice === 'discard') { revertSettings(); switchPage(dest); }
+  // cancel（またはダイアログが値なしで閉じた場合）: SETTINGS画面に留まる
 }
 
 document.addEventListener('DOMContentLoaded', () => {

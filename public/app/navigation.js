@@ -242,6 +242,9 @@ function switchPage(pageId) {
   //   （versusは START! のタイミングで versus_bgm を鳴らす＝startVersusGame側。
   //    RESTARTでversus_bgm継続中の場合はそのまま流し続ける。）
   if (pageId === 'game' || pageId === 'versus') {
+    // 起動時プリロードで取りこぼした（一時的な通信失敗等）SEがあれば、モード開始のたびに
+    // 読み直しを試みる（無ければ即座に解決する。読み込み方式自体は変えない）。
+    window.AudioLoader?.ensureSeAll?.();
     if (window.BgmManager) {
       if (pageId === 'game' && currentGameMode && currentGameMode.id === 'quiz') {
         window.BgmManager.play('quiz_bgm');
@@ -1026,8 +1029,11 @@ function handlePauseAction(action) {
           // ★ CPUテスト(ぷよ): 盤面リセットに加えてCPUコントローラも作り直す（pause/resume と対称）
           restartPuyoCpuTest();
       } else if (currentGameMode && currentGameMode.id === 'practice') {
-          // PRACTICE: 巻き戻し履歴・フックごと作り直す（startPracticeGame が destroy→再構築する）
-          if (typeof startPracticeGame === 'function') startPracticeGame();
+          // PRACTICE: Rキーと同じくエンジンの start() だけを呼ぶ。PracticeManager は作り直さない
+          // ＝巻き戻し履歴を残し、リスタート後も前のゲームの盤面へ戻れる（仕様）。
+          const pm = window._practiceManager;
+          if (pm && pm.gameInstance && typeof pm.gameInstance.start === 'function') pm.gameInstance.start();
+          else if (typeof startPracticeGame === 'function') startPracticeGame();
       } else if (currentGameMode && currentGameMode.id === 'puyo') {
           if (window._puyoGame && typeof window._puyoGame.start === 'function') window._puyoGame.start();
       } else {

@@ -83,7 +83,9 @@ function whenOjamaImagesReady(): Promise<void> {
 function whenSeReady(): Promise<void> {
   const loader = (window as any).AudioLoader;
   if (!loader?.whenSeReady) return Promise.resolve();
-  return loader.whenSeReady().then(() => undefined);
+  // 起動時プリロードの完了を待った上で、それでも取りこぼしたキーがあれば読み直す
+  // （一時的な通信失敗で対戦だけSEが無音になるのを防ぐ）。
+  return loader.whenSeReady().then(() => loader.ensureSeAll?.()).then(() => undefined);
 }
 
 function whenBgmReady(key: string): Promise<void> {

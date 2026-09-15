@@ -41,7 +41,7 @@ const PRACTICE_NEXT_MAX_HEIGHT = BLOCK_SIZE * 13.5;
 //
 // 逆にこの数字が変わらない限り、ブラウザはキャッシュから読むだけで通信しない。
 // ─────────────────────────────────────────────
-const ASSET_VERSION = 3;
+const ASSET_VERSION = 4;
 
 // 素材URLにキャッシュ用バージョンを付ける。音源・画像の取得は必ずこれを通す。
 function assetUrl(path) {
@@ -641,6 +641,8 @@ Field.TOP_PAD = 5
 class AudioLoader {
     // SEはAudioContextで扱うためArrayBufferとしてキャッシュ
     static _seBuffers  = {};  // { key: AudioBuffer }
+    static _seMap      = {};  // { key: src } loadSe() に渡された元のマップ（ensureSeAll用に保持）
+    static _seLoading  = new Map(); // { url: Promise } ensureSeAll() の再取得中URL（二重fetch防止）
     static _bgmSrcMap  = {};  // { key: src }
     static _seReady    = null;  // loadSe() 全体の完了Promise（ロード画面の待機に使う）
     static _bgmPrefetch = {};   // { key: HTMLAudioElement } 先読み済みBGM
@@ -686,6 +688,9 @@ class AudioLoader {
     // SE群を一括プリロード（起動時に呼ぶ）
     static loadSe(seMap) {
         // seMap: { key: src, ... }
+        // 後から取りこぼしを拾い直せるよう（ensureSeAll 参照）、元のマップを保持しておく。
+        this._seMap = Object.assign(this._seMap || {}, seMap);
+
         // ★ 同じ音源を複数キーで共有しているものがある（pause/resume, lock/lock_hard,
         //   puyo_drop/puyo_fix）。キー単位で fetch すると同じURLを二重に取得し
         //   decodeAudioData も二重に走るため、URL単位にまとめてから取得し、
@@ -697,18 +702,52 @@ class AudioLoader {
             keysBySrc.get(url).push(key);
         }
 
-        const promises = Array.from(keysBySrc, ([url, keys]) => {
-            return fetch(url)
-                .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
-                .then(buf => this.context.decodeAudioData(buf))
-                .then(decoded => { for (const key of keys) this._seBuffers[key] = decoded; })
-                // 個別ファイルの欠損/デコード失敗で全体を巻き込まないようにする
-                // （音源未配置でもアプリは動作し、該当SEは無音になるだけ）
-                .catch(err => { console.warn(`[AudioLoader] SE "${keys.join('/')}" の読み込みに失敗: ${url}`, err); });
-        });
+        const promises = Array.from(keysBySrc, ([url, keys]) => this._fetchAndDecodeSe(url, keys));
         // 起動時プリロードの完了を待てるよう保持する（オンライン対戦のロード画面が参照する）
         this._seReady = Promise.all(promises);
         return this._seReady;
+    }
+
+    // 1URLぶんのfetch→decodeを行い、失敗時は間隔を空けて最大2回まで再試行する
+    // （一時的な通信エラーで「そのセッションの間ずっと該当SEが無音」になるのを防ぐ）。
+    // 個別ファイルの欠損/デコード失敗（再試行を尽くしても駄目な場合含む）で全体を
+    // 巻き込まないようにする（音源未配置でもアプリは動作し、該当SEは無音になるだけ）。
+    static _fetchAndDecodeSe(url, keys, retriesLeft = 2) {
+        return fetch(url)
+            .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+            .then(buf => this.context.decodeAudioData(buf))
+            .then(decoded => { for (const key of keys) this._seBuffers[key] = decoded; })
+            .catch(err => {
+                if (retriesLeft > 0) {
+                    const waitMs = retriesLeft === 2 ? 1000 : 3000; // 1回目1s後、2回目3s後
+                    return new Promise(r => setTimeout(r, waitMs))
+                        .then(() => this._fetchAndDecodeSe(url, keys, retriesLeft - 1));
+                }
+                console.warn(`[AudioLoader] SE "${keys.join('/')}" の読み込みに失敗: ${url}`, err);
+            });
+    }
+
+    // 起動時プリロードで取りこぼした（＝まだ _seBuffers に無い）キーだけを読み直す。
+    // モード開始時などに呼び、通信の一時的な失敗で「PRACTICEだけ音が出ない」ような
+    // 取りこぼしを回収する（読み込み方式自体は変えない＝全SEは常に一括登録のまま）。
+    static ensureSeAll() {
+        const missingBySrc = new Map();
+        for (const [key, src] of Object.entries(this._seMap || {})) {
+            if (this._seBuffers[key]) continue; // 読み込み済み
+            const url = assetUrl(src);
+            if (!missingBySrc.has(url)) missingBySrc.set(url, []);
+            missingBySrc.get(url).push(key);
+        }
+        if (missingBySrc.size === 0) return Promise.resolve();
+
+        const promises = Array.from(missingBySrc, ([url, keys]) => {
+            // 同じURLの再取得が既に進行中ならそれに相乗りする（二重fetch防止）
+            if (this._seLoading.has(url)) return this._seLoading.get(url);
+            const p = this._fetchAndDecodeSe(url, keys).finally(() => this._seLoading.delete(url));
+            this._seLoading.set(url, p);
+            return p;
+        });
+        return Promise.all(promises);
     }
 
     static getSeBuffer(key) {
@@ -842,12 +881,13 @@ class BgmManager {
         'quiz_bgm':   0.63,  // -10.0
         'versus_bgm': 0.50,  // -8.0
         'online_bgm': 0.50,
+        'online_lobby_bgm': 0.73,  // -11.4
         // シングル各モードBGM（今は同一ファイル＝同係数。モード別音源にしたら個別に実測して調整）
         'single_marathon_bgm': 0.90,
         'single_sprint_bgm':   0.90,
         'single_ultra_bgm':    0.90,
         'single_puyo_bgm':     0.90,
-        'single_practice_bgm': 0.90,
+        'single_practice_bgm': 0.50,  // -9.5（practice_1.ogg。聴感ラウドネスLUFSでmenuに揃えた）
     };
 
     // ── シングルモードの mode → BGMキー対応 ───────────────────────────
@@ -1159,6 +1199,8 @@ AudioLoader.registerBgm('single_practice_bgm', 'assets/audio/bgm/practice_1.ogg'
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 // オンライン対戦BGMは、ここでパスだけ差し替えれば変更できる。
 AudioLoader.registerBgm('online_bgm',  'assets/audio/bgm/vs_1.ogg');
+// ONLINEのロビー・ルーム・マッチング確認画面用（対戦中は上の online_bgm を使う）。
+AudioLoader.registerBgm('online_lobby_bgm', 'assets/audio/bgm/online_1.ogg');
 AudioLoader.registerBgm('menu_bgm',   'assets/audio/bgm/menu_1.ogg');
 AudioLoader.registerBgm('quiz_bgm',   'assets/audio/bgm/quiz_1.ogg');
 AudioLoader.registerBgm('test_bgm',   'assets/audio/bgm/cputest_1.ogg');
@@ -1234,7 +1276,7 @@ AudioLoader.loadSe({
     // SE対象となるクリック可能要素のセレクタ
     // .util-link = TITLE/CREDITS/CHANGELOG、.quiz-level-btn = quizのレベルセレクト（オレンジ正方形）
     const CLICK_SELECTOR = '.menu-btn, .menu-btn-icon, .mode-btn, .pause-btn, .opt-btn, .btn, #title-page, .util-link, .quiz-level-btn,'
-        + ' .practice-panel-stepper, .practice-panel-send-btn, .practice-seq-slot';
+        + ' .practice-panel-stepper, .practice-panel-send-btn, .practice-seq-slot, .practice-help-btn, .practice-seq-edit-btn';
     // ※ .practice-panel-clear-btn（盤面クリア）はここに入れない＝専用SE
     //   'practice_board_clear' を practiceClearBoard() 側で鳴らしており、
     //   マウス経路だけ menu_decide と二重に鳴ってしまうため。
