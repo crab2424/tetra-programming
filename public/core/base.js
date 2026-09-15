@@ -1276,7 +1276,7 @@ AudioLoader.loadSe({
     // SE対象となるクリック可能要素のセレクタ
     // .util-link = TITLE/CREDITS/CHANGELOG、.quiz-level-btn = quizのレベルセレクト（オレンジ正方形）
     const CLICK_SELECTOR = '.menu-btn, .menu-btn-icon, .mode-btn, .pause-btn, .opt-btn, .btn, #title-page, .util-link, .quiz-level-btn,'
-        + ' .practice-panel-stepper, .practice-panel-send-btn, .practice-seq-slot';
+        + ' .practice-panel-stepper, .practice-panel-send-btn, .practice-seq-slot, .practice-help-btn, .practice-seq-edit-btn';
     // ※ .practice-panel-clear-btn（盤面クリア）はここに入れない＝専用SE
     //   'practice_board_clear' を practiceClearBoard() 側で鳴らしており、
     //   マウス経路だけ menu_decide と二重に鳴ってしまうため。
