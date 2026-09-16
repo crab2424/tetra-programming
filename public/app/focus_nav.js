@@ -774,6 +774,19 @@
     scrollPane: () => document.querySelector('#practice-help-page .practice-help-list'),
   });
 
+  register('ranking', {
+    getItems: () => {
+      const tabToggle = document.getElementById('ranking-mode-toggle');
+      const btnAnchor = document.getElementById('ranking-buttons');
+      const items = [];
+      if (tabToggle) items.push(rowToggle(tabToggle, tabToggle));
+      $$('#ranking-buttons button').forEach(b => items.push({ el: b, scrollAnchor: btnAnchor }));
+      return items;
+    },
+    initialIndex: 0,
+    scrollPane: () => document.querySelector('#ranking-page .ranking-list'),
+  });
+
   register('settings', {
     getItems: () => {
       const headerAnchor  = document.querySelector('.settings-header');

@@ -147,6 +147,10 @@
             <span class="menu-btn-icon">⚙</span>
             <span>SETTINGS</span>
           </button>
+          <button class="menu-btn btn-secondary" onclick="switchPage('ranking')">
+            <span class="menu-btn-icon">🏆</span>
+            <span>RANKING</span>
+          </button>
           <button class="util-link util-link-title" onclick="switchPage('title')">
             <span class="util-icon">◀</span><span>TITLE</span>
           </button>
@@ -186,6 +190,31 @@
           <span class="menu-btn-icon" id="mode-check-start-icon">▶</span>
           <span id="mode-check-start-label">START</span>
         </button>
+        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+          <span class="menu-btn-icon">◀</span>
+          <span>BACK</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+    MARK: RANKINGページ（public/app/ranking.js が描画）
+    ───────────────────────────────────────────── -->
+  <div id="ranking-page" class="page">
+    <div id="ranking-container">
+      <h2 class="ranking-title">RANKING</h2>
+
+      <div class="option-toggle" id="ranking-mode-toggle">
+        <button class="opt-btn active" data-mode="ultra" onclick="setRankingMode('ultra')">ULTRA</button>
+        <button class="opt-btn" data-mode="sprint:40" onclick="setRankingMode('sprint:40')">SPRINT</button>
+      </div>
+
+      <p id="ranking-status" class="ranking-status" style="display: none"></p>
+      <div id="ranking-list" class="ranking-list"></div>
+      <p id="ranking-login-hint" class="ranking-hint">ログインすると記録が載ります。</p>
+
+      <div id="ranking-buttons">
         <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
           <span class="menu-btn-icon">◀</span>
           <span>BACK</span>
@@ -1352,8 +1381,9 @@
   <script src="app/modes.js?v=5"></script>
   <script src="app/cpu_loader.js?v=1"></script>
   <script src="app/versus.js?v=1"></script>
-  <script src="app/navigation.js?v=10"></script>
-  <script src="app/focus_nav.js?v=7"></script>
+  <script src="app/navigation.js?v=11"></script>
+  <script src="app/ranking.js?v=1"></script>
+  <script src="app/focus_nav.js?v=8"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=3"></script>
   <script src="practice/practice_sequence.js?v=5"></script>
