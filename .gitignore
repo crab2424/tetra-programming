@@ -40,3 +40,7 @@ puyomaking.html
 
 /cpu/puyo/lv4/tests/estimate_ojama.test.mjs
 /cpu/puyo/lv5/tests/estimate_ojama.test.mjs
+
+# Cloudflare Workers
+.dev.vars
+.wrangler

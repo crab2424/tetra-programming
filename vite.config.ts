@@ -14,5 +14,9 @@ export default defineConfig(async () => ({
   server: {
     host: true,
     allowedHosts: ["tetlabo-canary-client.nattyantv.info"],
+    proxy: {
+      "/api": "http://localhost:8787",
+      "/auth": "http://localhost:8787",
+    },
   },
 }));

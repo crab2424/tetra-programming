@@ -66,6 +66,11 @@ self.addEventListener("fetch", (event) => {
         return;
     }
 
+    // /api, /auth はSWを素通し（ログイン状態などをキャッシュしない）
+    if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) {
+        return;
+    }
+
     const ext = url.pathname.substring(url.pathname.lastIndexOf("."));
 
     if (CACHE_FIRST_EXTS.includes(ext)) {
