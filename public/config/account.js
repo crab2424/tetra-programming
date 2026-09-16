@@ -47,10 +47,16 @@
         const url = new URL(location.href);
         const login = url.searchParams.get('login');
         if (!login) return;
+        // reason: worker/auth.tsがデバッグ用に付ける非機微な短い識別子（トークン等は含まれない）。
+        // wrangler tailに頼らずブラウザのコンソールだけで失敗箇所を特定できるようにしている。
+        const reason = url.searchParams.get('reason');
         url.searchParams.delete('login');
         url.searchParams.delete('return');
+        url.searchParams.delete('reason');
         const qs = url.searchParams.toString();
         history.replaceState(null, '', url.pathname + (qs ? '?' + qs : '') + url.hash);
+
+        if (reason) console.warn('[Account] login failed:', reason);
 
         if (login === 'banned') {
             window.TetDialog?.choose({

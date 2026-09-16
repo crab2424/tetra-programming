@@ -97,29 +97,34 @@ export async function handleLogin(_req: Request, env: Env, url: URL): Promise<Re
 // ── GET /auth/discord/callback?code=..&state=.. ────────────────────────
 export async function handleCallback(req: Request, env: Env, url: URL): Promise<Response> {
   const clearOauth = oauthCookie("", url, 0);
-  const failure = (reason: "error" | "banned") => redirect(`/?login=${reason}`, { "Set-Cookie": clearOauth });
+  // reason はデバッグ用の非機微な短い識別子のみ（トークン等は絶対に含めない）。
+  // wrangler tail がプレビューURL宛のトラフィックを拾えていない問題の暫定対応として、
+  // URLに直接理由を載せてブラウザ側だけで原因を特定できるようにしている。
+  const failure = (reason: "error" | "banned", debug?: string) =>
+    redirect(`/?login=${reason}${debug ? `&reason=${encodeURIComponent(debug)}` : ""}`, { "Set-Cookie": clearOauth });
 
   const code = url.searchParams.get("code");
   const stateParam = url.searchParams.get("state");
   const cookieValue = readCookie(req, OAUTH_COOKIE);
   if (!code || !stateParam || !cookieValue) {
+    const discordError = url.searchParams.get("error");
     console.error("callback missing code/state/cookie", {
       hasCode: !!code,
       hasState: !!stateParam,
       hasCookie: !!cookieValue,
-      discordError: url.searchParams.get("error"),
+      discordError,
       discordErrorDescription: url.searchParams.get("error_description"),
     });
-    return failure("error");
+    return failure("error", discordError ? `discord:${discordError}` : "missing_params");
   }
 
   const dot = cookieValue.indexOf(".");
-  if (dot === -1) return failure("error");
+  if (dot === -1) return failure("error", "bad_oauth_cookie");
   const cookieState = cookieValue.slice(0, dot);
   const returnTo = cookieValue.slice(dot + 1) === "online" ? "online" : "menu";
   if (cookieState !== stateParam) {
     console.error("callback state mismatch");
-    return failure("error");
+    return failure("error", "state_mismatch");
   }
 
   const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
@@ -134,8 +139,9 @@ export async function handleCallback(req: Request, env: Env, url: URL): Promise<
     }),
   });
   if (!tokenRes.ok) {
-    console.error("discord token exchange failed", tokenRes.status, await tokenRes.text());
-    return failure("error");
+    const body = await tokenRes.text();
+    console.error("discord token exchange failed", tokenRes.status, body);
+    return failure("error", `token_exchange_${tokenRes.status}`);
   }
   const token = (await tokenRes.json()) as DiscordTokenResponse;
 
@@ -144,7 +150,7 @@ export async function handleCallback(req: Request, env: Env, url: URL): Promise<
   });
   if (!meRes.ok) {
     console.error("discord /users/@me failed", meRes.status, await meRes.text());
-    return failure("error");
+    return failure("error", `me_fetch_${meRes.status}`);
   }
   const me = (await meRes.json()) as DiscordUser;
 
@@ -183,7 +189,7 @@ export async function handleCallback(req: Request, env: Env, url: URL): Promise<
     }
   } catch (e) {
     console.error("callback D1 write failed", e);
-    return failure("error");
+    return failure("error", "db_write");
   }
   if (banned) return failure("banned");
 
