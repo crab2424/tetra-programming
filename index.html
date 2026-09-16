@@ -50,6 +50,13 @@
     MARK: メインメニューページ
     ───────────────────────────────────────────── -->
   <div id="main-menu-page" class="page">
+    <!-- Discordアカウントチップ（未ログイン=LOGIN WITH DISCORD／ログイン中=アイコン+表示名）。
+         クリックでログイン開始 or アカウント画面を開く（public/config/account.js） -->
+    <button id="account-chip" class="btn account-chip" onclick="Account.onChipClick()">
+      <img id="account-chip-avatar" class="account-chip-avatar" alt="" style="display: none" />
+      <span id="account-chip-label">LOGIN WITH DISCORD</span>
+    </button>
+
     <div id="main-menu-container">
       <div id="main-menu-logo">
         <h1 class="menu-title">TETLABO</h1>
@@ -1269,6 +1276,22 @@
   <div id="app-dialog"></div>
 
   <!-- ─────────────────────────────────────────────
+        アカウント画面（Discordログイン中のみ、account-chipから開く）
+        public/config/account.js が開閉・中身の更新を行う。
+       ───────────────────────────────────────────── -->
+  <div id="account-modal">
+    <div class="account-modal-card">
+      <img id="account-modal-avatar" class="account-modal-avatar" alt="" />
+      <div id="account-modal-name" class="account-modal-name"></div>
+      <div class="account-modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="Account.logoutFromModal()">LOGOUT</button>
+        <button type="button" class="btn btn-danger" onclick="Account.confirmDeleteAccount()">DELETE ACCOUNT</button>
+      </div>
+      <button type="button" id="account-modal-close-btn" class="btn btn-secondary account-modal-close" data-se="cancel" onclick="Account.closeModal()">CLOSE</button>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
         オンライン対戦のロード画面
         マッチング成立→対戦開始の承認後に表示し、素材を読み込み終えてから READY を送る。
         全ページの上に出す必要があるので .page の外（body直下）に置く。
@@ -1301,6 +1324,7 @@
   <script src="app/manager.js?v=1"></script>
   <script src="config/settings.js?v=7"></script>
   <script src="config/records.js?v=1"></script>
+  <script src="config/account.js?v=1"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
