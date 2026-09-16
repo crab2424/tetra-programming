@@ -10,6 +10,7 @@ import {
   type UpdateRoomRequest,
   parseMatchSetting,
   type OnlineMatchSetting,
+  accountMapFromRoom,
 } from "./payload";
 import { showToast, ToastColor } from "../components/toast";
 import { AllTags, getTagName } from "./room";
@@ -393,8 +394,6 @@ class OnlineMode {
   private userName: string = "さすらいの研究者";
   private connection: GameConnection | null = null;
 
-  private discordUserId: number | null = null;
-
   private _state: OnlineModeState = OnlineModeState.Disconnected;
   public get state(): OnlineModeState {
     return this._state;
@@ -566,6 +565,10 @@ class OnlineMode {
   }
 
   private getUserName(): string {
+    // ★A(設計 v2.2.2 §7.2): ログイン中はDiscordの表示名を使う（自由入力名は無視）。
+    // サーバー側でも強制上書きされるが、こちらは接続前のローカル表示(プロンプト回避含む)のため。
+    const accountName = (window as any).Account?.me?.name;
+    if (accountName) return accountName;
     const storedName = this.getUserNameNullable();
     if (storedName) {
       return storedName;
@@ -658,6 +661,7 @@ class OnlineMode {
     const ms = parseMatchSetting(roomData.matchSetting);
     const readySet = new Set(roomData.readyPlayers ?? []);
     const pingMap = new Map<Uuid, number>(roomData.pings ?? []);
+    const accountMap = accountMapFromRoom(roomData);
     const nonOwners = roomData.players.filter(
       ([id]) => id !== roomData.ownerId,
     );
@@ -974,6 +978,13 @@ class OnlineMode {
                       gap: "6px",
                     }}
                   >
+                    {accountMap.has(id) && (
+                      <img
+                        class="online-player-avatar"
+                        src={accountMap.get(id)!.avatarUrl}
+                        alt=""
+                      />
+                    )}
                     <span>
                       {name}
                       {id === roomData.ownerId ? <> 👑</> : ""}
@@ -2120,7 +2131,28 @@ class OnlineMode {
       .catch(() => { });
   }
 
+  /** 設定モーダルの LOGIN WITH DISCORD。ルーム在室中はロビーへ戻る確認を挟む（設計 v2.2.2 §6.3）。 */
+  private async loginWithDiscordFromSettings(): Promise<void> {
+    if (this.state === OnlineModeState.InRoom && this.currentRoom) {
+      const ok = await Modal.confirm(
+        "Discordでログインするため、いったんロビーから退出します。よろしいですか？",
+        "LOGIN WITH DISCORD",
+        "ログイン",
+        "キャンセル",
+      );
+      if (!ok) return;
+      try {
+        await this.connection?.leaveRoom({ roomId: this.currentRoom.roomId });
+      } catch {
+        // 退出に失敗してもログイン自体は試みる（ページ遷移で状態はリセットされる）
+      }
+      this.currentRoom = null;
+    }
+    (window as any).Account?.login("online");
+  }
+
   private async settingsModal() {
+    const accountMe = (window as any).Account?.me ?? null;
     const selfSide = getOnlineSelfSide();
     const applySelfSide = (side: OnlineSelfSide) => {
       setOnlineSelfSide(side);
@@ -2136,48 +2168,58 @@ class OnlineMode {
         </div>
         <div class="online-settings-section">
           <div class="online-settings-label">USER NAME</div>
-          <label>
-            <input
-              class="settings-online-input"
-              id="online-mode-username-input"
-              type="text"
-              value={this.userName}
-            />
-          </label>
-          <button
-            class="btn btn-primary"
-            onclick={() => {
-              const input = document.getElementById(
-                "online-mode-username-input",
-              ) as HTMLInputElement | null;
-              if (!input) {
-                console.error(
-                  "Failed to find username input element in settings modal.",
-                );
-                return;
-              }
-              const newName = input.value.trim();
-              if (!newName || [...newName].length > 16) {
-                showToast(
-                  "ONLINE",
-                  "名前は1〜16文字で入力してください。",
-                  ToastColor["Warning"],
-                );
-                return;
-              }
-              localStorage.setItem("tetlaboUserName", newName);
-              this.userName = newName;
-              // 在室・待機列中ならサーバー側の表示名も即時更新する
-              this.pushNameToServer();
-              showToast(
-                "ONLINE",
-                "ユーザー名を保存しました！",
-                ToastColor["Success"],
-              );
-            }}
-          >
-            SAVE
-          </button>
+          {accountMe ? (
+            // ★A(設計 v2.2.2 §7.2): ログイン中は自由入力を無効化し、Discordの表示名が
+            // 使われることを示す（実際の強制はサーバー側 game.rs でも行われる）。
+            <div class="online-settings-help">
+              Discordの表示名（{accountMe.name}）が使われます。
+            </div>
+          ) : (
+            <>
+              <label>
+                <input
+                  class="settings-online-input"
+                  id="online-mode-username-input"
+                  type="text"
+                  value={this.userName}
+                />
+              </label>
+              <button
+                class="btn btn-primary"
+                onclick={() => {
+                  const input = document.getElementById(
+                    "online-mode-username-input",
+                  ) as HTMLInputElement | null;
+                  if (!input) {
+                    console.error(
+                      "Failed to find username input element in settings modal.",
+                    );
+                    return;
+                  }
+                  const newName = input.value.trim();
+                  if (!newName || [...newName].length > 16) {
+                    showToast(
+                      "ONLINE",
+                      "名前は1〜16文字で入力してください。",
+                      ToastColor["Warning"],
+                    );
+                    return;
+                  }
+                  localStorage.setItem("tetlaboUserName", newName);
+                  this.userName = newName;
+                  // 在室・待機列中ならサーバー側の表示名も即時更新する
+                  this.pushNameToServer();
+                  showToast(
+                    "ONLINE",
+                    "ユーザー名を保存しました！",
+                    ToastColor["Success"],
+                  );
+                }}
+              >
+                SAVE
+              </button>
+            </>
+          )}
         </div>
         <div class="online-settings-section">
           <div class="online-settings-label">YOUR FIELD POSITION</div>
@@ -2203,23 +2245,26 @@ class OnlineMode {
             </button>
           </div>
         </div>
-        <div style="display: none;">
-          <hr />
-          <div>
-            UserID: {this.discordUserId ? this.discordUserId : "Not connected"}
-          </div>
-          <div>
-            <button
-              class="btn btn-primary"
-              onclick={() => {
-                console.log(
-                  "Connect Discord button clicked. (Not implemented yet)",
-                );
-              }}
-            >
-              Connect Discord
-            </button>
-          </div>
+        <div class="online-settings-section">
+          <div class="online-settings-label">ACCOUNT</div>
+          {accountMe ? (
+            <div class="online-account-status">
+              <img class="online-account-avatar" src={accountMe.avatarUrl} alt="" />
+              <span class="online-account-name">{accountMe.name}</span>
+            </div>
+          ) : (
+            <>
+              <div class="online-settings-help">
+                Discordでログインすると、記録がランキングに登録され、対戦相手にも表示名とアイコンが表示されます。
+              </div>
+              <button
+                class="btn btn-primary"
+                onclick={() => this.loginWithDiscordFromSettings()}
+              >
+                LOGIN WITH DISCORD
+              </button>
+            </>
+          )}
         </div>
 
         <hr />

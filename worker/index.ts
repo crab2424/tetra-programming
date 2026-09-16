@@ -3,6 +3,7 @@ import { handleAdminBanUser, handleAdminDeleteRecord, handleAdminListRecords } f
 import { handleCallback, handleDeleteMe, handleLogin, handleLogout, handleMe } from "./auth";
 import { error, json } from "./http";
 import { handleRanking, handleRankingMe, handleSubmitRecord } from "./records";
+import { handleOnlineTicket } from "./ticket";
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -30,6 +31,8 @@ async function handleApi(req: Request, env: Env, url: URL): Promise<Response> {
   if (pathname === "/api/me" && method === "DELETE") return handleDeleteMe(req, env, url);
 
   if (pathname === "/api/records" && method === "POST") return handleSubmitRecord(req, env, url);
+
+  if (pathname === "/api/online-ticket" && method === "POST") return handleOnlineTicket(req, env, url);
 
   if (pathname === "/api/ranking" && method === "GET") return handleRanking(req, env, url);
   if (pathname === "/api/ranking/me" && method === "GET") return handleRankingMe(req, env, url);

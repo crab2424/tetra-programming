@@ -375,6 +375,10 @@ export interface RoomInfoNotification {
   code: string;
   /** true=ルーム一覧に表示（公開）, false=コード参加のみ（非公開）*/
   isPublic?: boolean;
+  /** ログイン中(Discordアカウント連携済み)のプレイヤーだけの [playerId, 表示名, avatarUrl][]。
+   * 設計 v2.2.2 §7.2。ゲストは含まれない。旧サーバー(PROTOCOL_VERSION未対応)との
+   * 互換のため optional にしている。 */
+  accounts?: [Uuid, string, string][];
 }
 export const isRoomInfoNotification = (
   data: any,
@@ -389,6 +393,17 @@ export const isRoomInfoNotification = (
     typeof data.maxPlayers === "number" &&
     Array.isArray(data.tags)
   );
+};
+
+/** RoomInfoNotification.accounts を playerId で引ける Map に変換する（ログイン中のみ含む）。 */
+export const accountMapFromRoom = (
+  room: RoomInfoNotification,
+): Map<Uuid, { name: string; avatarUrl: string }> => {
+  const map = new Map<Uuid, { name: string; avatarUrl: string }>();
+  for (const [id, name, avatarUrl] of room.accounts ?? []) {
+    map.set(id, { name, avatarUrl });
+  }
+  return map;
 };
 
 // ── Match control messages ─────────────────────────────────────────────

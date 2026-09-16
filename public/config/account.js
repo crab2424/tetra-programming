@@ -124,6 +124,27 @@
         return true;
     }
 
+    // ─── online アカウント化: チケット発行（P7b） ─────────────
+    // tetra-server(WebRTC signaling)へ渡す短寿命チケットをWorkerに発行してもらう。
+    // aud には接続先ホスト名を渡す（設計 v2.2.2 §7.1: なりすまし対策のため）。
+    // 未ログイン・通信失敗時はnullを返し、呼び出し側(connection.ts)はゲストとして続行する。
+    async function getOnlineTicket(aud) {
+        if (!me) return null;
+        try {
+            const res = await fetch('/api/online-ticket', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ aud }),
+            });
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data.ticket || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     // ─── 記録同期（P4） ─────────────────────────────────────
     // ローカル記録から送信用ペイロードを組み立てる（id/at/schemaVersion/meta/syncedToは内部管理用なので除く）
     function _recordPayload(record) {
@@ -298,6 +319,7 @@
         pushRecord,
         syncLocalBests,
         onRecordSynced,
+        getOnlineTicket,
     };
 
     document.addEventListener('DOMContentLoaded', () => { window.Account.init(); });
