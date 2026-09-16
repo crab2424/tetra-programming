@@ -4,13 +4,17 @@
 // サーバー側: worker/auth.ts（/api/me, /auth/discord/login, /auth/logout, DELETE /api/me）
 // 設計: source_assets/memory/v2.2.2/tetlabo-discord-integration-design.md §6
 //
-// records.jsとの同期（syncLocalBests・初回取込ダイアログ）とonlineチケット発行は
-// 別フェーズ（P4/P7）で追加する。ここではログイン状態の保持とメニューUIのみ。
+// records.jsとの同期（syncLocalBests・初回取込ダイアログ）はここで実装。
+// onlineチケット発行は別フェーズ（P7）で追加する。
 // ─────────────────────────────────────────────
 
 (function () {
+    // records.js側のRECORD_RULESと同一キー。ランキング対象（worker/records.tsのRANKED_MODESと一致させる）
+    const RANKED_KEYS = ['ultra', 'sprint:40'];
+
     let me = null; // null | { id, name, avatarUrl, isAdmin }
     const listeners = [];
+    const recordListeners = []; // pushRecord成功時のイベント購読(結果画面のRANK表示等)
     let prevPageId = null; // アカウント画面を開く直前にアクティブだったFocusNavページ
 
     function notify() {
@@ -24,9 +28,24 @@
         listeners.push(cb);
     }
 
+    // 戻り値: 呼ぶと購読解除する関数
+    function onRecordSynced(cb) {
+        recordListeners.push(cb);
+        return () => {
+            const idx = recordListeners.indexOf(cb);
+            if (idx !== -1) recordListeners.splice(idx, 1);
+        };
+    }
+
+    function _notifyRecordSynced(key, result) {
+        recordListeners.forEach((cb) => {
+            try { cb(key, result); } catch (e) { console.error(e); }
+        });
+    }
+
     async function init() {
         await _refresh();
-        _handleLoginResult();
+        await _handleLoginResult();
     }
 
     async function _refresh() {
@@ -43,10 +62,14 @@
     }
 
     // /auth/discord/callback からの戻り(?login=ok|error|banned&return=...)を処理してURLから消す
-    function _handleLoginResult() {
+    async function _handleLoginResult() {
         const url = new URL(location.href);
         const login = url.searchParams.get('login');
-        if (!login) return;
+        if (!login) {
+            // 通常起動時: 前回の通信失敗で同期し切れなかった記録があれば再送する
+            syncLocalBests().catch((e) => console.error(e));
+            return;
+        }
         // reason: worker/auth.tsがデバッグ用に付ける非機微な短い識別子（トークン等は含まれない）。
         // wrangler tailに頼らずブラウザのコンソールだけで失敗箇所を特定できるようにしている。
         const reason = url.searchParams.get('reason');
@@ -70,6 +93,10 @@
                 message: 'ログインに失敗しました。もう一度お試しください。',
                 buttons: [{ label: 'OK', value: true, kind: 'primary', cancel: true }],
             });
+        } else if (login === 'ok') {
+            // 初回取込ダイアログ(★B) → その他の未同期分の通常同期（別アカウント切替時の記録など）
+            await _maybeImportLocal();
+            await syncLocalBests();
         }
     }
 
@@ -95,6 +122,87 @@
         me = null;
         notify();
         return true;
+    }
+
+    // ─── 記録同期（P4） ─────────────────────────────────────
+    // ローカル記録から送信用ペイロードを組み立てる（id/at/schemaVersion/meta/syncedToは内部管理用なので除く）
+    function _recordPayload(record) {
+        const { id, at, schemaVersion, meta, syncedTo, ...rest } = record;
+        return rest;
+    }
+
+    function _labelFor(key) {
+        return key === 'sprint:40' ? 'SPRINT' : key.toUpperCase();
+    }
+
+    async function pushRecord(key, record, source, playedAt) {
+        if (!me) return null;
+        try {
+            const res = await fetch('/api/records', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    modeKey: key,
+                    record,
+                    source,
+                    playedAt: playedAt || new Date().toISOString(),
+                }),
+            });
+            if (!res.ok) return null;
+            const data = await res.json();
+            _notifyRecordSynced(key, data);
+            return data;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // ランキング対象キーのうち、まだこのアカウントへ送っていないローカル自己ベストを送信する。
+    // 通信失敗時はsyncedToが更新されないため、次回のsubmit()/起動時に自然に再送される。
+    async function syncLocalBests() {
+        if (!me || !window.Records) return;
+        for (const key of RANKED_KEYS) {
+            const record = window.Records.get(key);
+            if (!record) continue;
+            if (record.syncedTo === me.id || record.syncedTo === `skip:${me.id}`) continue;
+            const result = await pushRecord(key, _recordPayload(record), 'play', record.at);
+            if (result && result.accepted) window.Records.markSynced(key, me.id);
+        }
+    }
+
+    // 初回取込（★B）: ログイン直後、まだ一度もsyncedToが付いていないローカル自己ベストについて
+    // アカウントへの登録可否を1回だけ確認する。NOの場合は'skip:<id>'を付けて以後聞かない
+    // （そのベスト自体は再度聞かないが、次にそのモードの自己ベストが更新されたときは
+    //   新しいレコードとしてsyncLocalBests()から自動送信される）。
+    async function _maybeImportLocal() {
+        if (!me || !window.Records || !window.TetDialog) return;
+        const pending = RANKED_KEYS
+            .map((key) => ({ key, record: window.Records.get(key) }))
+            .filter(({ record }) => record && record.syncedTo === undefined);
+        if (pending.length === 0) return;
+
+        const lines = pending
+            .map(({ key, record }) => `${_labelFor(key)} ${window.Records.format(key, record)}`)
+            .join(' / ');
+        const ok = await window.TetDialog.choose({
+            title: 'IMPORT RECORDS',
+            message: `このブラウザの記録（${lines}）をアカウントに登録しますか？`,
+            buttons: [
+                { label: 'NO', value: false, kind: 'secondary', cancel: true },
+                { label: 'YES', value: true, kind: 'primary' },
+            ],
+            initial: true,
+        });
+
+        if (ok) {
+            for (const { key, record } of pending) {
+                const result = await pushRecord(key, _recordPayload(record), 'local_import', record.at);
+                if (result && result.accepted) window.Records.markSynced(key, me.id);
+            }
+        } else {
+            for (const { key } of pending) window.Records.markSynced(key, `skip:${me.id}`);
+        }
     }
 
     // ─── メニューUI（アカウントチップ・アカウント画面） ─────────────
@@ -187,6 +295,9 @@
         closeModal,
         logoutFromModal,
         confirmDeleteAccount,
+        pushRecord,
+        syncLocalBests,
+        onRecordSynced,
     };
 
     document.addEventListener('DOMContentLoaded', () => { window.Account.init(); });

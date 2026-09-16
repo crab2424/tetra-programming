@@ -52,6 +52,17 @@
   50% { opacity: 0.55; }
 }
 
+/* Discordログイン中のみ、記録提出後に非同期で届く順位（結果画面）。届くまでは非表示 */
+#result-rank {
+  margin: 4px 0 -28px;
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--accent2);
+  animation: result-appear 0.4s ease-out both;
+}
+
 #result-stats {
   width: 100%;
   background: rgba(255, 255, 255, 0.03);
