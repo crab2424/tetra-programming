@@ -74,6 +74,18 @@ const UNRELIABLE_CHANNEL_LABEL = "unreliable-main";
 export class GameConnection {
   public userId: Uuid | null = null;
 
+  /** 直前の AuthResult で受け取った Discord プロフィール（ゲスト/未検証時はnull）。設計 v2.2.2 §7.2。 */
+  public account: { id: string; name: string; avatarUrl: string } | null = null;
+  /** チケットはあったが検証に失敗した理由（ゲストとして続行するがUI表示用に保持）。 */
+  public ticketError: string | null = null;
+  /**
+   * 再接続の乗っ取り対策用シークレット(設計 v2.2.2 §7.3)。次にこの player_id として
+   * 再接続する Offer に載せる必要がある。AuthResult を受け取るたびに最新値へ更新する
+   * （サーバー側は再接続成立時にこの値をローテーションするため、常に「直前のAuthで
+   * もらった値」を送るのが正しい）。
+   */
+  private reconnectSecret: string | null = null;
+
   // setupSignaling()/setupPeerConnection()（コンストラクタおよび再接続で呼ぶ）で代入される
   private ws!: WebSocket;
   private pc!: RTCPeerConnection;
@@ -355,6 +367,10 @@ export class GameConnection {
       let rtcConfig: RTCConfiguration | null = null;
       let authFailed = false;
 
+      // 再接続offerで送るべきシークレット(=直前のAuthでもらった値。このAuthの応答で
+      // this.reconnectSecret を上書きする前に確保しておく。設計 v2.2.2 §7.3)。
+      const secretToSend = this.reconnectSecret;
+
       this.ws.onmessage = (event) => {
         const message = JSON.parse(event.data);
 
@@ -382,17 +398,38 @@ export class GameConnection {
           }
           this.logger.log("Authentication successful");
           this.onProgress?.("signaling");
+          this.account = message.account ?? null;
+          this.ticketError = message.ticketError ?? message.ticket_error ?? null;
+          if (this.ticketError) {
+            this.logger.warn("Ticket verification failed (continuing as guest):", this.ticketError);
+          }
+          this.reconnectSecret =
+            message.reconnectSecret ?? message.reconnect_secret ?? null;
           let config: string =
             message.rtcPeerIceConfig ?? message.rtc_peer_ice_config ?? "{}";
           rtcConfig = GameConnection.normalizeRtcConfig(JSON.parse(config));
         }
       };
 
+      // online アカウント化(設計 v2.2.2 §7.5): ログイン中ならWorkerから短寿命チケットを
+      // 取得してAuthに載せる。取得できなくても接続は続行する（サーバー側がゲスト扱いにする）。
+      let ticket: string | null = null;
+      try {
+        const account = (window as any).Account;
+        if (account?.me) {
+          const host = new URL(this.serverUrl).host;
+          ticket = await account.getOnlineTicket(host);
+        }
+      } catch (e) {
+        this.logger.warn("Failed to obtain online ticket (continuing as guest):", e);
+      }
+
       this.ws.send(
         JSON.stringify({
           type: "auth",
           version: APP_VERSION,
           protocol: PROTOCOL_VERSION,
+          ...(ticket ? { ticket } : {}),
         }),
       );
 
@@ -453,11 +490,21 @@ export class GameConnection {
         }
       };
 
-      const offerMsg: { type: string; sdp?: string; player_id?: Uuid } = {
+      const offerMsg: {
+        type: string;
+        sdp?: string;
+        player_id?: Uuid;
+        reconnect_secret?: string;
+      } = {
         type: "offer",
         sdp: offer.sdp,
       };
-      if (reconnectId) offerMsg.player_id = reconnectId; // 再接続: 同一プレイヤーへ再バインド要求
+      if (reconnectId) {
+        offerMsg.player_id = reconnectId; // 再接続: 同一プレイヤーへ再バインド要求
+        // 乗っ取り対策(設計 v2.2.2 §7.3): 直前のAuthでもらったシークレットを一緒に送る。
+        // 無いと(初回接続や旧クライアント相当)サーバーは「不明なプレイヤー」と同じ扱いにする。
+        if (secretToSend) offerMsg.reconnect_secret = secretToSend;
+      }
       this.ws.send(JSON.stringify(offerMsg));
     });
   }

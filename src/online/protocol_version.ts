@@ -8,4 +8,8 @@
 //   2. ゲームフレーム(DataChannelのバイナリ)のopcode追加・形式変更・受理条件
 //   3. 相手に影響する対戦ルール(おじゃまの計算・相殺など)
 // それ以外の変更(見た目・PRACTICE・シングルの修正など)では上げない。
-export const PROTOCOL_VERSION = 1;
+//
+// 直近の変更(1→2): online アカウント化(設計 v2.2.2 §7.4)。Auth.ticket・
+// AuthResult.account/reconnectSecret/ticketError・Offer.reconnectSecret・
+// RoomInfoNotification.accounts を追加したため（tetra-server: src/main.rs 参照）。
+export const PROTOCOL_VERSION = 2;
