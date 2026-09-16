@@ -4,7 +4,7 @@
   "version": "2.2.2",
   "type": "module",
   "scripts": {
-    "dev": "run-p dev:server dev:client",
+    "dev": "run-p dev:server dev:client dev:worker",
     "dev:server": "cargo-watch -C ../tetra-server -x run",
     "dev:client": "vite",
     "dev:worker": "wrangler dev",

@@ -135,32 +135,42 @@ export async function handleCallback(req: Request, env: Env, url: URL): Promise<
 
   const db = pickDb(req, env);
   const now = Date.now();
-  await db
-    .prepare(
-      `INSERT INTO users (discord_id, username, global_name, avatar, created_at, last_login_at, banned_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL)
-       ON CONFLICT(discord_id) DO UPDATE SET
-         username = excluded.username,
-         global_name = excluded.global_name,
-         avatar = excluded.avatar,
-         last_login_at = excluded.last_login_at`,
-    )
-    .bind(me.id, me.username, me.global_name ?? null, me.avatar ?? null, now, now)
-    .run();
+  let banned = false;
+  let sessionToken: string;
+  try {
+    await db
+      .prepare(
+        `INSERT INTO users (discord_id, username, global_name, avatar, created_at, last_login_at, banned_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL)
+         ON CONFLICT(discord_id) DO UPDATE SET
+           username = excluded.username,
+           global_name = excluded.global_name,
+           avatar = excluded.avatar,
+           last_login_at = excluded.last_login_at`,
+      )
+      .bind(me.id, me.username, me.global_name ?? null, me.avatar ?? null, now, now)
+      .run();
 
-  const userRow = await db
-    .prepare("SELECT banned_at FROM users WHERE discord_id = ?")
-    .bind(me.id)
-    .first<{ banned_at: number | null }>();
-  if (userRow?.banned_at) return failure("banned");
+    const userRow = await db
+      .prepare("SELECT banned_at FROM users WHERE discord_id = ?")
+      .bind(me.id)
+      .first<{ banned_at: number | null }>();
+    banned = !!userRow?.banned_at;
 
-  const sessionToken = randomToken(32);
-  const idHash = await sha256Hex(sessionToken);
-  const expiresAt = now + SESSION_MAX_AGE_SEC * 1000;
-  await db
-    .prepare("INSERT INTO sessions (id_hash, discord_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
-    .bind(idHash, me.id, now, expiresAt)
-    .run();
+    sessionToken = randomToken(32);
+    if (!banned) {
+      const idHash = await sha256Hex(sessionToken);
+      const expiresAt = now + SESSION_MAX_AGE_SEC * 1000;
+      await db
+        .prepare("INSERT INTO sessions (id_hash, discord_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
+        .bind(idHash, me.id, now, expiresAt)
+        .run();
+    }
+  } catch (e) {
+    console.error("callback D1 write failed", e);
+    return failure("error");
+  }
+  if (banned) return failure("banned");
 
   const headers = new Headers();
   headers.append("Set-Cookie", sessionCookie(sessionToken, url, SESSION_MAX_AGE_SEC));
