@@ -1,9 +1,11 @@
 import type { Env } from "./env";
 import { pickDb } from "./env";
 import { checkOrigin, error, json } from "./http";
-import { resolveSession } from "./auth";
+import { avatarUrl, resolveSession } from "./auth";
 
 const SUBMIT_MIN_INTERVAL_MS = 3000;
+const RANKING_LIMIT = 100;
+const RANKING_CACHE_MAX_AGE_SEC = 30;
 
 export const RANKED_MODES = {
   ultra: { primary: "score", better: "higher", min: 0, max: 99_999_999 },
@@ -18,6 +20,11 @@ function isRankedMode(key: string): key is ModeKey {
 
 function rankValueOf(modeKey: ModeKey, value: number): number {
   return RANKED_MODES[modeKey].better === "higher" ? -value : value;
+}
+
+// mode毎に固定のURLをキャッシュキーにする(ホストが異なれば別キー=本番/プレビューが混ざらない)
+function rankingCacheKey(url: URL, modeKey: ModeKey): Request {
+  return new Request(new URL(`/api/ranking?mode=${encodeURIComponent(modeKey)}`, url.origin).toString());
 }
 
 interface SubmitBody {
@@ -118,6 +125,9 @@ export async function handleSubmitRecord(req: Request, env: Env, url: URL): Prom
 
     finalRankValue = newRankValue;
     finalCreatedAt = now;
+
+    // 自己ベストが変わったのでランキングのエッジキャッシュを破棄する
+    await caches.default.delete(rankingCacheKey(url, modeKey));
   }
 
   const rankRow = await db
@@ -135,4 +145,124 @@ export async function handleSubmitRecord(req: Request, env: Env, url: URL): Prom
     rank: rankRow ? rankRow.rank : null,
     prevValue,
   });
+}
+
+interface RankingRow {
+  rank_value: number;
+  created_at: number;
+  value: number;
+  detail: string;
+  played_at: number;
+  discord_id: string;
+  username: string;
+  global_name: string | null;
+  avatar: string | null;
+}
+
+function parseDetail(detail: string): unknown {
+  try {
+    return JSON.parse(detail);
+  } catch {
+    return null;
+  }
+}
+
+// ── GET /api/ranking?mode=ultra ─────────────────────────────────────────
+// 未ログインでも見られる。上位100位のみ・30秒エッジキャッシュ(Cache API)。
+export async function handleRanking(req: Request, env: Env, url: URL): Promise<Response> {
+  const modeKey = url.searchParams.get("mode");
+  if (typeof modeKey !== "string" || !isRankedMode(modeKey)) return error("unranked_mode", 400);
+
+  const cache = caches.default;
+  const cacheKey = rankingCacheKey(url, modeKey);
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
+
+  const db = pickDb(req, env);
+  const rows = await db
+    .prepare(
+      `SELECT b.rank_value, b.created_at, r.value, r.detail, r.played_at,
+              u.discord_id, u.username, u.global_name, u.avatar
+       FROM best_records b
+       JOIN records r ON r.id = b.record_id
+       JOIN users u   ON u.discord_id = b.discord_id
+       WHERE b.mode_key = ?
+       ORDER BY b.rank_value ASC, b.created_at ASC
+       LIMIT ?`,
+    )
+    .bind(modeKey, RANKING_LIMIT)
+    .all<RankingRow>();
+
+  // 同点は同順位(競技ランキング方式): rank_valueが直前行と同じなら同じ順位を使う
+  let lastRankValue: number | null = null;
+  let lastRank = 0;
+  const entries = rows.results.map((row, idx) => {
+    if (lastRankValue === null || row.rank_value !== lastRankValue) {
+      lastRank = idx + 1;
+      lastRankValue = row.rank_value;
+    }
+    return {
+      rank: lastRank,
+      user: {
+        id: row.discord_id,
+        name: row.global_name ?? row.username,
+        avatarUrl: avatarUrl(row.discord_id, row.avatar),
+      },
+      value: row.value,
+      detail: parseDetail(row.detail),
+      playedAt: row.played_at,
+    };
+  });
+
+  const response = json({ mode: modeKey, updatedAt: Date.now(), entries });
+  const toCache = response.clone();
+  toCache.headers.set("Cache-Control", `public, max-age=${RANKING_CACHE_MAX_AGE_SEC}`);
+  await cache.put(cacheKey, toCache);
+  return response;
+}
+
+// ── GET /api/ranking/me?mode=ultra ──────────────────────────────────────
+// 要ログイン。自分の順位と自己ベストのみ返す。キャッシュしない。
+export async function handleRankingMe(req: Request, env: Env, url: URL): Promise<Response> {
+  const modeKey = url.searchParams.get("mode");
+  if (typeof modeKey !== "string" || !isRankedMode(modeKey)) return error("unranked_mode", 400);
+
+  const resolved = await resolveSession(req, env, url);
+  if (!resolved) return error("not_logged_in", 401);
+
+  const db = pickDb(req, env);
+  const discordId = resolved.user.discordId;
+
+  const bestRow = await db
+    .prepare(
+      `SELECT b.rank_value, b.created_at, r.value, r.detail, r.played_at
+       FROM best_records b JOIN records r ON r.id = b.record_id
+       WHERE b.mode_key = ? AND b.discord_id = ?`,
+    )
+    .bind(modeKey, discordId)
+    .first<{ rank_value: number; created_at: number; value: number; detail: string; played_at: number }>();
+
+  const headers = new Headers({ "Cache-Control": "no-store" });
+  if (resolved.renewCookie) headers.append("Set-Cookie", resolved.renewCookie);
+
+  if (!bestRow) return json({ hasRecord: false }, { headers });
+
+  const rankRow = await db
+    .prepare(
+      `SELECT COUNT(*) + 1 AS rank FROM best_records
+       WHERE mode_key = ? AND (rank_value < ? OR (rank_value = ? AND created_at < ?))`,
+    )
+    .bind(modeKey, bestRow.rank_value, bestRow.rank_value, bestRow.created_at)
+    .first<{ rank: number }>();
+
+  return json(
+    {
+      hasRecord: true,
+      rank: rankRow ? rankRow.rank : null,
+      value: bestRow.value,
+      detail: parseDetail(bestRow.detail),
+      playedAt: bestRow.played_at,
+    },
+    { headers },
+  );
 }

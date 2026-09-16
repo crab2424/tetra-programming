@@ -1,0 +1,131 @@
+/* ─────────────────────────────────────────────
+   RANKINGページ（public/app/ranking.js が中身を描画）
+───────────────────────────────────────────── */
+#ranking-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+#ranking-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 84vh;
+  padding: 32px 28px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-sizing: border-box;
+}
+
+.ranking-title {
+  font-family: "Orbitron", monospace;
+  font-size: 1.8rem;
+  font-weight: 900;
+  letter-spacing: 5px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+.ranking-status {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.ranking-row {
+  display: grid;
+  grid-template-columns: 44px 28px 1fr auto 72px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.ranking-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.02);
+}
+.ranking-row-mine {
+  background: rgba(196, 113, 245, 0.15) !important;
+  border: 1px solid var(--accent);
+}
+
+.ranking-row-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.ranking-rank {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.ranking-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ranking-name {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ranking-value {
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent2);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ranking-date {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ranking-empty {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 24px 0;
+}
+
+.ranking-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+  margin: 0;
+}

@@ -44,7 +44,7 @@ async function sha256Hex(input: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function avatarUrl(discordId: string, avatar: string | null): string {
+export function avatarUrl(discordId: string, avatar: string | null): string {
   if (avatar) return `https://cdn.discordapp.com/avatars/${discordId}/${avatar}.png?size=64`;
   const idx = Number((BigInt(discordId) >> 22n) % 6n);
   return `https://cdn.discordapp.com/embed/avatars/${idx}.png`;
