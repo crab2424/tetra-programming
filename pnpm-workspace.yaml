@@ -1,3 +1,6 @@
-onlyBuiltDependencies:
-  - esbuild
-  - workerd
+packages:
+  - .
+
+allowBuilds:
+  esbuild: true
+  workerd: true
