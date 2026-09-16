@@ -84,7 +84,10 @@ export async function handleLogin(_req: Request, env: Env, url: URL): Promise<Re
   authorizeUrl.searchParams.set("scope", "identify");
   authorizeUrl.searchParams.set("redirect_uri", `${url.origin}/auth/discord/callback`);
   authorizeUrl.searchParams.set("state", state);
-  authorizeUrl.searchParams.set("prompt", "none");
+  // prompt=noneは付けない: OAuth2仕様上「一切UIを出さない」の意味であり、
+  // このアプリを初めて許可する場面(初回同意)ではUIを出せないためDiscordが
+  // codeの代わりにerror=consent_required等を返して即座にリダイレクトしてしまい、
+  // 認可画面が一瞬で消えてログイン失敗になる(2回目以降の同意省略はDiscordが自動で行う)。
 
   const headers = new Headers();
   headers.append("Set-Cookie", oauthCookie(`${state}.${returnTo}`, url, OAUTH_COOKIE_MAX_AGE_SEC));
@@ -99,13 +102,25 @@ export async function handleCallback(req: Request, env: Env, url: URL): Promise<
   const code = url.searchParams.get("code");
   const stateParam = url.searchParams.get("state");
   const cookieValue = readCookie(req, OAUTH_COOKIE);
-  if (!code || !stateParam || !cookieValue) return failure("error");
+  if (!code || !stateParam || !cookieValue) {
+    console.error("callback missing code/state/cookie", {
+      hasCode: !!code,
+      hasState: !!stateParam,
+      hasCookie: !!cookieValue,
+      discordError: url.searchParams.get("error"),
+      discordErrorDescription: url.searchParams.get("error_description"),
+    });
+    return failure("error");
+  }
 
   const dot = cookieValue.indexOf(".");
   if (dot === -1) return failure("error");
   const cookieState = cookieValue.slice(0, dot);
   const returnTo = cookieValue.slice(dot + 1) === "online" ? "online" : "menu";
-  if (cookieState !== stateParam) return failure("error");
+  if (cookieState !== stateParam) {
+    console.error("callback state mismatch");
+    return failure("error");
+  }
 
   const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
     method: "POST",
