@@ -1115,6 +1115,7 @@
     <div id="result-container">
       <h2 id="result-title">GAME OVER</h2>
       <p id="result-new-record" style="display: none">NEW RECORD!</p>
+      <p id="result-rank" style="display: none"></p>
       <div id="result-stats">
         <div class="result-stat-row">
           <span class="result-label" id="result-label-score">SCORE</span>
@@ -1323,14 +1324,14 @@
   <script src="core/particles.js?v=2"></script>
   <script src="app/manager.js?v=1"></script>
   <script src="config/settings.js?v=7"></script>
-  <script src="config/records.js?v=1"></script>
-  <script src="config/account.js?v=2"></script>
+  <script src="config/records.js?v=2"></script>
+  <script src="config/account.js?v=3"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js"></script>
-  <script src="game/tet/lifecycle.js?v=6"></script>
+  <script src="game/tet/lifecycle.js?v=7"></script>
   <script src="game/tet/board.js?v=4"></script>
   <script src="game/tet/rotation.js?v=2"></script>
   <script src="game/tet/scoring.js?v=3"></script>

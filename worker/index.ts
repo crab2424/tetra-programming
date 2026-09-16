@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { handleCallback, handleDeleteMe, handleLogin, handleLogout, handleMe } from "./auth";
 import { error, json } from "./http";
+import { handleSubmitRecord } from "./records";
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -26,6 +27,8 @@ async function handleApi(req: Request, env: Env, url: URL): Promise<Response> {
 
   if (pathname === "/api/me" && method === "GET") return handleMe(req, env, url);
   if (pathname === "/api/me" && method === "DELETE") return handleDeleteMe(req, env, url);
+
+  if (pathname === "/api/records" && method === "POST") return handleSubmitRecord(req, env, url);
 
   return error("not_found", 404);
 }

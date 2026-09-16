@@ -351,19 +351,34 @@ Object.assign(Game.prototype, {
             const badge = document.getElementById('result-new-record');
             const bestRow = document.getElementById('result-best-row');
             const bestVal = document.getElementById('result-best-value');
+            const rankEl = document.getElementById('result-rank');
+            if (rankEl) rankEl.style.display = 'none';
+            const recordKey = (this.mode === 'marathon')
+                ? ((this.goalLines === Infinity) ? 'marathon:endless' : 'marathon:150')
+                : (this.mode === 'sprint' ? 'sprint:40' : this.mode);
             if (typeof this._submitRecordIfEligible === 'function') {
                 const res = await this._submitRecordIfEligible(isClear);
                 if (badge) badge.style.display = (res && res.isNew) ? 'block' : 'none';
                 if (bestRow && bestVal) {
                     if (res && res.record && window.Records) {
-                        const key = (this.mode === 'marathon')
-                            ? ((this.goalLines === Infinity) ? 'marathon:endless' : 'marathon:150')
-                            : (this.mode === 'sprint' ? 'sprint:40' : this.mode);
-                        bestVal.textContent = window.Records.format(key, res.record);
+                        bestVal.textContent = window.Records.format(recordKey, res.record);
                         bestRow.style.display = '';
                     } else {
                         bestRow.style.display = 'none';
                     }
+                }
+                // ランキング対象モードでDiscordログイン中のみ、順位が非同期で届いたら表示する
+                // （account.js の syncLocalBests() が records.js の submit() から裏で呼ばれる。
+                //  結果画面を離れた後に届いても、非表示のまま値をセットするだけで実害はない）。
+                if (rankEl && res && res.isNew && window.Account && window.Account.me
+                    && (recordKey === 'ultra' || recordKey === 'sprint:40')) {
+                    const unsubscribe = window.Account.onRecordSynced((syncedKey, result) => {
+                        if (syncedKey !== recordKey) return;
+                        unsubscribe();
+                        if (!result || !result.accepted || typeof result.rank !== 'number') return;
+                        rankEl.textContent = `RANK #${result.rank}`;
+                        rankEl.style.display = '';
+                    });
                 }
             } else {
                 if (badge) badge.style.display = 'none';
