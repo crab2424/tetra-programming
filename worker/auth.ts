@@ -141,7 +141,11 @@ export async function handleCallback(req: Request, env: Env, url: URL): Promise<
   if (!tokenRes.ok) {
     const body = await tokenRes.text();
     console.error("discord token exchange failed", tokenRes.status, body);
-    return failure("error", `token_exchange_${tokenRes.status}`);
+    // secretLen: Secretの値そのものは含めず「設定されているか・何文字か」だけを載せる。
+    // bodySnippet: Discordが返した生のエラー本文の先頭部分（トークン等は含まれない）。
+    const secretLen = env.DISCORD_CLIENT_SECRET ? env.DISCORD_CLIENT_SECRET.length : "unset";
+    const bodySnippet = body.slice(0, 120);
+    return failure("error", `token_exchange_${tokenRes.status}_secretLen${secretLen}_${bodySnippet}`);
   }
   const token = (await tokenRes.json()) as DiscordTokenResponse;
 
