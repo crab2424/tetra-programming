@@ -1,12 +1,38 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "citgame",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-04-07",
+  "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
   },
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
+    // この2パターンだけ Worker を先に通す。静的アセットは従来通り Worker を経由しない
+    "run_worker_first": ["/api/*", "/auth/*"],
   },
-  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tetlabo",
+      "database_id": "ae8a3300-f49e-413e-a49c-5cbe548dc79c",
+      "migrations_dir": "worker/migrations",
+    },
+    {
+      "binding": "DB_DEV",
+      "database_name": "tetlabo-dev",
+      "database_id": "9c3ff786-130e-4e3b-aa10-bf55f8af7b57",
+      "migrations_dir": "worker/migrations",
+    },
+  ],
+  "vars": {
+    "DISCORD_CLIENT_ID": "1549580482486730763",
+    // このホストへのリクエストだけ本番DB(DB)を使う。それ以外(プレビュー/localhost)は開発DB(DB_DEV)
+    "PROD_HOST": "citgame.pptlabo.workers.dev",
+    "ADMIN_DISCORD_IDS": "1039886230202110006",
+  },
+  // Secret（Cloudflareダッシュボードで「Secret」として登録済み・デプロイで消えない）:
+  // DISCORD_CLIENT_SECRET, TICKET_PRIVATE_KEY
 }

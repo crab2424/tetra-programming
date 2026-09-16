@@ -1,24 +1,26 @@
 {
   "name": "tetra-programming",
   "private": true,
-  "version": "2.2.1",
+  "version": "2.2.2",
   "type": "module",
   "scripts": {
     "dev": "run-p dev:server dev:client",
     "dev:server": "cargo-watch -C ../tetra-server -x run",
     "dev:client": "vite",
+    "dev:worker": "wrangler dev",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260915.1",
     "npm-run-all": "^4.1.5",
     "playwright-core": "^1.60.0",
     "typescript": "~6.0.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "wrangler": "^4.131.2"
   },
   "dependencies": {
     "@types/node": "^26.0",
     "bincode-ts": "^1.0.0"
   }
 }
-  
