@@ -12,18 +12,18 @@ export const RANKED_MODES = {
   "sprint:40": { primary: "timeMs", better: "lower", min: 1_000, max: 3_600_000 },
 } as const;
 
-type ModeKey = keyof typeof RANKED_MODES;
+export type ModeKey = keyof typeof RANKED_MODES;
 
-function isRankedMode(key: string): key is ModeKey {
+export function isRankedMode(key: string): key is ModeKey {
   return Object.prototype.hasOwnProperty.call(RANKED_MODES, key);
 }
 
-function rankValueOf(modeKey: ModeKey, value: number): number {
+export function rankValueOf(modeKey: ModeKey, value: number): number {
   return RANKED_MODES[modeKey].better === "higher" ? -value : value;
 }
 
 // mode毎に固定のURLをキャッシュキーにする(ホストが異なれば別キー=本番/プレビューが混ざらない)
-function rankingCacheKey(url: URL, modeKey: ModeKey): Request {
+export function rankingCacheKey(url: URL, modeKey: ModeKey): Request {
   return new Request(new URL(`/api/ranking?mode=${encodeURIComponent(modeKey)}`, url.origin).toString());
 }
 
@@ -148,6 +148,7 @@ export async function handleSubmitRecord(req: Request, env: Env, url: URL): Prom
 }
 
 interface RankingRow {
+  record_id: string;
   rank_value: number;
   created_at: number;
   value: number;
@@ -159,7 +160,7 @@ interface RankingRow {
   avatar: string | null;
 }
 
-function parseDetail(detail: string): unknown {
+export function parseDetail(detail: string): unknown {
   try {
     return JSON.parse(detail);
   } catch {
@@ -181,7 +182,7 @@ export async function handleRanking(req: Request, env: Env, url: URL): Promise<R
   const db = pickDb(req, env);
   const rows = await db
     .prepare(
-      `SELECT b.rank_value, b.created_at, r.value, r.detail, r.played_at,
+      `SELECT r.id AS record_id, b.rank_value, b.created_at, r.value, r.detail, r.played_at,
               u.discord_id, u.username, u.global_name, u.avatar
        FROM best_records b
        JOIN records r ON r.id = b.record_id
@@ -203,6 +204,7 @@ export async function handleRanking(req: Request, env: Env, url: URL): Promise<R
     }
     return {
       rank: lastRank,
+      recordId: row.record_id,
       user: {
         id: row.discord_id,
         name: row.global_name ?? row.username,
@@ -235,12 +237,19 @@ export async function handleRankingMe(req: Request, env: Env, url: URL): Promise
 
   const bestRow = await db
     .prepare(
-      `SELECT b.rank_value, b.created_at, r.value, r.detail, r.played_at
+      `SELECT r.id AS record_id, b.rank_value, b.created_at, r.value, r.detail, r.played_at
        FROM best_records b JOIN records r ON r.id = b.record_id
        WHERE b.mode_key = ? AND b.discord_id = ?`,
     )
     .bind(modeKey, discordId)
-    .first<{ rank_value: number; created_at: number; value: number; detail: string; played_at: number }>();
+    .first<{
+      record_id: string;
+      rank_value: number;
+      created_at: number;
+      value: number;
+      detail: string;
+      played_at: number;
+    }>();
 
   const headers = new Headers({ "Cache-Control": "no-store" });
   if (resolved.renewCookie) headers.append("Set-Cookie", resolved.renewCookie);
@@ -259,6 +268,7 @@ export async function handleRankingMe(req: Request, env: Env, url: URL): Promise
     {
       hasRecord: true,
       rank: rankRow ? rankRow.rank : null,
+      recordId: bestRow.record_id,
       value: bestRow.value,
       detail: parseDetail(bestRow.detail),
       playedAt: bestRow.played_at,
