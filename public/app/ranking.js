@@ -39,7 +39,8 @@
     });
   }
 
-  function _row(rank, user, valueText, dateText, isMine) {
+  // adminActions: {recordId, userId, userName} を渡すと管理者用のDELETE/BANボタンを追加する（★6.4・最小限UI）
+  function _row(rank, user, valueText, dateText, isMine, adminActions) {
     const row = document.createElement('div');
     row.className = 'ranking-row' + (isMine ? ' ranking-row-mine' : '');
 
@@ -65,7 +66,73 @@
     dateEl.textContent = dateText;
 
     row.append(rankEl, avatarEl, nameEl, valueEl, dateEl);
+
+    if (adminActions) {
+      const actions = document.createElement('span');
+      actions.className = 'ranking-admin-actions';
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'ranking-admin-btn ranking-admin-delete';
+      delBtn.textContent = 'DELETE';
+      delBtn.onclick = () => _adminDeleteRecord(adminActions.recordId);
+
+      const banBtn = document.createElement('button');
+      banBtn.type = 'button';
+      banBtn.className = 'ranking-admin-btn ranking-admin-ban';
+      banBtn.textContent = 'BAN';
+      banBtn.onclick = () => _adminBanUser(adminActions.userId, adminActions.userName);
+
+      actions.append(delBtn, banBtn);
+      row.appendChild(actions);
+    }
+
     return row;
+  }
+
+  // ── 管理者操作（★6.4: RANKING行の小ボタンから直接操作。詳細調査UIは作らない） ──
+  async function _adminDeleteRecord(recordId) {
+    if (!window.TetDialog || !recordId) return;
+    const ok = await window.TetDialog.choose({
+      title: 'DELETE RECORD',
+      message: 'この記録を削除しますか？（不正な記録の対処）',
+      buttons: [
+        { label: 'CANCEL', value: false, kind: 'secondary', cancel: true },
+        { label: 'DELETE', value: true, kind: 'danger' },
+      ],
+      initial: false,
+    });
+    if (!ok) return;
+    try {
+      await fetch(`/api/admin/records/${encodeURIComponent(recordId)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+    } catch (e) { /* 失敗しても再描画で現状を反映する */ }
+    render(currentMode);
+  }
+
+  async function _adminBanUser(userId, userName) {
+    if (!window.TetDialog || !userId) return;
+    const ok = await window.TetDialog.choose({
+      title: 'BAN USER',
+      message: `${userName} をBANしますか？ 今後ログイン・記録の提出ができなくなります。`,
+      buttons: [
+        { label: 'CANCEL', value: false, kind: 'secondary', cancel: true },
+        { label: 'BAN', value: true, kind: 'danger' },
+      ],
+      initial: false,
+    });
+    if (!ok) return;
+    try {
+      await fetch(`/api/admin/users/${encodeURIComponent(userId)}/ban`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ banned: true }),
+      });
+    } catch (e) { /* 失敗しても再描画で現状を反映する */ }
+    render(currentMode);
   }
 
   function _updateLoginHint() {
@@ -101,11 +168,15 @@
     if (statusEl) statusEl.style.display = 'none';
 
     const myId = window.Account && window.Account.me ? window.Account.me.id : null;
+    const isAdmin = !!(window.Account && window.Account.me && window.Account.me.isAdmin);
     let myEntryInTop = false;
     data.entries.forEach((entry) => {
       const isMine = !!myId && entry.user.id === myId;
       if (isMine) myEntryInTop = true;
-      listEl.appendChild(_row(entry.rank, entry.user, _formatValue(mode, entry.detail), _formatDate(entry.playedAt), isMine));
+      const adminActions = isAdmin
+        ? { recordId: entry.recordId, userId: entry.user.id, userName: entry.user.name }
+        : null;
+      listEl.appendChild(_row(entry.rank, entry.user, _formatValue(mode, entry.detail), _formatDate(entry.playedAt), isMine, adminActions));
     });
 
     if (data.entries.length === 0) {
@@ -125,12 +196,16 @@
           const sep = document.createElement('div');
           sep.className = 'ranking-row-sep';
           listEl.appendChild(sep);
+          const myAdminActions = isAdmin
+            ? { recordId: meData.recordId, userId: myId, userName: window.Account.me.name }
+            : null;
           listEl.appendChild(_row(
             meData.rank,
             { id: myId, name: window.Account.me.name, avatarUrl: window.Account.me.avatarUrl },
             _formatValue(mode, meData.detail),
             _formatDate(meData.playedAt),
             true,
+            myAdminActions,
           ));
         }
       } catch (e) { /* 失敗しても上位表示は壊さない */ }

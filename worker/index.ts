@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { handleAdminBanUser, handleAdminDeleteRecord, handleAdminListRecords } from "./admin";
 import { handleCallback, handleDeleteMe, handleLogin, handleLogout, handleMe } from "./auth";
 import { error, json } from "./http";
 import { handleRanking, handleRankingMe, handleSubmitRecord } from "./records";
@@ -32,6 +33,14 @@ async function handleApi(req: Request, env: Env, url: URL): Promise<Response> {
 
   if (pathname === "/api/ranking" && method === "GET") return handleRanking(req, env, url);
   if (pathname === "/api/ranking/me" && method === "GET") return handleRankingMe(req, env, url);
+
+  if (pathname === "/api/admin/records" && method === "GET") return handleAdminListRecords(req, env, url);
+
+  const deleteRecordMatch = method === "DELETE" ? pathname.match(/^\/api\/admin\/records\/([^/]+)$/) : null;
+  if (deleteRecordMatch) return handleAdminDeleteRecord(req, env, url, decodeURIComponent(deleteRecordMatch[1]));
+
+  const banMatch = method === "POST" ? pathname.match(/^\/api\/admin\/users\/([^/]+)\/ban$/) : null;
+  if (banMatch) return handleAdminBanUser(req, env, url, decodeURIComponent(banMatch[1]));
 
   return error("not_found", 404);
 }
