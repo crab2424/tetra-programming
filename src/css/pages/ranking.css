@@ -5,7 +5,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  /* body の上下padding(24px×2)を差し引いた高さに固定し、ページ全体のスクロールを出さない。
+     align-self:stretch で横幅も body いっぱいに取り、パネル幅が中身で縮まないようにする */
+  align-self: stretch;
+  height: calc(100vh - 48px);
   padding: 32px 16px;
   box-sizing: border-box;
 }
@@ -16,10 +19,11 @@
   align-items: center;
   gap: 16px;
   width: 100%;
-  max-width: 480px;
+  /* アイコン＋名前（長い名前は…で省略）が収まる幅で固定 */
+  max-width: 560px;
   /* 記録の件数・読み込み状態でページの大きさが変わらないよう高さを固定する
      （一覧 .ranking-list が残りを埋め、はみ出た分は内部スクロール） */
-  height: min(84vh, 680px);
+  height: min(84vh, 680px, 100%);
   padding: 32px 28px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
@@ -29,7 +33,7 @@
 /* 管理者(Account.me.isAdmin)にはDELETE/BANボタンを行に追加するため一段広くする。
    行の有無で幅が変わらないよう、ranking.js が管理者かどうかでクラスを付ける */
 #ranking-container.is-admin {
-  max-width: 640px;
+  max-width: 700px;
 }
 
 .ranking-title {
@@ -110,6 +114,8 @@
 }
 
 .ranking-name {
+  /* grid の 1fr 列は既定で内容幅未満に縮まないため、省略表示に min-width:0 が必要 */
+  min-width: 0;
   font-size: 13px;
   color: var(--text);
   overflow: hidden;

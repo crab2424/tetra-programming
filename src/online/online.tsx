@@ -486,7 +486,30 @@ class OnlineMode {
    *   OnlineGameController.startBattle() 側（online_game.ts）が個別に行う。
    */
   private applyLobbyBgm(): void {
+    // メインメニューからの切替（startLobbyBgmFromMenu）でフェードアウト待ちの間は、
+    // クロスフェードで割り込まない（フェードインなしで鳴らす仕様のため）
+    if (this.lobbyBgmPending) return;
     (window as any).BgmManager?.crossfadeTo("online_lobby_bgm");
+  }
+
+  private lobbyBgmPending = false;
+  private static readonly MENU_TO_LOBBY_FADE_MS = 1000;
+
+  /**
+   * メインメニュー → ONLINE の接続UI表示と同時に呼ぶ。流れているBGM(menu_bgm)を
+   * フェードアウトし、音量が0になった時点でロビーBGMをフェードインなしで鳴らす。
+   * 接続の成否・接続中かどうかに関係なく鳴らす（ONLINEページに居る限り）。
+   */
+  private startLobbyBgmFromMenu(): void {
+    const bgm = (window as any).BgmManager;
+    if (!bgm || this.lobbyBgmPending || bgm.isCurrent?.("online_lobby_bgm")) return;
+    this.lobbyBgmPending = true;
+    bgm.stop(false, OnlineMode.MENU_TO_LOBBY_FADE_MS, () => {
+      this.lobbyBgmPending = false;
+      // フェード中にメインメニューへ戻っていたら鳴らさない
+      if (!document.getElementById("online-top-page")?.classList.contains("active")) return;
+      bgm.play("online_lobby_bgm");
+    });
   }
 
   /**
@@ -545,6 +568,9 @@ class OnlineMode {
       }
     } catch (e) { }
     this.state = OnlineModeState.Disconnected;
+    // フェード途中で戻った場合、switchPage の crossfadeTo('menu_bgm') がフェードを打ち切り
+    // onDone が呼ばれないため、ここで待ち状態を解除する（次回入場時に鳴らなくなるのを防ぐ）
+    this.lobbyBgmPending = false;
 
     /// TODO: onlineの部分だけmodule化しているため，その他のファイルの関数を直で呼び出せない．
     /// 将来的にはすべてのファイルをモジュール化して、必要な関数をインポートして呼び出せるようにするべき．
@@ -2090,6 +2116,7 @@ class OnlineMode {
     if (!skipEnterAnim) {
       applyEnterAnimation([
         onlineTopContainer.querySelector(".online-header"),
+        onlineTopContainer.querySelector(".online-count-badge"),
         onlineTopContainer.querySelector(".online-list-header"),
         document.getElementById("online-rooms-container"),
         onlineTopContainer.querySelector(".online-list-footer"),
@@ -2386,6 +2413,7 @@ class OnlineMode {
     this.state = OnlineModeState.Connecting;
     this.connectCancelled = false;
     this.renderConnectingUI();
+    this.startLobbyBgmFromMenu();
 
     const pages = document.querySelectorAll(".page");
     pages.forEach((p) => p.classList.remove("active"));
