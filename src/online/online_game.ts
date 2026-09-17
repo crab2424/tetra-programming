@@ -750,6 +750,8 @@ export class OnlineGameController {
     //   → 新しいマッチだけ online_bgm を頭から鳴らし直し、同一マッチ内の再戦は
     //   鳴らしっぱなしで継続する（設計 §1.2）。
     const isFreshMatch = !this.setConfigured;
+    // 対戦開始が確定した合図（全員READY→開始通知。ロード画面が「まもなく対戦開始…」になる時点）
+    (window as any).SeManager?.play("online_match_start");
     this.myAlive = true;
     this.matchHalted = false;
     this.clearWinnerFallback();
@@ -2623,6 +2625,7 @@ export class OnlineGameController {
 
     if (winnerId !== null) {
       // 完了コールバック（結果カード表示）は自分の1枚だけに付ける（多重発火防止）
+      (window as any).SeManager?.play(iWin ? "online_win" : "online_lose");
       this.showSelfFinish(iWin ? "win" : "lose", revealResult);
       for (const [id, driver] of this.puppets) {
         const index = this.puppetIndices.get(id);
