@@ -52,7 +52,7 @@
   <div id="main-menu-page" class="page">
     <!-- Discordアカウントチップ（未ログイン=LOGIN WITH DISCORD／ログイン中=アイコン+表示名）。
          クリックでログイン開始 or アカウント画面を開く（public/config/account.js） -->
-    <button id="account-chip" class="btn account-chip" onclick="Account.onChipClick()">
+    <button id="account-chip" class="btn account-chip is-loading" onclick="Account.onChipClick()">
       <img id="account-chip-avatar" class="account-chip-avatar" alt="" style="display: none" />
       <span id="account-chip-label">LOGIN WITH DISCORD</span>
     </button>
@@ -140,17 +140,19 @@
       </div>
 
       <!-- フッター：基準はメインキャンバス(#main-menu-container)。
-             SETTINGS の真下に TITLE、左下に CREDITS、右下に CHANGELOG を配置 -->
+             SETTINGS/RANKING を横並びにし、その真下に TITLE、左下に CREDITS、右下に CHANGELOG を配置 -->
       <div id="main-menu-footer">
         <div id="main-menu-footer-center">
-          <button class="menu-btn btn-secondary" onclick="switchPage('settings')">
-            <span class="menu-btn-icon">⚙</span>
-            <span>SETTINGS</span>
-          </button>
-          <button class="menu-btn btn-secondary" onclick="switchPage('ranking')">
-            <span class="menu-btn-icon">🏆</span>
-            <span>RANKING</span>
-          </button>
+          <div id="main-menu-footer-row">
+            <button id="main-menu-settings-btn" class="menu-btn btn-secondary" onclick="switchPage('settings')">
+              <span class="menu-btn-icon">⚙</span>
+              <span>SETTINGS</span>
+            </button>
+            <button id="main-menu-ranking-btn" class="menu-btn btn-secondary" onclick="switchPage('ranking')">
+              <span class="menu-btn-icon">🏆</span>
+              <span>RANKING</span>
+            </button>
+          </div>
           <button class="util-link util-link-title" onclick="switchPage('title')">
             <span class="util-icon">◀</span><span>TITLE</span>
           </button>
@@ -1313,11 +1315,14 @@
     <div class="account-modal-card">
       <img id="account-modal-avatar" class="account-modal-avatar" alt="" />
       <div id="account-modal-name" class="account-modal-name"></div>
-      <div class="account-modal-actions">
-        <button type="button" class="btn btn-secondary" onclick="Account.logoutFromModal()">LOGOUT</button>
-        <button type="button" class="btn btn-danger" onclick="Account.confirmDeleteAccount()">DELETE ACCOUNT</button>
-      </div>
       <button type="button" id="account-modal-close-btn" class="btn btn-secondary account-modal-close" data-se="cancel" onclick="Account.closeModal()">CLOSE</button>
+      <div class="account-modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="Account.editName()">EDIT NAME</button>
+        <button type="button" class="btn btn-secondary" onclick="Account.logoutFromModal()">LOGOUT</button>
+      </div>
+      <div class="account-modal-danger-zone">
+        <button type="button" class="account-modal-delete-link" onclick="Account.confirmDeleteAccount()">delete account</button>
+      </div>
     </div>
   </div>
 
@@ -1349,12 +1354,12 @@
 
   <script src="config/pages.js?v=7"></script>
   <script src="core/base.js?v=14"></script>
-  <script src="core/dialog.js?v=1"></script>
-  <script src="core/particles.js?v=2"></script>
+  <script src="core/dialog.js?v=2"></script>
+  <script src="core/particles.js?v=3"></script>
   <script src="app/manager.js?v=1"></script>
   <script src="config/settings.js?v=7"></script>
   <script src="config/records.js?v=2"></script>
-  <script src="config/account.js?v=4"></script>
+  <script src="config/account.js?v=5"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
@@ -1382,7 +1387,7 @@
   <script src="app/cpu_loader.js?v=1"></script>
   <script src="app/versus.js?v=1"></script>
   <script src="app/navigation.js?v=11"></script>
-  <script src="app/ranking.js?v=2"></script>
+  <script src="app/ranking.js?v=3"></script>
   <script src="app/focus_nav.js?v=8"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=3"></script>

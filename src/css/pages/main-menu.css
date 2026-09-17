@@ -212,7 +212,7 @@
 }
 
 /* 基準はメインキャンバス(#main-menu-container)。フッターをその基準ボックスとして
-   中央に SETTINGS+TITLE、左右の下隅に CREDITS / CHANGELOG を配置する。 */
+   中央に SETTINGS+RANKING(横並び)+TITLE、左右の下隅に CREDITS / CHANGELOG を配置する。 */
 #main-menu-footer {
   position: relative;
   width: 100%;
@@ -220,7 +220,7 @@
   min-height: 100px;
 }
 
-/* 中央：SETTINGS の真下に TITLE を縦並び */
+/* 中央：SETTINGS+RANKING の横並びの真下に TITLE を縦並び */
 #main-menu-footer-center {
   display: flex;
   flex-direction: column;
@@ -228,7 +228,13 @@
   gap: 10px;
 }
 
-#main-menu-footer-center .menu-btn {
+/* SETTINGS / RANKING の横並び（空白の都合上、縦2段だったものを1段にまとめる） */
+#main-menu-footer-row {
+  display: flex;
+  gap: 14px;
+}
+
+#main-menu-footer-row .menu-btn {
   width: auto;
   min-width: 200px;
 }

@@ -230,6 +230,8 @@
     function _renderChip() {
         const chip = document.getElementById('account-chip');
         if (!chip) return;
+        // /api/me の応答が来るまで隠していたのを解除する（初回_refresh完了後に必ず1回notify()される）。
+        chip.classList.remove('is-loading');
         const avatar = document.getElementById('account-chip-avatar');
         const label = document.getElementById('account-chip-label');
         if (me) {
@@ -245,14 +247,19 @@
         if (me) openModal(); else login('menu');
     }
 
-    function openModal() {
+    function _renderModal() {
         if (!me) return;
-        const modal = document.getElementById('account-modal');
-        if (!modal) return;
         const avatar = document.getElementById('account-modal-avatar');
         const name = document.getElementById('account-modal-name');
         if (avatar) avatar.src = me.avatarUrl;
         if (name) name.textContent = me.name;
+    }
+
+    function openModal() {
+        if (!me) return;
+        const modal = document.getElementById('account-modal');
+        if (!modal) return;
+        _renderModal();
 
         prevPageId = window.FocusNav ? window.FocusNav.getActivePageId() : null;
         modal.classList.add('active');
@@ -280,6 +287,61 @@
     async function logoutFromModal() {
         closeModal();
         await logout();
+    }
+
+    // ─── 表示名編集（TETLABO専用。Discordの表示名とは別に上書きできる） ───
+    // サーバー側: worker/auth.ts の PUT /api/me/name。空文字を送るとDiscordの表示名に戻る。
+    // 名前の重複は許可する（アイコンはDiscordのまま固定なので見分けは付く。設計 §3）。
+    async function _updateName(name) {
+        try {
+            const res = await fetch('/api/me/name', {
+                method: 'PUT',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name }),
+            });
+            const data = await res.json().catch(() => null);
+            if (!res.ok) return { ok: false, reason: data && data.error };
+            return { ok: true, name: data && data.name };
+        } catch (e) {
+            return { ok: false, reason: 'network' };
+        }
+    }
+
+    async function editName() {
+        if (!me || !window.TetDialog) return;
+        // 入力はキーボードのみを想定（半角/全角どちらもそのまま通る。専用の仮想キーボードは無し）。
+        const result = await window.TetDialog.choose({
+            title: 'EDIT NAME',
+            message: 'TETLABO内で使う表示名を設定します（空欄で保存するとDiscordの表示名に戻ります）。',
+            input: { value: me.name, maxLength: 32, placeholder: 'DISCORDの表示名に戻す' },
+            buttons: [
+                { label: 'CANCEL', value: false, kind: 'secondary', cancel: true },
+                { label: 'SAVE', value: true, kind: 'primary' },
+            ],
+            initial: true,
+        });
+        if (!result || !result.value) return;
+
+        const newName = (result.text || '').trim();
+        const res = await _updateName(newName);
+        if (!res.ok) {
+            const message = res.reason === 'invalid_name'
+                ? '名前は1〜16文字で入力してください（制御文字は使えません）。'
+                : res.reason === 'too_many_requests'
+                    ? '変更の間隔が短すぎます。1分ほど空けてもう一度お試しください。'
+                    : '変更に失敗しました。通信環境を確認してもう一度お試しください。';
+            await window.TetDialog.choose({
+                title: 'EDIT NAME',
+                message,
+                buttons: [{ label: 'OK', value: true, kind: 'primary', cancel: true }],
+            });
+            return;
+        }
+
+        me = Object.assign({}, me, { name: res.name });
+        notify();
+        _renderModal();
     }
 
     async function confirmDeleteAccount() {
@@ -316,6 +378,7 @@
         closeModal,
         logoutFromModal,
         confirmDeleteAccount,
+        editName,
         pushRecord,
         syncLocalBests,
         onRecordSynced,

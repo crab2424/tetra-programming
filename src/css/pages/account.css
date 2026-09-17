@@ -7,6 +7,9 @@
   position: absolute;
   top: 16px;
   right: 16px;
+  /* #main-menu-container（同じ.page内の兄弟要素）に重なりクリックが右端数pxしか
+     効かなくなっていたため、明示的に前面へ出す。 */
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -25,6 +28,18 @@
 .account-chip:hover,
 .account-chip.is-focused {
   background: var(--btn-secondary-hover-bg);
+}
+
+/* /api/me の応答が来るまでの一瞬「LOGIN WITH DISCORD」→ログイン名に切り替わる
+   ちらつきを避けるため、Account.js が応答が来るまで付与する。
+   visibility:hidden ではなく opacity+pointer-events にしているのは、visibility:hidden だと
+   FocusNav（キー操作）のisVisible()判定から一時的に除外され、応答タイミング次第で
+   フォーカス対象の並びがズレる（初回キー入力でチップに飛ぶ等）ことがあったため。
+   opacityはisVisible()の判定に影響しないので、非表示中もFocusNav上は最初から
+   ちゃんと1項目として数えられ続ける。 */
+.account-chip.is-loading {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .account-chip-avatar {
@@ -101,6 +116,43 @@
   cursor: pointer;
 }
 
-.account-modal-close {
+/* LOGOUT/CLOSEから離して、普段の操作列の外に置く（誤操作防止）。
+   区切り線＋小さいテキストリンク風の見た目にする。 */
+.account-modal-danger-zone {
+  width: 100%;
   margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.account-modal-delete-link {
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--danger);
+  opacity: 0.7;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.account-modal-delete-link:hover,
+.account-modal-delete-link.is-focused {
+  opacity: 1;
+}
+
+/* ─── 表示名編集（TETLABO専用の表示名。TetDialogの入力欄拡張） ─── */
+.app-dialog-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--input-bg, rgba(255, 255, 255, 0.05));
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+.app-dialog-input:focus {
+  outline: none;
+  border-color: var(--accent3);
 }

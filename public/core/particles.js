@@ -156,6 +156,7 @@ function initMenuAnimations(pageId = 'main-menu') {
     } else if (pageId === 'main-menu') {
         targets = [
             { sel: '#main-menu-logo',           cls: 'menu-enter',  delay: 0   },
+            { sel: '#account-chip',             cls: 'menu-enter',  delay: 1   },
             { sel: '.mode-btn-marathon',        cls: 'menu-enter',  delay: 1   },
             { sel: '.mode-btn-sprint',          cls: 'menu-enter',  delay: 2   },
             { sel: '.mode-btn-ultra',           cls: 'menu-enter',  delay: 3   },
@@ -165,12 +166,23 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '.mode-btn-puyo',            cls: 'menu-enter',  delay: 3   },
             { sel: '.mode-btn-quiz',            cls: 'menu-enter',  delay: 4   },
             { sel: '.mode-btn-practice',        cls: 'menu-enter',  delay: 5   },
-            // フッターは各ボタンを個別 delay で登場させる
-            { sel: '#main-menu-footer-center .btn-secondary', cls: 'menu-enter',     delay: 4 }, // SETTINGS
-            { sel: '.util-link-title',          cls: 'menu-enter-dim', delay: 5   }, // TITLE
-            { sel: '.util-link-credits',        cls: 'menu-enter-dim', delay: 6   }, // CREDITS（左下）
-            { sel: '.util-link-changelog',      cls: 'menu-enter-dim', delay: 7   }, // CHANGELOG（右下）
+            // フッターは各ボタンを個別 delay で登場させる（SETTINGS/RANKINGは横並びなので1つずつずらす）
+            { sel: '#main-menu-settings-btn',   cls: 'menu-enter',     delay: 4 }, // SETTINGS
+            { sel: '#main-menu-ranking-btn',    cls: 'menu-enter',     delay: 5 }, // RANKING
+            { sel: '.util-link-title',          cls: 'menu-enter-dim', delay: 6   }, // TITLE
+            { sel: '.util-link-credits',        cls: 'menu-enter-dim', delay: 7   }, // CREDITS（左下）
+            { sel: '.util-link-changelog',      cls: 'menu-enter-dim', delay: 8   }, // CHANGELOG（右下）
         ];
+    } else if (pageId === 'ranking') {
+        targets = [
+            { sel: '.ranking-title',            cls: 'menu-enter',  delay: 0   },
+            { sel: '#ranking-mode-toggle',      cls: 'menu-enter',  delay: 1   },
+            { sel: '#ranking-list',             cls: 'menu-enter',  delay: 2   },
+            { sel: '#ranking-login-hint',       cls: 'menu-enter',  delay: 3   },
+            { sel: '#ranking-buttons',          cls: 'menu-enter',  delay: 3   },
+        ];
+        // リストの行自体はrenderRankingPage()が非同期で描画するため、ここでは
+        // コンテナだけ登場させる。行の順次登場はranking.js側（_renderRows）が担当する。
     } else if (pageId === 'mode-check') {
         targets = [
             { sel: '#mode-check-header',        cls: 'menu-enter',  delay: 0   },
