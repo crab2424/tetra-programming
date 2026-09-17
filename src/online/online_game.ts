@@ -2625,7 +2625,6 @@ export class OnlineGameController {
 
     if (winnerId !== null) {
       // 完了コールバック（結果カード表示）は自分の1枚だけに付ける（多重発火防止）
-      (window as any).SeManager?.play(iWin ? "online_win" : "online_lose");
       this.showSelfFinish(iWin ? "win" : "lose", revealResult);
       for (const [id, driver] of this.puppets) {
         const index = this.puppetIndices.get(id);
