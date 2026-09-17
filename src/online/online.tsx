@@ -653,6 +653,20 @@ class OnlineMode {
     // ルームに居ないときの通知では描画しない（遅延通知でルーム一覧の上に被さるのを防ぐ）
     if (this.state !== OnlineModeState.InRoom) return;
 
+    // 同じルームに他プレイヤーが新しく入ってきたら入室SE（退室は鳴らさない）。
+    // 入室直後の初回通知は lastRoomInfo=null（joinRoom でリセット）なので鳴らない。
+    const prevRoom = this.lastRoomInfo;
+    if (
+      prevRoom &&
+      prevRoom.roomId === roomData.roomId &&
+      !this.isRandomMatchRoom &&
+      roomData.players.some(
+        ([id]) => id !== this.connection?.userId && !prevRoom.players.some(([pid]) => pid === id),
+      )
+    ) {
+      (window as any).SeManager?.play("online_player_join");
+    }
+
     this.lastRoomInfo = roomData;
     this.currentRoom = {
       roomId: roomData.roomId,
@@ -1793,6 +1807,7 @@ class OnlineMode {
       this.rmStarting = false;
       this.rmLeaving = false;
       this.applyLobbyBgm();
+      (window as any).SeManager?.play("online_match_found");
       showToast("ONLINE", "⚔ 対戦相手が見つかりました！", ToastColor["Success"]);
       // 対戦開始通知が来たらタイマーを確実に止める（開始処理自体は gameController 側が行う）
       this.rmStartNotifId = this.connection!.onStartMatchNotification(() => {
