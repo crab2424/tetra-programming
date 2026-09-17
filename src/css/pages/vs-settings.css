@@ -138,6 +138,16 @@
   gap: 12px;
   min-height: 28px;
 }
+/* オーナーが編集できる行は1行=1フォーカス（online.tsx の msRowItem）。枠が項目に
+   密着しないよう左右に余白を持たせ、その分を負マージンで相殺して見た目の位置は変えない */
+.ms-row-editable {
+  padding: 3px 8px;
+  margin: 0 -8px;
+  border-radius: 8px;
+}
+body.input-mode-kbd .ms-row-editable.is-focused {
+  background: rgba(196, 113, 245, 0.08);
+}
 .ms-label {
   font-family: "Orbitron", monospace;
   font-size: 11px;
@@ -204,6 +214,16 @@
   font-size: 12px;
   padding: 4px 6px;
   text-align: right;
+}
+/* 上下の増減ボタンは非表示（キーは行の←/→、マウスはスライダー、細かい値は直接入力） */
+.ms-number {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.ms-number::-webkit-inner-spin-button,
+.ms-number::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 .ms-number:focus {
   border-color: var(--accent);

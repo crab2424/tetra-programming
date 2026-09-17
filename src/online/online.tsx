@@ -64,7 +64,15 @@ function applyEnterAnimation(nodes: (Element | null)[]): void {
 // どのビューかを判定する（既存の各render関数は一切変更しない＝マーカー用DOM追加も不要）。
 // モーダル（Modal.showModal/hideModal）は #online-modal-container を専用ページ「online-modal」
 // として扱い、開閉のたびにFocusNav側を明示的に切り替える。
-type FocusItem = { el: HTMLElement; key?: string; onActivate?: (it: { el: HTMLElement }) => void };
+type FocusItem = {
+  el: HTMLElement;
+  key?: string;
+  onActivate?: (it: { el: HTMLElement }) => void;
+  // type:'row' は FocusNav 側で ←/→ を onLeft/onRight に割り当てる（VS SETTINGS の行と同じ扱い）
+  type?: "row";
+  onLeft?: () => void;
+  onRight?: () => void;
+};
 
 function focusNav(): any {
   return (window as any).FocusNav;
@@ -93,11 +101,39 @@ function toFocusItem(el: HTMLElement): FocusItem {
   return item;
 }
 
+/** ルームのMATCH SETTINGS行（オーナーのみ .ms-row-editable）を1行1項目として扱う。
+ * ON/OFF行: ←/→/Enter で切替。スライダー行: ←/→ で1ステップ、Enter で数値ボックスへ直接入力。 */
+function msRowItem(row: HTMLElement): FocusItem {
+  const item: FocusItem = { el: row, key: row.dataset.focusKey, type: "row" };
+  const seg = row.querySelector<HTMLElement>(".ms-segment");
+  if (seg) {
+    const toggle = () => seg.querySelector<HTMLElement>(".ms-seg-btn:not(.active)")?.click();
+    item.onLeft = toggle;
+    item.onRight = toggle;
+    item.onActivate = toggle;
+    return item;
+  }
+  const step = (row as any).__msStep as ((d: number) => void) | undefined;
+  item.onLeft = () => step?.(-1);
+  item.onRight = () => step?.(+1);
+  item.onActivate = () => {
+    const num = row.querySelector<HTMLInputElement>(".ms-number");
+    if (!num) return;
+    num.focus();
+    try { num.select(); } catch { /* 非対応は無視 */ }
+  };
+  return item;
+}
+
 function collectFocusable(root: HTMLElement): FocusItem[] {
   // .online-room はクリックで入室する div（buttonではない）なので明示的に含める。
-  return Array.from(root.querySelectorAll<HTMLElement>("button, input, select, .online-room"))
+  // .ms-row-editable は行ごと1項目（中のボタン/inputは個別に拾わない）。
+  return Array.from(
+    root.querySelectorAll<HTMLElement>("button, input, select, .online-room, .ms-row-editable"),
+  )
     .filter((el) => !el.matches(":disabled"))
-    .map(toFocusItem);
+    .filter((el) => el.classList.contains("ms-row-editable") || !el.closest(".ms-row-editable"))
+    .map((el) => (el.classList.contains("ms-row-editable") ? msRowItem(el) : toFocusItem(el)));
 }
 
 /** #online-top-container 配下、モーダルや`.btn-danger`(破壊的操作)を除いた中から
@@ -493,6 +529,7 @@ class OnlineMode {
   }
 
   private lobbyBgmPending = false;
+  private msStepTimer: number | null = null;
   private static readonly MENU_TO_LOBBY_FADE_MS = 1000;
 
   /**
@@ -754,7 +791,10 @@ class OnlineMode {
       key: keyof OnlineMatchSetting,
       value: boolean,
     ) => (
-      <div class="ms-row">
+      <div
+        class={"ms-row" + (isOwner ? " ms-row-editable" : "")}
+        data-focus-key={"ms:" + String(key)}
+      >
         <span class="ms-label">{label}</span>
         {isOwner ? (
           <div class="ms-segment">
@@ -785,16 +825,23 @@ class OnlineMode {
       step: number,
       unit: string,
     ) => {
+      let lastCommitted = value;
       const commit = (raw: string) => {
         let n = Number(raw);
         if (!Number.isFinite(n)) return;
         n = Math.max(min, Math.min(max, n));
         if (step >= 1) n = Math.round(n);
         else n = Math.round(n / step) * step;
+        // Enter確定の直後に blur の change でも呼ばれるため、同じ値の再送はしない
+        if (n === lastCommitted) return;
+        lastCommitted = n;
         sendSetting({ [key]: n } as Partial<OnlineMatchSetting>);
       };
-      return (
-        <div class="ms-row ms-row-slider">
+      const row = (
+        <div
+          class={"ms-row ms-row-slider" + (isOwner ? " ms-row-editable" : "")}
+          data-focus-key={"ms:" + String(key)}
+        >
           <span class="ms-label">{label}</span>
           {isOwner ? (
             <div class="ms-slider-wrap">
@@ -805,6 +852,10 @@ class OnlineMode {
                 max={max}
                 step={step}
                 value={value}
+                oninput={(e) => {
+                  const num = (e.target as HTMLElement).parentElement?.querySelector<HTMLInputElement>(".ms-number");
+                  if (num) num.value = (e.target as HTMLInputElement).value;
+                }}
                 onchange={(e) => commit((e.target as HTMLInputElement).value)}
               />
               <input
@@ -815,6 +866,15 @@ class OnlineMode {
                 step={step}
                 value={value}
                 onchange={(e) => commit((e.target as HTMLInputElement).value)}
+                onkeydown={(e) => {
+                  // 直接入力中の Enter で確定（blur で change が発火）し、行フォーカスへ戻る
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commit((e.target as HTMLInputElement).value);
+                    (e.target as HTMLInputElement).blur();
+                    focusNav()?.restoreFocus("ms:" + String(key));
+                  }
+                }}
               />
               <span class="ms-unit">{unit}</span>
             </div>
@@ -825,7 +885,26 @@ class OnlineMode {
             </span>
           )}
         </div>
-      );
+      ) as HTMLElement;
+      // キー操作（←/→）での1ステップ変更。見た目は即時更新し、送信は連打をまとめて1回にする
+      // （1押しごとに送るとサーバー応答の再描画と競合して値が戻ることがあるため）。
+      (row as any).__msStep = (dir: number) => {
+        const slider = row.querySelector<HTMLInputElement>(".ms-slider");
+        const num = row.querySelector<HTMLInputElement>(".ms-number");
+        if (!slider) return;
+        let n = Number(slider.value) + dir * step;
+        n = Math.max(min, Math.min(max, n));
+        n = step >= 1 ? Math.round(n) : Math.round(n / step) * step;
+        const text = step >= 1 ? String(n) : String(Number(n.toFixed(4)));
+        slider.value = text;
+        if (num) num.value = text;
+        if (this.msStepTimer !== null) clearTimeout(this.msStepTimer);
+        this.msStepTimer = window.setTimeout(() => {
+          this.msStepTimer = null;
+          commit(text);
+        }, 250);
+      };
+      return row;
     };
 
     const onlineTopContainer = document.getElementById(
@@ -834,6 +913,8 @@ class OnlineMode {
     if (!onlineTopContainer) {
       throw new Error("Failed to find online top container element");
     }
+    // 設定変更の通知で作り直しても、同じ行（設定/タグ等）へフォーカスを戻す
+    const focusKeyBeforeRebuild = alreadyRendered ? focusNav()?.currentFocusKey?.() ?? null : null;
     onlineTopContainer.replaceChildren(
       <>
         <div class="online-header">
@@ -951,8 +1032,11 @@ class OnlineMode {
             <div>
               🏷️{" "}
               <>
-                {AllTags.map((tag) => (
-                  <span
+                {AllTags.map((tag) => {
+                  const TagEl = isOwner ? "button" : "span";
+                  return (
+                  <TagEl
+                    data-focus-key={"tag:" + String(tag)}
                     onclick={() => {
                       if (isOwner) {
                         const hasTag = roomData.tags.includes(tag);
@@ -976,8 +1060,9 @@ class OnlineMode {
                     }
                   >
                     {getTagName(tag)}
-                  </span>
-                ))}
+                  </TagEl>
+                  );
+                })}
               </>
             </div>
 
@@ -1280,7 +1365,7 @@ class OnlineMode {
         </div>
       </>,
     );
-    syncOnlineTopFocus();
+    syncOnlineTopFocus(focusKeyBeforeRebuild);
   }
 
   /**
