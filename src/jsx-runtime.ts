@@ -11,6 +11,7 @@ interface HasChildren {
   value?: string | number;
   oninput?: (event: InputEvent) => void;
   onchange?: (event: Event) => void;
+  onkeydown?: (event: KeyboardEvent) => void;
   src?: string;
   alt?: string;
   title?: string;
