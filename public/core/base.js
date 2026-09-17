@@ -1097,6 +1097,7 @@ class SeManager {
         // メニュー系
         'menu_cancel':   1.90,  // -27.6 / -6.8
         'menu_decide':   1.80,  // -40.3 / -6.3
+        'menu_cursor':   1.00,  // 未配置（カーソル移動/ホバー/トグル切替。配置後に実測して調整）
         'pause':         1.00,  // 未配置（配置後に実測して調整）
         'resume':        1.00,  // 未配置（配置後に実測して調整）
         'countdown_count': 0.50,  // 未配置（カウント3/2/1用）
@@ -1188,6 +1189,37 @@ class SeManager {
         source.start(0);
     }
 
+    // 高頻度に鳴り得るSE（カーソル移動・ホバー）用。
+    //  - 前回の再生から minIntervalMs 未満なら鳴らさない（キーリピート・連続ホバーの間引き）
+    //  - 前回の音がまだ鳴っていれば止めてから鳴らす（同時発音を常に1音に保つ）
+    // キーボード操作とクリック委譲の両方から同じ操作で呼ばれても、間引きで1回にまとまる。
+    static _exclusive = {}; // key -> { lastAt, source }
+    static playExclusive(key, minIntervalMs = 45) {
+        if (this._muted) return;
+        const buf = AudioLoader.getSeBuffer(key);
+        if (!buf) return;
+        const now = performance.now();
+        const st = this._exclusive[key] || (this._exclusive[key] = { lastAt: -Infinity, source: null });
+        if (now - st.lastAt < minIntervalMs) return;
+        st.lastAt = now;
+
+        AudioLoader.recoverIfDegraded();
+        const ctx = AudioLoader.context;
+        if (ctx.state !== 'running') ctx.resume().catch(() => {});
+        if (st.source) {
+            try { st.source.stop(); } catch (e) { /* 再生終了済み */ }
+        }
+        const source = ctx.createBufferSource();
+        const gain = ctx.createGain();
+        gain.gain.value = this._volume * (this._gain[key] ?? 1);
+        source.buffer = buf;
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        source.onended = () => { if (st.source === source) st.source = null; };
+        source.start(0);
+        st.source = source;
+    }
+
     static setVolume(v) { this._volume = Math.max(0, Math.min(1, v)); }
     static toggleMute() { this._muted = !this._muted; return this._muted; }
 }
@@ -1224,6 +1256,8 @@ AudioLoader.loadSe({
     'countdown_start': 'assets/audio/se/menu/countdown_start.ogg',
     'menu_decide':  'assets/audio/se/menu/decide.ogg',
     'menu_cancel':  'assets/audio/se/menu/cancel.ogg',
+    // カーソル移動（キーでのフォーカス移動・マウスホバー・ON/OFF等の選択切替）
+    'menu_cursor':  'assets/audio/se/menu/cursor.ogg',
     // ポーズ/リジューム（同一音源でも別パスでも可。未配置時は無音）
     'pause':        'assets/audio/se/menu/pause.ogg',
     'resume':       'assets/audio/se/menu/pause.ogg',
@@ -1301,11 +1335,39 @@ AudioLoader.loadSe({
             || el.dataset?.se === 'cancel';
     };
 
+    // ON/OFF・レベル・ステップ等の「選択を切り替えるだけ」のボタンは決定音ではなく選択音
+    // （.ms-seg-btn = ONLINEのMATCH SETTINGS、.vs-setting-step-btn = VS SETTINGSの段階ボタン）
+    const SELECT_SELECTOR = '.opt-btn, .ms-seg-btn, .vs-setting-step-btn';
+
     document.addEventListener('click', (e) => {
+        const sel = e.target.closest(SELECT_SELECTOR);
+        if (sel) {
+            window.SeManager?.playExclusive('menu_cursor');
+            return;
+        }
         const btn = e.target.closest(CLICK_SELECTOR);
         if (!btn) return;
         window.SeManager?.play(isCancelBtn(btn) ? 'menu_cancel' : 'menu_decide');
     }, true);
+
+    // ── マウスホバー音（選択音と同じ menu_cursor）──
+    // mouseover ではなく実際のマウス移動（pointermove）で判定する。
+    //  - キー操作中のスクロールやページ切替で、止まっているカーソルの下に要素が
+    //    滑り込んできただけでは鳴らない
+    //  - タッチ操作（pointerType !== 'mouse'）では鳴らさない
+    // 同じ要素の中を動いている間は鳴らさず、別の要素に入った時だけ鳴らす。
+    const HOVER_SELECTOR = CLICK_SELECTOR.replace('#title-page,', '')
+        + ', ' + SELECT_SELECTOR
+        + ', #account-chip, .online-room, .key-badge, .practice-panel-tab';
+    let hovered = null;
+    document.addEventListener('pointermove', (e) => {
+        if (e.pointerType !== 'mouse') return;
+        const el = e.target.closest ? e.target.closest(HOVER_SELECTOR) : null;
+        const target = (el && !el.disabled) ? el : null;
+        if (target === hovered) return;
+        hovered = target;
+        if (target) window.SeManager?.playExclusive('menu_cursor');
+    }, { passive: true });
 })();
 
 // ==========================================
