@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { pickDb } from "./env";
 import { checkOrigin, error, json } from "./http";
-import { avatarUrl, resolveSession } from "./auth";
+import { avatarUrl, resolveName, resolveSession } from "./auth";
 
 const SUBMIT_MIN_INTERVAL_MS = 3000;
 const RANKING_LIMIT = 100;
@@ -157,6 +157,7 @@ interface RankingRow {
   discord_id: string;
   username: string;
   global_name: string | null;
+  custom_name: string | null;
   avatar: string | null;
 }
 
@@ -183,7 +184,7 @@ export async function handleRanking(req: Request, env: Env, url: URL): Promise<R
   const rows = await db
     .prepare(
       `SELECT r.id AS record_id, b.rank_value, b.created_at, r.value, r.detail, r.played_at,
-              u.discord_id, u.username, u.global_name, u.avatar
+              u.discord_id, u.username, u.global_name, u.custom_name, u.avatar
        FROM best_records b
        JOIN records r ON r.id = b.record_id
        JOIN users u   ON u.discord_id = b.discord_id
@@ -207,7 +208,7 @@ export async function handleRanking(req: Request, env: Env, url: URL): Promise<R
       recordId: row.record_id,
       user: {
         id: row.discord_id,
-        name: row.global_name ?? row.username,
+        name: resolveName(row.custom_name, row.global_name, row.username),
         avatarUrl: avatarUrl(row.discord_id, row.avatar),
       },
       value: row.value,

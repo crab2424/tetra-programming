@@ -34,9 +34,12 @@ const TetDialog = (() => {
 
     /**
      * ダイアログを表示し、押されたボタンの value で解決する Promise を返す。
-     * @param {{title?:string, message:string, buttons:Array<{label:string, value:*, kind?:'primary'|'secondary'|'danger', cancel?:boolean}>, initial?:*}} opts
+     * @param {{title?:string, message:string, buttons:Array<{label:string, value:*, kind?:'primary'|'secondary'|'danger', cancel?:boolean}>, initial?:*, input?:{placeholder?:string, value?:string, maxLength?:number}}} opts
      *   kind 省略時は btn-secondary。cancel:true のボタンは背景クリック/Escapeと同じ扱いになる
      *   （SEもmenu_cancelを鳴らす）。initial は最初にフォーカスする value。
+     *   input を渡すとテキスト入力欄を追加する（表示名編集など）。この場合 choose() の解決値は
+     *   通常の value ではなく { value, text } になる（text は入力欄の現在値）。
+     *   入力は物理キーボードのみを想定（IME経由の全角入力もそのまま通る。専用の仮想キーボードは無し）。
      */
     function choose(opts) {
         return new Promise((resolve) => {
@@ -62,6 +65,17 @@ const TetDialog = (() => {
             p.textContent = opts.message;
             card.appendChild(p);
 
+            let inputEl = null;
+            if (opts.input) {
+                inputEl = document.createElement('input');
+                inputEl.type = 'text';
+                inputEl.className = 'app-dialog-input';
+                if (opts.input.placeholder) inputEl.placeholder = opts.input.placeholder;
+                if (opts.input.value) inputEl.value = opts.input.value;
+                if (opts.input.maxLength) inputEl.maxLength = opts.input.maxLength;
+                card.appendChild(inputEl);
+            }
+
             const btnRow = document.createElement('div');
             btnRow.className = 'app-dialog-buttons';
             let cancelBtn = null;
@@ -72,7 +86,7 @@ const TetDialog = (() => {
                 el.className = 'btn ' + (b.kind ? ('btn-' + b.kind) : 'btn-secondary');
                 el.textContent = b.label;
                 if (b.cancel) { el.dataset.se = 'cancel'; cancelBtn = el; }
-                el.addEventListener('click', () => close(b.value));
+                el.addEventListener('click', () => close(inputEl ? { value: b.value, text: inputEl.value } : b.value));
                 btnRow.appendChild(el);
                 if (opts.initial !== undefined && b.value === opts.initial) initialBtn = el;
             });
@@ -83,6 +97,17 @@ const TetDialog = (() => {
             r.classList.add('is-open');
             // 背景（カードの外）クリックはCANCEL相当。cancelボタンが無ければ何もしない。
             r.onclick = (e) => { if (e.target === r && cancelBtn) cancelBtn.click(); };
+
+            if (inputEl) {
+                // Enterで初期ボタン（無ければ先頭ボタン）をsubmit扱いにする。
+                inputEl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        (initialBtn || btnRow.querySelector('button'))?.click();
+                    }
+                });
+                requestAnimationFrame(() => { inputEl.focus(); inputEl.select(); });
+            }
 
             if (window.FocusNav) {
                 window.FocusNav.register('app-dialog', {

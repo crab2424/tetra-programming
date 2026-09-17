@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { pickDb } from "./env";
 import { checkOrigin, error, json } from "./http";
-import { resolveSession, type SessionUser } from "./auth";
+import { resolveName, resolveSession, type SessionUser } from "./auth";
 import { RANKED_MODES, isRankedMode, parseDetail, rankValueOf, rankingCacheKey, type ModeKey } from "./records";
 
 // セッション解決＋管理者判定。管理者でなければ呼び出し側にそのままreturnさせるためResponseを返す。
@@ -58,6 +58,7 @@ interface AdminRecordRow {
   deleted_by: string | null;
   username: string;
   global_name: string | null;
+  custom_name: string | null;
 }
 
 // ── GET /api/admin/records?mode=&user= ──────────────────────────────────
@@ -76,8 +77,8 @@ export async function handleAdminListRecords(req: Request, env: Env, url: URL): 
     binds.push(modeParam);
   }
   if (userParam) {
-    conditions.push("(r.discord_id = ? OR u.username LIKE ? OR u.global_name LIKE ?)");
-    binds.push(userParam, `%${userParam}%`, `%${userParam}%`);
+    conditions.push("(r.discord_id = ? OR u.username LIKE ? OR u.global_name LIKE ? OR u.custom_name LIKE ?)");
+    binds.push(userParam, `%${userParam}%`, `%${userParam}%`, `%${userParam}%`);
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
@@ -85,7 +86,7 @@ export async function handleAdminListRecords(req: Request, env: Env, url: URL): 
   const rows = await db
     .prepare(
       `SELECT r.id, r.discord_id, r.mode_key, r.value, r.detail, r.source, r.client_version,
-              r.played_at, r.created_at, r.deleted_at, r.deleted_by, u.username, u.global_name
+              r.played_at, r.created_at, r.deleted_at, r.deleted_by, u.username, u.global_name, u.custom_name
        FROM records r JOIN users u ON u.discord_id = r.discord_id
        ${where}
        ORDER BY r.created_at DESC
@@ -105,7 +106,7 @@ export async function handleAdminListRecords(req: Request, env: Env, url: URL): 
     createdAt: row.created_at,
     deletedAt: row.deleted_at,
     deletedBy: row.deleted_by,
-    user: { id: row.discord_id, name: row.global_name ?? row.username },
+    user: { id: row.discord_id, name: resolveName(row.custom_name, row.global_name, row.username) },
   }));
 
   return json({ records });

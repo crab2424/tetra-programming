@@ -170,13 +170,18 @@
     const myId = window.Account && window.Account.me ? window.Account.me.id : null;
     const isAdmin = !!(window.Account && window.Account.me && window.Account.me.isAdmin);
     let myEntryInTop = false;
-    data.entries.forEach((entry) => {
+    data.entries.forEach((entry, idx) => {
       const isMine = !!myId && entry.user.id === myId;
       if (isMine) myEntryInTop = true;
       const adminActions = isAdmin
         ? { recordId: entry.recordId, userId: entry.user.id, userName: entry.user.name }
         : null;
-      listEl.appendChild(_row(entry.rank, entry.user, _formatValue(mode, entry.detail), _formatDate(entry.playedAt), isMine, adminActions));
+      const row = _row(entry.rank, entry.user, _formatValue(mode, entry.detail), _formatDate(entry.playedAt), isMine, adminActions);
+      // 上位100行を全部ずらして出すと待ち時間が伸びすぎるため、先頭12行だけカスケードにして
+      // それ以降は一括で出す（design: tetlabo-discord-ui-polish-design.md §5）。
+      row.classList.add('ranking-row-enter');
+      row.style.animationDelay = `${Math.min(idx, 12) * 0.03}s`;
+      listEl.appendChild(row);
     });
 
     if (data.entries.length === 0) {
@@ -199,14 +204,16 @@
           const myAdminActions = isAdmin
             ? { recordId: meData.recordId, userId: myId, userName: window.Account.me.name }
             : null;
-          listEl.appendChild(_row(
+          const myRow = _row(
             meData.rank,
             { id: myId, name: window.Account.me.name, avatarUrl: window.Account.me.avatarUrl },
             _formatValue(mode, meData.detail),
             _formatDate(meData.playedAt),
             true,
             myAdminActions,
-          ));
+          );
+          myRow.classList.add('ranking-row-enter');
+          listEl.appendChild(myRow);
         }
       } catch (e) { /* 失敗しても上位表示は壊さない */ }
     }

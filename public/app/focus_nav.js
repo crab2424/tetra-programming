@@ -617,23 +617,41 @@
   register('main-menu', {
     rememberIndex: true,
     skipInitialScroll: true,
+    // 初回訪問時（rememberedIndexが無い時）はMARATHONを初期フォーカスにする
+    // （チップを先頭に加えたことで既定の0番目がチップになってしまうため）。
+    initialIndex: (els) => els.findIndex(el => el && el.classList.contains('mode-btn-marathon')),
     getItems: () => [
+      ...withAnchor($$('#account-chip'), document.getElementById('main-menu-logo')),
       ...withAnchor($$('#main-menu-modes-grid button'), document.getElementById('main-menu-modes-grid')),
       ...withAnchor($$('#main-menu-footer button'), document.getElementById('main-menu-footer')),
     ],
     onMove2D: (dir, cur, items) => {
       const curEl = items[cur] && items[cur].el;
       if (!curEl) return null;
-      // CPU TEST → ONLINE → SETTINGS を上下キーで直結する
+      // アカウントチップ ⇔ PUYO を上下キーで直結する（チップは絶対配置で右上に浮いており、
+      // 座標ベースの自動移動だと近い位置のボタンに飛んでしまうため明示的に固定する）
+      if (dir === 'down' && curEl.id === 'account-chip') {
+        const idx = items.findIndex(it => it.el.classList.contains('mode-btn-puyo'));
+        if (idx >= 0) return idx;
+      }
+      if (dir === 'up' && curEl.classList.contains('mode-btn-puyo')) {
+        const idx = items.findIndex(it => it.el.id === 'account-chip');
+        if (idx >= 0) return idx;
+      }
+      // CPU TEST → ONLINE → SETTINGS/RANKING を上下キーで直結する
       if (dir === 'down' && curEl.classList.contains('mode-btn-test')) {
         const idx = items.findIndex(it => it.el.classList.contains('mode-btn-online'));
         if (idx >= 0) return idx;
       }
       if (dir === 'down' && curEl.classList.contains('mode-btn-online')) {
-        const idx = items.findIndex(it => it.el.classList.contains('btn-secondary') && /SETTINGS/i.test(it.el.textContent));
+        const idx = items.findIndex(it => it.el.id === 'main-menu-settings-btn');
         if (idx >= 0) return idx;
       }
-      if (dir === 'up' && curEl.classList.contains('btn-secondary') && /SETTINGS/i.test(curEl.textContent)) {
+      if (dir === 'up' && curEl.id === 'main-menu-settings-btn') {
+        const idx = items.findIndex(it => it.el.classList.contains('mode-btn-online'));
+        if (idx >= 0) return idx;
+      }
+      if (dir === 'up' && curEl.id === 'main-menu-ranking-btn') {
         const idx = items.findIndex(it => it.el.classList.contains('mode-btn-online'));
         if (idx >= 0) return idx;
       }
