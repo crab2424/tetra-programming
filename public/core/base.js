@@ -1108,8 +1108,6 @@ class SeManager {
         'online_match_found':  1.00,
         'online_player_join':  1.00,
         'online_match_start':  1.00,
-        'online_win':          1.00,
-        'online_lose':         1.00,
         // テト系
         'move':          1.00,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
         'rotate':        1.40,  // -34.8 / -5.4
@@ -1238,8 +1236,6 @@ AudioLoader.loadSe({
     'online_match_found': 'assets/audio/se/online/match_found.ogg', // ランダムマッチの相手が見つかった
     'online_player_join': 'assets/audio/se/online/player_join.ogg', // ルームに他プレイヤーが入室
     'online_match_start': 'assets/audio/se/online/match_start.ogg', // 全員READY→対戦開始が確定
-    'online_win':         'assets/audio/se/online/win.ogg',
-    'online_lose':        'assets/audio/se/online/lose.ogg',
     // テト系
     'move':      'assets/audio/se/tet/move.ogg',
     'rotate':    'assets/audio/se/tet/rotate.ogg',
