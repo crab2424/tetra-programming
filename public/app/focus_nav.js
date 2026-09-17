@@ -7,7 +7,8 @@
 //  - フォーカス item 抽象化: type='button' or type='row'
 //    row はラベル要素にフォーカス枠 + ←/→ で値変更（onLeft/onRight）
 //  - 既定の 2D 移動は視覚配置(getBoundingClientRect)から行列を作って遷移
-//  - フォーカス対象が画面外なら scrollIntoView({block:'nearest'})
+//  - フォーカス対象のグループが見えていなければ最小限だけスクロール（自前のばねアニメ）
+//  - 矢印キーで項目が変わったらカーソル移動SE（menu_cursor）
 
 (function(){
   const FOCUS_CLASS = 'is-focused';
@@ -27,6 +28,8 @@
     document.body.classList.toggle('input-mode-pointer', mode === 'pointer');
     if (mode === 'pointer') {
       clearFocus();
+      // マウス/ホイール操作と取り合わないよう、フォーカス追従スクロールは即中断
+      stopFocusScroll();
     } else if (active) {
       // kbd 復帰: 直前indexを再フォーカス
       applyFocus(active.index || 0);
@@ -95,13 +98,127 @@
     document.querySelectorAll('.' + FOCUS_CLASS).forEach(el => el.classList.remove(FOCUS_CLASS));
   }
 
-  function scrollGroupIntoView(anchor){
-    if (!anchor || typeof anchor.scrollIntoView !== 'function') return;
-    try {
-      anchor.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
-    } catch (e) {
-      anchor.scrollIntoView(false);
+  // ─────────────────────────────────────────────
+  // フォーカス追従スクロール
+  // 旧実装は scrollIntoView({block:'center', behavior:'smooth'}) だったが、
+  //  ①見えているグループへ移っても中央へ寄せ直す
+  //  ②長押し（キーリピート）中、グループが変わるたびにブラウザのアニメが速度0からやり直しになり
+  //    「急停止→急加速」を繰り返す（実測 約3000px/s→55px/s）
+  // という問題があったため、次の方式に置き換えた。
+  //  - グループ(scrollAnchor)が余白込みで見えていれば動かさない。見えていなければ最小限だけ動かす。
+  //    グループが表示領域より高い場合は、フォーカス項目自体を表示領域に入れる。
+  //  - 移動は臨界減衰ばねの自前rAFで行う。途中で目標が変わっても速度を引き継ぐので途切れない。
+  //  - prefers-reduced-motion 時は即座に移動する。
+  // ─────────────────────────────────────────────
+  const SCROLL_OMEGA = 14;       // ばねの固有角振動数（大きいほど速く収束。14で480px移動≒0.45秒）
+  const SCROLL_VMAX_PER_VH = 4;  // 速度上限（表示領域の高さ×この値 px/s）
+  const reducedMotionMql = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  let focusScroll = null; // { sc, pos, v, target, rafId, lastTs }
+
+  function isRootScroller(el){
+    return el === document.scrollingElement || el === document.documentElement || el === document.body;
+  }
+
+  function getScrollParent(node){
+    let el = node.parentElement;
+    while (el && el !== document.body && el !== document.documentElement) {
+      const oy = getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1) return el;
+      el = el.parentElement;
     }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  function scrollViewport(sc){
+    if (isRootScroller(sc)) return { top: 0, bottom: window.innerHeight };
+    const r = sc.getBoundingClientRect();
+    const top = r.top + sc.clientTop;
+    return { top, bottom: top + sc.clientHeight };
+  }
+
+  function stopFocusScroll(){
+    if (focusScroll && focusScroll.rafId) cancelAnimationFrame(focusScroll.rafId);
+    focusScroll = null;
+  }
+
+  function _focusScrollLoop(ts){
+    const fs = focusScroll;
+    if (!fs) return;
+    const sc = fs.sc;
+    if (!sc.isConnected) { stopFocusScroll(); return; }
+    // 初回フレームは経過時間が不定（rAF登録から描画までの待ち）なので1フレーム分として扱う
+    let dt = fs.lastTs === null ? 1 / 60 : Math.min(64, Math.max(0, ts - fs.lastTs)) / 1000;
+    fs.lastTs = ts;
+    const vMax = Math.max(1200, sc.clientHeight * SCROLL_VMAX_PER_VH);
+    // 半陰的オイラーを細かく刻んで積分（高リフレッシュでも低リフレッシュでも同じ動きにする）
+    while (dt > 0) {
+      const h = Math.min(dt, 1 / 240);
+      dt -= h;
+      const a = SCROLL_OMEGA * SCROLL_OMEGA * (fs.target - fs.pos) - 2 * SCROLL_OMEGA * fs.v;
+      fs.v = Math.max(-vMax, Math.min(vMax, fs.v + a * h));
+      fs.pos += fs.v * h;
+    }
+    // 残り1px前後を何フレームもかけて這うと1pxずつのカクつきに見えるため、早めにスナップする
+    const done = Math.abs(fs.target - fs.pos) < 1.5 && Math.abs(fs.v) < 60;
+    if (done) fs.pos = fs.target;
+    sc.scrollTop = fs.pos;
+    if (done) { stopFocusScroll(); return; }
+    fs.rafId = requestAnimationFrame(_focusScrollLoop);
+  }
+
+  function scrollToTarget(sc, target, edgeSnap){
+    const maxTop = Math.max(0, sc.scrollHeight - sc.clientHeight);
+    // 端まで余白ぶんも無いなら端に揃える（ページ先頭が数十pxだけ隠れた半端な位置で止めない）
+    if (target < edgeSnap) target = 0;
+    if (target > maxTop - edgeSnap) target = maxTop;
+    target = Math.max(0, Math.min(maxTop, target));
+    if (reducedMotionMql && reducedMotionMql.matches) {
+      stopFocusScroll();
+      sc.scrollTop = target;
+      return;
+    }
+    if (focusScroll && focusScroll.sc === sc) {
+      focusScroll.target = target; // 速度は引き継ぐ
+      return;
+    }
+    stopFocusScroll();
+    focusScroll = { sc, pos: sc.scrollTop, v: 0, target, rafId: null, lastTs: null };
+    focusScroll.rafId = requestAnimationFrame(_focusScrollLoop);
+  }
+
+  // rect（現在の表示位置）を、スクロール位置が base の時の位置へ換算して必要な移動量を返す。
+  // 余白込みで収まっていれば 0、表示領域より高ければ null。
+  function neededDelta(rect, vp, margin, shift){
+    const top = rect.top - shift, bottom = rect.bottom - shift;
+    const vTop = vp.top + margin, vBottom = vp.bottom - margin;
+    if (bottom - top > vBottom - vTop) return null;
+    if (top < vTop) return top - vTop;
+    if (bottom > vBottom) return bottom - vBottom;
+    return 0;
+  }
+
+  function scrollGroupIntoView(anchor, itemEl){
+    if (!anchor || typeof anchor.getBoundingClientRect !== 'function') return;
+    const sc = getScrollParent(anchor);
+    const vp = scrollViewport(sc);
+    const vh = vp.bottom - vp.top;
+    if (vh <= 0) return;
+    const margin = Math.min(vh * 0.25, Math.max(48, vh * 0.12));
+    // アニメ中は「向かっている先」を基準に判定する（途中の位置で判定すると、行き先では
+    // 見えなくなる項目を見落としたり、戻る必要のない方向へ引き戻したりするため）
+    const base = (focusScroll && focusScroll.sc === sc) ? focusScroll.target : sc.scrollTop;
+    const shift = base - sc.scrollTop;
+    let d = neededDelta(anchor.getBoundingClientRect(), vp, margin, shift);
+    if (d === null && itemEl && itemEl !== anchor) {
+      d = neededDelta(itemEl.getBoundingClientRect(), vp, margin, shift);
+    }
+    if (d === null) {
+      // 項目自体も表示領域より高い：項目の上端を合わせる
+      const r = (itemEl || anchor).getBoundingClientRect();
+      d = (r.top - shift) - (vp.top + margin);
+    }
+    if (Math.abs(d) < 1) return;
+    scrollToTarget(sc, base + d, margin);
   }
 
   function getScrollAnchor(it){
@@ -122,14 +239,21 @@
     if (inputMode !== 'kbd') return;
     const it = items[idx];
     it.el.classList.add(FOCUS_CLASS);
+    // カーソル移動SE：矢印キーで実際に項目が変わった時だけ（初期フォーカス・再描画・復元では鳴らさない）
+    if (opts.sound && idx !== prevIdx) playCursorSe();
     if (!opts.skipScroll) {
-      const prevAnchor = (prevIdx >= 0 && prevIdx < items.length) ? getScrollAnchor(items[prevIdx]) : null;
-      const newAnchor = getScrollAnchor(it);
-      if (newAnchor !== prevAnchor || active._firstFocus) {
-        scrollGroupIntoView(newAnchor);
-      }
+      // 見えていれば何もしないので、同じグループ内の移動でも毎回判定してよい
+      // （マウスで他所へスクロールした後にキー操作を再開した時も、フォーカス位置へ戻れる）
+      scrollGroupIntoView(getScrollAnchor(it), it.el);
     }
     active._firstFocus = false;
+  }
+
+  function playCursorSe(){
+    const se = window.SeManager;
+    if (!se) return;
+    if (typeof se.playExclusive === 'function') se.playExclusive('menu_cursor');
+    else se.play('menu_cursor');
   }
 
   function currentIndex(items){
@@ -284,7 +408,11 @@
     if ((dir === 'left' || dir === 'right') && it && it.type === 'row') {
       const handler = dir === 'left' ? it.onLeft : it.onRight;
       if (typeof handler === 'function') {
+        // 値が実際に変わった時だけ選択音（スライダー端・ステップ端では鳴らさない）。
+        // トグルは .opt-btn 等の click 経由でも選択音が鳴るが、playExclusive の間引きで1回にまとまる。
+        const before = rowValueSignature(it.el);
         handler(it);
+        if (rowValueSignature(it.el) !== before) playCursorSe();
         // 値変更後に表示が更新される可能性があるため、フォーカスを再適用
         // 左右で値を変えるだけの操作ではページを縦スクロールさせない
         // active.index は mouseover で汚染されうるので .is-focused 由来の cur を使う
@@ -299,12 +427,20 @@
     if (typeof active.onMove2D === 'function') {
       const next = active.onMove2D(dir, cur, items);
       if (typeof next === 'number' && next >= 0 && next < items.length) {
-        applyFocus(next);
+        applyFocus(next, { sound: true });
         return;
       }
     }
     const next = defaultMove2D(dir, cur, items);
-    if (next !== null) applyFocus(next);
+    if (next !== null) applyFocus(next, { sound: true });
+  }
+
+  // row 行の「現在値」を表す文字列（表示テキスト＋中のinput値＋activeなボタン）
+  function rowValueSignature(el){
+    let sig = el.textContent || '';
+    el.querySelectorAll('input').forEach(i => { sig += '|' + i.value; });
+    el.querySelectorAll('.active').forEach(b => { sig += '|' + (b.textContent || '') + '#' + Array.prototype.indexOf.call(b.parentNode.children, b); });
+    return sig;
   }
 
   function activateButton(it){
@@ -431,6 +567,7 @@
     clearFocus();
     active = null;
     stopPaneScroll();
+    stopFocusScroll();
   }
 
   // online系は activate() 呼び出し時点でまだページに 'active' が付いていない（描画→表示が
