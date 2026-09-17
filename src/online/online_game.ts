@@ -789,7 +789,10 @@ export class OnlineGameController {
       //   瞬間）に再生を始める。真っ暗な間はロビーBGMがフェードアウトしながら鳴っている。
       const revealTriggerAbs = startedAt + delay - LOADING_CLOSE_MS;
       const lobbyFadeMs = Math.max(0, revealTriggerAbs - performance.now());
-      (window as any).BgmManager?.stop(false, lobbyFadeMs);
+      // 連戦（同一マッチの2本目以降）で online_bgm が流れ続けている場合は、
+      // フェードアウトせずそのままの音量で継続する（revealBattleAfterSync の play() は冪等）。
+      const bgm = (window as any).BgmManager;
+      if (isFreshMatch || !bgm?.isCurrent?.("online_bgm")) bgm?.stop(false, lobbyFadeMs);
       enterBlackout().then(() => this.setupBattleUnderCover(notif, delay, startedAt, isFreshMatch));
     }, coverWait);
   }

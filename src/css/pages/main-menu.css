@@ -216,7 +216,10 @@
 #main-menu-footer {
   position: relative;
   width: 100%;
-  margin-top: 16px;
+  /* SETTINGS/RANKING の上下の余白を揃える（上: モードボタン下端から32px、
+     下: TITLEの文字まで32px = gap 24px + TITLEのpadding等 約8px）。
+     #main-menu-container の gap(40px) を 8px 詰める */
+  margin-top: -8px;
   min-height: 100px;
   /* #main-menu-page は overflow:hidden のため、最下段(TITLE等)のフォーカス枠
      (outline 2px + offset 2px)が切れないよう下に余白を確保する */
@@ -228,7 +231,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 24px;
 }
 
 /* SETTINGS / RANKING の横並び（空白の都合上、縦2段だったものを1段にまとめる） */

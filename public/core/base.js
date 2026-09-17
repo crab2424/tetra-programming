@@ -940,10 +940,12 @@ class BgmManager {
         this._audio.play().catch(() => {});
     }
 
-    static stop(immediate = false, fadeMs = 300) {
+    // onDone: 停止し終えた（フェード時は音量0に達した）時に呼ぶ。途中で play()/crossfadeTo()/
+    // 別の stop() によりフェードが打ち切られた場合は呼ばれない。
+    static stop(immediate = false, fadeMs = 300, onDone = null) {
         // ダッキング状態を解除（次に流すBGMが小音量のまま始まるのを防ぐ）
         this._ducked = false;
-        if (!this._audio) return;
+        if (!this._audio) { onDone?.(); return; }
         if (this._fadeTimer) {
             clearInterval(this._fadeTimer);
             this._fadeTimer = null;
@@ -953,6 +955,7 @@ class BgmManager {
             this._audio.currentTime = 0;
             this._audio = null;
             this._currentKey = null;
+            onDone?.();
         } else {
             this.fadeOut(fadeMs, () => {
                 if (this._audio) {
@@ -960,6 +963,7 @@ class BgmManager {
                     this._audio = null;
                 }
                 this._currentKey = null;
+                onDone?.();
             });
         }
     }
@@ -976,6 +980,8 @@ class BgmManager {
         if (!src) return;
 
         if (this._currentKey === key && this._audio) {
+            // 同じ曲をフェードアウト中なら打ち切って戻す（放置すると音量0まで下がり止まる）
+            if (this._fadeTimer) { clearInterval(this._fadeTimer); this._fadeTimer = null; }
             this._applyVolume();
             if (this._audio.paused) this._audio.play().catch(() => {});
             return;

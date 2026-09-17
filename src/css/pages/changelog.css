@@ -5,7 +5,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  /* body の上下padding(24px×2)を差し引いた高さに固定し、ページ全体のスクロールを出さない。
+     align-self:stretch で横幅も body いっぱいに取り、パネル幅が中身で縮まないようにする */
+  align-self: stretch;
+  height: calc(100vh - 48px);
   padding: 32px 16px;
   box-sizing: border-box;
 }
@@ -17,7 +20,7 @@
   gap: 20px;
   width: 100%;
   max-width: 520px;
-  max-height: 84vh;
+  max-height: min(84vh, 100%);
   overflow: hidden;
   padding: 40px 32px;
   background: rgba(255, 255, 255, 0.03);
