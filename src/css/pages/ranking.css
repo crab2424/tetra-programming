@@ -17,15 +17,18 @@
   gap: 16px;
   width: 100%;
   max-width: 480px;
-  max-height: 84vh;
+  /* 記録の件数・読み込み状態でページの大きさが変わらないよう高さを固定する
+     （一覧 .ranking-list が残りを埋め、はみ出た分は内部スクロール） */
+  height: min(84vh, 680px);
   padding: 32px 28px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
   border-radius: 16px;
   box-sizing: border-box;
 }
-/* 管理者(Account.me.isAdmin)にはDELETE/BANボタンを行に追加するため一段広くする */
-#ranking-container:has(.ranking-admin-actions) {
+/* 管理者(Account.me.isAdmin)にはDELETE/BANボタンを行に追加するため一段広くする。
+   行の有無で幅が変わらないよう、ranking.js が管理者かどうかでクラスを付ける */
+#ranking-container.is-admin {
   max-width: 640px;
 }
 

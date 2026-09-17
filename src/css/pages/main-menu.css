@@ -218,6 +218,9 @@
   width: 100%;
   margin-top: 16px;
   min-height: 100px;
+  /* #main-menu-page は overflow:hidden のため、最下段(TITLE等)のフォーカス枠
+     (outline 2px + offset 2px)が切れないよう下に余白を確保する */
+  padding-bottom: 8px;
 }
 
 /* 中央：SETTINGS+RANKING の横並びの真下に TITLE を縦並び */
