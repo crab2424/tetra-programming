@@ -384,12 +384,18 @@
       const isUp = key === 'ArrowUp' || code === 'KeyW';
       const isDown = key === 'ArrowDown' || code === 'KeyS';
       if ((isUp || isDown) && typeof active.scrollPane === 'function') {
-        const pane = active.scrollPane();
+        // scrollPane(現在のフォーカス項目, 方向) が null を返したら通常のフォーカス移動に回す
+        // （RANKINGは一覧にフォーカスがある時だけ、かつ端に達していない方向だけスクロール）
+        const dir = isDown ? 'down' : 'up';
+        const items = currentItems();
+        const pane = active.scrollPane(items[currentIndex(items)], dir);
         if (pane) {
           e.preventDefault();
-          if (!e.repeat) startPaneScroll(pane, isDown ? 'down' : 'up');
+          if (!e.repeat) startPaneScroll(pane, dir);
           return;
         }
+        // 長押しで端まで流れ着いた直後のキーリピートで、そのまま隣の項目へ飛ばない
+        if (e.repeat && paneScroll) { e.preventDefault(); return; }
       }
     }
 
@@ -798,11 +804,21 @@
       const btnAnchor = document.getElementById('ranking-buttons');
       const items = [];
       if (tabToggle) items.push(rowToggle(tabToggle, tabToggle));
+      // 一覧はスクロールが必要な時だけ1項目として挟む（タブ ↓ 一覧 ↓ BACK）
+      const list = document.getElementById('ranking-list');
+      if (list && list.scrollHeight > list.clientHeight) items.push({ el: list });
       $$('#ranking-buttons button').forEach(b => items.push({ el: b, scrollAnchor: btnAnchor }));
       return items;
     },
     initialIndex: 0,
-    scrollPane: () => document.querySelector('#ranking-page .ranking-list'),
+    scrollPane: (it, dir) => {
+      const pane = document.getElementById('ranking-list');
+      if (!pane || !it || it.el !== pane) return null;
+      const atTop = pane.scrollTop <= 0;
+      const atBottom = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 1;
+      if ((dir === 'up' && atTop) || (dir === 'down' && atBottom)) return null;
+      return pane;
+    },
   });
 
   register('settings', {

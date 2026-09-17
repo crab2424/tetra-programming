@@ -169,6 +169,8 @@
 
     const myId = window.Account && window.Account.me ? window.Account.me.id : null;
     const isAdmin = !!(window.Account && window.Account.me && window.Account.me.isAdmin);
+    const containerEl = document.getElementById('ranking-container');
+    if (containerEl) containerEl.classList.toggle('is-admin', isAdmin);
     let myEntryInTop = false;
     data.entries.forEach((entry, idx) => {
       const isMine = !!myId && entry.user.id === myId;

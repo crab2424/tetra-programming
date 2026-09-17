@@ -38,7 +38,8 @@
 .util-link-credits,
 .util-link-changelog {
   position: absolute;
-  bottom: 4px;
+  /* #main-menu-footer の padding-bottom(8px)と揃え、TITLE と下端を合わせる */
+  bottom: 8px;
 }
 
 .util-link-credits {

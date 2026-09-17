@@ -120,7 +120,8 @@ async function startVersusGame() {
   const cpuSideLabel = document.getElementById('versus-cpu-side-label');
   if (cpuSideLabel) cpuSideLabel.textContent = 'CPU ' + cpuConfig.label;
 
-  const sharedSeed = Math.floor(Math.random() * 1000000);
+  // xorshift はシード0だと0を返し続けるため 1 以上にする
+  const sharedSeed = Math.floor(Math.random() * 1000000) + 1;
 
   const isPlayerPuyo = versusPlayerRule === 'puyo';
   const isCpuPuyo = versusCpuRule === 'puyo';
@@ -136,6 +137,8 @@ async function startVersusGame() {
   } else {
       if (!window._tetGamePlayer) window._tetGamePlayer = new Game('player');
       window._game = window._tetGamePlayer;
+      // ツモ順をCPUと共通にする（getNextType が tumoRng を使う。ONLINE と同じ仕組み）
+      window._game.tumoRng = createSeededRandom(sharedSeed);
   }
 
   // ─── CPU インスタンス生成 ───
@@ -146,6 +149,7 @@ async function startVersusGame() {
   } else {
       if (!window._tetGameCpu) window._tetGameCpu = new Game('cpu');
       window._cpuGame = window._tetGameCpu;
+      window._cpuGame.tumoRng = createSeededRandom(sharedSeed);
   }
 
   // ─── 共通設定 ───
