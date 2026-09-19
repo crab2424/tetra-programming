@@ -165,9 +165,12 @@ function onlineTopGetItems(): FocusItem[] {
 function onlineTopEscapeTarget(): HTMLElement | null {
   const container = onlineTopContainerEl();
   if (!container) return null;
-  // RM確認・ルーム詳細: 退出/辞退はいずれも破壊的操作なので安全な対象が無い（意図的にnull）。
+  // RM確認(辞退)は確認を挟まず即座に効くため、Escapeの対象にしない（意図的にnull）。
   if (container.querySelector("#ol-rm-confirm")) return null;
-  if (container.querySelector(".online-header .btn-danger")) return null; // ルーム詳細(LEAVE)
+  // ルーム詳細: EscapeでLEAVE＝「ルーム退出の確認」ダイアログを開く。押しただけでは退出せず、
+  // ダイアログで改めて確認するため、破壊的操作だがEscapeの対象にしてよい。
+  const roomLeave = container.querySelector<HTMLElement>(".online-header .btn-danger");
+  if (roomLeave) return roomLeave;
   if (container.querySelector(".ol-connect-error")) {
     return pickEscapeButton(container.querySelector<HTMLElement>(".ol-connect-actions") || container);
   }
