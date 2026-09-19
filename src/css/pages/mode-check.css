@@ -17,11 +17,25 @@
   width: 660px;
 }
 
+/* モード名は画面上部に貼り付けて、STARTへスクロールしても「今どのモードの準備画面か」が
+   見えたままになるようにする（縦の狭い画面ではタイトルとSTARTが1画面に収まらないため）。
+   下端はぼかして、後ろを流れる本文が唐突に切れないようにする。 */
 #mode-check-header {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  width: 100%;
+  padding: 12px 0 16px;
+  background: linear-gradient(
+    to bottom,
+    var(--bg) 0%,
+    var(--bg) 72%,
+    transparent 100%
+  );
 }
 
 .mode-check-icon {
@@ -70,13 +84,7 @@
   font-weight: 700;
 }
 
-#mode-check-controls {
-  width: 100%;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px 24px;
-}
+/* #mode-check-controls は廃止（.controls-title/.controls-grid は versus-check が使用）。 */
 
 .controls-title {
   font-family: "Orbitron", monospace;

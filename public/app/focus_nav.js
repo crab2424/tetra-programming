@@ -168,9 +168,12 @@
 
   function scrollToTarget(sc, target, edgeSnap){
     const maxTop = Math.max(0, sc.scrollHeight - sc.clientHeight);
-    // 端まで余白ぶんも無いなら端に揃える（ページ先頭が数十pxだけ隠れた半端な位置で止めない）
-    if (target < edgeSnap) target = 0;
-    if (target > maxTop - edgeSnap) target = maxTop;
+    // 端まで余白ぶんも無いなら端に揃える（ページ先頭が数十pxだけ隠れた半端な位置で止めない）。
+    // スクロールできる幅が余白より狭いページでは、上下の判定が重なって「常に最下部へ」に
+    // なってしまうため、スナップ幅はスクロール範囲の半分までに抑え、上下どちらか一方だけ効かせる。
+    const snap = Math.min(edgeSnap, maxTop / 2);
+    if (target < snap) target = 0;
+    else if (target > maxTop - snap) target = maxTop;
     target = Math.max(0, Math.min(maxTop, target));
     if (reducedMotionMql && reducedMotionMql.matches) {
       stopFocusScroll();
@@ -188,13 +191,23 @@
 
   // rect（現在の表示位置）を、スクロール位置が base の時の位置へ換算して必要な移動量を返す。
   // 余白込みで収まっていれば 0、表示領域より高ければ null。
-  function neededDelta(rect, vp, margin, shift){
+  function neededDelta(rect, vp, margin, shift, topMargin){
     const top = rect.top - shift, bottom = rect.bottom - shift;
-    const vTop = vp.top + margin, vBottom = vp.bottom - margin;
+    const vTop = vp.top + (topMargin == null ? margin : topMargin), vBottom = vp.bottom - margin;
     if (bottom - top > vBottom - vTop) return null;
     if (top < vTop) return top - vTop;
     if (bottom > vBottom) return bottom - vBottom;
     return 0;
+  }
+
+  // 画面上部に貼り付く見出し（position:sticky）がある場合、その高さぶん上の余白を広げる。
+  // 広げないと、フォーカス項目が見出しの裏に潜って見えなくなる。
+  function stickyTopInset(){
+    if (!active || typeof active.stickyTop !== 'function') return 0;
+    let el = null;
+    try { el = active.stickyTop(); } catch (e) { el = null; }
+    if (!el || !isVisible(el)) return 0;
+    return el.getBoundingClientRect().height;
   }
 
   function scrollGroupIntoView(anchor, itemEl){
@@ -208,14 +221,15 @@
     // 見えなくなる項目を見落としたり、戻る必要のない方向へ引き戻したりするため）
     const base = (focusScroll && focusScroll.sc === sc) ? focusScroll.target : sc.scrollTop;
     const shift = base - sc.scrollTop;
-    let d = neededDelta(anchor.getBoundingClientRect(), vp, margin, shift);
+    const topMargin = margin + stickyTopInset();
+    let d = neededDelta(anchor.getBoundingClientRect(), vp, margin, shift, topMargin);
     if (d === null && itemEl && itemEl !== anchor) {
-      d = neededDelta(itemEl.getBoundingClientRect(), vp, margin, shift);
+      d = neededDelta(itemEl.getBoundingClientRect(), vp, margin, shift, topMargin);
     }
     if (d === null) {
       // 項目自体も表示領域より高い：項目の上端を合わせる
       const r = (itemEl || anchor).getBoundingClientRect();
-      d = (r.top - shift) - (vp.top + margin);
+      d = (r.top - shift) - (vp.top + topMargin);
     }
     if (Math.abs(d) < 1) return;
     scrollToTarget(sc, base + d, margin);
@@ -807,6 +821,8 @@
   });
 
   register('mode-check', {
+    // モード名の見出しは sticky で画面上部に残るため、その高さぶんフォーカスを下げる
+    stickyTop: () => document.getElementById('mode-check-header'),
     getItems: () => {
       const optAnchor = document.getElementById('mode-check-options');
       const btnAnchor = document.getElementById('mode-check-buttons');
