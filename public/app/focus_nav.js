@@ -820,6 +820,28 @@
     },
   });
 
+  // ─────────────────────────────────────────────
+  // 準備画面（mode-check / versus-check）の左右カラム移動
+  // 左カラム（START/BACK）で →キー を押したら、右カラム（オプション）の
+  // 縦位置が最も近い項目へ移る。逆向き（右カラムで ←）は入れない＝右カラムの行は
+  // ←/→ が値の変更に割り当たっているため、衝突させない。
+  // ─────────────────────────────────────────────
+  function checkPageMove2D(dir, cur, items){
+    if (dir !== 'right') return null;
+    const curEl = items[cur] && items[cur].el;
+    if (!curEl || !curEl.closest('.check-col-info')) return null;
+    const r = curEl.getBoundingClientRect();
+    const cy = (r.top + r.bottom) / 2;
+    let best = null, bestD = Infinity;
+    items.forEach((it, i) => {
+      if (!it.el.closest('.check-col-actions')) return;
+      const rr = it.el.getBoundingClientRect();
+      const d = Math.abs((rr.top + rr.bottom) / 2 - cy);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best;
+  }
+
   register('mode-check', {
     getItems: () => {
       const optAnchor = document.getElementById('mode-check-options');
@@ -834,6 +856,7 @@
       return items;
     },
     initialIndex: (els) => els.findIndex(b => b && b.id === 'mode-check-start-btn'),
+    onMove2D: checkPageMove2D,
   });
 
   register('versus-check', {
@@ -852,6 +875,7 @@
       return items;
     },
     initialIndex: (els) => els.findIndex(b => b && b.id === 'versus-check-start-btn'),
+    onMove2D: checkPageMove2D,
   });
 
   register('vs-settings', {
