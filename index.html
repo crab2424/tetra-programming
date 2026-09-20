@@ -184,9 +184,6 @@
         <p id="mode-check-desc-en" class="mode-check-desc-en"></p>
       </div>
       <p id="mode-check-best" style="display: none"></p>
-      </div>
-      <div class="check-col check-col-actions">
-      <div id="mode-check-options" style="display: none; width: 100%; flex-direction: column; gap: 16px"></div>
       <div id="mode-check-buttons">
         <button class="menu-btn btn-primary" id="mode-check-start-btn" onclick="startGameFromModeCheck()">
           <span class="menu-btn-icon" id="mode-check-start-icon">▶</span>
@@ -197,6 +194,10 @@
           <span>BACK</span>
         </button>
       </div>
+      </div>
+      <div class="check-col check-col-actions">
+      <div id="mode-check-options" style="display: none; width: 100%; flex-direction: column; gap: 16px"></div>
+
       </div>
     </div>
   </div>
@@ -272,6 +273,27 @@
           Battle against CPU. The match ends when either side tops out.
         </p>
       </div>
+      <div id="versus-check-buttons">
+        <!-- VS SETTINGS ボタン + サマリー表示 -->
+        <div id="vs-settings-row">
+          <button class="menu-btn btn-vs-settings" id="vs-settings-open-btn" onclick="goToVsSettings()">
+            <span class="menu-btn-icon">⚙</span>
+            <span>VS SETTINGS</span>
+          </button>
+          <div id="vs-settings-summary-block">
+            <span class="vs-settings-summary-label">SETTINGS:</span>
+            <span id="vs-settings-summary">ALL DEFAULT</span>
+          </div>
+        </div>
+        <button class="menu-btn btn-versus-primary" id="versus-check-start-btn" onclick="startVersusGame()">
+          <span class="menu-btn-icon">▶</span>
+          <span>START</span>
+        </button>
+        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+          <span class="menu-btn-icon">◀</span>
+          <span>BACK</span>
+        </button>
+      </div>
 
       </div>
       <div class="check-col check-col-actions">
@@ -322,27 +344,7 @@
               margin-top: 8px;
             "></p>
       </div>
-      <div id="versus-check-buttons">
-        <!-- VS SETTINGS ボタン + サマリー表示 -->
-        <div id="vs-settings-row">
-          <button class="menu-btn btn-vs-settings" id="vs-settings-open-btn" onclick="goToVsSettings()">
-            <span class="menu-btn-icon">⚙</span>
-            <span>VS SETTINGS</span>
-          </button>
-          <div id="vs-settings-summary-block">
-            <span class="vs-settings-summary-label">SETTINGS:</span>
-            <span id="vs-settings-summary">ALL DEFAULT</span>
-          </div>
-        </div>
-        <button class="menu-btn btn-versus-primary" id="versus-check-start-btn" onclick="startVersusGame()">
-          <span class="menu-btn-icon">▶</span>
-          <span>START</span>
-        </button>
-        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
-          <span class="menu-btn-icon">◀</span>
-          <span>BACK</span>
-        </button>
-      </div>
+
       </div>
     </div>
   </div>

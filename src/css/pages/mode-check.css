@@ -6,9 +6,11 @@
   justify-content: center;
   align-items: flex-start;
   width: 100%;
+  /* 縦中央寄せのため、ページ自身が body の余った高さを埋める */
+  flex: 1;
 }
 
-/* 準備画面は横2カラム（左=モードの説明、右=オプションと操作ボタン）。
+/* 準備画面は横2カラム（左=モードの説明とSTART/BACK、右=オプション）。
    1カラムだとタイトルとSTARTが縦に離れすぎ、縦の狭い画面でキー操作すると
    モード名が画面外へ出てしまうため。幅はメインメニューと同じ考え方で
    設計幅を決め、狭い画面では zoom で縮める（横スクロールを出さない）。 */
@@ -18,10 +20,13 @@
   flex-direction: row;
   align-items: flex-start;
   gap: 40px;
-  padding-top: 32px;
   width: 960px;
   max-width: none;
   zoom: clamp(0.35, calc((100vw - 32px) / 960px), 1);
+  /* 縦中央寄せ。align-items:center ではなく auto マージンを使う＝内容が画面より高いときは
+     マージンが0になり、上端が画面外に出て戻れなくなる問題が起きない。 */
+  margin: auto 0;
+  padding: 24px 0;
 }
 
 .check-col {
@@ -33,6 +38,15 @@
 }
 .check-col-info {
   align-items: center;
+}
+
+/* オプションは versus 側のルール枠と同じ見た目にして、左右の重さを揃える
+   （表示/非表示と中身の並びは navigation.js 側のインラインstyleが持つ） */
+#mode-check-options {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 24px;
 }
 
 #mode-check-header {
@@ -196,6 +210,7 @@
   justify-content: center;
   align-items: flex-start;
   width: 100%;
+  flex: 1;
 }
 
 #versus-cpu-options {
