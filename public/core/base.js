@@ -1268,7 +1268,7 @@ AudioLoader.loadSe({
     'clear':        'assets/audio/se/menu/clear.ogg',
     // オンライン系（未配置の間は無音）
     'online_match_found': 'assets/audio/se/online/match_found.ogg', // ランダムマッチの相手が見つかった
-    'online_player_join': 'assets/audio/se/online/player_join.ogg', // ルームに他プレイヤーが入室
+    'online_player_join': 'assets/audio/se/online/match_found.ogg', // ルームに他プレイヤーが入室
     'online_match_start': 'assets/audio/se/online/match_start.ogg', // 全員READY→対戦開始が確定
     // テト系
     'move':      'assets/audio/se/tet/move.ogg',
