@@ -121,3 +121,13 @@
   width: 100%;
 }
 
+
+/* 個人情報の取扱い（PRIVACY）の説明文 */
+.credits-note {
+  max-width: 420px;
+  margin: 0 auto;
+  font-size: 0.7rem;
+  line-height: 1.7;
+  color: var(--text-dim);
+  text-align: left;
+}
