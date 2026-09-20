@@ -681,19 +681,7 @@ function updateMenuControlsDisplay() {
 
   // 準備画面(mode-check)のCONTROLS表示は廃止した（SETTINGSのKEY CONFIGで確認できるため、
   // 画面を短くしてタイトルとSTARTが1画面に収まるようにした）。versus側は据え置き。
-  // versus準備画面のコントロールグリッドも更新
-  const versusCheckGrid = document.getElementById('versus-check-controls-grid');
-  if (versusCheckGrid) {
-    versusCheckGrid.innerHTML = `
-      <span class="ctrl-key">${currentKeys.moveLeft.label}${currentKeys.moveRight.label} / ${formatGamepadBindings(currentGamepadConfig.moveLeft)} + ${formatGamepadBindings(currentGamepadConfig.moveRight)}</span><span class="ctrl-desc">移動</span>
-      <span class="ctrl-key">${currentKeys.rotateCW.label} / ${formatGamepadBindings(currentGamepadConfig.rotateCW)}</span><span class="ctrl-desc">右回転</span>
-      <span class="ctrl-key">${currentKeys.rotateCCW.label} / ${formatGamepadBindings(currentGamepadConfig.rotateCCW)}</span><span class="ctrl-desc">左回転</span>
-      <span class="ctrl-key">${currentKeys.softDrop.label} / ${formatGamepadBindings(currentGamepadConfig.softDrop)}</span><span class="ctrl-desc">ソフトドロップ</span>
-      <span class="ctrl-key">${currentKeys.hardDrop.label} / ${formatGamepadBindings(currentGamepadConfig.hardDrop)}</span><span class="ctrl-desc">ハードドロップ</span>
-      <span class="ctrl-key">${currentKeys.hold.label} / ${formatGamepadBindings(currentGamepadConfig.hold)}</span><span class="ctrl-desc">ホールド</span>
-      <span class="ctrl-key">${currentKeys.pause.label} / ${formatGamepadBindings(currentGamepadConfig.pause)}</span><span class="ctrl-desc">ポーズ</span>
-    `;
-  }
+  // versus準備画面のCONTROLS表示も廃止した（mode-checkと同様、SETTINGSのKEY CONFIGで確認できる）。
 }
 
 // Backend URL 入力欄の生値を正規化する（scheme/末尾スラッシュの除去）。
