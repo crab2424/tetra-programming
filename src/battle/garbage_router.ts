@@ -230,6 +230,61 @@ export function deliverLocalStaged(
   }
 }
 
+/**
+ * `_garbageTimers` を丸ごと別インスタンスへ移し替えた直後に呼び、各エントリの
+ * コールバックを新しい持ち主 `owner` に貼り直す。
+ *
+ * deliverLocalWithReadyTimer / deliverLocalStaged が作る cb は生成時の受け手を
+ * クロージャで掴んでいるため、盤面入れ替え（app/board_swap.js）のように配列ごと
+ * 持ち主を入れ替えると「A の _garbageTimers が B の garbageQueue を見に行く」状態
+ * になり、ready/stage2 への昇格が永久に起きなくなる。
+ *
+ * 残り時間は pause/resume と同じ作法（duration を残り時間で上書きし start を打ち直す）
+ * で引き継ぐので、入れ替えても猶予時間は短くも長くもならない。
+ * stage の種別は obj.internal で見分ける（staged 由来なら internal:true が立っている）。
+ */
+export function reseatLocalGarbageTimers(owner: any): void {
+  const timers: any[] = owner._garbageTimers;
+  if (!Array.isArray(timers) || timers.length === 0) return;
+
+  const now = performance.now();
+  for (const entry of timers) {
+    let remaining: number;
+    if (entry.id) {
+      clearTimeout(entry.id);
+      entry.id = null;
+      remaining = Math.max(0, entry.duration - (now - entry.start));
+    } else {
+      remaining = (entry.remaining !== null && entry.remaining !== undefined)
+        ? entry.remaining
+        : entry.duration;
+    }
+
+    const obj = entry.obj;
+    // internal:true のまま残っている = stage1→stage2 の昇格待ち（deliverLocalStaged 由来）
+    const toStage2 = obj.internal === true;
+    entry.cb = () => {
+      entry.id = null;
+      if (owner.garbageQueue.includes(obj) && obj.amount > 0) {
+        if (toStage2) obj.internal = false;
+        else obj.ready = true;
+        if (typeof owner.updateGarbageGauge === "function") owner.updateGarbageGauge();
+      }
+      const idx = owner._garbageTimers.indexOf(entry);
+      if (idx !== -1) owner._garbageTimers.splice(idx, 1);
+    };
+
+    entry.duration = remaining;
+    if (owner.isPaused) {
+      entry.remaining = remaining;
+    } else {
+      entry.remaining = null;
+      entry.start = now;
+      entry.id = setTimeout(entry.cb, remaining);
+    }
+  }
+}
+
 export const BattleGarbage = {
   routeGarbage,
   buildGarbageHoles,
@@ -237,6 +292,7 @@ export const BattleGarbage = {
   deliverLocalWithReadyTimer,
   deliverLocalSimple,
   deliverLocalStaged,
+  reseatLocalGarbageTimers,
 };
 
 // プレーンJSエンジン（public/game/*）からの参照用
