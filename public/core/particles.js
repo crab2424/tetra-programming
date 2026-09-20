@@ -199,8 +199,7 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '#versus-check-desc-block',  cls: 'menu-enter',  delay: 1   },
             { sel: '#versus-rule-options',      cls: 'menu-enter',  delay: 2   },
             { sel: '#versus-cpu-options',       cls: 'menu-enter',  delay: 3   },
-            { sel: '#versus-check-controls',    cls: 'menu-enter',  delay: 4   },
-            { sel: '#versus-check-buttons',     cls: 'menu-enter',  delay: 5   },
+            { sel: '#versus-check-buttons',     cls: 'menu-enter',  delay: 4   },
         ];
     } else if (pageId === 'vs-settings') {
         targets = [

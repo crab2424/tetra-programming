@@ -8,34 +8,38 @@
   width: 100%;
 }
 
-#mode-check-container {
+/* 準備画面は横2カラム（左=モードの説明、右=オプションと操作ボタン）。
+   1カラムだとタイトルとSTARTが縦に離れすぎ、縦の狭い画面でキー操作すると
+   モード名が画面外へ出てしまうため。幅はメインメニューと同じ考え方で
+   設計幅を決め、狭い画面では zoom で縮める（横スクロールを出さない）。 */
+#mode-check-container,
+#versus-check-container {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 36px;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 40px;
   padding-top: 32px;
-  width: 660px;
+  width: 960px;
+  max-width: none;
+  zoom: clamp(0.35, calc((100vw - 32px) / 960px), 1);
 }
 
-/* モード名は画面上部に貼り付けて、STARTへスクロールしても「今どのモードの準備画面か」が
-   見えたままになるようにする（縦の狭い画面ではタイトルとSTARTが1画面に収まらないため）。
-   下端はぼかして、後ろを流れる本文が唐突に切れないようにする。 */
+.check-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  gap: 24px;
+}
+.check-col-info {
+  align-items: center;
+}
+
 #mode-check-header {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  width: 100%;
-  padding: 12px 0 16px;
-  background: linear-gradient(
-    to bottom,
-    var(--bg) 0%,
-    var(--bg) 72%,
-    transparent 100%
-  );
 }
 
 .mode-check-icon {
@@ -192,15 +196,6 @@
   justify-content: center;
   align-items: flex-start;
   width: 100%;
-}
-
-#versus-check-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 28px;
-  padding-top: 32px;
-  width: 660px;
 }
 
 #versus-cpu-options {

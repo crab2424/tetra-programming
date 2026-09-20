@@ -821,8 +821,6 @@
   });
 
   register('mode-check', {
-    // モード名の見出しは sticky で画面上部に残るため、その高さぶんフォーカスを下げる
-    stickyTop: () => document.getElementById('mode-check-header'),
     getItems: () => {
       const optAnchor = document.getElementById('mode-check-options');
       const btnAnchor = document.getElementById('mode-check-buttons');
