@@ -51,18 +51,6 @@ function renderVersusCheck() {
   const descEl = document.getElementById('versus-cpu-desc');
   if (descEl) descEl.textContent = CPU_LEVELS[selectedCpuLevel].desc;
 
-  const grid = document.getElementById('versus-check-controls-grid');
-  if (grid && typeof currentKeys !== 'undefined') {
-    grid.innerHTML = `
-      <span class="ctrl-key">${currentKeys.moveLeft.label}${currentKeys.moveRight.label} / ${formatGamepadBindings(currentGamepadConfig.moveLeft)} + ${formatGamepadBindings(currentGamepadConfig.moveRight)}</span><span class="ctrl-desc">移動</span>
-      <span class="ctrl-key">${currentKeys.rotateCW.label} / ${formatGamepadBindings(currentGamepadConfig.rotateCW)}</span><span class="ctrl-desc">右回転</span>
-      <span class="ctrl-key">${currentKeys.rotateCCW.label} / ${formatGamepadBindings(currentGamepadConfig.rotateCCW)}</span><span class="ctrl-desc">左回転</span>
-      <span class="ctrl-key">${currentKeys.softDrop.label} / ${formatGamepadBindings(currentGamepadConfig.softDrop)}</span><span class="ctrl-desc">ソフトドロップ</span>
-      <span class="ctrl-key">${currentKeys.hardDrop.label} / ${formatGamepadBindings(currentGamepadConfig.hardDrop)}</span><span class="ctrl-desc">ハードドロップ</span>
-      <span class="ctrl-key">${currentKeys.hold.label} / ${formatGamepadBindings(currentGamepadConfig.hold)}</span><span class="ctrl-desc">ホールド</span>
-      <span class="ctrl-key">${currentKeys.pause.label} / ${formatGamepadBindings(currentGamepadConfig.pause)}</span><span class="ctrl-desc">ポーズ</span>
-    `;
-  }
 }
 
 function setCpuLevel(lv) {
@@ -120,7 +108,8 @@ async function startVersusGame() {
   const cpuSideLabel = document.getElementById('versus-cpu-side-label');
   if (cpuSideLabel) cpuSideLabel.textContent = 'CPU ' + cpuConfig.label;
 
-  const sharedSeed = Math.floor(Math.random() * 1000000);
+  // xorshift はシード0だと0を返し続けるため 1 以上にする
+  const sharedSeed = Math.floor(Math.random() * 1000000) + 1;
 
   const isPlayerPuyo = versusPlayerRule === 'puyo';
   const isCpuPuyo = versusCpuRule === 'puyo';
@@ -136,6 +125,8 @@ async function startVersusGame() {
   } else {
       if (!window._tetGamePlayer) window._tetGamePlayer = new Game('player');
       window._game = window._tetGamePlayer;
+      // ツモ順をCPUと共通にする（getNextType が tumoRng を使う。ONLINE と同じ仕組み）
+      window._game.tumoRng = createSeededRandom(sharedSeed);
   }
 
   // ─── CPU インスタンス生成 ───
@@ -146,6 +137,7 @@ async function startVersusGame() {
   } else {
       if (!window._tetGameCpu) window._tetGameCpu = new Game('cpu');
       window._cpuGame = window._tetGameCpu;
+      window._cpuGame.tumoRng = createSeededRandom(sharedSeed);
   }
 
   // ─── 共通設定 ───

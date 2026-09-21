@@ -85,8 +85,20 @@
       data.records[key] = enriched;
       data.schemaVersion = SCHEMA_VERSION;
       _saveAll(data);
+      // Discordログイン中なら未同期のランク対象ベストをサーバーへ送る（失敗しても次回起動/次回提出で再送される）
+      window.Account?.syncLocalBests?.().catch((e) => console.error(e));
     }
     return { isNew, prev, record: isNew ? enriched : prev };
+  }
+
+  // account.js からのみ呼ばれる: サーバーへの提出が成功した記録に同期先のDiscord IDを刻む
+  // （'skip:<id>' は初回取込ダイアログでNOを選んだ記録。以後automaticには送らない）
+  function markSynced(key, syncedTo) {
+    const data = _loadAll();
+    const rec = data.records[key];
+    if (!rec) return;
+    rec.syncedTo = syncedTo;
+    _saveAll(data);
   }
 
   function reset() {
@@ -112,5 +124,5 @@
     return typeof v === 'number' ? v.toLocaleString('en-US') : '—';
   }
 
-  window.Records = { get, getAll, submit, reset, format };
+  window.Records = { get, getAll, submit, markSynced, reset, format };
 })();

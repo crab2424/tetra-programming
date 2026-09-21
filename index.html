@@ -50,6 +50,13 @@
     MARK: メインメニューページ
     ───────────────────────────────────────────── -->
   <div id="main-menu-page" class="page">
+    <!-- Discordアカウントチップ（未ログイン=LOGIN WITH DISCORD／ログイン中=アイコン+表示名）。
+         クリックでログイン開始 or アカウント画面を開く（public/config/account.js） -->
+    <button id="account-chip" class="btn account-chip is-loading" onclick="Account.onChipClick()">
+      <img id="account-chip-avatar" class="account-chip-avatar" alt="" style="display: none" />
+      <span id="account-chip-label">LOGIN WITH DISCORD</span>
+    </button>
+
     <div id="main-menu-container">
       <div id="main-menu-logo">
         <h1 class="menu-title">TETLABO</h1>
@@ -133,13 +140,19 @@
       </div>
 
       <!-- フッター：基準はメインキャンバス(#main-menu-container)。
-             SETTINGS の真下に TITLE、左下に CREDITS、右下に CHANGELOG を配置 -->
+             SETTINGS/RANKING を横並びにし、その真下に TITLE、左下に CREDITS、右下に CHANGELOG を配置 -->
       <div id="main-menu-footer">
         <div id="main-menu-footer-center">
-          <button class="menu-btn btn-secondary" onclick="switchPage('settings')">
-            <span class="menu-btn-icon">⚙</span>
-            <span>SETTINGS</span>
-          </button>
+          <div id="main-menu-footer-row">
+            <button id="main-menu-settings-btn" class="menu-btn btn-secondary" onclick="switchPage('settings')">
+              <span class="menu-btn-icon">⚙</span>
+              <span>SETTINGS</span>
+            </button>
+            <button id="main-menu-ranking-btn" class="menu-btn btn-secondary" onclick="switchPage('ranking')">
+              <span class="menu-btn-icon">🏆</span>
+              <span>RANKING</span>
+            </button>
+          </div>
           <button class="util-link util-link-title" onclick="switchPage('title')">
             <span class="util-icon">◀</span><span>TITLE</span>
           </button>
@@ -160,6 +173,8 @@
     ───────────────────────────────────────────── -->
   <div id="mode-check-page" class="page">
     <div id="mode-check-container">
+      <!-- 左: モードの説明（読む情報） / 右: オプションと操作ボタン -->
+      <div class="check-col check-col-info">
       <div id="mode-check-header">
         <span id="mode-check-icon" class="mode-check-icon">∞</span>
         <h2 id="mode-check-label" class="mode-check-label">MARATHON</h2>
@@ -169,16 +184,41 @@
         <p id="mode-check-desc-en" class="mode-check-desc-en"></p>
       </div>
       <p id="mode-check-best" style="display: none"></p>
-      <div id="mode-check-options" style="display: none; width: 100%; flex-direction: column; gap: 16px"></div>
-      <div id="mode-check-controls">
-        <p class="controls-title">CONTROLS</p>
-        <div class="controls-grid" id="mode-check-controls-grid"></div>
-      </div>
       <div id="mode-check-buttons">
         <button class="menu-btn btn-primary" id="mode-check-start-btn" onclick="startGameFromModeCheck()">
           <span class="menu-btn-icon" id="mode-check-start-icon">▶</span>
           <span id="mode-check-start-label">START</span>
         </button>
+        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+          <span class="menu-btn-icon">◀</span>
+          <span>BACK</span>
+        </button>
+      </div>
+      </div>
+      <div class="check-col check-col-actions">
+      <div id="mode-check-options" style="display: none; width: 100%; flex-direction: column; gap: 16px"></div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+    MARK: RANKINGページ（public/app/ranking.js が描画）
+    ───────────────────────────────────────────── -->
+  <div id="ranking-page" class="page">
+    <div id="ranking-container">
+      <h2 class="ranking-title">RANKING</h2>
+
+      <div class="option-toggle" id="ranking-mode-toggle">
+        <button class="opt-btn active" data-mode="ultra" onclick="setRankingMode('ultra')">ULTRA</button>
+        <button class="opt-btn" data-mode="sprint:40" onclick="setRankingMode('sprint:40')">SPRINT</button>
+      </div>
+
+      <p id="ranking-status" class="ranking-status" style="display: none"></p>
+      <div id="ranking-list" class="ranking-list"></div>
+      <p id="ranking-login-hint" class="ranking-hint">ログインすると記録が載ります。</p>
+
+      <div id="ranking-buttons">
         <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
           <span class="menu-btn-icon">◀</span>
           <span>BACK</span>
@@ -210,6 +250,8 @@
     ───────────────────────────────────────────── -->
   <div id="versus-check-page" class="page">
     <div id="versus-check-container">
+      <!-- 左: 説明（読む情報） / 右: ルール選択と操作ボタン -->
+      <div class="check-col check-col-info">
       <div id="versus-check-header">
         <span class="mode-check-icon" style="color: var(--versus-color, #f5c542)">⚔</span>
         <h2 class="mode-check-label" style="color: var(--versus-color, #f5c542)">
@@ -231,7 +273,30 @@
           Battle against CPU. The match ends when either side tops out.
         </p>
       </div>
+      <div id="versus-check-buttons">
+        <!-- VS SETTINGS ボタン + サマリー表示 -->
+        <div id="vs-settings-row">
+          <button class="menu-btn btn-vs-settings" id="vs-settings-open-btn" onclick="goToVsSettings()">
+            <span class="menu-btn-icon">⚙</span>
+            <span>VS SETTINGS</span>
+          </button>
+          <div id="vs-settings-summary-block">
+            <span class="vs-settings-summary-label">SETTINGS:</span>
+            <span id="vs-settings-summary">ALL DEFAULT</span>
+          </div>
+        </div>
+        <button class="menu-btn btn-versus-primary" id="versus-check-start-btn" onclick="startVersusGame()">
+          <span class="menu-btn-icon">▶</span>
+          <span>START</span>
+        </button>
+        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+          <span class="menu-btn-icon">◀</span>
+          <span>BACK</span>
+        </button>
+      </div>
 
+      </div>
+      <div class="check-col check-col-actions">
       <!-- ★ 対戦ルール（自分とCPUのルールを個別に選べるように改修） -->
       <div id="versus-rule-options" style="
             width: 100%;
@@ -279,36 +344,7 @@
               margin-top: 8px;
             "></p>
       </div>
-      <div id="versus-check-controls" style="
-            width: 100%;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 20px 24px;
-          ">
-        <p class="controls-title">YOUR CONTROLS (LEFT SIDE)</p>
-        <div class="controls-grid" id="versus-check-controls-grid"></div>
-      </div>
-      <div id="versus-check-buttons">
-        <!-- VS SETTINGS ボタン + サマリー表示 -->
-        <div id="vs-settings-row">
-          <button class="menu-btn btn-vs-settings" id="vs-settings-open-btn" onclick="goToVsSettings()">
-            <span class="menu-btn-icon">⚙</span>
-            <span>VS SETTINGS</span>
-          </button>
-          <div id="vs-settings-summary-block">
-            <span class="vs-settings-summary-label">SETTINGS:</span>
-            <span id="vs-settings-summary">ALL DEFAULT</span>
-          </div>
-        </div>
-        <button class="menu-btn btn-versus-primary" id="versus-check-start-btn" onclick="startVersusGame()">
-          <span class="menu-btn-icon">▶</span>
-          <span>START</span>
-        </button>
-        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
-          <span class="menu-btn-icon">◀</span>
-          <span>BACK</span>
-        </button>
+
       </div>
     </div>
   </div>
@@ -1108,6 +1144,7 @@
     <div id="result-container">
       <h2 id="result-title">GAME OVER</h2>
       <p id="result-new-record" style="display: none">NEW RECORD!</p>
+      <p id="result-rank" style="display: none"></p>
       <div id="result-stats">
         <div class="result-stat-row">
           <span class="result-label" id="result-label-score">SCORE</span>
@@ -1269,6 +1306,25 @@
   <div id="app-dialog"></div>
 
   <!-- ─────────────────────────────────────────────
+        アカウント画面（Discordログイン中のみ、account-chipから開く）
+        public/config/account.js が開閉・中身の更新を行う。
+       ───────────────────────────────────────────── -->
+  <div id="account-modal">
+    <div class="account-modal-card">
+      <img id="account-modal-avatar" class="account-modal-avatar" alt="" />
+      <div id="account-modal-name" class="account-modal-name"></div>
+      <button type="button" id="account-modal-close-btn" class="btn btn-secondary account-modal-close" data-se="cancel" onclick="Account.closeModal()">CLOSE</button>
+      <div class="account-modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="Account.editName()">EDIT NAME</button>
+        <button type="button" class="btn btn-secondary" onclick="Account.logoutFromModal()">LOGOUT</button>
+      </div>
+      <div class="account-modal-danger-zone">
+        <button type="button" class="account-modal-delete-link" onclick="Account.confirmDeleteAccount()">delete account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
         オンライン対戦のロード画面
         マッチング成立→対戦開始の承認後に表示し、素材を読み込み終えてから READY を送る。
         全ページの上に出す必要があるので .page の外（body直下）に置く。
@@ -1294,20 +1350,21 @@
     ───────────────────────────────────────────── -->
   <div id="external-pages"></div>
 
-  <script src="config/pages.js?v=7"></script>
-  <script src="core/base.js?v=14"></script>
-  <script src="core/dialog.js?v=1"></script>
-  <script src="core/particles.js?v=2"></script>
+  <script src="config/pages.js?v=8"></script>
+  <script src="core/base.js?v=19"></script>
+  <script src="core/dialog.js?v=2"></script>
+  <script src="core/particles.js?v=5"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=7"></script>
-  <script src="config/records.js?v=1"></script>
+  <script src="config/settings.js?v=9"></script>
+  <script src="config/records.js?v=2"></script>
+  <script src="config/account.js?v=5"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js"></script>
-  <script src="game/tet/lifecycle.js?v=6"></script>
-  <script src="game/tet/board.js?v=4"></script>
+  <script src="game/tet/lifecycle.js?v=7"></script>
+  <script src="game/tet/board.js?v=5"></script>
   <script src="game/tet/rotation.js?v=2"></script>
   <script src="game/tet/scoring.js?v=3"></script>
   <script src="game/tet/garbage.js?v=1"></script>
@@ -1326,9 +1383,12 @@
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
   <script src="app/modes.js?v=5"></script>
   <script src="app/cpu_loader.js?v=1"></script>
-  <script src="app/versus.js?v=1"></script>
-  <script src="app/navigation.js?v=10"></script>
-  <script src="app/focus_nav.js?v=7"></script>
+  <script src="app/versus.js?v=3"></script>
+  <script src="app/navigation.js?v=11"></script>
+  <script src="app/ranking.js?v=4"></script>
+  <script src="app/focus_nav.js?v=13"></script>
+  <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
+  <script src="app/board_swap.js?v=3"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=3"></script>
   <script src="practice/practice_sequence.js?v=5"></script>

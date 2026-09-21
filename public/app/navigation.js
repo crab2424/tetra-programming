@@ -286,7 +286,7 @@ function switchPage(pageId) {
     window.HudExtras.refresh();
   }
 
-  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog', 'practice-help'].includes(_animPageId)) {
+  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog', 'practice-help', 'ranking'].includes(_animPageId)) {
       if (typeof initMenuAnimations === 'function') initMenuAnimations(_animPageId);
   } else {
       if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
@@ -324,6 +324,8 @@ function switchPage(pageId) {
   } else if (pageId === 'practice-help') {
     // KEYS欄を実際のキー割り当てで埋める（設計 Phase6 §9.4）
     if (typeof renderPracticeHelpKeys === 'function') renderPracticeHelpKeys();
+  } else if (pageId === 'ranking') {
+    if (typeof renderRankingPage === 'function') renderRankingPage();
   }
 
   // PRACTICE の目標値スピナーが開いたままページを離れると FocusNav.suspended が
@@ -333,7 +335,7 @@ function switchPage(pageId) {
   // ★ キーボードフォーカスナビゲーション（focus_nav.js）
   if (window.FocusNav) {
     if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
-         'result','versus-result','quiz-result','settings','credits','changelog','practice-help'].includes(pageId)) {
+         'result','versus-result','quiz-result','settings','credits','changelog','practice-help','ranking'].includes(pageId)) {
       window.FocusNav.activate(pageId);
     } else {
       window.FocusNav.deactivate();
@@ -370,6 +372,25 @@ function renderModeCheckBest() {
   if (!record) { el.style.display = 'none'; return; }
   el.innerHTML = `BEST <strong>${window.Records.format(key, record)}</strong>`;
   el.style.display = '';
+
+  // ランキング対象モードでログイン中なら、順位を非同期で追記する（P5）
+  if ((key === 'ultra' || key === 'sprint:40') && window.Account && window.Account.me) {
+    _fetchAndAppendModeCheckRank(key);
+  }
+}
+
+let _modeCheckRankToken = 0;
+async function _fetchAndAppendModeCheckRank(key) {
+  const token = ++_modeCheckRankToken;
+  try {
+    const res = await fetch(`/api/ranking/me?mode=${encodeURIComponent(key)}`, { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (token !== _modeCheckRankToken) return; // 別モードへ切り替わっていたら古い結果は捨てる
+    const el = document.getElementById('mode-check-best');
+    if (!el || !data || !data.hasRecord || typeof data.rank !== 'number') return;
+    el.innerHTML += ` · RANK <strong>#${data.rank}</strong>`;
+  } catch (e) { /* 失敗してもBESTのみの表示のまま */ }
 }
 
 function renderModeCheck() {

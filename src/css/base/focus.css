@@ -9,7 +9,8 @@ body.input-mode-kbd .is-focused {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   box-shadow: 0 0 0 1px rgba(196, 113, 245, 0.45);
-  border-radius: inherit;
+  /* border-radius は指定しない（要素自身の角丸を維持する）。
+     以前の inherit は親の値(多くは0)で上書きし、角丸ボタンの枠が四角くなっていた。 */
 }
 body.input-mode-kbd .slider-row.is-focused,
 body.input-mode-kbd .option-row.is-focused {

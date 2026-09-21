@@ -496,6 +496,33 @@
   line-height: 1.5;
 }
 
+/* Discordアカウント状態(ACCOUNT行・online.tsx settingsModal) */
+.online-account-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.online-account-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.online-account-name {
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* ルーム内プレイヤー一覧のアカウントアイコン(設計 v2.2.2 §7.5) */
+.online-player-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .online-side-segment {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

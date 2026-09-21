@@ -14,5 +14,12 @@ export default defineConfig(async () => ({
   server: {
     host: true,
     allowedHosts: ["tetlabo-canary-client.nattyantv.info"],
+    proxy: {
+      // changeOrigin:false でHostヘッダを:5173のまま転送する。
+      // Workerはこれをリクエストのoriginとして使い、Discordの許可リダイレクトURL
+      // (http://localhost:5173/auth/discord/callback) と一致させている（worker/http.ts）。
+      "/api": { target: "http://localhost:8787", changeOrigin: false },
+      "/auth": { target: "http://localhost:8787", changeOrigin: false },
+    },
   },
 }));

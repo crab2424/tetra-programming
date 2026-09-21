@@ -32,6 +32,8 @@
 @import "./pages/changelog.css";
 @import "./pages/online-battle.css";
 @import "./pages/online-loading.css";
+@import "./pages/account.css";
+@import "./pages/ranking.css";
 
 @import "./base/focus.css";
 

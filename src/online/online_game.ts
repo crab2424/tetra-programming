@@ -750,6 +750,8 @@ export class OnlineGameController {
     //   → 新しいマッチだけ online_bgm を頭から鳴らし直し、同一マッチ内の再戦は
     //   鳴らしっぱなしで継続する（設計 §1.2）。
     const isFreshMatch = !this.setConfigured;
+    // 対戦開始が確定した合図（全員READY→開始通知。ロード画面が「まもなく対戦開始…」になる時点）
+    (window as any).SeManager?.play("online_match_start");
     this.myAlive = true;
     this.matchHalted = false;
     this.clearWinnerFallback();
@@ -789,7 +791,10 @@ export class OnlineGameController {
       //   瞬間）に再生を始める。真っ暗な間はロビーBGMがフェードアウトしながら鳴っている。
       const revealTriggerAbs = startedAt + delay - LOADING_CLOSE_MS;
       const lobbyFadeMs = Math.max(0, revealTriggerAbs - performance.now());
-      (window as any).BgmManager?.stop(false, lobbyFadeMs);
+      // 連戦（同一マッチの2本目以降）で online_bgm が流れ続けている場合は、
+      // フェードアウトせずそのままの音量で継続する（revealBattleAfterSync の play() は冪等）。
+      const bgm = (window as any).BgmManager;
+      if (isFreshMatch || !bgm?.isCurrent?.("online_bgm")) bgm?.stop(false, lobbyFadeMs);
       enterBlackout().then(() => this.setupBattleUnderCover(notif, delay, startedAt, isFreshMatch));
     }, coverWait);
   }
