@@ -212,23 +212,35 @@
 }
 
 /* 基準はメインキャンバス(#main-menu-container)。フッターをその基準ボックスとして
-   中央に SETTINGS+TITLE、左右の下隅に CREDITS / CHANGELOG を配置する。 */
+   中央に SETTINGS+RANKING(横並び)+TITLE、左右の下隅に CREDITS / CHANGELOG を配置する。 */
 #main-menu-footer {
   position: relative;
   width: 100%;
-  margin-top: 16px;
+  /* SETTINGS/RANKING の上下の余白を揃える（上: モードボタン下端から32px、
+     下: TITLEの文字まで32px = gap 24px + TITLEのpadding等 約8px）。
+     #main-menu-container の gap(40px) を 8px 詰める */
+  margin-top: -8px;
   min-height: 100px;
+  /* #main-menu-page は overflow:hidden のため、最下段(TITLE等)のフォーカス枠
+     (outline 2px + offset 2px)が切れないよう下に余白を確保する */
+  padding-bottom: 8px;
 }
 
-/* 中央：SETTINGS の真下に TITLE を縦並び */
+/* 中央：SETTINGS+RANKING の横並びの真下に TITLE を縦並び */
 #main-menu-footer-center {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 24px;
 }
 
-#main-menu-footer-center .menu-btn {
+/* SETTINGS / RANKING の横並び（空白の都合上、縦2段だったものを1段にまとめる） */
+#main-menu-footer-row {
+  display: flex;
+  gap: 14px;
+}
+
+#main-menu-footer-row .menu-btn {
   width: auto;
   min-width: 200px;
 }

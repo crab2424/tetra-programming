@@ -10,6 +10,7 @@ import {
   type UpdateRoomRequest,
   parseMatchSetting,
   type OnlineMatchSetting,
+  accountMapFromRoom,
 } from "./payload";
 import { showToast, ToastColor } from "../components/toast";
 import { AllTags, getTagName } from "./room";
@@ -63,7 +64,15 @@ function applyEnterAnimation(nodes: (Element | null)[]): void {
 // どのビューかを判定する（既存の各render関数は一切変更しない＝マーカー用DOM追加も不要）。
 // モーダル（Modal.showModal/hideModal）は #online-modal-container を専用ページ「online-modal」
 // として扱い、開閉のたびにFocusNav側を明示的に切り替える。
-type FocusItem = { el: HTMLElement; key?: string; onActivate?: (it: { el: HTMLElement }) => void };
+type FocusItem = {
+  el: HTMLElement;
+  key?: string;
+  onActivate?: (it: { el: HTMLElement }) => void;
+  // type:'row' は FocusNav 側で ←/→ を onLeft/onRight に割り当てる（VS SETTINGS の行と同じ扱い）
+  type?: "row";
+  onLeft?: () => void;
+  onRight?: () => void;
+};
 
 function focusNav(): any {
   return (window as any).FocusNav;
@@ -92,11 +101,39 @@ function toFocusItem(el: HTMLElement): FocusItem {
   return item;
 }
 
+/** ルームのMATCH SETTINGS行（オーナーのみ .ms-row-editable）を1行1項目として扱う。
+ * ON/OFF行: ←/→/Enter で切替。スライダー行: ←/→ で1ステップ、Enter で数値ボックスへ直接入力。 */
+function msRowItem(row: HTMLElement): FocusItem {
+  const item: FocusItem = { el: row, key: row.dataset.focusKey, type: "row" };
+  const seg = row.querySelector<HTMLElement>(".ms-segment");
+  if (seg) {
+    const toggle = () => seg.querySelector<HTMLElement>(".ms-seg-btn:not(.active)")?.click();
+    item.onLeft = toggle;
+    item.onRight = toggle;
+    item.onActivate = toggle;
+    return item;
+  }
+  const step = (row as any).__msStep as ((d: number) => void) | undefined;
+  item.onLeft = () => step?.(-1);
+  item.onRight = () => step?.(+1);
+  item.onActivate = () => {
+    const num = row.querySelector<HTMLInputElement>(".ms-number");
+    if (!num) return;
+    num.focus();
+    try { num.select(); } catch { /* 非対応は無視 */ }
+  };
+  return item;
+}
+
 function collectFocusable(root: HTMLElement): FocusItem[] {
   // .online-room はクリックで入室する div（buttonではない）なので明示的に含める。
-  return Array.from(root.querySelectorAll<HTMLElement>("button, input, select, .online-room"))
+  // .ms-row-editable は行ごと1項目（中のボタン/inputは個別に拾わない）。
+  return Array.from(
+    root.querySelectorAll<HTMLElement>("button, input, select, .online-room, .ms-row-editable"),
+  )
     .filter((el) => !el.matches(":disabled"))
-    .map(toFocusItem);
+    .filter((el) => el.classList.contains("ms-row-editable") || !el.closest(".ms-row-editable"))
+    .map((el) => (el.classList.contains("ms-row-editable") ? msRowItem(el) : toFocusItem(el)));
 }
 
 /** #online-top-container 配下、モーダルや`.btn-danger`(破壊的操作)を除いた中から
@@ -128,9 +165,12 @@ function onlineTopGetItems(): FocusItem[] {
 function onlineTopEscapeTarget(): HTMLElement | null {
   const container = onlineTopContainerEl();
   if (!container) return null;
-  // RM確認・ルーム詳細: 退出/辞退はいずれも破壊的操作なので安全な対象が無い（意図的にnull）。
+  // RM確認(辞退)は確認を挟まず即座に効くため、Escapeの対象にしない（意図的にnull）。
   if (container.querySelector("#ol-rm-confirm")) return null;
-  if (container.querySelector(".online-header .btn-danger")) return null; // ルーム詳細(LEAVE)
+  // ルーム詳細: EscapeでLEAVE＝「ルーム退出の確認」ダイアログを開く。押しただけでは退出せず、
+  // ダイアログで改めて確認するため、破壊的操作だがEscapeの対象にしてよい。
+  const roomLeave = container.querySelector<HTMLElement>(".online-header .btn-danger");
+  if (roomLeave) return roomLeave;
   if (container.querySelector(".ol-connect-error")) {
     return pickEscapeButton(container.querySelector<HTMLElement>(".ol-connect-actions") || container);
   }
@@ -393,8 +433,6 @@ class OnlineMode {
   private userName: string = "さすらいの研究者";
   private connection: GameConnection | null = null;
 
-  private discordUserId: number | null = null;
-
   private _state: OnlineModeState = OnlineModeState.Disconnected;
   public get state(): OnlineModeState {
     return this._state;
@@ -487,7 +525,31 @@ class OnlineMode {
    *   OnlineGameController.startBattle() 側（online_game.ts）が個別に行う。
    */
   private applyLobbyBgm(): void {
+    // メインメニューからの切替（startLobbyBgmFromMenu）でフェードアウト待ちの間は、
+    // クロスフェードで割り込まない（フェードインなしで鳴らす仕様のため）
+    if (this.lobbyBgmPending) return;
     (window as any).BgmManager?.crossfadeTo("online_lobby_bgm");
+  }
+
+  private lobbyBgmPending = false;
+  private msStepTimer: number | null = null;
+  private static readonly MENU_TO_LOBBY_FADE_MS = 1000;
+
+  /**
+   * メインメニュー → ONLINE の接続UI表示と同時に呼ぶ。流れているBGM(menu_bgm)を
+   * フェードアウトし、音量が0になった時点でロビーBGMをフェードインなしで鳴らす。
+   * 接続の成否・接続中かどうかに関係なく鳴らす（ONLINEページに居る限り）。
+   */
+  private startLobbyBgmFromMenu(): void {
+    const bgm = (window as any).BgmManager;
+    if (!bgm || this.lobbyBgmPending || bgm.isCurrent?.("online_lobby_bgm")) return;
+    this.lobbyBgmPending = true;
+    bgm.stop(false, OnlineMode.MENU_TO_LOBBY_FADE_MS, () => {
+      this.lobbyBgmPending = false;
+      // フェード中にメインメニューへ戻っていたら鳴らさない
+      if (!document.getElementById("online-top-page")?.classList.contains("active")) return;
+      bgm.play("online_lobby_bgm");
+    });
   }
 
   /**
@@ -546,6 +608,9 @@ class OnlineMode {
       }
     } catch (e) { }
     this.state = OnlineModeState.Disconnected;
+    // フェード途中で戻った場合、switchPage の crossfadeTo('menu_bgm') がフェードを打ち切り
+    // onDone が呼ばれないため、ここで待ち状態を解除する（次回入場時に鳴らなくなるのを防ぐ）
+    this.lobbyBgmPending = false;
 
     /// TODO: onlineの部分だけmodule化しているため，その他のファイルの関数を直で呼び出せない．
     /// 将来的にはすべてのファイルをモジュール化して、必要な関数をインポートして呼び出せるようにするべき．
@@ -566,6 +631,10 @@ class OnlineMode {
   }
 
   private getUserName(): string {
+    // ★A(設計 v2.2.2 §7.2): ログイン中はDiscordの表示名を使う（自由入力名は無視）。
+    // サーバー側でも強制上書きされるが、こちらは接続前のローカル表示(プロンプト回避含む)のため。
+    const accountName = (window as any).Account?.me?.name;
+    if (accountName) return accountName;
     const storedName = this.getUserNameNullable();
     if (storedName) {
       return storedName;
@@ -586,6 +655,20 @@ class OnlineMode {
   private async roomDetailsPage(roomData: RoomInfoNotification) {
     // ルームに居ないときの通知では描画しない（遅延通知でルーム一覧の上に被さるのを防ぐ）
     if (this.state !== OnlineModeState.InRoom) return;
+
+    // 同じルームに他プレイヤーが新しく入ってきたら入室SE（退室は鳴らさない）。
+    // 入室直後の初回通知は lastRoomInfo=null（joinRoom でリセット）なので鳴らない。
+    const prevRoom = this.lastRoomInfo;
+    if (
+      prevRoom &&
+      prevRoom.roomId === roomData.roomId &&
+      !this.isRandomMatchRoom &&
+      roomData.players.some(
+        ([id]) => id !== this.connection?.userId && !prevRoom.players.some(([pid]) => pid === id),
+      )
+    ) {
+      (window as any).SeManager?.play("online_player_join");
+    }
 
     this.lastRoomInfo = roomData;
     this.currentRoom = {
@@ -658,6 +741,7 @@ class OnlineMode {
     const ms = parseMatchSetting(roomData.matchSetting);
     const readySet = new Set(roomData.readyPlayers ?? []);
     const pingMap = new Map<Uuid, number>(roomData.pings ?? []);
+    const accountMap = accountMapFromRoom(roomData);
     const nonOwners = roomData.players.filter(
       ([id]) => id !== roomData.ownerId,
     );
@@ -724,7 +808,10 @@ class OnlineMode {
       key: keyof OnlineMatchSetting,
       value: boolean,
     ) => (
-      <div class="ms-row">
+      <div
+        class={"ms-row" + (isOwner ? " ms-row-editable" : "")}
+        data-focus-key={"ms:" + String(key)}
+      >
         <span class="ms-label">{label}</span>
         {isOwner ? (
           <div class="ms-segment">
@@ -755,16 +842,23 @@ class OnlineMode {
       step: number,
       unit: string,
     ) => {
+      let lastCommitted = value;
       const commit = (raw: string) => {
         let n = Number(raw);
         if (!Number.isFinite(n)) return;
         n = Math.max(min, Math.min(max, n));
         if (step >= 1) n = Math.round(n);
         else n = Math.round(n / step) * step;
+        // Enter確定の直後に blur の change でも呼ばれるため、同じ値の再送はしない
+        if (n === lastCommitted) return;
+        lastCommitted = n;
         sendSetting({ [key]: n } as Partial<OnlineMatchSetting>);
       };
-      return (
-        <div class="ms-row ms-row-slider">
+      const row = (
+        <div
+          class={"ms-row ms-row-slider" + (isOwner ? " ms-row-editable" : "")}
+          data-focus-key={"ms:" + String(key)}
+        >
           <span class="ms-label">{label}</span>
           {isOwner ? (
             <div class="ms-slider-wrap">
@@ -775,6 +869,10 @@ class OnlineMode {
                 max={max}
                 step={step}
                 value={value}
+                oninput={(e) => {
+                  const num = (e.target as HTMLElement).parentElement?.querySelector<HTMLInputElement>(".ms-number");
+                  if (num) num.value = (e.target as HTMLInputElement).value;
+                }}
                 onchange={(e) => commit((e.target as HTMLInputElement).value)}
               />
               <input
@@ -785,6 +883,15 @@ class OnlineMode {
                 step={step}
                 value={value}
                 onchange={(e) => commit((e.target as HTMLInputElement).value)}
+                onkeydown={(e) => {
+                  // 直接入力中の Enter で確定（blur で change が発火）し、行フォーカスへ戻る
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commit((e.target as HTMLInputElement).value);
+                    (e.target as HTMLInputElement).blur();
+                    focusNav()?.restoreFocus("ms:" + String(key));
+                  }
+                }}
               />
               <span class="ms-unit">{unit}</span>
             </div>
@@ -795,7 +902,26 @@ class OnlineMode {
             </span>
           )}
         </div>
-      );
+      ) as HTMLElement;
+      // キー操作（←/→）での1ステップ変更。見た目は即時更新し、送信は連打をまとめて1回にする
+      // （1押しごとに送るとサーバー応答の再描画と競合して値が戻ることがあるため）。
+      (row as any).__msStep = (dir: number) => {
+        const slider = row.querySelector<HTMLInputElement>(".ms-slider");
+        const num = row.querySelector<HTMLInputElement>(".ms-number");
+        if (!slider) return;
+        let n = Number(slider.value) + dir * step;
+        n = Math.max(min, Math.min(max, n));
+        n = step >= 1 ? Math.round(n) : Math.round(n / step) * step;
+        const text = step >= 1 ? String(n) : String(Number(n.toFixed(4)));
+        slider.value = text;
+        if (num) num.value = text;
+        if (this.msStepTimer !== null) clearTimeout(this.msStepTimer);
+        this.msStepTimer = window.setTimeout(() => {
+          this.msStepTimer = null;
+          commit(text);
+        }, 250);
+      };
+      return row;
     };
 
     const onlineTopContainer = document.getElementById(
@@ -804,6 +930,8 @@ class OnlineMode {
     if (!onlineTopContainer) {
       throw new Error("Failed to find online top container element");
     }
+    // 設定変更の通知で作り直しても、同じ行（設定/タグ等）へフォーカスを戻す
+    const focusKeyBeforeRebuild = alreadyRendered ? focusNav()?.currentFocusKey?.() ?? null : null;
     onlineTopContainer.replaceChildren(
       <>
         <div class="online-header">
@@ -921,8 +1049,11 @@ class OnlineMode {
             <div>
               🏷️{" "}
               <>
-                {AllTags.map((tag) => (
-                  <span
+                {AllTags.map((tag) => {
+                  const TagEl = isOwner ? "button" : "span";
+                  return (
+                  <TagEl
+                    data-focus-key={"tag:" + String(tag)}
                     onclick={() => {
                       if (isOwner) {
                         const hasTag = roomData.tags.includes(tag);
@@ -946,8 +1077,9 @@ class OnlineMode {
                     }
                   >
                     {getTagName(tag)}
-                  </span>
-                ))}
+                  </TagEl>
+                  );
+                })}
               </>
             </div>
 
@@ -974,6 +1106,13 @@ class OnlineMode {
                       gap: "6px",
                     }}
                   >
+                    {accountMap.has(id) && (
+                      <img
+                        class="online-player-avatar"
+                        src={accountMap.get(id)!.avatarUrl}
+                        alt=""
+                      />
+                    )}
                     <span>
                       {name}
                       {id === roomData.ownerId ? <> 👑</> : ""}
@@ -1243,7 +1382,7 @@ class OnlineMode {
         </div>
       </>,
     );
-    syncOnlineTopFocus();
+    syncOnlineTopFocus(focusKeyBeforeRebuild);
   }
 
   /**
@@ -1671,6 +1810,7 @@ class OnlineMode {
       this.rmStarting = false;
       this.rmLeaving = false;
       this.applyLobbyBgm();
+      (window as any).SeManager?.play("online_match_found");
       showToast("ONLINE", "⚔ 対戦相手が見つかりました！", ToastColor["Success"]);
       // 対戦開始通知が来たらタイマーを確実に止める（開始処理自体は gameController 側が行う）
       this.rmStartNotifId = this.connection!.onStartMatchNotification(() => {
@@ -2079,6 +2219,7 @@ class OnlineMode {
     if (!skipEnterAnim) {
       applyEnterAnimation([
         onlineTopContainer.querySelector(".online-header"),
+        onlineTopContainer.querySelector(".online-count-badge"),
         onlineTopContainer.querySelector(".online-list-header"),
         document.getElementById("online-rooms-container"),
         onlineTopContainer.querySelector(".online-list-footer"),
@@ -2120,7 +2261,28 @@ class OnlineMode {
       .catch(() => { });
   }
 
+  /** 設定モーダルの LOGIN WITH DISCORD。ルーム在室中はロビーへ戻る確認を挟む（設計 v2.2.2 §6.3）。 */
+  private async loginWithDiscordFromSettings(): Promise<void> {
+    if (this.state === OnlineModeState.InRoom && this.currentRoom) {
+      const ok = await Modal.confirm(
+        "Discordでログインするため、いったんロビーから退出します。よろしいですか？",
+        "LOGIN WITH DISCORD",
+        "ログイン",
+        "キャンセル",
+      );
+      if (!ok) return;
+      try {
+        await this.connection?.leaveRoom({ roomId: this.currentRoom.roomId });
+      } catch {
+        // 退出に失敗してもログイン自体は試みる（ページ遷移で状態はリセットされる）
+      }
+      this.currentRoom = null;
+    }
+    (window as any).Account?.login("online");
+  }
+
   private async settingsModal() {
+    const accountMe = (window as any).Account?.me ?? null;
     const selfSide = getOnlineSelfSide();
     const applySelfSide = (side: OnlineSelfSide) => {
       setOnlineSelfSide(side);
@@ -2136,48 +2298,58 @@ class OnlineMode {
         </div>
         <div class="online-settings-section">
           <div class="online-settings-label">USER NAME</div>
-          <label>
-            <input
-              class="settings-online-input"
-              id="online-mode-username-input"
-              type="text"
-              value={this.userName}
-            />
-          </label>
-          <button
-            class="btn btn-primary"
-            onclick={() => {
-              const input = document.getElementById(
-                "online-mode-username-input",
-              ) as HTMLInputElement | null;
-              if (!input) {
-                console.error(
-                  "Failed to find username input element in settings modal.",
-                );
-                return;
-              }
-              const newName = input.value.trim();
-              if (!newName || [...newName].length > 16) {
-                showToast(
-                  "ONLINE",
-                  "名前は1〜16文字で入力してください。",
-                  ToastColor["Warning"],
-                );
-                return;
-              }
-              localStorage.setItem("tetlaboUserName", newName);
-              this.userName = newName;
-              // 在室・待機列中ならサーバー側の表示名も即時更新する
-              this.pushNameToServer();
-              showToast(
-                "ONLINE",
-                "ユーザー名を保存しました！",
-                ToastColor["Success"],
-              );
-            }}
-          >
-            SAVE
-          </button>
+          {accountMe ? (
+            // ★A(設計 v2.2.2 §7.2): ログイン中は自由入力を無効化し、Discordの表示名が
+            // 使われることを示す（実際の強制はサーバー側 game.rs でも行われる）。
+            <div class="online-settings-help">
+              Discordの表示名（{accountMe.name}）が使われます。
+            </div>
+          ) : (
+            <>
+              <label>
+                <input
+                  class="settings-online-input"
+                  id="online-mode-username-input"
+                  type="text"
+                  value={this.userName}
+                />
+              </label>
+              <button
+                class="btn btn-primary"
+                onclick={() => {
+                  const input = document.getElementById(
+                    "online-mode-username-input",
+                  ) as HTMLInputElement | null;
+                  if (!input) {
+                    console.error(
+                      "Failed to find username input element in settings modal.",
+                    );
+                    return;
+                  }
+                  const newName = input.value.trim();
+                  if (!newName || [...newName].length > 16) {
+                    showToast(
+                      "ONLINE",
+                      "名前は1〜16文字で入力してください。",
+                      ToastColor["Warning"],
+                    );
+                    return;
+                  }
+                  localStorage.setItem("tetlaboUserName", newName);
+                  this.userName = newName;
+                  // 在室・待機列中ならサーバー側の表示名も即時更新する
+                  this.pushNameToServer();
+                  showToast(
+                    "ONLINE",
+                    "ユーザー名を保存しました！",
+                    ToastColor["Success"],
+                  );
+                }}
+              >
+                SAVE
+              </button>
+            </>
+          )}
         </div>
         <div class="online-settings-section">
           <div class="online-settings-label">YOUR FIELD POSITION</div>
@@ -2203,23 +2375,26 @@ class OnlineMode {
             </button>
           </div>
         </div>
-        <div style="display: none;">
-          <hr />
-          <div>
-            UserID: {this.discordUserId ? this.discordUserId : "Not connected"}
-          </div>
-          <div>
-            <button
-              class="btn btn-primary"
-              onclick={() => {
-                console.log(
-                  "Connect Discord button clicked. (Not implemented yet)",
-                );
-              }}
-            >
-              Connect Discord
-            </button>
-          </div>
+        <div class="online-settings-section">
+          <div class="online-settings-label">ACCOUNT</div>
+          {accountMe ? (
+            <div class="online-account-status">
+              <img class="online-account-avatar" src={accountMe.avatarUrl} alt="" />
+              <span class="online-account-name">{accountMe.name}</span>
+            </div>
+          ) : (
+            <>
+              <div class="online-settings-help">
+                Discordでログインすると、記録がランキングに登録され、対戦相手にも表示名とアイコンが表示されます。
+              </div>
+              <button
+                class="btn btn-primary"
+                onclick={() => this.loginWithDiscordFromSettings()}
+              >
+                LOGIN WITH DISCORD
+              </button>
+            </>
+          )}
         </div>
 
         <hr />
@@ -2341,6 +2516,7 @@ class OnlineMode {
     this.state = OnlineModeState.Connecting;
     this.connectCancelled = false;
     this.renderConnectingUI();
+    this.startLobbyBgmFromMenu();
 
     const pages = document.querySelectorAll(".page");
     pages.forEach((p) => p.classList.remove("active"));

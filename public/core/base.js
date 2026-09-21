@@ -41,7 +41,7 @@ const PRACTICE_NEXT_MAX_HEIGHT = BLOCK_SIZE * 13.5;
 //
 // 逆にこの数字が変わらない限り、ブラウザはキャッシュから読むだけで通信しない。
 // ─────────────────────────────────────────────
-const ASSET_VERSION = 4;
+const ASSET_VERSION = 5;
 
 // 素材URLにキャッシュ用バージョンを付ける。音源・画像の取得は必ずこれを通す。
 function assetUrl(path) {
@@ -940,10 +940,12 @@ class BgmManager {
         this._audio.play().catch(() => {});
     }
 
-    static stop(immediate = false, fadeMs = 300) {
+    // onDone: 停止し終えた（フェード時は音量0に達した）時に呼ぶ。途中で play()/crossfadeTo()/
+    // 別の stop() によりフェードが打ち切られた場合は呼ばれない。
+    static stop(immediate = false, fadeMs = 300, onDone = null) {
         // ダッキング状態を解除（次に流すBGMが小音量のまま始まるのを防ぐ）
         this._ducked = false;
-        if (!this._audio) return;
+        if (!this._audio) { onDone?.(); return; }
         if (this._fadeTimer) {
             clearInterval(this._fadeTimer);
             this._fadeTimer = null;
@@ -953,6 +955,7 @@ class BgmManager {
             this._audio.currentTime = 0;
             this._audio = null;
             this._currentKey = null;
+            onDone?.();
         } else {
             this.fadeOut(fadeMs, () => {
                 if (this._audio) {
@@ -960,6 +963,7 @@ class BgmManager {
                     this._audio = null;
                 }
                 this._currentKey = null;
+                onDone?.();
             });
         }
     }
@@ -976,6 +980,8 @@ class BgmManager {
         if (!src) return;
 
         if (this._currentKey === key && this._audio) {
+            // 同じ曲をフェードアウト中なら打ち切って戻す（放置すると音量0まで下がり止まる）
+            if (this._fadeTimer) { clearInterval(this._fadeTimer); this._fadeTimer = null; }
             this._applyVolume();
             if (this._audio.paused) this._audio.play().catch(() => {});
             return;
@@ -1091,6 +1097,7 @@ class SeManager {
         // メニュー系
         'menu_cancel':   1.90,  // -27.6 / -6.8
         'menu_decide':   1.80,  // -40.3 / -6.3
+        'menu_cursor':   0.50,  // 未配置（カーソル移動/ホバー/トグル切替。配置後に実測して調整）
         'pause':         1.00,  // 未配置（配置後に実測して調整）
         'resume':        1.00,  // 未配置（配置後に実測して調整）
         'countdown_count': 0.50,  // 未配置（カウント3/2/1用）
@@ -1098,6 +1105,10 @@ class SeManager {
         'gameover':      1.00,  // 未配置（tet/puyo共通。QUIZ不正解と共用）
         'clear':         1.00,  // 未配置（クリア／GOAL達成／QUIZ正解を1音に統一）
         'levelup':       1.00,  // 未配置（MARATHONのレベルアップ）
+        // オンライン系（すべて未配置。配置後に実測して調整）
+        'online_match_found':  1.00,
+        'online_player_join':  1.00,
+        'online_match_start':  1.00,
         // テト系
         'move':          1.00,  // -27.2 / -1.0（ピーク余裕なし＝据え置き）
         'rotate':        1.40,  // -34.8 / -5.4
@@ -1178,6 +1189,37 @@ class SeManager {
         source.start(0);
     }
 
+    // 高頻度に鳴り得るSE（カーソル移動・ホバー）用。
+    //  - 前回の再生から minIntervalMs 未満なら鳴らさない（キーリピート・連続ホバーの間引き）
+    //  - 前回の音がまだ鳴っていれば止めてから鳴らす（同時発音を常に1音に保つ）
+    // キーボード操作とクリック委譲の両方から同じ操作で呼ばれても、間引きで1回にまとまる。
+    static _exclusive = {}; // key -> { lastAt, source }
+    static playExclusive(key, minIntervalMs = 45) {
+        if (this._muted) return;
+        const buf = AudioLoader.getSeBuffer(key);
+        if (!buf) return;
+        const now = performance.now();
+        const st = this._exclusive[key] || (this._exclusive[key] = { lastAt: -Infinity, source: null });
+        if (now - st.lastAt < minIntervalMs) return;
+        st.lastAt = now;
+
+        AudioLoader.recoverIfDegraded();
+        const ctx = AudioLoader.context;
+        if (ctx.state !== 'running') ctx.resume().catch(() => {});
+        if (st.source) {
+            try { st.source.stop(); } catch (e) { /* 再生終了済み */ }
+        }
+        const source = ctx.createBufferSource();
+        const gain = ctx.createGain();
+        gain.gain.value = this._volume * (this._gain[key] ?? 1);
+        source.buffer = buf;
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        source.onended = () => { if (st.source === source) st.source = null; };
+        source.start(0);
+        st.source = source;
+    }
+
     static setVolume(v) { this._volume = Math.max(0, Math.min(1, v)); }
     static toggleMute() { this._muted = !this._muted; return this._muted; }
 }
@@ -1214,6 +1256,8 @@ AudioLoader.loadSe({
     'countdown_start': 'assets/audio/se/menu/countdown_start.ogg',
     'menu_decide':  'assets/audio/se/menu/decide.ogg',
     'menu_cancel':  'assets/audio/se/menu/cancel.ogg',
+    // カーソル移動（キーでのフォーカス移動・マウスホバー・ON/OFF等の選択切替）
+    'menu_cursor':  'assets/audio/se/menu/cursor.ogg',
     // ポーズ/リジューム（同一音源でも別パスでも可。未配置時は無音）
     'pause':        'assets/audio/se/menu/pause.ogg',
     'resume':       'assets/audio/se/menu/pause.ogg',
@@ -1222,6 +1266,10 @@ AudioLoader.loadSe({
     // クリア音。SPRINT/ULTRA/MARATHON完走・PRACTICE GOAL達成・QUIZ正解を1音に統一する
     // （不正解／ゲームオーバー側は上の gameover を共用）。
     'clear':        'assets/audio/se/menu/clear.ogg',
+    // オンライン系（未配置の間は無音）
+    'online_match_found': 'assets/audio/se/online/match_found.ogg', // ランダムマッチの相手が見つかった
+    'online_player_join': 'assets/audio/se/online/match_found.ogg', // ルームに他プレイヤーが入室
+    'online_match_start': 'assets/audio/se/online/match_start.ogg', // 全員READY→対戦開始が確定
     // テト系
     'move':      'assets/audio/se/tet/move.ogg',
     'rotate':    'assets/audio/se/tet/rotate.ogg',
@@ -1287,11 +1335,39 @@ AudioLoader.loadSe({
             || el.dataset?.se === 'cancel';
     };
 
+    // ON/OFF・レベル・ステップ等の「選択を切り替えるだけ」のボタンは決定音ではなく選択音
+    // （.ms-seg-btn = ONLINEのMATCH SETTINGS、.vs-setting-step-btn = VS SETTINGSの段階ボタン）
+    const SELECT_SELECTOR = '.opt-btn, .ms-seg-btn, .vs-setting-step-btn';
+
     document.addEventListener('click', (e) => {
+        const sel = e.target.closest(SELECT_SELECTOR);
+        if (sel) {
+            window.SeManager?.playExclusive('menu_cursor');
+            return;
+        }
         const btn = e.target.closest(CLICK_SELECTOR);
         if (!btn) return;
         window.SeManager?.play(isCancelBtn(btn) ? 'menu_cancel' : 'menu_decide');
     }, true);
+
+    // ── マウスホバー音（選択音と同じ menu_cursor）──
+    // mouseover ではなく実際のマウス移動（pointermove）で判定する。
+    //  - キー操作中のスクロールやページ切替で、止まっているカーソルの下に要素が
+    //    滑り込んできただけでは鳴らない
+    //  - タッチ操作（pointerType !== 'mouse'）では鳴らさない
+    // 同じ要素の中を動いている間は鳴らさず、別の要素に入った時だけ鳴らす。
+    const HOVER_SELECTOR = CLICK_SELECTOR.replace('#title-page,', '')
+        + ', ' + SELECT_SELECTOR
+        + ', #account-chip, .online-room, .key-badge, .practice-panel-tab';
+    let hovered = null;
+    document.addEventListener('pointermove', (e) => {
+        if (e.pointerType !== 'mouse') return;
+        const el = e.target.closest ? e.target.closest(HOVER_SELECTOR) : null;
+        const target = (el && !el.disabled) ? el : null;
+        if (target === hovered) return;
+        hovered = target;
+        if (target) window.SeManager?.playExclusive('menu_cursor');
+    }, { passive: true });
 })();
 
 // ==========================================

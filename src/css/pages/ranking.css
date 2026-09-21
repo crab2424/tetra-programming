@@ -1,0 +1,188 @@
+/* ─────────────────────────────────────────────
+   RANKINGページ（public/app/ranking.js が中身を描画）
+───────────────────────────────────────────── */
+#ranking-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* body の上下padding(24px×2)を差し引いた高さに固定し、ページ全体のスクロールを出さない。
+     align-self:stretch で横幅も body いっぱいに取り、パネル幅が中身で縮まないようにする */
+  align-self: stretch;
+  height: calc(100vh - 48px);
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+#ranking-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  /* アイコン＋名前（長い名前は…で省略）が収まる幅で固定 */
+  max-width: 560px;
+  /* 記録の件数・読み込み状態でページの大きさが変わらないよう高さを固定する
+     （一覧 .ranking-list が残りを埋め、はみ出た分は内部スクロール） */
+  height: min(84vh, 680px, 100%);
+  padding: 32px 28px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-sizing: border-box;
+}
+/* 管理者(Account.me.isAdmin)にはDELETE/BANボタンを行に追加するため一段広くする。
+   行の有無で幅が変わらないよう、ranking.js が管理者かどうかでクラスを付ける */
+#ranking-container.is-admin {
+  max-width: 700px;
+}
+
+.ranking-title {
+  font-family: "Orbitron", monospace;
+  font-size: 1.8rem;
+  font-weight: 900;
+  letter-spacing: 5px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+.ranking-status {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.ranking-row {
+  display: grid;
+  grid-template-columns: 44px 28px 1fr auto 72px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.ranking-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.02);
+}
+.ranking-row-mine {
+  background: rgba(196, 113, 245, 0.15) !important;
+  border: 1px solid var(--accent);
+}
+
+/* リスト描画時、上の行から順に軽く登場させる（public/app/ranking.js が付与）。
+   100行あるので待ち時間が伸びすぎないよう、対象行数はJS側で先頭12行程度に絞っている。 */
+@keyframes rankingRowEnter {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.ranking-row-enter {
+  animation: rankingRowEnter 0.25s ease-out both;
+}
+
+.ranking-row-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.ranking-rank {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.ranking-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ranking-name {
+  /* grid の 1fr 列は既定で内容幅未満に縮まないため、省略表示に min-width:0 が必要 */
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ranking-value {
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent2);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ranking-date {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ranking-empty {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 24px 0;
+}
+
+.ranking-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+  margin: 0;
+}
+
+/* 管理者用の小ボタン（★6.4: RANKING行から直接DELETE/BAN。確認ダイアログはranking.js側） */
+.ranking-admin-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.ranking-admin-btn {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ranking-admin-delete,
+.ranking-admin-ban {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.ranking-admin-delete:hover,
+.ranking-admin-ban:hover {
+  background: rgba(245, 90, 90, 0.15);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ranking-row-enter {
+    animation: none;
+  }
+}
