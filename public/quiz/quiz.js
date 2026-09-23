@@ -52,11 +52,13 @@ async function loadQuizLevels() {
     if (_isQuizLevelsLoaded) return;
     try {
         const [tetRes, puyoRes] = await Promise.all([
-            fetch('assets/quizlevels/tdata.json?' + Date.now()), // キャッシュ対策
-            fetch('assets/quizlevels/pdata.json?' + Date.now())  // キャッシュ対策
+            // ?v=ASSET_VERSION でキャッシュする（★JSONを更新したら base.js の ASSET_VERSION を +1）
+            fetch(assetUrl('assets/quizlevels/tdata.json')),
+            fetch(assetUrl('assets/quizlevels/pdata.json'))
         ]);
-        if (tetRes.ok) QUIZ_LEVELS.tet = await tetRes.json();
-        if (puyoRes.ok) QUIZ_LEVELS.puyo = await puyoRes.json();
+        if (!tetRes.ok || !puyoRes.ok) throw new Error(`HTTP ${tetRes.status}/${puyoRes.status}`);
+        QUIZ_LEVELS.tet = await tetRes.json();
+        QUIZ_LEVELS.puyo = await puyoRes.json();
         _isQuizLevelsLoaded = true;
     } catch (e) {
         console.error("QUIZレベルデータの読み込みに失敗しました:", e);
@@ -1007,8 +1009,18 @@ function _renderDiffStars(diff) {
 }
 
 // ★ 非同期関数に変更し、データをfetchしてから描画するようにしました
+let _quizRenderToken = 0; // 読み込み中にページ離脱/TET⇔PUYO切替した場合、最新の呼び出しだけが描画する
+
+function _setQuizLevelListMessage(listEl, text) {
+    listEl.textContent = '';
+    const p = document.createElement('p');
+    p.className = 'quiz-level-loading';
+    p.textContent = text;
+    listEl.appendChild(p);
+}
+
 async function renderQuizCheck() {
-    await loadQuizLevels();
+    const token = ++_quizRenderToken;
 
     ['tet', 'puyo'].forEach(r => {
         const btn = document.getElementById(`quiz-rule-${r}`);
@@ -1017,6 +1029,19 @@ async function renderQuizCheck() {
 
     const listEl = document.getElementById('quiz-level-list');
     if (!listEl) return;
+
+    // 初回はJSON取得待ちになる。ページの登場アニメは空の一覧に走ってしまうので、
+    // まず「読み込み中」を出し（一覧コンテナと一緒にアニメで登場する）、完了後に一覧だけアニメをやり直す。
+    const needsLoad = !_isQuizLevelsLoaded;
+    if (needsLoad) {
+        _setQuizLevelListMessage(listEl, '読み込み中');
+        await loadQuizLevels();
+        if (token !== _quizRenderToken) return;
+        if (!_isQuizLevelsLoaded) {
+            _setQuizLevelListMessage(listEl, '読み込みに失敗しました。');
+            return; // 次にこのページを開いたときに再試行される
+        }
+    }
     listEl.innerHTML = '';
 
     const levels = QUIZ_LEVELS[currentQuizRule] || [];
@@ -1033,6 +1058,9 @@ async function renderQuizCheck() {
         };
         listEl.appendChild(btn);
     });
+
+    if (needsLoad && typeof replayMenuEnter === 'function') replayMenuEnter(listEl);
+    if (window.FocusNav) window.FocusNav.refresh();
 }
 
 // ─── QUIZレベル開始 ──────────────────────────

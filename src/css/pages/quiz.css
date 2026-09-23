@@ -293,3 +293,13 @@
   opacity: 0.85;
 }
 
+
+/* レベルデータ初回ロード中/失敗時のメッセージ（quiz.js の renderQuizCheck が挿入） */
+.quiz-level-loading {
+  width: 100%;
+  margin: 0;
+  padding: 12px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
