@@ -270,6 +270,21 @@ function initMenuAnimations(pageId = 'main-menu') {
 }
 
 // ─────────────────────────────────────────────
+// replayMenuEnter  非同期で中身が入れ替わった要素だけ、登場アニメを最初からやり直す
+//   （initMenuAnimations のリセット→reflow→付与と同じ手順を1要素に対して行う）
+//   例: QUIZ のレベル一覧はJSONの初回ロード完了後に呼ぶ
+// ─────────────────────────────────────────────
+function replayMenuEnter(node, delay = 0, cls = 'menu-enter') {
+    if (!node) return;
+    node.classList.remove('menu-enter', 'menu-enter-dim');
+    node.style.animation = 'none';
+    void node.offsetWidth;
+    node.style.animation = '';
+    node.style.animationDelay = `${delay * 0.08}s`;
+    node.classList.add(cls);
+}
+
+// ─────────────────────────────────────────────
 // stopMenuAnimations  全ページ共通の常時動作なので何もしない
 // 互換性のために関数名は残す
 // ─────────────────────────────────────────────
@@ -281,3 +296,4 @@ function stopMenuAnimations() {
 window.MenuParticles       = MenuParticles;
 window.initMenuAnimations  = initMenuAnimations;
 window.stopMenuAnimations  = stopMenuAnimations;
+window.replayMenuEnter     = replayMenuEnter;
