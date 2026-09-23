@@ -368,17 +368,9 @@ Object.assign(Game.prototype, {
                     }
                 }
                 // ランキング対象モードでDiscordログイン中のみ、順位が非同期で届いたら表示する
-                // （account.js の syncLocalBests() が records.js の submit() から裏で呼ばれる。
-                //  結果画面を離れた後に届いても、非表示のまま値をセットするだけで実害はない）。
-                if (rankEl && res && res.isNew && window.Account && window.Account.me
-                    && (recordKey === 'ultra' || recordKey === 'sprint:40')) {
-                    const unsubscribe = window.Account.onRecordSynced((syncedKey, result) => {
-                        if (syncedKey !== recordKey) return;
-                        unsubscribe();
-                        if (!result || !result.accepted || typeof result.rank !== 'number') return;
-                        rankEl.textContent = `RANK #${result.rank}`;
-                        rankEl.style.display = '';
-                    });
+                // （account.js の syncLocalBests() が records.js の submit() から裏で呼ばれる）。
+                if (res && res.isNew && window.Account && window.Account.watchResultRank) {
+                    window.Account.watchResultRank(recordKey, rankEl);
                 }
             } else {
                 if (badge) badge.style.display = 'none';

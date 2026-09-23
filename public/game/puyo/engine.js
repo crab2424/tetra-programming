@@ -985,13 +985,16 @@ Object.assign(PuyoGame.prototype, {
 
         if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(true);
 
-        // 最高記録の更新判定・表示（NEW RECORD!バッジ＋BEST行。主指標は最大連鎖）。
+        // 最高記録の更新判定・表示（NEW RECORD!バッジ＋BEST行。主指標はスコア＝v2.2.3で最大連鎖から変更）。
         // switchPage('result')より前に確定させる：result-stats等の登場アニメと同じ
         // スタイル再計算パスに乗せないと、バッジだけ1フレーム遅れてアニメが生成されず
         // 出現アニメなしでポップインして見える（非同期.then()内でDOM変更していたのが原因）。
         const badge = document.getElementById('result-new-record');
         const bestRow = document.getElementById('result-best-row');
         const bestVal = document.getElementById('result-best-value');
+        // RANK は前局（tet 含む）の表示が残らないよう一旦隠し、同期結果が届いたら出す
+        const rankEl = document.getElementById('result-rank');
+        if (rankEl) rankEl.style.display = 'none';
         // PRACTICE は記録を残さない（設計 §1.1）。tet 側は _submitRecordIfEligible が
         // 未知の mode で null を返すため自然に対象外だが、ぷよは無条件 submit だったのでガードする。
         const _recordEligible = !this.isCpuControlled && this.currentMode !== 'practice';
@@ -1008,6 +1011,9 @@ Object.assign(PuyoGame.prototype, {
                 bestRow.style.display = '';
             } else if (bestRow) {
                 bestRow.style.display = 'none';
+            }
+            if (res && res.isNew && window.Account && window.Account.watchResultRank) {
+                window.Account.watchResultRank('puyo', rankEl);
             }
         } else {
             if (badge) badge.style.display = 'none';

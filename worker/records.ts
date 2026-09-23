@@ -7,9 +7,12 @@ const SUBMIT_MIN_INTERVAL_MS = 3000;
 const RANKING_LIMIT = 100;
 const RANKING_CACHE_MAX_AGE_SEC = 30;
 
+// キーは public/config/records.js の RANKED_KEYS と一致させる
 export const RANKED_MODES = {
-  ultra: { primary: "score", better: "higher", min: 0, max: 99_999_999 },
+  "marathon:endless": { primary: "score", better: "higher", min: 0, max: 999_999_999 },
   "sprint:40": { primary: "timeMs", better: "lower", min: 1_000, max: 3_600_000 },
+  ultra: { primary: "score", better: "higher", min: 0, max: 99_999_999 },
+  puyo: { primary: "score", better: "higher", min: 0, max: 999_999_999 },
 } as const;
 
 export type ModeKey = keyof typeof RANKED_MODES;
@@ -71,9 +74,10 @@ export async function handleSubmitRecord(req: Request, env: Env, url: URL): Prom
   const discordId = resolved.user.discordId;
   const now = Date.now();
 
+  // 連続提出の抑止はモード単位（ユーザー単位だと syncLocalBests が複数モードを続けて送ったとき2件目以降が429になる）
   const lastRow = await db
-    .prepare("SELECT created_at FROM records WHERE discord_id = ? ORDER BY created_at DESC LIMIT 1")
-    .bind(discordId)
+    .prepare("SELECT created_at FROM records WHERE discord_id = ? AND mode_key = ? ORDER BY created_at DESC LIMIT 1")
+    .bind(discordId, modeKey)
     .first<{ created_at: number }>();
   if (lastRow && now - lastRow.created_at < SUBMIT_MIN_INTERVAL_MS) {
     return error("too_many_requests", 429);

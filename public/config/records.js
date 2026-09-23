@@ -21,8 +21,25 @@
     'marathon:endless': { field: 'score',    better: 'higher' },
     'sprint:40':        { field: 'timeMs',   better: 'lower'  },
     'ultra':            { field: 'score',    better: 'higher' },
-    'puyo':              { field: 'chainMax', better: 'higher' },
+    'puyo':             { field: 'score',    better: 'higher' }, // v2.2.3で最大連鎖→スコアに変更
   };
+
+  // ランキング対象キー（並び順＝RANKINGタブの並び）。worker/records.ts の RANKED_MODES とキーを一致させる。
+  const RANKED_KEYS = ['marathon:endless', 'sprint:40', 'ultra', 'puyo'];
+  const RANK_LABELS = {
+    'marathon:endless': 'MARATHON',
+    'sprint:40':        'SPRINT',
+    'ultra':            'ULTRA',
+    'puyo':             'PUYO',
+  };
+
+  function isRanked(key) {
+    return RANKED_KEYS.includes(key);
+  }
+
+  function labelFor(key) {
+    return RANK_LABELS[key] || String(key).toUpperCase();
+  }
 
   function _uuid() {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -119,10 +136,9 @@
     if (!record) return '—';
     const rule = RECORD_RULES[key] || { field: 'score', better: 'higher' };
     if (rule.field === 'timeMs') return _formatTime(record.timeMs);
-    if (rule.field === 'chainMax') return `${record.chainMax ?? 0} CHAIN`;
     const v = record[rule.field];
     return typeof v === 'number' ? v.toLocaleString('en-US') : '—';
   }
 
-  window.Records = { get, getAll, submit, markSynced, reset, format };
+  window.Records = { get, getAll, submit, markSynced, reset, format, RANKED_KEYS, isRanked, labelFor };
 })();

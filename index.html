@@ -210,8 +210,7 @@
       <h2 class="ranking-title">RANKING</h2>
 
       <div class="option-toggle" id="ranking-mode-toggle">
-        <button class="opt-btn active" data-mode="ultra" onclick="setRankingMode('ultra')">ULTRA</button>
-        <button class="opt-btn" data-mode="sprint:40" onclick="setRankingMode('sprint:40')">SPRINT</button>
+        <!-- タブは public/app/ranking.js が Records.RANKED_KEYS から生成する -->
       </div>
 
       <p id="ranking-status" class="ranking-status" style="display: none"></p>
@@ -1356,14 +1355,14 @@
   <script src="core/particles.js?v=5"></script>
   <script src="app/manager.js?v=1"></script>
   <script src="config/settings.js?v=9"></script>
-  <script src="config/records.js?v=2"></script>
-  <script src="config/account.js?v=5"></script>
+  <script src="config/records.js?v=3"></script>
+  <script src="config/account.js?v=6"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js"></script>
-  <script src="game/tet/lifecycle.js?v=7"></script>
+  <script src="game/tet/lifecycle.js?v=8"></script>
   <script src="game/tet/board.js?v=5"></script>
   <script src="game/tet/rotation.js?v=2"></script>
   <script src="game/tet/scoring.js?v=3"></script>
@@ -1376,7 +1375,7 @@
   <script src="game/puyo/lifecycle.js?v=3"></script>
   <script src="game/puyo/connect.js"></script>
   <script src="game/puyo/ojama.js?v=4"></script>
-  <script src="game/puyo/engine.js?v=7"></script>
+  <script src="game/puyo/engine.js?v=8"></script>
   <script src="game/puyo/input.js?v=6"></script>
   <script src="game/puyo/draw.js?v=7"></script>
   <script src="quiz/quiz.js?v=2"></script>
@@ -1384,8 +1383,8 @@
   <script src="app/modes.js?v=5"></script>
   <script src="app/cpu_loader.js?v=1"></script>
   <script src="app/versus.js?v=3"></script>
-  <script src="app/navigation.js?v=11"></script>
-  <script src="app/ranking.js?v=4"></script>
+  <script src="app/navigation.js?v=12"></script>
+  <script src="app/ranking.js?v=5"></script>
   <script src="app/focus_nav.js?v=13"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=3"></script>

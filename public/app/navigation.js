@@ -374,7 +374,7 @@ function renderModeCheckBest() {
   el.style.display = '';
 
   // ランキング対象モードでログイン中なら、順位を非同期で追記する（P5）
-  if ((key === 'ultra' || key === 'sprint:40') && window.Account && window.Account.me) {
+  if (window.Records.isRanked(key) && window.Account && window.Account.me) {
     _fetchAndAppendModeCheckRank(key);
   }
 }

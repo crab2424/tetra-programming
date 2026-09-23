@@ -132,6 +132,15 @@
   white-space: nowrap;
 }
 
+/* ENDLESS の開始レベル（LV1以外のみ）。値の左に小さく添える */
+.ranking-sub {
+  margin-right: 6px;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
 .ranking-date {
   font-size: 10px;
   color: var(--text-dim);
@@ -184,5 +193,16 @@
 @media (prefers-reduced-motion: reduce) {
   .ranking-row-enter {
     animation: none;
+  }
+}
+
+/* スマホ幅: 6列のままだと名前列が0幅に潰れて行がはみ出すため、日付列を省いて詰める */
+@media (max-width: 480px) {
+  .ranking-row {
+    grid-template-columns: 32px 24px 1fr auto auto;
+    gap: 6px;
+  }
+  .ranking-date {
+    display: none;
   }
 }
