@@ -358,6 +358,7 @@ function goToModeCheck(modeId) {
 function renderModeCheckBest() {
   const el = document.getElementById('mode-check-best');
   if (!el) return;
+  _modeCheckRankToken++; // 描画し直すたびに、読み込み中だった古い RANK 応答を無効化する
   if (!window.Records) { el.style.display = 'none'; return; }
 
   const mode = currentGameMode || GAME_MODES.marathon;
@@ -370,27 +371,54 @@ function renderModeCheckBest() {
   if (!key) { el.style.display = 'none'; return; }
   const record = window.Records.get(key);
   if (!record) { el.style.display = 'none'; return; }
-  el.innerHTML = `BEST <strong>${window.Records.format(key, record)}</strong>`;
+
+  // BEST と RANK は別 span にする。RANK は応答が来るまで「読み込み中」を入れて最初から枠を確保し、
+  // 区切り(·)を grid の中央列に固定する（RANK の文字数が変わっても BEST の位置が動かない）。
+  // 要素ごと menu-enter で登場するので、RANK 欄も最初から一緒にアニメで出る。
+  const showRank = window.Records.isRanked(key) && !!(window.Account && window.Account.me);
+  el.textContent = '';
+  el.classList.toggle('has-rank', showRank);
+  el.append(_modeCheckBestPart('mcb-best', 'BEST', window.Records.format(key, record)));
+  if (showRank) {
+    const sep = document.createElement('span');
+    sep.className = 'mcb-sep';
+    sep.textContent = '·';
+    const rankPart = _modeCheckBestPart('mcb-rank', 'RANK', '読み込み中');
+    rankPart.querySelector('strong').classList.add('is-loading');
+    el.append(sep, rankPart);
+  }
   el.style.display = '';
 
-  // ランキング対象モードでログイン中なら、順位を非同期で追記する（P5）
-  if (window.Records.isRanked(key) && window.Account && window.Account.me) {
-    _fetchAndAppendModeCheckRank(key);
-  }
+  if (showRank) _fetchModeCheckRank(key);
+}
+
+function _modeCheckBestPart(cls, label, value) {
+  const span = document.createElement('span');
+  span.className = cls;
+  const strong = document.createElement('strong');
+  strong.textContent = value;
+  span.append(`${label} `, strong);
+  return span;
 }
 
 let _modeCheckRankToken = 0;
-async function _fetchAndAppendModeCheckRank(key) {
+async function _fetchModeCheckRank(key) {
   const token = ++_modeCheckRankToken;
+  let text = '—'; // 記録なし・通信失敗時も欄は残す（位置を動かさない）
   try {
     const res = await fetch(`/api/ranking/me?mode=${encodeURIComponent(key)}`, { credentials: 'same-origin' });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (token !== _modeCheckRankToken) return; // 別モードへ切り替わっていたら古い結果は捨てる
-    const el = document.getElementById('mode-check-best');
-    if (!el || !data || !data.hasRecord || typeof data.rank !== 'number') return;
-    el.innerHTML += ` · RANK <strong>#${data.rank}</strong>`;
-  } catch (e) { /* 失敗してもBESTのみの表示のまま */ }
+    const data = res.ok ? await res.json() : null;
+    if (data && data.hasRecord && typeof data.rank === 'number') text = `#${data.rank}`;
+  } catch (e) { /* 失敗時は — */ }
+  if (token !== _modeCheckRankToken) return; // 別モードへ切り替わっていたら古い結果は捨てる
+  const valEl = document.querySelector('#mode-check-best .mcb-rank strong');
+  if (!valEl) return;
+  valEl.textContent = text;
+  valEl.classList.remove('is-loading');
+  // 値の差し替えだけ短くフェードインさせる（アニメをやり直すため一度外して reflow）
+  valEl.classList.remove('mcb-rank-in');
+  void valEl.offsetWidth;
+  valEl.classList.add('mcb-rank-in');
 }
 
 function renderModeCheck() {
