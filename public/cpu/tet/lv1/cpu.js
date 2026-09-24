@@ -167,14 +167,27 @@ window.CPU = class{
             let bx = b.x + testX;
             let by = b.y + testY;
             // 上部（y<0）は天井がないため重なり判定のみ行い、左右と下部の壁抜けを防ぐ
-            let isOverlapping = (by >= 0) && currentBlocks.some(cb => cb.x === bx && cb.y === by);
+            // ★ v2.2.3 I: 隠し行（y<0）にもブロックはあり得るので重なり判定は常に行う
+            //   （旧実装は y<0 を素通しにしており、はみ出して積んだブロックを突き抜けて置けると誤認していた）
+            let isOverlapping = currentBlocks.some(cb => cb.x === bx && cb.y === by);
             return bx >= 0 && bx < 10 && by < 20 && !isOverlapping;
         });
     }
 
+    // ★ v2.2.3 I: 実機の出現判定（game/tet/board.js popMino: 出現位置→1段上の順に試す）
+    canSpawnOn(blocks, type) {
+        const m = new Mino(type);
+        m.spawn();
+        return this.isValidPlacement(m, m.x, m.y, blocks) || this.isValidPlacement(m, m.x, m.y - 1, blocks);
+    }
+
     searchBestMove(mino) {
-        let bestDiff = -10000;
+        // ★ v2.2.3 I: 生存する手（Lock Out せず、次のミノが出現できる）を最優先で選ぶ。
+        //   旧実装は致死を判定しておらず、死ぬ手も評価値だけで選んでいた。全手が死ぬ局面では評価値で選ぶ。
+        let bestDiff = -Infinity;
         let bestMove = null;
+        let bestAlive = false;
+        const nextType = (this.game.nextQueue && this.game.nextQueue[0]) ? this.game.nextQueue[0].type : null;
         let searchCount = 0;
         const SEARCH_LIMIT = 200;
 
@@ -216,7 +229,10 @@ window.CPU = class{
                 // EVAL差の計算
                 let diff = score - baseScore;
 
-                if (diff > bestDiff) {
+                const lockOut = droppedBlocks.every(b => b.y < 0);
+                const alive = !lockOut && (nextType === null || this.canSpawnOn(simResult.blocks, nextType));
+                if ((alive && !bestAlive) || (alive === bestAlive && diff > bestDiff)) {
+                    bestAlive = alive;
                     bestDiff = diff;
                     bestMove = { id: mino.type, rot: rot, x: x, y: ghostY, score: score, diff: diff, spawnY: mino.y };
                 }

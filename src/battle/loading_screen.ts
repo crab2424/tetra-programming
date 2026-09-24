@@ -148,7 +148,7 @@ export function hideLoadingOverlay(_immediate = true): void {
  * フェーズA表示が最低表示時間(MIN_VISIBLE_MS)に満たない場合はその分だけ待つ
  * （素材が全てキャッシュ済みだと数十msで完了してしまい、画面変化が唐突になるため）。
  */
-export function enterBlackout(): Promise<void> {
+export function enterBlackout(minVisibleMs: number = MIN_VISIBLE_MS): Promise<void> {
   const overlay = el(OVERLAY_ID);
   if (!overlay || overlay.style.display === "none") {
     shownAt = null;
@@ -158,10 +158,10 @@ export function enterBlackout(): Promise<void> {
   const alive = () => myGeneration === generation;
   const wait = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
-  const elapsed = shownAt !== null ? performance.now() - shownAt : MIN_VISIBLE_MS;
+  const elapsed = shownAt !== null ? performance.now() - shownAt : minVisibleMs;
 
   return (async () => {
-    await wait(Math.max(0, MIN_VISIBLE_MS - elapsed));
+    await wait(Math.max(0, minVisibleMs - elapsed));
     if (!alive()) return;
     // ★ StartMatchNotification を受けた時点で「引き返せない点」を過ぎている。
     //   以後キャンセルを押されても意味が無い（サーバーは既に開始済み）ので無効化する。

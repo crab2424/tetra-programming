@@ -53,10 +53,13 @@ function stopAllGames() {
     stopGameInstance(window._tetGamePlayer);
     stopGameInstance(window._tetGameCpu);
 
-    if (window._cpuController && typeof window._cpuController.stop === 'function') {
-        window._cpuController.stop();
+    // 2P CPU（_cpuController）と、CPU同士の対戦（v2.2.3 J）の 1P CPU（_cpuControllerPlayer）
+    for (const key of ['_cpuController', '_cpuControllerPlayer']) {
+        const ctrl = window[key];
+        if (ctrl && typeof ctrl.stop === 'function') ctrl.stop();
+        window[key] = null;
     }
-    window._cpuController = null;
+    if (typeof stopVersusCpuWatchdog === 'function') stopVersusCpuWatchdog();
     // ★ ここで unloadCpuScript() は呼ばない。
     //   stopAllGames() は startVersusGame() / startGameFromModeCheck() の冒頭でも走るため、
     //   ここでアンロードすると loadCpuScript() の「同じクラスなら再利用する」短絡が
@@ -215,8 +218,10 @@ function switchPage(pageId) {
     // ★ CPUスクリプトの破棄はここ（ゲーム文脈から完全に抜けるとき）だけで行う。
     //   stopAllGames() 側でやってしまうとリスタート・再戦のたびに再ダウンロードになるため。
     //   mode-check や vs-settings を経由して同じLVで再開する場合はロード済みのまま使い回し、
-    //   別のLVを選んだ場合は loadCpuScript() が中で unload→load してくれる。
+    //   別のLVのクラスも並べて保持する（v2.2.3: className ごとのレジストリ）。
     unloadCpuScript();
+    // 使い回していた思考 worker もここで全て破棄する（v2.2.3 G: app/cpu_worker_pool.js）
+    if (window.CpuWorkerPool) window.CpuWorkerPool.clear();
     _switchToPuyoLayout(false);
     // ★ リザルト等から戻る際、流れていたBGMをぶつ切りにせず menu_bgm へクロスフェード
     //   （menu_bgm が既に流れていれば crossfadeTo は冪等に継続）
@@ -227,6 +232,11 @@ function switchPage(pageId) {
 
   // 準備画面（mode select 等）もメニューBGM。リザルトから戻った場合はクロスフェードで滑らかに切替。
   const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check'];
+  // CPU同士の対戦（隠しコマンド）は準備画面を開き直したら通常に戻す（v2.2.3 J）
+  if (pageId === 'versus-check') {
+    versusPlayerIsCpu = false;
+    selectedPlayerCpuLevel = null;
+  }
   if (menuPages.includes(pageId)) {
     if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
   }
@@ -625,6 +635,28 @@ async function startGameFromModeCheck() {
 
   const modeId = currentGameMode ? currentGameMode.id : 'marathon';
 
+  // ─── CPU TEST: ロード画面（v2.2.3 H）───────────────
+  // 旧実装はカウントダウン開始と同時に CPU を非同期ロードしていたため、worker が間に合わないと
+  // 自由落下→即置きで始まっていた。VERSUS と同じく CPU（クラス＋思考 worker）と素材が揃ってから
+  // 開始する。揃っていればロード画面は出ない。
+  let testCpuClass = null;
+  if (modeId === 'test') {
+    const isStale = () => currentSessionId !== sessionId;
+    const prep = await window.BattleLocalLoading.prepare({
+      rules: [testRule],
+      bgmKey: 'test_bgm',
+      cpus: [{ level: selectedCpuLevel, rule: testRule, label: 'CPU ' + CPU_LEVELS[selectedCpuLevel].label }],
+      isStale,
+    });
+    if (prep.cancelled) {
+      if (isStale()) return;
+      if (prep.cpuFailed) alert('CPUスクリプトの読み込みに失敗しました。');
+      switchPage('mode-check');
+      return;
+    }
+    testCpuClass = prep.classes[0];
+  }
+
   // ─── QUIZモード専用処理 ────────────────────────
   if (modeId === 'quiz') {
     // ★ cpu testモードで表示されたEVALエリアをquizモードでは非表示にする
@@ -712,25 +744,19 @@ async function startGameFromModeCheck() {
 
     switchPage('game');
     setupGlobalCpuPauseKey();
-
-    // ★ カウントダウン(ある場合)と同時にバックグラウンドで読み込み
-    let cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, 'puyo').catch(e => {
-      alert("CPUスクリプトの読み込みに失敗しました。");
-      return null;
-    });
+    await window.BattleLocalLoading.reveal();
+    if (currentSessionId !== sessionId) return;
 
     window._puyoGame.start(); // ここでカウントダウン開始
 
-    // ロード完了したらゲームにアタッチ（カウントダウン完了後に実行されるよう待機）
-    cpuLoadPromise.then(CPUClass => {
-        if (CPUClass && currentSessionId === sessionId) {
-          window._cpuController = new CPUClass(window._puyoGame);
-          window._cpuController.isAutoPlay = testCpuControl;
-          if (typeof window._cpuController.start === 'function') {
-            window._cpuController.start();
-          }
-        }
-    });
+    // ロード済みのクラスでアタッチ（_updateLoop は state==='playing' まで待機するので即時生成でOK）
+    if (testCpuClass) {
+      window._cpuController = new testCpuClass(window._puyoGame);
+      window._cpuController.isAutoPlay = testCpuControl;
+      if (typeof window._cpuController.start === 'function') {
+        window._cpuController.start();
+      }
+    }
     return;
   }
 
@@ -773,29 +799,24 @@ async function startGameFromModeCheck() {
   switchPage('game');
   updateLinesGoalDisplay(modeId);
   setupGlobalCpuPauseKey();
-  
-  let cpuLoadPromise = null;
+  if (modeId === 'test') {
+    await window.BattleLocalLoading.reveal();
+    if (currentSessionId !== sessionId) return;
+  }
+
   if (modeId === 'test' && testRule === 'tet') {
     window._game.isCpuControlled = testCpuControl;
-    cpuLoadPromise = loadCpuWithFallback(selectedCpuLevel, 'tet').catch(e => {
-      alert("CPUスクリプトの読み込みに失敗しました。");
-      return null;
-    });
   }
 
   window._game.start();
 
-  // ★ ロードが完了し次第アタッチして操作開始
-  if (cpuLoadPromise) {
-    cpuLoadPromise.then(CPUClass => {
-      if (CPUClass && currentSessionId === sessionId) {
-        window._cpuController = new CPUClass(window._game);
-        window._cpuController.isAutoPlay = testCpuControl;
-        if (typeof window._cpuController.start === 'function') {
-            window._cpuController.start();
-        }
-      }
-    });
+  // ★ ロード済みのクラスでアタッチして操作開始（思考 worker はロード画面で ready 済み）
+  if (modeId === 'test' && testRule === 'tet' && testCpuClass) {
+    window._cpuController = new testCpuClass(window._game);
+    window._cpuController.isAutoPlay = testCpuControl;
+    if (typeof window._cpuController.start === 'function') {
+        window._cpuController.start();
+    }
   }
 }
 
@@ -1192,6 +1213,8 @@ function handlePauseAction(action) {
   document.addEventListener('keydown', function(e) {
     // Digit6 / Digit7（テンキーではない「6」「7」）のみ対象
     if (e.code !== 'Digit6' && e.code !== 'Digit7') return;
+    // ★ v2.2.3: 修飾キー付きは対象外（Shift+6 は CPU同士対戦の「1P CPU を LV6 に」コマンド）
+    if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
     const disablePC = (e.code === 'Digit7');
 
     const versusCheckPage = document.getElementById('versus-check-page');
@@ -1228,6 +1251,47 @@ function handlePauseAction(action) {
       selectedCpuLevel = 6;
       startGameFromModeCheck();
       return;
+    }
+  });
+})();
+
+// ─────────────────────────────────────────────
+// ★ 隠し要素: CPU同士の対戦（v2.2.3 J）
+// versus-check（準備画面）で
+//   ・「Shift + 1〜6」→ 1P 側CPUのレベルを指定（既定は 2P と同じ。LV6 は YOUR RULE が TET の時のみ）
+//   ・「0」          → 1P もCPUにして即開始（ルールは YOUR RULE / CPU RULE の選択どおり）
+// 画面上に説明は出さない。レベル指定時だけ説明欄に小さく現在値を出す（押せたことの手応え）。
+// 準備画面を開き直すと通常へ戻る（switchPage）。R リスタート／RETRY では維持される。
+// ─────────────────────────────────────────────
+(function setupHiddenCpuVsCpuKey() {
+  function showPlayerCpuLevelHint() {
+    const descEl = document.getElementById('versus-cpu-desc');
+    if (!descEl) return;
+    const lv = (selectedPlayerCpuLevel == null) ? selectedCpuLevel : selectedPlayerCpuLevel;
+    descEl.textContent = `${CPU_LEVELS[selectedCpuLevel].desc}  ／  1P CPU: ${CPU_LEVELS[lv].label}`;
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    const page = document.getElementById('versus-check-page');
+    if (!page || !page.classList.contains('active')) return;
+
+    const m = /^Digit([0-6])$/.exec(e.code);
+    if (!m) return;
+    const n = parseInt(m[1], 10);
+
+    if (e.shiftKey && n >= 1) {
+      if (n === 6 && versusPlayerRule !== 'tet') return;
+      e.preventDefault();
+      selectedPlayerCpuLevel = n;
+      showPlayerCpuLevelHint();
+      window.SeManager?.play('menu_decide');
+      return;
+    }
+    if (!e.shiftKey && n === 0) {
+      e.preventDefault();
+      versusPlayerIsCpu = true;
+      startVersusGame();
     }
   });
 })();

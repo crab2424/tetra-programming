@@ -188,76 +188,19 @@ const BoardSwap = (() => {
   }
 
   // ─── CPUの読み直し ───────────────────────────────
-
-  // puyo: コントローラごと作り直す。ぷよCPUは高速落下用に退避した重力や
-  // hasCalculatedForCurrentPiece など「今の1手」の状態を広く抱えており、外から
-  // 個別に戻すより stop()（worker を terminate し重力も復元する）→ 作り直しの方が
-  // 確実。ぷよCPUは workerReady になるまで待つ作りなので、worker の作り直しで
-  // 手が飛ぶこともない。クラスは cpu_loader が window に載せたままなので
-  // スクリプトの再ロードは発生しない。
-  function recreateCpuController(cpuGame) {
-    const old = window._cpuController;
-    if (!old) return;
-    const CPUClass = old.constructor;
-    if (typeof old.stop === 'function') old.stop();
-    window._cpuController = new CPUClass(cpuGame);
-    if (typeof window._cpuController.start === 'function') window._cpuController.start();
-  }
-
-  // tet: コントローラは使い回し、worker を生かしたまま同期し直す。
-  // ★ ここで puyo と同じく stop()→作り直しにすると worker + wasm の初期化が
-  //   間に合わず、onMinoSpawned() の時点で workerReady === false になる。
-  //   tetCPUは全レベル共通で「workerReady でなければ 700ms 後に hardDrop()」という
-  //   フォールバックを持つため、入れ替え直後の1手だけ即置きになる（実機で確認された挙動）。
-  //   worker を作り直さなければ workerReady は true のままなので、これは起きない。
-  const STALE_RESULT_TIMEOUT_MS = 2000;
-
-  function resyncTetCpu() {
-    const ctrl = window._cpuController;
-    if (!ctrl) return;
-
-    // 入れ替え前の盤面向けに積まれた操作列を捨てる。実行待ちの setTimeout は
-    // processActionQueue の先頭で「キューが空」を見て自分で終わる。
-    ctrl.actionQueue = [];
-    ctrl.isExecutingAction = false;
-    ctrl.bestMoveData = null;
-    ctrl.lastGhostState = null;
-    ctrl.pendingGhostState = null;
-    ctrl.isCalculatingSingle = false;
-
-    const wasCalculating = !!ctrl.isCalculating;
-    const staleMino = ctrl.currentMino;
-
-    // lv6 はPC探索という別系統の先読みを持つので専用のリセットに任せる
-    // （pcSearchId を進めて進行中のPC結果を無効化し、gravityDisabled も戻す）。
-    if (typeof ctrl.resetPCState === 'function') ctrl.resetPCState();
-
-    if (wasCalculating && ctrl.worker) {
-      // 飛んでいる計算結果は入れ替え前の盤面に対するもの。各レベルが持つ
-      // 「game.mino === this.currentMino のときだけ実行」ガードに捨てさせるため、
-      // currentMino は古いミノを指したまま残す（入れ替えで相手側へ移っているので
-      // 必ず不一致になる）。古い結果が届いてから currentMino を null にして、
-      // 次フレームの updateLoop に onMinoSpawned() を出し直させる。
-      ctrl.currentMino = staleMino;
-      const w = ctrl.worker;
-      const orig = w.onmessage;
-      let settled = false;
-      const release = () => {
-        if (settled) return;
-        settled = true;
-        if (w.onmessage !== orig) w.onmessage = orig;
-        ctrl.isCalculating = false;
-        ctrl.currentMino = null;
-      };
-      w.onmessage = (e) => {
-        orig.call(w, e);
-        if (e.data && e.data.type === 'result') release();
-      };
-      // 古い結果が返らずCPUが止まったままにならないための保険
-      setTimeout(release, STALE_RESULT_TIMEOUT_MS);
-    } else {
-      ctrl.isCalculating = false;
-      ctrl.currentMino = null;
+  // tet/puyo とも、入れ替え後はコントローラを作り直す（versus.js recreateVersusCpuController）。
+  //
+  // ★ v2.2.3 F: 以前 tet は「worker を生かしたまま actionQueue 等を空にして同期し直す」方式だったが、
+  //   予約済みのアクション連鎖（executeAction→setTimeout(processActionQueue)→…→tryFinish）を
+  //   止められず、入れ替え後の新しい連鎖と同じ actionQueue を2本以上が並行消費して
+  //   「入れ替え直後の数手だけ異常な速度で動く」不具合になっていた。
+  //   作り直せば stop() の isActive=false で旧連鎖は全て自滅する。
+  //   かつて tet で作り直しを避けていた理由（新 worker の wasm 初期化が間に合わず即置き）は、
+  //   思考 worker をプールで使い回す（app/cpu_worker_pool.js）ようになって解消した。
+  //   入れ替え前に投げた計算の結果もプールのリースIDで捨てられるので、古い盤面向けの手は来ない。
+  function recreateCpuControllers() {
+    for (const key of ['_cpuController', '_cpuControllerPlayer']) {
+      if (window[key]) recreateVersusCpuController(key);
     }
   }
 
@@ -289,8 +232,7 @@ const BoardSwap = (() => {
     // 入れ替えた盤面が即詰みで決着した場合はコントローラを触らない
     if (window.BattleVersusLifecycle.phase !== 'playing') return true;
 
-    if (isPuyo) recreateCpuController(c);
-    else resyncTetCpu();
+    recreateCpuControllers();
     return true;
   }
 

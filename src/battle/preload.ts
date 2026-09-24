@@ -38,6 +38,8 @@ export interface PreloadOptions {
   onProgress?: (done: number, total: number, label: string) => void;
   /** 全体のタイムアウト。超えたら未完了でも解決する（相手を待たせ続けないため）。 */
   timeoutMs?: number;
+  /** 追加で待つステップ（v2.2.3: CPU戦のCPU思考エンジン準備など）。 */
+  extraSteps?: PreloadStep[];
 }
 
 export const PRELOAD_TIMEOUT_MS = 10000;
@@ -140,6 +142,7 @@ export async function preloadBattleAssets(options: PreloadOptions = {}): Promise
   steps.push({ label: "効果音", run: whenSeReady });
   steps.push({ label: "BGM", run: () => whenBgmReady(bgmKey) });
   steps.push({ label: "フォント", run: whenFontsReady });
+  if (options.extraSteps) steps.push(...options.extraSteps);
 
   const total = steps.length;
   let done = 0;

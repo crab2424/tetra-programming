@@ -109,7 +109,36 @@ bool isValidPlacement(const Board& b, const GridBlock blocks[4]) {
     return true;
 }
 
+// ★ v2.2.3 I: 実機の出現判定（game/tet/board.js popMino）。出現位置→1段上の順に試し、どちらも塞がっていれば Block Out。
+bool canSpawnPiece(const Board& b, int pieceType) {
+    int spawnY = (pieceType == 0) ? 4 : 3;
+    const int spawnX = COLS / 2 - 2;
+    for (int dy = 0; dy <= 1; dy++) {
+        GridBlock blk[4];
+        for (int i = 0; i < 4; i++) {
+            blk[i].x = PRECALC_MINO_BLOCKS[pieceType][0][i].x + spawnX;
+            blk[i].y = PRECALC_MINO_BLOCKS[pieceType][0][i].y + spawnY - dy;
+        }
+        if (isValidPlacement(b, blk)) return true;
+    }
+    return false;
+}
+
 struct PlacementInfo { bool isFullyGrounded; int touchingCount; };
+
+// ─────────────────────────────────────────────
+// ★ v2.2.3 I: 致死判定（自滅対策）
+//   実機(game/tet/board.js)の Lock Out は「固定したミノの4ブロック全てが可視外(実機 y<0 = 内部 y<5)」。
+//   旧実装は「どれか1ブロックが内部 y<0（実機 y<-5）」で判定しており事実上発生せず、
+//   実機では死ぬ置き方（隠し行だけに置く）を生存扱いしていた。
+//   ペナルティは 1e8×(8-step)（step は 1〜7。7 は「6手目の後に次のミノが出せない」）。
+//   評価値の累積(6手で最大 ~2e7)より必ず大きく、早い死ほど重い。旧 (7-step) は step7 で 0 になる。
+static const int HIDDEN_ROWS = 5;
+static inline int deathPenalty(int step_num) { return 100000000 * (8 - step_num); }
+static inline bool isLockOut(const GridBlock* blocks) {
+    for (int k = 0; k < 4; k++) if (blocks[k].y >= HIDDEN_ROWS) return false;
+    return true;
+}
 
 PlacementInfo calcPlacementInfo(const Board& b, const GridBlock blocks[4]) {
     int bottomEdges[COLS];
@@ -829,14 +858,7 @@ void evaluateSinglePlacementWasm(
 
     int stepScore = score * w.p1Weight / 100 + eventBonus;
 
-    bool hasBlockOutside = false;
-    for(int i=0; i<4; i++) {
-        if(blocks[i].y < 0) {
-            hasBlockOutside = true;
-            break;
-        }
-    }
-    if (hasBlockOutside) stepScore -= 100000000;
+    if (isLockOut(blocks)) stepScore -= 100000000; // ★ v2.2.3 I: 実機の Lock Out
 
     int prevHeight = 0;
     for(int y = 0; y < ROWS; y++) {
@@ -916,23 +938,17 @@ void searchBestMoveWasm(
         
         if (p_list.empty()) {
             SearchState dead_s = s;
-            dead_s.total_score -= 100000000 * (7 - step_num); 
+            dead_s.total_score -= deathPenalty(step_num); 
             if (is_first) dead_s.first_action = first_action;
             final_states.push_back(dead_s);
-            return 0; 
+            return -1; // ★ v2.2.3 I: Block Out（呼び出し側は HOLD の展開をしない） 
         }
 
         int pushed_count = 0;
         for(size_t j = 0; j < p_list.size(); j++) {
             const auto& p = p_list[j];
             
-            bool hasBlockOutside = false;
-            for(int k=0; k<4; k++) {
-                if(p.blocks[k].y < 0) {
-                    hasBlockOutside = true;
-                    break;
-                }
-            }
+            bool hasBlockOutside = isLockOut(p.blocks); // ★ v2.2.3 I: 実機の Lock Out
 
             Board simBoard = is_first ? baseBoard : s.board;
             for(int k=0; k<4; k++) {
@@ -948,7 +964,7 @@ void searchBestMoveWasm(
             int eventBonus = calcEventBonus(p, step_num);
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
 
-            if (hasBlockOutside) stepScore -= 100000000 * (7 - step_num);
+            if (hasBlockOutside) stepScore -= deathPenalty(step_num);
 
             int prevHeight = is_first ? baseMaxHeight : s.max_height;
             if (prevHeight <= 10) {
@@ -977,6 +993,18 @@ void searchBestMoveWasm(
             next_s.has_p[step_num - 1] = true;
             next_s.step_score[step_num - 1] = stepScore;
             next_s.p_id[step_num - 1] = piece; 
+
+            // ★ v2.2.3 I: 次に出るミノ（HOLDに関係なく必ず出現する）が出せない盤面は、その場で
+            //   「次の手番で死亡」として final へ送る。ビーム枠（上位16）を死ぬ枝に使わせず、
+            //   評価値の低い生存手が刈られて死ぬ手しか残らない事故を防ぐ。
+            if (!hasBlockOutside) {
+                int upcoming = new_next_idx < 6 ? next_queue[new_next_idx] : 0;
+                if (!canSpawnPiece(simBoard, upcoming)) {
+                    next_s.total_score -= deathPenalty(step_num + 1);
+                    final_states.push_back(next_s);
+                    continue;
+                }
+            }
 
             if (hasBlockOutside) {
                 final_states.push_back(next_s);
@@ -1040,14 +1068,22 @@ void searchBestMoveWasm(
         for (const auto& state : current_states) {
             int cur_mino = state.next_idx < 6 ? next_queue[state.next_idx] : 0;
             
-            expandState(state, cur_mino, state.hold_mino, state.next_idx + 1, step_num, false, -1);
-            
+            // ★ v2.2.3 I: 次のミノが出現位置に出られない（Block Out）なら、HOLD する前にその場で死亡。
+            //   旧実装は HOLD 側の展開で「別のミノなら出せる」として生存扱いしていた。
+            if (expandState(state, cur_mino, state.hold_mino, state.next_idx + 1, step_num, false, -1) < 0) continue;
+
             if (state.hold_mino != -1 && state.hold_mino != cur_mino) {
                 expandState(state, state.hold_mino, cur_mino, state.next_idx + 1, step_num, false, -1);
             }
         }
 
-        if (next_states_N.empty() && next_states_L.empty()) break; 
+        // ★ v2.2.3 I: 全ての子が死んだ＝current_states は展開済み（死亡は final に記録済み）。
+
+        //   旧実装はこの後 current_states を無罰で final に入れていたため「死ぬ直前で打ち切った枝」が
+
+        //   生存扱いで選ばれていた。
+
+        if (next_states_N.empty() && next_states_L.empty()) { current_states.clear(); break; }
 
         trimAndMerge();
     }

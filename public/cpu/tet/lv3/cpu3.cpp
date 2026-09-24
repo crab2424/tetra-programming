@@ -6,7 +6,11 @@
 #include <cstdlib>
 
 const int COLS = 10;
-const int ROWS = 20;
+// ★ v2.2.3 I: 20行(可視のみ) → 25行(隠し5行込み。内部 y = 実機 y + 5)。
+//   旧20行モデルは可視外(実機 y<0)のブロックを盤面から落としていたため、はみ出して置いた
+//   ブロックを忘れて「高く積むほど得」に見え、出現位置が塞がる死(Block Out)も読めなかった。
+const int ROWS = 25;
+const int HIDDEN_ROWS = 5;
 
 struct GridBlock { int x, y; };
 
@@ -80,6 +84,23 @@ bool isValidPlacement(const Board& b, const std::vector<GridBlock>& blocks) {
     }
     return true;
 }
+
+// ★ v2.2.3 I: 実機の出現判定（game/tet/board.js popMino: x=3・回転0で出現位置→1段上の順に試す）
+bool canSpawnPiece(const Board& b, int pieceType) {
+    int spawnY = (pieceType == 0) ? 4 : 3;
+    for (int dy = 0; dy <= 1; dy++) {
+        if (isValidPlacement(b, getRotatedBlocks(pieceType, 0, COLS / 2 - 2, spawnY - dy))) return true;
+    }
+    return false;
+}
+// ★ v2.2.3 I: 実機の Lock Out（固定したミノの4ブロック全てが可視外）
+bool isLockOut(const std::vector<GridBlock>& blocks) {
+    for (const auto& blk : blocks) if (blk.y >= HIDDEN_ROWS) return false;
+    return true;
+}
+// 死亡ペナルティ: step は死ぬ手番（1〜5。5 は「4手目の後に次のミノが出せない」）。早い死ほど重く、
+// どの死も生存より必ず悪い（評価値の累積は 1e7 未満）。
+inline int deathPenalty(int step) { return 100000000 * (6 - step); }
 
 struct PlacementInfo { bool isFullyGrounded; int touchingCount; };
 
@@ -242,7 +263,7 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
         for (const auto& blk : droppedBlocks) {
             if (blk.y > minoBottomY) minoBottomY = blk.y;
         }
-        int n = 19 - minoBottomY;
+        int n = (ROWS - 1) - minoBottomY;
         if (n < 0) n = 0;
 
         if (n >= 3 && isGrounded) score += w.downstackGood * n; 
@@ -491,7 +512,7 @@ void searchBestMoveWasm(
     for(int i = 0; i < 26; i++) outResult[i] = -1;
 
     Board baseBoard;
-    for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
+    for(int i = 0; i < 250; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
 
     EvalWeights w = {
         weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
@@ -506,16 +527,23 @@ void searchBestMoveWasm(
     
     int A = currentType; int B = holdType; int C = next1; int D = next2; int E = next3;
 
-    struct Path { int action; int p1; int p2; int p3; int p4; };
+    // s2〜s5: 各手番で「キューから出現する」ミノ（-1=不明）。HOLD で差し替えて置く場合も、出現できなければその時点で死亡。
+    struct Path { int action; int p1; int p2; int p3; int p4; int s2 = -1; int s3 = -1; int s4 = -1; int s5 = -1; };
     std::vector<Path> paths;
 
-    paths.push_back({0, A, C, D, E});
+    paths.push_back({0, A, C, D, E, C, D, E, -1});
     if(canHold == 1) {
-        if(B != -1) paths.push_back({1, B, A, C, D});
-        else paths.push_back({1, C, A, D, E});
+        if(B != -1) {
+            paths.push_back({1, B, A, C, D, C, D, E, -1});
+            // ★ v2.2.3 I: HOLD 後に持ち替えず、キューのミノをそのまま置いていく経路も読む
+            //   （旧来の経路は2手目以降も常に HOLD と入れ替える固定順だけで、それが詰む局面で
+            //    「持ち替えなければ生き残れる」手を見落としていた）。
+            paths.push_back({1, B, C, D, E, C, D, E, -1});
+        }
+        else paths.push_back({1, C, A, D, E, D, E, -1, -1});
     }
 
-    auto getSpawnY = [](int type) { return type == 0 ? -1 : -2; };
+    auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; }; // 内部座標（実機 -1 / -2）
 
     auto calcEventBonus = [&](const Placement& p, int depth) {
         int bonus = 0; 
@@ -535,112 +563,89 @@ void searchBestMoveWasm(
     const size_t BEAM_WIDTH = 8;
     const int P1_WEIGHT_PCT = w.p1Weight; 
 
-    // Step 1
-    for(size_t i = 0; i < paths.size(); i++) {
-        const auto& path = paths[i];
-        std::vector<Placement> p1_list = getAllPlacements(baseBoard, path.p1, getSpawnY(path.p1));
-        for(const auto& p1 : p1_list) {
-            int score1 = evaluateBoard(p1.board, p1.linesCleared, p1.isFullyGrounded, p1.touchingCount, w, p1.blocks);
-            int eventBonus = calcEventBonus(p1, 1);
-            int totalScore = score1 * P1_WEIGHT_PCT / 100 + eventBonus;
-
-            SearchState s;
-            s.action = path.action; s.path_index = i;
-            s.p1_score = score1; s.total_score = totalScore;
-            s.board = p1.board; s.p1 = p1; s.has_p1 = true;
-            s.step1_score = totalScore;
-            next_states.push_back(s);
+    // ─── ★ v2.2.3 I: 致死を正しく扱う探索 ───
+    //   旧実装は「次のミノが置けない枝」をペナルティ無しで final に入れていた。探索は各手の評価値
+    //   (多くは負)を足していくので、死んで打ち切られた枝ほど合計が高くなり「死ぬほど得」になっていた。
+    //   ・Lock Out（4ブロック全て可視外）はその手番で死亡
+    //   ・次の手番で出現するミノが出せない（Block Out）ならその手番で死亡
+    //   として deathPenalty を与えて final へ送り、ビーム枠には生存する枝だけを残す。
+    auto spawnOf = [&](const Path& path, int step) {
+        return step == 2 ? path.s2 : step == 3 ? path.s3 : step == 4 ? path.s4 : step == 5 ? path.s5 : -1;
+    };
+    auto pieceOf = [&](const Path& path, int step) {
+        return step == 1 ? path.p1 : step == 2 ? path.p2 : step == 3 ? path.p3 : path.p4;
+    };
+    auto setStep = [&](SearchState& st, int step, const Placement& p, int stepScore) {
+        switch (step) {
+            case 1: st.p1 = p; st.has_p1 = true; st.step1_score = stepScore; break;
+            case 2: st.p2 = p; st.has_p2 = true; st.step2_score = stepScore; break;
+            case 3: st.p3 = p; st.has_p3 = true; st.step3_score = stepScore; break;
+            default: st.p4 = p; st.has_p4 = true; st.step4_score = stepScore; break;
         }
-    }
+    };
 
-    if(next_states.size() > BEAM_WIDTH) {
-        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
-            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
-        next_states.resize(BEAM_WIDTH);
-    }
-    current_states = next_states;
-
-    // Step 2
-    next_states.clear();
-    for(const auto& state : current_states) {
-        int p2_type = paths[state.path_index].p2;
-        std::vector<Placement> p2_list = getAllPlacements(state.board, p2_type, getSpawnY(p2_type));
-        
-        if(p2_list.empty()) { final_states.push_back(state); continue; }
-
-        for(const auto& p2 : p2_list) {
-            int score2 = evaluateBoard(p2.board, p2.linesCleared, p2.isFullyGrounded, p2.touchingCount, w, p2.blocks);
-            int stepScore = score2 + calcEventBonus(p2, 2);
-
-            SearchState s = state;
-            s.total_score += stepScore; s.board = p2.board; s.p2 = p2; s.has_p2 = true;
-            s.step2_score = stepScore;
-            next_states.push_back(s);
+    // 1手ぶん展開する。base=nullptr なら初手（盤面は baseBoard）
+    auto expand = [&](const SearchState* base, int pathIndex, int step) {
+        const Path& path = paths[pathIndex];
+        const Board& board = base ? base->board : baseBoard;
+        int piece = pieceOf(path, step);
+        // HOLD から出すミノ(初手の HOLD 経路)・キューから出るミノが出現できなければこの手番で死亡
+        bool spawnBlocked = false;
+        if (step == 1 && path.action == 1) spawnBlocked = !canSpawnPiece(board, path.p1); // HOLD から/キューから出るミノ
+        std::vector<Placement> plist;
+        if (!spawnBlocked) plist = getAllPlacements(board, piece, getSpawnY(piece));
+        if (plist.empty()) {
+            SearchState d;
+            if (base) d = *base; else { d.action = path.action; d.path_index = pathIndex; d.p1_score = 0; d.total_score = 0; d.board = board; }
+            d.total_score -= deathPenalty(step);
+            if (step >= 2) final_states.push_back(d); // 初手で置けない枝は手を持たないので候補にしない
+            return;
         }
-    }
+        for (const auto& p : plist) {
+            int sc = evaluateBoard(p.board, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, p.blocks);
+            int stepScore = (step == 1 ? sc * P1_WEIGHT_PCT / 100 : sc) + calcEventBonus(p, step);
 
-    if(next_states.size() > BEAM_WIDTH) {
-        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
-            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
-        next_states.resize(BEAM_WIDTH);
-    }
-    current_states = next_states;
+            SearchState st;
+            if (base) st = *base; else { st.action = path.action; st.path_index = pathIndex; st.p1_score = sc; st.total_score = 0; }
+            st.total_score += stepScore;
+            st.board = p.board;
+            setStep(st, step, p, stepScore);
 
-    // Step 3
-    next_states.clear();
-    for(const auto& state : current_states) {
-        int p3_type = paths[state.path_index].p3;
-        std::vector<Placement> p3_list = getAllPlacements(state.board, p3_type, getSpawnY(p3_type));
-        
-        if(p3_list.empty()) { final_states.push_back(state); continue; }
-
-        for(const auto& p3 : p3_list) {
-            int score3 = evaluateBoard(p3.board, p3.linesCleared, p3.isFullyGrounded, p3.touchingCount, w, p3.blocks);
-            int stepScore = score3 + calcEventBonus(p3, 3);
-
-            SearchState s = state;
-            s.total_score += stepScore; s.board = p3.board; s.p3 = p3; s.has_p3 = true;
-            s.step3_score = stepScore;
-            next_states.push_back(s);
+            if (isLockOut(p.blocks)) {                       // Lock Out: この手番で死亡
+                st.total_score -= deathPenalty(step);
+                final_states.push_back(st);
+                continue;
+            }
+            int nextSpawn = spawnOf(path, step + 1);
+            if (nextSpawn >= 0 && !canSpawnPiece(p.board, nextSpawn)) { // 次の手番で Block Out
+                st.total_score -= deathPenalty(step + 1);
+                final_states.push_back(st);
+                continue;
+            }
+            next_states.push_back(st);
         }
-    }
+    };
 
-    if(next_states.size() > BEAM_WIDTH) {
-        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
-            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
-        next_states.resize(BEAM_WIDTH);
-    }
-    current_states = next_states;
-
-    // Step 4
-    next_states.clear();
-    for(const auto& state : current_states) {
-        int p4_type = paths[state.path_index].p4;
-        std::vector<Placement> p4_list = getAllPlacements(state.board, p4_type, getSpawnY(p4_type));
-        
-        if(p4_list.empty()) { final_states.push_back(state); continue; }
-
-        for(const auto& p4 : p4_list) {
-            int score4 = evaluateBoard(p4.board, p4.linesCleared, p4.isFullyGrounded, p4.touchingCount, w, p4.blocks);
-            int stepScore = score4 + calcEventBonus(p4, 4);
-
-            SearchState s = state;
-            s.total_score += stepScore; s.board = p4.board; s.p4 = p4; s.has_p4 = true;
-            s.step4_score = stepScore;
-            next_states.push_back(s);
+    auto trim = [&]() {
+        if(next_states.size() > BEAM_WIDTH) {
+            std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
+                [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
+            next_states.resize(BEAM_WIDTH);
         }
-    }
+        current_states = next_states;
+        next_states.clear();
+    };
 
-    if(next_states.size() > BEAM_WIDTH) {
-        std::partial_sort(next_states.begin(), next_states.begin() + BEAM_WIDTH, next_states.end(), 
-            [](const SearchState& a, const SearchState& b){ return a.total_score > b.total_score; });
-        next_states.resize(BEAM_WIDTH);
+    for (size_t i = 0; i < paths.size(); i++) expand(nullptr, (int)i, 1);
+    trim();
+    for (int step = 2; step <= 4; step++) {
+        for (const auto& st : current_states) expand(&st, st.path_index, step);
+        trim();
     }
-
-    for(const auto& state : next_states) final_states.push_back(state);
+    for(const auto& state : current_states) final_states.push_back(state);
 
     // ─── 最終結果選択 ───
-    int bestTotalScore = -10000000;
+    int bestTotalScore = -2000000000; // ★ v2.2.3 I: 全枝が死ぬ局面でも「最も遅く死ぬ手」を必ず返す
     const SearchState* bestState = nullptr;
 
     for(const auto& state : final_states) {

@@ -19,6 +19,11 @@
 // ─────────────────────────────────────────────
 
 window.PuyoCPU5 = class {
+    // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
+    //   wasm を再ビルドしたらここの ?v= を上げること。
+    static WORKER_URLS = [
+        'cpu/puyo/lv5/wasm/cpu_worker5.js?v=37',
+    ];
     constructor(gameInstance) {
         this.game = gameInstance;
 
@@ -42,7 +47,7 @@ window.PuyoCPU5 = class {
         this._softDropRafId    = null;
 
         this.workerReady = false;
-        this.worker = new Worker('cpu/puyo/lv5/wasm/cpu_worker5.js?v=36');
+        this.worker = CpuWorkerPool.acquire(this.constructor.WORKER_URLS[0]);
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
