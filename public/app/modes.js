@@ -180,26 +180,33 @@ const CPU_LEVELS = {
   // ★ 隠し要素: 準備画面で「6」キーを押すと出現（tet限定）
   6: { label: 'LV 6', desc: '???', gravityLevel: 2 },
 };
-let selectedCpuLevel = 1; 
+let selectedCpuLevel = 1;
+
+// ─── CPU同士の対戦（v2.2.3 J・隠しコマンド）──────────
+// 準備画面(versus-check)で「0」→ 1P もCPUにして開始、「Shift+1〜6」→ 1P CPU のレベルを指定。
+// 準備画面を開くたびに通常（1P=プレイヤー／レベル=2Pと同じ）へ戻す（navigation.js switchPage）。
+// R リスタート／RETRY では維持する。
+let versusPlayerIsCpu = false;
+let selectedPlayerCpuLevel = null; // null = 2P と同じレベル
 
 const CPU_CONFIGS = {
   tet: {
-    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=2' },
-    2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js' },
-    3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js' },
-    4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=4' },
-    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=5' },
-    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=23' }
+    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=3' },
+    2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js?v=2' },
+    3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=2' },
+    4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=5' },
+    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=6' },
+    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=24' }
   },
   puyo: {
-    1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu1.js' },  
-    2: { className: 'PuyoCPU2', src: 'cpu/puyo/lv2/cpu2.js' },
-    3: { className: 'PuyoCPU3', src: 'cpu/puyo/lv3/cpu3.js' },
+    1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu1.js?v=2' },  
+    2: { className: 'PuyoCPU2', src: 'cpu/puyo/lv2/cpu2.js?v=2' },
+    3: { className: 'PuyoCPU3', src: 'cpu/puyo/lv3/cpu3.js?v=2' },
     // ★ lv4 はプロトタイプ拡張で複数ファイルに分割。class 定義(cpu4.js)を必ず先頭に置く。
     //   残りは順不同で PuyoCPU4.prototype を拡張する。cpu_loader.js が配列を順次ロードする。
     //   lv4 は実装に一旦区切りをつけた完成版（DEV_CPU_CLASSES から外しキャッシュ利用）。
     4: { className: 'PuyoCPU4', src: [
-        'cpu/puyo/lv4/js/cpu4.js',
+        'cpu/puyo/lv4/js/cpu4.js?v=2',
         'cpu/puyo/lv4/js/cpu4_weights.js',
         'cpu/puyo/lv4/js/cpu4_worker_io.js',
         'cpu/puyo/lv4/js/cpu4_estimate.js',

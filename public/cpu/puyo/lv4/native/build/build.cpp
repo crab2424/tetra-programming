@@ -56,6 +56,10 @@ struct ExpCandidate {
     // ── 実機再生用：spawn からこの初手配置へ到達する操作列（getAllPlacements の path）──
     uint8_t path[MAX_PATH];
     int pathLen;
+
+    // ★ v2.2.3 I: この初手の先が全て窒息する深さ（-1=読んだ範囲では生存できる）。
+    //   ビームに残ったこの初手のノードから、ある深さで窒息しない子が1つも作れなかったら「詰み」。
+    int doomDepth;
 };
 
 static int expBeamWidth(int depth, int cfgWidth) {
@@ -96,6 +100,18 @@ static void runExpectedChainSelection(
                          bool registerFirst, bool captureBase) {
         std::vector<SearchNode> nextNodes;
         int beamWidth = expBeamWidth(depth, cfgWidth);
+
+        // ★ v2.2.3 I: 初手ごとに「この深さで窒息せずに置けた子」の数を数え、0 なら詰み(doomDepth)とする。
+        //   PRUNE・置換表で後から落ちる子も「生存できる手がある」ので数に入れる（死亡判定だけに使う）。
+        int  aliveChildren[EXP_MAXCAND];
+        bool hadNode[EXP_MAXCAND];
+        for (int i = 0; i < EXP_MAXCAND; i++) { aliveChildren[i] = 0; hadNode[i] = false; }
+        if (!registerFirst) {
+            for (const auto& node : cur) {
+                int f = node.firstMoveIndex;
+                if (f >= 0 && f < EXP_MAXCAND) hadNode[f] = true;
+            }
+        }
 
         for (const auto& node : cur) {
             std::vector<PairPlacement> placements = getAllPlacements(node.board);
@@ -173,6 +189,7 @@ static void runExpectedChainSelection(
                         cands[fm].dispScore = LLONG_MIN;
                         cands[fm].fireChains = 0;
                         cands[fm].fireScore = 0;
+                        cands[fm].doomDepth = -1;
                         // ★ この初手配置への到達操作列を控える（実機再生用）。
                         cands[fm].pathLen = p.pathLen;
                         for (int k = 0; k < p.pathLen && k < MAX_PATH; k++) cands[fm].path[k] = p.path[k];
@@ -188,6 +205,8 @@ static void runExpectedChainSelection(
                     if (depth == 1)      { nn.col2 = p.col; nn.rot2 = p.rot; }
                     else if (depth == 2) { nn.col3 = p.col; nn.rot3 = p.rot; }
                 }
+
+                if (fm >= 0 && fm < EXP_MAXCAND) aliveChildren[fm]++;
 
                 // ★ 連鎖スコアの巻き上げ：潜在(potChain)と実発火(chain.score)の大きい方。
                 //   実発火盤面(collapse後)の potChain は小さいが、撃った連鎖そのものは
@@ -240,6 +259,12 @@ static void runExpectedChainSelection(
             nextNodes.swap(uniq);
         }
 
+        if (!registerFirst) {
+            for (int f = 0; f < nCand && f < EXP_MAXCAND; f++) {
+                if (hadNode[f] && aliveChildren[f] == 0 && cands[f].doomDepth < 0) cands[f].doomDepth = depth;
+            }
+        }
+
         std::sort(nextNodes.begin(), nextNodes.end(), [](const SearchNode& a, const SearchNode& b) {
             return a.accumulatedScore > b.accumulatedScore;
         });
@@ -285,8 +310,19 @@ static void runExpectedChainSelection(
     //      なら全初手が band 内＝base のみで選ぶ（構築品質最大＝素直に積む）。
     long long band = (w.expChainWeight > 0) ? w.expChainWeight : 0;
 
+    // ── ★ v2.2.3 I: 生存優先 ──
+    //   旧実装は「先で必ず窒息する初手（doomDepth>=0）」も連鎖見込み(chainTarget)・構築品質で選んでおり、
+    //   連鎖見込みの大きい詰み手を選んで自滅することがあった。最も長く生き延びる初手だけを候補にする
+    //   （読んだ範囲で生存できる初手があれば、それ以外は選ばない）。育成選択・発火の両方に適用。
+    const int SURVIVE_ALL = 1 << 20;
+    auto surviveDepth = [&](int fm) { return cands[fm].doomDepth < 0 ? SURVIVE_ALL : cands[fm].doomDepth; };
+    int bestSurvive = -1;
+    for (int fm = 0; fm < nCand; fm++) if (surviveDepth(fm) > bestSurvive) bestSurvive = surviveDepth(fm);
+    auto survivable = [&](int fm) { return surviveDepth(fm) == bestSurvive; };
+
     long long bestChain = 0;
     for (int fm = 0; fm < nCand; fm++) {
+        if (!survivable(fm)) continue;
         if (cands[fm].chainTarget > bestChain) bestChain = cands[fm].chainTarget;
     }
     long long chainFloor = bestChain - band;
@@ -321,6 +357,7 @@ static void runExpectedChainSelection(
     for (int pass = 0; pass < 2 && bestFm < 0; pass++) {
         bool filter = (pass == 0 && w.growthFireForbidChains > 0);
         for (int fm = 0; fm < nCand; fm++) {
+            if (!survivable(fm)) continue;
             if (cands[fm].chainTarget < chainFloor) continue;
             if (filter && cands[fm].fireChains >= w.growthFireForbidChains) continue;
             long long base = (cands[fm].bestAccum == LLONG_MIN) ? cands[fm].depth0Score : cands[fm].bestAccum;
@@ -363,6 +400,7 @@ static void runExpectedChainSelection(
         int  fireFmTgt = -1;    long long fireBestTgt = -1;     // 目標段数到達のうち最大スコア
         for (int fm = 0; fm < nCand; fm++) {
             if (cands[fm].fireChains <= 0) continue;            // この初手では発火しない
+            if (!survivable(fm)) continue;                      // ★ v2.2.3 I: 詰む発火手は撃たない
             if (cands[fm].fireScore > fireBestAny) { fireBestAny = cands[fm].fireScore; fireFmAny = fm; }
             // ① 目標発火の成立条件（和集合）：目標段数到達 OR 連鎖スコアが閾値到達のどちらかで発火対象。
             //   段数だけだと「段数は浅いが点数の大きい連鎖」を撃ち逃すため、スコア側も OR で見る。

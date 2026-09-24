@@ -4,7 +4,7 @@
 #   source ~/emsdk/emsdk_env.sh
 #
 # ⚠️ 再ビルドのたびに wasm/cpu_worker4.js の importScripts と
-#    cpu4.js の new Worker(...) の ?v= を必ず上げること（グルーjs/wasmのキャッシュ対策）。
+#    cpu4.js の static WORKER_URLS の ?v= を必ず上げること（グルーjs/wasmのキャッシュ対策）。
 # 出力先は隣の wasm/ ディレクトリ（native/ にソース、wasm/ に生成物）。
 set -e
 cd "$(dirname "$0")"

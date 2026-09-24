@@ -528,8 +528,9 @@ struct SearchNode {
     int col1, rot1;
     int col2, rot2;
     int col3, rot3;
+    bool dead; // ★ v2.2.3 I: 窒息で死亡済み（以降は展開せず、罰を持ったまま運ぶ）
 
-    SearchNode() : accumulatedScore(0), col1(-1), rot1(-1), col2(-1), rot2(-1), col3(-1), rot3(-1) {}
+    SearchNode() : accumulatedScore(0), col1(-1), rot1(-1), col2(-1), rot2(-1), col3(-1), rot3(-1), dead(false) {}
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -579,6 +580,9 @@ void searchBestMovePuyoWasm(
 
     const int MAX_DEPTH = 10; 
     
+    // ★ v2.2.3 I: 死亡ペナルティ。早い手番の死ほど重く、どの死も生存より必ず悪い（評価値の累積は 1e7 未満）。
+    auto deathPenalty = [&](int depth) { return 100000000 * (MAX_DEPTH - depth); }; // depth0: 1e9
+
     for (int depth = 0; depth < MAX_DEPTH; depth++) {
         std::vector<SearchNode> nextNodes;
         int pivot = nextPairs[depth * 2];
@@ -591,10 +595,12 @@ void searchBestMovePuyoWasm(
         else beamWidth = 4;
 
         for (const auto& node : currentNodes) {
+            if (node.dead) { nextNodes.push_back(node); continue; }
             std::vector<PairPlacement> placements = getAllPlacements(node.board);
             if (placements.empty()) {
                 SearchNode deathNode = node;
-                deathNode.accumulatedScore -= 999999;
+                deathNode.accumulatedScore -= deathPenalty(depth);
+                deathNode.dead = true;
                 nextNodes.push_back(deathNode);
                 continue;
             }
@@ -640,6 +646,15 @@ void searchBestMovePuyoWasm(
                 } else if (depth == 2) {
                     nextNode.col3 = p.col; nextNode.rot3 = p.rot;
                 }
+
+                // ★ v2.2.3 I: 実機の窒息判定（src/game/puyo/engine.js: 次ツモ出現時に _isCellEmpty(2, 0)）。
+                //   simulateChain 後の nb は連鎖・落下を解決済みなので、ここで致死セル（第3列の最上段表示行）が
+                //   埋まっていれば「この手を置いた時点で死亡」。旧実装は致死セルを判定しておらず（第3列の高さに
+                //   線形ペナルティがあるだけ）、連鎖点などの加点がそれを上回ると自分から窒息していた。
+                if (!nb.isEmpty(2, 0)) {
+                    nextNode.accumulatedScore -= deathPenalty(depth);
+                    nextNode.dead = true;
+                }
                 
                 nextNodes.push_back(nextNode);
             }
@@ -654,7 +669,8 @@ void searchBestMovePuyoWasm(
         }
         currentNodes = nextNodes;
 
-        if (!currentNodes.empty() && currentNodes[0].accumulatedScore < -900000) {
+        // 最善ノードすら死んでいる＝全滅。これ以上読んでも結果は変わらない（最も遅く死ぬ手を返す）
+        if (!currentNodes.empty() && currentNodes[0].dead) {
             break;
         }
     }

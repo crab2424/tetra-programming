@@ -4,6 +4,11 @@
 // ─────────────────────────────────────────────
 
 window.CPU2 = class {
+    // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
+    //   wasm を再ビルドしたらここの ?v= を上げること。
+    static WORKER_URLS = [
+        'cpu/tet/lv2/cpu_worker2.js?v=2',
+    ];
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
@@ -38,7 +43,7 @@ window.CPU2 = class {
         };
 
         // Workerの生成
-        this.worker = new Worker('cpu/tet/lv2/cpu_worker2.js');
+        this.worker = CpuWorkerPool.acquire(this.constructor.WORKER_URLS[0]);
         this.workerReady = false;
         this.isCalculating = false;
 
@@ -115,17 +120,22 @@ window.CPU2 = class {
         if (!mino) return;
 
         if (!this.workerReady) {
-            if (this.isAutoPlay) setTimeout(() => this.game.hardDrop(), 700);
+            // ★ v2.2.3 G: worker 準備前は「700ms 後にその場でハードドロップ」していたが、出現位置での
+            //   即置き＝自滅手になり、stop() 後の古いタイマーが次の試合のミノまで落としていた。
+            //   ready まで待つ（currentMino を戻して updateLoop に次フレームで再試行させる。その間は重力任せ）。
+            this.currentMino = null;
             return;
         }
 
         if (this.isCalculating) return;
         this.isCalculating = true; 
 
-        let boardBuffer = new Uint8Array(200);
+        // ★ v2.2.3 I: 隠し5行（実機 y=-5〜-1）も含めた 25 行で渡す（内部 y = 実機 y + 5）。
+        let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
-            if (b.y >= 0 && b.y < 20 && b.x >= 0 && b.x < 10) {
-                boardBuffer[b.y * 10 + b.x] = 1; 
+            const by = b.y + 5;
+            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) {
+                boardBuffer[by * 10 + b.x] = 1; 
             }
         });
 
@@ -177,9 +187,10 @@ window.CPU2 = class {
             action: actionInt === 1 ? 'hold' : 'play',
             score: res[1],
             diff: res[2],
-            id: res[3], rot: res[4], x: res[5], spawnY: res[7],
-            p1: { id: res[3], rot: res[4], x: res[5], y: res[6] },
-            p2: res[8] !== -1 ? { id: res[8], rot: res[9], x: res[10], y: res[11] } : null
+            // ★ v2.2.3 I: wasm は内部座標（実機 y + 5）で返すので戻す
+            id: res[3], rot: res[4], x: res[5], spawnY: res[7] - 5,
+            p1: { id: res[3], rot: res[4], x: res[5], y: res[6] - 5 },
+            p2: res[8] !== -1 ? { id: res[8], rot: res[9], x: res[10], y: res[11] - 5 } : null
         };
 
         this.bestMoveData = bestMove;

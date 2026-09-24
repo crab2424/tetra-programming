@@ -87,19 +87,65 @@ function _versusFinishingNow() {
   return p === 'roundResolving' || p === 'roundResult';
 }
 
+// 1P 側を CPU にするとき（隠しコマンド: 準備画面の 0 キー）のレベル。
+// selectedPlayerCpuLevel が null なら 2P と同じ。LV6 は tet のみなので puyo では 5 に丸める。
+function _playerCpuLevel() {
+  let lv = (selectedPlayerCpuLevel == null) ? selectedCpuLevel : selectedPlayerCpuLevel;
+  if (versusPlayerRule !== 'tet' && lv > 5) lv = 5;
+  return lv;
+}
+
+function _cpuLabel(lv) {
+  return 'CPU ' + (CPU_LEVELS[lv] ? CPU_LEVELS[lv].label : ('LV ' + lv));
+}
+
+// 対戦中のCPUコントローラ（2P=_cpuController / 1P=_cpuControllerPlayer）を全て止める
+function _stopVersusCpuControllers() {
+  for (const key of ['_cpuController', '_cpuControllerPlayer']) {
+    const ctrl = window[key];
+    if (ctrl && typeof ctrl.stop === 'function') ctrl.stop();
+  }
+}
+
 async function startVersusGame() {
   // 開始/再スタートの状態遷移（リトライはどこからでも idle を経由して開始できる）
   const lc = window.BattleVersusLifecycle;
   lc.transition('idle', 'startVersusGame');
   lc.transition('preparing', 'startVersusGame');
+  stopAllGames(); // 開始前に完全に状態をリセット
+  const sessionId = currentSessionId; // 非同期処理の後でセッションが有効か確認するために保持
+  const isStale = () => currentSessionId !== sessionId;
+
+  const isPlayerCpu = !!versusPlayerIsCpu;
+  const cpuLevel = selectedCpuLevel;
+  const playerCpuLevel = isPlayerCpu ? _playerCpuLevel() : null;
+  const cpuConfig = CPU_LEVELS[cpuLevel];
+
+  // ─── ロード（v2.2.3 H）───
+  // 画像・SE・BGM・CPU（クラスJS＋思考 worker を ready まで）を揃えてから開始する。
+  // 全部揃っていればロード画面は出ない（R リスタート等）。
+  const cpuSpecs = [{ level: cpuLevel, rule: versusCpuRule, label: _cpuLabel(cpuLevel) + (isPlayerCpu ? ' (2P)' : '') }];
+  if (isPlayerCpu) cpuSpecs.push({ level: playerCpuLevel, rule: versusPlayerRule, label: _cpuLabel(playerCpuLevel) + ' (1P)' });
+  const prep = await window.BattleLocalLoading.prepare({
+    rules: [versusPlayerRule, versusCpuRule],
+    bgmKey: 'versus_bgm',
+    cpus: cpuSpecs,
+    isStale,
+  });
+  if (prep.cancelled) {
+    if (isStale()) return; // 別の開始処理に追い越された
+    lc.transition('idle', 'startVersusGame cancelled');
+    if (prep.cpuFailed) alert('CPUの読み込みに失敗しました。通信状態を確認してもう一度お試しください。');
+    switchPage('versus-check');
+    return;
+  }
+  const CpuClass = prep.classes[0];
+  const PlayerCpuClass = isPlayerCpu ? prep.classes[1] : null;
+
   lc.beginRound();
   lc.transition('countdown', 'startVersusGame');
   lc.transition('playing', 'startVersusGame'); // カウントダウンはエンジン内で行うため即 playing 扱い
-  stopAllGames(); // 開始前に完全に状態をリセット
-  const sessionId = currentSessionId; // カウントダウン後にセッションが有効か確認するために保持
 
-
-  const cpuConfig = CPU_LEVELS[selectedCpuLevel];
   switchPage('versus');
 
   const cpuLevelDisp = document.getElementById('versus-cpu-level-display');
@@ -107,6 +153,11 @@ async function startVersusGame() {
 
   const cpuSideLabel = document.getElementById('versus-cpu-side-label');
   if (cpuSideLabel) cpuSideLabel.textContent = 'CPU ' + cpuConfig.label;
+  const playerSideLabel = document.getElementById('versus-player-side-label');
+  if (playerSideLabel) {
+    if (playerSideLabel.dataset.defaultText === undefined) playerSideLabel.dataset.defaultText = playerSideLabel.textContent;
+    playerSideLabel.textContent = isPlayerCpu ? _cpuLabel(playerCpuLevel) + ' (1P)' : playerSideLabel.dataset.defaultText;
+  }
 
   // xorshift はシード0だと0を返し続けるため 1 以上にする
   const sharedSeed = Math.floor(Math.random() * 1000000) + 1;
@@ -147,7 +198,9 @@ async function startVersusGame() {
   window._game.canvasPrefix = 'player';
   window._game.statsPrefix = 'player';
   window._game._labelsInitialized = false;
-  window._game.isCpuControlled = false;
+  // ★ CPU同士（J）では 1P もCPU操作。入力ハンドラは isCpuControlled で自分を無視する。
+  window._game.isCpuControlled = isPlayerCpu;
+  if (isPlayerPuyo) window._game.suppressBlink = isPlayerCpu;
 
   window._cpuGame.currentMode = 'versus';
   window._cpuGame.marathonGoal = Infinity;
@@ -166,12 +219,13 @@ async function startVersusGame() {
   // ─── Player 初期化 ───
   if (isPlayerPuyo) {
       await new Promise(resolve => window._game.initGame(resolve));
+      if (isStale()) return;
   } else {
       window._game.initMainCanvas();
       window._game.initNextCanvas();
       window._game.initHoldCanvas();
       window._game._initGameState();
-      window._game.setKeyEvent();
+      if (!isPlayerCpu) window._game.setKeyEvent();
       window._game.level = 2;
       window._game.updateStatsDisplay();
   }
@@ -179,6 +233,7 @@ async function startVersusGame() {
   // ─── CPU 初期化 ───
   if (isCpuPuyo) {
       await new Promise(resolve => window._cpuGame.initGame(resolve));
+      if (isStale()) return;
   } else {
       window._cpuGame.initMainCanvas();
       window._cpuGame.initNextCanvas();
@@ -195,33 +250,103 @@ async function startVersusGame() {
   if (isCpuPuyo && window._cpuGame) window._cpuGame.state = 'starting';
   // ★ 修正箇所 ここまで
 
+  // ★ CPUコントローラはロード済みクラスから生成する。思考 worker はロード画面で ready 済みの
+  //   ものをプールから借りるので、生成直後から workerReady が立っている（v2.2.3 G/H）。
+  if (CpuClass) window._cpuController = new CpuClass(window._cpuGame);
+  if (PlayerCpuClass) window._cpuControllerPlayer = new PlayerCpuClass(window._game);
 
-  // ★ カウントダウンの開始と同時に非同期でCPUのスクリプト読み込みを開始し、インスタンス化まで済ませる
-  // （実体は src/battle/driver.ts の loadLocalCpu。挙動は変えていない）
-  let cpuLoadPromise = window.BattleDriver.loadLocalCpu(
-    window._cpuGame, selectedCpuLevel, versusCpuRule, () => currentSessionId !== sessionId,
-  );
+  await window.BattleLocalLoading.reveal();
+  if (isStale()) return;
 
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
-    if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
+    if (isStale()) return; // セッションが変わっていたら開始しない
     if (window.BgmManager) window.BgmManager.play('versus_bgm'); // ★ START! のタイミングでBGM開始
     window._game._startGameplay();
+    const pc = window._cpuControllerPlayer;
+    if (pc && typeof pc.start === 'function') pc.start();
   }, null);
 
-  runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', async () => {
-    if (currentSessionId !== sessionId) return; // セッションが変わっていたら開始しない
-    
+  runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
+    if (isStale()) return; // セッションが変わっていたら開始しない
     window._cpuGame._startGameplay();
-    
-    // ★ ロードとインスタンス化がまだ終わっていなければ待つ
-    await cpuLoadPromise;
-    
-    if (window._cpuController && typeof window._cpuController.start === 'function' && currentSessionId === sessionId) {
-        window._cpuController.start();
-    }
+    const c = window._cpuController;
+    if (c && typeof c.start === 'function') c.start();
   }, null, undefined, true); // silent: player側と同時に鳴るSEの二重再生を防ぐ
 
   setupVersusPauseKey();
+  if (typeof startVersusCpuWatchdog === 'function') startVersusCpuWatchdog(sessionId);
+}
+
+// ─── CPUコントローラの作り直し（v2.2.3）─────────────────────
+// 同じクラスで stop() → new → start()。思考 worker は stop() でプールへ返り、新しい方が
+// ready 済みのまま借りるので、作り直し直後の1手が即置きになることは無い（G）。
+// stop() で isActive=false になるため、旧コントローラが予約していたアクション連鎖
+// （setTimeout）は全て自滅する＝盤面入れ替え直後の二重実行（F）も起きない。
+// key: '_cpuController'（2P, window._cpuGame）/ '_cpuControllerPlayer'（1P, window._game）
+function recreateVersusCpuController(key) {
+  const old = window[key];
+  if (!old) return null;
+  const game = (key === '_cpuControllerPlayer') ? window._game : window._cpuGame;
+  const CPUClass = old.constructor;
+  if (typeof old.stop === 'function') old.stop();
+  const ctrl = new CPUClass(game);
+  window[key] = ctrl;
+  if (typeof ctrl.start === 'function') ctrl.start();
+  return ctrl;
+}
+
+// ─── CPU停止のウォッチドッグ（v2.2.3 G-3）─────────────────────
+// 1つのミノ／ぷよに対して CPU が STALL_MS 以上手を出さない（重力だけで落ちている）状態を検出し、
+// コントローラの状態をログに出してから作り直す。通常 CPU は 1 秒未満で置くので、
+// 重力任せで落ちきるより十分短い閾値にしている。
+const CPU_STALL_MS = 6000;
+let _cpuWatchdogTimer = null;
+
+function stopVersusCpuWatchdog() {
+  if (_cpuWatchdogTimer) { clearInterval(_cpuWatchdogTimer); _cpuWatchdogTimer = null; }
+}
+
+function startVersusCpuWatchdog(sessionId) {
+  stopVersusCpuWatchdog();
+  const tracks = {}; // key -> { token, since }
+  _cpuWatchdogTimer = setInterval(() => {
+    if (currentSessionId !== sessionId) { stopVersusCpuWatchdog(); return; }
+    if (window.BattleVersusLifecycle.phase !== 'playing') return;
+    const pauseOverlay = document.getElementById('versus-pause-overlay');
+    const paused = pauseOverlay && pauseOverlay.classList.contains('active');
+    const now = performance.now();
+
+    for (const key of ['_cpuController', '_cpuControllerPlayer']) {
+      const ctrl = window[key];
+      if (!ctrl || !ctrl.isActive || !ctrl.isAutoPlay) { delete tracks[key]; continue; }
+      const game = ctrl.game;
+      // 監視対象外の時間帯（ポーズ・カウントダウン・終了演出・ぷよの連鎖中など）は計測し直す
+      const idle = paused || !game || game.isPaused || game.isCountingDown || game.isFinishing
+        || (game.state && game.state !== 'playing');
+      let token = null;
+      if (!idle) {
+        if (game instanceof PuyoGame) token = (game._gs === 'falling') ? (tracks[key] && tracks[key].token) || ('p' + now) : null;
+        else token = game.mino || null;
+      }
+      if (!token) { delete tracks[key]; continue; }
+      const t = tracks[key];
+      if (!t || t.token !== token) { tracks[key] = { token, since: now }; continue; }
+      if (now - t.since < CPU_STALL_MS) continue;
+
+      console.warn(`[cpu-watchdog] ${key} が ${CPU_STALL_MS}ms 無操作のため作り直します`, {
+        className: ctrl.constructor && ctrl.constructor.name,
+        workerReady: ctrl.workerReady,
+        isCalculating: ctrl.isCalculating,
+        isExecutingAction: ctrl.isExecutingAction,
+        actionQueue: ctrl.actionQueue ? ctrl.actionQueue.length : undefined,
+        hasBestMove: !!ctrl.bestMoveData,
+        currentMinoMatches: ctrl.currentMino === game.mino,
+        gs: game._gs,
+      });
+      delete tracks[key];
+      recreateVersusCpuController(key);
+    }
+  }, 1000);
 }
 
 function setupVersusPauseKey() {
@@ -337,9 +462,7 @@ function versusGameOver(loser) {
   stopGame(window._game);
   stopGame(window._cpuGame);
   
-  if (window._cpuController && typeof window._cpuController.stop === 'function') {
-      window._cpuController.stop();
-  }
+  _stopVersusCpuControllers();
 
   const overlay = document.getElementById('versus-pause-overlay');
   if (overlay) overlay.classList.remove('active');
@@ -349,10 +472,21 @@ function versusGameOver(loser) {
   window.BattleFinish.showFieldFinish('player-', loser === 'player' ? 'lose' : 'win');
   window.BattleFinish.showFieldFinish('cpu-', loser === 'cpu' ? 'lose' : 'win', () => {
     // ★ リザルトでも versus_bgm を引き継ぐ（停止は main-menu / versus-check へ戻った時のみ）
-    const winner = (loser === 'player') ? 'CPU' : 'YOU';
+    const isCpuVsCpu = !!versusPlayerIsCpu;
+    let winner = (loser === 'player') ? 'CPU' : 'YOU';
+    if (isCpuVsCpu) {
+      // ★ CPU同士の対戦（v2.2.3 J）: 勝った側を「1P/2P ＋ レベル」で表示
+      winner = (loser === 'player')
+        ? _cpuLabel(selectedCpuLevel) + ' (2P)'
+        : _cpuLabel(_playerCpuLevel()) + ' (1P)';
+    }
     const titleEl = document.getElementById('versus-result-title');
     const winnerEl = document.getElementById('versus-result-winner');
-    if (titleEl) {
+    if (titleEl && isCpuVsCpu) {
+      titleEl.textContent = (loser === 'player') ? '2P WIN!' : '1P WIN!';
+      titleEl.style.color = 'var(--success)';
+      titleEl.style.webkitTextFillColor = 'var(--success)';
+    } else if (titleEl) {
       if (loser === 'player') {
         titleEl.textContent = 'YOU LOSE';
         titleEl.style.color = 'var(--danger)';
@@ -375,7 +509,8 @@ function versusGameOver(loser) {
     // YOUR LINES ラベルをルールに応じて切り替え
     const playerLinesLabelEl = document.getElementById('versus-result-player-lines-label');
     if (playerLinesLabelEl) {
-      playerLinesLabelEl.textContent = isPlayerPuyo ? 'YOUR MAX CHAINS' : 'YOUR LINES';
+      const who = isCpuVsCpu ? '1P' : 'YOUR';
+      playerLinesLabelEl.textContent = isPlayerPuyo ? `${who} MAX CHAINS` : `${who} LINES`;
     }
 
     // YOUR LINES 値をルールに応じて取得
