@@ -5,6 +5,18 @@
 // cpu_worker6.js（評価関数ビームサーチ）とは完全に独立して並列動作する。
 // ─────────────────────────────────────────────
 
+// ★ CpuWorkerPool（app/cpu_worker_pool.js）用: 返信へ要求元のリースID(__lease)をエコーする。
+//   プールは worker を使い回すので、前の持ち主が投げた計算の結果を次の持ち主へ届けないために使う。
+//   計算は onmessage 内で同期的に終わって返信されるので「直近に受けた要求のID」を付ければ対応が取れる。
+//   （addEventListener は下の self.onmessage より先に登録されるので、ハンドラ実行前にIDが入る）
+let __leaseId;
+self.addEventListener('message', (e) => { __leaseId = e.data ? e.data.__lease : undefined; });
+const __postMessage = self.postMessage.bind(self);
+self.postMessage = (msg, transfer) => {
+    if (msg && typeof msg === 'object' && msg.type !== 'ready') msg.__lease = __leaseId;
+    return transfer ? __postMessage(msg, transfer) : __postMessage(msg);
+};
+
 let wasmReady = false;
 
 self.Module = {

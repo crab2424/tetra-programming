@@ -78,7 +78,10 @@ Object.assign(PuyoGame.prototype, {
             //   state!=='playing' で止まっていても _tryMove/_tryRotate/_tryQuickDrop が
             //   直接盤面を書き換えてしまい、画面には反映されないままポーズ解除の瞬間に
             //   一気に反映される不具合になる。
-            if (this.state !== 'playing') return;
+            //   カウントダウン中(starting)は通す：押下状態(_keys/_dasDir)を記録して DAS チャージと
+            //   下キー高速落下の先行入力を効かせるため。_gs==='spawn' なので移動/回転/ドロップは
+            //   _gs 判定で不発になり、盤面は書き換わらない。
+            if (this.state !== 'playing' && this.state !== 'starting') return;
 
             const isRepeat = e.repeat;
             this._heldCodes.add(e.code);

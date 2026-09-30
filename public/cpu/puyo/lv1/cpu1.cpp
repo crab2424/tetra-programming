@@ -407,7 +407,17 @@ struct SearchNode {
     int col1, rot1;
     int col2, rot2;
     int col3, rot3;
+    bool dead = false; // ★ v2.2.3 I: 窒息で死亡済み（以降は展開せず、罰を持ったまま運ぶ）
 };
+
+// ★ v2.2.3 I: 実機の窒息判定（src/game/puyo/engine.js: 次ツモ出現時に _isCellEmpty(2, 0)）。
+//   連鎖・落下を解決した後の盤面で、第3列の最上段表示行が埋まっていれば死亡。
+//   旧実装は致死セルを判定しておらず（第3列の高さに線形ペナルティがあるだけ）、
+//   連鎖点などの加点がそれを上回ると自分から窒息していた。
+//   また置けない枝（placements が空）も無罰で運んでいたため「死ぬと以降の減点を免れる」形になっていた。
+static inline bool isDeadBoard(const Board& b) { return !b.isEmpty(2, 0); }
+// 死亡した手番 step(1〜3) の罰。早い死ほど重く、どの死も生存より必ず悪い。
+static inline int deathPenalty(int step) { return 100000000 * (4 - step); }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Wasm エクスポート関数
@@ -489,6 +499,7 @@ void searchBestMovePuyoWasm(
         SearchNode node;
         node.board = board1;
         node.accumulatedScore = score1;
+        if (isDeadBoard(board1)) { node.accumulatedScore -= deathPenalty(1); node.dead = true; }
         node.col1 = p1.col; node.rot1 = p1.rot;
         node.col2 = -1;     node.rot2 = -1;
         node.col3 = -1;     node.rot3 = -1;
@@ -506,9 +517,11 @@ void searchBestMovePuyoWasm(
     // ─────────────────────────────────────────────
     std::vector<SearchNode> nodes2;
     for (const auto& node1 : nodes1) {
+        if (node1.dead) { nodes2.push_back(node1); continue; }
         std::vector<PairPlacement> placements2 = getAllPlacements(node1.board);
         if (placements2.empty()) {
-            nodes2.push_back(node1);
+            SearchNode d = node1; d.accumulatedScore -= deathPenalty(2); d.dead = true;
+            nodes2.push_back(d);
             continue;
         }
 
@@ -523,6 +536,7 @@ void searchBestMovePuyoWasm(
             nextNode.accumulatedScore += score2; // スコアを累計
             nextNode.col2 = p2.col;
             nextNode.rot2 = p2.rot;
+            if (isDeadBoard(board2)) { nextNode.accumulatedScore -= deathPenalty(2); nextNode.dead = true; }
             nodes2.push_back(nextNode);
         }
     }
@@ -538,9 +552,11 @@ void searchBestMovePuyoWasm(
     // ─────────────────────────────────────────────
     std::vector<SearchNode> nodes3;
     for (const auto& node2 : nodes2) {
+        if (node2.dead) { nodes3.push_back(node2); continue; }
         std::vector<PairPlacement> placements3 = getAllPlacements(node2.board);
         if (placements3.empty()) {
-            nodes3.push_back(node2);
+            SearchNode d = node2; d.accumulatedScore -= deathPenalty(3); d.dead = true;
+            nodes3.push_back(d);
             continue;
         }
 
@@ -555,6 +571,7 @@ void searchBestMovePuyoWasm(
             nextNode.accumulatedScore += score3; // スコアを累計
             nextNode.col3 = p3.col;
             nextNode.rot3 = p3.rot;
+            if (isDeadBoard(board3)) { nextNode.accumulatedScore -= deathPenalty(3); nextNode.dead = true; }
             nodes3.push_back(nextNode);
         }
     }

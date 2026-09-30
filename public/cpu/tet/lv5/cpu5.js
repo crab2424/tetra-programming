@@ -4,6 +4,11 @@
 // ─────────────────────────────────────────────
 
 window.CPU5 = class {
+    // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
+    //   wasm を再ビルドしたらここの ?v= を上げること。
+    static WORKER_URLS = [
+        'cpu/tet/lv5/cpu_worker5.js?v=2',
+    ];
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
@@ -63,7 +68,7 @@ window.CPU5 = class {
             P1_WEIGHT: 1.0,        
         };
 
-        this.worker = new Worker('cpu/tet/lv5/cpu_worker5.js');
+        this.worker = CpuWorkerPool.acquire(this.constructor.WORKER_URLS[0]);
         this.workerReady = false;
         this.isCalculating = false;
 
@@ -666,17 +671,10 @@ window.CPU5 = class {
         if (!mino) return;
 
         if (!this.workerReady) {
-            if (this.isAutoPlay) {
-                const tryDropFallback = () => {
-                    if (!this.isActive || this.game.mino !== this.currentMino) return;
-                    if (this.game.isPaused || this.game.state === 'paused') {
-                        setTimeout(tryDropFallback, 100);
-                        return;
-                    }
-                    this.game.hardDrop();
-                };
-                setTimeout(tryDropFallback, 700);
-            }
+            // ★ v2.2.3 G: worker 準備前は「700ms 後にその場でハードドロップ」していたが、出現位置での
+            //   即置き＝自滅手になり、stop() 後の古いタイマーが次の試合のミノまで落としていた。
+            //   ready まで待つ（currentMino を戻して updateLoop に次フレームで再試行させる。その間は重力任せ）。
+            this.currentMino = null;
             return;
         }
 

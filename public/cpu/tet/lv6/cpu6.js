@@ -4,6 +4,12 @@
 // ─────────────────────────────────────────────
 
 window.CPU6 = class {
+    // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
+    //   wasm を再ビルドしたらここの ?v= を上げること。
+    static WORKER_URLS = [
+        'cpu/tet/lv6/wasm/cpu_worker6.js?v=16',
+        'cpu/tet/lv6/pc/wasm/pc_worker6.js',
+    ];
     constructor(gameInstance) {
         this.game = gameInstance;
         this.isActive = false;
@@ -73,7 +79,7 @@ window.CPU6 = class {
             P1_WEIGHT: 1.0,
         };
 
-        this.worker = new Worker('cpu/tet/lv6/wasm/cpu_worker6.js?v=15'); // ★v=15: getAllPlacements世代スタンプ化で再ビルド
+        this.worker = CpuWorkerPool.acquire(this.constructor.WORKER_URLS[0]); // ★v=15: getAllPlacements世代スタンプ化で再ビルド
         this.workerReady = false;
         this.isCalculating = false;
 
@@ -101,7 +107,7 @@ window.CPU6 = class {
         // ─────────────────────────────────────────────
         // ★パフェ(全消し)探索 — 評価関数ビームサーチとは独立した別ワーカー
         // ─────────────────────────────────────────────
-        this.pcWorker = new Worker('cpu/tet/lv6/pc/wasm/pc_worker6.js');
+        this.pcWorker = CpuWorkerPool.acquire(this.constructor.WORKER_URLS[1]);
         this.pcWorkerReady = false;
         this.pcSequence = null;          // 実行中のPC手順 [{minoType,rot,x,y,useHold}, ...]
         this.pcExpectedBoard = null;     // ★PC各手番で想定される盤面(内部25x10)。実機とズレたらおじゃま混入とみなし破棄
@@ -867,17 +873,9 @@ window.CPU6 = class {
         // beam ワーカー未ロード時のドロップ即時フォールバック。
         // ただし PC 探索が可能な空盤面（pcWorker 準備済み）なら、PC のチャンスを残すため抑止する。
         if (!this.workerReady && !this.shouldSearchPC()) {
-            if (this.isAutoPlay) {
-                const tryDropFallback = () => {
-                    if (!this.isActive || this.game.mino !== this.currentMino) return;
-                    if (this.game.isPaused || this.game.state === 'paused') {
-                        setTimeout(tryDropFallback, 100);
-                        return;
-                    }
-                    this.game.hardDrop();
-                };
-                setTimeout(tryDropFallback, 700);
-            }
+            // ★ v2.2.3 G: 旧「700ms 後にその場でハードドロップ」は出現位置での即置き＝自滅手だったので廃止。
+            //   ready まで待つ（currentMino を戻して updateLoop に次フレームで再試行させる）。
+            this.currentMino = null;
             return;
         }
 
@@ -1012,6 +1010,7 @@ window.CPU6 = class {
         //   （初回ロードで PC未発見→ここに来たとき workerReady=false だと、従来は無言で
         //    return して当該ピースを誰も駆動できず恒久的な待機状態になっていた）
         if (!this.workerReady) {
+            if (!this.worker) return; // stop() 済み（worker 返却後）は再試行しない
             setTimeout(() => this.startBeamSearch(data), 50);
             return;
         }

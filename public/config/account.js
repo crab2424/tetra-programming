@@ -9,8 +9,24 @@
 // ─────────────────────────────────────────────
 
 (function () {
-    // records.js側のRECORD_RULESと同一キー。ランキング対象（worker/records.tsのRANKED_MODESと一致させる）
-    const RANKED_KEYS = ['ultra', 'sprint:40'];
+    // ランキング対象キーは records.js の Records.RANKED_KEYS に集約（worker/records.tsのRANKED_MODESと一致）。
+    // records.js は account.js より先に読み込まれるが、参照は呼び出し時に行う。
+    function _rankedKeys() {
+        return (window.Records && window.Records.RANKED_KEYS) || [];
+    }
+
+    // v2.2.3で後からランキング対象に加わったキー。ログイン済みのまま起動した利用者の過去ベストは
+    // 自動送信せず、1回だけ取込ダイアログで確認する（ログイン前に出た記録＝共用PCで他人の記録かもしれないため）。
+    const LATE_RANKED_KEYS = ['marathon:endless', 'puyo'];
+    const LATE_IMPORT_FLAG = 'tetlabo_late_rank_import_v223';
+
+    function _lateImportDone() {
+        try { return localStorage.getItem(LATE_IMPORT_FLAG) === '1'; } catch (e) { return true; }
+    }
+
+    function _markLateImportDone() {
+        try { localStorage.setItem(LATE_IMPORT_FLAG, '1'); } catch (e) { /* 次回また確認されるだけ */ }
+    }
 
     let me = null; // null | { id, name, avatarUrl, isAdmin }
     const listeners = [];
@@ -35,6 +51,19 @@
             const idx = recordListeners.indexOf(cb);
             if (idx !== -1) recordListeners.splice(idx, 1);
         };
+    }
+
+    // 結果画面のRANK表示: ランキング対象モードでログイン中のとき、自己ベストの同期結果（順位）が
+    // 届いたら rankEl に表示する。結果画面を離れた後に届いても、非表示のまま値をセットするだけで実害はない。
+    function watchResultRank(key, rankEl) {
+        if (!rankEl || !me || !window.Records || !window.Records.isRanked(key)) return;
+        const unsubscribe = onRecordSynced((syncedKey, result) => {
+            if (syncedKey !== key) return;
+            unsubscribe();
+            if (!result || !result.accepted || typeof result.rank !== 'number') return;
+            rankEl.textContent = `RANK #${result.rank}`;
+            rankEl.style.display = '';
+        });
     }
 
     function _notifyRecordSynced(key, result) {
@@ -66,8 +95,15 @@
         const url = new URL(location.href);
         const login = url.searchParams.get('login');
         if (!login) {
-            // 通常起動時: 前回の通信失敗で同期し切れなかった記録があれば再送する
-            syncLocalBests().catch((e) => console.error(e));
+            // 通常起動時: 後から対象になったモードの過去ベストを1回だけ確認 →
+            // 前回の通信失敗で同期し切れなかった記録があれば再送する
+            (async () => {
+                if (me && !_lateImportDone()) {
+                    await _maybeImportLocal(LATE_RANKED_KEYS);
+                    _markLateImportDone();
+                }
+                await syncLocalBests();
+            })().catch((e) => console.error(e));
             return;
         }
         // reason: worker/auth.tsがデバッグ用に付ける非機微な短い識別子（トークン等は含まれない）。
@@ -95,7 +131,8 @@
             });
         } else if (login === 'ok') {
             // 初回取込ダイアログ(★B) → その他の未同期分の通常同期（別アカウント切替時の記録など）
-            await _maybeImportLocal();
+            await _maybeImportLocal(_rankedKeys());
+            if (me) _markLateImportDone(); // 全キーを確認済みなので、起動時の追加確認は不要
             await syncLocalBests();
         }
     }
@@ -153,7 +190,7 @@
     }
 
     function _labelFor(key) {
-        return key === 'sprint:40' ? 'SPRINT' : key.toUpperCase();
+        return window.Records ? window.Records.labelFor(key) : key.toUpperCase();
     }
 
     async function pushRecord(key, record, source, playedAt) {
@@ -183,10 +220,13 @@
     // 通信失敗時はsyncedToが更新されないため、次回のsubmit()/起動時に自然に再送される。
     async function syncLocalBests() {
         if (!me || !window.Records) return;
-        for (const key of RANKED_KEYS) {
+        const lateDone = _lateImportDone();
+        for (const key of _rankedKeys()) {
             const record = window.Records.get(key);
             if (!record) continue;
             if (record.syncedTo === me.id || record.syncedTo === `skip:${me.id}`) continue;
+            // 起動時の取込確認がまだ（ダイアログ表示中など）なら、後から対象になったモードの未確認記録は送らない
+            if (!lateDone && record.syncedTo === undefined && LATE_RANKED_KEYS.includes(key)) continue;
             const result = await pushRecord(key, _recordPayload(record), 'play', record.at);
             if (result && result.accepted) window.Records.markSynced(key, me.id);
         }
@@ -196,9 +236,10 @@
     // アカウントへの登録可否を1回だけ確認する。NOの場合は'skip:<id>'を付けて以後聞かない
     // （そのベスト自体は再度聞かないが、次にそのモードの自己ベストが更新されたときは
     //   新しいレコードとしてsyncLocalBests()から自動送信される）。
-    async function _maybeImportLocal() {
+    // keys: 確認対象のランキングキー（ログイン直後は全キー、起動時は LATE_RANKED_KEYS のみ）
+    async function _maybeImportLocal(keys) {
         if (!me || !window.Records || !window.TetDialog) return;
-        const pending = RANKED_KEYS
+        const pending = keys
             .map((key) => ({ key, record: window.Records.get(key) }))
             .filter(({ record }) => record && record.syncedTo === undefined);
         if (pending.length === 0) return;
@@ -382,6 +423,7 @@
         pushRecord,
         syncLocalBests,
         onRecordSynced,
+        watchResultRank,
         getOnlineTicket,
     };
 

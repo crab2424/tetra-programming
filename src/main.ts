@@ -8,6 +8,7 @@ import "./battle/lifecycle";
 import "./battle/driver";
 import "./battle/freeze";
 import "./battle/finish_overlay";
+import "./battle/local_loading";
 import { showToast, ToastColor } from "./components/toast";
 
 document.addEventListener("DOMContentLoaded", () => {

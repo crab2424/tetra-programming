@@ -101,6 +101,34 @@
   color: var(--accent3);
   font-weight: 700;
 }
+/* RANK 併記時: 区切り(·)を中央列に固定し、BEST は右寄せ・RANK は左寄せ。
+   RANK の文字数が「読み込み中」→「#12」と変わっても BEST の位置が動かない。 */
+#mode-check-best.has-rank {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  column-gap: 10px;
+  align-items: baseline;
+}
+#mode-check-best.has-rank .mcb-best {
+  text-align: right;
+}
+#mode-check-best.has-rank .mcb-rank {
+  text-align: left;
+}
+#mode-check-best .mcb-rank strong.is-loading {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+#mode-check-best .mcb-rank-in {
+  animation: mcbRankIn 0.2s ease-out both;
+}
+@keyframes mcbRankIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #mode-check-best .mcb-rank-in { animation: none; }
+}
 
 /* #mode-check-controls は廃止（.controls-title/.controls-grid は versus-check が使用）。 */
 

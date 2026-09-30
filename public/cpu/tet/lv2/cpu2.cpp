@@ -6,7 +6,11 @@
 #include <cstdlib>
 
 const int COLS = 10;
-const int ROWS = 20;
+// ★ v2.2.3 I: 20行(可視のみ) → 25行(隠し5行込み。内部 y = 実機 y + 5)。
+//   旧20行モデルは可視外(実機 y<0)に出たブロックを盤面から落としていたため「高く積むほど得」に見え、
+//   出現位置の塞がり(Block Out)も読めなかった。
+const int ROWS = 25;
+const int HIDDEN_ROWS = 5;
 
 struct GridBlock { int x, y; };
 
@@ -131,7 +135,7 @@ int evaluateBoard(const Board& b, int linesCleared, bool isGrounded, int touchin
             }
         }
         
-        int n = 19 - minoBottomY;
+        int n = (ROWS - 1) - minoBottomY;
         if (n < 0) n = 0;
 
         if (n >= 3 && isGrounded) {
@@ -310,7 +314,7 @@ void searchBestMoveWasm(
     int* outResult
 ){
     Board baseBoard;
-    for(int i = 0; i < 200; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
+    for(int i = 0; i < 250; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
 
     // JSから受け取った配列を構造体にマッピング（17要素に拡張）
     EvalWeights w = {
@@ -336,28 +340,51 @@ void searchBestMoveWasm(
         paths.push_back({1, firstPieceToPlay, A});
     }
 
-    auto getSpawnY = [](int type) { return type == 0 ? -1 : -2; };
+    auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; }; // 内部座標（実機 -1 / -2）
+
+    // ─── ★ v2.2.3 I: 致死判定（自滅対策）───
+    //   旧実装: 2手目が置けない枝は `score1*P1 - 10000` だけで、2手目の評価が -10000 より悪いと
+    //   「死ぬ方が得」になっていた。Lock Out も未判定。
+    //   ここでは死亡手番に応じた大きな罰（どの死も生存より必ず悪い）を与える。
+    auto canSpawnPiece = [&](const Board& b, int pieceType) {
+        for (int dy = 0; dy <= 1; dy++) {
+            if (isValidPlacement(b, getRotatedBlocks(pieceType, 0, COLS / 2 - 2, getSpawnY(pieceType) - dy))) return true;
+        }
+        return false;
+    };
+    auto isLockOut = [](const std::vector<GridBlock>& blocks) {
+        for (const auto& blk : blocks) if (blk.y >= HIDDEN_ROWS) return false;
+        return true;
+    };
+    auto deathPenalty = [](int step) { return 100000000 * (3 - step); }; // step 1: 2e8 / 2: 1e8
+    // 2手目に「キューから出現する」ミノ（HOLD で入れ替えて置く場合も、出現できなければ死亡）
+    auto spawn2Of = [&](const Path& path) { return (path.action == 1 && B == -1) ? D : C; };
 
     struct EvaluatedP1 {
         Path path;
         Placement p1;
         int score1;
+        int deathStep; // 0=生存 / 1=1手目で死亡(Lock Out) / 2=2手目で死亡(出現不可)
     };
     std::vector<EvaluatedP1> all_p1_evals;
     int globalMaxScore1 = -1000000;
 
     for(const auto& path : paths) {
+        // HOLD 経路は HOLD から/キューから出るミノが出現できなければ選べない（実機では即死）
+        if (path.action == 1 && !canSpawnPiece(baseBoard, path.p1)) continue;
         std::vector<Placement> p1_list = getAllPlacements(baseBoard, path.p1, getSpawnY(path.p1));
         for(const auto& p1 : p1_list) {
             int score1 = evaluateBoard(p1.board, p1.linesCleared, p1.isFullyGrounded, p1.touchingCount, w, p1.blocks);
-            all_p1_evals.push_back({path, p1, score1});
-            if(score1 > globalMaxScore1) {
+            int deathStep = isLockOut(p1.blocks) ? 1 : (!canSpawnPiece(p1.board, spawn2Of(path)) ? 2 : 0);
+            all_p1_evals.push_back({path, p1, score1, deathStep});
+            // 貪欲な枝刈りの基準は生存する手だけで取る（死ぬ手が基準になって生存手を刈らないように）
+            if(deathStep == 0 && score1 > globalMaxScore1) {
                 globalMaxScore1 = score1;
             }
         }
     }
 
-    int bestTotalScore = -10000000;
+    int bestTotalScore = -2000000000; // ★ v2.2.3 I: 全て死ぬ局面でも「最も遅く死ぬ手」を必ず返す
     outResult[0] = -1;
     
     // ★JSから渡された重みを使用
@@ -365,14 +392,15 @@ void searchBestMoveWasm(
 
     for(const auto& ep1 : all_p1_evals) {
         
-        if(ep1.score1 < 0 && ep1.score1 < globalMaxScore1) {
+        if(ep1.deathStep == 0 && ep1.score1 < 0 && ep1.score1 < globalMaxScore1) {
             continue;
         }
 
-        std::vector<Placement> p2_list = getAllPlacements(ep1.p1.board, ep1.path.p2, getSpawnY(ep1.path.p2));
+        std::vector<Placement> p2_list;
+        if (ep1.deathStep == 0) p2_list = getAllPlacements(ep1.p1.board, ep1.path.p2, getSpawnY(ep1.path.p2));
         
         if(p2_list.empty()) {
-            int totalScore = ep1.score1 * P1_WEIGHT - 10000;
+            int totalScore = ep1.score1 * P1_WEIGHT - deathPenalty(ep1.deathStep == 1 ? 1 : 2);
             if(totalScore > bestTotalScore) {
                 bestTotalScore = totalScore;
                 outResult[0] = ep1.path.action; 
@@ -386,6 +414,7 @@ void searchBestMoveWasm(
 
         for(const auto& p2 : p2_list) {
             int score2 = evaluateBoard(p2.board, p2.linesCleared, p2.isFullyGrounded, p2.touchingCount, w, p2.blocks);
+            if (isLockOut(p2.blocks)) score2 -= deathPenalty(2); // 2手目で Lock Out
 
             // ★追加: 先延ばし防止の「Early Clear Bonus」
             // 2手目ではなく、1手目でラインを消した時だけ特別ボーナスを与える

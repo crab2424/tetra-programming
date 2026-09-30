@@ -9,22 +9,22 @@
 // ─────────────────────────────────────────────
 
 (function () {
-  const TABS = [
-    { key: 'ultra', label: 'ULTRA' },
-    { key: 'sprint:40', label: 'SPRINT' },
-  ];
+  // タブの並び・ラベルは records.js の RANKED_KEYS / labelFor に集約（左から MARATHON / SPRINT / ULTRA / PUYO）
+  const RANKED_KEYS = (window.Records && window.Records.RANKED_KEYS) || [];
 
-  let currentMode = 'ultra';
+  let currentMode = RANKED_KEYS[0] || 'ultra';
   let loadToken = 0; // タブ切替中に古い非同期結果が後から描画されるのを防ぐ
-
-  function _labelFor(key) {
-    const tab = TABS.find((t) => t.key === key);
-    return tab ? tab.label : key.toUpperCase();
-  }
 
   function _formatValue(key, detail) {
     if (!window.Records || !detail) return '—';
     return window.Records.format(key, detail);
+  }
+
+  // ENDLESS は開始レベルを問わず同じランキングなので、LV1以外の開始は併記する
+  function _subTextFor(key, detail) {
+    if (key !== 'marathon:endless' || !detail) return null;
+    const lv = detail.startLevel;
+    return (typeof lv === 'number' && lv > 1) ? `LV${lv}~` : null;
   }
 
   function _formatDate(ms) {
@@ -33,14 +33,31 @@
     return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
   }
 
+  // タブボタンを RANKED_KEYS から生成する（初回のみ。HTML直書きとの順序の二重管理をなくす）
+  function _buildTabs() {
+    const toggle = document.getElementById('ranking-mode-toggle');
+    if (!toggle || toggle.childElementCount > 0) return;
+    RANKED_KEYS.forEach((key) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'opt-btn';
+      btn.dataset.mode = key;
+      btn.textContent = window.Records.labelFor(key);
+      btn.onclick = () => setRankingMode(key);
+      toggle.appendChild(btn);
+    });
+  }
+
   function _renderTabs() {
+    _buildTabs();
     document.querySelectorAll('#ranking-mode-toggle .opt-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.mode === currentMode);
     });
   }
 
   // adminActions: {recordId, userId, userName} を渡すと管理者用のDELETE/BANボタンを追加する（★6.4・最小限UI）
-  function _row(rank, user, valueText, dateText, isMine, adminActions) {
+  // subText: 値の左に小さく添える補足（ENDLESS の開始レベル等）。無ければ null
+  function _row(rank, user, valueText, dateText, isMine, adminActions, subText) {
     const row = document.createElement('div');
     row.className = 'ranking-row' + (isMine ? ' ranking-row-mine' : '');
 
@@ -59,7 +76,14 @@
 
     const valueEl = document.createElement('span');
     valueEl.className = 'ranking-value';
-    valueEl.textContent = valueText;
+    if (subText) {
+      const subEl = document.createElement('span');
+      subEl.className = 'ranking-sub';
+      subEl.textContent = subText;
+      valueEl.append(subEl, valueText);
+    } else {
+      valueEl.textContent = valueText;
+    }
 
     const dateEl = document.createElement('span');
     dateEl.className = 'ranking-date';
@@ -178,7 +202,7 @@
       const adminActions = isAdmin
         ? { recordId: entry.recordId, userId: entry.user.id, userName: entry.user.name }
         : null;
-      const row = _row(entry.rank, entry.user, _formatValue(mode, entry.detail), _formatDate(entry.playedAt), isMine, adminActions);
+      const row = _row(entry.rank, entry.user, _formatValue(mode, entry.detail), _formatDate(entry.playedAt), isMine, adminActions, _subTextFor(mode, entry.detail));
       // 上位100行を全部ずらして出すと待ち時間が伸びすぎるため、先頭12行だけカスケードにして
       // それ以降は一括で出す（design: tetlabo-discord-ui-polish-design.md §5）。
       row.classList.add('ranking-row-enter');
@@ -213,6 +237,7 @@
             _formatDate(meData.playedAt),
             true,
             myAdminActions,
+            _subTextFor(mode, meData.detail),
           );
           myRow.classList.add('ranking-row-enter');
           listEl.appendChild(myRow);
