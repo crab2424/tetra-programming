@@ -44,3 +44,7 @@ puyomaking.html
 # Cloudflare Workers
 .dev.vars
 .wrangler
+
+# 音源は難読化した .dat のみ配信・管理する（元の .ogg は source_assets/audio_ogg/ に置く）
+# → scripts/obfuscate_audio.mjs / THIRD_PARTY_NOTICES.md 参照
+public/assets/audio/**/*.ogg
