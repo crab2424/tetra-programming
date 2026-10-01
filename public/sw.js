@@ -3,13 +3,13 @@
 // 配置場所: public/sw.js  （Viteビルド後はdist/sw.jsに出力される）
 //
 // キャッシュ戦略:
-//   Cache First  … BGM(.ogg) / 画像(.png) / WASM(.wasm)
+//   Cache First  … 音源(.dat)  / 画像(.png) / WASM(.wasm)
 //                  重いバイナリは初回以降ネットワーク不使用
 //   Network First … JS / CSS / JSON / HTML
 //                  更新が必要なファイルは常に最新を優先
 // ─────────────────────────────────────────────
 
-const CACHE_VERSION = "tetlabo-v1";
+const CACHE_VERSION = "tetlabo-v2";
 //                              ↑
 //【CACHE_VERSION の更新タイミング】
 // BGMや画像を差し替えたとき、sw.js の先頭の
@@ -17,7 +17,7 @@ const CACHE_VERSION = "tetlabo-v1";
 // activateイベントが古いキャッシュを自動削除します。 JSやCSSはNetwork Firstなので、sw.jsの更新なしで 自動的に最新版が使われます。
 
 // Cache First で扱う拡張子
-const CACHE_FIRST_EXTS = [".ogg", ".mp3", ".wav", ".png", ".jpg", ".webp"];
+const CACHE_FIRST_EXTS = [".dat", ".ogg", ".mp3", ".wav", ".png", ".jpg", ".webp"];
 
 // ──────────────────────────────────────────────
 // install: 必ずキャッシュしておきたいコアアセットを事前取得
@@ -29,8 +29,8 @@ self.addEventListener("install", (event) => {
             .then((cache) => {
                 return cache.addAll([
                     // BGM（最も重いので確実にキャッシュ）
-                    "/assets/audio/bgm/menu_1.ogg",
-                    "/assets/audio/bgm/vs_1.ogg",
+                    "/assets/audio/bgm/menu_1.dat",
+                    "/assets/audio/bgm/vs_1.dat",
                 ]);
             })
             .then(() => self.skipWaiting()),
