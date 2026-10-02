@@ -131,3 +131,11 @@
   color: var(--text-dim);
   text-align: left;
 }
+
+/* 楽曲のライセンス表記（CC BY-SA などの表示義務がある曲の直下に置く） */
+.credits-license {
+  font-size: 0.6rem;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin: 0 0 4px;
+}

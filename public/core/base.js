@@ -34,18 +34,51 @@ const PRACTICE_NEXT_MAX_HEIGHT = BLOCK_SIZE * 13.5;
 // 付けている。キャッシュが効いている間ブラウザはサーバーへ問い合わせないため、
 // 素材を差し替えたときに古いファイルが使われ続けないよう URL 側で世代を分ける。
 //
-// ★★ 音源(.ogg)や画像(.png)を差し替えたら、この数字を +1 すること ★★
+// ★★ 音源(.dat)や画像(.png)を差し替えたら、この数字を +1 すること ★★
 //     → URL が変わるので、全ユーザーが確実に新しいファイルを取り直す。
 //     （src/*.js の `?v=` を index.html 側で上げるのと同じ考え方。
 //       スクリプトと違って素材は参照箇所が多いので、ここ1箇所に集約している）
 //
 // 逆にこの数字が変わらない限り、ブラウザはキャッシュから読むだけで通信しない。
 // ─────────────────────────────────────────────
-const ASSET_VERSION = 5;
+const ASSET_VERSION = 6;
 
 // 素材URLにキャッシュ用バージョンを付ける。音源・画像の取得は必ずこれを通す。
 function assetUrl(path) {
     return `${path}?v=${ASSET_VERSION}`;
+}
+
+// ─────────────────────────────────────────────
+// ★ 音源の難読化
+//
+// 配布元の規約（THIRD_PARTY_NOTICES.md の「音声素材」）に従い、配信・リポジトリには
+// .ogg をそのまま置かず、scripts/obfuscate_audio.mjs で難読化した .dat を置いている。
+// コード上の音源パスは従来どおり *.ogg で書き、取得時に audioAssetUrl() で .dat に読み替え、
+// deobfuscateAudio() で元の .ogg バイト列に戻してから再生する。
+// ★ 形式を変えるときは scripts/obfuscate_audio.mjs と必ず揃えること。
+// ─────────────────────────────────────────────
+function audioAssetUrl(path) {
+    return assetUrl(path.replace(/\.ogg$/, '.dat'));
+}
+
+// ArrayBuffer を元の .ogg バイト列に戻す（MAGIC が無ければ素の音源とみなしてそのまま返す）。
+function deobfuscateAudio(buf) {
+    const bytes = new Uint8Array(buf);
+    if (bytes.length < 4 || bytes[0] !== 0x54 || bytes[1] !== 0x4c || bytes[2] !== 0x41 || bytes[3] !== 0x01) {
+        return buf;
+    }
+    const out = bytes.slice(4);
+    let s = 0x7e71ab0d;
+    for (let i = 0; i < out.length; i += 4) {
+        s ^= s << 13; s >>>= 0;
+        s ^= s >>> 17;
+        s ^= s << 5;  s >>>= 0;
+        out[i] ^= s & 0xff;
+        if (i + 1 < out.length) out[i + 1] ^= (s >>> 8) & 0xff;
+        if (i + 2 < out.length) out[i + 2] ^= (s >>> 16) & 0xff;
+        if (i + 3 < out.length) out[i + 3] ^= (s >>> 24) & 0xff;
+    }
+    return out.buffer;
 }
 
 // ─────────────────────────────────────────────
@@ -678,7 +711,7 @@ class AudioLoader {
     // BGMのsrcを登録（ロードはしない）
     // 登録の時点でキャッシュ用バージョンを付けるので、呼び出し側は素のパスを書けばよい。
     static registerBgm(key, src) {
-        this._bgmSrcMap[key] = assetUrl(src);
+        this._bgmSrcMap[key] = audioAssetUrl(src);
     }
 
     static getBgmSrc(key) {
@@ -697,7 +730,7 @@ class AudioLoader {
         //   得られた AudioBuffer を該当する全キーへ配る。
         const keysBySrc = new Map();
         for (const [key, src] of Object.entries(seMap)) {
-            const url = assetUrl(src);
+            const url = audioAssetUrl(src);
             if (!keysBySrc.has(url)) keysBySrc.set(url, []);
             keysBySrc.get(url).push(key);
         }
@@ -715,7 +748,7 @@ class AudioLoader {
     static _fetchAndDecodeSe(url, keys, retriesLeft = 2) {
         return fetch(url)
             .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
-            .then(buf => this.context.decodeAudioData(buf))
+            .then(buf => this.context.decodeAudioData(deobfuscateAudio(buf)))
             .then(decoded => { for (const key of keys) this._seBuffers[key] = decoded; })
             .catch(err => {
                 if (retriesLeft > 0) {
@@ -734,7 +767,7 @@ class AudioLoader {
         const missingBySrc = new Map();
         for (const [key, src] of Object.entries(this._seMap || {})) {
             if (this._seBuffers[key]) continue; // 読み込み済み
-            const url = assetUrl(src);
+            const url = audioAssetUrl(src);
             if (!missingBySrc.has(url)) missingBySrc.set(url, []);
             missingBySrc.get(url).push(key);
         }
@@ -772,8 +805,16 @@ class AudioLoader {
         const audio = cached ?? new Audio();
         audio.preload = 'auto';
         audio.loop = true;
-        if (audio.src !== src) audio.src = src;
         this._bgmPrefetch[key] = audio;
+        // 取得失敗でもロード画面を止めない（該当BGMが無音になるだけ）
+        return this.loadBgmBlob(src).then(
+            (playable) => this._waitBgmReady(audio, playable),
+            (err) => console.warn(`[AudioLoader] BGM "${key}" の読み込みに失敗: ${src}`, err),
+        );
+    }
+
+    static _waitBgmReady(audio, playable) {
+        if (audio.src !== playable) audio.src = playable;
         if (audio.readyState >= 4) return Promise.resolve();
         return new Promise((resolve) => {
             const done = () => {
@@ -786,6 +827,34 @@ class AudioLoader {
             audio.addEventListener('error', done, { once: true });
             audio.load();
         });
+    }
+
+    // ── BGMの取得・復号 ────────────────────────────────────────────
+    // BGMは難読化した .dat を丸ごと取得→復号し、Blob URL にして HTMLAudio に渡す
+    // （難読化のままではストリーミング再生できないため）。復号済みURLはセッション中保持し、
+    // 2回目以降の再生は通信・復号なしで即座に鳴る。
+    static _bgmBlobUrls    = {};  // { src(.dat URL): blob URL } 復号済み
+    static _bgmBlobLoading = {};  // { src: Promise<blob URL> } 取得中（二重fetch防止）
+
+    static loadBgmBlob(src) {
+        const ready = this._bgmBlobUrls[src];
+        if (ready) return Promise.resolve(ready);
+        if (!this._bgmBlobLoading[src]) {
+            this._bgmBlobLoading[src] = fetch(src)
+                .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+                .then(buf => {
+                    const url = URL.createObjectURL(new Blob([deobfuscateAudio(buf)], { type: 'audio/ogg' }));
+                    this._bgmBlobUrls[src] = url;
+                    return url;
+                })
+                .finally(() => { delete this._bgmBlobLoading[src]; }); // 失敗時は次回また取りに行く
+        }
+        return this._bgmBlobLoading[src];
+    }
+
+    /** 復号済みならそのBlob URL、未取得なら null。 */
+    static getBgmBlobUrl(src) {
+        return this._bgmBlobUrls[src] ?? null;
     }
 
     /** 先読み済みのBGM要素を取り出す（BgmManager.play が使う）。 */
@@ -872,6 +941,7 @@ class BgmManager {
     static _fadeTimer  = null;
     static _ducked     = false;   // ポーズ中などにBGMを小音量で流し続ける状態
     static _duckRatio  = 0.25;    // ダッキング時の音量倍率（通常音量に対する割合）
+    static _pauseRequested = false; // 取得・復号待ちの間に pause() されたら、準備完了時に鳴らさない
 
     // ── キー別の音量補正係数（素材ごとの録音レベル差を吸収）─────────────
     // 1.00 = 無補正。BGMはピークが0dB張り付きのため減衰のみで最も静かな menu に揃える。
@@ -915,29 +985,42 @@ class BgmManager {
 
         if (this._currentKey === key && this._audio) {
             this._audio.volume = this._effectiveVolume();
+            this._pauseRequested = false;
             if (this._audio.paused) this._audio.play().catch(() => {});
             return;
         }
 
         this.stop(true);
+        this._pauseRequested = false;
         // ロード画面で先読み済みならその要素を使う（出だしのストリーミング待ちを避ける）
-        this._audio = AudioLoader.takePrefetchedBgm(key) ?? new Audio();
-        this._audio.loop   = true;
+        const audio = AudioLoader.takePrefetchedBgm(key) ?? new Audio();
+        this._audio = audio;
+        audio.loop   = true;
         // ★ 音量補正係数(_gain)は _currentKey を見て決まるので、volume を計算する前にキーを更新する。
         //   （順序が逆だと直前のBGMの係数で鳴ってしまい、versus_bgm等の補正が効かない）
-        this._currentKey   = key;
-        this._audio.volume = this._effectiveVolume();
-        // ★ src への代入は同じURLでも media load algorithm を再実行し、先読み済みの
-        //   バッファを捨ててしまう。先読み要素をそのまま使えるよう、違うときだけ張り替える。
-        if (!this._audio.src || new URL(src, location.href).href !== this._audio.src) {
-            this._audio.src = src;
-        }
-        // 先読み要素を使い回すときのみ頭出しする。メタデータ未読込の要素へ currentTime を
-        // 代入すると環境によっては例外になるため、必要なときだけ触る。
-        if (this._audio.currentTime > 0) {
-            try { this._audio.currentTime = 0; } catch (e) { /* 未読込時は無視 */ }
-        }
-        this._audio.play().catch(() => {});
+        this._currentKey = key;
+        audio.volume     = this._effectiveVolume();
+        this._whenPlayable(src, audio, (playable) => {
+            // ★ src への代入は同じURLでも media load algorithm を再実行し、先読み済みの
+            //   バッファを捨ててしまう。先読み要素をそのまま使えるよう、違うときだけ張り替える。
+            if (audio.src !== playable) audio.src = playable;
+            // 先読み要素を使い回すときのみ頭出しする。メタデータ未読込の要素へ currentTime を
+            // 代入すると環境によっては例外になるため、必要なときだけ触る。
+            if (audio.currentTime > 0) {
+                try { audio.currentTime = 0; } catch (e) { /* 未読込時は無視 */ }
+            }
+            if (!this._pauseRequested) audio.play().catch(() => {});
+        });
+    }
+
+    // BGMの復号済みURLが得られたら fn(url) を呼ぶ。復号済みなら同期的に呼ぶ（従来と同じタイミング）。
+    // 取得待ちの間に stop()/別BGMへの切替で this._audio が差し替わっていたら何もしない。
+    static _whenPlayable(src, audio, fn) {
+        const ready = AudioLoader.getBgmBlobUrl(src);
+        if (ready) { fn(ready); return; }
+        AudioLoader.loadBgmBlob(src)
+            .then((playable) => { if (this._audio === audio) fn(playable); })
+            .catch((err) => console.warn(`[BgmManager] BGM の読み込みに失敗: ${src}`, err));
     }
 
     // onDone: 停止し終えた（フェード時は音量0に達した）時に呼ぶ。途中で play()/crossfadeTo()/
@@ -968,8 +1051,12 @@ class BgmManager {
         }
     }
 
-    static pause()  { this._audio?.pause(); }
-    static resume() { this._audio?.play().catch(() => {}); }
+    static pause()  { this._pauseRequested = true;  this._audio?.pause(); }
+    static resume() {
+        this._pauseRequested = false;
+        // 取得・復号待ちでまだ src が無ければ、準備完了時に _whenPlayable 側で鳴る
+        if (this._audio?.src) this._audio.play().catch(() => {});
+    }
     static isCurrent(key) { return this._currentKey === key && !!this._audio; }
 
     // 別BGMへクロスフェード：旧BGMを ms かけてフェードアウトしつつ、新BGMを同じ ms で
@@ -983,6 +1070,7 @@ class BgmManager {
             // 同じ曲をフェードアウト中なら打ち切って戻す（放置すると音量0まで下がり止まる）
             if (this._fadeTimer) { clearInterval(this._fadeTimer); this._fadeTimer = null; }
             this._applyVolume();
+            this._pauseRequested = false;
             if (this._audio.paused) this._audio.play().catch(() => {});
             return;
         }
@@ -1008,14 +1096,20 @@ class BgmManager {
             }, 50);
         }
 
-        // 新BGMを 0 からフェードイン
+        // 新BGMを 0 からフェードイン（未取得なら取得・復号できた時点から）
         this._ducked = false;
+        this._pauseRequested = false;
         this._currentKey = key;
-        this._audio = new Audio();
-        this._audio.loop = true;
-        this._audio.src = src;
-        this._audio.volume = 0;
-        this._audio.play().catch(() => {});
+        const audio = new Audio();
+        this._audio = audio;
+        audio.loop = true;
+        audio.volume = 0;
+        this._whenPlayable(src, audio, (playable) => this._fadeIn(audio, playable, stepCount));
+    }
+
+    static _fadeIn(audio, playable, stepCount) {
+        audio.src = playable;
+        if (!this._pauseRequested) audio.play().catch(() => {});
         const target = this._effectiveVolume();
         let j = 0;
         this._fadeTimer = setInterval(() => {
@@ -1246,6 +1340,8 @@ AudioLoader.registerBgm('online_lobby_bgm', 'assets/audio/bgm/online_1.ogg');
 AudioLoader.registerBgm('menu_bgm',   'assets/audio/bgm/menu_1.ogg');
 AudioLoader.registerBgm('quiz_bgm',   'assets/audio/bgm/quiz_1.ogg');
 AudioLoader.registerBgm('test_bgm',   'assets/audio/bgm/cputest_1.ogg');
+// メニューBGMは最初に鳴るので、起動直後から取得・復号を始めておく（初回再生の待ちを減らす）。
+AudioLoader.loadBgmBlob(AudioLoader.getBgmSrc('menu_bgm')).catch(() => {});
 
 // ─── SE 登録（ページロード時に一括プリロード） ────────────────
 // 音源は assets/audio/se/{menu,tet,puyo}/ に配置する。
