@@ -441,6 +441,26 @@
         }
     },
     {
+        "id": "tet-2.1",
+        "diff": 3,
+        "description": "最速TST",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [0,0,0,0,3,3,3,0,0,0],
+            [0,0,0,0,0,3,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,8]
+        ],
+        "nextPieces": [6, 4, 3, 0, 5, 1, 2],
+        "clearCondition": {
+            "type": "count",
+            "value": 1,
+            "countCondition": "tspinTriple",
+            "countValue": 1,
+            "description": "T-spin tripleを決める"
+        }
+    },
+    {
         "id": "tet-2.4",
         "diff": 3,
         "description": "そのままだと15REN",
