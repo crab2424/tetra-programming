@@ -1,41 +1,55 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// QUIZ レベルデータ定義 (JSONからの読み込み)
-// ※ データ自体は /assets/quizlevels/tdata.json と /assets/quizlevels/pdata.json に分離しています。
+// QUIZ レベルデータ定義（2026-10 現行仕様）
+// ※ データは /assets/quizlevels/tdata.json（テト）と /assets/quizlevels/pdata.json（ぷよ）。
+//    どちらも「問題の配列」で、配列の順番がそのまま選択画面の番号になる。
+// ※ JSON を更新したら core/base.js の ASSET_VERSION を +1 すること（キャッシュ対策）。
 //
 // 各レベルのフォーマット:
 // {
-//   "id": "tet-1",            // 一意なID
-//   "title": "QUIZ 1",        // 表示タイトル
-//   "description": "説明文",  // 説明（日本語）
+//   "id": "tet-1",            // 一意なID（表示には使われない。命名は自由）
+//   "diff": 1,                // 難易度 ★1〜5（省略すると★非表示）
+//   "description": "問題名",  // 問題名として表示される文言
 //   "rule": "tet",            // "tet" または "puyo"
-//   "allowHold": false,       // (tetのみ) HOLDを許可するかどうか。未指定時はfalse扱い
+//   "allowHold": false,       // (tetのみ) HOLDを許可するか。省略時 false
 //
-//   // ─── テト用フィールド ───
-//   // "initialField": 行ごとのブロック配列（上から順）
-//   //   各行は長さ10の配列、0=空、1〜7=ブロック種類（色ID）
-//   //   行数は任意（最大20行分、下詰めで配置される）
-//   "initialField": [ ... ],
+//   // ─── テト盤面 ───
+//   // "initialField": 行ごとの配列（上から順）。各行は長さ10。
+//   //   0=空 1=I 2=O 3=T 4=J 5=L 6=S 7=Z 8=おじゃま(灰)
+//   //   行数は任意（最大20）。下詰めで配置されるので、上側の空行は書かなくてよい。
 //
-//   // ─── ぷよ用フィールド ───
-//   // "initialPuyoField": 行ごとの配列（上から順）
-//   //   各行は長さ6の配列、0=空、1〜5=色、6=おじゃまぷよ
-//   "initialPuyoField": [ ... ],
+//   // ─── ぷよ盤面 ───
+//   // "initialPuyoField": 行ごとの配列（上から順）。各行は長さ6。
+//   //   0=空 1〜5=色ぷよ 6=おじゃま（7は内部用なので使わない）
+//   //   行数は任意（最大17＝可視12＋隠し5）。下詰めで配置される。
 //
-//   // ─── NEXT（有限・固定） ───
-//   // "nextPieces": テト用ミノタイプの配列 (0=I,1=O,2=T,3=J,4=L,5=S,6=Z)
-//   "nextPieces": [ ... ],
-//   // "nextPuyoPairs": ぷよ用ペアの配列 [[pivot色, child色], ...]
-//   "nextPuyoPairs": [ ... ],
+//   // ─── NEXT（有限・固定。この数で打ち止め） ───
+//   // "nextPieces": テトのミノ。★盤面と違い0始まり★ 0=I 1=O 2=T 3=J 4=L 5=S 6=Z
+//   // "nextPuyoPairs": ぷよのペア [[軸色, 子色], ...]
 //
 //   // ─── クリア条件 ───
 //   // "clearCondition": {
-//   //   "type": "clearLines"       // n行消去
-//   //         | "allClear"       // フィールド全消し
-//   //         | "score"          // スコアがn以上
-//   //         | "chain"          // n連鎖以上（ぷよ）
-//   //   "value": number            // type に対応する値
-//   //   "description": "説明"      // クリア条件の説明文
+//   //   "type": 下表のいずれか,
+//   //   "value": 数値（下表で「—」の type では不要）,
+//   //   "description": "GOAL: の後ろに表示される文言"
 //   // }
+//   //
+//   //   [tet]
+//   //   clearLines   累計ライン数が value 以上（"lines" も同じ意味・旧互換）
+//   //   allClear     パーフェクトクリア（value —）
+//   //   score        スコアが value 以上
+//   //   ren          REN が value 以上の状態でライン消去
+//   //   tspin        T-Spin（mini含む）で value ライン以上消去
+//   //   tspinSingle / tspinDouble / tspinTriple   mini を除く T-Spin（value —）
+//   //   count        下の「中身の条件」を value 回達成
+//   //                "countCondition": clearLines / tspin / tspinSingle / tspinDouble /
+//   //                                  tspinTriple / ren / allClear / score
+//   //                "countValue": 中身の条件の閾値（省略時 1）
+//   //
+//   //   [puyo]
+//   //   chain        最大連鎖が value 以上
+//   //   allClear     全消し（value —）
+//   //   score        スコアが value 以上
+//   //   ※ ぷよの count は判定処理が未接続のため現状動かない（使わないこと）
 // }
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -43,22 +57,22 @@ puyo
 
 ,
     {
-            "id": "puyo-x",
-            "diff": 2,
-            "description": "連鎖",
-            "rule": "puyo",
-            "initialPuyoField":[
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0]
-            ],
-            "nextPuyoPairs": [[1, 1], [2, 2]],
-            "clearCondition": {
-                "type": "chain",
-                "value": 6,
-                "description": "6連鎖"
-            }
+        "id": "puyo-x",
+        "diff": 2,
+        "description": "問題名",
+        "rule": "puyo",
+        "initialPuyoField": [
+            [0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0]
+        ],
+        "nextPuyoPairs": [[1, 1], [2, 2]],
+        "clearCondition": {
+            "type": "chain",
+            "value": 6,
+            "description": "6連鎖"
         }
+    }
 
 
 tet
@@ -67,7 +81,7 @@ tet
     {
         "id": "tet-x",
         "diff": 2,
-        "description": "T-spin",
+        "description": "問題名",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
@@ -77,10 +91,20 @@ tet
         "nextPieces": [0, 1, 2, 3, 4, 5, 6],
         "clearCondition": {
             "type": "allClear",
-            "value": 0,
             "description": "パーフェクトクリア"
         }
     }
+
+
+tet（count の例）
+
+        "clearCondition": {
+            "type": "count",
+            "value": 2,
+            "countCondition": "tspinDouble",
+            "countValue": 1,
+            "description": "T-Spin doubleを2回決める"
+        }
 
 
 
