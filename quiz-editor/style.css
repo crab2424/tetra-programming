@@ -361,3 +361,91 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   button { min-height: 40px; min-width: 40px; }
   .ctl-pad button { min-height: 48px; }
 }
+
+/* ─── モバイル配置（§14.5。幅 760px 以下） ───
+   各部品に data-m="<タブ>"（複数可）を付け、body[data-mtab] と一致しないものを隠す */
+.m-only { display: none; }
+@media (max-width: 760px) {
+  .m-only { display: revert; }
+  .pc-only { display: none !important; }
+  body { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+
+  #topbar { padding: 6px 8px; gap: 6px; }
+  #topbar h1 { display: none; }
+  #topbar .level-pick { flex: 1; min-width: 0; }
+  #topbar .level-pick .lbl { display: none; }
+  #topbar .level-pick select { width: 100%; max-width: none; }
+  #topbar .m-menu { display: none; }
+  #topbar.menu-open .m-menu { display: revert; }
+  #topbar .spacer { display: none; }
+  #topbar button { padding: 6px 8px; }
+
+  #layout { display: block; padding: 8px 8px 16px; }
+  #layout .panel { margin-bottom: 8px; padding: 10px; }
+
+  body[data-mtab="field"] [data-m]:not([data-m~="field"]),
+  body[data-mtab="next"] [data-m]:not([data-m~="next"]),
+  body[data-mtab="goal"] [data-m]:not([data-m~="goal"]),
+  body[data-mtab="steps"] [data-m]:not([data-m~="steps"]),
+  body[data-mtab="out"] [data-m]:not([data-m~="out"]) { display: none !important; }
+  /* 中身が全部隠れたパネルは枠ごと隠す */
+  body[data-mtab="field"] .panel:not([data-m~="field"]):not(:has([data-m~="field"])),
+  body[data-mtab="next"] .panel:not([data-m~="next"]):not(:has([data-m~="next"])),
+  body[data-mtab="goal"] .panel:not([data-m~="goal"]):not(:has([data-m~="goal"])),
+  body[data-mtab="steps"] .panel:not([data-m~="steps"]):not(:has([data-m~="steps"])),
+  body[data-mtab="out"] .panel:not([data-m~="out"]):not(:has([data-m~="out"])) { display: none; }
+  /* FIELD・STEPS タブは盤面とツールを1枚にまとめる（パネルの継ぎ目を目立たせない） */
+  body[data-mtab="field"] #col-center, body[data-mtab="steps"] #col-center { margin-bottom: 0; border-bottom: 0; border-radius: 10px 10px 0 0; }
+  body[data-mtab="field"] #col-right, body[data-mtab="steps"] #col-right { border-top: 0; border-radius: 0 0 10px 10px; padding-top: 0; }
+  #field-wrap { display: table; margin: 0 auto; }
+  body[data-mtab="field"] #col-center h2 { display: none; }
+
+  /* OUT タブは出力（MARK READY・COPY）を先に、プレビューを後に */
+  body[data-mtab="out"] #layout { display: flex; flex-direction: column; }
+  body[data-mtab="out"] #col-output { order: -1; }
+  .next-tools [data-mino], .next-tools [data-puyo] { flex: 1 1 0; min-width: 0; }
+  #mtabs {
+    display: flex;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+    background: var(--panel-bg);
+    border-top: 1px solid var(--border);
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    gap: 4px;
+  }
+  #mtabs button { flex: 1; padding: 10px 0; font-size: 10px; min-width: 0; }
+  #mtabs button.on { color: var(--quiz); border-color: var(--quiz); background: var(--quiz-soft); }
+  /* 文字入力中（ソフトキーボード表示中）は下部タブを隠す */
+  body.kbd-open #mtabs { display: none; }
+  body.kbd-open { padding-bottom: 0; }
+
+  #topbar .level-pick { order: 2; flex: 1 1 160px; }
+  #topbar #btn-undo, #topbar #btn-redo { order: 3; }
+  body[data-mtab="field"] #col-right > h2[data-m] { display: none; }
+  /* PAINT のツールを詰める: パレット1列＋（行塗り・反転・消去・シフト）1列 */
+  #palette { justify-content: space-between; flex-wrap: nowrap; gap: 3px; }
+  #palette button { min-width: 0; flex: 1; padding: 4px 0; }
+  #palette canvas { width: 22px !important; height: 22px !important; }
+  #palette .k { font-size: 8px; letter-spacing: 0; }
+  #paint-box { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  #paint-box > #palette { flex: 1 1 100%; }
+  /* 行塗り・反転・消去・シフト4方向を1列に並べる */
+  .tool-grid, .shift-pad { display: contents; }
+  .tool-grid button, .shift-pad button { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 2px; font-size: 9px; letter-spacing: 0; }
+  .shift-pad .shift-lbl { display: none; }
+  .ctl-pad { grid-template-columns: repeat(5, 1fr); justify-content: stretch; margin: 0; }
+  .ctl-pad button { min-width: 0; padding: 0 2px; font-size: 10px; letter-spacing: 0; }
+  #place-status:empty { display: none; }
+  /* 1列目: 移動と HOLD、2列目: 回転と確定 */
+  .ctl-pad [data-ctl="hold"] { order: 1; }
+  .ctl-pad [data-ctl="ccw"], .ctl-pad [data-ctl="cw"], .ctl-pad [data-ctl="drop"], .ctl-pad [data-ctl="lock"] { order: 2; }
+  /* FIELD タブ: PAINT/PLACE と SOLVE/STAMP の切替を1列に並べ、盤面を大きく取る */
+  body[data-mtab="field"] #col-right { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  body[data-mtab="field"] #col-right > *, body[data-mtab="field"] #place-box > * { flex: 1 1 100%; margin: 0; }
+  body[data-mtab="field"] #place-box { display: contents; }
+  body[data-mtab="field"] #mode-seg, body[data-mtab="field"] #sub-seg { flex: 0 0 auto; }
+  body[data-mtab="field"] #sub-seg { margin-left: auto; }
+  .next-tools, .next-text { max-width: none; }
+  #out-json { height: 180px; }
+  .level-pick select { font-size: 16px; }   /* iOS は 16px 未満の入力欄にフォーカスすると拡大する */
+  input[type="text"], input[type="number"], input[type="password"], input[type="url"], select, textarea { font-size: 16px; }
+}

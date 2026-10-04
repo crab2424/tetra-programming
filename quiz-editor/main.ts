@@ -300,6 +300,7 @@ function renderAll() {
     renderPreview();
     renderOutput();
     saveDraftSoon();
+    if (mobileMq.matches) renderField();   // ツールの高さが確定してから盤面の大きさを合わせ直す
 }
 
 function renderPlace() {
@@ -314,6 +315,9 @@ function renderPlace() {
     }
     $('paint-box').hidden = ui.mode !== 'paint';
     $('place-box').hidden = ui.mode !== 'place';
+    const stepsNote = $('steps-note');
+    stepsNote.hidden = doc.rule === 'tet';
+    stepsNote.textContent = 'ぷよの解答手順の記録は未対応です（段階4）';
     if (ui.mode !== 'place') return;
     $('bind-src').textContent = `操作キー: ${sourceLabel(binds.source)}（? で一覧）`;
     place.renderPanel($('place-box'));
@@ -397,18 +401,54 @@ function renderCond() {
     $<HTMLInputElement>('cond-desc-auto').checked = c.descriptionAuto;
 }
 
+// ─── モバイル配置（§14.5。幅 760px 以下は下部タブで1項目ずつ表示） ───
+const mobileMq = matchMedia('(max-width: 760px)');
+type MTab = 'field' | 'next' | 'goal' | 'steps' | 'out';
+const MTAB_KEY = 'tetlabo.quizEditor.mtab';
+
+/**
+ * 盤面のマスの大きさ。モバイル配置では「画面幅」と「盤面以外を並べた残りの高さ」に収まるよう縮める
+ * （FIELD タブはツールまで一画面に収める。STEPS タブは手順リストが長くなりうるので下に 200px ぶん見せる）
+ */
+function cellSize(rule: Rule): number {
+    if (!mobileMq.matches) return fieldCellSize(rule);
+    const C = cols(rule), R = rows(rule);
+    const w = document.documentElement.clientWidth - 16 - 32;   // #layout の左右余白＋パネル・枠の余白
+    const viewH = window.visualViewport?.height ?? window.innerHeight;
+    const board = fieldCanvas.offsetHeight;
+    const others = body().dataset.mtab === 'steps'
+        ? $('topbar').offsetHeight + $('mtabs').offsetHeight + 260
+        : $('topbar').offsetHeight + $('mtabs').offsetHeight + ($('layout').offsetHeight - board) + 8;
+    const h = viewH - others;
+    return Math.max(12, Math.min(fieldCellSize(rule), Math.floor(Math.min(w / C, h / R))));
+}
+function body(): HTMLElement { return document.body; }
+
+function setMTab(t: MTab) {
+    body().dataset.mtab = t;
+    try { localStorage.setItem(MTAB_KEY, t); } catch { /* 保存不可 */ }
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) b.classList.toggle('on', b.dataset.mtab === t);
+    // STEPS は解答手順（PLACE の SOLVE）を見る場所
+    if (t === 'steps' && doc.rule === 'tet' && (ui.mode !== 'place' || place.sub !== 'solve')) {
+        if (ui.mode !== 'place') setMode('place');
+        if (place.sub !== 'solve') place.setSub('solve');
+    }
+    renderAll();
+    window.scrollTo({ top: 0 });
+}
+
 function renderField() {
     if (ui.mode === 'place') {
         const fv = place.fieldView();
         drawField(fieldCanvas, {
-            rule: 'tet', field: fv.field, cell: fieldCellSize('tet'),
+            rule: 'tet', field: fv.field, cell: cellSize('tet'),
             cursor: null, hover: null, rowMode: false, showCursor: false,
             piece: fv.piece, ghost: fv.ghost,
         });
         return;
     }
     drawField(fieldCanvas, {
-        rule: doc.rule, field: doc.field, cell: fieldCellSize(doc.rule),
+        rule: doc.rule, field: doc.field, cell: cellSize(doc.rule),
         cursor: ui.cursor, hover: ui.hover, rowMode: ui.rowMode,
         showCursor: document.activeElement === fieldCanvas,
     });
@@ -1422,6 +1462,41 @@ ui.nextCaret = nextLen();
 place.view = doc.steps.length;
 renderAll();
 void loadLevels().then(renderAll);
+// モバイル配置: 下部タブ・メニュー・画面サイズの変化
+for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) {
+    b.addEventListener('click', () => setMTab(b.dataset.mtab as MTab));
+}
+{
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(MTAB_KEY); } catch { /* 読めない */ }
+    body().dataset.mtab = saved && ['field', 'next', 'goal', 'steps', 'out'].includes(saved) ? saved : 'field';
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) b.classList.toggle('on', b.dataset.mtab === body().dataset.mtab);
+}
+$('btn-menu').addEventListener('click', () => {
+    const open = $('topbar').classList.toggle('menu-open');
+    $('btn-menu').setAttribute('aria-expanded', String(open));
+});
+for (const id of ['btn-new', 'btn-paste']) $(id).addEventListener('click', () => $('topbar').classList.remove('menu-open'));
+let resizeRaf = 0;
+function onViewportResize() {
+    cancelAnimationFrame(resizeRaf);
+    resizeRaf = requestAnimationFrame(() => {
+        // ソフトキーボードが出ている間は下部タブを隠す（表示領域が大きく縮んだかで判定）
+        const vv = window.visualViewport;
+        body().classList.toggle('kbd-open', !!vv && vv.height < window.innerHeight * 0.75 && isTextInput(document.activeElement));
+        renderField();
+    });
+}
+window.addEventListener('resize', onViewportResize);
+window.visualViewport?.addEventListener('resize', onViewportResize);
+mobileMq.addEventListener('change', () => renderAll());
+// スマホに無い機能を隠す（ファイル直接書込は FSA が無い・テストプレイは本体がタッチ非対応）
+for (const id of ['btn-write', 'write-pos']) {
+    const el = $(id);
+    (el.closest('label') ?? el).hidden = !canWriteFiles();
+}
+$('btn-test').hidden = coarsePointer();
+
 syncUi = initSyncUi({
     engine: sync,
     currentDraftId: () => draftId,

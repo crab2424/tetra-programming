@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Quiz Editor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -12,6 +12,7 @@
 <body>
   <!-- TETLABO クイズエディタ（pnpm dev:client → /quiz-editor/。プレビューURLでも配信・本番には出ない） -->
   <header id="topbar">
+    <button type="button" id="btn-menu" class="m-only" aria-label="メニュー" aria-expanded="false">≡</button>
     <h1>QUIZ EDITOR</h1>
     <div class="seg" id="rule-seg" role="radiogroup" aria-label="ルール">
       <button type="button" data-rule="tet" role="radio">TET</button>
@@ -21,19 +22,19 @@
       <span class="lbl">LEVELS</span>
       <select id="level-select" aria-label="既存の問題を開く"></select>
     </label>
-    <button type="button" id="btn-new">NEW</button>
-    <button type="button" id="btn-paste">PASTE JSON</button>
+    <button type="button" id="btn-new" class="m-menu">NEW</button>
+    <button type="button" id="btn-paste" class="m-menu">PASTE JSON</button>
     <button type="button" id="btn-drafts" title="同期中の下書き（PC とスマホで共有）">DRAFTS <span id="drafts-badge" class="badge" hidden></span></button>
     <span class="spacer"></span>
     <button type="button" id="btn-sync" class="sync-chip" title="PC とスマホの同期（GitHub Gist）">SYNC: OFF</button>
     <button type="button" id="btn-undo" title="元に戻す (Ctrl/⌘+Z)">UNDO</button>
     <button type="button" id="btn-redo" title="やり直し (Ctrl/⌘+Shift+Z)">REDO</button>
-    <button type="button" id="btn-help" title="キー一覧 (?)">? KEYS</button>
+    <button type="button" id="btn-help" class="pc-only" title="キー一覧 (?)">? KEYS</button>
   </header>
 
   <main id="layout">
     <!-- ① 問題情報 ＋ ④ クリア条件 -->
-    <section class="panel" id="col-left">
+    <section class="panel" id="col-left" data-m="goal">
       <h2>INFO</h2>
       <div class="form">
         <label>ID
@@ -77,27 +78,32 @@
 
     <!-- ② 盤面 ＋ ⑤ NEXT -->
     <section class="panel" id="col-center">
-      <h2>FIELD <small id="field-size"></small></h2>
-      <div id="field-wrap">
-        <canvas id="field" tabindex="0" aria-label="盤面（矢印でカーソル移動・Spaceで塗る）"></canvas>
+      <div data-m="field steps">
+        <h2>FIELD <small id="field-size"></small></h2>
+        <div id="field-wrap">
+          <canvas id="field" tabindex="0" aria-label="盤面（矢印でカーソル移動・Spaceで塗る）"></canvas>
+        </div>
       </div>
+      <div data-m="next">
       <h2>NEXT <small id="next-count"></small></h2>
       <div id="next-box" tabindex="0" aria-label="NEXT（ミノ文字で挿入・←→で移動・Backspaceで削除）"></div>
       <div class="row next-tools" id="next-tools"></div>
       <label class="next-text">TEXT
         <input id="next-text" type="text" spellcheck="false" />
       </label>
+      </div>
     </section>
 
     <!-- ③ ツール ＋ ⑦ プレビュー -->
     <section class="panel" id="col-right">
-      <h2>TOOLS</h2>
-      <div class="seg" id="mode-seg" role="radiogroup" aria-label="編集モード">
+      <h2 data-m="field">TOOLS</h2>
+      <p class="note" id="steps-note" data-m="steps" hidden></p>
+      <div class="seg" id="mode-seg" role="radiogroup" aria-label="編集モード" data-m="field">
         <button type="button" data-mode="paint" role="radio" title="盤面を塗る (P で切替)">PAINT</button>
         <button type="button" data-mode="place" role="radio" title="ミノを置く (P で切替)">PLACE</button>
       </div>
 
-      <div id="paint-box">
+      <div id="paint-box" data-m="field">
         <div id="palette" role="radiogroup" aria-label="色"></div>
         <div class="tool-grid">
           <button type="button" id="btn-row" title="行塗り: クリックしたマス以外を一括で塗る (R)">ROW</button>
@@ -114,13 +120,13 @@
 
       </div>
 
-      <div id="place-box" hidden>
-        <div class="seg" id="sub-seg">
+      <div id="place-box" data-m="field steps" hidden>
+        <div class="seg" id="sub-seg" data-m="field">
           <button type="button" data-sub="solve" title="NEXT の順に置いて解答手順を記録">SOLVE</button>
           <button type="button" data-sub="stamp" title="好きなミノを初期盤面に直接置く">STAMP</button>
         </div>
-        <p class="note" id="bind-src"></p>
-        <div class="ctl-pad" id="ctl-pad">
+        <p class="note pc-only" id="bind-src"></p>
+        <div class="ctl-pad" id="ctl-pad" data-m="field">
           <button type="button" data-ctl="left" title="左移動">←</button>
           <button type="button" data-ctl="right" title="右移動">→</button>
           <button type="button" data-ctl="down" title="1段下">↓</button>
@@ -133,7 +139,7 @@
         </div>
         <p id="place-status" class="note"></p>
 
-        <div id="solve-box">
+        <div id="solve-box" data-m="steps">
           <div id="solve-now"></div>
           <div id="solve-goal" class="goal"></div>
           <div class="row step-nav">
@@ -157,22 +163,24 @@
           <p id="sol-status" class="note"></p>
         </div>
 
-        <div id="stamp-box" hidden>
+        <div id="stamp-box" data-m="field" hidden>
           <p class="note">選んだミノを初期盤面に直接置きます（ライン消去なし）。ミノ文字キーでも選べます。</p>
           <div id="stamp-grid"></div>
         </div>
       </div>
 
-      <h2>PREVIEW</h2>
-      <div class="seg" id="preview-seg">
-        <button type="button" data-preview="play">PLAY</button>
-        <button type="button" data-preview="select">SELECT</button>
+      <div data-m="out">
+        <h2>PREVIEW</h2>
+        <div class="seg" id="preview-seg">
+          <button type="button" data-preview="play">PLAY</button>
+          <button type="button" data-preview="select">SELECT</button>
+        </div>
+        <div id="preview"></div>
       </div>
-      <div id="preview"></div>
     </section>
 
     <!-- ⑧ 出力 -->
-    <section class="panel" id="col-output">
+    <section class="panel" id="col-output" data-m="out">
       <h2>OUTPUT</h2>
       <ul id="issues"></ul>
       <div class="row out-tools">
@@ -193,6 +201,15 @@
       <textarea id="out-json" readonly spellcheck="false"></textarea>
     </section>
   </main>
+
+  <!-- モバイル配置の下部タブ（§14.5。幅 760px 以下でだけ表示） -->
+  <nav id="mtabs" class="m-only" aria-label="編集する項目">
+    <button type="button" data-mtab="field">FIELD</button>
+    <button type="button" data-mtab="next">NEXT</button>
+    <button type="button" data-mtab="goal">GOAL</button>
+    <button type="button" data-mtab="steps">STEPS</button>
+    <button type="button" data-mtab="out">OUT</button>
+  </nav>
 
   <!-- 貼り付けダイアログ -->
   <dialog id="paste-dlg">

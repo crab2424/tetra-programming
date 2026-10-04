@@ -64,6 +64,14 @@ TOOLS の PLACE（または `P`）で切り替える。
   （PLACE の EXPORT FILE も同じ）でやり取りする。同期しなければ今まで通りローカルファイルだけで動く
 - 実装: `gist.ts`（API）・`sync.ts`（キュー・マージ・ポーリング）・`sync-ui.ts`（画面）。設定は端末×オリジンごとの localStorage
 
+## スマホでの編集
+
+幅 760px 以下では下部タブ（FIELD / NEXT / GOAL / STEPS / OUT）で1項目ずつ表示する。盤面は画面に収まる大きさに縮む。
+
+- 盤面は指でなぞって塗る。PLACE は盤面に触れている間ミノが指に付いてきて、DROP / LOCK で確定する（離しただけでは確定しない）
+- 操作パッドの ←→↓↑ は長押しで連続移動。NEXT は長押しで掴んで並べ替え（または MOVE ◀ / MOVE ▶）
+- スマホではファイルへの書き込みとテストプレイはできない。作り終えたら OUT の MARK READY を押し、PC で WRITE FILE する
+
 ## テストプレイの仕組み
 
 TEST PLAY は編集中の1問を localStorage（`tetlabo.quizEditor.test`）に置き、`/?quizTest=1` を開く。
