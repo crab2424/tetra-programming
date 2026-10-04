@@ -89,19 +89,76 @@
 
     <!-- ③ ツール ＋ ⑦ プレビュー -->
     <section class="panel" id="col-right">
-      <h2>PAINT</h2>
-      <div id="palette" role="radiogroup" aria-label="色"></div>
-      <div class="tool-grid">
-        <button type="button" id="btn-row" title="行塗り: クリックしたマス以外を一括で塗る (R)">ROW</button>
-        <button type="button" id="btn-mirror" title="左右反転 (M)">MIRROR</button>
-        <button type="button" id="btn-clear" title="全消去 (Shift+Delete)">CLEAR</button>
+      <h2>TOOLS</h2>
+      <div class="seg" id="mode-seg" role="radiogroup" aria-label="編集モード">
+        <button type="button" data-mode="paint" role="radio" title="盤面を塗る (P で切替)">PAINT</button>
+        <button type="button" data-mode="place" role="radio" title="ミノを置く (P で切替)">PLACE</button>
       </div>
-      <div class="shift-pad" aria-label="盤面シフト (Alt+矢印)">
-        <button type="button" data-shift="up">↑</button>
-        <button type="button" data-shift="left">←</button>
-        <span class="shift-lbl">SHIFT</span>
-        <button type="button" data-shift="right">→</button>
-        <button type="button" data-shift="down">↓</button>
+
+      <div id="paint-box">
+        <div id="palette" role="radiogroup" aria-label="色"></div>
+        <div class="tool-grid">
+          <button type="button" id="btn-row" title="行塗り: クリックしたマス以外を一括で塗る (R)">ROW</button>
+          <button type="button" id="btn-mirror" title="左右反転 (M)">MIRROR</button>
+          <button type="button" id="btn-clear" title="全消去 (Shift+Delete)">CLEAR</button>
+        </div>
+        <div class="shift-pad" aria-label="盤面シフト (Alt+矢印)">
+          <button type="button" data-shift="up">↑</button>
+          <button type="button" data-shift="left">←</button>
+          <span class="shift-lbl">SHIFT</span>
+          <button type="button" data-shift="right">→</button>
+          <button type="button" data-shift="down">↓</button>
+        </div>
+
+      </div>
+
+      <div id="place-box" hidden>
+        <div class="seg" id="sub-seg">
+          <button type="button" data-sub="solve" title="NEXT の順に置いて解答手順を記録">SOLVE</button>
+          <button type="button" data-sub="stamp" title="好きなミノを初期盤面に直接置く">STAMP</button>
+        </div>
+        <p class="note" id="bind-src"></p>
+        <div class="ctl-pad" id="ctl-pad">
+          <button type="button" data-ctl="left" title="左移動">←</button>
+          <button type="button" data-ctl="right" title="右移動">→</button>
+          <button type="button" data-ctl="down" title="1段下">↓</button>
+          <button type="button" data-ctl="up" title="1段上（自由配置）">↑</button>
+          <button type="button" data-ctl="ccw" title="左回転">ROT L</button>
+          <button type="button" data-ctl="cw" title="右回転">ROT R</button>
+          <button type="button" data-ctl="hold" title="HOLD">HOLD</button>
+          <button type="button" data-ctl="drop" title="ハードドロップして確定">DROP</button>
+          <button type="button" data-ctl="lock" title="今の位置で確定 (Enter)">LOCK</button>
+        </div>
+        <p id="place-status" class="note"></p>
+
+        <div id="solve-box">
+          <div id="solve-now"></div>
+          <div id="solve-goal" class="goal"></div>
+          <div class="row step-nav">
+            <button type="button" data-nav="first" title="初期盤面 (Home)">|&lt;</button>
+            <button type="button" data-nav="prev" title="前の手 ([)">◀</button>
+            <span id="step-pos"></span>
+            <button type="button" data-nav="next" title="次の手 (])">▶</button>
+            <button type="button" data-nav="last" title="最後の手 (End)">&gt;|</button>
+          </div>
+          <ol id="step-list"></ol>
+          <div class="row">
+            <button type="button" id="btn-truncate" title="表示中の手より後を削除">DELETE AFTER</button>
+            <button type="button" id="btn-to-initial" title="表示中の盤面を初期盤面にする">SET AS INITIAL</button>
+          </div>
+          <h3>SOLUTION FILE</h3>
+          <label class="sol-note"><span>MEMO</span> <input id="sol-note" type="text" /></label>
+          <div class="row">
+            <button type="button" id="btn-sol-save" title="source_assets/quizlevels/tsolutions.json に保存">SAVE SOLUTION</button>
+            <button type="button" id="btn-sol-pick" title="保存先のファイルを選び直す">CHOOSE FILE</button>
+          </div>
+          <p id="sol-status" class="note"></p>
+        </div>
+
+        <div id="stamp-box" hidden>
+          <p class="note">選んだミノを初期盤面に直接置きます（ライン消去なし）。ミノ文字キーでも選べます。</p>
+          <div id="stamp-grid"></div>
+        </div>
       </div>
 
       <h2>PREVIEW</h2>

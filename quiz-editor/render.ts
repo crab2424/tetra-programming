@@ -44,11 +44,15 @@ export const MINO_SHAPES: [number, number][][] = [
 /** ミノを (cx, cy) を中心に描く。type は 0始まり */
 export function drawMinoCentered(ctx: CanvasRenderingContext2D, type: number, cx: number, cy: number, s: number) {
     const shape = MINO_SHAPES[type];
-    if (!shape) return;
-    const xs = shape.map(b => b[0]), ys = shape.map(b => b[1]);
+    if (shape) drawCellsCentered(ctx, type, shape, cx, cy, s);
+}
+
+/** 任意の形（回転後など）のマス群を (cx, cy) を中心に描く */
+export function drawCellsCentered(ctx: CanvasRenderingContext2D, type: number, cells: [number, number][], cx: number, cy: number, s: number) {
+    const xs = cells.map(b => b[0]), ys = cells.map(b => b[1]);
     const minX = Math.min(...xs), minY = Math.min(...ys);
     const w = (Math.max(...xs) - minX + 1) * s, h = (Math.max(...ys) - minY + 1) * s;
-    for (const [bx, by] of shape) {
+    for (const [bx, by] of cells) {
         drawImg(ctx, tetImages[type], cx - w / 2 + (bx - minX) * s, cy - h / 2 + (by - minY) * s, s);
     }
 }
@@ -80,6 +84,9 @@ export interface FieldView {
     hover: { r: number; c: number } | null;
     rowMode: boolean;
     showCursor: boolean;
+    /** PLACE モードの操作中ミノ（盤面座標のマス・type は 0始まり）。valid=false なら置けない位置 */
+    piece?: { cells: [number, number][]; type: number; valid: boolean } | null;
+    ghost?: [number, number][] | null;
 }
 
 export function fieldCellSize(rule: Rule): number { return rule === 'tet' ? 28 : 32; }
@@ -109,6 +116,26 @@ export function drawField(canvas: HTMLCanvasElement, v: FieldView) {
     // ブロック
     for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
         drawImg(ctx, cellImage(v.rule, v.field[r][c]), c * s, r * s, s);
+    }
+
+    // ゴースト・操作中ミノ（PLACE モード）
+    if (v.ghost && v.piece) {
+        ctx.globalAlpha = 0.3;
+        for (const [x, y] of v.ghost) if (y >= 0) drawImg(ctx, tetImages[v.piece.type], x * s, y * s, s);
+        ctx.globalAlpha = 1;
+    }
+    if (v.piece) {
+        for (const [x, y] of v.piece.cells) {
+            if (y < 0) continue;
+            drawImg(ctx, tetImages[v.piece.type], x * s, y * s, s);
+            if (!v.piece.valid) {
+                ctx.fillStyle = 'rgba(245,90,90,0.55)';
+                ctx.fillRect(x * s, y * s, s, s);
+            }
+        }
+        // 盤面より上にはみ出している列を上端の印で示す
+        ctx.fillStyle = '#f58542';
+        for (const [x, y] of v.piece.cells) if (y < 0) ctx.fillRect(x * s + 4, 0, s - 8, 3);
     }
 
     if (v.rule === 'tet') {

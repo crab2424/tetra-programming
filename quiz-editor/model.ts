@@ -4,6 +4,8 @@
 // データ仕様の正は public/assets/quizlevels/template.txt と public/quiz/quiz.js
 // ─────────────────────────────────────────────
 
+import type { Step } from './tet-sim.ts';
+
 export type Rule = 'tet' | 'puyo';
 
 // ─── 盤面サイズ（public/core/base.js の COLS_COUNT/ROWS_COUNT・PConfig と一致させる） ───
@@ -47,6 +49,8 @@ export interface EditorDoc {
     next: number[];           // tet: ミノtype(0始まり)
     pairs: Pair[];            // puyo
     cond: Cond;
+    steps: Step[];            // 解答手順（tet のみ）。問題 JSON には出力せず、解答ファイルに保存する
+    solutionNote: string;     // 解答のメモ（解答ファイルの note）
     extra: Record<string, unknown>;     // 読み込んだが未知のキー（書き戻して損失を防ぐ）
     condExtra: Record<string, unknown>; // clearCondition 内の未知のキー
 }
@@ -161,7 +165,7 @@ export function newDoc(rule: Rule): EditorDoc {
     return {
         rule, id: '', description: '', diff: 1, allowHold: false,
         field: emptyField(rule), next: [], pairs: [],
-        cond: defaultCond(rule), extra: {}, condExtra: {},
+        cond: defaultCond(rule), steps: [], solutionNote: '', extra: {}, condExtra: {},
     };
 }
 

@@ -15,6 +15,9 @@ import {
     loadImages, drawField, fieldCellSize, drawCellSwatch, drawMinoCentered, drawPairCentered,
 } from './render.ts';
 import { KEY_HELP, isTextInput, isMod } from './keys.ts';
+import { PlaceMode, buildStampGrid, type PlaceSub } from './place.ts';
+import { loadPlaceBinds, bindLabel, sourceLabel, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
+import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, SOLUTION_PATH } from './solutions.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -36,6 +39,7 @@ const ui = {
     nextCaret: 0,
     pendingPuyo: 0,                    // puyo NEXT 入力の1色目（0=なし）
     preview: 'play' as 'play' | 'select',
+    mode: 'paint' as 'paint' | 'place',
 };
 
 // ─── Undo / Redo（EditorDoc 丸ごとのスナップショット） ───
@@ -93,6 +97,8 @@ function afterDocReplaced() {
     if (ui.selColor > maxColorId(doc.rule)) ui.selColor = 1;
     ui.nextCaret = Math.min(ui.nextCaret, nextLen());
     ui.pendingPuyo = 0;
+    if (doc.rule !== 'tet') ui.mode = 'paint';
+    place.resetActive();
     renderAll();
 }
 
@@ -109,6 +115,7 @@ function openDoc(d: EditorDoc, src: string | null) {
     doc = d; sourceId = src;
     cleanSnap = JSON.stringify(doc);
     ui.nextCaret = nextLen();
+    place.view = doc.steps.length;   // 続きから記録できるよう最後の手を表示
     afterDocReplaced();
 }
 
@@ -127,6 +134,8 @@ function loadDraft(): boolean {
         if (!raw) return false;
         const o = JSON.parse(raw) as { doc: EditorDoc; sourceId: string | null; cleanSnap: string };
         if (!o.doc || !Array.isArray(o.doc.field)) return false;
+        o.doc.steps ??= [];
+        o.doc.solutionNote ??= '';
         doc = o.doc; sourceId = o.sourceId; cleanSnap = o.cleanSnap ?? '';
         return true;
     } catch {
@@ -174,10 +183,45 @@ function setVal(el: HTMLInputElement | HTMLSelectElement, v: string) {
 const fieldCanvas = $<HTMLCanvasElement>('field');
 function focusField() { fieldCanvas.focus({ preventScroll: true }); }
 
+// ─── PLACE モード・キー同期・解答ファイル ───
+const place = new PlaceMode({
+    doc: () => doc,
+    commit: (m, key) => commit(m, key),
+    renderAll: () => renderAll(),
+    renderField: () => renderField(),
+    status: msg => setStatus(msg),
+});
+let binds = loadPlaceBinds();
+let solutions: SolutionMap = {};
+let solutionsLoaded = false;
+
+/** 既存問題を開く時に解答ファイルの手順を付ける */
+function withSolution(d: EditorDoc): EditorDoc {
+    const e = d.rule === 'tet' ? solutions[d.id] : undefined;
+    if (e) { d.steps = e.steps.map(s => ({ ...s })); d.solutionNote = e.note ?? ''; }
+    return d;
+}
+
+/** 解答ファイルに保存済みの内容と一致するか */
+function solutionSaved(): boolean {
+    const e = solutions[doc.id];
+    if (!e) return doc.steps.length === 0;
+    return JSON.stringify(e.steps) === JSON.stringify(doc.steps) && (e.note ?? '') === doc.solutionNote;
+}
+
+function setMode(mode: 'paint' | 'place') {
+    if (mode === 'place' && doc.rule !== 'tet') { setStatus('ぷよのミノ配置は未対応です（段階4）'); return; }
+    ui.mode = mode;
+    place.resetActive();
+    renderAll();
+    focusField();
+}
+
 // ─────────────────────────────────────────────
 // 描画
 // ─────────────────────────────────────────────
 function renderAll() {
+    renderPlace();
     renderTopbar();
     renderInfo();
     renderCond();
@@ -187,6 +231,28 @@ function renderAll() {
     renderPreview();
     renderOutput();
     saveDraftSoon();
+}
+
+function renderPlace() {
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#mode-seg button')) {
+        const on = b.dataset.mode === ui.mode;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', String(on));
+        if (b.dataset.mode === 'place') {
+            b.disabled = doc.rule !== 'tet';
+            b.title = doc.rule === 'tet' ? 'ミノを置く (P で切替)' : 'ぷよのミノ配置は未対応（段階4）';
+        }
+    }
+    $('paint-box').hidden = ui.mode !== 'paint';
+    $('place-box').hidden = ui.mode !== 'place';
+    if (ui.mode !== 'place') return;
+    $('bind-src').textContent = `操作キー: ${sourceLabel(binds.source)}（? で一覧）`;
+    place.renderPanel($('place-box'));
+    setVal($<HTMLInputElement>('sol-note'), doc.solutionNote);
+    const st = $('sol-status');
+    if (!solutionsLoaded) st.textContent = `${SOLUTION_PATH} を読み込めませんでした（新規作成されます）`;
+    else st.textContent = solutionSaved() ? '保存済み' : '未保存の変更があります';
+    st.classList.toggle('warn', !solutionSaved());
 }
 
 function renderTopbar() {
@@ -260,6 +326,15 @@ function renderCond() {
 }
 
 function renderField() {
+    if (ui.mode === 'place') {
+        const fv = place.fieldView();
+        drawField(fieldCanvas, {
+            rule: 'tet', field: fv.field, cell: fieldCellSize('tet'),
+            cursor: null, hover: null, rowMode: false, showCursor: false,
+            piece: fv.piece, ghost: fv.ghost,
+        });
+        return;
+    }
     drawField(fieldCanvas, {
         rule: doc.rule, field: doc.field, cell: fieldCellSize(doc.rule),
         cursor: ui.cursor, hover: ui.hover, rowMode: ui.rowMode,
@@ -509,6 +584,12 @@ fieldCanvas.addEventListener('mousedown', e => {
     if (!p) return;
     e.preventDefault();
     focusField();
+    if (ui.mode === 'place') {
+        // テト譜のミノ配置: 左クリックで確定・右クリックで右回転
+        place.hoverAt(p.r, p.c);
+        if (e.button === 0) place.lock(); else if (e.button === 2) place.wheel(1);
+        return;
+    }
     ui.cursor = { ...p };
     if (ui.rowMode && e.button === 0) { fillRow(p.r, p.c); return; }
     const value = e.button === 2 ? 0 : (doc.field[p.r][p.c] === ui.selColor ? 0 : ui.selColor);
@@ -522,6 +603,10 @@ fieldCanvas.addEventListener('mousemove', e => {
     const p = cellAt(e);
     const changed = (p?.r !== ui.hover?.r) || (p?.c !== ui.hover?.c);
     ui.hover = p;
+    if (ui.mode === 'place') {
+        if (p && changed) place.hoverAt(p.r, p.c);
+        return;
+    }
     if (dragPaint && p) {
         // 素早く動かしてもマスが飛ばないよう、前回のマスから直線補間して塗る
         const { last } = dragPaint;
@@ -537,6 +622,11 @@ fieldCanvas.addEventListener('mousemove', e => {
 });
 fieldCanvas.addEventListener('mouseleave', () => { ui.hover = null; renderField(); });
 fieldCanvas.addEventListener('contextmenu', e => e.preventDefault());
+fieldCanvas.addEventListener('wheel', e => {
+    if (ui.mode !== 'place') return;
+    e.preventDefault();
+    place.wheel(e.deltaY > 0 ? 1 : -1);
+}, { passive: false });
 fieldCanvas.addEventListener('focus', renderField);
 fieldCanvas.addEventListener('blur', renderField);
 window.addEventListener('mouseup', () => { dragPaint = null; });
@@ -792,6 +882,8 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('#rule-seg button')
             doc = { ...newDoc(rule), ...keep };
             sourceId = null;
             ui.nextCaret = 0;
+            if (rule !== 'tet') ui.mode = 'paint';
+            place.resetActive();
             if (ui.selColor > maxColorId(rule)) ui.selColor = 1;
             ui.cursor = { r: Math.min(ui.cursor.r, rows(rule) - 1), c: Math.min(ui.cursor.c, cols(rule) - 1) };
         });
@@ -803,7 +895,7 @@ $<HTMLSelectElement>('level-select').addEventListener('change', e => {
     if (!v) return;
     const [rule, i] = v.split(':') as [Rule, string];
     const raw = levels[rule][Number(i)];
-    if (raw) openDoc(docFromLevel(raw), String(raw.id));
+    if (raw) openDoc(withSolution(docFromLevel(raw)), String(raw.id));
     focusField();
 });
 $('btn-new').addEventListener('click', () => {
@@ -821,9 +913,10 @@ $('btn-redo').addEventListener('click', redo);
 
 // ─── 出力 ───
 function setStatus(msg: string) {
-    const el = $('out-status');
-    el.textContent = msg;
-    window.setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 4000);
+    for (const el of [$('out-status'), $('place-status')]) {
+        el.textContent = msg;
+        window.setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 5000);
+    }
 }
 async function copyJson() {
     if (lastIssues.some(i => i.level === 'error')) { setStatus('エラーがあるためコピーできません'); return; }
@@ -861,7 +954,7 @@ $('paste-ok').addEventListener('click', e => {
         if (!list.length) throw new Error('問題オブジェクトが見つかりません');
         // 既存 id と一致すれば「その問題の編集」として扱う
         const raw = list[0];
-        const d = docFromLevel(raw);
+        const d = withSolution(docFromLevel(raw));
         const exists = levels[d.rule].some(l => l.id === d.id);
         pasteDlg.close();
         openDoc(d, exists ? d.id : null);
@@ -874,10 +967,103 @@ $('paste-ok').addEventListener('click', e => {
 
 // ─── キー一覧 ───
 const helpDlg = $<HTMLDialogElement>('help-dlg');
-$('help-body').innerHTML = KEY_HELP.map(sec =>
-    `<h3>${escapeHtml(sec.title)}</h3><table>${sec.rows.map(r =>
-        `<tr><th>${escapeHtml(r.keys)}</th><td>${escapeHtml(r.desc)}</td></tr>`).join('')}</table>`).join('');
-$('btn-help').addEventListener('click', () => helpDlg.showModal());
+function renderHelp() {
+    const placeSec = {
+        title: `PLACE（盤面にフォーカス）— 操作キーは ${sourceLabel(binds.source)}`,
+        rows: [
+            ...PLACE_ACTIONS.map(a => ({ keys: bindLabel(binds, a), desc: ACTION_NAMES[a] })),
+            { keys: 'Alt+↑（未割当なら ↑ も可）', desc: '1段上（自由配置）' },
+            { keys: 'Alt+↓', desc: '一番下まで落とす（確定しない）' },
+            { keys: 'Enter', desc: '今の位置で確定（浮いていても置く）' },
+            { keys: 'Backspace', desc: '最後の手を取り消す（SOLVE）' },
+            { keys: '[ ・ ] ・ Home ・ End', desc: '前の手 ・ 次の手 ・ 初期盤面 ・ 最後の手' },
+            { keys: 'I O T J L S Z', desc: '置くミノを選ぶ（STAMP）' },
+            { keys: 'マウス: 移動 ・ ホイール ・ 左クリック ・ 右クリック', desc: '位置 ・ 回転 ・ 確定 ・ 右回転（T-Spin は推定扱い）' },
+            { keys: 'P', desc: 'PAINT ⇔ PLACE 切替' },
+        ],
+    };
+    const secs = [...KEY_HELP, placeSec];
+    $('help-body').innerHTML = secs.map(sec =>
+        `<h3>${escapeHtml(sec.title)}</h3><table>${sec.rows.map(r =>
+            `<tr><th>${escapeHtml(r.keys)}</th><td>${escapeHtml(r.desc)}</td></tr>`).join('')}</table>`).join('');
+}
+$('btn-help').addEventListener('click', () => { renderHelp(); helpDlg.showModal(); });
+
+// ─── PLACE モードの UI ───
+for (const b of document.querySelectorAll<HTMLButtonElement>('#mode-seg button')) {
+    b.addEventListener('click', () => setMode(b.dataset.mode as 'paint'));
+}
+for (const b of document.querySelectorAll<HTMLButtonElement>('#sub-seg button')) {
+    b.addEventListener('click', () => { place.setSub(b.dataset.sub as PlaceSub); focusField(); });
+}
+$('ctl-pad').addEventListener('click', e => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
+    switch (b?.dataset.ctl) {
+        case 'left': place.move(-1, 0); break;
+        case 'right': place.move(1, 0); break;
+        case 'down': place.move(0, 1); break;
+        case 'up': place.move(0, -1); break;
+        case 'ccw': place.rotate(-1); break;
+        case 'cw': place.rotate(1); break;
+        case 'hold': place.toggleHold(); break;
+        case 'drop': place.hardDrop(); break;
+        case 'lock': place.lock(); break;
+    }
+    focusField();
+});
+$('solve-box').addEventListener('click', e => {
+    const t = e.target as HTMLElement;
+    const nav = t.closest<HTMLButtonElement>('[data-nav]')?.dataset.nav;
+    const n = doc.steps.length;
+    if (nav) place.goto(nav === 'first' ? 0 : nav === 'prev' ? place.view - 1 : nav === 'next' ? place.view + 1 : n);
+    const li = t.closest<HTMLElement>('#step-list li');
+    if (li) place.goto(Number(li.dataset.view));
+    if (nav || li) focusField();
+});
+$('btn-truncate').addEventListener('click', () => { place.truncateAfterView(); focusField(); });
+$('btn-to-initial').addEventListener('click', () => { place.viewToInitial(); focusField(); });
+$('stamp-grid').addEventListener('click', e => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
+    if (!b) return;
+    place.setStamp(Number(b.dataset.stamp), Number(b.dataset.rot));
+    focusField();
+});
+$<HTMLInputElement>('sol-note').addEventListener('input', e => {
+    const v = (e.target as HTMLInputElement).value;
+    commit(() => { doc.solutionNote = v; }, 'sol-note');
+});
+
+async function saveSolutionFile(forcePick: boolean) {
+    if (!doc.id.trim()) { setStatus('ID を入力してから保存してください'); return; }
+    if (doc.rule !== 'tet') return;
+    const oldId = sourceId && sourceId !== doc.id && solutions[sourceId] ? sourceId : null;
+    try {
+        const res = await saveSolution(doc.id, oldId,
+            { steps: doc.steps, note: doc.solutionNote, updated: today() }, solutions, forcePick);
+        solutions = res.map;
+        solutionsLoaded = true;
+        setStatus(res.via === 'file'
+            ? `${res.fileName} に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
+            : `ダウンロードしました。${SOLUTION_PATH} に置き換えてください`);
+    } catch (err) {
+        if ((err as Error).name === 'AbortError') return;   // ファイル選択をキャンセル
+        console.error(err);
+        setStatus(`保存できませんでした: ${(err as Error).message}`);
+    }
+    renderAll();
+}
+$('btn-sol-save').addEventListener('click', () => void saveSolutionFile(false));
+$('btn-sol-pick').addEventListener('click', () => void saveSolutionFile(true));
+$<HTMLButtonElement>('btn-sol-pick').hidden = !canWriteFiles();
+
+// TETLABO 側で KEY CONFIG を保存したら即反映（別タブの変更は storage イベントで届く）
+window.addEventListener('storage', e => {
+    if (e.key === 'game_binds' || e.key === 'game_keyconfig' || e.key === null) {
+        binds = loadPlaceBinds();
+        renderAll();
+        if (helpDlg.open) renderHelp();
+    }
+});
 
 // ─────────────────────────────────────────────
 // グローバルキー
@@ -913,8 +1099,15 @@ document.addEventListener('keydown', e => {
     }
 
     let handled = false;
+    const onField = target === fieldCanvas || target === document.body || target === null;
     if (target === nextBox) handled = handleNextKey(e);
-    else if (target === fieldCanvas || target === document.body || target === null) handled = handleFieldKey(e);
+    else if (onField && ui.mode === 'place') handled = place.handleKey(e, binds);
+    else if (onField) handled = handleFieldKey(e);
+    // P: PAINT ⇔ PLACE（PLACE で同期キーに割り当てられていれば上で処理済み）
+    if (!handled && onField && e.code === 'KeyP' && !e.altKey) {
+        setMode(ui.mode === 'paint' ? 'place' : 'paint');
+        handled = true;
+    }
     if (handled) e.preventDefault();
 });
 
@@ -935,11 +1128,20 @@ async function loadLevels() {
     }
 }
 
-loadImages(() => { renderField(); renderPalette(); renderNext(); renderPreview(); });
+loadImages(() => { renderField(); renderPalette(); renderNext(); renderPreview(); buildStampGrid($('stamp-grid')); });
+buildStampGrid($('stamp-grid'));
 if (!loadDraft()) cleanSnap = JSON.stringify(doc);
 ui.nextCaret = nextLen();
+place.view = doc.steps.length;
 renderAll();
 void loadLevels().then(renderAll);
+void fetchSolutions().then(m => {
+    solutionsLoaded = m !== null;
+    solutions = m ?? {};
+    // 下書きが空で、開いている問題に保存済みの解答があれば付ける
+    if (!doc.steps.length && solutions[doc.id]) { withSolution(doc); place.view = doc.steps.length; }
+    renderAll();
+});
 focusField();
 
 // デバッグ用（コンソールから状態確認）
