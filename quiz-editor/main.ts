@@ -8,7 +8,7 @@ import {
     MINO_LETTERS, TET_GARBAGE, PUYO_OJAMA,
     cols, rows, maxColorId, newDoc, cloneDoc, docFromLevel, emptyField,
     condDefs, countDefs, findCondDef, findCountDef, autoCondDescription,
-    serializeLevel, parseLevelsText, validate,
+    serializeLevel, buildLevel, parseLevelsText, validate,
     nextToText, textToNext, pairsToText, textToPairs, randomBag,
 } from './model.ts';
 import {
@@ -18,6 +18,8 @@ import { KEY_HELP, isTextInput, isMod } from './keys.ts';
 import { PlaceMode, buildStampGrid, type PlaceSub } from './place.ts';
 import { loadPlaceBinds, bindLabel, sourceLabel, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
 import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, SOLUTION_PATH } from './solutions.ts';
+import { getHandle, readText, writeText } from './fsa.ts';
+import { planWrite } from './levels-file.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -529,6 +531,29 @@ function renderOutput() {
     $<HTMLButtonElement>('btn-copy').disabled = hasError;
     $<HTMLButtonElement>('btn-download').disabled = hasError;
     $<HTMLTextAreaElement>('out-json').value = outputText();
+    for (const id of ['btn-write', 'btn-test']) $<HTMLButtonElement>(id).disabled = hasError;
+    renderWritePos();
+}
+
+/** 書き込み位置の選択肢（既存なら「今の位置」＝置換、新規なら「末尾」＝追加。他は n番目に移動/挿入） */
+function renderWritePos() {
+    const sel = $<HTMLSelectElement>('write-pos');
+    const list = levels[doc.rule];
+    const src = sourceId === null ? -1 : list.findIndex(l => l.id === sourceId);
+    const n = src >= 0 ? list.length : list.length + 1;
+    const opts = [`<option value="-1">${src >= 0 ? `今の位置（${src + 1}番・置換）` : `末尾（${n}番・追加）`}</option>`];
+    for (let k = 0; k < n; k++) if (k !== src && !(src < 0 && k === n - 1)) opts.push(`<option value="${k}">${k + 1}番にする</option>`);
+    const html = opts.join('');
+    if (sel.dataset.html !== html) {
+        const keep = sel.value;
+        sel.innerHTML = html; sel.dataset.html = html;
+        sel.value = [...sel.options].some(o => o.value === keep) ? keep : '-1';
+    }
+    const file = doc.rule === 'tet' ? 'tdata.json' : 'pdata.json';
+    $('write-info').textContent = !canWriteFiles()
+        ? 'ファイルへの直接書き込みは Chrome / Edge のみ対応です（COPY JSON を使ってください）'
+        : `${file} に${src >= 0 ? `「${sourceId}」を置き換えて` : '新しい問題として'}書き込みます${isDirty() ? '（未書き込みの変更あり）' : ''}`;
+    $('write-info').classList.toggle('warn', isDirty());
 }
 
 function outputText(): string {
@@ -930,6 +955,62 @@ async function copyJson() {
     }
 }
 $('btn-copy').addEventListener('click', copyJson);
+
+// ─── tdata.json / pdata.json への直接書き込み（この問題の範囲だけを差し替える） ───
+async function writeLevelsFile(forcePick: boolean) {
+    if (lastIssues.some(i => i.level === 'error')) { setStatus('エラーがあるため書き込めません'); return; }
+    if (!canWriteFiles()) { setStatus('このブラウザはファイルへの直接書き込みに対応していません'); return; }
+    const fileName = doc.rule === 'tet' ? 'tdata.json' : 'pdata.json';
+    try {
+        const h = await getHandle(fileName, 'open', forcePick);
+        if (h.name !== fileName && !confirm(`選んだファイルは「${h.name}」です。${fileName} ではありませんが書き込みますか？`)) return;
+        const text = await readText(h);
+        const arr = JSON.parse(text) as unknown;
+        if (!Array.isArray(arr)) throw new Error('問題の配列ではありません');
+        const wrongRule = arr.find(l => (l as LevelRaw)?.rule !== doc.rule);
+        if (wrongRule) throw new Error(`${doc.rule.toUpperCase()} 以外の問題が含まれています（別のファイルではありませんか？）`);
+        const list = arr as LevelRaw[];
+        const src = sourceId === null ? -1 : list.findIndex(l => l.id === sourceId);
+        const dup = list.findIndex((l, i) => i !== src && l.id === doc.id);
+        if (dup >= 0) throw new Error(`ID「${doc.id}」はファイル内の ${dup + 1}番と重複しています`);
+        if (sourceId !== null && src < 0 && !confirm(`ファイル内に「${sourceId}」が見つかりません（外部で変更された可能性）。新しい問題として追加しますか？`)) return;
+
+        const dst = Number($<HTMLSelectElement>('write-pos').value);
+        const plan = planWrite(text, src, dst, serializeLevel(doc, 1), buildLevel(doc));
+        const what = plan.action === 'replace' ? `${plan.index + 1}番「${sourceId}」を置き換え`
+            : plan.action === 'move' ? `「${sourceId}」を ${src + 1}番 → ${plan.index + 1}番へ移動して書き換え`
+            : `${plan.index + 1}番に「${doc.id}」を追加`;
+        if (!confirm(`${h.name} の ${what}ます。他の問題は変更しません。よろしいですか？`)) return;
+
+        await writeText(h, plan.text);
+        levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
+        sourceId = doc.id;
+        cleanSnap = JSON.stringify(doc);
+        setStatus(`${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`);
+    } catch (err) {
+        if ((err as Error).name === 'AbortError') return;   // ファイル選択をキャンセル
+        console.error(err);
+        setStatus(`書き込めませんでした: ${(err as Error).message}`);
+    }
+    renderAll();
+}
+$('btn-write').addEventListener('click', () => void writeLevelsFile(false));
+$('btn-write-pick').addEventListener('click', () => void writeLevelsFile(true));
+$<HTMLButtonElement>('btn-write-pick').hidden = !canWriteFiles();
+
+// ─── テストプレイ（quiz.js の _bootQuizEditorTest が受け取る。ファイルは変更しない） ───
+const TEST_KEY = 'tetlabo.quizEditor.test';
+$('btn-test').addEventListener('click', () => {
+    if (lastIssues.some(i => i.level === 'error')) { setStatus('エラーがあるためテストプレイできません'); return; }
+    try {
+        localStorage.setItem(TEST_KEY, JSON.stringify(buildLevel(doc)));
+    } catch {
+        setStatus('テスト用データを保存できませんでした');
+        return;
+    }
+    // 同じ名前のタブを使い回す（2回目以降はそのタブが新しい問題で読み込み直される）
+    window.open('/?quizTest=1', 'tetlabo-quiz-test');
+});
 $('in-lead-comma').addEventListener('change', renderOutput);
 $('btn-download').addEventListener('click', () => {
     if (lastIssues.some(i => i.level === 'error')) return;

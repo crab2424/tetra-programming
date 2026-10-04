@@ -179,6 +179,14 @@
         <button type="button" id="btn-download">DOWNLOAD</button>
         <span id="out-status" class="note"></span>
       </div>
+      <div class="row out-tools">
+        <button type="button" id="btn-write" title="tdata.json / pdata.json のこの問題だけを書き換える（Chrome / Edge）">WRITE FILE</button>
+        <label class="check">位置 <select id="write-pos" aria-label="書き込む位置"></select></label>
+        <button type="button" id="btn-write-pick" title="書き込むファイルを選び直す">CHOOSE FILE</button>
+        <span class="spacer"></span>
+        <button type="button" id="btn-test" title="編集中の問題を TETLABO で遊ぶ（新しいタブ・ファイルは変更しない）">TEST PLAY</button>
+      </div>
+      <p id="write-info" class="note"></p>
       <textarea id="out-json" readonly spellcheck="false"></textarea>
     </section>
   </main>

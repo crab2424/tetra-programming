@@ -264,6 +264,9 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
 #issues li.info { border-color: var(--text-dim); background: rgba(255, 255, 255, 0.03); color: var(--text-dim); }
 #issues li.ok { border-color: var(--success); background: rgba(90, 245, 160, 0.06); }
 .out-tools { margin-bottom: 8px; }
+#write-pos { width: auto; }
+#write-info.warn { color: var(--warn); }
+#btn-test { border-color: var(--quiz); color: var(--quiz); }
 #out-json { height: 260px; resize: vertical; }
 
 /* ─── ダイアログ ─── */

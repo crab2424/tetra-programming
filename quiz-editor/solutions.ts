@@ -8,6 +8,9 @@
 //         使えないブラウザではマージ済みの全体をダウンロードする
 // ─────────────────────────────────────────────
 import type { Step } from './tet-sim.ts';
+import { canWriteFiles, getHandle, readText, writeText, downloadText } from './fsa.ts';
+
+export { canWriteFiles };
 
 export interface SolutionEntry { steps: Step[]; note: string; updated: string; }
 export type SolutionMap = Record<string, SolutionEntry>;
@@ -49,64 +52,6 @@ export function today(): string {
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-// ─── File System Access（型は lib.dom に無い部分だけ最小限で宣言） ───
-interface FsHandle {
-    name: string;
-    getFile(): Promise<File>;
-    createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
-    queryPermission?(o: { mode: 'readwrite' }): Promise<PermissionState>;
-    requestPermission?(o: { mode: 'readwrite' }): Promise<PermissionState>;
-}
-type SavePicker = (o: { suggestedName: string; types: { description: string; accept: Record<string, string[]> }[] }) => Promise<FsHandle>;
-
-export function canWriteFiles(): boolean {
-    return typeof (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker === 'function';
-}
-
-// ─── IndexedDB（ハンドル保存用の最小ラッパ） ───
-const DB_NAME = 'tetlabo-quiz-editor';
-const STORE = 'handles';
-
-function idb<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T | undefined> {
-    return new Promise(resolve => {
-        try {
-            const open = indexedDB.open(DB_NAME, 1);
-            open.onupgradeneeded = () => open.result.createObjectStore(STORE);
-            open.onerror = () => resolve(undefined);
-            open.onsuccess = () => {
-                // コールバック内の例外（保存できない値など）は外側の try に届かないのでここでも捕まえる
-                try {
-                    const tx = open.result.transaction(STORE, mode);
-                    const req = fn(tx.objectStore(STORE));
-                    req.onsuccess = () => resolve(req.result);
-                    req.onerror = () => resolve(undefined);
-                } catch {
-                    resolve(undefined);
-                }
-            };
-        } catch {
-            resolve(undefined);
-        }
-    });
-}
-
-async function getHandle(forcePick: boolean): Promise<FsHandle | null> {
-    let h = forcePick ? undefined : await idb<FsHandle>('readonly', s => s.get(FILE_NAME) as IDBRequest<FsHandle>);
-    if (h) {
-        const perm = await h.queryPermission?.({ mode: 'readwrite' });
-        if (perm !== 'granted' && (await h.requestPermission?.({ mode: 'readwrite' })) !== 'granted') h = undefined;
-    }
-    if (!h) {
-        const picker = (window as unknown as { showSaveFilePicker: SavePicker }).showSaveFilePicker;
-        h = await picker({
-            suggestedName: FILE_NAME,
-            types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
-        });
-        await idb('readwrite', s => s.put(h, FILE_NAME));
-    }
-    return h;
-}
-
 /**
  * 1問ぶんの解答を保存する（ファイルの他の問題は保持してマージ）。
  * oldId が別名なら旧キーを消す（問題 id の変更に追従）。steps が空ならキーごと削除。
@@ -123,23 +68,15 @@ export async function saveSolution(
     };
 
     if (canWriteFiles()) {
-        const h = await getHandle(forcePick);
-        if (h) {
-            let base: SolutionMap = {};
-            const text = await (await h.getFile()).text();
-            if (text.trim()) base = JSON.parse(text) as SolutionMap;   // 壊れた JSON なら上書きせず例外で止める
-            const map = apply(base);
-            const w = await h.createWritable();
-            await w.write(serializeSolutions(map));
-            await w.close();
-            return { map, via: 'file', fileName: h.name };
-        }
+        const h = await getHandle(FILE_NAME, 'save', forcePick);
+        let base: SolutionMap = {};
+        const text = await readText(h);
+        if (text.trim()) base = JSON.parse(text) as SolutionMap;   // 壊れた JSON なら上書きせず例外で止める
+        const map = apply(base);
+        await writeText(h, serializeSolutions(map));
+        return { map, via: 'file', fileName: h.name };
     }
     const map = apply(fallback);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([serializeSolutions(map)], { type: 'application/json' }));
-    a.download = FILE_NAME;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadText(FILE_NAME, serializeSolutions(map));
     return { map, via: 'download' };
 }

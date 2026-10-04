@@ -15,8 +15,11 @@ pnpm dev:client
 
 1. 上部の LEVELS から既存の問題を開く（または NEW / PASTE JSON）
 2. 盤面・NEXT・クリア条件などを編集（キー一覧は `?`）
-3. OUTPUT の検証結果を確認し、COPY JSON で1問ぶんの JSON をコピー
-4. `tdata.json` / `pdata.json` の配列に貼り付け、`public/core/base.js` の `ASSET_VERSION` を +1
+3. OUTPUT の検証結果を確認し、TEST PLAY で実際のゲームで遊んで確認（ファイルは変更しない）
+4. WRITE FILE で `public/assets/quizlevels/tdata.json` / `pdata.json` に書き込む（Chrome / Edge）。
+   編集した問題の範囲だけを書き換え、他の問題のテキストは変えない。位置を選べば移動・挿入もできる。
+   直接書き込めないブラウザでは COPY JSON でコピーして配列に貼り付ける
+5. `public/core/base.js` の `ASSET_VERSION` を +1（キャッシュ対策）
 
 データ仕様は `public/assets/quizlevels/template.txt` を参照。
 
@@ -33,3 +36,9 @@ TOOLS の PLACE（または `P`）で切り替える。
   （Chrome / Edge はファイルへ直接書き込み、それ以外のブラウザはダウンロード）
 - マウスで置いた T は操作経路が無いため、T-Spin 判定は「回転入れした」と見なした推定になる。
   確実な確認はキー操作か、実機でのテストプレイで行う
+
+## テストプレイの仕組み
+
+TEST PLAY は編集中の1問を localStorage（`tetlabo.quizEditor.test`）に置き、`/?quizTest=1` を開く。
+`public/quiz/quiz.js` の `_bootQuizEditorTest` が **localhost のときだけ** それを読み、メモリ上の問題一覧に
+差し込んで（同じ ID なら置換・新規なら末尾）準備画面を開く。本番ホストでは何もしない。
