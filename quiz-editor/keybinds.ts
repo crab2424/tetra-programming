@@ -84,3 +84,23 @@ export function sourceLabel(s: BindSource): string {
         : s === 'game_keyconfig' ? 'TETLABO の KEY CONFIG（旧形式）'
         : 'エディタ既定（TETLABO の設定が見つかりません）';
 }
+
+// ─── 連続移動（DAS / ARR）: TETLABO の localStorage `game_tuning` と同期（単位はフレーム＝1/60 秒） ───
+export interface PlaceTuning { source: 'game_tuning' | 'default'; dasMs: number; arrMs: number; }
+const TUNING_DEFAULT = { das: 9.0, arr: 1.6 };   // public/config/settings.js の DEFAULT_TUNING と同じ
+const FRAME_MS = 1000 / 60;
+
+export function loadPlaceTuning(): PlaceTuning {
+    const raw = readJson('game_tuning');
+    const o = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
+    const num = (v: unknown, def: number) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : def);
+    return {
+        source: o ? 'game_tuning' : 'default',
+        dasMs: num(o?.das, TUNING_DEFAULT.das) * FRAME_MS,
+        arrMs: num(o?.arr, TUNING_DEFAULT.arr) * FRAME_MS,
+    };
+}
+
+export function tuningLabel(t: PlaceTuning): string {
+    return `DAS ${Math.round(t.dasMs)}ms / ARR ${Math.round(t.arrMs)}ms` + (t.source === 'default' ? '（既定値）' : '');
+}

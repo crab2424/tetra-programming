@@ -10,10 +10,14 @@ import {
     simulate, candidates, spawn, fits, moved, rotated, dropDistance, cellsOf, shapeOf,
     gridFromField, visibleField, describeResult, SIM_TOP,
 } from './tet-sim.ts';
-import { type PlaceBinds, actionFor } from './keybinds.ts';
+import { type PlaceBinds, type PlaceTuning, actionFor } from './keybinds.ts';
 import { drawCellsCentered } from './render.ts';
 
 export type PlaceSub = 'solve' | 'stamp';
+
+/** 押し続けて連続で動く操作（DAS / ARR。public/game/tet/input.js と同じ考え方） */
+type HeldDir = 'left' | 'right' | 'down';
+interface Held { codes: Set<string>; t0: number; last: number; }
 
 export interface PlaceCtx {
     doc(): EditorDoc;
@@ -35,6 +39,10 @@ export class PlaceMode {
     stampType = 2;
     private simCache: { key: string; sim: SimResult } | null = null;
     private ctx: PlaceCtx;
+    private held: Partial<Record<HeldDir, Held>> = {};
+    private lastHorizontal: 'left' | 'right' | null = null;
+    private repeatRaf = 0;
+    private tuning: PlaceTuning = { source: 'default', dasMs: 150, arrMs: 1.6 * 1000 / 60 };
 
     constructor(ctx: PlaceCtx) { this.ctx = ctx; }
 
@@ -111,10 +119,77 @@ export class PlaceMode {
         return true;
     }
 
-    move(dx: number, dy: number) {
-        if (!this.active) return;
-        this.setActive(moved(this.baseGrid(), this.active, dx, dy));
+    move(dx: number, dy: number): boolean {
+        if (!this.active) return false;
+        return this.setActive(moved(this.baseGrid(), this.active, dx, dy));
     }
+
+    // ─── 連続移動（キーを押している間だけ requestAnimationFrame で回す） ───
+    setTuning(t: PlaceTuning) { this.tuning = t; }
+
+    private step(dir: HeldDir): boolean {
+        return dir === 'left' ? this.move(-1, 0) : dir === 'right' ? this.move(1, 0) : this.move(0, 1);
+    }
+    /** ARR=0 用: 動けなくなるまで動かす */
+    private stepAll(dir: HeldDir) {
+        for (let i = 0; i < 40 && this.step(dir); i++) { /* 壁・床まで */ }
+    }
+
+    private press(dir: HeldDir, code: string) {
+        const h = this.held[dir];
+        if (h) { h.codes.add(code); return; }   // 同じ操作の別キー: 押し直し扱いにしない
+        const now = performance.now();
+        this.held[dir] = { codes: new Set([code]), t0: now, last: now };
+        if (dir !== 'down') this.lastHorizontal = dir;
+        this.step(dir);                          // 押した瞬間に1回
+        if (dir === 'down' && this.tuning.arrMs <= 0) this.stepAll('down');
+        if (!this.repeatRaf) this.repeatRaf = requestAnimationFrame(this.tick);
+    }
+
+    /** keyup。押下中の操作からこのキーを外す */
+    keyUp(code: string) {
+        for (const dir of ['left', 'right', 'down'] as HeldDir[]) {
+            const h = this.held[dir];
+            if (!h?.codes.delete(code) || h.codes.size) continue;
+            delete this.held[dir];
+            // 片方を離した時に反対側が押されていれば、そちらを優先（後押し優先の解除）
+            if (dir !== 'down' && this.lastHorizontal === dir) {
+                const other = dir === 'left' ? 'right' : 'left';
+                this.lastHorizontal = this.held[other] ? other : null;
+                // 反対側は押し直したのと同じく DAS からやり直す（ゲームと同じく溜めは引き継がない）
+                const o = this.held[other];
+                if (o) { o.t0 = performance.now(); o.last = o.t0; }
+            }
+        }
+    }
+
+    /** フォーカスが外れた・モードを変えた時など。押しっぱなし扱いを残さない */
+    releaseAll() {
+        this.held = {};
+        this.lastHorizontal = null;
+        cancelAnimationFrame(this.repeatRaf);
+        this.repeatRaf = 0;
+    }
+
+    private tick = (now: number) => {
+        this.repeatRaf = 0;
+        const { dasMs, arrMs } = this.tuning;
+        // 左右: 両方押されていれば後から押した方
+        const dir: HeldDir | null = this.held.left && this.held.right ? this.lastHorizontal
+            : this.held.left ? 'left' : this.held.right ? 'right' : null;
+        const h = dir ? this.held[dir] : undefined;
+        if (dir && h && now - h.t0 >= dasMs && now - h.last >= arrMs) {
+            if (arrMs <= 0) this.stepAll(dir); else this.step(dir);
+            h.last = now;
+        }
+        // ソフトドロップ: DAS なしで ARR ごと
+        const d = this.held.down;
+        if (d && now - d.last >= arrMs) {
+            if (arrMs <= 0) this.stepAll('down'); else this.step('down');
+            d.last = now;
+        }
+        if (this.held.left || this.held.right || this.held.down) this.repeatRaf = requestAnimationFrame(this.tick);
+    };
 
     rotate(dir: 1 | -1) {
         if (!this.active) return;
@@ -273,10 +348,13 @@ export class PlaceMode {
     handleKey(e: KeyboardEvent, binds: PlaceBinds): boolean {
         const plain = !e.altKey && !e.ctrlKey && !e.metaKey;
         const action = plain ? actionFor(binds, e.code) : null;
+        // OS のキーリピートは使わない: 移動は自前の DAS/ARR、確定・回転などの単発操作は押した瞬間の1回だけ
+        // （以前はハードドロップを押し続けると手が何手も記録された）
+        if (action && e.repeat) return true;
         switch (action) {
-            case 'moveLeft': this.move(-1, 0); return true;
-            case 'moveRight': this.move(1, 0); return true;
-            case 'softDrop': this.move(0, 1); return true;
+            case 'moveLeft': this.press('left', e.code); return true;
+            case 'moveRight': this.press('right', e.code); return true;
+            case 'softDrop': this.press('down', e.code); return true;
             case 'hardDrop': this.hardDrop(); return true;
             case 'rotateCW': this.rotate(1); return true;
             case 'rotateCCW': this.rotate(-1); return true;
@@ -286,8 +364,8 @@ export class PlaceMode {
         if (e.altKey && e.code === 'ArrowDown') { this.sonicDrop(); return true; }
         if (!plain) return false;
         if (e.code === 'ArrowUp') { this.move(0, -1); return true; }
-        if (e.code === 'Enter') { this.lock(); return true; }
-        if (e.code === 'Backspace') { this.undoLastStep(); return true; }
+        if (e.code === 'Enter') { if (!e.repeat) this.lock(); return true; }
+        if (e.code === 'Backspace') { if (!e.repeat) this.undoLastStep(); return true; }
         if (e.code === 'BracketLeft') { this.goto(this.view - 1); return true; }
         if (e.code === 'BracketRight') { this.goto(this.view + 1); return true; }
         if (e.code === 'Home') { this.goto(0); return true; }

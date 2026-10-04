@@ -17,7 +17,7 @@ import {
 } from './render.ts';
 import { KEY_HELP, isTextInput, isMod } from './keys.ts';
 import { PlaceMode, buildStampGrid, type PlaceSub } from './place.ts';
-import { loadPlaceBinds, bindLabel, sourceLabel, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
+import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
 import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, SOLUTION_PATH, exportSolutionsFile } from './solutions.ts';
 import { SyncEngine, type SyncEvent, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
 import { initSyncUi } from './sync-ui.ts';
@@ -278,6 +278,8 @@ const place = new PlaceMode({
     status: msg => setStatus(msg),
 });
 let binds = loadPlaceBinds();
+let tuning = loadPlaceTuning();
+place.setTuning(tuning);
 let solutions: SolutionMap = {};
 let solutionsLoaded = false;
 
@@ -298,6 +300,7 @@ function solutionSaved(): boolean {
 function setMode(mode: 'paint' | 'place') {
     if (mode === 'place' && doc.rule !== 'tet') { setStatus('ぷよのミノ配置は未対応です（段階4）'); return; }
     ui.mode = mode;
+    place.releaseAll();
     place.resetActive();
     renderAll();
     focusField();
@@ -336,7 +339,7 @@ function renderPlace() {
     stepsNote.hidden = doc.rule === 'tet';
     stepsNote.textContent = 'ぷよの解答手順の記録は未対応です（段階4）';
     if (ui.mode !== 'place') return;
-    $('bind-src').textContent = `操作キー: ${sourceLabel(binds.source)}（? で一覧）`;
+    $('bind-src').textContent = `操作キー: ${sourceLabel(binds.source)}・${tuningLabel(tuning)}（? で一覧）`;
     place.renderPanel($('place-box'));
     setVal($<HTMLInputElement>('sol-note'), doc.solutionNote);
     const st = $('sol-status');
@@ -1280,7 +1283,7 @@ $('paste-ok').addEventListener('click', e => {
 const helpDlg = $<HTMLDialogElement>('help-dlg');
 function renderHelp() {
     const placeSec = {
-        title: `PLACE（盤面にフォーカス）— 操作キーは ${sourceLabel(binds.source)}`,
+        title: `PLACE（盤面にフォーカス）— 操作キーは ${sourceLabel(binds.source)}・${tuningLabel(tuning)}`,
         rows: [
             ...PLACE_ACTIONS.map(a => ({ keys: bindLabel(binds, a), desc: ACTION_NAMES[a] })),
             { keys: 'Alt+↑（未割当なら ↑ も可）', desc: '1段上（自由配置）' },
@@ -1402,8 +1405,10 @@ $<HTMLButtonElement>('btn-sol-pick').hidden = !canWriteFiles();
 
 // TETLABO 側で KEY CONFIG を保存したら即反映（別タブの変更は storage イベントで届く）
 window.addEventListener('storage', e => {
-    if (e.key === 'game_binds' || e.key === 'game_keyconfig' || e.key === null) {
+    if (e.key === 'game_binds' || e.key === 'game_keyconfig' || e.key === 'game_tuning' || e.key === null) {
         binds = loadPlaceBinds();
+        tuning = loadPlaceTuning();
+        place.setTuning(tuning);
         renderAll();
         if (helpDlg.open) renderHelp();
     }
@@ -1454,6 +1459,10 @@ document.addEventListener('keydown', e => {
     }
     if (handled) e.preventDefault();
 });
+
+// 連続移動（DAS/ARR）の押下状態は、どこで離しても・フォーカスが外れても解除する
+document.addEventListener('keyup', e => place.keyUp(e.code));
+window.addEventListener('blur', () => place.releaseAll());
 
 // ─────────────────────────────────────────────
 // 起動
