@@ -1408,14 +1408,17 @@ function _renderQuizNextAll(levelData) {
         _showQuizFieldHeader(null);
     };
 })();
-// ─── クイズエディタからのテストプレイ（開発用・localhost 限定） ─────────
-// quiz-editor/（pnpm dev:client → /quiz-editor/）の TEST PLAY から `/?quizTest=1` で開かれた時だけ動く。
+// ─── クイズエディタからのテストプレイ（開発用・localhost とプレビュー限定） ─────────
+// quiz-editor/ の TEST PLAY から `/?quizTest=1` で開かれた時だけ動く。
 // エディタが localStorage に置いた1問を、メモリ上の QUIZ_LEVELS に差し込んで（同じ id なら置換・新規なら末尾）
 // その問題を選んだ状態の準備画面を開く。JSON ファイルは変更しない。本番ホストでは何もしない。
+// プレビュー（*-citgame.pptlabo.workers.dev）は Cloudflare Access で保護されている。
+// 本番の citgame.pptlabo.workers.dev は先頭に「-」が無いので一致しない。
 (function _bootQuizEditorTest() {
     const host = location.hostname;
     const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
-    if (!isLocal || !new URLSearchParams(location.search).has('quizTest')) return;
+    const isPreview = host.endsWith('-citgame.pptlabo.workers.dev');
+    if (!(isLocal || isPreview) || !new URLSearchParams(location.search).has('quizTest')) return;
 
     let level = null;
     try { level = JSON.parse(localStorage.getItem('tetlabo.quizEditor.test') || 'null'); } catch (e) { level = null; }

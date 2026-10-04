@@ -1,7 +1,7 @@
 # QUIZ EDITOR
 
-TETLABO のクイズ問題（`public/assets/quizlevels/tdata.json` / `pdata.json`）を編集するローカル専用ツール。
-本番ビルド（`dist/`）には含まれない。
+TETLABO のクイズ問題（`public/assets/quizlevels/tdata.json` / `pdata.json`）を編集するツール。
+本番ビルドには含まれない（main 以外のブランチのビルドにだけ含まれる）。
 
 ## 開き方
 
@@ -10,6 +10,16 @@ pnpm dev:client
 ```
 
 ブラウザで `http://localhost:5173/quiz-editor/` を開く。
+
+### オンライン（プレビュー）
+
+main 以外のブランチを push すると、Workers Builds のプレビューURLでも開ける
+（例: v2.3 → `https://v2-3-citgame.pptlabo.workers.dev/quiz-editor/`）。プレビューは Cloudflare Access で保護されている。
+
+- ビルドに含めるかは `vite.config.ts` が `WORKERS_CI_BRANCH`（Workers Builds が設定するブランチ名）で判定する。
+  ローカルの `pnpm build` は本番と同じく含めない。確認したい時は `QUIZ_EDITOR=1 pnpm build`
+- 万一本番ホスト（`citgame.pptlabo.workers.dev`）で開かれても `prod-guard.ts` が起動を止める
+- プレビューで読める tdata/pdata.json は「そのブランチをデプロイした時点」のもの
 
 ## 使い方
 
@@ -40,5 +50,5 @@ TOOLS の PLACE（または `P`）で切り替える。
 ## テストプレイの仕組み
 
 TEST PLAY は編集中の1問を localStorage（`tetlabo.quizEditor.test`）に置き、`/?quizTest=1` を開く。
-`public/quiz/quiz.js` の `_bootQuizEditorTest` が **localhost のときだけ** それを読み、メモリ上の問題一覧に
+`public/quiz/quiz.js` の `_bootQuizEditorTest` が **localhost とプレビュー（`*-citgame.pptlabo.workers.dev`）のときだけ** それを読み、メモリ上の問題一覧に
 差し込んで（同じ ID なら置換・新規なら末尾）準備画面を開く。本番ホストでは何もしない。

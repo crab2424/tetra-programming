@@ -3,6 +3,7 @@
 // クイズエディタ本体（状態管理・Undo・各パネルの描画とイベント）
 // 設計: source_assets/memory/quiz-editor/tetlabo-quiz-editor-design.md
 // ─────────────────────────────────────────────
+import './prod-guard.ts';
 import {
     type Rule, type EditorDoc, type Pair, type Issue,
     MINO_LETTERS, TET_GARBAGE, PUYO_OJAMA,
@@ -1204,7 +1205,7 @@ async function loadLevels() {
             levels[rule] = Array.isArray(arr) ? arr as LevelRaw[] : [];
         } catch (err) {
             console.error(`${file} の読み込みに失敗しました`, err);
-            setStatus(`${file} を読み込めませんでした（pnpm dev:client で開いていますか？）`);
+            setStatus(`${file} を読み込めませんでした`);
         }
     }
 }
