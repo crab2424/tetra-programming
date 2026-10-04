@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
+import { execSync } from "node:child_process";
 
 // クイズエディタ（quiz-editor/）はプレビュー（main 以外のブランチ）のビルドにだけ含める。
 // Workers Builds は WORKERS_CI_BRANCH にブランチ名を入れる。ローカルでは QUIZ_EDITOR=1 の時だけ含める
@@ -8,6 +9,16 @@ const ciBranch = process.env.WORKERS_CI_BRANCH;
 const includeQuizEditor = ciBranch
   ? ciBranch !== "main"
   : process.env.QUIZ_EDITOR === "1";
+
+// エディタの SYNC 画面が「スマホで開く URL（プレビュー）」の既定値を作るのに使う
+function currentBranch(): string {
+  if (ciBranch) return ciBranch;
+  try {
+    return execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
 
 console.log(
   `Building TETLABO v${process.env.npm_package_version} using Vite...`,
@@ -34,6 +45,7 @@ export default defineConfig(async () => ({
     : {},
   define: {
     APP_VERSION: JSON.stringify(process.env.npm_package_version),
+    QUIZ_EDITOR_BRANCH: JSON.stringify(currentBranch()),
   },
   server: {
     host: true,

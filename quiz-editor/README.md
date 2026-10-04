@@ -47,6 +47,23 @@ TOOLS の PLACE（または `P`）で切り替える。
 - マウスで置いた T は操作経路が無いため、T-Spin 判定は「回転入れした」と見なした推定になる。
   確実な確認はキー操作か、実機でのテストプレイで行う
 
+## PC とスマホの同期（SYNC・DRAFTS）
+
+編集中の問題と解答手順を、自分の GitHub アカウントの**非公開 Gist** で共有する（サーバーは使わない）。
+
+1. GitHub で fine-grained token を作る（Account permissions → **Gists: Read and write** のみ・有効期限を設定）
+2. エディタ右上の **SYNC** → トークンを貼って CONNECT（説明欄 `TETLABO quiz-editor sync` の Gist を探し、無ければ作る）
+3. スマホは SYNC → SHOW QR の QR コードを読む（`#sync=…` にトークンが入った URL。読み込むと URL から消える）
+
+- 問題を編集すると下書き（`draft-<id>.json`）が自動で作られ、編集の 5 秒後・画面を隠した時に Gist へ送られる。
+  30 秒ごと・画面に戻った時に取得し、開いている下書きが他の端末で更新されていれば読み込む
+- 同じ下書きを両方で編集した場合は上書きせず、後から送った方を「競合コピー」として別に保存する
+- **DRAFTS** で一覧・切替・削除。スマホで作り終えたら OUTPUT の **MARK READY**（PC の DRAFTS に目立つ表示）。
+  WRITE FILE が成功すると自動で WRITTEN になる
+- 同期中は解答手順の正本は Gist の `tsolutions.json`。ローカルファイルとは SYNC 画面の IMPORT LOCAL FILE / EXPORT TO FILE
+  （PLACE の EXPORT FILE も同じ）でやり取りする。同期しなければ今まで通りローカルファイルだけで動く
+- 実装: `gist.ts`（API）・`sync.ts`（キュー・マージ・ポーリング）・`sync-ui.ts`（画面）。設定は端末×オリジンごとの localStorage
+
 ## テストプレイの仕組み
 
 TEST PLAY は編集中の1問を localStorage（`tetlabo.quizEditor.test`）に置き、`/?quizTest=1` を開く。

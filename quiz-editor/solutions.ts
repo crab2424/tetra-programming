@@ -12,7 +12,13 @@ import { canWriteFiles, getHandle, readText, writeText, downloadText } from './f
 
 export { canWriteFiles };
 
-export interface SolutionEntry { steps: Step[]; note: string; updated: string; }
+export interface SolutionEntry {
+    steps: Step[];
+    note: string;
+    updated: string;
+    /** 保存時刻（ISO）。Gist 同期でどちらが新しいかを決めるのに使う。古いエントリには無い（＝最も古い扱い） */
+    updatedAt?: string;
+}
 export type SolutionMap = Record<string, SolutionEntry>;
 
 export const SOLUTION_PATH = 'source_assets/quizlevels/tsolutions.json';
@@ -40,7 +46,7 @@ export function serializeSolutions(map: SolutionMap): string {
         return `    ${JSON.stringify(id)}: {\n` +
             `        "steps": [${e.steps.length ? `\n${steps}\n        ` : ''}],\n` +
             `        "note": ${JSON.stringify(e.note ?? '')},\n` +
-            `        "updated": ${JSON.stringify(e.updated)}\n` +
+            `        "updated": ${JSON.stringify(e.updated)}${e.updatedAt ? `,\n        "updatedAt": ${JSON.stringify(e.updatedAt)}` : ''}\n` +
             '    }';
     });
     return `{\n${blocks.join(',\n')}\n}\n`;
@@ -79,4 +85,26 @@ export async function saveSolution(
     const map = apply(fallback);
     downloadText(FILE_NAME, serializeSolutions(map));
     return { map, via: 'download' };
+}
+
+/** ローカルの解答ファイルを読む（dev サーバー経由、無理ならファイルを選ばせる）。Gist への取り込み用 */
+export async function readLocalSolutions(): Promise<SolutionMap | null> {
+    const viaServer = await fetchSolutions();
+    if (viaServer) return viaServer;
+    if (!canWriteFiles()) return null;
+    const h = await getHandle(FILE_NAME, 'save', false);
+    const text = await readText(h);
+    return text.trim() ? JSON.parse(text) as SolutionMap : {};
+}
+
+/** 解答の全体をローカルファイルへ書き出す（Gist が正本の時のバックアップ用）。非対応ブラウザはダウンロード */
+export async function exportSolutionsFile(map: SolutionMap, forcePick = false): Promise<{ via: 'file' | 'download'; fileName: string }> {
+    const text = serializeSolutions(map);
+    if (canWriteFiles()) {
+        const h = await getHandle(FILE_NAME, 'save', forcePick);
+        await writeText(h, text);
+        return { via: 'file', fileName: h.name };
+    }
+    downloadText(FILE_NAME, text);
+    return { via: 'download', fileName: FILE_NAME };
 }

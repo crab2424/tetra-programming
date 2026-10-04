@@ -320,3 +320,31 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 #stamp-grid { display: flex; gap: 4px; flex-wrap: wrap; }
 .stamp-col { display: flex; flex-direction: column; gap: 4px; }
 .stamp-col button { padding: 2px; line-height: 0; }
+
+/* ─── 同期（SYNC / DRAFTS。§14.3） ─── */
+.badge {
+  display: inline-block; min-width: 16px; padding: 0 4px; margin-left: 4px;
+  border-radius: 8px; background: var(--quiz); color: #000; font-size: 10px; text-align: center;
+}
+.sync-chip, .sync-state { font-family: var(--font-orbitron); letter-spacing: 1px; }
+.sync-chip[data-state="synced"], .sync-state[data-state="synced"] { color: var(--success); }
+.sync-chip[data-state="saving"], .sync-state[data-state="saving"] { color: var(--text); }
+.sync-chip[data-state="offline"], .sync-state[data-state="offline"],
+.sync-chip[data-state="auth"], .sync-state[data-state="auth"] { color: var(--warn); }
+.sync-chip[data-state="error"], .sync-state[data-state="error"] { color: var(--danger); }
+.sync-chip[data-state="off"] { color: var(--text-dim); }
+#sync-dlg, #drafts-dlg { width: min(560px, calc(100vw - 32px)); }
+#sync-body, #drafts-body { display: flex; flex-direction: column; gap: 8px; }
+#sync-body label { display: flex; flex-direction: column; gap: 4px; }
+#sync-body p { margin: 0; }
+#sync-body a { color: var(--quiz); }
+.sync-steps { margin: 0; padding-left: 20px; line-height: 1.6; }
+#sync-qr-img { background: #fff; padding: 8px; width: min(260px, 100%); align-self: center; }
+#sync-qr-img svg { display: block; width: 100%; height: auto; }
+.draft-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto; }
+.draft { border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
+.draft.ready { border-color: var(--quiz); background: var(--quiz-soft); }
+.draft.written { opacity: 0.6; }
+.draft.current { outline: 1px solid var(--success); }
+.draft-rule { font-family: var(--font-orbitron); font-size: 10px; color: var(--quiz); margin-right: 4px; }
+.draft .warn { color: var(--warn); margin-left: 6px; }

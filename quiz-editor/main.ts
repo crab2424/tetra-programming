@@ -18,7 +18,9 @@ import {
 import { KEY_HELP, isTextInput, isMod } from './keys.ts';
 import { PlaceMode, buildStampGrid, type PlaceSub } from './place.ts';
 import { loadPlaceBinds, bindLabel, sourceLabel, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
-import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, SOLUTION_PATH } from './solutions.ts';
+import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, SOLUTION_PATH, exportSolutionsFile } from './solutions.ts';
+import { SyncEngine, type SyncEvent, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
+import { initSyncUi } from './sync-ui.ts';
 import { getHandle, readText, writeText } from './fsa.ts';
 import { planWrite } from './levels-file.ts';
 
@@ -33,6 +35,7 @@ const levels: Record<Rule, LevelRaw[]> = { tet: [], puyo: [] };
 let doc: EditorDoc = newDoc('tet');
 let sourceId: string | null = null;   // 既存問題から開いた場合の元 id（重複判定の除外・番号算出に使う）
 let cleanSnap = '';                    // 最後に開いた/新規作成した時点（未保存変更の確認用）
+let draftId: string | null = null;     // 同期中の下書きの id（最初に編集した時に作る。§14.3）
 
 const ui = {
     selColor: 1,
@@ -50,10 +53,10 @@ const undoStack: string[] = [];
 const redoStack: string[] = [];
 let lastCommit = { key: '', t: 0 };
 
-function snap(): string { return JSON.stringify({ doc, sourceId }); }
+function snap(): string { return JSON.stringify({ doc, sourceId, draftId }); }
 function restore(s: string) {
-    const o = JSON.parse(s) as { doc: EditorDoc; sourceId: string | null };
-    doc = o.doc; sourceId = o.sourceId;
+    const o = JSON.parse(s) as { doc: EditorDoc; sourceId: string | null; draftId?: string | null };
+    doc = o.doc; sourceId = o.sourceId; draftId = o.draftId ?? null;
 }
 
 /**
@@ -108,14 +111,17 @@ function afterDocReplaced() {
 function isDirty(): boolean { return JSON.stringify(doc) !== cleanSnap; }
 
 /** 別の問題を開く（Undo 履歴は残すので誤操作でも戻せる） */
-function openDoc(d: EditorDoc, src: string | null) {
-    if (isDirty() && !confirm('編集中の内容は破棄されます（UNDO で戻せます）。よろしいですか？')) {
+function openDoc(d: EditorDoc, src: string | null, did: string | null = null) {
+    // 同期中の下書きは DRAFTS に残るので確認しない
+    const kept = sync.enabled && draftId !== null;
+    if (isDirty() && !kept && !confirm('編集中の内容は破棄されます（UNDO で戻せます）。よろしいですか？')) {
         renderTopbar();
         return;
     }
+    if (kept) flushDraftToSync();
     undoStack.push(snap());
     redoStack.length = 0;
-    doc = d; sourceId = src;
+    doc = d; sourceId = src; draftId = did;
     cleanSnap = JSON.stringify(doc);
     ui.nextCaret = nextLen();
     place.view = doc.steps.length;   // 続きから記録できるよう最後の手を表示
@@ -128,18 +134,28 @@ let draftTimer = 0;
 function saveDraftSoon() {
     clearTimeout(draftTimer);
     draftTimer = window.setTimeout(() => {
-        try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ doc, sourceId, cleanSnap })); } catch { /* 保存不可でも動作に影響なし */ }
+        try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ doc, sourceId, cleanSnap, draftId })); } catch { /* 保存不可でも動作に影響なし */ }
+        flushDraftToSync();
     }, 300);
+}
+/** 開いている問題を同期の下書きに反映する（未編集の問題は下書きにしない。内容が同じなら何もしない） */
+function flushDraftToSync() {
+    if (!sync.enabled) return;
+    if (draftId === null) {
+        if (!isDirty()) return;
+        draftId = newDraftId();
+    }
+    sync.putDraft(draftId, doc, sourceId);
 }
 function loadDraft(): boolean {
     try {
         const raw = localStorage.getItem(DRAFT_KEY);
         if (!raw) return false;
-        const o = JSON.parse(raw) as { doc: EditorDoc; sourceId: string | null; cleanSnap: string };
+        const o = JSON.parse(raw) as { doc: EditorDoc; sourceId: string | null; cleanSnap: string; draftId?: string | null };
         if (!o.doc || !Array.isArray(o.doc.field)) return false;
         o.doc.steps ??= [];
         o.doc.solutionNote ??= '';
-        doc = o.doc; sourceId = o.sourceId; cleanSnap = o.cleanSnap ?? '';
+        doc = o.doc; sourceId = o.sourceId; cleanSnap = o.cleanSnap ?? ''; draftId = o.draftId ?? null;
         return true;
     } catch {
         return false;
@@ -185,6 +201,50 @@ function setVal(el: HTMLInputElement | HTMLSelectElement, v: string) {
 
 const fieldCanvas = $<HTMLCanvasElement>('field');
 function focusField() { fieldCanvas.focus({ preventScroll: true }); }
+
+// ─── PC とスマホの同期（Gist。§14.3） ───
+const sync = new SyncEngine(ev => onSyncEvent(ev), () => onSyncState());
+let syncUi: { refresh(): void } | null = null;
+
+/** 下書きを開く（DRAFTS から） */
+function openDraft(id: string) {
+    const d = sync.draft(id);
+    if (!d) return;
+    openDoc(cloneDoc(d.doc), d.sourceId, id);
+    focusField();
+}
+
+function onSyncState() {
+    if (sync.enabled) { solutions = sync.solutions(); solutionsLoaded = true; }
+    syncUi?.refresh();
+    if (ui.mode === 'place') renderPlace();
+    renderOutput();
+}
+
+function onSyncEvent(ev: SyncEvent) {
+    // 開いている下書きが他の端末で更新された（この端末に未送信の変更が無ければ読み込む。あれば送信時に競合コピーになる）
+    if (draftId && ev.remoteUpdated.includes(draftId) && !sync.hasPending(draftId)) {
+        const d = sync.draft(draftId);
+        if (!d) setStatus('開いている下書きは他の端末で削除されました（編集を続けると作り直されます）');
+        else if (JSON.stringify([d.doc, d.sourceId]) !== JSON.stringify([doc, sourceId])) {
+            undoStack.push(snap());
+            redoStack.length = 0;
+            doc = cloneDoc(d.doc); sourceId = d.sourceId;
+            place.view = Math.min(place.view, doc.steps.length);
+            afterDocReplaced();
+            setStatus(`他の端末（${d.device}）の変更を読み込みました（UNDO で戻せます）`);
+        }
+    }
+    for (const c of ev.conflicts) {
+        if (c.from === draftId) {
+            draftId = c.to;
+            saveDraftSoon();
+            setStatus('他の端末でも同じ下書きが編集されていたため、こちらの変更を「競合コピー」として別に保存しました（DRAFTS で確認）');
+        }
+    }
+    if (ev.skippedSolutions.length) setStatus(`他の端末の方が新しかったため保存しなかった解答: ${ev.skippedSolutions.join(', ')}`);
+    onSyncState();
+}
 
 // ─── PLACE モード・キー同期・解答ファイル ───
 const place = new PlaceMode({
@@ -253,8 +313,11 @@ function renderPlace() {
     place.renderPanel($('place-box'));
     setVal($<HTMLInputElement>('sol-note'), doc.solutionNote);
     const st = $('sol-status');
-    if (!solutionsLoaded) st.textContent = `${SOLUTION_PATH} を読み込めませんでした（新規作成されます）`;
+    if (sync.enabled) st.textContent = solutionSaved() ? `Gist に保存済み${sync.pendingCount() ? '（送信待ち）' : ''}` : '未保存の変更があります';
+    else if (!solutionsLoaded) st.textContent = `${SOLUTION_PATH} を読み込めませんでした（新規作成されます）`;
     else st.textContent = solutionSaved() ? '保存済み' : '未保存の変更があります';
+    $('btn-sol-pick').textContent = sync.enabled ? 'EXPORT FILE' : 'CHOOSE FILE';
+    $('btn-sol-pick').title = sync.enabled ? 'Gist の解答をローカルの tsolutions.json に書き出す' : '保存先のファイルを選び直す';
     st.classList.toggle('warn', !solutionSaved());
 }
 
@@ -533,6 +596,11 @@ function renderOutput() {
     $<HTMLButtonElement>('btn-download').disabled = hasError;
     $<HTMLTextAreaElement>('out-json').value = outputText();
     for (const id of ['btn-write', 'btn-test']) $<HTMLButtonElement>(id).disabled = hasError;
+    const ready = $<HTMLButtonElement>('btn-ready');
+    ready.hidden = !sync.enabled;
+    const isReady = draftId !== null && sync.draft(draftId)?.status === 'ready';
+    ready.textContent = isReady ? 'UNMARK READY' : 'MARK READY';
+    ready.classList.toggle('on', isReady);
     renderWritePos();
 }
 
@@ -921,7 +989,15 @@ $<HTMLSelectElement>('level-select').addEventListener('change', e => {
     if (!v) return;
     const [rule, i] = v.split(':') as [Rule, string];
     const raw = levels[rule][Number(i)];
-    if (raw) openDoc(withSolution(docFromLevel(raw)), String(raw.id));
+    if (raw) {
+        // この問題の書き込み前の下書きがあれば、そちらを開くか聞く
+        const id = String(raw.id);
+        const found = Object.entries(sync.drafts())
+            .filter(([did, d]) => did !== draftId && d.sourceId === id && d.doc.rule === rule && d.status !== 'written')
+            .sort((a, b) => b[1].updatedAt.localeCompare(a[1].updatedAt))[0];
+        if (found && confirm(`「${id}」には書き込み前の下書きがあります（${found[1].device}・${found[1].updatedAt.slice(0, 16).replace('T', ' ')}）。下書きを開きますか？\n（キャンセルでファイルの内容を開きます）`)) openDraft(found[0]);
+        else openDoc(withSolution(docFromLevel(raw)), id);
+    }
     focusField();
 });
 $('btn-new').addEventListener('click', () => {
@@ -987,6 +1063,7 @@ async function writeLevelsFile(forcePick: boolean) {
         levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
         sourceId = doc.id;
         cleanSnap = JSON.stringify(doc);
+        if (sync.enabled && draftId) { flushDraftToSync(); sync.setDraftStatus(draftId, 'written'); }
         setStatus(`${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`);
     } catch (err) {
         if ((err as Error).name === 'AbortError') return;   // ファイル選択をキャンセル
@@ -1011,6 +1088,17 @@ $('btn-test').addEventListener('click', () => {
     }
     // 同じ名前のタブを使い回す（2回目以降はそのタブが新しい問題で読み込み直される）
     window.open('/?quizTest=1', 'tetlabo-quiz-test');
+});
+// 下書きを「PC で書き込み待ち」にする／戻す
+$('btn-ready').addEventListener('click', () => {
+    if (!sync.enabled) return;
+    draftId ??= newDraftId();
+    flushDraftToSync();
+    const isReady = sync.draft(draftId)?.status === 'ready';
+    sync.putDraft(draftId, doc, sourceId, isReady ? 'editing' : 'ready');
+    setStatus(isReady ? '「書き込み待ち」を外しました' : '「PC で書き込み待ち」にしました（PC の DRAFTS に表示されます）');
+    saveDraftSoon();
+    renderOutput();
 });
 $('in-lead-comma').addEventListener('change', renderOutput);
 $('btn-download').addEventListener('click', () => {
@@ -1119,6 +1207,15 @@ async function saveSolutionFile(forcePick: boolean) {
     if (!doc.id.trim()) { setStatus('ID を入力してから保存してください'); return; }
     if (doc.rule !== 'tet') return;
     const oldId = sourceId && sourceId !== doc.id && solutions[sourceId] ? sourceId : null;
+    if (sync.enabled) {
+        const skipped = await sync.setSolution(doc.id, oldId, { steps: doc.steps, note: doc.solutionNote, updated: today() });
+        solutions = sync.solutions();
+        setStatus(skipped.includes(doc.id) ? '他の端末で、より新しい解答が保存されていたため保存しませんでした'
+            : sync.state === 'synced' ? `Gist に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
+            : `端末内に保存しました。${sync.message || '通信できたら Gist に送ります'}`);
+        renderAll();
+        return;
+    }
     try {
         const res = await saveSolution(doc.id, oldId,
             { steps: doc.steps, note: doc.solutionNote, updated: today() }, solutions, forcePick);
@@ -1135,7 +1232,12 @@ async function saveSolutionFile(forcePick: boolean) {
     renderAll();
 }
 $('btn-sol-save').addEventListener('click', () => void saveSolutionFile(false));
-$('btn-sol-pick').addEventListener('click', () => void saveSolutionFile(true));
+$('btn-sol-pick').addEventListener('click', () => {
+    if (!sync.enabled) { void saveSolutionFile(true); return; }
+    void exportSolutionsFile(sync.solutions()).then(
+        r => setStatus(r.via === 'file' ? `${r.fileName} に書き出しました` : 'ダウンロードしました'),
+        err => { if ((err as Error).name !== 'AbortError') setStatus(`書き出せませんでした: ${(err as Error).message}`); });
+});
 $<HTMLButtonElement>('btn-sol-pick').hidden = !canWriteFiles();
 
 // TETLABO 側で KEY CONFIG を保存したら即反映（別タブの変更は storage イベントで届く）
@@ -1151,7 +1253,7 @@ window.addEventListener('storage', e => {
 // グローバルキー
 // ─────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-    if (pasteDlg.open || helpDlg.open) return;   // ダイアログ内はブラウザ標準
+    if (document.querySelector('dialog[open]')) return;   // ダイアログ内はブラウザ標準
     const target = e.target as Element | null;
     const text = isTextInput(target);
     const k = e.key.toLowerCase();
@@ -1217,7 +1319,25 @@ ui.nextCaret = nextLen();
 place.view = doc.steps.length;
 renderAll();
 void loadLevels().then(renderAll);
+syncUi = initSyncUi({
+    engine: sync,
+    currentDraftId: () => draftId,
+    openDraft,
+    status: msg => setStatus(msg),
+    afterSolutionsChanged: () => onSyncState(),
+});
+// QR コードから開かれた（#sync=…）なら、その設定で接続する。トークンが URL に残らないよう即座に消す
+const fromQr = decodeSyncHash(location.hash);
+if (fromQr) {
+    history.replaceState(null, '', location.pathname + location.search);
+    void sync.connect(fromQr.token, sync.config?.device ?? guessDevice(), fromQr.gistId)
+        .then(() => setStatus(sync.state === 'auth' || sync.state === 'error' ? sync.message : '同期の設定をしました'), err => setStatus(`同期の設定に失敗しました: ${(err as Error).message}`));
+} else if (sync.enabled) {
+    sync.start();
+}
+onSyncState();
 void fetchSolutions().then(m => {
+    if (sync.enabled) return;   // 同期中は Gist の解答が正本
     solutionsLoaded = m !== null;
     solutions = m ?? {};
     // 下書きが空で、開いている問題に保存済みの解答があれば付ける
