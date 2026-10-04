@@ -420,6 +420,8 @@ function renderPlace() {
     $('place-box').hidden = ui.mode !== 'place';
     $('solve-box').hidden = mode !== 'solve';
     $('steps-idle').hidden = mode === 'solve' || doc.rule !== 'tet';
+    $('strict-wrap').hidden = mode !== 'solve';
+    $<HTMLInputElement>('in-strict').checked = place.strict;
     const stepsNote = $('steps-note');
     stepsNote.hidden = doc.rule === 'tet';
     stepsNote.textContent = 'ぷよの解答手順の記録は未対応です（段階4）';
@@ -1644,6 +1646,16 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('#ptabs button')) {
     try { saved = localStorage.getItem(PTAB_KEY); } catch { /* 読めない */ }
     setPTab(saved && ['info', 'steps', 'preview', 'out'].includes(saved) ? saved as PTab : 'info');
 }
+// SOLVE の STRICT（端末ごとの設定）
+const STRICT_KEY = 'tetlabo.quizEditor.strict';
+try { place.strict = localStorage.getItem(STRICT_KEY) === '1'; } catch { /* 読めない */ }
+$<HTMLInputElement>('in-strict').addEventListener('change', e => {
+    place.strict = (e.target as HTMLInputElement).checked;
+    try { localStorage.setItem(STRICT_KEY, place.strict ? '1' : '0'); } catch { /* 保存不可 */ }
+    place.resetActive();   // 出現位置からやり直す（マウスで動かした位置を残さない）
+    renderAll();
+    focusField();
+});
 $('hold-box').addEventListener('click', () => {
     if (curMode() === 'solve') place.toggleHold();
     else commit(() => { doc.allowHold = !doc.allowHold; });

@@ -560,3 +560,4 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   #btn-revert { order: 2; }
   #notice { margin: 6px 8px 0; }
 }
+#strict-wrap[hidden] { display: none !important; }

@@ -37,6 +37,11 @@ export class PlaceMode {
     private kick5 = false;
     private byMouse = false;  // マウスで位置を決めた（操作経路が無いので T-Spin は推定）
     stampType = 2;
+    /**
+     * SOLVE の STRICT（ゲームどおり）: 出現位置から 移動・回転・ドロップ で置いた手だけを記録する。
+     * 1段上・浮いたままの確定・マウス配置を使えなくする（記録した手順がそのままゲームで入力できる手になる）
+     */
+    strict = false;
     private simCache: { key: string; sim: SimResult } | null = null;
     private ctx: PlaceCtx;
     private held: Partial<Record<HeldDir, Held>> = {};
@@ -119,8 +124,11 @@ export class PlaceMode {
         return true;
     }
 
+    private get strictSolve(): boolean { return this.strict && this.sub === 'solve'; }
+
     move(dx: number, dy: number): boolean {
         if (!this.active) return false;
+        if (dy < 0 && this.strictSolve) { this.ctx.status('STRICT: 1段上へは動かせません'); return false; }
         return this.setActive(moved(this.baseGrid(), this.active, dx, dy));
     }
 
@@ -222,12 +230,13 @@ export class PlaceMode {
         this.lock();
     }
 
-    /** 今の位置で確定（浮いていても置く） */
+    /** 今の位置で確定（浮いていても置く。STRICT では接地している時だけ） */
     lock() {
         const p = this.active;
         if (!p) return;
         const g = this.baseGrid();
         if (!fits(g, p)) { this.ctx.status('その位置には置けません'); return; }
+        if (this.strictSolve && dropDistance(g, p) > 0) { this.ctx.status('STRICT: 浮いた位置では確定できません（DROP か、↓で接地させてから LOCK）'); return; }
         if (this.sub === 'stamp') {
             const hidden = cellsOf(p).some(([, y]) => y < 0);
             this.ctx.commit(() => {
@@ -317,7 +326,7 @@ export class PlaceMode {
     // ─── マウス（テト譜のミノ配置: ホバーで位置・ホイールで回転・クリックで確定） ───
     hoverAt(r: number, c: number) {
         this.ensureActive();
-        if (!this.active) return;
+        if (!this.active || this.strictSolve) return;   // STRICT は操作経路の無いマウス配置を使わない
         // ミノの見た目の中心をカーソルのマスに合わせる
         const sh = shapeOf(this.active.type, this.active.rot);
         const cx = Math.round(sh.reduce((a, b) => a + b[0], 0) / 4 - 0.01);
@@ -335,6 +344,7 @@ export class PlaceMode {
 
     wheel(dir: 1 | -1) {
         if (!this.active) return;
+        if (this.strictSolve) { this.rotate(dir); return; }   // STRICT は通常の回転（SRS キック）
         const r = rotated(this.baseGrid(), this.active, dir);
         // マウス操作中は位置を保ったまま向きだけ変える（置けなければキック後の位置）
         const same = { ...this.active, rot: (this.active.rot + (dir === 1 ? 1 : 3)) % 4 };

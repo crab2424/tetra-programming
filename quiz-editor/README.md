@@ -58,6 +58,8 @@ TOOLS の `[PAINT][STAMP][SOLVE]` で切り替える。盤面の上の帯と枠�
   設定が無ければ ←→↓ / SPACE / Z・X 回転 / C で HOLD
 - 押し続けた時の連続移動は TETLABO の DAS / ARR（localStorage `game_tuning`。無ければ既定 9f / 1.6f）。
   ハードドロップ・回転・HOLD などは押した瞬間の1回だけ（押し続けても連発しない）
+- **STRICT**（SOLVE のチェック）: 1段上・浮いたままの確定・マウス配置を使えなくし、出現位置から移動・回転・ドロップで置いた手だけを記録する
+  （記録した手順がそのままゲームで入力できる手になる）。重力・固定猶予の時間はエディタに無いので、最終確認は TEST PLAY
 - 解答は問題 JSON には含めず、`source_assets/quizlevels/tsolutions.json`（git 管理外）に SAVE SOLUTION で保存する
   （Chrome / Edge はファイルへ直接書き込み、それ以外のブラウザはダウンロード）
 - マウスで置いた T は操作経路が無いため、T-Spin 判定は「回転入れした」と見なした推定になる。
