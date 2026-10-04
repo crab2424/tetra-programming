@@ -228,6 +228,23 @@ function onSyncState() {
 }
 
 function onSyncEvent(ev: SyncEvent) {
+    // まだ編集していない既存問題を開いている時に、他の端末が同じ問題の下書きを作った・更新した → その下書きに切り替えて追従する
+    // （LEVELS から開いただけでは下書きは作られないので、そのままだと別々の問題として扱われ、画面に反映されない）
+    if (draftId === null && sourceId !== null && !isDirty()) {
+        const hit = ev.remoteUpdated
+            .map(id => [id, sync.draft(id)] as const)
+            .filter(([, d]) => d && d.sourceId === sourceId && d.doc.rule === doc.rule && d.status !== 'written')
+            .sort((a, b) => b[1]!.updatedAt.localeCompare(a[1]!.updatedAt))[0];
+        if (hit) {
+            const [id, d] = hit;
+            undoStack.push(snap());
+            redoStack.length = 0;
+            doc = cloneDoc(d!.doc); draftId = id;
+            place.view = Math.min(place.view, doc.steps.length);
+            afterDocReplaced();
+            setStatus(`他の端末（${d!.device}）で編集中の「${sourceId}」の下書きに切り替えました（UNDO で戻せます）`);
+        }
+    }
     // 開いている下書きが他の端末で更新された（この端末に未送信の変更が無ければ読み込む。あれば送信時に競合コピーになる）
     if (draftId && ev.remoteUpdated.includes(draftId) && !sync.hasPending(draftId)) {
         const d = sync.draft(draftId);

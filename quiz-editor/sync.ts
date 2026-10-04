@@ -41,8 +41,10 @@ const QUEUE_KEY = 'tetlabo.quizEditor.syncQueue';
 const CACHE_KEY = 'tetlabo.quizEditor.syncCache';
 export const SOLUTIONS_FILE = 'tsolutions.json';
 const DRAFT_RE = /^draft-([A-Za-z0-9_-]+)\.json$/;
-const PUSH_DELAY = 5000;
-const POLL_INTERVAL = 30000;
+// 編集が止まって 1.5 秒で送り、表示中は 10 秒ごとに取りに行く（ほぼリアルタイム）。
+// 取得は ETag 付きなので変化が無ければ 304 で、GitHub のレート制限（5000回/時）にも数えられない
+const PUSH_DELAY = 1500;
+const POLL_INTERVAL = 10000;
 const KEEPALIVE_LIMIT = 60000;   // fetch keepalive の本文上限（64KB）より少し小さく
 
 export function draftFileName(id: string): string { return `draft-${id}.json`; }
