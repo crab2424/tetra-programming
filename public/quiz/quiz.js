@@ -1408,3 +1408,34 @@ function _renderQuizNextAll(levelData) {
         _showQuizFieldHeader(null);
     };
 })();
+// ─── クイズエディタからのテストプレイ（開発用・localhost 限定） ─────────
+// quiz-editor/（pnpm dev:client → /quiz-editor/）の TEST PLAY から `/?quizTest=1` で開かれた時だけ動く。
+// エディタが localStorage に置いた1問を、メモリ上の QUIZ_LEVELS に差し込んで（同じ id なら置換・新規なら末尾）
+// その問題を選んだ状態の準備画面を開く。JSON ファイルは変更しない。本番ホストでは何もしない。
+(function _bootQuizEditorTest() {
+    const host = location.hostname;
+    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
+    if (!isLocal || !new URLSearchParams(location.search).has('quizTest')) return;
+
+    let level = null;
+    try { level = JSON.parse(localStorage.getItem('tetlabo.quizEditor.test') || 'null'); } catch (e) { level = null; }
+    if (!level || (level.rule !== 'tet' && level.rule !== 'puyo')) {
+        console.warn('[quizTest] テストする問題が見つかりません（エディタの TEST PLAY から開いてください）');
+        return;
+    }
+
+    window.addEventListener('load', async () => {
+        await loadQuizLevels();
+        const list = QUIZ_LEVELS[level.rule];
+        const idx = list.findIndex(l => l.id === level.id);
+        if (idx >= 0) list[idx] = level; else list.push(level);
+
+        // レベル一覧でボタンを押した時と同じ状態にする（renderQuizCheck の onclick 相当）
+        currentGameMode = GAME_MODES.quiz;
+        currentQuizRule = level.rule;
+        currentQuizLevel = level;
+        history.replaceState(null, '', location.pathname);   // 再読み込みで再度差し込まないよう外す
+        switchPage('mode-check');
+        console.log(`[quizTest] ${level.id} をテストプレイします（${idx >= 0 ? `${idx + 1}番を置換` : '末尾に追加'}・メモリ上のみ）`);
+    });
+})();
