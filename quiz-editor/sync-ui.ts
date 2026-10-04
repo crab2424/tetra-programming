@@ -24,7 +24,7 @@ const QR_URL_KEY = 'tetlabo.quizEditor.qrUrl';
 const TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
 
 const STATE_LABEL: Record<SyncState, string> = {
-    off: 'SYNC: OFF', synced: 'SYNCED', saving: 'SAVING…', offline: 'OFFLINE', error: 'SYNC ERROR', auth: 'SYNC: TOKEN?',
+    off: 'SYNC: OFF', synced: 'SYNCED', saving: 'SAVING…', offline: 'OFFLINE', error: 'SYNC ERROR', auth: 'SYNC: TOKEN?', limited: 'SYNC: WAIT',
 };
 
 function esc(s: string): string {
@@ -45,6 +45,11 @@ function defaultQrUrl(): string {
 }
 function qrUrl(): string {
     try { return localStorage.getItem(QR_URL_KEY) || defaultQrUrl(); } catch { return defaultQrUrl(); }
+}
+
+function hhmm(ms: number): string {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 function relTime(iso: string): string {
@@ -68,7 +73,8 @@ export function initSyncUi(deps: SyncUiDeps) {
     // ─── トップバー ───
     function renderChip() {
         const chip = $<HTMLButtonElement>('btn-sync');
-        chip.textContent = STATE_LABEL[engine.state];
+        chip.textContent = engine.state === 'limited' && engine.limitedUntil
+            ? `${STATE_LABEL.limited} ${hhmm(engine.limitedUntil)}` : STATE_LABEL[engine.state];
         chip.dataset.state = engine.state;
         chip.title = engine.message || 'PC とスマホの同期（GitHub Gist）';
         const ready = Object.values(engine.drafts()).filter(d => d.status === 'ready').length;
@@ -103,7 +109,7 @@ export function initSyncUi(deps: SyncUiDeps) {
         body.innerHTML = `
             <p><b class="sync-state" data-state="${engine.state}">${STATE_LABEL[engine.state]}</b>
                <span class="note">最終同期: ${esc(last)}${pending ? ` ・未送信 ${pending}件` : ''}</span></p>
-            ${engine.message ? `<p class="${engine.state === 'offline' ? 'note' : 'err'}">${esc(engine.message)}</p>` : ''}
+            ${engine.message ? `<p class="${engine.state === 'offline' || engine.state === 'limited' ? 'note' : 'err'}">${esc(engine.message)}</p>` : ''}
             <p class="note">GIST: ${engine.htmlUrl ? `<a href="${esc(engine.htmlUrl)}" target="_blank" rel="noopener">${esc(cfg.gistId)}</a>` : esc(cfg.gistId)}</p>
             <label>DEVICE <input id="sync-device" type="text" value="${esc(cfg.device)}" /></label>
             <div class="row">

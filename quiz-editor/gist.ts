@@ -12,6 +12,13 @@ export const GIST_DESCRIPTION = 'TETLABO quiz-editor sync';
 export class GistAuthError extends Error { }
 /** Gist が見つからない（削除された・別アカウントのトークン） */
 export class GistNotFoundError extends Error { }
+/**
+ * GitHub のレート制限（短時間の書き込み過多＝二次レート制限、または1時間の上限）。トークンは無効ではない。
+ * until = 再開してよい時刻（ms）
+ */
+export class GistRateLimitError extends Error {
+    constructor(message: string, readonly until: number) { super(message); }
+}
 
 export interface GistSnapshot {
     files: Record<string, string>;   // ファイル名 → 中身
@@ -41,10 +48,39 @@ async function request(token: string, method: string, path: string, opts: { body
         cache: 'no-store',
         keepalive: opts.keepalive,
     });
-    if (res.status === 401 || res.status === 403) throw new GistAuthError(`GitHub が拒否しました（HTTP ${res.status}）`);
+    if (res.status === 304 || res.ok) return res;
+    const why = await errorMessage(res);
+    const limitUntil = rateLimitUntil(res, why);
+    if (limitUntil !== null) throw new GistRateLimitError(`GitHub のレート制限です（HTTP ${res.status}${why ? `: ${why}` : ''}）`, limitUntil);
+    if (res.status === 401 || res.status === 403) throw new GistAuthError(`GitHub が拒否しました（HTTP ${res.status}${why ? `: ${why}` : ''}）`);
     if (res.status === 404) throw new GistNotFoundError('Gist が見つかりません');
-    if (res.status !== 304 && !res.ok) throw new Error(`GitHub API エラー（HTTP ${res.status}）`);
-    return res;
+    throw new Error(`GitHub API エラー（HTTP ${res.status}${why ? `: ${why}` : ''}）`);
+}
+
+/** エラー応答の本文の message（GitHub は JSON で理由を返す） */
+async function errorMessage(res: Response): Promise<string> {
+    try {
+        const j = await res.json() as { message?: unknown };
+        return typeof j.message === 'string' ? j.message : '';
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * レート制限による拒否なら再開してよい時刻、そうでなければ null。
+ * 403 は権限不足でも返るので、429・残り回数 0・本文の「rate limit」で見分ける。
+ * 待ち時間は retry-after（秒）→ x-ratelimit-reset（UNIX 秒）→ 無ければ 1 分（GitHub のドキュメントの推奨）
+ */
+export function rateLimitUntil(res: Pick<Response, 'status' | 'headers'>, message: string, now = Date.now()): number | null {
+    const limited = res.status === 429 ||
+        (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || /rate limit/i.test(message)));
+    if (!limited) return null;
+    const after = Number(res.headers.get('retry-after'));
+    if (after > 0) return now + after * 1000;
+    const reset = Number(res.headers.get('x-ratelimit-reset'));
+    if (reset > 0 && res.headers.get('x-ratelimit-remaining') === '0') return Math.max(now + 1000, reset * 1000);
+    return now + 60_000;
 }
 
 async function toSnapshot(g: GistJson, etag: string | null): Promise<GistSnapshot> {

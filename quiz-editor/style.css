@@ -408,7 +408,8 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 .sync-chip[data-state="synced"], .sync-state[data-state="synced"] { color: var(--success); }
 .sync-chip[data-state="saving"], .sync-state[data-state="saving"] { color: var(--text); }
 .sync-chip[data-state="offline"], .sync-state[data-state="offline"],
-.sync-chip[data-state="auth"], .sync-state[data-state="auth"] { color: var(--warn); }
+.sync-chip[data-state="auth"], .sync-state[data-state="auth"],
+.sync-chip[data-state="limited"], .sync-state[data-state="limited"] { color: var(--warn); }
 .sync-chip[data-state="error"], .sync-state[data-state="error"] { color: var(--danger); }
 .sync-chip[data-state="off"] { color: var(--text-dim); }
 #sync-dlg, #drafts-dlg { width: min(560px, calc(100vw - 32px)); }

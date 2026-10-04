@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────
 import type { EditorDoc } from './model.ts';
 import { type SolutionMap, type SolutionEntry, serializeSolutions } from './solutions.ts';
-import { findOrCreateGist, getGist, patchGist, GistAuthError, GistNotFoundError, type GistSnapshot } from './gist.ts';
+import { findOrCreateGist, getGist, patchGist, GistAuthError, GistNotFoundError, GistRateLimitError, type GistSnapshot } from './gist.ts';
 
 export type DraftStatus = 'editing' | 'ready' | 'written';
 export const DRAFT_STATUS_LABEL: Record<DraftStatus, string> = { editing: 'EDITING', ready: 'READY', written: 'WRITTEN' };
@@ -28,7 +28,7 @@ export interface DraftEntry {
 }
 
 export interface SyncConfig { token: string; gistId: string; device: string; }
-export type SyncState = 'off' | 'synced' | 'saving' | 'offline' | 'error' | 'auth';
+export type SyncState = 'off' | 'synced' | 'saving' | 'offline' | 'error' | 'auth' | 'limited';
 
 export interface SyncEvent {
     remoteUpdated: string[];                      // 他の端末で更新・削除された下書き
@@ -177,6 +177,9 @@ export class SyncEngine {
     private again = false;
     private pushTimer = 0;
     private started = false;
+    /** レート制限で止めている間の再開時刻（ms）。0 = 制限なし */
+    limitedUntil = 0;
+    private limitTimer = 0;
 
     constructor(private readonly onEvent: (ev: SyncEvent) => void, private readonly onState: () => void) {
         const cache = loadJson<{ files: Record<string, string>; htmlUrl: string }>(CACHE_KEY);
@@ -309,7 +312,7 @@ export class SyncEngine {
         window.addEventListener('pagehide', () => this.flushKeepalive());
         window.addEventListener('online', () => void this.syncNow());
         window.setInterval(() => {
-            if (this.config && document.visibilityState === 'visible' && this.state !== 'auth') void this.syncNow();
+            if (this.config && document.visibilityState === 'visible' && this.state !== 'auth' && !this.isLimited()) void this.syncNow();
         }, POLL_INTERVAL);
         if (this.config && !skipInitial) void this.syncNow();
     }
@@ -322,7 +325,7 @@ export class SyncEngine {
 
     // ─── 通信 ───
     async pull(): Promise<void> {
-        if (!this.config) return;
+        if (!this.config || this.isLimited()) return;
         if (this.busy) { this.again = true; return; }
         this.busy = true;
         try {
@@ -338,7 +341,7 @@ export class SyncEngine {
 
     async push(): Promise<PushPlan> {
         const empty: PushPlan = { files: {}, written: {}, conflicts: [], skippedSolutions: [] };
-        if (!this.config) return empty;
+        if (!this.config || this.isLimited()) return empty;
         if (this.busy) { this.again = true; return empty; }
         clearTimeout(this.pushTimer);
         this.busy = true;
@@ -388,7 +391,7 @@ export class SyncEngine {
     /** ページを閉じる/隠す途中の送信。読み直しはせず、手元の Gist の内容を基準に競合しない分だけ送る */
     flushKeepalive() {
         const cfg = this.config;
-        if (!cfg || !this.pendingCount() || this.busy) return;
+        if (!cfg || !this.pendingCount() || this.busy || this.isLimited()) return;
         clearTimeout(this.pushTimer);
         const plan = planPush(this.remote, this.queue, cfg.device, new Date().toISOString(), false);
         if (!Object.keys(plan.files).length) return;
@@ -435,6 +438,9 @@ export class SyncEngine {
         void this.syncNow();
     }
 
+    /** レート制限中か（中は送信も取得もしない。制限中に叩き続けると延びることがあるため） */
+    isLimited(): boolean { return this.limitedUntil > Date.now(); }
+
     private ok() {
         this.lastSyncAt = new Date();
         this.state = this.pendingCount() ? 'saving' : 'synced';
@@ -444,9 +450,17 @@ export class SyncEngine {
 
     private fail(err: unknown) {
         console.error('[sync]', err);
-        if (err instanceof GistAuthError) {
+        if (err instanceof GistRateLimitError) {
+            // トークンは有効。再開時刻まで待って自動で1回やり直す（編集は端末内に残っている）
+            this.limitedUntil = err.until;
+            this.state = 'limited';
+            const t = new Date(err.until);
+            this.message = `GitHub の回数制限に当たりました。${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')} ごろに自動で再開します（トークンはそのまま使えます）。${err.message}`;
+            clearTimeout(this.limitTimer);
+            this.limitTimer = window.setTimeout(() => { this.limitedUntil = 0; void this.syncNow(); }, Math.max(1000, err.until - Date.now() + 500));
+        } else if (err instanceof GistAuthError) {
             this.state = 'auth';
-            this.message = 'トークンが無効か期限切れです。SYNC で登録し直してください';
+            this.message = `トークンが無効・期限切れ・権限不足のいずれかです。SYNC で登録し直してください（${err.message}）`;
         } else if (err instanceof GistNotFoundError) {
             this.state = 'error';
             this.message = 'Gist が見つかりません。SYNC で接続し直してください';
