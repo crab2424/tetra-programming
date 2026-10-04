@@ -22,6 +22,7 @@ import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, S
 import { SyncEngine, type SyncEvent, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
 import { initSyncUi } from './sync-ui.ts';
 import { getHandle, readText, writeText } from './fsa.ts';
+import { toast, dismissToasts, toastLog, onToastLog } from './toast.ts';
 import { planWrite } from './levels-file.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -252,7 +253,7 @@ function onSyncEvent(ev: SyncEvent) {
     // 開いている下書きが他の端末で更新された（この端末に未送信の変更が無ければ読み込む。あれば送信時に競合コピーになる）
     if (draftId && ev.remoteUpdated.includes(draftId) && !sync.hasPending(draftId)) {
         const d = sync.draft(draftId);
-        if (!d) setStatus('開いている下書きは他の端末で削除されました（編集を続けると作り直されます）');
+        if (!d) warnStatus('開いている下書きは他の端末で削除されました（編集を続けると作り直されます）');
         else if (JSON.stringify([d.doc, d.sourceId]) !== JSON.stringify([doc, sourceId])) {
             undoStack.push(snap());
             redoStack.length = 0;
@@ -267,10 +268,10 @@ function onSyncEvent(ev: SyncEvent) {
         if (c.from === draftId) {
             draftId = c.to;
             saveDraftSoon();
-            setStatus('他の端末でも同じ下書きが編集されていたため、こちらの変更を「競合コピー」として別に保存しました（DRAFTS で確認）');
+            warnStatus('他の端末でも同じ下書きが編集されていたため、こちらの変更を「競合コピー」として別に保存しました（DRAFTS で確認）');
         }
     }
-    if (ev.skippedSolutions.length) setStatus(`他の端末の方が新しかったため保存しなかった解答: ${ev.skippedSolutions.join(', ')}`);
+    if (ev.skippedSolutions.length) warnStatus(`他の端末の方が新しかったため保存しなかった解答: ${ev.skippedSolutions.join(', ')}`);
     onSyncState();
 }
 
@@ -280,7 +281,7 @@ const place = new PlaceMode({
     commit: (m, key) => commit(m, key),
     renderAll: () => renderAll(),
     renderField: () => renderField(),
-    status: msg => setStatus(msg),
+    status: msg => warnStatus(msg),
 });
 let binds = loadPlaceBinds();
 let tuning = loadPlaceTuning();
@@ -348,14 +349,15 @@ function revertToFile() {
     setStatus('ファイルの内容に戻しました（UNDO で取り消せます）');
 }
 
-// ─── お知らせ（前回の編集の復元・他の端末の下書きへの切替） ───
+// ─── 閉じるまで残るお知らせ（前回の編集の復元など）。REVERT を付けられる ───
+const REVERT_MARK = '\u200b';   // REVERT 付きのお知らせの目印（ファイルに戻したら閉じる）
 function showNotice(msg: string, withRevert: boolean) {
-    $('notice-text').textContent = msg;
-    $('notice-revert').hidden = !withRevert;
-    $('notice').hidden = false;
-    renderField();   // お知らせの分だけ盤面エリアが縮むので合わせ直す
+    toast(withRevert ? msg + REVERT_MARK : msg, 'warn', {
+        sticky: true,
+        actions: withRevert ? [{ label: 'REVERT', title: 'ファイルの内容に戻す（UNDO で取り消せます）', run: revertToFile }] : [],
+    });
 }
-function hideNotice() { $('notice').hidden = true; renderField(); }
+function hideNotice() { dismissToasts(m => m.endsWith(REVERT_MARK)); }
 
 /** 解答ファイルに保存済みの内容と一致するか */
 function solutionSaved(): boolean {
@@ -371,7 +373,7 @@ function solutionSaved(): boolean {
 type EditMode = 'paint' | 'stamp' | 'solve';
 function curMode(): EditMode { return ui.mode === 'paint' ? 'paint' : place.sub; }
 function setMode(mode: EditMode) {
-    if (mode !== 'paint' && doc.rule !== 'tet') { setStatus('ぷよのミノ配置は未対応です（段階4）'); return; }
+    if (mode !== 'paint' && doc.rule !== 'tet') { warnStatus('ぷよのミノ配置は未対応です（段階4）'); return; }
     if (mode !== 'solve') ui.lastEdit = mode;
     place.releaseAll();
     ui.mode = mode === 'paint' ? 'paint' : 'place';
@@ -1299,29 +1301,27 @@ $('btn-undo').addEventListener('click', undo);
 $('btn-redo').addEventListener('click', redo);
 
 // ─── 出力 ───
-function setStatus(msg: string) {
-    for (const el of [$('out-status'), $('place-status')]) {
-        el.textContent = msg;
-        window.setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 5000);
-    }
-}
+// お知らせはトースト1か所に出す（save-notify §1。画面の部品の位置を動かさない）
+function setStatus(msg: string) { toast(msg, 'info'); }
+function warnStatus(msg: string) { toast(msg, 'warn'); }
+function errStatus(msg: string) { toast(msg, 'error'); }
 async function copyJson() {
-    if (lastIssues.some(i => i.level === 'error')) { setStatus('エラーがあるためコピーできません'); return; }
+    if (lastIssues.some(i => i.level === 'error')) { warnStatus('エラーがあるためコピーできません'); return; }
     try {
         await navigator.clipboard.writeText(outputText());
         setStatus('コピーしました。tdata/pdata.json に貼った後は ASSET_VERSION を +1 してください');
     } catch {
         const ta = $<HTMLTextAreaElement>('out-json');
         ta.select();
-        setStatus('自動コピーできませんでした。選択済みのテキストをコピーしてください');
+        warnStatus('自動コピーできませんでした。選択済みのテキストをコピーしてください');
     }
 }
 $('btn-copy').addEventListener('click', copyJson);
 
 // ─── tdata.json / pdata.json への直接書き込み（この問題の範囲だけを差し替える） ───
 async function writeLevelsFile(forcePick: boolean) {
-    if (lastIssues.some(i => i.level === 'error')) { setStatus('エラーがあるため書き込めません'); return; }
-    if (!canWriteFiles()) { setStatus('このブラウザはファイルへの直接書き込みに対応していません'); return; }
+    if (lastIssues.some(i => i.level === 'error')) { warnStatus('エラーがあるため書き込めません'); return; }
+    if (!canWriteFiles()) { warnStatus('このブラウザはファイルへの直接書き込みに対応していません'); return; }
     const fileName = doc.rule === 'tet' ? 'tdata.json' : 'pdata.json';
     try {
         const h = await getHandle(fileName, 'open', forcePick);
@@ -1355,7 +1355,7 @@ async function writeLevelsFile(forcePick: boolean) {
     } catch (err) {
         if ((err as Error).name === 'AbortError') return;   // ファイル選択をキャンセル
         console.error(err);
-        setStatus(`書き込めませんでした: ${(err as Error).message}`);
+        errStatus(`書き込めませんでした: ${(err as Error).message}`);
     }
     renderAll();
 }
@@ -1366,11 +1366,11 @@ $<HTMLButtonElement>('btn-write-pick').hidden = !canWriteFiles();
 // ─── テストプレイ（quiz.js の _bootQuizEditorTest が受け取る。ファイルは変更しない） ───
 const TEST_KEY = 'tetlabo.quizEditor.test';
 $('btn-test').addEventListener('click', () => {
-    if (lastIssues.some(i => i.level === 'error')) { setStatus('エラーがあるためテストプレイできません'); return; }
+    if (lastIssues.some(i => i.level === 'error')) { warnStatus('エラーがあるためテストプレイできません'); return; }
     try {
         localStorage.setItem(TEST_KEY, JSON.stringify(buildLevel(doc)));
     } catch {
-        setStatus('テスト用データを保存できませんでした');
+        errStatus('テスト用データを保存できませんでした');
         return;
     }
     // 同じ名前のタブを使い回す（2回目以降はそのタブが新しい問題で読み込み直される）
@@ -1507,13 +1507,13 @@ $<HTMLInputElement>('sol-note').addEventListener('input', e => {
 });
 
 async function saveSolutionFile(forcePick: boolean) {
-    if (!doc.id.trim()) { setStatus('ID を入力してから保存してください'); return; }
+    if (!doc.id.trim()) { warnStatus('ID を入力してから保存してください'); return; }
     if (doc.rule !== 'tet') return;
     const oldId = sourceId && sourceId !== doc.id && solutions[sourceId] ? sourceId : null;
     if (sync.enabled) {
         const skipped = await sync.setSolution(doc.id, oldId, { steps: doc.steps, note: doc.solutionNote, updated: today() });
         solutions = sync.solutions();
-        setStatus(skipped.includes(doc.id) ? '他の端末で、より新しい解答が保存されていたため保存しませんでした'
+        warnStatus(skipped.includes(doc.id) ? '他の端末で、より新しい解答が保存されていたため保存しませんでした'
             : sync.state === 'synced' ? `Gist に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
             : `端末内に保存しました。${sync.message || '通信できたら Gist に送ります'}`);
         renderAll();
@@ -1530,7 +1530,7 @@ async function saveSolutionFile(forcePick: boolean) {
     } catch (err) {
         if ((err as Error).name === 'AbortError') return;   // ファイル選択をキャンセル
         console.error(err);
-        setStatus(`保存できませんでした: ${(err as Error).message}`);
+        errStatus(`保存できませんでした: ${(err as Error).message}`);
     }
     renderAll();
 }
@@ -1539,7 +1539,7 @@ $('btn-sol-pick').addEventListener('click', () => {
     if (!sync.enabled) { void saveSolutionFile(true); return; }
     void exportSolutionsFile(sync.solutions()).then(
         r => setStatus(r.via === 'file' ? `${r.fileName} に書き出しました` : 'ダウンロードしました'),
-        err => { if ((err as Error).name !== 'AbortError') setStatus(`書き出せませんでした: ${(err as Error).message}`); });
+        err => { if ((err as Error).name !== 'AbortError') errStatus(`書き出せませんでした: ${(err as Error).message}`); });
 });
 $<HTMLButtonElement>('btn-sol-pick').hidden = !canWriteFiles();
 
@@ -1618,7 +1618,7 @@ async function loadLevels() {
             levels[rule] = Array.isArray(arr) ? arr as LevelRaw[] : [];
         } catch (err) {
             console.error(`${file} の読み込みに失敗しました`, err);
-            setStatus(`${file} を読み込めませんでした`);
+            errStatus(`${file} を読み込めませんでした`);
         }
     }
 }
@@ -1681,8 +1681,16 @@ void loadLevels().then(() => {
     }
 });
 $('btn-revert').addEventListener('click', revertToFile);
-$('notice-revert').addEventListener('click', revertToFile);
-$('notice-close').addEventListener('click', hideNotice);
+// ─── お知らせの履歴（LOG。トーストは消えるので後から読めるように） ───
+const logDlg = $<HTMLDialogElement>('log-dlg');
+function renderLog() {
+    const list = toastLog();
+    $('log-body').innerHTML = list.length
+        ? `<ul class="log-list">${list.map(e => `<li class="${e.kind}"><time>${String(e.at.getHours()).padStart(2, '0')}:${String(e.at.getMinutes()).padStart(2, '0')}:${String(e.at.getSeconds()).padStart(2, '0')}</time> ${escapeHtml(e.msg.replace(REVERT_MARK, ''))}</li>`).join('')}</ul>`
+        : '<p class="note">お知らせはまだありません。</p>';
+}
+onToastLog(() => { if (logDlg.open) renderLog(); });
+$('btn-log').addEventListener('click', () => { renderLog(); logDlg.showModal(); });
 // モバイル配置: 下部タブ・メニュー・画面サイズの変化
 for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) {
     b.addEventListener('click', () => setMTab(b.dataset.mtab as MTab));
@@ -1697,7 +1705,7 @@ $('btn-menu').addEventListener('click', () => {
     const open = $('topbar').classList.toggle('menu-open');
     $('btn-menu').setAttribute('aria-expanded', String(open));
 });
-for (const id of ['btn-new', 'btn-paste']) $(id).addEventListener('click', () => $('topbar').classList.remove('menu-open'));
+for (const id of ['btn-new', 'btn-paste', 'btn-log']) $(id).addEventListener('click', () => $('topbar').classList.remove('menu-open'));
 let resizeRaf = 0;
 function onViewportResize() {
     cancelAnimationFrame(resizeRaf);
@@ -1735,7 +1743,7 @@ const fromQr = decodeSyncHash(location.hash);
 if (fromQr) {
     history.replaceState(null, '', location.pathname + location.search);
     void sync.connect(fromQr.token, sync.config?.device ?? guessDevice(), fromQr.gistId)
-        .then(() => setStatus(sync.state === 'auth' || sync.state === 'error' ? sync.message : '同期の設定をしました'), err => setStatus(`同期の設定に失敗しました: ${(err as Error).message}`));
+        .then(() => errStatus(sync.state === 'auth' || sync.state === 'error' ? sync.message : '同期の設定をしました'), err => errStatus(`同期の設定に失敗しました: ${(err as Error).message}`));
 } else if (sync.enabled) {
     sync.start();
 }

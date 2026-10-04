@@ -512,7 +512,6 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   .shift-pad .shift-lbl { display: none; }
   .ctl-pad { grid-template-columns: repeat(5, 1fr); justify-content: stretch; margin: 0; }
   .ctl-pad button { min-width: 0; padding: 0 2px; font-size: 10px; letter-spacing: 0; }
-  #place-status:empty { display: none; }
   /* 1列目: 移動と HOLD、2列目: 回転と確定 */
   .ctl-pad [data-ctl="hold"] { order: 1; }
   .ctl-pad [data-ctl="ccw"], .ctl-pad [data-ctl="cw"], .ctl-pad [data-ctl="drop"], .ctl-pad [data-ctl="lock"] { order: 2; }
@@ -544,20 +543,50 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 .state-chip.solution { border-color: var(--solve); background: var(--solve-soft); }
 .state-chip.solution b { color: var(--solve); }
 .state-chip.new b { color: var(--text); }
-#notice {
-  display: flex; align-items: center; gap: 10px;
-  margin: 8px 16px 0; padding: 6px 10px;
-  border: 1px solid var(--warn); border-radius: 8px; background: rgba(245, 197, 66, 0.1);
-  font-size: 12px;
-}
-#notice[hidden] { display: none; }
-#notice-text { flex: 1; }
 #btn-revert[hidden] { display: none !important; }
 @media (max-width: 760px) {
   .state-chip .chg, .state-chip .dev { display: none; }
   /* 上段（≡・ルール・DRAFTS・SYNC）を1行に保つため、状態は LEVELS の横へ。REVERT は ≡ メニューとお知らせから */
   #state-chip { order: 2; padding: 3px 6px; }
   #btn-revert { order: 2; }
-  #notice { margin: 6px 8px 0; }
 }
 #strict-wrap[hidden] { display: none !important; }
+
+/* ─── お知らせ（トースト。save-notify §1）: 画面に重ねるので他の部品は動かない ─── */
+#toasts {
+  position: fixed; z-index: 20;
+  left: 16px; bottom: 16px;
+  width: min(520px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 6px;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border); border-left-width: 4px;
+  background: rgba(18, 18, 26, 0.96);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  animation: toast-in 0.15s ease-out;
+}
+.toast.info { border-left-color: var(--success); }
+.toast.warn { border-left-color: var(--warn); }
+.toast.error { border-left-color: var(--danger); }
+.toast-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-n { color: var(--text-dim); font-size: 11px; }
+.toast-n:empty { display: none; }
+.toast button { padding: 3px 8px; font-size: 10px; }
+.toast .toast-x { border: none; background: none; padding: 2px 6px; font-size: 14px; color: var(--text-dim); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
+@media (max-width: 760px) {
+  /* 下部タブバーのすぐ上 */
+  #toasts { left: 8px; width: calc(100vw - 16px); bottom: calc(64px + env(safe-area-inset-bottom)); }
+  body.kbd-open #toasts { bottom: 8px; }
+}
+#log-dlg { width: min(560px, calc(100vw - 32px)); }
+.log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow-y: auto; font-size: 12px; }
+.log-list li { border-left: 3px solid var(--success); padding: 2px 8px; }
+.log-list li.warn { border-left-color: var(--warn); }
+.log-list li.error { border-left-color: var(--danger); }
+.log-list time { color: var(--text-dim); font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
