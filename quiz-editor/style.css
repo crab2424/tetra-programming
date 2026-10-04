@@ -137,7 +137,7 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   #hold-col, #next-col { display: flex; flex-direction: column; gap: 4px; }
   #hold-col[hidden] { display: none; }
   .col-lbl, #next-h { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; color: var(--text-dim); margin: 0; }
-  #next-h small { display: block; font-size: 9px; }
+  #next-h small { font-size: 9px; margin-left: 2px; white-space: nowrap; }   /* 個数は NEXT の横（下に行を足さない） */
   #hold-box {
     position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
     padding: 4px; min-width: 0; background: #0d0d16;
@@ -161,6 +161,19 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   .next-item.used { opacity: 0.3; }
   .next-item.now { background: var(--solve-soft); outline: 1px solid var(--solve); }
   #col-center .next-tools, #col-center .next-text { max-width: none; }
+  /* 盤面の下の 1 行: EDIT は NEXT の編集ボタン、SOLVE は NEXT 全体（同じ高さにして盤面を動かさない。layout §7） */
+  #col-center .next-tools { flex-wrap: nowrap; height: 32px; }
+  body[data-mode="solve"] #col-center .next-tools { display: none; }
+  #next-strip { display: flex; align-items: center; gap: 8px; margin-top: 6px; height: 32px; }
+  #next-strip[hidden] { display: none; }
+  #next-strip-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+  #next-strip-cv { display: block; }
+  #next-tools .nx-more-pop {
+    display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 15;
+    gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel-bg); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); white-space: nowrap;
+  }
+  #next-tools.more-open .nx-more-pop { display: flex; }
   #play-head {
     display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
     margin-top: 8px; padding: 6px 10px; border-radius: 6px;
@@ -434,6 +447,11 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 #next-box .next-item.drag-src { opacity: 1; outline: 2px solid var(--quiz); }
 #next-box .next-item.drag-over { opacity: 1; background: var(--quiz-soft); outline: 1px dashed var(--quiz); }
 .next-edit { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.nx-more { position: relative; display: inline-flex; gap: 4px; }
+.nx-more-pop { display: contents; }   /* スマホは全部並べる。PC は ⋯ の中（上の @media） */
+#next-box.game { cursor: default; }
+#next-box.game .next-item { cursor: default; }
+#next-box.game .next-item:hover { background: none; }
 @media (pointer: coarse) {
   button { min-height: 40px; min-width: 40px; }
   .ctl-pad button { min-height: 48px; }

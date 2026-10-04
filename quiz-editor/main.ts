@@ -754,68 +754,133 @@ function renderPalette() {
 }
 
 // キャレット操作・削除・並べ替え（キーボードが無いタッチ端末用。PC でも使える）
+// PC は 1 行に収めるため、CLEAR・MOVE は ⋯ の中（スマホは今どおり全部並べる。layout §1.5）
 const NEXT_EDIT_BUTTONS = '<span class="next-edit">' +
     '<button type="button" data-nx="caret-left" title="キャレットを左へ (←)">◀</button>' +
     '<button type="button" data-nx="caret-right" title="キャレットを右へ (→)">▶</button>' +
     '<button type="button" data-nx="del" title="キャレットの左を削除 (Backspace)">DEL</button>' +
+    '</span>' +
+    '<span class="nx-more">' +
+    '<button type="button" class="nx-more-btn pc-only" data-nx="more" title="その他（CLEAR・MOVE）" aria-haspopup="true">⋯</button>' +
+    '<span class="nx-more-pop">' +
+    '<button type="button" id="btn-next-clear" title="NEXT を全部消す">CLEAR</button>' +
     '<button type="button" data-nx="move-left" title="キャレットの左の項目を1つ前へ">MOVE ◀</button>' +
     '<button type="button" data-nx="move-right" title="キャレットの左の項目を1つ後ろへ">MOVE ▶</button>' +
-    '</span>';
+    '</span></span>';
+
+/** SOLVE 中の NEXT 列に出す個数（ゲームの NEXT 欄と同じ。public/quiz/quiz.js _startTet） */
+const GAME_NEXT_SHOWN = 5;
+
+function nextCanvas(i: number | null): HTMLCanvasElement {
+    const cv = document.createElement('canvas');
+    const dpr = window.devicePixelRatio || 1;
+    const w = doc.rule === 'tet' ? 44 : 20, h = doc.rule === 'tet' ? 24 : 40;
+    cv.width = w * dpr; cv.height = h * dpr;
+    cv.style.width = `${w}px`; cv.style.height = `${h}px`;
+    if (i === null) return cv;
+    const ctx = cv.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (doc.rule === 'tet') drawMinoCentered(ctx, doc.next[i], w / 2, h / 2, 10);
+    else drawPairCentered(ctx, doc.pairs[i], w / 2, h / 2, 18);
+    return cv;
+}
 
 function renderNext() {
     const box = $('next-box');
     box.innerHTML = '';
     const n = nextLen();
-    const usage = curMode() === 'solve' ? place.nextUsage() : null;   // SOLVE: 使い終えた NEXT を暗く、今のミノを強調
-    const dpr = window.devicePixelRatio || 1;
-    const addCaret = (i: number) => {
-        const c = document.createElement('span');
-        c.className = 'caret' + (i === ui.nextCaret ? ' on' : '');
-        box.append(c);
-    };
-    for (let i = 0; i < n; i++) {
-        addCaret(i);
-        const item = document.createElement('span');
-        item.className = 'next-item';
-        item.draggable = !coarsePointer();   // タッチは HTML5 DnD が使えない端末があるので自前のドラッグ（長押し）
-        item.dataset.index = String(i);
-        const cv = document.createElement('canvas');
-        const w = doc.rule === 'tet' ? 44 : 20, h = doc.rule === 'tet' ? 24 : 40;
-        cv.width = w * dpr; cv.height = h * dpr;
-        cv.style.width = `${w}px`; cv.style.height = `${h}px`;
-        const ctx = cv.getContext('2d')!;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        if (doc.rule === 'tet') drawMinoCentered(ctx, doc.next[i], w / 2, h / 2, 10);
-        else drawPairCentered(ctx, doc.pairs[i], w / 2, h / 2, 18);
-        const no = document.createElement('span');
-        no.className = 'no';
-        no.textContent = String(i + 1);
-        item.append(cv, no);
-        if (usage) item.classList.add(i < usage.used ? 'used' : i < usage.now ? 'now' : 'rest');
-        box.append(item);
+    const usage = curMode() === 'solve' ? place.nextUsage() : null;
+    box.classList.toggle('game', !!usage);
+    box.title = usage ? 'SOLVE 中は NEXT を編集できません（EDIT に戻すには P）' : '';
+    if (usage) {
+        // SOLVE: ゲームと同じく「今のミノの次から 5 個」だけ。置くたびに上へ詰まり、尽きた所は空（layout §7）
+        for (let k = 0; k < GAME_NEXT_SHOWN; k++) {
+            const i = usage.now + k;
+            const item = document.createElement('span');
+            item.className = 'next-item slot';
+            const no = document.createElement('span');
+            no.className = 'no';
+            no.textContent = i < n ? String(i + 1) : '';
+            item.append(nextCanvas(i < n ? i : null), no);
+            box.append(item);
+        }
+        $('next-count').textContent = `残り${Math.max(0, n - usage.now)}`;
+    } else {
+        const addCaret = (i: number) => {
+            const c = document.createElement('span');
+            c.className = 'caret' + (i === ui.nextCaret ? ' on' : '');
+            box.append(c);
+        };
+        for (let i = 0; i < n; i++) {
+            addCaret(i);
+            const item = document.createElement('span');
+            item.className = 'next-item';
+            item.draggable = !coarsePointer();   // タッチは HTML5 DnD が使えない端末があるので自前のドラッグ（長押し）
+            item.dataset.index = String(i);
+            const no = document.createElement('span');
+            no.className = 'no';
+            no.textContent = String(i + 1);
+            item.append(nextCanvas(i), no);
+            box.append(item);
+        }
+        addCaret(n);
+        if (ui.pendingPuyo) {
+            const p = document.createElement('span');
+            p.className = 'pending';
+            p.textContent = `${ui.pendingPuyo}…`;
+            box.append(p);
+        }
+        $('next-count').textContent = `${n}${doc.rule === 'tet' ? '個' : 'ペア'}`;
     }
-    addCaret(n);
-    if (ui.pendingPuyo) {
-        const p = document.createElement('span');
-        p.className = 'pending';
-        p.textContent = `${ui.pendingPuyo}…`;
-        box.append(p);
-    }
-    $('next-count').textContent = `${n}${doc.rule === 'tet' ? '個' : 'ペア'}`;
-    setVal($<HTMLInputElement>('next-text'), doc.rule === 'tet' ? nextToText(doc.next) : pairsToText(doc.pairs));
-    $<HTMLInputElement>('next-text').placeholder = doc.rule === 'tet' ? '例: TSZJ' : '例: 12 34 11（軸・子）';
+    const text = $<HTMLInputElement>('next-text');
+    setVal(text, doc.rule === 'tet' ? nextToText(doc.next) : pairsToText(doc.pairs));
+    text.placeholder = doc.rule === 'tet' ? '例: TSZJ' : '例: 12 34 11（軸・子）';
+    text.readOnly = !!usage;
 
     const tools = $('next-tools');
     if (tools.dataset.rule !== doc.rule) {
         tools.dataset.rule = doc.rule;
         tools.innerHTML = doc.rule === 'tet'
             ? MINO_LETTERS.map((L, t) => `<button type="button" data-mino="${t}" title="挿入 (${L})">${L}</button>`).join('') +
-              '<button type="button" id="btn-bag" title="7種1巡を追加 (B)">+BAG</button>' +
-              '<button type="button" id="btn-next-clear">CLEAR</button>' + NEXT_EDIT_BUTTONS
+              '<button type="button" id="btn-bag" title="7種1巡を追加 (B)">+BAG</button>' + NEXT_EDIT_BUTTONS
             : [1, 2, 3, 4, 5].map(v => `<button type="button" data-puyo="${v}" title="${v}">${v}</button>`).join('') +
-              '<button type="button" id="btn-swap" title="直前のペアの軸/子を入れ替え (X)">SWAP</button>' +
-              '<button type="button" id="btn-next-clear">CLEAR</button>' + NEXT_EDIT_BUTTONS;
+              '<button type="button" id="btn-swap" title="直前のペアの軸/子を入れ替え (X)">SWAP</button>' + NEXT_EDIT_BUTTONS;
     }
+    for (const b of tools.querySelectorAll<HTMLButtonElement>('button')) b.disabled = !!usage;
+    if (usage) tools.classList.remove('more-open');
+    renderNextStrip(usage);
+}
+
+/** PC・SOLVE: 盤面の下に NEXT 全体を 1 行で（使い終えた物は暗く、今のミノに下線）。EDIT 中の編集行と同じ高さ */
+function renderNextStrip(usage: { used: number; now: number } | null) {
+    const strip = $('next-strip');
+    strip.hidden = !usage;
+    if (!usage || mobileMq.matches) return;
+    const n = nextLen();
+    const cw = doc.rule === 'tet' ? 30 : 14, ch = 26;
+    const dpr = window.devicePixelRatio || 1;
+    const cv = $<HTMLCanvasElement>('next-strip-cv');
+    const W = Math.max(1, n) * cw;
+    cv.width = W * dpr; cv.height = ch * dpr;
+    cv.style.width = `${W}px`; cv.style.height = `${ch}px`;
+    const ctx = cv.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, ch);
+    for (let i = 0; i < n; i++) {
+        ctx.globalAlpha = i < usage.used ? 0.25 : 1;
+        if (doc.rule === 'tet') drawMinoCentered(ctx, doc.next[i], i * cw + cw / 2, ch / 2 - 2, 6);
+        else drawPairCentered(ctx, doc.pairs[i], i * cw + cw / 2, ch / 2 - 2, 9);
+        if (i >= usage.used && i < usage.now) {
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = '#42c8f5';
+            ctx.fillRect(i * cw + 3, ch - 3, cw - 6, 2);
+        }
+    }
+    ctx.globalAlpha = 1;
+    // 今のミノが見える位置までスクロール
+    const sc = $('next-strip-scroll');
+    const x = usage.used * cw;
+    if (x < sc.scrollLeft || x + cw > sc.scrollLeft + sc.clientWidth) sc.scrollLeft = Math.max(0, x - cw * 2);
 }
 
 /** PC: 盤面の下にプレイ画面の見出し（TET - n ★ / 問題名 / GOAL） */
@@ -1214,6 +1279,7 @@ function handleNextKey(e: KeyboardEvent): boolean {
 
 const nextBox = $('next-box');
 nextBox.addEventListener('click', e => {
+    if (curMode() === 'solve') { warnStatus('SOLVE 中は NEXT を編集できません（EDIT に戻すには P）'); return; }
     const item = (e.target as HTMLElement).closest<HTMLElement>('.next-item');
     ui.nextCaret = item ? Number(item.dataset.index) + 1 : nextLen();
     ui.pendingPuyo = 0;
@@ -1230,7 +1296,7 @@ function clearTouchDrag() {
     for (const el of nextBox.querySelectorAll('.drag-src, .drag-over')) el.classList.remove('drag-src', 'drag-over');
 }
 nextBox.addEventListener('pointerdown', e => {
-    if (e.pointerType === 'mouse') return;
+    if (e.pointerType === 'mouse' || curMode() === 'solve') return;
     const item = (e.target as HTMLElement).closest<HTMLElement>('.next-item');
     if (!item) return;
     clearTouchDrag();
@@ -1268,6 +1334,7 @@ nextBox.addEventListener('contextmenu', e => { if (coarsePointer()) e.preventDef
 
 let dragFrom = -1;
 nextBox.addEventListener('dragstart', e => {
+    if (curMode() === 'solve') { e.preventDefault(); return; }
     const item = (e.target as HTMLElement).closest<HTMLElement>('.next-item');
     if (!item) return;
     dragFrom = Number(item.dataset.index);
@@ -1299,11 +1366,17 @@ $('next-tools').addEventListener('click', e => {
             case 'del': if (ui.pendingPuyo) { ui.pendingPuyo = 0; renderNext(); } else deleteNext(i); break;
             case 'move-left': if (i > 0) moveNext(i, i - 1); break;
             case 'move-right': if (i >= 0 && i < n - 1) moveNext(i, i + 1); break;
+            case 'more': $('next-tools').classList.toggle('more-open'); return;
         }
     }
+    $('next-tools').classList.remove('more-open');
     if (!coarsePointer()) nextBox.focus();
 });
 
+// ⋯ の外を押したら閉じる
+document.addEventListener('pointerdown', e => {
+    if (!(e.target as Element).closest?.('.nx-more')) $('next-tools').classList.remove('more-open');
+});
 $<HTMLInputElement>('next-text').addEventListener('input', e => {
     const t = (e.target as HTMLInputElement).value;
     commit(() => {
@@ -1732,7 +1805,7 @@ document.addEventListener('keydown', e => {
 
     let handled = false;
     const onField = target === fieldCanvas || target === document.body || target === null;
-    if (target === nextBox) handled = handleNextKey(e);
+    if (target === nextBox) handled = curMode() !== 'solve' && handleNextKey(e);   // SOLVE 中は NEXT を編集しない（layout §7）
     else if (onField && ui.mode === 'place') handled = place.handleKey(e, binds);
     else if (onField) handled = handleFieldKey(e);
     // P: EDIT（最後に使った PAINT/STAMP）⇔ SOLVE、Shift+P: PAINT ⇔ STAMP（同期キーに割り当てられていれば上で処理済み）

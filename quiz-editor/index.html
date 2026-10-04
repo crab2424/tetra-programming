@@ -101,6 +101,8 @@
       <h2 id="next-h">NEXT <small id="next-count"></small></h2>
       <div id="next-box" tabindex="0" aria-label="NEXT（ミノ文字で挿入・←→で移動・Backspaceで削除）"></div>
       <div class="row next-tools" id="next-tools"></div>
+      <!-- PC・SOLVE: NEXT の編集行の代わりに NEXT 全体を 1 行で（使い終えた物は暗く） -->
+      <div id="next-strip" class="pc-only" hidden><span class="lbl">ALL</span><div id="next-strip-scroll"><canvas id="next-strip-cv"></canvas></div></div>
       <label class="next-text">TEXT
         <input id="next-text" type="text" spellcheck="false" />
       </label>
