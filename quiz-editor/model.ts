@@ -452,3 +452,23 @@ export function randomBag(): number[] {
     }
     return a;
 }
+
+// ─────────────────────────────────────────────
+// 変更点（ファイルの元の問題と比べて何が変わったか。状態表示・WRITE FILE の確認・DRAFTS で使う）
+//   どちらも buildLevel を通した形で比べる（不要 value の削除などの正規化だけの差は変更に数えない）
+// ─────────────────────────────────────────────
+const CHANGE_GROUPS: [string[], string][] = [
+    [['id'], 'ID'], [['description'], '問題名'], [['diff'], '難易度'], [['allowHold'], 'HOLD'],
+    [['initialField', 'initialPuyoField'], '盤面'], [['nextPieces', 'nextPuyoPairs'], 'NEXT'],
+    [['clearCondition'], 'GOAL'], [['rule'], 'ルール'],
+];
+export function levelChanges(before: Record<string, unknown>, after: Record<string, unknown>): string[] {
+    const out: string[] = [];
+    const known = new Set(CHANGE_GROUPS.flatMap(g => g[0]));
+    for (const [keys, label] of CHANGE_GROUPS) {
+        if (keys.some(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]))) out.push(label);
+    }
+    const others = new Set([...Object.keys(before), ...Object.keys(after)].filter(k => !known.has(k)));
+    if ([...others].some(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]))) out.push('その他');
+    return out;
+}

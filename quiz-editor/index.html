@@ -22,6 +22,8 @@
       <span class="lbl">LEVELS</span>
       <select id="level-select" aria-label="既存の問題を開く"></select>
     </label>
+    <span id="state-chip" class="state-chip" hidden></span>
+    <button type="button" id="btn-revert" title="ファイルの内容（と保存済みの解答手順）に戻す。UNDO で取り消せます" hidden>REVERT</button>
     <button type="button" id="btn-new" class="m-menu">NEW</button>
     <button type="button" id="btn-paste" class="m-menu">PASTE JSON</button>
     <button type="button" id="btn-drafts" title="同期中の下書き（PC とスマホで共有）">DRAFTS <span id="drafts-badge" class="badge" hidden></span></button>
@@ -31,6 +33,13 @@
     <button type="button" id="btn-redo" title="やり直し (Ctrl/⌘+Shift+Z)">REDO</button>
     <button type="button" id="btn-help" class="pc-only" title="キー一覧 (?)">? KEYS</button>
   </header>
+
+  <!-- 前回の編集の復元・他の端末の下書きへの切替などのお知らせ -->
+  <div id="notice" hidden>
+    <span id="notice-text"></span>
+    <button type="button" id="notice-revert" title="ファイルの内容に戻す（UNDO で取り消せます）">REVERT</button>
+    <button type="button" id="notice-close" aria-label="閉じる">×</button>
+  </div>
 
   <main id="layout">
     <!-- ① 問題情報 ＋ ④ クリア条件 -->

@@ -470,3 +470,31 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   .level-pick select { font-size: 16px; }   /* iOS は 16px 未満の入力欄にフォーカスすると拡大する */
   input[type="text"], input[type="number"], input[type="password"], input[type="url"], select, textarea { font-size: 16px; }
 }
+
+/* ─── 編集の状態チップ・お知らせ（pc-ux §3） ─── */
+.state-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border);
+  font-size: 11px; color: var(--text-dim); white-space: nowrap; max-width: 320px; overflow: hidden;
+}
+.state-chip b { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; }
+.state-chip .chg { overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.state-chip .dev { color: var(--warn); }
+.state-chip.file b { color: var(--success); }
+.state-chip.edited { border-color: var(--quiz); background: var(--quiz-soft); }
+.state-chip.edited b { color: var(--quiz); }
+.state-chip.solution { border-color: var(--solve); background: var(--solve-soft); }
+.state-chip.solution b { color: var(--solve); }
+.state-chip.new b { color: var(--text); }
+#notice {
+  display: flex; align-items: center; gap: 10px;
+  margin: 8px 16px 0; padding: 6px 10px;
+  border: 1px solid var(--warn); border-radius: 8px; background: rgba(245, 197, 66, 0.1);
+  font-size: 12px;
+}
+#notice[hidden] { display: none; }
+#notice-text { flex: 1; }
+@media (max-width: 760px) {
+  .state-chip .chg, .state-chip .dev { display: none; }
+  #notice { margin: 6px 8px 0; }
+}

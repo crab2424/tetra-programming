@@ -9,7 +9,7 @@ import {
     MINO_LETTERS, TET_GARBAGE, PUYO_OJAMA,
     cols, rows, maxColorId, newDoc, cloneDoc, docFromLevel, emptyField,
     condDefs, countDefs, findCondDef, findCountDef, autoCondDescription,
-    serializeLevel, buildLevel, parseLevelsText, validate,
+    serializeLevel, buildLevel, parseLevelsText, validate, levelChanges,
     nextToText, textToNext, pairsToText, textToPairs, randomBag,
 } from './model.ts';
 import {
@@ -31,6 +31,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 // ─────────────────────────────────────────────
 type LevelRaw = Record<string, unknown>;
 const levels: Record<Rule, LevelRaw[]> = { tet: [], puyo: [] };
+let levelsLoaded = false;
 
 let doc: EditorDoc = newDoc('tet');
 let sourceId: string | null = null;   // 既存問題から開いた場合の元 id（重複判定の除外・番号算出に使う）
@@ -243,7 +244,9 @@ function onSyncEvent(ev: SyncEvent) {
             doc = cloneDoc(d!.doc); draftId = id;
             place.view = Math.min(place.view, doc.steps.length);
             afterDocReplaced();
-            setStatus(`他の端末（${d!.device}）で編集中の「${sourceId}」の下書きに切り替えました（UNDO で戻せます）`);
+            const msg = `他の端末（${d!.device}）で編集中の「${sourceId}」の下書きに切り替えました（UNDO で戻せます）`;
+            setStatus(msg);
+            showNotice(msg, true);
         }
     }
     // 開いている下書きが他の端末で更新された（この端末に未送信の変更が無ければ読み込む。あれば送信時に競合コピーになる）
@@ -257,6 +260,7 @@ function onSyncEvent(ev: SyncEvent) {
             place.view = Math.min(place.view, doc.steps.length);
             afterDocReplaced();
             setStatus(`他の端末（${d.device}）の変更を読み込みました（UNDO で戻せます）`);
+            showNotice(`他の端末（${d.device}）の変更を読み込みました（UNDO で戻せます）`, false);
         }
     }
     for (const c of ev.conflicts) {
@@ -290,6 +294,67 @@ function withSolution(d: EditorDoc): EditorDoc {
     if (e) { d.steps = e.steps.map(s => ({ ...s })); d.solutionNote = e.note ?? ''; }
     return d;
 }
+
+// ─── 編集の状態（ファイルの元の問題と比べる。§pc-ux 3）。自動保存はファイルを書かないが、変わっていることは常に見せる ───
+type EditKind = 'file' | 'edited' | 'solution' | 'new';
+interface EditState { kind: EditKind; changes: string[]; }
+function levelById(rule: Rule, id: string | null): LevelRaw | undefined {
+    return id === null ? undefined : levels[rule].find(l => l.id === id);
+}
+/** d（元 src）がファイルの問題からどう変わったか。問題が同じで手順・メモだけ違えば solution */
+function editStateOf(d: EditorDoc, src: string | null): EditState {
+    const raw = levelById(d.rule, src);
+    if (!raw) return { kind: 'new', changes: [] };
+    const base = withSolution(docFromLevel(raw));
+    const changes = levelChanges(buildLevel(base), buildLevel(d));
+    if (changes.length) return { kind: 'edited', changes };
+    if (JSON.stringify([base.steps, base.solutionNote]) !== JSON.stringify([d.steps, d.solutionNote])) return { kind: 'solution', changes: ['手順'] };
+    return { kind: 'file', changes: [] };
+}
+const EDIT_KIND_LABEL: Record<EditKind, string> = { file: 'FILE', edited: 'EDITED', solution: 'SOLUTION', new: 'NEW' };
+const EDIT_KIND_TITLE: Record<EditKind, string> = {
+    file: 'ファイル（tdata/pdata.json）の内容のままです',
+    edited: 'ファイルの内容から変更があります（まだ書き込んでいません。自動保存はファイルを書き換えません）',
+    solution: '問題はファイルのまま。解答手順・メモだけが保存済みの内容と違います',
+    new: 'ファイルに無い新しい問題です',
+};
+function renderEditState() {
+    const chip = $('state-chip');
+    chip.hidden = !levelsLoaded;
+    if (!levelsLoaded) return;
+    const st = editStateOf(doc, sourceId);
+    const dr = sync.enabled && draftId ? sync.draft(draftId) : undefined;
+    const other = dr && sync.config && dr.device !== sync.config.device ? dr.device : '';
+    chip.className = `state-chip ${st.kind}`;
+    chip.innerHTML = `<b>${EDIT_KIND_LABEL[st.kind]}</b>` +
+        (st.kind === 'edited' ? `<span class="chg">${escapeHtml(st.changes.join('・'))}</span>` : '') +
+        (other ? `<span class="dev">DRAFT · ${escapeHtml(other)}</span>` : '');
+    chip.title = EDIT_KIND_TITLE[st.kind] + (other ? `\n最後に ${other} で編集された下書きを表示しています` : '');
+    $('btn-revert').hidden = st.kind === 'file' || st.kind === 'new';
+}
+
+/** ファイルの内容（と保存済みの解答手順）に戻す。UNDO で取り消せる */
+function revertToFile() {
+    const raw = levelById(doc.rule, sourceId);
+    if (!raw) return;
+    const st = editStateOf(doc, sourceId);
+    if (!confirm(`「${sourceId}」をファイルの内容に戻します（変更: ${st.changes.join('・') || 'なし'}）。UNDO で取り消せます。よろしいですか？`)) return;
+    const d = withSolution(docFromLevel(raw));
+    commit(() => { doc = d; });
+    cleanSnap = JSON.stringify(doc);
+    place.view = doc.steps.length;
+    afterDocReplaced();
+    hideNotice();
+    setStatus('ファイルの内容に戻しました（UNDO で取り消せます）');
+}
+
+// ─── お知らせ（前回の編集の復元・他の端末の下書きへの切替） ───
+function showNotice(msg: string, withRevert: boolean) {
+    $('notice-text').textContent = msg;
+    $('notice-revert').hidden = !withRevert;
+    $('notice').hidden = false;
+}
+function hideNotice() { $('notice').hidden = true; }
 
 /** 解答ファイルに保存済みの内容と一致するか */
 function solutionSaved(): boolean {
@@ -325,6 +390,7 @@ const MODE_BAND: Record<EditMode, [string, string]> = {
 function renderAll() {
     renderPlace();
     renderTopbar();
+    renderEditState();
     renderInfo();
     renderCond();
     renderField();
@@ -1209,10 +1275,12 @@ async function writeLevelsFile(forcePick: boolean) {
 
         const dst = Number($<HTMLSelectElement>('write-pos').value);
         const plan = planWrite(text, src, dst, serializeLevel(doc, 1), buildLevel(doc));
+        const changes = src >= 0 ? levelChanges(buildLevel(docFromLevel(list[src])), buildLevel(doc)) : [];
+        const changeLine = src >= 0 ? `\n変更: ${changes.join('・') || 'なし'}` : '';
         const what = plan.action === 'replace' ? `${plan.index + 1}番「${sourceId}」を置き換え`
             : plan.action === 'move' ? `「${sourceId}」を ${src + 1}番 → ${plan.index + 1}番へ移動して書き換え`
             : `${plan.index + 1}番に「${doc.id}」を追加`;
-        if (!confirm(`${h.name} の ${what}ます。他の問題は変更しません。よろしいですか？`)) return;
+        if (!confirm(`${h.name} の ${what}ます。${changeLine}\n他の問題は変更しません。よろしいですか？`)) return;
 
         await writeText(h, plan.text);
         levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
@@ -1493,11 +1561,25 @@ async function loadLevels() {
 
 loadImages(() => { renderField(); renderPalette(); renderNext(); renderPreview(); buildStampGrid($('stamp-grid')); });
 buildStampGrid($('stamp-grid'));
-if (!loadDraft()) cleanSnap = JSON.stringify(doc);
+const restored = loadDraft();
+if (!restored) cleanSnap = JSON.stringify(doc);
 ui.nextCaret = nextLen();
 place.view = doc.steps.length;
 renderAll();
-void loadLevels().then(renderAll);
+void loadLevels().then(() => {
+    levelsLoaded = true;
+    renderAll();
+    // 前回の編集を黙って復元しない（ファイルの内容だと思って続けないように）
+    if (restored) {
+        const st = editStateOf(doc, sourceId);
+        const name = doc.id || '(ID なし)';
+        if (st.kind === 'edited' || st.kind === 'solution') showNotice(`前回の編集を復元しました（${name}・変更: ${st.changes.join('・')}）`, true);
+        else if (st.kind === 'new') showNotice(`前回の編集を復元しました（${name}・新しい問題）`, false);
+    }
+});
+$('btn-revert').addEventListener('click', revertToFile);
+$('notice-revert').addEventListener('click', revertToFile);
+$('notice-close').addEventListener('click', hideNotice);
 // モバイル配置: 下部タブ・メニュー・画面サイズの変化
 for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) {
     b.addEventListener('click', () => setMTab(b.dataset.mtab as MTab));
@@ -1536,6 +1618,11 @@ $('btn-test').hidden = coarsePointer();
 syncUi = initSyncUi({
     engine: sync,
     currentDraftId: () => draftId,
+    describeDraft: d => {
+        if (!levelsLoaded || d.sourceId === null) return '';
+        const st = editStateOf(d.doc, d.sourceId);
+        return st.kind === 'edited' ? `変更: ${st.changes.join('・')}` : st.kind === 'solution' ? '手順のみ' : st.kind === 'file' ? '変更なし' : '';
+    },
     openDraft,
     status: msg => setStatus(msg),
     afterSolutionsChanged: () => onSyncState(),

@@ -5,13 +5,14 @@
 // ─────────────────────────────────────────────
 import qrcode from 'qrcode-generator';
 import {
-    type SyncEngine, type DraftStatus, type SyncState, DRAFT_STATUS_LABEL, guessDevice, encodeSyncHash,
+    type SyncEngine, type DraftStatus, type DraftEntry, type SyncState, DRAFT_STATUS_LABEL, guessDevice, encodeSyncHash,
 } from './sync.ts';
 import { canWriteFiles, readLocalSolutions, exportSolutionsFile } from './solutions.ts';
 
 export interface SyncUiDeps {
     engine: SyncEngine;
     currentDraftId: () => string | null;
+    describeDraft: (d: DraftEntry) => string;   // ファイルの問題と比べた変更（「手順のみ」など）
     openDraft: (id: string) => void;
     status: (msg: string) => void;
     afterSolutionsChanged: () => void;
@@ -240,7 +241,7 @@ export function initSyncUi(deps: SyncUiDeps) {
                 ${d.conflictOf ? '<span class="warn">競合コピー</span>' : ''}
                 ${id === cur ? '<span class="note">← 開いている</span>' : ''}
               </div>
-              <div class="draft-meta note">${esc(d.device)} ・ ${esc(relTime(d.updatedAt))}${d.sourceId ? ` ・ 元: ${esc(d.sourceId)}` : ' ・ 新規'}${engine.hasPending(id) ? ' ・ 未送信' : ''}</div>
+              <div class="draft-meta note">${esc(d.device)} ・ ${esc(relTime(d.updatedAt))}${d.sourceId ? ` ・ 元: ${esc(d.sourceId)}` : ' ・ 新規'}${deps.describeDraft(d) ? ` ・ ${esc(deps.describeDraft(d))}` : ''}${engine.hasPending(id) ? ' ・ 未送信' : ''}</div>
               <div class="row">
                 <select data-act="status" aria-label="状態">${opts(d.status)}</select>
                 <button type="button" data-act="open" ${id === cur ? 'disabled' : ''}>OPEN</button>
