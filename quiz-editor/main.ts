@@ -200,7 +200,13 @@ function setVal(el: HTMLInputElement | HTMLSelectElement, v: string) {
 }
 
 const fieldCanvas = $<HTMLCanvasElement>('field');
-function focusField() { fieldCanvas.focus({ preventScroll: true }); }
+function focusField() {
+    // タッチ端末ではフォーカス枠（キーボード用カーソル）を出さない。キー操作は body 宛てでも盤面に届く
+    if (coarsePointer()) return;
+    fieldCanvas.focus({ preventScroll: true });
+}
+/** 主な入力がタッチの端末か（ボタンを大きくする・キー前提のフォーカス移動をしない等） */
+function coarsePointer(): boolean { return matchMedia('(pointer: coarse)').matches; }
 
 // ─── PC とスマホの同期（Gist。§14.3） ───
 const sync = new SyncEngine(ev => onSyncEvent(ev), () => onSyncState());
@@ -450,6 +456,15 @@ function renderPalette() {
     $('btn-row').classList.toggle('on', ui.rowMode);
 }
 
+// キャレット操作・削除・並べ替え（キーボードが無いタッチ端末用。PC でも使える）
+const NEXT_EDIT_BUTTONS = '<span class="next-edit">' +
+    '<button type="button" data-nx="caret-left" title="キャレットを左へ (←)">◀</button>' +
+    '<button type="button" data-nx="caret-right" title="キャレットを右へ (→)">▶</button>' +
+    '<button type="button" data-nx="del" title="キャレットの左を削除 (Backspace)">DEL</button>' +
+    '<button type="button" data-nx="move-left" title="キャレットの左の項目を1つ前へ">MOVE ◀</button>' +
+    '<button type="button" data-nx="move-right" title="キャレットの左の項目を1つ後ろへ">MOVE ▶</button>' +
+    '</span>';
+
 function renderNext() {
     const box = $('next-box');
     box.innerHTML = '';
@@ -464,7 +479,7 @@ function renderNext() {
         addCaret(i);
         const item = document.createElement('span');
         item.className = 'next-item';
-        item.draggable = true;
+        item.draggable = !coarsePointer();   // タッチは HTML5 DnD が使えない端末があるので自前のドラッグ（長押し）
         item.dataset.index = String(i);
         const cv = document.createElement('canvas');
         const w = doc.rule === 'tet' ? 44 : 20, h = doc.rule === 'tet' ? 24 : 40;
@@ -497,10 +512,10 @@ function renderNext() {
         tools.innerHTML = doc.rule === 'tet'
             ? MINO_LETTERS.map((L, t) => `<button type="button" data-mino="${t}" title="挿入 (${L})">${L}</button>`).join('') +
               '<button type="button" id="btn-bag" title="7種1巡を追加 (B)">+BAG</button>' +
-              '<button type="button" id="btn-next-clear">CLEAR</button>'
+              '<button type="button" id="btn-next-clear">CLEAR</button>' + NEXT_EDIT_BUTTONS
             : [1, 2, 3, 4, 5].map(v => `<button type="button" data-puyo="${v}" title="${v}">${v}</button>`).join('') +
               '<button type="button" id="btn-swap" title="直前のペアの軸/子を入れ替え (X)">SWAP</button>' +
-              '<button type="button" id="btn-next-clear">CLEAR</button>';
+              '<button type="button" id="btn-next-clear">CLEAR</button>' + NEXT_EDIT_BUTTONS;
     }
 }
 
@@ -667,21 +682,27 @@ let dragPaint: { value: number; key: string; last: { r: number; c: number } } | 
 
 function cellAt(e: MouseEvent): { r: number; c: number } | null {
     const rect = fieldCanvas.getBoundingClientRect();
-    const s = fieldCellSize(doc.rule);
+    const s = rect.width / cols(doc.rule);   // 表示サイズは画面幅で変わる（モバイル配置）
     const c = Math.floor((e.clientX - rect.left) / s), r = Math.floor((e.clientY - rect.top) / s);
     if (r < 0 || r >= rows(doc.rule) || c < 0 || c >= cols(doc.rule)) return null;
     return { r, c };
 }
 
-fieldCanvas.addEventListener('mousedown', e => {
+// マウスもタッチも Pointer Events で扱う（§14.5）。タッチは「ホバー」が無いので押している間だけ追従する
+let touchDown = false;
+fieldCanvas.addEventListener('pointerdown', e => {
     const p = cellAt(e);
     if (!p) return;
     e.preventDefault();
-    focusField();
+    try { fieldCanvas.setPointerCapture(e.pointerId); } catch { /* 既に離れたポインタ */ }
+    const touch = e.pointerType !== 'mouse';
+    touchDown = touch;
+    if (!touch) focusField();
     if (ui.mode === 'place') {
-        // テト譜のミノ配置: 左クリックで確定・右クリックで右回転
         place.hoverAt(p.r, p.c);
-        if (e.button === 0) place.lock(); else if (e.button === 2) place.wheel(1);
+        // テト譜のミノ配置: 左クリックで確定・右クリックで右回転。
+        // タッチは誤って確定しないよう位置合わせだけ（確定は DROP / LOCK ボタン）
+        if (!touch) { if (e.button === 0) place.lock(); else if (e.button === 2) place.wheel(1); }
         return;
     }
     ui.cursor = { ...p };
@@ -693,7 +714,8 @@ fieldCanvas.addEventListener('mousedown', e => {
         commit(() => {}, dragPaint.key);
     } else setCell(p.r, p.c, value, dragPaint.key);
 });
-fieldCanvas.addEventListener('mousemove', e => {
+fieldCanvas.addEventListener('pointermove', e => {
+    if (e.pointerType !== 'mouse' && !touchDown) return;
     const p = cellAt(e);
     const changed = (p?.r !== ui.hover?.r) || (p?.c !== ui.hover?.c);
     ui.hover = p;
@@ -714,7 +736,13 @@ fieldCanvas.addEventListener('mousemove', e => {
         if (!steps && changed) renderField();
     } else if (changed) renderField();
 });
-fieldCanvas.addEventListener('mouseleave', () => { ui.hover = null; renderField(); });
+fieldCanvas.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { ui.hover = null; renderField(); } });
+function endPointer(e: PointerEvent) {
+    dragPaint = null;
+    if (e.pointerType !== 'mouse') { touchDown = false; ui.hover = null; renderField(); }
+}
+fieldCanvas.addEventListener('pointerup', endPointer);
+fieldCanvas.addEventListener('pointercancel', endPointer);
 fieldCanvas.addEventListener('contextmenu', e => e.preventDefault());
 fieldCanvas.addEventListener('wheel', e => {
     if (ui.mode !== 'place') return;
@@ -723,7 +751,7 @@ fieldCanvas.addEventListener('wheel', e => {
 }, { passive: false });
 fieldCanvas.addEventListener('focus', renderField);
 fieldCanvas.addEventListener('blur', renderField);
-window.addEventListener('mouseup', () => { dragPaint = null; });
+window.addEventListener('pointerup', () => { dragPaint = null; });
 
 function handleFieldKey(e: KeyboardEvent): boolean {
     const C = cols(doc.rule), R = rows(doc.rule);
@@ -857,6 +885,52 @@ nextBox.addEventListener('click', e => {
     nextBox.focus();
     renderNext();
 });
+// タッチでの並べ替え: 長押しで掴んで、離した位置の項目と入れ替える（iOS Safari は HTML5 DnD 非対応）
+const touchDrag = { from: -1, timer: 0, active: false, x: 0, y: 0 };
+function clearTouchDrag() {
+    clearTimeout(touchDrag.timer);
+    touchDrag.from = -1;
+    touchDrag.active = false;
+    nextBox.classList.remove('dragging');
+    for (const el of nextBox.querySelectorAll('.drag-src, .drag-over')) el.classList.remove('drag-src', 'drag-over');
+}
+nextBox.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') return;
+    const item = (e.target as HTMLElement).closest<HTMLElement>('.next-item');
+    if (!item) return;
+    clearTouchDrag();
+    touchDrag.from = Number(item.dataset.index);
+    touchDrag.x = e.clientX; touchDrag.y = e.clientY;
+    touchDrag.timer = window.setTimeout(() => {
+        touchDrag.active = true;
+        nextBox.classList.add('dragging');
+        item.classList.add('drag-src');
+        navigator.vibrate?.(10);
+    }, 350);
+});
+nextBox.addEventListener('pointermove', e => {
+    if (touchDrag.from < 0) return;
+    if (!touchDrag.active) {
+        // 長押しが成立する前に指が動いたらスクロールとみなす
+        if (Math.hypot(e.clientX - touchDrag.x, e.clientY - touchDrag.y) > 8) clearTouchDrag();
+        return;
+    }
+    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('.next-item');
+    for (const el of nextBox.querySelectorAll('.drag-over')) if (el !== over) el.classList.remove('drag-over');
+    over?.classList.add('drag-over');
+});
+nextBox.addEventListener('pointerup', e => {
+    if (!touchDrag.active) { clearTouchDrag(); return; }
+    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('.next-item');
+    const from = touchDrag.from;
+    clearTouchDrag();
+    if (over) moveNext(from, Number(over.dataset.index));
+});
+nextBox.addEventListener('pointercancel', clearTouchDrag);
+// 掴んでいる間はページをスクロールさせない
+nextBox.addEventListener('touchmove', e => { if (touchDrag.active) e.preventDefault(); }, { passive: false });
+nextBox.addEventListener('contextmenu', e => { if (coarsePointer()) e.preventDefault(); });
+
 let dragFrom = -1;
 nextBox.addEventListener('dragstart', e => {
     const item = (e.target as HTMLElement).closest<HTMLElement>('.next-item');
@@ -882,7 +956,17 @@ $('next-tools').addEventListener('click', e => {
     else if (b.id === 'btn-bag') insertNext(randomBag());
     else if (b.id === 'btn-swap') swapPairBeforeCaret();
     else if (b.id === 'btn-next-clear') commit(() => { doc.next = []; doc.pairs = []; ui.nextCaret = 0; });
-    nextBox.focus();
+    else if (b.dataset.nx) {
+        const i = ui.nextCaret - 1, n = nextLen();
+        switch (b.dataset.nx) {
+            case 'caret-left': ui.nextCaret = Math.max(0, ui.nextCaret - 1); ui.pendingPuyo = 0; renderNext(); break;
+            case 'caret-right': ui.nextCaret = Math.min(n, ui.nextCaret + 1); ui.pendingPuyo = 0; renderNext(); break;
+            case 'del': if (ui.pendingPuyo) { ui.pendingPuyo = 0; renderNext(); } else deleteNext(i); break;
+            case 'move-left': if (i > 0) moveNext(i, i - 1); break;
+            case 'move-right': if (i >= 0 && i < n - 1) moveNext(i, i + 1); break;
+        }
+    }
+    if (!coarsePointer()) nextBox.focus();
 });
 
 $<HTMLInputElement>('next-text').addEventListener('input', e => {
@@ -1166,9 +1250,8 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('#mode-seg button')
 for (const b of document.querySelectorAll<HTMLButtonElement>('#sub-seg button')) {
     b.addEventListener('click', () => { place.setSub(b.dataset.sub as PlaceSub); focusField(); });
 }
-$('ctl-pad').addEventListener('click', e => {
-    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
-    switch (b?.dataset.ctl) {
+function placeCtl(ctl: string | undefined) {
+    switch (ctl) {
         case 'left': place.move(-1, 0); break;
         case 'right': place.move(1, 0); break;
         case 'down': place.move(0, 1); break;
@@ -1179,6 +1262,26 @@ $('ctl-pad').addEventListener('click', e => {
         case 'drop': place.hardDrop(); break;
         case 'lock': place.lock(); break;
     }
+}
+// 移動ボタンは押し続けると連続で動く（タッチ操作用）。押した時点で1回動かし、続く click は無視する
+const REPEAT_CTL = new Set(['left', 'right', 'down', 'up']);
+let ctlRepeat = { timer: 0, swallowClick: false };
+function stopCtlRepeat() { clearTimeout(ctlRepeat.timer); clearInterval(ctlRepeat.timer); ctlRepeat.timer = 0; }
+$('ctl-pad').addEventListener('pointerdown', e => {
+    const ctl = (e.target as HTMLElement).closest<HTMLButtonElement>('button')?.dataset.ctl;
+    ctlRepeat.swallowClick = false;
+    if (!ctl || !REPEAT_CTL.has(ctl) || e.button !== 0) return;
+    e.preventDefault();
+    stopCtlRepeat();
+    placeCtl(ctl);
+    ctlRepeat.swallowClick = true;
+    ctlRepeat.timer = window.setTimeout(() => { ctlRepeat.timer = window.setInterval(() => placeCtl(ctl), 70); }, 300);
+});
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave'] as const) $('ctl-pad').addEventListener(ev, stopCtlRepeat);
+$('ctl-pad').addEventListener('click', e => {
+    const ctl = (e.target as HTMLElement).closest<HTMLButtonElement>('button')?.dataset.ctl;
+    if (ctlRepeat.swallowClick && e.detail !== 0 && ctl && REPEAT_CTL.has(ctl)) ctlRepeat.swallowClick = false;
+    else placeCtl(ctl);
     focusField();
 });
 $('solve-box').addEventListener('click', e => {

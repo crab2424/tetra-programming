@@ -348,3 +348,16 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 .draft.current { outline: 1px solid var(--success); }
 .draft-rule { font-family: var(--font-orbitron); font-size: 10px; color: var(--quiz); margin-right: 4px; }
 .draft .warn { color: var(--warn); margin-left: 6px; }
+
+/* ─── タッチ操作（§14.5） ─── */
+#field { touch-action: none; }   /* 塗る・ミノを動かす時にページがスクロール/拡大しない */
+button, select, .next-item { touch-action: manipulation; }   /* ダブルタップ拡大を防ぐ */
+.next-item { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+#next-box.dragging .next-item { opacity: 0.55; }
+#next-box .next-item.drag-src { opacity: 1; outline: 2px solid var(--quiz); }
+#next-box .next-item.drag-over { opacity: 1; background: var(--quiz-soft); outline: 1px dashed var(--quiz); }
+.next-edit { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+@media (pointer: coarse) {
+  button { min-height: 40px; min-width: 40px; }
+  .ctl-pad button { min-height: 48px; }
+}
