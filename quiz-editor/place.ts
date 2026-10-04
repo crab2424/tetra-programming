@@ -124,6 +124,9 @@ export class PlaceMode {
         return true;
     }
 
+    /** 操作中のミノの向き（STAMP のボタン表示用） */
+    get activeRot(): number { return this.active?.rot ?? 0; }
+
     private get strictSolve(): boolean { return this.strict && this.sub === 'solve'; }
 
     move(dx: number, dy: number): boolean {
@@ -416,9 +419,8 @@ export class PlaceMode {
         root.querySelector<HTMLElement>('#stamp-box')!.hidden = this.sub !== 'stamp';
 
         if (this.sub === 'stamp') {
-            for (const b of root.querySelectorAll<HTMLButtonElement>('[data-stamp]')) {
-                b.classList.toggle('on', Number(b.dataset.stamp) === this.stampType && Number(b.dataset.rot) === (this.active?.rot ?? 0));
-            }
+            const grid = root.querySelector<HTMLElement>('#stamp-grid');
+            if (grid) drawStampButtons(grid, this.stampType, this.activeRot);
             return;
         }
 
@@ -467,29 +469,42 @@ export class PlaceMode {
     }
 }
 
-/** STAMP 用の ミノ×回転 グリッド（テト譜のラジオボタン表）を作る */
+/** STAMP 用のミノ 7 個（1 行）。形は描画時に今の回転で描く（drawStampButtons）。layout §5 */
 export function buildStampGrid(root: HTMLElement) {
     root.innerHTML = '';
-    const dpr = window.devicePixelRatio || 1;
     for (let t = 0; t < 7; t++) {
-        const col = document.createElement('div');
-        col.className = 'stamp-col';
-        for (let rot = 0; rot < 4; rot++) {
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.dataset.stamp = String(t);
-            b.dataset.rot = String(rot);
-            b.title = `${MINO_LETTERS[t]} 回転${rot}`;
-            const cv = document.createElement('canvas');
-            const s = 30;
-            cv.width = s * dpr; cv.height = s * dpr;
-            cv.style.width = `${s}px`; cv.style.height = `${s}px`;
-            const ctx = cv.getContext('2d')!;
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            drawCellsCentered(ctx, t, shapeOf(t, rot), s / 2, s / 2, 6);
-            b.append(cv);
-            col.append(b);
-        }
-        root.append(col);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.dataset.stamp = String(t);
+        b.title = `${MINO_LETTERS[t]}（選択中にもう一度押すと右回転・右クリックで左回転）`;
+        const cv = document.createElement('canvas');
+        const rot = document.createElement('span');
+        rot.className = 'rot';
+        b.append(cv, rot);
+        root.append(b);
+    }
+    drawStampButtons(root, -1, 0);
+}
+
+const ROT_NAMES = ['0', 'R', '2', 'L'];
+/** STAMP のボタンを描き直す。選んでいるミノ（type）だけ今の回転（rot）で描き、向きを右下に出す */
+export function drawStampButtons(root: HTMLElement, type: number, rot: number) {
+    const dpr = window.devicePixelRatio || 1;
+    const s = 30;
+    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-stamp]')) {
+        const t = Number(b.dataset.stamp);
+        const on = t === type;
+        const r = on ? rot : 0;
+        b.classList.toggle('on', on);
+        if (b.dataset.drawn === `${r}`) continue;
+        b.dataset.drawn = `${r}`;
+        const cv = b.querySelector('canvas')!;
+        cv.width = s * dpr; cv.height = s * dpr;
+        cv.style.width = `${s}px`; cv.style.height = `${s}px`;
+        const ctx = cv.getContext('2d')!;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, s, s);
+        drawCellsCentered(ctx, t, shapeOf(t, r), s / 2, s / 2, 6);
+        b.querySelector('.rot')!.textContent = on ? ROT_NAMES[r] : '';
     }
 }

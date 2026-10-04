@@ -16,7 +16,7 @@ import {
     loadImages, drawField, fieldCellSize, drawCellSwatch, drawMinoCentered, drawPairCentered,
 } from './render.ts';
 import { KEY_HELP, isTextInput, isMod } from './keys.ts';
-import { PlaceMode, buildStampGrid } from './place.ts';
+import { PlaceMode, buildStampGrid, drawStampButtons } from './place.ts';
 import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
 import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, SOLUTION_PATH, exportSolutionsFile } from './solutions.ts';
 import { SyncEngine, type SyncEvent, type DraftEntry, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
@@ -701,6 +701,7 @@ function renderField() {
             cursor: null, hover: null, rowMode: false, showCursor: false,
             piece: fv.piece, ghost: fv.ghost,
         });
+        if (place.sub === 'stamp') drawStampButtons($('stamp-grid'), place.stampType, place.activeRot);   // 回転の表示を追従
         return;
     }
     drawField(fieldCanvas, {
@@ -1630,12 +1631,18 @@ $('solve-box').addEventListener('click', e => {
 });
 $('btn-truncate').addEventListener('click', () => { place.truncateAfterView(); focusField(); });
 $('btn-to-initial').addEventListener('click', () => { place.viewToInitial(); focusField(); });
-$('stamp-grid').addEventListener('click', e => {
-    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
+// STAMP: 選んでいるミノをもう一度押すと右回転、右クリックで左回転（layout §5）
+function stampPick(e: MouseEvent, dir: 1 | -1) {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-stamp]');
     if (!b) return;
-    place.setStamp(Number(b.dataset.stamp), Number(b.dataset.rot));
+    e.preventDefault();
+    const t = Number(b.dataset.stamp);
+    if (t !== place.stampType) { place.setStamp(t); if (dir === -1) place.rotate(-1); }
+    else place.rotate(dir);
     focusField();
-});
+}
+$('stamp-grid').addEventListener('click', e => stampPick(e, 1));
+$('stamp-grid').addEventListener('contextmenu', e => stampPick(e, -1));
 $<HTMLInputElement>('sol-note').addEventListener('input', e => {
     const v = (e.target as HTMLInputElement).value;
     commit(() => { doc.solutionNote = v; }, 'sol-note');

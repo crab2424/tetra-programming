@@ -396,8 +396,8 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 .sol-note span { font-family: var(--font-orbitron); font-size: 10px; color: var(--text-dim); white-space: nowrap; }
 #sol-status.warn { color: var(--warn); }
 #stamp-grid { display: flex; gap: 4px; flex-wrap: wrap; }
-.stamp-col { display: flex; flex-direction: column; gap: 4px; }
-.stamp-col button { padding: 2px; line-height: 0; }
+#stamp-grid button { position: relative; padding: 2px; line-height: 0; }
+#stamp-grid .rot { position: absolute; right: 2px; bottom: 2px; font-size: 8px; line-height: 1; color: var(--quiz); }
 
 /* ─── 同期（SYNC / DRAFTS。§14.3） ─── */
 .badge {
