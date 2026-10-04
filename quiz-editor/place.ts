@@ -378,6 +378,23 @@ export class PlaceMode {
         return false;
     }
 
+    // ─── 盤面の横の HOLD・NEXT 表示（PC） ───
+    /** SOLVE で今 HOLD にあるミノ（HOLD を使う手を選んでいる時は、代わりに HOLD へ入るミノ） */
+    holdPiece(): number | null {
+        if (this.sub !== 'solve') return null;
+        const d = this.ctx.doc();
+        const q = this.sim().queues[this.view];
+        if (!q) return null;
+        return this.useHold ? candidates(d.next, q, d.allowHold).normal : q.hold;
+    }
+    /** SOLVE で NEXT の何個目までを使い終えたか（used）・今置いているミノがどこまでか（now） */
+    nextUsage(): { used: number; now: number } | null {
+        if (this.sub !== 'solve') return null;
+        const q = this.sim().queues[this.view];
+        if (!q) return null;
+        return { used: q.idx, now: q.idx + (this.useHold && q.hold === null ? 2 : 1) };
+    }
+
     // ─── 手順パネル ───
     renderPanel(root: HTMLElement) {
         const d = this.ctx.doc();

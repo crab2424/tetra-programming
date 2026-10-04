@@ -33,6 +33,14 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
 
 データ仕様は `public/assets/quizlevels/template.txt` を参照。
 
+## PC の画面配置
+
+- 左: 盤面エリア（HOLD｜FIELD｜NEXT の縦並び＋NEXT の編集＋プレイ画面の見出し）。HOLD 枠のクリックで HOLD 許可を切替（SOLVE 中は HOLD を使う/使わない）
+- 右: TOOLS（モードの道具・常に表示）と、タブ INFO / STEPS / PREVIEW / OUTPUT（OUTPUT にはエラー・警告の数）。SOLVE にすると STEPS が開く
+- 高さ 600px 以上ではページをスクロールさせず、盤面のマスを画面の高さに合わせる
+- トップバーの状態チップ: FILE（ファイルのまま）/ EDITED（変更点）/ SOLUTION（手順だけ変更）/ NEW。REVERT でファイルの内容に戻す（UNDO 可）。
+  自動保存はブラウザ内と Gist の下書きだけで、tdata/pdata.json は WRITE FILE でしか変わらない
+
 ## 盤面のモード（PAINT / STAMP / SOLVE）
 
 TOOLS の `[PAINT][STAMP][SOLVE]` で切り替える。盤面の上の帯と枠の色で今のモードが分かる。

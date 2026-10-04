@@ -353,8 +353,9 @@ function showNotice(msg: string, withRevert: boolean) {
     $('notice-text').textContent = msg;
     $('notice-revert').hidden = !withRevert;
     $('notice').hidden = false;
+    renderField();   // お知らせの分だけ盤面エリアが縮むので合わせ直す
 }
-function hideNotice() { $('notice').hidden = true; }
+function hideNotice() { $('notice').hidden = true; renderField(); }
 
 /** 解答ファイルに保存済みの内容と一致するか */
 function solutionSaved(): boolean {
@@ -376,6 +377,7 @@ function setMode(mode: EditMode) {
     ui.mode = mode === 'paint' ? 'paint' : 'place';
     if (mode === 'paint') { place.resetActive(); renderAll(); }
     else place.setSub(mode);   // renderAll を含む
+    if (mode === 'solve' && !mobileMq.matches) setPTab('steps');
     focusField();
 }
 const MODE_BAND: Record<EditMode, [string, string]> = {
@@ -399,7 +401,8 @@ function renderAll() {
     renderPreview();
     renderOutput();
     saveDraftSoon();
-    if (mobileMq.matches) renderField();   // ツールの高さが確定してから盤面の大きさを合わせ直す
+    renderHold();
+    renderField();   // ツール・見出しの高さが確定してから盤面の大きさを合わせ直す
 }
 
 function renderPlace() {
@@ -415,12 +418,14 @@ function renderPlace() {
     $('mode-desc').textContent = doc.rule === 'tet' ? MODE_BAND[mode][1] : MODE_BAND[mode][1] + '・ぷよは PAINT のみ';
     $('paint-box').hidden = ui.mode !== 'paint';
     $('place-box').hidden = ui.mode !== 'place';
+    $('solve-box').hidden = mode !== 'solve';
+    $('steps-idle').hidden = mode === 'solve' || doc.rule !== 'tet';
     const stepsNote = $('steps-note');
     stepsNote.hidden = doc.rule === 'tet';
     stepsNote.textContent = 'ぷよの解答手順の記録は未対応です（段階4）';
     if (ui.mode !== 'place') return;
     $('bind-src').textContent = `操作キー: ${sourceLabel(binds.source)}・${tuningLabel(tuning)}（? で一覧）`;
-    place.renderPanel($('place-box'));
+    place.renderPanel($('layout'));   // PC では #solve-box が #col-steps へ移るので、レイアウト全体から探す
     setVal($<HTMLInputElement>('sol-note'), doc.solutionNote);
     const st = $('sol-status');
     if (sync.enabled) st.textContent = solutionSaved() ? `Gist に保存済み${sync.pendingCount() ? '（送信待ち）' : ''}` : '未保存の変更があります';
@@ -511,7 +516,17 @@ const MTAB_KEY = 'tetlabo.quizEditor.mtab';
  * （FIELD タブはツールまで一画面に収める。STEPS タブは手順リストが長くなりうるので下に 200px ぶん見せる）
  */
 function cellSize(rule: Rule): number {
-    if (!mobileMq.matches) return fieldCellSize(rule);
+    if (!mobileMq.matches) {
+        // PC: 盤面エリア（#col-center）の高さに収める。高さが固定されない（低い画面）ときは従来の大きさ
+        const area = $('col-center');
+        if (getComputedStyle(area).overflowY !== 'auto') return fieldCellSize(rule);
+        const kids = [...area.children].filter(el => (el as HTMLElement).offsetParent !== null) as HTMLElement[];
+        if (!kids.length) return fieldCellSize(rule);
+        const content = kids[kids.length - 1].getBoundingClientRect().bottom - kids[0].getBoundingClientRect().top;
+        const cs = getComputedStyle(area);
+        const avail = area.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - (content - fieldCanvas.offsetHeight) - 2;
+        return Math.max(12, Math.min(fieldCellSize(rule), Math.floor(avail / rows(rule))));
+    }
     const C = cols(rule), R = rows(rule);
     const w = document.documentElement.clientWidth - 16 - 32;   // #layout の左右余白＋パネル・枠の余白
     const viewH = window.visualViewport?.height ?? window.innerHeight;
@@ -523,6 +538,15 @@ function cellSize(rule: Rule): number {
     return Math.max(12, Math.min(fieldCellSize(rule), Math.floor(Math.min(w / C, h / R))));
 }
 function body(): HTMLElement { return document.body; }
+
+// ─── PC のサイドパネルのタブ（pc-ux §4。data-p を持つパネルを body[data-ptab] で切り替える） ───
+type PTab = 'info' | 'steps' | 'preview' | 'out';
+const PTAB_KEY = 'tetlabo.quizEditor.ptab';
+function setPTab(t: PTab) {
+    body().dataset.ptab = t;
+    try { localStorage.setItem(PTAB_KEY, t); } catch { /* 保存不可 */ }
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#ptabs button')) b.classList.toggle('on', b.dataset.ptab === t);
+}
 
 function setMTab(t: MTab) {
     body().dataset.mtab = t;
@@ -606,6 +630,7 @@ function renderNext() {
     const box = $('next-box');
     box.innerHTML = '';
     const n = nextLen();
+    const usage = curMode() === 'solve' ? place.nextUsage() : null;   // SOLVE: 使い終えた NEXT を暗く、今のミノを強調
     const dpr = window.devicePixelRatio || 1;
     const addCaret = (i: number) => {
         const c = document.createElement('span');
@@ -630,6 +655,7 @@ function renderNext() {
         no.className = 'no';
         no.textContent = String(i + 1);
         item.append(cv, no);
+        if (usage) item.classList.add(i < usage.used ? 'used' : i < usage.now ? 'now' : 'rest');
         box.append(item);
     }
     addCaret(n);
@@ -656,7 +682,38 @@ function renderNext() {
     }
 }
 
+/** PC: 盤面の下にプレイ画面の見出し（TET - n ★ / 問題名 / GOAL） */
+function renderPlayHead() {
+    const num = levelNumber();
+    const stars = doc.diff === null ? '' : Array.from({ length: 5 }, (_, i) => (i < Math.round(doc.diff!) ? '<span class="sf">★</span>' : '<span class="se">☆</span>')).join('');
+    $('play-head').innerHTML =
+        `<span class="pv-rule">${doc.rule === 'tet' ? 'TET' : 'PUYO'} — ${num}${stars ? ` <span class="pv-stars">${stars}</span>` : ''}</span>` +
+        `<span class="pv-desc">${escapeHtml(doc.description) || '<i>（問題名なし）</i>'}</span>` +
+        `<span class="pv-goal">GOAL: ${escapeHtml(doc.cond.description)}</span>`;
+}
+
+/** PC: 盤面の左の HOLD 枠（編集中は許可の ON/OFF、SOLVE 中は持っているミノ。不許可はゲームと同じ斜線） */
+function renderHold() {
+    const col = $('hold-col');
+    col.hidden = doc.rule !== 'tet';
+    if (col.hidden || mobileMq.matches) return;
+    const solving = curMode() === 'solve';
+    const t = solving && doc.allowHold ? place.holdPiece() : null;
+    const cv = $<HTMLCanvasElement>('hold-cv');
+    const dpr = window.devicePixelRatio || 1, w = 56, h = 36;
+    cv.width = w * dpr; cv.height = h * dpr;
+    cv.style.width = `${w}px`; cv.style.height = `${h}px`;
+    const ctx = cv.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (t !== null) drawMinoCentered(ctx, t, w / 2, h / 2, 11);
+    const box = $('hold-box');
+    box.classList.toggle('off', !doc.allowHold);
+    $('hold-state').textContent = doc.allowHold ? (solving ? 'HOLD' : 'ON') : 'OFF';
+    box.title = solving ? 'HOLD を使う/使わない（HOLD キー）' : `HOLD 許可の切替 (H)・いま ${doc.allowHold ? '許可' : '不許可'}`;
+}
+
 function renderPreview() {
+    renderPlayHead();
     for (const b of document.querySelectorAll<HTMLButtonElement>('#preview-seg button')) {
         b.classList.toggle('on', b.dataset.preview === ui.preview);
     }
@@ -744,6 +801,11 @@ function renderOutput() {
         ? lastIssues.map(i => `<li class="${i.level}">${i.level === 'error' ? 'ERROR' : i.level === 'warn' ? 'WARN' : 'INFO'} — ${escapeHtml(i.msg)}</li>`).join('')
         : '<li class="ok">OK — 問題は見つかりませんでした</li>';
     const hasError = lastIssues.some(i => i.level === 'error');
+    const nIssue = lastIssues.filter(i => i.level !== 'info').length;
+    const badge = $('out-badge');
+    badge.hidden = nIssue === 0;
+    badge.textContent = String(nIssue);
+    badge.classList.toggle('err', hasError);
     $<HTMLButtonElement>('btn-copy').disabled = hasError;
     $<HTMLButtonElement>('btn-download').disabled = hasError;
     $<HTMLTextAreaElement>('out-json').value = outputText();
@@ -991,8 +1053,8 @@ function puyoDigit(v: number) {
 function handleNextKey(e: KeyboardEvent): boolean {
     const n = nextLen();
     switch (e.key) {
-        case 'ArrowLeft': ui.nextCaret = Math.max(0, ui.nextCaret - 1); ui.pendingPuyo = 0; renderNext(); return true;
-        case 'ArrowRight': ui.nextCaret = Math.min(n, ui.nextCaret + 1); ui.pendingPuyo = 0; renderNext(); return true;
+        case 'ArrowLeft': case 'ArrowUp': ui.nextCaret = Math.max(0, ui.nextCaret - 1); ui.pendingPuyo = 0; renderNext(); return true;
+        case 'ArrowRight': case 'ArrowDown': ui.nextCaret = Math.min(n, ui.nextCaret + 1); ui.pendingPuyo = 0; renderNext(); return true;
         case 'Home': ui.nextCaret = 0; renderNext(); return true;
         case 'End': ui.nextCaret = n; renderNext(); return true;
         case 'Backspace':
@@ -1559,6 +1621,35 @@ async function loadLevels() {
     }
 }
 
+// ─── PC 配置: 一部の部品を PC では盤面の横・サイドパネルのタブへ移す（スマホでは元の場所＝下部タブの仕組みのまま） ───
+const relocations: [HTMLElement, HTMLElement][] = [
+    [$('next-h'), $('next-col')], [$('next-box'), $('next-col')],
+    [$('steps-note'), $('col-steps')], [$('solve-box'), $('col-steps')],
+    [$('preview-wrap'), $('col-preview')],
+];
+const relocationHomes = relocations.map(([el]) => { const c = document.createComment(el.id); el.before(c); return c; });
+function applyLayout() {
+    const pc = !mobileMq.matches;
+    relocations.forEach(([el, pcParent], i) => {
+        if (pc) pcParent.append(el);
+        else relocationHomes[i].after(el);
+    });
+}
+applyLayout();
+for (const b of document.querySelectorAll<HTMLButtonElement>('#ptabs button')) {
+    b.addEventListener('click', () => setPTab(b.dataset.ptab as PTab));
+}
+{
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(PTAB_KEY); } catch { /* 読めない */ }
+    setPTab(saved && ['info', 'steps', 'preview', 'out'].includes(saved) ? saved as PTab : 'info');
+}
+$('hold-box').addEventListener('click', () => {
+    if (curMode() === 'solve') place.toggleHold();
+    else commit(() => { doc.allowHold = !doc.allowHold; });
+    focusField();
+});
+
 loadImages(() => { renderField(); renderPalette(); renderNext(); renderPreview(); buildStampGrid($('stamp-grid')); });
 buildStampGrid($('stamp-grid'));
 const restored = loadDraft();
@@ -1607,7 +1698,7 @@ function onViewportResize() {
 }
 window.addEventListener('resize', onViewportResize);
 window.visualViewport?.addEventListener('resize', onViewportResize);
-mobileMq.addEventListener('change', () => renderAll());
+mobileMq.addEventListener('change', () => { applyLayout(); renderAll(); });
 // スマホに無い機能を隠す（ファイル直接書込は FSA が無い・テストプレイは本体がタッチ非対応）
 for (const id of ['btn-write', 'write-pos']) {
     const el = $(id);

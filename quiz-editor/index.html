@@ -23,7 +23,7 @@
       <select id="level-select" aria-label="既存の問題を開く"></select>
     </label>
     <span id="state-chip" class="state-chip" hidden></span>
-    <button type="button" id="btn-revert" title="ファイルの内容（と保存済みの解答手順）に戻す。UNDO で取り消せます" hidden>REVERT</button>
+    <button type="button" id="btn-revert" class="m-menu" title="ファイルの内容（と保存済みの解答手順）に戻す。UNDO で取り消せます" hidden>REVERT</button>
     <button type="button" id="btn-new" class="m-menu">NEW</button>
     <button type="button" id="btn-paste" class="m-menu">PASTE JSON</button>
     <button type="button" id="btn-drafts" title="同期中の下書き（PC とスマホで共有）">DRAFTS <span id="drafts-badge" class="badge" hidden></span></button>
@@ -43,7 +43,7 @@
 
   <main id="layout">
     <!-- ① 問題情報 ＋ ④ クリア条件 -->
-    <section class="panel" id="col-left" data-m="goal">
+    <section class="panel" id="col-left" data-m="goal" data-p="info">
       <h2>INFO</h2>
       <div class="form">
         <label>ID
@@ -90,18 +90,29 @@
       <div data-m="field steps">
         <h2>FIELD <small id="field-size"></small></h2>
         <div id="mode-band"><b id="mode-name"></b><span id="mode-desc"></span></div>
-        <div id="field-wrap">
-          <canvas id="field" tabindex="0" aria-label="盤面（矢印でカーソル移動・Spaceで塗る）"></canvas>
+        <div id="board-row">
+          <!-- PC: 盤面の左に HOLD（編集中は許可の切替、SOLVE 中は持っているミノ） -->
+          <div id="hold-col" class="pc-only">
+            <span class="col-lbl">HOLD</span>
+            <button type="button" id="hold-box" title="HOLD 許可の切替 (H)"><canvas id="hold-cv"></canvas><span id="hold-state"></span></button>
+          </div>
+          <div id="field-wrap">
+            <canvas id="field" tabindex="0" aria-label="盤面（矢印でカーソル移動・Spaceで塗る）"></canvas>
+          </div>
+          <!-- PC: 盤面の右に NEXT（縦並び）。#next-h・#next-box をここへ移す -->
+          <div id="next-col" class="pc-only"></div>
         </div>
       </div>
       <div data-m="next">
-      <h2>NEXT <small id="next-count"></small></h2>
+      <h2 id="next-h">NEXT <small id="next-count"></small></h2>
       <div id="next-box" tabindex="0" aria-label="NEXT（ミノ文字で挿入・←→で移動・Backspaceで削除）"></div>
       <div class="row next-tools" id="next-tools"></div>
       <label class="next-text">TEXT
         <input id="next-text" type="text" spellcheck="false" />
       </label>
       </div>
+      <!-- PC: プレイ画面の見出し（TET - n ★ / 問題名 / GOAL） -->
+      <div id="play-head" class="pc-only"></div>
     </section>
 
     <!-- ③ ツール ＋ ⑦ プレビュー -->
@@ -176,7 +187,7 @@
         </div>
       </div>
 
-      <div data-m="out">
+      <div data-m="out" id="preview-wrap">
         <h2>PREVIEW</h2>
         <div class="seg" id="preview-seg">
           <button type="button" data-preview="play">PLAY</button>
@@ -186,8 +197,22 @@
       </div>
     </section>
 
+    <!-- PC のサイドパネルのタブ（下の data-p を持つパネルを切り替える。スマホは下部タブ） -->
+    <nav id="ptabs" class="pc-only" aria-label="表示する項目">
+      <button type="button" data-ptab="info">INFO</button>
+      <button type="button" data-ptab="steps">STEPS</button>
+      <button type="button" data-ptab="preview">PREVIEW</button>
+      <button type="button" data-ptab="out">OUTPUT <span id="out-badge" class="badge" hidden></span></button>
+    </nav>
+    <!-- PC: 手順・プレビューのタブ（#solve-box・#steps-note・#preview-wrap をここへ移す） -->
+    <section class="panel pc-only" id="col-steps" data-p="steps">
+      <h2>STEPS</h2>
+      <p class="note" id="steps-idle">SOLVE モード（P）で NEXT の順にミノを置くと、解答手順が記録されます。</p>
+    </section>
+    <section class="panel pc-only" id="col-preview" data-p="preview"></section>
+
     <!-- ⑧ 出力 -->
-    <section class="panel" id="col-output" data-m="out">
+    <section class="panel" id="col-output" data-m="out" data-p="out">
       <h2>OUTPUT</h2>
       <ul id="issues"></ul>
       <div class="row out-tools">

@@ -92,24 +92,10 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
 .seg button:first-child { border-radius: 6px 0 0 6px; }
 .seg button:last-child { border-radius: 0 6px 6px 0; }
 .level-pick { display: flex; align-items: center; gap: 6px; }
-.level-pick select { width: 340px; max-width: 60vw; }
+.level-pick select { width: 280px; max-width: 60vw; }
 .lbl { font-family: var(--font-orbitron); font-size: 10px; color: var(--text-dim); letter-spacing: 1px; }
 
 /* ─── レイアウト ─── */
-#layout {
-  display: grid;
-  grid-template-columns: minmax(260px, 320px) auto minmax(280px, 1fr);
-  grid-template-areas:
-    "left center right"
-    "out  out    out";
-  gap: 12px;
-  padding: 12px 16px 24px;
-  align-items: start;
-}
-#col-left { grid-area: left; }
-#col-center { grid-area: center; }
-#col-right { grid-area: right; }
-#col-output { grid-area: out; }
 .panel {
   background: var(--panel-bg);
   border: 1px solid var(--border);
@@ -117,13 +103,85 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   padding: 14px;
   min-width: 0;
 }
-@media (max-width: 1000px) {
+/*
+ * PC（761px 以上）: 左に盤面エリア（HOLD｜FIELD｜NEXT＋NEXT の編集＋見出し）、右にサイドパネル
+ * （TOOLS は常に表示、その下に INFO / STEPS / PREVIEW / OUTPUT のタブ）。pc-ux §4
+ * 高さが足りる画面ではページをスクロールさせず、盤面のマスを高さに合わせる（main.ts の cellSize）
+ */
+@media (min-width: 761px) {
   #layout {
-    grid-template-columns: 1fr;
-    grid-template-areas: "center" "left" "right" "out";
+    display: grid;
+    grid-template-columns: auto minmax(340px, 1fr);
+    grid-template-rows: auto auto 1fr;
+    grid-template-areas:
+      "board tools"
+      "board ptabs"
+      "board content";
+    gap: 10px 12px;
+    padding: 10px 16px 16px;
+    align-items: start;
   }
-}
+  #col-center { grid-area: board; align-self: stretch; }
+  #col-right { grid-area: tools; }
+  #ptabs { grid-area: ptabs; }
+  #col-left, #col-steps, #col-preview, #col-output { grid-area: content; align-self: stretch; }
+  body[data-ptab="info"] [data-p]:not([data-p~="info"]),
+  body[data-ptab="steps"] [data-p]:not([data-p~="steps"]),
+  body[data-ptab="preview"] [data-p]:not([data-p~="preview"]),
+  body[data-ptab="out"] [data-p]:not([data-p~="out"]) { display: none; }
+  #col-right > h2:first-child { display: none; }   /* モード帯と枠の色で分かるので見出しは省く */
+  #col-right #mode-seg { margin-bottom: 8px; }
 
+  /* 盤面エリア: HOLD｜FIELD｜NEXT（ゲームと同じ並び） */
+  #board-row { display: flex; gap: 8px; align-items: stretch; }
+  #hold-col, #next-col { display: flex; flex-direction: column; gap: 4px; }
+  #hold-col[hidden] { display: none; }
+  .col-lbl, #next-h { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; color: var(--text-dim); margin: 0; }
+  #next-h small { display: block; font-size: 9px; }
+  #hold-box {
+    position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 4px; min-width: 0; background: #0d0d16;
+    border: 2px solid #6f6f95; border-radius: 4px;
+  }
+  #hold-box.off::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to top right, transparent calc(50% - 1px), rgba(245, 90, 90, 0.8) 50%, transparent calc(50% + 1px));
+  }
+  #hold-state { font-family: var(--font-orbitron); font-size: 8px; color: var(--text-dim); }
+  #next-col { width: 64px; position: relative; }
+  /* NEXT 列は盤面の高さまで。入りきらなければ列の中でスクロール */
+  #next-col #next-box {
+    flex: 1 1 0; min-height: 0; max-width: none;
+    flex-direction: column; flex-wrap: nowrap; align-items: stretch;
+    overflow-y: auto; padding: 4px 2px;
+  }
+  #next-col .next-item { flex-direction: row; justify-content: center; gap: 2px; }
+  #next-col .next-item .no { position: absolute; left: 2px; top: 1px; }
+  #next-col .caret { width: auto; height: 2px; align-self: stretch; margin: 1px 4px; flex: none; }
+  .next-item.used { opacity: 0.3; }
+  .next-item.now { background: var(--solve-soft); outline: 1px solid var(--solve); }
+  #col-center .next-tools, #col-center .next-text { max-width: none; }
+  #play-head {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+    margin-top: 8px; padding: 6px 10px; border-radius: 6px;
+    background: rgba(245, 133, 66, 0.07); font-size: 12px;
+  }
+  #play-head .pv-goal { flex-basis: 100%; }
+
+  /* サイドパネルのタブ */
+  #ptabs { display: flex; gap: 4px; }
+  #ptabs button { flex: 1; padding: 6px 0; font-size: 10px; }
+  #ptabs button.on { color: var(--quiz); border-color: var(--quiz); background: var(--quiz-soft); }
+  #out-badge.err { background: var(--danger); }
+  #col-steps > h2, #col-preview #preview-wrap > h2 { display: none; }
+  #col-output #out-json { min-height: 200px; }
+}
+/* 高さが足りる PC: ページはスクロールさせず、盤面エリアとタブの中身だけスクロール */
+@media (min-width: 761px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  #layout { flex: 1 1 auto; min-height: 0; }
+  #col-center, #col-left, #col-steps, #col-preview, #col-output { overflow-y: auto; min-height: 0; max-height: 100%; }
+}
 /* ─── フォーム ─── */
 .form { display: flex; flex-direction: column; gap: 10px; }
 .form label, .field-label { display: flex; flex-direction: column; gap: 4px; }
@@ -309,7 +367,7 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 
 /* ─── PLACE モード ─── */
 #mode-seg { margin-bottom: 10px; }
-#place-box h3 { font-size: 10px; color: var(--quiz); margin: 14px 0 6px; }
+#place-box h3, #solve-box h3 { font-size: 10px; color: var(--quiz); margin: 14px 0 6px; }
 .ctl-pad { display: grid; grid-template-columns: repeat(5, auto); gap: 4px; justify-content: start; margin: 6px 0; }
 .ctl-pad button { padding: 4px 8px; min-width: 40px; }
 #solve-now { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--font-orbitron); font-size: 10px; color: var(--text-dim); margin: 6px 0; }
@@ -494,7 +552,11 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 }
 #notice[hidden] { display: none; }
 #notice-text { flex: 1; }
+#btn-revert[hidden] { display: none !important; }
 @media (max-width: 760px) {
   .state-chip .chg, .state-chip .dev { display: none; }
+  /* 上段（≡・ルール・DRAFTS・SYNC）を1行に保つため、状態は LEVELS の横へ。REVERT は ≡ メニューとお知らせから */
+  #state-chip { order: 2; padding: 3px 6px; }
+  #btn-revert { order: 2; }
   #notice { margin: 6px 8px 0; }
 }
