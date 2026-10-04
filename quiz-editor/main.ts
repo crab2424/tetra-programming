@@ -16,7 +16,7 @@ import {
     loadImages, drawField, fieldCellSize, drawCellSwatch, drawMinoCentered, drawPairCentered,
 } from './render.ts';
 import { KEY_HELP, isTextInput, isMod } from './keys.ts';
-import { PlaceMode, buildStampGrid, type PlaceSub } from './place.ts';
+import { PlaceMode, buildStampGrid } from './place.ts';
 import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
 import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, SOLUTION_PATH, exportSolutionsFile } from './solutions.ts';
 import { SyncEngine, type SyncEvent, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
@@ -46,6 +46,7 @@ const ui = {
     pendingPuyo: 0,                    // puyo NEXT 入力の1色目（0=なし）
     preview: 'play' as 'play' | 'select',
     mode: 'paint' as 'paint' | 'place',
+    lastEdit: 'paint' as 'paint' | 'stamp',   // P で SOLVE から戻る先
 };
 
 // ─── Undo / Redo（EditorDoc 丸ごとのスナップショット） ───
@@ -297,14 +298,26 @@ function solutionSaved(): boolean {
     return JSON.stringify(e.steps) === JSON.stringify(doc.steps) && (e.note ?? '') === doc.solutionNote;
 }
 
-function setMode(mode: 'paint' | 'place') {
-    if (mode === 'place' && doc.rule !== 'tet') { setStatus('ぷよのミノ配置は未対応です（段階4）'); return; }
-    ui.mode = mode;
+/**
+ * 盤面のモードは3つ。PAINT・STAMP は「問題（初期盤面）を変える」、SOLVE は「解答手順を記録するだけ（問題は変わらない）」。
+ * 内部では ui.mode（paint/place）と place.sub（solve/stamp）の2段で持つ
+ */
+type EditMode = 'paint' | 'stamp' | 'solve';
+function curMode(): EditMode { return ui.mode === 'paint' ? 'paint' : place.sub; }
+function setMode(mode: EditMode) {
+    if (mode !== 'paint' && doc.rule !== 'tet') { setStatus('ぷよのミノ配置は未対応です（段階4）'); return; }
+    if (mode !== 'solve') ui.lastEdit = mode;
     place.releaseAll();
-    place.resetActive();
-    renderAll();
+    ui.mode = mode === 'paint' ? 'paint' : 'place';
+    if (mode === 'paint') { place.resetActive(); renderAll(); }
+    else place.setSub(mode);   // renderAll を含む
     focusField();
 }
+const MODE_BAND: Record<EditMode, [string, string]> = {
+    paint: ['EDIT · PAINT', '初期盤面を塗ります（問題が変わります）'],
+    stamp: ['EDIT · STAMP', '初期盤面にミノを置きます（問題が変わります）'],
+    solve: ['SOLVE', '解答手順を記録します（問題は変わりません）'],
+};
 
 // ─────────────────────────────────────────────
 // 描画
@@ -324,15 +337,16 @@ function renderAll() {
 }
 
 function renderPlace() {
+    const mode = curMode();
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mode-seg button')) {
-        const on = b.dataset.mode === ui.mode;
+        const on = b.dataset.mode === mode;
         b.classList.toggle('on', on);
         b.setAttribute('aria-checked', String(on));
-        if (b.dataset.mode === 'place') {
-            b.disabled = doc.rule !== 'tet';
-            b.title = doc.rule === 'tet' ? 'ミノを置く (P で切替)' : 'ぷよのミノ配置は未対応（段階4）';
-        }
+        if (b.dataset.mode !== 'paint') b.disabled = doc.rule !== 'tet';
     }
+    body().dataset.mode = mode;
+    $('mode-name').textContent = MODE_BAND[mode][0] + (mode === 'paint' && ui.rowMode ? ' · ROW' : '');
+    $('mode-desc').textContent = doc.rule === 'tet' ? MODE_BAND[mode][1] : MODE_BAND[mode][1] + '・ぷよは PAINT のみ';
     $('paint-box').hidden = ui.mode !== 'paint';
     $('place-box').hidden = ui.mode !== 'place';
     const stepsNote = $('steps-note');
@@ -449,10 +463,7 @@ function setMTab(t: MTab) {
     try { localStorage.setItem(MTAB_KEY, t); } catch { /* 保存不可 */ }
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) b.classList.toggle('on', b.dataset.mtab === t);
     // STEPS は解答手順（PLACE の SOLVE）を見る場所
-    if (t === 'steps' && doc.rule === 'tet' && (ui.mode !== 'place' || place.sub !== 'solve')) {
-        if (ui.mode !== 'place') setMode('place');
-        if (place.sub !== 'solve') place.setSub('solve');
-    }
+    if (t === 'steps' && doc.rule === 'tet' && curMode() !== 'solve') setMode('solve');
     renderAll();
     window.scrollTo({ top: 0 });
 }
@@ -864,7 +875,7 @@ function handleFieldKey(e: KeyboardEvent): boolean {
         renderPalette();
         return true;
     }
-    if (letter === 'R') { ui.rowMode = !ui.rowMode; renderPalette(); renderField(); return true; }
+    if (letter === 'R') { ui.rowMode = !ui.rowMode; renderPalette(); renderPlace(); renderField(); return true; }
     if (letter === 'M') { mirrorField(); return true; }
     return false;
 }
@@ -1102,7 +1113,7 @@ $('palette').addEventListener('click', e => {
     renderPalette();
     focusField();
 });
-$('btn-row').addEventListener('click', () => { ui.rowMode = !ui.rowMode; renderPalette(); focusField(); });
+$('btn-row').addEventListener('click', () => { ui.rowMode = !ui.rowMode; renderPalette(); renderPlace(); focusField(); });
 $('btn-mirror').addEventListener('click', () => { mirrorField(); focusField(); });
 $('btn-clear').addEventListener('click', () => { clearField(); focusField(); });
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-shift]')) {
@@ -1283,7 +1294,7 @@ $('paste-ok').addEventListener('click', e => {
 const helpDlg = $<HTMLDialogElement>('help-dlg');
 function renderHelp() {
     const placeSec = {
-        title: `PLACE（盤面にフォーカス）— 操作キーは ${sourceLabel(binds.source)}・${tuningLabel(tuning)}`,
+        title: `STAMP・SOLVE（盤面にフォーカス）— 操作キーは ${sourceLabel(binds.source)}・${tuningLabel(tuning)}`,
         rows: [
             ...PLACE_ACTIONS.map(a => ({ keys: bindLabel(binds, a), desc: ACTION_NAMES[a] })),
             { keys: 'Alt+↑（未割当なら ↑ も可）', desc: '1段上（自由配置）' },
@@ -1293,7 +1304,7 @@ function renderHelp() {
             { keys: '[ ・ ] ・ Home ・ End', desc: '前の手 ・ 次の手 ・ 初期盤面 ・ 最後の手' },
             { keys: 'I O T J L S Z', desc: '置くミノを選ぶ（STAMP）' },
             { keys: 'マウス: 移動 ・ ホイール ・ 左クリック ・ 右クリック', desc: '位置 ・ 回転 ・ 確定 ・ 右回転（T-Spin は推定扱い）' },
-            { keys: 'P', desc: 'PAINT ⇔ PLACE 切替' },
+            { keys: 'P / Shift+P', desc: 'EDIT ⇔ SOLVE 切替 / PAINT ⇔ STAMP 切替' },
         ],
     };
     const secs = [...KEY_HELP, placeSec];
@@ -1305,10 +1316,7 @@ $('btn-help').addEventListener('click', () => { renderHelp(); helpDlg.showModal(
 
 // ─── PLACE モードの UI ───
 for (const b of document.querySelectorAll<HTMLButtonElement>('#mode-seg button')) {
-    b.addEventListener('click', () => setMode(b.dataset.mode as 'paint'));
-}
-for (const b of document.querySelectorAll<HTMLButtonElement>('#sub-seg button')) {
-    b.addEventListener('click', () => { place.setSub(b.dataset.sub as PlaceSub); focusField(); });
+    b.addEventListener('click', () => setMode(b.dataset.mode as EditMode));
 }
 function placeCtl(ctl: string | undefined) {
     switch (ctl) {
@@ -1452,9 +1460,11 @@ document.addEventListener('keydown', e => {
     if (target === nextBox) handled = handleNextKey(e);
     else if (onField && ui.mode === 'place') handled = place.handleKey(e, binds);
     else if (onField) handled = handleFieldKey(e);
-    // P: PAINT ⇔ PLACE（PLACE で同期キーに割り当てられていれば上で処理済み）
+    // P: EDIT（最後に使った PAINT/STAMP）⇔ SOLVE、Shift+P: PAINT ⇔ STAMP（同期キーに割り当てられていれば上で処理済み）
     if (!handled && onField && e.code === 'KeyP' && !e.altKey) {
-        setMode(ui.mode === 'paint' ? 'place' : 'paint');
+        const m = curMode();
+        if (e.shiftKey) setMode(m === 'paint' ? 'stamp' : m === 'stamp' ? 'paint' : ui.lastEdit === 'paint' ? 'stamp' : 'paint');
+        else setMode(m === 'solve' ? ui.lastEdit : 'solve');
         handled = true;
     }
     if (handled) e.preventDefault();

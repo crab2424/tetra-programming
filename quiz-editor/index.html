@@ -80,6 +80,7 @@
     <section class="panel" id="col-center">
       <div data-m="field steps">
         <h2>FIELD <small id="field-size"></small></h2>
+        <div id="mode-band"><b id="mode-name"></b><span id="mode-desc"></span></div>
         <div id="field-wrap">
           <canvas id="field" tabindex="0" aria-label="盤面（矢印でカーソル移動・Spaceで塗る）"></canvas>
         </div>
@@ -99,8 +100,9 @@
       <h2 data-m="field">TOOLS</h2>
       <p class="note" id="steps-note" data-m="steps" hidden></p>
       <div class="seg" id="mode-seg" role="radiogroup" aria-label="編集モード" data-m="field">
-        <button type="button" data-mode="paint" role="radio" title="盤面を塗る (P で切替)">PAINT</button>
-        <button type="button" data-mode="place" role="radio" title="ミノを置く (P で切替)">PLACE</button>
+        <button type="button" data-mode="paint" role="radio" title="初期盤面を塗る（Shift+P で STAMP と切替）">PAINT</button>
+        <button type="button" data-mode="stamp" role="radio" title="好きなミノを初期盤面に直接置く（Shift+P で PAINT と切替）">STAMP</button>
+        <button type="button" data-mode="solve" role="radio" title="NEXT の順に置いて解答手順を記録（P で EDIT と切替）">SOLVE</button>
       </div>
 
       <div id="paint-box" data-m="field">
@@ -121,10 +123,6 @@
       </div>
 
       <div id="place-box" data-m="field steps" hidden>
-        <div class="seg" id="sub-seg" data-m="field">
-          <button type="button" data-sub="solve" title="NEXT の順に置いて解答手順を記録">SOLVE</button>
-          <button type="button" data-sub="stamp" title="好きなミノを初期盤面に直接置く">STAMP</button>
-        </div>
         <p class="note pc-only" id="bind-src"></p>
         <div class="ctl-pad" id="ctl-pad" data-m="field">
           <button type="button" data-ctl="left" title="左移動">←</button>

@@ -14,6 +14,8 @@
   --danger: #f55a5a;
   --warn: #f5c542;
   --success: #5af5a0;
+  --solve: #42c8f5;   /* SOLVE（解くだけ・問題は変わらない）の色。EDIT は --quiz */
+  --solve-soft: rgba(66, 200, 245, 0.12);
   --font-main: "Noto Sans JP", sans-serif;
   --font-orbitron: "Orbitron", monospace;
   color-scheme: dark;
@@ -144,6 +146,24 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   background: #0d0d16;
 }
 #field { display: block; cursor: crosshair; }
+
+/* ─── モード帯: EDIT（PAINT・STAMP＝問題が変わる）はオレンジ、SOLVE（解くだけ）は青緑。盤面の枠とツール欄も同じ色 ─── */
+#mode-band {
+  display: flex; align-items: baseline; gap: 10px;
+  margin: 0 0 6px; padding: 5px 10px;
+  border-left: 4px solid var(--mode-c, var(--quiz));
+  background: var(--mode-soft, var(--quiz-soft));
+  border-radius: 0 6px 6px 0;
+}
+#mode-name { font-family: var(--font-orbitron); font-size: 11px; letter-spacing: 1px; color: var(--mode-c, var(--quiz)); white-space: nowrap; }
+#mode-desc { font-size: 11px; color: var(--text-dim); }
+body { --mode-c: var(--quiz); --mode-soft: var(--quiz-soft); }
+body[data-mode="solve"] { --mode-c: var(--solve); --mode-soft: var(--solve-soft); }
+#field-wrap { border-color: var(--mode-c); }
+#col-right { border-color: color-mix(in srgb, var(--mode-c) 45%, var(--border)); }
+#mode-seg button.on { border-color: var(--mode-c); background: var(--mode-soft); }
+#mode-seg [data-mode="solve"] { margin-left: 8px; border-radius: 6px; }
+#mode-seg [data-mode="stamp"] { border-radius: 0 6px 6px 0; }
 
 /* ─── NEXT ─── */
 #next-box {
@@ -288,7 +308,7 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 #help-body th { font-family: ui-monospace, Menlo, monospace; font-weight: 400; color: var(--text); white-space: nowrap; width: 40%; }
 
 /* ─── PLACE モード ─── */
-#mode-seg, #sub-seg { margin-bottom: 10px; }
+#mode-seg { margin-bottom: 10px; }
 #place-box h3 { font-size: 10px; color: var(--quiz); margin: 14px 0 6px; }
 .ctl-pad { display: grid; grid-template-columns: repeat(5, auto); gap: 4px; justify-content: start; margin: 6px 0; }
 .ctl-pad button { padding: 4px 8px; min-width: 40px; }
@@ -442,8 +462,9 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   body[data-mtab="field"] #col-right { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   body[data-mtab="field"] #col-right > *, body[data-mtab="field"] #place-box > * { flex: 1 1 100%; margin: 0; }
   body[data-mtab="field"] #place-box { display: contents; }
-  body[data-mtab="field"] #mode-seg, body[data-mtab="field"] #sub-seg { flex: 0 0 auto; }
-  body[data-mtab="field"] #sub-seg { margin-left: auto; }
+  body[data-mtab="field"] #mode-seg { flex: 0 0 auto; }
+  #mode-band { padding: 3px 8px; margin-bottom: 4px; }
+  #mode-desc { display: none; }   /* 狭いので名前と色だけ */
   .next-tools, .next-text { max-width: none; }
   #out-json { height: 180px; }
   .level-pick select { font-size: 16px; }   /* iOS は 16px 未満の入力欄にフォーカスすると拡大する */

@@ -33,15 +33,23 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
 
 データ仕様は `public/assets/quizlevels/template.txt` を参照。
 
-## ミノ配置と解答手順（PLACE・TET のみ）
+## 盤面のモード（PAINT / STAMP / SOLVE）
 
-TOOLS の PLACE（または `P`）で切り替える。
+TOOLS の `[PAINT][STAMP][SOLVE]` で切り替える。盤面の上の帯と枠の色で今のモードが分かる。
+
+- オレンジ = **EDIT**（PAINT・STAMP）: 初期盤面を変える＝問題が変わる
+- 青緑 = **SOLVE**: 解答手順を記録するだけ＝問題は変わらない
+- キー: `P` で EDIT（最後に使った PAINT / STAMP）⇔ SOLVE、`Shift+P` で PAINT ⇔ STAMP
+
+## ミノ配置と解答手順（STAMP・SOLVE・TET のみ）
 
 - **SOLVE**: NEXT の順にミノを置いて解答手順を記録する。1手ごとにライン消去・T-Spin・REN・パフェ・スコアを計算し、
   クリア条件を満たした手に ✓ を付ける。判定は `public/game/tet/` と `public/quiz/quiz.js` を移植したもの（`tet-sim.ts`）
 - **STAMP**: 好きなミノを初期盤面に直接置く（ライン消去なし）。盤面作成の補助
 - 操作キーは TETLABO の KEY CONFIG（同じ dev サーバーの localStorage `game_binds`）と同期する。
   設定が無ければ ←→↓ / SPACE / Z・X 回転 / C で HOLD
+- 押し続けた時の連続移動は TETLABO の DAS / ARR（localStorage `game_tuning`。無ければ既定 9f / 1.6f）。
+  ハードドロップ・回転・HOLD などは押した瞬間の1回だけ（押し続けても連発しない）
 - 解答は問題 JSON には含めず、`source_assets/quizlevels/tsolutions.json`（git 管理外）に SAVE SOLUTION で保存する
   （Chrome / Edge はファイルへ直接書き込み、それ以外のブラウザはダウンロード）
 - マウスで置いた T は操作経路が無いため、T-Spin 判定は「回転入れした」と見なした推定になる。
@@ -62,14 +70,14 @@ TOOLS の PLACE（または `P`）で切り替える。
 - **DRAFTS** で一覧・切替・削除。スマホで作り終えたら OUTPUT の **MARK READY**（PC の DRAFTS に目立つ表示）。
   WRITE FILE が成功すると自動で WRITTEN になる
 - 同期中は解答手順の正本は Gist の `tsolutions.json`。ローカルファイルとは SYNC 画面の IMPORT LOCAL FILE / EXPORT TO FILE
-  （PLACE の EXPORT FILE も同じ）でやり取りする。同期しなければ今まで通りローカルファイルだけで動く
+  （SOLVE の EXPORT FILE も同じ）でやり取りする。同期しなければ今まで通りローカルファイルだけで動く
 - 実装: `gist.ts`（API）・`sync.ts`（キュー・マージ・ポーリング）・`sync-ui.ts`（画面）。設定は端末×オリジンごとの localStorage
 
 ## スマホでの編集
 
 幅 760px 以下では下部タブ（FIELD / NEXT / GOAL / STEPS / OUT）で1項目ずつ表示する。盤面は画面に収まる大きさに縮む。
 
-- 盤面は指でなぞって塗る。PLACE は盤面に触れている間ミノが指に付いてきて、DROP / LOCK で確定する（離しただけでは確定しない）
+- 盤面は指でなぞって塗る。STAMP・SOLVE は盤面に触れている間ミノが指に付いてきて、DROP / LOCK で確定する（離しただけでは確定しない）
 - 操作パッドの ←→↓↑ は長押しで連続移動。NEXT は長押しで掴んで並べ替え（または MOVE ◀ / MOVE ▶）
 - スマホではファイルへの書き込みとテストプレイはできない。作り終えたら OUT の MARK READY を押し、PC で WRITE FILE する
 

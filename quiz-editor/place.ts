@@ -385,7 +385,6 @@ export class PlaceMode {
         const sim = this.sim();
         const esc = (s: string) => s.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]!));
 
-        for (const b of root.querySelectorAll<HTMLButtonElement>('[data-sub]')) b.classList.toggle('on', b.dataset.sub === this.sub);
         root.querySelector<HTMLElement>('#solve-box')!.hidden = this.sub !== 'solve';
         root.querySelector<HTMLElement>('#stamp-box')!.hidden = this.sub !== 'stamp';
 
