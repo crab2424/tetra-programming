@@ -33,7 +33,7 @@ interface GistJson {
     files: Record<string, { filename: string; content?: string; truncated?: boolean; raw_url: string } | null>;
 }
 
-async function request(token: string, method: string, path: string, opts: { body?: unknown; etag?: string | null; keepalive?: boolean } = {}): Promise<Response> {
+async function request(token: string, method: string, path: string, opts: { body?: unknown; etag?: string | null } = {}): Promise<Response> {
     const headers: Record<string, string> = {
         Accept: 'application/vnd.github+json',
         Authorization: `Bearer ${token}`,
@@ -46,7 +46,6 @@ async function request(token: string, method: string, path: string, opts: { body
         body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
         // GitHub の GET は max-age=60 が付くので、ブラウザのキャッシュは使わず ETag を自前で付ける
         cache: 'no-store',
-        keepalive: opts.keepalive,
     });
     if (res.status === 304 || res.ok) return res;
     const why = await errorMessage(res);
@@ -118,11 +117,10 @@ export async function getGist(token: string, gistId: string, etag: string | null
 
 /**
  * ファイルを書き換える。値が null のファイルは削除。書かなかったファイルはそのまま残る。
- * 戻り値は更新後の Gist 全体（keepalive 時はページが閉じる途中なので読まない＝null）
+ * 戻り値は更新後の Gist 全体
  */
-export async function patchGist(token: string, gistId: string, files: Record<string, string | null>, keepalive = false): Promise<GistSnapshot | null> {
+export async function patchGist(token: string, gistId: string, files: Record<string, string | null>): Promise<GistSnapshot> {
     const body = { files: Object.fromEntries(Object.entries(files).map(([k, v]) => [k, v === null ? null : { content: v }])) };
-    const res = await request(token, 'PATCH', `/gists/${gistId}`, { body, keepalive });
-    if (keepalive) return null;
+    const res = await request(token, 'PATCH', `/gists/${gistId}`, { body });
     return toSnapshot(await res.json() as GistJson, res.headers.get('ETag'));
 }

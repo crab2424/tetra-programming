@@ -5,16 +5,27 @@
 // ─────────────────────────────────────────────
 import qrcode from 'qrcode-generator';
 import {
-    type SyncEngine, type DraftStatus, type DraftEntry, type SyncState, DRAFT_STATUS_LABEL, guessDevice, encodeSyncHash,
+    type SyncEngine, type DraftEntry, type SyncState, guessDevice, encodeSyncHash, GIST_DRAFT_WARN,
 } from './sync.ts';
+import { type LocalDrafts, type LocalDraft, LOCAL_DRAFT_WARN, contentHash } from './local-drafts.ts';
+import type { EditorDoc } from './model.ts';
 import { canWriteFiles, readLocalSolutions, exportSolutionsFile } from './solutions.ts';
+import { toast } from './toast.ts';
 
 export interface SyncUiDeps {
     engine: SyncEngine;
-    currentDraftId: () => string | null;
-    describeDraft: (d: DraftEntry) => string;   // ファイルの問題と比べた変更（「手順のみ」など）
+    localDrafts: LocalDrafts;
+    currentKey: () => string;
+    /** ファイルの問題と比べた変更（「変更: 盤面」「手順のみ」など） */
+    describe: (d: EditorDoc, sourceId: string | null) => string;
+    /** ファイルの問題と比べた状態（問題一覧を読む前・新規は null） */
+    editKind: (d: EditorDoc, sourceId: string | null) => 'file' | 'edited' | 'solution' | 'new' | null;
+    /** 端末内の下書きと Gist の関係（SAVED / SAVED* / ↓ 端末 / 未保存） */
+    sendLabel: (l: LocalDraft) => string;
     openDraft: (id: string) => void;
-    status: (msg: string) => void;
+    openLocal: (key: string) => void;
+    discardLocal: (key: string) => void;
+    saveLocal: (key: string) => Promise<void>;
     afterSolutionsChanged: () => void;
 }
 
@@ -77,11 +88,15 @@ export function initSyncUi(deps: SyncUiDeps) {
             ? `${STATE_LABEL.limited} ${hhmm(engine.limitedUntil)}` : STATE_LABEL[engine.state];
         chip.dataset.state = engine.state;
         chip.title = engine.message || 'PC とスマホの同期（GitHub Gist）';
-        const ready = Object.values(engine.drafts()).filter(d => d.status === 'ready').length;
+        // バッジ = Gist の下書きの件数（PC で書き込み待ち）。多すぎる時は「!」で整理を促す
+        const remote = engine.enabled ? Object.keys(engine.drafts()).length : 0;
+        const local = deps.localDrafts.count();
+        const tooMany = remote > GIST_DRAFT_WARN || local > LOCAL_DRAFT_WARN;
         const badge = $('drafts-badge');
-        badge.hidden = ready === 0;
-        badge.textContent = String(ready);
-        badge.title = `PC で書き込み待ち: ${ready}件`;
+        badge.hidden = remote === 0 && !tooMany;
+        badge.textContent = tooMany ? `${remote}!` : String(remote);
+        badge.classList.toggle('err', tooMany);
+        badge.title = `Gist の下書き（PC で書き込み待ち）: ${remote}件・この端末の下書き: ${local}件${tooMany ? '\n多くなっています。DRAFTS で整理してください' : ''}`;
     }
 
     // ─── SYNC 画面 ───
@@ -154,11 +169,11 @@ export function initSyncUi(deps: SyncUiDeps) {
     async function connect(token: string, device: string, gistId?: string) {
         if (!token) { connectError = 'トークンを入れてください'; renderSync(); return; }
         connectError = '';
-        deps.status('GitHub に接続しています…');
+        toast('GitHub に接続しています…');
         try {
             await engine.connect(token, device, gistId);
             deps.afterSolutionsChanged();
-            deps.status(engine.state === 'synced' || engine.state === 'saving' ? '同期を開始しました' : engine.message);
+            toast(engine.state === 'synced' || engine.state === 'saving' ? '同期を開始しました' : engine.message);
         } catch (err) {
             console.error(err);
             connectError = `接続できませんでした: ${(err as Error).message}`;
@@ -191,12 +206,12 @@ export function initSyncUi(deps: SyncUiDeps) {
                 void (async () => {
                     try {
                         const map = await readLocalSolutions();
-                        if (!map) { deps.status('ローカルの解答ファイルを読めませんでした'); return; }
+                        if (!map) { toast('ローカルの解答ファイルを読めませんでした', 'error'); return; }
                         const n = await engine.importSolutions(map);
                         deps.afterSolutionsChanged();
-                        deps.status(n ? `${n}件の解答を Gist に取り込みました` : '取り込む解答はありませんでした（Gist の方が新しいか同じ）');
+                        toast(n ? `${n}件の解答を Gist に取り込みました` : '取り込む解答はありませんでした（Gist の方が新しいか同じ）');
                     } catch (err) {
-                        if ((err as Error).name !== 'AbortError') deps.status(`取り込めませんでした: ${(err as Error).message}`);
+                        if ((err as Error).name !== 'AbortError') toast(`取り込めませんでした: ${(err as Error).message}`, 'error');
                     }
                     renderSync();
                 })();
@@ -207,9 +222,9 @@ export function initSyncUi(deps: SyncUiDeps) {
                     if (!confirm(`Gist の解答 ${Object.keys(map).length}件で、ローカルの tsolutions.json を上書きします。よろしいですか？`)) return;
                     try {
                         const r = await exportSolutionsFile(map);
-                        deps.status(r.via === 'file' ? `${r.fileName} に書き出しました` : 'ダウンロードしました');
+                        toast(r.via === 'file' ? `${r.fileName} に書き出しました` : 'ダウンロードしました');
                     } catch (err) {
-                        if ((err as Error).name !== 'AbortError') deps.status(`書き出せませんでした: ${(err as Error).message}`);
+                        if ((err as Error).name !== 'AbortError') toast(`書き出せませんでした: ${(err as Error).message}`, 'error');
                     }
                 })();
                 break;
@@ -227,54 +242,104 @@ export function initSyncUi(deps: SyncUiDeps) {
     // 閉じたら QR（トークン入り）を消す
     syncDlg.addEventListener('close', () => { qrShown = false; $('sync-body').innerHTML = ''; });
 
-    // ─── DRAFTS 画面 ───
+    // ─── DRAFTS 画面（上: この端末で編集中の下書き / 下: Gist の下書き＝PC で書き込み待ち。save-notify §5.3） ───
     function renderDrafts() {
         const body = $('drafts-body');
-        if (!engine.enabled) {
-            body.innerHTML = '<p class="note">SYNC を設定すると、編集中の問題が PC とスマホで共有され、ここに一覧で出ます。</p>';
-            return;
-        }
-        const cur = deps.currentDraftId();
-        const list = Object.entries(engine.drafts()).sort((a, b) => b[1].updatedAt.localeCompare(a[1].updatedAt));
-        if (!list.length) { body.innerHTML = '<p class="note">下書きはまだありません。問題を編集すると自動で作られます。</p>'; return; }
-        const opts = (st: DraftStatus) => (Object.keys(DRAFT_STATUS_LABEL) as DraftStatus[])
-            .map(s => `<option value="${s}" ${s === st ? 'selected' : ''}>${DRAFT_STATUS_LABEL[s]}</option>`).join('');
-        body.innerHTML = `<ul class="draft-list">${list.map(([id, d]) => `
-            <li class="draft ${d.status}${id === cur ? ' current' : ''}" data-id="${esc(id)}">
-              <div class="draft-main">
-                <span class="draft-rule">${d.doc.rule.toUpperCase()}</span>
-                <b>${esc(d.doc.id || '(ID なし)')}</b> ${esc(d.doc.description || '')}
-                ${d.conflictOf ? '<span class="warn">競合コピー</span>' : ''}
-                ${id === cur ? '<span class="note">← 開いている</span>' : ''}
-              </div>
-              <div class="draft-meta note">${esc(d.device)} ・ ${esc(relTime(d.updatedAt))}${d.sourceId ? ` ・ 元: ${esc(d.sourceId)}` : ' ・ 新規'}${deps.describeDraft(d) ? ` ・ ${esc(deps.describeDraft(d))}` : ''}${engine.hasPending(id) ? ' ・ 未送信' : ''}</div>
+        const cur = deps.currentKey();
+        const locals = deps.localDrafts.all();
+        const remotes = engine.enabled ? Object.entries(engine.drafts()).sort((a, b) => b[1].updatedAt.localeCompare(a[1].updatedAt)) : [];
+        const localHashes = new Set(locals.map(([, l]) => contentHash(l.doc, l.sourceId)));
+        const warn = [
+            locals.length > LOCAL_DRAFT_WARN ? `この端末の下書きが ${locals.length}件あります。不要な物は DISCARD してください。` : '',
+            remotes.length > GIST_DRAFT_WARN ? `Gist の下書きが ${remotes.length}件あります。CLEAN UP で書き込み済みの物を整理してください。` : '',
+        ].filter(Boolean).join('<br>');
+        const head = (d: EditorDoc) => `<span class="draft-rule">${d.rule.toUpperCase()}</span><b>${esc(d.id || '(ID なし)')}</b> ${esc(d.description || '')}`;
+        const localHtml = locals.length ? `<ul class="draft-list">${locals.map(([key, l]) => {
+            const send = deps.sendLabel(l);
+            const sendCls = send === 'SAVED' ? 'saved' : send === 'SAVED*' ? 'changed' : send.startsWith('↓') ? 'incoming' : 'none';
+            return `
+            <li class="draft${key === cur ? ' current' : ''}" data-key="${esc(key)}">
+              <div class="draft-main">${head(l.doc)}
+                ${send ? `<span class="send ${sendCls}">${esc(send)}</span>` : ''}
+                ${key === cur ? '<span class="note">← 開いている</span>' : ''}</div>
+              <div class="draft-meta note">${esc(deps.describe(l.doc, l.sourceId))} ・ ${esc(relTime(l.updatedAt))}</div>
               <div class="row">
-                <select data-act="status" aria-label="状態">${opts(d.status)}</select>
-                <button type="button" data-act="open" ${id === cur ? 'disabled' : ''}>OPEN</button>
-                <button type="button" data-act="delete">DELETE</button>
+                <button type="button" data-act="open-local" ${key === cur ? 'disabled' : ''}>OPEN</button>
+                ${engine.enabled ? `<button type="button" data-act="save-local" ${send === 'SAVED' ? 'disabled' : ''} title="Gist に保存する">SAVE</button>` : ''}
+                <button type="button" data-act="discard" title="この端末の下書きを捨てる（Gist は消えない）">DISCARD</button>
               </div>
-            </li>`).join('')}</ul>
-            <p class="note">READY = スマホで作り終えて PC での書き込み待ち。WRITTEN = tdata/pdata.json に書き込み済み（WRITE FILE で自動的に付きます）。</p>`;
+            </li>`;
+        }).join('')}</ul>` : '<p class="note">この端末で編集中の下書きはありません（問題を編集すると自動で作られます）。</p>';
+        const remoteHtml = !engine.enabled
+            ? '<p class="note">SYNC を設定すると、SAVE した下書きが Gist に保存され、他の端末のここに出ます。</p>'
+            : remotes.length ? `<ul class="draft-list">${remotes.map(([id, d]) => `
+            <li class="draft remote" data-id="${esc(id)}">
+              <div class="draft-main">${head(d.doc)}
+                ${d.conflictOf ? '<span class="warn">別の下書き</span>' : ''}
+                ${d.status === 'written' ? '<span class="warn">WRITTEN（旧）</span>' : ''}
+                ${localHashes.has(contentHash(d.doc, d.sourceId)) ? '<span class="note">この端末と同じ</span>' : ''}</div>
+              <div class="draft-meta note">${esc(d.device)} ・ ${esc(relTime(d.updatedAt))} ・ ${esc(deps.describe(d.doc, d.sourceId))}</div>
+              <div class="row">
+                <button type="button" data-act="open">OPEN</button>
+                <button type="button" data-act="delete" title="Gist から消す（Gist の履歴には残る）">DELETE</button>
+              </div>
+            </li>`).join('')}</ul>` : '<p class="note">Gist に下書きはありません。</p>';
+        body.innerHTML = `
+            ${warn ? `<p class="warn-box">${warn}</p>` : ''}
+            <h3>THIS DEVICE <small>${locals.length}</small></h3>
+            ${localHtml}
+            <div class="row"><h3>GIST <small>${remotes.length}</small></h3><span class="spacer"></span>
+              ${engine.enabled ? `<button type="button" data-act="sync" title="Gist を読み直す">SYNC NOW</button>
+              <button type="button" data-act="cleanup" title="書き込み済み・ファイルと同じ・古い下書きをまとめて消す">CLEAN UP</button>` : ''}</div>
+            ${remoteHtml}
+            <p class="note">自動保存はこの端末の中だけです。Gist には SAVE（OUTPUT・Ctrl/⌘+Shift+S）を押した時だけ保存され、他の端末のここに出ます。
+              PC で WRITE FILE が成功すると、その問題の Gist の下書きは自動で消えます。</p>`;
     }
+
+    /** CLEAN UP の対象: ファイルと同じ（書き込み済み）・旧 WRITTEN・元の問題がファイルに無く 30 日以上前の物 */
+    function cleanupTargets(): [string, DraftEntry][] {
+        const old = Date.now() - 30 * 86400_000;
+        return Object.entries(engine.drafts()).filter(([, d]) => {
+            const k = deps.editKind(d.doc, d.sourceId);
+            return k === 'file' || d.status === 'written' || (k === 'new' && Date.parse(d.updatedAt) < old);
+        });
+    }
+
     $('drafts-body').addEventListener('click', e => {
         const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act]');
-        const id = btn?.closest<HTMLElement>('li.draft')?.dataset.id;
-        if (!btn || !id) return;
-        if (btn.dataset.act === 'open') { draftsDlg.close(); deps.openDraft(id); }
-        if (btn.dataset.act === 'delete') {
-            const d = engine.draft(id);
-            if (d && confirm(`下書き「${d.doc.id} ${d.doc.description}」を削除します（Gist の履歴からは戻せます）。よろしいですか？`)) {
-                engine.deleteDraft(id);
-                renderDrafts();
+        if (!btn) return;
+        const li = btn.closest<HTMLElement>('li.draft');
+        const key = li?.dataset.key;
+        const id = li?.dataset.id;
+        switch (btn.dataset.act) {
+            case 'open-local': if (key) { draftsDlg.close(); deps.openLocal(key); } break;
+            case 'save-local': if (key) void deps.saveLocal(key).then(renderDrafts); break;
+            case 'discard': if (key) { deps.discardLocal(key); renderDrafts(); } break;
+            case 'open': if (id) { draftsDlg.close(); deps.openDraft(id); } break;
+            case 'delete': {
+                const d = id ? engine.draft(id) : undefined;
+                if (id && d && confirm(`Gist の下書き「${d.doc.id || '(ID なし)'} ${d.doc.description}」を消します（Gist の履歴からは戻せます）。よろしいですか？`)) {
+                    void engine.deleteDrafts([id]).then(renderDrafts);
+                }
+                break;
+            }
+            case 'sync': void engine.syncNow().then(renderDrafts); break;
+            case 'cleanup': {
+                const list = cleanupTargets();
+                if (!list.length) { toast('整理する下書きはありません'); break; }
+                const lines = list.map(([, d]) => `・${d.doc.id || '(ID なし)'} ${d.doc.description}（${d.device}・${deps.describe(d.doc, d.sourceId)}）`).join('\n');
+                if (confirm(`次の ${list.length}件の下書きを Gist から消します（Gist の履歴には残ります）。\n${lines}`)) {
+                    void engine.deleteDrafts(list.map(([i]) => i)).then(() => { toast(`${list.length}件の下書きを整理しました`); renderDrafts(); });
+                }
+                break;
             }
         }
     });
-    $('drafts-body').addEventListener('change', e => {
-        const sel = e.target as HTMLSelectElement;
-        const id = sel.closest<HTMLElement>('li.draft')?.dataset.id;
-        if (sel.dataset.act === 'status' && id) { engine.setDraftStatus(id, sel.value as DraftStatus); renderDrafts(); }
+    $('btn-drafts').addEventListener('click', () => {
+        renderDrafts();
+        draftsDlg.showModal();
+        if (engine.enabled) void engine.syncNow();   // 開いた時に読み直す（結果は refresh で描き直される）
     });
-    $('btn-drafts').addEventListener('click', () => { renderDrafts(); draftsDlg.showModal(); });
 
     return {
         /** 同期の状態が変わった時に呼ぶ */

@@ -26,7 +26,7 @@
     <button type="button" id="btn-revert" class="m-menu" title="ファイルの内容（と保存済みの解答手順）に戻す。UNDO で取り消せます" hidden>REVERT</button>
     <button type="button" id="btn-new" class="m-menu">NEW</button>
     <button type="button" id="btn-paste" class="m-menu">PASTE JSON</button>
-    <button type="button" id="btn-drafts" title="同期中の下書き（PC とスマホで共有）">DRAFTS <span id="drafts-badge" class="badge" hidden></span></button>
+    <button type="button" id="btn-drafts" title="下書きの一覧（この端末で編集中の物・Gist に保存された物）">DRAFTS <span id="drafts-badge" class="badge" hidden></span></button>
     <span class="spacer"></span>
     <button type="button" id="btn-sync" class="sync-chip" title="PC とスマホの同期（GitHub Gist）">SYNC: OFF</button>
     <button type="button" id="btn-undo" title="元に戻す (Ctrl/⌘+Z)">UNDO</button>
@@ -219,7 +219,7 @@
         <label class="check">位置 <select id="write-pos" aria-label="書き込む位置"></select></label>
         <button type="button" id="btn-write-pick" title="書き込むファイルを選び直す">CHOOSE FILE</button>
         <span class="spacer"></span>
-        <button type="button" id="btn-ready" title="スマホで作った下書きを「PC で書き込み待ち」にする（DRAFTS で目立つ）" hidden>MARK READY</button>
+        <button type="button" id="btn-save-gist" title="この問題の下書きを Gist に保存する（他の端末の DRAFTS に出る＝PC で書き込み待ち）。Ctrl/⌘+Shift+S" hidden>SAVE</button>
         <button type="button" id="btn-test" title="編集中の問題を TETLABO で遊ぶ（新しいタブ・ファイルは変更しない）">TEST PLAY</button>
       </div>
       <p id="write-info" class="note"></p>
@@ -265,6 +265,15 @@
       <h2>DRAFTS</h2>
       <div id="drafts-body"></div>
       <div class="row end"><button value="close">CLOSE</button></div>
+    </form>
+  </dialog>
+
+  <!-- 選択肢（Gist の下書きと食い違った時など） -->
+  <dialog id="choice-dlg">
+    <form method="dialog">
+      <h2>CONFIRM</h2>
+      <p id="choice-msg"></p>
+      <div class="row end" id="choice-btns"></div>
     </form>
   </dialog>
 

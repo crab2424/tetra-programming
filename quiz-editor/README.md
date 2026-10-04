@@ -73,15 +73,21 @@ TOOLS の `[PAINT][STAMP][SOLVE]` で切り替える。盤面の上の帯と枠�
 2. エディタ右上の **SYNC** → トークンを貼って CONNECT（説明欄 `TETLABO quiz-editor sync` の Gist を探し、無ければ作る）
 3. スマホは SYNC → SHOW QR の QR コードを読む（`#sync=…` にトークンが入った URL。読み込むと URL から消える）
 
-- 問題を編集すると下書き（`draft-<id>.json`）が自動で作られ、編集が止まって 1.5 秒後・画面を隠した時に Gist へ送られる。
-  表示中は 10 秒ごと・画面に戻った時に取得し、開いている下書きが他の端末で更新されていれば読み込む
-- LEVELS から開いただけ（未編集）の問題は下書きにならない。その間に他の端末が同じ問題の下書きを作る・更新すると、自動でその下書きに切り替わる
-- 同じ下書きを両方で編集した場合は上書きせず、後から送った方を「競合コピー」として別に保存する
-- **DRAFTS** で一覧・切替・削除。スマホで作り終えたら OUTPUT の **MARK READY**（PC の DRAFTS に目立つ表示）。
-  WRITE FILE が成功すると自動で WRITTEN になる
+- **自動保存は端末の中だけ**（localStorage・問題ごとに1つ）。別の問題を開いても編集中の内容は残り、LEVELS に `●` が付く。
+  ファイルの内容と同じに戻すと（REVERT・WRITE FILE）その下書きは消える
+- Gist へは OUTPUT の **SAVE**（Ctrl/⌘+Shift+S）を押した時だけ保存する（`draft-<id>.json`・1問につき1つ）。
+  自動送信・一定間隔の取得はしない（GitHub の回数制限に当たらないように）。取得は起動時・画面に戻った時・DRAFTS を開いた時・SYNC NOW
+- 状態チップの横に `SAVED`（Gist と同じ）/ `SAVED*`（保存後に変更あり）/ `↓ iPhone`（他の端末の別の内容が届いている）。
+  届いた時はお知らせ（OPEN）と LEVELS の `↓` で知らせ、勝手には切り替えない
+- SAVE の時に他の端末が同じ問題を別の内容で保存していたら「上書きする / 別の下書きとして保存 / やめる」を選ぶ
+- **DRAFTS**: 上がこの端末の下書き（OPEN / SAVE / DISCARD）、下が Gist の下書き＝PC で書き込み待ち（OPEN / DELETE）。
+  WRITE FILE が成功するとその問題の Gist の下書きは自動で消える。CLEAN UP でファイルと同じ・旧 WRITTEN・元の問題が無く30日以上の物を整理。
+  Gist 20件・端末30件を超えると DRAFTS のバッジに `!`
+- GitHub の回数制限（403/429）はトークン無効と区別し、`SYNC: WAIT hh:mm` で待って自動で再開する
 - 同期中は解答手順の正本は Gist の `tsolutions.json`。ローカルファイルとは SYNC 画面の IMPORT LOCAL FILE / EXPORT TO FILE
   （SOLVE の EXPORT FILE も同じ）でやり取りする。同期しなければ今まで通りローカルファイルだけで動く
-- 実装: `gist.ts`（API）・`sync.ts`（キュー・マージ・ポーリング）・`sync-ui.ts`（画面）。設定は端末×オリジンごとの localStorage
+- 実装: `gist.ts`（API・回数制限の判定）・`sync.ts`（保存・取得・解答のマージ）・`local-drafts.ts`（端末内の下書き）・`sync-ui.ts`（画面）。設定は端末×オリジンごとの localStorage
+- お知らせは画面左下（スマホは下部タブの上）に重ねて出すトースト（`toast.ts`）。直近20件はトップバーの LOG で見られる
 
 ## スマホでの編集
 
@@ -89,7 +95,7 @@ TOOLS の `[PAINT][STAMP][SOLVE]` で切り替える。盤面の上の帯と枠�
 
 - 盤面は指でなぞって塗る。STAMP・SOLVE は盤面に触れている間ミノが指に付いてきて、DROP / LOCK で確定する（離しただけでは確定しない）
 - 操作パッドの ←→↓↑ は長押しで連続移動。NEXT は長押しで掴んで並べ替え（または MOVE ◀ / MOVE ▶）
-- スマホではファイルへの書き込みとテストプレイはできない。作り終えたら OUT の MARK READY を押し、PC で WRITE FILE する
+- スマホではファイルへの書き込みとテストプレイはできない。作り終えたら OUT の SAVE を押し、PC の DRAFTS から開いて WRITE FILE する
 
 ## テストプレイの仕組み
 

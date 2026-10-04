@@ -422,8 +422,6 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 #sync-qr-img svg { display: block; width: 100%; height: auto; }
 .draft-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto; }
 .draft { border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
-.draft.ready { border-color: var(--quiz); background: var(--quiz-soft); }
-.draft.written { opacity: 0.6; }
 .draft.current { outline: 1px solid var(--success); }
 .draft-rule { font-family: var(--font-orbitron); font-size: 10px; color: var(--quiz); margin-right: 4px; }
 .draft .warn { color: var(--warn); margin-left: 6px; }
@@ -537,7 +535,16 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 }
 .state-chip b { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; }
 .state-chip .chg { overflow: hidden; text-overflow: ellipsis; color: var(--text); }
-.state-chip .dev { color: var(--warn); }
+.state-chip .send, .draft .send { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; }
+.send.saved { color: var(--success); }
+.send.changed { color: var(--quiz); }
+.send.incoming { color: var(--warn); }
+.send.none { color: var(--text-dim); }
+#drafts-badge.err { background: var(--danger); }
+.warn-box { border: 1px solid var(--warn); border-radius: 6px; padding: 6px 8px; background: rgba(245, 197, 66, 0.08); font-size: 12px; margin: 0; }
+#drafts-body h3 { font-size: 11px; color: var(--quiz); margin: 4px 0 0; }
+#drafts-body h3 small { color: var(--text-dim); }
+#choice-dlg { width: min(480px, calc(100vw - 32px)); }
 .state-chip.file b { color: var(--success); }
 .state-chip.edited { border-color: var(--quiz); background: var(--quiz-soft); }
 .state-chip.edited b { color: var(--quiz); }
@@ -546,7 +553,7 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 .state-chip.new b { color: var(--text); }
 #btn-revert[hidden] { display: none !important; }
 @media (max-width: 760px) {
-  .state-chip .chg, .state-chip .dev { display: none; }
+  .state-chip .chg { display: none; }
   /* 上段（≡・ルール・DRAFTS・SYNC）を1行に保つため、状態は LEVELS の横へ。REVERT は ≡ メニューとお知らせから */
   #state-chip { order: 2; padding: 3px 6px; }
   #btn-revert { order: 2; }

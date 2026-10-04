@@ -19,7 +19,8 @@ import { KEY_HELP, isTextInput, isMod } from './keys.ts';
 import { PlaceMode, buildStampGrid } from './place.ts';
 import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
 import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, SOLUTION_PATH, exportSolutionsFile } from './solutions.ts';
-import { SyncEngine, type SyncEvent, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
+import { SyncEngine, type SyncEvent, type DraftEntry, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
+import { LocalDrafts, type LocalDraft, type SentMark, draftKey, contentHash } from './local-drafts.ts';
 import { initSyncUi } from './sync-ui.ts';
 import { getHandle, readText, writeText } from './fsa.ts';
 import { toast, dismissToasts, toastLog, onToastLog } from './toast.ts';
@@ -36,8 +37,7 @@ let levelsLoaded = false;
 
 let doc: EditorDoc = newDoc('tet');
 let sourceId: string | null = null;   // 既存問題から開いた場合の元 id（重複判定の除外・番号算出に使う）
-let cleanSnap = '';                    // 最後に開いた/新規作成した時点（未保存変更の確認用）
-let draftId: string | null = null;     // 同期中の下書きの id（最初に編集した時に作る。§14.3）
+let draftId: string = newDraftId();   // 下書きの id（端末内・Gist で共通。1 問につき 1 つ。save-notify §3）
 
 const ui = {
     selColor: 1,
@@ -59,7 +59,7 @@ let lastCommit = { key: '', t: 0 };
 function snap(): string { return JSON.stringify({ doc, sourceId, draftId }); }
 function restore(s: string) {
     const o = JSON.parse(s) as { doc: EditorDoc; sourceId: string | null; draftId?: string | null };
-    doc = o.doc; sourceId = o.sourceId; draftId = o.draftId ?? null;
+    doc = o.doc; sourceId = o.sourceId; draftId = o.draftId ?? newDraftId();
 }
 
 /**
@@ -111,58 +111,62 @@ function afterDocReplaced() {
     renderAll();
 }
 
-function isDirty(): boolean { return JSON.stringify(doc) !== cleanSnap; }
-
-/** 別の問題を開く（Undo 履歴は残すので誤操作でも戻せる） */
+/** 別の問題を開く（開いていた問題は端末内の下書きに残る。Undo 履歴も残すので誤操作でも戻せる） */
 function openDoc(d: EditorDoc, src: string | null, did: string | null = null) {
-    // 同期中の下書きは DRAFTS に残るので確認しない
-    const kept = sync.enabled && draftId !== null;
-    if (isDirty() && !kept && !confirm('編集中の内容は破棄されます（UNDO で戻せます）。よろしいですか？')) {
-        renderTopbar();
-        return;
-    }
-    if (kept) flushDraftToSync();
+    persistLocalNow();
+    hideNotice();
     undoStack.push(snap());
     redoStack.length = 0;
-    doc = d; sourceId = src; draftId = did;
-    cleanSnap = JSON.stringify(doc);
+    doc = d; sourceId = src; draftId = did ?? newDraftId();
     ui.nextCaret = nextLen();
     place.view = doc.steps.length;   // 続きから記録できるよう最後の手を表示
     afterDocReplaced();
 }
 
-// ─── 下書き自動保存（ブラウザ単位の利便機能。失っても困らない範囲） ───
-const DRAFT_KEY = 'tetlabo.quizEditor.draft';
+// ─── 自動保存（端末内の下書き。問題ごとに 1 つ。Gist へは SAVE を押した時だけ。save-notify §3） ───
+const localDrafts = new LocalDrafts();
+localDrafts.onError = () => errStatus('端末内に保存できませんでした（容量不足の可能性）。DRAFTS で不要な下書きを DISCARD してください');
 let draftTimer = 0;
 function saveDraftSoon() {
     clearTimeout(draftTimer);
-    draftTimer = window.setTimeout(() => {
-        try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ doc, sourceId, cleanSnap, draftId })); } catch { /* 保存不可でも動作に影響なし */ }
-        flushDraftToSync();
-    }, 300);
+    draftTimer = window.setTimeout(persistLocalNow, 300);
 }
-/** 開いている問題を同期の下書きに反映する（未編集の問題は下書きにしない。内容が同じなら何もしない） */
-function flushDraftToSync() {
-    if (!sync.enabled) return;
-    if (draftId === null) {
-        if (!isDirty()) return;
-        draftId = newDraftId();
-    }
-    sync.putDraft(draftId, doc, sourceId);
+function curDraftKey(): string { return draftKey(doc.rule, sourceId, draftId); }
+/** 何も入っていない新規の問題（下書きにしない） */
+function blankDoc(rule: Rule): EditorDoc {
+    const d = newDoc(rule);
+    if (d.cond.descriptionAuto) d.cond.description = autoCondDescription(rule, d.cond);
+    return d;
 }
-function loadDraft(): boolean {
-    try {
-        const raw = localStorage.getItem(DRAFT_KEY);
-        if (!raw) return false;
-        const o = JSON.parse(raw) as { doc: EditorDoc; sourceId: string | null; cleanSnap: string; draftId?: string | null };
-        if (!o.doc || !Array.isArray(o.doc.field)) return false;
-        o.doc.steps ??= [];
-        o.doc.solutionNote ??= '';
-        doc = o.doc; sourceId = o.sourceId; cleanSnap = o.cleanSnap ?? ''; draftId = o.draftId ?? null;
-        return true;
-    } catch {
-        return false;
+/** 下書きとして残すか（ファイルの内容のまま・空の新規は残さない。問題一覧を読む前は判断できないので残す） */
+function worthKeeping(): boolean {
+    if (!levelsLoaded) return true;
+    if (sourceId !== null && levelById(doc.rule, sourceId)) return editStateOf(doc, sourceId).kind !== 'file';
+    const blank = blankDoc(doc.rule);
+    return JSON.stringify(doc) !== JSON.stringify(blank) && JSON.stringify(doc) !== JSON.stringify(newDoc(doc.rule));
+}
+/** 開いている問題を端末内の下書きに書く（内容が同じなら書かない） */
+function persistLocalNow() {
+    clearTimeout(draftTimer);
+    const key = curDraftKey();
+    localDrafts.setCurrent({ key, rule: doc.rule, sourceId, draftId });
+    const prev = localDrafts.get(key);
+    const mine = prev?.draftId === draftId;
+    if (!worthKeeping()) {
+        if (prev && mine) { localDrafts.remove(key); syncUi?.refresh(); }
+        return;
     }
+    if (prev && mine && contentHash(prev.doc, prev.sourceId) === contentHash(doc, sourceId)) return;
+    localDrafts.put(key, {
+        doc: cloneDoc(doc), sourceId, draftId, updatedAt: new Date().toISOString(),
+        sent: mine ? prev.sent : undefined,
+    });
+    syncUi?.refresh();
+}
+/** 開いている問題の下書き（無ければ undefined） */
+function curLocal(): LocalDraft | undefined {
+    const l = localDrafts.get(curDraftKey());
+    return l?.draftId === draftId ? l : undefined;
 }
 
 // ─────────────────────────────────────────────
@@ -215,62 +219,174 @@ function coarsePointer(): boolean { return matchMedia('(pointer: coarse)').match
 const sync = new SyncEngine(ev => onSyncEvent(ev), () => onSyncState());
 let syncUi: { refresh(): void } | null = null;
 
-/** 下書きを開く（DRAFTS から） */
+/** Gist の下書きを開く（DRAFTS・届いたお知らせ・LEVELS から）。この端末の未保存の編集を置き換える時は確認する */
 function openDraft(id: string) {
     const d = sync.draft(id);
     if (!d) return;
+    const h = contentHash(d.doc, d.sourceId);
+    const local = localDrafts.get(draftKey(d.doc.rule, d.sourceId, id));
+    const localHash = local ? contentHash(local.doc, local.sourceId) : '';
+    const unsaved = local && localHash !== h && local.sent?.hash !== localHash;
+    if (unsaved && !confirm(`この端末で編集中の「${local.doc.id || '(ID なし)'}」を、${d.device} の下書きで置き換えます（UNDO で戻せます）。よろしいですか？`)) return;
     openDoc(cloneDoc(d.doc), d.sourceId, id);
+    persistLocalNow();
+    localDrafts.setSent(curDraftKey(), { rev: d.rev, hash: h });
+    renderAll();
     focusField();
+}
+/** 端末内の下書きを開く（DRAFTS から） */
+function openLocal(key: string) {
+    const l = localDrafts.get(key);
+    if (!l) return;
+    openDoc(cloneDoc(l.doc), l.sourceId, l.draftId);
+    focusField();
+}
+/** 端末内の下書きを捨てる（開いている問題ならファイルの内容・空の新規に戻す。Gist は触らない） */
+function discardLocal(key: string) {
+    const l = localDrafts.get(key);
+    if (!l) return;
+    if (!confirm(`この端末の下書き「${l.doc.id || '(ID なし)'} ${l.doc.description}」を捨てます${l.sourceId ? '（ファイルの内容に戻ります）' : ''}。Gist に保存した物は消えません。UNDO で戻せるのは開いている問題だけです。よろしいですか？`)) return;
+    if (key === curDraftKey()) {
+        const raw = levelById(l.doc.rule, l.sourceId);
+        openDoc(raw ? withSolution(docFromLevel(raw)) : newDoc(l.doc.rule), raw ? l.sourceId : null);
+    }
+    if (localDrafts.get(key)?.draftId === l.draftId) localDrafts.remove(key);
+    renderAll();
+    syncUi?.refresh();
+}
+
+// ─── Gist の下書きとの関係（SAVED / SAVED* / 届いた。save-notify §5） ───
+type SendKind = 'none' | 'saved' | 'changed' | 'incoming';
+interface SendState { kind: SendKind; id?: string; entry?: DraftEntry; }
+/** この問題に対応する Gist の下書き（同じ id、無ければ同じ問題の最新の物） */
+function remoteFor(rule: Rule, src: string | null, did: string): [string, DraftEntry] | undefined {
+    if (!sync.enabled) return undefined;
+    const own = sync.draft(did);
+    if (own) return [did, own];
+    if (src === null) return undefined;
+    return Object.entries(sync.drafts())
+        .filter(([, d]) => d.doc.rule === rule && d.sourceId === src)
+        .sort((a, b) => b[1].updatedAt.localeCompare(a[1].updatedAt))[0];
+}
+function sendStateOf(d: EditorDoc, src: string | null, did: string, sent: SentMark | undefined): SendState {
+    const r = remoteFor(d.rule, src, did);
+    if (!r) return { kind: 'none' };
+    const [id, entry] = r;
+    if (contentHash(entry.doc, entry.sourceId) === contentHash(d, src)) return { kind: 'saved', id, entry };
+    if (sent && id === did && entry.rev === sent.rev) return { kind: 'changed', id, entry };
+    return { kind: 'incoming', id, entry };
+}
+function curSendState(): SendState { return sendStateOf(doc, sourceId, draftId, curLocal()?.sent); }
+function fmtTime(iso: string): string { return iso.slice(5, 16).replace('-', '/').replace('T', ' '); }
+
+/** 開いている問題に、他の端末から別の内容の下書きが届いていたら知らせる（勝手には切り替えない。同じ物は1回だけ） */
+const announced = new Set<string>();
+function announceIncoming() {
+    const st = curSendState();
+    if (st.kind !== 'incoming' || !st.id || !st.entry) return;
+    const tag = `${st.id}:${st.entry.rev}`;
+    if (announced.has(tag)) return;
+    announced.add(tag);
+    const id = st.id;
+    toast(`${st.entry.device} から「${st.entry.doc.id || '(ID なし)'}」の下書きが届いています（${fmtTime(st.entry.updatedAt)}）`, 'warn',
+        { actions: [{ label: 'OPEN', title: 'その下書きを開く（UNDO で戻せます）', run: () => openDraft(id) }] });
+}
+
+/** 下書きを Gist に保存する（SAVE）。他の端末の保存と食い違う時は、上書き・別の下書き・やめる を選ぶ */
+async function saveToGist(key: string) {
+    if (!sync.enabled) { warnStatus('SYNC を設定すると、下書きを Gist に保存して PC とスマホで受け渡しできます'); return; }
+    if (key === curDraftKey()) persistLocalNow();
+    const l = localDrafts.get(key);
+    if (!l) { setStatus('ファイルの内容から変更が無いため、保存する物はありません'); return; }
+    const name = l.doc.id || '(ID なし)';
+    try {
+        await sync.refreshNow();
+    } catch (err) {
+        errStatus(`Gist に保存できませんでした: ${(err as Error).message}`);
+        return;
+    }
+    const h = contentHash(l.doc, l.sourceId);
+    let target = l.draftId;
+    let remote = sync.draft(target);
+    if (!remote && l.sourceId !== null) {
+        const o = remoteFor(l.doc.rule, l.sourceId, l.draftId);
+        if (o) [target, remote] = o;
+    }
+    if (remote && contentHash(remote.doc, remote.sourceId) === h) {
+        adoptSaved(key, l, target, { rev: remote.rev, hash: h });
+        setStatus(`「${name}」は Gist と同じ内容です（保存済み）`);
+        renderAll();
+        return;
+    }
+    let conflictOf: string | undefined;
+    const known = !!remote && !!l.sent && target === l.draftId && remote.rev === l.sent.rev;
+    if (remote && !known) {
+        const st = levelsLoaded && remote.sourceId !== null ? editStateOf(remote.doc, remote.sourceId) : null;
+        const what = st?.kind === 'edited' ? `（変更: ${st.changes.join('・')}）` : '';
+        const choice = await choose(
+            `「${name}」には ${remote.device} で ${fmtTime(remote.updatedAt)} に保存された別の内容の下書きが Gist にあります${what}。この端末の内容をどう保存しますか？`,
+            [['overwrite', '上書きする'], ['copy', '別の下書きとして保存'], ['cancel', 'やめる']]);
+        if (choice === 'copy') { conflictOf = target; target = newDraftId(); remote = undefined; }
+        else if (choice !== 'overwrite') return;
+    }
+    try {
+        const e = await sync.writeDraft(target, l.doc, l.sourceId, remote?.rev ?? 0, conflictOf);
+        adoptSaved(key, l, target, { rev: e.rev, hash: h });
+        setStatus(`「${name}」を Gist に保存しました（他の端末の DRAFTS に出ます）`);
+    } catch (err) {
+        errStatus(`Gist に保存できませんでした: ${(err as Error).message}`);
+    }
+    renderAll();
+}
+/** 保存した下書きの id と rev を端末内の下書きに記録する（保存先が別の id になったら付け替える） */
+function adoptSaved(key: string, l: LocalDraft, target: string, sent: SentMark) {
+    if (target === l.draftId) { localDrafts.setSent(key, sent); return; }
+    const nkey = draftKey(l.doc.rule, l.sourceId, target);
+    const cur = localDrafts.get(key) ?? l;   // 保存の待ち時間に編集が続いていたらその内容を残す
+    if (nkey !== key) localDrafts.remove(key);
+    localDrafts.put(nkey, { ...cur, draftId: target, sent });
+    if (draftId === l.draftId) { draftId = target; localDrafts.setCurrent({ key: curDraftKey(), rule: doc.rule, sourceId, draftId }); }
+}
+
+/** 選択肢を出して選ばせる（ダイアログ。Esc・閉じるは 'cancel'） */
+function choose(msg: string, opts: [string, string][]): Promise<string> {
+    const dlg = $<HTMLDialogElement>('choice-dlg');
+    $('choice-msg').textContent = msg;
+    $('choice-btns').innerHTML = opts.map(([v, label]) => `<button value="${escapeHtml(v)}">${escapeHtml(label)}</button>`).join('');
+    dlg.returnValue = '';
+    dlg.showModal();
+    // ボタンの click で直接決める（close イベントは画面が非表示の間は遅れて届くことがあるため、閉じる操作の保険にだけ使う）
+    return new Promise(res => {
+        let done = false;
+        const finish = (v: string) => {
+            if (done) return;
+            done = true;
+            $('choice-btns').removeEventListener('click', onClick);
+            res(v);
+        };
+        const onClick = (e: Event) => {
+            const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
+            if (!b) return;
+            e.preventDefault();
+            dlg.close(b.value);
+            finish(b.value);
+        };
+        $('choice-btns').addEventListener('click', onClick);
+        dlg.addEventListener('close', () => finish(dlg.returnValue || 'cancel'), { once: true });
+    });
 }
 
 function onSyncState() {
     if (sync.enabled) { solutions = sync.solutions(); solutionsLoaded = true; }
     syncUi?.refresh();
     if (ui.mode === 'place') renderPlace();
+    renderTopbar();       // LEVELS の ●・↓
+    renderEditState();    // SAVED / SAVED* / ↓ 端末
     renderOutput();
 }
 
 function onSyncEvent(ev: SyncEvent) {
-    // まだ編集していない既存問題を開いている時に、他の端末が同じ問題の下書きを作った・更新した → その下書きに切り替えて追従する
-    // （LEVELS から開いただけでは下書きは作られないので、そのままだと別々の問題として扱われ、画面に反映されない）
-    if (draftId === null && sourceId !== null && !isDirty()) {
-        const hit = ev.remoteUpdated
-            .map(id => [id, sync.draft(id)] as const)
-            .filter(([, d]) => d && d.sourceId === sourceId && d.doc.rule === doc.rule && d.status !== 'written')
-            .sort((a, b) => b[1]!.updatedAt.localeCompare(a[1]!.updatedAt))[0];
-        if (hit) {
-            const [id, d] = hit;
-            undoStack.push(snap());
-            redoStack.length = 0;
-            doc = cloneDoc(d!.doc); draftId = id;
-            place.view = Math.min(place.view, doc.steps.length);
-            afterDocReplaced();
-            const msg = `他の端末（${d!.device}）で編集中の「${sourceId}」の下書きに切り替えました（UNDO で戻せます）`;
-            setStatus(msg);
-            showNotice(msg, true);
-        }
-    }
-    // 開いている下書きが他の端末で更新された（この端末に未送信の変更が無ければ読み込む。あれば送信時に競合コピーになる）
-    if (draftId && ev.remoteUpdated.includes(draftId) && !sync.hasPending(draftId)) {
-        const d = sync.draft(draftId);
-        if (!d) warnStatus('開いている下書きは他の端末で削除されました（編集を続けると作り直されます）');
-        else if (JSON.stringify([d.doc, d.sourceId]) !== JSON.stringify([doc, sourceId])) {
-            undoStack.push(snap());
-            redoStack.length = 0;
-            doc = cloneDoc(d.doc); sourceId = d.sourceId;
-            place.view = Math.min(place.view, doc.steps.length);
-            afterDocReplaced();
-            setStatus(`他の端末（${d.device}）の変更を読み込みました（UNDO で戻せます）`);
-            showNotice(`他の端末（${d.device}）の変更を読み込みました（UNDO で戻せます）`, false);
-        }
-    }
-    for (const c of ev.conflicts) {
-        if (c.from === draftId) {
-            draftId = c.to;
-            saveDraftSoon();
-            warnStatus('他の端末でも同じ下書きが編集されていたため、こちらの変更を「競合コピー」として別に保存しました（DRAFTS で確認）');
-        }
-    }
+    announceIncoming();
     if (ev.skippedSolutions.length) warnStatus(`他の端末の方が新しかったため保存しなかった解答: ${ev.skippedSolutions.join(', ')}`);
     onSyncState();
 }
@@ -324,13 +440,16 @@ function renderEditState() {
     chip.hidden = !levelsLoaded;
     if (!levelsLoaded) return;
     const st = editStateOf(doc, sourceId);
-    const dr = sync.enabled && draftId ? sync.draft(draftId) : undefined;
-    const other = dr && sync.config && dr.device !== sync.config.device ? dr.device : '';
+    const send = curSendState();
+    const sendLabel = send.kind === 'saved' ? 'SAVED' : send.kind === 'changed' ? 'SAVED*' : send.kind === 'incoming' ? `↓ ${send.entry!.device}` : '';
+    const sendTitle = send.kind === 'saved' ? 'Gist の下書きと同じ内容です'
+        : send.kind === 'changed' ? 'Gist に保存した後に変更しています（もう一度 SAVE すると反映されます）'
+        : send.kind === 'incoming' ? `${send.entry!.device} で保存された別の内容の下書きが Gist にあります（DRAFTS から開けます）` : '';
     chip.className = `state-chip ${st.kind}`;
     chip.innerHTML = `<b>${EDIT_KIND_LABEL[st.kind]}</b>` +
         (st.kind === 'edited' ? `<span class="chg">${escapeHtml(st.changes.join('・'))}</span>` : '') +
-        (other ? `<span class="dev">DRAFT · ${escapeHtml(other)}</span>` : '');
-    chip.title = EDIT_KIND_TITLE[st.kind] + (other ? `\n最後に ${other} で編集された下書きを表示しています` : '');
+        (sendLabel ? `<span class="send ${send.kind}">${escapeHtml(sendLabel)}</span>` : '');
+    chip.title = EDIT_KIND_TITLE[st.kind] + (sendTitle ? `\n${sendTitle}` : '');
     $('btn-revert').hidden = st.kind === 'file' || st.kind === 'new';
 }
 
@@ -342,7 +461,6 @@ function revertToFile() {
     if (!confirm(`「${sourceId}」をファイルの内容に戻します（変更: ${st.changes.join('・') || 'なし'}）。UNDO で取り消せます。よろしいですか？`)) return;
     const d = withSolution(docFromLevel(raw));
     commit(() => { doc = d; });
-    cleanSnap = JSON.stringify(doc);
     place.view = doc.steps.length;
     afterDocReplaced();
     hideNotice();
@@ -350,14 +468,15 @@ function revertToFile() {
 }
 
 // ─── 閉じるまで残るお知らせ（前回の編集の復元など）。REVERT を付けられる ───
-const REVERT_MARK = '\u200b';   // REVERT 付きのお知らせの目印（ファイルに戻したら閉じる）
+const NOTICE_MARK = '\u200b';   // この種類のお知らせの目印（別の問題を開いた・ファイルに戻したら閉じる）
 function showNotice(msg: string, withRevert: boolean) {
-    toast(withRevert ? msg + REVERT_MARK : msg, 'warn', {
+    hideNotice();
+    toast(msg + NOTICE_MARK, 'warn', {
         sticky: true,
         actions: withRevert ? [{ label: 'REVERT', title: 'ファイルの内容に戻す（UNDO で取り消せます）', run: revertToFile }] : [],
     });
 }
-function hideNotice() { dismissToasts(m => m.endsWith(REVERT_MARK)); }
+function hideNotice() { dismissToasts(m => m.endsWith(NOTICE_MARK)); }
 
 /** 解答ファイルに保存済みの内容と一致するか */
 function solutionSaved(): boolean {
@@ -452,7 +571,7 @@ function renderTopbar() {
         opts.push(`<optgroup label="${rule.toUpperCase()}">`);
         levels[rule].forEach((l, i) => {
             const stars = typeof l.diff === 'number' ? ' ' + '★'.repeat(Math.round(l.diff)) : '';
-            opts.push(`<option value="${rule}:${i}">${i + 1}. ${escapeHtml(String(l.id))}  ${escapeHtml(String(l.description ?? ''))}${stars}</option>`);
+            opts.push(`<option value="${rule}:${i}">${levelMark(rule, String(l.id))}${i + 1}. ${escapeHtml(String(l.id))}  ${escapeHtml(String(l.description ?? ''))}${stars}</option>`);
         });
         opts.push('</optgroup>');
     }
@@ -462,6 +581,18 @@ function renderTopbar() {
     sel.value = idx >= 0 ? `${doc.rule}:${idx}` : '';
     $<HTMLButtonElement>('btn-undo').disabled = undoStack.length === 0;
     $<HTMLButtonElement>('btn-redo').disabled = redoStack.length === 0;
+}
+
+/** LEVELS の印: ● = この端末に編集中の下書きがある、↓ = 他の端末の下書きが Gist に届いている */
+function levelMark(rule: Rule, id: string): string {
+    const local = localDrafts.get(draftKey(rule, id, ''));
+    const r = remoteFor(rule, id, local?.draftId ?? '');
+    let incoming = false;
+    if (r) {
+        const h = contentHash(r[1].doc, r[1].sourceId);
+        incoming = !local || (contentHash(local.doc, local.sourceId) !== h && !(local.sent && r[0] === local.draftId && r[1].rev === local.sent.rev));
+    }
+    return (local ? '● ' : '') + (incoming ? '↓ ' : '');
 }
 
 function renderInfo() {
@@ -814,11 +945,11 @@ function renderOutput() {
     $<HTMLButtonElement>('btn-download').disabled = hasError;
     $<HTMLTextAreaElement>('out-json').value = outputText();
     for (const id of ['btn-write', 'btn-test']) $<HTMLButtonElement>(id).disabled = hasError;
-    const ready = $<HTMLButtonElement>('btn-ready');
-    ready.hidden = !sync.enabled;
-    const isReady = draftId !== null && sync.draft(draftId)?.status === 'ready';
-    ready.textContent = isReady ? 'UNMARK READY' : 'MARK READY';
-    ready.classList.toggle('on', isReady);
+    const save = $<HTMLButtonElement>('btn-save-gist');
+    save.hidden = !sync.enabled;
+    const send = curSendState().kind;
+    save.textContent = send === 'saved' ? 'SAVED' : 'SAVE';
+    save.classList.toggle('on', !!curLocal() && send !== 'saved');
     renderWritePos();
 }
 
@@ -839,8 +970,8 @@ function renderWritePos() {
     const file = doc.rule === 'tet' ? 'tdata.json' : 'pdata.json';
     $('write-info').textContent = !canWriteFiles()
         ? 'ファイルへの直接書き込みは Chrome / Edge のみ対応です（COPY JSON を使ってください）'
-        : `${file} に${src >= 0 ? `「${sourceId}」を置き換えて` : '新しい問題として'}書き込みます${isDirty() ? '（未書き込みの変更あり）' : ''}`;
-    $('write-info').classList.toggle('warn', isDirty());
+        : `${file} に${src >= 0 ? `「${sourceId}」を置き換えて` : '新しい問題として'}書き込みます${editStateOf(doc, sourceId).kind === 'edited' ? '（未書き込みの変更あり）' : ''}`;
+    $('write-info').classList.toggle('warn', editStateOf(doc, sourceId).kind === 'edited');
 }
 
 function outputText(): string {
@@ -1277,13 +1408,16 @@ $<HTMLSelectElement>('level-select').addEventListener('change', e => {
     const [rule, i] = v.split(':') as [Rule, string];
     const raw = levels[rule][Number(i)];
     if (raw) {
-        // この問題の書き込み前の下書きがあれば、そちらを開くか聞く
+        // この端末に編集中の下書きがあればその続きを開く。他の端末の下書きが届いていれば、そちらを開くか聞く
         const id = String(raw.id);
-        const found = Object.entries(sync.drafts())
-            .filter(([did, d]) => did !== draftId && d.sourceId === id && d.doc.rule === rule && d.status !== 'written')
-            .sort((a, b) => b[1].updatedAt.localeCompare(a[1].updatedAt))[0];
-        if (found && confirm(`「${id}」には書き込み前の下書きがあります（${found[1].device}・${found[1].updatedAt.slice(0, 16).replace('T', ' ')}）。下書きを開きますか？\n（キャンセルでファイルの内容を開きます）`)) openDraft(found[0]);
-        else openDoc(withSolution(docFromLevel(raw)), id);
+        const local = localDrafts.get(draftKey(rule, id, ''));
+        const incoming = levelMark(rule, id).includes('↓') ? remoteFor(rule, id, local?.draftId ?? '') : undefined;
+        if (incoming && confirm(`「${id}」には ${incoming[1].device} で保存された下書きが Gist にあります（${fmtTime(incoming[1].updatedAt)}）。そちらを開きますか？\n（キャンセルで${local ? 'この端末の編集中の内容' : 'ファイルの内容'}を開きます）`)) openDraft(incoming[0]);
+        else if (local) {
+            openDoc(cloneDoc(local.doc), local.sourceId, local.draftId);
+            const st = editStateOf(doc, sourceId);
+            showNotice(`「${id}」はこの端末で編集中の内容を開きました（変更: ${st.changes.join('・') || 'なし'}）`, true);
+        } else openDoc(withSolution(docFromLevel(raw)), id);
     }
     focusField();
 });
@@ -1348,9 +1482,19 @@ async function writeLevelsFile(forcePick: boolean) {
 
         await writeText(h, plan.text);
         levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
+        const oldKey = curDraftKey();
+        const oldSrc = sourceId;
         sourceId = doc.id;
-        cleanSnap = JSON.stringify(doc);
-        if (sync.enabled && draftId) { flushDraftToSync(); sync.setDraftStatus(draftId, 'written'); }
+        // 書き込んだので受け渡しは終わり: この問題の Gist の下書き（同じ id か、書いた内容と同じ物）を消す。Gist の履歴には残る
+        if (sync.enabled) {
+            const written = buildLevel(doc);
+            const ids = Object.entries(sync.drafts())
+                .filter(([id, d]) => id === draftId || (d.doc.rule === doc.rule && (d.sourceId === oldSrc || d.sourceId === doc.id) && levelChanges(buildLevel(d.doc), written).length === 0))
+                .map(([id]) => id);
+            if (ids.length) void sync.deleteDrafts(ids).then(() => renderAll());
+        }
+        if (oldKey !== curDraftKey()) localDrafts.remove(oldKey);
+        persistLocalNow();   // ファイルと同じになったので端末内の下書きも消える（手順だけ違えば残る）
         setStatus(`${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`);
     } catch (err) {
         if ((err as Error).name === 'AbortError') return;   // ファイル選択をキャンセル
@@ -1376,17 +1520,8 @@ $('btn-test').addEventListener('click', () => {
     // 同じ名前のタブを使い回す（2回目以降はそのタブが新しい問題で読み込み直される）
     window.open('/?quizTest=1', 'tetlabo-quiz-test');
 });
-// 下書きを「PC で書き込み待ち」にする／戻す
-$('btn-ready').addEventListener('click', () => {
-    if (!sync.enabled) return;
-    draftId ??= newDraftId();
-    flushDraftToSync();
-    const isReady = sync.draft(draftId)?.status === 'ready';
-    sync.putDraft(draftId, doc, sourceId, isReady ? 'editing' : 'ready');
-    setStatus(isReady ? '「書き込み待ち」を外しました' : '「PC で書き込み待ち」にしました（PC の DRAFTS に表示されます）');
-    saveDraftSoon();
-    renderOutput();
-});
+// 下書きを Gist に保存する（他の端末の DRAFTS に出る＝PC で書き込み待ち）
+$('btn-save-gist').addEventListener('click', () => void saveToGist(curDraftKey()));
 $('in-lead-comma').addEventListener('change', renderOutput);
 $('btn-download').addEventListener('click', () => {
     if (lastIssues.some(i => i.level === 'error')) return;
@@ -1570,6 +1705,7 @@ document.addEventListener('keydown', e => {
         return;
     }
     if (isMod(e) && k === 'y') { if (!text) { e.preventDefault(); redo(); } return; }
+    if (isMod(e) && k === 's' && e.shiftKey) { e.preventDefault(); void saveToGist(curDraftKey()); return; }
     if (isMod(e) && k === 's') { e.preventDefault(); void copyJson(); return; }
     if (isMod(e)) return;
 
@@ -1664,29 +1800,65 @@ $('hold-box').addEventListener('click', () => {
 
 loadImages(() => { renderField(); renderPalette(); renderNext(); renderPreview(); buildStampGrid($('stamp-grid')); });
 buildStampGrid($('stamp-grid'));
-const restored = loadDraft();
-if (!restored) cleanSnap = JSON.stringify(doc);
+const restored = restoreOnBoot();
 ui.nextCaret = nextLen();
 place.view = doc.steps.length;
 renderAll();
 void loadLevels().then(() => {
     levelsLoaded = true;
+    // 前回はファイルの内容のまま開いていた → その問題をファイルから開き直す
+    const cur = localDrafts.current();
+    if (restored === 'file' && cur && cur.sourceId !== null) {
+        const raw = levelById(cur.rule, cur.sourceId);
+        if (raw) { doc = withSolution(docFromLevel(raw)); sourceId = cur.sourceId; draftId = cur.draftId; ui.nextCaret = nextLen(); place.view = doc.steps.length; afterDocReplaced(); }
+    }
     renderAll();
     // 前回の編集を黙って復元しない（ファイルの内容だと思って続けないように）
-    if (restored) {
+    if (restored === 'draft') {
         const st = editStateOf(doc, sourceId);
         const name = doc.id || '(ID なし)';
-        if (st.kind === 'edited' || st.kind === 'solution') showNotice(`前回の編集を復元しました（${name}・変更: ${st.changes.join('・')}）`, true);
-        else if (st.kind === 'new') showNotice(`前回の編集を復元しました（${name}・新しい問題）`, false);
+        if (st.kind === 'edited' || st.kind === 'solution') showNotice(`前回の編集を開きました（${name}・変更: ${st.changes.join('・')}）`, true);
+        else if (st.kind === 'new') showNotice(`前回の編集を開きました（${name}・新しい問題）`, false);
     }
 });
 $('btn-revert').addEventListener('click', revertToFile);
+
+/**
+ * 起動時に前回の問題を開く。端末内の下書きがあればそれ（'draft'）、無ければ問題一覧を読んだ後にファイルから開く（'file'）。
+ * 旧版の保存形式（開いている 1 問だけ・自動送信の未送信キュー）は端末内の下書きへ移す
+ */
+function restoreOnBoot(): 'draft' | 'file' | null {
+    const legacy = localDrafts.takeLegacy();
+    if (legacy) {
+        const did = legacy.draftId ?? newDraftId();
+        legacy.doc.steps ??= [];
+        legacy.doc.solutionNote ??= '';
+        const key = draftKey(legacy.doc.rule, legacy.sourceId, did);
+        if (!localDrafts.get(key)) localDrafts.put(key, { doc: legacy.doc, sourceId: legacy.sourceId, draftId: did, updatedAt: new Date().toISOString() });
+        localDrafts.setCurrent({ key, rule: legacy.doc.rule, sourceId: legacy.sourceId, draftId: did });
+    }
+    for (const [id, e] of sync.takeLegacyDrafts()) {
+        const key = draftKey(e.doc.rule, e.sourceId, id);
+        if (!localDrafts.get(key)) localDrafts.put(key, { doc: e.doc, sourceId: e.sourceId, draftId: id, updatedAt: e.updatedAt || new Date().toISOString() });
+    }
+    const cur = localDrafts.current();
+    if (!cur) return null;
+    const l = localDrafts.get(cur.key);
+    if (l) {
+        doc = cloneDoc(l.doc); sourceId = l.sourceId; draftId = l.draftId;
+        doc.steps ??= [];
+        doc.solutionNote ??= '';
+        return 'draft';
+    }
+    if (cur.sourceId !== null) { doc = newDoc(cur.rule); draftId = cur.draftId; return 'file'; }
+    return null;
+}
 // ─── お知らせの履歴（LOG。トーストは消えるので後から読めるように） ───
 const logDlg = $<HTMLDialogElement>('log-dlg');
 function renderLog() {
     const list = toastLog();
     $('log-body').innerHTML = list.length
-        ? `<ul class="log-list">${list.map(e => `<li class="${e.kind}"><time>${String(e.at.getHours()).padStart(2, '0')}:${String(e.at.getMinutes()).padStart(2, '0')}:${String(e.at.getSeconds()).padStart(2, '0')}</time> ${escapeHtml(e.msg.replace(REVERT_MARK, ''))}</li>`).join('')}</ul>`
+        ? `<ul class="log-list">${list.map(e => `<li class="${e.kind}"><time>${String(e.at.getHours()).padStart(2, '0')}:${String(e.at.getMinutes()).padStart(2, '0')}:${String(e.at.getSeconds()).padStart(2, '0')}</time> ${escapeHtml(e.msg.replace(NOTICE_MARK, ''))}</li>`).join('')}</ul>`
         : '<p class="note">お知らせはまだありません。</p>';
 }
 onToastLog(() => { if (logDlg.open) renderLog(); });
@@ -1728,14 +1900,23 @@ $('btn-test').hidden = coarsePointer();
 
 syncUi = initSyncUi({
     engine: sync,
-    currentDraftId: () => draftId,
-    describeDraft: d => {
-        if (!levelsLoaded || d.sourceId === null) return '';
-        const st = editStateOf(d.doc, d.sourceId);
-        return st.kind === 'edited' ? `変更: ${st.changes.join('・')}` : st.kind === 'solution' ? '手順のみ' : st.kind === 'file' ? '変更なし' : '';
+    localDrafts,
+    currentKey: () => curDraftKey(),
+    describe: (d, src) => {
+        if (src === null) return '新規';
+        if (!levelsLoaded) return '';
+        const st = editStateOf(d, src);
+        return st.kind === 'edited' ? `変更: ${st.changes.join('・')}` : st.kind === 'solution' ? '手順のみ' : st.kind === 'file' ? 'ファイルと同じ' : '元の問題がファイルに無い';
+    },
+    editKind: (d, src) => levelsLoaded && src !== null ? editStateOf(d, src).kind : null,
+    sendLabel: l => {
+        const st = sendStateOf(l.doc, l.sourceId, l.draftId, l.sent);
+        return st.kind === 'saved' ? 'SAVED' : st.kind === 'changed' ? 'SAVED*' : st.kind === 'incoming' ? `↓ ${st.entry!.device}` : sync.enabled ? '未保存' : '';
     },
     openDraft,
-    status: msg => setStatus(msg),
+    openLocal,
+    discardLocal,
+    saveLocal: key => saveToGist(key),
     afterSolutionsChanged: () => onSyncState(),
 });
 // QR コードから開かれた（#sync=…）なら、その設定で接続する。トークンが URL に残らないよう即座に消す
@@ -1743,11 +1924,12 @@ const fromQr = decodeSyncHash(location.hash);
 if (fromQr) {
     history.replaceState(null, '', location.pathname + location.search);
     void sync.connect(fromQr.token, sync.config?.device ?? guessDevice(), fromQr.gistId)
-        .then(() => errStatus(sync.state === 'auth' || sync.state === 'error' ? sync.message : '同期の設定をしました'), err => errStatus(`同期の設定に失敗しました: ${(err as Error).message}`));
+        .then(() => setStatus(sync.state === 'auth' || sync.state === 'error' ? sync.message : '同期の設定をしました'), err => errStatus(`同期の設定に失敗しました: ${(err as Error).message}`));
 } else if (sync.enabled) {
     sync.start();
 }
 onSyncState();
+announceIncoming();   // 前回取得した Gist の内容（キャッシュ）で分かる分
 void fetchSolutions().then(m => {
     if (sync.enabled) return;   // 同期中は Gist の解答が正本
     solutionsLoaded = m !== null;

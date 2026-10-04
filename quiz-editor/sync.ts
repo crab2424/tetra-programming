@@ -1,30 +1,27 @@
 // ─────────────────────────────────────────────
 // sync.ts
-// PC とスマホの同期（非公開 Gist。設計書 §14.3）。
+// PC とスマホの受け渡し（非公開 Gist。旧設計 §14.3 → save-notify §3 で手動保存に変更）。
 //
 // Gist のファイル構成:
-//   draft-<draftId>.json … 編集中の問題 1 件（DraftEntry）。下書きごとに別ファイルなので、
-//                          別の下書きを同時に保存しても互いに上書きしない
+//   draft-<draftId>.json … 下書き 1 件（DraftEntry）。**SAVE を押した時だけ**書く。1 問につき 1 つ
 //   tsolutions.json      … 解答手順（ローカルの source_assets/quizlevels/tsolutions.json と同じ形式）
 //
-// 端末内の変更はまずキュー（localStorage）に積み、少し待ってから Gist へ送る。
-// 送る直前に Gist を読み直し、同じ下書きを他の端末が先に更新していたら上書きせず「競合コピー」として別に保存する。
+// 編集の自動保存は端末内（local-drafts.ts）だけ。Gist は自動では書かない（回数制限に当たらないように）。
+// 取得は起動時・画面に戻った時・DRAFTS を開いた時・SYNC NOW の時だけ（一定間隔の取得はしない）。
+// 解答の保存と下書きの削除は、送れなかった時に備えてキュー（localStorage）に積み、次の通信で送り直す。
 // ─────────────────────────────────────────────
 import type { EditorDoc } from './model.ts';
 import { type SolutionMap, type SolutionEntry, serializeSolutions } from './solutions.ts';
 import { findOrCreateGist, getGist, patchGist, GistAuthError, GistNotFoundError, GistRateLimitError, type GistSnapshot } from './gist.ts';
 
-export type DraftStatus = 'editing' | 'ready' | 'written';
-export const DRAFT_STATUS_LABEL: Record<DraftStatus, string> = { editing: 'EDITING', ready: 'READY', written: 'WRITTEN' };
-
 export interface DraftEntry {
     doc: EditorDoc;
     sourceId: string | null;   // 既存問題から開いた場合の元 id（WRITE FILE の置換先）
-    status: DraftStatus;       // editing=編集中 / ready=PC で書き込み待ち / written=書込済み
     rev: number;               // Gist に保存するたびに +1
     updatedAt: string;         // ISO
-    device: string;            // 最後に保存した端末
-    conflictOf?: string;       // 競合コピーの場合、元の下書きの id
+    device: string;            // 保存した端末
+    conflictOf?: string;       // 「別の下書きとして保存」した場合、元の下書きの id
+    status?: string;           // 旧形式（editing/ready/written）。読むだけで、もう書かない
 }
 
 export interface SyncConfig { token: string; gistId: string; device: string; }
@@ -32,7 +29,6 @@ export type SyncState = 'off' | 'synced' | 'saving' | 'offline' | 'error' | 'aut
 
 export interface SyncEvent {
     remoteUpdated: string[];                      // 他の端末で更新・削除された下書き
-    conflicts: { from: string; to: string }[];    // 競合コピーを作った（from の変更を to として保存）
     skippedSolutions: string[];                   // 他の端末の方が新しかったため保存しなかった解答
 }
 
@@ -41,11 +37,10 @@ const QUEUE_KEY = 'tetlabo.quizEditor.syncQueue';
 const CACHE_KEY = 'tetlabo.quizEditor.syncCache';
 export const SOLUTIONS_FILE = 'tsolutions.json';
 const DRAFT_RE = /^draft-([A-Za-z0-9_-]+)\.json$/;
-// 編集が止まって 1.5 秒で送り、表示中は 10 秒ごとに取りに行く（ほぼリアルタイム）。
-// 取得は ETag 付きなので変化が無ければ 304 で、GitHub のレート制限（5000回/時）にも数えられない
-const PUSH_DELAY = 1500;
-const POLL_INTERVAL = 10000;
-const KEEPALIVE_LIMIT = 60000;   // fetch keepalive の本文上限（64KB）より少し小さく
+/** 画面に戻った時の取得は、前回からこれ以上たっている時だけ */
+const REFRESH_MIN_INTERVAL = 30000;
+/** Gist の下書きがこれを超えたら DRAFTS で整理を促す（自動では消さない） */
+export const GIST_DRAFT_WARN = 20;
 
 export function draftFileName(id: string): string { return `draft-${id}.json`; }
 export function newDraftId(): string {
@@ -65,11 +60,12 @@ export function guessDevice(): string {
 // 純粋な処理（テストしやすいよう Engine から分けてある）
 // ─────────────────────────────────────────────
 export interface Remote { drafts: Record<string, DraftEntry>; solutions: SolutionMap; solutionsText: string; }
-interface PendingDraft { entry: DraftEntry; base: number; seq: number; }   // base = 編集を始めた時の Gist 側 rev
 export type SolOp = { op: 'set'; id: string; entry: SolutionEntry } | { op: 'del'; id: string; at: string };
-export interface Queue { drafts: Record<string, PendingDraft>; deletes: Record<string, number>; sol: SolOp[]; }
+/** deletes: 下書き id → 消すと決めた時の Gist 側 rev（その後に他の端末で保存されていたら消さない） */
+export interface Queue { deletes: Record<string, number>; sol: SolOp[]; }
+interface LegacyQueue extends Queue { drafts?: Record<string, { entry: DraftEntry }>; }
 
-export function emptyQueue(): Queue { return { drafts: {}, deletes: {}, sol: [] }; }
+export function emptyQueue(): Queue { return { deletes: {}, sol: [] }; }
 
 export function parseRemote(files: Record<string, string>): Remote {
     const drafts: Record<string, DraftEntry> = {};
@@ -90,10 +86,6 @@ export function parseRemote(files: Record<string, string>): Remote {
     return { drafts, solutions, solutionsText };
 }
 
-function contentKey(e: Pick<DraftEntry, 'doc' | 'sourceId' | 'status'>): string {
-    return JSON.stringify([e.doc, e.sourceId, e.status]);
-}
-
 /** 解答のキュー操作を適用する。honorNewer=true なら相手の方が新しいものは適用せず skipped に入れる */
 export function applySolOps(base: SolutionMap, ops: SolOp[], honorNewer: boolean, skipped: string[] = []): SolutionMap {
     const m: SolutionMap = { ...base };
@@ -110,39 +102,14 @@ export function applySolOps(base: SolutionMap, ops: SolOp[], honorNewer: boolean
     return m;
 }
 
-export interface PushPlan {
-    files: Record<string, string | null>;
-    written: Record<string, DraftEntry>;          // 書いた（または既に同じ内容だった）下書き
-    conflicts: { from: string; to: string }[];
-    skippedSolutions: string[];
-}
+export interface PushPlan { files: Record<string, string | null>; skippedSolutions: string[]; }
 
-/**
- * Gist の現状（remote）にキューを重ねて、書き換えるファイルを決める。
- * allowConflicts=false（ページを閉じる途中の送信）では競合する下書きは送らない（次回の通常送信で扱う）
- */
-export function planPush(remote: Remote, queue: Queue, device: string, now: string, allowConflicts = true): PushPlan {
-    const plan: PushPlan = { files: {}, written: {}, conflicts: [], skippedSolutions: [] };
-    for (const [id, p] of Object.entries(queue.drafts)) {
-        const r = remote.drafts[id];
-        if (r && contentKey(r) === contentKey(p.entry)) { plan.written[id] = r; continue; }   // 送信済み（閉じる途中の送信が届いていた等）
-        const cur = r?.rev ?? 0;
-        if (r && cur !== p.base) {
-            if (!allowConflicts) continue;
-            const to = newDraftId();
-            const e: DraftEntry = { ...p.entry, rev: 1, updatedAt: now, device, conflictOf: id };
-            plan.files[draftFileName(to)] = JSON.stringify(e);
-            plan.written[to] = e;
-            plan.conflicts.push({ from: id, to });
-            continue;
-        }
-        const e: DraftEntry = { ...p.entry, rev: Math.max(cur, p.base) + 1, updatedAt: now, device };
-        plan.files[draftFileName(id)] = JSON.stringify(e);
-        plan.written[id] = e;
-    }
+/** Gist の現状（remote）にキュー（削除・解答）を重ねて、書き換えるファイルを決める */
+export function planPush(remote: Remote, queue: Queue): PushPlan {
+    const plan: PushPlan = { files: {}, skippedSolutions: [] };
     for (const [id, base] of Object.entries(queue.deletes)) {
         const r = remote.drafts[id];
-        if (r && r.rev === base) plan.files[draftFileName(id)] = null;   // 削除後に他の端末で編集されていたら消さない
+        if (r && r.rev === base) plan.files[draftFileName(id)] = null;   // 消すと決めた後に他の端末で保存されていたら消さない
     }
     if (queue.sol.length) {
         const merged = applySolOps(remote.solutions, queue.sol, true, plan.skippedSolutions);
@@ -161,6 +128,7 @@ function loadJson<T>(key: string): T | null {
 function saveJson(key: string, v: unknown) {
     try { if (v === null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(v)); } catch { /* 保存不可 */ }
 }
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 export class SyncEngine {
     config: SyncConfig | null = loadJson<SyncConfig>(CONFIG_KEY);
@@ -168,76 +136,92 @@ export class SyncEngine {
     message = '';
     lastSyncAt: Date | null = null;
     htmlUrl = '';
+    /** レート制限で止めている間の再開時刻（ms）。0 = 制限なし */
+    limitedUntil = 0;
 
     private remote: Remote = { drafts: {}, solutions: {}, solutionsText: '' };
     private etag: string | null = null;
-    private queue: Queue = { ...emptyQueue(), ...loadJson<Queue>(QUEUE_KEY) };
-    private seq = 0;
+    private queue: Queue = emptyQueue();
+    /** 旧版（自動送信）のキューに残っていた未送信の下書き。main.ts が端末内の下書きへ移す */
+    private legacyDrafts: [string, DraftEntry][] = [];
     private busy = false;
     private again = false;
-    private pushTimer = 0;
     private started = false;
-    /** レート制限で止めている間の再開時刻（ms）。0 = 制限なし */
-    limitedUntil = 0;
     private limitTimer = 0;
 
     constructor(private readonly onEvent: (ev: SyncEvent) => void, private readonly onState: () => void) {
         const cache = loadJson<{ files: Record<string, string>; htmlUrl: string }>(CACHE_KEY);
         if (cache) { this.remote = parseRemote(cache.files); this.htmlUrl = cache.htmlUrl; }
-        for (const p of Object.values(this.queue.drafts)) this.seq = Math.max(this.seq, p.seq);
+        const q = loadJson<LegacyQueue>(QUEUE_KEY);
+        if (q) {
+            this.queue = { deletes: q.deletes ?? {}, sol: q.sol ?? [] };
+            this.legacyDrafts = Object.entries(q.drafts ?? {}).map(([id, p]) => [id, p.entry] as [string, DraftEntry]).filter(([, e]) => e && e.doc);
+            if (q.drafts) this.persistQueue();
+        }
         if (this.config) this.state = 'saving';
     }
 
     get enabled(): boolean { return this.config !== null; }
 
-    // ─── 表示用（Gist の内容に未送信の変更を重ねたもの） ───
+    /** 旧版のキューに残っていた未送信の下書きを取り出す（1回だけ） */
+    takeLegacyDrafts(): [string, DraftEntry][] {
+        const l = this.legacyDrafts;
+        this.legacyDrafts = [];
+        return l;
+    }
+
+    // ─── 表示用（Gist の内容から、消す予定の下書きを除いたもの） ───
     drafts(): Record<string, DraftEntry> {
         const out: Record<string, DraftEntry> = { ...this.remote.drafts };
         for (const id of Object.keys(this.queue.deletes)) delete out[id];
-        for (const [id, p] of Object.entries(this.queue.drafts)) out[id] = { ...p.entry, rev: p.base };
         return out;
     }
     draft(id: string): DraftEntry | undefined { return this.drafts()[id]; }
     solutions(): SolutionMap { return applySolOps(this.remote.solutions, this.queue.sol, false); }
-    hasPending(id: string): boolean { return id in this.queue.drafts; }
-    pendingCount(): number {
-        return Object.keys(this.queue.drafts).length + Object.keys(this.queue.deletes).length + this.queue.sol.length;
-    }
+    pendingCount(): number { return Object.keys(this.queue.deletes).length + this.queue.sol.length; }
 
     // ─── 変更 ───
-    /** 下書きの内容を更新する（内容が同じなら何もしない） */
-    putDraft(id: string, doc: EditorDoc, sourceId: string | null, status?: DraftStatus) {
-        if (!this.config) return;
-        const cur = this.draft(id);
-        const contentChanged = !cur || JSON.stringify([cur.doc, cur.sourceId]) !== JSON.stringify([doc, sourceId]);
-        // 書込済みの下書きを編集し直したら「編集中」に戻す
-        let st: DraftStatus;
-        if (status) st = status;
-        else if (!cur || (cur.status === 'written' && contentChanged)) st = 'editing';
-        else st = cur.status;
-        if (cur && !contentChanged && cur.status === st) return;
-        const prev = this.queue.drafts[id];
-        const entry: DraftEntry = {
-            doc: JSON.parse(JSON.stringify(doc)) as EditorDoc, sourceId, status: st,
-            rev: 0, updatedAt: new Date().toISOString(), device: this.config.device,
-        };
-        if (cur?.conflictOf) entry.conflictOf = cur.conflictOf;
-        this.queue.drafts[id] = { entry, base: prev ? prev.base : this.remote.drafts[id]?.rev ?? 0, seq: ++this.seq };
-        delete this.queue.deletes[id];
-        this.queueChanged(status !== undefined && !contentChanged ? 800 : PUSH_DELAY);
+    /**
+     * 下書きを Gist に保存する（SAVE）。baseRev = 上書きする下書きの今の rev（新しく作るなら 0）。
+     * 競合の確認は呼び出し側（直前に refreshNow で読み直して判断する）。失敗したら例外
+     */
+    async writeDraft(id: string, doc: EditorDoc, sourceId: string | null, baseRev: number, conflictOf?: string): Promise<DraftEntry> {
+        const cfg = this.config;
+        if (!cfg) throw new Error('SYNC が設定されていません');
+        if (this.isLimited()) throw new Error(this.message || 'GitHub の回数制限で待っています');
+        await this.idle();
+        this.busy = true;
+        this.state = 'saving';
+        this.onState();
+        try {
+            const e: DraftEntry = {
+                doc: JSON.parse(JSON.stringify(doc)) as EditorDoc, sourceId,
+                rev: baseRev + 1, updatedAt: new Date().toISOString(), device: cfg.device,
+            };
+            if (conflictOf) e.conflictOf = conflictOf;
+            const snap = await patchGist(cfg.token, cfg.gistId, { [draftFileName(id)]: JSON.stringify(e) });
+            if (snap) this.setRemote(snap);
+            this.ok();
+            return e;
+        } catch (err) {
+            this.fail(err);
+            throw err;
+        } finally {
+            this.busy = false;
+            this.afterBusy();
+        }
     }
 
-    setDraftStatus(id: string, status: DraftStatus) {
-        const cur = this.draft(id);
-        if (cur) this.putDraft(id, cur.doc, cur.sourceId, status);
-    }
-
-    deleteDraft(id: string) {
-        if (!this.config) return;
-        delete this.queue.drafts[id];
-        const r = this.remote.drafts[id];
-        if (r) this.queue.deletes[id] = r.rev;
-        this.queueChanged(800);
+    /** 下書きを Gist から消す（送れなければキューに残して次の通信で送る） */
+    async deleteDrafts(ids: string[]) {
+        if (!this.config || !ids.length) return;
+        for (const id of ids) {
+            const r = this.remote.drafts[id];
+            if (r) this.queue.deletes[id] = r.rev;
+        }
+        this.persistQueue();
+        this.onState();
+        await this.push();
     }
 
     /** 1問ぶんの解答を保存してすぐ送る。oldId は問題 id を変えた時の旧キー（消す）。steps が空ならキーごと削除 */
@@ -274,14 +258,14 @@ export class SyncEngine {
         // 別の Gist に繋ぎ直した時に前の Gist の内容を混ぜない
         this.remote = { drafts: {}, solutions: {}, solutionsText: '' };
         this.etag = null;
+        this.limitedUntil = 0;
         saveJson(CACHE_KEY, null);
         this.state = 'saving';
         this.start(true);
-        await this.pull();
-        if (this.pendingCount()) await this.push();
+        await this.syncNow();
     }
 
-    /** この端末から同期設定を消す（Gist と未送信の変更は消さない） */
+    /** この端末から同期設定を消す（Gist と端末内の下書きは消さない） */
     disconnect() {
         this.config = null;
         saveJson(CONFIG_KEY, null);
@@ -290,7 +274,6 @@ export class SyncEngine {
         this.etag = null;
         this.state = 'off';
         this.message = '';
-        clearTimeout(this.pushTimer);
         this.onState();
     }
 
@@ -300,27 +283,32 @@ export class SyncEngine {
         saveJson(CONFIG_KEY, this.config);
     }
 
-    /** ポーリングとページの表示/非表示の監視を始める（1回だけ）。skipInitial=true なら最初の同期は呼び出し側が行う */
+    /** 画面に戻った時・通信が戻った時の取得を始める（1回だけ）。skipInitial=true なら最初の同期は呼び出し側が行う */
     start(skipInitial = false) {
         if (this.started) return;
         this.started = true;
         document.addEventListener('visibilitychange', () => {
-            if (!this.config) return;
-            if (document.visibilityState === 'hidden') this.flushKeepalive();
-            else void this.syncNow();
+            if (!this.config || document.visibilityState !== 'visible') return;
+            if (this.lastSyncAt && Date.now() - this.lastSyncAt.getTime() < REFRESH_MIN_INTERVAL) return;
+            void this.syncNow();
         });
-        window.addEventListener('pagehide', () => this.flushKeepalive());
         window.addEventListener('online', () => void this.syncNow());
-        window.setInterval(() => {
-            if (this.config && document.visibilityState === 'visible' && this.state !== 'auth' && !this.isLimited()) void this.syncNow();
-        }, POLL_INTERVAL);
         if (this.config && !skipInitial) void this.syncNow();
     }
 
-    /** 取得して、未送信があれば送る */
+    /** 取得して、送り残し（解答・削除）があれば送る */
     async syncNow(): Promise<void> {
         if (this.pendingCount()) await this.push();
         else await this.pull();
+    }
+
+    /** 最新の Gist を読み終えるまで待つ（SAVE の前の競合確認用）。読めなければ例外 */
+    async refreshNow(): Promise<void> {
+        if (!this.config) throw new Error('SYNC が設定されていません');
+        if (this.isLimited()) throw new Error(this.message || 'GitHub の回数制限で待っています');
+        await this.idle();
+        await this.pull();
+        if (this.state !== 'synced' && this.state !== 'saving') throw new Error(this.message || 'Gist を読めませんでした');
     }
 
     // ─── 通信 ───
@@ -340,44 +328,27 @@ export class SyncEngine {
     }
 
     async push(): Promise<PushPlan> {
-        const empty: PushPlan = { files: {}, written: {}, conflicts: [], skippedSolutions: [] };
+        const empty: PushPlan = { files: {}, skippedSolutions: [] };
         if (!this.config || this.isLimited()) return empty;
         if (this.busy) { this.again = true; return empty; }
-        clearTimeout(this.pushTimer);
         this.busy = true;
         this.state = 'saving';
         this.onState();
         try {
             await this.refresh();
             const cfg = this.config;
-            const seqs = Object.fromEntries(Object.entries(this.queue.drafts).map(([id, p]) => [id, p.seq]));
             const delIds = Object.keys(this.queue.deletes);
             const solN = this.queue.sol.length;
-            const plan = planPush(this.remote, this.queue, cfg.device, new Date().toISOString());
+            const plan = planPush(this.remote, this.queue);
             if (Object.keys(plan.files).length) {
                 const snap = await patchGist(cfg.token, cfg.gistId, plan.files);
                 if (snap) this.setRemote(snap);
-            }
-            // 送った分をキューから外す（送信中に更に編集された下書きは残し、基準 rev を更新）
-            for (const [id, seq] of Object.entries(seqs)) {
-                const p = this.queue.drafts[id];
-                if (!p) continue;
-                const conflict = plan.conflicts.find(c => c.from === id);
-                const target = conflict ? conflict.to : id;
-                const w = plan.written[target];
-                if (p.seq === seq) delete this.queue.drafts[id];
-                else if (w) {
-                    delete this.queue.drafts[id];
-                    this.queue.drafts[target] = { ...p, base: w.rev };
-                }
             }
             for (const id of delIds) delete this.queue.deletes[id];
             this.queue.sol.splice(0, solN);
             this.persistQueue();
             this.ok();
-            if (plan.conflicts.length || plan.skippedSolutions.length) {
-                this.onEvent({ remoteUpdated: [], conflicts: plan.conflicts, skippedSolutions: plan.skippedSolutions });
-            }
+            if (plan.skippedSolutions.length) this.onEvent({ remoteUpdated: [], skippedSolutions: plan.skippedSolutions });
             return plan;
         } catch (err) {
             this.fail(err);
@@ -386,18 +357,6 @@ export class SyncEngine {
             this.busy = false;
             this.afterBusy();
         }
-    }
-
-    /** ページを閉じる/隠す途中の送信。読み直しはせず、手元の Gist の内容を基準に競合しない分だけ送る */
-    flushKeepalive() {
-        const cfg = this.config;
-        if (!cfg || !this.pendingCount() || this.busy || this.isLimited()) return;
-        clearTimeout(this.pushTimer);
-        const plan = planPush(this.remote, this.queue, cfg.device, new Date().toISOString(), false);
-        if (!Object.keys(plan.files).length) return;
-        if (JSON.stringify(plan.files).length > KEEPALIVE_LIMIT) return;
-        // 結果は待てない。キューは残し、次回の送信で「同じ内容が既にある」ことを確かめて外す
-        void patchGist(cfg.token, cfg.gistId, plan.files, true).catch(() => { /* 次回の送信で再送 */ });
     }
 
     // ─── 内部 ───
@@ -411,7 +370,7 @@ export class SyncEngine {
         const after = this.remote.drafts;
         const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])]
             .filter(id => before[id]?.rev !== after[id]?.rev);
-        if (changed.length) this.onEvent({ remoteUpdated: changed, conflicts: [], skippedSolutions: [] });
+        if (changed.length) this.onEvent({ remoteUpdated: changed, skippedSolutions: [] });
     }
 
     private setRemote(snap: GistSnapshot) {
@@ -421,14 +380,7 @@ export class SyncEngine {
         saveJson(CACHE_KEY, { files: snap.files, htmlUrl: snap.htmlUrl });
     }
 
-    private queueChanged(delay: number) {
-        this.persistQueue();
-        if (!this.config) return;
-        clearTimeout(this.pushTimer);
-        this.pushTimer = window.setTimeout(() => void this.push(), delay);
-        if (this.state === 'synced') this.state = 'saving';
-        this.onState();
-    }
+    private async idle() { while (this.busy) await sleep(50); }
 
     private persistQueue() { saveJson(QUEUE_KEY, this.queue); }
 
@@ -466,7 +418,7 @@ export class SyncEngine {
             this.message = 'Gist が見つかりません。SYNC で接続し直してください';
         } else if (err instanceof TypeError) {
             this.state = 'offline';
-            this.message = '通信できません（オフライン）。編集は端末内に保存され、つながった時に送ります';
+            this.message = '通信できません（オフライン）。編集は端末内に残っています';
         } else {
             this.state = 'error';
             this.message = (err as Error).message;
