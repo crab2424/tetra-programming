@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quiz Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <!-- TETLABO クイズエディタ（ローカル専用。pnpm dev:client → /quiz-editor/） -->
+  <header id="topbar">
+    <h1>QUIZ EDITOR</h1>
+    <div class="seg" id="rule-seg" role="radiogroup" aria-label="ルール">
+      <button type="button" data-rule="tet" role="radio">TET</button>
+      <button type="button" data-rule="puyo" role="radio">PUYO</button>
+    </div>
+    <label class="level-pick">
+      <span class="lbl">LEVELS</span>
+      <select id="level-select" aria-label="既存の問題を開く"></select>
+    </label>
+    <button type="button" id="btn-new">NEW</button>
+    <button type="button" id="btn-paste">PASTE JSON</button>
+    <span class="spacer"></span>
+    <button type="button" id="btn-undo" title="元に戻す (Ctrl/⌘+Z)">UNDO</button>
+    <button type="button" id="btn-redo" title="やり直し (Ctrl/⌘+Shift+Z)">REDO</button>
+    <button type="button" id="btn-help" title="キー一覧 (?)">? KEYS</button>
+  </header>
+
+  <main id="layout">
+    <!-- ① 問題情報 ＋ ④ クリア条件 -->
+    <section class="panel" id="col-left">
+      <h2>INFO</h2>
+      <div class="form">
+        <label>ID
+          <span class="row">
+            <input id="in-id" type="text" spellcheck="false" placeholder="tet-x" />
+            <button type="button" id="btn-auto-id" title="未使用のIDを提案">AUTO</button>
+          </span>
+        </label>
+        <label>問題名 <small>(description)</small>
+          <input id="in-desc" type="text" />
+        </label>
+        <div class="field-label">難易度 <small>(Alt+0〜5)</small>
+          <div class="stars" id="diff-stars"></div>
+        </div>
+        <label class="check" id="hold-wrap"><input id="in-hold" type="checkbox" /> HOLD を許可 <small>(H)</small></label>
+      </div>
+
+      <h2>GOAL</h2>
+      <div class="form" id="cond-form">
+        <label>種類
+          <select id="cond-type"></select>
+        </label>
+        <div id="cond-note" class="note"></div>
+        <label id="cond-value-wrap"><span id="cond-value-label">値</span>
+          <input id="cond-value" type="number" min="1" step="1" />
+        </label>
+        <div id="count-wrap" class="sub">
+          <label>中身の条件
+            <select id="count-type"></select>
+          </label>
+          <label id="count-value-wrap"><span id="count-value-label">閾値</span>
+            <input id="count-value" type="number" min="1" step="1" />
+          </label>
+        </div>
+        <label>GOAL 文言 <small>(clearCondition.description)</small>
+          <input id="cond-desc" type="text" />
+        </label>
+        <label class="check"><input id="cond-desc-auto" type="checkbox" /> 条件から自動生成</label>
+      </div>
+    </section>
+
+    <!-- ② 盤面 ＋ ⑤ NEXT -->
+    <section class="panel" id="col-center">
+      <h2>FIELD <small id="field-size"></small></h2>
+      <div id="field-wrap">
+        <canvas id="field" tabindex="0" aria-label="盤面（矢印でカーソル移動・Spaceで塗る）"></canvas>
+      </div>
+      <h2>NEXT <small id="next-count"></small></h2>
+      <div id="next-box" tabindex="0" aria-label="NEXT（ミノ文字で挿入・←→で移動・Backspaceで削除）"></div>
+      <div class="row next-tools" id="next-tools"></div>
+      <label class="next-text">TEXT
+        <input id="next-text" type="text" spellcheck="false" />
+      </label>
+    </section>
+
+    <!-- ③ ツール ＋ ⑦ プレビュー -->
+    <section class="panel" id="col-right">
+      <h2>PAINT</h2>
+      <div id="palette" role="radiogroup" aria-label="色"></div>
+      <div class="tool-grid">
+        <button type="button" id="btn-row" title="行塗り: クリックしたマス以外を一括で塗る (R)">ROW</button>
+        <button type="button" id="btn-mirror" title="左右反転 (M)">MIRROR</button>
+        <button type="button" id="btn-clear" title="全消去 (Shift+Delete)">CLEAR</button>
+      </div>
+      <div class="shift-pad" aria-label="盤面シフト (Alt+矢印)">
+        <button type="button" data-shift="up">↑</button>
+        <button type="button" data-shift="left">←</button>
+        <span class="shift-lbl">SHIFT</span>
+        <button type="button" data-shift="right">→</button>
+        <button type="button" data-shift="down">↓</button>
+      </div>
+
+      <h2>PREVIEW</h2>
+      <div class="seg" id="preview-seg">
+        <button type="button" data-preview="play">PLAY</button>
+        <button type="button" data-preview="select">SELECT</button>
+      </div>
+      <div id="preview"></div>
+    </section>
+
+    <!-- ⑧ 出力 -->
+    <section class="panel" id="col-output">
+      <h2>OUTPUT</h2>
+      <ul id="issues"></ul>
+      <div class="row out-tools">
+        <button type="button" id="btn-copy" title="Ctrl/⌘+S">COPY JSON</button>
+        <label class="check"><input id="in-lead-comma" type="checkbox" /> 先頭に「,」</label>
+        <button type="button" id="btn-download">DOWNLOAD</button>
+        <span id="out-status" class="note"></span>
+      </div>
+      <textarea id="out-json" readonly spellcheck="false"></textarea>
+    </section>
+  </main>
+
+  <!-- 貼り付けダイアログ -->
+  <dialog id="paste-dlg">
+    <form method="dialog">
+      <h2>PASTE JSON</h2>
+      <p class="note">1問のオブジェクト、または問題の配列を貼り付けてください（template.txt 由来の先頭「,」も可）。</p>
+      <textarea id="paste-text" spellcheck="false"></textarea>
+      <p id="paste-error" class="err"></p>
+      <div class="row end">
+        <button value="cancel" formnovalidate>CANCEL</button>
+        <button id="paste-ok" value="ok">LOAD</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- キー一覧 -->
+  <dialog id="help-dlg">
+    <form method="dialog">
+      <h2>KEYS</h2>
+      <div id="help-body"></div>
+      <div class="row end"><button value="close">CLOSE</button></div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>
