@@ -146,14 +146,21 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
     background: var(--panel-bg); border-right: 1px solid var(--border);
   }
   #sidebar > .panel { flex: 1 1 auto; min-height: 0; }
+  body[data-ptab="levels"] #sidebar [data-p]:not([data-p~="levels"]),
   body[data-ptab="info"] #sidebar [data-p]:not([data-p~="info"]),
   body[data-ptab="steps"] #sidebar [data-p]:not([data-p~="steps"]),
   body[data-ptab="out"] #sidebar [data-p]:not([data-p~="out"]) { display: none; }
-  #sash { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; z-index: 3; }
+  /* サッシュはサイドバーの内側に置く（外へ出すとサイドバーが横にスクロールできてしまう。tools §5.2） */
+  #sidebar { overflow-x: hidden; }
+  #sash { position: absolute; top: 0; bottom: 0; right: 0; width: 6px; cursor: col-resize; z-index: 3; }
   #sash:hover, body.sash-drag #sash { background: color-mix(in srgb, var(--quiz) 50%, transparent); }
   body.sash-drag { cursor: col-resize; user-select: none; }
   #col-output #out-json { min-height: 200px; }
-  #info-next-slot .next-text { margin: 0; max-width: none; flex-direction: column; align-items: stretch; gap: 4px; font-family: inherit; font-size: inherit; color: inherit; }
+  #info-next { margin: 0; }
+  /* LEVELS: 見出し・絞り込み・タイル（ここだけスクロール）・詳細と凡例（下に固定） */
+  #col-levels { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: hidden; }
+  #col-levels > * { flex: none; }
+  #col-levels #lv-body { flex: 1 1 auto; }
 
   /* 盤面エリア（中央）: 左右中央・上寄せ（モードで下の行が変わっても盤面が上下しない） */
   #col-center { grid-area: center; background: var(--bg); padding: 12px 16px; }
@@ -161,16 +168,30 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   #col-center > #center-inner > [data-m] > h2:first-child { display: none; }   /* 盤面サイズはステータスバー */
   /* 文字の長い行は盤面の幅に合わせて折り返す（中身の幅で盤面エリアを広げない） */
   #mode-row, #play-head { width: 0; min-width: 100%; }
-  #mode-row { display: flex; align-items: stretch; gap: 8px; margin-bottom: 8px; }
+  /* モードの切替だけを中央に（名前・説明はボタンの色・title とステータスバー。tools §5.1） */
+  #mode-row { display: flex; justify-content: center; margin-bottom: 8px; }
   #mode-row #mode-seg { margin: 0; flex: none; }
-  #mode-row #mode-band { flex: 1 1 auto; min-width: 0; margin: 0; align-items: center; }
-  #mode-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #mode-row #mode-band { display: none; }
 
   /* TOOLS（右）: 中身は上に寄せ、下はトーストのために空けておく（layout §8 C1） */
   #col-right { grid-area: tools; overflow-y: auto; min-height: 0; border-left: 1px solid color-mix(in srgb, var(--mode-c) 45%, var(--border)) !important; }
   #col-right > h2:first-child { display: none; }
-  #col-right .ctl-pad { grid-template-columns: repeat(4, 1fr); }
-  #col-right .ctl-pad button { white-space: nowrap; min-width: 0; padding: 4px; }
+  /* TOOLS は全モード共通の 3 段（tools §3.2）: ① ピース行（2 行ぶんの高さを確保して ② の位置をそろえる）② 操作パッド ③ その他 */
+  #col-right .tool-pieces { min-height: 100px; align-content: start; }
+  #col-right #palette, #col-right #stamp-grid, #col-right .nx-pieces { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+  #col-right #palette[data-rule="puyo"], #col-right #next-tools[data-rule="puyo"] .nx-pieces { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  #col-right #palette button, #col-right #stamp-grid button, #col-right .nx-pieces button {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    min-width: 0; padding: 3px 0; line-height: 1;
+  }
+  #col-right #palette .k, #col-right #stamp-grid .k, #col-right .nx-pieces .k { order: 2; font-size: 9px; color: var(--text-dim); font-family: var(--font-orbitron); letter-spacing: 0; white-space: nowrap; }
+  #col-right #palette button.on .k { color: #fff; }
+  #col-right #stamp-grid .rot { top: 2px; bottom: auto; right: 3px; }
+  #col-right #stamp-grid .k { position: static; }
+  #col-right .nx-pieces button.on { border-color: var(--quiz); background: var(--quiz-soft); }   /* ぷよ: ペアの 1 つ目 */
+  #nexttool-box .next-tools { display: block; margin: 0; max-width: none; }
+  #nexttool-box .next-text { margin-top: 12px; max-width: none; flex-direction: column; align-items: stretch; gap: 4px; }
+  #place-box #bind-src { margin-top: 10px; }
 
   /* 盤面エリア: HOLD｜FIELD｜NEXT（ゲームと同じ並び） */
   #board-row { display: flex; gap: 8px; align-items: stretch; justify-content: center; }
@@ -200,21 +221,11 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   #next-col .caret { width: auto; height: 2px; align-self: stretch; margin: 1px 4px; flex: none; }
   /* SOLVE: ゲームと同じく次の 5 個を同じ間隔で */
   #next-col #next-box.game { justify-content: flex-start; gap: 6px; }
-  #col-center .next-tools, #col-center .next-text { max-width: none; }
-  /* 盤面の下の 1 行: EDIT は NEXT の編集ボタン、SOLVE は NEXT 全体（同じ高さにして盤面を動かさない。layout §7） */
-  #col-center .next-tools { flex-wrap: nowrap; height: 32px; }
-  #col-center .next-tools button { padding: 4px 7px; }
-  body[data-mode="solve"] #col-center .next-tools { display: none; }
+  /* 盤面の下の 1 行: SOLVE は NEXT 全体。EDIT は空けておく（モードを替えても盤面の大きさ・位置を変えない。tools §3.3） */
   #next-strip { display: flex; align-items: center; gap: 8px; margin-top: 6px; height: 32px; width: 0; min-width: 100%; }
-  #next-strip[hidden] { display: none; }
+  #next-strip[hidden] { display: flex !important; visibility: hidden; }
   #next-strip-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; }
   #next-strip-cv { display: block; }
-  #next-tools .nx-more-pop {
-    display: none; position: absolute; top: calc(100% + 4px); right: 0; z-index: 15;
-    gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 6px;
-    background: var(--panel-bg); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); white-space: nowrap;
-  }
-  #next-tools.more-open .nx-more-pop { display: flex; }
   #play-head {
     display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
     margin-top: 8px; padding: 6px 10px; border-radius: 6px;
@@ -284,7 +295,8 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
 .form { display: flex; flex-direction: column; gap: 10px; }
 .form label, .field-label { display: flex; flex-direction: column; gap: 4px; }
 .form label.check, label.check { flex-direction: row; align-items: center; gap: 6px; cursor: pointer; }
-.form .row input[type="text"] { flex: 1; width: auto; }
+.form .row { flex-wrap: nowrap; }
+.form .row input[type="text"] { flex: 1; width: auto; min-width: 0; }   /* 入力欄の最小幅（size=20 相当）で横にはみ出さない */
 .form .sub { border-left: 2px solid var(--border); padding-left: 10px; display: flex; flex-direction: column; gap: 10px; }
 [hidden] { display: none !important; }
 
@@ -332,7 +344,7 @@ body[data-mode="solve"] { --mode-c: var(--solve); --mode-soft: var(--solve-soft)
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #0d0d16;
-  cursor: text;
+  cursor: pointer;
 }
 .next-item {
   position: relative;
@@ -346,8 +358,8 @@ body[data-mode="solve"] { --mode-c: var(--solve); --mode-soft: var(--solve-soft)
 .next-item:hover { background: rgba(255, 255, 255, 0.06); }
 .next-item .no { font-family: var(--font-orbitron); font-size: 8px; color: var(--text-dim); }
 .caret { width: 2px; align-self: stretch; margin: 2px 1px; border-radius: 1px; }
-#next-box:focus .caret.on { background: var(--quiz); animation: blink 1s steps(1) infinite; }
-.caret.on { background: rgba(245, 133, 66, 0.4); }
+.caret.on { background: rgba(245, 133, 66, 0.3); }
+body[data-mode="next"] .caret.on { background: var(--quiz); animation: blink 1s steps(1) infinite; }   /* NEXT モードの時だけ光らせる */
 @keyframes blink { 50% { opacity: 0; } }
 .pending { font-family: var(--font-orbitron); color: var(--quiz); margin-left: 4px; }
 .next-tools { margin-top: 6px; max-width: 340px; }
@@ -367,22 +379,17 @@ body[data-mode="solve"] { --mode-c: var(--solve); --mode-soft: var(--solve-soft)
 }
 #palette .k { font-size: 9px; color: var(--text-dim); }
 #palette button.on .k { color: #fff; }
-.tool-grid { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
-.shift-pad {
-  display: grid;
-  grid-template-columns: repeat(3, 44px);
-  grid-template-rows: repeat(3, 30px);
-  gap: 4px;
-  margin-top: 10px;
-  align-items: center;
-  justify-items: stretch;
-}
-.shift-pad button { padding: 0; height: 30px; }
-.shift-pad [data-shift="up"] { grid-column: 2; grid-row: 1; }
-.shift-pad [data-shift="left"] { grid-column: 1; grid-row: 2; }
-.shift-pad .shift-lbl { grid-column: 2; grid-row: 2; text-align: center; font-family: var(--font-orbitron); font-size: 8px; color: var(--text-dim); }
-.shift-pad [data-shift="right"] { grid-column: 3; grid-row: 2; }
-.shift-pad [data-shift="down"] { grid-column: 2; grid-row: 3; }
+/* 操作パッド（PAINT・STAMP・SOLVE・NEXT 共通）: 十字の矢印＋下のアクション行。矢印の位置は全モード同じ（tools §3.2） */
+.op-pad { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.pad-cross { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 30px); gap: 4px; justify-content: center; align-items: center; }
+.pad-cross button { padding: 0; height: 30px; min-width: 0; }
+.pad-cross .up { grid-column: 2; grid-row: 1; }
+.pad-cross .left { grid-column: 1; grid-row: 2; }
+.pad-cross .pad-lbl { grid-column: 2; grid-row: 2; text-align: center; font-family: var(--font-orbitron); font-size: 8px; color: var(--text-dim); }
+.pad-cross .right { grid-column: 3; grid-row: 2; }
+.pad-cross .down { grid-column: 2; grid-row: 3; }
+.pad-acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.pad-acts button { min-width: 0; padding: 4px 2px; white-space: nowrap; }
 
 /* ─── プレイ画面の見出し・問題の一覧で使う文字（quiz.css の再現） ─── */
 .pv-rule { font-family: var(--font-orbitron); font-size: 12px; font-weight: 700; letter-spacing: 2px; color: var(--quiz); }
@@ -392,13 +399,7 @@ body[data-mode="solve"] { --mode-c: var(--solve); --mode-soft: var(--solve-soft)
 .sf { color: var(--star); }
 .se { color: rgba(255, 255, 255, 0.18); }
 
-/* ─── 問題の一覧（コマンドパレット風。layout §2） ─── */
-dialog.palette {
-  margin: 8vh auto auto; padding: 0; width: min(380px, calc(100vw - 32px)); max-height: 80vh;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
-}
-dialog.palette::backdrop { background: rgba(10, 10, 15, 0.45); }
-.lv-wrap { display: flex; flex-direction: column; gap: 8px; padding: 10px; max-height: 80vh; }
+/* ─── 問題の一覧（サイドバーの LEVELS。tools §2） ─── */
 #lv-body { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 2px; }
 .lv-head { display: flex; align-items: center; justify-content: space-between; }
 .lv-toggle, .lv-new { border: none; background: none; padding: 4px 6px; font-size: 10px; }
@@ -417,8 +418,13 @@ dialog.palette::backdrop { background: rgba(10, 10, 15, 0.45); }
 .lv-tile.sel { outline: 2px solid var(--text); outline-offset: 1px; }
 .lv-num { font-family: var(--font-orbitron); font-size: 15px; font-weight: 900; color: var(--quiz); line-height: 1; }
 .lv-diff { font-size: 7px; letter-spacing: -1px; line-height: 1; min-height: 7px; }
-.lv-mark { position: absolute; top: 2px; right: 4px; font-size: 9px; color: var(--warn); font-family: var(--font-main); letter-spacing: 0; }
-#lv-detail { border-top: 1px solid var(--border); padding: 8px 4px 2px; min-height: 64px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+.lv-mark { position: absolute; top: 2px; right: 4px; display: flex; gap: 2px; font-size: 9px; font-family: var(--font-main); letter-spacing: 0; }
+.lv-m.edited, .lv-m.incoming { color: var(--warn); }
+.lv-m.solution { color: var(--solve); }
+.lv-legend { margin: 0; font-size: 10px; color: var(--text-dim); }
+.lv-legend .lv-m { margin-left: 6px; }
+.lv-legend .lv-m:first-child { margin-left: 0; }
+#lv-detail { border-top: 1px solid var(--border); padding: 8px 4px 2px; min-height: 64px; overflow-wrap: anywhere; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
 #lv-detail .lv-id { font-family: ui-monospace, Menlo, monospace; color: var(--text-dim); margin-left: 6px; }
 #lv-detail .lv-desc { color: var(--text); }
 
@@ -456,8 +462,7 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 /* ─── PLACE モード ─── */
 #mode-seg { margin-bottom: 10px; }
 #place-box h3, #solve-box h3 { font-size: 10px; color: var(--quiz); margin: 14px 0 6px; }
-.ctl-pad { display: grid; grid-template-columns: repeat(5, auto); gap: 4px; justify-content: start; margin: 6px 0; }
-.ctl-pad button { padding: 4px 8px; min-width: 40px; }
+.ctl-pad button { padding: 4px 8px; }
 #solve-now { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--font-orbitron); font-size: 10px; color: var(--text-dim); margin: 6px 0; }
 #solve-now b { color: var(--text); font-size: 13px; margin-left: 4px; }
 #solve-now .dim, .dim { color: var(--text-dim); }
@@ -486,6 +491,7 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 #stamp-grid { display: flex; gap: 4px; flex-wrap: wrap; }
 #stamp-grid button { position: relative; padding: 2px; line-height: 0; }
 #stamp-grid .rot { position: absolute; right: 2px; bottom: 2px; font-size: 8px; line-height: 1; color: var(--quiz); }
+#stamp-grid .k { position: absolute; left: 3px; top: 2px; font-size: 8px; line-height: 1; color: var(--text-dim); }
 
 /* ─── 同期（SYNC / DRAFTS。§14.3） ─── */
 .badge {
@@ -522,8 +528,6 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 #next-box .next-item.drag-src { opacity: 1; outline: 2px solid var(--quiz); }
 #next-box .next-item.drag-over { opacity: 1; background: var(--quiz-soft); outline: 1px dashed var(--quiz); }
 .next-edit { display: inline-flex; gap: 4px; flex-wrap: wrap; }
-.nx-more { position: relative; display: inline-flex; gap: 4px; }
-.nx-more-pop { display: contents; }   /* スマホは全部並べる。PC は ⋯ の中（上の @media） */
 #next-box.game { cursor: default; }
 #next-box.game .next-item { cursor: default; }
 #next-box.game .next-item:hover { background: none; }
@@ -572,7 +576,13 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   #field-wrap { display: table; margin: 0 auto; }
   body[data-mtab="field"] #col-center h2 { display: none; }
 
-  .next-tools [data-mino], .next-tools [data-puyo] { flex: 1 1 0; min-width: 0; }
+  .next-tools [data-mino], .next-tools [data-puyo] { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 0; line-height: 1; }
+  .next-tools .k { font-size: 8px; color: var(--text-dim); white-space: nowrap; }
+  /* NEXT の編集ボタンは 1 行に並べる（PC の十字・アクション行の枠は使わない） */
+  .next-tools .op-pad, .next-tools .pad-cross, .next-tools .pad-acts { display: contents; }
+  .next-tools .nx-pieces { display: flex; flex: 1 1 100%; gap: 4px; }   /* ミノ・色は 1 行目に並べ、操作はその下 */
+  .next-tools .op-pad button { flex: 1 1 auto; min-width: 40px; }
+  body[data-mtab="next"] .caret.on { background: var(--quiz); }
   #mtabs {
     display: flex;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
@@ -597,11 +607,13 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   #palette .k { font-size: 8px; letter-spacing: 0; }
   #paint-box { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   #paint-box > #palette { flex: 1 1 100%; }
-  /* 行塗り・反転・消去・シフト4方向を1列に並べる */
-  .tool-grid, .shift-pad { display: contents; }
-  .tool-grid button, .shift-pad button { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 2px; font-size: 9px; letter-spacing: 0; }
-  .shift-pad .shift-lbl { display: none; }
-  .ctl-pad { grid-template-columns: repeat(5, 1fr); justify-content: stretch; margin: 0; }
+  /* 行塗り・反転・消去・シフト4方向を1列に並べる（STAMP・SOLVE の十字も ctl-pad の格子に直接並べる） */
+  #paint-box .op-pad, .pad-cross, .pad-acts { display: contents; }
+  #paint-box .op-pad button { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 2px; font-size: 9px; letter-spacing: 0; }
+  #paint-box .pad-acts button { order: 1; }
+  #paint-box .pad-cross button { order: 2; }
+  .pad-lbl { display: none; }
+  .ctl-pad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; justify-content: stretch; margin: 0; }
   .ctl-pad button { min-width: 0; padding: 0 2px; font-size: 10px; letter-spacing: 0; }
   /* 1列目: 移動と HOLD、2列目: 回転と確定 */
   .ctl-pad [data-ctl="hold"] { order: 1; }

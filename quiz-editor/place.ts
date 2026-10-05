@@ -469,7 +469,7 @@ export class PlaceMode {
     }
 }
 
-/** STAMP 用のミノ 7 個（1 行）。形は描画時に今の回転で描く（drawStampButtons）。layout §5 */
+/** STAMP 用のミノ 7 個（1 行）。形は描画時に今の回転で描く（drawStampButtons）。layout §5・tools §3.2（NEXT モードと同じ並び） */
 export function buildStampGrid(root: HTMLElement) {
     root.innerHTML = '';
     for (let t = 0; t < 7; t++) {
@@ -477,10 +477,13 @@ export function buildStampGrid(root: HTMLElement) {
         b.type = 'button';
         b.dataset.stamp = String(t);
         b.title = `${MINO_LETTERS[t]}（選択中にもう一度押すと右回転・右クリックで左回転）`;
+        const k = document.createElement('span');   // ミノ文字（NEXT モードのボタンと同じ形。tools §3.2）
+        k.className = 'k';
+        k.textContent = MINO_LETTERS[t];
         const cv = document.createElement('canvas');
         const rot = document.createElement('span');
         rot.className = 'rot';
-        b.append(cv, rot);
+        b.append(k, cv, rot);
         root.append(b);
     }
     drawStampButtons(root, -1, 0);

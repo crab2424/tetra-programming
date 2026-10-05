@@ -9,26 +9,31 @@ export interface KeySection { title: string; rows: KeyRow[]; }
 
 export const KEY_HELP: KeySection[] = [
     {
-        title: 'GLOBAL（テキスト入力中以外）',
+        title: 'GLOBAL（テキスト入力中以外。盤面以外にフォーカスがあっても効く）',
         rows: [
+            { keys: 'P', desc: 'EDIT（最後に使った PAINT / STAMP / NEXT）⇔ SOLVE' },
+            { keys: 'Shift+P', desc: 'PAINT → STAMP → NEXT の順に切替（ぷよは PAINT ⇔ NEXT）' },
+            { keys: 'N', desc: 'NEXT モード ⇔ 直前の PAINT / STAMP（PC）' },
+            { keys: 'H', desc: 'HOLD 許可の切替（TET・SOLVE 以外）' },
             { keys: 'Ctrl/⌘+Z ・ Ctrl/⌘+Shift+Z (Ctrl+Y)', desc: '元に戻す ・ やり直し' },
             { keys: 'Ctrl/⌘+S', desc: 'JSON をコピー' },
-            { keys: 'Ctrl/⌘+P', desc: '問題の一覧を開く（矢印で選択・Enter で開く・文字で絞り込み）' },
+            { keys: 'Ctrl/⌘+P', desc: '問題の一覧（サイドバーの LEVELS）へ。矢印で選択・Enter で開く' },
+            { keys: '/', desc: 'LEVELS の絞り込み欄へ（LEVELS を表示中。Esc でタイルへ戻る）' },
             { keys: 'Ctrl/⌘+B', desc: 'サイドバーの開閉（PC）' },
             { keys: 'Alt+1〜5 ・ Alt+0', desc: '難易度 ★1〜5 ・ 未指定' },
-            { keys: 'Tab ・ Shift+Tab', desc: 'エリア移動（盤面 → NEXT → …）' },
+            { keys: 'Tab ・ Shift+Tab', desc: 'フォーカス移動（キーは今のモードが受け取る）' },
             { keys: 'Esc', desc: '盤面にフォーカスを戻す' },
             { keys: '?', desc: 'このキー一覧' },
         ],
     },
     {
-        title: 'FIELD（盤面にフォーカス）',
+        title: 'PAINT モード',
         rows: [
             { keys: '矢印', desc: 'カーソル移動' },
             { keys: 'Space ・ Enter', desc: '塗る（同じ色なら空にする）／行塗りモードでは行を塗る' },
             { keys: 'Shift+矢印', desc: '塗りながら移動' },
             { keys: 'TET: 1〜8 ・ I O T J L S Z G', desc: '色を選ぶ（8 = G = おじゃま）' },
-            { keys: 'PUYO: 1〜5 ・ 6', desc: '色を選ぶ（6 = おじゃま）' },
+            { keys: 'PUYO: 1〜5 ・ 6', desc: '色を選ぶ（1 赤・2 青・3 紫・4 緑・5 黄・6 おじゃま）' },
             { keys: '0 ・ Backspace', desc: '空を選ぶ' },
             { keys: 'Q ・ E', desc: 'パレットの前 ・ 次' },
             { keys: 'R', desc: '行塗りモード切替（クリックしたマス以外を塗る）' },
@@ -40,15 +45,17 @@ export const KEY_HELP: KeySection[] = [
         ],
     },
     {
-        title: 'NEXT（NEXT 欄にフォーカス）',
+        title: 'NEXT モード（PC。N で入る・NEXT 列を押しても入る）',
         rows: [
             { keys: 'TET: I O T J L S Z', desc: 'キャレット位置に挿入' },
-            { keys: 'PUYO: 1〜5 を2つ', desc: '[軸, 子] のペアを挿入' },
-            { keys: '← → ・ Home End', desc: 'キャレット移動' },
+            { keys: 'PUYO: 1〜5 を2つ', desc: '[軸, 子] のペアを挿入（1 赤・2 青・3 紫・4 緑・5 黄）' },
+            { keys: '↑ ↓ ← → ・ Home End', desc: 'キャレット移動' },
+            { keys: 'Alt+↑ ・ Alt+↓', desc: 'キャレットの前の項目を前 ・ 後ろへ移動' },
             { keys: 'Backspace ・ Delete', desc: 'キャレットの前 ・ 後を削除' },
+            { keys: 'Shift+Delete', desc: 'NEXT を全部消す' },
             { keys: 'X', desc: '（PUYO）キャレット直前のペアの軸/子を入れ替え' },
             { keys: 'B', desc: '（TET）7種1巡をランダム順で追加' },
-            { keys: 'マウス', desc: 'クリックでキャレット移動・ドラッグで並べ替え' },
+            { keys: 'マウス', desc: 'NEXT 列のクリックでキャレット移動・ドラッグで並べ替え・盤面を押すと直前のモードに戻ってそのまま塗る' },
         ],
     },
 ];

@@ -23,7 +23,7 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
 
 ## 使い方
 
-1. 問題のタブ（PC）・LEVELS（スマホ）・`Ctrl/⌘+P` で問題の一覧を開いて選ぶ（新規は ≡ メニューの NEW / PASTE JSON）
+1. 問題のタブ・アクティビティバーの LEVELS・`Ctrl/⌘+P`（PC）／トップバーの LEVELS（スマホ）で問題の一覧を開いて選ぶ（新規は ≡ メニューの NEW / PASTE JSON）
 2. 盤面・NEXT・クリア条件などを編集（キー一覧は `?`）
 3. OUTPUT の検証結果を確認し、TEST PLAY で実際のゲームで遊んで確認（ファイルは変更しない）
 4. WRITE FILE で `public/assets/quizlevels/tdata.json` / `pdata.json` に書き込む（Chrome / Edge）。
@@ -35,24 +35,26 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
 
 ## PC の画面配置
 
-設計: `source_assets/memory/quiz-editor/tetlabo-quiz-editor-layout.md`（VS Code と同じ並び）
+設計: `source_assets/memory/quiz-editor/tetlabo-quiz-editor-layout.md`（VS Code と同じ並び）・`tetlabo-quiz-editor-tools.md`（LEVELS・NEXT モード・TOOLS）
 
-- タイトルバー: ≡ メニュー（NEW / PASTE JSON / DRAFTS）・TET/PUYO・**問題のタブ**（押すか `Ctrl/⌘+P` で問題の一覧をコマンドパレット風に開く。番号タイル・文字で絞り込み・矢印と Enter）・状態チップ・UNDO/REDO
-- 左端のアクティビティバー: INFO / STEPS / OUTPUT をサイドバーに出す。選択中をもう一度押す（`Ctrl/⌘+B`）と閉じる。サイドバーの右端はドラッグで幅を変えられる（ダブルクリックで元に戻す）。幅 1000px 未満は盤面に重ねて開く
-- 中央: モード切替＋HOLD｜FIELD｜NEXT＋NEXT の編集行（SOLVE 中は NEXT 全体）＋プレイ画面の見出し。マスはテト基準で最大 28px、ぷよはテトの盤面の枠に収まる大きさ（隠し段は低く描く）
-- 右: TOOLS（モードの道具）
+- タイトルバー: ≡ メニュー（NEW / PASTE JSON / DRAFTS）・TET/PUYO・**問題のタブ**（押すか `Ctrl/⌘+P` でサイドバーの LEVELS へ）・状態チップ・UNDO/REDO
+- 左端のアクティビティバー: LEVELS / INFO / STEPS / OUTPUT をサイドバーに出す。LEVELS は番号タイル（矢印と Enter・`/` で絞り込み欄へ）。選択中をもう一度押す（`Ctrl/⌘+B`）と閉じる。サイドバーの右端はドラッグで幅を変えられる（ダブルクリックで元に戻す）。幅 1000px 未満は盤面に重ねて開く
+- 中央: モード切替＋HOLD｜FIELD｜NEXT＋（SOLVE 中は）NEXT 全体＋プレイ画面の見出し。マスはテト基準で最大 28px、ぷよはテトの盤面の枠に収まる大きさ（隠し段は低く描く）
+- 右: TOOLS（モードの道具）。全モード共通の 3 段＝ピース行（色・ミノ。I O T J L S Z の位置は全モード同じ）／操作パッド（十字＋アクション行）／その他
 - ステータスバー: モード・盤面サイズ・操作キー・検証の件数（押すと OUTPUT）・SYNC・🔔 LOG。お知らせ（トースト）はその上の右下に出る
 - 高さ 600px 以上ではページをスクロールさせず、盤面のマスを画面の高さと幅に合わせる
 - 状態チップ: FILE（ファイルのまま）/ EDITED（変更点）/ SOLUTION（手順だけ変更）/ NEW。REVERT でファイルの内容に戻す（UNDO 可）。
   自動保存はブラウザ内と Gist の下書きだけで、tdata/pdata.json は WRITE FILE でしか変わらない
 
-## 盤面のモード（PAINT / STAMP / SOLVE）
+## モード（PAINT / STAMP / NEXT / SOLVE）
 
-TOOLS の `[PAINT][STAMP][SOLVE]` で切り替える。盤面の上の帯と枠の色で今のモードが分かる。
+盤面の上の `[PAINT][STAMP][NEXT] [SOLVE]` で切り替える。選択中のボタン・盤面の枠・ステータスバーの色で今のモードが分かる。
 
-- オレンジ = **EDIT**（PAINT・STAMP）: 初期盤面を変える＝問題が変わる
+- オレンジ = **EDIT**（PAINT・STAMP・NEXT）: 初期盤面・NEXT を変える＝問題が変わる
 - 青緑 = **SOLVE**: 解答手順を記録するだけ＝問題は変わらない
-- キー: `P` で EDIT（最後に使った PAINT / STAMP）⇔ SOLVE、`Shift+P` で PAINT ⇔ STAMP
+- キー: `P` で EDIT（最後に使ったモード）⇔ SOLVE、`Shift+P` で PAINT → STAMP → NEXT、`N` で NEXT ⇔ 直前の PAINT / STAMP
+- キーはフォーカスの場所ではなく**今のモード**が受け取る（テキスト欄を除く）。NEXT モードではミノ文字で挿入・矢印でキャレット・Alt+↑↓ で並べ替え
+- NEXT 列を押すと NEXT モード、NEXT モードで盤面を押すと直前の PAINT / STAMP に戻ってそのまま塗る（PC。スマホは NEXT タブ）
 
 ## ミノ配置と解答手順（STAMP・SOLVE・TET のみ）
 
@@ -78,8 +80,9 @@ TOOLS の `[PAINT][STAMP][SOLVE]` で切り替える。盤面の上の帯と枠�
 2. エディタ右上の **SYNC** → トークンを貼って CONNECT（説明欄 `TETLABO quiz-editor sync` の Gist を探し、無ければ作る）
 3. スマホは SYNC → SHOW QR の QR コードを読む（`#sync=…` にトークンが入った URL。読み込むと URL から消える）
 
-- **自動保存は端末の中だけ**（localStorage・問題ごとに1つ）。別の問題を開いても編集中の内容は残り、LEVELS に `●` が付く。
-  ファイルの内容と同じに戻すと（REVERT・WRITE FILE）その下書きは消える
+- **自動保存は端末の中だけ**（localStorage・問題ごとに1つ）。別の問題を開いても編集中の内容は残り、LEVELS に印が付く
+  （`●` 問題に未書込の変更・`◆` 問題はファイルのまま解答手順だけ未保存）。
+  ファイルの内容（と保存済みの手順）と同じに戻すと（REVERT・WRITE FILE・SAVE SOLUTION）その下書きは消える
 - Gist へは OUTPUT の **SAVE**（Ctrl/⌘+Shift+S）を押した時だけ保存する（`draft-<id>.json`・1問につき1つ）。
   自動送信・一定間隔の取得はしない（GitHub の回数制限に当たらないように）。取得は起動時・画面に戻った時・DRAFTS を開いた時・SYNC NOW
 - 状態チップの横に `SAVED`（Gist と同じ）/ `SAVED*`（保存後に変更あり）/ `↓ iPhone`（他の端末の別の内容が届いている）。
