@@ -97,6 +97,14 @@ export function initSyncUi(deps: SyncUiDeps) {
         badge.textContent = tooMany ? `${remote}!` : String(remote);
         badge.classList.toggle('err', tooMany);
         badge.title = `Gist の下書き（PC で書き込み待ち）: ${remote}件・この端末の下書き: ${local}件${tooMany ? '\n多くなっています。DRAFTS で整理してください' : ''}`;
+        // PC は DRAFTS が ≡ メニューの中なので、≡ にも同じ件数を出す（layout §4）
+        const menuBadge = document.getElementById('menu-badge');
+        if (menuBadge) {
+            menuBadge.hidden = badge.hidden;
+            menuBadge.textContent = badge.textContent;
+            menuBadge.className = badge.className;
+            menuBadge.title = badge.title;
+        }
     }
 
     // ─── SYNC 画面 ───

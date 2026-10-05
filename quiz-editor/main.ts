@@ -13,7 +13,7 @@ import {
     nextToText, textToNext, pairsToText, textToPairs, randomBag,
 } from './model.ts';
 import {
-    loadImages, drawField, fieldCellSize, drawCellSwatch, drawMinoCentered, drawPairCentered,
+    loadImages, drawField, fieldCellSize, fitCell, rowAtY, drawCellSwatch, drawMinoCentered, drawPairCentered,
 } from './render.ts';
 import { KEY_HELP, isTextInput, isMod } from './keys.ts';
 import { PlaceMode, buildStampGrid, drawStampButtons } from './place.ts';
@@ -46,7 +46,6 @@ const ui = {
     hover: null as { r: number; c: number } | null,
     nextCaret: 0,
     pendingPuyo: 0,                    // puyo NEXT 入力の1色目（0=なし）
-    preview: 'play' as 'play' | 'select',
     mode: 'paint' as 'paint' | 'place',
     lastEdit: 'paint' as 'paint' | 'stamp',   // P で SOLVE から戻る先
 };
@@ -494,11 +493,12 @@ function curMode(): EditMode { return ui.mode === 'paint' ? 'paint' : place.sub;
 function setMode(mode: EditMode) {
     if (mode !== 'paint' && doc.rule !== 'tet') { warnStatus('ぷよのミノ配置は未対応です（段階4）'); return; }
     if (mode !== 'solve') ui.lastEdit = mode;
+    const prev = curMode();
     place.releaseAll();
     ui.mode = mode === 'paint' ? 'paint' : 'place';
     if (mode === 'paint') { place.resetActive(); renderAll(); }
     else place.setSub(mode);   // renderAll を含む
-    if (mode === 'solve' && !mobileMq.matches) setPTab('steps');
+    if (!mobileMq.matches) sideForSolve(prev, mode);
     focusField();
 }
 const MODE_BAND: Record<EditMode, [string, string]> = {
@@ -519,8 +519,9 @@ function renderAll() {
     renderField();
     renderPalette();
     renderNext();
-    renderPreview();
+    renderPlayHead();
     renderOutput();
+    renderStatusbar();
     saveDraftSoon();
     renderHold();
     renderField();   // ツール・見出しの高さが確定してから盤面の大きさを合わせ直す
@@ -579,6 +580,10 @@ function renderTopbar() {
     if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
     const idx = sourceId === null ? -1 : levels[doc.rule].findIndex(l => l.id === sourceId);
     sel.value = idx >= 0 ? `${doc.rule}:${idx}` : '';
+    // PC: 開いている問題のタブ（押すと問題の一覧）
+    $('doc-tab').innerHTML = `<span class="dt-rule">${doc.rule.toUpperCase()} — ${levelNumber()}</span>` +
+        `<span class="dt-id">${escapeHtml(doc.id) || '(ID なし)'}</span>` +
+        `<span class="dt-desc">${escapeHtml(doc.description)}</span><span class="dt-caret">▾</span>`;
     $<HTMLButtonElement>('btn-undo').disabled = undoStack.length === 0;
     $<HTMLButtonElement>('btn-redo').disabled = redoStack.length === 0;
 }
@@ -647,40 +652,67 @@ type MTab = 'field' | 'next' | 'goal' | 'steps' | 'out';
 const MTAB_KEY = 'tetlabo.quizEditor.mtab';
 
 /**
- * 盤面のマスの大きさ。モバイル配置では「画面幅」と「盤面以外を並べた残りの高さ」に収まるよう縮める
+ * 盤面のマスの大きさ。テト基準で最大 28px、ぷよはテトの盤面の枠に収まる大きさ（render.ts fitCell）。
+ * PC は盤面エリア（#col-center）の高さと幅に、モバイル配置は「画面幅」と「盤面以外を並べた残りの高さ」に収める
  * （FIELD タブはツールまで一画面に収める。STEPS タブは手順リストが長くなりうるので下に 200px ぶん見せる）
  */
 function cellSize(rule: Rule): number {
     if (!mobileMq.matches) {
-        // PC: 盤面エリア（#col-center）の高さに収める。高さが固定されない（低い画面）ときは従来の大きさ
+        // PC: 高さが固定されない（低い画面）ときは上限の大きさ
         const area = $('col-center');
-        if (getComputedStyle(area).overflowY !== 'auto') return fieldCellSize(rule);
-        const kids = [...area.children].filter(el => (el as HTMLElement).offsetParent !== null) as HTMLElement[];
-        if (!kids.length) return fieldCellSize(rule);
-        const content = kids[kids.length - 1].getBoundingClientRect().bottom - kids[0].getBoundingClientRect().top;
         const cs = getComputedStyle(area);
-        const avail = area.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - (content - fieldCanvas.offsetHeight) - 2;
-        return Math.max(12, Math.min(fieldCellSize(rule), Math.floor(avail / rows(rule))));
+        if (cs.overflowY !== 'auto') return fieldCellSize(rule);
+        const otherH = $('center-inner').offsetHeight - fieldCanvas.offsetHeight;
+        const availH = area.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - otherH - 2;
+        const wrap = $('field-wrap');
+        const otherW = $('hold-col').offsetWidth + $('next-col').offsetWidth + 16 + (wrap.offsetWidth - fieldCanvas.offsetWidth);
+        const availW = area.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - otherW - 2;
+        return fitCell(rule, availW, availH);
     }
-    const C = cols(rule), R = rows(rule);
     const w = document.documentElement.clientWidth - 16 - 32;   // #layout の左右余白＋パネル・枠の余白
     const viewH = window.visualViewport?.height ?? window.innerHeight;
     const board = fieldCanvas.offsetHeight;
     const others = body().dataset.mtab === 'steps'
         ? $('topbar').offsetHeight + $('mtabs').offsetHeight + 260
         : $('topbar').offsetHeight + $('mtabs').offsetHeight + ($('layout').offsetHeight - board) + 8;
-    const h = viewH - others;
-    return Math.max(12, Math.min(fieldCellSize(rule), Math.floor(Math.min(w / C, h / R))));
+    return fitCell(rule, w, viewH - others);
 }
 function body(): HTMLElement { return document.body; }
 
-// ─── PC のサイドパネルのタブ（pc-ux §4。data-p を持つパネルを body[data-ptab] で切り替える） ───
-type PTab = 'info' | 'steps' | 'preview' | 'out';
+// ─── PC のサイドバー（layout §1。アクティビティバーで INFO / STEPS / OUTPUT を切替・選択中をもう一度押すと閉じる） ───
+type PTab = 'info' | 'steps' | 'out';
 const PTAB_KEY = 'tetlabo.quizEditor.ptab';
-function setPTab(t: PTab) {
+const SIDE_KEY = 'tetlabo.quizEditor.side';
+const narrowMq = matchMedia('(min-width: 761px) and (max-width: 999px)');   // サイドバーを盤面に重ねて開く幅
+function curPTab(): PTab { return (body().dataset.ptab as PTab) || 'info'; }
+function sideOpen(): boolean { return body().dataset.side !== 'closed'; }
+function setPTab(t: PTab, open = true) {
     body().dataset.ptab = t;
-    try { localStorage.setItem(PTAB_KEY, t); } catch { /* 保存不可 */ }
-    for (const b of document.querySelectorAll<HTMLButtonElement>('#ptabs button')) b.classList.toggle('on', b.dataset.ptab === t);
+    body().dataset.side = open ? 'open' : 'closed';
+    try { localStorage.setItem(PTAB_KEY, t); localStorage.setItem(SIDE_KEY, open ? 'open' : 'closed'); } catch { /* 保存不可 */ }
+    for (const b of document.querySelectorAll<HTMLButtonElement>('#activity [data-ptab]')) {
+        const on = open && b.dataset.ptab === t;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', String(on));
+    }
+    renderField();   // サイドバーの開閉でマスの大きさが変わる
+}
+/** アクティビティバーのボタン: 別のビューなら開いて切替、選択中ならサイドバーを閉じる */
+function clickPTab(t: PTab) {
+    solvePrevTab = null;   // 自分で切り替えたら、SOLVE を出た時に戻さない
+    setPTab(t, !(sideOpen() && curPTab() === t));
+}
+function toggleSide() { solvePrevTab = null; setPTab(curPTab(), !sideOpen()); }
+/** SOLVE に入ったら STEPS を出し、出たら元のビューへ戻す（閉じていたら開かない。layout §8 F1） */
+let solvePrevTab: PTab | null = null;
+function sideForSolve(prev: EditMode, mode: EditMode) {
+    if (prev === mode || !sideOpen() || narrowMq.matches) return;
+    if (mode === 'solve') {
+        if (curPTab() !== 'steps') { solvePrevTab = curPTab(); setPTab('steps'); }
+    } else if (prev === 'solve') {
+        if (solvePrevTab && curPTab() === 'steps') setPTab(solvePrevTab);
+        solvePrevTab = null;
+    }
 }
 
 function setMTab(t: MTab) {
@@ -709,7 +741,9 @@ function renderField() {
         cursor: ui.cursor, hover: ui.hover, rowMode: ui.rowMode,
         showCursor: document.activeElement === fieldCanvas,
     });
-    $('field-size').textContent = `${cols(doc.rule)}×${rows(doc.rule)}${doc.rule === 'puyo' ? '（上5段は隠し段）' : ''}`;
+    const size = `${cols(doc.rule)}×${rows(doc.rule)}${doc.rule === 'puyo' ? '（上5段は隠し段）' : ''}`;
+    $('field-size').textContent = size;
+    $('sb-size').textContent = size;
 }
 
 function renderPalette() {
@@ -913,85 +947,20 @@ function renderHold() {
     box.title = solving ? 'HOLD を使う/使わない（HOLD キー）' : `HOLD 許可の切替 (H)・いま ${doc.allowHold ? '許可' : '不許可'}`;
 }
 
-function renderPreview() {
-    renderPlayHead();
-    for (const b of document.querySelectorAll<HTMLButtonElement>('#preview-seg button')) {
-        b.classList.toggle('on', b.dataset.preview === ui.preview);
-    }
-    const pv = $('preview');
-    pv.innerHTML = '';
-    const num = levelNumber();
-    const stars = doc.diff === null ? '' :
-        Array.from({ length: 5 }, (_, i) => `<span class="${i < Math.round(doc.diff!) ? 'sf' : 'se'}">${i < Math.round(doc.diff!) ? '★' : '☆'}</span>`).join('');
-
-    if (ui.preview === 'select') {
-        // 選択画面: 既存の並びの中にこの問題を置いた見え方（quiz-level-btn を再現）
-        const list = levels[doc.rule];
-        const grid = document.createElement('div');
-        grid.className = 'pv-levels';
-        const count = Math.max(list.length, num);
-        for (let i = 1; i <= count; i++) {
-            const isMe = i === num;
-            const diff = isMe ? doc.diff : (typeof list[i - 1]?.diff === 'number' ? list[i - 1].diff as number : null);
-            const st = diff === null ? '' :
-                Array.from({ length: 5 }, (_, k) => `<span class="${k < Math.round(diff) ? 'sf' : 'se'}">${k < Math.round(diff) ? '★' : '☆'}</span>`).join('');
-            const b = document.createElement('div');
-            b.className = 'pv-level' + (isMe ? ' me' : '');
-            b.innerHTML = `<span class="pv-num">${i}</span>${st ? `<span class="pv-diff">${st}</span>` : ''}`;
-            b.title = isMe ? '編集中の問題' : String(list[i - 1]?.description ?? '');
-            grid.append(b);
-        }
-        pv.append(grid);
-        return;
-    }
-
-    // プレイ画面: 盤面上部の情報（#quiz-field-info を再現）＋HOLD＋盤面＋NEXT全表示
-    const info = document.createElement('div');
-    info.className = 'pv-info';
-    info.innerHTML =
-        `<span class="pv-rule">${doc.rule === 'tet' ? 'TET' : 'PUYO'} — ${num}${stars ? ` <span class="pv-stars">${stars}</span>` : ''}</span>` +
-        `<span class="pv-desc">${escapeHtml(doc.description) || '<i>（問題名なし）</i>'}</span>` +
-        `<span class="pv-goal">GOAL: ${escapeHtml(doc.cond.description)}</span>`;
-    pv.append(info);
-
-    const body = document.createElement('div');
-    body.className = 'pv-body';
-    if (doc.rule === 'tet') {
-        const hold = document.createElement('div');
-        hold.className = 'pv-hold' + (doc.allowHold ? '' : ' off');
-        hold.innerHTML = `<span>HOLD</span>`;
-        hold.title = doc.allowHold ? 'HOLD 可' : 'HOLD 不可（ゲームでは斜線表示）';
-        body.append(hold);
-    }
-    const mini = document.createElement('canvas');
-    mini.className = 'pv-field';
-    drawField(mini, { rule: doc.rule, field: doc.field, cell: 12, cursor: null, hover: null, rowMode: false, showCursor: false });
-    body.append(mini);
-    pv.append(body);
-
-    // NEXT 全表示（quiz.js _renderQuizNextAll と同じ並び: tet 1行5個 / puyo 1行9個、ぷよは子が上）
-    const per = doc.rule === 'tet' ? 5 : 9;
-    const n = nextLen();
-    const cw = doc.rule === 'tet' ? 4 * 9 + 2 : 12 + 4;
-    const ch = doc.rule === 'tet' ? 3 * 9 + 2 : 24 + 4;
-    const rowsN = Math.max(1, Math.ceil(n / per));
-    const nc = document.createElement('canvas');
-    nc.className = 'pv-next';
-    const dpr = window.devicePixelRatio || 1;
-    nc.width = per * cw * dpr; nc.height = rowsN * ch * dpr;
-    nc.style.width = `${per * cw}px`; nc.style.height = `${rowsN * ch}px`;
-    const ctx = nc.getContext('2d')!;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    for (let i = 0; i < n; i++) {
-        const x = (i % per) * cw + cw / 2, y = Math.floor(i / per) * ch + ch / 2;
-        if (doc.rule === 'tet') drawMinoCentered(ctx, doc.next[i], x, y, 9);
-        else drawPairCentered(ctx, doc.pairs[i], x, y, 12);
-    }
-    const nl = document.createElement('div');
-    nl.className = 'pv-next-wrap';
-    nl.innerHTML = '<span class="pv-next-lbl">NEXT</span>';
-    nl.append(nc);
-    pv.append(nl);
+/** PC: ステータスバー（モード・盤面サイズ・キーの出どころ・検証の件数。SYNC と LOG は applyLayout でここへ移す） */
+function renderStatusbar() {
+    const mode = curMode();
+    const sbMode = $('sb-mode');
+    sbMode.textContent = MODE_BAND[mode][0] + (mode === 'paint' && ui.rowMode ? ' · ROW' : '');
+    sbMode.title = MODE_BAND[mode][1];
+    $('sb-keys').textContent = `KEYS: ${sourceLabel(binds.source)}`;
+    $('sb-keys').title = `操作キー: ${sourceLabel(binds.source)}・${tuningLabel(tuning)}（押すとキー一覧）`;
+    const errs = lastIssues.filter(i => i.level === 'error').length;
+    const warns = lastIssues.filter(i => i.level === 'warn').length;
+    const sb = $('sb-issues');
+    sb.textContent = errs || warns ? `⚠ ${errs + warns}` : '✓ OK';
+    sb.className = errs ? 'err' : warns ? 'warn' : 'ok';
+    sb.title = errs || warns ? `エラー ${errs}・警告 ${warns}（押すと OUTPUT を開く）` : '検証の問題はありません（押すと OUTPUT を開く）';
 }
 
 let lastIssues: Issue[] = [];
@@ -1083,7 +1052,7 @@ let dragPaint: { value: number; key: string; last: { r: number; c: number } } | 
 function cellAt(e: MouseEvent): { r: number; c: number } | null {
     const rect = fieldCanvas.getBoundingClientRect();
     const s = rect.width / cols(doc.rule);   // 表示サイズは画面幅で変わる（モバイル配置）
-    const c = Math.floor((e.clientX - rect.left) / s), r = Math.floor((e.clientY - rect.top) / s);
+    const c = Math.floor((e.clientX - rect.left) / s), r = rowAtY(doc.rule, e.clientY - rect.top, s);   // ぷよの隠し段は低い
     if (r < 0 || r >= rows(doc.rule) || c < 0 || c >= cols(doc.rule)) return null;
     return { r, c };
 }
@@ -1476,23 +1445,25 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('#rule-seg button')
     });
 }
 
+/** 既存の問題を開く（この端末に編集中の下書きがあればその続き。他の端末の下書きが届いていれば、そちらを開くか聞く） */
+function openLevel(rule: Rule, i: number) {
+    const raw = levels[rule][i];
+    if (!raw) return;
+    const id = String(raw.id);
+    const local = localDrafts.get(draftKey(rule, id, ''));
+    const incoming = levelMark(rule, id).includes('↓') ? remoteFor(rule, id, local?.draftId ?? '') : undefined;
+    if (incoming && confirm(`「${id}」には ${incoming[1].device} で保存された下書きが Gist にあります（${fmtTime(incoming[1].updatedAt)}）。そちらを開きますか？\n（キャンセルで${local ? 'この端末の編集中の内容' : 'ファイルの内容'}を開きます）`)) openDraft(incoming[0]);
+    else if (local) {
+        openDoc(cloneDoc(local.doc), local.sourceId, local.draftId);
+        const st = editStateOf(doc, sourceId);
+        showNotice(`「${id}」はこの端末で編集中の内容を開きました（変更: ${st.changes.join('・') || 'なし'}）`, true);
+    } else openDoc(withSolution(docFromLevel(raw)), id);
+}
 $<HTMLSelectElement>('level-select').addEventListener('change', e => {
     const v = (e.target as HTMLSelectElement).value;
     if (!v) return;
     const [rule, i] = v.split(':') as [Rule, string];
-    const raw = levels[rule][Number(i)];
-    if (raw) {
-        // この端末に編集中の下書きがあればその続きを開く。他の端末の下書きが届いていれば、そちらを開くか聞く
-        const id = String(raw.id);
-        const local = localDrafts.get(draftKey(rule, id, ''));
-        const incoming = levelMark(rule, id).includes('↓') ? remoteFor(rule, id, local?.draftId ?? '') : undefined;
-        if (incoming && confirm(`「${id}」には ${incoming[1].device} で保存された下書きが Gist にあります（${fmtTime(incoming[1].updatedAt)}）。そちらを開きますか？\n（キャンセルで${local ? 'この端末の編集中の内容' : 'ファイルの内容'}を開きます）`)) openDraft(incoming[0]);
-        else if (local) {
-            openDoc(cloneDoc(local.doc), local.sourceId, local.draftId);
-            const st = editStateOf(doc, sourceId);
-            showNotice(`「${id}」はこの端末で編集中の内容を開きました（変更: ${st.changes.join('・') || 'なし'}）`, true);
-        } else openDoc(withSolution(docFromLevel(raw)), id);
-    }
+    openLevel(rule, Number(i));
     focusField();
 });
 $('btn-new').addEventListener('click', () => {
@@ -1501,9 +1472,6 @@ $('btn-new').addEventListener('click', () => {
     focusField();
 });
 
-for (const b of document.querySelectorAll<HTMLButtonElement>('#preview-seg button')) {
-    b.addEventListener('click', () => { ui.preview = b.dataset.preview as 'play'; renderPreview(); });
-}
 
 $('btn-undo').addEventListener('click', undo);
 $('btn-redo').addEventListener('click', redo);
@@ -1777,6 +1745,9 @@ document.addEventListener('keydown', e => {
     const target = e.target as Element | null;
     const text = isTextInput(target);
     const k = e.key.toLowerCase();
+    // Ctrl/⌘+P: 問題の一覧、Ctrl/⌘+B: サイドバーの開閉（VS Code と同じ。layout §8 K1）
+    if (isMod(e) && !e.shiftKey && !e.altKey && k === 'p') { e.preventDefault(); openLevelPalette(); return; }
+    if (isMod(e) && !e.shiftKey && !e.altKey && k === 'b' && !mobileMq.matches) { e.preventDefault(); toggleSide(); return; }
 
     if (isMod(e) && k === 'z') {
         if (text) return;   // テキスト欄の Undo はブラウザ標準に任せる
@@ -1839,11 +1810,13 @@ async function loadLevels() {
     }
 }
 
-// ─── PC 配置: 一部の部品を PC では盤面の横・サイドパネルのタブへ移す（スマホでは元の場所＝下部タブの仕組みのまま） ───
+// ─── PC 配置: 一部の部品を PC では盤面の横・サイドバー・ステータスバーへ移す（スマホでは元の場所＝下部タブの仕組みのまま） ───
 const relocations: [HTMLElement, HTMLElement][] = [
     [$('next-h'), $('next-col')], [$('next-box'), $('next-col')],
     [$('steps-note'), $('col-steps')], [$('solve-box'), $('col-steps')],
-    [$('preview-wrap'), $('col-preview')],
+    [$('mode-seg'), $('mode-seg-slot')],
+    [$('next-text-wrap'), $('info-next-slot')],
+    [$('btn-sync'), $('sb-right')], [$('btn-log'), $('sb-right')],
 ];
 const relocationHomes = relocations.map(([el]) => { const c = document.createComment(el.id); el.before(c); return c; });
 function applyLayout() {
@@ -1854,14 +1827,223 @@ function applyLayout() {
     });
 }
 applyLayout();
-for (const b of document.querySelectorAll<HTMLButtonElement>('#ptabs button')) {
-    b.addEventListener('click', () => setPTab(b.dataset.ptab as PTab));
+for (const b of document.querySelectorAll<HTMLButtonElement>('#activity [data-ptab]')) {
+    b.addEventListener('click', () => clickPTab(b.dataset.ptab as PTab));
+}
+$('sb-issues').addEventListener('click', () => { solvePrevTab = null; setPTab('out'); });
+$('sb-keys').addEventListener('click', () => { renderHelp(); helpDlg.showModal(); });
+{
+    let saved: string | null = null, side: string | null = null;
+    try { saved = localStorage.getItem(PTAB_KEY); side = localStorage.getItem(SIDE_KEY); } catch { /* 読めない */ }
+    // 旧版の PREVIEW タブは廃止（layout §3）
+    const t: PTab = saved === 'steps' || saved === 'out' ? saved : 'info';
+    setPTab(t, side !== 'closed' && !narrowMq.matches);   // 狭い画面は盤面に重なるので閉じて始める
+}
+
+// ─── サイドバーの幅（境界線のドラッグ。layout §1.7） ───
+const SIDE_W_KEY = 'tetlabo.quizEditor.sideW';
+const SIDE_W_DEFAULT = 300, SIDE_W_MIN = 240, SIDE_W_MAX = 560;
+function setSideW(w: number, save = true) {
+    const v = Math.round(Math.max(SIDE_W_MIN, Math.min(SIDE_W_MAX, w)));
+    body().style.setProperty('--side-w', `${v}px`);
+    if (save) try { localStorage.setItem(SIDE_W_KEY, String(v)); } catch { /* 保存不可 */ }
+    renderField();
 }
 {
-    let saved: string | null = null;
-    try { saved = localStorage.getItem(PTAB_KEY); } catch { /* 読めない */ }
-    setPTab(saved && ['info', 'steps', 'preview', 'out'].includes(saved) ? saved as PTab : 'info');
+    let w = NaN;
+    try { w = Number(localStorage.getItem(SIDE_W_KEY)); } catch { /* 読めない */ }
+    if (w) setSideW(w, false);
+    const sash = $('sash');
+    let drag: { x: number; w: number } | null = null;
+    sash.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        try { sash.setPointerCapture(e.pointerId); } catch { /* 既に離れたポインタ */ }
+        drag = { x: e.clientX, w: $('sidebar').offsetWidth };
+        body().classList.add('sash-drag');
+    });
+    sash.addEventListener('pointermove', e => {
+        if (drag) setSideW(drag.w + e.clientX - drag.x, false);
+    });
+    const end = () => {
+        if (drag) setSideW($('sidebar').offsetWidth);   // 離した時に保存
+        drag = null;
+        body().classList.remove('sash-drag');
+    };
+    sash.addEventListener('pointerup', end);
+    sash.addEventListener('pointercancel', end);
+    sash.addEventListener('dblclick', () => setSideW(SIDE_W_DEFAULT));
 }
+
+// ─── 問題の一覧（コマンドパレット風に重ねて出す。ゲームの選択画面と同じ番号タイル。layout §2） ───
+const lvDlg = $<HTMLDialogElement>('lv-dlg');
+const lvFilter = $<HTMLInputElement>('lv-filter');
+const lvState = { open: { tet: true, puyo: false } as Record<Rule, boolean>, sel: '', hover: '' };
+function starsHtml(diff: unknown): string {
+    if (typeof diff !== 'number') return '';
+    return Array.from({ length: 5 }, (_, k) => `<span class="${k < Math.round(diff) ? 'sf' : 'se'}">${k < Math.round(diff) ? '★' : '☆'}</span>`).join('');
+}
+/** 開いている問題のタイル（新規なら 'new'） */
+function currentLvKey(): string {
+    const i = sourceId === null ? -1 : levels[doc.rule].findIndex(l => l.id === sourceId);
+    return i >= 0 ? `${doc.rule}:${i}` : 'new';
+}
+function lvMatches(rule: Rule, i: number, q: string): boolean {
+    if (!q) return true;
+    const l = levels[rule][i];
+    return `${i + 1} ${rule} ${String(l.id ?? '')} ${String(l.description ?? '')}`.toLowerCase().includes(q);
+}
+function renderLevelPalette() {
+    const q = lvFilter.value.trim().toLowerCase();
+    const cur = currentLvKey();
+    const parts: string[] = [];
+    let first = '';
+    for (const rule of ['tet', 'puyo'] as Rule[]) {
+        const list = levels[rule];
+        const idx = list.map((_, i) => i).filter(i => lvMatches(rule, i, q));
+        const open = q ? idx.length > 0 : lvState.open[rule];
+        parts.push(`<div class="lv-head"><button type="button" class="lv-toggle" data-rule="${rule}" aria-expanded="${open}">${open ? '▼' : '▶'} ${rule.toUpperCase()} <small>(${q ? `${idx.length}/` : ''}${list.length})</small></button>` +
+            `<button type="button" class="lv-new" data-new="${rule}" title="${rule.toUpperCase()} の新しい問題">+ NEW</button></div>`);
+        if (!open) continue;
+        const tiles = idx.map(i => {
+            const l = list[i];
+            const key = `${rule}:${i}`;
+            if (!first) first = key;
+            const mark = levelMark(rule, String(l.id)).replace(/ /g, '');
+            return `<button type="button" class="lv-tile${key === cur ? ' me' : ''}${key === lvState.sel ? ' sel' : ''}" data-key="${key}">` +
+                `<span class="lv-num">${i + 1}</span><span class="lv-diff">${starsHtml(l.diff)}</span>${mark ? `<span class="lv-mark">${mark}</span>` : ''}</button>`;
+        });
+        // 新規（未書込）の問題は、WRITE FILE で入る位置（末尾）に点線のタイルで出す
+        if (!q && cur === 'new' && doc.rule === rule) {
+            tiles.push(`<button type="button" class="lv-tile me new${lvState.sel === 'new' ? ' sel' : ''}" data-key="new" title="編集中の新しい問題（WRITE FILE で入る位置）"><span class="lv-num">${list.length + 1}</span><span class="lv-diff">${starsHtml(doc.diff)}</span></button>`);
+        }
+        parts.push(`<div class="lv-grid">${tiles.join('') || '<span class="note">該当なし</span>'}</div>`);
+    }
+    $('lv-body').innerHTML = parts.join('');
+    if (!lvDlg.querySelector(`[data-key="${lvState.sel}"]`)) lvState.sel = first;
+    for (const t of lvDlg.querySelectorAll('.lv-tile')) t.classList.toggle('sel', (t as HTMLElement).dataset.key === lvState.sel);
+    renderLevelDetail();
+}
+function renderLevelDetail() {
+    const key = lvState.hover || lvState.sel;
+    const el = $('lv-detail');
+    if (!key) { el.innerHTML = ''; return; }
+    let num: number, rule: Rule, id: string, desc: string, goal: string, diff: unknown;
+    if (key === 'new') {
+        rule = doc.rule; num = levels[rule].length + 1; id = doc.id || '(ID なし)'; desc = doc.description; goal = doc.cond.description; diff = doc.diff;
+    } else {
+        const [r, i] = key.split(':');
+        rule = r as Rule; num = Number(i) + 1;
+        const l = levels[rule][Number(i)];
+        id = String(l.id ?? ''); desc = String(l.description ?? '');
+        goal = String((l.clearCondition as { description?: unknown } | undefined)?.description ?? ''); diff = l.diff;
+    }
+    el.innerHTML = `<div><span class="pv-rule">${rule.toUpperCase()} — ${num}</span> <span class="pv-stars">${starsHtml(diff)}</span> <span class="lv-id">${escapeHtml(id)}</span></div>` +
+        `<div class="lv-desc">${escapeHtml(desc) || '<i>（問題名なし）</i>'}</div>` +
+        `<div class="pv-goal">GOAL: ${escapeHtml(goal)}</div>`;
+}
+function openLevelPalette() {
+    if (!levelsLoaded || lvDlg.open) return;
+    $('topbar').classList.remove('menu-open');
+    lvFilter.value = '';
+    lvState.sel = currentLvKey();
+    lvState.hover = '';
+    lvState.open[doc.rule] = true;
+    renderLevelPalette();
+    lvDlg.showModal();
+    lvFilter.focus();
+    lvDlg.querySelector('.lv-tile.sel')?.scrollIntoView({ block: 'nearest' });
+}
+function activateLevel(key: string) {
+    lvDlg.close();
+    if (key && key !== 'new' && key !== currentLvKey()) {
+        const [rule, i] = key.split(':');
+        openLevel(rule as Rule, Number(i));
+    }
+    focusField();
+}
+/** 矢印キー: 画面上の位置で上下左右のタイルへ（ゲームの選択画面と同じ動き） */
+function moveLevelSel(dx: number, dy: number) {
+    const tiles = [...lvDlg.querySelectorAll<HTMLElement>('.lv-tile')];
+    if (!tiles.length) return;
+    const cur = tiles.find(t => t.dataset.key === lvState.sel) ?? tiles[0];
+    const r0 = cur.getBoundingClientRect();
+    let best: HTMLElement | null = null, bestScore = Infinity;
+    for (const t of tiles) {
+        if (t === cur) continue;
+        const r = t.getBoundingClientRect();
+        const ddx = r.left - r0.left, ddy = r.top - r0.top;
+        let score: number;
+        if (dx) { if (Math.abs(ddy) > 4 || Math.sign(ddx) !== dx) continue; score = Math.abs(ddx); }
+        else { if (Math.abs(ddy) <= 4 || Math.sign(ddy) !== dy) continue; score = Math.abs(ddy) * 1000 + Math.abs(ddx); }
+        if (score < bestScore) { bestScore = score; best = t; }
+    }
+    // 行の端では前後の行へ続ける
+    if (!best && dx) best = tiles[tiles.indexOf(cur) + dx] ?? null;
+    if (!best) return;
+    lvState.sel = best.dataset.key!;
+    lvState.hover = '';
+    for (const t of tiles) t.classList.toggle('sel', t === best);
+    best.scrollIntoView({ block: 'nearest' });
+    renderLevelDetail();
+}
+lvFilter.addEventListener('input', () => { lvState.hover = ''; renderLevelPalette(); });
+lvDlg.addEventListener('keydown', e => {
+    const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (dir) { e.preventDefault(); moveLevelSel(dir[0], dir[1]); return; }
+    if (e.key === 'Enter') { e.preventDefault(); if (lvState.sel) activateLevel(lvState.sel); }
+});
+lvDlg.addEventListener('click', e => {
+    if (e.target === lvDlg) { lvDlg.close(); focusField(); return; }   // 外側（背景）を押したら閉じるだけ
+    const t = e.target as HTMLElement;
+    const tile = t.closest<HTMLElement>('.lv-tile');
+    if (tile) { activateLevel(tile.dataset.key!); return; }
+    const tog = t.closest<HTMLElement>('.lv-toggle');
+    if (tog) {
+        const rule = tog.dataset.rule as Rule;
+        lvFilter.value = '';
+        lvState.open[rule] = !lvState.open[rule];
+        renderLevelPalette();
+        lvFilter.focus();
+        return;
+    }
+    const nw = t.closest<HTMLElement>('[data-new]');
+    if (nw) { lvDlg.close(); openDoc(newDoc(nw.dataset.new as Rule), null); focusField(); }
+});
+lvDlg.addEventListener('mouseover', e => {
+    const key = (e.target as HTMLElement).closest<HTMLElement>('.lv-tile')?.dataset.key ?? '';
+    if (key !== lvState.hover) { lvState.hover = key; renderLevelDetail(); }
+});
+lvDlg.addEventListener('mouseleave', () => { lvState.hover = ''; renderLevelDetail(); });
+$('doc-tab').addEventListener('click', openLevelPalette);
+$('activity').querySelector('[data-act="levels"]')!.addEventListener('click', openLevelPalette);
+
+// ─── PC: ≡ メニュー・盤面に重ねたサイドバーは、外側を押したら閉じるだけ（その押下は盤面に渡さない。layout §8 C5） ───
+let swallowClick = false;
+window.addEventListener('pointerdown', e => {
+    swallowClick = false;   // 前の押下が click にならなかった（ドラッグ等）時に、次の click を飲み込まない
+    if (mobileMq.matches) return;
+    const t = e.target as Element;
+    let consumed = false;
+    if ($('topbar').classList.contains('menu-open') && !t.closest('#menu-pop, #btn-menu')) {
+        closeMenu();
+        consumed = true;
+    }
+    if (narrowMq.matches && sideOpen() && !t.closest('#sidebar, #activity, dialog')) {
+        setPTab(curPTab(), false);
+        consumed = true;
+    }
+    if (consumed) { e.preventDefault(); e.stopPropagation(); swallowClick = true; }
+}, true);
+window.addEventListener('click', e => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    e.preventDefault();
+    e.stopPropagation();
+}, true);
+window.addEventListener('keydown', () => { swallowClick = false; }, true);
+narrowMq.addEventListener('change', () => { if (narrowMq.matches) setPTab(curPTab(), false); });
+
 // SOLVE の STRICT（端末ごとの設定）
 const STRICT_KEY = 'tetlabo.quizEditor.strict';
 try { place.strict = localStorage.getItem(STRICT_KEY) === '1'; } catch { /* 読めない */ }
@@ -1878,7 +2060,7 @@ $('hold-box').addEventListener('click', () => {
     focusField();
 });
 
-loadImages(() => { renderField(); renderPalette(); renderNext(); renderPreview(); buildStampGrid($('stamp-grid')); });
+loadImages(() => { renderField(); renderPalette(); renderNext(); renderHold(); buildStampGrid($('stamp-grid')); });
 buildStampGrid($('stamp-grid'));
 const restored = restoreOnBoot();
 ui.nextCaret = nextLen();
@@ -1941,8 +2123,18 @@ function renderLog() {
         ? `<ul class="log-list">${list.map(e => `<li class="${e.kind}"><time>${String(e.at.getHours()).padStart(2, '0')}:${String(e.at.getMinutes()).padStart(2, '0')}:${String(e.at.getSeconds()).padStart(2, '0')}</time> ${escapeHtml(e.msg.replace(NOTICE_MARK, ''))}</li>`).join('')}</ul>`
         : '<p class="note">お知らせはまだありません。</p>';
 }
-onToastLog(() => { if (logDlg.open) renderLog(); });
-$('btn-log').addEventListener('click', () => { renderLog(); logDlg.showModal(); });
+// 未読の件数（PC はステータスバーの 🔔 に出す）
+let logUnread = 0;
+function renderLogUnread() {
+    const b = $('log-unread');
+    b.hidden = logUnread === 0;
+    b.textContent = String(Math.min(logUnread, 99));
+}
+onToastLog(() => {
+    if (logDlg.open) renderLog();
+    else { logUnread++; renderLogUnread(); }
+});
+$('btn-log').addEventListener('click', () => { logUnread = 0; renderLogUnread(); renderLog(); logDlg.showModal(); });
 // モバイル配置: 下部タブ・メニュー・画面サイズの変化
 for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) {
     b.addEventListener('click', () => setMTab(b.dataset.mtab as MTab));
@@ -1953,11 +2145,16 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) {
     body().dataset.mtab = saved && ['field', 'next', 'goal', 'steps', 'out'].includes(saved) ? saved : 'field';
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) b.classList.toggle('on', b.dataset.mtab === body().dataset.mtab);
 }
+function closeMenu() {
+    $('topbar').classList.remove('menu-open');
+    $('btn-menu').setAttribute('aria-expanded', 'false');
+}
 $('btn-menu').addEventListener('click', () => {
     const open = $('topbar').classList.toggle('menu-open');
     $('btn-menu').setAttribute('aria-expanded', String(open));
 });
-for (const id of ['btn-new', 'btn-paste', 'btn-log']) $(id).addEventListener('click', () => $('topbar').classList.remove('menu-open'));
+for (const id of ['btn-new', 'btn-paste', 'btn-drafts', 'btn-revert', 'btn-log']) $(id).addEventListener('click', closeMenu);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('topbar').classList.contains('menu-open')) closeMenu(); });
 let resizeRaf = 0;
 function onViewportResize() {
     cancelAnimationFrame(resizeRaf);

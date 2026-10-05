@@ -11,31 +11,52 @@
 </head>
 <body>
   <!-- TETLABO クイズエディタ（pnpm dev:client → /quiz-editor/。プレビューURLでも配信・本番には出ない） -->
+  <!--
+    PC（761px 以上）はエディタ型の配置（layout.md §1）:
+      タイトルバー / 左端のアクティビティバー＋サイドバー（INFO・STEPS・OUTPUT）/ 中央の盤面 / 右の TOOLS / ステータスバー
+    スマホ（760px 以下）は下部タブ（data-m）。PC だけ一部の部品を applyLayout() で移す
+  -->
   <header id="topbar">
-    <button type="button" id="btn-menu" class="m-only" aria-label="メニュー" aria-expanded="false">≡</button>
+    <div class="menu-wrap">
+      <button type="button" id="btn-menu" aria-label="メニュー" aria-expanded="false" title="メニュー（NEW・PASTE JSON・DRAFTS）">≡<span id="menu-badge" class="badge" hidden></span></button>
+    </div>
     <h1>QUIZ EDITOR</h1>
     <div class="seg" id="rule-seg" role="radiogroup" aria-label="ルール">
       <button type="button" data-rule="tet" role="radio">TET</button>
       <button type="button" data-rule="puyo" role="radio">PUYO</button>
     </div>
-    <label class="level-pick">
+    <label class="level-pick m-only">
       <span class="lbl">LEVELS</span>
       <select id="level-select" aria-label="既存の問題を開く"></select>
     </label>
+    <!-- PC: 開いている問題のタブ。押すと問題の一覧（コマンドパレット風）を開く -->
+    <button type="button" id="doc-tab" class="pc-only" title="問題を開く (Ctrl/⌘+P)"></button>
     <span id="state-chip" class="state-chip" hidden></span>
     <button type="button" id="btn-revert" class="m-menu" title="ファイルの内容（と保存済みの解答手順）に戻す。UNDO で取り消せます" hidden>REVERT</button>
-    <button type="button" id="btn-new" class="m-menu">NEW</button>
-    <button type="button" id="btn-paste" class="m-menu">PASTE JSON</button>
-    <button type="button" id="btn-drafts" title="下書きの一覧（この端末で編集中の物・Gist に保存された物）">DRAFTS <span id="drafts-badge" class="badge" hidden></span></button>
+    <div id="menu-pop" role="menu">
+      <button type="button" id="btn-new" class="m-menu" role="menuitem" title="今のルールで新しい問題">NEW</button>
+      <button type="button" id="btn-paste" class="m-menu" role="menuitem">PASTE JSON</button>
+      <button type="button" id="btn-drafts" role="menuitem" title="下書きの一覧（この端末で編集中の物・Gist に保存された物）">DRAFTS <span id="drafts-badge" class="badge" hidden></span></button>
+    </div>
     <span class="spacer"></span>
     <button type="button" id="btn-sync" class="sync-chip" title="PC とスマホの同期（GitHub Gist）">SYNC: OFF</button>
     <button type="button" id="btn-undo" title="元に戻す (Ctrl/⌘+Z)">UNDO</button>
     <button type="button" id="btn-redo" title="やり直し (Ctrl/⌘+Shift+Z)">REDO</button>
-    <button type="button" id="btn-log" class="m-menu" title="最近のお知らせ（直近20件）">LOG</button>
+    <button type="button" id="btn-log" class="m-menu" title="最近のお知らせ（直近20件）"><svg class="pc-only bell" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5a4 4 0 0 0-4 4v2.8L2.6 11h10.8L12 8.3V5.5a4 4 0 0 0-4-4zM6.3 12.5a1.8 1.8 0 0 0 3.4 0z" fill="currentColor"/></svg><span class="m-only">LOG</span><span id="log-unread" class="badge" hidden></span></button>
     <button type="button" id="btn-help" class="pc-only" title="キー一覧 (?)">? KEYS</button>
   </header>
 
   <main id="layout">
+    <!-- PC: アクティビティバー（押すとサイドバーの表示を切替。選択中をもう一度押すと閉じる） -->
+    <nav id="activity" class="pc-only" aria-label="サイドバー">
+      <button type="button" data-act="levels" title="問題を開く (Ctrl/⌘+P)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z" fill="none" stroke="currentColor" stroke-width="1.3"/></svg><span>LEVELS</span></button>
+      <button type="button" data-ptab="info" title="問題の情報・GOAL"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 7v4.5M8 4.6v.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>INFO</span></button>
+      <button type="button" data-ptab="steps" title="解答手順"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5h8M6 8h8M6 12.5h8" stroke="currentColor" stroke-width="1.3"/><path d="M2 2.5h1.5v2M2 7h2l-2 2h2M2 11.5h2v2H2" fill="none" stroke="currentColor" stroke-width="1"/></svg><span>STEPS</span></button>
+      <button type="button" data-ptab="out" title="出力（検証・JSON・WRITE FILE・TEST PLAY）"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 2.5C3.5 2.5 4.5 7 2.5 8c2 1 1 5.5 3 5.5M10.5 2.5c2 0 1 4.5 3 5.5-2 1-1 5.5-3 5.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg><span>OUTPUT</span><span id="out-badge" class="badge" hidden></span></button>
+    </nav>
+
+    <!-- PC: サイドバー（スマホでは display: contents で各パネルがそのまま並ぶ） -->
+    <aside id="sidebar">
     <!-- ① 問題情報 ＋ ④ クリア条件 -->
     <section class="panel" id="col-left" data-m="goal" data-p="info">
       <h2>INFO</h2>
@@ -53,6 +74,8 @@
           <div class="stars" id="diff-stars"></div>
         </div>
         <label class="check" id="hold-wrap"><input id="in-hold" type="checkbox" /> HOLD を許可 <small>(H)</small></label>
+        <!-- PC: NEXT の TEXT 欄をここへ移す -->
+        <div id="info-next-slot" class="pc-only"></div>
       </div>
 
       <h2>GOAL</h2>
@@ -79,11 +102,47 @@
       </div>
     </section>
 
+    <!-- PC: 手順（#solve-box・#steps-note をここへ移す） -->
+    <section class="panel pc-only" id="col-steps" data-p="steps">
+      <h2>STEPS</h2>
+      <p class="note" id="steps-idle">SOLVE モード（P）で NEXT の順にミノを置くと、解答手順が記録されます。</p>
+    </section>
+
+    <!-- ⑧ 出力 -->
+    <section class="panel" id="col-output" data-m="out" data-p="out">
+      <h2>OUTPUT</h2>
+      <ul id="issues"></ul>
+      <div class="row out-tools">
+        <button type="button" id="btn-copy" title="Ctrl/⌘+S">COPY JSON</button>
+        <label class="check"><input id="in-lead-comma" type="checkbox" /> 先頭に「,」</label>
+        <button type="button" id="btn-download">DOWNLOAD</button>
+      </div>
+      <div class="row out-tools">
+        <button type="button" id="btn-write" title="tdata.json / pdata.json のこの問題だけを書き換える（Chrome / Edge）">WRITE FILE</button>
+        <label class="check">位置 <select id="write-pos" aria-label="書き込む位置"></select></label>
+        <button type="button" id="btn-write-pick" title="書き込むファイルを選び直す">CHOOSE FILE</button>
+      </div>
+      <div class="row out-tools">
+        <button type="button" id="btn-save-gist" title="この問題の下書きを Gist に保存する（他の端末の DRAFTS に出る＝PC で書き込み待ち）。Ctrl/⌘+Shift+S" hidden>SAVE</button>
+        <button type="button" id="btn-test" title="編集中の問題を TETLABO で遊ぶ（新しいタブ・ファイルは変更しない）">TEST PLAY</button>
+      </div>
+      <p id="write-info" class="note"></p>
+      <textarea id="out-json" readonly spellcheck="false" wrap="off"></textarea>
+    </section>
+    <!-- PC: サイドバーの幅を変える境界線（ドラッグ・ダブルクリックで既定に戻す） -->
+    <div id="sash" class="pc-only" title="ドラッグで幅を変更（ダブルクリックで元に戻す）"></div>
+    </aside>
+
     <!-- ② 盤面 ＋ ⑤ NEXT -->
     <section class="panel" id="col-center">
+      <div id="center-inner">
       <div data-m="field steps">
         <h2>FIELD <small id="field-size"></small></h2>
-        <div id="mode-band"><b id="mode-name"></b><span id="mode-desc"></span></div>
+        <div id="mode-row">
+          <!-- PC: モードの切替（#mode-seg）をここへ移す -->
+          <span id="mode-seg-slot" class="pc-only"></span>
+          <div id="mode-band"><b id="mode-name"></b><span id="mode-desc"></span></div>
+        </div>
         <div id="board-row">
           <!-- PC: 盤面の左に HOLD（編集中は許可の切替、SOLVE 中は持っているミノ） -->
           <div id="hold-col" class="pc-only">
@@ -103,15 +162,16 @@
       <div class="row next-tools" id="next-tools"></div>
       <!-- PC・SOLVE: NEXT の編集行の代わりに NEXT 全体を 1 行で（使い終えた物は暗く） -->
       <div id="next-strip" class="pc-only" hidden><span class="lbl">ALL</span><div id="next-strip-scroll"><canvas id="next-strip-cv"></canvas></div></div>
-      <label class="next-text">TEXT
+      <label class="next-text" id="next-text-wrap"><span><span class="pc-only">NEXT </span>TEXT</span>
         <input id="next-text" type="text" spellcheck="false" />
       </label>
       </div>
       <!-- PC: プレイ画面の見出し（TET - n ★ / 問題名 / GOAL） -->
       <div id="play-head" class="pc-only"></div>
+      </div>
     </section>
 
-    <!-- ③ ツール ＋ ⑦ プレビュー -->
+    <!-- ③ ツール -->
     <section class="panel" id="col-right">
       <h2 data-m="field">TOOLS</h2>
       <p class="note" id="steps-note" data-m="steps" hidden></p>
@@ -120,7 +180,6 @@
         <button type="button" data-mode="stamp" role="radio" title="好きなミノを初期盤面に直接置く（Shift+P で PAINT と切替）">STAMP</button>
         <button type="button" data-mode="solve" role="radio" title="NEXT の順に置いて解答手順を記録（P で EDIT と切替）">SOLVE</button>
       </div>
-
       <div id="paint-box" data-m="field">
         <div id="palette" role="radiogroup" aria-label="色"></div>
         <div class="tool-grid">
@@ -183,51 +242,18 @@
         </div>
       </div>
 
-      <div data-m="out" id="preview-wrap">
-        <h2>PREVIEW</h2>
-        <div class="seg" id="preview-seg">
-          <button type="button" data-preview="play">PLAY</button>
-          <button type="button" data-preview="select">SELECT</button>
-        </div>
-        <div id="preview"></div>
-      </div>
-    </section>
-
-    <!-- PC のサイドパネルのタブ（下の data-p を持つパネルを切り替える。スマホは下部タブ） -->
-    <nav id="ptabs" class="pc-only" aria-label="表示する項目">
-      <button type="button" data-ptab="info">INFO</button>
-      <button type="button" data-ptab="steps">STEPS</button>
-      <button type="button" data-ptab="preview">PREVIEW</button>
-      <button type="button" data-ptab="out">OUTPUT <span id="out-badge" class="badge" hidden></span></button>
-    </nav>
-    <!-- PC: 手順・プレビューのタブ（#solve-box・#steps-note・#preview-wrap をここへ移す） -->
-    <section class="panel pc-only" id="col-steps" data-p="steps">
-      <h2>STEPS</h2>
-      <p class="note" id="steps-idle">SOLVE モード（P）で NEXT の順にミノを置くと、解答手順が記録されます。</p>
-    </section>
-    <section class="panel pc-only" id="col-preview" data-p="preview"></section>
-
-    <!-- ⑧ 出力 -->
-    <section class="panel" id="col-output" data-m="out" data-p="out">
-      <h2>OUTPUT</h2>
-      <ul id="issues"></ul>
-      <div class="row out-tools">
-        <button type="button" id="btn-copy" title="Ctrl/⌘+S">COPY JSON</button>
-        <label class="check"><input id="in-lead-comma" type="checkbox" /> 先頭に「,」</label>
-        <button type="button" id="btn-download">DOWNLOAD</button>
-      </div>
-      <div class="row out-tools">
-        <button type="button" id="btn-write" title="tdata.json / pdata.json のこの問題だけを書き換える（Chrome / Edge）">WRITE FILE</button>
-        <label class="check">位置 <select id="write-pos" aria-label="書き込む位置"></select></label>
-        <button type="button" id="btn-write-pick" title="書き込むファイルを選び直す">CHOOSE FILE</button>
-        <span class="spacer"></span>
-        <button type="button" id="btn-save-gist" title="この問題の下書きを Gist に保存する（他の端末の DRAFTS に出る＝PC で書き込み待ち）。Ctrl/⌘+Shift+S" hidden>SAVE</button>
-        <button type="button" id="btn-test" title="編集中の問題を TETLABO で遊ぶ（新しいタブ・ファイルは変更しない）">TEST PLAY</button>
-      </div>
-      <p id="write-info" class="note"></p>
-      <textarea id="out-json" readonly spellcheck="false"></textarea>
     </section>
   </main>
+
+  <!-- PC: ステータスバー（モード・盤面・キー・検証の件数・SYNC・LOG） -->
+  <footer id="statusbar" class="pc-only">
+    <span id="sb-mode"></span>
+    <span id="sb-size"></span>
+    <button type="button" id="sb-keys" title="キー一覧 (?)"></button>
+    <button type="button" id="sb-issues" title="検証の結果（OUTPUT を開く）"></button>
+    <span class="spacer"></span>
+    <span id="sb-right"></span>
+  </footer>
 
   <!-- モバイル配置の下部タブ（§14.5。幅 760px 以下でだけ表示） -->
   <nav id="mtabs" class="m-only" aria-label="編集する項目">
@@ -237,6 +263,15 @@
     <button type="button" data-mtab="steps">STEPS</button>
     <button type="button" data-mtab="out">OUT</button>
   </nav>
+
+  <!-- 問題の一覧（コマンドパレット風に重ねて出す。layout §2） -->
+  <dialog id="lv-dlg" class="palette" aria-label="問題を開く">
+    <div class="lv-wrap">
+      <input id="lv-filter" type="text" spellcheck="false" autocomplete="off" placeholder="番号・ID・問題名で絞り込み（矢印で選択・Enter で開く・Esc で閉じる）" />
+      <div id="lv-body"></div>
+      <div id="lv-detail"></div>
+    </div>
+  </dialog>
 
   <!-- 貼り付けダイアログ -->
   <dialog id="paste-dlg">

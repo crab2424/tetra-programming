@@ -2,7 +2,7 @@
 // render.ts
 // ゲームと同じ画像（public/assets/images）で盤面・ミノ・ぷよを描く
 // ─────────────────────────────────────────────
-import { type Rule, PUYO_HIDDEN, cols, rows } from './model.ts';
+import { type Rule, PUYO_HIDDEN, TET_ROWS, cols, rows } from './model.ts';
 
 // ─── 画像 ───
 // tet: block-0..7（0=I … 6=Z, 7=おじゃま）／ puyo: puyo-0..5（5=おじゃま）
@@ -89,12 +89,51 @@ export interface FieldView {
     ghost?: [number, number][] | null;
 }
 
-export function fieldCellSize(rule: Rule): number { return rule === 'tet' ? 28 : 32; }
+/*
+ * 盤面の大きさ（layout §1.5）。テトのマスを基準に最大 28px（ゲームは 32px）とし、
+ * ぷよは「テトの盤面の枠（10×20 マス）」に収まる大きさにする。
+ * ぷよの隠し段（上 5 段）はふつう使わないので高さを縮めて描き（PUYO_HIDDEN_RATIO）、見える 12 段を大きく取る
+ */
+export const TET_MAX_CELL = 28;
+export const PUYO_HIDDEN_RATIO = 0.4;
+/** 盤面の高さが何マスぶんか（ぷよは隠し段を縮めた分を引く） */
+export function fieldRowUnits(rule: Rule): number {
+    return rule === 'tet' ? TET_ROWS : (rows('puyo') - PUYO_HIDDEN) + PUYO_HIDDEN * PUYO_HIDDEN_RATIO;
+}
+/** マスの上限（テト 28px・ぷよはテトの盤面の高さに合わせた 40px） */
+export function fieldCellSize(rule: Rule): number {
+    return rule === 'tet' ? TET_MAX_CELL : Math.floor(TET_MAX_CELL * TET_ROWS / fieldRowUnits('puyo'));
+}
+/** 幅 w・高さ h に収まるマスの大きさ（下限 12px） */
+export function fitCell(rule: Rule, w: number, h: number): number {
+    return Math.max(12, Math.min(fieldCellSize(rule), Math.floor(Math.min(w / cols(rule), h / fieldRowUnits(rule)))));
+}
+/** 隠し段 1 段の高さ（テトは全段同じ） */
+function hiddenRowH(rule: Rule, s: number): number {
+    return rule === 'puyo' ? Math.max(4, Math.round(s * PUYO_HIDDEN_RATIO)) : s;
+}
+/** r 段目の上端の y */
+export function rowTop(rule: Rule, r: number, s: number): number {
+    if (rule !== 'puyo') return r * s;
+    const h = hiddenRowH(rule, s);
+    return r < PUYO_HIDDEN ? r * h : PUYO_HIDDEN * h + (r - PUYO_HIDDEN) * s;
+}
+/** r 段目の高さ */
+export function rowHeight(rule: Rule, r: number, s: number): number {
+    return rule === 'puyo' && r < PUYO_HIDDEN ? hiddenRowH(rule, s) : s;
+}
+/** y（盤面の上端から）が何段目か。盤面の外は -1 */
+export function rowAtY(rule: Rule, y: number, s: number): number {
+    if (y < 0) return -1;
+    for (let r = 0; r < rows(rule); r++) if (y < rowTop(rule, r + 1, s)) return r;
+    return -1;
+}
 
 export function drawField(canvas: HTMLCanvasElement, v: FieldView) {
     const C = cols(v.rule), R = rows(v.rule), s = v.cell;
     const dpr = window.devicePixelRatio || 1;
-    const W = C * s, H = R * s;
+    const W = C * s, H = rowTop(v.rule, R, s);
+    const top = (r: number) => rowTop(v.rule, r, s), rh = (r: number) => rowHeight(v.rule, r, s);
     if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
         canvas.width = W * dpr; canvas.height = H * dpr;
         canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
@@ -110,12 +149,13 @@ export function drawField(canvas: HTMLCanvasElement, v: FieldView) {
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let c = 1; c < C; c++) { ctx.moveTo(c * s + 0.5, 0); ctx.lineTo(c * s + 0.5, H); }
-    for (let r = 1; r < R; r++) { ctx.moveTo(0, r * s + 0.5); ctx.lineTo(W, r * s + 0.5); }
+    for (let r = 1; r < R; r++) { ctx.moveTo(0, top(r) + 0.5); ctx.lineTo(W, top(r) + 0.5); }
     ctx.stroke();
 
-    // ブロック
+    // ブロック（ぷよの隠し段は縮めた段の中に小さく）
     for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
-        drawImg(ctx, cellImage(v.rule, v.field[r][c]), c * s, r * s, s);
+        const h = rh(r);
+        drawImg(ctx, cellImage(v.rule, v.field[r][c]), c * s + (s - h) / 2, top(r), h);
     }
 
     // ゴースト・操作中ミノ（PLACE モード）
@@ -149,16 +189,16 @@ export function drawField(canvas: HTMLCanvasElement, v: FieldView) {
     } else {
         // 隠し段を暗く・可視境界線
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.fillRect(0, 0, W, PUYO_HIDDEN * s);
+        ctx.fillRect(0, 0, W, top(PUYO_HIDDEN));
         ctx.strokeStyle = 'rgba(245,133,66,0.6)';
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
-        ctx.moveTo(0, PUYO_HIDDEN * s + 0.5); ctx.lineTo(W, PUYO_HIDDEN * s + 0.5);
+        ctx.moveTo(0, top(PUYO_HIDDEN) + 0.5); ctx.lineTo(W, top(PUYO_HIDDEN) + 0.5);
         ctx.stroke();
         ctx.setLineDash([]);
         // 窒息点（3列目・可視最上段）
         ctx.strokeStyle = 'rgba(245,90,90,0.7)';
-        const dx = 2 * s, dy = PUYO_HIDDEN * s;
+        const dx = 2 * s, dy = top(PUYO_HIDDEN);
         ctx.beginPath();
         ctx.moveTo(dx + 6, dy + 6); ctx.lineTo(dx + s - 6, dy + s - 6);
         ctx.moveTo(dx + s - 6, dy + 6); ctx.lineTo(dx + 6, dy + s - 6);
@@ -168,14 +208,15 @@ export function drawField(canvas: HTMLCanvasElement, v: FieldView) {
     // ホバー（行塗りモードでは行全体）
     if (v.hover) {
         ctx.fillStyle = 'rgba(245,133,66,0.18)';
-        if (v.rowMode) ctx.fillRect(0, v.hover.r * s, W, s);
-        else ctx.fillRect(v.hover.c * s, v.hover.r * s, s, s);
+        if (v.rowMode) ctx.fillRect(0, top(v.hover.r), W, rh(v.hover.r));
+        else ctx.fillRect(v.hover.c * s, top(v.hover.r), s, rh(v.hover.r));
     }
     // キーボードカーソル
     if (v.cursor && v.showCursor) {
         ctx.strokeStyle = '#f58542';
         ctx.lineWidth = 2;
-        if (v.rowMode) ctx.strokeRect(1, v.cursor.r * s + 1, W - 2, s - 2);
-        ctx.strokeRect(v.cursor.c * s + 1, v.cursor.r * s + 1, s - 2, s - 2);
+        const cy = top(v.cursor.r), ch = rh(v.cursor.r);
+        if (v.rowMode) ctx.strokeRect(1, cy + 1, W - 2, ch - 2);
+        ctx.strokeRect(v.cursor.c * s + 1, cy + 1, s - 2, ch - 2);
     }
 }

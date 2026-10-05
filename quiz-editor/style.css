@@ -104,40 +104,80 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   min-width: 0;
 }
 /*
- * PC（761px 以上）: 左に盤面エリア（HOLD｜FIELD｜NEXT＋NEXT の編集＋見出し）、右にサイドパネル
- * （TOOLS は常に表示、その下に INFO / STEPS / PREVIEW / OUTPUT のタブ）。pc-ux §4
- * 高さが足りる画面ではページをスクロールさせず、盤面のマスを高さに合わせる（main.ts の cellSize）
+ * PC（761px 以上）: エディタ型の配置（layout §1）
+ *   タイトルバー / [アクティビティバー | サイドバー（INFO・STEPS・OUTPUT）| 盤面エリア（中央）| TOOLS] / ステータスバー
+ * 高さが足りる画面ではページをスクロールさせず、盤面のマスを盤面エリアの高さと幅に合わせる（main.ts の cellSize）
+ * 幅 1000px 未満は、サイドバーを盤面に重ねて開く
  */
 @media (min-width: 761px) {
+  body { --side-w: 300px; --tools-w: 280px; }
+  #topbar { padding: 6px 12px; gap: 8px; flex-wrap: nowrap; }
+  #topbar h1 { font-size: 13px; white-space: nowrap; }
   #layout {
     display: grid;
-    grid-template-columns: auto minmax(340px, 1fr);
-    grid-template-rows: auto auto 1fr;
-    grid-template-areas:
-      "board tools"
-      "board ptabs"
-      "board content";
-    gap: 10px 12px;
-    padding: 10px 16px 16px;
-    align-items: start;
+    grid-template-columns: 48px var(--side-w) minmax(0, 1fr) var(--tools-w);
+    grid-template-areas: "act side center tools";
+    grid-template-rows: minmax(0, 1fr);
   }
-  #col-center { grid-area: board; align-self: stretch; }
-  #col-right { grid-area: tools; }
-  #ptabs { grid-area: ptabs; }
-  #col-left, #col-steps, #col-preview, #col-output { grid-area: content; align-self: stretch; }
-  body[data-ptab="info"] [data-p]:not([data-p~="info"]),
-  body[data-ptab="steps"] [data-p]:not([data-p~="steps"]),
-  body[data-ptab="preview"] [data-p]:not([data-p~="preview"]),
-  body[data-ptab="out"] [data-p]:not([data-p~="out"]) { display: none; }
-  #col-right > h2:first-child { display: none; }   /* モード帯と枠の色で分かるので見出しは省く */
-  #col-right #mode-seg { margin-bottom: 8px; }
+  body[data-side="closed"] #layout { grid-template-columns: 48px minmax(0, 1fr) var(--tools-w); grid-template-areas: "act center tools"; }
+  body[data-side="closed"] #sidebar { display: none; }
+  #layout > .panel, #sidebar > .panel { border: none; border-radius: 0; }
+
+  /* アクティビティバー */
+  #activity {
+    grid-area: act; display: flex; flex-direction: column; gap: 2px; padding: 6px 0;
+    background: #0d0d14; border-right: 1px solid var(--border);
+  }
+  #activity button {
+    position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 8px 0 6px; border: none; border-left: 2px solid transparent; border-radius: 0;
+    background: none; color: var(--text-dim); font-size: 7px; letter-spacing: 0.5px;
+  }
+  #activity button svg { width: 20px; height: 20px; }
+  #activity button:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+  #activity button.on { color: var(--quiz); border-left-color: var(--quiz); background: var(--quiz-soft); }
+  #activity .badge { position: absolute; top: 3px; right: 4px; margin: 0; font-size: 9px; min-width: 14px; }
+  #out-badge.err { background: var(--danger); }
+
+  /* サイドバー（選んだビューを全高で。ビューの中だけスクロール） */
+  #sidebar {
+    grid-area: side; position: relative; min-height: 0; min-width: 0;
+    display: flex; flex-direction: column;
+    background: var(--panel-bg); border-right: 1px solid var(--border);
+  }
+  #sidebar > .panel { flex: 1 1 auto; min-height: 0; }
+  body[data-ptab="info"] #sidebar [data-p]:not([data-p~="info"]),
+  body[data-ptab="steps"] #sidebar [data-p]:not([data-p~="steps"]),
+  body[data-ptab="out"] #sidebar [data-p]:not([data-p~="out"]) { display: none; }
+  #sash { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; z-index: 3; }
+  #sash:hover, body.sash-drag #sash { background: color-mix(in srgb, var(--quiz) 50%, transparent); }
+  body.sash-drag { cursor: col-resize; user-select: none; }
+  #col-output #out-json { min-height: 200px; }
+  #info-next-slot .next-text { margin: 0; max-width: none; flex-direction: column; align-items: stretch; gap: 4px; font-family: inherit; font-size: inherit; color: inherit; }
+
+  /* 盤面エリア（中央）: 左右中央・上寄せ（モードで下の行が変わっても盤面が上下しない） */
+  #col-center { grid-area: center; background: var(--bg); padding: 12px 16px; }
+  #center-inner { width: max-content; max-width: 100%; margin: 0 auto; }
+  #col-center > #center-inner > [data-m] > h2:first-child { display: none; }   /* 盤面サイズはステータスバー */
+  /* 文字の長い行は盤面の幅に合わせて折り返す（中身の幅で盤面エリアを広げない） */
+  #mode-row, #play-head { width: 0; min-width: 100%; }
+  #mode-row { display: flex; align-items: stretch; gap: 8px; margin-bottom: 8px; }
+  #mode-row #mode-seg { margin: 0; flex: none; }
+  #mode-row #mode-band { flex: 1 1 auto; min-width: 0; margin: 0; align-items: center; }
+  #mode-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* TOOLS（右）: 中身は上に寄せ、下はトーストのために空けておく（layout §8 C1） */
+  #col-right { grid-area: tools; overflow-y: auto; min-height: 0; border-left: 1px solid color-mix(in srgb, var(--mode-c) 45%, var(--border)) !important; }
+  #col-right > h2:first-child { display: none; }
+  #col-right .ctl-pad { grid-template-columns: repeat(4, 1fr); }
+  #col-right .ctl-pad button { white-space: nowrap; min-width: 0; padding: 4px; }
 
   /* 盤面エリア: HOLD｜FIELD｜NEXT（ゲームと同じ並び） */
-  #board-row { display: flex; gap: 8px; align-items: stretch; }
+  #board-row { display: flex; gap: 8px; align-items: stretch; justify-content: center; }
   #hold-col, #next-col { display: flex; flex-direction: column; gap: 4px; }
   #hold-col[hidden] { display: none; }
-  .col-lbl, #next-h { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; color: var(--text-dim); margin: 0; }
-  #next-h small { font-size: 9px; margin-left: 2px; white-space: nowrap; }   /* 個数は NEXT の横（下に行を足さない） */
+  .col-lbl, #next-h { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; color: var(--text-dim); margin: 0; white-space: nowrap; }
+  #next-h small { font-size: 9px; margin-left: 2px; }   /* 個数は NEXT の横（下に行を足さない） */
   #hold-box {
     position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
     padding: 4px; min-width: 0; background: #0d0d16;
@@ -148,7 +188,7 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
     background: linear-gradient(to top right, transparent calc(50% - 1px), rgba(245, 90, 90, 0.8) 50%, transparent calc(50% + 1px));
   }
   #hold-state { font-family: var(--font-orbitron); font-size: 8px; color: var(--text-dim); }
-  #next-col { width: 64px; position: relative; }
+  #next-col { width: 72px; position: relative; }
   /* NEXT 列は盤面の高さまで。入りきらなければ列の中でスクロール */
   #next-col #next-box {
     flex: 1 1 0; min-height: 0; max-width: none;
@@ -158,13 +198,14 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   #next-col .next-item { flex-direction: row; justify-content: center; gap: 2px; }
   #next-col .next-item .no { position: absolute; left: 2px; top: 1px; }
   #next-col .caret { width: auto; height: 2px; align-self: stretch; margin: 1px 4px; flex: none; }
-  .next-item.used { opacity: 0.3; }
-  .next-item.now { background: var(--solve-soft); outline: 1px solid var(--solve); }
+  /* SOLVE: ゲームと同じく次の 5 個を同じ間隔で */
+  #next-col #next-box.game { justify-content: flex-start; gap: 6px; }
   #col-center .next-tools, #col-center .next-text { max-width: none; }
   /* 盤面の下の 1 行: EDIT は NEXT の編集ボタン、SOLVE は NEXT 全体（同じ高さにして盤面を動かさない。layout §7） */
   #col-center .next-tools { flex-wrap: nowrap; height: 32px; }
+  #col-center .next-tools button { padding: 4px 7px; }
   body[data-mode="solve"] #col-center .next-tools { display: none; }
-  #next-strip { display: flex; align-items: center; gap: 8px; margin-top: 6px; height: 32px; }
+  #next-strip { display: flex; align-items: center; gap: 8px; margin-top: 6px; height: 32px; width: 0; min-width: 100%; }
   #next-strip[hidden] { display: none; }
   #next-strip-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; }
   #next-strip-cv { display: block; }
@@ -181,19 +222,63 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   }
   #play-head .pv-goal { flex-basis: 100%; }
 
-  /* サイドパネルのタブ */
-  #ptabs { display: flex; gap: 4px; }
-  #ptabs button { flex: 1; padding: 6px 0; font-size: 10px; }
-  #ptabs button.on { color: var(--quiz); border-color: var(--quiz); background: var(--quiz-soft); }
-  #out-badge.err { background: var(--danger); }
-  #col-steps > h2, #col-preview #preview-wrap > h2 { display: none; }
-  #col-output #out-json { min-height: 200px; }
+  /* タイトルバー: 問題のタブ・≡ メニュー */
+  #doc-tab {
+    display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; max-width: 460px;
+    padding: 5px 10px; border-radius: 6px 6px 0 0; border-bottom: 2px solid var(--quiz);
+    font-family: var(--font-main); letter-spacing: 0; font-size: 12px;
+  }
+  #doc-tab .dt-rule { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; color: var(--quiz); white-space: nowrap; }
+  #doc-tab .dt-id { font-family: ui-monospace, Menlo, monospace; white-space: nowrap; }
+  #doc-tab .dt-desc { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  #doc-tab .dt-caret { color: var(--text-dim); font-size: 10px; }
+  .menu-wrap { position: relative; }
+  #btn-menu { position: relative; font-size: 14px; padding: 3px 10px; }
+  #btn-menu .badge { position: absolute; top: -5px; right: -6px; margin: 0; }
+  #menu-pop {
+    display: none; position: absolute; top: calc(100% - 2px); left: 12px; z-index: 30;
+    flex-direction: column; align-items: stretch; gap: 4px; min-width: 200px; padding: 6px;
+    background: var(--panel-bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  }
+  #topbar.menu-open #menu-pop { display: flex; }
+  #menu-pop button { text-align: left; }
+
+  /* ステータスバー */
+  #statusbar {
+    flex: none; display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px;
+    background: #0d0d14; border-top: 1px solid var(--border);
+    font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 0.5px; color: var(--text-dim);
+  }
+  #statusbar > *, #sb-right > button { white-space: nowrap; }
+  #statusbar button, #sb-right > button {
+    height: 22px; padding: 0 8px; border: none; border-radius: 4px; background: none; font-size: 10px; color: var(--text-dim);
+  }
+  #statusbar button:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); }
+  #sb-mode { padding: 0 8px; color: var(--mode-c); }
+  #sb-size { padding: 0 8px; border-left: 1px solid var(--border); }
+  #sb-issues.ok { color: var(--success); }
+  #sb-issues.warn { color: var(--warn); }
+  #sb-issues.err { color: var(--danger); }
+  #sb-right { display: flex; align-items: center; gap: 2px; }
+  #btn-log { position: relative; display: inline-flex; align-items: center; }
+  #btn-log .bell { width: 14px; height: 14px; }
+  #log-unread { position: absolute; top: -3px; right: -2px; margin: 0; font-size: 9px; min-width: 14px; }
 }
-/* 高さが足りる PC: ページはスクロールさせず、盤面エリアとタブの中身だけスクロール */
+/* 高さが足りる PC: ページはスクロールさせず、盤面エリアとサイドバーの中身だけスクロール */
 @media (min-width: 761px) and (min-height: 600px) {
   body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
   #layout { flex: 1 1 auto; min-height: 0; }
-  #col-center, #col-left, #col-steps, #col-preview, #col-output { overflow-y: auto; min-height: 0; max-height: 100%; }
+  #col-center, #col-left, #col-steps, #col-output { overflow-y: auto; min-height: 0; max-height: 100%; }
+}
+/* 幅が足りない PC: サイドバーは盤面に重ねて開く（クリックで開閉・外側を押すと閉じる） */
+@media (min-width: 761px) and (max-width: 999px) {
+  body { --tools-w: 220px; }
+  #layout, body[data-side="closed"] #layout { grid-template-columns: 48px minmax(0, 1fr) var(--tools-w); grid-template-areas: "act center tools"; position: relative; }
+  #sidebar { position: absolute; z-index: 12; top: 0; bottom: 0; left: 48px; width: var(--side-w); box-shadow: 8px 0 24px rgba(0, 0, 0, 0.6); }
+  #sash { display: none; }
+}
+@media (min-width: 1000px) and (max-width: 1199px) {
+  body { --tools-w: 240px; }
 }
 /* ─── フォーム ─── */
 .form { display: flex; flex-direction: column; gap: 10px; }
@@ -299,53 +384,43 @@ body[data-mode="solve"] { --mode-c: var(--solve); --mode-soft: var(--solve-soft)
 .shift-pad [data-shift="right"] { grid-column: 3; grid-row: 2; }
 .shift-pad [data-shift="down"] { grid-column: 2; grid-row: 3; }
 
-/* ─── プレビュー（quiz.css の再現） ─── */
-#preview { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
-.pv-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  padding: 10px 16px;
-  background: rgba(245, 133, 66, 0.07);
-  border: 1px solid rgba(245, 133, 66, 0.25);
-  border-radius: 6px;
-  text-align: center;
-}
+/* ─── プレイ画面の見出し・問題の一覧で使う文字（quiz.css の再現） ─── */
 .pv-rule { font-family: var(--font-orbitron); font-size: 12px; font-weight: 700; letter-spacing: 2px; color: var(--quiz); }
 .pv-desc { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; color: var(--text-dim); }
 .pv-goal { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; color: var(--quiz); opacity: 0.85; }
 .pv-stars { font-size: 0.75em; }
 .sf { color: var(--star); }
 .se { color: rgba(255, 255, 255, 0.18); }
-.pv-body { display: flex; gap: 8px; align-items: flex-start; }
-.pv-hold {
-  width: 56px; height: 56px;
-  border: 2px solid #6f6f95;
-  display: flex; align-items: flex-start; justify-content: center;
-  font-family: var(--font-orbitron); font-size: 8px; color: var(--text-dim);
-  position: relative;
+
+/* ─── 問題の一覧（コマンドパレット風。layout §2） ─── */
+dialog.palette {
+  margin: 8vh auto auto; padding: 0; width: min(380px, calc(100vw - 32px)); max-height: 80vh;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
 }
-.pv-hold.off::after {
-  content: "";
-  position: absolute; inset: 0;
-  background: linear-gradient(to top right, transparent calc(50% - 1px), rgba(245, 90, 90, 0.8) 50%, transparent calc(50% + 1px));
+dialog.palette::backdrop { background: rgba(10, 10, 15, 0.45); }
+.lv-wrap { display: flex; flex-direction: column; gap: 8px; padding: 10px; max-height: 80vh; }
+#lv-body { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 2px; }
+.lv-head { display: flex; align-items: center; justify-content: space-between; }
+.lv-toggle, .lv-new { border: none; background: none; padding: 4px 6px; font-size: 10px; }
+.lv-toggle { color: var(--quiz); }
+.lv-toggle small { font-size: 9px; }
+.lv-new { color: var(--text-dim); }
+.lv-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 2px 4px 6px; }
+.lv-tile {
+  position: relative; aspect-ratio: 1; padding: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border-radius: 8px; border: 1px solid rgba(245, 197, 66, 0.3); background: rgba(245, 197, 66, 0.04);
 }
-.pv-field { border: 2px solid #6f6f95; }
-.pv-next-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.pv-next-lbl { font-family: var(--font-orbitron); font-size: 9px; color: var(--text-dim); letter-spacing: 1px; }
-.pv-levels { display: flex; flex-wrap: wrap; gap: 6px; }
-.pv-level {
-  width: 44px; height: 44px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-  border-radius: 8px;
-  border: 1px solid rgba(245, 197, 66, 0.3);
-  background: rgba(245, 197, 66, 0.04);
-}
-.pv-level.me { border-color: var(--quiz); background: rgba(245, 133, 66, 0.25); box-shadow: 0 0 0 2px rgba(245, 133, 66, 0.4); }
-.pv-num { font-family: var(--font-orbitron); font-size: 14px; font-weight: 900; color: var(--quiz); line-height: 1; }
-.pv-diff { font-size: 7px; letter-spacing: -1px; }
+.lv-tile:hover { border-color: var(--quiz); background: rgba(245, 197, 66, 0.14); }
+.lv-tile.me { border-color: var(--quiz); background: rgba(245, 133, 66, 0.25); }
+.lv-tile.new { border-style: dashed; background: none; }
+.lv-tile.sel { outline: 2px solid var(--text); outline-offset: 1px; }
+.lv-num { font-family: var(--font-orbitron); font-size: 15px; font-weight: 900; color: var(--quiz); line-height: 1; }
+.lv-diff { font-size: 7px; letter-spacing: -1px; line-height: 1; min-height: 7px; }
+.lv-mark { position: absolute; top: 2px; right: 4px; font-size: 9px; color: var(--warn); font-family: var(--font-main); letter-spacing: 0; }
+#lv-detail { border-top: 1px solid var(--border); padding: 8px 4px 2px; min-height: 64px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+#lv-detail .lv-id { font-family: ui-monospace, Menlo, monospace; color: var(--text-dim); margin-left: 6px; }
+#lv-detail .lv-desc { color: var(--text); }
 
 /* ─── 出力 ─── */
 #issues { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -472,6 +547,8 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   #topbar .level-pick select { width: 100%; max-width: none; }
   #topbar .m-menu { display: none; }
   #topbar.menu-open .m-menu { display: revert; }
+  #topbar .menu-wrap, #menu-pop, #sidebar { display: contents; }
+  #topbar .level-pick { display: flex; }
   #topbar .spacer { display: none; }
   #topbar button { padding: 6px 8px; }
 
@@ -495,9 +572,6 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   #field-wrap { display: table; margin: 0 auto; }
   body[data-mtab="field"] #col-center h2 { display: none; }
 
-  /* OUT タブは出力（MARK READY・COPY）を先に、プレビューを後に */
-  body[data-mtab="out"] #layout { display: flex; flex-direction: column; }
-  body[data-mtab="out"] #col-output { order: -1; }
   .next-tools [data-mino], .next-tools [data-puyo] { flex: 1 1 0; min-width: 0; }
   #mtabs {
     display: flex;
@@ -581,8 +655,8 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 /* ─── お知らせ（トースト。save-notify §1）: 画面に重ねるので他の部品は動かない ─── */
 #toasts {
   position: fixed; z-index: 20;
-  left: 16px; bottom: 16px;
-  width: min(520px, calc(100vw - 32px));
+  right: 12px; bottom: 34px;   /* PC: 右下・ステータスバーのすぐ上（layout §6） */
+  width: min(380px, calc(100vw - 24px));
   display: flex; flex-direction: column; gap: 6px;
   pointer-events: none;
 }
@@ -607,7 +681,7 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }
 @media (max-width: 760px) {
   /* 下部タブバーのすぐ上 */
-  #toasts { left: 8px; width: calc(100vw - 16px); bottom: calc(64px + env(safe-area-inset-bottom)); }
+  #toasts { left: 8px; right: auto; width: calc(100vw - 16px); bottom: calc(64px + env(safe-area-inset-bottom)); }
   body.kbd-open #toasts { bottom: 8px; }
 }
 #log-dlg { width: min(560px, calc(100vw - 32px)); }

@@ -23,7 +23,7 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
 
 ## 使い方
 
-1. 上部の LEVELS から既存の問題を開く（または NEW / PASTE JSON）
+1. 問題のタブ（PC）・LEVELS（スマホ）・`Ctrl/⌘+P` で問題の一覧を開いて選ぶ（新規は ≡ メニューの NEW / PASTE JSON）
 2. 盤面・NEXT・クリア条件などを編集（キー一覧は `?`）
 3. OUTPUT の検証結果を確認し、TEST PLAY で実際のゲームで遊んで確認（ファイルは変更しない）
 4. WRITE FILE で `public/assets/quizlevels/tdata.json` / `pdata.json` に書き込む（Chrome / Edge）。
@@ -35,10 +35,15 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
 
 ## PC の画面配置
 
-- 左: 盤面エリア（HOLD｜FIELD｜NEXT の縦並び＋NEXT の編集＋プレイ画面の見出し）。HOLD 枠のクリックで HOLD 許可を切替（SOLVE 中は HOLD を使う/使わない）
-- 右: TOOLS（モードの道具・常に表示）と、タブ INFO / STEPS / PREVIEW / OUTPUT（OUTPUT にはエラー・警告の数）。SOLVE にすると STEPS が開く
-- 高さ 600px 以上ではページをスクロールさせず、盤面のマスを画面の高さに合わせる
-- トップバーの状態チップ: FILE（ファイルのまま）/ EDITED（変更点）/ SOLUTION（手順だけ変更）/ NEW。REVERT でファイルの内容に戻す（UNDO 可）。
+設計: `source_assets/memory/quiz-editor/tetlabo-quiz-editor-layout.md`（VS Code と同じ並び）
+
+- タイトルバー: ≡ メニュー（NEW / PASTE JSON / DRAFTS）・TET/PUYO・**問題のタブ**（押すか `Ctrl/⌘+P` で問題の一覧をコマンドパレット風に開く。番号タイル・文字で絞り込み・矢印と Enter）・状態チップ・UNDO/REDO
+- 左端のアクティビティバー: INFO / STEPS / OUTPUT をサイドバーに出す。選択中をもう一度押す（`Ctrl/⌘+B`）と閉じる。サイドバーの右端はドラッグで幅を変えられる（ダブルクリックで元に戻す）。幅 1000px 未満は盤面に重ねて開く
+- 中央: モード切替＋HOLD｜FIELD｜NEXT＋NEXT の編集行（SOLVE 中は NEXT 全体）＋プレイ画面の見出し。マスはテト基準で最大 28px、ぷよはテトの盤面の枠に収まる大きさ（隠し段は低く描く）
+- 右: TOOLS（モードの道具）
+- ステータスバー: モード・盤面サイズ・操作キー・検証の件数（押すと OUTPUT）・SYNC・🔔 LOG。お知らせ（トースト）はその上の右下に出る
+- 高さ 600px 以上ではページをスクロールさせず、盤面のマスを画面の高さと幅に合わせる
+- 状態チップ: FILE（ファイルのまま）/ EDITED（変更点）/ SOLUTION（手順だけ変更）/ NEW。REVERT でファイルの内容に戻す（UNDO 可）。
   自動保存はブラウザ内と Gist の下書きだけで、tdata/pdata.json は WRITE FILE でしか変わらない
 
 ## 盤面のモード（PAINT / STAMP / SOLVE）
@@ -87,7 +92,7 @@ TOOLS の `[PAINT][STAMP][SOLVE]` で切り替える。盤面の上の帯と枠�
 - 同期中は解答手順の正本は Gist の `tsolutions.json`。ローカルファイルとは SYNC 画面の IMPORT LOCAL FILE / EXPORT TO FILE
   （SOLVE の EXPORT FILE も同じ）でやり取りする。同期しなければ今まで通りローカルファイルだけで動く
 - 実装: `gist.ts`（API・回数制限の判定）・`sync.ts`（保存・取得・解答のマージ）・`local-drafts.ts`（端末内の下書き）・`sync-ui.ts`（画面）。設定は端末×オリジンごとの localStorage
-- お知らせは画面左下（スマホは下部タブの上）に重ねて出すトースト（`toast.ts`）。直近20件はトップバーの LOG で見られる
+- お知らせは画面右下（スマホは下部タブの上）に重ねて出すトースト（`toast.ts`）。直近20件は LOG（PC はステータスバーの 🔔）で見られる
 
 ## スマホでの編集
 

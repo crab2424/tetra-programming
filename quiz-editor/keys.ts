@@ -13,6 +13,8 @@ export const KEY_HELP: KeySection[] = [
         rows: [
             { keys: 'Ctrl/⌘+Z ・ Ctrl/⌘+Shift+Z (Ctrl+Y)', desc: '元に戻す ・ やり直し' },
             { keys: 'Ctrl/⌘+S', desc: 'JSON をコピー' },
+            { keys: 'Ctrl/⌘+P', desc: '問題の一覧を開く（矢印で選択・Enter で開く・文字で絞り込み）' },
+            { keys: 'Ctrl/⌘+B', desc: 'サイドバーの開閉（PC）' },
             { keys: 'Alt+1〜5 ・ Alt+0', desc: '難易度 ★1〜5 ・ 未指定' },
             { keys: 'Tab ・ Shift+Tab', desc: 'エリア移動（盤面 → NEXT → …）' },
             { keys: 'Esc', desc: '盤面にフォーカスを戻す' },
