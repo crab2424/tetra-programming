@@ -1005,6 +1005,25 @@ class PracticeManager {
                     g.activeColors = sortPuyoColors((g._colorOrder || []).slice(0, neededN));
                 }
             }
+            // 操作中のミノ/ぷよも列の先頭の枠に差し替える（NEXTはその次の枠から続く）。
+            // ポーズ中（パネル操作中）に呼ばれるため_isLive()は使えず、終了状態だけ除外する。
+            if (!this.isFinished && !this.isEnding) {
+                if (this.rule === 'tet' && g.mino) {
+                    const type = PracticeSequence.nextTetType(this.seqConfig, this.seqRunner);
+                    const prevMino = g.mino;
+                    if (this._cycleFitTet(type)) {
+                        g.isGrounded = false; g.lowestY = g.mino.y; g.moveCount = 0;
+                        g.lastActionWasRotation = false; g.lastRotUsedPoint5 = false;
+                        if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+                    } else {
+                        g.mino = prevMino;
+                        this.seqRunner = PracticeSequence.createRunner(this.seqConfig); // 置けなければ消費しない
+                    }
+                } else if (this.rule === 'puyo' && g.state === 'playing') {
+                    const pair = PracticeSequence.nextPuyoPair(this.seqConfig, this.seqRunner, g.activeColors);
+                    if (pair) { g.pivotColor = pair[0]; g.childColor = pair[1]; }
+                }
+            }
         } else if (wasEnabled) {
             // ON→OFF: 内側ジェネレータを通常抽選に戻す
             if (this.rule === 'tet') {
