@@ -49,7 +49,12 @@ export interface EditorDoc {
     next: number[];           // tet: ミノtype(0始まり)
     pairs: Pair[];            // puyo
     cond: Cond;
-    steps: Step[];            // 解答手順（tet のみ）。問題 JSON には出力せず、解答ファイルに保存する
+    steps: Step[];            // 解答手順（tet のみ）。画面に出ている手（試行中の手も含む）。問題 JSON には出力しない
+    /**
+     * 条件をクリアした時点の手順（drafts §9・D6）。保存済みとの比較・SAVE SOLUTION・内容のハッシュはこちらを使う
+     * （試しに置いただけの手で未保存扱いにしないため）。古い下書きには無い → steps を使う
+     */
+    solved?: Step[];
     solutionNote: string;     // 解答のメモ（解答ファイルの note）
     extra: Record<string, unknown>;     // 読み込んだが未知のキー（書き戻して損失を防ぐ）
     condExtra: Record<string, unknown>; // clearCondition 内の未知のキー
@@ -165,9 +170,12 @@ export function newDoc(rule: Rule): EditorDoc {
     return {
         rule, id: '', description: '', diff: 1, allowHold: false,
         field: emptyField(rule), next: [], pairs: [],
-        cond: defaultCond(rule), steps: [], solutionNote: '', extra: {}, condExtra: {},
+        cond: defaultCond(rule), steps: [], solved: [], solutionNote: '', extra: {}, condExtra: {},
     };
 }
+
+/** 比較・保存に使う手順（クリアした時点の手順。無ければ画面の手順） */
+export function solvedSteps(d: EditorDoc): Step[] { return d.solved ?? d.steps; }
 
 export function cloneDoc(d: EditorDoc): EditorDoc {
     return JSON.parse(JSON.stringify(d)) as EditorDoc;

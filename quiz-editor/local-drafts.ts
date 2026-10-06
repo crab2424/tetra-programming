@@ -30,9 +30,10 @@ export function draftKey(rule: Rule, sourceId: string | null, draftId: string): 
     return sourceId !== null ? `${rule}:${sourceId}` : `new:${draftId}`;
 }
 
-/** 内容の比較用の短い値（FNV-1a 32bit ＋長さ） */
+/** 内容の比較用の短い値（FNV-1a 32bit ＋長さ）。手順はクリアした時点の物で比べる（試しに置いた手は数えない。drafts §9） */
 export function contentHash(doc: EditorDoc, sourceId: string | null): string {
-    const s = JSON.stringify([doc, sourceId]);
+    const { steps, solved, ...rest } = doc;
+    const s = JSON.stringify([rest, solved ?? steps, sourceId]);
     let h = 0x811c9dc5;
     for (let i = 0; i < s.length; i++) {
         h ^= s.charCodeAt(i);

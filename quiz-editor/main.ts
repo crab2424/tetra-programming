@@ -9,7 +9,7 @@ import {
     MINO_LETTERS, TET_GARBAGE, PUYO_OJAMA,
     cols, rows, maxColorId, newDoc, cloneDoc, docFromLevel, emptyField,
     condDefs, countDefs, findCondDef, findCountDef, autoCondDescription,
-    serializeLevel, buildLevel, parseLevelsText, validate, levelChanges,
+    serializeLevel, buildLevel, parseLevelsText, validate, levelChanges, solvedSteps,
     nextToText, textToNext, pairsToText, textToPairs, randomBag,
 } from './model.ts';
 import {
@@ -26,6 +26,7 @@ import { getHandle, readText, writeText, canPickFiles } from './fsa.ts';
 import { probeDevFiles, devFilesAvailable, devRead, devWrite } from './dev-files.ts';
 import { toast, dismissToasts, toastLog, onToastLog } from './toast.ts';
 import { planWrite } from './levels-file.ts';
+import { simulate } from './tet-sim.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -79,9 +80,29 @@ function commit(mutate: () => void, coalesceKey = '') {
     }
     lastCommit = { key: coalesceKey, t: now };
     mutate();
+    syncSolved();
     if (doc.cond.descriptionAuto) doc.cond.description = autoCondDescription(doc.rule, doc.cond);
     renderAll();
 }
+
+/**
+ * 手順が条件をクリアしていれば、クリアした手までを「クリアした時点の手順」にする（drafts §9・D6）。
+ * クリアしていない間（試しに置いている間）は前のまま＝編集扱いにならない
+ */
+function syncSolved() {
+    if (doc.rule !== 'tet' || !doc.steps.length) return;
+    const at = simulate(doc, doc.steps).clearedAt;
+    if (at) doc.solved = doc.steps.slice(0, at).map(st => ({ ...st }));
+}
+/** 「クリアした時点の手順」を持たない古い下書き: クリアしていればそこまで、していなければ保存済みの手順（無ければ画面の手順） */
+function fillSolved(d: EditorDoc, src: string | null) {
+    if (d.solved !== undefined || d.rule !== 'tet') return;
+    const at = d.steps.length ? simulate(d, d.steps).clearedAt : 0;
+    const saved = src !== null ? solutions[src]?.steps : undefined;
+    d.solved = (at ? d.steps.slice(0, at) : saved ?? d.steps).map(st => ({ ...st }));
+}
+/** 画面の手順がクリアした時点の手順と違う（試行中） */
+function stepsOnTrial(): boolean { return JSON.stringify(doc.steps) !== JSON.stringify(solvedSteps(doc)); }
 
 function undo() {
     const s = undoStack.pop();
@@ -114,6 +135,7 @@ function afterDocReplaced() {
 
 /** 別の問題を開く（開いていた問題は端末内の下書きに残る。Undo 履歴も残すので誤操作でも戻せる） */
 function openDoc(d: EditorDoc, src: string | null, did: string | null = null) {
+    fillSolved(d, src);
     persistLocalNow();
     hideNotice();
     undoStack.push(snap());
@@ -413,7 +435,7 @@ let solutionsLoaded = false;
 /** 既存問題を開く時に解答ファイルの手順を付ける */
 function withSolution(d: EditorDoc): EditorDoc {
     const e = d.rule === 'tet' ? solutions[d.id] : undefined;
-    if (e) { d.steps = e.steps.map(s => ({ ...s })); d.solutionNote = e.note ?? ''; }
+    if (e) { d.steps = e.steps.map(s => ({ ...s })); d.solved = e.steps.map(s => ({ ...s })); d.solutionNote = e.note ?? ''; }
     return d;
 }
 
@@ -430,7 +452,7 @@ function editStateOf(d: EditorDoc, src: string | null): EditState {
     const base = withSolution(docFromLevel(raw));
     const changes = levelChanges(buildLevel(base), buildLevel(d));
     if (changes.length) return { kind: 'edited', changes };
-    if (JSON.stringify([base.steps, base.solutionNote]) !== JSON.stringify([d.steps, d.solutionNote])) return { kind: 'solution', changes: ['手順'] };
+    if (JSON.stringify([solvedSteps(base), base.solutionNote]) !== JSON.stringify([solvedSteps(d), d.solutionNote])) return { kind: 'solution', changes: ['手順'] };
     return { kind: 'file', changes: [] };
 }
 const EDIT_KIND_LABEL: Record<EditKind, string> = { file: 'FILE', edited: 'EDITED', solution: 'SOLUTION', new: 'NEW' };
@@ -486,8 +508,8 @@ function hideNotice() { dismissToasts(m => m.endsWith(NOTICE_MARK)); }
 /** 解答ファイルに保存済みの内容と一致するか */
 function solutionSaved(): boolean {
     const e = solutions[doc.id];
-    if (!e) return doc.steps.length === 0;
-    return JSON.stringify(e.steps) === JSON.stringify(doc.steps) && (e.note ?? '') === doc.solutionNote;
+    if (!e) return solvedSteps(doc).length === 0;
+    return JSON.stringify(e.steps) === JSON.stringify(solvedSteps(doc)) && (e.note ?? '') === doc.solutionNote;
 }
 
 /**
@@ -577,9 +599,10 @@ function renderPlace() {
     place.renderPanel($('layout'));   // PC では #solve-box が #col-steps へ移るので、レイアウト全体から探す
     setVal($<HTMLInputElement>('sol-note'), doc.solutionNote);
     const st = $('sol-status');
-    if (sync.enabled) st.textContent = solutionSaved() ? `Gist に保存済み${sync.pendingCount() ? '（送信待ち）' : ''}` : '未保存の変更があります';
-    else if (!solutionsLoaded) st.textContent = `${SOLUTION_PATH} を読み込めませんでした（新規作成されます）`;
-    else st.textContent = solutionSaved() ? '保存済み' : '未保存の変更があります';
+    const trial = stepsOnTrial() ? '試行中（条件をクリアすると手順の編集として扱います）・' : '';
+    if (sync.enabled) st.textContent = trial + (solutionSaved() ? `Gist に保存済み${sync.pendingCount() ? '（送信待ち）' : ''}` : '未保存の変更があります');
+    else if (!solutionsLoaded) st.textContent = trial + `${SOLUTION_PATH} を読み込めませんでした（新規作成されます）`;
+    else st.textContent = trial + (solutionSaved() ? '保存済み' : '未保存の変更があります');
     $('btn-sol-pick').textContent = sync.enabled ? 'EXPORT FILE' : 'CHOOSE FILE';
     $('btn-sol-pick').hidden = sync.enabled ? !canWriteFiles() : !canPickFiles();
     $('btn-sol-pick').title = sync.enabled ? 'Gist の解答をローカルの tsolutions.json に書き出す' : '保存先のファイルを選び直す';
@@ -1796,8 +1819,18 @@ async function saveSolutionFile(forcePick: boolean) {
     if (!doc.id.trim()) { warnStatus('ID を入力してから保存してください'); return; }
     if (doc.rule !== 'tet') return;
     const oldId = sourceId && sourceId !== doc.id && solutions[sourceId] ? sourceId : null;
+    // 保存するのはクリアした時点の手順。試行中（クリアしていない手）を保存するのは明示した時だけ（D6）
+    let steps = solvedSteps(doc);
+    if (stepsOnTrial()) {
+        const c = await choose(`画面の手順（${doc.steps.length}手）は条件をクリアしていません。どちらを保存しますか？`,
+            [['solved', `クリアした時点の手順（${steps.length}手）`], ['screen', `画面の手順（${doc.steps.length}手）`], ['cancel', 'やめる']]);
+        if (c === 'screen') {
+            steps = doc.steps.map(st => ({ ...st }));
+            doc.solved = steps.map(st => ({ ...st }));
+        } else if (c !== 'solved') return;
+    }
     if (sync.enabled) {
-        const skipped = await sync.setSolution(doc.id, oldId, { steps: doc.steps, note: doc.solutionNote, updated: today() });
+        const skipped = await sync.setSolution(doc.id, oldId, { steps, note: doc.solutionNote, updated: today() });
         solutions = sync.solutions();
         warnStatus(skipped.includes(doc.id) ? '他の端末で、より新しい解答が保存されていたため保存しませんでした'
             : sync.state === 'synced' ? `Gist に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
@@ -1807,7 +1840,7 @@ async function saveSolutionFile(forcePick: boolean) {
     }
     try {
         const res = await saveSolution(doc.id, oldId,
-            { steps: doc.steps, note: doc.solutionNote, updated: today() }, solutions, forcePick);
+            { steps, note: doc.solutionNote, updated: today() }, solutions, forcePick);
         solutions = res.map;
         solutionsLoaded = true;
         setStatus(res.via === 'file'
@@ -2313,6 +2346,7 @@ function restoreOnBoot(): 'draft' | 'file' | null {
     if (l) {
         doc = cloneDoc(l.doc); sourceId = l.sourceId; draftId = l.draftId;
         doc.steps ??= [];
+        fillSolved(doc, sourceId);
         doc.solutionNote ??= '';
         return 'draft';
     }
