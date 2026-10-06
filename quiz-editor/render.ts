@@ -94,15 +94,18 @@ export interface FieldView {
 }
 
 /*
- * 盤面の大きさ（layout §1.5）。テトのマスを基準に最大 28px（ゲームは 32px）とし、
+ * 盤面の大きさ（layout §1.5・polish2 §3）。テトのマスを基準に最大 28px（ゲームは 32px）とし、
  * ぷよは「テトの盤面の枠（10×20 マス）」に収まる大きさにする。
- * ぷよの隠し段（上 5 段）はふつう使わないので高さを縮めて描き（PUYO_HIDDEN_RATIO）、見える 12 段を大きく取る
+ * ぷよは下から 14 段（見える 12＋隠し 2）だけを全段同じ大きさで描く。データは 17 段のまま、上の 3 段は描かない・触れない（高さ 0）
  */
 export const TET_MAX_CELL = 28;
-export const PUYO_HIDDEN_RATIO = 0.4;
-/** 盤面の高さが何マスぶんか（ぷよは隠し段を縮めた分を引く） */
+/** ぷよで描く段数（見える 12＋隠し 2） */
+export const PUYO_VIEW_ROWS = 14;
+/** 最初に描く段（データの段番号）。これより上は描かない・触れない */
+export function viewTop(rule: Rule): number { return rule === 'puyo' ? rows('puyo') - PUYO_VIEW_ROWS : 0; }
+/** 盤面の高さが何マスぶんか */
 export function fieldRowUnits(rule: Rule): number {
-    return rule === 'tet' ? TET_ROWS : (rows('puyo') - PUYO_HIDDEN) + PUYO_HIDDEN * PUYO_HIDDEN_RATIO;
+    return rule === 'tet' ? TET_ROWS : PUYO_VIEW_ROWS;
 }
 /** マスの上限（テト 28px・ぷよはテトの盤面の高さに合わせた 40px） */
 export function fieldCellSize(rule: Rule): number {
@@ -112,24 +115,18 @@ export function fieldCellSize(rule: Rule): number {
 export function fitCell(rule: Rule, w: number, h: number): number {
     return Math.max(12, Math.min(fieldCellSize(rule), Math.floor(Math.min(w / cols(rule), h / fieldRowUnits(rule)))));
 }
-/** 隠し段 1 段の高さ（テトは全段同じ） */
-function hiddenRowH(rule: Rule, s: number): number {
-    return rule === 'puyo' ? Math.max(4, Math.round(s * PUYO_HIDDEN_RATIO)) : s;
-}
-/** r 段目の上端の y */
+/** r 段目の上端の y（描かない段は 0） */
 export function rowTop(rule: Rule, r: number, s: number): number {
-    if (rule !== 'puyo') return r * s;
-    const h = hiddenRowH(rule, s);
-    return r < PUYO_HIDDEN ? r * h : PUYO_HIDDEN * h + (r - PUYO_HIDDEN) * s;
+    return Math.max(0, r - viewTop(rule)) * s;
 }
-/** r 段目の高さ */
+/** r 段目の高さ（描かない段は 0） */
 export function rowHeight(rule: Rule, r: number, s: number): number {
-    return rule === 'puyo' && r < PUYO_HIDDEN ? hiddenRowH(rule, s) : s;
+    return r < viewTop(rule) ? 0 : s;
 }
 /** y（盤面の上端から）が何段目か。盤面の外は -1 */
 export function rowAtY(rule: Rule, y: number, s: number): number {
     if (y < 0) return -1;
-    for (let r = 0; r < rows(rule); r++) if (y < rowTop(rule, r + 1, s)) return r;
+    for (let r = viewTop(rule); r < rows(rule); r++) if (y < rowTop(rule, r + 1, s)) return r;
     return -1;
 }
 
@@ -156,8 +153,8 @@ export function drawField(canvas: HTMLCanvasElement, v: FieldView) {
     for (let r = 1; r < R; r++) { ctx.moveTo(0, top(r) + 0.5); ctx.lineTo(W, top(r) + 0.5); }
     ctx.stroke();
 
-    // ブロック（ぷよの隠し段は縮めた段の中に小さく）
-    for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
+    // ブロック
+    for (let r = viewTop(v.rule); r < R; r++) for (let c = 0; c < C; c++) {
         const h = rh(r);
         drawImg(ctx, cellImage(v.rule, v.field[r][c]), c * s + (s - h) / 2, top(r), h);
     }
@@ -222,13 +219,13 @@ export function drawField(canvas: HTMLCanvasElement, v: FieldView) {
     if (v.puyoPair) {
         ctx.globalAlpha = 0.35;
         for (const [c, r, color] of v.puyoPair.ghost) {
-            if (r < 0 || r >= R) continue;
+            if (r < viewTop(v.rule) || r >= R) continue;
             const h = rh(r);
             drawImg(ctx, puyoImages[color - 1], c * s + (s - h) / 2, top(r), h);
         }
         ctx.globalAlpha = 1;
         for (const [c, r, color] of v.puyoPair.cells) {
-            if (r < 0) { ctx.fillStyle = '#f58542'; ctx.fillRect(c * s + 4, 0, s - 8, 3); continue; }   // 盤面より上
+            if (r < viewTop(v.rule)) { ctx.fillStyle = '#f58542'; ctx.fillRect(c * s + 4, 0, s - 8, 3); continue; }   // 盤面より上
             const i = Math.floor(r), h = rh(i);
             drawImg(ctx, puyoImages[color - 1], c * s + (s - h) / 2, top(i) + (r - i) * h, h);
         }

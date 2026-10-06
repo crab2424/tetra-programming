@@ -407,7 +407,10 @@ export function validate(d: EditorDoc, otherIds: string[]): Issue[] {
             }
         }
         if (floating) warn(`浮いているぷよが ${floating} 個あります（そのままの位置で配置されます）`);
-        if (hidden) warn(`隠し段（上5段）にぷよが ${hidden} 個あります`);
+        if (hidden) warn(`隠し段にぷよが ${hidden} 個あります`);
+        // エディタが描くのは下から 14 段まで（polish2 §3）。それより上にあると見えず・編集できない
+        const above = d.field.slice(0, PUYO_ROWS - 14).reduce((n, row) => n + row.filter(v => v !== 0).length, 0);
+        if (above) err(`15 段目より上にぷよが ${above} 個あります（エディタは下から 14 段まで）`);
         // 消える判定はゲームと同じく可視 12 段だけ（puyo-sim.findErasable）。最初の手を置いた時に一緒に消える
         const big = findErasable(d.field).groups.length;
         if (big) warn(`同色4個以上つながっているグループが ${big} 個あります（最初の手を置いた時に消えます）`);

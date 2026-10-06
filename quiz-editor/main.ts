@@ -13,7 +13,7 @@ import {
     nextToText, textToNext, pairsToText, textToPairs, randomBag,
 } from './model.ts';
 import {
-    loadImages, drawField, fieldCellSize, fitCell, rowAtY, drawCellSwatch, drawMinoCentered, drawPairCentered,
+    loadImages, viewTop, drawField, fieldCellSize, fitCell, rowAtY, drawCellSwatch, drawMinoCentered, drawPairCentered,
 } from './render.ts';
 import { KEY_HELP, isTextInput, isMod, isMac, keyLabel } from './keys.ts';
 import { PlaceMode, buildStampGrid, drawStampButtons, clearedAtOf, firstErrorOf } from './place.ts';
@@ -147,7 +147,7 @@ function redo() {
 
 /** doc を丸ごと差し替えた後の UI 状態の整合 */
 function afterDocReplaced() {
-    ui.cursor.r = Math.min(ui.cursor.r, rows(doc.rule) - 1);
+    ui.cursor.r = Math.max(viewTop(doc.rule), Math.min(ui.cursor.r, rows(doc.rule) - 1));
     ui.cursor.c = Math.min(ui.cursor.c, cols(doc.rule) - 1);
     if (ui.selColor > maxColorId(doc.rule)) ui.selColor = 1;
     ui.nextCaret = Math.min(ui.nextCaret, nextLen());
@@ -945,7 +945,7 @@ function renderField() {
         cursor: ui.cursor, hover: ui.mode === 'paint' ? ui.hover : null, rowMode: ui.rowMode,
         showCursor: ui.mode === 'paint' && document.activeElement === fieldCanvas,
     });
-    const size = `${cols(doc.rule)}×${rows(doc.rule)}${doc.rule === 'puyo' ? '（上5段は隠し段）' : ''}`;
+    const size = doc.rule === 'puyo' ? `${cols('puyo')}×14（見える 12＋隠し 2）` : `${cols(doc.rule)}×${rows(doc.rule)}`;
     $('field-size').textContent = size;
     $('sb-size').textContent = size;
 }
@@ -1342,6 +1342,8 @@ function fillRow(r: number, c: number) {
 }
 
 function shiftField(dir: 'up' | 'down' | 'left' | 'right') {
+    // ぷよは 15 段目より上が見えないので、14 段目にぷよがあると上へは動かさない（polish2 §3）
+    if (dir === 'up' && doc.rule === 'puyo' && doc.field[viewTop('puyo')].some(x => x !== 0)) { warnStatus('一番上の段にぷよがあるため、これ以上上へ動かせません'); return; }
     commit(() => {
         const f = doc.field, C = cols(doc.rule);
         if (dir === 'up') { f.shift(); f.push(new Array(C).fill(0)); }
@@ -1445,7 +1447,7 @@ function handleFieldKey(e: KeyboardEvent): boolean {
             shiftField(({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const)[e.key as 'ArrowUp']);
             return true;
         }
-        ui.cursor.r = Math.max(0, Math.min(R - 1, ui.cursor.r + dr));
+        ui.cursor.r = Math.max(viewTop(doc.rule), Math.min(R - 1, ui.cursor.r + dr));
         ui.cursor.c = Math.max(0, Math.min(C - 1, ui.cursor.c + dc));
         if (e.shiftKey) {
             if (doc.field[ui.cursor.r][ui.cursor.c] !== ui.selColor) setCell(ui.cursor.r, ui.cursor.c, ui.selColor, 'stroke:kb');
@@ -1763,7 +1765,7 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('#rule-seg button')
             if (rule !== 'tet' && ui.mode === 'place') ui.mode = 'paint';
             place.resetActive();
             if (ui.selColor > maxColorId(rule)) ui.selColor = 1;
-            ui.cursor = { r: Math.min(ui.cursor.r, rows(rule) - 1), c: Math.min(ui.cursor.c, cols(rule) - 1) };
+            ui.cursor = { r: Math.max(viewTop(rule), Math.min(ui.cursor.r, rows(rule) - 1)), c: Math.min(ui.cursor.c, cols(rule) - 1) };
         });
     });
 }
