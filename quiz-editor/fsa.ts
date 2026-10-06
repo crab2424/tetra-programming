@@ -18,7 +18,8 @@ type OpenPicker = (o: { types: PickerTypes; multiple: boolean }) => Promise<FsHa
 
 const JSON_TYPES: PickerTypes = [{ description: 'JSON', accept: { 'application/json': ['.json'] } }];
 
-export function canWriteFiles(): boolean {
+/** ファイルを選んで書けるか（File System Access。Chrome / Edge）。dev サーバーの書き込み口は dev-files.ts */
+export function canPickFiles(): boolean {
     const w = window as unknown as { showSaveFilePicker?: unknown; showOpenFilePicker?: unknown };
     return typeof w.showSaveFilePicker === 'function' && typeof w.showOpenFilePicker === 'function';
 }

@@ -22,7 +22,8 @@ import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, S
 import { SyncEngine, type SyncEvent, type DraftEntry, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
 import { LocalDrafts, type LocalDraft, type SentMark, draftKey, contentHash } from './local-drafts.ts';
 import { initSyncUi } from './sync-ui.ts';
-import { getHandle, readText, writeText } from './fsa.ts';
+import { getHandle, readText, writeText, canPickFiles } from './fsa.ts';
+import { probeDevFiles, devFilesAvailable, devRead, devWrite } from './dev-files.ts';
 import { toast, dismissToasts, toastLog, onToastLog } from './toast.ts';
 import { planWrite } from './levels-file.ts';
 
@@ -579,6 +580,7 @@ function renderPlace() {
     else if (!solutionsLoaded) st.textContent = `${SOLUTION_PATH} を読み込めませんでした（新規作成されます）`;
     else st.textContent = solutionSaved() ? '保存済み' : '未保存の変更があります';
     $('btn-sol-pick').textContent = sync.enabled ? 'EXPORT FILE' : 'CHOOSE FILE';
+    $('btn-sol-pick').hidden = sync.enabled ? !canWriteFiles() : !canPickFiles();
     $('btn-sol-pick').title = sync.enabled ? 'Gist の解答をローカルの tsolutions.json に書き出す' : '保存先のファイルを選び直す';
     st.classList.toggle('warn', !solutionSaved());
 }
@@ -1079,7 +1081,7 @@ function renderWritePos() {
     }
     const file = doc.rule === 'tet' ? 'tdata.json' : 'pdata.json';
     $('write-info').textContent = !canWriteFiles()
-        ? 'ファイルへの直接書き込みは Chrome / Edge のみ対応です（COPY JSON を使ってください）'
+        ? 'ファイルへの直接書き込みは、PC の dev サーバー（localhost）で開いた時か Chrome / Edge だけです（COPY JSON を使ってください）'
         : `${file} に${src >= 0 ? `「${sourceId}」を置き換えて` : '新しい問題として'}書き込みます${editStateOf(doc, sourceId).kind === 'edited' ? '（未書き込みの変更あり）' : ''}`;
     $('write-info').classList.toggle('warn', editStateOf(doc, sourceId).kind === 'edited');
 }
@@ -1585,9 +1587,19 @@ async function writeLevelsFile(forcePick: boolean) {
     if (!canWriteFiles()) { warnStatus('このブラウザはファイルへの直接書き込みに対応していません'); return; }
     const fileName = doc.rule === 'tet' ? 'tdata.json' : 'pdata.json';
     try {
-        const h = await getHandle(fileName, 'open', forcePick);
-        if (h.name !== fileName && !confirm(`選んだファイルは「${h.name}」です。${fileName} ではありませんが書き込みますか？`)) return;
-        const text = await readText(h);
+        // dev サーバーの口（Safari も可・ファイルを選ばない）→ File System Access（選んだファイル）
+        let h: { name: string; write(text: string): Promise<void> };
+        let text: string;
+        if (devFilesAvailable() && !forcePick) {
+            const cur = await devRead(fileName);
+            text = cur.text;
+            h = { name: fileName, write: t => devWrite(fileName, t, cur.hash) };
+        } else {
+            const fh = await getHandle(fileName, 'open', forcePick);
+            if (fh.name !== fileName && !confirm(`選んだファイルは「${fh.name}」です。${fileName} ではありませんが書き込みますか？`)) return;
+            text = await readText(fh);
+            h = { name: fh.name, write: t => writeText(fh, t) };
+        }
         const arr = JSON.parse(text) as unknown;
         if (!Array.isArray(arr)) throw new Error('問題の配列ではありません');
         const wrongRule = arr.find(l => (l as LevelRaw)?.rule !== doc.rule);
@@ -1607,7 +1619,7 @@ async function writeLevelsFile(forcePick: boolean) {
             : `${plan.index + 1}番に「${doc.id}」を追加`;
         if (!confirm(`${h.name} の ${what}ます。${changeLine}\n他の問題は変更しません。よろしいですか？`)) return;
 
-        await writeText(h, plan.text);
+        await h.write(plan.text);
         levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
         const oldKey = curDraftKey();
         const oldSrc = sourceId;
@@ -1638,7 +1650,6 @@ async function writeLevelsFile(forcePick: boolean) {
 }
 $('btn-write').addEventListener('click', () => void writeLevelsFile(false));
 $('btn-write-pick').addEventListener('click', () => void writeLevelsFile(true));
-$<HTMLButtonElement>('btn-write-pick').hidden = !canWriteFiles();
 
 // ─── テストプレイ（quiz.js の _bootQuizEditorTest が受け取る。ファイルは変更しない） ───
 const TEST_KEY = 'tetlabo.quizEditor.test';
@@ -1814,7 +1825,6 @@ $('btn-sol-pick').addEventListener('click', () => {
         r => setStatus(r.via === 'file' ? `${r.fileName} に書き出しました` : 'ダウンロードしました'),
         err => { if ((err as Error).name !== 'AbortError') errStatus(`書き出せませんでした: ${(err as Error).message}`); });
 });
-$<HTMLButtonElement>('btn-sol-pick').hidden = !canWriteFiles();
 
 // TETLABO 側で KEY CONFIG を保存したら即反映（別タブの変更は storage イベントで届く）
 window.addEventListener('storage', e => {
@@ -2319,11 +2329,18 @@ mobileMq.addEventListener('change', () => {
     applyLayout();
     renderAll();
 });
-// スマホに無い機能を隠す（ファイル直接書込は FSA が無い・テストプレイは本体がタッチ非対応）
-for (const id of ['btn-write', 'write-pos']) {
-    const el = $(id);
-    (el.closest('label') ?? el).hidden = !canWriteFiles();
+// 書けない環境では書き込みの部品を隠す（スマホ・プレビュー URL の Safari 等）。dev サーバーの口は起動後に確かめるので2回呼ぶ
+function applyWriteCaps() {
+    for (const id of ['btn-write', 'write-pos']) {
+        const el = $(id);
+        (el.closest('label') ?? el).hidden = !canWriteFiles();
+    }
+    // CHOOSE FILE（ファイルを選び直す）は File System Access の時だけ意味がある
+    $<HTMLButtonElement>('btn-write-pick').hidden = !canPickFiles();
 }
+applyWriteCaps();
+void probeDevFiles().then(ok => { if (ok) { applyWriteCaps(); renderAll(); } });
+// テストプレイは本体がタッチ非対応
 $('btn-test').hidden = coarsePointer();
 
 syncUi = initSyncUi({

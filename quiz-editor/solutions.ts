@@ -4,11 +4,12 @@
 //   場所: source_assets/quizlevels/tsolutions.json（/source_assets は .gitignore 済み）
 //   形式: { "<問題id>": { "steps": Step[], "note": string, "updated": "YYYY-MM-DD" } }
 //   読込: Vite dev サーバー経由で fetch
-//   書込: File System Access API（Chrome/Edge）。ファイルハンドルは IndexedDB に保持。
-//         使えないブラウザではマージ済みの全体をダウンロードする
+//   書込: dev サーバーの書き込み口（dev-files.ts。Safari も可）→ File System Access API（Chrome/Edge。ハンドルは IndexedDB）。
+//         どちらも使えない時はマージ済みの全体をダウンロードする
 // ─────────────────────────────────────────────
 import type { Step } from './tet-sim.ts';
-import { canWriteFiles, getHandle, readText, writeText, downloadText } from './fsa.ts';
+import { canPickFiles, getHandle, readText, writeText, downloadText } from './fsa.ts';
+import { canWriteFiles, devFilesAvailable, devRead, devWrite } from './dev-files.ts';
 
 export { canWriteFiles };
 
@@ -73,7 +74,13 @@ export async function saveSolution(
         return m;
     };
 
-    if (canWriteFiles()) {
+    if (devFilesAvailable() && !forcePick) {
+        const cur = await devRead(FILE_NAME);
+        const map = apply(cur.text.trim() ? JSON.parse(cur.text) as SolutionMap : {});   // 壊れた JSON なら上書きせず例外で止める
+        await devWrite(FILE_NAME, serializeSolutions(map), cur.hash);
+        return { map, via: 'file', fileName: FILE_NAME };
+    }
+    if (canPickFiles()) {
         const h = await getHandle(FILE_NAME, 'save', forcePick);
         let base: SolutionMap = {};
         const text = await readText(h);
@@ -91,7 +98,7 @@ export async function saveSolution(
 export async function readLocalSolutions(): Promise<SolutionMap | null> {
     const viaServer = await fetchSolutions();
     if (viaServer) return viaServer;
-    if (!canWriteFiles()) return null;
+    if (!canPickFiles()) return null;
     const h = await getHandle(FILE_NAME, 'save', false);
     const text = await readText(h);
     return text.trim() ? JSON.parse(text) as SolutionMap : {};
@@ -100,7 +107,11 @@ export async function readLocalSolutions(): Promise<SolutionMap | null> {
 /** 解答の全体をローカルファイルへ書き出す（Gist が正本の時のバックアップ用）。非対応ブラウザはダウンロード */
 export async function exportSolutionsFile(map: SolutionMap, forcePick = false): Promise<{ via: 'file' | 'download'; fileName: string }> {
     const text = serializeSolutions(map);
-    if (canWriteFiles()) {
+    if (devFilesAvailable() && !forcePick) {
+        await devWrite(FILE_NAME, text, (await devRead(FILE_NAME)).hash);
+        return { via: 'file', fileName: FILE_NAME };
+    }
+    if (canPickFiles()) {
         const h = await getHandle(FILE_NAME, 'save', forcePick);
         await writeText(h, text);
         return { via: 'file', fileName: h.name };

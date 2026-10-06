@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
+import { quizEditorFiles } from "./scripts/quiz-editor-files.ts";
 
 // クイズエディタ（quiz-editor/）はプレビュー（main 以外のブランチ）のビルドにだけ含める。
 // Workers Builds は WORKERS_CI_BRANCH にブランチ名を入れる。ローカルでは QUIZ_EDITOR=1 の時だけ含める
@@ -29,7 +30,8 @@ console.log(
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
-  plguins: [],
+  // クイズエディタの tdata/pdata.json・解答ファイルの読み書き口（dev サーバーだけ。scripts/quiz-editor-files.ts）
+  plugins: [quizEditorFiles()],
   clearScreen: false,
   build: includeQuizEditor
     ? {
