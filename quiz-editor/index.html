@@ -36,6 +36,7 @@
     <div id="menu-pop" role="menu">
       <button type="button" id="btn-new" class="m-menu" role="menuitem" title="今のルールで新しい問題">NEW</button>
       <button type="button" id="btn-paste" class="m-menu" role="menuitem">PASTE JSON</button>
+      <button type="button" id="btn-reset-confirms" role="menuitem" title="「次回から表示しない」にした確認を、また表示するようにする" hidden>SHOW CONFIRMS</button>
       <button type="button" id="btn-drafts" class="m-only" role="menuitem" title="下書きの一覧（このブラウザで編集中の物・Gist に保存された物）">DRAFTS <span id="drafts-badge" class="badge" hidden></span></button>
     </div>
     <span class="spacer"></span>
@@ -158,8 +159,15 @@
         <div id="board-row">
           <!-- PC: 盤面の左に HOLD（編集中は許可の切替、SOLVE 中は持っているミノ） -->
           <div id="hold-col" class="pc-only">
-            <span class="col-lbl">HOLD</span>
-            <button type="button" id="hold-box" title="HOLD 許可の切替 (H)"><canvas id="hold-cv"></canvas><span id="hold-state"></span></button>
+            <div id="hold-part">
+              <span class="col-lbl">HOLD</span>
+              <button type="button" id="hold-box" title="HOLD 許可の切替 (H)"><canvas id="hold-cv"></canvas><span id="hold-state"></span></button>
+            </div>
+            <!-- MEMO（中間点の盤面）を小さく。押すと盤面の場所に大きく出す（polish §6） -->
+            <div id="memo-mini" hidden>
+              <span class="col-lbl">MEMO</span>
+              <button type="button" id="memo-box" title="盤面の場所に MEMO を表示 / 戻す (V)"><canvas id="memo-cv"></canvas><span id="memo-state"></span></button>
+            </div>
           </div>
           <div id="field-wrap">
             <canvas id="field" tabindex="0" aria-label="盤面（矢印でカーソル移動・Spaceで塗る）"></canvas>
@@ -257,10 +265,11 @@
           <ol id="step-list"></ol>
           <div class="row">
             <button type="button" id="btn-truncate" title="表示中の手より後を削除">DELETE AFTER</button>
-            <button type="button" id="btn-to-initial" title="表示中の盤面を初期盤面にする">SET AS INITIAL</button>
+            <button type="button" id="btn-to-initial" title="表示中の手の盤面から始まる問題にする（使った NEXT を除き、後ろの手順は残す）">→ INITIAL</button>
+            <button type="button" id="btn-to-memo" title="表示中の手の盤面を MEMO にする (Shift+V)">→ MEMO</button>
           </div>
           <h3>SOLUTION FILE</h3>
-          <label class="sol-note"><span>MEMO</span> <input id="sol-note" type="text" /></label>
+          <label class="sol-note"><span>NOTE</span> <input id="sol-note" type="text" /></label>
           <div class="row">
             <button type="button" id="btn-sol-save" title="source_assets/quizlevels/tsolutions.json に保存">SAVE SOLUTION</button>
             <button type="button" id="btn-sol-pick" title="保存先のファイルを選び直す">CHOOSE FILE</button>
@@ -271,6 +280,17 @@
 
       <!-- PC・NEXT モード: NEXT の編集（#next-tools・#next-text-wrap をここへ移す。tools §3） -->
       <div id="nexttool-box" class="pc-only" hidden></div>
+
+      <!-- MEMO（中間点の盤面を 1 つ。解答ファイルに手順と一緒に保存する。polish §6） -->
+      <div id="memo-tools" data-m="field">
+        <h3>MEMO <small id="memo-diff"></small></h3>
+        <div class="row">
+          <button type="button" id="btn-memo-set" title="今の盤面（SOLVE は表示中の手の盤面）を MEMO にする (Shift+V)">SET</button>
+          <button type="button" id="btn-memo-view" title="盤面の場所に MEMO を表示 / 戻す (V)">VIEW</button>
+          <button type="button" id="btn-memo-apply" title="初期盤面を MEMO で置き換える（UNDO で戻せます）">TO FIELD</button>
+          <button type="button" id="btn-memo-clear" title="MEMO を消す（UNDO で戻せます）">CLEAR</button>
+        </div>
+      </div>
 
     </section>
   </main>
@@ -361,6 +381,7 @@
     <form method="dialog">
       <h2>KEYS</h2>
       <div id="help-body"></div>
+      <div id="help-skips" hidden></div>
       <div class="row end"><button value="close">CLOSE</button></div>
     </form>
   </dialog>

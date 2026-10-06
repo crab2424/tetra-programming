@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────
 import './prod-guard.ts';
 import {
-    type Rule, type EditorDoc, type Pair, type Issue,
+    type Rule, type EditorDoc, type Pair, type Issue, type AnyStep,
     MINO_LETTERS, TET_GARBAGE, PUYO_OJAMA, PUYO_COLOR_NAMES,
     cols, rows, maxColorId, newDoc, cloneDoc, docFromLevel, emptyField,
     condDefs, countDefs, findCondDef, findCountDef, autoCondDescription,
@@ -15,14 +15,15 @@ import {
 import {
     loadImages, drawField, fieldCellSize, fitCell, rowAtY, drawCellSwatch, drawMinoCentered, drawPairCentered,
 } from './render.ts';
-import { KEY_HELP, isTextInput, isMod } from './keys.ts';
-import { PlaceMode, buildStampGrid, drawStampButtons, clearedAtOf } from './place.ts';
-import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
-import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, solutionPath, exportSolutionsFile, SOLUTION_FILES, RULES } from './solutions.ts';
+import { KEY_HELP, isTextInput, isMod, isMac, keyLabel } from './keys.ts';
+import { PlaceMode, buildStampGrid, drawStampButtons, clearedAtOf, firstErrorOf } from './place.ts';
+import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, actionFor, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
+import { type SolutionMap, type SolutionEntry, fetchSolutions, saveSolution, canWriteFiles, today, solutionPath, exportSolutionsFile, serializeSolutions, SOLUTION_FILES, RULES } from './solutions.ts';
 import { SyncEngine, type SyncEvent, type DraftEntry, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
 import { LocalDrafts, type LocalDraft, type SentMark, draftKey, contentHash } from './local-drafts.ts';
 import { initSyncUi } from './sync-ui.ts';
 import { getHandle, readText, writeText, canPickFiles } from './fsa.ts';
+import { ask, skippedConfirms, resetSkippedConfirms, SKIP_LABELS } from './ask.ts';
 import { probeDevFiles, devFilesAvailable, devRead, devWrite } from './dev-files.ts';
 import { toast, dismissToasts, toastLog, onToastLog } from './toast.ts';
 import { planWrite, elementBlock } from './levels-file.ts';
@@ -50,6 +51,7 @@ const ui = {
     mode: 'paint' as 'paint' | 'place' | 'next',
     lastEdit: 'paint' as 'paint' | 'stamp' | 'next',   // P で SOLVE から戻る先
     lastBoard: 'paint' as 'paint' | 'stamp',           // NEXT モードで盤面を押した時・N で戻る先
+    memoView: false,                   // 盤面の場所に MEMO を出している（V。polish §6）
 };
 
 // ─── Undo / Redo（EditorDoc 丸ごとのスナップショット） ───
@@ -68,8 +70,13 @@ function restore(s: string) {
  * coalesceKey が直前と同じ変更はまとめて1回の Undo にする
  * （テキスト入力は1.5秒以内、`stroke:` で始まるキー＝ドラッグ塗りは時間無制限）
  */
+/** NEXT・HOLD 許可（手順が合うかを決める物）の目印 */
+function nextSig(d: EditorDoc): string { return JSON.stringify([d.rule, d.next, d.pairs, d.allowHold]); }
 function commit(mutate: () => void, coalesceKey = '') {
     const now = Date.now();
+    const d0 = doc;
+    const sig0 = nextSig(doc);
+    const old = { next: doc.next.slice(), pairs: doc.pairs.map(p => [...p] as Pair), allowHold: doc.allowHold };
     const same = coalesceKey !== '' && coalesceKey === lastCommit.key &&
         (coalesceKey.startsWith('stroke:') || now - lastCommit.t < 1500);
     if (!same) {
@@ -79,9 +86,27 @@ function commit(mutate: () => void, coalesceKey = '') {
     }
     lastCommit = { key: coalesceKey, t: now };
     mutate();
+    const trimmed = doc === d0 ? trimStepsBrokenByNext(old) : null;
     syncSolved();
     if (doc.cond.descriptionAuto) doc.cond.description = autoCondDescription(doc.rule, doc.cond);
     renderAll();
+    if (trimmed) {
+        toast(`${doc.rule === 'tet' ? 'NEXT・HOLD 許可' : 'NEXT'}の変更で ${trimmed} 手目が合わなくなったため、解答手順を ${trimmed - 1} 手までにしました`, 'info', {
+            actions: [{ label: 'UNDO', title: '変更と手順の切り詰めを両方戻す', run: undo }],
+        });
+    }
+
+    /** NEXT・HOLD 許可の変更で新しくエラーになった手から後ろを消す（polish §2）。消した手（1始まり）か null */
+    function trimStepsBrokenByNext(prev: { next: number[]; pairs: Pair[]; allowHold: boolean }): number | null {
+        if (!doc.steps.length || nextSig(doc) === sig0) return null;
+        const after = firstErrorOf(doc, doc.steps);
+        if (!after) return null;
+        const before = firstErrorOf({ ...doc, ...prev }, doc.steps);
+        if (before && before <= after) return null;   // 前から合っていなかった（この変更のせいではない）
+        doc.steps.splice(after - 1);
+        place.view = Math.min(place.view, doc.steps.length);
+        return after;
+    }
 }
 
 /**
@@ -128,6 +153,7 @@ function afterDocReplaced() {
     ui.nextCaret = Math.min(ui.nextCaret, nextLen());
     ui.pendingPuyo = 0;
     if (doc.rule !== 'tet' && ui.mode === 'place' && place.sub === 'stamp') ui.mode = 'paint';   // ぷよに STAMP は無い
+    ui.memoView = false;
     place.resetActive();
     renderAll();
 }
@@ -502,6 +528,7 @@ const solutionsLoaded: Record<Rule, boolean> = { tet: false, puyo: false };
 function withSolution(d: EditorDoc): EditorDoc {
     const e = solutions[d.rule][d.id];
     if (e) { d.steps = e.steps.map(s => ({ ...s })); d.solved = e.steps.map(s => ({ ...s })); d.solutionNote = e.note ?? ''; }
+    if (e?.memo) d.memo = e.memo.map(r => r.slice());
     return d;
 }
 
@@ -518,7 +545,9 @@ function editStateOf(d: EditorDoc, src: string | null): EditState {
     const base = withSolution(docFromLevel(raw));
     const changes = levelChanges(buildLevel(base), buildLevel(d));
     if (changes.length) return { kind: 'edited', changes };
-    if (JSON.stringify([solvedSteps(base), base.solutionNote]) !== JSON.stringify([solvedSteps(d), d.solutionNote])) return { kind: 'solution', changes: ['手順'] };
+    const stepsDiff = JSON.stringify([solvedSteps(base), base.solutionNote]) !== JSON.stringify([solvedSteps(d), d.solutionNote]);
+    const memoDiff = JSON.stringify(base.memo ?? null) !== JSON.stringify(d.memo ?? null);
+    if (stepsDiff || memoDiff) return { kind: 'solution', changes: [stepsDiff ? '手順' : '', memoDiff ? 'MEMO' : ''].filter(Boolean) };
     return { kind: 'file', changes: [] };
 }
 const EDIT_KIND_LABEL: Record<EditKind, string> = { file: 'FILE', edited: 'EDITED', solution: 'SOLUTION', new: 'NEW' };
@@ -574,8 +603,9 @@ function hideNotice() { dismissToasts(m => m.endsWith(NOTICE_MARK)); }
 /** 解答ファイルに保存済みの内容と一致するか */
 function solutionSaved(): boolean {
     const e = solutions[doc.rule][doc.id];
-    if (!e) return solvedSteps(doc).length === 0;
-    return JSON.stringify(e.steps) === JSON.stringify(solvedSteps(doc)) && (e.note ?? '') === doc.solutionNote;
+    if (!e) return solvedSteps(doc).length === 0 && !doc.memo;
+    return JSON.stringify(e.steps) === JSON.stringify(solvedSteps(doc)) && (e.note ?? '') === doc.solutionNote &&
+        JSON.stringify(e.memo ?? null) === JSON.stringify(doc.memo ?? null);
 }
 
 /**
@@ -633,6 +663,7 @@ function renderAll() {
     renderLevels();
     saveDraftSoon();
     renderHold();
+    renderMemo();
     renderField();   // ツール・見出しの高さが確定してから盤面の大きさを合わせ直す
 }
 
@@ -709,7 +740,7 @@ function renderTopbar() {
     // PC: 開いている問題のタブ（押すと問題の一覧）
     $('doc-tab').innerHTML = `<span class="dt-rule">${doc.rule.toUpperCase()} — ${levelNumber()}</span>` +
         `<span class="dt-id">${escapeHtml(doc.id) || '(ID なし)'}</span>` +
-        `<span class="dt-desc">${escapeHtml(doc.description)}</span><span class="dt-caret">▾</span>`;
+        `<span class="dt-desc">${escapeHtml(doc.description)}</span>`;
     $<HTMLButtonElement>('btn-undo').disabled = undoStack.length === 0;
     $<HTMLButtonElement>('btn-redo').disabled = redoStack.length === 0;
 }
@@ -873,11 +904,23 @@ function setMTab(t: MTab) {
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) b.classList.toggle('on', b.dataset.mtab === t);
     // STEPS は解答手順（PLACE の SOLVE）を見る場所
     if (t === 'steps' && curMode() !== 'solve') setMode('solve');
+    // FIELD / NEXT は編集する場所。SOLVE のままだと NEXT を編集できないので、最後に使った PAINT / STAMP に戻す（polish §5）。
+    // 失うのは動かしている途中のミノだけ（記録した手順・表示中の手の位置はそのまま）
+    if ((t === 'field' || t === 'next') && curMode() === 'solve') setMode(boardMode());
     renderAll();
     window.scrollTo({ top: 0 });
 }
 
 function renderField() {
+    const memoOn = memoShown();
+    $('field-wrap').classList.toggle('memo-view', memoOn);
+    if (memoOn) {
+        drawField(fieldCanvas, {
+            rule: doc.rule, field: doc.memo!, cell: cellSize(doc.rule),
+            cursor: null, hover: null, rowMode: false, showCursor: false,
+        });
+        return;
+    }
     if (ui.mode === 'place' && doc.rule === 'puyo') {
         const fv = place.puyoFieldView();
         drawField(fieldCanvas, {
@@ -1028,15 +1071,23 @@ function renderNext() {
         }
         $('next-count').textContent = `残り${Math.max(0, n - usage.now)}`;
     } else {
+        // 選んでいる位置は「キャレットの前の項目」を枠で囲んで見せる（挿入はその後ろ・Backspace はその項目。polish §4）。
+        // キャレットが先頭の前（0）の時だけ線を出す。間の線は場所を保つために置いておく（見えない）
         const addCaret = (i: number) => {
             const c = document.createElement('span');
-            c.className = 'caret' + (i === ui.nextCaret ? ' on' : '');
+            c.className = 'caret' + (i === 0 && ui.nextCaret === 0 && n > 0 ? ' on' : '');
             box.append(c);
         };
+        if (n === 0) {
+            const slot = document.createElement('span');
+            slot.className = 'next-slot sel';
+            slot.title = 'NEXT は空です';
+            box.append(slot);
+        }
         for (let i = 0; i < n; i++) {
             addCaret(i);
             const item = document.createElement('span');
-            item.className = 'next-item';
+            item.className = 'next-item' + (ui.nextCaret === i + 1 ? ` sel${i === 0 ? ' first' : ''}${i === n - 1 ? ' last' : ''}` : '');
             item.draggable = !coarsePointer();   // タッチは HTML5 DnD が使えない端末があるので自前のドラッグ（長押し）
             item.dataset.index = String(i);
             const no = document.createElement('span');
@@ -1114,11 +1165,77 @@ function renderPlayHead() {
         `<span class="pv-goal">GOAL: ${escapeHtml(doc.cond.description)}</span>`;
 }
 
+// ─── MEMO（中間点の盤面を 1 つ。polish §6）。PC は盤面の左（HOLD の下）に小さく、V で盤面の場所に大きく出す ───
+function memoShown(): boolean { return ui.memoView && !!doc.memo; }
+/** 今見ている盤面（SOLVE は表示中の手の後） */
+function boardNow(): number[][] { return curMode() === 'solve' ? place.boardAtView() : doc.field; }
+function memoDiff(): number {
+    if (!doc.memo) return 0;
+    const b = boardNow();
+    let n = 0;
+    doc.memo.forEach((r, i) => r.forEach((v, j) => { if (b[i]?.[j] !== v) n++; }));
+    return n;
+}
+function setMemoFromBoard() {
+    const b = boardNow().map(r => r.slice());
+    const from = curMode() !== 'solve' ? '今の盤面' : place.view ? `${place.view}手目の盤面` : '初期盤面';
+    commit(() => { doc.memo = b; });
+    setStatus(`${from}を MEMO にしました（V で表示。SAVE SOLUTION で解答ファイルに保存します）`);
+}
+function setMemoView(on: boolean) {
+    if (on && !doc.memo) { warnStatus('MEMO がありません（Shift+V で今の盤面を MEMO にします）'); return; }
+    ui.memoView = on;
+    renderField();
+    renderMemo();
+}
+function applyMemo() {
+    if (!doc.memo) return;
+    if (curMode() === 'solve') { warnStatus('SOLVE 中は初期盤面を変えられません（EDIT に戻すには P）'); return; }
+    const m = doc.memo.map(r => r.slice());
+    ui.memoView = false;
+    commit(() => { doc.field = m; });
+    setStatus('初期盤面を MEMO で置き換えました（UNDO で戻せます）');
+}
+function clearMemo() {
+    if (!doc.memo) return;
+    ui.memoView = false;
+    commit(() => { delete doc.memo; });
+    setStatus('MEMO を消しました（UNDO で戻せます。解答ファイルからは SAVE SOLUTION で消えます）');
+}
+function renderMemo() {
+    const has = !!doc.memo;
+    const diff = has ? memoDiff() : 0;
+    const label = !has ? 'なし' : diff ? `違い ${diff}` : '一致';
+    $('memo-diff').textContent = label;
+    $('memo-diff').className = has && !diff ? 'ok' : '';
+    for (const id of ['btn-memo-view', 'btn-memo-apply', 'btn-memo-clear']) $<HTMLButtonElement>(id).disabled = !has;
+    $<HTMLButtonElement>('btn-memo-apply').disabled = !has || curMode() === 'solve';
+    $('btn-memo-view').classList.toggle('on', memoShown());
+    // PC: 盤面の左に小さく
+    const mini = $('memo-mini');
+    mini.hidden = !has || mobileMq.matches;
+    if (mini.hidden) return;
+    const cell = doc.rule === 'tet' ? 6 : 10;
+    drawField($<HTMLCanvasElement>('memo-cv'), {
+        rule: doc.rule, field: doc.memo!, cell, cursor: null, hover: null, rowMode: false, showCursor: false,
+    });
+    $('memo-state').textContent = label;
+    $('memo-box').classList.toggle('on', memoShown());
+    $('memo-box').classList.toggle('eq', !diff);
+}
+$('btn-memo-set').addEventListener('click', () => { setMemoFromBoard(); focusField(); });
+$('btn-memo-view').addEventListener('click', () => { setMemoView(!ui.memoView); focusField(); });
+$('btn-memo-apply').addEventListener('click', () => { applyMemo(); focusField(); });
+$('btn-memo-clear').addEventListener('click', () => { clearMemo(); focusField(); });
+$('memo-box').addEventListener('click', () => { setMemoView(!ui.memoView); focusField(); });
+$('btn-to-memo').addEventListener('click', () => { setMemoFromBoard(); focusField(); });
+
 /** PC: 盤面の左の HOLD 枠（編集中は許可の ON/OFF、SOLVE 中は持っているミノ。不許可はゲームと同じ斜線） */
 function renderHold() {
     const col = $('hold-col');
-    col.hidden = doc.rule !== 'tet';
-    if (col.hidden || mobileMq.matches) return;
+    col.hidden = doc.rule !== 'tet' && !doc.memo;   // ぷよは MEMO がある時だけ（HOLD は無い）
+    $('hold-part').hidden = doc.rule !== 'tet';
+    if (doc.rule !== 'tet' || mobileMq.matches) return;
     const solving = curMode() === 'solve';
     const t = solving && doc.allowHold ? place.holdPiece() : null;
     const cv = $<HTMLCanvasElement>('hold-cv');
@@ -1153,6 +1270,10 @@ function renderStatusbar() {
 let lastIssues: Issue[] = [];
 function renderOutput() {
     lastIssues = validate(doc, otherIds());
+    // 保存済みの解答手順が、今の NEXT・盤面で再現できるか（NEXT を変えた後の保存し忘れに気付けるように。polish §2）
+    const saved = solutions[doc.rule][doc.id];
+    const bad = saved?.steps.length ? firstErrorOf(doc, saved.steps) : 0;
+    if (bad) lastIssues.push({ level: 'warn', msg: `保存済みの解答手順が今の問題と合いません（${bad} 手目）。SAVE SOLUTION で保存し直してください` });
     const ul = $('issues');
     ul.innerHTML = lastIssues.length
         ? lastIssues.map(i => `<li class="${i.level}">${i.level === 'error' ? 'ERROR' : i.level === 'warn' ? 'WARN' : 'INFO'} — ${escapeHtml(i.msg)}</li>`).join('')
@@ -1250,6 +1371,8 @@ fieldCanvas.addEventListener('pointerdown', e => {
     const p = cellAt(e);
     if (!p) return;
     e.preventDefault();
+    // MEMO を出している時は、押したら元の盤面に戻すだけ（塗らない）
+    if (memoShown()) { setMemoView(false); return; }
     // NEXT モードで盤面を押したら、直前の PAINT / STAMP に戻り、そのまま塗る（置く）（tools §9.1 Q3）
     if (ui.mode === 'next') setMode(boardMode());
     try { fieldCanvas.setPointerCapture(e.pointerId); } catch { /* 既に離れたポインタ */ }
@@ -1264,8 +1387,10 @@ fieldCanvas.addEventListener('pointerdown', e => {
         return;
     }
     ui.cursor = { ...p };
-    if (ui.rowMode && e.button === 0) { fillRow(p.r, p.c); return; }
-    const value = e.button === 2 ? 0 : (doc.field[p.r][p.c] === ui.selColor ? 0 : ui.selColor);
+    // 右ドラッグ・Mac の control+ドラッグ（右クリックと同じ扱い）は消す
+    const erase = e.button === 2 || (e.button === 0 && e.ctrlKey && isMac());
+    if (ui.rowMode && e.button === 0 && !erase) { fillRow(p.r, p.c); return; }
+    const value = erase ? 0 : (doc.field[p.r][p.c] === ui.selColor ? 0 : ui.selColor);
     dragPaint = { value, key: `stroke:${++strokeSeq}`, last: { ...p } };
     if (doc.field[p.r][p.c] === value) {
         // 変化しない開始点でも同じストロークの Undo 単位を作る
@@ -1624,11 +1749,12 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('[data-shift]')) {
 }
 
 for (const b of document.querySelectorAll<HTMLButtonElement>('#rule-seg button')) {
-    b.addEventListener('click', () => {
+    b.addEventListener('click', async () => {
         const rule = b.dataset.rule as Rule;
         if (rule === doc.rule) return;
         const hasContent = doc.field.some(r => r.some(v => v)) || nextLen() > 0;
-        if (hasContent && !confirm('ルールを切り替えると盤面・NEXT・クリア条件が初期化されます（UNDO で戻せます）。よろしいですか？')) return;
+        if (hasContent && !await ask('ルールを切り替えると盤面・NEXT・クリア条件が初期化されます（UNDO で戻せます）。よろしいですか？', { skipId: 'rule-switch' })) return;
+        if (rule === doc.rule) return;
         commit(() => {
             const keep = { description: doc.description, diff: doc.diff };
             doc = { ...newDoc(rule), ...keep };
@@ -1692,7 +1818,8 @@ async function copyJson() {
 $('btn-copy').addEventListener('click', copyJson);
 
 // ─── tdata.json / pdata.json への直接書き込み（この問題の範囲だけを差し替える） ───
-async function writeLevelsFile(forcePick: boolean) {
+function writeLevelsFile(forcePick: boolean): Promise<void> { return withFileWrite(() => writeLevelsFileNow(forcePick)); }
+async function writeLevelsFileNow(forcePick: boolean) {
     if (lastIssues.some(i => i.level === 'error')) { warnStatus('エラーがあるため書き込めません'); return; }
     if (!canWriteFiles()) { warnStatus('このブラウザはファイルへの直接書き込みに対応していません'); return; }
     const fileName = doc.rule === 'tet' ? 'tdata.json' : 'pdata.json';
@@ -1706,7 +1833,7 @@ async function writeLevelsFile(forcePick: boolean) {
             h = { name: fileName, write: t => devWrite(fileName, t, cur.hash) };
         } else {
             const fh = await getHandle(fileName, 'open', forcePick);
-            if (fh.name !== fileName && !confirm(`選んだファイルは「${fh.name}」です。${fileName} ではありませんが書き込みますか？`)) return;
+            if (fh.name !== fileName && !await ask(`選んだファイルは「${fh.name}」です。${fileName} ではありませんが書き込みますか？`)) return;
             text = await readText(fh);
             h = { name: fh.name, write: t => writeText(fh, t) };
         }
@@ -1718,7 +1845,7 @@ async function writeLevelsFile(forcePick: boolean) {
         const src = sourceId === null ? -1 : list.findIndex(l => l.id === sourceId);
         const dup = list.findIndex((l, i) => i !== src && l.id === doc.id);
         if (dup >= 0) throw new Error(`ID「${doc.id}」はファイル内の ${dup + 1}番と重複しています`);
-        if (sourceId !== null && src < 0 && !confirm(`ファイル内に「${sourceId}」が見つかりません（外部で変更された可能性）。新しい問題として追加しますか？`)) return;
+        if (sourceId !== null && src < 0 && !await ask(`ファイル内に「${sourceId}」が見つかりません（外部で変更された可能性）。新しい問題として追加しますか？`)) return;
 
         const dst = Number($<HTMLSelectElement>('write-pos').value);
         const changes = src >= 0 ? levelChanges(buildLevel(docFromLevel(list[src])), buildLevel(doc)) : [];
@@ -1733,7 +1860,7 @@ async function writeLevelsFile(forcePick: boolean) {
             : `${plan.index + 1}番に「${doc.id}」を追加`;
         const wrote = plan.text !== text;
         if (wrote) {
-            if (!confirm(`${h.name} の ${what}ます。${changeLine}\n他の問題は変更しません。よろしいですか？`)) return;
+            if (!await ask(`${h.name} の ${what}ます。${changeLine}\n他の問題は変更しません。よろしいですか？`)) return;
             await h.write(plan.text);
         }
         levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
@@ -1834,8 +1961,24 @@ function renderHelp() {
     const secs = [...KEY_HELP, placeSec];
     $('help-body').innerHTML = secs.map(sec =>
         `<h3>${escapeHtml(sec.title)}</h3><table>${sec.rows.map(r =>
-            `<tr><th>${escapeHtml(r.keys)}</th><td>${escapeHtml(r.desc)}</td></tr>`).join('')}</table>`).join('');
+            `<tr><th>${escapeHtml(keyLabel(r.keys))}</th><td>${escapeHtml(r.desc)}</td></tr>`).join('')}</table>`).join('');
+    renderSkips();
 }
+/** 「次回から表示しない」にした確認（? KEYS の下・≡ メニュー。polish §7） */
+function renderSkips() {
+    const list = skippedConfirms();
+    const box = $('help-skips');
+    box.hidden = !list.length;
+    box.innerHTML = list.length ? `表示しない確認: ${list.map(k => escapeHtml(SKIP_LABELS[k])).join('・')}<button type="button" id="btn-help-skips">SHOW AGAIN</button>` : '';
+    $('btn-reset-confirms').hidden = !list.length;
+}
+function resetSkips() {
+    resetSkippedConfirms();
+    renderSkips();
+    setStatus('確認ダイアログをまた表示するようにしました');
+}
+$('help-skips').addEventListener('click', e => { if ((e.target as HTMLElement).id === 'btn-help-skips') resetSkips(); });
+$('btn-reset-confirms').addEventListener('click', () => { resetSkips(); closeMenu(); });
 $('btn-help').addEventListener('click', () => { renderHelp(); helpDlg.showModal(); });
 
 // ─── PLACE モードの UI ───
@@ -1887,7 +2030,7 @@ $('solve-box').addEventListener('click', e => {
     if (nav || li) focusField();
 });
 $('btn-truncate').addEventListener('click', () => { place.truncateAfterView(); focusField(); });
-$('btn-to-initial').addEventListener('click', () => { place.viewToInitial(); focusField(); });
+$('btn-to-initial').addEventListener('click', () => { void place.viewToInitial().then(focusField); });
 // STAMP: 選んでいるミノをもう一度押すと右回転、右クリックで左回転（layout §5）
 function stampPick(e: MouseEvent, dir: 1 | -1) {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-stamp]');
@@ -1905,6 +2048,10 @@ $<HTMLInputElement>('sol-note').addEventListener('input', e => {
     commit(() => { doc.solutionNote = v; }, 'sol-note');
 });
 
+/** 解答ファイルに書くエントリ（手順・NOTE・MEMO） */
+function solutionEntry(steps: AnyStep[]): SolutionEntry {
+    return { steps, note: doc.solutionNote, updated: today(), ...(doc.memo ? { memo: doc.memo.map(r => r.slice()) } : {}) };
+}
 async function saveSolutionFile(forcePick: boolean) {
     if (!doc.id.trim()) { warnStatus('ID を入力してから保存してください'); return; }
     const rule = doc.rule;
@@ -1920,7 +2067,7 @@ async function saveSolutionFile(forcePick: boolean) {
         } else if (c !== 'solved') return;
     }
     if (sync.enabled) {
-        const skipped = await sync.setSolution(rule, doc.id, oldId, { steps, note: doc.solutionNote, updated: today() });
+        const skipped = await sync.setSolution(rule, doc.id, oldId, solutionEntry(steps));
         solutions[rule] = sync.solutions(rule);
         warnStatus(skipped.includes(doc.id) ? '他の端末で、より新しい解答が保存されていたため保存しませんでした'
             : sync.state === 'synced' ? `Gist に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
@@ -1930,8 +2077,8 @@ async function saveSolutionFile(forcePick: boolean) {
         return;
     }
     try {
-        const res = await saveSolution(rule, doc.id, oldId,
-            { steps, note: doc.solutionNote, updated: today() }, solutions[rule], forcePick);
+        const res = await withFileWrite(() => saveSolution(rule, doc.id, oldId,
+            solutionEntry(steps), solutions[rule], forcePick));
         solutions[rule] = res.map;
         solutionsLoaded[rule] = true;
         setStatus(res.via === 'file'
@@ -1996,6 +2143,25 @@ document.addEventListener('keydown', e => {
     if (isMod(e) && k === 'y') { if (!text) { e.preventDefault(); redo(); } return; }
     if (isMod(e) && k === 's' && e.shiftKey) { e.preventDefault(); void saveToGist(curDraftKey()); return; }
     if (isMod(e) && k === 's') { e.preventDefault(); void copyJson(); return; }
+    // Ctrl/⌘+↑ ↓: 先頭 ・ 末尾（Mac に無い Home / End の代わり）、Ctrl/⌘+Backspace: 全部消す（Mac の Shift+Delete の代わり。polish §3）
+    if (isMod(e) && !text && !e.altKey && !e.shiftKey && !(target as HTMLElement | null)?.closest?.('#drafts-view, .lv-tile')) {
+        const m = curMode();
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            const end = e.key === 'ArrowDown';
+            if (m === 'next') { ui.nextCaret = end ? nextLen() : 0; ui.pendingPuyo = 0; renderNext(); }
+            else if (m === 'solve') place.goto(end ? doc.steps.length : 0);
+            else return;
+            e.preventDefault();
+            return;
+        }
+        if (e.key === 'Backspace') {
+            if (m === 'next') clearNext();
+            else if (m === 'paint' || m === 'stamp') clearField();
+            else return;
+            e.preventDefault();
+            return;
+        }
+    }
     if (isMod(e)) return;
 
     if (text) {
@@ -2016,6 +2182,19 @@ document.addEventListener('keydown', e => {
     }
 
     if (ownedByFocused(target, e)) return;
+
+    // V: MEMO を盤面の場所に出す / 戻す、Shift+V: 今の盤面（SOLVE は表示中の手の盤面）を MEMO に（polish §6）
+    if (!e.altKey && e.code === 'KeyV' && !(ui.mode === 'place' && actionFor(binds, e.code))) {
+        e.preventDefault();
+        if (e.shiftKey) setMemoFromBoard(); else setMemoView(!ui.memoView);
+        return;
+    }
+    // MEMO を出している間は盤面を操作しない（他のキーで元の盤面に戻す）
+    if (memoShown() && !['Shift', 'Control', 'Meta', 'Alt'].includes(e.key)) {
+        e.preventDefault();
+        setMemoView(false);
+        return;
+    }
 
     let handled = false;
     if (ui.mode === 'next') handled = handleNextKey(e);
@@ -2041,6 +2220,12 @@ document.addEventListener('keydown', e => {
     if (handled) e.preventDefault();
 });
 
+// Alt（option）を押している間は、NEXT の選んでいる項目を「持ち上げた」見た目にする（Alt+↑↓ で入れ替えられる合図。polish §4）
+function setAltHeld(on: boolean) { body().classList.toggle('alt-held', on); }
+document.addEventListener('keydown', e => setAltHeld(e.key === 'Alt' || e.altKey));
+document.addEventListener('keyup', e => { if (e.key === 'Alt' || !e.altKey) setAltHeld(false); });
+window.addEventListener('blur', () => setAltHeld(false));
+
 // 連続移動（DAS/ARR）の押下状態は、どこで離しても・フォーカスが外れても解除する
 document.addEventListener('keyup', e => place.keyUp(e.code));
 window.addEventListener('blur', () => place.releaseAll());
@@ -2050,24 +2235,64 @@ window.addEventListener('blur', () => place.releaseAll());
 // ─────────────────────────────────────────────
 /** 最後に読んだ問題ファイルの中身（読み直した時に変わったかを見る） */
 const levelsText: Record<Rule, string> = { tet: '', puyo: '' };
-/** 問題一覧を読む。quiet = 読み直し（失敗しても知らせない。手で貼っている途中の壊れた JSON 等）。戻り値は中身が変わったルール */
-async function loadLevels(quiet = false): Promise<Rule[]> {
-    const changed: Rule[] = [];
-    for (const [rule, file] of [['tet', 'tdata.json'], ['puyo', 'pdata.json']] as [Rule, string][]) {
+/**
+ * 自分の書き込みと読み直しを並べる（polish §1）。書き込み中は読み直さず、書き込みをまたいだ読み直しの結果は捨てる。
+ * （書く前の中身を読んだ結果が書いた後に届くと、古い中身で問題一覧を置き換えてしまうため）
+ */
+let fileWrites = 0;
+let fileGen = 0;
+async function withFileWrite<T>(fn: () => Promise<T>): Promise<T> {
+    fileWrites++; fileGen++;
+    try { return await fn(); } finally { fileWrites--; fileGen++; }
+}
+/** 問題ファイルの今の中身。dev サーバーの口があればそれ（Vite の静的配信・ブラウザのキャッシュを通らない） */
+async function readLevelsText(file: 'tdata.json' | 'pdata.json'): Promise<string> {
+    if (devFilesAvailable()) return (await devRead(file)).text;
+    const res = await fetch(`/assets/quizlevels/${file}?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.text();
+}
+/** 読み直しで変わった問題（ID）。書式だけの違いなら空 */
+function changedLevelIds(before: LevelRaw[], after: LevelRaw[]): string[] {
+    const old = new Map(before.map(l => [String(l.id), JSON.stringify(l)]));
+    const ids: string[] = [];
+    after.forEach(l => { if (old.get(String(l.id)) !== JSON.stringify(l)) ids.push(String(l.id)); old.delete(String(l.id)); });
+    for (const id of old.keys()) ids.push(id);
+    return ids;
+}
+/**
+ * 問題一覧を読む。quiet = 読み直し（失敗しても知らせない。手で貼っている途中の壊れた JSON 等）。
+ * 戻り値は中身が変わったファイルと、変わった問題の ID。null = 自分の書き込みと重なったので捨てた
+ */
+async function loadLevels(quiet = false): Promise<{ file: string; ids: string[] }[] | null> {
+    const gen = fileGen;
+    const read: [Rule, string, string][] = [];
+    for (const [rule, file] of [['tet', 'tdata.json'], ['puyo', 'pdata.json']] as [Rule, 'tdata.json' | 'pdata.json'][]) {
         try {
-            const res = await fetch(`/assets/quizlevels/${file}`, { cache: 'no-store' });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const text = await res.text();
-            if (text === levelsText[rule]) continue;
-            const arr = JSON.parse(text) as unknown;
-            levels[rule] = Array.isArray(arr) ? arr as LevelRaw[] : [];
-            levelsText[rule] = text;
-            changed.push(rule);
+            read.push([rule, file, await readLevelsText(file)]);
         } catch (err) {
             if (quiet) continue;
             console.error(`${file} の読み込みに失敗しました`, err);
             errStatus(`${file} を読み込めませんでした`);
         }
+    }
+    if (gen !== fileGen || fileWrites) return null;
+    const changed: { file: string; ids: string[] }[] = [];
+    for (const [rule, file, text] of read) {
+        if (text === levelsText[rule]) continue;
+        let arr: unknown;
+        try {
+            arr = JSON.parse(text);
+        } catch (err) {
+            if (quiet) continue;
+            console.error(`${file} の読み込みに失敗しました`, err);
+            errStatus(`${file} を読み込めませんでした`);
+            continue;
+        }
+        const next = Array.isArray(arr) ? arr as LevelRaw[] : [];
+        changed.push({ file, ids: changedLevelIds(levels[rule], next) });
+        levels[rule] = next;
+        levelsText[rule] = text;
     }
     return changed;
 }
@@ -2079,15 +2304,22 @@ async function loadLevels(quiet = false): Promise<Rule[]> {
 let reloading = false;
 let lastReload = 0;
 async function reloadFiles() {
-    if (!levelsLoaded || reloading || Date.now() - lastReload < 1000) return;
+    if (!levelsLoaded || reloading || fileWrites || Date.now() - lastReload < 1000) return;
     reloading = true;
     lastReload = Date.now();
     try {
-        const changed: string[] = (await loadLevels(true)).map(r => r === 'tet' ? 'tdata.json' : 'pdata.json');
+        const gen = fileGen;
+        const levelChanges = await loadLevels(true);
+        if (!levelChanges) return;
+        const changed = levelChanges.map(c => c.ids.length
+            ? `${c.file}（${c.ids.slice(0, 5).join('・')}${c.ids.length > 5 ? ` ほか${c.ids.length - 5}問` : ''}）`
+            : `${c.file}（書式だけ）`);
         if (!sync.enabled) {
             for (const r of RULES) {
                 const m = await fetchSolutions(r);
-                if (m && JSON.stringify(m) !== JSON.stringify(solutions[r])) {
+                if (gen !== fileGen || fileWrites) break;
+                // 文字列で比べる（キーの順番・note の有無だけの違いを変更と見なさない）
+                if (m && serializeSolutions(m) !== serializeSolutions(solutions[r])) {
                     solutions[r] = m;
                     solutionsLoaded[r] = true;
                     changed.push(SOLUTION_FILES[r]);
@@ -2096,7 +2328,7 @@ async function reloadFiles() {
         }
         if (!changed.length) return;
         afterFilesChanged();
-        setStatus(`${changed.join('・')} が変更されていたので読み直しました`);
+        setStatus(`ファイルが外で変更されていたので読み直しました: ${changed.join('・')}。開いている問題の内容は変えていません`);
     } finally {
         reloading = false;
     }
@@ -2488,6 +2720,7 @@ function closeMenu() {
 $('btn-menu').addEventListener('click', () => {
     const open = $('topbar').classList.toggle('menu-open');
     $('btn-menu').setAttribute('aria-expanded', String(open));
+    if (open) renderSkips();
 });
 for (const id of ['btn-new', 'btn-paste', 'btn-drafts', 'btn-revert', 'btn-log']) $(id).addEventListener('click', closeMenu);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('topbar').classList.contains('menu-open')) closeMenu(); });

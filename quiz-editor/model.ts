@@ -63,6 +63,11 @@ export interface EditorDoc {
      */
     solved?: AnyStep[];
     solutionNote: string;     // 解答のメモ（解答ファイルの note）
+    /**
+     * MEMO（中間点の盤面。polish §6）。field と同じ形。問題の JSON には出さず、解答ファイルの同じ問題のエントリに保存する。
+     * 目標（GOAL）ではなく、作る途中で目指す 1 つの形。無ければキーごと無い
+     */
+    memo?: number[][];
     extra: Record<string, unknown>;     // 読み込んだが未知のキー（書き戻して損失を防ぐ）
     condExtra: Record<string, unknown>; // clearCondition 内の未知のキー
 }

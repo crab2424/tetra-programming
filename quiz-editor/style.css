@@ -111,7 +111,7 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
  */
 @media (min-width: 761px) {
   body { --side-w: 300px; --tools-w: 280px; }
-  #topbar { padding: 6px 12px; gap: 8px; flex-wrap: nowrap; }
+  #topbar { padding: 6px 12px; gap: 8px; flex-wrap: nowrap; min-height: 41px; box-sizing: border-box; }
   #topbar h1 { font-size: 13px; white-space: nowrap; }
   #layout {
     display: grid;
@@ -215,6 +215,16 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
     background: linear-gradient(to top right, transparent calc(50% - 1px), rgba(245, 90, 90, 0.8) 50%, transparent calc(50% + 1px));
   }
   #hold-state { font-family: var(--font-orbitron); font-size: 8px; color: var(--text-dim); }
+  #hold-part, #memo-mini { display: flex; flex-direction: column; gap: 4px; }
+  #hold-part[hidden], #memo-mini[hidden] { display: none; }
+  #memo-mini { margin-top: 10px; }
+  #memo-box {
+    display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 3px; min-width: 0;
+    background: #0d0d16; border: 1px dashed #6f6f95; border-radius: 4px;
+  }
+  #memo-box.on { border-style: solid; border-color: #42c8f5; }
+  #memo-box.eq #memo-state { color: #5fd38a; }
+  #memo-state { font-family: var(--font-orbitron); font-size: 8px; color: var(--text-dim); }
   #next-col { width: 72px; position: relative; }
   /* NEXT 列は盤面の高さまで。入りきらなければ列の中でスクロール */
   #next-col #next-box {
@@ -240,15 +250,16 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   #play-head .pv-goal { flex-basis: 100%; }
 
   /* タイトルバー: 問題のタブ・≡ メニュー */
+  /* 開いている問題の名前（タイトル）。中身で高さが変わらないよう固定する（polish §8）。押すと LEVELS を出す */
   #doc-tab {
-    display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; max-width: 460px;
-    padding: 5px 10px; border-radius: 6px 6px 0 0; border-bottom: 2px solid var(--quiz);
+    display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 460px;
+    height: 26px; padding: 0 8px; line-height: 1; border: none; background: none;
     font-family: var(--font-main); letter-spacing: 0; font-size: 12px;
   }
+  #doc-tab:hover { background: rgba(255, 255, 255, 0.06); border: none; }
   #doc-tab .dt-rule { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; color: var(--quiz); white-space: nowrap; }
   #doc-tab .dt-id { font-family: ui-monospace, Menlo, monospace; white-space: nowrap; }
   #doc-tab .dt-desc { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  #doc-tab .dt-caret { color: var(--text-dim); font-size: 10px; }
   .menu-wrap { position: relative; }
   #btn-menu { position: relative; font-size: 14px; padding: 3px 10px; }
   #btn-menu .badge { position: absolute; top: -5px; right: -6px; margin: 0; }
@@ -365,8 +376,23 @@ body[data-mode="solve"] { --mode-c: var(--solve); --mode-soft: var(--solve-soft)
 .next-item .no { font-family: var(--font-orbitron); font-size: 8px; color: var(--text-dim); }
 .caret { width: 2px; align-self: stretch; margin: 2px 1px; border-radius: 1px; }
 .caret.on { background: rgba(245, 133, 66, 0.3); }
-body[data-mode="next"] .caret.on { background: var(--quiz); animation: blink 1s steps(1) infinite; }   /* NEXT モードの時だけ光らせる */
-@keyframes blink { 50% { opacity: 0; } }
+body[data-mode="next"] .caret.on { background: var(--quiz); }   /* NEXT モードの時だけはっきり（点滅はしない） */
+/* 選んでいる項目（キャレットの前）を枠で囲む。NEXT モード以外は薄く（polish §4） */
+.next-item.sel, .next-slot.sel { outline: 2px solid rgba(245, 133, 66, 0.3); outline-offset: -1px; }
+body[data-mode="next"] .next-item.sel, body[data-mode="next"] .next-slot.sel { outline-color: var(--quiz); background: var(--quiz-soft); }
+.next-slot { display: inline-block; min-width: 28px; min-height: 28px; border: 1px dashed var(--border); border-radius: 4px; }
+/* Alt（option）を押している間: 持ち上げた見た目＋上下の矢印（Alt+↑↓ で入れ替えられる） */
+body.alt-held[data-mode="next"] .next-item.sel {
+  z-index: 2; transform: scale(1.06); cursor: grab;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.65); outline-width: 2px; outline-style: solid; background: #2a1d14;
+  transition: transform 0.08s ease-out, box-shadow 0.08s ease-out;
+}
+body.alt-held[data-mode="next"] .next-item.sel::before, body.alt-held[data-mode="next"] .next-item.sel::after {
+  position: absolute; left: 50%; transform: translateX(-50%); font-size: 8px; line-height: 1; color: var(--quiz); pointer-events: none;
+}
+body.alt-held[data-mode="next"] .next-item.sel::before { content: '▲'; top: -9px; }
+body.alt-held[data-mode="next"] .next-item.sel::after { content: '▼'; bottom: -9px; }
+body.alt-held[data-mode="next"] .next-item.sel.first::before, body.alt-held[data-mode="next"] .next-item.sel.last::after { opacity: 0.25; }
 .pending { font-family: var(--font-orbitron); color: var(--quiz); margin-left: 4px; }
 .next-tools { margin-top: 6px; max-width: 340px; }
 .next-tools button { padding: 4px 8px; }
@@ -598,6 +624,7 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   .next-tools .nx-pieces { display: flex; flex: 1 1 100%; gap: 4px; }   /* ミノ・色は 1 行目に並べ、操作はその下 */
   .next-tools .op-pad button { flex: 1 1 auto; min-width: 40px; }
   body[data-mtab="next"] .caret.on { background: var(--quiz); }
+  body[data-mtab="next"] .next-item.sel, body[data-mtab="next"] .next-slot.sel { outline-color: var(--quiz); background: var(--quiz-soft); }
   #mtabs {
     display: flex;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
@@ -695,6 +722,12 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 .dv-note { margin: 0; font-size: 10px; }
 .warn-box { border: 1px solid var(--warn); border-radius: 6px; padding: 6px 8px; background: rgba(245, 197, 66, 0.08); font-size: 12px; margin: 0; }
 #choice-dlg { width: min(480px, calc(100vw - 32px)); }
+#ask-dlg { width: min(480px, calc(100vw - 32px)); }
+#ask-dlg .ask-msg { white-space: pre-wrap; line-height: 1.6; }
+#ask-dlg .ask-skip { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); cursor: pointer; }
+#ask-dlg .ask-skip[hidden] { display: none; }
+#help-skips { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-dim); }
+#help-skips button { margin-left: 8px; }
 .state-chip.file b { color: var(--success); }
 .state-chip.edited { border-color: var(--quiz); background: var(--quiz-soft); }
 .state-chip.edited b { color: var(--quiz); }
@@ -748,3 +781,15 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 .log-list li.warn { border-left-color: var(--warn); }
 .log-list li.error { border-left-color: var(--danger); }
 .log-list time { color: var(--text-dim); font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
+
+/* MEMO（polish §6） */
+#memo-tools { margin-top: 12px; }
+#memo-tools h3 small { margin-left: 6px; font-size: 10px; color: var(--text-dim); letter-spacing: 0; }
+#memo-tools h3 small.ok { color: #5fd38a; }
+#field-wrap.memo-view { position: relative; border-color: #42c8f5; border-style: dashed; }
+#field-wrap.memo-view::after {
+  content: 'MEMO（押すかキーで戻る）'; position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+  padding: 2px 8px; border-radius: 4px; background: rgba(13, 13, 22, 0.85); color: #42c8f5;
+  font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; pointer-events: none; white-space: nowrap;
+}
+#step-list .memo-eq { margin-left: 4px; font-size: 10px; color: #42c8f5; font-weight: normal; }

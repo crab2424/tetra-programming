@@ -19,6 +19,12 @@ export interface SolutionEntry {
     updated: string;
     /** 保存時刻（ISO）。Gist 同期でどちらが新しいかを決めるのに使う。古いエントリには無い（＝最も古い扱い） */
     updatedAt?: string;
+    /** MEMO（中間点の盤面。polish §6）。盤面と同じ形 */
+    memo?: number[][];
+}
+/** 保存する中身があるか（手順か MEMO。どちらも無ければキーごと消す） */
+export function hasSolutionContent(e: SolutionEntry): boolean {
+    return e.steps.length > 0 || !!e.memo;
 }
 export type SolutionMap = Record<string, SolutionEntry>;
 
@@ -58,6 +64,7 @@ export function serializeSolutions(map: SolutionMap): string {
         const steps = e.steps.map(s => `            ${JSON.stringify(s)}`).join(',\n');
         return `    ${JSON.stringify(id)}: {\n` +
             `        "steps": [${e.steps.length ? `\n${steps}\n        ` : ''}],\n` +
+            (e.memo ? `        "memo": [\n${e.memo.map(r => `            ${JSON.stringify(r)}`).join(',\n')}\n        ],\n` : '') +
             `        "note": ${JSON.stringify(e.note ?? '')},\n` +
             `        "updated": ${JSON.stringify(e.updated)}${e.updatedAt ? `,\n        "updatedAt": ${JSON.stringify(e.updatedAt)}` : ''}\n` +
             '    }';
@@ -83,7 +90,7 @@ export async function saveSolution(
     const apply = (base: SolutionMap): SolutionMap => {
         const m: SolutionMap = { ...base };
         if (oldId && oldId !== id) delete m[oldId];
-        if (entry.steps.length) m[id] = entry; else delete m[id];
+        if (hasSolutionContent(entry)) m[id] = entry; else delete m[id];
         return m;
     };
 

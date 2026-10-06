@@ -11,6 +11,7 @@ import { type LocalDrafts, type LocalDraft, type TrashEntry, LOCAL_DRAFT_WARN, c
 import type { EditorDoc } from './model.ts';
 import { canWriteFiles, readLocalSolutions, exportSolutionsFile, RULES, SOLUTION_FILES } from './solutions.ts';
 import { toast } from './toast.ts';
+import { ask } from './ask.ts';
 
 export interface SyncUiDeps {
     engine: SyncEngine;
@@ -510,9 +511,8 @@ export function initSyncUi(deps: SyncUiDeps) {
         if (name === 'discard' && local) { deps.discardLocal(local.key); renderDraftsView(); }
         if (name === 'delete' && remotes.length) {
             const d = remotes[0].d;
-            if (confirm(`Gist の下書き「${d.doc.id || '(ID なし)'} ${d.doc.description}」${remotes.length > 1 ? `ほか ${remotes.length - 1}件` : ''}を消します（Gist の履歴からは戻せます）。よろしいですか？`)) {
-                void engine.deleteDrafts(remotes.map(r => r.id)).then(renderDraftsView);
-            }
+            void ask(`Gist の下書き「${d.doc.id || '(ID なし)'} ${d.doc.description}」${remotes.length > 1 ? `ほか ${remotes.length - 1}件` : ''}を消します（Gist の履歴からは戻せます）。よろしいですか？`,
+                { skipId: 'delete-gist' }).then(ok => { if (ok) void engine.deleteDrafts(remotes.map(r => r.id)).then(renderDraftsView); });
         }
     }
 

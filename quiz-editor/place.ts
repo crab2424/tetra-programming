@@ -19,8 +19,20 @@ import {
 } from './puyo-sim.ts';
 import { type PlaceBinds, type PlaceTuning, actionFor } from './keybinds.ts';
 import { drawCellsCentered } from './render.ts';
+import { ask } from './ask.ts';
+
+/** 盤面が同じか（形も中身も） */
+export function sameBoard(a: number[][], b: number[][]): boolean {
+    return a.length === b.length && a.every((r, i) => r.length === b[i].length && r.every((v, j) => v === b[i][j]));
+}
 
 export type PlaceSub = 'solve' | 'stamp';
+
+/** 手順で最初にエラーになる手（1始まり。無ければ 0） */
+export function firstErrorOf(d: EditorDoc, steps: AnyStep[]): number {
+    if (!steps.length) return 0;
+    return d.rule === 'tet' ? simulate(d, steps as Step[]).firstError : simulatePuyo(d, steps as PuyoStep[]).firstError;
+}
 
 /** 手順が最初にクリア条件を満たす手（1始まり。未達なら 0）。ルールに合ったシミュレーションで求める */
 export function clearedAtOf(d: EditorDoc, steps: AnyStep[]): number {
@@ -447,28 +459,59 @@ export class PlaceMode {
         this.ctx.renderAll();
     }
 
-    /** 表示中の手の盤面を初期盤面にする（盤面作成の補助） */
-    viewToInitial() {
-        if (this.puyo) {
-            // ぷよは盤面がそのまま初期盤面になる（17 段。表示中が連鎖の途中ならその盤面）
-            const v = this.puyoFieldView();
-            if (!confirm('表示中の盤面を初期盤面にし、記録した手順を消去します（UNDO で戻せます）。よろしいですか？')) return;
-            const d = this.ctx.doc();
-            this.ctx.commit(() => { d.field = v.field.map(r => r.slice()); d.steps = []; });
-            this.view = 0;
-            this.frame = null;
-            this.resetActive();
-            this.ctx.renderAll();
-            return;
-        }
-        const g = this.sim().grids[this.view];
-        const above = g.slice(0, SIM_TOP).some(r => r.some(v => v));
-        if (!confirm('表示中の盤面を初期盤面にし、記録した手順を消去します（UNDO で戻せます）。よろしいですか？')) return;
+    /** 表示中の手の盤面（初期盤面と同じ形。TET は盤面より上を除く・PUYO は連鎖の途中ならその盤面） */
+    boardAtView(): number[][] {
+        if (this.puyo) return this.puyoFieldView().field.map(r => r.slice());
+        return visibleField(this.sim().grids[this.view]);
+    }
+
+    /** 手を k 手置いた後の盤面が MEMO と同じか（STEPS の「＝MEMO」。polish §6） */
+    private memoAt(k: number): boolean {
+        const memo = this.ctx.doc().memo;
+        if (!memo) return false;
+        const g = this.puyo ? this.psim().grids[k] : visibleField(this.sim().grids[k]);
+        return sameBoard(g, memo);
+    }
+
+    /**
+     * 表示中の手の盤面から始まる問題にする（→ INITIAL。polish §6.3 B）。
+     * 盤面＝表示中の盤面、NEXT＝使った分を除く（TET は HOLD のミノを先頭へ）、手順＝表示中より後を残す（合わなくなった手は切り詰め）
+     */
+    async viewToInitial() {
         const d = this.ctx.doc();
-        this.ctx.commit(() => { d.field = visibleField(g); d.steps = []; });
+        const k = this.view;
+        if (k === 0) { this.ctx.status('初期盤面を表示しています（→ INITIAL は手を進めた盤面で使います）'); return; }
+        if (!await ask(`${k}手目の盤面を初期盤面にします。使った NEXT と ${k}手目までの手順は除き、後ろの手順は残します（UNDO で戻せます）。よろしいですか？`,
+            { skipId: 'to-initial' })) return;
+        if (this.ctx.doc() !== d || this.view !== k) return;
+        const notes: string[] = [];
+        let field: number[][], next = d.next, pairs = d.pairs;
+        let rest = d.steps.slice(k).map(s => ({ ...s })) as AnyStep[];
+        if (this.puyo) {
+            field = this.puyoFieldView().field.map(r => r.slice());
+            pairs = d.pairs.slice(k).map(p => [...p] as Pair);
+        } else {
+            const sim = this.sim();
+            const g = sim.grids[k], q = sim.queues[k];
+            field = visibleField(g);
+            if (g.slice(0, SIM_TOP).some(r => r.some(v => v))) notes.push('盤面より上のブロックは入りません');
+            next = [...(q.hold !== null ? [q.hold] : []), ...d.next.slice(q.idx)];
+            if (q.hold !== null) {
+                notes.push(`HOLD の ${MINO_LETTERS[q.hold]} は NEXT の先頭に入れました`);
+                // 元は「HOLD に h・次に出るのが n」。新しい問題は「h, n, …」なので、次の手が HOLD を使わない手なら HOLD を使う手にすると同じ状態になる
+                const s0 = rest[0] as Step | undefined;
+                if (s0 && !s0.hold) rest[0] = { ...s0, hold: true };
+            }
+        }
+        const nd = { ...d, field, next, pairs };
+        const bad = firstErrorOf(nd, rest);
+        if (bad) { notes.push(`残した手順は ${bad - 1}手まで（${bad}手目から合わなくなりました）`); rest = rest.slice(0, bad - 1); }
+        this.ctx.commit(() => { d.field = field; d.next = next; d.pairs = pairs; d.steps = rest; });
         this.view = 0;
+        this.frame = null;
         this.resetActive();
-        if (above) this.ctx.status('盤面より上のブロックは初期盤面に入りません');
+        this.ctx.status(`${k}手目の盤面を初期盤面にしました（NEXT ${(this.puyo ? d.pairs : d.next).length}・手順 ${rest.length}手）。点数・回数は引き継ぎません` +
+            (notes.length ? `。${notes.join('。')}` : ''));
         this.ctx.renderAll();
     }
 
@@ -690,13 +733,13 @@ export class PlaceMode {
                 s.estimated && s.piece === 2 && r.tspin ? '推定' : '',
                 r.condMet ? `${r.clearTimes}回目` : '',
             ].filter(Boolean).map(f => `<i>${f}</i>`).join('');
-            const mark = r.cleared ? '<b class="ok">✓</b>' : '';
+            const mark = (r.cleared ? '<b class="ok">✓</b>' : '') + (!r.error && this.memoAt(i + 1) ? '<b class="memo-eq" title="この手の後の盤面が MEMO と同じ">＝MEMO</b>' : '');
             return `<li data-view="${i + 1}" class="${this.view === i + 1 ? 'on' : ''}${r.error ? ' bad' : ''}">` +
                 `<span class="n">${i + 1}</span><span class="p">${MINO_LETTERS[s.piece]}</span>` +
                 `<span class="r">${desc}</span>${flags}${mark}</li>`;
         });
         root.querySelector('#step-list')!.innerHTML =
-            `<li data-view="0" class="${this.view === 0 ? 'on' : ''}"><span class="n">0</span><span class="r dim">初期盤面</span></li>` + rows.join('');
+            `<li data-view="0" class="${this.view === 0 ? 'on' : ''}"><span class="n">0</span><span class="r dim">初期盤面</span>${this.memoAt(0) ? '<b class="memo-eq">＝MEMO</b>' : ''}</li>` + rows.join('');
     }
 
     private renderPuyoPanel(root: HTMLElement) {
@@ -738,13 +781,13 @@ export class PlaceMode {
                 r.dead ? '窒息' : '',
                 r.condMet ? `${r.clearTimes}回目` : '',
             ].filter(Boolean).map(f => `<i${f === '窒息' ? ' class="bad"' : ''}>${f}</i>`).join('');
-            const mark = r.cleared ? '<b class="ok">✓</b>' : '';
+            const mark = (r.cleared ? '<b class="ok">✓</b>' : '') + (!r.error && this.memoAt(i + 1) ? '<b class="memo-eq" title="この手の後の盤面が MEMO と同じ">＝MEMO</b>' : '');
             return `<li data-view="${i + 1}" class="${this.view === i + 1 ? 'on' : ''}${r.error ? ' bad' : ''}">` +
                 `<span class="n">${i + 1}</span><span class="p">${pairHtml(r.pair)}</span><span class="w">${describePlace(s)}</span>` +
                 `<span class="r">${desc}</span>${flags}${mark}</li>`;
         });
         root.querySelector('#step-list')!.innerHTML =
-            `<li data-view="0" class="${this.view === 0 ? 'on' : ''}"><span class="n">0</span><span class="r dim">初期盤面</span></li>` + rows.join('');
+            `<li data-view="0" class="${this.view === 0 ? 'on' : ''}"><span class="n">0</span><span class="r dim">初期盤面</span>${this.memoAt(0) ? '<b class="memo-eq">＝MEMO</b>' : ''}</li>` + rows.join('');
     }
 }
 

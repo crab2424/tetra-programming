@@ -12,7 +12,7 @@
 // 解答の保存と下書きの削除は、送れなかった時に備えてキュー（localStorage）に積み、次の通信で送り直す。
 // ─────────────────────────────────────────────
 import type { EditorDoc, Rule } from './model.ts';
-import { type SolutionMap, type SolutionEntry, serializeSolutions, SOLUTION_FILES, RULES } from './solutions.ts';
+import { type SolutionMap, type SolutionEntry, serializeSolutions, hasSolutionContent, SOLUTION_FILES, RULES } from './solutions.ts';
 import { findOrCreateGist, getGist, patchGist, GistAuthError, GistNotFoundError, GistRateLimitError, type GistSnapshot } from './gist.ts';
 
 export interface DraftEntry {
@@ -235,11 +235,11 @@ export class SyncEngine {
         await this.push();
     }
 
-    /** 1問ぶんの解答を保存してすぐ送る。oldId は問題 id を変えた時の旧キー（消す）。steps が空ならキーごと削除 */
+    /** 1問ぶんの解答を保存してすぐ送る。oldId は問題 id を変えた時の旧キー（消す）。手順も MEMO も無ければキーごと削除 */
     async setSolution(rule: Rule, id: string, oldId: string | null, entry: SolutionEntry): Promise<string[]> {
         const at = new Date().toISOString();
         if (oldId && oldId !== id) this.queue.sol.push({ op: 'del', id: oldId, at, rule });
-        if (entry.steps.length) this.queue.sol.push({ op: 'set', id, entry: { ...entry, updatedAt: at }, rule });
+        if (hasSolutionContent(entry)) this.queue.sol.push({ op: 'set', id, entry: { ...entry, updatedAt: at }, rule });
         else this.queue.sol.push({ op: 'del', id, at, rule });
         this.persistQueue();
         return (await this.push()).skippedSolutions;
@@ -252,7 +252,7 @@ export class SyncEngine {
         for (const [id, e] of Object.entries(map)) {
             const c = cur[id];
             const newer = !c || (e.updatedAt ?? e.updated ?? '') > (c.updatedAt ?? c.updated ?? '');
-            if (!newer || !e.steps?.length) continue;
+            if (!newer || !(e.steps?.length || e.memo)) continue;
             this.queue.sol.push({ op: 'set', id, entry: { ...e, updatedAt: e.updatedAt ?? new Date().toISOString() }, rule });
             n++;
         }
