@@ -17,6 +17,7 @@ export interface SyncUiDeps {
     engine: SyncEngine;
     localDrafts: LocalDrafts;
     currentKey: () => string;
+    currentDraftId: () => string;
     /** ファイルの問題と比べた変更（「変更: 盤面」「手順のみ」など） */
     describe: (d: EditorDoc, sourceId: string | null) => string;
     /** ファイルの問題と比べた状態（問題一覧を読む前・新規は null） */
@@ -39,7 +40,7 @@ export interface SyncUiDeps {
     showSidebar: () => void;
 }
 
-type GroupId = 'pending' | 'solution' | 'done' | 'trash';
+type GroupId = 'local' | 'gist' | 'done' | 'trash';
 type Ver = { kind: 'local'; key: string; l: LocalDraft; doc: EditorDoc; sourceId: string | null; updatedAt: string }
     | { kind: 'remote'; id: string; d: DraftEntry; doc: EditorDoc; sourceId: string | null; updatedAt: string };
 /** 1 問ぶん（このブラウザの下書きと、同じ問題の Gist の下書きをまとめた物） */
@@ -104,20 +105,25 @@ export function initSyncUi(deps: SyncUiDeps) {
         chip.dataset.state = engine.state;
         chip.title = engine.message || 'PC とスマホの同期（GitHub Gist）';
         // バッジ = やり残しの件数（書き込み待ち＋手順だけ。1 問 1 件。drafts §1.3 D）。多すぎる時は「!」で整理を促す
-        const n = pendingCount();
+        const nl = localCount(), ng = gistCount(), n = nl + ng;
         const remote = engine.enabled ? Object.keys(engine.drafts()).length : 0;
         const local = deps.localDrafts.count();
         const tooMany = n > GIST_DRAFT_WARN || remote > GIST_DRAFT_WARN || local > LOCAL_DRAFT_WARN;
-        const title = `やり残しの下書き: ${n}件（このブラウザ ${local}件・Gist ${remote}件）${tooMany ? '\n多くなっています。DRAFTS で整理してください' : ''}`;
-        // ≡ メニューの DRAFTS（スマホ）と、PC のアクティビティバーの DRAFTS に同じ件数を出す
-        for (const id of ['drafts-badge', 'menu-badge', 'act-drafts-badge']) {
+        const title = `やり残しの下書き: このブラウザ ${nl}件・Gist ${ng}件（保存してある物: このブラウザ ${local}件・Gist ${remote}件）${tooMany ? '\n多くなっています。DRAFTS で整理してください' : ''}`;
+        // ≡ メニューの DRAFTS（スマホ）は合計、PC のアクティビティバーの DRAFTS は「このブラウザ」と「GIST」を別々に出す
+        const set = (id: string, count: number, text: string, err = false, hide = false) => {
             const badge = document.getElementById(id);
-            if (!badge) continue;
-            badge.hidden = (n === 0 && !tooMany) || (id === 'menu-badge' && !deps.isMobile());
-            badge.textContent = tooMany ? `${n}!` : String(n);
-            badge.classList.toggle('err', tooMany);
+            if (!badge) return;
+            badge.hidden = hide || (count === 0 && !err);
+            badge.textContent = text;
+            badge.classList.toggle('err', err);
             badge.title = title;
-        }
+        };
+        const mobile = deps.isMobile();
+        set('drafts-badge', n, tooMany ? `${n}!` : String(n), tooMany);
+        set('menu-badge', n, tooMany ? `${n}!` : String(n), tooMany, !mobile);
+        set('act-drafts-badge-l', nl, String(nl));
+        set('act-drafts-badge', ng, ng > GIST_DRAFT_WARN || remote > GIST_DRAFT_WARN ? `${ng}!` : String(ng), ng > GIST_DRAFT_WARN || remote > GIST_DRAFT_WARN);
     }
 
     // ─── SYNC 画面 ───
@@ -272,7 +278,7 @@ export function initSyncUi(deps: SyncUiDeps) {
     // 閉じたら QR（トークン入り）を消す
     syncDlg.addEventListener('close', () => { qrShown = false; $('sync-body').innerHTML = ''; });
 
-    // ─── DRAFTS（エクスプローラー。1 問 1 行・状態でグループ。PC はサイドバー、スマホはダイアログ。drafts §4） ───
+    // ─── DRAFTS（エクスプローラー。「このブラウザ」「GIST」の 2 つの一覧＋書き込み済み・最近消した。polish2 §7） ───
     const view = $('drafts-view');
     const dvBody = $('dv-body');
     const dvFilter = $<HTMLInputElement>('dv-filter');
@@ -280,8 +286,7 @@ export function initSyncUi(deps: SyncUiDeps) {
     const dv = {
         rule: 'all' as 'all' | 'tet' | 'puyo',
         sel: '', hover: '', html: '',
-        expanded: new Set<string>(),
-        open: { pending: true, solution: true, done: false, trash: false } as Record<GroupId, boolean>,
+        open: { local: true, gist: true, done: false, trash: false } as Record<GroupId, boolean>,
     };
     try { Object.assign(dv.open, JSON.parse(localStorage.getItem(GROUP_KEY) || '{}')); } catch { /* 既定のまま */ }
 
@@ -308,53 +313,85 @@ export function initSyncUi(deps: SyncUiDeps) {
         const k = deps.editKind(v.doc, src);
         return k === 'file' ? 'file' : k === 'solution' ? 'solution' : 'edited';
     }
-    function groupOf(r: Row): GroupId {
+    /** 問題の状態（● 書き込み待ち / ◆ 手順だけ / 済み）。版の中で一番進んだ物 */
+    function rowKind(r: Row): 'edited' | 'solution' | 'file' {
         const kinds = r.vers.map(verKind);
-        return kinds.includes('edited') ? 'pending' : kinds.includes('solution') ? 'solution' : 'done';
+        return kinds.includes('edited') ? 'edited' : kinds.includes('solution') ? 'solution' : 'file';
+    }
+    type LocalVer = Extract<Ver, { kind: 'local' }>;
+    type RemoteVer = Extract<Ver, { kind: 'remote' }>;
+    const rank = (k: 'edited' | 'solution' | 'file') => k === 'edited' ? 0 : k === 'solution' ? 1 : 2;
+    /** 「このブラウザ」の一覧: 未書込の端末内の下書き */
+    function localItems(): { row: Row; ver: LocalVer; kind: 'edited' | 'solution' }[] {
+        const out: { row: Row; ver: LocalVer; kind: 'edited' | 'solution' }[] = [];
+        for (const row of rows()) {
+            const ver = row.vers.find((v): v is LocalVer => v.kind === 'local');
+            const k = ver ? verKind(ver) : 'file';
+            if (ver && k !== 'file') out.push({ row, ver, kind: k });
+        }
+        return out;
+    }
+    /** 「GIST」の一覧: 未書込の Gist の下書き（1 件 1 行） */
+    function gistItems(): { row: Row; ver: RemoteVer; kind: 'edited' | 'solution' }[] {
+        const out: { row: Row; ver: RemoteVer; kind: 'edited' | 'solution' }[] = [];
+        for (const row of rows()) for (const ver of row.vers) {
+            if (ver.kind !== 'remote') continue;
+            const k = verKind(ver);
+            if (k !== 'file') out.push({ row, ver, kind: k });
+        }
+        return out;
     }
     function mainVer(r: Row): Ver { return r.vers.find(v => v.kind === 'local') ?? r.vers.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]; }
     function latest(r: Row): string { return r.vers.reduce((m, v) => v.updatedAt > m ? v.updatedAt : m, ''); }
-    /** 中身の違う版（同じ中身の Gist の版はまとめる） */
-    function distinct(r: Row): Ver[] {
-        const seen = new Set<string>();
-        return r.vers.filter(v => { const h = contentHash(v.doc, v.sourceId); if (seen.has(h)) return false; seen.add(h); return true; });
-    }
-    function sendOf(v: Ver): string { return v.kind === 'local' ? deps.sendLabel(v.l) : `↓ ${v.d.device}`; }
     function sendCls(send: string): string {
         return send === 'SAVED' ? 'saved' : send === 'SAVED*' ? 'changed' : send.startsWith('↓') ? 'incoming' : 'none';
     }
-    /** やり残し（書き込み待ち＋手順だけ）の件数。バッジに出す */
-    function pendingCount(): number { return rows().filter(r => groupOf(r) !== 'done').length; }
+    /** Gist の下書きとこのブラウザの版の関係（＝同じ内容 / ≠ 別の内容 / 空 = このブラウザに無い） */
+    function relToLocal(row: Row, v: RemoteVer): string {
+        const l = row.vers.find((x): x is LocalVer => x.kind === 'local');
+        if (!l) return '';
+        return contentHash(l.doc, l.sourceId) === contentHash(v.doc, v.sourceId) ? '＝' : '≠';
+    }
+    /** やり残しの件数（バッジ。このブラウザ / GIST の 2 つ） */
+    function localCount(): number { return localItems().length; }
+    function gistCount(): number { return gistItems().length; }
 
     function matches(doc: EditorDoc): boolean {
         if (dv.rule !== 'all' && doc.rule !== dv.rule) return false;
         const q = dvFilter.value.trim().toLowerCase();
         return !q || `${doc.rule} ${doc.id} ${doc.description}`.toLowerCase().includes(q);
     }
-    const MARK: Record<GroupId, string> = { pending: '●', solution: '◆', done: '', trash: '' };
+    const MARK = { edited: '●', solution: '◆' };
     const GROUP_LABEL: Record<GroupId, [string, string]> = {
-        pending: ['書き込み待ち', '問題に変更あり（EDITED）・新しい問題。WRITE FILE で片付く'],
-        solution: ['手順だけ', '問題はファイルのまま、解答手順だけ未保存。SAVE SOLUTION で片付く'],
-        done: ['書き込み済み', 'ファイルと同じ内容の Gist の下書き（CLEAN UP で消せる。dev サーバーでは自動で片付く）'],
+        local: ['このブラウザ', 'このブラウザにある未書込の下書き。SAVE で Gist へ（他の端末から見える）、PC なら WRITE FILE で片付く'],
+        gist: ['GIST', 'Gist にある未書込の下書き。PC で開いて WRITE FILE するとここから消える'],
+        done: ['書き込み済み', 'ファイルと同じ内容の下書き（CLEAN UP で消せる。dev サーバーでは自動で片付く）'],
         trash: ['最近消した', 'このブラウザで消した下書き（7 日・30 件まで）。RESTORE で戻せる'],
     };
 
     function renderDraftsView() {
         if (!view.isConnected || view.offsetParent === null) return;
         const cur = deps.currentKey();
+        const curDid = deps.currentDraftId();
         const all = rows();
-        const groups: Record<GroupId, Row[]> = { pending: [], solution: [], done: [], trash: [] };
-        for (const r of all) groups[groupOf(r)].push(r);
+        const byRecent = <T extends { kind: 'edited' | 'solution'; ver: Ver }>(a: T, b: T) => rank(a.kind) - rank(b.kind) || b.ver.updatedAt.localeCompare(a.ver.updatedAt);
+        const lists: Record<'local' | 'gist', { row: Row; ver: Ver; kind: 'edited' | 'solution' }[]> = {
+            local: localItems().filter(x => matches(x.ver.doc)).sort(byRecent),
+            gist: engine.enabled ? gistItems().filter(x => matches(x.ver.doc)).sort(byRecent) : [],
+        };
+        const done = all.filter(r => rowKind(r) === 'file');
         const trash = deps.localDrafts.trashList();
         const parts: string[] = [];
-        for (const g of ['pending', 'solution', 'done', 'trash'] as GroupId[]) {
+        for (const g of ['local', 'gist', 'done', 'trash'] as GroupId[]) {
+            if (g === 'gist' && !engine.enabled) continue;
+            if (g === 'done' && !done.length) continue;
+            if (g === 'trash' && !trash.length) continue;
             const items = g === 'trash'
                 ? trash.map((t, i) => ({ t, i })).filter(({ t }) => matches(t.draft.doc))
-                : groups[g].filter(r => matches(mainVer(r).doc)).sort((a, b) => latest(b).localeCompare(latest(a)));
-            if ((g === 'done' || g === 'solution') && !groups[g].length) continue;
-            if (g === 'trash' && !trash.length) continue;
+                : g === 'done' ? done.filter(r => matches(mainVer(r).doc)).sort((a, b) => latest(b).localeCompare(latest(a)))
+                : lists[g];
             const open = dv.open[g];
-            parts.push(`<button type="button" class="dv-item dv-group" data-item="g:${g}" title="${esc(GROUP_LABEL[g][1])}" aria-expanded="${open}" tabindex="-1">` +
+            parts.push(`<button type="button" class="dv-item dv-group" data-item="h:${g}" title="${esc(GROUP_LABEL[g][1])}" aria-expanded="${open}" tabindex="-1">` +
                 `${open ? '▼' : '▶'} ${GROUP_LABEL[g][0]} <small>${items.length}</small></button>`);
             if (!open) continue;
             if (g === 'trash') {
@@ -366,28 +403,27 @@ export function initSyncUi(deps: SyncUiDeps) {
                 }
                 continue;
             }
-            for (const r of items as Row[]) {
-                const m = mainVer(r);
-                const send = sendOf(m);
-                const vers = distinct(r);
-                const exp = vers.length > 1;
-                const expanded = exp && dv.expanded.has(r.key);
-                parts.push(`<button type="button" class="dv-item dv-row${r.key === cur ? ' me' : ''}" data-item="r:${esc(r.key)}" tabindex="-1"` +
-                    `${exp ? ` aria-expanded="${expanded}"` : ''}>` +
-                    `<span class="dv-twisty">${exp ? (expanded ? '▾' : '▸') : ''}</span>` +
-                    `<span class="draft-rule">${r.rule.toUpperCase()}</span><span class="dv-id">${esc(m.doc.id || (m.sourceId === null ? '新規' : '(ID なし)'))}</span>` +
-                    `<span class="dv-desc">${esc(m.doc.description)}</span>` +
-                    `<span class="lv-m ${g === 'solution' ? 'solution' : 'edited'}">${MARK[g]}</span>` +
-                    `${send ? `<span class="send ${sendCls(send)}">${esc(send)}</span>` : ''}<time>${esc(relTime(latest(r)))}</time></button>`);
-                if (!expanded) continue;
-                vers.forEach((v, i) => {
-                    const label = v.kind === 'local' ? 'このブラウザ' : `Gist・${v.d.device}${v.d.conflictOf ? '（別の下書き）' : ''}`;
-                    const vs = sendOf(v);
-                    parts.push(`<button type="button" class="dv-item dv-row dv-child" data-item="v:${esc(r.key)}|${i}" tabindex="-1">` +
-                        `<span class="dv-twisty">${i === vers.length - 1 ? '└' : '├'}</span><span class="dv-desc">${esc(label)}</span>` +
-                        `<span class="dv-tag">${esc(deps.describe(v.doc, v.kind === 'remote' ? deps.judgeSrc(v.d) : v.sourceId))}</span>` +
-                        `${v.kind === 'local' && vs ? `<span class="send ${sendCls(vs)}">${esc(vs)}</span>` : ''}<time>${esc(relTime(v.updatedAt))}</time></button>`);
-                });
+            if (g === 'done') {
+                for (const r of items as Row[]) {
+                    const m = mainVer(r);
+                    parts.push(`<button type="button" class="dv-item dv-row${r.key === cur ? ' me' : ''}" data-item="r:${esc(r.key)}" tabindex="-1">` +
+                        `<span class="dv-twisty"></span><span class="draft-rule">${r.rule.toUpperCase()}</span><span class="dv-id">${esc(m.doc.id || '(ID なし)')}</span>` +
+                        `<span class="dv-desc">${esc(m.doc.description)}</span><time>${esc(relTime(latest(r)))}</time></button>`);
+                }
+                continue;
+            }
+            for (const { row, ver, kind } of lists[g]) {
+                const m = ver.doc;
+                const isLocal = ver.kind === 'local';
+                const tag = ver.kind === 'local' ? deps.sendLabel(ver.l)
+                    : `${ver.d.device}${ver.d.conflictOf ? '（別）' : ''}${relToLocal(row, ver)}`;
+                const me = isLocal ? row.key === cur : ver.id === curDid;
+                parts.push(`<button type="button" class="dv-item dv-row${me ? ' me' : ''}" data-item="${isLocal ? `l:${esc(row.key)}` : `g:${esc(ver.id)}`}" tabindex="-1">` +
+                    `<span class="dv-twisty"></span>` +
+                    `<span class="draft-rule">${m.rule.toUpperCase()}</span><span class="dv-id">${esc(m.id || (ver.sourceId === null ? '新規' : '(ID なし)'))}</span>` +
+                    `<span class="dv-desc">${esc(m.description)}</span>` +
+                    `<span class="lv-m ${kind === 'solution' ? 'solution' : 'edited'}">${MARK[kind]}</span>` +
+                    `${tag ? `<span class="send ${isLocal ? sendCls(tag) : 'incoming'}">${esc(tag)}</span>` : ''}<time>${esc(relTime(ver.updatedAt))}</time></button>`);
             }
         }
         if (!parts.length) parts.push(`<p class="note">下書きはありません（問題を編集すると自動で作られます${engine.enabled ? '。SAVE すると Gist に保存され、他の端末のここに出ます' : ''}）。</p>`);
@@ -398,7 +434,7 @@ export function initSyncUi(deps: SyncUiDeps) {
             dv.html = html;
             if (focused) itemEl(focused)?.focus({ preventScroll: true });
         }
-        if (!itemEl(dv.sel)) dv.sel = itemEl(`r:${cur}`) ? `r:${cur}` : dvBody.querySelector<HTMLElement>('.dv-row')?.dataset.item ?? '';
+        if (!itemEl(dv.sel)) dv.sel = itemEl(`l:${cur}`) ? `l:${cur}` : dvBody.querySelector<HTMLElement>('.dv-row')?.dataset.item ?? '';
         for (const el of dvBody.querySelectorAll<HTMLElement>('.dv-item')) {
             el.classList.toggle('sel', el.dataset.item === dv.sel);
             el.tabIndex = el.dataset.item === dv.sel ? 0 : -1;
@@ -425,22 +461,28 @@ export function initSyncUi(deps: SyncUiDeps) {
     }
 
     /** data-item から対象を引く */
-    type Target = { kind: 'row'; row: Row } | { kind: 'ver'; row: Row; ver: Ver } | { kind: 'trash'; index: number; entry: TrashEntry } | { kind: 'group'; g: GroupId } | null;
+    type Target = { kind: 'row'; row: Row } | { kind: 'local'; row: Row; ver: LocalVer } | { kind: 'gist'; row: Row; ver: RemoteVer }
+        | { kind: 'trash'; index: number; entry: TrashEntry } | { kind: 'group'; g: GroupId } | null;
     function target(item: string): Target {
         const [t, rest] = [item.slice(0, 1), item.slice(2)];
-        if (t === 'g') return { kind: 'group', g: rest as GroupId };
+        if (t === 'h') return { kind: 'group', g: rest as GroupId };
         if (t === 't') { const e = deps.localDrafts.trashList()[Number(rest)]; return e ? { kind: 'trash', index: Number(rest), entry: e } : null; }
         if (t === 'r') { const row = rows().find(r => r.key === rest); return row ? { kind: 'row', row } : null; }
-        if (t === 'v') {
-            const i = rest.lastIndexOf('|');
-            const row = rows().find(r => r.key === rest.slice(0, i));
-            const ver = row ? distinct(row)[Number(rest.slice(i + 1))] : undefined;
-            return row && ver ? { kind: 'ver', row, ver } : null;
+        if (t === 'l') {
+            const row = rows().find(r => r.key === rest);
+            const ver = row?.vers.find((v): v is LocalVer => v.kind === 'local');
+            return row && ver ? { kind: 'local', row, ver } : null;
+        }
+        if (t === 'g') {
+            for (const row of rows()) {
+                const ver = row.vers.find((v): v is RemoteVer => v.kind === 'remote' && v.id === rest);
+                if (ver) return { kind: 'gist', row, ver };
+            }
         }
         return null;
     }
-    const localOf = (r: Row) => r.vers.find(v => v.kind === 'local') as Extract<Ver, { kind: 'local' }> | undefined;
-    const remotesOf = (r: Row) => r.vers.filter(v => v.kind === 'remote') as Extract<Ver, { kind: 'remote' }>[];
+    const localOf = (r: Row) => r.vers.find(v => v.kind === 'local') as LocalVer | undefined;
+    const remotesOf = (r: Row) => r.vers.filter(v => v.kind === 'remote') as RemoteVer[];
 
     function renderDetail() {
         const el = $('dv-detail');
@@ -454,15 +496,19 @@ export function initSyncUi(deps: SyncUiDeps) {
             return;
         }
         const row = t.row;
-        const m = t.kind === 'ver' ? t.ver : mainVer(row);
-        const local = t.kind === 'ver' ? (t.ver.kind === 'local' ? t.ver : undefined) : localOf(row);
-        const remotes = t.kind === 'ver' ? (t.ver.kind === 'remote' ? [t.ver] : []) : remotesOf(row);
+        // このブラウザの行 = このブラウザの版、GIST の行 = その Gist の版、書き込み済みの行 = まとめて
+        const m = t.kind === 'row' ? mainVer(row) : t.ver;
+        const local = t.kind === 'row' ? localOf(row) : t.kind === 'local' ? t.ver : undefined;
+        const remotes = t.kind === 'row' ? remotesOf(row) : t.kind === 'gist' ? [t.ver] : [];
         const lines: string[] = [];
         if (local) {
             const send = deps.sendLabel(local.l);
             lines.push(`このブラウザ: ${relTime(local.updatedAt)}${send ? ` ・ ${send}` : ''}`);
         }
-        for (const r of remotes) lines.push(`Gist: ${r.d.device} ・ ${fmt(r.d.updatedAt)}${r.d.conflictOf ? '（別の下書き）' : ''}${r.d.status === 'written' ? '（旧 WRITTEN）' : ''}`);
+        for (const r of remotes) {
+            const rel = relToLocal(row, r);
+            lines.push(`Gist: ${r.d.device} ・ ${fmt(r.d.updatedAt)}${r.d.conflictOf ? '（別の下書き）' : ''}${r.d.status === 'written' ? '（旧 WRITTEN）' : ''}${rel === '＝' ? ' ・ このブラウザと同じ内容' : rel === '≠' ? ' ・ このブラウザは別の内容' : ''}`);
+        }
         const sendL = local ? deps.sendLabel(local.l) : '';
         el.innerHTML = `<div><span class="draft-rule">${m.doc.rule.toUpperCase()}</span><b>${esc(m.doc.id || '(ID なし)')}</b> ${esc(m.doc.description)}</div>` +
             `<div class="note">${esc(deps.describe(m.doc, m.kind === 'remote' ? deps.judgeSrc(m.d) : m.sourceId))}</div>` +
@@ -475,12 +521,12 @@ export function initSyncUi(deps: SyncUiDeps) {
     }
     const fmt = fmtDateTime;
 
-    /** 開く（行＝このブラウザの版を優先、子の行＝その版） */
+    /** 開く（このブラウザの行 = 端末内の下書き、GIST の行 = その Gist の下書き、書き込み済みの行 = このブラウザの版を優先） */
     function openTarget(t: Target) {
         if (!t) return;
         if (t.kind === 'group') { toggleGroup(t.g); return; }
         if (t.kind === 'trash') return;
-        const v = t.kind === 'ver' ? t.ver : (localOf(t.row) ?? mainVer(t.row));
+        const v: Ver = t.kind === 'row' ? (localOf(t.row) ?? mainVer(t.row)) : t.ver;
         if (v.kind === 'local') { if (v.key !== deps.currentKey()) deps.openLocal(v.key); }
         else deps.openDraft(v.id);
         if (draftsDlg.open) draftsDlg.close();
@@ -490,7 +536,7 @@ export function initSyncUi(deps: SyncUiDeps) {
         dv.open[g] = !dv.open[g];
         try { localStorage.setItem(GROUP_KEY, JSON.stringify(dv.open)); } catch { /* 保存不可 */ }
         renderDraftsView();
-        itemEl(`g:${g}`)?.focus({ preventScroll: true });
+        itemEl(`h:${g}`)?.focus({ preventScroll: true });
     }
     function act(name: string, t: Target) {
         if (!t) return;
@@ -504,8 +550,8 @@ export function initSyncUi(deps: SyncUiDeps) {
         }
         if (t.kind === 'group') return;
         if (name === 'open') { openTarget(t); return; }
-        const local = t.kind === 'ver' ? (t.ver.kind === 'local' ? t.ver : undefined) : localOf(t.row);
-        const remotes = t.kind === 'ver' ? (t.ver.kind === 'remote' ? [t.ver] : []) : remotesOf(t.row);
+        const local = t.kind === 'row' ? localOf(t.row) : t.kind === 'local' ? t.ver : undefined;
+        const remotes = t.kind === 'row' ? remotesOf(t.row) : t.kind === 'gist' ? [t.ver] : [];
         if (name === 'save' && local) void deps.saveLocal(local.key).then(renderDraftsView);
         if (name === 'discard' && local) { deps.discardLocal(local.key); renderDraftsView(); }
         if (name === 'delete' && remotes.length) {
@@ -544,11 +590,6 @@ export function initSyncUi(deps: SyncUiDeps) {
         if (!item) return;
         dv.sel = item;
         const t = target(item);
-        if (t?.kind === 'row' && (e.target as HTMLElement).closest('.dv-twisty') && distinct(t.row).length > 1) {
-            if (dv.expanded.has(t.row.key)) dv.expanded.delete(t.row.key); else dv.expanded.add(t.row.key);
-            renderDraftsView();
-            return;
-        }
         if (t?.kind === 'trash') { renderDraftsView(); return; }
         openTarget(t);
     });
@@ -574,16 +615,12 @@ export function initSyncUi(deps: SyncUiDeps) {
             e.preventDefault();
             const want = e.key === 'ArrowRight';
             if (t?.kind === 'group' && dv.open[t.g] !== want) toggleGroup(t.g);
-            else if (t?.kind === 'row' && distinct(t.row).length > 1 && dv.expanded.has(t.row.key) !== want) {
-                if (want) dv.expanded.add(t.row.key); else dv.expanded.delete(t.row.key);
-                renderDraftsView();
-                itemEl(el.dataset.item!)?.focus({ preventScroll: true });
-            }
+
         } else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dv.sel = el.dataset.item!; openTarget(t); }
         else if (e.key === 'Delete' || e.key === 'Backspace') {
             e.preventDefault();
             if (t?.kind === 'trash') act('purge', t);
-            else if (t && t.kind !== 'group') act((t.kind === 'ver' ? t.ver.kind === 'local' : !!localOf(t.row)) ? 'discard' : 'delete', t);
+            else if (t && t.kind !== 'group') act((t.kind === 'local' || (t.kind === 'row' && !!localOf(t.row))) ? 'discard' : 'delete', t);
         }
     });
     dvBody.addEventListener('focusin', e => {

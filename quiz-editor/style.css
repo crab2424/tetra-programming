@@ -167,6 +167,7 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   #col-drafts > h2 { flex: none; }
   #col-drafts #drafts-view { flex: 1 1 auto; min-height: 0; }
   #act-drafts-badge.err { background: var(--danger); }
+  #activity .badge.local { right: auto; left: 4px; background: #5a5f72; color: #fff; }
 
   /* 盤面エリア（中央）: 左右中央・上寄せ（モードで下の行が変わっても盤面が上下しない） */
   #col-center { grid-area: center; background: var(--bg); padding: 12px 16px; }

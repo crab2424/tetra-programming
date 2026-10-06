@@ -2818,6 +2818,7 @@ syncUi = initSyncUi({
     engine: sync,
     localDrafts,
     currentKey: () => curDraftKey(),
+    currentDraftId: () => draftId,
     describe: (d, src) => {
         if (src === null) return '新規';
         if (!levelsLoaded) return '';
