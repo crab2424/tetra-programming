@@ -49,12 +49,26 @@ export class LocalDrafts {
     private map: Record<string, LocalDraft> = {};
     /** 保存できなかった（容量不足など）時に呼ぶ */
     onError: (err: unknown) => void = () => { };
+    /** 同じブラウザの別のタブが下書きを変えた時に呼ぶ */
+    onExternalChange: () => void = () => { };
 
     constructor() {
+        this.map = this.load();
+        // 別のタブの変更をメモリに取り込む（drafts §2.2）
+        window.addEventListener('storage', e => {
+            if (e.key !== DRAFTS_KEY && e.key !== null) return;
+            this.map = this.load();
+            this.onExternalChange();
+        });
+    }
+
+    private load(): Record<string, LocalDraft> {
+        const out: Record<string, LocalDraft> = {};
         const m = read<Record<string, LocalDraft>>(DRAFTS_KEY);
         if (m && typeof m === 'object') {
-            for (const [k, d] of Object.entries(m)) if (d && d.doc && Array.isArray(d.doc.field) && d.draftId) this.map[k] = d;
+            for (const [k, d] of Object.entries(m)) if (d && d.doc && Array.isArray(d.doc.field) && d.draftId) out[k] = d;
         }
+        return out;
     }
 
     get(key: string): LocalDraft | undefined { return this.map[key]; }
@@ -68,19 +82,19 @@ export class LocalDrafts {
     }
 
     put(key: string, d: LocalDraft) {
-        this.map[key] = d;
-        this.persist();
+        this.update(m => { m[key] = d; });
     }
     remove(key: string) {
         if (!(key in this.map)) return;
-        delete this.map[key];
-        this.persist();
+        this.update(m => { delete m[key]; });
     }
     setSent(key: string, sent: SentMark | undefined) {
-        const d = this.map[key];
-        if (!d) return;
-        if (sent) d.sent = sent; else delete d.sent;
-        this.persist();
+        if (!this.map[key]) return;
+        this.update(m => {
+            const d = m[key];
+            if (!d) return;
+            if (sent) d.sent = sent; else delete d.sent;
+        });
     }
 
     current(): CurrentRef | null { return read<CurrentRef>(CURRENT_KEY); }
@@ -96,9 +110,16 @@ export class LocalDrafts {
         return { doc: o.doc, sourceId: o.sourceId ?? null, draftId: o.draftId ?? null };
     }
 
-    private persist() {
+    /**
+     * 書く直前に保存されている全体を読み直し、変えるキーだけ差し替えて書く。
+     * メモリの全体を丸ごと書くと、同じブラウザの別のタブが足した下書きを消してしまうため（drafts §2.2）
+     */
+    private update(fn: (m: Record<string, LocalDraft>) => void) {
+        const m = this.load();
+        fn(m);
+        this.map = m;
         try {
-            localStorage.setItem(DRAFTS_KEY, JSON.stringify(this.map));
+            localStorage.setItem(DRAFTS_KEY, JSON.stringify(m));
         } catch (err) {
             this.onError(err);
         }

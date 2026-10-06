@@ -126,6 +126,7 @@ function openDoc(d: EditorDoc, src: string | null, did: string | null = null) {
 
 // ─── 自動保存（端末内の下書き。問題ごとに 1 つ。Gist へは SAVE を押した時だけ。save-notify §3） ───
 const localDrafts = new LocalDrafts();
+localDrafts.onExternalChange = () => { renderTopbar(); renderLevels(); syncUi?.refresh(); };
 localDrafts.onError = () => errStatus('端末内に保存できませんでした（容量不足の可能性）。DRAFTS で不要な下書きを DISCARD してください');
 let draftTimer = 0;
 function saveDraftSoon() {
@@ -1621,6 +1622,7 @@ async function writeLevelsFile(forcePick: boolean) {
 
         await h.write(plan.text);
         levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
+        levelsText[doc.rule] = plan.text;
         const oldKey = curDraftKey();
         const oldSrc = sourceId;
         sourceId = doc.id;
@@ -1920,19 +1922,64 @@ window.addEventListener('blur', () => place.releaseAll());
 // ─────────────────────────────────────────────
 // 起動
 // ─────────────────────────────────────────────
-async function loadLevels() {
+/** 最後に読んだ問題ファイルの中身（読み直した時に変わったかを見る） */
+const levelsText: Record<Rule, string> = { tet: '', puyo: '' };
+/** 問題一覧を読む。quiet = 読み直し（失敗しても知らせない。手で貼っている途中の壊れた JSON 等）。戻り値は中身が変わったルール */
+async function loadLevels(quiet = false): Promise<Rule[]> {
+    const changed: Rule[] = [];
     for (const [rule, file] of [['tet', 'tdata.json'], ['puyo', 'pdata.json']] as [Rule, string][]) {
         try {
             const res = await fetch(`/assets/quizlevels/${file}`, { cache: 'no-store' });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const arr = await res.json() as unknown;
+            const text = await res.text();
+            if (text === levelsText[rule]) continue;
+            const arr = JSON.parse(text) as unknown;
             levels[rule] = Array.isArray(arr) ? arr as LevelRaw[] : [];
+            levelsText[rule] = text;
+            changed.push(rule);
         } catch (err) {
+            if (quiet) continue;
             console.error(`${file} の読み込みに失敗しました`, err);
             errStatus(`${file} を読み込めませんでした`);
         }
     }
+    return changed;
 }
+
+/**
+ * 画面に戻った時に問題ファイル・解答ファイルを読み直す（drafts §1.3 B）。
+ * 手で貼った・git で切り替えた・別のタブで書いた、を開いたまま反映する。開いている内容は変えない
+ */
+let reloading = false;
+let lastReload = 0;
+async function reloadFiles() {
+    if (!levelsLoaded || reloading || Date.now() - lastReload < 1000) return;
+    reloading = true;
+    lastReload = Date.now();
+    try {
+        const changed: string[] = (await loadLevels(true)).map(r => r === 'tet' ? 'tdata.json' : 'pdata.json');
+        if (!sync.enabled) {
+            const m = await fetchSolutions();
+            if (m && JSON.stringify(m) !== JSON.stringify(solutions)) {
+                solutions = m;
+                solutionsLoaded = true;
+                changed.push('tsolutions.json');
+            }
+        }
+        if (!changed.length) return;
+        afterFilesChanged();
+        setStatus(`${changed.join('・')} が変更されていたので読み直しました`);
+    } finally {
+        reloading = false;
+    }
+}
+/** 問題一覧・保存済みの解答が変わった後（読み直し・書き込み） */
+function afterFilesChanged() {
+    renderAll();
+    syncUi?.refresh();
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void reloadFiles(); });
+window.addEventListener('focus', () => void reloadFiles());
 
 // ─── PC 配置: 一部の部品を PC では盤面の横・サイドバー・ステータスバーへ移す（スマホでは元の場所＝下部タブの仕組みのまま） ───
 const relocations: [HTMLElement, HTMLElement][] = [
