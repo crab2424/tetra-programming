@@ -18,7 +18,7 @@ import {
 import { KEY_HELP, isTextInput, isMod, isMac, keyLabel } from './keys.ts';
 import { PlaceMode, buildStampGrid, drawStampButtons, clearedAtOf, firstErrorOf } from './place.ts';
 import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, actionFor, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
-import { type SolutionMap, type SolutionEntry, fetchSolutions, saveSolution, canWriteFiles, today, solutionPath, exportSolutionsFile, serializeSolutions, SOLUTION_FILES, RULES } from './solutions.ts';
+import { fmtDateTime, type SolutionMap, type SolutionEntry, fetchSolutions, saveSolution, canWriteFiles, today, solutionPath, exportSolutionsFile, serializeSolutions, SOLUTION_FILES, RULES } from './solutions.ts';
 import { SyncEngine, type SyncEvent, type DraftEntry, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
 import { LocalDrafts, type LocalDraft, type SentMark, draftKey, contentHash } from './local-drafts.ts';
 import { initSyncUi } from './sync-ui.ts';
@@ -392,7 +392,7 @@ function sendStateOf(d: EditorDoc, src: string | null, did: string, sent: SentMa
     return { kind: 'incoming', id, entry };
 }
 function curSendState(): SendState { return sendStateOf(doc, sourceId, draftId, curLocal()?.sent); }
-function fmtTime(iso: string): string { return iso.slice(5, 16).replace('-', '/').replace('T', ' '); }
+const fmtTime = fmtDateTime;
 
 /** 開いている問題に、他の端末から別の内容の下書きが届いていたら知らせる（勝手には切り替えない。同じ物は1回だけ） */
 const announced = new Set<string>();

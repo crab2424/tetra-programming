@@ -9,7 +9,7 @@ import {
 } from './sync.ts';
 import { type LocalDrafts, type LocalDraft, type TrashEntry, LOCAL_DRAFT_WARN, contentHash } from './local-drafts.ts';
 import type { EditorDoc } from './model.ts';
-import { canWriteFiles, readLocalSolutions, exportSolutionsFile, RULES, SOLUTION_FILES } from './solutions.ts';
+import { fmtDateTime, canWriteFiles, readLocalSolutions, exportSolutionsFile, RULES, SOLUTION_FILES } from './solutions.ts';
 import { toast } from './toast.ts';
 import { ask } from './ask.ts';
 
@@ -86,8 +86,7 @@ function relTime(iso: string): string {
     if (s < 60) return 'たった今';
     if (s < 3600) return `${Math.floor(s / 60)}分前`;
     if (s < 86400) return `${Math.floor(s / 3600)}時間前`;
-    const d = new Date(t);
-    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return fmtDateTime(iso);
 }
 
 export function initSyncUi(deps: SyncUiDeps) {
@@ -474,7 +473,7 @@ export function initSyncUi(deps: SyncUiDeps) {
             (remotes.length ? `<button type="button" data-act="delete" title="Gist から消す（Gist の履歴には残る）">DELETE GIST${remotes.length > 1 ? ` (${remotes.length})` : ''}</button>` : '') +
             '</div>';
     }
-    function fmt(iso: string): string { return iso.slice(5, 16).replace('-', '/').replace('T', ' '); }
+    const fmt = fmtDateTime;
 
     /** 開く（行＝このブラウザの版を優先、子の行＝その版） */
     function openTarget(t: Target) {

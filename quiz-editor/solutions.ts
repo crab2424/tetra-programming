@@ -72,6 +72,16 @@ export function serializeSolutions(map: SolutionMap): string {
     return `{\n${blocks.join(',\n')}\n}\n`;
 }
 
+/** 保存時刻（UTC の ISO）を端末の時刻で `M/D HH:MM` に（年が違えば年も）。保存する値は UTC のまま（新旧の比較に使うため） */
+export function fmtDateTime(iso: string): string {
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return '';
+    const d = new Date(t);
+    const p = (n: number) => String(n).padStart(2, '0');
+    const y = d.getFullYear() === new Date().getFullYear() ? '' : `${d.getFullYear()}/`;
+    return `${y}${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export function today(): string {
     const d = new Date();
     const p = (n: number) => String(n).padStart(2, '0');
