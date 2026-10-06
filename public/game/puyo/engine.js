@@ -341,6 +341,12 @@ Object.assign(PuyoGame.prototype, {
                             }
                         }
 
+                        // 1.5 count 条件（「n連鎖以上を m 回」等）。連鎖があった手だけ数える
+                        //     （連鎖なしで呼ぶと、全消し後に isAllClear が残っている間の手まで数えてしまう）
+                        if (!isQuizFinished && this.chainCount > 0 && typeof window._quizManager._checkClearOnPuyoChain === 'function') {
+                            window._quizManager._checkClearOnPuyoChain(this.chainCount);
+                        }
+
                         // 2. _checkClear() を直接呼び出してクリア条件を評価する
                         //    （quiz.js の QuizManager._checkClear は isClear/isFailed フラグを立てて
                         //     _onClear/_onFailed を発火する。既にどちらかが立っていれば重複呼び出しは無視される）

@@ -528,7 +528,7 @@ class QuizManager {
                 case 'score':
                     if (game.score >= cond.value) cleared = true;
                     break;
-                // count はぷよの場合 _checkClearOnPuyoChain() で判定
+                // count はぷよの場合 _checkClearOnPuyoChain() で判定（engine.js が連鎖終了時に呼ぶ）
             }
         }
 
@@ -672,9 +672,9 @@ class QuizManager {
         }
     }
 
-    // ─── ぷよ用 count 条件チェック（チェーン確定時に呼ぶ） ─────────
-    // PuyoGame 側から _quizManager._checkClearOnPuyoChain(chainCount) の形で呼ぶ想定。
-    // （PuyoGame の連鎖確定コールバックに以下の呼び出しを追加する必要がある）
+    // ─── ぷよ用 count 条件チェック（連鎖が終わった時に呼ぶ） ─────────
+    // game/puyo/engine.js の連鎖終了時の QUIZ ブロックから、連鎖があった手だけ
+    // _quizManager._checkClearOnPuyoChain(chainCount) の形で呼ばれる（_checkClear より先）。
     _checkClearOnPuyoChain(chainCount) {
         if (!this.currentLevel || !this.gameInstance) return;
         if (this.isClear || this.isFailed) return;

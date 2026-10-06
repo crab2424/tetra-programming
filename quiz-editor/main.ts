@@ -6,7 +6,7 @@
 import './prod-guard.ts';
 import {
     type Rule, type EditorDoc, type Pair, type Issue,
-    MINO_LETTERS, TET_GARBAGE, PUYO_OJAMA,
+    MINO_LETTERS, TET_GARBAGE, PUYO_OJAMA, PUYO_COLOR_NAMES,
     cols, rows, maxColorId, newDoc, cloneDoc, docFromLevel, emptyField,
     condDefs, countDefs, findCondDef, findCountDef, autoCondDescription,
     serializeLevel, buildLevel, parseLevelsText, validate, levelChanges, solvedSteps,
@@ -16,17 +16,16 @@ import {
     loadImages, drawField, fieldCellSize, fitCell, rowAtY, drawCellSwatch, drawMinoCentered, drawPairCentered,
 } from './render.ts';
 import { KEY_HELP, isTextInput, isMod } from './keys.ts';
-import { PlaceMode, buildStampGrid, drawStampButtons } from './place.ts';
+import { PlaceMode, buildStampGrid, drawStampButtons, clearedAtOf } from './place.ts';
 import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
-import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, SOLUTION_PATH, exportSolutionsFile } from './solutions.ts';
+import { type SolutionMap, fetchSolutions, saveSolution, canWriteFiles, today, solutionPath, exportSolutionsFile, SOLUTION_FILES, RULES } from './solutions.ts';
 import { SyncEngine, type SyncEvent, type DraftEntry, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
 import { LocalDrafts, type LocalDraft, type SentMark, draftKey, contentHash } from './local-drafts.ts';
 import { initSyncUi } from './sync-ui.ts';
 import { getHandle, readText, writeText, canPickFiles } from './fsa.ts';
 import { probeDevFiles, devFilesAvailable, devRead, devWrite } from './dev-files.ts';
 import { toast, dismissToasts, toastLog, onToastLog } from './toast.ts';
-import { planWrite } from './levels-file.ts';
-import { simulate } from './tet-sim.ts';
+import { planWrite, elementBlock } from './levels-file.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -90,15 +89,15 @@ function commit(mutate: () => void, coalesceKey = '') {
  * クリアしていない間（試しに置いている間）は前のまま＝編集扱いにならない
  */
 function syncSolved() {
-    if (doc.rule !== 'tet' || !doc.steps.length) return;
-    const at = simulate(doc, doc.steps).clearedAt;
+    if (!doc.steps.length) return;
+    const at = clearedAtOf(doc, doc.steps);
     if (at) doc.solved = doc.steps.slice(0, at).map(st => ({ ...st }));
 }
 /** 「クリアした時点の手順」を持たない古い下書き: クリアしていればそこまで、していなければ保存済みの手順（無ければ画面の手順） */
 function fillSolved(d: EditorDoc, src: string | null) {
-    if (d.solved !== undefined || d.rule !== 'tet') return;
-    const at = d.steps.length ? simulate(d, d.steps).clearedAt : 0;
-    const saved = src !== null ? solutions[src]?.steps : undefined;
+    if (d.solved !== undefined) return;
+    const at = clearedAtOf(d, d.steps);
+    const saved = src !== null ? solutions[d.rule][src]?.steps : undefined;
     d.solved = (at ? d.steps.slice(0, at) : saved ?? d.steps).map(st => ({ ...st }));
 }
 /** 画面の手順がクリアした時点の手順と違う（試行中） */
@@ -128,7 +127,7 @@ function afterDocReplaced() {
     if (ui.selColor > maxColorId(doc.rule)) ui.selColor = 1;
     ui.nextCaret = Math.min(ui.nextCaret, nextLen());
     ui.pendingPuyo = 0;
-    if (doc.rule !== 'tet' && ui.mode === 'place') ui.mode = 'paint';
+    if (doc.rule !== 'tet' && ui.mode === 'place' && place.sub === 'stamp') ui.mode = 'paint';   // ぷよに STAMP は無い
     place.resetActive();
     renderAll();
 }
@@ -222,7 +221,6 @@ function paletteColors(): number[] {
 }
 
 /** ぷよの色の名前（1〜5。画像 puyo-0〜4.png の色。キーと JSON の値は数字のまま。tools §5.3） */
-const PUYO_COLOR_NAMES = ['赤', '青', '紫', '緑', '黄'];
 function colorName(v: number): string {
     if (v === 0) return '空';
     if (doc.rule === 'tet') return v === TET_GARBAGE ? 'おじゃま' : `${MINO_LETTERS[v - 1]}`;
@@ -285,7 +283,7 @@ function discardLocal(key: string) {
 // ─── 片付け（drafts §5.2。下書きを消す判定はここに集める） ───
 /** ファイルの内容が「本物」か（dev サーバー＝作業ツリーのファイル。プレビュー URL はデプロイ時点の物なので Gist の下書きの片付けには使わない） */
 const FILE_IS_LOCAL = import.meta.env.DEV;
-function filesReady(rule: Rule): boolean { return levelsLoaded && (rule !== 'tet' || solutionsLoaded); }
+function filesReady(rule: Rule): boolean { return levelsLoaded && solutionsLoaded[rule]; }
 /** Gist の下書きをファイルと比べる時の問題 id（書き込んだ後は doc.id でファイルに入っている） */
 function judgeSrc(d: { doc: EditorDoc; sourceId: string | null }): string | null {
     return d.doc.id && levelById(d.doc.rule, d.doc.id) ? d.doc.id : d.sourceId;
@@ -469,7 +467,7 @@ function choose(msg: string, opts: [string, string][]): Promise<string> {
 }
 
 function onSyncState() {
-    if (sync.enabled) { solutions = sync.solutions(); solutionsLoaded = true; }
+    if (sync.enabled) for (const r of RULES) { solutions[r] = sync.solutions(r); solutionsLoaded[r] = true; }
     reconcile();
     syncUi?.refresh();
     if (ui.mode === 'place') renderPlace();
@@ -496,12 +494,13 @@ const place = new PlaceMode({
 let binds = loadPlaceBinds();
 let tuning = loadPlaceTuning();
 place.setTuning(tuning);
-let solutions: SolutionMap = {};
-let solutionsLoaded = false;
+/** 保存済みの解答（ルール別: tsolutions.json / psolutions.json。同期中は Gist の内容） */
+const solutions: Record<Rule, SolutionMap> = { tet: {}, puyo: {} };
+const solutionsLoaded: Record<Rule, boolean> = { tet: false, puyo: false };
 
 /** 既存問題を開く時に解答ファイルの手順を付ける */
 function withSolution(d: EditorDoc): EditorDoc {
-    const e = d.rule === 'tet' ? solutions[d.id] : undefined;
+    const e = solutions[d.rule][d.id];
     if (e) { d.steps = e.steps.map(s => ({ ...s })); d.solved = e.steps.map(s => ({ ...s })); d.solutionNote = e.note ?? ''; }
     return d;
 }
@@ -574,7 +573,7 @@ function hideNotice() { dismissToasts(m => m.endsWith(NOTICE_MARK)); }
 
 /** 解答ファイルに保存済みの内容と一致するか */
 function solutionSaved(): boolean {
-    const e = solutions[doc.id];
+    const e = solutions[doc.rule][doc.id];
     if (!e) return solvedSteps(doc).length === 0;
     return JSON.stringify(e.steps) === JSON.stringify(solvedSteps(doc)) && (e.note ?? '') === doc.solutionNote;
 }
@@ -587,7 +586,7 @@ function solutionSaved(): boolean {
 type EditMode = 'paint' | 'stamp' | 'next' | 'solve';
 function curMode(): EditMode { return ui.mode === 'place' ? place.sub : ui.mode; }
 function setMode(mode: EditMode) {
-    if ((mode === 'stamp' || mode === 'solve') && doc.rule !== 'tet') { warnStatus('ぷよのミノ配置は未対応です（段階4）'); return; }
+    if (mode === 'stamp' && doc.rule !== 'tet') { warnStatus('ぷよには STAMP はありません'); return; }
     if (mode === 'next' && mobileMq.matches) mode = boardMode();   // スマホは NEXT タブで編集する（モードは PC だけ）
     if (mode !== 'solve') ui.lastEdit = mode;
     if (mode === 'paint' || mode === 'stamp') ui.lastBoard = mode;
@@ -644,23 +643,31 @@ function renderPlace() {
         const on = m === mode;
         b.classList.toggle('on', on);
         b.setAttribute('aria-checked', String(on));
-        b.disabled = (m === 'stamp' || m === 'solve') && doc.rule !== 'tet';
-        b.title = `${MODE_BAND[m][1]}（${MODE_KEY[m]}）` + (b.disabled ? '・ぷよは未対応' : '');
+        b.disabled = m === 'stamp' && doc.rule !== 'tet';
+        b.title = `${MODE_BAND[m][1]}（${MODE_KEY[m]}）` + (b.disabled ? '・ぷよには無い' : '');
     }
     body().dataset.mode = mode;
     $('mode-name').textContent = MODE_BAND[mode][0] + (mode === 'paint' && ui.rowMode ? ' · ROW' : '');
-    $('mode-desc').textContent = doc.rule === 'tet' ? MODE_BAND[mode][1] : MODE_BAND[mode][1] + '・ぷよは PAINT / NEXT のみ';
+    $('mode-desc').textContent = mode === 'solve' && doc.rule === 'puyo' ? '解答手順を記録します（問題は変わりません）・, . で連鎖の途中' : MODE_BAND[mode][1];
     $('paint-box').hidden = ui.mode !== 'paint';
     $('place-box').hidden = ui.mode !== 'place';
     $('nexttool-box').hidden = ui.mode !== 'next';
     $('solve-pieces').hidden = mode !== 'solve';
     $('solve-box').hidden = mode !== 'solve';
-    $('steps-idle').hidden = mode === 'solve' || doc.rule !== 'tet';
+    $('steps-idle').hidden = mode === 'solve';
+    $('steps-idle').textContent = `SOLVE モード（P）で NEXT の順に${doc.rule === 'tet' ? 'ミノ' : 'ぷよ'}を置くと、解答手順が記録されます。`;
     $('strict-wrap').hidden = mode !== 'solve';
+    $('strict-wrap').title = doc.rule === 'tet'
+        ? '1段上・浮いたままの確定・マウス配置を使えなくし、ゲームで入力できる手だけを記録する'
+        : '上への移動・マウス配置を使えなくし、出現位置からの移動・回転・ドロップで置いた手だけを記録する';
     $<HTMLInputElement>('in-strict').checked = place.strict;
-    const stepsNote = $('steps-note');
-    stepsNote.hidden = doc.rule === 'tet';
-    stepsNote.textContent = 'ぷよの解答手順の記録は未対応です（段階4）';
+    $('steps-note').hidden = true;
+    // ぷよには HOLD も「浮いたまま確定」も無い（ゲームと同じく必ず着地まで落ちる）
+    const puyo = doc.rule === 'puyo';
+    for (const c of ['hold', 'lock']) $('ctl-pad').querySelector<HTMLElement>(`[data-ctl="${c}"]`)!.hidden = puyo;
+    $('ctl-pad').querySelector<HTMLElement>('[data-ctl="up"]')!.title = puyo ? '半段上（自由配置）' : '1段上（自由配置）';
+    $('ctl-pad').querySelector<HTMLElement>('[data-ctl="down"]')!.title = puyo ? '半段下（ソフトドロップ）' : '1段下';
+    $('frame-nav').hidden = !puyo;
     if (ui.mode !== 'place') return;
     $('bind-src').textContent = `操作キー: ${sourceLabel(binds.source)}・${tuningLabel(tuning)}（? で一覧）`;
     place.renderPanel($('layout'));   // PC では #solve-box が #col-steps へ移るので、レイアウト全体から探す
@@ -668,11 +675,12 @@ function renderPlace() {
     const st = $('sol-status');
     const trial = stepsOnTrial() ? '試行中（条件をクリアすると手順の編集として扱います）・' : '';
     if (sync.enabled) st.textContent = trial + (solutionSaved() ? `Gist に保存済み${sync.pendingCount() ? '（送信待ち）' : ''}` : '未保存の変更があります');
-    else if (!solutionsLoaded) st.textContent = trial + `${SOLUTION_PATH} を読み込めませんでした（新規作成されます）`;
+    else if (!solutionsLoaded[doc.rule]) st.textContent = trial + `${solutionPath(doc.rule)} を読み込めませんでした（新規作成されます）`;
     else st.textContent = trial + (solutionSaved() ? '保存済み' : '未保存の変更があります');
     $('btn-sol-pick').textContent = sync.enabled ? 'EXPORT FILE' : 'CHOOSE FILE';
     $('btn-sol-pick').hidden = sync.enabled ? !canWriteFiles() : !canPickFiles();
-    $('btn-sol-pick').title = sync.enabled ? 'Gist の解答をローカルの tsolutions.json に書き出す' : '保存先のファイルを選び直す';
+    $('btn-sol-pick').title = sync.enabled ? `Gist の解答をローカルの ${SOLUTION_FILES[doc.rule]} に書き出す` : '保存先のファイルを選び直す';
+    $('btn-sol-save').title = sync.enabled ? `Gist の ${SOLUTION_FILES[doc.rule]} に保存` : `${solutionPath(doc.rule)} に保存`;
     st.classList.toggle('warn', !solutionSaved());
 }
 
@@ -864,12 +872,21 @@ function setMTab(t: MTab) {
     try { localStorage.setItem(MTAB_KEY, t); } catch { /* 保存不可 */ }
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) b.classList.toggle('on', b.dataset.mtab === t);
     // STEPS は解答手順（PLACE の SOLVE）を見る場所
-    if (t === 'steps' && doc.rule === 'tet' && curMode() !== 'solve') setMode('solve');
+    if (t === 'steps' && curMode() !== 'solve') setMode('solve');
     renderAll();
     window.scrollTo({ top: 0 });
 }
 
 function renderField() {
+    if (ui.mode === 'place' && doc.rule === 'puyo') {
+        const fv = place.puyoFieldView();
+        drawField(fieldCanvas, {
+            rule: 'puyo', field: fv.field, cell: cellSize('puyo'),
+            cursor: null, hover: null, rowMode: false, showCursor: false,
+            puyoPair: fv.pair, erase: fv.erase,
+        });
+        return;
+    }
     if (ui.mode === 'place') {
         const fv = place.fieldView();
         drawField(fieldCanvas, {
@@ -973,8 +990,8 @@ function drawNextToolPieces() {
     }
 }
 
-/** SOLVE 中の NEXT 列に出す個数（ゲームの NEXT 欄と同じ。public/quiz/quiz.js _startTet） */
-const GAME_NEXT_SHOWN = 5;
+/** SOLVE 中の NEXT 列に出す個数（ゲームの NEXT 欄と同じ。テト 5 個: public/quiz/quiz.js _startTet・ぷよ 2 ペア: NEXT と NEXT-NEXT） */
+function gameNextShown(): number { return doc.rule === 'tet' ? 5 : 2; }
 
 function nextCanvas(i: number | null): HTMLCanvasElement {
     const cv = document.createElement('canvas');
@@ -998,8 +1015,8 @@ function renderNext() {
     box.classList.toggle('game', !!usage);
     box.title = usage ? 'SOLVE 中は NEXT を編集できません（EDIT に戻すには P）' : '';
     if (usage) {
-        // SOLVE: ゲームと同じく「今のミノの次から 5 個」だけ。置くたびに上へ詰まり、尽きた所は空（layout §7）
-        for (let k = 0; k < GAME_NEXT_SHOWN; k++) {
+        // SOLVE: ゲームと同じく「今のミノの次から 5 個（ぷよは 2 ペア）」だけ。置くたびに上へ詰まり、尽きた所は空（layout §7）
+        for (let k = 0; k < gameNextShown(); k++) {
             const i = usage.now + k;
             const item = document.createElement('span');
             item.className = 'next-item slot';
@@ -1243,7 +1260,7 @@ fieldCanvas.addEventListener('pointerdown', e => {
         place.hoverAt(p.r, p.c);
         // テト譜のミノ配置: 左クリックで確定・右クリックで右回転。
         // タッチは誤って確定しないよう位置合わせだけ（確定は DROP / LOCK ボタン）
-        if (!touch) { if (e.button === 0) place.lock(); else if (e.button === 2) place.wheel(1); }
+        if (!touch) { if (e.button === 0) place.click(); else if (e.button === 2) place.wheel(1); }
         return;
     }
     ui.cursor = { ...p };
@@ -1704,15 +1721,21 @@ async function writeLevelsFile(forcePick: boolean) {
         if (sourceId !== null && src < 0 && !confirm(`ファイル内に「${sourceId}」が見つかりません（外部で変更された可能性）。新しい問題として追加しますか？`)) return;
 
         const dst = Number($<HTMLSelectElement>('write-pos').value);
-        const plan = planWrite(text, src, dst, serializeLevel(doc, 1), buildLevel(doc));
         const changes = src >= 0 ? levelChanges(buildLevel(docFromLevel(list[src])), buildLevel(doc)) : [];
-        const changeLine = src >= 0 ? `\n変更: ${changes.join('・') || 'なし'}` : '';
+        // 中身が変わっていない問題は元のテキストのまま書く（上の空行の省略など、書式だけの差分を出さない。puyo-solve §7）
+        const same = src >= 0 && !changes.length;
+        const plan = same
+            ? planWrite(text, src, dst, elementBlock(text, src), list[src])
+            : planWrite(text, src, dst, serializeLevel(doc, 1), buildLevel(doc));
+        const changeLine = src >= 0 ? `\n変更: ${changes.join('・') || 'なし（元のテキストのまま）'}` : '';
         const what = plan.action === 'replace' ? `${plan.index + 1}番「${sourceId}」を置き換え`
             : plan.action === 'move' ? `「${sourceId}」を ${src + 1}番 → ${plan.index + 1}番へ移動して書き換え`
             : `${plan.index + 1}番に「${doc.id}」を追加`;
-        if (!confirm(`${h.name} の ${what}ます。${changeLine}\n他の問題は変更しません。よろしいですか？`)) return;
-
-        await h.write(plan.text);
+        const wrote = plan.text !== text;
+        if (wrote) {
+            if (!confirm(`${h.name} の ${what}ます。${changeLine}\n他の問題は変更しません。よろしいですか？`)) return;
+            await h.write(plan.text);
+        }
         levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
         levelsText[doc.rule] = plan.text;
         const oldKey = curDraftKey();
@@ -1723,8 +1746,9 @@ async function writeLevelsFile(forcePick: boolean) {
         // 書き込んだので受け渡しは終わり: この問題の Gist の下書きのうち、問題も手順もファイル＋保存済みと同じ物を消す（R3・R4。
         // 手順が未保存なら SAVE SOLUTION の後で消える）。Gist の履歴には残る
         reconcile({ rule: doc.rule, ids: [oldSrc, doc.id] });
-        const msg = `${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`;
-        // 手順は別のファイル（tsolutions.json）。未保存なら知らせて、その場で保存できるようにする（tools §1.3）
+        const msg = wrote ? `${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`
+            : `${h.name} の「${doc.id}」はファイルと同じ内容です（書き込みは不要でした）`;
+        // 手順は別のファイル（tsolutions.json / psolutions.json）。未保存なら知らせて、その場で保存できるようにする（tools §1.3）
         if (editStateOf(doc, sourceId).kind === 'solution') {
             toast(`${msg}。解答手順は未保存です`, 'info', {
                 actions: [{ label: 'SAVE SOLUTION', title: '解答手順を保存する', run: () => void saveSolutionFile(false) }],
@@ -1797,13 +1821,14 @@ function renderHelp() {
         title: `STAMP・SOLVE（盤面にフォーカス）— 操作キーは ${sourceLabel(binds.source)}・${tuningLabel(tuning)}`,
         rows: [
             ...PLACE_ACTIONS.map(a => ({ keys: bindLabel(binds, a), desc: ACTION_NAMES[a] })),
-            { keys: 'Alt+↑（未割当なら ↑ も可）', desc: '1段上（自由配置）' },
+            { keys: 'Alt+↑（未割当なら ↑ も可）', desc: '1段上（自由配置。ぷよは半段）' },
             { keys: 'Alt+↓', desc: '一番下まで落とす（確定しない）' },
-            { keys: 'Enter', desc: '今の位置で確定（浮いていても置く）' },
+            { keys: 'Enter', desc: '今の位置で確定（浮いていても置く。ぷよは着地まで落として置く）' },
             { keys: 'Backspace', desc: '最後の手を取り消す（SOLVE）' },
             { keys: '[ ・ ] ・ Home ・ End', desc: '前の手 ・ 次の手 ・ 初期盤面 ・ 最後の手' },
+            { keys: ', ・ .', desc: '（PUYO）連鎖の途中の盤面を前 ・ 次へ（置いた直後 → n 連鎖目が消えた後 …。消えるぷよを強調）' },
             { keys: 'I O T J L S Z', desc: '置くミノを選ぶ（STAMP）' },
-            { keys: 'マウス: 移動 ・ ホイール ・ 左クリック ・ 右クリック', desc: '位置 ・ 回転 ・ 確定 ・ 右回転（T-Spin は推定扱い）' },
+            { keys: 'マウス: 移動 ・ ホイール ・ 左クリック ・ 右クリック', desc: '位置 ・ 回転 ・ 確定 ・ 右回転（T-Spin は推定扱い。STRICT では使えない）' },
         ],
     };
     const secs = [...KEY_HELP, placeSec];
@@ -1855,7 +1880,8 @@ $('solve-box').addEventListener('click', e => {
     const t = e.target as HTMLElement;
     const nav = t.closest<HTMLButtonElement>('[data-nav]')?.dataset.nav;
     const n = doc.steps.length;
-    if (nav) place.goto(nav === 'first' ? 0 : nav === 'prev' ? place.view - 1 : nav === 'next' ? place.view + 1 : n);
+    if (nav === 'fprev' || nav === 'fnext') place.stepFrame(nav === 'fprev' ? -1 : 1);
+    else if (nav) place.goto(nav === 'first' ? 0 : nav === 'prev' ? place.view - 1 : nav === 'next' ? place.view + 1 : n);
     const li = t.closest<HTMLElement>('#step-list li');
     if (li) place.goto(Number(li.dataset.view));
     if (nav || li) focusField();
@@ -1881,8 +1907,8 @@ $<HTMLInputElement>('sol-note').addEventListener('input', e => {
 
 async function saveSolutionFile(forcePick: boolean) {
     if (!doc.id.trim()) { warnStatus('ID を入力してから保存してください'); return; }
-    if (doc.rule !== 'tet') return;
-    const oldId = sourceId && sourceId !== doc.id && solutions[sourceId] ? sourceId : null;
+    const rule = doc.rule;
+    const oldId = sourceId && sourceId !== doc.id && solutions[rule][sourceId] ? sourceId : null;
     // 保存するのはクリアした時点の手順。試行中（クリアしていない手）を保存するのは明示した時だけ（D6）
     let steps = solvedSteps(doc);
     if (stepsOnTrial()) {
@@ -1894,8 +1920,8 @@ async function saveSolutionFile(forcePick: boolean) {
         } else if (c !== 'solved') return;
     }
     if (sync.enabled) {
-        const skipped = await sync.setSolution(doc.id, oldId, { steps, note: doc.solutionNote, updated: today() });
-        solutions = sync.solutions();
+        const skipped = await sync.setSolution(rule, doc.id, oldId, { steps, note: doc.solutionNote, updated: today() });
+        solutions[rule] = sync.solutions(rule);
         warnStatus(skipped.includes(doc.id) ? '他の端末で、より新しい解答が保存されていたため保存しませんでした'
             : sync.state === 'synced' ? `Gist に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
             : `端末内に保存しました。${sync.message || '通信できたら Gist に送ります'}`);
@@ -1904,13 +1930,13 @@ async function saveSolutionFile(forcePick: boolean) {
         return;
     }
     try {
-        const res = await saveSolution(doc.id, oldId,
-            { steps, note: doc.solutionNote, updated: today() }, solutions, forcePick);
-        solutions = res.map;
-        solutionsLoaded = true;
+        const res = await saveSolution(rule, doc.id, oldId,
+            { steps, note: doc.solutionNote, updated: today() }, solutions[rule], forcePick);
+        solutions[rule] = res.map;
+        solutionsLoaded[rule] = true;
         setStatus(res.via === 'file'
             ? `${res.fileName} に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
-            : `ダウンロードしました。${SOLUTION_PATH} に置き換えてください`);
+            : `ダウンロードしました。${solutionPath(rule)} に置き換えてください`);
     } catch (err) {
         if ((err as Error).name === 'AbortError') return;   // ファイル選択をキャンセル
         console.error(err);
@@ -1922,7 +1948,7 @@ async function saveSolutionFile(forcePick: boolean) {
 $('btn-sol-save').addEventListener('click', () => void saveSolutionFile(false));
 $('btn-sol-pick').addEventListener('click', () => {
     if (!sync.enabled) { void saveSolutionFile(true); return; }
-    void exportSolutionsFile(sync.solutions()).then(
+    void exportSolutionsFile(doc.rule, sync.solutions(doc.rule)).then(
         r => setStatus(r.via === 'file' ? `${r.fileName} に書き出しました` : 'ダウンロードしました'),
         err => { if ((err as Error).name !== 'AbortError') errStatus(`書き出せませんでした: ${(err as Error).message}`); });
 });
@@ -2059,11 +2085,13 @@ async function reloadFiles() {
     try {
         const changed: string[] = (await loadLevels(true)).map(r => r === 'tet' ? 'tdata.json' : 'pdata.json');
         if (!sync.enabled) {
-            const m = await fetchSolutions();
-            if (m && JSON.stringify(m) !== JSON.stringify(solutions)) {
-                solutions = m;
-                solutionsLoaded = true;
-                changed.push('tsolutions.json');
+            for (const r of RULES) {
+                const m = await fetchSolutions(r);
+                if (m && JSON.stringify(m) !== JSON.stringify(solutions[r])) {
+                    solutions[r] = m;
+                    solutionsLoaded[r] = true;
+                    changed.push(SOLUTION_FILES[r]);
+                }
             }
         }
         if (!changed.length) return;
@@ -2490,7 +2518,7 @@ function applyWriteCaps() {
     $<HTMLButtonElement>('btn-write-pick').hidden = !canPickFiles();
 }
 applyWriteCaps();
-void probeDevFiles().then(ok => { if (ok) { applyWriteCaps(); renderAll(); } });
+const devProbe = probeDevFiles().then(ok => { if (ok) { applyWriteCaps(); renderAll(); } });
 // テストプレイは本体がタッチ非対応
 $('btn-test').hidden = coarsePointer();
 
@@ -2531,12 +2559,12 @@ if (fromQr) {
 }
 onSyncState();
 announceIncoming();   // 前回取得した Gist の内容（キャッシュ）で分かる分
-void fetchSolutions().then(m => {
+// 解答ファイルは dev サーバーの口の有無が分かってから読む（口があれば「ファイルが無い」＝0 件と分かる）
+void devProbe.then(() => Promise.all(RULES.map(fetchSolutions))).then(maps => {
     if (sync.enabled) return;   // 同期中は Gist の解答が正本
-    solutionsLoaded = m !== null;
-    solutions = m ?? {};
+    RULES.forEach((r, i) => { solutionsLoaded[r] = maps[i] !== null; solutions[r] = maps[i] ?? {}; });
     // 下書きが空で、開いている問題に保存済みの解答があれば付ける
-    if (!doc.steps.length && solutions[doc.id]) { withSolution(doc); place.view = doc.steps.length; }
+    if (!doc.steps.length && solutions[doc.rule][doc.id]) { withSolution(doc); place.view = doc.steps.length; }
     renderAll();
     reconcile();
 });

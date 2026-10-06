@@ -87,6 +87,10 @@ export interface FieldView {
     /** PLACE モードの操作中ミノ（盤面座標のマス・type は 0始まり）。valid=false なら置けない位置 */
     piece?: { cells: [number, number][]; type: number; valid: boolean } | null;
     ghost?: [number, number][] | null;
+    /** ぷよ SOLVE の操作中のペアとゴースト（[列, 行 index（半端あり）, 色]）。段階4 */
+    puyoPair?: { cells: [number, number, number][]; ghost: [number, number, number][] } | null;
+    /** 消えるぷよ（[行 index, 列]）。ゴーストの位置に置いた時・連鎖の途中の盤面で強調する */
+    erase?: [number, number][] | null;
 }
 
 /*
@@ -203,6 +207,31 @@ export function drawField(canvas: HTMLCanvasElement, v: FieldView) {
         ctx.moveTo(dx + 6, dy + 6); ctx.lineTo(dx + s - 6, dy + s - 6);
         ctx.moveTo(dx + s - 6, dy + 6); ctx.lineTo(dx + 6, dy + s - 6);
         ctx.stroke();
+    }
+
+    // ぷよ SOLVE: 消えるぷよの強調・ゴースト・操作中のペア（隠し段を暗くした後に描く）
+    if (v.erase) {
+        ctx.fillStyle = 'rgba(255,255,255,0.32)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 2;
+        for (const [r, c] of v.erase) {
+            ctx.fillRect(c * s, top(r), s, rh(r));
+            ctx.strokeRect(c * s + 1.5, top(r) + 1.5, s - 3, rh(r) - 3);
+        }
+    }
+    if (v.puyoPair) {
+        ctx.globalAlpha = 0.35;
+        for (const [c, r, color] of v.puyoPair.ghost) {
+            if (r < 0 || r >= R) continue;
+            const h = rh(r);
+            drawImg(ctx, puyoImages[color - 1], c * s + (s - h) / 2, top(r), h);
+        }
+        ctx.globalAlpha = 1;
+        for (const [c, r, color] of v.puyoPair.cells) {
+            if (r < 0) { ctx.fillStyle = '#f58542'; ctx.fillRect(c * s + 4, 0, s - 8, 3); continue; }   // 盤面より上
+            const i = Math.floor(r), h = rh(i);
+            drawImg(ctx, puyoImages[color - 1], c * s + (s - h) / 2, top(i) + (r - i) * h, h);
+        }
     }
 
     // ホバー（行塗りモードでは行全体）

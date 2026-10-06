@@ -10,7 +10,7 @@
 //        base = 読んだ時の hash。今のファイルと違えば 409（外で変更された）
 //
 // 守り: server.host: true で LAN に公開しているため、接続元がループバックの時だけ受ける。
-//       Origin / Sec-Fetch-Site で他のサイトのページからの要求を拒む。名前は下の 3 つだけ（パスは受け取らない）。
+//       Origin / Sec-Fetch-Site で他のサイトのページからの要求を拒む。名前は下の 4 つだけ（パスは受け取らない）。
 //       configureServer はビルドには入らない（プレビュー・本番には無い）。
 // ─────────────────────────────────────────────
 import type { Plugin } from "vite";
@@ -25,6 +25,7 @@ const FILES: Record<string, { rel: string; kind: "tet" | "puyo" | "solutions" }>
   "tdata.json": { rel: "public/assets/quizlevels/tdata.json", kind: "tet" },
   "pdata.json": { rel: "public/assets/quizlevels/pdata.json", kind: "puyo" },
   "tsolutions.json": { rel: "source_assets/quizlevels/tsolutions.json", kind: "solutions" },
+  "psolutions.json": { rel: "source_assets/quizlevels/psolutions.json", kind: "solutions" },
 };
 const MAX_BODY = 5 * 1024 * 1024;
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);

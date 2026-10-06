@@ -74,6 +74,17 @@ export function replaceAt(text: string, k: number, block: string): string {
     return text.slice(0, sp[k].start) + block.trimStart() + text.slice(sp[k].end);
 }
 
+/**
+ * 要素 k の元のテキストを、insertAt / replaceAt に渡せる形（行頭のインデント付き）で返す。
+ * 中身が変わっていない問題を書く時に使う（再シリアライズで書式だけの差分を出さない。puyo-solve §7）
+ */
+export function elementBlock(text: string, k: number): string {
+    const sp = topLevelSpans(text)[k];
+    if (!sp) throw new Error(`要素 ${k} がありません`);
+    const indent = text.slice(lineStart(text, sp.start), sp.start);
+    return (/^[ \t]*$/.test(indent) ? indent : '    ') + text.slice(sp.start, sp.end);
+}
+
 export interface WritePlan {
     text: string;            // 書き込む全文
     index: number;           // 書き込んだ問題の位置（0始まり）

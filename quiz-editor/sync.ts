@@ -4,14 +4,15 @@
 //
 // Gist のファイル構成:
 //   draft-<draftId>.json … 下書き 1 件（DraftEntry）。**SAVE を押した時だけ**書く。1 問につき 1 つ
-//   tsolutions.json      … 解答手順（ローカルの source_assets/quizlevels/tsolutions.json と同じ形式）
+//   tsolutions.json      … テトの解答手順（ローカルの source_assets/quizlevels/tsolutions.json と同じ形式）
+//   psolutions.json      … ぷよの解答手順（同 psolutions.json。最初に保存した時に作られる。段階4）
 //
 // 編集の自動保存は端末内（local-drafts.ts）だけ。Gist は自動では書かない（回数制限に当たらないように）。
 // 取得は起動時・画面に戻った時・DRAFTS を開いた時・SYNC NOW の時だけ（一定間隔の取得はしない）。
 // 解答の保存と下書きの削除は、送れなかった時に備えてキュー（localStorage）に積み、次の通信で送り直す。
 // ─────────────────────────────────────────────
-import type { EditorDoc } from './model.ts';
-import { type SolutionMap, type SolutionEntry, serializeSolutions } from './solutions.ts';
+import type { EditorDoc, Rule } from './model.ts';
+import { type SolutionMap, type SolutionEntry, serializeSolutions, SOLUTION_FILES, RULES } from './solutions.ts';
 import { findOrCreateGist, getGist, patchGist, GistAuthError, GistNotFoundError, GistRateLimitError, type GistSnapshot } from './gist.ts';
 
 export interface DraftEntry {
@@ -35,7 +36,6 @@ export interface SyncEvent {
 const CONFIG_KEY = 'tetlabo.quizEditor.sync';
 const QUEUE_KEY = 'tetlabo.quizEditor.syncQueue';
 const CACHE_KEY = 'tetlabo.quizEditor.syncCache';
-export const SOLUTIONS_FILE = 'tsolutions.json';
 const DRAFT_RE = /^draft-([A-Za-z0-9_-]+)\.json$/;
 /** 画面に戻った時の取得は、前回からこれ以上たっている時だけ */
 const REFRESH_MIN_INTERVAL = 30000;
@@ -59,13 +59,16 @@ export function guessDevice(): string {
 // ─────────────────────────────────────────────
 // 純粋な処理（テストしやすいよう Engine から分けてある）
 // ─────────────────────────────────────────────
-export interface Remote { drafts: Record<string, DraftEntry>; solutions: SolutionMap; solutionsText: string; }
-export type SolOp = { op: 'set'; id: string; entry: SolutionEntry } | { op: 'del'; id: string; at: string };
+export interface Remote { drafts: Record<string, DraftEntry>; solutions: Record<Rule, SolutionMap>; solutionsText: Record<Rule, string>; }
+/** rule が無い操作は段階4より前のキュー（テト） */
+export type SolOp = ({ op: 'set'; id: string; entry: SolutionEntry } | { op: 'del'; id: string; at: string }) & { rule?: Rule };
 /** deletes: 下書き id → 消すと決めた時の Gist 側 rev（その後に他の端末で保存されていたら消さない） */
 export interface Queue { deletes: Record<string, number>; sol: SolOp[]; }
 interface LegacyQueue extends Queue { drafts?: Record<string, { entry: DraftEntry }>; }
 
 export function emptyQueue(): Queue { return { deletes: {}, sol: [] }; }
+export function emptyRemote(): Remote { return { drafts: {}, solutions: { tet: {}, puyo: {} }, solutionsText: { tet: '', puyo: '' } }; }
+function opsOf(ops: SolOp[], rule: Rule): SolOp[] { return ops.filter(o => (o.rule ?? 'tet') === rule); }
 
 export function parseRemote(files: Record<string, string>): Remote {
     const drafts: Record<string, DraftEntry> = {};
@@ -77,13 +80,17 @@ export function parseRemote(files: Record<string, string>): Remote {
             if (e && e.doc && Array.isArray(e.doc.field)) drafts[m[1]] = e;
         } catch { /* 壊れたファイルは無視（Gist 上には残る） */ }
     }
-    let solutions: SolutionMap = {};
-    const solutionsText = files[SOLUTIONS_FILE] ?? '';
-    try {
-        const v = JSON.parse(solutionsText || '{}') as unknown;
-        if (v && typeof v === 'object' && !Array.isArray(v)) solutions = v as SolutionMap;
-    } catch { /* 壊れていたら空扱い。保存時に上書きされないよう solutionsText は保持 */ }
-    return { drafts, solutions, solutionsText };
+    const out = emptyRemote();
+    out.drafts = drafts;
+    for (const rule of RULES) {
+        const text = files[SOLUTION_FILES[rule]] ?? '';
+        out.solutionsText[rule] = text;
+        try {
+            const v = JSON.parse(text || '{}') as unknown;
+            if (v && typeof v === 'object' && !Array.isArray(v)) out.solutions[rule] = v as SolutionMap;
+        } catch { /* 壊れていたら空扱い。保存時に上書きされないよう solutionsText は保持 */ }
+    }
+    return out;
 }
 
 /** 解答のキュー操作を適用する。honorNewer=true なら相手の方が新しいものは適用せず skipped に入れる */
@@ -111,10 +118,12 @@ export function planPush(remote: Remote, queue: Queue): PushPlan {
         const r = remote.drafts[id];
         if (r && r.rev === base) plan.files[draftFileName(id)] = null;   // 消すと決めた後に他の端末で保存されていたら消さない
     }
-    if (queue.sol.length) {
-        const merged = applySolOps(remote.solutions, queue.sol, true, plan.skippedSolutions);
+    for (const rule of RULES) {
+        const ops = opsOf(queue.sol, rule);
+        if (!ops.length) continue;
+        const merged = applySolOps(remote.solutions[rule], ops, true, plan.skippedSolutions);
         const text = serializeSolutions(merged);
-        if (text !== remote.solutionsText) plan.files[SOLUTIONS_FILE] = text;
+        if (text !== remote.solutionsText[rule]) plan.files[SOLUTION_FILES[rule]] = text;
     }
     return plan;
 }
@@ -139,7 +148,7 @@ export class SyncEngine {
     /** レート制限で止めている間の再開時刻（ms）。0 = 制限なし */
     limitedUntil = 0;
 
-    private remote: Remote = { drafts: {}, solutions: {}, solutionsText: '' };
+    private remote: Remote = emptyRemote();
     private etag: string | null = null;
     private queue: Queue = emptyQueue();
     /** 旧版（自動送信）のキューに残っていた未送信の下書き。main.ts が端末内の下書きへ移す */
@@ -179,7 +188,7 @@ export class SyncEngine {
         return out;
     }
     draft(id: string): DraftEntry | undefined { return this.drafts()[id]; }
-    solutions(): SolutionMap { return applySolOps(this.remote.solutions, this.queue.sol, false); }
+    solutions(rule: Rule): SolutionMap { return applySolOps(this.remote.solutions[rule], opsOf(this.queue.sol, rule), false); }
     pendingCount(): number { return Object.keys(this.queue.deletes).length + this.queue.sol.length; }
 
     // ─── 変更 ───
@@ -227,24 +236,24 @@ export class SyncEngine {
     }
 
     /** 1問ぶんの解答を保存してすぐ送る。oldId は問題 id を変えた時の旧キー（消す）。steps が空ならキーごと削除 */
-    async setSolution(id: string, oldId: string | null, entry: SolutionEntry): Promise<string[]> {
+    async setSolution(rule: Rule, id: string, oldId: string | null, entry: SolutionEntry): Promise<string[]> {
         const at = new Date().toISOString();
-        if (oldId && oldId !== id) this.queue.sol.push({ op: 'del', id: oldId, at });
-        if (entry.steps.length) this.queue.sol.push({ op: 'set', id, entry: { ...entry, updatedAt: at } });
-        else this.queue.sol.push({ op: 'del', id, at });
+        if (oldId && oldId !== id) this.queue.sol.push({ op: 'del', id: oldId, at, rule });
+        if (entry.steps.length) this.queue.sol.push({ op: 'set', id, entry: { ...entry, updatedAt: at }, rule });
+        else this.queue.sol.push({ op: 'del', id, at, rule });
         this.persistQueue();
         return (await this.push()).skippedSolutions;
     }
 
     /** ローカルの解答ファイルを取り込む（Gist に無い・Gist より新しいエントリだけ）。戻り値は取り込んだ件数 */
-    async importSolutions(map: SolutionMap): Promise<number> {
-        const cur = this.solutions();
+    async importSolutions(rule: Rule, map: SolutionMap): Promise<number> {
+        const cur = this.solutions(rule);
         let n = 0;
         for (const [id, e] of Object.entries(map)) {
             const c = cur[id];
             const newer = !c || (e.updatedAt ?? e.updated ?? '') > (c.updatedAt ?? c.updated ?? '');
             if (!newer || !e.steps?.length) continue;
-            this.queue.sol.push({ op: 'set', id, entry: { ...e, updatedAt: e.updatedAt ?? new Date().toISOString() } });
+            this.queue.sol.push({ op: 'set', id, entry: { ...e, updatedAt: e.updatedAt ?? new Date().toISOString() }, rule });
             n++;
         }
         this.persistQueue();
@@ -254,11 +263,11 @@ export class SyncEngine {
 
     // ─── 接続 ───
     async connect(token: string, device: string, gistId?: string): Promise<void> {
-        const id = gistId || await findOrCreateGist(token, { [SOLUTIONS_FILE]: '{\n}\n' });
+        const id = gistId || await findOrCreateGist(token, { [SOLUTION_FILES.tet]: '{\n}\n' });
         this.config = { token, gistId: id, device: device || guessDevice() };
         saveJson(CONFIG_KEY, this.config);
         // 別の Gist に繋ぎ直した時に前の Gist の内容を混ぜない
-        this.remote = { drafts: {}, solutions: {}, solutionsText: '' };
+        this.remote = emptyRemote();
         this.etag = null;
         this.limitedUntil = 0;
         saveJson(CACHE_KEY, null);
@@ -272,7 +281,7 @@ export class SyncEngine {
         this.config = null;
         saveJson(CONFIG_KEY, null);
         saveJson(CACHE_KEY, null);
-        this.remote = { drafts: {}, solutions: {}, solutionsText: '' };
+        this.remote = emptyRemote();
         this.etag = null;
         this.state = 'off';
         this.message = '';

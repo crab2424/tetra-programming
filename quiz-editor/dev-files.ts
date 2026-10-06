@@ -7,7 +7,7 @@
 
 import { canPickFiles } from './fsa.ts';
 
-export type DevFileName = 'tdata.json' | 'pdata.json' | 'tsolutions.json';
+export type DevFileName = 'tdata.json' | 'pdata.json' | 'tsolutions.json' | 'psolutions.json';
 const BASE = '/__quiz-editor';
 
 let available = false;

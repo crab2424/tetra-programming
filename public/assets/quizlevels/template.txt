@@ -49,7 +49,9 @@
 //   //   chain        最大連鎖が value 以上
 //   //   allClear     全消し（value —）
 //   //   score        スコアが value 以上
-//   //   ※ ぷよの count は判定処理が未接続のため現状動かない（使わないこと）
+//   //   count        下の「中身の条件」を value 回達成（連鎖があった手だけ数える）
+//   //                "countCondition": chain / allClear / score
+//   //                "countValue": 中身の条件の閾値（chain なら連鎖数。省略時 1）
 // }
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

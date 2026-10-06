@@ -9,7 +9,7 @@ import {
 } from './sync.ts';
 import { type LocalDrafts, type LocalDraft, type TrashEntry, LOCAL_DRAFT_WARN, contentHash } from './local-drafts.ts';
 import type { EditorDoc } from './model.ts';
-import { canWriteFiles, readLocalSolutions, exportSolutionsFile } from './solutions.ts';
+import { canWriteFiles, readLocalSolutions, exportSolutionsFile, RULES, SOLUTION_FILES } from './solutions.ts';
 import { toast } from './toast.ts';
 
 export interface SyncUiDeps {
@@ -158,10 +158,10 @@ export function initSyncUi(deps: SyncUiDeps) {
               <p class="note">スマホのカメラで読むと、トークン入りの URL でエディタが開き、同期の設定が済みます（トークンは URL の # 以降に入り、サーバーには送られません）。<br>読み取ったら HIDE QR で消してください。</p>
             </div>
             <h3>SOLUTIONS</h3>
-            <p class="note">解答手順は Gist の tsolutions.json が正本です。</p>
+            <p class="note">解答手順は Gist の tsolutions.json（テト）・psolutions.json（ぷよ）が正本です。</p>
             <div class="row">
-              <button type="button" id="sync-import" title="ローカルの source_assets/quizlevels/tsolutions.json を Gist に取り込む（Gist に無い・Gist より新しいものだけ）">IMPORT LOCAL FILE</button>
-              <button type="button" id="sync-export" title="Gist の解答をローカルの tsolutions.json に書き出す（バックアップ）">EXPORT TO FILE</button>
+              <button type="button" id="sync-import" title="ローカルの source_assets/quizlevels/tsolutions.json・psolutions.json を Gist に取り込む（Gist に無い・Gist より新しいものだけ）">IMPORT LOCAL FILE</button>
+              <button type="button" id="sync-export" title="Gist の解答をローカルの tsolutions.json・psolutions.json に書き出す（バックアップ）">EXPORT TO FILE</button>
             </div>
             <h3>TOKEN</h3>
             <div class="row">
@@ -226,9 +226,14 @@ export function initSyncUi(deps: SyncUiDeps) {
             case 'sync-import':
                 void (async () => {
                     try {
-                        const map = await readLocalSolutions();
-                        if (!map) { toast('ローカルの解答ファイルを読めませんでした', 'error'); return; }
-                        const n = await engine.importSolutions(map);
+                        let n = 0, read = 0;
+                        for (const rule of RULES) {
+                            const map = await readLocalSolutions(rule);
+                            if (!map) continue;
+                            read++;
+                            n += await engine.importSolutions(rule, map);
+                        }
+                        if (!read) { toast('ローカルの解答ファイルを読めませんでした', 'error'); return; }
                         deps.afterSolutionsChanged();
                         toast(n ? `${n}件の解答を Gist に取り込みました` : '取り込む解答はありませんでした（Gist の方が新しいか同じ）');
                     } catch (err) {
@@ -239,11 +244,15 @@ export function initSyncUi(deps: SyncUiDeps) {
                 break;
             case 'sync-export':
                 void (async () => {
-                    const map = engine.solutions();
-                    if (!confirm(`Gist の解答 ${Object.keys(map).length}件で、ローカルの tsolutions.json を上書きします。よろしいですか？`)) return;
+                    const counts = RULES.map(rule => `${SOLUTION_FILES[rule]} ${Object.keys(engine.solutions(rule)).length}件`).join('・');
+                    if (!confirm(`Gist の解答（${counts}）で、ローカルの解答ファイルを上書きします。よろしいですか？`)) return;
                     try {
-                        const r = await exportSolutionsFile(map);
-                        toast(r.via === 'file' ? `${r.fileName} に書き出しました` : 'ダウンロードしました');
+                        const done: string[] = [];
+                        for (const rule of RULES) {
+                            const r = await exportSolutionsFile(rule, engine.solutions(rule));
+                            done.push(r.via === 'file' ? r.fileName : `${r.fileName}（ダウンロード）`);
+                        }
+                        toast(`${done.join('・')} に書き出しました`);
                     } catch (err) {
                         if ((err as Error).name !== 'AbortError') toast(`書き出せませんでした: ${(err as Error).message}`, 'error');
                     }

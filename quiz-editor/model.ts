@@ -5,6 +5,11 @@
 // ─────────────────────────────────────────────
 
 import type { Step } from './tet-sim.ts';
+import type { PuyoStep } from './puyo-sim.ts';
+import { findErasable, isDead } from './puyo-sim.ts';
+
+/** 解答手順の1手（tet: tet-sim の Step / puyo: puyo-sim の PuyoStep） */
+export type AnyStep = Step | PuyoStep;
 
 export type Rule = 'tet' | 'puyo';
 
@@ -23,6 +28,8 @@ export const MINO_LETTERS = ['I', 'O', 'T', 'J', 'L', 'S', 'Z'] as const;
 export const TET_GARBAGE = 8;
 export const PUYO_OJAMA = 6;
 export const PUYO_COLORS = 5;
+/** ぷよの色の名前（1〜5。画像 puyo-0〜4 の色。tools §5.3） */
+export const PUYO_COLOR_NAMES = ['赤', '青', '紫', '緑', '黄'];
 
 export function cols(rule: Rule): number { return rule === 'tet' ? TET_COLS : PUYO_COLS; }
 export function rows(rule: Rule): number { return rule === 'tet' ? TET_ROWS : PUYO_ROWS; }
@@ -49,12 +56,12 @@ export interface EditorDoc {
     next: number[];           // tet: ミノtype(0始まり)
     pairs: Pair[];            // puyo
     cond: Cond;
-    steps: Step[];            // 解答手順（tet のみ）。画面に出ている手（試行中の手も含む）。問題 JSON には出力しない
+    steps: AnyStep[];         // 解答手順（rule に合った形）。画面に出ている手（試行中の手も含む）。問題 JSON には出力しない
     /**
      * 条件をクリアした時点の手順（drafts §9・D6）。保存済みとの比較・SAVE SOLUTION・内容のハッシュはこちらを使う
      * （試しに置いただけの手で未保存扱いにしないため）。古い下書きには無い → steps を使う
      */
-    solved?: Step[];
+    solved?: AnyStep[];
     solutionNote: string;     // 解答のメモ（解答ファイルの note）
     extra: Record<string, unknown>;     // 読み込んだが未知のキー（書き戻して損失を防ぐ）
     condExtra: Record<string, unknown>; // clearCondition 内の未知のキー
@@ -89,8 +96,8 @@ export const PUYO_CONDS: CondDef[] = [
     { type: 'chain',    label: '連鎖',   usesValue: true,  valueLabel: '連鎖以上', selectable: true },
     { type: 'allClear', label: '全消し', usesValue: false, selectable: true },
     { type: 'score',    label: 'スコア', usesValue: true,  valueLabel: '点以上', selectable: true },
-    { type: 'count',    label: '回数（未接続・動かない）', usesValue: true, valueLabel: '回数', selectable: false,
-      note: 'quiz.js の _checkClearOnPuyoChain がどこからも呼ばれていないため現状クリアできない' },
+    { type: 'count',    label: '回数（下の条件をN回）', usesValue: true, valueLabel: '回数', selectable: true,
+      note: '連鎖があった手だけ数える（engine.js → quiz.js _checkClearOnPuyoChain）' },
 ];
 
 // count の中身（countCondition）。usesCountValue=false でも countValue は常に出力する（既存データと同じ）
@@ -175,7 +182,7 @@ export function newDoc(rule: Rule): EditorDoc {
 }
 
 /** 比較・保存に使う手順（クリアした時点の手順。無ければ画面の手順） */
-export function solvedSteps(d: EditorDoc): Step[] { return d.solved ?? d.steps; }
+export function solvedSteps(d: EditorDoc): AnyStep[] { return d.solved ?? d.steps; }
 
 export function cloneDoc(d: EditorDoc): EditorDoc {
     return JSON.parse(JSON.stringify(d)) as EditorDoc;
@@ -396,36 +403,14 @@ export function validate(d: EditorDoc, otherIds: string[]): Issue[] {
         }
         if (floating) warn(`浮いているぷよが ${floating} 個あります（そのままの位置で配置されます）`);
         if (hidden) warn(`隠し段（上5段）にぷよが ${hidden} 個あります`);
-        const big = puyoBigGroups(d.field);
-        if (big) warn(`同色4個以上つながっているグループが ${big} 個あります`);
+        // 消える判定はゲームと同じく可視 12 段だけ（puyo-sim.findErasable）。最初の手を置いた時に一緒に消える
+        const big = findErasable(d.field).groups.length;
+        if (big) warn(`同色4個以上つながっているグループが ${big} 個あります（最初の手を置いた時に消えます）`);
+        if (isDead(d.field)) err('3列目の最上段（出現位置）が埋まっているため、開始と同時に窒息します');
     }
     return out;
 }
 
-function puyoBigGroups(field: number[][]): number {
-    const seen = field.map(r => r.map(() => false));
-    let groups = 0;
-    for (let r = 0; r < PUYO_ROWS; r++) for (let x = 0; x < PUYO_COLS; x++) {
-        const color = field[r][x];
-        if (color < 1 || color > PUYO_COLORS || seen[r][x]) continue;
-        let size = 0;
-        const stack: [number, number][] = [[r, x]];
-        seen[r][x] = true;
-        while (stack.length) {
-            const [cr, cx] = stack.pop()!;
-            size++;
-            for (const [dr, dx] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-                const nr = cr + dr, nx = cx + dx;
-                if (nr < PUYO_HIDDEN - 1 || nr >= PUYO_ROWS || nx < 0 || nx >= PUYO_COLS) continue;
-                if (seen[nr][nx] || field[nr][nx] !== color) continue;
-                seen[nr][nx] = true;
-                stack.push([nr, nx]);
-            }
-        }
-        if (size >= 4) groups++;
-    }
-    return groups;
-}
 
 // ─────────────────────────────────────────────
 // NEXT のテキスト表現（貼り付け・並べ替え用）

@@ -491,6 +491,19 @@ dialog form { display: flex; flex-direction: column; gap: 10px; }
 #step-list .e { font-family: var(--font-main); font-size: 11px; }
 #step-list i { font-style: normal; font-size: 10px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
 #step-list b.ok { color: var(--success); }
+#step-list i.bad { color: var(--danger); border-color: var(--danger); }
+#step-list .w { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+#step-list .p:has(.pp) { width: auto; }
+/* ぷよのペア（[軸, 子]）を色付きの文字で。手順パネル・NOW 行（段階4） */
+.pp { display: inline-flex; gap: 1px; vertical-align: middle; }
+.pp .pc { display: inline-block; min-width: 15px; height: 15px; line-height: 15px; border-radius: 50%; text-align: center;
+  font-family: var(--font-main); font-size: 9px; font-weight: 700; color: #111; }
+.pc1 { background: #f55a5a; } .pc2 { background: #4f8df5; } .pc3 { background: #b46af5; }
+.pc4 { background: #4fd16f; } .pc5 { background: #f5d042; } .pc6 { background: #9aa0aa; }
+.frame-nav { margin: 0 0 6px; gap: 6px; align-items: center; }
+.frame-nav .lbl { font-family: var(--font-orbitron); font-size: 9px; color: var(--text-dim); }
+.frame-nav button { padding: 3px 8px; }
+#frame-pos { font-size: 11px; color: var(--solve); }
 .sol-note { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .sol-note span { font-family: var(--font-orbitron); font-size: 10px; color: var(--text-dim); white-space: nowrap; }
 #sol-status.warn { color: var(--warn); }

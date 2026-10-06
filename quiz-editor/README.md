@@ -56,7 +56,7 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
 - キーはフォーカスの場所ではなく**今のモード**が受け取る（テキスト欄を除く）。NEXT モードではミノ文字で挿入・矢印でキャレット・Alt+↑↓ で並べ替え
 - NEXT 列を押すと NEXT モード、NEXT モードで盤面を押すと直前の PAINT / STAMP に戻ってそのまま塗る（PC。スマホは NEXT タブ）
 
-## ミノ配置と解答手順（STAMP・SOLVE・TET のみ）
+## ミノ配置と解答手順（STAMP・SOLVE）
 
 - **SOLVE**: NEXT の順にミノを置いて解答手順を記録する。1手ごとにライン消去・T-Spin・REN・パフェ・スコアを計算し、
   クリア条件を満たした手に ✓ を付ける。判定は `public/game/tet/` と `public/quiz/quiz.js` を移植したもの（`tet-sim.ts`）
@@ -67,7 +67,11 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
   ハードドロップ・回転・HOLD などは押した瞬間の1回だけ（押し続けても連発しない）
 - **STRICT**（SOLVE のチェック）: 1段上・浮いたままの確定・マウス配置を使えなくし、出現位置から移動・回転・ドロップで置いた手だけを記録する
   （記録した手順がそのままゲームで入力できる手になる）。重力・固定猶予の時間はエディタに無いので、最終確認は TEST PLAY
-- 解答は問題 JSON には含めず、`source_assets/quizlevels/tsolutions.json`（git 管理外）に SAVE SOLUTION で保存する
+- **ぷよの SOLVE**（STAMP は無い）: NEXT の順にペアを置く。移動・回転（壁蹴り・押し上げ・クイックターン）・ちぎれ・連鎖・得点・全消しは
+  `public/game/puyo/` を移植したもの（`puyo-sim.ts`）。ゴーストの位置で消えるぷよを強調し、各手は連鎖後の盤面で表示する。
+  `,` `.`（CHAIN の ‹ ›）で「置いた直後 → n 連鎖目が消えた後 …」の途中の盤面を見られる。STRICT は上への移動・マウス配置を使えなくする。
+  NEXT 列はゲームと同じ 2 ペア。ソフトドロップの加点は数えない（score 条件は下限）
+- 解答は問題 JSON には含めず、`source_assets/quizlevels/tsolutions.json`（テト）・`psolutions.json`（ぷよ）（git 管理外）に SAVE SOLUTION で保存する
   （Chrome / Edge はファイルへ直接書き込み、それ以外のブラウザはダウンロード）
 - マウスで置いた T は操作経路が無いため、T-Spin 判定は「回転入れした」と見なした推定になる。
   確実な確認はキー操作か、実機でのテストプレイで行う
@@ -92,7 +96,7 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
   WRITE FILE が成功するとその問題の Gist の下書きは自動で消える。CLEAN UP でファイルと同じ・旧 WRITTEN・元の問題が無く30日以上の物を整理。
   Gist 20件・端末30件を超えると DRAFTS のバッジに `!`
 - GitHub の回数制限（403/429）はトークン無効と区別し、`SYNC: WAIT hh:mm` で待って自動で再開する
-- 同期中は解答手順の正本は Gist の `tsolutions.json`。ローカルファイルとは SYNC 画面の IMPORT LOCAL FILE / EXPORT TO FILE
+- 同期中は解答手順の正本は Gist の `tsolutions.json`・`psolutions.json`。ローカルファイルとは SYNC 画面の IMPORT LOCAL FILE / EXPORT TO FILE
   （SOLVE の EXPORT FILE も同じ）でやり取りする。同期しなければ今まで通りローカルファイルだけで動く
 - 実装: `gist.ts`（API・回数制限の判定）・`sync.ts`（保存・取得・解答のマージ）・`local-drafts.ts`（端末内の下書き）・`sync-ui.ts`（画面）。設定は端末×オリジンごとの localStorage
 - お知らせは画面右下（スマホは下部タブの上）に重ねて出すトースト（`toast.ts`）。直近20件は LOG（PC はステータスバーの 🔔）で見られる

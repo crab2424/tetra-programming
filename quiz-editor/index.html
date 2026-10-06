@@ -247,6 +247,13 @@
             <button type="button" data-nav="next" title="次の手 (])">▶</button>
             <button type="button" data-nav="last" title="最後の手 (End)">&gt;|</button>
           </div>
+          <!-- ぷよ: 連鎖の途中の盤面（置いた直後 → n 連鎖目が消えた後 …。段階4） -->
+          <div class="row frame-nav" id="frame-nav" hidden>
+            <span class="lbl">CHAIN</span>
+            <button type="button" data-nav="fprev" title="連鎖の途中を前へ (,)">‹ ,</button>
+            <button type="button" data-nav="fnext" title="連鎖の途中を次へ (.)">. ›</button>
+            <span id="frame-pos"></span>
+          </div>
           <ol id="step-list"></ol>
           <div class="row">
             <button type="button" id="btn-truncate" title="表示中の手より後を削除">DELETE AFTER</button>
