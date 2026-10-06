@@ -2294,6 +2294,8 @@ window.addEventListener('blur', () => place.releaseAll());
 // ─────────────────────────────────────────────
 /** 最後に読んだ問題ファイルの中身（読み直した時に変わったかを見る） */
 const levelsText: Record<Rule, string> = { tet: '', puyo: '' };
+/** 1 つ前に読んだ中身（A → B → A と行き来しているのを見つける。polish2 §4.3） */
+const prevLevelsText: Record<Rule, string> = { tet: '', puyo: '' };
 /**
  * 自分の書き込みと読み直しを並べる（polish §1）。書き込み中は読み直さず、書き込みをまたいだ読み直しの結果は捨てる。
  * （書く前の中身を読んだ結果が書いた後に届くと、古い中身で問題一覧を置き換えてしまうため）
@@ -2323,7 +2325,7 @@ function changedLevelIds(before: LevelRaw[], after: LevelRaw[]): string[] {
  * 問題一覧を読む。quiet = 読み直し（失敗しても知らせない。手で貼っている途中の壊れた JSON 等）。
  * 戻り値は中身が変わったファイルと、変わった問題の ID。null = 自分の書き込みと重なったので捨てた
  */
-async function loadLevels(quiet = false): Promise<{ file: string; ids: string[] }[] | null> {
+async function loadLevels(quiet = false): Promise<{ file: string; ids: string[]; flip: boolean }[] | null> {
     const gen = fileGen;
     const read: [Rule, string, string][] = [];
     for (const [rule, file] of [['tet', 'tdata.json'], ['puyo', 'pdata.json']] as [Rule, 'tdata.json' | 'pdata.json'][]) {
@@ -2336,7 +2338,7 @@ async function loadLevels(quiet = false): Promise<{ file: string; ids: string[] 
         }
     }
     if (gen !== fileGen || fileWrites) return null;
-    const changed: { file: string; ids: string[] }[] = [];
+    const changed: { file: string; ids: string[]; flip: boolean }[] = [];
     for (const [rule, file, text] of read) {
         if (text === levelsText[rule]) continue;
         let arr: unknown;
@@ -2349,8 +2351,10 @@ async function loadLevels(quiet = false): Promise<{ file: string; ids: string[] 
             continue;
         }
         const next = Array.isArray(arr) ? arr as LevelRaw[] : [];
-        changed.push({ file, ids: changedLevelIds(levels[rule], next) });
+        changed.push({ file, ids: changedLevelIds(levels[rule], next), flip: text === prevLevelsText[rule] });
+        console.info(`[quiz-editor] ${file} が変わりました（${devFilesAvailable() ? 'dev の口' : '静的ファイル'}・${location.host}）`, levelsText[rule].length, '→', text.length);
         levels[rule] = next;
+        prevLevelsText[rule] = levelsText[rule];
         levelsText[rule] = text;
     }
     return changed;
@@ -2387,7 +2391,10 @@ async function reloadFiles() {
         }
         if (!changed.length) return;
         afterFilesChanged();
-        setStatus(`ファイルが外で変更されていたので読み直しました: ${changed.join('・')}。開いている問題の内容は変えていません`);
+        const flip = levelChanges.filter(c => c.flip).map(c => c.file);
+        const src = devFilesAvailable() ? '作業ツリー' : 'デプロイ時点のファイル';
+        if (flip.length) warnStatus(`${flip.join('・')} が 2 つの内容を行き来しています（比べた相手: ${src}）。別のファイル（CHOOSE FILE で選んだ物）に書いているか、他のプログラム（エディタの自動保存等）がファイルを書き戻している可能性があります`);
+        else setStatus(`ファイルが外で変更されていたので読み直しました（${src}）: ${changed.join('・')}。開いている問題の内容は変えていません`);
     } finally {
         reloading = false;
     }
@@ -2807,8 +2814,15 @@ function applyWriteCaps() {
         const el = $(id);
         (el.closest('label') ?? el).hidden = !canWriteFiles();
     }
-    // CHOOSE FILE（ファイルを選び直す）は File System Access の時だけ意味がある
-    $<HTMLButtonElement>('btn-write-pick').hidden = !canPickFiles();
+    // CHOOSE FILE（ファイルを選び直す）は File System Access の時だけ意味がある。dev サーバーの口がある時は
+    // 画面が読んでいるファイルへ書くので選び直す理由が無い（別のファイルを選ぶと、読み直しが毎回「変更」と出る。polish2 §4）
+    $<HTMLButtonElement>('btn-write-pick').hidden = !canPickFiles() || devFilesAvailable();
+    // 画面が読んでいるファイルと、書き込む先（読み直しの比べ元がどれかを見えるようにする）
+    const fs = $('file-src');
+    fs.hidden = !canWriteFiles();
+    fs.textContent = devFilesAvailable() ? 'FILE: 作業ツリー（dev サーバー）' : 'FILE: 一覧はビルド時点・書込先は選んだファイル';
+    fs.title = devFilesAvailable() ? '問題一覧の読み込みも書き込みも、dev サーバーが配信している public/assets/quizlevels/ のファイルです'
+        : 'この画面の問題一覧はデプロイした時点のファイルです。WRITE FILE は選んだ別のファイルに書くので、画面の一覧は変わりません';
 }
 applyWriteCaps();
 const devProbe = probeDevFiles().then(ok => { if (ok) { applyWriteCaps(); renderAll(); } });
