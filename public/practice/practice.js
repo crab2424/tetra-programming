@@ -414,6 +414,8 @@ class PracticeManager {
         this.ojama.holes.length = 0;
         this._seqVanilla = null;
         this._seqVanillaColorCount = null;
+        // SEQUENCE有効ならリスタートのたびに列の先頭から読み直す（途中位置を引き継がない）
+        if (this.sequenceEnabled && this.seqConfig) this.seqRunner = PracticeSequence.createRunner(this.seqConfig);
         if (!this.tsumoLog.length) return;
         this.tsumoSeg = ++this._tsumoSegCount;
         this.tsumoPos = this.tsumoLog.length;
@@ -1527,9 +1529,11 @@ class PracticeManager {
                 }
             }
             if (removed > 0) {
-                // 投下時に持ち上げた操作中ミノを、消したぶんだけ下ろす（山に埋めない範囲で）
+                // 操作中ミノは絶対位置を維持する（消したぶんだけ一緒に落とさない）。
+                // 初期出現位置より上に押し上げられている場合のみ、出現位置まで戻す。
                 if (g.mino) {
-                    for (let i = 0; i < removed; i++) {
+                    const spawnY = (g.mino.type === 0) ? -1 : -2;
+                    while (g.mino.y < spawnY) {
                         g.mino.y += 1;
                         if (!g.valid(0, 0)) { g.mino.y -= 1; break; }
                     }

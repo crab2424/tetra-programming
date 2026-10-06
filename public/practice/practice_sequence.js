@@ -375,6 +375,19 @@ const PracticeSequence = (() => {
             return true;
         }
         if (e.key === '0') { window.SeManager?.play('menu_decide'); _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, null); editor.flatIndex = (editor.flatIndex + 1) % count; return true; }
+        // 文字キー直接入力（tet: I O T J L S Z / puyo: R B P G Y）。ゲーム内はキーコンフィグが
+        // 届かないため、ラベルの頭文字そのものでも入れられるようにする
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const label = e.key.toUpperCase();
+            const labels = (editor.rule === 'tet') ? TET_TYPES : PUYO_COLOR_LABELS;
+            const found = Object.keys(labels).find(k => labels[k] === label);
+            if (found !== undefined) {
+                window.SeManager?.play('menu_decide');
+                _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, parseInt(found, 10));
+                editor.flatIndex = (editor.flatIndex + 1) % count;
+                return true;
+            }
+        }
         if (e.key >= '1' && e.key <= '9') {
             const n = parseInt(e.key, 10);
             const value = (editor.rule === 'tet') ? (n - 1) : n; // tet: 1-7→0-6 / puyo: 1-5→1-5
