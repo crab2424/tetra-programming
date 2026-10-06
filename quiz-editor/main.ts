@@ -144,6 +144,7 @@ function openDoc(d: EditorDoc, src: string | null, did: string | null = null) {
     ui.nextCaret = nextLen();
     place.view = doc.steps.length;   // 続きから記録できるよう最後の手を表示
     afterDocReplaced();
+    reconcile();   // 開いていた問題の下書きも片付けの対象になる
 }
 
 // ─── 自動保存（端末内の下書き。問題ごとに 1 つ。Gist へは SAVE を押した時だけ。save-notify §3） ───
@@ -243,7 +244,7 @@ function coarsePointer(): boolean { return matchMedia('(pointer: coarse)').match
 
 // ─── PC とスマホの同期（Gist。§14.3） ───
 const sync = new SyncEngine(ev => onSyncEvent(ev), () => onSyncState());
-let syncUi: { refresh(): void } | null = null;
+let syncUi: { refresh(): void; showDrafts(): void } | null = null;
 
 /** Gist の下書きを開く（DRAFTS・届いたお知らせ・LEVELS から）。この端末の未保存の編集を置き換える時は確認する */
 function openDraft(id: string) {
@@ -256,7 +257,7 @@ function openDraft(id: string) {
     if (unsaved && !confirm(`この端末で編集中の「${local.doc.id || '(ID なし)'}」を、${d.device} の下書きで置き換えます（UNDO で戻せます）。よろしいですか？`)) return;
     openDoc(cloneDoc(d.doc), d.sourceId, id);
     persistLocalNow();
-    localDrafts.setSent(curDraftKey(), { rev: d.rev, hash: h });
+    localDrafts.setSent(curDraftKey(), { rev: d.rev, hash: h, gistId: sync.config?.gistId });
     renderAll();
     focusField();
 }
@@ -271,14 +272,78 @@ function openLocal(key: string) {
 function discardLocal(key: string) {
     const l = localDrafts.get(key);
     if (!l) return;
-    if (!confirm(`この端末の下書き「${l.doc.id || '(ID なし)'} ${l.doc.description}」を捨てます${l.sourceId ? '（ファイルの内容に戻ります）' : ''}。Gist に保存した物は消えません。UNDO で戻せるのは開いている問題だけです。よろしいですか？`)) return;
+    if (!confirm(`このブラウザの下書き「${l.doc.id || '(ID なし)'} ${l.doc.description}」を捨てます${l.sourceId ? '（ファイルの内容に戻ります）' : ''}。Gist に保存した物は消えません。DRAFTS の「最近消した」から 7 日間は戻せます。よろしいですか？`)) return;
     if (key === curDraftKey()) {
         const raw = levelById(l.doc.rule, l.sourceId);
         openDoc(raw ? withSolution(docFromLevel(raw)) : newDoc(l.doc.rule), raw ? l.sourceId : null);
     }
-    if (localDrafts.get(key)?.draftId === l.draftId) localDrafts.remove(key);
+    if (localDrafts.get(key)?.draftId === l.draftId) localDrafts.trash(key, 'discard');
     renderAll();
     syncUi?.refresh();
+}
+
+// ─── 片付け（drafts §5.2。下書きを消す判定はここに集める） ───
+/** ファイルの内容が「本物」か（dev サーバー＝作業ツリーのファイル。プレビュー URL はデプロイ時点の物なので Gist の下書きの片付けには使わない） */
+const FILE_IS_LOCAL = import.meta.env.DEV;
+function filesReady(rule: Rule): boolean { return levelsLoaded && (rule !== 'tet' || solutionsLoaded); }
+/** Gist の下書きをファイルと比べる時の問題 id（書き込んだ後は doc.id でファイルに入っている） */
+function judgeSrc(d: { doc: EditorDoc; sourceId: string | null }): string | null {
+    return d.doc.id && levelById(d.doc.rule, d.doc.id) ? d.doc.id : d.sourceId;
+}
+function draftName(d: EditorDoc): string { return d.id || '(ID なし)'; }
+let reconciling = false;
+/**
+ * R1: このブラウザの下書きがファイル＋保存済みの手順と同じ → 消す
+ * R2: SAVE した Gist の下書きが消えていて、その後このブラウザで変更していない → 書き込み済みとみなしてごみ箱へ（変更していれば印だけ外して残す）
+ * R3: Gist の下書きがファイル＋保存済みの手順と同じ → Gist から消す（dev サーバーで開いている時。focus は書き込んだ問題＝どこでも判定してよい物）
+ * 開いている問題の下書きは開いている間は消さない（R1 は自動保存の判定 persistLocalNow が受け持つ）
+ */
+function reconcile(focus?: { rule: Rule; ids: (string | null)[] }) {
+    if (reconciling) return;
+    reconciling = true;
+    try {
+        const cur = curDraftKey();
+        let changed = false;
+        for (const [key, l] of localDrafts.all()) {
+            if (key === cur || l.sourceId === null || !filesReady(l.doc.rule) || !levelById(l.doc.rule, l.sourceId)) continue;
+            if (editStateOf(l.doc, l.sourceId).kind === 'file') { localDrafts.remove(key); changed = true; }
+        }
+        if (sync.enabled && sync.fresh) {
+            const gistId = sync.config!.gistId;
+            const written: string[] = [];
+            for (const [key, l] of localDrafts.all()) {
+                const sent = l.sent;
+                if (key === cur || !sent || sent.gistId !== gistId || sync.draft(l.draftId)) continue;
+                if (contentHash(l.doc, l.sourceId) === sent.hash) {
+                    localDrafts.trash(key, 'written');
+                    written.push(draftName(l.doc));
+                } else {
+                    localDrafts.setSent(key, undefined);
+                    warnStatus(`「${draftName(l.doc)}」の Gist の下書きは他の端末で書き込まれた（または消された）ため無くなりました。このブラウザで保存後に変えた内容は残しています`);
+                }
+                changed = true;
+            }
+            if (written.length) {
+                toast(`${written.join('・')} は書き込まれたため、このブラウザの下書きを片付けました`, 'info', {
+                    actions: [{ label: 'DRAFTS', title: '「最近消した」から戻せます', run: () => syncUi?.showDrafts() }],
+                });
+            }
+            const done = Object.entries(sync.drafts()).filter(([, d]) => {
+                if (!filesReady(d.doc.rule)) return false;
+                const inFocus = !!focus && focus.rule === d.doc.rule && (focus.ids.includes(d.sourceId) || focus.ids.includes(d.doc.id));
+                if (!FILE_IS_LOCAL && !inFocus) return false;
+                const src = judgeSrc(d);
+                return src !== null && !!levelById(d.doc.rule, src) && editStateOf(d.doc, src).kind === 'file';
+            }).map(([id]) => id);
+            if (done.length) {
+                setStatus(`書き込み済みの Gist の下書き ${done.length}件を片付けました`);
+                void sync.deleteDrafts(done).then(() => renderAll());
+            }
+        }
+        if (changed) syncUi?.refresh();
+    } finally {
+        reconciling = false;
+    }
 }
 
 // ─── Gist の下書きとの関係（SAVED / SAVED* / 届いた。save-notify §5） ───
@@ -366,6 +431,7 @@ async function saveToGist(key: string) {
 }
 /** 保存した下書きの id と rev を端末内の下書きに記録する（保存先が別の id になったら付け替える） */
 function adoptSaved(key: string, l: LocalDraft, target: string, sent: SentMark) {
+    sent = { ...sent, gistId: sync.config?.gistId };
     if (target === l.draftId) { localDrafts.setSent(key, sent); return; }
     const nkey = draftKey(l.doc.rule, l.sourceId, target);
     const cur = localDrafts.get(key) ?? l;   // 保存の待ち時間に編集が続いていたらその内容を残す
@@ -404,6 +470,7 @@ function choose(msg: string, opts: [string, string][]): Promise<string> {
 
 function onSyncState() {
     if (sync.enabled) { solutions = sync.solutions(); solutionsLoaded = true; }
+    reconcile();
     syncUi?.refresh();
     if (ui.mode === 'place') renderPlace();
     renderTopbar();       // LEVELS の ●・◆・↓
@@ -651,17 +718,16 @@ const MARK_TITLE: Record<LevelMarkKind, string> = {
 };
 function levelMarks(rule: Rule, id: string): { edit: LevelMarkKind | null; incoming: boolean } {
     const key = draftKey(rule, id, '');
-    let local = localDrafts.get(key);
+    const local = localDrafts.get(key);
     let edit: LevelMarkKind | null = null;
     if (key === curDraftKey() && levelsLoaded) {
         // 開いている問題は自動保存（0.3 秒後）を待たずに今の内容で
         const kind = editStateOf(doc, sourceId).kind;
         edit = kind === 'solution' ? 'solution' : kind === 'edited' ? 'edited' : null;
     } else if (local && levelsLoaded) {
+        // ファイルと同じになった下書きは reconcile() が片付ける（描画中には消さない）
         const kind = editStateOf(local.doc, local.sourceId).kind;
-        // 開いていない問題の下書きが、別の経路でファイルと同じになっていたら消す（保存済みの手順を読めていない間は判断しない）
-        if (kind === 'file' && key !== curDraftKey() && (solutionsLoaded || rule !== 'tet')) { localDrafts.remove(key); local = undefined; }
-        else edit = kind === 'solution' ? 'solution' : kind === 'file' ? null : 'edited';
+        edit = kind === 'solution' ? 'solution' : kind === 'file' ? null : 'edited';
     } else if (local) edit = 'edited';
     const r = remoteFor(rule, id, local?.draftId ?? '');
     let incoming = false;
@@ -1649,16 +1715,11 @@ async function writeLevelsFile(forcePick: boolean) {
         const oldKey = curDraftKey();
         const oldSrc = sourceId;
         sourceId = doc.id;
-        // 書き込んだので受け渡しは終わり: この問題の Gist の下書き（同じ id か、書いた内容と同じ物）を消す。Gist の履歴には残る
-        if (sync.enabled) {
-            const written = buildLevel(doc);
-            const ids = Object.entries(sync.drafts())
-                .filter(([id, d]) => id === draftId || (d.doc.rule === doc.rule && (d.sourceId === oldSrc || d.sourceId === doc.id) && levelChanges(buildLevel(d.doc), written).length === 0))
-                .map(([id]) => id);
-            if (ids.length) void sync.deleteDrafts(ids).then(() => renderAll());
-        }
         if (oldKey !== curDraftKey()) localDrafts.remove(oldKey);
         persistLocalNow();   // ファイルと同じになったので端末内の下書きも消える（手順だけ違えば残る）
+        // 書き込んだので受け渡しは終わり: この問題の Gist の下書きのうち、問題も手順もファイル＋保存済みと同じ物を消す（R3・R4。
+        // 手順が未保存なら SAVE SOLUTION の後で消える）。Gist の履歴には残る
+        reconcile({ rule: doc.rule, ids: [oldSrc, doc.id] });
         const msg = `${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`;
         // 手順は別のファイル（tsolutions.json）。未保存なら知らせて、その場で保存できるようにする（tools §1.3）
         if (editStateOf(doc, sourceId).kind === 'solution') {
@@ -1836,6 +1897,7 @@ async function saveSolutionFile(forcePick: boolean) {
             : sync.state === 'synced' ? `Gist に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
             : `端末内に保存しました。${sync.message || '通信できたら Gist に送ります'}`);
         renderAll();
+        reconcile({ rule: doc.rule, ids: [sourceId, doc.id] });
         return;
     }
     try {
@@ -1852,6 +1914,7 @@ async function saveSolutionFile(forcePick: boolean) {
         errStatus(`保存できませんでした: ${(err as Error).message}`);
     }
     renderAll();
+    reconcile({ rule: doc.rule, ids: [sourceId, doc.id] });
 }
 $('btn-sol-save').addEventListener('click', () => void saveSolutionFile(false));
 $('btn-sol-pick').addEventListener('click', () => {
@@ -2008,6 +2071,7 @@ async function reloadFiles() {
 }
 /** 問題一覧・保存済みの解答が変わった後（読み直し・書き込み） */
 function afterFilesChanged() {
+    reconcile();
     renderAll();
     syncUi?.refresh();
 }
@@ -2319,6 +2383,7 @@ void loadLevels().then(() => {
         if (st.kind === 'edited' || st.kind === 'solution') showNotice(`前回の編集を開きました（${name}・変更: ${st.changes.join('・')}）`, true);
         else if (st.kind === 'new') showNotice(`前回の編集を開きました（${name}・新しい問題）`, false);
     }
+    reconcile();
 });
 $('btn-revert').addEventListener('click', revertToFile);
 
@@ -2463,6 +2528,7 @@ void fetchSolutions().then(m => {
     // 下書きが空で、開いている問題に保存済みの解答があれば付ける
     if (!doc.steps.length && solutions[doc.id]) { withSolution(doc); place.view = doc.steps.length; }
     renderAll();
+    reconcile();
 });
 focusField();
 

@@ -5,8 +5,13 @@
 // ─────────────────────────────────────────────
 import type { EditorDoc, Rule } from './model.ts';
 
-/** 最後に Gist へ保存した（または Gist から開いた）時の rev と内容 */
-export interface SentMark { rev: number; hash: string; }
+/** 最後に Gist へ保存した（または Gist から開いた）時の rev と内容。gistId は別の Gist に繋ぎ直した時に取り違えないため（古い印には無い） */
+export interface SentMark { rev: number; hash: string; gistId?: string; }
+
+/** ごみ箱（自動で片付けた・DISCARD した下書き。drafts §5.3） */
+export interface TrashEntry { key: string; draft: LocalDraft; deletedAt: string; reason: 'written' | 'discard'; }
+const TRASH_MAX = 30;
+const TRASH_DAYS = 7;
 
 export interface LocalDraft {
     doc: EditorDoc;
@@ -21,7 +26,8 @@ export interface CurrentRef { key: string; rule: Rule; sourceId: string | null; 
 
 const DRAFTS_KEY = 'tetlabo.quizEditor.localDrafts';
 const CURRENT_KEY = 'tetlabo.quizEditor.current';
-const LEGACY_KEY = 'tetlabo.quizEditor.draft';   // 旧: 開いている 1 問だけ
+const LEGACY_KEY = 'tetlabo.quizEditor.draft';
+const TRASH_KEY = 'tetlabo.quizEditor.trash';   // 旧: 開いている 1 問だけ
 /** これを超えたら DRAFTS で整理を促す（自動では消さない） */
 export const LOCAL_DRAFT_WARN = 30;
 
@@ -96,6 +102,36 @@ export class LocalDrafts {
             if (!d) return;
             if (sent) d.sent = sent; else delete d.sent;
         });
+    }
+
+    // ─── ごみ箱（7 日・30 件まで。古い物から捨てる） ───
+    trashList(): TrashEntry[] {
+        const t = read<TrashEntry[]>(TRASH_KEY);
+        const old = Date.now() - TRASH_DAYS * 86400_000;
+        return Array.isArray(t) ? t.filter(e => e && e.draft && Date.parse(e.deletedAt) > old) : [];
+    }
+    /** 下書きを消してごみ箱へ入れる */
+    trash(key: string, reason: TrashEntry['reason']) {
+        const d = this.map[key];
+        if (!d) return;
+        const list = [{ key, draft: d, deletedAt: new Date().toISOString(), reason }, ...this.trashList()].slice(0, TRASH_MAX);
+        try { localStorage.setItem(TRASH_KEY, JSON.stringify(list)); } catch (err) { this.onError(err); }
+        this.remove(key);
+    }
+    /** ごみ箱から戻す。同じ問題の下書きが既にあれば戻さず false */
+    restore(index: number): boolean {
+        const list = this.trashList();
+        const e = list[index];
+        if (!e || this.map[e.key]) return false;
+        list.splice(index, 1);
+        try { localStorage.setItem(TRASH_KEY, JSON.stringify(list)); } catch { /* 戻すのは続ける */ }
+        this.put(e.key, { ...e.draft, sent: undefined });
+        return true;
+    }
+    removeTrash(index: number) {
+        const list = this.trashList();
+        list.splice(index, 1);
+        try { localStorage.setItem(TRASH_KEY, JSON.stringify(list)); } catch { /* 無視 */ }
     }
 
     current(): CurrentRef | null { return read<CurrentRef>(CURRENT_KEY); }

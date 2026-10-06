@@ -350,6 +350,8 @@ export function initSyncUi(deps: SyncUiDeps) {
     });
 
     return {
+        /** DRAFTS を開く */
+        showDrafts() { $('btn-drafts').click(); },
         /** 同期の状態が変わった時に呼ぶ */
         refresh() {
             renderChip();

@@ -162,6 +162,8 @@ export class SyncEngine {
     }
 
     get enabled(): boolean { return this.config !== null; }
+    /** この画面を開いてから Gist を読めていて、今も同期できている（キャッシュだけで判断しない。drafts §5.2） */
+    get fresh(): boolean { return this.lastSyncAt !== null && this.state === 'synced'; }
 
     /** 旧版のキューに残っていた未送信の下書きを取り出す（1回だけ） */
     takeLegacyDrafts(): [string, DraftEntry][] {
