@@ -1864,7 +1864,9 @@ async function writeLevelsFileNow(forcePick: boolean) {
             await h.write(plan.text);
         }
         levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
-        levelsText[doc.rule] = plan.text;
+        // 読み直しの比べ元は「画面が読んでいるファイル」。dev の口（＝書いた先と同じ）の時だけ書いた中身にする。
+        // プレビュー等で FSA が選んだ別のファイルに書いた時は変えない（変えると、戻るたびに「ファイルが外で変更された」と出る）
+        if (devFilesAvailable() && !forcePick) levelsText[doc.rule] = plan.text;
         const oldKey = curDraftKey();
         const oldSrc = sourceId;
         sourceId = doc.id;

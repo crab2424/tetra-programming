@@ -64,15 +64,21 @@ export async function savedHandleName(key: string): Promise<string | null> {
 export async function getHandle(key: string, picker: 'open' | 'save', forcePick: boolean): Promise<FsHandle> {
     let h = forcePick ? undefined : await idb<FsHandle>('readonly', s => s.get(key) as IDBRequest<FsHandle>);
     if (h) {
-        const perm = await h.queryPermission?.({ mode: 'readwrite' });
-        if (perm !== 'granted' && (await h.requestPermission?.({ mode: 'readwrite' })) !== 'granted') h = undefined;
+        // 許可が切れていれば聞き直す。ユーザー操作が無い等で失敗したら、選び直しに回す
+        try {
+            const perm = await h.queryPermission?.({ mode: 'readwrite' });
+            if (perm !== 'granted' && (await h.requestPermission?.({ mode: 'readwrite' })) !== 'granted') h = undefined;
+        } catch {
+            h = undefined;
+        }
     }
     if (!h) {
         const w = window as unknown as { showSaveFilePicker: SavePicker; showOpenFilePicker: OpenPicker };
         if (picker === 'save') h = await w.showSaveFilePicker({ suggestedName: key, types: JSON_TYPES });
         else {
+            // 書き込みの許可は writeText の直前に取る（ファイルピッカーがユーザー操作を使い切るので、ここで requestPermission すると
+            // SecurityError: User activation is required になる）
             [h] = await w.showOpenFilePicker({ types: JSON_TYPES, multiple: false });
-            if ((await h.requestPermission?.({ mode: 'readwrite' })) === 'denied') throw new Error('書き込みが許可されませんでした');
         }
         await idb('readwrite', s => s.put(h, key));
     }
@@ -83,7 +89,20 @@ export async function readText(h: FsHandle): Promise<string> {
     return (await h.getFile()).text();
 }
 
+/** 書く直前に書き込みの許可を確かめる。確認ダイアログを押した直後（ユーザー操作が新しい）に呼ぶ */
+async function ensureWritable(h: FsHandle): Promise<void> {
+    if ((await h.queryPermission?.({ mode: 'readwrite' })) === 'granted') return;
+    let res: PermissionState | undefined;
+    try {
+        res = await h.requestPermission?.({ mode: 'readwrite' });
+    } catch (err) {
+        throw new Error(`書き込みの許可を取れませんでした（${(err as Error).message}）。もう一度 WRITE FILE を押してください`);
+    }
+    if (res !== undefined && res !== 'granted') throw new Error('書き込みが許可されませんでした');
+}
+
 export async function writeText(h: FsHandle, text: string): Promise<void> {
+    await ensureWritable(h);
     const w = await h.createWritable();
     await w.write(text);
     await w.close();
