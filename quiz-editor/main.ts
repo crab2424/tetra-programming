@@ -2550,7 +2550,7 @@ function renderLevelDetail() {
 }
 /** LEVELS を開き、開いている問題のタイルにフォーカスする（⌘P・問題のタブ）。絞り込み欄には自動でフォーカスしない */
 function showLevels() {
-    if (mobileMq.matches) { $('level-select').focus(); return; }
+    if (mobileMq.matches) { $('topbar').classList.add('menu-open'); $('btn-menu').setAttribute('aria-expanded', 'true'); $('level-select').focus(); return; }
     $('topbar').classList.remove('menu-open');
     solvePrevTab = null;
     lvState.open[doc.rule] = true;
@@ -2781,7 +2781,8 @@ $('btn-menu').addEventListener('click', () => {
     $('btn-menu').setAttribute('aria-expanded', String(open));
     if (open) renderSkips();
 });
-for (const id of ['btn-new', 'btn-paste', 'btn-drafts', 'btn-revert', 'btn-log']) $(id).addEventListener('click', closeMenu);
+for (const id of ['btn-new', 'btn-paste', 'btn-drafts', 'btn-revert', 'btn-log', 'btn-sync']) $(id).addEventListener('click', closeMenu);
+$('level-select').addEventListener('change', closeMenu);
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('topbar').classList.contains('menu-open')) closeMenu(); });
 let resizeRaf = 0;
 function onViewportResize() {

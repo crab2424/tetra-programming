@@ -595,8 +595,19 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   #topbar.menu-open .m-menu { display: revert; }
   #topbar .menu-wrap, #menu-pop, #sidebar { display: contents; }
   #topbar .level-pick { display: flex; }
-  #topbar .spacer { display: none; }
   #topbar button { padding: 6px 8px; }
+  /* 上部バーは 1 行（TET/PUYO・≡・UNDO/REDO）。他はすべて ≡ のメニュー（押すと下の行に出る。polish2 §6） */
+  #topbar { flex-wrap: wrap; }
+  #topbar > *, #topbar #menu-pop > * { order: 10; }
+  #topbar #rule-seg { order: 1; }
+  #topbar #btn-menu { order: 2; }
+  #topbar .spacer { display: block; order: 3; flex: 1; }
+  #topbar #btn-undo { order: 4; }
+  #topbar #btn-redo { order: 5; }
+  #topbar:not(.menu-open) > :is(.level-pick, #state-chip, #btn-sync, #btn-log, #btn-revert),
+  #topbar:not(.menu-open) #menu-pop > * { display: none; }
+  #topbar.menu-open .level-pick { flex: 1 1 100%; }
+  #topbar.menu-open #menu-pop > * { flex: 1 1 auto; }
 
   #layout { display: block; padding: 8px 8px 16px; }
   #layout .panel { margin-bottom: 8px; padding: 10px; }
@@ -640,8 +651,6 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   body.kbd-open #mtabs { display: none; }
   body.kbd-open { padding-bottom: 0; }
 
-  #topbar .level-pick { order: 2; flex: 1 1 160px; }
-  #topbar #btn-undo, #topbar #btn-redo { order: 3; }
   body[data-mtab="field"] #col-right > h2[data-m] { display: none; }
   /* PAINT のツールを詰める: パレット1列＋（行塗り・反転・消去・シフト）1列 */
   #palette { justify-content: space-between; flex-wrap: nowrap; gap: 3px; }
@@ -738,9 +747,7 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 #btn-revert[hidden] { display: none !important; }
 @media (max-width: 760px) {
   .state-chip .chg { display: none; }
-  /* 上段（≡・ルール・DRAFTS・SYNC）を1行に保つため、状態は LEVELS の横へ。REVERT は ≡ メニューとお知らせから */
-  #state-chip { order: 2; padding: 3px 6px; }
-  #btn-revert { order: 2; }
+  #state-chip { padding: 3px 6px; }
 }
 #strict-wrap[hidden] { display: none !important; }
 
