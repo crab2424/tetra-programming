@@ -48,6 +48,8 @@ export default defineConfig(async () => ({
   define: {
     APP_VERSION: JSON.stringify(process.env.npm_package_version),
     QUIZ_EDITOR_BRANCH: JSON.stringify(currentBranch()),
+    // プレビューの DRAFTS に「問題一覧はデプロイ時点の内容」と出すため（drafts §5.4）
+    QUIZ_EDITOR_BUILT_AT: JSON.stringify(new Date().toISOString()),
   },
   server: {
     host: true,

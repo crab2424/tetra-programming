@@ -403,6 +403,10 @@ export function initSyncUi(deps: SyncUiDeps) {
         ].filter(Boolean).join('<br>');
         $('dv-warn').innerHTML = warn;
         $('dv-warn').hidden = !warn;
+        // プレビュー URL の「ファイル」はデプロイした時点の物（PC で書き込んだ内容は push・デプロイまで見えない。drafts §5.4）
+        const stale = $('dv-stale');
+        stale.hidden = import.meta.env.DEV;
+        if (!import.meta.env.DEV) stale.textContent = `問題一覧はデプロイした時点（${new Date(QUIZ_EDITOR_BUILT_AT).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}）の内容です。PC で書き込んだ物は push 後に反映されます`;
         $<HTMLButtonElement>('dv-sync').hidden = !engine.enabled;
         $<HTMLButtonElement>('dv-cleanup').hidden = !engine.enabled;
         renderDetail();
