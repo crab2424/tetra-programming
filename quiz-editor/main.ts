@@ -213,6 +213,22 @@ function persistLocalNow() {
     });
     syncUi?.refresh();
 }
+/** 新規として作った開いている問題を、ファイルの同じ ID の問題の編集にする（内容・draftId はそのまま。polish2 §2.4） */
+async function adoptExisting(id: string) {
+    if (sourceId !== null || !levelById(doc.rule, id)) return;
+    const nk = draftKey(doc.rule, id, draftId);
+    const other = localDrafts.get(nk);
+    if (other && other.draftId !== draftId) {
+        if (!await ask(`このブラウザで編集中の ${id} の下書きはごみ箱へ移します（7 日間は戻せます）。よろしいですか？`)) return;
+        localDrafts.trash(nk, 'discard');
+    }
+    const oldKey = curDraftKey();
+    sourceId = id;
+    localDrafts.remove(oldKey);
+    persistLocalNow();
+    renderAll();
+    setStatus(`${id} の編集として扱います（ファイルの内容との差分は EDITED で確認できます）`);
+}
 /** 開いている問題の下書き（無ければ undefined） */
 function curLocal(): LocalDraft | undefined {
     const l = localDrafts.get(curDraftKey());
@@ -316,6 +332,7 @@ function judgeSrc(d: { doc: EditorDoc; sourceId: string | null }): string | null
 }
 function draftName(d: EditorDoc): string { return d.id || '(ID なし)'; }
 let reconciling = false;
+let adoptedCur = false;
 /**
  * R1: このブラウザの下書きがファイル＋保存済みの手順と同じ → 消す
  * R2: SAVE した Gist の下書きが消えていて、その後このブラウザで変更していない → 書き込み済みとみなしてごみ箱へ（変更していれば印だけ外して残す）
@@ -328,6 +345,22 @@ function reconcile(focus?: { rule: Rule; ids: (string | null)[] }) {
     try {
         const cur = curDraftKey();
         let changed = false;
+        // 新規で作った下書きが、他の端末の WRITE FILE でその問題になっていれば、以後はその問題の編集として扱う（polish2 §2.3）
+        if (sync.enabled) {
+            const w = sync.written();
+            const adopted: string[] = [];
+            for (const [key, l] of localDrafts.all()) {
+                const e = l.sourceId === null ? w[l.draftId] : undefined;
+                if (!e || e.rule !== l.doc.rule) continue;
+                const nk = draftKey(e.rule, e.id, l.draftId);
+                if (localDrafts.get(nk)) continue;   // このブラウザに同じ問題の別の下書きがある（付け替えず、そのまま）
+                localDrafts.rekey(key, nk, e.id);
+                if (key === cur) { sourceId = e.id; localDrafts.setCurrent({ key: nk, rule: doc.rule, sourceId, draftId }); adoptedCur = true; }
+                adopted.push(`${e.id}（${e.device}）`);
+                changed = true;
+            }
+            if (adopted.length) warnStatus(`新規として作った ${adopted.join('・')} は PC で書き込まれたため、以後はその問題の編集として扱います`);
+        }
         for (const [key, l] of localDrafts.all()) {
             if (key === cur || l.sourceId === null || !filesReady(l.doc.rule) || !levelById(l.doc.rule, l.sourceId)) continue;
             if (editStateOf(l.doc, l.sourceId).kind === 'file') { localDrafts.remove(key); changed = true; }
@@ -368,6 +401,7 @@ function reconcile(focus?: { rule: Rule; ids: (string | null)[] }) {
     } finally {
         reconciling = false;
     }
+    if (adoptedCur) { adoptedCur = false; renderAll(); }
 }
 
 // ─── Gist の下書きとの関係（SAVED / SAVED* / 届いた。save-notify §5） ───
@@ -1270,16 +1304,23 @@ function renderStatusbar() {
 let lastIssues: Issue[] = [];
 function renderOutput() {
     lastIssues = validate(doc, otherIds());
+    // 新規として作った物の ID がファイルの問題と同じ → エラーにせず「その問題の編集にする」か「上書きする」を選べる（polish2 §2.4）
+    const sameId = sourceId === null && doc.id && levelById(doc.rule, doc.id) ? doc.id : null;
+    if (sameId) {
+        const dupMsg = `ID「${doc.id}」は既存の問題と重複しています`;
+        for (const i of lastIssues) if (i.msg === dupMsg) { i.level = 'warn'; i.msg = `ID「${doc.id}」はファイルの問題と同じです。新しい問題として作った下書きです。WRITE FILE ではその問題を上書きします`; }
+    }
     // 保存済みの解答手順が、今の NEXT・盤面で再現できるか（NEXT を変えた後の保存し忘れに気付けるように。polish §2）
     const saved = solutions[doc.rule][doc.id];
     const bad = saved?.steps.length ? firstErrorOf(doc, saved.steps) : 0;
     if (bad) lastIssues.push({ level: 'warn', msg: `保存済みの解答手順が今の問題と合いません（${bad} 手目）。SAVE SOLUTION で保存し直してください` });
     const ul = $('issues');
     ul.innerHTML = lastIssues.length
-        ? lastIssues.map(i => `<li class="${i.level}">${i.level === 'error' ? 'ERROR' : i.level === 'warn' ? 'WARN' : 'INFO'} — ${escapeHtml(i.msg)}</li>`).join('')
+        ? lastIssues.map(i => `<li class="${i.level}">${i.level === 'error' ? 'ERROR' : i.level === 'warn' ? 'WARN' : 'INFO'} — ${escapeHtml(i.msg)}${sameId && i.msg.includes('ファイルの問題と同じです') ? ` <button type="button" class="adopt-btn">${escapeHtml(sameId)} の編集にする</button>` : ''}</li>`).join('')
         : '<li class="ok">OK — 問題は見つかりませんでした</li>';
     const hasError = lastIssues.some(i => i.level === 'error');
     const nIssue = lastIssues.filter(i => i.level !== 'info').length;
+    ul.querySelector('.adopt-btn')?.addEventListener('click', () => { if (sameId) void adoptExisting(sameId); });
     const badge = $('out-badge');
     badge.hidden = nIssue === 0;
     badge.textContent = String(nIssue);
@@ -1844,12 +1885,18 @@ async function writeLevelsFileNow(forcePick: boolean) {
         const wrongRule = arr.find(l => (l as LevelRaw)?.rule !== doc.rule);
         if (wrongRule) throw new Error(`${doc.rule.toUpperCase()} 以外の問題が含まれています（別のファイルではありませんか？）`);
         const list = arr as LevelRaw[];
-        const src = sourceId === null ? -1 : list.findIndex(l => l.id === sourceId);
-        const dup = list.findIndex((l, i) => i !== src && l.id === doc.id);
+        let src = sourceId === null ? -1 : list.findIndex(l => l.id === sourceId);
+        let dup = list.findIndex((l, i) => i !== src && l.id === doc.id);
+        // 新規として作った物の ID がファイルの問題と同じ（別の端末で作った続き・一覧が古かった等）→ 上書きするか聞く（polish2 §2.4）
+        let srcId = sourceId;
+        if (sourceId === null && dup >= 0) {
+            if (!await ask(`ID「${doc.id}」の問題はファイルの ${dup + 1}番にすでにあります。この内容で上書きしますか？\n（新しい問題として作った下書きです）`, { ok: '上書き' })) return;
+            src = dup; dup = -1; srcId = doc.id;
+        }
         if (dup >= 0) throw new Error(`ID「${doc.id}」はファイル内の ${dup + 1}番と重複しています`);
-        if (sourceId !== null && src < 0 && !await ask(`ファイル内に「${sourceId}」が見つかりません（外部で変更された可能性）。新しい問題として追加しますか？`)) return;
+        if (srcId !== null && src < 0 && !await ask(`ファイル内に「${srcId}」が見つかりません（外部で変更された可能性）。新しい問題として追加しますか？`)) return;
 
-        const dst = Number($<HTMLSelectElement>('write-pos').value);
+        const dst = srcId !== sourceId ? src : Number($<HTMLSelectElement>('write-pos').value);   // 上書き（新規として作った物）は今の位置のまま
         const changes = src >= 0 ? levelChanges(buildLevel(docFromLevel(list[src])), buildLevel(doc)) : [];
         // 中身が変わっていない問題は元のテキストのまま書く（上の空行の省略など、書式だけの差分を出さない。puyo-solve §7）
         const same = src >= 0 && !changes.length;
@@ -1857,8 +1904,8 @@ async function writeLevelsFileNow(forcePick: boolean) {
             ? planWrite(text, src, dst, elementBlock(text, src), list[src])
             : planWrite(text, src, dst, serializeLevel(doc, 1), buildLevel(doc));
         const changeLine = src >= 0 ? `\n変更: ${changes.join('・') || 'なし（元のテキストのまま）'}` : '';
-        const what = plan.action === 'replace' ? `${plan.index + 1}番「${sourceId}」を置き換え`
-            : plan.action === 'move' ? `「${sourceId}」を ${src + 1}番 → ${plan.index + 1}番へ移動して書き換え`
+        const what = plan.action === 'replace' ? `${plan.index + 1}番「${srcId}」を置き換え`
+            : plan.action === 'move' ? `「${srcId}」を ${src + 1}番 → ${plan.index + 1}番へ移動して書き換え`
             : `${plan.index + 1}番に「${doc.id}」を追加`;
         const wrote = plan.text !== text;
         if (wrote) {
@@ -1871,6 +1918,7 @@ async function writeLevelsFileNow(forcePick: boolean) {
         if (devFilesAvailable() && !forcePick) levelsText[doc.rule] = plan.text;
         const oldKey = curDraftKey();
         const oldSrc = sourceId;
+        if (sourceId === null && sync.enabled) void sync.markWritten(draftId, doc.rule, doc.id);   // 他の端末の同じ下書きを、この問題の編集にする
         sourceId = doc.id;
         if (oldKey !== curDraftKey()) localDrafts.remove(oldKey);
         persistLocalNow();   // ファイルと同じになったので端末内の下書きも消える（手順だけ違えば残る）

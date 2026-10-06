@@ -95,6 +95,17 @@ export class LocalDrafts {
         if (!(key in this.map)) return;
         this.update(m => { delete m[key]; });
     }
+    /** キーを付け替える（新規の下書きが既存の問題の編集になった時）。draftId・sent は保つ。行き先に別の下書きがあれば何もせず false */
+    rekey(oldKey: string, newKey: string, sourceId: string | null): boolean {
+        if (oldKey === newKey || !this.map[oldKey] || this.map[newKey]) return false;
+        this.update(m => {
+            const d = m[oldKey];
+            if (!d) return;
+            delete m[oldKey];
+            m[newKey] = { ...d, sourceId };
+        });
+        return true;
+    }
     setSent(key: string, sent: SentMark | undefined) {
         if (!this.map[key]) return;
         this.update(m => {

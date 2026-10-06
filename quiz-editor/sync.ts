@@ -25,6 +25,12 @@ export interface DraftEntry {
     status?: string;           // 旧形式（editing/ready/written）。読むだけで、もう書かない
 }
 
+/** 新規で作った下書き（draftId）が、PC の WRITE FILE でどの問題 ID になったか。他の端末の下書きを付け替えるための記録（polish2 §2.3） */
+export interface WrittenEntry { rule: Rule; id: string; at: string; device: string; }
+const WRITTEN_FILE = 'written.json';
+const WRITTEN_DAYS = 30;
+const WRITTEN_MAX = 200;
+
 export interface SyncConfig { token: string; gistId: string; device: string; }
 export type SyncState = 'off' | 'synced' | 'saving' | 'offline' | 'error' | 'auth' | 'limited';
 
@@ -59,15 +65,15 @@ export function guessDevice(): string {
 // ─────────────────────────────────────────────
 // 純粋な処理（テストしやすいよう Engine から分けてある）
 // ─────────────────────────────────────────────
-export interface Remote { drafts: Record<string, DraftEntry>; solutions: Record<Rule, SolutionMap>; solutionsText: Record<Rule, string>; }
+export interface Remote { drafts: Record<string, DraftEntry>; written: Record<string, WrittenEntry>; solutions: Record<Rule, SolutionMap>; solutionsText: Record<Rule, string>; }
 /** rule が無い操作は段階4より前のキュー（テト） */
 export type SolOp = ({ op: 'set'; id: string; entry: SolutionEntry } | { op: 'del'; id: string; at: string }) & { rule?: Rule };
 /** deletes: 下書き id → 消すと決めた時の Gist 側 rev（その後に他の端末で保存されていたら消さない） */
-export interface Queue { deletes: Record<string, number>; sol: SolOp[]; }
+export interface Queue { deletes: Record<string, number>; sol: SolOp[]; written?: Record<string, WrittenEntry>; }
 interface LegacyQueue extends Queue { drafts?: Record<string, { entry: DraftEntry }>; }
 
 export function emptyQueue(): Queue { return { deletes: {}, sol: [] }; }
-export function emptyRemote(): Remote { return { drafts: {}, solutions: { tet: {}, puyo: {} }, solutionsText: { tet: '', puyo: '' } }; }
+export function emptyRemote(): Remote { return { drafts: {}, written: {}, solutions: { tet: {}, puyo: {} }, solutionsText: { tet: '', puyo: '' } }; }
 function opsOf(ops: SolOp[], rule: Rule): SolOp[] { return ops.filter(o => (o.rule ?? 'tet') === rule); }
 
 export function parseRemote(files: Record<string, string>): Remote {
@@ -82,6 +88,10 @@ export function parseRemote(files: Record<string, string>): Remote {
     }
     const out = emptyRemote();
     out.drafts = drafts;
+    try {
+        const w = JSON.parse(files[WRITTEN_FILE] || '{}') as unknown;
+        if (w && typeof w === 'object' && !Array.isArray(w)) out.written = w as Record<string, WrittenEntry>;
+    } catch { /* 壊れていたら空扱い */ }
     for (const rule of RULES) {
         const text = files[SOLUTION_FILES[rule]] ?? '';
         out.solutionsText[rule] = text;
@@ -117,6 +127,13 @@ export function planPush(remote: Remote, queue: Queue): PushPlan {
     for (const [id, base] of Object.entries(queue.deletes)) {
         const r = remote.drafts[id];
         if (r && r.rev === base) plan.files[draftFileName(id)] = null;   // 消すと決めた後に他の端末で保存されていたら消さない
+    }
+    if (queue.written && Object.keys(queue.written).length) {
+        const old = Date.now() - WRITTEN_DAYS * 86400_000;
+        const merged = Object.entries({ ...remote.written, ...queue.written })
+            .filter(([, e]) => e && Date.parse(e.at) > old)
+            .sort((a, b) => b[1].at.localeCompare(a[1].at)).slice(0, WRITTEN_MAX);
+        plan.files[WRITTEN_FILE] = JSON.stringify(Object.fromEntries(merged), null, 1) + '\n';
     }
     for (const rule of RULES) {
         const ops = opsOf(queue.sol, rule);
@@ -163,7 +180,7 @@ export class SyncEngine {
         if (cache) { this.remote = parseRemote(cache.files); this.htmlUrl = cache.htmlUrl; }
         const q = loadJson<LegacyQueue>(QUEUE_KEY);
         if (q) {
-            this.queue = { deletes: q.deletes ?? {}, sol: q.sol ?? [] };
+            this.queue = { deletes: q.deletes ?? {}, sol: q.sol ?? [], written: q.written ?? {} };
             this.legacyDrafts = Object.entries(q.drafts ?? {}).map(([id, p]) => [id, p.entry] as [string, DraftEntry]).filter(([, e]) => e && e.doc);
             if (q.drafts) this.persistQueue();
         }
@@ -185,11 +202,27 @@ export class SyncEngine {
     drafts(): Record<string, DraftEntry> {
         const out: Record<string, DraftEntry> = { ...this.remote.drafts };
         for (const id of Object.keys(this.queue.deletes)) delete out[id];
+        // 新規のまま Gist に残っている下書きが、その後 PC で書き込まれていれば、その問題の編集として見せる（polish2 §2.3）
+        const w = this.written();
+        for (const [id, e] of Object.entries(out)) {
+            const t = e.sourceId === null ? w[id] : undefined;
+            if (t && t.rule === e.doc.rule) out[id] = { ...e, sourceId: t.id };
+        }
         return out;
     }
     draft(id: string): DraftEntry | undefined { return this.drafts()[id]; }
     solutions(rule: Rule): SolutionMap { return applySolOps(this.remote.solutions[rule], opsOf(this.queue.sol, rule), false); }
-    pendingCount(): number { return Object.keys(this.queue.deletes).length + this.queue.sol.length; }
+    pendingCount(): number { return Object.keys(this.queue.deletes).length + this.queue.sol.length + Object.keys(this.queue.written ?? {}).length; }
+    /** 新規の下書きが書き込まれて付いた問題 ID（Gist の記録＋送り残し） */
+    written(): Record<string, WrittenEntry> { return { ...this.remote.written, ...this.queue.written }; }
+    /** 新規の下書きを WRITE FILE した記録を残す（他の端末が、その下書きをこの問題の編集として扱えるように） */
+    async markWritten(draftId: string, rule: Rule, id: string) {
+        if (!this.config) return;
+        (this.queue.written ??= {})[draftId] = { rule, id, at: new Date().toISOString(), device: this.config.device };
+        this.persistQueue();
+        this.onState();
+        await this.push();
+    }
 
     // ─── 変更 ───
     /**
@@ -350,6 +383,7 @@ export class SyncEngine {
             const cfg = this.config;
             const delIds = Object.keys(this.queue.deletes);
             const solN = this.queue.sol.length;
+            const writtenIds = Object.keys(this.queue.written ?? {});
             const plan = planPush(this.remote, this.queue);
             if (Object.keys(plan.files).length) {
                 const snap = await patchGist(cfg.token, cfg.gistId, plan.files);
@@ -357,6 +391,7 @@ export class SyncEngine {
             }
             for (const id of delIds) delete this.queue.deletes[id];
             this.queue.sol.splice(0, solN);
+            for (const id of writtenIds) delete this.queue.written?.[id];
             this.persistQueue();
             this.ok();
             if (plan.skippedSolutions.length) this.onEvent({ remoteUpdated: [], skippedSolutions: plan.skippedSolutions });
