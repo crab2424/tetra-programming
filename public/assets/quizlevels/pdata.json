@@ -422,5 +422,27 @@
                 "value": 11,
                 "description": "11連鎖"
             }
+        },
+    {
+        "id": "puyo-21",
+        "diff": 3,
+        "description": "鯉のぼり",
+        "rule": "puyo",
+        "initialPuyoField": [
+            [1, 0, 0, 0, 0, 0],
+            [3, 2, 0, 0, 0, 0],
+            [3, 4, 0, 0, 0, 0],
+            [3, 4, 0, 1, 4, 2],
+            [4, 3, 0, 1, 4, 2],
+            [4, 6, 0, 3, 3, 3],
+            [2, 2, 0, 6, 1, 2],
+            [2, 1, 1, 1, 2, 2]
+        ],
+        "nextPuyoPairs": [[4, 1], [2, 2], [2, 3], [1, 4]],
+        "clearCondition": {
+            "type": "chain",
+            "value": 9,
+            "description": "9連鎖"
         }
+    }
 ]

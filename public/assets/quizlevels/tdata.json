@@ -35,7 +35,6 @@
         "nextPieces": [0, 0],
         "clearCondition": {
             "type": "allClear",
-            "value": 0,
             "description": "パーフェクトクリア"
         }
     },
@@ -330,19 +329,19 @@
             "description": "T-Spin doubleを2回決める"
         }
     },
-    {
+        {
         "id": "tet-1.6",
         "diff": 3,
         "description": "全回収",
         "rule": "tet",
         "allowHold": false,
         "initialField": [
-            [8,8,0,0,0,0,0,0,0,8],
-            [8,8,8,8,0,0,0,0,0,8],
-            [8,8,8,0,0,0,0,0,0,8],
+            [8,8,0,0,0,0,0,0,0,0],
+            [8,3,3,3,0,0,0,0,0,8],
+            [8,8,3,0,0,0,0,0,0,8],
             [8,8,8,8,0,8,8,8,8,8]
         ],
-        "nextPieces": [6, 5, 4, 2, 3, 2],
+        "nextPieces": [6, 5, 4, 2, 6, 2],
         "clearCondition": {
             "type": "count",
             "value": 2,
@@ -386,10 +385,10 @@
             [8,0,0,0,0,0,0,0,8,8],
             [8,8,0,0,0,0,0,8,8,8],
             [8,8,8,0,0,0,8,8,8,8],
-            [8,8,0,0,8,8,8,8,8,8],
-            [8,8,8,0,8,8,8,8,8,8]
+            [8,8,0,0,0,0,8,8,8,8],
+            [8,8,8,0,0,0,8,8,8,8]
         ],
-        "nextPieces": [0, 2, 4, 6, 3, 2],
+        "nextPieces": [1, 0, 2, 4, 6, 3, 2],
         "clearCondition": {
             "type": "count",
             "value": 2,
@@ -493,6 +492,27 @@
             "type": "ren",
             "value": 19,
             "description": "19RENパーフェクトクリア"
+        }
+    },
+    {
+        "id": "tet-23",
+        "diff": 4,
+        "description": "SZ地獄",
+        "rule": "tet",
+        "allowHold": false,
+        "initialField": [
+            [0,0,0,0,0,0,8,8,0,0],
+            [0,8,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,0,0,0],
+            [0,0,0,0,0,0,0,8,0,0]
+        ],
+        "nextPieces": [4, 1, 5, 5, 6, 2, 6, 6, 5, 2],
+        "clearCondition": {
+            "type": "count",
+            "value": 2,
+            "countCondition": "tspinDouble",
+            "countValue": 1,
+            "description": "T-Spin doubleを2回決める"
         }
     }
 ]
