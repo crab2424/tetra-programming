@@ -2120,8 +2120,15 @@ window.addEventListener('storage', e => {
 function ownedByFocused(target: Element | null, e: KeyboardEvent): boolean {
     if (!target || target === fieldCanvas || target === document.body) return false;
     const pressable = target instanceof HTMLButtonElement || (target instanceof HTMLInputElement && (target.type === 'checkbox' || target.type === 'radio'));
-    return pressable && (e.key === ' ' || e.key === 'Enter');
+    // クリックで残ったフォーカスは対象外（:focus-visible はキーボードで Tab 移動した時だけ。polish2 §5）
+    return pressable && (e.key === ' ' || e.key === 'Enter') && target.matches(':focus-visible');
 }
+// Space はボタンを keyup で押す。クリックで残ったフォーカスのボタンは押させない（keydown で今のモードが使った Space）
+document.addEventListener('keyup', e => {
+    const t = e.target as Element | null;
+    if (e.key !== ' ' || !(t instanceof HTMLButtonElement) || document.querySelector('dialog[open]')) return;
+    if (!t.matches(':focus-visible')) e.preventDefault();
+});
 /**
  * キーの行き先（tools §4）: テキスト欄 → 文字入力。それ以外は、フォーカスした部品が使うキー（Space/Enter 等）を除き
  * 「今のモード」が解釈する（盤面以外にフォーカスがあっても P・N・H 等が効く）
