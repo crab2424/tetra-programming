@@ -1356,6 +1356,10 @@ function renderOutput() {
     const send = curSendState().kind;
     save.textContent = send === 'saved' ? 'SAVED' : 'SAVE';
     save.classList.toggle('on', !!curLocal() && send !== 'saved');
+    const saveBar = $<HTMLButtonElement>('btn-save-gist-bar');
+    saveBar.hidden = !sync.enabled;
+    saveBar.textContent = save.textContent;
+    saveBar.classList.toggle('on', save.classList.contains('on'));
     const saveM = $<HTMLButtonElement>('btn-save-gist-m');
     saveM.hidden = !sync.enabled;
     saveM.textContent = save.textContent;
@@ -1969,7 +1973,28 @@ async function writeLevelsFileNow(forcePick: boolean) {
     renderAll();
 }
 $('btn-write').addEventListener('click', () => void writeLevelsFile(false));
-$('btn-write-pick').addEventListener('click', () => void writeLevelsFile(true));
+/** エラーがあって書き込めない時の CHOOSE FILE: ファイルを選んで、問題一覧として読み込むだけ（書き込まない） */
+async function pickLevelsFileReadOnly() {
+    const fileName = doc.rule === 'tet' ? 'tdata.json' : 'pdata.json';
+    try {
+        const fh = await getHandle(fileName, 'open', true);
+        const text = await readText(fh);
+        const arr = JSON.parse(text) as unknown;
+        if (!Array.isArray(arr)) throw new Error('問題の配列ではありません');
+        levels[doc.rule] = arr as LevelRaw[];
+        levelsText[doc.rule] = text;
+        renderAll();
+        setStatus(`${fh.name} を読み込みました（エラーを直すと WRITE FILE でこのファイルに書けます）`);
+    } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+        console.error(err);
+        errStatus(`読み込めませんでした: ${(err as Error).message}`);
+    }
+}
+$('btn-write-pick').addEventListener('click', () => {
+    if (lastIssues.some(i => i.level === 'error')) void pickLevelsFileReadOnly();
+    else void writeLevelsFile(true);
+});
 
 // ─── テストプレイ（quiz.js の _bootQuizEditorTest が受け取る。ファイルは変更しない） ───
 const TEST_KEY = 'tetlabo.quizEditor.test';
@@ -1985,7 +2010,7 @@ $('btn-test').addEventListener('click', () => {
     window.open('/?quizTest=1', 'tetlabo-quiz-test');
 });
 // 下書きを Gist に保存する（他の端末の DRAFTS に出る＝PC で書き込み待ち）
-for (const id of ['btn-save-gist', 'btn-save-gist-m']) $(id).addEventListener('click', () => void saveToGist(curDraftKey()));
+for (const id of ['btn-save-gist', 'btn-save-gist-m', 'btn-save-gist-bar']) $(id).addEventListener('click', () => void saveToGist(curDraftKey()));
 $('in-lead-comma').addEventListener('change', renderOutput);
 $('btn-download').addEventListener('click', () => {
     if (lastIssues.some(i => i.level === 'error')) return;

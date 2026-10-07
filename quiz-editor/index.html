@@ -43,6 +43,7 @@
     <button type="button" id="btn-sync" class="sync-chip" title="PC とスマホの同期（GitHub Gist）">SYNC: OFF</button>
     <button type="button" id="btn-undo" title="元に戻す (Ctrl/⌘+Z)">UNDO</button>
     <button type="button" id="btn-redo" title="やり直し (Ctrl/⌘+Shift+Z)">REDO</button>
+    <button type="button" id="btn-save-gist-bar" class="pc-only" title="この問題の下書きを Gist に保存する（Ctrl/⌘+Shift+S）" hidden>SAVE</button>
     <button type="button" id="btn-save-gist-m" class="m-only" title="この問題の下書きを Gist に保存する" hidden>SAVE</button>
     <button type="button" id="btn-log" class="m-menu" title="最近のお知らせ（直近20件）"><svg class="pc-only bell" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5a4 4 0 0 0-4 4v2.8L2.6 11h10.8L12 8.3V5.5a4 4 0 0 0-4-4zM6.3 12.5a1.8 1.8 0 0 0 3.4 0z" fill="currentColor"/></svg><span class="m-only">LOG</span><span id="log-unread" class="badge" hidden></span></button>
     <button type="button" id="btn-help" class="pc-only" title="キー一覧 (?)">? KEYS</button>
@@ -311,7 +312,7 @@
   <nav id="mtabs" class="m-only" aria-label="編集する項目">
     <button type="button" data-mtab="field">FIELD</button>
     <button type="button" data-mtab="next">NEXT</button>
-    <button type="button" data-mtab="goal">GOAL</button>
+    <button type="button" data-mtab="goal">INFO</button>
     <button type="button" data-mtab="steps">STEPS</button>
     <button type="button" data-mtab="out">OUT</button>
   </nav>
