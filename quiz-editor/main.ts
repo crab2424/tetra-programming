@@ -167,7 +167,7 @@ function openDoc(d: EditorDoc, src: string | null, did: string | null = null) {
     redoStack.length = 0;
     doc = d; sourceId = src; draftId = did ?? newDraftId();
     ui.nextCaret = nextLen();
-    place.view = doc.steps.length;   // 続きから記録できるよう最後の手を表示
+    place.view = 0;
     afterDocReplaced();
     reconcile();   // 開いていた問題の下書きも片付けの対象になる
 }
@@ -404,6 +404,20 @@ function reconcile(focus?: { rule: Rule; ids: (string | null)[] }) {
     if (adoptedCur) { adoptedCur = false; renderAll(); }
 }
 
+/**
+ * WRITE FILE した問題の Gist の下書き（この下書き自身）は、保存後に編集を重ねていて内容が古くても、書き込みで役目を終える。
+ * 問題・手順がファイル＋保存済みと同じになった時点で消す（手順が未保存なら SAVE SOLUTION の後）。reconcile の R3 は内容が同じ物しか消せない
+ */
+const writtenDraftIds = new Set<string>();
+function clearWrittenGistDraft() {
+    if (!sync.enabled || !writtenDraftIds.has(draftId)) return;
+    if (editStateOf(doc, sourceId).kind !== 'file') return;
+    writtenDraftIds.delete(draftId);
+    if (!sync.draft(draftId)) return;
+    setStatus('書き込み済みの Gist の下書きを片付けました');
+    void sync.deleteDrafts([draftId]).then(() => renderAll());
+}
+
 // ─── Gist の下書きとの関係（SAVED / SAVED* / 届いた。save-notify §5） ───
 type SendKind = 'none' | 'saved' | 'changed' | 'incoming';
 interface SendState { kind: SendKind; id?: string; entry?: DraftEntry; }
@@ -617,7 +631,7 @@ function revertToFile() {
     if (!confirm(`「${sourceId}」をファイルの内容に戻します（変更: ${st.changes.join('・') || 'なし'}）。UNDO で取り消せます。よろしいですか？`)) return;
     const d = withSolution(docFromLevel(raw));
     commit(() => { doc = d; });
-    place.view = doc.steps.length;
+    place.view = 0;
     afterDocReplaced();
     hideNotice();
     setStatus('ファイルの内容に戻しました（UNDO で取り消せます）');
@@ -1093,7 +1107,10 @@ function renderNext() {
     box.title = usage ? 'SOLVE 中は NEXT を編集できません（EDIT に戻すには P）' : '';
     if (usage) {
         // SOLVE: ゲームと同じく「今のミノの次から 5 個（ぷよは 2 ペア）」だけ。置くたびに上へ詰まり、尽きた所は空（layout §7）
-        for (let k = 0; k < gameNextShown(); k++) {
+        // PC は盤面の高さに入るだけ増やす（下にはみ出す分は後で取り除く）。それ以外はゲームと同じ個数
+        const fit = $('next-col').contains(box);
+        const shown = fit ? Math.max(gameNextShown(), Math.min(14, n - usage.now)) : gameNextShown();
+        for (let k = 0; k < shown; k++) {
             const i = usage.now + k;
             const item = document.createElement('span');
             item.className = 'next-item slot';
@@ -1102,6 +1119,11 @@ function renderNext() {
             no.textContent = i < n ? String(i + 1) : '';
             item.append(nextCanvas(i < n ? i : null), no);
             box.append(item);
+        }
+        if (fit) {
+            const items = Array.from(box.children) as HTMLElement[];
+            const limit = box.getBoundingClientRect().bottom - 4;
+            while (items.length > gameNextShown() && items[items.length - 1].getBoundingClientRect().bottom > limit) items.pop()!.remove();
         }
         $('next-count').textContent = `残り${Math.max(0, n - usage.now)}`;
     } else {
@@ -1334,6 +1356,10 @@ function renderOutput() {
     const send = curSendState().kind;
     save.textContent = send === 'saved' ? 'SAVED' : 'SAVE';
     save.classList.toggle('on', !!curLocal() && send !== 'saved');
+    const saveM = $<HTMLButtonElement>('btn-save-gist-m');
+    saveM.hidden = !sync.enabled;
+    saveM.textContent = save.textContent;
+    saveM.classList.toggle('on', save.classList.contains('on'));
     renderWritePos();
 }
 
@@ -1925,6 +1951,8 @@ async function writeLevelsFileNow(forcePick: boolean) {
         // 書き込んだので受け渡しは終わり: この問題の Gist の下書きのうち、問題も手順もファイル＋保存済みと同じ物を消す（R3・R4。
         // 手順が未保存なら SAVE SOLUTION の後で消える）。Gist の履歴には残る
         reconcile({ rule: doc.rule, ids: [oldSrc, doc.id] });
+        writtenDraftIds.add(draftId);
+        clearWrittenGistDraft();
         const msg = wrote ? `${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`
             : `${h.name} の「${doc.id}」はファイルと同じ内容です（書き込みは不要でした）`;
         // 手順は別のファイル（tsolutions.json / psolutions.json）。未保存なら知らせて、その場で保存できるようにする（tools §1.3）
@@ -1957,7 +1985,7 @@ $('btn-test').addEventListener('click', () => {
     window.open('/?quizTest=1', 'tetlabo-quiz-test');
 });
 // 下書きを Gist に保存する（他の端末の DRAFTS に出る＝PC で書き込み待ち）
-$('btn-save-gist').addEventListener('click', () => void saveToGist(curDraftKey()));
+for (const id of ['btn-save-gist', 'btn-save-gist-m']) $(id).addEventListener('click', () => void saveToGist(curDraftKey()));
 $('in-lead-comma').addEventListener('change', renderOutput);
 $('btn-download').addEventListener('click', () => {
     if (lastIssues.some(i => i.level === 'error')) return;
@@ -2126,6 +2154,7 @@ async function saveSolutionFile(forcePick: boolean) {
             : `端末内に保存しました。${sync.message || '通信できたら Gist に送ります'}`);
         renderAll();
         reconcile({ rule: doc.rule, ids: [sourceId, doc.id] });
+        clearWrittenGistDraft();
         return;
     }
     try {
@@ -2696,7 +2725,7 @@ loadImages(() => { renderField(); renderPalette(); renderNext(); renderHold(); b
 buildStampGrid($('stamp-grid'));
 const restored = restoreOnBoot();
 ui.nextCaret = nextLen();
-place.view = doc.steps.length;
+place.view = 0;
 renderAll();
 void loadLevels().then(() => {
     levelsLoaded = true;
@@ -2704,7 +2733,7 @@ void loadLevels().then(() => {
     const cur = localDrafts.current();
     if (restored === 'file' && cur && cur.sourceId !== null) {
         const raw = levelById(cur.rule, cur.sourceId);
-        if (raw) { doc = withSolution(docFromLevel(raw)); sourceId = cur.sourceId; draftId = cur.draftId; ui.nextCaret = nextLen(); place.view = doc.steps.length; afterDocReplaced(); }
+        if (raw) { doc = withSolution(docFromLevel(raw)); sourceId = cur.sourceId; draftId = cur.draftId; ui.nextCaret = nextLen(); place.view = 0; afterDocReplaced(); }
     }
     renderAll();
     // 前回の編集を黙って復元しない（ファイルの内容だと思って続けないように）
@@ -2872,7 +2901,7 @@ void devProbe.then(() => Promise.all(RULES.map(fetchSolutions))).then(maps => {
     if (sync.enabled) return;   // 同期中は Gist の解答が正本
     RULES.forEach((r, i) => { solutionsLoaded[r] = maps[i] !== null; solutions[r] = maps[i] ?? {}; });
     // 下書きが空で、開いている問題に保存済みの解答があれば付ける
-    if (!doc.steps.length && solutions[doc.rule][doc.id]) { withSolution(doc); place.view = doc.steps.length; }
+    if (!doc.steps.length && solutions[doc.rule][doc.id]) { withSolution(doc); place.view = 0; }
     renderAll();
     reconcile();
 });

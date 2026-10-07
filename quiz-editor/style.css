@@ -237,7 +237,7 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   #next-col .next-item .no { position: absolute; left: 2px; top: 1px; }
   #next-col .caret { width: auto; height: 2px; align-self: stretch; margin: 1px 4px; flex: none; }
   /* SOLVE: ゲームと同じく次の 5 個を同じ間隔で */
-  #next-col #next-box.game { justify-content: flex-start; gap: 6px; }
+  #next-col #next-box.game { justify-content: flex-start; gap: 6px; overflow: hidden; }
   /* 盤面の下の 1 行: SOLVE は NEXT 全体。EDIT は空けておく（モードを替えても盤面の大きさ・位置を変えない。tools §3.3） */
   #next-strip { display: flex; align-items: center; gap: 8px; margin-top: 6px; height: 32px; width: 0; min-width: 100%; }
   #next-strip[hidden] { display: flex !important; visibility: hidden; }
@@ -433,7 +433,7 @@ body.alt-held[data-mode="next"] .next-item.sel.first::before, body.alt-held[data
 .se { color: rgba(255, 255, 255, 0.18); }
 
 /* ─── 問題の一覧（サイドバーの LEVELS。tools §2） ─── */
-#lv-body { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 2px; }
+#lv-body { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 2px 14px 2px 2px; scrollbar-gutter: stable; }
 .lv-head { display: flex; align-items: center; justify-content: space-between; }
 .lv-toggle, .lv-new { border: none; background: none; padding: 4px 6px; font-size: 10px; }
 .lv-toggle { color: var(--quiz); }
@@ -604,6 +604,8 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   #topbar .spacer { display: block; order: 3; flex: 1; }
   #topbar #btn-undo { order: 4; }
   #topbar #btn-redo { order: 5; }
+  #topbar #btn-save-gist-m { order: 6; }
+  #topbar #btn-save-gist-m[hidden] { display: none; }
   #topbar:not(.menu-open) > :is(.level-pick, #state-chip, #btn-sync, #btn-log, #btn-revert),
   #topbar:not(.menu-open) #menu-pop > * { display: none; }
   #topbar.menu-open .level-pick { flex: 1 1 100%; }
@@ -702,7 +704,7 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 #drafts-view > * { flex: none; }
 #drafts-dlg #drafts-view { height: min(70vh, 640px); }
 .dv-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.dv-tools #dv-filter { flex: 1 1 120px; min-width: 0; }
+.dv-tools #dv-filter { flex: 1 1 100%; min-width: 0; }
 .dv-tools .seg button { padding: 3px 6px; font-size: 9px; }
 .dv-tools > button { padding: 3px 8px; font-size: 10px; }
 #dv-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 2px; }
