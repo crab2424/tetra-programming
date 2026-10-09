@@ -153,7 +153,7 @@ Object.assign(PuyoGame.prototype, {
             const j = Math.floor(this._random() * (i + 1));
             [allColors[i], allColors[j]] = [allColors[j], allColors[i]];
         }
-        this.activeColors = allColors.slice(0, PConfig.colorCount);
+        this.activeColors = allColors.slice(0, this.vsColorCount ?? PConfig.colorCount); // vsColorCount: VERSUS/PUYOシングルの使用色数設定
     },
 
     // ★ 追加: キャンバスを明示的にクリア

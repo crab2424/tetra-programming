@@ -135,6 +135,61 @@ let practiceSequence = {
   puyo: { enabled: false, bagOrder: 'loop', slotOrder: 'loop', bags: [{ items: [[null, null]] }] },
 };
 
+// ─── PUYO(シングル)モード用の設定 ────────────────
+// 準備画面（renderModeCheck の mode.id==='puyo'）で編集し、startGameFromModeCheck がエンジンへ注入する。
+// eraseCount/colorCount が既定（4/4）以外のときはランキング・自己ベストに記録しない
+// （落下速度だけの変更は記録対象）。設計: source_assets/memory/v2.2.5/
+const PUYO_SINGLE_STORAGE_KEY = 'game_puyo_single_settings';
+const PUYO_SINGLE_DEFAULT = { eraseCount: 4, colorCount: 4, fallMs: 250 };
+const PUYO_SINGLE_ERASE_OPTIONS = [2, 3, 4, 5, 6];
+const PUYO_SINGLE_COLOR_OPTIONS = [2, 3, 4, 5];
+// PRACTICE の落下間隔テーブル（practice_panel.js PRACTICE_PUYO_FALL_TABLE）から「落下なし(0)」を除いたもの
+const PUYO_SINGLE_FALL_OPTIONS = [250, 180, 120, 80, 50, 30];
+
+function _loadPuyoSingleSettings() {
+  const out = { ...PUYO_SINGLE_DEFAULT };
+  try {
+    const saved = JSON.parse(localStorage.getItem(PUYO_SINGLE_STORAGE_KEY) || 'null');
+    if (saved) {
+      if (PUYO_SINGLE_ERASE_OPTIONS.includes(saved.eraseCount)) out.eraseCount = saved.eraseCount;
+      if (PUYO_SINGLE_COLOR_OPTIONS.includes(saved.colorCount)) out.colorCount = saved.colorCount;
+      if (PUYO_SINGLE_FALL_OPTIONS.includes(saved.fallMs)) out.fallMs = saved.fallMs;
+    }
+  } catch (e) { /* 壊れた保存値は既定に戻す */ }
+  return out;
+}
+let puyoSingleSettings = _loadPuyoSingleSettings();
+
+function setPuyoSingleSetting(key, value) {
+  if (!(key in PUYO_SINGLE_DEFAULT) || puyoSingleSettings[key] === value) return;
+  puyoSingleSettings[key] = value;
+  try { localStorage.setItem(PUYO_SINGLE_STORAGE_KEY, JSON.stringify(puyoSingleSettings)); } catch (e) { /* 保存失敗は無視 */ }
+  renderModeCheck();
+}
+
+// 記録対象か（落下速度以外が既定のときだけ true）
+function isPuyoSingleRecordEligible() {
+  return puyoSingleSettings.eraseCount === PUYO_SINGLE_DEFAULT.eraseCount
+      && puyoSingleSettings.colorCount === PUYO_SINGLE_DEFAULT.colorCount;
+}
+
+// 準備画面の option-row HTML（FocusNav は .option-row 内の .option-toggle を ←/→ で自動操作する）
+function renderPuyoSingleOptionsHtml() {
+  const row = (label, key, values, fmt) => `
+    <div class="option-row">
+      <span class="option-label">${label}</span>
+      <div class="option-toggle">
+        ${values.map(v => `<button class="opt-btn ${puyoSingleSettings[key] === v ? 'active' : ''}" onclick="setPuyoSingleSetting('${key}', ${v})">${fmt(v)}</button>`).join('')}
+      </div>
+    </div>`;
+  const note = isPuyoSingleRecordEligible() ? '' :
+    '<p class="practice-value-hint">CONNECT / COLORS を変更中は記録されません</p>';
+  return row('CONNECT', 'eraseCount', PUYO_SINGLE_ERASE_OPTIONS, v => v)
+       + row('COLORS', 'colorCount', PUYO_SINGLE_COLOR_OPTIONS, v => v)
+       + row('FALL', 'fallMs', PUYO_SINGLE_FALL_OPTIONS, v => v + 'ms')
+       + note;
+}
+
 let testCpuControl = true; 
 let testRule = 'tet';
 

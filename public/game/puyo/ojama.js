@@ -336,7 +336,7 @@ Object.assign(PuyoGame.prototype, {
         // 一連の連鎖が終了したため端数処理（仕様通り：最後の端数をmod70で次ターンへ持ち越す）
         this.tetAttackCarry = this.tetAttackCarry % (this.vsOjamaRate ?? PConfig.ojamaRate);
 
-        if (isZenkeshi) {
+        if (isZenkeshi && !this.vsChainMin) { // 連鎖縛り中は全消しボーナス(2ライン)も無効
             this.hasTetZenkeshi = true; // ★ 全消しボーナスの2ライン送付フラグを立てる
         }
 

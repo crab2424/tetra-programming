@@ -42,7 +42,9 @@ const DEFAULT_VS_SETTINGS = {
     },
     puyo: {
         ojamaRate:  70,       // 10~120 (10刻み)
-        eraseCount: 4         // 2~6
+        eraseCount: 4,        // 2~6
+        colorCount: 4,        // 2~5（使用色数）
+        chainMin:   0         // 連鎖縛り: 0=OFF、2~20=n連鎖未満の火力を0にする
     }
 };
 
@@ -133,6 +135,8 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
         if (playerRule === 'puyo') {
             playerGame.vsOjamaRate  = s.puyo.ojamaRate;
             playerGame.vsEraseCount = s.puyo.eraseCount;
+            playerGame.vsColorCount = s.puyo.colorCount;
+            playerGame.vsChainMin   = s.puyo.chainMin;
         }
     }
 
@@ -149,6 +153,8 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
         if (cpuRule === 'puyo') {
             cpuGame.vsOjamaRate  = s.puyo.ojamaRate;
             cpuGame.vsEraseCount = s.puyo.eraseCount;
+            cpuGame.vsColorCount = s.puyo.colorCount;
+            cpuGame.vsChainMin   = s.puyo.chainMin;
         }
     }
 }
@@ -180,7 +186,9 @@ function renderVsSettingsPage() {
     // ── PUYO ──────────────────────────────────
     container.appendChild(_buildSection('PUYO', [
         _buildOjamaRateRow(),
-        _buildEraseCountRow()
+        _buildEraseCountRow(),
+        _buildColorCountRow(),
+        _buildChainMinRow()
     ]));
 
     // ── リセットボタン ─────────────────────────
@@ -515,6 +523,84 @@ function _buildEraseCountRow() {
     return _buildRow('MIN CONNECT', '', ctrl);
 }
 
+// ── 使用色数（2〜5） ───────────────────────
+function _buildColorCountRow() {
+    const options = [2, 3, 4, 5];
+    const current = currentVsSettings.puyo.colorCount;
+
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'vs-setting-btn-group';
+
+    options.forEach(val => {
+        const btn = document.createElement('button');
+        btn.className = 'vs-setting-step-btn' + (val === current ? ' active' : '');
+        btn.textContent = String(val);
+        btn.dataset.value = String(val);
+        btn.onclick = () => {
+            currentVsSettings.puyo.colorCount = val;
+            saveVsSettings();
+            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
+                b.classList.toggle('active', parseInt(b.dataset.value) === val);
+            });
+        };
+        btnGroup.appendChild(btn);
+    });
+
+    ctrl.appendChild(btnGroup);
+    return _buildRow('COLORS', '', ctrl);
+}
+
+// ── 連鎖縛り（スライダー、OFF / 2〜20） ──────
+// スライダー値 1=OFF、2〜20=n連鎖。保存値は OFF=0。
+function _formatChainMin(val) {
+    return val ? `${val} CHAIN` : 'OFF';
+}
+
+function _buildChainMinRow() {
+    const current = currentVsSettings.puyo.chainMin || 0;
+
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const valLabel = document.createElement('span');
+    valLabel.className = 'vs-setting-value-label';
+    valLabel.id = 'vss-val-chainMin';
+    valLabel.textContent = _formatChainMin(current);
+
+    const slider = document.createElement('input');
+    slider.type  = 'range';
+    slider.min   = '1';
+    slider.max   = '20';
+    slider.step  = '1';
+    slider.value = String(current || 1);
+    slider.className = 'vs-setting-slider';
+
+    slider.oninput = () => {
+        const v = parseInt(slider.value);
+        const val = v <= 1 ? 0 : v;
+        currentVsSettings.puyo.chainMin = val;
+        valLabel.textContent = _formatChainMin(val);
+        saveVsSettings();
+    };
+
+    ctrl.appendChild(valLabel);
+    ctrl.appendChild(slider);
+
+    const markers = document.createElement('div');
+    markers.className = 'vs-setting-markers';
+    ['OFF', '5', '10', '15', '20'].forEach(t => {
+        const m = document.createElement('span');
+        m.textContent = t;
+        markers.appendChild(m);
+    });
+    ctrl.appendChild(markers);
+
+    return _buildRow('CHAIN LIMIT', '(min chain)', ctrl);
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // サマリー表示（versus-check-page に反映）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -557,6 +643,12 @@ function _updateVsSettingsSummary() {
     }
     if (s.puyo.eraseCount !== DEFAULT_VS_SETTINGS.puyo.eraseCount) {
         parts.push(`CONNECT:${s.puyo.eraseCount}`);
+    }
+    if (s.puyo.colorCount !== DEFAULT_VS_SETTINGS.puyo.colorCount) {
+        parts.push(`COLORS:${s.puyo.colorCount}`);
+    }
+    if (s.puyo.chainMin) {
+        parts.push(`CHAIN-LIMIT:${s.puyo.chainMin}`);
     }
 
     el.textContent = parts.join(' / ');

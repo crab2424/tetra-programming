@@ -297,7 +297,8 @@ Object.assign(PuyoGame.prototype, {
                     if (this._isFieldEmpty() && this.chainCount > 0) {
                         this.score += PConfig.zenkeshiBonus; // 2100点追加
 
-                        let zenkeshiOjama = Math.floor(PConfig.zenkeshiBonus / (this.vsOjamaRate ?? PConfig.ojamaRate));
+                        // 連鎖縛り中は全消しボーナスの火力を無効にする（スコア加算・演出は従来どおり）
+                        let zenkeshiOjama = this.vsChainMin ? 0 : Math.floor(PConfig.zenkeshiBonus / (this.vsOjamaRate ?? PConfig.ojamaRate));
                         this.pendingFire += zenkeshiOjama; // 連鎖後に火力スコア(pendingFire)に持ち越す
 
                         this._updateScoreDisplay();
@@ -500,7 +501,15 @@ Object.assign(PuyoGame.prototype, {
         }
     },
 
+    // 連鎖縛りが有効で、いまの連鎖が縛り未満なら true（vsChainMin: 0/未定義=OFF）。
+    // 落下点数は1連鎖目に属するため、縛り有効中は攻撃に積まない（_addDropScore）。
+    _isChainBound() {
+        const min = this.vsChainMin;
+        return !!min && this.chainCount < min;
+    },
+
     _addDropScore(amount) {
+        if (this.vsChainMin) return; // 連鎖縛り中: 落下点数は火力に含めない（スコアは呼び出し側で加算済み）
         this.attackScore += amount;
         let totalOjama = Math.floor(this.attackScore / (this.vsOjamaRate ?? PConfig.ojamaRate));
         let newlyGenerated = totalOjama - this.generatedOjamaTotal;
@@ -873,7 +882,9 @@ Object.assign(PuyoGame.prototype, {
         this.chainScoreAdd = add;
         this.chainScoreStr = `${n * 10} × ${bonus}`;
 
-        this.attackScore += add;
+        // 連鎖縛り(VERSUS): n連鎖未満のリンクは火力0（スコア・表示は従来どおり add を使う）
+        const attackAdd = this._isChainBound() ? 0 : add;
+        this.attackScore += attackAdd;
         let totalOjama = Math.floor(this.attackScore / (this.vsOjamaRate ?? PConfig.ojamaRate));
         let newlyGenerated = totalOjama - this.generatedOjamaTotal;
         this.generatedOjamaTotal = totalOjama;
@@ -883,8 +894,8 @@ Object.assign(PuyoGame.prototype, {
 
         // ★ ぷよ→テト火力変換（相殺＋ライン算出）は「消去」タイミングで _resolveTetAttack() が行う。
         // ここ（点滅）では計算素材(add, n)だけ保存し、同じ連鎖リンクの消去時に渡す。
-        this._tetCalcAdd = add;
-        this._tetCalcN = n;
+        this._tetCalcAdd = attackAdd;
+        this._tetCalcN = attackAdd > 0 ? n : 0;
 
         if (this.scoreEl) {
             this.scoreEl.style.fontSize = '18px';
@@ -1003,7 +1014,7 @@ Object.assign(PuyoGame.prototype, {
         if (rankEl) rankEl.style.display = 'none';
         // PRACTICE は記録を残さない（設計 §1.1）。tet 側は _submitRecordIfEligible が
         // 未知の mode で null を返すため自然に対象外だが、ぷよは無条件 submit だったのでガードする。
-        const _recordEligible = !this.isCpuControlled && this.currentMode !== 'practice';
+        const _recordEligible = !this.isCpuControlled && this.currentMode !== 'practice' && this.recordEligible !== false; // recordEligible: PUYOシングルで連結数/色数を変えたら false
         if (_recordEligible && window.Records) {
             const res = await window.Records.submit('puyo', {
                 chainMax: this.chainMax,
