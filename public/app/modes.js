@@ -173,20 +173,37 @@ function isPuyoSingleRecordEligible() {
       && puyoSingleSettings.colorCount === PUYO_SINGLE_DEFAULT.colorCount;
 }
 
-// 準備画面の option-row HTML（FocusNav は .option-row 内の .option-toggle を ←/→ で自動操作する）
+// FALL スライダー（値=PUYO_SINGLE_FALL_OPTIONS のインデックス）。再描画するとスライダーのフォーカスが
+// 外れるため、保存とラベル更新だけを行う。
+function setPuyoSingleFall(idx) {
+  const v = PUYO_SINGLE_FALL_OPTIONS[parseInt(idx)];
+  if (v === undefined) return;
+  puyoSingleSettings.fallMs = v;
+  try { localStorage.setItem(PUYO_SINGLE_STORAGE_KEY, JSON.stringify(puyoSingleSettings)); } catch (e) { /* 保存失敗は無視 */ }
+  const el = document.getElementById('puyo-single-fall-val');
+  if (el) el.textContent = v + 'ms';
+}
+
+// 準備画面の option-row HTML（FocusNav は .option-row 内の .option-toggle / スライダーを ←/→ で自動操作する）
 function renderPuyoSingleOptionsHtml() {
-  const row = (label, key, values, fmt) => `
+  const btns = (key, values, pad) => values.map(v =>
+    `<button class="opt-btn ${puyoSingleSettings[key] === v ? 'active' : ''}" onclick="setPuyoSingleSetting('${key}', ${v})">${v}</button>`).join('')
+    // CONNECT(5個)と値の縦位置を揃えるための不可視ダミー（FocusNav は visibility:hidden を除外する）
+    + (pad ? '<button class="opt-btn" style="visibility:hidden" tabindex="-1" aria-hidden="true">0</button>'.repeat(pad) : '');
+  const row = (label, inner) => `
     <div class="option-row">
       <span class="option-label">${label}</span>
-      <div class="option-toggle">
-        ${values.map(v => `<button class="opt-btn ${puyoSingleSettings[key] === v ? 'active' : ''}" onclick="setPuyoSingleSetting('${key}', ${v})">${fmt(v)}</button>`).join('')}
-      </div>
+      ${inner}
     </div>`;
   const note = isPuyoSingleRecordEligible() ? '' :
     '<p class="practice-value-hint">CONNECT / COLORS を変更中は記録されません</p>';
-  return row('CONNECT', 'eraseCount', PUYO_SINGLE_ERASE_OPTIONS, v => v)
-       + row('COLORS', 'colorCount', PUYO_SINGLE_COLOR_OPTIONS, v => v)
-       + row('FALL', 'fallMs', PUYO_SINGLE_FALL_OPTIONS, v => v + 'ms')
+  const fallIdx = PUYO_SINGLE_FALL_OPTIONS.indexOf(puyoSingleSettings.fallMs);
+  return row('CONNECT', `<div class="option-toggle">${btns('eraseCount', PUYO_SINGLE_ERASE_OPTIONS, 0)}</div>`)
+       + row('COLORS', `<div class="option-toggle">${btns('colorCount', PUYO_SINGLE_COLOR_OPTIONS, 1)}</div>`)
+       + row('FALL', `<div class="option-slider">
+            <input type="range" min="0" max="${PUYO_SINGLE_FALL_OPTIONS.length - 1}" step="1" value="${fallIdx}" oninput="setPuyoSingleFall(this.value)">
+            <span id="puyo-single-fall-val" class="option-val" style="width:52px">${puyoSingleSettings.fallMs}ms</span>
+          </div>`)
        + note;
 }
 

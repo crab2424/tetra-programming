@@ -1,7 +1,7 @@
 {
   "name": "tetra-programming",
   "private": true,
-  "version": "2.2.4",
+  "version": "2.2.5",
   "type": "module",
   "scripts": {
     "dev": "run-p dev:server dev:client dev:worker",

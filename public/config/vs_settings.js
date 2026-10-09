@@ -549,6 +549,15 @@ function _buildColorCountRow() {
         btnGroup.appendChild(btn);
     });
 
+    // MIN CONNECT(5個)と値の縦位置を揃えるための不可視ダミー（FocusNav は visibility:hidden を除外する）
+    const pad = document.createElement('button');
+    pad.className = 'vs-setting-step-btn';
+    pad.style.visibility = 'hidden';
+    pad.tabIndex = -1;
+    pad.setAttribute('aria-hidden', 'true');
+    pad.textContent = '0';
+    btnGroup.appendChild(pad);
+
     ctrl.appendChild(btnGroup);
     return _buildRow('COLORS', '', ctrl);
 }
