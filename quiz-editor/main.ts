@@ -665,7 +665,6 @@ type EditMode = 'paint' | 'stamp' | 'next' | 'solve';
 function curMode(): EditMode { return ui.mode === 'place' ? place.sub : ui.mode; }
 function setMode(mode: EditMode) {
     if (mode === 'stamp' && doc.rule !== 'tet') { warnStatus('ぷよには STAMP はありません'); return; }
-    if (mode === 'next' && mobileMq.matches) mode = boardMode();   // スマホは NEXT タブで編集する（モードは PC だけ）
     if (mode !== 'solve') ui.lastEdit = mode;
     if (mode === 'paint' || mode === 'stamp') ui.lastBoard = mode;
     const prev = curMode();
@@ -874,7 +873,7 @@ function renderCond() {
 
 // ─── モバイル配置（§14.5。幅 760px 以下は下部タブで1項目ずつ表示） ───
 const mobileMq = matchMedia('(max-width: 760px)');
-type MTab = 'field' | 'next' | 'goal' | 'steps' | 'out';
+type MTab = 'field' | 'goal' | 'steps' | 'out';
 const MTAB_KEY = 'tetlabo.quizEditor.mtab';
 
 /**
@@ -895,11 +894,11 @@ function cellSize(rule: Rule): number {
         const availW = area.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - otherW - 2;
         return fitCell(rule, availW, availH);
     }
-    const w = document.documentElement.clientWidth - 16 - 32;   // #layout の左右余白＋パネル・枠の余白
+    const w = document.documentElement.clientWidth - 16 - 32 - $('next-col').offsetWidth - 8;   // #layout の左右余白＋パネル・枠の余白＋NEXT 枠
     const viewH = window.visualViewport?.height ?? window.innerHeight;
     const board = fieldCanvas.offsetHeight;
     const others = body().dataset.mtab === 'steps'
-        ? $('topbar').offsetHeight + $('mtabs').offsetHeight + 260
+        ? $('topbar').offsetHeight + $('mtabs').offsetHeight + 260 + ($('ctl-pad').offsetHeight || 0)
         : $('topbar').offsetHeight + $('mtabs').offsetHeight + ($('layout').offsetHeight - board) + 8;
     return fitCell(rule, w, viewH - others);
 }
@@ -952,9 +951,9 @@ function setMTab(t: MTab) {
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) b.classList.toggle('on', b.dataset.mtab === t);
     // STEPS は解答手順（PLACE の SOLVE）を見る場所
     if (t === 'steps' && curMode() !== 'solve') setMode('solve');
-    // FIELD / NEXT は編集する場所。SOLVE のままだと NEXT を編集できないので、最後に使った PAINT / STAMP に戻す（polish §5）。
+    // FIELD は編集する場所（PAINT / STAMP / NEXT）。SOLVE は STEPS タブが受け持つので、SOLVE のままなら最後に使った編集モードに戻す（polish §5）。
     // 失うのは動かしている途中のミノだけ（記録した手順・表示中の手の位置はそのまま）
-    if ((t === 'field' || t === 'next') && curMode() === 'solve') setMode(boardMode());
+    if (t === 'field' && curMode() === 'solve') setMode(ui.lastEdit === 'next' ? 'next' : boardMode());
     renderAll();
     window.scrollTo({ top: 0 });
 }
@@ -1654,7 +1653,7 @@ nextBox.addEventListener('click', e => {
     const item = (e.target as HTMLElement).closest<HTMLElement>('.next-item');
     ui.nextCaret = item ? Number(item.dataset.index) + 1 : nextLen();
     ui.pendingPuyo = 0;
-    if (curMode() !== 'next' && !mobileMq.matches) setMode('next');
+    if (curMode() !== 'next') setMode('next');
     else renderNext();
 });
 // タッチでの並べ替え: 長押しで掴んで、離した位置の項目と入れ替える（iOS Safari は HTML5 DnD 非対応）
@@ -2464,14 +2463,15 @@ window.addEventListener('focus', () => void reloadFiles());
 
 // ─── PC 配置: 一部の部品を PC では盤面の横・サイドバー・ステータスバーへ移す（スマホでは元の場所＝下部タブの仕組みのまま） ───
 const relocations: [HTMLElement, HTMLElement][] = [
-    [$('next-h'), $('next-col')], [$('next-box'), $('next-col')],
     [$('steps-note'), $('col-steps')], [$('solve-box'), $('col-steps')],
     [$('mode-seg'), $('mode-seg-slot')],
-    [$('next-tools'), $('nexttool-box')], [$('next-text-wrap'), $('nexttool-box')],
     [$('btn-sync'), $('sb-right')], [$('btn-log'), $('sb-right')],
     [$('drafts-view'), $('col-drafts')],
 ];
 const relocationHomes = relocations.map(([el]) => { const c = document.createComment(el.id); el.before(c); return c; });
+// NEXT の枠と編集部品は PC・スマホとも盤面の横（next-col）・ツール欄（nexttool-box）に置く
+$('next-col').append($('next-h'), $('next-box'));
+$('nexttool-box').append($('next-tools'), $('next-text-wrap'));
 function applyLayout() {
     const pc = !mobileMq.matches;
     relocations.forEach(([el, pcParent], i) => {
@@ -2830,7 +2830,7 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) {
 {
     let saved: string | null = null;
     try { saved = localStorage.getItem(MTAB_KEY); } catch { /* 読めない */ }
-    body().dataset.mtab = saved && ['field', 'next', 'goal', 'steps', 'out'].includes(saved) ? saved : 'field';
+    body().dataset.mtab = saved && ['field', 'goal', 'steps', 'out'].includes(saved) ? saved : 'field';
     for (const b of document.querySelectorAll<HTMLButtonElement>('#mtabs button')) b.classList.toggle('on', b.dataset.mtab === body().dataset.mtab);
 }
 function closeMenu() {
@@ -2858,7 +2858,6 @@ function onViewportResize() {
 window.addEventListener('resize', onViewportResize);
 window.visualViewport?.addEventListener('resize', onViewportResize);
 mobileMq.addEventListener('change', () => {
-    if (mobileMq.matches && ui.mode === 'next') ui.mode = 'paint';   // NEXT モードは PC だけ
     applyLayout();
     renderAll();
 });

@@ -176,7 +176,7 @@
             <canvas id="field" tabindex="0" aria-label="盤面（矢印でカーソル移動・Spaceで塗る）"></canvas>
           </div>
           <!-- PC: 盤面の右に NEXT（縦並び）。#next-h・#next-box をここへ移す -->
-          <div id="next-col" class="pc-only"></div>
+          <div id="next-col" data-m="field steps"></div>
         </div>
       </div>
       <div data-m="next">
@@ -201,7 +201,7 @@
       <div class="seg" id="mode-seg" role="radiogroup" aria-label="編集モード" data-m="field">
         <button type="button" data-mode="paint" role="radio">PAINT</button>
         <button type="button" data-mode="stamp" role="radio">STAMP</button>
-        <button type="button" data-mode="next" role="radio" class="pc-only">NEXT</button>
+        <button type="button" data-mode="next" role="radio">NEXT</button>
         <button type="button" data-mode="solve" role="radio">SOLVE</button>
       </div>
       <div id="paint-box" data-m="field">
@@ -229,7 +229,7 @@
         </div>
         <!-- SOLVE: ピース行の場所は空けておく（操作パッドの位置を STAMP とそろえる） -->
         <div id="solve-pieces" class="tool-pieces pc-only" aria-hidden="true" hidden></div>
-        <div class="ctl-pad op-pad" id="ctl-pad" data-m="field">
+        <div class="ctl-pad op-pad" id="ctl-pad" data-m="field steps">
           <div class="pad-cross">
             <button type="button" class="up" data-ctl="up" title="1段上（自由配置）">↑</button>
             <button type="button" class="left" data-ctl="left" title="左移動">←</button>
@@ -246,7 +246,7 @@
           </div>
         </div>
         <p class="note pc-only" id="bind-src"></p>
-        <label class="check" id="strict-wrap" data-m="field" title="1段上・浮いたままの確定・マウス配置を使えなくし、ゲームで入力できる手だけを記録する"><input id="in-strict" type="checkbox" /> STRICT（ゲームどおりの操作だけ）</label>
+        <label class="check" id="strict-wrap" data-m="field steps" title="1段上・浮いたままの確定・マウス配置を使えなくし、ゲームで入力できる手だけを記録する"><input id="in-strict" type="checkbox" /> STRICT（ゲームどおりの操作だけ）</label>
 
         <div id="solve-box" data-m="steps">
           <div id="solve-now"></div>
@@ -282,7 +282,7 @@
       </div>
 
       <!-- PC・NEXT モード: NEXT の編集（#next-tools・#next-text-wrap をここへ移す。tools §3） -->
-      <div id="nexttool-box" class="pc-only" hidden></div>
+      <div id="nexttool-box" data-m="field" hidden></div>
 
       <!-- MEMO（中間点の盤面を 1 つ。解答ファイルに手順と一緒に保存する。polish §6） -->
       <div id="memo-tools" data-m="field">
@@ -311,7 +311,6 @@
   <!-- モバイル配置の下部タブ（§14.5。幅 760px 以下でだけ表示） -->
   <nav id="mtabs" class="m-only" aria-label="編集する項目">
     <button type="button" data-mtab="field">FIELD</button>
-    <button type="button" data-mtab="next">NEXT</button>
     <button type="button" data-mtab="goal">INFO</button>
     <button type="button" data-mtab="steps">STEPS</button>
     <button type="button" data-mtab="out">OUT</button>
