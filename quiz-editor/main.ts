@@ -155,6 +155,8 @@ function afterDocReplaced() {
     if (doc.rule !== 'tet' && ui.mode === 'place' && place.sub === 'stamp') ui.mode = 'paint';   // ぷよに STAMP は無い
     ui.memoView = false;
     place.resetActive();
+    // 入力欄にフォーカスが残っていると setVal が上書きしない（新規にしても前の問題名が残る）ので外す
+    if (isTextInput(document.activeElement)) (document.activeElement as HTMLElement).blur();
     renderAll();
 }
 
@@ -895,7 +897,10 @@ function cellSize(rule: Rule): number {
         return fitCell(rule, availW, availH);
     }
     const w = document.documentElement.clientWidth - 16 - 32 - $('next-col').offsetWidth - 8;   // #layout の左右余白＋パネル・枠の余白＋NEXT 枠
-    const viewH = window.visualViewport?.height ?? window.innerHeight;
+    // ピンチ拡大中は visualViewport が縮む（scale 倍）ので、掛け戻して拡大前の高さで盤面の大きさを決める（拡大しても盤面が縮まない）。
+    // ソフトキーボードは scale を変えずに高さだけ縮めるので、そちらは従来どおり反映される
+    const vv = window.visualViewport;
+    const viewH = vv ? vv.height * vv.scale : window.innerHeight;
     const board = fieldCanvas.offsetHeight;
     const others = body().dataset.mtab === 'steps'
         ? $('topbar').offsetHeight + $('mtabs').offsetHeight + 260 + ($('ctl-pad').offsetHeight || 0)
@@ -931,6 +936,8 @@ function clickPTab(t: PTab) {
     const open = !(sideOpen() && curPTab() === t);
     setPTab(t, open);
     if (open && t === 'drafts') syncUi?.shown();
+    // STEPS は解答手順を見る場所なので、開いたら SOLVE にする（スマホの STEPS タブと同じ）
+    if (open && t === 'steps' && curMode() !== 'solve') setMode('solve');
 }
 function toggleSide() { solvePrevTab = null; setPTab(curPTab(), !sideOpen()); }
 /** SOLVE に入ったら STEPS を出し、出たら元のビューへ戻す（閉じていたら開かない。layout §8 F1） */
@@ -1820,23 +1827,13 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('[data-shift]')) {
     b.addEventListener('click', () => { shiftField(b.dataset.shift as 'up'); focusField(); });
 }
 
+// TET / PUYO の切替は新規作成として扱う（今の問題は端末内の下書きに残る。UNDO でも戻せる）
 for (const b of document.querySelectorAll<HTMLButtonElement>('#rule-seg button')) {
-    b.addEventListener('click', async () => {
+    b.addEventListener('click', () => {
         const rule = b.dataset.rule as Rule;
         if (rule === doc.rule) return;
-        const hasContent = doc.field.some(r => r.some(v => v)) || nextLen() > 0;
-        if (hasContent && !await ask('ルールを切り替えると盤面・NEXT・クリア条件が初期化されます（UNDO で戻せます）。よろしいですか？', { skipId: 'rule-switch' })) return;
-        if (rule === doc.rule) return;
-        commit(() => {
-            const keep = { description: doc.description, diff: doc.diff };
-            doc = { ...newDoc(rule), ...keep };
-            sourceId = null;
-            ui.nextCaret = 0;
-            if (rule !== 'tet' && ui.mode === 'place') ui.mode = 'paint';
-            place.resetActive();
-            if (ui.selColor > maxColorId(rule)) ui.selColor = 1;
-            ui.cursor = { r: Math.max(viewTop(rule), Math.min(ui.cursor.r, rows(rule) - 1)), c: Math.min(ui.cursor.c, cols(rule) - 1) };
-        });
+        openDoc(newDoc(rule), null);
+        focusField();
     });
 }
 
