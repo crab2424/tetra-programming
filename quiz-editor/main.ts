@@ -1064,10 +1064,13 @@ function nextToolsHtml(rule: Rule): string {
         '<span class="pad-lbl">CARET</span>' +
         '<button type="button" class="right" data-nx="caret-right" title="キャレットを後ろへ (→)">→</button>' +
         '<button type="button" class="down pc-only" data-nx="caret-right" title="キャレットを後ろへ (↓)">↓</button>' +
+        // スマホは NEXT が縦並び＝十字の上下を MOVE（前の項目を前後へ入れ替え）にする。PC は pad-acts の MOVE
+        '<button type="button" class="up m-only" data-nx="move-left" title="キャレットの前の項目を1つ前へ">MOVE ▲</button>' +
+        '<button type="button" class="down m-only" data-nx="move-right" title="キャレットの前の項目を1つ後ろへ">MOVE ▼</button>' +
         '</div><div class="pad-acts">' +
         '<button type="button" data-nx="del" title="キャレットの前を削除 (Backspace)">DEL</button>' +
-        '<button type="button" data-nx="move-left" title="キャレットの前の項目を1つ前へ (Alt+↑)">MOVE <span class="pc-only">↑</span><span class="m-only">◀</span></button>' +
-        '<button type="button" data-nx="move-right" title="キャレットの前の項目を1つ後ろへ (Alt+↓)">MOVE <span class="pc-only">↓</span><span class="m-only">▶</span></button>' +
+        '<button type="button" class="pc-only" data-nx="move-left" title="キャレットの前の項目を1つ前へ (Alt+↑)">MOVE ↑</button>' +
+        '<button type="button" class="pc-only" data-nx="move-right" title="キャレットの前の項目を1つ後ろへ (Alt+↓)">MOVE ↓</button>' +
         extra +
         '<button type="button" id="btn-next-clear" title="NEXT を全部消す (Shift+Delete)">CLEAR</button>' +
         '</div></div>';

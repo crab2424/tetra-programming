@@ -825,3 +825,46 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   body[data-mtab] .next-item.sel { outline-color: rgba(245, 133, 66, 0.3); }
   body[data-mtab][data-mode="next"] .next-item.sel, body[data-mtab][data-mode="next"] .next-slot.sel { outline-color: var(--quiz); background: var(--quiz-soft); }
 }
+
+/* ─── モバイル: 操作ボタンは十字を中央に置いた 3×3 に統一（STAMP・STEPS＝基準 / PAINT / NEXT） ───
+     a ↑ b
+     ← c →
+     d ↓ e                                                                          */
+@media (max-width: 760px) {
+  #ctl-pad, #paint-box .op-pad, #nexttool-box .nx-pad {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas: "a up b" "left c right" "d down e";
+    gap: 4px; width: 100%; max-width: 300px; margin: 6px auto 0 !important; flex: 0 1 auto !important;
+  }
+  #ctl-pad button, #paint-box .op-pad button, #nexttool-box .nx-pad button {
+    height: 42px; min-height: 42px; min-width: 0; padding: 0 2px; font-size: 10px; letter-spacing: 0; white-space: nowrap;
+  }
+  #ctl-pad .up, #paint-box .op-pad .up, #nexttool-box .nx-pad .up { grid-area: up; }
+  #ctl-pad .left, #paint-box .op-pad .left, #nexttool-box .nx-pad .left { grid-area: left; }
+  #ctl-pad .right, #paint-box .op-pad .right, #nexttool-box .nx-pad .right { grid-area: right; }
+  #ctl-pad .down, #paint-box .op-pad .down, #nexttool-box .nx-pad .down { grid-area: down; }
+  /* STAMP・STEPS */
+  #ctl-pad [data-ctl="ccw"] { grid-area: a; }
+  #ctl-pad [data-ctl="cw"] { grid-area: b; }
+  #ctl-pad [data-ctl="lock"] { grid-area: c; }
+  #ctl-pad [data-ctl="hold"] { grid-area: d; }
+  #ctl-pad [data-ctl="drop"] { grid-area: e; }
+  /* PAINT: 中央は SHIFT の表示 */
+  #paint-box .op-pad { margin-top: 0 !important; }
+  #paint-box #btn-row { grid-area: a; }
+  #paint-box #btn-mirror { grid-area: b; }
+  #paint-box #btn-clear { grid-area: e; }
+  #paint-box .op-pad .pad-lbl { display: block; grid-area: c; text-align: center; align-self: center; font-size: 9px; }
+  /* NEXT: 中央は DEL・左上は +BAG / SWAP・右下は CLEAR */
+  #nexttool-box .nx-pad .pad-lbl { display: none; }
+  #nexttool-box #btn-bag, #nexttool-box #btn-swap { grid-area: a; }
+  #nexttool-box [data-nx="del"] { grid-area: c; }
+  #nexttool-box #btn-next-clear { grid-area: e; }
+  /* ミノ・ぷよのボタン行は中央揃えで 1 行（STAMP も NEXT と同じ並び） */
+  #stamp-grid { display: flex; flex-wrap: nowrap; gap: 4px; justify-content: center; }
+  #stamp-grid button { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 0; line-height: 1; }
+  #stamp-grid .k { position: static; order: -1; font-size: 8px; color: var(--text-dim); }
+  /* 上部バー: UNDO・REDO・SAVE を詰めて 1 行に収める（SAVED でも折り返さない） */
+  #topbar { gap: 4px; }
+  #topbar #btn-undo, #topbar #btn-redo, #topbar #btn-save-gist-m { padding: 6px 6px; font-size: 10px; letter-spacing: 0; min-width: 0; white-space: nowrap; }
+}
