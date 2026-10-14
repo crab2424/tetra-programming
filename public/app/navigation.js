@@ -529,8 +529,8 @@ function renderModeCheck() {
       optionsEl.style.display = 'flex';
       optionsEl.innerHTML = renderPracticeModeCheckOptions(mode);
     } else if (mode.id === 'puyo') {
-      optionsEl.style.display = 'none';
-      optionsEl.innerHTML = '';
+      optionsEl.style.display = 'flex';
+      optionsEl.innerHTML = renderPuyoSingleOptionsHtml();
     } else if (mode.id === 'quiz') {
       // 選択中のレベル情報を表示
       optionsEl.style.display = 'flex';
@@ -716,6 +716,11 @@ async function startGameFromModeCheck() {
         window._puyoGame.isCpuControlled = false;
         window._puyoGame.isVersusMode = false;
         window._puyoGame.currentMode = 'puyo';
+        // 準備画面の設定を注入（エンジンは未定義なら従来値を使う）
+        window._puyoGame.vsEraseCount = puyoSingleSettings.eraseCount;
+        window._puyoGame.vsColorCount = puyoSingleSettings.colorCount;
+        window._puyoGame.practiceFallMs = puyoSingleSettings.fallMs;
+        window._puyoGame.recordEligible = isPuyoSingleRecordEligible();
     }
 
     switchPage('game');

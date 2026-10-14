@@ -135,6 +135,78 @@ let practiceSequence = {
   puyo: { enabled: false, bagOrder: 'loop', slotOrder: 'loop', bags: [{ items: [[null, null]] }] },
 };
 
+// ─── PUYO(シングル)モード用の設定 ────────────────
+// 準備画面（renderModeCheck の mode.id==='puyo'）で編集し、startGameFromModeCheck がエンジンへ注入する。
+// eraseCount/colorCount が既定（4/4）以外のときはランキング・自己ベストに記録しない
+// （落下速度だけの変更は記録対象）。設計: source_assets/memory/v2.2.5/
+const PUYO_SINGLE_STORAGE_KEY = 'game_puyo_single_settings';
+const PUYO_SINGLE_DEFAULT = { eraseCount: 4, colorCount: 4, fallMs: 250 };
+const PUYO_SINGLE_ERASE_OPTIONS = [2, 3, 4, 5, 6];
+const PUYO_SINGLE_COLOR_OPTIONS = [2, 3, 4, 5];
+// PRACTICE の落下間隔テーブル（practice_panel.js PRACTICE_PUYO_FALL_TABLE）から「落下なし(0)」を除いたもの
+const PUYO_SINGLE_FALL_OPTIONS = [250, 180, 120, 80, 50, 30];
+
+function _loadPuyoSingleSettings() {
+  const out = { ...PUYO_SINGLE_DEFAULT };
+  try {
+    const saved = JSON.parse(localStorage.getItem(PUYO_SINGLE_STORAGE_KEY) || 'null');
+    if (saved) {
+      if (PUYO_SINGLE_ERASE_OPTIONS.includes(saved.eraseCount)) out.eraseCount = saved.eraseCount;
+      if (PUYO_SINGLE_COLOR_OPTIONS.includes(saved.colorCount)) out.colorCount = saved.colorCount;
+      if (PUYO_SINGLE_FALL_OPTIONS.includes(saved.fallMs)) out.fallMs = saved.fallMs;
+    }
+  } catch (e) { /* 壊れた保存値は既定に戻す */ }
+  return out;
+}
+let puyoSingleSettings = _loadPuyoSingleSettings();
+
+function setPuyoSingleSetting(key, value) {
+  if (!(key in PUYO_SINGLE_DEFAULT) || puyoSingleSettings[key] === value) return;
+  puyoSingleSettings[key] = value;
+  try { localStorage.setItem(PUYO_SINGLE_STORAGE_KEY, JSON.stringify(puyoSingleSettings)); } catch (e) { /* 保存失敗は無視 */ }
+  renderModeCheck();
+}
+
+// 記録対象か（落下速度以外が既定のときだけ true）
+function isPuyoSingleRecordEligible() {
+  return puyoSingleSettings.eraseCount === PUYO_SINGLE_DEFAULT.eraseCount
+      && puyoSingleSettings.colorCount === PUYO_SINGLE_DEFAULT.colorCount;
+}
+
+// FALL スライダー（値=PUYO_SINGLE_FALL_OPTIONS のインデックス）。再描画するとスライダーのフォーカスが
+// 外れるため、保存とラベル更新だけを行う。
+function setPuyoSingleFall(idx) {
+  const v = PUYO_SINGLE_FALL_OPTIONS[parseInt(idx)];
+  if (v === undefined) return;
+  puyoSingleSettings.fallMs = v;
+  try { localStorage.setItem(PUYO_SINGLE_STORAGE_KEY, JSON.stringify(puyoSingleSettings)); } catch (e) { /* 保存失敗は無視 */ }
+  const el = document.getElementById('puyo-single-fall-val');
+  if (el) el.textContent = v + 'ms';
+}
+
+// 準備画面の option-row HTML（FocusNav は .option-row 内の .option-toggle / スライダーを ←/→ で自動操作する）
+function renderPuyoSingleOptionsHtml() {
+  const btns = (key, values, pad) => values.map(v =>
+    `<button class="opt-btn ${puyoSingleSettings[key] === v ? 'active' : ''}" onclick="setPuyoSingleSetting('${key}', ${v})">${v}</button>`).join('')
+    // CONNECT(5個)と値の縦位置を揃えるための不可視ダミー（FocusNav は visibility:hidden を除外する）
+    + (pad ? '<button class="opt-btn" style="visibility:hidden" tabindex="-1" aria-hidden="true">0</button>'.repeat(pad) : '');
+  const row = (label, inner) => `
+    <div class="option-row">
+      <span class="option-label">${label}</span>
+      ${inner}
+    </div>`;
+  const note = isPuyoSingleRecordEligible() ? '' :
+    '<p class="practice-value-hint">CONNECT / COLORS を変更中は記録されません</p>';
+  const fallIdx = PUYO_SINGLE_FALL_OPTIONS.indexOf(puyoSingleSettings.fallMs);
+  return row('CONNECT', `<div class="option-toggle">${btns('eraseCount', PUYO_SINGLE_ERASE_OPTIONS, 0)}</div>`)
+       + row('COLORS', `<div class="option-toggle">${btns('colorCount', PUYO_SINGLE_COLOR_OPTIONS, 1)}</div>`)
+       + row('FALL', `<div class="option-slider">
+            <input type="range" min="0" max="${PUYO_SINGLE_FALL_OPTIONS.length - 1}" step="1" value="${fallIdx}" oninput="setPuyoSingleFall(this.value)">
+            <span id="puyo-single-fall-val" class="option-val" style="width:52px">${puyoSingleSettings.fallMs}ms</span>
+          </div>`)
+       + note;
+}
+
 let testCpuControl = true; 
 let testRule = 'tet';
 

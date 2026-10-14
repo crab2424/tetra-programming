@@ -6,42 +6,9 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // QUIZ レベルデータ定義 (JSONからの読み込み)
 // ※ データ自体は /assets/quizlevels/tdata.json と /assets/quizlevels/pdata.json に分離しています。
-//
-// 各レベルのフォーマット:
-// {
-//   "id": "tet-1",            // 一意なID
-//   "title": "QUIZ 1",        // 表示タイトル
-//   "description": "説明文",  // 説明（日本語）
-//   "rule": "tet",            // "tet" または "puyo"
-//   "allowHold": false,       // (tetのみ) HOLDを許可するかどうか。未指定時はfalse扱い
-//
-//   // ─── テト用フィールド ───
-//   // "initialField": 行ごとのブロック配列（上から順）
-//   //   各行は長さ10の配列、0=空、1〜7=ブロック種類（色ID）
-//   //   行数は任意（最大20行分、下詰めで配置される）
-//   "initialField": [ ... ],
-//
-//   // ─── ぷよ用フィールド ───
-//   // "initialPuyoField": 行ごとの配列（上から順）
-//   //   各行は長さ6の配列、0=空、1〜5=色、6=おじゃまぷよ
-//   "initialPuyoField": [ ... ],
-//
-//   // ─── NEXT（有限・固定） ───
-//   // "nextPieces": テト用ミノタイプの配列 (0=I,1=O,2=T,3=J,4=L,5=S,6=Z)
-//   "nextPieces": [ ... ],
-//   // "nextPuyoPairs": ぷよ用ペアの配列 [[pivot色, child色], ...]
-//   "nextPuyoPairs": [ ... ],
-//
-//   // ─── クリア条件 ───
-//   // "clearCondition": {
-//   //   "type": "clearLines"       // n行消去
-//   //         | "allClear"       // フィールド全消し
-//   //         | "score"          // スコアがn以上
-//   //         | "chain"          // n連鎖以上（ぷよ）
-//   //   "value": number            // type に対応する値
-//   //   "description": "説明"      // クリア条件の説明文
-//   // }
-// }
+// ※ フォーマットの詳細（色ID・クリア条件の一覧）は /assets/quizlevels/template.txt を参照。
+//    要点: テト盤面は 1=I..7=Z, 8=おじゃま（1始まり）／ nextPieces は 0=I..6=Z（0始まり）
+//          盤面は上→下の行配列で、下詰めで配置される
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // ─── 外部JSONからレベルデータを読み込む ─────────
@@ -561,7 +528,7 @@ class QuizManager {
                 case 'score':
                     if (game.score >= cond.value) cleared = true;
                     break;
-                // count はぷよの場合 _checkClearOnPuyoChain() で判定
+                // count はぷよの場合 _checkClearOnPuyoChain() で判定（engine.js が連鎖終了時に呼ぶ）
             }
         }
 
@@ -705,9 +672,9 @@ class QuizManager {
         }
     }
 
-    // ─── ぷよ用 count 条件チェック（チェーン確定時に呼ぶ） ─────────
-    // PuyoGame 側から _quizManager._checkClearOnPuyoChain(chainCount) の形で呼ぶ想定。
-    // （PuyoGame の連鎖確定コールバックに以下の呼び出しを追加する必要がある）
+    // ─── ぷよ用 count 条件チェック（連鎖が終わった時に呼ぶ） ─────────
+    // game/puyo/engine.js の連鎖終了時の QUIZ ブロックから、連鎖があった手だけ
+    // _quizManager._checkClearOnPuyoChain(chainCount) の形で呼ばれる（_checkClear より先）。
     _checkClearOnPuyoChain(chainCount) {
         if (!this.currentLevel || !this.gameInstance) return;
         if (this.isClear || this.isFailed) return;
@@ -1440,4 +1407,38 @@ function _renderQuizNextAll(levelData) {
         if (typeof _original === 'function') _original();
         _showQuizFieldHeader(null);
     };
+})();
+// ─── クイズエディタからのテストプレイ（開発用・localhost とプレビュー限定） ─────────
+// quiz-editor/ の TEST PLAY から `/?quizTest=1` で開かれた時だけ動く。
+// エディタが localStorage に置いた1問を、メモリ上の QUIZ_LEVELS に差し込んで（同じ id なら置換・新規なら末尾）
+// その問題を選んだ状態の準備画面を開く。JSON ファイルは変更しない。本番ホストでは何もしない。
+// プレビュー（*-citgame.pptlabo.workers.dev）は Cloudflare Access で保護されている。
+// 本番の citgame.pptlabo.workers.dev は先頭に「-」が無いので一致しない。
+(function _bootQuizEditorTest() {
+    const host = location.hostname;
+    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
+    const isPreview = host.endsWith('-citgame.pptlabo.workers.dev');
+    if (!(isLocal || isPreview) || !new URLSearchParams(location.search).has('quizTest')) return;
+
+    let level = null;
+    try { level = JSON.parse(localStorage.getItem('tetlabo.quizEditor.test') || 'null'); } catch (e) { level = null; }
+    if (!level || (level.rule !== 'tet' && level.rule !== 'puyo')) {
+        console.warn('[quizTest] テストする問題が見つかりません（エディタの TEST PLAY から開いてください）');
+        return;
+    }
+
+    window.addEventListener('load', async () => {
+        await loadQuizLevels();
+        const list = QUIZ_LEVELS[level.rule];
+        const idx = list.findIndex(l => l.id === level.id);
+        if (idx >= 0) list[idx] = level; else list.push(level);
+
+        // レベル一覧でボタンを押した時と同じ状態にする（renderQuizCheck の onclick 相当）
+        currentGameMode = GAME_MODES.quiz;
+        currentQuizRule = level.rule;
+        currentQuizLevel = level;
+        history.replaceState(null, '', location.pathname);   // 再読み込みで再度差し込まないよう外す
+        switchPage('mode-check');
+        console.log(`[quizTest] ${level.id} をテストプレイします（${idx >= 0 ? `${idx + 1}番を置換` : '末尾に追加'}・メモリ上のみ）`);
+    });
 })();

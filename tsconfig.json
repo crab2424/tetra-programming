@@ -23,5 +23,5 @@
     "jsxFactory": "jsx",
     "jsxFragmentFactory": "Fragment"
   },
-  "include": ["src"]
+  "include": ["src", "quiz-editor"]
 }

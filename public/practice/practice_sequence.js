@@ -374,14 +374,39 @@ const PracticeSequence = (() => {
             _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, nextVal);
             return true;
         }
-        if (e.key === '0') { window.SeManager?.play('menu_decide'); _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, null); editor.flatIndex = (editor.flatIndex + 1) % count; return true; }
+        // 値を入れて次の枠へ。一番右（最後の枠）で入れたら折り返さず枠の編集を終える
+        const advance = () => {
+            if (editor.flatIndex >= count - 1) editor.editingSlots = false;
+            else editor.flatIndex++;
+        };
+        if (e.key === '0') { window.SeManager?.play('menu_decide'); _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, null); advance(); return true; }
+        // Backspace / Delete（Macのdeleteキー=Backspace）: 「?」にして1つ左へ
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+            window.SeManager?.play('menu_decide');
+            _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, null);
+            if (editor.flatIndex > 0) editor.flatIndex--;
+            return true;
+        }
+        // 文字キー直接入力（tet: I O T J L S Z / puyo: R B P G Y）。ゲーム内はキーコンフィグが
+        // 届かないため、ラベルの頭文字そのものでも入れられるようにする
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const label = e.key.toUpperCase();
+            const labels = (editor.rule === 'tet') ? TET_TYPES : PUYO_COLOR_LABELS;
+            const found = Object.keys(labels).find(k => labels[k] === label);
+            if (found !== undefined) {
+                window.SeManager?.play('menu_decide');
+                _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, parseInt(found, 10));
+                advance();
+                return true;
+            }
+        }
         if (e.key >= '1' && e.key <= '9') {
             const n = parseInt(e.key, 10);
             const value = (editor.rule === 'tet') ? (n - 1) : n; // tet: 1-7→0-6 / puyo: 1-5→1-5
             if (value >= minVal && value <= maxVal) {
                 window.SeManager?.play('menu_decide');
                 _flatSet(editor.rule, bagIndex, bag, editor.flatIndex, value);
-                editor.flatIndex = (editor.flatIndex + 1) % count;
+                advance();
                 return true;
             }
         }

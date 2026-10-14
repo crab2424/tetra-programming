@@ -370,7 +370,8 @@ const PConfig = {
     zenkeshiBonus: 2100,       // ★ 全消しスコアを2100点に変更
 
     scoreBase: 10,
-    chainBonusTable: [0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512],
+    // 連鎖ボーナス: 3連鎖目=32から32刻み(34連鎖=992)、35連鎖以降は999上限（連鎖縛り・2/3個消しで最大39連鎖まで想定）
+    chainBonusTable: [0, 8, 16].concat(Array.from({ length: 36 }, (_, i) => Math.min(999, 32 * (i + 1)))),
     colorBonusTable: [0, 3, 6, 12, 24],
     groupBonusTable: [0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10],
 

@@ -414,6 +414,8 @@ class PracticeManager {
         this.ojama.holes.length = 0;
         this._seqVanilla = null;
         this._seqVanillaColorCount = null;
+        // SEQUENCE有効ならリスタートのたびに列の先頭から読み直す（途中位置を引き継がない）
+        if (this.sequenceEnabled && this.seqConfig) this.seqRunner = PracticeSequence.createRunner(this.seqConfig);
         if (!this.tsumoLog.length) return;
         this.tsumoSeg = ++this._tsumoSegCount;
         this.tsumoPos = this.tsumoLog.length;
@@ -1003,6 +1005,25 @@ class PracticeManager {
                     g.activeColors = sortPuyoColors((g._colorOrder || []).slice(0, neededN));
                 }
             }
+            // 操作中のミノ/ぷよも列の先頭の枠に差し替える（NEXTはその次の枠から続く）。
+            // ポーズ中（パネル操作中）に呼ばれるため_isLive()は使えず、終了状態だけ除外する。
+            if (!this.isFinished && !this.isEnding) {
+                if (this.rule === 'tet' && g.mino) {
+                    const type = PracticeSequence.nextTetType(this.seqConfig, this.seqRunner);
+                    const prevMino = g.mino;
+                    if (this._cycleFitTet(type)) {
+                        g.isGrounded = false; g.lowestY = g.mino.y; g.moveCount = 0;
+                        g.lastActionWasRotation = false; g.lastRotUsedPoint5 = false;
+                        if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+                    } else {
+                        g.mino = prevMino;
+                        this.seqRunner = PracticeSequence.createRunner(this.seqConfig); // 置けなければ消費しない
+                    }
+                } else if (this.rule === 'puyo' && g.state === 'playing') {
+                    const pair = PracticeSequence.nextPuyoPair(this.seqConfig, this.seqRunner, g.activeColors);
+                    if (pair) { g.pivotColor = pair[0]; g.childColor = pair[1]; }
+                }
+            }
         } else if (wasEnabled) {
             // ON→OFF: 内側ジェネレータを通常抽選に戻す
             if (this.rule === 'tet') {
@@ -1527,9 +1548,11 @@ class PracticeManager {
                 }
             }
             if (removed > 0) {
-                // 投下時に持ち上げた操作中ミノを、消したぶんだけ下ろす（山に埋めない範囲で）
+                // 操作中ミノは絶対位置を維持する（消したぶんだけ一緒に落とさない）。
+                // 初期出現位置より上に押し上げられている場合のみ、出現位置まで戻す。
                 if (g.mino) {
-                    for (let i = 0; i < removed; i++) {
+                    const spawnY = (g.mino.type === 0) ? -1 : -2;
+                    while (g.mino.y < spawnY) {
                         g.mino.y += 1;
                         if (!g.valid(0, 0)) { g.mino.y -= 1; break; }
                     }
