@@ -126,4 +126,37 @@ long long simulateRemainingChain(Field f, int chainCountStart, int* outChains) {
     return total;
 }
 
+std::string boardString(const Field& f) {
+    std::string s(TOTAL_ROWS * COLS, '0');
+    for (int r = 0; r < TOTAL_ROWS; r++)
+        for (int c = 0; c < COLS; c++) s[r * COLS + c] = (char)('0' + f.v[r][c]);
+    return s;
+}
+
+// 1列の上に同色を n 個（1..maxAdd）積んで起こせる最大連鎖（スコア最大を採る）。
+//   ツモの形・操作経路は無視する「発火点が生きているか」の指標。隠し段（行<HIDDEN）は消えないので
+//   可視段の上端を超えて積む足し方は数えない。
+Ignite bestIgnition(const Field& f, int maxAdd) {
+    Ignite best;
+    for (int c = 0; c < COLS; c++) {
+        int top = TOTAL_ROWS - 1;
+        while (top >= 0 && f.v[top][c] != 0) top--;
+        for (int color = 1; color <= 5; color++) {
+            for (int n = 1; n <= maxAdd; n++) {
+                int r = top - n + 1;
+                if (r < HIDDEN) break;
+                Field g = f;
+                for (int k = 0; k < n; k++) g.v[top - k][c] = (uint8_t)color;
+                int chains = 0;
+                long long sc = simulateRemainingChain(g, 0, &chains);
+                if (chains > 0 && (sc > best.score || (sc == best.score && n < best.need))) {
+                    best.chains = chains; best.score = sc; best.need = n;
+                }
+                if (chains > 0) break;   // 同色をそれ以上足すと同じ連鎖（か崩れる）
+            }
+        }
+    }
+    return best;
+}
+
 } // namespace sim

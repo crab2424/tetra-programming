@@ -52,6 +52,12 @@ def lib():
         L.sim_rng_values.argtypes = [ctypes.c_uint32, ctypes.c_int, f64p]
         L.sim_pair_sequence.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_int, i32p]
         L.sim_chain.argtypes = [u8p, i64p]
+        L.sim_trace_solo.restype = ctypes.c_int
+        L.sim_trace_solo.argtypes = [ctypes.c_int, i32p, u32p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                     ctypes.c_int, ctypes.c_int, ctypes.c_char_p]
+        L.sim_trace_matches.restype = ctypes.c_int
+        L.sim_trace_matches.argtypes = [ctypes.c_int, i32p, i32p, u32p, ctypes.c_int, ctypes.c_int,
+                                        ctypes.c_int, ctypes.c_double, ctypes.c_int, ctypes.c_char_p]
         assert L.sim_abi_version() == 1
         assert L.sim_pp_len() == W_LEN * 2 + 2
         _lib = L
@@ -117,6 +123,28 @@ def run_matches(pa: np.ndarray, pb: np.ndarray, seeds, settings: Settings | None
     res = {k: out[:, i] for i, k in enumerate(MATCH_COLS)}
     res["durationMs"] = dur
     return res
+
+
+def trace_matches(pa: np.ndarray, pb: np.ndarray, seeds, out_path, settings: Settings | None = None,
+                  threads: int = 0) -> int:
+    """記録付きで対局し、1局1行の JSON を out_path に書く（分析用。analyze_losses.py が読む）。"""
+    s = settings or Settings()
+    seeds = np.ascontiguousarray(seeds, dtype=np.uint32)
+    n = len(seeds)
+    pa = np.ascontiguousarray(np.broadcast_to(pa, (n, pa.shape[-1])), dtype=np.int32)
+    pb = np.ascontiguousarray(np.broadcast_to(pb, (n, pb.shape[-1])), dtype=np.int32)
+    return lib().sim_trace_matches(n, pa, pb, seeds, s.ojama_rate, s.color_count, s.margin_time_ms,
+                                   s.max_game_ms, threads, str(out_path).encode())
+
+
+def trace_solo(p: np.ndarray, seeds, out_path, max_turns: int = 60, harass_turn: int = 0,
+               harass_amount: int = 0, color_count: int = 4, threads: int = 0) -> int:
+    """記録付きひとり用。harass_turn 手目に harass_amount 個のおじゃまを降らせる（分析用）。"""
+    seeds = np.ascontiguousarray(seeds, dtype=np.uint32)
+    n = len(seeds)
+    p = np.ascontiguousarray(np.broadcast_to(p, (n, p.shape[-1])), dtype=np.int32)
+    return lib().sim_trace_solo(n, p, seeds, max_turns, harass_turn, harass_amount, color_count, threads,
+                                str(out_path).encode())
 
 
 SOLO_COLS = ["turns", "maxChain", "maxChainScore", "firstBigTurn", "died"]

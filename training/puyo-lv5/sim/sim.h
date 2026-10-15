@@ -9,6 +9,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <string>
 #include <vector>
 
 #include "def.h"   // COLS / ROWS / HIDDEN / TOTAL_ROWS（native と共通）
@@ -108,6 +109,41 @@ struct PlayerStats {
     int       counterTurns = 0;    // fast（カウンター）で打ったターン数
 };
 
+// ── 記録（負け方の分析用。Player::trace が nullptr の学習時は何もしない）──
+// 発火点の生死：1列の上に同色を 1〜maxAdd 個足して起こせる最大連鎖（ツモに依らない「撃てる状態」の指標）
+struct Ignite { int chains = 0; long long score = 0; int need = 0; };
+Ignite bestIgnition(const Field& f, int maxAdd = 3);
+
+struct TraceTurn {             // decide()（spawnAnim 開始時の思考）ごとの盤面と思考結果
+    double t; int turn; int mode;          // mode 0=build 1=fast（カウンター）
+    int incoming, queue;                   // 受け量（確定＋予測）／おじゃまキュー総量
+    int fire, reason;                      // この手で撃つ段数（0=育成）／発火理由（build.cpp dbg[23]）
+    int fireableChains, fireableScore;     // 現ペアを置けば撃てる最大（dbg[21][22]）
+    int potChains, potScore;               // 選択初手の到達連鎖（dbg[20]）／全候補の到達連鎖最大（dbg[12]）
+    Ignite ign;                            // bestIgnition
+    int puyos, ojama, h[COLS];
+};
+struct TraceFire {             // 1回の連鎖（発火〜連鎖終了）
+    double tStart = 0, tEnd = 0;
+    int turn = 0, mode = 0, reason = 0, chains = 0;
+    long long score = 0;
+    int offset = 0, sent = 0;              // 相殺した量／相手へ送った量
+    int queueBefore = 0;                   // 発火時点のおじゃまキュー
+    int puyosBefore = 0, ojamaBefore = 0, puyosAfter = 0, ojamaAfter = 0;
+    std::vector<std::vector<int>> steps;   // 段ごとの消えたグループのサイズ
+    std::vector<int> stepColors;           // 段ごとの色数
+    std::vector<int> stepOjamaErased;      // 段ごとに巻き込んで消えたおじゃま
+    std::string board;                     // 発火直前の盤面（17×6, '0'..'6'）
+};
+struct TraceDrop { double t; int turn, amount; Ignite before, after; };
+struct PlayerTrace {
+    std::vector<TraceTurn> turns;
+    std::vector<TraceFire> fires;
+    std::vector<TraceDrop> drops;
+    std::string finalBoard;
+};
+std::string boardString(const Field& f);
+
 class Player {
 public:
     enum Phase { SPAWN, PLACE, CHECK, ERASED, SPAWN_ANIM_END, DEAD };
@@ -121,6 +157,8 @@ public:
 
     // ひとり用の設定
     int targetChain = 0;
+
+    PlayerTrace* trace = nullptr;   // 分析用の記録先（nullptr=記録しない）
 
     PlayerStats stats;
 
@@ -171,6 +209,8 @@ private:
     bool  decided_ = false;
     int   curPivot_ = 0, curChild_ = 0;
     int   turnChainScore_ = 0;
+    int   lastMode_ = 0, lastReason_ = 0;   // 記録用：直近の decide() のモード・発火理由
+    bool  fireOpen_ = false;                // 記録用：trace->fires.back() が連鎖中
     long long turnChainScoreSum_ = 0;
 
     std::pair<int,int> makePair(int excludeColor);
@@ -183,13 +223,15 @@ struct MatchResult {
     double durationMs;
     PlayerStats a, b;
 };
-MatchResult runMatch(const PolicyParams& a, const PolicyParams& b, uint32_t seed, const GameSettings& gs);
+MatchResult runMatch(const PolicyParams& a, const PolicyParams& b, uint32_t seed, const GameSettings& gs,
+                     PlayerTrace* ta = nullptr, PlayerTrace* tb = nullptr);
 
 struct SoloResult {
     PlayerStats st;
     bool   died;
     double durationMs;
 };
-SoloResult runSolo(const PolicyParams& p, uint32_t seed, int maxTurns, int targetChain, const GameSettings& gs);
+SoloResult runSolo(const PolicyParams& p, uint32_t seed, int maxTurns, int targetChain, const GameSettings& gs,
+                   PlayerTrace* tr = nullptr, int harassTurn = 0, int harassAmount = 0);
 
 } // namespace sim

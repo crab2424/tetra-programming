@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <atomic>
 #include <climits>
+#include <cstdio>
 #include <cstring>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -45,6 +47,69 @@ GameSettings makeSettings(int ojamaRate, int colorCount, int marginTimeMs, doubl
     return gs;
 }
 
+// ── 記録の JSON 化（分析用 sim_trace_matches）──
+void jIgn(std::string& o, const Ignite& g) {
+    o += "[" + std::to_string(g.chains) + "," + std::to_string(g.score) + "," + std::to_string(g.need) + "]";
+}
+template <class T>
+void jArr(std::string& o, const std::vector<T>& v) {
+    o += "[";
+    for (size_t i = 0; i < v.size(); i++) { if (i) o += ","; o += std::to_string(v[i]); }
+    o += "]";
+}
+std::string jNum(double v) { char b[32]; std::snprintf(b, sizeof b, "%.1f", v); return b; }
+
+void jTrace(std::string& o, const PlayerTrace& tr, const PlayerStats& st) {
+    o += "{\"turnsPlayed\":" + std::to_string(st.turns) + ",\"sentTotal\":" + std::to_string(st.ojamaSent) +
+         ",\"recvTotal\":" + std::to_string(st.ojamaReceived) + ",\"finalBoard\":\"" + tr.finalBoard + "\"";
+    // turns: [t, turn, mode, incoming, queue, fire, reason, fireableChains, fireableScore, potChains, potScore,
+    //         ign, puyos, ojama, h]
+    o += ",\"turns\":[";
+    for (size_t i = 0; i < tr.turns.size(); i++) {
+        const auto& x = tr.turns[i];
+        if (i) o += ",";
+        o += "[" + jNum(x.t) + "," + std::to_string(x.turn) + "," + std::to_string(x.mode) + "," +
+             std::to_string(x.incoming) + "," + std::to_string(x.queue) + "," + std::to_string(x.fire) + "," +
+             std::to_string(x.reason) + "," + std::to_string(x.fireableChains) + "," +
+             std::to_string(x.fireableScore) + "," + std::to_string(x.potChains) + "," +
+             std::to_string(x.potScore) + ",";
+        jIgn(o, x.ign);
+        o += "," + std::to_string(x.puyos) + "," + std::to_string(x.ojama) + ",";
+        jArr(o, std::vector<int>(x.h, x.h + COLS));
+        o += "]";
+    }
+    o += "],\"fires\":[";
+    for (size_t i = 0; i < tr.fires.size(); i++) {
+        const auto& f = tr.fires[i];
+        if (i) o += ",";
+        o += "{\"t0\":" + jNum(f.tStart) + ",\"t1\":" + jNum(f.tEnd) + ",\"turn\":" + std::to_string(f.turn) +
+             ",\"mode\":" + std::to_string(f.mode) + ",\"reason\":" + std::to_string(f.reason) +
+             ",\"chains\":" + std::to_string(f.chains) + ",\"score\":" + std::to_string(f.score) +
+             ",\"offset\":" + std::to_string(f.offset) + ",\"sent\":" + std::to_string(f.sent) +
+             ",\"queue\":" + std::to_string(f.queueBefore) +
+             ",\"pb\":" + std::to_string(f.puyosBefore) + ",\"ob\":" + std::to_string(f.ojamaBefore) +
+             ",\"pa\":" + std::to_string(f.puyosAfter) + ",\"oa\":" + std::to_string(f.ojamaAfter) +
+             ",\"steps\":[";
+        for (size_t k = 0; k < f.steps.size(); k++) { if (k) o += ","; jArr(o, f.steps[k]); }
+        o += "],\"colors\":";
+        jArr(o, f.stepColors);
+        o += ",\"ojErased\":";
+        jArr(o, f.stepOjamaErased);
+        o += ",\"board\":\"" + f.board + "\"}";
+    }
+    o += "],\"drops\":[";
+    for (size_t i = 0; i < tr.drops.size(); i++) {
+        const auto& d = tr.drops[i];
+        if (i) o += ",";
+        o += "[" + jNum(d.t) + "," + std::to_string(d.turn) + "," + std::to_string(d.amount) + ",";
+        jIgn(o, d.before);
+        o += ",";
+        jIgn(o, d.after);
+        o += "]";
+    }
+    o += "]}";
+}
+
 } // namespace
 
 extern "C" {
@@ -74,6 +139,56 @@ void sim_run_matches(int nJobs, const int* pa, const int* pb, const uint32_t* se
         o[11] = r.a.counterTurns;
         outDur[j] = r.durationMs;
     });
+}
+
+// 記録付き対局バッチ（分析用・遅い）。1局1行の JSON（JSONL）を outPath に書く。戻り値=書いた局数。
+//   各行: {"job","seed","winner"(0=A,1=B,-1=引分),"dur","A":{trace},"B":{trace}}
+int sim_trace_matches(int nJobs, const int* pa, const int* pb, const uint32_t* seeds,
+                      int ojamaRate, int colorCount, int marginTimeMs, double maxGameMs,
+                      int nThreads, const char* outPath) {
+    GameSettings gs = makeSettings(ojamaRate, colorCount, marginTimeMs, maxGameMs);
+    std::vector<std::string> lines(nJobs);
+    parallelFor(nJobs, nThreads, [&](int j) {
+        PolicyParams A = PolicyParams::fromPacked(pa + (size_t)j * PP_LEN);
+        PolicyParams B = PolicyParams::fromPacked(pb + (size_t)j * PP_LEN);
+        PlayerTrace ta, tb;
+        MatchResult r = runMatch(A, B, seeds[j], gs, &ta, &tb);
+        std::string& o = lines[j];
+        o = "{\"job\":" + std::to_string(j) + ",\"seed\":" + std::to_string(seeds[j]) +
+            ",\"winner\":" + std::to_string(r.winner) + ",\"dur\":" + jNum(r.durationMs) + ",\"A\":";
+        jTrace(o, ta, r.a);
+        o += ",\"B\":";
+        jTrace(o, tb, r.b);
+        o += "}\n";
+    });
+    FILE* fp = std::fopen(outPath, "w");
+    if (!fp) return -1;
+    for (const auto& l : lines) std::fwrite(l.data(), 1, l.size(), fp);
+    std::fclose(fp);
+    return nJobs;
+}
+
+// 記録付きひとり用（分析用）。harassTurn 手目に harassAmount 個のおじゃまを降らせる（0=降らせない）。
+//   各行: {"job","seed","died","dur","P":{trace}}
+int sim_trace_solo(int nJobs, const int* p, const uint32_t* seeds, int maxTurns, int harassTurn,
+                   int harassAmount, int colorCount, int nThreads, const char* outPath) {
+    GameSettings gs = makeSettings(70, colorCount, -1, 1e18);
+    std::vector<std::string> lines(nJobs);
+    parallelFor(nJobs, nThreads, [&](int j) {
+        PolicyParams P = PolicyParams::fromPacked(p + (size_t)j * PP_LEN);
+        PlayerTrace tr;
+        SoloResult r = runSolo(P, seeds[j], maxTurns, 0, gs, &tr, harassTurn, harassAmount);
+        std::string& o = lines[j];
+        o = "{\"job\":" + std::to_string(j) + ",\"seed\":" + std::to_string(seeds[j]) +
+            ",\"died\":" + std::to_string(r.died ? 1 : 0) + ",\"dur\":" + jNum(r.durationMs) + ",\"P\":";
+        jTrace(o, tr, r.st);
+        o += "}\n";
+    });
+    FILE* fp = std::fopen(outPath, "w");
+    if (!fp) return -1;
+    for (const auto& l : lines) std::fwrite(l.data(), 1, l.size(), fp);
+    std::fclose(fp);
+    return nJobs;
 }
 
 // ひとり用バッチ（おじゃま無し）。p は各ジョブの PolicyParams。

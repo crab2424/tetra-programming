@@ -53,6 +53,18 @@ python3 py/validate.py --best runs/build-001/best.json --seeds 1000
 - 既定（16候補×100シード×2局＝3200局/世代）で **1世代 約10〜21分、100世代 約17〜35時間**。
   短くしたいときは `--seeds 60` などで減らす（勝率の雑音は増える）。
 
+## 負け方の分析（記録モード）
+対局を記録して、負けの分類・発火点の生死・連鎖の中身・撃ち合いの勝率を集計する。
+結果と考察: `source_assets/memory/cpu/puyo/lv5-improvement-notes.md`
+
+```bash
+python3 py/analyze_losses.py --collect     # runs/analysis/ に記録（lv6(best) vs lv5・lv5同士・おじゃま実験。約12分）
+python3 py/analyze_losses.py runs/analysis/lv6_vs_lv5.jsonl --a-label lv6 --b-label lv5 --split 300
+python3 py/analyze_losses.py --harass      # 指定手数でおじゃまを降らせたときの被害
+```
+- 記録は `Player::trace`（`sim/sim.h` の `PlayerTrace`）。nullptr の学習時は何もしない（学習速度は不変）
+- 発火点指標 `bestIgnition`：1列に同色1〜3個を足して起こせる最大連鎖（ツモ非依存の「撃てる状態」）
+
 ## 出力（runs/<名前>/、git 管理外）
 - `log.csv` … 世代ごとの sigma・候補の勝率（最高/平均/中央値）・定期評価・平均ベクトル
 - `state.json` … 再開用（CMA-ES の状態・殿堂・best）

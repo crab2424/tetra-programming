@@ -135,9 +135,11 @@ void Player::applyOffset(int amount, Player* opp, double now) {
     garbageQueue.erase(std::remove_if(garbageQueue.begin(), garbageQueue.end(),
                                       [](const Garbage& g) { return g.amount <= 0; }),
                        garbageQueue.end());
+    if (trace && fireOpen_) trace->fires.back().offset += amount - remaining;
     if (remaining > 0 && opp) {
         sentThisTurn_.push_back(opp->receiveGarbage(remaining, now));
         stats.ojamaSent += remaining;
+        if (trace && fireOpen_) trace->fires.back().sent += remaining;
     }
 }
 
@@ -155,6 +157,8 @@ bool Player::generateOjama() {
                                       [](const Garbage& g) { return g.amount <= 0; }),
                        garbageQueue.end());
     if (drop <= 0) return false;
+    TraceDrop td;
+    if (trace) { td.t = t_; td.turn = stats.turns; td.amount = drop; td.before = bestIgnition(field); }
 
     int rows = drop / COLS, fractions = drop % COLS;
     for (int i = 0; i < rows; i++)
@@ -176,6 +180,7 @@ bool Player::generateOjama() {
     stats.ojamaReceived += drop;
     hasDroppedOjamaThisTurn_ = true;
     DropInfo di = applyGravity(field);
+    if (trace) { td.after = bestIgnition(field); trace->drops.push_back(td); }
     // dropping（おじゃまは振動なし）→ fixAnim(0) → fixWait5f → checkErase
     t_ += di.maxDist * DROP_MS_PER_ROW + di.vibCycles * VIB_CYCLE_MS + FIX_WAIT_MS;
     phase_ = CHECK;
@@ -232,6 +237,30 @@ void Player::decide(Player* opp) {
     for (int i = 0; i < 40; i++) out[i] = -1;
     searchBuildMode(bb, nextPairs, w, out);
 
+    lastMode_ = wantCounter ? 1 : 0;
+    lastReason_ = out[23];
+    if (trace) {
+        TraceTurn tt;
+        tt.t = t_; tt.turn = stats.turns + 1; tt.mode = lastMode_;
+        tt.incoming = incoming; tt.queue = queueSum();
+        tt.fire = out[15]; tt.reason = out[23];
+        tt.fireableChains = out[21]; tt.fireableScore = out[22];
+        tt.potChains = out[20]; tt.potScore = out[12];
+        tt.ign = bestIgnition(field);
+        tt.puyos = tt.ojama = 0;
+        for (int c = 0; c < COLS; c++) {
+            int h = 0;
+            for (int r = 0; r < TOTAL_ROWS; r++) {
+                uint8_t v = field.v[r][c];
+                if (v == 0) continue;
+                if (v == 6) tt.ojama++; else tt.puyos++;
+                if (r >= HIDDEN) h++;
+            }
+            tt.h[c] = h;
+        }
+        trace->turns.push_back(tt);
+    }
+
     if (out[0] < 0) { decCol_ = 2; decRot_ = 0; }   // _handleWorkerResult の候補なしフォールバック
     else            { decCol_ = out[0]; decRot_ = out[1]; }
     decided_ = true;
@@ -249,6 +278,16 @@ void Player::chainEnd(Player* opp) {
         attackScore_ %= rate;
         generatedOjamaTotal = 0;
         if (pendingFire > 0) { applyOffset(pendingFire, opp, t_); pendingFire = 0; }
+        if (trace && fireOpen_) {
+            TraceFire& tf = trace->fires.back();
+            tf.tEnd = t_; tf.chains = chainCount; tf.score = turnChainScore_;
+            for (int r = 0; r < TOTAL_ROWS; r++)
+                for (int c = 0; c < COLS; c++) {
+                    uint8_t v = field.v[r][c];
+                    if (v == 6) tf.ojamaAfter++; else if (v) tf.puyosAfter++;
+                }
+            fireOpen_ = false;
+        }
     }
     if (chainCount > 0 && field.empty()) pendingFire += ZENKESHI_BONUS / rate;
 
@@ -323,6 +362,31 @@ void Player::step(Player* opp) {
             long long rest = simulateRemainingChain(field, 0);
             chainFullOjama = (attackScore_ + rest) / rate;
         }
+        if (trace) {
+            if (chainCount == 0) {
+                TraceFire tf;
+                tf.tStart = t_; tf.turn = stats.turns; tf.mode = lastMode_; tf.reason = lastReason_;
+                tf.queueBefore = queueSum();
+                tf.board = boardString(field);
+                for (int r = 0; r < TOTAL_ROWS; r++)
+                    for (int c = 0; c < COLS; c++) {
+                        uint8_t v = field.v[r][c];
+                        if (v == 6) tf.ojamaBefore++; else if (v) tf.puyosBefore++;
+                    }
+                trace->fires.push_back(std::move(tf));
+                fireOpen_ = true;
+            }
+            TraceFire& tf = trace->fires.back();
+            std::vector<int> sizes;
+            int mask = 0;
+            for (const auto& g : pendingGroups_) {
+                sizes.push_back((int)g.size());
+                mask |= 1 << field.v[g[0].r][g[0].c];
+            }
+            tf.steps.push_back(sizes);
+            tf.stepColors.push_back(__builtin_popcount(mask));
+            tf.stepOjamaErased.push_back((int)pendingOjamaCells_.size());
+        }
         chainCount++;
         int add = chainStepScore(pendingGroups_, field, chainCount);
         turnChainScore_ += add;
@@ -353,8 +417,11 @@ void Player::step(Player* opp) {
 }
 
 // ── 対局 ──
-MatchResult runMatch(const PolicyParams& a, const PolicyParams& b, uint32_t seed, const GameSettings& gs) {
+MatchResult runMatch(const PolicyParams& a, const PolicyParams& b, uint32_t seed, const GameSettings& gs,
+                     PlayerTrace* ta, PlayerTrace* tb) {
     Player pa(a, gs, seed), pb(b, gs, seed);   // VERSUS は両者同じシード（versus.js sharedSeed）
+    pa.trace = ta;
+    pb.trace = tb;
     Player* P[2] = {&pa, &pb};
     MatchResult res;
     res.winner = -1;
@@ -374,20 +441,32 @@ MatchResult runMatch(const PolicyParams& a, const PolicyParams& b, uint32_t seed
         }
     }
     res.durationMs = now;
+    if (ta) ta->finalBoard = boardString(pa.field);
+    if (tb) tb->finalBoard = boardString(pb.field);
     res.a = pa.stats;
     res.b = pb.stats;
     return res;
 }
 
-SoloResult runSolo(const PolicyParams& p, uint32_t seed, int maxTurns, int targetChain, const GameSettings& gs) {
+SoloResult runSolo(const PolicyParams& p, uint32_t seed, int maxTurns, int targetChain, const GameSettings& gs,
+                   PlayerTrace* tr, int harassTurn, int harassAmount) {
     Player pl(p, gs, seed);
     pl.targetChain = targetChain;
+    pl.trace = tr;
     SoloResult r;
+    bool harassed = false;
     // maxTurns 手目の連鎖まで解決し、次の手を置いた時点（turns > maxTurns）で打ち切る
     while (!pl.dead()) {
+        // 分析用：harassTurn 手目を置いた時点で harassAmount 個のおじゃまを予告に入れる（確定済み）。
+        //   その手の連鎖終了時（500ms の非表示が明けていれば）に着弾する。カウンター判断は無い（相手なし）。
+        if (!harassed && harassAmount > 0 && pl.stats.turns >= harassTurn) {
+            pl.confirmGarbage({pl.receiveGarbage(harassAmount, pl.nextT() - INTERNAL_MS)});
+            harassed = true;
+        }
         pl.step(nullptr);
         if (pl.stats.turns > maxTurns) break;
     }
+    if (tr) tr->finalBoard = boardString(pl.field);
     r.st = pl.stats;
     if (r.st.turns > maxTurns) r.st.turns = maxTurns;
     r.died = pl.dead();
