@@ -64,6 +64,15 @@ python3 py/analyze_losses.py --harass      # 指定手数でおじゃまを降�
 ```
 - 記録は `Player::trace`（`sim/sim.h` の `PlayerTrace`）。nullptr の学習時は何もしない（学習速度は不変）
 - 発火点指標 `bestIgnition`：1列に同色1〜3個を足して起こせる最大連鎖（ツモ非依存の「撃てる状態」）
+- 有効ぷよ量（turns[16] = [色ぷよ, 残り色ぷよ, 途中段の余剰]）：`bestIgnition` の連鎖を回して数える。有効 = 色ぷよ − 残り − 余剰
+
+### ひとり用の基準計測（評価の項を試すとき）
+```bash
+python3 py/solo_baseline.py                 # lv5 / lv6 / lv6+puyosWeight / lv6 wasteWeight=0（300シード×80手・約8分）
+python3 py/solo_baseline.py --only lv6      # 一部だけ
+python3 py/solo_baseline.py --report-only   # 記録済みを集計し直す → runs/analysis/solo_baseline.md
+```
+最初の本線（段数・発火理由・発火時の色ぷよ・余剰・残り）、有効ぷよ量の推移、育成中の1〜2連鎖の「整地（無駄ぷよが減り起こせる段数が落ちない）／こぼし（起こせる段数が2段以上落ちる）」を出す。
 
 ## 対戦判断の A/B（ext[]）
 `PolicyParams.ext[16]`（`sim/sim.h` ExtIndex、既定0＝現行 lv5）で対戦判断を切り替える。

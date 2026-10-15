@@ -159,8 +159,9 @@ def main():
         path = OUT / f"solo_{slug(name)}.jsonl"
         if not args.report_only:
             ps.trace_solo(pol.packed(), seeds, path, max_turns=args.turns)
-        lines += [""] + report(name, path, args.turns)
-        print("\n".join(lines[-12:]), flush=True)
+        sec = [""] + report(name, path, args.turns)
+        lines += sec
+        print("\n".join(sec), flush=True)
     (OUT / "solo_baseline.md").write_text("\n".join(lines) + "\n")
     print(f"\n→ {OUT / 'solo_baseline.md'}")
 
