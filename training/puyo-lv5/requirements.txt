@@ -1,0 +1,3 @@
+numpy>=1.24
+matplotlib>=3.7      # notebooks/02_train の可視化のみ
+jupyter              # ノートブックを使う場合のみ（学習本体は CLI で動く）

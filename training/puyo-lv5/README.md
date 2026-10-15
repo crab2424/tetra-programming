@@ -1,0 +1,83 @@
+# ぷよCPU lv5 学習（CMA-ES × 対戦シミュレータ）
+
+現行 lv5 に VERSUS で勝ち越す重みを、自己対戦の勝率を目的関数にした CMA-ES で探す。
+設計: `source_assets/memory/cpu/puyo/lv5-training-design.md`
+
+- **C++（sim/）**：対戦シミュレータ＋lv5 の JS 側ポリシー（モード切替・受け量推定）の移植。
+  探索は本番と同じ `public/cpu/puyo/lv5/native` をコピーせず直接コンパイルする（`cpu5.cpp` だけ除外）。
+  → 学習した重みはそのまま本番の `cpu5_weights.js` に書き写せる。
+- **Python（py/）**：ctypes でジョブを渡すだけ。CMA-ES は numpy のみの自前実装（`py/cmaes.py`）。
+- 本番の重みは **`tools/export_weights.mjs` が本番 JS から毎回取り出す**（手で写さない）。
+
+## 準備
+
+```bash
+cd training/puyo-lv5
+pip install -r requirements.txt   # numpy（必須）/ matplotlib・jupyter（ノートブックを使う場合）
+./build.sh                        # build/libpuyosim.dylib
+python3 tests/test_parity.py      # JS エンジンとの一致テスト（乱数・ツモ・連鎖）
+bash tests/run_cpp_tests.sh       # おじゃまの相殺・着弾シナリオ
+```
+
+本番の native ソースを変えたら `./build.sh` をやり直す（`puyosim.build(force=True)` でも可）。
+
+## 学習・検証
+
+```bash
+# 学習（スリープ防止付き。中断しても --resume で続きから）
+caffeinate -i python3 py/train.py --run runs/build-001 --gens 100
+caffeinate -i python3 py/train.py --run runs/build-001 --gens 100 --resume
+
+# 検証（学習に使っていないシードで best vs 現行を 2000 局）
+python3 py/validate.py --best runs/build-001/best.json --seeds 1000
+```
+
+| ノートブック | 内容 |
+|---|---|
+| `notebooks/01_baseline.ipynb` | 一致テスト・現行 lv5 の基準値・1世代の所要時間 |
+| `notebooks/02_train.ipynb` | `runs/<名前>/log.csv` の可視化（学習本体は CLI で回す） |
+| `notebooks/03_validate.ipynb` | 検証の実行 |
+
+### 主なオプション（train.py）
+| 引数 | 既定 | 意味 |
+|---|---|---|
+| `--seeds` | 100 | 1候補あたりのシード数（各シード先後2局） |
+| `--popsize` | 16 | 1世代の候補数 |
+| `--sigma` | 0.1 | 初期ステップ幅（正規化座標 0..1） |
+| `--eval-every` / `--eval-seeds` | 5 / 200 | 平均ベクトルを現行と定期評価 → `best.json` |
+| `--hof-start` / `--hof-every` / `--hof-size` / `--hof-share` | 30 / 10 / 3 / 0.5 | 殿堂（過去世代）も対戦相手に混ぜる |
+
+### 所要時間（M4 Pro 12コアでの実測）
+- 速度は1局の長さで決まる。現行 lv5 同士は相殺し合って長期戦（両者計 約160手）になり **約2.5局/秒**。
+  現行と離れた候補が相手だと約半分の長さで **約5局/秒**。
+- 既定（16候補×100シード×2局＝3200局/世代）で **1世代 約10〜21分、100世代 約17〜35時間**。
+  短くしたいときは `--seeds 60` などで減らす（勝率の雑音は増える）。
+
+## 出力（runs/<名前>/、git 管理外）
+- `log.csv` … 世代ごとの sigma・候補の勝率（最高/平均/中央値）・定期評価・平均ベクトル
+- `state.json` … 再開用（CMA-ES の状態・殿堂・best）
+- `best.json` … 定期評価で最良だった平均ベクトル（※選抜に使った評価なので勝率は過大。必ず validate.py で確認）
+
+## シミュレータの忠実度
+JS と完全一致を確認したもの（`tests/test_parity.py`、本番 JS の関数を Node で直接実行して照合）:
+乱数（xorshift32）、ツモ列（色シャッフル→初期 NEXT→取り出し）、連鎖スコア・段数（3000局面）。
+
+シナリオで確認したもの（`tests/test_ojama.cpp`）: 相殺順（ready→未ready）、送信（500ms 非表示→送り手の連鎖終了で確定）、
+着弾（最大30個・端数列）、マージンタイムのレート表。
+
+近似・省略しているもの:
+- CPU の思考時間は 0（spawnAnim 中の前倒し計算に収まる前提）。RAF の 16ms 粒度、操作中の自然落下、開始カウントダウンは無視
+- 同時刻のイベントは先手（A）から処理する → 単局では先手が有利に偏るので、学習・検証は必ず先後2局で打ち消す
+- 相手の「発火中連鎖の全段見込み」（_oppChainFull）は連鎖開始時に一括計算（毎フレーム推定と同じ値）
+- 相手はぷよのみ（テト相手・混在戦は対象外）
+
+本番 JS の挙動として**そのまま再現している**癖:
+- 連鎖1段ごとに連鎖文字の表示位置（draw.js `_prepareChainTextDOM`）で乱数を1回消費する → 連鎖の段数が違うと両者のツモがずれる
+- 相手の連鎖終了〜spawnAnim 終了の間は `generatedOjamaTotal=0` なのに `chainCount>0` のため、
+  受け量の予測（anticipated）が全段見込みを二重に数える（cpu5_worker_io.js `_getIncomingBaseline` の現仕様）
+
+## 本番への反映
+`validate.py` の最後に、変化した値と書き写す先（`cpu5_weights.js` / `cpu5_worker_io.js`）が出る。
+採用目安（勝率55%以上かつ95%信頼区間の下限>50%）を満たしたら書き写し、実機の CPU 同士モードで確認する。
+fast（カウンター）は build の倍率 `{x:}` で作られているため、build を変えると本番では fast も動く。
+学習中は fast を現行値で固定しているので、反映時は fast を現行の絶対値で書き直すか、倍率のまま追従させるかを決める（設計 D2）。
