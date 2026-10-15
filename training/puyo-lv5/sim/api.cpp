@@ -65,7 +65,7 @@ void jTrace(std::string& o, const PlayerTrace& tr, const PlayerStats& st) {
          ",\"waitTurns\":" + std::to_string(st.waitTurns) + ",\"p1Holds\":" + std::to_string(st.p1Holds) +
          ",\"p1Kills\":" + std::to_string(st.p1Kills);
     // turns: [t, turn, mode, incoming, queue, fire, reason, fireableChains, fireableScore, potChains, potScore,
-    //         ign, puyos, ojama, h, oppEnd]
+    //         ign, puyos, ojama, h, oppEnd, [colored, leftover, excess]]
     o += ",\"turns\":[";
     for (size_t i = 0; i < tr.turns.size(); i++) {
         const auto& x = tr.turns[i];
@@ -78,7 +78,9 @@ void jTrace(std::string& o, const PlayerTrace& tr, const PlayerStats& st) {
         jIgn(o, x.ign);
         o += "," + std::to_string(x.puyos) + "," + std::to_string(x.ojama) + ",";
         jArr(o, std::vector<int>(x.h, x.h + COLS));
-        o += "," + jNum(x.oppEnd) + "]";
+        o += "," + jNum(x.oppEnd) + ",";
+        jArr(o, std::vector<int>{x.waste.colored, x.waste.leftover, x.waste.excess});
+        o += "]";
     }
     o += "],\"fires\":[";
     for (size_t i = 0; i < tr.fires.size(); i++) {

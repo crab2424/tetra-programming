@@ -135,8 +135,13 @@ struct PlayerStats {
 
 // ── 記録（負け方の分析用。Player::trace が nullptr の学習時は何もしない）──
 // 発火点の生死：1列の上に同色を 1〜maxAdd 個足して起こせる最大連鎖（ツモに依らない「撃てる状態」の指標）
-struct Ignite { int chains = 0; long long score = 0; int need = 0; };
+struct Ignite { int chains = 0; long long score = 0; int need = 0; int col = -1, color = 0; };
 Ignite bestIgnition(const Field& f, int maxAdd = 3);
+// 有効ぷよ量の指標：bestIgnition の連鎖を実際に回して、絡まない色ぷよ（残り）と途中段の余剰を数える。
+//   colored=盤面の色ぷよ / leftover=その連鎖の後に残る色ぷよ（無駄ぷよ＋次の種）/
+//   excess=最終段以外の各段で4個を超えて消えた数。発火できない盤面は leftover=colored・excess=0。
+struct BoardWaste { int colored = 0, leftover = 0, excess = 0; };
+BoardWaste boardWaste(const Field& f, const Ignite& ign);
 
 struct TraceTurn {             // decide()（spawnAnim 開始時の思考）ごとの盤面と思考結果
     double t; int turn; int mode;          // mode 0=build 1=fast（カウンター）
@@ -147,6 +152,7 @@ struct TraceTurn {             // decide()（spawnAnim 開始時の思考）ご�
     Ignite ign;                            // bestIgnition
     int puyos, ojama, h[COLS];
     double oppEnd;                         // 相手の発火中連鎖の終了予測時刻（-1=発火中でない）
+    BoardWaste waste;                      // ign の連鎖で見た有効ぷよ量（色ぷよ・残り・余剰）
 };
 struct TraceFire {             // 1回の連鎖（発火〜連鎖終了）
     double tStart = 0, tEnd = 0;

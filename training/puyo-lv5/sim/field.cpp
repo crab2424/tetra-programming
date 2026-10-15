@@ -166,12 +166,47 @@ Ignite bestIgnition(const Field& f, int maxAdd) {
                 long long sc = simulateRemainingChain(g, 0, &chains);
                 if (chains > 0 && (sc > best.score || (sc == best.score && n < best.need))) {
                     best.chains = chains; best.score = sc; best.need = n;
+                    best.col = c; best.color = color;
                 }
                 if (chains > 0) break;   // 同色をそれ以上足すと同じ連鎖（か崩れる）
             }
         }
     }
     return best;
+}
+
+static int countColored(const Field& f) {
+    int n = 0;
+    for (int r = 0; r < TOTAL_ROWS; r++)
+        for (int c = 0; c < COLS; c++)
+            if (f.v[r][c] != 0 && f.v[r][c] != 6) n++;
+    return n;
+}
+
+BoardWaste boardWaste(const Field& f, const Ignite& ign) {
+    BoardWaste w;
+    w.colored = countColored(f);
+    w.leftover = w.colored;
+    if (ign.chains <= 0 || ign.col < 0) return w;
+    Field g = f;
+    int top = TOTAL_ROWS - 1;
+    while (top >= 0 && g.v[top][ign.col] != 0) top--;
+    for (int k = 0; k < ign.need; k++) g.v[top - k][ign.col] = (uint8_t)ign.color;
+    std::vector<std::vector<Cell>> groups;
+    std::vector<Cell> oj;
+    std::vector<int> erased;
+    while (true) {
+        findErasable(g, groups, oj);
+        if (groups.empty()) break;
+        int n = 0;
+        for (const auto& gr : groups) { n += (int)gr.size(); for (const auto& cell : gr) g.v[cell.r][cell.c] = 0; }
+        for (const auto& cell : oj) g.v[cell.r][cell.c] = 0;
+        erased.push_back(n);
+        applyGravity(g);
+    }
+    for (size_t i = 0; i + 1 < erased.size(); i++) w.excess += erased[i] - ERASE_COUNT;
+    w.leftover = countColored(g);
+    return w;
 }
 
 } // namespace sim

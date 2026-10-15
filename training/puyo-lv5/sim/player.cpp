@@ -354,6 +354,7 @@ void Player::decide(Player* opp) {
         tt.fireableChains = out[21]; tt.fireableScore = out[22];
         tt.potChains = out[20]; tt.potScore = out[12];
         tt.ign = bestIgnition(field);
+        tt.waste = boardWaste(field, tt.ign);
         tt.oppEnd = (opp && opp->chainCount > 0) ? opp->chainEndTime() : -1;
         tt.puyos = tt.ojama = 0;
         for (int c = 0; c < COLS; c++) {
