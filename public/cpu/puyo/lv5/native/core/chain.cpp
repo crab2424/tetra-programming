@@ -17,11 +17,12 @@ ChainResult simulateChain(BitBoard& b) {
     ChainResult res = {0, 0, 0, 0};
     // ★ 性能対策: 作業バッファは毎回確保せず静的に再利用する（clear() は容量を保持）。
     //   simulateChain は再帰・再入しないため共有しても安全（visited も同様に static）。
-    static bool visited[TOTAL_ROWS][COLS];
-    static std::vector<std::pair<int,int>> toErase;
-    static std::vector<std::pair<int,int>> toEraseOjama;
-    static std::vector<std::pair<int,int>> group;
-    static std::vector<std::pair<int,int>> queue;
+    //   thread_local: wasm（単スレッド）では従来の static と同じ。学習用のネイティブ並列ビルドでスレッドごとに分離する。
+    static thread_local bool visited[TOTAL_ROWS][COLS];
+    static thread_local std::vector<std::pair<int,int>> toErase;
+    static thread_local std::vector<std::pair<int,int>> toEraseOjama;
+    static thread_local std::vector<std::pair<int,int>> group;
+    static thread_local std::vector<std::pair<int,int>> queue;
 
     while (true) {
         memset(visited, 0, sizeof(visited));
@@ -122,8 +123,8 @@ ChainResult simulateChain(BitBoard& b) {
 //   それが4未満なら simulateChain は必ず連鎖0・スコア0を返す（盤面全走査が空振り）ため、
 //   ここで弾けば挙動不変のまま支配的な無駄シミュを削れる。
 static bool potentialFormsGroup4At(const BitBoard& b, int col, int ar, uint8_t color) {
-    static bool seen[TOTAL_ROWS][COLS];
-    static std::vector<std::pair<int,int>> stack;
+    static thread_local bool seen[TOTAL_ROWS][COLS];
+    static thread_local std::vector<std::pair<int,int>> stack;
     memset(seen, 0, sizeof(seen));
     stack.clear();
     stack.push_back({ar, col});

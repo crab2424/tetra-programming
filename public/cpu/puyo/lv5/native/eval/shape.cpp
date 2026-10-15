@@ -62,7 +62,7 @@ int getBump(const int heights[COLS]) {
 
 Link3Counts getLink23(const BitBoard& b) {
     Link3Counts out = {0, 0, 0, 0};
-    static bool seen[TOTAL_ROWS][COLS];
+    static thread_local bool seen[TOTAL_ROWS][COLS];   // thread_local: 学習用ネイティブ並列ビルド向け（wasm では static と同じ）
     memset(seen, 0, sizeof(seen));
     const int dr[] = {-1, 1, 0, 0};
     const int dc[] = { 0, 0,-1, 1};
@@ -106,7 +106,7 @@ Link3Counts getLink23(const BitBoard& b) {
 
 // (col,row) を含む同色連結成分が4以上か（軽量チェック・全消去シミュ不要）
 static bool hasGroup4At(const BitBoard& b, int col, int row, uint8_t color) {
-    static bool seen[TOTAL_ROWS][COLS];
+    static thread_local bool seen[TOTAL_ROWS][COLS];   // thread_local: 学習用ネイティブ並列ビルド向け（wasm では static と同じ）
     memset(seen, 0, sizeof(seen));
     const int dr[] = {-1, 1, 0, 0};
     const int dc[] = { 0, 0,-1, 1};

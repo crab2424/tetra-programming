@@ -68,13 +68,13 @@ std::vector<PairPlacement> getAllPlacements(const BitBoard& b) {
         return canPlaceGrid(pc, pr, rot) && canPlaceGrid(pc, pr + 1, rot);
     };
 
-    // ── BFS バッファ（単スレッド wasm 前提の static。毎回 memset）──
+    // ── BFS バッファ（static thread_local。wasm は単スレッドなので従来の static と同じ。学習用のネイティブ並列ビルドでスレッドごとに分離する。毎回 memset）──
     const int PR_OFF = 8;
     const int PR_RANGE = 20;              // pr ∈ [-8, 11]
-    static bool visited[4][20][COLS];
-    static bool reached[4][COLS];         // (rot,col) を初到達で配置候補化済みか
+    static thread_local bool visited[4][20][COLS];
+    static thread_local bool reached[4][COLS];         // (rot,col) を初到達で配置候補化済みか
     struct PInfo { int8_t rot, pr, col, act, dbl; };
-    static PInfo parent[4][20][COLS];
+    static thread_local PInfo parent[4][20][COLS];
     std::memset(visited, 0, sizeof(visited));
     std::memset(reached, 0, sizeof(reached));
 
@@ -88,7 +88,7 @@ std::vector<PairPlacement> getAllPlacements(const BitBoard& b) {
     if (!canPlace(SPAWN_COL, SPAWN_PR, SPAWN_ROT)) return result; // 窒息＝可視最上段(配列行HIDDEN)が埋まり発生不可
 
     struct QNode { int rot, pr, col; };
-    static QNode queue[4 * 20 * COLS];
+    static thread_local QNode queue[4 * 20 * COLS];
     int qh = 0, qt = 0;
     visited[SPAWN_ROT][SPAWN_PR + PR_OFF][SPAWN_COL] = true;
     parent[SPAWN_ROT][SPAWN_PR + PR_OFF][SPAWN_COL] = { -1, -1, -1, 0, 0 };

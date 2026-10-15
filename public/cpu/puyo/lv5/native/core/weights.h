@@ -12,7 +12,7 @@
 // 【制御パラメータ】
 //   p1Weight, ignitionThreshold, emergencyHeight, ignitionScoreThreshold
 //
-// ※ JS 側 weightsArray[N] との対応は cpu5.cpp の searchBestMovePuyoWasm を参照。
+// ※ JS 側 weightsArray[N] との対応は末尾の weightsFromArray を参照。
 // ─────────────────────────────────────────────
 #pragma once
 
@@ -106,3 +106,66 @@ struct EvalWeights {
     int puyosWeight;    // [41] 盤面のぷよ量（おじゃま除く非空セル数）ボーナス（正＝多いほど良い）
     int height3Weight;  // [42] 致死列(第3列)のみの高さペナルティ。高さ>4 の超過分に乗じる（負）
 };
+
+// JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
+//   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
+//   weightsArray は 43 要素（[0..42]）。
+inline EvalWeights weightsFromArray(const int* weightsArray) {
+    EvalWeights w;
+    // ── 報酬 (reward) ──
+    w.chainBonus          = weightsArray[0];
+    w.erasedBonus         = weightsArray[1];
+    w.zenkeshiBonus       = weightsArray[4];
+    w.chainPotentialBonus = weightsArray[5];
+    // ── 評価値 (eval) ──
+    w.heightPenalty       = weightsArray[2];
+    w.heightDiffPenalty   = weightsArray[3];
+    // ── 制御パラメータ ──
+    w.p1Weight            = weightsArray[6];
+    w.ignitionThreshold   = weightsArray[7];
+    w.emergencyHeight     = weightsArray[8];
+    w.ignitionScoreThreshold = weightsArray[9];
+    // ── Ama 由来の評価値 ──
+    w.shapeWeight         = weightsArray[10];
+    w.wellWeight          = weightsArray[11];
+    w.bumpWeight          = weightsArray[12];
+    w.qChainWeight        = weightsArray[13];
+    w.qYWeight            = weightsArray[14];
+    w.qKeyWeight          = weightsArray[15];
+    w.qChiWeight          = weightsArray[16];
+    w.link2Weight         = weightsArray[17];
+    w.link3Weight         = weightsArray[18];
+    // ── 期待連鎖スコア選択 ──
+    w.expChainWeight      = weightsArray[19];
+    w.knownNextCount      = weightsArray[20];
+    w.formWeight          = weightsArray[21];
+    w.expBranch           = weightsArray[22];
+    w.expMaxDepth         = weightsArray[23];
+    w.expBeamW            = weightsArray[24];
+    // ── quiescence remain link（核心②の remain link 評価）──
+    w.qLink2Weight        = weightsArray[25];
+    w.qLink3Weight        = weightsArray[26];
+    // ── 致死列 side bias ──
+    w.sideWeight          = weightsArray[27];
+    // ── ちぎり(tear)ペナルティ ──
+    w.tearWeight          = weightsArray[28];
+    // ── Ama 由来の発火枝刈り（PRUNE）──
+    w.pruneChainScore     = weightsArray[29];
+    // ── Ama 型 eval（A/B切替フラグ＋waste ペナルティ）──
+    w.amaEvalMode         = weightsArray[30];
+    w.wasteWeight         = weightsArray[31];
+    // ── 発火トリガ（ama型の「いつ撃つか」）──
+    w.fireChainCount      = weightsArray[32];
+    w.fireEmergency       = weightsArray[33];
+    w.fireScoreThreshold  = weightsArray[34];
+    w.growthFireForbidChains = weightsArray[35];
+    w.emergencyFireMinRatio  = weightsArray[36];
+    w.emergencyHardCol2      = weightsArray[37];
+    w.link3FacL           = weightsArray[38];
+    w.link3FacH           = weightsArray[39];
+    w.link3FacV           = weightsArray[40];
+    // ── vsTet / fastVsTet 専用評価値（build/fast では 0）──
+    w.puyosWeight         = weightsArray[41];
+    w.height3Weight       = weightsArray[42];
+    return w;
+}
