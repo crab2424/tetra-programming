@@ -1,6 +1,6 @@
 """ひとり用の基準計測：有効ぷよ量・最初の本線・整地（段階0）。
 
-  python3 py/solo_baseline.py [--seeds 300] [--turns 80] [--only 名前,...]
+  python3 py/solo_baseline.py [--set stage0|e1] [--seeds 300] [--turns 80] [--only 名前,...]
   python3 py/solo_baseline.py --report-only        # 記録済みの runs/analysis/solo_*.jsonl を集計し直す
 
 対戦の勝率より雑音が小さく速いので、評価の項（提案3）の当たりをつけるのに使う。
@@ -27,23 +27,29 @@ from analyze_losses import BIG, IGN, RATE, fire_feats, pct  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "runs" / "analysis"
 WASTE = 16                       # turns[] の [色ぷよ, 残り色ぷよ, 途中段の余剰]
-I_WASTE_W, I_PUYOS_W = 31, 41    # weightsArray の添字（wasteWeight / puyosWeight）
+I_WASTE_W, I_PUYOS_W, I_QEXCESS_W = 31, 41, 43   # weightsArray の添字（wasteWeight / puyosWeight / qExcessWeight）
 REASONS = {1: "目標", 2: "緊急", 3: "延命"}
 
 
-def configs(base: dict) -> dict[str, ps.Policy]:
+def with_build(pol: ps.Policy, changes: dict[int, int]) -> ps.Policy:
+    """build の weightsArray を {添字: 値} で書き換えたコピー。"""
+    p = ps.Policy(list(pol.build), list(pol.fast), pol.counter_trigger, pol.counter_margin, list(pol.ext))
+    for i, v in changes.items():
+        p.build[i] = int(v)
+    return p
+
+
+def configs(base: dict, which: str = "stage0") -> dict[str, ps.Policy]:
     lv6 = ps.Policy.lv6(base)
-
-    def with_build(**kw):
-        p = ps.Policy(list(lv6.build), list(lv6.fast), lv6.counter_trigger, lv6.counter_margin, list(lv6.ext))
-        for i, v in kw.items():
-            p.build[int(i[1:])] = v
-        return p
-
+    if which == "e1":   # 段階1 E1：途中段の余剰の重み
+        cfg = {"lv6": lv6}
+        for v in (-10, -30, -60, -100, -200, -400):
+            cfg[f"lv6 qx{v}"] = with_build(lv6, {I_QEXCESS_W: v})
+        return cfg
     cfg = {"lv5": ps.Policy.baseline(base), "lv6": lv6}
     for v in (2, 5, 10, 25):
-        cfg[f"lv6 puyos{v}"] = with_build(**{f"i{I_PUYOS_W}": v})
-    cfg["lv6 waste0"] = with_build(**{f"i{I_WASTE_W}": 0})
+        cfg[f"lv6 puyos{v}"] = with_build(lv6, {I_PUYOS_W: v})
+    cfg["lv6 waste0"] = with_build(lv6, {I_WASTE_W: 0})
     return cfg
 
 
@@ -142,19 +148,20 @@ def report(name: str, path: Path, turns: int) -> list[str]:
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--set", default="stage0", choices=["stage0", "e1"])
     ap.add_argument("--seeds", type=int, default=300)
     ap.add_argument("--turns", type=int, default=80)
     ap.add_argument("--only", default="")
     ap.add_argument("--report-only", action="store_true")
     args = ap.parse_args()
     base = ps.load_baseline()
-    cfg = configs(base)
+    cfg = configs(base, args.set)
     if args.only:
         keep = set(args.only.split(","))
         cfg = {k: v for k, v in cfg.items() if k in keep}
     OUT.mkdir(parents=True, exist_ok=True)
     seeds = np.arange(940000, 940000 + args.seeds, dtype=np.uint32)
-    lines = [f"## ひとり用の基準計測（シード {args.seeds}・{args.turns} 手）"]
+    lines = [f"## ひとり用の計測 {args.set}（シード {args.seeds}・{args.turns} 手）"]
     for name, pol in cfg.items():
         path = OUT / f"solo_{slug(name)}.jsonl"
         if not args.report_only:
@@ -162,8 +169,9 @@ def main():
         sec = [""] + report(name, path, args.turns)
         lines += sec
         print("\n".join(sec), flush=True)
-    (OUT / "solo_baseline.md").write_text("\n".join(lines) + "\n")
-    print(f"\n→ {OUT / 'solo_baseline.md'}")
+    md = OUT / ("solo_baseline.md" if args.set == "stage0" else f"solo_{args.set}.md")
+    md.write_text("\n".join(lines) + "\n")
+    print(f"\n→ {md}")
 
 
 if __name__ == "__main__":
