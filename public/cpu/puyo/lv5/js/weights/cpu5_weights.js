@@ -59,6 +59,10 @@ Object.assign(window.PuyoCPU5.prototype, {
             //   ★ base が 0 のため、モード差分は { x:倍率 } ではなく絶対値で書くこと（0×倍率=0）。
             puyosWeight:            0,  // 盤面のぷよ量（おじゃま除く）ボーナス（正）。詳細: cpu5_weights.md
             height3Weight:          0,  // 致死列(第3列)高さ>4 の超過ペナルティ（負）。詳細: cpu5_weights.md
+
+            // ── 本線の資源効率（提案3。0＝無効。lv5 は使わない。詳細: cpu5_weights.md）──
+            //   ★ base が 0 のため、モード差分は { x:倍率 } ではなく絶対値で書くこと（0×倍率=0）。
+            qExcessWeight:          0,  // 潜在連鎖の途中段の余剰（同時消し・多連結）1個あたり（負）
         };
 
         this.controlWeights = {
@@ -192,7 +196,8 @@ Object.assign(window.PuyoCPU5.prototype, {
             this.evalWeights.link3FacH,                              // [39] 3連結 横一直線の倍率(%)
             this.evalWeights.link3FacV,                              // [40] 3連結 縦一直線の倍率(%)
             this.evalWeights.puyosWeight,                            // [41] vsTet/fastVsTet 専用: ぷよ量ボーナス（buildは0）
-            this.evalWeights.height3Weight                          // [42] vsTet/fastVsTet 専用: 致死列高さ>4 ペナルティ（buildは0）
+            this.evalWeights.height3Weight,                          // [42] vsTet/fastVsTet 専用: 致死列高さ>4 ペナルティ（buildは0）
+            this.evalWeights.qExcessWeight                           // [43] 潜在連鎖の途中段の余剰ペナルティ（0=無効）
         ]);
     },
 });

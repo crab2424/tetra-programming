@@ -145,7 +145,7 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
     //   どれか1つを微小値に残すか、この早期returnを外して chain.score 走査だけ生かすこと。
     //   （現行デフォルトは q重み非0なので発動しない。）
     if (w.qChainWeight == 0 && w.qYWeight == 0 && w.qKeyWeight == 0 && w.qChiWeight == 0
-        && w.qLink2Weight == 0 && w.qLink3Weight == 0) return 0;
+        && w.qLink2Weight == 0 && w.qLink3Weight == 0 && w.qExcessWeight == 0) return 0;
 
     // 発火可能な列範囲（11段以下まで）
     int xMin = 2, xMax = 2;
@@ -197,6 +197,9 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
             q += heights[x]   * w.qYWeight;        // 発火列高さ
             q += placed       * w.qKeyWeight;      // 必要追加ぷよ数（負重み）
             q += getChi(heights, x) * w.qChiWeight; // 伸長余地
+            // 途中段の余剰（提案3 E1）：途中段の同時消し・多連結は盤面の資源を使い切らずに消す＝
+            //   盤面が埋まったときの段数を減らす（余剰1個≒ぷよ1個の損。最終段は数えない）。
+            q += chain.excess * w.qExcessWeight;
 
             // ── 発火直前盤面(remain)の連結数（Ama eval.cpp:62-65 の remain link）──
             //   plan は key ぷよを落とした pop 前の盤面＝ama の quiet.remain に相当。

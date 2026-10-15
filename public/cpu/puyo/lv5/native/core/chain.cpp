@@ -14,7 +14,8 @@ static const int COLOR_BONUS_TABLE[] = {0, 3, 6, 12, 24};
 static const int GROUP_BONUS_TABLE[] = {0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10};
 
 ChainResult simulateChain(BitBoard& b) {
-    ChainResult res = {0, 0, 0, 0};
+    ChainResult res = {0, 0, 0, 0, 0};
+    int lastStepExtra = 0;   // 直近の段の (消去数 − 4)。最終段は余剰に数えないため最後に差し引く
     // ★ 性能対策: 作業バッファは毎回確保せず静的に再利用する（clear() は容量を保持）。
     //   simulateChain は再帰・再入しないため共有しても安全（visited も同様に static）。
     //   thread_local: wasm（単スレッド）では従来の static と同じ。学習用のネイティブ並列ビルドでスレッドごとに分離する。
@@ -108,6 +109,8 @@ ChainResult simulateChain(BitBoard& b) {
 
         int bonus = std::max(1, cb + colorB + groupBonusSum);
         res.score += SCORE_BASE * stepErasedPuyo * bonus;
+        lastStepExtra = stepErasedPuyo - 4;
+        res.excess += lastStepExtra;
 
         for (auto& p : toErase) b.set(p.second, p.first, 0);
         for (auto& p : toEraseOjama) b.set(p.second, p.first, 0);
@@ -115,6 +118,7 @@ ChainResult simulateChain(BitBoard& b) {
         b.applyGravity();
     }
 
+    res.excess -= lastStepExtra;   // 最終段の同時消し・多連結は資源ロスではない（火力になる）
     return res;
 }
 

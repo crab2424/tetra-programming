@@ -38,7 +38,7 @@ const num = (name) => {
 };
 out.counterTrigger = num('COUNTER_TRIGGER_OJAMA_VSPUYO');
 out.counterMargin  = num('COUNTER_MARGIN_VSPUYO');
-if (out.build.length !== 43) throw new Error(`weightsArray 長が ${out.build.length}（43 を想定）`);
+if (out.build.length !== 44) throw new Error(`weightsArray 長が ${out.build.length}（44 を想定）`);
 
 // ── puyo lv6（lv5 を継承した学習済み重み＋対戦判断）。public/cpu/puyo/lv6/js/cpu6.js から取り出す ──
 {

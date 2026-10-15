@@ -105,11 +105,14 @@ struct EvalWeights {
     //   常に計算するが weight==0 のときは寄与しない。対テト系プロファイルでのみ非0にする。
     int puyosWeight;    // [41] 盤面のぷよ量（おじゃま除く非空セル数）ボーナス（正＝多いほど良い）
     int height3Weight;  // [42] 致死列(第3列)のみの高さペナルティ。高さ>4 の超過分に乗じる（負）
+
+    // ── 本線の資源効率（提案3。既定0＝無効）──
+    int qExcessWeight;  // [43] quiescence の潜在連鎖の途中段の余剰（ChainResult::excess）1個あたり（負）
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 43 要素（[0..42]）。
+//   weightsArray は 44 要素（[0..43]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -167,5 +170,7 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     // ── vsTet / fastVsTet 専用評価値（build/fast では 0）──
     w.puyosWeight         = weightsArray[41];
     w.height3Weight       = weightsArray[42];
+    // ── 本線の資源効率（提案3）──
+    w.qExcessWeight       = weightsArray[43];
     return w;
 }

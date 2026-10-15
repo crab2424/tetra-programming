@@ -36,9 +36,9 @@ constexpr int    ERASE_COUNT      = 4;
 constexpr int    NEXT_KEEP        = 20;                   // 内部 NEXT 保持数
 
 // ── 重みパラメータ（Python ↔ C++ の受け渡し単位）──
-constexpr int W_LEN  = 43;                 // cpu5_weights.js _buildWeightsArray の要素数
+constexpr int W_LEN  = 44;                 // cpu5_weights.js _buildWeightsArray の要素数
 constexpr int EXT_LEN = 16;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
-constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[43] + fast[43] + counterTrigger + counterMargin×1000 + ext[16]
+constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[44] + fast[44] + counterTrigger + counterMargin×1000 + ext[16]
 
 // ext[] の添字（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md）
 enum ExtIndex {
