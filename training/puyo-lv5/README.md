@@ -30,7 +30,15 @@ caffeinate -i python3 py/train.py --run runs/build-001 --gens 100 --resume
 
 # 検証（学習に使っていないシードで best vs 現行を 2000 局）
 python3 py/validate.py --best runs/build-001/best.json --seeds 1000
+
+# lv6 を初期値・学習相手にして学習し直す（新しい項 qExcessWeight を含む。1世代 約10分）
+caffeinate -i python3 py/train.py --run runs/lv6-e1-001 --opp lv6 --init-set qExcessWeight=-100 --gens 20
+python3 py/validate.py --best runs/lv6-e1-001/best.json --seeds 1000   # 相手は best.json の opp（lv6）
 ```
+- `--opp lv5|lv6`：学習相手と定期評価の相手（本番の重み。lv6 は後打ち p2 込み）。`--init`：初期値（既定は `--opp`）。
+  学習しない部分（fast・ext）は初期値のまま。`--init-set 名前=値` で初期値の一部を書き換える（複数可）。
+- `params.SPACE` を変えると次元が変わるので、それ以前の run は `--resume` できない（検出して止まる）。
+- lv6 の結果は `cpu6.js` の `TRAINED_BUILD` / `TRAINED_COUNTER` に写す（validate.py が書き写し先を出す）。
 
 | ノートブック | 内容 |
 |---|---|

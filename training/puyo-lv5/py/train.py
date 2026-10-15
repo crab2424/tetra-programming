@@ -1,9 +1,12 @@
-"""CMA-ES で lv5 の build を最適化する（設計書 §5）。夜間に回す前提の CLI。
+"""CMA-ES で lv5 / lv6 の build を最適化する（設計書 §5）。夜間に回す前提の CLI。
 
     python3 py/train.py --run runs/build-001 --gens 100
     python3 py/train.py --run runs/build-001 --resume          # 途中から再開（世代ごとに保存）
+    # lv6 を初期値・学習相手にして、新しい項（qExcessWeight）を含めて学習し直す（lv6-harass-design.md §7）
+    python3 py/train.py --run runs/lv6-e1-001 --opp lv6 --init-set qExcessWeight=-100 --gens 20
 
-fitness = 現行 lv5（固定）＋殿堂（過去世代の平均ベクトル）に対する勝率。
+fitness = 学習相手（--opp。既定は現行 lv5・固定）＋殿堂（過去世代の平均ベクトル）に対する勝率。
+  ・初期値（--init。既定は --opp と同じ）が、学習しない部分（fast・ext＝後打ちなど）の値も決める
   ・全候補を同じシード集合で評価する（共通乱数）。シード集合は世代ごとに入れ替える
   ・各シードは先後を入れ替えて2局（同時刻イベントの先手優遇を打ち消す）
   ・シード範囲: 学習 1..499999 / 平均ベクトルの定期評価 500000..749999 / 最終検証 750000..1000000
@@ -36,16 +39,55 @@ def draw_seeds(rng: np.random.Generator, n: int, lohi: tuple[int, int]) -> np.nd
 
 def policy_to_json(pol: ps.Policy) -> dict:
     return {"build": pol.build, "fast": pol.fast, "counterTrigger": pol.counter_trigger,
-            "counterMargin": pol.counter_margin}
+            "counterMargin": pol.counter_margin, "ext": pol.ext}
+
+
+def _pad(v: list, n: int) -> list:
+    """weightsArray が伸びる前（43 要素）の記録は、増えた分を 0（＝無効）で埋める。"""
+    return list(v) + [0] * (n - len(v))
 
 
 def policy_from_json(d: dict) -> ps.Policy:
-    return ps.Policy(list(d["build"]), list(d["fast"]), int(d["counterTrigger"]), float(d["counterMargin"]))
+    return ps.Policy(_pad(d["build"], ps.W_LEN), _pad(d["fast"], ps.W_LEN), int(d["counterTrigger"]),
+                     float(d["counterMargin"]), _pad(d.get("ext", []), ps.EXT_LEN))
+
+
+def upgrade_packed(h: list) -> np.ndarray:
+    """古い長さの packed（殿堂）を今の PP_LEN にそろえる。build/fast は末尾の新しい重みを 0 で、ext は 0 で埋める。"""
+    h = list(h)
+    if len(h) == ps.PP_LEN:
+        return np.array(h, dtype=np.int32)
+    for w_old in range(ps.W_LEN, 0, -1):
+        for ext_old in (ps.EXT_LEN, 0):
+            if len(h) == 2 * w_old + 2 + ext_old:
+                b, f, rest = h[:w_old], h[w_old:2 * w_old], h[2 * w_old:]
+                return np.array(_pad(b, ps.W_LEN) + _pad(f, ps.W_LEN) + rest[:2] + _pad(rest[2:], ps.EXT_LEN),
+                                dtype=np.int32)
+    raise ValueError(f"殿堂の長さ {len(h)} を解釈できない")
+
+
+def named_policy(name: str, base_json: dict) -> ps.Policy:
+    return ps.Policy.lv6(base_json) if name == "lv6" else ps.Policy.baseline(base_json)
+
+
+def apply_init_set(pol: ps.Policy, items: list[str]) -> ps.Policy:
+    """--init-set 名前=値（SPACE の名前）で初期値を書き換える。"""
+    by_name = {p.name: p for p in P.SPACE}
+    for it in items:
+        k, v = it.split("=", 1)
+        p = by_name[k]
+        if p.index == -1:
+            pol.counter_trigger = int(v)
+        elif p.index == -2:
+            pol.counter_margin = float(v)
+        else:
+            pol.build[p.index] = int(v)
+    return pol
 
 
 def evaluate(cands: np.ndarray, opponents: list[np.ndarray], seeds: np.ndarray,
              settings: ps.Settings, threads: int, hof_share: float) -> np.ndarray:
-    """候補 (nCand, PP_LEN) の勝率。opponents[0]=現行 lv5、以降=殿堂（シードの hof_share を等分）。"""
+    """候補 (nCand, PP_LEN) の勝率。opponents[0]=学習相手（--opp）、以降=殿堂（シードの hof_share を等分）。"""
     if len(opponents) == 1:
         return ps.play_both_sides(cands, opponents[0], seeds, settings, threads)["winRate"]
     n_hof = len(opponents) - 1
@@ -68,7 +110,11 @@ def main() -> int:
     ap.add_argument("--sigma", type=float, default=0.1, help="正規化座標での初期ステップ幅")
     ap.add_argument("--threads", type=int, default=0, help="0=全コア")
     ap.add_argument("--master-seed", type=int, default=20261015)
-    ap.add_argument("--eval-every", type=int, default=5, help="平均ベクトルを現行 lv5 と評価する間隔（世代）")
+    ap.add_argument("--opp", default="lv5", choices=["lv5", "lv6"], help="学習相手・定期評価の相手（本番の重み）")
+    ap.add_argument("--init", default=None, choices=["lv5", "lv6"], help="初期値（既定は --opp と同じ）")
+    ap.add_argument("--init-set", action="append", default=[], metavar="名前=値",
+                    help="初期値の一部を書き換える（params.SPACE の名前。複数可）")
+    ap.add_argument("--eval-every", type=int, default=5, help="平均ベクトルを学習相手と評価する間隔（世代）")
     ap.add_argument("--eval-seeds", type=int, default=200)
     ap.add_argument("--hof-start", type=int, default=30, help="この世代から殿堂入り（過学習対策）を始める")
     ap.add_argument("--hof-every", type=int, default=10)
@@ -80,16 +126,22 @@ def main() -> int:
     run.mkdir(parents=True, exist_ok=True)
     base_json = ps.load_baseline()
     P.check_indices(base_json)
-    base = ps.Policy.baseline(base_json)
-    base_packed = base.packed()
+    if args.resume and (run / "args.json").exists():
+        saved = json.loads((run / "args.json").read_text())   # 相手・初期値は開始時の設定に従う
+        args.opp, args.init, args.init_set = saved.get("opp", "lv5"), saved.get("init"), saved.get("init_set", [])
+    args.init = args.init or args.opp
+    opp = named_policy(args.opp, base_json)
+    opp_packed = opp.packed()
+    base = apply_init_set(named_policy(args.init, base_json), args.init_set)   # 初期値＝decode の基準
     settings = ps.Settings()
 
     state_path = run / "state.json"
     if args.resume and state_path.exists():
         st = json.loads(state_path.read_text())
         es = CMAES.from_dict(st["es"])
-        # 旧形式（ext 追加前）の殿堂は 0 埋めで新しい長さにそろえる
-        hof = [np.pad(np.array(h, dtype=np.int32), (0, ps.PP_LEN - len(h))) for h in st["hof"]]
+        if es.n != P.DIM:
+            raise SystemExit(f"探索空間の次元が違う（保存 {es.n} / 今 {P.DIM}）。params.SPACE を変える前の run は再開できない")
+        hof = [upgrade_packed(h) for h in st["hof"]]
         best = st["best"]
         print(f"resume: gen={es.gen} sigma={es.sigma:.4f} best={best['winRate'] if best else None}")
     else:
@@ -113,7 +165,7 @@ def main() -> int:
             seeds = draw_seeds(rng, args.seeds, TRAIN_SEED_RANGE)
             xs = es.ask()
             cands = np.stack([P.decode(x, base).packed() for x in xs])
-            wr = evaluate(cands, [base_packed] + hof, seeds, settings, args.threads, args.hof_share)
+            wr = evaluate(cands, [opp_packed] + hof, seeds, settings, args.threads, args.hof_share)
             # 範囲外は端に丸めて評価し、はみ出し量に小さな罰則（平均が箱の外へ逃げないように）
             out_of_box = np.sum((xs - np.clip(xs, 0, 1)) ** 2, axis=1)
             es.tell(xs, -wr + out_of_box)
@@ -121,12 +173,12 @@ def main() -> int:
             eval_wr = ""
             mean_pol = P.decode(es.mean, base)
             if es.gen % args.eval_every == 0 or es.gen == args.gens:
-                ewr = float(ps.play_both_sides(mean_pol.packed(), base_packed, eval_seeds,
+                ewr = float(ps.play_both_sides(mean_pol.packed(), opp_packed, eval_seeds,
                                                settings, args.threads)["winRate"][0])
                 eval_wr = f"{ewr:.4f}"
                 if best is None or ewr > best["winRate"]:
-                    best = {"gen": es.gen, "winRate": ewr, "policy": policy_to_json(mean_pol),
-                            "changed": P.describe(mean_pol, base)}
+                    best = {"gen": es.gen, "winRate": ewr, "opp": args.opp, "policy": policy_to_json(mean_pol),
+                            "changed": P.describe(mean_pol, opp)}
                     (run / "best.json").write_text(json.dumps(best, indent=1, ensure_ascii=False))
             if es.gen >= args.hof_start and (es.gen - args.hof_start) % args.hof_every == 0:
                 hof = (hof + [mean_pol.packed()])[-args.hof_size:]

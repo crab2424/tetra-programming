@@ -3,6 +3,8 @@
 CMA-ES は [0,1]^n の正規化座標で動かし、decode で実際の重み（整数）に戻す。
   ・固定するもの: qChainWeight（スケール基準）/ expMaxDepth / expBeamWidth / p1Weight / 未参照の重み
   ・fast（カウンター）は学習中は現行値で固定（D2）＝ Policy.fast は baseline のまま
+  ・ext（対戦判断。lv6 の後打ち p2 など）は学習しない＝ decode の base（初期値）のまま
+  ★ SPACE を変えると次元が変わる＝それ以前の run は --resume できない（train.py が検出して止める）
 """
 from __future__ import annotations
 
@@ -43,6 +45,7 @@ SPACE: list[Param] = [
     Param("link3FacL",          38,     0,  200),
     Param("link3FacH",          39,     0,  200),
     Param("link3FacV",          40,     0,  200),
+    Param("qExcessWeight",      43,  -400,    0),   # 提案3 E1：潜在連鎖の途中段の余剰（2026-10-16 追加）
     # ── 制御（controlWeights）──
     Param("emergencyHeight",         8,     8,     12),
     Param("expChainWeight",         19,     0,  10000),
@@ -85,7 +88,7 @@ def encode(policy: Policy) -> np.ndarray:
 def decode(x: np.ndarray, base: Policy) -> Policy:
     """正規化座標 → Policy（範囲外は端に丸める）。"""
     x = np.clip(np.asarray(x, dtype=float), 0.0, 1.0)
-    pol = Policy(list(base.build), list(base.fast), base.counter_trigger, base.counter_margin)
+    pol = Policy(list(base.build), list(base.fast), base.counter_trigger, base.counter_margin, list(base.ext))
     for i, p in enumerate(SPACE):
         v = p.lo + x[i] * (p.hi - p.lo)
         if p.integer:
