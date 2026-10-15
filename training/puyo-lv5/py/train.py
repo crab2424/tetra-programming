@@ -88,7 +88,8 @@ def main() -> int:
     if args.resume and state_path.exists():
         st = json.loads(state_path.read_text())
         es = CMAES.from_dict(st["es"])
-        hof = [np.array(h, dtype=np.int32) for h in st["hof"]]
+        # 旧形式（ext 追加前）の殿堂は 0 埋めで新しい長さにそろえる
+        hof = [np.pad(np.array(h, dtype=np.int32), (0, ps.PP_LEN - len(h))) for h in st["hof"]]
         best = st["best"]
         print(f"resume: gen={es.gen} sigma={es.sigma:.4f} best={best['winRate'] if best else None}")
     else:

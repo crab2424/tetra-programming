@@ -37,13 +37,31 @@ constexpr int    NEXT_KEEP        = 20;                   // 内部 NEXT 保持�
 
 // ── 重みパラメータ（Python ↔ C++ の受け渡し単位）──
 constexpr int W_LEN  = 43;                 // cpu5_weights.js _buildWeightsArray の要素数
-constexpr int PP_LEN = W_LEN * 2 + 2;      // build[43] + fast[43] + counterTrigger + counterMargin×1000
+constexpr int EXT_LEN = 16;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
+constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[43] + fast[43] + counterTrigger + counterMargin×1000 + ext[16]
+
+// ext[] の添字（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md）
+enum ExtIndex {
+    X_P1_ENABLE = 0,     // 提案1 相手を見た発火判断 1/0
+    X_P1_ALPHA,          // 目標到達でも「自分の火力 ≥ α% × 相手の起こせる火力」の時だけ撃つ（%）
+    X_P1_KILL_RATIO,     // 目標未達でも「相手の起こせる火力 ≤ k% × 自分の火力」なら撃つ（%。0=無効）
+    X_P1_KILL_MIN,       // ↑の最低火力（おじゃま個数）
+    X_P2_ENABLE,         // 提案2 後打ちの活用 1/0
+    X_P2_SAFETY_MS,      // 待てる時間の安全マージン（ms）
+    X_P2_MIN_INCOMING,   // 待つのは「相手の発火中連鎖で届く量」がこれ以上の時（個）
+    X_P2_WAIT_FAST,      // 待つ間の重み 0=build / 1=fast
+    X_P2_TURN_MS,        // 撃たない1手の所要時間の見積もり（ms。0=既定 560）
+    X_P2_FIRE_IF_PCT,    // 待つ前に「今撃てる最大 ≥ pct% × 受け量」なら待たずに撃つ（0=無効）
+    X_P2_NO_SPILL,       // 待つ間は育成手のこぼれ（小連鎖の暴発）を禁止 1/0
+    X_P1_USE_THREAT,     // 相手の火力に「相手の見えている NEXT 2手で届く連鎖」も使う 1/0
+};
 
 struct PolicyParams {
     int    build[W_LEN];      // 本線構築（build）の weightsArray
     int    fast[W_LEN];       // カウンター（fast）の weightsArray（学習中は固定＝D2）
     int    counterTrigger;    // COUNTER_TRIGGER_OJAMA_VSPUYO（受け量がこれを「超えたら」fast）
     double counterMargin;     // COUNTER_MARGIN_VSPUYO（fireScoreThreshold の倍率）
+    int    ext[EXT_LEN];      // 試作中の対戦判断（ExtIndex）
     static PolicyParams fromPacked(const int* p);
 };
 
@@ -107,6 +125,9 @@ struct PlayerStats {
     long long ojamaReceived = 0;   // 実際に盤面へ降った量
     int       firstBigChainTurn = -1;   // ひとり用: targetChain 以上の初発火ターン
     int       counterTurns = 0;    // fast（カウンター）で打ったターン数
+    int       waitTurns = 0;       // 提案2：相手の連鎖中に撃たずに伸ばしたターン数
+    int       p1Holds = 0;         // 提案1：目標到達だが相手が返せるので撃たなかったターン数
+    int       p1Kills = 0;         // 提案1：目標未達だが相手が返せないので撃ったターン数
 };
 
 // ── 記録（負け方の分析用。Player::trace が nullptr の学習時は何もしない）──
@@ -122,6 +143,7 @@ struct TraceTurn {             // decide()（spawnAnim 開始時の思考）ご�
     int potChains, potScore;               // 選択初手の到達連鎖（dbg[20]）／全候補の到達連鎖最大（dbg[12]）
     Ignite ign;                            // bestIgnition
     int puyos, ojama, h[COLS];
+    double oppEnd;                         // 相手の発火中連鎖の終了予測時刻（-1=発火中でない）
 };
 struct TraceFire {             // 1回の連鎖（発火〜連鎖終了）
     double tStart = 0, tEnd = 0;
@@ -169,6 +191,15 @@ public:
     int  pendingFire = 0;
     std::vector<Garbage> garbageQueue;
     int  queueSum() const;
+    // 相手から見える NEXT（盤面に置かれる前の2ペア）。pairs[4] = {p1,c1,p2,c2}
+    void visibleNext(int* pairs) const {
+        pairs[0] = next_[0].first; pairs[1] = next_[0].second;
+        pairs[2] = next_[1].first; pairs[3] = next_[1].second;
+    }
+    // 発火中の連鎖が終わる（＝送ったおじゃまが ready になる）時刻。発火中でなければ -1
+    double chainEndTime() const;
+    // 自分のキューに「次の手の終わりに降る」おじゃまがあるか（ready かつ非表示期間明け・時刻 t で）
+    bool hasDroppableAt(double t) const;
 
     // 相手からの受信（sendGarbage → deliverLocalStaged）
     int  receiveGarbage(int amount, double now);

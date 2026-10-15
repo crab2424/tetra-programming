@@ -61,9 +61,11 @@ std::string jNum(double v) { char b[32]; std::snprintf(b, sizeof b, "%.1f", v); 
 
 void jTrace(std::string& o, const PlayerTrace& tr, const PlayerStats& st) {
     o += "{\"turnsPlayed\":" + std::to_string(st.turns) + ",\"sentTotal\":" + std::to_string(st.ojamaSent) +
-         ",\"recvTotal\":" + std::to_string(st.ojamaReceived) + ",\"finalBoard\":\"" + tr.finalBoard + "\"";
+         ",\"recvTotal\":" + std::to_string(st.ojamaReceived) + ",\"finalBoard\":\"" + tr.finalBoard + "\"" +
+         ",\"waitTurns\":" + std::to_string(st.waitTurns) + ",\"p1Holds\":" + std::to_string(st.p1Holds) +
+         ",\"p1Kills\":" + std::to_string(st.p1Kills);
     // turns: [t, turn, mode, incoming, queue, fire, reason, fireableChains, fireableScore, potChains, potScore,
-    //         ign, puyos, ojama, h]
+    //         ign, puyos, ojama, h, oppEnd]
     o += ",\"turns\":[";
     for (size_t i = 0; i < tr.turns.size(); i++) {
         const auto& x = tr.turns[i];
@@ -76,7 +78,7 @@ void jTrace(std::string& o, const PlayerTrace& tr, const PlayerStats& st) {
         jIgn(o, x.ign);
         o += "," + std::to_string(x.puyos) + "," + std::to_string(x.ojama) + ",";
         jArr(o, std::vector<int>(x.h, x.h + COLS));
-        o += "]";
+        o += "," + jNum(x.oppEnd) + "]";
     }
     o += "],\"fires\":[";
     for (size_t i = 0; i < tr.fires.size(); i++) {
@@ -114,7 +116,7 @@ void jTrace(std::string& o, const PlayerTrace& tr, const PlayerStats& st) {
 
 extern "C" {
 
-int sim_abi_version() { return 1; }
+int sim_abi_version() { return 2; }
 int sim_pp_len() { return PP_LEN; }
 
 // 対局バッチ。pa/pb は各ジョブの PolicyParams（packed, PP_LEN 個ずつ）。

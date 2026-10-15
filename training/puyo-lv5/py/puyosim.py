@@ -9,7 +9,7 @@ import json
 import os
 import platform
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +17,11 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build"
 W_LEN = 43
+EXT_LEN = 16                       # 試作中の対戦判断（sim.h ExtIndex）。0 埋め＝現行 lv5
+PP_LEN = W_LEN * 2 + 2 + EXT_LEN
+EXT = {"p1_enable": 0, "p1_alpha": 1, "p1_kill_ratio": 2, "p1_kill_min": 3,
+       "p2_enable": 4, "p2_safety_ms": 5, "p2_min_incoming": 6, "p2_wait_fast": 7, "p2_turn_ms": 8,
+       "p2_fire_if_pct": 9, "p2_no_spill": 10, "p1_use_threat": 11}
 
 
 def _lib_path() -> Path:
@@ -58,8 +63,8 @@ def lib():
         L.sim_trace_matches.restype = ctypes.c_int
         L.sim_trace_matches.argtypes = [ctypes.c_int, i32p, i32p, u32p, ctypes.c_int, ctypes.c_int,
                                         ctypes.c_int, ctypes.c_double, ctypes.c_int, ctypes.c_char_p]
-        assert L.sim_abi_version() == 1
-        assert L.sim_pp_len() == W_LEN * 2 + 2
+        assert L.sim_abi_version() == 2
+        assert L.sim_pp_len() == PP_LEN
         _lib = L
     return _lib
 
@@ -83,11 +88,20 @@ class Policy:
     fast: list[int]
     counter_trigger: int
     counter_margin: float
+    ext: list[int] = field(default_factory=lambda: [0] * EXT_LEN)
 
     def packed(self) -> np.ndarray:
-        assert len(self.build) == W_LEN and len(self.fast) == W_LEN
+        assert len(self.build) == W_LEN and len(self.fast) == W_LEN and len(self.ext) == EXT_LEN
         return np.array(list(self.build) + list(self.fast)
-                        + [int(self.counter_trigger), int(round(self.counter_margin * 1000))], dtype=np.int32)
+                        + [int(self.counter_trigger), int(round(self.counter_margin * 1000))]
+                        + [int(v) for v in self.ext], dtype=np.int32)
+
+    def with_ext(self, **kw) -> "Policy":
+        """ext（試作中の対戦判断）を名前で指定したコピー。例: pol.with_ext(p2_enable=1)"""
+        ext = list(self.ext)
+        for k, v in kw.items():
+            ext[EXT[k]] = int(v)
+        return Policy(list(self.build), list(self.fast), self.counter_trigger, self.counter_margin, ext)
 
     @classmethod
     def baseline(cls, base: dict | None = None) -> "Policy":

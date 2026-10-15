@@ -28,6 +28,7 @@ PolicyParams PolicyParams::fromPacked(const int* p) {
     std::memcpy(pp.fast, p + W_LEN, sizeof(int) * W_LEN);
     pp.counterTrigger = p[2 * W_LEN];
     pp.counterMargin  = p[2 * W_LEN + 1] / 1000.0;
+    std::memcpy(pp.ext, p + 2 * W_LEN + 2, sizeof(int) * EXT_LEN);
     return pp;
 }
 
@@ -100,6 +101,42 @@ int Player::queueSum() const {
     int s = 0;
     for (const auto& g : garbageQueue) s += g.amount;
     return s;
+}
+
+double Player::chainEndTime() const {
+    if (chainCount <= 0) return -1;
+    Field f = field;
+    double t;
+    auto stepAfterErase = [&](double t0) {
+        DropInfo di = applyGravity(f);
+        double tt = t0 + ERASE_WAIT_MS;
+        if (di.moved) tt += di.maxDist * DROP_MS_PER_ROW + di.vibCycles * VIB_CYCLE_MS + FIX_WAIT_MS;
+        return tt;
+    };
+    if (phase_ == ERASED) {          // 点滅中：消える組はまだ盤面にある。t_ が消去の瞬間
+        for (const auto& g : pendingGroups_) for (const auto& c : g) f.v[c.r][c.c] = 0;
+        for (const auto& c : pendingOjamaCells_) f.v[c.r][c.c] = 0;
+        t = stepAfterErase(t_);
+    } else if (phase_ == CHECK) {    // 落下・振動の後、t_ に次の消去判定
+        t = t_;
+    } else {
+        return -1;                   // 連鎖は終わっている（spawnAnim 中など）
+    }
+    std::vector<std::vector<Cell>> groups;
+    std::vector<Cell> oj;
+    while (true) {
+        findErasable(f, groups, oj);
+        if (groups.empty()) return t;
+        for (const auto& g : groups) for (const auto& c : g) f.v[c.r][c.c] = 0;
+        for (const auto& c : oj) f.v[c.r][c.c] = 0;
+        t = stepAfterErase(t + ERASE_MS);
+    }
+}
+
+bool Player::hasDroppableAt(double t) const {
+    for (const auto& g : garbageQueue)
+        if (g.ready && g.amount > 0 && t >= g.internalUntil) return true;
+    return false;
 }
 
 int Player::receiveGarbage(int amount, double now) {
@@ -209,11 +246,43 @@ void Player::decide(Player* opp) {
         }
     }
 
-    bool wantCounter = opp && (counterActive_ ? incoming > 0 : incoming > pp_.counterTrigger);
-    counterActive_ = wantCounter;
+    const int* X = pp_.ext;
+
+    // ── 提案2（試作）後打ちの活用：相手の連鎖中は、間に合う限り撃たずに伸ばす ──
+    //   相手のおじゃまは「相手の連鎖終了で ready → 自分の手の終わりに降る」。撃たない手が
+    //   相手の連鎖終了より前に終わる限り降らないので、その間は本線の重みで伸ばし続け、
+    //   間に合わなくなった手で出せる最大を撃つ。
+    int waitMode = 0;   // 0=従来 / 1=待つ（伸ばす） / 2=締切（最大を撃つ）
+    if (opp && X[X_P2_ENABLE] && opp->chainCount > 0 && incoming >= std::max(1, X[X_P2_MIN_INCOMING])) {
+        double tEnd = opp->chainEndTime();
+        if (tEnd > t_) {
+            double turnMs = X[X_P2_TURN_MS] > 0 ? X[X_P2_TURN_MS] : 560.0;
+            bool dropNow = hasDroppableAt(t_ + turnMs);           // 既に降る分がある＝待てない
+            waitMode = (!dropNow && t_ + turnMs + X[X_P2_SAFETY_MS] < tEnd) ? 1 : 2;
+        }
+    }
+
+    bool wantCounter = false;
+    if (waitMode == 0) {
+        wantCounter = opp && (counterActive_ ? incoming > 0 : incoming > pp_.counterTrigger);
+        counterActive_ = wantCounter;
+    } else {
+        counterActive_ = true;   // 撃った後は従来のヒステリシスに戻す
+    }
 
     int wa[W_LEN];
-    if (wantCounter) {
+    if (waitMode == 1) {
+        std::memcpy(wa, X[X_P2_WAIT_FAST] ? pp_.fast : pp_.build, sizeof(wa));
+        wa[32] = 0;   // 目標発火を切る（緊急発火は残す）
+        wa[34] = 0;
+        if (X[X_P2_NO_SPILL]) wa[35] = 1;   // 育成手のこぼれを全面禁止（本線の暴発を防ぐ）
+        stats.waitTurns++;
+    } else if (waitMode == 2) {
+        std::memcpy(wa, pp_.build, sizeof(wa));
+        wa[32] = 1;   // 撃てる最大を撃つ
+        wa[34] = 1;
+        stats.counterTurns++;
+    } else if (wantCounter) {
         std::memcpy(wa, pp_.fast, sizeof(wa));
         wa[32] = 0;   // fireChainCount: 段数では撃たない
         wa[34] = (int)std::ceil((incoming + 1) * (double)rate * pp_.counterMargin);
@@ -232,12 +301,67 @@ void Player::decide(Player* opp) {
 
     BitBoard bb;
     toBitBoard(field, bb);
-    EvalWeights w = weightsFromArray(wa);
     int out[40];
     for (int i = 0; i < 40; i++) out[i] = -1;
-    searchBuildMode(bb, nextPairs, w, out);
 
-    lastMode_ = wantCounter ? 1 : 0;
+    // ── 提案1（試作）相手を見た発火判断：build の本線構築時だけ ──
+    //   目標発火を切って一度探索し（育成手＋「今撃てる最大」out[21][22] が分かる）、
+    //   撃つ条件が成立したら目標を「撃てる最大」に下げて探索し直す（発火時だけ2回目）。
+    bool p1 = opp && X[X_P1_ENABLE] && waitMode == 0 && !wantCounter && opp->chainCount == 0;
+    if (p1) {
+        const int tgtCount = wa[32], tgtScore = wa[34];
+        wa[32] = 0;
+        wa[34] = 0;
+        EvalWeights w0 = weightsFromArray(wa);
+        searchBuildMode(bb, nextPairs, w0, out);
+        long long mine = std::max(0, out[22]);
+        long long oppIgn = bestIgnition(opp->field).score;
+        if (X[X_P1_USE_THREAT]) {
+            // 相手の見えている NEXT 2手で届く連鎖（到達連鎖 out[12]）。深さ2の軽い探索
+            int on[20], ow[W_LEN], oo[40];
+            opp->visibleNext(on);
+            for (int i = 4; i < 20; i++) on[i] = (i % 4) + 1;
+            std::memcpy(ow, pp_.build, sizeof(ow));
+            ow[23] = 2;
+            ow[32] = 0; ow[34] = 0;
+            for (int i = 0; i < 40; i++) oo[i] = -1;
+            BitBoard ob;
+            toBitBoard(opp->field, ob);
+            EvalWeights wo = weightsFromArray(ow);
+            searchBuildMode(ob, on, wo, oo);
+            oppIgn = std::max(oppIgn, (long long)std::max(0, oo[12]));
+        }
+        bool target = (tgtCount > 0 && out[21] >= tgtCount) || (tgtScore > 0 && mine >= tgtScore);
+        bool safe   = mine * 100 >= (long long)X[X_P1_ALPHA] * oppIgn;
+        bool kill   = X[X_P1_KILL_RATIO] > 0 && mine >= (long long)X[X_P1_KILL_MIN] * rate &&
+                      oppIgn * 100 <= (long long)X[X_P1_KILL_RATIO] * mine;
+        if (target && !safe) stats.p1Holds++;
+        if (mine > 0 && ((target && safe) || kill)) {
+            if (!target) stats.p1Kills++;
+            wa[32] = 1;
+            wa[34] = 1;
+            for (int i = 0; i < 40; i++) out[i] = -1;
+            EvalWeights w1 = weightsFromArray(wa);
+            searchBuildMode(bb, nextPairs, w1, out);
+        }
+    } else {
+        EvalWeights w = weightsFromArray(wa);
+        searchBuildMode(bb, nextPairs, w, out);
+        // 提案2：待つ前に、今撃てる最大で受け量を十分上回れるなら待たずに撃つ
+        if (waitMode == 1 && X[X_P2_FIRE_IF_PCT] > 0 &&
+            (long long)std::max(0, out[22]) * 100 >= (long long)X[X_P2_FIRE_IF_PCT] * (incoming + 1) * rate) {
+            wa[32] = 1;
+            wa[34] = 1;
+            for (int i = 0; i < 40; i++) out[i] = -1;
+            EvalWeights w1 = weightsFromArray(wa);
+            searchBuildMode(bb, nextPairs, w1, out);
+            waitMode = 2;   // 結果として「撃つ」手になった
+            stats.waitTurns--;
+            stats.counterTurns++;
+        }
+    }
+
+    lastMode_ = waitMode == 1 ? 2 : waitMode == 2 ? 3 : wantCounter ? 1 : 0;   // 記録用 2=待つ 3=締切/即撃ち
     lastReason_ = out[23];
     if (trace) {
         TraceTurn tt;
@@ -247,6 +371,7 @@ void Player::decide(Player* opp) {
         tt.fireableChains = out[21]; tt.fireableScore = out[22];
         tt.potChains = out[20]; tt.potScore = out[12];
         tt.ign = bestIgnition(field);
+        tt.oppEnd = (opp && opp->chainCount > 0) ? opp->chainEndTime() : -1;
         tt.puyos = tt.ojama = 0;
         for (int c = 0; c < COLS; c++) {
             int h = 0;
