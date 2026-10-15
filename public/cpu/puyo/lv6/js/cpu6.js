@@ -8,6 +8,8 @@
 //   出典: training/puyo-lv5/runs/build-001/best.json
 //         （第20世代の平均ベクトル。定期評価＝現行lv5相手・別シード200×先後2局で勝率 0.58）
 //
+//   ★ 2026-10-15: 対戦判断「後打ちの活用」（VS_DECISION.p2）も有効にしている（lv5 は無効）。
+//
 //   モードごとの扱い（学習条件に合わせる）:
 //     ・build              … 学習済み値
 //     ・fast（カウンター）  … 学習中は lv5 の絶対値で固定していた（設計書 D2）→ lv5 と同じ値
@@ -58,6 +60,19 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         marginVsPuyo:  0.98,  // lv5: 1.0（カウンター発火スコアの倍率）
     };
 
+    // 対戦判断（cpu5_worker_io.js が参照。lv5 は未設定＝従来どおり）
+    //   p2 = 後打ちの活用（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md §2）。
+    //   相手ぷよの連鎖中は、撃たない手が相手の連鎖終了より前に終わる限り build の重みで伸ばし、
+    //   今撃てる最大が受け量×fireIfPct% に届いたら撃つ／間に合わなくなったら撃てる最大を撃つ。
+    static VS_DECISION = {
+        p2: {
+            minIncoming: 30,   // 待つのは相手の発火中連鎖で届く量がこれ以上のとき（個）
+            fireIfPct:  110,   // 今撃てる最大 ≥ 受け量×この% なら待たずに撃つ
+            safetyMs:   200,   // 締切の余裕（ms）
+            turnMs:     560,   // 撃たない1手の所要時間の見積もり（spawnAnim〜着地振動〜fixWait5f, ms）
+        },
+    };
+
     _initWeights() {
         super._initWeights();
         // lv5 の build 基準を控える（build 以外のモードはこれを基準にして lv5 と同じ値にする）
@@ -73,6 +88,7 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
             controlWeights: Object.assign({}, this.controlWeights),
         };
         this._counterOverrides = this.constructor.TRAINED_COUNTER;
+        this._vsDecision = this.constructor.VS_DECISION;
     }
 
     setMode(mode) {

@@ -57,6 +57,7 @@ def lib():
         L.sim_rng_values.argtypes = [ctypes.c_uint32, ctypes.c_int, f64p]
         L.sim_pair_sequence.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_int, i32p]
         L.sim_chain.argtypes = [u8p, i64p]
+        L.sim_chain_time.argtypes = [u8p, f64p]
         L.sim_trace_solo.restype = ctypes.c_int
         L.sim_trace_solo.argtypes = [ctypes.c_int, i32p, u32p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
                                      ctypes.c_int, ctypes.c_int, ctypes.c_char_p]
@@ -102,6 +103,17 @@ class Policy:
         for k, v in kw.items():
             ext[EXT[k]] = int(v)
         return Policy(list(self.build), list(self.fast), self.counter_trigger, self.counter_margin, ext)
+
+    @classmethod
+    def lv6(cls, base: dict | None = None) -> "Policy":
+        """本番の puyo lv6（cpu6.js）。学習済み重み＋対戦判断（VS_DECISION）を ext に写す。"""
+        b = (base or load_baseline())["lv6"]
+        pol = cls(list(b["build"]), list(b["fast"]), int(b["counterTrigger"]), float(b["counterMargin"]))
+        p2 = b.get("vsDecision", {}).get("p2")
+        if p2:
+            pol = pol.with_ext(p2_enable=1, p2_min_incoming=p2["minIncoming"], p2_fire_if_pct=p2["fireIfPct"],
+                               p2_safety_ms=p2["safetyMs"], p2_turn_ms=p2["turnMs"])
+        return pol
 
     @classmethod
     def baseline(cls, base: dict | None = None) -> "Policy":

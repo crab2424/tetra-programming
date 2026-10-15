@@ -122,15 +122,7 @@ double Player::chainEndTime() const {
     } else {
         return -1;                   // 連鎖は終わっている（spawnAnim 中など）
     }
-    std::vector<std::vector<Cell>> groups;
-    std::vector<Cell> oj;
-    while (true) {
-        findErasable(f, groups, oj);
-        if (groups.empty()) return t;
-        for (const auto& g : groups) for (const auto& c : g) f.v[c.r][c.c] = 0;
-        for (const auto& c : oj) f.v[c.r][c.c] = 0;
-        t = stepAfterErase(t + ERASE_MS);
-    }
+    return t + chainRemainingMs(f);
 }
 
 bool Player::hasDroppableAt(double t) const {
@@ -248,10 +240,12 @@ void Player::decide(Player* opp) {
 
     const int* X = pp_.ext;
 
-    // ── 提案2（試作）後打ちの活用：相手の連鎖中は、間に合う限り撃たずに伸ばす ──
+    // ── 提案2 後打ちの活用（本番 cpu5_worker_io.js _updateCounterWait と同じ判断）──
     //   相手のおじゃまは「相手の連鎖終了で ready → 自分の手の終わりに降る」。撃たない手が
-    //   相手の連鎖終了より前に終わる限り降らないので、その間は本線の重みで伸ばし続け、
-    //   間に合わなくなった手で出せる最大を撃つ。
+    //   相手の連鎖終了より前に終わる限り降らないので、その間は本線の重みで伸ばし、
+    //   今撃てる最大が受け量×fireIfPct% に届いたら撃つ（fireScoreThreshold）。
+    //   間に合わなくなった手（締切）では出せる最大を撃つ。
+    //   ※ X_P2_WAIT_FAST / X_P2_NO_SPILL は試作のみ（本番には無い。既定0）。
     int waitMode = 0;   // 0=従来 / 1=待つ（伸ばす） / 2=締切（最大を撃つ）
     if (opp && X[X_P2_ENABLE] && opp->chainCount > 0 && incoming >= std::max(1, X[X_P2_MIN_INCOMING])) {
         double tEnd = opp->chainEndTime();
@@ -274,7 +268,8 @@ void Player::decide(Player* opp) {
     if (waitMode == 1) {
         std::memcpy(wa, X[X_P2_WAIT_FAST] ? pp_.fast : pp_.build, sizeof(wa));
         wa[32] = 0;   // 目標発火を切る（緊急発火は残す）
-        wa[34] = 0;
+        wa[34] = X[X_P2_FIRE_IF_PCT] > 0
+                     ? (int)std::ceil((incoming + 1) * (double)rate * X[X_P2_FIRE_IF_PCT] / 100.0) : 0;
         if (X[X_P2_NO_SPILL]) wa[35] = 1;   // 育成手のこぼれを全面禁止（本線の暴発を防ぐ）
         stats.waitTurns++;
     } else if (waitMode == 2) {
@@ -347,18 +342,6 @@ void Player::decide(Player* opp) {
     } else {
         EvalWeights w = weightsFromArray(wa);
         searchBuildMode(bb, nextPairs, w, out);
-        // 提案2：待つ前に、今撃てる最大で受け量を十分上回れるなら待たずに撃つ
-        if (waitMode == 1 && X[X_P2_FIRE_IF_PCT] > 0 &&
-            (long long)std::max(0, out[22]) * 100 >= (long long)X[X_P2_FIRE_IF_PCT] * (incoming + 1) * rate) {
-            wa[32] = 1;
-            wa[34] = 1;
-            for (int i = 0; i < 40; i++) out[i] = -1;
-            EvalWeights w1 = weightsFromArray(wa);
-            searchBuildMode(bb, nextPairs, w1, out);
-            waitMode = 2;   // 結果として「撃つ」手になった
-            stats.waitTurns--;
-            stats.counterTurns++;
-        }
     }
 
     lastMode_ = waitMode == 1 ? 2 : waitMode == 2 ? 3 : wantCounter ? 1 : 0;   // 記録用 2=待つ 3=締切/即撃ち

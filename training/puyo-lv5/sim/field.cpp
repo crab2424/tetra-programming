@@ -126,6 +126,21 @@ long long simulateRemainingChain(Field f, int chainCountStart, int* outChains) {
     return total;
 }
 
+double chainRemainingMs(Field f) {
+    std::vector<std::vector<Cell>> groups;
+    std::vector<Cell> oj;
+    double t = 0;
+    while (true) {
+        findErasable(f, groups, oj);
+        if (groups.empty()) return t;
+        for (const auto& g : groups) for (const auto& c : g) f.v[c.r][c.c] = 0;
+        for (const auto& c : oj) f.v[c.r][c.c] = 0;
+        DropInfo di = applyGravity(f);
+        t += ERASE_MS + ERASE_WAIT_MS;
+        if (di.moved) t += di.maxDist * DROP_MS_PER_ROW + di.vibCycles * VIB_CYCLE_MS + FIX_WAIT_MS;
+    }
+}
+
 std::string boardString(const Field& f) {
     std::string s(TOTAL_ROWS * COLS, '0');
     for (int r = 0; r < TOTAL_ROWS; r++)

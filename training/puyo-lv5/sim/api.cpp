@@ -237,4 +237,11 @@ void sim_chain(const uint8_t* board, long long* out) {
     out[1] = chains;
 }
 
+// 盤面（17×6, r*COLS+c・次の消去判定を待つ状態）から連鎖が終わるまでの ms
+void sim_chain_time(const uint8_t* board, double* out) {
+    Field f;
+    std::memcpy(f.v, board, sizeof(f.v));
+    out[0] = chainRemainingMs(f);
+}
+
 } // extern "C"

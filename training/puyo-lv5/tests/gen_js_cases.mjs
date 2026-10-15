@@ -3,6 +3,7 @@
 //   ・乱数: public/app/versus.js createSeededRandom
 //   ・ツモ: lifecycle.js _initActiveColors → engine.js _initNextQueue / _dequeueNext
 //   ・連鎖: engine.js _findErasableInField / _calcChainScore（おじゃま巻き込み込み）
+//   ・連鎖の残り時間: cpu5_worker_io.js _puyoChainRemainingMs（後打ちの締切判定）
 //   使い方: node tests/gen_js_cases.mjs > build/js_cases.json
 // ─────────────────────────────────────────────
 import fs from 'node:fs';
@@ -25,6 +26,10 @@ if (!rngSrc) throw new Error('createSeededRandom が versus.js に見つから�
 vm.runInContext(rngSrc[0] + '\nglobalThis.createSeededRandom = createSeededRandom;', ctx);
 vm.runInContext('globalThis.PuyoGame = class { _random() { return this.rng ? this.rng() : Math.random(); } };', ctx);
 for (const f of ['game/puyo/engine.js', 'game/puyo/lifecycle.js']) vm.runInContext(read(f), ctx, { filename: f });
+// CPU lv5 の対戦判断（_puyoChainRemainingMs：盤面から連鎖終了までの ms）
+ctx.window.PuyoCPU5 = class {};
+vm.runInContext(read('cpu/puyo/lv5/js/core/cpu5_worker_io.js'), ctx, { filename: 'cpu5_worker_io.js' });
+const cpuProto = ctx.window.PuyoCPU5.prototype;
 
 const { PuyoGame, createSeededRandom, PConfig } = ctx;
 const out = { rng: [], pairs: [], chains: [] };
@@ -65,6 +70,8 @@ for (let n = 0; n < 3000; n++) {
     }
     const board = field.flat();
     const g = new PuyoGame();
+    const chainMs = cpuProto._puyoChainRemainingMs.call(cpuProto, field.map(r => r.slice()),
+                                                        (f) => g._findErasableInField(f));
     Object.assign(g, { chainCount: 0, clearedPuyos: 0, attackScore: 0, generatedOjamaTotal: 0, pendingFire: 0,
                        scoreEl: null, _updateChainDisplay() {} });
     let total = 0;
@@ -85,6 +92,6 @@ for (let n = 0; n < 3000; n++) {
             }
         }
     }
-    out.chains.push({ board, score: total, chains: g.chainCount, pendingFire: g.pendingFire });
+    out.chains.push({ board, score: total, chains: g.chainCount, pendingFire: g.pendingFire, chainMs });
 }
 process.stdout.write(JSON.stringify(out) + '\n');

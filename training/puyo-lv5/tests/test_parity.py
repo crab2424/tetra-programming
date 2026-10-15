@@ -64,6 +64,18 @@ def main() -> int:
     fails += bad
     print(f"chains: {len(cases['chains'])} boards, mismatch={bad}")
 
+    # 3b. 連鎖の残り時間（後打ちの締切判定。本番 JS と sim の chainRemainingMs）
+    bad = 0
+    for c in cases["chains"]:
+        out = np.zeros(1, dtype=np.float64)
+        L.sim_chain_time(np.array(c["board"], dtype=np.uint8), out)
+        if abs(out[0] - c["chainMs"]) > 1e-6:
+            bad += 1
+            if bad <= 3:
+                print(f"✗ chainMs js={c['chainMs']} sim={out[0]}")
+    fails += bad
+    print(f"chain time: {len(cases['chains'])} boards, mismatch={bad}")
+
     # 4. 決定性 / 5. 先後入れ替え
     base = ps.Policy.baseline().packed()
     seeds = np.arange(1, 9, dtype=np.uint32) * 1000003 % 1000000 + 1

@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────
 // tools/export_weights.mjs — 本番 JS（cpu5_weights.js / cpu5_modes.js / cpu5_worker_io.js）から
 //   現行 lv5 の weightsArray（build / fast）とカウンター定数を取り出して JSON で出力する。
+//   puyo lv6（cpu6.js：学習済み重み＋対戦判断 VS_DECISION）も "lv6" に出す。
 //   重みを手で写すと本番とずれるため、学習の基準値は必ずここから取る。
 //   使い方: node tools/export_weights.mjs > build/baseline.json
 // ─────────────────────────────────────────────
@@ -38,4 +39,20 @@ const num = (name) => {
 out.counterTrigger = num('COUNTER_TRIGGER_OJAMA_VSPUYO');
 out.counterMargin  = num('COUNTER_MARGIN_VSPUYO');
 if (out.build.length !== 43) throw new Error(`weightsArray 長が ${out.build.length}（43 を想定）`);
+
+// ── puyo lv6（lv5 を継承した学習済み重み＋対戦判断）。public/cpu/puyo/lv6/js/cpu6.js から取り出す ──
+{
+    const lv6src = fs.readFileSync(path.resolve(lv5, '../../lv6/js/cpu6.js'), 'utf8');
+    vm.runInContext(lv6src, ctx, { filename: 'cpu6.js' });
+    const c6 = new ctx.window.PuyoCPU6();
+    c6._initWeights();
+    const arr6 = (mode) => { c6.setMode(mode); return Array.from(c6._buildWeightsArray(9)); };
+    const C = ctx.window.PuyoCPU6;
+    out.lv6 = {
+        build: arr6('build'), fast: arr6('fast'),
+        counterTrigger: C.TRAINED_COUNTER.triggerVsPuyo,
+        counterMargin:  C.TRAINED_COUNTER.marginVsPuyo,
+        vsDecision: C.VS_DECISION || {},
+    };
+}
 process.stdout.write(JSON.stringify(out, null, 1) + '\n');

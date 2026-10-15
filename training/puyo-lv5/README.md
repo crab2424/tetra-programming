@@ -65,6 +65,15 @@ python3 py/analyze_losses.py --harass      # 指定手数でおじゃまを降�
 - 記録は `Player::trace`（`sim/sim.h` の `PlayerTrace`）。nullptr の学習時は何もしない（学習速度は不変）
 - 発火点指標 `bestIgnition`：1列に同色1〜3個を足して起こせる最大連鎖（ツモ非依存の「撃てる状態」）
 
+## 対戦判断の A/B（ext[]）
+`PolicyParams.ext[16]`（`sim/sim.h` ExtIndex、既定0＝現行 lv5）で対戦判断を切り替える。
+本番 lv6 は「後打ちの活用」（p2_*）が有効で、`ps.Policy.lv6()` が本番 `cpu6.js` から設定を読む。
+```bash
+python3 py/ab_vs_decision.py --opp lv6    # 試作を lv6（重みのみ）相手に600局ずつ比較
+```
+- **lv5 同士の A/B は使わない**（同じシード・同じ重みだと鏡写しになり、後打ちの場面が生まれない）
+- 設計と結果: `source_assets/memory/cpu/puyo/lv5-vs-decision-design.md`
+
 ## 出力（runs/<名前>/、git 管理外）
 - `log.csv` … 世代ごとの sigma・候補の勝率（最高/平均/中央値）・定期評価・平均ベクトル
 - `state.json` … 再開用（CMA-ES の状態・殿堂・best）

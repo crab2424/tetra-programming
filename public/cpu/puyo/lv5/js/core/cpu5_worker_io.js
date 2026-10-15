@@ -390,6 +390,9 @@ Object.assign(window.PuyoCPU5.prototype, {
         const coverScore = this._lastBestChain || 0;
         const coverage   = Math.floor(coverScore / rate);
 
+        // ★ 後打ちの活用（提案2）。lv5 は未設定（_vsDecision なし）＝従来どおり。lv6 が有効にする。
+        if (this._updateCounterWait(incomingGross, rate)) return;
+
         let wantCounter;
         if (this._counterActive) {
             wantCounter = incomingGross > 0;                       // 受け量が尽きるまで継続
@@ -448,6 +451,151 @@ Object.assign(window.PuyoCPU5.prototype, {
                     : `｜発火閾値=${thr}点(標準)`)
             );
         }
+    },
+
+    // ───────────────────────────────────────────────
+    // ★ 後打ちの活用（提案2。設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md §2）
+    //   相手のおじゃまは「相手の連鎖終了で ready → 自分の手の終わりに降る」。よって相手の連鎖中は、
+    //   撃たない手が相手の連鎖終了より前に終わる限り降らない。その間は本線(build)の重みで伸ばし、
+    //   ・今撃てる最大が受け量×fireIfPct% 以上になったら撃つ（wasm の fire gate＝fireScoreThreshold）
+    //   ・間に合わなくなった手（締切）では撃てる最大を撃つ（閾値 1）
+    //   有効化は this._vsDecision.p2（lv6 が設定）。相手がテトのときは対象外。
+    //   処理したら true を返す（呼び出し元の従来カウンター判定は行わない）。
+    //   学習用シミュ（training/puyo-lv5/sim/player.cpp decide）と同じ判断にすること。
+    _updateCounterWait(incomingGross, rate) {
+        const p2 = this._vsDecision && this._vsDecision.p2;
+        if (!p2) return false;
+        const opp = this._getOpponentGame();
+        if (!opp || !(opp instanceof PuyoGame) || !(opp.chainCount > 0)) return false;
+        if (incomingGross < Math.max(1, p2.minIncoming)) return false;
+        const remainMs = this._estimateOpponentChainEndMs(opp);
+        if (!(remainMs > 0)) return false;
+
+        const dropSoon = this._hasDroppableGarbageWithin(p2.turnMs);
+        const wait     = !dropSoon && p2.turnMs + p2.safetyMs < remainMs;
+
+        const prevMode = this.cpuMode;
+        if (this.cpuMode !== 'build') this.setMode('build');
+        this._counterActive = true;   // 撃った後は従来のヒステリシス（受け量が尽きるまでカウンター）
+        const cw = this.controlWeights;
+        if (wait) {
+            cw.fireChainCount     = 0;   // 目標発火は切る（緊急発火は残る）
+            cw.fireScoreThreshold = p2.fireIfPct > 0 ? Math.ceil((incomingGross + 1) * rate * p2.fireIfPct / 100) : 0;
+        } else {
+            cw.fireChainCount     = 1;   // 締切：撃てる最大を撃つ
+            cw.fireScoreThreshold = 1;
+        }
+        this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
+
+        const thr = cw.fireScoreThreshold;
+        console.log(
+            `[cpu5 versus] 後打ち: ${wait ? '待つ（伸ばす）' : '締切 → 撃てる最大'}` +
+            `｜相手連鎖の残り ${(remainMs / 1000).toFixed(2)}s（1手 ${p2.turnMs}ms+余裕 ${p2.safetyMs}ms${dropSoon ? '・既に降る分あり' : ''}）` +
+            `｜受け量=${incomingGross}個` +
+            (wait ? `｜即撃ち閾値=${thr}点(≒${Math.floor(thr / rate)}個)` : '') +
+            (prevMode !== this.cpuMode ? `｜★切替 ${prevMode} → build` : '')
+        );
+        return true;
+    },
+
+    // ★ ぷよ相手の発火中連鎖が終わる（＝送ったおじゃまが ready になる）までの残り ms。発火中でなければ -1。
+    //   ① 今の段階（_gs と各タイマー）の残り ＋ ② 落下を終えた盤面から残りの段を回した時間。
+    //   落下中（eraseWait/dropping）のぷよは盤面から外れて _dropAnim にあるので、着地位置に戻して回す。
+    _estimateOpponentChainEndMs(opp) {
+        if (!opp || !(opp instanceof PuyoGame) || !(opp.chainCount > 0) || !opp.field) return -1;
+        const PC  = PConfig;
+        const DROP_MS_PER_ROW = 50;                            // engine.js _stepDropAnim（cellSize/50 px/ms）
+        const vib = (cycles) => cycles * 4 * PC.vibPhaseMs;   // engine.js _addPuyoAnim
+        const f   = opp.field.map(row => row.slice());
+        let t;
+        switch (opp._gs) {
+            case 'erasing': {
+                for (const cell of (opp._erasingCells || [])) if (cell && f[cell.r]) f[cell.r][cell.c] = 0;
+                const d = this._applyGravityForTiming(f);
+                t = Math.max(0, PC.eraseMs - (opp._eraseTimer || 0)) + PC.eraseWaitMs +
+                    (d.moved ? d.maxDist * DROP_MS_PER_ROW + vib(d.vibCycles) + PC.fixWait5fMs : 0);
+                break;
+            }
+            case 'eraseWait':
+            case 'dropping': {
+                const anim = opp._dropAnim;
+                let dropRem = 0, cycles = 0;
+                if (anim) {
+                    const speed = PC.cellSize / DROP_MS_PER_ROW;   // engine.js _stepDropAnim
+                    for (const col of anim) {
+                        for (const cell of col.cells) {
+                            f[cell.toR][col.c] = cell.color;
+                            const targetY = (cell.toR - PC.hiddenRows) * PC.cellSize;
+                            const py = (cell.py ?? (cell.fromR - PC.hiddenRows) * PC.cellSize);
+                            dropRem = Math.max(dropRem, (targetY - py) / speed);
+                            if (cell.color !== 6) cycles = Math.max(cycles, (cell.toR - cell.fromR) >= 2 ? 4 : 3);
+                        }
+                    }
+                }
+                t = (opp._gs === 'eraseWait' ? Math.max(0, PC.eraseWaitMs - (opp.eraseWaitTimer || 0)) : 0) +
+                    (anim ? Math.max(0, dropRem) + vib(cycles) + PC.fixWait5fMs : 0);
+                break;
+            }
+            case 'fixAnim':
+                t = Math.max(0, (opp.fixAnimDuration || 0) - (opp.fixAnimTimer || 0)) + PC.fixWait5fMs;
+                break;
+            case 'fixWait5f':
+                t = Math.max(0, PC.fixWait5fMs - (opp.fw5fTimer || 0));
+                break;
+            case 'checkErase':
+                t = 0;
+                break;
+            default:
+                return -1;   // 連鎖は終わっている（spawnAnim など）
+        }
+        return t + this._puyoChainRemainingMs(f, (fld) => opp._findErasableInField(fld));
+    },
+
+    // ★ 次の消去判定を待つ盤面 f から、連鎖が終わる（消えるものが無くなる判定）までの ms（純関数・f を書き換える）。
+    //   1段 = eraseMs ＋ eraseWaitMs ＋（落下があれば 落下段数×50 ＋ 振動 ＋ fixWait5fMs）。
+    //   findErasable は engine.js _findErasableInField と同じもの（Node の一致テストでもそれを渡す）。
+    _puyoChainRemainingMs(f, findErasable) {
+        const PC = PConfig;
+        const DROP_MS_PER_ROW = 50;   // engine.js _stepDropAnim（cellSize/50 px/ms）
+        let t = 0;
+        for (let iter = 0; iter < 40; iter++) {
+            const { groups, ojamaToErase } = findErasable(f);
+            if (!groups || groups.length === 0) break;
+            for (const g of groups) for (const cell of g) f[cell.r][cell.c] = 0;
+            for (const cell of ojamaToErase) f[cell.r][cell.c] = 0;
+            const d = this._applyGravityForTiming(f);
+            t += PC.eraseMs + PC.eraseWaitMs;
+            if (d.moved) t += d.maxDist * DROP_MS_PER_ROW + d.vibCycles * 4 * PC.vibPhaseMs + PC.fixWait5fMs;
+        }
+        return t;
+    },
+
+    // 全段の重力。落下アニメの時間計算用に {moved, maxDist, vibCycles} を返す（engine.js _buildDropAnim と同じ落下量）。
+    _applyGravityForTiming(f) {
+        const PC = PConfig;
+        const totalRows = PC.rows + PC.hiddenRows;
+        let moved = false, maxDist = 0, vibCycles = 0;
+        for (let c = 0; c < PC.cols; c++) {
+            let emptyBelow = 0;
+            for (let r = totalRows - 1; r >= 0; r--) {
+                const v = f[r][c];
+                if (v === 0) { emptyBelow++; continue; }
+                if (emptyBelow === 0) continue;
+                moved = true;
+                maxDist = Math.max(maxDist, emptyBelow);
+                if (v !== 6) vibCycles = Math.max(vibCycles, emptyBelow >= 2 ? 4 : 3);
+                f[r + emptyBelow][c] = v;
+                f[r][c] = 0;
+            }
+        }
+        return { moved, maxDist, vibCycles };
+    },
+
+    // 自分のおじゃまキューに「ms 後の手の終わりまでに降れる」量があるか（ready かつ 非表示期間がそれまでに明ける）
+    _hasDroppableGarbageWithin(ms) {
+        const q = this.game && this.game.garbageQueue;
+        if (!q) return false;
+        return q.some(g => g && g.ready && g.amount > 0 && (!g.internal || (g.internalTimer ?? 0) <= ms));
     },
 
     // bestMoveData があり、操作可能(falling)かつ未着手なら着手を開始する。

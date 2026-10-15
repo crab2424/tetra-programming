@@ -51,7 +51,7 @@ enum ExtIndex {
     X_P2_MIN_INCOMING,   // 待つのは「相手の発火中連鎖で届く量」がこれ以上の時（個）
     X_P2_WAIT_FAST,      // 待つ間の重み 0=build / 1=fast
     X_P2_TURN_MS,        // 撃たない1手の所要時間の見積もり（ms。0=既定 560）
-    X_P2_FIRE_IF_PCT,    // 待つ前に「今撃てる最大 ≥ pct% × 受け量」なら待たずに撃つ（0=無効）
+    X_P2_FIRE_IF_PCT,    // 待つ手の発火閾値＝pct% × (受け量+1) × rate（今撃てる最大が届けば撃つ。0=撃たない）
     X_P2_NO_SPILL,       // 待つ間は育成手のこぼれ（小連鎖の暴発）を禁止 1/0
     X_P1_USE_THREAT,     // 相手の火力に「相手の見えている NEXT 2手で届く連鎖」も使う 1/0
 };
@@ -106,6 +106,9 @@ void findErasable(const Field& f, std::vector<std::vector<Cell>>& groups, std::v
 int  chainStepScore(const std::vector<std::vector<Cell>>& groups, const Field& f, int chainCount);
 // 重力（全17段）。落下アニメ情報を返す（engine.js _buildDropAnim と同じ落下量）
 DropInfo applyGravity(Field& f);
+// 次の消去判定を待つ盤面から、連鎖が終わる（消えるものが無い判定）までの ms
+//   （本番 cpu5_worker_io.js _puyoChainRemainingMs と同じ計算。tests/test_parity.py で照合）
+double chainRemainingMs(Field f);
 // 盤面のコピーで残り連鎖を最後まで回したスコア合計と段数（chainCountStart から継続）
 long long simulateRemainingChain(Field f, int chainCountStart, int* outChains = nullptr);
 
