@@ -49,7 +49,9 @@ function _removeCpuClass(className) {
 //   `?v=` 運用（＝編集したら app/modes.js の ?v を上げる）に戻すこと。
 //   2026-08-29: CPU6 は当面チューニング予定が無いためここから外した。
 //   2026-09-24: PuyoCPU5 はチューニング継続のため残す（ユーザー確認済み）。
-const DEV_CPU_CLASSES = ['PuyoCPU5'];
+//   2026-10-15: PuyoCPU6 は PuyoCPU5 を継承する（deps）。lv5 を読み直したら lv6 も
+//               新しい lv5 から作り直す必要があるため、同じく開始ごとに読み直す。
+const DEV_CPU_CLASSES = ['PuyoCPU5', 'PuyoCPU6'];
 
 function isDevCpuClass(level, rule) {
   const config = CPU_CONFIGS[rule] && CPU_CONFIGS[rule][level];
@@ -61,6 +63,7 @@ function isCpuScriptLoaded(level, rule) {
   const config = CPU_CONFIGS[rule] && CPU_CONFIGS[rule][level];
   if (!config) return false;
   if (DEV_CPU_CLASSES.includes(config.className)) return false;
+  if ((config.deps || []).some(dep => !isCpuScriptLoaded(dep, rule))) return false;
   const rec = _cpuClassRegistry.get(config.className);
   return !!rec && !rec.loading && !!window[config.className];
 }
@@ -70,6 +73,9 @@ async function loadCpuScript(level, rule, opts = {}) {
   if (!config) throw new Error("Invalid CPU Level or Rule");
   const className = config.className;
   const isDevCpu = DEV_CPU_CLASSES.includes(className);
+
+  // ★ 依存クラス（例: PuyoCPU6 は PuyoCPU5 を継承）を先に読み込む
+  for (const depLevel of (config.deps || [])) await loadCpuScript(depLevel, rule, opts);
 
   const rec = _cpuClassRegistry.get(className);
   if (rec && rec.loading) return rec.loading; // 同じクラスを読み込み中なら相乗りする

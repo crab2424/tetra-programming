@@ -88,11 +88,9 @@ function _versusFinishingNow() {
 }
 
 // 1P 側を CPU にするとき（隠しコマンド: 準備画面の 0 キー）のレベル。
-// selectedPlayerCpuLevel が null なら 2P と同じ。LV6 は tet のみなので puyo では 5 に丸める。
+// selectedPlayerCpuLevel が null なら 2P と同じ。LV6 は tet / puyo とも隠しレベルとして存在する。
 function _playerCpuLevel() {
-  let lv = (selectedPlayerCpuLevel == null) ? selectedCpuLevel : selectedPlayerCpuLevel;
-  if (versusPlayerRule !== 'tet' && lv > 5) lv = 5;
-  return lv;
+  return (selectedPlayerCpuLevel == null) ? selectedCpuLevel : selectedPlayerCpuLevel;
 }
 
 function _cpuLabel(lv) {

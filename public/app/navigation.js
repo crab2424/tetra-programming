@@ -1210,9 +1210,12 @@ function handlePauseAction(action) {
 // ★ 隠し要素: CPU LV6 ショートカット
 // versus-check または mode-check(testモード) の準備画面で
 // 「6」キー（numキーではない）を押すと、
-// tetルールが選択されている場合のみ LV6 を呼び出してゲームを即スタートする
+// LV6 を呼び出してゲームを即スタートする
+//   tet ルール:
 //   ・「6」 → PC（パーフェクトクリア）探索あり（従来どおり）
 //   ・「7」 → PC探索なし（cpu6.js shouldSearchPC を window.__cpu6DisablePC で抑止）
+//   puyo ルール（2026-10-15〜）:
+//   ・「6」 → lv5 の学習済み重み版（cpu/puyo/lv6/js/cpu6.js）。「7」は無効
 // ─────────────────────────────────────────────
 (function setupHiddenLv6Key() {
   document.addEventListener('keydown', function(e) {
@@ -1232,9 +1235,9 @@ function handlePauseAction(action) {
     // どちらの準備画面でもない場合は何もしない
     if (!isVersusCheck && !isTestCheck) return;
 
-    // ─── versus-check 画面: CPU RULE が tet の場合のみ有効 ───
+    // ─── versus-check 画面: CPU RULE が tet、または puyo で「6」の場合に有効 ───
     if (isVersusCheck) {
-      if (versusCpuRule !== 'tet') return;
+      if (versusCpuRule !== 'tet' && !(versusCpuRule === 'puyo' && !disablePC)) return;
       e.preventDefault();
 
       // PC探索の有無を起動前にフラグでセット（cpu6.js が参照）
@@ -1245,9 +1248,9 @@ function handlePauseAction(action) {
       return;
     }
 
-    // ─── mode-check(test) 画面: RULE が tet の場合のみ有効 ───
+    // ─── mode-check(test) 画面: RULE が tet、または puyo で「6」の場合に有効 ───
     if (isTestCheck) {
-      if (testRule !== 'tet') return;
+      if (testRule !== 'tet' && !(testRule === 'puyo' && !disablePC)) return;
       e.preventDefault();
 
       // PC探索の有無を起動前にフラグでセット（cpu6.js が参照）
@@ -1263,7 +1266,7 @@ function handlePauseAction(action) {
 // ─────────────────────────────────────────────
 // ★ 隠し要素: CPU同士の対戦（v2.2.3 J）
 // versus-check（準備画面）で
-//   ・「Shift + 1〜6」→ 1P 側CPUのレベルを指定（既定は 2P と同じ。LV6 は YOUR RULE が TET の時のみ）
+//   ・「Shift + 1〜6」→ 1P 側CPUのレベルを指定（既定は 2P と同じ。LV6 は tet / puyo とも可）
 //   ・「0」          → 1P もCPUにして即開始（ルールは YOUR RULE / CPU RULE の選択どおり）
 // 画面上に説明は出さない。レベル指定時だけ説明欄に小さく現在値を出す（押せたことの手応え）。
 // 準備画面を開き直すと通常へ戻る（switchPage）。R リスタート／RETRY では維持される。
@@ -1286,7 +1289,6 @@ function handlePauseAction(action) {
     const n = parseInt(m[1], 10);
 
     if (e.shiftKey && n >= 1) {
-      if (n === 6 && versusPlayerRule !== 'tet') return;
       e.preventDefault();
       selectedPlayerCpuLevel = n;
       showPlayerCpuLevelHint();
