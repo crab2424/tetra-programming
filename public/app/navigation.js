@@ -236,6 +236,7 @@ function switchPage(pageId) {
   if (pageId === 'versus-check') {
     versusPlayerIsCpu = false;
     selectedPlayerCpuLevel = null;
+    window.__cpu6DisablePC1P = false; window.__cpu6DisablePC2P = false; // PC探索オフ指定も通常へ戻す
   }
   if (menuPages.includes(pageId)) {
     if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
@@ -1216,7 +1217,7 @@ function handlePauseAction(action) {
 //   puyo ルール（2026-10-15〜）:
 //   ・「6」 → lv5 の学習済み重み版（cpu/puyo/lv6/js/cpu6.js）。「7」は無効
 //   versus-check では Shift+6 / Shift+7 が 1P 側CPU を LV6 にする（Shift+7 は PC探索なし）。
-//   ※ PC探索なしフラグは 2P/1P 共通（グローバル）。
+//   ※ PC探索なしは側ごと（versus: 7=2P / Shift+7=1P、test: グローバル）。
 // ─────────────────────────────────────────────
 (function setupHiddenLv6Key() {
   function showLv6Selected(isVersus, playerSide) {
@@ -1252,16 +1253,21 @@ function handlePauseAction(action) {
     // どちらの準備画面でもない場合は何もしない
     if (!isVersusCheck && !isTestCheck) return;
 
-    // Shift+6 は CPU同士対戦コマンド（下の setupHiddenCpuVsCpuKey）が処理する。
-    // Shift+7 だけここで 1P CPU を LV6（PC探索なし）にする。
-    if (e.shiftKey && !(isVersusCheck && disablePC)) return;
+    // versus-check: 7 = 2P、Shift+7 = 1P の PC探索オフ（側ごと）。Shift+6 は 1P のPC探索を戻すだけで、
+    // 1P CPU の LV6 指定自体は CPU同士対戦コマンド（下の setupHiddenCpuVsCpuKey）が行う。
+    if (isVersusCheck && e.shiftKey && !disablePC) {
+      window.__cpu6DisablePC1P = false;
+      return;
+    }
 
-    const rule = isVersusCheck ? versusCpuRule : testRule;
+    const rule = !isVersusCheck ? testRule : (e.shiftKey ? versusPlayerRule : versusCpuRule);
     if (rule !== 'tet' && !(rule === 'puyo' && !disablePC)) return;
     e.preventDefault();
 
     // PC探索の有無はフラグでセット（cpu6.js が参照。ゲーム開始時に読まれる）
-    window.__cpu6DisablePC = disablePC;
+    if (!isVersusCheck) window.__cpu6DisablePC = disablePC;
+    else if (e.shiftKey) window.__cpu6DisablePC1P = disablePC;
+    else window.__cpu6DisablePC2P = disablePC;
     showLv6Selected(isVersusCheck, e.shiftKey);
   });
 })();

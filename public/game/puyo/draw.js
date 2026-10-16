@@ -100,7 +100,8 @@ Object.assign(PuyoGame.prototype, {
         el.style.position = 'absolute';
         el.style.transform = `translate(-50%, -50%) scale(${scale})`;
         el.style.pointerEvents = 'none';
-        el.style.zIndex = '900'; // ポーズオーバーレイ(1000)より下。ゲーム内の他要素(〜100)よりは上
+        el.className = 'puyo-chain-text'; // ポーズ中の非表示は pause.css
+        el.style.zIndex = '9999';
         el.style.whiteSpace = 'nowrap';
         el.style.display = 'none';
         el.style.alignItems = 'baseline';

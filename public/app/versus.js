@@ -252,6 +252,9 @@ async function startVersusGame() {
   //   ものをプールから借りるので、生成直後から workerReady が立っている（v2.2.3 G/H）。
   if (CpuClass) window._cpuController = new CpuClass(window._cpuGame);
   if (PlayerCpuClass) window._cpuControllerPlayer = new PlayerCpuClass(window._game);
+  // tet LV6 の PC探索オフは側ごとに指定できる（準備画面の 7 = 2P / Shift+7 = 1P）。cpu6.js が参照
+  if (window._cpuController) window._cpuController.disablePC = !!window.__cpu6DisablePC2P;
+  if (window._cpuControllerPlayer) window._cpuControllerPlayer.disablePC = !!window.__cpu6DisablePC1P;
 
   await window.BattleLocalLoading.reveal();
   if (isStale()) return;

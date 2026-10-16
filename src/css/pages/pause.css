@@ -109,3 +109,9 @@
   opacity: 1;
 }
 
+
+/* 連鎖文字(puyo)は body 直下にあり #container(transform) の外なので z-index ではポーズより下へ置けない。
+   ポーズ中は隠す */
+body:has(#pause-overlay.active) .puyo-chain-text {
+  visibility: hidden;
+}
