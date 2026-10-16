@@ -31,6 +31,7 @@ I_WASTE_W, I_PUYOS_W, I_QEXCESS_W = 31, 41, 43   # weightsArray の添字（wast
 # 縦積みの切り分け（vert）で書き換える添字
 I_EMG_H, I_LINK3, I_QLINK3, I_EMG_RATIO, I_FAC_L, I_FAC_H, I_FAC_V = 8, 18, 26, 36, 38, 39, 40
 HIDDEN, COLS_N, ROWS_ALL = 5, 6, 17
+I_QJUNK_W, I_QSUB_W = 44, 45   # 提案3 E2a（ゴミ×埋まり具合）/ E2b（副砲）
 REASONS = {1: "目標", 2: "緊急", 3: "延命"}
 
 
@@ -55,6 +56,15 @@ def configs(base: dict, which: str = "stage0") -> dict[str, ps.Policy]:
             "lv6 link3旧": with_build(lv6, {I_LINK3: 11, I_QLINK3: 25, I_FAC_L: 81, I_FAC_H: 93, I_FAC_V: 21}),
             "lv6 fire旧": with_build(lv6, {I_EMG_RATIO: 60, I_EMG_H: 12}),
         }
+    if which == "e2":   # 段階1 E2a/E2b：ゴミと副砲（2026-10-16 §9.3）
+        cfg = {"lv6": lv6}
+        for v in (-10, -30, -60, -120):
+            cfg[f"lv6 junk{v}"] = with_build(lv6, {I_QJUNK_W: v})
+        for v in (5, 15, 40):
+            cfg[f"lv6 sub{v}"] = with_build(lv6, {I_QSUB_W: v})
+        cfg["lv6 junk-30 sub15"] = with_build(lv6, {I_QJUNK_W: -30, I_QSUB_W: 15})
+        cfg["lv6 junk-60 sub40"] = with_build(lv6, {I_QJUNK_W: -60, I_QSUB_W: 40})
+        return cfg
     if which == "e1":   # 段階1 E1：途中段の余剰の重み
         cfg = {"lv6": lv6}
         for v in (-10, -30, -60, -100, -200, -400):
@@ -215,7 +225,7 @@ def report(name: str, path: Path, turns: int) -> list[str]:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--set", default="stage0", choices=["stage0", "e1", "vert"])
+    ap.add_argument("--set", default="stage0", choices=["stage0", "e1", "vert", "e2"])
     ap.add_argument("--seeds", type=int, default=300)
     ap.add_argument("--turns", type=int, default=80)
     ap.add_argument("--only", default="")

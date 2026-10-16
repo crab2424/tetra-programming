@@ -108,11 +108,13 @@ struct EvalWeights {
 
     // ── 本線の資源効率（提案3。既定0＝無効）──
     int qExcessWeight;  // [43] quiescence の潜在連鎖の途中段の余剰（ChainResult::excess）1個あたり（負）
+    int qJunkWeight;    // [44] ゴミ（本線にも副砲にも使わない色ぷよ）× 埋まり具合（色ぷよ÷72）1個あたり（負）。E2a
+    int qSubWeight;     // [45] 副砲（本線と交わらず本線を落とさない連鎖）で送れるおじゃま1個あたり（正）。E2b
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 44 要素（[0..43]）。
+//   weightsArray は 46 要素（[0..45]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -172,5 +174,7 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     w.height3Weight       = weightsArray[42];
     // ── 本線の資源効率（提案3）──
     w.qExcessWeight       = weightsArray[43];
+    w.qJunkWeight         = weightsArray[44];
+    w.qSubWeight          = weightsArray[45];
     return w;
 }

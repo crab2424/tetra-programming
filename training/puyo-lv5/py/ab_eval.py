@@ -1,6 +1,6 @@
 """評価の項（提案3 など）を lv6 に足した候補を、本番 lv6 と VERSUS で A/B 比較する。
 
-  python3 py/ab_eval.py [--set e1] [--seeds 300] [--opp lv6|lv5]
+  python3 py/ab_eval.py [--set e1|e2] [--seeds 300] [--opp lv6|lv5]
   先後2局×シード数で、候補視点の勝率と 95% 幅（シードごとの先後2局の平均のばらつきから）を出す。
   シードは学習・定期評価・記録と重ならない 960000〜 を使う。
 設計: source_assets/memory/cpu/puyo/lv6-harass-design.md
@@ -16,7 +16,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 import puyosim as ps  # noqa: E402
-from solo_baseline import I_QEXCESS_W, with_build  # noqa: E402
+from solo_baseline import I_QEXCESS_W, I_QJUNK_W, I_QSUB_W, with_build  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -25,12 +25,19 @@ def configs(base: dict, which: str) -> dict[str, ps.Policy]:
     lv6 = ps.Policy.lv6(base)
     if which == "e1":
         return {f"lv6 qx{v}": with_build(lv6, {I_QEXCESS_W: v}) for v in (-60, -100, -200)}
+    if which == "e2":   # 提案3 E2a（ゴミ×埋まり具合）/ E2b（副砲）
+        return {
+            "lv6 junk-30": with_build(lv6, {I_QJUNK_W: -30}),
+            "lv6 junk-60": with_build(lv6, {I_QJUNK_W: -60}),
+            "lv6 sub40": with_build(lv6, {I_QSUB_W: 40}),
+            "lv6 junk-60 sub40": with_build(lv6, {I_QJUNK_W: -60, I_QSUB_W: 40}),
+        }
     raise ValueError(which)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--set", default="e1", choices=["e1"])
+    ap.add_argument("--set", default="e1", choices=["e1", "e2"])
     ap.add_argument("--seeds", type=int, default=300)
     ap.add_argument("--opp", default="lv6", choices=["lv6", "lv5"])
     ap.add_argument("--only", default="")

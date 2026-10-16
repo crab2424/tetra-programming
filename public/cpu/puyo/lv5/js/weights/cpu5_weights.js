@@ -63,6 +63,8 @@ Object.assign(window.PuyoCPU5.prototype, {
             // ── 本線の資源効率（提案3。0＝無効。lv5 は使わない。詳細: cpu5_weights.md）──
             //   ★ base が 0 のため、モード差分は { x:倍率 } ではなく絶対値で書くこと（0×倍率=0）。
             qExcessWeight:          0,  // 潜在連鎖の途中段の余剰（同時消し・多連結）1個あたり（負）
+            qJunkWeight:            0,  // ゴミ（本線にも副砲にも使わない色ぷよ）×埋まり具合 1個あたり（負）。E2a
+            qSubWeight:             0,  // 副砲（本線と交わらず本線を落とさない連鎖）のおじゃま1個あたり（正）。E2b
         };
 
         this.controlWeights = {
@@ -197,7 +199,9 @@ Object.assign(window.PuyoCPU5.prototype, {
             this.evalWeights.link3FacV,                              // [40] 3連結 縦一直線の倍率(%)
             this.evalWeights.puyosWeight,                            // [41] vsTet/fastVsTet 専用: ぷよ量ボーナス（buildは0）
             this.evalWeights.height3Weight,                          // [42] vsTet/fastVsTet 専用: 致死列高さ>4 ペナルティ（buildは0）
-            this.evalWeights.qExcessWeight                           // [43] 潜在連鎖の途中段の余剰ペナルティ（0=無効）
+            this.evalWeights.qExcessWeight,                          // [43] 潜在連鎖の途中段の余剰ペナルティ（0=無効）
+            this.evalWeights.qJunkWeight,                            // [44] ゴミ×埋まり具合のペナルティ（0=無効）
+            this.evalWeights.qSubWeight                              // [45] 副砲のおじゃま量ボーナス（0=無効）
         ]);
     },
 });

@@ -84,6 +84,19 @@ quiescence の各候補（発火色を積んで回した潜在連鎖）につい
 根拠：盤面が埋まったときの本線の段数は「色ぷよ − 残り − 途中段の余剰」でほぼ決まり、
 余剰1個はぷよ1個の損と同じ（source_assets/memory/cpu/puyo/lv5-improvement-notes.md §4.5、lv6-harass-design.md §5）。
 
+### qJunkWeight / qSubWeight — ゴミと副砲（提案3 E2a / E2b）
+
+quiescence の候補（発火色を積んで回した潜在連鎖）ごとに、消えたぷよを連鎖前の位置で記録し（`simulateChain` の `popped`）、
+- **本線 M**：点が最大の候補で消えるぷよ
+- **副砲 S**：M と交わらず、M のどのぷよの下も消さない（撃っても本線が落ちない）候補のうち点が最大のもの
+- **ゴミ**：色ぷよ − M − S
+
+として、次を q（quiescence の評価）に足す。どちらも 0 で無効（lv5 は 0。両方 0 なら位置の追跡もしない）。
+- `qJunkWeight`（負）… ゴミ × 色ぷよ ÷ 72（埋まり具合）。序盤の組み途中は軽く、盤面が埋まるほど重い
+- `qSubWeight`（正）… 副砲で送れるおじゃま（点 ÷ 70）
+
+ねらい：本線は綺麗に組み、崩れた場所は本線とは別の連鎖（副砲）として組む（lv6-harass-design.md §9.3）。
+
 ---
 
 ## controlWeights（制御パラメータ）
@@ -203,6 +216,8 @@ ama型evalは「撃たずに育てる」器なので、これが無いと無限�
 | 20 | knownNextCount（C++ では w.knownNextCount に代入されるのみのデッド配線） | 41 | puyosWeight |
 | | | 42 | height3Weight |
 | | | 43 | qExcessWeight |
+| | | 44 | qJunkWeight |
+| | | 45 | qSubWeight |
 
 ### ignition 動的閾値の撤去について
 
