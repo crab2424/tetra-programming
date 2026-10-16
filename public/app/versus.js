@@ -255,6 +255,9 @@ async function startVersusGame() {
   // tet LV6 の PC探索オフは側ごとに指定できる（準備画面の 7 = 2P / Shift+7 = 1P）。cpu6.js が参照
   if (window._cpuController) window._cpuController.disablePC = !!window.__cpu6DisablePC2P;
   if (window._cpuControllerPlayer) window._cpuControllerPlayer.disablePC = !!window.__cpu6DisablePC1P;
+  // puyo LV6 の「高速落下で設置」も側ごと（準備画面の 7 = 2P / Shift+7 = 1P）
+  if (window._cpuController) window._cpuController.softDropOnly = !!window.__cpu6SoftDrop2P;
+  if (window._cpuControllerPlayer) window._cpuControllerPlayer.softDropOnly = !!window.__cpu6SoftDrop1P;
 
   await window.BattleLocalLoading.reveal();
   if (isStale()) return;

@@ -237,6 +237,7 @@ function switchPage(pageId) {
     versusPlayerIsCpu = false;
     selectedPlayerCpuLevel = null;
     window.__cpu6DisablePC1P = false; window.__cpu6DisablePC2P = false; // PC探索オフ指定も通常へ戻す
+    window.__cpu6SoftDrop1P = false; window.__cpu6SoftDrop2P = false;
   }
   if (menuPages.includes(pageId)) {
     if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
@@ -759,6 +760,7 @@ async function startGameFromModeCheck() {
     if (testCpuClass) {
       window._cpuController = new testCpuClass(window._puyoGame);
       window._cpuController.isAutoPlay = testCpuControl;
+      window._cpuController.softDropOnly = !!window.__cpu6SoftDrop; // puyo LV6「高速落下で設置」
       if (typeof window._cpuController.start === 'function') {
         window._cpuController.start();
       }
@@ -1215,7 +1217,8 @@ function handlePauseAction(action) {
 //   ・「6」 → PC（パーフェクトクリア）探索あり
 //   ・「7」 → PC探索なし（cpu6.js shouldSearchPC を window.__cpu6DisablePC で抑止）
 //   puyo ルール（2026-10-15〜）:
-//   ・「6」 → lv5 の学習済み重み版（cpu/puyo/lv6/js/cpu6.js）。「7」は無効
+//   ・「6」 → lv5 の学習済み重み版（cpu/puyo/lv6/js/cpu6.js）
+//   ・「7」 → 同・高速落下で設置（クイックドロップ禁止。softDropOnly）
 //   versus-check では Shift+6 / Shift+7 が 1P 側CPU を LV6 にする（Shift+7 は PC探索なし）。
 //   ※ PC探索なしは側ごと（versus: 7=2P / Shift+7=1P、test: グローバル）。
 // ─────────────────────────────────────────────
@@ -1257,17 +1260,19 @@ function handlePauseAction(action) {
     // 1P CPU の LV6 指定自体は CPU同士対戦コマンド（下の setupHiddenCpuVsCpuKey）が行う。
     if (isVersusCheck && e.shiftKey && !disablePC) {
       window.__cpu6DisablePC1P = false;
+      window.__cpu6SoftDrop1P = false;
       return;
     }
 
     const rule = !isVersusCheck ? testRule : (e.shiftKey ? versusPlayerRule : versusCpuRule);
-    if (rule !== 'tet' && !(rule === 'puyo' && !disablePC)) return;
     e.preventDefault();
 
-    // PC探索の有無はフラグでセット（cpu6.js が参照。ゲーム開始時に読まれる）
-    if (!isVersusCheck) window.__cpu6DisablePC = disablePC;
-    else if (e.shiftKey) window.__cpu6DisablePC1P = disablePC;
-    else window.__cpu6DisablePC2P = disablePC;
+    // フラグは cpu6.js が参照（ゲーム開始時に読まれる）。7 は tet=PC探索なし／puyo=高速落下で設置
+    const pcOff = disablePC && rule === 'tet';
+    const soft  = disablePC && rule === 'puyo';
+    if (!isVersusCheck) { window.__cpu6DisablePC = pcOff; window.__cpu6SoftDrop = soft; }
+    else if (e.shiftKey) { window.__cpu6DisablePC1P = pcOff; window.__cpu6SoftDrop1P = soft; }
+    else { window.__cpu6DisablePC2P = pcOff; window.__cpu6SoftDrop2P = soft; }
     showLv6Selected(isVersusCheck, e.shiftKey);
   });
 })();

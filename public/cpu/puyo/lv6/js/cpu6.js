@@ -91,6 +91,43 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         this._vsDecision = this.constructor.VS_DECISION;
     }
 
+    // ── 高速落下で設置モード（隠し・準備画面の 7 / Shift+7）──
+    //   softDropOnly が真のとき、クイックドロップ（即置き）を使わず、移動・回転のあと
+    //   高速落下キーを押しっぱなしにして着地・固定まで落とす（人が操作するのと同じ縛り）。
+    _startQuickDrop() {
+        if (!this.softDropOnly) return super._startQuickDrop();
+        if (!this.isActive || !this.isAutoPlay) { this.isExecutingAction = false; return; }
+        if (this.game.isPaused || this.game.state === 'paused') {
+            setTimeout(() => { if (this.isActive && this.isAutoPlay) this._startQuickDrop(); }, 100);
+            return;
+        }
+        if (this.game._gs !== 'falling') { this.isExecutingAction = false; return; }
+
+        const key = this.game._keyMap.softDrop;
+        this._softKey = key;
+        this.game._keys[key] = true;
+        const poll = () => {
+            // 固定された（_gs が falling 以外）／停止された時点でキーを離す
+            if (!this.isActive || !this.isAutoPlay || this.game._gs !== 'falling') {
+                this._releaseSoftKey();
+                setTimeout(() => { this.isExecutingAction = false; }, this.placeDelay);
+                return;
+            }
+            setTimeout(poll, 16);
+        };
+        poll();
+    }
+
+    _releaseSoftKey() {
+        if (this._softKey != null && this.game && this.game._keys) this.game._keys[this._softKey] = false;
+        this._softKey = null;
+    }
+
+    stop() {
+        this._releaseSoftKey();
+        return super.stop();
+    }
+
     setMode(mode) {
         const known = Object.prototype.hasOwnProperty.call(this._modeProfiles(), mode);
         if (!known || mode === 'build') return super.setMode(mode);
