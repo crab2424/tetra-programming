@@ -1,6 +1,6 @@
 """評価の項（提案3 など）を lv6 に足した候補を、本番 lv6 と VERSUS で A/B 比較する。
 
-  python3 py/ab_eval.py [--set e1|e2] [--seeds 300] [--opp lv6|lv5]
+  python3 py/ab_eval.py [--set e1|e2|h|h2] [--seeds 300] [--opp lv6|lv5]
   先後2局×シード数で、候補視点の勝率と 95% 幅（シードごとの先後2局の平均のばらつきから）を出す。
   シードは学習・定期評価・記録と重ならない 960000〜 を使う。
 設計: source_assets/memory/cpu/puyo/lv6-harass-design.md
@@ -16,7 +16,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 import puyosim as ps  # noqa: E402
-from solo_baseline import I_QEXCESS_W, I_QJUNK_W, I_QSUB_W, with_build  # noqa: E402
+from solo_baseline import I_H2, I_H_KEEP, I_H_REACH, I_H_MAXC, I_H_MIN, I_QEXCESS_W, I_QJUNK_W, I_QSUB_W, with_build  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -32,18 +32,43 @@ def configs(base: dict, which: str) -> dict[str, ps.Policy]:
             "lv6 sub40": with_build(lv6, {I_QSUB_W: 40}),
             "lv6 junk-60 sub40": with_build(lv6, {I_QJUNK_W: -60, I_QSUB_W: 40}),
         }
+    if which == "h":    # 段階2 H1 催促（個数・段数上限・残す本線%）／H2 対応（§9.4）
+        h2 = {I_H2: 1}
+        h1 = lambda n, k, keep: {I_H_MIN: n, I_H_MAXC: k, I_H_KEEP: keep}
+        return {
+            "lv6 H2": with_build(lv6, h2),
+            "lv6 H1(12,3,80)": with_build(lv6, h1(12, 3, 80)),
+            "lv6 H1(6,3,80)": with_build(lv6, h1(6, 3, 80)),
+            "lv6 H1(18,4,80)": with_build(lv6, h1(18, 4, 80)),
+            "lv6 H1(12,3,60)": with_build(lv6, h1(12, 3, 60)),
+            "lv6 H1(12,3,95)": with_build(lv6, h1(12, 3, 95)),
+            "lv6 H1(12,3,80)+H2": with_build(lv6, {**h1(12, 3, 80), **h2}),
+            "lv6 H1(12,3,80)+H2+E2": with_build(lv6, {**h1(12, 3, 80), **h2, I_QJUNK_W: -60, I_QSUB_W: 40}),
+        }
+    if which == "h2":   # H1 に「撃った後に残す本線の絶対量」（個）を加えた版（§9.9）
+        h1 = lambda n, k, keep, reach: {I_H_MIN: n, I_H_MAXC: k, I_H_KEEP: keep, I_H_REACH: reach}
+        return {
+            "lv6 H1(12,3,80,r300)": with_build(lv6, h1(12, 3, 80, 300)),
+            "lv6 H1(12,3,80,r500)": with_build(lv6, h1(12, 3, 80, 500)),
+            "lv6 H1(12,3,80,r700)": with_build(lv6, h1(12, 3, 80, 700)),
+            "lv6 H1(12,3,0,r500)": with_build(lv6, h1(12, 3, 0, 500)),
+            "lv6 H1(18,4,80,r500)": with_build(lv6, h1(18, 4, 80, 500)),
+            "lv6 H1(12,3,80,r500)+H2+E2": with_build(lv6, {**h1(12, 3, 80, 500), I_H2: 1, I_QJUNK_W: -60, I_QSUB_W: 40}),
+        }
     raise ValueError(which)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--set", default="e1", choices=["e1", "e2"])
+    ap.add_argument("--set", default="e1", choices=["e1", "e2", "h", "h2"])
     ap.add_argument("--seeds", type=int, default=300)
-    ap.add_argument("--opp", default="lv6", choices=["lv6", "lv5"])
+    ap.add_argument("--opp", default="lv6", choices=["lv6", "lv6h2", "lv5"])   # lv6h2＝lv6＋H2 対応
     ap.add_argument("--only", default="")
     args = ap.parse_args()
     base = ps.load_baseline()
-    opp = ps.Policy.lv6(base) if args.opp == "lv6" else ps.Policy.baseline(base)
+    opp = {"lv6": lambda: ps.Policy.lv6(base),
+           "lv6h2": lambda: with_build(ps.Policy.lv6(base), {I_H2: 1}),
+           "lv5": lambda: ps.Policy.baseline(base)}[args.opp]()
     cfg = configs(base, args.set)
     if args.only:
         keep = set(args.only.split(","))

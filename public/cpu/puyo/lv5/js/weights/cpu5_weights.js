@@ -95,6 +95,15 @@ Object.assign(window.PuyoCPU5.prototype, {
             // ── 緊急発火の発火対象制限（本線巻き込み防止。詳細: cpu5_weights.md）──
             emergencyFireMinRatio:  70,  // 緊急発火を許す潜在比(%)（0=無効＝無制限）
             emergencyHardCol2:      11,  // 窒息寸前の延命発火する致死列の高さ（0=最終手段なし）
+
+            // ── 催促・対応（H1/H2。0＝無効。lv5 は使わない。詳細: cpu5_weights.md）──
+            //   ★ base が 0 のため、モード差分は { x:倍率 } ではなく絶対値で書くこと（0×倍率=0）。
+            //   ★ 実際に wasm へ渡すかは cpu5_worker_io.js が思考ごとに決める（_harassMinScore / _counterKeepReachOn）。
+            harassMinOjama:         0,  // H1 催促：今撃てる小連鎖がこのおじゃま個数以上なら撃つ候補（0=無効）
+            harassMaxChains:        0,  // H1 催促：撃つ連鎖の段数の上限
+            harassKeepPct:          0,  // H1 催促：撃った後の本線潜在が今の本線潜在のこの%以上のときだけ撃つ
+            counterKeepReach:       0,  // H2 対応：カウンターは本線を最も残す手で返す 1/0（0=点が最大の手）
+            harassMinReach:         0,  // H1 催促：撃った後の本線潜在がこのおじゃま個数以上のときだけ撃つ
         };
 
         // 後方互換のため旧 this.weights も参照可能にしておく（読み取り専用エイリアス）
@@ -201,7 +210,12 @@ Object.assign(window.PuyoCPU5.prototype, {
             this.evalWeights.height3Weight,                          // [42] vsTet/fastVsTet 専用: 致死列高さ>4 ペナルティ（buildは0）
             this.evalWeights.qExcessWeight,                          // [43] 潜在連鎖の途中段の余剰ペナルティ（0=無効）
             this.evalWeights.qJunkWeight,                            // [44] ゴミ×埋まり具合のペナルティ（0=無効）
-            this.evalWeights.qSubWeight                              // [45] 副砲のおじゃま量ボーナス（0=無効）
+            this.evalWeights.qSubWeight,                             // [45] 副砲のおじゃま量ボーナス（0=無効）
+            this._harassMinScore || 0,                               // [46] H1 催促の最低点（思考ごと。0=撃たない）
+            this.controlWeights.harassMaxChains,                     // [47] H1 催促の段数上限
+            this.controlWeights.harassKeepPct,                       // [48] H1 撃った後に残す本線潜在(%)
+            this._counterKeepReachOn ? 1 : 0,                        // [49] H2 カウンターで本線を残す手を選ぶ（思考ごと）
+            this._harassMinReachScore || 0                           // [50] H1 撃った後に残す本線潜在の点（思考ごと）
         ]);
     },
 });

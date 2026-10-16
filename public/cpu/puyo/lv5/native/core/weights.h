@@ -110,11 +110,20 @@ struct EvalWeights {
     int qExcessWeight;  // [43] quiescence の潜在連鎖の途中段の余剰（ChainResult::excess）1個あたり（負）
     int qJunkWeight;    // [44] ゴミ（本線にも副砲にも使わない色ぷよ）× 埋まり具合（色ぷよ÷72）1個あたり（負）。E2a
     int qSubWeight;     // [45] 副砲（本線と交わらず本線を落とさない連鎖）で送れるおじゃま1個あたり（正）。E2b
+
+    // ── 催促・対応（H1/H2。既定0＝無効。設計: lv6-harass-design.md §9.4）──
+    //   ★ [46] と [49] は「思考ごとの入力」：JS（cpu5_worker_io.js）／学習用シミュ（player.cpp decide）が
+    //     相手の状態を見て、使う思考でだけ値を入れる（保存している重みそのものではない）。
+    int harassMinScore;   // [46] H1 催促：今撃てる小連鎖の点がこれ以上なら撃つ候補（0=無効）。JS/sim が「個数×レート」で入れる
+    int harassMaxChains;  // [47] H1 催促：撃つ連鎖の段数の上限
+    int harassKeepPct;    // [48] H1 催促：撃った後の本線潜在（afterReach）が今の本線潜在のこの%以上のときだけ撃つ
+    int counterKeepReach; // [49] H2 対応：カウンターで受け量を上回る候補のうち「撃った後の本線潜在」が最大の手を撃つ 1/0（0=従来＝点が最大）
+    int harassMinReach;   // [50] H1 催促：撃った後の本線潜在の点がこれ以上のときだけ撃つ（相手に本線を吐かせても後打ちで勝てる量）。JS/sim が「個数×レート」で入れる
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 46 要素（[0..45]）。
+//   weightsArray は 51 要素（[0..50]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -176,5 +185,11 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     w.qExcessWeight       = weightsArray[43];
     w.qJunkWeight         = weightsArray[44];
     w.qSubWeight          = weightsArray[45];
+    // ── 催促・対応（H1/H2）──
+    w.harassMinScore      = weightsArray[46];
+    w.harassMaxChains     = weightsArray[47];
+    w.harassKeepPct       = weightsArray[48];
+    w.counterKeepReach    = weightsArray[49];
+    w.harassMinReach      = weightsArray[50];
     return w;
 }

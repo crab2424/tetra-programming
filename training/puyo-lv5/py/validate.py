@@ -39,7 +39,7 @@ def main() -> int:
     ap.add_argument("--seeds", type=int, default=1000)
     ap.add_argument("--solo-seeds", type=int, default=300)
     ap.add_argument("--threads", type=int, default=0)
-    ap.add_argument("--opp", default=None, choices=["lv5", "lv6"])
+    ap.add_argument("--opp", default=None, choices=["lv5", "lv6", "lv6h"])
     args = ap.parse_args()
 
     best_json = json.loads(Path(args.best).read_text())
@@ -64,7 +64,7 @@ def main() -> int:
 
     print("\n本番へ書き写す値（変化したもののみ）:")
     for k, v in P.describe(best, base).items():
-        if opp_name == "lv6":
+        if opp_name in ("lv6", "lv6h"):
             where = "cpu6.js TRAINED_COUNTER" if k.startswith("COUNTER_") else "cpu6.js TRAINED_BUILD"
         else:
             where = "cpu5_worker_io.js" if k.startswith("COUNTER_") else "cpu5_weights.js"

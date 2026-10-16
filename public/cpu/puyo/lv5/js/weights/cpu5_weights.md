@@ -97,6 +97,18 @@ quiescence の候補（発火色を積んで回した潜在連鎖）ごとに、
 
 ねらい：本線は綺麗に組み、崩れた場所は本線とは別の連鎖（副砲）として組む（lv6-harass-design.md §9.3）。
 
+### harassMinOjama / harassMaxChains / harassKeepPct / counterKeepReach — 催促と対応（H1 / H2）
+
+controlWeights。どれも 0 で無効（lv5 は 0）。wasm の fire gate（build.cpp）が使う。設計: lv6-harass-design.md §9.4。
+- **H1 催促**：目標・緊急で撃たない手番に、次をすべて満たす「今撃てる小連鎖」のうち点が最大のものを撃つ。
+  - 段数 ≤ `harassMaxChains`、おじゃま ≥ `harassMinOjama` 個
+  - 撃った後の本線潜在（その初手の先で見えた潜在連鎖の点の最大＝afterReach）≥ `harassKeepPct`% × 今の本線潜在
+  - 撃った後の本線潜在 ≥ `harassMinReach` 個（絶対量）。相手に組みかけの本線を撃たせても、後打ちで返し勝てる量を残す
+  - cpu5_worker_io.js が、対ぷよ・build（待ち／カウンターでない）・相手が連鎖中でない思考でだけ [46] に「個数×レート」を入れる。
+- **H2 対応**：`counterKeepReach`=1 なら、カウンター（受け量を上回る連鎖を撃つ）で、受け量を上回る候補のうち
+  **撃った後の本線潜在が最大**の手を撃つ（従来は点が最大＝本線を吐きやすい）。副砲で返せれば本線が残る。
+  カウンターは fast（lv5 基準）の重みなので、有効かどうかは build の値から読み、[49] に思考ごとに入れる。
+
 ---
 
 ## controlWeights（制御パラメータ）
@@ -218,6 +230,11 @@ ama型evalは「撃たずに育てる」器なので、これが無いと無限�
 | | | 43 | qExcessWeight |
 | | | 44 | qJunkWeight |
 | | | 45 | qSubWeight |
+| | | 46 | harassMinScore（思考ごと：harassMinOjama×レート） |
+| | | 47 | harassMaxChains |
+| | | 48 | harassKeepPct |
+| | | 49 | counterKeepReach（思考ごと） |
+| | | 50 | harassMinReach（思考ごと：個数×レート） |
 
 ### ignition 動的閾値の撤去について
 

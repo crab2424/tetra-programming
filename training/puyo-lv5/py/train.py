@@ -66,7 +66,17 @@ def upgrade_packed(h: list) -> np.ndarray:
     raise ValueError(f"殿堂の長さ {len(h)} を解釈できない")
 
 
+# lv6h＝本番 lv6 に催促 H1・対応 H2 を入れた学習相手（lv6-harass-design.md §9.5・§9.9）。
+#   H1 の値は A/B（ab_eval --set h2）で悪化しなかったもの。lv6 単体だと「催促に弱い」点を突くことばかり学ぶため。
+LV6H_SET = {46: 12, 47: 3, 48: 80, 49: 1, 50: 300}   # harassMinOjama/MaxChains/KeepPct/counterKeepReach/MinReach
+
+
 def named_policy(name: str, base_json: dict) -> ps.Policy:
+    if name == "lv6h":
+        pol = ps.Policy.lv6(base_json)
+        for i, v in LV6H_SET.items():
+            pol.build[i] = v
+        return pol
     return ps.Policy.lv6(base_json) if name == "lv6" else ps.Policy.baseline(base_json)
 
 
@@ -110,8 +120,8 @@ def main() -> int:
     ap.add_argument("--sigma", type=float, default=0.1, help="正規化座標での初期ステップ幅")
     ap.add_argument("--threads", type=int, default=0, help="0=全コア")
     ap.add_argument("--master-seed", type=int, default=20261015)
-    ap.add_argument("--opp", default="lv5", choices=["lv5", "lv6"], help="学習相手・定期評価の相手（本番の重み）")
-    ap.add_argument("--init", default=None, choices=["lv5", "lv6"], help="初期値（既定は --opp と同じ）")
+    ap.add_argument("--opp", default="lv5", choices=["lv5", "lv6", "lv6h"], help="学習相手・定期評価の相手（本番の重み。lv6h＝lv6＋催促 H1・対応 H2）")
+    ap.add_argument("--init", default=None, choices=["lv5", "lv6", "lv6h"], help="初期値（既定は --opp と同じ）")
     ap.add_argument("--init-set", action="append", default=[], metavar="名前=値",
                     help="初期値の一部を書き換える（params.SPACE の名前。複数可）")
     ap.add_argument("--eval-every", type=int, default=5, help="平均ベクトルを学習相手と評価する間隔（世代）")

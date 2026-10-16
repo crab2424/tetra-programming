@@ -4,6 +4,7 @@
 #include "build/build.h"
 #include "core/chain.h"
 #include "eval/eval.h"
+#include "eval/shape.h"
 #include "core/node.h"
 
 #include <algorithm>
@@ -41,6 +42,9 @@ struct ExpCandidate {
     int chainTargetChains;            // ↑chainTarget に対応する連鎖『段数』（デバッグ期待連鎖数）
     int chainTargetDepth;             // ↑chainTarget を達成したビーム深さ（=何手後の盤面で見えたか）
     int chainTargetIsFire;            // ↑chainTarget の出所 1=実発火(chain.score) / 0=潜在(potChain)
+    // ★ H1/H2: 撃った後に残る本線（afterReach）。この初手の先で見えた潜在(potChain)だけの最大。
+    //   chainTarget と違い実発火の点を含まない＝初手で小連鎖を撃っても、本線がどれだけ残るかを表す。
+    long long reachPot;
 
     // ── 表示用先読み(col2/col3)を辿るための補助 ──
     //   col2/col3 を「累積eval最大ノード」に紐付けると、初手が連鎖を発火したとき
@@ -185,6 +189,7 @@ static void runExpectedChainSelection(
                         cands[fm].chainTargetChains = 0;
                         cands[fm].chainTargetDepth = -1;
                         cands[fm].chainTargetIsFire = 0;
+                        cands[fm].reachPot = 0;
                         cands[fm].dispDepth = -1;
                         cands[fm].dispScore = LLONG_MIN;
                         cands[fm].fireChains = 0;
@@ -211,6 +216,7 @@ static void runExpectedChainSelection(
                 // ★ 連鎖スコアの巻き上げ：潜在(potChain)と実発火(chain.score)の大きい方。
                 //   実発火盤面(collapse後)の potChain は小さいが、撃った連鎖そのものは
                 //   chain.score で拾う＝「撃つ手・組む手」を統一して到達連鎖として評価。
+                if (fm >= 0 && potChain > cands[fm].reachPot) cands[fm].reachPot = potChain;
                 if (fm >= 0) {
                     long long reach = std::max((long long)potChain, (long long)chain.score);
                     if (reach > cands[fm].chainTarget) {
@@ -293,6 +299,18 @@ static void runExpectedChainSelection(
         }
     };
 
+    // ── H1 用：今の盤面の本線潜在（今そのまま発火色を1個足せば出る最大連鎖の点）──
+    long long basePot = 0;
+    if (w.harassMinScore > 0) {
+        int h0[COLS];
+        for (int c = 0; c < COLS; c++) {
+            h0[c] = 0;
+            for (int r = HIDDEN; r < TOTAL_ROWS; r++) if (baseBoard.get(c, r) != 0) h0[c]++;
+        }
+        int pot = 0;
+        calcQuiescenceEval(baseBoard, h0, w, &pot, nullptr);
+        basePot = pot;
+    }
     // ── 確定NEXTを1本のビームで深さ maxDepth まで読む（擬似分岐なし）──
     std::vector<SearchNode> beam;
     { SearchNode root; root.board = baseBoard; beam.push_back(root); }
@@ -330,7 +348,7 @@ static void runExpectedChainSelection(
     int bestFm = -1;
     long long bestBase = LLONG_MIN;
     int dbgFireChains = 0;   // 発火した連鎖段数（0=発火せず＝育成）。デバッグ outResult[15]
-    int dbgFireReason = 0;   // 発火理由 0=育成(発火せず) / 1=目標到達 / 2=緊急(盤面整理)。outResult[23]
+    int dbgFireReason = 0;   // 発火理由 0=育成(発火せず) / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1)。outResult[23]
     // ── デバッグ[21][22]用：理論上「今この瞬間に撃てる最大連鎖」（実行動とは独立）──
     //   全候補のうち今そのまま置けば実発火する手の最大スコア。育成中でも >0 になり、
     //   「撃てるのに育成している」のか「そもそも撃てない」のかを切り分けられる。
@@ -407,7 +425,15 @@ static void runExpectedChainSelection(
             bool tgtByCount = (w.fireChainCount    > 0 && cands[fm].fireChains >= w.fireChainCount);
             bool tgtByScore = (w.fireScoreThreshold > 0 && cands[fm].fireScore  >= w.fireScoreThreshold);
             if (tgtByCount || tgtByScore) {
-                if (cands[fm].fireScore > fireBestTgt) { fireBestTgt = cands[fm].fireScore; fireFmTgt = fm; }
+                if (w.counterKeepReach) {
+                    // ★ H2 対応：受け量を上回る候補のうち、撃った後の本線潜在(reachPot)が最大の手。
+                    //   副砲で返せれば本線は残る。副砲が無ければ、本線をなるべく残す手（最後が本線そのもの）。
+                    //   同じなら点が大きい方（多く相殺・送る）。
+                    if (fireFmTgt < 0 || cands[fm].reachPot > cands[fireFmTgt].reachPot ||
+                        (cands[fm].reachPot == cands[fireFmTgt].reachPot && cands[fm].fireScore > fireBestTgt)) {
+                        fireBestTgt = cands[fm].fireScore; fireFmTgt = fm;
+                    }
+                } else if (cands[fm].fireScore > fireBestTgt) { fireBestTgt = cands[fm].fireScore; fireFmTgt = fm; }
             }
         }
 
@@ -428,6 +454,23 @@ static void runExpectedChainSelection(
             // どちらも不成立＝本線を守って育成継続（bestFm のまま撃たない）
         }
 
+        // ③ H1 催促：目標・緊急で撃たないとき、本線を残したまま撃てる小連鎖（副砲）を撃つ。
+        //   条件＝段数 ≤ harassMaxChains・点 ≥ harassMinScore（JS/sim が受けてよい局面でだけ入れる）・
+        //   撃った後の本線潜在 reachPot ≥ harassKeepPct% × 今の本線潜在 basePot、かつ ≥ harassMinReach（絶対量）。
+        //   候補のうち点が最大の手。絶対量の条件は、催促で相手に組みかけの本線を撃たせたとき、
+        //   こちらの本線で返し勝てるようにするため（無いと序盤に撃って約7連鎖で返され負け越した。§9.9）。
+        if (fireFm < 0 && w.harassMinScore > 0) {
+            int harassFm = -1;
+            for (int fm = 0; fm < nCand; fm++) {
+                const ExpCandidate& c = cands[fm];
+                if (c.fireChains <= 0 || c.fireChains > w.harassMaxChains) continue;
+                if (c.fireScore < w.harassMinScore || !survivable(fm)) continue;
+                if (c.reachPot * 100 < basePot * (long long)w.harassKeepPct) continue;
+                if (c.reachPot < w.harassMinReach) continue;   // 序盤の小さな本線で撃つと、吐かせた本線に返せない
+                if (harassFm < 0 || c.fireScore > cands[harassFm].fireScore) harassFm = fm;
+            }
+            if (harassFm >= 0) { fireFm = harassFm; dbgFireReason = 4; }
+        }
         if (fireFm >= 0) {
             bestFm = fireFm;
             selChain = cands[fireFm].fireScore;   // 表示は実発火スコア
@@ -473,7 +516,7 @@ static void runExpectedChainSelection(
     outResult[20] = selChainChains;                              // 選択初手の到達連鎖の段数（期待連鎖数）
     outResult[21] = (fireFmAny >= 0) ? cands[fireFmAny].fireChains : 0;  // 理論上いま撃てる最大連鎖の段数
     outResult[22] = (fireFmAny >= 0) ? (int)fireBestAny : 0;             // 同・実発火スコア
-    outResult[23] = dbgFireReason;   // 発火理由 0=育成 / 1=目標到達 / 2=緊急(盤面整理)
+    outResult[23] = dbgFireReason;   // 発火理由 0=育成 / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1)
     outResult[24] = (bestFm >= 0) ? cands[bestFm].fireChains : 0;  // 選択(着手)初手を今置くと実際にこぼれる連鎖段数
     // ── 追加デバッグ[25]：選択初手の到達連鎖を達成した深さ（=何手後に発火/組み上がるか）──
     //   depth0=現盤面で既にその値／-1=連鎖未到達(育てる候補が無い)。selChainChains(段数)と併読する。
@@ -498,6 +541,9 @@ static void runExpectedChainSelection(
 
     // ── [30]：致命セル枝刈り（自殺手）で捨てたノード数（デバッグ）──
     outResult[30] = dbgDeathPrune;
+    // ── [31][32]：H1/H2 の判断材料（デバッグ）。選択初手の撃った後の本線潜在／今の本線潜在（H1 有効時のみ）──
+    outResult[31] = (bestFm >= 0) ? (int)cands[bestFm].reachPot : 0;
+    outResult[32] = (int)basePot;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

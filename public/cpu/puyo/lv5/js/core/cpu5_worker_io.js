@@ -81,6 +81,10 @@ Object.assign(window.PuyoCPU5.prototype, {
         //   発火閾値・モード突入の両方に予測量を加味して“先に”カウンターを仕込む。
         const incomingGross = this._getIncomingBaseline();
         this._incomingOjamaGross = incomingGross;
+        // H1 催促・H2 対応は思考ごとに _updateVersusCounterMode が入れる（既定＝使わない）
+        this._harassMinScore = 0;
+        this._harassMinReachScore = 0;
+        this._counterKeepReachOn = false;
         this._updateVersusCounterMode(incomingGross);
 
         // ★ weightsArray を組み立てる（cpu5_weights.js）。発火制御はモード/カウンター側へ移行済み。
@@ -421,11 +425,23 @@ Object.assign(window.PuyoCPU5.prototype, {
             this.controlWeights.fireChainCount     = 0;
             this.controlWeights.fireScoreThreshold = Math.ceil((incomingGross + 1) * rate * margin);
             this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
+            // ★ H2 対応（対ぷよのみ）：受け量を上回る候補のうち、撃った後の本線潜在が最大の手で返す。
+            //   カウンターは fast（lv5 基準）の重みなので、有効かどうかは build の重み（lv6 が設定）から読む。
+            const bc = this._buildBaseline && this._buildBaseline.controlWeights;
+            this._counterKeepReachOn = !this._isOpponentTet() && !!(bc && bc.counterKeepReach);
         } else {
             // カウンター不要時の本線構築モード：相手がテトなら vsTet、それ以外（ぷよ）は build。
             const buildMode = this._isOpponentTet() ? 'vsTet' : 'build';
             if (this.cpuMode !== buildMode) this.setMode(buildMode);
             this._counterActive = false;
+            // ★ H1 催促（対ぷよのみ）：相手が連鎖中でないとき、本線を残したまま撃てる小連鎖を撃つ候補にする。
+            //   条件（段数・残す本線の割合）は wasm の fire gate（build.cpp ③）。学習用シミュ player.cpp decide と同じ判断。
+            const opp = this._getOpponentGame();
+            const minOjama = this.controlWeights.harassMinOjama || 0;
+            if (minOjama > 0 && opp instanceof PuyoGame && !(opp.chainCount > 0)) {
+                this._harassMinScore = minOjama * rate;
+                this._harassMinReachScore = (this.controlWeights.harassMinReach || 0) * rate;
+            }
         }
 
         // ── コンソール表示：モードが実際に切り替わっているか／カウンター閾値を可視化 ──

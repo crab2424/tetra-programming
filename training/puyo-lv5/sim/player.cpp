@@ -287,6 +287,21 @@ void Player::decide(Player* opp) {
     }
     wa[20] = 9;   // knownNextCount（C++ 側は未参照）
 
+    // ── H1 催促・H2 対応（本番 cpu5_worker_io.js _updateVersusCounterMode と同じ判断）──
+    //   [46][49] は思考ごとの入力。build の重みに保存した値を、使う局面でだけ渡す。
+    //   H1：build の本線構築中（待ち・カウンターでない）かつ相手が連鎖中でないとき、催促の最低点＝個数×レート。
+    //       撃った後に残す本線の絶対量 [50] も個数×レート。
+    //   H2：カウンター（fast）中だけ。fast の重みは lv5 基準なので、有効かどうかは build から読む。
+    {
+        const int* B = pp_.build;
+        bool harass = opp && waitMode == 0 && !wantCounter && opp->chainCount == 0 && B[46] > 0;
+        wa[46] = harass ? B[46] * rate : 0;
+        wa[47] = B[47];
+        wa[48] = B[48];
+        wa[49] = (waitMode == 0 && wantCounter) ? B[49] : 0;
+        wa[50] = B[50] * rate;
+    }
+
     // nextPairs: 現ペア＝nextQueue[0]（前倒し計算）＋ NEXT 9 本
     int nextPairs[20];
     for (int i = 0; i < 10; i++) {
