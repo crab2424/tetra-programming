@@ -22,12 +22,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 import puyosim as ps  # noqa: E402
-from analyze_losses import BIG, IGN, RATE, fire_feats, pct  # noqa: E402
+from analyze_losses import BIG, H, IGN, RATE, fire_feats, pct  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "runs" / "analysis"
 WASTE = 16                       # turns[] の [色ぷよ, 残り色ぷよ, 途中段の余剰]
 I_WASTE_W, I_PUYOS_W, I_QEXCESS_W = 31, 41, 43   # weightsArray の添字（wasteWeight / puyosWeight / qExcessWeight）
+# 縦積みの切り分け（vert）で書き換える添字
+I_EMG_H, I_LINK3, I_QLINK3, I_EMG_RATIO, I_FAC_L, I_FAC_H, I_FAC_V = 8, 18, 26, 36, 38, 39, 40
+HIDDEN, COLS_N, ROWS_ALL = 5, 6, 17
 REASONS = {1: "目標", 2: "緊急", 3: "延命"}
 
 
@@ -41,6 +44,17 @@ def with_build(pol: ps.Policy, changes: dict[int, int]) -> ps.Policy:
 
 def configs(base: dict, which: str = "stage0") -> dict[str, ps.Policy]:
     lv6 = ps.Policy.lv6(base)
+    if which == "vert":   # 縦積みの切り分け（2026-10-16 §9）：旧 lv6 と、新 lv6 の一部だけ旧値に戻した版
+        sys.path.insert(0, str(Path(__file__).parent))
+        from train import policy_from_json
+        old = policy_from_json(json.loads((ROOT / "runs" / "build-001" / "best.json").read_text())["policy"])
+        return {
+            "旧lv6": old,
+            "lv6": lv6,
+            "lv6 facV21": with_build(lv6, {I_FAC_V: 21}),
+            "lv6 link3旧": with_build(lv6, {I_LINK3: 11, I_QLINK3: 25, I_FAC_L: 81, I_FAC_H: 93, I_FAC_V: 21}),
+            "lv6 fire旧": with_build(lv6, {I_EMG_RATIO: 60, I_EMG_H: 12}),
+        }
     if which == "e1":   # 段階1 E1：途中段の余剰の重み
         cfg = {"lv6": lv6}
         for v in (-10, -30, -60, -100, -200, -400):
@@ -89,6 +103,42 @@ def growth_fires(P: dict, upto_turn: int | None = None) -> list[dict]:
     return out
 
 
+# ─── 縦積みの指標 ───
+def board_cells(b: str) -> list[list[int]]:
+    return [[int(b[r * COLS_N + c]) for c in range(COLS_N)] for r in range(ROWS_ALL)]
+
+
+def vert_feats(b: str) -> dict:
+    """盤面の縦積み度：同色の隣接のうち縦の割合／3連結（縦一直線・横一直線・L字）の数（eval の getLink23 と同じ分類）。"""
+    g = board_cells(b)
+    color = lambda r, c: g[r][c] if HIDDEN <= r < ROWS_ALL and 0 <= c < COLS_N else 0
+    v = h = 0
+    for r in range(HIDDEN, ROWS_ALL):
+        for c in range(COLS_N):
+            x = g[r][c]
+            if x in (0, 6):
+                continue
+            if color(r + 1, c) == x: v += 1
+            if color(r, c + 1) == x: h += 1
+    seen, l3 = set(), {"V": 0, "H": 0, "L": 0}
+    for r in range(HIDDEN, ROWS_ALL):
+        for c in range(COLS_N):
+            x = g[r][c]
+            if x in (0, 6) or (r, c) in seen:
+                continue
+            st, comp = [(r, c)], []
+            seen.add((r, c))
+            while st:
+                cr, cc = st.pop(); comp.append((cr, cc))
+                for nr, nc in ((cr + 1, cc), (cr - 1, cc), (cr, cc + 1), (cr, cc - 1)):
+                    if (nr, nc) not in seen and color(nr, nc) == x:
+                        seen.add((nr, nc)); st.append((nr, nc))
+            if len(comp) == 3:
+                rows, cols = {a for a, _ in comp}, {b_ for _, b_ in comp}
+                l3["H" if len(rows) == 1 else "V" if len(cols) == 1 else "L"] += 1
+    return {"vAdj": v, "hAdj": h, **l3}
+
+
 def first_main(P: dict):
     for f in P["fires"]:
         if f["score"] >= BIG * RATE:
@@ -127,6 +177,23 @@ def report(name: str, path: Path, turns: int) -> list[str]:
                  f"有効ぷよ量 {np.mean(eff):.1f}・4個消しだけの段 "
                  f"{pct(sum(m['pure4'] for m in mains), sum(m['chains'] for m in mains))}")
     L.append(f"- 窒息 {pct(died, n)}")
+    # 縦積み：最初の本線の発火直前の盤面＋本線前の列の高さ
+    vf = [vert_feats(m["board"]) for m in mains if m.get("board")]
+    if vf:
+        va, ha = sum(x["vAdj"] for x in vf), sum(x["hAdj"] for x in vf)
+        L.append(f"- 縦積み（本線の発火直前）: 同色隣接の縦の割合 {va / max(1, va + ha):.1%}・"
+                 f"3連結 縦 {np.mean([x['V'] for x in vf]):.2f}／横 {np.mean([x['H'] for x in vf]):.2f}／"
+                 f"L {np.mean([x['L'] for x in vf]):.2f}")
+    hs = []
+    for g in games:
+        fm = first_main(g["P"])
+        cut = fm["turn"] if fm else None
+        hs += [x[H] for x in g["P"]["turns"] if x[1] >= 15 and (cut is None or x[1] <= cut)]
+    if hs:
+        a = np.array(hs, dtype=float)
+        L.append(f"- 列の高さ（15手目〜本線、毎手平均）: ばらつき(標準偏差) {a.std(axis=1).mean():.2f}・"
+                 f"最高−最低 {(a.max(axis=1) - a.min(axis=1)).mean():.2f}・端2列−中4列 "
+                 f"{(a[:, [0, 5]].mean(axis=1) - a[:, 1:5].mean(axis=1)).mean():+.2f}")
     # 有効ぷよ量の推移（最初の本線より前）
     cells = []
     for t, xs in traj.items():
@@ -148,7 +215,7 @@ def report(name: str, path: Path, turns: int) -> list[str]:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--set", default="stage0", choices=["stage0", "e1"])
+    ap.add_argument("--set", default="stage0", choices=["stage0", "e1", "vert"])
     ap.add_argument("--seeds", type=int, default=300)
     ap.add_argument("--turns", type=int, default=80)
     ap.add_argument("--only", default="")
