@@ -1207,22 +1207,39 @@ function handlePauseAction(action) {
 })();
 
 // ─────────────────────────────────────────────
-// ★ 隠し要素: CPU LV6 ショートカット
+// ★ 隠し要素: CPU LV6 選択ショートカット
 // versus-check または mode-check(testモード) の準備画面で
-// 「6」キー（numキーではない）を押すと、
-// LV6 を呼び出してゲームを即スタートする
+// 「6」「7」キー（テンキーではない）を押すと CPU LV6 を選択状態にする（ゲームは開始しない）。
 //   tet ルール:
-//   ・「6」 → PC（パーフェクトクリア）探索あり（従来どおり）
+//   ・「6」 → PC（パーフェクトクリア）探索あり
 //   ・「7」 → PC探索なし（cpu6.js shouldSearchPC を window.__cpu6DisablePC で抑止）
 //   puyo ルール（2026-10-15〜）:
 //   ・「6」 → lv5 の学習済み重み版（cpu/puyo/lv6/js/cpu6.js）。「7」は無効
+//   versus-check では Shift+6 / Shift+7 が 1P 側CPU を LV6 にする（Shift+7 は PC探索なし）。
+//   ※ PC探索なしフラグは 2P/1P 共通（グローバル）。
 // ─────────────────────────────────────────────
 (function setupHiddenLv6Key() {
+  function showLv6Selected(isVersus, playerSide) {
+    if (isVersus) {
+      if (playerSide) {
+        selectedPlayerCpuLevel = 6;
+        const descEl = document.getElementById('versus-cpu-desc');
+        if (descEl) descEl.textContent = `${CPU_LEVELS[selectedCpuLevel].desc}  ／  1P CPU: ${CPU_LEVELS[6].label}`;
+      } else {
+        setCpuLevel(6); // 1〜5のボタンは全て非アクティブになる
+      }
+    } else {
+      selectedCpuLevel = 6;
+      const t = document.getElementById('test-cpu-level-toggle');
+      if (t) t.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('active'));
+    }
+    window.SeManager?.play('menu_decide');
+  }
+
   document.addEventListener('keydown', function(e) {
     // Digit6 / Digit7（テンキーではない「6」「7」）のみ対象
     if (e.code !== 'Digit6' && e.code !== 'Digit7') return;
-    // ★ v2.2.3: 修飾キー付きは対象外（Shift+6 は CPU同士対戦の「1P CPU を LV6 に」コマンド）
-    if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
     const disablePC = (e.code === 'Digit7');
 
     const versusCheckPage = document.getElementById('versus-check-page');
@@ -1235,31 +1252,17 @@ function handlePauseAction(action) {
     // どちらの準備画面でもない場合は何もしない
     if (!isVersusCheck && !isTestCheck) return;
 
-    // ─── versus-check 画面: CPU RULE が tet、または puyo で「6」の場合に有効 ───
-    if (isVersusCheck) {
-      if (versusCpuRule !== 'tet' && !(versusCpuRule === 'puyo' && !disablePC)) return;
-      e.preventDefault();
+    // Shift+6 は CPU同士対戦コマンド（下の setupHiddenCpuVsCpuKey）が処理する。
+    // Shift+7 だけここで 1P CPU を LV6（PC探索なし）にする。
+    if (e.shiftKey && !(isVersusCheck && disablePC)) return;
 
-      // PC探索の有無を起動前にフラグでセット（cpu6.js が参照）
-      window.__cpu6DisablePC = disablePC;
-      // LV6 を強制設定してからゲームを開始
-      selectedCpuLevel = 6;
-      startVersusGame();
-      return;
-    }
+    const rule = isVersusCheck ? versusCpuRule : testRule;
+    if (rule !== 'tet' && !(rule === 'puyo' && !disablePC)) return;
+    e.preventDefault();
 
-    // ─── mode-check(test) 画面: RULE が tet、または puyo で「6」の場合に有効 ───
-    if (isTestCheck) {
-      if (testRule !== 'tet' && !(testRule === 'puyo' && !disablePC)) return;
-      e.preventDefault();
-
-      // PC探索の有無を起動前にフラグでセット（cpu6.js が参照）
-      window.__cpu6DisablePC = disablePC;
-      // LV6 を強制設定してからゲームを開始
-      selectedCpuLevel = 6;
-      startGameFromModeCheck();
-      return;
-    }
+    // PC探索の有無はフラグでセット（cpu6.js が参照。ゲーム開始時に読まれる）
+    window.__cpu6DisablePC = disablePC;
+    showLv6Selected(isVersusCheck, e.shiftKey);
   });
 })();
 
