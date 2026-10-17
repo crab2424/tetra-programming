@@ -294,6 +294,9 @@ function recreateVersusCpuController(key) {
   const CPUClass = old.constructor;
   if (typeof old.stop === 'function') old.stop();
   const ctrl = new CPUClass(game);
+  // LV6 の隠しモード（PC探索オフ／高速落下で設置）は作り直しでも引き継ぐ（盤面入れ替え・ウォッチドッグ）
+  if (old.disablePC !== undefined) ctrl.disablePC = old.disablePC;
+  if (old.softDropOnly !== undefined) ctrl.softDropOnly = old.softDropOnly;
   window[key] = ctrl;
   if (typeof ctrl.start === 'function') ctrl.start();
   return ctrl;
