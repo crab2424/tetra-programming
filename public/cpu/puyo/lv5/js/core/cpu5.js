@@ -18,12 +18,38 @@
 //      読み込みは src/app/modes.js の CPU_CONFIGS（src 配列）と cpu_loader.js が担当。
 // ─────────────────────────────────────────────
 
+// ★ 思考ログの表示切替（コンソールで使う。設定は localStorage に残る）
+//   cpuLog('1P') / cpuLog('2P') … 片方だけ表示　cpuLog('all') … 両方　cpuLog('off') … 出さない
+//   cpuLog('open') / cpuLog('close') … 1手ごとの詳細を展開して出す／折りたたむ（既定）
+//   VERSUS 以外（ソロ・テスト）のログは 'off' 以外なら出す。
+window.__cpuLogCfg = window.__cpuLogCfg || (() => {
+    const cfg = { side: 'all', open: false };
+    try {
+        const saved = JSON.parse(localStorage.getItem('tetlabo.cpuLog') || 'null');
+        if (saved) Object.assign(cfg, saved);
+    } catch (_) { /* 読めなければ既定値 */ }
+    return cfg;
+})();
+window.cpuLog = function (arg) {
+    const cfg = window.__cpuLogCfg;
+    const a = (typeof arg === 'string') ? arg.toUpperCase() : arg;
+    if (a === 'OPEN' || a === 'CLOSE') cfg.open = (a === 'OPEN');
+    else if (a === '1P' || a === '2P') cfg.side = a;
+    else if (a === 'ALL' || a === 'OFF') cfg.side = a.toLowerCase();
+    else if (a !== undefined) console.warn(`[cpuLog] 不明な指定: ${arg}`);
+    try { localStorage.setItem('tetlabo.cpuLog', JSON.stringify(cfg)); } catch (_) { /* 保存できなくても今回は効く */ }
+    console.log(`[cpuLog] 表示=${cfg.side} 詳細=${cfg.open ? '展開' : '折りたたみ'}` +
+        `（cpuLog('1P'|'2P'|'all'|'off') / cpuLog('open'|'close')）`);
+};
+
 window.PuyoCPU5 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/puyo/lv5/wasm/cpu_worker5.js?v=42',
+        'cpu/puyo/lv5/wasm/cpu_worker5.js?v=43',
     ];
+    // 思考ログの印に出す名前（派生クラスが上書きする）
+    static LOG_NAME = 'LV5';
     constructor(gameInstance) {
         this.game = gameInstance;
 
@@ -51,7 +77,7 @@ window.PuyoCPU5 = class {
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
-                console.log('🚀 Wasm PuyoCPU5 Worker Ready!');
+                if (!this.workerReady && this._logEnabled()) console.log(`${this._logTag()} worker ready`);
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 this._handleWorkerResult(e.data.result);
@@ -61,6 +87,7 @@ window.PuyoCPU5 = class {
 
     start() {
         this.isActive = true;
+        this._turnNo = 0;   // 思考ログの手数（コントローラを作り直すと 0 から数え直す）
         this.hasCalculatedForCurrentPiece = false;
         this._initEstimateContainer();
         this._updateLoop();
@@ -140,6 +167,28 @@ window.PuyoCPU5 = class {
         }
 
         requestAnimationFrame(() => this._updateLoop());
+    }
+
+    // ── 思考ログ（印・表示切替）──
+    // 盤面の側。VERSUS では 1P=window._game(canvasPrefix 'player') / 2P=window._cpuGame('cpu')。それ以外は ''。
+    _logSide() {
+        const g = this.game;
+        if (!g || !g.isVersusMode) return '';
+        return g.canvasPrefix === 'cpu' ? '2P' : '1P';
+    }
+
+    _logTag(turn) {
+        const side = this._logSide();
+        return `[${side ? side + ' ' : ''}${this.constructor.LOG_NAME}${turn != null ? ' #' + turn : ''}]`;
+    }
+
+    // cpuLog() の設定でこの CPU のログを出すか
+    _logEnabled() {
+        const cfg = window.__cpuLogCfg || { side: 'all' };
+        if (cfg.side === 'off') return false;
+        if (cfg.side === 'all') return true;
+        const side = this._logSide();
+        return side === '' || side === cfg.side;
     }
 
     // 新規計算を開始する前に着手状態をクリアしてから _requestCalculation を呼ぶ。

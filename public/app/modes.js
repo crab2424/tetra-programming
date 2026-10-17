@@ -296,6 +296,6 @@ const CPU_CONFIGS = {
     ] },
     // ★ 隠し要素: lv6 = lv5 + 学習済み重み（training/puyo-lv5）。lv5 のクラスを継承するため
     //   deps で lv5 を先に読み込む（cpu_loader.js loadCpuScript）。
-    6: { className: 'PuyoCPU6', deps: [5], src: 'cpu/puyo/lv6/js/cpu6.js?v=2' }
+    6: { className: 'PuyoCPU6', deps: [5], src: 'cpu/puyo/lv6/js/cpu6.js?v=3' }
   }
 };

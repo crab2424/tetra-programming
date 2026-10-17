@@ -79,6 +79,11 @@ Object.assign(window.PuyoCPU5.prototype, {
         //   ・anticipated … 相手がまだ撃っていないが間もなく送ってくる予測量（テト=攻撃ゲージ変換／ぷよ=pendingFire）。
         //   確定が着弾してから降下までは約1秒しか無く、その間に育成→発火は間に合わないため、
         //   発火閾値・モード突入の両方に予測量を加味して“先に”カウンターを仕込む。
+        // 思考ログ（_logThink）用：この手の判断の内訳を控える（_updateVersusCounterMode / _updateCounterWait が入れる）
+        this._thinkModeFrom = this.cpuMode;
+        this._thinkVs       = null;
+        this._thinkP2       = null;
+        this._thinkP2State  = null;
         const incomingGross = this._getIncomingBaseline();
         this._incomingOjamaGross = incomingGross;
         // H1 催促・H2 対応は思考ごとに _updateVersusCounterMode が入れる（既定＝使わない）
@@ -101,8 +106,10 @@ Object.assign(window.PuyoCPU5.prototype, {
     _handleWorkerResult(res) {
         this.isCalculating = false;
 
+        this._turnNo = (this._turnNo || 0) + 1;
+
         if (res[0] === -1) {
-            console.warn('PuyoCPU: 配置候補なし');
+            if (this._logEnabled()) console.warn(`${this._logTag(this._turnNo)} 配置候補なし（中央へ落とす）`);
             // 候補なしフォールバック（中央へ素直に落とす）。前倒し計算で falling 前に来た場合も
             // bestMoveData として保持し、着手は _tryStartExecution（falling 限定）に委ねる。
             this.bestMoveData = { col1: 2, rot1: 0, score: 0, col2: -1, rot2: 0, col3: -1, rot3: 0 };
@@ -145,9 +152,68 @@ Object.assign(window.PuyoCPU5.prototype, {
             this._renderEstimatePlace();
         }
 
+        this._logThink(res);
+
         // falling 中なら即着手。前倒し計算で falling 前に結果が来た場合は、
         // _updateLoop が falling 突入時に _tryStartExecution を呼んで着手する。
         this._tryStartExecution();
+    },
+
+    // ───────────────────────────────────────────────
+    // ★ 思考ログ：1手の判断を「見出し1行＋詳細（折りたたみ）」で出す。
+    //   見出し＝[側 LV #手数] モード｜発火 or 構築の要点｜受け量。詳細＝探索統計・versus 判断・後打ち判断。
+    //   res[7..26][30..32] は build.cpp が書くデバッグ統計（並びは build.cpp outResult の注釈を参照）。
+    //   表示する側・展開は cpuLog()（cpu5.js）で切り替える。
+    _logThink(res) {
+        if (!this._logEnabled()) return;
+        const d = res;
+        if (!(d.length >= 33) || d[9] < 0) return;   // nCand<0 ＝探索不成立
+
+        const FIRE_REASON = {
+            1: '目標到達', 2: '緊急＝本線ほぼ完成', 3: '緊急延命＝最終手段(致死列満杯)',
+            4: `催促＝副砲（撃った後の本線潜在 ${d[31]}点／今 ${d[32]}点）`,
+        };
+        // 到達連鎖[25]=見えた深さ / [26]=出所(1実発火/0潜在)。
+        //   潜在＝depthN手後の盤面で「組めば届く」見込み（実発火には別途発火色のツモが必要）。
+        const selDepth = d[25];
+        const selIsFire = d[26] === 1;
+        const selDepthStr = selDepth < 0
+            ? '連鎖未到達'
+            : selIsFire
+                ? (selDepth === 0 ? '実発火・今すぐ' : `実発火・${selDepth}手後`)
+                : (selDepth === 0 ? '潜在・現盤面で到達(要発火ツモ)' : `潜在・${selDepth}手後の盤面で到達(要発火ツモ)`);
+        const fired = d[15] > 0;
+        const reasonStr = FIRE_REASON[d[23]] || '理由不明';
+
+        const from = this._thinkModeFrom, to = this.cpuMode;
+        const modeStr = (from && from !== to) ? `★${from}→${to}` : to;
+        const p2Str = this._thinkP2State ? `(後打ち:${this._thinkP2State})` : '';
+        const act = fired
+            ? `★発火 ${d[15]}連鎖 ${d[14]}点（${d[23] === 4 ? '催促' : reasonStr}）`
+            : (selDepth < 0
+                ? '構築（連鎖未到達）'
+                : `構築 到達${d[20]}連鎖(${selIsFire ? '実発火' : '潜在'}・${selDepth}手後)`) +
+              (d[24] > 0 ? `／${d[24]}連鎖で整地` : '');
+        const inc = this._incomingOjamaGross > 0 ? `｜受け${this._incomingOjamaGross}個` : '';
+        const header = `${this._logTag(this._turnNo)} ${modeStr}${p2Str}｜${act}${inc}`;
+
+        const lines = [
+            `着手: col=${d[0]} rot=${d[1]}`,
+            `探索: nCand=${d[9]} maxDepth=${d[10]} band(同点崩し)=${d[11]}｜PRUNE発動=${d[7]} dedup除去=${d[8]} 致命セル枝刈り=${d[30]}`,
+            `選択初手: 到達連鎖selChain=${d[14]} (期待${d[20]}連鎖／${selDepthStr})  base=${d[13]}`,
+            `理論上いま撃てる最大: ${d[21]}連鎖 (${d[22]}点)`,
+            `差別化: 連鎖を組める初手数 nWithChain=${d[16]}/${d[9]}  bestChain=${d[12]}  base幅(spread)=${d[18]}`,
+            `発火: ${fired
+                ? `★${d[15]}連鎖を発火（${reasonStr}）`
+                : `構築（撃たず）${d[24] > 0 ? `／${d[24]}連鎖で整地` : ''}`}`,
+        ];
+        if (this._thinkVs) lines.push(this._thinkVs);
+        if (this._thinkP2) lines.push(this._thinkP2);
+
+        const cfg = window.__cpuLogCfg || {};
+        console[cfg.open ? 'group' : 'groupCollapsed'](header);
+        for (const l of lines) console.log(l);
+        console.groupEnd();
     },
 
     // ───────────────────────────────────────────────
@@ -460,8 +526,8 @@ Object.assign(window.PuyoCPU5.prototype, {
             const offsetStr = od
                 ? `｜相殺[相手連鎖${od.oppChainFull}−吸収${od.absorbAtOpp}(相手キュー${od.oppQueueGross}+自余剰${od.leftoverSelfFire})＝届く${antic}]`
                 : '';
-            console.log(
-                `[cpu5 versus] ${tag}｜ネット受け量=${incomingGross}個(既着弾/確定待ち${committed}+予測${antic}〔全段見込み〕, 発動>${COUNTER_TRIGGER_OJAMA})${offsetStr} / 自カバー(参考)=${coverage}個` +
+            this._thinkVs = (
+                `versus: ${tag}｜ネット受け量=${incomingGross}個(既着弾/確定待ち${committed}+予測${antic}〔全段見込み〕, 発動>${COUNTER_TRIGGER_OJAMA})${offsetStr} / 自カバー(参考)=${coverage}個` +
                 (this._counterActive
                     ? `｜カウンター発火閾値=${thr}点(≒${thrOjama}個＝差分+αを上回ったら発火, 倍率×${appliedMargin}${this._isOpponentTet() ? '対テト' : '対ぷよ'}, mode=${this.cpuMode})`
                     : `｜発火閾値=${thr}点(標準)`)
@@ -504,8 +570,9 @@ Object.assign(window.PuyoCPU5.prototype, {
         this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
 
         const thr = cw.fireScoreThreshold;
-        console.log(
-            `[cpu5 versus] 後打ち: ${wait ? '待つ（伸ばす）' : '締切 → 撃てる最大'}` +
+        this._thinkP2State = wait ? '待つ' : '締切';
+        this._thinkP2 = (
+            `後打ち: ${wait ? '待つ（伸ばす）' : '締切 → 撃てる最大'}` +
             `｜相手連鎖の残り ${(remainMs / 1000).toFixed(2)}s（1手 ${p2.turnMs}ms+余裕 ${p2.safetyMs}ms${dropSoon ? '・既に降る分あり' : ''}）` +
             `｜受け量=${incomingGross}個` +
             (wait ? `｜即撃ち閾値=${thr}点(≒${Math.floor(thr / rate)}個)` : '') +
