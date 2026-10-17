@@ -225,5 +225,28 @@ def play_both_sides(cand: np.ndarray, opp: np.ndarray, seeds, settings: Settings
     }
 
 
+def play_vs_pool(cand: np.ndarray, opps: np.ndarray, opp_of_seed: np.ndarray, seeds,
+                 settings: Settings | None = None, threads: int = 0) -> np.ndarray:
+    """候補 (nCand, PP_LEN) を、シードごとに決まった相手（opps[opp_of_seed[s]]）と先後2局ずつ打つ。
+
+    全候補・全相手・全シードを1バッチで回す（相手ごとに分けるより、末尾の遊びコアが少ない）。
+    返り値 score: [候補, シード]（先後2局の平均。1=cand勝ち 0=負け 0.5=引き分け）。
+    """
+    seeds = np.asarray(seeds, dtype=np.uint32)
+    cand = np.atleast_2d(cand)
+    opps = np.atleast_2d(opps)
+    nc, ns = cand.shape[0], len(seeds)
+    ci = np.repeat(np.arange(nc), ns)
+    sd = np.tile(seeds, nc)
+    oi = np.tile(np.asarray(opp_of_seed), nc)
+    pa = np.concatenate([cand[ci], opps[oi]])
+    pb = np.concatenate([opps[oi], cand[ci]])
+    w = run_matches(pa, pb, np.concatenate([sd, sd]), settings, threads)["winner"]
+    m = nc * ns
+    first = np.where(w[:m] == 0, 1.0, np.where(w[:m] == 1, 0.0, 0.5))
+    second = np.where(w[m:] == 1, 1.0, np.where(w[m:] == 0, 0.0, 0.5))
+    return ((first + second) / 2).reshape(nc, ns)
+
+
 def threads_default() -> int:
     return os.cpu_count() or 8

@@ -35,6 +35,7 @@ python3 py/validate.py --best runs/build-001/best.json --seeds 1000
 caffeinate -i python3 py/train.py --run runs/lv6-e1-001 --opp lv6 --init-set qExcessWeight=-100 --gens 20
 python3 py/validate.py --best runs/lv6-e1-001/best.json --seeds 1000   # 相手は best.json の opp（lv6）
 ```
+- 相手プール（鏡写し対策）：`--opp-pool opponents/pool-v1.json`。下の「相手プール」参照。
 - `--opp lv5|lv6`：学習相手と定期評価の相手（本番の重み。lv6 は後打ち p2 込み）。`--init`：初期値（既定は `--opp`）。
   学習しない部分（fast・ext）は初期値のまま。`--init-set 名前=値` で初期値の一部を書き換える（複数可）。
 - `params.SPACE` を変えると次元が変わるので、それ以前の run は `--resume` できない（検出して止まる）。
@@ -45,6 +46,20 @@ python3 py/validate.py --best runs/lv6-e1-001/best.json --seeds 1000   # 相手�
 | `notebooks/01_baseline.ipynb` | 一致テスト・現行 lv5 の基準値・1世代の所要時間 |
 | `notebooks/02_train.ipynb` | `runs/<名前>/log.csv` の可視化（学習本体は CLI で回す） |
 | `notebooks/03_validate.ipynb` | 検証の実行 |
+
+### 相手プール（opponents/*.json・`py/pool.py`）
+学習相手が1体（＝ほぼ同じ重み）だと対局が鏡写しになり、その相手の弱点を突く方向に偏る。立ち回りの違う相手を混ぜて、重み付き勝率を fitness にする。
+```bash
+caffeinate -i python3 py/train.py --run runs/lv6-pool-001 --opp lv6 --opp-pool opponents/pool-v1.json --hof-start 10 --gens 20
+python3 py/validate.py --best runs/lv6-pool-001/best.json --seeds 1000   # 相手別の勝率も出る
+```
+- 定義：`members[]` に `base`（lv5/lv6/lv6h）・`set`（params.SPACE の名前で上書き）・`weight`（シード配分）。`perturb` は base の全重みに正規化座標で σ の雑音を足した count 体（学習は世代ごとに作り直し、定期評価は固定）。
+- 全候補が同じシード→同じ相手の割り当てを共通で使う（共通乱数）。全相手を1バッチで回すので速度は単一相手と同じ。
+- `--worst-lambda`（既定0.3）：best の選抜は「平均勝率 − λ×最悪の相手への負け越し」。学習の fitness は重み付き平均のまま（相手1体あたり約15シードでは最悪値が雑音になるため）。
+- 殿堂（`--hof-start`）はプール全体に (1−hof_share)、殿堂に hof_share を割る。**既定の 30 世代目だと 20 世代の run では一度も効かない**ので、プール時は 10 程度にする。
+- log.csv に `pool_wr`（その世代の相手別の候補平均）と `eval_pool_wr`（定期評価の相手別）が増える。
+- pool-v1 の現行 lv6 の勝率（400シード）：main .50 / fast_attack .75 / big_chain .48 / responder .60 / lv5 .76 / perturb .52・.67。
+  fast_attack を「7連鎖で撃つ」極端な設定にすると lv6 が 98% 勝って勾配にならなかったので、強さが近い別スタイルになるよう調整した。
 
 ### 主なオプション（train.py）
 | 引数 | 既定 | 意味 |

@@ -2,6 +2,8 @@
 
     python3 py/train.py --run runs/build-001 --gens 100
     python3 py/train.py --run runs/build-001 --resume          # 途中から再開（世代ごとに保存）
+    # 相手プール（opponents/*.json。立ち回りの違う相手に対する重み付き勝率を fitness にする）
+    python3 py/train.py --run runs/x --opp lv6 --opp-pool opponents/pool-v1.json --hof-start 10
     # lv6 を初期値・学習相手にして、新しい項（qExcessWeight）を含めて学習し直す（lv6-harass-design.md §7）
     python3 py/train.py --run runs/lv6-e1-001 --opp lv6 --init-set qExcessWeight=-100 --gens 20
 
@@ -26,6 +28,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import params as P  # noqa: E402
 import puyosim as ps  # noqa: E402
+import pool as PL  # noqa: E402
 from cmaes import CMAES  # noqa: E402
 
 TRAIN_SEED_RANGE = (1, 500000)
@@ -110,6 +113,21 @@ def evaluate(cands: np.ndarray, opponents: list[np.ndarray], seeds: np.ndarray,
     return wr
 
 
+def evaluate_with_pool(cands: np.ndarray, spec: dict, base_json: dict, hof: list[np.ndarray], seeds: np.ndarray,
+                       settings: ps.Settings, threads: int, hof_share: float, rng: np.random.Generator
+                       ) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """相手プール（＋殿堂）に対する重み付き勝率。返り値: (候補ごとの勝率, [候補, 相手]の勝率, 相手名)。
+    殿堂があるときは、プール全体に (1-hof_share)、殿堂に hof_share を等分する（従来と同じ割り方）。"""
+    opps = PL.build_pool(spec, base_json, named_policy, rng)
+    if hof:
+        tot = sum(o.weight for o in opps)
+        for o in opps:
+            o.weight *= (1 - hof_share) / tot
+        opps += [PL.Opponent(f"hof{i + 1}", hof_share / len(hof), h) for i, h in enumerate(hof)]
+    wr, per_opp = PL.evaluate_pool(cands, opps, seeds, settings, threads)
+    return wr, per_opp, [o.name for o in opps]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True, help="出力ディレクトリ（runs/<名前>）")
@@ -121,6 +139,10 @@ def main() -> int:
     ap.add_argument("--threads", type=int, default=0, help="0=全コア")
     ap.add_argument("--master-seed", type=int, default=20261015)
     ap.add_argument("--opp", default="lv5", choices=["lv5", "lv6", "lv6h"], help="学習相手・定期評価の相手（本番の重み。lv6h＝lv6＋催促 H1・対応 H2）")
+    ap.add_argument("--opp-pool", default=None, metavar="JSON",
+                    help="学習相手のプール（opponents/*.json）。指定すると --opp の代わりにプールを相手にする（pool.py）")
+    ap.add_argument("--worst-lambda", type=float, default=0.3,
+                    help="プール時の best 選抜：平均勝率 − λ×(最悪の相手への負け越し)。0 で平均のみ")
     ap.add_argument("--init", default=None, choices=["lv5", "lv6", "lv6h"], help="初期値（既定は --opp と同じ）")
     ap.add_argument("--init-set", action="append", default=[], metavar="名前=値",
                     help="初期値の一部を書き換える（params.SPACE の名前。複数可）")
@@ -139,11 +161,16 @@ def main() -> int:
     if args.resume and (run / "args.json").exists():
         saved = json.loads((run / "args.json").read_text())   # 相手・初期値は開始時の設定に従う
         args.opp, args.init, args.init_set = saved.get("opp", "lv5"), saved.get("init"), saved.get("init_set", [])
+        args.opp_pool = saved.get("opp_pool")
     args.init = args.init or args.opp
     opp = named_policy(args.opp, base_json)
     opp_packed = opp.packed()
     base = apply_init_set(named_policy(args.init, base_json), args.init_set)   # 初期値＝decode の基準
     settings = ps.Settings()
+    pool_spec = PL.load_pool_spec(args.opp_pool) if args.opp_pool else None
+    # 定期評価のプールは固定（perturb も同じ雑音）にして、世代間で比べられるようにする
+    eval_opps = (PL.build_pool(pool_spec, base_json, named_policy, np.random.default_rng(args.master_seed + 2))
+                 if pool_spec else None)
 
     state_path = run / "state.json"
     if args.resume and state_path.exists():
@@ -159,6 +186,8 @@ def main() -> int:
         hof, best = [], None
         (run / "args.json").write_text(json.dumps(vars(args), indent=1))
         (run / "baseline.json").write_text(json.dumps(policy_to_json(base), indent=1))
+        if pool_spec:
+            (run / "pool.json").write_text(json.dumps(pool_spec, indent=1, ensure_ascii=False))
     eval_seeds = draw_seeds(np.random.default_rng(args.master_seed + 1), args.eval_seeds, EVAL_SEED_RANGE)
 
     log_path = run / "log.csv"
@@ -167,7 +196,7 @@ def main() -> int:
         log = csv.writer(lf)
         if new_log:
             log.writerow(["gen", "sec", "games", "sigma", "wr_best", "wr_mean", "wr_median",
-                          "eval_wr", "hof", "mean_x"])
+                          "eval_wr", "hof", "mean_x"] + (["pool_wr", "eval_pool_wr"] if pool_spec else []))
         while es.gen < args.gens:
             t0 = time.time()
             gen = es.gen
@@ -175,34 +204,53 @@ def main() -> int:
             seeds = draw_seeds(rng, args.seeds, TRAIN_SEED_RANGE)
             xs = es.ask()
             cands = np.stack([P.decode(x, base).packed() for x in xs])
-            wr = evaluate(cands, [opp_packed] + hof, seeds, settings, args.threads, args.hof_share)
+            if pool_spec:
+                wr, per_opp, opp_names = evaluate_with_pool(cands, pool_spec, base_json, hof, seeds, settings,
+                                                            args.threads, args.hof_share,
+                                                            np.random.default_rng([args.master_seed, gen, 7]))
+            else:
+                wr = evaluate(cands, [opp_packed] + hof, seeds, settings, args.threads, args.hof_share)
             # 範囲外は端に丸めて評価し、はみ出し量に小さな罰則（平均が箱の外へ逃げないように）
             out_of_box = np.sum((xs - np.clip(xs, 0, 1)) ** 2, axis=1)
             es.tell(xs, -wr + out_of_box)
 
-            eval_wr = ""
+            eval_wr, eval_pool = "", ""
             mean_pol = P.decode(es.mean, base)
             if es.gen % args.eval_every == 0 or es.gen == args.gens:
-                ewr = float(ps.play_both_sides(mean_pol.packed(), opp_packed, eval_seeds,
-                                               settings, args.threads)["winRate"][0])
-                eval_wr = f"{ewr:.4f}"
+                if pool_spec:
+                    e_wr, e_per = PL.evaluate_pool(mean_pol.packed(), eval_opps, eval_seeds, settings, args.threads)
+                    ewr = PL.robust_score(e_per[0], float(e_wr[0]), args.worst_lambda)   # 選抜用スコア
+                    eval_wr = f"{ewr:.4f}"
+                    eval_pool = json.dumps({o.name: round(float(v), 3) for o, v in zip(eval_opps, e_per[0])})
+                else:
+                    ewr = float(ps.play_both_sides(mean_pol.packed(), opp_packed, eval_seeds,
+                                                   settings, args.threads)["winRate"][0])
+                    eval_wr = f"{ewr:.4f}"
                 if best is None or ewr > best["winRate"]:
                     best = {"gen": es.gen, "winRate": ewr, "opp": args.opp, "policy": policy_to_json(mean_pol),
                             "changed": P.describe(mean_pol, opp)}
+                    if pool_spec:
+                        best.update({"pool": args.opp_pool, "meanWinRate": float(e_wr[0]),
+                                     "poolWinRates": json.loads(eval_pool)})
                     (run / "best.json").write_text(json.dumps(best, indent=1, ensure_ascii=False))
             if es.gen >= args.hof_start and (es.gen - args.hof_start) % args.hof_every == 0:
                 hof = (hof + [mean_pol.packed()])[-args.hof_size:]
 
             sec = time.time() - t0
             games = len(xs) * len(seeds) * 2 + (len(eval_seeds) * 2 if eval_wr else 0)
-            log.writerow([es.gen, f"{sec:.1f}", games, f"{es.sigma:.5f}", f"{wr.max():.4f}",
-                          f"{wr.mean():.4f}", f"{np.median(wr):.4f}", eval_wr, len(hof),
-                          json.dumps(np.round(es.mean, 4).tolist())])
+            row = [es.gen, f"{sec:.1f}", games, f"{es.sigma:.5f}", f"{wr.max():.4f}",
+                   f"{wr.mean():.4f}", f"{np.median(wr):.4f}", eval_wr, len(hof),
+                   json.dumps(np.round(es.mean, 4).tolist())]
+            if pool_spec:   # 相手ごとの候補平均勝率（その世代の相手＝perturb は毎世代別の相手）
+                row += [json.dumps({n: round(float(v), 3) for n, v in zip(opp_names, per_opp.mean(axis=0))}), eval_pool]
+            log.writerow(row)
             lf.flush()
             state_path.write_text(json.dumps({"es": es.to_dict(), "hof": [h.tolist() for h in hof],
                                               "best": best}))
             print(f"gen {es.gen:4d}  {sec:6.1f}s  sigma={es.sigma:.4f}  wr best/mean={wr.max():.3f}/{wr.mean():.3f}"
-                  + (f"  eval(mean)={eval_wr}" if eval_wr else ""), flush=True)
+                  + (f"  eval(mean)={eval_wr}" if eval_wr else "")
+                  + (f"\n      相手別 {dict(zip(opp_names, np.round(per_opp.mean(axis=0), 2).tolist()))}" if pool_spec else ""),
+                  flush=True)
     print(f"done. best: gen={best['gen']} winRate={best['winRate']:.4f}" if best else "done.")
     return 0
 

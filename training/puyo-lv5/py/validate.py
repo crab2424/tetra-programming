@@ -20,6 +20,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import params as P  # noqa: E402
+import pool as PL  # noqa: E402
 import puyosim as ps  # noqa: E402
 from train import VALID_SEED_RANGE, draw_seeds, named_policy, policy_from_json  # noqa: E402
 
@@ -40,6 +41,7 @@ def main() -> int:
     ap.add_argument("--solo-seeds", type=int, default=300)
     ap.add_argument("--threads", type=int, default=0)
     ap.add_argument("--opp", default=None, choices=["lv5", "lv6", "lv6h"])
+    ap.add_argument("--pool", default=None, help="相手プール JSON（既定は best.json の pool）。相手別の勝率も出す")
     args = ap.parse_args()
 
     best_json = json.loads(Path(args.best).read_text())
@@ -56,6 +58,15 @@ def main() -> int:
     print(f"VERSUS vs 本番 {opp_name}: 勝率 {wr:.3f}  95%CI [{wr - half:.3f}, {wr + half:.3f}]  ({len(seeds) * 2} 局)")
     ok = wr >= 0.55 and wr - half > 0.5
     print("→ 採用目安を満たす" if ok else "→ 採用目安（勝率55%以上・CI下限>50%）に届かない")
+
+    pool_path = args.pool or best_json.get("pool")
+    if pool_path:   # プールの各相手に対する勝率（perturb は検証用に別の雑音 2体）
+        opps = PL.build_pool(PL.load_pool_spec(pool_path), ps.load_baseline(), named_policy, np.random.default_rng(777))
+        seeds_p = draw_seeds(np.random.default_rng(424243), args.seeds, VALID_SEED_RANGE)
+        wr_p, per_opp = PL.evaluate_pool(best.packed(), opps, seeds_p, ps.Settings(), args.threads)
+        print(f"\nプール {pool_path}（重み付き平均 {wr_p[0]:.3f}、最悪 {np.nanmin(per_opp[0]):.3f}）:")
+        for o, v in zip(opps, per_opp[0]):
+            print(f"  {o.name:14s} 重み{o.weight:4.1f}  勝率 {v:.3f}")
 
     solo_seeds = draw_seeds(rng, args.solo_seeds, VALID_SEED_RANGE)
     print("\nひとり用（60手・おじゃま無し）:")
