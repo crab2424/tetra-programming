@@ -5,11 +5,11 @@
 //   CMA-ES 学習（training/puyo-lv5）の結果に差し替えたもの。探索（wasm/worker）は lv5 と共通。
 //   学習途中の重みを実機で lv5 と比べるための版＝lv5 本体には手を入れない。
 //
-//   出典: training/puyo-lv5/runs/lv6-h-001/best.json（2026-10-17）
-//         （lv6-e1-001 版を初期値に、lv6＋催促 H1・対応 H2 を相手として、ゴミ・副砲の評価と H1/H2 を加えた
-//          37 次元で再学習した第20世代の平均ベクトル。検証＝lv6h 相手 2000局で 0.543 [0.512, 0.574]、
-//          旧 lv6 相手 600局で 0.567 / 0.517、lv5 相手 600局で 0.775。催促は学習で事実上オフになった）
-//   前の版: lv6-e1-001 第15世代（git 0a31edf）、その前: runs/build-001 第20世代（git 7ef7c6b）。
+//   出典: training/puyo-lv5/runs/lv6-pool-001/best.json（2026-10-17）
+//         （lv6-h-001 版を初期値に、立ち回りの違う相手プール opponents/pool-v1.json＋殿堂を相手に学習した第20世代の
+//          平均ベクトル。検証＝プール重み付き平均 0.562（最悪 big_chain 0.447）、現行 lv6 相手 2000局で
+//          0.495 [0.464, 0.526]＝直接対決では同等、lv5 相手 0.740）
+//   前の版: lv6-h-001 第20世代（git 64e4e83）、lv6-e1-001 第15世代（git 0a31edf）、runs/build-001 第20世代（git 7ef7c6b）。
 //
 //   ★ 2026-10-15: 対戦判断「後打ちの活用」（VS_DECISION.p2）も有効にしている（lv5 は無効）。
 //
@@ -26,50 +26,51 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
     // 学習で変わった build の値（best.json の policy のうち lv5 と違うもの。qKeyWeight は lv5 と同じ -30 に戻った）
     static TRAINED_BUILD = {
         evalWeights: {
-            heightPenalty:        -2,   // lv5: -8
-            heightDiffPenalty:   -35,   // lv5: -10
-            shapeWeight:         -45,   // lv5: -10
-            wellWeight:          -15,   // lv5: -10
-            bumpWeight:         -239,   // lv5: -500
-            qYWeight:            187,   // lv5: 120
-            qChiWeight:           57,   // lv5: 20
-            link2Weight:           3,   // lv5: 2
-            link3Weight:          45,   // lv5: 4
-            formWeight:           96,   // lv5: 80
-            qLink2Weight:         32,   // lv5: 4
-            qLink3Weight:         21,   // lv5: 12
-            sideWeight:           45,   // lv5: 0
-            tearWeight:         -100,   // lv5: -20
-            wasteWeight:          -6,   // lv5: -2
-            link3FacL:            83,   // lv5: 100
-            link3FacH:            82,   // lv5: 100
-            link3FacV:             0,   // lv5: 30
-            qExcessWeight:       -62,   // lv5: 0（途中段の余剰。提案3 E1）
-            qJunkWeight:        -111,   // lv5: 0（ゴミ×埋まり具合。提案3 E2a）
+            heightPenalty:        -21,   // lv5: -8
+            heightDiffPenalty:   -47,   // lv5: -10
+            shapeWeight:         -47,   // lv5: -10
+            wellWeight:          -27,   // lv5: -10
+            bumpWeight:         -534,   // lv5: -500
+            qYWeight:            207,   // lv5: 120
+            qChiWeight:           77,   // lv5: 20
+            link2Weight:           1,   // lv5: 2
+            link3Weight:          52,   // lv5: 4
+            formWeight:           79,   // lv5: 80
+            qLink2Weight:         43,   // lv5: 4
+            qLink3Weight:         24,   // lv5: 12
+            sideWeight:           46,   // lv5: 0
+            tearWeight:         -84,   // lv5: -20
+            wasteWeight:          -1,   // lv5: -2
+            link3FacL:            95,   // lv5: 100
+            link3FacH:            73,   // lv5: 100
+            link3FacV:             83,   // lv5: 30
+            qKeyWeight:          -15,   // lv5: -30
+            qExcessWeight:       -118,   // lv5: 0（途中段の余剰。提案3 E1）
+            qJunkWeight:        -110,   // lv5: 0（ゴミ×埋まり具合。提案3 E2a）
             qSubWeight:           16,   // lv5: 0（副砲のおじゃま量。提案3 E2b）
         },
         controlWeights: {
             emergencyHeight:       10,  // lv5: 12
-            expChainWeight:       997,  // lv5: 1500
-            pruneChainScore:     2145,  // lv5: 3000
-            fireChainCount:        14,  // lv5: 12
-            fireScoreThreshold: 150135, // lv5: 50000
+            expChainWeight:       3244,  // lv5: 1500
+            pruneChainScore:     8037,  // lv5: 3000
+            fireChainCount:        13,  // lv5: 12
+            fireScoreThreshold: 180800, // lv5: 50000
             growthFireForbidChains: 4,  // lv5: 2
-            emergencyFireMinRatio: 96,  // lv5: 70
+            emergencyFireMinRatio: 97,  // lv5: 70
             emergencyHardCol2:     12,  // lv5: 11
             // 催促 H1・対応 H2（lv5: すべて 0＝無効）。H1 は 2連鎖で13個以上が条件のため、ほぼ撃たない
-            harassMinOjama:        13,  // 催促で送る最低のおじゃま個数
+            harassMinOjama:        15,  // 催促で送る最低のおじゃま個数
             harassMaxChains:        2,  // 催促の段数の上限
-            harassKeepPct:         84,  // 撃った後に残す本線潜在（今の本線潜在に対する%）
-            harassMinReach:       222,  // 撃った後に残す本線潜在（おじゃま個数）
+            harassKeepPct:         100,  // 撃った後に残す本線潜在（今の本線潜在に対する%）
+            harassMinReach:       112,  // 撃った後に残す本線潜在（おじゃま個数）
             counterKeepReach:       1,  // カウンターは本線を最も残す手で返す
         },
     };
 
     // 対ぷよカウンターの定数（cpu5_worker_io.js _updateVersusCounterMode が参照）
     static TRAINED_COUNTER = {
-        triggerVsPuyo: 3,     // lv5: 5（受け量がこれを超えたら fast へ）
-        marginVsPuyo:  1.207, // lv5: 1.0（カウンター発火スコアの倍率）
+        triggerVsPuyo: 5,     // lv5: 5（受け量がこれを超えたら fast へ）
+        marginVsPuyo:  1.185, // lv5: 1.0（カウンター発火スコアの倍率）
     };
 
     // 対戦判断（cpu5_worker_io.js が参照。lv5 は未設定＝従来どおり）
