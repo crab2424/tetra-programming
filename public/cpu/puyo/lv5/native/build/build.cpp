@@ -300,8 +300,9 @@ static void runExpectedChainSelection(
     };
 
     // ── H1 用：今の盤面の本線潜在（今そのまま発火色を1個足せば出る最大連鎖の点）──
+    //   判断に使うのは H1 有効時だけだが、思考ログ（撃った連鎖が本線か副砲か）のため常に求める。
     long long basePot = 0;
-    if (w.harassMinScore > 0) {
+    {
         int h0[COLS];
         for (int c = 0; c < COLS; c++) {
             h0[c] = 0;
@@ -349,6 +350,9 @@ static void runExpectedChainSelection(
     long long bestBase = LLONG_MIN;
     int dbgFireChains = 0;   // 発火した連鎖段数（0=発火せず＝育成）。デバッグ outResult[15]
     int dbgFireReason = 0;   // 発火理由 0=育成(発火せず) / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1)。outResult[23]
+    int dbgFlags = 0;        // 判断の内訳（ビット。outResult[33] の注釈参照）
+    int dbgHarassRej[5] = {0, 0, 0, 0, 0};   // H1 候補の落ちた条件ごとの数（outResult[34]）
+    int dbgEmerH = 0;        // 緊急判定に使った高さ（outResult[35]）
     // ── デバッグ[21][22]用：理論上「今この瞬間に撃てる最大連鎖」（実行動とは独立）──
     //   全候補のうち今そのまま置けば実発火する手の最大スコア。育成中でも >0 になり、
     //   「撃てるのに育成している」のか「そもそも撃てない」のかを切り分けられる。
@@ -374,6 +378,7 @@ static void runExpectedChainSelection(
     //   フィルタを外して再選択し、手が必ず1つ残るようにする（[[何も置けない]]を防ぐ）。
     for (int pass = 0; pass < 2 && bestFm < 0; pass++) {
         bool filter = (pass == 0 && w.growthFireForbidChains > 0);
+        if (pass == 1 && w.growthFireForbidChains > 0) dbgFlags |= 1 << 9;   // こぼし除外を解除した
         for (int fm = 0; fm < nCand; fm++) {
             if (!survivable(fm)) continue;
             if (cands[fm].chainTarget < chainFloor) continue;
@@ -411,6 +416,9 @@ static void runExpectedChainSelection(
             }
             avgH /= COLS;
             if (avgH >= w.emergencyHeight || col2H >= 9) emergency = true;
+            dbgFlags |= 1 << 10;
+            if (emergency) dbgFlags |= 1 << 2;
+            dbgEmerH = (col2H & 31) | ((avgH & 31) << 5);
         }
 
         // 「今撃てる」最大連鎖の初手（緊急発火用＋デバッグ[21][22]用。上のスコープで宣言済み）と、
@@ -418,7 +426,12 @@ static void runExpectedChainSelection(
         int  fireFmTgt = -1;    long long fireBestTgt = -1;     // 目標段数到達のうち最大スコア
         for (int fm = 0; fm < nCand; fm++) {
             if (cands[fm].fireChains <= 0) continue;            // この初手では発火しない
-            if (!survivable(fm)) continue;                      // ★ v2.2.3 I: 詰む発火手は撃たない
+            if (!survivable(fm)) {                              // ★ v2.2.3 I: 詰む発火手は撃たない
+                if ((w.fireChainCount > 0 && cands[fm].fireChains >= w.fireChainCount) ||
+                    (w.fireScoreThreshold > 0 && cands[fm].fireScore >= w.fireScoreThreshold))
+                    dbgFlags |= 1 << 8;                         // 目標に届くが詰むので撃たない手があった
+                continue;
+            }
             if (cands[fm].fireScore > fireBestAny) { fireBestAny = cands[fm].fireScore; fireFmAny = fm; }
             // ① 目標発火の成立条件（和集合）：目標段数到達 OR 連鎖スコアが閾値到達のどちらかで発火対象。
             //   段数だけだと「段数は浅いが点数の大きい連鎖」を撃ち逃すため、スコア側も OR で見る。
@@ -438,6 +451,11 @@ static void runExpectedChainSelection(
         }
 
         int fireFm = -1;
+        if (fireFmTgt >= 0) {
+            if (w.fireChainCount    > 0 && cands[fireFmTgt].fireChains >= w.fireChainCount)     dbgFlags |= 1 << 0;
+            if (w.fireScoreThreshold > 0 && cands[fireFmTgt].fireScore  >= w.fireScoreThreshold) dbgFlags |= 1 << 1;
+        }
+        if (w.counterKeepReach) dbgFlags |= 1 << 7;
         if (fireFmTgt >= 0)               { fireFm = fireFmTgt; dbgFireReason = 1; } // ① 目標連鎖に到達 → 発火
         else if (emergency && fireFmAny >= 0) {
             // ② 緊急回避。ただし無条件に最大即発火を撃つと、本線がまだ未完成のとき
@@ -449,6 +467,8 @@ static void runExpectedChainSelection(
             bool ratioOk = (w.emergencyFireMinRatio <= 0) || (bestChain <= 0) ||
                            (fireBestAny * 100 >= bestChain * (long long)w.emergencyFireMinRatio);
             bool hard    = (w.emergencyHardCol2 > 0 && col2H >= w.emergencyHardCol2);
+            if (ratioOk) dbgFlags |= 1 << 3;
+            if (hard)    dbgFlags |= 1 << 4;
             if (ratioOk)    { fireFm = fireFmAny; dbgFireReason = 2; } // 緊急（本線がほぼ完成→発火）
             else if (hard)  { fireFm = fireFmAny; dbgFireReason = 3; } // 緊急延命（最終手段＝制限無視）
             // どちらも不成立＝本線を守って育成継続（bestFm のまま撃たない）
@@ -460,16 +480,20 @@ static void runExpectedChainSelection(
         //   候補のうち点が最大の手。絶対量の条件は、催促で相手に組みかけの本線を撃たせたとき、
         //   こちらの本線で返し勝てるようにするため（無いと序盤に撃って約7連鎖で返され負け越した。§9.9）。
         if (fireFm < 0 && w.harassMinScore > 0) {
+            dbgFlags |= 1 << 5;
             int harassFm = -1;
             for (int fm = 0; fm < nCand; fm++) {
                 const ExpCandidate& c = cands[fm];
-                if (c.fireChains <= 0 || c.fireChains > w.harassMaxChains) continue;
-                if (c.fireScore < w.harassMinScore || !survivable(fm)) continue;
-                if (c.reachPot * 100 < basePot * (long long)w.harassKeepPct) continue;
-                if (c.reachPot < w.harassMinReach) continue;   // 序盤の小さな本線で撃つと、吐かせた本線に返せない
+                if (c.fireChains <= 0) continue;
+                // 落ちた最初の条件を数える（思考ログ：催促しなかった理由）
+                if (c.fireChains > w.harassMaxChains)                      { dbgHarassRej[0]++; continue; }
+                if (c.fireScore < w.harassMinScore)                        { dbgHarassRej[1]++; continue; }
+                if (!survivable(fm))                                       { dbgHarassRej[2]++; continue; }
+                if (c.reachPot * 100 < basePot * (long long)w.harassKeepPct) { dbgHarassRej[3]++; continue; }
+                if (c.reachPot < w.harassMinReach)                         { dbgHarassRej[4]++; continue; }   // 序盤の小さな本線で撃つと、吐かせた本線に返せない
                 if (harassFm < 0 || c.fireScore > cands[harassFm].fireScore) harassFm = fm;
             }
-            if (harassFm >= 0) { fireFm = harassFm; dbgFireReason = 4; }
+            if (harassFm >= 0) { fireFm = harassFm; dbgFireReason = 4; dbgFlags |= 1 << 6; }
         }
         if (fireFm >= 0) {
             bestFm = fireFm;
@@ -544,6 +568,22 @@ static void runExpectedChainSelection(
     // ── [31][32]：H1/H2 の判断材料（デバッグ）。選択初手の撃った後の本線潜在／今の本線潜在（H1 有効時のみ）──
     outResult[31] = (bestFm >= 0) ? (int)cands[bestFm].reachPot : 0;
     outResult[32] = (int)basePot;
+
+    // ── [33..35]：思考ログ用の判断の内訳（デバッグ。判断には使わない）──
+    //   [33] ビット: 0=目標段数到達 1=目標点数到達（どちらも撃った目標候補について）2=盤面緊急
+    //                3=緊急で本線比OK 4=緊急延命の高さ到達 5=催促(H1)を探した 6=催促候補あり
+    //                7=対応(H2:本線を残す手)有効 8=目標に届くが詰むので撃たない手があった
+    //                9=育成手のこぼし除外を解除した 10=緊急判定を行った
+    //   [34] 催促候補の落ちた条件ごとの数（6bitずつ）: 0=段数超 1=点不足 2=詰む 3=残す本線の割合不足 4=残す本線の絶対量不足
+    //   [35] 緊急判定の高さ: bit0-4=致死列(第3列)の高さ bit5-9=平均高さ
+    //   ※ 学習用シミュ（player.cpp）の out は 40 要素なので [39] まで使える。
+    outResult[33] = dbgFlags;
+    {
+        int packed = 0;
+        for (int i = 0; i < 5; i++) packed |= (dbgHarassRej[i] > 63 ? 63 : dbgHarassRej[i]) << (i * 6);
+        outResult[34] = packed;
+    }
+    outResult[35] = dbgEmerH;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

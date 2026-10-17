@@ -94,6 +94,7 @@ Object.assign(window.PuyoCPU5.prototype, {
 
         // ★ weightsArray を組み立てる（cpu5_weights.js）。発火制御はモード/カウンター側へ移行済み。
         const weightsArray = this._buildWeightsArray(knownNextCount);
+        this._thinkWA = weightsArray;   // 思考ログ（撃たなかった理由の閾値表示）用
 
         this.worker.postMessage({
             type:           'calculate',
@@ -167,12 +168,8 @@ Object.assign(window.PuyoCPU5.prototype, {
     _logThink(res) {
         if (!this._logEnabled()) return;
         const d = res;
-        if (!(d.length >= 33) || d[9] < 0) return;   // nCand<0 ＝探索不成立
+        if (!(d.length >= 36) || d[9] < 0) return;   // nCand<0 ＝探索不成立
 
-        const FIRE_REASON = {
-            1: '目標到達', 2: '緊急＝本線ほぼ完成', 3: '緊急延命＝最終手段(致死列満杯)',
-            4: `催促＝副砲（撃った後の本線潜在 ${d[31]}点／今 ${d[32]}点）`,
-        };
         // 到達連鎖[25]=見えた深さ / [26]=出所(1実発火/0潜在)。
         //   潜在＝depthN手後の盤面で「組めば届く」見込み（実発火には別途発火色のツモが必要）。
         const selDepth = d[25];
@@ -182,18 +179,17 @@ Object.assign(window.PuyoCPU5.prototype, {
             : selIsFire
                 ? (selDepth === 0 ? '実発火・今すぐ' : `実発火・${selDepth}手後`)
                 : (selDepth === 0 ? '潜在・現盤面で到達(要発火ツモ)' : `潜在・${selDepth}手後の盤面で到達(要発火ツモ)`);
-        const fired = d[15] > 0;
-        const reasonStr = FIRE_REASON[d[23]] || '理由不明';
+        const why = this._describeFire(d);
 
         const from = this._thinkModeFrom, to = this.cpuMode;
         const modeStr = (from && from !== to) ? `★${from}→${to}` : to;
         const p2Str = this._thinkP2State ? `(後打ち:${this._thinkP2State})` : '';
-        const act = fired
-            ? `★発火 ${d[15]}連鎖 ${d[14]}点（${d[23] === 4 ? '催促' : reasonStr}）`
+        const act = d[15] > 0
+            ? `★発火 ${d[15]}連鎖 ${d[14]}点［${why.head}］`
             : (selDepth < 0
                 ? '構築（連鎖未到達）'
                 : `構築 到達${d[20]}連鎖(${selIsFire ? '実発火' : '潜在'}・${selDepth}手後)`) +
-              (d[24] > 0 ? `／${d[24]}連鎖で整地` : '');
+              (why.head ? `［${why.head}］` : '');
         const inc = this._incomingOjamaGross > 0 ? `｜受け${this._incomingOjamaGross}個` : '';
         const header = `${this._logTag(this._turnNo)} ${modeStr}${p2Str}｜${act}${inc}`;
 
@@ -203,9 +199,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             `選択初手: 到達連鎖selChain=${d[14]} (期待${d[20]}連鎖／${selDepthStr})  base=${d[13]}`,
             `理論上いま撃てる最大: ${d[21]}連鎖 (${d[22]}点)`,
             `差別化: 連鎖を組める初手数 nWithChain=${d[16]}/${d[9]}  bestChain=${d[12]}  base幅(spread)=${d[18]}`,
-            `発火: ${fired
-                ? `★${d[15]}連鎖を発火（${reasonStr}）`
-                : `構築（撃たず）${d[24] > 0 ? `／${d[24]}連鎖で整地` : ''}`}`,
+            ...why.lines,
         ];
         if (this._thinkVs) lines.push(this._thinkVs);
         if (this._thinkP2) lines.push(this._thinkP2);
@@ -214,6 +208,81 @@ Object.assign(window.PuyoCPU5.prototype, {
         console[cfg.open ? 'group' : 'groupCollapsed'](header);
         for (const l of lines) console.log(l);
         console.groupEnd();
+    },
+
+    // ★ 撃った理由／撃たなかった理由を言葉にする（_logThink 用）。
+    //   d[23]=wasm の発火理由（1目標 2緊急 3延命 4催促）、d[33..35]=判断の内訳（build.cpp outResult[33..35] の注釈）。
+    //   撃った連鎖が本線か副砲かは「撃った後の本線潜在 d[31] ÷ 今の本線潜在 d[32]」で見る（半分未満が残る＝本線を使った）。
+    //   返り値 head＝見出しに出す短い理由（無ければ ''）、lines＝詳細の行。
+    _describeFire(d) {
+        const wa = this._thinkWA || [];
+        const flags = d[33], bit = (i) => ((flags >> i) & 1) === 1;
+        const col2H = d[35] & 31, avgH = (d[35] >> 5) & 31;
+        const fired = d[15] > 0;
+        const lines = [];
+        let head = '';
+
+        if (fired) {
+            const keptPct = d[32] > 0 ? Math.round(d[31] * 100 / d[32]) : null;
+            const usesMain = keptPct === null || keptPct < 50;
+            const main = usesMain ? '本線' : '副砲';
+            const r = d[23];
+            const parts = [];
+            if (r === 4) {
+                parts.push('催促・副砲');
+            } else if (r === 2 || r === 3) {
+                parts.push(`${r === 2 ? '緊急' : '緊急延命'}・${main}`);
+            } else if (r === 1) {
+                if (this._counterActive) {
+                    const p2 = this._thinkP2State === '締切' ? '(後打ち締切)'
+                             : this._thinkP2State === '待つ' ? '(後打ち・受け量超え)' : '';
+                    parts.push(`対応${p2}・${main}で返す`);
+                    if (bit(7)) parts.push('H2:本線を残す手');
+                } else {
+                    const tgt = bit(0) && bit(1) ? '段数＋点数' : bit(0) ? '段数' : bit(1) ? '点数' : '?';
+                    parts.push(`${main}・目標${tgt}到達`);
+                }
+            } else {
+                parts.push('理由不明');
+            }
+            if (bit(2) && r !== 2 && r !== 3) parts.push('緊急盤面');
+            head = parts.join('＋');
+            lines.push(`発火: ${head}`);
+            lines.push(`撃った後の本線潜在: ${d[31]}点／今 ${d[32]}点` + (keptPct !== null ? `（${keptPct}%残る）` : ''));
+        } else if (d[24] > 0) {
+            head = bit(9) ? `整地${d[24]}連鎖（全手がこぼすため）` : `整地${d[24]}連鎖`;
+            lines.push(`発火: ${head}（発火判定は不成立のまま、育成手を置くと${d[24]}連鎖こぼれる）`);
+        } else {
+            lines.push('発火: 構築（撃たず）');
+        }
+
+        if (!fired) {
+            // 撃たなかった理由（撃てる手があるときだけ意味がある）
+            if (d[21] > 0) {
+                const tc = wa[32] > 0 ? `${wa[32]}連鎖` : '—', ts = wa[34] > 0 ? `${wa[34]}点` : '—';
+                lines.push(`目標未達: 撃てる最大 ${d[21]}連鎖 ${d[22]}点／目標 ${tc} または ${ts}`);
+            }
+            if (bit(8)) {
+                lines.push('見送り: 目標に届く手はあるが、置くと詰む');
+                if (!head) head = '目標到達だが詰むため見送り';
+            }
+            if (bit(2) && !bit(3) && !bit(4) && d[21] > 0) {
+                const pct = d[12] > 0 ? Math.floor(d[22] * 100 / d[12]) : 0;
+                lines.push(`見送り: 緊急だが本線が未完成（撃てる最大 ${d[22]}点＝本線潜在 ${d[12]}点の${pct}%、必要 ${wa[36]}%／` +
+                    `致死列 ${col2H}段、延命は ${wa[37] > 0 ? wa[37] + '段から' : 'なし'}）`);
+                if (!head) head = '緊急だが本線未完成で見送り';
+            }
+            if (bit(5) && !bit(6)) {
+                const rej = [0, 1, 2, 3, 4].map(i => (d[34] >> (i * 6)) & 63);
+                const NAMES = ['段数超', '点不足', '詰む', '本線残り不足', '絶対量不足'];
+                lines.push(rej.some(n => n > 0)
+                    ? `催促: 候補なし（撃てる手のうち ${rej.map((n, i) => `${NAMES[i]}${n}`).join('・')}）`
+                    : '催促: 候補なし（撃てる手がない）');
+            }
+        }
+        if (bit(9)) lines.push(`育成: すべての手が ${wa[35]}連鎖以上こぼすため、こぼし除外を解除`);
+        if (bit(2)) lines.push(`盤面: 致死列 ${col2H}段・平均 ${avgH}段＝緊急`);
+        return { head, lines };
     },
 
     // ───────────────────────────────────────────────

@@ -23,7 +23,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm5.wasm' ? 'cpu_wasm5.wasm?v=42' : path;
+        return path === 'cpu_wasm5.wasm' ? 'cpu_wasm5.wasm?v=43' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -31,7 +31,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js?v=42');
+importScripts('cpu_wasm5.js?v=43');
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -48,7 +48,7 @@ self.onmessage = function (e) {
         boardPtr     = Module._my_malloc(102);
         // ★ weightsArray の要素数は 51（…[45]qSubWeight [46..48]催促 H1 [49]対応 H2 [50]催促 H1 残す本線の絶対量）
         weightsPtr   = Module._my_malloc(4 * 51);   // 51要素(204 bytes)
-        resultPtr    = Module._my_malloc(4 * 33);   // [0..6]=着手 / [7..26]=デバッグ統計 / [27..29]=path(操作列) / [30]=致命セル枝刈り数 / [31][32]=撃った後の本線潜在・今の本線潜在
+        resultPtr    = Module._my_malloc(4 * 36);   // [0..6]=着手 / [7..26]=デバッグ統計 / [27..29]=path(操作列) / [30]=致命セル枝刈り数 / [31][32]=撃った後の本線潜在・今の本線潜在 / [33..35]=判断の内訳
         nextPairsPtr = Module._my_malloc(4 * 20);
     }
 
@@ -63,11 +63,11 @@ self.onmessage = function (e) {
         resultPtr
     );
 
-    // ★ 思考ログ（[7..26][30..32] のデバッグ統計）は本体側 cpu5_worker_io.js _logThink が出す。
+    // ★ 思考ログ（[7..26][30..35] のデバッグ統計）は本体側 cpu5_worker_io.js _logThink が出す。
     //   worker はどちらの盤面の計算かを知らないため、ここでは出さない（CPU 同士で2台分が混ざるのを防ぐ）。
 
     // [0..6]=着手結果 / [27..29]=選択初手への到達操作列(path packing)。JS 側で復号して再生する。
-    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 33);
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 36);
 
     self.postMessage({
         type:   'result',
