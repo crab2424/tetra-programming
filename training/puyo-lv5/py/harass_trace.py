@@ -27,8 +27,12 @@ OUT = ROOT / "runs" / "analysis"
 HARASS = 4
 
 
-def policies(base: dict) -> dict[str, ps.Policy]:
+def policies(base: dict, best_path: str | None = None) -> dict[str, ps.Policy]:
+    from train import named_policy, policy_from_json
     lv6 = ps.Policy.lv6(base)
+    extra = {"lv6h": named_policy("lv6h", base), "lv5": ps.Policy.baseline(base)}
+    if best_path:
+        extra["best"] = policy_from_json(json.loads(Path(best_path).read_text())["policy"])
     h1 = {I_H_MIN: 12, I_H_MAXC: 3, I_H_KEEP: 80}
     return {
         "lv6": lv6,
@@ -38,6 +42,7 @@ def policies(base: dict) -> dict[str, ps.Policy]:
         "H1H2E2": with_build(lv6, {**h1, I_H2: 1, I_QJUNK_W: -60, I_QSUB_W: 40}),
         "H1r300": with_build(lv6, {**h1, I_H_REACH: 300}),
         "H1r300H2E2": with_build(lv6, {**h1, I_H_REACH: 300, I_H2: 1, I_QJUNK_W: -60, I_QSUB_W: 40}),
+        **extra,
     }
 
 
@@ -85,8 +90,9 @@ def main():
     ap.add_argument("--cand", default="H1H2")
     ap.add_argument("--opp", default="lv6")
     ap.add_argument("--seeds", type=int, default=300)
+    ap.add_argument("--best", default=None, help="best.json（--cand best で使う）")
     args = ap.parse_args()
-    pol = policies(ps.load_baseline())
+    pol = policies(ps.load_baseline(), args.best)
     X, Y = pol[args.cand].packed(), pol[args.opp].packed()
     n = args.seeds
     seeds = np.arange(960000, 960000 + n, dtype=np.uint32)
