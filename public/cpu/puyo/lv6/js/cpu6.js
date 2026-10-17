@@ -24,6 +24,8 @@
 window.PuyoCPU6 = class extends window.PuyoCPU5 {
 
     static LOG_NAME = 'LV6';   // 思考ログの印
+    // 重みの版（思考ログの ready 行に出す）。TRAINED_BUILD を差し替えたら出典の run/世代に合わせて書き換える
+    static WEIGHTS_ID = 'pool-001/g20';
 
     // 学習で変わった build の値（best.json の policy のうち lv5 と違うもの。qKeyWeight は lv5 と同じ -30 に戻った）
     static TRAINED_BUILD = {

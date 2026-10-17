@@ -50,6 +50,8 @@ window.PuyoCPU5 = class {
     ];
     // 思考ログの印に出す名前（派生クラスが上書きする）
     static LOG_NAME = 'LV5';
+    // 重みの版（思考ログの ready 行に出すだけ。重みを変えたら書き換える。派生クラスが上書きする）
+    static WEIGHTS_ID = 'lv5';
     constructor(gameInstance) {
         this.game = gameInstance;
 
@@ -77,7 +79,7 @@ window.PuyoCPU5 = class {
 
         this.worker.onmessage = (e) => {
             if (e.data.type === 'ready') {
-                if (!this.workerReady && this._logEnabled()) console.log(`${this._logTag()} worker ready`);
+                if (!this.workerReady && this._logEnabled()) console.log(`${this._logTag()} ready 重み=${this.constructor.WEIGHTS_ID}`);
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 this._handleWorkerResult(e.data.result);
