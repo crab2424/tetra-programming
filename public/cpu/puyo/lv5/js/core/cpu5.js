@@ -88,6 +88,7 @@ window.PuyoCPU5 = class {
     start() {
         this.isActive = true;
         this._turnNo = 0;   // 思考ログの手数（コントローラを作り直すと 0 から数え直す）
+        this._oppChainWatch = null;
         this.hasCalculatedForCurrentPiece = false;
         this._initEstimateContainer();
         this._updateLoop();
@@ -138,6 +139,8 @@ window.PuyoCPU5 = class {
             } else {
                 this._oppChainFull = 0;
             }
+            // 予測の答え合わせ（相手の連鎖の受け量・終了時刻。cpu5_worker_io.js _watchOpponentChain）
+            this._watchOpponentChain(opp instanceof PuyoGame ? opp : null);
         } else {
             this._oppChainFull = 0;
         }

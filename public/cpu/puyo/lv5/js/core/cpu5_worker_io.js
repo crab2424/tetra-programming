@@ -553,6 +553,9 @@ Object.assign(window.PuyoCPU5.prototype, {
         const remainMs = this._estimateOpponentChainEndMs(opp);
         if (!(remainMs > 0)) return false;
 
+        // 答え合わせ用に「この時点の予測」を控える（_watchOpponentChain が連鎖終了時に実際と比べる）
+        if (this._oppChainWatch) this._oppChainWatch.preds.push({ at: performance.now(), remainMs });
+
         const dropSoon = this._hasDroppableGarbageWithin(p2.turnMs);
         const wait     = !dropSoon && p2.turnMs + p2.safetyMs < remainMs;
 
@@ -632,6 +635,61 @@ Object.assign(window.PuyoCPU5.prototype, {
                 return -1;   // 連鎖は終わっている（spawnAnim など）
         }
         return t + this._puyoChainRemainingMs(f, (fld) => opp._findErasableInField(fld));
+    },
+
+    // ★ 予測の答え合わせ：相手ぷよの連鎖を開始〜終了まで見張り、終了時に1行ログを出す。
+    //   ・受け量：連鎖を見つけた時の推定(_estimateOpponentPuyoChainOjama) と、実際に生んだ量
+    //     （相手の generatedOjamaTotal。連鎖終了の checkErase で 0 に戻るため、連鎖中の最大を取る）。
+    //   ・終了時刻：連鎖を見つけた時と、後打ち(p2)で判断した各時点の _estimateOpponentChainEndMs と、実際の終了。
+    //     実際の終了＝相手の _gs が連鎖中の段階を抜けたフレーム（RAF 単位なので ±1フレームの誤差を含む）。
+    //     差が − ＝予測より早く終わった＝後打ちで待ちすぎる側（おじゃまが降る危険）。
+    //   _updateLoop が毎フレーム呼ぶ（VERSUS かつ worker 準備済みのとき）。opp はぷよ相手のときだけ渡る。
+    _watchOpponentChain(opp) {
+        const CHAIN_GS = ['erasing', 'eraseWait', 'dropping', 'fixAnim', 'fixWait5f', 'checkErase'];
+        const inChain = !!opp && opp.chainCount > 0 && CHAIN_GS.includes(opp._gs);
+        const w = this._oppChainWatch;
+        const now = performance.now();
+        if (inChain) {
+            if (!w) {
+                this._oppChainWatch = {
+                    startAt:    now,
+                    endEstMs:   this._estimateOpponentChainEndMs(opp),
+                    ojamaEst:   this._estimateOpponentPuyoChainOjama(opp),
+                    maxGen:     opp.generatedOjamaTotal || 0,
+                    maxChain:   opp.chainCount,
+                    preds:      [],
+                };
+            } else {
+                w.maxGen   = Math.max(w.maxGen, opp.generatedOjamaTotal || 0);
+                w.maxChain = Math.max(w.maxChain, opp.chainCount);
+            }
+            if (this.game && this.game.isPaused) this._oppChainWatch.paused = true;   // 時間の比較が狂う
+            return;
+        }
+        if (!w) return;
+        this._oppChainWatch = null;
+        if (!opp || !this._logEnabled()) return;   // 相手が居なくなった（試合終了など）ときは出さない
+
+        const fmtErr = (predEndAt) => {
+            const e = Math.round(now - predEndAt);
+            return `${e >= 0 ? '+' : ''}${e}ms${e < 0 ? '(早い⚠)' : ''}`;
+        };
+        const sec = (ms) => (ms / 1000).toFixed(2) + 's';
+        const actualMs = now - w.startAt;
+        const ojDiff = w.maxGen - w.ojamaEst;
+        let line =
+            `${this._logTag()} 答え合わせ: 相手の${w.maxChain}連鎖` +
+            `｜受け量 予測${w.ojamaEst}個→実際${w.maxGen}個${ojDiff ? `（差${ojDiff > 0 ? '+' : ''}${ojDiff}）` : '（一致）'}` +
+            (w.endEstMs >= 0
+                ? `｜終了 予測${sec(w.endEstMs)}→実際${sec(actualMs)}（${fmtErr(w.startAt + w.endEstMs)}）`
+                : '');
+        if (w.preds.length) {
+            line += `｜後打ち判断時: ` + w.preds
+                .map(p => `残り${sec(p.remainMs)}→${sec(now - p.at)}（${fmtErr(p.at + p.remainMs)}）`)
+                .join(' / ');
+        }
+        if (w.paused) line += '｜途中で一時停止あり（時間は参考外）';
+        console.log(line);
     },
 
     // ★ 次の消去判定を待つ盤面 f から、連鎖が終わる（消えるものが無くなる判定）までの ms（純関数・f を書き換える）。
