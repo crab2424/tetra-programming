@@ -34,6 +34,8 @@ HIDDEN, COLS_N, ROWS_ALL = 5, 6, 17
 I_QJUNK_W, I_QSUB_W = 44, 45   # 提案3 E2a（ゴミ×埋まり具合）/ E2b（副砲）
 I_H_MIN, I_H_MAXC, I_H_KEEP, I_H2, I_H_REACH = 46, 47, 48, 49, 50   # H1 催促（個数・段数上限・残す本線%）/ H2 対応 / H1 残す本線の絶対量（個）
 I_KEEP_W, I_KEEP_D, I_KEEP_ROWS = 54, 55, 56   # 提案5 K 発火点の保全（重み・掛ける深さ・載せる段数）
+I_TERRAIN_MAX = 58                               # T 地形優先の対応（この受け量以下は fast に入らない）
+I_P1_ALPHA = 61                                  # P 相手を見て撃つ（目標発火の相手比 %）
 REASONS = {1: "目標", 2: "緊急", 3: "延命", 4: "催促"}
 
 

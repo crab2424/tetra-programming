@@ -23,7 +23,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm5.wasm' ? 'cpu_wasm5.wasm?v=45' : path;
+        return path === 'cpu_wasm5.wasm' ? 'cpu_wasm5.wasm?v=46' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -31,12 +31,13 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js?v=45');
+importScripts('cpu_wasm5.js?v=46');
 
 let boardPtr     = null;
 let weightsPtr   = null;
 let resultPtr    = null;
 let nextPairsPtr = null;
+let oppBoardPtr  = null;
 
 self.onmessage = function (e) {
     if (!wasmReady) return;
@@ -46,14 +47,21 @@ self.onmessage = function (e) {
 
     if (boardPtr === null) {
         boardPtr     = Module._my_malloc(102);
-        // ★ weightsArray の要素数は 57（…[45]qSubWeight [46..48]催促 H1 [49]対応 H2 [50]催促 H1 残す本線の絶対量 [51..53]副砲・催促の本線条件 G1/G2 [54..56]発火点の保全 K）
-        weightsPtr   = Module._my_malloc(4 * 57);   // 57要素(228 bytes)
+        // ★ weightsArray の要素数は 62（…[45]qSubWeight [46..48]催促 H1 [49]対応 H2 [50]催促 H1 残す本線の絶対量 [51..53]副砲・催促の本線条件 G1/G2 [54..56]発火点の保全 K [57..59]地形優先の対応 T [60][61]相手を見て撃つ P）
+        weightsPtr   = Module._my_malloc(4 * 62);   // 62要素(248 bytes)
+        oppBoardPtr  = Module._my_malloc(102);
         resultPtr    = Module._my_malloc(4 * 36);   // [0..6]=着手 / [7..26]=デバッグ統計 / [27..29]=path(操作列) / [30]=致命セル枝刈り数 / [31][32]=撃った後の本線潜在・今の本線潜在 / [33..35]=判断の内訳
         nextPairsPtr = Module._my_malloc(4 * 20);
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
-    HEAP32.set(data.weightsArray, weightsPtr / 4);
+    // ★ 提案1 P：[61] p1Alpha > 0 で相手の盤面が来ていれば、相手のすぐ起こせる火力を [60] に入れる
+    const wa = data.weightsArray;
+    if (wa.length > 61 && wa[61] > 0 && data.oppBoardBuffer) {
+        HEAPU8.set(data.oppBoardBuffer, oppBoardPtr);
+        wa[60] = Module._ignitionScoreWasm(oppBoardPtr);
+    }
+    HEAP32.set(wa, weightsPtr / 4);
     HEAP32.set(data.nextPairs, nextPairsPtr / 4);
 
     Module._searchBestMovePuyoWasm(

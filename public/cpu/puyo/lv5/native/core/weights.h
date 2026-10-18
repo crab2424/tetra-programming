@@ -131,11 +131,24 @@ struct EvalWeights {
     int qKeepWeight;      // [54] おじゃまを qKeepRows 段載せた仮の盤面で起こせる最大連鎖のおじゃま量 1個あたり（正）。負＝降って失う量（今−降った後）1個あたりの罰
     int qKeepDepth;       // [55] K を掛けるビームの深さ（深さ < この値のノードだけ。0＝全部の深さ）
     int qKeepRows;        // [56] 載せるおじゃまの段数（0＝1段＝6個）
+
+    // ── 地形優先の対応（T。既定0＝無効。設計: lv6-harass-design.md §13.5）──
+    //   受け量が小さいカウンターの場面で、fast に入らず build の重みのまま、育成（受ける）・軽減・返すのうち
+    //   「残りのおじゃまが降った後に起こせる連鎖」（地形の値）が最大の手を選ぶ。地形＞火力。
+    //   ★ [57][59] は思考ごとの入力（JS cpu5_worker_io.js／sim player.cpp decide が入れる）。
+    int counterTerrainOjama; // [57] 今の受け量（個）。0＝使わない
+    int counterTerrainMax;   // [58] この個数以下の受け量で T を使う（保存値。0＝無効）
+    int counterTerrainRate;  // [59] おじゃまのレート（撃った点 → 相殺する個数）
+
+    // ── 相手を見て撃つ（提案1 P。既定0＝無効。設計: lv6-harass-design.md §13.6）──
+    //   ★ [60] は思考ごとの入力（本番は worker が _ignitionScoreWasm で、sim は player.cpp decide が入れる）。
+    int p1OppScore;       // [60] 相手のすぐ起こせる火力（相手の盤面に同色を1〜3個足して起こせる最大連鎖の点）
+    int p1Alpha;          // [61] 目標発火は「撃つ点 ×100 ≥ p1Alpha × 相手の火力」のときだけ（%。0＝無効）
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 57 要素（[0..56]）。
+//   weightsArray は 62 要素（[0..61]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -211,5 +224,12 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     w.qKeepWeight         = weightsArray[54];
     w.qKeepDepth          = weightsArray[55];
     w.qKeepRows           = weightsArray[56];
+    // ── 地形優先の対応（T）──
+    w.counterTerrainOjama = weightsArray[57];
+    w.counterTerrainMax   = weightsArray[58];
+    w.counterTerrainRate  = weightsArray[59];
+    // ── 相手を見て撃つ（提案1 P）──
+    w.p1OppScore          = weightsArray[60];
+    w.p1Alpha             = weightsArray[61];
     return w;
 }

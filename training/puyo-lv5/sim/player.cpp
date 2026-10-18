@@ -265,8 +265,16 @@ void Player::decide(Player* opp) {
         counterActive_ = true;   // 撃った後は従来のヒステリシスに戻す
     }
 
+    // ── T 地形優先の対応（本番 cpu5_worker_io.js _updateVersusCounterMode と同じ判断。§13.5）──
+    //   受け量が小さい（≦ build の [58]）カウンターの場面は、fast に入らず build の重みのまま、
+    //   wasm の fire gate が「残りのおじゃまが降った後の地形」が最大の手（受ける・軽減・返す）を選ぶ。
+    const bool terrain = opp && waitMode == 0 && wantCounter && pp_.build[58] > 0 && incoming <= pp_.build[58];
+
     int wa[W_LEN];
-    if (waitMode == 1) {
+    if (terrain) {
+        std::memcpy(wa, pp_.build, sizeof(wa));
+        stats.counterTurns++;
+    } else if (waitMode == 1) {
         std::memcpy(wa, X[X_P2_WAIT_FAST] ? pp_.fast : pp_.build, sizeof(wa));
         wa[32] = 0;   // 目標発火を切る（緊急発火は残す）
         wa[34] = X[X_P2_FIRE_IF_PCT] > 0
@@ -299,8 +307,21 @@ void Player::decide(Player* opp) {
         wa[46] = harass ? B[46] * rate : 0;
         wa[47] = B[47];
         wa[48] = B[48];
-        wa[49] = (waitMode == 0 && wantCounter) ? B[49] : 0;
+        wa[49] = (waitMode == 0 && wantCounter && !terrain) ? B[49] : 0;
         wa[50] = B[50] * rate;
+        wa[57] = terrain ? incoming : 0;
+        wa[58] = B[58];
+        wa[59] = terrain ? rate : 0;
+        // P 相手を見て撃つ（本番 _updateVersusCounterMode と worker の _ignitionScoreWasm と同じ。§13.6）：
+        //   build の本線構築中で相手が連鎖中でないとき、相手のすぐ起こせる火力を入れる。
+        const bool p1n = opp && waitMode == 0 && !wantCounter && opp->chainCount == 0 && B[61] > 0;
+        wa[61] = p1n ? B[61] : 0;
+        wa[60] = 0;
+        if (p1n) {
+            BitBoard ob;
+            toBitBoard(opp->field, ob);
+            wa[60] = ignitionAfterOjama(ob, 0);
+        }
     }
 
     // nextPairs: 現ペア＝nextQueue[0]（前倒し計算）＋ NEXT 9 本
@@ -360,7 +381,8 @@ void Player::decide(Player* opp) {
         searchBuildMode(bb, nextPairs, w, out);
     }
 
-    lastMode_ = waitMode == 1 ? 2 : waitMode == 2 ? 3 : wantCounter ? 1 : 0;   // 記録用 2=待つ 3=締切/即撃ち
+    if (out[33] > 0 && (out[33] & (1 << 13))) stats.p1Holds++;   // P で目標発火を保留した
+    lastMode_ = terrain ? 4 : waitMode == 1 ? 2 : waitMode == 2 ? 3 : wantCounter ? 1 : 0;   // 記録用 2=待つ 3=締切/即撃ち 4=地形優先の対応
     lastReason_ = out[23];
     if (trace) {
         TraceTurn tt;

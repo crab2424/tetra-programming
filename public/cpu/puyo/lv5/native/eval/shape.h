@@ -58,3 +58,7 @@ struct MainSubInfo {
 int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w,
                        int* outChainScore = nullptr, int* outChainCount = nullptr,
                        MainSubInfo* outMainSub = nullptr);
+
+// 盤面 b におじゃまを nOjama 個降らせた仮の盤面で起こせる最大連鎖の点（同色を1〜3個足す。致死セルが埋まるなら 0）。
+//   発火点の保全（K）・地形優先の対応（T）の「地形の値」（lv6-harass-design.md §13.4・§13.5）。
+int ignitionAfterOjama(const BitBoard& b, int nOjama);

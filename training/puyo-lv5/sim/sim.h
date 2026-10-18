@@ -36,9 +36,9 @@ constexpr int    ERASE_COUNT      = 4;
 constexpr int    NEXT_KEEP        = 20;                   // 内部 NEXT 保持数
 
 // ── 重みパラメータ（Python ↔ C++ の受け渡し単位）──
-constexpr int W_LEN  = 57;                 // cpu5_weights.js _buildWeightsArray の要素数
+constexpr int W_LEN  = 62;                 // cpu5_weights.js _buildWeightsArray の要素数
 constexpr int EXT_LEN = 16;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
-constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[57] + fast[57] + counterTrigger + counterMargin×1000 + ext[16]
+constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[62] + fast[62] + counterTrigger + counterMargin×1000 + ext[16]
 
 // ext[] の添字（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md）
 enum ExtIndex {
@@ -129,7 +129,7 @@ struct PlayerStats {
     int       firstBigChainTurn = -1;   // ひとり用: targetChain 以上の初発火ターン
     int       counterTurns = 0;    // fast（カウンター）で打ったターン数
     int       waitTurns = 0;       // 提案2：相手の連鎖中に撃たずに伸ばしたターン数
-    int       p1Holds = 0;         // 提案1：目標到達だが相手が返せるので撃たなかったターン数
+    int       p1Holds = 0;         // 提案1：目標到達だが相手が返せるので撃たなかったターン数（試作 ext と P [61] の両方）
     int       p1Kills = 0;         // 提案1：目標未達だが相手が返せないので撃ったターン数
 };
 
@@ -144,7 +144,7 @@ struct BoardWaste { int colored = 0, leftover = 0, excess = 0; };
 BoardWaste boardWaste(const Field& f, const Ignite& ign);
 
 struct TraceTurn {             // decide()（spawnAnim 開始時の思考）ごとの盤面と思考結果
-    double t; int turn; int mode;          // mode 0=build 1=fast（カウンター）
+    double t; int turn; int mode;          // mode 0=build 1=fast（カウンター） 2=後打ちで待つ 3=締切 4=地形優先の対応（T）
     int incoming, queue;                   // 受け量（確定＋予測）／おじゃまキュー総量
     int fire, reason;                      // この手で撃つ段数（0=育成）／発火理由（build.cpp dbg[23]）
     int fireableChains, fireableScore;     // 現ペアを置けば撃てる最大（dbg[21][22]）

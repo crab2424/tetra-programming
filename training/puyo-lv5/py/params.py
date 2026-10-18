@@ -63,6 +63,22 @@ SPACE: list[Param] = [
     Param("COUNTER_MARGIN_VSPUYO",        -2, 0.6,  2.0, integer=False),
 ]
 DIM = len(SPACE)
+SPACE_FULL = list(SPACE)
+
+# 学習次元を絞った探索空間（§13.7。これまでの学習でほとんど動かなかった重みを外し、外した重みは初期値のまま固定）。
+#   名前は SPACE の名前。train.py --space で選ぶ（args.json に残るので --resume・validate も同じ空間になる）。
+SPACES: dict[str, list[str]] = {}
+
+
+def use_space(name: str) -> None:
+    """探索空間を切り替える（encode/decode/describe と DIM がこれに従う）。"full"＝SPACE 全部。"""
+    global SPACE, DIM
+    if name in ("", "full", None):
+        SPACE = list(SPACE_FULL)
+    else:
+        by = {p.name: p for p in SPACE_FULL + FIXED_NAMED}
+        SPACE = [by[n] for n in SPACES[name]]
+    DIM = len(SPACE)
 
 # 学習しない（固定する）が、名前で初期値・相手を書き換えたいもの（--init-set・相手プールの set）。
 #   催促・対応 H1/H2 と本線条件 G1 は §10.4 で固定値にした（lv6-harass-design.md）。
@@ -74,15 +90,19 @@ FIXED_NAMED: list[Param] = [
     Param("harassMinReach",         50,     0,    900),   # 撃った後に残す本線（個）
     Param("subMinMainChains",       51,     0,     19),   # G1：副砲・催促の本線段数の下限
     Param("subMinMainPuyos",        52,     0,     72),   # G1：副砲の本線色ぷよ数の下限
+    Param("qKeepWeight",            54,   -20,     20),   # 提案5 K 発火点の保全（§13.4。効かず既定0で固定）
+    Param("qKeepDepth",             55,     0,      8),
+    Param("counterTerrainMax",      58,     0,     29),   # T 地形優先の対応：この受け量以下は fast に入らない（§13.5）
+    Param("p1Alpha",                61,     0,    300),   # P 相手を見て撃つ：目標発火の相手比（%。§13.6）
 ]
-NAMED = {p.name: p for p in SPACE + FIXED_NAMED}
+NAMED = {p.name: p for p in SPACE_FULL + FIXED_NAMED}
 
 
 def check_indices(baseline: dict) -> None:
     """名前と添字の対応が本番 JS とずれていないか（weightsArray の並びが変わったら落とす）。"""
     named = baseline["buildNamed"]
-    for p in SPACE + FIXED_NAMED:
-        if p.index >= 0 and p.name in named and p.index not in (46, 49, 50):   # 46/49/50 は思考ごとの入力（export が保存値で上書き）
+    for p in SPACE_FULL + FIXED_NAMED:
+        if p.index >= 0 and p.name in named and p.index not in (46, 49, 50, 61):   # 46/49/50/61 は思考ごとの入力（export が保存値で上書き）。57/59/60 も思考ごと（名前なし）
             assert named[p.name] == baseline["build"][p.index], f"{p.name} の添字 {p.index} が本番とずれている"
 
 

@@ -200,17 +200,24 @@ static int calcSubJunkEval(const BitBoard& b, const EvalWeights& w, const QuietP
     return score;
 }
 
-// 発火点の保全（提案5。設計: lv6-harass-design.md §13.4）：盤面 b の全列におじゃまを rows 段載せた仮の盤面で、
-//   quiescence と同じ探し方（発火できる各列に同色を1〜3個）で起こせる最大連鎖の点。致死セルが埋まるなら 0。
+// 盤面 b におじゃまを nOjama 個降らせた仮の盤面で、quiescence と同じ探し方（発火できる各列に同色を1〜3個）で
+//   起こせる最大連鎖の点。致死セルが埋まるなら 0。
+//   発火点の保全（提案5 K。lv6-harass-design.md §13.4）と地形優先の対応（T。§13.5）が使う。
+//   6個ごとに全列へ1段。端数は第3列から順に（3,4,2,5,1,6列目）置く＝致死列に厳しめに見る。
 static const int MAX_QDROP_KEEP = 3;
-static int keepIgnitionScore(const BitBoard& b, int rows) {
+int ignitionAfterOjama(const BitBoard& b, int nOjama) {
+    static const int FRAC_ORDER[COLS] = {2, 3, 1, 4, 0, 5};
     BitBoard ob = b;
-    for (int c = 0; c < COLS; ++c)
-        for (int i = 0; i < rows; ++i) {
+    int rows = nOjama / COLS, frac = nOjama % COLS;
+    for (int c = 0; c < COLS; ++c) {
+        int n = rows;
+        for (int k = 0; k < frac; ++k) if (FRAC_ORDER[k] == c) n++;
+        for (int i = 0; i < n; ++i) {
             int row = calcDropRow(ob, c);
             if (row < 0) break;
             ob.set(c, row + HIDDEN, 6);
         }
+    }
     if (ob.get(2, HIDDEN) != 0) return 0;   // 降ったら窒息する
     int h[COLS];
     for (int c = 0; c < COLS; ++c) {
@@ -340,7 +347,7 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
     // 発火点の保全（提案5 K）：おじゃまが1段降った後に起こせる連鎖（おじゃま量）。
     //   正の重み＝降った後に残る量に価値をつける。負の重み＝降って失う量（今 − 降った後）を罰する。
     if (w.qKeepWeight != 0) {
-        int after = keepIgnitionScore(b, w.qKeepRows > 0 ? w.qKeepRows : 1);
+        int after = ignitionAfterOjama(b, (w.qKeepRows > 0 ? w.qKeepRows : 1) * COLS);
         int v = w.qKeepWeight > 0 ? after : std::max(0, bestAnyScore - after);
         result += (v / OJAMA_RATE) * w.qKeepWeight;
     }

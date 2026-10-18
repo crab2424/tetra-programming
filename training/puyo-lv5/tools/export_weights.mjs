@@ -22,7 +22,7 @@ for (const f of ['weights/cpu5_weights.js', 'weights/cpu5_modes.js']) {
 const cpu = new ctx.window.PuyoCPU5();
 cpu._initWeights();
 
-// [46][49][50]（催促 H1・対応 H2）は本番では思考ごとに入れる値（_harassMinScore など）なので、
+// [46][49][50]（催促 H1・対応 H2）と [61]（相手を見て撃つ P）は本番では思考ごとに入れる値（_harassMinScore など）なので、
 //   _buildWeightsArray の外では 0 になる。学習用シミュは「保存している値」（個数・1/0）を受け取り、
 //   思考ごとの換算（個数×レート・局面での有効/無効）は sim/player.cpp decide が行う。
 const stored = (c, a) => {
@@ -30,6 +30,7 @@ const stored = (c, a) => {
     a[46] = cw.harassMinOjama || 0;
     a[49] = cw.counterKeepReach || 0;
     a[50] = cw.harassMinReach || 0;
+    a[61] = cw.p1Alpha || 0;            // P 相手を見て撃つ（[60] 相手の火力は sim が思考ごとに入れる）
     return a;
 };
 const arr = (mode) => {
@@ -48,7 +49,7 @@ const num = (name) => {
 };
 out.counterTrigger = num('COUNTER_TRIGGER_OJAMA_VSPUYO');
 out.counterMargin  = num('COUNTER_MARGIN_VSPUYO');
-if (out.build.length !== 57) throw new Error(`weightsArray 長が ${out.build.length}（57 を想定）`);
+if (out.build.length !== 62) throw new Error(`weightsArray 長が ${out.build.length}（62 を想定）`);
 
 // ── puyo lv6（lv5 を継承した学習済み重み＋対戦判断）。public/cpu/puyo/lv6/js/cpu6.js から取り出す ──
 {

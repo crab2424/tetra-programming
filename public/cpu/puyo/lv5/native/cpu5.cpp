@@ -23,6 +23,7 @@
 #include "core/bitboard.h"
 #include "core/weights.h"
 #include "build/build.h"
+#include "eval/shape.h"
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Wasm エクスポート
@@ -53,6 +54,15 @@ void searchBestMovePuyoWasm(
     // ★ 現状は build（連鎖を組む）モードのみ。
     //   今後 free / fast / allClear モードを追加する際はここで振り分ける。
     searchBuildMode(baseBoard, nextPairs, w, outResult);
+}
+
+// 盤面（boardBuffer と同じ形）に同色を1〜3個足して起こせる最大連鎖の点。
+//   提案1 P の「相手のすぐ起こせる火力」（weightsArray[60]）。worker が相手の盤面で呼ぶ。
+EMSCRIPTEN_KEEPALIVE
+int ignitionScoreWasm(uint8_t* boardData) {
+    BitBoard b;
+    b.fromArray(boardData);
+    return ignitionAfterOjama(b, 0);
 }
 
 } // extern "C"

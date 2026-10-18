@@ -1,6 +1,6 @@
 """評価の項（提案3 など）を lv6 に足した候補を、本番 lv6 と VERSUS で A/B 比較する。
 
-  python3 py/ab_eval.py [--set e1|e2|h|h2|k] [--seeds 300] [--opp lv6|lv5]
+  python3 py/ab_eval.py [--set e1|e2|h|h2|k|t|p] [--seeds 300] [--opp lv6|lv5]
   先後2局×シード数で、候補視点の勝率と 95% 幅（シードごとの先後2局の平均のばらつきから）を出す。
   シードは学習・定期評価・記録と重ならない 960000〜 を使う。
 設計: source_assets/memory/cpu/puyo/lv6-harass-design.md
@@ -17,7 +17,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 import puyosim as ps  # noqa: E402
 from train import named_policy  # noqa: E402
-from solo_baseline import I_KEEP_D, I_KEEP_W, I_H2, I_H_KEEP, I_H_REACH, I_H_MAXC, I_H_MIN, I_QEXCESS_W, I_QJUNK_W, I_QSUB_W, with_build  # noqa: E402
+from solo_baseline import I_P1_ALPHA, I_TERRAIN_MAX, I_KEEP_D, I_KEEP_W, I_H2, I_H_KEEP, I_H_REACH, I_H_MAXC, I_H_MIN, I_QEXCESS_W, I_QJUNK_W, I_QSUB_W, with_build  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -59,12 +59,16 @@ def configs(base: dict, which: str) -> dict[str, ps.Policy]:
     if which == "k":    # §13.4 提案5 発火点の保全（qKeepWeight・掛ける深さ）
         return {f"lv6 K{v} d{d}": with_build(lv6, {I_KEEP_W: v, I_KEEP_D: d}) for v, d in
                 ((0, 0), (2, 0), (5, 0), (10, 0), (5, 2), (20, 0), (1, 0), (-1, 0), (-2, 0), (-5, 0))}
+    if which == "t":    # §13.5 T 地形優先の対応（この受け量以下は fast に入らず、降った後の地形が最大の手）
+        return {f"lv6 T{v}": with_build(lv6, {I_TERRAIN_MAX: v}) for v in (0, 6, 12, 18, 29)}
+    if which == "p":    # §13.6 P 相手を見て撃つ（目標発火の相手比 %）
+        return {f"lv6 P{v}": with_build(lv6, {I_P1_ALPHA: v}) for v in (100, 110, 130, 160, 200)}
     raise ValueError(which)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--set", default="e1", choices=["e1", "e2", "h", "h2", "k"])
+    ap.add_argument("--set", default="e1", choices=["e1", "e2", "h", "h2", "k", "t", "p"])
     ap.add_argument("--seeds", type=int, default=300)
     ap.add_argument("--opp", default="lv6", choices=["lv6", "lv6h2", "lv6g", "lv5"])   # lv6h2＝lv6＋H2 対応
     ap.add_argument("--only", default="")

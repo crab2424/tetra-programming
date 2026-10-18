@@ -58,6 +58,9 @@ struct ExpCandidate {
     int  fireChains;                  // 今撃てる連鎖段数（0=この初手では発火しない）
     long long fireScore;             // 今撃てる連鎖スコア
 
+    // ── 地形優先の対応（T）用：この初手を置いて連鎖を終えた盤面（depth0）──
+    BitBoard board0;
+
     // ── 実機再生用：spawn からこの初手配置へ到達する操作列（getAllPlacements の path）──
     uint8_t path[MAX_PATH];
     int pathLen;
@@ -210,6 +213,7 @@ static void runExpectedChainSelection(
                     //   depth0 の chain は現ペアを置いた瞬間の連鎖結果＝「今撃てる連鎖」。
                     cands[fm].fireChains = chain.chains;
                     cands[fm].fireScore  = chain.score;
+                    cands[fm].board0     = nb;
                     nn.firstMoveIndex = fm;
                     nn.col1 = p.col; nn.rot1 = p.rot;
                 } else {
@@ -359,7 +363,7 @@ static void runExpectedChainSelection(
     int bestFm = -1;
     long long bestBase = LLONG_MIN;
     int dbgFireChains = 0;   // 発火した連鎖段数（0=発火せず＝育成）。デバッグ outResult[15]
-    int dbgFireReason = 0;   // 発火理由 0=育成(発火せず) / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1)。outResult[23]
+    int dbgFireReason = 0;   // 発火理由 0=育成(発火せず) / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1) / 5=地形優先の対応(T)。outResult[23]
     int dbgFlags = 0;        // 判断の内訳（ビット。outResult[33] の注釈参照）
     int dbgHarassRej[5] = {0, 0, 0, 0, 0};   // H1 候補の落ちた条件ごとの数（outResult[34]）
     int dbgEmerH = 0;        // 緊急判定に使った高さ（outResult[35]）
@@ -480,6 +484,13 @@ static void runExpectedChainSelection(
             if (pick >= 0) { fireFmTgt = pick; fireBestTgt = cands[pick].fireScore; }
         }
 
+        // ★ P 相手を見て撃つ（提案1。§13.6）：目標に届いても、相手のすぐ起こせる火力に勝てないなら撃たずに伸ばす（保留）。
+        //   相手が先に撃てば後打ち（提案2）で返す。緊急・延命は下でこれまでどおり撃つ。
+        if (fireFmTgt >= 0 && w.p1Alpha > 0 && fireBestTgt * 100 < (long long)w.p1Alpha * w.p1OppScore) {
+            fireFmTgt = -1;
+            dbgFlags |= 1 << 13;
+        }
+
         int fireFm = -1;
         if (fireFmTgt >= 0) {
             if (w.fireChainCount    > 0 && cands[fireFmTgt].fireChains >= w.fireChainCount)     dbgFlags |= 1 << 0;
@@ -502,6 +513,28 @@ static void runExpectedChainSelection(
             if (ratioOk)    { fireFm = fireFmAny; dbgFireReason = 2; } // 緊急（本線がほぼ完成→発火）
             else if (hard)  { fireFm = fireFmAny; dbgFireReason = 3; } // 緊急延命（最終手段＝制限無視）
             // どちらも不成立＝本線を守って育成継続（bestFm のまま撃たない）
+        }
+
+        // ③' T 地形優先の対応（§13.5）：受け量が小さいカウンターの場面（JS/sim が [57] を入れる）で、目標・緊急で撃たないとき、
+        //   育成の手（受ける）と今撃てる全部の手（返す・軽減）から「残りのおじゃまが降った後に起こせる連鎖」が最大の手。
+        //   同じなら相殺が多い方（地形＞火力）。育成の手が最大なら撃たない。
+        if (fireFm < 0 && w.counterTerrainOjama > 0 && w.counterTerrainRate > 0 && bestFm >= 0) {
+            dbgFlags |= 1 << 11;
+            auto terrain = [&](int fm, int* offset) {
+                int off = (int)(cands[fm].fireScore / w.counterTerrainRate);
+                *offset = off;
+                return ignitionAfterOjama(cands[fm].board0, std::max(0, w.counterTerrainOjama - off));
+            };
+            int offBest = 0;
+            int pick = bestFm;
+            int tBest = terrain(bestFm, &offBest);
+            for (int fm = 0; fm < nCand; fm++) {
+                if (fm == bestFm || cands[fm].fireChains <= 0 || !survivable(fm)) continue;
+                int off = 0;
+                int t = terrain(fm, &off);
+                if (t > tBest || (t == tBest && off > offBest)) { tBest = t; offBest = off; pick = fm; }
+            }
+            if (pick != bestFm) { fireFm = pick; dbgFireReason = 5; dbgFlags |= 1 << 12; }
         }
 
         // ③ H1 催促：目標・緊急で撃たないとき、本線を残したまま撃てる小連鎖（副砲）を撃つ。
@@ -571,7 +604,7 @@ static void runExpectedChainSelection(
     outResult[20] = selChainChains;                              // 選択初手の到達連鎖の段数（期待連鎖数）
     outResult[21] = (fireFmAny >= 0) ? cands[fireFmAny].fireChains : 0;  // 理論上いま撃てる最大連鎖の段数
     outResult[22] = (fireFmAny >= 0) ? (int)fireBestAny : 0;             // 同・実発火スコア
-    outResult[23] = dbgFireReason;   // 発火理由 0=育成 / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1)
+    outResult[23] = dbgFireReason;   // 発火理由 0=育成 / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1) / 5=地形優先の対応(T)
     outResult[24] = (bestFm >= 0) ? cands[bestFm].fireChains : 0;  // 選択(着手)初手を今置くと実際にこぼれる連鎖段数
     // ── 追加デバッグ[25]：選択初手の到達連鎖を達成した深さ（=何手後に発火/組み上がるか）──
     //   depth0=現盤面で既にその値／-1=連鎖未到達(育てる候補が無い)。selChainChains(段数)と併読する。
@@ -604,7 +637,8 @@ static void runExpectedChainSelection(
     //   [33] ビット: 0=目標段数到達 1=目標点数到達（どちらも撃った目標候補について）2=盤面緊急
     //                3=緊急で本線比OK 4=緊急延命の高さ到達 5=催促(H1)を探した 6=催促候補あり
     //                7=対応(H2:本線を残す手)有効 8=目標に届くが詰むので撃たない手があった
-    //                9=育成手のこぼし除外を解除した 10=緊急判定を行った
+    //                9=育成手のこぼし除外を解除した 10=緊急判定を行った 11=地形優先の対応(T)を判定した 12=T で撃つ手を選んだ
+    //                13=相手を見て目標発火を保留した(P)
     //   [34] 催促候補の落ちた条件ごとの数（6bitずつ）: 0=段数超 1=点不足 2=詰む 3=残す本線の割合不足 4=残す本線の絶対量・段数不足
     //   [35] 緊急判定の高さ: bit0-4=致死列(第3列)の高さ bit5-9=平均高さ
     //   ※ 学習用シミュ（player.cpp）の out は 40 要素なので [39] まで使える。

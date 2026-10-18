@@ -149,6 +149,7 @@ def main() -> int:
     ap.add_argument("--init", default=None, choices=["lv5", "lv6", "lv6h", "lv6g"], help="初期値（既定は --opp と同じ）")
     ap.add_argument("--init-set", action="append", default=[], metavar="名前=値",
                     help="初期値の一部を書き換える（params.SPACE の名前。複数可）")
+    ap.add_argument("--space", default="full", help="探索空間（params.SPACES の名前。full＝全部）")
     ap.add_argument("--eval-every", type=int, default=5, help="平均ベクトルを学習相手と評価する間隔（世代）")
     ap.add_argument("--eval-seeds", type=int, default=200)
     ap.add_argument("--hof-start", type=int, default=30, help="この世代から殿堂入り（過学習対策）を始める")
@@ -165,6 +166,8 @@ def main() -> int:
         saved = json.loads((run / "args.json").read_text())   # 相手・初期値は開始時の設定に従う
         args.opp, args.init, args.init_set = saved.get("opp", "lv5"), saved.get("init"), saved.get("init_set", [])
         args.opp_pool = saved.get("opp_pool")
+        args.space = saved.get("space", "full")
+    P.use_space(args.space)
     args.init = args.init or args.opp
     opp = named_policy(args.opp, base_json)
     opp_packed = opp.packed()

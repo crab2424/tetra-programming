@@ -112,6 +112,10 @@ Object.assign(window.PuyoCPU5.prototype, {
             harassKeepPct:          0,  // H1 催促：撃った後の本線潜在が今の本線潜在のこの%以上のときだけ撃つ
             counterKeepReach:       0,  // H2 対応：カウンターは本線を最も残す手で返す（0=点が最大の手 / 1=本線最大・同点は点大 / 2=同点は点小 / 3=本線最大から5%以内で点最小）
             harassMinReach:         0,  // H1 催促：撃った後の本線潜在がこのおじゃま個数以上のときだけ撃つ
+            // ── 地形優先の対応（T。0＝無効。lv6-harass-design.md §13.5）──
+            counterTerrainMax:      0,  // 受け量がこの個数以下のカウンターは fast に入らず、降った後の地形が最大の手（受ける・軽減・返す）を選ぶ
+            // ── 相手を見て撃つ（提案1 P。0＝無効。lv6-harass-design.md §13.6）──
+            p1Alpha:                0,  // 目標発火は「撃つ点 ≥ p1Alpha% × 相手のすぐ起こせる火力」のときだけ（届かなければ保留して伸ばす）
         };
 
         // 後方互換のため旧 this.weights も参照可能にしておく（読み取り専用エイリアス）
@@ -229,7 +233,12 @@ Object.assign(window.PuyoCPU5.prototype, {
             this.evalWeights.subMinFill || 0,                        // [53] G2 副砲の埋まり具合の下限
             this.evalWeights.qKeepWeight || 0,                       // [54] K 発火点の保全（1段降った後のおじゃま量。0=無効）
             this.evalWeights.qKeepDepth || 0,                        // [55] K を掛けるビームの深さ（0=全部）
-            this.evalWeights.qKeepRows || 0                          // [56] K で載せるおじゃまの段数（0=1段）
+            this.evalWeights.qKeepRows || 0,                         // [56] K で載せるおじゃまの段数（0=1段）
+            this._terrainOjama || 0,                                 // [57] T 地形優先の対応：今の受け量（思考ごと。0=使わない）
+            this.controlWeights.counterTerrainMax || 0,              // [58] T を使う受け量の上限（0=無効）
+            this._terrainRate || 0,                                  // [59] T のおじゃまレート（思考ごと）
+            0,                                                       // [60] P 相手のすぐ起こせる火力（worker が相手の盤面から入れる）
+            this._p1Alpha || 0                                       // [61] P 目標発火の相手比（%。思考ごと。0=無効）
         ]);
     },
 
@@ -287,7 +296,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         return changed;
     },
 
-    // 学習の best.json の policy.build と同じ並び（57個）。[46][49][50] は保存値
+    // 学習の best.json の policy.build と同じ並び（62個）。[46][49][50] は保存値
     //   （思考ごとの換算前。training/puyo-lv5/tools/export_weights.mjs と同じ）。
     getBuildPolicyArray() {
         this.getBuildDefaults();
@@ -298,6 +307,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         a[46] = cw.harassMinOjama || 0;
         a[49] = cw.counterKeepReach || 0;
         a[50] = cw.harassMinReach || 0;
+        a[61] = cw.p1Alpha || 0;
         return a;
     },
 
@@ -316,6 +326,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         out[46] = 'harassMinOjama';
         out[49] = 'counterKeepReach';
         out[50] = 'harassMinReach';
+        out[61] = 'p1Alpha';
         return out;
     },
 });

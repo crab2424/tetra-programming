@@ -90,6 +90,9 @@ Object.assign(window.PuyoCPU5.prototype, {
         this._harassMinScore = 0;
         this._harassMinReachScore = 0;
         this._counterKeepReachOn = false;
+        this._terrainOjama = 0;   // T 地形優先の対応（思考ごと。_updateVersusCounterMode が入れる）
+        this._terrainRate = 0;
+        this._p1Alpha = 0;        // P 相手を見て撃つ（思考ごと。_updateVersusCounterMode が入れる）
         this._updateVersusCounterMode(incomingGross);
 
         // ★ weightsArray を組み立てる（cpu5_weights.js）。発火制御はモード/カウンター側へ移行済み。
@@ -104,11 +107,23 @@ Object.assign(window.PuyoCPU5.prototype, {
             this._thinkWeightsNote = this._weightsChanged || {};
         }
 
+        // ★ 提案1 P：相手の盤面（worker が相手のすぐ起こせる火力を求めて weightsArray[60] に入れる）
+        let oppBoardBuffer = null;
+        if (this._p1Alpha > 0) {
+            const opp = this._getOpponentGame();
+            if (opp && opp.field) {
+                oppBoardBuffer = new Uint8Array(TOTAL_ROWS * COLS);
+                for (let r = 0; r < TOTAL_ROWS; r++)
+                    for (let c = 0; c < COLS; c++) oppBoardBuffer[r * COLS + c] = (opp.field[r] && opp.field[r][c]) || 0;
+            }
+        }
+
         this.worker.postMessage({
             type:           'calculate',
             boardBuffer:    boardBuffer,
             nextPairs:      nextPairs,
-            weightsArray:   weightsArray
+            weightsArray:   weightsArray,
+            oppBoardBuffer: oppBoardBuffer
         });
     },
 
@@ -669,6 +684,21 @@ Object.assign(window.PuyoCPU5.prototype, {
         //   fast↔fastVsTet は cpu5_modes.js で独立した重みプロファイル＝互いに波及しない。
         const counterMode = this._isOpponentTet() ? 'fastVsTet' : 'fast';
 
+        // ★ T 地形優先の対応（対ぷよのみ。lv6-harass-design.md §13.5）：受け量が小さい（≦ build の counterTerrainMax）ときは
+        //   fast に入らず build の重みのまま組み、wasm の fire gate が「残りのおじゃまが降った後の地形」が最大の手
+        //   （受ける・軽減・返す）を選ぶ。地形＞火力。目標・緊急の発火は build のまま。学習用シミュ player.cpp decide と同じ判断。
+        const bcT = this._buildBaseline && this._buildBaseline.controlWeights;
+        const terrainMax = (bcT && bcT.counterTerrainMax) | 0;
+        if (wantCounter && terrainMax > 0 && !this._isOpponentTet() && incomingGross <= terrainMax) {
+            if (this.cpuMode !== 'build') this.setMode('build');
+            this._counterActive = true;   // 受け量が尽きるまで継続（増えて上限を超えたら fast へ）
+            this._terrainOjama = incomingGross;
+            this._terrainRate = rate;
+            this._thinkVs = `versus: 地形優先の対応（T）｜受け量=${incomingGross}個 ≦ ${terrainMax}｜build の重みで、降った後の地形が最大の手（受ける・軽減・返す）` +
+                (prevMode !== this.cpuMode ? `｜★切替 ${prevMode} → build` : '');
+            return;
+        }
+
         if (wantCounter) {
             if (this.cpuMode !== counterMode) this.setMode(counterMode);
             this._counterActive = true;
@@ -697,6 +727,11 @@ Object.assign(window.PuyoCPU5.prototype, {
             if (minOjama > 0 && opp instanceof PuyoGame && !(opp.chainCount > 0)) {
                 this._harassMinScore = minOjama * rate;
                 this._harassMinReachScore = (this.controlWeights.harassMinReach || 0) * rate;
+            }
+            // ★ P 相手を見て撃つ（対ぷよのみ。§13.6）：相手が連鎖中でないとき、目標発火を「相手のすぐ起こせる火力」と比べる。
+            //   相手の火力は worker が相手の盤面から求める（_requestCalculation が盤面を渡す）。
+            if ((this.controlWeights.p1Alpha | 0) > 0 && opp instanceof PuyoGame && !(opp.chainCount > 0)) {
+                this._p1Alpha = this.controlWeights.p1Alpha | 0;
             }
         }
 
