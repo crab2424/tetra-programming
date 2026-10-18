@@ -1,6 +1,6 @@
 """評価の項（提案3 など）を lv6 に足した候補を、本番 lv6 と VERSUS で A/B 比較する。
 
-  python3 py/ab_eval.py [--set e1|e2|h|h2|k|t|p] [--seeds 300] [--opp lv6|lv5]
+  python3 py/ab_eval.py [--set e1|e2|h|h2|k|t|p|pt] [--seeds 300] [--opp lv6|lv5]
   先後2局×シード数で、候補視点の勝率と 95% 幅（シードごとの先後2局の平均のばらつきから）を出す。
   シードは学習・定期評価・記録と重ならない 960000〜 を使う。
 設計: source_assets/memory/cpu/puyo/lv6-harass-design.md
@@ -63,12 +63,15 @@ def configs(base: dict, which: str) -> dict[str, ps.Policy]:
         return {f"lv6 T{v}": with_build(lv6, {I_TERRAIN_MAX: v}) for v in (0, 6, 12, 18, 29)}
     if which == "p":    # §13.6 P 相手を見て撃つ（目標発火の相手比 %）
         return {f"lv6 P{v}": with_build(lv6, {I_P1_ALPHA: v}) for v in (100, 110, 130, 160, 200)}
+    if which == "pt":   # §13.7 構造を合わせた候補（P 相手を見て撃つ＋T 地形優先の対応）
+        return {"lv6 P160": with_build(lv6, {I_P1_ALPHA: 160}),
+                "lv6 P160 T18": with_build(lv6, {I_P1_ALPHA: 160, I_TERRAIN_MAX: 18})}
     raise ValueError(which)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--set", default="e1", choices=["e1", "e2", "h", "h2", "k", "t", "p"])
+    ap.add_argument("--set", default="e1", choices=["e1", "e2", "h", "h2", "k", "t", "p", "pt"])
     ap.add_argument("--seeds", type=int, default=300)
     ap.add_argument("--opp", default="lv6", choices=["lv6", "lv6h2", "lv6g", "lv5"])   # lv6h2＝lv6＋H2 対応
     ap.add_argument("--only", default="")

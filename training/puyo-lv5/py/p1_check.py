@@ -20,6 +20,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 import puyosim as ps  # noqa: E402
 from analyze_losses import BIG, RATE  # noqa: E402
+from solo_baseline import I_P1_ALPHA, with_build  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "runs" / "analysis"
@@ -35,6 +36,8 @@ def configs(base: dict) -> dict[str, ps.Policy]:
         "P1 α130": lv6.with_ext(p1_enable=1, p1_alpha=130),
         "P1 α100 k50": lv6.with_ext(p1_enable=1, p1_alpha=100, p1_kill_ratio=50, p1_kill_min=30),
         "P1 α100 NEXT": lv6.with_ext(p1_enable=1, p1_alpha=100, p1_use_threat=1),
+        "P130": with_build(lv6, {I_P1_ALPHA: 130}),        # 作り直した P（wasm の fire gate。§13.6）
+        "P160": with_build(lv6, {I_P1_ALPHA: 160}),
     }
 
 

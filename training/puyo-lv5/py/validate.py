@@ -40,11 +40,14 @@ def main() -> int:
     ap.add_argument("--seeds", type=int, default=1000)
     ap.add_argument("--solo-seeds", type=int, default=300)
     ap.add_argument("--threads", type=int, default=0)
-    ap.add_argument("--opp", default=None, choices=["lv5", "lv6", "lv6h", "lv6g"])
+    ap.add_argument("--opp", default=None, choices=["lv5", "lv6", "lv6h", "lv6g", "lv6s"])
     ap.add_argument("--pool", default=None, help="相手プール JSON（既定は best.json の pool）。相手別の勝率も出す")
     args = ap.parse_args()
 
     best_json = json.loads(Path(args.best).read_text())
+    run_args = Path(args.best).parent / "args.json"   # 学習の探索空間（perturb の雑音のかけ方）を学習時とそろえる
+    if run_args.exists():
+        P.use_space(json.loads(run_args.read_text()).get("space", "full"))
     opp_name = args.opp or best_json.get("opp", "lv5")
     base = named_policy(opp_name, ps.load_baseline())
     best = policy_from_json(best_json["policy"])

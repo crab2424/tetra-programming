@@ -67,7 +67,14 @@ SPACE_FULL = list(SPACE)
 
 # 学習次元を絞った探索空間（§13.7。これまでの学習でほとんど動かなかった重みを外し、外した重みは初期値のまま固定）。
 #   名前は SPACE の名前。train.py --space で選ぶ（args.json に残るので --resume・validate も同じ空間になる）。
-SPACES: dict[str, list[str]] = {}
+SPACES: dict[str, list[str]] = {
+    # v3（2026-10-19）：33次元 → 15次元。build-001〜lv6-g-001 の5回の学習で値がほぼ動かなかった、または端に張り付いた
+    #   重み（高さ・形・side・tear・waste・link2・emergency 系・fireChainCount・growthFireForbid・カウンター発動量・
+    #   link3FacH・qY・form・subMinFill など）を外して初期値（lv6s）に固定する。§13 の P・T も固定（A/B で値を決めた）。
+    "v3": ["bumpWeight", "qChiWeight", "qKeyWeight", "link3Weight", "qLink2Weight", "qLink3Weight",
+           "link3FacL", "link3FacV", "qExcessWeight", "qJunkWeight", "qSubWeight",
+           "expChainWeight", "pruneChainScore", "fireScoreThreshold", "COUNTER_MARGIN_VSPUYO"],
+}
 
 
 def use_space(name: str) -> None:

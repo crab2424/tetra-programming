@@ -75,12 +75,15 @@ LV6H_SET = {46: 12, 47: 3, 48: 80, 49: 1, 50: 300}   # harassMinOjama/MaxChains/
 # lv6g＝本番 lv6 に §10.4 の固定値（H1 12個・3段・80%・200個、H2、本線条件 G1 7連鎖・30個）を入れたもの。
 #   副砲の重み（qSub）と埋まり具合（subMinFill）は lv6 のまま＝学習で決める（lv6-harass-design.md §10.4）。
 LV6G_SET = {46: 12, 47: 3, 48: 80, 49: 1, 50: 200, 51: 7, 52: 30}
+# lv6s＝lv6g に §13 の構造（P 相手を見て撃つ α160・T 地形優先の対応 18個以下）を固定で入れたもの（lv6-harass-design.md §13.7）。
+#   K（発火点の保全）は効かなかったので入れない。
+LV6S_SET = {**LV6G_SET, 61: 160, 58: 18}
 
 
 def named_policy(name: str, base_json: dict) -> ps.Policy:
-    if name in ("lv6h", "lv6g"):
+    if name in ("lv6h", "lv6g", "lv6s"):
         pol = ps.Policy.lv6(base_json)
-        for i, v in (LV6H_SET if name == "lv6h" else LV6G_SET).items():
+        for i, v in {"lv6h": LV6H_SET, "lv6g": LV6G_SET, "lv6s": LV6S_SET}[name].items():
             pol.build[i] = v
         return pol
     return ps.Policy.lv6(base_json) if name == "lv6" else ps.Policy.baseline(base_json)
@@ -141,12 +144,12 @@ def main() -> int:
     ap.add_argument("--sigma", type=float, default=0.1, help="正規化座標での初期ステップ幅")
     ap.add_argument("--threads", type=int, default=0, help="0=全コア")
     ap.add_argument("--master-seed", type=int, default=20261015)
-    ap.add_argument("--opp", default="lv5", choices=["lv5", "lv6", "lv6h", "lv6g"], help="学習相手・定期評価の相手（本番の重み。lv6h＝lv6＋催促 H1・対応 H2／lv6g＝lv6＋§10.4 の固定値）")
+    ap.add_argument("--opp", default="lv5", choices=["lv5", "lv6", "lv6h", "lv6g", "lv6s"], help="学習相手・定期評価の相手（本番の重み。lv6h＝lv6＋催促 H1・対応 H2／lv6g＝lv6＋§10.4 の固定値／lv6s＝lv6g＋§13 の P・T）")
     ap.add_argument("--opp-pool", default=None, metavar="JSON",
                     help="学習相手のプール（opponents/*.json）。指定すると --opp の代わりにプールを相手にする（pool.py）")
     ap.add_argument("--worst-lambda", type=float, default=0.3,
                     help="プール時の best 選抜：平均勝率 − λ×(最悪の相手への負け越し)。0 で平均のみ")
-    ap.add_argument("--init", default=None, choices=["lv5", "lv6", "lv6h", "lv6g"], help="初期値（既定は --opp と同じ）")
+    ap.add_argument("--init", default=None, choices=["lv5", "lv6", "lv6h", "lv6g", "lv6s"], help="初期値（既定は --opp と同じ）")
     ap.add_argument("--init-set", action="append", default=[], metavar="名前=値",
                     help="初期値の一部を書き換える（params.SPACE の名前。複数可）")
     ap.add_argument("--space", default="full", help="探索空間（params.SPACES の名前。full＝全部）")
