@@ -242,8 +242,15 @@ function switchPage(pageId) {
   if (pageId === 'versus-check') {
     versusPlayerIsCpu = false;
     selectedPlayerCpuLevel = null;
-    window.__cpu6DisablePC1P = false; window.__cpu6DisablePC2P = false; // PC探索オフ指定も通常へ戻す
-    window.__cpu6SoftDrop1P = false; window.__cpu6SoftDrop2P = false;
+    window.__cpu6DisablePC1P = false;
+    window.__cpu6SoftDrop1P = false;
+    // 2P の LV6 隠しモード（PC探索オフ／高速落下で設置）は、対戦・結果・VS SETTINGS から戻るときは維持し、
+    // メニューから開き直したときだけ通常へ戻す（selectedCpuLevel と同じ扱い）
+    const prev = window._prevPage;
+    if (prev !== 'versus' && prev !== 'versus-result' && prev !== 'vs-settings') {
+      window.__cpu6DisablePC2P = false;
+      window.__cpu6SoftDrop2P = false;
+    }
   }
   if (menuPages.includes(pageId)) {
     if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
@@ -1092,6 +1099,7 @@ function restartPuyoCpuTest() {
   if (typeof CPUClass === 'function') {
     window._cpuController = new CPUClass(window._puyoGame);
     window._cpuController.isAutoPlay = testCpuControl;
+    window._cpuController.softDropOnly = !!window.__cpu6SoftDrop; // puyo LV6「高速落下で設置」を引き継ぐ
     window.CpuWeightsPanel?.attach(window._cpuController);   // 重み調整パネルを新しい CPU へ付け直す
     if (typeof window._cpuController.start === 'function') {
       window._cpuController.start();
