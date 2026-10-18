@@ -225,14 +225,19 @@ function setTestCpuControl(isOn) {
 
 function setTestRule(rule) {
   testRule = rule;
-  const toggle = document.getElementById('test-rule-toggle');
-  if (toggle) {
-    toggle.querySelectorAll('.opt-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.textContent.toLowerCase() === rule.toLowerCase());
-    });
-  } else {
-    renderModeCheck();
-  }
+  renderModeCheck();   // ぷよだけ OPPONENT の行があるので描き直す
+}
+
+// ─── CPU TEST の CPU 同士（ぷよのみ。2026-10-18）──────────
+// OPPONENT: CPU にすると 1P・2P とも CPU で対戦する。盤面・対戦の処理は VERSUS のものを使い
+// （versus.js startTestCpuVsCpu）、終わったら CPU TEST の準備画面へ戻る。2P のレベルは selectedCpuLevel。
+let testOpponent = 'none';     // 'none' | 'cpu'
+let testPlayerCpuLevel = 5;    // 1P のレベル（LV6 は準備画面で Shift+6）
+let versusFromTest = false;    // いまの VERSUS 盤面は CPU TEST から始めた CPU 同士か
+
+function setTestOpponent(v) {
+  testOpponent = (v === 'cpu') ? 'cpu' : 'none';
+  renderModeCheck();
 }
 
 let currentGameMode = null;

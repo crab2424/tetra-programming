@@ -105,6 +105,44 @@ function _stopVersusCpuControllers() {
   }
 }
 
+// ─── CPU TEST の CPU 同士（ぷよのみ。2026-10-18）──────────────
+// CPU TEST の準備画面で OPPONENT: CPU にすると、ここから VERSUS の盤面・対戦処理で 1P・2P とも CPU を動かす。
+// VERSUS 準備画面の設定（ルール）は退避しておき、CPU TEST 側の画面へ戻るときに元へ戻す（endTestCpuVsCpu）。
+// 中断・結果の MODE SELECT は CPU TEST の準備画面へ戻る（_versusBackPage）。重み調整パネルを両方の CPU に付ける。
+let _testVsSaved = null;
+
+function startTestCpuVsCpu() {
+  if (!versusFromTest) _testVsSaved = { versusPlayerRule, versusCpuRule };
+  versusFromTest = true;
+  versusPlayerRule = 'puyo';
+  versusCpuRule = 'puyo';
+  versusPlayerIsCpu = true;
+  selectedPlayerCpuLevel = testPlayerCpuLevel;      // 2P は selectedCpuLevel（CPU TEST と共通）
+  window.__cpu6SoftDrop2P = !!window.__cpu6SoftDrop;  // 準備画面の 7 / Shift+7（高速落下で設置）
+  window.__cpu6SoftDrop1P = !!window.__cpu6SoftDropTest1P;
+  startVersusGame();
+}
+
+function endTestCpuVsCpu() {
+  if (!versusFromTest) return;
+  versusFromTest = false;
+  if (_testVsSaved) { versusPlayerRule = _testVsSaved.versusPlayerRule; versusCpuRule = _testVsSaved.versusCpuRule; }
+  _testVsSaved = null;
+  versusPlayerIsCpu = false;
+  selectedPlayerCpuLevel = null;
+  window.__cpu6SoftDrop1P = false;
+  window.__cpu6SoftDrop2P = false;
+}
+
+// 中断・結果の MODE SELECT の戻り先
+function _versusBackPage() {
+  return versusFromTest ? 'mode-check' : 'versus-check';
+}
+
+function versusResultBack() {
+  switchPage(_versusBackPage());
+}
+
 async function startVersusGame() {
   // 開始/再スタートの状態遷移（リトライはどこからでも idle を経由して開始できる）
   const lc = window.BattleVersusLifecycle;
@@ -134,7 +172,7 @@ async function startVersusGame() {
     if (isStale()) return; // 別の開始処理に追い越された
     lc.transition('idle', 'startVersusGame cancelled');
     if (prep.cpuFailed) alert('CPUの読み込みに失敗しました。通信状態を確認してもう一度お試しください。');
-    switchPage('versus-check');
+    switchPage(_versusBackPage());
     return;
   }
   const CpuClass = prep.classes[0];
@@ -258,6 +296,13 @@ async function startVersusGame() {
   // puyo LV6 の「高速落下で設置」も側ごと（準備画面の 7 = 2P / Shift+7 = 1P）
   if (window._cpuController) window._cpuController.softDropOnly = !!window.__cpu6SoftDrop2P;
   if (window._cpuControllerPlayer) window._cpuControllerPlayer.softDropOnly = !!window.__cpu6SoftDrop1P;
+  // CPU TEST から始めた CPU 同士は重み調整パネルを付ける（保存した変更もここで載せる）
+  if (versusFromTest && window.CpuWeightsPanel) {
+    window.CpuWeightsPanel.attach([
+      { slot: '1P', cpu: window._cpuControllerPlayer },
+      { slot: '2P', cpu: window._cpuController },
+    ]);
+  }
 
   await window.BattleLocalLoading.reveal();
   if (isStale()) return;
@@ -299,6 +344,7 @@ function recreateVersusCpuController(key) {
   // LV6 の隠しモード（PC探索オフ／高速落下で設置）は作り直しでも引き継ぐ（盤面入れ替え・ウォッチドッグ）
   if (old.disablePC !== undefined) ctrl.disablePC = old.disablePC;
   if (old.softDropOnly !== undefined) ctrl.softDropOnly = old.softDropOnly;
+  window.CpuWeightsPanel?.replace(old, ctrl);   // 重み調整パネルで変えた値を新しい CPU にも載せる
   window[key] = ctrl;
   if (typeof ctrl.start === 'function') ctrl.start();
   return ctrl;
@@ -441,7 +487,7 @@ function versusGoToModeSelect() {
   if (overlay) overlay.classList.remove('active');
   window.BattleVersusLifecycle.transition('idle', 'mode select');
   stopAllGames();
-  switchPage('versus-check');
+  switchPage(_versusBackPage());
 }
 
 function restartVersusFromResult() {

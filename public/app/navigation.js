@@ -229,6 +229,11 @@ function switchPage(pageId) {
     if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
   }
 
+  // CPU TEST から始めた CPU 同士は、対戦・結果以外の画面へ移ったら VERSUS の設定を元に戻す（versus.js）
+  if (versusFromTest && pageId !== 'versus' && pageId !== 'versus-result') endTestCpuVsCpu();
+  // 重み調整パネルはプレイ画面の間だけ出す（結果画面・準備画面では消す。RETRY で付け直す）
+  if (pageId !== 'game' && pageId !== 'versus') window.CpuWeightsPanel?.detach();
+
   const _animPageId = pageId;
 
   // 準備画面（mode select 等）もメニューBGM。リザルトから戻った場合はクロスフェードで滑らかに切替。
@@ -492,6 +497,8 @@ function renderModeCheck() {
       });
     } else if (mode.id === 'test') {
       optionsEl.style.display = 'flex';
+      // ぷよでは CPU 同士（OPPONENT: CPU）も選べる。盤面・対戦は VERSUS のものを使う（versus.js startTestCpuVsCpu）
+      const vsCpu = testRule === 'puyo' && testOpponent === 'cpu';
       optionsEl.innerHTML = `
         <div class="option-row">
           <span class="option-label">RULE</span>
@@ -500,34 +507,48 @@ function renderModeCheck() {
             <button class="opt-btn ${testRule === 'puyo' ? 'active' : ''}" onclick="setTestRule('puyo')">PUYO</button>
           </div>
         </div>
+        ${testRule === 'puyo' ? `
+        <div class="option-row">
+          <span class="option-label">OPPONENT</span>
+          <div class="option-toggle" id="test-opponent-toggle">
+            <button class="opt-btn ${!vsCpu ? 'active' : ''}" onclick="setTestOpponent('none')">NONE</button>
+            <button class="opt-btn ${vsCpu ? 'active' : ''}" onclick="setTestOpponent('cpu')">CPU</button>
+          </div>
+        </div>` : ''}
+        ${vsCpu ? `
+        <div class="option-row">
+          <span class="option-label">1P LEVEL</span>
+          <div class="option-toggle" id="test-player-cpu-level-toggle"></div>
+        </div>` : `
         <div class="option-row">
           <span class="option-label">CPU CONTROL</span>
           <div class="option-toggle" id="test-cpu-control-toggle">
             <button class="opt-btn ${testCpuControl ? 'active' : ''}" onclick="setTestCpuControl(true)">ON</button>
             <button class="opt-btn ${!testCpuControl ? 'active' : ''}" onclick="setTestCpuControl(false)">OFF</button>
           </div>
-        </div>
+        </div>`}
         <div class="option-row">
-          <span class="option-label">CPU LEVEL</span>
+          <span class="option-label">${vsCpu ? '2P LEVEL' : 'CPU LEVEL'}</span>
           <div class="option-toggle" id="test-cpu-level-toggle"></div>
         </div>
       `;
-      const toggle = document.getElementById('test-cpu-level-toggle');
-      for (let lv = 1; lv <= 5; lv++) {
-        const btn = document.createElement('button');
-        btn.className = 'opt-btn' + (lv === selectedCpuLevel ? ' active' : '');
-        btn.textContent = 'LV' + lv;
-        btn.onclick = () => {
-          selectedCpuLevel = lv;
-          const t = document.getElementById('test-cpu-level-toggle');
-          if (t) {
-            t.querySelectorAll('.opt-btn').forEach((b, i) => {
-              b.classList.toggle('active', i + 1 === lv);
-            });
-          }
-        };
-        toggle.appendChild(btn);
-      }
+      // LV1〜5 のボタン（LV6 は隠しキー 6 / Shift+6 で選ぶ＝どのボタンも光らない）
+      const fillLevels = (toggleId, get, set) => {
+        const toggle = document.getElementById(toggleId);
+        if (!toggle) return;
+        for (let lv = 1; lv <= 5; lv++) {
+          const btn = document.createElement('button');
+          btn.className = 'opt-btn' + (lv === get() ? ' active' : '');
+          btn.textContent = 'LV' + lv;
+          btn.onclick = () => {
+            set(lv);
+            toggle.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === lv));
+          };
+          toggle.appendChild(btn);
+        }
+      };
+      fillLevels('test-cpu-level-toggle', () => selectedCpuLevel, (lv) => { selectedCpuLevel = lv; });
+      if (vsCpu) fillLevels('test-player-cpu-level-toggle', () => testPlayerCpuLevel, (lv) => { testPlayerCpuLevel = lv; });
     } else if (mode.id === 'practice') {
       optionsEl.style.display = 'flex';
       optionsEl.innerHTML = renderPracticeModeCheckOptions(mode);
@@ -630,6 +651,11 @@ function _applyModePauseSelectStyle(btn) {
 }
 
 async function startGameFromModeCheck() {
+  // CPU TEST の CPU 同士（ぷよ・OPPONENT: CPU）は VERSUS の盤面で動かす（versus.js）
+  if (currentGameMode && currentGameMode.id === 'test' && testRule === 'puyo' && testOpponent === 'cpu') {
+    startTestCpuVsCpu();
+    return;
+  }
   stopAllGames(); // 開始前に完全に状態をリセット
   const sessionId = currentSessionId;
 
@@ -1264,6 +1290,17 @@ function handlePauseAction(action) {
     if (isVersusCheck && e.shiftKey && !disablePC) {
       window.__cpu6DisablePC1P = false;
       window.__cpu6SoftDrop1P = false;
+      return;
+    }
+
+    // CPU TEST の CPU 同士（ぷよ・OPPONENT: CPU）: 6 / 7 = 2P、Shift+6 / Shift+7 = 1P を LV6 に
+    if (isTestCheck && testRule === 'puyo' && testOpponent === 'cpu' && e.shiftKey) {
+      e.preventDefault();
+      testPlayerCpuLevel = 6;
+      window.__cpu6SoftDropTest1P = disablePC;
+      const t = document.getElementById('test-player-cpu-level-toggle');
+      if (t) t.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('active'));
+      window.SeManager?.play('menu_decide');
       return;
     }
 

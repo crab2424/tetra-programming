@@ -3,58 +3,69 @@
 // CPU TEST（ぷよ LV5/LV6）の重み調整パネル
 //
 // 設計: source_assets/memory/cpu/puyo/weights-tuning-panel-design.md
-//   ・EVAL の下の WEIGHTS ボタンで画面右端のパネルを開閉する（開いてもポーズしない）
+//   ・CPU TEST の間は画面右端に常に出す（開いてもポーズしない。− で見出しだけに畳める）
 //   ・値を変えると CPU の build の基準値を置き換える（cpu5_weights.js applyBuildValues）。
 //     weightsArray は手ごとに組み立て直すので次の思考から効く。効き始めの手は思考ログ（cpuLog()）に出る
+//   ・項目は2列に詰めて並べ、セクションごとに折りたためる。説明・LV5/LV6 の値は下の欄に、
+//     選んでいる（またはカーソルを当てた）項目の分だけ出す
+//   ・CPU 同士（CPU TEST の OPPONENT: CPU。盤面は VERSUS のものを使う）では 1P / 2P を切り替えて編集する
 //   ・LV5 / LV6 の値に戻す・JSON の書き出し（学習の best.json と同じ policy.build）・読み込み
-//   ・変えた値は localStorage（tetlabo.cpuWeights）に LV ごとの「既定との差分」で残し、次の CPU TEST でも載せる
-//   ・VERSUS では使わない（2026-10-18 決定＝後回し）。CPU TEST の開始・リスタートだけが attach する
+//   ・変えた値は localStorage（tetlabo.cpuWeights）に「枠（TEST / 1P / 2P）× LV」ごとの既定との差分で残し、
+//     次に同じ枠で同じ LV を動かすときにも載せる
 //   ・パネル内にフォーカスがある間はキーをゲームへ流さない（Esc で入力欄から抜ける）
 //
-// navigation.js が attach(cpu)（CPU TEST 開始・リスタート）/ detach()（stopAllGames）を呼ぶ。
+// 呼び出し: navigation.js（CPU TEST 開始・リスタート → attach(cpu)、stopAllGames → detach()）、
+//           versus.js（CPU TEST から始めた CPU 同士 → attach([{slot:'1P',cpu},{slot:'2P',cpu}])、
+//           コントローラの作り直し → replace(old, new)）。
 // ─────────────────────────────────────────────
 
 window.CpuWeightsPanel = (() => {
     const STORE_KEY = 'tetlabo.cpuWeights';
+    const UI_KEY    = 'tetlabo.cpuWeightsUi';   // 折りたたみ・畳んだ状態（見た目の好みだけ）
     const DESC_SRC  = 'cpu/puyo/lv5/js/weights/cpu5_weights.js';   // 説明はこのファイルの行末コメントから取る
 
     // 並べ方。CONTROL はこの順、残りは cpu5_weights.js の定義順
     const CONTROL_ORDER = [
-        'fireChainCount', 'fireScoreThreshold', 'growthFireForbidChains',
+        'fireChainCount', 'fireScoreThreshold', 'growthFireForbidChains', 'fireEmergency',
         'emergencyHeight', 'emergencyFireMinRatio', 'emergencyHardCol2',
         'expChainWeight', 'pruneChainScore', 'expMaxDepth', 'expBeamWidth',
     ];
     // VERSUS で相手がぷよのときだけ効く（催促 H1・対応 H2）
     const VERSUS_ONLY = ['harassMinOjama', 'harassMaxChains', 'harassKeepPct', 'harassMinReach', 'counterKeepReach'];
-    // 参照されない・切り替えたら別物になるもの（畳んでおく）
+    // 参照されない・切り替えたら別物になるもの
     const FIXED = ['ignitionThreshold', 'ignitionScoreThreshold', 'expBranch', 'amaEvalMode', 'p1Weight'];
 
-    let cpu = null;
-    let level = '';
-    let defaults = {};          // この CPU の既定値（名前→値）
-    let refs = {};              // { LV5: {...}, LV6: {...} | null }
-    let values = {};            // 今の値
-    let changed = {};           // 既定と違う値 { 名前: {from,to} }
-    let groups = {};            // 名前 → 'reward' | 'eval' | 'control'
-    let storedWarn = '';
-    let isOpen = false;         // ページ内で覚える（リスタートしても開いたまま）
-    let dock = null, toggleBtn = null, rows = {}, statusEl = null, warnEl = null, msgEl = null;
-    let importBox = null, importText = null, filterInput = null;
+    let targets = [];           // 編集できる CPU（1つ＝CPU TEST、2つ＝CPU 同士）
+    let cur = 0;                // 編集中の targets の添字
+    let ui = loadUi();
+    let dock = null, cells = {}, sections = {};
+    let statusEl, metaEl, warnEl, msgEl, infoEl, importBox, importText, filterInput, tabsEl;
     let pollTimer = null;
+    let focusName = null, hoverName = null;
     const pendingCommit = {};
     let descs = null;
 
-    // ── 保存（LV ごとに「既定との差分」） ─────────────────
+    const T = () => targets[cur];
+
+    // ── 保存 ─────────────────────────────────────
+    function loadUi() {
+        try { return Object.assign({ collapsed: { FIXED: true }, min: false }, JSON.parse(localStorage.getItem(UI_KEY) || 'null')); }
+        catch (_) { return { collapsed: { FIXED: true }, min: false }; }
+    }
+    function saveUi() {
+        try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch (_) { /* 次回は既定の見た目 */ }
+    }
+    // CPU TEST（1台）は LV 名だけ、CPU 同士は「1P:LV6」のように枠を付ける
+    const storeKey = (t) => (t.slot === 'TEST' ? t.level : `${t.slot}:${t.level}`);
     function readStore() {
         try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch (_) { return {}; }
     }
-    function writeStore() {
-        if (!cpu) return;
+    function writeStore(t) {
         const all = readStore();
         const diff = {};
-        for (const k in changed) diff[k] = changed[k].to;
-        if (Object.keys(diff).length) all[level] = { weightsId: cpu.constructor.WEIGHTS_ID, values: diff };
-        else delete all[level];
+        for (const k in t.changed) diff[k] = t.changed[k].to;
+        if (Object.keys(diff).length) all[storeKey(t)] = { weightsId: t.cpu.constructor.WEIGHTS_ID, values: diff };
+        else delete all[storeKey(t)];
         try { localStorage.setItem(STORE_KEY, JSON.stringify(all)); } catch (_) { /* 保存できなくても今回は効く */ }
     }
 
@@ -76,67 +87,79 @@ window.CpuWeightsPanel = (() => {
         }).catch(() => (descs = {}));
     }
 
-    // ── 適用 ─────────────────────────────────────
-    function apply(next) {
-        if (!cpu) return;
-        changed = cpu.applyBuildValues(next);
-        values  = cpu.getBuildValues();
-        writeStore();
-        refreshRows();
-        refreshStatus();
-    }
-
-    function attach(c) {
-        detach();
-        if (!c || typeof c.applyBuildValues !== 'function') return;   // ぷよ LV5/LV6 だけ
-        cpu = c;
-        level = c.constructor.LOG_NAME || 'LV5';
-        defaults = c.getBuildDefaults();
-        refs = { LV5: c.getBuildDefaults('LV5'), LV6: c.getBuildDefaults('LV6') };
-        groups = {};
-        const b = c._defaultBuildBaseline;
-        for (const k in b.rewardWeights) groups[k] = 'reward';
-        for (const k in b.evalWeights) groups[k] = 'eval';
-        for (const k in b.controlWeights) groups[k] = 'control';
-
-        // 保存してある変更を載せる（パネルを開かなくても効く＝WEIGHTS ボタンに CUSTOM と出す）
-        storedWarn = '';
-        const st = readStore()[level];
-        changed = {};
+    // ── 対象の CPU ───────────────────────────────
+    function makeTarget(slot, cpu) {
+        const t = {
+            slot, cpu,
+            level: cpu.constructor.LOG_NAME || 'LV5',
+            defaults: cpu.getBuildDefaults(),
+            refs: { LV5: cpu.getBuildDefaults('LV5'), LV6: cpu.getBuildDefaults('LV6') },
+            groups: {}, changed: {}, values: null, storedWarn: '',
+        };
+        const b = cpu._defaultBuildBaseline;
+        for (const k in b.rewardWeights) t.groups[k] = 'reward';
+        for (const k in b.evalWeights) t.groups[k] = 'eval';
+        for (const k in b.controlWeights) t.groups[k] = 'control';
+        // 保存してある変更を載せる（パネルを触らなくても効く＝見出しに CUSTOM と出す）
+        const st = readStore()[storeKey(t)];
         if (st && st.values && Object.keys(st.values).length) {
-            changed = c.applyBuildValues(st.values);
-            if (st.weightsId && st.weightsId !== c.constructor.WEIGHTS_ID) {
-                storedWarn = `保存した変更は重みの版 ${st.weightsId} のときのもの（今は ${c.constructor.WEIGHTS_ID}）`;
+            t.changed = cpu.applyBuildValues(st.values);
+            if (st.weightsId && st.weightsId !== cpu.constructor.WEIGHTS_ID) {
+                t.storedWarn = `保存した変更は重みの版 ${st.weightsId} のときのもの（今は ${cpu.constructor.WEIGHTS_ID}）`;
             }
         }
-        values = c.getBuildValues();
+        t.values = cpu.getBuildValues();
+        return t;
+    }
 
+    // cpus: CPU 1つ（CPU TEST）か [{ slot: '1P'|'2P', cpu }]（CPU 同士）
+    function attach(cpus) {
+        detach();
+        const list = Array.isArray(cpus) ? cpus : [{ slot: 'TEST', cpu: cpus }];
+        targets = list
+            .filter(x => x && x.cpu && typeof x.cpu.applyBuildValues === 'function')   // ぷよ LV5/LV6 だけ
+            .map(x => makeTarget(x.slot, x.cpu));
+        if (!targets.length) return;
+        cur = Math.min(cur, targets.length - 1);
         buildDom();
-        toggleBtn.style.display = '';
-        setOpen(isOpen);
-        loadDescs().then(() => { if (cpu === c) fillDescs(); });
+        loadDescs().then(() => { if (dock) showInfo(); });
         pollTimer = setInterval(refreshStatus, 300);
-        refreshStatus();
     }
 
     function detach() {
-        cpu = null;
+        targets = [];
         if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
         for (const k in pendingCommit) { clearTimeout(pendingCommit[k]); delete pendingCommit[k]; }
-        if (toggleBtn) toggleBtn.style.display = 'none';
         if (dock) {
             if (dock.contains(document.activeElement)) document.activeElement.blur();
             dock.remove();
             dock = null;
         }
-        rows = {};
+        document.body.classList.remove('cwp-on');
+        cells = {}; sections = {};
+        focusName = hoverName = null;
     }
 
-    function setOpen(open) {
-        isOpen = !!open;
-        if (dock) dock.classList.toggle('is-open', isOpen && !!cpu);
-        if (toggleBtn) toggleBtn.classList.toggle('is-open', isOpen);
-        if (!isOpen && dock && dock.contains(document.activeElement)) document.activeElement.blur();
+    // コントローラを作り直したとき（ウォッチドッグ・盤面入れ替え）、その枠の値を新しい CPU に載せ直す
+    function replace(oldCpu, newCpu) {
+        const t = targets.find(x => x.cpu === oldCpu);
+        if (!t || !newCpu || typeof newCpu.applyBuildValues !== 'function') return;
+        const diff = {};
+        for (const k in t.changed) diff[k] = t.changed[k].to;
+        newCpu.getBuildDefaults();
+        if (Object.keys(diff).length) t.changed = newCpu.applyBuildValues(diff);
+        t.cpu = newCpu;
+        t.values = newCpu.getBuildValues();
+    }
+
+    // ── 適用 ─────────────────────────────────────
+    function apply(next) {
+        const t = T();
+        if (!t) return;
+        t.changed = t.cpu.applyBuildValues(next);
+        t.values  = t.cpu.getBuildValues();
+        writeStore(t);
+        refreshAll();
     }
 
     // ── DOM ─────────────────────────────────────
@@ -154,18 +177,9 @@ window.CpuWeightsPanel = (() => {
         return b;
     }
 
-    function ensureToggle() {
-        if (toggleBtn) return;
-        const area = document.getElementById('eval-area');
-        if (!area) return;
-        toggleBtn = button('WEIGHTS', () => setOpen(!isOpen), 'cwp-toggle');
-        toggleBtn.style.display = 'none';
-        area.appendChild(toggleBtn);
-    }
-
     function buildDom() {
-        ensureToggle();
         dock = el('div', 'cwp-dock');
+        dock.classList.toggle('is-min', !!ui.min);
         const card = el('div', 'cwp-card');
         dock.appendChild(card);
 
@@ -173,7 +187,7 @@ window.CpuWeightsPanel = (() => {
         const stopKeys = (e) => {
             if (e.type === 'keydown' && e.key === 'Escape') {
                 const a = document.activeElement;
-                if (a && a.classList && a.classList.contains('cwp-input')) a.value = String(values[a.dataset.name]);
+                if (a && a.classList && a.classList.contains('cwp-input') && T()) a.value = String(T().values[a.dataset.name]);
                 if (a && dock.contains(a)) a.blur();
                 e.preventDefault();
             }
@@ -184,19 +198,39 @@ window.CpuWeightsPanel = (() => {
 
         const head = el('div', 'cwp-head');
         head.appendChild(el('div', 'cwp-title', 'CPU WEIGHTS'));
-        head.appendChild(button('×', () => setOpen(false), 'cwp-close'));
-        card.appendChild(head);
-        card.appendChild(el('div', 'cwp-meta', `${level} · ${cpu.constructor.WEIGHTS_ID}`));
         statusEl = el('div', 'cwp-status');
-        card.appendChild(statusEl);
+        head.appendChild(statusEl);
+        head.appendChild(button(ui.min ? '+' : '−', (e) => {
+            ui.min = !ui.min;
+            saveUi();
+            dock.classList.toggle('is-min', ui.min);
+            document.body.classList.toggle('cwp-on', !ui.min);
+            e.currentTarget.textContent = ui.min ? '+' : '−';
+        }, 'cwp-min'));
+        card.appendChild(head);
+
+        const body = el('div', 'cwp-body');
+        card.appendChild(body);
+
+        tabsEl = el('div', 'cwp-tabs');
+        if (targets.length > 1) {
+            targets.forEach((t, i) => {
+                const b = button('', () => { cur = i; focusName = null; refreshAll(); });
+                b.dataset.idx = String(i);
+                tabsEl.appendChild(b);
+            });
+            body.appendChild(tabsEl);
+        }
+
+        metaEl = el('div', 'cwp-meta');
+        body.appendChild(metaEl);
         warnEl = el('div', 'cwp-warn');
-        card.appendChild(warnEl);
+        body.appendChild(warnEl);
 
         const actions = el('div', 'cwp-actions');
         for (const lv of ['LV5', 'LV6']) {
-            const b = button(lv, () => { if (refs[lv]) apply(Object.assign({}, refs[lv])); });
+            const b = button(lv, () => { const r = T() && T().refs[lv]; if (r) apply(Object.assign({}, r)); });
             b.dataset.ref = lv;
-            if (!refs[lv]) { b.disabled = true; b.title = 'LV6 を一度読み込むと使える'; }
             actions.appendChild(b);
         }
         actions.appendChild(button('EXPORT', doExport));
@@ -204,7 +238,13 @@ window.CpuWeightsPanel = (() => {
             importBox.classList.toggle('is-open');
             if (importBox.classList.contains('is-open')) importText.focus();
         }));
-        card.appendChild(actions);
+        filterInput = el('input', 'cwp-filter');
+        filterInput.type = 'text';
+        filterInput.placeholder = 'FILTER';
+        filterInput.spellcheck = false;
+        filterInput.addEventListener('input', applyFilter);
+        actions.appendChild(filterInput);
+        body.appendChild(actions);
 
         importBox = el('div', 'cwp-import');
         importText = el('textarea', 'cwp-import-text');
@@ -215,22 +255,14 @@ window.CpuWeightsPanel = (() => {
         importRow.appendChild(button('CANCEL', () => { importBox.classList.remove('is-open'); importText.value = ''; }));
         importBox.appendChild(importText);
         importBox.appendChild(importRow);
-        card.appendChild(importBox);
+        body.appendChild(importBox);
         msgEl = el('div', 'cwp-msg');
-        card.appendChild(msgEl);
+        body.appendChild(msgEl);
 
-        card.appendChild(el('div', 'cwp-hint',
-            '値は次の思考から効く（先読み済みの手があればその次から。効いた手は思考ログに出る）。' +
-            '↑↓ で増減、Shift+↑↓ で 1 ずつ。Enter で確定、Esc で入力欄から抜ける。'));
-
-        filterInput = el('input', 'cwp-filter');
-        filterInput.type = 'text';
-        filterInput.placeholder = 'FILTER';
-        filterInput.spellcheck = false;
-        filterInput.addEventListener('input', applyFilter);
-        card.appendChild(filterInput);
-
-        // 並べる
+        // 項目（ここだけスクロールする）
+        const list = el('div', 'cwp-list');
+        body.appendChild(list);
+        const groups = T().groups;
         const all = Object.keys(groups);
         const used = new Set();
         const pick = (names) => names.filter(k => groups[k] && !used.has(k) && used.add(k));
@@ -239,65 +271,74 @@ window.CpuWeightsPanel = (() => {
         const fixed   = pick(FIXED);
         const evals   = pick(all.filter(k => groups[k] === 'eval'));
         const reward  = pick(all.filter(k => groups[k] === 'reward'));
+        cells = {}; sections = {};
+        list.appendChild(section('CONTROL', control));
+        list.appendChild(section('EVAL', evals));
+        list.appendChild(section('REWARD', reward));
+        list.appendChild(section('VERSUS ONLY', vsOnly));
+        list.appendChild(section('FIXED', fixed));
 
-        rows = {};
-        card.appendChild(section('CONTROL', '発火・緊急・探索', control));
-        card.appendChild(section('EVAL', '盤面の評価', evals));
-        card.appendChild(section('REWARD', '配置で現れた変化に1回足す', reward));
-        card.appendChild(section('VERSUS ONLY', '催促 H1・対応 H2。VERSUS で相手がぷよのときだけ効く（CPU TEST では効かない）', vsOnly));
-        const det = el('details', 'cwp-fixed');
-        det.appendChild(el('summary', 'cwp-section-title', 'UNUSED / FIXED'));
-        det.appendChild(el('div', 'cwp-section-desc', '使っていない重みと、変えると別の CPU になる切り替え'));
-        for (const k of fixed) det.appendChild(row(k));
-        card.appendChild(det);
+        // 説明欄（選んでいる項目の説明・LV5/LV6 の値）
+        infoEl = el('div', 'cwp-info');
+        body.appendChild(infoEl);
 
         document.body.appendChild(dock);
-        refreshRows();
-        if (descs) fillDescs();
+        document.body.classList.toggle('cwp-on', !ui.min);   // 盤面を左へ寄せて右端を空ける（CSS）
+        refreshAll();
     }
 
-    function section(title, desc, names) {
+    function section(title, names) {
         const s = el('div', 'cwp-section');
-        s.appendChild(el('div', 'cwp-section-title', title));
-        s.appendChild(el('div', 'cwp-section-desc', desc));
-        for (const k of names) s.appendChild(row(k));
+        const h = el('div', 'cwp-section-title');
+        h.addEventListener('mousedown', e => e.preventDefault());
+        h.addEventListener('click', () => {
+            ui.collapsed[title] = !ui.collapsed[title];
+            saveUi();
+            s.classList.toggle('is-collapsed', !!ui.collapsed[title]);
+        });
+        s.appendChild(h);
+        const grid = el('div', 'cwp-grid');
+        for (const k of names) grid.appendChild(cell(k));
+        s.appendChild(grid);
+        s.classList.toggle('is-collapsed', !!ui.collapsed[title]);
+        sections[title] = { el: s, head: h, names };
         return s;
     }
 
-    function row(name) {
-        const r = el('div', 'cwp-row');
-        const top = el('div', 'cwp-row-top');
-        top.appendChild(el('span', 'cwp-name', name));
+    function cell(name) {
+        const c = el('label', 'cwp-cell');
+        c.appendChild(el('span', 'cwp-name', name));
         const input = el('input', 'cwp-input');
         input.type = 'text';
         input.inputMode = 'numeric';
         input.spellcheck = false;
         input.dataset.name = name;
         input.addEventListener('change', () => commit(name));
+        input.addEventListener('focus', () => { focusName = name; showInfo(); input.select(); });
+        input.addEventListener('blur', () => { if (focusName === name) { focusName = null; showInfo(); } });
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); commit(name); return; }
             if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
             e.preventDefault();
-            const cur = parseInt(input.value, 10);
-            const base = Number.isFinite(cur) ? cur : values[name];
+            const t = T();
+            const v = parseInt(input.value, 10);
+            const base = Number.isFinite(v) ? v : t.values[name];
             input.value = String(base + (e.key === 'ArrowUp' ? 1 : -1) * stepOf(name, e.shiftKey));
             clearTimeout(pendingCommit[name]);
             pendingCommit[name] = setTimeout(() => commit(name), 350);
         });
-        top.appendChild(input);
-        const ref = el('span', 'cwp-ref');
-        top.appendChild(ref);
-        r.appendChild(top);
-        const desc = el('div', 'cwp-desc');
-        r.appendChild(desc);
-        rows[name] = { row: r, input, ref, desc };
-        return r;
+        c.addEventListener('mouseenter', () => { hoverName = name; showInfo(); });
+        c.addEventListener('mouseleave', () => { if (hoverName === name) { hoverName = null; showInfo(); } });
+        c.appendChild(input);
+        cells[name] = { cell: c, input };
+        return c;
     }
 
     // ↑↓ の刻み：既定値の桁に合わせる（12 なら 1、-500 なら 10、180800 なら 10000）。Shift で 1
     function stepOf(name, fine) {
         if (fine) return 1;
-        const mag = Math.max(Math.abs(defaults[name] || 0), Math.abs(values[name] || 0));
+        const t = T();
+        const mag = Math.max(Math.abs(t.defaults[name] || 0), Math.abs(t.values[name] || 0));
         if (mag < 100) return 1;
         return Math.pow(10, Math.floor(Math.log10(mag)) - 1);
     }
@@ -305,63 +346,89 @@ window.CpuWeightsPanel = (() => {
     function commit(name) {
         clearTimeout(pendingCommit[name]);
         delete pendingCommit[name];
-        const r = rows[name];
-        if (!r || !cpu) return;
-        const v = Number(r.input.value.trim());
-        if (!Number.isFinite(v)) { r.input.value = String(values[name]); return; }
-        if (Math.round(v) === values[name]) { r.input.value = String(values[name]); return; }
-        apply(Object.assign({}, values, { [name]: Math.round(v) }));
-    }
-
-    function fillDescs() {
-        for (const k in rows) rows[k].desc.textContent = (descs && descs[k]) || '';
+        const c = cells[name], t = T();
+        if (!c || !t) return;
+        const v = Number(c.input.value.trim());
+        if (!Number.isFinite(v) || Math.round(v) === t.values[name]) { c.input.value = String(t.values[name]); return; }
+        apply(Object.assign({}, t.values, { [name]: Math.round(v) }));
     }
 
     function applyFilter() {
         const q = filterInput.value.trim().toLowerCase();
-        for (const k in rows) {
-            const hit = !q || k.toLowerCase().includes(q) || rows[k].desc.textContent.includes(filterInput.value.trim());
-            rows[k].row.style.display = hit ? '' : 'none';
+        for (const k in cells) {
+            const d = (descs && descs[k]) || '';
+            cells[k].cell.style.display = (!q || k.toLowerCase().includes(q) || d.includes(filterInput.value.trim())) ? '' : 'none';
         }
+        // 絞り込み中は畳んだセクションも開いて見せる
+        for (const s in sections) sections[s].el.classList.toggle('is-filtering', !!q);
     }
 
-    function refreshRows() {
-        for (const k in rows) {
-            const r = rows[k];
-            if (document.activeElement !== r.input && !pendingCommit[k]) r.input.value = String(values[k]);
-            r.row.classList.toggle('is-changed', values[k] !== defaults[k]);
-            const parts = [];
-            for (const lv of ['LV5', 'LV6']) {
-                if (!refs[lv]) continue;
-                const v = refs[lv][k];
-                parts.push(`<span class="${v === values[k] ? 'is-same' : ''}">${lv.slice(2)}:${v}</span>`);
-            }
-            r.ref.innerHTML = parts.join(' ');
+    function showInfo() {
+        const t = T();
+        if (!infoEl || !t) return;
+        const name = focusName || hoverName;
+        if (!name) {
+            infoEl.innerHTML = '';
+            infoEl.appendChild(el('div', 'cwp-info-desc',
+                '値は次の思考から効く（先読み済みの手があればその次から。効いた手は思考ログに出る）。' +
+                '↑↓ で増減、Shift+↑↓ で 1 ずつ。Enter で確定、Esc で入力欄から抜ける。'));
+            return;
         }
-        if (dock) {
-            dock.querySelectorAll('.cwp-btn[data-ref]').forEach(b => {
-                const ref = refs[b.dataset.ref];
-                b.classList.toggle('is-active', !!ref && Object.keys(values).every(k => values[k] === ref[k]));
-            });
+        infoEl.innerHTML = '';
+        infoEl.appendChild(el('div', 'cwp-info-name', name));
+        const d = (descs && descs[name]) || '';
+        let note = '';
+        if (VERSUS_ONLY.includes(name)) note = t.slot === 'TEST' ? '（VERSUS で相手がぷよのときだけ効く＝ここでは効かない）' : '（相手がぷよのときだけ効く）';
+        if (d || note) infoEl.appendChild(el('div', 'cwp-info-desc', d + note));
+        const refs = el('div', 'cwp-info-refs');
+        const parts = [`NOW ${t.values[name]}`, `DEFAULT ${t.defaults[name]}`];
+        for (const lv of ['LV5', 'LV6']) if (t.refs[lv]) parts.push(`${lv} ${t.refs[lv][name]}`);
+        refs.textContent = parts.join(' · ');
+        infoEl.appendChild(refs);
+    }
+
+    function refreshAll() {
+        const t = T();
+        if (!dock || !t) return;
+        for (const k in cells) {
+            const c = cells[k];
+            if (document.activeElement !== c.input && !pendingCommit[k]) c.input.value = String(t.values[k]);
+            c.cell.classList.toggle('is-changed', t.values[k] !== t.defaults[k]);
         }
+        for (const s in sections) {
+            const n = sections[s].names.filter(k => t.values[k] !== t.defaults[k]).length;
+            sections[s].head.textContent = `${s}${n ? ` · ${n}` : ''}`;
+            sections[s].head.classList.toggle('is-changed', n > 0);
+        }
+        dock.querySelectorAll('.cwp-btn[data-ref]').forEach(b => {
+            const ref = t.refs[b.dataset.ref];
+            b.disabled = !ref;
+            b.title = ref ? `${b.dataset.ref} の値に戻す` : 'LV6 を一度読み込むと使える';
+            b.classList.toggle('is-active', !!ref && Object.keys(t.values).every(k => t.values[k] === ref[k]));
+        });
+        tabsEl.querySelectorAll('.cwp-btn').forEach(b => {
+            const x = targets[+b.dataset.idx];
+            const n = Object.keys(x.changed).length;
+            b.textContent = `${x.slot} ${x.level}${n ? ' · ' + n : ''}`;
+            b.classList.toggle('is-active', x === t);
+        });
+        metaEl.textContent = `${t.slot === 'TEST' ? '' : t.slot + ' · '}${t.level} · ${t.cpu.constructor.WEIGHTS_ID}`;
+        warnEl.textContent = t.storedWarn;
+        warnEl.style.display = t.storedWarn ? '' : 'none';
+        showInfo();
+        refreshStatus();
     }
 
     function refreshStatus() {
-        if (!cpu) return;
-        const n = Object.keys(changed).length;
-        if (toggleBtn) {
-            toggleBtn.textContent = n ? `WEIGHTS · CUSTOM ${n}` : 'WEIGHTS';
-            toggleBtn.classList.toggle('is-custom', n > 0);
-        }
-        if (!statusEl) return;
-        const head = n ? `CUSTOM · ${n} CHANGED` : 'DEFAULT';
+        const t = T();
+        if (!t || !statusEl) return;
+        const cpu = t.cpu;
+        const n = Object.keys(t.changed).length;
         let applied = '';
-        if ((cpu._weightsRev || 0) !== (cpu._sentWeightsRev || 0)) applied = 'PENDING（次の思考から）';
-        else if (cpu._weightsAppliedTurn) applied = `FROM TURN ${cpu._weightsAppliedTurn}`;
-        statusEl.textContent = `${head}${applied ? ' · ' + applied : ''} · NOW TURN ${cpu._turnNo || 0}`;
-        statusEl.classList.toggle('is-custom', n > 0);
-        warnEl.textContent = storedWarn;
-        warnEl.style.display = storedWarn ? '' : 'none';
+        if ((cpu._weightsRev || 0) !== (cpu._sentWeightsRev || 0)) applied = 'PENDING';
+        else if (cpu._weightsAppliedTurn) applied = `FROM #${cpu._weightsAppliedTurn}`;
+        statusEl.textContent = `${n ? `CUSTOM ${n}` : 'DEFAULT'}${applied ? ' · ' + applied : ''} · NOW #${cpu._turnNo || 0}`;
+        statusEl.classList.toggle('is-custom', targets.some(x => Object.keys(x.changed).length > 0));
     }
 
     function say(text, isError) {
@@ -371,19 +438,21 @@ window.CpuWeightsPanel = (() => {
     }
 
     // ── JSON ────────────────────────────────────
-    function exportJson() {
+    function exportJson(t) {
         return {
-            level,
-            weightsId: cpu.constructor.WEIGHTS_ID,
-            policy: { build: cpu.getBuildPolicyArray() },
-            named: Object.assign({}, values),
-            changed: JSON.parse(JSON.stringify(changed)),
+            slot: t.slot,
+            level: t.level,
+            weightsId: t.cpu.constructor.WEIGHTS_ID,
+            policy: { build: t.cpu.getBuildPolicyArray() },
+            named: Object.assign({}, t.values),
+            changed: JSON.parse(JSON.stringify(t.changed)),
         };
     }
 
     function doExport() {
-        if (!cpu) return;
-        const text = JSON.stringify(exportJson(), null, 1);
+        const t = T();
+        if (!t) return;
+        const text = JSON.stringify(exportJson(t), null, 1);
         const fallback = () => {
             importBox.classList.add('is-open');
             importText.value = text;
@@ -392,14 +461,15 @@ window.CpuWeightsPanel = (() => {
             say('クリップボードに書けなかったので下の欄に出した（選択済み）', true);
         };
         if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(() => say(`COPIED: JSON をクリップボードへ（既定と違う ${Object.keys(changed).length} 件）`), fallback);
+            navigator.clipboard.writeText(text).then(() => say(`COPIED: ${t.slot === 'TEST' ? '' : t.slot + ' '}${t.level} の JSON（既定と違う ${Object.keys(t.changed).length} 件）`), fallback);
         } else {
             fallback();
         }
     }
 
     function doImport() {
-        if (!cpu) return;
+        const t = T();
+        if (!t) return;
         let obj;
         try { obj = JSON.parse(importText.value); } catch (e) { say('JSON として読めない: ' + e.message, true); return; }
         const incoming = {};
@@ -408,26 +478,30 @@ window.CpuWeightsPanel = (() => {
                   : Array.isArray(obj) ? obj : null;
         let unknown = 0;
         if (arr) {
-            const names = cpu.getBuildPolicyNames();
+            const names = t.cpu.getBuildPolicyNames();
             if (arr.length !== names.length) { say(`policy.build の長さが ${arr.length}（${names.length} を想定）`, true); return; }
             arr.forEach((v, i) => { if (names[i]) incoming[names[i]] = v; });
         } else if (obj && typeof obj === 'object') {
             const src = (obj.named && typeof obj.named === 'object') ? obj.named : obj;
             for (const k in src) {
-                if (groups[k] && typeof src[k] === 'number') incoming[k] = src[k];
+                if (t.groups[k] && typeof src[k] === 'number') incoming[k] = src[k];
                 else unknown++;
             }
         }
         const n = Object.keys(incoming).length;
         if (!n) { say('読める重みが無い（policy.build か { "名前": 値 }）', true); return; }
-        apply(Object.assign({}, values, incoming));
+        apply(Object.assign({}, t.values, incoming));
         importBox.classList.remove('is-open');
         importText.value = '';
         const notes = [];
         if (unknown) notes.push(`知らない項目 ${unknown} 件は無視`);
-        if (obj && obj.policy && (obj.policy.counterTrigger != null || obj.policy.ext)) notes.push('counterTrigger / counterMargin / ext は VERSUS 専用なので読まない');
-        say(`IMPORTED: ${n} 件（既定と違う ${Object.keys(changed).length} 件）${notes.length ? '。' + notes.join('、') : ''}`);
+        if (obj && obj.policy && (obj.policy.counterTrigger != null || obj.policy.ext)) notes.push('counterTrigger / counterMargin / ext は読まない');
+        say(`IMPORTED: ${n} 件（既定と違う ${Object.keys(T().changed).length} 件）${notes.length ? '。' + notes.join('、') : ''}`);
     }
 
-    return { attach, detach, open: () => setOpen(true), close: () => setOpen(false), exportJson: () => cpu && exportJson() };
+    return {
+        attach, detach, replace,
+        exportJson: () => (T() ? exportJson(T()) : null),
+        select: (i) => { if (targets[i]) { cur = i; refreshAll(); } },
+    };
 })();
