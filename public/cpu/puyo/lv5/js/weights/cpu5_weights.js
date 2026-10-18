@@ -69,6 +69,10 @@ Object.assign(window.PuyoCPU5.prototype, {
             subMinMainChains:       0,  // E2b を足す本線の段数の下限（H1 の「撃った後の本線の段数」にも使う）
             subMinMainPuyos:        0,  // E2b を足す本線の色ぷよ数の下限
             subMinFill:             0,  // E2b を足す盤面の色ぷよ数の下限（埋まり具合）
+            // ── 発火点の保全（提案5 K。0＝無効。lv6-harass-design.md §13.4）──
+            qKeepWeight:            0,  // おじゃまを1段載せた仮の盤面で起こせる最大連鎖のおじゃま量 1個あたり（正）
+            qKeepDepth:             0,  // K を掛けるビームの深さ（深さ < この値だけ。0＝全部の深さ）
+            qKeepRows:              0,  // 載せるおじゃまの段数（0＝1段）
         };
 
         this.controlWeights = {
@@ -222,7 +226,10 @@ Object.assign(window.PuyoCPU5.prototype, {
             this._harassMinReachScore || 0,                          // [50] H1 撃った後に残す本線潜在の点（思考ごと）
             this.evalWeights.subMinMainChains || 0,                  // [51] G1 副砲・催促の本線段数の下限（0=条件なし）
             this.evalWeights.subMinMainPuyos || 0,                   // [52] G1 副砲の本線色ぷよ数の下限
-            this.evalWeights.subMinFill || 0                         // [53] G2 副砲の埋まり具合の下限
+            this.evalWeights.subMinFill || 0,                        // [53] G2 副砲の埋まり具合の下限
+            this.evalWeights.qKeepWeight || 0,                       // [54] K 発火点の保全（1段降った後のおじゃま量。0=無効）
+            this.evalWeights.qKeepDepth || 0,                        // [55] K を掛けるビームの深さ（0=全部）
+            this.evalWeights.qKeepRows || 0                          // [56] K で載せるおじゃまの段数（0=1段）
         ]);
     },
 
@@ -280,7 +287,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         return changed;
     },
 
-    // 学習の best.json の policy.build と同じ並び（54個）。[46][49][50] は保存値
+    // 学習の best.json の policy.build と同じ並び（57個）。[46][49][50] は保存値
     //   （思考ごとの換算前。training/puyo-lv5/tools/export_weights.mjs と同じ）。
     getBuildPolicyArray() {
         this.getBuildDefaults();

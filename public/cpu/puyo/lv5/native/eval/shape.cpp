@@ -200,6 +200,46 @@ static int calcSubJunkEval(const BitBoard& b, const EvalWeights& w, const QuietP
     return score;
 }
 
+// 発火点の保全（提案5。設計: lv6-harass-design.md §13.4）：盤面 b の全列におじゃまを rows 段載せた仮の盤面で、
+//   quiescence と同じ探し方（発火できる各列に同色を1〜3個）で起こせる最大連鎖の点。致死セルが埋まるなら 0。
+static const int MAX_QDROP_KEEP = 3;
+static int keepIgnitionScore(const BitBoard& b, int rows) {
+    BitBoard ob = b;
+    for (int c = 0; c < COLS; ++c)
+        for (int i = 0; i < rows; ++i) {
+            int row = calcDropRow(ob, c);
+            if (row < 0) break;
+            ob.set(c, row + HIDDEN, 6);
+        }
+    if (ob.get(2, HIDDEN) != 0) return 0;   // 降ったら窒息する
+    int h[COLS];
+    for (int c = 0; c < COLS; ++c) {
+        h[c] = 0;
+        for (int r = HIDDEN; r < TOTAL_ROWS; ++r) if (ob.get(c, r) != 0) h[c]++;
+    }
+    int xMin = 2, xMax = 2;
+    for (int x = 3; x < COLS; ++x) { if (h[x] > 11) break; xMax++; }
+    for (int x = 1; x >= 0; --x)  { if (h[x] > 11) break; xMin--; }
+    int best = 0;
+    for (int x = xMin; x <= xMax; ++x) {
+        int dropMax = std::min(MAX_QDROP_KEEP, 12 - h[x]);
+        for (uint8_t color = 1; color <= 5; ++color) {
+            BitBoard plan = ob;
+            bool trig = false;
+            for (int i = 0; i < dropMax; ++i) {
+                int row = calcDropRow(plan, x);
+                if (row < 0) break;
+                plan.set(x, row + HIDDEN, color);
+                if (hasGroup4At(plan, x, row + HIDDEN, color)) { trig = true; break; }
+            }
+            if (!trig) continue;
+            ChainResult chain = simulateChain(plan);
+            if (chain.score > best) best = chain.score;
+        }
+    }
+    return best;
+}
+
 // quiescence: 各列に同色を最大3個まで（4連結が出来るまで）落として連鎖を試し、
 //   連鎖数・発火列高さ・必要追加ぷよ数(key)・伸長余地(chi) を q スコア化して最大値を返す。
 //   原典 quiet.cpp の探索を bounded 列範囲でスカラ再現。
@@ -217,7 +257,7 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
     //   （現行デフォルトは q重み非0なので発動しない。）
     if (w.qChainWeight == 0 && w.qYWeight == 0 && w.qKeyWeight == 0 && w.qChiWeight == 0
         && w.qLink2Weight == 0 && w.qLink3Weight == 0 && w.qExcessWeight == 0
-        && w.qJunkWeight == 0 && w.qSubWeight == 0 && !outMainSub) return 0;
+        && w.qJunkWeight == 0 && w.qSubWeight == 0 && w.qKeepWeight == 0 && !outMainSub) return 0;
 
     // ── 副砲・ゴミ（提案3 E2a/E2b。設計: lv6-harass-design.md §9.3）──
     //   どちらかの重みが非0のときだけ、各候補の「消えたぷよの元の位置」を追跡する（既定0なら従来と同じ速さ）。
@@ -232,6 +272,7 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
 
     int best = 0;
     bool found = false;
+    int bestAnyScore = 0;   // 発火点の保全（K の損の形）：今起こせる最大連鎖の点（placed 1〜3）
 
     for (int x = xMin; x <= xMax; ++x) {
         int dropMax = std::min(MAX_QDROP, 12 - heights[x]);
@@ -261,6 +302,7 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
             ChainResult chain = simulateChain(sim, trackPop ? &popped : nullptr);
             if (chain.chains <= 0) continue;
             if (trackPop) pops[nPops++] = {popped, chain.score, chain.chains};
+            if (chain.score > bestAnyScore) bestAnyScore = chain.score;
 
             // 「キーぷよ1個で着火できる連鎖」だけを potChain として巻き上げる。
             //   placed>=2（単色を複数積まないと着火しない＝まだ組み途中／ペアでは作りにくい）は
@@ -295,5 +337,12 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
     }
     int result = found ? best : 0;
     if (trackPop) result += calcSubJunkEval(b, w, pops, nPops, outMainSub);
+    // 発火点の保全（提案5 K）：おじゃまが1段降った後に起こせる連鎖（おじゃま量）。
+    //   正の重み＝降った後に残る量に価値をつける。負の重み＝降って失う量（今 − 降った後）を罰する。
+    if (w.qKeepWeight != 0) {
+        int after = keepIgnitionScore(b, w.qKeepRows > 0 ? w.qKeepRows : 1);
+        int v = w.qKeepWeight > 0 ? after : std::max(0, bestAnyScore - after);
+        result += (v / OJAMA_RATE) * w.qKeepWeight;
+    }
     return result;
 }

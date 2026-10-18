@@ -98,6 +98,10 @@ static void runExpectedChainSelection(
     int dbgDedup = 0;   // 置換表(dedup)で除去したノード数
     int dbgDeathPrune = 0;   // 致命セル枝刈り（自殺手）で捨てたノード数
 
+    // ── 発火点の保全（提案5 K）は深さ < qKeepDepth のノードだけに掛ける（評価が約2倍重くなるため）──
+    EvalWeights wNoKeep = w;
+    wNoKeep.qKeepWeight = 0;
+
     // ── 1段ぶんビームを進める共通処理 ──
     //   各ノードで quiescence の潜在連鎖スコア／実発火スコアを chainTarget[fm] に巻き上げる。
     //   registerFirst: depth0 で初手candidateを登録。captureBase: base/先読みを確定。
@@ -105,6 +109,7 @@ static void runExpectedChainSelection(
                          bool registerFirst, bool captureBase) {
         std::vector<SearchNode> nextNodes;
         int beamWidth = expBeamWidth(depth, cfgWidth);
+        const EvalWeights& we = (w.qKeepDepth <= 0 || depth < w.qKeepDepth) ? w : wNoKeep;
 
         // ★ v2.2.3 I: 初手ごとに「この深さで窒息せずに置けた子」の数を数え、0 なら詰み(doomDepth)とする。
         //   PRUNE・置換表で後から落ちる子も「生存できる手がある」ので数に入れる（死亡判定だけに使う）。
@@ -161,7 +166,7 @@ static void runExpectedChainSelection(
                 // ★ 配置後盤面の「今撃てば出る最大連鎖スコア」(potChain)を eval と同じ
                 //   quiescence シミュから受け取る（追加コストなし）。
                 int potChain = 0, potChainCount = 0;
-                int scoreRaw = evaluateBoard(nb, chain, w, prePot, isEmergencyPre, &potChain, &potChainCount);
+                int scoreRaw = evaluateBoard(nb, chain, we, prePot, isEmergencyPre, &potChain, &potChainCount);
                 // ★ ちぎり(tear)ペナルティ：配置時1回（評価値ではなく配置コスト）。
                 if (w.tearWeight != 0) scoreRaw += placementTear(p) * w.tearWeight;
                 int score = scoreRaw;
@@ -314,7 +319,7 @@ static void runExpectedChainSelection(
             for (int r = HIDDEN; r < TOTAL_ROWS; r++) if (baseBoard.get(c, r) != 0) h0[c]++;
         }
         int pot = 0;
-        calcQuiescenceEval(baseBoard, h0, w, &pot, nullptr);
+        calcQuiescenceEval(baseBoard, h0, wNoKeep, &pot, nullptr);
         basePot = pot;
     }
     // ── 確定NEXTを1本のビームで深さ maxDepth まで読む（擬似分岐なし）──

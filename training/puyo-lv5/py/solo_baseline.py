@@ -33,6 +33,7 @@ I_EMG_H, I_LINK3, I_QLINK3, I_EMG_RATIO, I_FAC_L, I_FAC_H, I_FAC_V = 8, 18, 26, 
 HIDDEN, COLS_N, ROWS_ALL = 5, 6, 17
 I_QJUNK_W, I_QSUB_W = 44, 45   # 提案3 E2a（ゴミ×埋まり具合）/ E2b（副砲）
 I_H_MIN, I_H_MAXC, I_H_KEEP, I_H2, I_H_REACH = 46, 47, 48, 49, 50   # H1 催促（個数・段数上限・残す本線%）/ H2 対応 / H1 残す本線の絶対量（個）
+I_KEEP_W, I_KEEP_D, I_KEEP_ROWS = 54, 55, 56   # 提案5 K 発火点の保全（重み・掛ける深さ・載せる段数）
 REASONS = {1: "目標", 2: "緊急", 3: "延命", 4: "催促"}
 
 

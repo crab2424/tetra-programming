@@ -126,11 +126,16 @@ struct EvalWeights {
     int subMinMainChains; // [51] E2b（副砲）を足す本線 M の段数の下限。H1 も「撃った後の本線の段数」をこれ以上に
     int subMinMainPuyos;  // [52] E2b を足す本線 M の色ぷよ数の下限
     int subMinFill;       // [53] E2b を足す盤面の色ぷよ数の下限（埋まり具合＝それ以上の構築が難しい目安）
+
+    // ── 発火点の保全（提案5 K。既定0＝無効。設計: lv6-harass-design.md §13.4）──
+    int qKeepWeight;      // [54] おじゃまを qKeepRows 段載せた仮の盤面で起こせる最大連鎖のおじゃま量 1個あたり（正）。負＝降って失う量（今−降った後）1個あたりの罰
+    int qKeepDepth;       // [55] K を掛けるビームの深さ（深さ < この値のノードだけ。0＝全部の深さ）
+    int qKeepRows;        // [56] 載せるおじゃまの段数（0＝1段＝6個）
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 54 要素（[0..53]）。
+//   weightsArray は 57 要素（[0..56]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -202,5 +207,9 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     w.subMinMainChains    = weightsArray[51];
     w.subMinMainPuyos     = weightsArray[52];
     w.subMinFill          = weightsArray[53];
+    // ── 発火点の保全（提案5 K）──
+    w.qKeepWeight         = weightsArray[54];
+    w.qKeepDepth          = weightsArray[55];
+    w.qKeepRows           = weightsArray[56];
     return w;
 }
