@@ -137,8 +137,11 @@ static bool hasGroup4At(const BitBoard& b, int col, int row, uint8_t color) {
 //   E2a = ゴミ × 埋まり具合（色ぷよ ÷ 72）× qJunkWeight（負）… 序盤の組み途中は軽く、盤面が埋まるほど重く。
 //   E2b = 副砲で送れるおじゃま（点 ÷ 70）× qSubWeight（正）。
 //   ※ 発火色を積んだマス（盤面に無い位置）は M・S に数えない。
+//   G1/G2（lv6-harass-design.md §10.3。既定0＝条件なし）：E2b は次をすべて満たすときだけ足す。
+//     本線 M の段数 ≥ subMinMainChains・M の色ぷよ数 ≥ subMinMainPuyos（本線をある程度組んでから副砲）、
+//     盤面の色ぷよ数 ≥ subMinFill（それ以上の構築が難しくなってから副砲ゾーンを設ける）。
 static const int OJAMA_RATE = 70;
-struct QuietPop { CellMask mask; int score; };   // quiescence の1候補：消えたぷよ（連鎖前の位置）と点
+struct QuietPop { CellMask mask; int score; int chains; };   // quiescence の1候補：消えたぷよ（連鎖前の位置）・点・段数
 static int calcSubJunkEval(const BitBoard& b, const EvalWeights& w, const QuietPop* pops, int nPops) {
     CellMask occupied, colored;
     int nColor = 0;
@@ -178,11 +181,14 @@ static int calcSubJunkEval(const BitBoard& b, const EvalWeights& w, const QuietP
     if (subIdx >= 0) S = pops[subIdx].mask & occupied;
 
     int score = 0;
+    int mainPuyos = (M & colored).count();
     if (w.qJunkWeight != 0) {
-        int junk = nColor - (M & colored).count() - (S & colored).count();
+        int junk = nColor - mainPuyos - (S & colored).count();
         score += junk * nColor * w.qJunkWeight / 72;
     }
-    if (w.qSubWeight != 0 && subIdx >= 0) score += (pops[subIdx].score / OJAMA_RATE) * w.qSubWeight;
+    bool subAllowed = mainIdx >= 0 && pops[mainIdx].chains >= w.subMinMainChains &&
+                      mainPuyos >= w.subMinMainPuyos && nColor >= w.subMinFill;
+    if (w.qSubWeight != 0 && subIdx >= 0 && subAllowed) score += (pops[subIdx].score / OJAMA_RATE) * w.qSubWeight;
     return score;
 }
 
@@ -246,7 +252,7 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
             CellMask popped;
             ChainResult chain = simulateChain(sim, trackPop ? &popped : nullptr);
             if (chain.chains <= 0) continue;
-            if (trackPop) pops[nPops++] = {popped, chain.score};
+            if (trackPop) pops[nPops++] = {popped, chain.score, chain.chains};
 
             // 「キーぷよ1個で着火できる連鎖」だけを potChain として巻き上げる。
             //   placed>=2（単色を複数積まないと着火しない＝まだ組み途中／ペアでは作りにくい）は

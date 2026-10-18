@@ -119,11 +119,18 @@ struct EvalWeights {
     int harassKeepPct;    // [48] H1 催促：撃った後の本線潜在（afterReach）が今の本線潜在のこの%以上のときだけ撃つ
     int counterKeepReach; // [49] H2 対応：カウンターで受け量を上回る候補のうち「撃った後の本線潜在」が最大の手を撃つ 1/0（0=従来＝点が最大）
     int harassMinReach;   // [50] H1 催促：撃った後の本線潜在の点がこれ以上のときだけ撃つ（相手に本線を吐かせても後打ちで勝てる量）。JS/sim が「個数×レート」で入れる
+    //   counterKeepReach の値: 1=本線潜在が最大の手（同じなら点が大きい方）/ 2=同じなら点が小さい方 /
+    //                          3=本線潜在が最大から 5% 以内の手のうち点が最小（相手の火力＋α で返す。§10.3）
+
+    // ── 副砲・催促の本線条件（G1/G2。既定0＝条件なし。設計: lv6-harass-design.md §10.3）──
+    int subMinMainChains; // [51] E2b（副砲）を足す本線 M の段数の下限。H1 も「撃った後の本線の段数」をこれ以上に
+    int subMinMainPuyos;  // [52] E2b を足す本線 M の色ぷよ数の下限
+    int subMinFill;       // [53] E2b を足す盤面の色ぷよ数の下限（埋まり具合＝それ以上の構築が難しい目安）
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 51 要素（[0..50]）。
+//   weightsArray は 54 要素（[0..53]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -191,5 +198,9 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     w.harassKeepPct       = weightsArray[48];
     w.counterKeepReach    = weightsArray[49];
     w.harassMinReach      = weightsArray[50];
+    // ── 副砲・催促の本線条件（G1/G2）──
+    w.subMinMainChains    = weightsArray[51];
+    w.subMinMainPuyos     = weightsArray[52];
+    w.subMinFill          = weightsArray[53];
     return w;
 }

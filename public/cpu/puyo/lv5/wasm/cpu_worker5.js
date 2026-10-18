@@ -23,7 +23,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm5.wasm' ? 'cpu_wasm5.wasm?v=43' : path;
+        return path === 'cpu_wasm5.wasm' ? 'cpu_wasm5.wasm?v=44' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -31,7 +31,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js?v=43');
+importScripts('cpu_wasm5.js?v=44');
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -46,8 +46,8 @@ self.onmessage = function (e) {
 
     if (boardPtr === null) {
         boardPtr     = Module._my_malloc(102);
-        // ★ weightsArray の要素数は 51（…[45]qSubWeight [46..48]催促 H1 [49]対応 H2 [50]催促 H1 残す本線の絶対量）
-        weightsPtr   = Module._my_malloc(4 * 51);   // 51要素(204 bytes)
+        // ★ weightsArray の要素数は 54（…[45]qSubWeight [46..48]催促 H1 [49]対応 H2 [50]催促 H1 残す本線の絶対量 [51..53]副砲・催促の本線条件 G1/G2）
+        weightsPtr   = Module._my_malloc(4 * 54);   // 54要素(216 bytes)
         resultPtr    = Module._my_malloc(4 * 36);   // [0..6]=着手 / [7..26]=デバッグ統計 / [27..29]=path(操作列) / [30]=致命セル枝刈り数 / [31][32]=撃った後の本線潜在・今の本線潜在 / [33..35]=判断の内訳
         nextPairsPtr = Module._my_malloc(4 * 20);
     }

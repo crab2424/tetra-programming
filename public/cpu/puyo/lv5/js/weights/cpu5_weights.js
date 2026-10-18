@@ -65,6 +65,10 @@ Object.assign(window.PuyoCPU5.prototype, {
             qExcessWeight:          0,  // 潜在連鎖の途中段の余剰（同時消し・多連結）1個あたり（負）
             qJunkWeight:            0,  // ゴミ（本線にも副砲にも使わない色ぷよ）×埋まり具合 1個あたり（負）。E2a
             qSubWeight:             0,  // 副砲（本線と交わらず本線を落とさない連鎖）のおじゃま1個あたり（正）。E2b
+            // ── 副砲・催促の本線条件（G1/G2。0＝条件なし。lv6-harass-design.md §10.3）──
+            subMinMainChains:       0,  // E2b を足す本線の段数の下限（H1 の「撃った後の本線の段数」にも使う）
+            subMinMainPuyos:        0,  // E2b を足す本線の色ぷよ数の下限
+            subMinFill:             0,  // E2b を足す盤面の色ぷよ数の下限（埋まり具合）
         };
 
         this.controlWeights = {
@@ -102,7 +106,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             harassMinOjama:         0,  // H1 催促：今撃てる小連鎖がこのおじゃま個数以上なら撃つ候補（0=無効）
             harassMaxChains:        0,  // H1 催促：撃つ連鎖の段数の上限
             harassKeepPct:          0,  // H1 催促：撃った後の本線潜在が今の本線潜在のこの%以上のときだけ撃つ
-            counterKeepReach:       0,  // H2 対応：カウンターは本線を最も残す手で返す 1/0（0=点が最大の手）
+            counterKeepReach:       0,  // H2 対応：カウンターは本線を最も残す手で返す（0=点が最大の手 / 1=本線最大・同点は点大 / 2=同点は点小 / 3=本線最大から5%以内で点最小）
             harassMinReach:         0,  // H1 催促：撃った後の本線潜在がこのおじゃま個数以上のときだけ撃つ
         };
 
@@ -214,8 +218,11 @@ Object.assign(window.PuyoCPU5.prototype, {
             this._harassMinScore || 0,                               // [46] H1 催促の最低点（思考ごと。0=撃たない）
             this.controlWeights.harassMaxChains,                     // [47] H1 催促の段数上限
             this.controlWeights.harassKeepPct,                       // [48] H1 撃った後に残す本線潜在(%)
-            this._counterKeepReachOn ? 1 : 0,                        // [49] H2 カウンターで本線を残す手を選ぶ（思考ごと）
-            this._harassMinReachScore || 0                           // [50] H1 撃った後に残す本線潜在の点（思考ごと）
+            this._counterKeepReachOn || 0,                           // [49] H2 カウンターで本線を残す手を選ぶ（思考ごと。0..3）
+            this._harassMinReachScore || 0,                          // [50] H1 撃った後に残す本線潜在の点（思考ごと）
+            this.evalWeights.subMinMainChains || 0,                  // [51] G1 副砲・催促の本線段数の下限（0=条件なし）
+            this.evalWeights.subMinMainPuyos || 0,                   // [52] G1 副砲の本線色ぷよ数の下限
+            this.evalWeights.subMinFill || 0                         // [53] G2 副砲の埋まり具合の下限
         ]);
     },
 });

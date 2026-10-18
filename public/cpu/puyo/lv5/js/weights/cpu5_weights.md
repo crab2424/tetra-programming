@@ -97,6 +97,13 @@ quiescence の候補（発火色を積んで回した潜在連鎖）ごとに、
 
 ねらい：本線は綺麗に組み、崩れた場所は本線とは別の連鎖（副砲）として組む（lv6-harass-design.md §9.3）。
 
+### subMinMainChains / subMinMainPuyos / subMinFill — 副砲・催促の本線条件（G1 / G2）
+
+evalWeights [51][52][53]。どれも 0 で条件なし（lv5 は 0）。設計: lv6-harass-design.md §10.3。
+- `qSubWeight`（副砲）は、本線 M の段数 ≥ `subMinMainChains`、M の色ぷよ数 ≥ `subMinMainPuyos`、
+  盤面の色ぷよ数 ≥ `subMinFill` のときだけ足す（本線をある程度組み、それ以上の構築が難しくなってから副砲）。
+- H1 催促も「撃った後の本線の段数 ≥ `subMinMainChains`」を条件に加える（点だけだと同時消しの多い短い連鎖でも通るため）。
+
 ### harassMinOjama / harassMaxChains / harassKeepPct / counterKeepReach — 催促と対応（H1 / H2）
 
 controlWeights。どれも 0 で無効（lv5 は 0）。wasm の fire gate（build.cpp）が使う。設計: lv6-harass-design.md §9.4。
@@ -107,6 +114,8 @@ controlWeights。どれも 0 で無効（lv5 は 0）。wasm の fire gate（bui
   - cpu5_worker_io.js が、対ぷよ・build（待ち／カウンターでない）・相手が連鎖中でない思考でだけ [46] に「個数×レート」を入れる。
 - **H2 対応**：`counterKeepReach`=1 なら、カウンター（受け量を上回る連鎖を撃つ）で、受け量を上回る候補のうち
   **撃った後の本線潜在が最大**の手を撃つ（従来は点が最大＝本線を吐きやすい）。副砲で返せれば本線が残る。
+  - 1：本線潜在が同じなら点が大きい方 / 2：同じなら点が小さい方 / 3：本線潜在が最大から 5% 以内の候補のうち点が最小
+    （2・3 は「相手の火力＋α で返す」。§10.3）
   カウンターは fast（lv5 基準）の重みなので、有効かどうかは build の値から読み、[49] に思考ごとに入れる。
 
 ---

@@ -46,7 +46,7 @@ def policy_to_json(pol: ps.Policy) -> dict:
 
 
 def _pad(v: list, n: int) -> list:
-    """weightsArray が伸びる前（43 要素）の記録は、増えた分を 0（＝無効）で埋める。"""
+    """weightsArray が伸びる前（43・51 要素）の記録は、増えた分を 0（＝無効）で埋める。"""
     return list(v) + [0] * (n - len(v))
 
 

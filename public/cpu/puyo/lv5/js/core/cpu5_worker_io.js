@@ -563,7 +563,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             // ★ H2 対応（対ぷよのみ）：受け量を上回る候補のうち、撃った後の本線潜在が最大の手で返す。
             //   カウンターは fast（lv5 基準）の重みなので、有効かどうかは build の重み（lv6 が設定）から読む。
             const bc = this._buildBaseline && this._buildBaseline.controlWeights;
-            this._counterKeepReachOn = !this._isOpponentTet() && !!(bc && bc.counterKeepReach);
+            this._counterKeepReachOn = (!this._isOpponentTet() && bc && bc.counterKeepReach) ? (bc.counterKeepReach | 0) : 0;
         } else {
             // カウンター不要時の本線構築モード：相手がテトなら vsTet、それ以外（ぷよ）は build。
             const buildMode = this._isOpponentTet() ? 'vsTet' : 'build';

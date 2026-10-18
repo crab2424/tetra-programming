@@ -45,6 +45,7 @@ struct ExpCandidate {
     // ★ H1/H2: 撃った後に残る本線（afterReach）。この初手の先で見えた潜在(potChain)だけの最大。
     //   chainTarget と違い実発火の点を含まない＝初手で小連鎖を撃っても、本線がどれだけ残るかを表す。
     long long reachPot;
+    int reachPotChains;               // ↑reachPot の段数（H1 の本線条件 subMinMainChains）
 
     // ── 表示用先読み(col2/col3)を辿るための補助 ──
     //   col2/col3 を「累積eval最大ノード」に紐付けると、初手が連鎖を発火したとき
@@ -190,6 +191,7 @@ static void runExpectedChainSelection(
                         cands[fm].chainTargetDepth = -1;
                         cands[fm].chainTargetIsFire = 0;
                         cands[fm].reachPot = 0;
+                        cands[fm].reachPotChains = 0;
                         cands[fm].dispDepth = -1;
                         cands[fm].dispScore = LLONG_MIN;
                         cands[fm].fireChains = 0;
@@ -216,7 +218,10 @@ static void runExpectedChainSelection(
                 // ★ 連鎖スコアの巻き上げ：潜在(potChain)と実発火(chain.score)の大きい方。
                 //   実発火盤面(collapse後)の potChain は小さいが、撃った連鎖そのものは
                 //   chain.score で拾う＝「撃つ手・組む手」を統一して到達連鎖として評価。
-                if (fm >= 0 && potChain > cands[fm].reachPot) cands[fm].reachPot = potChain;
+                if (fm >= 0 && potChain > cands[fm].reachPot) {
+                    cands[fm].reachPot = potChain;
+                    cands[fm].reachPotChains = potChainCount;
+                }
                 if (fm >= 0) {
                     long long reach = std::max((long long)potChain, (long long)chain.score);
                     if (reach > cands[fm].chainTarget) {
@@ -441,13 +446,33 @@ static void runExpectedChainSelection(
                 if (w.counterKeepReach) {
                     // ★ H2 対応：受け量を上回る候補のうち、撃った後の本線潜在(reachPot)が最大の手。
                     //   副砲で返せれば本線は残る。副砲が無ければ、本線をなるべく残す手（最後が本線そのもの）。
-                    //   同じなら点が大きい方（多く相殺・送る）。
+                    //   1: 同じなら点が大きい方（多く相殺・送る）/ 2・3: 選び直しは下（点が小さい方＝ぷよを使わない方）。
                     if (fireFmTgt < 0 || cands[fm].reachPot > cands[fireFmTgt].reachPot ||
                         (cands[fm].reachPot == cands[fireFmTgt].reachPot && cands[fm].fireScore > fireBestTgt)) {
                         fireBestTgt = cands[fm].fireScore; fireFmTgt = fm;
                     }
                 } else if (cands[fm].fireScore > fireBestTgt) { fireBestTgt = cands[fm].fireScore; fireFmTgt = fm; }
             }
+        }
+
+        // ★ H2 の選び直し（counterKeepReach 2/3。§10.3）：対応は「相手の火力＋α」で足りる。
+        //   本線潜在が最大（3 は最大から 5% 以内）の目標候補のうち、点が最小の手（同じなら本線潜在が大きい方）。
+        //   目標候補の点は既に受け量×倍率以上なので、点が小さい方＝必要量に近くぷよを使わない方。
+        if (fireFmTgt >= 0 && w.counterKeepReach >= 2) {
+            long long maxReach = cands[fireFmTgt].reachPot;
+            int bandPct = (w.counterKeepReach >= 3) ? 5 : 0;
+            int pick = -1;
+            for (int fm = 0; fm < nCand; fm++) {
+                const ExpCandidate& c = cands[fm];
+                if (c.fireChains <= 0 || !survivable(fm)) continue;
+                bool tgt = (w.fireChainCount > 0 && c.fireChains >= w.fireChainCount) ||
+                           (w.fireScoreThreshold > 0 && c.fireScore >= w.fireScoreThreshold);
+                if (!tgt) continue;
+                if (c.reachPot * 100 < maxReach * (100 - bandPct)) continue;
+                if (pick < 0 || c.fireScore < cands[pick].fireScore ||
+                    (c.fireScore == cands[pick].fireScore && c.reachPot > cands[pick].reachPot)) pick = fm;
+            }
+            if (pick >= 0) { fireFmTgt = pick; fireBestTgt = cands[pick].fireScore; }
         }
 
         int fireFm = -1;
@@ -491,6 +516,7 @@ static void runExpectedChainSelection(
                 if (!survivable(fm))                                       { dbgHarassRej[2]++; continue; }
                 if (c.reachPot * 100 < basePot * (long long)w.harassKeepPct) { dbgHarassRej[3]++; continue; }
                 if (c.reachPot < w.harassMinReach)                         { dbgHarassRej[4]++; continue; }   // 序盤の小さな本線で撃つと、吐かせた本線に返せない
+                if (c.reachPotChains < w.subMinMainChains)                 { dbgHarassRej[4]++; continue; }   // G1：撃った後の本線の段数（点だと同時消しの多い短い連鎖でも通る）
                 if (harassFm < 0 || c.fireScore > cands[harassFm].fireScore) harassFm = fm;
             }
             if (harassFm >= 0) { fireFm = harassFm; dbgFireReason = 4; dbgFlags |= 1 << 6; }
@@ -574,7 +600,7 @@ static void runExpectedChainSelection(
     //                3=緊急で本線比OK 4=緊急延命の高さ到達 5=催促(H1)を探した 6=催促候補あり
     //                7=対応(H2:本線を残す手)有効 8=目標に届くが詰むので撃たない手があった
     //                9=育成手のこぼし除外を解除した 10=緊急判定を行った
-    //   [34] 催促候補の落ちた条件ごとの数（6bitずつ）: 0=段数超 1=点不足 2=詰む 3=残す本線の割合不足 4=残す本線の絶対量不足
+    //   [34] 催促候補の落ちた条件ごとの数（6bitずつ）: 0=段数超 1=点不足 2=詰む 3=残す本線の割合不足 4=残す本線の絶対量・段数不足
     //   [35] 緊急判定の高さ: bit0-4=致死列(第3列)の高さ bit5-9=平均高さ
     //   ※ 学習用シミュ（player.cpp）の out は 40 要素なので [39] まで使える。
     outResult[33] = dbgFlags;
