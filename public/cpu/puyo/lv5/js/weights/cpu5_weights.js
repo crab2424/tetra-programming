@@ -225,4 +225,90 @@ Object.assign(window.PuyoCPU5.prototype, {
             this.evalWeights.subMinFill || 0                         // [53] G2 副砲の埋まり具合の下限
         ]);
     },
+
+    // ─────────────────────────────────────────────
+    // ★ 重み調整パネル（public/app/cpu_weights_panel.js。CPU TEST 用）の口。
+    //   パネルは build の基準値を「この CPU の既定値＋変えた値」に置き換え、setMode で今のモードに組み直す。
+    //   weightsArray は手ごとに組み立て直す（_requestCalculation）ので、次の思考から効く。
+    //   値は名前→値の平たい形でやり取りする（3グループの名前は重複しない）。
+    // ─────────────────────────────────────────────
+    _flatBuild(b) {
+        return Object.assign({}, b.rewardWeights, b.evalWeights, b.controlWeights);
+    },
+
+    // 既定の build の値。lv: 'LV5' / 'LV6' / 省略＝この CPU の既定。出せないときは null。
+    //   初めて呼ばれた時点の基準値を既定として控える（パネルが値を変える前に必ず呼ぶ）。
+    getBuildDefaults(lv) {
+        if (!this._defaultBuildBaseline) this._defaultBuildBaseline = this._buildBaseline;
+        const lv5 = this._lv5Baseline || this._defaultBuildBaseline;   // lv6 は lv5 の基準を _lv5Baseline に控えている
+        if (!lv || lv === this.constructor.LOG_NAME) return this._flatBuild(this._defaultBuildBaseline);
+        if (lv === 'LV5') return this._flatBuild(lv5);
+        const C = window.PuyoCPU6;
+        if (lv === 'LV6' && C && C.TRAINED_BUILD) {
+            const t = C.TRAINED_BUILD;
+            return Object.assign(this._flatBuild(lv5), t.rewardWeights, t.evalWeights, t.controlWeights);
+        }
+        return null;
+    },
+
+    // 今の build の値（名前→値）
+    getBuildValues() {
+        this.getBuildDefaults();
+        return this._flatBuild(this._buildBaseline);
+    },
+
+    // build の値を「既定値＋values（名前→値。知らない名前・数でない値は無視）」にして今のモードで組み直す。
+    //   返り値＝既定と違う値の { 名前: { from, to } }。思考ログが「この手から変えた重み」を出すのに使う。
+    applyBuildValues(values) {
+        this.getBuildDefaults();
+        const def = this._defaultBuildBaseline;
+        const next = {}, changed = {};
+        for (const g of ['rewardWeights', 'evalWeights', 'controlWeights']) {
+            next[g] = Object.assign({}, def[g]);
+            for (const k in next[g]) {
+                if (!values || !Object.prototype.hasOwnProperty.call(values, k)) continue;
+                const v = Number(values[k]);
+                if (!Number.isFinite(v)) continue;
+                next[g][k] = Math.round(v);
+                if (next[g][k] !== def[g][k]) changed[k] = { from: def[g][k], to: next[g][k] };
+            }
+        }
+        this._buildBaseline = next;
+        this.setMode(this.cpuMode);
+        this._weightsRev = (this._weightsRev || 0) + 1;   // _requestCalculation が「この思考から効く」を記録する
+        this._weightsChanged = changed;
+        return changed;
+    },
+
+    // 学習の best.json の policy.build と同じ並び（54個）。[46][49][50] は保存値
+    //   （思考ごとの換算前。training/puyo-lv5/tools/export_weights.mjs と同じ）。
+    getBuildPolicyArray() {
+        this.getBuildDefaults();
+        const b = this._buildBaseline;
+        const a = Array.from(this._buildWeightsArray.call(
+            { rewardWeights: b.rewardWeights, evalWeights: b.evalWeights, controlWeights: b.controlWeights }, 9));
+        const cw = b.controlWeights;
+        a[46] = cw.harassMinOjama || 0;
+        a[49] = cw.counterKeepReach || 0;
+        a[50] = cw.harassMinReach || 0;
+        return a;
+    },
+
+    // policy.build の添字 → 重みの名前（名前の無い添字は null。[20] は既知NEXT本数）。
+    //   名前ごとに違う印の値を入れて _buildWeightsArray を通し、並びを手で写さずに求める。
+    getBuildPolicyNames() {
+        this.getBuildDefaults();
+        const def = this._defaultBuildBaseline, names = [], probe = {};
+        const MARK = 1000000;
+        for (const g of ['rewardWeights', 'evalWeights', 'controlWeights']) {
+            probe[g] = {};
+            for (const k in def[g]) { probe[g][k] = MARK + names.length; names.push(k); }
+        }
+        const a = Array.from(this._buildWeightsArray.call(probe, -1));
+        const out = a.map(v => (v >= MARK && v < MARK + names.length) ? names[v - MARK] : null);
+        out[46] = 'harassMinOjama';
+        out[49] = 'counterKeepReach';
+        out[50] = 'harassMinReach';
+        return out;
+    },
 });

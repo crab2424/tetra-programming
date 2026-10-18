@@ -95,6 +95,14 @@ Object.assign(window.PuyoCPU5.prototype, {
         // ★ weightsArray を組み立てる（cpu5_weights.js）。発火制御はモード/カウンター側へ移行済み。
         const weightsArray = this._buildWeightsArray(knownNextCount);
         this._thinkWA = weightsArray;   // 思考ログ（撃たなかった理由の閾値表示）用
+        // 重み調整パネル（cpu_weights_panel.js → applyBuildValues）で変えた重みは、この思考から効く。
+        //   その手の思考ログに変えた重みを出し、パネルには効き始めの手番号を出す。
+        this._thinkWeightsNote = null;
+        if ((this._weightsRev || 0) !== (this._sentWeightsRev || 0)) {
+            this._sentWeightsRev = this._weightsRev;
+            this._weightsAppliedTurn = (this._turnNo || 0) + 1;   // この思考の結果が付く手番号
+            this._thinkWeightsNote = this._weightsChanged || {};
+        }
 
         this.worker.postMessage({
             type:           'calculate',
@@ -192,7 +200,8 @@ Object.assign(window.PuyoCPU5.prototype, {
                 : `構築 到達${d[20]}連鎖(${selIsFire ? '実発火' : '潜在'}・${selDepth}手後)`) +
               (why.head ? `［${why.head}］` : '');
         const inc = this._incomingOjamaGross > 0 ? `｜受け${this._incomingOjamaGross}個` : '';
-        const header = `${this._logTag(this._turnNo)} ${modeStr}${p2Str}｜${act}${inc}`;
+        const wn = this._thinkWeightsNote;
+        const header = `${this._logTag(this._turnNo)} ${modeStr}${p2Str}｜${act}${inc}${wn ? '｜★重みを変更' : ''}`;
 
         const lines = [
             `着手: col=${d[0]} rot=${d[1]}`,
@@ -204,6 +213,12 @@ Object.assign(window.PuyoCPU5.prototype, {
         ];
         if (this._thinkVs) lines.push(this._thinkVs);
         if (this._thinkP2) lines.push(this._thinkP2);
+        if (wn) {
+            const ks = Object.keys(wn);
+            lines.push(ks.length
+                ? `重み(パネル): この手から 既定と違う${ks.length}件 ` + ks.map(k => `${k} ${wn[k].from}→${wn[k].to}`).join(' / ')
+                : '重み(パネル): この手から 既定の値に戻した');
+        }
 
         const cfg = window.__cpuLogCfg || {};
         console[cfg.open ? 'group' : 'groupCollapsed'](header);

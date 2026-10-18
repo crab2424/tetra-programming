@@ -59,6 +59,7 @@ function stopAllGames() {
         if (ctrl && typeof ctrl.stop === 'function') ctrl.stop();
         window[key] = null;
     }
+    window.CpuWeightsPanel?.detach();   // CPU TEST の重み調整パネル
     if (typeof stopVersusCpuWatchdog === 'function') stopVersusCpuWatchdog();
     // ★ ここで unloadCpuScript() は呼ばない。
     //   stopAllGames() は startVersusGame() / startGameFromModeCheck() の冒頭でも走るため、
@@ -761,6 +762,7 @@ async function startGameFromModeCheck() {
       window._cpuController = new testCpuClass(window._puyoGame);
       window._cpuController.isAutoPlay = testCpuControl;
       window._cpuController.softDropOnly = !!window.__cpu6SoftDrop; // puyo LV6「高速落下で設置」
+      window.CpuWeightsPanel?.attach(window._cpuController);          // puyo LV5/LV6 の重み調整パネル（保存した変更もここで載せる）
       if (typeof window._cpuController.start === 'function') {
         window._cpuController.start();
       }
@@ -1064,6 +1066,7 @@ function restartPuyoCpuTest() {
   if (typeof CPUClass === 'function') {
     window._cpuController = new CPUClass(window._puyoGame);
     window._cpuController.isAutoPlay = testCpuControl;
+    window.CpuWeightsPanel?.attach(window._cpuController);   // 重み調整パネルを新しい CPU へ付け直す
     if (typeof window._cpuController.start === 'function') {
       window._cpuController.start();
     }

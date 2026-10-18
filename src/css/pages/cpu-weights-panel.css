@@ -1,0 +1,226 @@
+/* ─────────────────────────────────────────────
+   CPU TEST（ぷよ LV5/LV6）の重み調整パネル（public/app/cpu_weights_panel.js）
+   パネル本体はビューポート右端に position:fixed（PRACTICE の設定パネルの左右逆）。
+   開閉ボタン（.cwp-toggle）は #eval-area の中＝盤面と一緒に拡大縮小する。
+───────────────────────────────────────────── */
+.cwp-toggle {
+  display: block;
+  margin-top: 10px;
+  padding: 4px 10px;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cwp-toggle:hover,
+.cwp-toggle.is-open {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.cwp-toggle.is-custom {
+  color: var(--accent3);
+  border-color: var(--accent3);
+}
+
+.cwp-dock {
+  display: none;
+  position: fixed;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  z-index: 500; /* #container(z-index:1)より上、ポーズオーバーレイ(1000)より下 */
+}
+.cwp-dock.is-open {
+  display: block;
+}
+.cwp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 12px;
+  box-sizing: border-box;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: rgba(10, 10, 15, 0.86);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.cwp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cwp-title {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--accent);
+}
+.cwp-meta,
+.cwp-status {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.cwp-status.is-custom {
+  color: var(--accent3);
+}
+.cwp-warn,
+.cwp-msg.is-error {
+  color: var(--danger);
+}
+.cwp-msg:empty {
+  display: none;
+}
+.cwp-hint,
+.cwp-section-desc,
+.cwp-desc,
+.cwp-msg {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #a7b2c4;
+}
+
+.cwp-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cwp-btn {
+  padding: 4px 8px;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cwp-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.cwp-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cwp-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.cwp-close {
+  padding: 0 8px;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.cwp-import {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+}
+.cwp-import.is-open {
+  display: flex;
+}
+.cwp-import-text {
+  height: 110px;
+  resize: vertical;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.cwp-filter,
+.cwp-input {
+  box-sizing: border-box;
+  color: var(--text);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 12px;
+}
+.cwp-filter {
+  width: 100%;
+  padding: 3px 6px;
+}
+
+.cwp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cwp-section-title {
+  margin-top: 4px;
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--accent2, var(--accent));
+}
+.cwp-fixed summary {
+  cursor: pointer;
+}
+
+.cwp-row {
+  padding: 3px 4px;
+  border-left: 2px solid transparent;
+}
+.cwp-row.is-changed {
+  border-left-color: var(--accent3);
+  background: rgba(255, 255, 255, 0.04);
+}
+.cwp-row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cwp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+  font-size: 12px;
+}
+.cwp-row.is-changed .cwp-name {
+  color: var(--accent3);
+}
+.cwp-input {
+  width: 72px;
+  padding: 2px 4px;
+  text-align: right;
+}
+.cwp-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.cwp-ref {
+  width: 84px;
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.cwp-ref .is-same {
+  color: var(--text);
+}
+.cwp-desc:empty {
+  display: none;
+}
