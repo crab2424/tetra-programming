@@ -48,5 +48,13 @@ int getSide(const int heights[COLS]);
 //     別々に追跡する（argmax が一致するとは限らない）。発火価値の巻き上げ用。
 //   outChainCount != nullptr のとき、その最大連鎖スコアに対応する連鎖『段数』も書き出す
 //   （デバッグの「期待連鎖数」表示用。outChainScore の argmax と同じ候補の chains）。
+//   outMainSub != nullptr のとき、本線 M・副砲 S の中身（記録・分析用）も書き出す（重みが0でも計算する）。
+struct MainSubInfo {
+    int mainChains = 0, mainPuyos = 0;   // 本線 M の段数・色ぷよ数
+    int subScore = 0;                    // 副砲 S の点（0=副砲なし）
+    int colored = 0;                     // 盤面の色ぷよ数
+    bool subAllowed = false;             // G1/G2 を満たし E2b を足す状態か
+};
 int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w,
-                       int* outChainScore = nullptr, int* outChainCount = nullptr);
+                       int* outChainScore = nullptr, int* outChainCount = nullptr,
+                       MainSubInfo* outMainSub = nullptr);

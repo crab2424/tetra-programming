@@ -153,6 +153,8 @@ struct TraceTurn {             // decide()（spawnAnim 開始時の思考）ご�
     int puyos, ojama, h[COLS];
     double oppEnd;                         // 相手の発火中連鎖の終了予測時刻（-1=発火中でない）
     BoardWaste waste;                      // ign の連鎖で見た有効ぷよ量（色ぷよ・残り・余剰）
+    int mainChains = 0, mainPuyos = 0;     // quiescence の本線 M の段数・色ぷよ数（G1）
+    int subScore = 0, subAllowed = 0;      // 副砲 S の点／G1・G2 を満たし E2b を足す状態か
 };
 struct TraceFire {             // 1回の連鎖（発火〜連鎖終了）
     double tStart = 0, tEnd = 0;

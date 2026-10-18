@@ -142,7 +142,8 @@ static bool hasGroup4At(const BitBoard& b, int col, int row, uint8_t color) {
 //     盤面の色ぷよ数 ≥ subMinFill（それ以上の構築が難しくなってから副砲ゾーンを設ける）。
 static const int OJAMA_RATE = 70;
 struct QuietPop { CellMask mask; int score; int chains; };   // quiescence の1候補：消えたぷよ（連鎖前の位置）・点・段数
-static int calcSubJunkEval(const BitBoard& b, const EvalWeights& w, const QuietPop* pops, int nPops) {
+static int calcSubJunkEval(const BitBoard& b, const EvalWeights& w, const QuietPop* pops, int nPops,
+                           MainSubInfo* info) {
     CellMask occupied, colored;
     int nColor = 0;
     for (int r = HIDDEN; r < TOTAL_ROWS; ++r) {
@@ -189,6 +190,13 @@ static int calcSubJunkEval(const BitBoard& b, const EvalWeights& w, const QuietP
     bool subAllowed = mainIdx >= 0 && pops[mainIdx].chains >= w.subMinMainChains &&
                       mainPuyos >= w.subMinMainPuyos && nColor >= w.subMinFill;
     if (w.qSubWeight != 0 && subIdx >= 0 && subAllowed) score += (pops[subIdx].score / OJAMA_RATE) * w.qSubWeight;
+    if (info) {
+        info->mainChains = mainIdx >= 0 ? pops[mainIdx].chains : 0;
+        info->mainPuyos  = mainPuyos;
+        info->subScore   = subIdx >= 0 ? pops[subIdx].score : 0;
+        info->colored    = nColor;
+        info->subAllowed = subAllowed;
+    }
     return score;
 }
 
@@ -197,7 +205,7 @@ static int calcSubJunkEval(const BitBoard& b, const EvalWeights& w, const QuietP
 //   原典 quiet.cpp の探索を bounded 列範囲でスカラ再現。
 static const int MAX_QDROP = 3;
 int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWeights& w,
-                       int* outChainScore, int* outChainCount) {
+                       int* outChainScore, int* outChainCount, MainSubInfo* outMainSub) {
     if (outChainScore) *outChainScore = 0;
     if (outChainCount) *outChainCount = 0;
     // 重みが全て0なら計算を省略（性能対策）。
@@ -209,11 +217,11 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
     //   （現行デフォルトは q重み非0なので発動しない。）
     if (w.qChainWeight == 0 && w.qYWeight == 0 && w.qKeyWeight == 0 && w.qChiWeight == 0
         && w.qLink2Weight == 0 && w.qLink3Weight == 0 && w.qExcessWeight == 0
-        && w.qJunkWeight == 0 && w.qSubWeight == 0) return 0;
+        && w.qJunkWeight == 0 && w.qSubWeight == 0 && !outMainSub) return 0;
 
     // ── 副砲・ゴミ（提案3 E2a/E2b。設計: lv6-harass-design.md §9.3）──
     //   どちらかの重みが非0のときだけ、各候補の「消えたぷよの元の位置」を追跡する（既定0なら従来と同じ速さ）。
-    const bool trackPop = (w.qJunkWeight != 0 || w.qSubWeight != 0);
+    const bool trackPop = (w.qJunkWeight != 0 || w.qSubWeight != 0 || outMainSub);
     QuietPop pops[COLS * 5];
     int nPops = 0;
 
@@ -286,6 +294,6 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
         }
     }
     int result = found ? best : 0;
-    if (trackPop) result += calcSubJunkEval(b, w, pops, nPops);
+    if (trackPop) result += calcSubJunkEval(b, w, pops, nPops, outMainSub);
     return result;
 }

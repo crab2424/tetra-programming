@@ -72,20 +72,23 @@ def upgrade_packed(h: list) -> np.ndarray:
 # lv6h＝本番 lv6 に催促 H1・対応 H2 を入れた学習相手（lv6-harass-design.md §9.5・§9.9）。
 #   H1 の値は A/B（ab_eval --set h2）で悪化しなかったもの。lv6 単体だと「催促に弱い」点を突くことばかり学ぶため。
 LV6H_SET = {46: 12, 47: 3, 48: 80, 49: 1, 50: 300}   # harassMinOjama/MaxChains/KeepPct/counterKeepReach/MinReach
+# lv6g＝本番 lv6 に §10.4 の固定値（H1 12個・3段・80%・200個、H2、本線条件 G1 7連鎖・30個）を入れたもの。
+#   副砲の重み（qSub）と埋まり具合（subMinFill）は lv6 のまま＝学習で決める（lv6-harass-design.md §10.4）。
+LV6G_SET = {46: 12, 47: 3, 48: 80, 49: 1, 50: 200, 51: 7, 52: 30}
 
 
 def named_policy(name: str, base_json: dict) -> ps.Policy:
-    if name == "lv6h":
+    if name in ("lv6h", "lv6g"):
         pol = ps.Policy.lv6(base_json)
-        for i, v in LV6H_SET.items():
+        for i, v in (LV6H_SET if name == "lv6h" else LV6G_SET).items():
             pol.build[i] = v
         return pol
     return ps.Policy.lv6(base_json) if name == "lv6" else ps.Policy.baseline(base_json)
 
 
 def apply_init_set(pol: ps.Policy, items: list[str]) -> ps.Policy:
-    """--init-set 名前=値（SPACE の名前）で初期値を書き換える。"""
-    by_name = {p.name: p for p in P.SPACE}
+    """--init-set 名前=値（SPACE・FIXED_NAMED の名前）で初期値を書き換える。"""
+    by_name = P.NAMED
     for it in items:
         k, v = it.split("=", 1)
         p = by_name[k]
@@ -138,12 +141,12 @@ def main() -> int:
     ap.add_argument("--sigma", type=float, default=0.1, help="正規化座標での初期ステップ幅")
     ap.add_argument("--threads", type=int, default=0, help="0=全コア")
     ap.add_argument("--master-seed", type=int, default=20261015)
-    ap.add_argument("--opp", default="lv5", choices=["lv5", "lv6", "lv6h"], help="学習相手・定期評価の相手（本番の重み。lv6h＝lv6＋催促 H1・対応 H2）")
+    ap.add_argument("--opp", default="lv5", choices=["lv5", "lv6", "lv6h", "lv6g"], help="学習相手・定期評価の相手（本番の重み。lv6h＝lv6＋催促 H1・対応 H2／lv6g＝lv6＋§10.4 の固定値）")
     ap.add_argument("--opp-pool", default=None, metavar="JSON",
                     help="学習相手のプール（opponents/*.json）。指定すると --opp の代わりにプールを相手にする（pool.py）")
     ap.add_argument("--worst-lambda", type=float, default=0.3,
                     help="プール時の best 選抜：平均勝率 − λ×(最悪の相手への負け越し)。0 で平均のみ")
-    ap.add_argument("--init", default=None, choices=["lv5", "lv6", "lv6h"], help="初期値（既定は --opp と同じ）")
+    ap.add_argument("--init", default=None, choices=["lv5", "lv6", "lv6h", "lv6g"], help="初期値（既定は --opp と同じ）")
     ap.add_argument("--init-set", action="append", default=[], metavar="名前=値",
                     help="初期値の一部を書き換える（params.SPACE の名前。複数可）")
     ap.add_argument("--eval-every", type=int, default=5, help="平均ベクトルを学習相手と評価する間隔（世代）")

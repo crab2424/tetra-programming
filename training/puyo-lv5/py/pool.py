@@ -1,9 +1,9 @@
 """学習相手のプール（opponents/*.json）の読み込みと、シードの割り当て。
 
-    {"members": [{"name", "base": "lv5|lv6|lv6h", "set": {SPACE名: 値}, "weight",
+    {"members": [{"name", "base": "lv5|lv6|lv6h|lv6g", "set": {名前: 値}, "weight",
                   "perturb": {"sigma", "count"}}]}
 
-  ・set は params.SPACE の名前で base を上書きする（fast・ext は base のまま）
+  ・set は params.NAMED（SPACE＋FIXED_NAMED）の名前で base を上書きする（fast・ext は base のまま）
   ・perturb を持つメンバーは、base の重みに正規化座標で σ の雑音を足した count 体に展開する（weight は等分）
   ・シードは重みの比率で相手に割り当てる。全候補で同じ割り当て（共通乱数）
 """
@@ -27,7 +27,7 @@ class Opponent:
 
 
 def _apply_set(pol: ps.Policy, items: dict) -> ps.Policy:
-    by_name = {p.name: p for p in P.SPACE}
+    by_name = P.NAMED
     for k, v in items.items():
         p = by_name[k]
         if p.index == -1:

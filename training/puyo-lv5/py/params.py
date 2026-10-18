@@ -47,7 +47,8 @@ SPACE: list[Param] = [
     Param("link3FacV",          40,     0,  200),
     Param("qExcessWeight",      43,  -400,    0),   # 提案3 E1：潜在連鎖の途中段の余剰（2026-10-16 追加）
     Param("qJunkWeight",        44,  -200,    0),   # 提案3 E2a：ゴミ×埋まり具合（2026-10-16 追加）
-    Param("qSubWeight",         45,     0,  150),   # 提案3 E2b：副砲のおじゃま量
+    Param("qSubWeight",         45,     0,  400),   # 提案3 E2b：副砲のおじゃま量（§10.4 で 0〜400 に拡大）
+    Param("subMinFill",         53,     0,   60),   # G2：副砲を評価する盤面の色ぷよ数の下限（2026-10-18 追加）
     # ── 制御（controlWeights）──
     Param("emergencyHeight",         8,     8,     12),
     Param("expChainWeight",         19,     0,  10000),
@@ -57,24 +58,31 @@ SPACE: list[Param] = [
     Param("growthFireForbidChains", 35,     0,      4),
     Param("emergencyFireMinRatio",  36,     0,    100),
     Param("emergencyHardCol2",      37,     8,     12),
-    # ── 催促・対応（H1/H2。2026-10-16 追加。lv6-harass-design.md §9.4）──
-    Param("harassMinOjama",         46,     0,     30),   # 0＝催促しない
-    Param("harassMaxChains",        47,     1,      5),
-    Param("harassKeepPct",          48,     0,    100),
-    Param("counterKeepReach",       49,     0,      1),   # H2 1/0
-    Param("harassMinReach",         50,     0,    900),   # 撃った後に残す本線（個）
     # ── VERSUS カウンター（cpu5_worker_io.js の定数）──
     Param("COUNTER_TRIGGER_OJAMA_VSPUYO", -1,   1,   20),
     Param("COUNTER_MARGIN_VSPUYO",        -2, 0.6,  2.0, integer=False),
 ]
 DIM = len(SPACE)
 
+# 学習しない（固定する）が、名前で初期値・相手を書き換えたいもの（--init-set・相手プールの set）。
+#   催促・対応 H1/H2 と本線条件 G1 は §10.4 で固定値にした（lv6-harass-design.md）。
+FIXED_NAMED: list[Param] = [
+    Param("harassMinOjama",         46,     0,     30),   # 0＝催促しない
+    Param("harassMaxChains",        47,     1,      5),
+    Param("harassKeepPct",          48,     0,    100),
+    Param("counterKeepReach",       49,     0,      3),   # H2 0..3
+    Param("harassMinReach",         50,     0,    900),   # 撃った後に残す本線（個）
+    Param("subMinMainChains",       51,     0,     19),   # G1：副砲・催促の本線段数の下限
+    Param("subMinMainPuyos",        52,     0,     72),   # G1：副砲の本線色ぷよ数の下限
+]
+NAMED = {p.name: p for p in SPACE + FIXED_NAMED}
+
 
 def check_indices(baseline: dict) -> None:
     """名前と添字の対応が本番 JS とずれていないか（weightsArray の並びが変わったら落とす）。"""
     named = baseline["buildNamed"]
-    for p in SPACE:
-        if p.index >= 0:
+    for p in SPACE + FIXED_NAMED:
+        if p.index >= 0 and p.name in named and p.index not in (46, 49, 50):   # 46/49/50 は思考ごとの入力（export が保存値で上書き）
             assert named[p.name] == baseline["build"][p.index], f"{p.name} の添字 {p.index} が本番とずれている"
 
 

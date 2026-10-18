@@ -15,6 +15,7 @@
 #include "core/bitboard.h"
 #include "core/weights.h"
 #include "build/build.h"
+#include "eval/shape.h"
 
 #include <algorithm>
 #include <cmath>
@@ -381,6 +382,14 @@ void Player::decide(Player* opp) {
                 if (r >= HIDDEN) h++;
             }
             tt.h[c] = h;
+        }
+        {   // 本線 M・副砲 S（build の重みで見た G1/G2 の状態）
+            EvalWeights wb = weightsFromArray(pp_.build);
+            MainSubInfo ms;
+            int pot = 0;
+            calcQuiescenceEval(bb, tt.h, wb, &pot, nullptr, &ms);
+            tt.mainChains = ms.mainChains; tt.mainPuyos = ms.mainPuyos;
+            tt.subScore = ms.subScore; tt.subAllowed = ms.subAllowed ? 1 : 0;
         }
         trace->turns.push_back(tt);
     }

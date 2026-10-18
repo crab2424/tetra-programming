@@ -1,0 +1,27 @@
+{
+  "description": "相手プール v2（2026-10-18）。§10.4 の再学習用。基準は lv6g（現行 lv6＋催促 H1・対応 H2・本線条件 G1 の固定値）。pool-v1 の立ち回りの違い（速攻・大連鎖・守り・旧世代・摂動）に、催促を使わない素の lv6 と副砲を重く見る相手を足した。",
+  "members": [
+    {"name": "main", "base": "lv6g", "set": {}, "weight": 3,
+     "note": "lv6g（学習相手の基準）。候補と同じ固定値を持つので、催促に弱い点を一方的に突く学び方になりにくい。"},
+    {"name": "lv6", "base": "lv6", "set": {}, "weight": 1,
+     "note": "現行の本番 lv6（催促はほぼ撃たない）。"},
+    {"name": "fast_attack", "base": "lv6g", "weight": 1.5,
+     "set": {"fireChainCount": 11, "fireScoreThreshold": 90000, "harassMinOjama": 8, "subMinMainChains": 0},
+     "note": "速攻型：11連鎖・9万点で早めに撃ち、本線の段数を問わず催促する（versus-mechanics §5 の序盤催促）。"},
+    {"name": "big_chain", "base": "lv6g", "weight": 1.5,
+     "set": {"fireChainCount": 15, "fireScoreThreshold": 200000, "emergencyHeight": 12, "emergencyFireMinRatio": 100,
+             "harassMinOjama": 0},
+     "note": "大連鎖型：15連鎖か20万点まで撃たず、催促もしない（§3）。"},
+    {"name": "sub_heavy", "base": "lv6g", "weight": 1,
+     "set": {"qSubWeight": 200, "subMinFill": 30},
+     "note": "副砲型：本線7連鎖・30個の後、早めに副砲を育てて催促する（§5 の理想の流れを強めたもの）。"},
+    {"name": "responder", "base": "lv6g", "weight": 1,
+     "set": {"fireChainCount": 12, "fireScoreThreshold": 100000, "qSubWeight": 100, "harassMinOjama": 0,
+             "counterKeepReach": 3, "COUNTER_TRIGGER_OJAMA_VSPUYO": 1, "COUNTER_MARGIN_VSPUYO": 1.0},
+     "note": "守り型：少量でもすぐ、本線を残して受け量ちょうどで返す（§6）。"},
+    {"name": "lv5", "base": "lv5", "set": {}, "weight": 1,
+     "note": "旧世代（現行 lv5）。"},
+    {"name": "perturb", "base": "lv6g", "perturb": {"sigma": 0.15, "count": 2}, "weight": 2,
+     "note": "lv6g の学習対象の重みに正規化座標で σ=0.15 の雑音。学習は世代ごとに作り直し、定期評価は固定の2体。"}
+  ]
+}
