@@ -89,7 +89,9 @@ window.PuyoCPU5 = class {
 
     start() {
         this.isActive = true;
-        this._turnNo = 0;   // 思考ログの手数（コントローラを作り直すと 0 から数え直す）
+        // 思考ログの手数と試合の集計。作り直し（versus.js recreateVersusCpuController）では前の値を引き継ぐ
+        this._turnNo = this._turnNo || 0;
+        this._stats  = this._stats || this._newStats();
         this._oppChainWatch = null;
         this.hasCalculatedForCurrentPiece = false;
         this._initEstimateContainer();
@@ -97,6 +99,7 @@ window.PuyoCPU5 = class {
     }
 
     stop() {
+        this._reportSummary();   // 試合が決着して止めるときだけ集計表を出す（cpu5_worker_io.js）
         this.isActive          = false;
         this.bestMoveData      = null;
         this.isExecutingAction = false;

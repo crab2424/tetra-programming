@@ -294,6 +294,8 @@ function recreateVersusCpuController(key) {
   const CPUClass = old.constructor;
   if (typeof old.stop === 'function') old.stop();
   const ctrl = new CPUClass(game);
+  // ぷよ LV5/LV6 の思考ログの手数・試合の集計を引き継ぐ（作り直しで数え直さない）
+  if (old._stats) { ctrl._stats = old._stats; ctrl._turnNo = old._turnNo; }
   // LV6 の隠しモード（PC探索オフ／高速落下で設置）は作り直しでも引き継ぐ（盤面入れ替え・ウォッチドッグ）
   if (old.disablePC !== undefined) ctrl.disablePC = old.disablePC;
   if (old.softDropOnly !== undefined) ctrl.softDropOnly = old.softDropOnly;

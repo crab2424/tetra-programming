@@ -154,6 +154,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         }
 
         this._logThink(res);
+        this._recordStats(res);
 
         // falling 中なら即着手。前倒し計算で falling 前に結果が来た場合は、
         // _updateLoop が falling 突入時に _tryStartExecution を呼んで着手する。
@@ -283,6 +284,111 @@ Object.assign(window.PuyoCPU5.prototype, {
         if (bit(9)) lines.push(`育成: すべての手が ${wa[35]}連鎖以上こぼすため、こぼし除外を解除`);
         if (bit(2)) lines.push(`盤面: 致死列 ${col2H}段・平均 ${avgH}段＝緊急`);
         return { head, lines };
+    },
+
+    // ───────────────────────────────────────────────
+    // ★ 試合の集計：手ごと（_recordStats）・相手連鎖の答え合わせごと（_recordAnswer）に貯め、
+    //   試合が決着して止めるとき（_reportSummary）に両方の CPU を1つの表で出す。
+    _newStats() {
+        return {
+            turns: 0, fires: {}, maxFireChains: 0, maxFireScore: 0, maxPot: 0,
+            counterTurns: 0, p2Wait: 0, p2Deadline: 0, holdDoom: 0, holdEmergency: 0,
+            answers: 0, ojamaMatch: 0, endErrSum: 0, endErrMax: 0, endEarly: 0,
+        };
+    },
+
+    // 撃った理由の分類（集計用。_describeFire と同じ決まり）。撃っていなければ null。
+    _fireKind(d) {
+        if (d[15] > 0) {
+            const r = d[23];
+            if (r === 4) return '催促';
+            if (r === 2) return '緊急';
+            if (r === 3) return '延命';
+            if (r === 1) return this._counterActive ? '対応' : '本線';
+            return '不明';
+        }
+        return d[24] > 0 ? '整地' : null;
+    },
+
+    _recordStats(d) {
+        const st = this._stats;
+        if (!st || !(d.length >= 36) || d[9] < 0) return;
+        st.turns++;
+        const kind = this._fireKind(d);
+        if (kind) st.fires[kind] = (st.fires[kind] || 0) + 1;
+        if (d[15] > st.maxFireChains) st.maxFireChains = d[15];   // 発火判定で撃った連鎖（整地は含めない）
+        if (d[15] > 0 && d[14] > st.maxFireScore) st.maxFireScore = d[14];
+        if (d[12] > st.maxPot) st.maxPot = d[12];
+        if (this._counterActive) st.counterTurns++;
+        if (this._thinkP2State === '待つ') st.p2Wait++;
+        if (this._thinkP2State === '締切') st.p2Deadline++;
+        if (d[15] === 0) {
+            const flags = d[33];
+            if ((flags >> 8) & 1) st.holdDoom++;
+            if (((flags >> 2) & 1) && !((flags >> 3) & 1) && !((flags >> 4) & 1) && d[21] > 0) st.holdEmergency++;
+        }
+    },
+
+    _recordAnswer(w, now) {
+        const st = this._stats;
+        if (!st) return;
+        st.answers++;
+        if (w.maxGen === w.ojamaEst) st.ojamaMatch++;
+        if (w.endEstMs >= 0 && !w.paused) {
+            const err = (now - w.startAt) - w.endEstMs;
+            st.endErrSum += Math.abs(err);
+            st.endErrMax = Math.max(st.endErrMax, Math.abs(err));
+            if (err < 0) st.endEarly++;
+        }
+    },
+
+    // VERSUS の決着（BattleVersusLifecycle が roundResolving）で止めるときだけ出す。
+    //   両方の CPU の stop() は versusGameOver → _stopVersusCpuControllers で同期的に続けて呼ばれるので、
+    //   列を window.__cpuSummary に溜めて次のタスクで1つの表にする。
+    _reportSummary() {
+        const st = this._stats;
+        this._stats = null;
+        const g = this.game;
+        const lc = window.BattleVersusLifecycle;
+        if (!st || !g || !g.isVersusMode || !lc || lc.phase !== 'roundResolving') return;
+        if (!this._logEnabled() || st.turns === 0) return;
+
+        const col = `${this._logSide()} ${this.constructor.LOG_NAME}`;
+        const FIRE_KINDS = ['本線', '対応', '催促', '緊急', '延命', '整地'];
+        const row = {
+            '結果':           g._gs === 'gameover' ? '負け' : '勝ち',
+            '手数':           st.turns,
+            '最大の発火 段数':  st.maxFireChains,
+            '最大の発火 点':    st.maxFireScore,
+            '本線潜在の最大':   st.maxPot,
+        };
+        for (const k of FIRE_KINDS) row[`発火:${k}`] = st.fires[k] || 0;
+        if (st.fires['不明']) row['発火:不明'] = st.fires['不明'];
+        Object.assign(row, {
+            'カウンター中の手':  st.counterTurns,
+            '後打ち 待つ/締切':  `${st.p2Wait}/${st.p2Deadline}`,
+            '見送り 詰む/緊急':  `${st.holdDoom}/${st.holdEmergency}`,
+            '答え合わせ 回数':   st.answers,
+            '受け量の予測一致':  st.answers ? `${st.ojamaMatch}/${st.answers}` : '—',
+            '終了時刻の誤差 平均/最大': st.answers ? `${Math.round(st.endErrSum / st.answers)}/${Math.round(st.endErrMax)}ms` : '—',
+            '予測より早い終了':  st.endEarly,
+        });
+
+        const sum = window.__cpuSummary || (window.__cpuSummary = {});
+        sum[col] = row;
+        if (sum.__timer) return;
+        sum.__timer = setTimeout(() => {
+            const cols = window.__cpuSummary;
+            window.__cpuSummary = null;
+            delete cols.__timer;
+            // 表は「行＝項目・列＝CPU」にする
+            const table = {};
+            for (const [c, r] of Object.entries(cols).sort(([a], [b]) => a.localeCompare(b))) {
+                for (const [k, v] of Object.entries(r)) (table[k] || (table[k] = {}))[c] = v;
+            }
+            console.log(`[cpu 試合集計] ${Object.keys(cols).sort().map(c => `${c} ${cols[c]['結果']}`).join(' / ')}`);
+            console.table(table);
+        }, 0);
     },
 
     // ───────────────────────────────────────────────
@@ -737,7 +843,9 @@ Object.assign(window.PuyoCPU5.prototype, {
         }
         if (!w) return;
         this._oppChainWatch = null;
-        if (!opp || !this._logEnabled()) return;   // 相手が居なくなった（試合終了など）ときは出さない
+        if (!opp) return;   // 相手が居なくなった（試合終了など）ときは出さない
+        this._recordAnswer(w, now);
+        if (!this._logEnabled()) return;
 
         const fmtErr = (predEndAt) => {
             const e = Math.round(now - predEndAt);
