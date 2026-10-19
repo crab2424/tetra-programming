@@ -244,13 +244,8 @@ function switchPage(pageId) {
     selectedPlayerCpuLevel = null;
     window.__cpu6DisablePC1P = false;
     window.__cpu6SoftDrop1P = false;
-    // 2P の LV6 隠しモード（PC探索オフ／高速落下で設置）は、対戦・結果・VS SETTINGS から戻るときは維持し、
-    // メニューから開き直したときだけ通常へ戻す（selectedCpuLevel と同じ扱い）
-    const prev = window._prevPage;
-    if (prev !== 'versus' && prev !== 'versus-result' && prev !== 'vs-settings') {
-      window.__cpu6DisablePC2P = false;
-      window.__cpu6SoftDrop2P = false;
-    }
+    // 2P の LV6 隠しモード（PC探索オフ／高速落下で設置）は selectedCpuLevel と同じく保持する
+    // （CPU同士の 1P 側だけ、1P の LV 指定と合わせて開き直しで通常へ戻す）
   }
   if (menuPages.includes(pageId)) {
     if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
