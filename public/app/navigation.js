@@ -534,11 +534,13 @@ function renderModeCheck() {
           <div class="option-toggle" id="test-cpu-level-toggle"></div>
         </div>
       `;
-      // LV1〜5 のボタン（LV6 は隠しキー 6 / Shift+6 で選ぶ＝どのボタンも光らない）
+      // LV1〜6 のボタン（CPU TEST のみ LV6 を表示。ボタンは隠しキー 6 と同じ＝PC探索オフ／高速落下設置は解除。
+      // 7 / Shift+7 の指定はキーで行う）
       const fillLevels = (toggleId, get, set) => {
         const toggle = document.getElementById(toggleId);
         if (!toggle) return;
-        for (let lv = 1; lv <= 5; lv++) {
+        toggle.classList.add('compact');
+        for (let lv = 1; lv <= 6; lv++) {
           const btn = document.createElement('button');
           btn.className = 'opt-btn' + (lv === get() ? ' active' : '');
           btn.textContent = 'LV' + lv;
@@ -549,8 +551,15 @@ function renderModeCheck() {
           toggle.appendChild(btn);
         }
       };
-      fillLevels('test-cpu-level-toggle', () => selectedCpuLevel, (lv) => { selectedCpuLevel = lv; });
-      if (vsCpu) fillLevels('test-player-cpu-level-toggle', () => testPlayerCpuLevel, (lv) => { testPlayerCpuLevel = lv; });
+      // LV6 を新たに選んだときは隠しモード(7)を解除（既に LV6 のまま押し直したときは維持）
+      fillLevels('test-cpu-level-toggle', () => selectedCpuLevel, (lv) => {
+        if (lv === 6 && selectedCpuLevel !== 6) { window.__cpu6DisablePC = false; window.__cpu6SoftDrop = false; }
+        selectedCpuLevel = lv;
+      });
+      if (vsCpu) fillLevels('test-player-cpu-level-toggle', () => testPlayerCpuLevel, (lv) => {
+        if (lv === 6 && testPlayerCpuLevel !== 6) window.__cpu6SoftDropTest1P = false;
+        testPlayerCpuLevel = lv;
+      });
     } else if (mode.id === 'practice') {
       optionsEl.style.display = 'flex';
       optionsEl.innerHTML = renderPracticeModeCheckOptions(mode);
@@ -1267,7 +1276,7 @@ function handlePauseAction(action) {
     } else {
       selectedCpuLevel = 6;
       const t = document.getElementById('test-cpu-level-toggle');
-      if (t) t.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('active'));
+      if (t) t.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === 6));
     }
     window.SeManager?.play('menu_decide');
   }
@@ -1302,7 +1311,7 @@ function handlePauseAction(action) {
       testPlayerCpuLevel = 6;
       window.__cpu6SoftDropTest1P = disablePC;
       const t = document.getElementById('test-player-cpu-level-toggle');
-      if (t) t.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('active'));
+      if (t) t.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === 6));
       window.SeManager?.play('menu_decide');
       return;
     }
