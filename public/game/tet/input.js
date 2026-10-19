@@ -14,6 +14,47 @@ Object.assign(Game.prototype, {
         return true;
     },
 
+    // ─── DAS/DCD の左右共通ヘルパ（setKeyEvent 内のキー/ゲームパッド/_pollInput から使う） ───
+    _startDcd(dir, now) {
+        if (this.DCD_DELAY <= 0) return
+        this._dcdDir = dir
+        this._dcdUntil = now + this.DCD_DELAY
+    },
+
+    _setLastMoveTime(dir, now) {
+        if (dir === 'left') this._lastMoveTimeLeft = now
+        else this._lastMoveTimeRight = now
+    },
+
+    // blocked=true のときは止まった時点のミノの x/rotation を記録する（DCD ②の原因判定用）
+    _setDasBlocked(dir, blocked) {
+        const snap = blocked ? { x: this.mino.x, rotation: this.mino.rotation } : null
+        if (dir === 'left') {
+            this._dasBlockedLeft = blocked
+            this._dasBlockSnapLeft = snap
+        } else {
+            this._dasBlockedRight = blocked
+            this._dasBlockSnapRight = snap
+        }
+    },
+
+    // 左右キーを離したときの共通処理。その方向の DCD 中なら即解除する
+    _releaseHorizontal(dir) {
+        if (dir === 'left') {
+            this._leftPressTime = null
+            this._dasBlockedLeft = false
+            this._dasBlockSnapLeft = null
+        } else {
+            this._rightPressTime = null
+            this._dasBlockedRight = false
+            this._dasBlockSnapRight = null
+        }
+        if (this._dcdDir === dir) {
+            this._dcdDir = null
+            this._dcdUntil = 0
+        }
+    },
+
     // ─────────────────────────────────────────
     // キーイベント（localStorage のキー設定を参照）
     // ─────────────────────────────────────────
@@ -52,9 +93,19 @@ Object.assign(Game.prototype, {
         this._lastHorizontal = null;
         this._lastMoveTimeLeft = 0;
         this._lastMoveTimeRight = 0;
+        // ─── DCD (DAS Cut Delay) ───
+        // 溜まったDASの暴発を防ぐため、次の2つの契機でDASの連続移動を DCD_DELAY だけ止める。
+        //   ① DASを溜めたまま新しいミノが出現した（設置・ホールド）
+        //   ② DASが溜まっていて壁等で止まっていた方向が、左右移動や回転で動ける状態に変わった
+        //      （ソフトドロップ・自然落下で動けるようになった場合は、滑り込ませる操作を妨げないよう対象外）
+        // DCDはその方向のキーを離すと即解除。止めるのは溜めた方向のDAS連続移動だけで、他の操作は止めない。
         this._dcdUntil = 0;
-        this._dasBlockedLeft = false;
+        this._dcdDir = null;
+        this._dcdMino = undefined;     // 新ミノ出現の検知用（undefined=未観測。ゲーム開始時の初手はDCD対象外）
+        this._dasBlockedLeft = false;  // DASが溜まった状態で左に動けず止まっているか
         this._dasBlockedRight = false;
+        this._dasBlockSnapLeft = null; // 止まった時点のミノの x/rotation（動けるようになった原因の判定用）
+        this._dasBlockSnapRight = null;
 
         // 既存のリスナー解除
         if (this._keyDownHandler) document.removeEventListener('keydown', this._keyDownHandler)
@@ -204,11 +255,7 @@ Object.assign(Game.prototype, {
                 if (e.repeat) return;            // 長押しによる連続発火を防止
                 if (this.isCountingDown) return; // カウントダウン中は無効
                 if (!this.mino) return;          // 孤児インスタンス等、盤面を持たない状態での誤操作を防ぐ（設計 §7.D-2）
-
-                if (this.DCD_DELAY > 0 &&
-                    (this._dasBlockedLeft || this._dasBlockedRight)) {
-                    this._dcdUntil = performance.now() + this.DCD_DELAY
-                }
+                // 設置後の DCD は _pollInput が新ミノの出現を検知して開始する（ゲームパッド・自然設置とも共通）
                 this.hardDrop()
             }
             if (keys.hold.codes.includes(e.code)) {
@@ -230,9 +277,7 @@ Object.assign(Game.prototype, {
             }
 
             if (keys.moveLeft.codes.includes(e.code) && !this.keyState.moveLeft) {
-                this._leftPressTime = null
-                this._dasBlockedLeft = false
-                this._dcdUntil = 0
+                this._releaseHorizontal('left')
 
                 // 左を離したとき、右が押されていれば右を優先
                 if (this.keyState.moveRight) {
@@ -241,9 +286,7 @@ Object.assign(Game.prototype, {
             }
 
             if (keys.moveRight.codes.includes(e.code) && !this.keyState.moveRight) {
-                this._rightPressTime = null
-                this._dasBlockedRight = false
-                this._dcdUntil = 0
+                this._releaseHorizontal('right')
 
                 // 右を離したとき、左が押されていれば左を優先
                 if (this.keyState.moveLeft) {
@@ -294,80 +337,69 @@ Object.assign(Game.prototype, {
                 dir = 'right';
             }
 
-            if (dir === 'left') {
-                if (this._leftPressTime !== null) {
-                    const heldTime = now - this._leftPressTime
-                    const inDcd = now < this._dcdUntil
+            // ─── DCD ①：新しいミノの出現（設置・ホールド） ───
+            // ミノの差し替えを検知した最初のフレームで、溜まっているDASがあれば止める。
+            if (this.mino !== this._dcdMino) {
+                const isFirstMino = this._dcdMino === undefined
+                this._dcdMino = this.mino
+                this._dasBlockedLeft = false
+                this._dasBlockedRight = false
+                if (!isFirstMino && dir !== null) {
+                    const pressTime = dir === 'left' ? this._leftPressTime : this._rightPressTime
+                    if (pressTime !== null && now - pressTime >= this.DAS_DELAY) {
+                        this._startDcd(dir, now)
+                    }
+                }
+            }
+
+            if (dir !== null) {
+                const isLeft = dir === 'left'
+                const dx = isLeft ? -1 : 1
+                const pressTime = isLeft ? this._leftPressTime : this._rightPressTime
+                if (pressTime !== null) {
+                    const heldTime = now - pressTime
+                    const lastMoveTime = isLeft ? this._lastMoveTimeLeft : this._lastMoveTimeRight
 
                     // 初回入力（押した瞬間）
-                    if (this._lastMoveTimeLeft === 0) {
-                        if (this.valid(-1, 0)) {
-                            this.mino.x--
+                    if (lastMoveTime === 0) {
+                        if (this.valid(dx, 0)) {
+                            this.mino.x += dx
                             this.lastActionWasRotation = false; // 移動したので回転フラグを解除
                             this.playSe('move')
                             acted = true
                         }
-                        this._lastMoveTimeLeft = now
-                        this._dasBlockedLeft = false
+                        this._setLastMoveTime(dir, now)
+                        this._setDasBlocked(dir, false)
                     }
                     // DAS後の連続移動
                     else if (heldTime >= this.DAS_DELAY &&
-                        now - this._lastMoveTimeLeft >= this.ARR_INTERVAL) {
-                        if (!inDcd) {
-                            if (this.valid(-1, 0)) {
-                                this.mino.x--
-                                this.lastActionWasRotation = false; // 移動したので回転フラグを解除
-                                this.playSe('move')
-                                acted = true
-                                this._dasBlockedLeft = false
+                        now - lastMoveTime >= this.ARR_INTERVAL) {
+                        if (!(this._dcdDir === dir && now < this._dcdUntil)) {
+                            if (this.valid(dx, 0)) {
+                                // DCD ②：止まっていた方向が左右移動・回転で動けるようになった
+                                const snap = isLeft ? this._dasBlockSnapLeft : this._dasBlockSnapRight
+                                const blocked = isLeft ? this._dasBlockedLeft : this._dasBlockedRight
+                                this._setDasBlocked(dir, false)
+                                if (this.DCD_DELAY > 0 && blocked && snap &&
+                                    (snap.x !== this.mino.x || snap.rotation !== this.mino.rotation)) {
+                                    this._startDcd(dir, now)
+                                } else {
+                                    this.mino.x += dx
+                                    this.lastActionWasRotation = false; // 移動したので回転フラグを解除
+                                    this.playSe('move')
+                                    acted = true
+                                }
                             } else {
-                                this._dasBlockedLeft = true
+                                this._setDasBlocked(dir, true)
                             }
+                            // DCD中は更新しない（DCD明けに ARR 待ちを挟まず即動かすため）
+                            this._setLastMoveTime(dir, now)
                         }
-                        this._lastMoveTimeLeft = now
                     }
                 }
-                this._dasBlockedRight = false
             }
-            else if (dir === 'right') {
-                if (this._rightPressTime !== null) {
-                    const heldTime = now - this._rightPressTime
-                    const inDcd = now < this._dcdUntil
-
-                    // 初回入力（押した瞬間）
-                    if (this._lastMoveTimeRight === 0) {
-                        if (this.valid(1, 0)) {
-                            this.mino.x++
-                            this.lastActionWasRotation = false; // 移動したので回転フラグを解除
-                            this.playSe('move')
-                            acted = true
-                        }
-                        this._lastMoveTimeRight = now
-                        this._dasBlockedRight = false
-                    }
-                    // DAS後の連続移動
-                    else if (heldTime >= this.DAS_DELAY &&
-                        now - this._lastMoveTimeRight >= this.ARR_INTERVAL) {
-                        if (!inDcd) {
-                            if (this.valid(1, 0)) {
-                                this.mino.x++
-                                this.lastActionWasRotation = false; // 移動したので回転フラグを解除
-                                this.playSe('move')
-                                acted = true
-                                this._dasBlockedRight = false
-                            } else {
-                                this._dasBlockedRight = true
-                            }
-                        }
-                        this._lastMoveTimeRight = now
-                    }
-                }
-                this._dasBlockedLeft = false
-            }
-            else {
-                this._dasBlockedLeft = false
-                this._dasBlockedRight = false
-            }
+            // ※ 逆方向を押している間も、元の方向の「止まっていた」状態は保持する
+            //   （逆方向を離して元の方向に戻ったとき、動けるようになっていれば DCD ②を掛けるため）
 
             // ソフトドロップ（専用ARR）
             const currentLevelSpeed = LEVEL_SPEEDS[this.level] || 7;
@@ -447,17 +479,6 @@ Object.assign(Game.prototype, {
             }
             if (!this.keyState.rotateCCW) {
                 this._rotCCWPressed = false
-            }
-
-            // ─── DCD 発動チェック（回転） ──────────────────────────
-            // DASが効いていて動けない（空振り）状態で回転が入力された場合にDCDを開始する
-            if (this.DCD_DELAY > 0 && acted) {
-                const rotActed =
-                    (this.keyState.rotateCW && this._rotCWPressed) ||
-                    (this.keyState.rotateCCW && this._rotCCWPressed)
-                if (rotActed && (this._dasBlockedLeft || this._dasBlockedRight)) {
-                    this._dcdUntil = now + this.DCD_DELAY
-                }
             }
 
             // アクションが起きたら接地状態を再評価（15回制限もここで処理される）
@@ -664,15 +685,11 @@ Object.assign(Game.prototype, {
                     // キーアップ相当の処理
                     this.keyState[action] = false
                     if (action === 'moveLeft') {
-                        this._leftPressTime = null
-                        this._dasBlockedLeft = false
-                        this._dcdUntil = 0
+                        this._releaseHorizontal('left')
                         if (this.keyState.moveRight) this._lastHorizontal = 'right'
                     }
                     if (action === 'moveRight') {
-                        this._rightPressTime = null
-                        this._dasBlockedRight = false
-                        this._dcdUntil = 0
+                        this._releaseHorizontal('right')
                         if (this.keyState.moveLeft) this._lastHorizontal = 'left'
                     }
                     if (action === 'softDrop') {
