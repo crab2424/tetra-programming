@@ -97,6 +97,15 @@ python3 py/solo_baseline.py --report-only   # 記録済みを集計し直す →
 ```
 最初の本線（段数・発火理由・発火時の色ぷよ・余剰・残り）、有効ぷよ量の推移、育成中の1〜2連鎖の「整地（無駄ぷよが減り起こせる段数が落ちない）／こぼし（起こせる段数が2段以上落ちる）」を出す。
 
+## 異種戦のテト側（相手役 テト CPU lv5、作成中）
+設計: `source_assets/memory/cpu/puyo/lv6-vstet-design.md` §7・§8。
+本番 `public/cpu/tet/lv5/cpu5.cpp` を `sim/tet_cpu5.cpp` から名前空間に包んで native ビルドし、
+操作の組み立て・時間（`cpu5.js`）と設置・攻撃・受け（`game/tet/*.js`）を `sim/tet_player.cpp` に移した。
+```bash
+python3 tests/test_tet_parity.py   # 探索結果が本番 wasm（node で実行）と全件一致するか
+```
+Python からは `py/tetsim.py`（`solo_run` でひとり用の毎秒ミノ数・攻撃量、`trace_cases` で探索の入出力）。
+
 ## 対戦判断の A/B（ext[]）
 `PolicyParams.ext[16]`（`sim/sim.h` ExtIndex、既定0＝現行 lv5）で対戦判断を切り替える。
 本番 lv6 は「後打ちの活用」（p2_*）が有効で、`ps.Policy.lv6()` が本番 `cpu6.js` から設定を読む。
@@ -122,7 +131,7 @@ JS と完全一致を確認したもの（`tests/test_parity.py`、本番 JS の
 - CPU の思考時間は 0（spawnAnim 中の前倒し計算に収まる前提）。RAF の 16ms 粒度、操作中の自然落下、開始カウントダウンは無視
 - 同時刻のイベントは先手（A）から処理する → 単局では先手が有利に偏るので、学習・検証は必ず先後2局で打ち消す
 - 相手の「発火中連鎖の全段見込み」（_oppChainFull）は連鎖開始時に一括計算（毎フレーム推定と同じ値）
-- 相手はぷよのみ（テト相手・混在戦は対象外）
+- 対戦の相手はぷよのみ（テト相手は作成中＝上の「異種戦のテト側」。混在戦は対象外）
 
 本番 JS の挙動として**そのまま再現している**癖:
 - 連鎖1段ごとに連鎖文字の表示位置（draw.js `_prepareChainTextDOM`）で乱数を1回消費する → 連鎖の段数が違うと両者のツモがずれる

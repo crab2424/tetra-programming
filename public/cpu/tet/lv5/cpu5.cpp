@@ -583,9 +583,9 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
     std::vector<Placement> placements;
     placements.reserve(64); 
     
-    static bool visited[4][35][19];
-    static bool placementFound[4][35][19];
-    static ParentInfo parent[4][35][19]; 
+    static thread_local bool visited[4][35][19];   // thread_local: 学習シミュ(training/puyo-lv5)のスレッド並列用。wasm では static と同じ
+    static thread_local bool placementFound[4][35][19];
+    static thread_local ParentInfo parent[4][35][19];
     
     std::memset(visited, 0, sizeof(visited));
     std::memset(placementFound, 0, sizeof(placementFound));
@@ -613,7 +613,7 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
         if (!isValidPlacement(baseBoard, startBlocks)) return placements; 
     }
     
-    static BFSState bfsQueue[3000]; 
+    static thread_local BFSState bfsQueue[3000];
     int qHead = 0, qTail = 0;
     
     bfsQueue[qTail++] = {spawnX, spawnY, initialRot, false, false};
