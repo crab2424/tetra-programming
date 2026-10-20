@@ -290,14 +290,14 @@ const CPU_CONFIGS = {
         'cpu/puyo/lv4/js/cpu4_action.js',
     ] },
     // ★ lv5 は開発中。lv4 同様プロトタイプ拡張で複数ファイルに分割し、class 定義(cpu5.js)を先頭に置く。
-    //   DEV_CPU_CLASSES に登録され ?v=Date.now() で毎回最新の js が反映される。
+    //   （2026-10-20: DEV_CPU_CLASSES から外した。編集したら下の各ファイルの ?v を上げる）
     5: { className: 'PuyoCPU5', src: [
-        'cpu/puyo/lv5/js/core/cpu5.js',
-        'cpu/puyo/lv5/js/weights/cpu5_weights.js',
-        'cpu/puyo/lv5/js/weights/cpu5_modes.js',
-        'cpu/puyo/lv5/js/core/cpu5_worker_io.js',
-        'cpu/puyo/lv5/js/core/cpu5_estimate.js',
-        'cpu/puyo/lv5/js/core/cpu5_action.js',
+        'cpu/puyo/lv5/js/core/cpu5.js?v=1',
+        'cpu/puyo/lv5/js/weights/cpu5_weights.js?v=1',
+        'cpu/puyo/lv5/js/weights/cpu5_modes.js?v=1',
+        'cpu/puyo/lv5/js/core/cpu5_worker_io.js?v=1',
+        'cpu/puyo/lv5/js/core/cpu5_estimate.js?v=1',
+        'cpu/puyo/lv5/js/core/cpu5_action.js?v=1',
     ] },
     // ★ 隠し要素: lv6 = lv5 + 学習済み重み（training/puyo-lv5）。lv5 のクラスを継承するため
     //   deps で lv5 を先に読み込む（cpu_loader.js loadCpuScript）。

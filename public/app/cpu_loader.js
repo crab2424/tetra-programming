@@ -49,9 +49,12 @@ function _removeCpuClass(className) {
 //   `?v=` 運用（＝編集したら app/modes.js の ?v を上げる）に戻すこと。
 //   2026-08-29: CPU6 は当面チューニング予定が無いためここから外した。
 //   2026-09-24: PuyoCPU5 はチューニング継続のため残す（ユーザー確認済み）。
+//   2026-10-20: PuyoCPU5 は外した（再戦のたびにロード画面が出るため）。lv5 を編集したら
+//               app/modes.js の lv5 各ファイルの ?v を上げる。lv6 は開始ごとに読み直し、
+//               読み込み済みの lv5 を継承して作り直す。
 //   2026-10-15: PuyoCPU6 は PuyoCPU5 を継承する（deps）。lv5 を読み直したら lv6 も
 //               新しい lv5 から作り直す必要があるため、同じく開始ごとに読み直す。
-const DEV_CPU_CLASSES = ['PuyoCPU5', 'PuyoCPU6'];
+const DEV_CPU_CLASSES = ['PuyoCPU6'];
 
 function isDevCpuClass(level, rule) {
   const config = CPU_CONFIGS[rule] && CPU_CONFIGS[rule][level];
