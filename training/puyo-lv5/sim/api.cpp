@@ -227,6 +227,35 @@ int sim_trace_matches(int nJobs, const int* pa, const int* pb, const uint32_t* s
     return nJobs;
 }
 
+// 記録付き異種戦（分析用・遅い）。ぷよ側の記録を1局1行の JSONL に書く（設計 lv6-vstet-design §10.1）。
+//   各行: {"job","seed","first","winner"(0=ぷよ,1=テト,-1=引分),"dur","P":{trace}}
+int sim_trace_vstet(int nJobs, const int* pp, const uint32_t* seeds, const int* puyoFirst,
+                    int ojamaRate, int colorCount, int marginTimeMs, double maxGameMs,
+                    int nThreads, const char* outPath) {
+    GameSettings gs = makeSettings(ojamaRate, colorCount, marginTimeMs, maxGameMs);
+    tsim::initTetShapes();
+    std::vector<std::string> lines(nJobs);
+    parallelFor(nJobs, nThreads, [&](int j) {
+        PolicyParams P = PolicyParams::fromPacked(pp + (size_t)j * PP_LEN);
+        PlayerTrace tr;
+        VsTetResult r = runMatchVsTet(P, seeds[j], gs, puyoFirst[j] != 0, &tr);
+        std::string& o = lines[j];
+        o = "{\"job\":" + std::to_string(j) + ",\"seed\":" + std::to_string(seeds[j]) +
+            ",\"first\":" + std::to_string(puyoFirst[j]) +
+            ",\"winner\":" + std::to_string(r.winner) + ",\"dur\":" + jNum(r.durationMs) +
+            ",\"tetLinesSent\":" + std::to_string(r.puyo.tetLinesSent) +
+            ",\"tetGarbageTaken\":" + std::to_string(r.tetGarbageTaken) +
+            ",\"tetFinalHeight\":" + std::to_string(r.tetFinalHeight) + ",\"P\":";
+        jTrace(o, tr, r.puyo);
+        o += "}\n";
+    });
+    FILE* fp = std::fopen(outPath, "w");
+    if (!fp) return -1;
+    for (const auto& l : lines) std::fwrite(l.data(), 1, l.size(), fp);
+    std::fclose(fp);
+    return nJobs;
+}
+
 // 記録付きひとり用（分析用）。harassTurn 手目に harassAmount 個のおじゃまを降らせる（0=降らせない）。
 //   各行: {"job","seed","died","dur","P":{trace}}
 int sim_trace_solo(int nJobs, const int* p, const uint32_t* seeds, int maxTurns, int harassTurn,

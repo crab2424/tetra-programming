@@ -67,6 +67,7 @@ if (out.build.length !== 62) throw new Error(`weightsArray 長が ${out.build.le
         counterTrigger: C.TRAINED_COUNTER.triggerVsPuyo,
         counterMargin:  C.TRAINED_COUNTER.marginVsPuyo,
         vsDecision: C.VS_DECISION || {},
+        vsTetDecision: C.VS_TET ? Object.fromEntries(Object.entries(C.VS_TET).filter(([k]) => k !== 'vsTetWeights')) : {},
         vsTet: { build: arr6('vsTet'), fast: arr6('fastVsTet'),
                  counterTrigger: out.vsTet.counterTrigger, counterMargin: out.vsTet.counterMargin },
     };

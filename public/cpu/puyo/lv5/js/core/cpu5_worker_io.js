@@ -659,6 +659,8 @@ Object.assign(window.PuyoCPU5.prototype, {
         const COUNTER_MARGIN_VSTET  = 1.3;
 
         const rate = game.vsOjamaRate ?? PConfig.ojamaRate;
+        // ★ 対テトの判断（lv6 が VS_TET を設定。lv5 は未設定＝すべて従来どおり。学習用シミュ player.cpp decide の X_VT_* と同じ）
+        const vt = this._vsTet || {};
 
         // 自分が今いつでも組める最大潜在連鎖で相殺できるおじゃま量（カバー量）。
         //   ※ 判定には使わず、コンソール表示の参考値としてのみ算出する。
@@ -710,16 +712,45 @@ Object.assign(window.PuyoCPU5.prototype, {
             appliedMargin = margin;
             this.controlWeights.fireChainCount     = 0;
             this.controlWeights.fireScoreThreshold = Math.ceil((incomingGross + 1) * rate * margin);
+            // ★ ④ 対テト（lv6 の VS_TET.counterPct。lv5 は未設定＝上のまま。lv6-vstet-design.md §10）：
+            //   受け量ちょうどを点で消せれば、その段の点は丸ごと攻撃になる（ただの相殺）＝上乗せしない。
+            //   相殺できるのは届いた分（キュー）だけなので、queueOnly ならテトのゲージ換算（予測）を入れない。
+            if (this._isOpponentTet() && (vt.counterPct | 0) > 0) {
+                const base = vt.queueOnly ? (this._committedOjama ?? incomingGross) : incomingGross;
+                this.controlWeights.fireScoreThreshold = Math.ceil(Math.max(1, base) * rate * vt.counterPct / 100);
+                appliedMargin = vt.counterPct / 100;
+            }
             this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
             // ★ H2 対応（対ぷよのみ）：受け量を上回る候補のうち、撃った後の本線潜在が最大の手で返す。
             //   カウンターは fast（lv5 基準）の重みなので、有効かどうかは build の重み（lv6 が設定）から読む。
             const bc = this._buildBaseline && this._buildBaseline.controlWeights;
             this._counterKeepReachOn = (!this._isOpponentTet() && bc && bc.counterKeepReach) ? (bc.counterKeepReach | 0) : 0;
+            // ★ ② 対テトの H2（lv6 の VS_TET.keepReach。既定0）：相殺用の小連鎖で返し、本線を残す
+            if (this._isOpponentTet()) this._counterKeepReachOn = vt.keepReach | 0;
         } else {
             // カウンター不要時の本線構築モード：相手がテトなら vsTet、それ以外（ぷよ）は build。
             const buildMode = this._isOpponentTet() ? 'vsTet' : 'build';
-            if (this.cpuMode !== buildMode) this.setMode(buildMode);
+            // ★ ③ 対テト（lv6 の VS_TET.decayStartS。既定0）：経過時間で本線の目標発火を下げる。
+            //   毎手 vsTet の値へ戻してから下げる（setMode は同じモードでも基準値＋差分に戻す）。
+            const decay = this._isOpponentTet() && (vt.decayStartS | 0) > 0;
+            if (this.cpuMode !== buildMode || decay) this.setMode(buildMode);
             this._counterActive = false;
+            if (decay) {
+                const ms = typeof game.getActiveMs === 'function' ? game.getActiveMs() : 0;
+                if (ms >= vt.decayStartS * 1000) {
+                    // 4個消しだけの n 連鎖の点（n=0..19）
+                    const CHAIN4_SCORE = [0, 40, 360, 1000, 2280, 4840, 8680, 13800, 20200, 27880, 36840,
+                                          47080, 58600, 71400, 85480, 100840, 117480, 135400, 154600, 175080];
+                    const step = (vt.decayStepS | 0) > 0 ? vt.decayStepS : 10;
+                    const lo   = (vt.decayMin | 0) > 0 ? vt.decayMin : 3;
+                    const k    = 1 + Math.floor((ms - vt.decayStartS * 1000) / (step * 1000));
+                    const cw   = this.controlWeights;
+                    if (cw.fireChainCount > lo) cw.fireChainCount = Math.max(lo, cw.fireChainCount - k);
+                    if (cw.fireChainCount > 0 && cw.fireScoreThreshold > 0)
+                        cw.fireScoreThreshold = Math.min(cw.fireScoreThreshold, CHAIN4_SCORE[Math.min(cw.fireChainCount, 19)]);
+                    this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
+                }
+            }
             // ★ H1 催促（対ぷよのみ）：相手が連鎖中でないとき、本線を残したまま撃てる小連鎖を撃つ候補にする。
             //   条件（段数・残す本線の割合）は wasm の fire gate（build.cpp ③）。学習用シミュ player.cpp decide と同じ判断。
             const opp = this._getOpponentGame();

@@ -39,8 +39,8 @@ constexpr int    NEXT_KEEP        = 20;                   // 内部 NEXT 保持�
 
 // ── 重みパラメータ（Python ↔ C++ の受け渡し単位）──
 constexpr int W_LEN  = 62;                 // cpu5_weights.js _buildWeightsArray の要素数
-constexpr int EXT_LEN = 16;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
-constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[62] + fast[62] + counterTrigger + counterMargin×1000 + ext[16]
+constexpr int EXT_LEN = 24;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
+constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[62] + fast[62] + counterTrigger + counterMargin×1000 + ext[24]
 
 // ext[] の添字（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md）
 enum ExtIndex {
@@ -56,6 +56,13 @@ enum ExtIndex {
     X_P2_FIRE_IF_PCT,    // 待つ手の発火閾値＝pct% × (受け量+1) × rate（今撃てる最大が届けば撃つ。0=撃たない）
     X_P2_NO_SPILL,       // 待つ間は育成手のこぼれ（小連鎖の暴発）を禁止 1/0
     X_P1_USE_THREAT,     // 相手の火力に「相手の見えている NEXT 2手で届く連鎖」も使う 1/0
+    // ── 対テト（異種戦）の判断。本番 cpu6.js VS_TET と同じ。設計: lv6-vstet-design.md §10 ──
+    X_VT_KEEP_REACH = 12,   // ② 対テトのカウンターでも H2（撃った後の本線潜在が最大の手で返す。build [49] と同じ値 1..3）。0=使わない
+    X_VT_DECAY_START_S,     // ③ この経過秒から本線の目標発火（段数・点）を下げる。0=下げない
+    X_VT_DECAY_STEP_S,      // ③ 何秒ごとに1段下げるか（0=10秒）
+    X_VT_DECAY_MIN,         // ③ 下げる下限の段数（0=3）
+    X_VT_COUNTER_PCT,       // ④ カウンターの発火点＝受け量×レート×この%（「ただの相殺」に合わせる）。0=今の (受け量+1)×レート×1.3
+    X_VT_QUEUE_ONLY,        // ④ ↑の受け量にテトのゲージ（まだ届いていない分）を入れない 1/0（相殺できるのは届いた分だけ）
 };
 
 struct PolicyParams {

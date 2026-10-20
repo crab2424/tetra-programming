@@ -97,6 +97,20 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         },
     };
 
+    // 対テト（異種戦）の判断と vsTet の追加の重み（cpu5_worker_io.js が参照。lv5 は未設定＝従来どおり）
+    //   設計: source_assets/memory/cpu/puyo/lv6-vstet-design.md §10（持論 §5.1 の構造。既定0＝今と同じ）。
+    //   学習用シミュ training/puyo-lv5/sim/player.cpp decide の X_VT_* と同じ判断。
+    static VS_TET = {
+        // ① 降っても撃てる（K）・② 相殺用の副砲（E2b・G1）：vsTet（本線）の重みに上書きする値（evalWeights の名前）
+        vsTetWeights: {},
+        keepReach:   0,   // ② カウンターでも本線を残す手で返す（H2。0=使わない / 1..3 は counterKeepReach と同じ）
+        decayStartS: 0,   // ③ この経過秒から本線の目標発火を下げる（0=下げない）
+        decayStepS:  0,   // ③ 何秒ごとに1段下げるか（0=10秒）
+        decayMin:    0,   // ③ 下げる下限の段数（0=3）
+        counterPct:  0,   // ④ カウンターの発火点＝受け量×レート×この%（0=従来の (受け量+1)×レート×1.3）
+        queueOnly:   0,   // ④ ↑の受け量に相手のゲージ（まだ届いていない分）を入れない 1/0
+    };
+
     _initWeights() {
         super._initWeights();
         // lv5 の build 基準を控える（build 以外のモードはこれを基準にして lv5 と同じ値にする）
@@ -113,6 +127,7 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         };
         this._counterOverrides = this.constructor.TRAINED_COUNTER;
         this._vsDecision = this.constructor.VS_DECISION;
+        this._vsTet = this.constructor.VS_TET;
     }
 
     // ── 高速落下で設置モード（隠し・準備画面の 7 / Shift+7）──
@@ -159,7 +174,14 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         const trained = this._buildBaseline;
         this._buildBaseline = this._lv5Baseline;
         try {
-            return super.setMode(mode);
+            const r = super.setMode(mode);
+            // 対テトの本線に VS_TET の重み（① K・② 副砲）を足す（既定は空＝lv5 と同じ）
+            const extra = mode === 'vsTet' && this.constructor.VS_TET && this.constructor.VS_TET.vsTetWeights;
+            if (extra && Object.keys(extra).length) {
+                this.evalWeights = Object.assign({}, this.evalWeights, extra);
+                this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
+            }
+            return r;
         } finally {
             this._buildBaseline = trained;
         }

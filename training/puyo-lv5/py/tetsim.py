@@ -65,7 +65,12 @@ def vstet_policy(name: str = "lv6", base: dict | None = None) -> puyosim.Policy:
     """相手がテトのときのぷよの設定（build=vsTet・fast=fastVsTet・カウンター 6個/×1.3）。本番 JS から取る。"""
     b = base or puyosim.load_baseline()
     v = (b["lv6"] if name == "lv6" else b)["vsTet"]
-    return puyosim.Policy(list(v["build"]), list(v["fast"]), int(v["counterTrigger"]), float(v["counterMargin"]))
+    pol = puyosim.Policy(list(v["build"]), list(v["fast"]), int(v["counterTrigger"]), float(v["counterMargin"]))
+    d = b["lv6"].get("vsTetDecision", {}) if name == "lv6" else {}
+    m = {"keepReach": "vt_keep_reach", "decayStartS": "vt_decay_start_s", "decayStepS": "vt_decay_step_s",
+         "decayMin": "vt_decay_min", "counterPct": "vt_counter_pct", "queueOnly": "vt_queue_only"}
+    kw = {m[k]: int(v) for k, v in d.items() if k in m and v}
+    return pol.with_ext(**kw) if kw else pol
 
 
 def run_vstet(pol, seeds, settings: puyosim.Settings | None = None, both_orders: bool = True,
@@ -92,3 +97,23 @@ def run_vstet(pol, seeds, settings: puyosim.Settings | None = None, both_orders:
                     threads, out)
     out = out.reshape(n, 24)
     return [dict(zip(VSTET_KEYS, row), seed=int(sd[i]), puyo_first=int(first[i])) for i, row in enumerate(out)]
+
+
+def trace_vstet(pol, seeds, out_path, settings: puyosim.Settings | None = None, threads: int = 0) -> int:
+    """記録付きの異種戦（ぷよ側の PlayerTrace を JSONL へ。1局1行）。同時刻はぷよを先に処理する。"""
+    L = lib()
+    if not hasattr(L, "_trace_vstet_ready"):
+        i32p = np.ctypeslib.ndpointer(np.int32, flags="C_CONTIGUOUS")
+        u32p = np.ctypeslib.ndpointer(np.uint32, flags="C_CONTIGUOUS")
+        L.sim_trace_vstet.restype = ctypes.c_int
+        L.sim_trace_vstet.argtypes = [ctypes.c_int, i32p, u32p, i32p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                      ctypes.c_double, ctypes.c_int, ctypes.c_char_p]
+        L._trace_vstet_ready = True
+    s = settings or puyosim.Settings()
+    packed = pol.packed() if hasattr(pol, "packed") else np.asarray(pol, dtype=np.int32)
+    seeds = np.asarray(seeds, dtype=np.uint32)
+    n = len(seeds)
+    pp = np.ascontiguousarray(np.tile(packed, (n, 1)).astype(np.int32))
+    first = np.ones(n, dtype=np.int32)
+    return L.sim_trace_vstet(n, pp.ravel(), seeds, first, s.ojama_rate, s.color_count, s.margin_time_ms,
+                             s.max_game_ms, threads, str(out_path).encode())

@@ -402,10 +402,27 @@ void Player::decide(Player* opp) {
     } else if (wantCounter) {
         std::memcpy(wa, pp_.fast, sizeof(wa));
         wa[32] = 0;   // fireChainCount: 段数では撃たない
-        wa[34] = (int)std::ceil((incoming + 1) * (double)rate * pp_.counterMargin);
+        if (tet && X[X_VT_COUNTER_PCT] > 0) {
+            // ④ 対テト：受け量ちょうどを点で消せれば、その段の点は丸ごと攻撃になる（ただの相殺）＝上乗せ不要。
+            //   相殺できるのは届いた分（キュー）だけなので、X_VT_QUEUE_ONLY ならゲージ換算を入れない。
+            int base = X[X_VT_QUEUE_ONLY] ? queueSum() : incoming;
+            wa[34] = (int)std::ceil(std::max(1, base) * (double)rate * X[X_VT_COUNTER_PCT] / 100.0);
+        } else {
+            wa[34] = (int)std::ceil((incoming + 1) * (double)rate * pp_.counterMargin);
+        }
         stats.counterTurns++;
     } else {
         std::memcpy(wa, pp_.build, sizeof(wa));
+        if (tet && X[X_VT_DECAY_START_S] > 0 && t_ >= X[X_VT_DECAY_START_S] * 1000.0) {
+            // ③ 対テト：経過時間で本線の目標発火を下げる（テトのマージンで火力が増える前に撃つ）
+            static const int CHAIN4_SCORE[20] = {0, 40, 360, 1000, 2280, 4840, 8680, 13800, 20200, 27880, 36840,
+                                                 47080, 58600, 71400, 85480, 100840, 117480, 135400, 154600, 175080};
+            int step = X[X_VT_DECAY_STEP_S] > 0 ? X[X_VT_DECAY_STEP_S] : 10;
+            int lo = X[X_VT_DECAY_MIN] > 0 ? X[X_VT_DECAY_MIN] : 3;
+            int k = 1 + (int)((t_ - X[X_VT_DECAY_START_S] * 1000.0) / (step * 1000.0));
+            if (wa[32] > lo) wa[32] = std::max(lo, wa[32] - k);
+            if (wa[32] > 0 && wa[34] > 0) wa[34] = std::min(wa[34], CHAIN4_SCORE[std::min(wa[32], 19)]);
+        }
     }
     wa[20] = 9;   // knownNextCount（C++ 側は未参照）
 
@@ -421,6 +438,7 @@ void Player::decide(Player* opp) {
         wa[47] = B[47];
         wa[48] = B[48];
         wa[49] = (!tet && waitMode == 0 && wantCounter && !terrain) ? B[49] : 0;   // H1/H2/T/P は対ぷよのみ
+        if (tet && wantCounter) wa[49] = X[X_VT_KEEP_REACH];                        // ② 対テトの H2（既定0）
         wa[50] = tet ? 0 : B[50] * rate;
         wa[57] = terrain ? incoming : 0;
         wa[58] = B[58];
