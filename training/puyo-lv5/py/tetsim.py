@@ -117,3 +117,20 @@ def trace_vstet(pol, seeds, out_path, settings: puyosim.Settings | None = None, 
     first = np.ones(n, dtype=np.int32)
     return L.sim_trace_vstet(n, pp.ravel(), seeds, first, s.ojama_rate, s.color_count, s.margin_time_ms,
                              s.max_game_ms, threads, str(out_path).encode())
+
+
+def run_vstet_batch(packed_cands, seeds, settings: puyosim.Settings | None = None, threads: int = 0) -> np.ndarray:
+    """候補 (nCand, PP_LEN) × シードを1バッチで打つ（同時刻はぷよ先）。返り値: 勝ち(1)/負け・引分(0) の (nCand, nSeeds)。"""
+    L = lib()
+    run_vstet(packed_cands[0], seeds[:1], settings, both_orders=False)   # argtypes の設定
+    s = settings or puyosim.Settings()
+    cands = np.asarray(packed_cands, dtype=np.int32)
+    seeds = np.asarray(seeds, dtype=np.uint32)
+    nc, ns = len(cands), len(seeds)
+    pp = np.ascontiguousarray(np.repeat(cands, ns, axis=0))
+    sd = np.tile(seeds, nc)
+    first = np.ones(nc * ns, dtype=np.int32)
+    out = np.zeros(nc * ns * 24, dtype=np.float64)
+    L.sim_run_vstet(nc * ns, pp.ravel(), sd, first, s.ojama_rate, s.color_count, s.margin_time_ms, s.max_game_ms,
+                    threads, out)
+    return (out.reshape(nc, ns, 24)[:, :, 0] == 0).astype(np.int8)
