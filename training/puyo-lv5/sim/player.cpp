@@ -327,6 +327,18 @@ void Player::applyOffsetTet(int amount, int tetAmount, double now) {
     }
 }
 
+int vtKillScore(int tetHeight, int queuedLines, int tetInternal, int pct, int rate) {
+    // 4個消しだけの n 連鎖の点と、その連鎖でテトへ送るライン（_resolveTetAttack・レート70・受け無し）
+    static const int SCORE[20] = {0, 40, 360, 1000, 2280, 4840, 8680, 13800, 20200, 27880, 36840,
+                                  47080, 58600, 71400, 85480, 100840, 117480, 135400, 154600, 175080};
+    static const int LINES[20] = {0, 0, 1, 4, 8, 13, 18, 24, 30, 36, 43, 49, 56, 63, 70, 77, 84, 91, 98, 105};
+    int need = (20 - tetHeight) - queuedLines + tetInternal;
+    need = (int)std::ceil(std::max(1, need) * pct / 100.0);
+    int n = 1;
+    while (n < 19 && LINES[n] < need) n++;
+    return (int)std::ceil(SCORE[n] * (double)rate / 70.0);
+}
+
 // cpu5_worker_io.js _getIncomingBaseline + _updateVersusCounterMode + _buildWeightsArray → searchBuildMode
 void Player::decide(Player* opp) {
     const int rate = rateAt(t_);
@@ -413,6 +425,14 @@ void Player::decide(Player* opp) {
         stats.counterTurns++;
     } else {
         std::memcpy(wa, pp_.build, sizeof(wa));
+        if (tet && X[X_VT_KILL_PCT] > 0) {   // A 撃って倒せるか（§12）
+            int queued = 0;
+            for (const auto& g : tet->garbageQueue) queued += g.amount;
+            wa[62] = vtKillScore(tet->stackHeight(), queued, tet->pendingInternal, X[X_VT_KILL_PCT], rate);
+            wa[63] = X[X_VT_KILL_HOLD_PCT];
+            wa[64] = X[X_VT_KILL_FIRE];
+        }
+        if (tet) wa[65] = X[X_VT_STRICT];      // B 整地だけの1連鎖を撃たない（§12）
         if (tet && X[X_VT_DECAY_START_S] > 0 && t_ >= X[X_VT_DECAY_START_S] * 1000.0) {
             // ③ 対テト：経過時間で本線の目標発火を下げる（テトのマージンで火力が増える前に撃つ）
             static const int CHAIN4_SCORE[20] = {0, 40, 360, 1000, 2280, 4840, 8680, 13800, 20200, 27880, 36840,

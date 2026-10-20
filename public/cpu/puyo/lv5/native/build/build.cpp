@@ -363,7 +363,7 @@ static void runExpectedChainSelection(
     int bestFm = -1;
     long long bestBase = LLONG_MIN;
     int dbgFireChains = 0;   // 発火した連鎖段数（0=発火せず＝育成）。デバッグ outResult[15]
-    int dbgFireReason = 0;   // 発火理由 0=育成(発火せず) / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1) / 5=地形優先の対応(T)。outResult[23]
+    int dbgFireReason = 0;   // 発火理由 0=育成(発火せず) / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1) / 5=地形優先の対応(T) / 6=倒せるので撃つ(A)。outResult[23]
     int dbgFlags = 0;        // 判断の内訳（ビット。outResult[33] の注釈参照）
     int dbgHarassRej[5] = {0, 0, 0, 0, 0};   // H1 候補の落ちた条件ごとの数（outResult[34]）
     int dbgEmerH = 0;        // 緊急判定に使った高さ（outResult[35]）
@@ -390,12 +390,16 @@ static void runExpectedChainSelection(
     //   育成こぼし抑制：今そのまま置くと growthFireForbidChains 段「以上」を発火する初手は
     //   育成選択から除外する（pass0=フィルタ有り）。band内の全候補がこぼす場合のみ pass1 で
     //   フィルタを外して再選択し、手が必ず1つ残るようにする（[[何も置けない]]を防ぐ）。
-    for (int pass = 0; pass < 2 && bestFm < 0; pass++) {
-        bool filter = (pass == 0 && w.growthFireForbidChains > 0);
-        if (pass == 1 && w.growthFireForbidChains > 0) dbgFlags |= 1 << 9;   // こぼし除外を解除した
+    //   B（対テト。[65] growthForbidStrict）：band 内が全部こぼすときは、先に band を外して「こぼさない手」を探す（pass1）。
+    //   それも無いときだけフィルタを外す（pass2）。整地だけの1連鎖でぷよを減らさない（lv6-vstet-design.md §12）。
+    for (int pass = 0; pass < 3 && bestFm < 0; pass++) {
+        if (pass == 1 && !w.growthForbidStrict) continue;
+        bool filter = (pass < 2 && w.growthFireForbidChains > 0);
+        bool band   = (pass != 1);
+        if (pass == 2 && w.growthFireForbidChains > 0) dbgFlags |= 1 << 9;   // こぼし除外を解除した
         for (int fm = 0; fm < nCand; fm++) {
             if (!survivable(fm)) continue;
-            if (cands[fm].chainTarget < chainFloor) continue;
+            if (band && cands[fm].chainTarget < chainFloor) continue;
             if (filter && cands[fm].fireChains >= w.growthFireForbidChains) continue;
             long long base = (cands[fm].bestAccum == LLONG_MIN) ? cands[fm].depth0Score : cands[fm].bestAccum;
             if (base > bestBase) {
@@ -490,6 +494,22 @@ static void runExpectedChainSelection(
             fireFmTgt = -1;
             dbgFlags |= 1 << 13;
         }
+        // ★ A 撃って倒せるか（対テト。§12）：killScore＝テトを倒せる点の目安（JS/sim が思考ごとに入れる）。
+        //   保留：目標に届いても倒せる見込み（killScore×killHoldPct%）に足りないなら撃たずに伸ばす（緊急は下で撃つ）。
+        //   決め撃ち：目標未満でも、今撃てる最大で倒せるなら撃つ。
+        bool killFireNow = false;
+        if (w.killScore > 0) {
+            if (fireFmTgt >= 0 && w.killHoldPct > 0 && !emergency &&
+                fireBestTgt * 100 < (long long)w.killScore * w.killHoldPct) {
+                fireFmTgt = -1;
+                dbgFlags |= 1 << 14;
+            }
+            if (fireFmTgt < 0 && w.killFire && fireFmAny >= 0 && survivable(fireFmAny) &&
+                fireBestAny >= w.killScore) {
+                fireFmTgt = fireFmAny; fireBestTgt = fireBestAny; killFireNow = true;
+                dbgFlags |= 1 << 15;
+            }
+        }
 
         int fireFm = -1;
         if (fireFmTgt >= 0) {
@@ -497,7 +517,7 @@ static void runExpectedChainSelection(
             if (w.fireScoreThreshold > 0 && cands[fireFmTgt].fireScore  >= w.fireScoreThreshold) dbgFlags |= 1 << 1;
         }
         if (w.counterKeepReach) dbgFlags |= 1 << 7;
-        if (fireFmTgt >= 0)               { fireFm = fireFmTgt; dbgFireReason = 1; } // ① 目標連鎖に到達 → 発火
+        if (fireFmTgt >= 0)               { fireFm = fireFmTgt; dbgFireReason = killFireNow ? 6 : 1; } // ① 目標連鎖に到達（6=A 倒せるので撃つ）→ 発火
         else if (emergency && fireFmAny >= 0) {
             // ② 緊急回避。ただし無条件に最大即発火を撃つと、本線がまだ未完成のとき
             //   「部分連鎖／横の暴発」で組み上げた本線を巻き込んで壊す。これを防ぐため：

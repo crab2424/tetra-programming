@@ -38,9 +38,9 @@ constexpr int    ERASE_COUNT      = 4;
 constexpr int    NEXT_KEEP        = 20;                   // 内部 NEXT 保持数
 
 // ── 重みパラメータ（Python ↔ C++ の受け渡し単位）──
-constexpr int W_LEN  = 62;                 // cpu5_weights.js _buildWeightsArray の要素数
+constexpr int W_LEN  = 66;                 // cpu5_weights.js _buildWeightsArray の要素数
 constexpr int EXT_LEN = 24;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
-constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[62] + fast[62] + counterTrigger + counterMargin×1000 + ext[24]
+constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[66] + fast[66] + counterTrigger + counterMargin×1000 + ext[24]
 
 // ext[] の添字（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md）
 enum ExtIndex {
@@ -63,7 +63,14 @@ enum ExtIndex {
     X_VT_DECAY_MIN,         // ③ 下げる下限の段数（0=3）
     X_VT_COUNTER_PCT,       // ④ カウンターの発火点＝受け量×レート×この%（「ただの相殺」に合わせる）。0=今の (受け量+1)×レート×1.3
     X_VT_QUEUE_ONLY,        // ④ ↑の受け量にテトのゲージ（まだ届いていない分）を入れない 1/0（相殺できるのは届いた分だけ）
+    // ── 対テト §12（lv6 の VS_TET と同じ）──
+    X_VT_KILL_PCT,          // A：倒すのに要るライン（テトの残り段数−届いている分＋テトの内部火力）×この% を killScore[62] に（0=A を使わない）
+    X_VT_KILL_HOLD_PCT,     // A：[63] 目標に届いても killScore×% に足りなければ撃たない（0=保留しない）
+    X_VT_KILL_FIRE,         // A：[64] 目標未満でも倒せるなら撃つ 1/0
+    X_VT_STRICT,            // B：[65] 整地だけの1連鎖を撃たない（こぼし抑制で band を外してこぼさない手を探す）1/0
 };
+// A：テトを倒すのに要る点の目安（lines 段のラインを 4個消しだけの連鎖で送るのに要る点。rate で換算）。本番 cpu5_worker_io.js _vtKillScore と同じ
+int vtKillScore(int tetHeight, int queuedLines, int tetInternal, int pct, int rate);
 
 struct PolicyParams {
     int    build[W_LEN];      // 本線構築（build）の weightsArray

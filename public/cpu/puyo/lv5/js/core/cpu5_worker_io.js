@@ -93,6 +93,10 @@ Object.assign(window.PuyoCPU5.prototype, {
         this._terrainOjama = 0;   // T 地形優先の対応（思考ごと。_updateVersusCounterMode が入れる）
         this._terrainRate = 0;
         this._p1Alpha = 0;        // P 相手を見て撃つ（思考ごと。_updateVersusCounterMode が入れる）
+        this._vtKillScore = 0;    // A/B 対テト（思考ごと。lv6 の VS_TET。_updateVersusCounterMode が入れる）
+        this._vtKillHoldPct = 0;
+        this._vtKillFire = 0;
+        this._vtStrict = 0;
         this._updateVersusCounterMode(incomingGross);
 
         // ★ weightsArray を組み立てる（cpu5_weights.js）。発火制御はモード/カウンター側へ移行済み。
@@ -472,6 +476,26 @@ Object.assign(window.PuyoCPU5.prototype, {
     //   攻撃ゲージ pendingAttack（ライン消去なし設置で放出＝チャージ中は未着弾）を、送信時と同じ
     //   変換テーブル（tet/garbage.js sendGarbage、n>=18 は (n^2-21n+204)/2）でおじゃま個数へ換算。
     //   ※ ぷよ相手の予測（発火中連鎖の全段量）は _updateLoop が控える _oppChainFull を使う（_getIncomingBaseline）。
+    // ★ A（対テト）：テトを倒すのに要る点の目安。学習用シミュ player.cpp vtKillScore と同じ式。
+    //   要るライン＝(20 − テトの高さ) − 届いているライン（キュー）＋テトの内部火力（相殺に使われる）、を pct% にして、
+    //   そのラインを 4個消しだけの連鎖で送るのに要る点（レートで換算）。
+    _vtKillScoreFor(opp, pct, rate) {
+        const SCORE = [0, 40, 360, 1000, 2280, 4840, 8680, 13800, 20200, 27880, 36840,
+                       47080, 58600, 71400, 85480, 100840, 117480, 135400, 154600, 175080];
+        const LINES = [0, 0, 1, 4, 8, 13, 18, 24, 30, 36, 43, 49, 56, 63, 70, 77, 84, 91, 98, 105];
+        if (!opp || (opp instanceof PuyoGame)) return 0;
+        let h = 0;
+        const blocks = (opp.field && opp.field.blocks) || [];
+        if (blocks.length) h = ROWS_COUNT - Math.min(...blocks.map(b => b.y));
+        let queued = 0;
+        for (const g of (opp.garbageQueue || [])) queued += Math.max(0, g.amount | 0);
+        let need = (20 - h) - queued + Math.max(0, opp.pendingInternalAttack | 0);
+        need = Math.ceil(Math.max(1, need) * pct / 100);
+        let n = 1;
+        while (n < 19 && LINES[n] < need) n++;
+        return Math.ceil(SCORE[n] * rate / 70);
+    },
+
     _getAnticipatedTetOjama(opp) {
         if (!opp || (opp instanceof PuyoGame)) return 0;
         const gauge = Math.max(0, opp.pendingAttack || 0);
@@ -735,6 +759,15 @@ Object.assign(window.PuyoCPU5.prototype, {
             const decay = this._isOpponentTet() && (vt.decayStartS | 0) > 0;
             if (this.cpuMode !== buildMode || decay) this.setMode(buildMode);
             this._counterActive = false;
+            // ★ A 撃って倒せるか・B 整地だけの1連鎖（対テト。lv6 の VS_TET。lv6-vstet-design.md §12）
+            if (this._isOpponentTet()) {
+                if ((vt.killPct | 0) > 0) {
+                    this._vtKillScore   = this._vtKillScoreFor(this._getOpponentGame(), vt.killPct, rate);
+                    this._vtKillHoldPct = vt.killHoldPct | 0;
+                    this._vtKillFire    = vt.killFire | 0;
+                }
+                this._vtStrict = vt.strict | 0;
+            }
             if (decay) {
                 const ms = typeof game.getActiveMs === 'function' ? game.getActiveMs() : 0;
                 if (ms >= vt.decayStartS * 1000) {

@@ -36,7 +36,7 @@ VALID_SEED_RANGE = (750000, 1000001)
 @dataclass(frozen=True)
 class Param:
     name: str
-    where: str      # "b"=build（vsTet） / "f"=fast（fastVsTet） / "ct"=カウンター発動量 / "cm"=倍率
+    where: str      # "b"=build（vsTet） / "f"=fast（fastVsTet） / "x"=ext（対テトの判断） / "ct"=カウンター発動量 / "cm"=倍率
     index: int
     lo: float
     hi: float
@@ -71,6 +71,9 @@ SPACE = [
     Param("fast.qYWeight",          "f", 14,     0,    600),
     Param("fast.growthFireForbid",  "f", 35,     0,      4),
     Param("fast.emergencyFireMinRatio", "f", 36, 0,    100),
+    # §12 A 撃って倒せるか（v2 で追加。killFire は 1 固定）。ext の添字は puyosim.EXT
+    Param("vt_kill_pct",            "x", 18,     0,    400),
+    Param("vt_kill_hold_pct",       "x", 19,     0,    150),
     Param("counterTrigger",         "ct", -1,    1,     20),
     Param("counterMargin",          "cm", -1,  0.6,    2.0, integer=False),
 ]
@@ -81,6 +84,8 @@ def init_policy(name: str) -> ps.Policy:
     b = ps.load_baseline()
     if name == "vstet":
         pol = tetsim.vstet_policy("lv6", b)
+    elif name == "vstet-a":   # §12：本番 vsTet（vstet-001 の学習値）＋ A（af200：倒すライン×200%・倒せるなら撃つ）
+        pol = tetsim.vstet_policy("lv6", b).with_ext(vt_kill_pct=200, vt_kill_fire=1)
     else:   # lv6b：lv6 の対ぷよの build/fast＋対テトのカウンター定数（§9.2 の参考列）
         v = b["lv6"]["vsTet"]
         pol = ps.Policy(list(b["lv6"]["build"]), list(b["lv6"]["fast"]), int(v["counterTrigger"]),
@@ -97,7 +102,7 @@ def get(pol: ps.Policy, p: Param) -> float:
         return pol.counter_trigger
     if p.where == "cm":
         return pol.counter_margin
-    return (pol.build if p.where == "b" else pol.fast)[p.index]
+    return {"b": pol.build, "f": pol.fast, "x": pol.ext}[p.where][p.index]
 
 
 def encode(pol: ps.Policy) -> np.ndarray:
@@ -116,7 +121,7 @@ def decode(x: np.ndarray, base: ps.Policy) -> ps.Policy:
         elif p.where == "cm":
             pol.counter_margin = round(float(v), 3)
         else:
-            (pol.build if p.where == "b" else pol.fast)[p.index] = int(v)
+            {"b": pol.build, "f": pol.fast, "x": pol.ext}[p.where][p.index] = int(v)
     return pol
 
 
@@ -130,8 +135,9 @@ def pol_json(pol: ps.Policy) -> dict:
 
 
 def pol_from_json(d: dict) -> ps.Policy:
-    return ps.Policy(list(d["build"]), list(d["fast"]), int(d["counterTrigger"]), float(d["counterMargin"]),
-                     list(d.get("ext", [0] * ps.EXT_LEN)))
+    pad = lambda v, n: list(v) + [0] * (n - len(v))   # 重みが伸びる前（62 要素）の記録は 0（＝無効）で埋める
+    return ps.Policy(pad(d["build"], ps.W_LEN), pad(d["fast"], ps.W_LEN), int(d["counterTrigger"]),
+                     float(d["counterMargin"]), pad(d.get("ext", []), ps.EXT_LEN))
 
 
 def winrate(pols: list[ps.Policy], seeds: np.ndarray) -> np.ndarray:
@@ -144,7 +150,7 @@ def main() -> int:
     ap.add_argument("--run", required=True)
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--validate", action="store_true")
-    ap.add_argument("--init", default="lv6b", choices=["lv6b", "vstet"])
+    ap.add_argument("--init", default="lv6b", choices=["lv6b", "vstet", "vstet-a"])
     ap.add_argument("--gens", type=int, default=30)
     ap.add_argument("--popsize", type=int, default=16)
     ap.add_argument("--sigma", type=float, default=0.2)

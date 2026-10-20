@@ -144,11 +144,18 @@ struct EvalWeights {
     //   ★ [60] は思考ごとの入力（本番は worker が _ignitionScoreWasm で、sim は player.cpp decide が入れる）。
     int p1OppScore;       // [60] 相手のすぐ起こせる火力（相手の盤面に同色を1〜3個足して起こせる最大連鎖の点）
     int p1Alpha;          // [61] 目標発火は「撃つ点 ×100 ≥ p1Alpha × 相手の火力」のときだけ（%。0＝無効）
+
+    // ── 対テト（lv6 のみ。既定0＝無効。設計: lv6-vstet-design.md §12）──
+    //   ★ すべて思考ごとの入力（JS cpu5_worker_io.js／sim player.cpp decide が対テトの本線構築中にだけ入れる）。
+    int killScore;        // [62] A：テトを倒せる点の目安（テトの残り段数→ライン→4個消し連鎖の点。0＝使わない）
+    int killHoldPct;      // [63] A：目標に届いても、撃つ点 ×100 < killScore × この% なら撃たずに伸ばす（0＝保留しない）
+    int killFire;         // [64] A：目標未満でも、今撃てる点 ≥ killScore なら撃つ 1/0
+    int growthForbidStrict; // [65] B：育成こぼし抑制で band 内が全部こぼすとき、band を外してこぼさない手を探す 1/0（整地だけの1連鎖を撃たない）
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 62 要素（[0..61]）。
+//   weightsArray は 66 要素（[0..65]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -231,5 +238,10 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     // ── 相手を見て撃つ（提案1 P）──
     w.p1OppScore          = weightsArray[60];
     w.p1Alpha             = weightsArray[61];
+    // ── 対テト（A 倒せるか・B 整地だけの1連鎖）──
+    w.killScore           = weightsArray[62];
+    w.killHoldPct         = weightsArray[63];
+    w.killFire            = weightsArray[64];
+    w.growthForbidStrict  = weightsArray[65];
     return w;
 }

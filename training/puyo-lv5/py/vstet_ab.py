@@ -58,11 +58,27 @@ VARIANTS = {
     "c100q": mk(vt_counter_pct=100, vt_queue_only=1),
     "c80q":  mk(vt_counter_pct=80, vt_queue_only=1),
     "c130q": mk(vt_counter_pct=130, vt_queue_only=1),
+    # §12 A 撃って倒せるか（倒すのに要るライン×pct%）
+    "af100":   mk(vt_kill_pct=100, vt_kill_fire=1),                       # 倒せるなら目標未満でも撃つ
+    "af130":   mk(vt_kill_pct=130, vt_kill_fire=1),
+    "ah100":   mk(vt_kill_pct=100, vt_kill_hold_pct=100),                 # 倒せないなら目標でも撃たない
+    "ah70":    mk(vt_kill_pct=100, vt_kill_hold_pct=70),
+    "afh100":  mk(vt_kill_pct=100, vt_kill_fire=1, vt_kill_hold_pct=100),
+    "afh130":  mk(vt_kill_pct=130, vt_kill_fire=1, vt_kill_hold_pct=100),
+    "af200":   mk(vt_kill_pct=200, vt_kill_fire=1),
+    "af300":   mk(vt_kill_pct=300, vt_kill_fire=1),
+    "ah150":   mk(vt_kill_pct=150, vt_kill_hold_pct=100),
+    "ah200":   mk(vt_kill_pct=200, vt_kill_hold_pct=100),
+    "ah300":   mk(vt_kill_pct=300, vt_kill_hold_pct=100),
+    "afh200":  mk(vt_kill_pct=200, vt_kill_fire=1, vt_kill_hold_pct=100),
+    # §12 B 整地だけの1連鎖を撃たない
+    "b1":      mk(vt_strict=1),
+    "b1af100": mk(vt_strict=1, vt_kill_pct=100, vt_kill_fire=1),
 }
 
 
 def run(name: str, games: int, pol0) -> dict:
-    pol = VARIANTS[name](tetsim.vstet_policy("lv6").__class__(list(pol0.build), list(pol0.fast),
+    pol = VARIANTS[name](pol0.__class__(list(pol0.build), list(pol0.fast),
                                                                pol0.counter_trigger, pol0.counter_margin,
                                                                list(pol0.ext)))
     rs = tetsim.run_vstet(pol, np.arange(1, games + 1), both_orders=False)

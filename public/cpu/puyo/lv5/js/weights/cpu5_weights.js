@@ -238,7 +238,11 @@ Object.assign(window.PuyoCPU5.prototype, {
             this.controlWeights.counterTerrainMax || 0,              // [58] T を使う受け量の上限（0=無効）
             this._terrainRate || 0,                                  // [59] T のおじゃまレート（思考ごと）
             0,                                                       // [60] P 相手のすぐ起こせる火力（worker が相手の盤面から入れる）
-            this._p1Alpha || 0                                       // [61] P 目標発火の相手比（%。思考ごと。0=無効）
+            this._p1Alpha || 0,                                      // [61] P 目標発火の相手比（%。思考ごと。0=無効）
+            this._vtKillScore || 0,                                  // [62] A 対テト：倒せる点の目安（思考ごと。lv6 のみ）
+            this._vtKillHoldPct || 0,                                // [63] A 対テト：倒せないなら目標でも撃たない（%）
+            this._vtKillFire || 0,                                   // [64] A 対テト：目標未満でも倒せるなら撃つ 1/0
+            this._vtStrict || 0                                      // [65] B 対テト：整地だけの1連鎖を撃たない 1/0
         ]);
     },
 
