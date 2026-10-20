@@ -643,7 +643,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         //     ・対テト(vsTet)：おじゃま着弾が早く相殺猶予が乏しい＝低め＝早めにカウンターへ。
         //   ⚠️ 暫定値＝実機で要チューニング（[[feedback-versus-cpu-verification]]）。
         const COUNTER_TRIGGER_OJAMA_VSPUYO = 5;
-        const COUNTER_TRIGGER_OJAMA_VSTET  = 6;
+        const COUNTER_TRIGGER_OJAMA_VSTET  = 14;   // 2026-10-21 学習値（runs/vstet-001。旧 6）
         // ★ 派生クラス（puyo lv6＝学習済み重み）が対ぷよの定数だけ差し替える口。lv5 自身は未設定＝上の値のまま。
         const ov = this._counterOverrides || {};
         const COUNTER_TRIGGER_OJAMA = this._isOpponentTet()
@@ -656,7 +656,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         //     ・対テト(vsTet)：余裕を持って返す＝大きめに上回らせてから撃つ（>1.0）。
         //   ⚠️ 暫定値＝実機で要チューニング（[[feedback-versus-cpu-verification]]）。
         const COUNTER_MARGIN_VSPUYO = 1.0;
-        const COUNTER_MARGIN_VSTET  = 1.3;
+        const COUNTER_MARGIN_VSTET  = 1.223;   // 2026-10-21 学習値（runs/vstet-001。旧 1.3）
 
         const rate = game.vsOjamaRate ?? PConfig.ojamaRate;
         // ★ 対テトの判断（lv6 が VS_TET を設定。lv5 は未設定＝すべて従来どおり。学習用シミュ player.cpp decide の X_VT_* と同じ）

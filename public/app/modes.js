@@ -294,8 +294,8 @@ const CPU_CONFIGS = {
     5: { className: 'PuyoCPU5', src: [
         'cpu/puyo/lv5/js/core/cpu5.js?v=1',
         'cpu/puyo/lv5/js/weights/cpu5_weights.js?v=1',
-        'cpu/puyo/lv5/js/weights/cpu5_modes.js?v=1',
-        'cpu/puyo/lv5/js/core/cpu5_worker_io.js?v=2',
+        'cpu/puyo/lv5/js/weights/cpu5_modes.js?v=2',
+        'cpu/puyo/lv5/js/core/cpu5_worker_io.js?v=3',
         'cpu/puyo/lv5/js/core/cpu5_estimate.js?v=1',
         'cpu/puyo/lv5/js/core/cpu5_action.js?v=1',
     ] },
