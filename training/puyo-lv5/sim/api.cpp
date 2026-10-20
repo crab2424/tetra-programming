@@ -4,6 +4,7 @@
 //   探索側の作業バッファは thread_local 化済み（native/core,eval）なのでスレッド並列で安全。
 // ─────────────────────────────────────────────
 #include "sim.h"
+#include "tet.h"
 
 #include <algorithm>
 #include <atomic>
@@ -145,6 +146,58 @@ void sim_run_matches(int nJobs, const int* pa, const int* pb, const uint32_t* se
         o[11] = r.a.counterTurns;
         outDur[j] = r.durationMs;
     });
+}
+
+// 異種戦バッチ（ぷよ 対 テト CPU lv5）。pp は各ジョブのぷよの PolicyParams（build=vsTet・fast=fastVsTet）。
+//   puyoFirst[j]=1 なら同時刻はぷよを先に処理する。out[j*24 + k]:
+//    0 勝者(0=ぷよ,1=テト,-1=引分) 1 時間ms 2 ぷよ手数 3 ぷよ最大連鎖 4 ぷよ最大連鎖点 5 ぷよ→テトのライン
+//    6 ぷよが受けた（降った）おじゃま 7 ぷよのカウンター手数 8 ただの相殺の回数 9 段の点で相殺した個数
+//   10 テト手数 11 テトライン 12 テト TSD 等 13 テトリス 14 B2B 15 テト→ぷよのおじゃま 16 ゲージ
+//   17 テトに届いたライン 18 テトにせり上がったライン 19 テトの最終の高さ
+void sim_run_vstet(int nJobs, const int* pp, const uint32_t* seeds, const int* puyoFirst,
+                   int ojamaRate, int colorCount, int marginTimeMs, double maxGameMs,
+                   int nThreads, double* out) {
+    GameSettings gs = makeSettings(ojamaRate, colorCount, marginTimeMs, maxGameMs);
+    tsim::initTetShapes();
+    parallelFor(nJobs, nThreads, [&](int j) {
+        PolicyParams P = PolicyParams::fromPacked(pp + (size_t)j * PP_LEN);
+        VsTetResult r = runMatchVsTet(P, seeds[j], gs, puyoFirst[j] != 0);
+        double* o = out + (size_t)j * 24;
+        for (int k = 0; k < 24; k++) o[k] = 0;
+        o[0] = r.winner; o[1] = r.durationMs; o[2] = r.puyo.turns; o[3] = r.puyo.maxChain;
+        o[4] = (double)r.puyo.maxChainScore; o[5] = (double)r.puyo.tetLinesSent; o[6] = (double)r.puyo.ojamaReceived;
+        o[7] = r.puyo.counterTurns; o[8] = (double)r.puyo.freeOffsets; o[9] = (double)r.puyo.offsetByScore;
+        o[10] = r.tetPieces; o[11] = r.tetLines; o[12] = r.tetTspins; o[13] = r.tetTetrises; o[14] = r.tetB2bs;
+        o[15] = (double)r.tetOjamaSent; o[16] = (double)r.tetGaugeSent; o[17] = (double)r.tetLinesReceived;
+        o[18] = r.tetGarbageTaken; o[19] = r.tetFinalHeight;
+    });
+}
+
+// テスト用：_resolveTetAttack の1段（tests/test_tet_attack.py が本番 JS と照合する）。
+//   in: rate, chainCount, carry, zen, add, n, nq, 続いて (amount, ready)×nq
+//   out: [lines, carry, zen, キュー残り合計, ready の残り, 未 ready の残り]
+void sim_tet_resolve_case(const double* in, double* out) {
+    static const PolicyParams pp{};
+    GameSettings gs = makeSettings((int)in[0], 4, -1, 1e9);
+    Player p(pp, gs, 1);
+    std::vector<Garbage> q;
+    int nq = (int)in[6];
+    for (int i = 0; i < nq; i++) {
+        Garbage g{};
+        g.id = i + 1;
+        g.amount = (int)in[7 + i * 2];
+        g.ready = in[8 + i * 2] != 0;
+        g.internalUntil = 0;
+        q.push_back(g);
+    }
+    double carry;
+    bool zen;
+    out[0] = p.testResolveTet((int)in[1], in[2], in[3] != 0, (int)in[4], (int)in[5], q, &carry, &zen);
+    out[1] = carry;
+    out[2] = zen ? 1 : 0;
+    int sum = 0, r = 0, u = 0;
+    for (const auto& g : p.garbageQueue) { sum += g.amount; (g.ready ? r : u) += g.amount; }
+    out[3] = sum; out[4] = r; out[5] = u;
 }
 
 // 記録付き対局バッチ（分析用・遅い）。1局1行の JSON（JSONL）を outPath に書く。戻り値=書いた局数。

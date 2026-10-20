@@ -11,6 +11,7 @@
 //   ポリシー（モード切替・受け量推定）は cpu5_worker_io.js の移植。
 // ─────────────────────────────────────────────
 #include "sim.h"
+#include "tet.h"
 
 #include "core/bitboard.h"
 #include "core/weights.h"
@@ -142,6 +143,21 @@ int Player::receiveGarbage(int amount, double now) {
     return g.id;
 }
 
+void Player::receiveFromTet(int amount, double now) {
+    Garbage g;
+    g.id = nextGarbageId_++;
+    g.amount = amount;
+    g.ready = false;
+    g.internalUntil = now;       // 非表示期間なし
+    g.readyAt = now + 1000.0;    // 異種戦（テト→ぷよ）は 1000ms 後に降下可能
+    garbageQueue.push_back(g);
+}
+
+void Player::refreshReady() {
+    for (auto& g : garbageQueue)
+        if (!g.ready && t_ >= g.readyAt) g.ready = true;
+}
+
 void Player::confirmGarbage(const std::vector<int>& ids) {
     for (int id : ids)
         for (auto& g : garbageQueue)
@@ -217,6 +233,100 @@ bool Player::generateOjama() {
     return true;
 }
 
+// ojama.js _resolveTetAttack（相手がテト。火力補正 1.0 前提）。段ごとに点からラインを決め、tetPending_ に足す。
+//   受けがあれば点で相殺する。段の点で受けを全部消せて、持ち越し分だけでは足りなかったときは、
+//   その段の消去点を丸ごと攻撃に使う（本番の「異種戦におけるぷよの優位拡大のための仕様」）。
+void Player::resolveTetAttack(int add, int n) {
+    static const int SCORE_TABLE[7][2] = {{7, 13300}, {6, 5320}, {5, 2240}, {4, 1120}, {3, 700}, {2, 420}, {1, 210}};
+    static const int PUYO_TABLE[4][2] = {{4, 14}, {3, 12}, {2, 9}, {1, 8}};
+    const double rate = rateAt(t_);
+    pendingFire = 0;   // 二重相殺を防ぐ
+    double baseCarry = tetCarry_;
+    if (chainCount == 1 && hasTetZenkeshi_) baseCarry += ZENKESHI_BONUS;   // 落下点数（tetDropScore）は CPU では 0
+    double currentA = baseCarry + add;
+    const int pendingOj = queueSum();
+    double scoreForAttack = currentA;
+    double carryOver = 0;
+    if (pendingOj > 0) {
+        const double req = pendingOj * rate;
+        if (currentA >= req) {
+            garbageQueue.clear();
+            stats.offsetByScore += pendingOj;
+            if (baseCarry < req) { scoreForAttack = add; stats.freeOffsets++; }
+            else scoreForAttack = currentA - req;
+        } else {
+            int offsetCount = (int)std::floor(currentA / rate);
+            carryOver = std::fmod(currentA, rate);
+            stats.offsetByScore += offsetCount;
+            for (int pass = 0; pass < 2 && offsetCount > 0; pass++)
+                for (auto& g : garbageQueue) {
+                    if (offsetCount <= 0) break;
+                    if (g.ready != (pass == 0) || g.amount <= 0) continue;
+                    int take = std::min(g.amount, offsetCount);
+                    g.amount -= take;
+                    offsetCount -= take;
+                }
+            garbageQueue.erase(std::remove_if(garbageQueue.begin(), garbageQueue.end(),
+                                              [](const Garbage& g) { return g.amount <= 0; }),
+                               garbageQueue.end());
+            scoreForAttack = 0;
+        }
+    }
+    currentA = scoreForAttack;
+    int lines = 0;
+    double used = 0;
+    for (const auto& th : SCORE_TABLE) {
+        double req = th[1] / 70.0 * rate;
+        if (currentA >= req) { lines = th[0]; used = req; break; }
+    }
+    int addLines = 0;
+    for (const auto& pt : PUYO_TABLE) if (n >= pt[1]) { addLines = pt[0]; break; }
+    int total = lines + (lines >= 1 ? addLines : 0);
+    if (hasTetZenkeshi_) { total += 2; hasTetZenkeshi_ = false; }
+    tetCarry_ = currentA - used;
+    if (pendingOj > 0 && scoreForAttack == 0) tetCarry_ = carryOver;
+    if (total > 0) tetPending_ += total;
+}
+
+int Player::testResolveTet(int chainCountIn, double carry, bool zen, int add, int n, const std::vector<Garbage>& q,
+                           double* outCarry, bool* outZen) {
+    chainCount = chainCountIn;
+    tetCarry_ = carry;
+    hasTetZenkeshi_ = zen;
+    garbageQueue = q;
+    tetPending_ = 0;
+    resolveTetAttack(add, n);
+    *outCarry = tetCarry_;
+    *outZen = hasTetZenkeshi_;
+    return tetPending_;
+}
+
+// ojama.js _applyOjamaOffset（相手がテト）。ぷよ火力で相殺し、減った割合だけテトへのラインも減らして送る。
+void Player::applyOffsetTet(int amount, int tetAmount, double now) {
+    const int original = std::max(0, amount);
+    int remaining = original;
+    for (int pass = 0; pass < 2 && remaining > 0; pass++)
+        for (auto& g : garbageQueue) {
+            if (remaining <= 0) break;
+            if (g.ready != (pass == 0) || g.amount <= 0) continue;
+            int take = std::min(g.amount, remaining);
+            g.amount -= take;
+            remaining -= take;
+        }
+    garbageQueue.erase(std::remove_if(garbageQueue.begin(), garbageQueue.end(),
+                                      [](const Garbage& g) { return g.amount <= 0; }),
+                       garbageQueue.end());
+    if (trace && fireOpen_) trace->fires.back().offset += original - remaining;
+    int send = 0;
+    if (original > 0) send = (int)std::ceil(tetAmount * (double)remaining / original);
+    else if (tetAmount > 0) send = tetAmount;
+    if (send > 0) {
+        sentTetThisTurn_.push_back(tet->receiveFromPuyo(send, now));
+        stats.tetLinesSent += send;
+        if (trace && fireOpen_) trace->fires.back().sent += send;
+    }
+}
+
 // cpu5_worker_io.js _getIncomingBaseline + _updateVersusCounterMode + _buildWeightsArray → searchBuildMode
 void Player::decide(Player* opp) {
     const int rate = rateAt(t_);
@@ -237,6 +347,9 @@ void Player::decide(Player* opp) {
         } else {
             incoming = gross;
         }
+    } else if (tet) {
+        // 相手がテト：確定＝キュー総量、予測＝相手の攻撃ゲージを個数に換算（_getAnticipatedTetOjama）
+        incoming = queueSum() + tsim::tetGaugeToOjama(std::max(0, tet->pendingAttack));
     }
 
     const int* X = pp_.ext;
@@ -259,7 +372,7 @@ void Player::decide(Player* opp) {
 
     bool wantCounter = false;
     if (waitMode == 0) {
-        wantCounter = opp && (counterActive_ ? incoming > 0 : incoming > pp_.counterTrigger);
+        wantCounter = (opp || tet) && (counterActive_ ? incoming > 0 : incoming > pp_.counterTrigger);
         counterActive_ = wantCounter;
     } else {
         counterActive_ = true;   // 撃った後は従来のヒステリシスに戻す
@@ -307,8 +420,8 @@ void Player::decide(Player* opp) {
         wa[46] = harass ? B[46] * rate : 0;
         wa[47] = B[47];
         wa[48] = B[48];
-        wa[49] = (waitMode == 0 && wantCounter && !terrain) ? B[49] : 0;
-        wa[50] = B[50] * rate;
+        wa[49] = (!tet && waitMode == 0 && wantCounter && !terrain) ? B[49] : 0;   // H1/H2/T/P は対ぷよのみ
+        wa[50] = tet ? 0 : B[50] * rate;
         wa[57] = terrain ? incoming : 0;
         wa[58] = B[58];
         wa[59] = terrain ? rate : 0;
@@ -423,6 +536,7 @@ void Player::decide(Player* opp) {
 
 void Player::chainEnd(Player* opp) {
     const int rate = rateAt(t_);
+    const bool zenkeshiNow = chainCount > 0 && field.empty();   // この回で _confirmSentGarbage に渡す isZenkeshi
     if (chainCount > 0) {
         if (!hasDroppedOjamaThisTurn_) {   // 1ターンで2回通る（おじゃま落下後）ので統計は初回だけ
             if (chainCount > stats.maxChain) stats.maxChain = chainCount;
@@ -444,7 +558,7 @@ void Player::chainEnd(Player* opp) {
             fireOpen_ = false;
         }
     }
-    if (chainCount > 0 && field.empty()) pendingFire += ZENKESHI_BONUS / rate;
+    if (!tet && chainCount > 0 && field.empty()) pendingFire += ZENKESHI_BONUS / rate;   // 対テトの pendingFire は次の消去で捨てられる
 
     if (!hasDroppedOjamaThisTurn_ && queueSum() > 0) {
         if (generateOjama()) return;
@@ -452,6 +566,12 @@ void Player::chainEnd(Player* opp) {
 
     if (opp) opp->confirmGarbage(sentThisTurn_);
     sentThisTurn_.clear();
+    if (tet) {   // _confirmSentGarbage（相手がテト）
+        tet->confirmFromPuyo(sentTetThisTurn_);
+        sentTetThisTurn_.clear();
+        tetCarry_ = std::fmod(tetCarry_, (double)rate);
+        if (zenkeshiNow) hasTetZenkeshi_ = true;
+    }
 
     if (field.v[HIDDEN][2] != 0) { phase_ = DEAD; return; }   // 致命判定（_isCellEmpty(2, 0)）
 
@@ -461,6 +581,7 @@ void Player::chainEnd(Player* opp) {
 }
 
 void Player::step(Player* opp) {
+    if (tet) refreshReady();
     switch (phase_) {
     case SPAWN_ANIM_END:
         chainCount = 0;
@@ -544,6 +665,12 @@ void Player::step(Player* opp) {
         }
         chainCount++;
         int add = chainStepScore(pendingGroups_, field, chainCount);
+        if (tet) {   // _calcChainScore：消去の瞬間の _resolveTetAttack に渡す素材
+            int n = 0;
+            for (const auto& g : pendingGroups_) n += (int)g.size();
+            tetCalcAdd_ = add;
+            tetCalcN_ = add > 0 ? n : 0;
+        }
         turnChainScore_ += add;
         attackScore_ += add;
         int total = (int)(attackScore_ / rate);
@@ -559,8 +686,14 @@ void Player::step(Player* opp) {
         for (const auto& c : pendingOjamaCells_) field.v[c.r][c.c] = 0;
         DropInfo di = applyGravity(field);
         rng_.next();   // draw.js _prepareChainTextDOM が連鎖1段ごとに乱数を1回消費する（ツモがずれる）
+        if (tet) {
+            resolveTetAttack(tetCalcAdd_, tetCalcN_);   // pendingFire を捨て、点で相殺してラインを決める
+            if (queueSum() > 0 && pendingFire == 0) pendingFire = 1;
+            if (pendingFire > 0 || tetPending_ > 0) { applyOffsetTet(pendingFire, tetPending_, t_); pendingFire = 0; tetPending_ = 0; }
+        } else {
         if (queueSum() > 0 && pendingFire == 0) pendingFire = 1;   // 受けがあれば最低1個相殺
         if (pendingFire > 0) { applyOffset(pendingFire, opp, t_); pendingFire = 0; }
+        }
         t_ += ERASE_WAIT_MS;
         if (di.moved) t_ += di.maxDist * DROP_MS_PER_ROW + di.vibCycles * VIB_CYCLE_MS + FIX_WAIT_MS;
         phase_ = CHECK;
@@ -600,6 +733,57 @@ MatchResult runMatch(const PolicyParams& a, const PolicyParams& b, uint32_t seed
     if (tb) tb->finalBoard = boardString(pb.field);
     res.a = pa.stats;
     res.b = pb.stats;
+    return res;
+}
+
+// ── 異種戦（ぷよ 対 テト CPU lv5）──
+//   テトは「設置の時刻」をイベントにする（plan で操作と時刻を決め、その時刻に commit）。
+//   同時刻はどちらを先にするかを puyoFirst で選ぶ（学習・検証は両方で打ち消す）。
+VsTetResult runMatchVsTet(const PolicyParams& puyo, uint32_t seed, const GameSettings& gs, bool puyoFirst,
+                          PlayerTrace* tp) {
+    Player pl(puyo, gs, seed);
+    tsim::TetPlayer tp2(seed * 2654435761u + 12345u);
+    tp2.marginTimeMs = gs.marginTimeMs;
+    pl.trace = tp;
+    pl.tet = &tp2;
+    tp2.onSend = [&](double t, int oj) { pl.receiveFromTet(oj, t); };
+    tp2.start(0);
+    VsTetResult res{};
+    res.winner = -1;
+    double now = 0;
+    while (true) {
+        if (!tp2.dead && !tp2.planned()) tp2.plan();
+        if (tp2.dead) { res.winner = 0; now = tp2.now; break; }   // HOLD で出したミノが出せない
+        double tt = (tp2.dead || !tp2.planned()) ? 1e18 : tp2.plannedT();
+        double pt = pl.nextT();
+        bool puyoTurn = puyoFirst ? (pt <= tt) : (pt < tt);
+        now = puyoTurn ? pt : tt;
+        if (now > gs.maxGameMs) { res.winner = -1; break; }
+        if (puyoTurn) {
+            pl.step(nullptr);
+            if (pl.dead()) {
+                if (!tp2.dead && tp2.planned() && tp2.plannedT() <= now) tp2.commit();
+                res.winner = tp2.dead ? -1 : 1;
+                break;
+            }
+        } else {
+            tp2.commit();
+            if (tp2.dead) {
+                while (!pl.dead() && pl.nextT() <= now) pl.step(nullptr);
+                res.winner = pl.dead() ? -1 : 0;
+                break;
+            }
+        }
+        if (tp2.dead) { res.winner = pl.dead() ? -1 : 0; break; }
+    }
+    res.durationMs = now;
+    if (tp) tp->finalBoard = boardString(pl.field);
+    res.puyo = pl.stats;
+    const tsim::TetStats& s = tp2.st;
+    res.tetPieces = s.pieces; res.tetLines = s.lines; res.tetTspins = s.tspins; res.tetTetrises = s.tetrises;
+    res.tetB2bs = s.b2bs; res.tetOjamaSent = s.ojamaSent; res.tetGaugeSent = s.gaugeSent;
+    res.tetLinesReceived = s.linesReceived; res.tetGarbageTaken = s.garbageLinesTaken;
+    res.tetFinalHeight = tp2.stackHeight();
     return res;
 }
 

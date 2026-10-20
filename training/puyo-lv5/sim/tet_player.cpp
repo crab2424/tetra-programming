@@ -80,6 +80,7 @@ struct Act { ActType type; int arg; };
 } // namespace
 
 void initTetShapes() { shape(0, 0); }
+int  tetGaugeToOjama(int gauge) { return gaugeToOjama(gauge); }
 
 TetPlayer::TetPlayer(uint32_t seed) : rng(seed) {
     std::memset(rows, 0, sizeof rows);
@@ -218,23 +219,49 @@ static int offsetQueue(std::vector<TGarbage>& q, int amount) {
     return amount;
 }
 
-void TetPlayer::pushGarbageLines(int lines, double readyAt) {
-    // garbage_router.ts buildGarbageHoles
-    TGarbage g;
-    g.amount = lines;
-    g.ready = false;
-    g.readyAt = readyAt;
-    g.internalUntil = 0;
+std::vector<int> TetPlayer::holesFor(int lines) {
+    // garbage_router.ts buildGarbageHoles（1段目ランダム、以降 holeRate% で同じ列）
+    std::vector<int> holes;
     int prev = -1;
     for (int i = 0; i < lines; i++) {
         int h;
         if (prev < 0) h = (int)std::floor(rng.next() * TCOLS);
         else if (rng.next() < holeRatePercent / 100.0) h = prev;
         else h = (prev + (int)std::floor(rng.next() * (TCOLS - 1)) + 1) % TCOLS;
-        g.holes.push_back(h);
+        holes.push_back(h);
         prev = h;
     }
+    return holes;
+}
+
+void TetPlayer::pushGarbageLines(int lines, double readyAt) {
+    TGarbage g;
+    g.id = nextGarbageId_++;
+    g.amount = lines;
+    g.ready = false;
+    g.readyAt = readyAt;
+    g.internalUntil = 0;
+    g.holes = holesFor(lines);
     garbageQueue.push_back(g);
+}
+
+int TetPlayer::receiveFromPuyo(int lines, double now) {
+    TGarbage g;
+    g.id = nextGarbageId_++;
+    g.amount = lines;
+    g.ready = false;
+    g.readyAt = 1e18;              // 送り手の連鎖終了（confirmFromPuyo）まで ready にならない
+    g.internalUntil = now + 500.0; // stage1（非表示）
+    g.holes = holesFor(lines);
+    garbageQueue.push_back(g);
+    st.linesReceived += lines;
+    return g.id;
+}
+
+void TetPlayer::confirmFromPuyo(const std::vector<int>& ids) {
+    for (int id : ids)
+        for (auto& g : garbageQueue)
+            if (g.id == id) g.ready = true;
 }
 
 // garbage.js applyGarbage（異種戦＝1回の設置で最大7ライン）
@@ -408,6 +435,7 @@ void TetPlayer::releaseAttack(double t, bool cleared, int puyoAtk, int tetAtk) {
             st.gaugeSent += send;
             st.ojamaSent += oj;
             sends.push_back({t, send, oj});
+            if (onSend) onSend(t, oj);
         }
         pendingAttack = 0;
         pendingInternal = 0;
@@ -415,7 +443,22 @@ void TetPlayer::releaseAttack(double t, bool cleared, int puyoAtk, int tetAtk) {
 }
 
 double TetPlayer::step() {
+    double t = plan();
+    if (t < 0) return -1;
+    commit();
+    return dead ? -1 : t;
+}
+
+void TetPlayer::commit() {
+    if (!hasPlan_) return;
+    hasPlan_ = false;
+    lockPiece(lockT_);
+    now = lockT_ + (planNoMove_ ? 0.0 : T_HARDDROP_MS);
+}
+
+double TetPlayer::plan() {
     if (dead) return -1;
+    if (hasPlan_) return lockT_;
     for (int guard = 0; guard < 3; guard++) {
         // ── 探索（cpu5.js onMinoSpawned）──
         SearchCase sc;
@@ -437,9 +480,8 @@ double TetPlayer::step() {
             int d = 0;
             while (valid(cur, prot, px, py + 1)) { py++; d++; }
             if (d > 0) lastRot = false;
-            lockPiece(t);
-            now = t;
-            return dead ? -1 : t;
+            hasPlan_ = true; planNoMove_ = true; lockT_ = t;
+            return t;
         }
         if (res[0] == 1) {
             // HOLD：45ms 後に HOLD、その 45ms 後に次の executeAction
@@ -594,16 +636,14 @@ double TetPlayer::step() {
                     int d = 0;
                     while (valid(cur, prot, px, py + 1)) { py++; d++; }
                     if (d > 0) lastRot = false;
-                    lockPiece(t);
-                    now = t + T_HARDDROP_MS;
-                    return dead ? -1 : t;
+                    hasPlan_ = true; planNoMove_ = false; lockT_ = t;
+                    return t;
                 }
             }
         }
         // ハードドロップが無い操作列（本番では起きない想定）：その場で置く
-        lockPiece(t);
-        now = t + T_HARDDROP_MS;
-        return dead ? -1 : t;
+        hasPlan_ = true; planNoMove_ = false; lockT_ = t;
+        return t;
     }
     return -1;
 }

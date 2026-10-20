@@ -14,6 +14,8 @@
 
 #include "def.h"   // COLS / ROWS / HIDDEN / TOTAL_ROWS（native と共通）
 
+namespace tsim { class TetPlayer; struct TetStats; }   // 異種戦のテト側（sim/tet.h）
+
 namespace sim {
 
 // ── 時間定数（public/core/base.js PConfig と CPU 操作遅延 cpu5.js）──
@@ -118,6 +120,7 @@ struct Garbage {
     int    amount;
     bool   ready;
     double internalUntil;   // この時刻までは stage1（internal・着弾不可）
+    double readyAt = 1e18;  // テトから届いたもの：この時刻で ready（deliverLocalWithReadyTimer 1000ms）。ぷよからは confirm で ready
 };
 
 struct PlayerStats {
@@ -131,6 +134,9 @@ struct PlayerStats {
     int       waitTurns = 0;       // 提案2：相手の連鎖中に撃たずに伸ばしたターン数
     int       p1Holds = 0;         // 提案1：目標到達だが相手が返せるので撃たなかったターン数（試作 ext と P [61] の両方）
     int       p1Kills = 0;         // 提案1：目標未達だが相手が返せないので撃ったターン数
+    long long tetLinesSent = 0;    // 異種戦：テトへ送ったライン（相殺後）
+    long long freeOffsets = 0;     // 異種戦：段の点で受けを全部消し、その段の点を丸ごと攻撃に使えた回数（ただの相殺）
+    long long offsetByScore = 0;   // 異種戦：段の点で相殺したおじゃま個数
 };
 
 // ── 記録（負け方の分析用。Player::trace が nullptr の学習時は何もしない）──
@@ -214,6 +220,13 @@ public:
 
     // 相手からの受信（sendGarbage → deliverLocalStaged）
     int  receiveGarbage(int amount, double now);
+    // 異種戦：テトからの受信（tet/garbage.js sendGarbage → deliverLocalWithReadyTimer 1000ms。非表示期間なし）
+    void receiveFromTet(int amount, double now);
+    // 異種戦：相手をテトにする（nullptr＝ぷよ相手／ひとり用）
+    tsim::TetPlayer* tet = nullptr;
+    // テスト用（tests/test_tet_attack.py）：状態を入れて _resolveTetAttack を1回呼ぶ。戻り値＝この段のライン
+    int testResolveTet(int chainCountIn, double carry, bool zen, int add, int n, const std::vector<Garbage>& q,
+                       double* outCarry, bool* outZen);
     void confirmGarbage(const std::vector<int>& ids);
 
     Field field;
@@ -227,6 +240,14 @@ private:
     void applyOffset(int amount, Player* opp, double now);
     bool generateOjama();
     void chainEnd(Player* opp);
+    void refreshReady();                    // テトから届いたおじゃまの猶予タイマー
+    void resolveTetAttack(int add, int n);  // ojama.js _resolveTetAttack（消去の瞬間）
+    void applyOffsetTet(int amount, int tetAmount, double now);   // _applyOjamaOffset（相手がテト）
+    double tetCarry_ = 0;                   // tetAttackCarry
+    bool  hasTetZenkeshi_ = false;
+    int   tetPending_ = 0;                  // tetPendingFire
+    int   tetCalcAdd_ = 0, tetCalcN_ = 0;   // 点滅時に控える消去点・個数
+    std::vector<int> sentTetThisTurn_;
 
     const PolicyParams& pp_;
     GameSettings gs_;
@@ -267,6 +288,18 @@ struct MatchResult {
 };
 MatchResult runMatch(const PolicyParams& a, const PolicyParams& b, uint32_t seed, const GameSettings& gs,
                      PlayerTrace* ta = nullptr, PlayerTrace* tb = nullptr);
+
+// 異種戦：ぷよ（PolicyParams：build=vsTet・fast=fastVsTet の重み）対 テト CPU lv5
+struct VsTetResult {
+    int    winner;        // 0=ぷよ勝ち 1=テト勝ち -1=引き分け
+    double durationMs;
+    PlayerStats puyo;
+    int    tetPieces, tetLines, tetTspins, tetTetrises, tetB2bs;
+    long long tetOjamaSent, tetGaugeSent, tetLinesReceived;
+    int    tetGarbageTaken, tetFinalHeight;
+};
+VsTetResult runMatchVsTet(const PolicyParams& puyo, uint32_t seed, const GameSettings& gs, bool puyoFirst,
+                          PlayerTrace* tp = nullptr);
 
 struct SoloResult {
     PlayerStats st;

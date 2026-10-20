@@ -10,6 +10,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <functional>
 #include <vector>
 
 namespace tsim {
@@ -35,7 +36,8 @@ void cpuSearch(const uint8_t board[250], int cur, int hold, const int next[5], i
                const int weights[TET_W_LEN], int ren, int b2b, int out[TET_OUT_LEN]);
 void pieceBlocks(int type, int rot, int outXY[8]);     // PRECALC_MINO_BLOCKS（本番 Mino と同じ形）
 void kickTable(int type, int fromRot, int dir, int outKicks[10]);  // 内部座標の (dx,dy)×5
-void initTetShapes();   // ミノの形の表を作る（スレッドを立てる前に1回）
+void initTetShapes();
+int  tetGaugeToOjama(int gauge);   // garbage_router.ts tetGaugeToOjama   // ミノの形の表を作る（スレッドを立てる前に1回）
 
 // 7種袋の乱数（本番 Math.random の代わり。シードで再現できればよい）
 struct TRng {
@@ -46,6 +48,7 @@ struct TRng {
 
 // テトのおじゃまキュー要素（garbage.js garbageQueue）
 struct TGarbage {
+    int    id = 0;
     int    amount;
     std::vector<int> holes;
     bool   ready;
@@ -74,6 +77,7 @@ struct TetStats {
     int teleports = 0;                            // moveToTargetX の「塞がれて目標へ瞬間移動」（本番の癖）
     int routeInstant = 0, routePath = 0, routeFull = 0, noMove = 0;
     int garbageLinesTaken = 0;
+    long long linesReceived = 0;                  // ぷよから届いたライン（相殺前）
 };
 
 class TetPlayer {
@@ -111,6 +115,18 @@ public:
     void start(double t0);               // 最初のミノを出す
     // 1手進める（HOLD を含めて1つ設置するまで）。設置した時刻を返す。dead なら負
     double step();
+    // 対戦用に step を2つに分けたもの。plan＝探索して操作を決め、設置する時刻を返す（盤面は変えない。HOLD はここで済ませる）。
+    //   commit＝その時刻に設置する（相殺・おじゃまの適用・次のミノ）。plan と commit の間に届いたおじゃまも本番どおり効く。
+    double plan();
+    void   commit();
+    bool   planned() const { return hasPlan_; }
+    double plannedT() const { return lockT_; }
+
+    // ぷよ→テト（puyo ojama.js sendGarbage → deliverLocalStaged）：500ms 非表示 → 送り手の連鎖終了で確定。id を返す
+    int  receiveFromPuyo(int lines, double now);
+    void confirmFromPuyo(const std::vector<int>& ids);
+    // テト→ぷよの送信（消去なしの設置でゲージを放出した時刻と個数）
+    std::function<void(double, int)> onSend;
     int  marginStep(double t) const;     // -1=マージン前、0..5
     int  stackHeight() const;            // 一番上のブロックの高さ（0..25）
 
@@ -135,6 +151,11 @@ private:
     // 操作中のミノ
     int px = 0, py = 0, prot = 0;
     bool lastRot = false, lastPoint5 = false;
+    // plan → commit
+    bool hasPlan_ = false, planNoMove_ = false;
+    double lockT_ = 0;
+    int nextGarbageId_ = 1;
+    std::vector<int> holesFor(int lines);
 };
 
 } // namespace tsim

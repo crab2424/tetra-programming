@@ -103,8 +103,11 @@ python3 py/solo_baseline.py --report-only   # 記録済みを集計し直す →
 操作の組み立て・時間（`cpu5.js`）と設置・攻撃・受け（`game/tet/*.js`）を `sim/tet_player.cpp` に移した。
 ```bash
 python3 tests/test_tet_parity.py   # 探索結果が本番 wasm（node で実行）と全件一致するか
+python3 tests/test_tet_attack.py   # ぷよ→テトの火力（_resolveTetAttack）が本番 JS と一致するか
+python3 py/vstet_baseline.py       # ぷよ lv6（vsTet/fastVsTet）対 テト lv5 の勝率と負け方（600局・約1分）
 ```
-Python からは `py/tetsim.py`（`solo_run` でひとり用の毎秒ミノ数・攻撃量、`trace_cases` で探索の入出力）。
+Python からは `py/tetsim.py`（`solo_run` でひとり用の毎秒ミノ数・攻撃量、`trace_cases` で探索の入出力、
+`run_vstet`／`vstet_policy` で異種戦）。
 
 ## 対戦判断の A/B（ext[]）
 `PolicyParams.ext[16]`（`sim/sim.h` ExtIndex、既定0＝現行 lv5）で対戦判断を切り替える。
