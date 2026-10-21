@@ -288,13 +288,17 @@ body.input-mode-kbd .ms-row-editable.is-focused {
 
 /* ── スライダー目盛り ── */
 .vs-setting-markers {
-  display: flex;
-  justify-content: space-between;
+  position: relative;
   width: 260px;
-  padding: 0 2px;
+  height: 12px;
 }
 
+/* 各目盛りはつまみの中心位置に置く（--f: 0〜1。つまみ幅 16px の半分だけ両端を内側へ） */
 .vs-setting-markers span {
+  position: absolute;
+  left: calc(8px + (100% - 16px) * var(--f, 0));
+  transform: translateX(-50%);
+  white-space: nowrap;
   font-size: 9px;
   color: var(--text-dim);
   letter-spacing: 0.5px;
