@@ -67,9 +67,11 @@ if (out.build.length !== 78) throw new Error(`weightsArray 長が ${out.build.le
         counterTrigger: C.TRAINED_COUNTER.triggerVsPuyo,
         counterMargin:  C.TRAINED_COUNTER.marginVsPuyo,
         vsDecision: C.VS_DECISION || {},
-        vsTetDecision: C.VS_TET ? Object.fromEntries(Object.entries(C.VS_TET).filter(([k]) => k !== 'vsTetWeights')) : {},
+        vsTetDecision: C.VS_TET ? Object.fromEntries(Object.entries(C.VS_TET).filter(([, v]) => typeof v !== 'object')) : {},
         vsTet: { build: arr6('vsTet'), fast: arr6('fastVsTet'),
-                 counterTrigger: out.vsTet.counterTrigger, counterMargin: out.vsTet.counterMargin },
+                 // 対テトのカウンター定数は VS_TET で差し替え（0/未設定＝lv5 共通。cpu5_worker_io.js と同じ）
+                 counterTrigger: (C.VS_TET && C.VS_TET.counterTrigger) || out.vsTet.counterTrigger,
+                 counterMargin:  (C.VS_TET && C.VS_TET.counterMargin)  || out.vsTet.counterMargin },
     };
 }
 process.stdout.write(JSON.stringify(out, null, 1) + '\n');

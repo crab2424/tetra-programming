@@ -3,6 +3,7 @@
     python3 py/train_vstet.py --run runs/vstet-001 --gens 30
     python3 py/train_vstet.py --run runs/vstet-001 --resume
     python3 py/train_vstet.py --run runs/vstet-001 --validate          # best.json を検証シードで 2000 局
+    python3 py/train_vstet.py --run runs/vstet-003 --init vstet-ob --space v3 --gens 50 --seeds 250 --sigma 0.15
 
 fitness = テト lv5 に対する勝率（全候補を同じシード集合で打つ＝共通乱数。シード集合は世代ごとに入れ替える）。
   ・ぷよ側の Policy：build＝本線（vsTet として使う）・fast＝カウンター（fastVsTet として使う）・カウンター定数
@@ -77,7 +78,25 @@ SPACE = [
     Param("counterTrigger",         "ct", -1,    1,     20),
     Param("counterMargin",          "cm", -1,  0.6,    2.0, integer=False),
 ]
+SPACE_V2 = SPACE
+# 探索空間 v3（§15。2026-10-21）：v2 から qKeep を外し（側面で置き換え）、ちぎりの時間・到達連鎖から引く・側面3つを足す。
+#   おじゃまを降らせる探索は A/B（§15.7 ob）で採用して固定。tearWeight は初期値（ob_sk50_tc500）で使っているので残す。
+#   A（vt_kill_*）も外す：killPct は 0 だと無効だが少しでも正だと「2連鎖で倒せる」扱いで撃ち続けて崩れる（§15.8）。
+SPACE_V3 = [p for p in SPACE_V2 if p.name not in ("qKeepWeight", "vt_kill_pct", "vt_kill_hold_pct")] + [
+    Param("tearTimeWeight",         "b", 68,  -200,      0),
+    Param("tearChainCost",          "b", 69,     0,   2000),
+    Param("sideKeepWeight",         "b", 70,     0,    150),
+    Param("sideKeepPeak",           "b", 71,     1,      4),
+    Param("sideKeepFall",           "b", 72,    10,    100),
+]
+SPACES = {"v2": SPACE_V2, "v3": SPACE_V3}
 DIM = len(SPACE)
+
+
+def use_space(name: str) -> None:
+    global SPACE, DIM
+    SPACE = SPACES[name]
+    DIM = len(SPACE)
 
 
 def init_policy(name: str) -> ps.Policy:
@@ -86,6 +105,14 @@ def init_policy(name: str) -> ps.Policy:
         pol = tetsim.vstet_policy("lv6", b)
     elif name == "vstet-a":   # §12：本番 vsTet（vstet-001 の学習値）＋ A（af200：倒すライン×200%・倒せるなら撃つ）
         pol = tetsim.vstet_policy("lv6", b).with_ext(vt_kill_pct=200, vt_kill_fire=1)
+    elif name == "vstet-ob":   # §15.7：本番 vsTet＋ob_sk50_tc500（おじゃまを降らせる・初手だけ最悪・側面 50・qKeep 0・到達連鎖から 500）
+        pol = tetsim.vstet_policy("lv6", b).with_ext(vt_ojama_search=1, vt_ojama_worst=1)   # A は使わない（killPct 0・killFire 0）
+        pol.build[54] = 0      # qKeepWeight（側面で置き換え）
+        pol.build[69] = 500    # tearChainCost
+        pol.build[70] = 50     # sideKeepWeight
+        pol.build[71] = 2      # sideKeepPeak（0＝既定2 だが、探索空間の下限 1 に丸められないよう明示）
+        pol.build[72] = 50     # sideKeepFall（同上 既定50）
+        pol.build[73] = 2      # sideKeepMinChains
     else:   # lv6b：lv6 の対ぷよの build/fast＋対テトのカウンター定数（§9.2 の参考列）
         v = b["lv6"]["vsTet"]
         pol = ps.Policy(list(b["lv6"]["build"]), list(b["lv6"]["fast"]), int(v["counterTrigger"]),
@@ -150,7 +177,8 @@ def main() -> int:
     ap.add_argument("--run", required=True)
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--validate", action="store_true")
-    ap.add_argument("--init", default="lv6b", choices=["lv6b", "vstet", "vstet-a"])
+    ap.add_argument("--init", default="lv6b", choices=["lv6b", "vstet", "vstet-a", "vstet-ob"])
+    ap.add_argument("--space", default="v2", choices=list(SPACES))
     ap.add_argument("--gens", type=int, default=30)
     ap.add_argument("--popsize", type=int, default=16)
     ap.add_argument("--sigma", type=float, default=0.2)
@@ -162,6 +190,10 @@ def main() -> int:
     run = Path(args.run)
     run.mkdir(parents=True, exist_ok=True)
 
+    if args.validate or args.resume:
+        use_space(json.loads((run / "args.json").read_text()).get("space", "v2"))
+    else:
+        use_space(args.space)
     if args.validate:
         a = json.loads((run / "args.json").read_text())
         base = init_policy(a["init"])

@@ -101,8 +101,24 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
     //   設計: source_assets/memory/cpu/puyo/lv6-vstet-design.md §10（持論 §5.1 の構造。既定0＝今と同じ）。
     //   学習用シミュ training/puyo-lv5/sim/player.cpp decide の X_VT_* と同じ判断。
     static VS_TET = {
-        // ① 降っても撃てる（K）・② 相殺用の副砲（E2b・G1）：vsTet（本線）の重みに上書きする値（evalWeights の名前）
-        vsTetWeights: {},
+        // vsTet（本線）・fastVsTet（カウンター）の重みに上書きする値（lv5 の cpu5_modes.js の上に lv6 だけ載せる）。
+        //   2026-10-22 学習値（runs/vstet-003 第50世代。検証 2000局で 0.520＝本番 vstet-001 の 0.324 から。lv6-vstet-design.md §15.9）
+        vsTetWeights: {   // evalWeights の名前
+            heightPenalty: -7, bumpWeight: -75, qYWeight: 168, qKeyWeight: -267, qChiWeight: 49,
+            link2Weight: 54, link3Weight: 111, qLink2Weight: 42, qLink3Weight: 111, tearWeight: -138,
+            puyosWeight: 45, height3Weight: -268, qExcessWeight: -16, qJunkWeight: -118,
+            qKeepWeight: 0,                                      // K は発火点の側面で置き換え（§15.2）
+            tearTimeWeight: -133, tearChainCost: 1275,           // §15.1 ちぎりの時間
+            sideKeepWeight: 42, sideKeepPeak: 2, sideKeepFall: 83, sideKeepMinChains: 2,   // §15.2 発火点の側面
+        },
+        vsTetControl: {   // controlWeights の名前
+            expChainWeight: 248, pruneChainScore: 18038, fireChainCount: 9, fireScoreThreshold: 123647,
+            emergencyFireMinRatio: 40, emergencyHardCol2: 12,
+        },
+        fastVsTetWeights: { qYWeight: 16 },
+        fastVsTetControl: { emergencyFireMinRatio: 89 },
+        counterTrigger: 13,      // 対テトのカウンター発動量（0=lv5 共通の COUNTER_TRIGGER_OJAMA_VSTET）
+        counterMargin:  0.834,   // 対テトのカウンター倍率（0=lv5 共通の COUNTER_MARGIN_VSTET）
         keepReach:   0,   // ② カウンターでも本線を残す手で返す（H2。0=使わない / 1..3 は counterKeepReach と同じ）
         decayStartS: 0,   // ③ この経過秒から本線の目標発火を下げる（0=下げない）
         decayStepS:  0,   // ③ 何秒ごとに1段下げるか（0=10秒）
@@ -121,8 +137,8 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         terrainGainPct:   0,  // 撃つのは降った後の地形が受ける（育成）より この% 上回るときだけ（0=上回れば撃つ）
         // §15（2026-10-21）おじゃまを降らせる探索（ちぎりの時間・発火点の側面は vsTetWeights の
         //   tearTimeWeight / tearChainCost / sideKeepWeight / sideKeepPeak / sideKeepFall / sideKeepMinChains で入れる）
-        ojamaSearch: 0,   // 1=届いているおじゃまを探索の盤面に降らせる（テトのゲージは入れない）
-        ojamaWorst:  0,   // 1=初手だけ端数の全パターンの最悪で見る（0=固定の順）
+        ojamaSearch: 1,   // 1=届いているおじゃまを探索の盤面に降らせる（テトのゲージは入れない）
+        ojamaWorst:  1,   // 1=初手だけ端数の全パターンの最悪で見る（0=固定の順）
         ojamaTurnMs: 0,   // ready まで残りこの ms 以内なら初手の後に降る、それ以外は2手目の後（0=560）
     };
 
@@ -190,10 +206,13 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         this._buildBaseline = this._lv5Baseline;
         try {
             const r = super.setMode(mode);
-            // 対テトの本線に VS_TET の重み（① K・② 副砲）を足す（既定は空＝lv5 と同じ）
-            const extra = mode === 'vsTet' && this.constructor.VS_TET && this.constructor.VS_TET.vsTetWeights;
-            if (extra && Object.keys(extra).length) {
-                this.evalWeights = Object.assign({}, this.evalWeights, extra);
+            // 対テトの本線・カウンターに VS_TET の重みを上書きする（空なら lv5 と同じ）
+            const vt = this.constructor.VS_TET || {};
+            const ew = mode === 'vsTet' ? vt.vsTetWeights : mode === 'fastVsTet' ? vt.fastVsTetWeights : null;
+            const cw = mode === 'vsTet' ? vt.vsTetControl : mode === 'fastVsTet' ? vt.fastVsTetControl : null;
+            if ((ew && Object.keys(ew).length) || (cw && Object.keys(cw).length)) {
+                this.evalWeights    = Object.assign({}, this.evalWeights, ew);
+                this.controlWeights = Object.assign({}, this.controlWeights, cw);
                 this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
             }
             return r;

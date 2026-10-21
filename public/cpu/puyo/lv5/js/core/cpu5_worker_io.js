@@ -706,8 +706,10 @@ Object.assign(window.PuyoCPU5.prototype, {
         const COUNTER_TRIGGER_OJAMA_VSTET  = 14;   // 2026-10-21 学習値（runs/vstet-001。旧 6）
         // ★ 派生クラス（puyo lv6＝学習済み重み）が対ぷよの定数だけ差し替える口。lv5 自身は未設定＝上の値のまま。
         const ov = this._counterOverrides || {};
+        //   対テトは lv6 の VS_TET.counterTrigger / counterMargin で差し替える（0/未設定＝下の共通値）。
+        const vtc = this._vsTet || {};
         const COUNTER_TRIGGER_OJAMA = this._isOpponentTet()
-            ? COUNTER_TRIGGER_OJAMA_VSTET
+            ? (vtc.counterTrigger || COUNTER_TRIGGER_OJAMA_VSTET)
             : (ov.triggerVsPuyo ?? COUNTER_TRIGGER_OJAMA_VSPUYO);
 
         // ★ カウンター発火スコアの相手別倍率（受け量に対しどれだけ上回って返すか）。
@@ -787,7 +789,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             //   おじゃま量 incomingGross+1 個ぶんの連鎖スコア = (incomingGross+1) × rate。
             //   段数トリガ(fireChainCount)は切り、この受け量超えスコアだけを発火条件にする。
             //   ★ 相手別倍率：対テトは余裕を持って返す（>1.0）、対ぷよは返す優先（1.0）。
-            const margin = this._isOpponentTet() ? COUNTER_MARGIN_VSTET : (ov.marginVsPuyo ?? COUNTER_MARGIN_VSPUYO);
+            const margin = this._isOpponentTet() ? (vtc.counterMargin || COUNTER_MARGIN_VSTET) : (ov.marginVsPuyo ?? COUNTER_MARGIN_VSPUYO);
             appliedMargin = margin;
             this.controlWeights.fireChainCount     = 0;
             this.controlWeights.fireScoreThreshold = Math.ceil((incomingGross + 1) * rate * margin);
