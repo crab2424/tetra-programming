@@ -38,9 +38,9 @@ constexpr int    ERASE_COUNT      = 4;
 constexpr int    NEXT_KEEP        = 20;                   // 内部 NEXT 保持数
 
 // ── 重みパラメータ（Python ↔ C++ の受け渡し単位）──
-constexpr int W_LEN  = 68;                 // cpu5_weights.js _buildWeightsArray の要素数
+constexpr int W_LEN  = 78;                 // cpu5_weights.js _buildWeightsArray の要素数
 constexpr int EXT_LEN = 32;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
-constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[68] + fast[68] + counterTrigger + counterMargin×1000 + ext[32]
+constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[78] + fast[78] + counterTrigger + counterMargin×1000 + ext[32]
 
 // ext[] の添字（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md）
 enum ExtIndex {
@@ -74,6 +74,10 @@ enum ExtIndex {
     X_VT_TERRAIN_QUEUE,     // ↑の受け量・地形の計算にテトのゲージ換算（まだ届いていない分）を入れない 1/0
     X_VT_TERRAIN_MIN_CHAINS,// [66] T で撃つ手の段数の下限（0=条件なし）
     X_VT_TERRAIN_GAIN_PCT,  // [67] T で撃つのは地形が受ける（育成）より % 上回るときだけ（0=上回れば撃つ）
+    // ── 対テト §15：おじゃまを降らせる探索（lv6 の VS_TET.ojamaSearch/ojamaWorst/ojamaTurnMs と同じ）──
+    X_VT_OJAMA_SEARCH = 26, // 1=届いているおじゃまを探索の盤面に降らせる（[74..76]。テトのゲージは入れない）
+    X_VT_OJAMA_WORST,       // [77] 1=初手だけ端数の全パターンの最悪で見る（0=固定の順）
+    X_VT_OJAMA_TURN_MS,     // ready まで残りこの ms 以内なら初手の後に降る、それ以外は2手目の後（0=560）
 };
 // A：テトを倒すのに要る点の目安（lines 段のラインを 4個消しだけの連鎖で送るのに要る点。rate で換算）。本番 cpu5_worker_io.js _vtKillScore と同じ
 int vtKillScore(int tetHeight, int queuedLines, int tetInternal, int pct, int rate);
@@ -157,6 +161,8 @@ struct PlayerStats {
     long long tetLinesSent = 0;    // 異種戦：テトへ送ったライン（相殺後）
     long long freeOffsets = 0;     // 異種戦：段の点で受けを全部消し、その段の点を丸ごと攻撃に使えた回数（ただの相殺）
     long long offsetByScore = 0;   // 異種戦：段の点で相殺したおじゃま個数
+    int       tears = 0;           // ちぎった回数（連鎖が起きる配置＝発火は除く。§15）
+    long long tearUnits = 0;       // ちぎりの量（段数+1）の合計（発火は除く。§15）
 };
 
 // ── 記録（負け方の分析用。Player::trace が nullptr の学習時は何もしない）──

@@ -154,11 +154,27 @@ struct EvalWeights {
     // ── T（地形優先の対応）の条件（§13。既定0＝従来の T と同じ）──
     int terrainMinChains; // [66] T で撃つ（返す・軽減）手の段数の下限（0＝条件なし）
     int terrainGainPct;   // [67] T で撃つのは、降った後の地形が育成（受ける）の地形をこの% 上回るときだけ（0＝上回れば撃つ）
+
+    // ── 対テト §15（lv6 のみ。既定0＝無効。設計: lv6-vstet-design.md §15）──
+    //   ちぎりの量＝段数＋1（ちぎると約 83ms×(段数+1) 遅れる）。連鎖が起きる配置（発火）は数えない。
+    int tearTimeWeight;   // [68] 累積評価に「ちぎりの量 × この値」（負）。[28] tearWeight（0/1・発火も罰）とは別
+    int tearChainCost;    // [69] 到達連鎖の巻き上げで「経路のちぎりの量の合計 × この値（点）」を引く（初手の絞り込みでも効かせる）
+    //   発火点の側面（K の置き換え）：連鎖可能な発火点（組）ごとに、左右の列で開いている側面のマスを山なりの f(d) で数える。
+    //   d＝隣の列の上端からの段（1＝上端のすぐ上）。f(d) = W × max(0, 100 − |d − peak| × fall) / 100。組の値は左右の大きい方。
+    int sideKeepWeight;   // [70] W（正。0=無効）
+    int sideKeepPeak;     // [71] 山の頂上の段（0=既定 2）
+    int sideKeepFall;     // [72] 頂上から1段離れるごとに減らす %（0=既定 50）
+    int sideKeepMinChains;// [73] この段数以上の連鎖を起こせる発火点だけ数える（0=既定 2）
+    //   おじゃまを降らせる探索。★ [74..77] は思考ごとの入力（JS cpu5_worker_io.js／sim player.cpp decide が対テトのときだけ入れる）。
+    int ojamaNow;         // [74] 初手を置いた後に降る量（ready まで残り 1手以内のおじゃま）
+    int ojamaNext;        // [75] 2手目を置いた後に降る量（それ以外の届いているおじゃま。テトのゲージは入れない）
+    int ojamaRate;        // [76] 相殺の換算レート（0=この仕組みを使わない）
+    int ojamaWorst;       // [77] 1=初手（深さ0）だけ端数の全パターンの最悪で見る／0=固定の順
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 68 要素（[0..67]）。
+//   weightsArray は 78 要素（[0..77]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -249,5 +265,16 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     // ── T の条件（§13）──
     w.terrainMinChains    = weightsArray[66];
     w.terrainGainPct      = weightsArray[67];
+    // ── 対テト §15（ちぎりの時間・発火点の側面・おじゃまを降らせる探索）──
+    w.tearTimeWeight      = weightsArray[68];
+    w.tearChainCost       = weightsArray[69];
+    w.sideKeepWeight      = weightsArray[70];
+    w.sideKeepPeak        = weightsArray[71];
+    w.sideKeepFall        = weightsArray[72];
+    w.sideKeepMinChains   = weightsArray[73];
+    w.ojamaNow            = weightsArray[74];
+    w.ojamaNext           = weightsArray[75];
+    w.ojamaRate           = weightsArray[76];
+    w.ojamaWorst          = weightsArray[77];
     return w;
 }

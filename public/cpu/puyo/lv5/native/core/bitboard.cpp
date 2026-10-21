@@ -216,3 +216,9 @@ int placementTear(const PairPlacement& p) {
     // 縦置き（rot 0/2、childCol==col）は着地行が連続するのでちぎらない。
     return (p.childCol != p.col && p.pivotRow != p.childRow) ? 1 : 0;
 }
+
+int placementTearRows(const PairPlacement& p) {
+    if (p.childCol == p.col) return 0;
+    int d = p.pivotRow - p.childRow;
+    return d < 0 ? -d : d;
+}

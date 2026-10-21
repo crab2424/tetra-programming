@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -247,6 +248,56 @@ int ignitionAfterOjama(const BitBoard& b, int nOjama) {
     return best;
 }
 
+// ── 発火点の側面（対テト §15。K の置き換え。lv6-vstet-design.md §15.2）──
+//   発火点＝発火ぷよ（1〜3個）を足すと消える、盤面に既にある組 G。G の各マスの左右の列 c で空いているマスを
+//   「開いている側面」とし、隣の列の上端からの段 d（1＝上端のすぐ上）で山なりの f(d) を足す。
+//   組の値は左右の列のうち大きい方（片側から撃てれば足りる）。重みは組・連鎖の大きさに依らず等しい。
+static int sideKeepF(const EvalWeights& w, int d) {
+    int peak = w.sideKeepPeak > 0 ? w.sideKeepPeak : 2;
+    int fall = w.sideKeepFall > 0 ? w.sideKeepFall : 50;
+    int pct = 100 - std::abs(d - peak) * fall;
+    return pct > 0 ? w.sideKeepWeight * pct / 100 : 0;
+}
+// plan（発火ぷよを置いた盤面）で (x, ar) から同色を塗りつぶし、置いた発火ぷよ（列 x の dropRows）を除いたマスを返す。
+static CellMask ignitionGroup(const BitBoard& plan, int x, int ar, uint8_t color, const int* dropRows, int nDrop) {
+    CellMask g, seen;
+    int stack[TOTAL_ROWS * COLS][2];
+    int sp = 0;
+    stack[sp][0] = ar; stack[sp][1] = x; sp++;
+    seen.set(ar, x);
+    const int dr[] = {-1, 1, 0, 0};
+    const int dc[] = { 0, 0,-1, 1};
+    while (sp > 0) {
+        --sp;
+        int cr = stack[sp][0], cc = stack[sp][1];
+        bool dropped = false;
+        if (cc == x) for (int i = 0; i < nDrop; ++i) if (dropRows[i] == cr) { dropped = true; break; }
+        if (!dropped) g.set(cr, cc);
+        for (int d = 0; d < 4; ++d) {
+            int nr = cr + dr[d], nc = cc + dc[d];
+            if (nr < HIDDEN || nr >= TOTAL_ROWS || nc < 0 || nc >= COLS) continue;
+            if (seen.test(nr, nc) || plan.get(nc, nr) != color) continue;
+            seen.set(nr, nc);
+            stack[sp][0] = nr; stack[sp][1] = nc; sp++;
+        }
+    }
+    return g;
+}
+static int sideKeepGroupValue(const CellMask& g, const int heights[COLS], int xMin, int xMax, const EvalWeights& w) {
+    int best = 0;
+    for (int c = xMin; c <= xMax; ++c) {
+        int sum = 0;
+        for (int r = HIDDEN; r < TOTAL_ROWS; ++r) {
+            bool adj = (c > 0 && g.test(r, c - 1)) || (c < COLS - 1 && g.test(r, c + 1));
+            if (!adj) continue;
+            int d = (TOTAL_ROWS - r) - heights[c];   // 隣の列の上端からの段（1＝すぐ上）。0 以下は埋まっている
+            if (d >= 1) sum += sideKeepF(w, d);
+        }
+        if (sum > best) best = sum;
+    }
+    return best;
+}
+
 // quiescence: 各列に同色を最大3個まで（4連結が出来るまで）落として連鎖を試し、
 //   連鎖数・発火列高さ・必要追加ぷよ数(key)・伸長余地(chi) を q スコア化して最大値を返す。
 //   原典 quiet.cpp の探索を bounded 列範囲でスカラ再現。
@@ -264,7 +315,8 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
     //   （現行デフォルトは q重み非0なので発動しない。）
     if (w.qChainWeight == 0 && w.qYWeight == 0 && w.qKeyWeight == 0 && w.qChiWeight == 0
         && w.qLink2Weight == 0 && w.qLink3Weight == 0 && w.qExcessWeight == 0
-        && w.qJunkWeight == 0 && w.qSubWeight == 0 && w.qKeepWeight == 0 && !outMainSub) return 0;
+        && w.qJunkWeight == 0 && w.qSubWeight == 0 && w.qKeepWeight == 0 && w.sideKeepWeight == 0
+        && !outMainSub) return 0;
 
     // ── 副砲・ゴミ（提案3 E2a/E2b。設計: lv6-harass-design.md §9.3）──
     //   どちらかの重みが非0のときだけ、各候補の「消えたぷよの元の位置」を追跡する（既定0なら従来と同じ速さ）。
@@ -280,6 +332,11 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
     int best = 0;
     bool found = false;
     int bestAnyScore = 0;   // 発火点の保全（K の損の形）：今起こせる最大連鎖の点（placed 1〜3）
+    // 発火点の側面（§15）：数えた組（同じ組を別の列・色から見つけても1回だけ）
+    const int sideMinChains = w.sideKeepMinChains > 0 ? w.sideKeepMinChains : 2;
+    CellMask sideSeen[COLS * 5];
+    int nSideSeen = 0;
+    int sideTotal = 0;
 
     for (int x = xMin; x <= xMax; ++x) {
         int dropMax = std::min(MAX_QDROP, 12 - heights[x]);
@@ -289,6 +346,7 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
             BitBoard plan = b;
             int placed = 0;
             bool trig = false;
+            int dropRows[MAX_QDROP];
             for (int i = 0; i < dropMax; ++i) {
                 // ★ 実際の着地行に積む。calcDropRow は内部行（11=床..0=天井）を返し、
                 //   可視フィールドが満杯なら -1（=HIDDEN行へは積まない）。
@@ -298,17 +356,31 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
                 if (row < 0) break;
                 int ar = row + HIDDEN;           // 着地マスの絶対行
                 plan.set(x, ar, color);
+                dropRows[placed] = ar;
                 placed++;
                 // この列に4連結が出来たか（軽量チェック）
                 if (hasGroup4At(plan, x, ar, color)) { trig = true; break; }
             }
             if (!trig) continue;
 
+            // 発火点の側面（§15）用の組は、連鎖で plan が崩れる前に求める
+            CellMask sideGroup;
+            if (w.sideKeepWeight != 0) sideGroup = ignitionGroup(plan, x, dropRows[placed - 1], color, dropRows, placed);
+
             BitBoard sim = plan;
             CellMask popped;
             ChainResult chain = simulateChain(sim, trackPop ? &popped : nullptr);
             if (chain.chains <= 0) continue;
             if (trackPop) pops[nPops++] = {popped, chain.score, chain.chains};
+            if (w.sideKeepWeight != 0 && chain.chains >= sideMinChains && sideGroup.any()) {
+                bool dup = false;
+                for (int i = 0; i < nSideSeen; ++i)
+                    if (sideSeen[i].lo == sideGroup.lo && sideSeen[i].hi == sideGroup.hi) { dup = true; break; }
+                if (!dup && nSideSeen < COLS * 5) {
+                    sideSeen[nSideSeen++] = sideGroup;
+                    sideTotal += sideKeepGroupValue(sideGroup, heights, xMin, xMax, w);
+                }
+            }
             if (chain.score > bestAnyScore) bestAnyScore = chain.score;
 
             // 「キーぷよ1個で着火できる連鎖」だけを potChain として巻き上げる。
@@ -351,5 +423,6 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
         int v = w.qKeepWeight > 0 ? after : std::max(0, bestAnyScore - after);
         result += (v / OJAMA_RATE) * w.qKeepWeight;
     }
+    result += sideTotal;   // 発火点の側面（§15。既定0）
     return result;
 }

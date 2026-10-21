@@ -70,6 +70,26 @@ struct ExpCandidate {
     int doomDepth;
 };
 
+// ── 対テト §15：おじゃまを降らせる探索（lv6-vstet-design.md §15.3）──
+//   n 個を盤面に降らせる。フル段は全列、端数は fracMask（ビット c＝列 c）の列に1個ずつ。
+static const int OJAMA_FRAC_ORDER[COLS] = {2, 3, 1, 4, 0, 5};   // 固定の順（第3,4,2,5,1,6列＝致死列に厳しめ）
+static void dropOjamaOn(BitBoard& b, int n, int fracMask) {
+    int rows = n / COLS;
+    for (int c = 0; c < COLS; ++c) {
+        int k = rows + ((fracMask >> c) & 1);
+        for (int i = 0; i < k; ++i) {
+            int row = calcDropRow(b, c);
+            if (row < 0) break;
+            b.set(c, row + HIDDEN, 6);
+        }
+    }
+}
+static int fixedFracMask(int frac) {
+    int m = 0;
+    for (int k = 0; k < frac; ++k) m |= 1 << OJAMA_FRAC_ORDER[k];
+    return m;
+}
+
 static int expBeamWidth(int depth, int cfgWidth) {
     // depth0 は全初手をシードするため広く、以降は性能予算で絞る（連鎖記録は枝刈り前に行う）。
     if (depth == 0) return EXP_MAXCAND;  // 全初手を必ず展開
@@ -166,12 +186,59 @@ static void runExpectedChainSelection(
                     continue;
                 }
 
+                // ── 対テト §15：おじゃまを降らせる（連鎖の相殺の後、1手30個まで）──
+                //   due（この手の後に降る）を相殺 → 降らせる → 子は due の残り＋later を次の手の後に。
+                //   T（地形優先の対応）が使う board0 は降らせる前の盤面のまま。
+                const BitBoard nbPre = nb;
+                int ojDue = node.ojamaDue, ojLater = node.ojamaLater, ojDrop = 0;
+                if (w.ojamaRate > 0 && (ojDue > 0 || ojLater > 0)) {
+                    if (chain.score > 0) {
+                        int off = chain.score / w.ojamaRate;
+                        int t = std::min(off, ojDue);   ojDue -= t;   off -= t;
+                        ojLater -= std::min(off, ojLater);
+                    }
+                    ojDrop = std::min(ojDue, 30);
+                    ojDue = ojDue - ojDrop + ojLater;
+                    ojLater = 0;
+                }
+
                 // ★ 配置後盤面の「今撃てば出る最大連鎖スコア」(potChain)を eval と同じ
                 //   quiescence シミュから受け取る（追加コストなし）。
                 int potChain = 0, potChainCount = 0;
-                int scoreRaw = evaluateBoard(nb, chain, we, prePot, isEmergencyPre, &potChain, &potChainCount);
+                int scoreRaw = 0;
+                bool ojDead = false;   // 降ったおじゃまで窒息する（初手なら詰み doomDepth=0 として残し、先は読まない）
+                if (ojDrop > 0) {
+                    const int frac = ojDrop % COLS;
+                    if (depth == 0 && w.ojamaWorst && frac > 0) {
+                        // 案 b：初手だけ、端数の列の全組み合わせ（6Cf）のうち評価が最小の盤面を子にする。
+                        //   窒息するパターンが1つでもあれば最悪＝窒息。
+                        bool found = false;
+                        for (int m = 0; m < (1 << COLS); ++m) {
+                            if (__builtin_popcount(m) != frac) continue;
+                            BitBoard ob = nbPre;
+                            dropOjamaOn(ob, ojDrop, m);
+                            const bool dead = ob.get(2, HIDDEN) != 0;
+                            int pc = 0, pcc = 0;
+                            int sc = evaluateBoard(ob, chain, we, prePot, isEmergencyPre, &pc, &pcc);
+                            if (dead || !found || sc < scoreRaw) {
+                                scoreRaw = sc; potChain = pc; potChainCount = pcc; nb = ob; found = true;
+                            }
+                            if (dead) { ojDead = true; break; }
+                        }
+                    } else {
+                        dropOjamaOn(nb, ojDrop, fixedFracMask(frac));
+                        ojDead = nb.get(2, HIDDEN) != 0;
+                        scoreRaw = evaluateBoard(nb, chain, we, prePot, isEmergencyPre, &potChain, &potChainCount);
+                    }
+                } else {
+                    scoreRaw = evaluateBoard(nb, chain, we, prePot, isEmergencyPre, &potChain, &potChainCount);
+                }
                 // ★ ちぎり(tear)ペナルティ：配置時1回（評価値ではなく配置コスト）。
                 if (w.tearWeight != 0) scoreRaw += placementTear(p) * w.tearWeight;
+                // ★ 対テト §15：ちぎりの量（段数+1＝失う時間に比例）。連鎖が起きる配置（発火）は数えない。
+                const int tearRows  = placementTearRows(p);
+                const int tearUnits = (chain.chains == 0 && tearRows > 0) ? tearRows + 1 : 0;
+                if (w.tearTimeWeight != 0) scoreRaw += tearUnits * w.tearTimeWeight;
                 int score = scoreRaw;
                 if (depth == 0) score = score * w.p1Weight / 100;
                 for (int i = 0; i < depth; i++) score = (score * 9) / 10;
@@ -179,6 +246,9 @@ static void runExpectedChainSelection(
                 SearchNode nn = node;
                 nn.board = nb;
                 nn.accumulatedScore += score;
+                nn.tearUnits += tearUnits;
+                nn.ojamaDue = ojDue;
+                nn.ojamaLater = ojLater;
 
                 int fm;
                 if (registerFirst) {
@@ -213,7 +283,7 @@ static void runExpectedChainSelection(
                     //   depth0 の chain は現ペアを置いた瞬間の連鎖結果＝「今撃てる連鎖」。
                     cands[fm].fireChains = chain.chains;
                     cands[fm].fireScore  = chain.score;
-                    cands[fm].board0     = nb;
+                    cands[fm].board0     = nbPre;
                     nn.firstMoveIndex = fm;
                     nn.col1 = p.col; nn.rot1 = p.rot;
                 } else {
@@ -222,6 +292,13 @@ static void runExpectedChainSelection(
                     else if (depth == 2) { nn.col3 = p.col; nn.rot3 = p.rot; }
                 }
 
+                if (ojDead) {
+                    // 対テト §15：降ったおじゃまで窒息。初手は候補に残して詰み（読んだ範囲で最短）にし、
+                    //   全初手が詰むときも手が選べるようにする。深さ1以降は生存の数に入れない（従来の詰み判定に任せる）。
+                    dbgDeathPrune++;
+                    if (registerFirst && fm >= 0 && fm < EXP_MAXCAND && cands[fm].doomDepth < 0) cands[fm].doomDepth = 0;
+                    continue;
+                }
                 if (fm >= 0 && fm < EXP_MAXCAND) aliveChildren[fm]++;
 
                 // ★ 連鎖スコアの巻き上げ：潜在(potChain)と実発火(chain.score)の大きい方。
@@ -233,6 +310,8 @@ static void runExpectedChainSelection(
                 }
                 if (fm >= 0) {
                     long long reach = std::max((long long)potChain, (long long)chain.score);
+                    // 対テト §15：ここまでのちぎりの量ぶんの点を引く（ちぎって伸ばす手と、ちぎらずに組む手を点で比べる）
+                    if (w.tearChainCost != 0) reach -= (long long)nn.tearUnits * w.tearChainCost;
                     if (reach > cands[fm].chainTarget) {
                         cands[fm].chainTarget = reach;
                         // 到達連鎖の段数も同じ出所（実発火 chain.chains か 潜在 potChainCount）で更新
@@ -267,6 +346,8 @@ static void runExpectedChainSelection(
             uniq.reserve(nextNodes.size());
             for (const auto& nd : nextNodes) {
                 uint64_t hkey = hashBoard(nd.board);
+                // 対テト §15：盤面が同じでも、これから降るおじゃまが違えば別の局面
+                if (w.ojamaRate > 0) hkey ^= (uint64_t)(nd.ojamaDue + 1) * 0x9E3779B97F4A7C15ULL;
                 auto it = seen.find(hkey);
                 if (it == seen.end()) {
                     seen.emplace(hkey, (int)uniq.size());
@@ -328,7 +409,12 @@ static void runExpectedChainSelection(
     }
     // ── 確定NEXTを1本のビームで深さ maxDepth まで読む（擬似分岐なし）──
     std::vector<SearchNode> beam;
-    { SearchNode root; root.board = baseBoard; beam.push_back(root); }
+    {
+        SearchNode root; root.board = baseBoard;
+        // 対テト §15：初手の後に降る量（ready まで残り1手以内）と、2手目の後に降る量
+        if (w.ojamaRate > 0) { root.ojamaDue = std::max(0, w.ojamaNow); root.ojamaLater = std::max(0, w.ojamaNext); }
+        beam.push_back(root);
+    }
 
     for (int depth = 0; depth < maxDepth; depth++) {
         stepDepth(beam, nextPairs[depth * 2], nextPairs[depth * 2 + 1], depth,

@@ -25,6 +25,10 @@ struct SearchNode {
     int col2, rot2;
     int col3, rot3;
     int firstMoveIndex;   // どの初手candidate由来か（期待連鎖スコア選択用。未使用時 -1）
+    int tearUnits;        // 対テト §15：根からこのノードまでのちぎりの量（段数+1）の合計（発火の配置は数えない）
+    int ojamaDue;         // 対テト §15：次の配置の後に降るおじゃま
+    int ojamaLater;       // 対テト §15：その次の配置の後に降るおじゃま
 
-    SearchNode() : accumulatedScore(0), col1(-1), rot1(-1), col2(-1), rot2(-1), col3(-1), rot3(-1), firstMoveIndex(-1) {}
+    SearchNode() : accumulatedScore(0), col1(-1), rot1(-1), col2(-1), rot2(-1), col3(-1), rot3(-1), firstMoveIndex(-1),
+                   tearUnits(0), ojamaDue(0), ojamaLater(0) {}
 };

@@ -244,7 +244,18 @@ Object.assign(window.PuyoCPU5.prototype, {
             this._vtKillFire || 0,                                   // [64] A 対テト：目標未満でも倒せるなら撃つ 1/0
             this._vtStrict || 0,                                     // [65] B 対テト：整地だけの1連鎖を撃たない 1/0
             this._terrainMinChains || 0,                             // [66] T で撃つ手の段数の下限（思考ごと。lv6 の対テトのみ）
-            this._terrainGainPct || 0                                // [67] T で撃つのは地形が受けるより % 上回るときだけ
+            this._terrainGainPct || 0,                               // [67] T で撃つのは地形が受けるより % 上回るときだけ
+            // ── 対テト §15（lv6-vstet-design.md §15。既定0＝無効）──
+            this.evalWeights.tearTimeWeight || 0,                    // [68] ちぎりの量（段数+1）×この値（発火は数えない）
+            this.evalWeights.tearChainCost || 0,                     // [69] 到達連鎖から「経路のちぎりの量×この点」を引く
+            this.evalWeights.sideKeepWeight || 0,                    // [70] 発火点の側面（K の置き換え）の重み
+            this.evalWeights.sideKeepPeak || 0,                      // [71] 側面の山の頂上の段（0=2）
+            this.evalWeights.sideKeepFall || 0,                      // [72] 側面の頂上から1段ごとに減らす %（0=50）
+            this.evalWeights.sideKeepMinChains || 0,                 // [73] 側面を数える発火点の連鎖段数の下限（0=2）
+            this._ojamaNow || 0,                                     // [74] 初手の後に降るおじゃま（思考ごと。lv6 の対テトのみ）
+            this._ojamaNext || 0,                                    // [75] 2手目の後に降るおじゃま（思考ごと）
+            this._ojamaRate || 0,                                    // [76] おじゃまを降らせる探索の相殺レート（0=使わない）
+            this._ojamaWorst || 0                                    // [77] 初手だけ端数の全パターンの最悪で見る 1/0
         ]);
     },
 

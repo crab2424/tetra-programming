@@ -32,6 +32,7 @@ def mk(build=None, fast=None, **ext):
 
 # 重みの添字（core/weights.h）
 QSUB, SUB_MC, SUB_MP, SUB_FILL, KEEP_W, KEEP_D, KEEP_R = 45, 51, 52, 53, 54, 55, 56
+TEAR_W, TEAR_T, TEAR_C, SIDE_W, SIDE_P, SIDE_F, SIDE_MC = 28, 68, 69, 70, 71, 72, 73   # §15
 VARIANTS = {
     "base": mk(),
     # ① 降っても撃てる（K）：おじゃまを qKeepRows 段載せた後に起こせる連鎖に価値（正）／失う量に罰（負）
@@ -89,6 +90,28 @@ VARIANTS = {
     # §12 B 整地だけの1連鎖を撃たない
     "b1":      mk(vt_strict=1),
     "b1af100": mk(vt_strict=1, vt_kill_pct=100, vt_kill_fire=1),
+    # §15.1 ちぎり：量（段数+1＝失う時間）に比例・発火は罰なし（tt）／到達連鎖から点で引く（tc）
+    "tt60":     mk({TEAR_W: 0, TEAR_T: -60}),
+    "tt120":    mk({TEAR_W: 0, TEAR_T: -120}),
+    "tc200":    mk({TEAR_C: 200}),
+    "tc500":    mk({TEAR_C: 500}),
+    "tc1000":   mk({TEAR_C: 1000}),
+    "tt60c500": mk({TEAR_W: 0, TEAR_T: -60, TEAR_C: 500}),
+    # §15.2 発火点の側面（K の置き換え：qKeep 0）。山の頂上 2段・1段ごとに 50% 減・2連鎖以上の発火点
+    "sk20":     mk({KEEP_W: 0, SIDE_W: 20}),
+    "sk50":     mk({KEEP_W: 0, SIDE_W: 50}),
+    "sk100":    mk({KEEP_W: 0, SIDE_W: 100}),
+    "sk50p1":   mk({KEEP_W: 0, SIDE_W: 50, SIDE_P: 1}),
+    "sk50p3":   mk({KEEP_W: 0, SIDE_W: 50, SIDE_P: 3}),
+    "sk50f34":  mk({KEEP_W: 0, SIDE_W: 50, SIDE_F: 34}),
+    # §15.3 おじゃまを降らせる探索：固定の順（oa）／初手だけ全パターンの最悪（ob）／ready 済みだけ初手の後（obr＝旧案）
+    "oa":       mk(vt_ojama_search=1),
+    "ob":       mk(vt_ojama_search=1, vt_ojama_worst=1),
+    "obr":      mk(vt_ojama_search=1, vt_ojama_worst=1, vt_ojama_turn_ms=1),
+    # 組み合わせ
+    "ob_sk50":       mk({KEEP_W: 0, SIDE_W: 50}, vt_ojama_search=1, vt_ojama_worst=1),
+    "ob_tc500":      mk({TEAR_C: 500}, vt_ojama_search=1, vt_ojama_worst=1),
+    "ob_sk50_tc500": mk({KEEP_W: 0, SIDE_W: 50, TEAR_C: 500}, vt_ojama_search=1, vt_ojama_worst=1),
 }
 
 
@@ -128,6 +151,8 @@ def main() -> None:
                  f"（≧6 {(a['puyo_max_chain'] >= 6).mean():.1%}）・送 {a['puyo_lines_sent'].mean():.1f} ライン・"
                  f"被弾 {a['puyo_ojama_received'].mean():.1f}・ただの相殺 {a['free_offsets'].mean():.2f}・"
                  f"カウンター手 {a['puyo_counter_turns'].mean():.1f}・負け局の最大連鎖 {a['puyo_max_chain'][lose].mean():.2f}"
+                 f"・ちぎり {a['puyo_tears'].mean():.1f} 回／量 {a['puyo_tear_units'].mean():.1f}"
+                 f"・1手 {(time.time() - t) * 1000 / max(1, a['puyo_turns'].sum()):.2f}ms"
                  f"（{time.time() - t:.0f}s）")
         print(line, flush=True)
         if base is None:

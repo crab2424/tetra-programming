@@ -119,6 +119,11 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         terrainQueue: 0,  // ↑の受け量にテトのゲージ換算（まだ届いていない分）を入れない 1/0
         terrainMinChains: 0,  // 撃つ（返す・軽減）手の段数の下限（0=条件なし）
         terrainGainPct:   0,  // 撃つのは降った後の地形が受ける（育成）より この% 上回るときだけ（0=上回れば撃つ）
+        // §15（2026-10-21）おじゃまを降らせる探索（ちぎりの時間・発火点の側面は vsTetWeights の
+        //   tearTimeWeight / tearChainCost / sideKeepWeight / sideKeepPeak / sideKeepFall / sideKeepMinChains で入れる）
+        ojamaSearch: 0,   // 1=届いているおじゃまを探索の盤面に降らせる（テトのゲージは入れない）
+        ojamaWorst:  0,   // 1=初手だけ端数の全パターンの最悪で見る（0=固定の順）
+        ojamaTurnMs: 0,   // ready まで残りこの ms 以内なら初手の後に降る、それ以外は2手目の後（0=560）
     };
 
     _initWeights() {

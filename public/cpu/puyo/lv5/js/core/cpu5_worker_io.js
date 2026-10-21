@@ -99,6 +99,10 @@ Object.assign(window.PuyoCPU5.prototype, {
         this._vtStrict = 0;
         this._terrainMinChains = 0;   // §13 T の条件（思考ごと。lv6 の対テトのみ）
         this._terrainGainPct = 0;
+        this._ojamaNow = 0;           // §15 おじゃまを降らせる探索（思考ごと。lv6 の対テトのみ）
+        this._ojamaNext = 0;
+        this._ojamaRate = 0;
+        this._ojamaWorst = 0;
         this._updateVersusCounterMode(incomingGross);
 
         // ★ weightsArray を組み立てる（cpu5_weights.js）。発火制御はモード/カウンター側へ移行済み。
@@ -659,6 +663,36 @@ Object.assign(window.PuyoCPU5.prototype, {
     //   ※ VERSUS 以外では何もしない（手動 setMode を尊重）。
     //   ※ ゲーム側仕様：1回に降るおじゃまは最大30個（ojama.js limit=30）。受け量はキュー総量なので
     //     30 を超えうるが、しきい値はその範囲内の小さな値で十分。
+    // ★ §15 おじゃまを降らせる探索の入力（lv6-vstet-design.md §15.3・§15.4）。
+    //   自分の garbageQueue のうち、ready 済み・ready まで残り ojamaTurnMs（既定 560ms＝1手の見積もり）以内の分は
+    //   「初手の後に降る」[74]、それ以外は「2手目の後に降る」[75]。テトのゲージ（まだ送られていない火力）は入れない。
+    //   残り時間はテト→ぷよの ready タイマー（garbage_router.ts deliverLocalWithReadyTimer の start/duration）から出す。
+    //   学習用シミュ player.cpp decide の X_VT_OJAMA_* と同じ判断。
+    _setOjamaSearchInputs(vt, rate) {
+        const game = this.game;
+        const q = (game && game.garbageQueue) || [];
+        const timers = (game && game._garbageTimers) || [];
+        const turnMs = (vt.ojamaTurnMs | 0) > 0 ? vt.ojamaTurnMs : 560;
+        const now = performance.now();
+        let soon = 0, later = 0;
+        for (const g of q) {
+            const amt = Math.max(0, g.amount | 0);
+            if (!amt) continue;
+            let remain = 0;
+            if (!g.ready) {
+                const t = timers.find(e => e.obj === g);
+                if (!t) remain = Infinity;
+                else if (t.id != null && t.start != null) remain = t.duration - (now - t.start);
+                else remain = t.remaining ?? t.duration;
+            }
+            if (remain <= turnMs) soon += amt; else later += amt;
+        }
+        this._ojamaNow = soon;
+        this._ojamaNext = later;
+        this._ojamaRate = rate;
+        this._ojamaWorst = vt.ojamaWorst | 0;
+    },
+
     _updateVersusCounterMode(incomingGross) {
         const game = this.game;
         if (!game || !game.isVersusMode) return;
@@ -687,6 +721,8 @@ Object.assign(window.PuyoCPU5.prototype, {
         const rate = game.vsOjamaRate ?? PConfig.ojamaRate;
         // ★ 対テトの判断（lv6 が VS_TET を設定。lv5 は未設定＝すべて従来どおり。学習用シミュ player.cpp decide の X_VT_* と同じ）
         const vt = this._vsTet || {};
+        // ★ §15 おじゃまを降らせる探索（lv6 の VS_TET.ojamaSearch。既定0）：本線・カウンター・T のどの思考にも同じ入力を入れる。
+        if (this._isOpponentTet() && (vt.ojamaSearch | 0) > 0) this._setOjamaSearchInputs(vt, rate);
 
         // 自分が今いつでも組める最大潜在連鎖で相殺できるおじゃま量（カバー量）。
         //   ※ 判定には使わず、コンソール表示の参考値としてのみ算出する。

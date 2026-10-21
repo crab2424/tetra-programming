@@ -14,6 +14,7 @@
 #include "tet.h"
 
 #include "core/bitboard.h"
+#include "core/chain.h"
 #include "core/weights.h"
 #include "build/build.h"
 #include "eval/shape.h"
@@ -470,6 +471,19 @@ void Player::decide(Player* opp) {
         wa[59] = terrain ? rate : 0;
         wa[66] = terrainTet ? X[X_VT_TERRAIN_MIN_CHAINS] : 0;   // §13 T の条件（対テトのみ）
         wa[67] = terrainTet ? X[X_VT_TERRAIN_GAIN_PCT] : 0;
+        // §15 おじゃまを降らせる探索（本番 cpu5_worker_io.js _setOjamaSearchInputs と同じ）：
+        //   キューのうち ready 済み・ready まで残り turnMs 以内は初手の後 [74]、それ以外は2手目の後 [75]。テトのゲージは入れない。
+        wa[74] = wa[75] = wa[76] = wa[77] = 0;
+        if (tet && X[X_VT_OJAMA_SEARCH]) {
+            const double turnMs = X[X_VT_OJAMA_TURN_MS] > 0 ? X[X_VT_OJAMA_TURN_MS] : 560.0;
+            for (const auto& g : garbageQueue) {
+                if (g.amount <= 0) continue;
+                if (g.ready || g.readyAt - t_ <= turnMs) wa[74] += g.amount;
+                else wa[75] += g.amount;
+            }
+            wa[76] = rate;
+            wa[77] = X[X_VT_OJAMA_WORST];
+        }
         // P 相手を見て撃つ（本番 _updateVersusCounterMode と worker の _ignitionScoreWasm と同じ。§13.6）：
         //   build の本線構築中で相手が連鎖中でないとき、相手のすぐ起こせる火力を入れる。
         const bool p1n = opp && waitMode == 0 && !wantCounter && opp->chainCount == 0 && B[61] > 0;
@@ -661,6 +675,10 @@ void Player::step(Player* opp) {
         t_ += THINK_DELAY_MS + ACTION_DELAY_MS * chosen->pathLen;
         // 着地（PLACE）の時間もここでまとめて積む
         int split = (chosen->col != chosen->childCol) ? std::abs(chosen->pivotRow - chosen->childRow) : 0;
+        if (split > 0) {   // ちぎりの記録（§15。発火する配置は数えない）
+            BitBoard tmp = nb;
+            if (simulateChain(tmp).chains == 0) { stats.tears++; stats.tearUnits += split + 1; }
+        }
         if (split > 0) {
             double s = split * SPLIT_MS_PER_ROW;
             t_ += s + std::max(SPLIT_FIX_CYCLES * VIB_CYCLE_MS, FIX_CYCLES * VIB_CYCLE_MS - s);
