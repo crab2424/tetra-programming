@@ -225,18 +225,19 @@ function setTestCpuControl(isOn) {
 
 function setTestRule(rule) {
   testRule = rule;
-  renderModeCheck();   // ぷよだけ OPPONENT の行があるので描き直す
+  renderModeCheck();   // OPPONENT の行・レベル行を描き直す
 }
 
-// ─── CPU TEST の CPU 同士（ぷよのみ。2026-10-18）──────────
-// OPPONENT: CPU にすると 1P・2P とも CPU で対戦する。盤面・対戦の処理は VERSUS のものを使い
-// （versus.js startTestCpuVsCpu）、終わったら CPU TEST の準備画面へ戻る。2P のレベルは selectedCpuLevel。
-let testOpponent = 'none';     // 'none' | 'cpu'
-let testPlayerCpuLevel = 5;    // 1P のレベル（LV6 は準備画面で Shift+6）
+// ─── CPU TEST の CPU 同士（2026-10-18。異種対戦は 2026-10-21）──────────
+// OPPONENT を PUYO / TET にすると 1P・2P とも CPU で対戦する（1P のルール＝RULE、2P のルール＝OPPONENT。
+// 異種も可）。盤面・対戦の処理は VERSUS のものを使い（versus.js startTestCpuVsCpu）、
+// 終わったら CPU TEST の準備画面へ戻る。2P のレベルは selectedCpuLevel。
+let testOpponent = 'none';     // 'none' | 'puyo' | 'tet'（2P CPU のルール）
+let testPlayerCpuLevel = 5;    // 1P のレベル（LV6 は 1P LEVEL のボタン／準備画面で Shift+6）
 let versusFromTest = false;    // いまの VERSUS 盤面は CPU TEST から始めた CPU 同士か
 
 function setTestOpponent(v) {
-  testOpponent = (v === 'cpu') ? 'cpu' : 'none';
+  testOpponent = (v === 'puyo' || v === 'tet') ? v : 'none';
   renderModeCheck();
 }
 
@@ -293,14 +294,14 @@ const CPU_CONFIGS = {
     //   （2026-10-20: DEV_CPU_CLASSES から外した。編集したら下の各ファイルの ?v を上げる）
     5: { className: 'PuyoCPU5', src: [
         'cpu/puyo/lv5/js/core/cpu5.js?v=1',
-        'cpu/puyo/lv5/js/weights/cpu5_weights.js?v=2',
+        'cpu/puyo/lv5/js/weights/cpu5_weights.js?v=3',
         'cpu/puyo/lv5/js/weights/cpu5_modes.js?v=2',
-        'cpu/puyo/lv5/js/core/cpu5_worker_io.js?v=4',
+        'cpu/puyo/lv5/js/core/cpu5_worker_io.js?v=5',
         'cpu/puyo/lv5/js/core/cpu5_estimate.js?v=1',
         'cpu/puyo/lv5/js/core/cpu5_action.js?v=1',
     ] },
     // ★ 隠し要素: lv6 = lv5 + 学習済み重み（training/puyo-lv5）。lv5 のクラスを継承するため
     //   deps で lv5 を先に読み込む（cpu_loader.js loadCpuScript）。
-    6: { className: 'PuyoCPU6', deps: [5], src: 'cpu/puyo/lv6/js/cpu6.js?v=7' }
+    6: { className: 'PuyoCPU6', deps: [5], src: 'cpu/puyo/lv6/js/cpu6.js?v=8' }
   }
 };

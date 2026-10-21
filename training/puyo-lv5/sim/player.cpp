@@ -393,7 +393,12 @@ void Player::decide(Player* opp) {
     // ── T 地形優先の対応（本番 cpu5_worker_io.js _updateVersusCounterMode と同じ判断。§13.5）──
     //   受け量が小さい（≦ build の [58]）カウンターの場面は、fast に入らず build の重みのまま、
     //   wasm の fire gate が「残りのおじゃまが降った後の地形」が最大の手（受ける・軽減・返す）を選ぶ。
-    const bool terrain = opp && waitMode == 0 && wantCounter && pp_.build[58] > 0 && incoming <= pp_.build[58];
+    const bool terrainPuyo = opp && waitMode == 0 && wantCounter && pp_.build[58] > 0 && incoming <= pp_.build[58];
+    // §13 対テト版：受け量が小さい間は（カウンターの発動量より下でも）受ける／返す／軽減を地形で選ぶ。
+    const int  terrainInc  = (tet && X[X_VT_TERRAIN_QUEUE]) ? queueSum() : incoming;
+    const bool terrainTet  = tet && X[X_VT_TERRAIN_MAX] > 0 && terrainInc > 0 && incoming <= X[X_VT_TERRAIN_MAX];
+    const bool terrain = terrainPuyo || terrainTet;
+    if (terrainTet && !wantCounter) counterActive_ = false;   // 発動量より下：カウンターのヒステリシスには入れない
 
     int wa[W_LEN];
     if (terrain) {
@@ -460,9 +465,11 @@ void Player::decide(Player* opp) {
         wa[49] = (!tet && waitMode == 0 && wantCounter && !terrain) ? B[49] : 0;   // H1/H2/T/P は対ぷよのみ
         if (tet && wantCounter) wa[49] = X[X_VT_KEEP_REACH];                        // ② 対テトの H2（既定0）
         wa[50] = tet ? 0 : B[50] * rate;
-        wa[57] = terrain ? incoming : 0;
+        wa[57] = terrain ? (terrainTet ? terrainInc : incoming) : 0;
         wa[58] = B[58];
         wa[59] = terrain ? rate : 0;
+        wa[66] = terrainTet ? X[X_VT_TERRAIN_MIN_CHAINS] : 0;   // §13 T の条件（対テトのみ）
+        wa[67] = terrainTet ? X[X_VT_TERRAIN_GAIN_PCT] : 0;
         // P 相手を見て撃つ（本番 _updateVersusCounterMode と worker の _ignitionScoreWasm と同じ。§13.6）：
         //   build の本線構築中で相手が連鎖中でないとき、相手のすぐ起こせる火力を入れる。
         const bool p1n = opp && waitMode == 0 && !wantCounter && opp->chainCount == 0 && B[61] > 0;

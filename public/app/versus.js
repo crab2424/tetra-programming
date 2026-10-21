@@ -105,8 +105,8 @@ function _stopVersusCpuControllers() {
   }
 }
 
-// ─── CPU TEST の CPU 同士（ぷよのみ。2026-10-18）──────────────
-// CPU TEST の準備画面で OPPONENT: CPU にすると、ここから VERSUS の盤面・対戦処理で 1P・2P とも CPU を動かす。
+// ─── CPU TEST の CPU 同士（2026-10-18。1P/2P のルールは別々＝異種対戦可 2026-10-21）──────────────
+// CPU TEST の準備画面で OPPONENT を PUYO / TET にすると、ここから VERSUS の盤面・対戦処理で 1P・2P とも CPU を動かす。
 // VERSUS 準備画面の設定（ルール）は退避しておき、CPU TEST 側の画面へ戻るときに元へ戻す（endTestCpuVsCpu）。
 // 中断・結果の MODE SELECT は CPU TEST の準備画面へ戻る（_versusBackPage）。重み調整パネルを両方の CPU に付ける。
 let _testVsSaved = null;
@@ -114,12 +114,17 @@ let _testVsSaved = null;
 function startTestCpuVsCpu() {
   if (!versusFromTest) _testVsSaved = { versusPlayerRule, versusCpuRule };
   versusFromTest = true;
-  versusPlayerRule = 'puyo';
-  versusCpuRule = 'puyo';
+  versusPlayerRule = testRule;       // 1P = RULE
+  versusCpuRule = testOpponent;      // 2P = OPPONENT（'puyo' | 'tet'。1P と違えば異種対戦）
   versusPlayerIsCpu = true;
   selectedPlayerCpuLevel = testPlayerCpuLevel;      // 2P は selectedCpuLevel（CPU TEST と共通）
-  window.__cpu6SoftDrop2P = !!window.__cpu6SoftDrop;  // 準備画面の 7 / Shift+7（高速落下で設置）
-  window.__cpu6SoftDrop1P = !!window.__cpu6SoftDropTest1P;
+  // 準備画面の 7 / Shift+7 は側のルールで振り分ける（puyo=高速落下で設置、tet=PC探索なし）
+  const seven2P = !!(window.__cpu6SoftDrop || window.__cpu6DisablePC);
+  const seven1P = !!(window.__cpu6SoftDropTest1P || window.__cpu6DisablePCTest1P);
+  window.__cpu6SoftDrop2P  = seven2P && versusCpuRule === 'puyo';
+  window.__cpu6DisablePC2P = seven2P && versusCpuRule === 'tet';
+  window.__cpu6SoftDrop1P  = seven1P && versusPlayerRule === 'puyo';
+  window.__cpu6DisablePC1P = seven1P && versusPlayerRule === 'tet';
   startVersusGame();
 }
 
@@ -132,6 +137,8 @@ function endTestCpuVsCpu() {
   selectedPlayerCpuLevel = null;
   window.__cpu6SoftDrop1P = false;
   window.__cpu6SoftDrop2P = false;
+  window.__cpu6DisablePC1P = false;
+  window.__cpu6DisablePC2P = false;
 }
 
 // 中断・結果の MODE SELECT の戻り先

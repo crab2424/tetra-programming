@@ -97,6 +97,8 @@ Object.assign(window.PuyoCPU5.prototype, {
         this._vtKillHoldPct = 0;
         this._vtKillFire = 0;
         this._vtStrict = 0;
+        this._terrainMinChains = 0;   // §13 T の条件（思考ごと。lv6 の対テトのみ）
+        this._terrainGainPct = 0;
         this._updateVersusCounterMode(incomingGross);
 
         // ★ weightsArray を組み立てる（cpu5_weights.js）。発火制御はモード/カウンター側へ移行済み。
@@ -713,6 +715,23 @@ Object.assign(window.PuyoCPU5.prototype, {
         // ★ T 地形優先の対応（対ぷよのみ。lv6-harass-design.md §13.5）：受け量が小さい（≦ build の counterTerrainMax）ときは
         //   fast に入らず build の重みのまま組み、wasm の fire gate が「残りのおじゃまが降った後の地形」が最大の手
         //   （受ける・軽減・返す）を選ぶ。地形＞火力。目標・緊急の発火は build のまま。学習用シミュ player.cpp decide と同じ判断。
+        // ★ §13 対テト版（lv6 の VS_TET.terrainMax。既定0）：受け量が 1〜terrainMax 個のときは（カウンターの発動量より下でも）
+        //   vsTet の重みのまま、受ける（育成）・返す・軽減するのうち「残りのおじゃまが降った後の地形」が最大の手を選ぶ。
+        //   terrainQueue なら受け量にテトのゲージ換算（まだ届いていない分）を入れない。学習用シミュ player.cpp decide と同じ判断。
+        if (this._isOpponentTet() && (vt.terrainMax | 0) > 0) {
+            const inc = vt.terrainQueue ? (this._committedOjama ?? incomingGross) : incomingGross;
+            if (inc > 0 && incomingGross <= vt.terrainMax) {
+                if (this.cpuMode !== 'vsTet') this.setMode('vsTet');
+                this._counterActive = wantCounter;
+                this._terrainOjama = inc;
+                this._terrainRate = rate;
+                this._terrainMinChains = vt.terrainMinChains | 0;
+                this._terrainGainPct = vt.terrainGainPct | 0;
+                this._thinkVs = `versus: 受ける／返す／軽減（対テト T）｜受け量=${incomingGross}個(地形に使う量 ${inc}) ≦ ${vt.terrainMax}｜vsTet の重みで、降った後の地形が最大の手` +
+                    (prevMode !== this.cpuMode ? `｜★切替 ${prevMode} → vsTet` : '');
+                return;
+            }
+        }
         const bcT = this._buildBaseline && this._buildBaseline.controlWeights;
         const terrainMax = (bcT && bcT.counterTerrainMax) | 0;
         if (wantCounter && terrainMax > 0 && !this._isOpponentTet() && incomingGross <= terrainMax) {

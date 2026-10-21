@@ -61,7 +61,7 @@ def upgrade_packed(h: list) -> np.ndarray:
     if len(h) == ps.PP_LEN:
         return np.array(h, dtype=np.int32)
     for w_old in range(ps.W_LEN, 0, -1):
-        for ext_old in (ps.EXT_LEN, 0):
+        for ext_old in (ps.EXT_LEN, 24, 16, 0):   # ext は 16→24→32 と伸びた
             if len(h) == 2 * w_old + 2 + ext_old:
                 b, f, rest = h[:w_old], h[w_old:2 * w_old], h[2 * w_old:]
                 return np.array(_pad(b, ps.W_LEN) + _pad(f, ps.W_LEN) + rest[:2] + _pad(rest[2:], ps.EXT_LEN),

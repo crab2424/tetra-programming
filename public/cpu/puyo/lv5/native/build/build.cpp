@@ -548,10 +548,14 @@ static void runExpectedChainSelection(
             int offBest = 0;
             int pick = bestFm;
             int tBest = terrain(bestFm, &offBest);
+            // §13：撃つ手は段数 ≥ terrainMinChains、かつ地形が育成（受ける）の地形を terrainGainPct% 上回るときだけ（既定0＝従来）
+            const long long tGrowNeed = (long long)tBest * (100 + w.terrainGainPct);
             for (int fm = 0; fm < nCand; fm++) {
                 if (fm == bestFm || cands[fm].fireChains <= 0 || !survivable(fm)) continue;
+                if (cands[fm].fireChains < w.terrainMinChains) continue;
                 int off = 0;
                 int t = terrain(fm, &off);
+                if (w.terrainGainPct > 0 && (long long)t * 100 <= tGrowNeed) continue;
                 if (t > tBest || (t == tBest && off > offBest)) { tBest = t; offBest = off; pick = fm; }
             }
             if (pick != bestFm) { fireFm = pick; dbgFireReason = 5; dbgFlags |= 1 << 12; }

@@ -242,7 +242,9 @@ Object.assign(window.PuyoCPU5.prototype, {
             this._vtKillScore || 0,                                  // [62] A 対テト：倒せる点の目安（思考ごと。lv6 のみ）
             this._vtKillHoldPct || 0,                                // [63] A 対テト：倒せないなら目標でも撃たない（%）
             this._vtKillFire || 0,                                   // [64] A 対テト：目標未満でも倒せるなら撃つ 1/0
-            this._vtStrict || 0                                      // [65] B 対テト：整地だけの1連鎖を撃たない 1/0
+            this._vtStrict || 0,                                     // [65] B 対テト：整地だけの1連鎖を撃たない 1/0
+            this._terrainMinChains || 0,                             // [66] T で撃つ手の段数の下限（思考ごと。lv6 の対テトのみ）
+            this._terrainGainPct || 0                                // [67] T で撃つのは地形が受けるより % 上回るときだけ
         ]);
     },
 

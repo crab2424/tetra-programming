@@ -69,7 +69,9 @@ def vstet_policy(name: str = "lv6", base: dict | None = None) -> puyosim.Policy:
     d = b["lv6"].get("vsTetDecision", {}) if name == "lv6" else {}
     m = {"keepReach": "vt_keep_reach", "decayStartS": "vt_decay_start_s", "decayStepS": "vt_decay_step_s",
          "decayMin": "vt_decay_min", "counterPct": "vt_counter_pct", "queueOnly": "vt_queue_only",
-         "killPct": "vt_kill_pct", "killHoldPct": "vt_kill_hold_pct", "killFire": "vt_kill_fire", "strict": "vt_strict"}
+         "killPct": "vt_kill_pct", "killHoldPct": "vt_kill_hold_pct", "killFire": "vt_kill_fire", "strict": "vt_strict",
+         "terrainMax": "vt_terrain_max", "terrainQueue": "vt_terrain_queue",
+         "terrainMinChains": "vt_terrain_min_chains", "terrainGainPct": "vt_terrain_gain_pct"}
     kw = {m[k]: int(v) for k, v in d.items() if k in m and v}
     return pol.with_ext(**kw) if kw else pol
 

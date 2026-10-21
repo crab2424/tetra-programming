@@ -499,8 +499,8 @@ function renderModeCheck() {
       });
     } else if (mode.id === 'test') {
       optionsEl.style.display = 'flex';
-      // ぷよでは CPU 同士（OPPONENT: CPU）も選べる。盤面・対戦は VERSUS のものを使う（versus.js startTestCpuVsCpu）
-      const vsCpu = testRule === 'puyo' && testOpponent === 'cpu';
+      // OPPONENT を PUYO / TET にすると CPU 同士（異種可）。盤面・対戦は VERSUS のものを使う（versus.js startTestCpuVsCpu）
+      const vsCpu = testOpponent !== 'none';
       optionsEl.innerHTML = `
         <div class="option-row">
           <span class="option-label">RULE</span>
@@ -509,14 +509,14 @@ function renderModeCheck() {
             <button class="opt-btn ${testRule === 'puyo' ? 'active' : ''}" onclick="setTestRule('puyo')">PUYO</button>
           </div>
         </div>
-        ${testRule === 'puyo' ? `
         <div class="option-row">
           <span class="option-label">OPPONENT</span>
           <div class="option-toggle" id="test-opponent-toggle">
-            <button class="opt-btn ${!vsCpu ? 'active' : ''}" onclick="setTestOpponent('none')">NONE</button>
-            <button class="opt-btn ${vsCpu ? 'active' : ''}" onclick="setTestOpponent('cpu')">CPU</button>
+            <button class="opt-btn ${testOpponent === 'none' ? 'active' : ''}" onclick="setTestOpponent('none')">NONE</button>
+            <button class="opt-btn ${testOpponent === 'puyo' ? 'active' : ''}" onclick="setTestOpponent('puyo')">PUYO</button>
+            <button class="opt-btn ${testOpponent === 'tet' ? 'active' : ''}" onclick="setTestOpponent('tet')">TET</button>
           </div>
-        </div>` : ''}
+        </div>
         ${vsCpu ? `
         <div class="option-row">
           <span class="option-label">1P LEVEL</span>
@@ -557,7 +557,7 @@ function renderModeCheck() {
         selectedCpuLevel = lv;
       });
       if (vsCpu) fillLevels('test-player-cpu-level-toggle', () => testPlayerCpuLevel, (lv) => {
-        if (lv === 6 && testPlayerCpuLevel !== 6) window.__cpu6SoftDropTest1P = false;
+        if (lv === 6 && testPlayerCpuLevel !== 6) { window.__cpu6SoftDropTest1P = false; window.__cpu6DisablePCTest1P = false; }
         testPlayerCpuLevel = lv;
       });
     } else if (mode.id === 'practice') {
@@ -662,8 +662,8 @@ function _applyModePauseSelectStyle(btn) {
 }
 
 async function startGameFromModeCheck() {
-  // CPU TEST の CPU 同士（ぷよ・OPPONENT: CPU）は VERSUS の盤面で動かす（versus.js）
-  if (currentGameMode && currentGameMode.id === 'test' && testRule === 'puyo' && testOpponent === 'cpu') {
+  // CPU TEST の CPU 同士（OPPONENT: PUYO / TET）は VERSUS の盤面で動かす（versus.js）
+  if (currentGameMode && currentGameMode.id === 'test' && testOpponent !== 'none') {
     startTestCpuVsCpu();
     return;
   }
@@ -1305,18 +1305,22 @@ function handlePauseAction(action) {
       return;
     }
 
-    // CPU TEST の CPU 同士（ぷよ・OPPONENT: CPU）: 6 / 7 = 2P、Shift+6 / Shift+7 = 1P を LV6 に
-    if (isTestCheck && testRule === 'puyo' && testOpponent === 'cpu' && e.shiftKey) {
+    // CPU TEST の CPU 同士（OPPONENT: PUYO / TET）: 6 / 7 = 2P、Shift+6 / Shift+7 = 1P を LV6 に
+    //   （7 の意味はその側のルールで決まる＝puyo は高速落下で設置、tet は PC探索なし。開始時に側のルールへ振り分ける）
+    if (isTestCheck && testOpponent !== 'none' && e.shiftKey) {
       e.preventDefault();
       testPlayerCpuLevel = 6;
       window.__cpu6SoftDropTest1P = disablePC;
+      window.__cpu6DisablePCTest1P = disablePC;
       const t = document.getElementById('test-player-cpu-level-toggle');
       if (t) t.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === 6));
       window.SeManager?.play('menu_decide');
       return;
     }
 
-    const rule = !isVersusCheck ? testRule : (e.shiftKey ? versusPlayerRule : versusCpuRule);
+    // 2P のルール: VERSUS は CPU RULE、CPU TEST の CPU 同士は OPPONENT（それ以外は RULE）
+    const rule = !isVersusCheck ? (testOpponent !== 'none' ? testOpponent : testRule)
+                                : (e.shiftKey ? versusPlayerRule : versusCpuRule);
     e.preventDefault();
 
     // フラグは cpu6.js が参照（ゲーム開始時に読まれる）。7 は tet=PC探索なし／puyo=高速落下で設置

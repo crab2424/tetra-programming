@@ -151,11 +151,14 @@ struct EvalWeights {
     int killHoldPct;      // [63] A：目標に届いても、撃つ点 ×100 < killScore × この% なら撃たずに伸ばす（0＝保留しない）
     int killFire;         // [64] A：目標未満でも、今撃てる点 ≥ killScore なら撃つ 1/0
     int growthForbidStrict; // [65] B：育成こぼし抑制で band 内が全部こぼすとき、band を外してこぼさない手を探す 1/0（整地だけの1連鎖を撃たない）
+    // ── T（地形優先の対応）の条件（§13。既定0＝従来の T と同じ）──
+    int terrainMinChains; // [66] T で撃つ（返す・軽減）手の段数の下限（0＝条件なし）
+    int terrainGainPct;   // [67] T で撃つのは、降った後の地形が育成（受ける）の地形をこの% 上回るときだけ（0＝上回れば撃つ）
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 66 要素（[0..65]）。
+//   weightsArray は 68 要素（[0..67]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -243,5 +246,8 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     w.killHoldPct         = weightsArray[63];
     w.killFire            = weightsArray[64];
     w.growthForbidStrict  = weightsArray[65];
+    // ── T の条件（§13）──
+    w.terrainMinChains    = weightsArray[66];
+    w.terrainGainPct      = weightsArray[67];
     return w;
 }
