@@ -294,7 +294,7 @@ const CPU_CONFIGS = {
     //   （2026-10-20: DEV_CPU_CLASSES から外した。編集したら下の各ファイルの ?v を上げる）
     5: { className: 'PuyoCPU5', src: [
         'cpu/puyo/lv5/js/core/cpu5.js?v=3',
-        'cpu/puyo/lv5/js/weights/cpu5_weights.js?v=5',
+        'cpu/puyo/lv5/js/weights/cpu5_weights.js?v=6',
         'cpu/puyo/lv5/js/weights/cpu5_modes.js?v=2',
         'cpu/puyo/lv5/js/core/cpu5_worker_io.js?v=8',
         'cpu/puyo/lv5/js/core/cpu5_estimate.js?v=1',
@@ -302,6 +302,6 @@ const CPU_CONFIGS = {
     ] },
     // ★ 隠し要素: lv6 = lv5 + 学習済み重み（training/puyo-lv5）。lv5 のクラスを継承するため
     //   deps で lv5 を先に読み込む（cpu_loader.js loadCpuScript）。
-    6: { className: 'PuyoCPU6', deps: [5], src: 'cpu/puyo/lv6/js/cpu6.js?v=12' }
+    6: { className: 'PuyoCPU6', deps: [5], src: 'cpu/puyo/lv6/js/cpu6.js?v=13' }
   }
 };

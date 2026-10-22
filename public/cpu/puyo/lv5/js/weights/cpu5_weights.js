@@ -169,7 +169,22 @@ Object.assign(window.PuyoCPU5.prototype, {
         this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
 
         this.cpuMode = known ? mode : 'build';
+        this._applyModeOverrides(this.cpuMode);
         return this.cpuMode;
+    },
+
+    // ★ 重み調整パネルでモード（vsTet / fastVsTet）ごとに変えた値を、組み上がった重みへ名前で上書きする。
+    //   setMode の最後に呼ぶ（lv6 は VS_TET を載せた後にもう一度呼ぶ）。何度呼んでも同じ結果。
+    _applyModeOverrides(mode) {
+        const ov = this._modeOverrides && this._modeOverrides[mode];
+        if (!ov) return;
+        let hit = false;
+        for (const k in ov) {
+            const g = (k in this.controlWeights) ? 'controlWeights' : (k in this.rewardWeights) ? 'rewardWeights' : 'evalWeights';
+            if (!hit) { this.rewardWeights = Object.assign({}, this.rewardWeights); this.evalWeights = Object.assign({}, this.evalWeights); this.controlWeights = Object.assign({}, this.controlWeights); hit = true; }
+            this[g][k] = ov[k];
+        }
+        if (hit) this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
     },
 
     // ★ 既知NEXT本数（knownNextCount）を受け取り、C++ 側 weightsArray[N] と対応する Int32Array を組み立てて返す。
@@ -277,6 +292,7 @@ Object.assign(window.PuyoCPU5.prototype, {
     // ─────────────────────────────────────────────
     // ★ 重み調整パネル（public/app/cpu_weights_panel.js。CPU TEST 用）の口。
     //   パネルは build の基準値を「この CPU の既定値＋変えた値」に置き換え、setMode で今のモードに組み直す。
+    //   vsTet / fastVsTet は基準値でなく、組み上がったモードの値へ名前で上書きする（applyModeValues。下の方）。
     //   weightsArray は手ごとに組み立て直す（_requestCalculation）ので、次の思考から効く。
     //   値は名前→値の平たい形でやり取りする（3グループの名前は重複しない）。
     // ─────────────────────────────────────────────
@@ -323,8 +339,70 @@ Object.assign(window.PuyoCPU5.prototype, {
         }
         this._buildBaseline = next;
         this.setMode(this.cpuMode);
+        this._buildChanged = changed;
+        this._noteWeightsChanged();
+        return changed;
+    },
+
+    // 思考ログに出す「既定と違う値」（build はそのままの名前、モード別は「vsTet.名前」）と、効き始めの記録
+    _noteWeightsChanged() {
+        const all = Object.assign({}, this._buildChanged);
+        for (const m in (this._modeChanged || {})) {
+            for (const k in this._modeChanged[m]) all[`${m}.${k}`] = this._modeChanged[m][k];
+        }
         this._weightsRev = (this._weightsRev || 0) + 1;   // _requestCalculation が「この思考から効く」を記録する
-        this._weightsChanged = changed;
+        this._weightsChanged = all;
+    },
+
+    // ── モード別（vsTet / fastVsTet）の値。build と違い、組み上がったモードの値へ名前で上書きする ──
+    //   既定＝今の build 基準からそのモードを組んだ値（lv6 は lv5 基準＋cpu5_modes.js＋VS_TET）。パネルの上書きは含めない。
+    //   3グループの形で返す（パネルが並べ分けに使う）。今の重み・モードは崩さない。
+    getModeDefaultsGrouped(mode) {
+        this.getBuildDefaults();
+        if (mode === 'build') {
+            const d = this._defaultBuildBaseline;
+            return { rewardWeights: Object.assign({}, d.rewardWeights), evalWeights: Object.assign({}, d.evalWeights), controlWeights: Object.assign({}, d.controlWeights) };
+        }
+        const save = {
+            rewardWeights: this.rewardWeights, evalWeights: this.evalWeights, controlWeights: this.controlWeights,
+            weights: this.weights, cpuMode: this.cpuMode, _modeOverrides: this._modeOverrides,
+        };
+        this._modeOverrides = null;
+        try {
+            this.setMode(mode);
+            return { rewardWeights: this.rewardWeights, evalWeights: this.evalWeights, controlWeights: this.controlWeights };
+        } finally {
+            Object.assign(this, save);
+        }
+    },
+
+    getModeDefaults(mode) {
+        return this._flatBuild(this.getModeDefaultsGrouped(mode));
+    },
+
+    // 今のモード別の値（既定＋パネルの上書き）
+    getModeValues(mode) {
+        if (mode === 'build') return this.getBuildValues();
+        return Object.assign(this.getModeDefaults(mode), this._modeOverrides && this._modeOverrides[mode]);
+    },
+
+    // モード別の値を「既定値＋values（名前→値。知らない名前・数でない値は無視）」にする。今のモードが同じならすぐ組み直す。
+    //   返り値＝既定と違う値の { 名前: { from, to } }。
+    applyModeValues(mode, values) {
+        if (mode === 'build') return this.applyBuildValues(values);
+        const def = this.getModeDefaults(mode);
+        const ov = {}, changed = {};
+        for (const k in def) {
+            if (!values || !Object.prototype.hasOwnProperty.call(values, k)) continue;
+            const v = Number(values[k]);
+            if (!Number.isFinite(v) || Math.round(v) === def[k]) continue;
+            ov[k] = Math.round(v);
+            changed[k] = { from: def[k], to: ov[k] };
+        }
+        this._modeOverrides = Object.assign({}, this._modeOverrides, { [mode]: ov });
+        this._modeChanged = Object.assign({}, this._modeChanged, { [mode]: changed });
+        this.setMode(this.cpuMode);
+        this._noteWeightsChanged();
         return changed;
     },
 

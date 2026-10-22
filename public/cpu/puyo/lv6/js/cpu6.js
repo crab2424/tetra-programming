@@ -17,7 +17,7 @@
 //   モードごとの扱い（学習条件に合わせる）:
 //     ・build              … 学習済み値（各版は1つ前の lv6 の値を初期値にして学習した）
 //     ・fast（カウンター）  … 学習中は lv5 の絶対値で固定していた（設計書 D2）→ lv5 と同じ値
-//     ・vsTet / fastVsTet  … 学習対象外 → lv5 と同じ値（lv5 の build 基準から倍率をかける）
+//     ・vsTet / fastVsTet  … lv5 の build 基準＋cpu5_modes.js の差分＋VS_TET の重み（重み調整パネルのモード別の値はさらにその上）
 //
 //   ⚠️ ロード順: lv5 の全ファイルが読み込み済みであること（CPU_CONFIGS の deps で保証）。
 // ─────────────────────────────────────────────
@@ -221,6 +221,7 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
                 this.controlWeights = Object.assign({}, this.controlWeights, cw);
                 this.weights = Object.assign({}, this.rewardWeights, this.evalWeights, this.controlWeights);
             }
+            this._applyModeOverrides(r);   // 重み調整パネルでこのモードに変えた値は VS_TET より後に載せる
             return r;
         } finally {
             this._buildBaseline = trained;
