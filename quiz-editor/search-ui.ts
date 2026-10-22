@@ -231,7 +231,7 @@ export function initSearchUi(deps: SearchUiDeps) {
             : o.status === 'multiple' || o.status === 'capped' ? 'warn' : '';
         st.className = `goal ${tone}${cur.stale ? ' stale' : ''}`;
         st.innerHTML = `<b>${esc(label)}</b><span>${esc(text)}</span>` +
-            `<span class="note">${o.mode === 'unique' ? 'UNIQUE' : 'COUNT'}` +
+            `<span class="note">${o.mode === 'unique' ? 'UNIQUE' : 'COUNT'}` + (o.parts > 1 ? `・並列 ${o.parts}` : '') +
             (o.status === 'cancelled' || o.status === 'timeout' ? '' : `・${(o.elapsedMs / 1000).toFixed(1)} 秒`) + '</span>' +
             (cur.stale ? '<span class="stale-note">問題を変更したので古い結果です（もう一度 RUN してください）。解の読み込みはできません</span>' : '');
     }

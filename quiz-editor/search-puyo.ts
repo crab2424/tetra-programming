@@ -6,8 +6,8 @@
 // 設計: source_assets/memory/quiz-editor/tetlabo-quiz-editor-solver.md
 // ─────────────────────────────────────────────
 import type { Cond, EditorDoc, Pair } from './model.ts';
-import { advancePuyo, chainScoreOf, HIDDEN, type PuyoProgress, type PuyoStep } from './puyo-sim.ts';
-import type { SearchOptions, SearchResult } from './search.ts';
+import { advancePuyo, chainScoreOf, GROUP_BONUS, HIDDEN, ZENKESHI_BONUS, type PuyoProgress, type PuyoStep } from './puyo-sim.ts';
+import { SPLIT_DEPTH, type SearchOptions, type SearchResult } from './search.ts';
 
 /** 進捗を送る間隔 */
 const PROGRESS_MS = 200;
@@ -65,6 +65,7 @@ const visited = new Int32Array(COLS * NY2 * 4 * 3);
 let generation = 0;
 const qx = new Int8Array(visited.length), qy2 = new Int8Array(visited.length), qr = new Int8Array(visited.length), qq = new Int8Array(visited.length);
 const seenKeys = new Set<number>();
+const colTop = new Int8Array(COLS);
 // 同じ着地（x, 着地行, rot）を 2 回計算しない
 const landed = new Int32Array(COLS * (ROWS - Y_MIN + 1) * 4);
 
@@ -93,8 +94,11 @@ function limitYCached(b: Board, x: number, py: number, rot: number, gen: number)
     return limVal[id];
 }
 
-/** 1 つの着地。step = 記録する手（y はちぎれる前の着地行）、board = 置いてちぎれた後（連鎖前）の盤面 */
-export interface PuyoPlacement { step: PuyoStep; board: Board; }
+/**
+ * 1 つの着地。step = 記録する手（y はちぎれる前の着地行）、board = 置いてちぎれた後（連鎖前）の盤面、
+ * placed = 置いた 2 個の盤面の index（resolveChains の最初の判定をここからに絞るため）
+ */
+export interface PuyoPlacement { step: PuyoStep; board: Board; placed: [number, number]; }
 
 /** 置いてちぎれた後の盤面（puyo-sim fixPair と同じ） */
 function fixed(b: Board, x: number, y: number, rot: number, pair: Pair): { board: Board; key: number } {
@@ -110,11 +114,57 @@ function fixed(b: Board, x: number, y: number, rot: number, pair: Pair): { board
     return { board: nb, key: a < c ? a * 1024 + c : c * 1024 + a };
 }
 
-/** 出現位置から 左右・回転（蹴り・押し上げ・クイックターン）・ソフトドロップ（0.5 段）で届く着地をすべて返す */
-export function puyoPlacements(b: Board, pair: Pair): PuyoPlacement[] {
+/**
+ * 出現位置から 左右・回転（蹴り・押し上げ・クイックターン）・ソフトドロップ（0.5 段）で届く着地をすべて返す。
+ * chainOnly: 置いたぷよが消えるつながりを作る着地だけ（b が安定している時の最後の手用。連鎖の無い手ではクリアしない）
+ */
+export function puyoPlacements(b: Board, pair: Pair, chainOnly = false): PuyoPlacement[] {
     const out: PuyoPlacement[] = [];
     const gen = ++generation;
     seenKeys.clear();
+    // 宙の近道（設計 §14）: どの列も論理行 1 より上（隠し段を含む）が空なら、出現位置の高さで左右・回転が全部でき、
+    // 壁の内側の (x, rot) 22 通りすべてに届く。どの列も床から隙間なく積まれていれば（浮いたぷよ＝庇が無い）着地は (x, rot) だけで決まる＝BFS と同じ着地になる
+    let low = true;
+    for (let i = 0; i < (HIDDEN + 2) * COLS; i++) if (b[i]) { low = false; break; }
+    for (let c = 0; low && c < COLS; c++) {
+        let top = TOTAL;
+        while (top > 0 && b[(top - 1) * COLS + c]) top--;
+        for (let r = top - 1; r >= 0; r--) if (b[r * COLS + c]) { low = false; break; }
+    }
+    if (low) {
+        // 列の高さだけで着地とちぎれが決まる（fixed と同じ結果）。top[c] = 一番上のぷよの論理行（空の列は ROWS）
+        for (let c = 0; c < COLS; c++) {
+            let r = 2;
+            while (r < ROWS && !b[(r + HIDDEN) * COLS + c]) r++;
+            colTop[c] = r;
+        }
+        for (let x = 0; x < COLS; x++) {
+            for (let rot = 0; rot < 4; rot++) {
+                const cc = x + DC[rot];
+                if (cc < 0 || cc >= COLS) continue;
+                let py: number, cy: number;
+                if (rot === 0) { py = colTop[x] - 1; cy = py - 1; }
+                else if (rot === 2) { cy = colTop[x] - 1; py = cy - 1; }
+                else { py = colTop[x] - 1; cy = colTop[cc] - 1; }
+                const pi = (py + HIDDEN) * COLS + x, ci = (cy + HIDDEN) * COLS + cc;
+                const a = pi * 8 + pair[0], c2 = ci * 8 + pair[1];
+                const key = a < c2 ? a * 1024 + c2 : c2 * 1024 + a;
+                if (seenKeys.has(key)) continue;
+                seenKeys.add(key);
+                if (chainOnly) {
+                    // 盤面を複製せずに一時的に置いて調べる
+                    b[pi] = pair[0]; b[ci] = pair[1];
+                    const hit = touchesGroup(b, [pi, ci]);
+                    b[pi] = 0; b[ci] = 0;
+                    if (!hit) continue;
+                }
+                const nb = b.slice();
+                nb[pi] = pair[0]; nb[ci] = pair[1];
+                out.push({ step: { x, y: rot === 1 || rot === 3 ? Math.min(py, cy) : py, rot }, board: nb, placed: [pi, ci] });
+            }
+        }
+        return out;
+    }
     let head = 0, tail = 0;
     const push = (x: number, y: number, rot: number, qt: number) => {
         if (y < Y_MIN) return;
@@ -168,7 +218,8 @@ export function puyoPlacements(b: Board, pair: Pair): PuyoPlacement[] {
         const f = fixed(b, x, ly, rot, pair);
         if (seenKeys.has(f.key)) continue;
         seenKeys.add(f.key);
-        out.push({ step: { x, y: ly, rot }, board: f.board });
+        if (chainOnly && !touchesGroup(f.board, [Math.floor(f.key / 1024) >> 3, (f.key % 1024) >> 3])) continue;
+        out.push({ step: { x, y: ly, rot }, board: f.board, placed: [Math.floor(f.key / 1024) >> 3, (f.key % 1024) >> 3] });
     }
     return out;
 }
@@ -178,17 +229,51 @@ const seen = new Int32Array(TOTAL * COLS);
 let seenGen = 0;
 const stack = new Int16Array(TOTAL * COLS);
 const erase = new Int16Array(TOTAL * COLS);
+const starts = new Int16Array(TOTAL * COLS);
 
-/** b を連鎖後の盤面に書き換える。連鎖数と得点（全消しボーナス抜き） */
-export function resolveChains(b: Board): { chain: number; score: number } {
+/** placed のどれかを含む、可視段の同じ色 4 個以上のつながりがあるか */
+function touchesGroup(b: Board, placed: readonly number[]): boolean {
+    const gen = ++seenGen;
+    for (const i of placed) {
+        const color = b[i];
+        if (i < HIDDEN * COLS || seen[i] === gen || color === 0 || color === OJAMA) continue;
+        let sp = 0, n = 0;
+        stack[sp++] = i; seen[i] = gen;
+        while (sp) {
+            const j = stack[--sp];
+            n++;
+            const r = (j / COLS) | 0, c = j - r * COLS;
+            if (r > HIDDEN && b[j - COLS] === color && seen[j - COLS] !== gen) { seen[j - COLS] = gen; stack[sp++] = j - COLS; }
+            if (r < TOTAL - 1 && b[j + COLS] === color && seen[j + COLS] !== gen) { seen[j + COLS] = gen; stack[sp++] = j + COLS; }
+            if (c > 0 && b[j - 1] === color && seen[j - 1] !== gen) { seen[j - 1] = gen; stack[sp++] = j - 1; }
+            if (c < COLS - 1 && b[j + 1] === color && seen[j + 1] !== gen) { seen[j + 1] = gen; stack[sp++] = j + 1; }
+        }
+        if (n >= 4) return true;
+    }
+    return false;
+}
+
+/**
+ * b を連鎖後の盤面に書き換える。連鎖数と得点（全消しボーナス抜き）。
+ * placed: 置く前の盤面に消えるグループが無かった（安定していた）なら、新しくできるグループは置いたぷよを必ず含むので、
+ * 1 連鎖目が起きるかはそこからの塗りつぶしだけで分かる（起きない時は盤面全体を見ない）
+ */
+export function resolveChains(b: Board, placed?: readonly number[]): { chain: number; score: number } {
+    if (placed && !touchesGroup(b, placed)) return { chain: 0, score: 0 };
     let chain = 0, score = 0;
+    // 調べる起点（placed がある時だけ）: 1 連鎖目は置いた 2 個、2 連鎖目からは落ちたぷよ。
+    // 消えたグループは全部消えるので、動かなかったぷよだけのつながりは前の段で 4 個未満だったもの＝新しいグループは動いたぷよを含む
+    let nStart = -1;
+    if (placed) { nStart = 0; for (const i of placed) starts[nStart++] = i; }
     for (;;) {
         const gen = ++seenGen;
         const sizes: number[] = [];
         let colorMask = 0, nErase = 0;
-        for (let i = HIDDEN * COLS; i < TOTAL * COLS; i++) {
+        const nScan = nStart < 0 ? ROWS * COLS : nStart;
+        for (let k = 0; k < nScan; k++) {
+            const i = nStart < 0 ? HIDDEN * COLS + k : starts[k];
             const color = b[i];
-            if (seen[i] === gen || color === 0 || color === OJAMA) continue;
+            if (i < HIDDEN * COLS || seen[i] === gen || color === 0 || color === OJAMA) continue;
             let sp = 0, n = 0;
             const start = nErase;
             stack[sp++] = i; seen[i] = gen;
@@ -218,16 +303,22 @@ export function resolveChains(b: Board): { chain: number; score: number } {
             if (c < COLS - 1 && b[j + 1] === OJAMA) b[j + 1] = 0;
         }
         for (let k = 0; k < end; k++) b[erase[k]] = 0;
-        // 落下（隠し段も含む全段）
+        // 落下（隠し段も含む全段）。落ちて可視段に来たぷよが次の起点
+        let nMoved = 0;
         for (let c = 0; c < COLS; c++) {
             let w = TOTAL - 1;
             for (let r = TOTAL - 1; r >= 0; r--) {
                 const v = b[r * COLS + c];
                 if (!v) continue;
-                b[r * COLS + c] = 0;
-                b[w-- * COLS + c] = v;
+                if (w !== r) {
+                    b[r * COLS + c] = 0;
+                    b[w * COLS + c] = v;
+                    if (w >= HIDDEN) starts[nMoved++] = w * COLS + c;
+                }
+                w--;
             }
         }
+        if (nStart >= 0) nStart = nMoved;
     }
     return { chain, score };
 }
@@ -276,6 +367,61 @@ function stateKeyOf(s: State, km: KeyMode): string {
 // ─── 枝刈り（設計 §2.5。解を落とさないものだけ） ───
 
 /**
+ * これから取れる得点の上限（設計 §14）。消せるぷよ = 4 個以上ある色のぷよの合計 E（盤面の全段＋残りのペア）、その色の数 C。
+ * 消える 1 回（連鎖の 1 段）ごとの得点は chainScoreOf(グループの大きさ, 色数, 連鎖数)。手ごとに連鎖数は 1 から数え直すが、
+ * 全部の段を 1 つの連鎖の 1, 2, 3, … 段目として並べた方が連鎖ボーナスは大きいか同じなので、
+ * 「E 個を何回かに分けて消す・k 回目は k 連鎖目」の最大＋全消しボーナス×（全消しできる手の数の上限）で上から抑える。
+ * グループは色ごとに分かれる・大きさの上限（その色の個数）は無視する（＝緩い方へ倒す）
+ */
+function makeScoreBound(maxE: number) {
+    // part[a][h] = a 個を h グループ（各 4 個以上）に分けた時のグループボーナスの合計が最大になる分け方
+    const gb = (n: number) => GROUP_BONUS[Math.min(n, GROUP_BONUS.length - 1)];
+    const part: (number[] | null)[][] = Array.from({ length: maxE + 1 }, () => []);
+    const partB: number[][] = Array.from({ length: maxE + 1 }, () => []);
+    for (let a = 4; a <= maxE; a++) {
+        part[a][1] = [a]; partB[a][1] = gb(a);
+        for (let h = 2; 4 * h <= a; h++) {
+            let best = -1, bestP: number[] | null = null;
+            for (let s = 4; a - s >= 4 * (h - 1); s++) {
+                const rest = part[a - s][h - 1];
+                if (!rest) continue;
+                const v = gb(s) + partB[a - s][h - 1];
+                if (v > best) { best = v; bestP = [s, ...rest]; }
+            }
+            part[a][h] = bestP; partB[a][h] = best;
+        }
+    }
+    const tables = new Map<number, Float64Array>();   // 色数 C → future[j * (maxE+1) + n] = j 連鎖目から n 個で取れる最大
+    const J = Math.floor(maxE / 4) + 2;
+    const tableOf = (C: number): Float64Array => {
+        let t = tables.get(C);
+        if (t) return t;
+        t = new Float64Array((J + 1) * (maxE + 1));
+        for (let j = J - 1; j >= 1; j--) {
+            for (let n = 0; n <= maxE; n++) {
+                let best = 0;
+                for (let a = 4; a <= n; a++) {
+                    let step = 0;
+                    for (let h = 1; 4 * h <= a; h++) {
+                        const p = part[a][h];
+                        if (p) step = Math.max(step, chainScoreOf(p, Math.min(C, h), j));
+                    }
+                    best = Math.max(best, step + t[(j + 1) * (maxE + 1) + n - a]);
+                }
+                t[j * (maxE + 1) + n] = best;
+            }
+        }
+        tables.set(C, t);
+        return t;
+    };
+    /** E 個・C 色・残り left 手で取れる得点の上限 */
+    return (E: number, C: number, left: number): number => {
+        if (E < 4 || C === 0) return 0;
+        return tableOf(C)[1 * (maxE + 1) + Math.min(E, maxE)] + ZENKESHI_BONUS * Math.min(left, Math.floor(E / 4));
+    };
+}
+
+/**
  * true なら、この状態からは条件を満たせない。
  * 色ごとの個数（盤面の全段＋残りのペア）から、1 連鎖ごとに同じ色が 4 個以上要ることを使う
  */
@@ -290,14 +436,29 @@ function makePrune(doc: EditorDoc): (s: State) => boolean {
         addSuffix[i][doc.pairs[i][1]]++;
     }
     const cnt = new Array(8);
+    // 得点: 初めの盤面＋全部のペアの色ぷよの数が、どの状態でも E の上限
+    let scoreBound: ((E: number, C: number, left: number) => number) | null = null;
+    if (inner === 'score') {
+        let total = 0;
+        for (const v of doc.field.flat()) if (v >= 1 && v <= 5) total++;
+        for (let col = 1; col <= 5; col++) total += addSuffix[0][col];
+        scoreBound = makeScoreBound(total);
+    }
     return (s: State): boolean => {
         const left = n - s.idx;
         const timesLeft = c.type === 'count' ? c.value - s.clearTimes : 1;
         if (timesLeft > left) return true;   // 1 手で数えられるのは 1 回まで
-        if (inner !== 'chain' && inner !== 'allClear') return false;
+        if (inner !== 'chain' && inner !== 'allClear' && inner !== 'score') return false;
         const add = addSuffix[s.idx];
         for (let col = 1; col <= 5; col++) cnt[col] = add[col];
         for (let i = 0; i < TOTAL * COLS; i++) { const v = s.b[i]; if (v >= 1 && v <= 5) cnt[v]++; }
+        if (scoreBound) {
+            // 累計がこの先の上限を足しても目標に届かない（count は「連鎖のあった手で累計 ≥ countValue」なので同じ判定）
+            let E = 0, C = 0;
+            for (let col = 1; col <= 5; col++) if (cnt[col] >= 4) { E += cnt[col]; C++; }
+            const target = c.type === 'count' ? c.countValue : c.value;
+            return s.score + scoreBound(E, C, left) < target;
+        }
         let groups = 0;   // これから消せるグループの数の上限
         for (let col = 1; col <= 5; col++) groups += Math.floor(cnt[col] / 4);
         if (inner === 'chain') {
@@ -317,12 +478,15 @@ function makePrune(doc: EditorDoc): (s: State) => boolean {
 
 interface Child { state: State; cleared: boolean; dead: boolean; step: PuyoStep; }
 
-function children(doc: EditorDoc, s: State, stats: { calls: number; placements: number }): Child[] {
-    const ps = puyoPlacements(s.b, doc.pairs[s.idx]);
+/** stable: s.b に消えるグループが無い（1 手目以降は必ず。初めの盤面だけ調べる） */
+function children(doc: EditorDoc, s: State, stats: { calls: number; placements: number }, stable: boolean): Child[] {
+    // 最後の手は連鎖が無いとクリアしない（クリアしていない状態から、連鎖の無い手で得点・最大連鎖・全消し・回数は増えない）
+    const ps = puyoPlacements(s.b, doc.pairs[s.idx], stable && s.idx === doc.pairs.length - 1);
     stats.calls++; stats.placements += ps.length;
     return ps.map(p => {
-        const { chain, score } = resolveChains(p.board);
-        const pr = advancePuyo(s, chain, score, visibleEmpty(p.board), doc.cond);
+        const { chain, score } = resolveChains(p.board, stable ? p.placed : undefined);
+        // 全消しは連鎖のあった手だけ見る（advancePuyo も chain > 0 の時だけ使う）
+        const pr = advancePuyo(s, chain, score, chain > 0 && visibleEmpty(p.board), doc.cond);
         return { state: { b: p.board, idx: s.idx + 1, ...pr.next }, cleared: pr.cleared, dead: isDead(p.board), step: p.step };
     });
 }
@@ -336,6 +500,8 @@ export function searchPuyo(doc: EditorDoc, opts: SearchOptions): SearchResult<Pu
     let lastReport = t0;
     const stopAt = opts.stopAt ?? Infinity;
     const n = doc.pairs.length;
+    const rootB = boardFromField(doc.field);
+    const rootStable = resolveChains(rootB.slice()).chain === 0;
     const km = keyModeOf(doc.cond, opts.prune !== false);
     const pruned = opts.prune !== false ? makePrune(doc) : () => false;
     const stateKey = (s: State) => stateKeyOf(s, km);
@@ -350,7 +516,7 @@ export function searchPuyo(doc: EditorDoc, opts: SearchOptions): SearchResult<Pu
         const m = memo.get(key);
         if (m !== undefined) { found += m; if (found >= stopAt) stopped = true; return m; }
         let total = 0;
-        for (const c of children(doc, s, stats)) {
+        for (const c of children(doc, s, stats, s.idx > 0 || rootStable)) {
             if (timedOut || stopped) { partial.add(key); return total; }
             if (c.cleared) { total++; if (++found >= stopAt) stopped = true; continue; }
             if (c.dead || c.state.idx >= n) continue;   // 窒息・NEXT 切れ
@@ -361,14 +527,32 @@ export function searchPuyo(doc: EditorDoc, opts: SearchOptions): SearchResult<Pu
         memo.set(key, total);
         return total;
     };
-    const root: State = { b: boardFromField(doc.field), idx: 0, score: 0, chainMax: 0, clearTimes: 0, isAllClear: false };
-    const count = n === 0 || isDead(root.b) ? 0 : rec(root);
+    // 並列の受け持ち（split）: search-tet.ts と同じ（SPLIT_DEPTH 手目の子に番号を付けて自分の分だけ rec。浅い所はメモに入れない）
+    const split = opts.split && opts.split.parts > 1 ? opts.split : null;
+    let item = 0;
+    const top = (s: State, depth: number): number => {
+        let total = 0;
+        for (const c of children(doc, s, stats, s.idx > 0 || rootStable)) {
+            if (timedOut || stopped) return total;
+            if (depth + 1 === SPLIT_DEPTH && item++ % split!.parts !== split!.part) continue;
+            if (c.cleared) {
+                if (depth + 1 < SPLIT_DEPTH && split!.part !== 0) continue;
+                total++; if (++found >= stopAt) stopped = true;
+                continue;
+            }
+            if (c.dead || c.state.idx >= n || pruned(c.state)) continue;
+            total += depth + 1 < SPLIT_DEPTH ? top(c.state, depth + 1) : rec(c.state);
+        }
+        return total;
+    };
+    const root: State = { b: rootB, idx: 0, score: 0, chainMax: 0, clearTimes: 0, isAllClear: false };
+    const count = n === 0 || isDead(root.b) ? 0 : split ? top(root, 0) : rec(root);
     const searchMs = performance.now() - t0;
 
     const solutions: PuyoStep[][] = [];
     const path: PuyoStep[] = [];
     const walk = (s: State) => {
-        for (const c of children(doc, s, { calls: 0, placements: 0 })) {
+        for (const c of children(doc, s, { calls: 0, placements: 0 }, s.idx > 0 || rootStable)) {
             if (solutions.length >= opts.maxSolutions) return;
             path.push(c.step);
             if (c.cleared) solutions.push(path.slice());
@@ -376,7 +560,21 @@ export function searchPuyo(doc: EditorDoc, opts: SearchOptions): SearchResult<Pu
             path.pop();
         }
     };
-    if (opts.maxSolutions > 0 && count > 0) walk(root);
+    let walkItem = 0;
+    const walkTop = (s: State, depth: number) => {
+        for (const c of children(doc, s, { calls: 0, placements: 0 }, s.idx > 0 || rootStable)) {
+            if (solutions.length >= opts.maxSolutions) return;
+            if (depth + 1 === SPLIT_DEPTH && walkItem++ % split!.parts !== split!.part) continue;
+            path.push(c.step);
+            if (c.cleared) { if (depth + 1 === SPLIT_DEPTH || split!.part === 0) solutions.push(path.slice()); }
+            else if (!c.dead && c.state.idx < n && !pruned(c.state)) {
+                if (depth + 1 < SPLIT_DEPTH) walkTop(c.state, depth + 1);
+                else { const k = stateKey(c.state); if ((memo.get(k) ?? 0) > 0 || partial.has(k)) walk(c.state); }
+            }
+            path.pop();
+        }
+    };
+    if (opts.maxSolutions > 0 && count > 0) { if (split) walkTop(root, 0); else walk(root); }
 
     return {
         count, complete: !timedOut && !stopped, timedOut, stopped,

@@ -21,7 +21,15 @@ export interface SearchOptions {
     prune?: boolean;
     /** 探索中に約 0.2 秒ごとに呼ばれる */
     onProgress?: (p: SearchProgress) => void;
+    /**
+     * 並列で分け合う時の受け持ち（設計 §14）。SPLIT_DEPTH 手目の子を順に番号付けし、番号 % parts === part の物だけを数える。
+     * それより浅い手でクリアした解は part 0 が数える。全部の part の数の和が全体の数（メモは part ごと）
+     */
+    split?: { part: number; parts: number };
 }
+
+/** split で分け合う手の深さ（2 手目の置き場所で分ける。1 手目だけだと受け持ちの偏りが大きい） */
+export const SPLIT_DEPTH = 2;
 
 export interface SearchProgress {
     nodes: number;      // 展開しようとした状態の数

@@ -19,10 +19,11 @@ const TOTAL = ROWS + HIDDEN;
 const ERASE_COUNT = 4;
 const OJAMA = 6;
 const SCORE_BASE = 10;
-const ZENKESHI_BONUS = 2100;
+export const ZENKESHI_BONUS = 2100;
 const CHAIN_BONUS = [0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512];
 const COLOR_BONUS = [0, 3, 6, 12, 24];
-const GROUP_BONUS = [0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10];
+/** グループの大きさごとのボーナス（得点の上限を出すため search-puyo.ts でも使う） */
+export const GROUP_BONUS = [0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10];
 
 /** 子ぷよの位置（rot: 0=上 1=右 2=下 3=左） */
 const DC = [0, 1, 0, -1];

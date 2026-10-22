@@ -1,4 +1,4 @@
-// クイズエディタ SEARCH（段階 S1）の確認と計測。
+// クイズエディタ SEARCH（段階 S1〜S5）の確認と計測。
 //   node --experimental-strip-types --no-warnings scripts/quiz-search-check.ts [問題ID ...]
 //   環境変数: LIMIT_MS（1 問の打ち切り。既定 20000）、HEAD_DIR（tet-sim/puyo-sim の変更前のコピー。あれば変更前後の simulate を突き合わせる）
 // 1. 置き場所の列挙・固定・連鎖を、エディタのシミュレーター（tet-sim / puyo-sim）で同じことをした結果と突き合わせる（乱数盤面）
@@ -132,10 +132,15 @@ console.log('[1] 置き場所・固定・連鎖の突き合わせ（乱数盤面
     console.log(`  tet: ${n} 回（盤面×ミノ）${bad ? `・不一致 ${bad}` : '一致'}`);
 
     n = 0; bad = 0;
-    for (let i = 0; i < 3000; i++) {
-        const field = randomPuyoField();
+    // 後半 1000 枚は床から隙間なく積んだ低い盤面（着地の「宙の近道」を通る。段階 S5）。乱数は別の列（前半の盤面を変えないため）
+    let s2 = 7, nHint = 0;
+    const rnd2 = (k: number) => { s2 = (Math.imul(s2, 1103515245) + 12345) >>> 0; return ((s2 >>> 8) % k); };
+    for (let i = 0; i < 4000; i++) {
+        const field = i < 3000 ? randomPuyoField() : Array.from({ length: 17 }, () => new Array(6).fill(0));
+        if (i >= 3000) for (let c = 0; c < 6; c++) { const h = rnd2(11); for (let r = 16; r > 16 - h; r--) field[r][c] = rnd2(9) === 0 ? 6 : 1 + rnd2(4); }
         const g = P.gridFromField(field), b = SP.boardFromField(field);
-        const pair: Pair = [1 + rnd(4), 1 + rnd(4)];
+        const stable = SP.resolveChains(b.slice()).chain === 0;
+        const pair: Pair = i < 3000 ? [1 + rnd(4), 1 + rnd(4)] : [1 + rnd2(4), 1 + rnd2(4)];
         const ref = refPuyoPlacements(g, pair);
         const mine = SP.puyoPlacements(b, pair);
         n++;
@@ -152,6 +157,13 @@ console.log('[1] 置き場所・固定・連鎖の突き合わせ（乱数盤面
             const rc = P.resolveChains(g2);
             const b2 = p.board.slice();
             const mc = SP.resolveChains(b2);
+            // 置く前の盤面が安定していれば、置いた 2 個からの判定（段階 S5）でも同じ結果
+            if (stable) {
+                const b3 = p.board.slice();
+                const hc = SP.resolveChains(b3, p.placed);
+                nHint++;
+                if (hc.chain !== mc.chain || hc.score !== mc.score || boardKey(b3) !== boardKey(b2)) { if (bad++ < 3) fail('puyo 置いた 2 個からの連鎖判定が全体の判定と違う'); break; }
+            }
             const refScore = rc.links.reduce((a, l) => a + l.score, 0);
             if (mc.chain !== rc.links.length || mc.score !== refScore || boardKey(b2) !== g2.map(r => r.join('')).join('/')) {
                 if (bad++ < 3) fail(`puyo 連鎖の結果が違う ref=${rc.links.length}連鎖 ${refScore} mine=${mc.chain}連鎖 ${mc.score}`);
@@ -159,7 +171,7 @@ console.log('[1] 置き場所・固定・連鎖の突き合わせ（乱数盤面
             }
         }
     }
-    console.log(`  puyo: ${n} 回（盤面×ペア）${bad ? `・不一致 ${bad}` : '一致'}`);
+    console.log(`  puyo: ${n} 回（盤面×ペア）${bad ? `・不一致 ${bad}` : '一致'}（置いた 2 個からの連鎖判定 ${nHint} 回）`);
 }
 
 // 変更前の simulate との突き合わせ（scoreLock / advancePuyo へ切り出した分）
@@ -237,7 +249,7 @@ console.log('\n[1b] 枝刈りあり/なしの数の一致（乱数の小問題�
         const st = stat.get(label) ?? { n: 0, pos: 0 };
         st.n++; if (a.count > 0) st.pos++;
         stat.set(label, st);
-        if (!a.complete || !b.complete || a.count !== b.count) { if (bad++ < 5) fail(`${label}: 枝刈りなし ${a.count} / あり ${b.count}`); }
+        if (!a.complete || !b.complete || a.count !== b.count) { if (bad++ < 5) fail(`${label}: 枝刈りなし ${a.complete ? '' : '≥'}${a.count} / あり ${b.complete ? '' : '≥'}${b.count}`); }
     };
     for (let i = 0; i < 600; i++) {
         const f = Array.from({ length: 20 }, () => new Array(10).fill(0));
@@ -274,6 +286,58 @@ console.log('\n[1b] 枝刈りあり/なしの数の一致（乱数の小問題�
         const doc = { rule: 'puyo', field: f, pairs: Array.from({ length: 3 }, () => [1 + rnd(nc), 1 + rnd(nc)] as Pair), cond } as unknown as EditorDoc;
         cmp(doc, `puyo ${cond.type === 'count' ? 'count:' + cond.countCondition : cond.type}`);
     }
+    // T-Spin の段の予算（段階 S5・設計 §14）が効く問題: 下 H 段を埋めて T 字の穴（屋根つき）と他のミノの形をくり抜く。
+    // NEXT はくり抜いたミノ＋T（順番はばらばら・ときどき余分）。T-Spin で消す段数のある条件だけ
+    const spinConds = [
+        { type: 'tspinDouble', value: 0 }, { type: 'tspinSingle', value: 0 }, { type: 'tspinTriple', value: 0 }, { type: 'tspin', value: 1 },
+        { type: 'tspin', value: 2 }, { type: 'count', value: 1, countCondition: 'tspinDouble', countValue: 1 },
+        { type: 'count', value: 2, countCondition: 'tspinDouble', countValue: 1 }, { type: 'count', value: 2, countCondition: 'tspinSingle', countValue: 1 },
+        { type: 'count', value: 2, countCondition: 'tspin', countValue: 1 },
+    ];
+    for (let i = 0; i < 300; i++) {
+        const f = Array.from({ length: 20 }, () => new Array(10).fill(0));
+        const H = 2 + rnd(3);
+        for (let r = 20 - H; r < 20; r++) f[r].fill(8);
+        const next: number[] = [];
+        const cut = (p: T.Piece) => {
+            const cells = T.cellsOf(p);
+            if (!cells.every(([x, y]) => x >= 0 && x < 10 && y >= 20 - H && y < 20 && f[y][x] === 8)) return false;
+            cells.forEach(([x, y]) => { f[y][x] = 0; });
+            next.push(p.type);
+            return true;
+        };
+        // T 字の穴（下向き＝rot 2 か 横向き）1〜2 個。上の段に屋根（ときどき無し）
+        for (let k = 1 + rnd(2), tries = 0; k > 0 && tries < 50; tries++) {
+            const p = { type: 2, rot: [2, 2, 1, 3][rnd(4)], x: rnd(9) - 1, y: 20 - H - 1 + rnd(H) };
+            // 半分は一番上の段に揃える（上が開いていて回して入れられる＝解のある問題が増える）
+            if (rnd(2)) p.y += 20 - H - Math.min(...T.cellsOf(p).map(([, y]) => y));
+            if (!cut(p)) continue;
+            k--;
+            const [cx, cy] = T.cellsOf(p).reduce(([ax, ay], [x, y]) => [Math.min(ax, x), Math.min(ay, y)]);
+            if (rnd(4) && cy > 0) f[cy - 1][Math.min(9, cx + (rnd(2) ? 0 : 2))] = 8;
+        }
+        for (let k = rnd(3), tries = 0; k > 0 && tries < 100; tries++) if (cut({ type: rnd(7), rot: rnd(4), x: rnd(10) - 1, y: 20 - H - 1 + rnd(H + 1) })) k--;
+        // 消せない段を少し混ぜる（予算が足りなくなる盤面）
+        if (rnd(3) === 0) f[20 - H + rnd(H)][rnd(10)] = 0;
+        if (rnd(2)) next.push(rnd(7));
+        if (rnd(3) === 0) next.push(2);
+        next.sort(() => rnd(2) - 0.5);
+        if (next.length > (rnd(6) ? 3 : 4)) next.length = 3;
+        const cond = { countCondition: 'clearLines', countValue: 1, ...spinConds[rnd(spinConds.length)] };
+        const doc = { rule: 'tet', field: f, next, allowHold: rnd(4) === 0, cond } as unknown as EditorDoc;
+        cmp(doc, `tet(T) ${cond.type === 'count' ? 'count:' + cond.countCondition : cond.type}`);
+    }
+    // ぷよの得点の上限（段階 S5・設計 §14）が効く問題: 2〜3 色の低い盤面に 3〜4 ペア、目標は届くか届かないかの境目あたり
+    const scoreTargets = [40, 200, 360, 700, 1000, 1500, 2500, 3500];
+    for (let i = 0; i < 150; i++) {
+        const f = Array.from({ length: 17 }, () => new Array(6).fill(0));
+        const nc = 2 + rnd(2);
+        for (let c = 0; c < 6; c++) { const h = rnd(6); for (let r = 16; r > 16 - h; r--) f[r][c] = rnd(16) === 0 ? 6 : 1 + rnd(nc); }
+        const t = scoreTargets[rnd(scoreTargets.length)];
+        const cond = rnd(3) ? { type: 'score', value: t, countCondition: 'chain', countValue: 1 } : { type: 'count', value: 1 + rnd(2), countCondition: 'score', countValue: t };
+        const pairs = Array.from({ length: rnd(3) ? 3 : 4 }, () => [1 + rnd(nc), 1 + rnd(nc)] as Pair);
+        cmp({ rule: 'puyo', field: f, pairs, cond } as unknown as EditorDoc, `puyo(得点) ${cond.type === 'count' ? 'count:score' : 'score'}`);
+    }
     console.log(`  ${n} 問 ${bad ? `・不一致 ${bad}` : '一致'}（条件ごとの 問数/解あり: ${[...stat].map(([k, v]) => `${k} ${v.n}/${v.pos}`).join('・')}）`);
 }
 
@@ -286,6 +350,10 @@ const EXPECTED: Record<string, number> = {
     'puyo-1.2': 1, 'puyo-1.3': 1, 'puyo-1.4': 1, 'puyo-1.5': 1, 'puyo-1.6': 1, 'puyo-1.7': 1, 'puyo-21': 6,
     // 段階 S1（枝刈りなし）で数え終わった問題
     'tet-7': 4230, 'tet-1.1': 3, 'puyo-7': 4, 'puyo-8': 3, 'puyo-1.8': 4, 'puyo-1.9': 1, 'puyo-2.0': 4,
+    // 段階 S2 で数え終わった問題
+    'tet-1.8': 7, 'tet-10': 2, 'tet-11': 268976, 'puyo-22': 14,
+    // 段階 S5（設計 §14）で数え終わった問題。tet-1.4・puyo-5 は S2 のコード（新しい枝刈りなし・打ち切り 120 秒）でも同じ数
+    'tet-1.4': 18, 'puyo-5': 1920, 'tet-8': 18, 'tet-2.0': 2, 'tet-1.9': 1, 'tet-2.1': 1, 'tet-23': 4,
 };
 console.log(`\n[2] 既存の問題（打ち切り ${LIMIT_MS / 1000} s）`);
 console.log('  ID        N  H 条件         解の数        展開      メモ    b     探索ms  配置/s   検算');
@@ -377,6 +445,32 @@ console.log('\n[2d] 保存済みの解との比較の鍵');
         }
     }
     console.log(`  解 ${n} 件の鍵が全部別・書き換えた同じ解 ${re} 件が同じ鍵`);
+}
+
+// ─── 2e. 並列の受け持ち（split・段階 S5）: 受け持ちごとの数の和と解の和集合が、分けない時と同じ ───
+console.log('\n[2e] 並列の受け持ち（split）の和');
+{
+    let n = 0;
+    for (const doc of docs) {
+        const whole = searchDoc(doc, { timeLimitMs: 3000, maxSolutions: 20000 });
+        if (!whole.complete || whole.count > 20000) continue;
+        for (const parts of [2, 3, 5]) {
+            let sum = 0;
+            const sols: string[] = [];
+            for (let part = 0; part < parts; part++) {
+                const r = searchDoc(doc, { timeLimitMs: 20000, maxSolutions: 20000, split: { part, parts } });
+                if (!r.complete) fail(`${doc.id}: split ${part}/${parts} が打ち切り`);
+                if (verifySolutions(doc, r.solutions).length) fail(`${doc.id}: split ${part}/${parts} の解が検算で通らない`);
+                sum += r.count;
+                sols.push(...r.solutions.map(x => JSON.stringify(x)));
+            }
+            const want = new Set(whole.solutions.map(x => JSON.stringify(x)));
+            if (sum !== whole.count) fail(`${doc.id}: split ${parts} の和 ${sum} ≠ ${whole.count}`);
+            else if (sols.length !== want.size || sols.some(x => !want.has(x))) fail(`${doc.id}: split ${parts} の解が分けない時と違う`);
+        }
+        n++;
+    }
+    console.log(`  ${n} 問 × 受け持ち 2・3・5 で和が一致`);
 }
 
 // ─── 3. 置き場所の列挙の速さ（solver-proto/bench-ts.ts と同じ盤面） ───
