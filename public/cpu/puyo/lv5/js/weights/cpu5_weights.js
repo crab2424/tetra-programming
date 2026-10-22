@@ -255,7 +255,22 @@ Object.assign(window.PuyoCPU5.prototype, {
             this._ojamaNow || 0,                                     // [74] 初手の後に降るおじゃま（思考ごと。lv6 の対テトのみ）
             this._ojamaNext || 0,                                    // [75] 2手目の後に降るおじゃま（思考ごと）
             this._ojamaRate || 0,                                    // [76] おじゃまを降らせる探索の相殺レート（0=使わない）
-            this._ojamaWorst || 0                                    // [77] 初手だけ端数の全パターンの最悪で見る 1/0
+            this._ojamaWorst || 0,                                   // [77] 初手だけ端数の全パターンの最悪で見る 1/0
+            // ── 対テト §17 D 危険度で妥協して撃つ（lv6-vstet-design.md §17.3。既定0＝無効。lv6 の VS_TET.vsTetControl）──
+            this.controlWeights.dangerEmergAfter || 0,               // [78] 緊急の判定を降った後の盤面でも行う 1/0
+            this.controlWeights.dangerOjamaPct || 0,                 // [79] 降った後のおじゃまの割合（%）がこれ以上なら危険
+            this.controlWeights.dangerLossPct || 0,                  // [80] 降った後に撃てる連鎖の点がこの%以上減るなら危険
+            this.controlWeights.dangerMinIncoming || 0,              // [81] 危険と見る届いている量の下限（個。0=1）
+            this.controlWeights.dangerFireRatio || 0,                // [82] 反撃：今撃てる最大 ≥ 到達連鎖の最大×この% なら撃つ
+            this.controlWeights.dangerOffsetPct || 0,                // [83] 相殺：届いている量×レート×この% 以上の点で本線が最も残る手
+            this.controlWeights.dangerKeepPct || 0,                  // [84] 相殺・軽減は撃った後の本線が今のこの%以上の手だけ
+            this.controlWeights.dangerReduce || 0,                   // [85] 軽減：撃った後に危険でなくなる手 1/0
+            // ── 対テト §17 E 発火点を縦に露出（§17.4。既定0＝無効。lv6 の VS_TET.vsTetWeights）──
+            this.evalWeights.exposeWeight || 0,                      // [86] 1段降っても撃てる発火点の組ごとに +この値
+            this.evalWeights.buriedWeight || 0,                      // [87] 1段で撃てなくなる組ごとに +この値（負）
+            this.evalWeights.exposeReachPct || 0,                    // [88] 1段で埋まる発火点の点をこの%減らして到達連鎖を求める
+            this.evalWeights.exposeRows || 0,                        // [89] 載せる段数（0=1）
+            this.evalWeights.exposeMaxKey || 0                       // [90] 載せた後の発火ぷよの数の上限（0=2）
         ]);
     },
 

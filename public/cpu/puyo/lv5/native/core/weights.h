@@ -170,11 +170,31 @@ struct EvalWeights {
     int ojamaNext;        // [75] 2手目を置いた後に降る量（それ以外の届いているおじゃま。テトのゲージは入れない）
     int ojamaRate;        // [76] 相殺の換算レート（0=この仕組みを使わない）
     int ojamaWorst;       // [77] 1=初手（深さ0）だけ端数の全パターンの最悪で見る／0=固定の順
+
+    // ── 対テト §17 D：危険度で妥協して撃つ（lv6 のみ。既定0＝無効。設計: lv6-vstet-design.md §17.3）──
+    //   fire gate で、育成の初手の盤面（board0）に届いているおじゃま（[74]+[75]）を全部降らせた盤面を見る。[76] ojamaRate>0 のときだけ。
+    //   危険なら 反撃 → 相殺 → 軽減 の順に撃つ手を探し、無ければ育成のまま。
+    int dangerEmergAfter;  // [78] 1=緊急の判定（[8]・第3列9段・[37]）を降った後の盤面でも行う（今の盤面と OR）
+    int dangerOjamaPct;    // [79] 降った後の おじゃま÷全ぷよ×100 ≥ この値なら危険（0=見ない）
+    int dangerLossPct;     // [80] 降った後に撃てる連鎖の点が降る前よりこの%以上減るなら危険（0=見ない）
+    int dangerMinIncoming; // [81] 危険と見るのは届いている量がこの個数以上のとき（0=1個）
+    int dangerFireRatio;   // [82] 反撃：危険のとき、今撃てる最大 ≥ bestChain×この% なら撃てる最大を撃つ（0=撃たない）
+    int dangerOffsetPct;   // [83] 相殺：点 ≥ 届いている量×レート×この% の手のうち、撃った後の本線（reachPot）が最も残る手（0=使わない）
+    int dangerKeepPct;     // [84] 相殺・軽減の手は reachPot ≥ basePot×この% のものだけ（0=条件なし）
+    int dangerReduce;      // [85] 軽減 1/0：全部は消せなくても、撃った後に残りが降った盤面が危険でなくなる手のうち本線が最も残る手
+
+    // ── 対テト §17 E：発火点を縦に露出させる（lv6 のみ。既定0＝無効。設計: lv6-vstet-design.md §17.4）──
+    //   盤面の全列におじゃまを exposeRows 個ずつ載せ、発火点の組 G を発火ぷよ exposeMaxKey 個までで撃てるか（＝1段降っても撃てるか）。
+    int exposeWeight;      // [86] 1段降っても撃てる組（[73] 段以上・重複なし）ごとに +この値（累積評価）
+    int buriedWeight;      // [87] 1段で撃てなくなる組ごとに +この値（負）
+    int exposeReachPct;    // [88] 発火ぷよ1個の候補の組が1段で撃てなくなるなら、その点をこの%減らして potChain（到達連鎖）を求める
+    int exposeRows;        // [89] 載せる段数（0=1）
+    int exposeMaxKey;      // [90] 載せた後の発火ぷよの数の上限（0=2）
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 78 要素（[0..77]）。
+//   weightsArray は 91 要素（[0..90]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -276,5 +296,19 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     w.ojamaNext           = weightsArray[75];
     w.ojamaRate           = weightsArray[76];
     w.ojamaWorst          = weightsArray[77];
+    // ── 対テト §17 D 危険度で妥協して撃つ・E 発火点を縦に露出 ──
+    w.dangerEmergAfter    = weightsArray[78];
+    w.dangerOjamaPct      = weightsArray[79];
+    w.dangerLossPct       = weightsArray[80];
+    w.dangerMinIncoming   = weightsArray[81];
+    w.dangerFireRatio     = weightsArray[82];
+    w.dangerOffsetPct     = weightsArray[83];
+    w.dangerKeepPct       = weightsArray[84];
+    w.dangerReduce        = weightsArray[85];
+    w.exposeWeight        = weightsArray[86];
+    w.buriedWeight        = weightsArray[87];
+    w.exposeReachPct      = weightsArray[88];
+    w.exposeRows          = weightsArray[89];
+    w.exposeMaxKey        = weightsArray[90];
     return w;
 }

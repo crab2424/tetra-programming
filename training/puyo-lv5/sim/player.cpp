@@ -554,6 +554,8 @@ void Player::decide(Player* opp) {
     }
 
     if (out[33] > 0 && (out[33] & (1 << 13))) stats.p1Holds++;   // P で目標発火を保留した
+    if (out[33] > 0 && (out[33] & (1 << 16))) stats.dangerTurns++;   // §17 D 危険と判定した
+    if (out[23] >= 7 && out[23] <= 9) stats.dangerFires++;          // §17 D 危険で撃った
     lastMode_ = terrain ? 4 : waitMode == 1 ? 2 : waitMode == 2 ? 3 : wantCounter ? 1 : 0;   // 記録用 2=待つ 3=締切/即撃ち 4=地形優先の対応
     lastReason_ = out[23];
     if (trace) {

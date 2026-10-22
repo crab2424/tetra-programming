@@ -38,9 +38,9 @@ constexpr int    ERASE_COUNT      = 4;
 constexpr int    NEXT_KEEP        = 20;                   // 内部 NEXT 保持数
 
 // ── 重みパラメータ（Python ↔ C++ の受け渡し単位）──
-constexpr int W_LEN  = 78;                 // cpu5_weights.js _buildWeightsArray の要素数
+constexpr int W_LEN  = 91;                 // cpu5_weights.js _buildWeightsArray の要素数
 constexpr int EXT_LEN = 32;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
-constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[78] + fast[78] + counterTrigger + counterMargin×1000 + ext[32]
+constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[91] + fast[91] + counterTrigger + counterMargin×1000 + ext[32]
 
 // ext[] の添字（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md）
 enum ExtIndex {
@@ -163,6 +163,8 @@ struct PlayerStats {
     long long offsetByScore = 0;   // 異種戦：段の点で相殺したおじゃま個数
     int       tears = 0;           // ちぎった回数（連鎖が起きる配置＝発火は除く。§15）
     long long tearUnits = 0;       // ちぎりの量（段数+1）の合計（発火は除く。§15）
+    int       dangerTurns = 0;     // §17 D：危険と判定した手数（build.cpp dbgFlags bit16）
+    int       dangerFires = 0;     // §17 D：危険で撃った手数（発火理由 7=反撃 8=相殺 9=軽減）
 };
 
 // ── 記録（負け方の分析用。Player::trace が nullptr の学習時は何もしない）──

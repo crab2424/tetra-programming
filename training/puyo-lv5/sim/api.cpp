@@ -155,6 +155,7 @@ void sim_run_matches(int nJobs, const int* pa, const int* pb, const uint32_t* se
 //   10 テト手数 11 テトライン 12 テト TSD 等 13 テトリス 14 B2B 15 テト→ぷよのおじゃま 16 ゲージ
 //   17 テトに届いたライン 18 テトにせり上がったライン 19 テトの最終の高さ
 //   20 ぷよのちぎり回数（発火を除く） 21 ちぎりの量（段数+1）の合計
+//   22 §17 D 危険と判定した手数 23 危険で撃った手数（反撃・相殺・軽減）
 void sim_run_vstet(int nJobs, const int* pp, const uint32_t* seeds, const int* puyoFirst,
                    int ojamaRate, int colorCount, int marginTimeMs, double maxGameMs,
                    int nThreads, double* out) {
@@ -172,6 +173,7 @@ void sim_run_vstet(int nJobs, const int* pp, const uint32_t* seeds, const int* p
         o[15] = (double)r.tetOjamaSent; o[16] = (double)r.tetGaugeSent; o[17] = (double)r.tetLinesReceived;
         o[18] = r.tetGarbageTaken; o[19] = r.tetFinalHeight;
         o[20] = r.puyo.tears; o[21] = (double)r.puyo.tearUnits;
+        o[22] = r.puyo.dangerTurns; o[23] = r.puyo.dangerFires;
     });
 }
 

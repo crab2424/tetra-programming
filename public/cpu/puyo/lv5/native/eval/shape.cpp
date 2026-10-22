@@ -298,6 +298,28 @@ static int sideKeepGroupValue(const CellMask& g, const int heights[COLS], int xM
     return best;
 }
 
+// ── 発火点を縦に露出させる（対テト §17 E。lv6-vstet-design.md §17.4）──
+//   b1＝全列におじゃまを載せた盤面。発火できる列（高さ 11 以下）に G の色を maxKey 個まで落とし、
+//   4連結ができてその組が G を含めば「1段降っても撃てる」。おじゃまは組を消さず、つなげもしないので G の形は変わらない。
+static bool groupIgnitableAfter(const BitBoard& b1, const int h1[COLS], const CellMask& g, uint8_t color, int maxKey) {
+    int xMin = 2, xMax = 2;
+    for (int x = 3; x < COLS; ++x) { if (h1[x] > 11) break; xMax++; }
+    for (int x = 1; x >= 0; --x)  { if (h1[x] > 11) break; xMin--; }
+    for (int x = xMin; x <= xMax; ++x) {
+        int dropMax = std::min(maxKey, 12 - h1[x]);
+        BitBoard plan = b1;
+        for (int i = 0; i < dropMax; ++i) {
+            int row = calcDropRow(plan, x);
+            if (row < 0) break;
+            int ar = row + HIDDEN;
+            plan.set(x, ar, color);
+            CellMask grp = ignitionGroup(plan, x, ar, color, nullptr, 0);
+            if (grp.count() >= 4 && (grp & g).any()) return true;
+        }
+    }
+    return false;
+}
+
 // quiescence: 各列に同色を最大3個まで（4連結が出来るまで）落として連鎖を試し、
 //   連鎖数・発火列高さ・必要追加ぷよ数(key)・伸長余地(chi) を q スコア化して最大値を返す。
 //   原典 quiet.cpp の探索を bounded 列範囲でスカラ再現。
@@ -316,6 +338,7 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
     if (w.qChainWeight == 0 && w.qYWeight == 0 && w.qKeyWeight == 0 && w.qChiWeight == 0
         && w.qLink2Weight == 0 && w.qLink3Weight == 0 && w.qExcessWeight == 0
         && w.qJunkWeight == 0 && w.qSubWeight == 0 && w.qKeepWeight == 0 && w.sideKeepWeight == 0
+        && w.exposeWeight == 0 && w.buriedWeight == 0 && w.exposeReachPct == 0
         && !outMainSub) return 0;
 
     // ── 副砲・ゴミ（提案3 E2a/E2b。設計: lv6-harass-design.md §9.3）──
@@ -335,8 +358,16 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
     // 発火点の側面（§15）：数えた組（同じ組を別の列・色から見つけても1回だけ）
     const int sideMinChains = w.sideKeepMinChains > 0 ? w.sideKeepMinChains : 2;
     CellMask sideSeen[COLS * 5];
+    uint8_t sideColor[COLS * 5];
     int nSideSeen = 0;
     int sideTotal = 0;
+    // 発火点を縦に露出（§17 E）：組を求めるのは側面か E のどちらかが有効なとき。
+    //   [88] 用に、発火ぷよ1個の候補（点・段数・組・色）を控え、最後に「1段で埋まる組」の点を割り引いて potChain を求め直す。
+    const bool exposeOn = (w.exposeWeight != 0 || w.buriedWeight != 0 || w.exposeReachPct != 0);
+    const bool needGroup = (w.sideKeepWeight != 0 || exposeOn);
+    struct PotCand { int score, chains; CellMask g; uint8_t color; };
+    PotCand potCands[COLS * 5];
+    int nPotCands = 0;
 
     for (int x = xMin; x <= xMax; ++x) {
         int dropMax = std::min(MAX_QDROP, 12 - heights[x]);
@@ -365,22 +396,25 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
 
             // 発火点の側面（§15）用の組は、連鎖で plan が崩れる前に求める
             CellMask sideGroup;
-            if (w.sideKeepWeight != 0) sideGroup = ignitionGroup(plan, x, dropRows[placed - 1], color, dropRows, placed);
+            if (needGroup) sideGroup = ignitionGroup(plan, x, dropRows[placed - 1], color, dropRows, placed);
 
             BitBoard sim = plan;
             CellMask popped;
             ChainResult chain = simulateChain(sim, trackPop ? &popped : nullptr);
             if (chain.chains <= 0) continue;
             if (trackPop) pops[nPops++] = {popped, chain.score, chain.chains};
-            if (w.sideKeepWeight != 0 && chain.chains >= sideMinChains && sideGroup.any()) {
+            if (needGroup && chain.chains >= sideMinChains && sideGroup.any()) {
                 bool dup = false;
                 for (int i = 0; i < nSideSeen; ++i)
                     if (sideSeen[i].lo == sideGroup.lo && sideSeen[i].hi == sideGroup.hi) { dup = true; break; }
                 if (!dup && nSideSeen < COLS * 5) {
+                    sideColor[nSideSeen] = color;
                     sideSeen[nSideSeen++] = sideGroup;
-                    sideTotal += sideKeepGroupValue(sideGroup, heights, xMin, xMax, w);
+                    if (w.sideKeepWeight != 0) sideTotal += sideKeepGroupValue(sideGroup, heights, xMin, xMax, w);
                 }
             }
+            if (w.exposeReachPct != 0 && placed == 1 && nPotCands < COLS * 5)
+                potCands[nPotCands++] = {chain.score, chain.chains, sideGroup, color};
             if (chain.score > bestAnyScore) bestAnyScore = chain.score;
 
             // 「キーぷよ1個で着火できる連鎖」だけを potChain として巻き上げる。
@@ -424,5 +458,41 @@ int calcQuiescenceEval(const BitBoard& b, const int heights[COLS], const EvalWei
         result += (v / OJAMA_RATE) * w.qKeepWeight;
     }
     result += sideTotal;   // 発火点の側面（§15。既定0）
+
+    // 発火点を縦に露出（§17 E。既定0）：全列に exposeRows 個ずつ載せた盤面で、組ごとに「まだ撃てるか」を見る。
+    if (exposeOn) {
+        BitBoard b1 = b;
+        const int rows = w.exposeRows > 0 ? w.exposeRows : 1;
+        for (int c = 0; c < COLS; ++c)
+            for (int i = 0; i < rows; ++i) {
+                int row = calcDropRow(b1, c);
+                if (row < 0) break;
+                b1.set(c, row + HIDDEN, 6);
+            }
+        const bool dead = b1.get(2, HIDDEN) != 0;   // 降ったら窒息する＝全部埋まる扱い
+        int h1[COLS];
+        for (int c = 0; c < COLS; ++c) {
+            h1[c] = 0;
+            for (int r = HIDDEN; r < TOTAL_ROWS; ++r) if (b1.get(c, r) != 0) h1[c]++;
+        }
+        const int maxKey = w.exposeMaxKey > 0 ? w.exposeMaxKey : 2;
+        auto ignitable = [&](const CellMask& g, uint8_t color) {
+            return !dead && groupIgnitableAfter(b1, h1, g, color, maxKey);
+        };
+        if (w.exposeWeight != 0 || w.buriedWeight != 0)
+            for (int i = 0; i < nSideSeen; ++i)
+                result += ignitable(sideSeen[i], sideColor[i]) ? w.exposeWeight : w.buriedWeight;
+        // [88]：1段で埋まる候補の点を割り引き、その最大を potChain（到達連鎖の巻き上げに使う）にする
+        if (w.exposeReachPct != 0 && outChainScore) {
+            int bestEff = 0, bestChains = 0;
+            for (int i = 0; i < nPotCands; ++i) {
+                int eff = potCands[i].score;
+                if (!ignitable(potCands[i].g, potCands[i].color)) eff = (int)((long long)eff * (100 - w.exposeReachPct) / 100);
+                if (eff > bestEff) { bestEff = eff; bestChains = potCands[i].chains; }
+            }
+            *outChainScore = bestEff;
+            if (outChainCount) *outChainCount = bestChains;
+        }
+    }
     return result;
 }

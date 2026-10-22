@@ -58,7 +58,8 @@ def trace_cases(seed, max_pieces=200, garbage_every=0, garbage_lines=0) -> np.nd
 VSTET_KEYS = ["winner", "ms", "puyo_turns", "puyo_max_chain", "puyo_max_score", "puyo_lines_sent",
               "puyo_ojama_received", "puyo_counter_turns", "free_offsets", "offset_by_score",
               "tet_pieces", "tet_lines", "tet_tspins", "tet_tetrises", "tet_b2bs", "tet_ojama_sent", "tet_gauge",
-              "tet_lines_received", "tet_garbage_taken", "tet_final_height", "puyo_tears", "puyo_tear_units"]
+              "tet_lines_received", "tet_garbage_taken", "tet_final_height", "puyo_tears", "puyo_tear_units",
+              "puyo_danger_turns", "puyo_danger_fires"]
 
 
 def vstet_policy(name: str = "lv6", base: dict | None = None) -> puyosim.Policy:

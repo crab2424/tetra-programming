@@ -23,7 +23,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm5.wasm' ? 'cpu_wasm5.wasm?v=47' : path;
+        return path === 'cpu_wasm5.wasm' ? 'cpu_wasm5.wasm?v=48' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -31,7 +31,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js?v=49');
+importScripts('cpu_wasm5.js?v=50');
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -51,7 +51,8 @@ self.onmessage = function (e) {
         //   ＋[62..65] 対テトの A 倒せるか・B 整地だけの1連鎖（lv6-vstet-design.md §12）＝66要素
         //   ＋[66][67] T の条件（§13）＝68要素
         //   ＋[68..77] 対テト §15（ちぎりの時間・発火点の側面・おじゃまを降らせる探索）＝78要素
-        weightsPtr   = Module._my_malloc(4 * 78);   // 78要素(312 bytes)
+        //   ＋[78..90] 対テト §17（D 危険度で妥協して撃つ・E 発火点を縦に露出）＝91要素
+        weightsPtr   = Module._my_malloc(4 * 91);   // 91要素(364 bytes)
         oppBoardPtr  = Module._my_malloc(102);
         resultPtr    = Module._my_malloc(4 * 36);   // [0..6]=着手 / [7..26]=デバッグ統計 / [27..29]=path(操作列) / [30]=致命セル枝刈り数 / [31][32]=撃った後の本線潜在・今の本線潜在 / [33..35]=判断の内訳
         nextPairsPtr = Module._my_malloc(4 * 20);

@@ -52,7 +52,7 @@ out.counterMargin  = num('COUNTER_MARGIN_VSPUYO');
 // 異種戦（相手がテト）：本線 vsTet・カウンター fastVsTet とカウンター定数（lv5/lv6 共通の定数）
 out.vsTet = { build: arr('vsTet'), fast: arr('fastVsTet'),
               counterTrigger: num('COUNTER_TRIGGER_OJAMA_VSTET'), counterMargin: num('COUNTER_MARGIN_VSTET') };
-if (out.build.length !== 78) throw new Error(`weightsArray 長が ${out.build.length}（78 を想定）`);
+if (out.build.length !== 91) throw new Error(`weightsArray 長が ${out.build.length}（91 を想定）`);
 
 // ── puyo lv6（lv5 を継承した学習済み重み＋対戦判断）。public/cpu/puyo/lv6/js/cpu6.js から取り出す ──
 {

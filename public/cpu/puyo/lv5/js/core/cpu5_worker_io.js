@@ -252,7 +252,7 @@ Object.assign(window.PuyoCPU5.prototype, {
     },
 
     // ★ 撃った理由／撃たなかった理由を言葉にする（_logThink 用）。
-    //   d[23]=wasm の発火理由（1目標 2緊急 3延命 4催促）、d[33..35]=判断の内訳（build.cpp outResult[33..35] の注釈）。
+    //   d[23]=wasm の発火理由（1目標 2緊急 3延命 4催促 … 7〜9 対テト §17 D：危険で反撃・相殺・軽減）、d[33..35]=判断の内訳（build.cpp outResult[33..35] の注釈）。
     //   撃った連鎖が本線か副砲かは「撃った後の本線潜在 d[31] ÷ 今の本線潜在 d[32]」で見る（半分未満が残る＝本線を使った）。
     //   返り値 head＝見出しに出す短い理由（無ければ ''）、lines＝詳細の行。
     _describeFire(d) {
@@ -271,6 +271,8 @@ Object.assign(window.PuyoCPU5.prototype, {
             const parts = [];
             if (r === 4) {
                 parts.push('催促・副砲');
+            } else if (r >= 7 && r <= 9) {
+                parts.push(`危険で${r === 7 ? '反撃' : r === 8 ? '相殺' : '軽減'}・${main}`);
             } else if (r === 2 || r === 3) {
                 parts.push(`${r === 2 ? '緊急' : '緊急延命'}・${main}`);
             } else if (r === 1) {
@@ -287,6 +289,7 @@ Object.assign(window.PuyoCPU5.prototype, {
                 parts.push('理由不明');
             }
             if (bit(2) && r !== 2 && r !== 3) parts.push('緊急盤面');
+            if (bit(17)) parts.push('降った後の盤面で緊急');
             head = parts.join('＋');
             lines.push(`発火: ${head}`);
             lines.push(`撃った後の本線潜在: ${d[31]}点／今 ${d[32]}点` + (keptPct !== null ? `（${keptPct}%残る）` : ''));
@@ -312,6 +315,10 @@ Object.assign(window.PuyoCPU5.prototype, {
                 lines.push(`見送り: 緊急だが本線が未完成（撃てる最大 ${d[22]}点＝本線潜在 ${d[12]}点の${pct}%、必要 ${wa[36]}%／` +
                     `致死列 ${col2H}段、延命は ${wa[37] > 0 ? wa[37] + '段から' : 'なし'}）`);
                 if (!head) head = '緊急だが本線未完成で見送り';
+            }
+            if (bit(16)) {
+                lines.push('見送り: 降った後の盤面が危険だが、反撃・相殺・軽減のどれにも当たる手がない（育成を続ける）');
+                if (!head) head = '危険だが撃てる手なし';
             }
             if (bit(5) && !bit(6)) {
                 const rej = [0, 1, 2, 3, 4].map(i => (d[34] >> (i * 6)) & 63);
@@ -344,6 +351,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             if (r === 4) return '催促';
             if (r === 2) return '緊急';
             if (r === 3) return '延命';
+            if (r >= 7 && r <= 9) return '危険';
             if (r === 1) return this._counterActive ? '対応' : '本線';
             return '不明';
         }
@@ -394,7 +402,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         if (!this._logEnabled() || st.turns === 0) return;
 
         const col = `${this._logSide()} ${this.constructor.LOG_NAME}`;
-        const FIRE_KINDS = ['本線', '対応', '催促', '緊急', '延命', '整地'];
+        const FIRE_KINDS = ['本線', '対応', '催促', '緊急', '延命', '危険', '整地'];
         const row = {
             '結果':           g._gs === 'gameover' ? '負け' : '勝ち',
             '手数':           st.turns,

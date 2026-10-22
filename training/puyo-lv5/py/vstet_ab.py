@@ -33,6 +33,8 @@ def mk(build=None, fast=None, **ext):
 # 重みの添字（core/weights.h）
 QSUB, SUB_MC, SUB_MP, SUB_FILL, KEEP_W, KEEP_D, KEEP_R = 45, 51, 52, 53, 54, 55, 56
 TEAR_W, TEAR_T, TEAR_C, SIDE_W, SIDE_P, SIDE_F, SIDE_MC = 28, 68, 69, 70, 71, 72, 73   # §15
+D_EMERG, D_OJ, D_LOSS, D_MIN, D_FIRE, D_OFF, D_KEEP, D_RED = 78, 79, 80, 81, 82, 83, 84, 85   # §17 D
+E_W, E_BUR, E_REACH, E_ROWS, E_KEY = 86, 87, 88, 89, 90                                        # §17 E
 VARIANTS = {
     "base": mk(),
     # ① 降っても撃てる（K）：おじゃまを qKeepRows 段載せた後に起こせる連鎖に価値（正）／失う量に罰（負）
@@ -112,6 +114,30 @@ VARIANTS = {
     "ob_sk50":       mk({KEEP_W: 0, SIDE_W: 50}, vt_ojama_search=1, vt_ojama_worst=1),
     "ob_tc500":      mk({TEAR_C: 500}, vt_ojama_search=1, vt_ojama_worst=1),
     "ob_sk50_tc500": mk({KEEP_W: 0, SIDE_W: 50, TEAR_C: 500}, vt_ojama_search=1, vt_ojama_worst=1),
+    # §17 D 危険度で妥協して撃つ（基準＝本番 lv6 0.485。lv6 は ojamaSearch=1 なので [74..76] が入っている）
+    "de1":          mk({D_EMERG: 1}),                                         # 緊急を降った後の盤面でも判定
+    "do30r40":      mk({D_OJ: 30, D_FIRE: 40}),                               # おじゃま 30% → 反撃（比 40%）
+    "do40r40":      mk({D_OJ: 40, D_FIRE: 40}),
+    "do30o100":     mk({D_OJ: 30, D_OFF: 100}),                               # → 相殺
+    "do30o100k50":  mk({D_OJ: 30, D_OFF: 100, D_KEEP: 50}),
+    "do30r40o100k50":   mk({D_OJ: 30, D_FIRE: 40, D_OFF: 100, D_KEEP: 50}),  # 反撃＋相殺
+    "do30r40o100k50rd": mk({D_OJ: 30, D_FIRE: 40, D_OFF: 100, D_KEEP: 50, D_RED: 1}),   # ＋軽減
+    "dl50r40":      mk({D_LOSS: 50, D_FIRE: 40}),                             # 撃てる連鎖が 50% 減る → 反撃
+    "dl50o100k50":  mk({D_LOSS: 50, D_OFF: 100, D_KEEP: 50}),
+    # §17 E 発火点を縦に露出（1段6個・発火ぷよ2個まで。側面は今の 42 のまま併用）
+    "ex30":         mk({E_W: 30}),
+    "bu30":         mk({E_BUR: -30}),
+    "exbu30":       mk({E_W: 30, E_BUR: -30}),
+    "er30":         mk({E_REACH: 30}),                                        # 到達連鎖の割引（本命）
+    "er50":         mk({E_REACH: 50}),
+    "er50bu30":     mk({E_REACH: 50, E_BUR: -30}),
+    "er50s0":       mk({E_REACH: 50, SIDE_W: 0}),                             # 側面を外す（置き換え）
+    "er70":         mk({E_REACH: 70}),                                        # 割引を強める（§17.10 の次）
+    "er100":        mk({E_REACH: 100}),                                       # 1段で埋まる発火点は到達連鎖に数えない
+    "er50r2":       mk({E_REACH: 50, E_ROWS: 2}),                             # 2段載せても撃てるか
+    "er30r2":       mk({E_REACH: 30, E_ROWS: 2}),                             # 2段の周り（§17.10.1 の次）
+    "er70r2":       mk({E_REACH: 70, E_ROWS: 2}),
+    "er50r3":       mk({E_REACH: 50, E_ROWS: 3}),
 }
 
 
@@ -152,6 +178,8 @@ def main() -> None:
                  f"被弾 {a['puyo_ojama_received'].mean():.1f}・ただの相殺 {a['free_offsets'].mean():.2f}・"
                  f"カウンター手 {a['puyo_counter_turns'].mean():.1f}・負け局の最大連鎖 {a['puyo_max_chain'][lose].mean():.2f}"
                  f"・ちぎり {a['puyo_tears'].mean():.1f} 回／量 {a['puyo_tear_units'].mean():.1f}"
+                 f"・負け局で本線級(5+)なし {(a['puyo_max_chain'][lose] < 5).mean():.0%}"
+                 f"・危険 {a['puyo_danger_turns'].mean():.1f} 手／撃った {a['puyo_danger_fires'].mean():.1f}"
                  f"・1手 {(time.time() - t) * 1000 / max(1, a['puyo_turns'].sum()):.2f}ms"
                  f"（{time.time() - t:.0f}s）")
         print(line, flush=True)

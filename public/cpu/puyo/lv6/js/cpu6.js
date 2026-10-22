@@ -110,10 +110,16 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
             qKeepWeight: 0,                                      // K は発火点の側面で置き換え（§15.2）
             tearTimeWeight: -133, tearChainCost: 1275,           // §15.1 ちぎりの時間
             sideKeepWeight: 42, sideKeepPeak: 2, sideKeepFall: 83, sideKeepMinChains: 2,   // §15.2 発火点の側面
+            // §17 E 発火点を縦に露出（2026-10-22）：全列に2段載せても発火ぷよ2個までで撃てない発火点は、到達連鎖の点を 50% 減らす。
+            //   A/B（600局）で 0.485→0.593（lv6-vstet-design.md §17.10.2）。評価値に足す exposeWeight / buriedWeight は効かなかったので 0。
+            exposeWeight: 0, buriedWeight: 0, exposeReachPct: 50, exposeRows: 2, exposeMaxKey: 0,
         },
         vsTetControl: {   // controlWeights の名前
             expChainWeight: 248, pruneChainScore: 18038, fireChainCount: 9, fireScoreThreshold: 123647,
             emergencyFireMinRatio: 40, emergencyHardCol2: 12,
+            // §17 D 危険度で妥協して撃つ（2026-10-22。既定0＝今と同じ。届いているおじゃまを全部降らせた盤面で判定し、反撃→相殺→軽減）
+            dangerEmergAfter: 0, dangerOjamaPct: 0, dangerLossPct: 0, dangerMinIncoming: 0,
+            dangerFireRatio: 0, dangerOffsetPct: 0, dangerKeepPct: 0, dangerReduce: 0,
         },
         fastVsTetWeights: { qYWeight: 16 },
         fastVsTetControl: { emergencyFireMinRatio: 89 },

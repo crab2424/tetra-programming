@@ -16,7 +16,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build"
-W_LEN = 78
+W_LEN = 91
 EXT_LEN = 32                       # 試作中の対戦判断（sim.h ExtIndex）。0 埋め＝現行 lv5
 PP_LEN = W_LEN * 2 + 2 + EXT_LEN
 EXT = {"p1_enable": 0, "p1_alpha": 1, "p1_kill_ratio": 2, "p1_kill_min": 3,
