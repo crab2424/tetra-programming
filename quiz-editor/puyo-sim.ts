@@ -9,7 +9,7 @@
 // ゲーム側を変えたらここも合わせること。最終確認は実機（テストプレイ）で行う。
 // 設計: source_assets/memory/quiz-editor/tetlabo-quiz-editor-puyo-solve.md
 // ─────────────────────────────────────────────
-import type { EditorDoc, Pair } from './model.ts';
+import type { Cond, EditorDoc, Pair } from './model.ts';
 
 // ─── PConfig ───
 const COLS = 6;
@@ -57,7 +57,7 @@ function isEmpty(g: Grid, c: number, row: number): boolean {
     return v === 0 || v === undefined;
 }
 /** 可視段が空か（全消しの判定。engine.js _isFieldEmpty） */
-function visibleEmpty(g: Grid): boolean {
+export function visibleEmpty(g: Grid): boolean {
     for (let r = HIDDEN; r < TOTAL; r++) for (let c = 0; c < COLS; c++) if (g[r][c] !== 0) return false;
     return true;
 }
@@ -219,12 +219,16 @@ export function findErasable(g: Grid): { groups: { r: number; c: number; color: 
 
 /** 連鎖 1 回ぶんの得点（_calcChainScore） */
 function chainScore(groups: { color: number }[][], chain: number): number {
-    const n = groups.reduce((a, g) => a + g.length, 0);
-    const cb = CHAIN_BONUS[Math.min(Math.max(0, chain - 1), CHAIN_BONUS.length - 1)];
     const colors = new Set(groups.flatMap(g => g.map(cell => cell.color))).size;
+    return chainScoreOf(groups.map(g => g.length), colors, chain);
+}
+
+/** 連鎖 1 回ぶんの得点。sizes = 消えるグループごとの個数（色ぷよだけ）、colors = 色数（探索 search-puyo.ts と共有） */
+export function chainScoreOf(sizes: number[], colors: number, chain: number): number {
+    let n = 0, groupB = 0;
+    for (const len of sizes) { n += len; groupB += GROUP_BONUS[Math.min(len, GROUP_BONUS.length - 1)]; }
+    const cb = CHAIN_BONUS[Math.min(Math.max(0, chain - 1), CHAIN_BONUS.length - 1)];
     const colorB = COLOR_BONUS[Math.min(Math.max(0, colors - 1), COLOR_BONUS.length - 1)];
-    let groupB = 0;
-    for (const g of groups) groupB += GROUP_BONUS[Math.min(g.length, GROUP_BONUS.length - 1)];
     return SCORE_BASE * n * Math.max(1, cb + colorB + groupB);
 }
 
@@ -302,6 +306,43 @@ export function validLanding(g: Grid, s: PuyoStep): boolean {
         canPlace(g, s.x, s.y, s.rot) && limitY(g, s.x, s.y, s.rot) === s.y;
 }
 
+/** 得点・最大連鎖・count・全消し状態の累計（simulatePuyo と探索 search-puyo.ts で共有） */
+export interface PuyoProgress { score: number; chainMax: number; clearTimes: number; isAllClear: boolean; }
+
+/**
+ * 1 手の連鎖が終わった後の累計とクリア判定（engine.js の QUIZ ブロック → quiz.js）。
+ * chain = この手の連鎖数、linkScore = 連鎖の得点（全消しボーナス抜き）、emptyAfter = 連鎖後に可視段が空か
+ */
+export function advancePuyo(st: PuyoProgress, chain: number, linkScore: number, emptyAfter: boolean, c: Cond):
+    { next: PuyoProgress; chainScore: number; allClear: boolean; condMet: boolean; cleared: boolean } {
+    let { score, chainMax, clearTimes, isAllClear } = st;
+    let chainScore = linkScore, allClear = false;
+    if (chain > 0) {
+        isAllClear = false;
+        if (emptyAfter) { chainScore += ZENKESHI_BONUS; allClear = true; isAllClear = true; }
+    }
+    score += chainScore;
+    chainMax = Math.max(chainMax, chain);
+
+    // count は連鎖があった手だけ数える
+    let condMet = false, cleared: boolean;
+    if (c.type === 'count') {
+        if (chain > 0) {
+            const cv = c.countValue ?? 1;
+            const inner = c.countCondition === 'chain' ? chain >= cv
+                : c.countCondition === 'allClear' ? isAllClear
+                : c.countCondition === 'score' ? score >= cv : false;
+            if (inner) { clearTimes++; condMet = true; }
+        }
+        cleared = clearTimes >= c.value;
+    } else {
+        cleared = c.type === 'chain' ? chainMax >= c.value
+            : c.type === 'allClear' ? isAllClear
+            : c.type === 'score' ? score >= c.value : false;
+    }
+    return { next: { score, chainMax, clearTimes, isAllClear }, chainScore, allClear, condMet, cleared };
+}
+
 export function simulatePuyo(doc: EditorDoc, steps: PuyoStep[]): PuyoSimResult {
     let g = gridFromField(doc.field);
     const out: PuyoSimResult = { grids: [cloneGrid(g)], frames: [], links: [], results: [], clearedAt: 0, firstError: 0, deadAt: isDead(g) ? -1 : 0 };
@@ -326,31 +367,14 @@ export function simulatePuyo(doc: EditorDoc, steps: PuyoStep[]): PuyoSimResult {
         fixPair(g, { x: s.x, y: s.y, rot: s.rot, qt: 0 }, r.pair!);
         const { frames, links } = resolveChains(g);
         r.chain = links.length;
-        r.chainScore = links.reduce((a, l) => a + l.score, 0);
-        if (r.chain > 0) {
-            isAllClear = false;
-            if (visibleEmpty(g)) { r.chainScore += ZENKESHI_BONUS; r.allClear = true; isAllClear = true; }
-        }
-        score += r.chainScore;
-        chainMax = Math.max(chainMax, r.chain);
+        const pr = advancePuyo({ score, chainMax, clearTimes, isAllClear }, r.chain, links.reduce((a, l) => a + l.score, 0), visibleEmpty(g), c);
+        ({ score, chainMax, clearTimes, isAllClear } = pr.next);
+        r.chainScore = pr.chainScore;
+        r.allClear = pr.allClear;
         r.score = score;
-
-        // ─── クリア条件（engine.js の QUIZ ブロック → quiz.js）。count は連鎖があった手だけ数える ───
-        if (c.type === 'count') {
-            if (r.chain > 0) {
-                const cv = c.countValue ?? 1;
-                const inner = c.countCondition === 'chain' ? r.chain >= cv
-                    : c.countCondition === 'allClear' ? isAllClear
-                    : c.countCondition === 'score' ? score >= cv : false;
-                if (inner) { clearTimes++; r.condMet = true; }
-            }
-            r.clearTimes = clearTimes;
-            r.cleared = clearTimes >= c.value;
-        } else {
-            r.cleared = c.type === 'chain' ? chainMax >= c.value
-                : c.type === 'allClear' ? isAllClear
-                : c.type === 'score' ? score >= c.value : false;
-        }
+        r.condMet = pr.condMet;
+        r.clearTimes = clearTimes;
+        r.cleared = pr.cleared;
         if (r.cleared && !out.clearedAt) out.clearedAt = i + 1;
         else if (!r.cleared && isDead(g)) { r.dead = true; out.deadAt = i + 1; }
 
