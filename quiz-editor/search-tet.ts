@@ -9,6 +9,9 @@ import type { Cond, EditorDoc } from './model.ts';
 import { classifyTSpin, kickTable, scoreLock, shapeOf, SIM_TOP, type Step, type TetProgress } from './tet-sim.ts';
 import type { SearchOptions, SearchResult } from './search.ts';
 
+/** 進捗を送る間隔 */
+const PROGRESS_MS = 200;
+
 const COLS = 10;
 const VISIBLE = 20;
 const ROWS = VISIBLE + SIM_TOP;   // 25。行 r = y + SIM_TOP（tet-sim の Grid と同じ並び）
@@ -298,8 +301,10 @@ function children(doc: EditorDoc, s: State, stats: { calls: number; placements: 
 export function searchTet(doc: EditorDoc, opts: SearchOptions): SearchResult<Step> {
     const t0 = performance.now();
     const memo = new Map<string, number>();
+    const partial = new Set<string>();   // 打ち切り・上限で途中までしか数えなかった状態（解の取り出しではここにも入る）
     const stats = { calls: 0, placements: 0 };
     let nodes = 0, found = 0, timedOut = false, stopped = false;
+    let lastReport = t0;
     const stopAt = opts.stopAt ?? Infinity;
     const km = keyModeOf(doc.cond, opts.prune !== false);
     const pruned = opts.prune !== false ? makePrune(doc) : () => false;
@@ -307,19 +312,23 @@ export function searchTet(doc: EditorDoc, opts: SearchOptions): SearchResult<Ste
 
     // 戻り値はその状態から先の解の数。打ち切り時は「それまでに数えた分」（下限）を返し、メモには残さない
     const rec = (s: State): number => {
-        if ((++nodes & 255) === 0 && performance.now() - t0 > opts.timeLimitMs) timedOut = true;
+        if ((++nodes & 255) === 0) {
+            const now = performance.now();
+            if (now - t0 > opts.timeLimitMs) timedOut = true;
+            if (opts.onProgress && now - lastReport >= PROGRESS_MS) { lastReport = now; opts.onProgress({ nodes, found, elapsedMs: now - t0 }); }
+        }
         const key = stateKey(s);
         const m = memo.get(key);
         if (m !== undefined) { found += m; if (found >= stopAt) stopped = true; return m; }
         let total = 0;
         for (const c of children(doc, s, stats)) {
-            if (timedOut || stopped) return total;
+            if (timedOut || stopped) { partial.add(key); return total; }
             if (c.cleared) { total++; if (++found >= stopAt) stopped = true; continue; }
             if (c.state.idx >= doc.next.length) continue;   // NEXT 切れ（HOLD 中のピースだけでは置けない）
             if (pruned(c.state)) continue;
             total += rec(c.state);
         }
-        if (timedOut || stopped) return total;
+        if (timedOut || stopped) { partial.add(key); return total; }
         memo.set(key, total);
         return total;
     };
@@ -327,7 +336,7 @@ export function searchTet(doc: EditorDoc, opts: SearchOptions): SearchResult<Ste
     const count = rec(root);
     const searchMs = performance.now() - t0;
 
-    // 解の取り出し: メモで「解が 1 つ以上」と分かっている子だけをたどる
+    // 解の取り出し: メモで「解が 1 つ以上」と分かっている子と、途中で止めた子だけをたどる
     const solutions: Step[][] = [];
     const path: Step[] = [];
     const walk = (s: State) => {
@@ -335,7 +344,7 @@ export function searchTet(doc: EditorDoc, opts: SearchOptions): SearchResult<Ste
             if (solutions.length >= opts.maxSolutions) return;
             path.push(c.step);
             if (c.cleared) solutions.push(path.slice());
-            else if (c.state.idx < doc.next.length && (memo.get(stateKey(c.state)) ?? 0) > 0) walk(c.state);
+            else if (c.state.idx < doc.next.length) { const k = stateKey(c.state); if ((memo.get(k) ?? 0) > 0 || partial.has(k)) walk(c.state); }
             path.pop();
         }
     };

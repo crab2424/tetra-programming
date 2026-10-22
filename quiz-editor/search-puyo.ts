@@ -9,6 +9,9 @@ import type { Cond, EditorDoc, Pair } from './model.ts';
 import { advancePuyo, chainScoreOf, HIDDEN, type PuyoProgress, type PuyoStep } from './puyo-sim.ts';
 import type { SearchOptions, SearchResult } from './search.ts';
 
+/** 進捗を送る間隔 */
+const PROGRESS_MS = 200;
+
 const COLS = 6;
 const ROWS = 12;             // 可視段
 const TOTAL = ROWS + HIDDEN; // 17
@@ -327,8 +330,10 @@ function children(doc: EditorDoc, s: State, stats: { calls: number; placements: 
 export function searchPuyo(doc: EditorDoc, opts: SearchOptions): SearchResult<PuyoStep> {
     const t0 = performance.now();
     const memo = new Map<string, number>();
+    const partial = new Set<string>();   // 打ち切り・上限で途中までしか数えなかった状態（解の取り出しではここにも入る）
     const stats = { calls: 0, placements: 0 };
     let nodes = 0, found = 0, timedOut = false, stopped = false;
+    let lastReport = t0;
     const stopAt = opts.stopAt ?? Infinity;
     const n = doc.pairs.length;
     const km = keyModeOf(doc.cond, opts.prune !== false);
@@ -336,19 +341,23 @@ export function searchPuyo(doc: EditorDoc, opts: SearchOptions): SearchResult<Pu
     const stateKey = (s: State) => stateKeyOf(s, km);
 
     const rec = (s: State): number => {
-        if ((++nodes & 255) === 0 && performance.now() - t0 > opts.timeLimitMs) timedOut = true;
+        if ((++nodes & 255) === 0) {
+            const now = performance.now();
+            if (now - t0 > opts.timeLimitMs) timedOut = true;
+            if (opts.onProgress && now - lastReport >= PROGRESS_MS) { lastReport = now; opts.onProgress({ nodes, found, elapsedMs: now - t0 }); }
+        }
         const key = stateKey(s);
         const m = memo.get(key);
         if (m !== undefined) { found += m; if (found >= stopAt) stopped = true; return m; }
         let total = 0;
         for (const c of children(doc, s, stats)) {
-            if (timedOut || stopped) return total;
+            if (timedOut || stopped) { partial.add(key); return total; }
             if (c.cleared) { total++; if (++found >= stopAt) stopped = true; continue; }
             if (c.dead || c.state.idx >= n) continue;   // 窒息・NEXT 切れ
             if (pruned(c.state)) continue;
             total += rec(c.state);
         }
-        if (timedOut || stopped) return total;
+        if (timedOut || stopped) { partial.add(key); return total; }
         memo.set(key, total);
         return total;
     };
@@ -363,7 +372,7 @@ export function searchPuyo(doc: EditorDoc, opts: SearchOptions): SearchResult<Pu
             if (solutions.length >= opts.maxSolutions) return;
             path.push(c.step);
             if (c.cleared) solutions.push(path.slice());
-            else if (!c.dead && c.state.idx < n && (memo.get(stateKey(c.state)) ?? 0) > 0) walk(c.state);
+            else if (!c.dead && c.state.idx < n) { const k = stateKey(c.state); if ((memo.get(k) ?? 0) > 0 || partial.has(k)) walk(c.state); }
             path.pop();
         }
     };

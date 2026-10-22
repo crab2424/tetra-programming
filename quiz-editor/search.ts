@@ -19,6 +19,29 @@ export interface SearchOptions {
     stopAt?: number;
     /** 枝刈りと条件に合わせたメモのキーの縮約（設計 §2.4・§2.5）。既定 true。false は確認用（数は同じになるはず） */
     prune?: boolean;
+    /** 探索中に約 0.2 秒ごとに呼ばれる */
+    onProgress?: (p: SearchProgress) => void;
+}
+
+export interface SearchProgress {
+    nodes: number;      // 展開しようとした状態の数
+    found: number;      // ここまでに数えた解の数
+    elapsedMs: number;
+}
+
+/**
+ * COUNT で数える解の上限。人が見渡せる数を超えたら、それ以上は数えずに止める（ユーザー指示 2026-10-22: HOLD の重複なども合わせて 1000 程度）
+ */
+export const SOLUTION_CAP = 1000;
+
+/** UNIQUE = 別解チェック（2 つ目で止める）、COUNT = 数える（SOLUTION_CAP で止める）。設計 §0.1 */
+export type SearchMode = 'unique' | 'count';
+
+/** モードごとの探索オプション */
+export function modeOptions(mode: SearchMode, timeLimitMs: number): SearchOptions {
+    return mode === 'unique'
+        ? { timeLimitMs, maxSolutions: 2, stopAt: 2 }
+        : { timeLimitMs, maxSolutions: SOLUTION_CAP, stopAt: SOLUTION_CAP };
 }
 
 export interface SearchResult<S> {

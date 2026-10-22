@@ -11,7 +11,7 @@ import * as T from '../quiz-editor/tet-sim.ts';
 import * as P from '../quiz-editor/puyo-sim.ts';
 import * as ST from '../quiz-editor/search-tet.ts';
 import * as SP from '../quiz-editor/search-puyo.ts';
-import { searchDoc, verifySolutions } from '../quiz-editor/search.ts';
+import { modeOptions, searchDoc, SOLUTION_CAP, verifySolutions } from '../quiz-editor/search.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const LIMIT_MS = Number(process.env.LIMIT_MS ?? 20000);
@@ -329,6 +329,21 @@ if (!process.env.SKIP_UNIQUE) {
         line.push(`${doc.id} ${verdict} ${Math.round(r.searchMs)}ms`);
     }
     for (let i = 0; i < line.length; i += 4) console.log('  ' + line.slice(i, i + 4).map(t => t.padEnd(26)).join(''));
+}
+
+// ─── 2c. COUNT の上限と、止めた後の解の取り出し（段階 S3） ───
+console.log(`\n[2c] COUNT の上限 ${SOLUTION_CAP}・打ち切り後の解の取り出し`);
+for (const [id, limit] of [['tet-11', LIMIT_MS], ['tet-7', LIMIT_MS], ['puyo-5', 3000], ['tet-1.4', 3000]] as [string, number][]) {
+    const doc = docs.find(d => d.id === id);
+    if (!doc) continue;
+    const r = searchDoc(doc, modeOptions('count', limit));
+    const bad = verifySolutions(doc, r.solutions).length;
+    const uniq = new Set(r.solutions.map(x => JSON.stringify(x))).size;
+    if (bad) fail(`${id}: 検算に通らない解 ${bad}`);
+    if (uniq !== r.solutions.length) fail(`${id}: 同じ解が重複`);
+    // 止めた時も、数えた解はほぼ全部取り出せる（途中で止めた状態にも入るため）
+    if (!r.complete && r.solutions.length < Math.min(r.count, SOLUTION_CAP)) fail(`${id}: 数えた ${r.count} 件のうち ${r.solutions.length} 件しか取り出せない`);
+    console.log(`  ${id.padEnd(8)} ${r.complete ? '全探索' : r.stopped ? '上限で停止' : '打ち切り'} 数 ${r.count.toLocaleString()}・取り出し ${r.solutions.length}・検算 OK ${r.solutions.length - bad}・${Math.round(r.totalMs)} ms`);
 }
 
 // ─── 3. 置き場所の列挙の速さ（solver-proto/bench-ts.ts と同じ盤面） ───
