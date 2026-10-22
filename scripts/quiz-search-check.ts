@@ -12,6 +12,7 @@ import * as P from '../quiz-editor/puyo-sim.ts';
 import * as ST from '../quiz-editor/search-tet.ts';
 import * as SP from '../quiz-editor/search-puyo.ts';
 import { modeOptions, searchDoc, SOLUTION_CAP, verifySolutions } from '../quiz-editor/search.ts';
+import { exactOf } from '../quiz-editor/search-ui.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const LIMIT_MS = Number(process.env.LIMIT_MS ?? 20000);
@@ -344,6 +345,38 @@ for (const [id, limit] of [['tet-11', LIMIT_MS], ['tet-7', LIMIT_MS], ['puyo-5',
     // 止めた時も、数えた解はほぼ全部取り出せる（途中で止めた状態にも入るため）
     if (!r.complete && r.solutions.length < Math.min(r.count, SOLUTION_CAP)) fail(`${id}: 数えた ${r.count} 件のうち ${r.solutions.length} 件しか取り出せない`);
     console.log(`  ${id.padEnd(8)} ${r.complete ? '全探索' : r.stopped ? '上限で停止' : '打ち切り'} 数 ${r.count.toLocaleString()}・取り出し ${r.solutions.length}・検算 OK ${r.solutions.length - bad}・${Math.round(r.totalMs)} ms`);
+}
+
+// ─── 2d. 保存済みの解との比較（段階 S4）: 見つけた解ごとに鍵が違い、同じマスに置く別の書き方（向きの番号違い）でも同じ鍵になる ───
+console.log('\n[2d] 保存済みの解との比較の鍵');
+{
+    let n = 0, re = 0;
+    for (const doc of docs) {
+        const r = searchDoc(doc, modeOptions('count', 3000));
+        const keys = r.solutions.map(s => exactOf(doc, s));
+        if (keys.some(k => k === null)) fail(`${doc.id}: 鍵を作れない解がある`);
+        if (new Set(keys).size !== keys.length) fail(`${doc.id}: 違う解が同じ鍵になる`);
+        n += keys.length;
+        if (doc.rule !== 'tet') continue;
+        // 同じマスになる別の (rot, x, y) に書き換えた手順（SOLVE で記録した手と同じ形になり得る）
+        for (const sol of r.solutions.slice(0, 50)) {
+            const alt = (sol as T.Step[]).map(st => {
+                const want = T.cellsOf({ type: st.piece, rot: st.rot, x: st.x, y: st.y }).map(([x, y]) => y * 16 + x).sort((a, b) => a - b).join();
+                for (let rot = 0; rot < 4; rot++) {
+                    if (rot === st.rot) continue;
+                    for (let x = -3; x < 10; x++) for (let y = -8; y < 20; y++) {
+                        const c = T.cellsOf({ type: st.piece, rot, x, y }).map(([cx, cy]) => cy * 16 + cx).sort((a, b) => a - b).join();
+                        if (c === want) return { ...st, rot, x, y };
+                    }
+                }
+                return st;
+            });
+            if (JSON.stringify(alt) === JSON.stringify(sol)) continue;
+            re++;
+            if (exactOf(doc, alt) !== exactOf(doc, sol)) fail(`${doc.id}: 向きの番号だけ違う同じ解が別の鍵になる`);
+        }
+    }
+    console.log(`  解 ${n} 件の鍵が全部別・書き換えた同じ解 ${re} 件が同じ鍵`);
 }
 
 // ─── 3. 置き場所の列挙の速さ（solver-proto/bench-ts.ts と同じ盤面） ───

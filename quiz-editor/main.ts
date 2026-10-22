@@ -22,6 +22,7 @@ import { fmtDateTime, type SolutionMap, type SolutionEntry, fetchSolutions, save
 import { SyncEngine, type SyncEvent, type DraftEntry, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
 import { LocalDrafts, type LocalDraft, type SentMark, draftKey, contentHash } from './local-drafts.ts';
 import { initSyncUi } from './sync-ui.ts';
+import { initSearchUi } from './search-ui.ts';
 import { getHandle, readText, writeText, canPickFiles } from './fsa.ts';
 import { ask, skippedConfirms, resetSkippedConfirms, SKIP_LABELS } from './ask.ts';
 import { probeDevFiles, devFilesAvailable, devRead, devWrite } from './dev-files.ts';
@@ -287,6 +288,7 @@ function coarsePointer(): boolean { return matchMedia('(pointer: coarse)').match
 // ─── PC とスマホの同期（Gist。§14.3） ───
 const sync = new SyncEngine(ev => onSyncEvent(ev), () => onSyncState());
 let syncUi: { refresh(): void; showDrafts(): void; renderDrafts(): void; shown(): void } | null = null;
+let searchUi: { render(): void; cancel(): void } | null = null;
 
 /** Gist の下書きを開く（DRAFTS・届いたお知らせ・LEVELS から）。この端末の未保存の編集を置き換える時は確認する */
 function openDraft(id: string) {
@@ -713,6 +715,7 @@ function renderAll() {
     saveDraftSoon();
     renderHold();
     renderMemo();
+    searchUi?.render();
     renderField();   // ツール・見出しの高さが確定してから盤面の大きさを合わせ直す
 }
 
@@ -910,7 +913,7 @@ function cellSize(rule: Rule): number {
 function body(): HTMLElement { return document.body; }
 
 // ─── PC のサイドバー（layout §1。アクティビティバーで LEVELS / INFO / STEPS / OUTPUT を切替・選択中をもう一度押すと閉じる） ───
-type PTab = 'levels' | 'drafts' | 'info' | 'steps' | 'out';
+type PTab = 'levels' | 'drafts' | 'info' | 'steps' | 'search' | 'out';
 const PTAB_KEY = 'tetlabo.quizEditor.ptab';
 const SIDE_KEY = 'tetlabo.quizEditor.side';
 const narrowMq = matchMedia('(min-width: 761px) and (max-width: 999px)');   // サイドバーを盤面に重ねて開く幅
@@ -2700,7 +2703,7 @@ $('doc-tab').addEventListener('click', showLevels);
     let saved: string | null = null, side: string | null = null;
     try { saved = localStorage.getItem(PTAB_KEY); side = localStorage.getItem(SIDE_KEY); } catch { /* 読めない */ }
     // 旧版の PREVIEW タブは廃止（layout §3）
-    const t: PTab = saved === 'levels' || saved === 'drafts' || saved === 'steps' || saved === 'out' ? saved : 'info';
+    const t: PTab = saved === 'levels' || saved === 'drafts' || saved === 'steps' || saved === 'search' || saved === 'out' ? saved : 'info';
     setPTab(t, side !== 'closed' && !narrowMq.matches);   // 狭い画面は盤面に重なるので閉じて始める
 }
 
@@ -2909,6 +2912,36 @@ syncUi = initSyncUi({
     isMobile: () => mobileMq.matches,
     showSidebar: () => { solvePrevTab = null; setPTab('drafts'); },
 });
+// ─── SEARCH（解の探索。search-ui.ts・設計 solver §6・§13） ───
+/** 最後に SEARCH から読み込んだ手順（これを置き換える時は確認しない＝一覧を次々に見られる） */
+let searchLoaded = '';
+async function loadSearchSolution(steps: AnyStep[], label: string): Promise<boolean> {
+    const cur = JSON.stringify(doc.steps);
+    const saved = JSON.stringify(solutions[doc.rule][doc.id]?.steps ?? []);
+    if (doc.steps.length && cur !== saved && cur !== searchLoaded && cur !== JSON.stringify(steps)) {
+        if (!await ask('今の解答手順（保存していない物）を SEARCH の解で置き換えます。UNDO で戻せます。よろしいですか？', { ok: '置き換える' })) return false;
+    }
+    const keepSearch = !mobileMq.matches && sideOpen() && curPTab() === 'search';
+    commit(() => { doc.steps = steps.map(st => ({ ...st })); });
+    searchLoaded = JSON.stringify(doc.steps);
+    place.view = steps.length;
+    if (curMode() !== 'solve') setMode('solve');
+    else { place.resetActive(); renderAll(); focusField(); }
+    // PC: 一覧を続けて見られるよう SEARCH のビューのまま（SOLVE に入ると STEPS に切り替わるので戻す）
+    if (keepSearch) { solvePrevTab = null; setPTab('search'); }
+    if (mobileMq.matches) setMTab('steps');
+    setStatus(`SEARCH の解 ${label} を解答手順に読み込みました（${steps.length} 手・UNDO で戻せます）`);
+    return true;
+}
+searchUi = initSearchUi({
+    doc: () => doc,
+    savedSteps: () => solutions[doc.rule][doc.id]?.steps ?? null,
+    load: loadSearchSolution,
+    visible: () => document.visibilityState === 'visible' &&
+        (mobileMq.matches ? body().dataset.mtab === 'out' : sideOpen() && curPTab() === 'search'),
+    notify: (msg, kind) => toast(msg, kind),
+});
+
 // QR コードから開かれた（#sync=…）なら、その設定で接続する。トークンが URL に残らないよう即座に消す
 const fromQr = decodeSyncHash(location.hash);
 if (fromQr) {

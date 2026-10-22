@@ -38,7 +38,7 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
 設計: `source_assets/memory/quiz-editor/tetlabo-quiz-editor-layout.md`（VS Code と同じ並び）・`tetlabo-quiz-editor-tools.md`（LEVELS・NEXT モード・TOOLS）
 
 - タイトルバー: ≡ メニュー（NEW / PASTE JSON / DRAFTS）・TET/PUYO・**問題のタブ**（押すか `Ctrl/⌘+P` でサイドバーの LEVELS へ）・状態チップ・UNDO/REDO
-- 左端のアクティビティバー: LEVELS / INFO / STEPS / OUTPUT をサイドバーに出す。LEVELS は番号タイル（矢印と Enter・`/` で絞り込み欄へ）。選択中をもう一度押す（`Ctrl/⌘+B`）と閉じる。サイドバーの右端はドラッグで幅を変えられる（ダブルクリックで元に戻す）。幅 1000px 未満は盤面に重ねて開く
+- 左端のアクティビティバー: LEVELS / DRAFTS / INFO / STEPS / SEARCH / OUTPUT をサイドバーに出す。LEVELS は番号タイル（矢印と Enter・`/` で絞り込み欄へ）。選択中をもう一度押す（`Ctrl/⌘+B`）と閉じる。サイドバーの右端はドラッグで幅を変えられる（ダブルクリックで元に戻す）。幅 1000px 未満は盤面に重ねて開く
 - 中央: モード切替＋HOLD｜FIELD｜NEXT＋（SOLVE 中は）NEXT 全体＋プレイ画面の見出し。マスはテト基準で最大 28px、ぷよはテトの盤面の枠に収まる大きさ（隠し段は低く描く）
 - 右: TOOLS（モードの道具）。全モード共通の 3 段＝ピース行（色・ミノ。I O T J L S Z の位置は全モード同じ）／操作パッド（十字＋アクション行）／その他
 - ステータスバー: モード・盤面サイズ・操作キー・検証の件数（押すと OUTPUT）・SYNC・🔔 LOG。お知らせ（トースト）はその上の右下に出る
@@ -75,6 +75,22 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
   （Chrome / Edge はファイルへ直接書き込み、それ以外のブラウザはダウンロード）
 - マウスで置いた T は操作経路が無いため、T-Spin 判定は「回転入れした」と見なした推定になる。
   確実な確認はキー操作か、実機でのテストプレイで行う
+
+## 解の探索（SEARCH）
+
+設計: `source_assets/memory/quiz-editor/tetlabo-quiz-editor-solver.md`
+
+- PC はアクティビティバーの SEARCH、スマホは OUT タブの下。今の問題で RUN すると、条件を満たす手順を Web Worker で探す（画面は止まらない・CANCEL で中止）
+- 置ける場所は STRICT と同じ（出現位置からゲームの操作で届く所だけ。重力・固定猶予の時間は無視）。
+  解の数は「手順の数」（HOLD の入替だけの違いも別の解）。T-Spin になる/ならないが違えば別の置き方
+- **COUNT**: 解を数える（1,000 通りで止めて「1,000 通り以上」）。**UNIQUE**: 別解があるかだけ調べる（2 つ目の解で止める）。TIME は 10 秒 / 60 秒 / 5 分で打ち切り
+- 結果: SOLVED（n 通り・全探索済み）/ UNIQUE（1 つだけ）/ MULTIPLE（別解あり）/ CAPPED / TIMEOUT / CANCELLED / NO SOLUTION。
+  見つけた解はすべてシミュレーターで検算する（通らない解があれば ⚠）
+- 一覧は順番違い（HOLD の入替など）をまとめて 1 行にする。押すとその解を SOLVE の手順に読み込む（UNDO で戻せる。
+  自分で置いた未保存の手順を置き換える時だけ確認する）。テトはミノと一番左の列、ぷよは軸の列と子の向き
+- 保存済みの解（tsolutions / psolutions）と同じ解には SAVED を付ける。問題を変えると結果は「古い」表示になり読み込めない（UNDO で戻せば元の結果に戻る）
+- 結果はページを開いている間だけ覚える（再読み込みで消える）
+- 確認・計測: `node --experimental-strip-types --no-warnings scripts/quiz-search-check.ts [問題ID …]`
 
 ## PC とスマホの同期（SYNC・DRAFTS）
 
