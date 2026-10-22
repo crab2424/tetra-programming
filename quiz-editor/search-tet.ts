@@ -5,7 +5,7 @@
 // 見つけた解は search.ts の verifySolutions で simulate() に通して検算する。
 // 設計: source_assets/memory/quiz-editor/tetlabo-quiz-editor-solver.md
 // ─────────────────────────────────────────────
-import type { EditorDoc } from './model.ts';
+import type { Cond, EditorDoc } from './model.ts';
 import { classifyTSpin, kickTable, scoreLock, shapeOf, SIM_TOP, type Step, type TetProgress } from './tet-sim.ts';
 import type { SearchOptions, SearchResult } from './search.ts';
 
@@ -157,18 +157,110 @@ function isEmptyBoard(b: Board): boolean {
 
 interface State extends TetProgress { b: Board; idx: number; hold: number; }  // hold: -1 = 空
 
-const keyBuf = new Uint16Array(ROWS + 9);
-function stateKey(s: State): string {
+/**
+ * メモのキーに入れる値（設計 §2.4: 条件がこの先で使う値だけ。同じ値になれば合流する）。
+ * renCap: REN をこの値で頭打ち（-1 = 入れない）、scoreCap: スコアを頭打ち（-1 = 入れない）
+ */
+interface KeyMode { ren: number; b2b: boolean; score: number; lines: boolean; times: boolean; }
+
+export function keyModeOf(c: Cond, prune: boolean): KeyMode {
+    if (!prune) return { ren: Infinity, b2b: true, score: Infinity, lines: true, times: true };
+    const inner = c.type === 'count' ? c.countCondition : c.type;
+    const times = c.type === 'count';
+    switch (inner) {
+        // 得点は REN ボーナス（min(REN, 20)）と B2B で決まる。count の score は累計が countValue に届けば以降は毎手 1 回
+        case 'score': return { ren: 20, b2b: true, score: c.type === 'count' ? c.countValue : Infinity, lines: false, times };
+        case 'ren': return { ren: c.type === 'count' ? c.countValue : c.value, b2b: false, score: -1, lines: false, times };
+        case 'clearLines': case 'lines': return { ren: -1, b2b: false, score: -1, lines: c.type !== 'count', times };
+        // allClear・T-Spin 系は「その手」だけで決まる
+        default: return { ren: -1, b2b: false, score: -1, lines: false, times };
+    }
+}
+
+const keyBuf = new Uint16Array(ROWS + 8);
+function stateKeyOf(s: State, k: KeyMode): string {
     keyBuf.set(s.b, 0);
     keyBuf[ROWS] = s.idx;
     keyBuf[ROWS + 1] = s.hold + 1;
-    keyBuf[ROWS + 2] = s.ren;
-    keyBuf[ROWS + 3] = s.b2b ? 1 : 0;
-    keyBuf[ROWS + 4] = s.score & 0xffff;
-    keyBuf[ROWS + 5] = Math.floor(s.score / 65536);
-    keyBuf[ROWS + 6] = s.totalLines;
-    keyBuf[ROWS + 7] = s.clearTimes;
+    keyBuf[ROWS + 2] = k.ren < 0 ? 0 : Math.min(s.ren, k.ren);
+    keyBuf[ROWS + 3] = k.b2b && s.b2b ? 1 : 0;
+    const score = k.score < 0 ? 0 : Math.min(s.score, k.score);
+    keyBuf[ROWS + 4] = score & 0xffff;
+    keyBuf[ROWS + 5] = Math.floor(score / 65536);
+    keyBuf[ROWS + 6] = k.lines ? s.totalLines : 0;
+    keyBuf[ROWS + 7] = k.times ? s.clearTimes : 0;
     return String.fromCharCode.apply(null, keyBuf as unknown as number[]);
+}
+
+// ─── 枝刈り（設計 §2.5。解を落とさないものだけ） ───
+
+function popcount(v: number): number { let n = 0; for (; v; v &= v - 1) n++; return n; }
+
+/** 1 手の得点の上限（B2B T-Spin Triple 2400 ＋ PC 1800 ＋ REN 1000） */
+const MAX_MOVE_SCORE = 5200;
+
+/**
+ * PC に届き得るか。残りに置けるのは最大 left 個。k 個置いて PC なら消す段数 L = (セル数 + 4k) / 10 で、
+ * ①一番高いブロックの高さ ≤ L（ブロックの下の段はどれも何か入っている＝L 段全部を消す必要がある）
+ * ②下 L 段を「隣り合う 2 列のどちらかが全段で埋まっている」壁で区切った区間ごとに、空きマスが 4 の倍数（pc6 validateRegion・sfinder と同じ）
+ * を満たす k が 1 つでもあれば true
+ */
+function pcPossible(b: Board, left: number): boolean {
+    let cells = 0, top = ROWS;
+    for (let r = ROWS - 1; r >= 0; r--) { if (b[r]) { cells += popcount(b[r]); top = r; } }
+    const h = ROWS - top;
+    for (let k = 1; k <= left; k++) {
+        if ((cells + 4 * k) % 10) continue;
+        const L = (cells + 4 * k) / 10;
+        if (L < h || L > ROWS) continue;
+        let ok = true, empties = 0;
+        for (let x = 0; x < COLS && ok; x++) {
+            for (let r = ROWS - L; r < ROWS; r++) if (!((b[r] >> x) & 1)) empties++;
+            if (x === COLS - 1) { ok = empties % 4 === 0; break; }
+            let wall = true;
+            for (let r = ROWS - L; r < ROWS; r++) if (!((b[r] >> x) & 1) && !((b[r] >> (x + 1)) & 1)) { wall = false; break; }
+            if (wall) { ok = empties % 4 === 0; empties = 0; }
+        }
+        if (ok) return true;
+    }
+    return false;
+}
+
+/** true なら、この状態からは条件を満たせない */
+function makePrune(doc: EditorDoc): (s: State) => boolean {
+    const c = doc.cond, n = doc.next.length;
+    const inner = c.type === 'count' ? c.countCondition : c.type;
+    const needsT = inner === 'tspin' || inner === 'tspinSingle' || inner === 'tspinDouble' || inner === 'tspinTriple';
+    // tSuffix[i] = next[i..] の T の数
+    const tSuffix = new Array(n + 1).fill(0);
+    for (let i = n - 1; i >= 0; i--) tSuffix[i] = tSuffix[i + 1] + (doc.next[i] === 2 ? 1 : 0);
+    return (s: State): boolean => {
+        const left = n - s.idx;   // あと置ける最大の手数（NEXT が尽きたら HOLD 中のピースは置けない）
+        const timesLeft = c.type === 'count' ? c.value - s.clearTimes : 1;
+        if (timesLeft > left) return true;   // 1 手で数えられるのは 1 回まで
+        if (needsT && tSuffix[s.idx] + (s.hold === 2 ? 1 : 0) < timesLeft) return true;
+        switch (inner) {
+            case 'allClear': return !pcPossible(s.b, left);
+            case 'ren': {
+                // あと必要な連続消去: REN を目標まで伸ばす分＋目標以上で消す 1 手
+                const target = c.type === 'count' ? c.countValue : c.value;
+                if (c.type !== 'count' && Math.max(1, target - s.ren + 1) > left) return true;
+                break;
+            }
+            case 'clearLines': case 'lines': {
+                let cells = 0;
+                for (let r = 0; r < ROWS; r++) cells += popcount(s.b[r]);
+                const maxLines = Math.floor((cells + 4 * left) / 10);   // 1 段消すのに 10 マス要る
+                if (c.type === 'count') { if (timesLeft * c.countValue > maxLines) return true; }
+                else if (s.totalLines + maxLines < c.value) return true;
+                break;
+            }
+            case 'score':
+                if (c.type !== 'count' && s.score + MAX_MOVE_SCORE * left < c.value) return true;
+                break;
+        }
+        return false;
+    };
 }
 
 /** その状態で置けるピース（tet-sim candidates と同じ）と、置いた後のキュー */
@@ -209,6 +301,9 @@ export function searchTet(doc: EditorDoc, opts: SearchOptions): SearchResult<Ste
     const stats = { calls: 0, placements: 0 };
     let nodes = 0, found = 0, timedOut = false, stopped = false;
     const stopAt = opts.stopAt ?? Infinity;
+    const km = keyModeOf(doc.cond, opts.prune !== false);
+    const pruned = opts.prune !== false ? makePrune(doc) : () => false;
+    const stateKey = (s: State) => stateKeyOf(s, km);
 
     // 戻り値はその状態から先の解の数。打ち切り時は「それまでに数えた分」（下限）を返し、メモには残さない
     const rec = (s: State): number => {
@@ -221,6 +316,7 @@ export function searchTet(doc: EditorDoc, opts: SearchOptions): SearchResult<Ste
             if (timedOut || stopped) return total;
             if (c.cleared) { total++; if (++found >= stopAt) stopped = true; continue; }
             if (c.state.idx >= doc.next.length) continue;   // NEXT 切れ（HOLD 中のピースだけでは置けない）
+            if (pruned(c.state)) continue;
             total += rec(c.state);
         }
         if (timedOut || stopped) return total;

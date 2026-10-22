@@ -20,8 +20,15 @@ let failures = 0;
 const fail = (msg: string) => { failures++; console.log('  ✗ ' + msg); };
 
 // ─── 乱数 ───
+// mulberry32（下位ビットの偏りが無い）
 let seed = 20261022;
-const rnd = (n: number) => { seed = (seed * 1103515245 + 12345) >>> 0; return (seed >>> 8) % n; };
+const rnd = (n: number) => {
+    seed = (seed + 0x6D2B79F5) >>> 0;
+    let t = seed;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return (((t ^ (t >>> 14)) >>> 0) / 4294967296 * n) | 0;
+};
 
 // ─── 参照実装: tet-sim / puyo-sim の関数だけで同じ BFS をする（遅いが素直） ───
 function refTetPlacements(g: T.Grid, type: number): Set<string> {
@@ -61,6 +68,7 @@ function refPuyoPlacements(g: P.Grid, pair: Pair): Map<string, P.PuyoStep> {
         for (const dir of [1, -1] as const) next.push(P.rotatedPos(g, p, dir).pos);
         for (const m of next) { const kk = k(m); if (m.y >= -7 && !seen.has(kk)) { seen.add(kk); q.push(m); } }
         const l = P.landedPos(g, p);
+        if (!P.validLanding(g, { x: l.x, y: l.y, rot: l.rot })) continue;   // エディタが手として受け付けない着地は除く
         const g2 = P.cloneGrid(g);
         P.fixPair(g2, { ...l, qt: 0 }, pair);
         const key = g2.map(r => r.join('')).join('/');
@@ -202,13 +210,81 @@ if (process.env.HEAD_DIR) {
     console.log(`  simulate の変更前後: ${n} 手順 ${bad ? `・不一致 ${bad}` : '一致'}`);
 }
 
+// ─── 1b. 枝刈りの健全性: 小さな乱数問題を枝刈りあり/なしで数え、同じ数になること ───
+console.log('\n[1b] 枝刈りあり/なしの数の一致（乱数の小問題）');
+{
+    const tetConds = [
+        { type: 'clearLines', value: 2 }, { type: 'clearLines', value: 3 }, { type: 'allClear', value: 0 }, { type: 'score', value: 300 },
+        { type: 'score', value: 900 }, { type: 'ren', value: 1 }, { type: 'ren', value: 2 }, { type: 'tspin', value: 1 },
+        { type: 'tspinSingle', value: 0 }, { type: 'tspinDouble', value: 0 },
+        { type: 'count', value: 2, countCondition: 'clearLines', countValue: 1 }, { type: 'count', value: 1, countCondition: 'clearLines', countValue: 2 },
+        { type: 'count', value: 1, countCondition: 'allClear', countValue: 1 }, { type: 'count', value: 2, countCondition: 'score', countValue: 200 },
+        { type: 'count', value: 1, countCondition: 'ren', countValue: 1 }, { type: 'count', value: 1, countCondition: 'tspin', countValue: 1 },
+    ];
+    const puyoConds = [
+        { type: 'chain', value: 1 }, { type: 'chain', value: 2 }, { type: 'chain', value: 3 }, { type: 'allClear', value: 0 },
+        { type: 'score', value: 300 }, { type: 'score', value: 1500 },
+        { type: 'count', value: 2, countCondition: 'chain', countValue: 1 }, { type: 'count', value: 1, countCondition: 'chain', countValue: 2 },
+        { type: 'count', value: 1, countCondition: 'allClear', countValue: 1 }, { type: 'count', value: 2, countCondition: 'score', countValue: 100 },
+    ];
+    const stat = new Map<string, { n: number; pos: number }>();
+    let bad = 0, n = 0;
+    const cmp = (doc: EditorDoc, label: string) => {
+        const a = searchDoc(doc, { timeLimitMs: 60000, maxSolutions: 0, prune: false });
+        const b = searchDoc(doc, { timeLimitMs: 60000, maxSolutions: 0 });
+        n++;
+        const st = stat.get(label) ?? { n: 0, pos: 0 };
+        st.n++; if (a.count > 0) st.pos++;
+        stat.set(label, st);
+        if (!a.complete || !b.complete || a.count !== b.count) { if (bad++ < 5) fail(`${label}: 枝刈りなし ${a.count} / あり ${b.count}`); }
+    };
+    for (let i = 0; i < 600; i++) {
+        const f = Array.from({ length: 20 }, () => new Array(10).fill(0));
+        let next: number[];
+        if (rnd(2)) {
+            // PC を作れる盤面: 下 L 段を埋め、そこからミノ k 個の形をくり抜く（NEXT はくり抜いたミノ＋ときどき余分に 1 個）
+            const L = 2 + rnd(3), cut: number[] = [];
+            for (let r = 20 - L; r < 20; r++) f[r].fill(8);
+            for (let tries = 0; tries < 200 && cut.length < 2 + rnd(2); tries++) {
+                const p = { type: rnd(7), rot: rnd(4), x: rnd(10) - 1, y: 20 - L - 1 + rnd(L + 1) };
+                const cells = T.cellsOf(p);
+                if (cells.every(([x, y]) => x >= 0 && x < 10 && y >= 20 - L && y < 20 && f[y][x] === 8)) { cells.forEach(([x, y]) => { f[y][x] = 0; }); cut.push(p.type); }
+            }
+            next = cut.sort(() => rnd(2) - 0.5);
+            if (rnd(2)) next.push(rnd(7));
+        } else {
+            // 下 1〜4 段がほぼ埋まった盤面（消去・T-Spin が起きやすい）
+            const h = 1 + rnd(4);
+            for (let r = 20 - h; r < 20; r++) { f[r].fill(8); for (let k = 1 + rnd(4); k > 0; k--) f[r][rnd(10)] = 0; }
+            if (rnd(2)) { const r = 20 - h - 1; f[r][rnd(10)] = 8; f[r][rnd(10)] = 8; }
+            next = Array.from({ length: 3 }, () => rnd(4) === 0 ? 2 : rnd(7));
+        }
+        const cond = { countCondition: 'clearLines', countValue: 1, ...tetConds[rnd(tetConds.length)] };
+        const allowHold = rnd(3) === 0;
+        const doc = { rule: 'tet', field: f, next, allowHold, cond } as unknown as EditorDoc;
+        cmp(doc, `tet ${cond.type === 'count' ? 'count:' + cond.countCondition : cond.type}`);
+    }
+    for (let i = 0; i < 300; i++) {
+        const f = Array.from({ length: 17 }, () => new Array(6).fill(0));
+        // 色を 2〜3 色に絞って低めに積む（連鎖・全消しが起きやすい）
+        const nc = 2 + rnd(2);
+        for (let c = 0; c < 6; c++) { const h = rnd(7); for (let r = 16; r > 16 - h; r--) f[r][c] = rnd(14) === 0 ? 6 : 1 + rnd(nc); }
+        const cond = { countCondition: 'chain', countValue: 1, ...puyoConds[rnd(puyoConds.length)] };
+        const doc = { rule: 'puyo', field: f, pairs: Array.from({ length: 3 }, () => [1 + rnd(nc), 1 + rnd(nc)] as Pair), cond } as unknown as EditorDoc;
+        cmp(doc, `puyo ${cond.type === 'count' ? 'count:' + cond.countCondition : cond.type}`);
+    }
+    console.log(`  ${n} 問 ${bad ? `・不一致 ${bad}` : '一致'}（条件ごとの 問数/解あり: ${[...stat].map(([k, v]) => `${k} ${v.n}/${v.pos}`).join('・')}）`);
+}
+
 // ─── 2. 既存の全問題 ───
-// 試作（solver-proto/solve.ts・2026-10-22）で数え終わった問題の解の数
+// 試作（solver-proto/solve.ts・2026-10-22）と段階 S1 で数え終わった問題の解の数（枝刈りを入れても同じになるはず）
 const EXPECTED: Record<string, number> = {
     'tet-1': 1, 'tet-2': 1, 'tet-5': 1, 'tet-6': 1, 'tet-9': 1, 'tet-12': 6, 'tet-1.2': 1, 'tet-1.3': 13,
     'tet-1.5': 26, 'tet-1.6': 1, 'tet-1.7': 2, 'tet-2.4': 1,
     'puyo-1': 6, 'puyo-2': 3, 'puyo-3': 8, 'puyo-4': 2, 'puyo-10': 1, 'puyo-9': 1, 'puyo-6': 2, 'puyo-1.1': 1,
     'puyo-1.2': 1, 'puyo-1.3': 1, 'puyo-1.4': 1, 'puyo-1.5': 1, 'puyo-1.6': 1, 'puyo-1.7': 1, 'puyo-21': 6,
+    // 段階 S1（枝刈りなし）で数え終わった問題
+    'tet-7': 4230, 'tet-1.1': 3, 'puyo-7': 4, 'puyo-8': 3, 'puyo-1.8': 4, 'puyo-1.9': 1, 'puyo-2.0': 4,
 };
 console.log(`\n[2] 既存の問題（打ち切り ${LIMIT_MS / 1000} s）`);
 console.log('  ID        N  H 条件         解の数        展開      メモ    b     探索ms  配置/s   検算');
@@ -230,7 +306,7 @@ for (const f of ['tdata', 'pdata']) {
         if (r.complete && r.count <= 20000 && r.solutions.length !== r.count) fail(`${doc.id}: 取り出した解 ${r.solutions.length} ≠ 数 ${r.count}`);
         const exp = EXPECTED[doc.id];
         // 打ち切りは矛盾ではない（試作は枝刈りありで数え終わった。枝刈りは段階 S2）。数え終わったのに違う・下限が超えた時だけ不一致
-        if (exp !== undefined && (r.complete ? r.count !== exp : r.count > exp)) fail(`${doc.id}: 試作は ${exp} 通り、今回 ${r.complete ? '' : '≥'}${r.count}`);
+        if (exp !== undefined && (r.complete ? r.count !== exp : r.count > exp)) fail(`${doc.id}: 既知の数は ${exp} 通り、今回 ${r.complete ? '' : '≥'}${r.count}`);
         if (exp !== undefined && !r.complete) unconfirmed.push(doc.id);
         if (r.complete) done++;
         totalPlacements += r.placements; totalMs += r.searchMs;
@@ -240,7 +316,7 @@ for (const f of ['tdata', 'pdata']) {
     }
 }
 console.log(`  数え終わった問題 ${done}/${total}・平均 ${(totalPlacements / totalMs / 1000).toFixed(2)}M 配置/s`);
-if (unconfirmed.length) console.log(`  試作の数と未照合（打ち切り）: ${unconfirmed.join(' ')}`);
+if (unconfirmed.length) console.log(`  既知の数と未照合（打ち切り）: ${unconfirmed.join(' ')}`);
 
 // UNIQUE（2 つ目の解で止める）の速さ
 if (!process.env.SKIP_UNIQUE) {

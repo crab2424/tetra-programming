@@ -17,6 +17,8 @@ export interface SearchOptions {
     maxSolutions: number;
     /** この数の解が見つかったら止める（UNIQUE＝2。省略で全探索） */
     stopAt?: number;
+    /** 枝刈りと条件に合わせたメモのキーの縮約（設計 §2.4・§2.5）。既定 true。false は確認用（数は同じになるはず） */
+    prune?: boolean;
 }
 
 export interface SearchResult<S> {

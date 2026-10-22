@@ -5,7 +5,7 @@
 // 得点・クリア条件は puyo-sim.ts の chainScoreOf / advancePuyo をそのまま使う。
 // 設計: source_assets/memory/quiz-editor/tetlabo-quiz-editor-solver.md
 // ─────────────────────────────────────────────
-import type { EditorDoc, Pair } from './model.ts';
+import type { Cond, EditorDoc, Pair } from './model.ts';
 import { advancePuyo, chainScoreOf, HIDDEN, type PuyoProgress, type PuyoStep } from './puyo-sim.ts';
 import type { SearchOptions, SearchResult } from './search.ts';
 
@@ -34,11 +34,6 @@ function free(b: Board, c: number, row: number): boolean {
 }
 function canPlaceRow(b: Board, pc: number, pr: number, rot: number): boolean {
     return free(b, pc, pr) && free(b, pc + DC[rot], pr + DR[rot]);
-}
-function canPlace(b: Board, pc: number, py: number, rot: number): boolean {
-    const r1 = Math.floor(py), r2 = Math.ceil(py);
-    if (!canPlaceRow(b, pc, r1, rot)) return false;
-    return r1 === r2 || canPlaceRow(b, pc, r2, rot);
 }
 function limitY(b: Board, pc: number, py: number, rot: number): number {
     const cc = pc + DC[rot];
@@ -69,6 +64,31 @@ const qx = new Int8Array(visited.length), qy2 = new Int8Array(visited.length), q
 const seenKeys = new Set<number>();
 // 同じ着地（x, 着地行, rot）を 2 回計算しない
 const landed = new Int32Array(COLS * (ROWS - Y_MIN + 1) * 4);
+
+// BFS 1 回の中で、整数行ごとの「置けるか」「着地行」を覚える（半段の y・qt 違いの状態で同じ計算を繰り返さないため）
+const R_MIN = -9, NR = ROWS - R_MIN;   // 行 -9〜11。それより上は全部空いている
+const rowStamp = new Int32Array(COLS * NR * 4), rowVal = new Uint8Array(rowStamp.length);
+const limStamp = new Int32Array(COLS * NR * 4), limVal = new Int8Array(limStamp.length);
+function rowOkCached(b: Board, x: number, r: number, rot: number, gen: number): boolean {
+    if (x < 0 || x >= COLS) return false;
+    if (r < R_MIN) return canPlaceRow(b, x, r, rot);
+    const id = (x * NR + r - R_MIN) * 4 + rot;
+    if (rowStamp[id] !== gen) { rowStamp[id] = gen; rowVal[id] = canPlaceRow(b, x, r, rot) ? 1 : 0; }
+    return rowVal[id] === 1;
+}
+function canPlaceCached(b: Board, x: number, py: number, rot: number, gen: number): boolean {
+    const r1 = Math.floor(py), r2 = Math.ceil(py);
+    if (!rowOkCached(b, x, r1, rot, gen)) return false;
+    return r1 === r2 || rowOkCached(b, x, r2, rot, gen);
+}
+/** limitY は y の整数部だけで決まる */
+function limitYCached(b: Board, x: number, py: number, rot: number, gen: number): number {
+    const r = Math.floor(py);
+    if (r < R_MIN) return limitY(b, x, py, rot);
+    const id = (x * NR + r - R_MIN) * 4 + rot;
+    if (limStamp[id] !== gen) { limStamp[id] = gen; limVal[id] = limitY(b, x, r, rot); }
+    return limVal[id];
+}
 
 /** 1 つの着地。step = 記録する手（y はちぎれる前の着地行）、board = 置いてちぎれた後（連鎖前）の盤面 */
 export interface PuyoPlacement { step: PuyoStep; board: Board; }
@@ -105,10 +125,10 @@ export function puyoPlacements(b: Board, pair: Pair): PuyoPlacement[] {
     while (head < tail) {
         const x = qx[head], y = qy2[head] / 2 + Y_MIN, rot = qr[head], qt = qq[head]; head++;
         // 左右（movedPos）
-        if (canPlace(b, x - 1, y, rot)) push(x - 1, y, rot, 0);
-        if (canPlace(b, x + 1, y, rot)) push(x + 1, y, rot, 0);
+        if (canPlaceCached(b, x - 1, y, rot, gen)) push(x - 1, y, rot, 0);
+        if (canPlaceCached(b, x + 1, y, rot, gen)) push(x + 1, y, rot, 0);
         // ソフトドロップ（softDropped: 0.5 段・着地位置で止まる。qt はそのまま）
-        const lim = limitY(b, x, y + 0.5, rot);
+        const lim = limitYCached(b, x, y + 0.5, rot, gen);
         const sy = y + 0.5 >= lim ? lim : y + 0.5;
         if (sy !== y) push(x, sy, rot, qt);
         // 回転（rotatedPos）
@@ -117,27 +137,31 @@ export function puyoPlacements(b: Board, pair: Pair): PuyoPlacement[] {
             const nr = ((rot + dir) % 4 + 4) % 4;
             let nx = x, ny = y, ok = false;
             if (nr === 2 && !vertical) {
-                if (canPlace(b, nx, ny, nr)) ok = true;
-                else if (canPlace(b, nx, ny - 1, nr)) { ny -= 1; ok = true; }
-            } else if (canPlace(b, nx, ny, nr)) ok = true;
+                if (canPlaceCached(b, nx, ny, nr, gen)) ok = true;
+                else if (canPlaceCached(b, nx, ny - 1, nr, gen)) { ny -= 1; ok = true; }
+            } else if (canPlaceCached(b, nx, ny, nr, gen)) ok = true;
             else {
-                for (const kick of [-1, 1]) if (canPlace(b, nx + kick, ny, nr)) { nx += kick; ok = true; break; }
+                if (canPlaceCached(b, nx - 1, ny, nr, gen)) { nx -= 1; ok = true; }
+                else if (canPlaceCached(b, nx + 1, ny, nr, gen)) { nx += 1; ok = true; }
             }
             if (ok) { push(nx, ny, nr, 0); continue; }
             if (!vertical) continue;
             const q2 = qt + 1;
             if (q2 >= 2) {
                 const qtRot = (rot + 2) % 4;
-                if (rot === 0 && canPlace(b, x, y - 1, qtRot)) { push(x, y - 1, qtRot, 0); continue; }
-                if (rot === 2 && canPlace(b, x, y, qtRot)) { push(x, y, qtRot, 0); continue; }
+                if (rot === 0 && canPlaceCached(b, x, y - 1, qtRot, gen)) { push(x, y - 1, qtRot, 0); continue; }
+                if (rot === 2 && canPlaceCached(b, x, y, qtRot, gen)) { push(x, y, qtRot, 0); continue; }
             }
             push(x, y, rot, q2);
         }
         // この位置からのドロップ（landedPos）
-        const ly = limitY(b, x, y, rot);
+        const ly = limitYCached(b, x, y, rot, gen);
         const lid = (x * (ROWS - Y_MIN + 1) + ly - Y_MIN) * 4 + rot;
         if (landed[lid] === gen) continue;
         landed[lid] = gen;
+        // 手として記録できる着地だけ（puyo-sim validLanding: その位置に置けて、そこが着地位置）。
+        // 出現位置に浮いたぷよが重なる盤面では、出現位置から落とすと重なった位置に「着地」してしまうため
+        if (!canPlaceCached(b, x, ly, rot, gen) || limitYCached(b, x, ly, rot, gen) !== ly) continue;
         const f = fixed(b, x, ly, rot, pair);
         if (seenKeys.has(f.key)) continue;
         seenKeys.add(f.key);
@@ -216,19 +240,76 @@ function isDead(b: Board): boolean { return b[HIDDEN * COLS + 2] !== 0; }
 
 interface State extends PuyoProgress { b: Board; idx: number; }
 
+/**
+ * メモのキーに入れる値（設計 §2.4）。chain / allClear は「その手」でクリアが決まるので盤面と手番だけ
+ * （最大連鎖は目標未満のまま・全消し状態は全消しの手で即クリア。count の allClear も連鎖のあった手で全消しを付け直すので前の値は効かない）
+ */
+interface KeyMode { score: number; chainMax: boolean; times: boolean; allClear: boolean; }
+
+function keyModeOf(c: Cond, prune: boolean): KeyMode {
+    if (!prune) return { score: Infinity, chainMax: true, times: true, allClear: true };
+    const inner = c.type === 'count' ? c.countCondition : c.type;
+    const times = c.type === 'count';
+    if (inner === 'score') return { score: c.type === 'count' ? c.countValue : Infinity, chainMax: false, times, allClear: false };
+    return { score: -1, chainMax: false, times, allClear: false };
+}
+
 const keyBuf = new Uint16Array(Math.ceil(TOTAL * COLS / 5) + 6);
-function stateKey(s: State): string {
+function stateKeyOf(s: State, km: KeyMode): string {
     let k = 0;
     for (let i = 0; i < TOTAL * COLS; i += 5) {
         keyBuf[k++] = s.b[i] | s.b[i + 1] << 3 | s.b[i + 2] << 6 | s.b[i + 3] << 9 | (s.b[i + 4] ?? 0) << 12;
     }
+    const score = km.score < 0 ? 0 : Math.min(s.score, km.score);
     keyBuf[k++] = s.idx;
-    keyBuf[k++] = s.score & 0xffff;
-    keyBuf[k++] = Math.floor(s.score / 65536);
-    keyBuf[k++] = s.chainMax;
-    keyBuf[k++] = s.clearTimes;
-    keyBuf[k++] = s.isAllClear ? 1 : 0;
+    keyBuf[k++] = score & 0xffff;
+    keyBuf[k++] = Math.floor(score / 65536);
+    keyBuf[k++] = km.chainMax ? s.chainMax : 0;
+    keyBuf[k++] = km.times ? s.clearTimes : 0;
+    keyBuf[k++] = km.allClear && s.isAllClear ? 1 : 0;
     return String.fromCharCode.apply(null, keyBuf as unknown as number[]);
+}
+
+// ─── 枝刈り（設計 §2.5。解を落とさないものだけ） ───
+
+/**
+ * true なら、この状態からは条件を満たせない。
+ * 色ごとの個数（盤面の全段＋残りのペア）から、1 連鎖ごとに同じ色が 4 個以上要ることを使う
+ */
+function makePrune(doc: EditorDoc): (s: State) => boolean {
+    const c = doc.cond, n = doc.pairs.length;
+    const inner = c.type === 'count' ? c.countCondition : c.type;
+    // addSuffix[i][color] = pairs[i..] のその色の個数
+    const addSuffix = Array.from({ length: n + 1 }, () => new Array(8).fill(0));
+    for (let i = n - 1; i >= 0; i--) {
+        for (let col = 0; col < 8; col++) addSuffix[i][col] = addSuffix[i + 1][col];
+        addSuffix[i][doc.pairs[i][0]]++;
+        addSuffix[i][doc.pairs[i][1]]++;
+    }
+    const cnt = new Array(8);
+    return (s: State): boolean => {
+        const left = n - s.idx;
+        const timesLeft = c.type === 'count' ? c.value - s.clearTimes : 1;
+        if (timesLeft > left) return true;   // 1 手で数えられるのは 1 回まで
+        if (inner !== 'chain' && inner !== 'allClear') return false;
+        const add = addSuffix[s.idx];
+        for (let col = 1; col <= 5; col++) cnt[col] = add[col];
+        for (let i = 0; i < TOTAL * COLS; i++) { const v = s.b[i]; if (v >= 1 && v <= 5) cnt[v]++; }
+        let groups = 0;   // これから消せるグループの数の上限
+        for (let col = 1; col <= 5; col++) groups += Math.floor(cnt[col] / 4);
+        if (inner === 'chain') {
+            // 連鎖 k 段には k グループ以上。count はそれを timesLeft 回
+            const need = c.type === 'count' ? c.countValue * timesLeft : c.value;
+            return groups < need;
+        }
+        // 全消し: 可視段にある色は 4 個以上にならないと消えない（ぷよは上へは動かない）。可視段のおじゃまは隣で何かが消える必要がある
+        if (!groups) {
+            for (let i = HIDDEN * COLS; i < TOTAL * COLS; i++) if (s.b[i]) return true;
+            return false;
+        }
+        for (let i = HIDDEN * COLS; i < TOTAL * COLS; i++) { const v = s.b[i]; if (v >= 1 && v <= 5 && cnt[v] < 4) return true; }
+        return false;
+    };
 }
 
 interface Child { state: State; cleared: boolean; dead: boolean; step: PuyoStep; }
@@ -250,6 +331,9 @@ export function searchPuyo(doc: EditorDoc, opts: SearchOptions): SearchResult<Pu
     let nodes = 0, found = 0, timedOut = false, stopped = false;
     const stopAt = opts.stopAt ?? Infinity;
     const n = doc.pairs.length;
+    const km = keyModeOf(doc.cond, opts.prune !== false);
+    const pruned = opts.prune !== false ? makePrune(doc) : () => false;
+    const stateKey = (s: State) => stateKeyOf(s, km);
 
     const rec = (s: State): number => {
         if ((++nodes & 255) === 0 && performance.now() - t0 > opts.timeLimitMs) timedOut = true;
@@ -261,6 +345,7 @@ export function searchPuyo(doc: EditorDoc, opts: SearchOptions): SearchResult<Pu
             if (timedOut || stopped) return total;
             if (c.cleared) { total++; if (++found >= stopAt) stopped = true; continue; }
             if (c.dead || c.state.idx >= n) continue;   // 窒息・NEXT 切れ
+            if (pruned(c.state)) continue;
             total += rec(c.state);
         }
         if (timedOut || stopped) return total;
