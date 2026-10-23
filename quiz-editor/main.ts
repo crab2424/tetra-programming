@@ -71,13 +71,13 @@ function restore(s: string) {
  * coalesceKey が直前と同じ変更はまとめて1回の Undo にする
  * （テキスト入力は1.5秒以内、`stroke:` で始まるキー＝ドラッグ塗りは時間無制限）
  */
-/** NEXT・HOLD 許可（手順が合うかを決める物）の目印 */
-function nextSig(d: EditorDoc): string { return JSON.stringify([d.rule, d.next, d.pairs, d.allowHold]); }
+/** 初期盤面・NEXT・HOLD 許可（手順が合うかを決める物）の目印 */
+function stepsBaseSig(d: EditorDoc): string { return JSON.stringify([d.rule, d.field, d.next, d.pairs, d.allowHold]); }
 function commit(mutate: () => void, coalesceKey = '') {
     const now = Date.now();
     const d0 = doc;
-    const sig0 = nextSig(doc);
-    const old = { next: doc.next.slice(), pairs: doc.pairs.map(p => [...p] as Pair), allowHold: doc.allowHold };
+    const sig0 = stepsBaseSig(doc);
+    const old = { field: doc.field.map(r => r.slice()), next: doc.next.slice(), pairs: doc.pairs.map(p => [...p] as Pair), allowHold: doc.allowHold };
     const same = coalesceKey !== '' && coalesceKey === lastCommit.key &&
         (coalesceKey.startsWith('stroke:') || now - lastCommit.t < 1500);
     if (!same) {
@@ -87,19 +87,25 @@ function commit(mutate: () => void, coalesceKey = '') {
     }
     lastCommit = { key: coalesceKey, t: now };
     mutate();
-    const trimmed = doc === d0 ? trimStepsBrokenByNext(old) : null;
+    const trimmed = doc === d0 ? trimStepsBrokenByBase(old) : null;
     syncSolved();
     if (doc.cond.descriptionAuto) doc.cond.description = autoCondDescription(doc.rule, doc.cond);
     renderAll();
     if (trimmed) {
-        toast(`${doc.rule === 'tet' ? 'NEXT・HOLD 許可' : 'NEXT'}の変更で ${trimmed} 手目が合わなくなったため、解答手順を ${trimmed - 1} 手までにしました`, 'info', {
+        const what = [JSON.stringify(old.field) !== JSON.stringify(doc.field) ? '盤面' : '',
+            JSON.stringify([old.next, old.pairs]) !== JSON.stringify([doc.next, doc.pairs]) ? 'NEXT' : '',
+            old.allowHold !== doc.allowHold ? 'HOLD 許可' : ''].filter(Boolean).join('・');
+        toast(`${what}の変更で ${trimmed} 手目が合わなくなったため、解答手順を ${trimmed - 1} 手までにしました`, 'info', {
             actions: [{ label: 'UNDO', title: '変更と手順の切り詰めを両方戻す', run: undo }],
         });
     }
 
-    /** NEXT・HOLD 許可の変更で新しくエラーになった手から後ろを消す（polish §2）。消した手（1始まり）か null */
-    function trimStepsBrokenByNext(prev: { next: number[]; pairs: Pair[]; allowHold: boolean }): number | null {
-        if (!doc.steps.length || nextSig(doc) === sig0) return null;
+    /**
+     * 初期盤面・NEXT・HOLD 許可の変更で新しくエラーになった手から後ろを消す（polish §2。盤面の塗り替え・CLEAR・MEMO → FIELD 等も対象）。
+     * 消した手（1始まり）か null
+     */
+    function trimStepsBrokenByBase(prev: { field: number[][]; next: number[]; pairs: Pair[]; allowHold: boolean }): number | null {
+        if (!doc.steps.length || stepsBaseSig(doc) === sig0) return null;
         const after = firstErrorOf(doc, doc.steps);
         if (!after) return null;
         const before = firstErrorOf({ ...doc, ...prev }, doc.steps);
@@ -1940,8 +1946,10 @@ async function writeLevelsFileNow(forcePick: boolean) {
             : plan.action === 'move' ? `「${srcId}」を ${src + 1}番 → ${plan.index + 1}番へ移動して書き換え`
             : `${plan.index + 1}番に「${doc.id}」を追加`;
         const wrote = plan.text !== text;
+        // 解答手順（tsolutions.json / psolutions.json）が未保存なら、書き込みの後で一緒に保存する（SAVE SOLUTION を別に押さなくてよい）
+        const solLine = solutionSaved() ? '' : `\n解答手順（${solvedSteps(doc).length}手）も保存します。`;
         if (wrote) {
-            if (!await ask(`${h.name} の ${what}ます。${changeLine}\n他の問題は変更しません。よろしいですか？`)) return;
+            if (!await ask(`${h.name} の ${what}ます。${changeLine}\n他の問題は変更しません。${solLine}よろしいですか？`)) return;
             await h.write(plan.text);
         }
         levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
@@ -1959,9 +1967,14 @@ async function writeLevelsFileNow(forcePick: boolean) {
         reconcile({ rule: doc.rule, ids: [oldSrc, doc.id] });
         writtenDraftIds.add(draftId);
         clearWrittenGistDraft();
-        const msg = wrote ? `${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`
+        let msg = wrote ? `${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`
             : `${h.name} の「${doc.id}」はファイルと同じ内容です（書き込みは不要でした）`;
-        // 手順は別のファイル（tsolutions.json / psolutions.json）。未保存なら知らせて、その場で保存できるようにする（tools §1.3）
+        // 手順は別のファイル。未保存なら続けて保存する（ID を変えた時は旧 ID の解答を消すため、書き込む前の元の ID を渡す）
+        if (!solutionSaved()) {
+            const sol = await saveSolutionFile(false, oldSrc, false);
+            if (sol) msg += `。解答手順も${sol}`;
+        }
+        // 保存できなかった（やめた・失敗した）なら知らせて、その場で保存できるようにする（tools §1.3）
         if (editStateOf(doc, sourceId).kind === 'solution') {
             toast(`${msg}。解答手順は未保存です`, 'info', {
                 actions: [{ label: 'SAVE SOLUTION', title: '解答手順を保存する', run: () => void saveSolutionFile(false) }],
@@ -2159,10 +2172,14 @@ $<HTMLInputElement>('sol-note').addEventListener('input', e => {
 function solutionEntry(steps: AnyStep[]): SolutionEntry {
     return { steps, note: doc.solutionNote, updated: today(), ...(doc.memo ? { memo: doc.memo.map(r => r.slice()) } : {}) };
 }
-async function saveSolutionFile(forcePick: boolean) {
-    if (!doc.id.trim()) { warnStatus('ID を入力してから保存してください'); return; }
+/**
+ * 解答手順を保存する。prevId = 元の問題の ID（ID を変えていたら、その ID の解答を消す）。
+ * report = false の時は結果を画面に出さず、保存先の短い説明を返す（WRITE FILE から続けて保存する時）。保存しなかったら null
+ */
+async function saveSolutionFile(forcePick: boolean, prevId: string | null = sourceId, report = true): Promise<string | null> {
+    if (!doc.id.trim()) { warnStatus('ID を入力してから保存してください'); return null; }
     const rule = doc.rule;
-    const oldId = sourceId && sourceId !== doc.id && solutions[rule][sourceId] ? sourceId : null;
+    const oldId = prevId && prevId !== doc.id && solutions[rule][prevId] ? prevId : null;
     // 保存するのはクリアした時点の手順。試行中（クリアしていない手）を保存するのは明示した時だけ（D6）
     let steps = solvedSteps(doc);
     if (stepsOnTrial()) {
@@ -2171,34 +2188,39 @@ async function saveSolutionFile(forcePick: boolean) {
         if (c === 'screen') {
             steps = doc.steps.map(st => ({ ...st }));
             doc.solved = steps.map(st => ({ ...st }));
-        } else if (c !== 'solved') return;
+        } else if (c !== 'solved') return null;
     }
     if (sync.enabled) {
         const skipped = await sync.setSolution(rule, doc.id, oldId, solutionEntry(steps));
         solutions[rule] = sync.solutions(rule);
-        warnStatus(skipped.includes(doc.id) ? '他の端末で、より新しい解答が保存されていたため保存しませんでした'
+        const ok = !skipped.includes(doc.id);
+        const res = !ok ? '他の端末で、より新しい解答が保存されていたため保存しませんでした'
             : sync.state === 'synced' ? `Gist に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
-            : `端末内に保存しました。${sync.message || '通信できたら Gist に送ります'}`);
+            : `端末内に保存しました。${sync.message || '通信できたら Gist に送ります'}`;
+        if (report || !ok) warnStatus(res);
         renderAll();
         reconcile({ rule: doc.rule, ids: [sourceId, doc.id] });
         clearWrittenGistDraft();
-        return;
+        return ok ? res : null;
     }
+    let done: string | null = null;
     try {
         const res = await withFileWrite(() => saveSolution(rule, doc.id, oldId,
             solutionEntry(steps), solutions[rule], forcePick));
         solutions[rule] = res.map;
         solutionsLoaded[rule] = true;
-        setStatus(res.via === 'file'
+        done = res.via === 'file'
             ? `${res.fileName} に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
-            : `ダウンロードしました。${solutionPath(rule)} に置き換えてください`);
+            : `ダウンロードしました。${solutionPath(rule)} に置き換えてください`;
+        if (report) setStatus(done);
     } catch (err) {
-        if ((err as Error).name === 'AbortError') return;   // ファイル選択をキャンセル
+        if ((err as Error).name === 'AbortError') return null;   // ファイル選択をキャンセル
         console.error(err);
         errStatus(`保存できませんでした: ${(err as Error).message}`);
     }
     renderAll();
     reconcile({ rule: doc.rule, ids: [sourceId, doc.id] });
+    return done;
 }
 $('btn-sol-save').addEventListener('click', () => void saveSolutionFile(false));
 $('btn-sol-pick').addEventListener('click', () => {
