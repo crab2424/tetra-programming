@@ -710,8 +710,8 @@ static void runExpectedChainSelection(
             }
             if (safeFm >= 0 && safeFm != bestFm) {
                 dbgFlags |= 1 << 18;
-                // 安全な火力がこの点以上なら撃たない（offMax×100 > safe×pct の境目）
-                const long long enough = offMax * 100 / w.safeFirePct + 1;
+                // 安全な火力がこの点以上なら撃たない（offMax×100 > safe×pct の境目＝safe ≥ ⌈offMax×100/pct⌉ なら安全）
+                const long long enough = (offMax * 100 + w.safeFirePct - 1) / w.safeFirePct;
                 // 育成の手が自分で起こす連鎖の相殺（本探索と同じ：先に初手の後の分、残りを2手目の後の分から）
                 int due = std::max(0, w.ojamaNow), later = std::max(0, w.ojamaNext);
                 {
