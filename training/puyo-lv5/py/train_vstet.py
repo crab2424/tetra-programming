@@ -4,6 +4,7 @@
     python3 py/train_vstet.py --run runs/vstet-001 --resume
     python3 py/train_vstet.py --run runs/vstet-001 --validate          # best.json を検証シードで 2000 局
     python3 py/train_vstet.py --run runs/vstet-003 --init vstet-ob --space v3 --gens 50 --seeds 250 --sigma 0.15
+    python3 py/train_vstet.py --run runs/vstet-004 --init vstet --space v4 --gens 50 --seeds 250 --sigma 0.15
 
 fitness = テト lv5 に対する勝率（全候補を同じシード集合で打つ＝共通乱数。シード集合は世代ごとに入れ替える）。
   ・ぷよ側の Policy：build＝本線（vsTet として使う）・fast＝カウンター（fastVsTet として使う）・カウンター定数
@@ -89,7 +90,24 @@ SPACE_V3 = [p for p in SPACE_V2 if p.name not in ("qKeepWeight", "vt_kill_pct", 
     Param("sideKeepPeak",           "b", 71,     1,      4),
     Param("sideKeepFall",           "b", 72,    10,    100),
 ]
-SPACES = {"v2": SPACE_V2, "v3": SPACE_V3}
+# 探索空間 v4（§17.12・§17.13。2026-10-23）：v3 に E（発火点を縦に露出）の5つを足す（37次元）。
+#   exposeMaxKey・exposeRows は 0＝既定（2・1）なので、初期値で明示しておく（下限 1 に丸められないように）。
+#   D（危険度で妥協して撃つ）は外した：0＝無効の下限のすぐ上（dangerOjamaPct 6・dangerFireRatio 1）で「ほぼ毎回危険→何でも撃つ」に
+#   なり崩れた（第5世代の平均ベクトル 0.328、§15.8 の A と同じ）。D は A/B でも全部誤差内なので 0 のまま（v4d に残す）。
+SPACE_V4 = SPACE_V3 + [
+    Param("exposeReachPct",         "b", 88,     0,    100),
+    Param("exposeRows",             "b", 89,     1,      3),
+    Param("exposeWeight",           "b", 86,     0,    150),
+    Param("buriedWeight",           "b", 87,  -150,    150),
+    Param("exposeMaxKey",           "b", 90,     1,      3),
+]
+SPACE_V4D = SPACE_V4 + [   # 最初の v4（41次元）。崩れたので使わない（runs/vstet-004-broken）
+    Param("dangerOjamaPct",         "b", 79,     0,     60),
+    Param("dangerLossPct",          "b", 80,     0,    100),
+    Param("dangerMinIncoming",      "b", 81,     0,     13),
+    Param("dangerFireRatio",        "b", 82,     0,    100),
+]
+SPACES = {"v2": SPACE_V2, "v3": SPACE_V3, "v4": SPACE_V4, "v4d": SPACE_V4D}
 DIM = len(SPACE)
 
 
@@ -101,8 +119,12 @@ def use_space(name: str) -> None:
 
 def init_policy(name: str) -> ps.Policy:
     b = ps.load_baseline()
-    if name == "vstet":
+    if name == "vstet":   # 今の本番（§17.11：vstet-003＋E 到達連鎖の割引 er50r2＝0.593）
         pol = tetsim.vstet_policy("lv6", b)
+    elif name == "vstet-user":   # §17.12：本番＋ユーザーが CPU TEST の重み調整パネルで決めた値（vstet_ab.py の user0）
+        pol = tetsim.vstet_policy("lv6", b)
+        for k, v in {86: 100, 87: 50, 90: 3, 78: 1, 79: 20, 80: 40, 81: 7, 82: 50}.items():
+            pol.build[k] = v
     elif name == "vstet-a":   # §12：本番 vsTet（vstet-001 の学習値）＋ A（af200：倒すライン×200%・倒せるなら撃つ）
         pol = tetsim.vstet_policy("lv6", b).with_ext(vt_kill_pct=200, vt_kill_fire=1)
     elif name == "vstet-ob":   # §15.7：本番 vsTet＋ob_sk50_tc500（おじゃまを降らせる・初手だけ最悪・側面 50・qKeep 0・到達連鎖から 500）
@@ -121,6 +143,9 @@ def init_policy(name: str) -> ps.Policy:
     pol.build[45] = 0    # qSubWeight（副砲は使わない）
     pol.build[55] = 2    # qKeepDepth（qKeepWeight>0 のときだけ効く）
     pol.build[56] = 1    # qKeepRows
+    if name in ("vstet", "vstet-user"):   # v4 の下限 1 に丸められないよう既定値を明示（0＝既定と同じ挙動）
+        pol.build[89] = pol.build[89] or 1    # exposeRows（0=1）
+        pol.build[90] = pol.build[90] or 2    # exposeMaxKey（0=2）
     return pol
 
 
@@ -177,7 +202,7 @@ def main() -> int:
     ap.add_argument("--run", required=True)
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--validate", action="store_true")
-    ap.add_argument("--init", default="lv6b", choices=["lv6b", "vstet", "vstet-a", "vstet-ob"])
+    ap.add_argument("--init", default="lv6b", choices=["lv6b", "vstet", "vstet-a", "vstet-ob", "vstet-user"])
     ap.add_argument("--space", default="v2", choices=list(SPACES))
     ap.add_argument("--gens", type=int, default=30)
     ap.add_argument("--popsize", type=int, default=16)

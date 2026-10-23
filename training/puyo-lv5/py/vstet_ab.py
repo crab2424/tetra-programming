@@ -138,6 +138,9 @@ VARIANTS = {
     "er30r2":       mk({E_REACH: 30, E_ROWS: 2}),                             # 2段の周り（§17.10.1 の次）
     "er70r2":       mk({E_REACH: 70, E_ROWS: 2}),
     "er50r3":       mk({E_REACH: 50, E_ROWS: 3}),
+    # §17.12 ユーザーが CPU TEST の重み調整パネルで決めた値（本番＝er50r2 に足す。buriedWeight は +50 のまま）
+    "user0":        mk({E_W: 100, E_BUR: 50, E_KEY: 3,
+                        D_EMERG: 1, D_OJ: 20, D_LOSS: 40, D_MIN: 7, D_FIRE: 50}),
 }
 
 
