@@ -120,6 +120,11 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
             // §17 D 危険度で妥協して撃つ（2026-10-22。既定0＝今と同じ。届いているおじゃまを全部降らせた盤面で判定し、反撃→相殺→軽減）
             dangerEmergAfter: 0, dangerOjamaPct: 0, dangerLossPct: 0, dangerMinIncoming: 0,
             dangerFireRatio: 0, dangerOffsetPct: 0, dangerKeepPct: 0, dangerReduce: 0,
+            // §18 F 見えている3手を重く（2026-10-23。既定0＝今と同じ）：4手目以降で見えた到達連鎖をこの%減らす
+            farReachPct: 0,
+            // §18 G 撃たないと埋まるなら撃つ（2026-10-23。既定0＝今と同じ）：届いている量を全部相殺できる手があり、
+            //   育成の手の「安全な火力」（端数の最悪で、降った後に撃てる連鎖／見えている NEXT 2つで撃てる連鎖）より今撃てる方が大きいなら撃つ
+            safeFirePct: 0, safeMinIncoming: 0, safeFillHeight: 0,
         },
         fastVsTetWeights: { qYWeight: 16 },
         fastVsTetControl: { emergencyFireMinRatio: 89 },
@@ -146,6 +151,9 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         ojamaSearch: 1,   // 1=届いているおじゃまを探索の盤面に降らせる（テトのゲージは入れない）
         ojamaWorst:  1,   // 1=初手だけ端数の全パターンの最悪で見る（0=固定の順）
         ojamaTurnMs: 0,   // ready まで残りこの ms 以内なら初手の後に降る、それ以外は2手目の後（0=560）
+        // §18 F（2026-10-23。既定0＝今と同じ）
+        ojamaWorstDepth:   0,   // ojamaWorst の「端数の全パターンの最悪」を見る深さ（0=初手だけ。2=見えている3手すべて）
+        ojamaWorstByReach: 0,   // 1=最悪のパターンを「降った後に撃てる連鎖が最小」で選ぶ（0=評価値が最小）
     };
 
     _initWeights() {

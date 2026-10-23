@@ -209,8 +209,9 @@ static void runExpectedChainSelection(
                 bool ojDead = false;   // 降ったおじゃまで窒息する（初手なら詰み doomDepth=0 として残し、先は読まない）
                 if (ojDrop > 0) {
                     const int frac = ojDrop % COLS;
-                    if (depth == 0 && w.ojamaWorst && frac > 0) {
-                        // 案 b：初手だけ、端数の列の全組み合わせ（6Cf）のうち評価が最小の盤面を子にする。
+                    if (depth <= w.ojamaWorstDepth && w.ojamaWorst && frac > 0) {
+                        // 案 b：初手だけ（§18 F [92] で depth ≤ ojamaWorstDepth まで）、端数の列の全組み合わせ（6Cf）のうち
+                        //   評価が最小（[93] なら降った後に撃てる連鎖が最小、同じなら評価が最小）の盤面を子にする。
                         //   窒息するパターンが1つでもあれば最悪＝窒息。
                         bool found = false;
                         for (int m = 0; m < (1 << COLS); ++m) {
@@ -220,7 +221,10 @@ static void runExpectedChainSelection(
                             const bool dead = ob.get(2, HIDDEN) != 0;
                             int pc = 0, pcc = 0;
                             int sc = evaluateBoard(ob, chain, we, prePot, isEmergencyPre, &pc, &pcc);
-                            if (dead || !found || sc < scoreRaw) {
+                            const bool worse = w.ojamaWorstByReach
+                                ? (pc < potChain || (pc == potChain && sc < scoreRaw))
+                                : (sc < scoreRaw);
+                            if (dead || !found || worse) {
                                 scoreRaw = sc; potChain = pc; potChainCount = pcc; nb = ob; found = true;
                             }
                             if (dead) { ojDead = true; break; }
@@ -310,6 +314,8 @@ static void runExpectedChainSelection(
                 }
                 if (fm >= 0) {
                     long long reach = std::max((long long)potChain, (long long)chain.score);
+                    // 対テト §18 F：4手目以降（depth ≥ 3＝見えている3手の先）で見えた連鎖は当てにしすぎない
+                    if (w.farReachPct > 0 && depth >= 3) reach = reach * (100 - w.farReachPct) / 100;
                     // 対テト §15：ここまでのちぎりの量ぶんの点を引く（ちぎって伸ばす手と、ちぎらずに組む手を点で比べる）
                     if (w.tearChainCost != 0) reach -= (long long)nn.tearUnits * w.tearChainCost;
                     if (reach > cands[fm].chainTarget) {
@@ -449,7 +455,7 @@ static void runExpectedChainSelection(
     int bestFm = -1;
     long long bestBase = LLONG_MIN;
     int dbgFireChains = 0;   // 発火した連鎖段数（0=発火せず＝育成）。デバッグ outResult[15]
-    int dbgFireReason = 0;   // 発火理由 0=育成(発火せず) / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1) / 5=地形優先の対応(T) / 6=倒せるので撃つ(A) / 7=危険で反撃 / 8=危険で相殺 / 9=危険で軽減（§17 D）。outResult[23]
+    int dbgFireReason = 0;   // 発火理由 0=育成(発火せず) / 1=目標到達 / 2=緊急(盤面整理) / 3=緊急延命 / 4=催促(H1) / 5=地形優先の対応(T) / 6=倒せるので撃つ(A) / 7=危険で反撃 / 8=危険で相殺 / 9=危険で軽減（§17 D）/ 10=撃たないと埋まるので撃つ（§18 G）。outResult[23]
     int dbgFlags = 0;        // 判断の内訳（ビット。outResult[33] の注釈参照）
     int dbgHarassRej[5] = {0, 0, 0, 0, 0};   // H1 候補の落ちた条件ごとの数（outResult[34]）
     int dbgEmerH = 0;        // 緊急判定に使った高さ（outResult[35]）
@@ -686,6 +692,81 @@ static void runExpectedChainSelection(
             }
         }
 
+        // §18 G 撃たないと埋まるなら撃つ（安全な反撃。lv6-vstet-design.md §18.8。既定0＝無効）：
+        //   届いている量を全部相殺できる手があるとき、育成の手の「安全な火力」を端数の全パターンの最悪で求め、
+        //   今撃てる最大がそれを上回るなら、相殺できる手のうち撃った後の本線（reachPot）が最も残る手を撃つ（同じなら点が小さい方）。
+        //   安全な火力（パターンごと）＝ 降った後の盤面で同色1〜3個で撃てる連鎖（平均の高さ < [96] のときだけ。発火点が生きている）と、
+        //   見えている NEXT 2つで実際に撃てる連鎖（2手目の後に降る分も降らせる）の大きい方。4手目以降のツモは見ない。
+        int safeFm = -1;
+        if (fireFmTgt < 0 && dangerFm < 0 && w.safeFirePct > 0 && w.ojamaRate > 0 && bestFm >= 0 &&
+            dInc > 0 && dInc >= w.safeMinIncoming) {
+            const long long needOff = (long long)dInc * w.ojamaRate;
+            long long offMax = -1;
+            for (int fm = 0; fm < nCand; fm++) {
+                if (cands[fm].fireChains <= 0 || !survivable(fm) || cands[fm].fireScore < needOff) continue;
+                if (cands[fm].fireScore > offMax) offMax = cands[fm].fireScore;
+                if (safeFm < 0 || cands[fm].reachPot > cands[safeFm].reachPot ||
+                    (cands[fm].reachPot == cands[safeFm].reachPot && cands[fm].fireScore < cands[safeFm].fireScore)) safeFm = fm;
+            }
+            if (safeFm >= 0 && safeFm != bestFm) {
+                dbgFlags |= 1 << 18;
+                // 安全な火力がこの点以上なら撃たない（offMax×100 > safe×pct の境目）
+                const long long enough = offMax * 100 / w.safeFirePct + 1;
+                // 育成の手が自分で起こす連鎖の相殺（本探索と同じ：先に初手の後の分、残りを2手目の後の分から）
+                int due = std::max(0, w.ojamaNow), later = std::max(0, w.ojamaNext);
+                {
+                    int off = (int)(cands[bestFm].fireScore / w.ojamaRate);
+                    int t = std::min(off, due); due -= t; off -= t;
+                    later -= std::min(off, later);
+                }
+                const int drop0 = std::min(due, 30);
+                const int due1  = due - drop0 + later;
+                const int frac  = drop0 % COLS;
+                auto fillOk = [&](const BitBoard& b) {
+                    if (w.safeFillHeight <= 0) return true;
+                    int sum = 0;
+                    for (int c = 0; c < COLS; c++)
+                        for (int r = HIDDEN; r < TOTAL_ROWS; r++) if (b.get(c, r) != 0) sum++;
+                    return sum < w.safeFillHeight * COLS;
+                };
+                long long worst = LLONG_MAX;
+                for (int m = 0; m < (1 << COLS) && worst >= enough; ++m) {
+                    if (__builtin_popcount(m) != frac) continue;
+                    BitBoard b1 = cands[bestFm].board0;
+                    if (drop0 > 0) dropOjamaOn(b1, drop0, m);
+                    long long best = 0;
+                    if (b1.get(2, HIDDEN) == 0) {
+                        if (fillOk(b1)) best = ignitionAfterOjama(b1, 0);
+                        for (const auto& p1 : getAllPlacements(b1)) {
+                            if (best >= enough) break;
+                            BitBoard n1 = applyPlacement(b1, p1, (uint8_t)nextPairs[2], (uint8_t)nextPairs[3]);
+                            ChainResult c1 = simulateChain(n1);
+                            if (n1.get(2, HIDDEN) != 0) continue;
+                            if (c1.score > best) best = c1.score;
+                            int d1 = due1;
+                            if (c1.score > 0) d1 = std::max(0, d1 - (int)(c1.score / w.ojamaRate));
+                            const int drop1 = std::min(d1, 30);
+                            if (drop1 > 0) {
+                                dropOjamaOn(n1, drop1, fixedFracMask(drop1 % COLS));
+                                if (n1.get(2, HIDDEN) != 0) continue;
+                            }
+                            for (const auto& p2 : getAllPlacements(n1)) {
+                                BitBoard n2 = applyPlacement(n1, p2, (uint8_t)nextPairs[4], (uint8_t)nextPairs[5]);
+                                ChainResult c2 = simulateChain(n2);
+                                if (n2.get(2, HIDDEN) != 0) continue;
+                                if (c2.score > best) { best = c2.score; if (best >= enough) break; }
+                            }
+                        }
+                    }
+                    if (best < worst) worst = best;   // 窒息するパターンは 0
+                }
+                if (worst < enough) dbgFlags |= 1 << 19;   // 安全でない → 撃つ
+                else safeFm = -1;
+            } else {
+                safeFm = -1;
+            }
+        }
+
         int fireFm = -1;
         if (fireFmTgt >= 0) {
             if (w.fireChainCount    > 0 && cands[fireFmTgt].fireChains >= w.fireChainCount)     dbgFlags |= 1 << 0;
@@ -710,6 +791,8 @@ static void runExpectedChainSelection(
             else if (hard)  { fireFm = fireFmAny; dbgFireReason = 3; } // 緊急延命（最終手段＝制限無視）
             // どちらも不成立＝本線を守って育成継続（bestFm のまま撃たない）
         }
+        // §18 G：撃たないと埋まるので撃つ（緊急で撃つ手が決まったときはそちら＝撃てる最大）
+        if (fireFm < 0 && safeFm >= 0) { fireFm = safeFm; dbgFireReason = 10; }
 
         // ③' T 地形優先の対応（§13.5）：受け量が小さいカウンターの場面（JS/sim が [57] を入れる）で、目標・緊急で撃たないとき、
         //   育成の手（受ける）と今撃てる全部の手（返す・軽減）から「残りのおじゃまが降った後に起こせる連鎖」が最大の手。
@@ -840,6 +923,7 @@ static void runExpectedChainSelection(
     //                9=育成手のこぼし除外を解除した 10=緊急判定を行った 11=地形優先の対応(T)を判定した 12=T で撃つ手を選んだ
     //                13=相手を見て目標発火を保留した(P) 14=A で目標発火を保留した 15=A で倒せるので撃った
     //                16=§17 D 危険と判定した 17=§17 D [78] 降った後の盤面で緊急になった
+    //                18=§18 G 安全な火力を確かめた 19=§18 G 安全でないので撃った（理由 10）
     //   [34] 催促候補の落ちた条件ごとの数（6bitずつ）: 0=段数超 1=点不足 2=詰む 3=残す本線の割合不足 4=残す本線の絶対量・段数不足
     //   [35] 緊急判定の高さ: bit0-4=致死列(第3列)の高さ bit5-9=平均高さ
     //   ※ 学習用シミュ（player.cpp）の out は 40 要素なので [39] まで使える。

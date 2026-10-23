@@ -38,9 +38,9 @@ constexpr int    ERASE_COUNT      = 4;
 constexpr int    NEXT_KEEP        = 20;                   // 内部 NEXT 保持数
 
 // ── 重みパラメータ（Python ↔ C++ の受け渡し単位）──
-constexpr int W_LEN  = 91;                 // cpu5_weights.js _buildWeightsArray の要素数
+constexpr int W_LEN  = 97;                 // cpu5_weights.js _buildWeightsArray の要素数
 constexpr int EXT_LEN = 32;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
-constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[91] + fast[91] + counterTrigger + counterMargin×1000 + ext[32]
+constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[97] + fast[97] + counterTrigger + counterMargin×1000 + ext[32]
 
 // ext[] の添字（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md）
 enum ExtIndex {
@@ -78,6 +78,9 @@ enum ExtIndex {
     X_VT_OJAMA_SEARCH = 26, // 1=届いているおじゃまを探索の盤面に降らせる（[74..76]。テトのゲージは入れない）
     X_VT_OJAMA_WORST,       // [77] 1=初手だけ端数の全パターンの最悪で見る（0=固定の順）
     X_VT_OJAMA_TURN_MS,     // ready まで残りこの ms 以内なら初手の後に降る、それ以外は2手目の後（0=560）
+    // ── 対テト §18 F（lv6 の VS_TET.ojamaWorstDepth/ojamaWorstByReach と同じ）──
+    X_VT_OJAMA_WORST_DEPTH = 29,  // [92] 端数の全パターンの最悪を見る深さ（0=初手だけ）
+    X_VT_OJAMA_WORST_BY_REACH,    // [93] 1=最悪を「降った後に撃てる連鎖が最小」で選ぶ
 };
 // A：テトを倒すのに要る点の目安（lines 段のラインを 4個消しだけの連鎖で送るのに要る点。rate で換算）。本番 cpu5_worker_io.js _vtKillScore と同じ
 int vtKillScore(int tetHeight, int queuedLines, int tetInternal, int pct, int rate);
@@ -165,6 +168,8 @@ struct PlayerStats {
     long long tearUnits = 0;       // ちぎりの量（段数+1）の合計（発火は除く。§15）
     int       dangerTurns = 0;     // §17 D：危険と判定した手数（build.cpp dbgFlags bit16）
     int       dangerFires = 0;     // §17 D：危険で撃った手数（発火理由 7=反撃 8=相殺 9=軽減）
+    int       safeChecks = 0;      // §18 G：安全な火力を確かめた手数（build.cpp dbgFlags bit18）
+    int       safeFires = 0;       // §18 G：撃たないと埋まるので撃った手数（発火理由 10）
 };
 
 // ── 記録（負け方の分析用。Player::trace が nullptr の学習時は何もしない）──

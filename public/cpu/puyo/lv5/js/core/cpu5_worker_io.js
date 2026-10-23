@@ -103,6 +103,8 @@ Object.assign(window.PuyoCPU5.prototype, {
         this._ojamaNext = 0;
         this._ojamaRate = 0;
         this._ojamaWorst = 0;
+        this._ojamaWorstDepth = 0;    // §18 F（思考ごと。lv6 の対テトのみ）
+        this._ojamaWorstByReach = 0;
         this._updateVersusCounterMode(incomingGross);
 
         // ★ weightsArray を組み立てる（cpu5_weights.js）。発火制御はモード/カウンター側へ移行済み。
@@ -252,7 +254,7 @@ Object.assign(window.PuyoCPU5.prototype, {
     },
 
     // ★ 撃った理由／撃たなかった理由を言葉にする（_logThink 用）。
-    //   d[23]=wasm の発火理由（1目標 2緊急 3延命 4催促 … 7〜9 対テト §17 D：危険で反撃・相殺・軽減）、d[33..35]=判断の内訳（build.cpp outResult[33..35] の注釈）。
+    //   d[23]=wasm の発火理由（1目標 2緊急 3延命 4催促 … 7〜9 対テト §17 D：危険で反撃・相殺・軽減／10 §18 G：撃たないと埋まるので相殺）、d[33..35]=判断の内訳（build.cpp outResult[33..35] の注釈）。
     //   撃った連鎖が本線か副砲かは「撃った後の本線潜在 d[31] ÷ 今の本線潜在 d[32]」で見る（半分未満が残る＝本線を使った）。
     //   返り値 head＝見出しに出す短い理由（無ければ ''）、lines＝詳細の行。
     _describeFire(d) {
@@ -273,6 +275,8 @@ Object.assign(window.PuyoCPU5.prototype, {
                 parts.push('催促・副砲');
             } else if (r >= 7 && r <= 9) {
                 parts.push(`危険で${r === 7 ? '反撃' : r === 8 ? '相殺' : '軽減'}・${main}`);
+            } else if (r === 10) {
+                parts.push(`撃たないと埋まるので相殺・${main}`);
             } else if (r === 2 || r === 3) {
                 parts.push(`${r === 2 ? '緊急' : '緊急延命'}・${main}`);
             } else if (r === 1) {
@@ -316,6 +320,10 @@ Object.assign(window.PuyoCPU5.prototype, {
                     `致死列 ${col2H}段、延命は ${wa[37] > 0 ? wa[37] + '段から' : 'なし'}）`);
                 if (!head) head = '緊急だが本線未完成で見送り';
             }
+            if (bit(18) && !bit(19)) {
+                lines.push('見送り: 相殺できる手はあるが、降っても撃てる火力が残る（安全を確認して育成を続ける。§18 G）');
+                if (!head) head = '安全を確認して育成';
+            }
             if (bit(16)) {
                 lines.push('見送り: 降った後の盤面が危険だが、反撃・相殺・軽減のどれにも当たる手がない（育成を続ける）');
                 if (!head) head = '危険だが撃てる手なし';
@@ -351,7 +359,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             if (r === 4) return '催促';
             if (r === 2) return '緊急';
             if (r === 3) return '延命';
-            if (r >= 7 && r <= 9) return '危険';
+            if (r >= 7 && r <= 10) return '危険';
             if (r === 1) return this._counterActive ? '対応' : '本線';
             return '不明';
         }
@@ -699,6 +707,8 @@ Object.assign(window.PuyoCPU5.prototype, {
         this._ojamaNext = later;
         this._ojamaRate = rate;
         this._ojamaWorst = vt.ojamaWorst | 0;
+        this._ojamaWorstDepth = vt.ojamaWorstDepth | 0;
+        this._ojamaWorstByReach = vt.ojamaWorstByReach | 0;
     },
 
     _updateVersusCounterMode(incomingGross) {

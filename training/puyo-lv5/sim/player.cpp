@@ -473,7 +473,7 @@ void Player::decide(Player* opp) {
         wa[67] = terrainTet ? X[X_VT_TERRAIN_GAIN_PCT] : 0;
         // §15 おじゃまを降らせる探索（本番 cpu5_worker_io.js _setOjamaSearchInputs と同じ）：
         //   キューのうち ready 済み・ready まで残り turnMs 以内は初手の後 [74]、それ以外は2手目の後 [75]。テトのゲージは入れない。
-        wa[74] = wa[75] = wa[76] = wa[77] = 0;
+        wa[74] = wa[75] = wa[76] = wa[77] = wa[92] = wa[93] = 0;
         if (tet && X[X_VT_OJAMA_SEARCH]) {
             const double turnMs = X[X_VT_OJAMA_TURN_MS] > 0 ? X[X_VT_OJAMA_TURN_MS] : 560.0;
             for (const auto& g : garbageQueue) {
@@ -483,6 +483,8 @@ void Player::decide(Player* opp) {
             }
             wa[76] = rate;
             wa[77] = X[X_VT_OJAMA_WORST];
+            wa[92] = X[X_VT_OJAMA_WORST_DEPTH];      // §18 F
+            wa[93] = X[X_VT_OJAMA_WORST_BY_REACH];
         }
         // P 相手を見て撃つ（本番 _updateVersusCounterMode と worker の _ignitionScoreWasm と同じ。§13.6）：
         //   build の本線構築中で相手が連鎖中でないとき、相手のすぐ起こせる火力を入れる。
@@ -556,6 +558,8 @@ void Player::decide(Player* opp) {
     if (out[33] > 0 && (out[33] & (1 << 13))) stats.p1Holds++;   // P で目標発火を保留した
     if (out[33] > 0 && (out[33] & (1 << 16))) stats.dangerTurns++;   // §17 D 危険と判定した
     if (out[23] >= 7 && out[23] <= 9) stats.dangerFires++;          // §17 D 危険で撃った
+    if (out[33] > 0 && (out[33] & (1 << 18))) stats.safeChecks++;   // §18 G 安全な火力を確かめた
+    if (out[23] == 10) stats.safeFires++;                          // §18 G 撃たないと埋まるので撃った
     lastMode_ = terrain ? 4 : waitMode == 1 ? 2 : waitMode == 2 ? 3 : wantCounter ? 1 : 0;   // 記録用 2=待つ 3=締切/即撃ち 4=地形優先の対応
     lastReason_ = out[23];
     if (trace) {

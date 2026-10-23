@@ -190,11 +190,22 @@ struct EvalWeights {
     int exposeReachPct;    // [88] 発火ぷよ1個の候補の組が1段で撃てなくなるなら、その点をこの%減らして potChain（到達連鎖）を求める
     int exposeRows;        // [89] 載せる段数（0=1）
     int exposeMaxKey;      // [90] 載せた後の発火ぷよの数の上限（0=2）
+
+    // ── 対テト §18 F：見えている3手を重く・その先を軽く（lv6 のみ。既定0＝無効。設計: lv6-vstet-design.md §18.4・§18.8）──
+    int farReachPct;       // [91] 4手目以降（depth ≥ 3）で見えた到達連鎖の点をこの%減らして巻き上げる（0=減らさない）
+    int ojamaWorstDepth;   // [92] [77] の「端数の全パターンの最悪」を depth ≤ この値まで行う（0=初手だけ＝従来）
+    int ojamaWorstByReach; // [93] 1=最悪のパターンを「降った後に撃てる連鎖（potChain）が最小」で選ぶ（同じなら評価値が最小）／0=評価値が最小
+    // ── 対テト §18 G：撃たないと埋まるなら撃つ（安全な反撃。設計: §18.4・§18.8）──
+    //   届いているおじゃま（[74]+[75]）を全部相殺できる手があるとき、育成の手の「安全な火力」＝端数の全パターンの最悪で、
+    //   降った後の盤面で撃てる連鎖（埋まり具合が [96] 未満のときだけ）と、見えている NEXT 2つで実際に撃てる連鎖の大きい方、を求める。
+    int safeFirePct;       // [94] 今撃てる最大 ×100 > 安全な火力 × この値 なら、相殺できる手のうち本線が最も残る手を撃つ（0=使わない）
+    int safeMinIncoming;   // [95] G を見る届いている量の下限（個。0=1）
+    int safeFillHeight;    // [96] 降った後の平均の高さがこれ以上なら「発火点が生きている」を安全と見ない（0=高さを見ない）
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 91 要素（[0..90]）。
+//   weightsArray は 97 要素（[0..96]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -310,5 +321,12 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     w.exposeReachPct      = weightsArray[88];
     w.exposeRows          = weightsArray[89];
     w.exposeMaxKey        = weightsArray[90];
+    // ── 対テト §18 F 見えている3手を重く・G 撃たないと埋まるなら撃つ ──
+    w.farReachPct         = weightsArray[91];
+    w.ojamaWorstDepth     = weightsArray[92];
+    w.ojamaWorstByReach   = weightsArray[93];
+    w.safeFirePct         = weightsArray[94];
+    w.safeMinIncoming     = weightsArray[95];
+    w.safeFillHeight      = weightsArray[96];
     return w;
 }

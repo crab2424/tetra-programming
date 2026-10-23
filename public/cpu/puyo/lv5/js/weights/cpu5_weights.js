@@ -285,7 +285,15 @@ Object.assign(window.PuyoCPU5.prototype, {
             this.evalWeights.buriedWeight || 0,                      // [87] 1段で撃てなくなる組ごとに +この値（負）
             this.evalWeights.exposeReachPct || 0,                    // [88] 1段で埋まる発火点の点をこの%減らして到達連鎖を求める
             this.evalWeights.exposeRows || 0,                        // [89] 載せる段数（0=1）
-            this.evalWeights.exposeMaxKey || 0                       // [90] 載せた後の発火ぷよの数の上限（0=2）
+            this.evalWeights.exposeMaxKey || 0,                      // [90] 載せた後の発火ぷよの数の上限（0=2）
+            // ── 対テト §18 F 見えている3手を重く（lv6-vstet-design.md §18.8。既定0＝無効）──
+            this.controlWeights.farReachPct || 0,                    // [91] 4手目以降で見えた到達連鎖をこの%減らす（lv6 の VS_TET.vsTetControl）
+            this._ojamaWorstDepth || 0,                              // [92] 端数の全パターンの最悪を見る深さ（思考ごと。0=初手だけ）
+            this._ojamaWorstByReach || 0,                            // [93] 最悪を「降った後に撃てる連鎖が最小」で選ぶ 1/0（思考ごと）
+            // ── 対テト §18 G 撃たないと埋まるなら撃つ（既定0＝無効。lv6 の VS_TET.vsTetControl）──
+            this.controlWeights.safeFirePct || 0,                    // [94] 今撃てる最大×100 > 安全な火力×この値 なら撃つ
+            this.controlWeights.safeMinIncoming || 0,                // [95] G を見る届いている量の下限（個。0=1）
+            this.controlWeights.safeFillHeight || 0                  // [96] 降った後の平均の高さがこれ以上なら発火点が生きていても安全と見ない（0=見ない）
         ]);
     },
 

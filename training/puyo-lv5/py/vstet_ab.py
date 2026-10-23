@@ -35,6 +35,7 @@ QSUB, SUB_MC, SUB_MP, SUB_FILL, KEEP_W, KEEP_D, KEEP_R = 45, 51, 52, 53, 54, 55,
 TEAR_W, TEAR_T, TEAR_C, SIDE_W, SIDE_P, SIDE_F, SIDE_MC = 28, 68, 69, 70, 71, 72, 73   # §15
 D_EMERG, D_OJ, D_LOSS, D_MIN, D_FIRE, D_OFF, D_KEEP, D_RED = 78, 79, 80, 81, 82, 83, 84, 85   # §17 D
 E_W, E_BUR, E_REACH, E_ROWS, E_KEY = 86, 87, 88, 89, 90                                        # §17 E
+F_FAR, G_PCT, G_MIN, G_FILL = 91, 94, 95, 96                                                   # §18 F・G（[92][93] は ext）
 VARIANTS = {
     "base": mk(),
     # ① 降っても撃てる（K）：おじゃまを qKeepRows 段載せた後に起こせる連鎖に価値（正）／失う量に罰（負）
@@ -141,6 +142,22 @@ VARIANTS = {
     # §17.12 ユーザーが CPU TEST の重み調整パネルで決めた値（本番＝er50r2 に足す。buriedWeight は +50 のまま）
     "user0":        mk({E_W: 100, E_BUR: 50, E_KEY: 3,
                         D_EMERG: 1, D_OJ: 20, D_LOSS: 40, D_MIN: 7, D_FIRE: 50}),
+    # §18 F 見えている3手を重く（4手目以降の到達連鎖の割引・端数の最悪を見る深さ・最悪の選び方）
+    "fr30":         mk({F_FAR: 30}),
+    "fr50":         mk({F_FAR: 50}),
+    "fr70":         mk({F_FAR: 70}),
+    "wr":           mk(vt_ojama_worst_by_reach=1),                            # 初手の最悪を「撃てる連鎖」で選ぶ
+    "wd1":          mk(vt_ojama_worst_depth=1),
+    "wd2":          mk(vt_ojama_worst_depth=2),
+    "wd2r":         mk(vt_ojama_worst_depth=2, vt_ojama_worst_by_reach=1),
+    # §18 G 撃たないと埋まるなら撃つ（今撃てる最大×100 > 安全な火力×% で、相殺できて本線が最も残る手）
+    "g70":          mk({G_PCT: 70}),
+    "g100":         mk({G_PCT: 100}),
+    "g150":         mk({G_PCT: 150}),
+    "g100m7":       mk({G_PCT: 100, G_MIN: 7}),                               # 1段（6個）以下は見ない
+    "g100h8":       mk({G_PCT: 100, G_FILL: 8}),                              # 平均8段以上は発火点が生きていても安全と見ない
+    "g100fr50":     mk({G_PCT: 100, F_FAR: 50}),
+    "g100wd2r":     mk({G_PCT: 100}, vt_ojama_worst_depth=2, vt_ojama_worst_by_reach=1),
 }
 
 
@@ -183,6 +200,7 @@ def main() -> None:
                  f"・ちぎり {a['puyo_tears'].mean():.1f} 回／量 {a['puyo_tear_units'].mean():.1f}"
                  f"・負け局で本線級(5+)なし {(a['puyo_max_chain'][lose] < 5).mean():.0%}"
                  f"・危険 {a['puyo_danger_turns'].mean():.1f} 手／撃った {a['puyo_danger_fires'].mean():.1f}"
+                 f"・G 確認 {a['puyo_safe_checks'].mean():.1f} 手／撃った {a['puyo_safe_fires'].mean():.1f}"
                  f"・1手 {(time.time() - t) * 1000 / max(1, a['puyo_turns'].sum()):.2f}ms"
                  f"（{time.time() - t:.0f}s）")
         print(line, flush=True)
