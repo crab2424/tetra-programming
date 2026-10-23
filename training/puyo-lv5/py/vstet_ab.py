@@ -36,6 +36,7 @@ TEAR_W, TEAR_T, TEAR_C, SIDE_W, SIDE_P, SIDE_F, SIDE_MC = 28, 68, 69, 70, 71, 72
 D_EMERG, D_OJ, D_LOSS, D_MIN, D_FIRE, D_OFF, D_KEEP, D_RED = 78, 79, 80, 81, 82, 83, 84, 85   # §17 D
 E_W, E_BUR, E_REACH, E_ROWS, E_KEY = 86, 87, 88, 89, 90                                        # §17 E
 F_FAR, G_PCT, G_MIN, G_FILL = 91, 94, 95, 96                                                   # §18 F・G（[92][93] は ext）
+G_KEEP, G_LOSS, G_MINH, G_MINC3 = 97, 98, 99, 100                                             # §18.11 G の条件の絞り込み
 VARIANTS = {
     "base": mk(),
     # ① 降っても撃てる（K）：おじゃまを qKeepRows 段載せた後に起こせる連鎖に価値（正）／失う量に罰（負）
@@ -158,6 +159,22 @@ VARIANTS = {
     "g100h8":       mk({G_PCT: 100, G_FILL: 8}),                              # 平均8段以上は発火点が生きていても安全と見ない
     "g100fr50":     mk({G_PCT: 100, F_FAR: 50}),
     "g100wd2r":     mk({G_PCT: 100}, vt_ojama_worst_depth=2, vt_ojama_worst_by_reach=1),
+    # §18.11 G の条件の絞り込み：案1 本線そのもの（reachPot < basePot×K%）は安全な火力 < basePot×L% のときだけ／
+    #   案2 届いた量を降らせた後の平均の高さ（h）・第3列（c）の下限／案3 7個以上（m7）
+    "g100k50l50":   mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 50}),
+    "g100k50l30":   mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 30}),
+    "g100h6":       mk({G_PCT: 100, G_MINH: 6}),
+    "g100h7":       mk({G_PCT: 100, G_MINH: 7}),
+    "g100c8":       mk({G_PCT: 100, G_MINC3: 8}),
+    "g100k50l50m7": mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 50, G_MIN: 7}),
+    "g100k50l50h6": mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 50, G_MINH: 6}),
+    "g100k50l50h7": mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 50, G_MINH: 7}),
+    "g100k50l50h6m7": mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 50, G_MINH: 6, G_MIN: 7}),
+    "g70k50l50":    mk({G_PCT: 70, G_KEEP: 50, G_LOSS: 50}),
+    "g100h5":       mk({G_PCT: 100, G_MINH: 5}),
+    "g100k50l50h5": mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 50, G_MINH: 5}),
+    "g150h6":       mk({G_PCT: 150, G_MINH: 6}),
+    "g70h6":        mk({G_PCT: 70, G_MINH: 6}),
 }
 
 

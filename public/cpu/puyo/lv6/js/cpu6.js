@@ -125,6 +125,8 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
             // §18 G 撃たないと埋まるなら撃つ（2026-10-23。既定0＝今と同じ）：届いている量を全部相殺できる手があり、
             //   育成の手の「安全な火力」（端数の最悪で、降った後に撃てる連鎖／見えている NEXT 2つで撃てる連鎖）より今撃てる方が大きいなら撃つ
             safeFirePct: 0, safeMinIncoming: 0, safeFillHeight: 0,
+            // §18.11 G の条件の絞り込み（2026-10-24。既定0＝今と同じ）：本線そのものを撃つのは本線が埋まるときだけ（Keep/Loss）・盤面の高さの下限（MinHeight/MinCol3）
+            safeKeepPct: 0, safeLossPct: 0, safeMinHeight: 0, safeMinCol3: 0,
         },
         fastVsTetWeights: { qYWeight: 16 },
         fastVsTetControl: { emergencyFireMinRatio: 89 },

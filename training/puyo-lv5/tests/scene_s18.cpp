@@ -1,5 +1,5 @@
 // 局面テスト（lv6-vstet-design.md §18.1）：実機で「3連鎖で返さずに6列目へ置いた」局面を native の探索に入れる。
-//   使い方: scene_s18 <weights.txt> <seed>   weights.txt は weightsArray（97個）を空白区切りで。
+//   使い方: scene_s18 <weights.txt> <seed>   weights.txt は weightsArray（W_LEN 個）を空白区切りで。
 //   現ツモ 赤赤・NEXT 赤赤/緑緑 は固定、その先（見えていない手）は seed の乱数。受け 8個（ready）。
 //   出力: 列 回転 発火段数 発火理由 dbgFlags
 #include <cstdio>

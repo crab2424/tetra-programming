@@ -697,9 +697,16 @@ static void runExpectedChainSelection(
         //   今撃てる最大がそれを上回るなら、相殺できる手のうち撃った後の本線（reachPot）が最も残る手を撃つ（同じなら点が小さい方）。
         //   安全な火力（パターンごと）＝ 降った後の盤面で同色1〜3個で撃てる連鎖（平均の高さ < [96] のときだけ。発火点が生きている）と、
         //   見えている NEXT 2つで実際に撃てる連鎖（2手目の後に降る分も降らせる）の大きい方。4手目以降のツモは見ない。
+        //   §18.11 案2：[99][100] があれば、育成の手の後に届いている量を全部降らせた盤面が高いときだけ見る（序盤の低い盤面は受けて組み直せる）。
+        auto safeHeightOk = [&]() {
+            if (w.safeMinHeight <= 0 && w.safeMinCol3 <= 0) return true;
+            int aH = 0, c2 = 0, ojp = 0;
+            dropStats(cands[bestFm].board0, dInc, &aH, &c2, &ojp);
+            return (w.safeMinHeight > 0 && aH >= w.safeMinHeight) || (w.safeMinCol3 > 0 && c2 >= w.safeMinCol3);
+        };
         int safeFm = -1;
         if (fireFmTgt < 0 && dangerFm < 0 && w.safeFirePct > 0 && w.ojamaRate > 0 && bestFm >= 0 &&
-            dInc > 0 && dInc >= w.safeMinIncoming) {
+            dInc > 0 && dInc >= w.safeMinIncoming && safeHeightOk()) {
             const long long needOff = (long long)dInc * w.ojamaRate;
             long long offMax = -1;
             for (int fm = 0; fm < nCand; fm++) {
@@ -711,7 +718,11 @@ static void runExpectedChainSelection(
             if (safeFm >= 0 && safeFm != bestFm) {
                 dbgFlags |= 1 << 18;
                 // 安全な火力がこの点以上なら撃たない（offMax×100 > safe×pct の境目＝safe ≥ ⌈offMax×100/pct⌉ なら安全）
-                const long long enough = (offMax * 100 + w.safeFirePct - 1) / w.safeFirePct;
+                long long enough = (offMax * 100 + w.safeFirePct - 1) / w.safeFirePct;
+                // §18.11 案1：撃つ手が本線を残さない（reachPot < basePot×[97]%）なら、安全な火力が basePot×[98]% 未満
+                //   （＝放っておいても本線が埋まる）ときだけ撃つ。本線を残す小連鎖での相殺はこれまでどおり。
+                if (w.safeKeepPct > 0 && cands[safeFm].reachPot * 100 < basePot * (long long)w.safeKeepPct)
+                    enough = std::min(enough, (basePot * (long long)w.safeLossPct + 99) / 100);
                 // 育成の手が自分で起こす連鎖の相殺（本探索と同じ：先に初手の後の分、残りを2手目の後の分から）
                 int due = std::max(0, w.ojamaNow), later = std::max(0, w.ojamaNext);
                 {

@@ -201,11 +201,16 @@ struct EvalWeights {
     int safeFirePct;       // [94] 今撃てる最大 ×100 > 安全な火力 × この値 なら、相殺できる手のうち本線が最も残る手を撃つ（0=使わない）
     int safeMinIncoming;   // [95] G を見る届いている量の下限（個。0=1）
     int safeFillHeight;    // [96] 降った後の平均の高さがこれ以上なら「発火点が生きている」を安全と見ない（0=高さを見ない）
+    // ── 対テト §18 G の条件の絞り込み（§18.11 案1・2。既定0＝今と同じ）──
+    int safeKeepPct;       // [97] 案1：撃つ手が本線を残す＝撃った後の本線 reachPot ≥ 今の本線 basePot × この%。残さない手は [98] のときだけ撃つ（0=見ない）
+    int safeLossPct;       // [98] 案1：本線を残さない手は、育成の手の安全な火力 < basePot × この% （放っておいても本線が埋まる）のときだけ撃つ
+    int safeMinHeight;     // [99] 案2：届いている量を全部降らせた後の平均の高さがこれ以上のときだけ G を見る（0=見ない）
+    int safeMinCol3;       // [100] 案2：同じく第3列の高さがこれ以上のときだけ（[99] と両方あればどちらか。0=見ない）
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 97 要素（[0..96]）。
+//   weightsArray は 101 要素（[0..100]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -328,5 +333,9 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     w.safeFirePct         = weightsArray[94];
     w.safeMinIncoming     = weightsArray[95];
     w.safeFillHeight      = weightsArray[96];
+    w.safeKeepPct         = weightsArray[97];
+    w.safeLossPct         = weightsArray[98];
+    w.safeMinHeight       = weightsArray[99];
+    w.safeMinCol3         = weightsArray[100];
     return w;
 }

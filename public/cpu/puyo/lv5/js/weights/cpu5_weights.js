@@ -293,7 +293,12 @@ Object.assign(window.PuyoCPU5.prototype, {
             // ── 対テト §18 G 撃たないと埋まるなら撃つ（既定0＝無効。lv6 の VS_TET.vsTetControl）──
             this.controlWeights.safeFirePct || 0,                    // [94] 今撃てる最大×100 > 安全な火力×この値 なら撃つ
             this.controlWeights.safeMinIncoming || 0,                // [95] G を見る届いている量の下限（個。0=1）
-            this.controlWeights.safeFillHeight || 0                  // [96] 降った後の平均の高さがこれ以上なら発火点が生きていても安全と見ない（0=見ない）
+            this.controlWeights.safeFillHeight || 0,                 // [96] 降った後の平均の高さがこれ以上なら発火点が生きていても安全と見ない（0=見ない）
+            // ── 対テト §18 G の条件の絞り込み（§18.11 案1・2。既定0＝今と同じ。lv6 の VS_TET.vsTetControl）──
+            this.controlWeights.safeKeepPct || 0,                    // [97] 撃つ手が本線を残す＝撃った後の本線 ≥ 今の本線×この%（0=見ない）
+            this.controlWeights.safeLossPct || 0,                    // [98] 本線を残さない手は、安全な火力 < 今の本線×この% のときだけ撃つ
+            this.controlWeights.safeMinHeight || 0,                  // [99] 届いている量を降らせた後の平均の高さがこれ以上のときだけ G を見る（0=見ない）
+            this.controlWeights.safeMinCol3 || 0                     // [100] 同じく第3列の高さ（[99] と両方あればどちらか。0=見ない）
         ]);
     },
 
