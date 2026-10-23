@@ -903,3 +903,20 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
 @keyframes search-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { #activity button.busy svg { animation: none; } }
 
+
+/* 操作キーと重なっているエディタのキー（SOLVE・STAMP） */
+#bind-conflicts { color: var(--warn); }
+#bind-conflicts kbd, #alt-hints kbd {
+  font: inherit; padding: 0 4px; border: 1px solid currentColor; border-radius: 3px; white-space: nowrap;
+}
+/* Alt（option）を押している間の早見表（SOLVE・STAMP） */
+#alt-hints { display: none; }
+body.alt-held[data-mode="solve"] #alt-hints, body.alt-held[data-mode="stamp"] #alt-hints {
+  display: grid; grid-template-columns: auto auto; gap: 3px 12px; align-items: baseline;
+  position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 50;
+  padding: 10px 14px; border: 1px solid var(--quiz); border-radius: 6px;
+  background: rgba(20, 20, 24, 0.94); font-size: 12px; pointer-events: none;
+}
+#alt-hints .ah-title { grid-column: 1 / -1; font-weight: bold; margin-bottom: 2px; }
+#alt-hints kbd { color: var(--quiz); justify-self: end; }
+#alt-hints .ah-hit { color: var(--warn); }

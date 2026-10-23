@@ -644,7 +644,11 @@ export class PlaceMode {
         }
         if (e.altKey && e.code === 'ArrowUp') { this.move(0, -1); return true; }
         if (e.altKey && e.code === 'ArrowDown') { this.sonicDrop(); return true; }
-        if (!plain) return false;
+        if (e.ctrlKey || e.metaKey) return false;
+        // ここから下はエディタのキー。Alt（Mac は option）付きでも同じ動き＝操作キーと重なって使えない時の代わり
+        // （Alt 付きは上で操作キーとして判定しないので、TETLABO の KEY CONFIG に何を割り当てていても必ず効く）
+        if (e.altKey && e.code === 'ArrowLeft') { this.goto(this.view - 1); return true; }
+        if (e.altKey && e.code === 'ArrowRight') { this.goto(this.view + 1); return true; }
         if (e.code === 'ArrowUp') { this.move(0, -1); return true; }
         if (e.code === 'Enter') { if (!e.repeat) this.lock(); return true; }
         if (e.code === 'Backspace') { if (!e.repeat) this.undoLastStep(); return true; }

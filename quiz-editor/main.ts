@@ -17,7 +17,7 @@ import {
 } from './render.ts';
 import { KEY_HELP, isTextInput, isMod, isMac, keyLabel } from './keys.ts';
 import { PlaceMode, buildStampGrid, drawStampButtons, clearedAtOf, firstErrorOf } from './place.ts';
-import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, actionFor, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
+import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, actionFor, PLACE_ACTIONS, ACTION_NAMES, loadLayoutLabels, codeLabel, editorKeyLabel, placeConflicts, PLACE_EDITOR_KEYS, conflictOf, type PlaceAction } from './keybinds.ts';
 import { fmtDateTime, type SolutionMap, type SolutionEntry, fetchSolutions, saveSolution, canWriteFiles, today, solutionPath, exportSolutionsFile, serializeSolutions, SOLUTION_FILES, RULES } from './solutions.ts';
 import { SyncEngine, type SyncEvent, type DraftEntry, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
 import { LocalDrafts, type LocalDraft, type SentMark, draftKey, contentHash } from './local-drafts.ts';
@@ -658,6 +658,37 @@ function showNotice(msg: string, withRevert: boolean) {
 }
 function hideNotice() { dismissToasts(m => m.endsWith(NOTICE_MARK)); }
 
+/** 操作キーの短い名前（説明の括弧を除く） */
+function shortAction(a: PlaceAction): string { return ACTION_NAMES[a].replace(/（.*）$/, ''); }
+/** Alt の表記（Mac は option） */
+function altName(): string { return isMac() ? 'option（⌥）' : 'Alt'; }
+/**
+ * 操作キーと重なっているエディタのキー（SOLVE・STAMP）を操作パネルに、Alt で使えるキーの早見表を Alt を押している間に出す。
+ * 操作キーが優先されるので、重なったキーは Alt（option）付きで使う
+ */
+function renderBindConflicts() {
+    const sub = place.sub;
+    const list = placeConflicts(binds, doc.rule, sub);
+    const el = $('bind-conflicts');
+    el.hidden = !list.length;
+    el.innerHTML = list.length ? `操作キーと重なっているキー（${escapeHtml(altName())} 付きで使えます）:` + list.map(({ key, action }) =>
+        `<br><kbd>${escapeHtml(keyLabel(editorKeyLabel(key, true)))}</kbd> ${escapeHtml(key.desc)} — ${escapeHtml(keyLabel(editorKeyLabel(key)))} は${escapeHtml(shortAction(action))}`).join('') : '';
+    const keys = PLACE_EDITOR_KEYS.filter(k => (!k.rule || k.rule === doc.rule) && (!k.sub || k.sub === sub));
+    const rows = [
+        ...keys.map(k => ({ label: editorKeyLabel(k, true), desc: k.desc, hit: !!conflictOf(binds, k) })),
+        ...(sub === 'solve' ? [{ label: 'Alt+← ・ Alt+→', desc: '前の手 ・ 次の手', hit: false }] : []),
+        { label: 'Alt+↓', desc: '一番下まで落とす（確定しない）', hit: false },
+    ];
+    const shiftBound = ['ShiftLeft', 'ShiftRight'].some(c => actionFor(binds, c));
+    $('alt-hints').innerHTML = `<span class="ah-title">${escapeHtml(altName())} + キー（操作キーより優先）${shiftBound ? `・Shift 付きは ${escapeHtml(altName())} を先に` : ''}</span>` +
+        rows.map(r => `<kbd>${escapeHtml(keyLabel(r.label))}</kbd><span class="${r.hit ? 'ah-hit' : ''}">${escapeHtml(r.desc)}${r.hit ? '（操作キーと重なっています）' : ''}</span>`).join('');
+    const nav = (n: string, t: string) => { const b = $('solve-box').querySelector<HTMLElement>(`[data-nav="${n}"]`); if (b) b.title = keyLabel(t); };
+    nav('first', `初期盤面 (Home)`);
+    nav('prev', `前の手 (${codeLabel('BracketLeft')} ・ Alt+←)`);
+    nav('next', `次の手 (${codeLabel('BracketRight')} ・ Alt+→)`);
+    nav('last', `最後の手 (End)`);
+}
+
 /** 解答ファイルに保存済みの内容と一致するか */
 function solutionSaved(): boolean {
     const e = solutions[doc.rule][doc.id];
@@ -759,6 +790,7 @@ function renderPlace() {
     $('frame-nav').hidden = !puyo;
     if (ui.mode !== 'place') return;
     $('bind-src').textContent = `操作キー: ${sourceLabel(binds.source)}・${tuningLabel(tuning)}（? で一覧）`;
+    renderBindConflicts();
     place.renderPanel($('layout'));   // PC では #solve-box が #col-steps へ移るので、レイアウト全体から探す
     setVal($<HTMLInputElement>('sol-note'), doc.solutionNote);
     const st = $('sol-status');
@@ -1006,7 +1038,8 @@ function renderField() {
     drawField(fieldCanvas, {
         rule: doc.rule, field: doc.field, cell: cellSize(doc.rule),
         cursor: ui.cursor, hover: ui.mode === 'paint' ? ui.hover : null, rowMode: ui.rowMode,
-        showCursor: ui.mode === 'paint' && document.activeElement === fieldCanvas,
+        // カーソルは常に出す（盤面にフォーカスが無い時は薄く。キーで操作すると盤面に戻る）。タッチ端末はキー操作が無いので出さない
+        showCursor: ui.mode === 'paint' && !coarsePointer(), cursorDim: document.activeElement !== fieldCanvas,
     });
     const size = doc.rule === 'puyo' ? `${cols('puyo')}×14（見える 12＋隠し 2）` : `${cols(doc.rule)}×${rows(doc.rule)}`;
     $('field-size').textContent = size;
@@ -1548,6 +1581,7 @@ function handleFieldKey(e: KeyboardEvent): boolean {
         return true;
     }
     if (e.key === ' ' || e.key === 'Enter') {
+        if (e.repeat) return true;   // 押しっぱなしで「塗る → 空にする」を繰り返さない
         const { r, c } = ui.cursor;
         if (ui.rowMode) fillRow(r, c);
         else setCell(r, c, doc.field[r][c] === ui.selColor ? 0 : ui.selColor, '');
@@ -2072,8 +2106,12 @@ function renderHelp() {
             { keys: 'Alt+↓', desc: '一番下まで落とす（確定しない）' },
             { keys: 'Enter', desc: '今の位置で確定（浮いていても置く。ぷよは着地まで落として置く）' },
             { keys: 'Backspace', desc: '最後の手を取り消す（SOLVE）' },
-            { keys: '[ ・ ] ・ Home ・ End', desc: '前の手 ・ 次の手 ・ 初期盤面 ・ 最後の手' },
+            { keys: `${codeLabel('BracketLeft')} ・ ${codeLabel('BracketRight')} ・ Home ・ End`, desc: '前の手 ・ 次の手 ・ 初期盤面 ・ 最後の手（Alt+← ・ Alt+→ でも前 ・ 次）' },
             { keys: ', ・ .', desc: '（PUYO）連鎖の途中の盤面を前 ・ 次へ（置いた直後 → n 連鎖目が消えた後 …。消えるぷよを強調）' },
+            { keys: 'Alt+（上のキー・P・N・V）', desc: `操作キーと重なったキーの代わり（Alt 付きは操作キーとして扱わない。${isMac() ? 'Mac は option。' : ''}Alt を押している間は早見表を表示）` },
+            ...placeConflicts(binds, doc.rule, place.sub).map(({ key, action }) => ({
+                keys: editorKeyLabel(key, true), desc: `${key.desc}（${editorKeyLabel(key)} は操作キーの${shortAction(action)}に割り当て済み）`,
+            })),
             { keys: 'I O T J L S Z', desc: '置くミノを選ぶ（STAMP）' },
             { keys: 'マウス: 移動 ・ ホイール ・ 左クリック ・ 右クリック', desc: '位置 ・ 回転 ・ 確定 ・ 右回転（T-Spin は推定扱い。STRICT では使えない）' },
         ],
@@ -2245,17 +2283,27 @@ window.addEventListener('storage', e => {
 // グローバルキー
 // ─────────────────────────────────────────────
 /** フォーカスした部品が自分で使うキーか（ボタン・チェックボックスの Space / Enter はブラウザのクリック） */
+/**
+ * キーボード（Tab 等）で移ったフォーカス。マウスで押して残ったフォーカスと区別する。
+ * :focus-visible では見分けられない（Chrome は何かキーを押すと、マウスで押したボタンにも :focus-visible を付ける。
+ * その後の Space が「最後に押したボタン」を押し続けていた）
+ */
+let kbFocus: Element | null = null;
+let lastInputKey = false;
+document.addEventListener('keydown', () => { lastInputKey = true; }, true);
+document.addEventListener('pointerdown', () => { lastInputKey = false; }, true);
+document.addEventListener('focusin', e => { kbFocus = lastInputKey ? e.target as Element : null; });
 function ownedByFocused(target: Element | null, e: KeyboardEvent): boolean {
     if (!target || target === fieldCanvas || target === document.body) return false;
     const pressable = target instanceof HTMLButtonElement || (target instanceof HTMLInputElement && (target.type === 'checkbox' || target.type === 'radio'));
-    // クリックで残ったフォーカスは対象外（:focus-visible はキーボードで Tab 移動した時だけ。polish2 §5）
-    return pressable && (e.key === ' ' || e.key === 'Enter') && target.matches(':focus-visible');
+    // クリックで残ったフォーカスは対象外（キーボードで移ってきた部品だけ。polish2 §5）
+    return pressable && (e.key === ' ' || e.key === 'Enter') && target === kbFocus;
 }
 // Space はボタンを keyup で押す。クリックで残ったフォーカスのボタンは押させない（keydown で今のモードが使った Space）
 document.addEventListener('keyup', e => {
     const t = e.target as Element | null;
     if (e.key !== ' ' || !(t instanceof HTMLButtonElement) || document.querySelector('dialog[open]')) return;
-    if (!t.matches(':focus-visible')) e.preventDefault();
+    if (t !== kbFocus) e.preventDefault();
 });
 /**
  * キーの行き先（tools §4）: テキスト欄 → 文字入力。それ以外は、フォーカスした部品が使うキー（Space/Enter 等）を除き
@@ -2321,7 +2369,8 @@ document.addEventListener('keydown', e => {
     if (ownedByFocused(target, e)) return;
 
     // V: MEMO を盤面の場所に出す / 戻す、Shift+V: 今の盤面（SOLVE は表示中の手の盤面）を MEMO に（polish §6）
-    if (!e.altKey && e.code === 'KeyV' && !(ui.mode === 'place' && actionFor(binds, e.code))) {
+    // Alt（option）+V・Alt+Shift+V は操作キーに V を割り当てていても効く
+    if (e.code === 'KeyV' && (e.altKey || !(ui.mode === 'place' && actionFor(binds, e.code)))) {
         e.preventDefault();
         if (e.shiftKey) setMemoFromBoard(); else setMemoView(!ui.memoView);
         return;
@@ -2339,13 +2388,14 @@ document.addEventListener('keydown', e => {
     else handled = handleFieldKey(e);
     // P: EDIT（最後に使った PAINT/STAMP/NEXT）⇔ SOLVE、Shift+P: PAINT → STAMP → NEXT、N: NEXT ⇔ 盤面のモード
     // （SOLVE で同期キーに割り当てられていれば上で処理済み）
-    if (!handled && !e.altKey && e.code === 'KeyP') {
+    // Alt（option）付きでも同じ（SOLVE で P を操作キーに割り当てている時の代わり）
+    if (!handled && e.code === 'KeyP') {
         const m = curMode();
         if (e.shiftKey) setMode(cycleEditMode(m === 'solve' ? ui.lastEdit : m));
         else setMode(m === 'solve' ? ui.lastEdit : 'solve');
         handled = true;
     }
-    if (!handled && !e.altKey && !e.shiftKey && e.code === 'KeyN' && !mobileMq.matches) {
+    if (!handled && !e.shiftKey && e.code === 'KeyN' && !mobileMq.matches) {
         setMode(curMode() === 'next' ? boardMode() : 'next');
         handled = true;
     }
@@ -2355,6 +2405,9 @@ document.addEventListener('keydown', e => {
         handled = true;
     }
     if (handled) e.preventDefault();
+    // 盤面のモードがキーを使ったのに盤面にフォーカスが無い（★・UNDO 等をマウスで押した後）→ 盤面へ戻す。
+    // カーソルが見え、ボタンに残ったフォーカスに Space を取られることも無くなる
+    if (handled && ui.mode !== 'next' && document.activeElement !== fieldCanvas) focusField();
 });
 
 // Alt（option）を押している間は、NEXT の選んでいる項目を「持ち上げた」見た目にする（Alt+↑↓ で入れ替えられる合図。polish §4）
@@ -2773,6 +2826,8 @@ $('hold-box').addEventListener('click', () => {
 
 loadImages(() => { renderField(); renderPalette(); renderNext(); renderHold(); buildStampGrid($('stamp-grid')); });
 buildStampGrid($('stamp-grid'));
+// キーボードの配列（JIS 等）に合わせてキーの表記を直す（[ は JIS では @ の位置のキー）
+void loadLayoutLabels().then(ok => { if (ok) renderAll(); });
 const restored = restoreOnBoot();
 ui.nextCaret = nextLen();
 place.view = 0;

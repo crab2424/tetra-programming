@@ -270,6 +270,8 @@
           </div>
         </div>
         <p class="note pc-only" id="bind-src"></p>
+        <!-- 操作キーと重なって使えないエディタのキー（Alt / option 付きなら使える） -->
+        <p class="note pc-only" id="bind-conflicts" hidden></p>
         <label class="check" id="strict-wrap" data-m="field steps" title="1段上・浮いたままの確定・マウス配置を使えなくし、ゲームで入力できる手だけを記録する"><input id="in-strict" type="checkbox" /> STRICT（ゲームどおりの操作だけ）</label>
 
         <div id="solve-box" data-m="steps">
@@ -411,6 +413,9 @@
       <div class="row end"><button value="close">CLOSE</button></div>
     </form>
   </dialog>
+
+  <!-- Alt（option）を押している間だけ出す: SOLVE・STAMP で Alt 付きで使えるエディタのキー -->
+  <div id="alt-hints" class="pc-only" aria-hidden="true"></div>
 
   <script type="module" src="./main.ts"></script>
 </body>

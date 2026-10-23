@@ -104,3 +104,68 @@ export function loadPlaceTuning(): PlaceTuning {
 export function tuningLabel(t: PlaceTuning): string {
     return `DAS ${Math.round(t.dasMs)}ms / ARR ${Math.round(t.arrMs)}ms` + (t.source === 'default' ? '（既定値）' : '');
 }
+
+// ─── SOLVE・STAMP のエディタのキーと操作キーの重なり（Alt＝Mac の option を付ければ常にエディタのキーとして効く） ───
+/** キーの表記。キーボードの配列（JIS 等）が分かればその文字（BracketLeft は JIS では @）。分からなければ US 配列の文字 */
+const CODE_LABELS: Record<string, string> = {
+    BracketLeft: '[', BracketRight: ']', Comma: ',', Period: '.', Backslash: '\\', Semicolon: ';', Quote: "'",
+    ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Enter: 'Enter', Backspace: 'Backspace', Home: 'Home', End: 'End',
+};
+let layoutLabels: Map<string, string> | null = null;
+/** キーボードの配列からキーの文字を読む（Chrome・Edge。対応していなければ何もしない） */
+export async function loadLayoutLabels(): Promise<boolean> {
+    const kb = (navigator as Navigator & { keyboard?: { getLayoutMap?(): Promise<Map<string, string>> } }).keyboard;
+    if (!kb?.getLayoutMap) return false;
+    try {
+        layoutLabels = await kb.getLayoutMap();
+        return true;
+    } catch {
+        return false;
+    }
+}
+export function codeLabel(code: string): string {
+    const ch = layoutLabels?.get(code);
+    if (ch && ch.trim()) return ch.toUpperCase();
+    const m = /^(?:Key|Digit)(.)$/.exec(code);
+    return m ? m[1] : CODE_LABELS[code] ?? code;
+}
+
+/** SOLVE・STAMP でエディタが使う修飾キー無しのキー（操作キーに割り当てられていると、そちらが優先される） */
+export interface EditorKey { code: string; shift?: boolean; desc: string; rule?: 'tet' | 'puyo'; sub?: 'solve' | 'stamp'; }
+export const PLACE_EDITOR_KEYS: EditorKey[] = [
+    { code: 'KeyP', desc: 'EDIT ⇔ SOLVE' },
+    { code: 'KeyP', shift: true, desc: 'PAINT → STAMP → NEXT' },
+    { code: 'KeyN', desc: 'NEXT モード' },
+    { code: 'KeyV', desc: 'MEMO を表示 / 戻す' },
+    { code: 'KeyV', shift: true, desc: '表示中の盤面を MEMO に' },
+    { code: 'ArrowUp', desc: '1段上（自由配置）' },
+    { code: 'Enter', desc: '今の位置で確定', rule: 'tet' },
+    { code: 'Backspace', desc: '最後の手を取り消す', sub: 'solve' },
+    { code: 'BracketLeft', desc: '前の手', sub: 'solve' },
+    { code: 'BracketRight', desc: '次の手', sub: 'solve' },
+    { code: 'Home', desc: '初期盤面', sub: 'solve' },
+    { code: 'End', desc: '最後の手', sub: 'solve' },
+    { code: 'Comma', desc: '連鎖の途中を前へ', rule: 'puyo', sub: 'solve' },
+    { code: 'Period', desc: '連鎖の途中を次へ', rule: 'puyo', sub: 'solve' },
+];
+const SHIFT_CODES = ['ShiftLeft', 'ShiftRight'];
+export function editorKeyLabel(k: EditorKey, alt = false): string {
+    return `${alt ? 'Alt+' : ''}${k.shift ? 'Shift+' : ''}${codeLabel(k.code)}`;
+}
+/** そのキーを先に取ってしまう操作キー（無ければ null）。Shift+◯ は Shift 自体が操作キーなら、押した時点でその操作になる */
+export function conflictOf(binds: PlaceBinds, k: EditorKey): PlaceAction | null {
+    const a = actionFor(binds, k.code);
+    if (a) return a;
+    if (k.shift) for (const c of SHIFT_CODES) { const s = actionFor(binds, c); if (s) return s; }
+    return null;
+}
+/** 今のルール・モードで使うエディタのキーのうち、操作キーと重なっている物 */
+export function placeConflicts(binds: PlaceBinds, rule: 'tet' | 'puyo', sub: 'solve' | 'stamp'): { key: EditorKey; action: PlaceAction }[] {
+    const out: { key: EditorKey; action: PlaceAction }[] = [];
+    for (const k of PLACE_EDITOR_KEYS) {
+        if ((k.rule && k.rule !== rule) || (k.sub && k.sub !== sub)) continue;
+        const action = conflictOf(binds, k);
+        if (action) out.push({ key: k, action });
+    }
+    return out;
+}
