@@ -152,6 +152,7 @@ void Player::receiveFromTet(int amount, double now) {
     g.internalUntil = now;       // 非表示期間なし
     g.readyAt = now + 1000.0;    // 異種戦（テト→ぷよ）は 1000ms 後に降下可能
     garbageQueue.push_back(g);
+    if (trace && fireOpen_) trace->fires.back().arrived += amount;
 }
 
 void Player::refreshReady() {
@@ -248,13 +249,14 @@ void Player::resolveTetAttack(int add, int n) {
     const int pendingOj = queueSum();
     double scoreForAttack = currentA;
     double carryOver = 0;
+    int offKind = 0;   // 記録用（TraceFire::stepOff）
     if (pendingOj > 0) {
         const double req = pendingOj * rate;
         if (currentA >= req) {
             garbageQueue.clear();
             stats.offsetByScore += pendingOj;
-            if (baseCarry < req) { scoreForAttack = add; stats.freeOffsets++; }
-            else scoreForAttack = currentA - req;
+            if (baseCarry < req) { scoreForAttack = add; stats.freeOffsets++; offKind = 3; }
+            else { scoreForAttack = currentA - req; offKind = 2; }
         } else {
             int offsetCount = (int)std::floor(currentA / rate);
             carryOver = std::fmod(currentA, rate);
@@ -271,7 +273,12 @@ void Player::resolveTetAttack(int add, int n) {
                                               [](const Garbage& g) { return g.amount <= 0; }),
                                garbageQueue.end());
             scoreForAttack = 0;
+            offKind = 1;
         }
+    }
+    if (trace && fireOpen_) {
+        trace->fires.back().stepQueue.push_back(pendingOj);
+        trace->fires.back().stepOff.push_back(offKind);
     }
     currentA = scoreForAttack;
     int lines = 0;

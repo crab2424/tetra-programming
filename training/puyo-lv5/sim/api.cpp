@@ -102,6 +102,10 @@ void jTrace(std::string& o, const PlayerTrace& tr, const PlayerStats& st) {
         jArr(o, f.stepColors);
         o += ",\"ojErased\":";
         jArr(o, f.stepOjamaErased);
+        o += ",\"arrived\":" + std::to_string(f.arrived) + ",\"stepQueue\":";
+        jArr(o, f.stepQueue);
+        o += ",\"stepOff\":";
+        jArr(o, f.stepOff);
         o += ",\"board\":\"" + f.board + "\"}";
     }
     o += "],\"drops\":[";

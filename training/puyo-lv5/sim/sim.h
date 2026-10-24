@@ -211,6 +211,9 @@ struct TraceFire {             // 1回の連鎖（発火〜連鎖終了）
     std::vector<std::vector<int>> steps;   // 段ごとの消えたグループのサイズ
     std::vector<int> stepColors;           // 段ごとの色数
     std::vector<int> stepOjamaErased;      // 段ごとに巻き込んで消えたおじゃま
+    int arrived = 0;                       // 異種戦：この連鎖の間にテトから届いたおじゃま
+    std::vector<int> stepQueue;            // 異種戦：段ごとの相殺の前の受け（キュー）
+    std::vector<int> stepOff;              // 異種戦：段ごとの相殺 0=受けなし 1=一部を点で 2=全部を点で（攻撃は残り）3=全部をただで（段の点を丸ごと攻撃）
     std::string board;                     // 発火直前の盤面（17×6, '0'..'6'）
 };
 struct TraceDrop { double t; int turn, amount; Ignite before, after; };
