@@ -127,6 +127,9 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
             safeFirePct: 0, safeMinIncoming: 0, safeFillHeight: 0,
             // §18.11 G の条件の絞り込み（2026-10-24。既定0＝今と同じ）：本線そのものを撃つのは本線が埋まるときだけ（Keep/Loss）・盤面の高さの下限（MinHeight/MinCol3）
             safeKeepPct: 0, safeLossPct: 0, safeMinHeight: 0, safeMinCol3: 0,
+            // §18 H1 テトのゲージへの構え（2026-10-24。既定0＝今と同じ）：ゲージが standbyMinOjama 個以上なら、育成の手を置いた後、
+            //   見えている NEXT（standbyDepth 手まで）で（届いた量＋ゲージ）×レート×standbyPct% を撃てる手を選ぶ（到達連鎖 standbyKeepPct% まで譲る・危険なら standbyDangerPct%）
+            standbyMinOjama: 0, standbyPct: 0, standbyDepth: 0, standbyKeepPct: 0, standbyDangerPct: 0,
         },
         fastVsTetWeights: { qYWeight: 16 },
         fastVsTetControl: { emergencyFireMinRatio: 89 },
@@ -156,6 +159,8 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         // §18 F（2026-10-23。既定0＝今と同じ）
         ojamaWorstDepth:   0,   // ojamaWorst の「端数の全パターンの最悪」を見る深さ（0=初手だけ。2=見えている3手すべて）
         ojamaWorstByReach: 0,   // 1=最悪のパターンを「降った後に撃てる連鎖が最小」で選ぶ（0=評価値が最小）
+        // §18 H2 後打ち（2026-10-24。既定0＝今と同じ）：1=カウンターの入り・発火点を届いた分（キュー）だけで見る（ゲージは H1 の構えだけ）
+        counterTriggerQueueOnly: 0,
     };
 
     _initWeights() {

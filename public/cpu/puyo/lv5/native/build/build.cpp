@@ -566,6 +566,81 @@ static void runExpectedChainSelection(
             }
             return false;
         };
+        // ── §18 H1 テトのゲージへの構え（lv6-vstet-design.md §18.14・§18.15。既定0＝無効）──
+        //   ゲージ（まだ送られていない火力の換算）が [102] 以上なら、育成の手を置いた後、見えている NEXT（[104] 手まで）で
+        //   （届いている量＋ゲージ）× レート × [103]% 以上の連鎖を実際に起こせるか見る。起こせなければ、撃たない初手のうち
+        //   到達連鎖が育成の手の [105]% 以上の手を構築品質の順に見て、起こせる最初の手に変える（ゲージが届いてから後打ちで返す）。
+        //   満たす手が無く、降った後の盤面が危険（緊急の高さ・窒息）なら [106]% で探し直す。どれも無ければ今と同じ。
+        if (w.standbyPct > 0 && w.ojamaRate > 0 && bestFm >= 0 && w.tetGaugeOjama > 0 &&
+            w.tetGaugeOjama >= std::max(1, w.standbyMinOjama)) {
+            dbgFlags |= 1 << 20;
+            const int stDepth = w.standbyDepth > 0 ? w.standbyDepth : 2;
+            const long long stTotal = (long long)(dInc + w.tetGaugeOjama) * w.ojamaRate;
+            // 構え：置いた後の盤面 b0 から、見えている NEXT で need 点以上を実際に起こせるか（2手目の前に初手の後の分、
+            //   NEXT2 の前に2手目の後の分を固定の順で降らせる。ゲージはその後に届くので降らせない）
+            auto canStandby = [&](int fm, long long need) {
+                int due = std::max(0, w.ojamaNow), later = std::max(0, w.ojamaNext);
+                BitBoard b1 = cands[fm].board0;
+                const int drop0 = std::min(due, 30);
+                if (drop0 > 0) dropOjamaOn(b1, drop0, fixedFracMask(drop0 % COLS));
+                if (b1.get(2, HIDDEN) != 0) return false;
+                const int due1 = due - drop0 + later;
+                for (const auto& p1 : getAllPlacements(b1)) {
+                    BitBoard n1 = applyPlacement(b1, p1, (uint8_t)nextPairs[2], (uint8_t)nextPairs[3]);
+                    ChainResult c1 = simulateChain(n1);
+                    if (n1.get(2, HIDDEN) != 0) continue;
+                    if (c1.score >= need) return true;
+                    if (stDepth < 2) continue;
+                    int d1 = due1;
+                    if (c1.score > 0) d1 = std::max(0, d1 - (int)(c1.score / w.ojamaRate));
+                    const int drop1 = std::min(d1, 30);
+                    if (drop1 > 0) {
+                        dropOjamaOn(n1, drop1, fixedFracMask(drop1 % COLS));
+                        if (n1.get(2, HIDDEN) != 0) continue;
+                    }
+                    for (const auto& p2 : getAllPlacements(n1)) {
+                        BitBoard n2 = applyPlacement(n1, p2, (uint8_t)nextPairs[4], (uint8_t)nextPairs[5]);
+                        ChainResult c2 = simulateChain(n2);
+                        if (n2.get(2, HIDDEN) == 0 && c2.score >= need) return true;
+                    }
+                }
+                return false;
+            };
+            // 構えのために選んでよい手（撃たない・生存・到達連鎖の下限）を構築品質の順に
+            const long long keepFloor = w.standbyKeepPct > 0
+                ? cands[bestFm].chainTarget * w.standbyKeepPct / 100 : chainFloor;
+            std::vector<std::pair<long long, int>> order;
+            for (int fm = 0; fm < nCand; fm++) {
+                if (fm == bestFm || !survivable(fm) || cands[fm].fireChains > 0) continue;
+                if (cands[fm].chainTarget < keepFloor) continue;
+                long long base = (cands[fm].bestAccum == LLONG_MIN) ? cands[fm].depth0Score : cands[fm].bestAccum;
+                order.push_back({base, fm});
+            }
+            std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+            auto findStandby = [&](int pct) {
+                const long long need = std::max(1LL, (stTotal * pct + 99) / 100);
+                if (canStandby(bestFm, need)) return bestFm;
+                for (const auto& o : order) if (canStandby(o.second, need)) return o.second;
+                return -1;
+            };
+            int stFm = findStandby(w.standbyPct);
+            if (stFm == bestFm) dbgFlags |= 1 << 23;   // 育成の手のままで構えを満たした
+            if (stFm < 0 && w.standbyDangerPct > 0) {
+                int aH = 0, c2 = 0, ojp = 0;
+                const bool dead = dropStats(cands[bestFm].board0, dInc + w.tetGaugeOjama, &aH, &c2, &ojp);
+                if (dead || aH >= w.emergencyHeight || c2 >= 9) { dbgFlags |= 1 << 22; stFm = findStandby(w.standbyDangerPct); }
+            }
+            if (stFm >= 0 && stFm != bestFm) {
+                dbgFlags |= 1 << 21;   // 構えのために手を変えた
+                bestFm = stFm;
+                selBase = (cands[stFm].bestAccum == LLONG_MIN) ? cands[stFm].depth0Score : cands[stFm].bestAccum;
+                selChain = cands[stFm].chainTarget;
+                selChainChains = cands[stFm].chainTargetChains;
+                selChainDepth  = cands[stFm].chainTargetDepth;
+                selChainIsFire = cands[stFm].chainTargetIsFire;
+            }
+        }
+
         bool danger = false;
         if ((w.dangerOjamaPct > 0 || w.dangerLossPct > 0) && bestFm >= 0 && dInc > 0) {
             danger = isDanger(cands[bestFm].board0, dInc);
@@ -935,6 +1010,8 @@ static void runExpectedChainSelection(
     //                13=相手を見て目標発火を保留した(P) 14=A で目標発火を保留した 15=A で倒せるので撃った
     //                16=§17 D 危険と判定した 17=§17 D [78] 降った後の盤面で緊急になった
     //                18=§18 G 安全な火力を確かめた 19=§18 G 安全でないので撃った（理由 10）
+    //                20=§18 H1 構えを確かめた 21=§18 H1 構えのために手を変えた 22=§18 H1 危険なので [106]% で探した
+    //                23=§18 H1 育成の手のままで構えを満たした（[103]%）
     //   [34] 催促候補の落ちた条件ごとの数（6bitずつ）: 0=段数超 1=点不足 2=詰む 3=残す本線の割合不足 4=残す本線の絶対量・段数不足
     //   [35] 緊急判定の高さ: bit0-4=致死列(第3列)の高さ bit5-9=平均高さ
     //   ※ 学習用シミュ（player.cpp）の out は 40 要素なので [39] まで使える。

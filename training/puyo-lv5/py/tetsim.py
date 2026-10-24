@@ -59,7 +59,8 @@ VSTET_KEYS = ["winner", "ms", "puyo_turns", "puyo_max_chain", "puyo_max_score", 
               "puyo_ojama_received", "puyo_counter_turns", "free_offsets", "offset_by_score",
               "tet_pieces", "tet_lines", "tet_tspins", "tet_tetrises", "tet_b2bs", "tet_ojama_sent", "tet_gauge",
               "tet_lines_received", "tet_garbage_taken", "tet_final_height", "puyo_tears", "puyo_tear_units",
-              "puyo_danger_turns", "puyo_danger_fires", "puyo_safe_checks", "puyo_safe_fires"]
+              "puyo_danger_turns", "puyo_danger_fires", "puyo_safe_checks", "puyo_safe_fires",
+              "puyo_standby_checks", "puyo_standby_changes", "puyo_standby_ok", "puyo_standby_danger"]
 
 
 def vstet_policy(name: str = "lv6", base: dict | None = None) -> puyosim.Policy:
@@ -74,7 +75,8 @@ def vstet_policy(name: str = "lv6", base: dict | None = None) -> puyosim.Policy:
          "terrainMax": "vt_terrain_max", "terrainQueue": "vt_terrain_queue",
          "terrainMinChains": "vt_terrain_min_chains", "terrainGainPct": "vt_terrain_gain_pct",
          "ojamaSearch": "vt_ojama_search", "ojamaWorst": "vt_ojama_worst", "ojamaTurnMs": "vt_ojama_turn_ms",
-         "ojamaWorstDepth": "vt_ojama_worst_depth", "ojamaWorstByReach": "vt_ojama_worst_by_reach"}
+         "ojamaWorstDepth": "vt_ojama_worst_depth", "ojamaWorstByReach": "vt_ojama_worst_by_reach",
+         "counterTriggerQueueOnly": "vt_counter_queue_only"}
     kw = {m[k]: int(v) for k, v in d.items() if k in m and v}
     return pol.with_ext(**kw) if kw else pol
 
@@ -98,10 +100,10 @@ def run_vstet(pol, seeds, settings: puyosim.Settings | None = None, both_orders:
     first = np.tile(np.array(orders, dtype=np.int32), len(seeds))
     n = len(sd)
     pp = np.ascontiguousarray(np.tile(packed, (n, 1)).astype(np.int32))
-    out = np.zeros(n * 26, dtype=np.float64)
+    out = np.zeros(n * 30, dtype=np.float64)
     L.sim_run_vstet(n, pp.ravel(), sd, first, s.ojama_rate, s.color_count, s.margin_time_ms, s.max_game_ms,
                     threads, out)
-    out = out.reshape(n, 26)
+    out = out.reshape(n, 30)
     return [dict(zip(VSTET_KEYS, row), seed=int(sd[i]), puyo_first=int(first[i])) for i, row in enumerate(out)]
 
 
@@ -136,7 +138,7 @@ def run_vstet_batch(packed_cands, seeds, settings: puyosim.Settings | None = Non
     pp = np.ascontiguousarray(np.repeat(cands, ns, axis=0))
     sd = np.tile(seeds, nc)
     first = np.ones(nc * ns, dtype=np.int32)
-    out = np.zeros(nc * ns * 26, dtype=np.float64)
+    out = np.zeros(nc * ns * 30, dtype=np.float64)
     L.sim_run_vstet(nc * ns, pp.ravel(), sd, first, s.ojama_rate, s.color_count, s.margin_time_ms, s.max_game_ms,
                     threads, out)
-    return (out.reshape(nc, ns, 26)[:, :, 0] == 0).astype(np.int8)
+    return (out.reshape(nc, ns, 30)[:, :, 0] == 0).astype(np.int8)

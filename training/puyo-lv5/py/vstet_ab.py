@@ -37,6 +37,9 @@ D_EMERG, D_OJ, D_LOSS, D_MIN, D_FIRE, D_OFF, D_KEEP, D_RED = 78, 79, 80, 81, 82,
 E_W, E_BUR, E_REACH, E_ROWS, E_KEY = 86, 87, 88, 89, 90                                        # §17 E
 F_FAR, G_PCT, G_MIN, G_FILL = 91, 94, 95, 96                                                   # §18 F・G（[92][93] は ext）
 G_KEEP, G_LOSS, G_MINH, G_MINC3 = 97, 98, 99, 100                                             # §18.11 G の条件の絞り込み
+S_MIN, S_PCT, S_DEPTH, S_KEEP, S_DANGER = 102, 103, 104, 105, 106                             # §18 H1 構え（[101] は思考ごとの入力）
+# ユーザーの回答（§18.15）：ゲージ 8＝20個以上・全部相殺（危険なら 70%）・到達連鎖 70% まで譲る・NEXT2 まで
+ST_USER = {S_MIN: 20, S_PCT: 100, S_DEPTH: 2, S_KEEP: 70, S_DANGER: 70}
 VARIANTS = {
     "base": mk(),
     # ① 降っても撃てる（K）：おじゃまを qKeepRows 段載せた後に起こせる連鎖に価値（正）／失う量に罰（負）
@@ -171,6 +174,15 @@ VARIANTS = {
     "g100k50l50h7": mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 50, G_MINH: 7}),
     "g100k50l50h6m7": mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 50, G_MINH: 6, G_MIN: 7}),
     "g70k50l50":    mk({G_PCT: 70, G_KEEP: 50, G_LOSS: 50}),
+    # §18 H1 テトのゲージへの構え・H2 後打ち（カウンターの入り・発火点を届いた分だけで見る）
+    "h2q":          mk(vt_counter_queue_only=1),
+    "st20":         mk(ST_USER),
+    "st20q":        mk(ST_USER, vt_counter_queue_only=1),                     # ユーザーの回答どおり（H1＋H2）
+    "st20n1q":      mk({**ST_USER, S_DEPTH: 1}, vt_counter_queue_only=1),     # NEXT1 だけ
+    "st20bq":       mk({**ST_USER, S_KEEP: 0}, vt_counter_queue_only=1),      # 本線は譲らない（band の中だけ）
+    "st20p70q":     mk({**ST_USER, S_PCT: 70}, vt_counter_queue_only=1),      # いつも 70%
+    "st13q":        mk({**ST_USER, S_MIN: 13}, vt_counter_queue_only=1),      # ゲージ 6（13個）から
+    "st8q":         mk({**ST_USER, S_MIN: 8}, vt_counter_queue_only=1),       # ゲージ 4（8個）から
     "g100h5":       mk({G_PCT: 100, G_MINH: 5}),
     "g100k50l50h5": mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 50, G_MINH: 5}),
     "g150h6":       mk({G_PCT: 150, G_MINH: 6}),
@@ -218,6 +230,8 @@ def main() -> None:
                  f"・負け局で本線級(5+)なし {(a['puyo_max_chain'][lose] < 5).mean():.0%}"
                  f"・危険 {a['puyo_danger_turns'].mean():.1f} 手／撃った {a['puyo_danger_fires'].mean():.1f}"
                  f"・G 確認 {a['puyo_safe_checks'].mean():.1f} 手／撃った {a['puyo_safe_fires'].mean():.1f}"
+                 f"・構え 確認 {a['puyo_standby_checks'].mean():.2f} 手／そのまま満たす {a['puyo_standby_ok'].mean():.2f}"
+                 f"／危険 {a['puyo_standby_danger'].mean():.2f}／変えた {a['puyo_standby_changes'].mean():.2f}"
                  f"・1手 {(time.time() - t) * 1000 / max(1, a['puyo_turns'].sum()):.2f}ms"
                  f"（{time.time() - t:.0f}s）")
         print(line, flush=True)

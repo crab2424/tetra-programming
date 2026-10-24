@@ -383,9 +383,11 @@ void Player::decide(Player* opp) {
         }
     }
 
+    // §18 H2 後打ち（本番 _updateVersusCounterMode の counterInc と同じ）：対テトのカウンターの入り・発火点を届いた分だけで見る
+    const int counterInc = (tet && X[X_VT_COUNTER_QUEUE_ONLY]) ? queueSum() : incoming;
     bool wantCounter = false;
     if (waitMode == 0) {
-        wantCounter = (opp || tet) && (counterActive_ ? incoming > 0 : incoming > pp_.counterTrigger);
+        wantCounter = (opp || tet) && (counterActive_ ? counterInc > 0 : counterInc > pp_.counterTrigger);
         counterActive_ = wantCounter;
     } else {
         counterActive_ = true;   // 撃った後は従来のヒステリシスに戻す
@@ -426,7 +428,7 @@ void Player::decide(Player* opp) {
             int base = X[X_VT_QUEUE_ONLY] ? queueSum() : incoming;
             wa[34] = (int)std::ceil(std::max(1, base) * (double)rate * X[X_VT_COUNTER_PCT] / 100.0);
         } else {
-            wa[34] = (int)std::ceil((incoming + 1) * (double)rate * pp_.counterMargin);
+            wa[34] = (int)std::ceil((counterInc + 1) * (double)rate * pp_.counterMargin);
         }
         stats.counterTurns++;
     } else {
@@ -473,7 +475,7 @@ void Player::decide(Player* opp) {
         wa[67] = terrainTet ? X[X_VT_TERRAIN_GAIN_PCT] : 0;
         // §15 おじゃまを降らせる探索（本番 cpu5_worker_io.js _setOjamaSearchInputs と同じ）：
         //   キューのうち ready 済み・ready まで残り turnMs 以内は初手の後 [74]、それ以外は2手目の後 [75]。テトのゲージは入れない。
-        wa[74] = wa[75] = wa[76] = wa[77] = wa[92] = wa[93] = 0;
+        wa[74] = wa[75] = wa[76] = wa[77] = wa[92] = wa[93] = wa[101] = 0;
         if (tet && X[X_VT_OJAMA_SEARCH]) {
             const double turnMs = X[X_VT_OJAMA_TURN_MS] > 0 ? X[X_VT_OJAMA_TURN_MS] : 560.0;
             for (const auto& g : garbageQueue) {
@@ -485,6 +487,7 @@ void Player::decide(Player* opp) {
             wa[77] = X[X_VT_OJAMA_WORST];
             wa[92] = X[X_VT_OJAMA_WORST_DEPTH];      // §18 F
             wa[93] = X[X_VT_OJAMA_WORST_BY_REACH];
+            wa[101] = tsim::tetGaugeToOjama(std::max(0, tet->pendingAttack));   // §18 H1 構え（[103] > 0 のときだけ使われる）
         }
         // P 相手を見て撃つ（本番 _updateVersusCounterMode と worker の _ignitionScoreWasm と同じ。§13.6）：
         //   build の本線構築中で相手が連鎖中でないとき、相手のすぐ起こせる火力を入れる。
@@ -560,6 +563,10 @@ void Player::decide(Player* opp) {
     if (out[23] >= 7 && out[23] <= 9) stats.dangerFires++;          // §17 D 危険で撃った
     if (out[33] > 0 && (out[33] & (1 << 18))) stats.safeChecks++;   // §18 G 安全な火力を確かめた
     if (out[23] == 10) stats.safeFires++;                          // §18 G 撃たないと埋まるので撃った
+    if (out[33] > 0 && (out[33] & (1 << 20))) stats.standbyChecks++;   // §18 H1 構えを確かめた
+    if (out[33] > 0 && (out[33] & (1 << 21))) stats.standbyChanges++;  // §18 H1 構えのために手を変えた
+    if (out[33] > 0 && (out[33] & (1 << 23))) stats.standbyOk++;       // §18 H1 育成の手のままで構えを満たした
+    if (out[33] > 0 && (out[33] & (1 << 22))) stats.standbyDanger++;   // §18 H1 危険なので [106]% で探した
     lastMode_ = terrain ? 4 : waitMode == 1 ? 2 : waitMode == 2 ? 3 : wantCounter ? 1 : 0;   // 記録用 2=待つ 3=締切/即撃ち 4=地形優先の対応
     lastReason_ = out[23];
     if (trace) {

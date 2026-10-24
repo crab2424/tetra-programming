@@ -105,6 +105,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         this._ojamaWorst = 0;
         this._ojamaWorstDepth = 0;    // §18 F（思考ごと。lv6 の対テトのみ）
         this._ojamaWorstByReach = 0;
+        this._tetGaugeOjama = 0;      // §18 H1 テトのゲージへの構え（思考ごと。lv6 の対テトのみ）
         this._updateVersusCounterMode(incomingGross);
 
         // ★ weightsArray を組み立てる（cpu5_weights.js）。発火制御はモード/カウンター側へ移行済み。
@@ -709,6 +710,8 @@ Object.assign(window.PuyoCPU5.prototype, {
         this._ojamaWorst = vt.ojamaWorst | 0;
         this._ojamaWorstDepth = vt.ojamaWorstDepth | 0;
         this._ojamaWorstByReach = vt.ojamaWorstByReach | 0;
+        // §18 H1：テトのゲージの換算（_getIncomingBaseline の予測分）。wasm は [103] standbyPct > 0 のときだけ使う
+        this._tetGaugeOjama = Math.max(0, this._anticipatedOjama | 0);
     },
 
     _updateVersusCounterMode(incomingGross) {
@@ -752,11 +755,15 @@ Object.assign(window.PuyoCPU5.prototype, {
         // ★ 後打ちの活用（提案2）。lv5 は未設定（_vsDecision なし）＝従来どおり。lv6 が有効にする。
         if (this._updateCounterWait(incomingGross, rate)) return;
 
+        // ★ §18 H2 後打ち（lv6 の VS_TET.counterTriggerQueueOnly。既定0）：対テトのカウンターの入り・発火点を
+        //   届いた分（キュー）だけで見る。テトのゲージ（まだ送られていない分）は H1 の構えにだけ使う。
+        const counterInc = (this._isOpponentTet() && (vt.counterTriggerQueueOnly | 0) > 0)
+            ? (this._committedOjama ?? incomingGross) : incomingGross;
         let wantCounter;
         if (this._counterActive) {
-            wantCounter = incomingGross > 0;                       // 受け量が尽きるまで継続
+            wantCounter = counterInc > 0;                          // 受け量が尽きるまで継続
         } else {
-            wantCounter = incomingGross > COUNTER_TRIGGER_OJAMA;   // しきい値超えで発動
+            wantCounter = counterInc > COUNTER_TRIGGER_OJAMA;      // しきい値超えで発動
         }
 
         const prevMode = this.cpuMode;
@@ -810,7 +817,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             const margin = this._isOpponentTet() ? (vtc.counterMargin || COUNTER_MARGIN_VSTET) : (ov.marginVsPuyo ?? COUNTER_MARGIN_VSPUYO);
             appliedMargin = margin;
             this.controlWeights.fireChainCount     = 0;
-            this.controlWeights.fireScoreThreshold = Math.ceil((incomingGross + 1) * rate * margin);
+            this.controlWeights.fireScoreThreshold = Math.ceil((counterInc + 1) * rate * margin);
             // ★ ④ 対テト（lv6 の VS_TET.counterPct。lv5 は未設定＝上のまま。lv6-vstet-design.md §10）：
             //   受け量ちょうどを点で消せれば、その段の点は丸ごと攻撃になる（ただの相殺）＝上乗せしない。
             //   相殺できるのは届いた分（キュー）だけなので、queueOnly ならテトのゲージ換算（予測）を入れない。

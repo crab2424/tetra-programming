@@ -298,7 +298,14 @@ Object.assign(window.PuyoCPU5.prototype, {
             this.controlWeights.safeKeepPct || 0,                    // [97] 撃つ手が本線を残す＝撃った後の本線 ≥ 今の本線×この%（0=見ない）
             this.controlWeights.safeLossPct || 0,                    // [98] 本線を残さない手は、安全な火力 < 今の本線×この% のときだけ撃つ
             this.controlWeights.safeMinHeight || 0,                  // [99] 届いている量を降らせた後の平均の高さがこれ以上のときだけ G を見る（0=見ない）
-            this.controlWeights.safeMinCol3 || 0                     // [100] 同じく第3列の高さ（[99] と両方あればどちらか。0=見ない）
+            this.controlWeights.safeMinCol3 || 0,                    // [100] 同じく第3列の高さ（[99] と両方あればどちらか。0=見ない）
+            // ── 対テト §18 H1 テトのゲージへの構え（lv6-vstet-design.md §18.14・§18.15。既定0＝無効。lv6 の VS_TET.vsTetControl）──
+            this._tetGaugeOjama || 0,                                // [101] テトのゲージの換算（個。思考ごと）
+            this.controlWeights.standbyMinOjama || 0,                // [102] 構えを求めるゲージの下限（個）
+            this.controlWeights.standbyPct || 0,                     // [103] 構えに要る点＝(届いた量＋ゲージ)×レート×この%（0=使わない）
+            this.controlWeights.standbyDepth || 0,                   // [104] 構えを見る手 1=NEXT1／2=NEXT2 まで（0=2）
+            this.controlWeights.standbyKeepPct || 0,                 // [105] 構えのために選んでよい手：到達連鎖が育成の手のこの%以上（0=band の中だけ）
+            this.controlWeights.standbyDangerPct || 0                // [106] 満たす手が無く危険なら、この%で探し直す（0=使わない）
         ]);
     },
 

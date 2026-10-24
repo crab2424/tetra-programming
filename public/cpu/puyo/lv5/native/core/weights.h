@@ -206,11 +206,20 @@ struct EvalWeights {
     int safeLossPct;       // [98] 案1：本線を残さない手は、育成の手の安全な火力 < basePot × この% （放っておいても本線が埋まる）のときだけ撃つ
     int safeMinHeight;     // [99] 案2：届いている量を全部降らせた後の平均の高さがこれ以上のときだけ G を見る（0=見ない）
     int safeMinCol3;       // [100] 案2：同じく第3列の高さがこれ以上のときだけ（[99] と両方あればどちらか。0=見ない）
+    // ── 対テト §18 H1：テトのゲージへの構え（lv6 のみ。既定0＝無効。設計: lv6-vstet-design.md §18.14・§18.15）──
+    //   ゲージが [102] 以上なら、育成の手を置いた後、見えている NEXT（[104] 手まで）で
+    //   （届いている量 [74]+[75] ＋ ゲージ [101]）× レート × [103]% 以上を実際に撃てる手を選ぶ。
+    int tetGaugeOjama;     // [101] 入力（思考ごと）：テトのゲージの換算（個）。0=使わない
+    int standbyMinOjama;   // [102] 構えを求めるゲージの下限（個。0=1）
+    int standbyPct;        // [103] 構えに要る点の割合（0=使わない）
+    int standbyDepth;      // [104] 構えを見る手：1=NEXT1 で撃てる／2=NEXT2 まで（0=2）
+    int standbyKeepPct;    // [105] 構えのために選んでよい手：到達連鎖が育成の手のこの%以上（0=band の中だけ）
+    int standbyDangerPct;  // [106] [103] を満たす手が無く、降った後の盤面が危険（緊急の高さ・窒息）なら、この%で構えを探す（0=使わない）
 };
 
 // JS 側 weightsArray[N]（cpu5_weights.js _buildWeightsArray）→ EvalWeights。
 //   wasm エントリ（cpu5.cpp）と学習用ネイティブシミュ（training/puyo-lv5）の両方が使う単一の対応表。
-//   weightsArray は 101 要素（[0..100]）。
+//   weightsArray は 107 要素（[0..106]）。
 inline EvalWeights weightsFromArray(const int* weightsArray) {
     EvalWeights w;
     // ── 報酬 (reward) ──
@@ -337,5 +346,11 @@ inline EvalWeights weightsFromArray(const int* weightsArray) {
     w.safeLossPct         = weightsArray[98];
     w.safeMinHeight       = weightsArray[99];
     w.safeMinCol3         = weightsArray[100];
+    w.tetGaugeOjama       = weightsArray[101];
+    w.standbyMinOjama     = weightsArray[102];
+    w.standbyPct          = weightsArray[103];
+    w.standbyDepth        = weightsArray[104];
+    w.standbyKeepPct      = weightsArray[105];
+    w.standbyDangerPct    = weightsArray[106];
     return w;
 }

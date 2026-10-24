@@ -38,9 +38,9 @@ constexpr int    ERASE_COUNT      = 4;
 constexpr int    NEXT_KEEP        = 20;                   // 内部 NEXT 保持数
 
 // ── 重みパラメータ（Python ↔ C++ の受け渡し単位）──
-constexpr int W_LEN  = 101;                // cpu5_weights.js _buildWeightsArray の要素数
+constexpr int W_LEN  = 107;                // cpu5_weights.js _buildWeightsArray の要素数
 constexpr int EXT_LEN = 32;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
-constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[101] + fast[101] + counterTrigger + counterMargin×1000 + ext[32]
+constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[107] + fast[107] + counterTrigger + counterMargin×1000 + ext[32]
 
 // ext[] の添字（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md）
 enum ExtIndex {
@@ -81,6 +81,8 @@ enum ExtIndex {
     // ── 対テト §18 F（lv6 の VS_TET.ojamaWorstDepth/ojamaWorstByReach と同じ）──
     X_VT_OJAMA_WORST_DEPTH = 29,  // [92] 端数の全パターンの最悪を見る深さ（0=初手だけ）
     X_VT_OJAMA_WORST_BY_REACH,    // [93] 1=最悪を「降った後に撃てる連鎖が最小」で選ぶ
+    // ── 対テト §18 H2 後打ち（lv6 の VS_TET.counterTriggerQueueOnly と同じ）──
+    X_VT_COUNTER_QUEUE_ONLY = 31, // 1=カウンターの入り・発火点を届いた分（キュー）だけで見る（ゲージは H1 の構えだけ）
 };
 // A：テトを倒すのに要る点の目安（lines 段のラインを 4個消しだけの連鎖で送るのに要る点。rate で換算）。本番 cpu5_worker_io.js _vtKillScore と同じ
 int vtKillScore(int tetHeight, int queuedLines, int tetInternal, int pct, int rate);
@@ -170,6 +172,10 @@ struct PlayerStats {
     int       dangerFires = 0;     // §17 D：危険で撃った手数（発火理由 7=反撃 8=相殺 9=軽減）
     int       safeChecks = 0;      // §18 G：安全な火力を確かめた手数（build.cpp dbgFlags bit18）
     int       safeFires = 0;       // §18 G：撃たないと埋まるので撃った手数（発火理由 10）
+    int       standbyChecks = 0;   // §18 H1：構えを確かめた手数（build.cpp dbgFlags bit20）
+    int       standbyChanges = 0;  // §18 H1：構えのために手を変えた手数（bit21）
+    int       standbyOk = 0;       // §18 H1：育成の手のままで構えを満たした手数（bit23）
+    int       standbyDanger = 0;   // §18 H1：満たす手が無く危険なので [106]% で探した手数（bit22）
 };
 
 // ── 記録（負け方の分析用。Player::trace が nullptr の学習時は何もしない）──
