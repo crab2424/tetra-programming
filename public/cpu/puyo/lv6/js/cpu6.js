@@ -161,6 +161,10 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         ojamaWorstByReach: 0,   // 1=最悪のパターンを「降った後に撃てる連鎖が最小」で選ぶ（0=評価値が最小）
         // §18 H2 後打ち（2026-10-24。既定0＝今と同じ）：1=カウンターの入り・発火点を届いた分（キュー）だけで見る（ゲージは H1 の構えだけ）
         counterTriggerQueueOnly: 0,
+        // §18 W-a 待機（2026-10-24。既定0＝待たない。実機確認用）：カウンターで撃つ手で、テトのゲージの換算が waitMinGauge 個以上なら、
+        //   quickDrop だけを止めてゲージが届くまで待つ（上限 waitMaxMs、0=1500ms。自然に固定したらそこまで）。ユーザーの回答では 20（ゲージ 8）
+        waitMinGauge: 0,
+        waitMaxMs:    0,
     };
 
     _initWeights() {

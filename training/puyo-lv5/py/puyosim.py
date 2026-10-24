@@ -17,7 +17,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "build"
 W_LEN = 107
-EXT_LEN = 32                       # 試作中の対戦判断（sim.h ExtIndex）。0 埋め＝現行 lv5
+EXT_LEN = 40                       # 試作中の対戦判断（sim.h ExtIndex）。0 埋め＝現行 lv5
 PP_LEN = W_LEN * 2 + 2 + EXT_LEN
 EXT = {"p1_enable": 0, "p1_alpha": 1, "p1_kill_ratio": 2, "p1_kill_min": 3,
        "p2_enable": 4, "p2_safety_ms": 5, "p2_min_incoming": 6, "p2_wait_fast": 7, "p2_turn_ms": 8,
@@ -30,7 +30,7 @@ EXT = {"p1_enable": 0, "p1_alpha": 1, "p1_kill_ratio": 2, "p1_kill_min": 3,
        # 対テト §15：おじゃまを降らせる探索
        "vt_ojama_search": 26, "vt_ojama_worst": 27, "vt_ojama_turn_ms": 28,
        "vt_ojama_worst_depth": 29, "vt_ojama_worst_by_reach": 30,
-       "vt_counter_queue_only": 31}
+       "vt_counter_queue_only": 31, "vt_wait_min_gauge": 32, "vt_wait_max_ms": 33}
 
 
 def _lib_path() -> Path:

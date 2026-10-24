@@ -26,6 +26,8 @@ Object.assign(window.PuyoCPU5.prototype, {
         this.actionQueue = Array.isArray(path)
             ? this._buildActionQueueFromPath(path)
             : this._buildActionQueue(targetCol, targetRot);
+        // §18 W-a 待機（cpu5_worker_io.js _planCounterWait。null＝待たない）：最後の quickDrop の前にゲージが届くまで待つ
+        this._counterWait = (this.bestMoveData && this.bestMoveData.wait) || null;
 
         setTimeout(() => {
             this._processActionQueue();
@@ -106,6 +108,7 @@ Object.assign(window.PuyoCPU5.prototype, {
                 this.game._tryMove(1);
                 break;
             case 'quickDrop':
+                if (this._counterWait) { this._waitThenQuickDrop(this._counterWait, performance.now()); return; }
                 this._startQuickDrop();
                 return;
         }
@@ -150,6 +153,37 @@ Object.assign(window.PuyoCPU5.prototype, {
         setTimeout(() => {
             this.isExecutingAction = false;
         }, this.placeDelay);
+    },
+
+    // ★ §18 W-a 待機：ゲージが届く・上限を過ぎる・自然に固定される（falling でなくなる）のどれかまで quickDrop を止める。
+    //   待っている間はゲーム本体の重力で真下に落ちる（置き方は同じ）。ポーズ中は待ち時間に数えない。
+    _waitThenQuickDrop(w, startMs) {
+        this._counterWait = null;
+        const turn0 = this._turnNo;   // 自然に固定して次の手の思考に進んでいたら止める（念のため）
+        const step = (elapsed, last) => {
+            if (!this.isActive || !this.isAutoPlay || this._turnNo !== turn0) { this.isExecutingAction = false; return; }
+            const now = performance.now();
+            const paused = this.game.isPaused || this.game.state === 'paused';
+            if (!paused) elapsed += now - last;
+            if (!paused && this.game._gs !== 'falling') {           // 自然に着地・固定した（それで撃ったことになる）
+                this._logCounterWait(w, elapsed, 'landed');
+                this.isExecutingAction = false;
+                return;
+            }
+            if (!paused && (this._counterWaitArrived(w) || elapsed >= w.maxMs)) {
+                this._logCounterWait(w, elapsed, elapsed >= w.maxMs && !this._counterWaitArrived(w) ? 'timeout' : 'arrived');
+                this._startQuickDrop();
+                return;
+            }
+            setTimeout(() => step(elapsed, now), 30);
+        };
+        step(0, startMs);
+    },
+
+    _logCounterWait(w, elapsed, how) {
+        if (typeof this._logEnabled !== 'function' || !this._logEnabled()) return;
+        const what = how === 'arrived' ? 'ゲージが届いたので撃つ' : how === 'timeout' ? '上限で撃つ' : '自然に固定（撃った）';
+        console.log(`${this._logTag(this._turnNo)} 待機（W-a）：ゲージ ${w.gauge}個・思考の時の届いた分 ${w.baseQueue}個 → ${Math.round(elapsed)}ms 待って${what}`);
     },
 
     // 旧ソフトドロップ実装の重力退避の後始末（クイックドロップ化後は退避しないので実質 no-op）。

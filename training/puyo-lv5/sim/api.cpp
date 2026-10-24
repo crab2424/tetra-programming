@@ -153,7 +153,7 @@ void sim_run_matches(int nJobs, const int* pa, const int* pb, const uint32_t* se
 }
 
 // 異種戦バッチ（ぷよ 対 テト CPU lv5）。pp は各ジョブのぷよの PolicyParams（build=vsTet・fast=fastVsTet）。
-//   puyoFirst[j]=1 なら同時刻はぷよを先に処理する。out[j*30 + k]:
+//   puyoFirst[j]=1 なら同時刻はぷよを先に処理する。out[j*33 + k]:
 //    0 勝者(0=ぷよ,1=テト,-1=引分) 1 時間ms 2 ぷよ手数 3 ぷよ最大連鎖 4 ぷよ最大連鎖点 5 ぷよ→テトのライン
 //    6 ぷよが受けた（降った）おじゃま 7 ぷよのカウンター手数 8 ただの相殺の回数 9 段の点で相殺した個数
 //   10 テト手数 11 テトライン 12 テト TSD 等 13 テトリス 14 B2B 15 テト→ぷよのおじゃま 16 ゲージ
@@ -162,6 +162,7 @@ void sim_run_matches(int nJobs, const int* pa, const int* pb, const uint32_t* se
 //   22 §17 D 危険と判定した手数 23 危険で撃った手数（反撃・相殺・軽減）
 //   24 §18 G 安全な火力を確かめた手数 25 撃たないと埋まるので撃った手数
 //   26 §18 H1 構えを確かめた手数 27 構えのために手を変えた手数 28 育成の手のままで満たした手数 29 危険で [106]% で探した手数
+//   30 §18 W-a 待った回数 31 待った時間の合計 ms 32 ゲージが届いて撃った回数
 void sim_run_vstet(int nJobs, const int* pp, const uint32_t* seeds, const int* puyoFirst,
                    int ojamaRate, int colorCount, int marginTimeMs, double maxGameMs,
                    int nThreads, double* out) {
@@ -170,8 +171,8 @@ void sim_run_vstet(int nJobs, const int* pp, const uint32_t* seeds, const int* p
     parallelFor(nJobs, nThreads, [&](int j) {
         PolicyParams P = PolicyParams::fromPacked(pp + (size_t)j * PP_LEN);
         VsTetResult r = runMatchVsTet(P, seeds[j], gs, puyoFirst[j] != 0);
-        double* o = out + (size_t)j * 30;
-        for (int k = 0; k < 30; k++) o[k] = 0;
+        double* o = out + (size_t)j * 33;
+        for (int k = 0; k < 33; k++) o[k] = 0;
         o[0] = r.winner; o[1] = r.durationMs; o[2] = r.puyo.turns; o[3] = r.puyo.maxChain;
         o[4] = (double)r.puyo.maxChainScore; o[5] = (double)r.puyo.tetLinesSent; o[6] = (double)r.puyo.ojamaReceived;
         o[7] = r.puyo.counterTurns; o[8] = (double)r.puyo.freeOffsets; o[9] = (double)r.puyo.offsetByScore;
@@ -183,6 +184,7 @@ void sim_run_vstet(int nJobs, const int* pp, const uint32_t* seeds, const int* p
         o[24] = r.puyo.safeChecks; o[25] = r.puyo.safeFires;
         o[26] = r.puyo.standbyChecks; o[27] = r.puyo.standbyChanges;
         o[28] = r.puyo.standbyOk; o[29] = r.puyo.standbyDanger;
+        o[30] = r.puyo.counterWaits; o[31] = r.puyo.counterWaitMs; o[32] = r.puyo.counterWaitArrived;
     });
 }
 

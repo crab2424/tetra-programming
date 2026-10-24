@@ -39,8 +39,8 @@ constexpr int    NEXT_KEEP        = 20;                   // 内部 NEXT 保持�
 
 // ── 重みパラメータ（Python ↔ C++ の受け渡し単位）──
 constexpr int W_LEN  = 107;                // cpu5_weights.js _buildWeightsArray の要素数
-constexpr int EXT_LEN = 32;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
-constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[107] + fast[107] + counterTrigger + counterMargin×1000 + ext[32]
+constexpr int EXT_LEN = 40;                // 試作中の対戦判断（ext[]）。0 埋め＝無効＝現行 lv5 と同じ
+constexpr int PP_LEN = W_LEN * 2 + 2 + EXT_LEN; // build[107] + fast[107] + counterTrigger + counterMargin×1000 + ext[40]
 
 // ext[] の添字（設計: source_assets/memory/cpu/puyo/lv5-vs-decision-design.md）
 enum ExtIndex {
@@ -83,6 +83,9 @@ enum ExtIndex {
     X_VT_OJAMA_WORST_BY_REACH,    // [93] 1=最悪を「降った後に撃てる連鎖が最小」で選ぶ
     // ── 対テト §18 H2 後打ち（lv6 の VS_TET.counterTriggerQueueOnly と同じ）──
     X_VT_COUNTER_QUEUE_ONLY = 31, // 1=カウンターの入り・発火点を届いた分（キュー）だけで見る（ゲージは H1 の構えだけ）
+    // ── 対テト §18 W-a 待機（lv6 の VS_TET.waitMinGauge/waitMaxMs と同じ）──
+    X_VT_WAIT_MIN_GAUGE = 32,     // カウンターで撃つ手で、ゲージの換算がこれ以上なら quickDrop をゲージが届くまで止める（0=使わない）
+    X_VT_WAIT_MAX_MS,             // 待ちの上限（ms。0=1500）
 };
 // A：テトを倒すのに要る点の目安（lines 段のラインを 4個消しだけの連鎖で送るのに要る点。rate で換算）。本番 cpu5_worker_io.js _vtKillScore と同じ
 int vtKillScore(int tetHeight, int queuedLines, int tetInternal, int pct, int rate);
@@ -176,6 +179,9 @@ struct PlayerStats {
     int       standbyChanges = 0;  // §18 H1：構えのために手を変えた手数（bit21）
     int       standbyOk = 0;       // §18 H1：育成の手のままで構えを満たした手数（bit23）
     int       standbyDanger = 0;   // §18 H1：満たす手が無く危険なので [106]% で探した手数（bit22）
+    int       counterWaits = 0;    // §18 W-a：撃つ手で待った回数
+    double    counterWaitMs = 0;   // §18 W-a：待った時間の合計（ms）
+    int       counterWaitArrived = 0;   // §18 W-a：ゲージが届いて撃った回数（残りは上限・自然に固定）
 };
 
 // ── 記録（負け方の分析用。Player::trace が nullptr の学習時は何もしない）──
@@ -227,7 +233,7 @@ std::string boardString(const Field& f);
 
 class Player {
 public:
-    enum Phase { SPAWN, PLACE, CHECK, ERASED, SPAWN_ANIM_END, DEAD };
+    enum Phase { SPAWN, PLACE, CHECK, ERASED, SPAWN_ANIM_END, DEAD, WAIT };
 
     Player(const PolicyParams& pp, const GameSettings& gs, uint32_t seed);
 
@@ -279,6 +285,8 @@ public:
 private:
     friend struct SimTest;   // tests/test_ojama.cpp
     void decide(Player* opp);
+    void finishPlacement();
+    bool counterWaitArrived() const;
     void applyOffset(int amount, Player* opp, double now);
     bool generateOjama();
     void chainEnd(Player* opp);
@@ -316,6 +324,11 @@ private:
     int   turnChainScore_ = 0;
     int   lastMode_ = 0, lastReason_ = 0;   // 記録用：直近の decide() のモード・発火理由
     bool  fireOpen_ = false;                // 記録用：trace->fires.back() が連鎖中
+    // §18 W-a 待機：decide() が決め（撃つ手・ゲージの換算・その時の届いた分）、SPAWN の後 WAIT で quickDrop を止める
+    bool   waitPlan_ = false;
+    int    waitGauge_ = 0, waitBaseQueue_ = 0;
+    double waitUntil_ = 0, waitStart_ = 0;
+    int    pendingSplit_ = 0;
     long long turnChainScoreSum_ = 0;
 
     std::pair<int,int> makePair(int excludeColor);

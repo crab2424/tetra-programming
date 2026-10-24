@@ -180,6 +180,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             col2: res[3], rot2: res[4],
             col3: res[5], rot3: res[6],
             path: path,
+            wait: this._planCounterWait(res),   // §18 W-a（lv6 の対テトのみ。既定 null＝待たない）
         };
 
         const evalEl = document.getElementById('eval-value');
@@ -1110,6 +1111,30 @@ Object.assign(window.PuyoCPU5.prototype, {
         const q = this.game && this.game.garbageQueue;
         if (!q) return false;
         return q.some(g => g && g.ready && g.amount > 0 && (!g.internal || (g.internalTimer ?? 0) <= ms));
+    },
+
+    // ★ §18 W-a 待機（lv6 の VS_TET.waitMinGauge。既定0＝待たない。lv6-vstet-design.md §18.18・§18.19）：
+    //   この手がカウンターで撃つ手で、テトのゲージ（まだ送られていない火力の換算）が下限以上、かつ届いた分がまだ
+    //   「届いた分＋ゲージ」に足りないなら、操作列はそのまま行い最後の quickDrop だけを止めて、ゲージが届くまで待つ。
+    //   真下に落ちるだけなので置き方は同じ。届いているおじゃまは置くまで降らない。上限 waitMaxMs（0=1500）・自然に固定したらそこまで。
+    _planCounterWait(res) {
+        const vt = this._vsTet || {};
+        const minG = vt.waitMinGauge | 0;
+        if (minG <= 0 || !this._isOpponentTet() || this.cpuMode !== 'fastVsTet') return null;
+        if (!(res.length > 15 && res[15] > 0)) return null;                 // この手で撃たない
+        const gauge = Math.max(0, this._anticipatedOjama | 0);
+        if (gauge < minG) return null;
+        return { baseQueue: Math.max(0, this._committedOjama | 0), gauge, maxMs: (vt.waitMaxMs | 0) > 0 ? vt.waitMaxMs : 1500 };
+    },
+
+    // 待機の終わり：テトのゲージが放出された（0 になった）か、キューが「思考の時の届いた分＋ゲージ」に届いたら true
+    _counterWaitArrived(w) {
+        const opp = this._getOpponentGame();
+        if (!opp || (opp.pendingAttack | 0) <= 0) return true;
+        const q = (this.game && this.game.garbageQueue) || [];
+        let sum = 0;
+        for (const g of q) sum += Math.max(0, g.amount | 0);
+        return sum >= w.baseQueue + w.gauge;
     },
 
     // bestMoveData があり、操作可能(falling)かつ未着手なら着手を開始する。

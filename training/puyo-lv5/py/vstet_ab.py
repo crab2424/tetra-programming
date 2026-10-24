@@ -183,6 +183,11 @@ VARIANTS = {
     "st20p70q":     mk({**ST_USER, S_PCT: 70}, vt_counter_queue_only=1),      # いつも 70%
     "st13q":        mk({**ST_USER, S_MIN: 13}, vt_counter_queue_only=1),      # ゲージ 6（13個）から
     "st8q":         mk({**ST_USER, S_MIN: 8}, vt_counter_queue_only=1),       # ゲージ 4（8個）から
+    # §18 W-a 待機：カウンターで撃つ手の quickDrop を、ゲージが届くまで止める（上限 ms・自然に固定したらそこまで）
+    "wa20":         mk(vt_wait_min_gauge=20),
+    "wa13":         mk(vt_wait_min_gauge=13),
+    "wa8":          mk(vt_wait_min_gauge=8),
+    "wa8m3000":     mk(vt_wait_min_gauge=8, vt_wait_max_ms=3000),
     "g100h5":       mk({G_PCT: 100, G_MINH: 5}),
     "g100k50l50h5": mk({G_PCT: 100, G_KEEP: 50, G_LOSS: 50, G_MINH: 5}),
     "g150h6":       mk({G_PCT: 150, G_MINH: 6}),
@@ -232,6 +237,8 @@ def main() -> None:
                  f"・G 確認 {a['puyo_safe_checks'].mean():.1f} 手／撃った {a['puyo_safe_fires'].mean():.1f}"
                  f"・構え 確認 {a['puyo_standby_checks'].mean():.2f} 手／そのまま満たす {a['puyo_standby_ok'].mean():.2f}"
                  f"／危険 {a['puyo_standby_danger'].mean():.2f}／変えた {a['puyo_standby_changes'].mean():.2f}"
+                 f"・待機 {a['puyo_counter_waits'].mean():.2f} 回（届いて撃つ {a['puyo_counter_wait_arrived'].mean():.2f}）"
+                 f"・1回 {a['puyo_counter_wait_ms'].sum() / max(1, a['puyo_counter_waits'].sum()):.0f}ms"
                  f"・1手 {(time.time() - t) * 1000 / max(1, a['puyo_turns'].sum()):.2f}ms"
                  f"（{time.time() - t:.0f}s）")
         print(line, flush=True)

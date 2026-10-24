@@ -575,6 +575,12 @@ void Player::decide(Player* opp) {
     if (out[33] > 0 && (out[33] & (1 << 23))) stats.standbyOk++;       // §18 H1 育成の手のままで構えを満たした
     if (out[33] > 0 && (out[33] & (1 << 22))) stats.standbyDanger++;   // §18 H1 危険なので [106]% で探した
     lastMode_ = terrain ? 4 : waitMode == 1 ? 2 : waitMode == 2 ? 3 : wantCounter ? 1 : 0;   // 記録用 2=待つ 3=締切/即撃ち 4=地形優先の対応
+    // §18 W-a 待機（本番 cpu5_worker_io.js _planCounterWait と同じ）：カウンターで撃つ手で、ゲージの換算が下限以上なら待つ
+    waitPlan_ = false;
+    if (tet && X[X_VT_WAIT_MIN_GAUGE] > 0 && lastMode_ == 1 && out[15] > 0) {
+        const int gauge = tsim::tetGaugeToOjama(std::max(0, tet->pendingAttack));
+        if (gauge >= X[X_VT_WAIT_MIN_GAUGE]) { waitPlan_ = true; waitGauge_ = gauge; waitBaseQueue_ = queueSum(); }
+    }
     lastReason_ = out[23];
     if (trace) {
         TraceTurn tt;
@@ -659,6 +665,25 @@ void Player::chainEnd(Player* opp) {
     t_ += SPAWN_ANIM_MS;
 }
 
+// 設置の後の時間（ちぎり・振動・固定の待ち）を積んで CHECK へ（SPAWN・§18 W-a の WAIT の終わり）
+void Player::finishPlacement() {
+    const int split = pendingSplit_;
+    if (split > 0) {
+        double s = split * SPLIT_MS_PER_ROW;
+        t_ += s + std::max(SPLIT_FIX_CYCLES * VIB_CYCLE_MS, FIX_CYCLES * VIB_CYCLE_MS - s);
+    } else {
+        t_ += FIX_CYCLES * VIB_CYCLE_MS;
+    }
+    t_ += FIX_WAIT_MS;
+    phase_ = CHECK;
+}
+
+// §18 W-a：待機の終わり（本番 _counterWaitArrived と同じ）。テトのゲージが放出されたか、キューが「思考の時の届いた分＋ゲージ」に届いた
+bool Player::counterWaitArrived() const {
+    if (!tet || tet->pendingAttack <= 0) return true;
+    return queueSum() >= waitBaseQueue_ + waitGauge_;
+}
+
 void Player::step(Player* opp) {
     if (tet) refreshReady();
     switch (phase_) {
@@ -692,21 +717,43 @@ void Player::step(Player* opp) {
         BitBoard nb = applyPlacement(bb, *chosen, (uint8_t)curPivot_, (uint8_t)curChild_);
         fromBitBoard(nb, field);
         // 操作: thinkDelay 後に1手目、以降 actionDelay ごと、最後に quickDrop
-        t_ += THINK_DELAY_MS + ACTION_DELAY_MS * chosen->pathLen;
+        const double actMs = THINK_DELAY_MS + ACTION_DELAY_MS * chosen->pathLen;
+        t_ += actMs;
         // 着地（PLACE）の時間もここでまとめて積む
         int split = (chosen->col != chosen->childCol) ? std::abs(chosen->pivotRow - chosen->childRow) : 0;
         if (split > 0) {   // ちぎりの記録（§15。発火する配置は数えない）
             BitBoard tmp = nb;
             if (simulateChain(tmp).chains == 0) { stats.tears++; stats.tearUnits += split + 1; }
         }
-        if (split > 0) {
-            double s = split * SPLIT_MS_PER_ROW;
-            t_ += s + std::max(SPLIT_FIX_CYCLES * VIB_CYCLE_MS, FIX_CYCLES * VIB_CYCLE_MS - s);
-        } else {
-            t_ += FIX_CYCLES * VIB_CYCLE_MS;
+        pendingSplit_ = split;
+        // §18 W-a 待機：quickDrop を止めて、ゲージが届く・上限・自然に固定（落下 2段/秒＋固定 500ms）の早い方まで待つ。
+        //   置き方は同じ（真下に落ちるだけ）なので盤面は先に置いてある。待っている間は CHECK に進まない＝おじゃまも降らない。
+        if (waitPlan_) {
+            waitPlan_ = false;
+            const int* X = pp_.ext;
+            const int landRow = (chosen->col == chosen->childCol) ? chosen->pivotRow : std::min(chosen->pivotRow, chosen->childRow);
+            const double natural = std::max(0, landRow - (HIDDEN - 1)) * 500.0 + 500.0 - actMs;
+            const double maxMs = X[X_VT_WAIT_MAX_MS] > 0 ? X[X_VT_WAIT_MAX_MS] : 1500.0;
+            const double lim = std::min(maxMs, natural);
+            if (lim > 0 && !counterWaitArrived()) {
+                waitStart_ = t_; waitUntil_ = t_ + lim;
+                stats.counterWaits++;
+                phase_ = WAIT;
+                return;
+            }
         }
-        t_ += FIX_WAIT_MS;
-        phase_ = CHECK;
+        finishPlacement();
+        return;
+    }
+    case WAIT: {   // §18 W-a：30ms ごとに見る（テトの放出は異種戦のイベントで先に処理されている）
+        const bool arrived = counterWaitArrived();
+        if (arrived || t_ >= waitUntil_) {
+            if (arrived) stats.counterWaitArrived++;
+            stats.counterWaitMs += t_ - waitStart_;
+            finishPlacement();
+            return;
+        }
+        t_ = std::min(waitUntil_, t_ + 30.0);
         return;
     }
     case PLACE:   // SPAWN で処理済み（未使用）
