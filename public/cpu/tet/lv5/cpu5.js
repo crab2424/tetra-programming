@@ -66,15 +66,16 @@ window.CPU5 = class {
             slopePenalty: -36,    
 
             // ★ 2026-10-25 地形強化（cpu5.cpp EvalWeights の T1〜T6。weightsArray[33..46]）
-            slopeCap: 0,          // T1 下り坂ペナルティの cond² の上限（0=上限なし）
+            //   採用＝T1 slopeCap・T3 tsdDirt*・T5 bumpSq（設計 lv5-terrain-design.md §9。他は 0＝無効）
+            slopeCap: 4,          // T1 下り坂ペナルティの cond² の上限（0=上限なし）
             slopeWellSkip: 0,     // T1 壁の列がこの深さ以上のIウェルならその側の下り坂を見ない（0=見る）
             edgeWellPct: -25,     // T2 端のIウェルの係数 %
-            tsdDirtHole: 0,       // T3 穴1つで T-spin 形の加点を何 % 減らすか
-            tsdDirtCover: 0,      // T3 穴の上のブロック1つで何 % 減らすか
-            tsdDirtMin: 10,       // T3 減衰の下限 %
+            tsdDirtHole: 10,      // T3 穴1つで T-spin 形の加点を何 % 減らすか
+            tsdDirtCover: 4,      // T3 穴の上のブロック1つで何 % 減らすか
+            tsdDirtMin: 30,       // T3 減衰の下限 %
             tsdDirtEvent: 0,      // T3 1=TSD 消去の報酬にも掛ける
             fillCap: 0,           // T4 tsdFillBonus の上限（0=上限なし）
-            bumpSq: 0,            // T5 段差の二乗項
+            bumpSq: -40,          // T5 段差の二乗項
             holeMaskCells: 0,     // T6a 1=TSD の除外を T-slot の4マスだけに
             coveredCells: 0,      // T6b 穴の上のマス数
             coverMax: 6,          // T6b 上の数え上げの上限

@@ -60,9 +60,9 @@ const int TET_LV5N_WEIGHTS[TET_W_LEN5] = {
     20, -45, 120, 496, 2560, -6000, -50,        // tsdShape tsdShapeOver tsdFillBonus tssClear tsdClear tsdHolePenalty pureHole
     20, 496, -200, -1000, -360, 30, -100,       // comboBonus btbKeep renCutPenalty tsmMiniPenalty tMinoNoClearPenalty tsdSetup tsdSetupOver
     72, -36,                                    // slopeBonus slopePenalty
-    0, 0, -25,                                  // T1 slopeCap slopeWellSkip / T2 edgeWellPct
-    0, 0, 10, 0,                                // T3 tsdDirtHole tsdDirtCover tsdDirtMin tsdDirtEvent
-    0, 0, 0,                                    // T4 fillCap / T5 bumpSq / T6a holeMaskCells
+    4, 0, -25,                                  // T1 slopeCap slopeWellSkip / T2 edgeWellPct
+    10, 4, 30, 0,                               // T3 tsdDirtHole tsdDirtCover tsdDirtMin tsdDirtEvent
+    0, -40, 0,                                  // T4 fillCap / T5 bumpSq / T6a holeMaskCells
     0, 6, 0, 0,                                 // T6b coveredCells coverMax / T6c lidGood lidBad
 };
 
