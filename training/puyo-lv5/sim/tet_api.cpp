@@ -2,6 +2,8 @@
 // sim/tet_api.cpp — テト側の C ABI（Python ctypes から呼ぶ）
 //   tet_solo_run    … テト CPU lv5 のひとり用（毎秒ミノ数・攻撃量を測る。おじゃまを定期的に入れることもできる）
 //   tet_trace_cases … 探索の入出力を残す（本番 wasm との一致テスト tests/test_tet_parity.py 用）
+//   tet_solo_run_lv / tet_trace_cases_lv … 上の2つのレベル指定版（lv4/5/6・重みの差し替え）
+//   tet_vs_run      … テト同士の対戦（lv4/5/6 の総当たり・重みの A/B）。設計: source_assets/memory/cpu/tet/lv5-terrain-design.md §4
 // ─────────────────────────────────────────────
 #include "tet.h"
 
@@ -38,6 +40,65 @@ void runSolo(TetPlayer& p, int maxPieces, double maxMs, int garbageEvery, int ga
         if (p.step() < 0) break;
         n++;
     }
+}
+
+void setup(TetPlayer& p, int level, const int* w, int wLen) {
+    p.setLevel(level);
+    if (w && wLen > 0) {
+        int n = std::min(wLen, tetWeightsLen(p.level));
+        std::memcpy(p.weights, w, sizeof(int) * n);
+    }
+}
+
+void writeSolo(const TetPlayer& p, int marginTimeMs, double* o) {
+    const TetStats& s = p.st;
+    o[0] = s.pieces; o[1] = p.now; o[2] = s.lines; o[3] = s.tspins; o[4] = s.tsMini; o[5] = s.tetrises;
+    o[6] = s.pcs; o[7] = s.b2bs; o[8] = s.maxRen; o[9] = (double)s.gaugeSent; o[10] = (double)s.ojamaSent;
+    o[11] = (double)s.tetAttack; o[12] = s.teleports; o[13] = s.routeInstant; o[14] = s.routePath; o[15] = s.routeFull;
+    o[16] = s.noMove; o[17] = s.holds; o[18] = p.dead ? 1 : 0; o[19] = s.garbageLinesTaken;
+    double mt = marginTimeMs < 0 ? 1e18 : marginTimeMs;
+    long long ojPre = 0;
+    for (const auto& e : p.sends) if (e.t < mt) ojPre += e.ojama;
+    int piecesPre = 0;
+    for (const auto& e : p.locks) if (e.t < mt) piecesPre++;
+    o[20] = (double)ojPre; o[21] = std::min(p.now, mt); o[22] = piecesPre; o[23] = p.stackHeight();
+}
+
+// ── テト同士の1局 ──
+//   runMatchVsTet（player.cpp）と同じく「設置の時刻」をイベントにする。ツモは両者共通（versus.js tumoRng）。
+//   同時刻は aFirst の側を先に置く（呼び出し側で先後を入れ替えて打ち消す）。
+struct TvtResult { int winner; double ms; };
+TvtResult runTvt(TetPlayer& a, TetPlayer& b, double maxMs, bool aFirst) {
+    a.vsTet = b.vsTet = true;
+    a.onSendTet = [&](double t, int n, const std::vector<int>& h) { b.receiveFromTet(n, h, t); };
+    b.onSendTet = [&](double t, int n, const std::vector<int>& h) { a.receiveFromTet(n, h, t); };
+    a.start(0);
+    b.start(0);
+    TvtResult r{-1, 0};
+    while (true) {
+        if (!a.dead && !a.planned()) a.plan();
+        if (!b.dead && !b.planned()) b.plan();
+        if (a.dead || b.dead) {   // HOLD で出したミノが出せない（plan の中で死亡）
+            r.winner = (a.dead && b.dead) ? -1 : a.dead ? 1 : 0;
+            r.ms = std::max(a.now, b.now);
+            break;
+        }
+        double ta = a.plannedT(), tb = b.plannedT();
+        bool aTurn = aFirst ? (ta <= tb) : (ta < tb);
+        double now = aTurn ? ta : tb;
+        if (now > maxMs) { r.winner = -1; r.ms = now; break; }
+        TetPlayer& p = aTurn ? a : b;
+        TetPlayer& o = aTurn ? b : a;
+        p.commit();
+        if (p.dead) {
+            // 同じ時刻に相手も置くなら、それも済ませてから判定する
+            if (!o.dead && o.planned() && o.plannedT() <= now) o.commit();
+            r.winner = o.dead ? -1 : (aTurn ? 1 : 0);
+            r.ms = now;
+            break;
+        }
+    }
+    return r;
 }
 
 } // namespace
@@ -91,6 +152,92 @@ int tet_trace_cases(uint32_t seed, int maxPieces, int garbageEvery, int garbageL
         for (int k = 0; k < TET_OUT_LEN; k++) o[260 + k] = c.out[k];
     }
     return n;
+}
+
+// シミュが持っている各レベルの既定の重み（本番 JS と一致するかを tests/test_tet_parity.py が確かめる）。長さを返す
+int tet_default_weights(int level, int* out) {
+    int n = tetWeightsLen(level);
+    std::memcpy(out, tetDefaultWeights(level), sizeof(int) * n);
+    return n;
+}
+
+// レベル指定のひとり用（出力は tet_solo_run と同じ 24 列）。weights=nullptr ならそのレベルの本番の重み
+void tet_solo_run_lv(int level, const int* weights, int wLen, int nGames, const uint32_t* seeds, int maxPieces,
+                     double maxMs, int marginTimeMs, int garbageEvery, int garbageLines, int nThreads, double* out) {
+    initTetShapes();
+    parallelFor(nGames, nThreads, [&](int g) {
+        TetPlayer p(seeds[g]);
+        setup(p, level, weights, wLen);
+        p.marginTimeMs = marginTimeMs;
+        p.keepLog = true;
+        runSolo(p, maxPieces, maxMs, garbageEvery, garbageLines);
+        writeSolo(p, marginTimeMs, out + (size_t)g * 24);
+    });
+}
+
+// レベル指定の trace。1件 = 盤面250 + cur,hold,next×8,canHold,ren,b2b,incoming(14) + 出力43 = 307 int
+int tet_case_len_lv() { return 307; }
+int tet_trace_cases_lv(int level, uint32_t seed, int maxPieces, int garbageEvery, int garbageLines, int* buf, int maxCases) {
+    initTetShapes();
+    TetPlayer p(seed);
+    p.setLevel(level);
+    std::vector<TetPlayer::SearchCase> cases;
+    p.traceCases = &cases;
+    runSolo(p, maxPieces, 1e18, garbageEvery, garbageLines);
+    int n = std::min((int)cases.size(), maxCases);
+    for (int i = 0; i < n; i++) {
+        const auto& c = cases[i];
+        int* o = buf + (size_t)i * 307;
+        for (int k = 0; k < 250; k++) o[k] = c.board[k];
+        o[250] = c.cur; o[251] = c.hold;
+        for (int k = 0; k < 8; k++) o[252 + k] = c.next[k];
+        o[260] = c.canHold; o[261] = c.ren; o[262] = c.b2b; o[263] = c.incoming;
+        for (int k = 0; k < TET_OUT_LEN; k++) o[264 + k] = c.out[k];
+    }
+    return n;
+}
+
+// テト同士の対戦。1シードにつき席（乱数と同時刻の先後）を入れ替えて2局。
+//   wA/wB=nullptr なら各レベルの本番の重み。out[(i*2+k)*TVT_LEN + j]（k=0: A が席0・同時刻で先、k=1: A が席1・B が先）
+//   0 winner(0=A 1=B -1=引き分け) 1 ms
+//   2+ A の集計 TVT_SIDE 列、2+TVT_SIDE+ B の集計：
+//     pieces lines tspins tsMini tetrises pcs b2bs maxRen tetAttack tetSent linesReceived garbageTaken holds dead finalHeight routeMiss
+static const int TVT_SIDE = 16;
+int tet_vs_len() { return 2 + 2 * TVT_SIDE; }
+void tet_vs_run(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int wLenB, int nSeeds, const uint32_t* seeds,
+                double maxMs, int marginTimeMs, int holeRatePercent, double jitterMs, int sharedTumo, int nThreads,
+                double* out) {
+    initTetShapes();
+    const int L = 2 + 2 * TVT_SIDE;
+    parallelFor(nSeeds * 2, nThreads, [&](int job) {
+        int i = job / 2, k = job % 2;
+        uint32_t s = seeds[i];
+        // 席の乱数（ツモ・送る穴・揺らぎ）。sharedTumo=1 は本番 VERSUS と同じく両者共通のツモ、0 は別のツモ。
+        //   k=1 の局は A と B の席の乱数を入れ替える（同時刻の先後も入れ替える）＝同じシードで条件を左右対称にする。
+        //   同時刻の設置はまず起きないので、先後だけ入れ替えると2局が同じ展開になる（2026-10-25 実測）。
+        uint32_t tumo0 = s, tumo1 = sharedTumo ? s : s ^ 0x9e3779b9u;
+        uint32_t hole0 = s * 2654435761u + 1u, hole1 = s * 2246822519u + 2u;
+        if (k == 1) { std::swap(tumo0, tumo1); std::swap(hole0, hole1); }
+        TetPlayer a(tumo0, hole0), b(tumo1, hole1);
+        setup(a, lvA, wA, wLenA);
+        setup(b, lvB, wB, wLenB);
+        a.marginTimeMs = b.marginTimeMs = marginTimeMs;
+        a.holeRatePercent = b.holeRatePercent = holeRatePercent;
+        a.jitterMs = b.jitterMs = jitterMs;
+        TvtResult r = runTvt(a, b, maxMs, k == 0);
+        double* o = out + (size_t)job * L;
+        o[0] = r.winner; o[1] = r.ms;
+        const TetPlayer* ps[2] = {&a, &b};
+        for (int side = 0; side < 2; side++) {
+            const TetPlayer& p = *ps[side];
+            const TetStats& st = p.st;
+            double* q = o + 2 + side * TVT_SIDE;
+            q[0] = st.pieces; q[1] = st.lines; q[2] = st.tspins; q[3] = st.tsMini; q[4] = st.tetrises; q[5] = st.pcs;
+            q[6] = st.b2bs; q[7] = st.maxRen; q[8] = (double)st.tetAttack; q[9] = (double)st.tetSent;
+            q[10] = (double)st.linesReceived; q[11] = st.garbageLinesTaken; q[12] = st.holds; q[13] = p.dead ? 1 : 0;
+            q[14] = p.stackHeight(); q[15] = st.routeMiss;
+        }
+    });
 }
 
 } // extern "C"

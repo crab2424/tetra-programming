@@ -46,11 +46,4 @@ void pieceBlocks(int type, int rot, int outXY[8]) {
     }
 }
 
-void kickTable(int type, int fromRot, int dir, int outKicks[10]) {
-    const int (*t)[2] = (type == 0)
-        ? (dir == 1 ? tetcpu5::KICK_I_CW[fromRot] : tetcpu5::KICK_I_CCW[fromRot])
-        : (dir == 1 ? tetcpu5::KICK_OTHER_CW[fromRot] : tetcpu5::KICK_OTHER_CCW[fromRot]);
-    for (int i = 0; i < 5; i++) { outKicks[i * 2] = t[i][0]; outKicks[i * 2 + 1] = t[i][1]; }
-}
-
 } // namespace tsim

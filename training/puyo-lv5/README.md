@@ -97,17 +97,35 @@ python3 py/solo_baseline.py --report-only   # 記録済みを集計し直す →
 ```
 最初の本線（段数・発火理由・発火時の色ぷよ・余剰・残り）、有効ぷよ量の推移、育成中の1〜2連鎖の「整地（無駄ぷよが減り起こせる段数が落ちない）／こぼし（起こせる段数が2段以上落ちる）」を出す。
 
-## 異種戦のテト側（相手役 テト CPU lv5、作成中）
+## 異種戦のテト側（相手役 テト CPU lv5）
 設計: `source_assets/memory/cpu/puyo/lv6-vstet-design.md` §7・§8。
 本番 `public/cpu/tet/lv5/cpu5.cpp` を `sim/tet_cpu5.cpp` から名前空間に包んで native ビルドし、
 操作の組み立て・時間（`cpu5.js`）と設置・攻撃・受け（`game/tet/*.js`）を `sim/tet_player.cpp` に移した。
 ```bash
-python3 tests/test_tet_parity.py   # 探索結果が本番 wasm（node で実行）と全件一致するか
+python3 tests/test_tet_parity.py 5 # 探索結果が本番 wasm（node で実行）と全件一致するか（引数なしで lv4/lv6 も）
 python3 tests/test_tet_attack.py   # ぷよ→テトの火力（_resolveTetAttack）が本番 JS と一致するか
 python3 py/vstet_baseline.py       # ぷよ lv6（vsTet/fastVsTet）対 テト lv5 の勝率と負け方（600局・約1分）
 ```
 Python からは `py/tetsim.py`（`solo_run` でひとり用の毎秒ミノ数・攻撃量、`trace_cases` で探索の入出力、
 `run_vstet`／`vstet_policy` で異種戦）。
+
+## テト同士（テト CPU lv4・lv5・lv6）
+設計: `source_assets/memory/cpu/tet/lv5-terrain-design.md` §4。テト lv5 強化（地形）の計測用。
+本番の探索をそのまま native ビルドする：lv4 `cpu4.cpp`（`sim/tet_cpu4.cpp`）、lv5 `cpu5.cpp`（`sim/tet_cpu5.cpp`）、
+lv6 `lv6/native/*.cpp` を1つにまとめたもの（`sim/tet_cpu6.cpp`。**PC 探索は無し**＝空盤面の開幕 PC だけ本番と差が出る）。
+操作の組み立てと時間はレベルごと（lv4 60/200ms・lv5 45/150ms・lv6 40/80ms＋cpu6.js の SD/AC 群の組み立て）、
+受けは本番のテト同士の分岐（消去時に相殺して即送信・1500ms で ready・せり上がりの上限なし）。ツモは両者共通。
+```bash
+python3 tests/test_tet_parity.py         # lv4/lv5/lv6 の探索が本番 wasm と全件一致するか＋既定の重みが本番 JS と同じか（約1分半）
+python3 py/tvt_baseline.py               # 総当たり（200シード×席を入れ替えた2局×3組）→ runs/tvt/baseline.{json,md}
+```
+Python からは `tetsim.vs_run(lv_a, lv_b, seeds, w_a=None, w_b=None)`（重みの差し替えで A/B）、
+`solo_run_lv`・`trace_cases_lv`（ひとり用・探索の入出力）、`prod_weights(level)`（本番 JS の重み）。
+- 1シードにつき席（ツモ・送る穴・揺らぎの乱数と同時刻の先後）を入れ替えて2局。同時刻の設置はまず起きないので、先後だけの入れ替えでは2局が同じ展開になる。
+- `jitter_ms`（既定 10）：操作開始に 0〜10ms の揺らぎを足す。シミュは決定的なので、0 だと同じ重み同士は鏡写しで全局引き分けになる。
+- `shared_tumo`（既定 True＝本番どおり共通）：同じレベル同士を共通ツモで打たせると、同じ消し方で攻撃が相殺し合ってほぼ全局が上限（300秒）まで引き分けになる。
+  同じ重み同士は席の入れ替えで勝率がちょうど 0.5 になる（A/B は違う重み同士で使う）。
+- 思考時間は無視（native で lv4 約4ms・lv5 約3ms・lv6 約13ms/回。ハードドロップ後の待ち 80〜200ms に隠れる前提）。
 
 ## 対戦判断の A/B（ext[]）
 `PolicyParams.ext[16]`（`sim/sim.h` ExtIndex、既定0＝現行 lv5）で対戦判断を切り替える。
