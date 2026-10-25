@@ -40,4 +40,7 @@ struct EvalWeights {
     int comboAtk;            // [47] B6 REN の火力ボーナス 1 あたり（高さに関係なく。CC2 combo_attack）
     int visitSelect;         // [48] B8 1=初手を「各深さでビームに残った子孫の数」で選ぶ（clys visit）
     int bumpSq;              // [49] B9 Σ(高さ差)²（差≥3 のみ、clys bump）
+    // ★相殺外し（clys is_tankable 相当。設計 source_assets/memory/cpu/tet/lv6-tankable-design.md）。0 で無効。
+    int tankH;               // [50] 着弾おじゃまがある時、初手後の「中央列の高さ＋incoming−火力」がこれ以上の手は守りが要る手とみなす
+    int tankLook;            // [51] 守りが要る手でも、その枝が 2〜(1+tankLook) 手目に TSD 以上か 4-LINES を撃つなら受けてよい（0=例外なし）
 };

@@ -81,6 +81,7 @@ const int TET_LV6_WEIGHTS[TET_W_LEN6] = {
     20, 496, -200, -100, -300, 100, -400,       // comboBonus btbKeep renCutPenalty tsmMiniPenalty tMinoNoClearPenalty tsdSetup tsdSetupOver
     72, -36, 100, 6000, 150, 8000, 10, 6000,    // slopeBonus slopePenalty centerDip tstClear b2bHold tSlotTst tSlotReadyFin tSlotReadyTst
     0, 0, 0, 0, -20, 0, 6, 0, 1500, 0, 0,       // B1 actCost sdCost sdRowCost / B2 holeAboveWell / B3 rowTrans / B4 covered coverMax / B5 wasteI / B6 comboAtk / B8 visitSelect / B9 bumpSq
+    0, 0,                                       // 相殺外し tankH tankLook
 };
 
 // 操作時間の差し替え（tet_set_level_timing。強さの調整を試すとき用。負なら本番の値）

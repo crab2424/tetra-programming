@@ -173,7 +173,7 @@ static void dedupBeam(std::vector<SearchState>& v) {
     v.resize(out);
 }
 
-// weightsArray[37] を EvalWeights へ展開する。メンバ順は weightsArray のインデックスと一致。
+// weightsArray[52] を EvalWeights へ展開する。メンバ順は weightsArray のインデックスと一致。
 static inline EvalWeights unpackWeights(const int* weightsArray) {
     return EvalWeights {
         weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
@@ -196,7 +196,8 @@ static inline EvalWeights unpackWeights(const int* weightsArray) {
         weightsArray[46], // B5 wasteI
         weightsArray[47], // B6 comboAtk
         weightsArray[48], // B8 visitSelect
-        weightsArray[49]  // B9 bumpSq
+        weightsArray[49], // B9 bumpSq
+        weightsArray[50], weightsArray[51]  // 相殺外し tankH tankLook
     };
 }
 
@@ -649,7 +650,39 @@ void searchBestMoveWasm(
         if (pick) bestState = pick;
     }
 
-    if (incoming > 0 && bestState != nullptr && !bestOfFirst.empty()) {
+    // ★相殺外し（clys is_tankable 相当。設計 lv6-tankable-design.md）
+    //   このゲームの相殺は自動（消去のたびに届いている分を 1:1 で消し、余りを送る）なので、選べるのは
+    //   「受けるか、守る（消して高さと着弾を減らす）か」だけ。risk = incoming − 初手の火力 + 初手後の中央列の高さ。
+    //   risk が tankH 以上の手は守りが要る手とし、その枝が tankLook 手以内に TSD 以上か 4-LINES を撃つ
+    //   （＝受けても形を崩さずに大きく返せる）場合だけ risk≤20 の範囲で受けてよいとする。
+    //   認められる手が1つも無ければ従来の生存判定へ。tankH=0 で無効＝従来と完全一致。
+    bool tankPicked = false;
+    if (w.tankH > 0 && incoming > 0 && bestState != nullptr) {
+        const int look = std::min(w.tankLook, SEARCH_MAX_STEP - 1);
+        auto tankOk = [&](const SearchState& s) {
+            int risk = incoming - s.first_attack + s.first_center_h;
+            if (risk < w.tankH) return true;
+            if (risk > 20) return false;
+            for (int j = 1; j <= look && s.has_p[j]; j++) {
+                const Placement& q = s.p[j];
+                if (q.linesCleared == 4 || (q.tSpinType == 1 && q.linesCleared >= 2)) return true;
+            }
+            return false;
+        };
+        const SearchState* pick = nullptr;
+        if (!bestOfFirst.empty()) {
+            for (const SearchState* c : bestOfFirst)
+                if (c && tankOk(*c) && (pick == nullptr || visitBetter(c, pick))) pick = c;
+        } else {
+            for (const auto& s : final_states)
+                if (!s.dead && tankOk(s) && (pick == nullptr || s.beam_score > pick->beam_score)) pick = &s;
+        }
+        if (pick != nullptr) { bestState = pick; tankPicked = true; }
+    }
+
+    if (tankPicked) {
+        // 相殺外しの判定で決定済み
+    } else if (incoming > 0 && bestState != nullptr && !bestOfFirst.empty()) {
         const SearchState* bestSafe = nullptr;
         for (const SearchState* c : bestOfFirst) {
             if (!c || incoming - c->first_attack + c->first_center_h > 20) continue;

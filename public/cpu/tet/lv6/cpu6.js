@@ -88,6 +88,9 @@ window.CPU6 = class {
             comboAtk: 1500,         // [47] B6 REN の火力ボーナス 1 あたり（2026-10-26 採用。対 旧 lv6 勝率 0.86）
             visitSelect: 0,         // [48] B8 1=初手を子孫の数で選ぶ
             bumpSq: 0,              // [49] B9 大きい段差の二乗
+            // ★相殺外し（clys is_tankable 相当。設計 source_assets/memory/cpu/tet/lv6-tankable-design.md）。0 で無効
+            tankH: 0,               // [50] 初手後の中央列の高さ＋incoming−火力がこれ以上の手は守りが要る手
+            tankLook: 0,            // [51] 守りが要る手でも、2〜(1+tankLook) 手目に TSD 以上か 4-LINES を撃つ枝なら受けてよい
 
             P1_WEIGHT: 1.0,
         };
@@ -837,7 +840,8 @@ window.CPU6 = class {
             this.weights.holeAboveWell, this.weights.rowTrans,
             this.weights.covered, this.weights.coverMax,
             this.weights.wasteI, this.weights.comboAtk,
-            this.weights.visitSelect, this.weights.bumpSq
+            this.weights.visitSelect, this.weights.bumpSq,
+            this.weights.tankH, this.weights.tankLook
         ]);
 
         const currentRen = this.game.ren || 0;
@@ -943,7 +947,8 @@ window.CPU6 = class {
             this.weights.holeAboveWell, this.weights.rowTrans,
             this.weights.covered, this.weights.coverMax,
             this.weights.wasteI, this.weights.comboAtk,
-            this.weights.visitSelect, this.weights.bumpSq
+            this.weights.visitSelect, this.weights.bumpSq,
+            this.weights.tankH, this.weights.tankLook
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;

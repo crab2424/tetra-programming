@@ -4,7 +4,8 @@
   python3 py/tet6_ab.py base "B2" holeAboveWell=1 "B1" actCost=-20,sdCost=-100
   python3 py/tet6_ab.py --from holeAboveWell=1 "B2+B3" rowTrans=-10
 引数は「ラベル」と「名前=値,...」を交互に並べる（base＝本番の既定のまま）。名前は cpu6.js の this.weights のキー。
-  --from 名前=値,...  すべての案に共通で先に当てる（採用済みの項を積んだ上で次を試す）。相手は常に本番の lv6
+  --from 名前=値,...  すべての案に共通で先に当てる（採用済みの項を積んだ上で次を試す）。相手は本番の lv6
+  --opp 名前=値,...   相手（と探索時間の基準）にも当てる（例：採用予定の項を両者に積み、差分だけを測る）
   --tumo own|shared   同じレベル同士なので既定は own（両者別ツモ）。共通だと打ち方が揃って決着がつきにくい（§5.1）
 勝率は席（ツモ・穴・揺らぎの乱数）を入れ替えた2局で1シード、引分は半勝ち。結果は runs/tet6_ab/<--name>.jsonl に追記。
 """
@@ -60,6 +61,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("items", nargs="*")
     ap.add_argument("--from", dest="base_spec", default="")
+    ap.add_argument("--opp", dest="opp_spec", default="")
     ap.add_argument("--terrain-seeds", type=int, default=60)
     ap.add_argument("--vs-seeds", type=int, default=300)
     ap.add_argument("--seed-base", type=int, default=1)
@@ -68,7 +70,7 @@ def main() -> None:
     ap.add_argument("--name", default="ab")
     args = ap.parse_args()
     names = weight_names()
-    prod = tetsim.prod_weights(6)
+    prod = apply(tetsim.prod_weights(6), args.opp_spec, names)
     base = apply(prod, args.base_spec, names)
     items = args.items or ["base"]
     variants = []
@@ -94,7 +96,7 @@ def main() -> None:
         res = tetsim.vs_run(6, 6, vseeds, w_a=w, w_b=prod, shared_tumo=args.tumo == "shared")
         s = summarize(res, 6, 6)
         a, b = s["side"]["a"], s["side"]["b"]
-        r = {"label": label, "spec": spec, "from": args.base_spec, "tumo": args.tumo, "seeds": args.vs_seeds,
+        r = {"label": label, "spec": spec, "from": args.base_spec, "opp": args.opp_spec, "tumo": args.tumo, "seeds": args.vs_seeds,
              "seed_base": args.seed_base, "win": s["a_win"], "ci95": s["ci95"], "draws": s["draws"],
              "sec": s["mean_sec"], "a": a, "b": b, "search_ms": ms, "search_ms_base": ms0,
              "dead_a": int(sum(x["a_dead"] for x in res)), "dead_b": int(sum(x["b_dead"] for x in res)),
