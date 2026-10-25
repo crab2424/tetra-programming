@@ -95,17 +95,35 @@ int evalBoardState(const Board& b, const EvalWeights& w, int upcomingT, int* out
         }
     }
 
+    // ★B2（clys hole_a）: 一番低い列の表面より下の行。ここの穴（主にゴミの穴）は動かせないので数えない。
+    uint32_t belowWellMask = 0;
+    if (w.holeAboveWell) {
+        int minH = heights[0];
+        for (int x = 1; x < COLS; x++) minH = std::min(minH, heights[x]);
+        belowWellMask = ((1u << ROWS) - 1) & ~((1u << (ROWS - minH)) - 1);
+    }
+
     // ★最適化：holesのループをビット演算と popcount で一撃で計算
     int holes = 0;
+    int coveredness = 0; // ★B4: 穴ごとの「上に積まれた段数」(上限 coverMax) の合計
     for (int x = 0; x < COLS; x++) {
         if (cols[x] == 0) continue;
         int first_y = __builtin_ctz(cols[x]);
-        uint32_t filled = cols[x] | ignoreMask;
+        uint32_t filled = cols[x] | ignoreMask | belowWellMask;
         uint32_t mask = ~((1 << first_y) - 1);
         filled |= ~mask;                         // ブロック上空を 1 にして穴判定から消す
         filled |= ~((1 << ROWS) - 1);            // 盤面外を 1 にする
         holes += 32 - __builtin_popcount(filled); // 残った 0 の数が穴の数
+        if (w.covered) {
+            uint32_t hb = ~filled;
+            while (hb) {
+                int hy = __builtin_ctz(hb);
+                hb &= hb - 1;
+                coveredness += std::min(hy - first_y, w.coverMax);
+            }
+        }
     }
+    score += coveredness * w.covered;
     score += holes * w.hole;
     if (holes > 0) score += (holes * holes) * (w.hole / 2);
 
@@ -119,6 +137,7 @@ int evalBoardState(const Board& b, const EvalWeights& w, int upcomingT, int* out
         uint16_t left_wall  = (row << 1) | 1;
         uint16_t right_wall = (row >> 1) | 0x200;
         uint16_t pure = empty & up & down & left_wall & right_wall;
+        if ((belowWellMask >> y) & 1) pure = 0; // ★B2
         pureHolesCount += __builtin_popcount(pure);
     }
     score += pureHolesCount * w.pureHole;
@@ -136,6 +155,31 @@ int evalBoardState(const Board& b, const EvalWeights& w, int upcomingT, int* out
     score += (step1Count <= 2) ? (step1Count * w.step1Good) : (step1Count * w.step1Bad);
     score += step2Count * w.step2;
     score += step3PlusCount * w.step3Plus;
+
+    // ★B9（clys bump）: 大きい段差の二乗。Iウェルの列（両隣が3段以上高い）は飛ばす。
+    if (w.bumpSq) {
+        int bump = 0;
+        for (int x = 0; x < COLS - 1; x++) {
+            int d = std::abs(heights[x] - heights[x+1]);
+            if (d < 3) continue;
+            int lo = heights[x] < heights[x+1] ? x : x + 1;
+            int l = (lo == 0) ? 99 : heights[lo-1], r = (lo == COLS-1) ? 99 : heights[lo+1];
+            if (l - heights[lo] >= 3 && r - heights[lo] >= 3) continue;
+            bump += (d - 2) * (d - 2);
+        }
+        score += bump * w.bumpSq;
+    }
+
+    // ★B3（CC2/clys row_transitions）: 積んである行の横方向の埋まり/空きの切り替わり（左右の壁を含む）
+    if (w.rowTrans) {
+        int trans = 0;
+        for (int y = ROWS - maxHeight; y < ROWS; y++) {
+            uint32_t r = (uint32_t)b.rows[y] | 0x400u;    // 右の壁 = bit10
+            uint32_t withWall = (r << 1) | 1u;            // 左の壁 = bit0（盤面は bit1..10 になる）
+            trans += __builtin_popcount((withWall ^ (withWall >> 1)) & 0x7FFu);
+        }
+        score += trans * w.rowTrans;
+    }
 
     // Iウェル評価
     // 最下段まで連続している場合のみスコアに反映（中断したウェルは無視）
@@ -170,6 +214,7 @@ int evalBoardState(const Board& b, const EvalWeights& w, int upcomingT, int* out
         int firstBlockY = __builtin_ctz(c);
         uint32_t inv = ~c & ((1 << ROWS) - 1);
         inv &= ~((1 << (firstBlockY + 1)) - 1); // 最初のブロックより上空を無視
+        inv &= ~belowWellMask;                   // ★B2
         if (inv != 0) {
             int lowestHoleY = 31 - __builtin_clz(inv); // 一番下にある穴の位置を特定
             // 高さ13以上はTSD地形の行も穴の上のブロックとしてカウント（危機的状況の検知）

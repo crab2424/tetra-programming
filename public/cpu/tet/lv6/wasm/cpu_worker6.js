@@ -48,7 +48,7 @@ self.onmessage = function(e) {
         if (boardPtr === null) {
             boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
             // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応
-            weightsPtr = Module._my_malloc(4 * 39);
+            weightsPtr = Module._my_malloc(4 * 50);
             resultPtr  = Module._my_malloc(4 * 43);
         }
 
@@ -82,7 +82,7 @@ self.onmessage = function(e) {
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
         // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応
-        weightsPtr = Module._my_malloc(4 * 39);
+        weightsPtr = Module._my_malloc(4 * 50);
         resultPtr  = Module._my_malloc(4 * 43);
     }
 

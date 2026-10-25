@@ -76,6 +76,19 @@ window.CPU6 = class {
             tSlotReadyFin: 10,      // ★追加[37]：fin スロットの建設途中(0ライン)加点。tSlotReady[18](sky/TSD用)から分離（初期値は従来同値）
             tSlotReadyTst: 6000,     // ★追加[38]：tst_twist スロットの建設途中(0ライン)加点。TST能動化のため tSlotReady より高めに設定（暫定/要チューニング）
 
+            // ★lv6 強化（Cold Clear 2 / clys 由来。0 で無効。設計 source_assets/memory/cpu/tet/lv6-boost-design.md §3）
+            actCost: 0,             // [39] B1 回転・横移動 1回あたり
+            sdCost: 0,              // [40] B1 ソフトドロップが要る置き方
+            sdRowCost: 0,           // [41] B1 ソフトドロップ 1段あたり
+            holeAboveWell: 0,       // [42] B2 1=一番低い列より下の穴を数えない
+            rowTrans: 0,            // [43] B3 row transitions 1回あたり
+            covered: 0,             // [44] B4 穴の上に積まれた段数 1段あたり
+            coverMax: 6,            // [45] B4 1穴あたりの上限
+            wasteI: 0,              // [46] B5 I を 4-LINES 以外に使った手
+            comboAtk: 0,            // [47] B6 REN の火力ボーナス 1 あたり
+            visitSelect: 0,         // [48] B8 1=初手を子孫の数で選ぶ
+            bumpSq: 0,              // [49] B9 大きい段差の二乗
+
             P1_WEIGHT: 1.0,
         };
 
@@ -818,7 +831,13 @@ window.CPU6 = class {
             this.weights.b2bHold,               // ★追加 [35]
             this.weights.tSlotTst,              // ★Phase3追加 [36]
             this.weights.tSlotReadyFin,         // ★追加 [37]
-            this.weights.tSlotReadyTst          // ★追加 [38]
+            this.weights.tSlotReadyTst,         // ★追加 [38]
+            // ★lv6 強化 [39..49]（参考AI由来。設計 source_assets/memory/cpu/tet/lv6-boost-design.md §3）
+            this.weights.actCost, this.weights.sdCost, this.weights.sdRowCost,
+            this.weights.holeAboveWell, this.weights.rowTrans,
+            this.weights.covered, this.weights.coverMax,
+            this.weights.wasteI, this.weights.comboAtk,
+            this.weights.visitSelect, this.weights.bumpSq
         ]);
 
         const currentRen = this.game.ren || 0;
@@ -918,7 +937,13 @@ window.CPU6 = class {
             this.weights.b2bHold,               // ★追加 [35]
             this.weights.tSlotTst,              // ★Phase3追加 [36]
             this.weights.tSlotReadyFin,         // ★追加 [37]
-            this.weights.tSlotReadyTst          // ★追加 [38]
+            this.weights.tSlotReadyTst,         // ★追加 [38]
+            // ★lv6 強化 [39..49]（参考AI由来。設計 source_assets/memory/cpu/tet/lv6-boost-design.md §3）
+            this.weights.actCost, this.weights.sdCost, this.weights.sdRowCost,
+            this.weights.holeAboveWell, this.weights.rowTrans,
+            this.weights.covered, this.weights.coverMax,
+            this.weights.wasteI, this.weights.comboAtk,
+            this.weights.visitSelect, this.weights.bumpSq
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;

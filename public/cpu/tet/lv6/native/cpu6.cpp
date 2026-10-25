@@ -100,6 +100,9 @@ struct SearchState {
     // ★ v2.2.3 I: この枝が死亡(Block Out / Lock Out)で終わったか。pick_move で死に枝を除外するのに使う。
     bool dead;
 
+    // ★B8: 初手の番号（1手目の展開順）。visitSelect のとき、深さごとにビームへ残った子孫を初手ごとに数える。
+    int first_id;
+
     SearchState() {
         first_action = -1;
         hold_mino = -1;
@@ -114,6 +117,7 @@ struct SearchState {
         first_center_h = 0;
         first_attack = 0;
         dead = false;
+        first_id = -1;
         for(int i = 0; i < 8; ++i) {  // ★深さ8対応: 6→8
             has_p[i] = false;
             step_score[i] = 0;
@@ -184,8 +188,62 @@ static inline EvalWeights unpackWeights(const int* weightsArray) {
         weightsArray[35], // b2bHold ★追加[35]
         weightsArray[36], // tSlotTst ★Phase3追加[36]
         weightsArray[37], // tSlotReadyFin ★追加[37]
-        weightsArray[38]  // tSlotReadyTst ★追加[38]
+        weightsArray[38], // tSlotReadyTst ★追加[38]
+        weightsArray[39], weightsArray[40], weightsArray[41], // B1 actCost sdCost sdRowCost
+        weightsArray[42], // B2 holeAboveWell
+        weightsArray[43], // B3 rowTrans
+        weightsArray[44], weightsArray[45], // B4 covered coverMax
+        weightsArray[46], // B5 wasteI
+        weightsArray[47], // B6 comboAtk
+        weightsArray[48], // B8 visitSelect
+        weightsArray[49]  // B9 bumpSq
     };
+}
+
+// ★B1 操作時間の見積り（Cold Clear 2 softdrop・clys delay 相当）。
+//   cpu6.js buildActionQueue と同じ考え方：出現位置の高さで回して横移動し、真下に落とせば
+//   その位置に着く置き方は「即時」（回転＋横移動だけ）。落とせない置き方は出現位置から底まで
+//   ソフトドロップし、経路の回転・横移動を足す。返り値＝回転＋横移動の回数、*sdRows＝ソフトドロップ段数(即時なら0)。
+static int estimateOps(const Board& b, int piece, const Placement& p, int* sdRows) {
+    const int spawnX = COLS / 2 - 2;
+    GridBlock blk[4];
+    auto valid = [&](int rot, int x, int y) {
+        for (int i = 0; i < 4; i++) {
+            blk[i].x = PRECALC_MINO_BLOCKS[piece][rot][i].x + x;
+            blk[i].y = PRECALC_MINO_BLOCKS[piece][rot][i].y + y;
+        }
+        return isValidPlacement(b, blk);
+    };
+    bool instant = false;
+    if (p.y >= p.spawnY && valid(p.rot, p.x, p.spawnY)) {
+        int y = p.spawnY;
+        while (y < p.y && valid(p.rot, p.x, y + 1)) y++;
+        instant = (y == p.y) && !valid(p.rot, p.x, y + 1);
+    }
+    if (instant) {
+        *sdRows = 0;
+        static const int ROT_COST[4] = {0, 1, 2, 1};
+        int rc = (piece == 1) ? 0 : ROT_COST[p.rot];
+        if ((piece == 0 || piece == 5 || piece == 6) && p.rot == 2) rc = 0; // I/S/Z は向き0と同じ形
+        return rc + std::abs(p.x - spawnX);
+    }
+    int ops = 0;
+    for (int i = 0; i < p.pathLength; i++) {
+        int a = p.path[i];
+        if (a == 1 || a == 2 || a == 4 || a == 5) ops++;
+    }
+    *sdRows = std::max(0, p.y - p.spawnY);
+    return ops;
+}
+
+// REN の火力ボーナス（estimateAttack と同じ固定テーブル。renBefore=加算前のコンボ数）
+static inline int renAttackBonus(int r) {
+    if (r == 2 || r == 3) return 1;
+    if (r == 4 || r == 5) return 2;
+    if (r == 6 || r == 7) return 3;
+    if (r >= 8 && r <= 12) return 4;
+    if (r >= 13) return 5;
+    return 0;
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -298,6 +356,11 @@ void searchBestMoveWasm(
     next_states_N.reserve(2048);
     next_states_L.reserve(2048);
 
+    // ★B8: 初手ごとの「ビームに残った子孫の数」（clys の visit）。first_id で引く。
+    std::vector<int> visits;
+    int first_count = 0;
+    const bool useOps = (w.actCost != 0 || w.sdCost != 0 || w.sdRowCost != 0);
+
     auto expandState = [&](const SearchState& s, int piece, int new_hold, int new_next_idx, int step_num, bool is_first, int first_action) -> int {
         std::vector<Placement> p_list = getAllPlacements(is_first ? baseBoard : s.board, piece, getSpawnY(piece));
 
@@ -373,6 +436,21 @@ void searchBestMoveWasm(
             // 1手目のみ p1Weight を盤面評価値に掛ける（以降は生の stateScore）
             int cur_beam_score = stateScore + cur_cumulative_event;
 
+            // ★B1/B5/B6（参考AI由来のイベント項。既定 0 で無効）
+            int extraEvent = 0;
+            // T-spin で消した手は時間をかける価値があるので除外（clys の delay と同じ）
+            if (useOps && !(p.tSpinType == 1 && p.linesCleared > 0)) {
+                int sdRows = 0;
+                int ops = estimateOps(is_first ? baseBoard : s.board, piece, p, &sdRows);
+                extraEvent += ops * w.actCost;
+                if (sdRows > 0) extraEvent += w.sdCost + sdRows * w.sdRowCost;
+            }
+            if (piece == 0 && p.linesCleared < 4) extraEvent += w.wasteI;
+            if (p.linesCleared > 0) extraEvent += renAttackBonus(cur_ren) * w.comboAtk;
+            stepScore += extraEvent;
+            cur_cumulative_event += extraEvent;
+            cur_beam_score += extraEvent;
+
             if (hasBlockOutside) stepScore -= deathPenalty(step_num);
             stepScore += tWastePenalty; // ★#2: 常時適用（高さ減衰込み）
             if (prevHeight <= 10) {
@@ -395,6 +473,7 @@ void searchBestMoveWasm(
             next_s.cumulative_event_score = cur_cumulative_event;
             next_s.beam_score = cur_beam_score;
             if (is_first) {
+                next_s.first_id = first_count++;
                 next_s.first_action = first_action;
                 next_s.p1_score = stateScore; // ★分割対応：旧 score → stateScore に変更
                 // ★pick_move(生存)用：この1手を実行した直後(simBoard=配置+ライン消去後)の
@@ -468,6 +547,11 @@ void searchBestMoveWasm(
 
         next_states_N.clear();
         next_states_L.clear();
+
+        if (w.visitSelect) {
+            if ((int)visits.size() < first_count) visits.resize(first_count, 0);
+            for (const auto& s : current_states) visits[s.first_id]++;
+        }
     };
 
     SearchState initial_state;
@@ -544,7 +628,44 @@ void searchBestMoveWasm(
     //   - 1つもsafeでなければ、攻撃量(spike)最大の手にフォールバック（同点は beam_score 優先）
     //   incoming<=0 のときは全手safe扱い＝従来どおり beam_score 最大が選ばれる。
     // ────────────────────────────────────────────────
-    if (incoming > 0 && bestState != nullptr) {
+    // ★B8（clys の visit）: 生き残った続きがある初手のうち、各深さでビームに残った子孫の数が最大の初手を選ぶ
+    //   （同数は beam_score）。その初手の中では beam_score 最大の枝を採用する。生存判定(incoming)の絞り込みも同じ順位で行う。
+    std::vector<const SearchState*> bestOfFirst;
+    auto visitBetter = [&](const SearchState* a, const SearchState* b) {
+        int va = visits[a->first_id], vb = visits[b->first_id];
+        if (va != vb) return va > vb;
+        return a->beam_score > b->beam_score;
+    };
+    if (w.visitSelect && first_count > 0) {
+        if ((int)visits.size() < first_count) visits.resize(first_count, 0);
+        bestOfFirst.assign(first_count, nullptr);
+        for (const auto& state : final_states) {
+            if (state.dead || state.first_id < 0) continue;
+            const SearchState*& cur = bestOfFirst[state.first_id];
+            if (cur == nullptr || state.beam_score > cur->beam_score) cur = &state;
+        }
+        const SearchState* pick = nullptr;
+        for (const SearchState* c : bestOfFirst) if (c && (pick == nullptr || visitBetter(c, pick))) pick = c;
+        if (pick) bestState = pick;
+    }
+
+    if (incoming > 0 && bestState != nullptr && !bestOfFirst.empty()) {
+        const SearchState* bestSafe = nullptr;
+        for (const SearchState* c : bestOfFirst) {
+            if (!c || incoming - c->first_attack + c->first_center_h > 20) continue;
+            if (bestSafe == nullptr || visitBetter(c, bestSafe)) bestSafe = c;
+        }
+        if (bestSafe != nullptr) bestState = bestSafe;
+        else {
+            const SearchState* bestSpike = nullptr;
+            for (const SearchState* c : bestOfFirst) {
+                if (!c) continue;
+                if (bestSpike == nullptr || c->first_attack > bestSpike->first_attack ||
+                    (c->first_attack == bestSpike->first_attack && c->beam_score > bestSpike->beam_score)) bestSpike = c;
+            }
+            if (bestSpike != nullptr) bestState = bestSpike;
+        }
+    } else if (incoming > 0 && bestState != nullptr) {
         const SearchState* bestSafe = nullptr;   int bestSafeScore = -2000000000;
         const SearchState* bestSpike = nullptr;  int bestSpikeAtk = -1; int bestSpikeScore = -2000000000;
         for (const auto& state : final_states) {
