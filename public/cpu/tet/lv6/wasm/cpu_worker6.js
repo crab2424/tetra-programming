@@ -27,14 +27,15 @@ self.Module = {
     //   ★v=8: C++をファイル分割＋-fltoで再ビルド。importセットが変わったのでグルーjsとwasmを揃えて更新。
     //   ★v=15: getAllPlacements()のBFS初期化をmemset方式→世代スタンプ方式に変更して再ビルド（挙動不変・呼び出しあたりO(2660)×3の初期化コスト削減）
     //   ★v=17: lv6 強化の重み [39..49]（B1〜B9）を読むように再ビルド（2026-10-26。グルーjs・wasm・worker を揃えて更新）
-    locateFile: function(path) { return path + '?v=17'; },
+    //   ★v=18: 相殺外し tankH[50]/tankLook[51] を読むように再ビルド（重み確保 4*52）
+    locateFile: function(path) { return path + '?v=18'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=17'); // ★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
+importScripts('cpu_wasm6.js?v=18'); // ★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
 
 let boardPtr = null;
 let resultPtr = null;

@@ -7,7 +7,7 @@ window.CPU6 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv6/wasm/cpu_worker6.js?v=17',
+        'cpu/tet/lv6/wasm/cpu_worker6.js?v=18',
         'cpu/tet/lv6/pc/wasm/pc_worker6.js',
     ];
     constructor(gameInstance) {
