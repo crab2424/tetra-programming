@@ -106,7 +106,7 @@ self.onmessage = function(e) {
     const endTime = performance.now();
     const timeTaken = (endTime - startTime).toFixed(2);
 
-    console.log(`⚡ Wasm CPU5 Calculated in: ${timeTaken} ms`);
+    //console.log(`⚡ Wasm CPU5 Calculated in: ${timeTaken} ms`);
 
     const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 43); 
 
