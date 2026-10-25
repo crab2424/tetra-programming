@@ -186,6 +186,9 @@
   display: flex;
   gap: 8px;
 }
+/* ボタンが6個並ぶ行（CPU TEST の LV1〜6）。標準の余白だと行の幅(320px)を超えるので詰める */
+.option-toggle.compact { gap: 6px; }
+.option-toggle.compact .opt-btn { padding: 6px 10px; }
 .opt-btn {
   background: transparent;
   border: 1px solid var(--border);

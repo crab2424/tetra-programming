@@ -76,6 +76,48 @@ GTR / SGTR / FRON の相対マッチ。0 で無効。Ama build は 50。
 - `link3FacH` … 横一直線
 - `link3FacV` … 縦一直線
 
+### qExcessWeight — 潜在連鎖の途中段の余剰（本線の資源効率・提案3 E1）
+
+quiescence の各候補（発火色を積んで回した潜在連鎖）について、**最終段以外の各段で4個を超えて消えた数の合計**
+（`ChainResult::excess`。途中段の同時消し・5個以上の多連結）に乗じて q に加える（負の重み想定）。
+最終段は火力になるので数えない。0 で無効（lv5 は 0）。
+根拠：盤面が埋まったときの本線の段数は「色ぷよ − 残り − 途中段の余剰」でほぼ決まり、
+余剰1個はぷよ1個の損と同じ（source_assets/memory/cpu/puyo/lv5-improvement-notes.md §4.5、lv6-harass-design.md §5）。
+
+### qJunkWeight / qSubWeight — ゴミと副砲（提案3 E2a / E2b）
+
+quiescence の候補（発火色を積んで回した潜在連鎖）ごとに、消えたぷよを連鎖前の位置で記録し（`simulateChain` の `popped`）、
+- **本線 M**：点が最大の候補で消えるぷよ
+- **副砲 S**：M と交わらず、M のどのぷよの下も消さない（撃っても本線が落ちない）候補のうち点が最大のもの
+- **ゴミ**：色ぷよ − M − S
+
+として、次を q（quiescence の評価）に足す。どちらも 0 で無効（lv5 は 0。両方 0 なら位置の追跡もしない）。
+- `qJunkWeight`（負）… ゴミ × 色ぷよ ÷ 72（埋まり具合）。序盤の組み途中は軽く、盤面が埋まるほど重い
+- `qSubWeight`（正）… 副砲で送れるおじゃま（点 ÷ 70）
+
+ねらい：本線は綺麗に組み、崩れた場所は本線とは別の連鎖（副砲）として組む（lv6-harass-design.md §9.3）。
+
+### subMinMainChains / subMinMainPuyos / subMinFill — 副砲・催促の本線条件（G1 / G2）
+
+evalWeights [51][52][53]。どれも 0 で条件なし（lv5 は 0）。設計: lv6-harass-design.md §10.3。
+- `qSubWeight`（副砲）は、本線 M の段数 ≥ `subMinMainChains`、M の色ぷよ数 ≥ `subMinMainPuyos`、
+  盤面の色ぷよ数 ≥ `subMinFill` のときだけ足す（本線をある程度組み、それ以上の構築が難しくなってから副砲）。
+- H1 催促も「撃った後の本線の段数 ≥ `subMinMainChains`」を条件に加える（点だけだと同時消しの多い短い連鎖でも通るため）。
+
+### harassMinOjama / harassMaxChains / harassKeepPct / counterKeepReach — 催促と対応（H1 / H2）
+
+controlWeights。どれも 0 で無効（lv5 は 0）。wasm の fire gate（build.cpp）が使う。設計: lv6-harass-design.md §9.4。
+- **H1 催促**：目標・緊急で撃たない手番に、次をすべて満たす「今撃てる小連鎖」のうち点が最大のものを撃つ。
+  - 段数 ≤ `harassMaxChains`、おじゃま ≥ `harassMinOjama` 個
+  - 撃った後の本線潜在（その初手の先で見えた潜在連鎖の点の最大＝afterReach）≥ `harassKeepPct`% × 今の本線潜在
+  - 撃った後の本線潜在 ≥ `harassMinReach` 個（絶対量）。相手に組みかけの本線を撃たせても、後打ちで返し勝てる量を残す
+  - cpu5_worker_io.js が、対ぷよ・build（待ち／カウンターでない）・相手が連鎖中でない思考でだけ [46] に「個数×レート」を入れる。
+- **H2 対応**：`counterKeepReach`=1 なら、カウンター（受け量を上回る連鎖を撃つ）で、受け量を上回る候補のうち
+  **撃った後の本線潜在が最大**の手を撃つ（従来は点が最大＝本線を吐きやすい）。副砲で返せれば本線が残る。
+  - 1：本線潜在が同じなら点が大きい方 / 2：同じなら点が小さい方 / 3：本線潜在が最大から 5% 以内の候補のうち点が最小
+    （2・3 は「相手の火力＋α で返す」。§10.3）
+  カウンターは fast（lv5 基準）の重みなので、有効かどうかは build の値から読み、[49] に思考ごとに入れる。
+
 ---
 
 ## controlWeights（制御パラメータ）
@@ -192,7 +234,16 @@ ama型evalは「撃たずに育てる」器なので、これが無いと無限�
 | 17 | link2Weight | 38 | link3FacL |
 | 18 | link3Weight | 39 | link3FacH |
 | 19 | expChainWeight | 40 | link3FacV |
-| 20 | knownNextCount（C++ では w.knownNextCount に代入されるのみのデッド配線） | | |
+| 20 | knownNextCount（C++ では w.knownNextCount に代入されるのみのデッド配線） | 41 | puyosWeight |
+| | | 42 | height3Weight |
+| | | 43 | qExcessWeight |
+| | | 44 | qJunkWeight |
+| | | 45 | qSubWeight |
+| | | 46 | harassMinScore（思考ごと：harassMinOjama×レート） |
+| | | 47 | harassMaxChains |
+| | | 48 | harassKeepPct |
+| | | 49 | counterKeepReach（思考ごと） |
+| | | 50 | harassMinReach（思考ごと：個数×レート） |
 
 ### ignition 動的閾値の撤去について
 

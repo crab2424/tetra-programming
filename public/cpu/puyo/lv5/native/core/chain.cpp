@@ -13,15 +13,29 @@ static const int CHAIN_BONUS_TABLE[] = {0, 8, 16, 32, 64, 96, 128, 160, 192, 224
 static const int COLOR_BONUS_TABLE[] = {0, 3, 6, 12, 24};
 static const int GROUP_BONUS_TABLE[] = {0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7, 10};
 
-ChainResult simulateChain(BitBoard& b) {
-    ChainResult res = {0, 0, 0, 0};
+ChainResult simulateChain(BitBoard& b, CellMask* popped) {
+    ChainResult res = {0, 0, 0, 0, 0};
+    // ── 消えたぷよの元の位置の追跡（popped 指定時だけ）──
+    //   各マスに「連鎖前の位置の番号」を持たせ、盤面と同じ規則（列ごとに下へ詰める）で落とす。
+    static thread_local int16_t cellId[TOTAL_ROWS][COLS];
+    if (popped) {
+        for (int r = 0; r < TOTAL_ROWS; r++)
+            for (int c = 0; c < COLS; c++) cellId[r][c] = b.get(c, r) ? (int16_t)(r * COLS + c) : (int16_t)-1;
+    }
+    auto markPopped = [&](int r, int c) {
+        int id = cellId[r][c];
+        if (id >= 0) popped->set(id / COLS, id % COLS);
+        cellId[r][c] = -1;
+    };
+    int lastStepExtra = 0;   // 直近の段の (消去数 − 4)。最終段は余剰に数えないため最後に差し引く
     // ★ 性能対策: 作業バッファは毎回確保せず静的に再利用する（clear() は容量を保持）。
     //   simulateChain は再帰・再入しないため共有しても安全（visited も同様に static）。
-    static bool visited[TOTAL_ROWS][COLS];
-    static std::vector<std::pair<int,int>> toErase;
-    static std::vector<std::pair<int,int>> toEraseOjama;
-    static std::vector<std::pair<int,int>> group;
-    static std::vector<std::pair<int,int>> queue;
+    //   thread_local: wasm（単スレッド）では従来の static と同じ。学習用のネイティブ並列ビルドでスレッドごとに分離する。
+    static thread_local bool visited[TOTAL_ROWS][COLS];
+    static thread_local std::vector<std::pair<int,int>> toErase;
+    static thread_local std::vector<std::pair<int,int>> toEraseOjama;
+    static thread_local std::vector<std::pair<int,int>> group;
+    static thread_local std::vector<std::pair<int,int>> queue;
 
     while (true) {
         memset(visited, 0, sizeof(visited));
@@ -107,13 +121,31 @@ ChainResult simulateChain(BitBoard& b) {
 
         int bonus = std::max(1, cb + colorB + groupBonusSum);
         res.score += SCORE_BASE * stepErasedPuyo * bonus;
+        lastStepExtra = stepErasedPuyo - 4;
+        res.excess += lastStepExtra;
 
+        if (popped) {
+            for (auto& p : toErase) markPopped(p.first, p.second);
+            for (auto& p : toEraseOjama) markPopped(p.first, p.second);
+        }
         for (auto& p : toErase) b.set(p.second, p.first, 0);
         for (auto& p : toEraseOjama) b.set(p.second, p.first, 0);
 
         b.applyGravity();
+        if (popped) {   // BitBoard::applyGravity と同じ：列ごとに空きを詰めて下（行番号の大きい方）へ寄せる
+            for (int c = 0; c < COLS; c++) {
+                int w = TOTAL_ROWS - 1;
+                for (int r = TOTAL_ROWS - 1; r >= 0; r--) {
+                    if (cellId[r][c] < 0) continue;
+                    int16_t id = cellId[r][c];
+                    cellId[r][c] = -1;
+                    cellId[w--][c] = id;
+                }
+            }
+        }
     }
 
+    res.excess -= lastStepExtra;   // 最終段の同時消し・多連結は資源ロスではない（火力になる）
     return res;
 }
 
@@ -122,8 +154,8 @@ ChainResult simulateChain(BitBoard& b) {
 //   それが4未満なら simulateChain は必ず連鎖0・スコア0を返す（盤面全走査が空振り）ため、
 //   ここで弾けば挙動不変のまま支配的な無駄シミュを削れる。
 static bool potentialFormsGroup4At(const BitBoard& b, int col, int ar, uint8_t color) {
-    static bool seen[TOTAL_ROWS][COLS];
-    static std::vector<std::pair<int,int>> stack;
+    static thread_local bool seen[TOTAL_ROWS][COLS];
+    static thread_local std::vector<std::pair<int,int>> stack;
     memset(seen, 0, sizeof(seen));
     stack.clear();
     stack.push_back({ar, col});

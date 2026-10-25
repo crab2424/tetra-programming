@@ -84,6 +84,8 @@ export interface FieldView {
     hover: { r: number; c: number } | null;
     rowMode: boolean;
     showCursor: boolean;
+    /** カーソルを薄く描く（盤面にフォーカスが無い時） */
+    cursorDim?: boolean;
     /** PLACE モードの操作中ミノ（盤面座標のマス・type は 0始まり）。valid=false なら置けない位置 */
     piece?: { cells: [number, number][]; type: number; valid: boolean } | null;
     ghost?: [number, number][] | null;
@@ -239,7 +241,7 @@ export function drawField(canvas: HTMLCanvasElement, v: FieldView) {
     }
     // キーボードカーソル
     if (v.cursor && v.showCursor) {
-        ctx.strokeStyle = '#f58542';
+        ctx.strokeStyle = v.cursorDim ? 'rgba(245,133,66,0.45)' : '#f58542';
         ctx.lineWidth = 2;
         const cy = top(v.cursor.r), ch = rh(v.cursor.r);
         if (v.rowMode) ctx.strokeRect(1, cy + 1, W - 2, ch - 2);

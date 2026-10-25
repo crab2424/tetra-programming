@@ -150,6 +150,7 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
   body[data-ptab="drafts"] #sidebar [data-p]:not([data-p~="drafts"]),
   body[data-ptab="info"] #sidebar [data-p]:not([data-p~="info"]),
   body[data-ptab="steps"] #sidebar [data-p]:not([data-p~="steps"]),
+  body[data-ptab="search"] #sidebar [data-p]:not([data-p~="search"]),
   body[data-ptab="out"] #sidebar [data-p]:not([data-p~="out"]) { display: none; }
   /* サッシュはサイドバーの内側に置く（外へ出すとサイドバーが横にスクロールできてしまう。tools §5.2） */
   #sidebar { overflow-x: hidden; }
@@ -868,3 +869,54 @@ button, select, .next-item { touch-action: manipulation; }   /* ダブルタッ�
   #topbar { gap: 4px; }
   #topbar #btn-undo, #topbar #btn-redo, #topbar #btn-save-gist-m { padding: 6px 6px; font-size: 10px; letter-spacing: 0; min-width: 0; white-space: nowrap; }
 }
+
+/* ─── SEARCH（解の探索。search-ui.ts） ─── */
+.search-ctl { flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.search-ctl .check { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; }
+#search-status { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+#search-status b { font-family: var(--font-orbitron); font-size: 10px; letter-spacing: 1px; }
+#search-status.run { border-color: var(--solve); background: var(--solve-soft); }
+#search-status.stale { opacity: 0.75; }
+#search-status .stale-note { flex-basis: 100%; color: var(--warn); font-size: 11px; }
+#search-meta { margin: 4px 0 6px; line-height: 1.6; }
+#search-meta .saved-ok { color: var(--success); }
+#search-meta .saved-ng { color: var(--warn); }
+#search-list { list-style: none; margin: 0 0 8px; padding: 0; max-height: 420px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+#search-list:empty { display: none; }
+#search-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
+#search-list li:last-child { border-bottom: none; }
+#search-list li.on { background: var(--solve-soft); }
+#search-list .sol { flex: 1 1 auto; min-width: 0; display: flex; gap: 8px; align-items: center; text-align: left; padding: 2px 4px; background: none; border: none; color: var(--text); font-family: var(--font-main); letter-spacing: 0; cursor: pointer; }
+#search-list .sol:hover { background: rgba(255, 255, 255, 0.04); }
+#search-list .sol:disabled { cursor: default; opacity: 0.6; }
+#search-list .n { font-family: var(--font-orbitron); font-size: 9px; color: var(--text-dim); min-width: 26px; text-align: right; }
+#search-list .seq { font-family: var(--font-orbitron); font-size: 11px; font-weight: 700; letter-spacing: 1px; overflow-wrap: anywhere; }
+#search-list .seq .h { color: var(--solve); font-size: 8px; vertical-align: super; }
+#search-list .seq .c { color: var(--text-dim); font-size: 8px; font-weight: 400; margin-left: 1px; }
+#search-list .res { font-family: var(--font-orbitron); font-size: 10px; color: var(--text-dim); }
+#search-list .saved { font-size: 10px; color: var(--success); border: 1px solid var(--success); border-radius: 3px; padding: 0 4px; }
+#search-list .vars { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; font-size: 10px; color: var(--text-dim); }
+#search-list .vars button { padding: 1px 5px; font-size: 9px; min-width: 20px; }
+#search-list .vars button.on { color: var(--solve); border-color: var(--solve); }
+#search-list .more { color: var(--text-dim); font-size: 11px; justify-content: center; }
+#activity button.busy svg { color: var(--solve); animation: search-pulse 1.2s ease-in-out infinite; }
+@keyframes search-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { #activity button.busy svg { animation: none; } }
+
+
+/* 操作キーと重なっているエディタのキー（SOLVE・STAMP） */
+#bind-conflicts { color: var(--warn); }
+#bind-conflicts kbd, #alt-hints kbd {
+  font: inherit; padding: 0 4px; border: 1px solid currentColor; border-radius: 3px; white-space: nowrap;
+}
+/* Alt（option）を押している間の早見表（SOLVE・STAMP） */
+#alt-hints { display: none; }
+body.alt-held[data-mode="solve"] #alt-hints, body.alt-held[data-mode="stamp"] #alt-hints {
+  display: grid; grid-template-columns: auto auto; gap: 3px 12px; align-items: baseline;
+  position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 50;
+  padding: 10px 14px; border: 1px solid var(--quiz); border-radius: 6px;
+  background: rgba(20, 20, 24, 0.94); font-size: 12px; pointer-events: none;
+}
+#alt-hints .ah-title { grid-column: 1 / -1; font-weight: bold; margin-bottom: 2px; }
+#alt-hints kbd { color: var(--quiz); justify-self: end; }
+#alt-hints .ah-hit { color: var(--warn); }

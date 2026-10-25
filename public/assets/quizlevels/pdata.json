@@ -468,5 +468,44 @@
             "value": 11,
             "description": "11連鎖"
         }
+    },
+    {
+        "id": "puyo-23",
+        "diff": 1,
+        "description": "1手（2手）",
+        "rule": "puyo",
+        "initialPuyoField": [
+            [0, 1, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0],
+            [0, 2, 0, 0, 0, 0],
+            [0, 2, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0],
+            [0, 1, 1, 0, 0, 0]
+        ],
+        "nextPuyoPairs": [[1, 2], [1, 2]],
+        "clearCondition": {
+            "type": "chain",
+            "value": 3,
+            "description": "3連鎖"
+        }
+    },
+    {
+        "id": "puyo-24",
+        "diff": 2,
+        "description": "GTR？",
+        "rule": "puyo",
+        "initialPuyoField": [
+            [0, 4, 0, 0, 0, 0],
+            [2, 1, 0, 0, 0, 0],
+            [2, 2, 1, 5, 5, 0],
+            [1, 1, 5, 4, 4, 0]
+        ],
+        "nextPuyoPairs": [[4, 5], [4, 5], [1, 2]],
+        "clearCondition": {
+            "type": "chain",
+            "value": 4,
+            "description": "4連鎖"
+        }
     }
 ]

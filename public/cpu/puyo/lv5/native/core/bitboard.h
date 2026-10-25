@@ -105,3 +105,6 @@ BitBoard applyPlacement(const BitBoard& b, const PairPlacement& p, uint8_t pivot
 //   異なる＝ペアが2列に分かれてバラバラに落ちる場合のみ 1。縦置きは常に 0。
 //   原典: source_assets/puyoAI/ama-beam/core/field.cpp get_drop_pair_frame
 int placementTear(const PairPlacement& p);
+
+// 配置 p でちぎる段数（横置きで2列の着地行の差。ちぎらなければ 0）。対テト §15 のちぎりの量（段数+1）に使う。
+int placementTearRows(const PairPlacement& p);

@@ -1,0 +1,72 @@
+{
+  "description": "相手プール v1（2026-10-17）。同じ重みどうしの鏡写しを避けるため、立ち回りの違う相手を混ぜる。value は params.SPACE の名前。base の重みに set を上書きする。weight は相手に割くシードの比率。",
+  "members": [
+    {
+      "name": "main",
+      "base": "lv6",
+      "set": {},
+      "weight": 3,
+      "note": "現行の本番 lv6（本線型）。基準。"
+    },
+    {
+      "name": "fast_attack",
+      "base": "lv6",
+      "weight": 1.5,
+      "set": {
+        "fireChainCount": 11,
+        "fireScoreThreshold": 90000,
+        "harassMinOjama": 8,
+        "harassMaxChains": 3,
+        "harassKeepPct": 80,
+        "harassMinReach": 200,
+        "counterKeepReach": 0
+      },
+      "note": "速攻型：11連鎖・9万点で早めに撃ち、本線を残した催促も打つ（versus-mechanics §5）。7連鎖で撃つ極端な設定は lv6 に 98% 負けて勾配にならなかったため緩めた。"
+    },
+    {
+      "name": "big_chain",
+      "base": "lv6",
+      "weight": 1.5,
+      "set": {
+        "fireChainCount": 15,
+        "fireScoreThreshold": 200000,
+        "emergencyHeight": 12,
+        "emergencyFireMinRatio": 100,
+        "harassMinOjama": 0
+      },
+      "note": "大連鎖型：15連鎖か20万点まで撃たず、催促もしない（§3 の資源を使い切る本線）。後打ちで返す形が試される。現行 lv6 と互角（0.505）で、最も強い別スタイル。"
+    },
+    {
+      "name": "responder",
+      "base": "lv6",
+      "weight": 1.0,
+      "set": {
+        "fireChainCount": 12,
+        "fireScoreThreshold": 100000,
+        "qSubWeight": 100,
+        "harassMinOjama": 0,
+        "counterKeepReach": 1,
+        "COUNTER_TRIGGER_OJAMA_VSPUYO": 1,
+        "COUNTER_MARGIN_VSPUYO": 1.0
+      },
+      "note": "守り型：少量でもすぐ返す（§6 の対応）。副砲を持ち、火力は受け量ちょうど。"
+    },
+    {
+      "name": "lv5",
+      "base": "lv5",
+      "set": {},
+      "weight": 1.0,
+      "note": "旧世代（現行 lv5）。評価の傾向が違う相手が混ざる。"
+    },
+    {
+      "name": "perturb",
+      "base": "lv6",
+      "perturb": {
+        "sigma": 0.15,
+        "count": 2
+      },
+      "weight": 2.0,
+      "note": "lv6 の全重みに正規化座標で σ=0.15 の雑音を足したもの。学習は世代ごとに作り直し、定期評価は固定の2体。"
+    }
+  ]
+}

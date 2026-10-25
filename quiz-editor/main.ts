@@ -17,11 +17,12 @@ import {
 } from './render.ts';
 import { KEY_HELP, isTextInput, isMod, isMac, keyLabel } from './keys.ts';
 import { PlaceMode, buildStampGrid, drawStampButtons, clearedAtOf, firstErrorOf } from './place.ts';
-import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, actionFor, PLACE_ACTIONS, ACTION_NAMES } from './keybinds.ts';
+import { loadPlaceBinds, loadPlaceTuning, tuningLabel, bindLabel, sourceLabel, actionFor, PLACE_ACTIONS, ACTION_NAMES, loadLayoutLabels, codeLabel, editorKeyLabel, placeConflicts, PLACE_EDITOR_KEYS, conflictOf, type PlaceAction } from './keybinds.ts';
 import { fmtDateTime, type SolutionMap, type SolutionEntry, fetchSolutions, saveSolution, canWriteFiles, today, solutionPath, exportSolutionsFile, serializeSolutions, SOLUTION_FILES, RULES } from './solutions.ts';
 import { SyncEngine, type SyncEvent, type DraftEntry, newDraftId, guessDevice, decodeSyncHash } from './sync.ts';
 import { LocalDrafts, type LocalDraft, type SentMark, draftKey, contentHash } from './local-drafts.ts';
 import { initSyncUi } from './sync-ui.ts';
+import { initSearchUi } from './search-ui.ts';
 import { getHandle, readText, writeText, canPickFiles } from './fsa.ts';
 import { ask, skippedConfirms, resetSkippedConfirms, SKIP_LABELS } from './ask.ts';
 import { probeDevFiles, devFilesAvailable, devRead, devWrite } from './dev-files.ts';
@@ -70,13 +71,13 @@ function restore(s: string) {
  * coalesceKey が直前と同じ変更はまとめて1回の Undo にする
  * （テキスト入力は1.5秒以内、`stroke:` で始まるキー＝ドラッグ塗りは時間無制限）
  */
-/** NEXT・HOLD 許可（手順が合うかを決める物）の目印 */
-function nextSig(d: EditorDoc): string { return JSON.stringify([d.rule, d.next, d.pairs, d.allowHold]); }
+/** 初期盤面・NEXT・HOLD 許可（手順が合うかを決める物）の目印 */
+function stepsBaseSig(d: EditorDoc): string { return JSON.stringify([d.rule, d.field, d.next, d.pairs, d.allowHold]); }
 function commit(mutate: () => void, coalesceKey = '') {
     const now = Date.now();
     const d0 = doc;
-    const sig0 = nextSig(doc);
-    const old = { next: doc.next.slice(), pairs: doc.pairs.map(p => [...p] as Pair), allowHold: doc.allowHold };
+    const sig0 = stepsBaseSig(doc);
+    const old = { field: doc.field.map(r => r.slice()), next: doc.next.slice(), pairs: doc.pairs.map(p => [...p] as Pair), allowHold: doc.allowHold };
     const same = coalesceKey !== '' && coalesceKey === lastCommit.key &&
         (coalesceKey.startsWith('stroke:') || now - lastCommit.t < 1500);
     if (!same) {
@@ -86,19 +87,25 @@ function commit(mutate: () => void, coalesceKey = '') {
     }
     lastCommit = { key: coalesceKey, t: now };
     mutate();
-    const trimmed = doc === d0 ? trimStepsBrokenByNext(old) : null;
+    const trimmed = doc === d0 ? trimStepsBrokenByBase(old) : null;
     syncSolved();
     if (doc.cond.descriptionAuto) doc.cond.description = autoCondDescription(doc.rule, doc.cond);
     renderAll();
     if (trimmed) {
-        toast(`${doc.rule === 'tet' ? 'NEXT・HOLD 許可' : 'NEXT'}の変更で ${trimmed} 手目が合わなくなったため、解答手順を ${trimmed - 1} 手までにしました`, 'info', {
+        const what = [JSON.stringify(old.field) !== JSON.stringify(doc.field) ? '盤面' : '',
+            JSON.stringify([old.next, old.pairs]) !== JSON.stringify([doc.next, doc.pairs]) ? 'NEXT' : '',
+            old.allowHold !== doc.allowHold ? 'HOLD 許可' : ''].filter(Boolean).join('・');
+        toast(`${what}の変更で ${trimmed} 手目が合わなくなったため、解答手順を ${trimmed - 1} 手までにしました`, 'info', {
             actions: [{ label: 'UNDO', title: '変更と手順の切り詰めを両方戻す', run: undo }],
         });
     }
 
-    /** NEXT・HOLD 許可の変更で新しくエラーになった手から後ろを消す（polish §2）。消した手（1始まり）か null */
-    function trimStepsBrokenByNext(prev: { next: number[]; pairs: Pair[]; allowHold: boolean }): number | null {
-        if (!doc.steps.length || nextSig(doc) === sig0) return null;
+    /**
+     * 初期盤面・NEXT・HOLD 許可の変更で新しくエラーになった手から後ろを消す（polish §2。盤面の塗り替え・CLEAR・MEMO → FIELD 等も対象）。
+     * 消した手（1始まり）か null
+     */
+    function trimStepsBrokenByBase(prev: { field: number[][]; next: number[]; pairs: Pair[]; allowHold: boolean }): number | null {
+        if (!doc.steps.length || stepsBaseSig(doc) === sig0) return null;
         const after = firstErrorOf(doc, doc.steps);
         if (!after) return null;
         const before = firstErrorOf({ ...doc, ...prev }, doc.steps);
@@ -287,6 +294,7 @@ function coarsePointer(): boolean { return matchMedia('(pointer: coarse)').match
 // ─── PC とスマホの同期（Gist。§14.3） ───
 const sync = new SyncEngine(ev => onSyncEvent(ev), () => onSyncState());
 let syncUi: { refresh(): void; showDrafts(): void; renderDrafts(): void; shown(): void } | null = null;
+let searchUi: { render(): void; cancel(): void } | null = null;
 
 /** Gist の下書きを開く（DRAFTS・届いたお知らせ・LEVELS から）。この端末の未保存の編集を置き換える時は確認する */
 function openDraft(id: string) {
@@ -650,6 +658,37 @@ function showNotice(msg: string, withRevert: boolean) {
 }
 function hideNotice() { dismissToasts(m => m.endsWith(NOTICE_MARK)); }
 
+/** 操作キーの短い名前（説明の括弧を除く） */
+function shortAction(a: PlaceAction): string { return ACTION_NAMES[a].replace(/（.*）$/, ''); }
+/** Alt の表記（Mac は option） */
+function altName(): string { return isMac() ? 'option（⌥）' : 'Alt'; }
+/**
+ * 操作キーと重なっているエディタのキー（SOLVE・STAMP）を操作パネルに、Alt で使えるキーの早見表を Alt を押している間に出す。
+ * 操作キーが優先されるので、重なったキーは Alt（option）付きで使う
+ */
+function renderBindConflicts() {
+    const sub = place.sub;
+    const list = placeConflicts(binds, doc.rule, sub);
+    const el = $('bind-conflicts');
+    el.hidden = !list.length;
+    el.innerHTML = list.length ? `操作キーと重なっているキー（${escapeHtml(altName())} 付きで使えます）:` + list.map(({ key, action }) =>
+        `<br><kbd>${escapeHtml(keyLabel(editorKeyLabel(key, true)))}</kbd> ${escapeHtml(key.desc)} — ${escapeHtml(keyLabel(editorKeyLabel(key)))} は${escapeHtml(shortAction(action))}`).join('') : '';
+    const keys = PLACE_EDITOR_KEYS.filter(k => (!k.rule || k.rule === doc.rule) && (!k.sub || k.sub === sub));
+    const rows = [
+        ...keys.map(k => ({ label: editorKeyLabel(k, true), desc: k.desc, hit: !!conflictOf(binds, k) })),
+        ...(sub === 'solve' ? [{ label: 'Alt+← ・ Alt+→', desc: '前の手 ・ 次の手', hit: false }] : []),
+        { label: 'Alt+↓', desc: '一番下まで落とす（確定しない）', hit: false },
+    ];
+    const shiftBound = ['ShiftLeft', 'ShiftRight'].some(c => actionFor(binds, c));
+    $('alt-hints').innerHTML = `<span class="ah-title">${escapeHtml(altName())} + キー（操作キーより優先）${shiftBound ? `・Shift 付きは ${escapeHtml(altName())} を先に` : ''}</span>` +
+        rows.map(r => `<kbd>${escapeHtml(keyLabel(r.label))}</kbd><span class="${r.hit ? 'ah-hit' : ''}">${escapeHtml(r.desc)}${r.hit ? '（操作キーと重なっています）' : ''}</span>`).join('');
+    const nav = (n: string, t: string) => { const b = $('solve-box').querySelector<HTMLElement>(`[data-nav="${n}"]`); if (b) b.title = keyLabel(t); };
+    nav('first', `初期盤面 (Home)`);
+    nav('prev', `前の手 (${codeLabel('BracketLeft')} ・ Alt+←)`);
+    nav('next', `次の手 (${codeLabel('BracketRight')} ・ Alt+→)`);
+    nav('last', `最後の手 (End)`);
+}
+
 /** 解答ファイルに保存済みの内容と一致するか */
 function solutionSaved(): boolean {
     const e = solutions[doc.rule][doc.id];
@@ -713,6 +752,7 @@ function renderAll() {
     saveDraftSoon();
     renderHold();
     renderMemo();
+    searchUi?.render();
     renderField();   // ツール・見出しの高さが確定してから盤面の大きさを合わせ直す
 }
 
@@ -750,6 +790,7 @@ function renderPlace() {
     $('frame-nav').hidden = !puyo;
     if (ui.mode !== 'place') return;
     $('bind-src').textContent = `操作キー: ${sourceLabel(binds.source)}・${tuningLabel(tuning)}（? で一覧）`;
+    renderBindConflicts();
     place.renderPanel($('layout'));   // PC では #solve-box が #col-steps へ移るので、レイアウト全体から探す
     setVal($<HTMLInputElement>('sol-note'), doc.solutionNote);
     const st = $('sol-status');
@@ -910,7 +951,7 @@ function cellSize(rule: Rule): number {
 function body(): HTMLElement { return document.body; }
 
 // ─── PC のサイドバー（layout §1。アクティビティバーで LEVELS / INFO / STEPS / OUTPUT を切替・選択中をもう一度押すと閉じる） ───
-type PTab = 'levels' | 'drafts' | 'info' | 'steps' | 'out';
+type PTab = 'levels' | 'drafts' | 'info' | 'steps' | 'search' | 'out';
 const PTAB_KEY = 'tetlabo.quizEditor.ptab';
 const SIDE_KEY = 'tetlabo.quizEditor.side';
 const narrowMq = matchMedia('(min-width: 761px) and (max-width: 999px)');   // サイドバーを盤面に重ねて開く幅
@@ -997,7 +1038,8 @@ function renderField() {
     drawField(fieldCanvas, {
         rule: doc.rule, field: doc.field, cell: cellSize(doc.rule),
         cursor: ui.cursor, hover: ui.mode === 'paint' ? ui.hover : null, rowMode: ui.rowMode,
-        showCursor: ui.mode === 'paint' && document.activeElement === fieldCanvas,
+        // カーソルは常に出す（盤面にフォーカスが無い時は薄く。キーで操作すると盤面に戻る）。タッチ端末はキー操作が無いので出さない
+        showCursor: ui.mode === 'paint' && !coarsePointer(), cursorDim: document.activeElement !== fieldCanvas,
     });
     const size = doc.rule === 'puyo' ? `${cols('puyo')}×14（見える 12＋隠し 2）` : `${cols(doc.rule)}×${rows(doc.rule)}`;
     $('field-size').textContent = size;
@@ -1539,6 +1581,7 @@ function handleFieldKey(e: KeyboardEvent): boolean {
         return true;
     }
     if (e.key === ' ' || e.key === 'Enter') {
+        if (e.repeat) return true;   // 押しっぱなしで「塗る → 空にする」を繰り返さない
         const { r, c } = ui.cursor;
         if (ui.rowMode) fillRow(r, c);
         else setCell(r, c, doc.field[r][c] === ui.selColor ? 0 : ui.selColor, '');
@@ -1937,8 +1980,10 @@ async function writeLevelsFileNow(forcePick: boolean) {
             : plan.action === 'move' ? `「${srcId}」を ${src + 1}番 → ${plan.index + 1}番へ移動して書き換え`
             : `${plan.index + 1}番に「${doc.id}」を追加`;
         const wrote = plan.text !== text;
+        // 解答手順（tsolutions.json / psolutions.json）が未保存なら、書き込みの後で一緒に保存する（SAVE SOLUTION を別に押さなくてよい）
+        const solLine = solutionSaved() ? '' : `\n解答手順（${solvedSteps(doc).length}手）も保存します。`;
         if (wrote) {
-            if (!await ask(`${h.name} の ${what}ます。${changeLine}\n他の問題は変更しません。よろしいですか？`)) return;
+            if (!await ask(`${h.name} の ${what}ます。${changeLine}\n他の問題は変更しません。${solLine}よろしいですか？`)) return;
             await h.write(plan.text);
         }
         levels[doc.rule] = JSON.parse(plan.text) as LevelRaw[];
@@ -1956,9 +2001,14 @@ async function writeLevelsFileNow(forcePick: boolean) {
         reconcile({ rule: doc.rule, ids: [oldSrc, doc.id] });
         writtenDraftIds.add(draftId);
         clearWrittenGistDraft();
-        const msg = wrote ? `${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`
+        let msg = wrote ? `${h.name} に書き込みました（${what}）。反映には public/core/base.js の ASSET_VERSION を +1 してください`
             : `${h.name} の「${doc.id}」はファイルと同じ内容です（書き込みは不要でした）`;
-        // 手順は別のファイル（tsolutions.json / psolutions.json）。未保存なら知らせて、その場で保存できるようにする（tools §1.3）
+        // 手順は別のファイル。未保存なら続けて保存する（ID を変えた時は旧 ID の解答を消すため、書き込む前の元の ID を渡す）
+        if (!solutionSaved()) {
+            const sol = await saveSolutionFile(false, oldSrc, false);
+            if (sol) msg += `。解答手順も${sol}`;
+        }
+        // 保存できなかった（やめた・失敗した）なら知らせて、その場で保存できるようにする（tools §1.3）
         if (editStateOf(doc, sourceId).kind === 'solution') {
             toast(`${msg}。解答手順は未保存です`, 'info', {
                 actions: [{ label: 'SAVE SOLUTION', title: '解答手順を保存する', run: () => void saveSolutionFile(false) }],
@@ -2056,8 +2106,12 @@ function renderHelp() {
             { keys: 'Alt+↓', desc: '一番下まで落とす（確定しない）' },
             { keys: 'Enter', desc: '今の位置で確定（浮いていても置く。ぷよは着地まで落として置く）' },
             { keys: 'Backspace', desc: '最後の手を取り消す（SOLVE）' },
-            { keys: '[ ・ ] ・ Home ・ End', desc: '前の手 ・ 次の手 ・ 初期盤面 ・ 最後の手' },
+            { keys: `${codeLabel('BracketLeft')} ・ ${codeLabel('BracketRight')} ・ Home ・ End`, desc: '前の手 ・ 次の手 ・ 初期盤面 ・ 最後の手（Alt+← ・ Alt+→ でも前 ・ 次）' },
             { keys: ', ・ .', desc: '（PUYO）連鎖の途中の盤面を前 ・ 次へ（置いた直後 → n 連鎖目が消えた後 …。消えるぷよを強調）' },
+            { keys: 'Alt+（上のキー・P・N・V）', desc: `操作キーと重なったキーの代わり（Alt 付きは操作キーとして扱わない。${isMac() ? 'Mac は option。' : ''}Alt を押している間は早見表を表示）` },
+            ...placeConflicts(binds, doc.rule, place.sub).map(({ key, action }) => ({
+                keys: editorKeyLabel(key, true), desc: `${key.desc}（${editorKeyLabel(key)} は操作キーの${shortAction(action)}に割り当て済み）`,
+            })),
             { keys: 'I O T J L S Z', desc: '置くミノを選ぶ（STAMP）' },
             { keys: 'マウス: 移動 ・ ホイール ・ 左クリック ・ 右クリック', desc: '位置 ・ 回転 ・ 確定 ・ 右回転（T-Spin は推定扱い。STRICT では使えない）' },
         ],
@@ -2156,10 +2210,14 @@ $<HTMLInputElement>('sol-note').addEventListener('input', e => {
 function solutionEntry(steps: AnyStep[]): SolutionEntry {
     return { steps, note: doc.solutionNote, updated: today(), ...(doc.memo ? { memo: doc.memo.map(r => r.slice()) } : {}) };
 }
-async function saveSolutionFile(forcePick: boolean) {
-    if (!doc.id.trim()) { warnStatus('ID を入力してから保存してください'); return; }
+/**
+ * 解答手順を保存する。prevId = 元の問題の ID（ID を変えていたら、その ID の解答を消す）。
+ * report = false の時は結果を画面に出さず、保存先の短い説明を返す（WRITE FILE から続けて保存する時）。保存しなかったら null
+ */
+async function saveSolutionFile(forcePick: boolean, prevId: string | null = sourceId, report = true): Promise<string | null> {
+    if (!doc.id.trim()) { warnStatus('ID を入力してから保存してください'); return null; }
     const rule = doc.rule;
-    const oldId = sourceId && sourceId !== doc.id && solutions[rule][sourceId] ? sourceId : null;
+    const oldId = prevId && prevId !== doc.id && solutions[rule][prevId] ? prevId : null;
     // 保存するのはクリアした時点の手順。試行中（クリアしていない手）を保存するのは明示した時だけ（D6）
     let steps = solvedSteps(doc);
     if (stepsOnTrial()) {
@@ -2168,34 +2226,39 @@ async function saveSolutionFile(forcePick: boolean) {
         if (c === 'screen') {
             steps = doc.steps.map(st => ({ ...st }));
             doc.solved = steps.map(st => ({ ...st }));
-        } else if (c !== 'solved') return;
+        } else if (c !== 'solved') return null;
     }
     if (sync.enabled) {
         const skipped = await sync.setSolution(rule, doc.id, oldId, solutionEntry(steps));
         solutions[rule] = sync.solutions(rule);
-        warnStatus(skipped.includes(doc.id) ? '他の端末で、より新しい解答が保存されていたため保存しませんでした'
+        const ok = !skipped.includes(doc.id);
+        const res = !ok ? '他の端末で、より新しい解答が保存されていたため保存しませんでした'
             : sync.state === 'synced' ? `Gist に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
-            : `端末内に保存しました。${sync.message || '通信できたら Gist に送ります'}`);
+            : `端末内に保存しました。${sync.message || '通信できたら Gist に送ります'}`;
+        if (report || !ok) warnStatus(res);
         renderAll();
         reconcile({ rule: doc.rule, ids: [sourceId, doc.id] });
         clearWrittenGistDraft();
-        return;
+        return ok ? res : null;
     }
+    let done: string | null = null;
     try {
         const res = await withFileWrite(() => saveSolution(rule, doc.id, oldId,
             solutionEntry(steps), solutions[rule], forcePick));
         solutions[rule] = res.map;
         solutionsLoaded[rule] = true;
-        setStatus(res.via === 'file'
+        done = res.via === 'file'
             ? `${res.fileName} に保存しました${oldId ? `（旧 ID「${oldId}」の解答は削除）` : ''}`
-            : `ダウンロードしました。${solutionPath(rule)} に置き換えてください`);
+            : `ダウンロードしました。${solutionPath(rule)} に置き換えてください`;
+        if (report) setStatus(done);
     } catch (err) {
-        if ((err as Error).name === 'AbortError') return;   // ファイル選択をキャンセル
+        if ((err as Error).name === 'AbortError') return null;   // ファイル選択をキャンセル
         console.error(err);
         errStatus(`保存できませんでした: ${(err as Error).message}`);
     }
     renderAll();
     reconcile({ rule: doc.rule, ids: [sourceId, doc.id] });
+    return done;
 }
 $('btn-sol-save').addEventListener('click', () => void saveSolutionFile(false));
 $('btn-sol-pick').addEventListener('click', () => {
@@ -2220,17 +2283,27 @@ window.addEventListener('storage', e => {
 // グローバルキー
 // ─────────────────────────────────────────────
 /** フォーカスした部品が自分で使うキーか（ボタン・チェックボックスの Space / Enter はブラウザのクリック） */
+/**
+ * キーボード（Tab 等）で移ったフォーカス。マウスで押して残ったフォーカスと区別する。
+ * :focus-visible では見分けられない（Chrome は何かキーを押すと、マウスで押したボタンにも :focus-visible を付ける。
+ * その後の Space が「最後に押したボタン」を押し続けていた）
+ */
+let kbFocus: Element | null = null;
+let lastInputKey = false;
+document.addEventListener('keydown', () => { lastInputKey = true; }, true);
+document.addEventListener('pointerdown', () => { lastInputKey = false; }, true);
+document.addEventListener('focusin', e => { kbFocus = lastInputKey ? e.target as Element : null; });
 function ownedByFocused(target: Element | null, e: KeyboardEvent): boolean {
     if (!target || target === fieldCanvas || target === document.body) return false;
     const pressable = target instanceof HTMLButtonElement || (target instanceof HTMLInputElement && (target.type === 'checkbox' || target.type === 'radio'));
-    // クリックで残ったフォーカスは対象外（:focus-visible はキーボードで Tab 移動した時だけ。polish2 §5）
-    return pressable && (e.key === ' ' || e.key === 'Enter') && target.matches(':focus-visible');
+    // クリックで残ったフォーカスは対象外（キーボードで移ってきた部品だけ。polish2 §5）
+    return pressable && (e.key === ' ' || e.key === 'Enter') && target === kbFocus;
 }
 // Space はボタンを keyup で押す。クリックで残ったフォーカスのボタンは押させない（keydown で今のモードが使った Space）
 document.addEventListener('keyup', e => {
     const t = e.target as Element | null;
     if (e.key !== ' ' || !(t instanceof HTMLButtonElement) || document.querySelector('dialog[open]')) return;
-    if (!t.matches(':focus-visible')) e.preventDefault();
+    if (t !== kbFocus) e.preventDefault();
 });
 /**
  * キーの行き先（tools §4）: テキスト欄 → 文字入力。それ以外は、フォーカスした部品が使うキー（Space/Enter 等）を除き
@@ -2296,7 +2369,8 @@ document.addEventListener('keydown', e => {
     if (ownedByFocused(target, e)) return;
 
     // V: MEMO を盤面の場所に出す / 戻す、Shift+V: 今の盤面（SOLVE は表示中の手の盤面）を MEMO に（polish §6）
-    if (!e.altKey && e.code === 'KeyV' && !(ui.mode === 'place' && actionFor(binds, e.code))) {
+    // Alt（option）+V・Alt+Shift+V は操作キーに V を割り当てていても効く
+    if (e.code === 'KeyV' && (e.altKey || !(ui.mode === 'place' && actionFor(binds, e.code)))) {
         e.preventDefault();
         if (e.shiftKey) setMemoFromBoard(); else setMemoView(!ui.memoView);
         return;
@@ -2314,13 +2388,14 @@ document.addEventListener('keydown', e => {
     else handled = handleFieldKey(e);
     // P: EDIT（最後に使った PAINT/STAMP/NEXT）⇔ SOLVE、Shift+P: PAINT → STAMP → NEXT、N: NEXT ⇔ 盤面のモード
     // （SOLVE で同期キーに割り当てられていれば上で処理済み）
-    if (!handled && !e.altKey && e.code === 'KeyP') {
+    // Alt（option）付きでも同じ（SOLVE で P を操作キーに割り当てている時の代わり）
+    if (!handled && e.code === 'KeyP') {
         const m = curMode();
         if (e.shiftKey) setMode(cycleEditMode(m === 'solve' ? ui.lastEdit : m));
         else setMode(m === 'solve' ? ui.lastEdit : 'solve');
         handled = true;
     }
-    if (!handled && !e.altKey && !e.shiftKey && e.code === 'KeyN' && !mobileMq.matches) {
+    if (!handled && !e.shiftKey && e.code === 'KeyN' && !mobileMq.matches) {
         setMode(curMode() === 'next' ? boardMode() : 'next');
         handled = true;
     }
@@ -2330,6 +2405,9 @@ document.addEventListener('keydown', e => {
         handled = true;
     }
     if (handled) e.preventDefault();
+    // 盤面のモードがキーを使ったのに盤面にフォーカスが無い（★・UNDO 等をマウスで押した後）→ 盤面へ戻す。
+    // カーソルが見え、ボタンに残ったフォーカスに Space を取られることも無くなる
+    if (handled && ui.mode !== 'next' && document.activeElement !== fieldCanvas) focusField();
 });
 
 // Alt（option）を押している間は、NEXT の選んでいる項目を「持ち上げた」見た目にする（Alt+↑↓ で入れ替えられる合図。polish §4）
@@ -2700,7 +2778,7 @@ $('doc-tab').addEventListener('click', showLevels);
     let saved: string | null = null, side: string | null = null;
     try { saved = localStorage.getItem(PTAB_KEY); side = localStorage.getItem(SIDE_KEY); } catch { /* 読めない */ }
     // 旧版の PREVIEW タブは廃止（layout §3）
-    const t: PTab = saved === 'levels' || saved === 'drafts' || saved === 'steps' || saved === 'out' ? saved : 'info';
+    const t: PTab = saved === 'levels' || saved === 'drafts' || saved === 'steps' || saved === 'search' || saved === 'out' ? saved : 'info';
     setPTab(t, side !== 'closed' && !narrowMq.matches);   // 狭い画面は盤面に重なるので閉じて始める
 }
 
@@ -2748,6 +2826,8 @@ $('hold-box').addEventListener('click', () => {
 
 loadImages(() => { renderField(); renderPalette(); renderNext(); renderHold(); buildStampGrid($('stamp-grid')); });
 buildStampGrid($('stamp-grid'));
+// キーボードの配列（JIS 等）に合わせてキーの表記を直す（[ は JIS では @ の位置のキー）
+void loadLayoutLabels().then(ok => { if (ok) renderAll(); });
 const restored = restoreOnBoot();
 ui.nextCaret = nextLen();
 place.view = 0;
@@ -2909,6 +2989,36 @@ syncUi = initSyncUi({
     isMobile: () => mobileMq.matches,
     showSidebar: () => { solvePrevTab = null; setPTab('drafts'); },
 });
+// ─── SEARCH（解の探索。search-ui.ts・設計 solver §6・§13） ───
+/** 最後に SEARCH から読み込んだ手順（これを置き換える時は確認しない＝一覧を次々に見られる） */
+let searchLoaded = '';
+async function loadSearchSolution(steps: AnyStep[], label: string): Promise<boolean> {
+    const cur = JSON.stringify(doc.steps);
+    const saved = JSON.stringify(solutions[doc.rule][doc.id]?.steps ?? []);
+    if (doc.steps.length && cur !== saved && cur !== searchLoaded && cur !== JSON.stringify(steps)) {
+        if (!await ask('今の解答手順（保存していない物）を SEARCH の解で置き換えます。UNDO で戻せます。よろしいですか？', { ok: '置き換える' })) return false;
+    }
+    const keepSearch = !mobileMq.matches && sideOpen() && curPTab() === 'search';
+    commit(() => { doc.steps = steps.map(st => ({ ...st })); });
+    searchLoaded = JSON.stringify(doc.steps);
+    place.view = steps.length;
+    if (curMode() !== 'solve') setMode('solve');
+    else { place.resetActive(); renderAll(); focusField(); }
+    // PC: 一覧を続けて見られるよう SEARCH のビューのまま（SOLVE に入ると STEPS に切り替わるので戻す）
+    if (keepSearch) { solvePrevTab = null; setPTab('search'); }
+    if (mobileMq.matches) setMTab('steps');
+    setStatus(`SEARCH の解 ${label} を解答手順に読み込みました（${steps.length} 手・UNDO で戻せます）`);
+    return true;
+}
+searchUi = initSearchUi({
+    doc: () => doc,
+    savedSteps: () => solutions[doc.rule][doc.id]?.steps ?? null,
+    load: loadSearchSolution,
+    visible: () => document.visibilityState === 'visible' &&
+        (mobileMq.matches ? body().dataset.mtab === 'out' : sideOpen() && curPTab() === 'search'),
+    notify: (msg, kind) => toast(msg, kind),
+});
+
 // QR コードから開かれた（#sync=…）なら、その設定で接続する。トークンが URL に残らないよう即座に消す
 const fromQr = decodeSyncHash(location.hash);
 if (fromQr) {

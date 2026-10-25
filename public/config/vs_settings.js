@@ -283,16 +283,26 @@ function _buildMarginTimeRow() {
     ctrl.appendChild(slider);
 
     // 目盛り
-    const markers = document.createElement('div');
-    markers.className = 'vs-setting-markers vs-setting-markers--wide';
-    MARGIN_TIME_STEPS.forEach(s => {
-        const m = document.createElement('span');
-        m.textContent = _formatMarginTime(s);
-        markers.appendChild(m);
-    });
-    ctrl.appendChild(markers);
+    ctrl.appendChild(_buildSliderMarkers(
+        MARGIN_TIME_STEPS.map((s, i) => ({ pos: i, label: _formatMarginTime(s) })),
+        0, MARGIN_TIME_STEPS.length - 1, true));
 
     return _buildRow('MARGIN TIME', '(sec)', ctrl);
+}
+
+// スライダーの目盛り。items = [{ pos: スライダー値, label }]、min/max はスライダーの範囲。
+// 各目盛りを「つまみの中心が来る位置」（両端はつまみ半分だけ内側）に置く。
+// 値が等間隔でない目盛り（OJAMA RATE 等）もずれない。位置は CSS の --f（0〜1）で指定。
+function _buildSliderMarkers(items, min, max, wide) {
+    const markers = document.createElement('div');
+    markers.className = 'vs-setting-markers' + (wide ? ' vs-setting-markers--wide' : '');
+    items.forEach(({ pos, label }) => {
+        const m = document.createElement('span');
+        m.textContent = label;
+        m.style.setProperty('--f', String((pos - min) / (max - min)));
+        markers.appendChild(m);
+    });
+    return markers;
 }
 
 function _formatMarginTime(val) {
@@ -408,14 +418,7 @@ function _buildGarbageHoleRateRow() {
     ctrl.appendChild(valLabel);
     ctrl.appendChild(slider);
 
-    const markers = document.createElement('div');
-    markers.className = 'vs-setting-markers';
-    [0, 50, 100].forEach(v => {
-        const m = document.createElement('span');
-        m.textContent = String(v);
-        markers.appendChild(m);
-    });
-    ctrl.appendChild(markers);
+    ctrl.appendChild(_buildSliderMarkers([0, 50, 100].map(v => ({ pos: v, label: String(v) })), 0, 100));
 
     return _buildRow('HOLE RATE', '', ctrl);
 }
@@ -481,14 +484,7 @@ function _buildOjamaRateRow() {
     ctrl.appendChild(valLabel);
     ctrl.appendChild(slider);
 
-    const markers = document.createElement('div');
-    markers.className = 'vs-setting-markers';
-    [10, 70, 140, 280, 420, 560, 700].forEach(v => {
-        const m = document.createElement('span');
-        m.textContent = String(v);
-        markers.appendChild(m);
-    });
-    ctrl.appendChild(markers);
+    ctrl.appendChild(_buildSliderMarkers([10, 70, 140, 280, 420, 560, 700].map(v => ({ pos: v, label: String(v) })), 10, 700));
 
     return _buildRow('OJAMA RATE', '', ctrl);
 }
@@ -598,14 +594,9 @@ function _buildChainMinRow() {
     ctrl.appendChild(valLabel);
     ctrl.appendChild(slider);
 
-    const markers = document.createElement('div');
-    markers.className = 'vs-setting-markers';
-    ['OFF', '5', '10', '15', '20'].forEach(t => {
-        const m = document.createElement('span');
-        m.textContent = t;
-        markers.appendChild(m);
-    });
-    ctrl.appendChild(markers);
+    // スライダー値 1=OFF（下限）、5 / 10 / 15 / 20 は値そのものの位置
+    ctrl.appendChild(_buildSliderMarkers(
+        [{ pos: 1, label: 'OFF' }, ...[5, 10, 15, 20].map(v => ({ pos: v, label: String(v) }))], 1, 20));
 
     return _buildRow('CHAIN LIMIT', '(min chain)', ctrl);
 }

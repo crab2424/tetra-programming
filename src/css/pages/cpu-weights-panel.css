@@ -1,0 +1,299 @@
+/* ─────────────────────────────────────────────
+   CPU TEST（ぷよ LV5/LV6）の重み調整パネル（public/app/cpu_weights_panel.js）
+   ビューポート右端に常に出す（position:fixed＝#container の拡大縮小の影響を受けない）。
+   上下 8px の内側に収め、はみ出す分は項目の欄（.cwp-list）だけがスクロールする。
+───────────────────────────────────────────── */
+.cwp-dock {
+  position: fixed;
+  right: 8px;
+  top: 8px;
+  bottom: 8px;
+  width: 400px;
+  max-width: calc(100vw - 16px);
+  z-index: 500; /* #container(z-index:1)より上、ポーズオーバーレイ(1000)より下 */
+  pointer-events: none;
+}
+.cwp-dock.is-min {
+  bottom: auto;
+}
+.cwp-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: rgba(10, 10, 15, 0.88);
+  color: var(--text);
+  font-size: 11px;
+  pointer-events: auto;
+}
+.cwp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  margin-top: 6px;
+}
+.cwp-dock.is-min .cwp-body {
+  display: none;
+}
+
+.cwp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cwp-title {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.cwp-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  text-align: right;
+}
+.cwp-status.is-custom {
+  color: var(--accent3);
+}
+.cwp-meta {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.cwp-warn,
+.cwp-msg.is-error {
+  color: var(--danger);
+}
+.cwp-msg:empty {
+  display: none;
+}
+.cwp-msg {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #a7b2c4;
+}
+
+.cwp-tabs,
+.cwp-actions {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.cwp-tabs .cwp-btn {
+  flex: 1;
+}
+.cwp-btn {
+  padding: 3px 7px;
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cwp-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.cwp-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cwp-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* 対象のモード。● はいま CPU が使っているモード */
+.cwp-btn.is-live::before {
+  content: "● ";
+  color: var(--accent3);
+}
+.cwp-min {
+  padding: 0 7px;
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.cwp-import {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+}
+.cwp-import.is-open {
+  display: flex;
+}
+.cwp-import-text {
+  height: 90px;
+  resize: vertical;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.cwp-filter,
+.cwp-input {
+  box-sizing: border-box;
+  color: var(--text);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+}
+.cwp-filter {
+  flex: 1;
+  min-width: 60px;
+  padding: 2px 5px;
+}
+
+/* 項目の欄：ここだけスクロールする */
+.cwp-list {
+  flex: 1 1 auto;
+  min-height: 60px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 2px;
+}
+.cwp-section-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 2px 0;
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--accent2);
+  background: rgba(10, 10, 15, 0.96);
+  cursor: pointer;
+  user-select: none;
+}
+.cwp-section-title::before {
+  content: "▾ ";
+}
+.cwp-section.is-collapsed .cwp-section-title::before {
+  content: "▸ ";
+}
+.cwp-section-title.is-changed {
+  color: var(--accent3);
+}
+.cwp-section.is-collapsed:not(.is-filtering) .cwp-grid {
+  display: none;
+}
+.cwp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 8px;
+}
+.cwp-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 1px 3px;
+  border-left: 2px solid transparent;
+  cursor: text;
+}
+.cwp-cell:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.cwp-cell.is-changed {
+  border-left-color: var(--accent3);
+}
+.cwp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+  font-size: 11px;
+  color: #c3c9d6;
+}
+.cwp-cell.is-changed .cwp-name {
+  color: var(--accent3);
+}
+.cwp-input {
+  flex: 0 0 60px;
+  width: 60px;
+  padding: 1px 4px;
+  text-align: right;
+}
+.cwp-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+/* 表示だけの値（DECISION） */
+.cwp-cell.is-ro .cwp-input {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 説明欄：選んでいる項目の説明と値 */
+.cwp-info {
+  flex: 0 0 auto;
+  min-height: 46px;
+  padding: 5px 6px;
+  border-top: 1px solid var(--border);
+  line-height: 1.5;
+}
+.cwp-info-name {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text);
+}
+.cwp-info-desc {
+  font-size: 11px;
+  color: #a7b2c4;
+}
+.cwp-info-refs {
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* パネルを出している間（畳んでいないとき）は、右端 416px を空けて盤面を左側の残りへ寄せ、
+   残りの幅に収まるよう縮める（single-play.css #container / versus-layout.css #versus-layout と同じ式）。 */
+body.cwp-on #container {
+  left: calc((100vw - 416px) / 2);
+  transform: translate(-50%, -50%)
+    scale(
+      clamp(
+        0.2,
+        min(calc((100vw - 416px - 32px) / 750px), calc((100vh - 48px) / 700px)),
+        2
+      )
+    );
+}
+body.cwp-on #versus-layout {
+  left: calc((100vw - 416px) / 2);
+  transform: translate(-50%, -50%)
+    scale(
+      clamp(
+        0.2,
+        min(calc((100vw - 416px - 32px) / 1300px), calc((100vh - 48px) / 700px)),
+        2
+      )
+    );
+}

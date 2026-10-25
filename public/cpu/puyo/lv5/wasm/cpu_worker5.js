@@ -23,7 +23,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm5.wasm' ? 'cpu_wasm5.wasm?v=36' : path;
+        return path === 'cpu_wasm5.wasm' ? 'cpu_wasm5.wasm?v=52' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -31,12 +31,13 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js?v=37');
+importScripts('cpu_wasm5.js?v=54');
 
 let boardPtr     = null;
 let weightsPtr   = null;
 let resultPtr    = null;
 let nextPairsPtr = null;
+let oppBoardPtr  = null;
 
 self.onmessage = function (e) {
     if (!wasmReady) return;
@@ -46,17 +47,28 @@ self.onmessage = function (e) {
 
     if (boardPtr === null) {
         boardPtr     = Module._my_malloc(102);
-        // ★ weightsArray の要素数は 43（…[40]link3FacV [41]puyosWeight [42]height3Weight）
-        weightsPtr   = Module._my_malloc(4 * 43);   // 43要素(172 bytes)
-        resultPtr    = Module._my_malloc(4 * 31);   // [0..6]=着手 / [7..26]=デバッグ統計 / [27..29]=path(操作列) / [30]=致命セル枝刈り数
+        // ★ weightsArray の要素数は 62（…[45]qSubWeight [46..48]催促 H1 [49]対応 H2 [50]催促 H1 残す本線の絶対量 [51..53]副砲・催促の本線条件 G1/G2 [54..56]発火点の保全 K [57..59]地形優先の対応 T [60][61]相手を見て撃つ P）
+        //   ＋[62..65] 対テトの A 倒せるか・B 整地だけの1連鎖（lv6-vstet-design.md §12）＝66要素
+        //   ＋[66][67] T の条件（§13）＝68要素
+        //   ＋[68..77] 対テト §15（ちぎりの時間・発火点の側面・おじゃまを降らせる探索）＝78要素
+        //   ＋[78..90] 対テト §17（D 危険度で妥協して撃つ・E 発火点を縦に露出）＝91要素
+        //   ＋[91..96] 対テト §18（F 見えている3手を重く・G 撃たないと埋まるなら撃つ）＝97要素
+        //   ＋[97..100] 対テト §18.11（G の条件の絞り込み）＋[101..106] §18 H1（ゲージへの構え）＝107要素
+        weightsPtr   = Module._my_malloc(4 * 107);  // 107要素(428 bytes)
+        oppBoardPtr  = Module._my_malloc(102);
+        resultPtr    = Module._my_malloc(4 * 36);   // [0..6]=着手 / [7..26]=デバッグ統計 / [27..29]=path(操作列) / [30]=致命セル枝刈り数 / [31][32]=撃った後の本線潜在・今の本線潜在 / [33..35]=判断の内訳
         nextPairsPtr = Module._my_malloc(4 * 20);
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
-    HEAP32.set(data.weightsArray, weightsPtr / 4);
+    // ★ 提案1 P：[61] p1Alpha > 0 で相手の盤面が来ていれば、相手のすぐ起こせる火力を [60] に入れる
+    const wa = data.weightsArray;
+    if (wa.length > 61 && wa[61] > 0 && data.oppBoardBuffer) {
+        HEAPU8.set(data.oppBoardBuffer, oppBoardPtr);
+        wa[60] = Module._ignitionScoreWasm(oppBoardPtr);
+    }
+    HEAP32.set(wa, weightsPtr / 4);
     HEAP32.set(data.nextPairs, nextPairsPtr / 4);
-
-    const startTime = performance.now();
 
     Module._searchBestMovePuyoWasm(
         boardPtr,
@@ -65,42 +77,11 @@ self.onmessage = function (e) {
         resultPtr
     );
 
-    const endTime   = performance.now();
-    const timeTaken = (endTime - startTime).toFixed(2);
-
-    console.log(`⚡ Wasm Bitboard PuyoCPU5 Calculated in: ${timeTaken} ms`);
-
-    // ── ★ ama探索デバッグ（outResult[7..19]）──
-    //   ①scale: 到達連鎖(selChain) と base(構築品質) / base幅(spread)
-    //   ②PRUNE/dedup: 実発動数（0なら効いていない）
-    //   ③差別化: nWithChain(連鎖を組める初手数) と bestChain(到達連鎖スコア最大)
-    const dbg = new Int32Array(HEAP32.buffer, resultPtr, 31);
-    if (dbg[9] >= 0) { // nCand>=0 なら探索成立
-        // 到達連鎖[25]=見えた深さ / [26]=出所(1実発火/0潜在)。
-        //   実発火: depthN手後に実際に消える連鎖。
-        //   潜在  : depthN手後の盤面で「組めば届く」見込み（実発火には別途発火色のツモが必要）。
-        //           ＝depth0でも「今すぐ撃てる」意味ではない。実発火可否は[21]を参照。
-        const selDepth  = dbg[25];
-        const selIsFire = dbg[26] === 1;
-        const selDepthStr = selDepth < 0
-            ? '連鎖未到達'
-            : selIsFire
-                ? (selDepth === 0 ? '実発火・今すぐ' : `実発火・${selDepth}手後`)
-                : (selDepth === 0 ? '潜在・現盤面で到達(要発火ツモ)' : `潜在・${selDepth}手後の盤面で到達(要発火ツモ)`);
-        console.log(
-            `[ama dbg] nCand=${dbg[9]} maxDepth=${dbg[10]} band(同点崩し)=${dbg[11]}\n` +
-            `  PRUNE発動=${dbg[7]} dedup除去=${dbg[8]} 致命セル枝刈り=${dbg[30]}\n` +
-            `  選択初手: 到達連鎖selChain=${dbg[14]} (期待${dbg[20]}連鎖／${selDepthStr})  base=${dbg[13]}\n` +
-            `  理論上いま撃てる最大: ${dbg[21]}連鎖 (${dbg[22]}点) \n` +
-            `  差別化: 連鎖を組める初手数 nWithChain=${dbg[16]}/${dbg[9]}  bestChain=${dbg[12]}  base幅(spread)=${dbg[18]}\n` +
-            `  発火: ${dbg[15] > 0
-                ? `★${dbg[15]}連鎖を発火（${dbg[23] === 1 ? '目標到達' : dbg[23] === 2 ? '緊急＝本線ほぼ完成' : dbg[23] === 3 ? '緊急延命＝最終手段(致死列満杯)' : '理由不明'}）`
-                : `構築（撃たず）${dbg[24] > 0 ? `／${dbg[24]}連鎖で整地` : ''}`}`
-        );
-    }
+    // ★ 思考ログ（[7..26][30..35] のデバッグ統計）は本体側 cpu5_worker_io.js _logThink が出す。
+    //   worker はどちらの盤面の計算かを知らないため、ここでは出さない（CPU 同士で2台分が混ざるのを防ぐ）。
 
     // [0..6]=着手結果 / [27..29]=選択初手への到達操作列(path packing)。JS 側で復号して再生する。
-    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 31);
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 36);
 
     self.postMessage({
         type:   'result',

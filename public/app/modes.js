@@ -225,14 +225,20 @@ function setTestCpuControl(isOn) {
 
 function setTestRule(rule) {
   testRule = rule;
-  const toggle = document.getElementById('test-rule-toggle');
-  if (toggle) {
-    toggle.querySelectorAll('.opt-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.textContent.toLowerCase() === rule.toLowerCase());
-    });
-  } else {
-    renderModeCheck();
-  }
+  renderModeCheck();   // OPPONENT の行・レベル行を描き直す
+}
+
+// ─── CPU TEST の CPU 同士（2026-10-18。異種対戦は 2026-10-21）──────────
+// OPPONENT を PUYO / TET にすると 1P・2P とも CPU で対戦する（1P のルール＝RULE、2P のルール＝OPPONENT。
+// 異種も可）。盤面・対戦の処理は VERSUS のものを使い（versus.js startTestCpuVsCpu）、
+// 終わったら CPU TEST の準備画面へ戻る。2P のレベルは selectedCpuLevel。
+let testOpponent = 'none';     // 'none' | 'puyo' | 'tet'（2P CPU のルール）
+let testPlayerCpuLevel = 5;    // 1P のレベル（LV6 は 1P LEVEL のボタン／準備画面で Shift+6）
+let versusFromTest = false;    // いまの VERSUS 盤面は CPU TEST から始めた CPU 同士か
+
+function setTestOpponent(v) {
+  testOpponent = (v === 'puyo' || v === 'tet') ? v : 'none';
+  renderModeCheck();
 }
 
 let currentGameMode = null;
@@ -249,7 +255,7 @@ const CPU_LEVELS = {
   3: { label: 'LV 3', desc: '中級者向け', gravityLevel: 2  },
   4: { label: 'LV 4', desc: '上級者向け', gravityLevel: 2 },
   5: { label: 'LV 5', desc: '最上級者向け', gravityLevel: 2 },
-  // ★ 隠し要素: 準備画面で「6」キーを押すと出現（tet限定）
+  // ★ 隠し要素: 準備画面で「6」キーを押すと出現（tet＝PC探索付き / puyo＝lv5の学習済み重み版）
   6: { label: 'LV 6', desc: '???', gravityLevel: 2 },
 };
 let selectedCpuLevel = 1;
@@ -268,7 +274,7 @@ const CPU_CONFIGS = {
     3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=2' },
     4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=5' },
     5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=6' },
-    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=24' }
+    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=25' }
   },
   puyo: {
     1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu1.js?v=2' },  
@@ -285,14 +291,17 @@ const CPU_CONFIGS = {
         'cpu/puyo/lv4/js/cpu4_action.js',
     ] },
     // ★ lv5 は開発中。lv4 同様プロトタイプ拡張で複数ファイルに分割し、class 定義(cpu5.js)を先頭に置く。
-    //   DEV_CPU_CLASSES に登録され ?v=Date.now() で毎回最新の js が反映される。
+    //   （2026-10-20: DEV_CPU_CLASSES から外した。編集したら下の各ファイルの ?v を上げる）
     5: { className: 'PuyoCPU5', src: [
-        'cpu/puyo/lv5/js/core/cpu5.js',
-        'cpu/puyo/lv5/js/weights/cpu5_weights.js',
-        'cpu/puyo/lv5/js/weights/cpu5_modes.js',
-        'cpu/puyo/lv5/js/core/cpu5_worker_io.js',
-        'cpu/puyo/lv5/js/core/cpu5_estimate.js',
-        'cpu/puyo/lv5/js/core/cpu5_action.js',
-    ] }
+        'cpu/puyo/lv5/js/core/cpu5.js?v=3',
+        'cpu/puyo/lv5/js/weights/cpu5_weights.js?v=9',
+        'cpu/puyo/lv5/js/weights/cpu5_modes.js?v=2',
+        'cpu/puyo/lv5/js/core/cpu5_worker_io.js?v=11',
+        'cpu/puyo/lv5/js/core/cpu5_estimate.js?v=1',
+        'cpu/puyo/lv5/js/core/cpu5_action.js?v=2',
+    ] },
+    // ★ 隠し要素: lv6 = lv5 + 学習済み重み（training/puyo-lv5）。lv5 のクラスを継承するため
+    //   deps で lv5 を先に読み込む（cpu_loader.js loadCpuScript）。
+    6: { className: 'PuyoCPU6', deps: [5], src: 'cpu/puyo/lv6/js/cpu6.js?v=17' }
   }
 };
