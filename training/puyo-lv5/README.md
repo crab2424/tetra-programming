@@ -111,7 +111,7 @@ Python からは `py/tetsim.py`（`solo_run` でひとり用の毎秒ミノ数�
 
 ## テト同士（テト CPU lv4・lv5・lv6）
 設計: `source_assets/memory/cpu/tet/lv5-terrain-design.md` §4。テト lv5 強化（地形）の計測用。
-本番の探索をそのまま native ビルドする：lv4 `cpu4.cpp`（`sim/tet_cpu4.cpp`）、lv5 `cpu5.cpp`（`sim/tet_cpu5.cpp`）、
+本番の探索をそのまま native ビルドする：lv4 `cpu4.cpp`（`sim/tet_cpu4.cpp`）、lv5 `cpu5.cpp`（`sim/tet_cpu5n.cpp`）、
 lv6 `lv6/native/*.cpp` を1つにまとめたもの（`sim/tet_cpu6.cpp`。**PC 探索は無し**＝空盤面の開幕 PC だけ本番と差が出る）。
 操作の組み立てと時間はレベルごと（lv4 60/200ms・lv5 45/150ms・lv6 40/80ms＋cpu6.js の SD/AC 群の組み立て）、
 受けは本番のテト同士の分岐（消去時に相殺して即送信・1500ms で ready・せり上がりの上限なし）。ツモは両者共通。
@@ -119,6 +119,12 @@ lv6 `lv6/native/*.cpp` を1つにまとめたもの（`sim/tet_cpu6.cpp`。**PC 
 python3 tests/test_tet_parity.py         # lv4/lv5/lv6 の探索が本番 wasm と全件一致するか＋既定の重みが本番 JS と同じか（約1分半）
 python3 py/tvt_baseline.py               # 総当たり（200シード×席を入れ替えた2局×3組）→ runs/tvt/baseline.{json,md}
 ```
+- **レベル番号：4・5・6＝本番、15＝旧 lv5**（2026-10-25 時点の cpu5.cpp を `sim/frozen/cpu5_v1.cpp` に固定したもの）。
+  ぷよの対テト学習（`run_vstet` など）の相手役は `TetPlayer` の既定＝15 なので、本番 lv5 を変えても数字は動かない。
+  新旧の A/B は `vs_run(5, 15, ...)`。旧 lv5 の重みは 33 要素、新 lv5 は 47 要素（[33..] は地形強化 T1〜T6、設計 §3）。
+- 地形の指標（設計 §1.3）：`tetsim.terrain_lv(level, seeds, weights)`。A/B は `python3 py/tet5_ab.py base "案" 名前=値,...`（`--vs 4,6,15`）。
+- `search_cases_lv(level, cases, weights)`：trace の局面で探索だけを回す（新旧の既定値一致の確認用）。
+  `PUYOSIM_LIB=…` で別ビルドの共有ライブラリを使える。`set_level_timing(level, act, hd)` で操作時間を差し替える。
 Python からは `tetsim.vs_run(lv_a, lv_b, seeds, w_a=None, w_b=None)`（重みの差し替えで A/B）、
 `solo_run_lv`・`trace_cases_lv`（ひとり用・探索の入出力）、`prod_weights(level)`（本番 JS の重み）。
 - 1シードにつき席（ツモ・送る穴・揺らぎの乱数と同時刻の先後）を入れ替えて2局。同時刻の設置はまず起きないので、先後だけの入れ替えでは2局が同じ展開になる。

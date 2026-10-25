@@ -53,6 +53,19 @@ const int TET_LV5_WEIGHTS[TET_W_LEN] = {
     -36,   // slopePenalty
 };
 
+// 新 lv5：本番 cpu5.js の this.weights（weightsArray の順）。tests/test_tet_parity.py が本番 JS と突き合わせる
+const int TET_LV5N_WEIGHTS[TET_W_LEN5] = {
+    14, -40, -56, -128, 4, 3, -2, -54, 72, 36,  // lineClear hole heightLimit step3Plus flat step1Good step1Bad step2 grounded touching
+    60, -234, -125, 500, 68, -3, 100,           // iWell iWellOver blocksOverHole line4 downstackGood downstackBad P1_WEIGHT*100
+    20, -45, 120, 496, 2560, -6000, -50,        // tsdShape tsdShapeOver tsdFillBonus tssClear tsdClear tsdHolePenalty pureHole
+    20, 496, -200, -1000, -360, 30, -100,       // comboBonus btbKeep renCutPenalty tsmMiniPenalty tMinoNoClearPenalty tsdSetup tsdSetupOver
+    72, -36,                                    // slopeBonus slopePenalty
+    0, 0, -25,                                  // T1 slopeCap slopeWellSkip / T2 edgeWellPct
+    0, 0, 10, 0,                                // T3 tsdDirtHole tsdDirtCover tsdDirtMin tsdDirtEvent
+    0, 0, 0,                                    // T4 fillCap / T5 bumpSq / T6a holeMaskCells
+    0, 6, 0, 0,                                 // T6b coveredCells coverMax / T6c lidGood lidBad
+};
+
 // 本番 cpu4.js の this.weights（weightsArray の順）。tests/test_tet_parity.py が本番 JS と突き合わせる
 const int TET_LV4_WEIGHTS[TET_W_LEN4] = {
     14, -64, -96, -7, 4, 3, -2, -8, 12, 6,      // lineClear hole heightLimit heightDiff flat step1Good step1Bad step2Plus grounded touching
@@ -69,14 +82,28 @@ const int TET_LV6_WEIGHTS[TET_W_LEN6] = {
     72, -36, 100, 6000, 150, 8000, 10, 6000,    // slopeBonus slopePenalty centerDip tstClear b2bHold tSlotTst tSlotReadyFin tSlotReadyTst
 };
 
+// 操作時間の差し替え（tet_set_level_timing。強さの調整を試すとき用。負なら本番の値）
+static TetLevelTiming g_timingOverride[16] = {};
+static bool g_timingOverridden[16] = {};
+void setTetLevelTiming(int level, double actionMs, double harddropMs) {
+    if (level < 0 || level >= 16) return;
+    g_timingOverridden[level] = false;
+    TetLevelTiming base = tetLevelTiming(level);
+    g_timingOverride[level] = {actionMs > 0 ? actionMs : base.actionMs, harddropMs > 0 ? harddropMs : base.harddropMs};
+    g_timingOverridden[level] = actionMs > 0 || harddropMs > 0;
+}
+
 TetLevelTiming tetLevelTiming(int level) {
+    if (level >= 0 && level < 16 && g_timingOverridden[level]) return g_timingOverride[level];
     if (level == 4) return {60.0, 200.0};
     if (level == 6) return {40.0, 80.0};
     return {T_ACTION_MS, T_HARDDROP_MS};
 }
-int tetWeightsLen(int level) { return level == 4 ? TET_W_LEN4 : level == 6 ? TET_W_LEN6 : TET_W_LEN; }
+int tetWeightsLen(int level) {
+    return level == 4 ? TET_W_LEN4 : level == 6 ? TET_W_LEN6 : level == 5 ? TET_W_LEN5 : TET_W_LEN;
+}
 const int* tetDefaultWeights(int level) {
-    return level == 4 ? TET_LV4_WEIGHTS : level == 6 ? TET_LV6_WEIGHTS : TET_LV5_WEIGHTS;
+    return level == 4 ? TET_LV4_WEIGHTS : level == 6 ? TET_LV6_WEIGHTS : level == 5 ? TET_LV5N_WEIGHTS : TET_LV5_WEIGHTS;
 }
 
 namespace {
@@ -148,11 +175,11 @@ int  tetGaugeToOjama(int gauge) { return gaugeToOjama(gauge); }
 TetPlayer::TetPlayer(uint32_t seed, uint32_t holeSeed) : rng(seed), holeRng(holeSeed ? holeSeed : seed * 747796405u + 2891336453u),
       jitRng((holeSeed ? holeSeed : seed) ^ 0x5bd1e995u) {
     std::memset(rows, 0, sizeof rows);
-    setLevel(5);
+    setLevel(TET_LV5_OLD);
 }
 
 void TetPlayer::setLevel(int lv) {
-    level = (lv == 4 || lv == 6) ? lv : 5;
+    level = (lv == 4 || lv == 5 || lv == 6) ? lv : TET_LV5_OLD;
     TetLevelTiming tm = tetLevelTiming(level);
     actionMs = tm.actionMs;
     harddropMs = tm.harddropMs;
@@ -548,6 +575,7 @@ void TetPlayer::releaseAttack(double t, bool cleared, int puyoAtk, int tetAtk) {
 void TetPlayer::search(SearchCase& sc) {
     if (level == 4) cpuSearchLv4(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.out);
     else if (level == 6) cpuSearchLv6(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.incoming, sc.out);
+    else if (level == 5) cpuSearchLv5(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.out);
     else cpuSearch(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.out);
 }
 

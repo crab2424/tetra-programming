@@ -188,6 +188,11 @@ def _lib_lv():
         L.tet_vs_len.restype = ctypes.c_int
         L.tet_vs_run.argtypes = [ctypes.c_int, vp, ctypes.c_int, ctypes.c_int, vp, ctypes.c_int, ctypes.c_int, u32p,
                                  ctypes.c_double, ctypes.c_int, ctypes.c_int, ctypes.c_double, ctypes.c_int, ctypes.c_int, f64p]
+        L.tet_search_cases_lv.argtypes = [ctypes.c_int, vp, ctypes.c_int, ctypes.c_int, i32p, ctypes.c_int, i32p]
+        L.tet_terrain_lv.argtypes = [ctypes.c_int, vp, ctypes.c_int, ctypes.c_int, u32p, ctypes.c_int, ctypes.c_int,
+                                     ctypes.c_int, ctypes.c_int, f64p]
+        L.tet_terrain_len.restype = ctypes.c_int
+        assert L.tet_terrain_len() == len(TERRAIN_KEYS)
         assert L.tet_case_len_lv() == CASE_LEN_LV and L.tet_vs_len() == 2 + 2 * len(TVT_SIDE_KEYS)
         L._lv_ready = True
     return L
@@ -228,6 +233,46 @@ def trace_cases_lv(level, seed, max_pieces=200, garbage_every=0, garbage_lines=0
     buf = np.zeros(max_pieces * 3 * CASE_LEN_LV, dtype=np.int32)
     n = L.tet_trace_cases_lv(level, seed, max_pieces, garbage_every, garbage_lines, buf, max_pieces * 3)
     return buf[: n * CASE_LEN_LV].reshape(n, CASE_LEN_LV)
+
+
+def set_level_timing(level, action_ms=None, harddrop_ms=None) -> None:
+    """レベルの操作時間（actionDelay / harddropDelay）を差し替える。None で本番の値。"""
+    L = _lib_lv()
+    L.tet_set_level_timing.argtypes = [ctypes.c_int, ctypes.c_double, ctypes.c_double]
+    L.tet_set_level_timing(level, float(action_ms or 0), float(harddrop_ms or 0))
+
+
+def search_cases_lv(level, cases, weights=None, threads=0) -> np.ndarray:
+    """trace_cases_lv の局面（307 int 形式）で探索だけを回し、出力（N×43）を返す。新旧 lv5 の突き合わせ用。"""
+    L = _lib_lv()
+    cases = np.ascontiguousarray(cases, dtype=np.int32)
+    out = np.zeros(len(cases) * 43, dtype=np.int32)
+    wp, wn, _k = _wptr(weights)
+    L.tet_search_cases_lv(level, wp, wn, len(cases), cases, threads, out)
+    return out.reshape(len(cases), 43)
+
+
+TERRAIN_KEYS = ["placements", "holes", "holes3", "bump", "created", "tspins", "tetrises", "lines", "tet_attack",
+                "dead", "max_height", "ms", "step3", "ts_mini"]
+
+
+def terrain_lv(level, seeds, weights=None, max_pieces=250, garbage_every=0, garbage_lines=0, threads=0) -> dict:
+    """ひとり用で地形を測る（設計 lv5-terrain-design.md §1.3）。全局の合計から率を出して返す。
+    holes＝平均の穴（T-slot の4マスは除く）、holes3＝穴3つ以上の局面率、bump＝平均の凸凹、
+    created/tspins/tetrises＝/100手、apm 相当として attack/100手。"""
+    L = _lib_lv()
+    seeds = np.asarray(seeds, dtype=np.uint32)
+    K = len(TERRAIN_KEYS)
+    out = np.zeros(len(seeds) * K, dtype=np.float64)
+    wp, wn, _k = _wptr(weights)
+    L.tet_terrain_lv(level, wp, wn, len(seeds), seeds, max_pieces, garbage_every, garbage_lines, threads, out)
+    t = dict(zip(TERRAIN_KEYS, out.reshape(len(seeds), K).sum(axis=0)))
+    n = max(t["placements"], 1)
+    return {"n": int(t["placements"]), "holes": t["holes"] / n, "holes3": t["holes3"] / n, "bump": t["bump"] / n,
+            "step3": t["step3"] / n, "created": 100 * t["created"] / n, "tspins": 100 * t["tspins"] / n,
+            "ts_mini": 100 * t["ts_mini"] / n, "tetrises": 100 * t["tetrises"] / n, "lines": 100 * t["lines"] / n,
+            "attack": 100 * t["tet_attack"] / n, "max_height": t["max_height"] / n, "dead": int(t["dead"]),
+            "pps": t["placements"] / max(t["ms"], 1) * 1000}
 
 
 def vs_run(lv_a, lv_b, seeds, w_a=None, w_b=None, max_ms=300000.0, margin_ms=96000, hole_rate=70,

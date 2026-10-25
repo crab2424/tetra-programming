@@ -19,7 +19,8 @@ namespace tsim {
 constexpr int TCOLS = 10;
 constexpr int TROWS = 25;
 constexpr int THIDDEN = 5;
-constexpr int TET_W_LEN = 33;        // cpu5.js onMinoSpawned の weightsArray
+constexpr int TET_W_LEN = 33;        // 旧 lv5（sim/frozen/cpu5_v1.cpp）の weightsArray
+constexpr int TET_W_LEN5 = 47;       // 新 lv5（本番 cpu5.js onMinoSpawned の weightsArray。[33..] は地形強化 T1〜T6）
 constexpr int TET_W_LEN4 = 24;       // cpu4.js の weightsArray
 constexpr int TET_W_LEN6 = 39;       // cpu6.js の weightsArray
 constexpr int TET_W_MAX = 64;        // TetPlayer::weights の枠（レベルごとの長さは tetWeightsLen）
@@ -33,18 +34,26 @@ constexpr double T_SOFTDROP_MS  = 50.0;   // levelSpeed/20（VERSUS は Level 1 
 constexpr double T_NOMOVE_MS    = 700.0;  // 置き場所が無いときのその場ハードドロップ
 constexpr double T_GARBAGE_READY_FROM_PUYO_MS = 1000.0; // ぷよ→テトは段階式（ここでは未使用。T2）
 
-// 本番 cpu5.js の this.weights（weightsArray の順）
+// レベル番号：4=lv4、5=新 lv5（本番 cpu5.cpp）、6=lv6、15=旧 lv5（固定版 sim/frozen/cpu5_v1.cpp）。
+//   TetPlayer の既定は 15（ぷよの対テト学習の相手役は旧 lv5 のまま。設計 lv5-terrain-design.md §7-3）。
+constexpr int TET_LV5_OLD = 15;
+
+// 旧 lv5 の重み（固定）・新 lv5 の重み（本番 cpu5.js の this.weights、weightsArray の順）
 extern const int TET_LV5_WEIGHTS[TET_W_LEN];
+extern const int TET_LV5N_WEIGHTS[TET_W_LEN5];
 extern const int TET_LV4_WEIGHTS[TET_W_LEN4];   // 本番 cpu4.js
 extern const int TET_LV6_WEIGHTS[TET_W_LEN6];   // 本番 cpu6.js
 
 // レベル（4/5/6）ごとの既定値
 struct TetLevelTiming { double actionMs, harddropMs; };
 TetLevelTiming tetLevelTiming(int level);   // cpu4/5/6.js の actionDelay / harddropDelay
+void setTetLevelTiming(int level, double actionMs, double harddropMs);   // 差し替え（0 以下で本番の値に戻す）
 int        tetWeightsLen(int level);
 const int* tetDefaultWeights(int level);
 
-// ── 探索（sim/tet_cpu5.cpp）──
+// ── 探索（旧 lv5：sim/tet_cpu5.cpp。新 lv5：sim/tet_cpu5n.cpp）──
+void cpuSearchLv5(const uint8_t board[250], int cur, int hold, const int next[5], int canHold,
+                  const int* weights, int ren, int b2b, int out[TET_OUT_LEN]);
 void cpuSearch(const uint8_t board[250], int cur, int hold, const int next[5], int canHold,
                const int weights[TET_W_LEN], int ren, int b2b, int out[TET_OUT_LEN]);
 // lv4（sim/tet_cpu4.cpp）・lv6（sim/tet_cpu6.cpp。PC 探索は無し）
@@ -124,7 +133,7 @@ public:
     int pendingInternal = 0;     // 内部火力（相殺用）
     std::vector<TGarbage> garbageQueue;
     // CPU のレベル（4/5/6）と操作時間。setLevel で既定値（本番の重み・時間）に揃える
-    int level = 5;
+    int level = TET_LV5_OLD;
     double actionMs = T_ACTION_MS, harddropMs = T_HARDDROP_MS;
     // テト同士（相手がテト）：受けの上限なし・消去時に即送信（board.js secureMino のテト同士の分岐）
     bool vsTet = false;

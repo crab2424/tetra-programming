@@ -34,6 +34,8 @@ EXT = {"p1_enable": 0, "p1_alpha": 1, "p1_kill_ratio": 2, "p1_kill_min": 3,
 
 
 def _lib_path() -> Path:
+    if os.environ.get("PUYOSIM_LIB"):   # 別ビルド（例：検証用に本番ソースを差し替えたもの）を使う
+        return Path(os.environ["PUYOSIM_LIB"])
     ext = "dylib" if platform.system() == "Darwin" else "so"
     return BUILD / f"libpuyosim.{ext}"
 

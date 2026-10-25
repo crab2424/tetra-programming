@@ -11,7 +11,7 @@ mkdir -p build
 EXT=so; [ "$(uname)" = "Darwin" ] && EXT=dylib
 SRCS=(
   sim/field.cpp sim/player.cpp sim/api.cpp
-  sim/tet_cpu4.cpp sim/tet_cpu5.cpp sim/tet_cpu6.cpp sim/tet_player.cpp sim/tet_api.cpp
+  sim/tet_cpu4.cpp sim/tet_cpu5.cpp sim/tet_cpu5n.cpp sim/tet_cpu6.cpp sim/tet_player.cpp sim/tet_api.cpp
   $NATIVE/core/bitboard.cpp $NATIVE/core/chain.cpp
   $NATIVE/eval/shape.cpp $NATIVE/eval/form.cpp $NATIVE/eval/eval.cpp
   $NATIVE/build/build.cpp

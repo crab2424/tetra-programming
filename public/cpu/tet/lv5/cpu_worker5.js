@@ -29,7 +29,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js?v=2'); // ★ v2.2.3 I: 致死判定修正で再ビルド
+importScripts('cpu_wasm5.js?v=3'); // ★ 2026-10-25 地形強化（T0 キック表・重み 47 要素）で再ビルド
 
 let boardPtr = null;
 let resultPtr = null;
@@ -43,8 +43,8 @@ self.onmessage = function(e) {
     if (data.type === 'evaluate_single') {
         if (boardPtr === null) {
             boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
-            // ★修正: JS側から渡される要素数が33に増えたため、確保サイズを 4 * 33 に変更
-            weightsPtr = Module._my_malloc(4 * 33); 
+            // ★ weightsArray は 47 要素（cpu5.cpp WEIGHTS_LEN）
+            weightsPtr = Module._my_malloc(4 * 47); 
             resultPtr  = Module._my_malloc(4 * 43); 
         }
 
@@ -77,8 +77,8 @@ self.onmessage = function(e) {
 
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
-        // ★修正: JS側から渡される要素数が33に増えたため、確保サイズを 4 * 33 に変更
-        weightsPtr = Module._my_malloc(4 * 33); 
+        // ★ weightsArray は 47 要素（cpu5.cpp WEIGHTS_LEN。2026-10-25 に 33→47）
+        weightsPtr = Module._my_malloc(4 * 47); 
         resultPtr  = Module._my_malloc(4 * 43); 
     }
 

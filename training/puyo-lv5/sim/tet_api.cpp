@@ -42,6 +42,40 @@ void runSolo(TetPlayer& p, int maxPieces, double maxMs, int garbageEvery, int ga
     }
 }
 
+// ── 地形の指標（設計 lv5-terrain-design.md §1.3）──
+//   穴＝上にブロックがある空きマス。ただし T-slot として成立している4マス（cpu5.cpp isTSDShape と同じ形）は除く。
+static bool tSolid(const uint16_t* r, int x, int y) {
+    if (x < 0 || x >= TCOLS || y >= TROWS) return true;
+    if (y < 0) return false;
+    return (r[y] >> x) & 1;
+}
+static int terrainHoles(const uint16_t* r) {
+    uint16_t ts[TROWS] = {0};
+    for (int cy = 1; cy < TROWS - 1; cy++)
+        for (int cx = 1; cx < TCOLS - 1; cx++) {
+            if (tSolid(r, cx, cy) || tSolid(r, cx - 1, cy) || tSolid(r, cx + 1, cy) || tSolid(r, cx, cy + 1)) continue;
+            if (!(tSolid(r, cx - 1, cy + 1) && tSolid(r, cx + 1, cy + 1) && tSolid(r, cx - 2, cy + 1) && tSolid(r, cx + 2, cy + 1))) continue;
+            bool L = tSolid(r, cx - 1, cy - 1) && tSolid(r, cx - 2, cy);
+            bool R = tSolid(r, cx + 1, cy - 1) && tSolid(r, cx + 2, cy - 1);
+            if (L == R) continue;
+            ts[cy] |= (uint16_t)(7 << (cx - 1));
+            ts[cy + 1] |= (uint16_t)(1 << cx);
+        }
+    int h = 0;
+    uint16_t above = 0;
+    for (int y = 0; y < TROWS; y++) {
+        h += __builtin_popcount(above & ~r[y] & ~ts[y] & 0x3FF);
+        above |= r[y];
+    }
+    return h;
+}
+static void terrainHeights(const uint16_t* r, int hs[TCOLS]) {
+    for (int x = 0; x < TCOLS; x++) {
+        hs[x] = 0;
+        for (int y = 0; y < TROWS; y++) if ((r[y] >> x) & 1) { hs[x] = TROWS - y; break; }
+    }
+}
+
 void setup(TetPlayer& p, int level, const int* w, int wLen) {
     p.setLevel(level);
     if (w && wLen > 0) {
@@ -106,6 +140,9 @@ TvtResult runTvt(TetPlayer& a, TetPlayer& b, double maxMs, bool aFirst) {
 extern "C" {
 
 int tet_out_len() { return 24; }
+
+// レベルの操作時間を差し替える（0 以下なら本番の値）。スレッドを立てる前に呼ぶこと
+void tet_set_level_timing(int level, double actionMs, double harddropMs) { setTetLevelTiming(level, actionMs, harddropMs); }
 
 // out[g*24 + k]：
 //  0 pieces 1 時間ms 2 lines 3 tspins 4 tsMini 5 tetrises 6 pcs 7 b2bs 8 maxRen
@@ -195,6 +232,70 @@ int tet_trace_cases_lv(int level, uint32_t seed, int maxPieces, int garbageEvery
         for (int k = 0; k < TET_OUT_LEN; k++) o[264 + k] = c.out[k];
     }
     return n;
+}
+
+// 与えた局面（tet_trace_cases_lv の 307 int 形式）で探索だけを回し、out[i*43] に書く。weights=nullptr ならそのレベルの既定。
+//   新旧 lv5 の突き合わせ（既定の重みで探索結果が一致するか）に使う。
+void tet_search_cases_lv(int level, const int* weights, int wLen, int nCases, const int* cases, int nThreads, int* out) {
+    initTetShapes();
+    int w[TET_W_MAX] = {0};
+    std::memcpy(w, tetDefaultWeights(level), sizeof(int) * tetWeightsLen(level));
+    if (weights) std::memcpy(w, weights, sizeof(int) * std::min(wLen, tetWeightsLen(level)));
+    parallelFor(nCases, nThreads, [&](int i) {
+        const int* c = cases + (size_t)i * 307;
+        uint8_t board[250];
+        for (int k = 0; k < 250; k++) board[k] = (uint8_t)c[k];
+        int next[8];
+        for (int k = 0; k < 8; k++) next[k] = c[252 + k];
+        int* o = out + (size_t)i * TET_OUT_LEN;
+        if (level == 4) cpuSearchLv4(board, c[250], c[251], next, c[260], w, o);
+        else if (level == 6) cpuSearchLv6(board, c[250], c[251], next, c[260], w, c[261], c[262], c[263], o);
+        else if (level == 5) cpuSearchLv5(board, c[250], c[251], next, c[260], w, c[261], c[262], o);
+        else cpuSearch(board, c[250], c[251], next, c[260], w, c[261], c[262], o);
+    });
+}
+
+// レベル指定のひとり用で地形を測る（設計 §1.3）。out[g*TERRAIN_LEN + k]：
+//   0 設置数 1 穴の合計 2 穴3つ以上の局面数 3 凸凹（隣の列の高さ差の合計）の合計 4 穴を作った手（消去・せり上がり無しで穴が増えた）
+//   5 T-spin（消去あり） 6 4-LINES 7 消去ライン 8 火力（テト用ライン） 9 dead 10 最大高さの合計 11 時間ms
+//   12 段差3以上の箇所の合計 13 T-spin mini（消去あり）
+static const int TERRAIN_LEN = 14;
+int tet_terrain_len() { return TERRAIN_LEN; }
+void tet_terrain_lv(int level, const int* weights, int wLen, int nGames, const uint32_t* seeds, int maxPieces,
+                    int garbageEvery, int garbageLines, int nThreads, double* out) {
+    initTetShapes();
+    parallelFor(nGames, nThreads, [&](int g) {
+        TetPlayer p(seeds[g]);
+        setup(p, level, weights, wLen);
+        p.marginTimeMs = -1;
+        p.start(0);
+        double* o = out + (size_t)g * TERRAIN_LEN;
+        for (int k = 0; k < TERRAIN_LEN; k++) o[k] = 0;
+        int prevHoles = 0, n = 0;
+        while (!p.dead && n < maxPieces) {
+            if (garbageEvery > 0 && n > 0 && n % garbageEvery == 0) p.pushGarbageLines(garbageLines, p.now);
+            int lines0 = p.st.lines, ts0 = p.st.tspins, tm0 = p.st.tsMini, gt0 = p.st.garbageLinesTaken;
+            if (p.step() < 0) break;
+            n++;
+            int hl = terrainHoles(p.rows);
+            int hs[TCOLS];
+            terrainHeights(p.rows, hs);
+            int bump = 0, step3 = 0, mh = 0;
+            for (int x = 0; x < TCOLS; x++) mh = std::max(mh, hs[x]);
+            for (int x = 0; x < TCOLS - 1; x++) {
+                int d = std::abs(hs[x] - hs[x + 1]);
+                bump += d;
+                if (d >= 3) step3++;
+            }
+            bool cleared = p.st.lines > lines0;
+            o[0] += 1; o[1] += hl; o[2] += (hl >= 3); o[3] += bump; o[10] += mh; o[12] += step3;
+            if (hl > prevHoles && !cleared && p.st.garbageLinesTaken == gt0) o[4] += 1;
+            o[5] += p.st.tspins - ts0;
+            o[13] += p.st.tsMini - tm0;
+            prevHoles = hl;
+        }
+        o[6] = p.st.tetrises; o[7] = p.st.lines; o[8] = (double)p.st.tetAttack; o[9] = p.dead ? 1 : 0; o[11] = p.now;
+    });
 }
 
 // テト同士の対戦。1シードにつき席（乱数と同時刻の先後）を入れ替えて2局。
