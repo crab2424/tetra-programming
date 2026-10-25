@@ -7,7 +7,7 @@ window.CPU6 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv6/wasm/cpu_worker6.js?v=16',
+        'cpu/tet/lv6/wasm/cpu_worker6.js?v=17',
         'cpu/tet/lv6/pc/wasm/pc_worker6.js',
     ];
     constructor(gameInstance) {
@@ -81,11 +81,11 @@ window.CPU6 = class {
             sdCost: 0,              // [40] B1 ソフトドロップが要る置き方
             sdRowCost: 0,           // [41] B1 ソフトドロップ 1段あたり
             holeAboveWell: 0,       // [42] B2 1=一番低い列より下の穴を数えない
-            rowTrans: 0,            // [43] B3 row transitions 1回あたり
+            rowTrans: -20,          // [43] B3 row transitions 1回あたり（2026-10-26 採用。設計 §5.3）
             covered: 0,             // [44] B4 穴の上に積まれた段数 1段あたり
             coverMax: 6,            // [45] B4 1穴あたりの上限
             wasteI: 0,              // [46] B5 I を 4-LINES 以外に使った手
-            comboAtk: 0,            // [47] B6 REN の火力ボーナス 1 あたり
+            comboAtk: 1500,         // [47] B6 REN の火力ボーナス 1 あたり（2026-10-26 採用。対 旧 lv6 勝率 0.86）
             visitSelect: 0,         // [48] B8 1=初手を子孫の数で選ぶ
             bumpSq: 0,              // [49] B9 大きい段差の二乗
 

@@ -122,6 +122,9 @@ python3 py/tvt_baseline.py               # 総当たり（200シード×席を�
 - **レベル番号：4・5・6＝本番、15＝旧 lv5**（2026-10-25 時点の cpu5.cpp を `sim/frozen/cpu5_v1.cpp` に固定したもの）。
   ぷよの対テト学習（`run_vstet` など）の相手役は `TetPlayer` の既定＝15 なので、本番 lv5 を変えても数字は動かない。
   新旧の A/B は `vs_run(5, 15, ...)`。旧 lv5 の重みは 33 要素、新 lv5 は 47 要素（[33..] は地形強化 T1〜T6、設計 §3）。
+- **lv6 強化の A/B**（設計 `source_assets/memory/cpu/tet/lv6-boost-design.md`）：`python3 py/tet6_ab.py --vs-seeds 150 "案" 名前=値,...`。
+  新 lv6（重みを差し替え）対 本番 lv6、両者別ツモ（同じレベル同士は NEXT を共通にすると決着がつかない）、地形と探索時間も出す。
+  lv6 同士は1局が平均200〜250秒と長く、300局で約15〜20分（12スレッド）。
 - 地形の指標（設計 §1.3）：`tetsim.terrain_lv(level, seeds, weights)`。A/B は `python3 py/tet5_ab.py base "案" 名前=値,...`（`--vs 4,6,15`）。
 - `search_cases_lv(level, cases, weights)`：trace の局面で探索だけを回す（新旧の既定値一致の確認用）。
   `PUYOSIM_LIB=…` で別ビルドの共有ライブラリを使える。`set_level_timing(level, act, hd)` で操作時間を差し替える。

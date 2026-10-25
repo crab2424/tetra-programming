@@ -26,14 +26,15 @@ self.Module = {
     // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=10 を取得させる）
     //   ★v=8: C++をファイル分割＋-fltoで再ビルド。importセットが変わったのでグルーjsとwasmを揃えて更新。
     //   ★v=15: getAllPlacements()のBFS初期化をmemset方式→世代スタンプ方式に変更して再ビルド（挙動不変・呼び出しあたりO(2660)×3の初期化コスト削減）
-    locateFile: function(path) { return path + '?v=15'; },
+    //   ★v=17: lv6 強化の重み [39..49]（B1〜B9）を読むように再ビルド（2026-10-26。グルーjs・wasm・worker を揃えて更新）
+    locateFile: function(path) { return path + '?v=17'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=16'); // ★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
+importScripts('cpu_wasm6.js?v=17'); // ★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
 
 let boardPtr = null;
 let resultPtr = null;
