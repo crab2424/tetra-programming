@@ -392,9 +392,11 @@ window.CPU6 = class {
             else if (diff === 3) queue.push({ type: 'rotateCCW', delay: this.actionDelay });
         };
 
-        // BtB付きT-spinは即時落下を除外
+        // BtB付きT-spinは即時落下を除外（keepSpin：探索が T-spin と見た置き方。lv6 の新しい探索 cpu6n.js は BtB に関係なく除外）
         let skipInstantDrop = false;
-        if (bestResult.tSpinType > 0 && bestResult.clearedLines && bestResult.clearedLines.length > 0 && this.game.backToBack) {
+        if (bestResult.keepSpin && bestResult.clearedLines && bestResult.clearedLines.length > 0) {
+            skipInstantDrop = true;
+        } else if (bestResult.tSpinType > 0 && bestResult.clearedLines && bestResult.clearedLines.length > 0 && this.game.backToBack) {
             skipInstantDrop = true;
         }
 

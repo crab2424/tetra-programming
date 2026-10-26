@@ -242,7 +242,7 @@ function switchPage(pageId) {
   const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check'];
   // CPU同士の対戦（隠しコマンド）は準備画面を開き直したら通常に戻す（v2.2.3 J）
   if (pageId === 'versus-check') {
-    if (selectedCpuLevel === 7) selectedCpuLevel = 6; // CLYS は CPU TEST 専用
+    if (selectedCpuLevel >= 7) selectedCpuLevel = 6; // CLYS・LV6N は CPU TEST 専用
     versusPlayerIsCpu = false;
     selectedPlayerCpuLevel = null;
     window.__cpu6DisablePC1P = false;
@@ -539,17 +539,18 @@ function renderModeCheck() {
       `;
       // LV1〜6 のボタン（CPU TEST のみ LV6 を表示。ボタンは隠しキー 6 と同じ＝PC探索オフ／高速落下設置は解除。
       // 7 / Shift+7 の指定はキーで行う）
-      // その側のルールが TET のときは参考AI「CLYS」（レベル 7。cpu/tet/clys）も選べる。PUYO に変えたら LV6 に戻す
+      // その側のルールが TET のときは参考AI「CLYS」（レベル 7。cpu/tet/clys）と lv6 の新しい探索「LV6N」（レベル 8）も選べる。
+      // PUYO に変えたら LV6 に戻す
       const fillLevels = (toggleId, get, set, rule) => {
         const toggle = document.getElementById(toggleId);
         if (!toggle) return;
         toggle.classList.add('compact');
-        const maxLv = rule === 'tet' ? 7 : 6;
+        const maxLv = rule === 'tet' ? 8 : 6;
         if (get() > maxLv) set(6);
         for (let lv = 1; lv <= maxLv; lv++) {
           const btn = document.createElement('button');
           btn.className = 'opt-btn' + (lv === get() ? ' active' : '');
-          btn.textContent = lv === 7 ? CPU_LEVELS[7].label : 'LV' + lv;
+          btn.textContent = lv >= 7 ? CPU_LEVELS[lv].label : 'LV' + lv;
           btn.onclick = () => {
             set(lv);
             toggle.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === lv));
