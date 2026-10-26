@@ -277,7 +277,7 @@ const CPU_CONFIGS = {
     3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=2' },
     4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=5' },
     5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=7' },
-    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=27' },
+    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=28' },
     // 操作系のメソッドを CPU6 から借りるので lv6 を先に読む（deps）
     7: { className: 'CPUClys', deps: [6], src: 'cpu/tet/clys/cpu_clys.js?v=1' }
   },

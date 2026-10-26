@@ -325,7 +325,8 @@ void tet_terrain_lv(int level, const int* weights, int wLen, int nGames, const u
 //   2+ A の集計 TVT_SIDE 列、2+TVT_SIDE+ B の集計：
 //     pieces lines tspins tsMini tetrises pcs b2bs maxRen tetAttack tetSent linesReceived garbageTaken holds dead finalHeight routeMiss
 //     tss tsd tst pcSearches pcFound pcAborted pcMoves pcSearchMs thinkMs waitMs maxSpike（clys 比較 §6）
-static const int TVT_SIDE = 27;
+//     ren1 ren2to5 ren6plus renAtk（REN の長さ。lv6-style-design.md）
+static const int TVT_SIDE = 31;
 int tet_vs_len() { return 2 + 2 * TVT_SIDE; }
 void tet_vs_run(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int wLenB, int nSeeds, const uint32_t* seeds,
                 double maxMs, int marginTimeMs, int holeRatePercent, double jitterMs, int sharedTumo, int nThreads,
@@ -362,6 +363,7 @@ void tet_vs_run(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int w
             q[16] = st.tss; q[17] = st.tsd; q[18] = st.tst; q[19] = st.pcSearches; q[20] = st.pcFound;
             q[21] = st.pcAborted; q[22] = st.pcMoves; q[23] = st.pcSearchMs; q[24] = st.thinkMs; q[25] = st.waitMs;
             q[26] = st.maxSpike;
+            q[27] = st.ren1; q[28] = st.ren2to5; q[29] = st.ren6plus; q[30] = (double)st.renAtk;
         }
     });
 }

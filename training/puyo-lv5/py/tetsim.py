@@ -151,7 +151,7 @@ def run_vstet_batch(packed_cands, seeds, settings: puyosim.Settings | None = Non
 TVT_SIDE_KEYS = ["pieces", "lines", "tspins", "ts_mini", "tetrises", "pcs", "b2bs", "max_ren", "tet_attack",
                  "tet_sent", "lines_received", "garbage_taken", "holds", "dead", "final_height", "route_miss",
                  "tss", "tsd", "tst", "pc_searches", "pc_found", "pc_aborted", "pc_moves", "pc_search_ms",
-                 "think_ms", "wait_ms", "max_spike"]
+                 "think_ms", "wait_ms", "max_spike", "ren1", "ren2to5", "ren6plus", "ren_atk"]
 # レベル番号の追加分（sim/tet.h）：26＝lv6＋PC 探索、7＝参考AI clys
 TET_LV6_PC = 26
 TET_CLYS = 7

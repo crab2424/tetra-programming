@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 PER_GAME = ["tet_attack", "tsd", "tss", "tst", "ts_mini", "tetrises", "pcs", "pc_searches", "pc_found", "pc_aborted",
             "pc_moves", "pc_search_ms", "b2bs", "holds", "tet_sent", "lines_received", "garbage_taken", "max_ren",
-            "max_spike", "think_ms", "wait_ms", "pieces", "lines", "dead", "final_height", "route_miss"]
+            "max_spike", "think_ms", "wait_ms", "pieces", "lines", "dead", "final_height", "route_miss",
+            "ren1", "ren2to5", "ren6plus", "ren_atk"]
 
 
 def summarize(res: list[dict]) -> dict:
@@ -42,7 +43,10 @@ def summarize(res: list[dict]) -> dict:
         g["think_ms_per_piece"] = tot["think_ms"] / max(tot["pieces"], 1)
         g["wait_ms_per_piece"] = tot["wait_ms"] / max(tot["pieces"], 1)
         g["pc_ms_per_search"] = tot["pc_search_ms"] / max(tot["pc_searches"], 1)
-        g["per100"] = {k: 100 * tot[k] / max(tot["pieces"], 1) for k in ("tsd", "tss", "tst", "tetrises", "pcs", "b2bs", "holds")}
+        g["per100"] = {k: 100 * tot[k] / max(tot["pieces"], 1) for k in ("tsd", "tss", "tst", "tetrises", "pcs", "b2bs", "holds",
+                                                                         "ren1", "ren2to5", "ren6plus")}
+        g["ren_atk_share"] = tot["ren_atk"] / max(tot["tet_attack"], 1)   # 火力のうち REN ボーナスの割合
+        g["attack_per_line"] = tot["tet_attack"] / max(tot["lines"], 1)
         out[name] = g
     return out
 
@@ -59,6 +63,7 @@ def main() -> None:
     ap.add_argument("--no-pc", action="store_true", help="lv6 を PC 探索なしにする")
     ap.add_argument("--lv6-scale", type=float, default=1.0, help="lv6 のビーム探索時間の倍率（実機 wasm 相当にする）")
     ap.add_argument("--lv6-pc-scale", type=float, default=1.0, help="lv6 の PC 探索時間の倍率（上限 300/100ms で頭打ち）")
+    ap.add_argument("--w", default="", help="lv6 の重みの差し替え（名前=値,...。cpu6.js の this.weights のキー。lv6-style-design.md）")
     ap.add_argument("--name", default="base")
     args = ap.parse_args()
     tetsim.set_model_think(True, args.think_scale)
@@ -67,7 +72,9 @@ def main() -> None:
     tetsim.set_think_scale(lv6, args.lv6_scale, args.lv6_pc_scale)
     seeds = list(range(args.seed_base, args.seed_base + args.seeds))
     t0 = time.time()
-    res = tetsim.vs_run(6 if args.no_pc else tetsim.TET_LV6_PC, tetsim.TET_CLYS, seeds, max_ms=args.max_ms,
+    from tet6_ab import apply, weight_names
+    w6 = apply(tetsim.prod_weights(6), args.w, weight_names()) if args.w else None
+    res = tetsim.vs_run(6 if args.no_pc else tetsim.TET_LV6_PC, tetsim.TET_CLYS, seeds, w_a=w6, max_ms=args.max_ms,
                         shared_tumo=args.tumo == "shared", jitter_ms=10.0, threads=args.threads)
     d = ROOT / "runs" / "clys_vs6"
     d.mkdir(parents=True, exist_ok=True)

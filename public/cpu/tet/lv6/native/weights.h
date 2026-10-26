@@ -43,4 +43,8 @@ struct EvalWeights {
     // ★相殺外し（clys is_tankable 相当。設計 source_assets/memory/cpu/tet/lv6-tankable-design.md）。0 で無効。
     int tankH;               // [50] 着弾おじゃまがある時、初手後の「中央列の高さ＋incoming−火力」がこれ以上の手は守りが要る手とみなす
     int tankLook;            // [51] 守りが要る手でも、その枝が 2〜(1+tankLook) 手目に TSD 以上か 4-LINES を撃つなら受けてよい（0=例外なし）
+    // ★REN 偏重の是正と通常探索での PC（設計 source_assets/memory/cpu/tet/lv6-style-design.md）。0 で無効。
+    int renDangerH;          // [52] >0 のとき、comboAtk を満額にするのは「配置前の高さ＋incoming ≥ これ」の危険時だけ（平時は comboAtkCalm）
+    int comboAtkCalm;        // [53] 平時の REN の火力ボーナス 1 あたり（renDangerH>0 のときだけ使う）
+    int pcClear;             // [54] パーフェクトクリア（消去後に盤面が空）の報酬。生存判定の火力にも PC 分を足す
 };

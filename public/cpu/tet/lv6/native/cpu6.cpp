@@ -173,7 +173,7 @@ static void dedupBeam(std::vector<SearchState>& v) {
     v.resize(out);
 }
 
-// weightsArray[52] を EvalWeights へ展開する。メンバ順は weightsArray のインデックスと一致。
+// weightsArray[55] を EvalWeights へ展開する。メンバ順は weightsArray のインデックスと一致。
 static inline EvalWeights unpackWeights(const int* weightsArray) {
     return EvalWeights {
         weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
@@ -197,7 +197,9 @@ static inline EvalWeights unpackWeights(const int* weightsArray) {
         weightsArray[47], // B6 comboAtk
         weightsArray[48], // B8 visitSelect
         weightsArray[49], // B9 bumpSq
-        weightsArray[50], weightsArray[51]  // 相殺外し tankH tankLook
+        weightsArray[50], weightsArray[51], // 相殺外し tankH tankLook
+        weightsArray[52], weightsArray[53], // REN 偏重の是正 renDangerH comboAtkCalm
+        weightsArray[54]                    // pcClear
     };
 }
 
@@ -236,6 +238,9 @@ static int estimateOps(const Board& b, int piece, const Placement& p, int* sdRow
     *sdRows = std::max(0, p.y - p.spawnY);
     return ops;
 }
+
+// パーフェクトクリアの火力（scoring.js のマージン未突入。T-spin・BtB・REN の火力を置き換える。生存判定用の近似）
+static const int PC_ATTACK = 10;
 
 // REN の火力ボーナス（estimateAttack と同じ固定テーブル。renBefore=加算前のコンボ数）
 static inline int renAttackBonus(int r) {
@@ -447,7 +452,13 @@ void searchBestMoveWasm(
                 if (sdRows > 0) extraEvent += w.sdCost + sdRows * w.sdRowCost;
             }
             if (piece == 0 && p.linesCleared < 4) extraEvent += w.wasteI;
-            if (p.linesCleared > 0) extraEvent += renAttackBonus(cur_ren) * w.comboAtk;
+            if (p.linesCleared > 0) {
+                // renDangerH>0：REN の火力を満額で買うのは危険時（高さ＋着弾予定が多い）だけ。平時は comboAtkCalm
+                bool renDanger = w.renDangerH <= 0 || prevHeight + incoming >= w.renDangerH;
+                extraEvent += renAttackBonus(cur_ren) * (renDanger ? w.comboAtk : w.comboAtkCalm);
+            }
+            const bool isPC = w.pcClear != 0 && p.linesCleared > 0 && simBoard.isEmpty();
+            if (isPC) extraEvent += w.pcClear;
             stepScore += extraEvent;
             cur_cumulative_event += extraEvent;
             cur_beam_score += extraEvent;
@@ -491,6 +502,7 @@ void searchBestMoveWasm(
                 }
                 next_s.first_center_h = center_h;
                 next_s.first_attack = estimateAttack(p.linesCleared, p.tSpinType, cur_btb, cur_ren);
+                if (isPC) next_s.first_attack = PC_ATTACK; // PC は他の火力を置き換える（scoring.js）
             }
             next_s.total_score += stepScore;
             next_s.board = simBoard;

@@ -83,6 +83,7 @@ const int TET_LV6_WEIGHTS[TET_W_LEN6] = {
     72, -36, 100, 6000, 150, 8000, 10, 6000,    // slopeBonus slopePenalty centerDip tstClear b2bHold tSlotTst tSlotReadyFin tSlotReadyTst
     0, 0, 0, 0, -20, 0, 6, 0, 1500, 0, 0,       // B1 actCost sdCost sdRowCost / B2 holeAboveWell / B3 rowTrans / B4 covered coverMax / B5 wasteI / B6 comboAtk / B8 visitSelect / B9 bumpSq
     0, 0,                                       // 相殺外し tankH tankLook
+    10, 300, 8000,                              // renDangerH comboAtkCalm pcClear（lv6-style-design.md）
 };
 
 // 操作時間の差し替え（tet_set_level_timing。強さの調整を試すとき用。負なら本番の値）
@@ -528,6 +529,16 @@ void TetPlayer::lockPiece(double t) {
     if (tspin == 1 && lines == 2) st.tsd++;
     if (tspin == 1 && lines >= 3) st.tst++;
     if (lines > 0) { spikeRun_ += gen; st.maxSpike = std::max(st.maxSpike, spikeRun_); } else spikeRun_ = 0;
+    if (lines > 0) {
+        clearRun_++;
+        if (!pc && renForCalc >= 2) st.renAtk += (renForCalc <= 3) ? 1 : (renForCalc <= 5) ? 2 : (renForCalc <= 7) ? 3 : (renForCalc <= 12) ? 4 : 5;
+    } else {
+        int r = clearRun_ - 1;   // 途切れた REN の画面表示の最大値
+        if (r == 1) st.ren1++;
+        else if (r >= 2 && r <= 5) st.ren2to5++;
+        else if (r >= 6) st.ren6plus++;
+        clearRun_ = 0;
+    }
     if (tspin == 2 && lines > 0) st.tsMini++;
     if (lines == 4) st.tetrises++;
     if (pc) st.pcs++;

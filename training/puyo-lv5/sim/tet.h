@@ -22,7 +22,7 @@ constexpr int THIDDEN = 5;
 constexpr int TET_W_LEN = 33;        // 旧 lv5（sim/frozen/cpu5_v1.cpp）の weightsArray
 constexpr int TET_W_LEN5 = 47;       // 新 lv5（本番 cpu5.js onMinoSpawned の weightsArray。[33..] は地形強化 T1〜T6）
 constexpr int TET_W_LEN4 = 24;       // cpu4.js の weightsArray
-constexpr int TET_W_LEN6 = 52;       // cpu6.js の weightsArray（[39..] は lv6 強化 B1〜B9、設計 lv6-boost-design.md §3。[50..51] は相殺外し lv6-tankable-design.md）
+constexpr int TET_W_LEN6 = 55;       // cpu6.js の weightsArray（[39..] は lv6 強化 B1〜B9、設計 lv6-boost-design.md §3。[50..51] は相殺外し lv6-tankable-design.md。[52..54] は REN 偏重の是正・PC lv6-style-design.md）
 constexpr int TET_W_MAX = 64;        // TetPlayer::weights の枠（レベルごとの長さは tetWeightsLen）
 constexpr int TET_OUT_LEN = 43;      // searchBestMoveWasm の outResult
 
@@ -127,6 +127,9 @@ struct TetStats {
     int pcSearches = 0, pcFound = 0, pcAborted = 0, pcMoves = 0;
     double pcSearchMs = 0, thinkMs = 0, waitMs = 0;   // PC 探索の合計・全探索の合計・それで延びた待ちの合計
     int maxSpike = 0;                             // 消去が続いた間に送った火力（内部火力）の最大
+    // REN の長さ（画面の「N REN」＝連続消去数−1）ごとの回数と、REN ボーナスで出した火力（lv6-style-design.md）
+    int ren1 = 0, ren2to5 = 0, ren6plus = 0;
+    long long renAtk = 0;
 };
 
 class TetPlayer {
@@ -234,6 +237,7 @@ private:
     uint16_t pcExpected_[TROWS];
     double thinkRef_ = 0;                // 探索を始めた時刻（直前の設置・HOLD）
     int spikeRun_ = 0;
+    int clearRun_ = 0;   // 続いている消去の数（REN の長さの集計用）
     bool shouldSearchPC() const;
     bool pcStepValid(const Decision& d) const;
     void pcAdvanceExpected(const Decision& d);

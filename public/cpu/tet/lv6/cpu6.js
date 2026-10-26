@@ -7,7 +7,7 @@ window.CPU6 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv6/wasm/cpu_worker6.js?v=18',
+        'cpu/tet/lv6/wasm/cpu_worker6.js?v=19',
         'cpu/tet/lv6/pc/wasm/pc_worker6.js',
     ];
     constructor(gameInstance) {
@@ -91,6 +91,10 @@ window.CPU6 = class {
             // ★相殺外し（clys is_tankable 相当。設計 source_assets/memory/cpu/tet/lv6-tankable-design.md）。0 で無効
             tankH: 0,               // [50] 初手後の中央列の高さ＋incoming−火力がこれ以上の手は守りが要る手
             tankLook: 0,            // [51] 守りが要る手でも、2〜(1+tankLook) 手目に TSD 以上か 4-LINES を撃つ枝なら受けてよい
+            // ★REN 偏重の是正と通常探索での PC（設計 source_assets/memory/cpu/tet/lv6-style-design.md）。0 で無効
+            renDangerH: 10,         // [52]（2026-10-26 採用。設計 §5.5） >0：comboAtk を満額にするのは「配置前の高さ＋着弾予定 ≥ これ」の危険時だけ
+            comboAtkCalm: 300,      // [53] 平時の REN の火力ボーナス 1 あたり（renDangerH>0 のとき）
+            pcClear: 8000,          // [54] パーフェクトクリアの報酬（PC 探索とは別に、通常の探索で見つけた PC を取る）
 
             P1_WEIGHT: 1.0,
         };
@@ -841,7 +845,8 @@ window.CPU6 = class {
             this.weights.covered, this.weights.coverMax,
             this.weights.wasteI, this.weights.comboAtk,
             this.weights.visitSelect, this.weights.bumpSq,
-            this.weights.tankH, this.weights.tankLook
+            this.weights.tankH, this.weights.tankLook,
+            this.weights.renDangerH, this.weights.comboAtkCalm, this.weights.pcClear
         ]);
 
         const currentRen = this.game.ren || 0;
@@ -948,7 +953,8 @@ window.CPU6 = class {
             this.weights.covered, this.weights.coverMax,
             this.weights.wasteI, this.weights.comboAtk,
             this.weights.visitSelect, this.weights.bumpSq,
-            this.weights.tankH, this.weights.tankLook
+            this.weights.tankH, this.weights.tankLook,
+            this.weights.renDangerH, this.weights.comboAtkCalm, this.weights.pcClear
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
