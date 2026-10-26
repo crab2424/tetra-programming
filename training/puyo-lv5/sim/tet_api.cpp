@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <thread>
 #include <vector>
@@ -76,8 +77,14 @@ static void terrainHeights(const uint16_t* r, int hs[TCOLS]) {
     }
 }
 
+int g_clysThinkMs = 100, g_clysWidth = 500, g_clysBranch = 3;
+double g_thinkScaleLv[32], g_pcScaleLv[32];
+bool g_scaleInit = [] { for (int i = 0; i < 32; i++) g_thinkScaleLv[i] = g_pcScaleLv[i] = 1.0; return true; }();
+
 void setup(TetPlayer& p, int level, const int* w, int wLen) {
     p.setLevel(level);
+    p.clysThinkMs = g_clysThinkMs; p.clysWidth = g_clysWidth; p.clysBranch = g_clysBranch;
+    if (level >= 0 && level < 32) { p.thinkScale = g_thinkScaleLv[level]; p.pcThinkScale = g_pcScaleLv[level]; }
     if (w && wLen > 0) {
         int n = std::min(wLen, tetWeightsLen(p.level));
         std::memcpy(p.weights, w, sizeof(int) * n);
@@ -140,6 +147,20 @@ TvtResult runTvt(TetPlayer& a, TetPlayer& b, double maxMs, bool aFirst) {
 extern "C" {
 
 int tet_out_len() { return 24; }
+
+// 思考時間のモデル化（setTetModelThink）と clys の設定。スレッドを立てる前に呼ぶこと
+void tet_set_model_think(int on, double scale) { setTetModelThink(on != 0, scale); }
+// レベル（setup に渡す番号。26=lv6+PC など）ごとの思考時間の倍率。scale はビーム等、pcScale は PC 探索
+void tet_set_think_scale(int level, double scale, double pcScale) {
+    if (level < 0 || level >= 32) return;
+    g_thinkScaleLv[level] = scale > 0 ? scale : 1.0;
+    g_pcScaleLv[level] = pcScale > 0 ? pcScale : 1.0;
+}
+void tet_set_clys(int thinkMs, int width, int branch) {
+    if (thinkMs > 0) g_clysThinkMs = thinkMs;
+    if (width > 0) g_clysWidth = width;
+    if (branch > 0) g_clysBranch = branch;
+}
 
 // レベルの操作時間を差し替える（0 以下なら本番の値）。スレッドを立てる前に呼ぶこと
 void tet_set_level_timing(int level, double actionMs, double harddropMs) { setTetLevelTiming(level, actionMs, harddropMs); }
@@ -303,7 +324,8 @@ void tet_terrain_lv(int level, const int* weights, int wLen, int nGames, const u
 //   0 winner(0=A 1=B -1=引き分け) 1 ms
 //   2+ A の集計 TVT_SIDE 列、2+TVT_SIDE+ B の集計：
 //     pieces lines tspins tsMini tetrises pcs b2bs maxRen tetAttack tetSent linesReceived garbageTaken holds dead finalHeight routeMiss
-static const int TVT_SIDE = 16;
+//     tss tsd tst pcSearches pcFound pcAborted pcMoves pcSearchMs thinkMs waitMs maxSpike（clys 比較 §6）
+static const int TVT_SIDE = 27;
 int tet_vs_len() { return 2 + 2 * TVT_SIDE; }
 void tet_vs_run(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int wLenB, int nSeeds, const uint32_t* seeds,
                 double maxMs, int marginTimeMs, int holeRatePercent, double jitterMs, int sharedTumo, int nThreads,
@@ -337,8 +359,31 @@ void tet_vs_run(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int w
             q[6] = st.b2bs; q[7] = st.maxRen; q[8] = (double)st.tetAttack; q[9] = (double)st.tetSent;
             q[10] = (double)st.linesReceived; q[11] = st.garbageLinesTaken; q[12] = st.holds; q[13] = p.dead ? 1 : 0;
             q[14] = p.stackHeight(); q[15] = st.routeMiss;
+            q[16] = st.tss; q[17] = st.tsd; q[18] = st.tst; q[19] = st.pcSearches; q[20] = st.pcFound;
+            q[21] = st.pcAborted; q[22] = st.pcMoves; q[23] = st.pcSearchMs; q[24] = st.thinkMs; q[25] = st.waitMs;
+            q[26] = st.maxSpike;
         }
     });
+}
+
+// PC 探索の時間を測る（tet_trace_cases_lv の 307 int 形式の局面。pieces = cur＋next8＋next8 を繰り返して11本）。
+//   ブロック数が偶数の局面だけ探索し、out_ms[i] に時間（ms）、found[i] に手数（奇数の局面は -1）。wasm との速度比較用
+void tet_pc_time_cases(int nCases, const int* cases, double* outMs, int* found) {
+    for (int i = 0; i < nCases; i++) {
+        const int* c = cases + (size_t)i * 307;
+        uint8_t board[250];
+        int B = 0;
+        for (int k = 0; k < 250; k++) { board[k] = (uint8_t)c[k]; B += board[k]; }
+        if (B % 2) { outMs[i] = 0; found[i] = -1; continue; }
+        int pieces[11];
+        pieces[0] = c[250];
+        for (int k = 0; k < 10; k++) pieces[k + 1] = c[252 + (k % 8)];
+        int out[256];
+        auto t0 = std::chrono::steady_clock::now();
+        cpuSearchPC6(board, pieces, c[251], c[260], 10, B == 0 ? 300 : 100, out);
+        outMs[i] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        found[i] = out[0];
+    }
 }
 
 } // extern "C"

@@ -12,6 +12,7 @@
 #include "tet.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 
@@ -95,13 +96,22 @@ void setTetLevelTiming(int level, double actionMs, double harddropMs) {
     g_timingOverridden[level] = actionMs > 0 || harddropMs > 0;
 }
 
+static bool g_modelThink = false;
+static double g_thinkScale = 1.0;
+void setTetModelThink(bool on, double scale) { g_modelThink = on; g_thinkScale = scale > 0 ? scale : 1.0; }
+
+static double wallMs() {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 TetLevelTiming tetLevelTiming(int level) {
     if (level >= 0 && level < 16 && g_timingOverridden[level]) return g_timingOverride[level];
     if (level == 4) return {60.0, 200.0};
-    if (level == 6) return {40.0, 80.0};
+    if (level == 6 || level == TET_CLYS) return {40.0, 80.0};   // cpu_clys.js は cpu6.js と同じ操作速度
     return {T_ACTION_MS, T_HARDDROP_MS};
 }
 int tetWeightsLen(int level) {
+    if (level == TET_CLYS) return 0;   // clys は重みを wasm に埋め込み
     return level == 4 ? TET_W_LEN4 : level == 6 ? TET_W_LEN6 : level == 5 ? TET_W_LEN5 : TET_W_LEN;
 }
 const int* tetDefaultWeights(int level) {
@@ -181,7 +191,9 @@ TetPlayer::TetPlayer(uint32_t seed, uint32_t holeSeed) : rng(seed), holeRng(hole
 }
 
 void TetPlayer::setLevel(int lv) {
-    level = (lv == 4 || lv == 5 || lv == 6) ? lv : TET_LV5_OLD;
+    pcEnabled = (lv == TET_LV6_PC);
+    if (lv == TET_LV6_PC) lv = 6;
+    level = (lv == 4 || lv == 5 || lv == 6 || lv == TET_CLYS) ? lv : TET_LV5_OLD;
     TetLevelTiming tm = tetLevelTiming(level);
     actionMs = tm.actionMs;
     harddropMs = tm.harddropMs;
@@ -512,6 +524,10 @@ void TetPlayer::lockPiece(double t) {
     st.pieces++;
     st.lines += lines;
     if (tspin == 1 && lines > 0) st.tspins++;
+    if (tspin == 1 && lines == 1) st.tss++;
+    if (tspin == 1 && lines == 2) st.tsd++;
+    if (tspin == 1 && lines >= 3) st.tst++;
+    if (lines > 0) { spikeRun_ += gen; st.maxSpike = std::max(st.maxSpike, spikeRun_); } else spikeRun_ = 0;
     if (tspin == 2 && lines > 0) st.tsMini++;
     if (lines == 4) st.tetrises++;
     if (pc) st.pcs++;
@@ -592,14 +608,60 @@ void TetPlayer::commit() {
     if (!hasPlan_) return;
     hasPlan_ = false;
     lockPiece(lockT_);
+    thinkRef_ = lockT_;
     now = lockT_ + (planNoMove_ ? 0.0 : harddropMs);
 }
 
 double TetPlayer::plan() {
     if (dead) return -1;
     if (hasPlan_) return lockT_;
-    for (int guard = 0; guard < 3; guard++) {
-        // ── 探索（cpu5.js onMinoSpawned）──
+    for (int guard = 0; guard < 4; guard++) {
+        // HOLD（本番の holdCurrentMino）。canHold は呼び出し側で確かめる
+        auto doHold = [&]() -> bool {
+            st.holds++;
+            canHold = false;
+            if (hold < 0) {
+                hold = cur;
+                int nt = queue.front();
+                queue.erase(queue.begin());
+                queue.push_back(nextType());
+                if (!spawn(nt)) { dead = true; return false; }
+            } else {
+                int h = hold;
+                hold = cur;
+                if (!spawn(h)) { dead = true; return false; }
+            }
+            canHold = false;
+            return true;
+        };
+
+        // ── 探索せずに置く手（clys の HOLD の後・PC 手順の続き）──
+        Decision dec{};
+        bool haveDec = false;
+        if (!pending_.empty()) {
+            Decision d = pending_.front();
+            if (d.fromPC && !pcStepValid(d)) {
+                // cpu6.js runNextPCMove：盤面が想定とずれた（おじゃま等）→ 手順を捨てて通常の探索へ
+                st.pcAborted++;
+                pending_.clear();
+            } else {
+                pending_.erase(pending_.begin());
+                if (d.useHold) {
+                    // HOLD → 出てきたミノを置く、を1つのアクション列で（buildPCActionQueue / cpu_clys.js）
+                    if (!doHold()) return -1;
+                    now += actionMs;
+                    d.useHold = false;
+                    pending_.insert(pending_.begin(), d);
+                    continue;
+                }
+                if (d.id != cur) { pending_.clear(); continue; }   // 起きない想定
+                if (d.fromPC) { pcAdvanceExpected(d); st.pcMoves++; }
+                dec = d;
+                haveDec = true;
+            }
+        }
+
+        // ── 探索（cpu5.js / cpu6.js onMinoSpawned）──
         SearchCase sc;
         for (int i = 0; i < 250; i++) sc.board[i] = (rows[i / 10] >> (i % 10)) & 1;
         sc.cur = cur;
@@ -609,12 +671,96 @@ double TetPlayer::plan() {
         for (int i = 5; i < 8; i++) sc.next[i] = queue[i];   // lv6 は NEXT 8 本（cpu6.js nextQueue[5..7]）
         sc.ren = ren;
         sc.b2b = b2b ? 1 : 0;
-        sc.incoming = (level == 6) ? incomingLines() : 0;
-        search(sc);
-        if (traceCases) traceCases->push_back(sc);
+        sc.incoming = (level == 6 || level == TET_CLYS) ? incomingLines() : 0;
+        std::memset(sc.out, 0, sizeof sc.out);
         const int* res = sc.out;
+        double think = 0;
 
-        if (res[0] == -1) {
+        if (!haveDec && pcEnabled && shouldSearchPC()) {
+            // cpu6.js：PC 探索（空盤面 300ms・途中 100ms の上限）。見つからなければ結果が返った時点でビームへ
+            int pieces[11];
+            pieces[0] = cur;
+            for (int i = 0; i < 10; i++) pieces[i + 1] = queue[i];
+            int B = 0;
+            for (int y = 0; y < TROWS; y++) B += __builtin_popcount(rows[y]);
+            int pout[256];
+            double w0 = wallMs();
+            cpuSearchPC6(sc.board, pieces, hold, canHold ? 1 : 0, 10, B == 0 ? 300 : 100, pout);
+            double e = std::min(B == 0 ? 300.0 : 100.0, (wallMs() - w0) * pcThinkScale) / thinkScale;
+            think += e;   // 待ちには thinkScale を掛けるので、PC 分は先に割っておく（PC は pcThinkScale と上限だけ）
+            st.pcSearches++;
+            st.pcSearchMs += e * thinkScale;   // 倍率・上限を当てた後の PC 探索時間
+            if (pout[0] > 0) {
+                std::vector<Decision> seq;
+                int idx = 1;
+                for (int i = 0; i < pout[0]; i++) {
+                    int h = pout[idx++];
+                    Decision d{};
+                    d.id = h & 7; d.rot = (h >> 3) & 3; d.x = ((h >> 5) & 0xF) - 2; d.y = (h >> 9) & 0x1F;
+                    d.useHold = (h >> 14) & 1; d.fromPC = true; d.tspin = 0;
+                    int pl = (h >> 15) & 0x3F;
+                    for (int k = 0; k < pl; k++) d.path.push_back((pout[idx + k / 10] >> ((k % 10) * 3)) & 7);
+                    idx += (pl + 9) / 10;
+                    seq.push_back(d);
+                }
+                std::memcpy(pcExpected_, rows, sizeof rows);
+                if (pcStepValid(seq[0])) {
+                    st.pcFound++;
+                    pending_ = seq;
+                    st.thinkMs += think;
+                    if (g_modelThink) { double w = thinkRef_ + think * g_thinkScale * thinkScale; if (w > now) { st.waitMs += w - now; now = w; } }
+                    continue;   // 手順の1手目（HOLD があればここで）
+                }
+            }
+        }
+
+        if (!haveDec && level == TET_CLYS) {
+            // cpu_clys.js：current＋内部 NEXT 全部（bag を戻すのに使う）、探索は先頭 1+clysNext 本
+            int qa[16], na = 0;
+            qa[na++] = cur;
+            for (int v : queue) if (na < 16) qa[na++] = v;
+            int bagAfter = 0;
+            for (int v : bag) bagAfter |= 1 << v;
+            int cout_[96];
+            double w0 = wallMs();
+            cpuSearchClys(sc.board, qa, na, 1 + clysNext, hold, bagAfter, sc.b2b, ren, sc.incoming, clysThinkMs,
+                          clysWidth, clysBranch, cout_, 96);
+            think += wallMs() - w0;
+            if (cout_[0] == 1) {
+                Decision d{};
+                d.id = cout_[1];
+                int cells[8];
+                for (int i = 0; i < 4; i++) { cells[i * 2] = cout_[2 + i * 2]; cells[i * 2 + 1] = cout_[3 + i * 2] + THIDDEN; }
+                if (findPose(d.id, cells, d.rot, d.x, d.y)) {
+                    for (int i = 0; i < cout_[15]; i++) d.path.push_back(cout_[16 + i]);
+                    int last = 0;
+                    for (int a2 : d.path) if (a2 != 6) last = a2;
+                    d.tspin = (d.id == 2 && (last == 4 || last == 5)) ? 1 : 0;
+                    d.useHold = cout_[10] == 1;
+                    d.fromPC = false;
+                    st.thinkMs += think;
+                    if (g_modelThink) { double w = thinkRef_ + think * g_thinkScale * thinkScale; if (w > now) { st.waitMs += w - now; now = w; } }
+                    think = 0;
+                    if (d.useHold) {
+                        if (!canHold) d.useHold = false;   // 起きない想定（clys は canHold を知らない）
+                        else { pending_.insert(pending_.begin(), d); continue; }
+                    }
+                    if (d.id == cur) { dec = d; haveDec = true; }
+                }
+            }
+            if (!haveDec) sc.out[0] = -1;   // 置く手が無い → その場でハードドロップ
+        } else if (!haveDec) {
+            double w0 = wallMs();
+            search(sc);
+            think += wallMs() - w0;
+        }
+        if (traceCases && !haveDec) traceCases->push_back(sc);
+        if (think > 0) {
+            st.thinkMs += think;
+            if (g_modelThink) { double w = thinkRef_ + think * g_thinkScale * thinkScale; if (w > now) { st.waitMs += w - now; now = w; } }
+        }
+
+        if (!haveDec && res[0] == -1) {
             // 置き場所が無い：出現から 700ms 後にその場でハードドロップ（出現 = now − 150）
             st.noMove++;
             double t = now - harddropMs + T_NOMOVE_MS;
@@ -624,33 +770,27 @@ double TetPlayer::plan() {
             hasPlan_ = true; planNoMove_ = true; lockT_ = t;
             return t;
         }
-        if (res[0] == 1) {
-            // HOLD：45ms 後に HOLD、その 45ms 後に次の executeAction
-            st.holds++;
-            canHold = false;
-            if (hold < 0) {
-                hold = cur;
-                int nt = queue.front();
-                queue.erase(queue.begin());
-                queue.push_back(nextType());
-                if (!spawn(nt)) { dead = true; return -1; }
-            } else {
-                int h = hold;
-                hold = cur;
-                if (!spawn(h)) { dead = true; return -1; }
-            }
-            canHold = false;
+        if (!haveDec && res[0] == 1) {
+            // HOLD：45ms 後に HOLD、その 45ms 後に次の executeAction（HOLD で出たミノを探索し直す）
+            if (!doHold()) return -1;
+            thinkRef_ = now + actionMs;
             now += 2 * actionMs + jit();
             continue;
         }
 
         // ── 操作列を組み立てる（cpu5.js buildActionQueue）──
-        int bId = res[3], bRot = res[4], bX = res[5], bY = res[6], bTs = res[12];
+        int bId, bRot, bX, bY, bTs;
         std::vector<int> path;
-        for (int i = 0; i < 64; i++) {
-            int a = (res[36 + i / 10] >> ((i % 10) * 3)) & 7;
-            if (a == 0) break;
-            path.push_back(a);
+        if (haveDec) {
+            bId = dec.id; bRot = dec.rot; bX = dec.x; bY = dec.y; bTs = dec.tspin;
+            path = dec.path;
+        } else {
+            bId = res[3]; bRot = res[4]; bX = res[5]; bY = res[6]; bTs = res[12];
+            for (int i = 0; i < 64; i++) {
+                int a = (res[36 + i / 10] >> ((i % 10) * 3)) & 7;
+                if (a == 0) break;
+                path.push_back(a);
+            }
         }
         const int startX = px, startY = py, startRot = prot;
         std::vector<Act> q;
@@ -827,7 +967,7 @@ double TetPlayer::plan() {
             q.push_back({A_HARD, 0});
         };
 
-        if (level == 6 && !path.empty()) {
+        if ((level == 6 || level == TET_CLYS) && !path.empty()) {   // PC・clys も cpu6.js の buildActionQueue
             buildRoute6();
         } else if (path.empty()) {
             st.routeInstant++;
@@ -905,6 +1045,56 @@ double TetPlayer::plan() {
         return t;
     }
     return -1;
+}
+
+// cpu6.js shouldSearchPC（空盤面、または B+4N が 10 の倍数になる N（≦10、手持ちのミノ数以内）がある）
+bool TetPlayer::shouldSearchPC() const {
+    int B = 0;
+    for (int y = 0; y < TROWS; y++) B += __builtin_popcount(rows[y]);
+    if (B == 0) return true;
+    int maxN = std::min(10, 1 + (int)queue.size());
+    for (int N = 1; N <= maxN; N++) if ((B + 4 * N) % 10 == 0) return true;
+    return false;
+}
+
+// cpu6.js validatePCStep（盤面が想定どおりか・置くミノが合っているか）
+bool TetPlayer::pcStepValid(const Decision& d) const {
+    if (std::memcmp(rows, pcExpected_, sizeof rows) != 0) return false;
+    if (!d.useHold) return cur == d.id;
+    if (!canHold) return false;
+    int after = hold < 0 ? (queue.empty() ? -1 : queue.front()) : hold;
+    return after == d.id;
+}
+
+// cpu6.js _pcAdvanceExpected（置いて揃った段を消す）
+void TetPlayer::pcAdvanceExpected(const Decision& d) {
+    const PieceShape& s = shape(d.id, d.rot);
+    for (int i = 0; i < 4; i++) {
+        int bx = s.xy[i * 2] + d.x, by = s.xy[i * 2 + 1] + d.y;
+        if (by >= 0 && by < TROWS && bx >= 0 && bx < TCOLS) pcExpected_[by] |= (uint16_t)(1 << bx);
+    }
+    int w = TROWS - 1;
+    for (int y = TROWS - 1; y >= 0; y--) if (pcExpected_[y] != 0x3FF) pcExpected_[w--] = pcExpected_[y];
+    for (; w >= 0; w--) pcExpected_[w] = 0;
+}
+
+// cpu_clys.js _findPose：4マス（内部座標）に一致する (rot, x, y)
+bool TetPlayer::findPose(int id, const int c[8], int& rot, int& x, int& y) const {
+    for (int r = 0; r < 4; r++) {
+        const PieceShape& s = shape(id, r);
+        for (int k = 0; k < 4; k++) {
+            int ox = c[k * 2] - s.xy[0], oy = c[k * 2 + 1] - s.xy[1];
+            bool ok = true;
+            for (int i = 0; i < 4 && ok; i++) {
+                int bx = s.xy[i * 2] + ox, by = s.xy[i * 2 + 1] + oy;
+                bool hit = false;
+                for (int j = 0; j < 4; j++) if (c[j * 2] == bx && c[j * 2 + 1] == by) hit = true;
+                ok = hit;
+            }
+            if (ok) { rot = r; x = ox; y = oy; return true; }
+        }
+    }
+    return false;
 }
 
 } // namespace tsim

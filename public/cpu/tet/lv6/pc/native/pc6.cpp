@@ -166,11 +166,11 @@ void getAllPlacements(const Board& baseBoard, int pieceType, int spawnY,
     // ★高速化: 毎回の memset/初期化を避けるため世代スタンプ方式。
     //   visitedGen/placedGen/parentGen が現世代 g_gen と一致するセルのみ「有効」。
     //   呼び出し毎に g_gen++ するだけで全配列を実質クリアできる（初期化コスト O(1)）。
-    static int visitedGen[4][35][19];   // BSS で 0 初期化（g_gen は 1 から始まるので未訪問扱い）
-    static int placedGen[4][35][19];
-    static int parentGen[4][35][19];
-    static ParentInfo parent[4][35][19];
-    static int g_gen = 0;
+    static thread_local int visitedGen[4][35][19];   // BSS で 0 初期化（g_gen は 1 から始まるので未訪問扱い）
+    static thread_local int placedGen[4][35][19];
+    static thread_local int parentGen[4][35][19];
+    static thread_local ParentInfo parent[4][35][19];
+    static thread_local int g_gen = 0;
     g_gen++;
 
     int spawnX = COLS / 2 - 2;
@@ -192,7 +192,7 @@ void getAllPlacements(const Board& baseBoard, int pieceType, int spawnY,
     int topY = ROWS;
     for (int y = 0; y < ROWS; y++) if (baseBoard.rows[y] != 0) { topY = y; break; }
 
-    static BFSState bfsQueue[3000];
+    static thread_local BFSState bfsQueue[3000];
     int qHead = 0, qTail = 0;
     bfsQueue[qTail++] = {spawnX, spawnY, initialRot};
     if (spawnY + 5 >= 0 && spawnY + 5 < 35 && spawnX + 4 >= 0 && spawnX + 4 < 19)
@@ -375,16 +375,17 @@ struct PCResultMove {
     int pathLength;
 };
 
-static int   g_queue[16];
-static int   g_qlen = 0;
-static int   g_N = 0;
-static int   g_nodeBudget = 0; // 探索ノード上限（暴走防止）
-static std::vector<PCResultMove> g_seq;
+// thread_local: 学習シミュ(training/puyo-lv5)のスレッド並列用。wasm では static と同じ
+static thread_local int   g_queue[16];
+static thread_local int   g_qlen = 0;
+static thread_local int   g_N = 0;
+static thread_local int   g_nodeBudget = 0; // 探索ノード上限（暴走防止）
+static thread_local std::vector<PCResultMove> g_seq;
 
 // ── ウォールクロックのタイムアウト ──
-static double g_deadlineMs = 0;    // この時刻を過ぎたら打ち切り
-static int    g_timeCheckCtr = 0;  // 時刻取得は重いので一定ノード毎に確認
-static bool   g_timedOut = false;
+static thread_local double g_deadlineMs = 0;    // この時刻を過ぎたら打ち切り
+static thread_local int    g_timeCheckCtr = 0;  // 時刻取得は重いので一定ノード毎に確認
+static thread_local bool   g_timedOut = false;
 inline bool pcTimeUp() {
     if (g_timedOut) return true;
     if (++g_timeCheckCtr >= 512) {
@@ -408,7 +409,7 @@ bool pcDfs(const Board& board, int curPiece, int holdPiece, int nextIdx, int pla
     // 共通: ある配置候補を試すラムダ（配置後の次手番は常に canHold=true）
     // ★高速化: 配置リストは深さ毎の静的プールを再利用（毎ノードのヒープ確保を回避）。
     //   深さ placed のノードは placePool[placed] を使い、再帰は placed+1 を使うため衝突しない。
-    static std::vector<PCPlacement> placePool[16];
+    static thread_local std::vector<PCPlacement> placePool[16];
 
     auto tryPlace = [&](int piece, int useHold, int nCur, int nHold, int nNext) -> bool {
         if (piece < 0) return false;

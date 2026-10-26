@@ -149,7 +149,12 @@ def run_vstet_batch(packed_cands, seeds, settings: puyosim.Settings | None = Non
 # ── テト同士（lv4/lv5/lv6）──
 #   設計: source_assets/memory/cpu/tet/lv5-terrain-design.md §4
 TVT_SIDE_KEYS = ["pieces", "lines", "tspins", "ts_mini", "tetrises", "pcs", "b2bs", "max_ren", "tet_attack",
-                 "tet_sent", "lines_received", "garbage_taken", "holds", "dead", "final_height", "route_miss"]
+                 "tet_sent", "lines_received", "garbage_taken", "holds", "dead", "final_height", "route_miss",
+                 "tss", "tsd", "tst", "pc_searches", "pc_found", "pc_aborted", "pc_moves", "pc_search_ms",
+                 "think_ms", "wait_ms", "max_spike"]
+# レベル番号の追加分（sim/tet.h）：26＝lv6＋PC 探索、7＝参考AI clys
+TET_LV6_PC = 26
+TET_CLYS = 7
 CASE_LEN_LV = 307
 _REPO = __import__("pathlib").Path(__file__).resolve().parents[3]
 _CPU_JS = {4: "public/cpu/tet/lv4/cpu4.js", 5: "public/cpu/tet/lv5/cpu5.js", 6: "public/cpu/tet/lv6/cpu6.js"}
@@ -233,6 +238,27 @@ def trace_cases_lv(level, seed, max_pieces=200, garbage_every=0, garbage_lines=0
     buf = np.zeros(max_pieces * 3 * CASE_LEN_LV, dtype=np.int32)
     n = L.tet_trace_cases_lv(level, seed, max_pieces, garbage_every, garbage_lines, buf, max_pieces * 3)
     return buf[: n * CASE_LEN_LV].reshape(n, CASE_LEN_LV)
+
+
+def set_model_think(on: bool = True, scale: float = 1.0) -> None:
+    """探索に実際にかかった時間（×scale）を操作開始の待ちに入れる（既定オフ＝探索 0ms）。"""
+    L = _lib_lv()
+    L.tet_set_model_think.argtypes = [ctypes.c_int, ctypes.c_double]
+    L.tet_set_model_think(1 if on else 0, float(scale))
+
+
+def set_think_scale(level: int, scale: float = 1.0, pc_scale: float = 1.0) -> None:
+    """レベル（26=lv6+PC など、vs_run に渡す番号）ごとの思考時間の倍率。pc_scale は PC 探索だけ（上限で頭打ち）。"""
+    L = _lib_lv()
+    L.tet_set_think_scale.argtypes = [ctypes.c_int, ctypes.c_double, ctypes.c_double]
+    L.tet_set_think_scale(int(level), float(scale), float(pc_scale))
+
+
+def set_clys(think_ms: int = 0, width: int = 0, branch: int = 0) -> None:
+    """clys の思考時間・ビーム幅・branch（0 は変えない。既定 100ms・500・3）。"""
+    L = _lib_lv()
+    L.tet_set_clys.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
+    L.tet_set_clys(int(think_ms), int(width), int(branch))
 
 
 def set_level_timing(level, action_ms=None, harddrop_ms=None) -> None:
