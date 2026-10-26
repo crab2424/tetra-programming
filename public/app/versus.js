@@ -303,6 +303,15 @@ async function startVersusGame() {
   // puyo LV6 の「高速落下で設置」も側ごと（準備画面の 7 = 2P / Shift+7 = 1P）
   if (window._cpuController) window._cpuController.softDropOnly = !!window.__cpu6SoftDrop2P;
   if (window._cpuControllerPlayer) window._cpuControllerPlayer.softDropOnly = !!window.__cpu6SoftDrop1P;
+  // CPU TEST から始めた CPU 同士は1局ごとに記録する（勝敗・TSD・4-LINES・PC・負け方。app/cpu_match_log.js）
+  if (versusFromTest && isPlayerCpu && window.CpuMatchLog) {
+    window.CpuMatchLog.begin({
+      '1P': { game: window._game, cpu: window._cpuControllerPlayer, rule: versusPlayerRule, label: _cpuLabel(playerCpuLevel) },
+      '2P': { game: window._cpuGame, cpu: window._cpuController, rule: versusCpuRule, label: _cpuLabel(cpuLevel) },
+    });
+  } else {
+    window.CpuMatchLog?.hideDock();
+  }
   // CPU TEST から始めた CPU 同士は重み調整パネルを付ける（保存した変更もここで載せる）
   if (versusFromTest && window.CpuWeightsPanel) {
     window.CpuWeightsPanel.attach([
@@ -506,6 +515,7 @@ function versusGameOver(loser) {
   //   roundResolving 中はポーズ/リスタートキーも _versusFinishingNow() で無効になる。
   if (!window.BattleVersusLifecycle.transition('roundResolving', `versusGameOver(${loser})`)) return;
   window.BattleVersusLifecycle.recordWinner(loser === 'player' ? 'cpu' : 'player');
+  window.CpuMatchLog?.end(loser);   // CPU TEST の CPU 同士の対局記録（記録中のときだけ残る）
 
   // ★ 停止処理の実体は src/battle/freeze.ts（window.BattleFreeze）に一本化してある。
   //   オンライン戦も同じ関数を使う。ぷよは isPaused を停止条件に使わず、stop() の後に
