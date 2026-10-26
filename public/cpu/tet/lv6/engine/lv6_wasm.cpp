@@ -149,6 +149,7 @@ LV6_EXPORT void lv6Search(
     beam::Configs configs;
     configs.width = size_t(std::max(width, 1));
     configs.depth = size_t(std::clamp(depth, 1, 64));
+    configs.incoming = std::max(incoming, 0);
 
     auto result = beam::search(state, queue, w, configs, start + thinkMs);
 

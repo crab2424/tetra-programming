@@ -23,7 +23,7 @@ constexpr int TET_W_LEN = 33;        // 旧 lv5（sim/frozen/cpu5_v1.cpp）の w
 constexpr int TET_W_LEN5 = 47;       // 新 lv5（本番 cpu5.js onMinoSpawned の weightsArray。[33..] は地形強化 T1〜T6）
 constexpr int TET_W_LEN4 = 24;       // cpu4.js の weightsArray
 constexpr int TET_W_LEN6 = 55;       // cpu6.js の weightsArray（[39..] は lv6 強化 B1〜B9、設計 lv6-boost-design.md §3。[50..51] は相殺外し lv6-tankable-design.md。[52..54] は REN 偏重の是正・PC lv6-style-design.md）
-constexpr int TET_W_MAX = 64;        // TetPlayer::weights の枠（レベルごとの長さは tetWeightsLen）
+constexpr int TET_W_MAX = 96;        // TetPlayer::weights の枠（レベルごとの長さは tetWeightsLen）
 constexpr int TET_OUT_LEN = 43;      // searchBestMoveWasm の outResult
 
 // ── 時間（cpu5.js。lv4/lv6 は tetLevelTiming）──

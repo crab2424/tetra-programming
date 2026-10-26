@@ -207,7 +207,7 @@ def _lib_lv():
 def sim_default_weights(level: int) -> list[int]:
     """シミュ（sim/tet_player.cpp）が持っている既定の重み。"""
     L = _lib_lv()
-    buf = np.zeros(64, dtype=np.int32)
+    buf = np.zeros(96, dtype=np.int32)   # sim/tet.h TET_W_MAX
     L.tet_default_weights.argtypes = [ctypes.c_int, np.ctypeslib.ndpointer(np.int32, flags="C_CONTIGUOUS")]
     n = L.tet_default_weights(level, buf)
     return buf[:n].tolist()

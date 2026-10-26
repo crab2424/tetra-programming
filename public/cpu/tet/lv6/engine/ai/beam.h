@@ -3,6 +3,7 @@
 // TETLABO lv6 の探索。原作（clys, MIT, (c) 2024 citrus610）の beam::search をもとに、確定 NEXT 前提で単純にしたもの。
 //   ・ランダムなツモ（モンテカルロの branch）を外し、渡されたキュー（確定 NEXT）だけで深さ depth まで読む
 //   ・締め切り時刻（ms）を層ごとに確かめる（wasm では1手ごとに同期で呼ぶ）
+//   ・w.nl_split>0 なら各層を「最後の手で消去あり（L）／なし（N）」の2つのビームに分ける（旧 lv6 の N/L。設計 §2.3 L5）
 //   ・初手は原作どおり visit（各層でビームに残った子孫の数）で選ぶ。w.select_best=1 なら最後の層のキー最大
 //   設計: source_assets/memory/cpu/tet/lv6-phase1-search-design.md §1
 
@@ -16,6 +17,7 @@ struct Configs
 {
     size_t width = 500;
     size_t depth = 32;
+    i32 incoming = 0;          // root の予告のおじゃま（段）。評価の L1・L2 に渡す
 };
 
 struct Candidate

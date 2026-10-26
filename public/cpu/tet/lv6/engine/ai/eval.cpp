@@ -16,7 +16,8 @@ const i32 DEFAULT_WEIGHTS[WEIGHT_LEN] = {
     100,
     180, 450, 1000, 1500, 2000,
     -100, 100, -25, -150, -100,
-    0, 0, 0
+    0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0
 };
 
 Weight from_array(const i32* a, i32 n)
@@ -52,12 +53,22 @@ Weight from_array(const i32* a, i32 n)
     w.pc_next_own = v[54];
     w.transition_weighted = v[55];
     w.select_best = v[56];
+    w.inc_height = v[57];
+    w.inc_danger_h = v[58];
+    w.inc_danger = v[59];
+    w.ren_danger_h = v[60];
+    w.ren_calm_pct = v[61];
+    w.t_lookahead = v[62];
+    w.nl_split = v[63];
     return w;
 };
 
-void evaluate(node::Data& node, node::Data& parent, move::Placement placement, const std::vector<piece::Type>& queue, const Weight& w)
+void evaluate(node::Data& node, node::Data& parent, move::Placement placement, const std::vector<piece::Type>& queue, const Weight& w, i32 incoming)
 {
     node.score.eval = 0;
+
+    // 受ける前提のおじゃま（L1・L2）：root の incoming から経路で送った火力を引いた残り
+    const i32 rem = std::max(incoming - node.sent, 0);
 
     auto board = node.state.board;
 
@@ -87,6 +98,16 @@ void evaluate(node::Data& node, node::Data& parent, move::Placement placement, c
     i32 tslot[4] = { 0 };
     i32 donation_depth = std::max(i32(node.state.hold == piece::Type::T) + i32(node.state.bag.get(piece::Type::T)), 1);
 
+    if (w.t_lookahead > 0) {
+        // L3：確定 NEXT で T の本数を数える（キューの先 t_lookahead 本＋HOLD）
+        i32 t_count = i32(node.state.hold == piece::Type::T);
+        const size_t end = std::min(queue.size(), size_t(node.state.next) + size_t(w.t_lookahead));
+        for (size_t i = node.state.next; i < end; ++i) {
+            t_count += queue[i] == piece::Type::T;
+        }
+        donation_depth = std::max(t_count, 1);
+    }
+
     eval::get_donation(board, heights, donation_depth, tslot);
 
     for (i32 i = 0; i < 4; ++i) {
@@ -94,7 +115,18 @@ void evaluate(node::Data& node, node::Data& parent, move::Placement placement, c
     }
 
     // Height
-    node.score.eval += *std::max_element(heights, heights + 10) * w.height;
+    const i32 height_max = *std::max_element(heights, heights + 10);
+
+    node.score.eval += height_max * w.height;
+
+    // Incoming（L2）：受ける前提の高さ
+    if (rem > 0) {
+        node.score.eval += rem * w.inc_height;
+
+        if (w.inc_danger_h > 0) {
+            node.score.eval += std::max(height_max + rem - w.inc_danger_h, 0) * w.inc_danger;
+        }
+    }
 
     for (i32 i = 0; i < 10; ++i) {
         node.score.eval += heights[i] * w.height_map[i];
@@ -157,21 +189,36 @@ void evaluate(node::Data& node, node::Data& parent, move::Placement placement, c
 
     // Ren
     if (!pc) {
+        i32 ren_reward = 0;
+
         if (node.state.ren > 10) {
-            node.score.action += w.ren[4];
+            ren_reward = w.ren[4];
         }
         else if (node.state.ren > 8) {
-            node.score.action += w.ren[3];
+            ren_reward = w.ren[3];
         }
         else if (node.state.ren > 6) {
-            node.score.action += w.ren[2];
+            ren_reward = w.ren[2];
         }
         else if (node.state.ren > 4) {
-            node.score.action += w.ren[1];
+            ren_reward = w.ren[1];
         }
         else if (node.state.ren > 2) {
-            node.score.action += w.ren[0];
+            ren_reward = w.ren[0];
         }
+
+        // L1：REN を満額で買うのは危険時（配置前の最大高さ＋受ける前提のおじゃま ≥ ren_danger_h）だけ
+        if (ren_reward != 0 && w.ren_danger_h > 0) {
+            i32 parent_heights[10] = { 0 };
+            parent.state.board.get_heights(parent_heights);
+            const i32 parent_rem = std::max(incoming - parent.sent, 0);
+
+            if (*std::max_element(parent_heights, parent_heights + 10) + parent_rem < w.ren_danger_h) {
+                ren_reward = ren_reward * w.ren_calm_pct / 100;
+            }
+        }
+
+        node.score.action += ren_reward;
     }
 
     // Feed

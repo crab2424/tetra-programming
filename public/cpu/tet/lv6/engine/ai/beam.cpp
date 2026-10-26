@@ -7,6 +7,41 @@
 namespace beam
 {
 
+namespace
+{
+
+// 1つの層。nl_split>0 なら消去なし（n）と消去あり（l）の2つのビームに分け、そうでなければ n だけを使う
+struct Beam
+{
+    Layer n;
+    Layer l;
+    bool split;
+
+    Beam(size_t width, i32 nl_split)
+        : n(nl_split > 0 ? std::max<size_t>(width - width * size_t(std::min(nl_split, 100)) / 100, 1) : width)
+        , l(nl_split > 0 ? std::max<size_t>(width * size_t(std::min(nl_split, 100)) / 100, 1) : 1)
+        , split(nl_split > 0) {}
+
+    void add(node::Data& node)
+    {
+        if (this->split && node.lock.clear > 0) this->l.add(node);
+        else this->n.add(node);
+    }
+
+    void sort() { this->n.sort(); this->l.sort(); }
+    void clear() { this->n.clear(); this->l.clear(); }
+    bool empty() const { return this->n.data.empty() && this->l.data.empty(); }
+
+    template <class F>
+    void for_each(F&& f)
+    {
+        for (auto& node : this->n.data) f(node);
+        for (auto& node : this->l.data) f(node);
+    }
+};
+
+}
+
 // ノードを展開する（いまのミノと HOLD のミノの全配置）。子の数を返す
 u32 expand(
     const std::vector<piece::Type>& queue,
@@ -36,6 +71,7 @@ u32 expand(
         for (auto& placement : locks) {
             auto child = node;
             child.lock = child.state.advance(placement, queue);
+            child.sent += child.lock.attack;
             callback(child, placement);
         }
 
@@ -68,9 +104,9 @@ Result search(
 
     root.state.next = 0;
 
-    std::array<Layer, 2> layers = {
-        Layer(configs.width),
-        Layer(configs.width)
+    std::array<Beam, 2> layers = {
+        Beam(configs.width, w.nl_split),
+        Beam(configs.width, w.nl_split)
     };
 
     // 初手の候補
@@ -81,7 +117,7 @@ Result search(
             auto candidate = beam::Candidate();
             candidate.placement = placement;
             child.index = i32(result.candidates.size());
-            eval::evaluate(child, root, placement, queue, w);
+            eval::evaluate(child, root, placement, queue, w, configs.incoming);
             result.candidates.push_back(candidate);
             // 原作は push_back（重複除去なし）。幅が初手の数より小さいと原作は sort_heap を壊れた heap に
             // かけていたので、ここでは add（重複除去＋上位 width 個）にする
@@ -101,11 +137,11 @@ Result search(
         queue.size() - (root.state.hold == piece::Type::NONE)
     );
 
-    auto mark_last = [&] (Layer& layer) {
-        for (auto& node : layer.data) {
+    auto mark_last = [&] (Beam& layer) {
+        layer.for_each([&] (node::Data& node) {
             auto& c = result.candidates[node.index];
             c.best = std::max(c.best, node.score.action + node.score.eval);
-        }
+        });
     };
 
     // 締め切り：前の層にかかった時間ぶん次の層も掛かるとみて、締め切りを越えそうなら次の層に入らない
@@ -120,32 +156,32 @@ Result search(
             break;
         }
 
-        Layer& parents = layers[(result.depth - 1) & 1];
-        Layer& children = layers[result.depth & 1];
+        Beam& parents = layers[(result.depth - 1) & 1];
+        Beam& children = layers[result.depth & 1];
 
         parents.sort();
 
-        for (auto& node : parents.data) {
+        parents.for_each([&] (node::Data& node) {
             result.nodes += beam::expand(queue, node, [&] (node::Data& child, move::Placement placement) {
-                eval::evaluate(child, node, placement, queue, w);
+                eval::evaluate(child, node, placement, queue, w, configs.incoming);
                 children.add(child);
             });
-        }
+        });
 
         parents.clear();
 
-        if (children.data.empty()) {
+        if (children.empty()) {
             break;
         }
 
         i32 index = -1;
         bool same = true;
 
-        for (auto& node : children.data) {
+        children.for_each([&] (node::Data& node) {
             result.candidates[node.index].visit += 1;
             if (index == -1) index = node.index;
             else if (index != node.index) same = false;
-        }
+        });
 
         result.depth += 1;
 

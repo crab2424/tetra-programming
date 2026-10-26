@@ -57,6 +57,11 @@ PRESETS = {
     "lv6_w32_d16": (6, dict(queue_len=QLEN, lv6_width=32, lv6_depth=16, lv6_next=17), FREE),
 }
 
+# P2（lv6-phase1-search-design.md §7）：幅 × 締め切りの格子 lv6n_w{幅}_t{締め切り}（既にある名前はそのまま）
+for _w in (128, 256, 384, 500):
+    for _t in (56, 80):
+        PRESETS.setdefault(f"lv6n_w{_w}_t{_t}", (36, dict(queue_len=QLEN, clys_width=_w, clys_depth=32, clys_think=_t), 1.0))
+
 KEYS = tetsim.TVT_SIDE_KEYS
 
 

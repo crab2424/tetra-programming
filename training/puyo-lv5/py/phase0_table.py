@@ -1,17 +1,19 @@
 """runs/phase0/*.summary.json を表にする（lv6-learning-design.md Phase 0）。
-  python3 py/phase0_table.py
+  python3 py/phase0_table.py [接頭辞]   （例: p2_ で P2 の run だけ）
 """
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 D = Path(__file__).resolve().parent.parent / "runs" / "phase0"
 
 
 def main() -> None:
+    prefix = sys.argv[1] if len(sys.argv) > 1 else ""
     rows = []
-    for f in sorted(D.glob("*.summary.json")):
+    for f in sorted(D.glob(f"{prefix}*.summary.json")):
         s = json.loads(f.read_text())
         a, b = s["a"], s["b"]
         p, q = a["per100"], b["per100"]
@@ -23,7 +25,7 @@ def main() -> None:
               f"{p['b2bs']:.1f} | {a['attack_per_line']:.2f} | {a['garbage_taken_per_game']:.0f} | {a['pps']:.2f} | "
               f"{a['think_ms_per_piece']:.1f} | {a['nodes_per_piece']:.0f} | {a['nodes_per_ms']:.0f} | "
               f"{q['tsd']:.1f} | {q['tetrises']:.1f} | {q['pcs']:.2f} |")
-    for f in sorted(D.glob("solo_*.json")):
+    for f in sorted(D.glob("solo_*.json")) if not prefix else []:
         s = json.loads(f.read_text())
         for k, v in s.items():
             print(f"{f.stem} {k}: TS {v['tspins']:.1f} 4L {v['tetrises']:.1f} 火/100手 {v['attack']:.0f} "

@@ -91,6 +91,18 @@ def main() -> int:
         print(f"  case {i}: idx {d.tolist()[:10]} native={nat[i][d][:10].tolist()} wasm={wa[i][d][:10].tolist()}")
     print(f"  （HOLD する手 {int((nat[:, 10] == 1).sum())}、T-spin と見た手 {int((nat[:, 16] > 0).sum())}、"
           f"incoming>0 {sum(c['incoming'] > 0 for c in sub)}）")
+    # P2 の候補（eval.h [54..63]）を全部入れた重みでも一致するか。incoming を多めに混ぜる（L1・L2 が効くように）
+    w2 = list(weights) + [0] * max(64 - len(weights), 0)
+    for k, v in {23: -20, 55: 1, 57: -30, 58: 14, 59: -200, 60: 10, 61: 30, 62: 7, 63: 30}.items():
+        w2[k] = v
+    sub2 = [dict(c, incoming=max(c["incoming"], 3 + i % 5)) if i % 2 == 0 else c for i, c in enumerate(cases[1::6])]
+    nat2 = run_native(sub2, w2, 500, 32, big)
+    wa2 = run_wasm(sub2, w2, 500, 32, big)
+    nat2[:, 14] = 0
+    wa2[:, 14] = 0
+    bad2 = np.where((nat2 != wa2).any(axis=1))[0]
+    print(f"一致テスト（P2 の候補を全部入れた重み）: cases={len(sub2)}  mismatch={len(bad2)}")
+    bad = np.concatenate([bad, bad2])
     t0 = time.time()
     wt = run_wasm(cases, weights, 500, 32, 80)
     nt = run_native(cases, weights, 500, 32, 80)

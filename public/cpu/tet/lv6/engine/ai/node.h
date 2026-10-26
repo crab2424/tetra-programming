@@ -17,6 +17,7 @@ struct Data
     Score score = Score();
     Lock lock = Lock();
     i32 index = -1;
+    i32 sent = 0;      // root からここまでの火力の累計（L1・L2 で incoming と相殺）
 };
 
 inline bool operator < (const Score& a, const Score& b)
