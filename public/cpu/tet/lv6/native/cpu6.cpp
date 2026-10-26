@@ -29,6 +29,8 @@ void* my_malloc(size_t size) { return malloc(size); }
 EMSCRIPTEN_KEEPALIVE
 void my_free(void* ptr) { free(ptr); }
 
+} // extern "C"
+
 // ─────────────────────────────────────────────
 // ★ v2.2.3 I: 致死判定と致死ペナルティ（自滅対策）
 //   実機(game/tet/board.js)の死亡条件:
@@ -68,7 +70,9 @@ static inline bool isLockOut(const GridBlock* blocks) {
     return true;
 }
 
-struct SearchState {
+// ★Phase 0（lv6-learning-design.md）: 深さの上限 MAXD をテンプレート引数にした（本番は MAXD=8 で従来と同じ大きさ）
+template <int MAXD>
+struct SearchStateT {
     int first_action;
     int hold_mino;
     int next_idx;
@@ -82,10 +86,10 @@ struct SearchState {
     int beam_score;
     Board board;
 
-    bool has_p[8];      // ★深さ8対応: 6→8 に拡張
-    Placement p[8];     // ★深さ8対応: 6→8 に拡張
-    int step_score[8];  // ★深さ8対応: 6→8 に拡張
-    int p_id[8];        // ★深さ8対応: 6→8 に拡張
+    bool has_p[MAXD];      // ★深さ8対応: 6→8 に拡張
+    Placement p[MAXD];     // ★深さ8対応: 6→8 に拡張
+    int step_score[MAXD];  // ★深さ8対応: 6→8 に拡張
+    int p_id[MAXD];        // ★深さ8対応: 6→8 に拡張
 
     int max_height;
 
@@ -103,7 +107,7 @@ struct SearchState {
     // ★B8: 初手の番号（1手目の展開順）。visitSelect のとき、深さごとにビームへ残った子孫を初手ごとに数える。
     int first_id;
 
-    SearchState() {
+    SearchStateT() {
         first_action = -1;
         hold_mino = -1;
         next_idx = 0;
@@ -118,7 +122,7 @@ struct SearchState {
         first_attack = 0;
         dead = false;
         first_id = -1;
-        for(int i = 0; i < 8; ++i) {  // ★深さ8対応: 6→8
+        for(int i = 0; i < MAXD; ++i) {  // ★深さ8対応: 6→8
             has_p[i] = false;
             step_score[i] = 0;
             p_id[i] = -1;
@@ -134,6 +138,7 @@ struct SearchState {
 //   max_height は盤面から一意に決まるためキーに含めない。N/L 分割は維持し各ベクタ内で個別に除去する
 //   （消去枝の多様性を壊さないため。N⇔L 跨ぎの稀な同一盤面は除去対象外＝従来どおり両方残す）。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+template <class SearchState>
 static inline uint64_t hashState(const SearchState& s) {
     uint64_t h = 1469598103934665603ULL; // FNV-1a offset basis
     const uint8_t* p = (const uint8_t*)s.board.rows;
@@ -145,6 +150,7 @@ static inline uint64_t hashState(const SearchState& s) {
     mix(s.backToBack ? 1u : 0u);
     return h;
 }
+template <class SearchState>
 static inline bool sameState(const SearchState& a, const SearchState& b) {
     if (a.hold_mino != b.hold_mino || a.next_idx != b.next_idx ||
         a.ren != b.ren || a.backToBack != b.backToBack) return false;
@@ -152,6 +158,7 @@ static inline bool sameState(const SearchState& a, const SearchState& b) {
     return true;
 }
 // v を「同一継続状態は beam_score 最大の1本」に圧縮する。ハッシュ衝突は sameState で厳密検証するので誤集約しない。
+template <class SearchState>
 static void dedupBeam(std::vector<SearchState>& v) {
     if (v.size() <= 1) return;
     std::unordered_map<uint64_t, int> seen; // hashState → 圧縮後ベクタ内の代表index
@@ -252,73 +259,25 @@ static inline int renAttackBonus(int r) {
     return 0;
 }
 
-EMSCRIPTEN_KEEPALIVE
-void evaluateSinglePlacementWasm(
-    uint8_t* boardData, int minoType, int rot, int x, int y,
-    int* weightsArray, int* outResult,
-    int ren, int backToBack, int tSpinType
-) {
-    ensurePrecalc();
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ビーム探索の本体。本番（searchBestMoveWasm）は MAXD=8・NEXT 8本・幅16・深さ8。
+//   ★Phase 0（source_assets/memory/cpu/tet/lv6-learning-design.md）: 幅・深さ・NEXT 本数を変えて試せるよう
+//   searchBestMoveExt から呼べる形にした。本番の引数では従来と探索結果が全件一致する。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 展開した配置の数（ノード数の計測用。探索結果には影響しない）
+static thread_local long long g_lv6Nodes = 0;
 
-    Board baseBoard;
-    for(int i = 0; i < 250; i++) {
-        if (boardData[i]) baseBoard.set(i % 10, i / 10);
-    }
-
-    EvalWeights w = unpackWeights(weightsArray);
-
-    // ★分割対応：配置前盤面の評価値（baseScore）を evalBoardState で取得
-    int baseMaxHeight = 0;
-    // 単発評価(表示/デバッグ用)はNEXT情報を持たないため upcomingT=1 を仮定
-    int baseScore = evalBoardState(baseBoard, w, 1, &baseMaxHeight);
-
-    GridBlock blocks[4];
-    for(int i=0; i<4; i++) {
-        blocks[i].x = PRECALC_MINO_BLOCKS[minoType][rot][i].x + x;
-        blocks[i].y = PRECALC_MINO_BLOCKS[minoType][rot][i].y + y;
-    }
-
-    Board simBoard = baseBoard;
-    for(int i=0; i<4; i++) {
-        simBoard.set(blocks[i].x, blocks[i].y);
-    }
-
-    PlacementInfo info = calcPlacementInfo(baseBoard, blocks);
-    Board beforeClearBoard = simBoard; // ライン消去前の盤面を保存（downstack判定用）
-    int cleared = simBoard.checkLineAndClear();
-
-    // ★分割対応：配置後盤面の評価値（stateScore）を evalBoardState で取得
-    int stateScore = evalBoardState(simBoard, w, 1, nullptr);
-
-    // ★分割対応：配置イベントの報酬（eventScore）を evalPlacementEvent で取得
-    int eventScore = evalPlacementEvent(
-        simBoard, beforeClearBoard, cleared, info.isFullyGrounded, info.touchingCount,
-        tSpinType, ren, backToBack != 0, blocks, baseMaxHeight, w
-    );
-
-    // ★分割後：stepScore = 評価値 * p1Weight + 報酬
-    int stepScore = stateScore * w.p1Weight / 100 + eventScore;
-
-    // ★ v2.2.3 I: 実機の Lock Out（4ブロック全て可視外）で判定する
-    if (isLockOut(blocks)) stepScore -= deathPenalty(1);
-
-    if (baseMaxHeight <= 14) {
-        if (minoType == 2 && cleared == 0) stepScore += w.tMinoNoClearPenalty;
-    }
-
-    outResult[0] = stepScore;
-    outResult[1] = stepScore - baseScore;
-}
-
-EMSCRIPTEN_KEEPALIVE
-void searchBestMoveWasm(
-    uint8_t* boardData, int currentType, int holdType, int next1, int next2, int next3, int next4, int next5,
-    int next6, int next7, int next8, // ★深さ8対応: NEXTを5→8本に拡張
+template <int MAXD>
+static void searchImpl(
+    uint8_t* boardData, int currentType, int holdType, const int* nexts, int nNext,
     int canHold,
     int* weightsArray, int* outResult,
     int ren, int backToBack,
-    int incoming // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。0なら通常選択
+    int incoming, size_t beamWidth, int maxDepth
 ){
+    using SearchState = SearchStateT<MAXD>;
+    // 致死ペナルティ（MAXD=8 で従来の deathPenalty と同じ）
+    auto deathPenalty = [](int step_num) { return 100000000 * (MAXD + 2 - step_num); };
     ensurePrecalc();
 
     for(int i = 0; i < 43; i++) outResult[i] = -1;
@@ -333,14 +292,19 @@ void searchBestMoveWasm(
 
     // ★深さ8対応: current + next1..next8 + 終端0 = 10要素
     // （holdが空の開幕でインデックスが1ずれるため、深さ8で最大 index=8 を参照する）
-    int next_queue[10] = { currentType, next1, next2, next3, next4, next5, next6, next7, next8, 0 };
+    //   ★Phase 0: NEXT の本数 nNext（本番 8）と深さ maxDepth（本番 8）を引数にした。next_queue[NQ] は終端 0
+    const int NQ = 1 + nNext;
+    int next_queue[MAXD + 3];
+    next_queue[0] = currentType;
+    for (int i = 0; i < nNext; i++) next_queue[1 + i] = nexts[i];
+    next_queue[NQ] = 0;
     auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; };
 
     // ★Phase2: ある手番から先に「見えているTの本数」を数える（next_queue[from..8] + hold）。
     //   T-slot(TSD/TSS)先読み・TSDセットアップの上限に使う（Tが来ないのに土台を作らせない）。
     auto countUpcomingT = [&](int from, int hold) -> int {
         int n = 0;
-        for (int i = (from < 0 ? 0 : from); i <= 8; i++) if (next_queue[i] == 2) n++;
+        for (int i = (from < 0 ? 0 : from); i < NQ; i++) if (next_queue[i] == 2) n++;
         if (hold == 2) n++;
         return n;
     };
@@ -354,7 +318,7 @@ void searchBestMoveWasm(
     std::vector<SearchState> next_states_N;
     std::vector<SearchState> next_states_L;
 
-    const size_t BEAM_WIDTH = 16; // ★探索拡張: 8→16（TST能動化のため幅優先）
+    const size_t BEAM_WIDTH = beamWidth; // ★探索拡張: 8→16（TST能動化のため幅優先）。★Phase 0: 引数に（本番 16）
     const int P1_WEIGHT_PCT = w.p1Weight;
 
     final_states.reserve(128);
@@ -369,6 +333,7 @@ void searchBestMoveWasm(
 
     auto expandState = [&](const SearchState& s, int piece, int new_hold, int new_next_idx, int step_num, bool is_first, int first_action) -> int {
         std::vector<Placement> p_list = getAllPlacements(is_first ? baseBoard : s.board, piece, getSpawnY(piece));
+        g_lv6Nodes += (long long)p_list.size();
 
         if (p_list.empty()) {
             // Block Out: この手番のミノを出せない＝この手番で死亡
@@ -515,7 +480,7 @@ void searchBestMoveWasm(
             //   「次の手番で死亡」として final へ送る。ビーム枠を死ぬ枝に使わせず、評価値の低い
             //   生存手が刈られて死ぬ手しか残らない事故を防ぐ。
             if (!hasBlockOutside) {
-                int upcoming = new_next_idx < 9 ? next_queue[new_next_idx] : 0;
+                int upcoming = new_next_idx < NQ ? next_queue[new_next_idx] : 0;
                 if (!canSpawnPiece(simBoard, upcoming)) {
                     next_s.total_score -= deathPenalty(step_num + 1);
                     next_s.beam_score  -= deathPenalty(step_num + 1);
@@ -590,13 +555,13 @@ void searchBestMoveWasm(
 
     trimAndMerge();
 
-    for (int depth = 1; depth < 8; depth++) { // ★探索拡張: 深さ 6→8
+    for (int depth = 1; depth < maxDepth; depth++) { // ★探索拡張: 深さ 6→8
         int step_num = depth + 1;
         next_states_N.clear();
         next_states_L.clear();
 
         for (const auto& state : current_states) {
-            int cur_mino = state.next_idx < 9 ? next_queue[state.next_idx] : 0; // ★深さ8対応: 境界 6→9
+            int cur_mino = state.next_idx < NQ ? next_queue[state.next_idx] : 0; // ★深さ8対応: 境界 6→9
 
             // ★ v2.2.3 I: 次のミノが出現位置に出られない（Block Out）なら、HOLD する前にその場で死亡。
             //   旧実装は HOLD 側の展開で「別のミノなら出せる」として生存扱いしていた。
@@ -670,7 +635,7 @@ void searchBestMoveWasm(
     //   認められる手が1つも無ければ従来の生存判定へ。tankH=0 で無効＝従来と完全一致。
     bool tankPicked = false;
     if (w.tankH > 0 && incoming > 0 && bestState != nullptr) {
-        const int look = std::min(w.tankLook, SEARCH_MAX_STEP - 1);
+        const int look = std::min(w.tankLook, MAXD - 1);
         auto tankOk = [&](const SearchState& s) {
             int risk = incoming - s.first_attack + s.first_center_h;
             if (risk < w.tankH) return true;
@@ -773,4 +738,104 @@ void searchBestMoveWasm(
         }
     }
 }
+
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+void evaluateSinglePlacementWasm(
+    uint8_t* boardData, int minoType, int rot, int x, int y,
+    int* weightsArray, int* outResult,
+    int ren, int backToBack, int tSpinType
+) {
+    ensurePrecalc();
+
+    Board baseBoard;
+    for(int i = 0; i < 250; i++) {
+        if (boardData[i]) baseBoard.set(i % 10, i / 10);
+    }
+
+    EvalWeights w = unpackWeights(weightsArray);
+
+    // ★分割対応：配置前盤面の評価値（baseScore）を evalBoardState で取得
+    int baseMaxHeight = 0;
+    // 単発評価(表示/デバッグ用)はNEXT情報を持たないため upcomingT=1 を仮定
+    int baseScore = evalBoardState(baseBoard, w, 1, &baseMaxHeight);
+
+    GridBlock blocks[4];
+    for(int i=0; i<4; i++) {
+        blocks[i].x = PRECALC_MINO_BLOCKS[minoType][rot][i].x + x;
+        blocks[i].y = PRECALC_MINO_BLOCKS[minoType][rot][i].y + y;
+    }
+
+    Board simBoard = baseBoard;
+    for(int i=0; i<4; i++) {
+        simBoard.set(blocks[i].x, blocks[i].y);
+    }
+
+    PlacementInfo info = calcPlacementInfo(baseBoard, blocks);
+    Board beforeClearBoard = simBoard; // ライン消去前の盤面を保存（downstack判定用）
+    int cleared = simBoard.checkLineAndClear();
+
+    // ★分割対応：配置後盤面の評価値（stateScore）を evalBoardState で取得
+    int stateScore = evalBoardState(simBoard, w, 1, nullptr);
+
+    // ★分割対応：配置イベントの報酬（eventScore）を evalPlacementEvent で取得
+    int eventScore = evalPlacementEvent(
+        simBoard, beforeClearBoard, cleared, info.isFullyGrounded, info.touchingCount,
+        tSpinType, ren, backToBack != 0, blocks, baseMaxHeight, w
+    );
+
+    // ★分割後：stepScore = 評価値 * p1Weight + 報酬
+    int stepScore = stateScore * w.p1Weight / 100 + eventScore;
+
+    // ★ v2.2.3 I: 実機の Lock Out（4ブロック全て可視外）で判定する
+    if (isLockOut(blocks)) stepScore -= deathPenalty(1);
+
+    if (baseMaxHeight <= 14) {
+        if (minoType == 2 && cleared == 0) stepScore += w.tMinoNoClearPenalty;
+    }
+
+    outResult[0] = stepScore;
+    outResult[1] = stepScore - baseScore;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void searchBestMoveWasm(
+    uint8_t* boardData, int currentType, int holdType, int next1, int next2, int next3, int next4, int next5,
+    int next6, int next7, int next8, // ★深さ8対応: NEXTを5→8本に拡張
+    int canHold,
+    int* weightsArray, int* outResult,
+    int ren, int backToBack,
+    int incoming // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。0なら通常選択
+){
+    const int nexts[8] = { next1, next2, next3, next4, next5, next6, next7, next8 };
+    searchImpl<SEARCH_MAX_STEP>(boardData, currentType, holdType, nexts, 8, canHold, weightsArray, outResult,
+                                ren, backToBack, incoming, 16, SEARCH_MAX_STEP);
+}
+
+// ★Phase 0: 幅・深さ・NEXT 本数を指定する版（学習シミュ用。本番 JS からは呼ばない）。
+//   nNext は maxDepth 以上を渡す（足りない分は I ミノで埋まる＝従来の終端の扱い）。maxDepth は 1〜16
+EMSCRIPTEN_KEEPALIVE
+void searchBestMoveExt(
+    uint8_t* boardData, int currentType, int holdType, const int* nexts, int nNext, int canHold,
+    int* weightsArray, int* outResult, int ren, int backToBack, int incoming, int beamWidth, int maxDepth
+){
+    if (maxDepth < 1) maxDepth = 1;
+    if (maxDepth > 16) maxDepth = 16;
+    if (beamWidth < 1) beamWidth = 1;
+    if (maxDepth <= 8) {
+        nNext = std::min(nNext, 9);
+        searchImpl<8>(boardData, currentType, holdType, nexts, nNext, canHold, weightsArray, outResult,
+                      ren, backToBack, incoming, (size_t)beamWidth, maxDepth);
+    } else {
+        nNext = std::min(nNext, 17);
+        searchImpl<16>(boardData, currentType, holdType, nexts, nNext, canHold, weightsArray, outResult,
+                       ren, backToBack, incoming, (size_t)beamWidth, maxDepth);
+    }
+}
+
+// ノード数の計測（スレッドごと）
+EMSCRIPTEN_KEEPALIVE
+long long lv6NodeCount() { return g_lv6Nodes; }
+
 } // extern "C"

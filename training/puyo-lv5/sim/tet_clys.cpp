@@ -31,6 +31,7 @@
 #define my_malloc  tetclys_my_malloc
 #define my_free    tetclys_my_free
 #define clysSearch tetclys_clysSearch
+#define clysSearchEx tetclys_clysSearchEx
 namespace tetclys {
 #include "../../../public/cpu/tet/clys/native/core/bag.cpp"
 #include "../../../public/cpu/tet/clys/native/core/board.cpp"
@@ -45,6 +46,7 @@ namespace tetclys {
 #undef my_malloc
 #undef my_free
 #undef clysSearch
+#undef clysSearchEx
 
 namespace tsim {
 
@@ -53,5 +55,13 @@ void cpuSearchClys(const uint8_t board[250], const int* queueAll, int nAll, int 
     tetclys::tetclys_clysSearch(board, queueAll, nAll, nSearch, hold, bagAfter, b2b, ren, incoming, thinkMs, width,
                                 branch, out, outLen);
 }
+
+void cpuSearchClysEx(const uint8_t board[250], const int* queueAll, int nAll, int nSearch, int hold, int bagAfter,
+                     int b2b, int ren, int incoming, int thinkMs, int width, int branch, int depth, int* out, int outLen) {
+    tetclys::tetclys_clysSearchEx(board, queueAll, nAll, nSearch, hold, bagAfter, b2b, ren, incoming, thinkMs, width,
+                                  branch, depth, out, outLen);
+}
+
+unsigned long long clysNodeCount() { return tetclys::beam::real_nodes; }
 
 } // namespace tsim

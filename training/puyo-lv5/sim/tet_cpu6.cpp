@@ -22,6 +22,8 @@
 #define my_free                     tetcpu6_my_free
 #define searchBestMoveWasm          tetcpu6_searchBestMoveWasm
 #define evaluateSinglePlacementWasm tetcpu6_evaluateSinglePlacementWasm
+#define searchBestMoveExt           tetcpu6_searchBestMoveExt
+#define lv6NodeCount                tetcpu6_lv6NodeCount
 namespace tetcpu6 {
 #include "../../../public/cpu/tet/lv6/native/common.cpp"
 #include "../../../public/cpu/tet/lv6/native/board.cpp"
@@ -34,6 +36,8 @@ namespace tetcpu6 {
 #undef my_free
 #undef searchBestMoveWasm
 #undef evaluateSinglePlacementWasm
+#undef searchBestMoveExt
+#undef lv6NodeCount
 
 #include "tet.h"
 
@@ -48,5 +52,14 @@ void cpuSearchLv6(const uint8_t board[250], int cur, int hold, const int next[8]
                                         next[4], next[5], next[6], next[7], canHold, const_cast<int*>(weights), out,
                                         ren, b2b, incoming);
 }
+
+void cpuSearchLv6Ext(const uint8_t board[250], int cur, int hold, const int* next, int nNext, int canHold,
+                     const int* weights, int ren, int b2b, int incoming, int width, int depth, int out[TET_OUT_LEN]) {
+    std::call_once(g_precalc6Once, []() { tetcpu6::ensurePrecalc(); });
+    tetcpu6::tetcpu6_searchBestMoveExt(const_cast<uint8_t*>(board), cur, hold, next, nNext, canHold,
+                                       const_cast<int*>(weights), out, ren, b2b, incoming, width, depth);
+}
+
+long long lv6NodeCount() { return tetcpu6::tetcpu6_lv6NodeCount(); }
 
 } // namespace tsim

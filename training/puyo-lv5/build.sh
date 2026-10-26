@@ -20,6 +20,9 @@ SRCS=(
 # 参考AI clys（public/cpu/tet/clys/native）は C++20 が要るので別にオブジェクトを作ってリンクする
 ${CXX:-clang++} -std=c++20 -O3 -march=native -fPIC -pthread -Isim -Isim/tet_stub \
   -c sim/tet_clys.cpp -o build/tet_clys.o
+# lv6 の新しい探索（public/cpu/tet/lv6/engine。clys がもと）も C++20
+${CXX:-clang++} -std=c++20 -O3 -march=native -fPIC -pthread -Isim -Isim/tet_stub \
+  -c sim/tet_cpu6n.cpp -o build/tet_cpu6n.o
 ${CXX:-clang++} -std=c++17 -O3 -march=native -fPIC -shared -pthread \
-  -I"$NATIVE" -Isim -Isim/tet_stub "${SRCS[@]}" build/tet_clys.o -o build/libpuyosim.$EXT
+  -I"$NATIVE" -Isim -Isim/tet_stub "${SRCS[@]}" build/tet_clys.o build/tet_cpu6n.o -o build/libpuyosim.$EXT
 echo "✅ build/libpuyosim.$EXT"

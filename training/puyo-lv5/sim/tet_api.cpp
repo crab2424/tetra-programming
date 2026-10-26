@@ -78,13 +78,30 @@ static void terrainHeights(const uint16_t* r, int hs[TCOLS]) {
 }
 
 int g_clysThinkMs = 100, g_clysWidth = 500, g_clysBranch = 3;
-double g_thinkScaleLv[32], g_pcScaleLv[32];
-bool g_scaleInit = [] { for (int i = 0; i < 32; i++) g_thinkScaleLv[i] = g_pcScaleLv[i] = 1.0; return true; }();
+double g_thinkScaleLv[64], g_pcScaleLv[64];
+bool g_scaleInit = [] { for (int i = 0; i < 64; i++) g_thinkScaleLv[i] = g_pcScaleLv[i] = 1.0; return true; }();
+
+// ★Phase 0（lv6-learning-design.md）：席ごとの探索設定。-1 は変えない（[0]=全員の既定、[1]=A、[2]=B）
+struct SideCfg { int queueLen = -1, clysThink = -1, clysWidth = -1, clysBranch = -1, clysNext = -1, clysDepth = -1,
+                 lv6Width = -1, lv6Depth = -1, lv6Next = -1; };
+SideCfg g_sideCfg[3];
+void applySide(TetPlayer& p, const SideCfg& c) {
+    if (c.queueLen > 0) p.queueLen = c.queueLen;
+    if (c.clysThink > 0) p.clysThinkMs = c.clysThink;
+    if (c.clysWidth > 0) p.clysWidth = c.clysWidth;
+    if (c.clysBranch > 0) p.clysBranch = c.clysBranch;
+    if (c.clysNext > 0) p.clysNext = c.clysNext;
+    if (c.clysDepth > 0) p.clysDepth = c.clysDepth;
+    if (c.lv6Width > 0) p.lv6Width = c.lv6Width;
+    if (c.lv6Depth > 0) p.lv6Depth = c.lv6Depth;
+    if (c.lv6Next > 0) p.lv6Next = c.lv6Next;
+}
 
 void setup(TetPlayer& p, int level, const int* w, int wLen) {
     p.setLevel(level);
     p.clysThinkMs = g_clysThinkMs; p.clysWidth = g_clysWidth; p.clysBranch = g_clysBranch;
-    if (level >= 0 && level < 32) { p.thinkScale = g_thinkScaleLv[level]; p.pcThinkScale = g_pcScaleLv[level]; }
+    applySide(p, g_sideCfg[0]);
+    if (level >= 0 && level < 64) { p.thinkScale = g_thinkScaleLv[level]; p.pcThinkScale = g_pcScaleLv[level]; }
     if (w && wLen > 0) {
         int n = std::min(wLen, tetWeightsLen(p.level));
         std::memcpy(p.weights, w, sizeof(int) * n);
@@ -152,7 +169,7 @@ int tet_out_len() { return 24; }
 void tet_set_model_think(int on, double scale) { setTetModelThink(on != 0, scale); }
 // レベル（setup に渡す番号。26=lv6+PC など）ごとの思考時間の倍率。scale はビーム等、pcScale は PC 探索
 void tet_set_think_scale(int level, double scale, double pcScale) {
-    if (level < 0 || level >= 32) return;
+    if (level < 0 || level >= 64) return;
     g_thinkScaleLv[level] = scale > 0 ? scale : 1.0;
     g_pcScaleLv[level] = pcScale > 0 ? pcScale : 1.0;
 }
@@ -163,6 +180,25 @@ void tet_set_clys(int thinkMs, int width, int branch) {
 }
 
 // レベルの操作時間を差し替える（0 以下なら本番の値）。スレッドを立てる前に呼ぶこと
+// lv6 の新しい探索を1回だけ呼ぶ（tests/test_lv6n_parity.py。引数・出力は lv6_wasm.cpp の lv6Search と同じ）
+void tet_lv6n_search(const uint8_t* board, const int* queue, int nQueue, int hold, int bagAfter, int b2b, int ren,
+                     int incoming, const int* weights, int nWeights, int width, int depth, int thinkMs, int* out,
+                     int outLen) {
+    cpuSearchLv6n(board, queue, nQueue, hold, bagAfter, b2b, ren, incoming, weights, nWeights, width, depth, thinkMs,
+                  out, outLen);
+}
+
+// 席ごとの探索設定（side 0=全員 1=A 2=B）。値 -1 は変えない。reset=1 でその席の設定を消してから入れる
+void tet_set_side(int side, int reset, int queueLen, int clysThink, int clysWidth, int clysBranch, int clysNext,
+                  int clysDepth, int lv6Width, int lv6Depth, int lv6Next) {
+    if (side < 0 || side > 2) return;
+    SideCfg& c = g_sideCfg[side];
+    if (reset) c = SideCfg();
+    auto put = [](int& dst, int v) { if (v > 0) dst = v; };
+    put(c.queueLen, queueLen); put(c.clysThink, clysThink); put(c.clysWidth, clysWidth); put(c.clysBranch, clysBranch);
+    put(c.clysNext, clysNext); put(c.clysDepth, clysDepth); put(c.lv6Width, lv6Width); put(c.lv6Depth, lv6Depth);
+    put(c.lv6Next, lv6Next);
+}
 void tet_set_level_timing(int level, double actionMs, double harddropMs) { setTetLevelTiming(level, actionMs, harddropMs); }
 
 // out[g*24 + k]：
@@ -326,7 +362,7 @@ void tet_terrain_lv(int level, const int* weights, int wLen, int nGames, const u
 //     pieces lines tspins tsMini tetrises pcs b2bs maxRen tetAttack tetSent linesReceived garbageTaken holds dead finalHeight routeMiss
 //     tss tsd tst pcSearches pcFound pcAborted pcMoves pcSearchMs thinkMs waitMs maxSpike（clys 比較 §6）
 //     ren1 ren2to5 ren6plus renAtk（REN の長さ。lv6-style-design.md）
-static const int TVT_SIDE = 31;
+static const int TVT_SIDE = 35;
 int tet_vs_len() { return 2 + 2 * TVT_SIDE; }
 void tet_vs_run(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int wLenB, int nSeeds, const uint32_t* seeds,
                 double maxMs, int marginTimeMs, int holeRatePercent, double jitterMs, int sharedTumo, int nThreads,
@@ -345,6 +381,8 @@ void tet_vs_run(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int w
         TetPlayer a(tumo0, hole0), b(tumo1, hole1);
         setup(a, lvA, wA, wLenA);
         setup(b, lvB, wB, wLenB);
+        applySide(a, g_sideCfg[1]);
+        applySide(b, g_sideCfg[2]);
         a.marginTimeMs = b.marginTimeMs = marginTimeMs;
         a.holeRatePercent = b.holeRatePercent = holeRatePercent;
         a.jitterMs = b.jitterMs = jitterMs;
@@ -364,6 +402,8 @@ void tet_vs_run(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int w
             q[21] = st.pcAborted; q[22] = st.pcMoves; q[23] = st.pcSearchMs; q[24] = st.thinkMs; q[25] = st.waitMs;
             q[26] = st.maxSpike;
             q[27] = st.ren1; q[28] = st.ren2to5; q[29] = st.ren6plus; q[30] = (double)st.renAtk;
+            q[31] = (double)st.nodes;
+            q[32] = st.tsPred; q[33] = st.tsPredMiss; q[34] = st.tsUnpred;
         }
     });
 }

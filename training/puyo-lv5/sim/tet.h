@@ -41,6 +41,8 @@ constexpr int TET_LV5_OLD = 15;
 //   設計 source_assets/memory/cpu/tet/clys-port-design.md §6
 constexpr int TET_LV6_PC = 26;
 constexpr int TET_CLYS = 7;
+// 36＝lv6 の新しい探索（本番 public/cpu/tet/lv6/engine。sim/tet_cpu6n.cpp）。設計 lv6-phase1-search-design.md
+constexpr int TET_LV6N = 36;
 
 // 思考時間のモデル化（既定オフ＝従来どおり探索は 0ms）。オンにすると、探索（PC 探索・ビーム・clys）に
 //   実際にかかった時間 × scale を、設置の後の待ち（harddropDelay）と重ねて操作開始を遅らせる（cpu6.js の
@@ -70,12 +72,25 @@ void cpuSearchLv4(const uint8_t board[250], int cur, int hold, const int next[5]
                   const int* weights, int out[TET_OUT_LEN]);
 void cpuSearchLv6(const uint8_t board[250], int cur, int hold, const int next[8], int canHold,
                   const int* weights, int ren, int b2b, int incoming, int out[TET_OUT_LEN]);
+// lv6 の幅・深さ・NEXT 本数を指定する版（本番 cpu6.cpp searchBestMoveExt。lv6-learning-design.md Phase 0）
+void cpuSearchLv6Ext(const uint8_t board[250], int cur, int hold, const int* next, int nNext, int canHold,
+                     const int* weights, int ren, int b2b, int incoming, int width, int depth, int out[TET_OUT_LEN]);
+long long lv6NodeCount();   // このスレッドで lv6 が展開した配置の累計
 // lv6 の PC 探索（sim/tet_pc6.cpp）。pieces = current＋NEXT10、out は 256 int（pc6.cpp の形式）
 void cpuSearchPC6(const uint8_t board[250], const int pieces[11], int hold, int canHold, int maxDepth, int maxTimeMs,
                   int out[256]);
 // clys（sim/tet_clys.cpp）。引数・出力は public/cpu/tet/clys/native/clys_wasm.cpp の clysSearch と同じ
 void cpuSearchClys(const uint8_t board[250], const int* queueAll, int nAll, int nSearch, int hold, int bagAfter,
                    int b2b, int ren, int incoming, int thinkMs, int width, int branch, int* out, int outLen);
+void cpuSearchClysEx(const uint8_t board[250], const int* queueAll, int nAll, int nSearch, int hold, int bagAfter,
+                     int b2b, int ren, int incoming, int thinkMs, int width, int branch, int depth, int* out, int outLen);
+unsigned long long clysNodeCount();   // このスレッドで clys が実際に展開したノードの累計
+// lv6 の新しい探索（sim/tet_cpu6n.cpp）。引数・出力は public/cpu/tet/lv6/engine/lv6_wasm.cpp の lv6Search と同じ
+void cpuSearchLv6n(const uint8_t board[250], const int* queue, int nQueue, int hold, int bagAfter, int b2b, int ren,
+                   int incoming, const int* weights, int nWeights, int width, int depth, int thinkMs, int* out,
+                   int outLen);
+const int* lv6nDefaultWeights();
+int lv6nWeightsLen();
 void pieceBlocks(int type, int rot, int outXY[8]);     // PRECALC_MINO_BLOCKS（本番 Mino と同じ形）
 void kickTable(int type, int fromRot, int dir, int outKicks[10]);  // 内部座標の (dx,dy)×5
 void initTetShapes();
@@ -130,6 +145,9 @@ struct TetStats {
     // REN の長さ（画面の「N REN」＝連続消去数−1）ごとの回数と、REN ボーナスで出した火力（lv6-style-design.md）
     int ren1 = 0, ren2to5 = 0, ren6plus = 0;
     long long renAtk = 0;
+    long long nodes = 0;                          // 探索で展開したノード数（lv6・clys。lv6-learning-design.md Phase 0）
+    // lv6n：探索が予測した T-spin の種類（消去ありの手だけ）と、ゲームが判定した種類が違った回数（Phase 1 の確認用）
+    int tsPred = 0, tsPredMiss = 0, tsUnpred = 0;
 };
 
 class TetPlayer {
@@ -173,6 +191,10 @@ public:
     // lv6 の PC 探索（level 26 で on）・clys の設定
     bool pcEnabled = false;
     int clysThinkMs = 100, clysWidth = 500, clysBranch = 3, clysNext = 8;
+    // ★Phase 0（lv6-learning-design.md）：確定 NEXT の内部保持数（本番 lifecycle.js は 11）・clys の深さの上限、
+    //   lv6 の幅・深さ・NEXT 本数（本番 16・8・8。違う値なら searchBestMoveExt を使う）
+    int queueLen = 11, clysDepth = 32;
+    int lv6Width = 16, lv6Depth = 8, lv6Next = 8;
     // 思考時間の倍率（setTetModelThink の scale にさらに掛ける。実機 wasm の速さに合わせる用）。
     //   pcThinkScale は PC 探索だけの倍率（上限 300/100ms で頭打ち＝倍率を掛けた後に上限で切る）
     double thinkScale = 1.0, pcThinkScale = 1.0;
@@ -236,6 +258,7 @@ private:
     std::vector<Decision> pending_;
     uint16_t pcExpected_[TROWS];
     double thinkRef_ = 0;                // 探索を始めた時刻（直前の設置・HOLD）
+    int predTs_ = -1;                    // lv6n が予測したこの手の T-spin（0/1/2、-1=予測なし）
     int spikeRun_ = 0;
     int clearRun_ = 0;   // 続いている消去の数（REN の長さの集計用）
     bool shouldSearchPC() const;

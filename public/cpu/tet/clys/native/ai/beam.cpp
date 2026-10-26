@@ -7,6 +7,9 @@
 namespace beam
 {
 
+// TETLABO: 実際に展開したノード数（計測用。早期終了の見なし加算を含まない）
+thread_local unsigned long long real_nodes = 0;
+
 // Expands a node and returns the number of children
 u32 expand(
     std::vector<piece::Type>& queue,
@@ -40,6 +43,7 @@ u32 expand(
         }
 
         nodes += u32(locks.size());
+        real_nodes += locks.size();
     }
 
     return nodes;

@@ -151,7 +151,8 @@ def run_vstet_batch(packed_cands, seeds, settings: puyosim.Settings | None = Non
 TVT_SIDE_KEYS = ["pieces", "lines", "tspins", "ts_mini", "tetrises", "pcs", "b2bs", "max_ren", "tet_attack",
                  "tet_sent", "lines_received", "garbage_taken", "holds", "dead", "final_height", "route_miss",
                  "tss", "tsd", "tst", "pc_searches", "pc_found", "pc_aborted", "pc_moves", "pc_search_ms",
-                 "think_ms", "wait_ms", "max_spike", "ren1", "ren2to5", "ren6plus", "ren_atk"]
+                 "think_ms", "wait_ms", "max_spike", "ren1", "ren2to5", "ren6plus", "ren_atk", "nodes",
+                 "ts_pred", "ts_pred_miss", "ts_unpred"]
 # レベル番号の追加分（sim/tet.h）：26＝lv6＋PC 探索、7＝参考AI clys
 TET_LV6_PC = 26
 TET_CLYS = 7
@@ -259,6 +260,17 @@ def set_clys(think_ms: int = 0, width: int = 0, branch: int = 0) -> None:
     L = _lib_lv()
     L.tet_set_clys.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
     L.tet_set_clys(int(think_ms), int(width), int(branch))
+
+
+def set_side(side: int, reset: bool = True, queue_len=-1, clys_think=-1, clys_width=-1, clys_branch=-1,
+             clys_next=-1, clys_depth=-1, lv6_width=-1, lv6_depth=-1, lv6_next=-1) -> None:
+    """席ごとの探索設定（lv6-learning-design.md Phase 0）。side 0=全員の既定 1=A 2=B。-1 は変えない。
+    queue_len＝確定 NEXT の内部保持数（本番 11）、clys_next＝clys が探索に使う NEXT 本数、clys_depth＝clys の深さ上限、
+    lv6_width/depth/next＝lv6 のビーム幅・深さ・NEXT 本数（本番 16・8・8）。"""
+    L = _lib_lv()
+    L.tet_set_side.argtypes = [ctypes.c_int] * 11
+    L.tet_set_side(side, 1 if reset else 0, queue_len, clys_think, clys_width, clys_branch, clys_next, clys_depth,
+                   lv6_width, lv6_depth, lv6_next)
 
 
 def set_level_timing(level, action_ms=None, harddrop_ms=None) -> None:

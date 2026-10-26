@@ -108,14 +108,16 @@ static double wallMs() {
 TetLevelTiming tetLevelTiming(int level) {
     if (level >= 0 && level < 16 && g_timingOverridden[level]) return g_timingOverride[level];
     if (level == 4) return {60.0, 200.0};
-    if (level == 6 || level == TET_CLYS) return {40.0, 80.0};   // cpu_clys.js は cpu6.js と同じ操作速度
+    if (level == 6 || level == TET_CLYS || level == TET_LV6N) return {40.0, 80.0};   // cpu_clys.js は cpu6.js と同じ操作速度
     return {T_ACTION_MS, T_HARDDROP_MS};
 }
 int tetWeightsLen(int level) {
     if (level == TET_CLYS) return 0;   // clys は重みを wasm に埋め込み
+    if (level == TET_LV6N) return lv6nWeightsLen();
     return level == 4 ? TET_W_LEN4 : level == 6 ? TET_W_LEN6 : level == 5 ? TET_W_LEN5 : TET_W_LEN;
 }
 const int* tetDefaultWeights(int level) {
+    if (level == TET_LV6N) return lv6nDefaultWeights();
     return level == 4 ? TET_LV4_WEIGHTS : level == 6 ? TET_LV6_WEIGHTS : level == 5 ? TET_LV5N_WEIGHTS : TET_LV5_WEIGHTS;
 }
 
@@ -194,7 +196,7 @@ TetPlayer::TetPlayer(uint32_t seed, uint32_t holeSeed) : rng(seed), holeRng(hole
 void TetPlayer::setLevel(int lv) {
     pcEnabled = (lv == TET_LV6_PC);
     if (lv == TET_LV6_PC) lv = 6;
-    level = (lv == 4 || lv == 5 || lv == 6 || lv == TET_CLYS) ? lv : TET_LV5_OLD;
+    level = (lv == 4 || lv == 5 || lv == 6 || lv == TET_CLYS || lv == TET_LV6N) ? lv : TET_LV5_OLD;
     TetLevelTiming tm = tetLevelTiming(level);
     actionMs = tm.actionMs;
     harddropMs = tm.harddropMs;
@@ -272,7 +274,7 @@ void TetPlayer::start(double t0) {
     std::memset(rows, 0, sizeof rows);
     queue.clear();
     bag.clear();
-    for (int i = 0; i < 11; i++) queue.push_back(nextType());   // lifecycle.js：内部で11個
+    for (int i = 0; i < queueLen; i++) queue.push_back(nextType());   // lifecycle.js：内部で11個（queueLen で変更）
     hold = -1;
     canHold = true;
     ren = 0;
@@ -441,6 +443,8 @@ void TetPlayer::lockPiece(double t) {
     for (int i = 0; i < 4; i++) if (s.xy[i * 2 + 1] + py >= THIDDEN) allOutside = false;
 
     int tspin = checkTSpin();   // 1=tspin 2=mini
+    const int predTs = predTs_;
+    predTs_ = -1;
     for (int i = 0; i < 4; i++) {
         int bx = s.xy[i * 2] + px, by = s.xy[i * 2 + 1] + py;
         if (by >= 0 && by < TROWS) rows[by] |= (uint16_t)(1 << bx);
@@ -453,6 +457,11 @@ void TetPlayer::lockPiece(double t) {
             else rows[w--] = rows[y];
         }
         for (; w >= 0; w--) rows[w] = 0;
+    }
+    if (predTs >= 0 && lines > 0) {
+        if (predTs > 0) st.tsPred++;
+        if (predTs > 0 && tspin != predTs) st.tsPredMiss++;
+        if (predTs == 0 && tspin > 0) st.tsUnpred++;
     }
     int renForCalc = ren;
     bool isBtBAction = lines > 0 && (lines == 4 || tspin != 0);
@@ -603,7 +612,18 @@ void TetPlayer::releaseAttack(double t, bool cleared, int puyoAtk, int tetAtk) {
 
 void TetPlayer::search(SearchCase& sc) {
     if (level == 4) cpuSearchLv4(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.out);
-    else if (level == 6) cpuSearchLv6(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.incoming, sc.out);
+    else if (level == 6) {
+        long long n0 = lv6NodeCount();
+        if (lv6Width == 16 && lv6Depth == 8 && lv6Next == 8) {
+            cpuSearchLv6(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.incoming, sc.out);
+        } else {
+            int nx[32], nn = std::min({lv6Next, (int)queue.size(), 32});
+            for (int i = 0; i < nn; i++) nx[i] = queue[i];
+            cpuSearchLv6Ext(sc.board, sc.cur, sc.hold, nx, nn, sc.canHold, weights, sc.ren, sc.b2b, sc.incoming,
+                            lv6Width, lv6Depth, sc.out);
+        }
+        st.nodes += lv6NodeCount() - n0;
+    }
     else if (level == 5) cpuSearchLv5(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.out);
     else cpuSearch(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.out);
 }
@@ -682,7 +702,7 @@ double TetPlayer::plan() {
         for (int i = 5; i < 8; i++) sc.next[i] = queue[i];   // lv6 は NEXT 8 本（cpu6.js nextQueue[5..7]）
         sc.ren = ren;
         sc.b2b = b2b ? 1 : 0;
-        sc.incoming = (level == 6 || level == TET_CLYS) ? incomingLines() : 0;
+        sc.incoming = (level == 6 || level == TET_CLYS || level == TET_LV6N) ? incomingLines() : 0;
         std::memset(sc.out, 0, sizeof sc.out);
         const int* res = sc.out;
         double think = 0;
@@ -725,17 +745,36 @@ double TetPlayer::plan() {
             }
         }
 
-        if (!haveDec && level == TET_CLYS) {
+        if (!haveDec && (level == TET_CLYS || level == TET_LV6N)) {
             // cpu_clys.js：current＋内部 NEXT 全部（bag を戻すのに使う）、探索は先頭 1+clysNext 本
-            int qa[16], na = 0;
+            int qa[64], na = 0;
             qa[na++] = cur;
-            for (int v : queue) if (na < 16) qa[na++] = v;
+            for (int v : queue) if (na < 64) qa[na++] = v;
             int bagAfter = 0;
             for (int v : bag) bagAfter |= 1 << v;
             int cout_[96];
             double w0 = wallMs();
-            cpuSearchClys(sc.board, qa, na, 1 + clysNext, hold, bagAfter, sc.b2b, ren, sc.incoming, clysThinkMs,
-                          clysWidth, clysBranch, cout_, 96);
+            int tsType = -1;   // lv6n は探索が T-spin の種類を返す（clys は経路の最後の操作から推定）
+            if (level == TET_LV6N) {
+                // lv6 の新しい探索：current＋内部 NEXT 全部（深さ clysDepth まで使う）。幅・締め切りも clys の設定欄を使う
+                int nout[96];
+                cpuSearchLv6n(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights, tetWeightsLen(level),
+                              clysWidth, clysDepth, clysThinkMs, nout, 96);
+                // 下の処理は clys の出力の並びで読むので詰め直す（path は [16..]）
+                std::memset(cout_, 0, sizeof cout_);
+                for (int i = 0; i < 12; i++) cout_[i] = nout[i];
+                cout_[12] = nout[12]; cout_[13] = nout[13]; cout_[14] = nout[14];
+                cout_[15] = std::min(nout[17], 96 - 16);
+                for (int i = 0; i < cout_[15]; i++) cout_[16 + i] = nout[18 + i];
+                tsType = nout[16];
+                predTs_ = tsType;
+                st.nodes += nout[12];
+            } else {
+                unsigned long long n0 = clysNodeCount();
+                cpuSearchClysEx(sc.board, qa, na, 1 + clysNext, hold, bagAfter, sc.b2b, ren, sc.incoming, clysThinkMs,
+                                clysWidth, clysBranch, clysDepth, cout_, 96);
+                st.nodes += (long long)(clysNodeCount() - n0);
+            }
             think += wallMs() - w0;
             if (cout_[0] == 1) {
                 Decision d{};
@@ -746,7 +785,7 @@ double TetPlayer::plan() {
                     for (int i = 0; i < cout_[15]; i++) d.path.push_back(cout_[16 + i]);
                     int last = 0;
                     for (int a2 : d.path) if (a2 != 6) last = a2;
-                    d.tspin = (d.id == 2 && (last == 4 || last == 5)) ? 1 : 0;
+                    d.tspin = tsType >= 0 ? (tsType > 0 ? 1 : 0) : (d.id == 2 && (last == 4 || last == 5)) ? 1 : 0;
                     d.useHold = cout_[10] == 1;
                     d.fromPC = false;
                     st.thinkMs += think;
@@ -843,7 +882,8 @@ double TetPlayer::plan() {
         };
         bool skipInstant = false;
         // lv4 は bestResult.tSpinType を作らない（isTSpin のみ）ので、本番でもこの除外は効かない
-        if (level != 4 && bTs > 0 && b2b) {
+        // lv6n：探索が T-spin と見た消去は BtB に関係なく即時落下に短縮しない（最後が回転の経路を保つ。設計 §2.4）
+        if (level != 4 && bTs > 0 && (b2b || level == TET_LV6N)) {
             // getClearedLines：p1 の位置に置いたら揃う段があるか
             const PieceShape& s = shape(bId, bRot);
             uint16_t tmp[TROWS];
@@ -978,7 +1018,7 @@ double TetPlayer::plan() {
             q.push_back({A_HARD, 0});
         };
 
-        if ((level == 6 || level == TET_CLYS) && !path.empty()) {   // PC・clys も cpu6.js の buildActionQueue
+        if ((level == 6 || level == TET_CLYS || level == TET_LV6N) && !path.empty()) {   // PC・clys も cpu6.js の buildActionQueue
             buildRoute6();
         } else if (path.empty()) {
             st.routeInstant++;

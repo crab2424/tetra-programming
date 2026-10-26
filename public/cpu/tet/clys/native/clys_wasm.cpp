@@ -86,9 +86,10 @@ CLYS_EXPORT void my_free(void* p) { free(p); }
 // bagAfter  : queueAll を引いた後の bag の残り（TETLABO 番号のビット。0 = 次から新しい bag）
 // out (i32) : [0] 1=手あり [1] 置くミノ [2..9] 4マスの (x,y) [10] HOLD するか [11] visit
 //             [12] nodes [13] depth [14] 経過 ms [15] path 長 [16..] path（1=左 2=右 3=SD 4=CW 5=CCW 6=HD）
-CLYS_EXPORT void clysSearch(
+// clysSearchEx は深さの上限 depth（原作 32）を指定する版（学習シミュ用。source_assets/memory/cpu/tet/lv6-learning-design.md Phase 0）
+CLYS_EXPORT void clysSearchEx(
     const u8* board, const i32* queueAll, i32 nAll, i32 nSearch, i32 hold, i32 bagAfter,
-    i32 b2b, i32 ren, i32 incoming, i32 thinkMs, i32 width, i32 branch, i32* out, i32 outLen)
+    i32 b2b, i32 ren, i32 incoming, i32 thinkMs, i32 width, i32 branch, i32 depth, i32* out, i32 outLen)
 {
     const double start = beam::now_ms();
 
@@ -133,7 +134,7 @@ CLYS_EXPORT void clysSearch(
 
     beam::Configs configs;
     configs.width = size_t(std::max(width, 1));
-    configs.depth = 32;
+    configs.depth = size_t(std::clamp(depth, 1, 64));
     configs.branch = size_t(std::max(branch, 1));
 
     auto result = beam::search(state, Lock(), queue, default_weight(), configs, start + thinkMs);
@@ -246,6 +247,14 @@ CLYS_EXPORT void clysSearch(
 
     out[15] = len;
     out[14] = i32(beam::now_ms() - start);
+}
+
+CLYS_EXPORT void clysSearch(
+    const u8* board, const i32* queueAll, i32 nAll, i32 nSearch, i32 hold, i32 bagAfter,
+    i32 b2b, i32 ren, i32 incoming, i32 thinkMs, i32 width, i32 branch, i32* out, i32 outLen)
+{
+    clysSearchEx(board, queueAll, nAll, nSearch, hold, bagAfter, b2b, ren, incoming, thinkMs, width, branch, 32,
+                 out, outLen);
 }
 
 }
