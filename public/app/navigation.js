@@ -233,7 +233,8 @@ function switchPage(pageId) {
   if (versusFromTest && pageId !== 'versus' && pageId !== 'versus-result') endTestCpuVsCpu();
   // 重み調整パネルはプレイ画面の間だけ出す（結果画面・準備画面では消す。RETRY で付け直す）
   if (pageId !== 'game' && pageId !== 'versus') window.CpuWeightsPanel?.detach();
-  if (pageId !== 'versus') window.CpuMatchLog?.hideDock();   // CPU 同士の対局記録の欄（記録は残る）
+  // CPU 同士の対局記録の欄（記録は残る）。結果画面でも出す（書き出し・自動再戦の切り替え）
+  if (pageId !== 'versus' && pageId !== 'versus-result') window.CpuMatchLog?.hideDock();
 
   const _animPageId = pageId;
 

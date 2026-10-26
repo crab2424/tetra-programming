@@ -47,3 +47,7 @@
   border-color: var(--accent);
   color: var(--accent);
 }
+.cml-btns button.is-on {
+  border-color: var(--success);
+  color: var(--success);
+}

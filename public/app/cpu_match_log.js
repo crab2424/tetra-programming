@@ -8,15 +8,56 @@
 //   ・テトの集計は Game.prototype の Scoring / applyGarbage / gameOver を包んで取る（記録中の盤面だけ数える）
 //   ・記録は localStorage（tetlabo.cpuMatchLog）に残す。途中でやめた局（リスタート・中断）は残さない
 //   ・画面左下の小さな欄に件数・勝敗と EXPORT（JSON / CSV）・CLEAR を出す（対戦画面で記録中のときだけ）
-//   ・コンソール: CpuMatchLog.matches() / CpuMatchLog.download('csv') / CpuMatchLog.clear()
+//   ・AUTO（自動再戦）を ON にすると、結果画面が出てから AUTO_DELAY_MS 後に RETRY と同じ再戦を始める（放置で回す用）。
+//     ON/OFF は localStorage（tetlabo.cpuMatchLog.auto）に残す。結果画面から離れたら取りやめる
+//   ・コンソール: CpuMatchLog.matches() / CpuMatchLog.download('csv') / CpuMatchLog.clear() / CpuMatchLog.setAuto(true)
 // ─────────────────────────────────────────────
 
 window.CpuMatchLog = (() => {
     const STORE_KEY = 'tetlabo.cpuMatchLog';
+    const AUTO_KEY = 'tetlabo.cpuMatchLog.auto';
+    const AUTO_DELAY_MS = 2000;      // 結果画面が出てから再戦するまで
     const GARBAGE_DEATH_MS = 3000;   // 死ぬ直前この時間内にせり上がりがあれば「おじゃまで押し上げ」
 
     let current = null;   // 記録中の1局 { startedAt, sides: { '1P': side, '2P': side } }
     let dock = null;
+    let autoTimer = null;
+
+    function isAuto() {
+        try { return localStorage.getItem(AUTO_KEY) === '1'; } catch (_) { return false; }
+    }
+    function setAuto(on) {
+        try { localStorage.setItem(AUTO_KEY, on ? '1' : '0'); } catch (_) { /* noop */ }
+        if (!on) cancelAuto();
+        else if (window.BattleVersusLifecycle && window.BattleVersusLifecycle.phase === 'roundResult') scheduleAuto();
+        renderDock();
+    }
+    function cancelAuto() {
+        if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+    }
+    function onResultPage() {
+        const el = document.getElementById('versus-result-page');
+        return !!el && el.classList.contains('active');
+    }
+    // 結果画面（lifecycle の roundResult）になるのを待ってから、少し置いて再戦する
+    function scheduleAuto() {
+        cancelAuto();
+        const t0 = now();
+        const tick = () => {
+            autoTimer = null;
+            if (!isAuto()) return;
+            const lc = window.BattleVersusLifecycle;
+            if (lc && lc.phase === 'roundResult' && onResultPage()) {
+                autoTimer = setTimeout(() => {
+                    autoTimer = null;
+                    if (isAuto() && onResultPage() && typeof restartVersusFromResult === 'function') restartVersusFromResult();
+                }, AUTO_DELAY_MS);
+                return;
+            }
+            if (now() - t0 < 20000) autoTimer = setTimeout(tick, 200);   // 終了演出の途中。20秒たっても結果画面が出なければやめる
+        };
+        autoTimer = setTimeout(tick, 200);
+    }
 
     function load() {
         try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch (_) { return []; }
@@ -213,6 +254,7 @@ window.CpuMatchLog = (() => {
         current = null;
         renderDock();
         console.log('📝 CpuMatchLog:', rec);
+        if (isAuto()) scheduleAuto();
     }
 
     // 途中でやめた局（R リスタート・中断）は残さない
@@ -270,11 +312,13 @@ window.CpuMatchLog = (() => {
                     <button type="button" data-act="json" tabindex="-1">JSON</button>
                     <button type="button" data-act="csv" tabindex="-1">CSV</button>
                     <button type="button" data-act="clear" tabindex="-1">CLEAR</button>
+                    <button type="button" data-act="auto" class="cml-auto" tabindex="-1" title="結果画面から自動で再戦する（放置で回す）">AUTO</button>
                 </div>`;
             dock.addEventListener('click', (e) => {
                 const act = e.target && e.target.dataset && e.target.dataset.act;
                 if (act === 'json' || act === 'csv') download(act);
                 else if (act === 'clear' && confirm('対局記録をすべて消します。よろしいですか？')) clear();
+                else if (act === 'auto') setAuto(!isAuto());
                 if (e.target && e.target.blur) e.target.blur();   // SPACE 等のキーがボタンに残らないように
             });
             document.body.appendChild(dock);
@@ -286,10 +330,16 @@ window.CpuMatchLog = (() => {
     function hideDock() {
         if (dock) dock.style.display = 'none';
         current = null;
+        cancelAuto();
     }
 
     function renderDock() {
         if (!dock) return;
+        const autoBtn = dock.querySelector('.cml-auto');
+        if (autoBtn) {
+            autoBtn.textContent = isAuto() ? 'AUTO: ON' : 'AUTO: OFF';
+            autoBtn.classList.toggle('is-on', isAuto());
+        }
         const list = load();
         const tally = {};
         for (const r of list) {
@@ -303,5 +353,5 @@ window.CpuMatchLog = (() => {
             : '記録なし（終わった局を自動で残します）';
     }
 
-    return { begin, end, abort, hideDock, matches: load, download, clear, toCsv };
+    return { begin, end, abort, hideDock, matches: load, download, clear, toCsv, setAuto, isAuto };
 })();
