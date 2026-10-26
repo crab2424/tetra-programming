@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────
 // cpu_weights_panel.js
-// CPU TEST（ぷよ LV5/LV6）の重み調整パネル
+// CPU TEST（ぷよ LV5/LV6・テト LV5/LV6）の重み調整パネル
+//   テトは CPU の this.weights を直接書き換える薄いアダプタ（wrapTet）を挟み、BUILD 1モードだけの形でぷよと同じ画面を使う
 //
 // 設計: source_assets/memory/cpu/puyo/weights-tuning-panel-design.md
 //   ・CPU TEST の間は画面右端に常に出す（開いてもポーズしない。− で見出しだけに畳める）
@@ -116,6 +117,53 @@ window.CpuWeightsPanel = (() => {
         });
     }
 
+    // ── テト LV5/LV6 ─────────────────────────────
+    // this.weights を手ごとに weightsArray へ組み直すので、書き換えれば次の思考から効く。
+    // weightsArray に入らない項目（lv5 の underSpace/singleWell/multiWell、lv6 の tsdHolePenalty）と P1_WEIGHT（小数）は出さない
+    const TET_SKIP = ['P1_WEIGHT', 'underSpace', 'singleWell', 'multiWell'];
+    const isTetCpu = (cpu) => !!cpu && typeof cpu.applyBuildValues !== 'function' && !!cpu.weights
+        && ((window.CPU5 && cpu instanceof window.CPU5) || (window.CPU6 && cpu instanceof window.CPU6));
+    function wrapTet(cpu) {
+        const lv = (window.CPU6 && cpu instanceof window.CPU6) ? 'LV6' : 'LV5';
+        const skip = lv === 'LV6' ? TET_SKIP.concat('tsdHolePenalty') : TET_SKIP;
+        const defaults = {};
+        for (const k in cpu.weights) if (typeof cpu.weights[k] === 'number' && !skip.includes(k)) defaults[k] = cpu.weights[k];
+        return {
+            tet: true, real: cpu, lv,
+            constructor: { WEIGHTS_ID: `tet-${lv.toLowerCase()}`, LOG_NAME: `TET ${lv}` },
+            _defaultBuildBaseline: { rewardWeights: {}, evalWeights: defaults, controlWeights: {} },
+            getBuildDefaults() { return Object.assign({}, defaults); },
+            getBuildValues() { const o = {}; for (const k in defaults) o[k] = cpu.weights[k]; return o; },
+            applyBuildValues(values) {
+                const changed = {};
+                for (const k in defaults) {
+                    const v = k in values ? Math.round(Number(values[k])) : defaults[k];
+                    if (!Number.isFinite(v)) continue;
+                    cpu.weights[k] = v;
+                    if (v !== defaults[k]) changed[k] = { from: defaults[k], to: v };
+                }
+                return changed;
+            },
+            getBuildPolicyArray() { return []; },
+            getBuildPolicyNames() { return []; },
+        };
+    }
+    // 説明は cpu5.js / cpu6.js の weights の行末コメントから
+    const descsTet = {};
+    function loadTetDescs(lv) {
+        if (descsTet[lv]) return Promise.resolve(descsTet[lv]);
+        const src = lv === 'LV6' ? 'cpu/tet/lv6/cpu6.js' : 'cpu/tet/lv5/cpu5.js';
+        return fetch(src).then(r => r.text()).then(text => {
+            const d = {};
+            for (const line of text.split('\n')) {
+                const m = /^\s*(\w+):\s*-?[\d.]+\s*,?\s*\/\/\s*(.+)$/.exec(line);
+                if (m) d[m[1]] = m[2].replace(/^★[^\s]*\s*/, '').trim();
+            }
+            return (descsTet[lv] = d);
+        }).catch(() => (descsTet[lv] = {}));
+    }
+    const descOf = (t, name) => (t && t.cpu.tet ? (descsTet[t.cpu.lv] || {})[name] : descs && descs[name]) || '';
+
     // ── 対象の CPU ───────────────────────────────
     // そのモードの既定・今の値・並べ分けを CPU から読み直す（lv5 は build の変更が対テトの既定にも響くので毎回）
     function syncModes(t) {
@@ -129,7 +177,7 @@ window.CpuWeightsPanel = (() => {
             for (const k in grouped.rewardWeights) s.groups[k] = 'reward';
             for (const k in grouped.evalWeights) s.groups[k] = 'eval';
             for (const k in grouped.controlWeights) s.groups[k] = 'control';
-            s.refs = m === 'build'
+            s.refs = cpu.tet ? { DEFAULT: s.defaults } : m === 'build'
                 ? { LV5: cpu.getBuildDefaults('LV5'), LV6: cpu.getBuildDefaults('LV6') }
                 : { DEFAULT: s.defaults };
         }
@@ -170,12 +218,14 @@ window.CpuWeightsPanel = (() => {
         detach();
         const list = Array.isArray(cpus) ? cpus : [{ slot: 'TEST', cpu: cpus }];
         targets = list
-            .filter(x => x && x.cpu && typeof x.cpu.applyBuildValues === 'function')   // ぷよ LV5/LV6 だけ
+            .map(x => (x && isTetCpu(x.cpu) ? { slot: x.slot, cpu: wrapTet(x.cpu) } : x))
+            .filter(x => x && x.cpu && typeof x.cpu.applyBuildValues === 'function')   // ぷよ LV5/LV6・テト LV5/LV6 だけ
             .map(x => makeTarget(x.slot, x.cpu));
         if (!targets.length) return;
         cur = Math.min(cur, targets.length - 1);
         buildDom();
         loadDescs().then(() => { if (dock) showInfo(); });
+        targets.filter(x => x.cpu.tet).forEach(x => loadTetDescs(x.cpu.lv).then(() => { if (dock) { showInfo(); applyFilter(); } }));
         pollTimer = setInterval(refreshStatus, 300);
     }
 
@@ -362,12 +412,13 @@ window.CpuWeightsPanel = (() => {
         const fixed   = pick(FIXED);
         const evals   = pick(all.filter(k => groups[k] === 'eval'));
         const reward  = pick(all.filter(k => groups[k] === 'reward'));
-        listEl.appendChild(section('CONTROL', control));
+        const add = (title, names) => { if (names.length) listEl.appendChild(section(title, names)); };
+        add('CONTROL', control);
         if (vtOnly.length) listEl.appendChild(section('VS TET ONLY', vtOnly));
-        listEl.appendChild(section('EVAL', evals));
-        listEl.appendChild(section('REWARD', reward));
-        listEl.appendChild(section('VERSUS ONLY', vsOnly));
-        listEl.appendChild(section('FIXED', fixed));
+        add('EVAL', evals);
+        add('REWARD', reward);
+        add('VERSUS ONLY', vsOnly);
+        add('FIXED', fixed);
         // VS_TET の判断の値（重みでないもの。表示だけ）
         const vt = t.mode !== 'build' && t.cpu._vsTet;
         if (vt) {
@@ -464,7 +515,7 @@ window.CpuWeightsPanel = (() => {
     function applyFilter() {
         const q = filterInput.value.trim().toLowerCase();
         const hit = (k, d) => !q || k.toLowerCase().includes(q) || d.includes(filterInput.value.trim());
-        for (const k in cells) cells[k].cell.style.display = hit(k, (descs && descs[k]) || '') ? '' : 'none';
+        for (const k in cells) cells[k].cell.style.display = hit(k, descOf(T(), k)) ? '' : 'none';
         for (const k in roCells) roCells[k].cell.style.display = hit(k, (descsVt && descsVt[k]) || '') ? '' : 'none';
         // 絞り込み中は畳んだセクションも開いて見せる
         for (const s in sections) sections[s].el.classList.toggle('is-filtering', !!q);
@@ -489,7 +540,7 @@ window.CpuWeightsPanel = (() => {
             infoEl.appendChild(el('div', 'cwp-info-refs', `NOW ${roCells[name].value}`));
             return;
         }
-        const d = (descs && descs[name]) || '';
+        const d = descOf(t, name);
         let note = '';
         if (VERSUS_ONLY.includes(name)) {
             if (t.mode !== 'build') note = '（相手がぷよのときだけ効く＝対テトでは効かない）';
@@ -558,7 +609,7 @@ window.CpuWeightsPanel = (() => {
         let applied = '';
         if ((cpu._weightsRev || 0) !== (cpu._sentWeightsRev || 0)) applied = 'PENDING';
         else if (cpu._weightsAppliedTurn) applied = `FROM #${cpu._weightsAppliedTurn}`;
-        statusEl.textContent = `${n ? `CUSTOM ${n}` : 'DEFAULT'}${applied ? ' · ' + applied : ''} · NOW #${cpu._turnNo || 0}`;
+        statusEl.textContent = `${n ? `CUSTOM ${n}` : 'DEFAULT'}${applied ? ' · ' + applied : ''}${cpu.tet ? '' : ` · NOW #${cpu._turnNo || 0}`}`;
         statusEl.classList.toggle('is-custom', targets.some(x => countChanged(x) > 0));
         // いま CPU が使っているモードに印（対ぷよ・ソロは build、対テトは vsTet / カウンター中は fastVsTet）
         if (modesEl) modesEl.querySelectorAll('.cwp-btn').forEach(b => {

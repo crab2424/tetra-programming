@@ -861,6 +861,7 @@ async function startGameFromModeCheck() {
   if (modeId === 'test' && testRule === 'tet' && testCpuClass) {
     window._cpuController = new testCpuClass(window._game);
     window._cpuController.isAutoPlay = testCpuControl;
+    window.CpuWeightsPanel?.attach(window._cpuController);   // tet LV5/LV6 の重み調整パネル
     if (typeof window._cpuController.start === 'function') {
         window._cpuController.start();
     }
