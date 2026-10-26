@@ -7,6 +7,7 @@ TETLABO のソースコードは原則として [MIT License](LICENSE) で提供
 |---|---|---|
 | `public/cpu/tet/lv6/native/tslot.cpp`, `tslot.h` | MPL-2.0 | [Cold Clear](#cold-clear) |
 | `public/cpu/puyo/lv4/native/`, `public/cpu/puyo/lv5/native/` の Ama 由来部分 | MIT（著作権表示の保持が必要） | [Ama](#ama) |
+| `public/cpu/tet/clys/native/` | MIT（著作権表示の保持が必要） | [clys](#clys) |
 | `public/cpu/tet/lv6/pc/native/pc6.cpp` の sfinder 準拠部分 | MIT（著作権表示の保持が必要） | [solution-finder](#solution-finder) |
 | `public/assets/audio/` 以下の音声ファイル | 各配布元の利用規約 | [音声素材](#音声素材) |
 | `public/assets/quizlevels/` の一部レベル | 再利用不可 | [クイズデータ](#クイズデータ) |
@@ -43,6 +44,38 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 MIT License
 
 Copyright (c) 2023 citrus610
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### clys
+
+- Repository: https://github.com/citrus610/clys
+- License: MIT（原文は `public/cpu/tet/clys/native/LICENSE` にも同梱）
+- 対象: `public/cpu/tet/clys/native/` の `core/`, `ai/`, `lib/xxh3.h`（ほぼそのまま）と、それを呼ぶ `clys_wasm.cpp`（原作 `ai/ai.cpp` の Engine を改変）
+- 内容: テトリス AI clys の探索・評価・手生成・経路探索を、CPU TEST の比較用 CPU（CLYS）として wasm に組み込んだもの。
+  変更はスレッド停止→時間制限、JSON 読み込みの除去（重みは `config.json` の値を埋め込み）、プラットフォーム依存の修正のみ。
+
+```
+MIT License
+
+Copyright (c) 2024 citrus610
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

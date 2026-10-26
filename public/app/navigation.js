@@ -240,6 +240,7 @@ function switchPage(pageId) {
   const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check'];
   // CPU同士の対戦（隠しコマンド）は準備画面を開き直したら通常に戻す（v2.2.3 J）
   if (pageId === 'versus-check') {
+    if (selectedCpuLevel === 7) selectedCpuLevel = 6; // CLYS は CPU TEST 専用
     versusPlayerIsCpu = false;
     selectedPlayerCpuLevel = null;
     window.__cpu6DisablePC1P = false;
@@ -536,14 +537,17 @@ function renderModeCheck() {
       `;
       // LV1〜6 のボタン（CPU TEST のみ LV6 を表示。ボタンは隠しキー 6 と同じ＝PC探索オフ／高速落下設置は解除。
       // 7 / Shift+7 の指定はキーで行う）
-      const fillLevels = (toggleId, get, set) => {
+      // その側のルールが TET のときは参考AI「CLYS」（レベル 7。cpu/tet/clys）も選べる。PUYO に変えたら LV6 に戻す
+      const fillLevels = (toggleId, get, set, rule) => {
         const toggle = document.getElementById(toggleId);
         if (!toggle) return;
         toggle.classList.add('compact');
-        for (let lv = 1; lv <= 6; lv++) {
+        const maxLv = rule === 'tet' ? 7 : 6;
+        if (get() > maxLv) set(6);
+        for (let lv = 1; lv <= maxLv; lv++) {
           const btn = document.createElement('button');
           btn.className = 'opt-btn' + (lv === get() ? ' active' : '');
-          btn.textContent = 'LV' + lv;
+          btn.textContent = lv === 7 ? CPU_LEVELS[7].label : 'LV' + lv;
           btn.onclick = () => {
             set(lv);
             toggle.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === lv));
@@ -555,11 +559,11 @@ function renderModeCheck() {
       fillLevels('test-cpu-level-toggle', () => selectedCpuLevel, (lv) => {
         if (lv === 6 && selectedCpuLevel !== 6) { window.__cpu6DisablePC = false; window.__cpu6SoftDrop = false; }
         selectedCpuLevel = lv;
-      });
+      }, vsCpu ? testOpponent : testRule);
       if (vsCpu) fillLevels('test-player-cpu-level-toggle', () => testPlayerCpuLevel, (lv) => {
         if (lv === 6 && testPlayerCpuLevel !== 6) { window.__cpu6SoftDropTest1P = false; window.__cpu6DisablePCTest1P = false; }
         testPlayerCpuLevel = lv;
-      });
+      }, testRule);
     } else if (mode.id === 'practice') {
       optionsEl.style.display = 'flex';
       optionsEl.innerHTML = renderPracticeModeCheckOptions(mode);
