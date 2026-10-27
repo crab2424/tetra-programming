@@ -305,8 +305,7 @@
 
     // 局面 st から LV7 に初手を聞く（cpu7.js onMinoSpawned と同じ入力）
     //   HOLD 済みの局面（計画外の HOLD の直後）では HOLD できないので、「HOLD に今のミノと同じミノがある」ことにして HOLD を無意味にする
-    //   searchDepth：ALL は実戦と同じ 32、HINT は DEPTH（見どころが無ければ何も出さないので浅く読んで負荷を抑える）
-    async function lv7Next(st, searchDepth, serial) {
+    async function lv7Next(st, serial) {
         const e = Math.min(st.F.length, st.qi + QUEUE_MAX);
         const res = await ask({
             type: 'calculate',
@@ -319,7 +318,7 @@
             incoming: st.incoming,
             weights: new Int32Array(0),
             width: BEAM_WIDTH,
-            depth: searchDepth,
+            depth: SEARCH_DEPTH,
             thinkMs: THINK_MS,
         });
         if (Assist.serial !== serial || !res || res[0] !== 1) return null;
@@ -451,11 +450,9 @@
             const type = g.mino.type;
 
             let raw = [];
-            const searchDepth = all ? SEARCH_DEPTH : depth;
             const c = S.cache;
             S.cache = null;
-            // 読む深さが違う計画（HINT ⇔ ALL の切り替え・DEPTH 変更）は使わない
-            const m = c && c.searchDepth === searchDepth ? matchCache(c, act) : null;
+            const m = c ? matchCache(c, act) : null;
             if (m) {
                 raw = c.raw.slice(m.k);
                 if (m.held) raw[0] = Object.assign({}, raw[0], { hold: false });
@@ -466,7 +463,7 @@
             const show = () => {
                 plan = buildFromRaw(act.grid, raw, depth, all);
                 if (plan) plan.forType = type;
-                S.cache = { raw, states, searchDepth };
+                S.cache = { raw, states };
                 Assist.publish(serial, plan);
             };
             show();
@@ -479,7 +476,7 @@
                 while (raw.length < depth && !(!all && plan && plan.kind) && Assist.serial === serial) {
                     const last = raw.length ? advance(states[raw.length - 1], raw[raw.length - 1]) : act;
                     if (last.qi > visible) break;
-                    const step = await lv7Next(last, searchDepth, serial);
+                    const step = await lv7Next(last, serial);
                     if (!step || Assist.serial !== serial) break;
                     if (placedIndex(last, step) > visible) break;
                     raw = raw.concat(step);
