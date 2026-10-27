@@ -74,7 +74,7 @@
 
         // puyo は計画が最大3手（設計 §4.2）。tet は表示中 NEXT 数で頭打ち（J2）
         effectiveDepth(cfg, g) {
-            if (this.rule === 'puyo') return Math.min(cfg.depth, 3);
+            if (this.rule === 'puyo') return Math.max(1, Math.min(cfg.depth, 3, 1 + this._visibleNext(g)));
             return Math.max(1, Math.min(cfg.depth, 1 + this._visibleNext(g)));
         },
 

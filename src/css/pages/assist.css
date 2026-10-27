@@ -103,3 +103,23 @@
 #versus-assist-options .assist-sub-row.is-inert {
   opacity: 0.4;
 }
+
+/* puyo：置き場所のぷよと発火点のマーク */
+.assist-puyo {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+}
+
+.assist-puyo.is-hi {
+  border-color: var(--assist-color-hi);
+}
+
+.assist-fire {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 3px dashed var(--assist-color-hi);
+  box-shadow: 0 0 10px var(--assist-color-hi);
+}
