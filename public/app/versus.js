@@ -299,6 +299,8 @@ async function startVersusGame() {
   // puyo LV6 の「高速落下で設置」も側ごと（準備画面の 7 = 2P / Shift+7 = 1P）
   if (window._cpuController) window._cpuController.softDropOnly = !!window.__cpu6SoftDrop2P;
   if (window._cpuControllerPlayer) window._cpuControllerPlayer.softDropOnly = !!window.__cpu6SoftDrop1P;
+  // アシスト（盤面ガイド）：人が操作するローカル対戦の1P盤面だけ。ONLINE は別経路なので対象外
+  if (!isPlayerCpu && window.Assist) window.Assist.attach(window._game, 'versus');
   // CPU TEST から始めた CPU 同士は1局ごとに記録する（勝敗・TSD・4-LINES・PC・負け方。app/cpu_match_log.js）
   if (versusFromTest && isPlayerCpu && window.CpuMatchLog) {
     window.CpuMatchLog.begin({

@@ -390,6 +390,7 @@ class PracticeManager {
         this._startCountdownWatch();
 
         if (typeof _initPracticePanel === 'function') _initPracticePanel(this);
+        if (window.Assist) window.Assist.attach(game, 'practice');
     }
 
     // ─────────────────────────────────────────
@@ -1820,6 +1821,7 @@ class PracticeManager {
     // 破棄（stopAllGames から呼ばれる）
     // ─────────────────────────────────────────
     destroy() {
+        if (window.Assist) window.Assist.detach();
         this._removeKeyHandler();
         this._removeGamepadHandler();
         this._stopCountdownWatch();

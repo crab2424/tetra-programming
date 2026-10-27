@@ -6,6 +6,7 @@
 // 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
 function stopAllGames() {
     currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
+    window.Assist?.detach(); // アシストの層・計算を止める
     // ★ BGMの停止/継続は switchPage が遷移先ページに応じて判断する（ここでは止めない）。
     //   これにより RETRY / NEXT LEVEL のようにゲームを再開する経路では BGM を途切れさせず継続できる。
     //   ただしポーズ中のダッキングは解除する（継続するBGMが小音量のまま再開されるのを防ぐ）。

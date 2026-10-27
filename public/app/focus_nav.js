@@ -871,6 +871,10 @@
       if (playerRow) { const it = rowToggle(playerRow, document.getElementById('versus-player-rule-toggle')); it.scrollAnchor = ruleAnchor; items.push(it); }
       if (cpuRow)    { const it = rowToggle(cpuRow,    document.getElementById('versus-cpu-rule-toggle'));    it.scrollAnchor = ruleAnchor; items.push(it); }
       if (cpuLvRow)  { const it = rowToggle(cpuLvRow,  document.getElementById('cpu-level-toggle'));         it.scrollAnchor = cpuAnchor;  items.push(it); }
+      const assistAnchor = document.getElementById('versus-assist-options');
+      $$('#versus-assist-options .option-row').forEach(row => {
+        const it = rowToggle(row, row.querySelector('.option-toggle')); it.scrollAnchor = assistAnchor; items.push(it);
+      });
       items.push(...withAnchor($$('#versus-check-buttons button'), btnAnchor));
       return items;
     },
