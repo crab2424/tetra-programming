@@ -94,6 +94,7 @@ class PracticeManager {
         this._innerMakePair = null; // puyo
         this._origInitGameState = null; // tet。Rキー等のリスタート安全網（設計 §5.5）
         this._origInitNextQueue = null; // puyo。同上
+        this._origStartGameplay = null; // 設定パネルを開いたままのリスタートでポーズを維持する
 
         this.isGoalAchieved = false;
         this.goalAchievedStats = null;   // 達成した瞬間の成績（リザルトはこれを優先表示）
@@ -284,6 +285,30 @@ class PracticeManager {
                 self._origInitNextQueue.call(this);
             }.bind(game);
         }
+
+        // ─── 設定パネルを開いたままリスタートしたときのポーズ維持 ───
+        // R/ゲームパッドのRESTARTは Game.start() を直接呼ぶため、カウントダウン明けの
+        // _startGameplay() でパネルが開いたままゲームだけ動き出してしまう。
+        // 初手のツモが出てからポーズし直す（パネルを閉じれば resume() で再開）。
+        this._origStartGameplay = game._startGameplay;
+        game._startGameplay = function () {
+            self._origStartGameplay.call(this);
+            if (!document.body.classList.contains('practice-panel-open')) return;
+            if (self.rule === 'tet') {
+                this.pause();
+                if (typeof this.hidePauseOverlay === 'function') this.hidePauseOverlay();
+                return;
+            }
+            // puyo: 初手のぷよは最初の _update で出るため、出現を待ってから止める
+            const g = this;
+            const waitSpawn = () => {
+                if (self.gameInstance !== g || g.state !== 'playing') return;
+                if (!document.body.classList.contains('practice-panel-open')) return;
+                if (g._gs === 'spawn') { requestAnimationFrame(waitSpawn); return; }
+                g.pause();
+            };
+            requestAnimationFrame(waitSpawn);
+        }.bind(game);
 
         // ─── ツモ記録の外側ラッパー（設計 §5）───
         // game.getNextType / game._makePair を「記録があれば再生し、無ければ生成して
@@ -1871,6 +1896,7 @@ class PracticeManager {
             if (this._origMakePair) g._makePair = this._origMakePair;
             if (this._origInitGameState) g._initGameState = this._origInitGameState;
             if (this._origInitNextQueue) g._initNextQueue = this._origInitNextQueue;
+            if (this._origStartGameplay) g._startGameplay = this._origStartGameplay;
             if (this._origUpdateStatsDisplay) g.updateStatsDisplay = this._origUpdateStatsDisplay;
             // 練習用に立てたフラグを共通エンジンから外す（VERSUS/ONLINEへ持ち越さない）
             delete g.practiceNoLock;
@@ -1900,6 +1926,7 @@ class PracticeManager {
         this._origInitActiveColors = null;
         this._origGetNextType = this._origMakePair = null;
         this._origInitGameState = this._origInitNextQueue = null;
+        this._origStartGameplay = null;
         this._origUpdateStatsDisplay = null;
         this._innerNextType = this._innerMakePair = null;
         this._resetTsumoLog();

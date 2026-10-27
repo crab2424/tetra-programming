@@ -315,6 +315,11 @@ body.input-mode-kbd .ms-row-editable.is-focused {
   letter-spacing: 0;
 }
 
+/* MARGIN がOFFのとき、秒数の行を減光する */
+.vs-setting-row.is-inert {
+  opacity: 0.4;
+}
+
 /* ── ボタングループ（選択肢ボタン列） ── */
 .vs-setting-btn-group {
   display: flex;
