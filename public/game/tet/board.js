@@ -20,7 +20,7 @@ Object.assign(Game.prototype, {
         return this.bag.pop();
     },
 
-    // 内部の NEXT を n 本以上にする（CPU lv6 の新しい探索が確定 NEXT を深さぶん読むため。cpu/tet/lv6/cpu6n.js）。
+    // 内部の NEXT を n 本以上にする（CPU lv7 が確定 NEXT を深さぶん読むため。cpu/tet/lv7/cpu7.js）。
     //   同じ乱数から引くのでツモの順は変わらない。表示は先頭5個のまま。popMino は1本引いて1本足すので長さは保たれる
     ensureNextQueue(n) {
         while (this.nextQueue.length < n) {

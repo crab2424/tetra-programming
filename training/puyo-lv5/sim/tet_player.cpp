@@ -74,8 +74,17 @@ const int TET_LV4_WEIGHTS[TET_W_LEN4] = {
     150, -45, 24, 25, 1280, -200, -50,          // tsdShape tsdShapeOver tsdFillBonus tssClear tsdClear tsdHolePenalty pureHole
 };
 
-// 本番 cpu6.js の this.weights（weightsArray の順）
+// 本番 cpu6.js の this.weights（weightsArray の順。2026-10-27 から main の版）
 const int TET_LV6_WEIGHTS[TET_W_LEN6] = {
+    100, -55, -560, -20, 4, 3, -2, -24, 72, 36, // lineClear hole heightLimit step3Plus flat step1Good step1Bad step2 grounded touching
+    200, -800, -85, 1000, 120, -600, 100,       // iWell iWellOver blocksOverHole line4 downstackGood downstackBad P1_WEIGHT*100
+    2000, 750, 150, 256, 2560, -60, -100,       // tSlotTsd tSlotReady tSlotTss tssClear tsdClear tsdHolePenalty pureHole
+    20, 496, -200, -100, -300, 100, -400,       // comboBonus btbKeep renCutPenalty tsmMiniPenalty tMinoNoClearPenalty tsdSetup tsdSetupOver
+    72, -36, 100, 6000, 150, 8000, 10, 6000,    // slopeBonus slopePenalty centerDip tstClear b2bHold tSlotTst tSlotReadyFin tSlotReadyTst
+};
+
+// 強化版 lv6（2026-10-26 時点の cpu6.js の this.weights。凍結）
+const int TET_LV6B_WEIGHTS[TET_W_LEN6B] = {
     100, -55, -560, -20, 4, 3, -2, -24, 72, 36, // lineClear hole heightLimit step3Plus flat step1Good step1Bad step2 grounded touching
     200, -800, -85, 1000, 120, -600, 100,       // iWell iWellOver blocksOverHole line4 downstackGood downstackBad P1_WEIGHT*100
     2000, 750, 150, 256, 2560, -60, -100,       // tSlotTsd tSlotReady tSlotTss tssClear tsdClear tsdHolePenalty pureHole
@@ -113,11 +122,13 @@ TetLevelTiming tetLevelTiming(int level) {
 }
 int tetWeightsLen(int level) {
     if (level == TET_CLYS) return 0;   // clys は重みを wasm に埋め込み
+    if (level == TET_LV6_BOOST || level == TET_LV6_PC) return TET_W_LEN6B;
     if (level == TET_LV6N) return lv6nWeightsLen();
     return level == 4 ? TET_W_LEN4 : level == 6 ? TET_W_LEN6 : level == 5 ? TET_W_LEN5 : TET_W_LEN;
 }
 const int* tetDefaultWeights(int level) {
     if (level == TET_LV6N) return lv6nDefaultWeights();
+    if (level == TET_LV6_BOOST || level == TET_LV6_PC) return TET_LV6B_WEIGHTS;
     return level == 4 ? TET_LV4_WEIGHTS : level == 6 ? TET_LV6_WEIGHTS : level == 5 ? TET_LV5N_WEIGHTS : TET_LV5_WEIGHTS;
 }
 
@@ -195,13 +206,14 @@ TetPlayer::TetPlayer(uint32_t seed, uint32_t holeSeed) : rng(seed), holeRng(hole
 
 void TetPlayer::setLevel(int lv) {
     pcEnabled = (lv == TET_LV6_PC);
-    if (lv == TET_LV6_PC) lv = 6;
+    lv6Boost = (lv == TET_LV6_BOOST || lv == TET_LV6_PC);
+    if (lv6Boost) lv = 6;
     level = (lv == 4 || lv == 5 || lv == 6 || lv == TET_CLYS || lv == TET_LV6N) ? lv : TET_LV5_OLD;
     TetLevelTiming tm = tetLevelTiming(level);
     actionMs = tm.actionMs;
     harddropMs = tm.harddropMs;
     std::memset(weights, 0, sizeof weights);
-    std::memcpy(weights, tetDefaultWeights(level), sizeof(int) * tetWeightsLen(level));
+    std::memcpy(weights, tetDefaultWeights(weightLevel()), sizeof(int) * tetWeightsLen(weightLevel()));
 }
 
 int TetPlayer::nextType() {
@@ -612,17 +624,21 @@ void TetPlayer::releaseAttack(double t, bool cleared, int puyoAtk, int tetAtk) {
 
 void TetPlayer::search(SearchCase& sc) {
     if (level == 4) cpuSearchLv4(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.out);
+    else if (level == 6 && !lv6Boost) {
+        // 本番（main の版）：幅・深さの指定は無い（強化版のレベル 16 だけ）
+        cpuSearchLv6(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.incoming, sc.out);
+    }
     else if (level == 6) {
-        long long n0 = lv6NodeCount();
+        long long n0 = lv6bNodeCount();
         if (lv6Width == 16 && lv6Depth == 8 && lv6Next == 8) {
-            cpuSearchLv6(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.incoming, sc.out);
+            cpuSearchLv6b(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.incoming, sc.out);
         } else {
             int nx[32], nn = std::min({lv6Next, (int)queue.size(), 32});
             for (int i = 0; i < nn; i++) nx[i] = queue[i];
-            cpuSearchLv6Ext(sc.board, sc.cur, sc.hold, nx, nn, sc.canHold, weights, sc.ren, sc.b2b, sc.incoming,
-                            lv6Width, lv6Depth, sc.out);
+            cpuSearchLv6bExt(sc.board, sc.cur, sc.hold, nx, nn, sc.canHold, weights, sc.ren, sc.b2b, sc.incoming,
+                             lv6Width, lv6Depth, sc.out);
         }
-        st.nodes += lv6NodeCount() - n0;
+        st.nodes += lv6bNodeCount() - n0;
     }
     else if (level == 5) cpuSearchLv5(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.out);
     else cpuSearch(sc.board, sc.cur, sc.hold, sc.next, sc.canHold, weights, sc.ren, sc.b2b, sc.out);
@@ -758,7 +774,7 @@ double TetPlayer::plan() {
             if (level == TET_LV6N) {
                 // lv6 の新しい探索：current＋内部 NEXT 全部（深さ clysDepth まで使う）。幅・締め切りも clys の設定欄を使う
                 int nout[96];
-                cpuSearchLv6n(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights, tetWeightsLen(level),
+                cpuSearchLv6n(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights, tetWeightsLen(weightLevel()),
                               clysWidth, clysDepth, clysThinkMs, nout, 96);
                 // 下の処理は clys の出力の並びで読むので詰め直す（path は [16..]）
                 std::memset(cout_, 0, sizeof cout_);

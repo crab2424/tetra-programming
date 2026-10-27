@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────
-// lv6_wasm.cpp — テト CPU lv6（新しい探索）の入口
+// lv7_wasm.cpp — テト CPU lv7（新しい探索）の入口
 //   探索・評価・手生成・経路は clys（https://github.com/citrus610/clys, MIT, (c) 2024 citrus610）をもとにした
 //   engine/ 以下。確定 NEXT だけで深さ depth まで読み、締め切り thinkMs で打ち切る。
 //   設計: source_assets/memory/cpu/tet/lv6-phase1-search-design.md
@@ -14,9 +14,9 @@
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
-#define LV6_EXPORT EMSCRIPTEN_KEEPALIVE
+#define LV7_EXPORT EMSCRIPTEN_KEEPALIVE
 #else
-#define LV6_EXPORT
+#define LV7_EXPORT
 #endif
 
 namespace
@@ -90,8 +90,8 @@ i32 build_path(Board board, move::Placement placement, i32* out, i32 cap)
 
 extern "C" {
 
-LV6_EXPORT void* lv6_malloc(int size) { return malloc(size); }
-LV6_EXPORT void lv6_free(void* p) { free(p); }
+LV7_EXPORT void* lv7_malloc(int size) { return malloc(size); }
+LV7_EXPORT void lv7_free(void* p) { free(p); }
 
 // board     : 250 バイト（(y+5)*10+x、0=空）
 // queue     : current＋確定 NEXT（TETLABO のミノ番号）。探索は先頭から depth＋1 本まで
@@ -103,7 +103,7 @@ LV6_EXPORT void lv6_free(void* p) { free(p); }
 // out (i32) : [0] 1=手あり [1] 置くミノ [2..9] 4マスの (x,y)（TETLABO 座標） [10] HOLD するか [11] visit
 //             [12] 展開したノード数 [13] 読んだ深さ [14] 経過 ms [15] 初手のキー（評価値）[16] T-spin（0/1/2=mini）
 //             [17] path 長 [18..] path（1〜6）
-LV6_EXPORT void lv6Search(
+LV7_EXPORT void lv7Search(
     const u8* board, const i32* queueIn, i32 nQueue, i32 hold, i32 bagAfter,
     i32 b2b, i32 ren, i32 incoming, const i32* weights, i32 nWeights,
     i32 width, i32 depth, i32 thinkMs, i32* out, i32 outLen)

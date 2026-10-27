@@ -32,7 +32,7 @@ grid)
 switch)
     BASE="${2:-lv6n_w256_t56}"
     B="${BASE#lv6n_}"
-    # 重みの添字は public/cpu/tet/lv6/engine/ai/eval.h の表
+    # 重みの添字は public/cpu/tet/lv7/engine/ai/eval.h の表
     run "${B}_base"      "$BASE"
     run "${B}_selbest"   "$BASE" --wa 56=1                    # 初手をキー最大で選ぶ（原作は visit）
     run "${B}_pcnext"    "$BASE" --wa 54=1                    # §2.2 pc_next に w.pc_next(1000) を掛ける

@@ -1,6 +1,6 @@
 #pragma once
 
-// TETLABO lv6 の評価。原作（clys, MIT, (c) 2024 citrus610）からの変更点
+// TETLABO lv7 の評価。原作（clys, MIT, (c) 2024 citrus610）からの変更点
 //   ・nlohmann/json による重みの読み込みを外し、JS から int 配列で受け取る（from_array。並びは WEIGHT_LEN の表）
 //   ・原作の癖を直すスイッチ（pc_next_own・transition_weighted。0 で原作どおり）
 //   ・T-spin mini（Lock::mini）は通常の消去として報酬を数える
@@ -40,7 +40,7 @@ struct Weight
     i32 waste_T;
     i32 waste_I;
 
-    // ── TETLABO lv6 の追加（0 で原作どおり）──
+    // ── TETLABO lv7 の追加（0 で原作どおり）──
     i32 pc_next_own;          // 1=pc_next の形に w.pc_next を掛ける（原作は w.pc を掛けていた）
     i32 transition_weighted;  // 1=transition に w.transition を掛ける（原作は重みを掛けずに +1/切り替わり）
     i32 select_best;          // 1=初手を「最後の層のキー最大」で選ぶ（0=原作の visit）
@@ -55,7 +55,7 @@ struct Weight
     i32 nl_split;             // L5 >0 のとき、ビームを「最後の手で消去あり（L）」と「なし（N）」に分け、L に幅のこの % を割り当てる
 };
 
-// 重み配列の長さと並び（cpu6.js の weightsArray と一致させる。追加は必ず末尾に）
+// 重み配列の長さと並び（cpu7.js の WEIGHT_KEYS と一致させる。追加は必ず末尾に）
 //   [0] height [1] well [2..11] height_map [12..21] well_map [22] bump [23] transition [24] hole_a [25] hole_b
 //   [26] cover [27..30] tslot [31] bonus_b2b [32] bonus_ren [33] scale [34] pc [35] pc_next [36..38] tspin
 //   [39..42] clear [43] b2b [44..48] ren [49] feed [50] order [51] delay [52] waste_T [53] waste_I

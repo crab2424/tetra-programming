@@ -190,7 +190,7 @@ Result search(
             result.decided = true;
             for (auto& c : result.candidates) c.best = INT32_MIN;
             result.candidates[index].visit += configs.width * configs.depth;
-            result.candidates[index].best = 0;
+            mark_last(children);   // EVAL 表示用（選ぶ手は visit で決まり）
             return result;
         }
     }

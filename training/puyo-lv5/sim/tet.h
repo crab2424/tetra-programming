@@ -22,7 +22,8 @@ constexpr int THIDDEN = 5;
 constexpr int TET_W_LEN = 33;        // 旧 lv5（sim/frozen/cpu5_v1.cpp）の weightsArray
 constexpr int TET_W_LEN5 = 47;       // 新 lv5（本番 cpu5.js onMinoSpawned の weightsArray。[33..] は地形強化 T1〜T6）
 constexpr int TET_W_LEN4 = 24;       // cpu4.js の weightsArray
-constexpr int TET_W_LEN6 = 55;       // cpu6.js の weightsArray（[39..] は lv6 強化 B1〜B9、設計 lv6-boost-design.md §3。[50..51] は相殺外し lv6-tankable-design.md。[52..54] は REN 偏重の是正・PC lv6-style-design.md）
+constexpr int TET_W_LEN6 = 39;       // 本番 cpu6.js の weightsArray（2026-10-27 から main の版）
+constexpr int TET_W_LEN6B = 55;      // 強化版 lv6（凍結。[39..] は B1〜B9 lv6-boost-design.md §3、[50..51] 相殺外し、[52..54] REN 偏重の是正・PC lv6-style-design.md）
 constexpr int TET_W_MAX = 96;        // TetPlayer::weights の枠（レベルごとの長さは tetWeightsLen）
 constexpr int TET_OUT_LEN = 43;      // searchBestMoveWasm の outResult
 
@@ -37,11 +38,13 @@ constexpr double T_GARBAGE_READY_FROM_PUYO_MS = 1000.0; // ぷよ→テトは段
 // レベル番号：4=lv4、5=新 lv5（本番 cpu5.cpp）、6=lv6、15=旧 lv5（固定版 sim/frozen/cpu5_v1.cpp）。
 //   TetPlayer の既定は 15（ぷよの対テト学習の相手役は旧 lv5 のまま。設計 lv5-terrain-design.md §7-3）。
 constexpr int TET_LV5_OLD = 15;
-// 26＝lv6＋PC 探索（本番 pc6.cpp を native で呼ぶ。sim/tet_pc6.cpp）。7＝参考AI clys（sim/tet_clys.cpp）。
+// 16＝強化版 lv6（2026-10-26 時点を sim/frozen/tet_lv6boost に凍結。sim/tet_cpu6b.cpp）、26＝16＋PC 探索（sim/tet_pc6.cpp）。
+//   2026-10-27 に本番 lv6 は main の版（PC 探索なし）に戻し、レベル 6 はそれに追従する。7＝参考AI clys（sim/tet_clys.cpp）。
 //   設計 source_assets/memory/cpu/tet/clys-port-design.md §6
+constexpr int TET_LV6_BOOST = 16;
 constexpr int TET_LV6_PC = 26;
 constexpr int TET_CLYS = 7;
-// 36＝lv6 の新しい探索（本番 public/cpu/tet/lv6/engine。sim/tet_cpu6n.cpp）。設計 lv6-phase1-search-design.md
+// 36＝本番 lv7（public/cpu/tet/lv7/engine。開発中の呼び名 lv6n。sim/tet_cpu6n.cpp）。設計 lv6-phase1-search-design.md
 constexpr int TET_LV6N = 36;
 
 // 思考時間のモデル化（既定オフ＝従来どおり探索は 0ms）。オンにすると、探索（PC 探索・ビーム・clys）に
@@ -53,7 +56,8 @@ void setTetModelThink(bool on, double scale);
 extern const int TET_LV5_WEIGHTS[TET_W_LEN];
 extern const int TET_LV5N_WEIGHTS[TET_W_LEN5];
 extern const int TET_LV4_WEIGHTS[TET_W_LEN4];   // 本番 cpu4.js
-extern const int TET_LV6_WEIGHTS[TET_W_LEN6];   // 本番 cpu6.js
+extern const int TET_LV6_WEIGHTS[TET_W_LEN6];   // 本番 cpu6.js（main の版）
+extern const int TET_LV6B_WEIGHTS[TET_W_LEN6B]; // 強化版 lv6（凍結）
 
 // レベル（4/5/6）ごとの既定値
 struct TetLevelTiming { double actionMs, harddropMs; };
@@ -75,7 +79,13 @@ void cpuSearchLv6(const uint8_t board[250], int cur, int hold, const int next[8]
 // lv6 の幅・深さ・NEXT 本数を指定する版（本番 cpu6.cpp searchBestMoveExt。lv6-learning-design.md Phase 0）
 void cpuSearchLv6Ext(const uint8_t board[250], int cur, int hold, const int* next, int nNext, int canHold,
                      const int* weights, int ren, int b2b, int incoming, int width, int depth, int out[TET_OUT_LEN]);
-long long lv6NodeCount();   // このスレッドで lv6 が展開した配置の累計
+long long lv6NodeCount();   // main の版は数えないので 0
+// 強化版 lv6（凍結。sim/tet_cpu6b.cpp）。引数は上と同じ
+void cpuSearchLv6b(const uint8_t board[250], int cur, int hold, const int next[8], int canHold,
+                   const int* weights, int ren, int b2b, int incoming, int out[TET_OUT_LEN]);
+void cpuSearchLv6bExt(const uint8_t board[250], int cur, int hold, const int* next, int nNext, int canHold,
+                      const int* weights, int ren, int b2b, int incoming, int width, int depth, int out[TET_OUT_LEN]);
+long long lv6bNodeCount();   // このスレッドで強化版 lv6 が展開した配置の累計
 // lv6 の PC 探索（sim/tet_pc6.cpp）。pieces = current＋NEXT10、out は 256 int（pc6.cpp の形式）
 void cpuSearchPC6(const uint8_t board[250], const int pieces[11], int hold, int canHold, int maxDepth, int maxTimeMs,
                   int out[256]);
@@ -85,7 +95,7 @@ void cpuSearchClys(const uint8_t board[250], const int* queueAll, int nAll, int 
 void cpuSearchClysEx(const uint8_t board[250], const int* queueAll, int nAll, int nSearch, int hold, int bagAfter,
                      int b2b, int ren, int incoming, int thinkMs, int width, int branch, int depth, int* out, int outLen);
 unsigned long long clysNodeCount();   // このスレッドで clys が実際に展開したノードの累計
-// lv6 の新しい探索（sim/tet_cpu6n.cpp）。引数・出力は public/cpu/tet/lv6/engine/lv6_wasm.cpp の lv6Search と同じ
+// lv7（sim/tet_cpu6n.cpp）。引数・出力は public/cpu/tet/lv7/engine/lv7_wasm.cpp の lv7Search と同じ
 void cpuSearchLv6n(const uint8_t board[250], const int* queue, int nQueue, int hold, int bagAfter, int b2b, int ren,
                    int incoming, const int* weights, int nWeights, int width, int depth, int thinkMs, int* out,
                    int outLen);
@@ -188,7 +198,8 @@ public:
     std::vector<TLockEvent> locks;
     std::vector<TSendEvent> sends;
     bool keepLog = false;
-    // lv6 の PC 探索（level 26 で on）・clys の設定
+    // 強化版 lv6（level 16・26。内部の level は 6）・その PC 探索（level 26 で on）・clys の設定
+    bool lv6Boost = false;
     bool pcEnabled = false;
     int clysThinkMs = 100, clysWidth = 500, clysBranch = 3, clysNext = 8;
     // ★Phase 0（lv6-learning-design.md）：確定 NEXT の内部保持数（本番 lifecycle.js は 11）・clys の深さの上限、
@@ -202,6 +213,7 @@ public:
     // seed＝ツモの乱数（VERSUS は両者共通のツモ）、holeSeed＝テト同士で送るおじゃまの穴（0 なら seed から作る）
     explicit TetPlayer(uint32_t seed, uint32_t holeSeed = 0);
     void setLevel(int lv);
+    int weightLevel() const { return lv6Boost ? TET_LV6_BOOST : level; }   // 重みの長さ・既定を引くときのレベル
     void start(double t0);               // 最初のミノを出す
     // 1手進める（HOLD を含めて1つ設置するまで）。設置した時刻を返す。dead なら負
     double step();

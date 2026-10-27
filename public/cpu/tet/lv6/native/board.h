@@ -28,11 +28,6 @@ public:
         if(x >= 0 && x < COLS && y >= 0 && y < ROWS) rows[y] &= ~(1 << x);
     }
 
-    inline bool isEmpty() const {
-        for (int y = 0; y < ROWS; y++) if (rows[y]) return false;
-        return true;
-    }
-
     int checkLineAndClear() {
         int cleared = 0;
         int write_y = ROWS - 1;

@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────
 // cpu_clys.js
 // 参考AI clys（https://github.com/citrus610/clys, MIT, (c) 2024 citrus610）を TETLABO の CPU として動かす。
-// 探索・評価・経路は wasm（native/clys_wasm.cpp）。操作の組み立て・実行は lv6（CPU6）のメソッドを借りる
-// （CPU_CONFIGS の deps: [6] で cpu6.js を先に読む）。PC 探索・EVAL の1手評価・重み調整パネルは無い。
+// 探索・評価・経路は wasm（native/clys_wasm.cpp）。操作の組み立て・実行は lv7（CPU7）のメソッドを借りる
+// （CPU_CONFIGS の deps: [7] で cpu7.js を先に読む）。PC 探索・EVAL の1手評価・重み調整パネルは無い。
 // 設計: source_assets/memory/cpu/tet/clys-port-design.md
 // ─────────────────────────────────────────────
 
@@ -263,10 +263,10 @@ window.CPUClys = class {
     }
 };
 
-// ── 操作の組み立て・実行・予測表示は lv6 と同じものを使う ──
+// ── 操作の組み立て・実行・予測表示は lv7 と同じものを使う ──
 for (const name of [
     'getGhostY', 'canDropStraightFromTo', 'buildActionQueue', 'processActionQueue',
     'initEstimateContainer', 'getClearedLines', 'renderEstimatePlace', 'createEstimateBlocks',
 ]) {
-    window.CPUClys.prototype[name] = window.CPU6.prototype[name];
+    window.CPUClys.prototype[name] = window.CPU7.prototype[name];
 }

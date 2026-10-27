@@ -1,4 +1,4 @@
-"""テト CPU lv6 の新しい探索（public/cpu/tet/lv6/engine）：native（学習シミュ）と本番 wasm の一致テスト・wasm の速さ。
+"""テト CPU lv7（public/cpu/tet/lv7/engine。開発中の呼び名 lv6n）：native（学習シミュ）と本番 wasm の一致テスト・wasm の速さ。
 
 lv6 のひとり用で出てきた盤面（おじゃま入りを含む）に、7-bag に合う確定 NEXT（33本）を付けて両方で探索し、
 出力（経過 ms の [14] を除く）が全件一致することを確かめる。締め切りは十分長くして（探索を最後まで回して）比べる。

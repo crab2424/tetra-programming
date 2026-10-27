@@ -28,7 +28,7 @@ Lock State::lock(move::Placement& placement)
     Lock lock = Lock();
 
     lock.softdrop = !placement.is_above_stack(this->board);
-    // TETLABO lv6: T-spin の判定は rotation.js checkTSpin と同じ（直前が回転・前2隅＋後ろ1隅で T-spin、
+    // TETLABO lv7: T-spin の判定は rotation.js checkTSpin と同じ（直前が回転・前2隅＋後ろ1隅で T-spin、
     //   後ろ2隅＋前1隅は mini、ただし Point 5 の回転なら T-spin）。原作は3隅だけを見ていた
     i32 ts = placement.get_tspin_type(this->board);
     lock.tspin = ts == 1;

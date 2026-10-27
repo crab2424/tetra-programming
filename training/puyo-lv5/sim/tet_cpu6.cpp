@@ -1,9 +1,10 @@
 // ─────────────────────────────────────────────
-// sim/tet_cpu6.cpp — テト CPU lv6 のビーム探索（本番 public/cpu/tet/lv6/native/*.cpp）を native で呼ぶ
+// sim/tet_cpu6.cpp — テト CPU lv6 のビーム探索（本番 public/cpu/tet/lv6/native/*.cpp。2026-10-27 から main の版）を native で呼ぶ
 //   本番は6ファイルに分かれているので、1つの翻訳単位にまとめて名前空間 tetcpu6 の中へ #include する
 //   （Board などの名前がぷよ側・lv4/lv5 と衝突しないように）。標準ヘッダは名前空間の外で先に読んでおく。
 //   extern "C" の関数はマクロで名前を変える（lv4/lv5 と衝突するため）。
-//   PC（パーフェクトクリア）探索 Worker は移植しない＝空盤面の開幕 PC だけ本番と差が出る（設計 §4.1）。
+//   本番の PC 探索 Worker は廃止した（強化版＋PC はレベル 26。sim/tet_cpu6b.cpp・tet_pc6.cpp）。
+//   main の版には searchBestMoveExt・lv6NodeCount が無いので、幅・深さの指定とノード数は強化版（レベル 16）だけ。
 // ─────────────────────────────────────────────
 #pragma clang fp contract(off)   // tet_cpu5.cpp と同じ理由（wasm は積和を融合しない）
 
@@ -22,8 +23,6 @@
 #define my_free                     tetcpu6_my_free
 #define searchBestMoveWasm          tetcpu6_searchBestMoveWasm
 #define evaluateSinglePlacementWasm tetcpu6_evaluateSinglePlacementWasm
-#define searchBestMoveExt           tetcpu6_searchBestMoveExt
-#define lv6NodeCount                tetcpu6_lv6NodeCount
 namespace tetcpu6 {
 #include "../../../public/cpu/tet/lv6/native/common.cpp"
 #include "../../../public/cpu/tet/lv6/native/board.cpp"
@@ -36,8 +35,6 @@ namespace tetcpu6 {
 #undef my_free
 #undef searchBestMoveWasm
 #undef evaluateSinglePlacementWasm
-#undef searchBestMoveExt
-#undef lv6NodeCount
 
 #include "tet.h"
 
@@ -53,13 +50,6 @@ void cpuSearchLv6(const uint8_t board[250], int cur, int hold, const int next[8]
                                         ren, b2b, incoming);
 }
 
-void cpuSearchLv6Ext(const uint8_t board[250], int cur, int hold, const int* next, int nNext, int canHold,
-                     const int* weights, int ren, int b2b, int incoming, int width, int depth, int out[TET_OUT_LEN]) {
-    std::call_once(g_precalc6Once, []() { tetcpu6::ensurePrecalc(); });
-    tetcpu6::tetcpu6_searchBestMoveExt(const_cast<uint8_t*>(board), cur, hold, next, nNext, canHold,
-                                       const_cast<int*>(weights), out, ren, b2b, incoming, width, depth);
-}
-
-long long lv6NodeCount() { return tetcpu6::tetcpu6_lv6NodeCount(); }
+long long lv6NodeCount() { return 0; }   // main の版は数えない
 
 } // namespace tsim

@@ -37,7 +37,7 @@ public:
     i8 y;
     piece::Rotation r;
     piece::Type type;
-    // TETLABO lv6: T をこの位置へ「最後に回転して」置けるか（rotation.js checkTSpin の「直前が回転」）。
+    // TETLABO lv7: T をこの位置へ「最後に回転して」置けるか（rotation.js checkTSpin の「直前が回転」）。
     //   0=回転では着かない 1=回転で着く 2=回転で着き、その回転で SRS の5番目のキック（Point 5）を使える
     //   比較（==）・ハッシュには含めない
     u8 spin = 0;
@@ -51,7 +51,7 @@ public:
 public:
     bool is_colliding(Board& board);
     bool is_tspin(Board& board);
-    // TETLABO lv6: 0=なし 1=T-spin 2=mini（rotation.js checkTSpin。spin が 0 なら 0）
+    // TETLABO lv7: 0=なし 1=T-spin 2=mini（rotation.js checkTSpin。spin が 0 なら 0）
     i32 get_tspin_type(Board& board);
     bool is_above_stack(Board& board);
 public:
@@ -84,7 +84,7 @@ bool move_ccw(Placement& piece, Map& collision);
 
 bool move_rotate(Placement& piece, piece::Rotation new_r, Map& collision);
 
-// TETLABO lv6: 回転して使ったキックの番号（0〜4）を返す版。失敗は -1
+// TETLABO lv7: 回転して使ったキックの番号（0〜4）を返す版。失敗は -1
 i32 move_rotate_kick(Placement& piece, piece::Rotation new_r, Map& collision);
 
 void move_drop(Placement& piece, Map& collision);

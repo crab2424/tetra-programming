@@ -25,7 +25,7 @@ public:
     move::Placement position;
     std::vector<Input> queue;
     size_t time;
-    i8 last_kick = -1;   // TETLABO lv6: 最後の回転で使ったキックの番号（0〜4）
+    i8 last_kick = -1;   // TETLABO lv7: 最後の回転で使ったキックの番号（0〜4）
 public:
     Node();
 public:
@@ -57,7 +57,7 @@ public:
 
 Queue find(Board board, move::Placement destination, bool force_20);
 
-// TETLABO lv6: T-spin の置き場所へは「最後に回転して」着く経路を探す（rotation.js の「直前が回転」）
+// TETLABO lv7: T-spin の置き場所へは「最後に回転して」着く経路を探す（rotation.js の「直前が回転」）
 struct SpinTarget
 {
     move::Placement dest;

@@ -123,9 +123,9 @@ window.CpuWeightsPanel = (() => {
     const TET_SKIP = ['P1_WEIGHT', 'underSpace', 'singleWell', 'multiWell'];
     const isTetCpu = (cpu) => !!cpu && typeof cpu.applyBuildValues !== 'function' && !!cpu.weights
         && ((window.CPU5 && cpu instanceof window.CPU5) || (window.CPU6 && cpu instanceof window.CPU6)
-            || (window.CPU6N && cpu instanceof window.CPU6N));
+            || (window.CPU7 && cpu instanceof window.CPU7));
     function wrapTet(cpu) {
-        const lv = (window.CPU6N && cpu instanceof window.CPU6N) ? 'LV6N'
+        const lv = (window.CPU7 && cpu instanceof window.CPU7) ? 'LV7'
             : (window.CPU6 && cpu instanceof window.CPU6) ? 'LV6' : 'LV5';
         const skip = lv === 'LV6' ? TET_SKIP.concat('tsdHolePenalty') : TET_SKIP;
         const defaults = {};
@@ -154,7 +154,7 @@ window.CpuWeightsPanel = (() => {
     const descsTet = {};
     function loadTetDescs(lv) {
         if (descsTet[lv]) return Promise.resolve(descsTet[lv]);
-        const src = lv === 'LV6N' ? 'cpu/tet/lv6/cpu6n.js' : lv === 'LV6' ? 'cpu/tet/lv6/cpu6.js' : 'cpu/tet/lv5/cpu5.js';
+        const src = lv === 'LV7' ? 'cpu/tet/lv7/cpu7.js' : lv === 'LV6' ? 'cpu/tet/lv6/cpu6.js' : 'cpu/tet/lv5/cpu5.js';
         return fetch(src).then(r => r.text()).then(text => {
             const d = {};
             for (const line of text.split('\n')) {

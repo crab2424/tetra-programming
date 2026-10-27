@@ -154,6 +154,7 @@ TVT_SIDE_KEYS = ["pieces", "lines", "tspins", "ts_mini", "tetrises", "pcs", "b2b
                  "think_ms", "wait_ms", "max_spike", "ren1", "ren2to5", "ren6plus", "ren_atk", "nodes",
                  "ts_pred", "ts_pred_miss", "ts_unpred"]
 # レベル番号の追加分（sim/tet.h）：26＝lv6＋PC 探索、7＝参考AI clys
+TET_LV6_BOOST = 16   # 強化版 lv6（凍結。sim/tet.h）。レベル 6 は本番（main の版）
 TET_LV6_PC = 26
 TET_CLYS = 7
 CASE_LEN_LV = 307

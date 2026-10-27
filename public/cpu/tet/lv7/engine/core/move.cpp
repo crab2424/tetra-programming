@@ -385,7 +385,7 @@ std::vector<Placement> generate(const Board& board, piece::Type type)
     auto collision = Map();
     auto spin = Map();
     auto spin5 = Map();
-    // TETLABO lv6: T の置き場所に「回転で着くか」の印を付けて返す
+    // TETLABO lv7: T の置き場所に「回転で着くか」の印を付けて返す
     auto mark_spin = [&] (std::vector<Placement>& out) {
         if (type != piece::Type::T) return;
         for (auto& p : out) {
@@ -560,7 +560,7 @@ void expand(const Placement& piece, Map& collision, Map& visited, Map& locked, s
     }
 
     // Clockwise / Counter clockwise
-    // TETLABO lv6: 回転した先が接地していれば「回転で着く置き場所」として印を付ける（visited かどうかに関係なく）
+    // TETLABO lv7: 回転した先が接地していれば「回転で着く置き場所」として印を付ける（visited かどうかに関係なく）
     static const piece::Rotation CW_OF[4] = { piece::Rotation::RIGHT, piece::Rotation::DOWN, piece::Rotation::LEFT, piece::Rotation::UP };
     static const piece::Rotation CCW_OF[4] = { piece::Rotation::LEFT, piece::Rotation::UP, piece::Rotation::RIGHT, piece::Rotation::DOWN };
     for (i32 dir = 0; dir < 2; ++dir) {

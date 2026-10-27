@@ -255,14 +255,14 @@ const CPU_LEVELS = {
   3: { label: 'LV 3', desc: '中級者向け', gravityLevel: 2  },
   4: { label: 'LV 4', desc: '上級者向け', gravityLevel: 2 },
   5: { label: 'LV 5', desc: '最上級者向け', gravityLevel: 2 },
-  // ★ 隠し要素: 準備画面で「6」キーを押すと出現（tet＝PC探索付き / puyo＝lv5の学習済み重み版）
-  6: { label: 'LV 6', desc: '???', gravityLevel: 2 },
-  // ★ CPU TEST 専用（tet のみ）: 参考AI clys（MIT）をそのまま動かす。lv6 強化の比較用
+  // tet は VERSUS の準備画面に通常のボタンで出す。puyo（lv5 の学習済み重み版）は準備画面で「6」キーを押すと出現
+  6: { label: 'LV 6', desc: '超上級者向け', gravityLevel: 2 },
+  // ★ 隠し要素（tet のみ）: 準備画面で「7」キーを押すと出現。clys 型の探索（cpu/tet/lv7）
+  //   （設計 source_assets/memory/cpu/tet/lv6-phase1-search-design.md）
+  7: { label: 'LV 7', desc: '???', gravityLevel: 2 },
+  // ★ CPU TEST 専用（tet のみ）: 参考AI clys（MIT）をそのまま動かす。比較用
   //   （設計 source_assets/memory/cpu/tet/clys-port-design.md）
-  7: { label: 'CLYS', desc: '参考AI clys', gravityLevel: 2 },
-  // ★ CPU TEST 専用（tet のみ）: lv6 の新しい探索（cpu/tet/lv6/cpu6n.js）。本番の LV6 に切り替えるまでの確認用
-  //   （設計 source_assets/memory/cpu/tet/lv6-phase1-search-design.md §3）
-  8: { label: 'LV6N', desc: 'lv6 新探索', gravityLevel: 2 },
+  8: { label: 'CLYS', desc: '参考AI clys', gravityLevel: 2 },
 };
 let selectedCpuLevel = 1;
 
@@ -280,10 +280,10 @@ const CPU_CONFIGS = {
     3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=2' },
     4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=5' },
     5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=7' },
-    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=29' },
-    // 操作系のメソッドを CPU6 から借りるので lv6 を先に読む（deps）
-    7: { className: 'CPUClys', deps: [6], src: 'cpu/tet/clys/cpu_clys.js?v=1' },
-    8: { className: 'CPU6N', deps: [6], src: 'cpu/tet/lv6/cpu6n.js?v=1' }
+    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=30' },
+    7: { className: 'CPU7', src: 'cpu/tet/lv7/cpu7.js?v=1' },
+    // 操作系のメソッドを CPU7 から借りるので lv7 を先に読む（deps）
+    8: { className: 'CPUClys', deps: [7], src: 'cpu/tet/clys/cpu_clys.js?v=2' }
   },
   puyo: {
     1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu1.js?v=2' },  

@@ -19,6 +19,7 @@ function goToVersusCheck() {
 
 function setVersusPlayerRule(rule) {
   versusPlayerRule = rule;
+  if (rule === 'puyo' && selectedPlayerCpuLevel === 7) selectedPlayerCpuLevel = 6;   // LV7 は tet だけ
   const tetBtn = document.getElementById('opt-rule-player-tet');
   const puyoBtn = document.getElementById('opt-rule-player-puyo');
   if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
@@ -31,13 +32,17 @@ function setVersusCpuRule(rule) {
   const puyoBtn = document.getElementById('opt-rule-cpu-puyo');
   if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
   if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
+  if (rule === 'puyo' && selectedCpuLevel === 7) selectedCpuLevel = 6;   // LV7 は tet だけ
+  renderVersusCheck();   // LV6 のボタンは tet のときだけ出す
 }
 
 function renderVersusCheck() {
   const toggle = document.getElementById('cpu-level-toggle');
   if (toggle) {
     toggle.innerHTML = '';
-    for (let lv = 1; lv <= 5; lv++) {
+    // tet は LV6 まで通常のボタン（LV7 は「7」キー）。puyo は LV5 まで（LV6 は「6」キー）
+    const maxLv = versusCpuRule === 'tet' ? 6 : 5;
+    for (let lv = 1; lv <= maxLv; lv++) {
       const btn = document.createElement('button');
       btn.className = 'opt-btn' + (lv === selectedCpuLevel ? ' active' : '');
       btn.style.minWidth = '48px';
@@ -118,13 +123,9 @@ function startTestCpuVsCpu() {
   versusCpuRule = testOpponent;      // 2P = OPPONENT（'puyo' | 'tet'。1P と違えば異種対戦）
   versusPlayerIsCpu = true;
   selectedPlayerCpuLevel = testPlayerCpuLevel;      // 2P は selectedCpuLevel（CPU TEST と共通）
-  // 準備画面の 7 / Shift+7 は側のルールで振り分ける（puyo=高速落下で設置、tet=PC探索なし）
-  const seven2P = !!(window.__cpu6SoftDrop || window.__cpu6DisablePC);
-  const seven1P = !!(window.__cpu6SoftDropTest1P || window.__cpu6DisablePCTest1P);
-  window.__cpu6SoftDrop2P  = seven2P && versusCpuRule === 'puyo';
-  window.__cpu6DisablePC2P = seven2P && versusCpuRule === 'tet';
-  window.__cpu6SoftDrop1P  = seven1P && versusPlayerRule === 'puyo';
-  window.__cpu6DisablePC1P = seven1P && versusPlayerRule === 'tet';
+  // 準備画面の 7 / Shift+7 は puyo LV6 の「高速落下で設置」（tet の 7 は LV7 の指定なのでフラグは立たない）
+  window.__cpu6SoftDrop2P = !!window.__cpu6SoftDrop && versusCpuRule === 'puyo';
+  window.__cpu6SoftDrop1P = !!window.__cpu6SoftDropTest1P && versusPlayerRule === 'puyo';
   startVersusGame();
 }
 
@@ -137,8 +138,6 @@ function endTestCpuVsCpu() {
   selectedPlayerCpuLevel = null;
   window.__cpu6SoftDrop1P = false;
   window.__cpu6SoftDrop2P = false;
-  window.__cpu6DisablePC1P = false;
-  window.__cpu6DisablePC2P = false;
 }
 
 // 中断・結果の MODE SELECT の戻り先
@@ -297,9 +296,6 @@ async function startVersusGame() {
   //   ものをプールから借りるので、生成直後から workerReady が立っている（v2.2.3 G/H）。
   if (CpuClass) window._cpuController = new CpuClass(window._cpuGame);
   if (PlayerCpuClass) window._cpuControllerPlayer = new PlayerCpuClass(window._game);
-  // tet LV6 の PC探索オフは側ごとに指定できる（準備画面の 7 = 2P / Shift+7 = 1P）。cpu6.js が参照
-  if (window._cpuController) window._cpuController.disablePC = !!window.__cpu6DisablePC2P;
-  if (window._cpuControllerPlayer) window._cpuControllerPlayer.disablePC = !!window.__cpu6DisablePC1P;
   // puyo LV6 の「高速落下で設置」も側ごと（準備画面の 7 = 2P / Shift+7 = 1P）
   if (window._cpuController) window._cpuController.softDropOnly = !!window.__cpu6SoftDrop2P;
   if (window._cpuControllerPlayer) window._cpuControllerPlayer.softDropOnly = !!window.__cpu6SoftDrop1P;
@@ -357,8 +353,7 @@ function recreateVersusCpuController(key) {
   const ctrl = new CPUClass(game);
   // ぷよ LV5/LV6 の思考ログの手数・試合の集計を引き継ぐ（作り直しで数え直さない）
   if (old._stats) { ctrl._stats = old._stats; ctrl._turnNo = old._turnNo; }
-  // LV6 の隠しモード（PC探索オフ／高速落下で設置）は作り直しでも引き継ぐ（盤面入れ替え・ウォッチドッグ）
-  if (old.disablePC !== undefined) ctrl.disablePC = old.disablePC;
+  // puyo LV6 の隠しモード（高速落下で設置）は作り直しでも引き継ぐ（盤面入れ替え・ウォッチドッグ）
   if (old.softDropOnly !== undefined) ctrl.softDropOnly = old.softDropOnly;
   window.CpuWeightsPanel?.replace(old, ctrl);   // 重み調整パネルで変えた値を新しい CPU にも載せる
   window[key] = ctrl;

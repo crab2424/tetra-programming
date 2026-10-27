@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────
-// cpu_worker6n.js
-// テト CPU lv6 の新しい探索（engine/。clys がもと、MIT）の Web Worker。Wasm(lv6Search) を呼び出す。
+// cpu_worker7.js
+// テト CPU lv7（engine/。clys がもと、MIT）の Web Worker。Wasm(lv7Search) を呼び出す。
 // 設計: source_assets/memory/cpu/tet/lv6-phase1-search-design.md §3
 // ─────────────────────────────────────────────
 
@@ -16,7 +16,7 @@ self.postMessage = (msg, transfer) => {
 let wasmReady = false;
 
 self.Module = {
-    // ★再ビルドしたら ?v= を上げる（グルーjs・wasm・cpu6n.js の WORKER_URLS を揃える）
+    // ★再ビルドしたら ?v= を上げる（グルーjs・wasm・cpu7.js の WORKER_URLS を揃える）
     locateFile: function(path) { return path + '?v=1'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
@@ -24,7 +24,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm6n.js?v=1');
+importScripts('cpu_wasm7.js?v=1');
 
 const OUT_LEN = 96;
 const QUEUE_MAX = 40;     // current＋確定 NEXT（深さ 32＋HOLD 空の1本＋余裕）
@@ -40,10 +40,10 @@ self.onmessage = function(e) {
     if (data.type !== 'calculate') return;
 
     if (boardPtr === null) {
-        boardPtr   = Module._lv6_malloc(250);
-        queuePtr   = Module._lv6_malloc(4 * QUEUE_MAX);
-        weightsPtr = Module._lv6_malloc(4 * WEIGHTS_MAX);
-        outPtr     = Module._lv6_malloc(4 * OUT_LEN);
+        boardPtr   = Module._lv7_malloc(250);
+        queuePtr   = Module._lv7_malloc(4 * QUEUE_MAX);
+        weightsPtr = Module._lv7_malloc(4 * WEIGHTS_MAX);
+        outPtr     = Module._lv7_malloc(4 * OUT_LEN);
     }
 
     // ALLOW_MEMORY_GROWTH でヒープが付け替わることがあるので、毎回 Module から取り直す
@@ -53,7 +53,7 @@ self.onmessage = function(e) {
     const nWeights = Math.min(data.weights.length, WEIGHTS_MAX);
     Module.HEAP32.set(data.weights.slice(0, nWeights), weightsPtr / 4);
 
-    Module._lv6Search(
+    Module._lv7Search(
         boardPtr, queuePtr, nQueue, data.holdType, data.bagAfter,
         data.backToBack, data.ren, data.incoming || 0,
         weightsPtr, nWeights,

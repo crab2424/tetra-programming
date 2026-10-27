@@ -103,7 +103,7 @@ void setup(TetPlayer& p, int level, const int* w, int wLen) {
     applySide(p, g_sideCfg[0]);
     if (level >= 0 && level < 64) { p.thinkScale = g_thinkScaleLv[level]; p.pcThinkScale = g_pcScaleLv[level]; }
     if (w && wLen > 0) {
-        int n = std::min(wLen, tetWeightsLen(p.level));
+        int n = std::min(wLen, tetWeightsLen(p.weightLevel()));
         std::memcpy(p.weights, w, sizeof(int) * n);
     }
 }

@@ -26,17 +26,15 @@ self.Module = {
     // ★再ビルドした .wasm のキャッシュバスト（cpu_wasm6.wasm?v=10 を取得させる）
     //   ★v=8: C++をファイル分割＋-fltoで再ビルド。importセットが変わったのでグルーjsとwasmを揃えて更新。
     //   ★v=15: getAllPlacements()のBFS初期化をmemset方式→世代スタンプ方式に変更して再ビルド（挙動不変・呼び出しあたりO(2660)×3の初期化コスト削減）
-    //   ★v=17: lv6 強化の重み [39..49]（B1〜B9）を読むように再ビルド（2026-10-26。グルーjs・wasm・worker を揃えて更新）
-    //   ★v=18: 相殺外し tankH[50]/tankLook[51] を読むように再ビルド（重み確保 4*52）
-    //   ★v=19: REN 偏重の是正 renDangerH[52]/comboAtkCalm[53]・通常探索の PC pcClear[54]（重み確保 4*55）
-    locateFile: function(path) { return path + '?v=19'; },
+    //   ★v=20: lv6 を main（v2.3）の版に戻した（2026-10-27。強化版 v=17〜19 のキャッシュを使わせない）
+    locateFile: function(path) { return path + '?v=20'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=19'); // ★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
+importScripts('cpu_wasm6.js?v=20'); // ★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
 
 let boardPtr = null;
 let resultPtr = null;
@@ -51,7 +49,7 @@ self.onmessage = function(e) {
         if (boardPtr === null) {
             boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
             // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応
-            weightsPtr = Module._my_malloc(4 * 55);
+            weightsPtr = Module._my_malloc(4 * 39);
             resultPtr  = Module._my_malloc(4 * 43);
         }
 
@@ -85,7 +83,7 @@ self.onmessage = function(e) {
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
         // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応
-        weightsPtr = Module._my_malloc(4 * 55);
+        weightsPtr = Module._my_malloc(4 * 39);
         resultPtr  = Module._my_malloc(4 * 43);
     }
 

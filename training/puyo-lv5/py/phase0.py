@@ -46,15 +46,17 @@ PRESETS = {
     # 本番相当：wasm は native の約 1/1.42 の速さ（tests/test_lv6n_parity.py の実測）なので、wasm の締め切り 80ms ≒ native 56ms
     "lv6n_t56": (36, dict(queue_len=QLEN, clys_width=500, clys_depth=32, clys_think=56), 1.0),
     "lv6n_w256_t56": (36, dict(queue_len=QLEN, clys_width=256, clys_depth=32, clys_think=56), 1.0),
-    # lv6（PC 探索 Worker なし＝レベル6）。本番の探索。思考時間は native ×2（実機並み）
+    # lv6（2026-10-27 から本番＝main の版・PC 探索なし）。思考時間は native ×2（実機並み）
     "lv6": (6, dict(), 2.0),
-    "lv6_w32_d12": (6, dict(queue_len=QLEN, lv6_width=32, lv6_depth=12, lv6_next=13), 2.0),
+    # 強化版 lv6（2026-10-26 時点を凍結。レベル 16）。Phase 0・P1 の「旧 lv6」はこれ。幅・深さの指定はこちらだけ
+    "lv6b": (16, dict(), 2.0),
+    "lv6_w32_d12": (16, dict(queue_len=QLEN, lv6_width=32, lv6_depth=12, lv6_next=13), 2.0),
     # Phase 0 (c)：探索を増やした lv6（確定 NEXT）。予算を超えるので思考時間を待ちに入れない（FREE）＝打ち方だけを見る
-    "lv6_free": (6, dict(), FREE),
-    "lv6_w64": (6, dict(queue_len=QLEN, lv6_width=64, lv6_depth=8, lv6_next=9), FREE),
-    "lv6_d12": (6, dict(queue_len=QLEN, lv6_width=16, lv6_depth=12, lv6_next=13), FREE),
-    "lv6_w64_d12": (6, dict(queue_len=QLEN, lv6_width=64, lv6_depth=12, lv6_next=13), FREE),
-    "lv6_w32_d16": (6, dict(queue_len=QLEN, lv6_width=32, lv6_depth=16, lv6_next=17), FREE),
+    "lv6_free": (16, dict(), FREE),
+    "lv6_w64": (16, dict(queue_len=QLEN, lv6_width=64, lv6_depth=8, lv6_next=9), FREE),
+    "lv6_d12": (16, dict(queue_len=QLEN, lv6_width=16, lv6_depth=12, lv6_next=13), FREE),
+    "lv6_w64_d12": (16, dict(queue_len=QLEN, lv6_width=64, lv6_depth=12, lv6_next=13), FREE),
+    "lv6_w32_d16": (16, dict(queue_len=QLEN, lv6_width=32, lv6_depth=16, lv6_next=17), FREE),
 }
 
 # P2（lv6-phase1-search-design.md §7）：幅 × 締め切りの格子 lv6n_w{幅}_t{締め切り}（既にある名前はそのまま）

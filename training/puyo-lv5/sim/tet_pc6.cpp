@@ -1,5 +1,6 @@
 // ─────────────────────────────────────────────
-// sim/tet_pc6.cpp — テト CPU lv6 のパーフェクトクリア探索（本番 public/cpu/tet/lv6/pc/native/pc6.cpp）を native で呼ぶ
+// sim/tet_pc6.cpp — 強化版 lv6 のパーフェクトクリア探索（旧本番 lv6/pc/native/pc6.cpp。2026-10-27 に本番から外し
+//   sim/frozen/tet_lv6boost/pc/pc6.cpp に凍結）を native で呼ぶ。レベル 26 で使う
 //   tet_cpu6.cpp と同じく名前空間 tetpc6 に包んで取り込み、extern "C" の名前はマクロで変える。
 //   pc6.cpp のグローバルは thread_local（wasm では static と同じ）なのでスレッド並列で呼べる。
 //   本番は時間上限つき（空盤面 300ms・途中 100ms）。nowMs は native では steady_clock。
@@ -18,7 +19,7 @@
 #define my_free                tetpc6_my_free
 #define searchPerfectClearWasm tetpc6_searchPerfectClearWasm
 namespace tetpc6 {
-#include "../../../public/cpu/tet/lv6/pc/native/pc6.cpp"
+#include "frozen/tet_lv6boost/pc/pc6.cpp"
 }
 #undef my_malloc
 #undef my_free
