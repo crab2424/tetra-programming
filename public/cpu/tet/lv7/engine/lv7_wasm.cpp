@@ -86,32 +86,9 @@ i32 build_path(Board board, move::Placement placement, i32* out, i32 cap)
     return len;
 }
 
-}
-
-extern "C" {
-
-LV7_EXPORT void* lv7_malloc(int size) { return malloc(size); }
-LV7_EXPORT void lv7_free(void* p) { free(p); }
-
-// board     : 250 バイト（(y+5)*10+x、0=空）
-// queue     : current＋確定 NEXT（TETLABO のミノ番号）。探索は先頭から depth＋1 本まで
-// nQueue    : queue の本数
-// hold      : HOLD のミノ（-1 = 空）
-// bagAfter  : queue を引いた後の bag の残り（TETLABO 番号のビット。0 = 次から新しい bag）
-// weights   : 重み（eval::WEIGHT_LEN 個。足りない分は既定値）
-// width / depth / thinkMs : ビーム幅・深さの上限・締め切り（ms）
-// out (i32) : [0] 1=手あり [1] 置くミノ [2..9] 4マスの (x,y)（TETLABO 座標） [10] HOLD するか [11] visit
-//             [12] 展開したノード数 [13] 読んだ深さ [14] 経過 ms [15] 初手のキー（評価値）[16] T-spin（0/1/2=mini）
-//             [17] path 長 [18..] path（1〜6）
-LV7_EXPORT void lv7Search(
-    const u8* board, const i32* queueIn, i32 nQueue, i32 hold, i32 bagAfter,
-    i32 b2b, i32 ren, i32 incoming, const i32* weights, i32 nWeights,
-    i32 width, i32 depth, i32 thinkMs, i32* out, i32 outLen)
+// 盤面・HOLD・bag を engine の State に直す
+State make_state(const u8* board, const i32* queueIn, i32 nQueue, i32 hold, i32 bagAfter, i32 b2b, i32 ren)
 {
-    const double start = beam::now_ms();
-
-    for (i32 i = 0; i < outLen; ++i) out[i] = 0;
-
     State state = State();
 
     for (i32 yi = 0; yi < 25; ++yi) {
@@ -139,6 +116,71 @@ LV7_EXPORT void lv7Search(
     }
     state.bag = bag;
 
+    return state;
+}
+
+// 初手を選ぶ：visit の多い順（select_best なら最後の層のキーの大きい順）。
+//   by_best=true（読み筋モードで visit が無い＝1層しか読めなかった）ならキーの大きい順。
+//   生存判定：中央列の高さ＋incoming−火力−消去数 ≤ 20 を満たす最初の手（clys Engine::request）
+size_t select_candidate(const beam::Result& result, const State& state, const std::vector<piece::Type>& queue,
+    const eval::Weight& w, i32 incoming, bool by_best)
+{
+    std::vector<size_t> order(result.candidates.size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(), [&] (size_t a, size_t b) {
+        const auto& ca = result.candidates[a];
+        const auto& cb = result.candidates[b];
+        if (by_best || (w.select_best && !result.decided)) return ca.best > cb.best;
+        return ca.visit > cb.visit;
+    });
+
+    size_t best = order[0];
+    for (size_t k = 0; k < order.size(); ++k) {
+        auto simulate = state;
+        auto placement = result.candidates[order[k]].placement;
+        auto lock = simulate.advance(placement, queue);
+
+        i32 heights[10];
+        simulate.board.get_heights(heights);
+
+        i32 height_center_max = *std::max_element(heights + 3, heights + 7);
+
+        if (height_center_max + incoming - lock.attack - lock.clear <= 20) {
+            best = order[k];
+            break;
+        }
+    }
+    return best;
+}
+
+}
+
+extern "C" {
+
+LV7_EXPORT void* lv7_malloc(int size) { return malloc(size); }
+LV7_EXPORT void lv7_free(void* p) { free(p); }
+
+// board     : 250 バイト（(y+5)*10+x、0=空）
+// queue     : current＋確定 NEXT（TETLABO のミノ番号）。探索は先頭から depth＋1 本まで
+// nQueue    : queue の本数
+// hold      : HOLD のミノ（-1 = 空）
+// bagAfter  : queue を引いた後の bag の残り（TETLABO 番号のビット。0 = 次から新しい bag）
+// weights   : 重み（eval::WEIGHT_LEN 個。足りない分は既定値）
+// width / depth / thinkMs : ビーム幅・深さの上限・締め切り（ms）
+// out (i32) : [0] 1=手あり [1] 置くミノ [2..9] 4マスの (x,y)（TETLABO 座標） [10] HOLD するか [11] visit
+//             [12] 展開したノード数 [13] 読んだ深さ [14] 経過 ms [15] 初手のキー（評価値）[16] T-spin（0/1/2=mini）
+//             [17] path 長 [18..] path（1〜6）
+LV7_EXPORT void lv7Search(
+    const u8* board, const i32* queueIn, i32 nQueue, i32 hold, i32 bagAfter,
+    i32 b2b, i32 ren, i32 incoming, const i32* weights, i32 nWeights,
+    i32 width, i32 depth, i32 thinkMs, i32* out, i32 outLen)
+{
+    const double start = beam::now_ms();
+
+    for (i32 i = 0; i < outLen; ++i) out[i] = 0;
+
+    State state = make_state(board, queueIn, nQueue, hold, bagAfter, b2b, ren);
+
     std::vector<piece::Type> queue;
     for (i32 i = 0; i < nQueue; ++i) {
         queue.push_back(to_engine(queueIn[i]));
@@ -158,33 +200,7 @@ LV7_EXPORT void lv7Search(
         return;
     }
 
-    // 選び方：visit の多い順（select_best なら最後の層のキーの大きい順）
-    std::vector<size_t> order(result.candidates.size());
-    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
-    std::stable_sort(order.begin(), order.end(), [&] (size_t a, size_t b) {
-        const auto& ca = result.candidates[a];
-        const auto& cb = result.candidates[b];
-        if (w.select_best && !result.decided) return ca.best > cb.best;
-        return ca.visit > cb.visit;
-    });
-
-    // 生存判定：中央列の高さ＋incoming−火力−消去数 ≤ 20 を満たす最初の手（clys Engine::request）
-    size_t best = order[0];
-    for (size_t k = 0; k < order.size(); ++k) {
-        auto simulate = state;
-        auto placement = result.candidates[order[k]].placement;
-        auto lock = simulate.advance(placement, queue);
-
-        i32 heights[10];
-        simulate.board.get_heights(heights);
-
-        i32 height_center_max = *std::max_element(heights + 3, heights + 7);
-
-        if (height_center_max + incoming - lock.attack - lock.clear <= 20) {
-            best = order[k];
-            break;
-        }
-    }
+    const size_t best = select_candidate(result, state, queue, w, incoming, false);
 
     auto placement = result.candidates[best].placement;
 
@@ -206,6 +222,91 @@ LV7_EXPORT void lv7Search(
 
     out[17] = outLen > 18 ? build_path(state.board, placement, out + 18, outLen - 18) : 0;
     out[14] = i32(beam::now_ms() - start);
+}
+
+// アシスト用：初手（lv7Search と同じ選び方）から続く読み筋をまとめて返す。
+//   読み筋 = 選んだ初手から来た、記録の最も深い層でキー最大のノードまでの手の列。
+//   引数は lv7Search と同じ（path は返さない）。
+// out (i32) : [0] 手数 n [1] 経過 ms [2] 読んだ深さ [3] 展開したノード数
+//             [4 + 11k ..] k 手目：[+0] ミノ [+1..8] 4マスの (x,y)（TETLABO 座標） [+9] HOLD するか [+10] T-spin（0/1/2=mini）
+LV7_EXPORT void lv7Plan(
+    const u8* board, const i32* queueIn, i32 nQueue, i32 hold, i32 bagAfter,
+    i32 b2b, i32 ren, i32 incoming, const i32* weights, i32 nWeights,
+    i32 width, i32 depth, i32 thinkMs, i32* out, i32 outLen)
+{
+    const double start = beam::now_ms();
+
+    for (i32 i = 0; i < outLen; ++i) out[i] = 0;
+
+    State state = make_state(board, queueIn, nQueue, hold, bagAfter, b2b, ren);
+
+    std::vector<piece::Type> queue;
+    for (i32 i = 0; i < nQueue; ++i) {
+        queue.push_back(to_engine(queueIn[i]));
+    }
+
+    const eval::Weight w = eval::from_array(weights, nWeights);
+
+    beam::Configs configs;
+    configs.width = size_t(std::max(width, 1));
+    configs.depth = size_t(std::clamp(depth, 1, 64));
+    configs.incoming = std::max(incoming, 0);
+    configs.pv = true;
+
+    auto result = beam::search(state, queue, w, configs, start + thinkMs);
+
+    out[2] = i32(result.depth);
+    out[3] = i32(std::min<u64>(result.nodes, INT32_MAX));
+
+    if (result.candidates.empty() || result.hist.empty()) {
+        out[1] = i32(beam::now_ms() - start);
+        return;
+    }
+
+    bool no_visit = true;
+    for (auto& c : result.candidates) if (c.visit > 0) { no_visit = false; break; }
+    const i32 chosen = i32(select_candidate(result, state, queue, w, incoming, no_visit));
+
+    // 選んだ初手から来たノードがある最も深い層で、キー最大のものから親をたどる
+    std::vector<move::Placement> line;
+    for (i32 d = i32(result.hist.size()) - 1; d >= 0 && line.empty(); --d) {
+        const auto& layer = result.hist[d];
+        i32 at = -1;
+        for (i32 i = 0; i < i32(layer.size()); ++i) {
+            if (layer[i].index != chosen) continue;
+            if (at < 0 || layer[i].key > layer[at].key) at = i;
+        }
+        if (at < 0) continue;
+        line.resize(d + 1);
+        for (i32 k = d; k >= 0; --k) {
+            line[k] = result.hist[k][at].placement;
+            at = result.hist[k][at].parent;
+        }
+    }
+    if (line.empty()) line.push_back(result.candidates[chosen].placement);
+
+    // 手を進めながら HOLD・T-spin を求める
+    const i32 cap = (outLen - 4) / 11;
+    i32 n = 0;
+    auto sim = state;
+    for (auto placement : line) {
+        if (n >= cap) break;
+        i32* o = out + 4 + n * 11;
+        o[0] = to_tet(placement.type);
+        for (i32 i = 0; i < 4; ++i) {
+            o[1 + i * 2] = placement.x + piece::get_offset_x(placement.type, placement.r, i);
+            o[2 + i * 2] = 19 - (placement.y + piece::get_offset_y(placement.type, placement.r, i));
+        }
+        o[9] = placement.type != queue[sim.next];
+        {
+            auto b = sim.board;
+            o[10] = placement.get_tspin_type(b);
+        }
+        sim.advance(placement, queue);
+        n++;
+    }
+    out[0] = n;
+    out[1] = i32(beam::now_ms() - start);
 }
 
 }

@@ -2,16 +2,18 @@
 // assist/assist_tet.js  ―  アシストの tet 側（計算 + 描画）
 //   思考は LV7（clys 型探索）の worker（cpu/tet/lv7/wasm/cpu_worker7.js）と直接話す。
 //   CPU7 クラスは使わない（TEST 専用の作りが多いため。設計 §4.1）。
-//   LV7 は初手しか返さないので、1手ずつ盤面を進めて呼び直し、手の列を作る。
-//   見えている NEXT だけを渡す（見えないツモを使った手順は出さない。設計 J2）。
+//   1回の探索で「初手（LV7 と同じ選び方）とその先の読み筋」をまとめて返す 'plan'（lv7Plan）を使う（設計 §10.3）。
+//   見えている NEXT だけを渡す（見えないツモを使った手順は出さない。設計 J2）。PC も LV7 の読み筋に任せる。
 //   操作の経路・回転の向きは自前の BFS（SRS キック込み。game/tet/rotation.js と同じ表）で求める。
 // ─────────────────────────────────────────────
 
 (function () {
     const COLS = 10, ROWS = 20, TOP = 5;           // 盤面は y=-5..19
     const BS = 32;                                  // 1マスのpx
-    const WORKER_URL_FALLBACK = 'cpu/tet/lv7/wasm/cpu_worker7.js?v=1'; // CPU7.WORKER_URLS[0] と同じ値（再ビルド時は揃える）
-    const THINK_FIRST_MS = 70, THINK_NEXT_MS = 40, BEAM_WIDTH = 256;
+    const WORKER_URL_FALLBACK = 'cpu/tet/lv7/wasm/cpu_worker7.js?v=2'; // CPU7.WORKER_URLS[0] と同じ値（再ビルド時は揃える）
+    // 重みは渡さない（空 = engine の既定値 = CPU7 の既定値）。幅は CPU7 と同じ。
+    //   見えている NEXT（6層まで）は 10ms 前後で読み切るので、締め切りは読み切るための保険
+    const PLAN_MS = 150, BEAM_WIDTH = 256;
 
     const COLORS = [
         [0, 240, 240], [240, 240, 0], [160, 0, 240], [0, 0, 240],
@@ -232,8 +234,8 @@
     const ask = (msg) => new Promise(resolve => send({ msg, done: resolve }));
 
     // ─── 仮想の局面（計画の各手の前の状態）───
-    //   queue[0] が手にあるミノ、以降が見えている NEXT。LV7 は初手しか返さないので、
-    //   1手ずつ「仮想上で置いて」次の局面を作り、そこから次の1手を聞く（設計 §10.2）。
+    //   queue[0] が手にあるミノ、以降が見えている NEXT。計画に従っているかの照合と、
+    //   見どころの先を読み直す時の起点に使う（設計 §10.2・§10.3）。
     // bagAfter：queue を引いたあとの 7-bag の残り（ビット）。LV7 は queue から bag を逆算するので、
     //   bag の切れ目が分からないと同じミノが続く queue で探索が失敗する（手が返らない）。
     //   見えている範囲の切れ目だけ使い、見えない NEXT の中身は使わない（切れ目の位置は個数だけで決まる）。
@@ -295,36 +297,40 @@
         return null;
     }
 
-    // 局面 st から LV7 に次の1手を聞く。first=true は計画の最初の1手（長めに考える）
-    async function lv7Next(st, first, serial) {
-        // HOLD 済みの局面では HOLD できない。「HOLD に今のミノと同じミノがある」ことにして HOLD を無意味にする
-        const holdArg = (!st.canHold) ? st.queue[0] : st.hold;
+    // 局面 st から LV7 の読み筋（初手とその先の手の列）をまとめて聞く。見えている NEXT を読み切る
+    //   HOLD 済みの局面では HOLD できない。「HOLD に今のミノと同じミノがある」ことにして初手の HOLD を無意味にする。
+    //   その場合 2手目以降の HOLD の中身がずれるので、初手だけ使う（続きは呼び出し側で聞き直す）
+    async function lv7Plan(st, serial) {
+        const noHold = !st.canHold;
         const res = await ask({
-            type: 'calculate',
+            type: 'plan',
             boardBuffer: Uint8Array.from(st.grid),
             queue: new Int32Array(st.queue),
-            holdType: holdArg,
+            holdType: noHold ? st.queue[0] : st.hold,
             bagAfter: st.bagAfter,
             backToBack: st.b2b,
             ren: st.ren,
-            incoming: first ? st.incoming || 0 : 0,
+            incoming: st.incoming || 0,
             weights: new Int32Array(0),
             width: BEAM_WIDTH,
             depth: Math.max(1, st.queue.length),
-            thinkMs: first ? THINK_FIRST_MS : THINK_NEXT_MS,
+            thinkMs: PLAN_MS,
         });
-        if (Assist.serial !== serial) return null;
-        if (!res || res[0] !== 1) return null;
-        const type = res[1];
-        const cells = [];
-        for (let i = 0; i < 4; i++) cells.push({ x: res[2 + i * 2], y: res[3 + i * 2] });
-        const pose = findPose(type, cells);
-        if (!pose) return null;
-        const hold = res[10] === 1;
-        if (hold && st.hold === -1 && st.queue.length < 2) return null;
-        const step = { type, rot: pose.rot, x: pose.x, y: pose.y, ts: res[16] };
-        if (hold) step.hold = true;
-        return step;
+        if (Assist.serial !== serial || !res) return null;
+        const n = noHold ? Math.min(res[0], 1) : res[0];
+        const steps = [];
+        for (let k = 0; k < n; k++) {
+            const o = 4 + k * 11;                               // lv7_wasm.cpp lv7Plan の出力の並び
+            const type = res[o];
+            const cells = [];
+            for (let i = 0; i < 4; i++) cells.push({ x: res[o + 1 + i * 2], y: res[o + 2 + i * 2] });
+            const pose = findPose(type, cells);
+            if (!pose) break;
+            const step = { type, rot: pose.rot, x: pose.x, y: pose.y, ts: res[o + 10] };
+            if (res[o + 9] === 1) step.hold = true;
+            steps.push(step);
+        }
+        return steps;
     }
 
     // ─── 計画の組み立て ───
@@ -389,103 +395,35 @@
     const TS_NAME = ['', 'TSS', 'TSD', 'TST'];
     const TS_JA = ['', 'シングル', 'ダブル', 'トリプル'];
 
-    // 生の手の列（worker/PC 探索の座標）→ 見どころ付きの計画。見どころが無ければ null。
-    //   見どころ = depth 手以内の T-spin（ミニ除く・1ライン以上）か PC。最初に起きる方まで
-    function buildFromRaw(grid0, raw, depth, pcOnly, all) {
+    // 生の手の列（worker の座標）→ 見どころ付きの計画。
+    //   見どころ = depth 手以内で最初に起きる T-spin（ミニ除く・1ライン以上）か PC。
+    //   HINT は見どころの手まで（無ければ null）。ALL は見どころの先も depth 手まで並べる（見どころが無くても出す）
+    function buildFromRaw(grid0, raw, depth, all) {
         let grid = grid0;
         let ymap = {};
         for (let y = -TOP; y < ROWS; y++) ymap[y] = y;
         const steps = [];
         const n = Math.min(raw.length, depth);
+        let hit = null;
         for (let k = 0; k < n; k++) {
             const st = decorate(grid, Object.assign({}, raw[k]), ymap);
             steps.push(st);
             const res = placeAndClear(grid, st.simCells);
             const lines = res.cleared.length;
-            const when = k === 0 ? 'この手で' : `${k + 1}手目で`;
-            if (!pcOnly && st.type === 2 && st.spin === 1 && lines >= 1 && lines <= 3) {
-                return { kind: TS_NAME[lines], text: `${when}Tスピン${TS_JA[lines]}`, steps, hl: k, raw: raw.slice(0, k + 1) };
-            }
-            if (lines > 0 && isEmpty(res.grid)) {
-                return { kind: 'PC', text: `${k + 1}手でパーフェクトクリア`, steps, hl: k, raw: raw.slice(0, k + 1) };
+            if (!hit) {
+                const when = k === 0 ? 'この手で' : `${k + 1}手目で`;
+                if (st.type === 2 && st.spin === 1 && lines >= 1 && lines <= 3) {
+                    hit = { kind: TS_NAME[lines], text: `${when}Tスピン${TS_JA[lines]}`, hl: k };
+                } else if (lines > 0 && isEmpty(res.grid)) {
+                    hit = { kind: 'PC', text: `${k + 1}手でパーフェクトクリア`, hl: k };
+                }
+                if (hit && !all) return Object.assign(hit, { steps, raw: raw.slice(0, k + 1) });
             }
             ymap = nextYmap(ymap, res.cleared);
             grid = res.grid;
         }
-        // 見どころが無い：ALL は手の列をそのまま出す（番号は1手目から。強調は1手目だけ）
-        return all ? { kind: '', text: '', steps, hl: -1, raw: raw.slice(0, n), forType: raw[0] && raw[0].type } : null;
-    }
-
-
-    // ─── PC（パーフェクトクリア）探索 ───
-    //   旧 LV6 には PC 用 worker が無いので JS の DFS で探す（盤面が低い時だけ・時間制限つき）。
-    //   置き方は「真下に落とす」位置だけ（滑り込み・T-spin の PC は見ない）。見えている NEXT と HOLD まで。
-    const PC_BUDGET_MS = 30;
-    const countBlocks = (grid) => { let n = 0; for (let i = 0; i < grid.length; i++) n += grid[i]; return n; };
-    function stackHeight(grid) {
-        for (let y = -TOP; y < ROWS; y++) {
-            for (let x = 0; x < COLS; x++) if (grid[(y + TOP) * COLS + x]) return ROWS - y;
-        }
-        return 0;
-    }
-
-    function pcPlacements(grid, type) {
-        const out = [], seen = new Set();
-        const sy = (type === 0) ? -1 : -2;
-        for (let rot = 0; rot < 4; rot++) {
-            for (let x = -2; x < COLS; x++) {
-                if (!fits(grid, type, rot, x, sy)) continue;
-                const y = dropY(grid, type, rot, x, sy);
-                const cells = cellsAt(type, rot, x, y);
-                const k = cells.map(c => c.x + ',' + c.y).sort().join('|');
-                if (seen.has(k)) continue;                  // O/I/S/Z の同形の重複
-                seen.add(k);
-                out.push({ rot, x, y, cells });
-            }
-        }
-        return out;
-    }
-
-    function pcSearch(grid0, curType, holdType, canHold, nexts, maxD) {
-        const seq = [curType].concat(nexts);
-        const b0 = countBlocks(grid0);
-        const deadline = performance.now() + PC_BUDGET_MS;
-        let timedOut = false;
-
-        function dfs(grid, idx, hold, canHoldNow, rem, out) {
-            if (rem === 0) return isEmpty(grid);
-            if (performance.now() > deadline) { timedOut = true; return false; }
-            const cap = (countBlocks(grid) + 4 * rem) / 10;
-            if (cap !== Math.floor(cap) || stackHeight(grid) > cap) return false;
-            const opts = [];
-            if (idx < seq.length) opts.push({ type: seq[idx], nidx: idx + 1, nhold: hold, held: false });
-            if (canHoldNow) {
-                if (hold === -1) {
-                    if (idx + 1 < seq.length) opts.push({ type: seq[idx + 1], nidx: idx + 2, nhold: seq[idx], held: true });
-                } else if (idx < seq.length && hold !== seq[idx]) {
-                    opts.push({ type: hold, nidx: idx + 1, nhold: seq[idx], held: true });
-                }
-            }
-            for (const o of opts) {
-                for (const pl of pcPlacements(grid, o.type)) {
-                    const res = placeAndClear(grid, pl.cells);
-                    out.push({ type: o.type, rot: pl.rot, x: pl.x, y: pl.y, hold: o.held });
-                    if (dfs(res.grid, o.nidx, o.nhold, true, rem - 1, out)) return true;
-                    out.pop();
-                    if (timedOut) return false;
-                }
-            }
-            return false;
-        }
-
-        for (let d = 1; d <= Math.min(maxD, seq.length); d++) {
-            const total = b0 + 4 * d;
-            if (total % 10 || stackHeight(grid0) > total / 10) continue;
-            const out = [];
-            if (dfs(grid0, 0, holdType, canHold, d, out)) return out;
-            if (timedOut) return null;
-        }
-        return null;
+        if (!all) return null;
+        return Object.assign(hit || { kind: '', text: '', hl: -1 }, { steps, raw: raw.slice(0, n) });
     }
 
     // 盤面の署名（計画が崩れていないかの確認用）
@@ -500,8 +438,11 @@
             if (S.worker) { try { S.worker.terminate(); } catch (e) { /* noop */ } S.worker = null; S.ready = false; }
         },
 
-        // 計画の保存先 S.cache = { raw, states, pc }。いまの局面が保存した計画のどこかに一致すれば、
-        // その続きをそのまま使い、足りない手だけ末尾に1手ずつ足す。一致しなければ1手目から作り直す。
+        // 計画の保存先 S.cache = { raw, states }（states[k] = k 手目の前の仮想局面）。
+        //   ・いまの局面が保存した計画のどこかに一致し（従っている）、その続きに見どころがあれば、見どころの手までは固定する
+        //   ・固定した手の先（見どころが無ければ1手目から）は、いまの局面から LV7 の読み筋を1回で取り直す
+        //     （新しく見えた NEXT まで読む。1手ずつ聞き直す方式より探索が少なく、後ろの手も同じ深さで読める）
+        //   ・読み直しが返るまでは、固定した手（見どころまで）だけ先に出しておく（読み直しは 10〜20ms で返る）
         onSpawn(g, cfg, serial) {
             if (!g.mino) return;
             const depth = Assist.effectiveDepth(cfg, g);
@@ -511,50 +452,45 @@
             const all = cfg.mode === 'all';
             const type = g.mino.type;
 
-            let raw = [], states = [act], pc = false;
+            let keep = [];
             const c = S.cache;
             S.cache = null;
             const m = c ? matchCache(c, act) : null;
             if (m) {
-                raw = c.raw.slice(m.k);
-                pc = c.pc;
-                if (m.held) raw[0] = Object.assign({}, raw[0], { hold: false });
-                states = replay(act, raw);
+                keep = c.raw.slice(m.k);
+                if (m.held) keep[0] = Object.assign({}, keep[0], { hold: false });
             }
+            const kp = keep.length ? buildFromRaw(act.grid, keep, depth, false) : null;
+            const fixed = kp ? keep.slice(0, kp.hl + 1) : [];
 
-            // PC は見つかれば T-spin より優先（盤面が低い時だけ探す。従っている PC の計画があればそのまま）
-            if (!pc) {
-                const nexts = [];
-                for (let i = 0; i < visible; i++) nexts.push(g.nextQueue[i].type);
-                const pcRaw = pcSearch(act.grid, type, act.hold, act.canHold, nexts, depth);
-                if (pcRaw) { raw = pcRaw; pc = true; states = replay(act, raw); }
-            }
-
-            const show = () => {
-                const plan = buildFromRaw(act.grid, raw, depth, pc, all);
+            const show = (raw) => {
+                const plan = buildFromRaw(act.grid, raw, depth, all);
                 if (plan) plan.forType = type;
-                S.cache = { raw, states, pc };
+                S.cache = { raw, states: replay(act, raw) };
                 Assist.publish(serial, plan);
-                return plan;
             };
-            let plan = show();
-            S.inflight = serial;
+            let base = act;
+            for (const step of fixed) base = advance(base, step);
+            const done = fixed.length >= depth || !base.queue.length;
+            if (!done) S.inflight = serial;
+            if (fixed.length || done) show(fixed);
+            if (done) return;
 
-            // 足りない手を1手ずつ足す（1手足すごとに表示を更新）。見どころが見つかった／DEPTH に届いた／NEXT が尽きたら止める
-            const extend = async () => {
-                ensureWorker();
-                while (!pc && raw.length < depth && !(plan && plan.kind) && Assist.serial === serial) {
-                    const last = raw.length ? advance(states[raw.length - 1], raw[raw.length - 1]) : act;
-                    if (!last.queue.length) break;
-                    const step = await lv7Next(last, raw.length === 0, serial);
-                    if (!step || Assist.serial !== serial) break;
-                    raw = raw.concat(step);
-                    states = states.length === raw.length ? states : states.concat(last);
-                    plan = show();
+            ensureWorker();
+            (async () => {
+                let tail = await lv7Plan(base, serial);
+                // HOLD できない局面は初手しか使えないので、初手を置いた局面から続きを聞き直す
+                if (tail && tail.length === 1 && !base.canHold && fixed.length + 1 < depth) {
+                    const nx = advance(base, tail[0]);
+                    if (nx.queue.length) {
+                        const more = await lv7Plan(nx, serial);
+                        if (more) tail = tail.concat(more);
+                    }
                 }
                 if (S.inflight === serial) S.inflight = null;
-            };
-            extend();
+                if (Assist.serial !== serial || !tail) return;
+                show(fixed.concat(tail));
+            })();
         },
 
         // ─── 描画 ───
@@ -682,6 +618,6 @@
     };
 
     // 内部を他ファイル（A2 以降）が使えるように公開
-    Tet._k = { S, snapshot, lv7Next, shapeOf, cellsAt, gridFromGame, fits, occ, tryRotate, tspinKind, findPath, isComplex, dropY, decorate, buildFromRaw, placeAndClear, isEmpty, pcSearch, COLS, ROWS, TOP, BS };
+    Tet._k = { S, snapshot, lv7Plan, shapeOf, cellsAt, gridFromGame, fits, occ, tryRotate, tspinKind, findPath, isComplex, dropY, decorate, buildFromRaw, placeAndClear, isEmpty, COLS, ROWS, TOP, BS };
     window.AssistTet = Tet;
 })();

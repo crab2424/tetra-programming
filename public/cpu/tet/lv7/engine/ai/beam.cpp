@@ -51,10 +51,16 @@ u32 expand(
 {
     u32 nodes = 0;
 
+    // 読み筋モードの最後の層：キューを使い切った（空の HOLD から HOLD した）ノードは先が無い
+    if (node.state.next >= queue.size()) {
+        return 0;
+    }
+
     piece::Type pieces[2] = { queue[node.state.next], node.state.hold };
 
     if (pieces[1] == piece::Type::NONE) {
-        pieces[1] = queue[node.state.next + 1];
+        // HOLD が空で次の1本が無ければ HOLD はできない（読み筋モードの最後の層だけ。通常は max_layers で届かない）
+        pieces[1] = node.state.next + 1 < queue.size() ? queue[node.state.next + 1] : piece::Type::NONE;
     }
 
     if (pieces[0] == pieces[1]) {
@@ -91,7 +97,7 @@ Result search(
 {
     auto result = Result();
 
-    if (queue.size() < 2 || !beam::is_queue_valid(queue, state.bag)) {
+    if (queue.size() < (configs.pv ? 1u : 2u) || !beam::is_queue_valid(queue, state.bag)) {
         return result;
     }
 
@@ -117,6 +123,7 @@ Result search(
             auto candidate = beam::Candidate();
             candidate.placement = placement;
             child.index = i32(result.candidates.size());
+            child.placement = placement;
             eval::evaluate(child, root, placement, queue, w, configs.incoming);
             result.candidates.push_back(candidate);
             // 原作は push_back（重複除去なし）。幅が初手の数より小さいと原作は sort_heap を壊れた heap に
@@ -132,10 +139,21 @@ Result search(
     result.depth = 1;
 
     // 読める深さ：キューの本数（HOLD が空なら1本多く使う）と configs.depth の小さい方
-    const size_t max_layers = std::min(
+    const size_t base_layers = std::min(
         configs.depth,
         queue.size() - (root.state.hold == piece::Type::NONE)
     );
+    // 読み筋モードは HOLD が空でも最後の1本を置く層を足す（HOLD を使わなかった筋だけが伸びる。visit には数えない）
+    const size_t max_layers = configs.pv ? std::min(configs.depth, queue.size()) : base_layers;
+
+    // 読み筋モード：層を記録する（子の parent はこの記録での位置）
+    auto record = [&] (Beam& layer) {
+        std::vector<PvEntry> v;
+        layer.for_each([&] (node::Data& node) {
+            v.push_back({ node.parent, node.index, node.score.action + node.score.eval, node.placement });
+        });
+        result.hist.push_back(std::move(v));
+    };
 
     auto mark_last = [&] (Beam& layer) {
         layer.for_each([&] (node::Data& node) {
@@ -160,9 +178,14 @@ Result search(
         Beam& children = layers[result.depth & 1];
 
         parents.sort();
+        if (configs.pv) record(parents);
 
+        i32 pos = 0;
         parents.for_each([&] (node::Data& node) {
+            const i32 parent = pos++;
             result.nodes += beam::expand(queue, node, [&] (node::Data& child, move::Placement placement) {
+                child.parent = parent;
+                child.placement = placement;
                 eval::evaluate(child, node, placement, queue, w, configs.incoming);
                 children.add(child);
             });
@@ -176,16 +199,19 @@ Result search(
 
         i32 index = -1;
         bool same = true;
+        const bool bonus = result.depth >= base_layers;   // 読み筋モードで足した層
 
-        children.for_each([&] (node::Data& node) {
-            result.candidates[node.index].visit += 1;
-            if (index == -1) index = node.index;
-            else if (index != node.index) same = false;
-        });
+        if (!bonus) {
+            children.for_each([&] (node::Data& node) {
+                result.candidates[node.index].visit += 1;
+                if (index == -1) index = node.index;
+                else if (index != node.index) same = false;
+            });
+        }
 
         result.depth += 1;
 
-        if (same) {
+        if (same && !configs.pv) {
             // 子が全部同じ初手から来た：その初手で決まり
             result.decided = true;
             for (auto& c : result.candidates) c.best = INT32_MIN;
@@ -196,6 +222,7 @@ Result search(
     }
 
     mark_last(layers[(result.depth - 1) & 1]);
+    if (configs.pv && result.hist.size() < result.depth) record(layers[(result.depth - 1) & 1]);
 
     return result;
 };
