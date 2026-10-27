@@ -494,8 +494,7 @@
             const svgNs = 'http://www.w3.org/2000/svg';
             const svg = document.createElementNS(svgNs, 'svg');
             svg.setAttribute('class', 'assist-svg');
-            svg.setAttribute('viewBox', `0 0 ${COLS * BS} ${(ROWS + 1) * BS}`);
-            ov.add(svg);
+            svg.setAttribute('viewBox', `0 0 ${COLS * BS} ${ROWS * BS + BS / 2}`);
             plan.steps.forEach((st, i) => {
                 const [r, gn, b] = COLORS[st.type];
                 const hi = plan.hl === i;
@@ -507,7 +506,7 @@
                     d.className = 'assist-block' + (hi ? ' is-hi' : '') + (i === 0 ? ' is-first' : '');
                     d.style.left = (c.x * BS) + 'px';
                     d.style.top = ((c.y + 0.5) * BS) + 'px';
-                    d.style.borderColor = hi ? 'var(--assist-color-hi)' : `rgba(${r},${gn},${b},${op})`;
+                    d.style.borderColor = `rgba(${r},${gn},${b},${hi ? 1 : op})`;
                     d.style.backgroundColor = `rgba(${r},${gn},${b},${bg})`;
                     ov.add(d);
                 });
@@ -521,6 +520,7 @@
                 ov.add(bd);
                 if (st.rotation) Tet._drawRotation(svg, st, svgNs);
             });
+            ov.add(svg);                                        // 点線・矢印は番号やブロックより前面
         },
 
         // ゴースト（今の落下先）が1手目の目標と一致したら枠を光らせる（設計 J5）
@@ -571,31 +571,38 @@
             // 矢印：最終位置のピボットまわりの円弧
             const pv = shapeOf(st.type, st.rot).pivot;
             const dy = my(st.y) - st.y;
-            const cx = (st.x + pv.x + 0.5) * BS, cy = (st.y + dy + pv.y + 1) * BS;
-            const R = 30, a0 = -150, a1 = -40;                  // 度。上側の弧
+            const cx = (st.x + pv.x + 0.5) * BS, cy = (st.y + dy + pv.y + 1) * BS; // ピボットのマスの中央
+            const R = 12, a0 = -200, a1 = 20;                   // 度。ピボットのマス中央まわりの弧
             const rad = (d) => d * Math.PI / 180;
             const s = rt.dir === 1 ? a0 : a1, e = rt.dir === 1 ? a1 : a0; // 右回転は左→右へ
             const px = (d) => cx + R * Math.cos(rad(d)), py = (d) => cy + R * Math.sin(rad(d));
             const path = document.createElementNS(ns, 'path');
             path.setAttribute('d', `M ${px(s)} ${py(s)} A ${R} ${R} 0 0 ${rt.dir === 1 ? 1 : 0} ${px(e)} ${py(e)}`);
             path.setAttribute('fill', 'none');
+            const halo = path.cloneNode();
+            halo.setAttribute('stroke', 'rgba(10,10,15,0.85)');
+            halo.setAttribute('stroke-width', '6');
+            svg.appendChild(halo);
             path.setAttribute('stroke', '#ffd54a');
-            path.setAttribute('stroke-width', '2.5');
+            path.setAttribute('stroke-width', '3');
             svg.appendChild(path);
             // 矢じり（終点の接線方向）
             const tdir = rad(e) + (rt.dir === 1 ? Math.PI / 2 : -Math.PI / 2);
-            const ex = px(e), ey = py(e), L = 8;
+            const ex = px(e), ey = py(e), L = 9;
             const head = document.createElementNS(ns, 'polygon');
             const p1 = [ex + L * Math.cos(tdir), ey + L * Math.sin(tdir)];
             const p2 = [ex + L * 0.7 * Math.cos(tdir + 2.5), ey + L * 0.7 * Math.sin(tdir + 2.5)];
             const p3 = [ex + L * 0.7 * Math.cos(tdir - 2.5), ey + L * 0.7 * Math.sin(tdir - 2.5)];
             head.setAttribute('points', `${p1} ${p2} ${p3}`);
             head.setAttribute('fill', '#ffd54a');
+            head.setAttribute('stroke', 'rgba(10,10,15,0.85)');
+            head.setAttribute('stroke-width', '1.5');
             svg.appendChild(head);
             if (rt.count > 1) {
                 const tx = document.createElementNS(ns, 'text');
-                tx.setAttribute('x', cx); tx.setAttribute('y', cy - R - 4);
-                tx.setAttribute('fill', '#ffd54a'); tx.setAttribute('font-size', '11');
+                tx.setAttribute('x', cx); tx.setAttribute('y', cy + 4);
+                tx.setAttribute('fill', '#ffd54a'); tx.setAttribute('font-size', '11'); tx.setAttribute('font-weight', '700');
+                tx.setAttribute('stroke', 'rgba(10,10,15,0.85)'); tx.setAttribute('stroke-width', '2'); tx.setAttribute('paint-order', 'stroke');
                 tx.setAttribute('text-anchor', 'middle');
                 tx.textContent = `×${rt.count}`;
                 svg.appendChild(tx);

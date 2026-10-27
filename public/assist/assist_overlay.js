@@ -10,6 +10,7 @@
 
     const Overlay = {
         layer: null,
+        canvas: null,
         banner: null,
 
         mount(game, rule) {
@@ -25,6 +26,23 @@
             layer.style.height = H + 'px';
             canvas.parentNode.appendChild(layer);
             this.layer = layer;
+            this.canvas = canvas;
+            this.fit();
+        },
+
+        // 層をキャンバスの描画領域(枠の内側)にぴったり重ねる。
+        //   VERSUS は CSS で 320x656 を border-box 指定しているため、枠 3px ぶん描画領域が縮む(314x650)。
+        //   PRACTICE は枠の外側に 3px 余る。どちらも「枠の内側 = 320x656 の盤面座標」に合うよう
+        //   位置を枠ぶんずらし、描画領域の実寸との比で縮尺する。
+        fit() {
+            const c = this.canvas, l = this.layer;
+            if (!c || !l) return;
+            const sx = c.clientWidth ? c.clientWidth / W : 1;
+            const sy = c.clientHeight ? c.clientHeight / H : 1;
+            l.style.left = (c.offsetLeft + c.clientLeft) + 'px';
+            l.style.top = (c.offsetTop + c.clientTop) + 'px';
+            l.style.transformOrigin = '0 0';
+            l.style.transform = (Math.abs(sx - 1) > 0.001 || Math.abs(sy - 1) > 0.001) ? `scale(${sx}, ${sy})` : '';
         },
 
         unmount() {
@@ -41,6 +59,7 @@
         // plan の描画は assist_tet.js / assist_puyo.js が提供する drawTet / drawPuyo が担う
         render(plan, game, rule) {
             if (!this.layer) return;
+            this.fit();
             this.clear();
             if (!plan) return;
             if (rule === 'puyo') window.AssistPuyo?.draw?.(this, plan, game);

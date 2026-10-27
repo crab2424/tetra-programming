@@ -109,17 +109,28 @@
   position: absolute;
   box-sizing: border-box;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.5);
+  border: 3px solid #fff; /* 色は JS がぷよの色で上書き。中身は塗らない */
 }
 
 .assist-puyo.is-hi {
-  border-color: var(--assist-color-hi);
+  box-shadow: 0 0 8px var(--assist-color-hi);
 }
 
+/* 発火枠：ぷよの枠より一回り外側。色は JS がぷよの色で上書き */
 .assist-fire {
   position: absolute;
   box-sizing: border-box;
   border-radius: 50%;
-  border: 3px dashed var(--assist-color-hi);
-  box-shadow: 0 0 10px var(--assist-color-hi);
+  border: 3px dashed #fff;
+  transform: scale(1.12);
+}
+
+.assist-puyo-badge {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 14px;
 }

@@ -262,10 +262,12 @@
             const f = fieldOf(g);
             S.want = 0;
 
-            // 提示した手順に従っている間は計画を固定する（設計 D11）
+            // 提示した手順に従っている間は計画を固定する（設計 D11）。
+            //   盤面が予想と少しずれても（おじゃま着弾・置き方の差など）残りの手順がそのまま
+            //   CHAIN 以上を撃てるなら、新しい探索に乗り換えずに同じ計画を続ける。
             const fx = S.fixed;
             S.fixed = null;
-            if (fx && fx.raw.length > 1 && sameField(fx.expect, f)
+            if (fx && fx.raw.length > 1
                 && g.pivotColor === fx.raw[1].colors[0] && g.childColor === fx.raw[1].colors[1]) {
                 const plan = buildFromRaw(f, fx.raw.slice(1), cfg, erase);
                 if (plan) { Puyo._remember(plan, f); Assist.publish(serial, plan); return; }
@@ -291,42 +293,48 @@
         },
 
         // ─── 描画 ───
+        //   本物のゴーストと見分けるため、中身は塗らず枠線だけ（枠の色=ぷよの色）。
+        //   重なり順は 発火枠 → ぷよの枠 → 番号（番号が最前面）。
         draw(ov, plan) {
             if (!plan || !plan.steps.length) return;
             const w = 32 * SCALE_X, h = 32 * SCALE_Y;
+            const place = (el, p) => {
+                el.style.width = w + 'px'; el.style.height = h + 'px';
+                el.style.left = (p.c * w) + 'px'; el.style.top = ((p.r - HID) * h) + 'px';
+                return el;
+            };
+            // 発火点のマーク（連鎖の最初の消去に入るぷよ）。ぷよの色で、枠より一回り外側
+            (plan.fire || []).forEach(p => {
+                if (p.r - HID < 0) return;
+                const m = place(document.createElement('div'), p);
+                m.className = 'assist-fire';
+                m.style.borderColor = COLORS[p.color - 1] || '#fff';
+                m.style.boxShadow = `0 0 10px ${COLORS[p.color - 1] || '#fff'}`;
+                ov.add(m);
+            });
             plan.steps.forEach((st, i) => {
                 const hi = plan.hl === i;
-                const op = i === 0 ? 0.8 : 0.5;
                 st.cells.forEach(p => {
-                    const dr = p.r - HID;
-                    if (dr < 0) return;
-                    const d = document.createElement('div');
-                    d.className = 'assist-puyo' + (hi ? ' is-hi' : '');
-                    d.style.width = w + 'px'; d.style.height = h + 'px';
-                    d.style.left = (p.c * w) + 'px'; d.style.top = (dr * h) + 'px';
-                    d.style.backgroundColor = COLORS[p.color - 1] || '#fff';
-                    d.style.opacity = op;
+                    if (p.r - HID < 0) return;
+                    const d = place(document.createElement('div'), p);
+                    d.className = 'assist-puyo' + (hi ? ' is-hi' : '') + (i === 0 ? ' is-first' : '');
+                    d.style.borderColor = COLORS[p.color - 1] || '#fff';
+                    d.style.opacity = i === 0 ? 1 : 0.7;
                     ov.add(d);
                 });
-                const top = st.cells.reduce((a, p) => (p.r < a.r ? p : a), st.cells[0]);
-                if (top.r >= HID) {
-                    const bd = document.createElement('div');
-                    bd.className = 'assist-badge' + (hi ? ' is-hi' : '');
-                    bd.textContent = String(i + 1);
-                    bd.style.left = (top.c * w + 2) + 'px';
-                    bd.style.top = ((top.r - HID) * h + 2) + 'px';
-                    ov.add(bd);
-                }
             });
-            // 発火点のマーク（連鎖の最初の消去に入るぷよ）
-            (plan.fire || []).forEach(p => {
-                const dr = p.r - HID;
-                if (dr < 0) return;
-                const m = document.createElement('div');
-                m.className = 'assist-fire';
-                m.style.width = w + 'px'; m.style.height = h + 'px';
-                m.style.left = (p.c * w) + 'px'; m.style.top = (dr * h) + 'px';
-                ov.add(m);
+            // 番号：親・子それぞれのぷよに付ける（ちぎりでも、どの手のぷよか分かる）
+            plan.steps.forEach((st, i) => {
+                const hi = plan.hl === i;
+                st.cells.forEach(p => {
+                    if (p.r - HID < 0) return;
+                    const bd = document.createElement('div');
+                    bd.className = 'assist-badge assist-puyo-badge' + (hi ? ' is-hi' : '');
+                    bd.textContent = String(i + 1);
+                    bd.style.left = (p.c * w + w / 2 - 8) + 'px';
+                    bd.style.top = ((p.r - HID) * h + h / 2 - 8) + 'px';
+                    ov.add(bd);
+                });
             });
         },
     };
