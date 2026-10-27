@@ -238,11 +238,24 @@
             if (d && d !== S.lastData && g._gs === 'falling' && S.want) {
                 S.lastData = d;
                 const w = S.want;
-                const pl = placePair(fieldOf(g), d.col1, d.rot1, [g.pivotColor, g.childColor]);
-                if (pl) {
-                    const step = { col: d.col1, rot: d.rot1, colors: [g.pivotColor, g.childColor], cells: pl.cells };
-                    Assist.publish(w, { kind: '', text: '', steps: [step], hl: -1, fire: [] });
+                // LV6 の読み筋（1〜3手目）を、見えている NEXT と DEPTH の範囲で並べる
+                const cfg = Assist.get();
+                const depth = Assist.effectiveDepth(cfg, g);
+                const tsumos = tsumosOf(g, depth);
+                const erase = eraseCount(g);
+                const picks = [[d.col1, d.rot1], [d.col2, d.rot2], [d.col3, d.rot3]];
+                let f = fieldOf(g);
+                const steps = [];
+                for (let k = 0; k < picks.length && k < tsumos.length; k++) {
+                    const [col, rot] = picks[k];
+                    if (col == null || col < 0) break;
+                    const pl = placePair(f, col, rot, tsumos[k]);
+                    if (!pl) break;
+                    steps.push({ col, rot, colors: tsumos[k], cells: pl.cells });
+                    const f2 = Int8Array.from(pl.f);
+                    f = resolve(f2, erase, pl.cells).chains > 0 ? f2 : pl.f;
                 }
+                if (steps.length) Assist.publish(w, { kind: '', text: '', steps, hl: -1, fire: [] });
             }
             S.raf = requestAnimationFrame(tick);
         };
