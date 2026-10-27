@@ -1,31 +1,17 @@
 // ─────────────────────────────────────────────
 // assist/assist_tet.js  ―  アシストの tet 側（計算 + 描画）
-//   思考は旧 LV6 のビーム探索 worker（cpu/tet/lv6/wasm/cpu_worker6.js）と直接話す。
-//   CPU6 クラスは使わない（TEST 専用の作りが多いため。設計 §4.1）。
-//   見えている NEXT より先は 0 で埋めて渡す（見えないツモを使った手順は出さない。設計 J2）。
+//   思考は LV7（clys 型探索）の worker（cpu/tet/lv7/wasm/cpu_worker7.js）と直接話す。
+//   CPU7 クラスは使わない（TEST 専用の作りが多いため。設計 §4.1）。
+//   LV7 は初手しか返さないので、1手ずつ盤面を進めて呼び直し、手の列を作る。
+//   見えている NEXT だけを渡す（見えないツモを使った手順は出さない。設計 J2）。
 //   操作の経路・回転の向きは自前の BFS（SRS キック込み。game/tet/rotation.js と同じ表）で求める。
 // ─────────────────────────────────────────────
 
 (function () {
     const COLS = 10, ROWS = 20, TOP = 5;           // 盤面は y=-5..19
     const BS = 32;                                  // 1マスのpx
-    const WORKER_URL_FALLBACK = 'cpu/tet/lv6/wasm/cpu_worker6.js?v=20'; // CPU6.WORKER_URLS[0] と同じ値
-
-    // 旧 LV6 の既定重み（cpu6.js のコンストラクタと同じ。配列の並びは requestSingleEvaluation 参照）
-    const WEIGHTS = [
-        100, -55, -560, -20, 4, 3, -2, -24, 72, 36,       // lineClear..touchingBonus
-        200, -800, -85,                                   // iWell iWellOver blocksOverHole
-        1000, 120, -600,                                  // line4 downstackGood downstackBad
-        100,                                              // P1_WEIGHT*100
-        2000, 750, 150,                                   // tSlotTsd tSlotReady tSlotTss
-        256, 2560, -60, -100,                             // tssClear tsdClear tsdHolePenalty pureHole
-        20, 496, -200,                                    // comboBonus btbKeep renCutPenalty
-        -100, -300,                                       // tsmMiniPenalty tMinoNoClearPenalty
-        100, -400,                                        // tsdSetup tsdSetupOver
-        72, -36,                                          // slopeBonus slopePenalty
-        100,                                              // centerDip
-        6000, 150, 8000, 10, 6000,                        // tstClear b2bHold tSlotTst tSlotReadyFin tSlotReadyTst
-    ];
+    const WORKER_URL_FALLBACK = 'cpu/tet/lv7/wasm/cpu_worker7.js?v=1'; // CPU7.WORKER_URLS[0] と同じ値（再ビルド時は揃える）
+    const THINK_FIRST_MS = 70, THINK_NEXT_MS = 40, BEAM_WIDTH = 256;
 
     const COLORS = [
         [0, 240, 240], [240, 240, 0], [160, 0, 240], [0, 0, 240],
@@ -201,7 +187,7 @@
 
     function ensureWorker() {
         if (S.worker) return;
-        const url = (window.CPU6 && CPU6.WORKER_URLS && CPU6.WORKER_URLS[0]) || WORKER_URL_FALLBACK;
+        const url = (window.CPU7 && CPU7.WORKER_URLS && CPU7.WORKER_URLS[0]) || WORKER_URL_FALLBACK;
         S.worker = CpuWorkerPool.acquire(url);
         S.ready = false;
         S.worker.onmessage = (e) => {
@@ -229,36 +215,71 @@
         return n;
     }
 
-    function buildMsg(g, visible) {
-        const board = new Uint8Array(250);
-        g.field.blocks.forEach(b => {
-            const by = b.y + TOP;
-            if (by >= 0 && by < 25 && b.x >= 0 && b.x < COLS) board[by * COLS + b.x] = 1;
-        });
-        const nq = (i) => (i < visible && g.nextQueue[i]) ? g.nextQueue[i].type : 0;
-        return {
-            type: 'calculate',
-            boardBuffer: board,
-            currentType: g.mino.type,
-            holdType: g.holdMino ? g.holdMino.type : -1,
-            next1: nq(0), next2: nq(1), next3: nq(2), next4: nq(3), next5: nq(4),
-            next6: nq(5), next7: nq(6), next8: nq(7),
-            canHold: g.canHold ? 1 : 0,
-            weightsArray: new Int32Array(WEIGHTS),
-            ren: g.ren || 0,
-            backToBack: g.backToBack ? 1 : 0,
-            incoming: incomingOf(g),
-        };
+    // 4マス（TETLABO 座標）に一致する (rot, x, y)（cpu7.js _findPose と同じ）
+    function findPose(type, cells) {
+        const key = (x, y) => x + ',' + y;
+        const want = new Set(cells.map(c => key(c.x, c.y)));
+        for (let rot = 0; rot < 4; rot++) {
+            const bl = shapeOf(type, rot).blocks;
+            for (const c of cells) {
+                const x = c.x - bl[0].x, y = c.y - bl[0].y;
+                if (bl.every(b => want.has(key(b.x + x, b.y + y)))) return { rot, x, y };
+            }
+        }
+        return null;
     }
 
-    // worker の結果 → 手の列 [{type, rot, x, y, hold?}]（最大6手。res[3..] の並びは cpu6.js handleWorkerResult と同じ）
-    function decode(res) {
-        if (res[0] === -1) return null;
-        const at = (i) => (res[i] >= 0 && res[i] <= 6) ? { type: res[i], rot: res[i + 1], x: res[i + 2], y: res[i + 3] - TOP } : null;
-        const steps = [at(3), at(8), at(13), at(17), at(21), at(25)].filter(Boolean);
-        if (!steps.length) return null;
-        if (res[0] === 1) steps[0].hold = true;
-        return { steps, tspin1: res[12] };
+    const ask = (msg) => new Promise(resolve => send({ msg, done: resolve }));
+
+    // LV7 に1手ずつ聞いて手の列を作る。盤面・HOLD・NEXT・BtB・REN を自前で進める。
+    //   戻り値：{ steps:[{type,rot,x,y,hold?}] }（古くなったら null）
+    async function lv7Chain(g, grid0, visible, depth, serial) {
+        let grid = grid0;
+        let queue = [g.mino.type];
+        for (let i = 0; i < visible && g.nextQueue[i]; i++) queue.push(g.nextQueue[i].type);
+        let hold = g.holdMino ? g.holdMino.type : -1;
+        // HOLD 済みの局面では HOLD できない。「HOLD に今のミノと同じミノがある」ことにして HOLD を無意味にする
+        if (!g.canHold) hold = g.mino.type;
+        let b2b = g.backToBack ? 1 : 0, ren = g.ren || 0;
+        const incoming = incomingOf(g);
+        const steps = [];
+        for (let k = 0; k < depth && queue.length > 0; k++) {
+            if (Assist.serial !== serial) return null;
+            const res = await ask({
+                type: 'calculate',
+                boardBuffer: Uint8Array.from(grid),
+                queue: new Int32Array(queue),
+                holdType: hold,
+                bagAfter: 0,
+                backToBack: b2b,
+                ren,
+                incoming: k === 0 ? incoming : 0,
+                weights: new Int32Array(0),
+                width: BEAM_WIDTH,
+                depth: Math.max(1, queue.length),
+                thinkMs: k === 0 ? THINK_FIRST_MS : THINK_NEXT_MS,
+            });
+            if (Assist.serial !== serial) return null;
+            if (!res || res[0] !== 1) break;
+            const type = res[1];
+            const cells = [];
+            for (let i = 0; i < 4; i++) cells.push({ x: res[2 + i * 2], y: res[3 + i * 2] });
+            const pose = findPose(type, cells);
+            if (!pose) break;
+            const useHold = res[10] === 1;
+            const holdEmpty = hold === -1;
+            if (useHold && holdEmpty && queue.length < 2) break;
+            const step = { type, rot: pose.rot, x: pose.x, y: pose.y };
+            if (useHold) step.hold = true;
+            steps.push(step);
+            const r = placeAndClear(grid, cells);
+            const lines = r.cleared.length;
+            if (lines > 0) { if (lines === 4 || res[16] > 0) b2b = 1; else b2b = 0; ren += 1; } else ren = 0;
+            grid = r.grid;
+            if (useHold) { const cur = queue[0]; queue = holdEmpty ? queue.slice(2) : queue.slice(1); hold = cur; }
+            else queue = queue.slice(1);
+        }
+        return steps.length ? { steps } : null;
     }
 
     // ─── 計画の組み立て ───
@@ -325,7 +346,7 @@
 
     // 生の手の列（worker/PC 探索の座標）→ 見どころ付きの計画。見どころが無ければ null。
     //   見どころ = depth 手以内の T-spin（ミニ除く・1ライン以上）か PC。最初に起きる方まで
-    function buildFromRaw(grid0, raw, depth, pcOnly) {
+    function buildFromRaw(grid0, raw, depth, pcOnly, all) {
         let grid = grid0;
         let ymap = {};
         for (let y = -TOP; y < ROWS; y++) ymap[y] = y;
@@ -346,7 +367,8 @@
             ymap = nextYmap(ymap, res.cleared);
             grid = res.grid;
         }
-        return null;
+        // 見どころが無い：ALL は手の列をそのまま出す（番号は1手目から。強調は1手目だけ）
+        return all ? { kind: '', text: '', steps, hl: -1, raw: raw.slice(0, n), forType: raw[0] && raw[0].type } : null;
     }
 
 
@@ -458,25 +480,20 @@
             }
 
             ensureWorker();
-            send({
-                msg: buildMsg(g, visible),
-                done: (res) => {
-                    const dec = decode(res);
-                    if (!dec) { Assist.publish(serial, null); return; }
-                    const plan = Tet.makePlan(g, grid, dec, cfg, depth);
-                    if (plan) plan.forType = g.mino.type;
-                    Assist.publish(serial, plan);
-                },
+            lv7Chain(g, grid, visible, depth, serial).then(dec => {
+                if (Assist.serial !== serial) return;
+                if (!dec) { Assist.publish(serial, null); return; }
+                const plan = Tet.makePlan(g, grid, dec, cfg, depth);
+                if (plan) plan.forType = g.mino.type;
+                Assist.publish(serial, plan);
             });
         },
 
         // 見どころがあればそこまでの計画、無ければ HINT は何も出さず ALL は1手目だけ
         makePlan(g, grid, dec, cfg, depth) {
-            const plan = buildFromRaw(grid, dec.steps, depth);
-            if (plan) { Tet._remember(plan, grid); return plan; }
-            if (cfg.mode !== 'all') return null;
-            const first = decorate(grid, Object.assign({}, dec.steps[0]), null);
-            return { kind: '', steps: [first], hl: -1, text: '', forType: g.mino.type };
+            const plan = buildFromRaw(grid, dec.steps, depth, false, cfg.mode === 'all');
+            if (plan && plan.kind) { Tet._remember(plan, grid); return plan; }
+            return plan;                                  // ALL は見どころが無くても DEPTH 手ぶんを出す（HINT は null）
         },
 
         // 次の手で「従っているか」を確かめるための、1手目を置いた後の盤面を覚える
