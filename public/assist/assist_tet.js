@@ -195,7 +195,7 @@
 
     // ─── worker ───
     const S = {
-        worker: null, ready: false, queue: [], pendingReq: null,
+        fixed: null, worker: null, ready: false, queue: [], pendingReq: null,
         matchRaf: null, plan: null,
     };
 
@@ -262,16 +262,41 @@
     }
 
     // ─── 計画の組み立て ───
-    function decorate(grid, step) {
-        // 経路・複雑さ・回転表示用の情報を足す
+    // 盤面を1手進める：ミノを置いてライン消去。戻り値 { grid, cleared(消えた行 y の配列) }
+    function placeAndClear(grid, cells) {
+        const g2 = Uint8Array.from(grid);
+        cells.forEach(c => { if (c.y >= -TOP && c.y < ROWS && c.x >= 0 && c.x < COLS) g2[(c.y + TOP) * COLS + c.x] = 1; });
+        const cleared = [];
+        for (let y = -TOP; y < ROWS; y++) {
+            let full = true;
+            for (let x = 0; x < COLS; x++) if (!g2[(y + TOP) * COLS + x]) { full = false; break; }
+            if (full) cleared.push(y);
+        }
+        if (!cleared.length) return { grid: g2, cleared };
+        const out = new Uint8Array(g2.length);
+        let dst = ROWS - 1;
+        for (let y = ROWS - 1; y >= -TOP; y--) {
+            if (cleared.includes(y)) continue;
+            for (let x = 0; x < COLS; x++) out[(dst + TOP) * COLS + x] = g2[(y + TOP) * COLS + x];
+            dst--;
+        }
+        return { grid: out, cleared };
+    }
+
+    const isEmpty = (grid) => { for (let i = 0; i < grid.length; i++) if (grid[i]) return false; return true; };
+
+    // 経路・複雑さ・回転表示用の情報を足す。ymap は「計算上の行 → 画面の行」（消去でずれた分）
+    function decorate(grid, step, ymap) {
         const info = findPath(grid, step.type, step.x, step.y, step.rot);
-        step.cells = cellsAt(step.type, step.rot, step.x, step.y);
+        step.simCells = cellsAt(step.type, step.rot, step.x, step.y);
+        const my = (y) => (ymap && ymap[y] !== undefined) ? ymap[y] : y;
+        step.cells = step.simCells.map(c => ({ x: c.x, y: my(c.y) }));
+        step.ymap = ymap || null;
         if (!info) return step;
         step.spin = info.spin;
         step.lastRot = info.lastRot;
         if (info.lastRot && isComplex(grid, step.type, step.x, step.y, step.rot)) {
-            // 最後に連続している回転をまとめる
-            let n = info.path.length, cnt = 0, dir = 0;
+            let n = info.path.length, cnt = 0, dir = 0;           // 最後に連続している回転をまとめる
             while (n > 0 && (info.path[n - 1] === 4 || info.path[n - 1] === 5)) {
                 if (!dir) dir = info.path[n - 1];
                 cnt++; n--;
@@ -281,36 +306,102 @@
         return step;
     }
 
+    // 消去後の ymap を作る（CPU TEST の renderEstimatePlace と同じ考え方）
+    function nextYmap(ymap, cleared) {
+        if (!cleared.length) return ymap;
+        const out = {};
+        let dst = ROWS - 1;
+        for (let y = ROWS - 1; y >= -TOP; y--) {
+            if (cleared.includes(y)) continue;
+            out[dst] = ymap[y] !== undefined ? ymap[y] : y;
+            dst--;
+        }
+        for (; dst >= -TOP; dst--) out[dst] = dst;
+        return out;
+    }
+
+    const TS_NAME = ['', 'TSS', 'TSD', 'TST'];
+    const TS_JA = ['', 'シングル', 'ダブル', 'トリプル'];
+
+    // 生の手の列（worker/PC 探索の座標）→ 見どころ付きの計画。見どころが無ければ null。
+    //   見どころ = depth 手以内の T-spin（ミニ除く・1ライン以上）か PC。最初に起きる方まで
+    function buildFromRaw(grid0, raw, depth) {
+        let grid = grid0;
+        let ymap = {};
+        for (let y = -TOP; y < ROWS; y++) ymap[y] = y;
+        const steps = [];
+        const n = Math.min(raw.length, depth);
+        for (let k = 0; k < n; k++) {
+            const st = decorate(grid, Object.assign({}, raw[k]), ymap);
+            steps.push(st);
+            const res = placeAndClear(grid, st.simCells);
+            const lines = res.cleared.length;
+            const when = k === 0 ? 'この手で' : `${k + 1}手目で`;
+            if (st.type === 2 && st.spin === 1 && lines >= 1 && lines <= 3) {
+                return { kind: TS_NAME[lines], text: `${when}Tスピン${TS_JA[lines]}`, steps, hl: k, raw: raw.slice(0, k + 1) };
+            }
+            if (lines > 0 && isEmpty(res.grid)) {
+                return { kind: 'PC', text: `${k + 1}手でパーフェクトクリア`, steps, hl: k, raw: raw.slice(0, k + 1) };
+            }
+            ymap = nextYmap(ymap, res.cleared);
+            grid = res.grid;
+        }
+        return null;
+    }
+
+    // 盤面の署名（計画が崩れていないかの確認用）
+    const sameGrid = (a, b) => { if (!a || a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
+
     const ov = () => window.AssistOverlay;
 
     const Tet = {
         reset() {
-            S.queue = []; S.pendingReq = null; S.plan = null;
+            S.queue = []; S.pendingReq = null; S.plan = null; S.fixed = null;
             if (S.matchRaf) { cancelAnimationFrame(S.matchRaf); S.matchRaf = null; }
             if (S.worker) { try { S.worker.terminate(); } catch (e) { /* noop */ } S.worker = null; S.ready = false; }
         },
 
         onSpawn(g, cfg, serial) {
             if (!g.mino) return;
-            ensureWorker();
-            const visible = Assist._visibleNext(g);
             const depth = Assist.effectiveDepth(cfg, g);
             const grid = gridFromGame(g);
+
+            // 提示した手順に従っている間は計画を固定する（設計 D11）
+            const fx = S.fixed;
+            S.fixed = null;
+            if (fx && fx.raw.length > 1 && sameGrid(fx.expect, grid) && g.mino.type === fx.raw[1].type) {
+                const plan = buildFromRaw(grid, fx.raw.slice(1), depth);
+                if (plan) { Tet._remember(plan, grid); plan.forType = g.mino.type; Assist.publish(serial, plan); return; }
+            }
+
+            ensureWorker();
+            const visible = Assist._visibleNext(g);
             send({
                 msg: buildMsg(g, visible),
                 done: (res) => {
                     const dec = decode(res);
                     if (!dec) { Assist.publish(serial, null); return; }
                     const plan = Tet.makePlan(g, grid, dec, cfg, depth);
+                    if (plan) plan.forType = g.mino.type;
                     Assist.publish(serial, plan);
                 },
             });
         },
 
-        // ALL: 先頭の1手だけ。見どころの計画づくりは A2 で足す
+        // 見どころがあればそこまでの計画、無ければ HINT は何も出さず ALL は1手目だけ
         makePlan(g, grid, dec, cfg, depth) {
-            const first = decorate(grid, Object.assign({}, dec.steps[0]));
-            return { kind: '', steps: [first], hl: -1, text: '', mode: cfg.mode, forType: g.mino.type };
+            const plan = buildFromRaw(grid, dec.steps, depth);
+            if (plan) { Tet._remember(plan, grid); return plan; }
+            if (cfg.mode !== 'all') return null;
+            const first = decorate(grid, Object.assign({}, dec.steps[0]), null);
+            return { kind: '', steps: [first], hl: -1, text: '', forType: g.mino.type };
+        },
+
+        // 次の手で「従っているか」を確かめるための、1手目を置いた後の盤面を覚える
+        _remember(plan, grid) {
+            if (plan.raw.length < 2) { S.fixed = null; return; }
+            const st = plan.steps[0];
+            S.fixed = { raw: plan.raw, expect: placeAndClear(grid, st.simCells).grid };
         },
 
         // ─── 描画 ───
@@ -383,7 +474,8 @@
         // 回転前の位置（点線）と回転方向の矢印
         _drawRotation(svg, st, ns) {
             const rt = st.rotation;
-            const before = cellsAt(st.type, rt.before.rot, rt.before.x, rt.before.y);
+            const my = (y) => (st.ymap && st.ymap[y] !== undefined) ? st.ymap[y] : y;
+            const before = cellsAt(st.type, rt.before.rot, rt.before.x, rt.before.y).map(c => ({ x: c.x, y: my(c.y) }));
             before.forEach(c => {
                 const rc = document.createElementNS(ns, 'rect');
                 rc.setAttribute('x', c.x * BS + 3); rc.setAttribute('y', (c.y + 0.5) * BS + 3);
@@ -396,7 +488,8 @@
             });
             // 矢印：最終位置のピボットまわりの円弧
             const pv = shapeOf(st.type, st.rot).pivot;
-            const cx = (st.x + pv.x + 0.5) * BS, cy = (st.y + pv.y + 1) * BS;
+            const dy = my(st.y) - st.y;
+            const cx = (st.x + pv.x + 0.5) * BS, cy = (st.y + dy + pv.y + 1) * BS;
             const R = 30, a0 = -150, a1 = -40;                  // 度。上側の弧
             const rad = (d) => d * Math.PI / 180;
             const s = rt.dir === 1 ? a0 : a1, e = rt.dir === 1 ? a1 : a0; // 右回転は左→右へ
@@ -429,6 +522,6 @@
     };
 
     // 内部を他ファイル（A2 以降）が使えるように公開
-    Tet._k = { shapeOf, cellsAt, gridFromGame, fits, occ, tryRotate, tspinKind, findPath, isComplex, dropY, decorate, COLS, ROWS, TOP, BS };
+    Tet._k = { shapeOf, cellsAt, gridFromGame, fits, occ, tryRotate, tspinKind, findPath, isComplex, dropY, decorate, buildFromRaw, placeAndClear, isEmpty, COLS, ROWS, TOP, BS };
     window.AssistTet = Tet;
 })();
