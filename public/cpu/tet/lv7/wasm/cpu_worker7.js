@@ -17,14 +17,14 @@ let wasmReady = false;
 
 self.Module = {
     // ★再ビルドしたら ?v= を上げる（グルーjs・wasm・cpu7.js の WORKER_URLS を揃える）
-    locateFile: function(path) { return path + '?v=2'; },
+    locateFile: function(path) { return path + '?v=1'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm7.js?v=2');
+importScripts('cpu_wasm7.js?v=1');
 
 const OUT_LEN = 96;
 const QUEUE_MAX = 40;     // current＋確定 NEXT（深さ 32＋HOLD 空の1本＋余裕）
@@ -37,8 +37,7 @@ let outPtr = null;
 self.onmessage = function(e) {
     if (!wasmReady) return;
     const data = e.data;
-    // calculate = 初手だけ（lv7Search）／plan = 初手から続く読み筋（lv7Plan。アシスト用）
-    if (data.type !== 'calculate' && data.type !== 'plan') return;
+    if (data.type !== 'calculate') return;
 
     if (boardPtr === null) {
         boardPtr   = Module._lv7_malloc(250);
@@ -54,7 +53,7 @@ self.onmessage = function(e) {
     const nWeights = Math.min(data.weights.length, WEIGHTS_MAX);
     Module.HEAP32.set(data.weights.slice(0, nWeights), weightsPtr / 4);
 
-    (data.type === 'plan' ? Module._lv7Plan : Module._lv7Search)(
+    Module._lv7Search(
         boardPtr, queuePtr, nQueue, data.holdType, data.bagAfter,
         data.backToBack, data.ren, data.incoming || 0,
         weightsPtr, nWeights,

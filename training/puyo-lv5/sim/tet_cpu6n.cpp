@@ -33,7 +33,6 @@
 #define lv7_malloc tetlv6n_lv7_malloc
 #define lv7_free   tetlv6n_lv7_free
 #define lv7Search  tetlv6n_lv7Search
-#define lv7Plan    tetlv6n_lv7Plan
 namespace tetlv6n {
 #include "../../../public/cpu/tet/lv7/engine/core/bag.cpp"
 #include "../../../public/cpu/tet/lv7/engine/core/board.cpp"
@@ -48,7 +47,6 @@ namespace tetlv6n {
 #undef lv7_malloc
 #undef lv7_free
 #undef lv7Search
-#undef lv7Plan
 
 namespace tsim {
 
