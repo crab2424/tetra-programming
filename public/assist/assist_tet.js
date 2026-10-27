@@ -181,7 +181,7 @@
 
     // ─── worker ───
     const S = {
-        fixed: null, worker: null, ready: false, queue: [], pendingReq: null,
+        cache: null, inflight: null, worker: null, ready: false, queue: [], pendingReq: null,
         matchRaf: null, plan: null,
     };
 
@@ -231,55 +231,100 @@
 
     const ask = (msg) => new Promise(resolve => send({ msg, done: resolve }));
 
-    // LV7 に1手ずつ聞いて手の列を作る。盤面・HOLD・NEXT・BtB・REN を自前で進める。
-    //   戻り値：{ steps:[{type,rot,x,y,hold?}] }（古くなったら null）
-    async function lv7Chain(g, grid0, visible, depth, serial) {
-        let grid = grid0;
-        let queue = [g.mino.type];
+    // ─── 仮想の局面（計画の各手の前の状態）───
+    //   queue[0] が手にあるミノ、以降が見えている NEXT。LV7 は初手しか返さないので、
+    //   1手ずつ「仮想上で置いて」次の局面を作り、そこから次の1手を聞く（設計 §10.2）。
+    // bagAfter：queue を引いたあとの 7-bag の残り（ビット）。LV7 は queue から bag を逆算するので、
+    //   bag の切れ目が分からないと同じミノが続く queue で探索が失敗する（手が返らない）。
+    //   見えている範囲の切れ目だけ使い、見えない NEXT の中身は使わない（切れ目の位置は個数だけで決まる）。
+    function bagAfterOf(g, queue, hold) {
+        const L = g.nextQueue.length, V = queue.length - 1;
+        let e = 7 - (g.bag ? g.bag.length : 0) - (L - V);
+        while (e <= 0) e += 7;
+        if (e >= 7) return 0;                                   // 切れ目ちょうど：次から新しい bag
+        const drawn = new Set(queue.slice(Math.max(0, queue.length - e)));
+        if (e > queue.length && hold !== -1) drawn.add(hold);   // bag の途中から始まっている：既に引いた分は見えないので HOLD だけ足す
+        let bits = 0;
+        for (let t = 0; t < 7; t++) if (!drawn.has(t)) bits |= 1 << t;
+        return bits;
+    }
+
+    function snapshot(g, visible) {
+        const queue = [g.mino.type];
         for (let i = 0; i < visible && g.nextQueue[i]; i++) queue.push(g.nextQueue[i].type);
-        let hold = g.holdMino ? g.holdMino.type : -1;
-        // HOLD 済みの局面では HOLD できない。「HOLD に今のミノと同じミノがある」ことにして HOLD を無意味にする
-        if (!g.canHold) hold = g.mino.type;
-        let b2b = g.backToBack ? 1 : 0, ren = g.ren || 0;
-        const incoming = incomingOf(g);
-        const steps = [];
-        for (let k = 0; k < depth && queue.length > 0; k++) {
-            if (Assist.serial !== serial) return null;
-            const res = await ask({
-                type: 'calculate',
-                boardBuffer: Uint8Array.from(grid),
-                queue: new Int32Array(queue),
-                holdType: hold,
-                bagAfter: 0,
-                backToBack: b2b,
-                ren,
-                incoming: k === 0 ? incoming : 0,
-                weights: new Int32Array(0),
-                width: BEAM_WIDTH,
-                depth: Math.max(1, queue.length),
-                thinkMs: k === 0 ? THINK_FIRST_MS : THINK_NEXT_MS,
-            });
-            if (Assist.serial !== serial) return null;
-            if (!res || res[0] !== 1) break;
-            const type = res[1];
-            const cells = [];
-            for (let i = 0; i < 4; i++) cells.push({ x: res[2 + i * 2], y: res[3 + i * 2] });
-            const pose = findPose(type, cells);
-            if (!pose) break;
-            const useHold = res[10] === 1;
-            const holdEmpty = hold === -1;
-            if (useHold && holdEmpty && queue.length < 2) break;
-            const step = { type, rot: pose.rot, x: pose.x, y: pose.y };
-            if (useHold) step.hold = true;
-            steps.push(step);
-            const r = placeAndClear(grid, cells);
-            const lines = r.cleared.length;
-            if (lines > 0) { if (lines === 4 || res[16] > 0) b2b = 1; else b2b = 0; ren += 1; } else ren = 0;
-            grid = r.grid;
-            if (useHold) { const cur = queue[0]; queue = holdEmpty ? queue.slice(2) : queue.slice(1); hold = cur; }
-            else queue = queue.slice(1);
+        const hold = g.holdMino ? g.holdMino.type : -1;
+        return {
+            grid: gridFromGame(g), queue, hold, bagAfter: bagAfterOf(g, queue, hold),
+            canHold: !!g.canHold, b2b: g.backToBack ? 1 : 0, ren: g.ren || 0,
+        };
+    }
+
+    // 仮想で1手置く。step = { type, rot, x, y, hold?, ts? }
+    function advance(st, step) {
+        const r = placeAndClear(st.grid, cellsAt(step.type, step.rot, step.x, step.y));
+        const lines = r.cleared.length;
+        let b2b = st.b2b, ren = 0;
+        if (lines > 0) { b2b = (lines === 4 || step.ts > 0) ? 1 : 0; ren = st.ren + 1; }
+        let queue, hold = st.hold;
+        if (step.hold) {
+            queue = hold === -1 ? st.queue.slice(2) : st.queue.slice(1);
+            hold = st.queue[0];
+        } else queue = st.queue.slice(1);
+        return { grid: r.grid, queue, hold, bagAfter: st.bagAfter, canHold: true, b2b, ren };
+    }
+
+    // raw の各手の前の局面 states[0..n-1] を作る（states[0] = st0）
+    function replay(st0, raw) {
+        const states = [st0];
+        for (let k = 0; k < raw.length - 1; k++) states.push(advance(states[k], raw[k]));
+        return states;
+    }
+
+    // いまの局面 `act` が、保存した計画のどの手の前か（HOLD 直後の「手に持ち替えた状態」も）を探す
+    //   戻り値 { k, held }（held=その手の HOLD を済ませた直後）。無ければ null
+    function matchCache(c, act) {
+        for (let k = 0; k < c.raw.length; k++) {
+            const st = c.states[k], step = c.raw[k];
+            if (!sameGrid(st.grid, act.grid)) continue;
+            if (st.queue[0] === act.queue[0] && st.hold === act.hold) {
+                if (step.hold && !act.canHold) continue;            // 計画は HOLD を求めるが、もう HOLD できない
+                return { k, held: false };
+            }
+            if (step.hold && step.type === act.queue[0] && st.queue[0] === act.hold) return { k, held: true };
         }
-        return steps.length ? { steps } : null;
+        return null;
+    }
+
+    // 局面 st から LV7 に次の1手を聞く。first=true は計画の最初の1手（長めに考える）
+    async function lv7Next(st, first, serial) {
+        // HOLD 済みの局面では HOLD できない。「HOLD に今のミノと同じミノがある」ことにして HOLD を無意味にする
+        const holdArg = (!st.canHold) ? st.queue[0] : st.hold;
+        const res = await ask({
+            type: 'calculate',
+            boardBuffer: Uint8Array.from(st.grid),
+            queue: new Int32Array(st.queue),
+            holdType: holdArg,
+            bagAfter: st.bagAfter,
+            backToBack: st.b2b,
+            ren: st.ren,
+            incoming: first ? st.incoming || 0 : 0,
+            weights: new Int32Array(0),
+            width: BEAM_WIDTH,
+            depth: Math.max(1, st.queue.length),
+            thinkMs: first ? THINK_FIRST_MS : THINK_NEXT_MS,
+        });
+        if (Assist.serial !== serial) return null;
+        if (!res || res[0] !== 1) return null;
+        const type = res[1];
+        const cells = [];
+        for (let i = 0; i < 4; i++) cells.push({ x: res[2 + i * 2], y: res[3 + i * 2] });
+        const pose = findPose(type, cells);
+        if (!pose) return null;
+        const hold = res[10] === 1;
+        if (hold && st.hold === -1 && st.queue.length < 2) return null;
+        const step = { type, rot: pose.rot, x: pose.x, y: pose.y, ts: res[16] };
+        if (hold) step.hold = true;
+        return step;
     }
 
     // ─── 計画の組み立て ───
@@ -450,57 +495,66 @@
 
     const Tet = {
         reset() {
-            S.queue = []; S.pendingReq = null; S.plan = null; S.fixed = null;
+            S.queue = []; S.pendingReq = null; S.plan = null; S.cache = null; S.inflight = null;
             if (S.matchRaf) { cancelAnimationFrame(S.matchRaf); S.matchRaf = null; }
             if (S.worker) { try { S.worker.terminate(); } catch (e) { /* noop */ } S.worker = null; S.ready = false; }
         },
 
+        // 計画の保存先 S.cache = { raw, states, pc }。いまの局面が保存した計画のどこかに一致すれば、
+        // その続きをそのまま使い、足りない手だけ末尾に1手ずつ足す。一致しなければ1手目から作り直す。
         onSpawn(g, cfg, serial) {
             if (!g.mino) return;
             const depth = Assist.effectiveDepth(cfg, g);
-            const grid = gridFromGame(g);
-
-            // 提示した手順に従っている間は計画を固定する（設計 D11）
-            const fx = S.fixed;
-            S.fixed = null;
-            if (fx && fx.raw.length > 1 && sameGrid(fx.expect, grid) && g.mino.type === fx.raw[1].type) {
-                const plan = buildFromRaw(grid, fx.raw.slice(1), depth, fx.pc);
-                if (plan) { Tet._remember(plan, grid); plan.forType = g.mino.type; Assist.publish(serial, plan); return; }
-            }
-
             const visible = Assist._visibleNext(g);
+            const act = snapshot(g, visible);
+            act.incoming = incomingOf(g);
+            const all = cfg.mode === 'all';
+            const type = g.mino.type;
 
-            // PC は見つかれば T-spin より優先（盤面が低い時だけ探す）
-            const nexts = [];
-            for (let i = 0; i < visible; i++) nexts.push(g.nextQueue[i].type);
-            const pcRaw = pcSearch(grid, g.mino.type, g.holdMino ? g.holdMino.type : -1, !!g.canHold, nexts, depth);
-            if (pcRaw) {
-                const plan = buildFromRaw(grid, pcRaw, depth, true);
-                if (plan) { Tet._remember(plan, grid); plan.forType = g.mino.type; Assist.publish(serial, plan); return; }
+            let raw = [], states = [act], pc = false;
+            const c = S.cache;
+            S.cache = null;
+            const m = c ? matchCache(c, act) : null;
+            if (m) {
+                raw = c.raw.slice(m.k);
+                pc = c.pc;
+                if (m.held) raw[0] = Object.assign({}, raw[0], { hold: false });
+                states = replay(act, raw);
             }
 
-            ensureWorker();
-            lv7Chain(g, grid, visible, depth, serial).then(dec => {
-                if (Assist.serial !== serial) return;
-                if (!dec) { Assist.publish(serial, null); return; }
-                const plan = Tet.makePlan(g, grid, dec, cfg, depth);
-                if (plan) plan.forType = g.mino.type;
+            // PC は見つかれば T-spin より優先（盤面が低い時だけ探す。従っている PC の計画があればそのまま）
+            if (!pc) {
+                const nexts = [];
+                for (let i = 0; i < visible; i++) nexts.push(g.nextQueue[i].type);
+                const pcRaw = pcSearch(act.grid, type, act.hold, act.canHold, nexts, depth);
+                if (pcRaw) { raw = pcRaw; pc = true; states = replay(act, raw); }
+            }
+
+            const show = () => {
+                const plan = buildFromRaw(act.grid, raw, depth, pc, all);
+                if (plan) plan.forType = type;
+                S.cache = { raw, states, pc };
                 Assist.publish(serial, plan);
-            });
-        },
+                return plan;
+            };
+            let plan = show();
+            S.inflight = serial;
 
-        // 見どころがあればそこまでの計画、無ければ HINT は何も出さず ALL は1手目だけ
-        makePlan(g, grid, dec, cfg, depth) {
-            const plan = buildFromRaw(grid, dec.steps, depth, false, cfg.mode === 'all');
-            if (plan && plan.kind) { Tet._remember(plan, grid); return plan; }
-            return plan;                                  // ALL は見どころが無くても DEPTH 手ぶんを出す（HINT は null）
-        },
-
-        // 次の手で「従っているか」を確かめるための、1手目を置いた後の盤面を覚える
-        _remember(plan, grid) {
-            if (plan.raw.length < 2) { S.fixed = null; return; }
-            const st = plan.steps[0];
-            S.fixed = { raw: plan.raw, pc: plan.kind === 'PC', expect: placeAndClear(grid, st.simCells).grid };
+            // 足りない手を1手ずつ足す（1手足すごとに表示を更新）。見どころが見つかった／DEPTH に届いた／NEXT が尽きたら止める
+            const extend = async () => {
+                ensureWorker();
+                while (!pc && raw.length < depth && !(plan && plan.kind) && Assist.serial === serial) {
+                    const last = raw.length ? advance(states[raw.length - 1], raw[raw.length - 1]) : act;
+                    if (!last.queue.length) break;
+                    const step = await lv7Next(last, raw.length === 0, serial);
+                    if (!step || Assist.serial !== serial) break;
+                    raw = raw.concat(step);
+                    states = states.length === raw.length ? states : states.concat(last);
+                    plan = show();
+                }
+                if (S.inflight === serial) S.inflight = null;
+            };
+            extend();
         },
 
         // ─── 描画 ───
@@ -548,7 +602,7 @@
                 const plan = S.plan;
                 if (!plan || !Assist.game || Assist.game !== g || !g.mino) return;
                 // 計画を作った時と今のミノが違う（出現後に差し替えられた等）なら計算し直す
-                if (g.mino.type !== plan.forType) {
+                if (g.mino.type !== plan.forType && !S.inflight) {
                     plan.forType = g.mino.type;
                     Assist.refresh();
                     S.matchRaf = requestAnimationFrame(tick);
@@ -628,6 +682,6 @@
     };
 
     // 内部を他ファイル（A2 以降）が使えるように公開
-    Tet._k = { shapeOf, cellsAt, gridFromGame, fits, occ, tryRotate, tspinKind, findPath, isComplex, dropY, decorate, buildFromRaw, placeAndClear, isEmpty, pcSearch, COLS, ROWS, TOP, BS };
+    Tet._k = { S, snapshot, lv7Next, shapeOf, cellsAt, gridFromGame, fits, occ, tryRotate, tspinKind, findPath, isComplex, dropY, decorate, buildFromRaw, placeAndClear, isEmpty, pcSearch, COLS, ROWS, TOP, BS };
     window.AssistTet = Tet;
 })();
