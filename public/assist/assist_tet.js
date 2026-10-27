@@ -240,7 +240,7 @@
     //   rest = F を引き終えた後の 7-bag の残り（game.bag）。
     function snapshot(g, depth) {
         // LV7 と同じく内部 NEXT を継ぎ足す（表示は先頭のまま、ツモの順は変わらない）。計画の DEPTH 手先でも 32 本読めるだけ足す
-        if (typeof g.ensureNextQueue === 'function') g.ensureNextQueue(SEARCH_DEPTH + 1 + depth + 1);
+        if (typeof g.ensureNextQueue === 'function') g.ensureNextQueue(SEARCH_DEPTH + 1 + depth + 2);
         const F = [g.mino.type];
         for (const m of g.nextQueue) F.push(m.type);
         return {
@@ -459,26 +459,33 @@
             }
             let states = replay(act, raw);
 
+            // 表示する手：DEPTH 手まで、かつ見えているミノを置く手が続く間（その先は先読みの控え）
+            const shown = () => {
+                let n = 0;
+                while (n < raw.length && n < depth && placedIndex(states[n], raw[n]) <= visible) n++;
+                return n;
+            };
             let plan = null;
             const show = () => {
-                plan = buildFromRaw(act.grid, raw, depth, all);
+                plan = buildFromRaw(act.grid, raw.slice(0, shown()), depth, all);
                 if (plan) plan.forType = type;
                 S.cache = { raw, states };
                 Assist.publish(serial, plan);
             };
             show();
 
-            // 足りない手を1手ずつ足す（1手足すごとに表示を更新）。
-            //   見えていないミノを置く手になったら止める（その手は出さない）。HINT は見どころが出たら止める
+            // 足りない手を1手ずつ足す（1手足すごとに表示を更新）。HINT は見どころが出たら止める。
+            //   ALL は表示する手の先にもう1手（控え）を作っておき、置いた直後に次の手を待たずに出せるようにする。
+            //   見えていないミノを置く手は出さないので、その手が1つできたらそこで止める（それが控えになる）
+            const target = depth + (all ? 1 : 0);
             S.inflight = serial;
             const extend = async () => {
                 ensureWorker();
-                while (raw.length < depth && !(!all && plan && plan.kind) && Assist.serial === serial) {
+                while (raw.length < target && shown() === Math.min(raw.length, depth)
+                        && !(!all && plan && plan.kind) && Assist.serial === serial) {
                     const last = raw.length ? advance(states[raw.length - 1], raw[raw.length - 1]) : act;
-                    if (last.qi > visible) break;
                     const step = await lv7Next(last, serial);
                     if (!step || Assist.serial !== serial) break;
-                    if (placedIndex(last, step) > visible) break;
                     raw = raw.concat(step);
                     if (states.length < raw.length) states = states.concat(last);
                     show();
