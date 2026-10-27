@@ -325,7 +325,7 @@
 
     // 生の手の列（worker/PC 探索の座標）→ 見どころ付きの計画。見どころが無ければ null。
     //   見どころ = depth 手以内の T-spin（ミニ除く・1ライン以上）か PC。最初に起きる方まで
-    function buildFromRaw(grid0, raw, depth) {
+    function buildFromRaw(grid0, raw, depth, pcOnly) {
         let grid = grid0;
         let ymap = {};
         for (let y = -TOP; y < ROWS; y++) ymap[y] = y;
@@ -337,7 +337,7 @@
             const res = placeAndClear(grid, st.simCells);
             const lines = res.cleared.length;
             const when = k === 0 ? 'この手で' : `${k + 1}手目で`;
-            if (st.type === 2 && st.spin === 1 && lines >= 1 && lines <= 3) {
+            if (!pcOnly && st.type === 2 && st.spin === 1 && lines >= 1 && lines <= 3) {
                 return { kind: TS_NAME[lines], text: `${when}Tスピン${TS_JA[lines]}`, steps, hl: k, raw: raw.slice(0, k + 1) };
             }
             if (lines > 0 && isEmpty(res.grid)) {
@@ -345,6 +345,78 @@
             }
             ymap = nextYmap(ymap, res.cleared);
             grid = res.grid;
+        }
+        return null;
+    }
+
+
+    // ─── PC（パーフェクトクリア）探索 ───
+    //   旧 LV6 には PC 用 worker が無いので JS の DFS で探す（盤面が低い時だけ・時間制限つき）。
+    //   置き方は「真下に落とす」位置だけ（滑り込み・T-spin の PC は見ない）。見えている NEXT と HOLD まで。
+    const PC_BUDGET_MS = 30;
+    const countBlocks = (grid) => { let n = 0; for (let i = 0; i < grid.length; i++) n += grid[i]; return n; };
+    function stackHeight(grid) {
+        for (let y = -TOP; y < ROWS; y++) {
+            for (let x = 0; x < COLS; x++) if (grid[(y + TOP) * COLS + x]) return ROWS - y;
+        }
+        return 0;
+    }
+
+    function pcPlacements(grid, type) {
+        const out = [], seen = new Set();
+        const sy = (type === 0) ? -1 : -2;
+        for (let rot = 0; rot < 4; rot++) {
+            for (let x = -2; x < COLS; x++) {
+                if (!fits(grid, type, rot, x, sy)) continue;
+                const y = dropY(grid, type, rot, x, sy);
+                const cells = cellsAt(type, rot, x, y);
+                const k = cells.map(c => c.x + ',' + c.y).sort().join('|');
+                if (seen.has(k)) continue;                  // O/I/S/Z の同形の重複
+                seen.add(k);
+                out.push({ rot, x, y, cells });
+            }
+        }
+        return out;
+    }
+
+    function pcSearch(grid0, curType, holdType, canHold, nexts, maxD) {
+        const seq = [curType].concat(nexts);
+        const b0 = countBlocks(grid0);
+        const deadline = performance.now() + PC_BUDGET_MS;
+        let timedOut = false;
+
+        function dfs(grid, idx, hold, canHoldNow, rem, out) {
+            if (rem === 0) return isEmpty(grid);
+            if (performance.now() > deadline) { timedOut = true; return false; }
+            const cap = (countBlocks(grid) + 4 * rem) / 10;
+            if (cap !== Math.floor(cap) || stackHeight(grid) > cap) return false;
+            const opts = [];
+            if (idx < seq.length) opts.push({ type: seq[idx], nidx: idx + 1, nhold: hold, held: false });
+            if (canHoldNow) {
+                if (hold === -1) {
+                    if (idx + 1 < seq.length) opts.push({ type: seq[idx + 1], nidx: idx + 2, nhold: seq[idx], held: true });
+                } else if (idx < seq.length && hold !== seq[idx]) {
+                    opts.push({ type: hold, nidx: idx + 1, nhold: seq[idx], held: true });
+                }
+            }
+            for (const o of opts) {
+                for (const pl of pcPlacements(grid, o.type)) {
+                    const res = placeAndClear(grid, pl.cells);
+                    out.push({ type: o.type, rot: pl.rot, x: pl.x, y: pl.y, hold: o.held });
+                    if (dfs(res.grid, o.nidx, o.nhold, true, rem - 1, out)) return true;
+                    out.pop();
+                    if (timedOut) return false;
+                }
+            }
+            return false;
+        }
+
+        for (let d = 1; d <= Math.min(maxD, seq.length); d++) {
+            const total = b0 + 4 * d;
+            if (total % 10 || stackHeight(grid0) > total / 10) continue;
+            const out = [];
+            if (dfs(grid0, 0, holdType, canHold, d, out)) return out;
+            if (timedOut) return null;
         }
         return null;
     }
@@ -370,12 +442,22 @@
             const fx = S.fixed;
             S.fixed = null;
             if (fx && fx.raw.length > 1 && sameGrid(fx.expect, grid) && g.mino.type === fx.raw[1].type) {
-                const plan = buildFromRaw(grid, fx.raw.slice(1), depth);
+                const plan = buildFromRaw(grid, fx.raw.slice(1), depth, fx.pc);
+                if (plan) { Tet._remember(plan, grid); plan.forType = g.mino.type; Assist.publish(serial, plan); return; }
+            }
+
+            const visible = Assist._visibleNext(g);
+
+            // PC は見つかれば T-spin より優先（盤面が低い時だけ探す）
+            const nexts = [];
+            for (let i = 0; i < visible; i++) nexts.push(g.nextQueue[i].type);
+            const pcRaw = pcSearch(grid, g.mino.type, g.holdMino ? g.holdMino.type : -1, !!g.canHold, nexts, depth);
+            if (pcRaw) {
+                const plan = buildFromRaw(grid, pcRaw, depth, true);
                 if (plan) { Tet._remember(plan, grid); plan.forType = g.mino.type; Assist.publish(serial, plan); return; }
             }
 
             ensureWorker();
-            const visible = Assist._visibleNext(g);
             send({
                 msg: buildMsg(g, visible),
                 done: (res) => {
@@ -401,7 +483,7 @@
         _remember(plan, grid) {
             if (plan.raw.length < 2) { S.fixed = null; return; }
             const st = plan.steps[0];
-            S.fixed = { raw: plan.raw, expect: placeAndClear(grid, st.simCells).grid };
+            S.fixed = { raw: plan.raw, pc: plan.kind === 'PC', expect: placeAndClear(grid, st.simCells).grid };
         },
 
         // ─── 描画 ───
@@ -522,6 +604,6 @@
     };
 
     // 内部を他ファイル（A2 以降）が使えるように公開
-    Tet._k = { shapeOf, cellsAt, gridFromGame, fits, occ, tryRotate, tspinKind, findPath, isComplex, dropY, decorate, buildFromRaw, placeAndClear, isEmpty, COLS, ROWS, TOP, BS };
+    Tet._k = { shapeOf, cellsAt, gridFromGame, fits, occ, tryRotate, tspinKind, findPath, isComplex, dropY, decorate, buildFromRaw, placeAndClear, isEmpty, pcSearch, COLS, ROWS, TOP, BS };
     window.AssistTet = Tet;
 })();
