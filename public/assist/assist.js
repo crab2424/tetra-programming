@@ -69,13 +69,23 @@
             const cur = MODES.indexOf(this.get(ctx).mode);
             this.set(ctx, { mode: MODES[(cur + dir + MODES.length) % MODES.length] });
         },
-        stepDepth(ctx, dir) { this.set(ctx, { depth: this.get(ctx).depth + dir }); },
+        stepDepth(ctx, dir) {
+            const max = this.depthMax(ctx);
+            this.set(ctx, { depth: Math.max(DEPTH_MIN, Math.min(max, Math.min(this.get(ctx).depth, max) + dir)) });
+        },
+        // DEPTH の上限。puyo は NEXT が2組しか見えないので 3（設定画面もこの上限で出す）。
+        //   保存値は上書きせず、puyo の間は 3 で頭打ちにして見せる（tet に戻すと元の値）
+        depthMax(ctx) { return this.ruleOf(ctx) === 'puyo' ? 3 : DEPTH_MAX; },
+        depthShown(ctx) { return Math.min(this.get(ctx).depth, this.depthMax(ctx)); },
+        ruleOf(ctx) {
+            if (ctx === 'versus') return (typeof versusPlayerRule !== 'undefined') ? versusPlayerRule : 'tet';
+            return (typeof practiceRule !== 'undefined') ? practiceRule : 'tet';
+        },
         stepChain(ctx, dir) { this.set(ctx, { chain: this.get(ctx).chain + dir }); },
 
-        // 表示中 NEXT 数で頭打ち（J2）。puyo の HINT は総当たりなので最大3手（設計 §4.2）。
-        //   puyo の ALL は tet と同じく LV6 を1手ずつ聞いて連ねるので DEPTH まで（設計 §10.5）
+        // 表示中 NEXT 数で頭打ち（J2）。puyo は最大3手（NEXT 2組＋手のペア。設計 §4.2・§10.6）
         effectiveDepth(cfg, g) {
-            if (this.rule === 'puyo' && cfg.mode !== 'all') return Math.max(1, Math.min(cfg.depth, 3, 1 + this._visibleNext(g)));
+            if (this.rule === 'puyo') return Math.max(1, Math.min(cfg.depth, 3, 1 + this._visibleNext(g)));
             return Math.max(1, Math.min(cfg.depth, 1 + this._visibleNext(g)));
         },
 
@@ -193,8 +203,8 @@
         const cfg = Assist.get('versus');
         buildToggle(document.getElementById('versus-assist-mode-toggle'), MODES, cfg.mode,
             v => v.toUpperCase(), v => { Assist.set('versus', { mode: v }); Assist.renderVersusOptions(); });
-        const depths = []; for (let i = DEPTH_MIN; i <= DEPTH_MAX; i++) depths.push(i);
-        buildToggle(document.getElementById('versus-assist-depth-toggle'), depths, cfg.depth,
+        const depths = []; for (let i = DEPTH_MIN; i <= Assist.depthMax('versus'); i++) depths.push(i);
+        buildToggle(document.getElementById('versus-assist-depth-toggle'), depths, Assist.depthShown('versus'),
             String, v => { Assist.set('versus', { depth: v }); Assist.renderVersusOptions(); });
         const chains = []; for (let i = CHAIN_MIN; i <= CHAIN_MAX; i++) chains.push(i);
         buildToggle(document.getElementById('versus-assist-chain-toggle'), chains, cfg.chain,

@@ -203,7 +203,7 @@ function _practicePanelRefresh() {
           ${Assist.MODES.map(m => `<button class="opt-btn ${ac.mode === m ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="Assist.set('practice',{mode:'${m}'});_practicePanelRefresh()">${m.toUpperCase()}</button>`).join('')}
         </div>
       </div>`;
-        html += stepRow('assistDepth', 'DEPTH', ac.depth, "Assist.stepDepth('practice',-1);_practicePanelRefresh()", "Assist.stepDepth('practice',1);_practicePanelRefresh()", assistOff ? ' is-inert' : '');
+        html += stepRow('assistDepth', 'DEPTH', Assist.depthShown('practice'), "Assist.stepDepth('practice',-1);_practicePanelRefresh()", "Assist.stepDepth('practice',1);_practicePanelRefresh()", assistOff ? ' is-inert' : '');
         if (!isTet) {
             html += stepRow('assistChain', 'CHAIN', ac.chain, "Assist.stepChain('practice',-1);_practicePanelRefresh()", "Assist.stepChain('practice',1);_practicePanelRefresh()", assistOff ? ' is-inert' : '');
         }

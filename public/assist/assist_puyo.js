@@ -298,13 +298,17 @@
     }
 
     // 生の手の列 → 計画（CHAIN 以上を撃つ最初の手を強調・発火点・文。その先も並べる）
+    //   表示の盤面 df は連鎖を消さずに積んだ盤面。連鎖が起きた後の手は、いまの盤面に重ならないよう df の上に積んで描く
+    //   （連鎖が始まったら表示は切り替わる。_startMatch）
     function buildAll(st0, raw, cfg, erase) {
-        let st = st0, hit = null;
+        let st = st0, hit = null, df = st0.f;
         const steps = [];
         for (let k = 0; k < raw.length; k++) {
             const a = advance(st, raw[k], erase);
             if (!a) break;
-            steps.push({ col: raw[k].col, rot: raw[k].rot, colors: raw[k].colors, cells: a.pl.cells });
+            const dp = placePair(df, raw[k].col, raw[k].rot, raw[k].colors, true);
+            df = dp ? dp.f : df;
+            steps.push({ col: raw[k].col, rot: raw[k].rot, colors: raw[k].colors, cells: dp ? dp.cells : [] });
             if (!hit && a.res.chains >= cfg.chain) {
                 const inGroup = new Set();
                 a.res.first.forEach(gr => gr.forEach(p => inGroup.add(p.r + ',' + p.c)));
@@ -418,73 +422,111 @@
         },
 
         // ─── 描画 ───
-        //   本物のゴーストと見分けるため、中身は塗らず枠線だけ（枠の色=ぷよの色）。
-        //   重なり順は 発火枠 → ぷよの枠 → 番号（番号が最前面）。
         draw(ov, plan, g) {
             S.plan = plan;
             S.matchKey = '';
+            S.matched = false;
+            S.followKey = '';
             Puyo._startMatch(g);
             if (!plan || !plan.steps.length) return;
-            const w = 32 * SCALE_X, h = 32 * SCALE_Y;
-            const place = (el, p) => {
-                el.style.width = w + 'px'; el.style.height = h + 'px';
-                el.style.left = (p.c * w) + 'px'; el.style.top = ((p.r - HID) * h) + 'px';
-                return el;
-            };
-            // 発火点のマーク（連鎖の最初の消去に入るぷよ）。ぷよの色で、枠より一回り外側
-            (plan.fire || []).forEach(p => {
-                if (p.r - HID < 0) return;
-                const m = place(document.createElement('div'), p);
-                m.className = 'assist-fire';
-                m.style.borderColor = COLORS[p.color - 1] || '#fff';
-                m.style.boxShadow = `0 0 10px ${COLORS[p.color - 1] || '#fff'}`;
-                ov.add(m);
-            });
-            plan.steps.forEach((st, i) => {
-                const hi = plan.hl === i;
-                st.cells.forEach(p => {
-                    if (p.r - HID < 0) return;
-                    const d = place(document.createElement('div'), p);
-                    d.className = 'assist-puyo' + (hi ? ' is-hi' : '') + (i === 0 ? ' is-first' : '');
-                    d.style.borderColor = COLORS[p.color - 1] || '#fff';
-                    d.style.opacity = i === 0 ? 1 : 0.45;  // 2手目以降は薄く（tet と同じ）
-                    ov.add(d);
-                });
-            });
-            // 番号：親・子それぞれのぷよに付ける（ちぎりでも、どの手のぷよか分かる）
-            plan.steps.forEach((st, i) => {
-                const hi = plan.hl === i;
-                st.cells.forEach(p => {
-                    if (p.r - HID < 0) return;
-                    const bd = document.createElement('div');
-                    bd.className = 'assist-badge assist-puyo-badge' + (hi ? ' is-hi' : '');
-                    bd.textContent = String(i + 1);
-                    bd.style.left = (p.c * w + w / 2 - 8) + 'px';
-                    bd.style.top = ((p.r - HID) * h + h / 2 - 8) + 'px';
-                    ov.add(bd);
-                });
-            });
+            drawSteps(ov, plan.steps, plan.hl, plan.fire, true);
         },
     };
 
+    // 置き場所の描画。本物のゴーストと見分けるため、中身は塗らず枠線だけ（枠の色=ぷよの色）。
+    //   重なり順は 発火枠 → ぷよの枠 → 番号（番号が最前面）。
+    //   first=true なら1手目を点滅させる（連鎖中の追従表示では点滅させない）
+    function drawSteps(ov, steps, hl, fire, first) {
+        const w = 32 * SCALE_X, h = 32 * SCALE_Y;
+        const place = (el, p) => {
+            el.style.width = w + 'px'; el.style.height = h + 'px';
+            el.style.left = (p.c * w) + 'px'; el.style.top = ((p.r - HID) * h) + 'px';
+            return el;
+        };
+        // 発火点のマーク（連鎖の最初の消去に入るぷよ）。ぷよの色で、枠より一回り外側
+        (fire || []).forEach(p => {
+            if (p.r - HID < 0) return;
+            const m = place(document.createElement('div'), p);
+            m.className = 'assist-fire';
+            m.style.borderColor = COLORS[p.color - 1] || '#fff';
+            m.style.boxShadow = `0 0 10px ${COLORS[p.color - 1] || '#fff'}`;
+            ov.add(m);
+        });
+        steps.forEach((st, i) => {
+            const hi = hl === i;
+            st.cells.forEach(p => {
+                if (p.r - HID < 0) return;
+                const d = place(document.createElement('div'), p);
+                d.className = 'assist-puyo' + (hi ? ' is-hi' : '') + (first && i === 0 ? ' is-first' : '');
+                d.style.borderColor = COLORS[p.color - 1] || '#fff';
+                d.style.setProperty('--assist-glow', COLORS[p.color - 1] || '#fff');
+                d.style.opacity = i === 0 ? 1 : 0.45;  // 2手目以降は薄く（tet と同じ）
+                ov.add(d);
+            });
+        });
+        // 番号：親・子それぞれのぷよに付ける（ちぎりでも、どの手のぷよか分かる）
+        steps.forEach((st, i) => {
+            const hi = hl === i;
+            st.cells.forEach(p => {
+                if (p.r - HID < 0) return;
+                const bd = document.createElement('div');
+                bd.className = 'assist-badge assist-puyo-badge' + (hi ? ' is-hi' : '');
+                bd.textContent = String(i + 1);
+                bd.style.left = (p.c * w + w / 2 - 8) + 'px';
+                bd.style.top = ((p.r - HID) * h + h / 2 - 8) + 'px';
+                ov.add(bd);
+            });
+        });
+    }
+
+    // 連鎖中の表示：1手目どおりに置いて連鎖が始まったら、2手目以降を「いまの盤面（消えて落ちる途中）」の上に積み直して
+    //   盤面の変化に追従させる（番号は次のツモから 1, 2, …）。1手目と違う所に置いた・続きが無い時は表示を消す
+    function drawFollow(g) {
+        const ov = window.AssistOverlay;
+        if (!ov || !ov.layer) return;
+        const plan = S.plan;
+        const f = fieldOf(g);
+        const key = S.matched && plan && plan.steps.length > 1 ? Array.prototype.join.call(f, '') : 'off';
+        if (key === S.followKey) return;
+        S.followKey = key;
+        ov.clear();
+        if (key === 'off') return;
+        let df = f;
+        const steps = [];
+        for (const st of plan.steps.slice(1)) {
+            const dp = placePair(df, st.col, st.rot, st.colors, true);
+            if (!dp) break;
+            df = dp.f;
+            steps.push({ cells: dp.cells });
+        }
+        drawSteps(ov, steps, plan.hl - 1, [], false);
+    }
+
     // いまのペアの落下先（ゴースト）が1手目の目標と一致したら枠を光らせる（tet と同じ。設計 J5）
-    //   落下先は列と向きだけで決まる（庇が無い）ので、それが変わった時だけ比べる
+    //   落下先は列と向きだけで決まる（庇が無い）ので、それが変わった時だけ比べる。
+    //   連鎖が始まったら（chainCount>0）連鎖中の表示（drawFollow）に切り替える
     Puyo._startMatch = function (g) {
         if (S.matchRaf) return;
         const tick = () => {
             S.matchRaf = null;
             const plan = S.plan;
             if (!plan || !Assist.game || Assist.game !== g) return;
+            if (g.chainCount > 0) {
+                drawFollow(g);
+                S.matchRaf = requestAnimationFrame(tick);
+                return;
+            }
             const key = g._gs === 'falling' ? `${g.pivotX},${g.targetRot},${g.pivotColor},${g.childColor}` : '';
-            if (key !== S.matchKey) {
+            if (key && key !== S.matchKey) {
                 S.matchKey = key;
                 let match = false;
                 const st = plan.steps[0];
-                if (key && st) {
+                if (st) {
                     const pl = placePair(fieldOf(g), g.pivotX, g.targetRot, [g.pivotColor, g.childColor], true);
                     const want = new Set(st.cells.map(p => `${p.r},${p.c},${p.color}`));
                     match = !!pl && pl.cells.every(p => want.has(`${p.r},${p.c},${p.color}`));
                 }
+                S.matched = match;
                 const layer = window.AssistOverlay?.layer;
                 if (layer) layer.querySelectorAll('.assist-puyo.is-first').forEach(b => b.classList.toggle('is-match', match));
             }

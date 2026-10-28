@@ -264,6 +264,22 @@
         return bits;                                          // 0 = 切れ目ちょうど（次から新しい bag）
     }
 
+    // LV7 の bag の扱い（lv7_wasm.cpp：bagAfter から queue を逆にたどって current の前の bag を作り、
+    //   beam.cpp is_queue_valid：先頭から引いて行けるか）を JS で再現する。Bag は TETLABO 番号のビットのまま
+    function queueValid(queue, bagAfter) {
+        let bag = bagAfter || 0x7f;
+        for (let i = queue.length - 1; i >= 0; i--) {
+            if (bag === 0x7f) bag = 0;
+            bag |= 1 << queue[i];
+        }
+        for (const t of queue) {
+            if (!(bag & (1 << t))) return false;
+            bag &= ~(1 << t);
+            if (!bag) bag = 0x7f;
+        }
+        return true;
+    }
+
     // 仮想で1手置く。step = { type, rot, x, y, hold?, ts? }
     function advance(st, step) {
         const r = placeAndClear(st.grid, cellsAt(step.type, step.rot, step.x, step.y));
@@ -306,7 +322,10 @@
     // 局面 st から LV7 に初手を聞く（cpu7.js onMinoSpawned と同じ入力）
     //   HOLD 済みの局面（計画外の HOLD の直後）では HOLD できないので、「HOLD に今のミノと同じミノがある」ことにして HOLD を無意味にする
     async function lv7Next(st, serial) {
-        const e = Math.min(st.F.length, st.qi + QUEUE_MAX);
+        let e = Math.min(st.F.length, st.qi + QUEUE_MAX);
+        // HOLD から出したミノを手に持っている局面（計画外の HOLD の直後）は、手のミノが 7-bag の並びの外にあるため
+        //   LV7 がキューを 7-bag に合わないと見て手を返さない（beam.cpp is_queue_valid）。合う所までキューを短くする
+        while (e > st.qi + 2 && !queueValid(st.F.slice(st.qi, e), bagAfterAt(st, e))) e--;
         const res = await ask({
             type: 'calculate',
             boardBuffer: Uint8Array.from(st.grid),
@@ -517,6 +536,7 @@
                     d.style.top = ((c.y + 0.5) * BS) + 'px';
                     d.style.borderColor = `rgba(${r},${gn},${b},${hi ? 1 : op})`;
                     d.style.backgroundColor = `rgba(${r},${gn},${b},${bg})`;
+                    d.style.setProperty('--assist-glow', `rgb(${r},${gn},${b})`);   // 一致時の光（ミノの色）
                     ov.add(d);
                 });
                 // 番号バッジ（最も上のブロックの左上）

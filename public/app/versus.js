@@ -24,6 +24,7 @@ function setVersusPlayerRule(rule) {
   const puyoBtn = document.getElementById('opt-rule-player-puyo');
   if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
   if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
+  window.Assist?.renderVersusOptions();   // DEPTH の上限が rule で変わる（puyo は 3）
 }
 
 function setVersusCpuRule(rule) {
