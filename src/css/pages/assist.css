@@ -34,6 +34,29 @@
   box-shadow: 0 0 10px #fff;
 }
 
+/* 1手目は点滅させて場所を分かりやすくする。ゴーストが一致したら点滅を止めて光らせる */
+@keyframes assist-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.assist-block.is-first,
+.assist-puyo.is-first {
+  animation: assist-blink 0.9s ease-in-out infinite;
+}
+
+.assist-block.is-first.is-match,
+.assist-puyo.is-first.is-match {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assist-block.is-first,
+  .assist-puyo.is-first {
+    animation: none;
+  }
+}
+
 .assist-badge {
   position: absolute;
   min-width: 14px;
@@ -114,6 +137,10 @@
 
 .assist-puyo.is-hi {
   box-shadow: 0 0 8px var(--assist-color-hi);
+}
+
+.assist-puyo.is-match {
+  box-shadow: 0 0 10px #fff, inset 0 0 6px #fff;
 }
 
 /* 発火枠：ぷよの枠より一回り外側。色は JS がぷよの色で上書き */

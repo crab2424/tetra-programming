@@ -3,8 +3,8 @@
 //   HINT: CPU の判断とは無関係に、見えているツモ（最大3手）の置き方を全部試し、
 //         CHAIN 連鎖以上を撃てる手順があれば「そこまでの置き場所＋発火点」を出す（設計 D8/D9、§4.2）。
 //         途中の手は連鎖が起きない手に限る（起きると形が崩れる）。
-//   ALL : 見どころが無い時は puyo LV6 に1手だけ考えさせて今のツモの置き場所を出す（isAutoPlay=false の
-//         コントローラ。CPU TEST の「CPU CONTROL OFF」と同じ使い方）。
+//   ALL : puyo LV6 に1手ずつ聞いて仮想で置き、DEPTH 手（＋控え1手）連ねる（tet と同じ方式。設計 §10.5）。
+//         LV6 の目標連鎖数は CHAIN に置き換え、CHAIN 以上の発火が入った手を強調する。
 //   盤面は game.field（17行x6列。上5行が隠し）をそのまま 1 次元配列で扱う。
 // ─────────────────────────────────────────────
 
@@ -15,7 +15,12 @@
     const COLORS = ['#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f']; // 画像の並び（赤青紫緑黄）
     const SEARCH_BUDGET_MS = 40;
 
-    const S = { fixed: null, ctrl: null, ctrlLoading: false, raf: null, lastData: null, want: 0 };
+    const S = {
+        fixed: null,                                       // HINT の固定計画
+        cache: null,                                       // ALL の計画 { raw, states }（states[k] = k 手目の前の仮想局面）
+        ctrl: null, ctrlLoading: null, wait: [], jobs: [], chainTarget: 0,
+        matchRaf: null, matchKey: '', plan: null,
+    };
 
     const idx = (r, c) => r * COLS + c;
 
@@ -45,8 +50,10 @@
     }
 
     // ペアを置く。置けない時 null。戻り値 { f(置いた後), cells:[{r,c,color}x2] }
-    function placePair(f, col, rot, colors) {
-        if (!reachable(f, col, rot)) return null;
+    //   trust=true は CPU の手・いまの操作中のペア用：到達の目安と「次のツモが出せるか」を見ない（13段目まで置ける）
+    function placePair(f, col, rot, colors, trust) {
+        if (!trust && !reachable(f, col, rot)) return null;
+        if (col < 0 || col >= COLS || col + DC[rot] < 0 || col + DC[rot] >= COLS) return null;
         const cc = col + DC[rot];
         let pr, cr;
         if (rot === 0) {
@@ -59,12 +66,13 @@
             pr = dropRow(f, col); cr = dropRow(f, cc);
             if (pr < 0 || cr < 0) return null;
         }
-        if (pr < HID || cr < HID) return null;             // 画面の上に出る置き方は出さない
+        const top = trust ? HID - 1 : HID;
+        if (pr < top || cr < top) return null;             // 画面の上に出る置き方は出さない
         const f2 = Int8Array.from(f);
         f2[idx(pr, col)] = colors[0];
         f2[idx(cr, cc)] = colors[1];
         // 次のツモが出せない（出現位置が塞がる）盤面は避ける
-        if (f2[idx(HID, 2)] !== 0) return null;
+        if (!trust && f2[idx(HID, 2)] !== 0) return null;
         return { f: f2, cells: [{ r: pr, c: col, color: colors[0] }, { r: cr, c: cc, color: colors[1] }] };
     }
 
@@ -204,76 +212,181 @@
 
     const sameField = (a, b) => { if (!a || a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
 
-    // ─── ALL：puyo LV6 に1手だけ考えさせる ───
+    // ─── ALL：puyo LV6 に1手ずつ聞いて仮想で置き、DEPTH 手ぶん連ねる（tet の §10.4 と同じ方式。設計 §10.5）───
+    //   LV6 のコントローラは盤面の差し替え口として使うだけ（start しない＝自動操作・思考ログ・予想手表示は動かない）。
+    //   各手は「仮想の局面を持つゲーム」（本物のゲームを prototype にして field / NEXT / 手のペアだけ上書き）で
+    //   _requestCalculation させ、結果は worker から直接受け取る。おじゃま予告・相手の盤面などは本物を見る。
+    //   目標連鎖数（weightsArray[32] fireChainCount）は CHAIN に置き換える（CHAIN 以上を撃てるなら撃つ）。
     async function ensureController(g) {
-        if (S.ctrl && S.ctrl.game === g) return;
-        if (S.ctrlLoading) return;
-        S.ctrlLoading = true;
-        try {
-            if (typeof loadCpuScript !== 'function') return;
-            const cls = await loadCpuScript(6, 'puyo');
-            const Cls = cls || window.PuyoCPU6;
-            if (!Cls || Assist.game !== g) return;
-            const c = new Cls(g);
-            c.isAutoPlay = false;
-            c.start();
-            S.ctrl = c;
-            S.lastData = null;
-            watch();
-        } catch (e) {
-            console.warn('Assist: puyo LV6 を読み込めませんでした', e);
-        } finally {
-            S.ctrlLoading = false;
-        }
+        if (S.ctrl && S.ctrl.__assistGame === g) return S.ctrl;
+        if (S.ctrlLoading) return S.ctrlLoading;
+        S.ctrlLoading = (async () => {
+            try {
+                if (typeof loadCpuScript !== 'function') return null;
+                const cls = await loadCpuScript(6, 'puyo');
+                const Cls = cls || window.PuyoCPU6;
+                if (!Cls || Assist.game !== g) return null;
+                const c = new Cls(g);
+                c.isAutoPlay = false;
+                c.__assistGame = g;
+                c.worker.onmessage = (e) => {
+                    if (e.data.type === 'ready') {
+                        c.workerReady = true;
+                        flush();
+                    } else if (e.data.type === 'result') {
+                        c.isCalculating = false;
+                        const job = S.jobs.shift();
+                        if (job) job.done(e.data.result);
+                        flush();
+                    }
+                };
+                const build = c._buildWeightsArray;
+                c._buildWeightsArray = function (n) {
+                    const w = build.call(this, n);
+                    if (S.chainTarget > 0) w[32] = S.chainTarget;
+                    return w;
+                };
+                S.ctrl = c;
+                flush();
+                return c;
+            } catch (e) {
+                console.warn('Assist: puyo LV6 を読み込めませんでした', e);
+                return null;
+            } finally {
+                S.ctrlLoading = null;
+            }
+        })();
+        return S.ctrlLoading;
     }
 
-    // コントローラの結果が出たら、そのペアの1手目を ALL の置き場所として出す
-    function watch() {
-        if (S.raf) return;
-        const tick = () => {
-            S.raf = null;
-            const c = S.ctrl, g = Assist.game;
-            if (!c || !g || c.game !== g) return;
-            const d = c.bestMoveData;
-            if (d && d !== S.lastData && g._gs === 'falling' && S.want) {
-                S.lastData = d;
-                const w = S.want;
-                // LV6 の読み筋（1〜3手目）を、見えている NEXT と DEPTH の範囲で並べる
-                const cfg = Assist.get();
-                const depth = Assist.effectiveDepth(cfg, g);
-                const tsumos = tsumosOf(g, depth);
-                const erase = eraseCount(g);
-                const picks = [[d.col1, d.rot1], [d.col2, d.rot2], [d.col3, d.rot3]];
-                let f = fieldOf(g);
-                const steps = [];
-                for (let k = 0; k < picks.length && k < tsumos.length; k++) {
-                    const [col, rot] = picks[k];
-                    if (col == null || col < 0) break;
-                    const pl = placePair(f, col, rot, tsumos[k]);
-                    if (!pl) break;
-                    steps.push({ col, rot, colors: tsumos[k], cells: pl.cells });
-                    const f2 = Int8Array.from(pl.f);
-                    f = resolve(f2, erase, pl.cells).chains > 0 ? f2 : pl.f;
-                }
-                if (steps.length) Assist.publish(w, { kind: '', text: '', steps, hl: -1, fire: [] });
+    // 待っている問い合わせを1件ずつ送る（コントローラは1度に1件しか計算しない）
+    function flush() {
+        const c = S.ctrl;
+        if (!c || !c.workerReady || c.isCalculating || !S.wait.length) return;
+        const job = S.wait.shift();
+        if (Assist.serial !== job.serial) { job.done(null); flush(); return; }
+        c.game = job.vg;
+        c._requestCalculation(false);
+        if (c.isCalculating) S.jobs.push(job);
+        else { job.done(null); flush(); }               // 送れなかった（ゲームが playing でない等）
+    }
+
+    // 仮想の局面 st（f=盤面, F=ツモ列, qi=手のペアの位置）で LV6 の初手 {col, rot} を聞く
+    function lv6Next(g, st, serial) {
+        const vg = Object.create(g);
+        vg.field = [];
+        for (let r = 0; r < TOTAL; r++) vg.field.push(Array.from(st.f.subarray(r * COLS, (r + 1) * COLS)));
+        vg.pivotColor = st.F[st.qi][0];
+        vg.childColor = st.F[st.qi][1];
+        vg.nextQueue = st.F.slice(st.qi + 1);
+        return new Promise(resolve => {
+            S.wait.push({ vg, serial, done: (res) => {
+                if (Assist.serial !== serial || !res || res[0] < 0) { resolve(null); return; }
+                resolve({ col: res[0], rot: res[1], colors: st.F[st.qi] });
+            } });
+            flush();
+        });
+    }
+
+    // 仮想で1手置く（LV6 の手は回しも込みで届くので到達の目安は見ない）。置けなければ null
+    function advance(st, step, erase) {
+        const pl = placePair(st.f, step.col, step.rot, step.colors, true);
+        if (!pl) return null;
+        const f2 = Int8Array.from(pl.f);
+        const res = resolve(f2, erase, pl.cells);
+        return { st: { f: f2, F: st.F, qi: st.qi + 1 }, pl, res };
+    }
+
+    // 生の手の列 → 計画（CHAIN 以上を撃つ最初の手を強調・発火点・文。その先も並べる）
+    function buildAll(st0, raw, cfg, erase) {
+        let st = st0, hit = null;
+        const steps = [];
+        for (let k = 0; k < raw.length; k++) {
+            const a = advance(st, raw[k], erase);
+            if (!a) break;
+            steps.push({ col: raw[k].col, rot: raw[k].rot, colors: raw[k].colors, cells: a.pl.cells });
+            if (!hit && a.res.chains >= cfg.chain) {
+                const inGroup = new Set();
+                a.res.first.forEach(gr => gr.forEach(p => inGroup.add(p.r + ',' + p.c)));
+                const when = k === 0 ? 'この手で' : `${k + 1}手目で`;
+                hit = { kind: `${a.res.chains} CHAIN`, text: `${when}発火`, hl: k, chains: a.res.chains,
+                    fire: a.pl.cells.filter(p => inGroup.has(p.r + ',' + p.c)) };
             }
-            S.raf = requestAnimationFrame(tick);
+            st = a.st;
+        }
+        if (!steps.length) return null;
+        return Object.assign(hit || { kind: '', text: '', hl: -1, fire: [] }, { steps });
+    }
+
+    // ALL の計画作り。保存した計画の k 手目の前の局面（盤面・手のペア）といまが一致すればその続きを使い（固定）、
+    //   足りない手だけ末尾に足す。表示は見えているペアを置く手だけ、その先にもう1手（控え）を作っておく
+    function onSpawnAll(g, cfg, serial, depth, erase) {
+        const visible = 1 + Assist._visibleNext(g);
+        const act = { f: fieldOf(g), F: [[g.pivotColor, g.childColor]].concat(g.nextQueue.map(p => [p[0], p[1]])), qi: 0 };
+        const samePair = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
+
+        let raw = [];
+        const c = S.cache;
+        S.cache = null;
+        if (c) {
+            for (let k = 0; k < c.raw.length; k++) {
+                if (sameField(c.states[k].f, act.f) && samePair(c.raw[k].colors, act.F[0])) { raw = c.raw.slice(k); break; }
+            }
+        }
+        let states = [act];
+        for (let k = 0; k < raw.length - 1; k++) {
+            const a = advance(states[k], raw[k], erase);
+            if (!a) { raw = raw.slice(0, k + 1); break; }
+            states.push(a.st);
+        }
+
+        const shown = () => Math.min(raw.length, depth, visible);
+        const show = () => {
+            S.cache = { raw, states };
+            Assist.publish(serial, buildAll(act, raw.slice(0, shown()), cfg, erase));
         };
-        S.raf = requestAnimationFrame(tick);
+        if (raw.length) show();
+        else Assist.publish(serial, null);
+
+        const target = depth + 1;
+        S.chainTarget = cfg.chain;
+        (async () => {
+            if (!(await ensureController(g))) return;
+            while (raw.length < target && shown() === Math.min(raw.length, depth) && Assist.serial === serial) {
+                let last = act;
+                if (raw.length) {
+                    const a = advance(states[raw.length - 1], raw[raw.length - 1], erase);
+                    if (!a || a.st.qi >= a.st.F.length || a.st.f[idx(HID, 2)] !== 0) break;   // ツモ切れ・窒息
+                    last = a.st;
+                }
+                const step = await lv6Next(g, last, serial);
+                if (!step || Assist.serial !== serial) break;
+                raw = raw.concat(step);
+                if (states.length < raw.length) states = states.concat(last);
+                show();
+            }
+        })();
     }
 
     const Puyo = {
         reset() {
-            S.fixed = null; S.want = 0; S.lastData = null;
-            if (S.raf) { cancelAnimationFrame(S.raf); S.raf = null; }
-            if (S.ctrl) { try { S.ctrl.stop(); } catch (e) { /* noop */ } S.ctrl = null; }
+            S.fixed = null; S.cache = null; S.plan = null;
+            S.wait.forEach(j => j.done(null)); S.jobs.forEach(j => j.done(null));
+            S.wait = []; S.jobs = [];
+            if (S.matchRaf) { cancelAnimationFrame(S.matchRaf); S.matchRaf = null; }
+            if (S.ctrl) {
+                S.ctrl.game = S.ctrl.__assistGame;
+                try { S.ctrl.stop(); } catch (e) { /* noop */ }
+                S.ctrl = null;
+            }
         },
 
         onSpawn(g, cfg, serial) {
             const depth = Assist.effectiveDepth(cfg, g);
             const erase = eraseCount(g);
             const f = fieldOf(g);
-            S.want = 0;
+            if (cfg.mode === 'all') { S.fixed = null; onSpawnAll(g, cfg, serial, depth, erase); return; }
+            S.cache = null;
 
             // 提示した手順に従っている間は計画を固定する（設計 D11）。
             //   盤面が予想と少しずれても（おじゃま着弾・置き方の差など）残りの手順がそのまま
@@ -292,9 +405,8 @@
                 if (plan) { Puyo._remember(plan, f); Assist.publish(serial, plan); return; }
             }
 
-            // 見どころなし：HINT は何も出さない。ALL は LV6 の1手
+            // 見どころなし：何も出さない
             Assist.publish(serial, null);
-            if (cfg.mode === 'all') { S.want = serial; ensureController(g); }
         },
 
         _remember(plan, f) {
@@ -308,7 +420,10 @@
         // ─── 描画 ───
         //   本物のゴーストと見分けるため、中身は塗らず枠線だけ（枠の色=ぷよの色）。
         //   重なり順は 発火枠 → ぷよの枠 → 番号（番号が最前面）。
-        draw(ov, plan) {
+        draw(ov, plan, g) {
+            S.plan = plan;
+            S.matchKey = '';
+            Puyo._startMatch(g);
             if (!plan || !plan.steps.length) return;
             const w = 32 * SCALE_X, h = 32 * SCALE_Y;
             const place = (el, p) => {
@@ -332,7 +447,7 @@
                     const d = place(document.createElement('div'), p);
                     d.className = 'assist-puyo' + (hi ? ' is-hi' : '') + (i === 0 ? ' is-first' : '');
                     d.style.borderColor = COLORS[p.color - 1] || '#fff';
-                    d.style.opacity = i === 0 ? 1 : 0.7;
+                    d.style.opacity = i === 0 ? 1 : 0.45;  // 2手目以降は薄く（tet と同じ）
                     ov.add(d);
                 });
             });
@@ -352,6 +467,32 @@
         },
     };
 
-    Puyo._k = { fieldOf, placePair, resolve, search, buildFromRaw };
+    // いまのペアの落下先（ゴースト）が1手目の目標と一致したら枠を光らせる（tet と同じ。設計 J5）
+    //   落下先は列と向きだけで決まる（庇が無い）ので、それが変わった時だけ比べる
+    Puyo._startMatch = function (g) {
+        if (S.matchRaf) return;
+        const tick = () => {
+            S.matchRaf = null;
+            const plan = S.plan;
+            if (!plan || !Assist.game || Assist.game !== g) return;
+            const key = g._gs === 'falling' ? `${g.pivotX},${g.targetRot},${g.pivotColor},${g.childColor}` : '';
+            if (key !== S.matchKey) {
+                S.matchKey = key;
+                let match = false;
+                const st = plan.steps[0];
+                if (key && st) {
+                    const pl = placePair(fieldOf(g), g.pivotX, g.targetRot, [g.pivotColor, g.childColor], true);
+                    const want = new Set(st.cells.map(p => `${p.r},${p.c},${p.color}`));
+                    match = !!pl && pl.cells.every(p => want.has(`${p.r},${p.c},${p.color}`));
+                }
+                const layer = window.AssistOverlay?.layer;
+                if (layer) layer.querySelectorAll('.assist-puyo.is-first').forEach(b => b.classList.toggle('is-match', match));
+            }
+            S.matchRaf = requestAnimationFrame(tick);
+        };
+        S.matchRaf = requestAnimationFrame(tick);
+    };
+
+    Puyo._k = { S, fieldOf, placePair, resolve, search, buildFromRaw, buildAll, lv6Next };
     window.AssistPuyo = Puyo;
 })();

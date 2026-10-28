@@ -72,9 +72,10 @@
         stepDepth(ctx, dir) { this.set(ctx, { depth: this.get(ctx).depth + dir }); },
         stepChain(ctx, dir) { this.set(ctx, { chain: this.get(ctx).chain + dir }); },
 
-        // puyo は計画が最大3手（設計 §4.2）。tet は表示中 NEXT 数で頭打ち（J2）
+        // 表示中 NEXT 数で頭打ち（J2）。puyo の HINT は総当たりなので最大3手（設計 §4.2）。
+        //   puyo の ALL は tet と同じく LV6 を1手ずつ聞いて連ねるので DEPTH まで（設計 §10.5）
         effectiveDepth(cfg, g) {
-            if (this.rule === 'puyo') return Math.max(1, Math.min(cfg.depth, 3, 1 + this._visibleNext(g)));
+            if (this.rule === 'puyo' && cfg.mode !== 'all') return Math.max(1, Math.min(cfg.depth, 3, 1 + this._visibleNext(g)));
             return Math.max(1, Math.min(cfg.depth, 1 + this._visibleNext(g)));
         },
 
