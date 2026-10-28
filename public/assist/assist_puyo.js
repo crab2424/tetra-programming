@@ -20,6 +20,7 @@
         cache: null,                                       // ALL の計画 { raw, states }（states[k] = k 手目の前の仮想局面）
         ctrl: null, ctrlLoading: null, wait: [], jobs: [], chainTarget: 0,
         matchRaf: null, matchKey: '', plan: null,
+        chain: null, followKey: '',                        // 連鎖中の表示（startChain / drawFollow）
     };
 
     const idx = (r, c) => r * COLS + c;
@@ -344,14 +345,18 @@
             states.push(a.st);
         }
 
-        const shown = () => Math.min(raw.length, depth, visible);
-        const show = () => {
-            S.cache = { raw, states };
-            Assist.publish(serial, buildAll(act, raw.slice(0, shown()), cfg, erase));
-        };
-        if (raw.length) show();
-        else Assist.publish(serial, null);
+        if (!raw.length) Assist.publish(serial, null);
+        growPlan(g, act, raw, states, depth, visible, cfg, erase, serial, (r, n) => {
+            Assist.publish(serial, buildAll(act, r.slice(0, n), cfg, erase));
+        });
+    }
 
+    // 計画 raw（states[k] = k 手目の前の局面）を LV6 に1手ずつ聞いて伸ばす。表示する手は visible 手まで（見えているペア）で、
+    //   その先に1手（控え）を作っておく。1手足すごとに（最初にも）S.cache を更新して onShow(raw, 表示する手数) を呼ぶ
+    function growPlan(g, act, raw, states, depth, visible, cfg, erase, serial, onShow) {
+        const shown = () => Math.min(raw.length, depth, visible);
+        const show = () => { S.cache = { raw, states }; onShow(raw, shown()); };
+        if (raw.length) show();
         const target = depth + 1;
         S.chainTarget = cfg.chain;
         (async () => {
@@ -372,9 +377,20 @@
         })();
     }
 
+    // 落下途中の盤面を「落ち切った後」にする。消去の直後〜落下中は、落ちるぷよが盤面から外されて
+    //   落下アニメ（_dropAnim）側にあるので、行き先（toR）に戻す（隙間に計画の手がめり込まないように）
+    function settledField(g) {
+        const f = fieldOf(g);
+        (g._dropAnim || []).forEach(col => col.cells.forEach(cell => { f[idx(cell.toR, col.c)] = cell.color; }));
+        return f;
+    }
+
     const Puyo = {
+        // 計画だけ捨てる（リスタート時。LV6 のコントローラは残す）
+        forget() { S.fixed = null; S.cache = null; S.plan = null; S.chain = null; },
+
         reset() {
-            S.fixed = null; S.cache = null; S.plan = null;
+            S.fixed = null; S.cache = null; S.plan = null; S.chain = null;
             S.wait.forEach(j => j.done(null)); S.jobs.forEach(j => j.done(null));
             S.wait = []; S.jobs = [];
             if (S.matchRaf) { cancelAnimationFrame(S.matchRaf); S.matchRaf = null; }
@@ -427,6 +443,7 @@
             S.matchKey = '';
             S.matched = false;
             S.followKey = '';
+            S.chain = null;
             Puyo._startMatch(g);
             if (!plan || !plan.steps.length) return;
             drawSteps(ov, plan.steps, plan.hl, plan.fire, true);
@@ -488,27 +505,54 @@
         });
     }
 
-    // 連鎖中の表示：1手目どおりに置いて連鎖が始まったら、2手目以降を「いまの盤面（消えて落ちる途中）」の上に積み直して
-    //   盤面の変化に追従させる（番号は次のツモから 1, 2, …）。1手目と違う所に置いた・続きが無い時は表示を消す
+    // 連鎖中の表示（ALL）。連鎖が始まった時に、続きの手を決める（S.chain）：
+    //   ・1手目どおりに置いた → 計画の2手目以降
+    //   ・違う所に置いた／続きが無い → 連鎖が終わった後の盤面（シミュレーション）から LV6 で計画を作り直す
+    //     （作った計画は S.cache に入るので、次のツモでそのまま使われる）
+    //   続きの手は「いまの盤面（落ち切った後）」の上に積み直して描き、盤面の変化に追従させる（番号は次のツモから 1, 2, …）。
+    //   HINT は連鎖が始まったら表示を消す
+    function startChain(g) {
+        const cfg = Assist.get();
+        const plan = S.plan;
+        S.chain = { steps: [], hl: -1 };
+        S.followKey = '';
+        if (cfg.mode !== 'all') return;
+        if (S.matched && plan && plan.steps.length > 1) {
+            S.chain = { steps: plan.steps.slice(1), hl: plan.hl - 1 };
+            return;
+        }
+        const erase = eraseCount(g);
+        const f = settledField(g);
+        resolve(f, erase, null);                          // 連鎖を最後まで解いた盤面（おじゃまの着弾は見ない）
+        const act = { f, F: g.nextQueue.map(p => [p[0], p[1]]), qi: 0 };
+        const depth = Assist.effectiveDepth(cfg, g);
+        const serial = Assist.serial;
+        S.cache = null;
+        growPlan(g, act, [], [act], depth, Math.min(depth, Assist._visibleNext(g)), cfg, erase, serial, (r, n) => {
+            if (Assist.serial !== serial || !S.chain) return;
+            const p = buildAll(act, r.slice(0, n), cfg, erase);
+            S.chain = { steps: p ? p.steps : [], hl: p ? p.hl : -1 };
+            S.followKey = '';
+        });
+    }
+
     function drawFollow(g) {
         const ov = window.AssistOverlay;
-        if (!ov || !ov.layer) return;
-        const plan = S.plan;
-        const f = fieldOf(g);
-        const key = S.matched && plan && plan.steps.length > 1 ? Array.prototype.join.call(f, '') : 'off';
+        if (!ov || !ov.layer || !S.chain) return;
+        const f = settledField(g);
+        const key = S.chain.steps.length + ':' + Array.prototype.join.call(f, '');
         if (key === S.followKey) return;
         S.followKey = key;
         ov.clear();
-        if (key === 'off') return;
         let df = f;
         const steps = [];
-        for (const st of plan.steps.slice(1)) {
+        for (const st of S.chain.steps) {
             const dp = placePair(df, st.col, st.rot, st.colors, true);
             if (!dp) break;
             df = dp.f;
             steps.push({ cells: dp.cells });
         }
-        drawSteps(ov, steps, plan.hl - 1, [], false);
+        if (steps.length) drawSteps(ov, steps, S.chain.hl, [], false);
     }
 
     // いまのペアの落下先（ゴースト）が1手目の目標と一致したら枠を光らせる（tet と同じ。設計 J5）
@@ -519,17 +563,19 @@
         const tick = () => {
             S.matchRaf = null;
             const plan = S.plan;
-            if (!plan || !Assist.game || Assist.game !== g) return;
+            if (!Assist.game || Assist.game !== g) return;      // 計画が無くても回す（連鎖中に作り直すため）
             if (g.chainCount > 0) {
+                if (!S.chain) startChain(g);
                 drawFollow(g);
                 S.matchRaf = requestAnimationFrame(tick);
                 return;
             }
+            S.chain = null;
             const key = g._gs === 'falling' ? `${g.pivotX},${g.targetRot},${g.pivotColor},${g.childColor}` : '';
             if (key && key !== S.matchKey) {
                 S.matchKey = key;
                 let match = false;
-                const st = plan.steps[0];
+                const st = plan && plan.steps[0];
                 if (st) {
                     const pl = placePair(fieldOf(g), g.pivotX, g.targetRot, [g.pivotColor, g.childColor], true);
                     const want = new Set(st.cells.map(p => `${p.r},${p.c},${p.color}`));

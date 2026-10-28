@@ -61,10 +61,10 @@
             if (!this.layer) return;
             this.fit();
             this.clear();
-            if (!plan) return;
+            // 計画が無い時も draw に渡す（各側が今の計画を覚え直し、一致の確認・連鎖中の表示を続けるため）
             if (rule === 'puyo') window.AssistPuyo?.draw?.(this, plan, game);
             else window.AssistTet?.draw?.(this, plan, game);
-            if (plan.text) this.setBanner(plan.kind || '', plan.text);
+            if (plan && plan.text) this.setBanner(plan.kind || '', plan.text);
         },
 
         // ガイド文の帯（盤面上部・半透明）

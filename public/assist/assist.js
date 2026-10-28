@@ -145,10 +145,20 @@
             };
             if (this.rule === 'puyo') {
                 wrap('_spawnPuyo', this._onSpawn);
+                wrap('_initNextQueue', this._onReset);        // リスタート（start() の最初で1回呼ばれる）
             } else {
                 wrap('popMino', this._onSpawn);
                 wrap('holdCurrentMino', this._onSpawn);
+                wrap('_initGameState', this._onReset);        // リスタート（同上）
             }
+        },
+
+        // リスタート：READY の間に前のゲームの表示が残らないよう、計画ごと消す（worker は残す）
+        _onReset() {
+            this.serial++;
+            window.AssistTet?.forget?.();
+            window.AssistPuyo?.forget?.();
+            this._clear();
         },
 
         _onSpawn(g, via) {

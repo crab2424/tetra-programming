@@ -450,6 +450,9 @@
     const ov = () => window.AssistOverlay;
 
     const Tet = {
+        // 計画だけ捨てる（リスタート時。worker は残す）
+        forget() { S.cache = null; S.plan = null; S.inflight = null; },
+
         reset() {
             S.queue = []; S.pendingReq = null; S.plan = null; S.cache = null; S.inflight = null;
             if (S.matchRaf) { cancelAnimationFrame(S.matchRaf); S.matchRaf = null; }
