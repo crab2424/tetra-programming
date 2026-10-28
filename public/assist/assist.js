@@ -187,7 +187,8 @@
     window.Assist = Assist;
 
     // ─── VERSUS 準備画面の設定行 ───
-    function buildToggle(el, values, current, labelOf, onPick) {
+    // disabledOf(v) が真の選択肢は、位置はそのまま薄くして押せなくする（行のボタン位置をずらさないため）
+    function buildToggle(el, values, current, labelOf, onPick, disabledOf) {
         if (!el) return;
         el.innerHTML = '';
         values.forEach(v => {
@@ -195,6 +196,7 @@
             b.className = 'opt-btn' + (v === current ? ' active' : '');
             b.textContent = labelOf(v);
             b.onclick = () => onPick(v);
+            if (disabledOf && disabledOf(v)) b.disabled = true;
             el.appendChild(b);
         });
     }
@@ -203,14 +205,20 @@
         const cfg = Assist.get('versus');
         buildToggle(document.getElementById('versus-assist-mode-toggle'), MODES, cfg.mode,
             v => v.toUpperCase(), v => { Assist.set('versus', { mode: v }); Assist.renderVersusOptions(); });
-        const depths = []; for (let i = DEPTH_MIN; i <= Assist.depthMax('versus'); i++) depths.push(i);
+        // DEPTH は puyo だと 4〜6 を出せない／CHAIN は puyo 専用。消さずに薄くして位置を固定する
+        const depthMax = Assist.depthMax('versus');
+        const isPuyo = Assist.ruleOf('versus') === 'puyo';
+        const depths = []; for (let i = DEPTH_MIN; i <= DEPTH_MAX; i++) depths.push(i);
         buildToggle(document.getElementById('versus-assist-depth-toggle'), depths, Assist.depthShown('versus'),
-            String, v => { Assist.set('versus', { depth: v }); Assist.renderVersusOptions(); });
+            String, v => { Assist.set('versus', { depth: v }); Assist.renderVersusOptions(); }, v => v > depthMax);
         const chains = []; for (let i = CHAIN_MIN; i <= CHAIN_MAX; i++) chains.push(i);
         buildToggle(document.getElementById('versus-assist-chain-toggle'), chains, cfg.chain,
-            String, v => { Assist.set('versus', { chain: v }); Assist.renderVersusOptions(); });
-        const inert = cfg.mode === 'off';
-        document.querySelectorAll('#versus-assist-options .assist-sub-row').forEach(r => r.classList.toggle('is-inert', inert));
+            String, v => { Assist.set('versus', { chain: v }); Assist.renderVersusOptions(); }, () => !isPuyo);
+        const off = cfg.mode === 'off';
+        const depthRow = document.getElementById('versus-assist-depth-toggle')?.closest('.assist-sub-row');
+        const chainRow = document.getElementById('versus-assist-chain-toggle')?.closest('.assist-sub-row');
+        if (depthRow) depthRow.classList.toggle('is-inert', off);
+        if (chainRow) chainRow.classList.toggle('is-inert', off || !isPuyo);
     };
 
     document.addEventListener('DOMContentLoaded', () => Assist.renderVersusOptions());

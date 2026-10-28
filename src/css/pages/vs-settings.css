@@ -393,3 +393,46 @@ body.input-mode-kbd .ms-row-editable.is-focused {
   white-space: nowrap;
 }
 
+
+/* ─── 設定画面：GHOST / ASSIST の見た目プレビュー ─── */
+#ghost-style-preview {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 20px;
+  padding: 4px 0 8px;
+}
+.gsp-board {
+  position: relative;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  flex: none;
+}
+.gsp-cell {
+  position: absolute;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+}
+.gsp-round { border-radius: 50%; }
+.gsp-solid { background: var(--c); }
+.gsp-fill { background: color-mix(in srgb, var(--c) 35%, transparent); }
+.gsp-line { border: 2px solid var(--c); }
+.gsp-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+.gsp-key {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  --c: #a0a0b0;
+}
+.gsp-key + .gsp-key { margin-left: 8px; }

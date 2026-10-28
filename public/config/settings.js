@@ -67,7 +67,13 @@ const DEFAULT_VOLUME = {
 const DEFAULT_DISPLAY = {
   apm: false,       // APM/LPM表示（シングル・対戦とも）
   versusTime: true, // 対戦画面のTIME表示
+  ghostStyle: 'fill', // 'fill'=ゴーストが薄い塗り・アシストが枠線 / 'outline'=入れ替え（ゴーストが枠線・アシストが薄い塗り）
 };
+
+// ゴーストを枠線で描くか（true のときアシストが薄い塗りになる）
+function isGhostOutline() {
+  return !!window.currentDisplay && window.currentDisplay.ghostStyle === 'outline';
+}
 
 function loadDisplay() {
   const saved = localStorage.getItem('game_display');
@@ -438,12 +444,47 @@ function renderDisplayOptions() {
       btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.apm);
     });
   }
+  const ghostToggle = document.getElementById('display-ghost-style-toggle');
+  if (ghostToggle) {
+    ghostToggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.value === currentDisplay.ghostStyle);
+    });
+  }
+  renderGhostStylePreview();
   const timeToggle = document.getElementById('display-versus-time-toggle');
   if (timeToggle) {
     timeToggle.querySelectorAll('.opt-btn').forEach((btn) => {
       btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.versusTime);
     });
   }
+}
+
+// GHOST/ASSIST の見た目の小プレビュー（tet・puyo）。実際の描画と同じ配色・段階で並べる。
+//   fill 側＝薄い塗り、line 側＝枠線。現在の設定でどちらがゴースト/アシストかを入れ替える。
+function renderGhostStylePreview() {
+  const box = document.getElementById('ghost-style-preview');
+  if (!box) return;
+  const swapped = currentDisplay.ghostStyle === 'outline';
+  const ghostCls = swapped ? 'gsp-line' : 'gsp-fill';
+  const assistCls = swapped ? 'gsp-fill' : 'gsp-line';
+  const cell = (cls, color, x, y, round) =>
+    `<i class="gsp-cell ${cls}${round ? ' gsp-round' : ''}" style="--c:${color};left:${x * 14}px;top:${y * 14}px"></i>`;
+  const solid = (color, x, y, round) => cell('gsp-solid', color, x, y, round);
+  // tet: 6列x5行。床に積み、T のゴースト（落下先）と O のアシスト
+  let tet = '';
+  [[0,4],[1,4],[2,4],[3,4],[4,4],[5,4],[0,3]].forEach(([x, y]) => { tet += solid('#6b7280', x, y); });
+  [[3,3],[4,3],[5,3]].forEach(([x, y]) => { tet += cell(ghostCls, '#a000f0', x, y); });
+  tet += cell(ghostCls, '#a000f0', 4, 2);
+  [[1,3],[2,3],[1,2],[2,2]].forEach(([x, y]) => { tet += cell(assistCls, '#f0f000', x, y); });
+  // puyo: 4列x5行。積みぷよと、ゴースト・アシスト
+  let puyo = '';
+  [['#e74c3c',0,4],['#e74c3c',1,4],['#3498db',2,4],['#3498db',3,4],['#2ecc71',0,3]].forEach(([c, x, y]) => { puyo += solid(c, x, y, true); });
+  puyo += cell(ghostCls, '#f1c40f', 3, 3, true) + cell(ghostCls, '#f1c40f', 3, 2, true);
+  puyo += cell(assistCls, '#e74c3c', 1, 3, true) + cell(assistCls, '#2ecc71', 1, 2, true);
+  const legend = `<span class="gsp-legend"><i class="gsp-key ${ghostCls}"></i>GHOST<i class="gsp-key ${assistCls}"></i>ASSIST</span>`;
+  box.innerHTML =
+    `<div class="gsp-board gsp-tet" style="width:${6 * 14}px;height:${5 * 14}px">${tet}</div>` +
+    `<div class="gsp-board gsp-puyo" style="width:${4 * 14}px;height:${5 * 14}px">${puyo}</div>` + legend;
 }
 
 // クリックで即時反映・即時保存（TUNING/VOLUMEと異なりSAVEボタンを介さない）

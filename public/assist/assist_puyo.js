@@ -433,6 +433,11 @@
         },
     };
 
+    function hexToRgba(hex, a) {
+        const n = parseInt(hex.slice(1), 16);
+        return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+    }
+
     // 置き場所の描画。本物のゴーストと見分けるため、中身は塗らず枠線だけ（枠の色=ぷよの色）。
     //   重なり順は 発火枠 → ぷよの枠 → 番号（番号が最前面）。
     //   first=true なら1手目を点滅させる（連鎖中の追従表示では点滅させない）
@@ -452,14 +457,18 @@
             m.style.boxShadow = `0 0 10px ${COLORS[p.color - 1] || '#fff'}`;
             ov.add(m);
         });
+        // 設定 GHOST: LINE のときは、アシストが薄い塗り（本物のゴーストが枠線になる）
+        const fillStyle = typeof isGhostOutline === 'function' && isGhostOutline();
         steps.forEach((st, i) => {
             const hi = hl === i;
             st.cells.forEach(p => {
                 if (p.r - HID < 0) return;
                 const d = place(document.createElement('div'), p);
-                d.className = 'assist-puyo' + (hi ? ' is-hi' : '') + (first && i === 0 ? ' is-first' : '');
-                d.style.borderColor = COLORS[p.color - 1] || '#fff';
-                d.style.setProperty('--assist-glow', COLORS[p.color - 1] || '#fff');
+                d.className = 'assist-puyo' + (hi ? ' is-hi' : '') + (first && i === 0 ? ' is-first' : '') + (fillStyle ? ' is-fill' : '');
+                const col = COLORS[p.color - 1] || '#fff';
+                if (fillStyle) d.style.backgroundColor = hexToRgba(col, i === 0 ? 0.5 : 0.25);
+                else d.style.borderColor = col;
+                d.style.setProperty('--assist-glow', col);
                 d.style.opacity = i === 0 ? 1 : 0.45;  // 2手目以降は薄く（tet と同じ）
                 ov.add(d);
             });

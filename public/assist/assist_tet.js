@@ -523,6 +523,7 @@
             const svg = document.createElementNS(svgNs, 'svg');
             svg.setAttribute('class', 'assist-svg');
             svg.setAttribute('viewBox', `0 0 ${COLS * BS} ${ROWS * BS + BS / 2}`);
+            const fillStyle = typeof isGhostOutline === 'function' && isGhostOutline();
             plan.steps.forEach((st, i) => {
                 const [r, gn, b] = COLORS[st.type];
                 const hi = plan.hl === i;
@@ -534,8 +535,14 @@
                     d.className = 'assist-block' + (hi ? ' is-hi' : '') + (i === 0 ? ' is-first' : '');
                     d.style.left = (c.x * BS) + 'px';
                     d.style.top = ((c.y + 0.5) * BS) + 'px';
-                    d.style.borderColor = `rgba(${r},${gn},${b},${hi ? 1 : op})`;
-                    d.style.backgroundColor = `rgba(${r},${gn},${b},${bg})`;
+                    if (fillStyle) {
+                        // 設定 GHOST: LINE のときは、アシストが薄い塗り（本物のゴーストが枠線になる）
+                        d.classList.add('is-fill');
+                        d.style.backgroundColor = `rgba(${r},${gn},${b},${i === 0 ? 0.5 : 0.25})`;
+                    } else {
+                        d.style.borderColor = `rgba(${r},${gn},${b},${hi ? 1 : op})`;
+                        d.style.backgroundColor = `rgba(${r},${gn},${b},${bg})`;
+                    }
                     d.style.setProperty('--assist-glow', `rgb(${r},${gn},${b})`);   // 一致時の光（ミノの色）
                     ov.add(d);
                 });

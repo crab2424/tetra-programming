@@ -34,6 +34,15 @@
   box-shadow: 0 0 12px 2px var(--assist-glow, #fff), inset 0 0 8px var(--assist-glow, #fff);
 }
 
+/* 設定 GHOST: LINE のとき、アシストは枠を持たない薄い塗り */
+.assist-block.is-fill {
+  border-color: transparent !important;
+}
+
+.assist-puyo.is-fill {
+  border-color: transparent;
+}
+
 /* 1手目は点滅させて場所を分かりやすくする。ゴーストが一致したら（点滅は続けたまま）ミノ・ぷよの色で光らせる */
 @keyframes assist-blink {
   0%, 100% { opacity: 1; }
@@ -116,6 +125,13 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* 選べない選択肢（puyo の DEPTH 4〜6、tet の CHAIN）は位置を保ったまま薄くする */
+#versus-assist-options .opt-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+  pointer-events: none;
 }
 
 #versus-assist-options .assist-sub-row.is-inert {

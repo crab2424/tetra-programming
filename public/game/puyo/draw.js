@@ -4,6 +4,9 @@
 // ※ core.js（class PuyoGame 定義）より後に読み込むこと
 // ─────────────────────────────────────────────
 
+// ゴーストを枠線で描くときのぷよ色（赤青紫緑黄）。アシストの枠線と同じ配色
+const GHOST_OUTLINE_PUYO = ['#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f'];
+
 Object.assign(PuyoGame.prototype, {
 
     _prepareChainTextDOM(groups) {
@@ -311,10 +314,23 @@ Object.assign(PuyoGame.prototype, {
                 ghostChildY = this._calcLimitY_Single(childCol, this.pivotY);
             }
 
-            ctx.globalAlpha = 0.22;
-            this._drawPuyo(ctx, this.pivotX * cs, ghostPivotY * cs, this.pivotColor, cs, 0);
-            this._drawPuyo(ctx, childCol * cs, ghostChildY * cs, this.childColor, cs, 0);
-            ctx.globalAlpha = 1.0;
+            if (typeof isGhostOutline === 'function' && isGhostOutline()) {
+                // 設定 GHOST: LINE（アシストの塗りと入れ替え）。枠の色=ぷよの色
+                const ring = (x, y, color) => {
+                    ctx.beginPath();
+                    ctx.arc(x + cs / 2, y + cs / 2, cs / 2 - 2, 0, Math.PI * 2);
+                    ctx.strokeStyle = GHOST_OUTLINE_PUYO[color - 1] || '#fff';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                };
+                ring(this.pivotX * cs, ghostPivotY * cs, this.pivotColor);
+                ring(childCol * cs, ghostChildY * cs, this.childColor);
+            } else {
+                ctx.globalAlpha = 0.22;
+                this._drawPuyo(ctx, this.pivotX * cs, ghostPivotY * cs, this.pivotColor, cs, 0);
+                this._drawPuyo(ctx, childCol * cs, ghostChildY * cs, this.childColor, cs, 0);
+                ctx.globalAlpha = 1.0;
+            }
 
             const angle = -Math.PI / 2 + this.animRot * (Math.PI / 2);
             const childOffsetX = Math.cos(angle);

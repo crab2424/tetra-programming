@@ -4,6 +4,12 @@
 // ※ core.js（class Game 定義）より後に読み込むこと
 // ─────────────────────────────────────────────
 
+// ゴーストを枠線で描くときのミノ色（I,O,T,J,L,S,Z）。アシストの枠線と同じ配色
+const GHOST_OUTLINE_RGB = [
+    [0, 240, 240], [240, 240, 0], [160, 0, 240], [0, 0, 240],
+    [240, 160, 0], [0, 240, 0], [240, 0, 0],
+]
+
 Object.assign(Game.prototype, {
 
     initMainCanvas() {
@@ -96,6 +102,20 @@ Object.assign(Game.prototype, {
             ctx.stroke();
         }
         ctx.restore();
+    },
+
+    // ゴーストを枠線で描く（設定 GHOST: LINE。アシストの塗りと入れ替え）。色はミノの色
+    _drawGhostOutline(ctx, ghostY) {
+        const [r, g, b] = GHOST_OUTLINE_RGB[this.mino.type] || [255, 255, 255]
+        ctx.save()
+        ctx.strokeStyle = `rgba(${r},${g},${b},0.9)`
+        ctx.lineWidth = 2
+        this.mino.blocks.forEach(block => {
+            const bx = this.mino.x + block.x, by = ghostY + block.y
+            if (bx < 0 || bx >= COLS_COUNT || by < -1 || by >= ROWS_COUNT) return
+            ctx.strokeRect(bx * BLOCK_SIZE + 1, by * BLOCK_SIZE + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2)
+        })
+        ctx.restore()
     },
 
     getGhostY() {
@@ -203,9 +223,13 @@ Object.assign(Game.prototype, {
         if (this.mino && this.showGhost !== false) {
             const ghostY = this.getGhostY()
             if (ghostY !== this.mino.y) {
-                this.mainCtx.globalAlpha = 0.25
-                this.mino.draw(this.mainCtx, ghostY)
-                this.mainCtx.globalAlpha = 1.0
+                if (typeof isGhostOutline === 'function' && isGhostOutline()) {
+                    this._drawGhostOutline(this.mainCtx, ghostY)
+                } else {
+                    this.mainCtx.globalAlpha = 0.25
+                    this.mino.draw(this.mainCtx, ghostY)
+                    this.mainCtx.globalAlpha = 1.0
+                }
             }
         }
 
