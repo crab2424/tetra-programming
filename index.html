@@ -1210,116 +1210,131 @@
     MARK: 設定ページ
     ───────────────────────────────────────────── -->
   <div id="settings-page" class="page">
+    <!-- RESET DEFAULT / SAVE はタブを切り替えても見えるよう、BACK と並べてヘッダーに置く -->
     <div class="settings-header">
       <h2 style="margin-bottom: 0">⚙ SETTINGS</h2>
-      <button class="btn btn-back" onclick="requestLeaveSettings()">
-        ◀ BACK
-      </button>
-    </div>
-
-    <!-- ★ 追加: 音量設定セクション -->
-    <h2 style="margin-top: 0; margin-bottom: 20px">🔊 VOLUME</h2>
-    <div class="tuning-container">
-      <div class="slider-row">
-        <div class="slider-label">
-          BGM<span id="val-bgm-volume">50%</span>
-        </div>
-        <input type="range" id="slider-bgm-volume" min="0" max="100" step="1" value="50"
-          oninput="updateVolumeDisplay()" />
-        <div class="slider-markers">
-          <span>0%</span><span>50%</span><span>100%</span>
-        </div>
-      </div>
-      <div class="slider-row">
-        <div class="slider-label">SE<span id="val-se-volume">80%</span></div>
-        <input type="range" id="slider-se-volume" min="0" max="100" step="1" value="80"
-          oninput="updateVolumeDisplay()" />
-        <div class="slider-markers">
-          <span>0%</span><span>50%</span><span>100%</span>
-        </div>
+      <div class="settings-actions">
+        <button class="btn btn-reset" onclick="resetToDefaults()">
+          RESET DEFAULT
+        </button>
+        <button class="btn btn-save" onclick="saveSettings()">SAVE</button>
+        <button class="btn btn-back" onclick="requestLeaveSettings()">
+          ◀ BACK
+        </button>
       </div>
     </div>
 
-    <h2 style="margin-top: 32px; margin-bottom: 28px">⌨️🎮 KEY CONFIG</h2>
-    <div class="key-config-grid" id="key-config-grid"></div>
-    <p class="conflict-warning" id="conflict-warning">
-      ⚠ 同じキー/ボタンが複数の項目に割り当てられています
-    </p>
-
-    <h2 style="margin-top: 32px; margin-bottom: 28px">🛠 TUNING (TET)</h2>
-    <div class="tuning-container" id="tuning-tet-section">
-      <div class="slider-row">
-        <div class="slider-label">
-          DAS <small>(Delayed Auto Shift)</small><span id="val-das">9.0f (150ms)</span>
-        </div>
-        <input type="range" id="slider-das" min="0" max="30" step="0.1" value="9.0" />
-        <div class="slider-markers">
-          <span>0f</span><span>10f</span><span>20f</span><span>30f</span>
-        </div>
-      </div>
-      <div class="slider-row">
-        <div class="slider-label">
-          ARR <small>(Auto Repeat Rate)</small><span id="val-arr">1.5f (25ms)</span>
-        </div>
-        <input type="range" id="slider-arr" min="0" max="10" step="0.1" value="1.5" />
-        <div class="slider-markers">
-          <span>0f</span><span>5f</span><span>10f</span>
-        </div>
-      </div>
-      <div class="slider-row">
-        <div class="slider-label">
-          DCD <small>(DAS Cut Delay)</small><span id="val-dcd">3.0f (50ms)</span>
-        </div>
-        <input type="range" id="slider-dcd" min="0" max="10" step="0.1" value="3.0" />
-        <div class="slider-markers">
-          <span>0f</span><span>5f</span><span>10f</span>
-        </div>
-      </div>
+    <!-- タブ（切替は public/config/settings.js の setSettingsTab()） -->
+    <div class="option-toggle" id="settings-tab-toggle">
+      <button class="opt-btn active" data-tab="tuning" onclick="setSettingsTab('tuning')">VOLUME &amp; TUNING</button>
+      <button class="opt-btn" data-tab="keys" onclick="setSettingsTab('keys')">KEY CONFIG</button>
+      <button class="opt-btn" data-tab="display" onclick="setSettingsTab('display')">DISPLAY</button>
+      <button class="opt-btn" data-tab="online" onclick="setSettingsTab('online')">ONLINE</button>
     </div>
 
-    <h2 style="margin-top: 32px; margin-bottom: 28px">📊 DISPLAY</h2>
-    <div class="tuning-container" id="display-section">
-      <div class="option-row">
-        <span class="option-label">APM / LPM</span>
-        <div class="option-toggle" id="display-apm-toggle">
-          <button class="opt-btn" data-value="on" onclick="setDisplayOption('apm', true)">ON</button>
-          <button class="opt-btn" data-value="off" onclick="setDisplayOption('apm', false)">OFF</button>
+    <!-- 登場演出(particles.js)はこのラッパー単位。パネル自身はタブ切替時のフェードを持つ -->
+    <div id="settings-tab-panels">
+      <div class="settings-tab-panel active" data-tab="tuning">
+        <h2 style="margin-bottom: 20px">🔊 VOLUME</h2>
+        <div class="tuning-container">
+          <div class="slider-row">
+            <div class="slider-label">
+              BGM<span id="val-bgm-volume">50%</span>
+            </div>
+            <input type="range" id="slider-bgm-volume" min="0" max="100" step="1" value="50"
+              oninput="updateVolumeDisplay()" />
+            <div class="slider-markers">
+              <span>0%</span><span>50%</span><span>100%</span>
+            </div>
+          </div>
+          <div class="slider-row">
+            <div class="slider-label">SE<span id="val-se-volume">80%</span></div>
+            <input type="range" id="slider-se-volume" min="0" max="100" step="1" value="80"
+              oninput="updateVolumeDisplay()" />
+            <div class="slider-markers">
+              <span>0%</span><span>50%</span><span>100%</span>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="option-row">
-        <span class="option-label">TIME (VERSUS)</span>
-        <div class="option-toggle" id="display-versus-time-toggle">
-          <button class="opt-btn" data-value="on" onclick="setDisplayOption('versusTime', true)">ON</button>
-          <button class="opt-btn" data-value="off" onclick="setDisplayOption('versusTime', false)">OFF</button>
-        </div>
-      </div>
-      <div class="option-row">
-        <span class="option-label">GHOST / ASSIST</span>
-        <div class="option-toggle" id="display-ghost-style-toggle">
-          <button class="opt-btn" data-value="fill" onclick="setDisplayOption('ghostStyle', 'fill')">GHOST: FILL</button>
-          <button class="opt-btn" data-value="outline" onclick="setDisplayOption('ghostStyle', 'outline')">GHOST: LINE</button>
-        </div>
-      </div>
-      <div id="ghost-style-preview"></div>
-      <div class="option-row">
-        <span class="option-label">最高記録</span>
-        <button class="btn btn-reset-records" onclick="resetRecords()">RESET RECORDS</button>
-      </div>
-    </div>
 
-    <h2 style="margin-top: 32px; margin-bottom: 28px">🌐 ONLINE</h2>
-    <div class="online-container">
-      <div class="slider-row">
-        <div class="slider-label">TETLABO Backend URL</div>
-        <input type="text" id="settings-online-backend" class="settings-online-input" />
+        <h2 style="margin-top: 32px; margin-bottom: 20px">🛠 TUNING (TET)</h2>
+        <div class="tuning-container" id="tuning-tet-section">
+          <div class="slider-row">
+            <div class="slider-label">
+              DAS <small>(Delayed Auto Shift)</small><span id="val-das">9.0f (150ms)</span>
+            </div>
+            <input type="range" id="slider-das" min="0" max="30" step="0.1" value="9.0" />
+            <div class="slider-markers">
+              <span>0f</span><span>10f</span><span>20f</span><span>30f</span>
+            </div>
+          </div>
+          <div class="slider-row">
+            <div class="slider-label">
+              ARR <small>(Auto Repeat Rate)</small><span id="val-arr">1.5f (25ms)</span>
+            </div>
+            <input type="range" id="slider-arr" min="0" max="10" step="0.1" value="1.5" />
+            <div class="slider-markers">
+              <span>0f</span><span>5f</span><span>10f</span>
+            </div>
+          </div>
+          <div class="slider-row">
+            <div class="slider-label">
+              DCD <small>(DAS Cut Delay)</small><span id="val-dcd">3.0f (50ms)</span>
+            </div>
+            <input type="range" id="slider-dcd" min="0" max="10" step="0.1" value="3.0" />
+            <div class="slider-markers">
+              <span>0f</span><span>5f</span><span>10f</span>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <div class="settings-actions" style="margin-top: 24px">
-      <button class="btn btn-reset" onclick="resetToDefaults()">
-        RESET DEFAULT
-      </button>
-      <button class="btn btn-save" onclick="saveSettings()">SAVE</button>
+      <div class="settings-tab-panel" data-tab="keys">
+        <div class="key-config-grid" id="key-config-grid"></div>
+        <p class="conflict-warning" id="conflict-warning">
+          ⚠ 同じキー/ボタンが複数の項目に割り当てられています
+        </p>
+      </div>
+
+      <div class="settings-tab-panel" data-tab="display">
+        <div class="tuning-container" id="display-section">
+          <div class="option-row">
+            <span class="option-label">APM / LPM</span>
+            <div class="option-toggle" id="display-apm-toggle">
+              <button class="opt-btn" data-value="on" onclick="setDisplayOption('apm', true)">ON</button>
+              <button class="opt-btn" data-value="off" onclick="setDisplayOption('apm', false)">OFF</button>
+            </div>
+          </div>
+          <div class="option-row">
+            <span class="option-label">TIME (VERSUS)</span>
+            <div class="option-toggle" id="display-versus-time-toggle">
+              <button class="opt-btn" data-value="on" onclick="setDisplayOption('versusTime', true)">ON</button>
+              <button class="opt-btn" data-value="off" onclick="setDisplayOption('versusTime', false)">OFF</button>
+            </div>
+          </div>
+          <div class="option-row">
+            <span class="option-label">GHOST / ASSIST</span>
+            <div class="option-toggle" id="display-ghost-style-toggle">
+              <button class="opt-btn" data-value="fill" onclick="setDisplayOption('ghostStyle', 'fill')">GHOST: FILL</button>
+              <button class="opt-btn" data-value="outline" onclick="setDisplayOption('ghostStyle', 'outline')">GHOST: LINE</button>
+            </div>
+          </div>
+          <div id="ghost-style-preview"></div>
+          <div class="option-row">
+            <span class="option-label">最高記録</span>
+            <button class="btn btn-reset-records" onclick="resetRecords()">RESET RECORDS</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-tab-panel" data-tab="online">
+        <div class="online-container">
+          <div class="slider-row">
+            <div class="slider-label">TETLABO Backend URL</div>
+            <input type="text" id="settings-online-backend" class="settings-online-input" />
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1380,7 +1395,7 @@
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=7"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=10"></script>
+  <script src="config/settings.js?v=11"></script>
   <script src="config/records.js?v=3"></script>
   <script src="config/account.js?v=6"></script>
   <script src="core/hud_extras.js?v=4"></script>
@@ -1412,9 +1427,9 @@
   <script src="app/cpu_match_log.js?v=2"></script>
   <script src="app/versus.js?v=15"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=32"></script>
+  <script src="app/navigation.js?v=33"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/focus_nav.js?v=14"></script>
+  <script src="app/focus_nav.js?v=15"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=4"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->

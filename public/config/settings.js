@@ -670,8 +670,30 @@ function checkConflicts() {
 
   const warnEl = document.getElementById('conflict-warning');
   if (warnEl) warnEl.classList.toggle('show', hasDup);
+  const keysTab = document.querySelector('#settings-tab-toggle .opt-btn[data-tab="keys"]');
+  if (keysTab) keysTab.classList.toggle('has-warning', hasDup);
 
   return hasDup;
+}
+
+// ─── タブ切替 ───────────────────────────────────────
+// 表示を切り替えるだけで、各項目の値は全タブ共通（SAVE / RESET DEFAULT は全タブ分まとめて扱う）。
+// 選んだタブはセッション中だけ覚えておき、次に設定画面を開いた時もそのタブから始める。
+let currentSettingsTab = 'tuning';
+
+function setSettingsTab(tab) {
+  if (!document.querySelector(`.settings-tab-panel[data-tab="${tab}"]`)) return;
+  currentSettingsTab = tab;
+  document.querySelectorAll('#settings-tab-toggle .opt-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.settings-tab-panel').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.tab === tab);
+  });
+}
+
+function renderSettingsTabs() {
+  setSettingsTab(currentSettingsTab);
 }
 
 function resetToDefaults() {

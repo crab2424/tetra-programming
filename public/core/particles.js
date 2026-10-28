@@ -223,7 +223,7 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '#result-buttons',           cls: 'menu-enter',  delay: 2   },
         ];
     } else if (pageId === 'settings') {
-        // settings-page は直下に各セクションが並ぶフラット構造。
+        // settings-page 直下は ヘッダー → タブ → タブパネル群(#settings-tab-panels) の3つ。
         // 子要素を順番にカスケード登場（delay は長くなりすぎないよう上限6でクランプ）。
         targets = Array.from(page.children).map((el, i) => (
             { el, cls: 'menu-enter', delay: Math.min(i, 6) }

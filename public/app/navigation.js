@@ -331,6 +331,7 @@ function switchPage(pageId) {
   if (header) header.style.display = (pageId === 'settings') ? 'flex' : 'none';
 
   if (pageId === 'settings') {
+    if (typeof renderSettingsTabs === 'function') renderSettingsTabs();
     if (typeof renderKeyConfig === 'function') renderKeyConfig();
     if (typeof renderTuning    === 'function') renderTuning();
     if (typeof renderVolume    === 'function') renderVolume();

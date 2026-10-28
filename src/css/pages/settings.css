@@ -15,7 +15,41 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 28px;
+  margin-bottom: 20px;
+}
+
+/* タブ（VOLUME & TUNING / KEY CONFIG / DISPLAY / ONLINE） */
+#settings-tab-toggle {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+  margin-bottom: 24px;
+}
+#settings-tab-toggle .opt-btn {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+#settings-tab-toggle .opt-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* キー重複がある時は、他のタブにいても KEY CONFIG タブで気付けるようにする */
+#settings-tab-toggle .opt-btn.has-warning::after {
+  content: " ⚠";
+  color: var(--danger);
+}
+
+.settings-tab-panel {
+  display: none;
+}
+.settings-tab-panel.active {
+  display: block;
+  animation: settings-tab-in 0.18s ease-out;
+}
+@keyframes settings-tab-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
 }
 .btn-back {
   background: transparent;

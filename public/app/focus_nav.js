@@ -1001,12 +1001,15 @@
   });
 
   register('settings', {
+    // 並び: ヘッダー（RESET DEFAULT / SAVE / BACK）→ タブ → 表示中タブの項目。
+    // 非表示タブの項目は currentItems() の isVisible で落ちるので、全タブ分を並べておけばよい。
     getItems: () => {
-      const headerAnchor  = document.querySelector('.settings-header');
-      const keyAnchor     = document.getElementById('key-config-grid');
-      const actionsAnchor = document.querySelector('#settings-page .settings-actions');
+      const headerAnchor = document.querySelector('.settings-header');
+      const tabToggle    = document.getElementById('settings-tab-toggle');
+      const keyAnchor    = document.getElementById('key-config-grid');
       const items = [];
-      $$('.settings-header .btn-back').forEach(b => items.push({ el: b, scrollAnchor: headerAnchor }));
+      $$('.settings-header .settings-actions button').forEach(b => items.push({ el: b, scrollAnchor: headerAnchor }));
+      if (tabToggle) { const it = rowToggle(tabToggle, tabToggle); it.scrollAnchor = headerAnchor; items.push(it); }
       const bgmSlider = document.getElementById('slider-bgm-volume');
       const seSlider  = document.getElementById('slider-se-volume');
       const bgmRow = bgmSlider && bgmSlider.closest('.slider-row');
@@ -1014,14 +1017,14 @@
       const volAnchor = bgmRow && bgmRow.closest('.tuning-container');
       if (bgmRow) { const it = rowSlider(bgmRow, bgmSlider); it.scrollAnchor = volAnchor; items.push(it); }
       if (seRow)  { const it = rowSlider(seRow,  seSlider);   it.scrollAnchor = volAnchor; items.push(it); }
-      $$('#key-config-grid .key-row').forEach(row => {
-        $$('.key-badge', row).forEach(b => items.push({ el: b, scrollAnchor: keyAnchor }));
-      });
       const tuningContainer = document.getElementById('tuning-tet-section');
       ['slider-das', 'slider-arr', 'slider-dcd'].forEach(id => {
         const s = document.getElementById(id);
         const row = s && s.closest('.slider-row');
         if (row) { const it = rowSlider(row, s); it.scrollAnchor = tuningContainer || row; items.push(it); }
+      });
+      $$('#key-config-grid .key-row').forEach(row => {
+        $$('.key-badge', row).forEach(b => items.push({ el: b, scrollAnchor: keyAnchor }));
       });
       const displaySection = document.getElementById('display-section');
       $$('#display-section .option-row').forEach(row => {
@@ -1033,10 +1036,10 @@
           if (btn) items.push({ el: btn, scrollAnchor: displaySection });
         }
       });
-      $$('#settings-page .btn-reset, #settings-page .btn-save').forEach(b => items.push({ el: b, scrollAnchor: actionsAnchor }));
       return items;
     },
-    initialIndex: 0,
+    // 開いた直後はタブ行（RESET DEFAULT に誤って決定しないよう先頭のボタンにはしない）
+    initialIndex: (els) => Math.max(0, els.findIndex(el => el && el.id === 'settings-tab-toggle')),
   });
 
   // ─────────────────────────────────────────────
