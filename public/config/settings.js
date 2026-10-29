@@ -700,7 +700,7 @@ function renderSettingsTabs() {
 const SETTINGS_RESET_TABS = {
   tuning: {
     name: 'VOLUME & TUNING',
-    message: 'VOLUME & TUNING（BGM/SE 音量・DAS/ARR/DCD）を初期値に戻します。',
+    hint: '音量・DAS/ARR/DCD',
     reset() {
       currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
       currentVolume = JSON.parse(JSON.stringify(DEFAULT_VOLUME));
@@ -710,7 +710,7 @@ const SETTINGS_RESET_TABS = {
   },
   keys: {
     name: 'KEY CONFIG',
-    message: 'KEY CONFIG（キー・ボタンの割り当て、スティックのデッドゾーン）を初期値に戻します。',
+    hint: 'キー割り当て・デッドゾーン',
     reset() {
       currentBinds = normalizeBinds(JSON.parse(JSON.stringify(DEFAULT_BINDS)));
       recomputeDerivedBinds();
@@ -722,7 +722,8 @@ const SETTINGS_RESET_TABS = {
   },
   display: {
     name: 'DISPLAY',
-    message: 'DISPLAY（APM/LPM・対戦 TIME・GHOST / ASSIST の表示）を初期値に戻します。この項目は SAVE を待たず、すぐ反映されます。',
+    hint: '表示設定',
+    immediate: true, // SAVE を待たず即保存される
     reset() {
       Object.keys(currentDisplay).forEach((k) => delete currentDisplay[k]);
       Object.assign(currentDisplay, DEFAULT_DISPLAY);
@@ -733,7 +734,7 @@ const SETTINGS_RESET_TABS = {
   },
   online: {
     name: 'ONLINE',
-    message: 'ONLINE（Backend URL）を初期値（空欄）に戻します。',
+    hint: 'Backend URL',
     reset() {
       // Backend URL 入力欄には専用のメモリ変数が無く、DOM要素の値そのものが「現在値」
       // なので、ここで直接空にする（renderOnlineSettings()は呼ばない＝保存値で
@@ -754,10 +755,10 @@ async function resetToDefaults() {
   const cur = SETTINGS_RESET_TABS[currentSettingsTab] || SETTINGS_RESET_TABS.tuning;
   const choice = await TetDialog.choose({
     title: 'RESET DEFAULT',
-    message: cur.message + '\n「ALL」ならすべてのタブ（VOLUME & TUNING / KEY CONFIG / DISPLAY / ONLINE）を戻します。DISPLAY 以外は SAVE を押すまで確定しません。',
+    message: `${cur.name}（${cur.hint}）を初期値に戻します。\n${cur.immediate ? 'この項目は即反映されます。' : 'SAVE を押すまで確定しません。'}`,
     buttons: [
-      { label: cur.name, value: 'tab', kind: 'danger' },
-      { label: 'ALL', value: 'all', kind: 'danger' },
+      { label: 'THIS TAB', value: 'tab', kind: 'danger' },
+      { label: 'ALL TABS', value: 'all', kind: 'danger' },
       { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
     ],
     initial: 'cancel',

@@ -886,36 +886,22 @@
     },
     initialIndex: (els) => els.findIndex(b => b && b.id === 'versus-check-start-btn'),
     // 左右のカラムごとに上下へ移動する（視覚配置の行で混ぜない）。
-    //   左カラム（VS SETTINGS/START/BACK）で → は右カラムの同じ高さへ。
-    //   右カラムは ←/→ が値変更なので、先頭の値で ← を押したときだけ左カラムへ戻る（onRowMove）。
+    //   各カラムの端から更に上下へ進むと、もう一方のカラムへ移る（左 → 右 → 左…と一周する）。
+    //   左カラムで → は右カラムの同じ高さへ。右カラムは ←/→ が値変更なので横移動は入れない。
     onMove2D: (dir, cur, items) => {
       const colOf = (it) => it.el.closest('.check-col-info') ? 'left' : 'right';
       const col = colOf(items[cur]);
       const idxs = items.map((it, i) => i).filter(i => colOf(items[i]) === col);
       if (dir === 'up' || dir === 'down') {
         const p = idxs.indexOf(cur);
-        return idxs[(p + (dir === 'down' ? 1 : -1) + idxs.length) % idxs.length];
+        const q = p + (dir === 'down' ? 1 : -1);
+        if (q >= 0 && q < idxs.length) return idxs[q];
+        const other = items.map((it, i) => i).filter(i => colOf(items[i]) !== col);
+        if (!other.length) return idxs[(q + idxs.length) % idxs.length];
+        return dir === 'down' ? other[0] : other[other.length - 1];
       }
       if (dir === 'right' && col === 'left') return checkPageMove2D(dir, cur, items);
       return cur;
-    },
-    //   右カラムの行は、先頭の値が選ばれているときの ← で左カラムの同じ高さへ戻る。
-    onRowMove: (dir, cur, items) => {
-      if (dir !== 'left') return null;
-      const curEl = items[cur].el;
-      if (curEl.closest('.check-col-info')) return null;
-      const btns = $$('.opt-btn', curEl).filter(isVisible);
-      if (btns.length && !btns[0].classList.contains('active')) return null;
-      const r = curEl.getBoundingClientRect();
-      const cy = (r.top + r.bottom) / 2;
-      let best = null, bestD = Infinity;
-      items.forEach((it, i) => {
-        if (!it.el.closest('.check-col-info')) return;
-        const rr = it.el.getBoundingClientRect();
-        const d = Math.abs((rr.top + rr.bottom) / 2 - cy);
-        if (d < bestD) { bestD = d; best = i; }
-      });
-      return best;
     },
   });
 
@@ -1083,6 +1069,12 @@
       if (dir === 'up' && items[cur] && items[cur].el.id === 'settings-tab-toggle') {
         const i = items.findIndex(it => it.el.classList && it.el.classList.contains('btn-save'));
         if (i >= 0) return i;
+      }
+      // 最下段からの ↓（一周して戻る）は、先頭の RESET DEFAULT ではなくタブ行へ
+      if (dir === 'down' && items[cur] && !items[cur].el.closest('#settings-sticky')) {
+        const b = items[cur].el.getBoundingClientRect().bottom;
+        const below = items.some(it => it.el.getClientRects().length && it.el.getBoundingClientRect().top >= b - 1);
+        if (!below) return items.findIndex(it => it.el.id === 'settings-tab-toggle');
       }
       return null;
     },
