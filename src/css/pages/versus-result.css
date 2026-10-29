@@ -38,6 +38,22 @@
   animation: gauge-blink 0.4s infinite alternate;
 }
 
+/* 20 ラインを超えたときの合計数（ゲージ上端に重ねる） */
+.gauge-count {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: "Orbitron", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 32px;
+  color: #fff;
+  text-shadow: 0 0 4px #000, 0 0 6px #000, 1px 1px 0 #000;
+  white-space: nowrap;
+  z-index: 1;
+}
+
 @keyframes gauge-blink {
   from {
     opacity: 1;

@@ -518,8 +518,8 @@ function renderModeCheck() {
           <span class="option-label">OPPONENT</span>
           <div class="option-toggle" id="test-opponent-toggle">
             <button class="opt-btn ${testOpponent === 'none' ? 'active' : ''}" onclick="setTestOpponent('none')">NONE</button>
-            <button class="opt-btn ${testOpponent === 'puyo' ? 'active' : ''}" onclick="setTestOpponent('puyo')">PUYO</button>
             <button class="opt-btn ${testOpponent === 'tet' ? 'active' : ''}" onclick="setTestOpponent('tet')">TET</button>
+            <button class="opt-btn ${testOpponent === 'puyo' ? 'active' : ''}" onclick="setTestOpponent('puyo')">PUYO</button>
           </div>
         </div>
         ${vsCpu ? `
@@ -541,16 +541,17 @@ function renderModeCheck() {
       `;
       // LV1〜6 のボタン（puyo の LV6 は隠しキー 6 と同じ＝高速落下設置は解除。puyo の 7 / Shift+7 はキーで指定）
       // その側のルールが TET のときは LV7 と参考AI「CLYS」（レベル 8。cpu/tet/clys）も選べる。PUYO に変えたら LV6 に戻す
+      // CLYS は開発用の環境（IS_DEV_HOST）だけ。本番では LV7 まで。VERSUS と同じく数字だけのボタン
       const fillLevels = (toggleId, get, set, rule) => {
         const toggle = document.getElementById(toggleId);
         if (!toggle) return;
         toggle.classList.add('compact');
-        const maxLv = rule === 'tet' ? 8 : 6;
+        const maxLv = rule === 'tet' ? (IS_DEV_HOST ? 8 : 7) : 6;
         if (get() > maxLv) set(6);
         for (let lv = 1; lv <= maxLv; lv++) {
           const btn = document.createElement('button');
           btn.className = 'opt-btn' + (lv === get() ? ' active' : '');
-          btn.textContent = lv === 8 ? CPU_LEVELS[8].label : 'LV' + lv;
+          btn.textContent = lv === 8 ? CPU_LEVELS[8].label : String(lv);
           btn.onclick = () => {
             set(lv);
             toggle.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === lv));

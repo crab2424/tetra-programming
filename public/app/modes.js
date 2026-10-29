@@ -260,11 +260,19 @@ const CPU_LEVELS = {
   // ★ 隠し要素（tet のみ）: 準備画面で「7」キーを押すと出現。clys 型の探索（cpu/tet/lv7）
   //   （設計 source_assets/memory/cpu/tet/lv6-phase1-search-design.md）
   7: { label: 'LV 7', desc: '???', gravityLevel: 2 },
-  // ★ CPU TEST 専用（tet のみ）: 参考AI clys（MIT）をそのまま動かす。比較用
+  // ★ CPU TEST 専用（tet のみ・開発用の環境だけ IS_DEV_HOST）: 参考AI clys（MIT）をそのまま動かす。比較用
   //   （設計 source_assets/memory/cpu/tet/clys-port-design.md）
   8: { label: 'CLYS', desc: '参考AI clys', gravityLevel: 2 },
 };
 let selectedCpuLevel = 1;
+
+// 開発用の環境か（localhost とプレビュー <branch>-citgame.pptlabo.workers.dev）。本番 citgame.pptlabo.workers.dev は false。
+// CLYS（レベル 8）は開発用の環境でだけ CPU TEST に出す（quiz.js の _bootQuizEditorTest と同じ判定）
+const IS_DEV_HOST = (() => {
+  const host = location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost')
+      || host.endsWith('-citgame.pptlabo.workers.dev');
+})();
 
 // ─── CPU同士の対戦（v2.2.3 J・隠しコマンド）──────────
 // 準備画面(versus-check)で「0」→ 1P もCPUにして開始、「Shift+1〜6」→ 1P CPU のレベルを指定。
