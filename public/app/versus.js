@@ -34,20 +34,20 @@ function setVersusCpuRule(rule) {
   if (tetBtn) tetBtn.classList.toggle('active', rule === 'tet');
   if (puyoBtn) puyoBtn.classList.toggle('active', rule === 'puyo');
   if (rule === 'puyo' && selectedCpuLevel === 7) selectedCpuLevel = 6;   // LV7 は tet だけ
-  renderVersusCheck();   // LV6 のボタンは tet のときだけ出す
+  renderVersusCheck();
 }
 
 function renderVersusCheck() {
   const toggle = document.getElementById('cpu-level-toggle');
   if (toggle) {
     toggle.innerHTML = '';
-    // tet は LV6 まで通常のボタン（LV7 は「7」キー）。puyo は LV5 まで（LV6 は「6」キー）
-    const maxLv = versusCpuRule === 'tet' ? 6 : 5;
+    // tet・puyo とも LV6 まで通常のボタン（LV7 は tet のみ「7」キー）。数字だけにして一行に収める
+    const maxLv = 6;
     for (let lv = 1; lv <= maxLv; lv++) {
       const btn = document.createElement('button');
       btn.className = 'opt-btn' + (lv === selectedCpuLevel ? ' active' : '');
-      btn.style.minWidth = '48px';
-      btn.textContent = CPU_LEVELS[lv].label;
+      btn.style.minWidth = '40px';
+      btn.textContent = String(lv);
       btn.onclick = (function(lvCopy) {
         return function() { setCpuLevel(lvCopy); };
       })(lv);
@@ -60,6 +60,8 @@ function renderVersusCheck() {
 }
 
 function setCpuLevel(lv) {
+  // LV6 を新たに選んだときは puyo の隠しモード（高速落下で設置）を解除する
+  if (lv === 6 && selectedCpuLevel !== 6) window.__cpu6SoftDrop2P = false;
   selectedCpuLevel = lv;
   const toggle = document.getElementById('cpu-level-toggle');
   if (toggle) {

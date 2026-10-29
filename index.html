@@ -1211,6 +1211,8 @@
     ───────────────────────────────────────────── -->
   <div id="settings-page" class="page">
     <!-- RESET DEFAULT / SAVE はタブを切り替えても見えるよう、BACK と並べてヘッダーに置く -->
+    <!-- ヘッダーとタブは固定し、中身(#settings-tab-panels)だけスクロールさせる -->
+    <div id="settings-sticky">
     <div class="settings-header">
       <h2 style="margin-bottom: 0">⚙ SETTINGS</h2>
       <div class="settings-actions">
@@ -1230,6 +1232,7 @@
       <button class="opt-btn" data-tab="keys" onclick="setSettingsTab('keys')">KEY CONFIG</button>
       <button class="opt-btn" data-tab="display" onclick="setSettingsTab('display')">DISPLAY</button>
       <button class="opt-btn" data-tab="online" onclick="setSettingsTab('online')">ONLINE</button>
+    </div>
     </div>
 
     <!-- 登場演出(particles.js)はこのラッパー単位。パネル自身はタブ切替時のフェードを持つ -->
@@ -1395,7 +1398,7 @@
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=7"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=11"></script>
+  <script src="config/settings.js?v=12"></script>
   <script src="config/records.js?v=3"></script>
   <script src="config/account.js?v=6"></script>
   <script src="core/hud_extras.js?v=4"></script>
@@ -1425,11 +1428,11 @@
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <script src="app/cpu_match_log.js?v=2"></script>
-  <script src="app/versus.js?v=15"></script>
+  <script src="app/versus.js?v=16"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
   <script src="app/navigation.js?v=33"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/focus_nav.js?v=15"></script>
+  <script src="app/focus_nav.js?v=16"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=4"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->

@@ -11,6 +11,18 @@
   z-index: 2;
 }
 
+/* ヘッダー+タブを上端に固定（#settings-page の padding 分を負マージンで打ち消し、
+   背後でスクロールする内容が上の余白から見えないようにする） */
+#settings-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: -32px -32px 0;
+  padding: 32px 32px 0;
+  background: var(--panel-bg);
+  border-radius: 12px 12px 0 0;
+}
+
 .settings-header {
   display: flex;
   justify-content: space-between;
@@ -23,6 +35,16 @@
   border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
   margin-bottom: 24px;
+}
+/* キーフォーカスは行全体ではなく、選択中のタブ1つに枠を出す */
+body.input-mode-kbd #settings-tab-toggle.is-focused {
+  outline: none;
+  box-shadow: none;
+}
+body.input-mode-kbd #settings-tab-toggle.is-focused .opt-btn.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(196, 113, 245, 0.45);
 }
 #settings-tab-toggle .opt-btn {
   flex: 1;
@@ -178,7 +200,8 @@
   border-radius: 6px;
   border: none;
   cursor: pointer;
-  transition: all 0.2s;
+  /* all だとフォーカス枠(outline/box-shadow)まで補間され、枠の上下辺が途切れて見える */
+  transition: background 0.2s, color 0.2s, border-color 0.2s, opacity 0.2s, filter 0.2s;
 }
 
 .btn:disabled {

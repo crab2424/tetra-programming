@@ -418,6 +418,12 @@
     const cur = currentIndex(items);
     const it = items[cur];
 
+    // row 型は ←/→ で値変更。ただしページ側が「この端では値を変えず別の項目へ移る」と
+    // 決めたとき（onRowMove が番号を返す。準備画面の右→左カラムなど）はそちらを優先する
+    if ((dir === 'left' || dir === 'right') && it && it.type === 'row' && typeof active.onRowMove === 'function') {
+      const n = active.onRowMove(dir, cur, items);
+      if (typeof n === 'number' && n >= 0 && n < items.length) { applyFocus(n, { sound: true }); return; }
+    }
     // row 型は ←/→ で値変更
     if ((dir === 'left' || dir === 'right') && it && it.type === 'row') {
       const handler = dir === 'left' ? it.onLeft : it.onRight;
@@ -879,7 +885,38 @@
       return items;
     },
     initialIndex: (els) => els.findIndex(b => b && b.id === 'versus-check-start-btn'),
-    onMove2D: checkPageMove2D,
+    // 左右のカラムごとに上下へ移動する（視覚配置の行で混ぜない）。
+    //   左カラム（VS SETTINGS/START/BACK）で → は右カラムの同じ高さへ。
+    //   右カラムは ←/→ が値変更なので、先頭の値で ← を押したときだけ左カラムへ戻る（onRowMove）。
+    onMove2D: (dir, cur, items) => {
+      const colOf = (it) => it.el.closest('.check-col-info') ? 'left' : 'right';
+      const col = colOf(items[cur]);
+      const idxs = items.map((it, i) => i).filter(i => colOf(items[i]) === col);
+      if (dir === 'up' || dir === 'down') {
+        const p = idxs.indexOf(cur);
+        return idxs[(p + (dir === 'down' ? 1 : -1) + idxs.length) % idxs.length];
+      }
+      if (dir === 'right' && col === 'left') return checkPageMove2D(dir, cur, items);
+      return cur;
+    },
+    //   右カラムの行は、先頭の値が選ばれているときの ← で左カラムの同じ高さへ戻る。
+    onRowMove: (dir, cur, items) => {
+      if (dir !== 'left') return null;
+      const curEl = items[cur].el;
+      if (curEl.closest('.check-col-info')) return null;
+      const btns = $$('.opt-btn', curEl).filter(isVisible);
+      if (btns.length && !btns[0].classList.contains('active')) return null;
+      const r = curEl.getBoundingClientRect();
+      const cy = (r.top + r.bottom) / 2;
+      let best = null, bestD = Infinity;
+      items.forEach((it, i) => {
+        if (!it.el.closest('.check-col-info')) return;
+        const rr = it.el.getBoundingClientRect();
+        const d = Math.abs((rr.top + rr.bottom) / 2 - cy);
+        if (d < bestD) { bestD = d; best = i; }
+      });
+      return best;
+    },
   });
 
   register('vs-settings', {
@@ -1036,8 +1073,20 @@
           if (btn) items.push({ el: btn, scrollAnchor: displaySection });
         }
       });
+      // ONLINE タブ: Backend URL の入力欄。決定で入力開始（Esc で枠移動に戻る）
+      const backend = document.getElementById('settings-online-backend');
+      if (backend) items.push({ el: backend, scrollAnchor: backend.closest('.online-container') || backend, onActivate: () => backend.focus() });
       return items;
     },
+    // タブ行からの ↑ は、ヘッダーの SAVE へ（視覚配置の最寄りだと BACK 等になるため）
+    onMove2D: (dir, cur, items) => {
+      if (dir === 'up' && items[cur] && items[cur].el.id === 'settings-tab-toggle') {
+        const i = items.findIndex(it => it.el.classList && it.el.classList.contains('btn-save'));
+        if (i >= 0) return i;
+      }
+      return null;
+    },
+    stickyTop: () => document.getElementById('settings-sticky'),
     // 開いた直後はタブ行（RESET DEFAULT に誤って決定しないよう先頭のボタンにはしない）
     initialIndex: (els) => Math.max(0, els.findIndex(el => el && el.id === 'settings-tab-toggle')),
   });

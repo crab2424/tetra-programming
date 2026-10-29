@@ -639,12 +639,34 @@ class OnlineMode {
     if (storedName) {
       return storedName;
     }
-    let name = prompt("ユーザー名を入力してください。", "さすらいの研究者");
-    if (!name) {
-      name = "Player";
+    // 初回は init() の ensureUserName()（TETLABO のダイアログ）で保存済みになる。
+    // ここまで来るのは保存前に呼ばれた場合だけなので、仮の名前を返す。
+    return "さすらいの研究者";
+  }
+
+  /**
+   * 初回入場時にユーザー名を TETLABO のダイアログで尋ねて保存する（OS の prompt は使わない）。
+   * ログイン中（Discord の表示名を使う）・保存済みなら何もしない。
+   */
+  private async ensureUserName(): Promise<void> {
+    if ((window as any).Account?.me?.name) return;
+    if (this.getUserNameNullable()) return;
+    const dialog = (window as any).TetDialog;
+    let name: string | null = null;
+    if (dialog?.choose) {
+      const res = await dialog.choose({
+        title: "USER NAME",
+        message: "ONLINE で表示する名前を入力してください（1〜16文字・あとで設定から変更できます）。",
+        input: { value: "さすらいの研究者", maxLength: 16, placeholder: "さすらいの研究者" },
+        buttons: [{ label: "OK", value: "ok", kind: "primary" }],
+        initial: "ok",
+      });
+      name = (res && typeof res === "object" ? res.text : null) ?? null;
     }
+    name = (name ?? "").trim();
+    if (!name) name = "Player";
     localStorage.setItem("tetlaboUserName", name);
-    return name;
+    this.userName = name;
   }
 
   /**
@@ -2627,6 +2649,7 @@ class OnlineMode {
   }
 
   public async init() {
+    await this.ensureUserName();
     await this.attemptConnect();
   }
 }

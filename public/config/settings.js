@@ -696,26 +696,76 @@ function renderSettingsTabs() {
   setSettingsTab(currentSettingsTab);
 }
 
-function resetToDefaults() {
+// タブごとの初期化。DISPLAY だけは他の項目と違い、操作の時点で保存される設定なので即保存する。
+const SETTINGS_RESET_TABS = {
+  tuning: {
+    name: 'VOLUME & TUNING',
+    message: 'VOLUME & TUNING（BGM/SE 音量・DAS/ARR/DCD）を初期値に戻します。',
+    reset() {
+      currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
+      currentVolume = JSON.parse(JSON.stringify(DEFAULT_VOLUME));
+      renderTuning();
+      renderVolume(); // 内部でBgmManager/SeManagerへも反映される（updateVolumeDisplay経由）
+    },
+  },
+  keys: {
+    name: 'KEY CONFIG',
+    message: 'KEY CONFIG（キー・ボタンの割り当て、スティックのデッドゾーン）を初期値に戻します。',
+    reset() {
+      currentBinds = normalizeBinds(JSON.parse(JSON.stringify(DEFAULT_BINDS)));
+      recomputeDerivedBinds();
+      currentGamepadOptions = { deadzone: 0.45 };
+      renderKeyConfig();
+      renderGamepadOptions();
+      updateMenuControlsDisplay();
+    },
+  },
+  display: {
+    name: 'DISPLAY',
+    message: 'DISPLAY（APM/LPM・対戦 TIME・GHOST / ASSIST の表示）を初期値に戻します。この項目は SAVE を待たず、すぐ反映されます。',
+    reset() {
+      Object.keys(currentDisplay).forEach((k) => delete currentDisplay[k]);
+      Object.assign(currentDisplay, DEFAULT_DISPLAY);
+      saveDisplay();
+      renderDisplayOptions();
+      applyDisplayClasses();
+    },
+  },
+  online: {
+    name: 'ONLINE',
+    message: 'ONLINE（Backend URL）を初期値（空欄）に戻します。',
+    reset() {
+      // Backend URL 入力欄には専用のメモリ変数が無く、DOM要素の値そのものが「現在値」
+      // なので、ここで直接空にする（renderOnlineSettings()は呼ばない＝保存値で
+      // 上書きされてしまうため）。
+      const backendInput = document.getElementById('settings-online-backend');
+      if (backendInput) backendInput.value = '';
+    },
+  },
+};
+
+async function resetToDefaults() {
   // ★ 2026-09-14: ここでlocalStorageを直接消していたのをやめた。SAVEを押すまでは
   //   確定させない（設定画面の他の項目と扱いを揃える）＝ SAVE で確定、DISCARD
   //   （保存せずに戻る）で元の保存値に戻せる。
   //   設計 source_assets/memory/tetlabo-v2.2.1-design.md §3.2 問題B。
-  currentBinds = normalizeBinds(JSON.parse(JSON.stringify(DEFAULT_BINDS)));
-  recomputeDerivedBinds();
-  currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
-  currentVolume = JSON.parse(JSON.stringify(DEFAULT_VOLUME));
-  currentGamepadOptions = { deadzone: 0.45 };
-  // Backend URL 入力欄には専用のメモリ変数が無く、DOM要素の値そのものが「現在値」
-  // なので、ここで直接空にする（renderOnlineSettings()は呼ばない＝保存値で
-  // 上書きされてしまうため）。
-  const backendInput = document.getElementById('settings-online-backend');
-  if (backendInput) backendInput.value = '';
-  renderKeyConfig();
-  renderTuning();
-  renderVolume(); // 内部でBgmManager/SeManagerへも反映される（updateVolumeDisplay経由）
-  renderGamepadOptions();
-  updateMenuControlsDisplay();
+  // 2026-10-29: 4タブ化に合わせ、確認ダイアログで「表示中のタブだけ」か「すべて」かを選ばせる。
+  if (typeof stopListeningBind === 'function') stopListeningBind();
+  const cur = SETTINGS_RESET_TABS[currentSettingsTab] || SETTINGS_RESET_TABS.tuning;
+  const choice = await TetDialog.choose({
+    title: 'RESET DEFAULT',
+    message: cur.message + '\n「ALL」ならすべてのタブ（VOLUME & TUNING / KEY CONFIG / DISPLAY / ONLINE）を戻します。DISPLAY 以外は SAVE を押すまで確定しません。',
+    buttons: [
+      { label: cur.name, value: 'tab', kind: 'danger' },
+      { label: 'ALL', value: 'all', kind: 'danger' },
+      { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+    ],
+    initial: 'cancel',
+  });
+  if (choice === 'tab') cur.reset();
+  else if (choice === 'all') Object.values(SETTINGS_RESET_TABS).forEach((t) => t.reset());
+  else return;
+  window.SeManager?.play('menu_decide');
 }
 
 function showToast() {
