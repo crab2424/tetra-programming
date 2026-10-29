@@ -19,17 +19,17 @@ const ATTACK_BIAS_TABLE = [33, 50, 75, 100, 133, 200, 300];
 
 /**
  * マージンタイムのステップ定義
- * null = OFF（機能無効）
  * 正の数 = 発動までの秒数（0 = 即時発動）
  * 負の数 = その秒数ぶん「すでにマージンが経過した状態」で即突入する
  *          （マージンテーブルを進めた状態でVSを開始する）。-160でTET/PUYO両テーブルが上限。
  */
-const MARGIN_TIME_STEPS = [null, -160, -128, -96, -64, -32, 0, 32, 64, 96, 128, 160, 192];
+const MARGIN_TIME_STEPS = [-160, -128, -96, -64, -32, 0, 32, 64, 96, 128, 160, 192];
 
 /** デフォルト設定値 */
 const DEFAULT_VS_SETTINGS = {
     all: {
-        marginTime: 96,       // null=OFF、0=即時、正の整数=秒数
+        marginEnabled: true,  // false=マージンタイム無効（marginTime は保持される）
+        marginTime: 96,       // 0=即時、正の整数=秒数、負数=事前経過秒数
         attackBias: {
             player: 0,        // -3 ~ +3
             cpu:    0         // -3 ~ +3
@@ -57,6 +57,11 @@ function loadVsSettings() {
     if (saved) {
         try {
             const parsed = JSON.parse(saved);
+            // 旧形式（marginTime:null=OFF）→ marginEnabled:false へ移行
+            if (parsed && parsed.all && parsed.all.marginTime === null) {
+                parsed.all.marginEnabled = false;
+                delete parsed.all.marginTime;
+            }
             return _deepMerge(DEFAULT_VS_SETTINGS, parsed);
         } catch (e) {
             localStorage.removeItem(VS_SETTINGS_STORAGE_KEY);
@@ -102,9 +107,8 @@ function getAttackMultiplier(side) {
  * @returns {number|null} null=OFF、0=即時、正数=突入までのms、負数=事前経過ms（テーブルを進めて即突入）
  */
 function getMarginTimeMs() {
-    const val = currentVsSettings.all.marginTime;
-    if (val === null) return null;   // OFF
-    return val * 1000;               // 0ms（即時）/ 正数ms / 負数ms（事前経過）
+    if (!currentVsSettings.all.marginEnabled) return null;   // OFF
+    return currentVsSettings.all.marginTime * 1000;          // 0ms（即時）/ 正数ms / 負数ms（事前経過）
 }
 
 /**
@@ -171,6 +175,7 @@ function renderVsSettingsPage() {
 
     // ── ALL（共通） ────────────────────────────
     container.appendChild(_buildSection('ALL', [
+        _buildMarginEnabledRow(),
         _buildMarginTimeRow(),
         _buildAttackBiasRow('player'),
         _buildAttackBiasRow('cpu')
@@ -241,17 +246,48 @@ function _buildRow(labelText, subText, controlEl) {
 }
 
 // ── マージンタイム ──────────────────────────
-// MARGIN_TIME_STEPS: [null, -160, ..., -32, 0, 32, ..., 192]
-// null=OFF、0=即時発動、正数=突入までの秒数、負数=テーブルを進めた状態で即突入
+// ON/OFF は別行（MARGIN）、秒数は MARGIN TIME のスライダー。
+// MARGIN_TIME_STEPS: [-160, ..., -32, 0, 32, ..., 192]
+// 0=即時発動、正数=突入までの秒数、負数=テーブルを進めた状態で即突入
+function _buildMarginEnabledRow() {
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'vs-setting-btn-group';
+
+    ['ON', 'OFF'].forEach(label => {
+        const btn = document.createElement('button');
+        btn.className = 'vs-setting-step-btn'
+            + ((label === 'ON') === currentVsSettings.all.marginEnabled ? ' active' : '');
+        btn.textContent = label;
+        btn.onclick = () => {
+            currentVsSettings.all.marginEnabled = (label === 'ON');
+            saveVsSettings();
+            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
+                b.classList.toggle('active', (b.textContent === 'ON') === currentVsSettings.all.marginEnabled);
+            });
+            _syncMarginTimeInert();
+        };
+        btnGroup.appendChild(btn);
+    });
+
+    ctrl.appendChild(btnGroup);
+    return _buildRow('MARGIN', '', ctrl);
+}
+
+// MARGIN が OFF の間は秒数の行を減光する（値は保持され、ONに戻すとそのまま使われる）
+function _syncMarginTimeInert() {
+    const row = document.getElementById('vss-row-marginTime');
+    if (row) row.classList.toggle('is-inert', !currentVsSettings.all.marginEnabled);
+}
+
 function _buildMarginTimeRow() {
     const current = currentVsSettings.all.marginTime;
 
-    // 現在値に対応するスライダーインデックスを求める
-    // null(OFF)=0、それ以外は steps 内の位置
+    // 現在値に対応するスライダーインデックス（見つからなければデフォルト値の位置）
     const currentIdx = (() => {
-        if (current === null) return 0;
         const idx = MARGIN_TIME_STEPS.indexOf(current);
-        // 見つからなければデフォルト値の位置にフォールバック
         return idx !== -1 ? idx : MARGIN_TIME_STEPS.indexOf(DEFAULT_VS_SETTINGS.all.marginTime);
     })();
 
@@ -261,7 +297,7 @@ function _buildMarginTimeRow() {
     const valLabel = document.createElement('span');
     valLabel.className = 'vs-setting-value-label';
     valLabel.id = 'vss-val-marginTime';
-    valLabel.textContent = _formatMarginTime(current);
+    valLabel.textContent = _formatMarginTime(MARGIN_TIME_STEPS[currentIdx]);
 
     const slider = document.createElement('input');
     slider.type  = 'range';
@@ -287,7 +323,10 @@ function _buildMarginTimeRow() {
         MARGIN_TIME_STEPS.map((s, i) => ({ pos: i, label: _formatMarginTime(s) })),
         0, MARGIN_TIME_STEPS.length - 1, true));
 
-    return _buildRow('MARGIN TIME', '(sec)', ctrl);
+    const row = _buildRow('MARGIN TIME', '(sec)', ctrl);
+    row.id = 'vss-row-marginTime';
+    row.classList.toggle('is-inert', !currentVsSettings.all.marginEnabled);
+    return row;
 }
 
 // スライダーの目盛り。items = [{ pos: スライダー値, label }]、min/max はスライダーの範囲。
@@ -306,7 +345,6 @@ function _buildSliderMarkers(items, min, max, wide) {
 }
 
 function _formatMarginTime(val) {
-    if (val === null) return 'OFF';
     if (val === 0)    return 'INSTANT';
     return `${val}s`;
 }
@@ -621,7 +659,9 @@ function _updateVsSettingsSummary() {
     const parts = [];
 
     const mt = s.all.marginTime;
-    if (mt !== DEFAULT_VS_SETTINGS.all.marginTime) {
+    if (!s.all.marginEnabled) {
+        parts.push('MARGIN:OFF');
+    } else if (mt !== DEFAULT_VS_SETTINGS.all.marginTime) {
         parts.push(`MARGIN:${_formatMarginTime(mt)}`);
     }
 

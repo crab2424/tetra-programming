@@ -6,6 +6,7 @@
 // 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
 function stopAllGames() {
     currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
+    window.Assist?.detach(); // アシストの層・計算を止める
     // ★ BGMの停止/継続は switchPage が遷移先ページに応じて判断する（ここでは止めない）。
     //   これにより RETRY / NEXT LEVEL のようにゲームを再開する経路では BGM を途切れさせず継続できる。
     //   ただしポーズ中のダッキングは解除する（継続するBGMが小音量のまま再開されるのを防ぐ）。
@@ -233,6 +234,8 @@ function switchPage(pageId) {
   if (versusFromTest && pageId !== 'versus' && pageId !== 'versus-result') endTestCpuVsCpu();
   // 重み調整パネルはプレイ画面の間だけ出す（結果画面・準備画面では消す。RETRY で付け直す）
   if (pageId !== 'game' && pageId !== 'versus') window.CpuWeightsPanel?.detach();
+  // CPU 同士の対局記録の欄（記録は残る）。結果画面でも出す（書き出し・自動再戦の切り替え）
+  if (pageId !== 'versus' && pageId !== 'versus-result') window.CpuMatchLog?.hideDock();
 
   const _animPageId = pageId;
 
@@ -240,11 +243,12 @@ function switchPage(pageId) {
   const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check'];
   // CPU同士の対戦（隠しコマンド）は準備画面を開き直したら通常に戻す（v2.2.3 J）
   if (pageId === 'versus-check') {
+    if (selectedCpuLevel === 8) selectedCpuLevel = 6; // CLYS は CPU TEST 専用
+    if (selectedCpuLevel === 7 && versusCpuRule !== 'tet') selectedCpuLevel = 6; // LV7 は tet だけ
     versusPlayerIsCpu = false;
     selectedPlayerCpuLevel = null;
-    window.__cpu6DisablePC1P = false;
     window.__cpu6SoftDrop1P = false;
-    // 2P の LV6 隠しモード（PC探索オフ／高速落下で設置）は selectedCpuLevel と同じく保持する
+    // 2P の隠しレベル（tet LV7／puyo LV6・高速落下で設置）は selectedCpuLevel と同じく保持する
     // （CPU同士の 1P 側だけ、1P の LV 指定と合わせて開き直しで通常へ戻す）
   }
   if (menuPages.includes(pageId)) {
@@ -327,6 +331,7 @@ function switchPage(pageId) {
   if (header) header.style.display = (pageId === 'settings') ? 'flex' : 'none';
 
   if (pageId === 'settings') {
+    if (typeof renderSettingsTabs === 'function') renderSettingsTabs();
     if (typeof renderKeyConfig === 'function') renderKeyConfig();
     if (typeof renderTuning    === 'function') renderTuning();
     if (typeof renderVolume    === 'function') renderVolume();
@@ -513,8 +518,8 @@ function renderModeCheck() {
           <span class="option-label">OPPONENT</span>
           <div class="option-toggle" id="test-opponent-toggle">
             <button class="opt-btn ${testOpponent === 'none' ? 'active' : ''}" onclick="setTestOpponent('none')">NONE</button>
-            <button class="opt-btn ${testOpponent === 'puyo' ? 'active' : ''}" onclick="setTestOpponent('puyo')">PUYO</button>
             <button class="opt-btn ${testOpponent === 'tet' ? 'active' : ''}" onclick="setTestOpponent('tet')">TET</button>
+            <button class="opt-btn ${testOpponent === 'puyo' ? 'active' : ''}" onclick="setTestOpponent('puyo')">PUYO</button>
           </div>
         </div>
         ${vsCpu ? `
@@ -534,16 +539,19 @@ function renderModeCheck() {
           <div class="option-toggle" id="test-cpu-level-toggle"></div>
         </div>
       `;
-      // LV1〜6 のボタン（CPU TEST のみ LV6 を表示。ボタンは隠しキー 6 と同じ＝PC探索オフ／高速落下設置は解除。
-      // 7 / Shift+7 の指定はキーで行う）
-      const fillLevels = (toggleId, get, set) => {
+      // LV1〜6 のボタン（puyo の LV6 は隠しキー 6 と同じ＝高速落下設置は解除。puyo の 7 / Shift+7 はキーで指定）
+      // その側のルールが TET のときは LV7 と参考AI「CLYS」（レベル 8。cpu/tet/clys）も選べる。PUYO に変えたら LV6 に戻す
+      // CLYS は開発用の環境（IS_DEV_HOST）だけ。本番では LV7 まで。VERSUS と同じく数字だけのボタン
+      const fillLevels = (toggleId, get, set, rule) => {
         const toggle = document.getElementById(toggleId);
         if (!toggle) return;
         toggle.classList.add('compact');
-        for (let lv = 1; lv <= 6; lv++) {
+        const maxLv = rule === 'tet' ? (IS_DEV_HOST ? 8 : 7) : 6;
+        if (get() > maxLv) set(6);
+        for (let lv = 1; lv <= maxLv; lv++) {
           const btn = document.createElement('button');
           btn.className = 'opt-btn' + (lv === get() ? ' active' : '');
-          btn.textContent = 'LV' + lv;
+          btn.textContent = lv === 8 ? CPU_LEVELS[8].label : String(lv);
           btn.onclick = () => {
             set(lv);
             toggle.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === lv));
@@ -551,15 +559,15 @@ function renderModeCheck() {
           toggle.appendChild(btn);
         }
       };
-      // LV6 を新たに選んだときは隠しモード(7)を解除（既に LV6 のまま押し直したときは維持）
+      // LV6 を新たに選んだときは puyo の隠しモード(7)を解除（既に LV6 のまま押し直したときは維持）
       fillLevels('test-cpu-level-toggle', () => selectedCpuLevel, (lv) => {
-        if (lv === 6 && selectedCpuLevel !== 6) { window.__cpu6DisablePC = false; window.__cpu6SoftDrop = false; }
+        if (lv === 6 && selectedCpuLevel !== 6) window.__cpu6SoftDrop = false;
         selectedCpuLevel = lv;
-      });
+      }, vsCpu ? testOpponent : testRule);
       if (vsCpu) fillLevels('test-player-cpu-level-toggle', () => testPlayerCpuLevel, (lv) => {
-        if (lv === 6 && testPlayerCpuLevel !== 6) { window.__cpu6SoftDropTest1P = false; window.__cpu6DisablePCTest1P = false; }
+        if (lv === 6 && testPlayerCpuLevel !== 6) window.__cpu6SoftDropTest1P = false;
         testPlayerCpuLevel = lv;
-      });
+      }, testRule);
     } else if (mode.id === 'practice') {
       optionsEl.style.display = 'flex';
       optionsEl.innerHTML = renderPracticeModeCheckOptions(mode);
@@ -861,6 +869,7 @@ async function startGameFromModeCheck() {
   if (modeId === 'test' && testRule === 'tet' && testCpuClass) {
     window._cpuController = new testCpuClass(window._game);
     window._cpuController.isAutoPlay = testCpuControl;
+    window.CpuWeightsPanel?.attach(window._cpuController);   // tet LV5/LV6 の重み調整パネル
     if (typeof window._cpuController.start === 'function') {
         window._cpuController.start();
     }
@@ -1251,32 +1260,33 @@ function handlePauseAction(action) {
 })();
 
 // ─────────────────────────────────────────────
-// ★ 隠し要素: CPU LV6 選択ショートカット
-// versus-check または mode-check(testモード) の準備画面で
-// 「6」「7」キー（テンキーではない）を押すと CPU LV6 を選択状態にする（ゲームは開始しない）。
-//   tet ルール:
-//   ・「6」 → PC（パーフェクトクリア）探索あり
-//   ・「7」 → PC探索なし（cpu6.js shouldSearchPC を window.__cpu6DisablePC で抑止）
+// ★ 隠し要素: CPU LV6（puyo）／LV7（tet）選択ショートカット
+// versus-check または mode-check(testモード) の準備画面で「6」「7」キー（テンキーではない）を押すと
+// その側の CPU のレベルを選択状態にする（ゲームは開始しない）。
+//   tet ルール（2026-10-27〜）:
+//   ・「7」 → LV7（clys 型の探索。cpu/tet/lv7）
+//   ・「6」 → 何もしない（LV6 は通常のボタン。旧「6」の PC 探索あり版は廃止、旧「7」の PC 探索なしが今の LV6）
 //   puyo ルール（2026-10-15〜）:
 //   ・「6」 → lv5 の学習済み重み版（cpu/puyo/lv6/js/cpu6.js）
 //   ・「7」 → 同・高速落下で設置（クイックドロップ禁止。softDropOnly）
-//   versus-check では Shift+6 / Shift+7 が 1P 側CPU を LV6 にする（Shift+7 は PC探索なし）。
-//   ※ PC探索なしは側ごと（versus: 7=2P / Shift+7=1P、test: グローバル）。
+//   versus-check では Shift+6 / Shift+7 が 1P 側 CPU（CPU同士）、CPU TEST の CPU 同士では Shift で 1P 側。
+//   ※ 高速落下で設置は側ごと（versus: 7=2P / Shift+7=1P、test: グローバル）。
 // ─────────────────────────────────────────────
-(function setupHiddenLv6Key() {
-  function showLv6Selected(isVersus, playerSide) {
+(function setupHiddenLevelKey() {
+  function showSelected(isVersus, playerSide, lv) {
     if (isVersus) {
       if (playerSide) {
-        selectedPlayerCpuLevel = 6;
+        selectedPlayerCpuLevel = lv;
         const descEl = document.getElementById('versus-cpu-desc');
-        if (descEl) descEl.textContent = `${CPU_LEVELS[selectedCpuLevel].desc}  ／  1P CPU: ${CPU_LEVELS[6].label}`;
+        if (descEl) descEl.textContent = `${CPU_LEVELS[selectedCpuLevel].desc}  ／  1P CPU: ${CPU_LEVELS[lv].label}`;
       } else {
-        setCpuLevel(6); // 1〜5のボタンは全て非アクティブになる
+        setCpuLevel(lv); // 通常のボタンに無いレベルなら全て非アクティブになる
       }
     } else {
-      selectedCpuLevel = 6;
-      const t = document.getElementById('test-cpu-level-toggle');
-      if (t) t.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === 6));
+      const id = playerSide ? 'test-player-cpu-level-toggle' : 'test-cpu-level-toggle';
+      if (playerSide) testPlayerCpuLevel = lv; else selectedCpuLevel = lv;
+      const t = document.getElementById(id);
+      if (t) t.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === lv));
     }
     window.SeManager?.play('menu_decide');
   }
@@ -1285,7 +1295,7 @@ function handlePauseAction(action) {
     // Digit6 / Digit7（テンキーではない「6」「7」）のみ対象
     if (e.code !== 'Digit6' && e.code !== 'Digit7') return;
     if (e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
-    const disablePC = (e.code === 'Digit7');
+    const seven = (e.code === 'Digit7');
 
     const versusCheckPage = document.getElementById('versus-check-page');
     const modeCheckPage   = document.getElementById('mode-check-page');
@@ -1297,39 +1307,24 @@ function handlePauseAction(action) {
     // どちらの準備画面でもない場合は何もしない
     if (!isVersusCheck && !isTestCheck) return;
 
-    // versus-check: 7 = 2P、Shift+7 = 1P の PC探索オフ（側ごと）。Shift+6 は 1P のPC探索を戻すだけで、
-    // 1P CPU の LV6 指定自体は CPU同士対戦コマンド（下の setupHiddenCpuVsCpuKey）が行う。
-    if (isVersusCheck && e.shiftKey && !disablePC) {
-      window.__cpu6DisablePC1P = false;
-      window.__cpu6SoftDrop1P = false;
-      return;
-    }
+    // どちらの側か：versus は Shift = 1P、CPU TEST は CPU 同士（OPPONENT: PUYO / TET）のときだけ Shift = 1P
+    const playerSide = e.shiftKey && (isVersusCheck || testOpponent !== 'none');
+    if (e.shiftKey && !playerSide) return;
+    const rule = isVersusCheck ? (playerSide ? versusPlayerRule : versusCpuRule)
+                               : (playerSide ? testRule : (testOpponent !== 'none' ? testOpponent : testRule));
 
-    // CPU TEST の CPU 同士（OPPONENT: PUYO / TET）: 6 / 7 = 2P、Shift+6 / Shift+7 = 1P を LV6 に
-    //   （7 の意味はその側のルールで決まる＝puyo は高速落下で設置、tet は PC探索なし。開始時に側のルールへ振り分ける）
-    if (isTestCheck && testOpponent !== 'none' && e.shiftKey) {
-      e.preventDefault();
-      testPlayerCpuLevel = 6;
-      window.__cpu6SoftDropTest1P = disablePC;
-      window.__cpu6DisablePCTest1P = disablePC;
-      const t = document.getElementById('test-player-cpu-level-toggle');
-      if (t) t.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === 6));
-      window.SeManager?.play('menu_decide');
-      return;
-    }
-
-    // 2P のルール: VERSUS は CPU RULE、CPU TEST の CPU 同士は OPPONENT（それ以外は RULE）
-    const rule = !isVersusCheck ? (testOpponent !== 'none' ? testOpponent : testRule)
-                                : (e.shiftKey ? versusPlayerRule : versusCpuRule);
+    // versus の Shift+6 は 1P の高速落下で設置を戻すだけ（1P の LV6 指定は下の setupHiddenCpuVsCpuKey が行う）
+    if (isVersusCheck && playerSide && !seven) { window.__cpu6SoftDrop1P = false; return; }
+    // tet の「6」は何もしない（LV6 は通常のボタン）
+    if (rule === 'tet' && !seven) return;
     e.preventDefault();
 
-    // フラグは cpu6.js が参照（ゲーム開始時に読まれる）。7 は tet=PC探索なし／puyo=高速落下で設置
-    const pcOff = disablePC && rule === 'tet';
-    const soft  = disablePC && rule === 'puyo';
-    if (!isVersusCheck) { window.__cpu6DisablePC = pcOff; window.__cpu6SoftDrop = soft; }
-    else if (e.shiftKey) { window.__cpu6DisablePC1P = pcOff; window.__cpu6SoftDrop1P = soft; }
-    else { window.__cpu6DisablePC2P = pcOff; window.__cpu6SoftDrop2P = soft; }
-    showLv6Selected(isVersusCheck, e.shiftKey);
+    // puyo の 7 = 高速落下で設置（フラグは puyo cpu6.js がゲーム開始時に読む）
+    const soft = seven && rule === 'puyo';
+    if (!isVersusCheck) { if (playerSide) window.__cpu6SoftDropTest1P = soft; else window.__cpu6SoftDrop = soft; }
+    else if (playerSide) window.__cpu6SoftDrop1P = soft;
+    else window.__cpu6SoftDrop2P = soft;
+    showSelected(isVersusCheck, playerSide, rule === 'tet' ? 7 : 6);
   });
 })();
 

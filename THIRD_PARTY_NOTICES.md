@@ -5,9 +5,10 @@ TETLABO のソースコードは原則として [MIT License](LICENSE) で提供
 
 | 対象 | ライセンス / 条件 | 詳細 |
 |---|---|---|
-| `public/cpu/tet/lv6/native/tslot.cpp`, `tslot.h` | MPL-2.0 | [Cold Clear](#cold-clear) |
+| `public/cpu/tet/lv6/native/tslot.cpp`, `tslot.h`（学習用シミュの凍結版 `training/puyo-lv5/sim/frozen/tet_lv6boost/native/` も同じ） | MPL-2.0 | [Cold Clear](#cold-clear) |
 | `public/cpu/puyo/lv4/native/`, `public/cpu/puyo/lv5/native/` の Ama 由来部分 | MIT（著作権表示の保持が必要） | [Ama](#ama) |
-| `public/cpu/tet/lv6/pc/native/pc6.cpp` の sfinder 準拠部分 | MIT（著作権表示の保持が必要） | [solution-finder](#solution-finder) |
+| `public/cpu/tet/clys/native/`, `public/cpu/tet/lv7/engine/` | MIT（著作権表示の保持が必要） | [clys](#clys) |
+| `training/puyo-lv5/sim/frozen/tet_lv6boost/pc/pc6.cpp` の sfinder 準拠部分 | MIT（著作権表示の保持が必要） | [solution-finder](#solution-finder) |
 | `public/assets/audio/` 以下の音声ファイル | 各配布元の利用規約 | [音声素材](#音声素材) |
 | `public/assets/quizlevels/` の一部レベル | 再利用不可 | [クイズデータ](#クイズデータ) |
 
@@ -19,7 +20,7 @@ TETLABO のソースコードは原則として [MIT License](LICENSE) で提供
 
 - Repository: https://github.com/MinusKelvin/cold-clear
 - License: Mozilla Public License 2.0（https://mozilla.org/MPL/2.0/）
-- 対象: `public/cpu/tet/lv6/native/tslot.cpp`, `public/cpu/tet/lv6/native/tslot.h`
+- 対象: `public/cpu/tet/lv6/native/tslot.cpp`, `public/cpu/tet/lv6/native/tslot.h`（と学習用シミュの凍結版 `training/puyo-lv5/sim/frozen/tet_lv6boost/native/` の同名ファイル）
 - 内容: `bot/src/evaluation/standard.rs` の T-slot 検出（`tst_twist_*` / `fin_*` ほか）を C++ に移植・改変したもの。
 
 上記2ファイルは MPL-2.0 の対象であり、改変して配布する場合もソースコードを MPL-2.0 で公開する必要があります。
@@ -63,12 +64,46 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### clys
+
+- Repository: https://github.com/citrus610/clys
+- License: MIT（原文は `public/cpu/tet/clys/native/LICENSE` にも同梱）
+- 対象: `public/cpu/tet/clys/native/` の `core/`, `ai/`, `lib/xxh3.h`（ほぼそのまま）と、それを呼ぶ `clys_wasm.cpp`（原作 `ai/ai.cpp` の Engine を改変）
+- 内容: テトリス AI clys の探索・評価・手生成・経路探索を、CPU TEST の比較用 CPU（CLYS）として wasm に組み込んだもの。
+  変更はスレッド停止→時間制限、JSON 読み込みの除去（重みは `config.json` の値を埋め込み）、プラットフォーム依存の修正のみ。
+- 対象（改変版）: `public/cpu/tet/lv7/engine/`（原文は `public/cpu/tet/lv7/engine/LICENSE` に同梱）
+- 内容: CPU LV7 の探索・評価・手生成・経路探索のもと。確定 NEXT だけで読む形への書き換え、T-spin 判定・火力表を TETLABO に合わせる変更、評価項の追加をしている。
+
+```
+MIT License
+
+Copyright (c) 2024 citrus610
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### solution-finder
 
 - Repository: https://github.com/knewjade/solution-finder
   （.NET ラッパー [PerfectClearNET](https://github.com/mat1jaczyyy/PerfectClearNET) 経由で参照）
 - License: MIT
-- 対象: `public/cpu/tet/lv6/pc/native/pc6.cpp`
+- 対象: `training/puyo-lv5/sim/frozen/tet_lv6boost/pc/pc6.cpp`（学習用シミュのみ。2026-10-27 に本番の PC 探索 Worker は廃止）
 - 内容: パーフェクトクリア探索（leftLine 追跡 DFS・`validate` / `isWallBetween` / `calcScore` 相当）を参考に実装したもの。
 
 ```

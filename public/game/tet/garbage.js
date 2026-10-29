@@ -195,15 +195,26 @@ Object.assign(Game.prototype, {
         });
 
         // 下から表示するため、先にreadyを、後にunreadyをDOMに追加する
-        for (let i = 0; i < readyCount; i++) {
+        // ブロックは盤面の高さ（20）まで。超えた分は数を出す（赤／青の意味を保つため色は増やさない）
+        const GAUGE_MAX = 20;
+        const readyShown = Math.min(readyCount, GAUGE_MAX);
+        const unreadyShown = Math.min(unreadyCount, GAUGE_MAX - readyShown);
+        for (let i = 0; i < readyShown; i++) {
             const block = document.createElement('div');
             block.className = 'gauge-block ready';
             gaugeEl.appendChild(block);
         }
-        for (let i = 0; i < unreadyCount; i++) {
+        for (let i = 0; i < unreadyShown; i++) {
             const block = document.createElement('div');
             block.className = 'gauge-block unready';
             gaugeEl.appendChild(block);
+        }
+        const total = readyCount + unreadyCount;
+        if (total > GAUGE_MAX) {
+            const count = document.createElement('div');
+            count.className = 'gauge-count';
+            count.textContent = String(total);
+            gaugeEl.appendChild(count);
         }
     },
 

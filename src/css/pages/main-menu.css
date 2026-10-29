@@ -135,7 +135,8 @@
 .mode-btn-online {
   border-color: rgba(113, 188, 250, 0.35);
 }
-.mode-btn-online:hover {
+.mode-btn-online:hover,
+.mode-btn-online.is-focused {
   background: rgba(113, 168, 250, 0.12);
   border-color: var(--accent3);
 }

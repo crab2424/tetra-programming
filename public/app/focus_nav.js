@@ -418,6 +418,12 @@
     const cur = currentIndex(items);
     const it = items[cur];
 
+    // row 型は ←/→ で値変更。ただしページ側が「この端では値を変えず別の項目へ移る」と
+    // 決めたとき（onRowMove が番号を返す。準備画面の右→左カラムなど）はそちらを優先する
+    if ((dir === 'left' || dir === 'right') && it && it.type === 'row' && typeof active.onRowMove === 'function') {
+      const n = active.onRowMove(dir, cur, items);
+      if (typeof n === 'number' && n >= 0 && n < items.length) { applyFocus(n, { sound: true }); return; }
+    }
     // row 型は ←/→ で値変更
     if ((dir === 'left' || dir === 'right') && it && it.type === 'row') {
       const handler = dir === 'left' ? it.onLeft : it.onRight;
@@ -871,11 +877,32 @@
       if (playerRow) { const it = rowToggle(playerRow, document.getElementById('versus-player-rule-toggle')); it.scrollAnchor = ruleAnchor; items.push(it); }
       if (cpuRow)    { const it = rowToggle(cpuRow,    document.getElementById('versus-cpu-rule-toggle'));    it.scrollAnchor = ruleAnchor; items.push(it); }
       if (cpuLvRow)  { const it = rowToggle(cpuLvRow,  document.getElementById('cpu-level-toggle'));         it.scrollAnchor = cpuAnchor;  items.push(it); }
+      const assistAnchor = document.getElementById('versus-assist-options');
+      $$('#versus-assist-options .option-row').forEach(row => {
+        const it = rowToggle(row, row.querySelector('.option-toggle')); it.scrollAnchor = assistAnchor; items.push(it);
+      });
       items.push(...withAnchor($$('#versus-check-buttons button'), btnAnchor));
       return items;
     },
     initialIndex: (els) => els.findIndex(b => b && b.id === 'versus-check-start-btn'),
-    onMove2D: checkPageMove2D,
+    // 左右のカラムごとに上下へ移動する（視覚配置の行で混ぜない）。
+    //   各カラムの端から更に上下へ進むと、もう一方のカラムへ移る（左 → 右 → 左…と一周する）。
+    //   左カラムで → は右カラムの同じ高さへ。右カラムは ←/→ が値変更なので横移動は入れない。
+    onMove2D: (dir, cur, items) => {
+      const colOf = (it) => it.el.closest('.check-col-info') ? 'left' : 'right';
+      const col = colOf(items[cur]);
+      const idxs = items.map((it, i) => i).filter(i => colOf(items[i]) === col);
+      if (dir === 'up' || dir === 'down') {
+        const p = idxs.indexOf(cur);
+        const q = p + (dir === 'down' ? 1 : -1);
+        if (q >= 0 && q < idxs.length) return idxs[q];
+        const other = items.map((it, i) => i).filter(i => colOf(items[i]) !== col);
+        if (!other.length) return idxs[(q + idxs.length) % idxs.length];
+        return dir === 'down' ? other[0] : other[other.length - 1];
+      }
+      if (dir === 'right' && col === 'left') return checkPageMove2D(dir, cur, items);
+      return cur;
+    },
   });
 
   register('vs-settings', {
@@ -997,12 +1024,15 @@
   });
 
   register('settings', {
+    // 並び: ヘッダー（RESET DEFAULT / SAVE / BACK）→ タブ → 表示中タブの項目。
+    // 非表示タブの項目は currentItems() の isVisible で落ちるので、全タブ分を並べておけばよい。
     getItems: () => {
-      const headerAnchor  = document.querySelector('.settings-header');
-      const keyAnchor     = document.getElementById('key-config-grid');
-      const actionsAnchor = document.querySelector('#settings-page .settings-actions');
+      const headerAnchor = document.querySelector('.settings-header');
+      const tabToggle    = document.getElementById('settings-tab-toggle');
+      const keyAnchor    = document.getElementById('key-config-grid');
       const items = [];
-      $$('.settings-header .btn-back').forEach(b => items.push({ el: b, scrollAnchor: headerAnchor }));
+      $$('.settings-header .settings-actions button').forEach(b => items.push({ el: b, scrollAnchor: headerAnchor }));
+      if (tabToggle) { const it = rowToggle(tabToggle, tabToggle); it.scrollAnchor = headerAnchor; items.push(it); }
       const bgmSlider = document.getElementById('slider-bgm-volume');
       const seSlider  = document.getElementById('slider-se-volume');
       const bgmRow = bgmSlider && bgmSlider.closest('.slider-row');
@@ -1010,14 +1040,14 @@
       const volAnchor = bgmRow && bgmRow.closest('.tuning-container');
       if (bgmRow) { const it = rowSlider(bgmRow, bgmSlider); it.scrollAnchor = volAnchor; items.push(it); }
       if (seRow)  { const it = rowSlider(seRow,  seSlider);   it.scrollAnchor = volAnchor; items.push(it); }
-      $$('#key-config-grid .key-row').forEach(row => {
-        $$('.key-badge', row).forEach(b => items.push({ el: b, scrollAnchor: keyAnchor }));
-      });
       const tuningContainer = document.getElementById('tuning-tet-section');
       ['slider-das', 'slider-arr', 'slider-dcd'].forEach(id => {
         const s = document.getElementById(id);
         const row = s && s.closest('.slider-row');
         if (row) { const it = rowSlider(row, s); it.scrollAnchor = tuningContainer || row; items.push(it); }
+      });
+      $$('#key-config-grid .key-row').forEach(row => {
+        $$('.key-badge', row).forEach(b => items.push({ el: b, scrollAnchor: keyAnchor }));
       });
       const displaySection = document.getElementById('display-section');
       $$('#display-section .option-row').forEach(row => {
@@ -1029,10 +1059,28 @@
           if (btn) items.push({ el: btn, scrollAnchor: displaySection });
         }
       });
-      $$('#settings-page .btn-reset, #settings-page .btn-save').forEach(b => items.push({ el: b, scrollAnchor: actionsAnchor }));
+      // ONLINE タブ: Backend URL の入力欄。決定で入力開始（Esc で枠移動に戻る）
+      const backend = document.getElementById('settings-online-backend');
+      if (backend) items.push({ el: backend, scrollAnchor: backend.closest('.online-container') || backend, onActivate: () => backend.focus() });
       return items;
     },
-    initialIndex: 0,
+    // タブ行からの ↑ は、ヘッダーの SAVE へ（視覚配置の最寄りだと BACK 等になるため）
+    onMove2D: (dir, cur, items) => {
+      if (dir === 'up' && items[cur] && items[cur].el.id === 'settings-tab-toggle') {
+        const i = items.findIndex(it => it.el.classList && it.el.classList.contains('btn-save'));
+        if (i >= 0) return i;
+      }
+      // 最下段からの ↓（一周して戻る）は、先頭の RESET DEFAULT ではなくタブ行へ
+      if (dir === 'down' && items[cur] && !items[cur].el.closest('#settings-sticky')) {
+        const b = items[cur].el.getBoundingClientRect().bottom;
+        const below = items.some(it => it.el.getClientRects().length && it.el.getBoundingClientRect().top >= b - 1);
+        if (!below) return items.findIndex(it => it.el.id === 'settings-tab-toggle');
+      }
+      return null;
+    },
+    stickyTop: () => document.getElementById('settings-sticky'),
+    // 開いた直後はタブ行（RESET DEFAULT に誤って決定しないよう先頭のボタンにはしない）
+    initialIndex: (els) => Math.max(0, els.findIndex(el => el && el.id === 'settings-tab-toggle')),
   });
 
   // ─────────────────────────────────────────────

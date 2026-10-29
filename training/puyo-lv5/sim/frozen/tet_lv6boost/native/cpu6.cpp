@@ -1,0 +1,841 @@
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// cpu6: WASM エントリポイント（ビームサーチ本体とJSとの境界）
+//   盤面/評価/配置列挙は board / eval / tslot / placement に分離済み。
+//   このファイルは SearchState とビームサーチのループ、JSへ渡す結果の整形のみを担う。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#else
+#define EMSCRIPTEN_KEEPALIVE   // ネイティブ単体テスト用：emscripten 非依存でコンパイル可能にする
+#endif
+
+#include <stdint.h>
+#include <cstdlib>
+#include <algorithm>
+#include <vector>
+#include <unordered_map>
+
+#include "common.h"
+#include "board.h"
+#include "weights.h"
+#include "eval.h"
+#include "placement.h"
+
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+void* my_malloc(size_t size) { return malloc(size); }
+
+EMSCRIPTEN_KEEPALIVE
+void my_free(void* ptr) { free(ptr); }
+
+} // extern "C"
+
+// ─────────────────────────────────────────────
+// ★ v2.2.3 I: 致死判定と致死ペナルティ（自滅対策）
+//   実機(game/tet/board.js)の死亡条件:
+//     Block Out … 出現位置(と1段上)が塞がって出せない → getAllPlacements が空
+//     Lock Out  … 固定したミノの4ブロック全てが可視外(実機 y<0 = 内部 y<HIDDEN_ROWS)
+//   旧実装の不具合:
+//     ① 深さを6→8に拡張した際 `100000000 * (7 - step_num)` を据え置き、step7 の死が 0、
+//        step8 の死が +1億（強い正）になっていた。
+//     ② Block Out の枝は total_score だけ減点し、枝刈り・最終選択のキー beam_score が無減点だった
+//        （＝死を全く罰していない）。
+//     ③ Lock Out を「どれか1ブロックが内部 y<0」で見ており（実機 y<-5 相当で事実上発生しない）、
+//        実機では死ぬ置き方を生存扱いしていた。
+//   ペナルティは「早く死ぬほど大きい」かつ「どの深さの死も生存より必ず悪い」。
+//   評価値の絶対値は 1e7 未満なので 1e8 刻みで辞書式（生存手数 > 評価値）になる。
+static const int SEARCH_MAX_STEP = 8;
+static const int HIDDEN_ROWS = 5;
+// step は 1〜9（9 は「8手目の後に次のミノが出せない」）。step1: 9e8 … step9: 1e8（int32 に収まる）
+static inline int deathPenalty(int step_num) {
+    return 100000000 * (SEARCH_MAX_STEP + 2 - step_num);
+}
+// 実機の出現判定（game/tet/board.js popMino）。出現位置→1段上の順に試し、どちらも塞がっていれば Block Out。
+static bool canSpawnPiece(const Board& b, int pieceType) {
+    int spawnY = (pieceType == 0) ? 4 : 3;
+    const int spawnX = COLS / 2 - 2;
+    for (int dy = 0; dy <= 1; dy++) {
+        GridBlock blk[4];
+        for (int i = 0; i < 4; i++) {
+            blk[i].x = PRECALC_MINO_BLOCKS[pieceType][0][i].x + spawnX;
+            blk[i].y = PRECALC_MINO_BLOCKS[pieceType][0][i].y + spawnY - dy;
+        }
+        if (isValidPlacement(b, blk)) return true;
+    }
+    return false;
+}
+static inline bool isLockOut(const GridBlock* blocks) {
+    for (int k = 0; k < 4; k++) if (blocks[k].y >= HIDDEN_ROWS) return false;
+    return true;
+}
+
+// ★Phase 0（lv6-learning-design.md）: 深さの上限 MAXD をテンプレート引数にした（本番は MAXD=8 で従来と同じ大きさ）
+template <int MAXD>
+struct SearchStateT {
+    int first_action;
+    int hold_mino;
+    int next_idx;
+
+    int p1_score;
+    int total_score;
+    // ★変更：n手目の枝切りキー = 最新盤面評価値 + 1手目からの累積報酬
+    // cumulative_event_score : 1手目から現在手までの evalPlacementEvent の累積和
+    // beam_score             : 枝切り・最終選択に使うスコア (= 最新 stateScore + cumulative_event_score)
+    int cumulative_event_score;
+    int beam_score;
+    Board board;
+
+    bool has_p[MAXD];      // ★深さ8対応: 6→8 に拡張
+    Placement p[MAXD];     // ★深さ8対応: 6→8 に拡張
+    int step_score[MAXD];  // ★深さ8対応: 6→8 に拡張
+    int p_id[MAXD];        // ★深さ8対応: 6→8 に拡張
+
+    int max_height;
+
+    int ren;
+    bool backToBack;
+
+    // ★pick_move(生存)用：1手目を実行した直後の中央列(3,4,5)の最大高さと、その1手の攻撃量(おじゃま相殺ぶん)
+    //   着弾おじゃまincomingがある時、これらを使って「中央が天井(20)を超えないか」を判定する。
+    int first_center_h;
+    int first_attack;
+
+    // ★ v2.2.3 I: この枝が死亡(Block Out / Lock Out)で終わったか。pick_move で死に枝を除外するのに使う。
+    bool dead;
+
+    // ★B8: 初手の番号（1手目の展開順）。visitSelect のとき、深さごとにビームへ残った子孫を初手ごとに数える。
+    int first_id;
+
+    SearchStateT() {
+        first_action = -1;
+        hold_mino = -1;
+        next_idx = 0;
+        p1_score = 0;
+        total_score = 0;
+        cumulative_event_score = 0;
+        beam_score = 0;
+        max_height = 0;
+        ren = 0;
+        backToBack = false;
+        first_center_h = 0;
+        first_attack = 0;
+        dead = false;
+        first_id = -1;
+        for(int i = 0; i < MAXD; ++i) {  // ★深さ8対応: 6→8
+            has_p[i] = false;
+            step_score[i] = 0;
+            p_id[i] = -1;
+        }
+    }
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ★重複除去（transposition）: 別経路で「同一の継続状態」に到達した枝を1つに集約する。
+//   継続が完全に同じ＝以後の展開・スコア増分が同じになる条件 ＝ (盤面 rows[25] + hold_mino +
+//   next_idx + ren + backToBack)。これらが一致する状態は将来も差が広がらないので beam_score 最大の
+//   1本だけ残せばよい（first_action 等の経路情報も beam_score 最大の枝のものを採用＝最終選択と整合）。
+//   max_height は盤面から一意に決まるためキーに含めない。N/L 分割は維持し各ベクタ内で個別に除去する
+//   （消去枝の多様性を壊さないため。N⇔L 跨ぎの稀な同一盤面は除去対象外＝従来どおり両方残す）。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+template <class SearchState>
+static inline uint64_t hashState(const SearchState& s) {
+    uint64_t h = 1469598103934665603ULL; // FNV-1a offset basis
+    const uint8_t* p = (const uint8_t*)s.board.rows;
+    for (size_t i = 0; i < sizeof(s.board.rows); i++) { h ^= p[i]; h *= 1099511628211ULL; }
+    auto mix = [&](uint64_t v){ h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2); };
+    mix((uint32_t)s.hold_mino);
+    mix((uint32_t)s.next_idx);
+    mix((uint32_t)s.ren);
+    mix(s.backToBack ? 1u : 0u);
+    return h;
+}
+template <class SearchState>
+static inline bool sameState(const SearchState& a, const SearchState& b) {
+    if (a.hold_mino != b.hold_mino || a.next_idx != b.next_idx ||
+        a.ren != b.ren || a.backToBack != b.backToBack) return false;
+    for (int y = 0; y < ROWS; y++) if (a.board.rows[y] != b.board.rows[y]) return false;
+    return true;
+}
+// v を「同一継続状態は beam_score 最大の1本」に圧縮する。ハッシュ衝突は sameState で厳密検証するので誤集約しない。
+template <class SearchState>
+static void dedupBeam(std::vector<SearchState>& v) {
+    if (v.size() <= 1) return;
+    std::unordered_map<uint64_t, int> seen; // hashState → 圧縮後ベクタ内の代表index
+    seen.reserve(v.size() * 2);
+    size_t out = 0;
+    for (size_t i = 0; i < v.size(); i++) {
+        uint64_t h = hashState(v[i]);
+        auto it = seen.find(h);
+        if (it != seen.end() && sameState(v[it->second], v[i])) {
+            int idx = it->second;
+            if (v[i].beam_score > v[idx].beam_score) v[idx] = v[i]; // より良い枝で代表を置換
+        } else {
+            int dst = (int)out;
+            if (out != i) v[out] = v[i];
+            seen[h] = dst; // 真のハッシュ衝突(別状態)時は代表を上書き=以後その旧状態は除去対象外（極稀・無害）
+            out++;
+        }
+    }
+    v.resize(out);
+}
+
+// weightsArray[55] を EvalWeights へ展開する。メンバ順は weightsArray のインデックスと一致。
+static inline EvalWeights unpackWeights(const int* weightsArray) {
+    return EvalWeights {
+        weightsArray[0], weightsArray[1], weightsArray[2], weightsArray[3], weightsArray[4],
+        weightsArray[5], weightsArray[6], weightsArray[7], weightsArray[8], weightsArray[9],
+        weightsArray[10], weightsArray[11], weightsArray[12], weightsArray[13], weightsArray[14],
+        weightsArray[15], weightsArray[16], weightsArray[17], weightsArray[18], weightsArray[19],
+        weightsArray[20], weightsArray[21], weightsArray[22], weightsArray[23],
+        weightsArray[24], weightsArray[25], weightsArray[26], weightsArray[27], weightsArray[28],
+        weightsArray[29], weightsArray[30], weightsArray[31], weightsArray[32],
+        weightsArray[33], // centerDip
+        weightsArray[34], // tstClear ★Phase1追加
+        weightsArray[35], // b2bHold ★追加[35]
+        weightsArray[36], // tSlotTst ★Phase3追加[36]
+        weightsArray[37], // tSlotReadyFin ★追加[37]
+        weightsArray[38], // tSlotReadyTst ★追加[38]
+        weightsArray[39], weightsArray[40], weightsArray[41], // B1 actCost sdCost sdRowCost
+        weightsArray[42], // B2 holeAboveWell
+        weightsArray[43], // B3 rowTrans
+        weightsArray[44], weightsArray[45], // B4 covered coverMax
+        weightsArray[46], // B5 wasteI
+        weightsArray[47], // B6 comboAtk
+        weightsArray[48], // B8 visitSelect
+        weightsArray[49], // B9 bumpSq
+        weightsArray[50], weightsArray[51], // 相殺外し tankH tankLook
+        weightsArray[52], weightsArray[53], // REN 偏重の是正 renDangerH comboAtkCalm
+        weightsArray[54]                    // pcClear
+    };
+}
+
+// ★B1 操作時間の見積り（Cold Clear 2 softdrop・clys delay 相当）。
+//   cpu6.js buildActionQueue と同じ考え方：出現位置の高さで回して横移動し、真下に落とせば
+//   その位置に着く置き方は「即時」（回転＋横移動だけ）。落とせない置き方は出現位置から底まで
+//   ソフトドロップし、経路の回転・横移動を足す。返り値＝回転＋横移動の回数、*sdRows＝ソフトドロップ段数(即時なら0)。
+static int estimateOps(const Board& b, int piece, const Placement& p, int* sdRows) {
+    const int spawnX = COLS / 2 - 2;
+    GridBlock blk[4];
+    auto valid = [&](int rot, int x, int y) {
+        for (int i = 0; i < 4; i++) {
+            blk[i].x = PRECALC_MINO_BLOCKS[piece][rot][i].x + x;
+            blk[i].y = PRECALC_MINO_BLOCKS[piece][rot][i].y + y;
+        }
+        return isValidPlacement(b, blk);
+    };
+    bool instant = false;
+    if (p.y >= p.spawnY && valid(p.rot, p.x, p.spawnY)) {
+        int y = p.spawnY;
+        while (y < p.y && valid(p.rot, p.x, y + 1)) y++;
+        instant = (y == p.y) && !valid(p.rot, p.x, y + 1);
+    }
+    if (instant) {
+        *sdRows = 0;
+        static const int ROT_COST[4] = {0, 1, 2, 1};
+        int rc = (piece == 1) ? 0 : ROT_COST[p.rot];
+        if ((piece == 0 || piece == 5 || piece == 6) && p.rot == 2) rc = 0; // I/S/Z は向き0と同じ形
+        return rc + std::abs(p.x - spawnX);
+    }
+    int ops = 0;
+    for (int i = 0; i < p.pathLength; i++) {
+        int a = p.path[i];
+        if (a == 1 || a == 2 || a == 4 || a == 5) ops++;
+    }
+    *sdRows = std::max(0, p.y - p.spawnY);
+    return ops;
+}
+
+// パーフェクトクリアの火力（scoring.js のマージン未突入。T-spin・BtB・REN の火力を置き換える。生存判定用の近似）
+static const int PC_ATTACK = 10;
+
+// REN の火力ボーナス（estimateAttack と同じ固定テーブル。renBefore=加算前のコンボ数）
+static inline int renAttackBonus(int r) {
+    if (r == 2 || r == 3) return 1;
+    if (r == 4 || r == 5) return 2;
+    if (r == 6 || r == 7) return 3;
+    if (r >= 8 && r <= 12) return 4;
+    if (r >= 13) return 5;
+    return 0;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ビーム探索の本体。本番（searchBestMoveWasm）は MAXD=8・NEXT 8本・幅16・深さ8。
+//   ★Phase 0（source_assets/memory/cpu/tet/lv6-learning-design.md）: 幅・深さ・NEXT 本数を変えて試せるよう
+//   searchBestMoveExt から呼べる形にした。本番の引数では従来と探索結果が全件一致する。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 展開した配置の数（ノード数の計測用。探索結果には影響しない）
+static thread_local long long g_lv6Nodes = 0;
+
+template <int MAXD>
+static void searchImpl(
+    uint8_t* boardData, int currentType, int holdType, const int* nexts, int nNext,
+    int canHold,
+    int* weightsArray, int* outResult,
+    int ren, int backToBack,
+    int incoming, size_t beamWidth, int maxDepth
+){
+    using SearchState = SearchStateT<MAXD>;
+    // 致死ペナルティ（MAXD=8 で従来の deathPenalty と同じ）
+    auto deathPenalty = [](int step_num) { return 100000000 * (MAXD + 2 - step_num); };
+    ensurePrecalc();
+
+    for(int i = 0; i < 43; i++) outResult[i] = -1;
+    for(int i = 36; i < 43; i++) outResult[i] = 0;
+
+    Board baseBoard;
+    for(int i = 0; i < 250; i++) {
+        if (boardData[i]) baseBoard.set(i % 10, i / 10);
+    }
+
+    EvalWeights w = unpackWeights(weightsArray);
+
+    // ★深さ8対応: current + next1..next8 + 終端0 = 10要素
+    // （holdが空の開幕でインデックスが1ずれるため、深さ8で最大 index=8 を参照する）
+    //   ★Phase 0: NEXT の本数 nNext（本番 8）と深さ maxDepth（本番 8）を引数にした。next_queue[NQ] は終端 0
+    const int NQ = 1 + nNext;
+    int next_queue[MAXD + 3];
+    next_queue[0] = currentType;
+    for (int i = 0; i < nNext; i++) next_queue[1 + i] = nexts[i];
+    next_queue[NQ] = 0;
+    auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; };
+
+    // ★Phase2: ある手番から先に「見えているTの本数」を数える（next_queue[from..8] + hold）。
+    //   T-slot(TSD/TSS)先読み・TSDセットアップの上限に使う（Tが来ないのに土台を作らせない）。
+    auto countUpcomingT = [&](int from, int hold) -> int {
+        int n = 0;
+        for (int i = (from < 0 ? 0 : from); i < NQ; i++) if (next_queue[i] == 2) n++;
+        if (hold == 2) n++;
+        return n;
+    };
+
+    int baseMaxHeight = 0;
+    // ★分割対応：初期盤面の評価値を evalBoardState で取得（初期盤面の upcomingT は全可視キュー+hold）
+    int baseScore = evalBoardState(baseBoard, w, countUpcomingT(0, holdType), &baseMaxHeight);
+
+    std::vector<SearchState> final_states;
+    std::vector<SearchState> current_states;
+    std::vector<SearchState> next_states_N;
+    std::vector<SearchState> next_states_L;
+
+    const size_t BEAM_WIDTH = beamWidth; // ★探索拡張: 8→16（TST能動化のため幅優先）。★Phase 0: 引数に（本番 16）
+    const int P1_WEIGHT_PCT = w.p1Weight;
+
+    final_states.reserve(128);
+    current_states.reserve(BEAM_WIDTH * 2);
+    next_states_N.reserve(2048);
+    next_states_L.reserve(2048);
+
+    // ★B8: 初手ごとの「ビームに残った子孫の数」（clys の visit）。first_id で引く。
+    std::vector<int> visits;
+    int first_count = 0;
+    const bool useOps = (w.actCost != 0 || w.sdCost != 0 || w.sdRowCost != 0);
+
+    auto expandState = [&](const SearchState& s, int piece, int new_hold, int new_next_idx, int step_num, bool is_first, int first_action) -> int {
+        std::vector<Placement> p_list = getAllPlacements(is_first ? baseBoard : s.board, piece, getSpawnY(piece));
+        g_lv6Nodes += (long long)p_list.size();
+
+        if (p_list.empty()) {
+            // Block Out: この手番のミノを出せない＝この手番で死亡
+            SearchState dead_s = s;
+            dead_s.total_score -= deathPenalty(step_num);
+            dead_s.beam_score  -= deathPenalty(step_num); // ★ 選択キーにも必ず入れる（旧実装は無減点）
+            dead_s.dead = true;
+            if (is_first) dead_s.first_action = first_action;
+            final_states.push_back(dead_s);
+            return -1; // ★ v2.2.3 I: Block Out（呼び出し側は HOLD の展開をしない）
+        }
+
+        int pushed_count = 0;
+        for(size_t j = 0; j < p_list.size(); j++) {
+            const auto& p = p_list[j];
+
+            // ★ v2.2.3 I: 実機の Lock Out（4ブロック全て可視外）。旧 `blocks[k].y < 0` は内部座標で事実上発生しなかった
+            bool hasBlockOutside = isLockOut(p.blocks);
+
+            Board simBoard = is_first ? baseBoard : s.board;
+            for(int k=0; k<4; k++) {
+                simBoard.set(p.blocks[k].x, p.blocks[k].y);
+            }
+            Board beforeClearBoard = simBoard; // ライン消去前の盤面を保存（downstack判定用）
+            simBoard.checkLineAndClear();
+
+            int cur_ren = is_first ? ren : s.ren;
+            bool cur_btb = is_first ? (backToBack != 0) : s.backToBack;
+
+            int current_max_height = 0;
+            // ★分割対応：評価値（盤面の良さ）を evalBoardState で取得
+            // ★Phase2: この手番以降に使えるTの本数を T-slot 先読みに渡す（placed後の new_next_idx / new_hold 基準）
+            int stateScore = evalBoardState(simBoard, w, countUpcomingT(new_next_idx, new_hold), &current_max_height);
+
+            // ★分割対応：報酬（その1手のイベント）を evalPlacementEvent で取得
+            int prevHeight = is_first ? baseMaxHeight : s.max_height;
+            int eventScore = evalPlacementEvent(
+                simBoard, beforeClearBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount,
+                p.tSpinType, cur_ren, cur_btb, p.blocks, prevHeight, w
+            );
+
+            // ★BtB状態の更新（b2bHold静的ボーナスを stateScore に乗せるため先に算出）
+            int next_ren = (p.linesCleared > 0) ? (cur_ren + 1) : 0;
+            bool isBtBAction = (p.linesCleared >= 4) || (p.tSpinType > 0 && p.linesCleared > 0);
+            bool next_btb = cur_btb;
+            if (p.linesCleared > 0) next_btb = isBtBAction;
+
+            // ★#3: 配置後もBtBを保持している盤面への静的ボーナス（CC back_to_back相当）。
+            //   盤面評価の一部として stateScore に加算 → stepScore/beam_score 双方へ自然に伝播する。
+            //   ※イベント報酬 btbKeep(消去時の一回限り) とは別軸の「BtBを抱えている価値」。
+            if (next_btb) stateScore += w.b2bHold;
+
+            // ★#2: T浪費ペナルティ（常時・高さ減衰）。Tをスピンにも消去にも使わず置く手を罰する。
+            //   低盤面=満額（Tはスピン用に温存）、高盤面=減衰0（掘りでTを使うのを許容）。CC wasted_t の高さ折衷版。
+            //   旧実装は prevHeight<=10 の崖（11以上は無罰）→ 10→18 で線形に減衰する常時罰へ変更。
+            int tWastePenalty = 0;
+            if (piece == 2 && p.tSpinType == 0 && p.linesCleared == 0) {
+                int f = (18 - prevHeight) * 100 / 8; // height<=10:100%, >=18:0%
+                if (f > 100) f = 100;
+                if (f < 0)   f = 0;
+                tWastePenalty = w.tMinoNoClearPenalty * f / 100;
+            }
+
+            // ★分割後：stepScore = 評価値 * p1Weight（1手目のみ）+ 報酬（total_score 用、従来互換で保持）
+            int stepScore = is_first ? (stateScore * P1_WEIGHT_PCT / 100 + eventScore) : (stateScore + eventScore);
+
+            // ★変更：枝切り・最終選択に使う beam_score を計算
+            // beam_score = 最新盤面評価値 + 1手目からの累積報酬の和
+            // (n-1手目までの盤面評価値は含まない)
+            int cur_cumulative_event = (is_first ? 0 : s.cumulative_event_score) + eventScore;
+            // 1手目のみ p1Weight を盤面評価値に掛ける（以降は生の stateScore）
+            int cur_beam_score = stateScore + cur_cumulative_event;
+
+            // ★B1/B5/B6（参考AI由来のイベント項。既定 0 で無効）
+            int extraEvent = 0;
+            // T-spin で消した手は時間をかける価値があるので除外（clys の delay と同じ）
+            if (useOps && !(p.tSpinType == 1 && p.linesCleared > 0)) {
+                int sdRows = 0;
+                int ops = estimateOps(is_first ? baseBoard : s.board, piece, p, &sdRows);
+                extraEvent += ops * w.actCost;
+                if (sdRows > 0) extraEvent += w.sdCost + sdRows * w.sdRowCost;
+            }
+            if (piece == 0 && p.linesCleared < 4) extraEvent += w.wasteI;
+            if (p.linesCleared > 0) {
+                // renDangerH>0：REN の火力を満額で買うのは危険時（高さ＋着弾予定が多い）だけ。平時は comboAtkCalm
+                bool renDanger = w.renDangerH <= 0 || prevHeight + incoming >= w.renDangerH;
+                extraEvent += renAttackBonus(cur_ren) * (renDanger ? w.comboAtk : w.comboAtkCalm);
+            }
+            const bool isPC = w.pcClear != 0 && p.linesCleared > 0 && simBoard.isEmpty();
+            if (isPC) extraEvent += w.pcClear;
+            stepScore += extraEvent;
+            cur_cumulative_event += extraEvent;
+            cur_beam_score += extraEvent;
+
+            if (hasBlockOutside) stepScore -= deathPenalty(step_num);
+            stepScore += tWastePenalty; // ★#2: 常時適用（高さ減衰込み）
+            if (prevHeight <= 10) {
+                if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) stepScore += w.renCutPenalty;
+            }
+
+            // ★変更：ペナルティ系も beam_score に反映する
+            if (hasBlockOutside) cur_beam_score -= deathPenalty(step_num);
+            cur_beam_score += tWastePenalty; // ★#2: 常時適用（高さ減衰込み）
+            if (prevHeight <= 10) {
+                if (cur_ren > 0 && cur_ren <= 2 && p.linesCleared == 0) cur_beam_score += w.renCutPenalty;
+            }
+
+            SearchState next_s = s;
+            next_s.hold_mino = new_hold;
+            next_s.next_idx = new_next_idx;
+            next_s.ren = next_ren;
+            next_s.backToBack = next_btb;
+            next_s.max_height = current_max_height;
+            next_s.cumulative_event_score = cur_cumulative_event;
+            next_s.beam_score = cur_beam_score;
+            if (is_first) {
+                next_s.first_id = first_count++;
+                next_s.first_action = first_action;
+                next_s.p1_score = stateScore; // ★分割対応：旧 score → stateScore に変更
+                // ★pick_move(生存)用：この1手を実行した直後(simBoard=配置+ライン消去後)の
+                //   中央列(3,4,5)の最大高さと、その1手の攻撃量を記録する。子ノードへはコピーで継承される。
+                int center_h = 0;
+                for (int cx = 3; cx <= 5; cx++) {
+                    for (int y = 0; y < ROWS; y++) {
+                        if ((simBoard.rows[y] >> cx) & 1) { // 上から最初に埋まっている行
+                            int h = ROWS - y;
+                            if (h > center_h) center_h = h;
+                            break;
+                        }
+                    }
+                }
+                next_s.first_center_h = center_h;
+                next_s.first_attack = estimateAttack(p.linesCleared, p.tSpinType, cur_btb, cur_ren);
+                if (isPC) next_s.first_attack = PC_ATTACK; // PC は他の火力を置き換える（scoring.js）
+            }
+            next_s.total_score += stepScore;
+            next_s.board = simBoard;
+            next_s.p[step_num - 1] = p;
+            next_s.has_p[step_num - 1] = true;
+            next_s.step_score[step_num - 1] = stepScore;
+            next_s.p_id[step_num - 1] = piece;
+
+            // ★ v2.2.3 I: 次に出るミノ（HOLDに関係なく必ず出現する）が出せない盤面は、その場で
+            //   「次の手番で死亡」として final へ送る。ビーム枠を死ぬ枝に使わせず、評価値の低い
+            //   生存手が刈られて死ぬ手しか残らない事故を防ぐ。
+            if (!hasBlockOutside) {
+                int upcoming = new_next_idx < NQ ? next_queue[new_next_idx] : 0;
+                if (!canSpawnPiece(simBoard, upcoming)) {
+                    next_s.total_score -= deathPenalty(step_num + 1);
+                    next_s.beam_score  -= deathPenalty(step_num + 1);
+                    next_s.dead = true;
+                    final_states.push_back(next_s);
+                    continue;
+                }
+            }
+
+            if (hasBlockOutside) {
+                next_s.dead = true;
+                final_states.push_back(next_s);
+            } else {
+                if (p.linesCleared > 0) next_states_L.push_back(next_s);
+                else next_states_N.push_back(next_s);
+                pushed_count++;
+            }
+        }
+        return pushed_count;
+    };
+
+    auto trimAndMerge = [&]() {
+        // ★重複除去（transposition）: partial_sort 前に同一継続状態を集約。ビーム枠を重複に使わせない。
+        dedupBeam(next_states_N);
+        dedupBeam(next_states_L);
+        // ★変更：枝切りの比較キーを total_score → beam_score に変更
+        // beam_score = 最新盤面評価値 + 1手目からの累積報酬（n-1手目以前の盤面評価値を含まない）
+        if(next_states_N.size() > BEAM_WIDTH) {
+            std::partial_sort(next_states_N.begin(), next_states_N.begin() + BEAM_WIDTH, next_states_N.end(),
+                [](const SearchState& a, const SearchState& b){ return a.beam_score > b.beam_score; });
+            next_states_N.resize(BEAM_WIDTH);
+        }
+        if(next_states_L.size() > BEAM_WIDTH) {
+            std::partial_sort(next_states_L.begin(), next_states_L.begin() + BEAM_WIDTH, next_states_L.end(),
+                [](const SearchState& a, const SearchState& b){ return a.beam_score > b.beam_score; });
+            next_states_L.resize(BEAM_WIDTH);
+        }
+
+        current_states.clear();
+        for (const auto& s : next_states_N) current_states.push_back(s);
+        for (const auto& s : next_states_L) current_states.push_back(s);
+
+        next_states_N.clear();
+        next_states_L.clear();
+
+        if (w.visitSelect) {
+            if ((int)visits.size() < first_count) visits.resize(first_count, 0);
+            for (const auto& s : current_states) visits[s.first_id]++;
+        }
+    };
+
+    SearchState initial_state;
+    initial_state.ren = ren;
+    initial_state.backToBack = (backToBack != 0);
+    initial_state.max_height = baseMaxHeight;
+
+    expandState(initial_state, next_queue[0], holdType, 1, 1, true, 0);
+
+    if(canHold == 1) {
+        int piece;
+        int new_hold = next_queue[0];
+        int new_next_idx;
+        if(holdType != -1) {
+            piece = holdType;
+            new_next_idx = 1;
+        } else {
+            piece = next_queue[1];
+            new_next_idx = 2;
+        }
+        expandState(initial_state, piece, new_hold, new_next_idx, 1, true, 1);
+    }
+
+    trimAndMerge();
+
+    for (int depth = 1; depth < maxDepth; depth++) { // ★探索拡張: 深さ 6→8
+        int step_num = depth + 1;
+        next_states_N.clear();
+        next_states_L.clear();
+
+        for (const auto& state : current_states) {
+            int cur_mino = state.next_idx < NQ ? next_queue[state.next_idx] : 0; // ★深さ8対応: 境界 6→9
+
+            // ★ v2.2.3 I: 次のミノが出現位置に出られない（Block Out）なら、HOLD する前にその場で死亡。
+            //   旧実装は HOLD 側の展開で「別のミノなら出せる」として生存扱いしていた。
+            if (expandState(state, cur_mino, state.hold_mino, state.next_idx + 1, step_num, false, -1) < 0) continue;
+
+            if (state.hold_mino != -1 && state.hold_mino != cur_mino) {
+                expandState(state, state.hold_mino, cur_mino, state.next_idx + 1, step_num, false, -1);
+            }
+        }
+
+        // ★ v2.2.3 I: 全ての子が死んだ＝current_states は展開済み（死亡は final に記録済み）。
+
+        //   旧実装はこの後 current_states を無罰で final に入れていたため「死ぬ直前で打ち切った枝」が
+
+        //   生存扱いで選ばれていた。
+
+        if (next_states_N.empty() && next_states_L.empty()) { current_states.clear(); break; }
+
+        trimAndMerge();
+    }
+
+    for (const auto& state : current_states) {
+        final_states.push_back(state);
+    }
+
+    int bestTotalScore = -2000000000;
+    const SearchState* bestState = nullptr;
+
+    // ★変更：最終的な最善手選択も beam_score（最新盤面評価値 + 累積報酬）で判断
+    for(const auto& state : final_states) {
+        if(state.beam_score > bestTotalScore) {
+            bestTotalScore = state.beam_score;
+            bestState = &state;
+        }
+    }
+
+    // ────────────────────────────────────────────────
+    // ★Cold Clear の pick_move 相当：着弾おじゃま(incoming)で天井(20)を超える危険があるなら、
+    //   評価値が多少落ちても「中央が埋まらない手（消去/掘り手）」を優先採用する。
+    //   - safe判定: incoming - その手の攻撃量 + 1手目後の中央列最大高さ <= 20
+    //   - safeな手が在れば、その中で beam_score 最大を採用
+    //   - 1つもsafeでなければ、攻撃量(spike)最大の手にフォールバック（同点は beam_score 優先）
+    //   incoming<=0 のときは全手safe扱い＝従来どおり beam_score 最大が選ばれる。
+    // ────────────────────────────────────────────────
+    // ★B8（clys の visit）: 生き残った続きがある初手のうち、各深さでビームに残った子孫の数が最大の初手を選ぶ
+    //   （同数は beam_score）。その初手の中では beam_score 最大の枝を採用する。生存判定(incoming)の絞り込みも同じ順位で行う。
+    std::vector<const SearchState*> bestOfFirst;
+    auto visitBetter = [&](const SearchState* a, const SearchState* b) {
+        int va = visits[a->first_id], vb = visits[b->first_id];
+        if (va != vb) return va > vb;
+        return a->beam_score > b->beam_score;
+    };
+    if (w.visitSelect && first_count > 0) {
+        if ((int)visits.size() < first_count) visits.resize(first_count, 0);
+        bestOfFirst.assign(first_count, nullptr);
+        for (const auto& state : final_states) {
+            if (state.dead || state.first_id < 0) continue;
+            const SearchState*& cur = bestOfFirst[state.first_id];
+            if (cur == nullptr || state.beam_score > cur->beam_score) cur = &state;
+        }
+        const SearchState* pick = nullptr;
+        for (const SearchState* c : bestOfFirst) if (c && (pick == nullptr || visitBetter(c, pick))) pick = c;
+        if (pick) bestState = pick;
+    }
+
+    // ★相殺外し（clys is_tankable 相当。設計 lv6-tankable-design.md）
+    //   このゲームの相殺は自動（消去のたびに届いている分を 1:1 で消し、余りを送る）なので、選べるのは
+    //   「受けるか、守る（消して高さと着弾を減らす）か」だけ。risk = incoming − 初手の火力 + 初手後の中央列の高さ。
+    //   risk が tankH 以上の手は守りが要る手とし、その枝が tankLook 手以内に TSD 以上か 4-LINES を撃つ
+    //   （＝受けても形を崩さずに大きく返せる）場合だけ risk≤20 の範囲で受けてよいとする。
+    //   認められる手が1つも無ければ従来の生存判定へ。tankH=0 で無効＝従来と完全一致。
+    bool tankPicked = false;
+    if (w.tankH > 0 && incoming > 0 && bestState != nullptr) {
+        const int look = std::min(w.tankLook, MAXD - 1);
+        auto tankOk = [&](const SearchState& s) {
+            int risk = incoming - s.first_attack + s.first_center_h;
+            if (risk < w.tankH) return true;
+            if (risk > 20) return false;
+            for (int j = 1; j <= look && s.has_p[j]; j++) {
+                const Placement& q = s.p[j];
+                if (q.linesCleared == 4 || (q.tSpinType == 1 && q.linesCleared >= 2)) return true;
+            }
+            return false;
+        };
+        const SearchState* pick = nullptr;
+        if (!bestOfFirst.empty()) {
+            for (const SearchState* c : bestOfFirst)
+                if (c && tankOk(*c) && (pick == nullptr || visitBetter(c, pick))) pick = c;
+        } else {
+            for (const auto& s : final_states)
+                if (!s.dead && tankOk(s) && (pick == nullptr || s.beam_score > pick->beam_score)) pick = &s;
+        }
+        if (pick != nullptr) { bestState = pick; tankPicked = true; }
+    }
+
+    if (tankPicked) {
+        // 相殺外しの判定で決定済み
+    } else if (incoming > 0 && bestState != nullptr && !bestOfFirst.empty()) {
+        const SearchState* bestSafe = nullptr;
+        for (const SearchState* c : bestOfFirst) {
+            if (!c || incoming - c->first_attack + c->first_center_h > 20) continue;
+            if (bestSafe == nullptr || visitBetter(c, bestSafe)) bestSafe = c;
+        }
+        if (bestSafe != nullptr) bestState = bestSafe;
+        else {
+            const SearchState* bestSpike = nullptr;
+            for (const SearchState* c : bestOfFirst) {
+                if (!c) continue;
+                if (bestSpike == nullptr || c->first_attack > bestSpike->first_attack ||
+                    (c->first_attack == bestSpike->first_attack && c->beam_score > bestSpike->beam_score)) bestSpike = c;
+            }
+            if (bestSpike != nullptr) bestState = bestSpike;
+        }
+    } else if (incoming > 0 && bestState != nullptr) {
+        const SearchState* bestSafe = nullptr;   int bestSafeScore = -2000000000;
+        const SearchState* bestSpike = nullptr;  int bestSpikeAtk = -1; int bestSpikeScore = -2000000000;
+        for (const auto& state : final_states) {
+            // ★ v2.2.3 I: 死に枝は候補にしない（spike フォールバックが死ぬ手を選んでいた）。
+            //   全枝が死ぬ局面では bestState（最も遅く死ぬ手）のまま。
+            if (state.dead) continue;
+            bool safe = (incoming - state.first_attack + state.first_center_h <= 20);
+            if (safe && state.beam_score > bestSafeScore) {
+                bestSafeScore = state.beam_score;
+                bestSafe = &state;
+            }
+            if (state.first_attack > bestSpikeAtk ||
+                (state.first_attack == bestSpikeAtk && state.beam_score > bestSpikeScore)) {
+                bestSpikeAtk = state.first_attack;
+                bestSpikeScore = state.beam_score;
+                bestSpike = &state;
+            }
+        }
+        if (bestSafe != nullptr)       bestState = bestSafe;
+        else if (bestSpike != nullptr) bestState = bestSpike;
+    }
+
+    if(bestState) {
+        outResult[0] = bestState->first_action;
+        outResult[1] = bestState->p1_score;
+        outResult[2] = bestState->p1_score - baseScore;
+
+        outResult[3] = bestState->p_id[0]; outResult[4] = bestState->p[0].rot; outResult[5] = bestState->p[0].x; outResult[6] = bestState->p[0].y; outResult[7] = bestState->p[0].spawnY;
+
+        outResult[12] = bestState->p[0].tSpinType;
+
+        if(bestState->has_p[1]) { outResult[8] = bestState->p_id[1]; outResult[9] = bestState->p[1].rot; outResult[10] = bestState->p[1].x; outResult[11] = bestState->p[1].y; }
+        if(bestState->has_p[2]) { outResult[13] = bestState->p_id[2]; outResult[14] = bestState->p[2].rot; outResult[15] = bestState->p[2].x; outResult[16] = bestState->p[2].y; }
+        if(bestState->has_p[3]) { outResult[17] = bestState->p_id[3]; outResult[18] = bestState->p[3].rot; outResult[19] = bestState->p[3].x; outResult[20] = bestState->p[3].y; }
+        if(bestState->has_p[4]) { outResult[21] = bestState->p_id[4]; outResult[22] = bestState->p[4].rot; outResult[23] = bestState->p[4].x; outResult[24] = bestState->p[4].y; }
+        if(bestState->has_p[5]) { outResult[25] = bestState->p_id[5]; outResult[26] = bestState->p[5].rot; outResult[27] = bestState->p[5].x; outResult[28] = bestState->p[5].y; }
+
+        outResult[29] = bestState->total_score;
+        outResult[30] = bestState->step_score[0];
+        outResult[31] = bestState->has_p[1] ? bestState->step_score[1] : 0;
+        outResult[32] = bestState->has_p[2] ? bestState->step_score[2] : 0;
+        outResult[33] = bestState->has_p[3] ? bestState->step_score[3] : 0;
+        outResult[34] = bestState->has_p[4] ? bestState->step_score[4] : 0;
+        outResult[35] = bestState->has_p[5] ? bestState->step_score[5] : 0;
+
+        int finalPath[64];
+        int finalPathLen = 0;
+
+        if (bestState->first_action == 1) {
+            finalPath[finalPathLen++] = 7;
+        }
+        for (int i = 0; i < bestState->p[0].pathLength && finalPathLen < 64; i++) {
+            finalPath[finalPathLen++] = bestState->p[0].path[i];
+        }
+
+        for (int i = 0; i < finalPathLen; i++) {
+            int idx = i / 10;
+            int shift = (i % 10) * 3;
+            outResult[36 + idx] |= (finalPath[i] & 0x7) << shift;
+        }
+    }
+}
+
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+void evaluateSinglePlacementWasm(
+    uint8_t* boardData, int minoType, int rot, int x, int y,
+    int* weightsArray, int* outResult,
+    int ren, int backToBack, int tSpinType
+) {
+    ensurePrecalc();
+
+    Board baseBoard;
+    for(int i = 0; i < 250; i++) {
+        if (boardData[i]) baseBoard.set(i % 10, i / 10);
+    }
+
+    EvalWeights w = unpackWeights(weightsArray);
+
+    // ★分割対応：配置前盤面の評価値（baseScore）を evalBoardState で取得
+    int baseMaxHeight = 0;
+    // 単発評価(表示/デバッグ用)はNEXT情報を持たないため upcomingT=1 を仮定
+    int baseScore = evalBoardState(baseBoard, w, 1, &baseMaxHeight);
+
+    GridBlock blocks[4];
+    for(int i=0; i<4; i++) {
+        blocks[i].x = PRECALC_MINO_BLOCKS[minoType][rot][i].x + x;
+        blocks[i].y = PRECALC_MINO_BLOCKS[minoType][rot][i].y + y;
+    }
+
+    Board simBoard = baseBoard;
+    for(int i=0; i<4; i++) {
+        simBoard.set(blocks[i].x, blocks[i].y);
+    }
+
+    PlacementInfo info = calcPlacementInfo(baseBoard, blocks);
+    Board beforeClearBoard = simBoard; // ライン消去前の盤面を保存（downstack判定用）
+    int cleared = simBoard.checkLineAndClear();
+
+    // ★分割対応：配置後盤面の評価値（stateScore）を evalBoardState で取得
+    int stateScore = evalBoardState(simBoard, w, 1, nullptr);
+
+    // ★分割対応：配置イベントの報酬（eventScore）を evalPlacementEvent で取得
+    int eventScore = evalPlacementEvent(
+        simBoard, beforeClearBoard, cleared, info.isFullyGrounded, info.touchingCount,
+        tSpinType, ren, backToBack != 0, blocks, baseMaxHeight, w
+    );
+
+    // ★分割後：stepScore = 評価値 * p1Weight + 報酬
+    int stepScore = stateScore * w.p1Weight / 100 + eventScore;
+
+    // ★ v2.2.3 I: 実機の Lock Out（4ブロック全て可視外）で判定する
+    if (isLockOut(blocks)) stepScore -= deathPenalty(1);
+
+    if (baseMaxHeight <= 14) {
+        if (minoType == 2 && cleared == 0) stepScore += w.tMinoNoClearPenalty;
+    }
+
+    outResult[0] = stepScore;
+    outResult[1] = stepScore - baseScore;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void searchBestMoveWasm(
+    uint8_t* boardData, int currentType, int holdType, int next1, int next2, int next3, int next4, int next5,
+    int next6, int next7, int next8, // ★深さ8対応: NEXTを5→8本に拡張
+    int canHold,
+    int* weightsArray, int* outResult,
+    int ren, int backToBack,
+    int incoming // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。0なら通常選択
+){
+    const int nexts[8] = { next1, next2, next3, next4, next5, next6, next7, next8 };
+    searchImpl<SEARCH_MAX_STEP>(boardData, currentType, holdType, nexts, 8, canHold, weightsArray, outResult,
+                                ren, backToBack, incoming, 16, SEARCH_MAX_STEP);
+}
+
+// ★Phase 0: 幅・深さ・NEXT 本数を指定する版（学習シミュ用。本番 JS からは呼ばない）。
+//   nNext は maxDepth 以上を渡す（足りない分は I ミノで埋まる＝従来の終端の扱い）。maxDepth は 1〜16
+EMSCRIPTEN_KEEPALIVE
+void searchBestMoveExt(
+    uint8_t* boardData, int currentType, int holdType, const int* nexts, int nNext, int canHold,
+    int* weightsArray, int* outResult, int ren, int backToBack, int incoming, int beamWidth, int maxDepth
+){
+    if (maxDepth < 1) maxDepth = 1;
+    if (maxDepth > 16) maxDepth = 16;
+    if (beamWidth < 1) beamWidth = 1;
+    if (maxDepth <= 8) {
+        nNext = std::min(nNext, 9);
+        searchImpl<8>(boardData, currentType, holdType, nexts, nNext, canHold, weightsArray, outResult,
+                      ren, backToBack, incoming, (size_t)beamWidth, maxDepth);
+    } else {
+        nNext = std::min(nNext, 17);
+        searchImpl<16>(boardData, currentType, holdType, nexts, nNext, canHold, weightsArray, outResult,
+                       ren, backToBack, incoming, (size_t)beamWidth, maxDepth);
+    }
+}
+
+// ノード数の計測（スレッドごと）
+EMSCRIPTEN_KEEPALIVE
+long long lv6NodeCount() { return g_lv6Nodes; }
+
+} // extern "C"

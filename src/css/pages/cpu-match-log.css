@@ -1,0 +1,53 @@
+/* ─────────────────────────────────────────────
+   CPU TEST の CPU 同士の対局記録（public/app/cpu_match_log.js）
+   対戦画面の左下に小さく出す（position:fixed＝#container の拡大縮小の影響を受けない）。
+───────────────────────────────────────────── */
+.cml-dock {
+  position: fixed;
+  left: 8px;
+  bottom: 8px;
+  z-index: 500; /* #container(z-index:1)より上、ポーズオーバーレイ(1000)より下 */
+  max-width: min(320px, calc(100vw - 16px));
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: rgba(10, 10, 15, 0.88);
+  color: var(--text);
+  font-size: 11px;
+}
+.cml-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.cml-sum {
+  white-space: pre-line;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+.cml-btns {
+  display: flex;
+  gap: 4px;
+}
+.cml-btns button {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.cml-btns button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.cml-btns button.is-on {
+  border-color: var(--success);
+  color: var(--success);
+}

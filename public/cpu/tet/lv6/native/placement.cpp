@@ -45,11 +45,12 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
     //   世代スタンプ方式にした（呼び出しごとに generation をインクリメントし、
     //   スタンプが現在の generation と一致するかどうかで「今回のBFSで書き込み済みか」を判定する）。
     //   意味的にはmemsetによる全クリアと同一（int32が一周するのは実運用上あり得ない）。
-    static int visitedStamp[4][35][19];
-    static int foundStamp[4][35][19];
-    static int parentStamp[4][35][19];
-    static ParentInfo parent[4][35][19];
-    static int generation = 0;
+    // thread_local: 学習シミュ(training/puyo-lv5)のスレッド並列用。wasm では static と同じ
+    static thread_local int visitedStamp[4][35][19];
+    static thread_local int foundStamp[4][35][19];
+    static thread_local int parentStamp[4][35][19];
+    static thread_local ParentInfo parent[4][35][19];
+    static thread_local int generation = 0;
     ++generation;
 
     int spawnX = COLS / 2 - 2;
@@ -70,7 +71,7 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
         if (!isValidPlacement(baseBoard, startBlocks)) return placements;
     }
 
-    static BFSState bfsQueue[3000];
+    static thread_local BFSState bfsQueue[3000];
     int qHead = 0, qTail = 0;
 
     bfsQueue[qTail++] = {spawnX, spawnY, initialRot, false, false};

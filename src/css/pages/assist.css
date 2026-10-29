@@ -1,0 +1,174 @@
+/* ─────────────────────────────────────────────
+   アシスト機能（盤面ガイド）。設計: source_assets/memory/assist/assist-design.md
+───────────────────────────────────────────── */
+:root {
+  --assist-color: #7fe0ff;
+  --assist-color-hi: #ffd54a;
+}
+
+/* 盤面に重ねる層。キャンバスより上・.field-overlay(20)より下 */
+.assist-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 16;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.assist-block {
+  position: absolute;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 2px;
+}
+
+.assist-block.is-hi {
+  box-shadow: 0 0 8px var(--assist-color-hi);
+}
+
+.assist-block.is-match {
+  box-shadow: 0 0 12px 2px var(--assist-glow, #fff), inset 0 0 8px var(--assist-glow, #fff);
+}
+
+/* 設定 GHOST: LINE のとき、アシストは枠を持たない薄い塗り */
+.assist-block.is-fill {
+  border-color: transparent !important;
+}
+
+.assist-puyo.is-fill {
+  border-color: transparent;
+}
+
+/* 1手目は点滅させて場所を分かりやすくする。ゴーストが一致したら（点滅は続けたまま）ミノ・ぷよの色で光らせる */
+@keyframes assist-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.assist-block.is-first,
+.assist-puyo.is-first {
+  animation: assist-blink 0.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assist-block.is-first,
+  .assist-puyo.is-first {
+    animation: none;
+  }
+}
+
+.assist-badge {
+  position: absolute;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 7px;
+  background: rgba(10, 10, 15, 0.85);
+  border: 1px solid var(--assist-color);
+  color: #fff;
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  line-height: 12px;
+  text-align: center;
+}
+
+.assist-badge.is-hi {
+  border-color: var(--assist-color-hi);
+  color: var(--assist-color-hi);
+}
+
+.assist-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* ガイド文の帯（盤面上部） */
+.assist-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: rgba(10, 10, 15, 0.55);
+  border-bottom: 1px solid rgba(127, 224, 255, 0.35);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.assist-banner-label {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  color: var(--assist-color-hi);
+  letter-spacing: 1px;
+}
+
+/* VERSUS 準備画面の設定枠 */
+#versus-assist-options {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 選べない選択肢（puyo の DEPTH 4〜6、tet の CHAIN）は位置を保ったまま薄くする */
+#versus-assist-options .opt-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+  pointer-events: none;
+}
+
+#versus-assist-options .assist-sub-row.is-inert {
+  opacity: 0.4;
+}
+
+/* puyo：置き場所のぷよと発火点のマーク */
+.assist-puyo {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 3px solid #fff; /* 色は JS がぷよの色で上書き。中身は塗らない */
+}
+
+.assist-puyo.is-hi {
+  box-shadow: 0 0 8px var(--assist-color-hi);
+}
+
+.assist-puyo.is-match {
+  box-shadow: 0 0 12px 2px var(--assist-glow, #fff), inset 0 0 8px var(--assist-glow, #fff);
+}
+
+/* 発火枠：ぷよの枠より一回り外側。色は JS がぷよの色で上書き */
+.assist-fire {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 3px dashed #fff;
+  transform: scale(1.12);
+}
+
+.assist-puyo-badge {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 14px;
+}

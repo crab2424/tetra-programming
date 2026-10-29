@@ -41,8 +41,8 @@ function _practiceFallLabel(lv) {
 // パネル内のキーボード操作でフォーカスする行の並び（rule別）
 function _practicePanelRowKeys(mgr) {
     const base = (mgr.rule === 'tet')
-        ? ['speed', 'next', 'hold', 'ghost']
-        : ['speed', 'next', 'colors'];
+        ? ['speed', 'next', 'hold', 'ghost', 'assistMode', 'assistDepth']
+        : ['speed', 'next', 'colors', 'assistMode', 'assistDepth', 'assistChain'];
     // HOLE RATE（直列確率）はtet限定（設計 Phase5 §8.2。puyoに「直列」の概念が無いため）
     const ojamaKeys = ['ojamaMode', 'ojamaAmount', 'ojamaInterval'];
     if (mgr.rule === 'tet') ojamaKeys.push('ojamaHoleRate');
@@ -192,6 +192,23 @@ function _practicePanelRefresh() {
         html += stepRow('colors', 'COLORS', PConfig.colorCount, 'practiceStepColorCount(-1)', 'practiceStepColorCount(1)');
     }
 
+    // ─── ASSIST（盤面ガイド。設計 assist-design.md §3.6）───
+    if (window.Assist) {
+        const ac = Assist.get('practice');
+        const assistOff = ac.mode === 'off';
+        html += `
+      <div class="practice-panel-row${focusCls('assistMode')}">
+        <span class="practice-panel-label">ASSIST</span>
+        <div class="option-toggle practice-panel-toggle">
+          ${Assist.MODES.map(m => `<button class="opt-btn ${ac.mode === m ? 'active' : ''}" onmousedown="event.preventDefault()" onclick="Assist.set('practice',{mode:'${m}'});_practicePanelRefresh()">${m.toUpperCase()}</button>`).join('')}
+        </div>
+      </div>`;
+        html += stepRow('assistDepth', 'DEPTH', Assist.depthShown('practice'), "Assist.stepDepth('practice',-1);_practicePanelRefresh()", "Assist.stepDepth('practice',1);_practicePanelRefresh()", assistOff ? ' is-inert' : '');
+        if (!isTet) {
+            html += stepRow('assistChain', 'CHAIN', ac.chain, "Assist.stepChain('practice',-1);_practicePanelRefresh()", "Assist.stepChain('practice',1);_practicePanelRefresh()", assistOff ? ' is-inert' : '');
+        }
+    }
+
     // ─── SEQUENCE（設計 §5.1）：ゲーム中でもON/OFF切替とエディタ編集ができる ───
     const seqEnabled = (typeof PracticeSequence !== 'undefined') && PracticeSequence.isEnabled(mgr.rule);
     html += `
@@ -288,6 +305,9 @@ function _practicePanelApplyDir(rowKey, dir) {
         case 'hold':          practiceStepHoldMode(dir); break;
         case 'ghost':         if (g) setPracticeGhostEnabled(g.showGhost === false); break;
         case 'colors':        practiceStepColorCount(dir); break;
+        case 'assistMode':    Assist.stepMode('practice', dir); _practicePanelRefresh(); break;
+        case 'assistDepth':   Assist.stepDepth('practice', dir); _practicePanelRefresh(); break;
+        case 'assistChain':   Assist.stepChain('practice', dir); _practicePanelRefresh(); break;
         case 'ojamaMode':     practiceStepOjamaMode(dir); break;
         case 'ojamaAmount':   practiceStepOjamaAmount(dir); break;
         case 'ojamaInterval': practiceStepOjamaInterval(dir); break;
@@ -304,6 +324,7 @@ function _practicePanelApplyDir(rowKey, dir) {
 function _practicePanelActivate(rowKey) {
     if (rowKey === 'clear') practiceClearBoard();
     else if (rowKey === 'hold') practiceStepHoldMode(1);
+    else if (rowKey === 'assistMode') { Assist.stepMode('practice', 1); _practicePanelRefresh(); }
     else if (rowKey === 'ghost') {
         const g = window._practiceManager && window._practiceManager.gameInstance;
         if (g) setPracticeGhostEnabled(g.showGhost === false);

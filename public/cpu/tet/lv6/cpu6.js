@@ -1,14 +1,15 @@
 // ─────────────────────────────────────────────
 // cpu6.js
 // 6手読みCPU（NEXT1〜5、HOLD考慮） - Wasm Worker 非同期連携版
+// ★2026-10-27: PC（パーフェクトクリア）探索 Worker を外した（旧「7」キーの PC 探索なしを標準の lv6 にした）。
+//   探索・重みは main（v2.3）の版。新しい探索は lv7（cpu/tet/lv7/cpu7.js）
 // ─────────────────────────────────────────────
 
 window.CPU6 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv6/wasm/cpu_worker6.js?v=16',
-        'cpu/tet/lv6/pc/wasm/pc_worker6.js',
+        'cpu/tet/lv6/wasm/cpu_worker6.js?v=20',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -104,41 +105,6 @@ window.CPU6 = class {
             console.error("❌ Worker 6 Error: ", err.message, err.filename, err.lineno);
         };
 
-        // ─────────────────────────────────────────────
-        // ★パフェ(全消し)探索 — 評価関数ビームサーチとは独立した別ワーカー
-        // ─────────────────────────────────────────────
-        this.pcWorker = CpuWorkerPool.acquire(this.constructor.WORKER_URLS[1]);
-        this.pcWorkerReady = false;
-        this.pcSequence = null;          // 実行中のPC手順 [{minoType,rot,x,y,useHold}, ...]
-        this.pcExpectedBoard = null;     // ★PC各手番で想定される盤面(内部25x10)。実機とズレたらおじゃま混入とみなし破棄
-        this.pcSearchId = 0;             // stale(古い)PC結果を破棄するためのID
-        this.pcSearchActive = false;     // 今ターンPC探索を投げているか
-        this.pcFallbackData = null;       // PC待機中にキャッシュするビームサーチ引数
-        this.pcFallbackTimer = null;     // PC結果待ちのタイムアウト
-        this.pcSearchBoard = null;       // ★PC探索を投げた時点の盤面スナップショット(期待盤面の起点)
-
-        this.PC_SEARCH_TIME_MS = 300;    // ★空盤面PC探索のウォールクロック上限。超えたら none 扱い
-        this.PC_TIMEOUT_MS = 500;        // 空盤面PC結果を待つ上限（探索上限+余裕）。超えたらビームサーチへ
-        // ── ★プレイ途中PC探索（毎ピース・パリティ足切りで起動）──
-        //   毎ピース投げるため探索時間を短くして1手の遅延を抑える（見つからなければ即ビームへ）。
-        this.PC_MIDGAME_SEARCH_TIME_MS = 100; // プレイ途中PC探索のウォールクロック上限
-        this.PC_MIDGAME_TIMEOUT_MS = 250;     // プレイ途中PC結果を待つ上限（短縮版・超えたらビームへ）
-        this.PC_MAX_BLOCKS = 40;         // PC探索を起動する最大ブロック数（10手×4）
-        this.PC_MAX_DEPTH = 10;          // PC探索の最大手数
-        this.PC_READY_WAIT_MS = 1200;    // 空盤面で pcWorker のロード完了を待つ上限（リスタート対策）
-        this._pcReadyWaitStart = null;   // 空盤面待機の開始時刻
-
-        this.pcWorker.onmessage = (e) => {
-            if (e.data.type === 'ready') {
-                console.log("💎 PC Worker 6 Ready!");
-                this.pcWorkerReady = true;
-            } else if (e.data.type === 'pc_result') {
-                this.handlePCResult(e.data);
-            }
-        };
-        this.pcWorker.onerror = (err) => {
-            console.error("❌ PC Worker 6 Error: ", err.message, err.filename, err.lineno);
-        };
     }
 
     updateEvalDisplay(score, diff) {
@@ -620,11 +586,6 @@ window.CPU6 = class {
                 // 操作完了 → 重力を再開してからisExecutingActionをリセット
                 if (this.game) this.game.gravityDisabled = false;
                 this.isExecutingAction = false;
-                // ★PC手順を実行した直後なら、次の手へ進む
-                if (this.bestMoveData && this.bestMoveData.isPC) {
-                    this.runNextPCMove();
-                    return;
-                }
                 if (this.bestMoveData && this.bestMoveData.p1 &&
                     this.game.mino && this.game.mino === this.currentMino) {
                     this.executeAction(this.bestMoveData);
@@ -668,8 +629,8 @@ window.CPU6 = class {
             const self = this;
             this.game.start = function() {
                 origStart();
-                // ★PC 関連の持ち越し状態をリセット（リスタートで PC が動かなくなるのを防ぐ）
-                self.resetPCState();
+                // 操作途中の状態をリセット
+                self.resetState();
                 // _initGameState() で field がリセットされた直後にデバッグ盤面を再適用
                 if (CPU6.DEBUG_BOARD !== null) {
                     self.game.applyDebugBoard(CPU6.DEBUG_BOARD);
@@ -691,19 +652,11 @@ window.CPU6 = class {
         this.updateLoop();
     }
 
-    // ── ★PC 関連状態のリセット（リスタート時に呼ぶ）──
-    resetPCState() {
-        if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
-        this.pcSequence = null;
-        this.pcExpectedBoard = null;
-        this.pcFallbackData = null;
-        this.pcSearchBoard = null;
-        this.pcSearchActive = false;
-        this.pcSearchId++;            // 進行中だった古い PC 結果を無効化
+    // ── 操作途中の状態のリセット（リスタート時に呼ぶ）──
+    resetState() {
         this.isExecutingAction = false;
         this.isCalculating = false;
         this.actionQueue = [];
-        this._pcReadyWaitStart = null;
         this.currentMino = null;      // 新しい1ピース目で onMinoSpawned を再発火させる
         if (this.game) this.game.gravityDisabled = false;
     }
@@ -720,18 +673,6 @@ window.CPU6 = class {
             this.worker.terminate();
             this.worker = null;
             this.workerReady = false;
-        }
-        // ★PC探索ワーカーと状態の後始末
-        if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
-        this.pcSequence = null;
-        this.pcExpectedBoard = null;
-        this.pcFallbackData = null;
-        this.pcSearchBoard = null;
-        this.pcSearchActive = false;
-        if (this.pcWorker) {
-            this.pcWorker.terminate();
-            this.pcWorker = null;
-            this.pcWorkerReady = false;
         }
         // ★game.start ラップを解除（新しいコントローラが再ラップできるように）
         if (this.game && this.game._cpu6StartWrapped) {
@@ -847,32 +788,11 @@ window.CPU6 = class {
         const mino = this.game.mino;
         if (!mino) return;
 
-        // ── ★PC手順を実行中はここでは何もしない ──
-        // 手順の進行は各手のアクション完了時に runNextPCMove が駆動する。
-        // （hold操作で中間的に game.mino が入れ替わっても誤発火しないようにするため）
-        if (this.pcSequence) return;
-
         // ★追加：古い評価結果を破棄して、tryFinishによる誤った再実行（無限ホールド等）を防ぐ
         this.bestMoveData = null;
 
-        // ── ★リスタート対策：空盤面なのに pcWorker のロードが未完了なら、
-        //   PC 探索の唯一のチャンス（空盤面フレーム）を beam に消費させず少し待つ。──
-        if (this.isAutoPlay && this.game.field.blocks.length === 0 && !this.pcWorkerReady) {
-            if (this._pcReadyWaitStart === null) this._pcReadyWaitStart = performance.now();
-            if (performance.now() - this._pcReadyWaitStart < this.PC_READY_WAIT_MS) {
-                setTimeout(() => {
-                    if (this.isActive && this.game.mino === this.currentMino) this.onMinoSpawned();
-                }, 50);
-                return;
-            }
-            // 待機上限を超過 → 通常処理（beam）へフォールスルー
-        } else {
-            this._pcReadyWaitStart = null;
-        }
-
-        // beam ワーカー未ロード時のドロップ即時フォールバック。
-        // ただし PC 探索が可能な空盤面（pcWorker 準備済み）なら、PC のチャンスを残すため抑止する。
-        if (!this.workerReady && !this.shouldSearchPC()) {
+        // beam ワーカー未ロード時
+        if (!this.workerReady) {
             // ★ v2.2.3 G: 旧「700ms 後にその場でハードドロップ」は出現位置での即置き＝自滅手だったので廃止。
             //   ready まで待つ（currentMino を戻して updateLoop に次フレームで再試行させる）。
             this.currentMino = null;
@@ -928,46 +848,6 @@ window.CPU6 = class {
         // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。ready+unready 合計（internalは除外＝ゲージ表示と一致）
         const incoming = this.getIncomingGarbage();
 
-        // ── ★PC探索の起動判定（空盤面 or プレイ途中パリティ足切り。ビームは投げずPC結果を待つ）──
-        if (!this.pcSequence && this.shouldSearchPC()) {
-            const isEmptyBoard = this.game.field.blocks.length === 0;
-            // 空盤面は十分な探索時間、プレイ途中は毎ピース投げるため短縮版を使う
-            const searchTimeMs = isEmptyBoard ? this.PC_SEARCH_TIME_MS : this.PC_MIDGAME_SEARCH_TIME_MS;
-            const timeoutMs = isEmptyBoard ? this.PC_TIMEOUT_MS : this.PC_MIDGAME_TIMEOUT_MS;
-            // ★探索を投げた時点の盤面を期待盤面の起点として保存（プレイ途中は非空）
-            this.pcSearchBoard = boardBuffer.slice();
-            this.pcSearchActive = true;
-            this.pcFallbackData = {
-                boardBuffer, currentType: mino.type, holdType,
-                next1: this.game.nextQueue[0].type,
-                next2: this.game.nextQueue[1].type,
-                next3: this.game.nextQueue[2].type,
-                next4: this.game.nextQueue[3].type,
-                next5: this.game.nextQueue[4].type,
-                next6: this.game.nextQueue[5] ? this.game.nextQueue[5].type : 0, // ★深さ8対応
-                next7: this.game.nextQueue[6] ? this.game.nextQueue[6].type : 0, // ★深さ8対応
-                next8: this.game.nextQueue[7] ? this.game.nextQueue[7].type : 0, // ★深さ8対応
-                canHold: this.game.canHold ? 1 : 0,
-                weightsArray, ren: currentRen, backToBack: currentBtB,
-                incoming: incoming
-            };
-            this.requestPCSearch(mino, boardBuffer, holdType, searchTimeMs);
-            if (this.pcFallbackTimer) clearTimeout(this.pcFallbackTimer);
-            this.pcFallbackTimer = setTimeout(() => {
-                this.pcFallbackTimer = null;
-                if (!this.isActive) return;
-                if (this.pcSequence) return;
-                if (this.game.mino !== this.currentMino) return;
-                this.pcSearchActive = false;
-                this.pcSearchId++;
-                const fallback = this.pcFallbackData;
-                this.pcFallbackData = null;
-                this.startBeamSearch(fallback);
-            }, timeoutMs);
-            return; // ビームサーチは投げない
-        }
-
-        this.pcSearchActive = false;
         this.isCalculating = true;
         this.worker.postMessage({
             type: 'calculate',
@@ -1002,319 +882,9 @@ window.CPU6 = class {
         return total;
     }
 
-    // ── ★キャッシュ済みデータでビームサーチを起動する ──
-    startBeamSearch(data) {
-        if (!data || this.isCalculating) return;
-        if (!this.isActive || this.game.mino !== this.currentMino) return;
-        // ★cold load対策: ビームワーカー未ロードのときは破棄せず準備完了を待って再試行する。
-        //   （初回ロードで PC未発見→ここに来たとき workerReady=false だと、従来は無言で
-        //    return して当該ピースを誰も駆動できず恒久的な待機状態になっていた）
-        if (!this.workerReady) {
-            if (!this.worker) return; // stop() 済み（worker 返却後）は再試行しない
-            setTimeout(() => this.startBeamSearch(data), 50);
-            return;
-        }
-        this.isCalculating = true;
-        this.worker.postMessage({
-            type: 'calculate',
-            boardBuffer: data.boardBuffer,
-            currentType: data.currentType,
-            holdType: data.holdType,
-            next1: data.next1,
-            next2: data.next2,
-            next3: data.next3,
-            next4: data.next4,
-            next5: data.next5,
-            next6: data.next6, // ★深さ8対応
-            next7: data.next7, // ★深さ8対応
-            next8: data.next8, // ★深さ8対応
-            canHold: data.canHold,
-            weightsArray: data.weightsArray,
-            ren: data.ren,
-            backToBack: data.backToBack,
-            incoming: data.incoming || 0
-        });
-    }
-
-    // ── ★PC探索を起動すべき盤面か ──
-    //   空盤面: 従来どおり常に起動（開幕PC）。
-    //   プレイ途中: セル数パリティ足切り。PC成立には「既存ブロック B + 4N(=N手で増える分)」が
-    //   10 の倍数（=消去ライン数 H が整数）になる N が、探索手数かつ手持ちピース数の範囲に
-    //   存在する必要がある。満たす N が無い盤面は確実にPC不可能なので高価なソルバを起動しない。
-    //   （B が奇数のときは 4N が常に偶数のため B+4N も奇数 → どの N でも不成立 → 早期に弾かれる）
-    shouldSearchPC() {
-        // ★隠しトグル: 起動時に Digit7 で立てた側ごとのフラグ(this.disablePC。未設定ならグローバル)が真ならPC探索を全面停止（通常ビームのみ）
-        if (this.disablePC ?? window.__cpu6DisablePC) return false;
-        if (!this.pcWorkerReady) return false;
-        const B = this.game.field.blocks.length;
-        if (B === 0) return true;
-        // current(1) + 手持ちNEXT数 が探索に使えるピース数
-        const avail = 1 + (this.game.nextQueue ? this.game.nextQueue.length : 0);
-        const maxN = Math.min(this.PC_MAX_DEPTH, avail);
-        for (let N = 1; N <= maxN; N++) {
-            if ((B + 4 * N) % 10 === 0) return true;
-        }
-        return false;
-    }
-
-    // ── ★PC探索リクエスト送信（ネクストを11個=current+next0..9 に拡張）──
-    requestPCSearch(mino, boardBuffer, holdType, maxTimeMs) {
-        this.pcSearchId++;
-        const pieces = new Int32Array(11);
-        pieces[0] = mino.type;
-        for (let i = 0; i < 10; i++) {
-            pieces[i + 1] = this.game.nextQueue[i] ? this.game.nextQueue[i].type : 0;
-        }
-        // boardBuffer はビームサーチ用と共有（postMessage で各ワーカーへ別々にクローンされる）
-        this.pcWorker.postMessage({
-            type: 'pc_search',
-            boardBuffer: boardBuffer,
-            pieces: pieces,
-            holdType: holdType,
-            canHold: this.game.canHold ? 1 : 0,
-            maxDepth: this.PC_MAX_DEPTH,
-            maxTimeMs: maxTimeMs || this.PC_SEARCH_TIME_MS,
-            searchId: this.pcSearchId
-        });
-    }
-
-    // ── ★PC期待盤面ユーティリティ ──
-    //   PC探索は空盤面でのみ起動する(shouldSearchPC)ため、空盤面から手順を順に積めば
-    //   各手番で「あるべき盤面」を完全に再現できる。実機盤面がこれとズレたら
-    //   （おじゃま喰らい等で想定外の盤面になったら）PCを破棄して通常モードへ戻す。
-    _pcEmptyBoard() {
-        return Array.from({ length: 25 }, () => new Uint8Array(10));
-    }
-
-    // 250byte の盤面バッファ(25行×10列)を内部期待盤面(Uint8Array[25])へ変換
-    _pcBoardFromBuffer(buf) {
-        const grid = this._pcEmptyBoard();
-        for (let y = 0; y < 25; y++) {
-            for (let x = 0; x < 10; x++) {
-                if (buf[y * 10 + x]) grid[y][x] = 1;
-            }
-        }
-        return grid;
-    }
-
-    // expected手を期待盤面へ適用（配置＋揃った行の消去＋落下）
-    _pcAdvanceExpected(expected) {
-        if (!this.pcExpectedBoard) return;
-        const grid = this.pcExpectedBoard;
-        const simMino = new Mino(expected.minoType);
-        for (let r = 0; r < expected.rot; r++) simMino.rotate();
-        for (const b of simMino.blocks) {
-            const gx = b.x + expected.x;
-            const gy = b.y + expected.y;   // expected.y は内部座標 0〜24
-            if (gy >= 0 && gy < 25 && gx >= 0 && gx < 10) grid[gy][gx] = 1;
-        }
-        // 揃った行を取り除き上を落とす（標準の重力 collapse）
-        const kept = [];
-        for (let y = 0; y < 25; y++) {
-            let full = true;
-            for (let x = 0; x < 10; x++) { if (grid[y][x] === 0) { full = false; break; } }
-            if (!full) kept.push(grid[y]);
-        }
-        while (kept.length < 25) kept.unshift(new Uint8Array(10));
-        this.pcExpectedBoard = kept;
-    }
-
-    // 実機盤面(game.field.blocks)が期待盤面と完全一致するか
-    _pcBoardMatchesExpected() {
-        if (!this.pcExpectedBoard) return true; // 期待盤面未設定なら検証スキップ
-        const actual = this._pcEmptyBoard();
-        for (const b of this.game.field.blocks) {
-            const by = b.y + 5;
-            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) actual[by][b.x] = 1;
-        }
-        for (let y = 0; y < 25; y++) {
-            for (let x = 0; x < 10; x++) {
-                if (actual[y][x] !== this.pcExpectedBoard[y][x]) return false;
-            }
-        }
-        return true;
-    }
-
-    // ── ★PC手順1手の妥当性検証（盤面/ミノが想定通りか）──
-    validatePCStep(expected) {
-        if (!this.game.mino) return false;
-        // ★盤面がPC想定とズレていたら（おじゃま混入等）即不正 → 通常モードへ
-        if (!this._pcBoardMatchesExpected()) return false;
-        const cur = this.game.mino.type;
-        const held = this.game.holdMino !== null ? this.game.holdMino.type : -1;
-        if (expected.useHold === 0) {
-            // そのまま現在ミノを置く想定
-            return cur === expected.minoType;
-        } else {
-            // ホールド入替後に置く想定
-            if (!this.game.canHold) return false;
-            const afterHold = (held === -1)
-                ? (this.game.nextQueue[0] ? this.game.nextQueue[0].type : -1)
-                : held;
-            return afterHold === expected.minoType;
-        }
-    }
-
-    // ── ★PC探索結果のハンドラ ──
-    handlePCResult(data) {
-        if (data.searchId !== this.pcSearchId) return; // 古い結果は破棄
-        if (!this.isActive) { this.pcSearchActive = false; return; }
-
-        // ★直前の操作（前PCの最終ハードドロップ後処理など）が未完了の間は、
-        //   結果を破棄せず少し待って再試行する。破棄すると待機状態のままフリーズし、
-        //   直前PCのゴースト表示が残るバグになる。
-        //   （fallbackタイマーが先に発火すると searchId が更新され、本リトライは自然終了する）
-        if (this.isAutoPlay && this.game.mino === this.currentMino && this.isExecutingAction) {
-            setTimeout(() => this.handlePCResult(data), 20);
-            return;
-        }
-
-        this.pcSearchActive = false;
-        if (this.pcFallbackTimer) { clearTimeout(this.pcFallbackTimer); this.pcFallbackTimer = null; }
-
-        if (data.found && data.sequence && data.sequence.length > 0 &&
-            this.isAutoPlay && this.game.mino === this.currentMino && !this.isExecutingAction) {
-            const expected = data.sequence[0];
-            this.pcSequence = data.sequence;
-            // ★探索を投げた時点の盤面スナップショットを期待盤面の起点にする（以後の手で順次更新）。
-            //   空盤面起動なら全ゼロ＝従来の _pcEmptyBoard と等価。プレイ途中起動では既存スタックを反映。
-            this.pcExpectedBoard = this.pcSearchBoard
-                ? this._pcBoardFromBuffer(this.pcSearchBoard)
-                : this._pcEmptyBoard();
-            if (this.validatePCStep(expected)) {
-                console.log(`💎 Perfect Clear found! ${this.pcSequence.length} moves → executing`);
-                this.pcSequence.shift();
-                if (this.pcSequence.length === 0) this.pcSequence = null;
-                this._pcAdvanceExpected(expected); // 次手番の期待盤面へ更新
-                this.executePCMove(expected);
-                this.pcFallbackData = null;
-                return;
-            } else {
-                this.pcSequence = null; // 第1手の検証に失敗
-                this.pcExpectedBoard = null;
-            }
-        }
-        // PC見つからず or 検証失敗 → ビームサーチを起動
-        const fallback = this.pcFallbackData;
-        this.pcFallbackData = null;
-        if (this.isAutoPlay && this.isActive &&
-            this.game.mino === this.currentMino && !this.isExecutingAction) {
-            this.startBeamSearch(fallback);
-        }
-    }
-
-    // ── ★PC手順の次の1手を実行する（直前の手のアクション完了後に呼ばれる）──
-    runNextPCMove() {
-        if (!this.isActive) return;
-        if (!this.pcSequence || this.pcSequence.length === 0) {
-            this.pcSequence = null; // PC完了。次ピースは通常の onMinoSpawned が処理
-            this.pcExpectedBoard = null;
-            return;
-        }
-        // 直前の操作の完了と次ピースの出現を待つ
-        if (this.isExecutingAction || !this.game.mino) {
-            setTimeout(() => this.runNextPCMove(), 20);
-            return;
-        }
-        this.currentMino = this.game.mino; // onMinoSpawned の重複発火を抑止
-        const expected = this.pcSequence[0];
-        if (!this.validatePCStep(expected)) {
-            // 盤面が想定とずれた（おじゃま喰らい等）→ 手順を破棄して通常モードへ
-            console.log("💎 PC sequence invalidated → fall back to eval");
-            this.pcSequence = null;
-            this.pcExpectedBoard = null;
-            this.currentMino = null; // onMinoSpawned を再発火させ通常評価へ戻す
-            return;
-        }
-        this.pcSequence.shift();
-        if (this.pcSequence.length === 0) this.pcSequence = null; // 空配列はtruthy → onMinoSpawnedの早期returnを防ぐ
-        this._pcAdvanceExpected(expected); // 次手番の期待盤面へ更新
-        this.executePCMove(expected);
-    }
-
-    // ── ★PC手順1手の実行（ホールド→回転→移動→ハードドロップ）──
-    executePCMove(expected) {
-        if (!this.isActive) return;
-
-        // 前のアクション実行中（直前ハードドロップの後処理待ち等）なら少し待って再試行。
-        // ※ワーカー往復が無く同期的に呼ばれるため、isExecutingAction の解除待ちが必要。
-        if (this.isAutoPlay && this.isExecutingAction) {
-            setTimeout(() => { if (this.isActive) this.executePCMove(expected); }, 20);
-            return;
-        }
-
-        const move = {
-            action: 'play',
-            id: expected.minoType,
-            rot: expected.rot,
-            x: expected.x,
-            y: expected.y - 5,        // 内部0〜24 → JS座標 -5〜19
-            pcUseHold: expected.useHold,
-            path: expected.path,      // ★到達経路(ねじ込み対応)。1=左2=右3=SD4=CW5=CCW6=HD
-            isPC: true
-        };
-        this.bestMoveData = move;     // ※p1を持たないので processActionQueue末尾の再実行は走らない
-        this.bestEstimate = move;
-
-        // PCモード表示
-        const evalEl = document.getElementById('eval-value');
-        if (evalEl) evalEl.textContent = 'PC';
-        this.renderPCEstimate(move);
-
-        if (this.isAutoPlay) {
-            this.isExecutingAction = true;
-            // ★CPU操作中は重力を無効化（ビーム同様）。これにより配置ピースが spawn に留まり、
-            //   buildPCActionQueue の spawn 起点シミュレーションと実機が一致する。
-            if (this.game) this.game.gravityDisabled = true;
-            this.actionQueue = this.buildPCActionQueue(move);
-            setTimeout(() => this.processActionQueue(), this.actionDelay);
-        }
-    }
-
-    // ── ★PC手順用のアクションキュー構築 ──
-    //   buildActionQueue と同一の経路最適化（連続SDの multiSoftDrop 化・移動/回転の並べ替え・
-    //   即時落下判定）を流用する。HOLD する場合は先頭に hold を積み、配置ピースを spawn 位置へ
-    //   一時設置した上で buildActionQueue を呼ぶ（HOLD 実行後はそのピースが spawn で出現するため）。
-    buildPCActionQueue(move) {
-        let queue = [];
-        if (move.pcUseHold) {
-            queue.push({ type: 'hold', delay: this.actionDelay });
-        }
-
-        // buildActionQueue に渡す擬似 bestResult（PC は spin 火力等は考慮しない）
-        const bestResult = {
-            action: 'play',
-            id: move.id,
-            x: move.x,
-            y: move.y,            // JS座標（executePCMove で expected.y-5 済み）
-            rot: move.rot,
-            path: move.path,
-            tSpinType: 0,
-            clearedLines: []
-        };
-
-        // ★配置ピースを spawn 位置に一時設置して buildActionQueue のシミュレーションを行う。
-        //   （HOLD 有無に関わらず、実行時には配置ピースが spawn から動き出すため整合する）
-        const savedMino = this.game.mino;
-        let pathQueue;
-        try {
-            const temp = new Mino(move.id);
-            if (typeof temp.spawn === 'function') temp.spawn();
-            this.game.mino = temp;
-            pathQueue = this.buildActionQueue(bestResult);
-        } finally {
-            this.game.mino = savedMino;
-        }
-
-        for (const a of pathQueue) queue.push(a);
-        return queue;
-    }
-
     handleWorkerResult(res) {
         this.isCalculating = false;
 
-        // ★PCモードが既に主導している場合、ビームサーチ結果は完全に無視する
-        if (this.pcSequence) return;
 
         let actionInt = res[0];
         
@@ -1484,123 +1054,6 @@ window.CPU6 = class {
                 yMap = newYMap;
             }
         }
-    }
-
-    renderPCEstimate(currentMove) {
-        if (!this.estimateContainer) this.initEstimateContainer();
-        if (!this.estimateContainer) return;
-
-        this.estimateContainer.innerHTML = '';
-        if (!this.isActive) return;
-        // ★versusモードでは配置予測を表示しない（testモードのみ表示）
-        if (this.game.currentMode !== 'test') return;
-
-        const allMoves = [];
-        if (currentMove) {
-            allMoves.push({ id: currentMove.id, rot: currentMove.rot, x: currentMove.x, y: currentMove.y });
-        }
-        if (this.pcSequence) {
-            for (const m of this.pcSequence) {
-                allMoves.push({ id: m.minoType, rot: m.rot, x: m.x, y: m.y - 5 });
-            }
-        }
-
-        // ★ライン消去に応じて以降の配置を分断表示する（renderEstimatePlace と同様）
-        let simField = Array.from({ length: 25 }, () => Array(10).fill(0));
-        this.game.field.blocks.forEach(b => {
-            let by = b.y + 5;
-            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) simField[by][b.x] = 1;
-        });
-
-        let yMap = {};
-        for (let i = -10; i < 20; i++) yMap[i] = i;
-
-        for (let i = 0; i < allMoves.length; i++) {
-            const borderOpacity = i === 0 ? 0.9 : Math.max(0.25, 0.5 - i * 0.03);
-            const bgOpacity     = i === 0 ? 0.3 : Math.max(0.05, 0.12 - i * 0.01);
-            const zIndex        = Math.max(1, 11 - i);
-            this.renderPCSinglePiece(allMoves[i], borderOpacity, bgOpacity, zIndex, yMap);
-
-            // 配置ブロックを simField に反映
-            let simMino = new Mino(allMoves[i].id);
-            for (let r = 0; r < allMoves[i].rot; r++) simMino.rotate();
-            let droppedBlocks = simMino.blocks.map(b => ({ x: b.x + allMoves[i].x, y: b.y + allMoves[i].y }));
-            for (let b of droppedBlocks) {
-                let by = b.y + 5;
-                if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) simField[by][b.x] = 1;
-            }
-
-            // ライン消去判定
-            let clearedSimLines = [];
-            for (let y = 0; y < 25; y++) {
-                let isFull = true;
-                for (let x = 0; x < 10; x++) {
-                    if (simField[y][x] === 0) { isFull = false; break; }
-                }
-                if (isFull) clearedSimLines.push(y);
-            }
-
-            if (clearedSimLines.length > 0) {
-                for (let y of clearedSimLines) {
-                    for (let ty = y; ty > 0; ty--) simField[ty] = [...simField[ty - 1]];
-                    simField[0] = Array(10).fill(0);
-                }
-
-                let newYMap = {};
-                let currentY_sim = 19;
-                for (let y_old_sim = 19; y_old_sim >= -10; y_old_sim--) {
-                    if (clearedSimLines.includes(y_old_sim + 5)) continue;
-                    newYMap[currentY_sim] = yMap[y_old_sim];
-                    currentY_sim--;
-                }
-                while (currentY_sim >= -10) {
-                    newYMap[currentY_sim] = yMap[currentY_sim] || currentY_sim;
-                    currentY_sim--;
-                }
-                yMap = newYMap;
-            }
-        }
-    }
-
-    renderPCSinglePiece(pData, borderOpacity, bgOpacity, zIndex, yMap) {
-        const colorMap = {
-            0: '0, 240, 240',
-            1: '240, 240, 0',
-            2: '160, 0, 240',
-            3: '0, 0, 240',
-            4: '240, 160, 0',
-            5: '0, 240, 0',
-            6: '240, 0, 0'
-        };
-        const rgb = colorMap[pData.id] ?? '255, 255, 255';
-
-        let simMino = new Mino(pData.id);
-        for (let i = 0; i < pData.rot; i++) simMino.rotate();
-
-        simMino.blocks.forEach(block => {
-            const drawX = block.x + pData.x;
-            let drawY = block.y + pData.y;
-
-            // ★ライン消去に応じた表示位置の補正
-            if (yMap && yMap[drawY] !== undefined) drawY = yMap[drawY];
-
-            if (drawY < -5 || drawY >= 20) return;
-
-            const div = document.createElement('div');
-            div.style.position = 'absolute';
-            div.style.width = '32px';
-            div.style.height = '32px';
-            div.style.boxSizing = 'border-box';
-            div.style.borderWidth = '2px';
-            div.style.borderStyle = 'solid';
-            div.style.borderRadius = '2px';
-            div.style.backgroundColor = `rgba(${rgb}, ${bgOpacity})`;
-            div.style.borderColor = `rgba(${rgb}, ${borderOpacity})`;
-            div.style.zIndex = String(zIndex);
-            div.style.left = `${drawX * 32}px`;
-            div.style.top = `${(drawY + 0.5) * 32}px`;
-            this.estimateContainer.appendChild(div);
-        });
     }
 
     createEstimateBlocks(pData, stepClass, yMap) {

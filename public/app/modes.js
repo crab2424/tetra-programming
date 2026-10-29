@@ -255,10 +255,24 @@ const CPU_LEVELS = {
   3: { label: 'LV 3', desc: '中級者向け', gravityLevel: 2  },
   4: { label: 'LV 4', desc: '上級者向け', gravityLevel: 2 },
   5: { label: 'LV 5', desc: '最上級者向け', gravityLevel: 2 },
-  // ★ 隠し要素: 準備画面で「6」キーを押すと出現（tet＝PC探索付き / puyo＝lv5の学習済み重み版）
-  6: { label: 'LV 6', desc: '???', gravityLevel: 2 },
+  // tet は VERSUS の準備画面に通常のボタンで出す。puyo（lv5 の学習済み重み版）は準備画面で「6」キーを押すと出現
+  6: { label: 'LV 6', desc: '超上級者向け', gravityLevel: 2 },
+  // ★ 隠し要素（tet のみ）: 準備画面で「7」キーを押すと出現。clys 型の探索（cpu/tet/lv7）
+  //   （設計 source_assets/memory/cpu/tet/lv6-phase1-search-design.md）
+  7: { label: 'LV 7', desc: '???', gravityLevel: 2 },
+  // ★ CPU TEST 専用（tet のみ・開発用の環境だけ IS_DEV_HOST）: 参考AI clys（MIT）をそのまま動かす。比較用
+  //   （設計 source_assets/memory/cpu/tet/clys-port-design.md）
+  8: { label: 'CLYS', desc: '参考AI clys', gravityLevel: 2 },
 };
 let selectedCpuLevel = 1;
+
+// 開発用の環境か（localhost とプレビュー <branch>-citgame.pptlabo.workers.dev）。本番 citgame.pptlabo.workers.dev は false。
+// CLYS（レベル 8）は開発用の環境でだけ CPU TEST に出す（quiz.js の _bootQuizEditorTest と同じ判定）
+const IS_DEV_HOST = (() => {
+  const host = location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost')
+      || host.endsWith('-citgame.pptlabo.workers.dev');
+})();
 
 // ─── CPU同士の対戦（v2.2.3 J・隠しコマンド）──────────
 // 準備画面(versus-check)で「0」→ 1P もCPUにして開始、「Shift+1〜6」→ 1P CPU のレベルを指定。
@@ -273,8 +287,11 @@ const CPU_CONFIGS = {
     2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js?v=2' },
     3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=2' },
     4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=5' },
-    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=6' },
-    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=25' }
+    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=7' },
+    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=30' },
+    7: { className: 'CPU7', src: 'cpu/tet/lv7/cpu7.js?v=1' },
+    // 操作系のメソッドを CPU7 から借りるので lv7 を先に読む（deps）
+    8: { className: 'CPUClys', deps: [7], src: 'cpu/tet/clys/cpu_clys.js?v=2' }
   },
   puyo: {
     1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu1.js?v=2' },  

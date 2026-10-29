@@ -67,7 +67,13 @@ const DEFAULT_VOLUME = {
 const DEFAULT_DISPLAY = {
   apm: false,       // APM/LPM表示（シングル・対戦とも）
   versusTime: true, // 対戦画面のTIME表示
+  ghostStyle: 'fill', // 'fill'=ゴーストが薄い塗り・アシストが枠線 / 'outline'=入れ替え（ゴーストが枠線・アシストが薄い塗り）
 };
+
+// ゴーストを枠線で描くか（true のときアシストが薄い塗りになる）
+function isGhostOutline() {
+  return !!window.currentDisplay && window.currentDisplay.ghostStyle === 'outline';
+}
 
 function loadDisplay() {
   const saved = localStorage.getItem('game_display');
@@ -438,12 +444,47 @@ function renderDisplayOptions() {
       btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.apm);
     });
   }
+  const ghostToggle = document.getElementById('display-ghost-style-toggle');
+  if (ghostToggle) {
+    ghostToggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.value === currentDisplay.ghostStyle);
+    });
+  }
+  renderGhostStylePreview();
   const timeToggle = document.getElementById('display-versus-time-toggle');
   if (timeToggle) {
     timeToggle.querySelectorAll('.opt-btn').forEach((btn) => {
       btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.versusTime);
     });
   }
+}
+
+// GHOST/ASSIST の見た目の小プレビュー（tet・puyo）。実際の描画と同じ配色・段階で並べる。
+//   fill 側＝薄い塗り、line 側＝枠線。現在の設定でどちらがゴースト/アシストかを入れ替える。
+function renderGhostStylePreview() {
+  const box = document.getElementById('ghost-style-preview');
+  if (!box) return;
+  const swapped = currentDisplay.ghostStyle === 'outline';
+  const ghostCls = swapped ? 'gsp-line' : 'gsp-fill';
+  const assistCls = swapped ? 'gsp-fill' : 'gsp-line';
+  const cell = (cls, color, x, y, round) =>
+    `<i class="gsp-cell ${cls}${round ? ' gsp-round' : ''}" style="--c:${color};left:${x * 14}px;top:${y * 14}px"></i>`;
+  const solid = (color, x, y, round) => cell('gsp-solid', color, x, y, round);
+  // tet: 6列x5行。床に積み、T のゴースト（落下先）と O のアシスト
+  let tet = '';
+  [[0,4],[1,4],[2,4],[3,4],[4,4],[5,4],[0,3]].forEach(([x, y]) => { tet += solid('#6b7280', x, y); });
+  [[3,3],[4,3],[5,3]].forEach(([x, y]) => { tet += cell(ghostCls, '#a000f0', x, y); });
+  tet += cell(ghostCls, '#a000f0', 4, 2);
+  [[1,3],[2,3],[1,2],[2,2]].forEach(([x, y]) => { tet += cell(assistCls, '#f0f000', x, y); });
+  // puyo: 4列x5行。積みぷよと、ゴースト・アシスト
+  let puyo = '';
+  [['#e74c3c',0,4],['#e74c3c',1,4],['#3498db',2,4],['#3498db',3,4],['#2ecc71',0,3]].forEach(([c, x, y]) => { puyo += solid(c, x, y, true); });
+  puyo += cell(ghostCls, '#f1c40f', 3, 3, true) + cell(ghostCls, '#f1c40f', 3, 2, true);
+  puyo += cell(assistCls, '#e74c3c', 1, 3, true) + cell(assistCls, '#2ecc71', 1, 2, true);
+  const legend = `<span class="gsp-legend"><i class="gsp-key ${ghostCls}"></i>GHOST<i class="gsp-key ${assistCls}"></i>ASSIST</span>`;
+  box.innerHTML =
+    `<div class="gsp-board gsp-tet" style="width:${6 * 14}px;height:${5 * 14}px">${tet}</div>` +
+    `<div class="gsp-board gsp-puyo" style="width:${4 * 14}px;height:${5 * 14}px">${puyo}</div>` + legend;
 }
 
 // クリックで即時反映・即時保存（TUNING/VOLUMEと異なりSAVEボタンを介さない）
@@ -629,30 +670,103 @@ function checkConflicts() {
 
   const warnEl = document.getElementById('conflict-warning');
   if (warnEl) warnEl.classList.toggle('show', hasDup);
+  const keysTab = document.querySelector('#settings-tab-toggle .opt-btn[data-tab="keys"]');
+  if (keysTab) keysTab.classList.toggle('has-warning', hasDup);
 
   return hasDup;
 }
 
-function resetToDefaults() {
+// ─── タブ切替 ───────────────────────────────────────
+// 表示を切り替えるだけで、各項目の値は全タブ共通（SAVE / RESET DEFAULT は全タブ分まとめて扱う）。
+// 選んだタブはセッション中だけ覚えておき、次に設定画面を開いた時もそのタブから始める。
+let currentSettingsTab = 'tuning';
+
+function setSettingsTab(tab) {
+  if (!document.querySelector(`.settings-tab-panel[data-tab="${tab}"]`)) return;
+  currentSettingsTab = tab;
+  document.querySelectorAll('#settings-tab-toggle .opt-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.settings-tab-panel').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.tab === tab);
+  });
+}
+
+function renderSettingsTabs() {
+  setSettingsTab(currentSettingsTab);
+}
+
+// タブごとの初期化。DISPLAY だけは他の項目と違い、操作の時点で保存される設定なので即保存する。
+const SETTINGS_RESET_TABS = {
+  tuning: {
+    name: 'VOLUME & TUNING',
+    hint: '音量・DAS/ARR/DCD',
+    reset() {
+      currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
+      currentVolume = JSON.parse(JSON.stringify(DEFAULT_VOLUME));
+      renderTuning();
+      renderVolume(); // 内部でBgmManager/SeManagerへも反映される（updateVolumeDisplay経由）
+    },
+  },
+  keys: {
+    name: 'KEY CONFIG',
+    hint: 'キー割り当て・デッドゾーン',
+    reset() {
+      currentBinds = normalizeBinds(JSON.parse(JSON.stringify(DEFAULT_BINDS)));
+      recomputeDerivedBinds();
+      currentGamepadOptions = { deadzone: 0.45 };
+      renderKeyConfig();
+      renderGamepadOptions();
+      updateMenuControlsDisplay();
+    },
+  },
+  display: {
+    name: 'DISPLAY',
+    hint: '表示設定',
+    immediate: true, // SAVE を待たず即保存される
+    reset() {
+      Object.keys(currentDisplay).forEach((k) => delete currentDisplay[k]);
+      Object.assign(currentDisplay, DEFAULT_DISPLAY);
+      saveDisplay();
+      renderDisplayOptions();
+      applyDisplayClasses();
+    },
+  },
+  online: {
+    name: 'ONLINE',
+    hint: 'Backend URL',
+    reset() {
+      // Backend URL 入力欄には専用のメモリ変数が無く、DOM要素の値そのものが「現在値」
+      // なので、ここで直接空にする（renderOnlineSettings()は呼ばない＝保存値で
+      // 上書きされてしまうため）。
+      const backendInput = document.getElementById('settings-online-backend');
+      if (backendInput) backendInput.value = '';
+    },
+  },
+};
+
+async function resetToDefaults() {
   // ★ 2026-09-14: ここでlocalStorageを直接消していたのをやめた。SAVEを押すまでは
   //   確定させない（設定画面の他の項目と扱いを揃える）＝ SAVE で確定、DISCARD
   //   （保存せずに戻る）で元の保存値に戻せる。
   //   設計 source_assets/memory/tetlabo-v2.2.1-design.md §3.2 問題B。
-  currentBinds = normalizeBinds(JSON.parse(JSON.stringify(DEFAULT_BINDS)));
-  recomputeDerivedBinds();
-  currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
-  currentVolume = JSON.parse(JSON.stringify(DEFAULT_VOLUME));
-  currentGamepadOptions = { deadzone: 0.45 };
-  // Backend URL 入力欄には専用のメモリ変数が無く、DOM要素の値そのものが「現在値」
-  // なので、ここで直接空にする（renderOnlineSettings()は呼ばない＝保存値で
-  // 上書きされてしまうため）。
-  const backendInput = document.getElementById('settings-online-backend');
-  if (backendInput) backendInput.value = '';
-  renderKeyConfig();
-  renderTuning();
-  renderVolume(); // 内部でBgmManager/SeManagerへも反映される（updateVolumeDisplay経由）
-  renderGamepadOptions();
-  updateMenuControlsDisplay();
+  // 2026-10-29: 4タブ化に合わせ、確認ダイアログで「表示中のタブだけ」か「すべて」かを選ばせる。
+  if (typeof stopListeningBind === 'function') stopListeningBind();
+  const cur = SETTINGS_RESET_TABS[currentSettingsTab] || SETTINGS_RESET_TABS.tuning;
+  const choice = await TetDialog.choose({
+    title: 'RESET DEFAULT',
+    message: `${cur.name}（${cur.hint}）を初期値に戻します。\n${cur.immediate ? 'この項目は即反映されます。' : 'SAVE を押すまで確定しません。'}`,
+    buttons: [
+      { label: 'THIS TAB', value: 'tab', kind: 'danger' },
+      { label: 'ALL TABS', value: 'all', kind: 'danger' },
+      { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+    ],
+    initial: 'cancel',
+  });
+  if (choice === 'tab') cur.reset();
+  else if (choice === 'all') Object.values(SETTINGS_RESET_TABS).forEach((t) => t.reset());
+  else return;
+  window.SeManager?.play('menu_decide');
 }
 
 function showToast() {
