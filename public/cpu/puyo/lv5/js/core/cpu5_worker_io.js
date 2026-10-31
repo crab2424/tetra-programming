@@ -17,6 +17,9 @@ Object.assign(window.PuyoCPU5.prototype, {
         if (!game || game.state !== 'playing') return;
 
         this.isCalculating = true;
+        // 思考ログ用：探索の所要時間と、前倒し計算(spawnAnim中)か falling でのフォールバックか（PUYO SPEED 設計 §4.3）
+        this._calcStartAt = performance.now();
+        this._calcPrecompute = precompute;
 
         const TOTAL_ROWS = 17;
         const COLS       = 6;
@@ -142,6 +145,12 @@ Object.assign(window.PuyoCPU5.prototype, {
 
     _handleWorkerResult(res) {
         this.isCalculating = false;
+        // 探索の所要時間。前倒し計算なのに結果が falling 突入後に来たら「出現に間に合わず」＝その分だけ1手が延びる
+        this._calcTiming = {
+            ms: this._calcStartAt != null ? performance.now() - this._calcStartAt : -1,
+            precompute: !!this._calcPrecompute,
+            late: !!this._calcPrecompute && this.game && this.game._gs === 'falling',
+        };
 
         this._turnNo = (this._turnNo || 0) + 1;
 
@@ -240,6 +249,11 @@ Object.assign(window.PuyoCPU5.prototype, {
             `差別化: 連鎖を組める初手数 nWithChain=${d[16]}/${d[9]}  bestChain=${d[12]}  base幅(spread)=${d[18]}`,
             ...why.lines,
         ];
+        const ct = this._calcTiming;
+        if (ct && ct.ms >= 0) {
+            const sp = this.game && this.game.vsPuyoSpeed > 0 && this.game.vsPuyoSpeed !== 1 ? `｜PUYO SPEED ×${this.game.vsPuyoSpeed}` : '';
+            lines.push(`思考時間: ${Math.round(ct.ms)}ms（${ct.precompute ? (ct.late ? '前倒し・出現に間に合わず' : '前倒し') : 'falling で計算＝前倒しを逃した'}）${sp}`);
+        }
         if (this._thinkVs) lines.push(this._thinkVs);
         if (this._thinkP2) lines.push(this._thinkP2);
         if (wn) {
@@ -351,6 +365,7 @@ Object.assign(window.PuyoCPU5.prototype, {
             turns: 0, fires: {}, maxFireChains: 0, maxFireScore: 0, maxPot: 0,
             counterTurns: 0, p2Wait: 0, p2Deadline: 0, holdDoom: 0, holdEmergency: 0,
             answers: 0, ojamaMatch: 0, endErrSum: 0, endErrMax: 0, endEarly: 0,
+            calcN: 0, calcMsSum: 0, calcMsMax: 0, calcLate: 0, calcFallback: 0,
         };
     },
 
@@ -377,6 +392,14 @@ Object.assign(window.PuyoCPU5.prototype, {
         if (d[15] > st.maxFireChains) st.maxFireChains = d[15];   // 発火判定で撃った連鎖（整地は含めない）
         if (d[15] > 0 && d[14] > st.maxFireScore) st.maxFireScore = d[14];
         if (d[12] > st.maxPot) st.maxPot = d[12];
+        const ct = this._calcTiming;
+        if (ct && ct.ms >= 0) {
+            st.calcN++;
+            st.calcMsSum += ct.ms;
+            st.calcMsMax = Math.max(st.calcMsMax, ct.ms);
+            if (ct.late) st.calcLate++;
+            if (!ct.precompute) st.calcFallback++;
+        }
         if (this._counterActive) st.counterTurns++;
         if (this._thinkP2State === '待つ') st.p2Wait++;
         if (this._thinkP2State === '締切') st.p2Deadline++;
@@ -430,7 +453,10 @@ Object.assign(window.PuyoCPU5.prototype, {
             '受け量の予測一致':  st.answers ? `${st.ojamaMatch}/${st.answers}` : '—',
             '終了時刻の誤差 平均/最大': st.answers ? `${Math.round(st.endErrSum / st.answers)}/${Math.round(st.endErrMax)}ms` : '—',
             '予測より早い終了':  st.endEarly,
+            '思考時間 平均/最大': st.calcN ? `${Math.round(st.calcMsSum / st.calcN)}/${Math.round(st.calcMsMax)}ms` : '—',
+            '出現に間に合わず/前倒し逃し': `${st.calcLate}/${st.calcFallback}`,
         });
+        if (g.vsPuyoSpeed > 0 && g.vsPuyoSpeed !== 1) row['PUYO SPEED'] = `×${g.vsPuyoSpeed}`;
 
         const sum = window.__cpuSummary || (window.__cpuSummary = {});
         sum[col] = row;
@@ -690,7 +716,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         const game = this.game;
         const q = (game && game.garbageQueue) || [];
         const timers = (game && game._garbageTimers) || [];
-        const turnMs = (vt.ojamaTurnMs | 0) > 0 ? vt.ojamaTurnMs : 560;
+        const turnMs = this._scaledTurnMs((vt.ojamaTurnMs | 0) > 0 ? vt.ojamaTurnMs : 560);
         const now = performance.now();
         let soon = 0, later = 0;
         for (const g of q) {
@@ -928,8 +954,9 @@ Object.assign(window.PuyoCPU5.prototype, {
         // 答え合わせ用に「この時点の予測」を控える（_watchOpponentChain が連鎖終了時に実際と比べる）
         if (this._oppChainWatch) this._oppChainWatch.preds.push({ at: performance.now(), remainMs });
 
-        const dropSoon = this._hasDroppableGarbageWithin(p2.turnMs);
-        const wait     = !dropSoon && p2.turnMs + p2.safetyMs < remainMs;
+        const turnMs   = this._scaledTurnMs(p2.turnMs);
+        const dropSoon = this._hasDroppableGarbageWithin(turnMs);
+        const wait     = !dropSoon && turnMs + p2.safetyMs < remainMs;
 
         const prevMode = this.cpuMode;
         if (this.cpuMode !== 'build') this.setMode('build');
@@ -948,12 +975,22 @@ Object.assign(window.PuyoCPU5.prototype, {
         this._thinkP2State = wait ? '待つ' : '締切';
         this._thinkP2 = (
             `後打ち: ${wait ? '待つ（伸ばす）' : '締切 → 撃てる最大'}` +
-            `｜相手連鎖の残り ${(remainMs / 1000).toFixed(2)}s（1手 ${p2.turnMs}ms+余裕 ${p2.safetyMs}ms${dropSoon ? '・既に降る分あり' : ''}）` +
+            `｜相手連鎖の残り ${(remainMs / 1000).toFixed(2)}s（1手 ${turnMs}ms+余裕 ${p2.safetyMs}ms${dropSoon ? '・既に降る分あり' : ''}）` +
             `｜受け量=${incomingGross}個` +
             (wait ? `｜即撃ち閾値=${thr}点(≒${Math.floor(thr / rate)}個)` : '') +
             (prevMode !== this.cpuMode ? `｜★切替 ${prevMode} → build` : '')
         );
         return true;
+    },
+
+    // ★ 撃たない1手の所要時間の見積もり（ms）を自分の PUYO SPEED（game.vsPuyoSpeed）に合わせる。
+    //   base は等速での見積もり（560）。そのうち CPU の操作の間（thinkDelay＋actionDelay×2）は等速のまま、
+    //   残り（spawnAnim・着地振動・fixWait5f の演出）だけを倍率で割る。等速なら base をそのまま返す。
+    _scaledTurnMs(base) {
+        const s = this.game && this.game.vsPuyoSpeed;
+        if (!(s > 0) || s === 1) return base;
+        const cpuMs = this.thinkDelay + this.actionDelay * 2;
+        return Math.round(cpuMs + Math.max(0, base - cpuMs) / s);
     },
 
     // ★ ぷよ相手の発火中連鎖が終わる（＝送ったおじゃまが ready になる）までの残り ms。発火中でなければ -1。
@@ -1006,7 +1043,9 @@ Object.assign(window.PuyoCPU5.prototype, {
             default:
                 return -1;   // 連鎖は終わっている（spawnAnim など）
         }
-        return t + this._puyoChainRemainingMs(f, (fld) => opp._findErasableInField(fld));
+        // ここまでは演出の ms（相手のタイマーも演出の ms）。相手の PUYO SPEED で割って実時間にする
+        const speed = opp.vsPuyoSpeed > 0 ? opp.vsPuyoSpeed : 1;
+        return (t + this._puyoChainRemainingMs(f, (fld) => opp._findErasableInField(fld))) / speed;
     },
 
     // ★ 予測の答え合わせ：相手ぷよの連鎖を開始〜終了まで見張り、終了時に1行ログを出す。

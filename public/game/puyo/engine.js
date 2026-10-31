@@ -197,7 +197,10 @@ Object.assign(PuyoGame.prototype, {
             if (anyCleared) this.updateGarbageGauge();
         }
 
-        this._stepVibAnims(dt);
+        // ★ 演出（点滅・間・落下・振動・fixWait・NEXT遷移・ちぎり）だけ VERSUS の PUYO SPEED 倍で進める
+        const adt = this._animDt(dt);
+
+        this._stepVibAnims(adt);
 
         switch (this._gs) {
             case 'spawn':
@@ -226,7 +229,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'splitting':
-                let splitDropDist = dt / PConfig.splitDropSpeed;
+                let splitDropDist = adt / PConfig.splitDropSpeed;
                 this.splitPuyo.y += splitDropDist;
 
                 let sLimit = this._calcLimitY_Single(this.splitPuyo.col, this.splitPuyo.y);
@@ -246,7 +249,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'fixAnim':
-                this.fixAnimTimer += dt;
+                this.fixAnimTimer += adt;
                 if (this.fixAnimTimer >= this.fixAnimDuration) {
                     this._gs = 'fixWait5f';
                     this.fw5fTimer = 0;
@@ -254,7 +257,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'fixWait5f':
-                this.fw5fTimer += dt;
+                this.fw5fTimer += adt;
                 if (this.fw5fTimer >= PConfig.fixWait5fMs) {
                     this._gs = 'checkErase';
                 }
@@ -403,7 +406,7 @@ Object.assign(PuyoGame.prototype, {
             }
 
             case 'erasing':
-                this._stepEraseBlink(dt);
+                this._stepEraseBlink(adt);
                 if (this._eraseTimer >= PConfig.eraseMs) {
                     this._applyErase();
                     this._buildDropAnim();
@@ -444,7 +447,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'eraseWait':
-                this._stepEraseWait(dt);
+                this._stepEraseWait(adt);
                 if (this.eraseWaitTimer >= PConfig.eraseWaitMs) {
                     if (this.chainScoreAdd > 0) {
                         this.score += this.chainScoreAdd;
@@ -463,7 +466,7 @@ Object.assign(PuyoGame.prototype, {
 
             case 'dropping':
                 if (this._dropAnim) {
-                    if (this._stepDropAnim(dt)) {
+                    if (this._stepDropAnim(adt)) {
                         this._applyDropAnim();
 
                         let anyChainVib = false;
@@ -489,7 +492,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'spawnAnim':
-                this._stepSpawnAnim(dt);
+                this._stepSpawnAnim(adt);
                 if (this.spawnAnimTimer >= PConfig.spawnAnimMs) {
                     this.chainCount = 0;
                     this._gs = 'spawn';
@@ -499,6 +502,14 @@ Object.assign(PuyoGame.prototype, {
             case 'gameover':
                 break;
         }
+    },
+
+    // 演出のタイマーだけを進める dt。vsPuyoSpeed は VERSUS の PUYO SPEED（未定義・1 なら従来どおり）。
+    // 操作（DAS・自由落下・固定猶予・回転アニメ）・おじゃまの配送・ストップウォッチには使わない。
+    // ※ _step* 関数は driver.ts（online 相手パペット）と共通なので、倍率はここで dt に掛けてから渡す。
+    _animDt(dt) {
+        const s = this.vsPuyoSpeed;
+        return (s > 0 && s !== 1) ? dt * s : dt;
     },
 
     // 連鎖縛りが有効で、いまの連鎖が縛り未満なら true（vsChainMin: 0/未定義=OFF）。
