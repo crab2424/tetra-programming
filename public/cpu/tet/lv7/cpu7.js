@@ -341,6 +341,8 @@ window.CPU7 = class {
             const temp = new Mino(move.id);
             temp.spawn();
             this.game.mino = temp;
+            // 本番の holdCurrentMino / popMino と同じく、出現位置が塞がっていたら1段上から出る（高い盤面で操作列が1段ずれないように）
+            if (!this.game.valid(0, 0)) temp.y -= 1;
             pathQueue = this.buildActionQueue(move);
         } finally {
             this.game.mino = savedMino;
@@ -415,9 +417,65 @@ window.CPU7 = class {
         return true;
     }
 
+    // 簡略化した操作列を組み、盤面の上で一度動かして探索の置き場所に着くか確かめる。
+    // 着かなければ（180° の途中の rot1 がキックする等）path どおりの素の操作列に戻す（確認: training/tet/lv7_place_check.mjs）
     buildActionQueue(bestResult) {
+        const queue = this.buildShortActionQueue(bestResult);
+        if (bestResult.action === 'hold' || !bestResult.path || bestResult.path.length === 0) return queue;
+        if (this.queueLandsAt(queue, bestResult)) return queue;
+        if (window.__cpu7Log) console.log('lv7: 簡略化した操作列が置き場所に着かないので path どおりに操作します', bestResult.path.join(','));
+        const ACTION_MAP = { 1: 'moveLeft', 2: 'moveRight', 3: 'softDrop', 4: 'rotateCW', 5: 'rotateCCW', 6: 'harddrop' };
+        const raw = [];
+        for (const a of bestResult.path) {
+            if (a === 6) break;
+            if (ACTION_MAP[a]) raw.push({ type: ACTION_MAP[a], delay: this.actionDelay });
+        }
+        raw.push({ type: 'harddrop', delay: this.harddropDelay });
+        return raw;
+    }
+
+    // queue を processActionQueue と同じ動き（回転はキック込み・moveToTargetX は詰まると目標列へ）で試しに動かし、
+    // ハードドロップした4マスが bestResult（id・rot・x・y）と一致するか。ミノと関係するフラグは元に戻す
+    queueLandsAt(queue, bestResult) {
+        const g = this.game, m = g.mino;
+        const saved = {
+            x: m.x, y: m.y, rotation: m.rotation, blocks: m.blocks.map(b => new Block(b.x, b.y, b.type)),
+            score: g.score, lowestY: g.lowestY,
+            lastActionWasRotation: g.lastActionWasRotation, lastRotUsedPoint5: g.lastRotUsedPoint5,
+        };
+        let landed = null;
+        for (const a of queue) {
+            if (a.type === 'rotateCW') g.tryRotate(1, true);
+            else if (a.type === 'rotateCCW') g.tryRotate(-1, true);
+            else if (a.type === 'moveLeft') { if (g.valid(-1, 0)) m.x--; }
+            else if (a.type === 'moveRight') { if (g.valid(1, 0)) m.x++; }
+            else if (a.type === 'softDrop') { if (g.valid(0, 1)) m.y++; }
+            else if (a.type === 'multiSoftDrop') { while (m.y < a.targetY && g.valid(0, 1)) m.y++; }
+            else if (a.type === 'moveToTargetX') {
+                while (m.x !== a.targetX) {
+                    const d = m.x < a.targetX ? 1 : -1;
+                    if (!g.valid(d, 0)) { m.x = a.targetX; break; }
+                    m.x += d;
+                }
+            } else if (a.type === 'harddrop') {
+                while (g.valid(0, 1)) m.y++;
+                landed = m.blocks.map(b => (b.x + m.x) + ',' + (b.y + m.y)).sort().join(' ');
+                break;
+            }
+        }
+        m.x = saved.x; m.y = saved.y; m.rotation = saved.rotation; m.blocks = saved.blocks;
+        g.score = saved.score; g.lowestY = saved.lowestY;
+        g.lastActionWasRotation = saved.lastActionWasRotation; g.lastRotUsedPoint5 = saved.lastRotUsedPoint5;
+
+        const t = new Mino(bestResult.id);
+        for (let i = 0; i < bestResult.rot; i++) t.rotate();
+        const want = t.blocks.map(b => (b.x + bestResult.x) + ',' + (b.y + bestResult.y)).sort().join(' ');
+        return landed === want;
+    }
+
+    buildShortActionQueue(bestResult) {
         let queue = [];
-        
+
         if (bestResult.action === 'hold') {
             queue.push({ type: 'hold', delay: this.actionDelay });
             return queue;
