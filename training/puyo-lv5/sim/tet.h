@@ -137,9 +137,19 @@ struct TLockEvent {
     int    ren;                  // 加算前の REN
     int    puyoAttack;           // 対ぷよゲージに足した量（相殺後）
     int    tetAttack;            // 内部火力（テト用ライン）
+    int    landed = 0;           // この設置の後に上がったおじゃまの段数（applyGarbage）
+    int    height = 0;           // 着弾の後の一番上の高さ
 };
 
 struct TSendEvent { double t; int gauge; int ojama; };
+
+// lv7 の相手の見積もりの記録（keepLog のとき。lv7-threat-design.md §7.2 の T1）。out は lv7Search2 の out[96..147]
+struct TThreatRec {
+    double t;
+    int myPieces, oppPieces;     // 探索した時点の設置数（相手の次の設置＝相手の locks[oppPieces]）
+    int myHeight, myIncoming, oppHeight, oppIncoming, oppRen;
+    int out[52];
+};
 
 // 集計
 struct TetStats {
@@ -203,6 +213,7 @@ public:
     TetStats st;
     std::vector<TLockEvent> locks;
     std::vector<TSendEvent> sends;
+    std::vector<TThreatRec> threats;
     bool keepLog = false;
     // 強化版 lv6（level 16・26。内部の level は 6）・その PC 探索（level 26 で on）・clys の設定
     bool lv6Boost = false;

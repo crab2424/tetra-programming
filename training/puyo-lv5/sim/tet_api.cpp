@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -415,6 +417,58 @@ void tet_vs_run(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int w
             q[31] = (double)st.nodes;
             q[32] = st.tsPred; q[33] = st.tsPredMiss; q[34] = st.tsUnpred;
         }
+    });
+}
+
+// テト同士の対戦の記録（lv7-threat-design.md §7.2 の T1）。tet_vs_run と同じ席の作りで、1局ごとに
+//   <prefix>_<seed>_<k>.json に {winner, ms, a:{locks, threats}, b:{...}} を書く。
+//   locks: [t, lines, tspin, pc, b2b, ren(加算前), tetAttack, landed, height]
+//   threats: [t, myPieces, oppPieces, myHeight, myIncoming, oppHeight, oppIncoming, oppRen, out[96..147] の 52 個]
+void tet_vs_trace(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int wLenB, int nSeeds, const uint32_t* seeds,
+                  double maxMs, int marginTimeMs, int holeRatePercent, double jitterMs, int sharedTumo, int nThreads,
+                  const char* prefix) {
+    initTetShapes();
+    const std::string pre(prefix);
+    parallelFor(nSeeds * 2, nThreads, [&](int job) {
+        int i = job / 2, k = job % 2;
+        uint32_t s = seeds[i];
+        uint32_t tumo0 = s, tumo1 = sharedTumo ? s : s ^ 0x9e3779b9u;
+        uint32_t hole0 = s * 2654435761u + 1u, hole1 = s * 2246822519u + 2u;
+        if (k == 1) { std::swap(tumo0, tumo1); std::swap(hole0, hole1); }
+        TetPlayer a(tumo0, hole0), b(tumo1, hole1);
+        setup(a, lvA, wA, wLenA);
+        setup(b, lvB, wB, wLenB);
+        applySide(a, g_sideCfg[1]);
+        applySide(b, g_sideCfg[2]);
+        a.marginTimeMs = b.marginTimeMs = marginTimeMs;
+        a.holeRatePercent = b.holeRatePercent = holeRatePercent;
+        a.jitterMs = b.jitterMs = jitterMs;
+        a.keepLog = b.keepLog = true;
+        TvtResult r = runTvt(a, b, maxMs, k == 0);
+        FILE* f = std::fopen((pre + "_" + std::to_string(s) + "_" + std::to_string(k) + ".json").c_str(), "w");
+        if (!f) return;
+        std::fprintf(f, "{\"winner\":%d,\"ms\":%.1f", r.winner, r.ms);
+        const TetPlayer* ps[2] = {&a, &b};
+        for (int side = 0; side < 2; side++) {
+            const TetPlayer& p = *ps[side];
+            std::fprintf(f, ",\"%s\":{\"dead\":%d,\"locks\":[", side ? "b" : "a", p.dead ? 1 : 0);
+            for (size_t j = 0; j < p.locks.size(); j++) {
+                const auto& e = p.locks[j];
+                std::fprintf(f, "%s[%.1f,%d,%d,%d,%d,%d,%d,%d,%d]", j ? "," : "", e.t, e.lines, e.tspin, e.pc ? 1 : 0,
+                             e.b2b ? 1 : 0, e.ren, e.tetAttack, e.landed, e.height);
+            }
+            std::fprintf(f, "],\"threats\":[");
+            for (size_t j = 0; j < p.threats.size(); j++) {
+                const auto& e = p.threats[j];
+                std::fprintf(f, "%s[%.1f,%d,%d,%d,%d,%d,%d,%d", j ? "," : "", e.t, e.myPieces, e.oppPieces, e.myHeight,
+                             e.myIncoming, e.oppHeight, e.oppIncoming, e.oppRen);
+                for (int q = 0; q < 52; q++) std::fprintf(f, ",%d", e.out[q]);
+                std::fprintf(f, "]");
+            }
+            std::fprintf(f, "]}");
+        }
+        std::fprintf(f, "}\n");
+        std::fclose(f);
     });
 }
 

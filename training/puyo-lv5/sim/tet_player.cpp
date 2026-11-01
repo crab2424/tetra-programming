@@ -613,7 +613,9 @@ void TetPlayer::lockPiece(double t) {
 
     // 次のミノの直前に、届いているおじゃまを適用（DAMAGE ON CLEAR が ON なら消去時も）
     now = t;
+    const int taken0 = st.garbageLinesTaken;
     if (damageOnClear || lines == 0) applyGarbage();
+    if (keepLog) { locks.back().landed = st.garbageLinesTaken - taken0; locks.back().height = stackHeight(); }
 
     // popMino
     int nt = queue.front();
@@ -822,6 +824,14 @@ double TetPlayer::plan() {
                     cpuSearchLv6n2(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights,
                                    tetWeightsLen(weightLevel()), clysWidth, clysDepth, clysThinkMs, ctx, ctxLen, nout,
                                    TET_LV7_OUT_LEN);
+                    if (keepLog && (nout[96] & 1)) {
+                        TThreatRec r{};
+                        r.t = now; r.myPieces = st.pieces; r.oppPieces = opp->st.pieces;
+                        r.myHeight = stackHeight(); r.myIncoming = sc.incoming;
+                        r.oppHeight = opp->stackHeight(); r.oppIncoming = opp->incomingLines(); r.oppRen = opp->ren;
+                        std::memcpy(r.out, nout + 96, sizeof r.out);
+                        threats.push_back(r);
+                    }
                 } else {
                     cpuSearchLv6n(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights,
                                   tetWeightsLen(weightLevel()), clysWidth, clysDepth, clysThinkMs, nout, 96);
