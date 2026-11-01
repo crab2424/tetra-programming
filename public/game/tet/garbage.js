@@ -22,18 +22,17 @@ Object.assign(Game.prototype, {
             isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
         }
 
-        // 変換(tetゲージ→おじゃまぷよ)・穴パターン・配送タイマーは BattleGarbage(src/battle/garbage_router.ts)に集約。
+        // 変換(tetゲージ→おじゃまぷよ)・配送タイマーは BattleGarbage(src/battle/garbage_router.ts)に集約。
         // 異種戦(ぷよ相手)なら1000ms後、テト同士なら1500ms後に降下可能になる。
+        // テトへ送るときは穴を決めない（受け手が applyGarbage で決める）。
         const BG = window.BattleGarbage;
         BG.routeGarbage({
             amount: amount,
             targetRule: isOpponentPuyo ? 'puyo' : 'tet',
-            cols: COLS_COUNT,
-            holeRatePercent: this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate : 70,
             gaugeToOjama: true,
         }, {
-            sendTetLines: (lines, holes) => {
-                BG.deliverLocalWithReadyTimer(opponent, { amount: lines, holes: holes, ready: false }, 1500);
+            sendTetLines: (lines) => {
+                BG.deliverLocalWithReadyTimer(opponent, { amount: lines, holes: [], ready: false }, 1500);
             },
             sendOjama: (count) => {
                 BG.deliverLocalWithReadyTimer(opponent, { amount: count, holes: [], ready: false }, 1000);
@@ -80,8 +79,8 @@ Object.assign(Game.prototype, {
                 }
                 this.field.blocks.forEach(block => block.y -= 1);
 
-                // ★ 送信側で確定した穴があればそれを使う（オンライン: 全員の盤面表示が一致する）。
-                //   無ければ従来どおり受信側で一括計算する。
+                // ★ 穴は受ける側がこの着弾（applyGarbage の1回）の中で決める（VERSUS・オンラインとも送る側は穴を付けない）。
+                //   g.holes があるのは PRACTICE が自分で穴列を作って積んだときだけ。
                 let currentHole;
                 if (g.holes && g.holes[i] !== undefined && g.holes[i] !== null) {
                     currentHole = g.holes[i];

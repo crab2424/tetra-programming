@@ -7,6 +7,9 @@
  * 唯一の送信経路になる:
  *
  *   エンジン(sendGarbage) → routeGarbage(opts, sink)
+ *
+ * テトのおじゃまの穴は送る側では決めない。受ける側が着弾（applyGarbage の1回）のときに
+ * 決める（1段目ランダム・2段目から HOLE RATE で前の段と同じ列。前の着弾とはつながらない）。
  *     sink = LocalSink   … 相手インスタンスの garbageQueue へ積む（CPU戦）
  *     sink = NetworkSink … Garbage/GarbagePuyo フレームを送信（オンライン、online_game.ts が構築）
  *
@@ -15,8 +18,8 @@
 
 /** 配送先の抽象化。ルールごとのフレーム種別/キュー形式の差はここで吸収する */
 export interface GarbageSink {
-  /** テト受け手へライン火力を送る（holes は送信側で確定済みの穴パターン） */
-  sendTetLines(lines: number, holes: number[]): void;
+  /** テト受け手へライン火力を送る（穴は受け手が着弾時に決める） */
+  sendTetLines(lines: number): void;
   /** ぷよ受け手へおじゃまぷよ個数を送る */
   sendOjama(count: number): void;
 }
@@ -26,10 +29,6 @@ export interface RouteGarbageOptions {
   amount: number;
   /** 受け手のルール */
   targetRule: "tet" | "puyo";
-  /** テト受け手の盤面列数（穴パターン生成に使用） */
-  cols: number;
-  /** 連続同穴率（%）。VS設定 vsGarbageHoleRate / matchSetting.garbageHoleRate */
-  holeRatePercent: number;
   /** 火力乗率（オンラインの garbageMultiplier）。ローカルは実効化済みなので 1 */
   multiplier?: number;
   /** 送信量の上限（オンラインのwire上限 255 など） */
@@ -51,35 +50,7 @@ export function tetGaugeToOjama(amount: number): number {
   return Math.floor((amount * amount - 21 * amount + 204) / 2);
 }
 
-/**
- * テトおじゃまの穴パターンを送信側で確定する（受信側で再計算しない＝全員の盤面表示が一致）。
- * 1段目は完全ランダム、2段目以降は holeRatePercent% で同じ穴・残りで別の穴。
- */
-export function buildGarbageHoles(
-  count: number,
-  cols: number,
-  holeRatePercent: number,
-): number[] {
-  const holes: number[] = [];
-  const rate = holeRatePercent / 100;
-  let prev = -1;
-  for (let i = 0; i < count; i++) {
-    let h: number;
-    if (prev < 0) {
-      h = Math.floor(Math.random() * cols);
-    } else if (Math.random() < rate) {
-      h = prev;
-    } else {
-      const offset = Math.floor(Math.random() * (cols - 1)) + 1;
-      h = (prev + offset) % cols;
-    }
-    holes.push(h);
-    prev = h;
-  }
-  return holes;
-}
-
-/** 全モード共通の送信入口。乗率→上限→ルール別変換→穴確定→sink 配送の順で処理する */
+/** 全モード共通の送信入口。乗率→上限→ルール別変換→sink 配送の順で処理する */
 export function routeGarbage(opts: RouteGarbageOptions, sink: GarbageSink): void {
   if (opts.amount <= 0) return;
   const mult = opts.multiplier ?? 1;
@@ -93,8 +64,7 @@ export function routeGarbage(opts: RouteGarbageOptions, sink: GarbageSink): void
     sink.sendOjama(ojama);
   } else {
     adjusted = Math.min(adjusted, opts.maxAmount ?? Infinity);
-    const holes = buildGarbageHoles(adjusted, opts.cols, opts.holeRatePercent);
-    sink.sendTetLines(adjusted, holes);
+    sink.sendTetLines(adjusted);
   }
 }
 
@@ -287,7 +257,6 @@ export function reseatLocalGarbageTimers(owner: any): void {
 
 export const BattleGarbage = {
   routeGarbage,
-  buildGarbageHoles,
   tetGaugeToOjama,
   deliverLocalWithReadyTimer,
   deliverLocalSimple,

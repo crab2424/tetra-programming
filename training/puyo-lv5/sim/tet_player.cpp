@@ -341,26 +341,10 @@ static int offsetQueue(std::vector<TGarbage>& q, int amount) {
             int take = std::min(g.amount, amount);
             g.amount -= take;
             amount -= take;
-            if ((int)g.holes.size() > g.amount) g.holes.erase(g.holes.begin(), g.holes.end() - g.amount);
         }
     }
     q.erase(std::remove_if(q.begin(), q.end(), [](const TGarbage& g) { return g.amount <= 0; }), q.end());
     return amount;
-}
-
-std::vector<int> TetPlayer::holesFor(int lines, TRng& r) {
-    // garbage_router.ts buildGarbageHoles（1段目ランダム、以降 holeRate% で同じ列）
-    std::vector<int> holes;
-    int prev = -1;
-    for (int i = 0; i < lines; i++) {
-        int h;
-        if (prev < 0) h = (int)std::floor(r.next() * TCOLS);
-        else if (r.next() < holeRatePercent / 100.0) h = prev;
-        else h = (prev + (int)std::floor(r.next() * (TCOLS - 1)) + 1) % TCOLS;
-        holes.push_back(h);
-        prev = h;
-    }
-    return holes;
 }
 
 void TetPlayer::pushGarbageLines(int lines, double readyAt) {
@@ -370,7 +354,6 @@ void TetPlayer::pushGarbageLines(int lines, double readyAt) {
     g.ready = false;
     g.readyAt = readyAt;
     g.internalUntil = 0;
-    g.holes = holesFor(lines);
     garbageQueue.push_back(g);
 }
 
@@ -381,21 +364,19 @@ int TetPlayer::receiveFromPuyo(int lines, double now) {
     g.ready = false;
     g.readyAt = 1e18;              // 送り手の連鎖終了（confirmFromPuyo）まで ready にならない
     g.internalUntil = now + 500.0; // stage1（非表示）
-    g.holes = holesFor(lines);
     garbageQueue.push_back(g);
     st.linesReceived += lines;
     return g.id;
 }
 
-// garbage.js sendGarbage（テト同士）→ deliverLocalWithReadyTimer(1500ms)。穴は送る側で決めたもの
-void TetPlayer::receiveFromTet(int lines, const std::vector<int>& holes, double now) {
+// garbage.js sendGarbage（テト同士）→ deliverLocalWithReadyTimer(1500ms)。穴は着弾のときに決める
+void TetPlayer::receiveFromTet(int lines, double now) {
     TGarbage g;
     g.id = nextGarbageId_++;
     g.amount = lines;
     g.ready = false;
     g.readyAt = now + T_GARBAGE_READY_FROM_TET_MS;
     g.internalUntil = 0;
-    g.holes = holes;
     garbageQueue.push_back(g);
     st.linesReceived += lines;
 }
@@ -413,6 +394,8 @@ void TetPlayer::confirmFromPuyo(const std::vector<int>& ids) {
 }
 
 // garbage.js applyGarbage（異種戦＝1回の設置で最大7ライン、テト同士は上限なし）
+// 穴は受ける側がこの着弾（1回の呼び出し）の中で決める：1段目はランダム、2段目から holeRate% で前の段と同じ列。
+// 前の着弾とはつながらない。乱数は holeRng（ツモの rng を使うとツモ列がずれる）。
 void TetPlayer::applyGarbage() {
     std::vector<TGarbage> readyG, rest;
     for (auto& g : garbageQueue) {
@@ -423,13 +406,18 @@ void TetPlayer::applyGarbage() {
     garbageQueue = rest;
     const int limit = vsTet ? 1 << 30 : 7;
     int dropped = 0;
+    int lastHole = -1;
     for (size_t j = 0; j < readyG.size(); j++) {
         TGarbage& g = readyG[j];
         int dropCount = 0;
         for (int i = 0; i < g.amount; i++) {
             if (dropped >= limit) break;
             for (int y = 0; y < TROWS - 1; y++) rows[y] = rows[y + 1];   // 最上段より上へ押し出された分は消える（本番は見えない段に残るが判定に効かない）
-            int hole = (i < (int)g.holes.size()) ? g.holes[i] : (int)std::floor(rng.next() * TCOLS);
+            int hole;
+            if (dropped == 0) hole = (int)std::floor(holeRng.next() * TCOLS);
+            else if (holeRng.next() < holeRatePercent / 100.0) hole = lastHole;
+            else hole = (lastHole + (int)std::floor(holeRng.next() * (TCOLS - 1)) + 1) % TCOLS;
+            lastHole = hole;
             rows[TROWS - 1] = (uint16_t)(0x3FF & ~(1 << hole));
             dropCount++;
             dropped++;
@@ -437,7 +425,6 @@ void TetPlayer::applyGarbage() {
         if (dropCount < g.amount) {
             TGarbage r = g;
             r.amount = g.amount - dropCount;
-            r.holes = g.holes.size() > (size_t)dropCount ? std::vector<int>(g.holes.begin() + dropCount, g.holes.end()) : std::vector<int>();
             r.ready = true;
             garbageQueue.insert(garbageQueue.begin(), r);
             for (size_t k = j + 1; k < readyG.size(); k++) garbageQueue.push_back(readyG[k]);
@@ -588,9 +575,8 @@ void TetPlayer::releaseAttack(double t, bool cleared, int puyoAtk, int tetAtk) {
         if (tetAtk <= 0) return;
         int remain = offsetQueue(garbageQueue, tetAtk);
         if (remain > 0) {
-            std::vector<int> holes = holesFor(remain, holeRng);   // garbage_router.ts routeGarbage（送る側で穴を決める）
             st.tetSent += remain;
-            if (onSendTet) onSendTet(t, remain, holes);
+            if (onSendTet) onSendTet(t, remain);   // garbage_router.ts routeGarbage（穴は付けない）
         }
         return;
     }
