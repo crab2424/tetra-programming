@@ -71,6 +71,12 @@ struct Weight
     i32 threat_pct;           // 上の見積もりに掛ける割合（%、0 なら 100）
     i32 threat_ren_gate;      // REN の合図：REN 探索の手数（並べ替えの平均、無ければ見える分）がこれ以上（0 なら 7）
     i32 plan_danger_h;        // >0 のとき、T3 を効かせるのは「いまの最大の高さ＋探索に入れる予告の合計 ≥ これ」の危ないときだけ
+
+    // ── T4：撃つ／撃たない（lv7-threat-design.md §6.2・§13）──
+    i32 press;                // 相手が消しきれずに着弾する見込みの段 1段あたりの行動の報酬（方法 A の m[j] を相手の相殺の力とみる）
+    i32 press_h;              // >0 のとき press を効かせるのは「相手の最大の高さ＋相手の予告 ≥ これ」のときだけ
+    i32 danger_ren_pct;       // >0 のとき、T3 が効いている（危ない）探索では REN の報酬（ren・bonus_ren）をこの % にする
+    i32 danger_clear;         // T3 が効いている探索で、T-spin でない 1〜3 ライン消しの行動に足す（負なら減点）
 };
 
 // 重み配列の長さと並び（cpu7.js の WEIGHT_KEYS と一致させる。追加は必ず末尾に）
@@ -81,8 +87,9 @@ struct Weight
 //   [57] inc_height [58] inc_danger_h [59] inc_danger [60] ren_danger_h [61] ren_calm_pct [62] t_lookahead [63] nl_split
 //   [64] threat_width [65] threat_ms [66] ren_width [67] ren_samples [68] ren_ext [69] opp_ms [70] my_ms [71] margin_own [72] ren_ms
 //   [73] garbage_in_search [74] threat_in_search [75] threat_pct [76] threat_ren_gate [77] plan_danger_h
+//   [78] press [79] press_h [80] danger_ren_pct [81] danger_clear
 //   （L4 row transitions は [55]=1 と [23] で足りる：get_transition は列の隣どうしの XOR＝行方向の切り替わり）
-constexpr i32 WEIGHT_LEN = 78;
+constexpr i32 WEIGHT_LEN = 82;
 
 Weight from_array(const i32* a, i32 n);
 

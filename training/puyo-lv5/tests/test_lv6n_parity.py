@@ -214,7 +214,20 @@ def main() -> int:
         print(f"  case {i}: idx {d.tolist()[:10]} native={nat5[i][d][:10].tolist()} wasm={wa5[i][d][:10].tolist()}")
     print(f"  （予告を入れた {int((nat5[:, 124] > 0).sum())} 件・合計の平均 {nat5[:, 125].mean():.1f}、"
           f"T3 で手が変わった {int((nat5[:, 1:10] != nat4[:, 1:10]).any(axis=1).sum())} 件）")
-    bad = np.concatenate([bad, bad3, bad4, bad5])
+    # T4（撃つ／撃たない）：press と、危ないときの REN・小さい消去の重み
+    w6 = list(w5) + [0] * max(82 - len(w5), 0)
+    for k, v in {78: 300, 80: 200, 81: -300}.items():
+        w6[k] = v
+    nat6 = run_native(sub3, w6, 256, 32, big, OUT_LEN2)
+    wa6 = run_wasm(sub3, w6, 256, 32, big, OUT_LEN2)
+    for o in (nat6, wa6):
+        o[:, 14] = 0
+        o[:, 114] = 0
+    bad6 = np.where((nat6 != wa6).any(axis=1))[0]
+    print(f"一致テスト（T4：press・危ないときの重み）: cases={len(sub3)}  mismatch={len(bad6)}")
+    print(f"  （press {int(((nat6[:, 126] & 1) > 0).sum())} 件・重みの差し替え {int(((nat6[:, 126] & 2) > 0).sum())} 件、"
+          f"T4 で手が変わった {int((nat6[:, 1:10] != nat5[:, 1:10]).any(axis=1).sum())} 件）")
+    bad = np.concatenate([bad, bad3, bad4, bad5, bad6])
     t0 = time.time()
     wt = run_wasm(cases, weights, 500, 32, 80)
     nt = run_native(cases, weights, 500, 32, 80)

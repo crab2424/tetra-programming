@@ -19,7 +19,8 @@ const i32 DEFAULT_WEIGHTS[WEIGHT_LEN] = {
     0, 0, 0,
     0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0
+    0, 0, 0, 0, 0,
+    0, 0, 0, 0
 };
 
 Weight from_array(const i32* a, i32 n)
@@ -76,6 +77,10 @@ Weight from_array(const i32* a, i32 n)
     w.threat_pct = v[75];
     w.threat_ren_gate = v[76];
     w.plan_danger_h = v[77];
+    w.press = v[78];
+    w.press_h = v[79];
+    w.danger_ren_pct = v[80];
+    w.danger_clear = v[81];
     return w;
 };
 

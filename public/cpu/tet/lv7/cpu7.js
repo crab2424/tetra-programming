@@ -10,7 +10,7 @@
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=3'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=4'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -30,6 +30,7 @@ window.CPU7 = class {
         'incHeight', 'incDangerH', 'incDanger', 'renDangerH', 'renCalmPct', 'tLookahead', 'nlSplit',
         'threatWidth', 'threatMs', 'renWidth', 'renSamples', 'renExt', 'oppMs', 'myMs', 'marginOwn', 'renMs',
         'garbageInSearch', 'threatInSearch', 'threatPct', 'threatRenGate', 'planDangerH',
+        'press', 'pressH', 'dangerRenPct', 'dangerClear',
     ];
 
     constructor(gameInstance) {
@@ -120,6 +121,10 @@ window.CPU7 = class {
             threatPct: 0,            // T3：上の見積もりに掛ける割合 %（0 なら 100）
             threatRenGate: 0,        // T3：REN の合図＝REN 探索の手数がこれ以上（0 なら 7）
             planDangerH: 20,         // T3：>0 のとき T3 を効かせるのは いまの最大の高さ＋予告の合計 ≥ これ のときだけ
+            press: 0,                // T4：相手が消しきれずに着弾する見込みの段 1段あたりの行動の報酬
+            pressH: 0,               // T4：>0 のとき press を効かせるのは 相手の最大の高さ＋相手の予告 ≥ これ のときだけ
+            dangerRenPct: 0,         // T4：>0 のとき T3 が効いている（危ない）探索で REN の報酬をこの % にする
+            dangerClear: 0,          // T4：T3 が効いている探索で T-spin でない 1〜3 ライン消しに足す（負なら減点）
 
             // 探索の設定（重みの配列には入らない）。wasm の 80ms ≒ native 56ms で、P1 では幅 256 が良かった（設計 §6.4）
             searchWidth: 256,        // 探索：ビームの幅

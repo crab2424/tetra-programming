@@ -40,6 +40,18 @@ struct Beam
     }
 };
 
+// T4：着弾の見込みが増えた分だけ行動の報酬を足す
+void apply_press(node::Data& child, const Configs& configs)
+{
+    if (!configs.press.active) return;
+    const i32 d = std::min<i32>(child.depth, 64);
+    const i32 total = std::max(std::max(child.sent - configs.incoming, 0) - configs.press.cap[d], 0);
+    if (total > child.landed) {
+        child.score.action += (total - child.landed) * configs.press.reward;
+        child.landed = i16(std::min(total, 32767));
+    }
+}
+
 }
 
 // ノードを展開する（いまのミノと HOLD のミノの全配置）。子の数を返す
@@ -125,6 +137,7 @@ Result search(
             candidate.placement = placement;
             child.index = i32(result.candidates.size());
             eval::evaluate(child, root, placement, queue, w, configs.incoming);
+            apply_press(child, configs);
             result.candidates.push_back(candidate);
             // 原作は push_back（重複除去なし）。幅が初手の数より小さいと原作は sort_heap を壊れた heap に
             // かけていたので、ここでは add（重複除去＋上位 width 個）にする
@@ -172,6 +185,7 @@ Result search(
         parents.for_each([&] (node::Data& node) {
             result.nodes += beam::expand(queue, node, [&] (node::Data& child, move::Placement placement) {
                 eval::evaluate(child, node, placement, queue, w, configs.incoming);
+                apply_press(child, configs);
                 children.add(child);
             }, plan);
         });

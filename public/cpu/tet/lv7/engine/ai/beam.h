@@ -13,12 +13,23 @@
 namespace beam
 {
 
+// T4：送った火力のうち、相手が消しきれずに着弾する見込みの段に報酬を出す
+//   着弾の見込み（d 手目まで）＝ max(0, 送った火力の累計 − incoming − cap[d])。cap[d] は d 手目の火力が相手で ready になるまでに
+//   相手が撃てる火力（方法 A の m[j]、相手に届いている予告ぶんは先に引く）
+struct Press
+{
+    bool active = false;
+    i32 reward = 0;
+    i32 cap[65] = { 0 };
+};
+
 struct Configs
 {
     size_t width = 500;
     size_t depth = 32;
     i32 incoming = 0;          // root の予告のおじゃま（段）。評価の L1・L2 に渡す
     garbage::Plan plan;        // T3：探索の中で相殺・着弾させる予告（active でなければ今までどおり）
+    Press press;               // T4
 };
 
 struct Candidate

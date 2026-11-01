@@ -195,6 +195,7 @@ Ctx parse_ctx(const i32* ctx, i32 len)
 //   [114] 見積もりにかかった時間（0.1ms 単位） [115] 方法 A のノード数
 //   [116] 見える分の REN の手数 [117] その火力 [118] 並べ替えの通り数 [119] REN の手数の平均×10 [120] 最大
 //   [121] 火力の平均×10 [122] 最大 [123] 方法 B の生成数  [124] T3 で探索に入れた予告の件数 [125] その合計
+//   [126] T4 ビット 1=press を効かせた 2=危ないときの重みに差し替えた
 //   [128..147] r[1..20]（REN 探索の手ごとの火力の累計）
 constexpr i32 OUT_THREAT = 96;
 constexpr i32 OUT_THREAT_LEN = 160;
@@ -308,6 +309,37 @@ bool plan_is_danger(const garbage::Plan& plan, State& state, const eval::Weight&
     return *std::max_element(heights, heights + 10) + total >= w.plan_danger_h;
 }
 
+// T4：相手が危ないか（press_h）：相手の最大の高さ＋相手の予告
+bool opp_danger(const Ctx& c, const eval::Weight& w)
+{
+    if (w.press_h <= 0) return true;
+    i32 h = 0;
+    for (i32 i = 0; i < 250 && h == 0; ++i) {
+        if (c.opp_board[i]) h = 20 - (i / 10 - 5);
+    }
+    return h + c.opp_incoming >= w.press_h;
+}
+
+// T4：d 手目の火力が相手で ready になる（d × 自分の1手 ms ＋ 1500ms）までに相手が撃てる火力。
+//   方法 A の m[j]（j＝その時刻までの相手の手数）。読めた手数より先は最後の値から手数に比例して伸ばす。
+//   相手に届いている予告（私が送った分）は相手が先に相殺に使うので引く
+beam::Press make_press(const Ctx& c, const eval::Weight& w, const Threat& t)
+{
+    beam::Press p;
+    p.active = true;
+    p.reward = w.press;
+    const i32 my_ms = w.my_ms > 0 ? w.my_ms : 330;
+    const i32 opp_ms = w.opp_ms > 0 ? w.opp_ms : 330;
+    const i32 depth = std::clamp(t.b.depth, 1, threat::K);
+    for (i32 d = 0; d <= 64; ++d) {
+        const i32 j = (d * my_ms + 1500) / opp_ms;
+        i32 m = 0;
+        if (j >= 1) m = j <= depth ? t.b.m[j - 1] : t.b.m[depth - 1] * j / depth;
+        p.cap[d] = std::max(m - c.opp_incoming, 0);
+    }
+    return p;
+}
+
 void search(
     const u8* board, const i32* queueIn, i32 nQueue, i32 hold, i32 bagAfter,
     i32 b2b, i32 ren, i32 incoming, const i32* weights, i32 nWeights,
@@ -349,7 +381,24 @@ void search(
         }
     }
 
-    auto result = beam::search(state, queue, w, configs, start + thinkMs);
+    // T4（§13）：危ないとき（T3 が効いている）の重みの差し替えと、相手に着弾する見込みへの報酬
+    eval::Weight ws = w;
+    i32 t4_flags = 0;
+    if (configs.plan.active && (w.danger_ren_pct > 0 || w.danger_clear != 0)) {
+        if (w.danger_ren_pct > 0) {
+            for (auto& r : ws.ren) r = r * w.danger_ren_pct / 100;
+            ws.bonus_ren = ws.bonus_ren * w.danger_ren_pct / 100;
+        }
+        for (i32 i = 0; i < 3; ++i) ws.clear[i] += w.danger_clear;
+        t4_flags |= 2;
+    }
+    if (w.press != 0 && ctx.has_opp && threat.beam && opp_danger(ctx, w)) {
+        configs.press = make_press(ctx, w, threat);
+        t4_flags |= 1;
+    }
+    if (outLen >= OUT_THREAT_LEN) out[126] = t4_flags;
+
+    auto result = beam::search(state, queue, ws, configs, start + thinkMs);
 
     if (result.candidates.empty()) {
         out[14] = i32(beam::now_ms() - start);

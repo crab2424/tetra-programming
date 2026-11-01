@@ -21,6 +21,7 @@ struct Data
     i32 sent = 0;      // root からここまでの火力の累計（L1・L2 で incoming と相殺）
     u8 depth = 0;      // root から何手目か（T3 の予告の手の番号）
     garbage::Queue gq; // T3：まだ上がっていない予告（Configs::plan が有効なときだけ使う）
+    i16 landed = 0;    // T4：相手に着弾する見込みの段の累計（Configs::press が有効なときだけ使う）
 };
 
 inline bool operator < (const Score& a, const Score& b)
