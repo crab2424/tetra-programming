@@ -17,14 +17,14 @@ let wasmReady = false;
 
 self.Module = {
     // ★再ビルドしたら ?v= を上げる（グルーjs・wasm・cpu7.js の WORKER_URLS を揃える）
-    locateFile: function(path) { return path + '?v=2'; },
+    locateFile: function(path) { return path + '?v=3'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm7.js?v=2');
+importScripts('cpu_wasm7.js?v=3');
 
 const OUT_LEN = 160;       // [96..] は lv7Search2 の相手の見積もり（lv7Search は 96 まで）
 const CTX_MAX = 19 + 4 * 16 + 250;   // lv7_wasm.cpp parse_ctx の並び

@@ -18,6 +18,7 @@ struct Configs
     size_t width = 500;
     size_t depth = 32;
     i32 incoming = 0;          // root の予告のおじゃま（段）。評価の L1・L2 に渡す
+    garbage::Plan plan;        // T3：探索の中で相殺・着弾させる予告（active でなければ今までどおり）
 };
 
 struct Candidate
@@ -35,10 +36,12 @@ struct Result
     bool decided = false;      // 子が全部同じ初手から来て打ち切った
 };
 
+// plan が有効なら、子ごとに設置の後の予告の相殺・着弾（garbage::after_lock）を済ませてから callback を呼ぶ
 u32 expand(
     const std::vector<piece::Type>& queue,
     node::Data& node,
-    const std::function<void(node::Data&, move::Placement)>& callback
+    const std::function<void(node::Data&, move::Placement)>& callback,
+    const garbage::Plan* plan = nullptr
 );
 
 Result search(

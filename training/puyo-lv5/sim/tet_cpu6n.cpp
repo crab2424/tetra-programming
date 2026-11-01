@@ -44,6 +44,7 @@ namespace tetlv6n {
 #include "../../../public/cpu/tet/lv7/engine/ai/layer.cpp"
 #include "../../../public/cpu/tet/lv7/engine/ai/path.cpp"
 #include "../../../public/cpu/tet/lv7/engine/ai/threat.cpp"
+#include "../../../public/cpu/tet/lv7/engine/ai/garbage.cpp"
 #include "../../../public/cpu/tet/lv7/engine/lv7_wasm.cpp"
 }
 #undef lv7_malloc

@@ -4,7 +4,7 @@
 #   source ~/emsdk/emsdk_env.sh
 set -e
 cd "$(dirname "$0")"
-SRCS="core/bag.cpp core/board.cpp core/move.cpp core/state.cpp ai/beam.cpp ai/eval.cpp ai/layer.cpp ai/path.cpp ai/threat.cpp lv7_wasm.cpp"
+SRCS="core/bag.cpp core/board.cpp core/move.cpp core/state.cpp ai/beam.cpp ai/eval.cpp ai/layer.cpp ai/path.cpp ai/threat.cpp ai/garbage.cpp lv7_wasm.cpp"
 # 成果物は ../wasm/ に出す。手生成 move::expand は再帰 DFS なのでスタックを広めに取る。
 emcc $SRCS -I. -o ../wasm/cpu_wasm7.js \
   -std=c++20 -O3 -flto -DNDEBUG -s WASM=1 \

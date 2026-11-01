@@ -132,7 +132,7 @@ State make_root(const Cell* board, const i32* queueIn, i32 nQueue, i32 hold, i32
 //   [0] 版（1） [1] 相手あり（0/1） [2] 相手のいまのミノ [3] 相手の HOLD [4] 相手の NEXT 本数 n [5..11] 相手の NEXT（最大 7）
 //   [12] 相手の b2b [13] 相手の ren [14] 相手の予告の合計 [15] 相手のマージン段（-1＝未突入） [16] 自分のマージン段
 //   [17] 相手の bag（見える NEXT を引いた後。TETLABO 番号のビット、0＝次から新しい bag） [18] 自分の予告の件数 g
-//   [19..] 件ごとに 4 つ：量・ready（0/1）・ready までの ms・穴の列（-1＝不明）。T3 で使う（T0 では読み飛ばす）
+//   [19..] 件ごとに 4 つ：量・ready（0/1）・ready までの ms・穴の列（-1＝不明。今は使わない）
 //   その後ろに相手の盤面 250 個（0/1）
 constexpr i32 CTX_VERSION = 1;
 constexpr i32 CTX_GARBAGE = 19;
@@ -147,6 +147,8 @@ struct Ctx
     i32 opp_hold = -1, opp_b2b = 0, opp_ren = 0, opp_incoming = 0, opp_margin = -1, opp_bag = 0;
     i32 my_margin = -1;
     const i32* opp_board = nullptr;
+    i32 g = 0;                  // 自分の予告の件数
+    i32 g_amount[CTX_GARBAGE_MAX] = { 0 }, g_ready[CTX_GARBAGE_MAX] = { 0 }, g_ms[CTX_GARBAGE_MAX] = { 0 };
 };
 
 Ctx parse_ctx(const i32* ctx, i32 len)
@@ -160,6 +162,12 @@ Ctx parse_ctx(const i32* ctx, i32 len)
 
     c.valid = true;
     c.my_margin = std::clamp(ctx[16], -1, 5);
+    c.g = g;
+    for (i32 i = 0; i < g; ++i) {
+        c.g_amount[i] = std::max(ctx[CTX_GARBAGE + 4 * i], 0);
+        c.g_ready[i] = ctx[CTX_GARBAGE + 4 * i + 1];
+        c.g_ms[i] = std::max(ctx[CTX_GARBAGE + 4 * i + 2], 0);
+    }
 
     if (ctx[1] != 1 || len < board_at + 250 || ctx[2] < 0 || ctx[2] > 6) return c;
 
@@ -186,12 +194,22 @@ Ctx parse_ctx(const i32* ctx, i32 len)
 //   [98..105] a[1..8]（最善の筋の火力の累計） [106..113] m[1..8]（撃てる火力の累計の最大）
 //   [114] 見積もりにかかった時間（0.1ms 単位） [115] 方法 A のノード数
 //   [116] 見える分の REN の手数 [117] その火力 [118] 並べ替えの通り数 [119] REN の手数の平均×10 [120] 最大
-//   [121] 火力の平均×10 [122] 最大 [123] 方法 B の生成数  [128..147] r[1..20]（REN 探索の手ごとの火力の累計）
+//   [121] 火力の平均×10 [122] 最大 [123] 方法 B の生成数  [124] T3 で探索に入れた予告の件数 [125] その合計
+//   [128..147] r[1..20]（REN 探索の手ごとの火力の累計）
 constexpr i32 OUT_THREAT = 96;
 constexpr i32 OUT_THREAT_LEN = 160;
 
-void estimate_threat(const Ctx& c, const eval::Weight& w, double start, double end, i32* out)
+struct Threat
 {
+    bool beam = false, ren = false;
+    threat::Beam b;
+    threat::Ren r;
+    u64 seed = 0;
+};
+
+Threat estimate_threat(const Ctx& c, const eval::Weight& w, double start, double end, i32* out)
+{
+    Threat t;
     out[OUT_THREAT] = 1;
 
     std::vector<piece::Type> queue;
@@ -201,6 +219,8 @@ void estimate_threat(const Ctx& c, const eval::Weight& w, double start, double e
     if (w.threat_width > 0) {
         const double deadline = std::min(end, start + (w.threat_ms > 0 ? w.threat_ms : 5));
         auto b = threat::estimate(opp, queue, w, size_t(w.threat_width), deadline);
+        t.beam = true;
+        t.b = b;
         out[OUT_THREAT] |= 2;
         out[97] = b.depth;
         for (i32 j = 0; j < threat::K; ++j) {
@@ -219,6 +239,8 @@ void estimate_threat(const Ctx& c, const eval::Weight& w, double start, double e
         for (auto t : queue) after.update(t);
         auto r = threat::ren(opp, queue, after, size_t(w.ren_width), w.ren_samples > 0 ? w.ren_samples : 16,
                              w.ren_ext > 0 ? w.ren_ext : 12, seed, deadline);
+        t.ren = true;
+        t.r = r;
         out[OUT_THREAT] |= 4 | (r.mc_runs > 0 ? 8 : 0);
         out[116] = r.vis_len;
         out[117] = r.vis_atk;
@@ -232,6 +254,58 @@ void estimate_threat(const Ctx& c, const eval::Weight& w, double start, double e
     }
 
     out[114] = i32((beam::now_ms() - start) * 10);
+    t.seed = opp.get_hash();
+    return t;
+}
+
+// T3：探索の中で相殺・着弾させる予告（§5.3）。手の番号は「自分の何手目の設置の後か」（1＝いまのミノ）
+//   届いている分：ready なら 1 手目の後、未 ready なら ready までの ms を自分の1手の ms で割った手の後
+//   相手がこれから撃つ分：相手の j 手目の火力の増え（相手に届いている予告ぶんは相手が先に相殺に使う）を、
+//     j × 相手の1手 ms で届き、＋1500ms で ready として入れる
+garbage::Plan make_plan(const Ctx& c, const eval::Weight& w, const Threat& t, u64 seed)
+{
+    garbage::Plan plan;
+    const i32 my_ms = w.my_ms > 0 ? w.my_ms : 330;
+    const i32 opp_ms = w.opp_ms > 0 ? w.opp_ms : 330;
+    const auto moves = [&] (i32 ms) { return std::max(1, (ms + my_ms - 1) / my_ms); };
+
+    if (w.garbage_in_search && c.valid) {
+        for (i32 i = 0; i < c.g; ++i) {
+            plan.root.push(c.g_amount[i], 0, c.g_ready[i] ? 1 : moves(c.g_ms[i]));
+        }
+    }
+
+    if (w.threat_in_search > 0 && c.has_opp && (t.beam || t.ren)) {
+        const i32 gate = w.threat_ren_gate > 0 ? w.threat_ren_gate : 7;
+        const bool ren_sign = t.ren && (t.r.mc_runs > 0 ? t.r.mc_len_mean10 >= gate * 10 : t.r.vis_len >= gate);
+        const i32 pct = w.threat_pct > 0 ? w.threat_pct : 100;
+        i32 prev = 0;
+        for (i32 j = 1; j <= threat::R; ++j) {
+            i32 cum = 0;
+            if (ren_sign) cum = t.r.r[j - 1];
+            if (w.threat_in_search >= 2 && t.beam) cum = std::max(cum, t.b.a[std::min(j, threat::K) - 1]);
+            const i32 net = std::max(cum * pct / 100 - c.opp_incoming, 0);
+            if (net > prev) {
+                plan.root.push(net - prev, moves(j * opp_ms), moves(j * opp_ms + 1500));
+                prev = net;
+            }
+        }
+    }
+
+    plan.active = plan.root.n > 0;
+    plan.seed = seed;
+    return plan;
+}
+
+// 危ないときだけ T3 を効かせる（plan_danger_h）：いまの最大の高さ＋予告の合計
+bool plan_is_danger(const garbage::Plan& plan, State& state, const eval::Weight& w)
+{
+    if (w.plan_danger_h <= 0) return true;
+    i32 heights[10];
+    state.board.get_heights(heights);
+    i32 total = 0;
+    for (i32 i = 0; i < plan.root.n; ++i) total += plan.root.amount[i];
+    return *std::max_element(heights, heights + 10) + total >= w.plan_danger_h;
 }
 
 void search(
@@ -251,8 +325,9 @@ void search(
     if (ctx.valid && w.margin_own) state.margin = i8(ctx.my_margin);
 
     // 相手の見積もり（締め切りの内側で先に。残りの時間で自分の探索）。T0 では出力するだけで、手の選び方には使わない
+    Threat threat;
     if (ctx.has_opp && (w.threat_width > 0 || w.ren_width > 0) && outLen >= OUT_THREAT_LEN) {
-        estimate_threat(ctx, w, start, start + thinkMs, out);
+        threat = estimate_threat(ctx, w, start, start + thinkMs, out);
     }
 
     // 経路は out[18..] に。lv7Search2 で見積もりの欄（[96..]）があるときはその手前まで
@@ -262,6 +337,17 @@ void search(
     configs.width = size_t(std::max(width, 1));
     configs.depth = size_t(std::clamp(depth, 1, 64));
     configs.incoming = std::max(incoming, 0);
+    if (ctx.valid && (w.garbage_in_search || w.threat_in_search > 0)) {
+        configs.plan = make_plan(ctx, w, threat, state.get_hash() ^ threat.seed);
+        if (!plan_is_danger(configs.plan, state, w)) configs.plan.active = false;
+        if (outLen >= OUT_THREAT_LEN) {
+            // [124] 探索に入れた予告の件数 [125] その合計
+            i32 total = 0;
+            for (i32 i = 0; i < configs.plan.root.n; ++i) total += configs.plan.root.amount[i];
+            out[124] = configs.plan.active ? configs.plan.root.n : 0;
+            out[125] = total;
+        }
+    }
 
     auto result = beam::search(state, queue, w, configs, start + thinkMs);
 

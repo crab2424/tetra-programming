@@ -198,7 +198,23 @@ def main() -> int:
     print(f"  （方法 A {int(((nat4[:, 96] & 2) > 0).sum())} 件・a[6] 平均 {nat4[:, 103].mean():.1f}・m[6] 平均 "
           f"{nat4[:, 111].mean():.1f}、並べ替えを回した {int(((nat4[:, 96] & 8) > 0).sum())} 件・REN 最大の平均 "
           f"{nat4[:, 120].mean():.1f}、マージンで手が変わった {int((nat4[:, 1:10] != nat3[:, 1:10]).any(axis=1).sum())} 件）")
-    bad = np.concatenate([bad, bad3, bad4])
+    # T3（探索の中で予告を相殺・着弾）：届いている予告＋相手の見積もり（いつも a、合図があれば REN）
+    w5 = list(w4) + [0] * max(77 - len(w4), 0)
+    for k, v in {73: 1, 74: 2}.items():
+        w5[k] = v
+    nat5 = run_native(sub3, w5, 256, 32, big, OUT_LEN2)
+    wa5 = run_wasm(sub3, w5, 256, 32, big, OUT_LEN2)
+    for o in (nat5, wa5):
+        o[:, 14] = 0
+        o[:, 114] = 0
+    bad5 = np.where((nat5 != wa5).any(axis=1))[0]
+    print(f"一致テスト（T3：予告を探索の中で着弾）: cases={len(sub3)}  mismatch={len(bad5)}")
+    for i in bad5[:5]:
+        d = np.where(nat5[i] != wa5[i])[0]
+        print(f"  case {i}: idx {d.tolist()[:10]} native={nat5[i][d][:10].tolist()} wasm={wa5[i][d][:10].tolist()}")
+    print(f"  （予告を入れた {int((nat5[:, 124] > 0).sum())} 件・合計の平均 {nat5[:, 125].mean():.1f}、"
+          f"T3 で手が変わった {int((nat5[:, 1:10] != nat4[:, 1:10]).any(axis=1).sum())} 件）")
+    bad = np.concatenate([bad, bad3, bad4, bad5])
     t0 = time.time()
     wt = run_wasm(cases, weights, 500, 32, 80)
     nt = run_native(cases, weights, 500, 32, 80)

@@ -64,6 +64,13 @@ struct Weight
     i32 my_ms;                // 自分の1手の ms（固定。0 なら 330）
     i32 margin_own;           // 1＝自分の探索の火力も ctx のマージン段の表で数える（0 は未突入の表のまま）
     i32 ren_ms;               // 方法 B の締め切り（ms、0 なら 15。方法 A の後から数える）
+
+    // ── T3：探索の中で予告を相殺・着弾させる（lv7-threat-design.md §5.3）──
+    i32 garbage_in_search;    // 1＝届いている予告（ctx）を探索の中で手ごとに相殺・着弾
+    i32 threat_in_search;     // 1＝REN の合図があるとき REN 探索の r[j] を、2＝いつも方法 A の a[j]（＋合図があれば r[j] の大きい方）を、相手がこれから撃つ予告として着弾させる
+    i32 threat_pct;           // 上の見積もりに掛ける割合（%、0 なら 100）
+    i32 threat_ren_gate;      // REN の合図：REN 探索の手数（並べ替えの平均、無ければ見える分）がこれ以上（0 なら 7）
+    i32 plan_danger_h;        // >0 のとき、T3 を効かせるのは「いまの最大の高さ＋探索に入れる予告の合計 ≥ これ」の危ないときだけ
 };
 
 // 重み配列の長さと並び（cpu7.js の WEIGHT_KEYS と一致させる。追加は必ず末尾に）
@@ -73,8 +80,9 @@ struct Weight
 //   [54] pc_next_own [55] transition_weighted [56] select_best
 //   [57] inc_height [58] inc_danger_h [59] inc_danger [60] ren_danger_h [61] ren_calm_pct [62] t_lookahead [63] nl_split
 //   [64] threat_width [65] threat_ms [66] ren_width [67] ren_samples [68] ren_ext [69] opp_ms [70] my_ms [71] margin_own [72] ren_ms
+//   [73] garbage_in_search [74] threat_in_search [75] threat_pct [76] threat_ren_gate [77] plan_danger_h
 //   （L4 row transitions は [55]=1 と [23] で足りる：get_transition は列の隣どうしの XOR＝行方向の切り替わり）
-constexpr i32 WEIGHT_LEN = 73;
+constexpr i32 WEIGHT_LEN = 78;
 
 Weight from_array(const i32* a, i32 n);
 

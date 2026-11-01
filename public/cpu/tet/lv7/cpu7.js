@@ -10,7 +10,7 @@
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=2'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=3'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -29,6 +29,7 @@ window.CPU7 = class {
         'pcNextOwn', 'transitionWeighted', 'selectBest',
         'incHeight', 'incDangerH', 'incDanger', 'renDangerH', 'renCalmPct', 'tLookahead', 'nlSplit',
         'threatWidth', 'threatMs', 'renWidth', 'renSamples', 'renExt', 'oppMs', 'myMs', 'marginOwn', 'renMs',
+        'garbageInSearch', 'threatInSearch', 'threatPct', 'threatRenGate', 'planDangerH',
     ];
 
     constructor(gameInstance) {
@@ -114,6 +115,11 @@ window.CPU7 = class {
             myMs: 0,                 // 相手：自分の1手の ms（固定。0 なら 330。T2 で使う）
             marginOwn: 0,            // スイッチ：1=自分の探索の火力もマージン中の表で数える
             renMs: 0,                // 相手：REN の締め切り ms（0 なら 15）
+            garbageInSearch: 0,      // T3：1=届いている予告を探索の中で手ごとに相殺・着弾させる
+            threatInSearch: 0,       // T3：1=REN の合図があれば相手の REN を、2=いつも相手の数手の火力も、これから届く予告として探索に入れる
+            threatPct: 0,            // T3：上の見積もりに掛ける割合 %（0 なら 100）
+            threatRenGate: 0,        // T3：REN の合図＝REN 探索の手数がこれ以上（0 なら 7）
+            planDangerH: 0,          // T3：>0 のとき T3 を効かせるのは いまの最大の高さ＋予告の合計 ≥ これ のときだけ
 
             // 探索の設定（重みの配列には入らない）。wasm の 80ms ≒ native 56ms で、P1 では幅 256 が良かった（設計 §6.4）
             searchWidth: 256,        // 探索：ビームの幅

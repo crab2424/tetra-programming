@@ -49,7 +49,10 @@ Beam estimate(State root, const std::vector<piece::Type>& queue, const eval::Wei
         std::unordered_map<u64, size_t> seen;
         i32 best_sent = 0;
 
+        bool late = false;
         for (auto& parent : layer) {
+            // 締め切りは親ごとにも見る（層の途中で越えたら、そこまでの子で層を閉じる）
+            if (depth > 1 && beam::now_ms() >= deadline_ms) { late = true; break; }
             result.nodes += beam::expand(queue, parent.d, [&] (node::Data& child, move::Placement placement) {
                 eval::evaluate(child, parent.d, placement, queue, w, 0);
                 best_sent = std::max(best_sent, child.sent);
@@ -85,6 +88,7 @@ Beam estimate(State root, const std::vector<piece::Type>& queue, const eval::Wei
         result.m[depth - 1] = std::max(best_sent, depth > 1 ? result.m[depth - 2] : 0);
         result.depth = i32(depth);
         layer.swap(children);
+        if (late) break;
     }
 
     if (result.depth > 0) {
@@ -135,6 +139,8 @@ RenRun ren_beam(const State& root, const std::vector<piece::Type>& queue, size_t
         std::unordered_set<u64> seen;
 
         for (auto& n : layer) {
+            // 締め切りは親ごとにも見る（途中で越えたら、この通りは使わない）
+            if (beam::now_ms() >= deadline_ms) { run.complete = false; break; }
             if (size_t(n.s.next) + 1 >= queue.size()) continue;
 
             piece::Type pieces[2] = { queue[n.s.next], n.s.hold == piece::Type::NONE ? queue[n.s.next + 1] : n.s.hold };
@@ -159,6 +165,8 @@ RenRun ren_beam(const State& root, const std::vector<piece::Type>& queue, size_t
                 }
             }
         }
+
+        if (!run.complete) break;
 
         if (children.size() > width) {
             std::stable_sort(children.begin(), children.end(),
