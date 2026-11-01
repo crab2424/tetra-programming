@@ -132,8 +132,8 @@ TvtResult runTvt(TetPlayer& a, TetPlayer& b, double maxMs, bool aFirst) {
     a.vsTet = b.vsTet = true;
     a.opp = &b;
     b.opp = &a;
-    a.onSendTet = [&](double t, int n, const std::vector<int>& h) { b.receiveFromTet(n, h, t); };
-    b.onSendTet = [&](double t, int n, const std::vector<int>& h) { a.receiveFromTet(n, h, t); };
+    a.onSendTet = [&](double t, int n) { b.receiveFromTet(n, t); };
+    b.onSendTet = [&](double t, int n) { a.receiveFromTet(n, t); };
     a.start(0);
     b.start(0);
     TvtResult r{-1, 0};

@@ -31,7 +31,6 @@ import {
   decodePendingUpdate,
   fieldBlocksToArray,
   MatchOpcode,
-  BOARD_COLS,
   SE_IDS,
   SE_NAMES,
   createSeededRng,
@@ -571,7 +570,8 @@ export class OnlineGameController {
    * ネットワーク配送 sink とルーティング設定を作り、game.sendGarbage /
    * sendGarbageCrossTet として注入する（tet/puyo 送り手共通。実体は battle/garbage_router.ts）。
    *
-   * ★ 同種戦: amount はそのまま相手ルールのフレームで送る（tet=ライン+穴 / puyo=おじゃま個数）。
+   * ★ 同種戦: amount はそのまま相手ルールのフレームで送る（tet=ライン数 / puyo=おじゃま個数）。
+   *    tet の穴は受け手が着弾時に自分で決め、その盤面を Lock で全員に送る（だから表示は一致する）。
    * ★ 異種戦: TETのゲージ値は相手PUYO向けのおじゃま個数へここで変換する。
    *    PUYO側はエンジンが相殺後のPUYO個数を渡すため、PUYO→TETでは再変換しない。
    * ★ 混在多人数戦: 主送信とは別に sendGarbageCrossTet がテト相手へ tet ライン火力を送る。
@@ -580,8 +580,8 @@ export class OnlineGameController {
     const game = this.game;
     const conn = this.connection;
     const sink: GarbageSink = {
-      sendTetLines: (lines, holes) => {
-        conn.sendMatchEvent(encodeGarbage(lines, holes));
+      sendTetLines: (lines) => {
+        conn.sendMatchEvent(encodeGarbage(lines));
         game._olGarbageSentThisChain = true;
       },
       sendOjama: (count) => {
@@ -590,8 +590,6 @@ export class OnlineGameController {
       },
     };
     const routeOpts = {
-      cols: BOARD_COLS,
-      holeRatePercent: matchSetting.garbageHoleRate,
       multiplier: matchSetting.garbageMultiplier,
       maxAmount: 255,
     };
@@ -2240,7 +2238,7 @@ export class OnlineGameController {
       try {
         const g = decodeGarbage(frame.payload);
         if (this.myRule === 'puyo') this.deliverOjamaToPlayer(g.amount, g.holes, frame.senderId);
-        else this.deliverGarbageToPlayer(g.amount, g.holes, frame.senderId);
+        else this.deliverGarbageToPlayer(g.amount, frame.senderId);
       } catch (e) {
         this.logger.warn("Invalid Garbage frame:", e);
       }
@@ -2467,16 +2465,17 @@ export class OnlineGameController {
    *  - 送り手がpuyo: stage1(internal 500ms)→stage2(pending)→stage3(ready)。ready化は送り手の
    *    連鎖終了(GarbageConfirm)を待つ（固定タイマーでは連鎖終了より早く/遅く落ちてしまうため）。
    *  - 送り手がtet: 従来どおり固定1500ms（tetの攻撃はチェイン終了という概念を持たない）。
+   * 穴はフレームの holes を使わず、着弾時に自分で決める（garbage.js applyGarbage）。
    */
-  private deliverGarbageToPlayer(amount: number, holes: number[] = [], senderId?: Uuid): void {
+  private deliverGarbageToPlayer(amount: number, senderId?: Uuid): void {
     if (amount <= 0 || !this.game || !this.myAlive) return;
     const senderRule = senderId !== undefined ? this.puppetRules.get(senderId) : undefined;
     if (senderRule === 'puyo') {
-      const entry: any = { amount, holes: [...holes], ready: false };
+      const entry: any = { amount, holes: [], ready: false };
       entry._srcSender = senderId;
       deliverLocalStaged(this.game, entry, 500, false);
     } else {
-      deliverLocalWithReadyTimer(this.game, { amount, holes, ready: false }, 1500);
+      deliverLocalWithReadyTimer(this.game, { amount, holes: [], ready: false }, 1500);
     }
   }
 

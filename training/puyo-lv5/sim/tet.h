@@ -123,8 +123,7 @@ struct TRng {
 struct TGarbage {
     int    id = 0;
     int    amount;
-    std::vector<int> holes;
-    bool   ready;
+    bool   ready;          // 穴は持たない（受ける側が applyGarbage で決める）
     double readyAt;        // この時刻で ready になる（猶予タイマー）
     double internalUntil;  // ぷよから届く stage1（internal）の終わり
 };
@@ -246,9 +245,9 @@ public:
     void confirmFromPuyo(const std::vector<int>& ids);
     // テト→ぷよの送信（消去なしの設置でゲージを放出した時刻と個数）
     std::function<void(double, int)> onSend;
-    // テト→テトの送信（相殺の後に残ったライン数と、送る側で決めた穴の列）
-    std::function<void(double, int, const std::vector<int>&)> onSendTet;
-    void receiveFromTet(int lines, const std::vector<int>& holes, double now);   // 1500ms 後に ready
+    // テト→テトの送信（相殺の後に残ったライン数。穴は受ける側が着弾のときに決める）
+    std::function<void(double, int)> onSendTet;
+    void receiveFromTet(int lines, double now);   // 1500ms 後に ready
     int  incomingLines() const;          // cpu6.js getIncomingGarbage（internal を除く予告の合計）
     int  marginStep(double t) const;     // -1=マージン前、0..5
     // テト同士の相手（runTvt が入れる。異種戦・ひとり用は nullptr）。lv7 の ctx（相手の状態）に使う
@@ -266,7 +265,7 @@ public:
 
 private:
     int  nextType();
-    TRng holeRng;                        // テト同士で送るおじゃまの穴（ツモの乱数と分ける＝両者のツモ列を揃える）
+    TRng holeRng;                        // 受けたおじゃまの穴（ツモの乱数と分ける＝両者のツモ列を揃える）
     TRng jitRng;                         // jitterMs 用
     double jit() { return jitterMs > 0 ? jitRng.next() * jitterMs : 0.0; }
     void search(SearchCase& sc);         // レベルごとの探索の呼び分け
@@ -298,8 +297,6 @@ private:
     bool pcStepValid(const Decision& d) const;
     void pcAdvanceExpected(const Decision& d);
     bool findPose(int id, const int cellsXY[8], int& rot, int& x, int& y) const;
-    std::vector<int> holesFor(int lines) { return holesFor(lines, rng); }
-    std::vector<int> holesFor(int lines, TRng& r);
 };
 
 } // namespace tsim

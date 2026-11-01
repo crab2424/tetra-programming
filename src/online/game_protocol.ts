@@ -171,7 +171,8 @@ const GARBAGE_PROTOCOL_VERSION = 1;
 const MAX_GARBAGE_AMOUNT = 1000;
 
 // Garbage: opcode + version:u8 + amount:u16(LE) + holes:u8[amount]
-// TET受信時の holes は穴X座標、PUYO受信時はおじゃま列番号。
+// TET受信時の holes は使わない（送る側は渡さず 0 で埋まる）。TET の受け手は穴を着弾時に
+// 自分で決める（PROTOCOL_VERSION 3 から。garbage.js applyGarbage）。PUYO受信時はおじゃま列番号。
 export function encodeGarbage(lines: number, holes?: number[]): Uint8Array {
   const n = Math.max(0, Math.min(MAX_GARBAGE_AMOUNT, Math.trunc(lines)));
   const buf = new Uint8Array(1 + 1 + 2 + n);

@@ -292,7 +292,7 @@ Object.assign(PuyoGame.prototype, {
 
         // ── 注意：火力補正乗率は _applyOjamaOffset の入口で実効火力として計算済み。ここでは再計算しない ──
 
-        // 穴パターン・配送は BattleGarbage(src/battle/garbage_router.ts)に集約。
+        // 配送は BattleGarbage(src/battle/garbage_router.ts)に集約。テトへ送るときは穴を決めない（受け手が着弾時に決める）。
         // ★ stage1「内部のみ」(internal:true・非表示) として送り、500ms 後に stage2「猶予(青)」へ。
         //    stage2→stage3(ready/点滅) への確定は従来どおり _confirmSentGarbage（送り手の連鎖終了）が行う。
         const BG = window.BattleGarbage;
@@ -306,11 +306,8 @@ Object.assign(PuyoGame.prototype, {
         BG.routeGarbage({
             amount: amount,
             targetRule: isOppPuyo ? 'puyo' : 'tet',
-            // テト受け手の盤面列数で穴を作る（旧実装は PConfig.cols=6 で生成しており 0〜5列にしか穴が開かなかった）
-            cols: typeof COLS_COUNT !== 'undefined' ? COLS_COUNT : 10,
-            holeRatePercent: this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate : 70,
         }, {
-            sendTetLines: (lines, holes) => deliver({ amount: lines, holes: holes, ready: false }),
+            sendTetLines: (lines) => deliver({ amount: lines, holes: [], ready: false }),
             sendOjama: (count) => deliver({ amount: count, holes: [], ready: false }),
         });
     },
