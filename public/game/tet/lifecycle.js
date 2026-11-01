@@ -39,6 +39,15 @@ Object.assign(Game.prototype, {
     _initGameState() {
         this.isFinishing = false; // 前局のGAMEOVER演出締め出しフラグをリセット
 
+        // 前局の予約（固定猶予・おじゃま猶予・マージン）を先に全部取り消してから時計を今に合わせる。
+        // 時計はフレームの頭でしか進まないので、メニューにいた間のぶんをここで進めておかないと、
+        // この後に入れるマージンの予約が最初のフレームでまとめて追いつかれてすぐ発火してしまう。
+        this._cancelLockTimer();
+        this._cancelGarbageTimers();
+        if (this._vsMarginTimer) { this.clock.cancel(this._vsMarginTimer); this._vsMarginTimer = null; }
+        this.clock.advance();
+        this._inputQueue = [];
+
         // モードごとの初期化
         this.mode = this.currentMode || 'marathon';
         if (this.mode === 'sprint') {
@@ -68,11 +77,6 @@ Object.assign(Game.prototype, {
             this.nextQueue.push(new Mino(this.getNextType()));
         }
         this.garbageQueue = [];
-        // おじゃま降下猶予タイマーをリセット（前ゲームの残りタイマーが発火しないように）
-        if (this._garbageTimers) {
-            this._garbageTimers.forEach(t => { if (t.id) clearTimeout(t.id); });
-        }
-        this._garbageTimers = [];
         this.updateGarbageGauge();
 
         this.pendingAttack = 0;
@@ -84,7 +88,6 @@ Object.assign(Game.prototype, {
         // null = マージン未突入（従来の固定火力を使用）、0〜5 = マージン中のステップ
         this.vsMarginMultiplier = 1.0;   // 互換のため残す（ぷよ側との乗率計算では使用しない）
         this._tetMarginStep = null;      // null = マージン未突入
-        if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
         this._vsMarginTimerStart = 0;
         this._vsMarginTimerDuration = 0;
         this._vsMarginTimerCb = null;
@@ -107,7 +110,7 @@ Object.assign(Game.prototype, {
                         this._tetMarginStep++;
                     }
                     if (this._tetMarginStep < TET_MARGIN_MAX_STEP) {
-                        this._vsMarginTimer = setTimeout(step, TET_MARGIN_INTERVAL_MS);
+                        this._vsMarginTimer = this.clock.schedule(TET_MARGIN_INTERVAL_MS, step);
                         this._vsMarginTimerStart = this.clock.now();
                         this._vsMarginTimerDuration = TET_MARGIN_INTERVAL_MS;
                         this._vsMarginTimerCb = step;
@@ -118,7 +121,7 @@ Object.assign(Game.prototype, {
                 if (this._tetMarginStep < TET_MARGIN_MAX_STEP) {
                     // 次ステップまでの残り（事前経過がステップ境界に満たない端数を差し引く）
                     const nextDelay = TET_MARGIN_INTERVAL_MS - (preElapsedMs % TET_MARGIN_INTERVAL_MS);
-                    this._vsMarginTimer = setTimeout(step, nextDelay);
+                    this._vsMarginTimer = this.clock.schedule(nextDelay, step);
                     this._vsMarginTimerStart = this.clock.now();
                     this._vsMarginTimerDuration = nextDelay;
                     this._vsMarginTimerCb = step;
@@ -131,7 +134,7 @@ Object.assign(Game.prototype, {
             } else if (this.vsMarginTimeMs < 0) {
                 startMargin(-this.vsMarginTimeMs); // 負=テーブルを進めた状態で即突入
             } else {
-                this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
+                this._vsMarginTimer = this.clock.schedule(this.vsMarginTimeMs, startMargin);
                 this._vsMarginTimerStart = this.clock.now();
                 this._vsMarginTimerDuration = this.vsMarginTimeMs;
                 this._vsMarginTimerCb = startMargin;
@@ -177,7 +180,7 @@ Object.assign(Game.prototype, {
         // 既存のタイマーをすべて止めておく
         clearInterval(this.timer);
         this.timer = null;
-        if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+        this._cancelLockTimer();
 
         // リスタート時に表示中のオーバーレイを強制終了する
         const countdownId = this.isVersusMode
@@ -208,6 +211,10 @@ Object.assign(Game.prototype, {
     // 実際のゲームプレイ開始（START! 表示の瞬間に呼ばれる）
     // ─────────────────────────────────────────
     _startGameplay() {
+        // フレームが回っていなかった間（CPU 同士のカウントダウン等）のぶんを先に進めておく。
+        // 進めずに startTime や重力の基準を取ると、最初のフレームでその間のぶんがまとめて落ちる
+        this.clock.advance();
+
         // カウントダウンを解除し、ここで初めてミノを出現させる
         this.isCountingDown = false;
         this.popMino();
@@ -250,7 +257,7 @@ Object.assign(Game.prototype, {
         if (this.practiceNoLock && this.mino && !this.isPaused && !this.isCountingDown) {
             const softHeld = !!(this.keyState && this.keyState.softDrop);
             if (!softHeld) {
-                if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+                this._cancelLockTimer();
             } else if (!this.lockTimer && this.isGrounded) {
                 this.startLockTimer();
             }
@@ -288,12 +295,9 @@ Object.assign(Game.prototype, {
         // rAF描画＆入力ループを停止
         this.stopRenderLoop();
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
-        if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+        this._cancelLockTimer();
         // おじゃま降下猶予タイマーを全て停止
-        if (this._garbageTimers && this._garbageTimers.length) {
-            this._garbageTimers.forEach(t => { if (t.id) clearTimeout(t.id); });
-            this._garbageTimers = [];
-        }
+        this._cancelGarbageTimers();
         this.isPaused = true;
 
         if (this.isTimerRunning) {
@@ -403,8 +407,7 @@ Object.assign(Game.prototype, {
 
         // 接地猶予タイマーが動いていた場合、残り時間を計算して保存する
         if (this.lockTimer) {
-            clearTimeout(this.lockTimer);
-            this.lockTimer = null;
+            this._cancelLockTimer();
             this.lockRemaining -= (this.clock.now() - this.lockStartTime);
             this._wasLockingWhenPaused = true;
         } else {
@@ -413,7 +416,7 @@ Object.assign(Game.prototype, {
 
         // マージンタイマーの停止と残り時間の保存
         if (this._vsMarginTimer) {
-            clearTimeout(this._vsMarginTimer);
+            this.clock.cancel(this._vsMarginTimer);
             this._vsMarginTimer = null;
             this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (this.clock.now() - this._vsMarginTimerStart);
         }
@@ -422,7 +425,7 @@ Object.assign(Game.prototype, {
         if (this._garbageTimers && this._garbageTimers.length) {
             for (const t of this._garbageTimers) {
                 if (t.id) {
-                    clearTimeout(t.id);
+                    this.clock.cancel(t.id);
                     t.id = null;
                     t.remaining = Math.max(0, t.duration - (this.clock.now() - t.start));
                 }
@@ -457,7 +460,7 @@ Object.assign(Game.prototype, {
         // マージンタイマーの再開
         if (this._vsMarginTimerRemaining !== null && this._vsMarginTimerCb) {
             this._vsMarginTimerDuration = Math.max(0, this._vsMarginTimerRemaining);
-            this._vsMarginTimer = setTimeout(this._vsMarginTimerCb, this._vsMarginTimerDuration);
+            this._vsMarginTimer = this.clock.schedule(this._vsMarginTimerDuration, this._vsMarginTimerCb);
             this._vsMarginTimerStart = this.clock.now();
             this._vsMarginTimerRemaining = null;
         }
@@ -470,7 +473,7 @@ Object.assign(Game.prototype, {
                     t.duration = rem; // 以降のポーズ計算用に残り時間を基準にする
                     t.start = this.clock.now();
                     t.remaining = null;
-                    t.id = setTimeout(t.cb, rem);
+                    t.id = this.clock.schedule(rem, t.cb);
                 }
             }
         }

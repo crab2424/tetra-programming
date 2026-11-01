@@ -106,7 +106,7 @@ const BoardSwap = (() => {
   // initBlocks() を先に呼ぶのは、spawn() が x/y/rotation しか戻さず、回転で
   // 書き換えられた blocks の形が残ってしまうため。
   function finishTet(g) {
-    if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+    g._cancelLockTimer();
     g._wasLockingWhenPaused = false;
     g.isGrounded = false;
     g.moveCount = 0;

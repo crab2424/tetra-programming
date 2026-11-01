@@ -368,7 +368,7 @@ class PracticeManager {
                 this._origUpdateTimeDisplay = game.updateTimeDisplay;
                 game.updateTimeDisplay = function () {
                     self._origUpdateTimeDisplay.call(this);
-                    const elapsed = this.elapsedTime + (this.isTimerRunning ? performance.now() - this.startTime : 0);
+                    const elapsed = this.elapsedTime + (this.isTimerRunning ? this.clock.now() - this.startTime : 0);
                     paintCountdown(document.getElementById('time-value'), elapsed, (ms) => {
                         const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000), cs = Math.floor((ms % 1000) / 10);
                         return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(cs).padStart(2, '0');
@@ -717,7 +717,7 @@ class PracticeManager {
         g.moveCount = 0;
         g.lastActionWasRotation = false;
         g.lastRotUsedPoint5 = false;
-        if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+        g._cancelLockTimer();
         g.drawAll();
         this._flashCycle((dir > 0 ? '⟳ ' : '⟲ ') + TET_CYCLE_LABEL[type]);
         return true;
@@ -829,9 +829,9 @@ class PracticeManager {
         const g = this.gameInstance;
         if (!g) return 0;
         if (this.rule === 'tet') {
-            return g.elapsedTime + (g.isTimerRunning ? performance.now() - g.startTime : 0);
+            return g.elapsedTime + (g.isTimerRunning ? g.clock.now() - g.startTime : 0);
         }
-        return g.elapsed + (g._timerRunning ? performance.now() - g._timerStart : 0);
+        return g.elapsed + (g._timerRunning ? g.clock.now() - g._timerStart : 0);
     }
 
     _startGoalLoop() {
@@ -1040,7 +1040,7 @@ class PracticeManager {
                     if (this._cycleFitTet(type)) {
                         g.isGrounded = false; g.lowestY = g.mino.y; g.moveCount = 0;
                         g.lastActionWasRotation = false; g.lastRotUsedPoint5 = false;
-                        if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+                        g._cancelLockTimer();
                     } else {
                         g.mino = prevMino;
                         this.seqRunner = PracticeSequence.createRunner(this.seqConfig); // 置けなければ消費しない
@@ -1211,14 +1211,11 @@ class PracticeManager {
         if (this.rule === 'tet') {
             if (typeof g.stopRenderLoop === 'function') g.stopRenderLoop();
             if (g.timer) { clearInterval(g.timer); g.timer = null; }
-            if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
-            if (g._garbageTimers && g._garbageTimers.length) {
-                g._garbageTimers.forEach(t => { if (t.id) clearTimeout(t.id); });
-                g._garbageTimers = [];
-            }
+            g._cancelLockTimer();
+            g._cancelGarbageTimers();
             g.isPaused = true;
             if (g.isTimerRunning) {
-                g.elapsedTime += performance.now() - g.startTime;
+                g.elapsedTime += g.clock.now() - g.startTime;
                 g.isTimerRunning = false;
                 if (g.timerReqId) cancelAnimationFrame(g.timerReqId);
             }
@@ -1296,10 +1293,12 @@ class PracticeManager {
     // start()（tet）/ start()（puyo）はモード初期化からやり直してしまうため使えない。
     _resumeEngine() {
         const g = this.gameInstance;
+        // 止めていた間は時計が進んでいない（フレームが回っていない）ので、先に今に合わせる
+        g.clock.advance();
         if (this.rule === 'tet') {
             g.isPaused = false;
             g.isCountingDown = false;
-            g.startTime = performance.now();
+            g.startTime = g.clock.now();
             g.isTimerRunning = true;
             g.startTimerLoop();
             g.startGravity();
@@ -1307,9 +1306,9 @@ class PracticeManager {
         } else {
             g.state = 'playing';
             g.isPaused = false;
-            g.lastTime = performance.now();
+            g.lastTime = g.clock.now();
             g._timerRunning = true;
-            g._timerStart = performance.now();
+            g._timerStart = g.clock.now();
             g._timerTick();
             g._loop();
         }
@@ -1866,12 +1865,9 @@ class PracticeManager {
             if (this.rule === 'tet') {
                 if (typeof g.stopRenderLoop === 'function') g.stopRenderLoop();
                 if (g.timer) { clearInterval(g.timer); g.timer = null; }
-                if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+                g._cancelLockTimer();
                 if (g._keyLoop) { clearInterval(g._keyLoop); g._keyLoop = null; }
-                if (g._garbageTimers && g._garbageTimers.length) {
-                    g._garbageTimers.forEach(t => { if (t.id) clearTimeout(t.id); });
-                    g._garbageTimers = [];
-                }
+                g._cancelGarbageTimers();
                 if (g._keyDownHandler) document.removeEventListener('keydown', g._keyDownHandler);
                 if (g._keyUpHandler) document.removeEventListener('keyup', g._keyUpHandler);
                 g.isPaused = true;

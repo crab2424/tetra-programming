@@ -320,10 +320,7 @@ class QuizManager {
             this.lastActionWasRotation = false;
             this.lastRotUsedPoint5 = false;
 
-            if (this.lockTimer) {
-                clearTimeout(this.lockTimer);
-                this.lockTimer = null;
-            }
+            this._cancelLockTimer();
             this.startGravity();
         }.bind(game);
 
@@ -756,10 +753,10 @@ class QuizManager {
         } else {
             // テト停止
             if (game.timer) { clearInterval(game.timer); game.timer = null; }
-            if (game.lockTimer) { clearTimeout(game.lockTimer); game.lockTimer = null; }
+            game._cancelLockTimer();
             game.isPaused = true;
             if (game.isTimerRunning) {
-                game.elapsedTime += performance.now() - game.startTime;
+                game.elapsedTime += game.clock.now() - game.startTime;
                 game.isTimerRunning = false;
                 if (game.timerReqId) cancelAnimationFrame(game.timerReqId);
             }

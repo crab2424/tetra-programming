@@ -717,7 +717,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         const q = (game && game.garbageQueue) || [];
         const timers = (game && game._garbageTimers) || [];
         const turnMs = this._scaledTurnMs((vt.ojamaTurnMs | 0) > 0 ? vt.ojamaTurnMs : 560);
-        const now = performance.now();
+        const now = game ? game.clock.now() : 0; // 猶予の start はゲーム時計の値
         let soon = 0, later = 0;
         for (const g of q) {
             const amt = Math.max(0, g.amount | 0);

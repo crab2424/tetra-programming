@@ -120,7 +120,7 @@ export function deliverLocalWithReadyTimer(
     timerEntry.remaining = delayMs;
   } else {
     timerEntry.start = opponent.clock.now();
-    timerEntry.id = setTimeout(timerEntry.cb, delayMs);
+    timerEntry.id = opponent.clock.schedule(delayMs, timerEntry.cb);
   }
 }
 
@@ -191,7 +191,7 @@ export function deliverLocalStaged(
       timerEntry.remaining = internalMs;
     } else {
       timerEntry.start = opponent.clock.now();
-      timerEntry.id = setTimeout(timerEntry.cb, internalMs);
+      timerEntry.id = opponent.clock.schedule(internalMs, timerEntry.cb);
     }
   }
 
@@ -221,7 +221,7 @@ export function reseatLocalGarbageTimers(owner: any): void {
   for (const entry of timers) {
     let remaining: number;
     if (entry.id) {
-      clearTimeout(entry.id);
+      owner.clock.cancel(entry.id);
       entry.id = null;
       remaining = Math.max(0, entry.duration - (now - entry.start));
     } else {
@@ -250,7 +250,7 @@ export function reseatLocalGarbageTimers(owner: any): void {
     } else {
       entry.remaining = null;
       entry.start = now;
-      entry.id = setTimeout(entry.cb, remaining);
+      entry.id = owner.clock.schedule(remaining, entry.cb);
     }
   }
 }

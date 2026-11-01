@@ -31,10 +31,10 @@ function stopAllGames() {
                 //   止まらない（設計 §7.C）。これを呼ばないとメニューに戻った後もループが回り続ける。
                 if (typeof gameInst.stopRenderLoop === 'function') gameInst.stopRenderLoop();
                 if (gameInst.timer) { clearInterval(gameInst.timer); gameInst.timer = null; }
-                if (gameInst.lockTimer) { clearTimeout(gameInst.lockTimer); gameInst.lockTimer = null; }
+                gameInst._cancelLockTimer();
                 gameInst.isPaused = true;
                 if (gameInst.isTimerRunning) {
-                    gameInst.elapsedTime += performance.now() - gameInst.startTime;
+                    gameInst.elapsedTime += gameInst.clock.now() - gameInst.startTime;
                     gameInst.isTimerRunning = false;
                     if (gameInst.timerReqId) cancelAnimationFrame(gameInst.timerReqId);
                 }

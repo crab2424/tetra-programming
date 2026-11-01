@@ -395,10 +395,10 @@ export class OnlineGameController {
     this.bgClockRunning = true;
     // tet: rAFが止まる直前の経過時間で多重落下しないよう基準時刻をリセット
     if (this.game && this.myRule !== "puyo") {
-      this.game._gravityLastTime = performance.now();
+      this.game._gravityLastTime = this.game.clock.now();
     }
     if (this.game && this.myRule === "puyo") {
-      this.game.lastTime = performance.now();
+      this.game.lastTime = this.game.clock.now();
     }
     this.bgClockWorker.postMessage("start");
     this.logger.log("Background clock started (tab hidden).");
@@ -410,10 +410,10 @@ export class OnlineGameController {
     this.bgClockWorker?.postMessage("stop");
     // 表示に戻った直後の大ジャンプを避けるため基準時刻を現在に合わせる
     if (this.game && this.myRule !== "puyo") {
-      this.game._gravityLastTime = performance.now();
+      this.game._gravityLastTime = this.game.clock.now();
     }
     if (this.game && this.myRule === "puyo") {
-      this.game.lastTime = performance.now();
+      this.game.lastTime = this.game.clock.now();
     }
     this.logger.log("Background clock stopped (tab visible).");
   }
@@ -447,27 +447,18 @@ export class OnlineGameController {
     try {
       if (this.myRule === "puyo") {
         // ぷよ: _loop() の更新部分を再現（描画は非表示中なので省略）
-        const now = performance.now();
+        g.clock.advance();
+        const now = g.clock.now();
         let dt = now - g.lastTime;
         if (dt > 100) dt = 100;
         if (dt < 0) dt = 0;
         g.lastTime = now;
         if (g.state === "playing") g._update(dt);
       } else {
-        // tet: rAFループ相当の重力tickを進める
+        // tet: rAFループ相当に時計を進めて重力tickを適用する。
+        // 固定猶予はゲーム時計の予約なので、advance() の中で期限どおりに固定される。
+        g.clock.advance();
         g._applyGravityTick();
-        // 接地後の固定は lockTimer(setTimeout) 依存で、非表示中はthrottleされ ~1s 遅れる。
-        // 猶予を過ぎていれば手動で固定し、相手への Lock/Spawn 送信が滞らないようにする。
-        if (g.isGrounded && g.lockTimer && typeof g.lockStartTime === "number") {
-          const due =
-            typeof g.lockRemaining === "number" ? g.lockRemaining : (g.lockDelay ?? 0);
-          if (performance.now() - g.lockStartTime >= due) {
-            clearTimeout(g.lockTimer);
-            g.lockTimer = null;
-            g.secureMino();
-            g.requestRedraw?.();
-          }
-        }
       }
       // 相手の盤面に落下中ミノ/ぷよの動きを反映させる（throttleされた interval の代替）
       this.sendPieceStateNow();
@@ -2104,17 +2095,17 @@ export class OnlineGameController {
         this.game._versusFinishing = false;
         this.game.stop?.();
         this.game.rng = null;
-        // 対テト送り手からの攻撃は _garbageTimers(setTimeout) 経由で ready 化されるため、
+        // 対テト送り手からの攻撃は _garbageTimers(ゲーム時計の予約) 経由で ready 化されるため、
         // 次戦開始前に古いタイマーが残らないよう止める（puyo同士の internalTimer は
         // dt駆動で _update 停止と共に自動停止するのでここでは不要）。
         if (this.game._garbageTimers?.length) {
-          for (const t of this.game._garbageTimers) if (t.id) clearTimeout(t.id);
+          for (const t of this.game._garbageTimers) if (t.id) this.game.clock.cancel(t.id);
         }
       } else {
         if (this.game.timer) clearInterval(this.game.timer);
-        if (this.game.lockTimer) clearTimeout(this.game.lockTimer);
+        this.game._cancelLockTimer();
         if (this.game._garbageTimers?.length) {
-          for (const t of this.game._garbageTimers) if (t.id) clearTimeout(t.id);
+          for (const t of this.game._garbageTimers) if (t.id) this.game.clock.cancel(t.id);
         }
         if (this.game._keyLoop) clearInterval(this.game._keyLoop);
         if (this.game._gamepadLoop) clearInterval(this.game._gamepadLoop);
@@ -2843,9 +2834,9 @@ export class OnlineGameController {
         this.game.rng = null;
       } else {
         if (this.game.timer) clearInterval(this.game.timer);
-        if (this.game.lockTimer) clearTimeout(this.game.lockTimer);
+        this.game._cancelLockTimer();
         if (this.game._garbageTimers?.length) {
-          for (const t of this.game._garbageTimers) if (t.id) clearTimeout(t.id);
+          for (const t of this.game._garbageTimers) if (t.id) this.game.clock.cancel(t.id);
         }
         if (this.game._keyLoop) clearInterval(this.game._keyLoop);
         if (this.game._gamepadLoop) clearInterval(this.game._gamepadLoop);

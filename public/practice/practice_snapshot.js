@@ -93,11 +93,8 @@ const PracticeSnapshot = (() => {
         if (p[0] !== 'T') return false;
 
         // ─── 走っているタイマーを先に全部止める（設計 §5.7）───
-        if (game.lockTimer) { clearTimeout(game.lockTimer); game.lockTimer = null; }
-        if (game._garbageTimers && game._garbageTimers.length) {
-            game._garbageTimers.forEach(t => { if (t.id) clearTimeout(t.id); });
-        }
-        game._garbageTimers = [];
+        game._cancelLockTimer();
+        game._cancelGarbageTimers();
 
         // ─── 盤面 ───
         // Field を作り直してから markDirty()。忘れると _occ / _fixedCanvas の

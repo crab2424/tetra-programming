@@ -74,10 +74,7 @@ Object.assign(Game.prototype, {
         this.lastActionWasRotation = false;
         this.lastRotUsedPoint5 = false;
 
-        if (this.lockTimer) {
-            clearTimeout(this.lockTimer);
-            this.lockTimer = null;
-        }
+        this._cancelLockTimer();
         this.startGravity(); // 重力をリセットして開始
     },
 
@@ -368,7 +365,7 @@ Object.assign(Game.prototype, {
 
         // タイマーを両方停止
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
-        if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+        this._cancelLockTimer();
 
         this.playSe('harddrop')
         // lock 音は secureMino(true) 内で lock_hard（小音量）として鳴らすため、ここでは鳴らさない
@@ -414,7 +411,7 @@ Object.assign(Game.prototype, {
             // 15回操作での強制固定も同条件下では無効化する。
             if (this.practiceNoLock) {
                 if (!(this.keyState && this.keyState.softDrop)) {
-                    if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+                    this._cancelLockTimer();
                     return;
                 }
                 this.startLockTimer();
@@ -423,10 +420,7 @@ Object.assign(Game.prototype, {
 
             // カウントが15回以上の場合は即座に強制固定
             if (this.moveCount >= 15) {
-                if (this.lockTimer) {
-                    clearTimeout(this.lockTimer);
-                    this.lockTimer = null;
-                }
+                this._cancelLockTimer();
                 this.secureMino();
                 // secureMino()内で次のミノが呼ばれ描画されるためここで終了
                 return;
@@ -439,10 +433,7 @@ Object.assign(Game.prototype, {
             // 15回超えでも空中なら自由に動ける（接地した瞬間に上のブロックで強制固定される）
             if (this.isGrounded) {
                 this.isGrounded = false;
-                if (this.lockTimer) {
-                    clearTimeout(this.lockTimer);
-                    this.lockTimer = null;
-                }
+                this._cancelLockTimer();
                 this.startGravity();
             }
         }
@@ -458,17 +449,34 @@ Object.assign(Game.prototype, {
 
     // 固定猶予タイマーの起動・リセット
     startLockTimer(delay = this.lockDelay) {
-        if (this.lockTimer) clearTimeout(this.lockTimer);
+        this._cancelLockTimer();
 
         // ポーズ時の計算用に開始時刻と設定時間を記録
         this.lockStartTime = this.clock.now();
         this.lockRemaining = delay;
 
-        this.lockTimer = setTimeout(() => {
+        // ゲーム時計の予約（フレームの頭の clock.advance() の中で実行される）
+        this.lockTimer = this.clock.schedule(delay, () => {
             this.lockTimer = null;
             this.secureMino();
             this.requestRedraw();
-        }, delay);
+        });
+    },
+
+    // 固定猶予の予約を取り消す（外から止めるときもこれを使う。lockTimer は setTimeout の ID ではない）
+    _cancelLockTimer() {
+        if (this.lockTimer) {
+            this.clock.cancel(this.lockTimer);
+            this.lockTimer = null;
+        }
+    },
+
+    // おじゃま降下猶予の予約を全部取り消す
+    _cancelGarbageTimers() {
+        if (this._garbageTimers) {
+            this._garbageTimers.forEach(t => { if (t.id) this.clock.cancel(t.id); });
+        }
+        this._garbageTimers = [];
     },
 
     valid(moveX, moveY, rot = 0) {

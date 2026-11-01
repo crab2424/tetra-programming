@@ -55,6 +55,7 @@ Object.assign(PuyoGame.prototype, {
     _startGameplay() {
         this._stopCountdownDas(); // ★ カウントダウン用DASループを止めてから本編ループへ移行（DASのチャージ量は維持）
         this.state = 'playing';
+        this.clock.advance(); // フレームが回っていなかった間（ロード画面・カウントダウン）のぶんを先に進める
         this.lastTime = this.clock.now();
         this._startTimer();
         this._loop();
@@ -66,10 +67,12 @@ Object.assign(PuyoGame.prototype, {
     // その結果、本編開始時には DAS がチャージ済みとなり、スタート直後から横移動できる。
     _startCountdownDas() {
         this._stopCountdownDas();
+        this.clock.advance();
         this.lastTime = this.clock.now();
         const tick = () => {
             if (this.state !== 'starting') { this._countdownLoopId = null; return; }
             this._countdownLoopId = requestAnimationFrame(tick);
+            this.clock.advance();
             const now = this.clock.now();
             let dt = now - this.lastTime;
             if (dt > 100) dt = 100;
@@ -121,7 +124,7 @@ Object.assign(PuyoGame.prototype, {
 
         // マージンタイマーの停止と残り時間の保存
         if (this._vsMarginTimer) {
-            clearTimeout(this._vsMarginTimer);
+            this.clock.cancel(this._vsMarginTimer);
             this._vsMarginTimer = null;
             this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (this.clock.now() - this._vsMarginTimerStart);
         }
@@ -131,12 +134,13 @@ Object.assign(PuyoGame.prototype, {
         if (this.state !== 'paused') return;
         this.state = 'playing';
         this.isPaused = false;
+        this.clock.advance(); // ポーズ中はフレームが止まっていて時計が進んでいないので、先に今に合わせる
         this.lastTime = this.clock.now();
 
         // マージンタイマーの再開
         if (this._vsMarginTimerRemaining !== null && this._vsMarginTimerCb) {
             this._vsMarginTimerDuration = Math.max(0, this._vsMarginTimerRemaining);
-            this._vsMarginTimer = setTimeout(this._vsMarginTimerCb, this._vsMarginTimerDuration);
+            this._vsMarginTimer = this.clock.schedule(this._vsMarginTimerDuration, this._vsMarginTimerCb);
             this._vsMarginTimerStart = this.clock.now();
             this._vsMarginTimerRemaining = null;
         }
@@ -211,7 +215,9 @@ Object.assign(PuyoGame.prototype, {
         // テーブル: マージン突入から16秒ごとに [52, 34, 25, 16, 12, 8, 6, 4, 3, 2, 1] へ移行（160秒で上限）
         this.vsMarginMultiplier = 1.0; // ぷよ側では常に1.0固定（テト側との互換のため残す）
         this._puyoMarginStep = 0;      // 現在のマージンステップ（0=突入直後の最初値適用済み）
-        if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
+        if (this._vsMarginTimer) { this.clock.cancel(this._vsMarginTimer); this._vsMarginTimer = null; }
+        // マージンはゲーム時計の予約。時計はフレームの頭でしか進まないので、入れる前に今に合わせる
+        this.clock.advance();
         this._vsMarginTimerStart = 0;
         this._vsMarginTimerDuration = 0;
         this._vsMarginTimerCb = null;
@@ -238,7 +244,7 @@ Object.assign(PuyoGame.prototype, {
                     }
                     // 上限（ステップ10, レート1）未満なら次のタイマーをセット
                     if (this._puyoMarginStep < PUYO_MARGIN_MAX_STEP) {
-                        this._vsMarginTimer = setTimeout(step, PUYO_MARGIN_INTERVAL_MS);
+                        this._vsMarginTimer = this.clock.schedule(PUYO_MARGIN_INTERVAL_MS, step);
                         this._vsMarginTimerStart = this.clock.now();
                         this._vsMarginTimerDuration = PUYO_MARGIN_INTERVAL_MS;
                         this._vsMarginTimerCb = step;
@@ -249,7 +255,7 @@ Object.assign(PuyoGame.prototype, {
                 if (this._puyoMarginStep < PUYO_MARGIN_MAX_STEP) {
                     // 次ステップまでの残り（事前経過がステップ境界に満たない端数を差し引く）
                     const nextDelay = PUYO_MARGIN_INTERVAL_MS - (preElapsedMs % PUYO_MARGIN_INTERVAL_MS);
-                    this._vsMarginTimer = setTimeout(step, nextDelay);
+                    this._vsMarginTimer = this.clock.schedule(nextDelay, step);
                     this._vsMarginTimerStart = this.clock.now();
                     this._vsMarginTimerDuration = nextDelay;
                     this._vsMarginTimerCb = step;
@@ -262,7 +268,7 @@ Object.assign(PuyoGame.prototype, {
             } else if (this.vsMarginTimeMs < 0) {
                 startMargin(-this.vsMarginTimeMs); // 負=テーブルを進めた状態で即突入
             } else {
-                this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
+                this._vsMarginTimer = this.clock.schedule(this.vsMarginTimeMs, startMargin);
                 this._vsMarginTimerStart = this.clock.now();
                 this._vsMarginTimerDuration = this.vsMarginTimeMs;
                 this._vsMarginTimerCb = startMargin;

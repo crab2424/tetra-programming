@@ -164,9 +164,15 @@ Object.assign(Game.prototype, {
         this._needsRedraw = true;
     },
 
+    // 1 フレームの順番（設計 §4.1 D1・D2・D5）:
+    //   時計を進める（固定猶予などの予約もここで実行）→ たまったキーの取り込みと DAS → 重力 → 描画
+    // カウントダウン中から回す（setKeyEvent 参照）。キーはこのループでしか取り込まないため。
     startRenderLoop() {
-        if (this._renderLoopId) cancelAnimationFrame(this._renderLoopId);
+        this.stopRenderLoop();
+        const gen = this._renderLoopGen;
         const loop = () => {
+            if (gen !== this._renderLoopGen) return;
+            this.clock.advance();
             // 入力ポーリング（player側のみ this._pollInput が設定される）
             if (this._pollInput) this._pollInput();
             // 重力 tick：rAF と同期して経過時間に応じた回数だけ落下を適用する。
@@ -178,12 +184,15 @@ Object.assign(Game.prototype, {
                 this._needsRedraw = false;
                 this.drawAll();
             }
+            // このフレームの中で止められた（ゲームオーバー等）なら次を予約しない
+            if (gen !== this._renderLoopGen) return;
             this._renderLoopId = requestAnimationFrame(loop);
         };
         this._renderLoopId = requestAnimationFrame(loop);
     },
 
     stopRenderLoop() {
+        this._renderLoopGen = (this._renderLoopGen || 0) + 1;
         if (this._renderLoopId) {
             cancelAnimationFrame(this._renderLoopId);
             this._renderLoopId = null;

@@ -400,7 +400,7 @@ window.CPU7 = class {
         ctx[16] = margin(this.game);
 
         let n = 0;
-        const now = performance.now();
+        const now = this.game.clock.now(); // 猶予の start はゲーム時計の値
         const timers = this.game._garbageTimers || [];
         for (const g of (this.game.garbageQueue || [])) {
             if (g.internal || n >= 16) continue;

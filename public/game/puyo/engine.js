@@ -157,6 +157,7 @@ Object.assign(PuyoGame.prototype, {
         if (this.state !== 'playing' && !continueForVersus) return;
         this._loopId = requestAnimationFrame(() => this._loop());
 
+        this.clock.advance(); // ゲーム時計を進める（tet 相手のおじゃま猶予などの予約もここで実行）
         let now = this.clock.now();
         let dt = now - this.lastTime;
         if (dt > 100) dt = 100;

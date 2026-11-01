@@ -31,7 +31,7 @@ export interface FreezeOptions {
 function clearGarbageTimers(game: AnyGame): void {
   if (!game?._garbageTimers?.length) return;
   for (const t of game._garbageTimers) {
-    if (t?.id) clearTimeout(t.id);
+    if (t?.id) game.clock.cancel(t.id);
   }
   game._garbageTimers = [];
 }
@@ -48,14 +48,11 @@ export function freezeTetGame(game: AnyGame, options: FreezeOptions = {}): void 
     clearInterval(game.timer);
     game.timer = null;
   }
-  if (game.lockTimer) {
-    clearTimeout(game.lockTimer);
-    game.lockTimer = null;
-  }
+  game._cancelLockTimer();
   clearGarbageTimers(game);
 
   if (game.isTimerRunning) {
-    game.elapsedTime += performance.now() - game.startTime;
+    game.elapsedTime += game.clock.now() - game.startTime;
     game.isTimerRunning = false;
     if (game.timerReqId) cancelAnimationFrame(game.timerReqId);
   }

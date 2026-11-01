@@ -140,10 +140,7 @@ Object.assign(Game.prototype, {
             this.lowestY = this.mino.y;
             this.moveCount = 0;
 
-            if (this.lockTimer) {
-                clearTimeout(this.lockTimer);
-                this.lockTimer = null;
-            }
+            this._cancelLockTimer();
             this.startGravity();
         }
         this.requestRedraw();
