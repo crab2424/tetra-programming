@@ -4,6 +4,12 @@
 // ※ core.js（class PuyoGame 定義）より後に読み込むこと
 // ─────────────────────────────────────────────
 
+// ゲームパッドの押す・離すをキーと同じ処理に通すための仮のキーコード（keyCodes のアクション名 → コード）
+const PUYO_PAD_CODE = {
+    moveLeft: '#pad.moveLeft', moveRight: '#pad.moveRight', softDrop: '#pad.softDrop',
+    quickDrop: '#pad.hardDrop', rotateCW: '#pad.rotateCW', rotateCCW: '#pad.rotateCCW',
+};
+
 Object.assign(PuyoGame.prototype, {
 
     // ══════════════════════════════════════════════
@@ -37,6 +43,97 @@ Object.assign(PuyoGame.prototype, {
         // 物理キーコードの押下状態。複数キーが同じアクションに割り当てられている場合、
         // 片方を離してももう片方が押されていればアクション継続中として扱うために使う。
         this._heldCodes = new Set();
+
+        // ゲームパッドの押す・離すも同じ処理を通すため、アクションごとに仮のコードを足す
+        // （'#pad.' で始まるコードはキーボードには無い）
+        for (const action in PUYO_PAD_CODE) keyCodes[action] = keyCodes[action].concat(PUYO_PAD_CODE[action]);
+
+        // ─── キーの取り込み（設計 source_assets/memory/record/tetlabo-record-design.md §4.1 D5）───
+        // keydown / keyup とゲームパッドの押す・離すは _inputQueue にためるだけにして、
+        // フレームの頭（_loop・カウントダウン中のループの最初の _drainInput）で届いた順に処理する。
+        // 以前は移動・回転・クイックドロップを keydown の中で即実行していたが、キーが届く瞬間は
+        // フレームと無関係なので、同じ操作でも落下・接地との前後が毎回変わっていた。
+        // 画面に出るのはどちらも次の描画なので、見える遅れは増えない。
+        // ポーズ・リスタートは試合そのものの操作ではないので、今までどおり keydown の中ですぐ処理する。
+        this._inputQueue = [];
+
+        // 押した瞬間の処理（以前の keydown 本体）
+        const applyKeyDown = (code, isRepeat) => {
+            this._heldCodes.add(code);
+            for (const action in keyCodes) {
+                if (keyCodes[action].includes(code)) this._keys[this._keyMap[action]] = true;
+            }
+
+            if (this._gs === 'spawnAnim' && !isRepeat) {
+                if (keyCodes.moveLeft.includes(code)) this.inputBuffer.push('left');
+                if (keyCodes.moveRight.includes(code)) this.inputBuffer.push('right');
+                if (keyCodes.rotateCW.includes(code)) this.inputBuffer.push('cw');
+                if (keyCodes.rotateCCW.includes(code)) this.inputBuffer.push('ccw');
+            }
+
+            if (keyCodes.moveLeft.includes(code)) {
+                if (this._dasDir !== -1) {
+                    this._dasDir = -1;
+                    this._dasTimer = 0;
+                    this._arrTimer = 0;
+                    if (this._gs === 'falling') this._tryMove(-1);
+                }
+            } else if (keyCodes.moveRight.includes(code)) {
+                if (this._dasDir !== 1) {
+                    this._dasDir = 1;
+                    this._dasTimer = 0;
+                    this._arrTimer = 0;
+                    if (this._gs === 'falling') this._tryMove(1);
+                }
+            }
+
+            if (this._gs !== 'falling') return;
+
+            // ★ クイックドロップ・回転はキーリピート（長押し）時は受け付けない（1回押し直したときのみ有効）
+            if (keyCodes.quickDrop.includes(code)) {
+                if (!isRepeat) this._tryQuickDrop();
+                return;
+            }
+            if (keyCodes.rotateCW.includes(code)) {
+                if (!isRepeat) this._tryRotate(1);
+            } else if (keyCodes.rotateCCW.includes(code)) {
+                if (!isRepeat) this._tryRotate(-1);
+            }
+        };
+
+        // 離したときの処理（以前の keyup 本体）
+        const applyKeyUp = (code) => {
+            this._heldCodes.delete(code);
+            for (const action in keyCodes) {
+                if (keyCodes[action].includes(code) && !keyCodes[action].some(c => this._heldCodes.has(c))) {
+                    delete this._keys[this._keyMap[action]];
+                }
+            }
+            if (keyCodes.moveLeft.includes(code) && this._dasDir === -1 && !this._keys[this._keyMap.moveLeft]) this._dasDir = 0;
+            if (keyCodes.moveRight.includes(code) && this._dasDir === 1 && !this._keys[this._keyMap.moveRight]) this._dasDir = 0;
+        };
+
+        this._applyInputEvent = (ev) => {
+            if (ev.down) applyKeyDown(ev.code, ev.repeat);
+            else applyKeyUp(ev.code);
+        };
+
+        // 押す・離すをためる。取り込むのはフレームの中（playing・starting）だけなので、
+        // それ以外のときの押す側は捨て（以前の keydown と同じ）、離す側はその場で反映する。
+        // ただし先にためた押す側が残っていれば、順番を崩さないよう離す側もためる。
+        // VERSUS のカウントダウン中（starting）はフレームが回っていないが、ためておいて
+        // 開始後の最初のフレームで取り込む（以前も押した状態だけは記録していた）。
+        const enqueue = (down, code, repeat) => {
+            const running = this.state === 'playing' || this.state === 'starting';
+            if (down) {
+                if (running) this._inputQueue.push({ down: true, code, repeat });
+            } else if (running || this._inputQueue.length) {
+                this._inputQueue.push({ down: false, code, repeat: false });
+            } else {
+                applyKeyUp(code);
+            }
+        };
+        this._enqueueInput = enqueue;
 
         this._keyHandlerDown = (e) => {
             // ★ 【修正】待機中のインスタンスは無視
@@ -74,78 +171,24 @@ Object.assign(PuyoGame.prototype, {
             // ★ これ以降の操作（移動、回転、ドロップ等）は、CPU制御時にはプレイヤーの入力を無視する
             if (this.isCpuControlled) return;
             // ★ ポーズ中（PRACTICE設定パネルを開いている間を含む）は操作を無視する。
-            //   tetの isPaused チェック（input.js）と同種。これが無いと _loop() 自体は
-            //   state!=='playing' で止まっていても _tryMove/_tryRotate/_tryQuickDrop が
-            //   直接盤面を書き換えてしまい、画面には反映されないままポーズ解除の瞬間に
-            //   一気に反映される不具合になる。
+            //   これが無いとポーズ中の操作が溜まり、ポーズ解除の瞬間に一気に反映される。
             //   カウントダウン中(starting)は通す：押下状態(_keys/_dasDir)を記録して DAS チャージと
             //   下キー高速落下の先行入力を効かせるため。_gs==='spawn' なので移動/回転/ドロップは
             //   _gs 判定で不発になり、盤面は書き換わらない。
             if (this.state !== 'playing' && this.state !== 'starting') return;
 
-            const isRepeat = e.repeat;
-            this._heldCodes.add(e.code);
-            for (const action in keyCodes) {
-                if (keyCodes[action].includes(e.code)) this._keys[this._keyMap[action]] = true;
-            }
-
-            if (this._gs === 'spawnAnim' && !isRepeat) {
-                if (keyCodes.moveLeft.includes(e.code)) this.inputBuffer.push('left');
-                if (keyCodes.moveRight.includes(e.code)) this.inputBuffer.push('right');
-                if (keyCodes.rotateCW.includes(e.code)) this.inputBuffer.push('cw');
-                if (keyCodes.rotateCCW.includes(e.code)) this.inputBuffer.push('ccw');
-            }
-
-            if (keyCodes.moveLeft.includes(e.code)) {
+            if (keyCodes.moveLeft.includes(e.code) || keyCodes.moveRight.includes(e.code) ||
+                keyCodes.quickDrop.includes(e.code) || keyCodes.rotateCW.includes(e.code) ||
+                keyCodes.rotateCCW.includes(e.code)) {
                 e.preventDefault();
-                if (this._dasDir !== -1) {
-                    this._dasDir = -1;
-                    this._dasTimer = 0;
-                    this._arrTimer = 0;
-                    if (this._gs === 'falling') this._tryMove(-1);
-                }
-            } else if (keyCodes.moveRight.includes(e.code)) {
-                e.preventDefault();
-                if (this._dasDir !== 1) {
-                    this._dasDir = 1;
-                    this._dasTimer = 0;
-                    this._arrTimer = 0;
-                    if (this._gs === 'falling') this._tryMove(1);
-                }
             }
-
-            if (this._gs !== 'falling') return;
-
-            // ★ クイックドロップ処理の追加
-            // ★ キーリピート（長押し）時は受け付けない（1回押し直したときのみ有効）
-            if (keyCodes.quickDrop.includes(e.code)) {
-                e.preventDefault();
-                if (!isRepeat) this._tryQuickDrop();
-                return;
-            }
-
-            // ★ 回転もキーリピート時は受け付けない（1回押し直したときのみ有効）
-            if (keyCodes.rotateCW.includes(e.code)) {
-                e.preventDefault();
-                if (!isRepeat) this._tryRotate(1);
-            } else if (keyCodes.rotateCCW.includes(e.code)) {
-                e.preventDefault();
-                if (!isRepeat) this._tryRotate(-1);
-            }
+            enqueue(true, e.code, e.repeat);
         };
 
         this._keyHandlerUp = (e) => {
             // ★ CPU制御時はキーの解放も無視する
             if (this.isCpuControlled) return;
-
-            this._heldCodes.delete(e.code);
-            for (const action in keyCodes) {
-                if (keyCodes[action].includes(e.code) && !keyCodes[action].some(c => this._heldCodes.has(c))) {
-                    delete this._keys[this._keyMap[action]];
-                }
-            }
-            if (keyCodes.moveLeft.includes(e.code) && this._dasDir === -1 && !this._keys[this._keyMap.moveLeft]) this._dasDir = 0;
-            if (keyCodes.moveRight.includes(e.code) && this._dasDir === 1 && !this._keys[this._keyMap.moveRight]) this._dasDir = 0;
+            enqueue(false, e.code);
         };
 
         document.addEventListener('keydown', this._keyHandlerDown);
@@ -228,6 +271,9 @@ Object.assign(PuyoGame.prototype, {
         }
 
         this._gpPrevState = this._gpPrevState || {};
+        // 押した状態（_heldCodes・_keys）は作り直したので、移動・回転などは離した扱いから始める
+        // （押しっぱなしなら次の読み取りで押したとして拾い直す）。ポーズ・リスタートは押しっぱなしで繰り返さないよう残す
+        for (const action in PUYO_PAD_CODE) this._gpPrevState[action] = false;
 
         this._gpConnectedHandler = (e) => {
             this._gamepadIndex = e.gamepad.index;
@@ -261,13 +307,13 @@ Object.assign(PuyoGame.prototype, {
             return pressed;
         };
 
-        const setKeyHeld = (code, held) => {
-            if (!code) return;
-            if (held) this._keys[code] = true;
-            else delete this._keys[code];
-        };
+        // ゲームパッドの読み取りは描画フレームごと（rAF）。以前は setInterval(16) の別ループで
+        // 移動・回転・クイックドロップをその場で実行していたが、キーボードと同じく押す・離すの変化だけを
+        // _inputQueue にためて、ゲームのフレームの頭で取り込む。
+        // ポーズ・リスタートは試合そのものの操作ではないので、今までどおりここですぐ処理する。
+        const pollGamepad = () => {
+            this._gamepadLoop = requestAnimationFrame(pollGamepad);
 
-        this._gamepadLoop = setInterval(() => {
             const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page');
             const gamePage = document.getElementById(activePageId);
             if (!gamePage || !gamePage.classList.contains('active')) return;
@@ -311,66 +357,30 @@ Object.assign(PuyoGame.prototype, {
 
             if (this.isCpuControlled) return;
 
-            const leftPressed = isPressedByMappings(pad, gpConfig.moveLeft) || (stickX <= -deadzone);
-            const rightPressed = isPressedByMappings(pad, gpConfig.moveRight) || (stickX >= deadzone);
-            const softPressed = isPressedByMappings(pad, gpConfig.softDrop) || (stickY >= deadzone);
-            const quickPressed = isPressedByMappings(pad, gpConfig.hardDrop) || (stickY <= -deadzone);
-            const cwPressed = isPressedByMappings(pad, gpConfig.rotateCW);
-            const ccwPressed = isPressedByMappings(pad, gpConfig.rotateCCW);
-
-            const prevLeft = !!this._gpPrevState.moveLeft;
-            const prevRight = !!this._gpPrevState.moveRight;
-            const prevQuick = !!this._gpPrevState.hardDrop;
-            const prevCW = !!this._gpPrevState.rotateCW;
-            const prevCCW = !!this._gpPrevState.rotateCCW;
-
-            setKeyHeld(this._keyMap.moveLeft, leftPressed);
-            setKeyHeld(this._keyMap.moveRight, rightPressed);
-            setKeyHeld(this._keyMap.softDrop, softPressed);
-
-            if (leftPressed && !rightPressed) {
-                if (this._dasDir !== -1) {
-                    this._dasDir = -1;
-                    this._dasTimer = 0;
-                    this._arrTimer = 0;
-                    if (this._gs === 'falling') this._tryMove(-1);
-                }
-            } else if (rightPressed && !leftPressed) {
-                if (this._dasDir !== 1) {
-                    this._dasDir = 1;
-                    this._dasTimer = 0;
-                    this._arrTimer = 0;
-                    if (this._gs === 'falling') this._tryMove(1);
-                }
-            } else {
-                this._dasDir = 0;
+            const pressedNow = {
+                moveLeft: isPressedByMappings(pad, gpConfig.moveLeft) || (stickX <= -deadzone),
+                moveRight: isPressedByMappings(pad, gpConfig.moveRight) || (stickX >= deadzone),
+                softDrop: isPressedByMappings(pad, gpConfig.softDrop) || (stickY >= deadzone),
+                quickDrop: isPressedByMappings(pad, gpConfig.hardDrop) || (stickY <= -deadzone),
+                rotateCW: isPressedByMappings(pad, gpConfig.rotateCW),
+                rotateCCW: isPressedByMappings(pad, gpConfig.rotateCCW),
+            };
+            // 押した・離したときだけためる（押していないアクションのキーボード入力を離した扱いにしない）
+            for (const action in pressedNow) {
+                const pressed = pressedNow[action];
+                if (pressed === !!this._gpPrevState[action]) continue;
+                // 試合の外の押す側は捨てる。前の状態は離したままにしておき、試合が始まってから押したとして拾う
+                if (pressed && this.state !== 'playing' && this.state !== 'starting') continue;
+                this._gpPrevState[action] = pressed;
+                this._enqueueInput(pressed, PUYO_PAD_CODE[action], false);
             }
-
-            if (this._gs === 'spawnAnim') {
-                if (leftPressed && !prevLeft) this.inputBuffer.push('left');
-                if (rightPressed && !prevRight) this.inputBuffer.push('right');
-                if (cwPressed && !prevCW) this.inputBuffer.push('cw');
-                if (ccwPressed && !prevCCW) this.inputBuffer.push('ccw');
-            }
-
-            if (this._gs === 'falling') {
-                if (quickPressed && !prevQuick) this._tryQuickDrop();
-                if (cwPressed && !prevCW) this._tryRotate(1);
-                if (ccwPressed && !prevCCW) this._tryRotate(-1);
-            }
-
-            this._gpPrevState.moveLeft = leftPressed;
-            this._gpPrevState.moveRight = rightPressed;
-            this._gpPrevState.softDrop = softPressed;
-            this._gpPrevState.hardDrop = quickPressed;
-            this._gpPrevState.rotateCW = cwPressed;
-            this._gpPrevState.rotateCCW = ccwPressed;
-        }, 16);
+        };
+        this._gamepadLoop = requestAnimationFrame(pollGamepad);
     },
 
     _removeGamepadHandlers() {
         if (this._gamepadLoop) {
-            clearInterval(this._gamepadLoop);
+            cancelAnimationFrame(this._gamepadLoop);
             this._gamepadLoop = null;
         }
         if (this._gpConnectedHandler) {
@@ -381,6 +391,14 @@ Object.assign(PuyoGame.prototype, {
             window.removeEventListener('gamepaddisconnected', this._gpDisconnectedHandler);
             this._gpDisconnectedHandler = null;
         }
+    },
+
+    // たまったキー・ゲームパッドの入力を届いた順に処理する（フレームの頭で呼ぶ）
+    _drainInput() {
+        const q = this._inputQueue;
+        if (!q || !q.length || !this._applyInputEvent) return;
+        for (let i = 0; i < q.length; i++) this._applyInputEvent(q[i]);
+        q.length = 0;
     },
 
     _onPauseKey() {

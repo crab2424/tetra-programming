@@ -453,7 +453,10 @@ export class OnlineGameController {
         if (dt > 100) dt = 100;
         if (dt < 0) dt = 0;
         g.lastTime = now;
-        if (g.state === "playing") g._update(dt);
+        if (g.state === "playing") {
+          g._drainInput?.(); // フレームの頭で入力を取り込む（engine.js _loop と同じ順）
+          g._update(dt);
+        }
       } else {
         // tet: rAFループ相当に時計を進めて重力tickを適用する。
         // 固定猶予はゲーム時計の予約なので、advance() の中で期限どおりに固定される。

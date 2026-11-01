@@ -157,7 +157,9 @@ Object.assign(PuyoGame.prototype, {
         if (this.state !== 'playing' && !continueForVersus) return;
         this._loopId = requestAnimationFrame(() => this._loop());
 
-        this.clock.advance(); // ゲーム時計を進める（tet 相手のおじゃま猶予などの予約もここで実行）
+        // 1 フレーム: 時計を進める（マージン・tet 相手のおじゃま猶予などの予約もここで実行）
+        //   → たまった入力の取り込み → 盤面を進める → 描画
+        this.clock.advance();
         let now = this.clock.now();
         let dt = now - this.lastTime;
         if (dt > 100) dt = 100;
@@ -165,6 +167,7 @@ Object.assign(PuyoGame.prototype, {
 
         // ★ gameover中は _update をスキップして描画のみ行う
         if (this.state === 'playing') {
+            this._drainInput();
             this._update(dt);
         }
         this._render();

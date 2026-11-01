@@ -109,7 +109,10 @@ class PuyoGame {
         this._keyMap = {};
         this._keyHandlerDown = null;
         this._keyHandlerUp = null;
-        this._gamepadLoop = null;
+        this._inputQueue = [];         // キー・ゲームパッドの押す/離す。フレームの頭の _drainInput で取り込む（input.js）
+        this._applyInputEvent = null;
+        this._enqueueInput = null;
+        this._gamepadLoop = null;      // ゲームパッド読み取りの rAF ID
         this._gpConnectedHandler = null;
         this._gpDisconnectedHandler = null;
         this._gpPrevState = {};

@@ -77,6 +77,7 @@ Object.assign(PuyoGame.prototype, {
             let dt = now - this.lastTime;
             if (dt > 100) dt = 100;
             this.lastTime = now;
+            this._drainInput(); // キーはフレームの頭でしか取り込まない（DAS の先行チャージのため、ここでも取り込む）
             this._updateDAS(dt);
             this._render();
         };
@@ -293,6 +294,7 @@ Object.assign(PuyoGame.prototype, {
         this._dasTimer = 0;
         this._arrTimer = 0;
         this._keys = {};
+        if (this._inputQueue) this._inputQueue.length = 0; // 前の試合でためたまま取り込まれなかった入力を捨てる
         this._priorityMove = false;
         this.quickTurnCount = 0;
         this.spawnAnimTimer = 0;
