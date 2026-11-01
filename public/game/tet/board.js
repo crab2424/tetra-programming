@@ -6,12 +6,32 @@
 
 Object.assign(Game.prototype, {
 
+    // ─── 乱数（設計: source_assets/memory/record/tetlabo-record-design.md §4.1 D3）───
+    // 試合の頭（_initGameState）で用途別の列を作り直す。VERSUS は先に nextMatchSeed と
+    // rngSide を渡して、両盤面のツモを同じ列にする（versus.js）。渡されていなければ新しいシード。
+    _newRngStreams() {
+        const seed = this.nextMatchSeed || GameRng.newSeed();
+        this.nextMatchSeed = null;
+        this.matchSeed = seed;
+        const side = this.rngSide || 0;
+        this._rng = {
+            tumo:    GameRng.stream(seed, 'tet.tumo'),
+            garbage: GameRng.stream(seed, 'tet.garbage.' + side),
+        };
+    },
+
+    _rngStream(name) {
+        if (!this._rng) this._newRngStreams();
+        return this._rng[name];
+    },
+
     getNextType() {
         if (this.bag.length === 0) {
             this.bag = [0, 1, 2, 3, 4, 5, 6];
             // シャッフル（Fisher-Yates）
-            // オンライン対戦では this.tumoRng（共有シードRNG）が注入され、全員同じツモ列になる
-            const rng = this.tumoRng || Math.random;
+            // オンライン対戦では this.tumoRng（共有シードRNG）が注入され、全員同じツモ列になる。
+            // それ以外は試合のシードから作ったツモ用の列（VERSUS は両盤面で同じ列）
+            const rng = this.tumoRng || this._rngStream('tumo');
             for (let i = this.bag.length - 1; i > 0; i--) {
                 const j = Math.floor(rng() * (i + 1));
                 [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
@@ -441,7 +461,7 @@ Object.assign(Game.prototype, {
         if (this.lockTimer) clearTimeout(this.lockTimer);
 
         // ポーズ時の計算用に開始時刻と設定時間を記録
-        this.lockStartTime = performance.now();
+        this.lockStartTime = this.clock.now();
         this.lockRemaining = delay;
 
         this.lockTimer = setTimeout(() => {

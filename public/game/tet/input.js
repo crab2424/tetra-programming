@@ -162,7 +162,7 @@ Object.assign(Game.prototype, {
                 if (keys[action].codes.includes(e.code)) this.keyState[action] = true
             }
 
-            const now = performance.now()
+            const now = this.clock.now()
 
             // ─── 即時反応させたいアクションは keydown 内で直接実行する ───
             // _pollInput は rAF 駆動のため、key イベントから最大 1 フレ分の遅延が
@@ -307,7 +307,7 @@ Object.assign(Game.prototype, {
         // ループ本体は rAF 駆動の startRenderLoop() から this._pollInput() として呼ばれる。
         // setInterval(…, 4) で 250Hz 回していた頃と違い rAF と同期するため、
         // tick が貯まらず描画と同フレームでキー反映される＝体感ラグが減る。
-        this._lastFrameTime = performance.now()
+        this._lastFrameTime = this.clock.now()
         this._pollInput = () => {
             if (!gamePage || !gamePage.classList.contains('active')) return
             if (this.isPaused) return
@@ -315,7 +315,7 @@ Object.assign(Game.prototype, {
             if (this.isCountingDown) return;
             if (!this.mino) return;
 
-            const nowPerf = performance.now()
+            const nowPerf = this.clock.now()
             const delta = nowPerf - this._lastFrameTime
             this._lastFrameTime = nowPerf
 
@@ -654,7 +654,7 @@ Object.assign(Game.prototype, {
                 if (pressed && !this.keyState[action]) {
                     // キーダウンと同等の初回処理
                     this.keyState[action] = true
-                    const now = performance.now()
+                    const now = this.clock.now()
                     if (action === 'moveLeft' && this._leftPressTime === null) {
                         this._leftPressTime = now
                         this._lastMoveTimeLeft = 0

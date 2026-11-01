@@ -18,6 +18,7 @@ class PuyoGame {
         //   versus.js（CPU戦）・driver.ts（online相手パペット）が生成直後にtrueへ設定する。
         this.suppressBlink = false;
         this.rng = null;
+        this.clock = new GameClock(); // ゲーム時計（VERSUS は両盤面に同じ時計を渡す）
 
         this.canvas = null;
         this.ctx = null;
@@ -77,7 +78,7 @@ class PuyoGame {
         this._timerReqId = null;
 
         this._loopId = null;
-        this.lastTime = performance.now();
+        this.lastTime = this.clock.now();
 
         this.field = [];
         this.nextQueue = [];
@@ -142,9 +143,42 @@ class PuyoGame {
         this.isPaused = false;
     }
 
+    // ─── 乱数（設計: source_assets/memory/record/tetlabo-record-design.md §4.1 D3）───
+    // ツモ（使う色の選び方・ペアの色）。オンラインでは this.rng（共有シードRNG）が注入される。
+    // ★ ツモの列はツモにしか使わない。以前はおじゃまの列・連鎖文字の位置も同じ列から引いて
+    //   いたため、VERSUS で同じシードを配っても連鎖やおじゃまのたびに両者のツモがずれていた。
     _random() {
         if (this.rng) return this.rng();
-        return Math.random();
+        return this._rngStream('tumo')();
+    }
+
+    // おじゃまの列（送る側が列を付けてこなかったとき）
+    _randomOjama() {
+        return this._rngStream('ojama')();
+    }
+
+    // 連鎖文字を出す位置（見た目だけ。録画の再生で同じ絵になるようシード付きにする）
+    _randomEffect() {
+        return this._rngStream('effect')();
+    }
+
+    // 試合の頭（initGame）で用途別の列を作り直す。VERSUS は先に nextMatchSeed と rngSide を
+    // 渡して、両盤面のツモを同じ列にする（versus.js）。渡されていなければ新しいシード。
+    _newRngStreams() {
+        const seed = this.nextMatchSeed || GameRng.newSeed();
+        this.nextMatchSeed = null;
+        this.matchSeed = seed;
+        const side = this.rngSide || 0;
+        this._rng = {
+            tumo:   GameRng.stream(seed, 'puyo.tumo'),
+            ojama:  GameRng.stream(seed, 'puyo.ojama.' + side),
+            effect: GameRng.stream(seed, 'puyo.effect.' + side),
+        };
+    }
+
+    _rngStream(name) {
+        if (!this._rng) this._newRngStreams();
+        return this._rng[name];
     }
 
     // ══════════════════════════════════════════════

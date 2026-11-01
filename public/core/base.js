@@ -439,7 +439,7 @@ class Mino {
     // mino の種類を決定してブロックを初期化
     constructor(type = null) {
         this.pivot = { x: 1.5, y: 1.5 }; // デフォルトの回転軸（4x4中心）
-        this.type = (type !== null) ? type : Math.floor(Math.random() * 7);
+        this.type = (type !== null) ? type : 0;
         this.rotation = 0; // 0:上 1:右 2:下 3:左
         this.initBlocks()
     }

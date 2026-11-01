@@ -56,6 +56,9 @@ Object.assign(Game.prototype, {
             this.timeLimit = 0;
         }
 
+        // 乱数を試合ごとに作り直す（7バッグより先に）
+        this._newRngStreams();
+
         // 7バッグをリセット
         // ★nextQueue は内部で11個保持（CPU6のパフェ探索が10手先まで読むため）。
         //   ただし画面表示は先頭5個のみ（drawNext 参照）。
@@ -105,7 +108,7 @@ Object.assign(Game.prototype, {
                     }
                     if (this._tetMarginStep < TET_MARGIN_MAX_STEP) {
                         this._vsMarginTimer = setTimeout(step, TET_MARGIN_INTERVAL_MS);
-                        this._vsMarginTimerStart = performance.now();
+                        this._vsMarginTimerStart = this.clock.now();
                         this._vsMarginTimerDuration = TET_MARGIN_INTERVAL_MS;
                         this._vsMarginTimerCb = step;
                     } else {
@@ -116,7 +119,7 @@ Object.assign(Game.prototype, {
                     // 次ステップまでの残り（事前経過がステップ境界に満たない端数を差し引く）
                     const nextDelay = TET_MARGIN_INTERVAL_MS - (preElapsedMs % TET_MARGIN_INTERVAL_MS);
                     this._vsMarginTimer = setTimeout(step, nextDelay);
-                    this._vsMarginTimerStart = performance.now();
+                    this._vsMarginTimerStart = this.clock.now();
                     this._vsMarginTimerDuration = nextDelay;
                     this._vsMarginTimerCb = step;
                 } else {
@@ -129,7 +132,7 @@ Object.assign(Game.prototype, {
                 startMargin(-this.vsMarginTimeMs); // 負=テーブルを進めた状態で即突入
             } else {
                 this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
-                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimerStart = this.clock.now();
                 this._vsMarginTimerDuration = this.vsMarginTimeMs;
                 this._vsMarginTimerCb = startMargin;
             }
@@ -215,7 +218,7 @@ Object.assign(Game.prototype, {
         this.startRenderLoop();
 
         // タイマー開始
-        this.startTime = performance.now();
+        this.startTime = this.clock.now();
         this.isTimerRunning = true;
         this.startTimerLoop();
 
@@ -233,7 +236,7 @@ Object.assign(Game.prototype, {
     // 既存の clearInterval(this.timer) 呼び出しは安全な no-op として残してOK。
     startGravity() {
         this.timer = true;
-        this._gravityLastTime = performance.now();
+        this._gravityLastTime = this.clock.now();
     },
 
     // ─── 重力 tick (rAF ループから毎フレ呼ばれる) ───
@@ -256,12 +259,12 @@ Object.assign(Game.prototype, {
         // 動かない局面では「時刻だけ前進」させる＝ポーズ復帰やカウントダウン明け
         // の瞬間に溜まった経過時間で多重落下するのを防ぐ
         if (this.isPaused || this.isCountingDown || !this.mino || this.gravityDisabled) {
-            this._gravityLastTime = performance.now();
+            this._gravityLastTime = this.clock.now();
             return;
         }
         // PRACTICE設定パネル：レベルに依存しない速度を直接指定できる（未指定時は通常どおりレベル依存）
         const speed = (typeof this.practiceFallSpeedMs === 'number') ? this.practiceFallSpeedMs : (LEVEL_SPEEDS[this.level] || 7);
-        const now = performance.now();
+        const now = this.clock.now();
         const elapsed = now - this._gravityLastTime;
         if (elapsed < speed) return;
         const dropCount = Math.floor(elapsed / speed);
@@ -294,7 +297,7 @@ Object.assign(Game.prototype, {
         this.isPaused = true;
 
         if (this.isTimerRunning) {
-            this.elapsedTime += performance.now() - this.startTime;
+            this.elapsedTime += this.clock.now() - this.startTime;
             this.isTimerRunning = false;
             cancelAnimationFrame(this.timerReqId);
             this.updateTimeDisplay();
@@ -402,7 +405,7 @@ Object.assign(Game.prototype, {
         if (this.lockTimer) {
             clearTimeout(this.lockTimer);
             this.lockTimer = null;
-            this.lockRemaining -= (performance.now() - this.lockStartTime);
+            this.lockRemaining -= (this.clock.now() - this.lockStartTime);
             this._wasLockingWhenPaused = true;
         } else {
             this._wasLockingWhenPaused = false;
@@ -412,7 +415,7 @@ Object.assign(Game.prototype, {
         if (this._vsMarginTimer) {
             clearTimeout(this._vsMarginTimer);
             this._vsMarginTimer = null;
-            this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (performance.now() - this._vsMarginTimerStart);
+            this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (this.clock.now() - this._vsMarginTimerStart);
         }
 
         // おじゃま降下猶予タイマーの停止と残り時間の保存
@@ -421,7 +424,7 @@ Object.assign(Game.prototype, {
                 if (t.id) {
                     clearTimeout(t.id);
                     t.id = null;
-                    t.remaining = Math.max(0, t.duration - (performance.now() - t.start));
+                    t.remaining = Math.max(0, t.duration - (this.clock.now() - t.start));
                 }
             }
         }
@@ -429,7 +432,7 @@ Object.assign(Game.prototype, {
         this.showPauseOverlay()
 
         if (this.isTimerRunning) {
-            this.elapsedTime += performance.now() - this.startTime;
+            this.elapsedTime += this.clock.now() - this.startTime;
             this.isTimerRunning = false;
             cancelAnimationFrame(this.timerReqId);
         }
@@ -455,7 +458,7 @@ Object.assign(Game.prototype, {
         if (this._vsMarginTimerRemaining !== null && this._vsMarginTimerCb) {
             this._vsMarginTimerDuration = Math.max(0, this._vsMarginTimerRemaining);
             this._vsMarginTimer = setTimeout(this._vsMarginTimerCb, this._vsMarginTimerDuration);
-            this._vsMarginTimerStart = performance.now();
+            this._vsMarginTimerStart = this.clock.now();
             this._vsMarginTimerRemaining = null;
         }
 
@@ -465,7 +468,7 @@ Object.assign(Game.prototype, {
                 if (!t.id) {
                     const rem = (t.remaining !== null && t.remaining !== undefined) ? t.remaining : t.duration;
                     t.duration = rem; // 以降のポーズ計算用に残り時間を基準にする
-                    t.start = performance.now();
+                    t.start = this.clock.now();
                     t.remaining = null;
                     t.id = setTimeout(t.cb, rem);
                 }
@@ -473,7 +476,7 @@ Object.assign(Game.prototype, {
         }
 
         if (!this.isTimerRunning) {
-            this.startTime = performance.now();
+            this.startTime = this.clock.now();
             this.isTimerRunning = true;
             this.startTimerLoop();
         }
@@ -512,7 +515,7 @@ Object.assign(Game.prototype, {
     updateTimeDisplay() {
         let totalMs = this.elapsedTime;
         if (this.isTimerRunning) {
-            totalMs += performance.now() - this.startTime;
+            totalMs += this.clock.now() - this.startTime;
         }
 
         let displayMs = totalMs;
@@ -565,7 +568,7 @@ Object.assign(Game.prototype, {
     // ポーズ時間を除いた実プレイ経過ms（APM/LPM・記録保存で使用）
     getActiveMs() {
         let ms = this.elapsedTime;
-        if (this.isTimerRunning) ms += performance.now() - this.startTime;
+        if (this.isTimerRunning) ms += this.clock.now() - this.startTime;
         return ms;
     },
 });

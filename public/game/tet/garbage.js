@@ -82,18 +82,19 @@ Object.assign(Game.prototype, {
                 // ★ 穴は受ける側がこの着弾（applyGarbage の1回）の中で決める（VERSUS・オンラインとも送る側は穴を付けない）。
                 //   g.holes があるのは PRACTICE が自分で穴列を作って積んだときだけ。
                 let currentHole;
+                const rng = this._rngStream('garbage');
                 if (g.holes && g.holes[i] !== undefined && g.holes[i] !== null) {
                     currentHole = g.holes[i];
                 } else if (droppedLines === 0) {
                     // 今回受ける一番下の段（最初の1段目）は完全にランダム
-                    currentHole = Math.floor(Math.random() * COLS_COUNT);
+                    currentHole = Math.floor(rng() * COLS_COUNT);
                 } else {
                     // 2段目以降は70%で同じ穴、30%で違う穴
                     const rate = this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate / 100 : 0.7;
-                    if (Math.random() < rate) {
+                    if (rng() < rate) {
                         currentHole = lastHole;
                     } else {
-                        const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1;
+                        const offset = Math.floor(rng() * (COLS_COUNT - 1)) + 1;
                         currentHole = (lastHole + offset) % COLS_COUNT;
                     }
                 }

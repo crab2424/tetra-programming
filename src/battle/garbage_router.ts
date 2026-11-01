@@ -119,7 +119,7 @@ export function deliverLocalWithReadyTimer(
     // 受け手がポーズ中なら開始を保留し、resume 時に計時を始める
     timerEntry.remaining = delayMs;
   } else {
-    timerEntry.start = performance.now();
+    timerEntry.start = opponent.clock.now();
     timerEntry.id = setTimeout(timerEntry.cb, delayMs);
   }
 }
@@ -190,7 +190,7 @@ export function deliverLocalStaged(
     if (opponent.isPaused) {
       timerEntry.remaining = internalMs;
     } else {
-      timerEntry.start = performance.now();
+      timerEntry.start = opponent.clock.now();
       timerEntry.id = setTimeout(timerEntry.cb, internalMs);
     }
   }
@@ -217,7 +217,7 @@ export function reseatLocalGarbageTimers(owner: any): void {
   const timers: any[] = owner._garbageTimers;
   if (!Array.isArray(timers) || timers.length === 0) return;
 
-  const now = performance.now();
+  const now = owner.clock.now();
   for (const entry of timers) {
     let remaining: number;
     if (entry.id) {

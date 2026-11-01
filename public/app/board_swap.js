@@ -32,7 +32,7 @@ const BoardSwap = (() => {
     'field',                         // Field インスタンスごと入れ替える
     'mino',                          // 操作中のミノも持っていく（捨てない）
     'holdMino', 'canHold',
-    'nextQueue', 'bag', 'tumoRng',   // ツモは乱数の続きごと持っていく
+    'nextQueue', 'bag', 'tumoRng', '_rng',   // ツモは乱数の続きごと持っていく（_rng は用途別の列）
     'ren', 'backToBack',             // 火力計算に効くので盤面側の情報として扱う
     'pendingAttack', 'pendingInternalAttack',
     'garbageQueue', '_garbageTimers',
@@ -43,7 +43,7 @@ const BoardSwap = (() => {
   //   途中で止めて捨てると、消えるはずのぷよが盤面に残り連鎖数も切れてしまう。
   const PUYO_SWAP_KEYS = [
     // 盤面・ツモ
-    'field', 'nextQueue', 'activeColors', 'rng',
+    'field', 'nextQueue', 'activeColors', 'rng', '_rng',
     // 火力・おじゃま
     'attackScore', 'generatedOjamaTotal', 'pendingFire',
     'tetAttackCarry', 'tetAttackLines', 'tetPendingFire', 'tetDropScore', 'hasTetZenkeshi',

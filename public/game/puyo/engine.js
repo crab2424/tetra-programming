@@ -157,7 +157,7 @@ Object.assign(PuyoGame.prototype, {
         if (this.state !== 'playing' && !continueForVersus) return;
         this._loopId = requestAnimationFrame(() => this._loop());
 
-        let now = performance.now();
+        let now = this.clock.now();
         let dt = now - this.lastTime;
         if (dt > 100) dt = 100;
         this.lastTime = now;
@@ -1054,13 +1054,13 @@ Object.assign(PuyoGame.prototype, {
     _startTimer() {
         this.elapsed = 0;
         this._timerRunning = true;
-        this._timerStart = performance.now();
+        this._timerStart = this.clock.now();
         this._timerTick();
     },
 
     _stopTimer() {
         if (this._timerRunning) {
-            this.elapsed += performance.now() - this._timerStart;
+            this.elapsed += this.clock.now() - this._timerStart;
             this._timerRunning = false;
         }
         if (this._timerReqId) {
@@ -1071,7 +1071,7 @@ Object.assign(PuyoGame.prototype, {
 
     _timerTick() {
         if (!this._timerRunning) return;
-        const now = performance.now();
+        const now = this.clock.now();
         const total = this.elapsed + (now - this._timerStart);
         this._updateTimeDisplay(total);
         this._timerReqId = requestAnimationFrame(() => this._timerTick());

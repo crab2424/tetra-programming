@@ -78,6 +78,9 @@ function _switchToVersusMixedLayout(playerRule, cpuRule) {
     window.BattleLayout.applyVersusLayout(playerRule, cpuRule);
 }
 
+// ★ ゲームでは使っていない（2026-11 から試合の乱数は core/game_rng.js）。
+//   training/puyo-lv5/tests/gen_js_cases.mjs がこの関数を抜き出して学習用シミュとの一致を
+//   見ているため残している。
 function createSeededRandom(seed) {
     let s = seed;
     return function() {
@@ -204,8 +207,11 @@ async function startVersusGame() {
     playerSideLabel.textContent = isPlayerCpu ? _cpuLabel(playerCpuLevel) + ' (1P)' : playerSideLabel.dataset.defaultText;
   }
 
-  // xorshift はシード0だと0を返し続けるため 1 以上にする
-  const sharedSeed = Math.floor(Math.random() * 1000000) + 1;
+  // 試合のシードと時計を両盤面で共有する（設計: source_assets/memory/record/tetlabo-record-design.md §4.1）。
+  // シードは各盤面の初期化（tet: _initGameState / puyo: initGame）で用途別の列になる。
+  // ツモの列は両盤面で同じ、おじゃまの穴・列は rngSide で別の列。
+  const matchSeed = GameRng.newSeed();
+  const matchClock = new GameClock();
 
   const isPlayerPuyo = versusPlayerRule === 'puyo';
   const isCpuPuyo = versusCpuRule === 'puyo';
@@ -217,24 +223,29 @@ async function startVersusGame() {
   if (isPlayerPuyo) {
       if (!window._puyoGamePlayer) window._puyoGamePlayer = new PuyoGame('player');
       window._game = window._puyoGamePlayer;
-      window._game.rng = createSeededRandom(sharedSeed);
   } else {
       if (!window._tetGamePlayer) window._tetGamePlayer = new Game('player');
       window._game = window._tetGamePlayer;
-      // ツモ順をCPUと共通にする（getNextType が tumoRng を使う。ONLINE と同じ仕組み）
-      window._game.tumoRng = createSeededRandom(sharedSeed);
   }
+  window._game.nextMatchSeed = matchSeed;
+  window._game.rngSide = 0;
+  window._game.clock = matchClock;
+  window._game.tumoRng = null; // 外から差し込むツモ（tumoRng / rng）はオンライン専用。前の対戦の残りを消す
+  window._game.rng = null;
 
   // ─── CPU インスタンス生成 ───
   if (isCpuPuyo) {
       if (!window._puyoGameCpu) window._puyoGameCpu = new PuyoGame('cpu');
       window._cpuGame = window._puyoGameCpu;
-      window._cpuGame.rng = createSeededRandom(sharedSeed);
   } else {
       if (!window._tetGameCpu) window._tetGameCpu = new Game('cpu');
       window._cpuGame = window._tetGameCpu;
-      window._cpuGame.tumoRng = createSeededRandom(sharedSeed);
   }
+  window._cpuGame.nextMatchSeed = matchSeed;
+  window._cpuGame.rngSide = 1;
+  window._cpuGame.clock = matchClock;
+  window._cpuGame.tumoRng = null;
+  window._cpuGame.rng = null;
 
   // ─── 共通設定 ───
   window._game.currentMode = 'versus';

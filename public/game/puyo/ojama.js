@@ -281,7 +281,7 @@ Object.assign(PuyoGame.prototype, {
     // ポーズ時間を除いた実プレイ経過ms（APM/LPM・記録保存で使用。tet側getActiveMs()と同じ思想）
     getActiveMs() {
         let ms = this.elapsed || 0;
-        if (this._timerRunning) ms += performance.now() - this._timerStart;
+        if (this._timerRunning) ms += this.clock.now() - this._timerStart;
         return ms;
     },
 
@@ -486,7 +486,7 @@ Object.assign(PuyoGame.prototype, {
                 .filter(c => Number.isInteger(c) && c >= 0 && c < PConfig.cols);
             while (cols.length < fractions) {
                 const available = [0, 1, 2, 3, 4, 5].filter(c => !cols.includes(c));
-                cols.push(available.length > 0 ? available[Math.floor(this._random() * available.length)] : Math.floor(this._random() * PConfig.cols));
+                cols.push(available.length > 0 ? available[Math.floor(this._randomOjama() * available.length)] : Math.floor(this._randomOjama() * PConfig.cols));
             }
             for (let i = 0; i < fractions; i++) {
                 this.field[r][cols[i]] = 6;

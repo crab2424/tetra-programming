@@ -10,6 +10,7 @@ Object.assign(PuyoGame.prototype, {
         this._setupCanvas();
         this._setupStatDisplay();
         this._loadImages(() => {
+            this._newRngStreams(); // 乱数を試合ごとに作り直す（色・ツモより先に）
             this._initActiveColors();
             this._resetState();
 
@@ -54,7 +55,7 @@ Object.assign(PuyoGame.prototype, {
     _startGameplay() {
         this._stopCountdownDas(); // ★ カウントダウン用DASループを止めてから本編ループへ移行（DASのチャージ量は維持）
         this.state = 'playing';
-        this.lastTime = performance.now();
+        this.lastTime = this.clock.now();
         this._startTimer();
         this._loop();
     },
@@ -65,11 +66,11 @@ Object.assign(PuyoGame.prototype, {
     // その結果、本編開始時には DAS がチャージ済みとなり、スタート直後から横移動できる。
     _startCountdownDas() {
         this._stopCountdownDas();
-        this.lastTime = performance.now();
+        this.lastTime = this.clock.now();
         const tick = () => {
             if (this.state !== 'starting') { this._countdownLoopId = null; return; }
             this._countdownLoopId = requestAnimationFrame(tick);
-            const now = performance.now();
+            const now = this.clock.now();
             let dt = now - this.lastTime;
             if (dt > 100) dt = 100;
             this.lastTime = now;
@@ -122,7 +123,7 @@ Object.assign(PuyoGame.prototype, {
         if (this._vsMarginTimer) {
             clearTimeout(this._vsMarginTimer);
             this._vsMarginTimer = null;
-            this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (performance.now() - this._vsMarginTimerStart);
+            this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (this.clock.now() - this._vsMarginTimerStart);
         }
     },
 
@@ -130,19 +131,19 @@ Object.assign(PuyoGame.prototype, {
         if (this.state !== 'paused') return;
         this.state = 'playing';
         this.isPaused = false;
-        this.lastTime = performance.now();
+        this.lastTime = this.clock.now();
 
         // マージンタイマーの再開
         if (this._vsMarginTimerRemaining !== null && this._vsMarginTimerCb) {
             this._vsMarginTimerDuration = Math.max(0, this._vsMarginTimerRemaining);
             this._vsMarginTimer = setTimeout(this._vsMarginTimerCb, this._vsMarginTimerDuration);
-            this._vsMarginTimerStart = performance.now();
+            this._vsMarginTimerStart = this.clock.now();
             this._vsMarginTimerRemaining = null;
         }
 
         // ★ 修正箇所：再開時は this.elapsed をリセットしない
         this._timerRunning = true;
-        this._timerStart = performance.now();
+        this._timerStart = this.clock.now();
         this._timerTick();
         this._loop();
     },
@@ -238,7 +239,7 @@ Object.assign(PuyoGame.prototype, {
                     // 上限（ステップ10, レート1）未満なら次のタイマーをセット
                     if (this._puyoMarginStep < PUYO_MARGIN_MAX_STEP) {
                         this._vsMarginTimer = setTimeout(step, PUYO_MARGIN_INTERVAL_MS);
-                        this._vsMarginTimerStart = performance.now();
+                        this._vsMarginTimerStart = this.clock.now();
                         this._vsMarginTimerDuration = PUYO_MARGIN_INTERVAL_MS;
                         this._vsMarginTimerCb = step;
                     } else {
@@ -249,7 +250,7 @@ Object.assign(PuyoGame.prototype, {
                     // 次ステップまでの残り（事前経過がステップ境界に満たない端数を差し引く）
                     const nextDelay = PUYO_MARGIN_INTERVAL_MS - (preElapsedMs % PUYO_MARGIN_INTERVAL_MS);
                     this._vsMarginTimer = setTimeout(step, nextDelay);
-                    this._vsMarginTimerStart = performance.now();
+                    this._vsMarginTimerStart = this.clock.now();
                     this._vsMarginTimerDuration = nextDelay;
                     this._vsMarginTimerCb = step;
                 } else {
@@ -262,7 +263,7 @@ Object.assign(PuyoGame.prototype, {
                 startMargin(-this.vsMarginTimeMs); // 負=テーブルを進めた状態で即突入
             } else {
                 this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
-                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimerStart = this.clock.now();
                 this._vsMarginTimerDuration = this.vsMarginTimeMs;
                 this._vsMarginTimerCb = startMargin;
             }

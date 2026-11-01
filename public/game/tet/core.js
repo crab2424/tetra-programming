@@ -8,6 +8,7 @@ class Game {
     constructor(canvasPrefix = null) {
         this.canvasPrefix = canvasPrefix; // null なら通常モード
         this.rule = 'tet';
+        this.clock = new GameClock(); // ゲーム時計（VERSUS は両盤面に同じ時計を渡す）
         this.initMainCanvas()
         this.initNextCanvas()
         this.initHoldCanvas()
