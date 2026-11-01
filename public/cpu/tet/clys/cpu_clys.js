@@ -240,6 +240,8 @@ window.CPUClys = class {
             const temp = new Mino(move.id);
             temp.spawn();
             this.game.mino = temp;
+            // 本番の holdCurrentMino / popMino と同じく、出現位置が塞がっていたら1段上から出る（cpu7.js と同じ）
+            if (!this.game.valid(0, 0)) temp.y -= 1;
             pathQueue = this.buildActionQueue(move);
         } finally {
             this.game.mino = savedMino;
@@ -265,7 +267,7 @@ window.CPUClys = class {
 
 // ── 操作の組み立て・実行・予測表示は lv7 と同じものを使う ──
 for (const name of [
-    'getGhostY', 'canDropStraightFromTo', 'buildActionQueue', 'processActionQueue',
+    'getGhostY', 'canDropStraightFromTo', 'buildActionQueue', 'buildShortActionQueue', 'queueLandsAt', 'processActionQueue',
     'initEstimateContainer', 'getClearedLines', 'renderEstimatePlace', 'createEstimateBlocks',
 ]) {
     window.CPUClys.prototype[name] = window.CPU7.prototype[name];

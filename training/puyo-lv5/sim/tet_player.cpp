@@ -304,6 +304,47 @@ int TetPlayer::marginStep(double t) const {
     return std::min(5, (int)((t - marginTimeMs) / 32000.0));
 }
 
+// lv7_wasm.cpp parse_ctx の並び（lv7-threat-design.md §4.4）。相手の NEXT は画面に出る 5 本まで
+int TetPlayer::buildLv7Ctx(int* ctx) const {
+    std::memset(ctx, 0, sizeof(int) * TET_LV7_CTX_MAX);
+    ctx[0] = 1;
+    ctx[16] = marginStep(now);
+    // 自分の予告（internal は除く）。ready までの ms・穴の列（受ける側で決まるので -1）
+    int g = 0;
+    for (const auto& e : garbageQueue) {
+        if (now < e.internalUntil || g >= 16) continue;
+        int* q = ctx + 19 + 4 * g;
+        q[0] = e.amount;
+        q[1] = e.ready ? 1 : 0;
+        q[2] = e.ready ? 0 : (int)std::min(std::max(e.readyAt - now, 0.0), 1e6);
+        q[3] = -1;
+        g++;
+    }
+    ctx[18] = g;
+    const int boardAt = 19 + 4 * g;
+    if (!opp || opp->dead || opp->cur < 0) return boardAt;
+    ctx[1] = 1;
+    ctx[2] = opp->cur;
+    ctx[3] = opp->hold;
+    const int n = std::min<int>(5, (int)opp->queue.size());
+    ctx[4] = n;
+    for (int i = 0; i < n; i++) ctx[5 + i] = opp->queue[i];
+    ctx[12] = opp->b2b ? 1 : 0;
+    ctx[13] = opp->ren;
+    ctx[14] = opp->incomingLines();
+    ctx[15] = opp->marginStep(now);
+    // 相手の bag を「見える NEXT を引いた後」に戻す（Bag::deupdate と同じ：満杯なら空にしてから足す）
+    int bag = 0;
+    for (int v : opp->bag) bag |= 1 << v;
+    for (int i = (int)opp->queue.size() - 1; i >= n; i--) {
+        if (bag == 0x7F) bag = 0;
+        bag |= 1 << opp->queue[i];
+    }
+    ctx[17] = bag == 0x7F ? 0 : bag;
+    for (int i = 0; i < 250; i++) ctx[boardAt + i] = (opp->rows[i / 10] >> (i % 10)) & 1;
+    return boardAt + 250;
+}
+
 int TetPlayer::stackHeight() const {
     for (int y = 0; y < TROWS; y++) if (rows[y]) return TROWS - y;
     return 0;
@@ -559,7 +600,9 @@ void TetPlayer::lockPiece(double t) {
 
     // 次のミノの直前に、届いているおじゃまを適用（DAMAGE ON CLEAR が ON なら消去時も）
     now = t;
+    const int taken0 = st.garbageLinesTaken;
     if (damageOnClear || lines == 0) applyGarbage();
+    if (keepLog) { locks.back().landed = st.garbageLinesTaken - taken0; locks.back().height = stackHeight(); }
 
     // popMino
     int nt = queue.front();
@@ -759,9 +802,26 @@ double TetPlayer::plan() {
             int tsType = -1;   // lv6n は探索が T-spin の種類を返す（clys は経路の最後の操作から推定）
             if (level == TET_LV6N) {
                 // lv6 の新しい探索：current＋内部 NEXT 全部（深さ clysDepth まで使う）。幅・締め切りも clys の設定欄を使う
-                int nout[96];
-                cpuSearchLv6n(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights, tetWeightsLen(weightLevel()),
-                              clysWidth, clysDepth, clysThinkMs, nout, 96);
+                // テト同士なら ctx（相手の状態・予告・マージン段）つきの lv7Search2。見積もりの重みが 0 なら結果は同じ
+                int nout[TET_LV7_OUT_LEN];
+                if (opp) {
+                    int ctx[TET_LV7_CTX_MAX];
+                    const int ctxLen = buildLv7Ctx(ctx);
+                    cpuSearchLv6n2(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights,
+                                   tetWeightsLen(weightLevel()), clysWidth, clysDepth, clysThinkMs, ctx, ctxLen, nout,
+                                   TET_LV7_OUT_LEN);
+                    if (keepLog && (nout[96] & 1)) {
+                        TThreatRec r{};
+                        r.t = now; r.myPieces = st.pieces; r.oppPieces = opp->st.pieces;
+                        r.myHeight = stackHeight(); r.myIncoming = sc.incoming;
+                        r.oppHeight = opp->stackHeight(); r.oppIncoming = opp->incomingLines(); r.oppRen = opp->ren;
+                        std::memcpy(r.out, nout + 96, sizeof r.out);
+                        threats.push_back(r);
+                    }
+                } else {
+                    cpuSearchLv6n(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights,
+                                  tetWeightsLen(weightLevel()), clysWidth, clysDepth, clysThinkMs, nout, 96);
+                }
                 // 下の処理は clys の出力の並びで読むので詰め直す（path は [16..]）
                 std::memset(cout_, 0, sizeof cout_);
                 for (int i = 0; i < 12; i++) cout_[i] = nout[i];

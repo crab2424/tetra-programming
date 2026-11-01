@@ -53,6 +53,17 @@ struct Weight
     i32 ren_calm_pct;         // L1 平時の REN の報酬の割合（%）
     i32 t_lookahead;          // L3 >0 のとき T-slot の寄付の T の本数を「HOLD＋確定 NEXT の先 t_lookahead 本の T の数」で数える（原作は bag 推定）
     i32 nl_split;             // L5 >0 のとき、ビームを「最後の手で消去あり（L）」と「なし（N）」に分け、L に幅のこの % を割り当てる
+
+    // ── 相手の火力の見積もり（T0。lv7-threat-design.md §3・§5.4）。lv7Search2 の ctx に相手があるときだけ使う ──
+    i32 threat_width;         // >0 のとき相手の盤面でこの幅のビームを回す（方法 A）。0 は相手を読まない
+    i32 threat_ms;            // 方法 A の締め切り（ms、0 なら 5）
+    i32 ren_width;            // >0 のとき REN 探索（方法 B）をこの幅で回す。0 は回さない
+    i32 ren_samples;          // 方法 B：見える NEXT の先のツモの並べ替えの通り数（0 なら 16）
+    i32 ren_ext;              // 方法 B：並べ替えで足す本数（0 なら 12）
+    i32 opp_ms;               // 相手の1手の ms（固定。0 なら 330）
+    i32 my_ms;                // 自分の1手の ms（固定。0 なら 330）
+    i32 margin_own;           // 1＝自分の探索の火力も ctx のマージン段の表で数える（0 は未突入の表のまま）
+    i32 ren_ms;               // 方法 B の締め切り（ms、0 なら 15。方法 A の後から数える）
 };
 
 // 重み配列の長さと並び（cpu7.js の WEIGHT_KEYS と一致させる。追加は必ず末尾に）
@@ -61,8 +72,9 @@ struct Weight
 //   [39..42] clear [43] b2b [44..48] ren [49] feed [50] order [51] delay [52] waste_T [53] waste_I
 //   [54] pc_next_own [55] transition_weighted [56] select_best
 //   [57] inc_height [58] inc_danger_h [59] inc_danger [60] ren_danger_h [61] ren_calm_pct [62] t_lookahead [63] nl_split
+//   [64] threat_width [65] threat_ms [66] ren_width [67] ren_samples [68] ren_ext [69] opp_ms [70] my_ms [71] margin_own [72] ren_ms
 //   （L4 row transitions は [55]=1 と [23] で足りる：get_transition は列の隣どうしの XOR＝行方向の切り替わり）
-constexpr i32 WEIGHT_LEN = 64;
+constexpr i32 WEIGHT_LEN = 73;
 
 Weight from_array(const i32* a, i32 n);
 

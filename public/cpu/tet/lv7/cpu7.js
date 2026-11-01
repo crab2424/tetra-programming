@@ -5,11 +5,12 @@
 // 操作の組み立て・実行・予想位置の表示（getGhostY〜createEstimateBlocks）は旧 lv6 の cpu6.js から移したもの。
 // 参考AI clys（cpu/tet/clys/cpu_clys.js）はこのクラスのメソッドを借りる。
 // 設計: source_assets/memory/cpu/tet/lv6-phase1-search-design.md（「lv6n」＝この lv7）
+// 相手の火力の見積もり（ctx・lv7Search2）: source_assets/memory/cpu/tet/lv7-threat-design.md
 // ─────────────────────────────────────────────
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=1'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=2'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -27,6 +28,7 @@ window.CPU7 = class {
         'feed', 'order', 'delay', 'wasteT', 'wasteI',
         'pcNextOwn', 'transitionWeighted', 'selectBest',
         'incHeight', 'incDangerH', 'incDanger', 'renDangerH', 'renCalmPct', 'tLookahead', 'nlSplit',
+        'threatWidth', 'threatMs', 'renWidth', 'renSamples', 'renExt', 'oppMs', 'myMs', 'marginOwn', 'renMs',
     ];
 
     constructor(gameInstance) {
@@ -103,6 +105,15 @@ window.CPU7 = class {
             renCalmPct: 0,           // L1：平時の REN の報酬の割合（%）
             tLookahead: 0,           // L3：>0 のとき T-slot の T の本数を確定 NEXT のこの本数＋HOLD で数える
             nlSplit: 0,              // L5：>0 のとき消去ありの手に幅のこの % のビームを分ける
+            threatWidth: 0,          // 相手：>0 のとき相手の盤面でこの幅のビームを回して火力を見積もる（0=相手を読まない）
+            threatMs: 0,             // 相手：上のビームの締め切り ms（0 なら 5）
+            renWidth: 0,             // 相手：>0 のとき消去する置き方だけで REN の最大を数える（この幅。0=数えない）
+            renSamples: 0,           // 相手：REN の見える NEXT の先のツモの並べ替えの通り数（0 なら 16）
+            renExt: 0,               // 相手：並べ替えで足す本数（0 なら 12）
+            oppMs: 0,                // 相手：相手の1手の ms（固定。0 なら 330。T2 で使う）
+            myMs: 0,                 // 相手：自分の1手の ms（固定。0 なら 330。T2 で使う）
+            marginOwn: 0,            // スイッチ：1=自分の探索の火力もマージン中の表で数える
+            renMs: 0,                // 相手：REN の締め切り ms（0 なら 15）
 
             // 探索の設定（重みの配列には入らない）。wasm の 80ms ≒ native 56ms で、P1 では幅 256 が良かった（設計 §6.4）
             searchWidth: 256,        // 探索：ビームの幅
@@ -236,6 +247,7 @@ window.CPU7 = class {
             backToBack: this.game.backToBack ? 1 : 0,
             ren: this.game.ren || 0,
             incoming: this.getIncomingGarbage(),
+            ctx: this.buildCtx(),
             weights: this.weightsArray(),
             width: Math.max(1, Math.round(this.weights.searchWidth)),
             depth,
@@ -308,8 +320,16 @@ window.CPU7 = class {
         move.p1 = { id, rot: pose.rot, x: pose.x, y: pose.y };
         this.bestMoveData = move;
 
+        // 相手の見積もり（out[96..]。lv7_wasm.cpp estimate_threat の表）。T0 では表示・記録だけ
+        this.lastThreat = (res.length > 147 && (res[96] & 1)) ? {
+            depth: res[97], a: Array.from(res.slice(98, 106)), m: Array.from(res.slice(106, 114)), ms: res[114] / 10,
+            renVisLen: res[116], renVisAtk: res[117], renRuns: res[118], renLenMean: res[119] / 10, renLenMax: res[120],
+            renAtkMean: res[121] / 10, renAtkMax: res[122], ren: Array.from(res.slice(128, 148)),
+        } : null;
         if (window.__cpu7Log) {
             console.log(`⚡ lv7: ${res[14]} ms, nodes ${res[12]}, depth ${res[13]}, visit ${res[11]}, key ${res[15]}`);
+            const t = this.lastThreat;
+            if (t) console.log(`   相手: a ${t.a.join(',')} m ${t.m.join(',')} REN 見える${t.renVisLen}手/${t.renVisAtk} 並べ替え${t.renRuns}通り 平均${t.renLenMean}手/${t.renAtkMean} 最大${t.renLenMax}手/${t.renAtkMax}（${t.ms}ms）`);
         }
         this.updateEvalDisplay(res[15]);
         if (this.game.currentMode === 'test') this.renderEstimatePlace();
@@ -341,12 +361,80 @@ window.CPU7 = class {
             const temp = new Mino(move.id);
             temp.spawn();
             this.game.mino = temp;
+            // 本番の holdCurrentMino / popMino と同じく、出現位置が塞がっていたら1段上から出る（高い盤面で操作列が1段ずれないように）
+            if (!this.game.valid(0, 0)) temp.y -= 1;
             pathQueue = this.buildActionQueue(move);
         } finally {
             this.game.mino = savedMino;
         }
         for (const a of pathQueue) queue.push(a);
         return queue;
+    }
+
+    // 対戦の相手の game（garbage.js sendGarbage と同じ決め方）。テトでない・ひとり用なら null
+    getOpponentGame() {
+        const g = this.game;
+        if (!g || !g.isVersusMode) return null;
+        const opp = g.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+        if (!opp || opp === g || !opp.isVersusMode || typeof Game === 'undefined' || !(opp instanceof Game)) return null;
+        return opp;
+    }
+
+    // lv7Search2 の ctx（engine/lv7_wasm.cpp parse_ctx の並び。lv7-threat-design.md §4.4）。
+    //   相手の NEXT は画面に出る 5 本まで。自分の予告は件ごとに量・ready・ready までの ms（穴は受ける側で決まるので -1）
+    buildCtx() {
+        const ctx = new Int32Array(19 + 4 * 16 + 250);
+        ctx[0] = 1;
+        const margin = (game) => (game && game._tetMarginStep !== null && game._tetMarginStep !== undefined) ? game._tetMarginStep : -1;
+        ctx[16] = margin(this.game);
+
+        let n = 0;
+        const now = performance.now();
+        const timers = this.game._garbageTimers || [];
+        for (const g of (this.game.garbageQueue || [])) {
+            if (g.internal || n >= 16) continue;
+            let ms = 0;
+            if (!g.ready) {
+                const t = timers.find(e => e.obj === g);
+                if (t) ms = t.id ? Math.max(0, t.duration - (now - t.start)) : (t.remaining ?? t.duration);
+            }
+            ctx.set([g.amount, g.ready ? 1 : 0, Math.round(ms), -1], 19 + 4 * n);
+            n++;
+        }
+        ctx[18] = n;
+        const boardAt = 19 + 4 * n;
+
+        const opp = this.getOpponentGame();
+        const oppNext = opp ? (opp.nextQueue || []) : [];
+        const curType = opp && opp.mino ? opp.mino.type : (oppNext[0] ? oppNext[0].type : -1);
+        if (!opp || curType < 0) return ctx.slice(0, boardAt);
+
+        const first = opp.mino ? 0 : 1;   // ミノが出ていなければ NEXT の先頭がいまのミノ
+        const shown = Math.min(5, Math.max(0, oppNext.length - first));
+        ctx[1] = 1;
+        ctx[2] = curType;
+        ctx[3] = opp.holdMino ? opp.holdMino.type : -1;
+        ctx[4] = shown;
+        for (let i = 0; i < shown; i++) ctx[5 + i] = oppNext[first + i].type;
+        ctx[12] = opp.backToBack ? 1 : 0;
+        ctx[13] = opp.ren || 0;
+        let oppIncoming = 0;
+        for (const g of (opp.garbageQueue || [])) if (!g.internal) oppIncoming += g.amount;
+        ctx[14] = oppIncoming;
+        ctx[15] = margin(opp);
+        // 相手の bag を「見える NEXT を引いた後」に戻す（engine の Bag::deupdate と同じ：満杯なら空にしてから足す）
+        let bag = 0;
+        for (const t of (opp.bag || [])) bag |= 1 << t;
+        for (let i = oppNext.length - 1; i >= first + shown; i--) {
+            if (bag === 0x7F) bag = 0;
+            bag |= 1 << oppNext[i].type;
+        }
+        ctx[17] = bag === 0x7F ? 0 : bag;
+        opp.field.blocks.forEach(b => {
+            const by = b.y + 5;
+            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) ctx[boardAt + by * 10 + b.x] = 1;
+        });
+        return ctx.slice(0, boardAt + 250);
     }
 
     getIncomingGarbage() {
@@ -415,9 +503,65 @@ window.CPU7 = class {
         return true;
     }
 
+    // 簡略化した操作列を組み、盤面の上で一度動かして探索の置き場所に着くか確かめる。
+    // 着かなければ（180° の途中の rot1 がキックする等）path どおりの素の操作列に戻す（確認: training/tet/lv7_place_check.mjs）
     buildActionQueue(bestResult) {
+        const queue = this.buildShortActionQueue(bestResult);
+        if (bestResult.action === 'hold' || !bestResult.path || bestResult.path.length === 0) return queue;
+        if (this.queueLandsAt(queue, bestResult)) return queue;
+        if (window.__cpu7Log) console.log('lv7: 簡略化した操作列が置き場所に着かないので path どおりに操作します', bestResult.path.join(','));
+        const ACTION_MAP = { 1: 'moveLeft', 2: 'moveRight', 3: 'softDrop', 4: 'rotateCW', 5: 'rotateCCW', 6: 'harddrop' };
+        const raw = [];
+        for (const a of bestResult.path) {
+            if (a === 6) break;
+            if (ACTION_MAP[a]) raw.push({ type: ACTION_MAP[a], delay: this.actionDelay });
+        }
+        raw.push({ type: 'harddrop', delay: this.harddropDelay });
+        return raw;
+    }
+
+    // queue を processActionQueue と同じ動き（回転はキック込み・moveToTargetX は詰まると目標列へ）で試しに動かし、
+    // ハードドロップした4マスが bestResult（id・rot・x・y）と一致するか。ミノと関係するフラグは元に戻す
+    queueLandsAt(queue, bestResult) {
+        const g = this.game, m = g.mino;
+        const saved = {
+            x: m.x, y: m.y, rotation: m.rotation, blocks: m.blocks.map(b => new Block(b.x, b.y, b.type)),
+            score: g.score, lowestY: g.lowestY,
+            lastActionWasRotation: g.lastActionWasRotation, lastRotUsedPoint5: g.lastRotUsedPoint5,
+        };
+        let landed = null;
+        for (const a of queue) {
+            if (a.type === 'rotateCW') g.tryRotate(1, true);
+            else if (a.type === 'rotateCCW') g.tryRotate(-1, true);
+            else if (a.type === 'moveLeft') { if (g.valid(-1, 0)) m.x--; }
+            else if (a.type === 'moveRight') { if (g.valid(1, 0)) m.x++; }
+            else if (a.type === 'softDrop') { if (g.valid(0, 1)) m.y++; }
+            else if (a.type === 'multiSoftDrop') { while (m.y < a.targetY && g.valid(0, 1)) m.y++; }
+            else if (a.type === 'moveToTargetX') {
+                while (m.x !== a.targetX) {
+                    const d = m.x < a.targetX ? 1 : -1;
+                    if (!g.valid(d, 0)) { m.x = a.targetX; break; }
+                    m.x += d;
+                }
+            } else if (a.type === 'harddrop') {
+                while (g.valid(0, 1)) m.y++;
+                landed = m.blocks.map(b => (b.x + m.x) + ',' + (b.y + m.y)).sort().join(' ');
+                break;
+            }
+        }
+        m.x = saved.x; m.y = saved.y; m.rotation = saved.rotation; m.blocks = saved.blocks;
+        g.score = saved.score; g.lowestY = saved.lowestY;
+        g.lastActionWasRotation = saved.lastActionWasRotation; g.lastRotUsedPoint5 = saved.lastRotUsedPoint5;
+
+        const t = new Mino(bestResult.id);
+        for (let i = 0; i < bestResult.rot; i++) t.rotate();
+        const want = t.blocks.map(b => (b.x + bestResult.x) + ',' + (b.y + bestResult.y)).sort().join(' ');
+        return landed === want;
+    }
+
+    buildShortActionQueue(bestResult) {
         let queue = [];
-        
+
         if (bestResult.action === 'hold') {
             queue.push({ type: 'hold', delay: this.actionDelay });
             return queue;
