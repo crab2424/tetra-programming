@@ -32,12 +32,16 @@ public:
     u8 next;
     u8 b2b;
     u8 ren;
+    // TETLABO lv7: 火力表のマージン段（-1＝未突入の表、0〜5＝scoring.js のマージン中の表）。ハッシュには含めない
+    i8 margin;
 public:
-    State() : board(Board()), hold(piece::Type::NONE), bag(Bag()), next(0), b2b(0), ren(0) {};
-    State(Board board, piece::Type hold, Bag bag, u8 next, u8 b2b, u8 ren) : board(board), hold(hold), bag(bag), next(next), b2b(b2b), ren(ren) {};
+    State() : board(Board()), hold(piece::Type::NONE), bag(Bag()), next(0), b2b(0), ren(0), margin(-1) {};
+    State(Board board, piece::Type hold, Bag bag, u8 next, u8 b2b, u8 ren) : board(board), hold(hold), bag(bag), next(next), b2b(b2b), ren(ren), margin(-1) {};
 public:
     Lock advance(move::Placement& placement, const std::vector<piece::Type>& queue);
     Lock lock(move::Placement& placement);
+    // マージン中（margin 0〜5）の火力。lock の後に呼ぶ（b2b・ren は消去の後の値）
+    i32 get_margin_attack(const Lock& lock, bool pc) const;
 public:
     u64 get_hash();
 public:

@@ -128,6 +128,8 @@ void writeSolo(const TetPlayer& p, int marginTimeMs, double* o) {
 struct TvtResult { int winner; double ms; };
 TvtResult runTvt(TetPlayer& a, TetPlayer& b, double maxMs, bool aFirst) {
     a.vsTet = b.vsTet = true;
+    a.opp = &b;
+    b.opp = &a;
     a.onSendTet = [&](double t, int n, const std::vector<int>& h) { b.receiveFromTet(n, h, t); };
     b.onSendTet = [&](double t, int n, const std::vector<int>& h) { a.receiveFromTet(n, h, t); };
     a.start(0);
@@ -186,6 +188,14 @@ void tet_lv6n_search(const uint8_t* board, const int* queue, int nQueue, int hol
                      int outLen) {
     cpuSearchLv6n(board, queue, nQueue, hold, bagAfter, b2b, ren, incoming, weights, nWeights, width, depth, thinkMs,
                   out, outLen);
+}
+
+// lv7Search2 を1回だけ呼ぶ（tests/test_lv6n_parity.py。ctx の並びは lv7_wasm.cpp parse_ctx）
+void tet_lv6n_search2(const uint8_t* board, const int* queue, int nQueue, int hold, int bagAfter, int b2b, int ren,
+                      int incoming, const int* weights, int nWeights, int width, int depth, int thinkMs, const int* ctx,
+                      int ctxLen, int* out, int outLen) {
+    cpuSearchLv6n2(board, queue, nQueue, hold, bagAfter, b2b, ren, incoming, weights, nWeights, width, depth, thinkMs,
+                   ctx, ctxLen, out, outLen);
 }
 
 // 席ごとの探索設定（side 0=全員 1=A 2=B）。値 -1 は変えない。reset=1 でその席の設定を消してから入れる

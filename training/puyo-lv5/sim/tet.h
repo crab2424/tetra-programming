@@ -99,6 +99,12 @@ unsigned long long clysNodeCount();   // このスレッドで clys が実際に
 void cpuSearchLv6n(const uint8_t board[250], const int* queue, int nQueue, int hold, int bagAfter, int b2b, int ren,
                    int incoming, const int* weights, int nWeights, int width, int depth, int thinkMs, int* out,
                    int outLen);
+// lv7Search2（ctx つき。相手の見積もりは out[96..]、outLen 160 以上）。lv7-threat-design.md §4
+void cpuSearchLv6n2(const uint8_t board[250], const int* queue, int nQueue, int hold, int bagAfter, int b2b, int ren,
+                    int incoming, const int* weights, int nWeights, int width, int depth, int thinkMs, const int* ctx,
+                    int ctxLen, int* out, int outLen);
+constexpr int TET_LV7_CTX_MAX = 19 + 4 * 16 + 250;   // lv7_wasm.cpp parse_ctx の並び（予告は 16 件まで）
+constexpr int TET_LV7_OUT_LEN = 160;
 const int* lv6nDefaultWeights();
 int lv6nWeightsLen();
 void pieceBlocks(int type, int rot, int outXY[8]);     // PRECALC_MINO_BLOCKS（本番 Mino と同じ形）
@@ -234,6 +240,10 @@ public:
     void receiveFromTet(int lines, const std::vector<int>& holes, double now);   // 1500ms 後に ready
     int  incomingLines() const;          // cpu6.js getIncomingGarbage（internal を除く予告の合計）
     int  marginStep(double t) const;     // -1=マージン前、0..5
+    // テト同士の相手（runTvt が入れる。異種戦・ひとり用は nullptr）。lv7 の ctx（相手の状態）に使う
+    const TetPlayer* opp = nullptr;
+    // lv7_wasm.cpp parse_ctx の並びで ctx を作り、長さを返す（cpu7.js buildCtx と同じ中身）
+    int  buildLv7Ctx(int* ctx) const;
     int  stackHeight() const;            // 一番上のブロックの高さ（0..25）
 
     // テスト用：探索の入出力を残す

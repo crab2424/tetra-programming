@@ -65,6 +65,10 @@ Lock State::lock(move::Placement& placement)
         if (this->board.is_empty()) {
             lock.attack = 10;
         }
+
+        if (this->margin >= 0) {
+            lock.attack = u8(this->get_margin_attack(lock, this->board.is_empty()));
+        }
     }
     else {
         this->ren = 0;
@@ -73,6 +77,36 @@ Lock State::lock(move::Placement& placement)
     this->b2b = std::min(this->b2b, u8(2));
 
     return lock;
+};
+
+// TETLABO lv7: scoring.js のマージン中の表（段 0〜5。32 秒ごとに1段）。b2b・ren は消去の後の値
+i32 State::get_margin_attack(const Lock& lock, bool pc) const
+{
+    static constexpr i32 LINES[4][6] = { { 0, 0, 1, 1, 1, 2 }, { 1, 1, 2, 2, 3, 4 }, { 2, 2, 3, 4, 5, 6 }, { 4, 5, 5, 6, 8, 10 } };
+    static constexpr i32 TSPIN[3][6] = { { 2, 2, 3, 4, 5, 6 }, { 4, 5, 5, 6, 8, 10 }, { 6, 7, 8, 10, 12, 16 } };
+    static constexpr i32 BTB[6] = { 1, 1, 2, 2, 3, 4 };
+    static constexpr i32 PC[6] = { 12, 13, 14, 15, 16, 18 };
+    static constexpr i32 REN_ADD[6] = { 0, 0, 0, 1, 1, 1 };
+
+    if (lock.clear == 0) return 0;
+
+    const i32 ms = std::clamp(i32(this->margin), 0, 5);
+    if (pc) return PC[ms];
+
+    // mini は通常の消去の表（scoring.js の tSpinType 'mini' は lines の表）
+    i32 attack = (lock.tspin && lock.clear <= 3) ? TSPIN[lock.clear - 1][ms] : LINES[std::min<i32>(lock.clear, 4) - 1][ms];
+
+    if (this->b2b > 1) attack += BTB[ms];
+
+    // scoring.js の r は加算前の ren（＝この消去を含めた連続消去数 − 1）
+    const i32 r = i32(this->ren) - 1;
+    if (r >= 13) attack += 5 + REN_ADD[ms];
+    else if (r >= 8) attack += 4 + REN_ADD[ms];
+    else if (r >= 6) attack += 3 + REN_ADD[ms];
+    else if (r >= 4) attack += 2 + REN_ADD[ms];
+    else if (r >= 2) attack += 1 + REN_ADD[ms];
+
+    return attack;
 };
 
 // Hashes the state using xxh3 and return an u64
