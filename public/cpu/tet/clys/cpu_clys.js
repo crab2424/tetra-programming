@@ -38,7 +38,9 @@ window.CPUClys = class {
                 console.log('🚀 clys Worker Ready!');
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
-                this.handleWorkerResult(e.data.result);
+                // 結果はフレームの入力の所で受け取る（盤面に触るのは game.cpuAction だけ。core/cpu_port.js）
+                const res = e.data.result;
+                this.game.cpuSchedule(0, () => this.handleWorkerResult(res));
             }
         };
         this.worker.onerror = (err) => {
@@ -60,7 +62,7 @@ window.CPUClys = class {
             this.game._clysOrigStart = origStart;
         }
         this.initEstimateContainer();
-        this.updateLoop();
+        this.game.cpuFrame(() => this.updateLoop());
     }
 
     resetState() {
@@ -96,7 +98,7 @@ window.CPUClys = class {
             this.currentMino = this.game.mino;
             this.onMinoSpawned();
         }
-        requestAnimationFrame(() => this.updateLoop());
+        this.game.cpuFrame(() => this.updateLoop());
     }
 
     onMinoSpawned() {
@@ -176,9 +178,9 @@ window.CPUClys = class {
         if (res[0] !== 1) {
             // 置ける手が無い（窒息）。その場で落とす
             if (this.isAutoPlay && this.game.mino === this.currentMino) {
-                setTimeout(() => {
-                    if (this.isActive && this.game.mino === this.currentMino && !this.game.isPaused) this.game.hardDrop();
-                }, 700);
+                this.game.cpuSchedule(700, () => {
+                    if (this.isActive && this.game.mino === this.currentMino && !this.game.isPaused) this.game.cpuAction('hardDrop');
+                });
             }
             return;
         }
@@ -224,9 +226,9 @@ window.CPUClys = class {
             return;
         }
         this.isExecutingAction = true;
-        if (this.game) this.game.gravityDisabled = true;
+        if (this.game) this.game.cpuAction('gravity', true);
         this.actionQueue = this.buildClysActionQueue(move);
-        setTimeout(() => this.processActionQueue(), this.actionDelay);
+        this.game.cpuSchedule(this.actionDelay, () => this.processActionQueue());
     }
 
     // HOLD → 出てきたミノを path どおり置く、を1つのアクション列にする（lv6 の buildPCActionQueue と同じやり方）

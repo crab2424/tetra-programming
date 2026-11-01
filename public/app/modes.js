@@ -283,42 +283,42 @@ let selectedPlayerCpuLevel = null; // null = 2P と同じレベル
 
 const CPU_CONFIGS = {
   tet: {
-    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=3' },
-    2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js?v=2' },
-    3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=2' },
-    4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=5' },
-    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=7' },
-    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=30' },
-    7: { className: 'CPU7', src: 'cpu/tet/lv7/cpu7.js?v=8' },
+    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=4' },
+    2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js?v=3' },
+    3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=3' },
+    4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=6' },
+    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=8' },
+    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=31' },
+    7: { className: 'CPU7', src: 'cpu/tet/lv7/cpu7.js?v=9' },
     // 操作系のメソッドを CPU7 から借りるので lv7 を先に読む（deps）
-    8: { className: 'CPUClys', deps: [7], src: 'cpu/tet/clys/cpu_clys.js?v=3' }
+    8: { className: 'CPUClys', deps: [7], src: 'cpu/tet/clys/cpu_clys.js?v=4' }
   },
   puyo: {
-    1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu1.js?v=2' },  
-    2: { className: 'PuyoCPU2', src: 'cpu/puyo/lv2/cpu2.js?v=2' },
-    3: { className: 'PuyoCPU3', src: 'cpu/puyo/lv3/cpu3.js?v=2' },
+    1: { className: 'PuyoCPU',  src: 'cpu/puyo/lv1/cpu1.js?v=3' },  
+    2: { className: 'PuyoCPU2', src: 'cpu/puyo/lv2/cpu2.js?v=3' },
+    3: { className: 'PuyoCPU3', src: 'cpu/puyo/lv3/cpu3.js?v=3' },
     // ★ lv4 はプロトタイプ拡張で複数ファイルに分割。class 定義(cpu4.js)を必ず先頭に置く。
     //   残りは順不同で PuyoCPU4.prototype を拡張する。cpu_loader.js が配列を順次ロードする。
     //   lv4 は実装に一旦区切りをつけた完成版（DEV_CPU_CLASSES から外しキャッシュ利用）。
     4: { className: 'PuyoCPU4', src: [
-        'cpu/puyo/lv4/js/cpu4.js?v=2',
+        'cpu/puyo/lv4/js/cpu4.js?v=3',
         'cpu/puyo/lv4/js/cpu4_weights.js',
         'cpu/puyo/lv4/js/cpu4_worker_io.js',
         'cpu/puyo/lv4/js/cpu4_estimate.js',
-        'cpu/puyo/lv4/js/cpu4_action.js',
+        'cpu/puyo/lv4/js/cpu4_action.js?v=1',
     ] },
     // ★ lv5 は開発中。lv4 同様プロトタイプ拡張で複数ファイルに分割し、class 定義(cpu5.js)を先頭に置く。
     //   （2026-10-20: DEV_CPU_CLASSES から外した。編集したら下の各ファイルの ?v を上げる）
     5: { className: 'PuyoCPU5', src: [
-        'cpu/puyo/lv5/js/core/cpu5.js?v=3',
+        'cpu/puyo/lv5/js/core/cpu5.js?v=4',
         'cpu/puyo/lv5/js/weights/cpu5_weights.js?v=9',
         'cpu/puyo/lv5/js/weights/cpu5_modes.js?v=2',
         'cpu/puyo/lv5/js/core/cpu5_worker_io.js?v=13',
         'cpu/puyo/lv5/js/core/cpu5_estimate.js?v=1',
-        'cpu/puyo/lv5/js/core/cpu5_action.js?v=2',
+        'cpu/puyo/lv5/js/core/cpu5_action.js?v=3',
     ] },
     // ★ 隠し要素: lv6 = lv5 + 学習済み重み（training/puyo-lv5）。lv5 のクラスを継承するため
     //   deps で lv5 を先に読み込む（cpu_loader.js loadCpuScript）。
-    6: { className: 'PuyoCPU6', deps: [5], src: 'cpu/puyo/lv6/js/cpu6.js?v=17' }
+    6: { className: 'PuyoCPU6', deps: [5], src: 'cpu/puyo/lv6/js/cpu6.js?v=18' }
   }
 };

@@ -532,6 +532,68 @@ Object.assign(PuyoGame.prototype, {
         }
     },
 
+    // ─────────────────────────────────────────
+    // CPU が盤面に触る口（設計 source_assets/memory/record/tetlabo-record-design.md §4.1 D6）
+    // CPU（public/cpu/puyo/*）は操作ぷよ・高速落下キーをここを通してだけ動かす。録画（M6）ではここで手を記録する。
+    // 中身は各 CPU がこれまで直接していた操作そのまま。呼ぶのは game.cpuSchedule / cpuFrame の中
+    // （フレームの入力の所。core/cpu_port.js）だけにする。
+    //   'move', dir          1 列移動（_tryMove）
+    //   'rotate', dir        回転（_tryRotate。クイックターンも）
+    //   'quickDrop'          クイックドロップ（_tryQuickDrop）
+    //   'softDropStart'      CPU の高速落下の開始（自然落下のタイマーを 0 に戻す）
+    //   'softDropStep', d    d マスぶん落とす（得点あり）。まだ着地していなければ true、着地したら false
+    //   'forceLock'          着地位置へ下ろして固定を促す（lockTimer を満了にする）
+    //   'softKey', on        高速落下キーを押す / 離す（人と同じ落ち方で置く）
+    // ─────────────────────────────────────────
+    cpuAction(type, a) {
+        if (this.clock && !this._cpuRunning && !this._cpuWarned) {
+            this._cpuWarned = true;
+            console.warn('[cpuAction] フレームの入力の所（cpuSchedule / cpuFrame）の外で呼ばれました:', type);
+        }
+        let r;
+        switch (type) {
+            case 'move': r = this._tryMove(a); break;
+            case 'rotate': r = this._tryRotate(a); break;
+            case 'quickDrop': r = this._tryQuickDrop(); break;
+            case 'softDropStart':
+                // 自然落下タイマーをリセット（落下中に自然落下と競合させない）
+                if (this.fallTimer !== undefined) this.fallTimer = 0;
+                if (this.dropTimer !== undefined) this.dropTimer = 0;
+                break;
+            case 'softDropStep': {
+                const limitY = this._calcLimitY(this.pivotX, this.pivotY, this.targetRot);
+                if (this.pivotY < limitY) {
+                    const prevY = this.pivotY;
+                    this.pivotY = Math.min(this.pivotY + a, limitY);
+                    // ソフトドロップスコア加算（プレイヤーと同じ処理）
+                    this.scoreFloat += this.pivotY - prevY;
+                    if (this.scoreFloat >= 1) {
+                        const add = Math.floor(this.scoreFloat);
+                        this.score += add;
+                        this.scoreFloat -= add;
+                        if (typeof this._addDropScore === 'function') this._addDropScore(add);
+                        this._updateScoreDisplay();
+                    }
+                    r = true;
+                } else {
+                    this.pivotY = limitY;
+                    r = false;
+                }
+                break;
+            }
+            case 'forceLock':
+                this.pivotY = this._calcLimitY(this.pivotX, this.pivotY, this.targetRot);
+                this.lockTimer = 99999;
+                break;
+            case 'softKey':
+                this._keys[this._keyMap.softDrop] = !!a;
+                break;
+            default:
+                console.warn('[cpuAction] 知らない操作:', type);
+        }
+        return r;
+    },
+
     // ★ クイックドロップ（ハードドロップ）処理の実装
     _tryQuickDrop() {
         if (this._gs !== 'falling') return;

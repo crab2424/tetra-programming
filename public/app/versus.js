@@ -217,6 +217,7 @@ async function startVersusGame() {
   const useMatchLoop = (g) => {
     if (g.loop && g.loop !== matchLoop) g.loop.remove(g); // 前の試合のループに残っていれば抜ける
     g.loop = matchLoop;
+    g.cpuReset(); // 前の試合の CPU の予約（前の時計の時刻）を捨てる（core/cpu_port.js）
   };
 
   const isPlayerPuyo = versusPlayerRule === 'puyo';

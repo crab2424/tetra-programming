@@ -20,6 +20,8 @@ class PuyoGame {
         this.rng = null;
         this.clock = new GameClock(); // ゲーム時計（VERSUS は両盤面に同じ時計を渡す）
         this.loop = new MatchLoop();  // 試合の親ループ（VERSUS は両盤面に同じループを渡す）
+        this._cpuTimers = [];         // CPU の待ち時間の予約・毎フレームの polling（core/cpu_port.js）
+        this._cpuFrameCbs = [];
 
         this.canvas = null;
         this.ctx = null;
@@ -197,6 +199,9 @@ class PuyoGame {
 //    初回ロード後は PuyoGame._sharedImagesLoaded = true になり、
 //    以降の _loadImages では即座に callback() が呼ばれる（200ms遅延の解消）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CPU の口の時間の部分（cpuSchedule / cpuFrame / _runCpu。core/cpu_port.js）。盤面を動かす cpuAction は input.js
+Object.assign(PuyoGame.prototype, CpuPort);
+
 PuyoGame._sharedImages = null;
 PuyoGame._sharedImagesLoaded = false;
 // 先読み（preloadImages）の多重起動防止と、ロード完了待ちコールバックのキュー。

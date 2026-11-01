@@ -52,7 +52,9 @@ window.CPU2 = class {
                 console.log("🚀 Wasm Worker 2 Ready!"); 
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
-                this.handleWorkerResult(e.data.result);
+                // 結果はフレームの入力の所で受け取る（盤面に触るのは game.cpuAction だけ。core/cpu_port.js）
+                const res = e.data.result;
+                this.game.cpuSchedule(0, () => this.handleWorkerResult(res));
             }
         };
 
@@ -87,7 +89,7 @@ window.CPU2 = class {
     start() {
         this.isActive = true;
         this.initEstimateContainer();
-        this.updateLoop();
+        this.game.cpuFrame(() => this.updateLoop());
     }
 
     stop() {
@@ -109,7 +111,7 @@ window.CPU2 = class {
             this.currentMino = this.game.mino;
             this.onMinoSpawned();
         }
-        requestAnimationFrame(() => this.updateLoop());
+        this.game.cpuFrame(() => this.updateLoop());
     }
 
     onMinoSpawned() {
@@ -173,12 +175,12 @@ window.CPU2 = class {
                 const tryDropFallback = () => {
                     if (!this.isActive || this.game.mino !== this.currentMino) return;
                     if (this.game.isPaused || this.game.state === 'paused') {
-                        setTimeout(tryDropFallback, 100);
+                        this.game.cpuSchedule(100, tryDropFallback);
                         return;
                     }
-                    this.game.hardDrop();
+                    this.game.cpuAction('hardDrop');
                 };
-                setTimeout(tryDropFallback, 700);
+                this.game.cpuSchedule(700, tryDropFallback);
             }
             return;
         }
@@ -230,17 +232,17 @@ window.CPU2 = class {
                 const tryHold = () => {
                     if (!this.isActive || this.game.mino !== this.currentMino) return;
                     if (this.game.isPaused || this.game.state === 'paused') {
-                        setTimeout(tryHold, 100);
+                        this.game.cpuSchedule(100, tryHold);
                         return;
                     }
-                    this.game.holdCurrentMino();
+                    this.game.cpuAction('hold');
                 };
-                setTimeout(tryHold, 200);
+                this.game.cpuSchedule(200, tryHold);
             } else {
                 const tryMoveAndDrop = () => {
                     if (!this.isActive || this.game.mino !== this.currentMino) return;
                     if (this.game.isPaused || this.game.state === 'paused') {
-                        setTimeout(tryMoveAndDrop, 100);
+                        this.game.cpuSchedule(100, tryMoveAndDrop);
                         return;
                     }
                     this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
@@ -248,12 +250,12 @@ window.CPU2 = class {
                     const tryDrop = () => {
                         if (!this.isActive || this.game.mino !== this.currentMino) return;
                         if (this.game.isPaused || this.game.state === 'paused') {
-                            setTimeout(tryDrop, 100);
+                            this.game.cpuSchedule(100, tryDrop);
                             return;
                         }
-                        this.game.hardDrop();
+                        this.game.cpuAction('hardDrop');
                     };
-                    setTimeout(tryDrop, 800);
+                    this.game.cpuSchedule(800, tryDrop);
                 };
                 tryMoveAndDrop();
             }
@@ -275,22 +277,11 @@ window.CPU2 = class {
         return clearedRowIndices;
     }
 
+    // 出現位置で向きを変えてから x へ飛ばす（重なるなら x はそのまま。game.cpuAction 'teleport'）
     moveMinoTo(id, targetRot, targetX, spawnY) {
         const mino = this.game.mino;
         if (!mino || mino.type !== id) return;
-
-        if (spawnY !== undefined) mino.y = spawnY;
-
-        let rotationsNeeded = (targetRot - mino.rotation + 4) % 4;
-        for (let i = 0; i < rotationsNeeded; i++) {
-            mino.rotate(); 
-            mino.rotation = (mino.rotation + 1) % 4;
-        }
-
-        const prevX = mino.x;
-        mino.x = targetX;
-        
-        if (!this.game.valid(0, 0)) mino.x = prevX;
+        this.game.cpuAction('teleport', targetRot, targetX, spawnY);
 
         this.game.drawAll();
     }

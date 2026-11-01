@@ -172,10 +172,12 @@ Object.assign(PuyoGame.prototype, {
 
                 if (this.state === 'playing') {
                     this._drainInput();
+                    this._runCpu(); // CPU の手（core/cpu_port.js）。人のキーと同じ所で盤面に入る
                     this._update(dt);
                 } else if (this.state === 'starting') {
                     // カウントダウン中：DAS だけ溜める（ぷよはまだ falling ではないので _arrTimer は arrMs で頭打ち）
                     this._drainInput();
+                    this._runCpu();
                     this._updateDAS(dt);
                 }
                 // ★ gameover中は _update をスキップして描画のみ行う

@@ -542,4 +542,109 @@ Object.assign(Game.prototype, {
         }
         return false;
     },
+
+    // ─────────────────────────────────────────
+    // CPU が盤面に触る口（設計 source_assets/memory/record/tetlabo-record-design.md §4.1 D6）
+    // CPU（public/cpu/tet/*）はミノ・HOLD・重力をここを通してだけ動かす。録画（M6）ではここで手を記録する。
+    // 中身は各 CPU がこれまで直接していた操作そのまま（SE・得点・T-spin 判定への影響も変えない）。
+    // 呼ぶのは game.cpuSchedule / cpuFrame の中（フレームの入力の所。core/cpu_port.js）だけにする。
+    //   'hold'                 HOLD
+    //   'rotate', dir          回転（キックあり。tryRotate）
+    //   'move', dir            1 マス移動（moveLeft / moveRight。lastActionWasRotation も下ろす）
+    //   'shift', dir, se       1 マス移動だけ（lastActionWasRotation はそのまま。se=true で移動音）
+    //   'softDrop'             1 マス落とす（softDropOne。得点・落下音あり）
+    //   'softDropQuiet'        1 マス落とす（得点あり・落下音なし）
+    //   'stepToX', x, se       x へ 1 マス寄せる。動けなければ x へ飛ばす。まだ寄せる必要があれば true
+    //   'warp', x, y, rot      その位置・向きへ飛ばす（T-spin の最後の回転扱い）
+    //   'teleport', rot, x, y  出現位置 y で向きを変えてから x へ飛ばす（重なるなら x はそのまま）
+    //   'hardDrop'             ハードドロップ
+    //   'gravity', off         CPU が操作している間の重力の停止（true で止める）
+    // 戻り値はそれぞれの操作の結果（動けたか等）。
+    // ─────────────────────────────────────────
+    cpuAction(type, a, b, c) {
+        if (this.clock && !this._cpuRunning && !this._cpuWarned) {
+            this._cpuWarned = true;
+            console.warn('[cpuAction] フレームの入力の所（cpuSchedule / cpuFrame）の外で呼ばれました:', type);
+        }
+        let r;
+        const mino = this.mino;
+        switch (type) {
+            case 'hold': r = this.holdCurrentMino(); break;
+            case 'rotate': r = this.tryRotate(a); break;
+            case 'move': r = a < 0 ? this.moveLeft() : this.moveRight(); break;
+            case 'shift':
+                r = false;
+                if (mino && this.valid(a, 0)) {
+                    mino.x += a;
+                    if (b) this.playSe('move');
+                    r = true;
+                }
+                break;
+            case 'softDrop': r = this.softDropOne(); break;
+            case 'softDropQuiet':
+                r = false;
+                if (mino && this.valid(0, 1)) {
+                    mino.y++;
+                    this.score += 1;
+                    this.updateLowestY();
+                    r = true;
+                }
+                break;
+            case 'stepToX': {
+                r = false;
+                if (!mino) break;
+                const beforeX = mino.x;
+                if (mino.x < a) {
+                    const prevX = mino.x;
+                    if (this.valid(1, 0)) mino.x++;
+                    if (mino.x < a) {
+                        if (prevX === mino.x) mino.x = a;
+                        else r = true;
+                    }
+                } else if (mino.x > a) {
+                    const prevX = mino.x;
+                    if (this.valid(-1, 0)) mino.x--;
+                    if (mino.x > a) {
+                        if (prevX === mino.x) mino.x = a;
+                        else r = true;
+                    }
+                }
+                // 1マスでも実際に動いたら移動音を鳴らす（飛ばした補正も含む）
+                if (b && mino.x !== beforeX) this.playSe('move');
+                break;
+            }
+            case 'warp':
+                if (!mino) break;
+                mino.x = a;
+                mino.y = b;
+                while (mino.rotation !== c) {
+                    mino.rotate();
+                    mino.rotation = (mino.rotation + 1) % 4;
+                }
+                this.lastActionWasRotation = true;
+                this.lastRotUsedPoint5 = true;
+                break;
+            case 'teleport': {
+                if (!mino) break;
+                // まずY座標を安全な場所（出現位置）に戻してから回転する
+                if (c !== undefined) mino.y = c;
+                const rotationsNeeded = (a - mino.rotation + 4) % 4;
+                for (let i = 0; i < rotationsNeeded; i++) {
+                    mino.rotate();
+                    mino.rotation = (mino.rotation + 1) % 4;
+                }
+                // 移動した結果が重なる場合はX座標を元に戻す
+                const prevX = mino.x;
+                mino.x = b;
+                if (!this.valid(0, 0)) mino.x = prevX;
+                break;
+            }
+            case 'hardDrop': r = this.hardDrop(); break;
+            case 'gravity': this.gravityDisabled = !!a; break;
+            default:
+                console.warn('[cpuAction] 知らない操作:', type);
+        }
+        if (this.requestRedraw) this.requestRedraw();
+        return r;
+    },
 });

@@ -147,7 +147,9 @@ window.CPU7 = class {
                 console.log('🚀 Wasm Worker 7 Ready!');
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
-                this.handleWorkerResult(e.data.result);
+                // 結果はフレームの入力の所で受け取る（盤面に触るのは game.cpuAction だけ。core/cpu_port.js）
+                const res = e.data.result;
+                this.game.cpuSchedule(0, () => this.handleWorkerResult(res));
             }
         };
         this.worker.onerror = (err) => {
@@ -173,7 +175,7 @@ window.CPU7 = class {
             this.game._cpu7OrigStart = origStart;
         }
         this.initEstimateContainer();
-        this.updateLoop();
+        this.game.cpuFrame(() => this.updateLoop());
     }
 
     resetState() {
@@ -209,7 +211,7 @@ window.CPU7 = class {
             this.currentMino = this.game.mino;
             this.onMinoSpawned();
         }
-        requestAnimationFrame(() => this.updateLoop());
+        this.game.cpuFrame(() => this.updateLoop());
     }
 
     onMinoSpawned() {
@@ -296,9 +298,9 @@ window.CPU7 = class {
         if (res[0] !== 1) {
             // 置ける手が無い（窒息）。その場で落とす
             if (this.isAutoPlay && this.game.mino === this.currentMino) {
-                setTimeout(() => {
-                    if (this.isActive && this.game.mino === this.currentMino && !this.game.isPaused) this.game.hardDrop();
-                }, 700);
+                this.game.cpuSchedule(700, () => {
+                    if (this.isActive && this.game.mino === this.currentMino && !this.game.isPaused) this.game.cpuAction('hardDrop');
+                });
             }
             return;
         }
@@ -356,9 +358,9 @@ window.CPU7 = class {
             return;
         }
         this.isExecutingAction = true;
-        if (this.game) this.game.gravityDisabled = true;
+        if (this.game) this.game.cpuAction('gravity', true);
         this.actionQueue = this.buildHoldActionQueue(move);
-        setTimeout(() => this.processActionQueue(), this.actionDelay);
+        this.game.cpuSchedule(this.actionDelay, () => this.processActionQueue());
     }
 
     // HOLD → 出てきたミノを path どおり置く、を1つのアクション列にする（cpu_clys.js と同じやり方）
@@ -820,7 +822,7 @@ window.CPU7 = class {
     processActionQueue() {
         if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
             if (this.game && this.isExecutingAction) {
-                this.game.gravityDisabled = false; // 空キューの場合に重力が停止したままになるのを防ぐ
+                this.game.cpuAction('gravity', false); // 空キューの場合に重力が停止したままになるのを防ぐ
             }
             this.isExecutingAction = false;
             return;
@@ -828,9 +830,9 @@ window.CPU7 = class {
 
         // ★ポーズ中はアクションの実行を一時停止し、100msごとに解除を待つ
         if (this.game.isPaused || this.game.state === 'paused') {
-            setTimeout(() => {
+            this.game.cpuSchedule(100, () => {
                 if (this.isActive && this.isAutoPlay) this.processActionQueue();
-            }, 100);
+            });
             return;
         }
 
@@ -844,57 +846,40 @@ window.CPU7 = class {
 
         switch (action.type) {
             case 'hold':
-                this.game.holdCurrentMino();
+                this.game.cpuAction('hold');
                 break;
             case 'rotateCW':
-                this.game.tryRotate(1);
+                this.game.cpuAction('rotate', 1);
                 break;
             case 'rotateCCW':
-                this.game.tryRotate(-1);
+                this.game.cpuAction('rotate', -1);
                 break;
             case 'moveLeft':
-                this.game.moveLeft();
+                this.game.cpuAction('move', -1);
                 break;
             case 'moveRight':
-                this.game.moveRight();
+                this.game.cpuAction('move', 1);
                 break;
             case 'softDrop':
-                this.game.softDropOne();
+                this.game.cpuAction('softDrop');
                 break;
             case 'multiSoftDrop':
                 if (this.game.mino.y >= action.targetY) {
                     action.delay = 0;
                 } else {
-                    if (this.game.softDropOne()) {
+                    if (this.game.cpuAction('softDrop')) {
                         this.actionQueue.unshift(action);
                     } else {
                         action.delay = 0;
                     }
                 }
                 break;
-            case 'moveToTargetX': {
-                const beforeX = this.game.mino.x;
-                if (this.game.mino.x < action.targetX) {
-                    let prevX = this.game.mino.x;
-                    if (this.game.valid(1, 0)) this.game.mino.x++;
-                    if (this.game.mino.x < action.targetX) {
-                        if (prevX === this.game.mino.x) this.game.mino.x = action.targetX;
-                        else this.actionQueue.unshift(action);
-                    }
-                } else if (this.game.mino.x > action.targetX) {
-                    let prevX = this.game.mino.x;
-                    if (this.game.valid(-1, 0)) this.game.mino.x--;
-                    if (this.game.mino.x > action.targetX) {
-                        if (prevX === this.game.mino.x) this.game.mino.x = action.targetX;
-                        else this.actionQueue.unshift(action);
-                    }
-                }
-                // 1マスでも実際に動いたら移動音を鳴らす（スナップ補正含む）
-                if (this.game.mino.x !== beforeX) this.game.playSe('move');
+            case 'moveToTargetX':
+                // 1 マス寄せる（動けなければ飛ばす）。動いたら移動音
+                if (this.game.cpuAction('stepToX', action.targetX, true)) this.actionQueue.unshift(action);
                 break;
-            }
             case 'harddrop':
-                this.game.hardDrop(); 
+                this.game.cpuAction('hardDrop');
                 break;
         }
 
@@ -907,28 +892,28 @@ window.CPU7 = class {
         let delayTime = action.delay !== undefined ? action.delay : this.actionDelay;
 
         if (this.actionQueue.length > 0) {
-            setTimeout(() => {
+            this.game.cpuSchedule(delayTime, () => {
                 if (this.isActive && this.isAutoPlay) this.processActionQueue();
-            }, delayTime);
+            });
         } else {
             // ★待機時間中のポーズにも対応
             const tryFinish = () => {
                 if (!this.isActive || !this.isAutoPlay) return;
 
                 if (this.game.isPaused || this.game.state === 'paused') {
-                    setTimeout(tryFinish, 100);
+                    this.game.cpuSchedule(100, tryFinish);
                     return;
                 }
 
                 // 操作完了 → 重力を再開してからisExecutingActionをリセット
-                if (this.game) this.game.gravityDisabled = false;
+                if (this.game) this.game.cpuAction('gravity', false);
                 this.isExecutingAction = false;
                 if (this.bestMoveData && this.bestMoveData.p1 &&
                     this.game.mino && this.game.mino === this.currentMino) {
                     this.executeAction(this.bestMoveData);
                 }
             };
-            setTimeout(tryFinish, delayTime);
+            this.game.cpuSchedule(delayTime, tryFinish);
         }
     }
 

@@ -10,6 +10,8 @@ class Game {
         this.rule = 'tet';
         this.clock = new GameClock(); // ゲーム時計（VERSUS は両盤面に同じ時計を渡す）
         this.loop = new MatchLoop();  // 試合の親ループ（VERSUS は両盤面に同じループを渡す）
+        this._cpuTimers = [];         // CPU の待ち時間の予約・毎フレームの polling（core/cpu_port.js）
+        this._cpuFrameCbs = [];
         this.initMainCanvas()
         this.initNextCanvas()
         this.initHoldCanvas()
@@ -32,3 +34,6 @@ class Game {
         this._garbageTimers = []; // おじゃま降下猶予タイマー（ポーズで一時停止できるよう管理）
     }
 }
+
+// CPU の口の時間の部分（cpuSchedule / cpuFrame / _runCpu。core/cpu_port.js）
+Object.assign(Game.prototype, CpuPort);

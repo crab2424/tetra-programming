@@ -51,7 +51,9 @@ window.PuyoCPU4 = class {
                 console.log('🚀 Wasm PuyoCPU4 Worker Ready!');
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
-                this._handleWorkerResult(e.data.result);
+                // 結果はフレームの入力の所で受け取る（盤面に触るのは game.cpuAction だけ。core/cpu_port.js）
+                const res = e.data.result;
+                this.game.cpuSchedule(0, () => this._handleWorkerResult(res));
             }
         };
     }
@@ -60,7 +62,7 @@ window.PuyoCPU4 = class {
         this.isActive = true;
         this.hasCalculatedForCurrentPiece = false;
         this._initEstimateContainer();
-        this._updateLoop();
+        this.game.cpuFrame(() => this._updateLoop());
     }
 
     stop() {
@@ -71,10 +73,9 @@ window.PuyoCPU4 = class {
         this.lastDropTime      = null;
         this.hasCalculatedForCurrentPiece = false;
 
-        if (this._softDropRafId !== null) {
-            cancelAnimationFrame(this._softDropRafId);
-            this._softDropRafId = null;
-        }
+        // 高速落下の tick を止める（世代を進めると古い tick は何もせず抜ける）
+        this._softDropGen = (this._softDropGen || 0) + 1;
+        this._softDropRafId = null;
 
         this._restoreGravity();
 
@@ -136,7 +137,7 @@ window.PuyoCPU4 = class {
             this.hasCalculatedForCurrentPiece = false;
         }
 
-        requestAnimationFrame(() => this._updateLoop());
+        this.game.cpuFrame(() => this._updateLoop());
     }
 
     // 新規計算を開始する前に着手状態をクリアしてから _requestCalculation を呼ぶ。
