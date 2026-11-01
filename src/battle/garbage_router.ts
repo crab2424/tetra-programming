@@ -125,34 +125,9 @@ export function deliverLocalWithReadyTimer(
 }
 
 /**
- * 単純タイマー方式: {ready:false} で積み、delayMs 後に ready 化する（ポーズ非対応）。
- * ぷよエンジンは _garbageTimers のポーズ再開処理を持たないため、ぷよ受け手には
- * こちらを使う（ポーズ中に remaining 保留すると永久に ready 化しなくなる）。
- */
-export function deliverLocalSimple(
-  opponent: any,
-  garbageObj: LocalGarbageObj,
-  delayMs: number,
-): void {
-  if (!opponent.garbageQueue) opponent.garbageQueue = [];
-  opponent.garbageQueue.push(garbageObj);
-  if (typeof opponent.updateGarbageGauge === "function") {
-    opponent.updateGarbageGauge();
-  }
-  setTimeout(() => {
-    if (opponent.garbageQueue?.includes(garbageObj) && garbageObj.amount > 0) {
-      garbageObj.ready = true;
-      if (typeof opponent.updateGarbageGauge === "function") {
-        opponent.updateGarbageGauge();
-      }
-    }
-  }, delayMs);
-}
-
-/**
  * ぷよ送り手方式: stage1 {internal:true}（非表示）で積み、internalMs 後に stage2「猶予(青)」へ。
  * stage3(ready) への確定は送り手の連鎖終了時に _confirmSentGarbage が行う（旧 puyo/ojama.js:197-236）。
- * ぷよ受け手は dt ベース(internalTimer)、テト受け手は _garbageTimers(setTimeout) 方式でポーズ対応。
+ * ぷよ受け手は dt ベース(internalTimer)、テト受け手は _garbageTimers(ゲーム時計の予約) 方式でポーズ対応。
  */
 export function deliverLocalStaged(
   opponent: any,
@@ -259,7 +234,6 @@ export const BattleGarbage = {
   routeGarbage,
   tetGaugeToOjama,
   deliverLocalWithReadyTimer,
-  deliverLocalSimple,
   deliverLocalStaged,
   reseatLocalGarbageTimers,
 };

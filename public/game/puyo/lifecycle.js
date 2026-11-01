@@ -48,47 +48,33 @@ Object.assign(PuyoGame.prototype, {
                         : window.BgmManager.singleBgmKey(this.currentMode));
                 }
                 this._startGameplay();
-            }, null);
+            }, null, undefined, false, this.clock);
         });
     },
 
     _startGameplay() {
-        this._stopCountdownDas(); // ★ カウントダウン用DASループを止めてから本編ループへ移行（DASのチャージ量は維持）
-        this.state = 'playing';
-        this.clock.advance(); // フレームが回っていなかった間（ロード画面・カウントダウン）のぶんを先に進める
+        this.state = 'playing'; // カウントダウン中から同じループ（_loop）が回っていれば、そのまま本編になる（DASのチャージ量は維持）
+        // フレームが回っていなかった間（QUIZ・ONLINE のカウントダウン）のぶんを先に進める。
+        // カウントダウンが時計の予約のとき（シングル・VERSUS）はフレームの中なので何もしない
+        this.clock.advance();
         this.lastTime = this.clock.now();
         this._startTimer();
         this._loop();
     },
 
-    // カウントダウン中（state==='starting'）だけ回す軽量ループ。
-    // _updateDAS のみを呼び、ぷよはまだ falling ではない（_gs==='spawn'）ため、
-    // _updateDAS 内の「出現前カット」分岐が働き _arrTimer は arrMs でキャップされる。
+    // カウントダウン中（state==='starting'）から試合のループを回す。
+    // カウントダウン（時計の予約）を進めるため。あわせて _updateDAS だけを呼び、ぷよはまだ falling ではない
+    // （_gs==='spawn'）ため、_updateDAS 内の「出現前カット」分岐が働き _arrTimer は arrMs でキャップされる。
     // その結果、本編開始時には DAS がチャージ済みとなり、スタート直後から横移動できる。
     _startCountdownDas() {
-        this._stopCountdownDas();
         this.clock.advance();
         this.lastTime = this.clock.now();
-        const tick = () => {
-            if (this.state !== 'starting') { this._countdownLoopId = null; return; }
-            this._countdownLoopId = requestAnimationFrame(tick);
-            this.clock.advance();
-            const now = this.clock.now();
-            let dt = now - this.lastTime;
-            if (dt > 100) dt = 100;
-            this.lastTime = now;
-            this._drainInput(); // キーはフレームの頭でしか取り込まない（DAS の先行チャージのため、ここでも取り込む）
-            this._updateDAS(dt);
-            this._render();
-        };
-        this._countdownLoopId = requestAnimationFrame(tick);
+        this._loop();
     },
 
+    // カウントダウン中のループを止める（本編に入る前に試合をやめたとき）
     _stopCountdownDas() {
-        if (this._countdownLoopId) {
-            cancelAnimationFrame(this._countdownLoopId);
-            this._countdownLoopId = null;
-        }
+        if (this.state === 'starting') this._stopLoop();
     },
 
     stop(keepCanvas = false) {
@@ -108,10 +94,7 @@ Object.assign(PuyoGame.prototype, {
             //    次戦は _resetState が garbageQueue を空にし _lastYokokuAmount=-1 で
             //    必ず再構築するため、持ち越されることはない。
             this._clearYokokuDOM();
-            if (this._loopId) {
-                cancelAnimationFrame(this._loopId);
-                this._loopId = null;
-            }
+            this._stopLoop();
         }
     },
 
@@ -122,6 +105,8 @@ Object.assign(PuyoGame.prototype, {
         this.state = 'paused';
         this.isPaused = true;
         this._stopTimer();
+        // 時計を止める（設計 D7。VERSUS は両盤面で同じ時計）。下の残り時間の保存は止めた時刻で計算する
+        this.clock.pause();
 
         // マージンタイマーの停止と残り時間の保存
         if (this._vsMarginTimer) {
@@ -135,7 +120,8 @@ Object.assign(PuyoGame.prototype, {
         if (this.state !== 'paused') return;
         this.state = 'playing';
         this.isPaused = false;
-        this.clock.advance(); // ポーズ中はフレームが止まっていて時計が進んでいないので、先に今に合わせる
+        this.clock.resume(); // 止めていた時計を動かす。止まっていた間の実時間は数えない
+        this.clock.advance();
         this.lastTime = this.clock.now();
 
         // マージンタイマーの再開
@@ -218,6 +204,8 @@ Object.assign(PuyoGame.prototype, {
         this._puyoMarginStep = 0;      // 現在のマージンステップ（0=突入直後の最初値適用済み）
         if (this._vsMarginTimer) { this.clock.cancel(this._vsMarginTimer); this._vsMarginTimer = null; }
         // マージンはゲーム時計の予約。時計はフレームの頭でしか進まないので、入れる前に今に合わせる
+        // （ポーズ中のリスタートなどで止まったままなら動かしてから）
+        this.clock.resume();
         this.clock.advance();
         this._vsMarginTimerStart = 0;
         this._vsMarginTimerDuration = 0;

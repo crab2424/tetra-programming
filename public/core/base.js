@@ -229,8 +229,22 @@ class Asset {
 // silent      : trueならこの呼び出しではSEを鳴らさない（同じカウントダウンSEを複数
 //               オーバーレイに同時に鳴らして二重・多重再生になるのを防ぐため。
 //               CPU戦のcpu側オーバーレイ、online戦の相手スロットで使う）。
+// clock       : ゲーム時計（core/game_clock.js）。渡すと 3・2・1・START! をその時計の予約で進める
+//               （設計 source_assets/memory/record/tetlabo-record-design.md D7。START! が来るフレームが決まる）。
+//               時計を進めるループ（core/match_loop.js）がカウントダウン中から回っていること。
+//               START! の後に演出を消すところは見た目だけなので setTimeout のまま。
+//               渡さない（QUIZ・ONLINE）ときは今までどおり setTimeout。
 // ─────────────────────────────────────────────
-function runCountdown(overlayId, textElId, onStart, onComplete, startDelayMs = 2100, silent = false) {
+// countdownTimer は setTimeout の ID か { clock, h }（時計の予約）。止めるときはこれを使う
+function cancelCountdownTimer(overlay) {
+    const t = overlay && overlay.countdownTimer;
+    if (!t) return;
+    if (typeof t === 'object') t.clock.cancel(t.h);
+    else clearTimeout(t);
+    overlay.countdownTimer = null;
+}
+
+function runCountdown(overlayId, textElId, onStart, onComplete, startDelayMs = 2100, silent = false, clock = null) {
     const overlay = document.getElementById(overlayId);
     const textEl = document.getElementById(textElId);
     if (!overlay || !textEl) {
@@ -240,7 +254,9 @@ function runCountdown(overlayId, textElId, onStart, onComplete, startDelayMs = 2
     }
 
     // 前回のタイマーが動いていればキャンセル（リスタート対策）
-    if (overlay.countdownTimer) clearTimeout(overlay.countdownTimer);
+    cancelCountdownTimer(overlay);
+    // フレームが回っていなかった間のぶんを進めてから予約する（フレームの中なら何もしない）
+    if (clock) clock.advance();
 
     const clearCountdownText = () => {
         textEl.classList.remove('countdown-pop');
@@ -283,7 +299,9 @@ function runCountdown(overlayId, textElId, onStart, onComplete, startDelayMs = 2
         stepIdx++;
 
         if (stepIdx < steps.length) {
-            overlay.countdownTimer = setTimeout(showStep, countInterval);
+            overlay.countdownTimer = clock
+                ? { clock, h: clock.schedule(countInterval, showStep) }
+                : setTimeout(showStep, countInterval);
         } else {
             overlay.countdownTimer = setTimeout(() => {
                 clearCountdownText();
@@ -309,7 +327,7 @@ function showFinishOverlay(overlayId, textElId, text, className, duration, onCom
     }
 
     // 前回のタイマーが動いていればキャンセル
-    if (overlay.countdownTimer) clearTimeout(overlay.countdownTimer);
+    cancelCountdownTimer(overlay);
     if (overlay.finishTimer1) clearTimeout(overlay.finishTimer1);
     if (overlay.finishTimer2) clearTimeout(overlay.finishTimer2);
 

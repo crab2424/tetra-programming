@@ -63,7 +63,7 @@ export function freezeTetGame(game: AnyGame, options: FreezeOptions = {}): void 
       game._keyLoop = null;
     }
     if (game._gamepadLoop) {
-      clearInterval(game._gamepadLoop);
+      cancelAnimationFrame(game._gamepadLoop); // ゲームパッドの読み取りは rAF（tet/input.js）
       game._gamepadLoop = null;
     }
     if (game._keyDownHandler) document.removeEventListener("keydown", game._keyDownHandler);

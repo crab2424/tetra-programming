@@ -20,6 +20,10 @@ Object.assign(Game.prototype, {
         // DASの先行チャージ等を受け付けるため、カウントダウン開始「前」にキーイベントをセット
         this.setKeyEvent();
 
+        // カウントダウンはゲーム時計の予約で進むので、カウントダウン中からフレームを回す
+        // （CPU 操作でキーイベントを持たない盤面も。setKeyEvent が回し始めていればそのまま）
+        this.startRenderLoop();
+
         // カウントダウン開始
         runCountdown(overlayId, textElId, () => {
             // START! のタイミングでBGM開始（versus は startVersusGame 側で鳴らすため除外）。
@@ -30,7 +34,7 @@ Object.assign(Game.prototype, {
                     : window.BgmManager.singleBgmKey(this.currentMode));
             }
             this._startGameplay();
-        }, null);
+        }, null, undefined, false, this.clock);
     },
 
     // ─────────────────────────────────────────
@@ -45,6 +49,7 @@ Object.assign(Game.prototype, {
         this._cancelLockTimer();
         this._cancelGarbageTimers();
         if (this._vsMarginTimer) { this.clock.cancel(this._vsMarginTimer); this._vsMarginTimer = null; }
+        this.clock.resume(); // ポーズ中のリスタートなどで止まったままの時計を動かす
         this.clock.advance();
         this._inputQueue = [];
 
@@ -194,7 +199,7 @@ Object.assign(Game.prototype, {
         const finishOverlay = document.getElementById(finishId);
 
         if (countdownOverlay) {
-            if (countdownOverlay.countdownTimer) clearTimeout(countdownOverlay.countdownTimer);
+            cancelCountdownTimer(countdownOverlay);
             countdownOverlay.classList.remove('active');
         }
         if (finishOverlay) {
@@ -211,8 +216,9 @@ Object.assign(Game.prototype, {
     // 実際のゲームプレイ開始（START! 表示の瞬間に呼ばれる）
     // ─────────────────────────────────────────
     _startGameplay() {
-        // フレームが回っていなかった間（CPU 同士のカウントダウン等）のぶんを先に進めておく。
-        // 進めずに startTime や重力の基準を取ると、最初のフレームでその間のぶんがまとめて落ちる
+        // フレームが回っていなかった間（QUIZ・ONLINE のカウントダウン等）のぶんを先に進めておく。
+        // 進めずに startTime や重力の基準を取ると、最初のフレームでその間のぶんがまとめて落ちる。
+        // カウントダウンが時計の予約のとき（シングル・VERSUS）はフレームの中なので何もしない
         this.clock.advance();
 
         // カウントダウンを解除し、ここで初めてミノを出現させる
@@ -404,6 +410,8 @@ Object.assign(Game.prototype, {
         // ③ ポーズ中はBGMを止めず小音量で流し続ける
         window.BgmManager?.duck()
         clearInterval(this.timer)
+        // 時計を止める（設計 D7）。下の残り時間の保存は止めた時刻で計算する
+        this.clock.pause()
 
         // 接地猶予タイマーが動いていた場合、残り時間を計算して保存する
         if (this.lockTimer) {
@@ -437,13 +445,14 @@ Object.assign(Game.prototype, {
         if (this.isTimerRunning) {
             this.elapsedTime += this.clock.now() - this.startTime;
             this.isTimerRunning = false;
-            cancelAnimationFrame(this.timerReqId);
         }
     },
 
     resume() {
         if (!this.isPaused) return
         this.isPaused = false
+        // 止めていた時計を動かす。止まっていた間の実時間は数えない
+        this.clock.resume()
         // ③ ポーズ解除でBGM音量を元に戻す
         window.BgmManager?.unduck()
         this.hidePauseOverlay()
@@ -504,14 +513,12 @@ Object.assign(Game.prototype, {
         document.getElementById('pause-overlay').classList.remove('active')
     },
 
-    // タイマーの描画ループ（約60fps）
+    // タイム表示は試合のループの中（render.js の _frameUpdate）で毎フレーム行う。
+    // 以前は別の rAF で回していたので、ULTRA の時間切れがフレームと別のタイミングで起きていた。
+    // 呼び出し側（PRACTICE など）との互換のため名前だけ残す。
     startTimerLoop() {
-        const loop = () => {
-            if (!this.isTimerRunning) return;
-            this.updateTimeDisplay();
-            this.timerReqId = requestAnimationFrame(loop);
-        };
-        this.timerReqId = requestAnimationFrame(loop);
+        this.timerReqId = null;
+        this.updateTimeDisplay();
     },
 
     // タイムの計算とHTMLへの反映

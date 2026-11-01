@@ -19,6 +19,7 @@ class PuyoGame {
         this.suppressBlink = false;
         this.rng = null;
         this.clock = new GameClock(); // ゲーム時計（VERSUS は両盤面に同じ時計を渡す）
+        this.loop = new MatchLoop();  // 試合の親ループ（VERSUS は両盤面に同じループを渡す）
 
         this.canvas = null;
         this.ctx = null;
@@ -75,9 +76,8 @@ class PuyoGame {
         this._animMs = 0;
         this._timerRunning = false;
         this._timerStart = 0;
-        this._timerReqId = null;
 
-        this._loopId = null;
+        this._loopId = null;          // 試合のループに加わっている間だけ立つ（engine.js _loop）
         this.lastTime = this.clock.now();
 
         this.field = [];
@@ -120,7 +120,6 @@ class PuyoGame {
         this._dasDir = 0;
         this._dasTimer = 0;
         this._arrTimer = 0;
-        this._countdownLoopId = null; // ★ カウントダウン中にDASをチャージするための専用ループID
         this._priorityMove = false;
         this.inputBuffer = [];
 

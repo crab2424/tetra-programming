@@ -212,6 +212,12 @@ async function startVersusGame() {
   // ツモの列は両盤面で同じ、おじゃまの穴・列は rngSide で別の列。
   const matchSeed = GameRng.newSeed();
   const matchClock = new GameClock();
+  // 1 試合 1 ループ（§4.1 D4）。毎フレーム「時計を進める → 1P → 2P → 描画」の順に回す（core/match_loop.js）
+  const matchLoop = new MatchLoop();
+  const useMatchLoop = (g) => {
+    if (g.loop && g.loop !== matchLoop) g.loop.remove(g); // 前の試合のループに残っていれば抜ける
+    g.loop = matchLoop;
+  };
 
   const isPlayerPuyo = versusPlayerRule === 'puyo';
   const isCpuPuyo = versusCpuRule === 'puyo';
@@ -230,6 +236,7 @@ async function startVersusGame() {
   window._game.nextMatchSeed = matchSeed;
   window._game.rngSide = 0;
   window._game.clock = matchClock;
+  useMatchLoop(window._game);
   window._game.tumoRng = null; // 外から差し込むツモ（tumoRng / rng）はオンライン専用。前の対戦の残りを消す
   window._game.rng = null;
 
@@ -244,6 +251,7 @@ async function startVersusGame() {
   window._cpuGame.nextMatchSeed = matchSeed;
   window._cpuGame.rngSide = 1;
   window._cpuGame.clock = matchClock;
+  useMatchLoop(window._cpuGame);
   window._cpuGame.tumoRng = null;
   window._cpuGame.rng = null;
 
@@ -306,6 +314,13 @@ async function startVersusGame() {
   if (isCpuPuyo && window._cpuGame) window._cpuGame.state = 'starting';
   // ★ 修正箇所 ここまで
 
+  // カウントダウンは試合の時計の予約で進むので、ここから両盤面のフレームを回す
+  // （ロード画面の間も。キーの取り込みと DAS の先行チャージもこのループで行う）
+  for (const g of [window._game, window._cpuGame]) {
+    if (g instanceof PuyoGame) g._startCountdownDas();
+    else g.startRenderLoop();
+  }
+
   // ★ CPUコントローラはロード済みクラスから生成する。思考 worker はロード画面で ready 済みの
   //   ものをプールから借りるので、生成直後から workerReady が立っている（v2.2.3 G/H）。
   if (CpuClass) window._cpuController = new CpuClass(window._cpuGame);
@@ -341,14 +356,14 @@ async function startVersusGame() {
     window._game._startGameplay();
     const pc = window._cpuControllerPlayer;
     if (pc && typeof pc.start === 'function') pc.start();
-  }, null);
+  }, null, undefined, false, matchClock);
 
   runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
     if (isStale()) return; // セッションが変わっていたら開始しない
     window._cpuGame._startGameplay();
     const c = window._cpuController;
     if (c && typeof c.start === 'function') c.start();
-  }, null, undefined, true); // silent: player側と同時に鳴るSEの二重再生を防ぐ
+  }, null, undefined, true, matchClock); // silent: player側と同時に鳴るSEの二重再生を防ぐ
 
   setupVersusPauseKey();
   if (typeof startVersusCpuWatchdog === 'function') startVersusCpuWatchdog(sessionId);

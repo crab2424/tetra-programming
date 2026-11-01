@@ -10,9 +10,12 @@
 //     長く遊んでも実時間からずれない（ずれるのは最後の advance からの経過ぶんだけ）。
 //   ・予約（schedule）は setTimeout の代わり。advance() の中で予定時刻の順（同時刻なら予約順）に
 //     実行し、実行中の now() はその予定時刻になる。予約の中で入れた予約も、同じ advance の範囲内なら続けて実行する。
-//   ・advance() はそのフレームでこの時計を使うループが頭で呼ぶ（tet: render.js startRenderLoop、
-//     puyo: engine.js _loop）。VERSUS で 2 つのループが同じ時計を進めても、2 回目はほぼ 0 進むだけ。
-//   ・後の段階（M3〜）で「試合の親ループだけが進める・ポーズで止める・録画した経過時間で進める」に変える。
+//   ・advance() は試合の親ループ（core/match_loop.js）がフレームの頭で 1 回だけ呼ぶ。
+//     フレームが回っていなかった後に時刻の基準を取る所（試合の頭など）も先に呼ぶ。
+//     予約の実行中（advance の中）に呼ばれた advance は何もしない。
+//   ・pause() の間は進まない。resume() は止まっていた間の実時間を捨てて、止めた時刻から続ける（設計 D7）。
+//     予約の実行中に pause() されたら、その advance の残りの予約もそこで止める。
+//   ・後の段階（M5〜）で「録画した経過時間で進める」を足す。
 // ─────────────────────────────────────────────
 
 class GameClock {
@@ -21,6 +24,8 @@ class GameClock {
         this._t = Math.round(this._last * 16) / 16;   // ゲーム時刻（実時間に近い値から始める）
         this._timers = [];                            // 予約（due・seq の順に並べる）
         this._seq = 0;
+        this._paused = false;
+        this._advancing = false;
     }
 
     now() {
@@ -29,20 +34,44 @@ class GameClock {
 
     // 実時間の経過ぶん時計を進め、その間に来た予約を順に実行する。進めた量（ms）を返す
     advance() {
+        if (this._paused || this._advancing) return 0;
         const dt = Math.round((performance.now() - this._last) * 16) / 16;
         if (dt <= 0) return 0;
         this._last += dt;
-        const target = this._t + dt;
+        const start = this._t;
+        const target = start + dt;
         const timers = this._timers;
-        while (timers.length && timers[0].due <= target) {
-            const h = timers.shift();
-            if (h.due > this._t) this._t = h.due;
-            const cb = h.cb;
-            h.cb = null;
-            if (cb) cb();
+        this._advancing = true;
+        try {
+            while (timers.length && timers[0].due <= target) {
+                const h = timers.shift();
+                if (h.due > this._t) this._t = h.due;
+                const cb = h.cb;
+                h.cb = null;
+                if (cb) cb();
+                if (this._paused) return this._t - start; // 予約の中でポーズされた: 時刻はその予約のところで止める
+            }
+            this._t = target;
+        } finally {
+            this._advancing = false;
         }
-        this._t = target;
         return dt;
+    }
+
+    // ポーズ。止めている間は advance() しても進まない
+    pause() {
+        this._paused = true;
+    }
+
+    // ポーズ明け。止まっていた間の実時間は数えない
+    resume() {
+        if (!this._paused) return;
+        this._paused = false;
+        this._last = performance.now();
+    }
+
+    get paused() {
+        return this._paused;
     }
 
     // ms 後に cb を実行する予約。戻り値は cancel() に渡す

@@ -2111,7 +2111,7 @@ export class OnlineGameController {
           for (const t of this.game._garbageTimers) if (t.id) this.game.clock.cancel(t.id);
         }
         if (this.game._keyLoop) clearInterval(this.game._keyLoop);
-        if (this.game._gamepadLoop) clearInterval(this.game._gamepadLoop);
+        if (this.game._gamepadLoop) cancelAnimationFrame(this.game._gamepadLoop); // rAF（tet/input.js）
         if (this.game._keyDownHandler) document.removeEventListener("keydown", this.game._keyDownHandler);
         if (this.game._keyUpHandler) document.removeEventListener("keyup", this.game._keyUpHandler);
         this.game.tumoRng = null;
@@ -2842,7 +2842,7 @@ export class OnlineGameController {
           for (const t of this.game._garbageTimers) if (t.id) this.game.clock.cancel(t.id);
         }
         if (this.game._keyLoop) clearInterval(this.game._keyLoop);
-        if (this.game._gamepadLoop) clearInterval(this.game._gamepadLoop);
+        if (this.game._gamepadLoop) cancelAnimationFrame(this.game._gamepadLoop); // rAF（tet/input.js）
         if (this.game._keyDownHandler) {
           document.removeEventListener("keydown", this.game._keyDownHandler);
         }

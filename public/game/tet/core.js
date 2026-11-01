@@ -9,6 +9,7 @@ class Game {
         this.canvasPrefix = canvasPrefix; // null なら通常モード
         this.rule = 'tet';
         this.clock = new GameClock(); // ゲーム時計（VERSUS は両盤面に同じ時計を渡す）
+        this.loop = new MatchLoop();  // 試合の親ループ（VERSUS は両盤面に同じループを渡す）
         this.initMainCanvas()
         this.initNextCanvas()
         this.initHoldCanvas()

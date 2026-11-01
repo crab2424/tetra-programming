@@ -746,9 +746,8 @@ class QuizManager {
 
         if (game instanceof PuyoGame) {
             // ぷよ停止
-            if (game._loopId) cancelAnimationFrame(game._loopId);
-            game._loopId = null;
-            game.state = 'gameover'; // ループを止める
+            game._stopLoop(); // 試合のループから抜ける
+            game.state = 'gameover';
             game._stopTimer();
         } else {
             // テト停止

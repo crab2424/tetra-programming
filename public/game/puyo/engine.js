@@ -151,26 +151,47 @@ Object.assign(PuyoGame.prototype, {
         this._gs = 'fixAnim';
     },
 
+    // 試合のループ（core/match_loop.js）に加わる。1 フレーム:
+    //   時計を進める（マージン・tet 相手のおじゃま猶予・カウントダウンなどの予約もここで実行）
+    //   → たまった入力の取り込み → 盤面を進める（VERSUS は 1P → 2P）→ 描画
+    // カウントダウン中（starting）は入力の取り込みと DAS のチャージだけ（_startCountdownDas）。
+    // playing・starting でなくなったら自分で抜ける。
+    // ★ versusモードのgameover中（_versusFinishing）は描画のみ継続（勝者側の盤面・NEXTを残すため）
     _loop() {
-        // ★ versusモードのgameover中（_versusFinishing）は描画のみ継続（勝者側の盤面・NEXTを残すため）
-        const continueForVersus = this.isVersusMode && this._versusFinishing;
-        if (this.state !== 'playing' && !continueForVersus) return;
-        this._loopId = requestAnimationFrame(() => this._loop());
+        if (!this._frameUpdate) {
+            this._frameUpdate = () => {
+                const continueForVersus = this.isVersusMode && this._versusFinishing;
+                if (this.state !== 'playing' && this.state !== 'starting' && !continueForVersus) {
+                    this._stopLoop();
+                    return;
+                }
+                let now = this.clock.now();
+                let dt = now - this.lastTime;
+                if (dt > 100) dt = 100;
+                this.lastTime = now;
 
-        // 1 フレーム: 時計を進める（マージン・tet 相手のおじゃま猶予などの予約もここで実行）
-        //   → たまった入力の取り込み → 盤面を進める → 描画
-        this.clock.advance();
-        let now = this.clock.now();
-        let dt = now - this.lastTime;
-        if (dt > 100) dt = 100;
-        this.lastTime = now;
-
-        // ★ gameover中は _update をスキップして描画のみ行う
-        if (this.state === 'playing') {
-            this._drainInput();
-            this._update(dt);
+                if (this.state === 'playing') {
+                    this._drainInput();
+                    this._update(dt);
+                } else if (this.state === 'starting') {
+                    // カウントダウン中：DAS だけ溜める（ぷよはまだ falling ではないので _arrTimer は arrMs で頭打ち）
+                    this._drainInput();
+                    this._updateDAS(dt);
+                }
+                // ★ gameover中は _update をスキップして描画のみ行う
+            };
+            this._frameDraw = () => {
+                this._render();
+                if (this._timerRunning) this._timerTick();
+            };
         }
-        this._render();
+        this._loopId = true;
+        this.loop.add(this, this._frameUpdate, this._frameDraw);
+    },
+
+    _stopLoop() {
+        this._loopId = null;
+        if (this.loop) this.loop.remove(this);
     },
 
     _update(dt) {
@@ -1067,18 +1088,14 @@ Object.assign(PuyoGame.prototype, {
             this.elapsed += this.clock.now() - this._timerStart;
             this._timerRunning = false;
         }
-        if (this._timerReqId) {
-            cancelAnimationFrame(this._timerReqId);
-            this._timerReqId = null;
-        }
     },
 
+    // タイム表示を今の時刻に合わせる。試合のループの描画で毎フレーム呼ぶ（以前は別の rAF）
     _timerTick() {
         if (!this._timerRunning) return;
         const now = this.clock.now();
         const total = this.elapsed + (now - this._timerStart);
         this._updateTimeDisplay(total);
-        this._timerReqId = requestAnimationFrame(() => this._timerTick());
     },
 
     _formatTime(ms) {
