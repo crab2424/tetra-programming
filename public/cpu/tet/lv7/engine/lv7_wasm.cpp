@@ -340,6 +340,107 @@ beam::Press make_press(const Ctx& c, const eval::Weight& w, const Threat& t)
     return p;
 }
 
+// D0（lv7-dodge-design.md §3）：相殺外しの決まりが成り立つかの記録だけ。手の選び方は変えない。
+//   outLen ≥ OUT_D0_LEN のとき（シミュだけ。本番の worker は 160）、選んだ手が「消去して予告を相殺する手」で
+//   この手で上がる予告があれば、消去しない手のうち visit 最大の手（alt）を置いてその分を上げた盤面を調べて out[160..] に書く。
+//   火力は ctx の自分のマージン段の表（本当のゲームの火力）で数える
+//   [160] ビット 1=調べた（ready あり・選んだ手が消去・火力 > 0） 2=alt あり
+//   [161] 選んだ手の火力 A [162] その消去数 [163] この手で上がる予告の合計 R（ready か、ready まで自分の1手の ms 以内） [164] 選んだ手の visit [165] alt の visit
+//   [166] alt の生存判定の値（中央列の高さ＋incoming、上げる前） [167] alt の後 R を上げた最大の高さ [168] その中央列の高さ
+//   [169] R を上げた盤面で次のミノか HOLD で出せる火力の最大 [170] 上げない盤面での同じ値
+//   [171] 選んだ手の後の最大の高さ＋相殺しきれず上がる分（max(R − A, 0)） [172] 初手の候補数 [173] そのうち消去しない手の数
+//   [174] 選んだ手の種類 ビット 1=T-spin 2=4-LINES 4=mini [175] D0 にかかった時間（0.01ms 単位）
+constexpr i32 OUT_D0 = 160;
+constexpr i32 OUT_D0_LEN = 176;
+
+i32 max_attack_next(const State& s, const std::vector<piece::Type>& queue)
+{
+    piece::Type types[2] = { piece::Type::NONE, piece::Type::NONE };
+    if (s.next < queue.size()) types[0] = queue[s.next];
+    if (s.hold != piece::Type::NONE) types[1] = s.hold;
+    else if (size_t(s.next) + 1 < queue.size()) types[1] = queue[s.next + 1];
+
+    i32 best = 0;
+    for (i32 k = 0; k < 2; ++k) {
+        if (types[k] == piece::Type::NONE || (k == 1 && types[1] == types[0])) continue;
+        auto moves = move::generate(s.board, types[k]);
+        for (auto& m : moves) {
+            State c = s;
+            auto lock = c.lock(m);
+            best = std::max<i32>(best, lock.attack);
+        }
+    }
+    return best;
+}
+
+void record_d0(const State& root, const std::vector<piece::Type>& queue, const beam::Result& result, size_t best,
+               i32 incoming, const Ctx& ctx, const eval::Weight& w, i32* out)
+{
+    const double t0 = beam::now_ms();
+    // この手の設置で上がる分：ready か、ready まで自分の1手の ms 以内（make_plan で 1 手目の後に上がる分と同じ）
+    const i32 my_ms = w.my_ms > 0 ? w.my_ms : 330;
+    i32 ready = 0;
+    for (i32 i = 0; i < ctx.g; ++i) {
+        if (ctx.g_ready[i] || ctx.g_ms[i] <= my_ms) ready += ctx.g_amount[i];
+    }
+
+    State base = root;
+    base.margin = i8(ctx.my_margin);
+
+    State sb = base;
+    auto pb = result.candidates[best].placement;
+    auto lb = sb.advance(pb, queue);
+    if (ready <= 0 || lb.clear == 0 || lb.attack == 0) return;
+
+    out[OUT_D0] = 1;
+    out[OUT_D0 + 1] = lb.attack;
+    out[OUT_D0 + 2] = lb.clear;
+    out[OUT_D0 + 3] = ready;
+    out[OUT_D0 + 4] = i32(std::min<size_t>(result.candidates[best].visit, INT32_MAX));
+    {
+        i32 h[10];
+        sb.board.get_heights(h);
+        out[OUT_D0 + 11] = *std::max_element(h, h + 10) + std::max(ready - i32(lb.attack), 0);
+    }
+    out[OUT_D0 + 12] = i32(result.candidates.size());
+    out[OUT_D0 + 14] = (lb.tspin ? 1 : 0) | (lb.clear == 4 ? 2 : 0) | (lb.mini ? 4 : 0);
+
+    // 消去しない手のうち visit 最大（同じなら候補の並びで先の手）
+    i32 alt = -1, n_noclear = 0;
+    State sa;
+    for (size_t i = 0; i < result.candidates.size(); ++i) {
+        State s = base;
+        auto p = result.candidates[i].placement;
+        auto l = s.advance(p, queue);
+        if (l.clear > 0) continue;
+        ++n_noclear;
+        if (alt < 0 || result.candidates[i].visit > result.candidates[size_t(alt)].visit) {
+            alt = i32(i);
+            sa = s;
+        }
+    }
+    out[OUT_D0 + 13] = n_noclear;
+
+    if (alt >= 0) {
+        out[OUT_D0] |= 2;
+        out[OUT_D0 + 5] = i32(std::min<size_t>(result.candidates[size_t(alt)].visit, INT32_MAX));
+        i32 h[10];
+        sa.board.get_heights(h);
+        out[OUT_D0 + 6] = *std::max_element(h + 3, h + 7) + incoming;
+        out[OUT_D0 + 10] = max_attack_next(sa, queue);
+
+        // R を上げる（1回の着弾。穴は garbage::after_lock と同じ決め方）
+        garbage::Queue q;
+        q.push(ready, 0, 1);
+        garbage::after_lock(sa.board, q, 0, 1, root.board.cols[0] * 31 + root.board.cols[9] + u64(ready));
+        sa.board.get_heights(h);
+        out[OUT_D0 + 7] = *std::max_element(h, h + 10);
+        out[OUT_D0 + 8] = *std::max_element(h + 3, h + 7);
+        out[OUT_D0 + 9] = max_attack_next(sa, queue);
+    }
+    out[OUT_D0 + 15] = i32((beam::now_ms() - t0) * 100);
+}
+
 void search(
     const u8* board, const i32* queueIn, i32 nQueue, i32 hold, i32 bagAfter,
     i32 b2b, i32 ren, i32 incoming, const i32* weights, i32 nWeights,
@@ -453,6 +554,8 @@ void search(
 
     out[17] = path_end > 18 ? build_path(state.board, placement, out + 18, path_end - 18) : 0;
     out[14] = i32(beam::now_ms() - start);
+
+    if (ctx.valid && outLen >= OUT_D0_LEN) record_d0(state, queue, result, best, incoming, ctx, w, out);
 }
 
 }

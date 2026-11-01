@@ -423,7 +423,7 @@ void tet_vs_run(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int w
 // テト同士の対戦の記録（lv7-threat-design.md §7.2 の T1）。tet_vs_run と同じ席の作りで、1局ごとに
 //   <prefix>_<seed>_<k>.json に {winner, ms, a:{locks, threats}, b:{...}} を書く。
 //   locks: [t, lines, tspin, pc, b2b, ren(加算前), tetAttack, landed, height]
-//   threats: [t, myPieces, oppPieces, myHeight, myIncoming, oppHeight, oppIncoming, oppRen, out[96..147] の 52 個]
+//   threats: [t, myPieces, oppPieces, myHeight, myIncoming, oppHeight, oppIncoming, oppRen, out[96..175] の 80 個（[160..175] は D0 の記録 lv7-dodge-design.md）]
 void tet_vs_trace(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int wLenB, int nSeeds, const uint32_t* seeds,
                   double maxMs, int marginTimeMs, int holeRatePercent, double jitterMs, int sharedTumo, int nThreads,
                   const char* prefix) {
@@ -462,7 +462,7 @@ void tet_vs_trace(int lvA, const int* wA, int wLenA, int lvB, const int* wB, int
                 const auto& e = p.threats[j];
                 std::fprintf(f, "%s[%.1f,%d,%d,%d,%d,%d,%d,%d", j ? "," : "", e.t, e.myPieces, e.oppPieces, e.myHeight,
                              e.myIncoming, e.oppHeight, e.oppIncoming, e.oppRen);
-                for (int q = 0; q < 52; q++) std::fprintf(f, ",%d", e.out[q]);
+                for (int q = 0; q < 80; q++) std::fprintf(f, ",%d", e.out[q]);
                 std::fprintf(f, "]");
             }
             std::fprintf(f, "]}");

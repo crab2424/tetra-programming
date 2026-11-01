@@ -810,6 +810,7 @@ double TetPlayer::plan() {
                     cpuSearchLv6n2(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights,
                                    tetWeightsLen(weightLevel()), clysWidth, clysDepth, clysThinkMs, ctx, ctxLen, nout,
                                    TET_LV7_OUT_LEN);
+                    w0 += nout[175] * 0.01;   // D0 の記録にかかった時間は思考に数えない（手の時刻を変えない）
                     if (keepLog && (nout[96] & 1)) {
                         TThreatRec r{};
                         r.t = now; r.myPieces = st.pieces; r.oppPieces = opp->st.pieces;

@@ -104,7 +104,7 @@ void cpuSearchLv6n2(const uint8_t board[250], const int* queue, int nQueue, int 
                     int incoming, const int* weights, int nWeights, int width, int depth, int thinkMs, const int* ctx,
                     int ctxLen, int* out, int outLen);
 constexpr int TET_LV7_CTX_MAX = 19 + 4 * 16 + 250;   // lv7_wasm.cpp parse_ctx の並び（予告は 16 件まで）
-constexpr int TET_LV7_OUT_LEN = 160;
+constexpr int TET_LV7_OUT_LEN = 176;   // [160..175] は D0 の記録（lv7-dodge-design.md。本番の worker は 160 なので計算しない）
 const int* lv6nDefaultWeights();
 int lv6nWeightsLen();
 void pieceBlocks(int type, int rot, int outXY[8]);     // PRECALC_MINO_BLOCKS（本番 Mino と同じ形）
@@ -147,7 +147,7 @@ struct TThreatRec {
     double t;
     int myPieces, oppPieces;     // 探索した時点の設置数（相手の次の設置＝相手の locks[oppPieces]）
     int myHeight, myIncoming, oppHeight, oppIncoming, oppRen;
-    int out[52];
+    int out[80];                 // out[96..175]（見積もり・D0 の記録）
 };
 
 // 集計
