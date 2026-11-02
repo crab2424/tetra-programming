@@ -303,12 +303,17 @@ function runCountdown(overlayId, textElId, onStart, onComplete, startDelayMs = 2
                 ? { clock, h: clock.schedule(countInterval, showStep) }
                 : setTimeout(showStep, countInterval);
         } else {
-            overlay.countdownTimer = setTimeout(() => {
+            // START! を消すのも時計の予約にする（再生で巻き戻したとき、早送りで通り過ぎた START! が
+            // 実時間の 600ms のあいだ出たままになるため。core/replay.js）
+            const finish = () => {
                 clearCountdownText();
                 overlay.classList.remove('active');
                 overlay.countdownTimer = null;
                 if (onComplete) onComplete();
-            }, 600);
+            };
+            overlay.countdownTimer = clock
+                ? { clock, h: clock.schedule(600, finish) }
+                : setTimeout(finish, 600);
         }
     };
 
