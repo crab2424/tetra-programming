@@ -1515,6 +1515,7 @@ const ReplayManager = {
     resultReplay: null,  // リザルト画面の WATCH REPLAY で見るもの（別の画面へ移ったら消す）
     player: null,        // 画面で見ている再生
     returnPage: 'result',
+    backTo: null,        // PLAY HERE の戻り先 { data, t, returnPage, speed, fresh }（UI 設計書 §8.2。◀ REPLAY）
     _keyHandler: null,
     _uiBound: false,
 
@@ -1528,6 +1529,12 @@ const ReplayManager = {
         if (g._rec) g._rec.detach();
         if (g.loop && g.loop.recorder) g.loop.recorder.detach();
         if (g.clock._feed) g.clock.endFeed();
+        // 新しい試合（RESTART・RETRY・別のモード）を始めたら ◀ REPLAY の戻り先を忘れる。
+        // PLAY HERE で PRACTICE を始めた最初の 1 回（fresh）だけは残す
+        if (this.backTo) {
+            if (this.backTo.fresh) this.backTo.fresh = false;
+            else this._setBack(null);
+        }
         if (g.isVersusMode || g.canvasPrefix || g.tumoRng || g.rng) return;
         const mode = g.currentMode;
         const tet = replayRule(g) === 'tet';
@@ -1543,6 +1550,7 @@ const ReplayManager = {
     beginMatch(spec) {
         const g0 = spec.games[0];
         if (g0._replay) { g0._replay.attach(); return; }
+        if (this.backTo) this._setBack(null); // 新しい対戦（RESTART・RETRY）。VERSUS の続きはここを通らない
         for (const g of spec.games) if (g._rec) g._rec.detach();
         if (g0.loop.recorder) g0.loop.recorder.detach();
         if (g0.clock._feed) g0.clock.endFeed();
@@ -1601,15 +1609,9 @@ const ReplayManager = {
     onSwitchPage(pageId) {
         if (this.player && this.player.watching && pageId !== this.player.page) this._endWatch(false);
         // VERSUS の続き（M7d）を終えて対戦の画面を離れたら、準備画面の設定を戻す
-        if (this._liveSaved && pageId !== 'versus' && pageId !== 'versus-result') {
-            const s = this._liveSaved;
-            this._liveSaved = null;
-            versusPlayerRule = s.pr;
-            versusCpuRule = s.cr;
-            selectedCpuLevel = s.lv;
-            versusPlayerIsCpu = s.pIsCpu;
-            selectedPlayerCpuLevel = s.plv;
-        }
+        if (this._liveSaved && pageId !== 'versus' && pageId !== 'versus-result') this._restoreLive();
+        // ◀ REPLAY の戻り先は、試合・リザルト・ポーズの SETTINGS 以外へ移ったら忘れる（MODE SELECT・MAIN MENU など）
+        if (this.backTo && ['game', 'versus', 'result', 'versus-result', 'settings'].indexOf(pageId) < 0) this._setBack(null);
         if (pageId === 'result' || pageId === 'versus-result') {
             for (const id of ['result-replay-btn', 'versus-result-replay-btn']) {
                 const btn = document.getElementById(id);
@@ -1630,6 +1632,47 @@ const ReplayManager = {
             this.returnPage = 'replays';
             setTimeout(() => window.ReplaysPage.render({ open: true }), 0); // ページが切り替わってから描く
         }
+    },
+
+    _restoreLive() {
+        const s = this._liveSaved;
+        if (!s) return;
+        this._liveSaved = null;
+        versusPlayerRule = s.pr;
+        versusCpuRule = s.cr;
+        selectedCpuLevel = s.lv;
+        versusPlayerIsCpu = s.pIsCpu;
+        selectedPlayerCpuLevel = s.plv;
+    },
+
+    // ─── REPLAY に戻る（UI 設計書 §8.2）───
+    // PLAY HERE の先（PRACTICE・VERSUS の続き）のポーズとリザルトに ◀ REPLAY を出す（戻り先があるときだけ）
+    _setBack(b) {
+        this.backTo = b;
+        const kind = b ? (b.data.mode === 'versus' ? 'versus' : 'practice') : null;
+        const ids = {
+            practice: ['pause-replay-back-btn', 'result-replay-back-btn'],
+            versus: ['versus-pause-replay-back-btn', 'versus-result-replay-back-btn'],
+        };
+        for (const k in ids) {
+            for (const id of ids[k]) {
+                const el = document.getElementById(id);
+                if (el) el.style.display = k === kind ? '' : 'none';
+            }
+        }
+    },
+
+    // ◀ REPLAY: 試合を止めて、PLAY HERE を押した所から見直す（止めた状態。スナップショットは作り直しなので長い試合はシークに少しかかる）
+    backToReplay() {
+        const b = this.backTo;
+        if (!b) return;
+        this._setBack(null);
+        if (b.data.mode === 'versus') {
+            if (window.BattleVersusLifecycle) window.BattleVersusLifecycle.transition('idle', 'back to replay');
+            this._restoreLive();
+        }
+        if (typeof stopAllGames === 'function') stopAllGames();
+        this.watch(b.data, b.returnPage, { at: b.t, speed: b.speed });
     },
 
     _busy() {
@@ -1723,7 +1766,8 @@ const ReplayManager = {
         if (this.resultReplay) this.watch(this.resultReplay, this.returnPage);
     },
 
-    watch(data, returnPage) {
+    // at・speed: その時刻へシークして止めた状態で見せる（◀ REPLAY）
+    watch(data, returnPage, opts) {
         if (this.player) this._endWatch(false);
         let p;
         try {
@@ -1734,10 +1778,10 @@ const ReplayManager = {
             return;
         }
         this.returnPage = returnPage || 'replays';
-        p.ready(() => this._startWatch(p));
+        p.ready(() => this._startWatch(p, opts));
     },
 
-    _startWatch(p) {
+    _startWatch(p, opts) {
         const data = p.data;
         this._drawMarks(p);
         p.prepare();
@@ -1759,6 +1803,11 @@ const ReplayManager = {
         if (window.BgmManager) window.BgmManager.play(p.mode.bgm(data));
         p.restart();
         p.play();
+        if (opts && opts.at != null) {
+            if (opts.speed) p.setSpeed(opts.speed);
+            p.pause();
+            p.seek(opts.at);
+        }
     },
 
     // 見るのをやめる（toBack: 来た画面へ戻る）
@@ -2085,8 +2134,22 @@ const ReplayManager = {
             if (typeof showGlobalToast === 'function') showGlobalToast('ここからは遊べません');
             return;
         }
+        // ◀ REPLAY の戻り先（puyo は次のぷよが出る所まで進めてから渡すので、その時刻）。
+        // PRACTICE を始める start() の 1 回目の begin では消さない（fresh）
+        const back = this._backFrom(p, true);
+        this.resultReplay = null; // PRACTICE のリザルトに元の試合の WATCH REPLAY を出さない
         this._endWatch(false);
+        this._setBack(back);
         startPracticeFromReplay(h);
+    },
+
+    // 戻り先。リザルトから見ていたときは、戻ったころにはリザルトが別の試合のものなので REPLAYS へ帰す
+    _backFrom(p, fresh) {
+        const rp = this.returnPage;
+        return {
+            data: p.data, t: p.time(), speed: p.speed, fresh,
+            returnPage: (rp === 'result' || rp === 'versus-result') ? 'replays' : rp,
+        };
     },
 
     // VERSUS の続きを遊ぶ（M7d。§10）: 相手の CPU を読み込み、入力の出どころをリプレイからキーボードへ
@@ -2126,6 +2189,7 @@ const ReplayManager = {
         }
         if (p.state !== 'pause' || !p.canGoLive()) return; // 読み込みの間に再生・シークされた
         // 再生をやめて、盤面はそのまま本物の試合へ
+        const back = this._backFrom(p, false);
         this.player = null;
         p.onUi = null;
         const globals = p.detachLive();
@@ -2181,6 +2245,7 @@ const ReplayManager = {
         await window.BattleLocalLoading.reveal();
         setupVersusPauseKey();
         if (typeof startVersusCpuWatchdog === 'function') startVersusCpuWatchdog(currentSessionId);
+        this._setBack(back);
         if (typeof showGlobalToast === 'function') showGlobalToast('ここから対戦の続きです（録画はしません）');
     },
 

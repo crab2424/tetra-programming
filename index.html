@@ -589,6 +589,10 @@
           <button class="pause-btn btn-restart" onclick="restartVersus()">
             ↺ RESTART
           </button>
+          <!-- ★ 録画の PLAY HERE で始めた対戦の続きのときだけ（core/replay.js の _setBack） -->
+          <button class="pause-btn btn-settings" id="versus-pause-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+            ◀ REPLAY
+          </button>
           <button class="pause-btn btn-versus-primary" onclick="versusGoToModeSelect()">
             ◀ MODE SELECT
           </button>
@@ -935,6 +939,11 @@
           <span class="menu-btn-icon">↺</span>
           <span>RETRY</span>
         </button>
+        <!-- ★ 録画の PLAY HERE で始めた対戦の続きのときだけ（core/replay.js の _setBack） -->
+        <button class="menu-btn btn-secondary" id="versus-result-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+          <span class="menu-btn-icon">◀</span>
+          <span>REPLAY</span>
+        </button>
         <!-- ★ 録画・再生: 最後まで遊んだ対戦のときだけ表示（core/replay.js が制御） -->
         <div class="result-replay-tools" id="versus-result-replay-btn" style="display: none">
           <button class="menu-btn btn-secondary" onclick="ReplayManager.watchResult()">
@@ -1261,6 +1270,10 @@
               onclick="handlePauseAction('quiz-levelselect')" style="display: none">
               ◀ LEVEL SELECT
             </button>
+            <!-- ★ 録画の PLAY HERE で始めた PRACTICE のときだけ（core/replay.js の _setBack） -->
+            <button class="pause-btn btn-settings" id="pause-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+              ◀ REPLAY
+            </button>
             <!-- ★ PRACTICEモード専用: 任意のタイミングでリザルトへ抜ける -->
             <button class="pause-btn btn-practice-primary" id="pause-practice-finish-btn"
               onclick="handlePauseAction('practice-finish')" style="display: none">
@@ -1318,6 +1331,11 @@
         <button class="menu-btn btn-primary" id="result-retry-btn" onclick="startGameFromModeCheck()">
           <span class="menu-btn-icon">↺</span>
           <span>RETRY</span>
+        </button>
+        <!-- ★ 録画の PLAY HERE で始めた PRACTICE のときだけ（core/replay.js の _setBack） -->
+        <button class="menu-btn btn-secondary" id="result-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+          <span class="menu-btn-icon">◀</span>
+          <span>REPLAY</span>
         </button>
         <!-- ★ 録画・再生: tet シングル（MARATHON/SPRINT/ULTRA）を最後まで遊んだときだけ表示（core/replay.js が制御） -->
         <div class="result-replay-tools" id="result-replay-btn" style="display: none">
@@ -1548,7 +1566,7 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=18"></script>
+  <script src="core/replay.js?v=19"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=8"></script>
   <script src="app/manager.js?v=1"></script>
