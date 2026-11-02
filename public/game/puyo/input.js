@@ -22,7 +22,9 @@ Object.assign(PuyoGame.prototype, {
 
         // 再生中は録画したときのキー設定を使う。録画はキー設定と DAS をそのまま残す（core/replay.js）
         const ks = this._replay ? this._replay.configFor(this).keys : ((typeof loadKeys === 'function') ? loadKeys() : {});
-        if (this._rec) this._rec.config(this, ks, (typeof loadTuning === 'function') ? loadTuning() : {});
+        this._keysUsed = ks;
+        this._tuningUsed = this._replay ? this._replay.configFor(this).tuning : ((typeof loadTuning === 'function') ? loadTuning() : {});
+        if (this._rec) this._rec.config(this, ks, this._tuningUsed);
         // アクション名 → 割り当てキーcode一覧（1アクションに複数キーを割り当てられる）
         const keyCodes = {
             moveLeft: ks.moveLeft ? ks.moveLeft.codes : ['ArrowLeft'],

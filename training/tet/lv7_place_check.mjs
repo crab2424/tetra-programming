@@ -159,7 +159,7 @@ function newGame(blocks, queueTypes, holdType) {
         tumoRng: rnd,
         playSe() {}, requestRedraw() {}, drawAll() {}, updateStatsDisplay() {}, startGravity() {},
         // CPU の待ち時間（本番は core/cpu_port.js のゲーム時計の予約）は偽タイマーへ
-        cpuSchedule(ms, fn) { return ctx.setTimeout(fn, ms); }, cpuCancel() {}, cpuFrame() {},
+        cpuSchedule(ms, fn) { return ctx.setTimeout(fn, ms); }, cpuCancel() {}, cpuFrame() {}, cpuThink() {},
         gameOver() { this._over = true; },
     });
     g.field.blocks = blocks.map(b => new Block(b.x, b.y, 7));

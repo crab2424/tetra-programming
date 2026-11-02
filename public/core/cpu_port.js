@@ -41,6 +41,11 @@ const CpuPort = {
         (this._cpuFrameCbs || (this._cpuFrameCbs = [])).push(cb);
     },
 
+    // CPU の思考の結果（Worker の返事）。録画中なら小さく写して残す（再生中に CPU の考えとして出す。core/replay.js）
+    cpuThink(res) {
+        if (this._rec) this._rec.think(this, res);
+    },
+
     // 前の試合の CPU の予約を全部捨てる（VERSUS で時計を作り直すとき）
     cpuReset() {
         if (this._cpuTimers) this._cpuTimers.length = 0;

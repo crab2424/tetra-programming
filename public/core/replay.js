@@ -33,6 +33,7 @@ const REPLAY_EV_RESUME = 9;   // 次のフレームの頭
 const REPLAY_EV_SKIP = 10;    // このフレームはゲーム画面が出ていなくて tet が入力を取り込まなかった
 const REPLAY_EV_CONFIG = 11;  // 次のフレームの頭: キー設定・DAS を読み直した（設定画面で保存）＋設定の番号
 const REPLAY_EV_CPU = 12;     // CPU の手（cpuAction）＋種類の番号・引数
+const REPLAY_EV_COUNTDOWN = 13; // 次のフレームの頭: VERSUS のカウントダウンを始めた（ロード画面の後なのでフレームの間で起きる）
 const REPLAY_PAD_ACTIONS = ['moveLeft', 'moveRight', 'softDrop', 'hardDrop', 'rotateCW', 'rotateCCW', 'hold'];
 const REPLAY_CPU_ACTIONS = [
     // tet
@@ -237,6 +238,32 @@ function replayApplyEnv(g, env, rule) {
     }
 }
 
+// CPU の思考の結果を小さく写す（CPU ごとに形が違うので、数・文字・真偽と、数の短い配列・1 段の入れ子だけ）
+function replayThinkSummary(res, depth = 0) {
+    const pick = (v) => {
+        if (typeof v === 'number') return Number.isInteger(v) ? v : Math.round(v * 1000) / 1000;
+        if (typeof v === 'string') return v.length <= 40 ? v : v.slice(0, 40);
+        if (typeof v === 'boolean') return v;
+        if (v && (Array.isArray(v) || ArrayBuffer.isView(v)) && v.length <= 40) {
+            const a = [];
+            for (let i = 0; i < v.length; i++) { const x = v[i]; if (typeof x !== 'number') return undefined; a.push(pick(x)); }
+            return a;
+        }
+        if (v && typeof v === 'object' && depth === 0) return replayThinkSummary(v, 1);
+        return undefined;
+    };
+    if (res && (Array.isArray(res) || ArrayBuffer.isView(res))) return pick(res);
+    const out = {};
+    let n = 0;
+    for (const k in (res || {})) {
+        const v = pick(res[k]);
+        if (v === undefined) continue;
+        out[k] = v;
+        if (++n >= 24) break;
+    }
+    return out;
+}
+
 function replayFmtTime(ms) {
     ms = Math.max(0, ms);
     const m = Math.floor(ms / 60000);
@@ -273,6 +300,7 @@ class ReplayRecorder {
         this.cur = 0;       // 今のフレームの番号
         this._lastEv = 0;
         this.locks = 0;
+        this.thinks = [];   // [フレーム, side, 思考の結果の写し]
         this.clock._tape = this.dts;
         this.loop.recorder = this;
         for (const g of games) {
@@ -355,6 +383,18 @@ class ReplayRecorder {
         for (let i = 0; i < n; i++) replayPutArg(this.events, args[i]);
     }
 
+    // CPU の思考の結果（game.cpuThink。core/cpu_port.js）
+    think(g, res) {
+        try {
+            this.thinks.push([this.cur, replaySide(g), replayThinkSummary(res)]);
+        } catch (e) { /* 写せない形は残さない */ }
+    }
+
+    // VERSUS のカウントダウンを始めた（versus.js。再生はここで runCountdown する）
+    countdown(g) {
+        this._ev(this.nFrames, REPLAY_EV_COUNTDOWN, g);
+    }
+
     lock(g) {
         this.checks.u32(replayHash(g, this.t0));
         this.locks++;
@@ -409,7 +449,7 @@ class ReplayRecorder {
             frames: replayToB64(this.dts.bytes()),
             inputs: replayToB64(this.events.bytes()),
             checks: replayToB64(this.checks.bytes()),
-            think: null,
+            think: this.thinks.length ? this.thinks : null,
         };
     }
 }
@@ -487,6 +527,107 @@ const ReplayModes = {
             const g = p.games[0];
             g.stop();
         },
+    },
+};
+
+// VERSUS（CPU TEST から始めた CPU 同士も）。versus.js の startVersusGame の盤面の用意と同じ順に組み立てる
+// （ロード画面・CPU・ポーズキー・アシストは無し）。エンジンが見る versusPlayerRule / versusCpuRule と
+// window._game / window._cpuGame も録画したときに合わせ、見終わったら戻す
+ReplayModes.versus = {
+    page: 'versus',
+    bgm() { return 'versus_bgm'; },
+    boards(p) {
+        const pl = p.data.players;
+        const rule = (side) => (pl.find((x) => x.side === side) || pl[side]).rule;
+        const r0 = rule(0), r1 = rule(1);
+        p._globals = { pr: versusPlayerRule, cr: versusCpuRule, game: window._game, cpuGame: window._cpuGame };
+        versusPlayerRule = r0;
+        versusCpuRule = r1;
+        if (typeof _switchToVersusMixedLayout === 'function') _switchToVersusMixedLayout(r0, r1);
+        const inst = (r, side) => {
+            if (r === 'puyo') {
+                const key = side ? '_puyoGameCpu' : '_puyoGamePlayer';
+                return window[key] || (window[key] = new PuyoGame(side ? 'cpu' : 'player'));
+            }
+            const key = side ? '_tetGameCpu' : '_tetGamePlayer';
+            return window[key] || (window[key] = new Game(side ? 'cpu' : 'player'));
+        };
+        const g0 = inst(r0, 0), g1 = inst(r1, 1);
+        window._game = g0;
+        window._cpuGame = g1;
+        const clock = new GameClock();
+        const loop = new MatchLoop();
+        [g0, g1].forEach((g, side) => {
+            if (g.loop && g.loop !== loop) g.loop.remove(g);
+            g.loop = loop;
+            g.clock = clock;
+            g.cpuReset();
+            g.rngSide = side;
+            g.tumoRng = null;
+            g.rng = null;
+            g.currentMode = 'versus';
+            g.marathonGoal = Infinity;
+            g.isVersusMode = true;
+            g.canvasPrefix = side ? 'cpu' : 'player';
+            g.statsPrefix = side ? 'cpu' : 'player';
+            g._labelsInitialized = false;
+        });
+        const name = (side) => (pl.find((x) => x.side === side) || {}).name || '';
+        const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+        set('versus-cpu-level-display', name(1));
+        set('versus-cpu-side-label', name(1));
+        set('versus-player-side-label', name(0));
+        return [g0, g1];
+    },
+    start(p) {
+        const [g0, g1] = p.games;
+        for (const g of p.games) {
+            g.nextMatchSeed = p.seed.slice();
+            g._versusFinishing = false;
+        }
+        for (const g of p.games) {
+            if (g instanceof PuyoGame) {
+                g.initGame(); // 画像は読み込み済み（ReplayPlayer.ready）なので同期で進む
+            } else {
+                g.initMainCanvas();
+                g.initNextCanvas();
+                g.initHoldCanvas();
+                g._initGameState();
+                if (g === g0 && !g.isCpuControlled) g.setKeyEvent();
+                g.level = 2;
+                g.updateStatsDisplay();
+            }
+        }
+        for (const g of p.games) if (g instanceof PuyoGame) g.state = 'starting';
+        ReplayManager.beginMatch({ games: [g0, g1] });
+        for (const g of p.games) {
+            if (g instanceof PuyoGame) g._startCountdownDas();
+            else g.startRenderLoop();
+        }
+    },
+    // 録画の REPLAY_EV_COUNTDOWN の所（versus.js の runCountdown と同じ）
+    countdown(p) {
+        const [g0, g1] = p.games;
+        runCountdown('player-countdown-overlay', 'player-countdown-text', () => g0._startGameplay(), null, undefined, false, g0.clock);
+        runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => g1._startGameplay(), null, undefined, true, g0.clock);
+    },
+    end(p) {
+        for (const g of p.games) {
+            if (g instanceof PuyoGame) {
+                g._versusFinishing = false;
+                g.stop();
+            } else {
+                ReplayModes.tetSingle.end({ games: [g] });
+            }
+        }
+        const s = p._globals;
+        if (s) {
+            versusPlayerRule = s.pr;
+            versusCpuRule = s.cr;
+            window._game = s.game;
+            window._cpuGame = s.cpuGame;
+            p._globals = null;
+        }
     },
 };
 
@@ -630,6 +771,19 @@ class ReplayPlayer {
         return this.games[0].clock.now() - this.t0;
     }
 
+    // 今のフレームまでで一番新しい CPU の思考（side ごと）
+    thinkAt(side) {
+        const th = this.data.think;
+        if (!th) return null;
+        let lo = 0, hi = th.length - 1, best = null;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (th[mid][0] < this.nFrames) { lo = mid + 1; } else { hi = mid - 1; }
+        }
+        for (let i = hi; i >= 0; i--) if (th[i][1] === side) { best = th[i]; break; }
+        return best;
+    }
+
     // ─── エンジンから呼ばれる ───
     configFor(g) {
         return this._cfg[replaySide(g)] || { keys: {}, tuning: {} };
@@ -696,10 +850,11 @@ class ReplayPlayer {
             if (replayRule(g) === 'tet') g.setKeyEvent();
             else g._setKeyHandlers();
         } else if (k === REPLAY_EV_CPU) this._cpuQ[ev.side].push(ev);
+        else if (k === REPLAY_EV_COUNTDOWN && this.mode.countdown) this.mode.countdown(this);
     }
 
     _isPre(k) {
-        return k === REPLAY_EV_PAUSE || k === REPLAY_EV_RESUME || k === REPLAY_EV_CONFIG;
+        return k === REPLAY_EV_PAUSE || k === REPLAY_EV_RESUME || k === REPLAY_EV_CONFIG || k === REPLAY_EV_COUNTDOWN;
     }
 
     // 1 フレーム進める。ポーズ・再開・設定の読み直しはフレームの頭（時計を進める前）、
@@ -867,6 +1022,16 @@ const ReplayManager = {
         this.resultReplay = null;
     },
 
+    // VERSUS のカウントダウンを始めた（versus.js）
+    countdown(g) {
+        if (g && g._rec) g._rec.countdown(g);
+    },
+
+    // 盤面入れ替え（デバッグ）など、再生できない操作をしたら録画をやめる
+    cancel(g) {
+        if (g && g._rec) g._rec.detach();
+    },
+
     _cpuInfo(c) {
         if (!c) return null;
         const info = { className: c.constructor ? c.constructor.name : null };
@@ -879,6 +1044,11 @@ const ReplayManager = {
         const rec = g._rec;
         if (!rec) return;
         rec.detach();
+        if (rec.mode === 'versus') {
+            // CPU は試合を始めた後に作られるので、ここで入れる（versus.js の _cpuControllerPlayer / _cpuController）
+            const ctrls = [window._cpuControllerPlayer, window._cpuController];
+            for (const p of rec.players) if (p.kind === 'cpu' && !p.cpu) p.cpu = this._cpuInfo(ctrls[p.side]);
+        }
         if (rec.mode !== 'versus' && g.currentMode !== rec.mode) return; // 別のモード（PRACTICE 等）に使い回された録画は捨てる
         if (rec.mode === 'test') {
             const c = window._cpuController;
@@ -1104,6 +1274,24 @@ const ReplayManager = {
         document.querySelectorAll('#replay-speeds .replay-speed-btn').forEach((b) => {
             b.classList.toggle('active', Number(b.dataset.speed) === p.speed);
         });
+        const thinkEl = $('replay-think');
+        if (thinkEl) {
+            const lines = [];
+            if (p.data.think) {
+                for (const pl of p.data.players) {
+                    const t = p.thinkAt(pl.side);
+                    if (!t) continue;
+                    const body = Array.isArray(t[2]) ? t[2].join(' ') : Object.keys(t[2]).map((k) => {
+                        const v = t[2][k];
+                        return k + '=' + (Array.isArray(v) ? '[' + v.join(',') + ']' : (v && typeof v === 'object') ? JSON.stringify(v) : v);
+                    }).join('  ');
+                    lines.push(`${pl.name}: ${body}`);
+                }
+            }
+            const text = lines.join('\n');
+            if (thinkEl.textContent !== text) thinkEl.textContent = text;
+            thinkEl.style.display = text ? '' : 'none';
+        }
         if (p.state === 'desync' && !p._desyncShown) {
             p._desyncShown = true;
             const d = p.data;

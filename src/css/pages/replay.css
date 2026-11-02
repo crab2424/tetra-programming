@@ -95,3 +95,15 @@ body.replay-watching .replay-bar {
   font-size: 11px;
   color: var(--text-dim);
 }
+
+/* CPU の思考（録画した Worker の返事の写し）。等幅で 2 行まで */
+.replay-think {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--accent3);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: 2.8em;
+  margin-top: 2px;
+}

@@ -315,6 +315,16 @@ async function startVersusGame() {
   if (isCpuPuyo && window._cpuGame) window._cpuGame.state = 'starting';
   // ★ 修正箇所 ここまで
 
+  // 録画を始める（両盤面の初期化の後。core/replay.js）。CPU は後で作るので名前と種類だけ
+  window.ReplayManager?.beginMatch({
+    mode: 'versus',
+    games: [window._game, window._cpuGame],
+    players: [
+      isPlayerCpu ? { name: _cpuLabel(playerCpuLevel) + ' (1P)', kind: 'cpu', level: playerCpuLevel } : { name: 'PLAYER', kind: 'human' },
+      { name: _cpuLabel(cpuLevel), kind: 'cpu', level: cpuLevel },
+    ],
+  });
+
   // カウントダウンは試合の時計の予約で進むので、ここから両盤面のフレームを回す
   // （ロード画面の間も。キーの取り込みと DAS の先行チャージもこのループで行う）
   for (const g of [window._game, window._cpuGame]) {
@@ -351,6 +361,8 @@ async function startVersusGame() {
   await window.BattleLocalLoading.reveal();
   if (isStale()) return;
 
+  // 録画: カウントダウンを始めたフレームを残す（ロード画面の長さは毎回違うため。core/replay.js）
+  window.ReplayManager?.countdown(window._game);
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
     if (isStale()) return; // セッションが変わっていたら開始しない
     if (window.BgmManager) window.BgmManager.play('versus_bgm'); // ★ START! のタイミングでBGM開始

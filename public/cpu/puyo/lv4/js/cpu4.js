@@ -52,8 +52,9 @@ window.PuyoCPU4 = class {
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
                 // 結果はフレームの入力の所で受け取る（盤面に触るのは game.cpuAction だけ。core/cpu_port.js）
+                // 録画には思考の結果も残す（再生中に CPU の考えを出す。game.cpuThink → core/replay.js）
                 const res = e.data.result;
-                this.game.cpuSchedule(0, () => this._handleWorkerResult(res));
+                this.game.cpuSchedule(0, () => { this.game.cpuThink(res); this._handleWorkerResult(res); });
             }
         };
     }

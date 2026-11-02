@@ -212,6 +212,9 @@ const BoardSwap = (() => {
     const c = window._cpuGame;
     const isPuyo = (versusPlayerRule === 'puyo');
 
+    // 盤面の中身を入れ替えるのは入力では再現できないので、この試合の録画はやめる（core/replay.js）
+    window.ReplayManager?.cancel(p);
+
     // 入れ替えから後始末・CPU同期までは同期的に走りきるので、途中でCPUが
     // 古い盤面へ入力を流し込む隙はない（ここで stop() する必要はない）。
     if (isPuyo) {

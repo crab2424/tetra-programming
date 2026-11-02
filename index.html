@@ -897,6 +897,11 @@
           <span class="menu-btn-icon">↺</span>
           <span>RETRY</span>
         </button>
+        <!-- ★ 録画・再生: 最後まで遊んだ対戦のときだけ表示（core/replay.js が制御） -->
+        <button class="menu-btn btn-secondary" id="versus-result-replay-btn" onclick="ReplayManager.watchResult()" style="display: none">
+          <span class="menu-btn-icon">▶</span>
+          <span>WATCH REPLAY</span>
+        </button>
         <button class="menu-btn btn-secondary" onclick="versusResultBack()">
           <span class="menu-btn-icon">◀</span>
           <span>MODE SELECT</span>
@@ -924,6 +929,7 @@
     </div>
     <input id="replay-seek" class="replay-seek" type="range" min="0" max="1" step="1" value="0">
     <div id="replay-msg" class="replay-msg" style="display: none"></div>
+    <div id="replay-think" class="replay-think" style="display: none"></div>
     <div class="replay-keys">SPACE 再生/停止　← → 5秒戻る/進む　↑ ↓ 速さ　ESC 終了</div>
   </div>
 
@@ -1418,9 +1424,9 @@
   <!-- ゲーム時計・試合の乱数（エンジンより先に読む。設計: source_assets/memory/record/） -->
   <script src="core/game_clock.js?v=5"></script>
   <script src="core/match_loop.js?v=3"></script>
-  <script src="core/cpu_port.js?v=2"></script>
+  <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=1"></script>
-  <script src="core/replay.js?v=2"></script>
+  <script src="core/replay.js?v=4"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=7"></script>
   <script src="app/manager.js?v=1"></script>
@@ -1446,21 +1452,21 @@
   <script src="game/puyo/connect.js"></script>
   <script src="game/puyo/ojama.js?v=7"></script>
   <script src="game/puyo/engine.js?v=17"></script>
-  <script src="game/puyo/input.js?v=9"></script>
+  <script src="game/puyo/input.js?v=10"></script>
   <script src="game/puyo/draw.js?v=11"></script>
   <script src="quiz/quiz.js?v=9"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=24"></script>
+  <script src="app/modes.js?v=25"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <script src="app/cpu_match_log.js?v=2"></script>
-  <script src="app/versus.js?v=19"></script>
+  <script src="app/versus.js?v=20"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
   <script src="app/navigation.js?v=36"></script>
   <script src="app/ranking.js?v=5"></script>
   <script src="app/focus_nav.js?v=17"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
-  <script src="app/board_swap.js?v=6"></script>
+  <script src="app/board_swap.js?v=7"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=4"></script>
   <script src="practice/practice_sequence.js?v=7"></script>
