@@ -192,13 +192,23 @@ function replayDateText(iso) {
 const ReplaysPage = {
     filter: 'all',
     _bound: false,
+    // キー操作で戻す先（focus_nav.js の register('replays')）。"<id>:<main|star|export|delete>"。
+    // リプレイを見て戻ったとき・★/削除で描き直したときに使い、BACK で画面を離れたら忘れる
+    focusKey: null,
 
     open() {
         if (typeof switchPage === 'function') switchPage('replays');
     },
 
-    // switchPage('replays') の後（ReplayManager.onSwitchPage から）
-    async render() {
+    back() {
+        this.focusKey = null;
+        if (typeof switchPage === 'function') switchPage('main-menu');
+    },
+
+    // switchPage('replays') の後（ReplayManager.onSwitchPage から opts.open）と、絞り込み・★・削除の後。
+    //   opts.open: 画面を開いたとき。行を上から順に登場させ、focusKey の行へフォーカスを戻す
+    //   opts.focus: 描き直した後にフォーカスする項目のキー
+    async render(opts = {}) {
         this._bind();
         const listEl = document.getElementById('replays-list');
         const status = document.getElementById('replays-status');
@@ -225,8 +235,20 @@ const ReplaysPage = {
         listEl.innerHTML = '';
         if (!items.length) this._status(f === 'all' ? 'まだリプレイがありません。最後まで遊んだ試合が自動で残ります。' : '当てはまるリプレイがありません。');
         else if (status) status.style.display = 'none';
-        for (const it of items) listEl.appendChild(this._row(it));
-        if (window.FocusNav && window.FocusNav.refresh) window.FocusNav.refresh();
+        items.forEach((it, idx) => {
+            const row = this._row(it);
+            // 開いたときだけ上の行から順に登場させる（RANKING と同じ。絞り込み・★で描き直すたびに出すとチカチカする）
+            if (opts.open) {
+                row.classList.add('ranking-row-enter');
+                row.style.animationDelay = `${Math.min(idx, 12) * 0.03}s`;
+            }
+            listEl.appendChild(row);
+        });
+        if (opts.focus !== undefined) this.focusKey = opts.focus;
+        const nav = window.FocusNav;
+        if (!nav || nav.getActivePageId() !== 'replays') return;
+        if ((opts.open || opts.focus !== undefined) && this.focusKey) nav.restoreFocus(this.focusKey, { scroll: true });
+        else nav.refresh();
     },
 
     _status(text) {
@@ -244,7 +266,11 @@ const ReplaysPage = {
         const main = document.createElement('button');
         main.className = 'replays-main';
         main.title = 'WATCH';
-        main.onclick = () => ReplayManager.watch(d, 'replays');
+        main.dataset.navKey = it.id + ':main';
+        main.onclick = () => {
+            this.focusKey = it.id + ':main'; // 見終わって戻ったらこの行へ
+            ReplayManager.watch(d, 'replays');
+        };
         const tags = [];
         if (d.clip) tags.push('<span class="replays-tag">CLIP</span>');
         if (it.keepFor && it.keepFor.length) tags.push('<span class="replays-tag">BEST</span>');
@@ -261,24 +287,49 @@ const ReplaysPage = {
         star.className = 'replays-icon' + (it.star ? ' is-on' : '');
         star.textContent = it.star ? '★' : '☆';
         star.title = 'STAR';
-        star.onclick = async () => { await ReplayStore.update(it.id, (x) => { x.star = !x.star; }); this.render(); };
+        star.dataset.navKey = it.id + ':star';
+        star.onclick = async () => {
+            await ReplayStore.update(it.id, (x) => { x.star = !x.star; });
+            this.render({ focus: it.id + ':star' });
+        };
         const exp = document.createElement('button');
         exp.className = 'replays-icon';
         exp.textContent = '⤓';
         exp.title = 'EXPORT';
+        exp.dataset.navKey = it.id + ':export';
         exp.onclick = () => replayDownload(d).catch((e) => this._status('書き出せませんでした: ' + e.message));
         const del = document.createElement('button');
         del.className = 'replays-icon replays-del';
         del.textContent = '✕';
         del.title = 'DELETE';
-        del.onclick = async () => {
-            if (!confirm('このリプレイを削除しますか？')) return;
-            await ReplayStore.remove(it.id);
-            this.render();
-        };
+        del.dataset.navKey = it.id + ':delete';
+        del.onclick = () => this._delete(it.id, row);
         for (const b of [main, star, exp, del]) b.onmousedown = (e) => e.preventDefault();
         row.append(main, star, exp, del);
         return row;
+    },
+
+    // 削除（確認はキーで選べるダイアログ。初期は CANCEL）。消したら下の行（無ければ上の行）の本体へ
+    async _delete(id, row) {
+        this.focusKey = id + ':delete'; // CANCEL で閉じたらダイアログを開く前の ✕ へ戻る
+        if (window.TetDialog) {
+            const r = await TetDialog.choose({
+                title: 'DELETE REPLAY',
+                message: 'このリプレイを削除しますか？',
+                buttons: [
+                    { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+                    { label: 'DELETE', value: 'delete', kind: 'danger' },
+                ],
+                initial: 'cancel',
+            });
+            if (r !== 'delete') return;
+        } else if (!confirm('このリプレイを削除しますか？')) {
+            return;
+        }
+        const near = (row.nextElementSibling || row.previousElementSibling);
+        const nearMain = near && near.querySelector('.replays-main');
+        await ReplayStore.remove(id);
+        this.render({ focus: nearMain ? nearMain.dataset.navKey : null });
     },
 
     setFilter(f) {

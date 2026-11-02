@@ -216,7 +216,9 @@ body.replay-watching .replay-bar {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  /* キー操作のフォーカス枠（outline 2px + offset 2px）が一覧の端で切れないよう内側に余白 */
+  padding: 4px 8px 4px 4px;
+  box-sizing: border-box;
 }
 .replays-row {
   display: flex;

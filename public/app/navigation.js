@@ -320,7 +320,7 @@ function switchPage(pageId) {
     window.HudExtras.refresh();
   }
 
-  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog', 'practice-help', 'ranking'].includes(_animPageId)) {
+  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog', 'practice-help', 'ranking', 'replays'].includes(_animPageId)) {
       if (typeof initMenuAnimations === 'function') initMenuAnimations(_animPageId);
   } else {
       if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
@@ -370,7 +370,7 @@ function switchPage(pageId) {
   // ★ キーボードフォーカスナビゲーション（focus_nav.js）
   if (window.FocusNav) {
     if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
-         'result','versus-result','quiz-result','settings','credits','changelog','practice-help','ranking'].includes(pageId)) {
+         'result','versus-result','quiz-result','settings','credits','changelog','practice-help','ranking','replays'].includes(pageId)) {
       window.FocusNav.activate(pageId);
     } else {
       window.FocusNav.deactivate();

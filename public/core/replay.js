@@ -1623,7 +1623,7 @@ const ReplayManager = {
         }
         if (pageId === 'replays' && window.ReplaysPage) {
             this.returnPage = 'replays';
-            setTimeout(() => window.ReplaysPage.render(), 0); // ページが切り替わってから描く
+            setTimeout(() => window.ReplaysPage.render({ open: true }), 0); // ページが切り替わってから描く
         }
     },
 

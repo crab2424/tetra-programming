@@ -140,17 +140,17 @@
       </div>
 
       <!-- フッター：基準はメインキャンバス(#main-menu-container)。
-             SETTINGS/RANKING を横並びにし、その真下に TITLE、左下に CREDITS、右下に CHANGELOG を配置 -->
+             RANKING/SETTINGS/REPLAYS を横並びにし、その真下に TITLE、左下に CREDITS、右下に CHANGELOG を配置 -->
       <div id="main-menu-footer">
         <div id="main-menu-footer-center">
           <div id="main-menu-footer-row">
-            <button id="main-menu-settings-btn" class="menu-btn btn-secondary" onclick="switchPage('settings')">
-              <span class="menu-btn-icon">⚙</span>
-              <span>SETTINGS</span>
-            </button>
             <button id="main-menu-ranking-btn" class="menu-btn btn-secondary" onclick="switchPage('ranking')">
               <span class="menu-btn-icon">🏆</span>
               <span>RANKING</span>
+            </button>
+            <button id="main-menu-settings-btn" class="menu-btn btn-secondary" onclick="switchPage('settings')">
+              <span class="menu-btn-icon">⚙</span>
+              <span>SETTINGS</span>
             </button>
             <button id="main-menu-replays-btn" class="menu-btn btn-secondary" onclick="switchPage('replays')">
               <span class="menu-btn-icon">▶</span>
@@ -256,7 +256,7 @@
           <span class="menu-btn-icon">⤒</span>
           <span>IMPORT</span>
         </button>
-        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+        <button class="menu-btn btn-secondary" onclick="ReplaysPage.back()">
           <span class="menu-btn-icon">◀</span>
           <span>BACK</span>
         </button>
@@ -1490,9 +1490,9 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=11"></script>
+  <script src="core/replay.js?v=12"></script>
   <script src="core/dialog.js?v=2"></script>
-  <script src="core/particles.js?v=7"></script>
+  <script src="core/particles.js?v=8"></script>
   <script src="app/manager.js?v=1"></script>
   <script src="config/settings.js?v=13"></script>
   <script src="config/records.js?v=4"></script>
@@ -1526,10 +1526,10 @@
   <script src="app/cpu_match_log.js?v=2"></script>
   <script src="app/versus.js?v=20"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=38"></script>
+  <script src="app/navigation.js?v=39"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/replays.js?v=3"></script>
-  <script src="app/focus_nav.js?v=18"></script>
+  <script src="app/replays.js?v=4"></script>
+  <script src="app/focus_nav.js?v=20"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=7"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
