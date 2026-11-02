@@ -1434,6 +1434,35 @@ class ReplayPlayer {
         return { rule, line: PracticeSnapshot.capture(view, rule, { tp: 0, tg: 0 }), rng };
     }
 
+    // VERSUS の続き（M7d）: 今の局面のまま本物の対戦に切り替えられるか（両盤面とも本編の途中）
+    canGoLive() {
+        if (this.ended || this.desynced || this.state === 'desync') return false;
+        return this.games.every((g) => (replayRule(g) === 'tet')
+            ? (!!g._renderLoopId && !g.isCountingDown && !g.isPaused && !g.isFinishing && !!g.mino)
+            : g.state === 'playing');
+    }
+
+    // 再生をやめて、盤面をそのまま本物の試合に渡す（盤面の設定・時計・ループ・おじゃまの予約・マージンはそのまま）。
+    // 戻り値は再生の頭で入れ替えた VERSUS のルールと盤面の参照（試合が終わったら戻す）
+    detachLive() {
+        if (this.loop && this.loop.driver === this) this.loop.driver = null;
+        const clock = this.games[0].clock;
+        for (const g of this.games) {
+            g._replay = null;
+            g._rec = null;
+            g.nextMatchSeed = null;
+            g._inputQueue && (g._inputQueue.length = 0);
+        }
+        clock.endFeed(); // 実時間で進む時計に戻す
+        const globals = this._globals;
+        this._globals = null;
+        this._saved = null;  // 盤面の設定（録画したときの VS 設定）は戻さずに続ける
+        this.snaps = [];
+        this.watching = false;
+        this.state = 'pause';
+        return globals;
+    }
+
     // スナップショットから戻した後にずれた: スナップショットを捨てて、最初からその時刻まで進め直す
     _recoverFromSnap() {
         const r = this._recover;
@@ -1566,6 +1595,16 @@ const ReplayManager = {
     // navigation.js の switchPage から（ページが変わるたび）
     onSwitchPage(pageId) {
         if (this.player && this.player.watching && pageId !== this.player.page) this._endWatch(false);
+        // VERSUS の続き（M7d）を終えて対戦の画面を離れたら、準備画面の設定を戻す
+        if (this._liveSaved && pageId !== 'versus' && pageId !== 'versus-result') {
+            const s = this._liveSaved;
+            this._liveSaved = null;
+            versusPlayerRule = s.pr;
+            versusCpuRule = s.cr;
+            selectedCpuLevel = s.lv;
+            versusPlayerIsCpu = s.pIsCpu;
+            selectedPlayerCpuLevel = s.plv;
+        }
         if (pageId === 'result' || pageId === 'versus-result') {
             for (const id of ['result-replay-btn', 'versus-result-replay-btn']) {
                 const btn = document.getElementById(id);
@@ -1805,10 +1844,11 @@ const ReplayManager = {
         window.addEventListener('keydown', this._keyHandler, true);
     },
 
-    // ここから遊ぶ（M7c）: シングル・CPU TEST は PRACTICE へ渡す（VERSUS の続きは M7d）
+    // ここから遊ぶ（M7c）: シングル・CPU TEST は PRACTICE へ渡す（VERSUS はその対戦の続き＝M7d）
     _playFromHere() {
         const p = this.player;
-        if (!p || p.data.mode === 'versus') return;
+        if (!p) return;
+        if (p.data.mode === 'versus') { this._continueVersus(); return; }
         p.pause();
         const h = p.practiceHandoff();
         if (!h || typeof startPracticeFromReplay !== 'function') {
@@ -1817,6 +1857,101 @@ const ReplayManager = {
         }
         this._endWatch(false);
         startPracticeFromReplay(h);
+    },
+
+    // VERSUS の続きを遊ぶ（M7d。§10）: 相手の CPU を読み込み、入力の出どころをリプレイからキーボードへ
+    // 切り替え、CPU に今の局面から考えさせる。続きは録画しない。
+    // versus.js の startVersusGame と同じ順に、盤面を作り直さずに試合の外回り（状態・CPU・キー・ポーズ・見張り）だけ付ける
+    async _continueVersus() {
+        const p = this.player;
+        if (!p || this._goingLive) return;
+        p.pause();
+        if (p.state !== 'pause' || !p.canGoLive()) {
+            if (typeof showGlobalToast === 'function') showGlobalToast('ここからは遊べません（シーク中・カウントダウン・ポーズ・決着の所）');
+            return;
+        }
+        const pl = p.data.players || [];
+        const cpus = pl.filter((x) => x.kind === 'cpu');
+        if (cpus.some((x) => typeof x.level !== 'number')) {
+            if (typeof showGlobalToast === 'function') showGlobalToast('CPU のレベルが記録されていないので続きを遊べません');
+            return;
+        }
+        this._goingLive = true;
+        const sessionId = currentSessionId;
+        const stale = () => currentSessionId !== sessionId || this.player !== p || !p.watching;
+        let prep;
+        try {
+            prep = await window.BattleLocalLoading.prepare({
+                rules: pl.map((x) => x.rule),
+                bgmKey: 'versus_bgm',
+                cpus: cpus.map((x) => ({ level: x.level, rule: x.rule, label: x.name })),
+                isStale: stale,
+            });
+        } finally {
+            this._goingLive = false;
+        }
+        if (prep.cancelled || stale()) {
+            if (prep.cpuFailed && typeof showGlobalToast === 'function') showGlobalToast('CPU を読み込めませんでした');
+            return;
+        }
+        if (p.state !== 'pause' || !p.canGoLive()) return; // 読み込みの間に再生・シークされた
+        // 再生をやめて、盤面はそのまま本物の試合へ
+        this.player = null;
+        p.onUi = null;
+        const globals = p.detachLive();
+        document.body.classList.remove('replay-watching');
+        this.resultReplay = null; // 続きの試合は録画しない（対戦結果に WATCH REPLAY を出さない）
+        // 準備画面の設定は試合が終わって VERSUS の画面を離れるときに戻す（onSwitchPage）
+        this._liveSaved = {
+            pr: globals ? globals.pr : versusPlayerRule, cr: globals ? globals.cr : versusCpuRule,
+            lv: selectedCpuLevel, pIsCpu: versusPlayerIsCpu, plv: selectedPlayerCpuLevel,
+        };
+        const sideCpu = (side) => pl.find((x) => x.side === side && x.kind === 'cpu');
+        if (sideCpu(1)) selectedCpuLevel = sideCpu(1).level;
+        versusPlayerIsCpu = !!sideCpu(0);
+        selectedPlayerCpuLevel = sideCpu(0) ? sideCpu(0).level : null;
+
+        const lc = window.BattleVersusLifecycle;
+        lc.transition('idle', 'replay continue');
+        lc.transition('preparing', 'replay continue');
+        lc.beginRound();
+        lc.transition('countdown', 'replay continue');
+        lc.transition('playing', 'replay continue');
+
+        const games = [window._game, window._cpuGame];
+        games.forEach((g, side) => {
+            const cpu = sideCpu(side);
+            g.isCpuControlled = !!cpu;
+            g.cpuReset();
+            if (cpu) return;
+            // 人の盤面: 再生のキーの押したままを捨てて、今のキー設定で受け口を付け直す
+            if (g._heldCodes) g._heldCodes.clear();
+            if (replayRule(g) === 'tet') {
+                g.keyState = {};
+                g.setKeyEvent();
+            } else {
+                if (g._keys) for (const k in g._keys) g._keys[k] = false;
+                g._dasDir = 0;
+                g._dasTimer = 0;
+                g._arrTimer = 0;
+                g._setKeyHandlers();
+            }
+        });
+        _stopVersusCpuControllers();
+        cpus.forEach((x, i) => {
+            const Cls = prep.classes[i];
+            if (!Cls) return;
+            const key = x.side === 0 ? '_cpuControllerPlayer' : '_cpuController';
+            const ctrl = new Cls(games[x.side]);
+            window[key] = ctrl;
+            if (typeof ctrl.start === 'function') ctrl.start();
+        });
+        if (!sideCpu(0) && window.Assist) window.Assist.attach(window._game, 'versus');
+        window.CpuMatchLog?.hideDock();
+        await window.BattleLocalLoading.reveal();
+        setupVersusPauseKey();
+        if (typeof startVersusCpuWatchdog === 'function') startVersusCpuWatchdog(currentSessionId);
+        if (typeof showGlobalToast === 'function') showGlobalToast('ここから対戦の続きです（録画はしません）');
     },
 
     // 印の少し前（1 秒）から見る
@@ -1929,8 +2064,6 @@ const ReplayManager = {
         document.querySelectorAll('#replay-speeds .replay-speed-btn').forEach((b) => {
             b.classList.toggle('active', Number(b.dataset.speed) === p.speed);
         });
-        const hereBtn = $('replay-here-btn');
-        if (hereBtn) hereBtn.style.display = p.data.mode === 'versus' ? 'none' : '';
         const thinkEl = $('replay-think');
         if (thinkEl) {
             const lines = [];
