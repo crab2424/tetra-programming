@@ -171,7 +171,14 @@ function replaySummary(data) {
     }
     const opponent = data.mode === 'versus' ? (pl[1] ? pl[1].name : '') : (data.mode === 'test' ? (pl[0] ? pl[0].name : '') : '');
     const rule = pl.map((p) => p.rule);
-    return { mode, result, stat, opponent, rule, duration: data.durationMs || 0, marks: (data.events || []).length };
+    let duration = data.durationMs || 0;
+    // 切り出し（M7b）: 結果の代わりに印の名前、長さは切り出した分
+    if (data.clip) {
+        result = 'CLIP';
+        stat = data.clip.label || stat;
+        duration = Math.max(0, duration - (data.clip.fromMs || 0));
+    }
+    return { mode, result, stat, opponent, rule, duration, marks: (data.events || []).length };
 }
 
 function replayDateText(iso) {
@@ -209,6 +216,7 @@ const ReplaysPage = {
         items = items.filter((it) => {
             const d = it.data || {};
             if (f === 'star') return it.star;
+            if (f === 'clip') return !!d.clip;
             if (f === 'tet') return d.mode !== 'versus' && (d.players || [])[0] && d.players[0].rule === 'tet';
             if (f === 'puyo') return d.mode !== 'versus' && (d.players || [])[0] && d.players[0].rule === 'puyo';
             if (f === 'versus') return d.mode === 'versus';
@@ -238,6 +246,7 @@ const ReplaysPage = {
         main.title = 'WATCH';
         main.onclick = () => ReplayManager.watch(d, 'replays');
         const tags = [];
+        if (d.clip) tags.push('<span class="replays-tag">CLIP</span>');
         if (it.keepFor && it.keepFor.length) tags.push('<span class="replays-tag">BEST</span>');
         if (it.imported) tags.push('<span class="replays-tag">IMPORT</span>');
         if (d.engine !== REPLAY_ENGINE_VERSION) tags.push('<span class="replays-tag replays-tag-old">OLD</span>');
@@ -338,6 +347,16 @@ ReplayManager.onBest = (key, record, prev) => {
         if (prevId && prevId !== id) await set(prevId, false);
         if (id) await set(id, true);
     })().catch((e) => console.warn('[replay] 記録との結び付けに失敗', e));
+};
+
+// 再生中の CLIP（core/replay.js の _clip）: 切り出したリプレイを保存する（クリップは 30 本の数に入れず残す）
+ReplayManager.onClip = (data) => {
+    ReplayStore.save(data)
+        .then(() => { if (typeof showGlobalToast === 'function') showGlobalToast('CLIP を保存しました（REPLAYS）'); })
+        .catch((e) => {
+            console.warn('[replay] 切り出しを保存できませんでした', e);
+            if (typeof showGlobalToast === 'function') showGlobalToast('CLIP を保存できませんでした');
+        });
 };
 
 ReplayManager.watchById = async (id, returnPage) => {

@@ -879,6 +879,7 @@ class ReplayPlayer {
                 ev.args = [];
                 for (let i = 0; i < n; i++) ev.args.push(replayGetArg(r));
             }
+            ev.end = r.p; // この出来事の終わりのバイト位置（切り出しで前だけ残すため）
             evs.push(ev);
         }
         this.evs = evs;
@@ -910,6 +911,11 @@ class ReplayPlayer {
         this.snapEvery = Math.max(3000, Math.ceil(this.duration / 300));
         this.snapOn = false;      // 画面で見るとき（と開発用の確かめ）だけ取る
         this.lockLog = [];        // 設置ごとの { f: そのフレームの番号, side }（通った所の分）
+        // 切り出し（M7b）: fromMs から見る。cut のときは録画の終わり（frameCount）で止める（試合は終わっていない）
+        const clip = data.clip && typeof data.clip.fromMs === 'number' ? data.clip : null;
+        this.clipFrom = clip ? Math.max(0, Math.min(this.duration, clip.fromMs)) : 0;
+        this.clipCut = !!(clip && !clip.full);
+        this.clipStartFrame = 0;
         this._resetCounters();
     }
 
@@ -981,6 +987,13 @@ class ReplayPlayer {
         }
         this.loop.driver = this;
         this.mode.start(this);
+        // 切り出し: 始まりまで描かずに進める
+        if (this.clipFrom > 0) {
+            this._withSe(true, () => {
+                while (!this.ended && !this.desynced && this.time() < this.clipFrom) this.step(false);
+            });
+        }
+        this.clipStartFrame = this.nFrames;
     }
 
     // 試合を始めたところ（シングルは乱数を作った直後、VERSUS は両盤面の初期化の後）から呼ばれる
@@ -1102,6 +1115,7 @@ class ReplayPlayer {
         let alive = false;
         for (const g of this.games) if (this.loop.has(g)) { alive = true; break; }
         if (!alive) { this.ended = true; return; } // 盤面がループから抜けた（ゲームオーバー以外で終わった）
+        if (this.clipCut && f >= this.data.frameCount) { this.ended = true; return; } // 切り出しの終わり
         this.nFrames++;
         this._skip[0] = this._skip[1] = false;
         while (this.ep < evs.length && evs[this.ep].f <= f) this._applyEvent(evs[this.ep++]);
@@ -1303,7 +1317,7 @@ class ReplayPlayer {
     }
 
     seek(ms) {
-        ms = Math.max(0, Math.min(this.duration, ms));
+        ms = Math.max(this.clipFrom, Math.min(this.duration, ms));
         const resume = this._resumeState();
         this._jump(ms < this.time(), (s) => s.t <= ms);
         this.seekTarget = ms;
@@ -1321,7 +1335,7 @@ class ReplayPlayer {
         const cur = (this.state === 'seek' && this.seekFrame >= 0) ? this.seekFrame : this.nFrames;
         let target = -1;
         if (dir < 0) {
-            for (let i = log.length - 1; i >= 0; i--) if (log[i] && log[i].side === side && log[i].f < cur) { target = log[i].f; break; }
+            for (let i = log.length - 1; i >= 0; i--) if (log[i] && log[i].side === side && log[i].f < cur && log[i].f >= this.clipStartFrame) { target = log[i].f; break; }
             if (target < 0) { this.seek(0); this.seekResume = 'pause'; return; }
         } else {
             for (let i = 0; i < log.length; i++) if (log[i] && log[i].side === side && log[i].f > cur) { target = log[i].f; break; }
@@ -1342,6 +1356,49 @@ class ReplayPlayer {
         }
         this.seekTarget = this.time();
         this._seekStart('pause');
+    }
+
+    // 切り出し（M7b。§8.2）: fromMs〜toMs を 1 本のリプレイにする。
+    //   スナップショットは DOM や関数を指していてファイルに書けないので、録画の頭から toMs までをそのまま残し
+    //   （時計の進み・入力・照合をその所で切る）、clip.fromMs から見る（頭から描かずに進める）。
+    //   一度描かずに toMs まで進めて切る所（フレーム・読んだ位置）を確かめ、見ていた所へ戻る。
+    makeClip(fromMs, toMs, label) {
+        const data = this.data;
+        fromMs = Math.max(this.clipFrom, Math.round(fromMs));
+        toMs = Math.min(this.duration, Math.round(toMs));
+        if (toMs - fromMs < 500 || this.state === 'desync') return null;
+        const back = this.state === 'seek' ? this.seekTarget : this.time();
+        const resume = this._resumeState() === 'play' ? 'play' : 'pause';
+        let out = null;
+        this._withSe(true, () => {
+            this._jump(toMs < this.time() || this.ended, (s) => s.t <= toMs);
+            while (!this.ended && !this.desynced && this.time() < toMs) this.step(false);
+            if (this.desynced) return;
+            const natural = this.ended && !this.clipCut; // 試合の終わりまで入る（切らない）
+            const F = this.nFrames;
+            const dur = natural ? data.durationMs : this.time();
+            const inEnd = this.ep ? this.evs[this.ep - 1].end : 0;
+            const clock = this.games[0].clock;
+            out = Object.assign({}, data, {
+                id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2),
+                durationMs: dur,
+                frameCount: natural ? data.frameCount : F,
+                frames: natural ? data.frames : replayToB64(this.dtBytes.slice(0, clock._feed ? clock._feed.p : 0)),
+                inputs: natural ? data.inputs : replayToB64(replayFromB64(data.inputs).slice(0, inEnd)),
+                checks: natural ? data.checks : replayToB64(replayFromB64(data.checks).slice(0, this.checkIdx * 4)),
+                think: Array.isArray(data.think) ? data.think.filter((e) => Array.isArray(e) && e[0] < F) : null,
+                events: (data.events || []).filter((m) => m.t >= fromMs && m.t <= dur),
+                clip: {
+                    fromMs, toMs: dur, full: natural, label: label || '',
+                    sourceId: data.clip ? data.clip.sourceId : data.id,
+                    createdAt: new Date().toISOString(),
+                },
+            });
+        });
+        // 見ていた所へ戻る
+        this.seek(back);
+        this.seekResume = resume;
+        return out;
     }
 
     // スナップショットから戻した後にずれた: スナップショットを捨てて、最初からその時刻まで進め直す
@@ -1715,7 +1772,19 @@ const ReplayManager = {
 
     // 印の少し前（1 秒）から見る
     _markTime(m) {
-        return Math.max(0, m.t - 1000);
+        return Math.max(this.player ? this.player.clipFrom : 0, m.t - 1000);
+    },
+
+    // 印の前 5 秒・後 3 秒を切り出して保存する（M7b。保存は app/replays.js の onClip）
+    _clip(m, label) {
+        const p = this.player;
+        if (!p) return;
+        const data = p.makeClip(m.t - 5000, m.t + 3000, label);
+        if (!data) {
+            if (typeof showGlobalToast === 'function') showGlobalToast('ここは切り出せません');
+            return;
+        }
+        if (this.onClip) this.onClip(data);
     },
 
     // 前／次の印へ
@@ -1736,7 +1805,8 @@ const ReplayManager = {
         const layer = document.getElementById('replay-marks');
         const list = document.getElementById('replay-marks-list');
         const btn = document.getElementById('replay-marks-btn');
-        const dur = Math.max(1, p.duration);
+        const from = p.clipFrom;
+        const dur = Math.max(1, p.duration - from);
         const name = (side) => ((p.data.players || []).find((x) => x.side === side) || {}).name || '';
         const two = (p.data.players || []).length > 1;
         if (layer) {
@@ -1744,7 +1814,7 @@ const ReplayManager = {
             for (const m of ev) {
                 const tick = document.createElement('span');
                 tick.className = `replay-mark replay-mark-${m.kind}` + (m.side ? ' replay-mark-2p' : '');
-                tick.style.left = (100 * m.t / dur) + '%';
+                tick.style.left = (100 * Math.max(0, m.t - from) / dur) + '%';
                 tick.title = `${replayFmtTime(m.t)} ${two ? name(m.side) + ' ' : ''}${m.label}`;
                 tick.onmousedown = (e) => e.preventDefault();
                 tick.onclick = () => { if (this.player) this.player.seek(this._markTime(m)); };
@@ -1755,12 +1825,21 @@ const ReplayManager = {
             list.innerHTML = '';
             list.classList.remove('open');
             for (const m of ev) {
+                const item = document.createElement('div');
+                item.className = 'replay-marks-item';
                 const row = document.createElement('button');
                 row.className = `replay-marks-row replay-mark-${m.kind}`;
-                row.textContent = `${replayFmtTime(m.t)}  ${two ? name(m.side) + '  ' : ''}${m.label}${m.value && m.kind === 'attack' ? '  (' + m.value + ')' : ''}`;
+                row.textContent = `${replayFmtTime(m.t - from)}  ${two ? name(m.side) + '  ' : ''}${m.label}${m.value && m.kind === 'attack' ? '  (' + m.value + ')' : ''}`;
                 row.onmousedown = (e) => e.preventDefault();
                 row.onclick = () => { if (this.player) this.player.seek(this._markTime(m)); };
-                list.appendChild(row);
+                const clip = document.createElement('button');
+                clip.className = 'replay-btn replay-clip-btn';
+                clip.textContent = 'CLIP';
+                clip.title = '前 5 秒・後 3 秒を切り出して保存';
+                clip.onmousedown = (e) => e.preventDefault();
+                clip.onclick = () => this._clip(m, `${two ? name(m.side) + ' ' : ''}${m.label}`);
+                item.append(row, clip);
+                list.appendChild(item);
             }
         }
         if (btn) btn.textContent = '◆ ' + ev.length;
@@ -1784,13 +1863,15 @@ const ReplayManager = {
         if (!p) return;
         const $ = (id) => document.getElementById(id);
         const t = Math.min(p.duration, p.time());
+        const from = p.clipFrom; // 切り出しは始まりを 0 として見せる
         const seek = $('replay-seek');
         if (seek) {
-            seek.max = String(Math.max(1, Math.round(p.duration)));
+            seek.min = String(Math.round(from));
+            seek.max = String(Math.max(Math.round(from) + 1, Math.round(p.duration)));
             if (document.activeElement !== seek || p.state !== 'seek') seek.value = String(Math.round(p.state === 'seek' ? p.seekTarget : t));
         }
         const timeEl = $('replay-time');
-        if (timeEl) timeEl.textContent = replayFmtTime(t) + ' / ' + replayFmtTime(p.duration);
+        if (timeEl) timeEl.textContent = replayFmtTime(Math.max(0, t - from)) + ' / ' + replayFmtTime(p.duration - from);
         const playing = p.state === 'play' || (p.state === 'seek' && p.seekResume === 'play');
         const playBtn = $('replay-play-btn');
         if (playBtn) playBtn.textContent = playing ? '❚❚' : '▶';

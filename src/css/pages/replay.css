@@ -122,8 +122,20 @@ body.replay-watching .replay-bar {
 .replay-marks-list.open {
   display: block;
 }
+.replay-marks-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.replay-clip-btn {
+  flex: none;
+  font-size: 10px;
+  padding: 1px 6px;
+}
 .replay-marks-row {
   display: block;
+  flex: 1;
+  min-width: 0;
   width: 100%;
   text-align: left;
   font-family: monospace;
