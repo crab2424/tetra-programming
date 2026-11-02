@@ -1761,6 +1761,8 @@ const ReplayManager = {
         const p = this.player;
         if (!p) return;
         this._closePause(false);
+        this._clearEnd();
+        this._prevState = null;
         this.player = null;
         p.onUi = null;
         p.stop();
@@ -1846,6 +1848,11 @@ const ReplayManager = {
         // PAUSE 画面のボタン
         const pauseActions = {
             'replay-pause-resume': () => { this._closePause(false); if (this.player) this.player.play(); },
+            'replay-pause-again': () => {
+                this._closePause(false);
+                const p = this.player;
+                if (p && p.state !== 'desync') { p.restart(); p.play(); }
+            },
             'replay-pause-restart': () => {
                 this._closePause(false);
                 const p = this.player;
@@ -1973,12 +1980,20 @@ const ReplayManager = {
         const $ = (id) => document.getElementById(id);
         const list = $('replay-marks-list');
         if (list) list.classList.remove('open');
+        // 最後まで見たところ（END）: 見出しを END に、RESUME・RESTART の代わりに REPLAY AGAIN
+        const atEnd = p.state === 'end';
+        const title = $('replay-pause-title');
+        if (title) title.textContent = atEnd ? 'END' : 'PAUSE';
+        for (const [id, show] of [['replay-pause-resume', !atEnd], ['replay-pause-restart', !atEnd], ['replay-pause-again', atEnd]]) {
+            const b = $(id);
+            if (b) b.style.display = show ? '' : 'none';
+        }
         const marks = $('replay-pause-marks');
         if (marks) marks.style.display = (p.data.events || []).length ? '' : 'none';
         // PLAY HERE: VERSUS の続きは止めた所（シーク中・カウントダウン・決着の所以外）からだけ
         let why = '';
         if (p.state === 'desync') why = 'ずれた所からは遊べません';
-        else if (p.ended || p.state === 'end') why = '終わった所からは遊べません';
+        else if ((p.ended || p.state === 'end') && !p.clipCut) why = '終わった所からは遊べません'; // 途中で切ったクリップの終わりからは遊べる
         else if (p.data.mode === 'versus' && (p.state !== 'pause' || !p.canGoLive())) why = 'ここからは遊べません（シーク中・カウントダウン・ポーズ・決着の所）';
         const here = $('replay-pause-here');
         if (here) here.disabled = !!why;
@@ -1999,6 +2014,38 @@ const ReplayManager = {
             }
         }
         o.classList.add('active');
+    },
+
+    // ─── 終了演出（UI 設計書 §8.1）───
+    // 再生が最後まで行ったら本番と同じ演出（シングル FINISH!/GAME OVER、対戦は両盤面に WIN!/LOSE...）を出し、
+    // 終わったら END の PAUSE 画面を開く。シークで最後に着いたとき（描かずに進めたとき）は出さない。
+    // 試合の途中で切ったクリップは勝ち負けが決まっていないので、演出なしで少し置いて END を開く
+    _showEnd(p) {
+        const bf = window.BattleFinish;
+        if (!bf) return;
+        this._endShown = true;
+        const r = p.data.result || {};
+        const done = () => {
+            if (this.player === p && p.state === 'end' && this._endShown && !this._pauseOpen()) this._openPause();
+        };
+        if (p.clipCut) {
+            clearTimeout(this._endTimer);
+            this._endTimer = setTimeout(done, 500);
+            return;
+        }
+        if ((p.data.players || []).length > 1) {
+            bf.showFieldFinish('player-', r.endedBy === 0 ? 'lose' : 'win');
+            bf.showFieldFinish('cpu-', r.endedBy === 1 ? 'lose' : 'win', done);
+        } else {
+            bf.showFieldFinish('', r.clear ? 'clear' : 'gameover', done); // '' → シングルの #finish-overlay
+        }
+    },
+
+    _clearEnd() {
+        this._endShown = false;
+        clearTimeout(this._endTimer);
+        const bf = window.BattleFinish;
+        if (bf) for (const prefix of ['', 'player-', 'cpu-']) bf.clearFieldFinish(prefix);
     },
 
     // resume: 閉じたあと再生する（ポーズキーで閉じたときの「開く前に再生していたら」）
@@ -2220,6 +2267,10 @@ const ReplayManager = {
         const p = this.player;
         if (!p) return;
         const $ = (id) => document.getElementById(id);
+        // 再生していて最後に着いた瞬間だけ終了演出。最後から離れたら（最初から・シーク・1 手戻る）消す
+        if (p.state === 'end' && this._prevState === 'play' && !this._endShown) this._showEnd(p);
+        else if (this._endShown && p.state !== 'end') this._clearEnd();
+        this._prevState = p.state;
         const t = Math.min(p.duration, p.time());
         const from = p.clipFrom; // 切り出しは始まりを 0 として見せる
         const seek = $('replay-seek');
