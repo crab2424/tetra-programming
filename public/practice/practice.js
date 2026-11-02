@@ -390,7 +390,8 @@ class PracticeManager {
         // ★ 実際の getNextType/_makePair の差し替えは上の「ツモ記録の外側ラッパー」が
         //   担う。ここでは self._innerNextType/_innerMakePair の参照先を切り替えるだけ
         //   （SEQUENCEを介さない通常抽選 → SEQUENCE経由 へ）。
-        const seqSrc = (typeof PracticeSequence !== 'undefined') ? PracticeSequence.config(this.rule) : null;
+        // リプレイから渡されたとき（noSequence）は使わない（その先のツモは元の試合の続き）
+        const seqSrc = (typeof PracticeSequence !== 'undefined' && !this.noSequence) ? PracticeSequence.config(this.rule) : null;
         this.sequenceEnabled = !!(seqSrc && seqSrc.enabled && seqSrc.bags.length);
         if (this.sequenceEnabled) {
             this.seqConfig = JSON.parse(JSON.stringify(seqSrc));
@@ -560,6 +561,20 @@ class PracticeManager {
         // 着弾直後の反映もここで拾える（applyGarbage() は popMino() の直前に走るため）（設計 §3.2）
         if (this.rule === 'tet') this._renderGarbageGauge();
         this._refreshRewindIndicator();
+    }
+
+    // リプレイから渡された局面を入れる（startPracticeGame の start() の直後＝カウントダウン中）。
+    // 最初のツモが出るとき（popMino / _spawnPuyo のフック）にこの局面が履歴の 1 手目になる。
+    // 乱数の列の状態も入れるので、渡した NEXT より先のツモも元の試合と同じになる。
+    applyHandoff(h) {
+        const g = this.gameInstance;
+        if (!g || !PracticeSnapshot.restore(g, this.rule, h.line)) return false;
+        for (const k of Object.keys(h.rng || {})) {
+            const fn = g._rngStream(k);
+            if (fn && fn.state) fn.state.set(h.rng[k]);
+        }
+        if (this.rule === 'tet') g.drawAll();
+        return true;
     }
 
     // 現在プレイ可能か（巻き戻しを受け付けてよい状態か）
@@ -2184,16 +2199,18 @@ function _practiceCloseSpinner(commit) {
 
 // PRACTICE を開始する。tet/puyo どちらのエンジンも、対応するシングルプレイの
 // 開始手順をそのまま使い、PracticeManager がフックを差し込む形で載せる。
-function startPracticeGame() {
+// opts（リプレイの「ここから遊ぶ」。core/replay.js）: { rule, goal, noSequence, handoff }
+function startPracticeGame(opts = {}) {
     _stopPracticeIfActive();
 
-    const rule = practiceRule;
-    const goal = { type: practiceGoalType, value: practiceGoalValue() };
+    const rule = opts.rule || practiceRule;
+    const goal = opts.goal || { type: practiceGoalType, value: practiceGoalValue() };
 
     // APM/LPM は非表示（設計 §1.1）
     document.body.classList.add('practice-mode');
 
     const manager = new PracticeManager(rule, goal);
+    manager.noSequence = !!opts.noSequence;
     window._practiceManager = manager;
 
     if (rule === 'puyo') {
@@ -2224,6 +2241,7 @@ function startPracticeGame() {
         // 同期的に上書きするため、attach()内で先に呼んだ resizeNextCanvas() の結果が
         // 消えてしまう。start() 呼び出し（_setupCanvas() までは同期）の直後に取り直す。
         if (typeof window._puyoGame.resizeNextCanvas === 'function') window._puyoGame.resizeNextCanvas();
+        if (opts.handoff) manager.applyHandoff(opts.handoff);
         return;
     }
 
@@ -2250,6 +2268,15 @@ function startPracticeGame() {
     switchPage('game');
     setupGlobalCpuPauseKey();
     window._game.start();
+    if (opts.handoff) manager.applyHandoff(opts.handoff);
+}
+
+// リプレイの「ここから遊ぶ」（録画 M7c。core/replay.js の ReplayManager._playFromHere）。
+// h = { rule, line（practice_snapshot の 1 行）, rng（乱数の列の状態） }。目標なし・ツモ順設定なしで始める
+function startPracticeFromReplay(h) {
+    if (typeof stopAllGames === 'function') stopAllGames();
+    if (typeof GAME_MODES !== 'undefined' && GAME_MODES.practice) currentGameMode = GAME_MODES.practice;
+    startPracticeGame({ rule: h.rule, goal: { type: 'none', value: 0 }, noSequence: true, handoff: h });
 }
 
 // リザルト画面の「巻き戻す」ボタン（index.html #result-practice-rewind-btn）から呼ばれる。

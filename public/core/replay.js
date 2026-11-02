@@ -1401,6 +1401,39 @@ class ReplayPlayer {
         return out;
     }
 
+    // 局面から続きを遊ぶ（M7c。§10）: 1P の盤面を PRACTICE のスナップショット（practice_snapshot.js の 1 行）にする。
+    //   PRACTICE の保存地点は「次のツモが出る直前」なので、操作中のミノ・ぷよは NEXT の頭へ戻す。
+    //   puyo の連鎖・落下の途中は盤面が決まっていないので、次のぷよが出る所まで描かずに進める。
+    //   乱数の列の状態も渡す（その先のツモも元の試合と同じになる）。
+    practiceHandoff() {
+        if (typeof PracticeSnapshot === 'undefined' || this.state === 'desync') return null;
+        const g = this._gameOf(0) || this.games[0];
+        const rule = replayRule(g);
+        if (rule === 'puyo') {
+            const busy = () => ['spawn', 'spawnAnim', 'falling'].indexOf(g._gs) < 0;
+            if (busy() && !this.ended) {
+                this._withSe(true, () => {
+                    let n = 0;
+                    while (!this.ended && !this.desynced && busy() && n < 20000) { this.step(false); n++; }
+                });
+                this.seekTarget = this.time();
+                this.playTime = this.time();
+            }
+            if (busy()) return null;
+        }
+        if (this.ended && !this.clipCut) return null; // 試合の終わり（ゲームオーバー・クリア）からは遊べない
+        const view = Object.create(g); // 盤面はそのまま、NEXT と HOLD だけ差し替えて写す
+        if (rule === 'tet') {
+            if (g.mino) view.nextQueue = [new Mino(g.mino.type)].concat(g.nextQueue);
+            view.canHold = true;
+        } else if (g._gs === 'falling') {
+            view.nextQueue = [[g.pivotColor, g.childColor]].concat(g.nextQueue);
+        }
+        const rng = {};
+        if (g._rng) for (const k of Object.keys(g._rng)) if (g._rng[k] && g._rng[k].state) rng[k] = Array.from(g._rng[k].state);
+        return { rule, line: PracticeSnapshot.capture(view, rule, { tp: 0, tg: 0 }), rng };
+    }
+
     // スナップショットから戻した後にずれた: スナップショットを捨てて、最初からその時刻まで進め直す
     _recoverFromSnap() {
         const r = this._recover;
@@ -1732,6 +1765,8 @@ const ReplayManager = {
             const b = $(id);
             if (b) { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => { if (this.player) this.player.stepLock(dir); }; }
         }
+        const hereBtn = $('replay-here-btn');
+        if (hereBtn) { hereBtn.onmousedown = (e) => e.preventDefault(); hereBtn.onclick = () => this._playFromHere(); }
         const listBtn = $('replay-marks-btn');
         if (listBtn) {
             listBtn.onmousedown = (e) => e.preventDefault();
@@ -1768,6 +1803,20 @@ const ReplayManager = {
             }
         };
         window.addEventListener('keydown', this._keyHandler, true);
+    },
+
+    // ここから遊ぶ（M7c）: シングル・CPU TEST は PRACTICE へ渡す（VERSUS の続きは M7d）
+    _playFromHere() {
+        const p = this.player;
+        if (!p || p.data.mode === 'versus') return;
+        p.pause();
+        const h = p.practiceHandoff();
+        if (!h || typeof startPracticeFromReplay !== 'function') {
+            if (typeof showGlobalToast === 'function') showGlobalToast('ここからは遊べません');
+            return;
+        }
+        this._endWatch(false);
+        startPracticeFromReplay(h);
     },
 
     // 印の少し前（1 秒）から見る
@@ -1880,6 +1929,8 @@ const ReplayManager = {
         document.querySelectorAll('#replay-speeds .replay-speed-btn').forEach((b) => {
             b.classList.toggle('active', Number(b.dataset.speed) === p.speed);
         });
+        const hereBtn = $('replay-here-btn');
+        if (hereBtn) hereBtn.style.display = p.data.mode === 'versus' ? 'none' : '';
         const thinkEl = $('replay-think');
         if (thinkEl) {
             const lines = [];
