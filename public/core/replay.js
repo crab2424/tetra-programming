@@ -1760,6 +1760,7 @@ const ReplayManager = {
     _endWatch(toBack) {
         const p = this.player;
         if (!p) return;
+        this._closePause(false);
         this.player = null;
         p.onUi = null;
         p.stop();
@@ -1840,8 +1841,41 @@ const ReplayManager = {
         // ボタンにフォーカスを残さない（SPACE が最後に押したボタンをもう一度押さないように）
         const playBtn = $('replay-play-btn');
         if (playBtn) { playBtn.onmousedown = (e) => e.preventDefault(); playBtn.onclick = () => this._togglePlay(); }
-        const exitBtn = $('replay-exit-btn');
-        if (exitBtn) { exitBtn.onmousedown = (e) => e.preventDefault(); exitBtn.onclick = () => this._endWatch(true); }
+        const menuBtn = $('replay-menu-btn');
+        if (menuBtn) { menuBtn.onmousedown = (e) => e.preventDefault(); menuBtn.onclick = () => this._openPause(); }
+        // PAUSE 画面のボタン
+        const pauseActions = {
+            'replay-pause-resume': () => { this._closePause(false); if (this.player) this.player.play(); },
+            'replay-pause-restart': () => {
+                this._closePause(false);
+                const p = this.player;
+                if (p && p.state !== 'desync') { p.restart(); p.play(); }
+            },
+            'replay-pause-marks': () => {
+                this._closePause(false);
+                const l = $('replay-marks-list');
+                if (l) l.classList.add('open');
+            },
+            'replay-pause-here': () => { this._closePause(false); this._playFromHere(); },
+            'replay-pause-save': async () => {
+                const p = this.player;
+                const b = $('replay-pause-save');
+                if (!p || !this.saveReplay) return;
+                const it = await this.saveReplay(p.data);
+                if (it && b) { b.disabled = true; b.textContent = '✓ SAVED'; }
+                if (window.FocusNav) window.FocusNav.refresh();
+            },
+            'replay-pause-exit': () => { this._closePause(false); this._endWatch(true); },
+            'replay-pause-mainmenu': () => {
+                this._closePause(false);
+                this._endWatch(false);
+                if (typeof switchPage === 'function') switchPage('main-menu');
+            },
+        };
+        for (const id in pauseActions) {
+            const b = $(id);
+            if (b) { b.onmousedown = (e) => e.preventDefault(); b.onclick = pauseActions[id]; }
+        }
         for (const [id, dir] of [['replay-speed-down', -1], ['replay-speed-up', 1]]) {
             const b = $(id);
             if (b) { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => this._stepSpeed(dir); }
@@ -1858,8 +1892,6 @@ const ReplayManager = {
             const b = $(id);
             if (b) { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => { if (this.player) this.player.stepLock(dir); }; }
         }
-        const hereBtn = $('replay-here-btn');
-        if (hereBtn) { hereBtn.onmousedown = (e) => e.preventDefault(); hereBtn.onclick = () => this._playFromHere(); }
         const listBtn = $('replay-marks-btn');
         if (listBtn) {
             listBtn.onmousedown = (e) => e.preventDefault();
@@ -1870,17 +1902,37 @@ const ReplayManager = {
             seek.addEventListener('input', () => { if (this.player) this.player.seek(Number(seek.value)); });
             seek.addEventListener('keydown', (e) => e.preventDefault()); // キーはまとめて下で受ける
         }
-        // 見ている間のキー（ゲームのキー・ポーズ・リスタート・フォーカス移動には渡さない）
+        // 見ている間のキー（ゲームのキー・ポーズ・リスタート・フォーカス移動には渡さない）。
+        // ポーズキー（設定。ESC は常に）で PAUSE 画面を開く/閉じる。開いている間は上下・決定だけ
+        // FocusNav（PAUSE 画面のボタン選び）へ通し、← → , . [ ] は画面を閉じて止めたまま動かす
         this._keyHandler = (e) => {
             const p = this.player;
             if (!p || !p.watching) return;
             const gp = document.getElementById(p.page + '-page');
             if (!gp || !gp.classList.contains('active')) return;
+            const menu = this._pauseOpen();
+            if (this._pauseCodes().indexOf(e.code) >= 0) {
+                e.stopImmediatePropagation();
+                e.preventDefault();
+                if (e.repeat) return;
+                if (menu) this._closePause(this._pauseResume);
+                else this._openPause();
+                return;
+            }
+            if (menu) {
+                if (['ArrowUp', 'ArrowDown', 'KeyW', 'KeyS', 'Enter', 'NumpadEnter', 'Space'].indexOf(e.code) >= 0) return;
+                if (['ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Comma', 'Period'].indexOf(e.code) >= 0) this._closePause(false);
+                else if (e.code !== 'KeyH') {
+                    e.stopImmediatePropagation();
+                    if (e.code === 'Tab') e.preventDefault();
+                    return;
+                }
+            }
             e.stopImmediatePropagation();
-            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH'];
+            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH'];
             if (handled.indexOf(e.code) < 0) return;
             e.preventDefault();
-            if (e.repeat && (e.code === 'Space' || e.code === 'Escape' || e.code === 'KeyH')) return;
+            if (e.repeat && (e.code === 'Space' || e.code === 'KeyH')) return;
             switch (e.code) {
                 case 'Space': this._togglePlay(); break;
                 case 'ArrowLeft': p.seek(this._targetTime() - 5000); break;
@@ -1888,7 +1940,6 @@ const ReplayManager = {
                 case 'ArrowUp': this._stepSpeed(1); break;
                 case 'ArrowDown': this._stepSpeed(-1); break;
                 case 'KeyH': this._toggleUi(); break;
-                case 'Escape': this._endWatch(true); break;
                 case 'BracketLeft': this._jumpMark(-1); break;
                 case 'BracketRight': this._jumpMark(1); break;
                 case 'Comma': p.stepLock(-1); break;
@@ -1896,6 +1947,67 @@ const ReplayManager = {
             }
         };
         window.addEventListener('keydown', this._keyHandler, true);
+    },
+
+    // ─── PAUSE 画面（UI 設計書 §5）───
+    _pauseOpen() {
+        const o = document.getElementById('replay-pause-overlay');
+        return !!(o && o.classList.contains('active'));
+    },
+
+    // 設定のポーズキー（キーボードの割り当て）。ESC はいつでも
+    _pauseCodes() {
+        const keys = (typeof loadKeys === 'function') ? loadKeys() : null;
+        const codes = (keys && keys.pause && keys.pause.codes) ? keys.pause.codes.slice() : [];
+        if (codes.indexOf('Escape') < 0) codes.push('Escape');
+        return codes;
+    },
+
+    _openPause() {
+        const p = this.player;
+        const o = document.getElementById('replay-pause-overlay');
+        if (!p || !o || this._pauseOpen()) return;
+        // 閉じるとき（ポーズキー）は開く前の状態に戻す。再生中だったら続きから流す
+        this._pauseResume = p.state === 'play' || (p.state === 'seek' && p.seekResume === 'play');
+        p.pause();
+        const $ = (id) => document.getElementById(id);
+        const list = $('replay-marks-list');
+        if (list) list.classList.remove('open');
+        const marks = $('replay-pause-marks');
+        if (marks) marks.style.display = (p.data.events || []).length ? '' : 'none';
+        // PLAY HERE: VERSUS の続きは止めた所（シーク中・カウントダウン・決着の所以外）からだけ
+        let why = '';
+        if (p.state === 'desync') why = 'ずれた所からは遊べません';
+        else if (p.ended || p.state === 'end') why = '終わった所からは遊べません';
+        else if (p.data.mode === 'versus' && (p.state !== 'pause' || !p.canGoLive())) why = 'ここからは遊べません（シーク中・カウントダウン・ポーズ・決着の所）';
+        const here = $('replay-pause-here');
+        if (here) here.disabled = !!why;
+        const note = $('replay-pause-here-note');
+        if (note) { note.textContent = why; note.style.display = why ? '' : 'none'; }
+        // SAVE REPLAY: 自動保存 OFF で、まだ保存していないときだけ（app/replays.js）
+        const save = $('replay-pause-save');
+        if (save) {
+            save.style.display = 'none';
+            save.disabled = false;
+            save.textContent = '⤓ SAVE REPLAY';
+            if (this.needsSave) {
+                this.needsSave(p.data).then((need) => {
+                    if (!need || this.player !== p || !this._pauseOpen()) return;
+                    save.style.display = '';
+                    if (window.FocusNav) window.FocusNav.refresh();
+                }).catch(() => {});
+            }
+        }
+        o.classList.add('active');
+    },
+
+    // resume: 閉じたあと再生する（ポーズキーで閉じたときの「開く前に再生していたら」）
+    _closePause(resume) {
+        const o = document.getElementById('replay-pause-overlay');
+        if (!o || !o.classList.contains('active')) return;
+        o.classList.remove('active');
+        if (document.activeElement && o.contains(document.activeElement)) document.activeElement.blur();
+        if (resume && this.player) this.player.play();
     },
 
     // ここから遊ぶ（M7c）: シングル・CPU TEST は PRACTICE へ渡す（VERSUS はその対戦の続き＝M7d）

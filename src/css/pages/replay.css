@@ -298,6 +298,75 @@ body.replay-watching:not(.replay-ui-hidden) #versus-layout {
   opacity: 1;
 }
 
+/* 再生専用の PAUSE 画面（core/replay.js の _openPause）。ゲームの #pause-overlay / #pause-modal と同じ見た目 */
+#replay-pause-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-scrim);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+#replay-pause-overlay.active {
+  display: flex;
+}
+.replay-pause-modal {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 32px 56px 24px;
+  text-align: center;
+  box-shadow: 0 0 48px rgba(196, 113, 245, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  max-height: calc(100vh - 32px);
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+.replay-pause-title {
+  font-family: "Orbitron", monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+.replay-pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 260px;
+}
+.replay-pause-buttons .pause-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  transform: none;
+}
+.replay-pause-note {
+  margin: -4px 0 0;
+  font-family: var(--font-main);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.replay-pause-keys {
+  margin: 0;
+  font-family: var(--font-main);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+/* puyo の連鎖文字はポーズの幕より上に出るので隠す（pause.css と同じ） */
+body:has(#replay-pause-overlay.active) .puyo-chain-text {
+  visibility: hidden;
+}
+
 /* ─────────────────────────────────────────────
    REPLAYS ページ（public/app/replays.js）。枠は RANKING と同じ
 ───────────────────────────────────────────── */

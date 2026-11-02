@@ -970,13 +970,12 @@
            上の帯＝何を見ているか・状態、下のバー＝時間の操作、盤面の上＝CPU の思考（UI 設計書 tetlabo-record-ui-design.md §4）。
            H キー／◱ で body.replay-ui-hidden を付け外しして全部隠す -->
   <div id="replay-top" class="replay-top replay-ui">
-    <span class="replay-badge" title="SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む　↑ ↓ 速さ　[ ] 前/次の印　H UI 表示　ESC 終了">REPLAY</span>
+    <span class="replay-badge">REPLAY</span>
     <span id="replay-title" class="replay-title"></span>
     <span id="replay-state" class="replay-state"></span>
     <span class="replay-top-spacer"></span>
-    <button id="replay-here-btn" class="replay-btn" type="button" title="この局面から遊ぶ">PLAY HERE</button>
-    <button id="replay-exit-btn" class="replay-btn replay-exit-btn" type="button" title="終了 ESC">EXIT</button>
     <button id="replay-ui-btn" class="replay-btn replay-icon-btn" type="button" title="UI を隠す H">◱</button>
+    <button id="replay-menu-btn" class="replay-btn replay-icon-btn" type="button" title="PAUSE ESC">≡</button>
   </div>
   <div id="replay-msg" class="replay-msg replay-ui" style="display: none"></div>
   <div id="replay-think-0" class="replay-think replay-ui" style="display: none"></div>
@@ -1002,6 +1001,24 @@
       <button id="replay-marks-btn" class="replay-btn" type="button" title="印の一覧">◆ 0</button>
     </div>
     <div id="replay-marks-list" class="replay-marks-list"></div>
+  </div>
+  <!-- ★ 再生専用の PAUSE 画面（ポーズキー／≡ で開く。見た目はゲームの #pause-overlay と同じ。UI 設計書 §5）。
+       SPACE は幕なしの停止/再生のまま。開いている間に ← → , . [ ] を押したら閉じて止めたまま動かす -->
+  <div id="replay-pause-overlay">
+    <div class="replay-pause-modal">
+      <h2 id="replay-pause-title" class="replay-pause-title">PAUSE</h2>
+      <div id="replay-pause-buttons" class="replay-pause-buttons">
+        <button class="pause-btn btn-resume" id="replay-pause-resume" type="button">▶ RESUME</button>
+        <button class="pause-btn btn-restart" id="replay-pause-restart" type="button">↺ RESTART</button>
+        <button class="pause-btn btn-restart" id="replay-pause-marks" type="button">◆ MARKS</button>
+        <button class="pause-btn btn-settings" id="replay-pause-here" type="button">⚑ PLAY HERE</button>
+        <p class="replay-pause-note" id="replay-pause-here-note" style="display: none"></p>
+        <button class="pause-btn btn-settings" id="replay-pause-save" type="button" style="display: none">⤓ SAVE REPLAY</button>
+        <button class="pause-btn btn-restart" id="replay-pause-exit" type="button">◀ EXIT</button>
+        <button class="pause-btn btn-mainmenu" id="replay-pause-mainmenu" type="button">⌂ MAIN MENU</button>
+      </div>
+      <p class="replay-pause-keys">SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む<br>↑ ↓ 速さ　[ ] 前/次の印　H UI 表示　ESC ポーズ</p>
+    </div>
   </div>
 
   <div id="game-page" class="page">
@@ -1515,7 +1532,7 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=14"></script>
+  <script src="core/replay.js?v=15"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=8"></script>
   <script src="app/manager.js?v=1"></script>
@@ -1553,8 +1570,8 @@
   <script src="app/cpu_weights_panel.js?v=6"></script>
   <script src="app/navigation.js?v=39"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/replays.js?v=5"></script>
-  <script src="app/focus_nav.js?v=20"></script>
+  <script src="app/replays.js?v=6"></script>
+  <script src="app/focus_nav.js?v=21"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=7"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->

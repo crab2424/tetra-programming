@@ -1203,6 +1203,13 @@
       () => $$('#versus-pause-overlay #versus-pause-buttons button'),
       '.btn-resume'
     );
+    // 録画の再生専用の PAUSE（core/replay.js）。ポーズキー・← → などは replay.js が先に受けるので、
+    // ここへ来るのは上下・決定だけ
+    setupOverlayWatcher(
+      'replay-pause-overlay',
+      () => $$('#replay-pause-overlay #replay-pause-buttons button'),
+      '.btn-resume'
+    );
 
     // ── online対戦オーバーレイ（class ではなく style.display で開閉するため watchAttr:'style'）──
     setupOverlayWatcher(

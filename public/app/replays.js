@@ -457,18 +457,30 @@ ReplayManager.starResult = async () => {
     }
 };
 
-// 自動保存 OFF のときのリザルトの SAVE
-ReplayManager.saveResult = async () => {
-    const d = ReplayManager.resultReplay;
-    if (!d) return;
+// 自動保存 OFF のときの SAVE（リザルト・再生中の PAUSE 画面）。保存できたら保存した 1 件を返す
+ReplayManager.saveReplay = async (d) => {
     try {
         const it = await replaySaveResultIfNeeded(d);
-        ReplayManager.updateResultTools(it);
+        if (ReplayManager.resultReplay && ReplayManager.resultReplay.id === d.id) ReplayManager.updateResultTools(it);
         if (typeof showGlobalToast === 'function') showGlobalToast('リプレイを保存しました（REPLAYS）');
+        return it;
     } catch (e) {
         console.warn('[replay] 保存できませんでした', e);
         if (typeof showGlobalToast === 'function') showGlobalToast('リプレイを保存できませんでした');
+        return null;
     }
+};
+
+ReplayManager.saveResult = () => {
+    const d = ReplayManager.resultReplay;
+    if (d) ReplayManager.saveReplay(d);
+};
+
+// 再生中の PAUSE 画面に SAVE REPLAY を出すか（自動保存 OFF で、まだ保存していないときだけ）
+ReplayManager.needsSave = async (d) => {
+    if (replayAutoSave() || !d) return false;
+    await replaySavePending;
+    return !(await ReplayStore.get(d.id).catch(() => null));
 };
 
 ReplayManager.exportResult = () => {
