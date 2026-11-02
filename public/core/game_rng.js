@@ -14,9 +14,12 @@
 
 const GameRng = (() => {
 
+    // 状態は next.state（Uint32Array(4)）に持つ。録画の再生のスナップショット（core/replay.js）が写して戻すため。
+    // 入れるときに Uint32Array が >>> 0 するので、以前の「呼ぶたびに a >>>= 0 …」と同じ列になる
     function sfc32(a, b, c, d) {
-        return function () {
-            a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
+        const st = new Uint32Array([a, b, c, d]);
+        const next = function () {
+            let a = st[0], b = st[1], c = st[2], d = st[3];
             let t = (a + b) | 0;
             a = b ^ (b >>> 9);
             b = (c + (c << 3)) | 0;
@@ -24,8 +27,11 @@ const GameRng = (() => {
             d = (d + 1) | 0;
             t = (t + d) | 0;
             c = (c + t) | 0;
+            st[0] = a; st[1] = b; st[2] = c; st[3] = d;
             return (t >>> 0) / 4294967296;
         };
+        next.state = st;
+        return next;
     }
 
     // 用途名を 32bit に畳む（FNV-1a）

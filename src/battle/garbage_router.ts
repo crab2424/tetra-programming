@@ -205,19 +205,7 @@ export function reseatLocalGarbageTimers(owner: any): void {
         : entry.duration;
     }
 
-    const obj = entry.obj;
-    // internal:true のまま残っている = stage1→stage2 の昇格待ち（deliverLocalStaged 由来）
-    const toStage2 = obj.internal === true;
-    entry.cb = () => {
-      entry.id = null;
-      if (owner.garbageQueue.includes(obj) && obj.amount > 0) {
-        if (toStage2) obj.internal = false;
-        else obj.ready = true;
-        if (typeof owner.updateGarbageGauge === "function") owner.updateGarbageGauge();
-      }
-      const idx = owner._garbageTimers.indexOf(entry);
-      if (idx !== -1) owner._garbageTimers.splice(idx, 1);
-    };
+    entry.cb = makeLocalGarbageTimerCb(owner, entry);
 
     entry.duration = remaining;
     if (owner.isPaused) {
@@ -230,12 +218,46 @@ export function reseatLocalGarbageTimers(owner: any): void {
   }
 }
 
+/** `_garbageTimers` のエントリの cb を、持ち主 owner とそのエントリ自身を見るものに作り直す */
+function makeLocalGarbageTimerCb(owner: any, entry: any): () => void {
+  const obj = entry.obj;
+  // internal:true のまま残っている = stage1→stage2 の昇格待ち（deliverLocalStaged 由来）
+  const toStage2 = obj.internal === true;
+  return () => {
+    entry.id = null;
+    if (owner.garbageQueue.includes(obj) && obj.amount > 0) {
+      if (toStage2) obj.internal = false;
+      else obj.ready = true;
+      if (typeof owner.updateGarbageGauge === "function") owner.updateGarbageGauge();
+    }
+    const idx = owner._garbageTimers.indexOf(entry);
+    if (idx !== -1) owner._garbageTimers.splice(idx, 1);
+  };
+}
+
+/**
+ * 録画の再生でスナップショットへ戻した直後に呼ぶ（public/core/replay.js）。
+ * 戻した `_garbageTimers` と `garbageQueue` は写しなので、cb が掴んでいる元のエントリ・おじゃまは
+ * もう盤面に無い。cb だけを写しを見るものに作り直し、予約（entry.id）の中身も差し替える。
+ * 予約の時刻・順番は変えない（reseatLocalGarbageTimers と違って予約し直さない）。
+ */
+export function rebindLocalGarbageTimers(owner: any): void {
+  const timers: any[] = owner._garbageTimers;
+  if (!Array.isArray(timers)) return;
+  for (const entry of timers) {
+    if (!entry || !entry.obj) continue;
+    entry.cb = makeLocalGarbageTimerCb(owner, entry);
+    if (entry.id) entry.id.cb = entry.cb;
+  }
+}
+
 export const BattleGarbage = {
   routeGarbage,
   tetGaugeToOjama,
   deliverLocalWithReadyTimer,
   deliverLocalStaged,
   reseatLocalGarbageTimers,
+  rebindLocalGarbageTimers,
 };
 
 // プレーンJSエンジン（public/game/*）からの参照用

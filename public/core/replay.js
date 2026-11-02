@@ -749,6 +749,100 @@ function replayModeOf(data) {
     return null;
 }
 
+// ─── スナップショット（M7a。§5.3）───
+//   再生中に数秒ごと、盤面の状態（Game / PuyoGame の持ち物）・時計（時刻と予約）・ループの顔ぶれ・
+//   読んでいる位置をメモリに写す。巻き戻し・1 手戻るは「直前のスナップショットに戻して早送り」。
+//   写すのは盤面の中身だけ: DOM・canvas・時計・ループ・Worker などは同じものを指したまま、
+//   配列・Map・Set・クラスのオブジェクト（Mino・Field・乱数）は中身ごと写す（同じものを指す所は同じまま）。
+//   予約の中身（cb）は関数をそのまま使う（盤面の this を指すので、同じ盤面に戻せば同じに動く）。
+//   盤面から指されていない予約（カウントダウン・START! を消す）がある間は取らない。
+//   戻した後もハッシュを照らし合わせるので、写し漏れがあればずれとして分かる（そのときは最初からに戻す）。
+// 画面の持ち物（DOM のやりくり・描画のキャッシュ・キーの受け口）は写さず、戻すときも触らない
+const REPLAY_SNAP_LIVE = new Set([
+    '_replay', '_rec', 'clock', 'loop',
+    '_keyDownHandler', '_keyUpHandler', '_keyHandlerDown', '_keyHandlerUp', '_gpConnectedHandler', '_gpDisconnectedHandler', '_gamepadLoop',
+    'labelElements', 'labelTimers', 'labelLayout', '_gridCache',
+    'yokokuContainer', '_yokokuPool', '_yokokuMounted', '_yokokuRow1', '_yokokuRow2', '_lastYokokuAmount',
+    '_chainTextEl', '_chainNumEl', '_images', '_ciBuf', '_ghostSig', '_ghostVField', '_ghostEraseCache',
+]);
+
+function replaySnapKeep(v, keep) {
+    return keep.has(v)
+        || (typeof EventTarget !== 'undefined' && v instanceof EventTarget)   // DOM・canvas・Image・Worker・window
+        || (typeof CanvasRenderingContext2D !== 'undefined' && v instanceof CanvasRenderingContext2D)
+        || (typeof ImageBitmap !== 'undefined' && v instanceof ImageBitmap)
+        || v instanceof GameClock || v instanceof MatchLoop || v instanceof ReplayPlayer || v instanceof ReplayRecorder
+        || v instanceof Promise || v instanceof WeakMap || v instanceof WeakSet;
+}
+
+function replayClone(v, memo, keep) {
+    if (v === null || typeof v !== 'object') return v; // 数・文字・真偽・関数はそのまま
+    const hit = memo.get(v);
+    if (hit !== undefined) return hit;
+    if (replaySnapKeep(v, keep)) return v;
+    let c;
+    if (ArrayBuffer.isView(v)) {
+        c = v.slice();
+        memo.set(v, c);
+    } else if (Array.isArray(v)) {
+        c = new Array(v.length);
+        memo.set(v, c);
+        for (let i = 0; i < v.length; i++) c[i] = replayClone(v[i], memo, keep);
+    } else if (v instanceof Map) {
+        c = new Map();
+        memo.set(v, c);
+        v.forEach((x, k) => c.set(replayClone(k, memo, keep), replayClone(x, memo, keep)));
+    } else if (v instanceof Set) {
+        c = new Set();
+        memo.set(v, c);
+        v.forEach((x) => c.add(replayClone(x, memo, keep)));
+    } else {
+        c = Object.create(Object.getPrototypeOf(v));
+        memo.set(v, c);
+        for (const k of Object.keys(v)) c[k] = replayClone(v[k], memo, keep);
+    }
+    return c;
+}
+
+// 盤面の持ち物を写す（画面の持ち物は除く）
+// 乱数の列（core/game_rng.js）は関数なので同じものを指したまま、中の状態（next.state）だけ別に写す
+function replaySnapGame(g, memo, keep) {
+    const o = {};
+    for (const k of Object.keys(g)) if (!REPLAY_SNAP_LIVE.has(k)) o[k] = replayClone(g[k], memo, keep);
+    const rng = g._rng;
+    return { o, rng: rng ? Object.keys(rng).map((k) => [rng[k], rng[k] && rng[k].state ? rng[k].state.slice() : null]) : [] };
+}
+
+// 写したものを盤面へ戻す（写したものは何度でも使えるよう、もう一度写して入れる）
+function replayRestoreGame(g, s, memo, keep) {
+    const o = s.o;
+    for (const k of Object.keys(g)) if (!(k in o) && !REPLAY_SNAP_LIVE.has(k)) delete g[k];
+    for (const k of Object.keys(o)) g[k] = replayClone(o[k], memo, keep);
+    for (const [fn, st] of s.rng) if (st && fn.state) fn.state.set(st);
+}
+
+// 盤面の外に字だけで持っている表示（puyo の連鎖数・最大連鎖・タイムは出来事のときにしか書き換えない）
+function replayHudEls(g) {
+    return replayRule(g) === 'puyo' ? [g.scoreEl, g.linesEl, g.levelEl, g.timeEl] : [];
+}
+
+// 戻した後に画面を盤面に合わせる（ふだんはゲームの進行に合わせて書き換えている所）
+function replayRefreshGame(g) {
+    if (replayRule(g) === 'tet') {
+        if (g.field && g.field.markDirty) g.field.markDirty();
+        g._needsRedraw = true;
+        if (g.updateStatsDisplay) g.updateStatsDisplay();
+        if (g.updateTimeDisplay) g.updateTimeDisplay();
+    } else {
+        g._ghostSig = NaN;
+        g._ghostEraseCache = null;
+        if (g._updateScoreDisplay) g._updateScoreDisplay();
+        g._lastYokokuAmount = -1;
+        if (g._updateOjamaYokoku) g._updateOjamaYokoku();
+        if (!g.chainTextInfo && g._clearChainTextDOM) g._clearChainTextDOM();
+    }
+}
+
 // ─── 再生（1 本のリプレイ）───
 class ReplayPlayer {
     constructor(data) {
@@ -810,6 +904,12 @@ class ReplayPlayer {
         this.watching = false;    // 画面に出して見ている（verify は false）
         this.onUi = null;
         this._saved = null;
+        // スナップショット（M7a）: snaps[k] は時刻 k × snapEvery を最初に過ぎたフレームの終わり。
+        // 一度通った所の分だけできる（決定的なので最初からやり直しても同じ）。最大 300 個ほど
+        this.snaps = [];
+        this.snapEvery = Math.max(3000, Math.ceil(this.duration / 300));
+        this.snapOn = false;      // 画面で見るとき（と開発用の確かめ）だけ取る
+        this.lockLog = [];        // 設置ごとの { f: そのフレームの番号, side }（通った所の分）
         this._resetCounters();
     }
 
@@ -834,6 +934,10 @@ class ReplayPlayer {
         this.playTime = 0;
         this.seekTarget = 0;
         this.seekResume = 'pause';
+        this.seekFrame = -1;      // >=0: このフレームまで進める（1 手戻る・進むで設置の所がわかっているとき）
+        this.seekLockSide = -1;   // >=0: この side の次の設置まで進める（まだ通っていない所へ 1 手進む）
+        this._lockHit = false;
+        this._fromSnap = false;   // 最初からやり直した後にスナップショットへ戻したか（ずれたら最初からに戻す）
         this._lastReal = null;
         this._cfg = [null, null];
         this._skip = [false, false];
@@ -933,7 +1037,11 @@ class ReplayPlayer {
         const i = this.checkIdx++;
         if (i >= this.checks.length || replayHash(g, this.t0) !== this.checks[i]) {
             this._desync(i >= this.checks.length ? '記録より設置が多い' : `${i + 1} 手目の盤面が合わない`, i);
+            return;
         }
+        const side = replaySide(g);
+        if (!this.lockLog[i]) this.lockLog[i] = { f: this.nFrames, side };
+        if (side === this.seekLockSide) this._lockHit = true;
     }
 
     onGameOver(g, isClear) {
@@ -950,6 +1058,12 @@ class ReplayPlayer {
 
     _desync(reason, lockIdx) {
         this.desynced = true;
+        // スナップショットから戻した後のずれは写し漏れ（録画は正しい）: スナップショットをやめて最初からやり直す（onFrame）
+        if (this._fromSnap && this.watching) {
+            console.warn('[replay] スナップショットから戻した後にずれました。最初からやり直します:', reason);
+            this._recover = { ms: this.state === 'seek' ? Math.max(this.time(), this.seekTarget) : this.time(), resume:this.state === 'seek' ? this.seekResume : (this.state === 'play' ? 'play' : 'pause') };
+            return;
+        }
         this.desyncInfo = { reason, lock: lockIdx, timeMs: this.time(), frame: this.nFrames };
         this.state = 'desync'; // 盤面はそこで止める（driver がフレームを進めない）
         if (this.onUi) this.onUi();
@@ -996,6 +1110,110 @@ class ReplayPlayer {
         if (!this.ended && !this.desynced && this.nFrames > (this.data.frameCount || 0) + 600) {
             this._desync('記録したフレームを過ぎても終わらない');
         }
+        if (this.snapOn && !this.ended && !this.desynced) {
+            const k = Math.floor(this.time() / this.snapEvery);
+            if (k >= 1 && !this.snaps[k]) {
+                const s = this._takeSnap();
+                if (s) this.snaps[k] = s;
+            }
+        }
+    }
+
+    // ─── スナップショット（M7a）───
+    // 今のフレームの終わりを写す。盤面の外の予約がある間（カウントダウン中など）は null
+    _takeSnap() {
+        const loop = this.loop;
+        if (loop._pending.length || loop._ticking) return null;
+        const clock = this.games[0].clock;
+        const memo = new Map();
+        const keep = new Set(this.games);
+        const games = this.games.map((g) => replaySnapGame(g, memo, keep));
+        for (const h of clock._timers) if (!memo.has(h)) return null;
+        return {
+            f: this.nFrames,
+            t: this.time(),
+            ep: this.ep,
+            checkIdx: this.checkIdx,
+            feedP: clock._feed ? clock._feed.p : 0,
+            cfg: this._cfg.slice(),
+            clock: { t: clock._t, seq: clock._seq, paused: clock._paused, timers: clock._timers.map((h) => memo.get(h)) },
+            games,
+            hud: this.games.map((g) => replayHudEls(g).map((el) => (el ? el.textContent : null))),
+            members: loop._members.map((m) => Object.assign({}, m)),
+        };
+    }
+
+    _restoreSnap(s) {
+        const memo = new Map();
+        const keep = new Set(this.games);
+        this.games.forEach((g, i) => replayRestoreGame(g, s.games[i], memo, keep));
+        const clock = this.games[0].clock;
+        const timers = s.clock.timers.map((h) => replayClone(h, memo, keep));
+        // VERSUS のおじゃまの猶予の予約は cb が元のエントリ・おじゃまを掴んでいるので、写しを見るものに作り直す
+        const bg = window.BattleGarbage;
+        if (bg && bg.rebindLocalGarbageTimers) for (const g of this.games) bg.rebindLocalGarbageTimers(g);
+        for (const h of clock._timers) if (timers.indexOf(h) < 0) h.cb = null;
+        clock._timers.length = 0;
+        for (const h of timers) clock._timers.push(h);
+        clock._t = s.clock.t;
+        clock._seq = s.clock.seq;
+        clock._paused = s.clock.paused;
+        clock._advancing = false;
+        clock._tape = null;
+        clock._feed = new ReplayReader(this.dtBytes);
+        clock._feed.p = s.feedP;
+        const loop = this.loop;
+        loop._members = s.members.map((m) => Object.assign({}, m));
+        loop._pending.length = 0;
+        loop._needsCompact = false;
+        if (loop._members.length && loop._rafId === null && !loop._ticking) loop._rafId = requestAnimationFrame(loop._tick);
+        this._resetCounters();
+        this.nFrames = s.f;
+        this.ep = s.ep;
+        this.checkIdx = s.checkIdx;
+        this._cfg = s.cfg.slice();
+        this._fromSnap = true;
+        this._hideCountdown();
+        this.games.forEach((g, i) => {
+            replayRefreshGame(g);
+            replayHudEls(g).forEach((el, j) => { if (el && s.hud[i][j] !== null) el.textContent = s.hud[i][j]; });
+        });
+    }
+
+    _hideCountdown() {
+        for (const id of ['countdown-overlay', 'player-countdown-overlay', 'cpu-countdown-overlay']) {
+            const ov = document.getElementById(id);
+            if (ov && typeof cancelCountdownTimer === 'function') {
+                cancelCountdownTimer(ov);
+                ov.classList.remove('active');
+            }
+        }
+    }
+
+    // 一番新しい「ok(s) を満たすスナップショット」
+    _snapBefore(ok) {
+        for (let k = this.snaps.length - 1; k >= 1; k--) {
+            const s = this.snaps[k];
+            if (s && ok(s)) return s;
+        }
+        return null;
+    }
+
+    // 向かう所の手前まで一気に戻る/飛ぶ。back: 今より前へ戻る必要がある。ok: 使えるスナップショットか
+    _jump(back, ok) {
+        const s = this._snapBefore(ok);
+        const ahead = s && !this.ended && !this.desynced && s.f > this.nFrames; // 今より先のスナップショットへ飛べる
+        if (s && (back || this.ended || this.desynced || ahead)) {
+            this._withSe(true, () => this._restoreSnap(s));
+        } else if (back || this.ended || this.desynced) {
+            this._withSe(true, () => this.restart());
+        }
+    }
+
+    _seekDone() {
+        if (this.seekLockSide >= 0) return this._lockHit;
+        if (this.seekFrame >= 0) return this.nFrames >= this.seekFrame;
+        return this.time() >= this.seekTarget;
     }
 
     // SE を止めて fn を実行（2 倍より速いとき・シーク中）
@@ -1025,22 +1243,22 @@ class ReplayPlayer {
         const now = performance.now();
         const realDt = (this._lastReal === null) ? 0 : Math.min(100, now - this._lastReal);
         this._lastReal = now;
+        if (this._recover) this._recoverFromSnap();
         if (this.state === 'seek') {
             const until = now + 12; // 1 回の rAF で使う時間（その間も盤面は描く）
             this._withSe(true, () => {
-                while (!this.ended && !this.desynced && this.time() < this.seekTarget && performance.now() < until) this.step(false);
+                while (!this.ended && !this.desynced && !this._seekDone() && performance.now() < until) this.step(false);
             });
-            if (!this.desynced && (this.ended || this.time() >= this.seekTarget)) {
-                this.state = this.ended ? 'end' : this.seekResume;
-                this.playTime = this.time();
-            }
+            if (this._recover) this._recoverFromSnap();
+            else if (!this.desynced && (this.ended || this._seekDone())) this._seekFinish();
         } else if (this.state === 'play') {
             this.playTime += realDt * this.speed;
             let n = 0;
             this._withSe(this.speed > 2, () => {
                 while (!this.ended && !this.desynced && this.time() < this.playTime && n < 5000) { this.step(false); n++; }
             });
-            if (this.ended && !this.desynced) this.state = 'end';
+            if (this._recover) this._recoverFromSnap();
+            else if (this.ended && !this.desynced) this.state = 'end';
         }
         loop.drawOnly();
         // 操作バーの更新で何か起きても、再生は止めない（1 回だけ知らせる）
@@ -1066,16 +1284,75 @@ class ReplayPlayer {
         if (this.onUi) this.onUi();
     }
 
-    seek(ms) {
-        ms = Math.max(0, Math.min(this.duration, ms));
-        const resume = (this.state === 'seek') ? this.seekResume : (this.state === 'play' ? 'play' : 'pause');
-        if (ms < this.time() || this.ended || this.desynced) {
-            this._withSe(true, () => this.restart());
-        }
-        this.seekTarget = ms;
+    _resumeState() {
+        return (this.state === 'seek') ? this.seekResume : (this.state === 'play' ? 'play' : 'pause');
+    }
+
+    _seekStart(resume) {
         this.seekResume = resume;
         this.state = 'seek';
         if (this.onUi) this.onUi();
+    }
+
+    _seekFinish() {
+        this.state = this.ended ? 'end' : this.seekResume;
+        this.playTime = this.time();
+        this.seekFrame = -1;
+        this.seekLockSide = -1;
+        this._lockHit = false;
+    }
+
+    seek(ms) {
+        ms = Math.max(0, Math.min(this.duration, ms));
+        const resume = this._resumeState();
+        this._jump(ms < this.time(), (s) => s.t <= ms);
+        this.seekTarget = ms;
+        this.seekFrame = -1;
+        this.seekLockSide = -1;
+        this._seekStart(resume);
+    }
+
+    // 1 手戻る/進む（dir = -1 / 1）。VERSUS は 1P の設置ごと。止めて見る
+    stepLock(dir) {
+        if (this.state === 'desync') return;
+        const side = 0;
+        const log = this.lockLog;
+        // シーク中なら向かっている所から数える
+        const cur = (this.state === 'seek' && this.seekFrame >= 0) ? this.seekFrame : this.nFrames;
+        let target = -1;
+        if (dir < 0) {
+            for (let i = log.length - 1; i >= 0; i--) if (log[i] && log[i].side === side && log[i].f < cur) { target = log[i].f; break; }
+            if (target < 0) { this.seek(0); this.seekResume = 'pause'; return; }
+        } else {
+            for (let i = 0; i < log.length; i++) if (log[i] && log[i].side === side && log[i].f > cur) { target = log[i].f; break; }
+            if (target < 0 && this.ended) return;
+        }
+        if (target >= 0) {
+            this._jump(target < this.nFrames, (s) => s.f <= target);
+            this.seekFrame = target;
+            this.seekLockSide = -1;
+        } else {
+            // まだ通っていない所: 次の設置まで進める（シーク中ならその行き先まで先に進めておく）
+            if (this.state === 'seek' && this.seekFrame >= 0) {
+                this._withSe(true, () => { while (!this.ended && !this.desynced && this.nFrames < this.seekFrame) this.step(false); });
+            }
+            this.seekFrame = -1;
+            this.seekLockSide = side;
+            this._lockHit = false;
+        }
+        this.seekTarget = this.time();
+        this._seekStart('pause');
+    }
+
+    // スナップショットから戻した後にずれた: スナップショットを捨てて、最初からその時刻まで進め直す
+    _recoverFromSnap() {
+        const r = this._recover;
+        this._recover = null;
+        this.snaps = [];
+        this.snapOn = false;
+        this._withSe(true, () => this.restart());
+        this.seekTarget = r.ms;
+        this._seekStart(r.resume);
     }
 
     setSpeed(s) {
@@ -1263,6 +1540,50 @@ const ReplayManager = {
         return res;
     },
 
+    // スナップショットの確かめ（コンソール・開発用）: 描かずに最後まで進めながら写し、
+    // 写したものそれぞれに戻して最後まで進め、ハッシュが全部合うか見る
+    verifySnaps(data = this.last, every) {
+        if (!data) { console.warn('[replay] リプレイがありません'); return null; }
+        if (this.player || this._busy()) { console.warn('[replay] プレイ中・再生中は確かめられません'); return null; }
+        const p = new ReplayPlayer(data);
+        if (every) p.snapEvery = every;
+        const t = performance.now();
+        p.prepare();
+        p.snapOn = true;
+        p.runToEnd();
+        const snaps = p.snaps.filter(Boolean);
+        const tTake = performance.now() - t;
+        p.snapOn = false;
+        const bad = [];
+        let tRestore = 0;
+        this._withMute(() => {
+            for (const s of snaps) {
+                const t1 = performance.now();
+                p._restoreSnap(s);
+                tRestore += performance.now() - t1;
+                let n = 0;
+                while (!p.ended && !p.desynced && n < (data.frameCount || 0) + 1000) { p.step(false); n++; }
+                const ok = !p.desynced && p.ended && p.checkIdx === p.checks.length;
+                if (!ok) bad.push({ snapMs: Math.round(s.t), desync: p.desyncInfo });
+            }
+        });
+        p.stop();
+        const res = {
+            ok: bad.length === 0 && snaps.length > 0, snaps: snaps.length, bad,
+            msRunWithSnaps: Math.round(tTake), msPerRestore: snaps.length ? +(tRestore / snaps.length).toFixed(2) : 0,
+        };
+        if (res.ok) console.log(`[replay] スナップショット ${res.snaps} 個、どれから進めても一致`, res);
+        else console.warn('[replay] スナップショットから進めるとずれる:', res);
+        return res;
+    },
+
+    _withMute(fn) {
+        const se = window.SeManager;
+        const prev = se ? se._muted : false;
+        if (se) se._muted = true;
+        try { fn(); } finally { if (se) se._muted = prev; }
+    },
+
     // ─── 画面で見る ───
     watchResult() {
         if (this.resultReplay) this.watch(this.resultReplay, this.returnPage);
@@ -1287,6 +1608,7 @@ const ReplayManager = {
         this._drawMarks(p);
         p.prepare();
         p.watching = true;
+        p.snapOn = true;
         this.player = p;
         this._bindUi();
         p.onUi = () => this._updateUi();
@@ -1349,6 +1671,10 @@ const ReplayManager = {
             const b = $(id);
             if (b) { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => this._jumpMark(dir); }
         }
+        for (const [id, dir] of [['replay-step-prev', -1], ['replay-step-next', 1]]) {
+            const b = $(id);
+            if (b) { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => { if (this.player) this.player.stepLock(dir); }; }
+        }
         const listBtn = $('replay-marks-btn');
         if (listBtn) {
             listBtn.onmousedown = (e) => e.preventDefault();
@@ -1366,7 +1692,7 @@ const ReplayManager = {
             const gp = document.getElementById(p.page + '-page');
             if (!gp || !gp.classList.contains('active')) return;
             e.stopImmediatePropagation();
-            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'Tab', 'BracketLeft', 'BracketRight'];
+            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period'];
             if (handled.indexOf(e.code) < 0) return;
             e.preventDefault();
             if (e.repeat && (e.code === 'Space' || e.code === 'Escape')) return;
@@ -1378,8 +1704,10 @@ const ReplayManager = {
                 case 'ArrowUp': p.setSpeed(REPLAY_SPEEDS[Math.min(REPLAY_SPEEDS.length - 1, i + 1)]); break;
                 case 'ArrowDown': p.setSpeed(REPLAY_SPEEDS[Math.max(0, i - 1)]); break;
                 case 'Escape': this._endWatch(true); break;
-            case 'BracketLeft': this._jumpMark(-1); break;
-            case 'BracketRight': this._jumpMark(1); break;
+                case 'BracketLeft': this._jumpMark(-1); break;
+                case 'BracketRight': this._jumpMark(1); break;
+                case 'Comma': p.stepLock(-1); break;
+                case 'Period': p.stepLock(1); break;
             }
         };
         window.addEventListener('keydown', this._keyHandler, true);

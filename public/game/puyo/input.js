@@ -127,11 +127,13 @@ Object.assign(PuyoGame.prototype, {
         // ただし先にためた押す側が残っていれば、順番を崩さないよう離す側もためる。
         // VERSUS のカウントダウン中（starting）はフレームが回っていないが、ためておいて
         // 開始後の最初のフレームで取り込む（以前も押した状態だけは記録していた）。
+        // ポーズ中（paused）に離したキーもためて、再開後の最初のフレームで取り込む。その場で反映すると
+        // 録画に残らず、再生ではキーを押したままになってずれる（core/replay.js）。盤面は止まっているので見た目は同じ。
         const enqueue = (down, code, repeat) => {
             const running = this.state === 'playing' || this.state === 'starting';
             if (down) {
                 if (running) this._inputQueue.push({ down: true, code, repeat });
-            } else if (running || this._inputQueue.length) {
+            } else if (running || this.state === 'paused' || this._inputQueue.length) {
                 this._inputQueue.push({ down: false, code, repeat: false });
             } else {
                 applyKeyUp(code);

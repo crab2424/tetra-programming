@@ -966,7 +966,9 @@
   <div id="replay-bar" class="replay-bar">
     <div class="replay-bar-row">
       <span class="replay-badge">REPLAY</span>
+      <button id="replay-step-prev" class="replay-btn" type="button" title="1 手戻る ,">|◀</button>
       <button id="replay-play-btn" class="replay-btn" type="button">▶</button>
+      <button id="replay-step-next" class="replay-btn" type="button" title="1 手進む .">▶|</button>
       <span id="replay-time" class="replay-time">00:00.00 / 00:00.00</span>
       <span id="replay-state" class="replay-state"></span>
       <button id="replay-mark-prev" class="replay-btn" type="button" title="前の印 [">◀◆</button>
@@ -982,7 +984,7 @@
     <div id="replay-msg" class="replay-msg" style="display: none"></div>
     <div id="replay-think" class="replay-think" style="display: none"></div>
     <div id="replay-marks-list" class="replay-marks-list"></div>
-    <div class="replay-keys">SPACE 再生/停止　← → 5秒戻る/進む　↑ ↓ 速さ　[ ] 前/次の印　ESC 終了</div>
+    <div class="replay-keys">SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む　↑ ↓ 速さ　[ ] 前/次の印　ESC 終了</div>
   </div>
 
   <div id="game-page" class="page">
@@ -1485,8 +1487,8 @@
   <script src="core/game_clock.js?v=6"></script>
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
-  <script src="core/game_rng.js?v=1"></script>
-  <script src="core/replay.js?v=7"></script>
+  <script src="core/game_rng.js?v=2"></script>
+  <script src="core/replay.js?v=8"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=7"></script>
   <script src="app/manager.js?v=1"></script>
@@ -1512,7 +1514,7 @@
   <script src="game/puyo/connect.js"></script>
   <script src="game/puyo/ojama.js?v=8"></script>
   <script src="game/puyo/engine.js?v=18"></script>
-  <script src="game/puyo/input.js?v=10"></script>
+  <script src="game/puyo/input.js?v=11"></script>
   <script src="game/puyo/draw.js?v=11"></script>
   <script src="quiz/quiz.js?v=9"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
