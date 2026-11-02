@@ -68,6 +68,7 @@ const DEFAULT_DISPLAY = {
   apm: false,       // APM/LPM表示（シングル・対戦とも）
   versusTime: true, // 対戦画面のTIME表示
   ghostStyle: 'fill', // 'fill'=ゴーストが薄い塗り・アシストが枠線 / 'outline'=入れ替え（ゴーストが枠線・アシストが薄い塗り）
+  replayAutoSave: true, // 最後まで遊んだ試合のリプレイを自動で保存する（OFF でも最高記録のものは残す。app/replays.js）
 };
 
 // ゴーストを枠線で描くか（true のときアシストが薄い塗りになる）
@@ -455,6 +456,12 @@ function renderDisplayOptions() {
   if (timeToggle) {
     timeToggle.querySelectorAll('.opt-btn').forEach((btn) => {
       btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.versusTime);
+    });
+  }
+  const autoSaveToggle = document.getElementById('display-replay-autosave-toggle');
+  if (autoSaveToggle) {
+    autoSaveToggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.replayAutoSave);
     });
   }
 }

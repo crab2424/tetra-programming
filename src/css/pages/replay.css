@@ -337,6 +337,11 @@ body.replay-watching .replay-bar {
 .result-replay-star.is-on .menu-btn-icon {
   color: #ffd76a;
 }
+/* 自動保存 OFF のときの SAVE（保存したら SAVED にして押せなくする） */
+.result-replay-save:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 
 /* 準備画面: BEST の下の WATCH BEST */
 .mode-check-best-replay {

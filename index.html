@@ -249,7 +249,7 @@
       </div>
       <p id="replays-status" class="ranking-status" style="display: none"></p>
       <div id="replays-list" class="replays-list"></div>
-      <p class="ranking-hint">最後まで遊んだ試合を直近 30 本まで自動で残します（★・最高記録・CLIP は消えません）。CLIP は再生中の印の一覧から作れます。ファイルをここへドロップしても読み込めます。</p>
+      <p class="ranking-hint" id="replays-hint">最後まで遊んだ試合を直近 30 本まで自動で残します（★・最高記録・CLIP は消えません）。CLIP は再生中の印の一覧から作れます。ファイルをここへドロップしても読み込めます。</p>
       <div id="replays-buttons">
         <input type="file" id="replays-import-input" accept=".tlreplay,.json,application/json,application/gzip" multiple style="display: none">
         <button class="menu-btn btn-secondary" onclick="document.getElementById('replays-import-input').click()">
@@ -941,6 +941,9 @@
             <span class="menu-btn-icon">▶</span>
             <span>WATCH REPLAY</span>
           </button>
+          <button class="menu-btn btn-secondary result-replay-save" onclick="ReplayManager.saveResult()" title="自動保存が OFF のとき、このリプレイを REPLAYS に残す" style="display: none">
+            <span class="result-replay-save-label">SAVE</span>
+          </button>
           <button class="menu-btn btn-secondary result-replay-star" onclick="ReplayManager.starResult()" title="STAR">
             <span class="menu-btn-icon result-replay-star-icon">☆</span>
           </button>
@@ -1277,6 +1280,9 @@
             <span class="menu-btn-icon">▶</span>
             <span>WATCH REPLAY</span>
           </button>
+          <button class="menu-btn btn-secondary result-replay-save" onclick="ReplayManager.saveResult()" title="自動保存が OFF のとき、このリプレイを REPLAYS に残す" style="display: none">
+            <span class="result-replay-save-label">SAVE</span>
+          </button>
           <button class="menu-btn btn-secondary result-replay-star" onclick="ReplayManager.starResult()" title="STAR">
             <span class="menu-btn-icon result-replay-star-icon">☆</span>
           </button>
@@ -1413,6 +1419,13 @@
             </div>
           </div>
           <div id="ghost-style-preview"></div>
+          <div class="option-row" title="OFF のときはリザルトの SAVE で残します。最高記録・CLIP は OFF でも残ります">
+            <span class="option-label">REPLAY AUTO SAVE</span>
+            <div class="option-toggle" id="display-replay-autosave-toggle">
+              <button class="opt-btn" data-value="on" onclick="setDisplayOption('replayAutoSave', true)">ON</button>
+              <button class="opt-btn" data-value="off" onclick="setDisplayOption('replayAutoSave', false)">OFF</button>
+            </div>
+          </div>
           <div class="option-row">
             <span class="option-label">最高記録</span>
             <button class="btn btn-reset-records" onclick="resetRecords()">RESET RECORDS</button>
@@ -1494,7 +1507,7 @@
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=8"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=13"></script>
+  <script src="config/settings.js?v=14"></script>
   <script src="config/records.js?v=4"></script>
   <script src="config/account.js?v=6"></script>
   <script src="core/hud_extras.js?v=4"></script>
@@ -1528,7 +1541,7 @@
   <script src="app/cpu_weights_panel.js?v=6"></script>
   <script src="app/navigation.js?v=39"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/replays.js?v=4"></script>
+  <script src="app/replays.js?v=5"></script>
   <script src="app/focus_nav.js?v=20"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=7"></script>

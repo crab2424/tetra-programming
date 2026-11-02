@@ -3,6 +3,8 @@
 //
 // 設計: source_assets/memory/record/tetlabo-record-design.md §6・§9
 //   ・保存: 最後まで遊んだ試合は IndexedDB（tetlabo-replays）に自動保存（core/replay.js の ReplayManager.onRecorded）。
+//     設定の DISPLAY › REPLAY AUTO SAVE が OFF なら自動では残さず、リザルトの SAVE で残す
+//     （最高記録を更新したリプレイと CLIP は OFF でも残す。UI 設計書 tetlabo-record-ui-design.md §6）。
 //     直近 30 本を残して古いものから消す（並びは保存した時刻。インポートしたものも同じ）。
 //     ★を付けたもの・最高記録に結び付いたもの（keepFor）・クリップは消さない。
 //   ・最高記録: records.js の記録の meta.replayId にリプレイを結び付け、準備画面の BEST の下から見られる。
@@ -92,6 +94,11 @@ const ReplayStore = (() => {
 
     return { save, get, list, remove, update, isKept };
 })();
+
+// 設定の DISPLAY › REPLAY AUTO SAVE（config/settings.js。既定 ON）
+function replayAutoSave() {
+    return !(window.currentDisplay && window.currentDisplay.replayAutoSave === false);
+}
 
 // ─── ファイル ───
 async function replayToFileBlob(data) {
@@ -221,6 +228,12 @@ const ReplaysPage = {
             listEl.innerHTML = '';
             this._status('保存先（IndexedDB）が使えません: ' + e.message);
             return;
+        }
+        const hint = document.getElementById('replays-hint');
+        if (hint) {
+            hint.textContent = replayAutoSave()
+                ? '最後まで遊んだ試合を直近 30 本まで自動で残します（★・最高記録・CLIP は消えません）。CLIP は再生中の印の一覧から作れます。ファイルをここへドロップしても読み込めます。'
+                : '自動保存は OFF です（SETTINGS › DISPLAY）。リザルトの SAVE で残せます（最高記録・CLIP は OFF でも残ります）。ファイルをここへドロップしても読み込めます。';
         }
         const f = this.filter;
         items = items.filter((it) => {
@@ -372,10 +385,20 @@ const ReplaysPage = {
     },
 };
 
-// ─── 録画が終わったら保存する・最高記録との結び付け・リザルト画面の ★ / EXPORT ───
+// ─── 録画が終わったら保存する・最高記録との結び付け・リザルト画面の SAVE / ★ / EXPORT ───
+// 自動保存の書き込み中（onBest がその後に keepFor を付けるので、終わるのを待つ）
+let replaySavePending = Promise.resolve();
+
 ReplayManager.onRecorded = (data) => {
-    ReplayStore.save(data).catch((e) => console.warn('[replay] 保存できませんでした', e));
+    if (!replayAutoSave()) return; // OFF: リザルトの SAVE か、最高記録の更新（onBest）で残す
+    replaySavePending = ReplayStore.save(data).catch((e) => console.warn('[replay] 保存できませんでした', e));
 };
+
+// 今のリザルトのリプレイが保存されていなければ保存する（SAVE・★・最高記録から）
+async function replaySaveResultIfNeeded(d) {
+    await replaySavePending;
+    return (await ReplayStore.get(d.id)) || ReplayStore.save(d);
+}
 
 // records.js の submit から: 今の試合のリプレイがあれば結び付ける
 ReplayManager.metaForRecord = (key) => {
@@ -396,7 +419,13 @@ ReplayManager.onBest = (key, record, prev) => {
     });
     (async () => {
         if (prevId && prevId !== id) await set(prevId, false);
-        if (id) await set(id, true);
+        if (!id) return;
+        // 自動保存 OFF でも最高記録のリプレイは残す（準備画面の WATCH BEST から見られるように）
+        const d = ReplayManager.resultReplay;
+        if (d && d.id === id) await replaySaveResultIfNeeded(d);
+        else await replaySavePending;
+        await set(id, true);
+        if (d && d.id === id) await ReplayManager.updateResultTools();
     })().catch((e) => console.warn('[replay] 記録との結び付けに失敗', e));
 };
 
@@ -419,8 +448,27 @@ ReplayManager.watchById = async (id, returnPage) => {
 ReplayManager.starResult = async () => {
     const d = ReplayManager.resultReplay;
     if (!d) return;
-    const it = await ReplayStore.update(d.id, (x) => { x.star = !x.star; });
-    ReplayManager.updateResultTools(it);
+    try {
+        await replaySaveResultIfNeeded(d); // 保存していなければ、保存してから ★ を付ける
+        const it = await ReplayStore.update(d.id, (x) => { x.star = !x.star; });
+        ReplayManager.updateResultTools(it);
+    } catch (e) {
+        console.warn('[replay] ★を付けられませんでした', e);
+    }
+};
+
+// 自動保存 OFF のときのリザルトの SAVE
+ReplayManager.saveResult = async () => {
+    const d = ReplayManager.resultReplay;
+    if (!d) return;
+    try {
+        const it = await replaySaveResultIfNeeded(d);
+        ReplayManager.updateResultTools(it);
+        if (typeof showGlobalToast === 'function') showGlobalToast('リプレイを保存しました（REPLAYS）');
+    } catch (e) {
+        console.warn('[replay] 保存できませんでした', e);
+        if (typeof showGlobalToast === 'function') showGlobalToast('リプレイを保存できませんでした');
+    }
 };
 
 ReplayManager.exportResult = () => {
@@ -436,6 +484,14 @@ ReplayManager.updateResultTools = async (it) => {
         b.querySelector('.result-replay-star-icon').textContent = on ? '★' : '☆';
         b.classList.toggle('is-on', on);
     });
+    // SAVE は自動保存 OFF のときだけ。保存済み（SAVE・★・最高記録）なら SAVED で押せない
+    document.querySelectorAll('.result-replay-save').forEach((b) => {
+        const show = !!d && !replayAutoSave();
+        b.style.display = show ? '' : 'none';
+        b.disabled = !!it;
+        b.querySelector('.result-replay-save-label').textContent = it ? 'SAVED' : 'SAVE';
+    });
+    if (window.FocusNav && window.FocusNav.getActivePageId() && /result$/.test(window.FocusNav.getActivePageId())) window.FocusNav.refresh();
 };
 
 window.ReplayStore = ReplayStore;
