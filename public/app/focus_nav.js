@@ -1023,6 +1023,20 @@
     },
   });
 
+  // REPLAYS（public/app/replays.js）: 絞り込み → 各行（Enter で再生。★・書き出し・削除はマウス）→ IMPORT / BACK
+  register('replays', {
+    getItems: () => {
+      const items = [];
+      const tg = document.getElementById('replays-filter');
+      if (tg) items.push(rowToggle(tg, tg));
+      $$('#replays-list .replays-main').forEach(b => items.push({ el: b }));
+      const anchor = document.getElementById('replays-buttons');
+      $$('#replays-buttons button').forEach(b => items.push({ el: b, scrollAnchor: anchor }));
+      return items;
+    },
+    initialIndex: 0,
+  });
+
   register('settings', {
     // 並び: ヘッダー（RESET DEFAULT / SAVE / BACK）→ タブ → 表示中タブの項目。
     // 非表示タブの項目は currentItems() の isVisible で落ちるので、全タブ分を並べておけばよい。

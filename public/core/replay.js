@@ -1077,6 +1077,7 @@ const ReplayManager = {
                 const btn = document.getElementById(id);
                 if (btn) btn.style.display = this.resultReplay ? '' : 'none';
             }
+            if (this.resultReplay && this.updateResultTools) this.updateResultTools();
             let auto = false;
             try { auto = localStorage.getItem('replayAutoVerify') === '1'; } catch (e) { /* 使えない */ }
             if (auto && this.resultReplay && !this._verified) {
@@ -1086,6 +1087,10 @@ const ReplayManager = {
             this.returnPage = pageId;
         } else if (pageId !== 'game' && pageId !== 'versus') {
             this.resultReplay = null;
+        }
+        if (pageId === 'replays' && window.ReplaysPage) {
+            this.returnPage = 'replays';
+            setTimeout(() => window.ReplaysPage.render(), 0); // ページが切り替わってから描く
         }
     },
 

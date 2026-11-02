@@ -6,11 +6,11 @@
   display: none;
   position: fixed;
   left: 50%;
-  bottom: 12px;
+  bottom: 8px;
   transform: translateX(-50%);
-  width: min(720px, calc(100vw - 32px));
+  width: min(960px, calc(100vw - 32px));
   box-sizing: border-box;
-  padding: 8px 12px 6px;
+  padding: 6px 12px 4px;
   background: var(--overlay-scrim);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -25,7 +25,7 @@ body.replay-watching .replay-bar {
 .replay-bar-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -57,12 +57,12 @@ body.replay-watching .replay-bar {
   background: rgba(196, 113, 245, 0.35);
 }
 .replay-exit-btn {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .replay-time {
-  font-size: 13px;
-  min-width: 150px;
+  font-size: 12px;
+  min-width: 138px;
   font-variant-numeric: tabular-nums;
 }
 .replay-state {
@@ -77,9 +77,9 @@ body.replay-watching .replay-bar {
 }
 
 .replay-seek {
-  display: block;
-  width: 100%;
-  margin: 8px 0 2px;
+  flex: 1;
+  min-width: 120px;
+  margin: 0;
   accent-color: var(--accent);
 }
 
@@ -106,4 +106,167 @@ body.replay-watching .replay-bar {
   text-overflow: ellipsis;
   max-height: 2.8em;
   margin-top: 2px;
+}
+
+/* ─────────────────────────────────────────────
+   REPLAYS ページ（public/app/replays.js）。枠は RANKING と同じ
+───────────────────────────────────────────── */
+#replays-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  height: calc(100vh - 48px);
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+#replays-page.is-drop #replays-container {
+  border-color: var(--accent);
+}
+#replays-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 760px;
+  height: min(86vh, 720px, 100%);
+  padding: 28px 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-sizing: border-box;
+}
+.replays-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.replays-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.replays-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 128px 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: baseline;
+  text-align: left;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font-main);
+}
+.replays-main:hover,
+.replays-main.is-focused {
+  border-color: var(--accent);
+}
+.replays-date {
+  font-family: var(--font-orbitron);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.replays-mode {
+  font-family: var(--font-orbitron);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.replays-result {
+  font-family: var(--font-orbitron);
+  font-size: 12px;
+  color: var(--accent3);
+  text-align: right;
+}
+.replays-stat {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replays-len {
+  grid-column: 3;
+  font-family: var(--font-orbitron);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: right;
+}
+.replays-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 9px;
+  letter-spacing: 1px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--accent);
+  vertical-align: middle;
+}
+.replays-tag-old {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.replays-icon {
+  width: 34px;
+  font-size: 15px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.replays-icon:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.replays-icon.is-on {
+  color: #ffd76a;
+}
+.replays-del:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+#replays-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+/* リザルト画面の WATCH REPLAY ／ ★ ／ EXPORT（1 行） */
+.result-replay-tools {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.result-replay-tools > .menu-btn:first-child {
+  flex: 1;
+}
+.result-replay-tools > .menu-btn:not(:first-child) {
+  width: auto;
+  min-width: 52px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.result-replay-star.is-on .menu-btn-icon {
+  color: #ffd76a;
+}
+
+/* 準備画面: BEST の下の WATCH BEST */
+.mode-check-best-replay {
+  align-self: center;
+  margin-top: -6px;
 }

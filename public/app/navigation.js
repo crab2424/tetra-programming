@@ -396,6 +396,9 @@ function renderModeCheckBest() {
   else if (mode.id === 'ultra') key = 'ultra';
   else if (mode.id === 'puyo') key = 'puyo';
 
+  _modeCheckBestReplayToken++;
+  const replayBtn0 = document.getElementById('mode-check-best-replay');
+  if (replayBtn0) replayBtn0.style.display = 'none';
   if (!key) { el.style.display = 'none'; return; }
   const record = window.Records.get(key);
   if (!record) { el.style.display = 'none'; return; }
@@ -417,6 +420,20 @@ function renderModeCheckBest() {
   }
   el.style.display = '';
 
+  // 最高記録のリプレイ（app/replays.js に残っていれば見られる）
+  const replayBtn = document.getElementById('mode-check-best-replay');
+  if (replayBtn) {
+    const rid = record.meta && record.meta.replayId;
+    replayBtn.style.display = 'none';
+    if (rid && window.ReplayStore) {
+      const token = _modeCheckBestReplayToken; // 読み込み中に描き直されたら出さない
+      window.ReplayStore.get(rid).then((it) => {
+        if (it && token === _modeCheckBestReplayToken) replayBtn.style.display = '';
+      }).catch(() => {});
+      replayBtn.onclick = () => window.ReplayManager.watchById(rid, 'mode-check');
+    }
+  }
+
   if (showRank) _fetchModeCheckRank(key);
 }
 
@@ -430,6 +447,7 @@ function _modeCheckBestPart(cls, label, value) {
 }
 
 let _modeCheckRankToken = 0;
+let _modeCheckBestReplayToken = 0;
 async function _fetchModeCheckRank(key) {
   const token = ++_modeCheckRankToken;
   let text = '—'; // 記録なし・通信失敗時も欄は残す（位置を動かさない）
