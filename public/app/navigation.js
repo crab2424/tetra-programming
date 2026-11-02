@@ -41,6 +41,13 @@ function stopAllGames() {
                 if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
                 if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
                 if (gameInst._keyLoop) { clearInterval(gameInst._keyLoop); gameInst._keyLoop = null; }
+                // 入力のポーリングと押しっぱなしの状態も捨てる。残すと次に CPU 操作で使う盤面
+                // （setKeyEvent を呼ばない＝作り直されない）で、前の人の操作・再生の「左を押したまま」が
+                // DAS で動き続け、CPU の moveToTargetX と綱引きになって止まる（CPU 同士の VERSUS の 1P）
+                gameInst._pollInput = null;
+                gameInst.keyState = {};
+                if (gameInst._heldCodes) gameInst._heldCodes.clear();
+                if (gameInst._inputQueue) gameInst._inputQueue.length = 0;
             }
         }
     };

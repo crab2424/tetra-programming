@@ -59,8 +59,8 @@ Object.assign(Game.prototype, {
     // キーイベント（localStorage のキー設定を参照）
     // ─────────────────────────────────────────
     setKeyEvent() {
-        // CPU制御モードの場合はキーイベントを一切設定しない
-        if (this.isCpuControlled) return;
+        // CPU制御モードの場合はキーイベントを一切設定しない（前に人が使ったときのポーリングも外す）
+        if (this.isCpuControlled) { this._pollInput = null; this.keyState = {}; return; }
 
         // 押されているキーを管理
         // keyState はアクション名で管理（1アクションに複数キーを割り当てられるため）。
