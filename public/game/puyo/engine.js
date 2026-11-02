@@ -301,6 +301,8 @@ Object.assign(PuyoGame.prototype, {
                     this._eraseTimer = 0;
                     this.chainCount++;
                     if (this.chainCount > this.chainMax) this.chainMax = this.chainCount;
+                    // 録画の印: 連鎖の始まりの時刻と、この連鎖で出たおじゃまの数（終わったときに判定。core/replay.js）
+                    if (this._rec && this.chainCount === 1) { this._markChainT = this.clock.now(); this._markChainOjama = 0; }
                     // ※連鎖SEはここ（点滅開始時）ではなく、ぷよが消えて連鎖文字演出が出る瞬間
                     //   （erasing→eraseWait遷移で _prepareChainTextDOM 後）に鳴らす
 
@@ -323,6 +325,10 @@ Object.assign(PuyoGame.prototype, {
                             this.pendingFire = 0;
                             this.tetPendingFire = 0;
                         }
+                    }
+
+                    if (this._rec && this.chainCount > 0) {
+                        this._rec.attack(this, `${this.chainCount} CHAIN`, this._markChainOjama || 0, this._markChainT);
                     }
 
                     let isZenkeshi = false;
@@ -931,6 +937,7 @@ Object.assign(PuyoGame.prototype, {
         this.generatedOjamaTotal = totalOjama;
         if (newlyGenerated > 0) {
             this.pendingFire += newlyGenerated;
+            if (this._rec) this._markChainOjama = (this._markChainOjama || 0) + newlyGenerated;
         }
 
         // ★ ぷよ→テト火力変換（相殺＋ライン算出）は「消去」タイミングで _resolveTetAttack() が行う。

@@ -123,6 +123,9 @@ Object.assign(Game.prototype, {
         // ブロック座標を直接ずらした＆push したので占有マップを再構築させる
         this.field.markDirty();
 
+        // 録画の印: 被弾（せり上がった段数。core/replay.js）
+        if (this._rec && droppedLines > 0) this._rec.hit(this, droppedLines);
+
         // おじゃまがフィールドに出現したのでゲージを減らす
         this.updateGarbageGauge();
     },

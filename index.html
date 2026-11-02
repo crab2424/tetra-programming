@@ -969,13 +969,20 @@
       <button id="replay-play-btn" class="replay-btn" type="button">▶</button>
       <span id="replay-time" class="replay-time">00:00.00 / 00:00.00</span>
       <span id="replay-state" class="replay-state"></span>
-      <input id="replay-seek" class="replay-seek" type="range" min="0" max="1" step="1" value="0">
+      <button id="replay-mark-prev" class="replay-btn" type="button" title="前の印 [">◀◆</button>
+      <span class="replay-seek-wrap">
+        <input id="replay-seek" class="replay-seek" type="range" min="0" max="1" step="1" value="0">
+        <span id="replay-marks" class="replay-marks"></span>
+      </span>
+      <button id="replay-mark-next" class="replay-btn" type="button" title="次の印 ]">◆▶</button>
+      <button id="replay-marks-btn" class="replay-btn" type="button" title="印の一覧">◆ 0</button>
       <span id="replay-speeds" class="replay-speeds"></span>
       <button id="replay-exit-btn" class="replay-btn replay-exit-btn" type="button">EXIT</button>
     </div>
     <div id="replay-msg" class="replay-msg" style="display: none"></div>
     <div id="replay-think" class="replay-think" style="display: none"></div>
-    <div class="replay-keys">SPACE 再生/停止　← → 5秒戻る/進む　↑ ↓ 速さ　ESC 終了</div>
+    <div id="replay-marks-list" class="replay-marks-list"></div>
+    <div class="replay-keys">SPACE 再生/停止　← → 5秒戻る/進む　↑ ↓ 速さ　[ ] 前/次の印　ESC 終了</div>
   </div>
 
   <div id="game-page" class="page">
@@ -1479,7 +1486,7 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=1"></script>
-  <script src="core/replay.js?v=5"></script>
+  <script src="core/replay.js?v=6"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=7"></script>
   <script src="app/manager.js?v=1"></script>
@@ -1492,10 +1499,10 @@
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
   <script src="game/tet/lifecycle.js?v=13"></script>
-  <script src="game/tet/board.js?v=11"></script>
+  <script src="game/tet/board.js?v=12"></script>
   <script src="game/tet/rotation.js?v=4"></script>
   <script src="game/tet/scoring.js?v=3"></script>
-  <script src="game/tet/garbage.js?v=4"></script>
+  <script src="game/tet/garbage.js?v=5"></script>
   <script src="game/tet/render.js?v=10"></script>
   <script src="game/tet/input.js?v=9"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
@@ -1503,8 +1510,8 @@
   <script src="game/puyo/core.js?v=8"></script>
   <script src="game/puyo/lifecycle.js?v=9"></script>
   <script src="game/puyo/connect.js"></script>
-  <script src="game/puyo/ojama.js?v=7"></script>
-  <script src="game/puyo/engine.js?v=17"></script>
+  <script src="game/puyo/ojama.js?v=8"></script>
+  <script src="game/puyo/engine.js?v=18"></script>
   <script src="game/puyo/input.js?v=10"></script>
   <script src="game/puyo/draw.js?v=11"></script>
   <script src="quiz/quiz.js?v=9"></script>

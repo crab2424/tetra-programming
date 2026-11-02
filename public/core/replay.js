@@ -42,6 +42,27 @@ const REPLAY_CPU_ACTIONS = [
     'quickDrop', 'softDropStart', 'softDropStep', 'forceLock', 'softKey',
 ];
 const REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+
+// 自動の印の閾値（§8.1・§13）。tet はライン、puyo はおじゃまの個数。localStorage.replay_mark_thresholds で変えられる
+const REPLAY_MARK_DEFAULT = { tetAttack: 2, tetHit: 2, puyoAttack: 6, puyoHit: 6 };
+function replayMarkThresholds() {
+    try {
+        const s = JSON.parse(localStorage.getItem('replay_mark_thresholds') || 'null');
+        if (s && typeof s === 'object') return Object.assign({}, REPLAY_MARK_DEFAULT, s);
+    } catch (e) { /* 使えない・壊れた値は既定 */ }
+    return REPLAY_MARK_DEFAULT;
+}
+
+// tet の攻撃の名前（画面のアクションラベルと同じ呼び方）
+function replayTetLabel(tSpin, lines, b2b, ren, pc) {
+    const parts = [];
+    if (b2b) parts.push('B2B');
+    if (pc) parts.push('PERFECT CLEAR');
+    else if (tSpin === 'tspin' || tSpin === 'mini') parts.push((tSpin === 'mini' ? 'T-SPIN MINI ' : 'T-SPIN ') + ['ZERO', 'SINGLE', 'DOUBLE', 'TRIPLE'][lines]);
+    else if (lines > 0) parts.push(['', 'SINGLE', 'DOUBLE', 'TRIPLE', '4-LINES'][lines] || (lines + '-LINES'));
+    if (ren >= 2) parts.push('REN ' + ren);
+    return parts.join(' ');
+}
 const REPLAY_TET_SINGLE = ['marathon', 'sprint', 'ultra'];
 
 // 盤面の設定のうち結果に響くもの（外の画面が書き込む値。PRACTICE などが残した値も含めて録画したときと同じにする）
@@ -301,6 +322,8 @@ class ReplayRecorder {
         this._lastEv = 0;
         this.locks = 0;
         this.thinks = [];   // [フレーム, side, 思考の結果の写し]
+        this.marks = [];    // 自動の印（§8.1）
+        this._th = replayMarkThresholds();
         this.clock._tape = this.dts;
         this.loop.recorder = this;
         for (const g of games) {
@@ -354,6 +377,24 @@ class ReplayRecorder {
     // ポーズ・再開はフレームの間で起きるので、次のフレームの頭の出来事として残す
     pause(g, on) {
         this._ev(this.nFrames, on ? REPLAY_EV_PAUSE : REPLAY_EV_RESUME, g);
+        if (on) this._mark(g, 'pause', 'PAUSE', 0);
+    }
+
+    // ─── 自動の印（§8.1）。t は試合の頭（t0）からの時刻 ───
+    _mark(g, kind, label, value, t) {
+        this.marks.push({ t: (t === undefined ? this.clock.now() : t) - this.t0, side: replaySide(g), kind, label, value });
+    }
+
+    // 攻撃（tet: 火力ライン、puyo: 連鎖で出たおじゃま。puyo は連鎖の始まりの時刻 t に置く）
+    attack(g, label, value, t) {
+        const th = replayRule(g) === 'tet' ? this._th.tetAttack : this._th.puyoAttack;
+        if (value >= th) this._mark(g, 'attack', label, value, t);
+    }
+
+    // 被弾（tet: せり上がった段数、puyo: 降ったおじゃまの数）
+    hit(g, value) {
+        const th = replayRule(g) === 'tet' ? this._th.tetHit : this._th.puyoHit;
+        if (value >= th) this._mark(g, 'hit', replayRule(g) === 'tet' ? `+${value} LINES` : `+${value} OJAMA`, value);
     }
 
     skipPoll(g) {
@@ -409,6 +450,8 @@ class ReplayRecorder {
     // ファイルの中身（§6.1）。loser: 負けた盤面（VERSUS）
     finish(g, isClear, extra) {
         const b = window.TETLABO_BUILD || {};
+        this._mark(g, 'end', isClear ? 'CLEAR' : (this.mode === 'versus' ? 'K.O.' : 'GAME OVER'), 0);
+        const events = this.marks.slice().sort((a, x) => a.t - x.t);
         const results = this.games.map((x) => {
             const r = { side: replaySide(x), score: x.score };
             if (replayRule(x) === 'tet') {
@@ -444,7 +487,7 @@ class ReplayRecorder {
                 boards: results,
             }, extra || {}),
             clip: null,
-            events: [],
+            events,
             codes: this.codes.slice(),
             frames: replayToB64(this.dts.bytes()),
             inputs: replayToB64(this.events.bytes()),
@@ -1157,6 +1200,7 @@ const ReplayManager = {
 
     _startWatch(p) {
         const data = p.data;
+        this._drawMarks(p);
         p.prepare();
         p.watching = true;
         this.player = p;
@@ -1217,6 +1261,15 @@ const ReplayManager = {
                 speeds.appendChild(b);
             });
         }
+        for (const [id, dir] of [['replay-mark-prev', -1], ['replay-mark-next', 1]]) {
+            const b = $(id);
+            if (b) { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => this._jumpMark(dir); }
+        }
+        const listBtn = $('replay-marks-btn');
+        if (listBtn) {
+            listBtn.onmousedown = (e) => e.preventDefault();
+            listBtn.onclick = () => { const l = $('replay-marks-list'); if (l) l.classList.toggle('open'); };
+        }
         const seek = $('replay-seek');
         if (seek) {
             seek.addEventListener('input', () => { if (this.player) this.player.seek(Number(seek.value)); });
@@ -1229,7 +1282,7 @@ const ReplayManager = {
             const gp = document.getElementById(p.page + '-page');
             if (!gp || !gp.classList.contains('active')) return;
             e.stopImmediatePropagation();
-            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'Tab'];
+            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'Tab', 'BracketLeft', 'BracketRight'];
             if (handled.indexOf(e.code) < 0) return;
             e.preventDefault();
             if (e.repeat && (e.code === 'Space' || e.code === 'Escape')) return;
@@ -1241,9 +1294,64 @@ const ReplayManager = {
                 case 'ArrowUp': p.setSpeed(REPLAY_SPEEDS[Math.min(REPLAY_SPEEDS.length - 1, i + 1)]); break;
                 case 'ArrowDown': p.setSpeed(REPLAY_SPEEDS[Math.max(0, i - 1)]); break;
                 case 'Escape': this._endWatch(true); break;
+            case 'BracketLeft': this._jumpMark(-1); break;
+            case 'BracketRight': this._jumpMark(1); break;
             }
         };
         window.addEventListener('keydown', this._keyHandler, true);
+    },
+
+    // 印の少し前（1 秒）から見る
+    _markTime(m) {
+        return Math.max(0, m.t - 1000);
+    },
+
+    // 前／次の印へ
+    _jumpMark(dir) {
+        const p = this.player;
+        if (!p) return;
+        const ev = p.data.events || [];
+        const now = this._targetTime();
+        let target = null;
+        if (dir > 0) target = ev.find((m) => this._markTime(m) > now + 50);
+        else for (let i = ev.length - 1; i >= 0; i--) if (this._markTime(ev[i]) < now - 300) { target = ev[i]; break; }
+        if (target) p.seek(this._markTime(target));
+    },
+
+    // シークバーの上の印と、印の一覧（見始めに 1 回）
+    _drawMarks(p) {
+        const ev = p.data.events || [];
+        const layer = document.getElementById('replay-marks');
+        const list = document.getElementById('replay-marks-list');
+        const btn = document.getElementById('replay-marks-btn');
+        const dur = Math.max(1, p.duration);
+        const name = (side) => ((p.data.players || []).find((x) => x.side === side) || {}).name || '';
+        const two = (p.data.players || []).length > 1;
+        if (layer) {
+            layer.innerHTML = '';
+            for (const m of ev) {
+                const tick = document.createElement('span');
+                tick.className = `replay-mark replay-mark-${m.kind}` + (m.side ? ' replay-mark-2p' : '');
+                tick.style.left = (100 * m.t / dur) + '%';
+                tick.title = `${replayFmtTime(m.t)} ${two ? name(m.side) + ' ' : ''}${m.label}`;
+                tick.onmousedown = (e) => e.preventDefault();
+                tick.onclick = () => { if (this.player) this.player.seek(this._markTime(m)); };
+                layer.appendChild(tick);
+            }
+        }
+        if (list) {
+            list.innerHTML = '';
+            list.classList.remove('open');
+            for (const m of ev) {
+                const row = document.createElement('button');
+                row.className = `replay-marks-row replay-mark-${m.kind}`;
+                row.textContent = `${replayFmtTime(m.t)}  ${two ? name(m.side) + '  ' : ''}${m.label}${m.value && m.kind === 'attack' ? '  (' + m.value + ')' : ''}`;
+                row.onmousedown = (e) => e.preventDefault();
+                row.onclick = () => { if (this.player) this.player.seek(this._markTime(m)); };
+                list.appendChild(row);
+            }
+        }
+        if (btn) btn.textContent = '◆ ' + ev.length;
     },
 
     // シーク中は向かっている時刻から数える（←→ を続けて押したとき）

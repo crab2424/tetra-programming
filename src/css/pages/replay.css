@@ -76,12 +76,71 @@ body.replay-watching .replay-bar {
   gap: 4px;
 }
 
-.replay-seek {
+.replay-seek-wrap {
+  position: relative;
   flex: 1;
-  min-width: 120px;
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+}
+.replay-seek {
+  width: 100%;
   margin: 0;
   accent-color: var(--accent);
 }
+
+/* 自動の印（core/replay.js の _drawMarks）。シークバーの上に重ねる */
+.replay-marks {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: -7px;
+  height: 7px;
+  pointer-events: none;
+}
+.replay-mark {
+  position: absolute;
+  top: 0;
+  width: 3px;
+  height: 7px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--accent3);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.replay-mark.replay-mark-2p { background: var(--accent2); }
+.replay-mark.replay-mark-hit { background: var(--danger); }
+.replay-mark.replay-mark-end { background: var(--success); }
+.replay-mark.replay-mark-pause { background: var(--text-dim); }
+.replay-marks-list {
+  display: none;
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+.replay-marks-list.open {
+  display: block;
+}
+.replay-marks-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-left: 3px solid var(--accent3);
+  padding: 2px 8px;
+  margin: 1px 0;
+  cursor: pointer;
+  white-space: pre;
+}
+.replay-marks-row:hover { background: rgba(255, 255, 255, 0.05); }
+.replay-marks-row.replay-mark-hit { border-left-color: var(--danger); }
+.replay-marks-row.replay-mark-end { border-left-color: var(--success); }
+.replay-marks-row.replay-mark-pause { border-left-color: var(--text-dim); }
 
 .replay-msg {
   font-family: var(--font-main);

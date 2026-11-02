@@ -139,6 +139,11 @@ Object.assign(Game.prototype, {
 
         // ライン消去音(1line〜4lines/tspin)に重ねて鳴らすボーナス音。
         // RENは意図的に無音のまま（消去音と鳴り続けて煩いため）。
+        // 録画の印: 攻撃が出たライン消去（シングルでも対戦なら送っていた量で判定。core/replay.js）
+        if (this._rec && generatedGarbage > 0) {
+            this._rec.attack(this, replayTetLabel(tSpinResult, linesCleared, isB2BTriggered, currentRen, isPerfectClear), generatedGarbage);
+        }
+
         if (isB2BTriggered) this.playSe('b2b');
         if (isPerfectClear && linesCleared > 0) this.playSe('perfect_clear');
 
