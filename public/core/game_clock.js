@@ -94,6 +94,18 @@ class GameClock {
         this._last = performance.now();
     }
 
+    // 再生の頭（VERSUS）: 試合の初期化で入れた予約（マージンタイム）は残したまま、録画したときの時刻から始める
+    // （VERSUS は試合ごとに時計を作り直すので、残っているのはこの試合の予約だけ。core/replay.js）。
+    // offsets: 録画した頭の時刻からの各予約の残り（並びは予約の順）。数が合わなければ今からの残りをそのまま使う
+    rebase(t, offsets) {
+        const timers = this._timers;
+        const rec = Array.isArray(offsets) && offsets.length === timers.length;
+        for (let i = 0; i < timers.length; i++) timers[i].due = t + (rec ? offsets[i] : timers[i].due - this._t);
+        this._t = t;
+        this._paused = false;
+        this._last = performance.now();
+    }
+
     // 再生の終わり: 実時間で進む時計に戻す（再生していた間の実時間は数えない）
     endFeed() {
         this._feed = null;

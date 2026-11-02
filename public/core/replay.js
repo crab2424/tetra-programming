@@ -259,30 +259,93 @@ function replayApplyEnv(g, env, rule) {
     }
 }
 
-// CPU の思考の結果を小さく写す（CPU ごとに形が違うので、数・文字・真偽と、数の短い配列・1 段の入れ子だけ）
-function replayThinkSummary(res, depth = 0) {
-    const pick = (v) => {
-        if (typeof v === 'number') return Number.isInteger(v) ? v : Math.round(v * 1000) / 1000;
-        if (typeof v === 'string') return v.length <= 40 ? v : v.slice(0, 40);
-        if (typeof v === 'boolean') return v;
-        if (v && (Array.isArray(v) || ArrayBuffer.isView(v)) && v.length <= 40) {
-            const a = [];
-            for (let i = 0; i < v.length; i++) { const x = v[i]; if (typeof x !== 'number') return undefined; a.push(pick(x)); }
-            return a;
-        }
-        if (v && typeof v === 'object' && depth === 0) return replayThinkSummary(v, 1);
-        return undefined;
-    };
-    if (res && (Array.isArray(res) || ArrayBuffer.isView(res))) return pick(res);
-    const out = {};
-    let n = 0;
-    for (const k in (res || {})) {
-        const v = pick(res[k]);
-        if (v === undefined) continue;
-        out[k] = v;
-        if (++n >= 24) break;
+// ─── CPU の思考（Worker の返事）を、再生中に読める短い形へ写す ───
+// 返事はどの CPU も数の配列で、並びは CPU ごとに違う。長さが CPU ごとに決まっているので、ルールと長さで見分ける。
+//   puyo  7: LV1〜3（[0]列 [1]回転 [2]評価。cpu_worker1〜3）
+//        31: LV4 / 36: LV5・LV6（build.cpp の outResult。[0]列 [1]回転 [14]到達連鎖の点 [15]撃った段数(0=撃たず)
+//            [20]到達連鎖の段数 [23]撃った理由 [24]今置くとこぼれる段数 [25]到達の深さ(-1=届かない)）
+//   tet  12: LV2 / 26: LV3 / 43: LV4〜6（[0]1=HOLD -1=手なし [1]評価 [3]ミノ [4]向き [5]x [12]T-spin(26・43 だけ)）
+//       160: LV7 / 96: CLYS（[0]1=手あり [1]ミノ [2..9]4マスの x,y [10]HOLD [15]評価(LV7) [16]T-spin(LV7。2=mini)）
+// 写した形は { k: 'puyo' | 'tet', … }。分からない形は null（記録しない・出さない）。
+// 録画（ReplayRecorder.think）と、M6c の録画に入っている生の配列の再生（ReplayPlayer）の両方で使う。
+const REPLAY_PUYO_FIRE_WHY = ['', '目標到達', '緊急', '緊急延命', '催促', '地形優先の対応', '倒せるので撃つ',
+    '危険で反撃', '危険で相殺', '危険で軽減', '撃たないと埋まる'];
+const REPLAY_DIR = ['上', '右', '下', '左'];   // puyo の子ぷよの向き・tet のミノの向き（どちらも 0:上 1:右 2:下 3:左）
+const REPLAY_TET_MINO = 'IOTJLSZ';             // Mino の type の順（core/base.js）
+
+function replayThinkPick(rule, res) {
+    if (!res || !(Array.isArray(res) || ArrayBuffer.isView(res))) return null;
+    const n = res.length;
+    const v = (i) => { const x = res[i]; return (typeof x === 'number' && isFinite(x)) ? Math.trunc(x) : 0; };
+    if (rule === 'puyo' && (n === 7 || n === 31 || n === 36)) {
+        if (v(0) < 0) return { k: 'puyo', none: 1 };
+        const o = { k: 'puyo', col: v(0), rot: v(1) & 3 };
+        if (n === 7) { o.ev = v(2); return o; }
+        o.fire = v(15); o.score = v(14); o.chain = v(20); o.why = v(23); o.spill = v(24); o.depth = v(25);
+        return o;
     }
-    return out;
+    if (rule === 'tet' && (n === 12 || n === 26 || n === 43)) {
+        const id = v(3);
+        if (v(0) === -1 || id < 0 || id > 6) return { k: 'tet', none: 1 };
+        const o = { k: 'tet', mino: id, rot: v(4) & 3, ev: v(1) };
+        const cols = replayTetCols(id, o.rot, v(5));
+        if (cols) o.cols = cols;
+        if (v(0) === 1) o.hold = 1;
+        if (n > 12 && v(12) > 0) o.spin = 1;
+        return o;
+    }
+    if (rule === 'tet' && (n === 160 || n === 96)) {
+        const id = v(1);
+        if (v(0) !== 1 || id < 0 || id > 6) return { k: 'tet', none: 1 };
+        const xs = [v(2), v(4), v(6), v(8)];
+        const o = { k: 'tet', mino: id, cols: [Math.min(...xs), Math.max(...xs)] };
+        if (v(10) === 1) o.hold = 1;
+        if (n === 160) {
+            o.ev = v(15);
+            if (v(16) > 0) o.spin = v(16);
+        }
+        return o;
+    }
+    return null;
+}
+
+// tet LV2〜6 の置き方（向き・x）が埋める列の範囲（lv7 の _findPose と同じく Mino を向きの数だけ回す）
+function replayTetCols(id, rot, x) {
+    try {
+        const m = new Mino(id);
+        for (let i = 0; i < rot; i++) m.rotate();
+        let lo = Infinity, hi = -Infinity;
+        for (const b of m.blocks) { lo = Math.min(lo, b.x + x); hi = Math.max(hi, b.x + x); }
+        return isFinite(lo) ? [lo, hi] : null;
+    } catch (e) { return null; }
+}
+
+// 写した思考を 1 行の言葉にする（分からない形は ''）
+function replayThinkText(p) {
+    if (!p || typeof p !== 'object') return '';
+    if (p.k === 'puyo') {
+        if (p.none) return '置ける手なし';
+        const at = `${p.col + 1}列（子が${REPLAY_DIR[p.rot & 3]}）`;
+        if (p.ev !== undefined) return `${at}｜評価 ${p.ev}`;
+        if (p.fire > 0) {
+            const why = REPLAY_PUYO_FIRE_WHY[p.why] || '';
+            return `${at}｜発火 ${p.fire}連鎖 ${p.score}点` + (why ? `（${why}）` : '');
+        }
+        if (p.spill > 0) return `${at}｜整地 ${p.spill}連鎖`;
+        if (p.depth < 0) return `${at}｜育成（連鎖の見込みなし）`;
+        return `${at}｜育成 見込み ${p.chain}連鎖 ${p.score}点`;
+    }
+    if (p.k === 'tet') {
+        if (p.none) return '置ける手なし';
+        let s = REPLAY_TET_MINO[p.mino] || '?';
+        if (p.cols) s += ' ' + (p.cols[0] === p.cols[1] ? `${p.cols[0] + 1}列` : `${p.cols[0] + 1}〜${p.cols[1] + 1}列`);
+        if (p.rot !== undefined) s += ` 向き${REPLAY_DIR[p.rot & 3]}`;
+        if (p.hold) s += '（HOLD）';
+        if (p.spin) s += p.spin === 2 ? ' T-SPIN MINI' : ' T-SPIN';
+        if (p.ev !== undefined) s += `｜評価 ${p.ev}`;
+        return s;
+    }
+    return '';
 }
 
 function replayFmtTime(ms) {
@@ -306,6 +369,8 @@ class ReplayRecorder {
         this.loop = g0.loop;
         this.seed = GameRng.toHex(g0.matchSeed);
         this.t0 = this.clock.now();
+        // VERSUS: 試合の初期化で入れた時計の予約（マージンタイム）の残り。再生はこれを残して始める（GameClock.rebase）
+        this.timers = (this.mode === 'versus') ? this.clock._timers.map((h) => h.due - this.t0) : null;
         this.players = games.map((g, i) => Object.assign({
             name: 'PLAYER', kind: 'human',
         }, (spec.players && spec.players[i]) || {}, {
@@ -424,10 +489,11 @@ class ReplayRecorder {
         for (let i = 0; i < n; i++) replayPutArg(this.events, args[i]);
     }
 
-    // CPU の思考の結果（game.cpuThink。core/cpu_port.js）
+    // CPU の思考の結果（game.cpuThink。core/cpu_port.js）。読める形に写せたものだけ残す（replayThinkPick）
     think(g, res) {
         try {
-            this.thinks.push([this.cur, replaySide(g), replayThinkSummary(res)]);
+            const t = replayThinkPick(this._player(g).rule, res);
+            if (t) this.thinks.push([this.cur, replaySide(g), t]);
         } catch (e) { /* 写せない形は残さない */ }
     }
 
@@ -479,6 +545,7 @@ class ReplayRecorder {
             settings: { configs: this.configs },
             players: this.players,
             t0: this.t0,
+            timers: this.timers,
             durationMs: this.clock.now() - this.t0,
             frameCount: this.nFrames,
             result: Object.assign({
@@ -724,6 +791,17 @@ class ReplayPlayer {
         const cb = replayFromB64(data.checks);
         this.checks = [];
         for (let i = 0; i + 3 < cb.length; i += 4) this.checks.push((cb[i] | (cb[i + 1] << 8) | (cb[i + 2] << 16) | (cb[i + 3] << 24)) >>> 0);
+        // CPU の思考は先に言葉にしておく: [フレーム, side, 文]。壊れたもの・分からない形は捨てる
+        // （M6c の録画は生の配列のまま。tet LV4〜7・CLYS の返事は写せず null で残っている）
+        const rules = {};
+        for (const pl of data.players || []) rules[pl.side] = pl.rule;
+        this.thinks = [];
+        for (const e of (Array.isArray(data.think) ? data.think : [])) {
+            if (!Array.isArray(e) || typeof e[0] !== 'number' || !e[2] || typeof e[2] !== 'object') continue;
+            let text = '';
+            try { text = replayThinkText(Array.isArray(e[2]) ? replayThinkPick(rules[e[1]], e[2]) : e[2]); } catch (err) { /* 出さない */ }
+            if (text) this.thinks.push([e[0], e[1], text]);
+        }
 
         this.games = [];
         this.loop = null;
@@ -804,7 +882,9 @@ class ReplayPlayer {
     // 試合を始めたところ（シングルは乱数を作った直後、VERSUS は両盤面の初期化の後）から呼ばれる
     attach() {
         const clock = this.games[0].clock;
-        clock.reset(this.t0);
+        // VERSUS は両盤面の初期化で入れたマージンタイムの予約を残す（録画でも残っている。捨てるとレートが変わらずずれる）
+        if (this.data.mode === 'versus') clock.rebase(this.t0, this.data.timers);
+        else clock.reset(this.t0);
         clock._tape = null;
         clock._feed = new ReplayReader(this.dtBytes);
         if (this.loop.recorder) this.loop.recorder = null;
@@ -814,17 +894,16 @@ class ReplayPlayer {
         return this.games[0].clock.now() - this.t0;
     }
 
-    // 今のフレームまでで一番新しい CPU の思考（side ごと）
+    // 今のフレームまでで一番新しい CPU の思考の文（side ごと。無ければ ''）
     thinkAt(side) {
-        const th = this.data.think;
-        if (!th) return null;
-        let lo = 0, hi = th.length - 1, best = null;
+        const th = this.thinks;
+        let lo = 0, hi = th.length - 1;
         while (lo <= hi) {
             const mid = (lo + hi) >> 1;
             if (th[mid][0] < this.nFrames) { lo = mid + 1; } else { hi = mid - 1; }
         }
-        for (let i = hi; i >= 0; i--) if (th[i][1] === side) { best = th[i]; break; }
-        return best;
+        for (let i = hi; i >= 0; i--) if (th[i][1] === side) return th[i][2];
+        return '';
     }
 
     // ─── エンジンから呼ばれる ───
@@ -964,7 +1043,12 @@ class ReplayPlayer {
             if (this.ended && !this.desynced) this.state = 'end';
         }
         loop.drawOnly();
-        if (this.onUi) this.onUi();
+        // 操作バーの更新で何か起きても、再生は止めない（1 回だけ知らせる）
+        if (this.onUi) {
+            try { this.onUi(); } catch (e) {
+                if (!this._uiErr) { this._uiErr = true; console.warn('[replay] 操作バーを更新できませんでした', e); }
+            }
+        }
     }
 
     play() {
@@ -1390,16 +1474,9 @@ const ReplayManager = {
         const thinkEl = $('replay-think');
         if (thinkEl) {
             const lines = [];
-            if (p.data.think) {
-                for (const pl of p.data.players) {
-                    const t = p.thinkAt(pl.side);
-                    if (!t) continue;
-                    const body = Array.isArray(t[2]) ? t[2].join(' ') : Object.keys(t[2]).map((k) => {
-                        const v = t[2][k];
-                        return k + '=' + (Array.isArray(v) ? '[' + v.join(',') + ']' : (v && typeof v === 'object') ? JSON.stringify(v) : v);
-                    }).join('  ');
-                    lines.push(`${pl.name}: ${body}`);
-                }
+            for (const pl of p.data.players) {
+                const t = p.thinkAt(pl.side);
+                if (t) lines.push(`${pl.name}: ${t}`);
             }
             const text = lines.join('\n');
             if (thinkEl.textContent !== text) thinkEl.textContent = text;
