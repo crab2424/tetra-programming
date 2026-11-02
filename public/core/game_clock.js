@@ -15,7 +15,9 @@
 //     予約の実行中（advance の中）に呼ばれた advance は何もしない。
 //   ・pause() の間は進まない。resume() は止まっていた間の実時間を捨てて、止めた時刻から続ける（設計 D7）。
 //     予約の実行中に pause() されたら、その advance の残りの予約もそこで止める。
-//   ・後の段階（M5〜）で「録画した経過時間で進める」を足す。
+//   ・録画・再生（core/replay.js、設計 §5）: 録画中は advance() のたびに進めた量を _tape に書き、
+//     再生中は実時間の代わりに _feed から読んだ量で進める（どちらも 1/16ms 単位の整数）。
+//     止まっている間・予約の実行中の advance() は何も書かず何も読まない（録画と再生で同じ所を通るため）。
 // ─────────────────────────────────────────────
 
 class GameClock {
@@ -26,6 +28,8 @@ class GameClock {
         this._seq = 0;
         this._paused = false;
         this._advancing = false;
+        this._tape = null;                            // 録画: 進めた量を書く先（ReplayBuf）
+        this._feed = null;                            // 再生: 進める量を読む元（ReplayReader）
     }
 
     now() {
@@ -35,9 +39,16 @@ class GameClock {
     // 実時間の経過ぶん時計を進め、その間に来た予約を順に実行する。進めた量（ms）を返す
     advance() {
         if (this._paused || this._advancing) return 0;
-        const dt = Math.round((performance.now() - this._last) * 16) / 16;
+        let dt;
+        if (this._feed) {
+            dt = this._feed.done ? 0 : this._feed.varint() / 16;
+        } else {
+            dt = Math.round((performance.now() - this._last) * 16) / 16;
+            if (this._tape) this._tape.varint(dt > 0 ? dt * 16 : 0);
+        }
         if (dt <= 0) return 0;
-        this._last += dt;
+        // 再生中は実時間の基準を動かさない（録画した量を足すと、見終わった後の実時間の基準が先へずれて時計が止まる）
+        if (!this._feed) this._last += dt;
         const start = this._t;
         const target = start + dt;
         const timers = this._timers;
@@ -72,6 +83,21 @@ class GameClock {
 
     get paused() {
         return this._paused;
+    }
+
+    // 再生の頭: 予約を全部捨てて、録画したときの時刻から始める（core/replay.js）
+    reset(t) {
+        for (let i = 0; i < this._timers.length; i++) this._timers[i].cb = null;
+        this._timers.length = 0;
+        this._t = t;
+        this._paused = false;
+        this._last = performance.now();
+    }
+
+    // 再生の終わり: 実時間で進む時計に戻す（再生していた間の実時間は数えない）
+    endFeed() {
+        this._feed = null;
+        this._last = performance.now();
     }
 
     // ms 後に cb を実行する予約。戻り値は cancel() に渡す

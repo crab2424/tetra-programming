@@ -208,6 +208,9 @@ function switchPage(pageId) {
   // ページ遷移のたびに必ず解除しておく（待機していなければ何もしない）。
   if (typeof stopListeningBind === 'function') stopListeningBind();
 
+  // 録画・再生: 見ている再生の後始末、リザルト画面の WATCH REPLAY の出し入れ（core/replay.js）
+  window.ReplayManager?.onSwitchPage(pageId);
+
   const currentActive = document.querySelector('.page.active');
   if (currentActive && currentActive.id !== 'settings-page') {
     window._prevPage = currentActive.id.replace('-page', '');

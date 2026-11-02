@@ -1,0 +1,97 @@
+/* ─────────────────────────────────────────────
+   録画・再生（REPLAY）の操作バー（public/core/replay.js）
+   ゲーム画面の下に固定。見ている間だけ出す（body.replay-watching）。
+───────────────────────────────────────────── */
+.replay-bar {
+  display: none;
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  width: min(720px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 8px 12px 6px;
+  background: var(--overlay-scrim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 40;
+  color: var(--text);
+  font-family: var(--font-orbitron);
+}
+body.replay-watching #game-page.active .replay-bar {
+  display: block;
+}
+
+.replay-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.replay-badge {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--accent);
+}
+
+.replay-btn,
+.replay-speed-btn {
+  font-family: var(--font-orbitron);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--btn-secondary-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.replay-btn:hover,
+.replay-speed-btn:hover {
+  border-color: var(--accent);
+}
+.replay-speed-btn.active {
+  border-color: var(--accent);
+  color: #fff;
+  background: rgba(196, 113, 245, 0.35);
+}
+.replay-exit-btn {
+  margin-left: auto;
+}
+
+.replay-time {
+  font-size: 13px;
+  min-width: 150px;
+  font-variant-numeric: tabular-nums;
+}
+.replay-state {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--accent3);
+  min-width: 44px;
+}
+.replay-speeds {
+  display: flex;
+  gap: 4px;
+}
+
+.replay-seek {
+  display: block;
+  width: 100%;
+  margin: 8px 0 2px;
+  accent-color: var(--accent);
+}
+
+.replay-msg {
+  font-family: var(--font-main);
+  font-size: 13px;
+  color: var(--danger);
+  margin-top: 2px;
+}
+
+.replay-keys {
+  font-family: var(--font-main);
+  font-size: 11px;
+  color: var(--text-dim);
+}

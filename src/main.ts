@@ -1,4 +1,8 @@
 declare const APP_VERSION: string;
+declare const APP_BUILD: string;
+
+// 録画・再生（public/core/replay.js）がリプレイに書く版（アプリの版とビルドのコミット）
+(window as any).TETLABO_BUILD = { app: APP_VERSION, build: APP_BUILD };
 
 // 対戦共通モジュール（window.BattleGarbage / window.BattleLayout を登録。
 // プレーンJSエンジン(public/)からの参照はこの副作用importで成立する）

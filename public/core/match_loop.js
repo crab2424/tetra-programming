@@ -9,6 +9,8 @@
 //     抜けて加わり直しても順番は変わらない。
 //   ・加わっている盤面が無くなったら rAF を止める。
 //   ・時計は各盤面の game.clock（VERSUS は共通の 1 本）。同じ時計は 1 フレームに 1 回だけ進める。
+//   ・再生（core/replay.js）では driver を置く。rAF のたびに driver.onFrame(loop) が呼ばれ、
+//     driver は記録したフレームを step(draw) で好きな回数進める（倍速・早送り）。
 // ─────────────────────────────────────────────
 
 class MatchLoop {
@@ -18,6 +20,7 @@ class MatchLoop {
         this._ticking = false;
         this._needsCompact = false;
         this._pending = [];      // フレームの中で新しく加わった盤面（そのフレームが終わってから並びに入れる）
+        this.driver = null;      // 再生中だけ: rAF ごとに何フレーム進めるかを決める（core/replay.js の ReplayPlayer）
         this._tick = this._tick.bind(this);
     }
 
@@ -79,6 +82,17 @@ class MatchLoop {
 
     _tick() {
         this._rafId = null;
+        try {
+            // 再生（core/replay.js）は driver が 1 回の rAF で記録したフレームを何回か step して、最後に描く
+            if (this.driver) this.driver.onFrame(this);
+            else this.step(true);
+        } finally {
+            if (this._members.length && this._rafId === null) this._rafId = requestAnimationFrame(this._tick);
+        }
+    }
+
+    // 1 フレーム進める。draw=false なら描かない（再生の早送り・シーク）
+    step(draw) {
         const list = this._members;
         this._ticking = true;
         try {
@@ -95,9 +109,7 @@ class MatchLoop {
                 if (!list[i].removed && list[i].update) list[i].update();
             }
             // 描く
-            for (let i = 0; i < list.length; i++) {
-                if (!list[i].removed && list[i].draw) list[i].draw();
-            }
+            if (draw) this._drawMembers();
         } finally {
             this._ticking = false;
             if (this._pending.length) {
@@ -106,7 +118,24 @@ class MatchLoop {
                 this._needsCompact = true;
             }
             if (this._needsCompact) this._compact();
-            if (list.length && this._rafId === null) this._rafId = requestAnimationFrame(this._tick);
+        }
+    }
+
+    // 進めずに描くだけ（再生の早送りの最後・一時停止中）
+    drawOnly() {
+        this._ticking = true;
+        try {
+            this._drawMembers();
+        } finally {
+            this._ticking = false;
+            if (this._needsCompact) this._compact();
+        }
+    }
+
+    _drawMembers() {
+        const list = this._members;
+        for (let i = 0; i < list.length; i++) {
+            if (!list[i].removed && list[i].draw) list[i].draw();
         }
     }
 }

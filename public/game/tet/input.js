@@ -73,7 +73,9 @@ Object.assign(Game.prototype, {
         /**
          * @type {{das: number, arr: number, dcd: number}}
          */
-        let tuning = loadTuning();
+        // 再生中は録画したときの設定を使う（core/replay.js）。録画はこの 2 つをそのまま残す
+        let tuning = this._replay ? this._replay.tuning : loadTuning();
+        this._tuningUsed = tuning;
 
 
         const frameMs = 1000 / 60; // 1フレーム = 約16.67ms
@@ -118,7 +120,8 @@ Object.assign(Game.prototype, {
          * キー設定
          * @type {Object.<string, {code: string, label: string}>}
          */
-        const keys = loadKeys();
+        const keys = this._replay ? this._replay.keys : loadKeys();
+        this._keysUsed = keys;
 
         // ─── キーの取り込み（設計 source_assets/memory/record/tetlabo-record-design.md §4.1 D5）───
         // keydown / keyup とゲームパッドの押す・離すは _inputQueue にためるだけにして、
@@ -254,8 +257,11 @@ Object.assign(Game.prototype, {
         const drainInput = (now) => {
             const q = this._inputQueue
             if (!q.length) return
+            const rec = this._rec
             for (let i = 0; i < q.length; i++) {
                 const ev = q[i]
+                // 録画: 取り込んだフレームで残す（届いた瞬間ではない。core/replay.js）
+                if (rec) rec.input(ev)
                 if (ev.pad) {
                     if (!ev.down) applyPadUp(ev.action)
                     else if (!this.isPaused) applyPadDown(ev.action, now)
@@ -268,6 +274,8 @@ Object.assign(Game.prototype, {
         }
 
         this._keyDownHandler = (e) => {
+            // 再生中は人のキーを受けない（録画した入力だけを流す。再生の操作は core/replay.js）
+            if (this._replay) return
             // 対戦モードでは versus-page がアクティブな場合のみ動作
             const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page');
             const gamePage = document.getElementById(activePageId)
@@ -312,6 +320,7 @@ Object.assign(Game.prototype, {
         }
 
         this._keyUpHandler = (e) => {
+            if (this._replay) return
             // フレームが回っていないときはその場で反映する（ためても取り込む人がいない）
             if (!this._renderLoopId) { applyKeyUp(e.code); return }
             this._inputQueue.push({ pad: false, down: false, code: e.code })
@@ -330,7 +339,11 @@ Object.assign(Game.prototype, {
         // setInterval(…, 4) で 250Hz 回していた頃と違い rAF と同期するため、
         // tick が貯まらず描画と同フレームでキー反映される＝体感ラグが減る。
         this._pollInput = () => {
-            if (!gamePage || !gamePage.classList.contains('active')) return
+            // ゲーム画面が出ていないフレームは入力を取り込まない。再生は録画のこの印に従う（画面に関係なく同じ結果にするため）
+            if (this._replay ? this._replay.skipPoll : (!gamePage || !gamePage.classList.contains('active'))) {
+                if (this._rec) this._rec.skipPoll()
+                return
+            }
             const now = this.clock.now()
             // たまったキー・ゲームパッドの入力を先に取り込む（カウントダウン中は DAS の押した時刻を記録するだけ）
             drainInput(now)
@@ -701,6 +714,9 @@ Object.assign(Game.prototype, {
                 if (action === 'hardDrop') pressed = pressed || (stickY <= -GP_STICK_DEADZONE)
 
                 const prev = !!this._prevGamepadState[action]
+
+                // 再生中はパッドを受けない（前の状態も書き換えない）
+                if (this._replay) continue
 
                 // 押した・離したときだけ処理する
                 if (pressed === prev) continue

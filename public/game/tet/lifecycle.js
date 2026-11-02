@@ -28,7 +28,8 @@ Object.assign(Game.prototype, {
         runCountdown(overlayId, textElId, () => {
             // START! のタイミングでBGM開始（versus は startVersusGame 側で鳴らすため除外）。
             // CPU TEST(currentMode==='test')は専用BGM、それ以外のシングル(marathon/sprint/ultra)は singleBgmKey でモード別キーに解決。
-            if (!this.isVersusMode && window.BgmManager) {
+            // 再生中は鳴らし直さない（BGM は再生の頭で 1 回だけ。core/replay.js）
+            if (!this.isVersusMode && window.BgmManager && !this._replay) {
                 window.BgmManager.play(this.currentMode === 'test'
                     ? 'test_bgm'
                     : window.BgmManager.singleBgmKey(this.currentMode));
@@ -72,6 +73,9 @@ Object.assign(Game.prototype, {
 
         // 乱数を試合ごとに作り直す（7バッグより先に）
         this._newRngStreams();
+
+        // 録画を始める（対象のモードだけ）／再生なら録画したときの時刻と経過時間の列に合わせる（core/replay.js）
+        ReplayManager.begin(this);
 
         // 7バッグをリセット
         // ★nextQueue は内部で11個保持（CPU6のパフェ探索が10手先まで読むため）。
@@ -313,6 +317,10 @@ Object.assign(Game.prototype, {
             this.updateTimeDisplay();
         }
 
+        // 録画の締め／再生の終わり（core/replay.js）。再生のときは終了演出・リザルト・記録の保存をしない
+        if (this._rec) ReplayManager.finish(this, isClear);
+        if (this._replay) { this._replay.onGameOver(this, isClear); return; }
+
         // 対戦モードの場合は versusGameOver() に委譲する
         if (this.isVersusMode) {
             const loser = (this.canvasPrefix === 'cpu') ? 'cpu' : 'player';
@@ -407,8 +415,10 @@ Object.assign(Game.prototype, {
     pause() {
         if (this.isPaused) return
         this.isPaused = true
-        // ③ ポーズ中はBGMを止めず小音量で流し続ける
-        window.BgmManager?.duck()
+        // 録画: ポーズは次のフレームの頭の出来事として残す（再生はそこで pause() を呼ぶ。core/replay.js）
+        if (this._rec) this._rec.pause(true)
+        // ③ ポーズ中はBGMを止めず小音量で流し続ける（再生中はポーズを見せない）
+        if (!this._replay) window.BgmManager?.duck()
         clearInterval(this.timer)
         // 時計を止める（設計 D7）。下の残り時間の保存は止めた時刻で計算する
         this.clock.pause()
@@ -440,7 +450,7 @@ Object.assign(Game.prototype, {
             }
         }
 
-        this.showPauseOverlay()
+        if (!this._replay) this.showPauseOverlay()
 
         if (this.isTimerRunning) {
             this.elapsedTime += this.clock.now() - this.startTime;
@@ -451,11 +461,14 @@ Object.assign(Game.prototype, {
     resume() {
         if (!this.isPaused) return
         this.isPaused = false
+        if (this._rec) this._rec.pause(false)
         // 止めていた時計を動かす。止まっていた間の実時間は数えない
         this.clock.resume()
         // ③ ポーズ解除でBGM音量を元に戻す
-        window.BgmManager?.unduck()
-        this.hidePauseOverlay()
+        if (!this._replay) {
+            window.BgmManager?.unduck()
+            this.hidePauseOverlay()
+        }
 
         // 接地中(lockTimer稼働中)だったか空中だったかで再開処理を分ける
         if (this._wasLockingWhenPaused) {

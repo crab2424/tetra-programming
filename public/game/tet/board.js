@@ -316,6 +316,10 @@ Object.assign(Game.prototype, {
             }
         }
 
+        // 録画: 設置ごとの盤面のハッシュを残す／再生: 録画と照らし合わせ、合わなければ止める（core/replay.js）
+        if (this._rec) this._rec.lock(this);
+        else if (this._replay) this._replay.onLock(this);
+
         if (this.mode === 'sprint' && this.lines >= this.goalLines) {
             // 設置したミノのブロックはすでに絶対座標化されて field に追加済み。
             // this.mino を残したまま gameOver→drawAll するとミノが二重描画され、
