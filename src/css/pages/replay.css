@@ -200,46 +200,208 @@ body.replay-watching:not(.replay-ui-hidden) #versus-layout {
 .replay-mark.replay-mark-hit { background: var(--danger); }
 .replay-mark.replay-mark-end { background: var(--success); }
 .replay-mark.replay-mark-pause { background: var(--text-dim); }
-.replay-marks-list {
+
+/* 印の画面（core/replay.js の _openMarks / _mkRender。UI 設計書 §7）。暗い幕の上に札を時刻順に横へ並べる。
+   中央の縦線＝選んだ札（列のほうを流す）、点線＝今の時刻（NOW）。札の位置（translateX）は JS */
+#replay-marks-overlay {
   display: none;
-  max-height: 160px;
-  overflow-y: auto;
-  margin-top: 4px;
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 4, 14, 0.88);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  z-index: 1000;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: var(--text);
+  font-family: var(--font-orbitron);
 }
-.replay-marks-list.open {
-  display: block;
+#replay-marks-overlay.active {
+  display: flex;
 }
-.replay-marks-item {
+body:has(#replay-marks-overlay.active) .puyo-chain-text {
+  visibility: hidden;
+}
+.replay-mk-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 14px;
+  width: min(960px, calc(100vw - 32px));
 }
-.replay-clip-btn {
-  flex: none;
-  font-size: 10px;
-  padding: 1px 6px;
+.replay-mk-title {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
-.replay-marks-row {
-  display: block;
-  flex: 1;
-  min-width: 0;
-  width: 100%;
-  text-align: left;
-  font-family: monospace;
+.replay-mk-count {
   font-size: 12px;
-  color: var(--text);
-  background: none;
-  border: none;
-  border-left: 3px solid var(--accent3);
-  padding: 2px 8px;
-  margin: 1px 0;
-  cursor: pointer;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.replay-mk-strip {
+  position: relative;
+  width: 100%;
+  padding: 28px 0 20px;
+  overflow: hidden;
+}
+.replay-mk-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.replay-mk-lane {
+  position: relative;
+}
+.replay-mk-lane-name {
+  position: absolute;
+  left: max(16px, calc(50% - 480px));
+  top: 0;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--accent3);
   white-space: pre;
 }
-.replay-marks-row:hover { background: rgba(255, 255, 255, 0.05); }
-.replay-marks-row.replay-mark-hit { border-left-color: var(--danger); }
-.replay-marks-row.replay-mark-end { border-left-color: var(--success); }
-.replay-marks-row.replay-mark-pause { border-left-color: var(--text-dim); }
+.replay-mk-lane-name.is-2p {
+  color: var(--accent2);
+}
+.replay-mk-track {
+  position: relative;
+  height: 112px;
+  margin-top: 16px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+.replay-mk-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.replay-mk-body {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 6px 9px 7px;
+  text-align: left;
+  color: var(--text);
+  font-family: var(--font-orbitron);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--mk-color, var(--accent3));
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
+}
+.replay-mk-card.is-2p { --mk-color: var(--accent2); }
+.replay-mk-card.replay-mark-hit { --mk-color: var(--danger); }
+.replay-mk-card.replay-mark-end { --mk-color: var(--success); }
+.replay-mk-card.replay-mark-pause { --mk-color: var(--text-dim); }
+.replay-mk-card:hover .replay-mk-body {
+  opacity: 0.9;
+}
+.replay-mk-card.is-sel .replay-mk-body {
+  opacity: 1;
+  border-color: var(--mk-color, var(--accent3));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--mk-color, var(--accent3)) 45%, transparent);
+  transform: translateY(-2px);
+}
+.replay-mk-card-head {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.replay-mk-time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.replay-mk-kind {
+  color: var(--mk-color, var(--accent3));
+}
+.replay-mk-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.replay-mk-amount {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.replay-mk-clip {
+  font-size: 10px;
+  padding: 1px 10px;
+  visibility: hidden;
+}
+.replay-mk-card.is-sel .replay-mk-clip,
+.replay-mk-card:hover .replay-mk-clip {
+  visibility: visible;
+}
+/* 中央の縦線（選んだ札）と、その時刻 */
+.replay-mk-center {
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  pointer-events: none;
+  opacity: 0.85;
+}
+.replay-mk-center span {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translate(-50%, -2px);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--accent);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* 今の時刻（再生が止まっている所） */
+.replay-mk-now {
+  position: absolute;
+  left: 0;
+  top: 22px;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--text-dim);
+  pointer-events: none;
+}
+.replay-mk-now span {
+  position: absolute;
+  bottom: -16px;
+  left: 0;
+  transform: translateX(-50%);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+#replay-marks-overlay .replay-pause-keys {
+  text-align: center;
+}
 
 /* 古い版・ずれのメッセージ（上の帯のすぐ下） */
 .replay-msg {

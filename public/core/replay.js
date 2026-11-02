@@ -42,6 +42,11 @@ const REPLAY_CPU_ACTIONS = [
     'quickDrop', 'softDropStart', 'softDropStep', 'forceLock', 'softKey',
 ];
 const REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+// 印の画面（UI 設計書 §7）: 札の幅・同じ段の札の間隔（札の中心どうし）・時刻 1ms あたりの幅（1 秒 40px）
+const REPLAY_MK_CARD_W = 150;
+const REPLAY_MK_STEP = 162;
+const REPLAY_MK_PX_PER_MS = 0.04;
+const REPLAY_MK_KIND = { attack: 'ATTACK', hit: 'HIT', end: 'END', pause: 'PAUSE' };
 
 // 自動の印の閾値（§8.1・§13）。tet はライン、puyo はおじゃまの個数。localStorage.replay_mark_thresholds で変えられる
 const REPLAY_MARK_DEFAULT = { tetAttack: 2, tetHit: 2, puyoAttack: 6, puyoHit: 6 };
@@ -1761,6 +1766,8 @@ const ReplayManager = {
         const p = this.player;
         if (!p) return;
         this._closePause(false);
+        this._closeMarks(null);
+        this._mk = null;
         this._clearEnd();
         this._prevState = null;
         this.player = null;
@@ -1858,11 +1865,7 @@ const ReplayManager = {
                 const p = this.player;
                 if (p && p.state !== 'desync') { p.restart(); p.play(); }
             },
-            'replay-pause-marks': () => {
-                this._closePause(false);
-                const l = $('replay-marks-list');
-                if (l) l.classList.add('open');
-            },
+            'replay-pause-marks': () => this._openMarks(),
             'replay-pause-here': () => { this._closePause(false); this._playFromHere(); },
             'replay-pause-save': async () => {
                 const p = this.player;
@@ -1899,10 +1902,20 @@ const ReplayManager = {
             const b = $(id);
             if (b) { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => { if (this.player) this.player.stepLock(dir); }; }
         }
-        const listBtn = $('replay-marks-btn');
-        if (listBtn) {
-            listBtn.onmousedown = (e) => e.preventDefault();
-            listBtn.onclick = () => { const l = $('replay-marks-list'); if (l) l.classList.toggle('open'); };
+        const marksBtn = $('replay-marks-btn');
+        if (marksBtn) { marksBtn.onmousedown = (e) => e.preventDefault(); marksBtn.onclick = () => this._openMarks(); }
+        // 印の画面（UI 設計書 §7）: 閉じる・ホイールで横に流す
+        const mkClose = $('replay-mk-close');
+        if (mkClose) { mkClose.onmousedown = (e) => e.preventDefault(); mkClose.onclick = () => this._closeMarks('back'); }
+        const mkStrip = $('replay-mk-strip');
+        if (mkStrip) {
+            mkStrip.addEventListener('wheel', (e) => {
+                const mk = this._mk;
+                if (!mk || !this._marksOpen()) return;
+                e.preventDefault();
+                const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+                this._mkScrollTo(mk.target + d * (e.deltaMode === 1 ? 40 : 1));
+            }, { passive: false });
         }
         const seek = $('replay-seek');
         if (seek) {
@@ -1911,12 +1924,14 @@ const ReplayManager = {
         }
         // 見ている間のキー（ゲームのキー・ポーズ・リスタート・フォーカス移動には渡さない）。
         // ポーズキー（設定。ESC は常に）で PAUSE 画面を開く/閉じる。開いている間は上下・決定だけ
-        // FocusNav（PAUSE 画面のボタン選び）へ通し、← → , . [ ] は画面を閉じて止めたまま動かす
+        // FocusNav（PAUSE 画面のボタン選び）へ通し、← → , . [ ] は画面を閉じて止めたまま動かす。
+        // 印の画面を開いている間は札の選びをここで全部受ける（FocusNav へは何も通さない）
         this._keyHandler = (e) => {
             const p = this.player;
             if (!p || !p.watching) return;
             const gp = document.getElementById(p.page + '-page');
             if (!gp || !gp.classList.contains('active')) return;
+            if (this._marksOpen()) { this._marksKey(e); return; }
             const menu = this._pauseOpen();
             if (this._pauseCodes().indexOf(e.code) >= 0) {
                 e.stopImmediatePropagation();
@@ -1929,17 +1944,17 @@ const ReplayManager = {
             if (menu) {
                 if (['ArrowUp', 'ArrowDown', 'KeyW', 'KeyS', 'Enter', 'NumpadEnter', 'Space'].indexOf(e.code) >= 0) return;
                 if (['ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Comma', 'Period'].indexOf(e.code) >= 0) this._closePause(false);
-                else if (e.code !== 'KeyH') {
+                else if (e.code !== 'KeyH' && e.code !== 'KeyM') {
                     e.stopImmediatePropagation();
                     if (e.code === 'Tab') e.preventDefault();
                     return;
                 }
             }
             e.stopImmediatePropagation();
-            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH'];
+            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM'];
             if (handled.indexOf(e.code) < 0) return;
             e.preventDefault();
-            if (e.repeat && (e.code === 'Space' || e.code === 'KeyH')) return;
+            if (e.repeat && (e.code === 'Space' || e.code === 'KeyH' || e.code === 'KeyM')) return;
             switch (e.code) {
                 case 'Space': this._togglePlay(); break;
                 case 'ArrowLeft': p.seek(this._targetTime() - 5000); break;
@@ -1947,6 +1962,7 @@ const ReplayManager = {
                 case 'ArrowUp': this._stepSpeed(1); break;
                 case 'ArrowDown': this._stepSpeed(-1); break;
                 case 'KeyH': this._toggleUi(); break;
+                case 'KeyM': this._openMarks(); break;
                 case 'BracketLeft': this._jumpMark(-1); break;
                 case 'BracketRight': this._jumpMark(1); break;
                 case 'Comma': p.stepLock(-1); break;
@@ -1970,16 +1986,17 @@ const ReplayManager = {
         return codes;
     },
 
-    _openPause() {
+    // focusId: 最初にフォーカスするボタン（印の画面から戻ったときは MARKS。無ければ RESUME／REPLAY AGAIN）。
+    // focus_nav.js の replay-pause-overlay が開いたときに読む
+    _openPause(focusId) {
         const p = this.player;
         const o = document.getElementById('replay-pause-overlay');
         if (!p || !o || this._pauseOpen()) return;
+        this._pauseFocusId = focusId || null;
         // 閉じるとき（ポーズキー）は開く前の状態に戻す。再生中だったら続きから流す
         this._pauseResume = p.state === 'play' || (p.state === 'seek' && p.seekResume === 'play');
         p.pause();
         const $ = (id) => document.getElementById(id);
-        const list = $('replay-marks-list');
-        if (list) list.classList.remove('open');
         // 最後まで見たところ（END）: 見出しを END に、RESUME・RESTART の代わりに REPLAY AGAIN
         const atEnd = p.state === 'end';
         const title = $('replay-pause-title');
@@ -2026,7 +2043,7 @@ const ReplayManager = {
         this._endShown = true;
         const r = p.data.result || {};
         const done = () => {
-            if (this.player === p && p.state === 'end' && this._endShown && !this._pauseOpen()) this._openPause();
+            if (this.player === p && p.state === 'end' && this._endShown && !this._pauseOpen() && !this._marksOpen()) this._openPause();
         };
         if (p.clipCut) {
             clearTimeout(this._endTimer);
@@ -2196,11 +2213,10 @@ const ReplayManager = {
         if (target) p.seek(this._markTime(target));
     },
 
-    // シークバーの上の印と、印の一覧（見始めに 1 回）
+    // シークバーの上の印と ◆ n（見始めに 1 回）。印の画面の並びは開いたときに作る（_mkLayout）
     _drawMarks(p) {
         const ev = p.data.events || [];
         const layer = document.getElementById('replay-marks');
-        const list = document.getElementById('replay-marks-list');
         const btn = document.getElementById('replay-marks-btn');
         const from = p.clipFrom;
         const dur = Math.max(1, p.duration - from);
@@ -2218,28 +2234,284 @@ const ReplayManager = {
                 layer.appendChild(tick);
             }
         }
-        if (list) {
-            list.innerHTML = '';
-            list.classList.remove('open');
-            for (const m of ev) {
-                const item = document.createElement('div');
-                item.className = 'replay-marks-item';
-                const row = document.createElement('button');
-                row.className = `replay-marks-row replay-mark-${m.kind}`;
-                row.textContent = `${replayFmtTime(m.t - from)}  ${two ? name(m.side) + '  ' : ''}${m.label}${m.value && m.kind === 'attack' ? '  (' + m.value + ')' : ''}`;
-                row.onmousedown = (e) => e.preventDefault();
-                row.onclick = () => { if (this.player) this.player.seek(this._markTime(m)); };
-                const clip = document.createElement('button');
-                clip.className = 'replay-btn replay-clip-btn';
-                clip.textContent = 'CLIP';
-                clip.title = '前 5 秒・後 3 秒を切り出して保存';
-                clip.onmousedown = (e) => e.preventDefault();
-                clip.onclick = () => this._clip(m, `${two ? name(m.side) + ' ' : ''}${m.label}`);
-                item.append(row, clip);
-                list.appendChild(item);
+        if (btn) btn.textContent = '◆ ' + ev.length;
+        this._mk = null;
+    },
+
+    // ─── 印の画面（UI 設計書 §7）───
+    // 印を札にして時刻順に横へ並べ（対戦は上の段 1P・下の段 2P）、選んだ札を中央の縦線へ流す。
+    // 札の位置は時刻に比例させ（REPLAY_MK_PX_PER_MS）、同じ段で重なる所と、もう一方の段の前の札より
+    // 左になる所だけ右へずらす（両段をまたいでも左右の順＝時刻の順）。札は見えている範囲だけ DOM に作る
+    _marksOpen() {
+        const o = document.getElementById('replay-marks-overlay');
+        return !!(o && o.classList.contains('active'));
+    },
+
+    _mkLayout(p) {
+        const pl = p.data.players || [];
+        const two = pl.length > 1;
+        const items = (p.data.events || []).map((m, k) => ({ m, k })).sort((a, b) => (a.m.t - b.m.t) || (a.m.side - b.m.side) || (a.k - b.k));
+        const lastX = [-Infinity, -Infinity];
+        let prev = -Infinity;
+        const list = items.map(({ m }) => {
+            const lane = two && m.side === 1 ? 1 : 0;
+            const x = Math.max(m.t * REPLAY_MK_PX_PER_MS, lastX[lane] + REPLAY_MK_STEP, prev);
+            lastX[lane] = x;
+            prev = x;
+            return { m, lane, x };
+        });
+        const lanesEl = document.getElementById('replay-mk-lanes');
+        const lanes = [];
+        if (lanesEl) {
+            lanesEl.innerHTML = '';
+            for (let i = 0; i < (two ? 2 : 1); i++) {
+                const lane = document.createElement('div');
+                lane.className = 'replay-mk-lane';
+                if (two) {
+                    const who = pl.find((x) => x.side === i) || {};
+                    const nm = document.createElement('span');
+                    nm.className = 'replay-mk-lane-name' + (i ? ' is-2p' : '');
+                    nm.textContent = `${i + 1}P  ${who.name || ''}`;
+                    lane.appendChild(nm);
+                }
+                const track = document.createElement('div');
+                track.className = 'replay-mk-track';
+                lane.appendChild(track);
+                lanesEl.appendChild(lane);
+                lanes.push(track);
             }
         }
-        if (btn) btn.textContent = '◆ ' + ev.length;
+        const rules = pl.map((x) => x.rule);
+        return { p, list, lanes, two, rules, sel: 0, offset: 0, target: 0, els: new Map(), raf: 0 };
+    },
+
+    // 時刻 → 並びの上の位置（札と札の間は直線でつなぐ）と、その逆
+    _mkX(t) {
+        const L = this._mk.list;
+        if (!L.length) return t * REPLAY_MK_PX_PER_MS;
+        if (t <= L[0].m.t) return L[0].x - (L[0].m.t - t) * REPLAY_MK_PX_PER_MS;
+        const n = L.length - 1;
+        if (t >= L[n].m.t) return L[n].x + (t - L[n].m.t) * REPLAY_MK_PX_PER_MS;
+        let i = 0;
+        while (i < n && L[i + 1].m.t <= t) i++;
+        const a = L[i], b = L[i + 1];
+        return b.m.t === a.m.t ? a.x : a.x + (b.x - a.x) * (t - a.m.t) / (b.m.t - a.m.t);
+    },
+    _mkT(x) {
+        const L = this._mk.list;
+        if (!L.length) return x / REPLAY_MK_PX_PER_MS;
+        if (x <= L[0].x) return L[0].m.t - (L[0].x - x) / REPLAY_MK_PX_PER_MS;
+        const n = L.length - 1;
+        if (x >= L[n].x) return L[n].m.t + (x - L[n].x) / REPLAY_MK_PX_PER_MS;
+        let i = 0;
+        while (i < n && L[i + 1].x <= x) i++;
+        const a = L[i], b = L[i + 1];
+        return b.x === a.x ? a.m.t : a.m.t + (b.m.t - a.m.t) * (x - a.x) / (b.x - a.x);
+    },
+
+    // 開く（バーの ◆ n・PAUSE の MARKS・M キー）。開くと止める。PAUSE から開いたら閉じたとき PAUSE へ戻る
+    _openMarks() {
+        const p = this.player;
+        const o = document.getElementById('replay-marks-overlay');
+        if (!p || !o || this._marksOpen()) return;
+        if (!(p.data.events || []).length) {
+            if (typeof showGlobalToast === 'function') showGlobalToast('印がありません');
+            return;
+        }
+        const fromPause = this._pauseOpen();
+        if (fromPause) {
+            this._mkBack = { pause: true, resume: this._pauseResume };
+            this._closePause(false);
+        } else {
+            this._mkBack = { pause: false, resume: p.state === 'play' || (p.state === 'seek' && p.seekResume === 'play') };
+        }
+        p.pause();
+        if (!this._mk || this._mk.p !== p) this._mk = this._mkLayout(p);
+        const mk = this._mk;
+        const cnt = document.getElementById('replay-mk-count');
+        if (cnt) cnt.textContent = '◆ ' + mk.list.length;
+        o.classList.add('active');
+        // 今の時刻にいちばん近い札を選び、今の所から流す（飛ぶ先＝印の 1 秒前で比べる。飛んでから開き直すと同じ札）
+        const now = this._targetTime();
+        const dist = (it) => Math.abs(this._markTime(it.m) - now);
+        let best = 0;
+        mk.list.forEach((it, i) => { if (dist(it) < dist(mk.list[best])) best = i; });
+        mk.offset = this._mkX(now);
+        mk.target = mk.offset;
+        this._mkSelect(best);
+    },
+
+    // how: 'back'（ESC・M・CLOSE。開く前に戻す）／'jump'（印へ飛んだ。止めたまま）／null（見終わるときなど。何もしない）
+    _closeMarks(how) {
+        const o = document.getElementById('replay-marks-overlay');
+        if (!o || !o.classList.contains('active')) return;
+        o.classList.remove('active');
+        if (document.activeElement && o.contains(document.activeElement)) document.activeElement.blur();
+        const mk = this._mk;
+        if (mk) { cancelAnimationFrame(mk.raf); mk.raf = 0; }
+        const back = this._mkBack;
+        this._mkBack = null;
+        if (how !== 'back' || !back || !this.player) return;
+        if (back.pause) {
+            this._openPause('replay-pause-marks');
+            this._pauseResume = back.resume; // 止めて開き直したので、PAUSE を開く前の状態を戻す
+        } else if (back.resume) {
+            this.player.play();
+        }
+    },
+
+    _mkSelect(i) {
+        const mk = this._mk;
+        if (!mk || !mk.list.length) return;
+        mk.sel = Math.max(0, Math.min(mk.list.length - 1, i));
+        for (const [k, el] of mk.els) el.classList.toggle('is-sel', k === mk.sel);
+        this._mkScrollTo(mk.list[mk.sel].x);
+    },
+
+    // ↑ ↓: もう一方の段の、いちばん近い時刻の札へ
+    _mkLane(dir) {
+        const mk = this._mk;
+        if (!mk || !mk.two) return;
+        const cur = mk.list[mk.sel];
+        const lane = cur.lane + dir;
+        if (lane < 0 || lane > 1) return;
+        let best = -1;
+        mk.list.forEach((it, i) => {
+            if (it.lane === lane && (best < 0 || Math.abs(it.m.t - cur.m.t) < Math.abs(mk.list[best].m.t - cur.m.t))) best = i;
+        });
+        if (best >= 0) this._mkSelect(best);
+    },
+
+    // 列を x が中央に来るように流す（少しずつ近づける）
+    _mkScrollTo(x) {
+        const mk = this._mk;
+        if (!mk || !mk.list.length) return;
+        mk.target = Math.max(mk.list[0].x, Math.min(mk.list[mk.list.length - 1].x, x));
+        if (mk.raf) return;
+        const tick = () => {
+            mk.raf = 0;
+            if (this._mk !== mk || !this._marksOpen()) return;
+            const d = mk.target - mk.offset;
+            mk.offset = Math.abs(d) < 0.5 ? mk.target : mk.offset + d * 0.25;
+            this._mkRender();
+            if (mk.offset !== mk.target) mk.raf = requestAnimationFrame(tick);
+        };
+        this._mkRender();
+        mk.raf = requestAnimationFrame(tick);
+    },
+
+    _mkLabel(m) {
+        return `${this._mk.two ? (((this._mk.p.data.players || []).find((x) => x.side === m.side) || {}).name || '') + ' ' : ''}${m.label}`;
+    },
+
+    _mkCard(i) {
+        const mk = this._mk;
+        const it = mk.list[i];
+        const m = it.m;
+        const card = document.createElement('div');
+        card.className = `replay-mk-card replay-mark-${m.kind}` + (it.lane ? ' is-2p' : '');
+        const body = document.createElement('button');
+        body.type = 'button';
+        body.className = 'replay-mk-body';
+        const head = document.createElement('span');
+        head.className = 'replay-mk-card-head';
+        const time = document.createElement('span');
+        time.className = 'replay-mk-time';
+        time.textContent = replayFmtTime(Math.max(0, m.t - mk.p.clipFrom));
+        const kind = document.createElement('span');
+        kind.className = 'replay-mk-kind';
+        kind.textContent = REPLAY_MK_KIND[m.kind] || String(m.kind || '').toUpperCase();
+        if (kind.textContent === m.label) kind.textContent = ''; // PAUSE の札は名前と同じなので出さない
+        head.append(time, kind);
+        const name = document.createElement('span');
+        name.className = 'replay-mk-name';
+        name.textContent = m.label;
+        body.append(head, name);
+        if (m.kind === 'attack' && m.value) {
+            const amt = document.createElement('span');
+            amt.className = 'replay-mk-amount';
+            amt.textContent = `→ ${m.value} ${mk.rules[m.side] === 'puyo' ? 'OJAMA' : 'LINES'}`;
+            body.appendChild(amt);
+        }
+        body.onmousedown = (e) => e.preventDefault();
+        body.onclick = () => { if (this._mk.sel === i) this._mkJump(); else this._mkSelect(i); };
+        const clip = document.createElement('button');
+        clip.type = 'button';
+        clip.className = 'replay-btn replay-mk-clip';
+        clip.textContent = 'CLIP';
+        clip.title = '前 5 秒・後 3 秒を切り出して保存 C';
+        clip.onmousedown = (e) => e.preventDefault();
+        clip.onclick = () => { this._mkSelect(i); this._clip(m, this._mkLabel(m)); };
+        card.append(body, clip);
+        return card;
+    },
+
+    // 見えている範囲（±1 画面の半分）の札だけ作り、はみ出たものは消す。中央の時刻・NOW の線もここで
+    _mkRender() {
+        const mk = this._mk;
+        const strip = document.getElementById('replay-mk-strip');
+        if (!mk || !strip) return;
+        const W = strip.clientWidth;
+        const lo = mk.offset - W, hi = mk.offset + W;
+        const L = mk.list;
+        let a = 0, b = L.length;
+        while (a < b) { const c = (a + b) >> 1; if (L[c].x < lo) a = c + 1; else b = c; }
+        const keep = new Set();
+        for (let i = a; i < L.length && L[i].x <= hi; i++) {
+            keep.add(i);
+            let el = mk.els.get(i);
+            if (!el) {
+                el = this._mkCard(i);
+                el.classList.toggle('is-sel', i === mk.sel);
+                mk.els.set(i, el);
+                const track = mk.lanes[L[i].lane];
+                if (track) track.appendChild(el);
+            }
+            const left = L[i].x - mk.offset + W / 2 - REPLAY_MK_CARD_W / 2;
+            el.style.transform = `translateX(${left.toFixed(1)}px)`;
+        }
+        for (const [i, el] of mk.els) if (!keep.has(i)) { el.remove(); mk.els.delete(i); }
+        const ct = document.getElementById('replay-mk-center-time');
+        if (ct) ct.textContent = replayFmtTime(Math.max(0, this._mkT(mk.offset) - mk.p.clipFrom));
+        const now = document.getElementById('replay-mk-now');
+        if (now) {
+            const x = this._mkX(this._targetTime()) - mk.offset + W / 2;
+            now.style.display = (x < 0 || x > W) ? 'none' : '';
+            now.style.transform = `translateX(${x.toFixed(1)}px)`;
+        }
+    },
+
+    // Enter・選んだ札をもう一度: その印の 1 秒前へ飛んで閉じる（止めたまま）
+    _mkJump() {
+        const mk = this._mk;
+        const p = this.player;
+        if (!mk || !p || !mk.list.length) return;
+        const m = mk.list[mk.sel].m;
+        this._closeMarks('jump');
+        p.seek(this._markTime(m));
+    },
+
+    _marksKey(e) {
+        e.stopImmediatePropagation();
+        const mk = this._mk;
+        const code = e.code;
+        if (this._pauseCodes().indexOf(code) >= 0 || code === 'KeyM') {
+            e.preventDefault();
+            if (!e.repeat) this._closeMarks('back');
+            return;
+        }
+        const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS', 'Enter', 'NumpadEnter', 'KeyC', 'Tab', 'Space'];
+        if (keys.indexOf(code) < 0) return;
+        e.preventDefault();
+        if (!mk) return;
+        switch (code) {
+            case 'ArrowLeft': case 'KeyA': this._mkSelect(mk.sel - 1); break;
+            case 'ArrowRight': case 'KeyD': this._mkSelect(mk.sel + 1); break;
+            case 'ArrowUp': case 'KeyW': this._mkLane(-1); break;
+            case 'ArrowDown': case 'KeyS': this._mkLane(1); break;
+            case 'Enter': case 'NumpadEnter': if (!e.repeat) this._mkJump(); break;
+            case 'KeyC': if (!e.repeat && mk.list[mk.sel]) this._clip(mk.list[mk.sel].m, this._mkLabel(mk.list[mk.sel].m)); break;
+        }
     },
 
     // シーク中は向かっている時刻から数える（←→ を続けて押したとき）

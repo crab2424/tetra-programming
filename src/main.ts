@@ -15,6 +15,9 @@ import "./battle/finish_overlay";
 import "./battle/local_loading";
 import { showToast, ToastColor } from "./components/toast";
 
+// プレーンJS（public/core/replay.js・public/app/replays.js）からの短いお知らせ（CLIP の保存・遊べない理由など）
+(window as any).showGlobalToast = (message: string) => showToast("REPLAY", message, ToastColor.Info);
+
 document.addEventListener("DOMContentLoaded", () => {
   const urlParams = new URLSearchParams(window.location.search);
   const tetlaboServerUrl = urlParams.get("tetlaboServerUrl");

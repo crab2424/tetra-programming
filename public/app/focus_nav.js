@@ -1204,11 +1204,22 @@
       '.btn-resume'
     );
     // 録画の再生専用の PAUSE（core/replay.js）。ポーズキー・← → などは replay.js が先に受けるので、
-    // ここへ来るのは上下・決定だけ
+    // ここへ来るのは上下・決定だけ。印の画面から戻ったときは MARKS に合わせる（ReplayManager._pauseFocusId）。
+    // 印の画面（#replay-marks-overlay）は札の選びを replay.js が全部受けるので登録しない
     setupOverlayWatcher(
       'replay-pause-overlay',
       () => $$('#replay-pause-overlay #replay-pause-buttons button'),
-      '.btn-resume'
+      '.btn-resume',
+      {
+        pageCfg: {
+          initialIndex: (els) => {
+            const want = window.ReplayManager && window.ReplayManager._pauseFocusId;
+            let idx = want ? els.findIndex(b => b.id === want) : -1;
+            if (idx < 0) idx = els.findIndex(b => b.matches('.btn-resume'));
+            return idx >= 0 ? idx : 0;
+          },
+        },
+      }
     );
 
     // ── online対戦オーバーレイ（class ではなく style.display で開閉するため watchAttr:'style'）──

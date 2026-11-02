@@ -232,7 +232,7 @@ const ReplaysPage = {
         const hint = document.getElementById('replays-hint');
         if (hint) {
             hint.textContent = replayAutoSave()
-                ? '最後まで遊んだ試合を直近 30 本まで自動で残します（★・最高記録・CLIP は消えません）。CLIP は再生中の印の一覧から作れます。ファイルをここへドロップしても読み込めます。'
+                ? '最後まで遊んだ試合を直近 30 本まで自動で残します（★・最高記録・CLIP は消えません）。CLIP は再生中の印の画面（M）から作れます。ファイルをここへドロップしても読み込めます。'
                 : '自動保存は OFF です（SETTINGS › DISPLAY）。リザルトの SAVE で残せます（最高記録・CLIP は OFF でも残ります）。ファイルをここへドロップしても読み込めます。';
         }
         const f = this.filter;
