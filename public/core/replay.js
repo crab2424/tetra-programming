@@ -1743,6 +1743,9 @@ const ReplayManager = {
         p.onUi = () => this._updateUi();
         if (typeof switchPage === 'function') switchPage(p.page);
         document.body.classList.add('replay-watching');
+        this._setTitle(data);
+        this._setUiHidden(this._loadUiHidden(), false);
+        this._thinkPos = [];
         // 古い版の録画（§7）
         this._msg(data.engine !== REPLAY_ENGINE_VERSION
             ? `v${data.app}（${data.build}）で録画されたリプレイです。今の版では途中からずれることがあります`
@@ -1760,11 +1763,67 @@ const ReplayManager = {
         this.player = null;
         p.onUi = null;
         p.stop();
-        document.body.classList.remove('replay-watching');
+        document.body.classList.remove('replay-watching', 'replay-ui-hidden');
+        for (const side of [0, 1]) {
+            const el = document.getElementById('replay-think-' + side);
+            if (el) { el.textContent = ''; el.style.display = 'none'; }
+        }
         if (toBack && typeof switchPage === 'function') {
             const back = (this.returnPage === 'result' || this.returnPage === 'versus-result') && !this.resultReplay ? 'main-menu' : this.returnPage;
             switchPage(back);
         }
+    },
+
+    // 上の帯: モード名と録画日時（app/replays.js の要約と日付の書き方を使う）
+    _setTitle(data) {
+        const el = document.getElementById('replay-title');
+        if (!el) return;
+        const mode = (typeof replaySummary === 'function') ? replaySummary(data).mode : String(data.mode || '').toUpperCase();
+        const date = (typeof replayDateText === 'function') ? replayDateText(data.recordedAt) : '';
+        el.textContent = mode;
+        if (date) {
+            const d = document.createElement('span');
+            d.className = 'replay-title-date';
+            d.textContent = date;
+            el.appendChild(d);
+        }
+    },
+
+    // UI の表示 ON/OFF（H キー・◱）。見終わっても覚えておく
+    _loadUiHidden() {
+        try { return localStorage.getItem('replayUiHidden') === '1'; } catch (e) { return false; }
+    },
+    _setUiHidden(on, flash) {
+        document.body.classList.toggle('replay-ui-hidden', on);
+        try { localStorage.setItem('replayUiHidden', on ? '1' : '0'); } catch (e) { /* 使えない */ }
+        const show = document.getElementById('replay-ui-show');
+        if (!show) return;
+        // 隠した直後だけ SHOW UI をはっきり出す（隠したことと戻し方が分かるように）
+        clearTimeout(this._uiFlashTimer);
+        show.classList.toggle('is-flash', on && flash);
+        if (on && flash) this._uiFlashTimer = setTimeout(() => show.classList.remove('is-flash'), 1500);
+    },
+    _toggleUi() {
+        this._setUiHidden(!document.body.classList.contains('replay-ui-hidden'), true);
+    },
+
+    // 盤面の上に CPU の思考を置く（盤面の canvas に合わせる。位置が変わったときだけ書く）。
+    // puyo は盤面のすぐ上におじゃまの予告（<canvas id>-ojama-yokoku）があるので、その上に置く
+    _placeThink(el, g, side) {
+        const cv = g && (g.mainCanvas || g.canvas);
+        if (!cv) return;
+        const r = cv.getBoundingClientRect();
+        let top = r.top;
+        const yk = cv.id && document.getElementById(cv.id + '-ojama-yokoku');
+        if (yk && yk.offsetParent) top = Math.min(top, yk.getBoundingClientRect().top);
+        const w = Math.max(r.width, 240);
+        const key = `${Math.round(r.left)},${Math.round(top)},${Math.round(r.width)}`;
+        if (this._thinkPos[side] === key) return;
+        this._thinkPos[side] = key;
+        el.style.left = Math.round(r.left + r.width / 2 - w / 2) + 'px';
+        el.style.width = Math.round(w) + 'px';
+        el.style.top = Math.round(top) + 'px';
+        el.style.transform = 'translateY(calc(-100% - 6px))';
     },
 
     _msg(text) {
@@ -1783,18 +1842,13 @@ const ReplayManager = {
         if (playBtn) { playBtn.onmousedown = (e) => e.preventDefault(); playBtn.onclick = () => this._togglePlay(); }
         const exitBtn = $('replay-exit-btn');
         if (exitBtn) { exitBtn.onmousedown = (e) => e.preventDefault(); exitBtn.onclick = () => this._endWatch(true); }
-        const speeds = $('replay-speeds');
-        if (speeds) {
-            speeds.innerHTML = '';
-            REPLAY_SPEEDS.forEach((s) => {
-                const b = document.createElement('button');
-                b.className = 'replay-speed-btn';
-                b.textContent = s + 'x';
-                b.dataset.speed = String(s);
-                b.onmousedown = (e) => e.preventDefault();
-                b.onclick = () => { if (this.player) this.player.setSpeed(s); };
-                speeds.appendChild(b);
-            });
+        for (const [id, dir] of [['replay-speed-down', -1], ['replay-speed-up', 1]]) {
+            const b = $(id);
+            if (b) { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => this._stepSpeed(dir); }
+        }
+        for (const id of ['replay-ui-btn', 'replay-ui-show']) {
+            const b = $(id);
+            if (b) { b.onmousedown = (e) => e.preventDefault(); b.onclick = () => this._toggleUi(); }
         }
         for (const [id, dir] of [['replay-mark-prev', -1], ['replay-mark-next', 1]]) {
             const b = $(id);
@@ -1823,17 +1877,17 @@ const ReplayManager = {
             const gp = document.getElementById(p.page + '-page');
             if (!gp || !gp.classList.contains('active')) return;
             e.stopImmediatePropagation();
-            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period'];
+            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH'];
             if (handled.indexOf(e.code) < 0) return;
             e.preventDefault();
-            if (e.repeat && (e.code === 'Space' || e.code === 'Escape')) return;
-            const i = REPLAY_SPEEDS.indexOf(p.speed);
+            if (e.repeat && (e.code === 'Space' || e.code === 'Escape' || e.code === 'KeyH')) return;
             switch (e.code) {
                 case 'Space': this._togglePlay(); break;
                 case 'ArrowLeft': p.seek(this._targetTime() - 5000); break;
                 case 'ArrowRight': p.seek(this._targetTime() + 5000); break;
-                case 'ArrowUp': p.setSpeed(REPLAY_SPEEDS[Math.min(REPLAY_SPEEDS.length - 1, i + 1)]); break;
-                case 'ArrowDown': p.setSpeed(REPLAY_SPEEDS[Math.max(0, i - 1)]); break;
+                case 'ArrowUp': this._stepSpeed(1); break;
+                case 'ArrowDown': this._stepSpeed(-1); break;
+                case 'KeyH': this._toggleUi(); break;
                 case 'Escape': this._endWatch(true); break;
                 case 'BracketLeft': this._jumpMark(-1); break;
                 case 'BracketRight': this._jumpMark(1); break;
@@ -2035,6 +2089,14 @@ const ReplayManager = {
         return p.state === 'seek' ? p.seekTarget : p.time();
     },
 
+    // 速さを 1 段上げる／下げる（◂ ▸・↑↓）
+    _stepSpeed(dir) {
+        const p = this.player;
+        if (!p) return;
+        const i = REPLAY_SPEEDS.indexOf(p.speed);
+        p.setSpeed(REPLAY_SPEEDS[Math.max(0, Math.min(REPLAY_SPEEDS.length - 1, i + dir))]);
+    },
+
     _togglePlay() {
         const p = this.player;
         if (!p) return;
@@ -2061,19 +2123,21 @@ const ReplayManager = {
         if (playBtn) playBtn.textContent = playing ? '❚❚' : '▶';
         const st = $('replay-state');
         if (st) st.textContent = p.state === 'seek' ? 'SEEK' : (p.state === 'end' ? 'END' : (p.state === 'desync' ? 'STOP' : (playing ? '' : 'PAUSE')));
-        document.querySelectorAll('#replay-speeds .replay-speed-btn').forEach((b) => {
-            b.classList.toggle('active', Number(b.dataset.speed) === p.speed);
-        });
-        const thinkEl = $('replay-think');
-        if (thinkEl) {
-            const lines = [];
-            for (const pl of p.data.players) {
-                const t = p.thinkAt(pl.side);
-                if (t) lines.push(`${pl.name}: ${t}`);
-            }
-            const text = lines.join('\n');
-            if (thinkEl.textContent !== text) thinkEl.textContent = text;
-            thinkEl.style.display = text ? '' : 'none';
+        const speedEl = $('replay-speed-label');
+        if (speedEl) {
+            const text = p.speed + 'x';
+            if (speedEl.textContent !== text) speedEl.textContent = text;
+            speedEl.classList.toggle('is-changed', p.speed !== 1);
+        }
+        // CPU の思考はその盤面の上に（名前は盤面の下にあるので出さない）
+        for (const side of [0, 1]) {
+            const el = $('replay-think-' + side);
+            if (!el) continue;
+            const pl = p.data.players.find((x) => x.side === side);
+            const text = (pl && p.thinkAt(side)) || '';
+            if (el.textContent !== text) el.textContent = text;
+            el.style.display = text ? '' : 'none';
+            if (text) this._placeThink(el, p._gameOf(side), side);
         }
         if (p.state === 'desync' && !p._desyncShown) {
             p._desyncShown = true;

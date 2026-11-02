@@ -966,30 +966,42 @@
   <!-- ─────────────────────────────────────────────
     MARK: ゲームページ
     ───────────────────────────────────────────── -->
-      <!-- ★ 録画・再生の操作バー（core/replay.js。見ている間だけ body.replay-watching で出す。ゲーム画面・対戦画面の両方で使う） -->
-  <div id="replay-bar" class="replay-bar">
+      <!-- ★ 録画・再生の画面（core/replay.js。見ている間だけ body.replay-watching で出す。ゲーム画面・対戦画面の両方で使う）
+           上の帯＝何を見ているか・状態、下のバー＝時間の操作、盤面の上＝CPU の思考（UI 設計書 tetlabo-record-ui-design.md §4）。
+           H キー／◱ で body.replay-ui-hidden を付け外しして全部隠す -->
+  <div id="replay-top" class="replay-top replay-ui">
+    <span class="replay-badge" title="SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む　↑ ↓ 速さ　[ ] 前/次の印　H UI 表示　ESC 終了">REPLAY</span>
+    <span id="replay-title" class="replay-title"></span>
+    <span id="replay-state" class="replay-state"></span>
+    <span class="replay-top-spacer"></span>
+    <button id="replay-here-btn" class="replay-btn" type="button" title="この局面から遊ぶ">PLAY HERE</button>
+    <button id="replay-exit-btn" class="replay-btn replay-exit-btn" type="button" title="終了 ESC">EXIT</button>
+    <button id="replay-ui-btn" class="replay-btn replay-icon-btn" type="button" title="UI を隠す H">◱</button>
+  </div>
+  <div id="replay-msg" class="replay-msg replay-ui" style="display: none"></div>
+  <div id="replay-think-0" class="replay-think replay-ui" style="display: none"></div>
+  <div id="replay-think-1" class="replay-think replay-ui" style="display: none"></div>
+  <button id="replay-ui-show" class="replay-ui-show" type="button" title="UI を出す H">H: SHOW UI</button>
+  <div id="replay-bar" class="replay-bar replay-ui">
     <div class="replay-bar-row">
-      <span class="replay-badge">REPLAY</span>
+      <button id="replay-play-btn" class="replay-btn replay-icon-btn" type="button" title="再生/停止 SPACE">▶</button>
       <button id="replay-step-prev" class="replay-btn" type="button" title="1 手戻る ,">|◀</button>
-      <button id="replay-play-btn" class="replay-btn" type="button">▶</button>
       <button id="replay-step-next" class="replay-btn" type="button" title="1 手進む .">▶|</button>
       <span id="replay-time" class="replay-time">00:00.00 / 00:00.00</span>
-      <span id="replay-state" class="replay-state"></span>
       <button id="replay-mark-prev" class="replay-btn" type="button" title="前の印 [">◀◆</button>
       <span class="replay-seek-wrap">
         <input id="replay-seek" class="replay-seek" type="range" min="0" max="1" step="1" value="0">
         <span id="replay-marks" class="replay-marks"></span>
       </span>
       <button id="replay-mark-next" class="replay-btn" type="button" title="次の印 ]">◆▶</button>
+      <span class="replay-speed" title="速さ ↑ ↓">
+        <button id="replay-speed-down" class="replay-btn replay-speed-step" type="button">◂</button>
+        <span id="replay-speed-label" class="replay-speed-label">1x</span>
+        <button id="replay-speed-up" class="replay-btn replay-speed-step" type="button">▸</button>
+      </span>
       <button id="replay-marks-btn" class="replay-btn" type="button" title="印の一覧">◆ 0</button>
-      <span id="replay-speeds" class="replay-speeds"></span>
-      <button id="replay-here-btn" class="replay-btn" type="button" title="この局面から PRACTICE で遊ぶ">PLAY HERE</button>
-      <button id="replay-exit-btn" class="replay-btn replay-exit-btn" type="button">EXIT</button>
     </div>
-    <div id="replay-msg" class="replay-msg" style="display: none"></div>
-    <div id="replay-think" class="replay-think" style="display: none"></div>
     <div id="replay-marks-list" class="replay-marks-list"></div>
-    <div class="replay-keys">SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む　↑ ↓ 速さ　[ ] 前/次の印　ESC 終了</div>
   </div>
 
   <div id="game-page" class="page">
@@ -1503,7 +1515,7 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=12"></script>
+  <script src="core/replay.js?v=14"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=8"></script>
   <script src="app/manager.js?v=1"></script>

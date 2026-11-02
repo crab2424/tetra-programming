@@ -1,16 +1,60 @@
 /* ─────────────────────────────────────────────
-   録画・再生（REPLAY）の操作バー（public/core/replay.js）
-   画面の下に固定（ゲーム画面・対戦画面）。見ている間だけ出す（body.replay-watching）。
+   録画・再生（REPLAY）の画面（public/core/replay.js）。ゲーム画面・対戦画面の上に重ねる。
+   見ている間だけ出す（body.replay-watching）。役割ごとに置き場所を分ける
+   （UI 設計書 tetlabo-record-ui-design.md §4）:
+     上の帯 #replay-top＝何を見ているか・状態／下のバー #replay-bar＝時間の操作（1 段）／
+     盤面の上 .replay-think＝CPU の思考（位置は JS が盤面の canvas に合わせる）
+   H キー／◱ で body.replay-ui-hidden を付けると .replay-ui を全部隠し、右下に SHOW UI だけ残す。
 ───────────────────────────────────────────── */
-.replay-bar {
+.replay-top,
+.replay-bar,
+.replay-msg,
+.replay-think,
+.replay-ui-show {
   display: none;
+}
+body.replay-watching .replay-top,
+body.replay-watching .replay-bar {
+  display: flex;
+}
+body.replay-watching .replay-msg,
+body.replay-watching .replay-think {
+  display: block;
+}
+.replay-ui {
+  transition: opacity 0.15s ease;
+}
+body.replay-watching.replay-ui-hidden .replay-ui {
+  opacity: 0;
+  pointer-events: none;
+}
+body.replay-watching.replay-ui-hidden .replay-ui-show {
+  display: block;
+}
+
+/* 見ている間は盤面を少し小さくして、上の帯と下のバーのぶん上下を空ける
+   （single-play.css の #container・versus-layout.css の #versus-layout と同じ式で、高さの余白だけ 48px → 120px）。
+   UI を隠しているときは元の大きさ */
+body.replay-watching:not(.replay-ui-hidden) #container {
+  transform: translate(-50%, -50%)
+    scale(clamp(0.2, min(calc((100vw - 32px) / 750px), calc((100vh - 120px) / 700px)), 2));
+}
+body.replay-watching:not(.replay-ui-hidden) #versus-layout {
+  transform: translate(-50%, -50%)
+    scale(clamp(0.2, min(calc((100vw - 32px) / 1300px), calc((100vh - 120px) / 700px)), 2));
+}
+
+/* 上の帯 */
+.replay-top {
   position: fixed;
+  top: 6px;
   left: 50%;
-  bottom: 8px;
   transform: translateX(-50%);
   width: min(960px, calc(100vw - 32px));
   box-sizing: border-box;
-  padding: 6px 12px 4px;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px 2px 12px;
   background: var(--overlay-scrim);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -18,15 +62,45 @@
   color: var(--text);
   font-family: var(--font-orbitron);
 }
-body.replay-watching .replay-bar {
-  display: block;
+.replay-title {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.replay-title-date {
+  margin-left: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.replay-top-spacer {
+  flex: 1;
 }
 
+/* 下のバー（1 段） */
+.replay-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  width: min(960px, calc(100vw - 32px));
+  box-sizing: border-box;
+  flex-direction: column;
+  padding: 5px 10px;
+  background: var(--overlay-scrim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 40;
+  color: var(--text);
+  font-family: var(--font-orbitron);
+}
 .replay-bar-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
 .replay-badge {
@@ -34,10 +108,11 @@ body.replay-watching .replay-bar {
   font-weight: 700;
   letter-spacing: 3px;
   color: var(--accent);
+  cursor: help;
 }
 
-.replay-btn,
-.replay-speed-btn {
+.replay-btn {
+  flex: none;
   font-family: var(--font-orbitron);
   font-size: 12px;
   color: var(--text);
@@ -47,39 +122,51 @@ body.replay-watching .replay-bar {
   padding: 3px 8px;
   cursor: pointer;
 }
-.replay-btn:hover,
-.replay-speed-btn:hover {
+.replay-btn:hover {
   border-color: var(--accent);
 }
-.replay-speed-btn.active {
-  border-color: var(--accent);
-  color: #fff;
-  background: rgba(196, 113, 245, 0.35);
-}
-.replay-exit-btn {
-  margin-left: 0;
+.replay-icon-btn {
+  min-width: 30px;
+  padding: 3px 6px;
 }
 
 .replay-time {
+  flex: none;
   font-size: 12px;
   min-width: 138px;
   font-variant-numeric: tabular-nums;
 }
 .replay-state {
+  flex: none;
   font-size: 11px;
   letter-spacing: 2px;
   color: var(--accent3);
-  min-width: 44px;
 }
-.replay-speeds {
+
+/* 速さ ◂ 1x ▸ */
+.replay-speed {
+  flex: none;
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 2px;
+}
+.replay-speed-step {
+  padding: 3px 5px;
+}
+.replay-speed-label {
+  min-width: 42px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.replay-speed-label.is-changed {
+  color: var(--accent3);
 }
 
 .replay-seek-wrap {
   position: relative;
   flex: 1;
-  min-width: 180px;
+  min-width: 120px;
   display: flex;
   align-items: center;
 }
@@ -154,29 +241,61 @@ body.replay-watching .replay-bar {
 .replay-marks-row.replay-mark-end { border-left-color: var(--success); }
 .replay-marks-row.replay-mark-pause { border-left-color: var(--text-dim); }
 
+/* 古い版・ずれのメッセージ（上の帯のすぐ下） */
 .replay-msg {
+  position: fixed;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(960px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 3px 12px;
   font-family: var(--font-main);
   font-size: 13px;
   color: var(--danger);
-  margin-top: 2px;
+  background: var(--overlay-scrim);
+  border-radius: 6px;
+  z-index: 40;
 }
 
-.replay-keys {
-  font-family: var(--font-main);
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-/* CPU の思考（録画した Worker の返事の写し）。等幅で 2 行まで */
+/* CPU の思考（録画した Worker の返事の写し）。盤面の上に盤面の幅で置く（left/top/width は JS） */
 .replay-think {
+  position: fixed;
+  box-sizing: border-box;
   font-family: monospace;
   font-size: 11px;
+  line-height: 1.35;
   color: var(--accent3);
-  white-space: pre;
+  text-align: center;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
   max-height: 2.8em;
-  margin-top: 2px;
+  pointer-events: none;
+  z-index: 39;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+}
+
+/* UI を隠しているときだけ右下に出す（H キーと同じ） */
+.replay-ui-show {
+  position: fixed;
+  right: 12px;
+  bottom: 10px;
+  z-index: 41;
+  font-family: var(--font-orbitron);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text);
+  background: var(--overlay-scrim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 0.2s ease;
+}
+.replay-ui-show:hover,
+.replay-ui-show.is-flash {
+  opacity: 1;
 }
 
 /* ─────────────────────────────────────────────
