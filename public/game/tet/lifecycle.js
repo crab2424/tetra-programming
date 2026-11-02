@@ -318,7 +318,7 @@ Object.assign(Game.prototype, {
         }
 
         // 録画の締め／再生の終わり（core/replay.js）。再生のときは終了演出・リザルト・記録の保存をしない
-        if (this._rec) ReplayManager.finish(this, isClear);
+        if (this._rec) ReplayManager.finish(this, isClear, this.isVersusMode ? { loser: replaySide(this) } : null);
         if (this._replay) { this._replay.onGameOver(this, isClear); return; }
 
         // 対戦モードの場合は versusGameOver() に委譲する
@@ -416,7 +416,7 @@ Object.assign(Game.prototype, {
         if (this.isPaused) return
         this.isPaused = true
         // 録画: ポーズは次のフレームの頭の出来事として残す（再生はそこで pause() を呼ぶ。core/replay.js）
-        if (this._rec) this._rec.pause(true)
+        if (this._rec) this._rec.pause(this, true)
         // ③ ポーズ中はBGMを止めず小音量で流し続ける（再生中はポーズを見せない）
         if (!this._replay) window.BgmManager?.duck()
         clearInterval(this.timer)
@@ -461,7 +461,7 @@ Object.assign(Game.prototype, {
     resume() {
         if (!this.isPaused) return
         this.isPaused = false
-        if (this._rec) this._rec.pause(false)
+        if (this._rec) this._rec.pause(this, false)
         // 止めていた時計を動かす。止まっていた間の実時間は数えない
         this.clock.resume()
         // ③ ポーズ解除でBGM音量を元に戻す

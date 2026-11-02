@@ -20,6 +20,7 @@ class MatchLoop {
         this._ticking = false;
         this._needsCompact = false;
         this._pending = [];      // フレームの中で新しく加わった盤面（そのフレームが終わってから並びに入れる）
+        this.recorder = null;    // 録画中だけ: フレームを数える（core/replay.js の ReplayRecorder）
         this.driver = null;      // 再生中だけ: rAF ごとに何フレーム進めるかを決める（core/replay.js の ReplayPlayer）
         this._tick = this._tick.bind(this);
     }
@@ -94,6 +95,8 @@ class MatchLoop {
     // 1 フレーム進める。draw=false なら描かない（再生の早送り・シーク）
     step(draw) {
         const list = this._members;
+        // 録画（core/replay.js）: フレームを数える。VERSUS は両盤面で同じ番号
+        if (this.recorder) this.recorder.beginFrame();
         this._ticking = true;
         try {
             // 時計を進める（予約の実行。同じ時計は 1 回だけ）

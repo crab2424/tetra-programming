@@ -912,21 +912,22 @@
   <!-- ─────────────────────────────────────────────
     MARK: ゲームページ
     ───────────────────────────────────────────── -->
-  <div id="game-page" class="page">
-    <!-- ★ 録画・再生の操作バー（core/replay.js。見ている間だけ body.replay-watching で出す） -->
-    <div id="replay-bar" class="replay-bar">
-      <div class="replay-bar-row">
-        <span class="replay-badge">REPLAY</span>
-        <button id="replay-play-btn" class="replay-btn" type="button">▶</button>
-        <span id="replay-time" class="replay-time">00:00.00 / 00:00.00</span>
-        <span id="replay-state" class="replay-state"></span>
-        <span id="replay-speeds" class="replay-speeds"></span>
-        <button id="replay-exit-btn" class="replay-btn replay-exit-btn" type="button">EXIT</button>
-      </div>
-      <input id="replay-seek" class="replay-seek" type="range" min="0" max="1" step="1" value="0">
-      <div id="replay-msg" class="replay-msg" style="display: none"></div>
-      <div class="replay-keys">SPACE 再生/停止　← → 5秒戻る/進む　↑ ↓ 速さ　ESC 終了</div>
+      <!-- ★ 録画・再生の操作バー（core/replay.js。見ている間だけ body.replay-watching で出す。ゲーム画面・対戦画面の両方で使う） -->
+  <div id="replay-bar" class="replay-bar">
+    <div class="replay-bar-row">
+      <span class="replay-badge">REPLAY</span>
+      <button id="replay-play-btn" class="replay-btn" type="button">▶</button>
+      <span id="replay-time" class="replay-time">00:00.00 / 00:00.00</span>
+      <span id="replay-state" class="replay-state"></span>
+      <span id="replay-speeds" class="replay-speeds"></span>
+      <button id="replay-exit-btn" class="replay-btn replay-exit-btn" type="button">EXIT</button>
     </div>
+    <input id="replay-seek" class="replay-seek" type="range" min="0" max="1" step="1" value="0">
+    <div id="replay-msg" class="replay-msg" style="display: none"></div>
+    <div class="replay-keys">SPACE 再生/停止　← → 5秒戻る/進む　↑ ↓ 速さ　ESC 終了</div>
+  </div>
+
+  <div id="game-page" class="page">
     <div id="container">
       <!-- ★ QUIZモード用フィールドヘッダー（quiz.jsが表示/非表示を制御） -->
       <div id="quiz-field-overlay" style="
@@ -1416,10 +1417,10 @@
   <script src="core/base.js?v=24"></script>
   <!-- ゲーム時計・試合の乱数（エンジンより先に読む。設計: source_assets/memory/record/） -->
   <script src="core/game_clock.js?v=5"></script>
-  <script src="core/match_loop.js?v=2"></script>
-  <script src="core/cpu_port.js?v=1"></script>
+  <script src="core/match_loop.js?v=3"></script>
+  <script src="core/cpu_port.js?v=2"></script>
   <script src="core/game_rng.js?v=1"></script>
-  <script src="core/replay.js?v=1"></script>
+  <script src="core/replay.js?v=2"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=7"></script>
   <script src="app/manager.js?v=1"></script>
@@ -1431,21 +1432,21 @@
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
-  <script src="game/tet/lifecycle.js?v=12"></script>
-  <script src="game/tet/board.js?v=10"></script>
+  <script src="game/tet/lifecycle.js?v=13"></script>
+  <script src="game/tet/board.js?v=11"></script>
   <script src="game/tet/rotation.js?v=4"></script>
   <script src="game/tet/scoring.js?v=3"></script>
   <script src="game/tet/garbage.js?v=4"></script>
-  <script src="game/tet/render.js?v=9"></script>
-  <script src="game/tet/input.js?v=8"></script>
+  <script src="game/tet/render.js?v=10"></script>
+  <script src="game/tet/input.js?v=9"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
-  <script src="game/puyo/lifecycle.js?v=8"></script>
+  <script src="game/puyo/lifecycle.js?v=9"></script>
   <script src="game/puyo/connect.js"></script>
   <script src="game/puyo/ojama.js?v=7"></script>
-  <script src="game/puyo/engine.js?v=16"></script>
-  <script src="game/puyo/input.js?v=8"></script>
+  <script src="game/puyo/engine.js?v=17"></script>
+  <script src="game/puyo/input.js?v=9"></script>
   <script src="game/puyo/draw.js?v=11"></script>
   <script src="quiz/quiz.js?v=9"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->

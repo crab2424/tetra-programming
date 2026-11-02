@@ -49,6 +49,8 @@ const CpuPort = {
 
     // フレームの入力の所で呼ぶ: cpuFrame → 時刻が来た cpuSchedule の順
     _runCpu() {
+        // 再生中は CPU を動かさず、録画した CPU の手をここで流す（core/replay.js）
+        if (this._replay) { this._replay.runCpu(this); return; }
         const frame = this._cpuFrameCbs;
         const timers = this._cpuTimers;
         if (!(frame && frame.length) && !(timers && timers.length)) return;

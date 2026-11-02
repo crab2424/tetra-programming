@@ -20,7 +20,9 @@ Object.assign(PuyoGame.prototype, {
         this._removeKeyHandlers();
         // ★ CPU操作モードであっても、PauseとRestartはプレイヤーの操作を受け付けるため、ここで早期リターンはしない
 
-        const ks = (typeof loadKeys === 'function') ? loadKeys() : {};
+        // 再生中は録画したときのキー設定を使う。録画はキー設定と DAS をそのまま残す（core/replay.js）
+        const ks = this._replay ? this._replay.configFor(this).keys : ((typeof loadKeys === 'function') ? loadKeys() : {});
+        if (this._rec) this._rec.config(this, ks, (typeof loadTuning === 'function') ? loadTuning() : {});
         // アクション名 → 割り当てキーcode一覧（1アクションに複数キーを割り当てられる）
         const keyCodes = {
             moveLeft: ks.moveLeft ? ks.moveLeft.codes : ['ArrowLeft'],
@@ -136,6 +138,8 @@ Object.assign(PuyoGame.prototype, {
         this._enqueueInput = enqueue;
 
         this._keyHandlerDown = (e) => {
+            // 再生中は人のキーを受けない（録画した入力だけを流す。再生の操作は core/replay.js）
+            if (this._replay) return;
             // ★ 【修正】待機中のインスタンスは無視
             if (this.state === 'idle') return;
 
@@ -186,6 +190,7 @@ Object.assign(PuyoGame.prototype, {
         };
 
         this._keyHandlerUp = (e) => {
+            if (this._replay) return;
             // ★ CPU制御時はキーの解放も無視する
             if (this.isCpuControlled) return;
             enqueue(false, e.code);
@@ -328,6 +333,7 @@ Object.assign(PuyoGame.prototype, {
                 }
             }
             if (!pad) return;
+            if (this._replay) return; // 再生中はパッドを受けない
 
             const stickX = (pad.axes && pad.axes.length > 0) ? pad.axes[0] : 0;
             const stickY = (pad.axes && pad.axes.length > 1) ? pad.axes[1] : 0;
@@ -397,7 +403,11 @@ Object.assign(PuyoGame.prototype, {
     _drainInput() {
         const q = this._inputQueue;
         if (!q || !q.length || !this._applyInputEvent) return;
-        for (let i = 0; i < q.length; i++) this._applyInputEvent(q[i]);
+        const rec = this._rec;
+        for (let i = 0; i < q.length; i++) {
+            if (rec) rec.input(this, q[i]); // 録画: 取り込んだフレームで残す（core/replay.js）
+            this._applyInputEvent(q[i]);
+        }
         q.length = 0;
     },
 
@@ -409,7 +419,8 @@ Object.assign(PuyoGame.prototype, {
     },
 
     _updateDAS(dt) {
-        const tuning = (typeof loadTuning === 'function') ? loadTuning() : { das: 9, arr: 1.5 };
+        const tuning = this._replay ? this._replay.configFor(this).tuning
+            : ((typeof loadTuning === 'function') ? loadTuning() : { das: 9, arr: 1.5 });
         const dasMs = tuning.das * 16.67;
         const arrMs = tuning.arr * 16.67;
 
@@ -546,6 +557,8 @@ Object.assign(PuyoGame.prototype, {
     //   'softKey', on        高速落下キーを押す / 離す（人と同じ落ち方で置く）
     // ─────────────────────────────────────────
     cpuAction(type, a) {
+        // 録画: CPU の手を入力として残す（再生では CPU を動かさずにこの手を流す。core/replay.js）
+        if (this._rec) this._rec.cpu(this, type, [a]);
         if (this.clock && !this._cpuRunning && !this._cpuWarned) {
             this._cpuWarned = true;
             console.warn('[cpuAction] フレームの入力の所（cpuSchedule / cpuFrame）の外で呼ばれました:', type);

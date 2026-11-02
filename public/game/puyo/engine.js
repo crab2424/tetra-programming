@@ -231,6 +231,9 @@ Object.assign(PuyoGame.prototype, {
 
         switch (this._gs) {
             case 'spawn':
+                // 録画: 次のぷよを出す直前の盤面のハッシュ／再生: 録画と照らし合わせる（core/replay.js）
+                if (this._rec) this._rec.lock(this);
+                else if (this._replay) this._replay.onLock(this);
                 if (!this._spawnPuyo()) {
                     this._gs = 'gameover';
                     this._beginGameOver();
@@ -998,6 +1001,10 @@ Object.assign(PuyoGame.prototype, {
         this._clearChainTextDOM();
         this.isAllClear = false; // ★ ゲームオーバー時にALL CLEARを消す
         this.state = 'gameover';
+
+        // 録画の締め／再生の終わり（core/replay.js）。再生のときは終了演出・リザルト・記録の保存をしない
+        if (this._rec) ReplayManager.finish(this, false, this.isVersusMode ? { loser: replaySide(this) } : null);
+        if (this._replay) { this._replay.onGameOver(this, false); return; }
 
         if (this.isVersusMode) {
             const loser = (this.canvasPrefix === 'cpu') ? 'cpu' : 'player';

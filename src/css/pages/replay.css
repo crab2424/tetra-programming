@@ -1,6 +1,6 @@
 /* ─────────────────────────────────────────────
    録画・再生（REPLAY）の操作バー（public/core/replay.js）
-   ゲーム画面の下に固定。見ている間だけ出す（body.replay-watching）。
+   画面の下に固定（ゲーム画面・対戦画面）。見ている間だけ出す（body.replay-watching）。
 ───────────────────────────────────────────── */
 .replay-bar {
   display: none;
@@ -18,7 +18,7 @@
   color: var(--text);
   font-family: var(--font-orbitron);
 }
-body.replay-watching #game-page.active .replay-bar {
+body.replay-watching .replay-bar {
   display: block;
 }
 

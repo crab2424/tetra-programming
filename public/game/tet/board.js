@@ -566,6 +566,8 @@ Object.assign(Game.prototype, {
     // 戻り値はそれぞれの操作の結果（動けたか等）。
     // ─────────────────────────────────────────
     cpuAction(type, a, b, c) {
+        // 録画: CPU の手を入力として残す（再生では CPU を動かさずにこの手を流す。core/replay.js）
+        if (this._rec) this._rec.cpu(this, type, [a, b, c]);
         if (this.clock && !this._cpuRunning && !this._cpuWarned) {
             this._cpuWarned = true;
             console.warn('[cpuAction] フレームの入力の所（cpuSchedule / cpuFrame）の外で呼ばれました:', type);

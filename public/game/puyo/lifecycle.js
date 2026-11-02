@@ -11,6 +11,8 @@ Object.assign(PuyoGame.prototype, {
         this._setupStatDisplay();
         this._loadImages(() => {
             this._newRngStreams(); // 乱数を試合ごとに作り直す（色・ツモより先に）
+            // 録画を始める（対象のモードだけ）／再生なら録画したときの時刻と経過時間の列に合わせる（core/replay.js）
+            ReplayManager.begin(this);
             this._initActiveColors();
             this._resetState();
 
@@ -104,6 +106,8 @@ Object.assign(PuyoGame.prototype, {
         if (this.state !== 'playing') return;
         this.state = 'paused';
         this.isPaused = true;
+        // 録画: ポーズは次のフレームの頭の出来事として残す（core/replay.js）
+        if (this._rec) this._rec.pause(this, true);
         this._stopTimer();
         // 時計を止める（設計 D7。VERSUS は両盤面で同じ時計）。下の残り時間の保存は止めた時刻で計算する
         this.clock.pause();
@@ -120,6 +124,7 @@ Object.assign(PuyoGame.prototype, {
         if (this.state !== 'paused') return;
         this.state = 'playing';
         this.isPaused = false;
+        if (this._rec) this._rec.pause(this, false);
         this.clock.resume(); // 止めていた時計を動かす。止まっていた間の実時間は数えない
         this.clock.advance();
         this.lastTime = this.clock.now();

@@ -173,9 +173,6 @@ Object.assign(Game.prototype, {
     startRenderLoop() {
         if (!this._frameUpdate) {
             this._frameUpdate = () => {
-                // 録画: フレームを数える／再生: このフレームで入った入力を _inputQueue に入れる（core/replay.js）
-                if (this._rec) this._rec.beginFrame();
-                else if (this._replay) this._replay.beginFrame(this);
                 // 入力ポーリング（player側のみ this._pollInput が設定される）
                 if (this._pollInput) this._pollInput();
                 // CPU の手（待ち時間の予約・毎フレームの polling・思考結果）。人のキーと同じ所で盤面に入る
