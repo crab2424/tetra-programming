@@ -22,18 +22,17 @@ Object.assign(Game.prototype, {
             isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
         }
 
-        // 変換(tetゲージ→おじゃまぷよ)・穴パターン・配送タイマーは BattleGarbage(src/battle/garbage_router.ts)に集約。
+        // 変換(tetゲージ→おじゃまぷよ)・配送タイマーは BattleGarbage(src/battle/garbage_router.ts)に集約。
         // 異種戦(ぷよ相手)なら1000ms後、テト同士なら1500ms後に降下可能になる。
+        // テトへ送るときは穴を決めない（受け手が applyGarbage で決める）。
         const BG = window.BattleGarbage;
         BG.routeGarbage({
             amount: amount,
             targetRule: isOpponentPuyo ? 'puyo' : 'tet',
-            cols: COLS_COUNT,
-            holeRatePercent: this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate : 70,
             gaugeToOjama: true,
         }, {
-            sendTetLines: (lines, holes) => {
-                BG.deliverLocalWithReadyTimer(opponent, { amount: lines, holes: holes, ready: false }, 1500);
+            sendTetLines: (lines) => {
+                BG.deliverLocalWithReadyTimer(opponent, { amount: lines, holes: [], ready: false }, 1500);
             },
             sendOjama: (count) => {
                 BG.deliverLocalWithReadyTimer(opponent, { amount: count, holes: [], ready: false }, 1000);
@@ -63,8 +62,10 @@ Object.assign(Game.prototype, {
             isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
         }
 
-        // ★ 異種戦（相手がぷよ）からの攻撃は最大7ラインずつ降る
-        const limit = isOpponentPuyo ? 7 : Infinity;
+        // ★ 異種戦（相手がぷよ）からの攻撃は最大7ラインずつ降る。
+        //   オンラインの混在戦では、受け取ったおじゃまに送り手のルール(_srcRule)が付いているので
+        //   送り手ごとに決める（テトからの攻撃まで 7 ラインで止めない）。付いていなければ従来どおり。
+        const PUYO_DROP_LIMIT = 7;
         let droppedLines = 0;
 
         // ★ 追加：まとめて降ってくるおじゃまの穴位置を一貫して保持・計算するための変数
@@ -73,6 +74,8 @@ Object.assign(Game.prototype, {
         for (let j = 0; j < readyGarbage.length; j++) {
             let g = readyGarbage[j];
             let dropCount = 0;
+            const fromPuyo = (g._srcRule !== undefined) ? (g._srcRule === 'puyo') : isOpponentPuyo;
+            const limit = fromPuyo ? PUYO_DROP_LIMIT : Infinity;
 
             for (let i = 0; i < g.amount; i++) {
                 if (droppedLines >= limit) {
@@ -80,21 +83,22 @@ Object.assign(Game.prototype, {
                 }
                 this.field.blocks.forEach(block => block.y -= 1);
 
-                // ★ 送信側で確定した穴があればそれを使う（オンライン: 全員の盤面表示が一致する）。
-                //   無ければ従来どおり受信側で一括計算する。
+                // ★ 穴は受ける側がこの着弾（applyGarbage の1回）の中で決める（VERSUS・オンラインとも送る側は穴を付けない）。
+                //   g.holes があるのは PRACTICE が自分で穴列を作って積んだときだけ。
                 let currentHole;
+                const rng = this._rngStream('garbage');
                 if (g.holes && g.holes[i] !== undefined && g.holes[i] !== null) {
                     currentHole = g.holes[i];
                 } else if (droppedLines === 0) {
                     // 今回受ける一番下の段（最初の1段目）は完全にランダム
-                    currentHole = Math.floor(Math.random() * COLS_COUNT);
+                    currentHole = Math.floor(rng() * COLS_COUNT);
                 } else {
                     // 2段目以降は70%で同じ穴、30%で違う穴
                     const rate = this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate / 100 : 0.7;
-                    if (Math.random() < rate) {
+                    if (rng() < rate) {
                         currentHole = lastHole;
                     } else {
-                        const offset = Math.floor(Math.random() * (COLS_COUNT - 1)) + 1;
+                        const offset = Math.floor(rng() * (COLS_COUNT - 1)) + 1;
                         currentHole = (lastHole + offset) % COLS_COUNT;
                     }
                 }
@@ -112,7 +116,10 @@ Object.assign(Game.prototype, {
             if (dropCount < g.amount) {
                 // 制限にかかった場合、残りの攻撃を再びreadyキューの先頭へ
                 let remainHoles = g.holes ? g.holes.slice(dropCount) : [];
-                this.garbageQueue.unshift({ amount: g.amount - dropCount, holes: remainHoles, ready: true });
+                const rest = { amount: g.amount - dropCount, holes: remainHoles, ready: true };
+                if (g._srcRule !== undefined) rest._srcRule = g._srcRule;
+                if (g._srcSender !== undefined) rest._srcSender = g._srcSender;
+                this.garbageQueue.unshift(rest);
                 for (let k = j + 1; k < readyGarbage.length; k++) {
                     this.garbageQueue.push(readyGarbage[k]);
                 }
@@ -122,6 +129,9 @@ Object.assign(Game.prototype, {
 
         // ブロック座標を直接ずらした＆push したので占有マップを再構築させる
         this.field.markDirty();
+
+        // 録画の印: 被弾（せり上がった段数。core/replay.js）
+        if (this._rec && droppedLines > 0) this._rec.hit(this, droppedLines);
 
         // おじゃまがフィールドに出現したのでゲージを減らす
         this.updateGarbageGauge();

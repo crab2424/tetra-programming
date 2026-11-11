@@ -32,7 +32,7 @@ const BoardSwap = (() => {
     'field',                         // Field インスタンスごと入れ替える
     'mino',                          // 操作中のミノも持っていく（捨てない）
     'holdMino', 'canHold',
-    'nextQueue', 'bag', 'tumoRng',   // ツモは乱数の続きごと持っていく
+    'nextQueue', 'bag', 'tumoRng', '_rng',   // ツモは乱数の続きごと持っていく（_rng は用途別の列）
     'ren', 'backToBack',             // 火力計算に効くので盤面側の情報として扱う
     'pendingAttack', 'pendingInternalAttack',
     'garbageQueue', '_garbageTimers',
@@ -43,7 +43,7 @@ const BoardSwap = (() => {
   //   途中で止めて捨てると、消えるはずのぷよが盤面に残り連鎖数も切れてしまう。
   const PUYO_SWAP_KEYS = [
     // 盤面・ツモ
-    'field', 'nextQueue', 'activeColors', 'rng',
+    'field', 'nextQueue', 'activeColors', 'rng', '_rng',
     // 火力・おじゃま
     'attackScore', 'generatedOjamaTotal', 'pendingFire',
     'tetAttackCarry', 'tetAttackLines', 'tetPendingFire', 'tetDropScore', 'hasTetZenkeshi',
@@ -106,7 +106,7 @@ const BoardSwap = (() => {
   // initBlocks() を先に呼ぶのは、spawn() が x/y/rotation しか戻さず、回転で
   // 書き換えられた blocks の形が残ってしまうため。
   function finishTet(g) {
-    if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+    g._cancelLockTimer();
     g._wasLockingWhenPaused = false;
     g.isGrounded = false;
     g.moveCount = 0;
@@ -211,6 +211,9 @@ const BoardSwap = (() => {
     const p = window._game;
     const c = window._cpuGame;
     const isPuyo = (versusPlayerRule === 'puyo');
+
+    // 盤面の中身を入れ替えるのは入力では再現できないので、この試合の録画はやめる（core/replay.js）
+    window.ReplayManager?.cancel(p);
 
     // 入れ替えから後始末・CPU同期までは同期的に走りきるので、途中でCPUが
     // 古い盤面へ入力を流し込む隙はない（ここで stop() する必要はない）。

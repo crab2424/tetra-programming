@@ -164,30 +164,39 @@ Object.assign(Game.prototype, {
         this._needsRedraw = true;
     },
 
+    // 1 フレームの順番（設計 §4.1 D1・D2・D4・D5）。ループは試合の親ループ（core/match_loop.js）で、
+    //   時計を進める（固定猶予などの予約もここで実行）→ たまったキーの取り込みと DAS
+    //   → CPU の手（core/cpu_port.js）→ 重力 → タイム（ULTRA の時間切れ）→ 描画
+    // を回す。VERSUS は 1P → 2P の順に進めてから描く。
+    // カウントダウン中から回す（start() と versus.js）。キーと予約（カウントダウン）はこのループでしか進まないため。
+    // _renderLoopId はループに加わっている間だけ立つ（input.js が「フレームが回っているか」に使う）。
     startRenderLoop() {
-        if (this._renderLoopId) cancelAnimationFrame(this._renderLoopId);
-        const loop = () => {
-            // 入力ポーリング（player側のみ this._pollInput が設定される）
-            if (this._pollInput) this._pollInput();
-            // 重力 tick：rAF と同期して経過時間に応じた回数だけ落下を適用する。
-            // 旧 setInterval ベースの実装は rAF と非同期で発火し、高Hzモニターで
-            // 「ミノが瞬間移動」する原因になっていたので統合。
-            this._applyGravityTick();
-            // ダーティ時のみ描画
-            if (this._needsRedraw) {
-                this._needsRedraw = false;
-                this.drawAll();
-            }
-            this._renderLoopId = requestAnimationFrame(loop);
-        };
-        this._renderLoopId = requestAnimationFrame(loop);
+        if (!this._frameUpdate) {
+            this._frameUpdate = () => {
+                // 入力ポーリング（player側のみ this._pollInput が設定される）
+                if (this._pollInput) this._pollInput();
+                // CPU の手（待ち時間の予約・毎フレームの polling・思考結果）。人のキーと同じ所で盤面に入る
+                this._runCpu();
+                // 重力 tick：経過時間に応じた回数だけ落下を適用する
+                this._applyGravityTick();
+                // タイム表示と ULTRA の時間切れ（以前は別の rAF だった）
+                if (this.isTimerRunning) this.updateTimeDisplay();
+            };
+            this._frameDraw = () => {
+                // ダーティ時のみ描画
+                if (this._needsRedraw) {
+                    this._needsRedraw = false;
+                    this.drawAll();
+                }
+            };
+        }
+        this._renderLoopId = true;
+        this.loop.add(this, this._frameUpdate, this._frameDraw);
     },
 
     stopRenderLoop() {
-        if (this._renderLoopId) {
-            cancelAnimationFrame(this._renderLoopId);
-            this._renderLoopId = null;
-        }
+        this._renderLoopId = null;
+        if (this.loop) this.loop.remove(this);
     },
 
     drawAll() {

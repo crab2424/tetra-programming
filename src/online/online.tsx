@@ -2604,6 +2604,11 @@ class OnlineMode {
               ToastColor.Success,
             );
             this.gameController?.hideSelfDisconnected();
+            // 切断中に変わった部屋の顔ぶれを取り直す（切断中の GameOver・勝敗はサーバーが
+            // 付け替えの完了時に送り直す。不具合 2026-11-11 online #5）
+            if (this.gameController) {
+              try { this.connection?.roomInfoNotificationRequest({}); } catch { /* 部屋に居なければ不要 */ }
+            }
           },
           onProgress: (stage) => {
             if (this.connectCancelled) return;

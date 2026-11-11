@@ -304,6 +304,47 @@ int TetPlayer::marginStep(double t) const {
     return std::min(5, (int)((t - marginTimeMs) / 32000.0));
 }
 
+// lv7_wasm.cpp parse_ctx の並び（lv7-threat-design.md §4.4）。相手の NEXT は画面に出る 5 本まで
+int TetPlayer::buildLv7Ctx(int* ctx) const {
+    std::memset(ctx, 0, sizeof(int) * TET_LV7_CTX_MAX);
+    ctx[0] = 1;
+    ctx[16] = marginStep(now);
+    // 自分の予告（internal は除く）。ready までの ms・穴の列（受ける側で決まるので -1）
+    int g = 0;
+    for (const auto& e : garbageQueue) {
+        if (now < e.internalUntil || g >= 16) continue;
+        int* q = ctx + 19 + 4 * g;
+        q[0] = e.amount;
+        q[1] = e.ready ? 1 : 0;
+        q[2] = e.ready ? 0 : (int)std::min(std::max(e.readyAt - now, 0.0), 1e6);
+        q[3] = -1;
+        g++;
+    }
+    ctx[18] = g;
+    const int boardAt = 19 + 4 * g;
+    if (!opp || opp->dead || opp->cur < 0) return boardAt;
+    ctx[1] = 1;
+    ctx[2] = opp->cur;
+    ctx[3] = opp->hold;
+    const int n = std::min<int>(5, (int)opp->queue.size());
+    ctx[4] = n;
+    for (int i = 0; i < n; i++) ctx[5 + i] = opp->queue[i];
+    ctx[12] = opp->b2b ? 1 : 0;
+    ctx[13] = opp->ren;
+    ctx[14] = opp->incomingLines();
+    ctx[15] = opp->marginStep(now);
+    // 相手の bag を「見える NEXT を引いた後」に戻す（Bag::deupdate と同じ：満杯なら空にしてから足す）
+    int bag = 0;
+    for (int v : opp->bag) bag |= 1 << v;
+    for (int i = (int)opp->queue.size() - 1; i >= n; i--) {
+        if (bag == 0x7F) bag = 0;
+        bag |= 1 << opp->queue[i];
+    }
+    ctx[17] = bag == 0x7F ? 0 : bag;
+    for (int i = 0; i < 250; i++) ctx[boardAt + i] = (opp->rows[i / 10] >> (i % 10)) & 1;
+    return boardAt + 250;
+}
+
 int TetPlayer::stackHeight() const {
     for (int y = 0; y < TROWS; y++) if (rows[y]) return TROWS - y;
     return 0;
@@ -341,26 +382,10 @@ static int offsetQueue(std::vector<TGarbage>& q, int amount) {
             int take = std::min(g.amount, amount);
             g.amount -= take;
             amount -= take;
-            if ((int)g.holes.size() > g.amount) g.holes.erase(g.holes.begin(), g.holes.end() - g.amount);
         }
     }
     q.erase(std::remove_if(q.begin(), q.end(), [](const TGarbage& g) { return g.amount <= 0; }), q.end());
     return amount;
-}
-
-std::vector<int> TetPlayer::holesFor(int lines, TRng& r) {
-    // garbage_router.ts buildGarbageHoles（1段目ランダム、以降 holeRate% で同じ列）
-    std::vector<int> holes;
-    int prev = -1;
-    for (int i = 0; i < lines; i++) {
-        int h;
-        if (prev < 0) h = (int)std::floor(r.next() * TCOLS);
-        else if (r.next() < holeRatePercent / 100.0) h = prev;
-        else h = (prev + (int)std::floor(r.next() * (TCOLS - 1)) + 1) % TCOLS;
-        holes.push_back(h);
-        prev = h;
-    }
-    return holes;
 }
 
 void TetPlayer::pushGarbageLines(int lines, double readyAt) {
@@ -370,7 +395,6 @@ void TetPlayer::pushGarbageLines(int lines, double readyAt) {
     g.ready = false;
     g.readyAt = readyAt;
     g.internalUntil = 0;
-    g.holes = holesFor(lines);
     garbageQueue.push_back(g);
 }
 
@@ -381,21 +405,19 @@ int TetPlayer::receiveFromPuyo(int lines, double now) {
     g.ready = false;
     g.readyAt = 1e18;              // 送り手の連鎖終了（confirmFromPuyo）まで ready にならない
     g.internalUntil = now + 500.0; // stage1（非表示）
-    g.holes = holesFor(lines);
     garbageQueue.push_back(g);
     st.linesReceived += lines;
     return g.id;
 }
 
-// garbage.js sendGarbage（テト同士）→ deliverLocalWithReadyTimer(1500ms)。穴は送る側で決めたもの
-void TetPlayer::receiveFromTet(int lines, const std::vector<int>& holes, double now) {
+// garbage.js sendGarbage（テト同士）→ deliverLocalWithReadyTimer(1500ms)。穴は着弾のときに決める
+void TetPlayer::receiveFromTet(int lines, double now) {
     TGarbage g;
     g.id = nextGarbageId_++;
     g.amount = lines;
     g.ready = false;
     g.readyAt = now + T_GARBAGE_READY_FROM_TET_MS;
     g.internalUntil = 0;
-    g.holes = holes;
     garbageQueue.push_back(g);
     st.linesReceived += lines;
 }
@@ -413,6 +435,8 @@ void TetPlayer::confirmFromPuyo(const std::vector<int>& ids) {
 }
 
 // garbage.js applyGarbage（異種戦＝1回の設置で最大7ライン、テト同士は上限なし）
+// 穴は受ける側がこの着弾（1回の呼び出し）の中で決める：1段目はランダム、2段目から holeRate% で前の段と同じ列。
+// 前の着弾とはつながらない。乱数は holeRng（ツモの rng を使うとツモ列がずれる）。
 void TetPlayer::applyGarbage() {
     std::vector<TGarbage> readyG, rest;
     for (auto& g : garbageQueue) {
@@ -423,13 +447,18 @@ void TetPlayer::applyGarbage() {
     garbageQueue = rest;
     const int limit = vsTet ? 1 << 30 : 7;
     int dropped = 0;
+    int lastHole = -1;
     for (size_t j = 0; j < readyG.size(); j++) {
         TGarbage& g = readyG[j];
         int dropCount = 0;
         for (int i = 0; i < g.amount; i++) {
             if (dropped >= limit) break;
             for (int y = 0; y < TROWS - 1; y++) rows[y] = rows[y + 1];   // 最上段より上へ押し出された分は消える（本番は見えない段に残るが判定に効かない）
-            int hole = (i < (int)g.holes.size()) ? g.holes[i] : (int)std::floor(rng.next() * TCOLS);
+            int hole;
+            if (dropped == 0) hole = (int)std::floor(holeRng.next() * TCOLS);
+            else if (holeRng.next() < holeRatePercent / 100.0) hole = lastHole;
+            else hole = (lastHole + (int)std::floor(holeRng.next() * (TCOLS - 1)) + 1) % TCOLS;
+            lastHole = hole;
             rows[TROWS - 1] = (uint16_t)(0x3FF & ~(1 << hole));
             dropCount++;
             dropped++;
@@ -437,7 +466,6 @@ void TetPlayer::applyGarbage() {
         if (dropCount < g.amount) {
             TGarbage r = g;
             r.amount = g.amount - dropCount;
-            r.holes = g.holes.size() > (size_t)dropCount ? std::vector<int>(g.holes.begin() + dropCount, g.holes.end()) : std::vector<int>();
             r.ready = true;
             garbageQueue.insert(garbageQueue.begin(), r);
             for (size_t k = j + 1; k < readyG.size(); k++) garbageQueue.push_back(readyG[k]);
@@ -572,7 +600,9 @@ void TetPlayer::lockPiece(double t) {
 
     // 次のミノの直前に、届いているおじゃまを適用（DAMAGE ON CLEAR が ON なら消去時も）
     now = t;
+    const int taken0 = st.garbageLinesTaken;
     if (damageOnClear || lines == 0) applyGarbage();
+    if (keepLog) { locks.back().landed = st.garbageLinesTaken - taken0; locks.back().height = stackHeight(); }
 
     // popMino
     int nt = queue.front();
@@ -588,9 +618,8 @@ void TetPlayer::releaseAttack(double t, bool cleared, int puyoAtk, int tetAtk) {
         if (tetAtk <= 0) return;
         int remain = offsetQueue(garbageQueue, tetAtk);
         if (remain > 0) {
-            std::vector<int> holes = holesFor(remain, holeRng);   // garbage_router.ts routeGarbage（送る側で穴を決める）
             st.tetSent += remain;
-            if (onSendTet) onSendTet(t, remain, holes);
+            if (onSendTet) onSendTet(t, remain);   // garbage_router.ts routeGarbage（穴は付けない）
         }
         return;
     }
@@ -773,9 +802,27 @@ double TetPlayer::plan() {
             int tsType = -1;   // lv6n は探索が T-spin の種類を返す（clys は経路の最後の操作から推定）
             if (level == TET_LV6N) {
                 // lv6 の新しい探索：current＋内部 NEXT 全部（深さ clysDepth まで使う）。幅・締め切りも clys の設定欄を使う
-                int nout[96];
-                cpuSearchLv6n(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights, tetWeightsLen(weightLevel()),
-                              clysWidth, clysDepth, clysThinkMs, nout, 96);
+                // テト同士なら ctx（相手の状態・予告・マージン段）つきの lv7Search2。見積もりの重みが 0 なら結果は同じ
+                int nout[TET_LV7_OUT_LEN];
+                if (opp) {
+                    int ctx[TET_LV7_CTX_MAX];
+                    const int ctxLen = buildLv7Ctx(ctx);
+                    cpuSearchLv6n2(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights,
+                                   tetWeightsLen(weightLevel()), clysWidth, clysDepth, clysThinkMs, ctx, ctxLen, nout,
+                                   TET_LV7_OUT_LEN);
+                    w0 += nout[175] * 0.01;   // D0 の記録にかかった時間は思考に数えない（手の時刻を変えない）
+                    if (keepLog && (nout[96] & 1)) {
+                        TThreatRec r{};
+                        r.t = now; r.myPieces = st.pieces; r.oppPieces = opp->st.pieces;
+                        r.myHeight = stackHeight(); r.myIncoming = sc.incoming;
+                        r.oppHeight = opp->stackHeight(); r.oppIncoming = opp->incomingLines(); r.oppRen = opp->ren;
+                        std::memcpy(r.out, nout + 96, sizeof r.out);
+                        threats.push_back(r);
+                    }
+                } else {
+                    cpuSearchLv6n(sc.board, qa, na, hold, bagAfter, sc.b2b, ren, sc.incoming, weights,
+                                  tetWeightsLen(weightLevel()), clysWidth, clysDepth, clysThinkMs, nout, 96);
+                }
                 // 下の処理は clys の出力の並びで読むので詰め直す（path は [16..]）
                 std::memset(cout_, 0, sizeof cout_);
                 for (int i = 0; i < 12; i++) cout_[i] = nout[i];

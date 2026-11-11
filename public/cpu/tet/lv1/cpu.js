@@ -29,9 +29,11 @@ window.CPU = class{
     }
     
 
+    // 盤面に触るのは game.cpuAction だけ。待ち時間は game.cpuSchedule、毎フレームの見張りは game.cpuFrame
+    // （どれもフレームの入力の所で動く。core/cpu_port.js・設計 record §4.1 D6）
     start() {
         this.isActive = true;
-        this.updateLoop();
+        this.game.cpuFrame(() => this.updateLoop());
     }
 
     stop() {
@@ -56,7 +58,7 @@ window.CPU = class{
             this.updateGhostEval();
         }
 
-        requestAnimationFrame(() => this.updateLoop());
+        this.game.cpuFrame(() => this.updateLoop());
     }
 
     onMinoSpawned() {
@@ -99,13 +101,13 @@ window.CPU = class{
                         if (!this.isActive || this.game.mino !== this.currentMino) return;
                         
                         if (this.game.isPaused || this.game.state === 'paused') {
-                            setTimeout(tryDrop, 100); // ポーズ中なら100ms後に再チェック
+                            this.game.cpuSchedule(100, tryDrop); // ポーズ中なら100ms後に再チェック
                             return;
                         }
-                        this.game.hardDrop();
+                        this.game.cpuAction('hardDrop');
                     };
                     
-                    setTimeout(tryDrop, 1000); // 1秒待機してからドロップを試みる
+                    this.game.cpuSchedule(1000, tryDrop); // 1秒待機してからドロップを試みる
                 }
             } else {
                 // 最適手が見つからなかった場合（ゲームオーバー寸前など）のフォールバック
@@ -113,12 +115,12 @@ window.CPU = class{
                     if (!this.isActive || this.game.mino !== this.currentMino) return;
                     
                     if (this.game.isPaused || this.game.state === 'paused') {
-                        setTimeout(tryDropFallback, 100);
+                        this.game.cpuSchedule(100, tryDropFallback);
                         return;
                     }
-                    this.game.hardDrop();
+                    this.game.cpuAction('hardDrop');
                 };
-                setTimeout(tryDropFallback, 1000);
+                this.game.cpuSchedule(1000, tryDropFallback);
             }
         }
     }
@@ -387,31 +389,11 @@ window.CPU = class{
         return score;
     }
 
-    // めり込みを防止しつつ目標の位置へ移動する
+    // めり込みを防止しつつ目標の位置へ移動する（出現位置で向きを変えてから x へ飛ばす。game.cpuAction 'teleport'）
     moveMinoTo(id, targetRot, targetX, spawnY) {
         const mino = this.game.mino;
         if (!mino || mino.type !== id) return;
-
-        // まずY座標を安全な場所（spawnY）に戻してから回転操作を行う
-        if (spawnY !== undefined) {
-            mino.y = spawnY;
-        }
-
-        // 目標の向きになるまで、必要な回数だけ確実に回転させる
-        let rotationsNeeded = (targetRot - mino.rotation + 4) % 4;
-        for (let i = 0; i < rotationsNeeded; i++) {
-            mino.rotate(); 
-            mino.rotation = (mino.rotation + 1) % 4; // 内部の数値を手動で同期させる！
-        }
-
-        const prevX = mino.x;
-        mino.x = targetX;
-        
-        // 移動した結果がフィールド外やブロックと重なる場合（重力で落ちてしまった場合など）
-        // その場合はX座標を元に戻してフォールバックする
-        if (!this.game.valid(0, 0)) {
-            mino.x = prevX;
-        }
+        this.game.cpuAction('teleport', targetRot, targetX, spawnY);
 
         this.game.drawAll();
     }

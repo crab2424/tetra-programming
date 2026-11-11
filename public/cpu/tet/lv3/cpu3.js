@@ -65,7 +65,10 @@ window.CPU3 = class {
                 console.log("🚀 Wasm Worker 3 Ready!"); 
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
-                this.handleWorkerResult(e.data.result);
+                // 結果はフレームの入力の所で受け取る（盤面に触るのは game.cpuAction だけ。core/cpu_port.js）
+                // 録画には思考の結果も残す（再生中に CPU の考えを出す。game.cpuThink → core/replay.js）
+                const res = e.data.result;
+                this.game.cpuSchedule(0, () => { this.game.cpuThink(res); this.handleWorkerResult(res); });
             }
         };
 
@@ -84,9 +87,9 @@ window.CPU3 = class {
             this.isExecutingAction = true;
             this.actionQueue = this.buildActionQueue(bestResult);
             
-            setTimeout(() => {
+            this.game.cpuSchedule(this.actionDelay, () => {
                 this.processActionQueue();
-            }, this.actionDelay);
+            });
         }
     }
 
@@ -178,9 +181,9 @@ window.CPU3 = class {
 
         // ★ポーズ中はアクションの実行を一時停止し、100msごとに解除を待つ
         if (this.game.isPaused || this.game.state === 'paused') {
-            setTimeout(() => {
+            this.game.cpuSchedule(100, () => {
                 if (this.isActive && this.isAutoPlay) this.processActionQueue();
-            }, 100);
+            });
             return;
         }
 
@@ -194,44 +197,20 @@ window.CPU3 = class {
 
         switch (action.type) {
             case 'hold':
-                this.game.holdCurrentMino();
+                this.game.cpuAction('hold');
                 break;
             case 'rotateCW':
-                this.game.tryRotate(1);
+                this.game.cpuAction('rotate', 1);
                 break;
             case 'rotateCCW':
-                this.game.tryRotate(-1);
+                this.game.cpuAction('rotate', -1);
                 break;
             case 'moveToTargetX':
-                if (this.game.mino.x < action.targetX) {
-                    let prevX = this.game.mino.x;
-                    if (this.game.valid(1, 0)) this.game.mino.x++;
-                    
-                    if (this.game.mino.x < action.targetX) {
-                        if (prevX === this.game.mino.x) {
-                            this.game.mino.x = action.targetX;
-                        } else {
-                            this.actionQueue.unshift(action); 
-                        }
-                    }
-                } else if (this.game.mino.x > action.targetX) {
-                    let prevX = this.game.mino.x;
-                    if (this.game.valid(-1, 0)) this.game.mino.x--;
-
-                    if (this.game.mino.x > action.targetX) {
-                        if (prevX === this.game.mino.x) {
-                            this.game.mino.x = action.targetX;
-                        } else {
-                            this.actionQueue.unshift(action); 
-                        }
-                    }
-                }
+                // 1 マス寄せる（動けなければ飛ばす。移動音なし）
+                if (this.game.cpuAction('stepToX', action.targetX, false)) this.actionQueue.unshift(action);
                 break;
             case 'softdropToBottom':
-                if (this.game.valid(0, 1)) {
-                    this.game.mino.y++;
-                    this.game.score += 1;
-                    this.game.updateLowestY();
+                if (this.game.cpuAction('softDropQuiet')) {
                     if (this.game.valid(0, 1)) {
                         action.delay = 15; 
                         this.actionQueue.unshift(action);
@@ -239,17 +218,11 @@ window.CPU3 = class {
                 }
                 break;
             case 'warpToTarget':
-                this.game.mino.x = action.targetX;
-                this.game.mino.y = action.targetY;
-                while (this.game.mino.rotation !== action.targetRot) {
-                    this.game.mino.rotate(); 
-                    this.game.mino.rotation = (this.game.mino.rotation + 1) % 4;
-                }
-                this.game.lastActionWasRotation = true;
-                this.game.lastRotUsedPoint5 = true; 
+                // T-spin の最後の回転扱いで目標の位置・向きへ飛ばす
+                this.game.cpuAction('warp', action.targetX, action.targetY, action.targetRot);
                 break;
             case 'harddrop':
-                this.game.hardDrop(); 
+                this.game.cpuAction('hardDrop');
                 break;
         }
 
@@ -262,18 +235,18 @@ window.CPU3 = class {
         let delayTime = action.delay !== undefined ? action.delay : this.actionDelay;
 
         if (this.actionQueue.length > 0) {
-            setTimeout(() => {
+            this.game.cpuSchedule(delayTime, () => {
                 if (this.isActive && this.isAutoPlay) {
                     this.processActionQueue();
                 }
-            }, delayTime);
+            });
         } else {
             // ★待機時間中のポーズにも対応
             const tryFinish = () => {
                 if (!this.isActive || !this.isAutoPlay) return;
                 
                 if (this.game.isPaused || this.game.state === 'paused') {
-                    setTimeout(tryFinish, 100);
+                    this.game.cpuSchedule(100, tryFinish);
                     return;
                 }
                 
@@ -283,7 +256,7 @@ window.CPU3 = class {
                     this.executeAction(this.bestMoveData);
                 }
             };
-            setTimeout(tryFinish, delayTime);
+            this.game.cpuSchedule(delayTime, tryFinish);
         }
     }
 
@@ -313,7 +286,7 @@ window.CPU3 = class {
     start() {
         this.isActive = true;
         this.initEstimateContainer();
-        this.updateLoop();
+        this.game.cpuFrame(() => this.updateLoop());
     }
 
     stop() {
@@ -335,7 +308,7 @@ window.CPU3 = class {
             this.currentMino = this.game.mino;
             this.onMinoSpawned();
         }
-        requestAnimationFrame(() => this.updateLoop());
+        this.game.cpuFrame(() => this.updateLoop());
     }
 
     onMinoSpawned() {
@@ -409,12 +382,12 @@ window.CPU3 = class {
                 const tryDropFallback = () => {
                     if (!this.isActive || this.game.mino !== this.currentMino) return;
                     if (this.game.isPaused || this.game.state === 'paused') {
-                        setTimeout(tryDropFallback, 100);
+                        this.game.cpuSchedule(100, tryDropFallback);
                         return;
                     }
-                    this.game.hardDrop();
+                    this.game.cpuAction('hardDrop');
                 };
-                setTimeout(tryDropFallback, 700);
+                this.game.cpuSchedule(700, tryDropFallback);
             }
             return;
         }

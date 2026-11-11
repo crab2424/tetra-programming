@@ -82,7 +82,10 @@ window.PuyoCPU5 = class {
                 if (!this.workerReady && this._logEnabled()) console.log(`${this._logTag()} ready 重み=${this.constructor.WEIGHTS_ID}`);
                 this.workerReady = true;
             } else if (e.data.type === 'result') {
-                this._handleWorkerResult(e.data.result);
+                // 結果はフレームの入力の所で受け取る（盤面に触るのは game.cpuAction だけ。core/cpu_port.js）
+                // 録画には思考の結果も残す（再生中に CPU の考えを出す。game.cpuThink → core/replay.js）
+                const res = e.data.result;
+                this.game.cpuSchedule(0, () => { this.game.cpuThink(res); this._handleWorkerResult(res); });
             }
         };
     }
@@ -95,7 +98,7 @@ window.PuyoCPU5 = class {
         this._oppChainWatch = null;
         this.hasCalculatedForCurrentPiece = false;
         this._initEstimateContainer();
-        this._updateLoop();
+        this.game.cpuFrame(() => this._updateLoop());
     }
 
     stop() {
@@ -107,10 +110,9 @@ window.PuyoCPU5 = class {
         this.lastDropTime      = null;
         this.hasCalculatedForCurrentPiece = false;
 
-        if (this._softDropRafId !== null) {
-            cancelAnimationFrame(this._softDropRafId);
-            this._softDropRafId = null;
-        }
+        // 高速落下の tick を止める（世代を進めると古い tick は何もせず抜ける）
+        this._softDropGen = (this._softDropGen || 0) + 1;
+        this._softDropRafId = null;
 
         this._restoreGravity();
 
@@ -174,7 +176,7 @@ window.PuyoCPU5 = class {
             this.hasCalculatedForCurrentPiece = false;
         }
 
-        requestAnimationFrame(() => this._updateLoop());
+        this.game.cpuFrame(() => this._updateLoop());
     }
 
     // ── 思考ログ（印・表示切替）──

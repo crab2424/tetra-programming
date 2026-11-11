@@ -140,17 +140,21 @@
       </div>
 
       <!-- フッター：基準はメインキャンバス(#main-menu-container)。
-             SETTINGS/RANKING を横並びにし、その真下に TITLE、左下に CREDITS、右下に CHANGELOG を配置 -->
+             RANKING/SETTINGS/REPLAYS を横並びにし、その真下に TITLE、左下に CREDITS、右下に CHANGELOG を配置 -->
       <div id="main-menu-footer">
         <div id="main-menu-footer-center">
           <div id="main-menu-footer-row">
+            <button id="main-menu-ranking-btn" class="menu-btn btn-secondary" onclick="switchPage('ranking')">
+              <span class="menu-btn-icon">🏆</span>
+              <span>RANKING</span>
+            </button>
             <button id="main-menu-settings-btn" class="menu-btn btn-secondary" onclick="switchPage('settings')">
               <span class="menu-btn-icon">⚙</span>
               <span>SETTINGS</span>
             </button>
-            <button id="main-menu-ranking-btn" class="menu-btn btn-secondary" onclick="switchPage('ranking')">
-              <span class="menu-btn-icon">🏆</span>
-              <span>RANKING</span>
+            <button id="main-menu-replays-btn" class="menu-btn btn-secondary" onclick="switchPage('replays')">
+              <span class="menu-btn-icon">▶</span>
+              <span>REPLAYS</span>
             </button>
           </div>
           <button class="util-link util-link-title" onclick="switchPage('title')">
@@ -184,6 +188,9 @@
         <p id="mode-check-desc-en" class="mode-check-desc-en"></p>
       </div>
       <p id="mode-check-best" style="display: none"></p>
+      <button id="mode-check-best-replay" class="util-link mode-check-best-replay" style="display: none">
+        <span class="util-icon">▶</span><span>WATCH BEST</span>
+      </button>
       <div id="mode-check-buttons">
         <button class="menu-btn btn-primary" id="mode-check-start-btn" onclick="startGameFromModeCheck()">
           <span class="menu-btn-icon" id="mode-check-start-icon">▶</span>
@@ -219,6 +226,37 @@
 
       <div id="ranking-buttons">
         <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+          <span class="menu-btn-icon">◀</span>
+          <span>BACK</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+    MARK: REPLAYSページ（public/app/replays.js が描画）
+    ───────────────────────────────────────────── -->
+  <div id="replays-page" class="page">
+    <div id="replays-container">
+      <h2 class="ranking-title">REPLAYS</h2>
+      <div class="option-toggle" id="replays-filter">
+        <button class="opt-btn active" data-filter="all" onclick="ReplaysPage.setFilter('all')">ALL</button>
+        <button class="opt-btn" data-filter="tet" onclick="ReplaysPage.setFilter('tet')">TET</button>
+        <button class="opt-btn" data-filter="puyo" onclick="ReplaysPage.setFilter('puyo')">PUYO</button>
+        <button class="opt-btn" data-filter="versus" onclick="ReplaysPage.setFilter('versus')">VERSUS</button>
+        <button class="opt-btn" data-filter="clip" onclick="ReplaysPage.setFilter('clip')">CLIP</button>
+        <button class="opt-btn" data-filter="star" onclick="ReplaysPage.setFilter('star')">★</button>
+      </div>
+      <p id="replays-status" class="ranking-status" style="display: none"></p>
+      <div id="replays-list" class="replays-list"></div>
+      <p class="ranking-hint" id="replays-hint">最後まで遊んだ試合を直近 30 本まで自動で残します（★・最高記録・CLIP は消えません）。CLIP は再生中の印の画面（M）から作れます。ファイルをここへドロップしても読み込めます。</p>
+      <div id="replays-buttons">
+        <input type="file" id="replays-import-input" accept=".tlreplay,.json,application/json,application/gzip" multiple style="display: none">
+        <button class="menu-btn btn-secondary" onclick="document.getElementById('replays-import-input').click()">
+          <span class="menu-btn-icon">⤒</span>
+          <span>IMPORT</span>
+        </button>
+        <button class="menu-btn btn-secondary" onclick="ReplaysPage.back()">
           <span class="menu-btn-icon">◀</span>
           <span>BACK</span>
         </button>
@@ -550,6 +588,10 @@
           </button>
           <button class="pause-btn btn-restart" onclick="restartVersus()">
             ↺ RESTART
+          </button>
+          <!-- ★ 録画の PLAY HERE で始めた対戦の続きのときだけ（core/replay.js の _setBack） -->
+          <button class="pause-btn btn-settings" id="versus-pause-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+            ◀ REPLAY
           </button>
           <button class="pause-btn btn-versus-primary" onclick="versusGoToModeSelect()">
             ◀ MODE SELECT
@@ -897,6 +939,27 @@
           <span class="menu-btn-icon">↺</span>
           <span>RETRY</span>
         </button>
+        <!-- ★ 録画の PLAY HERE で始めた対戦の続きのときだけ（core/replay.js の _setBack） -->
+        <button class="menu-btn btn-secondary" id="versus-result-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+          <span class="menu-btn-icon">◀</span>
+          <span>REPLAY</span>
+        </button>
+        <!-- ★ 録画・再生: 最後まで遊んだ対戦のときだけ表示（core/replay.js が制御） -->
+        <div class="result-replay-tools" id="versus-result-replay-btn" style="display: none">
+          <button class="menu-btn btn-secondary" onclick="ReplayManager.watchResult()">
+            <span class="menu-btn-icon">▶</span>
+            <span>WATCH REPLAY</span>
+          </button>
+          <button class="menu-btn btn-secondary result-replay-save" onclick="ReplayManager.saveResult()" title="自動保存が OFF のとき、このリプレイを REPLAYS に残す" style="display: none">
+            <span class="result-replay-save-label">SAVE</span>
+          </button>
+          <button class="menu-btn btn-secondary result-replay-star" onclick="ReplayManager.starResult()" title="STAR">
+            <span class="menu-btn-icon result-replay-star-icon">☆</span>
+          </button>
+          <button class="menu-btn btn-secondary" onclick="ReplayManager.exportResult()" title="EXPORT">
+            <span class="menu-btn-icon">⤓</span>
+          </button>
+        </div>
         <button class="menu-btn btn-secondary" onclick="versusResultBack()">
           <span class="menu-btn-icon">◀</span>
           <span>MODE SELECT</span>
@@ -912,6 +975,77 @@
   <!-- ─────────────────────────────────────────────
     MARK: ゲームページ
     ───────────────────────────────────────────── -->
+      <!-- ★ 録画・再生の画面（core/replay.js。見ている間だけ body.replay-watching で出す。ゲーム画面・対戦画面の両方で使う）
+           上の帯＝何を見ているか・状態、下のバー＝時間の操作、盤面の上＝CPU の思考（UI 設計書 tetlabo-record-ui-design.md §4）。
+           H キー／◱ で body.replay-ui-hidden を付け外しして全部隠す -->
+  <div id="replay-top" class="replay-top replay-ui">
+    <span class="replay-badge">REPLAY</span>
+    <span id="replay-title" class="replay-title"></span>
+    <span id="replay-state" class="replay-state"></span>
+    <span class="replay-top-spacer"></span>
+    <button id="replay-ui-btn" class="replay-btn replay-icon-btn" type="button" title="UI を隠す H">◱</button>
+    <button id="replay-menu-btn" class="replay-btn replay-icon-btn" type="button" title="PAUSE ESC">≡</button>
+  </div>
+  <div id="replay-msg" class="replay-msg replay-ui" style="display: none"></div>
+  <div id="replay-think-0" class="replay-think replay-ui" style="display: none"></div>
+  <div id="replay-think-1" class="replay-think replay-ui" style="display: none"></div>
+  <button id="replay-ui-show" class="replay-ui-show" type="button" title="UI を出す H">H: SHOW UI</button>
+  <div id="replay-bar" class="replay-bar replay-ui">
+    <div class="replay-bar-row">
+      <button id="replay-play-btn" class="replay-btn replay-icon-btn" type="button" title="再生/停止 SPACE">▶</button>
+      <button id="replay-step-prev" class="replay-btn" type="button" title="1 手戻る ,">|◀</button>
+      <button id="replay-step-next" class="replay-btn" type="button" title="1 手進む .">▶|</button>
+      <span id="replay-time" class="replay-time">00:00.00 / 00:00.00</span>
+      <button id="replay-mark-prev" class="replay-btn" type="button" title="前の印 [">◀◆</button>
+      <span class="replay-seek-wrap">
+        <input id="replay-seek" class="replay-seek" type="range" min="0" max="1" step="1" value="0">
+        <span id="replay-marks" class="replay-marks"></span>
+      </span>
+      <button id="replay-mark-next" class="replay-btn" type="button" title="次の印 ]">◆▶</button>
+      <span class="replay-speed" title="速さ ↑ ↓">
+        <button id="replay-speed-down" class="replay-btn replay-speed-step" type="button">◂</button>
+        <span id="replay-speed-label" class="replay-speed-label">1x</span>
+        <button id="replay-speed-up" class="replay-btn replay-speed-step" type="button">▸</button>
+      </span>
+      <button id="replay-marks-btn" class="replay-btn" type="button" title="印の画面 M">◆ 0</button>
+    </div>
+  </div>
+  <!-- ★ 印の画面（M／◆ n／PAUSE の MARKS で開く。UI 設計書 §7）。中央の縦線を選んだ札に合わせて、札を時刻順に横へ並べる
+       （対戦は上の段 1P・下の段 2P）。札は見えている範囲だけ core/replay.js（_mkRender）が作る -->
+  <div id="replay-marks-overlay">
+    <div class="replay-mk-head">
+      <span class="replay-mk-title">MARKS</span>
+      <span id="replay-mk-count" class="replay-mk-count"></span>
+      <span class="replay-top-spacer"></span>
+      <button id="replay-mk-close" class="replay-btn" type="button" title="閉じる ESC / M">✕ CLOSE</button>
+    </div>
+    <div id="replay-mk-strip" class="replay-mk-strip">
+      <div id="replay-mk-lanes" class="replay-mk-lanes"></div>
+      <div id="replay-mk-now" class="replay-mk-now"><span>NOW</span></div>
+      <div class="replay-mk-center"><span id="replay-mk-center-time"></span></div>
+    </div>
+    <p class="replay-pause-keys">← → 前/次の印　↑ ↓ 段を移る　Enter その印へ（1 秒前・止めたまま）　C CLIP（前 5 秒・後 3 秒）　ESC / M 閉じる<br>札をクリックで選ぶ・もう一度で飛ぶ　ホイールで横に流す</p>
+  </div>
+  <!-- ★ 再生専用の PAUSE 画面（ポーズキー／≡ で開く。見た目はゲームの #pause-overlay と同じ。UI 設計書 §5）。
+       SPACE は幕なしの停止/再生のまま。開いている間に ← → , . [ ] を押したら閉じて止めたまま動かす -->
+  <div id="replay-pause-overlay">
+    <div class="replay-pause-modal">
+      <h2 id="replay-pause-title" class="replay-pause-title">PAUSE</h2>
+      <div id="replay-pause-buttons" class="replay-pause-buttons">
+        <button class="pause-btn btn-resume" id="replay-pause-resume" type="button">▶ RESUME</button>
+        <button class="pause-btn btn-resume" id="replay-pause-again" type="button" style="display: none">↺ REPLAY AGAIN</button>
+        <button class="pause-btn btn-restart" id="replay-pause-restart" type="button">↺ RESTART</button>
+        <button class="pause-btn btn-restart" id="replay-pause-marks" type="button">◆ MARKS</button>
+        <button class="pause-btn btn-settings" id="replay-pause-here" type="button">⚑ PLAY HERE</button>
+        <p class="replay-pause-note" id="replay-pause-here-note" style="display: none"></p>
+        <button class="pause-btn btn-settings" id="replay-pause-save" type="button" style="display: none">⤓ SAVE REPLAY</button>
+        <button class="pause-btn btn-restart" id="replay-pause-exit" type="button">◀ EXIT</button>
+        <button class="pause-btn btn-mainmenu" id="replay-pause-mainmenu" type="button">⌂ MAIN MENU</button>
+      </div>
+      <p class="replay-pause-keys">SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む<br>↑ ↓ 速さ　[ ] 前/次の印　M 印の画面　H UI 表示　ESC ポーズ</p>
+    </div>
+  </div>
+
   <div id="game-page" class="page">
     <div id="container">
       <!-- ★ QUIZモード用フィールドヘッダー（quiz.jsが表示/非表示を制御） -->
@@ -1136,6 +1270,10 @@
               onclick="handlePauseAction('quiz-levelselect')" style="display: none">
               ◀ LEVEL SELECT
             </button>
+            <!-- ★ 録画の PLAY HERE で始めた PRACTICE のときだけ（core/replay.js の _setBack） -->
+            <button class="pause-btn btn-settings" id="pause-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+              ◀ REPLAY
+            </button>
             <!-- ★ PRACTICEモード専用: 任意のタイミングでリザルトへ抜ける -->
             <button class="pause-btn btn-practice-primary" id="pause-practice-finish-btn"
               onclick="handlePauseAction('practice-finish')" style="display: none">
@@ -1194,6 +1332,27 @@
           <span class="menu-btn-icon">↺</span>
           <span>RETRY</span>
         </button>
+        <!-- ★ 録画の PLAY HERE で始めた PRACTICE のときだけ（core/replay.js の _setBack） -->
+        <button class="menu-btn btn-secondary" id="result-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+          <span class="menu-btn-icon">◀</span>
+          <span>REPLAY</span>
+        </button>
+        <!-- ★ 録画・再生: tet シングル（MARATHON/SPRINT/ULTRA）を最後まで遊んだときだけ表示（core/replay.js が制御） -->
+        <div class="result-replay-tools" id="result-replay-btn" style="display: none">
+          <button class="menu-btn btn-secondary" onclick="ReplayManager.watchResult()">
+            <span class="menu-btn-icon">▶</span>
+            <span>WATCH REPLAY</span>
+          </button>
+          <button class="menu-btn btn-secondary result-replay-save" onclick="ReplayManager.saveResult()" title="自動保存が OFF のとき、このリプレイを REPLAYS に残す" style="display: none">
+            <span class="result-replay-save-label">SAVE</span>
+          </button>
+          <button class="menu-btn btn-secondary result-replay-star" onclick="ReplayManager.starResult()" title="STAR">
+            <span class="menu-btn-icon result-replay-star-icon">☆</span>
+          </button>
+          <button class="menu-btn btn-secondary" onclick="ReplayManager.exportResult()" title="EXPORT">
+            <span class="menu-btn-icon">⤓</span>
+          </button>
+        </div>
         <button class="menu-btn btn-secondary" onclick="stopAllGames();switchPage('mode-check')">
           <span class="menu-btn-icon">◀</span>
           <span>MODE SELECT</span>
@@ -1323,6 +1482,13 @@
             </div>
           </div>
           <div id="ghost-style-preview"></div>
+          <div class="option-row" title="OFF のときはリザルトの SAVE で残します。最高記録・CLIP は OFF でも残ります">
+            <span class="option-label">REPLAY AUTO SAVE</span>
+            <div class="option-toggle" id="display-replay-autosave-toggle">
+              <button class="opt-btn" data-value="on" onclick="setDisplayOption('replayAutoSave', true)">ON</button>
+              <button class="opt-btn" data-value="off" onclick="setDisplayOption('replayAutoSave', false)">OFF</button>
+            </div>
+          </div>
           <div class="option-row">
             <span class="option-label">最高記録</span>
             <button class="btn btn-reset-records" onclick="resetRecords()">RESET RECORDS</button>
@@ -1394,56 +1560,63 @@
   <div id="external-pages"></div>
 
   <script src="config/pages.js?v=9"></script>
-  <script src="core/base.js?v=21"></script>
+  <script src="core/base.js?v=24"></script>
+  <!-- ゲーム時計・試合の乱数（エンジンより先に読む。設計: source_assets/memory/record/） -->
+  <script src="core/game_clock.js?v=6"></script>
+  <script src="core/match_loop.js?v=3"></script>
+  <script src="core/cpu_port.js?v=3"></script>
+  <script src="core/game_rng.js?v=2"></script>
+  <script src="core/replay.js?v=20"></script>
   <script src="core/dialog.js?v=2"></script>
-  <script src="core/particles.js?v=7"></script>
+  <script src="core/particles.js?v=8"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=13"></script>
-  <script src="config/records.js?v=3"></script>
+  <script src="config/settings.js?v=14"></script>
+  <script src="config/records.js?v=4"></script>
   <script src="config/account.js?v=6"></script>
   <script src="core/hud_extras.js?v=4"></script>
-  <script src="config/vs_settings.js?v=4"></script>
+  <script src="config/vs_settings.js?v=6"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
-  <script src="game/tet/core.js"></script>
-  <script src="game/tet/lifecycle.js?v=8"></script>
-  <script src="game/tet/board.js?v=6"></script>
-  <script src="game/tet/rotation.js?v=2"></script>
+  <script src="game/tet/core.js?v=4"></script>
+  <script src="game/tet/lifecycle.js?v=14"></script>
+  <script src="game/tet/board.js?v=13"></script>
+  <script src="game/tet/rotation.js?v=4"></script>
   <script src="game/tet/scoring.js?v=3"></script>
-  <script src="game/tet/garbage.js?v=2"></script>
-  <script src="game/tet/render.js?v=5"></script>
-  <script src="game/tet/input.js?v=5"></script>
+  <script src="game/tet/garbage.js?v=6"></script>
+  <script src="game/tet/render.js?v=10"></script>
+  <script src="game/tet/input.js?v=11"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
-  <script src="game/puyo/core.js?v=4"></script>
-  <script src="game/puyo/lifecycle.js?v=4"></script>
+  <script src="game/puyo/core.js?v=8"></script>
+  <script src="game/puyo/lifecycle.js?v=9"></script>
   <script src="game/puyo/connect.js"></script>
-  <script src="game/puyo/ojama.js?v=5"></script>
-  <script src="game/puyo/engine.js?v=10"></script>
-  <script src="game/puyo/input.js?v=6"></script>
-  <script src="game/puyo/draw.js?v=10"></script>
-  <script src="quiz/quiz.js?v=7"></script>
+  <script src="game/puyo/ojama.js?v=9"></script>
+  <script src="game/puyo/engine.js?v=19"></script>
+  <script src="game/puyo/input.js?v=12"></script>
+  <script src="game/puyo/draw.js?v=11"></script>
+  <script src="quiz/quiz.js?v=10"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=16"></script>
+  <script src="app/modes.js?v=25"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <script src="app/cpu_match_log.js?v=2"></script>
-  <script src="app/versus.js?v=16"></script>
+  <script src="app/versus.js?v=21"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=34"></script>
+  <script src="app/navigation.js?v=40"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/focus_nav.js?v=17"></script>
+  <script src="app/replays.js?v=7"></script>
+  <script src="app/focus_nav.js?v=22"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
-  <script src="app/board_swap.js?v=4"></script>
+  <script src="app/board_swap.js?v=7"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
-  <script src="practice/practice_snapshot.js?v=3"></script>
+  <script src="practice/practice_snapshot.js?v=4"></script>
   <script src="practice/practice_sequence.js?v=7"></script>
   <script src="practice/practice_panel.js?v=22"></script>
-  <script src="practice/practice.js?v=33"></script>
+  <script src="practice/practice.js?v=36"></script>
   <!-- アシスト（盤面ガイド）。PRACTICE / VERSUS から Assist.attach で呼ばれる -->
   <script src="assist/assist.js?v=6"></script>
   <script src="assist/assist_overlay.js?v=3"></script>
-  <script src="assist/assist_tet.js?v=16"></script>
+  <script src="assist/assist_tet.js?v=19"></script>
   <script src="assist/assist_puyo.js?v=7"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>

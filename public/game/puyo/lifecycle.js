@@ -10,6 +10,9 @@ Object.assign(PuyoGame.prototype, {
         this._setupCanvas();
         this._setupStatDisplay();
         this._loadImages(() => {
+            this._newRngStreams(); // 乱数を試合ごとに作り直す（色・ツモより先に）
+            // 録画を始める（対象のモードだけ）／再生なら録画したときの時刻と経過時間の列に合わせる（core/replay.js）
+            ReplayManager.begin(this);
             this._initActiveColors();
             this._resetState();
 
@@ -47,43 +50,33 @@ Object.assign(PuyoGame.prototype, {
                         : window.BgmManager.singleBgmKey(this.currentMode));
                 }
                 this._startGameplay();
-            }, null);
+            }, null, undefined, false, this.clock);
         });
     },
 
     _startGameplay() {
-        this._stopCountdownDas(); // ★ カウントダウン用DASループを止めてから本編ループへ移行（DASのチャージ量は維持）
-        this.state = 'playing';
-        this.lastTime = performance.now();
+        this.state = 'playing'; // カウントダウン中から同じループ（_loop）が回っていれば、そのまま本編になる（DASのチャージ量は維持）
+        // フレームが回っていなかった間（QUIZ・ONLINE のカウントダウン）のぶんを先に進める。
+        // カウントダウンが時計の予約のとき（シングル・VERSUS）はフレームの中なので何もしない
+        this.clock.advance();
+        this.lastTime = this.clock.now();
         this._startTimer();
         this._loop();
     },
 
-    // カウントダウン中（state==='starting'）だけ回す軽量ループ。
-    // _updateDAS のみを呼び、ぷよはまだ falling ではない（_gs==='spawn'）ため、
-    // _updateDAS 内の「出現前カット」分岐が働き _arrTimer は arrMs でキャップされる。
+    // カウントダウン中（state==='starting'）から試合のループを回す。
+    // カウントダウン（時計の予約）を進めるため。あわせて _updateDAS だけを呼び、ぷよはまだ falling ではない
+    // （_gs==='spawn'）ため、_updateDAS 内の「出現前カット」分岐が働き _arrTimer は arrMs でキャップされる。
     // その結果、本編開始時には DAS がチャージ済みとなり、スタート直後から横移動できる。
     _startCountdownDas() {
-        this._stopCountdownDas();
-        this.lastTime = performance.now();
-        const tick = () => {
-            if (this.state !== 'starting') { this._countdownLoopId = null; return; }
-            this._countdownLoopId = requestAnimationFrame(tick);
-            const now = performance.now();
-            let dt = now - this.lastTime;
-            if (dt > 100) dt = 100;
-            this.lastTime = now;
-            this._updateDAS(dt);
-            this._render();
-        };
-        this._countdownLoopId = requestAnimationFrame(tick);
+        this.clock.advance();
+        this.lastTime = this.clock.now();
+        this._loop();
     },
 
+    // カウントダウン中のループを止める（本編に入る前に試合をやめたとき）
     _stopCountdownDas() {
-        if (this._countdownLoopId) {
-            cancelAnimationFrame(this._countdownLoopId);
-            this._countdownLoopId = null;
-        }
+        if (this.state === 'starting') this._stopLoop();
     },
 
     stop(keepCanvas = false) {
@@ -103,10 +96,7 @@ Object.assign(PuyoGame.prototype, {
             //    次戦は _resetState が garbageQueue を空にし _lastYokokuAmount=-1 で
             //    必ず再構築するため、持ち越されることはない。
             this._clearYokokuDOM();
-            if (this._loopId) {
-                cancelAnimationFrame(this._loopId);
-                this._loopId = null;
-            }
+            this._stopLoop();
         }
     },
 
@@ -116,13 +106,17 @@ Object.assign(PuyoGame.prototype, {
         if (this.state !== 'playing') return;
         this.state = 'paused';
         this.isPaused = true;
+        // 録画: ポーズは次のフレームの頭の出来事として残す（core/replay.js）
+        if (this._rec) this._rec.pause(this, true);
         this._stopTimer();
+        // 時計を止める（設計 D7。VERSUS は両盤面で同じ時計）。下の残り時間の保存は止めた時刻で計算する
+        this.clock.pause();
 
         // マージンタイマーの停止と残り時間の保存
         if (this._vsMarginTimer) {
-            clearTimeout(this._vsMarginTimer);
+            this.clock.cancel(this._vsMarginTimer);
             this._vsMarginTimer = null;
-            this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (performance.now() - this._vsMarginTimerStart);
+            this._vsMarginTimerRemaining = this._vsMarginTimerDuration - (this.clock.now() - this._vsMarginTimerStart);
         }
     },
 
@@ -130,19 +124,22 @@ Object.assign(PuyoGame.prototype, {
         if (this.state !== 'paused') return;
         this.state = 'playing';
         this.isPaused = false;
-        this.lastTime = performance.now();
+        if (this._rec) this._rec.pause(this, false);
+        this.clock.resume(); // 止めていた時計を動かす。止まっていた間の実時間は数えない
+        this.clock.advance();
+        this.lastTime = this.clock.now();
 
         // マージンタイマーの再開
         if (this._vsMarginTimerRemaining !== null && this._vsMarginTimerCb) {
             this._vsMarginTimerDuration = Math.max(0, this._vsMarginTimerRemaining);
-            this._vsMarginTimer = setTimeout(this._vsMarginTimerCb, this._vsMarginTimerDuration);
-            this._vsMarginTimerStart = performance.now();
+            this._vsMarginTimer = this.clock.schedule(this._vsMarginTimerDuration, this._vsMarginTimerCb);
+            this._vsMarginTimerStart = this.clock.now();
             this._vsMarginTimerRemaining = null;
         }
 
         // ★ 修正箇所：再開時は this.elapsed をリセットしない
         this._timerRunning = true;
-        this._timerStart = performance.now();
+        this._timerStart = this.clock.now();
         this._timerTick();
         this._loop();
     },
@@ -210,7 +207,11 @@ Object.assign(PuyoGame.prototype, {
         // テーブル: マージン突入から16秒ごとに [52, 34, 25, 16, 12, 8, 6, 4, 3, 2, 1] へ移行（160秒で上限）
         this.vsMarginMultiplier = 1.0; // ぷよ側では常に1.0固定（テト側との互換のため残す）
         this._puyoMarginStep = 0;      // 現在のマージンステップ（0=突入直後の最初値適用済み）
-        if (this._vsMarginTimer) { clearTimeout(this._vsMarginTimer); this._vsMarginTimer = null; }
+        if (this._vsMarginTimer) { this.clock.cancel(this._vsMarginTimer); this._vsMarginTimer = null; }
+        // マージンはゲーム時計の予約。時計はフレームの頭でしか進まないので、入れる前に今に合わせる
+        // （ポーズ中のリスタートなどで止まったままなら動かしてから）
+        this.clock.resume();
+        this.clock.advance();
         this._vsMarginTimerStart = 0;
         this._vsMarginTimerDuration = 0;
         this._vsMarginTimerCb = null;
@@ -237,8 +238,8 @@ Object.assign(PuyoGame.prototype, {
                     }
                     // 上限（ステップ10, レート1）未満なら次のタイマーをセット
                     if (this._puyoMarginStep < PUYO_MARGIN_MAX_STEP) {
-                        this._vsMarginTimer = setTimeout(step, PUYO_MARGIN_INTERVAL_MS);
-                        this._vsMarginTimerStart = performance.now();
+                        this._vsMarginTimer = this.clock.schedule(PUYO_MARGIN_INTERVAL_MS, step);
+                        this._vsMarginTimerStart = this.clock.now();
                         this._vsMarginTimerDuration = PUYO_MARGIN_INTERVAL_MS;
                         this._vsMarginTimerCb = step;
                     } else {
@@ -248,8 +249,8 @@ Object.assign(PuyoGame.prototype, {
                 if (this._puyoMarginStep < PUYO_MARGIN_MAX_STEP) {
                     // 次ステップまでの残り（事前経過がステップ境界に満たない端数を差し引く）
                     const nextDelay = PUYO_MARGIN_INTERVAL_MS - (preElapsedMs % PUYO_MARGIN_INTERVAL_MS);
-                    this._vsMarginTimer = setTimeout(step, nextDelay);
-                    this._vsMarginTimerStart = performance.now();
+                    this._vsMarginTimer = this.clock.schedule(nextDelay, step);
+                    this._vsMarginTimerStart = this.clock.now();
                     this._vsMarginTimerDuration = nextDelay;
                     this._vsMarginTimerCb = step;
                 } else {
@@ -261,8 +262,8 @@ Object.assign(PuyoGame.prototype, {
             } else if (this.vsMarginTimeMs < 0) {
                 startMargin(-this.vsMarginTimeMs); // 負=テーブルを進めた状態で即突入
             } else {
-                this._vsMarginTimer = setTimeout(startMargin, this.vsMarginTimeMs);
-                this._vsMarginTimerStart = performance.now();
+                this._vsMarginTimer = this.clock.schedule(this.vsMarginTimeMs, startMargin);
+                this._vsMarginTimerStart = this.clock.now();
                 this._vsMarginTimerDuration = this.vsMarginTimeMs;
                 this._vsMarginTimerCb = startMargin;
             }
@@ -286,6 +287,7 @@ Object.assign(PuyoGame.prototype, {
         this._dasTimer = 0;
         this._arrTimer = 0;
         this._keys = {};
+        if (this._inputQueue) this._inputQueue.length = 0; // 前の試合でためたまま取り込まれなかった入力を捨てる
         this._priorityMove = false;
         this.quickTurnCount = 0;
         this.spawnAnimTimer = 0;

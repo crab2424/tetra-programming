@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "py"))
 import tetsim  # noqa: E402
 
 OUT_LEN = 96
+OUT_LEN2 = 160   # lv7Search2（[96..] に相手の見積もり。lv7_wasm.cpp estimate_threat）
 
 
 def make_cases(n_queue=33):
@@ -49,30 +50,98 @@ def make_cases(n_queue=33):
     return cases
 
 
-def run_native(cases, weights, width, depth, think_ms):
+def run_native(cases, weights, width, depth, think_ms, out_len=OUT_LEN):
     L = tetsim._lib_lv()
     u8p = np.ctypeslib.ndpointer(np.uint8, flags="C_CONTIGUOUS")
     i32p = np.ctypeslib.ndpointer(np.int32, flags="C_CONTIGUOUS")
     L.tet_lv6n_search.argtypes = [u8p, i32p] + [ctypes.c_int] * 6 + [i32p] + [ctypes.c_int] * 4 + [i32p, ctypes.c_int]
+    L.tet_lv6n_search2.argtypes = ([u8p, i32p] + [ctypes.c_int] * 6 + [i32p] + [ctypes.c_int] * 4
+                                   + [i32p, ctypes.c_int, i32p, ctypes.c_int])
     w = np.asarray(weights, dtype=np.int32)
     res = []
     for c in cases:
-        out = np.zeros(OUT_LEN, dtype=np.int32)
-        L.tet_lv6n_search(np.asarray(c["board"], dtype=np.uint8), np.asarray(c["queue"], dtype=np.int32),
-                          len(c["queue"]), c["hold"], c["bagAfter"], c["b2b"], c["ren"], c["incoming"], w, len(w),
-                          width, depth, think_ms, out, OUT_LEN)
+        out = np.zeros(out_len, dtype=np.int32)
+        args = (np.asarray(c["board"], dtype=np.uint8), np.asarray(c["queue"], dtype=np.int32),
+                len(c["queue"]), c["hold"], c["bagAfter"], c["b2b"], c["ren"], c["incoming"], w, len(w),
+                width, depth, think_ms)
+        if "ctx" in c:
+            ctx = np.asarray(c["ctx"], dtype=np.int32)
+            L.tet_lv6n_search2(*args, ctx, len(ctx), out, out_len)
+        else:
+            L.tet_lv6n_search(*args, out, out_len)
         res.append(out)
     return np.array(res)
 
 
-def run_wasm(cases, weights, width, depth, think_ms):
+def run_wasm(cases, weights, width, depth, think_ms, out_len=OUT_LEN):
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        json.dump({"weights": weights, "width": width, "depth": depth, "thinkMs": think_ms, "outLen": OUT_LEN,
+        json.dump({"weights": weights, "width": width, "depth": depth, "thinkMs": think_ms, "outLen": out_len,
                    "cases": cases}, f)
         tmp = f.name
     r = subprocess.run(["node", str(ROOT / "tests" / "lv6n_wasm_cases.mjs"), tmp], check=True, capture_output=True,
                        text=True)
     return np.array(json.loads(r.stdout), dtype=np.int32)
+
+
+def wide_board(cols_high, h, rest_cells):
+    """相手の盤面：cols_high の列を高さ h まで埋め、rest_cells（(x, 下からの段)）も埋める（REN の材料がある形）。"""
+    b = [0] * 250
+    for x in cols_high:
+        for k in range(h):
+            b[(24 - k) * 10 + x] = 1
+    for x, k in rest_cells:
+        b[(24 - k) * 10 + x] = 1
+    return b
+
+
+def bag_after_visible(queue, bag_after, n_visible):
+    """queue（全部）の後の bag から、先頭 n_visible 本を引いた後の bag に戻す（cpu7.js buildCtx と同じ）。"""
+    bag = bag_after
+    for t in reversed(queue[n_visible:]):
+        if bag == 0x7F:
+            bag = 0
+        bag |= 1 << t
+    return 0 if bag == 0x7F else bag
+
+
+def make_ctx(opp, my_margin=-1, opp_margin=-1, garbage=()):
+    """lv7_wasm.cpp parse_ctx の並び。opp は make_cases の1件（board・queue・hold・b2b・ren・bagAfter）。"""
+    ctx = [0] * 19
+    ctx[0] = 1
+    ctx[1] = 1
+    q = opp["queue"]
+    ctx[2] = q[0]
+    ctx[3] = opp["hold"]
+    ctx[4] = 5
+    ctx[5:10] = q[1:6]
+    ctx[12] = opp["b2b"]
+    ctx[13] = opp["ren"]
+    ctx[14] = opp.get("incoming", 0)
+    ctx[15] = opp_margin
+    ctx[16] = my_margin
+    ctx[17] = bag_after_visible(q, opp["bagAfter"], 6)
+    ctx[18] = len(garbage)
+    for g in garbage:
+        ctx += list(g)
+    return ctx + list(opp["board"])
+
+
+def ctx_cases(cases):
+    """相手ありのケース：相手は別の盤面（半分は REN の材料がある形）、マージン段と予告を混ぜる。"""
+    rnd = random.Random(7)
+    shapes = [wide_board([0, 1, 2, 7, 8, 9], 14, [(3, 0), (4, 0), (3, 1)]),
+              wide_board(range(7), 12, [(7, 0), (8, 0), (9, 0), (9, 1)]),
+              wide_board([0, 1, 2, 3, 4, 5], 10, [(6, 0), (7, 0)])]
+    out = []
+    for i, c in enumerate(cases):
+        opp = dict(cases[(i * 7 + 3) % len(cases)])
+        if i % 2 == 0:
+            opp["board"] = shapes[i // 2 % len(shapes)]
+            opp["ren"] = (0, 2, 5)[i % 3]
+        garbage = [(1 + rnd.randrange(4), rnd.randrange(2), rnd.randrange(1500), -1) for _ in range(i % 3)]
+        out.append(dict(c, ctx=make_ctx(opp, my_margin=(-1, 2, 5)[i % 3], opp_margin=(-1, 3, 5)[(i // 3) % 3],
+                                        garbage=garbage)))
+    return out
 
 
 def main() -> int:
@@ -103,6 +172,62 @@ def main() -> int:
     bad2 = np.where((nat2 != wa2).any(axis=1))[0]
     print(f"一致テスト（P2 の候補を全部入れた重み）: cases={len(sub2)}  mismatch={len(bad2)}")
     bad = np.concatenate([bad, bad2])
+    # lv7Search2：ctx があっても見積もりの重みが 0 なら lv7Search と同じ手（[96..] は 0）
+    sub3 = ctx_cases(cases[2::6])
+    w3 = list(weights)
+    nat3 = run_native(sub3, w3, 500, 32, big, OUT_LEN2)
+    ref3 = run_native([{k: v for k, v in c.items() if k != "ctx"} for c in sub3], w3, 500, 32, big)
+    nat3[:, 14] = 0
+    ref3[:, 14] = 0
+    bad3 = np.where((nat3[:, :OUT_LEN] != ref3).any(axis=1) | (nat3[:, OUT_LEN:] != 0).any(axis=1))[0]
+    print(f"lv7Search2 と lv7Search（見積もりの重み 0）: cases={len(sub3)}  mismatch={len(bad3)}")
+    # 見積もりを入れた重み（相手のビーム・REN 探索・自分のマージン）で native と wasm が一致するか。締め切りは長く
+    w4 = list(weights) + [0] * max(73 - len(weights), 0)
+    for k, v in {64: 64, 65: 1_000_000, 66: 32, 67: 8, 68: 12, 71: 1, 72: 1_000_000}.items():
+        w4[k] = v
+    nat4 = run_native(sub3, w4, 256, 32, big, OUT_LEN2)
+    wa4 = run_wasm(sub3, w4, 256, 32, big, OUT_LEN2)
+    for o in (nat4, wa4):
+        o[:, 14] = 0
+        o[:, 114] = 0   # 見積もりの時間
+    bad4 = np.where((nat4 != wa4).any(axis=1))[0]
+    print(f"一致テスト（相手の見積もり・マージンあり）: cases={len(sub3)}  mismatch={len(bad4)}")
+    for i in bad4[:5]:
+        d = np.where(nat4[i] != wa4[i])[0]
+        print(f"  case {i}: idx {d.tolist()[:10]} native={nat4[i][d][:10].tolist()} wasm={wa4[i][d][:10].tolist()}")
+    print(f"  （方法 A {int(((nat4[:, 96] & 2) > 0).sum())} 件・a[6] 平均 {nat4[:, 103].mean():.1f}・m[6] 平均 "
+          f"{nat4[:, 111].mean():.1f}、並べ替えを回した {int(((nat4[:, 96] & 8) > 0).sum())} 件・REN 最大の平均 "
+          f"{nat4[:, 120].mean():.1f}、マージンで手が変わった {int((nat4[:, 1:10] != nat3[:, 1:10]).any(axis=1).sum())} 件）")
+    # T3（探索の中で予告を相殺・着弾）：届いている予告＋相手の見積もり（いつも a、合図があれば REN）
+    w5 = list(w4) + [0] * max(77 - len(w4), 0)
+    for k, v in {73: 1, 74: 2}.items():
+        w5[k] = v
+    nat5 = run_native(sub3, w5, 256, 32, big, OUT_LEN2)
+    wa5 = run_wasm(sub3, w5, 256, 32, big, OUT_LEN2)
+    for o in (nat5, wa5):
+        o[:, 14] = 0
+        o[:, 114] = 0
+    bad5 = np.where((nat5 != wa5).any(axis=1))[0]
+    print(f"一致テスト（T3：予告を探索の中で着弾）: cases={len(sub3)}  mismatch={len(bad5)}")
+    for i in bad5[:5]:
+        d = np.where(nat5[i] != wa5[i])[0]
+        print(f"  case {i}: idx {d.tolist()[:10]} native={nat5[i][d][:10].tolist()} wasm={wa5[i][d][:10].tolist()}")
+    print(f"  （予告を入れた {int((nat5[:, 124] > 0).sum())} 件・合計の平均 {nat5[:, 125].mean():.1f}、"
+          f"T3 で手が変わった {int((nat5[:, 1:10] != nat4[:, 1:10]).any(axis=1).sum())} 件）")
+    # T4（撃つ／撃たない）：press と、危ないときの REN・小さい消去の重み
+    w6 = list(w5) + [0] * max(82 - len(w5), 0)
+    for k, v in {78: 300, 80: 200, 81: -300}.items():
+        w6[k] = v
+    nat6 = run_native(sub3, w6, 256, 32, big, OUT_LEN2)
+    wa6 = run_wasm(sub3, w6, 256, 32, big, OUT_LEN2)
+    for o in (nat6, wa6):
+        o[:, 14] = 0
+        o[:, 114] = 0
+    bad6 = np.where((nat6 != wa6).any(axis=1))[0]
+    print(f"一致テスト（T4：press・危ないときの重み）: cases={len(sub3)}  mismatch={len(bad6)}")
+    print(f"  （press {int(((nat6[:, 126] & 1) > 0).sum())} 件・重みの差し替え {int(((nat6[:, 126] & 2) > 0).sum())} 件、"
+          f"T4 で手が変わった {int((nat6[:, 1:10] != nat5[:, 1:10]).any(axis=1).sum())} 件）")
+    bad = np.concatenate([bad, bad3, bad4, bad5, bad6])
     t0 = time.time()
     wt = run_wasm(cases, weights, 500, 32, 80)
     nt = run_native(cases, weights, 500, 32, 80)

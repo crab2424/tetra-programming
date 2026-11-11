@@ -33,6 +33,7 @@
 #define lv7_malloc tetlv6n_lv7_malloc
 #define lv7_free   tetlv6n_lv7_free
 #define lv7Search  tetlv6n_lv7Search
+#define lv7Search2 tetlv6n_lv7Search2
 namespace tetlv6n {
 #include "../../../public/cpu/tet/lv7/engine/core/bag.cpp"
 #include "../../../public/cpu/tet/lv7/engine/core/board.cpp"
@@ -42,11 +43,14 @@ namespace tetlv6n {
 #include "../../../public/cpu/tet/lv7/engine/ai/eval.cpp"
 #include "../../../public/cpu/tet/lv7/engine/ai/layer.cpp"
 #include "../../../public/cpu/tet/lv7/engine/ai/path.cpp"
+#include "../../../public/cpu/tet/lv7/engine/ai/threat.cpp"
+#include "../../../public/cpu/tet/lv7/engine/ai/garbage.cpp"
 #include "../../../public/cpu/tet/lv7/engine/lv7_wasm.cpp"
 }
 #undef lv7_malloc
 #undef lv7_free
 #undef lv7Search
+#undef lv7Search2
 
 namespace tsim {
 
@@ -55,6 +59,13 @@ void cpuSearchLv6n(const uint8_t board[250], const int* queue, int nQueue, int h
                    int outLen) {
     tetlv6n::tetlv6n_lv7Search(board, queue, nQueue, hold, bagAfter, b2b, ren, incoming, weights, nWeights, width,
                                depth, thinkMs, out, outLen);
+}
+
+void cpuSearchLv6n2(const uint8_t board[250], const int* queue, int nQueue, int hold, int bagAfter, int b2b, int ren,
+                    int incoming, const int* weights, int nWeights, int width, int depth, int thinkMs, const int* ctx,
+                    int ctxLen, int* out, int outLen) {
+    tetlv6n::tetlv6n_lv7Search2(board, queue, nQueue, hold, bagAfter, b2b, ren, incoming, weights, nWeights, width,
+                                depth, thinkMs, ctx, ctxLen, out, outLen);
 }
 
 const int* lv6nDefaultWeights() { return tetlv6n::eval::DEFAULT_WEIGHTS; }

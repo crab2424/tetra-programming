@@ -99,6 +99,12 @@ unsigned long long clysNodeCount();   // このスレッドで clys が実際に
 void cpuSearchLv6n(const uint8_t board[250], const int* queue, int nQueue, int hold, int bagAfter, int b2b, int ren,
                    int incoming, const int* weights, int nWeights, int width, int depth, int thinkMs, int* out,
                    int outLen);
+// lv7Search2（ctx つき。相手の見積もりは out[96..]、outLen 160 以上）。lv7-threat-design.md §4
+void cpuSearchLv6n2(const uint8_t board[250], const int* queue, int nQueue, int hold, int bagAfter, int b2b, int ren,
+                    int incoming, const int* weights, int nWeights, int width, int depth, int thinkMs, const int* ctx,
+                    int ctxLen, int* out, int outLen);
+constexpr int TET_LV7_CTX_MAX = 19 + 4 * 16 + 250;   // lv7_wasm.cpp parse_ctx の並び（予告は 16 件まで）
+constexpr int TET_LV7_OUT_LEN = 176;   // [160..175] は D0 の記録（lv7-dodge-design.md。本番の worker は 160 なので計算しない）
 const int* lv6nDefaultWeights();
 int lv6nWeightsLen();
 void pieceBlocks(int type, int rot, int outXY[8]);     // PRECALC_MINO_BLOCKS（本番 Mino と同じ形）
@@ -117,8 +123,7 @@ struct TRng {
 struct TGarbage {
     int    id = 0;
     int    amount;
-    std::vector<int> holes;
-    bool   ready;
+    bool   ready;          // 穴は持たない（受ける側が applyGarbage で決める）
     double readyAt;        // この時刻で ready になる（猶予タイマー）
     double internalUntil;  // ぷよから届く stage1（internal）の終わり
 };
@@ -131,9 +136,19 @@ struct TLockEvent {
     int    ren;                  // 加算前の REN
     int    puyoAttack;           // 対ぷよゲージに足した量（相殺後）
     int    tetAttack;            // 内部火力（テト用ライン）
+    int    landed = 0;           // この設置の後に上がったおじゃまの段数（applyGarbage）
+    int    height = 0;           // 着弾の後の一番上の高さ
 };
 
 struct TSendEvent { double t; int gauge; int ojama; };
+
+// lv7 の相手の見積もりの記録（keepLog のとき。lv7-threat-design.md §7.2 の T1）。out は lv7Search2 の out[96..147]
+struct TThreatRec {
+    double t;
+    int myPieces, oppPieces;     // 探索した時点の設置数（相手の次の設置＝相手の locks[oppPieces]）
+    int myHeight, myIncoming, oppHeight, oppIncoming, oppRen;
+    int out[80];                 // out[96..175]（見積もり・D0 の記録）
+};
 
 // 集計
 struct TetStats {
@@ -197,6 +212,7 @@ public:
     TetStats st;
     std::vector<TLockEvent> locks;
     std::vector<TSendEvent> sends;
+    std::vector<TThreatRec> threats;
     bool keepLog = false;
     // 強化版 lv6（level 16・26。内部の level は 6）・その PC 探索（level 26 で on）・clys の設定
     bool lv6Boost = false;
@@ -229,11 +245,15 @@ public:
     void confirmFromPuyo(const std::vector<int>& ids);
     // テト→ぷよの送信（消去なしの設置でゲージを放出した時刻と個数）
     std::function<void(double, int)> onSend;
-    // テト→テトの送信（相殺の後に残ったライン数と、送る側で決めた穴の列）
-    std::function<void(double, int, const std::vector<int>&)> onSendTet;
-    void receiveFromTet(int lines, const std::vector<int>& holes, double now);   // 1500ms 後に ready
+    // テト→テトの送信（相殺の後に残ったライン数。穴は受ける側が着弾のときに決める）
+    std::function<void(double, int)> onSendTet;
+    void receiveFromTet(int lines, double now);   // 1500ms 後に ready
     int  incomingLines() const;          // cpu6.js getIncomingGarbage（internal を除く予告の合計）
     int  marginStep(double t) const;     // -1=マージン前、0..5
+    // テト同士の相手（runTvt が入れる。異種戦・ひとり用は nullptr）。lv7 の ctx（相手の状態）に使う
+    const TetPlayer* opp = nullptr;
+    // lv7_wasm.cpp parse_ctx の並びで ctx を作り、長さを返す（cpu7.js buildCtx と同じ中身）
+    int  buildLv7Ctx(int* ctx) const;
     int  stackHeight() const;            // 一番上のブロックの高さ（0..25）
 
     // テスト用：探索の入出力を残す
@@ -245,7 +265,7 @@ public:
 
 private:
     int  nextType();
-    TRng holeRng;                        // テト同士で送るおじゃまの穴（ツモの乱数と分ける＝両者のツモ列を揃える）
+    TRng holeRng;                        // 受けたおじゃまの穴（ツモの乱数と分ける＝両者のツモ列を揃える）
     TRng jitRng;                         // jitterMs 用
     double jit() { return jitterMs > 0 ? jitRng.next() * jitterMs : 0.0; }
     void search(SearchCase& sc);         // レベルごとの探索の呼び分け
@@ -277,8 +297,6 @@ private:
     bool pcStepValid(const Decision& d) const;
     void pcAdvanceExpected(const Decision& d);
     bool findPose(int id, const int cellsXY[8], int& rot, int& x, int& y) const;
-    std::vector<int> holesFor(int lines) { return holesFor(lines, rng); }
-    std::vector<int> holesFor(int lines, TRng& r);
 };
 
 } // namespace tsim

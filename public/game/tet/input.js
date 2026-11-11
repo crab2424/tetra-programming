@@ -59,8 +59,8 @@ Object.assign(Game.prototype, {
     // キーイベント（localStorage のキー設定を参照）
     // ─────────────────────────────────────────
     setKeyEvent() {
-        // CPU制御モードの場合はキーイベントを一切設定しない
-        if (this.isCpuControlled) return;
+        // CPU制御モードの場合はキーイベントを一切設定しない（前に人が使ったときのポーリングも外す）
+        if (this.isCpuControlled) { this._pollInput = null; this.keyState = {}; return; }
 
         // 押されているキーを管理
         // keyState はアクション名で管理（1アクションに複数キーを割り当てられるため）。
@@ -73,7 +73,9 @@ Object.assign(Game.prototype, {
         /**
          * @type {{das: number, arr: number, dcd: number}}
          */
-        let tuning = loadTuning();
+        // 再生中は録画したときの設定を使う（core/replay.js）。録画はこの 2 つをそのまま残す
+        let tuning = this._replay ? this._replay.configFor(this).tuning : loadTuning();
+        this._tuningUsed = tuning;
 
 
         const frameMs = 1000 / 60; // 1フレーム = 約16.67ms
@@ -118,9 +120,163 @@ Object.assign(Game.prototype, {
          * キー設定
          * @type {Object.<string, {code: string, label: string}>}
          */
-        const keys = loadKeys();
+        const keys = this._replay ? this._replay.configFor(this).keys : loadKeys();
+        this._keysUsed = keys;
+        if (this._rec) this._rec.config(this, keys, tuning);
+
+        // ─── キーの取り込み（設計 source_assets/memory/record/tetlabo-record-design.md §4.1 D5）───
+        // keydown / keyup とゲームパッドの押す・離すは _inputQueue にためるだけにして、
+        // フレームの頭（_pollInput の最初）で届いた順に処理する。
+        // 以前は移動・回転・ハードドロップを keydown の中で即実行して drawAll していたが、
+        // キーが届く瞬間はフレームと無関係なので、同じ操作でも固定猶予や重力との前後が毎回変わっていた。
+        // 画面に出るのはどちらも次の描画なので、見える遅れは増えない。
+        // ポーズ・リスタートは試合そのものの操作ではないので、今までどおり keydown の中ですぐ処理する。
+        this._inputQueue = []
+
+        // 押した瞬間の処理（以前の keydown 本体）。now はそのフレームのゲーム時刻
+        const applyKeyDown = (code, repeat, now) => {
+            this._heldCodes.add(code)
+            for (const action in keys) {
+                if (keys[action].codes.includes(code)) this.keyState[action] = true
+            }
+
+            const canActNow = this.mino && !this.isCountingDown
+            let acted = false
+            const wasGrounded = this.isGrounded
+
+            if (keys.moveLeft.codes.includes(code) && this._leftPressTime === null) {
+                this._leftPressTime = now
+                this._lastHorizontal = 'left'
+                if (canActNow) {
+                    if (this.valid(-1, 0)) {
+                        this.mino.x--
+                        this.lastActionWasRotation = false
+                        this.playSe('move')
+                        acted = true
+                    }
+                    // DAS 計測の基準を押した時刻に揃える（_pollInput 側で
+                    // _lastMoveTimeLeft===0 を「未実行」として扱わなくて済む）
+                    this._lastMoveTimeLeft = now
+                    this._dasBlockedLeft = false
+                } else {
+                    this._lastMoveTimeLeft = 0
+                }
+            }
+            if (keys.moveRight.codes.includes(code) && this._rightPressTime === null) {
+                this._rightPressTime = now
+                this._lastHorizontal = 'right'
+                if (canActNow) {
+                    if (this.valid(1, 0)) {
+                        this.mino.x++
+                        this.lastActionWasRotation = false
+                        this.playSe('move')
+                        acted = true
+                    }
+                    this._lastMoveTimeRight = now
+                    this._dasBlockedRight = false
+                } else {
+                    this._lastMoveTimeRight = 0
+                }
+            }
+
+            // 回転（押した瞬間のみ単発）
+            if (canActNow && keys.rotateCW.codes.includes(code) && !repeat && !this._rotCWPressed) {
+                if (this.tryRotate(1)) {
+                    this.updateLowestY()
+                    acted = true
+                }
+                this._rotCWPressed = true
+            }
+            if (canActNow && keys.rotateCCW.codes.includes(code) && !repeat && !this._rotCCWPressed) {
+                if (this.tryRotate(-1)) {
+                    this.updateLowestY()
+                    acted = true
+                }
+                this._rotCCWPressed = true
+            }
+
+            // ソフトドロップ初動（1マス）
+            if (canActNow && keys.softDrop.codes.includes(code) && this._lastSoftDropTime === 0) {
+                this._lastSoftDropTime = now
+                if (this.valid(0, 1)) {
+                    this.mino.y++
+                    this.updateLowestY()
+                    this.lastActionWasRotation = false
+                    this.score += 1
+                    this.playSe('drop')
+                    this.updateStatsDisplay()
+                    acted = true
+                }
+            }
+
+            if (acted) {
+                this.checkGroundState(true, wasGrounded)
+                this.requestRedraw()
+            }
+
+            // 単発系（押した瞬間のみ。長押しの連続発火・カウントダウン中・盤面を持たない状態は無視）
+            if (keys.hardDrop.codes.includes(code) && !repeat && !this.isCountingDown && this.mino) {
+                // 設置後の DCD は _pollInput が新ミノの出現を検知して開始する（ゲームパッド・自然設置とも共通）
+                this.hardDrop()
+            }
+            if (keys.hold.codes.includes(code) && !repeat && !this.isCountingDown && this.mino) {
+                this.holdCurrentMino()
+            }
+        }
+
+        // 離したときの処理（以前の keyup 本体）
+        const applyKeyUp = (code) => {
+            this._heldCodes.delete(code)
+            // このコードに紐づくアクションのうち、他に押されているキーが残っていなければ解除する
+            for (const action in keys) {
+                if (keys[action].codes.includes(code) && !keys[action].codes.some(c => this._heldCodes.has(c))) {
+                    this.keyState[action] = false
+                }
+            }
+
+            if (keys.moveLeft.codes.includes(code) && !this.keyState.moveLeft) {
+                this._releaseHorizontal('left')
+
+                // 左を離したとき、右が押されていれば右を優先
+                if (this.keyState.moveRight) {
+                    this._lastHorizontal = 'right'
+                }
+            }
+
+            if (keys.moveRight.codes.includes(code) && !this.keyState.moveRight) {
+                this._releaseHorizontal('right')
+
+                // 右を離したとき、左が押されていれば左を優先
+                if (this.keyState.moveLeft) {
+                    this._lastHorizontal = 'left'
+                }
+            }
+        }
+
+        // たまった入力を届いた順に処理する（_pollInput の頭で毎フレーム呼ぶ）。
+        // 押す側はポーズ中なら捨てる（以前の keydown と同じ）。離す側は常に反映する。
+        const drainInput = (now) => {
+            const q = this._inputQueue
+            if (!q.length) return
+            const rec = this._rec
+            for (let i = 0; i < q.length; i++) {
+                const ev = q[i]
+                // 録画: 取り込んだフレームで残す（届いた瞬間ではない。core/replay.js）
+                if (rec) rec.input(this, ev)
+                if (ev.pad) {
+                    if (!ev.down) applyPadUp(ev.action)
+                    else if (!this.isPaused) applyPadDown(ev.action, now)
+                } else {
+                    if (!ev.down) applyKeyUp(ev.code)
+                    else if (!this.isPaused) applyKeyDown(ev.code, ev.repeat, now)
+                }
+            }
+            q.length = 0
+        }
 
         this._keyDownHandler = (e) => {
+            // 再生中は人のキーを受けない（録画した入力だけを流す。再生の操作は core/replay.js）
+            if (this._replay) return
             // 対戦モードでは versus-page がアクティブな場合のみ動作
             const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page');
             const gamePage = document.getElementById(activePageId)
@@ -157,142 +313,18 @@ Object.assign(Game.prototype, {
             // ポーズ中は他のキー入力を無視
             if (this.isPaused) return
 
-            this._heldCodes.add(e.code)
-            for (const action in keys) {
-                if (keys[action].codes.includes(e.code)) this.keyState[action] = true
-            }
+            if (keys.hardDrop.codes.includes(e.code) || keys.hold.codes.includes(e.code)) e.preventDefault()
 
-            const now = performance.now()
-
-            // ─── 即時反応させたいアクションは keydown 内で直接実行する ───
-            // _pollInput は rAF 駆動のため、key イベントから最大 1 フレ分の遅延が
-            // 生じていた（表示の遅延 28ms ≒ 3フレの一因）。初動とロテートを
-            // 同期実行することで、入力 → 画面反映までの経路を 1 フレ短縮する。
-            // DAS/ARR や soft drop の連続落下は引き続き _pollInput が担当。
-            const canActNow = this.mino && !this.isCountingDown
-            let immediateActed = false
-            let immediateWasGrounded = this.isGrounded
-
-            if (keys.moveLeft.codes.includes(e.code) && this._leftPressTime === null) {
-                this._leftPressTime = now
-                this._lastHorizontal = 'left'
-                if (canActNow) {
-                    if (this.valid(-1, 0)) {
-                        this.mino.x--
-                        this.lastActionWasRotation = false
-                        this.playSe('move')
-                        immediateActed = true
-                    }
-                    // DAS 計測の基準を keydown 時刻に揃える（_pollInput 側で
-                    // _lastMoveTimeLeft===0 を「未実行」として扱わなくて済む）
-                    this._lastMoveTimeLeft = now
-                    this._dasBlockedLeft = false
-                } else {
-                    this._lastMoveTimeLeft = 0
-                }
-            }
-            if (keys.moveRight.codes.includes(e.code) && this._rightPressTime === null) {
-                this._rightPressTime = now
-                this._lastHorizontal = 'right'
-                if (canActNow) {
-                    if (this.valid(1, 0)) {
-                        this.mino.x++
-                        this.lastActionWasRotation = false
-                        this.playSe('move')
-                        immediateActed = true
-                    }
-                    this._lastMoveTimeRight = now
-                    this._dasBlockedRight = false
-                } else {
-                    this._lastMoveTimeRight = 0
-                }
-            }
-
-            // 回転（押した瞬間のみ単発）
-            if (canActNow && keys.rotateCW.codes.includes(e.code) && !e.repeat && !this._rotCWPressed) {
-                if (this.tryRotate(1)) {
-                    this.updateLowestY()
-                    immediateActed = true
-                }
-                this._rotCWPressed = true
-            }
-            if (canActNow && keys.rotateCCW.codes.includes(e.code) && !e.repeat && !this._rotCCWPressed) {
-                if (this.tryRotate(-1)) {
-                    this.updateLowestY()
-                    immediateActed = true
-                }
-                this._rotCCWPressed = true
-            }
-
-            // ソフトドロップ初動（1マス）も即時に
-            if (canActNow && keys.softDrop.codes.includes(e.code) && this._lastSoftDropTime === 0) {
-                this._lastSoftDropTime = now
-                if (this.valid(0, 1)) {
-                    this.mino.y++
-                    this.updateLowestY()
-                    this.lastActionWasRotation = false
-                    this.score += 1
-                    this.playSe('drop')
-                    this.updateStatsDisplay()
-                    immediateActed = true
-                }
-            }
-
-            if (immediateActed) {
-                this.checkGroundState(true, immediateWasGrounded)
-                this.requestRedraw()
-                // _pollInput を待たずに同フレ中に描画完了させる。
-                // _needsRedraw を消し、rAF が来てもダブル描画しないようにする。
-                if (this._needsRedraw) {
-                    this._needsRedraw = false
-                    this.drawAll()
-                }
-            }
-
-            // 単発系（押した瞬間のみ）
-            if (keys.hardDrop.codes.includes(e.code)) {
-                e.preventDefault()
-                if (e.repeat) return;            // 長押しによる連続発火を防止
-                if (this.isCountingDown) return; // カウントダウン中は無効
-                if (!this.mino) return;          // 孤児インスタンス等、盤面を持たない状態での誤操作を防ぐ（設計 §7.D-2）
-                // 設置後の DCD は _pollInput が新ミノの出現を検知して開始する（ゲームパッド・自然設置とも共通）
-                this.hardDrop()
-            }
-            if (keys.hold.codes.includes(e.code)) {
-                e.preventDefault()
-                if (e.repeat) return;            // 長押し防止
-                if (this.isCountingDown) return; // カウントダウン中は無効
-                if (!this.mino) return;          // 同上
-                this.holdCurrentMino()
-            }
+            // フレームが回っていない（試合の外）ときは取り込まない
+            if (!this._renderLoopId) return
+            this._inputQueue.push({ pad: false, down: true, code: e.code, repeat: e.repeat })
         }
 
         this._keyUpHandler = (e) => {
-            this._heldCodes.delete(e.code)
-            // このコードに紐づくアクションのうち、他に押されているキーが残っていなければ解除する
-            for (const action in keys) {
-                if (keys[action].codes.includes(e.code) && !keys[action].codes.some(c => this._heldCodes.has(c))) {
-                    this.keyState[action] = false
-                }
-            }
-
-            if (keys.moveLeft.codes.includes(e.code) && !this.keyState.moveLeft) {
-                this._releaseHorizontal('left')
-
-                // 左を離したとき、右が押されていれば右を優先
-                if (this.keyState.moveRight) {
-                    this._lastHorizontal = 'right'
-                }
-            }
-
-            if (keys.moveRight.codes.includes(e.code) && !this.keyState.moveRight) {
-                this._releaseHorizontal('right')
-
-                // 右を離したとき、左が押されていれば左を優先
-                if (this.keyState.moveLeft) {
-                    this._lastHorizontal = 'left'
-                }
-            }
+            if (this._replay) return
+            // フレームが回っていないときはその場で反映する（ためても取り込む人がいない）
+            if (!this._renderLoopId) { applyKeyUp(e.code); return }
+            this._inputQueue.push({ pad: false, down: false, code: e.code })
         }
 
         document.addEventListener('keydown', this._keyDownHandler)
@@ -307,22 +339,22 @@ Object.assign(Game.prototype, {
         // ループ本体は rAF 駆動の startRenderLoop() から this._pollInput() として呼ばれる。
         // setInterval(…, 4) で 250Hz 回していた頃と違い rAF と同期するため、
         // tick が貯まらず描画と同フレームでキー反映される＝体感ラグが減る。
-        this._lastFrameTime = performance.now()
         this._pollInput = () => {
-            if (!gamePage || !gamePage.classList.contains('active')) return
+            // ゲーム画面が出ていないフレームは入力を取り込まない。再生は録画のこの印に従う（画面に関係なく同じ結果にするため）
+            if (this._replay ? this._replay.skipFor(this) : (!gamePage || !gamePage.classList.contains('active'))) {
+                if (this._rec) this._rec.skipPoll(this)
+                return
+            }
+            const now = this.clock.now()
+            // たまったキー・ゲームパッドの入力を先に取り込む（カウントダウン中は DAS の押した時刻を記録するだけ）
+            drainInput(now)
             if (this.isPaused) return
             // カウントダウン中はDASの時間を裏で記録するだけで、操作の実行はしない
             if (this.isCountingDown) return;
             if (!this.mino) return;
 
-            const nowPerf = performance.now()
-            const delta = nowPerf - this._lastFrameTime
-            this._lastFrameTime = nowPerf
-
             let acted = false
             let wasGrounded = this.isGrounded; // 操作前の接地状態を記憶
-
-            const now = nowPerf
 
             const leftPressed = this.keyState.moveLeft;
             const rightPressed = this.keyState.moveRight;
@@ -583,10 +615,76 @@ Object.assign(Game.prototype, {
         window.addEventListener('gamepadconnected', this._gpConnectedHandler)
         window.addEventListener('gamepaddisconnected', this._gpDisconnectedHandler)
 
+        // ゲームパッドを押した瞬間の処理（drainInput から呼ぶ）。
+        // 単発系（ハードドロップ・ホールド）はその場で実行、継続系は keyState に反映して
+        // キーボードと同じ _pollInput のロジック（DAS・ソフトドロップ・回転）を使う。
+        const applyPadDown = (action, now) => {
+            if (action === 'hardDrop' || action === 'hold') {
+                if (this.isCountingDown || !this.mino) return
+                if (action === 'hardDrop') this.hardDrop()
+                else this.holdCurrentMino()
+                return
+            }
+            if (this.keyState[action]) return // キーボードで押している
+            this.keyState[action] = true
+            if (action === 'moveLeft' && this._leftPressTime === null) {
+                this._leftPressTime = now
+                this._lastMoveTimeLeft = 0
+                this._lastHorizontal = 'left'
+            }
+            if (action === 'moveRight' && this._rightPressTime === null) {
+                this._rightPressTime = now
+                this._lastMoveTimeRight = 0
+                this._lastHorizontal = 'right'
+            }
+            if (action === 'softDrop' && this._lastSoftDropTime === 0) {
+                this._lastSoftDropTime = now
+                if (!this.mino) return
+                if (this.valid(0, 1)) {
+                    const wasGrounded = this.isGrounded
+                    this.mino.y++
+                    this.updateLowestY()
+                    this.lastActionWasRotation = false
+                    this.score += 1
+                    this.playSe('drop') // ソフトドロップ音（毎マス）
+                    this.updateStatsDisplay()
+                    this.checkGroundState(true, wasGrounded)
+                    this.requestRedraw()
+                }
+            }
+        }
+
+        // ゲームパッドを離した瞬間の処理（キーアップ相当）
+        const applyPadUp = (action) => {
+            if (action === 'hardDrop' || action === 'hold') return
+            if (!this.keyState[action]) return
+            this.keyState[action] = false
+            if (action === 'moveLeft') {
+                this._releaseHorizontal('left')
+                if (this.keyState.moveRight) this._lastHorizontal = 'right'
+            }
+            if (action === 'moveRight') {
+                this._releaseHorizontal('right')
+                if (this.keyState.moveLeft) this._lastHorizontal = 'left'
+            }
+            if (action === 'softDrop') {
+                this._lastSoftDropTime = 0
+            }
+        }
+
         // ゲームパッド用ポーリングループ。
         // setInterval は rAF と別タイミングで発火して入力反映が揺れやすいため、
         // キーボード入力・重力と同じく描画フレームへ寄せる。
         const pollGamepad = () => {
+            // ゲーム画面が出ていないときは読まない（ぷよ側と同じ）。メニューへ抜けた後や、
+            // VERSUS 中に参照の外れた古いシングルのインスタンスが RESTART/PAUSE を拾って
+            // 裏で試合を始めないようにする
+            const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page')
+            const gamePage = document.getElementById(activePageId)
+            if (!gamePage || !gamePage.classList.contains('active')) {
+                this._gamepadLoop = requestAnimationFrame(pollGamepad)
+                return
+            }
             const pads = (navigator.getGamepads) ? navigator.getGamepads() : []
             let pad = null
             if (this._gamepadIndex !== null && pads[this._gamepadIndex]) pad = pads[this._gamepadIndex]
@@ -627,80 +725,45 @@ Object.assign(Game.prototype, {
 
                 const prev = !!this._prevGamepadState[action]
 
-                // 単発系アクションは遷移で実行
-                if (action === 'hardDrop' || action === 'hold' || action === 'pause' || action === 'restart') {
-                    if (pressed && !prev) {
-                        // トグル系は即時呼び出し
+                // 再生中はパッドを受けない（前の状態も書き換えない）
+                if (this._replay) continue
+
+                // 押した・離したときだけ処理する
+                if (pressed === prev) continue
+                this._prevGamepadState[action] = pressed
+
+                // ポーズ・リスタートは試合そのものの操作ではないので即時（キーボードと同じ）
+                if (action === 'pause' || action === 'restart') {
+                    if (pressed) {
                         try {
-                            if (action === 'hardDrop') {
-                                if (this.isCountingDown) { /* ignore during countdown */ }
-                                else this.hardDrop()
-                            } else if (action === 'hold') {
-                                if (this.isCountingDown) { /* ignore */ }
-                                else this.holdCurrentMino()
+                            // PRACTICE の終了演出中など、外側がリスタート/ポーズを締め出しているとき
+                            if (typeof this._padSystemBlocked === 'function' && this._padSystemBlocked()) {
+                                // 何もしない
                             } else if (action === 'pause') {
                                 if (!this.isVersusMode && !this.isCountingDown && !this.isFinishing) this.togglePause()
-                            } else if (action === 'restart') {
+                            } else {
                                 if (!this.isVersusMode && !this.isFinishing) this.start()
                             }
                         } catch (e) {/* 防御的に例外握り潰す */ }
                     }
-                    // update prev state and continue
-                    this._prevGamepadState[action] = pressed
                     continue
                 }
 
-                // 継続系は keyState に反映して既存のロジックを再利用
-                if (pressed && !this.keyState[action]) {
-                    // キーダウンと同等の初回処理
-                    this.keyState[action] = true
-                    const now = performance.now()
-                    if (action === 'moveLeft' && this._leftPressTime === null) {
-                        this._leftPressTime = now
-                        this._lastMoveTimeLeft = 0
-                        this._lastHorizontal = 'left'
-                    }
-                    if (action === 'moveRight' && this._rightPressTime === null) {
-                        this._rightPressTime = now
-                        this._lastMoveTimeRight = 0
-                        this._lastHorizontal = 'right'
-                    }
-                    if (action === 'softDrop' && this._lastSoftDropTime === 0) {
-                        this._lastSoftDropTime = now
-                        if (!this.mino) break;
-                        if (this.valid(0, 1)) {
-                            const wasGrounded = this.isGrounded
-                            this.mino.y++
-                            this.updateLowestY()
-                            this.lastActionWasRotation = false
-                            this.score += 1
-                            this.playSe('drop') // ソフトドロップ音（毎マス）
-                            this.updateStatsDisplay()
-                            this.checkGroundState(true, wasGrounded)
-                            this.requestRedraw()
-                        }
-                    }
+                // それ以外はキーボードと同じく、ためておいてフレームの頭で取り込む（applyPadDown / applyPadUp）
+                if (!this._renderLoopId) {
+                    // フレームが回っていない（試合の外）ときは離す側だけその場で反映する
+                    if (!pressed) applyPadUp(action)
+                    continue
                 }
-                if (!pressed && this.keyState[action]) {
-                    // キーアップ相当の処理
-                    this.keyState[action] = false
-                    if (action === 'moveLeft') {
-                        this._releaseHorizontal('left')
-                        if (this.keyState.moveRight) this._lastHorizontal = 'right'
-                    }
-                    if (action === 'moveRight') {
-                        this._releaseHorizontal('right')
-                        if (this.keyState.moveLeft) this._lastHorizontal = 'left'
-                    }
-                    if (action === 'softDrop') {
-                        this._lastSoftDropTime = 0
-                    }
-                }
-
-                this._prevGamepadState[action] = pressed
+                this._inputQueue.push({ pad: true, down: pressed, action })
             }
             this._gamepadLoop = requestAnimationFrame(pollGamepad)
         }
         this._gamepadLoop = requestAnimationFrame(pollGamepad)
+
+        // カウントダウン前に呼ばれたときは、ここでフレームを回し始める。
+        // キーはフレームの頭でしか取り込まないので、カウントダウン中の DAS の先行チャージには
+        // フレームが回っている必要がある（_startGameplay でもう一度回し直す）。
+        if (this.isCountingDown) this.startRenderLoop()
     },
 });

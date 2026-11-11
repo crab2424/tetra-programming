@@ -29,9 +29,9 @@ Object.assign(window.PuyoCPU5.prototype, {
         // §18 W-a 待機（cpu5_worker_io.js _planCounterWait。null＝待たない）：最後の quickDrop の前にゲージが届くまで待つ
         this._counterWait = (this.bestMoveData && this.bestMoveData.wait) || null;
 
-        setTimeout(() => {
+        this.game.cpuSchedule(this.thinkDelay, () => {
             this._processActionQueue();
-        }, this.thinkDelay);
+        });
     },
 
     // ★ BFS の操作列(path)をそのままアクションキューへ変換する。
@@ -80,9 +80,9 @@ Object.assign(window.PuyoCPU5.prototype, {
         }
 
         if (this.game.isPaused || this.game.state === 'paused') {
-            setTimeout(() => {
+            this.game.cpuSchedule(100, () => {
                 if (this.isActive && this.isAutoPlay) this._processActionQueue();
-            }, 100);
+            });
             return;
         }
 
@@ -96,27 +96,27 @@ Object.assign(window.PuyoCPU5.prototype, {
 
         switch (action.type) {
             case 'rotateCW':
-                this.game._tryRotate(1);
+                this.game.cpuAction('rotate', 1);
                 break;
             case 'rotateCCW':
-                this.game._tryRotate(-1);
+                this.game.cpuAction('rotate', -1);
                 break;
             case 'moveLeft':
-                this.game._tryMove(-1);
+                this.game.cpuAction('move', -1);
                 break;
             case 'moveRight':
-                this.game._tryMove(1);
+                this.game.cpuAction('move', 1);
                 break;
             case 'quickDrop':
-                if (this._counterWait) { this._waitThenQuickDrop(this._counterWait, performance.now()); return; }
+                if (this._counterWait) { this._waitThenQuickDrop(this._counterWait, this.game.clock.now()); return; }
                 this._startQuickDrop();
                 return;
         }
 
         if (this.actionQueue.length > 0) {
-            setTimeout(() => {
+            this.game.cpuSchedule(this.actionDelay, () => {
                 if (this.isActive && this.isAutoPlay) this._processActionQueue();
-            }, this.actionDelay);
+            });
         } else {
             this._restoreGravity();
             this.isExecutingAction = false;
@@ -134,9 +134,9 @@ Object.assign(window.PuyoCPU5.prototype, {
 
         // ポーズ中は falling に戻るまで待ってからドロップする。
         if (this.game.isPaused || this.game.state === 'paused') {
-            setTimeout(() => {
+            this.game.cpuSchedule(100, () => {
                 if (this.isActive && this.isAutoPlay) this._startQuickDrop();
-            }, 100);
+            });
             return;
         }
 
@@ -147,12 +147,12 @@ Object.assign(window.PuyoCPU5.prototype, {
         }
 
         // 一気に着地させて即設置。
-        this.game._tryQuickDrop();
+        this.game.cpuAction('quickDrop');
 
         // 設置後に少し間を置いてから次の手の実行を許可する（演出の間）。
-        setTimeout(() => {
+        this.game.cpuSchedule(this.placeDelay, () => {
             this.isExecutingAction = false;
-        }, this.placeDelay);
+        });
     },
 
     // ★ §18 W-a 待機：ゲージが届く・上限を過ぎる・自然に固定される（falling でなくなる）のどれかまで quickDrop を止める。
@@ -162,7 +162,7 @@ Object.assign(window.PuyoCPU5.prototype, {
         const turn0 = this._turnNo;   // 自然に固定して次の手の思考に進んでいたら止める（念のため）
         const step = (elapsed, last) => {
             if (!this.isActive || !this.isAutoPlay || this._turnNo !== turn0) { this.isExecutingAction = false; return; }
-            const now = performance.now();
+            const now = this.game.clock.now(); // 待ち時間はゲーム時計で数える（ポーズ中は時計が止まる）
             const paused = this.game.isPaused || this.game.state === 'paused';
             if (!paused) elapsed += now - last;
             if (!paused && this.game._gs !== 'falling') {           // 自然に着地・固定した（それで撃ったことになる）
@@ -175,7 +175,7 @@ Object.assign(window.PuyoCPU5.prototype, {
                 this._startQuickDrop();
                 return;
             }
-            setTimeout(() => step(elapsed, now), 30);
+            this.game.cpuSchedule(30, () => step(elapsed, now));
         };
         step(0, startMs);
     },

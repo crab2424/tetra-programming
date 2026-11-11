@@ -167,19 +167,29 @@ export function encodeClear(lines: number, flags: number, combo: number): Uint8A
   return new Uint8Array([MatchOpcode.Clear, lines & 0xff, flags & 0xff, combo & 0xff]);
 }
 
-const GARBAGE_PROTOCOL_VERSION = 1;
+const GARBAGE_PROTOCOL_VERSION = 2;
 const MAX_GARBAGE_AMOUNT = 1000;
 
-// Garbage: opcode + version:u8 + amount:u16(LE) + holes:u8[amount]
-// TET受信時の holes は穴X座標、PUYO受信時はおじゃま列番号。
-export function encodeGarbage(lines: number, holes?: number[]): Uint8Array {
+/** Garbage の宛先ルール（受け手のルール）。wire 上は 1=tet / 2=puyo */
+export type GarbageTarget = "tet" | "puyo";
+const GARBAGE_TARGET_CODE: Record<GarbageTarget, number> = { tet: 1, puyo: 2 };
+
+// Garbage: opcode + version:u8(=2) + target:u8 + amount:u16(LE) + holes:u8[amount]
+// target は「このフレームを受け取るべきルール」（1=tet: amount はライン数 / 2=puyo: おじゃま個数）。
+// 混在 3 人以上の対戦では 1 回の攻撃で tet 向け・puyo 向けの 2 本を送るので、宛先が無いと
+// 両方が全員に届き、受け手がそれぞれ自分の単位で読んでしまう（不具合 2026-11-11 #1）。
+// サーバーは target のルールの生きている相手だけへ中継し、受け手も違う宛先は捨てる。
+// TET受信時の holes は使わない（送る側は渡さず 0 で埋まる）。TET の受け手は穴を着弾時に
+// 自分で決める（PROTOCOL_VERSION 3 から。garbage.js applyGarbage）。PUYO受信時はおじゃま列番号。
+export function encodeGarbage(lines: number, holes: number[] | undefined, target: GarbageTarget): Uint8Array {
   const n = Math.max(0, Math.min(MAX_GARBAGE_AMOUNT, Math.trunc(lines)));
-  const buf = new Uint8Array(1 + 1 + 2 + n);
+  const buf = new Uint8Array(1 + 1 + 1 + 2 + n);
   buf[0] = MatchOpcode.Garbage;
   buf[1] = GARBAGE_PROTOCOL_VERSION;
-  new DataView(buf.buffer).setUint16(2, n, true);
+  buf[2] = GARBAGE_TARGET_CODE[target];
+  new DataView(buf.buffer).setUint16(3, n, true);
   for (let i = 0; i < n; i++) {
-    buf[4 + i] = (holes?.[i] ?? 0) & 0xff;
+    buf[5 + i] = (holes?.[i] ?? 0) & 0xff;
   }
   return buf;
 }
@@ -402,17 +412,19 @@ export function decodeClear(p: Uint8Array): ClearData {
   return { lines: p[0], flags: p[1], combo: p[2] };
 }
 
-export interface GarbageData { amount: number; holes: number[]; }
+export interface GarbageData { amount: number; holes: number[]; target: GarbageTarget; }
 export function decodeGarbage(p: Uint8Array): GarbageData {
-  if (p.length < 3 || p[0] !== GARBAGE_PROTOCOL_VERSION) {
+  if (p.length < 4 || p[0] !== GARBAGE_PROTOCOL_VERSION) {
     throw new Error("Unsupported Garbage payload");
   }
-  const amount = new DataView(p.buffer, p.byteOffset, p.byteLength).getUint16(1, true);
-  if (amount < 1 || amount > MAX_GARBAGE_AMOUNT || p.length !== 3 + amount) {
+  const target: GarbageTarget | null = p[1] === 1 ? "tet" : p[1] === 2 ? "puyo" : null;
+  if (!target) throw new Error("Invalid Garbage target");
+  const amount = new DataView(p.buffer, p.byteOffset, p.byteLength).getUint16(2, true);
+  if (amount < 1 || amount > MAX_GARBAGE_AMOUNT || p.length !== 4 + amount) {
     throw new Error("Invalid Garbage amount/length");
   }
-  const holes = Array.from(p.slice(3, 3 + amount));
-  return { amount, holes };
+  const holes = Array.from(p.slice(4, 4 + amount));
+  return { amount, holes, target };
 }
 export function decodeHold(p: Uint8Array): number { return p[0]; }
 
@@ -535,7 +547,7 @@ export function decodePuyoLock(p: Uint8Array): PuyoLockData {
 export function encodeGarbagePuyo(amount: number): Uint8Array {
   const n = Math.max(0, Math.min(MAX_GARBAGE_AMOUNT, Math.trunc(amount)));
   const columns = Array.from({ length: n }, () => Math.floor(Math.random() * PUYO_COLS));
-  return encodeGarbage(n, columns);
+  return encodeGarbage(n, columns, "puyo");
 }
 
 // PuyoChain: [chainCount][groupCount][groupLen × groupCount][cells(r,c) …グループ順][ojamaCount][ojama cells(r,c)]

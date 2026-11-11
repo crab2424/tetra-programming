@@ -18,6 +18,10 @@ class PuyoGame {
         //   versus.js（CPU戦）・driver.ts（online相手パペット）が生成直後にtrueへ設定する。
         this.suppressBlink = false;
         this.rng = null;
+        this.clock = new GameClock(); // ゲーム時計（VERSUS は両盤面に同じ時計を渡す）
+        this.loop = new MatchLoop();  // 試合の親ループ（VERSUS は両盤面に同じループを渡す）
+        this._cpuTimers = [];         // CPU の待ち時間の予約・毎フレームの polling（core/cpu_port.js）
+        this._cpuFrameCbs = [];
 
         this.canvas = null;
         this.ctx = null;
@@ -74,10 +78,9 @@ class PuyoGame {
         this._animMs = 0;
         this._timerRunning = false;
         this._timerStart = 0;
-        this._timerReqId = null;
 
-        this._loopId = null;
-        this.lastTime = performance.now();
+        this._loopId = null;          // 試合のループに加わっている間だけ立つ（engine.js _loop）
+        this.lastTime = this.clock.now();
 
         this.field = [];
         this.nextQueue = [];
@@ -108,7 +111,10 @@ class PuyoGame {
         this._keyMap = {};
         this._keyHandlerDown = null;
         this._keyHandlerUp = null;
-        this._gamepadLoop = null;
+        this._inputQueue = [];         // キー・ゲームパッドの押す/離す。フレームの頭の _drainInput で取り込む（input.js）
+        this._applyInputEvent = null;
+        this._enqueueInput = null;
+        this._gamepadLoop = null;      // ゲームパッド読み取りの rAF ID
         this._gpConnectedHandler = null;
         this._gpDisconnectedHandler = null;
         this._gpPrevState = {};
@@ -116,7 +122,6 @@ class PuyoGame {
         this._dasDir = 0;
         this._dasTimer = 0;
         this._arrTimer = 0;
-        this._countdownLoopId = null; // ★ カウントダウン中にDASをチャージするための専用ループID
         this._priorityMove = false;
         this.inputBuffer = [];
 
@@ -142,9 +147,42 @@ class PuyoGame {
         this.isPaused = false;
     }
 
+    // ─── 乱数（設計: source_assets/memory/record/tetlabo-record-design.md §4.1 D3）───
+    // ツモ（使う色の選び方・ペアの色）。オンラインでは this.rng（共有シードRNG）が注入される。
+    // ★ ツモの列はツモにしか使わない。以前はおじゃまの列・連鎖文字の位置も同じ列から引いて
+    //   いたため、VERSUS で同じシードを配っても連鎖やおじゃまのたびに両者のツモがずれていた。
     _random() {
         if (this.rng) return this.rng();
-        return Math.random();
+        return this._rngStream('tumo')();
+    }
+
+    // おじゃまの列（送る側が列を付けてこなかったとき）
+    _randomOjama() {
+        return this._rngStream('ojama')();
+    }
+
+    // 連鎖文字を出す位置（見た目だけ。録画の再生で同じ絵になるようシード付きにする）
+    _randomEffect() {
+        return this._rngStream('effect')();
+    }
+
+    // 試合の頭（initGame）で用途別の列を作り直す。VERSUS は先に nextMatchSeed と rngSide を
+    // 渡して、両盤面のツモを同じ列にする（versus.js）。渡されていなければ新しいシード。
+    _newRngStreams() {
+        const seed = this.nextMatchSeed || GameRng.newSeed();
+        this.nextMatchSeed = null;
+        this.matchSeed = seed;
+        const side = this.rngSide || 0;
+        this._rng = {
+            tumo:   GameRng.stream(seed, 'puyo.tumo'),
+            ojama:  GameRng.stream(seed, 'puyo.ojama.' + side),
+            effect: GameRng.stream(seed, 'puyo.effect.' + side),
+        };
+    }
+
+    _rngStream(name) {
+        if (!this._rng) this._newRngStreams();
+        return this._rng[name];
     }
 
     // ══════════════════════════════════════════════
@@ -161,6 +199,9 @@ class PuyoGame {
 //    初回ロード後は PuyoGame._sharedImagesLoaded = true になり、
 //    以降の _loadImages では即座に callback() が呼ばれる（200ms遅延の解消）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CPU の口の時間の部分（cpuSchedule / cpuFrame / _runCpu。core/cpu_port.js）。盤面を動かす cpuAction は input.js
+Object.assign(PuyoGame.prototype, CpuPort);
+
 PuyoGame._sharedImages = null;
 PuyoGame._sharedImagesLoaded = false;
 // 先読み（preloadImages）の多重起動防止と、ロード完了待ちコールバックのキュー。

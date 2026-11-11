@@ -21,8 +21,25 @@ function currentBranch(): string {
   }
 }
 
+// 録画・再生（REPLAY）がリプレイに書く「録画したビルド」（設計 tetlabo-record-design.md §7）。
+// コミットの短いハッシュ。追跡しているファイルに未コミットの変更があれば -dirty を付ける
+// （dev サーバーは起動した時点の状態。起動後にコミットしても変わらない）。
+function buildId(): string {
+  const ciSha = process.env.WORKERS_CI_COMMIT_SHA;
+  if (ciSha) return ciSha.slice(0, 7);
+  try {
+    const hash = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
+    const dirty =
+      execSync("git status --porcelain --untracked-files=no", { encoding: "utf8" }).trim() !== "";
+    return dirty ? `${hash}-dirty` : hash;
+  } catch {
+    return "unknown";
+  }
+}
+const APP_BUILD = buildId();
+
 console.log(
-  `Building TETLABO v${process.env.npm_package_version} using Vite...`,
+  `Building TETLABO v${process.env.npm_package_version} (${APP_BUILD}) using Vite...`,
 );
 console.log(
   `quiz-editor: ${includeQuizEditor ? "included" : "excluded"} (branch: ${ciBranch ?? "local"})`,
@@ -47,6 +64,7 @@ export default defineConfig(async () => ({
     : {},
   define: {
     APP_VERSION: JSON.stringify(process.env.npm_package_version),
+    APP_BUILD: JSON.stringify(APP_BUILD),
     QUIZ_EDITOR_BRANCH: JSON.stringify(currentBranch()),
     // プレビューの DRAFTS に「問題一覧はデプロイ時点の内容」と出すため（drafts §5.4）
     QUIZ_EDITOR_BUILT_AT: JSON.stringify(new Date().toISOString()),

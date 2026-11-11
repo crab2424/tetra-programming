@@ -632,12 +632,13 @@
   // DOM再生成（一覧の自動更新など）で要素参照が失われた後、同じ`key`を持つ項目へ
   // フォーカスを復元する。見つからなければ現在のindexをクランプするだけに留める
   // （スクロールは動かさない＝背景更新でビューが動く体験を避ける）。
-  function restoreFocus(key){
+  // opts.scroll: 見つかった項目が見えていなければスクロールで見せる（REPLAYS で見終わって戻ったとき）
+  function restoreFocus(key, opts){
     if (!active) return;
     const items = currentItems();
     if (key != null) {
       const idx = items.findIndex(it => it.key === key);
-      if (idx >= 0) { applyFocus(idx, { skipScroll: true }); return; }
+      if (idx >= 0) { applyFocus(idx, { skipScroll: !(opts && opts.scroll) }); return; }
     }
     const clamped = Math.max(0, Math.min(active.index || 0, items.length - 1));
     applyFocus(items.length ? clamped : 0, { skipScroll: true });
@@ -801,22 +802,27 @@
         const idx = items.findIndex(it => it.el.id === 'account-chip');
         if (idx >= 0) return idx;
       }
-      // CPU TEST → ONLINE → SETTINGS/RANKING を上下キーで直結する
+      // CPU TEST → ONLINE を上下キーで直結する
       if (dir === 'down' && curEl.classList.contains('mode-btn-test')) {
         const idx = items.findIndex(it => it.el.classList.contains('mode-btn-online'));
         if (idx >= 0) return idx;
       }
-      if (dir === 'down' && curEl.classList.contains('mode-btn-online')) {
-        const idx = items.findIndex(it => it.el.id === 'main-menu-settings-btn');
-        if (idx >= 0) return idx;
-      }
-      if (dir === 'up' && curEl.id === 'main-menu-settings-btn') {
-        const idx = items.findIndex(it => it.el.classList.contains('mode-btn-online'));
-        if (idx >= 0) return idx;
-      }
-      if (dir === 'up' && curEl.id === 'main-menu-ranking-btn') {
-        const idx = items.findIndex(it => it.el.classList.contains('mode-btn-online'));
-        if (idx >= 0) return idx;
+      // モードの 3 列の最下段 ⇔ フッターの 3 ボタン（RANKING / SETTINGS / REPLAYS）を列ごとに直結する。
+      // フッターは中央寄せで列と横位置が揃っていないため、座標任せだと隣の列へずれる
+      const FOOTER_COLS = [
+        ['mode-btn-ultra',    'main-menu-ranking-btn'],
+        ['mode-btn-online',   'main-menu-settings-btn'],
+        ['mode-btn-practice', 'main-menu-replays-btn'],
+      ];
+      for (const [modeCls, footerId] of FOOTER_COLS) {
+        if (dir === 'down' && curEl.classList.contains(modeCls)) {
+          const idx = items.findIndex(it => it.el.id === footerId);
+          if (idx >= 0) return idx;
+        }
+        if (dir === 'up' && curEl.id === footerId) {
+          const idx = items.findIndex(it => it.el.classList.contains(modeCls));
+          if (idx >= 0) return idx;
+        }
       }
       if (dir === 'up' && curEl.classList.contains('mode-btn-online')) {
         const idx = items.findIndex(it => it.el.classList.contains('mode-btn-test'));
@@ -1023,6 +1029,60 @@
     },
   });
 
+  // REPLAYS（public/app/replays.js）: 絞り込み → 各行（本体 → ★ → ⤓ → ✕ を横に）→ IMPORT / BACK
+  //   各行のボタンは data-nav-key="<id>:<main|star|export|delete>"。上下は同じ種類のボタンのまま隣の行へ。
+  //   リプレイを見て戻ったとき・★/削除で描き直したときは ReplaysPage.focusKey の項目へ戻す。
+  register('replays', {
+    getItems: () => {
+      const items = [];
+      const tg = document.getElementById('replays-filter');
+      if (tg) { const it = rowToggle(tg, tg); it.zone = 'filter'; items.push(it); }
+      $$('#replays-list .replays-row').forEach((row, r) => {
+        $$('button[data-nav-key]', row).forEach((b, c) => {
+          items.push({ el: b, key: b.dataset.navKey, zone: 'list', row: r, col: c, scrollAnchor: row });
+        });
+      });
+      const anchor = document.getElementById('replays-buttons');
+      $$('#replays-buttons button').forEach(b => items.push({ el: b, scrollAnchor: anchor, zone: 'buttons' }));
+      return items;
+    },
+    initialIndex: (els) => {
+      const key = window.ReplaysPage && window.ReplaysPage.focusKey;
+      if (!key) return 0;
+      const idx = els.findIndex(el => el.dataset && el.dataset.navKey === key);
+      return idx >= 0 ? idx : 0;
+    },
+    onMove2D: (dir, cur, items) => {
+      const it = items[cur];
+      if (!it || (dir !== 'up' && dir !== 'down')) return null;
+      const list = items.filter(x => x.zone === 'list');
+      const at = (row, col) => {
+        const cands = list.filter(x => x.row === row);
+        if (!cands.length) return -1;
+        const hit = cands.find(x => x.col === col) || cands[0];
+        return items.indexOf(hit);
+      };
+      const lastRow = list.length ? list[list.length - 1].row : -1;
+      const firstOf = (zone) => items.findIndex(x => x.zone === zone);
+      // 端の回り込みも明示する（一覧の見えていない行は座標上ボタンより下にあり、既定の移動だとそこへ飛ぶ）
+      if (it.zone === 'filter') {
+        if (dir === 'down') return lastRow >= 0 ? at(0, 0) : firstOf('buttons');
+        return firstOf('buttons');
+      }
+      if (it.zone === 'list') {
+        const r = it.row + (dir === 'down' ? 1 : -1);
+        if (r < 0) return firstOf('filter');
+        if (r > lastRow) return firstOf('buttons');
+        return at(r, it.col);
+      }
+      if (it.zone === 'buttons') {
+        if (dir === 'down') return firstOf('filter');
+        return lastRow >= 0 ? at(lastRow, 0) : firstOf('filter');
+      }
+      return null;
+    },
+  });
+
   register('settings', {
     // 並び: ヘッダー（RESET DEFAULT / SAVE / BACK）→ タブ → 表示中タブの項目。
     // 非表示タブの項目は currentItems() の isVisible で落ちるので、全タブ分を並べておけばよい。
@@ -1142,6 +1202,24 @@
       'versus-pause-overlay',
       () => $$('#versus-pause-overlay #versus-pause-buttons button'),
       '.btn-resume'
+    );
+    // 録画の再生専用の PAUSE（core/replay.js）。ポーズキー・← → などは replay.js が先に受けるので、
+    // ここへ来るのは上下・決定だけ。印の画面から戻ったときは MARKS に合わせる（ReplayManager._pauseFocusId）。
+    // 印の画面（#replay-marks-overlay）は札の選びを replay.js が全部受けるので登録しない
+    setupOverlayWatcher(
+      'replay-pause-overlay',
+      () => $$('#replay-pause-overlay #replay-pause-buttons button'),
+      '.btn-resume',
+      {
+        pageCfg: {
+          initialIndex: (els) => {
+            const want = window.ReplayManager && window.ReplayManager._pauseFocusId;
+            let idx = want ? els.findIndex(b => b.id === want) : -1;
+            if (idx < 0) idx = els.findIndex(b => b.matches('.btn-resume'));
+            return idx >= 0 ? idx : 0;
+          },
+        },
+      }
     );
 
     // ── online対戦オーバーレイ（class ではなく style.display で開閉するため watchAttr:'style'）──

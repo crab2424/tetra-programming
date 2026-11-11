@@ -6,12 +6,32 @@
 
 Object.assign(Game.prototype, {
 
+    // ─── 乱数（設計: source_assets/memory/record/tetlabo-record-design.md §4.1 D3）───
+    // 試合の頭（_initGameState）で用途別の列を作り直す。VERSUS は先に nextMatchSeed と
+    // rngSide を渡して、両盤面のツモを同じ列にする（versus.js）。渡されていなければ新しいシード。
+    _newRngStreams() {
+        const seed = this.nextMatchSeed || GameRng.newSeed();
+        this.nextMatchSeed = null;
+        this.matchSeed = seed;
+        const side = this.rngSide || 0;
+        this._rng = {
+            tumo:    GameRng.stream(seed, 'tet.tumo'),
+            garbage: GameRng.stream(seed, 'tet.garbage.' + side),
+        };
+    },
+
+    _rngStream(name) {
+        if (!this._rng) this._newRngStreams();
+        return this._rng[name];
+    },
+
     getNextType() {
         if (this.bag.length === 0) {
             this.bag = [0, 1, 2, 3, 4, 5, 6];
             // シャッフル（Fisher-Yates）
-            // オンライン対戦では this.tumoRng（共有シードRNG）が注入され、全員同じツモ列になる
-            const rng = this.tumoRng || Math.random;
+            // オンライン対戦では this.tumoRng（共有シードRNG）が注入され、全員同じツモ列になる。
+            // それ以外は試合のシードから作ったツモ用の列（VERSUS は両盤面で同じ列）
+            const rng = this.tumoRng || this._rngStream('tumo');
             for (let i = this.bag.length - 1; i > 0; i--) {
                 const j = Math.floor(rng() * (i + 1));
                 [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
@@ -54,10 +74,7 @@ Object.assign(Game.prototype, {
         this.lastActionWasRotation = false;
         this.lastRotUsedPoint5 = false;
 
-        if (this.lockTimer) {
-            clearTimeout(this.lockTimer);
-            this.lockTimer = null;
-        }
+        this._cancelLockTimer();
         this.startGravity(); // 重力をリセットして開始
     },
 
@@ -116,12 +133,17 @@ Object.assign(Game.prototype, {
         if (generatedGarbage > 0) {
             const _apmMult = this.isVersusMode ? (this.vsAttackMultiplier ?? 1.0) : 1.0;
             this._countAttackSent(_apmMult !== 1.0
-                ? Math.max(1, Math.floor(generatedGarbage * _apmMult))
+                ? Math.floor(generatedGarbage * _apmMult + 1e-9)
                 : generatedGarbage);
         }
 
         // ライン消去音(1line〜4lines/tspin)に重ねて鳴らすボーナス音。
         // RENは意図的に無音のまま（消去音と鳴り続けて煩いため）。
+        // 録画の印: 攻撃が出たライン消去（シングルでも対戦なら送っていた量で判定。core/replay.js）
+        if (this._rec && generatedGarbage > 0) {
+            this._rec.attack(this, replayTetLabel(tSpinResult, linesCleared, isB2BTriggered, currentRen, isPerfectClear), generatedGarbage);
+        }
+
         if (isB2BTriggered) this.playSe('b2b');
         if (isPerfectClear && linesCleared > 0) this.playSe('perfect_clear');
 
@@ -225,10 +247,10 @@ Object.assign(Game.prototype, {
                     // ── 乗率適用（vsAttackMultiplierのみ。vsMarginMultiplierはぷよ側が管理） ──
                     const _vsMultTvP = (this.vsAttackMultiplier ?? 1.0);
                     const effectiveGenerated = (this.isVersusMode && generatedGarbage > 0)
-                        ? Math.max(1, Math.floor(generatedGarbage * _vsMultTvP))
+                        ? Math.floor(generatedGarbage * _vsMultTvP + 1e-9)
                         : generatedGarbage;
                     const effectivePuyoAttack = (this.isVersusMode && puyoAttack > 0)
-                        ? Math.max(1, Math.floor(puyoAttack * _vsMultTvP))
+                        ? Math.floor(puyoAttack * _vsMultTvP + 1e-9)
                         : puyoAttack;
 
                     // 2. 「今回発生した実効火力」のみを使って相殺を試みる（溜まっているゲージは使わない）
@@ -283,14 +305,16 @@ Object.assign(Game.prototype, {
                 // ★従来通り（テト同士）── マージンテーブル適用済みの generatedGarbage をそのまま使用
                 // （Scoring()内でマージンステップに応じた値を計算済みなので乗率補正は不要）
                 if (generatedGarbage > 0) {
-                    // vsAttackMultiplier のみ適用（マージン火力増加はテーブルで処理済み）
+                    // vsAttackMultiplier のみ適用（マージン火力増加はテーブルで処理済み）。
+                    // 切り捨てで 0 になれば相殺も送信もしない（最低 1 には引き上げない。vs_settings.js）。
+                    // 乗率は分数（1/3 など）なので、ちょうど割り切れる所がわずかに下へずれないよう誤差を足す
                     const _vsMultTvT = (this.vsAttackMultiplier ?? 1.0);
                     const effectiveGarbage = (this.isVersusMode && _vsMultTvT !== 1.0)
-                        ? Math.max(1, Math.floor(generatedGarbage * _vsMultTvT))
+                        ? Math.floor(generatedGarbage * _vsMultTvT + 1e-9)
                         : generatedGarbage;
 
                     // 実効火力で相殺し、余った分を送信
-                    const remainder = this.offsetGarbage(effectiveGarbage);
+                    const remainder = effectiveGarbage > 0 ? this.offsetGarbage(effectiveGarbage) : 0;
 
                     if (remainder > 0) {
                         this.sendGarbage(remainder);
@@ -298,6 +322,10 @@ Object.assign(Game.prototype, {
                 }
             }
         }
+
+        // 録画: 設置ごとの盤面のハッシュを残す／再生: 録画と照らし合わせ、合わなければ止める（core/replay.js）
+        if (this._rec) this._rec.lock(this);
+        else if (this._replay) this._replay.onLock(this);
 
         if (this.mode === 'sprint' && this.lines >= this.goalLines) {
             // 設置したミノのブロックはすでに絶対座標化されて field に追加済み。
@@ -348,7 +376,7 @@ Object.assign(Game.prototype, {
 
         // タイマーを両方停止
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
-        if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+        this._cancelLockTimer();
 
         this.playSe('harddrop')
         // lock 音は secureMino(true) 内で lock_hard（小音量）として鳴らすため、ここでは鳴らさない
@@ -394,7 +422,7 @@ Object.assign(Game.prototype, {
             // 15回操作での強制固定も同条件下では無効化する。
             if (this.practiceNoLock) {
                 if (!(this.keyState && this.keyState.softDrop)) {
-                    if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
+                    this._cancelLockTimer();
                     return;
                 }
                 this.startLockTimer();
@@ -403,10 +431,7 @@ Object.assign(Game.prototype, {
 
             // カウントが15回以上の場合は即座に強制固定
             if (this.moveCount >= 15) {
-                if (this.lockTimer) {
-                    clearTimeout(this.lockTimer);
-                    this.lockTimer = null;
-                }
+                this._cancelLockTimer();
                 this.secureMino();
                 // secureMino()内で次のミノが呼ばれ描画されるためここで終了
                 return;
@@ -419,10 +444,7 @@ Object.assign(Game.prototype, {
             // 15回超えでも空中なら自由に動ける（接地した瞬間に上のブロックで強制固定される）
             if (this.isGrounded) {
                 this.isGrounded = false;
-                if (this.lockTimer) {
-                    clearTimeout(this.lockTimer);
-                    this.lockTimer = null;
-                }
+                this._cancelLockTimer();
                 this.startGravity();
             }
         }
@@ -438,17 +460,34 @@ Object.assign(Game.prototype, {
 
     // 固定猶予タイマーの起動・リセット
     startLockTimer(delay = this.lockDelay) {
-        if (this.lockTimer) clearTimeout(this.lockTimer);
+        this._cancelLockTimer();
 
         // ポーズ時の計算用に開始時刻と設定時間を記録
-        this.lockStartTime = performance.now();
+        this.lockStartTime = this.clock.now();
         this.lockRemaining = delay;
 
-        this.lockTimer = setTimeout(() => {
+        // ゲーム時計の予約（フレームの頭の clock.advance() の中で実行される）
+        this.lockTimer = this.clock.schedule(delay, () => {
             this.lockTimer = null;
             this.secureMino();
             this.requestRedraw();
-        }, delay);
+        });
+    },
+
+    // 固定猶予の予約を取り消す（外から止めるときもこれを使う。lockTimer は setTimeout の ID ではない）
+    _cancelLockTimer() {
+        if (this.lockTimer) {
+            this.clock.cancel(this.lockTimer);
+            this.lockTimer = null;
+        }
+    },
+
+    // おじゃま降下猶予の予約を全部取り消す
+    _cancelGarbageTimers() {
+        if (this._garbageTimers) {
+            this._garbageTimers.forEach(t => { if (t.id) this.clock.cancel(t.id); });
+        }
+        this._garbageTimers = [];
     },
 
     valid(moveX, moveY, rot = 0) {
@@ -513,5 +552,112 @@ Object.assign(Game.prototype, {
             return true;
         }
         return false;
+    },
+
+    // ─────────────────────────────────────────
+    // CPU が盤面に触る口（設計 source_assets/memory/record/tetlabo-record-design.md §4.1 D6）
+    // CPU（public/cpu/tet/*）はミノ・HOLD・重力をここを通してだけ動かす。録画（M6）ではここで手を記録する。
+    // 中身は各 CPU がこれまで直接していた操作そのまま（SE・得点・T-spin 判定への影響も変えない）。
+    // 呼ぶのは game.cpuSchedule / cpuFrame の中（フレームの入力の所。core/cpu_port.js）だけにする。
+    //   'hold'                 HOLD
+    //   'rotate', dir          回転（キックあり。tryRotate）
+    //   'move', dir            1 マス移動（moveLeft / moveRight。lastActionWasRotation も下ろす）
+    //   'shift', dir, se       1 マス移動だけ（lastActionWasRotation はそのまま。se=true で移動音）
+    //   'softDrop'             1 マス落とす（softDropOne。得点・落下音あり）
+    //   'softDropQuiet'        1 マス落とす（得点あり・落下音なし）
+    //   'stepToX', x, se       x へ 1 マス寄せる。動けなければ x へ飛ばす。まだ寄せる必要があれば true
+    //   'warp', x, y, rot      その位置・向きへ飛ばす（T-spin の最後の回転扱い）
+    //   'teleport', rot, x, y  出現位置 y で向きを変えてから x へ飛ばす（重なるなら x はそのまま）
+    //   'hardDrop'             ハードドロップ
+    //   'gravity', off         CPU が操作している間の重力の停止（true で止める）
+    // 戻り値はそれぞれの操作の結果（動けたか等）。
+    // ─────────────────────────────────────────
+    cpuAction(type, a, b, c) {
+        // 録画: CPU の手を入力として残す（再生では CPU を動かさずにこの手を流す。core/replay.js）
+        if (this._rec) this._rec.cpu(this, type, [a, b, c]);
+        if (this.clock && !this._cpuRunning && !this._cpuWarned) {
+            this._cpuWarned = true;
+            console.warn('[cpuAction] フレームの入力の所（cpuSchedule / cpuFrame）の外で呼ばれました:', type);
+        }
+        let r;
+        const mino = this.mino;
+        switch (type) {
+            case 'hold': r = this.holdCurrentMino(); break;
+            case 'rotate': r = this.tryRotate(a); break;
+            case 'move': r = a < 0 ? this.moveLeft() : this.moveRight(); break;
+            case 'shift':
+                r = false;
+                if (mino && this.valid(a, 0)) {
+                    mino.x += a;
+                    if (b) this.playSe('move');
+                    r = true;
+                }
+                break;
+            case 'softDrop': r = this.softDropOne(); break;
+            case 'softDropQuiet':
+                r = false;
+                if (mino && this.valid(0, 1)) {
+                    mino.y++;
+                    this.score += 1;
+                    this.updateLowestY();
+                    r = true;
+                }
+                break;
+            case 'stepToX': {
+                r = false;
+                if (!mino) break;
+                const beforeX = mino.x;
+                if (mino.x < a) {
+                    const prevX = mino.x;
+                    if (this.valid(1, 0)) mino.x++;
+                    if (mino.x < a) {
+                        if (prevX === mino.x) mino.x = a;
+                        else r = true;
+                    }
+                } else if (mino.x > a) {
+                    const prevX = mino.x;
+                    if (this.valid(-1, 0)) mino.x--;
+                    if (mino.x > a) {
+                        if (prevX === mino.x) mino.x = a;
+                        else r = true;
+                    }
+                }
+                // 1マスでも実際に動いたら移動音を鳴らす（飛ばした補正も含む）
+                if (b && mino.x !== beforeX) this.playSe('move');
+                break;
+            }
+            case 'warp':
+                if (!mino) break;
+                mino.x = a;
+                mino.y = b;
+                while (mino.rotation !== c) {
+                    mino.rotate();
+                    mino.rotation = (mino.rotation + 1) % 4;
+                }
+                this.lastActionWasRotation = true;
+                this.lastRotUsedPoint5 = true;
+                break;
+            case 'teleport': {
+                if (!mino) break;
+                // まずY座標を安全な場所（出現位置）に戻してから回転する
+                if (c !== undefined) mino.y = c;
+                const rotationsNeeded = (a - mino.rotation + 4) % 4;
+                for (let i = 0; i < rotationsNeeded; i++) {
+                    mino.rotate();
+                    mino.rotation = (mino.rotation + 1) % 4;
+                }
+                // 移動した結果が重なる場合はX座標を元に戻す
+                const prevX = mino.x;
+                mino.x = b;
+                if (!this.valid(0, 0)) mino.x = prevX;
+                break;
+            }
+            case 'hardDrop': r = this.hardDrop(); break;
+            case 'gravity': this.gravityDisabled = !!a; break;
+            default:
+                console.warn('[cpuAction] 知らない操作:', type);
+        }
+        if (this.requestRedraw) this.requestRedraw();
+        return r;
     },
 });

@@ -193,26 +193,27 @@ window.PuyoCPU6 = class extends window.PuyoCPU5 {
         if (!this.softDropOnly) return super._startQuickDrop();
         if (!this.isActive || !this.isAutoPlay) { this.isExecutingAction = false; return; }
         if (this.game.isPaused || this.game.state === 'paused') {
-            setTimeout(() => { if (this.isActive && this.isAutoPlay) this._startQuickDrop(); }, 100);
+            this.game.cpuSchedule(100, () => { if (this.isActive && this.isAutoPlay) this._startQuickDrop(); });
             return;
         }
         if (this.game._gs !== 'falling') { this.isExecutingAction = false; return; }
 
-        const key = this.game._keyMap.softDrop;
-        this._softKey = key;
-        this.game._keys[key] = true;
+        this._softKey = this.game._keyMap.softDrop;
+        this.game.cpuAction('softKey', true);
         const poll = () => {
             // 固定された（_gs が falling 以外）／停止された時点でキーを離す
             if (!this.isActive || !this.isAutoPlay || this.game._gs !== 'falling') {
-                this._releaseSoftKey();
-                setTimeout(() => { this.isExecutingAction = false; }, this.placeDelay);
+                if (this._softKey != null) this.game.cpuAction('softKey', false);
+                this._softKey = null;
+                this.game.cpuSchedule(this.placeDelay, () => { this.isExecutingAction = false; });
                 return;
             }
-            setTimeout(poll, 16);
+            this.game.cpuSchedule(16, poll);
         };
         poll();
     }
 
+    // 止めるとき（stop）に押したままのキーを離す。試合の外なので cpuAction を通さない
     _releaseSoftKey() {
         if (this._softKey != null && this.game && this.game._keys) this.game._keys[this._softKey] = false;
         this._softKey = null;

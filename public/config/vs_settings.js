@@ -12,10 +12,20 @@ const VS_SETTINGS_STORAGE_KEY = 'game_vs_settings';
 
 /**
  * 火力補正テーブル（bias + 3 をインデックスとする）
- * TET・PUYOで共通の乗率(%)。切り捨て適用。
+ * TET・PUYOで共通の乗率。表示用の % は四捨五入した値。
+ * 適用は floor(火力 × 乗率)（最低 1 には引き上げない＝ −3 の 1〜2 ラインは 0）。
+ * 乗率は分数のまま持つ（0.33 だと 6 × 0.33 = 1.98 → 1 のように 3 の倍数が 1 つ下へ切り捨てられていた）。
  * bias: -3 / -2 / -1 / 0 / +1 / +2 / +3
  */
-const ATTACK_BIAS_TABLE = [33, 50, 75, 100, 133, 200, 300];
+const ATTACK_BIAS_TABLE = [
+    { num: 1, den: 3, pct: 33 },
+    { num: 1, den: 2, pct: 50 },
+    { num: 3, den: 4, pct: 75 },
+    { num: 1, den: 1, pct: 100 },
+    { num: 4, den: 3, pct: 133 },
+    { num: 2, den: 1, pct: 200 },
+    { num: 3, den: 1, pct: 300 },
+];
 
 /**
  * マージンタイムのステップ定義
@@ -24,6 +34,12 @@ const ATTACK_BIAS_TABLE = [33, 50, 75, 100, 133, 200, 300];
  *          （マージンテーブルを進めた状態でVSを開始する）。-160でTET/PUYO両テーブルが上限。
  */
 const MARGIN_TIME_STEPS = [-160, -128, -96, -64, -32, 0, 32, 64, 96, 128, 160, 192];
+
+/**
+ * PUYO SPEED の段階（演出時間の倍率。設計 source_assets/memory/v2.3.2/tetlabo-v2.3.2-puyo-speed-design.md）
+ * 点滅・消去後の間・落下・着地振動・fixWait・NEXT遷移・ちぎりだけを速くする（操作・おじゃまの配送は等速）。
+ */
+const PUYO_SPEED_STEPS = [1, 1.25, 1.5, 2, 3];
 
 /** デフォルト設定値 */
 const DEFAULT_VS_SETTINGS = {
@@ -44,7 +60,11 @@ const DEFAULT_VS_SETTINGS = {
         ojamaRate:  70,       // 10~120 (10刻み)
         eraseCount: 4,        // 2~6
         colorCount: 4,        // 2~5（使用色数）
-        chainMin:   0         // 連鎖縛り: 0=OFF、2~20=n連鎖未満の火力を0にする
+        chainMin:   0,        // 連鎖縛り: 0=OFF、2~20=n連鎖未満の火力を0にする
+        speed: {              // PUYO SPEED（演出時間の倍率。PUYO_SPEED_STEPS）
+            player: 1,
+            cpu:    1
+        }
     }
 };
 
@@ -95,11 +115,12 @@ let currentVsSettings = loadVsSettings();
 /**
  * 火力補正の乗率を取得する（TET・PUYO共通）。
  * @param {'player'|'cpu'} side
- * @returns {number} 例: bias=0 → 1.0、bias=+1 → 1.33
+ * @returns {number} 例: bias=0 → 1.0、bias=+1 → 4/3、bias=−3 → 1/3
  */
 function getAttackMultiplier(side) {
     const bias = currentVsSettings.all.attackBias[side] ?? 0;
-    return ATTACK_BIAS_TABLE[bias + 3] / 100;
+    const e = ATTACK_BIAS_TABLE[bias + 3] || ATTACK_BIAS_TABLE[3];
+    return e.num / e.den;
 }
 
 /**
@@ -141,6 +162,7 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
             playerGame.vsEraseCount = s.puyo.eraseCount;
             playerGame.vsColorCount = s.puyo.colorCount;
             playerGame.vsChainMin   = s.puyo.chainMin;
+            playerGame.vsPuyoSpeed  = s.puyo.speed.player;
         }
     }
 
@@ -159,6 +181,7 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
             cpuGame.vsEraseCount = s.puyo.eraseCount;
             cpuGame.vsColorCount = s.puyo.colorCount;
             cpuGame.vsChainMin   = s.puyo.chainMin;
+            cpuGame.vsPuyoSpeed  = s.puyo.speed.cpu;
         }
     }
 }
@@ -193,7 +216,9 @@ function renderVsSettingsPage() {
         _buildOjamaRateRow(),
         _buildEraseCountRow(),
         _buildColorCountRow(),
-        _buildChainMinRow()
+        _buildChainMinRow(),
+        _buildPuyoSpeedRow('player'),
+        _buildPuyoSpeedRow('cpu')
     ]));
 
     // ── リセットボタン ─────────────────────────
@@ -389,8 +414,51 @@ function _buildAttackBiasRow(side) {
     return _buildRow('ATTACK BIAS', sideLabel, ctrl);
 }
 
+// ── PUYO SPEED（演出時間の倍率・側ごと）──────
+function _buildPuyoSpeedRow(side) {
+    const current   = currentVsSettings.puyo.speed[side];
+    const sideLabel = side === 'player' ? 'YOUR SIDE' : 'CPU SIDE';
+
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const valLabel = document.createElement('span');
+    valLabel.className = 'vs-setting-value-label';
+    valLabel.id = `vss-val-puyoSpeed-${side}`;
+    valLabel.textContent = _formatPuyoSpeed(current);
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'vs-setting-btn-group';
+    btnGroup.id = `vss-btngroup-puyoSpeed-${side}`;
+
+    PUYO_SPEED_STEPS.forEach(step => {
+        const btn = document.createElement('button');
+        btn.className = 'vs-setting-step-btn' + (step === current ? ' active' : '');
+        btn.textContent = _formatPuyoSpeed(step);
+        btn.dataset.value = String(step);
+        btn.onclick = () => {
+            currentVsSettings.puyo.speed[side] = step;
+            saveVsSettings();
+            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
+                b.classList.toggle('active', parseFloat(b.dataset.value) === step);
+            });
+            valLabel.textContent = _formatPuyoSpeed(step);
+        };
+        btnGroup.appendChild(btn);
+    });
+
+    ctrl.appendChild(valLabel);
+    ctrl.appendChild(btnGroup);
+
+    return _buildRow('PUYO SPEED', sideLabel, ctrl);
+}
+
+function _formatPuyoSpeed(v) {
+    return `×${v.toFixed(v * 100 % 10 === 0 ? 1 : 2)}`;
+}
+
 function _formatBias(bias) {
-    const pct  = ATTACK_BIAS_TABLE[bias + 3];
+    const pct  = ATTACK_BIAS_TABLE[bias + 3].pct;
     const sign = bias > 0 ? '+' : '';
     return `${sign}${bias}  (${pct}%)`;
 }
@@ -690,6 +758,8 @@ function _updateVsSettingsSummary() {
     if (s.puyo.chainMin) {
         parts.push(`CHAIN-LIMIT:${s.puyo.chainMin}`);
     }
+    if (s.puyo.speed.player !== 1) parts.push(`P-SPEED:${_formatPuyoSpeed(s.puyo.speed.player)}`);
+    if (s.puyo.speed.cpu !== 1)    parts.push(`C-SPEED:${_formatPuyoSpeed(s.puyo.speed.cpu)}`);
 
     el.textContent = parts.join(' / ');
     el.style.color = 'var(--accent, #c471ed)';

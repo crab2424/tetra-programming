@@ -184,6 +184,9 @@ class QuizManager {
         // ─── restart フック ──────────────────────────────────────
         // プレイ中のショートカットやポーズ画面からのリトライをQUIZモード専用のリトライに統一する
         game.restart = function() {
+            // CLEAR!/FAILED... の演出中（リザルトへ移るまで）はやり直しを受けない。
+            // 通すと、やり直した後で前の試合のリザルトへ飛ぶ（キーボードの R・パッドの RESTART 共通）
+            if (self.isClear || self.isFailed) return;
             if (self.currentLevel) {
                 // ポーズ画面・ショートカットキー両経路から呼ばれた場合を考慮し、ポーズ画面を非表示にする
                 const pauseOverlay = document.getElementById('pause-overlay');
@@ -199,6 +202,9 @@ class QuizManager {
         // ショートカットキーが game.restart ではなく game.start を呼ぶ経路でも
         // QUIZモード専用のリトライ処理（盤面・NEXT復元）に統一する
         game.start = function() {
+            // CLEAR!/FAILED... の演出中（リザルトへ移るまで）はやり直しを受けない。
+            // 通すと、やり直した後で前の試合のリザルトへ飛ぶ（キーボードの R・パッドの RESTART 共通）
+            if (self.isClear || self.isFailed) return;
             if (self.currentLevel) {
                 const pauseOverlay = document.getElementById('pause-overlay');
                 if (pauseOverlay) pauseOverlay.classList.remove('active');
@@ -320,10 +326,7 @@ class QuizManager {
             this.lastActionWasRotation = false;
             this.lastRotUsedPoint5 = false;
 
-            if (this.lockTimer) {
-                clearTimeout(this.lockTimer);
-                this.lockTimer = null;
-            }
+            this._cancelLockTimer();
             this.startGravity();
         }.bind(game);
 
@@ -411,6 +414,9 @@ class QuizManager {
         // ─── restart フック ──────────────────────────────────────
         // プレイ中のショートカットやポーズ画面からのリトライをQUIZモード専用のリトライに統一する
         puyoGame.restart = function() {
+            // CLEAR!/FAILED... の演出中（リザルトへ移るまで）はやり直しを受けない。
+            // 通すと、やり直した後で前の試合のリザルトへ飛ぶ（キーボードの R・パッドの RESTART 共通）
+            if (self.isClear || self.isFailed) return;
             if (self.currentLevel) {
                 // ポーズ画面・ショートカットキー両経路から呼ばれた場合を考慮し、ポーズ画面を非表示にする
                 const pauseOverlay = document.getElementById('pause-overlay');
@@ -426,6 +432,9 @@ class QuizManager {
         // ショートカットキーが puyoGame.restart ではなく puyoGame.start を呼ぶ経路でも
         // QUIZモード専用のリトライ処理（盤面・NEXT復元）に統一する
         puyoGame.start = function() {
+            // CLEAR!/FAILED... の演出中（リザルトへ移るまで）はやり直しを受けない。
+            // 通すと、やり直した後で前の試合のリザルトへ飛ぶ（キーボードの R・パッドの RESTART 共通）
+            if (self.isClear || self.isFailed) return;
             if (self.currentLevel) {
                 const pauseOverlay = document.getElementById('pause-overlay');
                 if (pauseOverlay) pauseOverlay.classList.remove('active');
@@ -719,9 +728,13 @@ class QuizManager {
         window.SeManager?.play('clear');
         this._stopGame();
 
-        setTimeout(() => {
+        const level = this.currentLevel;
+        this._resultTimer = setTimeout(() => {
+            this._resultTimer = null;
+            // やり直し・ページ移動で捨てられたマネージャからはリザルトを出さない
+            if (window._quizManager !== this || !level) return;
             if (typeof showQuizResult === 'function') {
-                showQuizResult(true, this.currentLevel);
+                showQuizResult(true, level);
             }
         }, 400);
     }
@@ -735,9 +748,13 @@ class QuizManager {
         window.SeManager?.play('gameover');
         this._stopGame();
 
-        setTimeout(() => {
+        const level = this.currentLevel;
+        this._resultTimer = setTimeout(() => {
+            this._resultTimer = null;
+            // やり直し・ページ移動で捨てられたマネージャからはリザルトを出さない
+            if (window._quizManager !== this || !level) return;
             if (typeof showQuizResult === 'function') {
-                showQuizResult(false, this.currentLevel);
+                showQuizResult(false, level);
             }
         }, 400);
     }
@@ -749,28 +766,40 @@ class QuizManager {
 
         if (game instanceof PuyoGame) {
             // ぷよ停止
-            if (game._loopId) cancelAnimationFrame(game._loopId);
-            game._loopId = null;
-            game.state = 'gameover'; // ループを止める
+            game._stopLoop(); // 試合のループから抜ける
+            game.state = 'gameover';
             game._stopTimer();
         } else {
             // テト停止
             if (game.timer) { clearInterval(game.timer); game.timer = null; }
-            if (game.lockTimer) { clearTimeout(game.lockTimer); game.lockTimer = null; }
+            game._cancelLockTimer();
             game.isPaused = true;
             if (game.isTimerRunning) {
-                game.elapsedTime += performance.now() - game.startTime;
+                game.elapsedTime += game.clock.now() - game.startTime;
                 game.isTimerRunning = false;
                 if (game.timerReqId) cancelAnimationFrame(game.timerReqId);
             }
             if (game._keyDownHandler) document.removeEventListener('keydown', game._keyDownHandler);
             if (game._keyUpHandler)   document.removeEventListener('keyup',   game._keyUpHandler);
             if (game._keyLoop)        { clearInterval(game._keyLoop); game._keyLoop = null; }
+            if (game._gamepadLoop)    { cancelAnimationFrame(game._gamepadLoop); game._gamepadLoop = null; }
         }
     }
 
     // ─── 後片付け ─────────────────────────────────
     destroy() {
+        // リザルトへの予約と終了演出（CLEAR!/FAILED...）を取り消す。残すと、やり直した後で
+        // 前の試合のリザルト画面へ飛ぶ
+        if (this._resultTimer) { clearTimeout(this._resultTimer); this._resultTimer = null; }
+        if (this.isClear || this.isFailed) {
+            const fo = document.getElementById('finish-overlay');
+            if (fo) {
+                if (fo.finishTimer1) { clearTimeout(fo.finishTimer1); fo.finishTimer1 = null; }
+                if (fo.finishTimer2) { clearTimeout(fo.finishTimer2); fo.finishTimer2 = null; }
+                fo.classList.remove('active', 'fadeout');
+            }
+        }
+
         // 破壊した関数と状態を元のゲームエンジンに復元する（他のモードへの影響を遮断）
         if (this.gameInstance) {
             if (this.currentLevel && this.currentLevel.rule === 'tet') {

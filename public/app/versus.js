@@ -78,6 +78,9 @@ function _switchToVersusMixedLayout(playerRule, cpuRule) {
     window.BattleLayout.applyVersusLayout(playerRule, cpuRule);
 }
 
+// ★ ゲームでは使っていない（2026-11 から試合の乱数は core/game_rng.js）。
+//   training/puyo-lv5/tests/gen_js_cases.mjs がこの関数を抜き出して学習用シミュとの一致を
+//   見ているため残している。
 function createSeededRandom(seed) {
     let s = seed;
     return function() {
@@ -204,8 +207,18 @@ async function startVersusGame() {
     playerSideLabel.textContent = isPlayerCpu ? _cpuLabel(playerCpuLevel) + ' (1P)' : playerSideLabel.dataset.defaultText;
   }
 
-  // xorshift はシード0だと0を返し続けるため 1 以上にする
-  const sharedSeed = Math.floor(Math.random() * 1000000) + 1;
+  // 試合のシードと時計を両盤面で共有する（設計: source_assets/memory/record/tetlabo-record-design.md §4.1）。
+  // シードは各盤面の初期化（tet: _initGameState / puyo: initGame）で用途別の列になる。
+  // ツモの列は両盤面で同じ、おじゃまの穴・列は rngSide で別の列。
+  const matchSeed = GameRng.newSeed();
+  const matchClock = new GameClock();
+  // 1 試合 1 ループ（§4.1 D4）。毎フレーム「時計を進める → 1P → 2P → 描画」の順に回す（core/match_loop.js）
+  const matchLoop = new MatchLoop();
+  const useMatchLoop = (g) => {
+    if (g.loop && g.loop !== matchLoop) g.loop.remove(g); // 前の試合のループに残っていれば抜ける
+    g.loop = matchLoop;
+    g.cpuReset(); // 前の試合の CPU の予約（前の時計の時刻）を捨てる（core/cpu_port.js）
+  };
 
   const isPlayerPuyo = versusPlayerRule === 'puyo';
   const isCpuPuyo = versusCpuRule === 'puyo';
@@ -217,24 +230,31 @@ async function startVersusGame() {
   if (isPlayerPuyo) {
       if (!window._puyoGamePlayer) window._puyoGamePlayer = new PuyoGame('player');
       window._game = window._puyoGamePlayer;
-      window._game.rng = createSeededRandom(sharedSeed);
   } else {
       if (!window._tetGamePlayer) window._tetGamePlayer = new Game('player');
       window._game = window._tetGamePlayer;
-      // ツモ順をCPUと共通にする（getNextType が tumoRng を使う。ONLINE と同じ仕組み）
-      window._game.tumoRng = createSeededRandom(sharedSeed);
   }
+  window._game.nextMatchSeed = matchSeed;
+  window._game.rngSide = 0;
+  window._game.clock = matchClock;
+  useMatchLoop(window._game);
+  window._game.tumoRng = null; // 外から差し込むツモ（tumoRng / rng）はオンライン専用。前の対戦の残りを消す
+  window._game.rng = null;
 
   // ─── CPU インスタンス生成 ───
   if (isCpuPuyo) {
       if (!window._puyoGameCpu) window._puyoGameCpu = new PuyoGame('cpu');
       window._cpuGame = window._puyoGameCpu;
-      window._cpuGame.rng = createSeededRandom(sharedSeed);
   } else {
       if (!window._tetGameCpu) window._tetGameCpu = new Game('cpu');
       window._cpuGame = window._tetGameCpu;
-      window._cpuGame.tumoRng = createSeededRandom(sharedSeed);
   }
+  window._cpuGame.nextMatchSeed = matchSeed;
+  window._cpuGame.rngSide = 1;
+  window._cpuGame.clock = matchClock;
+  useMatchLoop(window._cpuGame);
+  window._cpuGame.tumoRng = null;
+  window._cpuGame.rng = null;
 
   // ─── 共通設定 ───
   window._game.currentMode = 'versus';
@@ -295,6 +315,23 @@ async function startVersusGame() {
   if (isCpuPuyo && window._cpuGame) window._cpuGame.state = 'starting';
   // ★ 修正箇所 ここまで
 
+  // 録画を始める（両盤面の初期化の後。core/replay.js）。CPU は後で作るので名前と種類だけ
+  window.ReplayManager?.beginMatch({
+    mode: 'versus',
+    games: [window._game, window._cpuGame],
+    players: [
+      isPlayerCpu ? { name: _cpuLabel(playerCpuLevel) + ' (1P)', kind: 'cpu', level: playerCpuLevel } : { name: 'PLAYER', kind: 'human' },
+      { name: _cpuLabel(cpuLevel), kind: 'cpu', level: cpuLevel },
+    ],
+  });
+
+  // カウントダウンは試合の時計の予約で進むので、ここから両盤面のフレームを回す
+  // （ロード画面の間も。キーの取り込みと DAS の先行チャージもこのループで行う）
+  for (const g of [window._game, window._cpuGame]) {
+    if (g instanceof PuyoGame) g._startCountdownDas();
+    else g.startRenderLoop();
+  }
+
   // ★ CPUコントローラはロード済みクラスから生成する。思考 worker はロード画面で ready 済みの
   //   ものをプールから借りるので、生成直後から workerReady が立っている（v2.2.3 G/H）。
   if (CpuClass) window._cpuController = new CpuClass(window._cpuGame);
@@ -324,20 +361,22 @@ async function startVersusGame() {
   await window.BattleLocalLoading.reveal();
   if (isStale()) return;
 
+  // 録画: カウントダウンを始めたフレームを残す（ロード画面の長さは毎回違うため。core/replay.js）
+  window.ReplayManager?.countdown(window._game);
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
     if (isStale()) return; // セッションが変わっていたら開始しない
     if (window.BgmManager) window.BgmManager.play('versus_bgm'); // ★ START! のタイミングでBGM開始
     window._game._startGameplay();
     const pc = window._cpuControllerPlayer;
     if (pc && typeof pc.start === 'function') pc.start();
-  }, null);
+  }, null, undefined, false, matchClock);
 
   runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', () => {
     if (isStale()) return; // セッションが変わっていたら開始しない
     window._cpuGame._startGameplay();
     const c = window._cpuController;
     if (c && typeof c.start === 'function') c.start();
-  }, null, undefined, true); // silent: player側と同時に鳴るSEの二重再生を防ぐ
+  }, null, undefined, true, matchClock); // silent: player側と同時に鳴るSEの二重再生を防ぐ
 
   setupVersusPauseKey();
   if (typeof startVersusCpuWatchdog === 'function') startVersusCpuWatchdog(sessionId);
@@ -396,7 +435,8 @@ function startVersusCpuWatchdog(sessionId) {
         || (game.state && game.state !== 'playing');
       let token = null;
       if (!idle) {
-        if (game instanceof PuyoGame) token = (game._gs === 'falling') ? (tracks[key] && tracks[key].token) || ('p' + now) : null;
+        // ぷよはツモの通し番号を目印にする（ツモが替われば目印も変わる。落下中以外は計測し直す）
+        if (game instanceof PuyoGame) token = (game._gs === 'falling') ? ('p' + (game._spawnSeq || 0)) : null;
         else token = game.mino || null;
       }
       if (!token) { delete tracks[key]; continue; }
@@ -430,6 +470,9 @@ function setupVersusPauseKey() {
   window._versusPauseHandler = function(e) {
     const versusPage = document.getElementById('versus-page');
     if (!versusPage || !versusPage.classList.contains('active')) return;
+    // オンライン対戦も同じ #versus-page を使う。そのときは CPU 戦のリスタート/ポーズを動かさない
+    // （R で CPU 戦が裏で始まる・Esc で CPU 戦のポーズ画面が出る不具合 2026-11-11 online #2）
+    if (versusPage.classList.contains('online-battle-active')) return;
 
     // ★ リスタートキー（versusモードではここで処理する）
     if (restartCodes.includes(e.code)) {

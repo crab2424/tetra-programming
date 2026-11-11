@@ -41,7 +41,7 @@ Object.assign(PuyoGame.prototype, {
             }
         }
 
-        const targetGroup = candidates[Math.floor(this._random() * candidates.length)];
+        const targetGroup = candidates[Math.floor(this._randomEffect() * candidates.length)];
 
         let sumC = 0, sumR = 0;
         for (const cell of targetGroup) {

@@ -17,7 +17,8 @@ void Layer::clear()
 void Layer::add(node::Data& node)
 {
     // Get the node's hash and check the tranposition table
-    auto hash = node.state.get_hash();
+    // T3：予告の残りが違えば同じ盤面でも別のノード（予告を使わないときは gq.hash() は 0）
+    auto hash = node.state.get_hash() ^ node.gq.hash();
     auto find = this->map.find(hash);
 
     if (find != this->map.end()) {

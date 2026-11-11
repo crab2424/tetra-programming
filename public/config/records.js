@@ -95,13 +95,16 @@
       id: _uuid(),
       at: new Date().toISOString(),
       schemaVersion: SCHEMA_VERSION,
-      meta: record.meta || {},
+      // 今の試合のリプレイ（core/replay.js・app/replays.js）があれば結び付ける
+      meta: record.meta || (window.ReplayManager?.metaForRecord?.(key)) || {},
     });
     const isNew = _isBetter(key, enriched, prev);
     if (isNew) {
       data.records[key] = enriched;
       data.schemaVersion = SCHEMA_VERSION;
       _saveAll(data);
+      // 最高記録のリプレイは自動保存の 30 本から外して残す（前の記録のものは外す）
+      window.ReplayManager?.onBest?.(key, enriched, prev);
       // Discordログイン中なら未同期のランク対象ベストをサーバーへ送る（失敗しても次回起動/次回提出で再送される）
       window.Account?.syncLocalBests?.().catch((e) => console.error(e));
     }

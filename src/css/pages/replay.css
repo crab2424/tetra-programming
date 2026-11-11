@@ -1,0 +1,700 @@
+/* ─────────────────────────────────────────────
+   録画・再生（REPLAY）の画面（public/core/replay.js）。ゲーム画面・対戦画面の上に重ねる。
+   見ている間だけ出す（body.replay-watching）。役割ごとに置き場所を分ける
+   （UI 設計書 tetlabo-record-ui-design.md §4）:
+     上の帯 #replay-top＝何を見ているか・状態／下のバー #replay-bar＝時間の操作（1 段）／
+     盤面の上 .replay-think＝CPU の思考（位置は JS が盤面の canvas に合わせる）
+   H キー／◱ で body.replay-ui-hidden を付けると .replay-ui を全部隠し、右下に SHOW UI だけ残す。
+───────────────────────────────────────────── */
+.replay-top,
+.replay-bar,
+.replay-msg,
+.replay-think,
+.replay-ui-show {
+  display: none;
+}
+body.replay-watching .replay-top,
+body.replay-watching .replay-bar {
+  display: flex;
+}
+body.replay-watching .replay-msg,
+body.replay-watching .replay-think {
+  display: block;
+}
+.replay-ui {
+  transition: opacity 0.15s ease;
+}
+body.replay-watching.replay-ui-hidden .replay-ui {
+  opacity: 0;
+  pointer-events: none;
+}
+body.replay-watching.replay-ui-hidden .replay-ui-show {
+  display: block;
+}
+
+/* 見ている間は盤面を少し小さくして、上の帯と下のバーのぶん上下を空ける
+   （single-play.css の #container・versus-layout.css の #versus-layout と同じ式で、高さの余白だけ 48px → 120px）。
+   UI を隠しているときは元の大きさ */
+body.replay-watching:not(.replay-ui-hidden) #container {
+  transform: translate(-50%, -50%)
+    scale(clamp(0.2, min(calc((100vw - 32px) / 750px), calc((100vh - 120px) / 700px)), 2));
+}
+body.replay-watching:not(.replay-ui-hidden) #versus-layout {
+  transform: translate(-50%, -50%)
+    scale(clamp(0.2, min(calc((100vw - 32px) / 1300px), calc((100vh - 120px) / 700px)), 2));
+}
+
+/* 上の帯 */
+.replay-top {
+  position: fixed;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(960px, calc(100vw - 32px));
+  box-sizing: border-box;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px 2px 12px;
+  background: var(--overlay-scrim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 40;
+  color: var(--text);
+  font-family: var(--font-orbitron);
+}
+.replay-title {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.replay-title-date {
+  margin-left: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.replay-top-spacer {
+  flex: 1;
+}
+
+/* 下のバー（1 段） */
+.replay-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  width: min(960px, calc(100vw - 32px));
+  box-sizing: border-box;
+  flex-direction: column;
+  padding: 5px 10px;
+  background: var(--overlay-scrim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 40;
+  color: var(--text);
+  font-family: var(--font-orbitron);
+}
+.replay-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.replay-badge {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--accent);
+  cursor: help;
+}
+
+.replay-btn {
+  flex: none;
+  font-family: var(--font-orbitron);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--btn-secondary-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.replay-btn:hover {
+  border-color: var(--accent);
+}
+.replay-icon-btn {
+  min-width: 30px;
+  padding: 3px 6px;
+}
+
+.replay-time {
+  flex: none;
+  font-size: 12px;
+  min-width: 138px;
+  font-variant-numeric: tabular-nums;
+}
+.replay-state {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--accent3);
+}
+
+/* 速さ ◂ 1x ▸ */
+.replay-speed {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.replay-speed-step {
+  padding: 3px 5px;
+}
+.replay-speed-label {
+  min-width: 42px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.replay-speed-label.is-changed {
+  color: var(--accent3);
+}
+
+.replay-seek-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+}
+.replay-seek {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* 自動の印（core/replay.js の _drawMarks）。シークバーの上に重ねる */
+.replay-marks {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: -7px;
+  height: 7px;
+  pointer-events: none;
+}
+.replay-mark {
+  position: absolute;
+  top: 0;
+  width: 3px;
+  height: 7px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--accent3);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.replay-mark.replay-mark-2p { background: var(--accent2); }
+.replay-mark.replay-mark-hit { background: var(--danger); }
+.replay-mark.replay-mark-end { background: var(--success); }
+.replay-mark.replay-mark-pause { background: var(--text-dim); }
+
+/* 印の画面（core/replay.js の _openMarks / _mkRender。UI 設計書 §7）。暗い幕の上に札を時刻順に横へ並べる。
+   中央の縦線＝選んだ札（列のほうを流す）、点線＝今の時刻（NOW）。札の位置（translateX）は JS */
+#replay-marks-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 4, 14, 0.88);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  z-index: 1000;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: var(--text);
+  font-family: var(--font-orbitron);
+}
+#replay-marks-overlay.active {
+  display: flex;
+}
+body:has(#replay-marks-overlay.active) .puyo-chain-text {
+  visibility: hidden;
+}
+.replay-mk-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(960px, calc(100vw - 32px));
+}
+.replay-mk-title {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 8px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.replay-mk-count {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.replay-mk-strip {
+  position: relative;
+  width: 100%;
+  padding: 28px 0 20px;
+  overflow: hidden;
+}
+.replay-mk-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.replay-mk-lane {
+  position: relative;
+}
+.replay-mk-lane-name {
+  position: absolute;
+  left: max(16px, calc(50% - 480px));
+  top: 0;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--accent3);
+  white-space: pre;
+}
+.replay-mk-lane-name.is-2p {
+  color: var(--accent2);
+}
+.replay-mk-track {
+  position: relative;
+  height: 112px;
+  margin-top: 16px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+.replay-mk-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.replay-mk-body {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 6px 9px 7px;
+  text-align: left;
+  color: var(--text);
+  font-family: var(--font-orbitron);
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--mk-color, var(--accent3));
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
+}
+.replay-mk-card.is-2p { --mk-color: var(--accent2); }
+.replay-mk-card.replay-mark-hit { --mk-color: var(--danger); }
+.replay-mk-card.replay-mark-end { --mk-color: var(--success); }
+.replay-mk-card.replay-mark-pause { --mk-color: var(--text-dim); }
+.replay-mk-card:hover .replay-mk-body {
+  opacity: 0.9;
+}
+.replay-mk-card.is-sel .replay-mk-body {
+  opacity: 1;
+  border-color: var(--mk-color, var(--accent3));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--mk-color, var(--accent3)) 45%, transparent);
+  transform: translateY(-2px);
+}
+.replay-mk-card-head {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.replay-mk-time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.replay-mk-kind {
+  color: var(--mk-color, var(--accent3));
+}
+.replay-mk-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.replay-mk-amount {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.replay-mk-clip {
+  font-size: 10px;
+  padding: 1px 10px;
+  visibility: hidden;
+}
+.replay-mk-card.is-sel .replay-mk-clip,
+.replay-mk-card:hover .replay-mk-clip {
+  visibility: visible;
+}
+/* 中央の縦線（選んだ札）と、その時刻 */
+.replay-mk-center {
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  pointer-events: none;
+  opacity: 0.85;
+}
+.replay-mk-center span {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translate(-50%, -2px);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--accent);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* 今の時刻（再生が止まっている所） */
+.replay-mk-now {
+  position: absolute;
+  left: 0;
+  top: 22px;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--text-dim);
+  pointer-events: none;
+}
+.replay-mk-now span {
+  position: absolute;
+  bottom: -16px;
+  left: 0;
+  transform: translateX(-50%);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+#replay-marks-overlay .replay-pause-keys {
+  text-align: center;
+}
+
+/* 古い版・ずれのメッセージ（上の帯のすぐ下） */
+.replay-msg {
+  position: fixed;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(960px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 3px 12px;
+  font-family: var(--font-main);
+  font-size: 13px;
+  color: var(--danger);
+  background: var(--overlay-scrim);
+  border-radius: 6px;
+  z-index: 40;
+}
+
+/* CPU の思考（録画した Worker の返事の写し）。盤面の上に盤面の幅で置く（left/top/width は JS） */
+.replay-think {
+  position: fixed;
+  box-sizing: border-box;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--accent3);
+  text-align: center;
+  white-space: normal;
+  overflow: hidden;
+  max-height: 2.8em;
+  pointer-events: none;
+  z-index: 39;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+}
+
+/* UI を隠しているときだけ右下に出す（H キーと同じ） */
+.replay-ui-show {
+  position: fixed;
+  right: 12px;
+  bottom: 10px;
+  z-index: 41;
+  font-family: var(--font-orbitron);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text);
+  background: var(--overlay-scrim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 0.2s ease;
+}
+.replay-ui-show:hover,
+.replay-ui-show.is-flash {
+  opacity: 1;
+}
+
+/* 再生専用の PAUSE 画面（core/replay.js の _openPause）。ゲームの #pause-overlay / #pause-modal と同じ見た目 */
+#replay-pause-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-scrim);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+#replay-pause-overlay.active {
+  display: flex;
+}
+.replay-pause-modal {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 32px 56px 24px;
+  text-align: center;
+  box-shadow: 0 0 48px rgba(196, 113, 245, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  max-height: calc(100vh - 32px);
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+.replay-pause-title {
+  font-family: "Orbitron", monospace;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 10px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+.replay-pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 260px;
+}
+.replay-pause-buttons .pause-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  transform: none;
+}
+.replay-pause-note {
+  margin: -4px 0 0;
+  font-family: var(--font-main);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.replay-pause-keys {
+  margin: 0;
+  font-family: var(--font-main);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+/* puyo の連鎖文字はポーズの幕より上に出るので隠す（pause.css と同じ） */
+body:has(#replay-pause-overlay.active) .puyo-chain-text {
+  visibility: hidden;
+}
+
+/* ─────────────────────────────────────────────
+   REPLAYS ページ（public/app/replays.js）。枠は RANKING と同じ
+───────────────────────────────────────────── */
+#replays-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  height: calc(100vh - 48px);
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+#replays-page.is-drop #replays-container {
+  border-color: var(--accent);
+}
+#replays-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 760px;
+  height: min(86vh, 720px, 100%);
+  padding: 28px 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-sizing: border-box;
+}
+.replays-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* キー操作のフォーカス枠（outline 2px + offset 2px）が一覧の端で切れないよう内側に余白 */
+  padding: 4px 8px 4px 4px;
+  box-sizing: border-box;
+}
+.replays-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.replays-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 128px 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: baseline;
+  text-align: left;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font-main);
+}
+.replays-main:hover,
+.replays-main.is-focused {
+  border-color: var(--accent);
+}
+.replays-date {
+  font-family: var(--font-orbitron);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.replays-mode {
+  font-family: var(--font-orbitron);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.replays-result {
+  font-family: var(--font-orbitron);
+  font-size: 12px;
+  color: var(--accent3);
+  text-align: right;
+}
+.replays-stat {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replays-len {
+  grid-column: 3;
+  font-family: var(--font-orbitron);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: right;
+}
+.replays-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 9px;
+  letter-spacing: 1px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--accent);
+  vertical-align: middle;
+}
+.replays-tag-old {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.replays-icon {
+  width: 34px;
+  font-size: 15px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.replays-icon:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.replays-icon.is-on {
+  color: #ffd76a;
+}
+.replays-del:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+#replays-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+/* リザルト画面の WATCH REPLAY ／ ★ ／ EXPORT（1 行） */
+.result-replay-tools {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.result-replay-tools > .menu-btn:first-child {
+  flex: 1;
+}
+.result-replay-tools > .menu-btn:not(:first-child) {
+  width: auto;
+  min-width: 52px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.result-replay-star.is-on .menu-btn-icon {
+  color: #ffd76a;
+}
+/* 自動保存 OFF のときの SAVE（保存したら SAVED にして押せなくする） */
+.result-replay-save:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* 準備画面: BEST の下の WATCH BEST */
+.mode-check-best-replay {
+  align-self: center;
+  margin-top: -6px;
+}

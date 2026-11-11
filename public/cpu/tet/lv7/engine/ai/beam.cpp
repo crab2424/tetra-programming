@@ -40,13 +40,26 @@ struct Beam
     }
 };
 
+// T4：着弾の見込みが増えた分だけ行動の報酬を足す
+void apply_press(node::Data& child, const Configs& configs)
+{
+    if (!configs.press.active) return;
+    const i32 d = std::min<i32>(child.depth, 64);
+    const i32 total = std::max(std::max(child.sent - configs.incoming, 0) - configs.press.cap[d], 0);
+    if (total > child.landed) {
+        child.score.action += (total - child.landed) * configs.press.reward;
+        child.landed = i16(std::min(total, 32767));
+    }
+}
+
 }
 
 // ノードを展開する（いまのミノと HOLD のミノの全配置）。子の数を返す
 u32 expand(
     const std::vector<piece::Type>& queue,
     node::Data& node,
-    const std::function<void(node::Data&, move::Placement)>& callback
+    const std::function<void(node::Data&, move::Placement)>& callback,
+    const garbage::Plan* plan
 )
 {
     u32 nodes = 0;
@@ -72,6 +85,10 @@ u32 expand(
             auto child = node;
             child.lock = child.state.advance(placement, queue);
             child.sent += child.lock.attack;
+            child.depth = u8(std::min(i32(node.depth) + 1, 255));
+            if (plan && plan->active && child.gq.n > 0) {
+                garbage::after_lock(child.state.board, child.gq, child.lock.attack, child.depth, plan->seed);
+            }
             callback(child, placement);
         }
 
@@ -103,6 +120,8 @@ Result search(
     };
 
     root.state.next = 0;
+    if (configs.plan.active) root.gq = configs.plan.root;
+    const garbage::Plan* plan = configs.plan.active ? &configs.plan : nullptr;
 
     std::array<Beam, 2> layers = {
         Beam(configs.width, w.nl_split),
@@ -118,11 +137,13 @@ Result search(
             candidate.placement = placement;
             child.index = i32(result.candidates.size());
             eval::evaluate(child, root, placement, queue, w, configs.incoming);
+            apply_press(child, configs);
             result.candidates.push_back(candidate);
             // 原作は push_back（重複除去なし）。幅が初手の数より小さいと原作は sort_heap を壊れた heap に
             // かけていたので、ここでは add（重複除去＋上位 width 個）にする
             layers[0].add(child);
-        }
+        },
+        plan
     );
 
     if (result.candidates.empty()) {
@@ -164,8 +185,9 @@ Result search(
         parents.for_each([&] (node::Data& node) {
             result.nodes += beam::expand(queue, node, [&] (node::Data& child, move::Placement placement) {
                 eval::evaluate(child, node, placement, queue, w, configs.incoming);
+                apply_press(child, configs);
                 children.add(child);
-            });
+            }, plan);
         });
 
         parents.clear();

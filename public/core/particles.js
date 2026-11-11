@@ -166,12 +166,13 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '.mode-btn-puyo',            cls: 'menu-enter',  delay: 3   },
             { sel: '.mode-btn-quiz',            cls: 'menu-enter',  delay: 4   },
             { sel: '.mode-btn-practice',        cls: 'menu-enter',  delay: 5   },
-            // フッターは各ボタンを個別 delay で登場させる（SETTINGS/RANKINGは横並びなので1つずつずらす）
-            { sel: '#main-menu-settings-btn',   cls: 'menu-enter',     delay: 4 }, // SETTINGS
-            { sel: '#main-menu-ranking-btn',    cls: 'menu-enter',     delay: 5 }, // RANKING
-            { sel: '.util-link-title',          cls: 'menu-enter-dim', delay: 6   }, // TITLE
-            { sel: '.util-link-credits',        cls: 'menu-enter-dim', delay: 7   }, // CREDITS（左下）
-            { sel: '.util-link-changelog',      cls: 'menu-enter-dim', delay: 8   }, // CHANGELOG（右下）
+            // フッターは各ボタンを個別 delay で登場させる（RANKING/SETTINGS/REPLAYSは横並びなので1つずつずらす）
+            { sel: '#main-menu-ranking-btn',    cls: 'menu-enter',     delay: 4 }, // RANKING
+            { sel: '#main-menu-settings-btn',   cls: 'menu-enter',     delay: 5 }, // SETTINGS
+            { sel: '#main-menu-replays-btn',    cls: 'menu-enter',     delay: 6 }, // REPLAYS
+            { sel: '.util-link-title',          cls: 'menu-enter-dim', delay: 7   }, // TITLE
+            { sel: '.util-link-credits',        cls: 'menu-enter-dim', delay: 8   }, // CREDITS（左下）
+            { sel: '.util-link-changelog',      cls: 'menu-enter-dim', delay: 9   }, // CHANGELOG（右下）
         ];
     } else if (pageId === 'ranking') {
         targets = [
@@ -183,6 +184,16 @@ function initMenuAnimations(pageId = 'main-menu') {
         ];
         // リストの行自体はrenderRankingPage()が非同期で描画するため、ここでは
         // コンテナだけ登場させる。行の順次登場はranking.js側（_renderRows）が担当する。
+    } else if (pageId === 'replays') {
+        // RANKING と同じ形。行は ReplaysPage.render() が非同期で描き、順次登場もそちらが付ける
+        targets = [
+            { sel: '.ranking-title',            cls: 'menu-enter',  delay: 0   },
+            { sel: '#replays-filter',           cls: 'menu-enter',  delay: 1   },
+            { sel: '#replays-list',             cls: 'menu-enter',  delay: 2   },
+            { sel: '#replays-status',           cls: 'menu-enter',  delay: 2   },
+            { sel: '.ranking-hint',             cls: 'menu-enter',  delay: 3   },
+            { sel: '#replays-buttons',          cls: 'menu-enter',  delay: 3   },
+        ];
     } else if (pageId === 'mode-check') {
         targets = [
             { sel: '#mode-check-header',        cls: 'menu-enter',  delay: 0   },

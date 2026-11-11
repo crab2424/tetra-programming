@@ -1,4 +1,8 @@
 declare const APP_VERSION: string;
+declare const APP_BUILD: string;
+
+// 録画・再生（public/core/replay.js）がリプレイに書く版（アプリの版とビルドのコミット）
+(window as any).TETLABO_BUILD = { app: APP_VERSION, build: APP_BUILD };
 
 // 対戦共通モジュール（window.BattleGarbage / window.BattleLayout を登録。
 // プレーンJSエンジン(public/)からの参照はこの副作用importで成立する）
@@ -10,6 +14,9 @@ import "./battle/freeze";
 import "./battle/finish_overlay";
 import "./battle/local_loading";
 import { showToast, ToastColor } from "./components/toast";
+
+// プレーンJS（public/core/replay.js・public/app/replays.js）からの短いお知らせ（CLIP の保存・遊べない理由など）
+(window as any).showGlobalToast = (message: string) => showToast("REPLAY", message, ToastColor.Info);
 
 document.addEventListener("DOMContentLoaded", () => {
   const urlParams = new URLSearchParams(window.location.search);

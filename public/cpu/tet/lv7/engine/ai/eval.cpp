@@ -17,7 +17,10 @@ const i32 DEFAULT_WEIGHTS[WEIGHT_LEN] = {
     180, 450, 1000, 1500, 2000,
     -100, 100, -25, -150, -100,
     0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0
+    0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0,
+    0, 0, 0, 0
 };
 
 Weight from_array(const i32* a, i32 n)
@@ -60,6 +63,24 @@ Weight from_array(const i32* a, i32 n)
     w.ren_calm_pct = v[61];
     w.t_lookahead = v[62];
     w.nl_split = v[63];
+    w.threat_width = v[64];
+    w.threat_ms = v[65];
+    w.ren_width = v[66];
+    w.ren_samples = v[67];
+    w.ren_ext = v[68];
+    w.opp_ms = v[69];
+    w.my_ms = v[70];
+    w.margin_own = v[71];
+    w.ren_ms = v[72];
+    w.garbage_in_search = v[73];
+    w.threat_in_search = v[74];
+    w.threat_pct = v[75];
+    w.threat_ren_gate = v[76];
+    w.plan_danger_h = v[77];
+    w.press = v[78];
+    w.press_h = v[79];
+    w.danger_ren_pct = v[80];
+    w.danger_clear = v[81];
     return w;
 };
 

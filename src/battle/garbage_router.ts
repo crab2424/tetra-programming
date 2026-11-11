@@ -7,6 +7,9 @@
  * 唯一の送信経路になる:
  *
  *   エンジン(sendGarbage) → routeGarbage(opts, sink)
+ *
+ * テトのおじゃまの穴は送る側では決めない。受ける側が着弾（applyGarbage の1回）のときに
+ * 決める（1段目ランダム・2段目から HOLE RATE で前の段と同じ列。前の着弾とはつながらない）。
  *     sink = LocalSink   … 相手インスタンスの garbageQueue へ積む（CPU戦）
  *     sink = NetworkSink … Garbage/GarbagePuyo フレームを送信（オンライン、online_game.ts が構築）
  *
@@ -15,8 +18,8 @@
 
 /** 配送先の抽象化。ルールごとのフレーム種別/キュー形式の差はここで吸収する */
 export interface GarbageSink {
-  /** テト受け手へライン火力を送る（holes は送信側で確定済みの穴パターン） */
-  sendTetLines(lines: number, holes: number[]): void;
+  /** テト受け手へライン火力を送る（穴は受け手が着弾時に決める） */
+  sendTetLines(lines: number): void;
   /** ぷよ受け手へおじゃまぷよ個数を送る */
   sendOjama(count: number): void;
 }
@@ -26,10 +29,6 @@ export interface RouteGarbageOptions {
   amount: number;
   /** 受け手のルール */
   targetRule: "tet" | "puyo";
-  /** テト受け手の盤面列数（穴パターン生成に使用） */
-  cols: number;
-  /** 連続同穴率（%）。VS設定 vsGarbageHoleRate / matchSetting.garbageHoleRate */
-  holeRatePercent: number;
   /** 火力乗率（オンラインの garbageMultiplier）。ローカルは実効化済みなので 1 */
   multiplier?: number;
   /** 送信量の上限（オンラインのwire上限 255 など） */
@@ -51,35 +50,7 @@ export function tetGaugeToOjama(amount: number): number {
   return Math.floor((amount * amount - 21 * amount + 204) / 2);
 }
 
-/**
- * テトおじゃまの穴パターンを送信側で確定する（受信側で再計算しない＝全員の盤面表示が一致）。
- * 1段目は完全ランダム、2段目以降は holeRatePercent% で同じ穴・残りで別の穴。
- */
-export function buildGarbageHoles(
-  count: number,
-  cols: number,
-  holeRatePercent: number,
-): number[] {
-  const holes: number[] = [];
-  const rate = holeRatePercent / 100;
-  let prev = -1;
-  for (let i = 0; i < count; i++) {
-    let h: number;
-    if (prev < 0) {
-      h = Math.floor(Math.random() * cols);
-    } else if (Math.random() < rate) {
-      h = prev;
-    } else {
-      const offset = Math.floor(Math.random() * (cols - 1)) + 1;
-      h = (prev + offset) % cols;
-    }
-    holes.push(h);
-    prev = h;
-  }
-  return holes;
-}
-
-/** 全モード共通の送信入口。乗率→上限→ルール別変換→穴確定→sink 配送の順で処理する */
+/** 全モード共通の送信入口。乗率→上限→ルール別変換→sink 配送の順で処理する */
 export function routeGarbage(opts: RouteGarbageOptions, sink: GarbageSink): void {
   if (opts.amount <= 0) return;
   const mult = opts.multiplier ?? 1;
@@ -93,8 +64,7 @@ export function routeGarbage(opts: RouteGarbageOptions, sink: GarbageSink): void
     sink.sendOjama(ojama);
   } else {
     adjusted = Math.min(adjusted, opts.maxAmount ?? Infinity);
-    const holes = buildGarbageHoles(adjusted, opts.cols, opts.holeRatePercent);
-    sink.sendTetLines(adjusted, holes);
+    sink.sendTetLines(adjusted);
   }
 }
 
@@ -149,40 +119,15 @@ export function deliverLocalWithReadyTimer(
     // 受け手がポーズ中なら開始を保留し、resume 時に計時を始める
     timerEntry.remaining = delayMs;
   } else {
-    timerEntry.start = performance.now();
-    timerEntry.id = setTimeout(timerEntry.cb, delayMs);
+    timerEntry.start = opponent.clock.now();
+    timerEntry.id = opponent.clock.schedule(delayMs, timerEntry.cb);
   }
-}
-
-/**
- * 単純タイマー方式: {ready:false} で積み、delayMs 後に ready 化する（ポーズ非対応）。
- * ぷよエンジンは _garbageTimers のポーズ再開処理を持たないため、ぷよ受け手には
- * こちらを使う（ポーズ中に remaining 保留すると永久に ready 化しなくなる）。
- */
-export function deliverLocalSimple(
-  opponent: any,
-  garbageObj: LocalGarbageObj,
-  delayMs: number,
-): void {
-  if (!opponent.garbageQueue) opponent.garbageQueue = [];
-  opponent.garbageQueue.push(garbageObj);
-  if (typeof opponent.updateGarbageGauge === "function") {
-    opponent.updateGarbageGauge();
-  }
-  setTimeout(() => {
-    if (opponent.garbageQueue?.includes(garbageObj) && garbageObj.amount > 0) {
-      garbageObj.ready = true;
-      if (typeof opponent.updateGarbageGauge === "function") {
-        opponent.updateGarbageGauge();
-      }
-    }
-  }, delayMs);
 }
 
 /**
  * ぷよ送り手方式: stage1 {internal:true}（非表示）で積み、internalMs 後に stage2「猶予(青)」へ。
  * stage3(ready) への確定は送り手の連鎖終了時に _confirmSentGarbage が行う（旧 puyo/ojama.js:197-236）。
- * ぷよ受け手は dt ベース(internalTimer)、テト受け手は _garbageTimers(setTimeout) 方式でポーズ対応。
+ * ぷよ受け手は dt ベース(internalTimer)、テト受け手は _garbageTimers(ゲーム時計の予約) 方式でポーズ対応。
  */
 export function deliverLocalStaged(
   opponent: any,
@@ -220,8 +165,8 @@ export function deliverLocalStaged(
     if (opponent.isPaused) {
       timerEntry.remaining = internalMs;
     } else {
-      timerEntry.start = performance.now();
-      timerEntry.id = setTimeout(timerEntry.cb, internalMs);
+      timerEntry.start = opponent.clock.now();
+      timerEntry.id = opponent.clock.schedule(internalMs, timerEntry.cb);
     }
   }
 
@@ -247,11 +192,11 @@ export function reseatLocalGarbageTimers(owner: any): void {
   const timers: any[] = owner._garbageTimers;
   if (!Array.isArray(timers) || timers.length === 0) return;
 
-  const now = performance.now();
+  const now = owner.clock.now();
   for (const entry of timers) {
     let remaining: number;
     if (entry.id) {
-      clearTimeout(entry.id);
+      owner.clock.cancel(entry.id);
       entry.id = null;
       remaining = Math.max(0, entry.duration - (now - entry.start));
     } else {
@@ -260,19 +205,7 @@ export function reseatLocalGarbageTimers(owner: any): void {
         : entry.duration;
     }
 
-    const obj = entry.obj;
-    // internal:true のまま残っている = stage1→stage2 の昇格待ち（deliverLocalStaged 由来）
-    const toStage2 = obj.internal === true;
-    entry.cb = () => {
-      entry.id = null;
-      if (owner.garbageQueue.includes(obj) && obj.amount > 0) {
-        if (toStage2) obj.internal = false;
-        else obj.ready = true;
-        if (typeof owner.updateGarbageGauge === "function") owner.updateGarbageGauge();
-      }
-      const idx = owner._garbageTimers.indexOf(entry);
-      if (idx !== -1) owner._garbageTimers.splice(idx, 1);
-    };
+    entry.cb = makeLocalGarbageTimerCb(owner, entry);
 
     entry.duration = remaining;
     if (owner.isPaused) {
@@ -280,19 +213,51 @@ export function reseatLocalGarbageTimers(owner: any): void {
     } else {
       entry.remaining = null;
       entry.start = now;
-      entry.id = setTimeout(entry.cb, remaining);
+      entry.id = owner.clock.schedule(remaining, entry.cb);
     }
+  }
+}
+
+/** `_garbageTimers` のエントリの cb を、持ち主 owner とそのエントリ自身を見るものに作り直す */
+function makeLocalGarbageTimerCb(owner: any, entry: any): () => void {
+  const obj = entry.obj;
+  // internal:true のまま残っている = stage1→stage2 の昇格待ち（deliverLocalStaged 由来）
+  const toStage2 = obj.internal === true;
+  return () => {
+    entry.id = null;
+    if (owner.garbageQueue.includes(obj) && obj.amount > 0) {
+      if (toStage2) obj.internal = false;
+      else obj.ready = true;
+      if (typeof owner.updateGarbageGauge === "function") owner.updateGarbageGauge();
+    }
+    const idx = owner._garbageTimers.indexOf(entry);
+    if (idx !== -1) owner._garbageTimers.splice(idx, 1);
+  };
+}
+
+/**
+ * 録画の再生でスナップショットへ戻した直後に呼ぶ（public/core/replay.js）。
+ * 戻した `_garbageTimers` と `garbageQueue` は写しなので、cb が掴んでいる元のエントリ・おじゃまは
+ * もう盤面に無い。cb だけを写しを見るものに作り直し、予約（entry.id）の中身も差し替える。
+ * 予約の時刻・順番は変えない（reseatLocalGarbageTimers と違って予約し直さない）。
+ */
+export function rebindLocalGarbageTimers(owner: any): void {
+  const timers: any[] = owner._garbageTimers;
+  if (!Array.isArray(timers)) return;
+  for (const entry of timers) {
+    if (!entry || !entry.obj) continue;
+    entry.cb = makeLocalGarbageTimerCb(owner, entry);
+    if (entry.id) entry.id.cb = entry.cb;
   }
 }
 
 export const BattleGarbage = {
   routeGarbage,
-  buildGarbageHoles,
   tetGaugeToOjama,
   deliverLocalWithReadyTimer,
-  deliverLocalSimple,
   deliverLocalStaged,
   reseatLocalGarbageTimers,
+  rebindLocalGarbageTimers,
 };
 
 // プレーンJSエンジン（public/game/*）からの参照用

@@ -89,6 +89,8 @@ Object.assign(PuyoGame.prototype, {
 
     _spawnPuyo() {
         const pair = this._dequeueNext();
+        // ツモごとに変わる通し番号（VERSUS の CPU ウォッチドッグがツモの替わりを見分けるのに使う）
+        this._spawnSeq = (this._spawnSeq || 0) + 1;
 
         this.pivotX = 2;
         this.pivotY = -0.5;
@@ -151,22 +153,49 @@ Object.assign(PuyoGame.prototype, {
         this._gs = 'fixAnim';
     },
 
+    // 試合のループ（core/match_loop.js）に加わる。1 フレーム:
+    //   時計を進める（マージン・tet 相手のおじゃま猶予・カウントダウンなどの予約もここで実行）
+    //   → たまった入力の取り込み → 盤面を進める（VERSUS は 1P → 2P）→ 描画
+    // カウントダウン中（starting）は入力の取り込みと DAS のチャージだけ（_startCountdownDas）。
+    // playing・starting でなくなったら自分で抜ける。
+    // ★ versusモードのgameover中（_versusFinishing）は描画のみ継続（勝者側の盤面・NEXTを残すため）
     _loop() {
-        // ★ versusモードのgameover中（_versusFinishing）は描画のみ継続（勝者側の盤面・NEXTを残すため）
-        const continueForVersus = this.isVersusMode && this._versusFinishing;
-        if (this.state !== 'playing' && !continueForVersus) return;
-        this._loopId = requestAnimationFrame(() => this._loop());
+        if (!this._frameUpdate) {
+            this._frameUpdate = () => {
+                const continueForVersus = this.isVersusMode && this._versusFinishing;
+                if (this.state !== 'playing' && this.state !== 'starting' && !continueForVersus) {
+                    this._stopLoop();
+                    return;
+                }
+                let now = this.clock.now();
+                let dt = now - this.lastTime;
+                if (dt > 100) dt = 100;
+                this.lastTime = now;
 
-        let now = performance.now();
-        let dt = now - this.lastTime;
-        if (dt > 100) dt = 100;
-        this.lastTime = now;
-
-        // ★ gameover中は _update をスキップして描画のみ行う
-        if (this.state === 'playing') {
-            this._update(dt);
+                if (this.state === 'playing') {
+                    this._drainInput();
+                    this._runCpu(); // CPU の手（core/cpu_port.js）。人のキーと同じ所で盤面に入る
+                    this._update(dt);
+                } else if (this.state === 'starting') {
+                    // カウントダウン中：DAS だけ溜める（ぷよはまだ falling ではないので _arrTimer は arrMs で頭打ち）
+                    this._drainInput();
+                    this._runCpu();
+                    this._updateDAS(dt);
+                }
+                // ★ gameover中は _update をスキップして描画のみ行う
+            };
+            this._frameDraw = () => {
+                this._render();
+                if (this._timerRunning) this._timerTick();
+            };
         }
-        this._render();
+        this._loopId = true;
+        this.loop.add(this, this._frameUpdate, this._frameDraw);
+    },
+
+    _stopLoop() {
+        this._loopId = null;
+        if (this.loop) this.loop.remove(this);
     },
 
     _update(dt) {
@@ -197,10 +226,16 @@ Object.assign(PuyoGame.prototype, {
             if (anyCleared) this.updateGarbageGauge();
         }
 
-        this._stepVibAnims(dt);
+        // ★ 演出（点滅・間・落下・振動・fixWait・NEXT遷移・ちぎり）だけ VERSUS の PUYO SPEED 倍で進める
+        const adt = this._animDt(dt);
+
+        this._stepVibAnims(adt);
 
         switch (this._gs) {
             case 'spawn':
+                // 録画: 次のぷよを出す直前の盤面のハッシュ／再生: 録画と照らし合わせる（core/replay.js）
+                if (this._rec) this._rec.lock(this);
+                else if (this._replay) this._replay.onLock(this);
                 if (!this._spawnPuyo()) {
                     this._gs = 'gameover';
                     this._beginGameOver();
@@ -226,7 +261,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'splitting':
-                let splitDropDist = dt / PConfig.splitDropSpeed;
+                let splitDropDist = adt / PConfig.splitDropSpeed;
                 this.splitPuyo.y += splitDropDist;
 
                 let sLimit = this._calcLimitY_Single(this.splitPuyo.col, this.splitPuyo.y);
@@ -246,7 +281,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'fixAnim':
-                this.fixAnimTimer += dt;
+                this.fixAnimTimer += adt;
                 if (this.fixAnimTimer >= this.fixAnimDuration) {
                     this._gs = 'fixWait5f';
                     this.fw5fTimer = 0;
@@ -254,7 +289,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'fixWait5f':
-                this.fw5fTimer += dt;
+                this.fw5fTimer += adt;
                 if (this.fw5fTimer >= PConfig.fixWait5fMs) {
                     this._gs = 'checkErase';
                 }
@@ -268,6 +303,8 @@ Object.assign(PuyoGame.prototype, {
                     this._eraseTimer = 0;
                     this.chainCount++;
                     if (this.chainCount > this.chainMax) this.chainMax = this.chainCount;
+                    // 録画の印: 連鎖の始まりの時刻と、この連鎖で出たおじゃまの数（終わったときに判定。core/replay.js）
+                    if (this._rec && this.chainCount === 1) { this._markChainT = this.clock.now(); this._markChainOjama = 0; }
                     // ※連鎖SEはここ（点滅開始時）ではなく、ぷよが消えて連鎖文字演出が出る瞬間
                     //   （erasing→eraseWait遷移で _prepareChainTextDOM 後）に鳴らす
 
@@ -290,6 +327,10 @@ Object.assign(PuyoGame.prototype, {
                             this.pendingFire = 0;
                             this.tetPendingFire = 0;
                         }
+                    }
+
+                    if (this._rec && this.chainCount > 0) {
+                        this._rec.attack(this, `${this.chainCount} CHAIN`, this._markChainOjama || 0, this._markChainT);
                     }
 
                     let isZenkeshi = false;
@@ -403,7 +444,7 @@ Object.assign(PuyoGame.prototype, {
             }
 
             case 'erasing':
-                this._stepEraseBlink(dt);
+                this._stepEraseBlink(adt);
                 if (this._eraseTimer >= PConfig.eraseMs) {
                     this._applyErase();
                     this._buildDropAnim();
@@ -444,7 +485,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'eraseWait':
-                this._stepEraseWait(dt);
+                this._stepEraseWait(adt);
                 if (this.eraseWaitTimer >= PConfig.eraseWaitMs) {
                     if (this.chainScoreAdd > 0) {
                         this.score += this.chainScoreAdd;
@@ -463,7 +504,7 @@ Object.assign(PuyoGame.prototype, {
 
             case 'dropping':
                 if (this._dropAnim) {
-                    if (this._stepDropAnim(dt)) {
+                    if (this._stepDropAnim(adt)) {
                         this._applyDropAnim();
 
                         let anyChainVib = false;
@@ -489,7 +530,7 @@ Object.assign(PuyoGame.prototype, {
                 break;
 
             case 'spawnAnim':
-                this._stepSpawnAnim(dt);
+                this._stepSpawnAnim(adt);
                 if (this.spawnAnimTimer >= PConfig.spawnAnimMs) {
                     this.chainCount = 0;
                     this._gs = 'spawn';
@@ -499,6 +540,14 @@ Object.assign(PuyoGame.prototype, {
             case 'gameover':
                 break;
         }
+    },
+
+    // 演出のタイマーだけを進める dt。vsPuyoSpeed は VERSUS の PUYO SPEED（未定義・1 なら従来どおり）。
+    // 操作（DAS・自由落下・固定猶予・回転アニメ）・おじゃまの配送・ストップウォッチには使わない。
+    // ※ _step* 関数は driver.ts（online 相手パペット）と共通なので、倍率はここで dt に掛けてから渡す。
+    _animDt(dt) {
+        const s = this.vsPuyoSpeed;
+        return (s > 0 && s !== 1) ? dt * s : dt;
     },
 
     // 連鎖縛りが有効で、いまの連鎖が縛り未満なら true（vsChainMin: 0/未定義=OFF）。
@@ -890,6 +939,7 @@ Object.assign(PuyoGame.prototype, {
         this.generatedOjamaTotal = totalOjama;
         if (newlyGenerated > 0) {
             this.pendingFire += newlyGenerated;
+            if (this._rec) this._markChainOjama = (this._markChainOjama || 0) + newlyGenerated;
         }
 
         // ★ ぷよ→テト火力変換（相殺＋ライン算出）は「消去」タイミングで _resolveTetAttack() が行う。
@@ -960,6 +1010,10 @@ Object.assign(PuyoGame.prototype, {
         this._clearChainTextDOM();
         this.isAllClear = false; // ★ ゲームオーバー時にALL CLEARを消す
         this.state = 'gameover';
+
+        // 録画の締め／再生の終わり（core/replay.js）。再生のときは終了演出・リザルト・記録の保存をしない
+        if (this._rec) ReplayManager.finish(this, false, this.isVersusMode ? { loser: replaySide(this) } : null);
+        if (this._replay) { this._replay.onGameOver(this, false); return; }
 
         if (this.isVersusMode) {
             const loser = (this.canvasPrefix === 'cpu') ? 'cpu' : 'player';
@@ -1043,27 +1097,23 @@ Object.assign(PuyoGame.prototype, {
     _startTimer() {
         this.elapsed = 0;
         this._timerRunning = true;
-        this._timerStart = performance.now();
+        this._timerStart = this.clock.now();
         this._timerTick();
     },
 
     _stopTimer() {
         if (this._timerRunning) {
-            this.elapsed += performance.now() - this._timerStart;
+            this.elapsed += this.clock.now() - this._timerStart;
             this._timerRunning = false;
-        }
-        if (this._timerReqId) {
-            cancelAnimationFrame(this._timerReqId);
-            this._timerReqId = null;
         }
     },
 
+    // タイム表示を今の時刻に合わせる。試合のループの描画で毎フレーム呼ぶ（以前は別の rAF）
     _timerTick() {
         if (!this._timerRunning) return;
-        const now = performance.now();
+        const now = this.clock.now();
         const total = this.elapsed + (now - this._timerStart);
         this._updateTimeDisplay(total);
-        this._timerReqId = requestAnimationFrame(() => this._timerTick());
     },
 
     _formatTime(ms) {

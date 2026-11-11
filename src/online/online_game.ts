@@ -31,7 +31,6 @@ import {
   decodePendingUpdate,
   fieldBlocksToArray,
   MatchOpcode,
-  BOARD_COLS,
   SE_IDS,
   SE_NAMES,
   createSeededRng,
@@ -297,10 +296,17 @@ export class OnlineGameController {
    * 自分がボタンを押したときに初めて参照し、通知してから遷移する。
    */
   private departed = new Map<Uuid, number>();
+  /** この対戦（ラウンド）を始めたときの顔ぶれ。リザルト中に入室した人を RETRY の判定・ALIVE の
+   *  分母に含めないために覚えておく（不具合 2026-11-11 #8・#12）。 */
+  private matchParticipants: Set<Uuid> = new Set();
+  /** 再戦が成立して preparing に入ってから開始通知を待つ見張り（#3）。 */
+  private rematchStartTimer: number | null = null;
   /** ローカルで残り1人を検知してから WinnerNotification を待つタイマー。 */
   private winnerFallbackTimer: number | null = null;
   /** サーバーの WinnerNotification を待つ猶予。超えたらローカル判定で結果を出す。 */
   private static readonly WINNER_FALLBACK_MS = 2000;
+  /** 再戦成立（preparing）から開始通知が来るまでの上限。過ぎたらリザルト画面へ戻す（#3）。 */
+  private static readonly REMATCH_START_TIMEOUT_MS = 8000;
   /**
    * startBattle（＝本編開始までの delay の起点）を通過した時刻。
    * ロード画面を閉じ終えたあとのカウントダウン残り時間を出すのに使う。
@@ -396,10 +402,10 @@ export class OnlineGameController {
     this.bgClockRunning = true;
     // tet: rAFが止まる直前の経過時間で多重落下しないよう基準時刻をリセット
     if (this.game && this.myRule !== "puyo") {
-      this.game._gravityLastTime = performance.now();
+      this.game._gravityLastTime = this.game.clock.now();
     }
     if (this.game && this.myRule === "puyo") {
-      this.game.lastTime = performance.now();
+      this.game.lastTime = this.game.clock.now();
     }
     this.bgClockWorker.postMessage("start");
     this.logger.log("Background clock started (tab hidden).");
@@ -411,10 +417,10 @@ export class OnlineGameController {
     this.bgClockWorker?.postMessage("stop");
     // 表示に戻った直後の大ジャンプを避けるため基準時刻を現在に合わせる
     if (this.game && this.myRule !== "puyo") {
-      this.game._gravityLastTime = performance.now();
+      this.game._gravityLastTime = this.game.clock.now();
     }
     if (this.game && this.myRule === "puyo") {
-      this.game.lastTime = performance.now();
+      this.game.lastTime = this.game.clock.now();
     }
     this.logger.log("Background clock stopped (tab visible).");
   }
@@ -448,27 +454,21 @@ export class OnlineGameController {
     try {
       if (this.myRule === "puyo") {
         // ぷよ: _loop() の更新部分を再現（描画は非表示中なので省略）
-        const now = performance.now();
+        g.clock.advance();
+        const now = g.clock.now();
         let dt = now - g.lastTime;
         if (dt > 100) dt = 100;
         if (dt < 0) dt = 0;
         g.lastTime = now;
-        if (g.state === "playing") g._update(dt);
-      } else {
-        // tet: rAFループ相当の重力tickを進める
-        g._applyGravityTick();
-        // 接地後の固定は lockTimer(setTimeout) 依存で、非表示中はthrottleされ ~1s 遅れる。
-        // 猶予を過ぎていれば手動で固定し、相手への Lock/Spawn 送信が滞らないようにする。
-        if (g.isGrounded && g.lockTimer && typeof g.lockStartTime === "number") {
-          const due =
-            typeof g.lockRemaining === "number" ? g.lockRemaining : (g.lockDelay ?? 0);
-          if (performance.now() - g.lockStartTime >= due) {
-            clearTimeout(g.lockTimer);
-            g.lockTimer = null;
-            g.secureMino();
-            g.requestRedraw?.();
-          }
+        if (g.state === "playing") {
+          g._drainInput?.(); // フレームの頭で入力を取り込む（engine.js _loop と同じ順）
+          g._update(dt);
         }
+      } else {
+        // tet: rAFループ相当に時計を進めて重力tickを適用する。
+        // 固定猶予はゲーム時計の予約なので、advance() の中で期限どおりに固定される。
+        g.clock.advance();
+        g._applyGravityTick();
       }
       // 相手の盤面に落下中ミノ/ぷよの動きを反映させる（throttleされた interval の代替）
       this.sendPieceStateNow();
@@ -494,7 +494,9 @@ export class OnlineGameController {
   /** 対戦画面上部の「残り生存者数」表示を更新する。
    *  2人戦は 2/2→1/2 にしかならず情報量が無いため3人戦以上でのみ表示する。 */
   private updateAliveDisplay(): void {
-    if (this.roomInfo.players.length <= 2) {
+    // 分母は対戦開始時の人数（途中で切断されて部屋から消えても減らさない。#12）
+    const total = this.matchParticipants.size || this.roomInfo.players.length;
+    if (total <= 2) {
       document.getElementById("ol-alive-count")?.remove();
       return;
     }
@@ -505,7 +507,7 @@ export class OnlineGameController {
       const battlePage = document.getElementById("online-battle-page");
       battlePage?.appendChild(el);
     }
-    el.textContent = `ALIVE: ${this.aliveSet.size} / ${this.roomInfo.players.length}`;
+    el.textContent = `ALIVE: ${this.aliveSet.size} / ${total}`;
   }
 
   /** ラウンド番号と先取スコアを結果インタースティシャルへ反映する。 */
@@ -522,8 +524,60 @@ export class OnlineGameController {
 
   private markDead(playerId: Uuid): void {
     this.aliveSet.delete(playerId);
+    this.confirmPendingFrom(playerId);
+    this.refreshOpponentRules();
     this.updateAliveDisplay();
     this.checkLocalMatchEnd();
+  }
+
+  /**
+   * ぷよの送り手が脱落・切断したとき、その人からの「連鎖終了待ち(ready:false)」のおじゃまを
+   * 確定させる。送り手の GarbageConfirm はもう来ないので、残すと降らないまま相殺だけに
+   * 使われ続ける（不具合 2026-11-11 #10）。
+   */
+  private confirmPendingFrom(senderId: Uuid): void {
+    const game = this.game as any;
+    if (!game?.garbageQueue?.length) return;
+    let changed = false;
+    for (const g of game.garbageQueue) {
+      if (!g.ready && g._srcSender === senderId && g._srcRule === 'puyo') {
+        g.ready = true;
+        changed = true;
+      }
+    }
+    if (changed) game.updateGarbageGauge?.();
+  }
+
+  /**
+   * 生きている相手のルールから、送る火力の方式（matchOpponentRule など）を作り直す。
+   * 開始時のままだと、ぷよの相手が全員脱落してもテトの送り手は「対ぷよ」のゲージ方式で
+   * おじゃま個数を送り続ける（不具合 2026-11-11 #1）。
+   */
+  private refreshOpponentRules(): void {
+    if (this.lifecycle.phase !== "playing" && this.lifecycle.phase !== "countdown") return;
+    const rules = [...this.aliveSet]
+      .filter((id) => id !== this.myUserId)
+      .map((id) => this.puppetRules.get(id))
+      .filter((r): r is 'tet' | 'puyo' => r !== undefined);
+    if (rules.length === 0) return; // 決着（以後は送らない）
+    const prevRule = this.matchOpponentRule;
+    this.matchOpponentRule = rules.includes('puyo') ? 'puyo' : 'tet';
+    this.matchHasTetOpp = rules.includes('tet');
+    this.matchHasPuyoOpp = rules.includes('puyo');
+    const game = this.game as any;
+    if (!game) return;
+    game.opponentRule = this.matchOpponentRule;
+    game._hasTetOpp = this.matchHasTetOpp;
+    game._hasPuyoOpp = this.matchHasPuyoOpp;
+    // テトの送り手が「対ぷよ」のゲージ方式から抜けるとき、ためていた火力はテトの相手へ
+    // ライン数で送り切る（ゲージ方式は消去なしの設置まで送らずにためるため）
+    if (this.myRule === 'tet' && prevRule === 'puyo' && this.matchOpponentRule === 'tet') {
+      const lines = game.pendingInternalAttack ?? 0;
+      game.pendingAttack = 0;
+      game.pendingInternalAttack = 0;
+      if (lines > 0 && typeof game.sendGarbage === 'function') game.sendGarbage(lines);
+      game.updateAttackGauge?.();
+    }
   }
 
   /**
@@ -571,7 +625,8 @@ export class OnlineGameController {
    * ネットワーク配送 sink とルーティング設定を作り、game.sendGarbage /
    * sendGarbageCrossTet として注入する（tet/puyo 送り手共通。実体は battle/garbage_router.ts）。
    *
-   * ★ 同種戦: amount はそのまま相手ルールのフレームで送る（tet=ライン+穴 / puyo=おじゃま個数）。
+   * ★ 同種戦: amount はそのまま相手ルールのフレームで送る（tet=ライン数 / puyo=おじゃま個数）。
+   *    tet の穴は受け手が着弾時に自分で決め、その盤面を Lock で全員に送る（だから表示は一致する）。
    * ★ 異種戦: TETのゲージ値は相手PUYO向けのおじゃま個数へここで変換する。
    *    PUYO側はエンジンが相殺後のPUYO個数を渡すため、PUYO→TETでは再変換しない。
    * ★ 混在多人数戦: 主送信とは別に sendGarbageCrossTet がテト相手へ tet ライン火力を送る。
@@ -580,8 +635,8 @@ export class OnlineGameController {
     const game = this.game;
     const conn = this.connection;
     const sink: GarbageSink = {
-      sendTetLines: (lines, holes) => {
-        conn.sendMatchEvent(encodeGarbage(lines, holes));
+      sendTetLines: (lines) => {
+        conn.sendMatchEvent(encodeGarbage(lines, undefined, "tet"));
         game._olGarbageSentThisChain = true;
       },
       sendOjama: (count) => {
@@ -590,8 +645,6 @@ export class OnlineGameController {
       },
     };
     const routeOpts = {
-      cols: BOARD_COLS,
-      holeRatePercent: matchSetting.garbageHoleRate,
       multiplier: matchSetting.garbageMultiplier,
       maxAmount: 255,
     };
@@ -694,6 +747,12 @@ export class OnlineGameController {
     for (const [id, name] of info.players) {
       this.playerNames.set(id, name);
     }
+    // リザルト画面で誰かが抜けたら、残りの全員が RETRY 済みかを見直す（#7）
+    if (this.lifecycle.phase === "roundResult") {
+      this.updateRematchButton();
+      this.renderPostMatchStatus();
+      this.maybeTriggerRematch();
+    }
   }
 
   /**
@@ -757,6 +816,8 @@ export class OnlineGameController {
     this.clearWinnerFallback();
     this.addVisibilityListener();
     this.aliveSet = new Set(this.roomInfo.players.map(([id]) => id));
+    this.matchParticipants = new Set(this.aliveSet);
+    this.clearRematchStartTimer();
     // ★ WIN/LOSE・GAME OVER 表示のクリアはここでは行わない（前ラウンドの見た目なので
     //   teardownFinishedRound で暗転後にまとめて消す）。ここで消すと「まもなく対戦開始…」の
     //   ロード表示中に決着画面だけが先に欠ける。
@@ -1701,6 +1762,8 @@ export class OnlineGameController {
 
     const pauseId = conn.onPauseNotification((n) => {
       if (n.roomId !== this.roomInfo.roomId) return;
+      // 対戦中で自分が生きているときだけ（決着・ゲームオーバーで止めた盤面は触らない。#11）
+      if (this.lifecycle.phase !== "playing" || !this.myAlive) return;
       this.game?.pause?.();
       const byEl = document.getElementById("ol-paused-by");
       if (byEl) {
@@ -1715,6 +1778,8 @@ export class OnlineGameController {
       if (n.roomId !== this.roomInfo.roomId) return;
       const overlay = document.getElementById("ol-pause-overlay");
       if (overlay) overlay.style.display = "none";
+      // 決着・ゲームオーバーで止めた盤面を resume() で動かさない（#11）
+      if (this.lifecycle.phase !== "playing" || !this.myAlive) return;
       this.game?.resume?.();
     });
 
@@ -1820,10 +1885,9 @@ export class OnlineGameController {
     const rematchBtn = document.getElementById("ol-btn-rematch") as HTMLButtonElement | null;
     if (!rematchBtn) return;
     const span = rematchBtn.querySelector('span:last-child');
-    const total = this.roomInfo.players.length;
-    const votes = this.roomInfo.players.filter(
-      ([id]) => this.rematchVotes.get(id) === PostMatchAction.Retry,
-    ).length;
+    const members = this.rematchMembers();
+    const total = members.length;
+    const votes = members.filter((id) => this.rematchVotes.get(id) === PostMatchAction.Retry).length;
     const isSet = this.lifecycle.snapshot().target > 1;
     const actionLabel = isSet ? "NEXT ROUND" : "RETRY";
 
@@ -1951,7 +2015,11 @@ export class OnlineGameController {
         notice: "相手が退出したため再戦できません",
         forced: true,
       });
+      return;
     }
+    // 抜けた人を除いた残りが全員 RETRY 済みなら、ここで再戦を始める（#7）
+    this.updateRematchButton();
+    this.maybeTriggerRematch();
   }
 
   private handlePostMatchVote(playerId: Uuid, action: number): void {
@@ -1987,10 +2055,23 @@ export class OnlineGameController {
     this.maybeTriggerRematch();
   }
 
+  /**
+   * RETRY の判定に入れる人: この対戦に出ていて、まだ部屋にいて、リザルトから抜けていない人。
+   * リザルト中に入室した人（#8）・退出/切断した人（#7）は数えない。
+   */
+  private rematchMembers(): Uuid[] {
+    return this.roomInfo.players
+      .map(([id]) => id)
+      .filter((id) => this.matchParticipants.size === 0 || this.matchParticipants.has(id))
+      .filter((id) => !this.departed.has(id));
+  }
+
   /** 全員が REMATCH に投票していたら（オーナーが）開始する */
   private maybeTriggerRematch(): void {
     if (this.lifecycle.phase !== "roundResult") return;
-    const allVoted = this.roomInfo.players.every(([id]) => this.rematchVotes.get(id) === 0);
+    const members = this.rematchMembers();
+    if (!members.some((id) => id !== this.myUserId)) return; // 相手がいない（markDeparted 側で処理）
+    const allVoted = members.every((id) => this.rematchVotes.get(id) === PostMatchAction.Retry);
     if (allVoted) this.triggerRematch();
   }
 
@@ -2005,6 +2086,22 @@ export class OnlineGameController {
     // 全員のリスナーを再登録してから、オーナーが startMatch を送る
     // （relistenForStart 内で preparing へ遷移する）
     this.relistenForStart();
+
+    // ★ 投票と取消がすれ違うと、自分だけが「全員そろった」と判断して preparing に入り、
+    //   開始通知が来ないままロード画面で固まる（オーナーが開始に失敗したときのオーナー以外も同じ）。
+    //   しばらく待っても始まらなければリザルト画面へ戻し、自分の申請も取り下げる（#3）。
+    this.clearRematchStartTimer();
+    this.rematchStartTimer = window.setTimeout(() => {
+      this.rematchStartTimer = null;
+      if (this.lifecycle.phase !== "preparing") return;
+      this.logger.warn("StartMatchNotification did not arrive after rematch agreement. Back to result.");
+      this.connection.setReady({ roomId, ready: false }).catch((e) =>
+        this.logger.log("setReady(false) failed:", e),
+      );
+      this.connection.sendPostMatchAction({ roomId, action: PostMatchAction.Cancel });
+      showToast("ONLINE", "再戦を開始できませんでした。もう一度 RETRY を押してください", ToastColor["Info"]);
+      this.abortRematch();
+    }, OnlineGameController.REMATCH_START_TIMEOUT_MS);
 
     const isOwner = this.roomInfo.ownerId === this.myUserId;
     if (isOwner) {
@@ -2033,9 +2130,14 @@ export class OnlineGameController {
    *   そのまま RETRY をやり直せる状態に戻る。
    */
   private abortRematch(): void {
+    this.clearRematchStartTimer();
     // 再戦開始要求の失敗も、開始前のRETRY待ちロード画面が残る同型のバグを踏むため閉じる。S2⑦。
     hideLoadingOverlay(true);
-    this.lifecycle.transition("roundResult", "rematch start failed");
+    if (!this.lifecycle.transition("roundResult", "rematch start failed")) return;
+    this.rematchVotes.clear();
+    this.myRematchVoted = false;
+    // リザルト画面にいる間も開始通知は受ける（すれ違いで他の人だけ始まった場合に取り残されない）
+    this.ensureStartListener();
     this.updateRematchButton();
     this.renderPostMatchStatus();
   }
@@ -2053,6 +2155,12 @@ export class OnlineGameController {
    *   ロード中は決着時の画面をそのまま残し、暗転の下で一気に片付ける。
    */
   private relistenForStart(): void {
+    this.prepareForNextMatch();
+    this.ensureStartListener();
+  }
+
+  /** relistenForStart の前半: preparing へ移り、受信ハンドラ・投票フラグを次マッチ用に戻す。 */
+  private prepareForNextMatch(): void {
     // 次の開始通知待ちへ。以降のテアダウンは冪等なので遷移可否に関わらず実行する
     this.lifecycle.transition("preparing", "await next match");
     this.stopPieceStateInterval();
@@ -2071,16 +2179,36 @@ export class OnlineGameController {
     this.myRematchVoted = false;
     this.departed.clear();
 
-    // StartMatchNotification を再登録（1回限り）
+  }
+
+  /**
+   * StartMatchNotification の受け口（1回限り）を付ける。preparing だけでなくリザルト画面
+   * （roundResult）の間も付けておく: 投票と取消がすれ違ったとき、自分の画面では全員そろって
+   * いなくてもオーナーの開始は通るので、通知が来たらそのまま始める（#3）。
+   */
+  private ensureStartListener(): void {
+    if (this.startNotifHandlerId) return;
     this.startNotifHandlerId = this.connection.onStartMatchNotification((notif) => {
-      if (notif.roomId === this.roomInfo.roomId) {
-        if (this.startNotifHandlerId) {
-          this.connection.removeReaderFunction(this.startNotifHandlerId);
-          this.startNotifHandlerId = null;
-        }
-        this.startBattle(notif);
+      if (notif.roomId !== this.roomInfo.roomId) return;
+      const phase = this.lifecycle.phase;
+      if (phase !== "preparing" && phase !== "roundResult") return;
+      if (this.startNotifHandlerId) {
+        this.connection.removeReaderFunction(this.startNotifHandlerId);
+        this.startNotifHandlerId = null;
       }
+      if (phase === "roundResult") {
+        hideLoadingOverlay(true);
+        this.prepareForNextMatch();
+      }
+      this.startBattle(notif);
     });
+  }
+
+  private clearRematchStartTimer(): void {
+    if (this.rematchStartTimer !== null) {
+      window.clearTimeout(this.rematchStartTimer);
+      this.rematchStartTimer = null;
+    }
   }
 
   /**
@@ -2106,20 +2234,20 @@ export class OnlineGameController {
         this.game._versusFinishing = false;
         this.game.stop?.();
         this.game.rng = null;
-        // 対テト送り手からの攻撃は _garbageTimers(setTimeout) 経由で ready 化されるため、
+        // 対テト送り手からの攻撃は _garbageTimers(ゲーム時計の予約) 経由で ready 化されるため、
         // 次戦開始前に古いタイマーが残らないよう止める（puyo同士の internalTimer は
         // dt駆動で _update 停止と共に自動停止するのでここでは不要）。
         if (this.game._garbageTimers?.length) {
-          for (const t of this.game._garbageTimers) if (t.id) clearTimeout(t.id);
+          for (const t of this.game._garbageTimers) if (t.id) this.game.clock.cancel(t.id);
         }
       } else {
         if (this.game.timer) clearInterval(this.game.timer);
-        if (this.game.lockTimer) clearTimeout(this.game.lockTimer);
+        this.game._cancelLockTimer();
         if (this.game._garbageTimers?.length) {
-          for (const t of this.game._garbageTimers) if (t.id) clearTimeout(t.id);
+          for (const t of this.game._garbageTimers) if (t.id) this.game.clock.cancel(t.id);
         }
         if (this.game._keyLoop) clearInterval(this.game._keyLoop);
-        if (this.game._gamepadLoop) clearInterval(this.game._gamepadLoop);
+        if (this.game._gamepadLoop) cancelAnimationFrame(this.game._gamepadLoop); // rAF（tet/input.js）
         if (this.game._keyDownHandler) document.removeEventListener("keydown", this.game._keyDownHandler);
         if (this.game._keyUpHandler) document.removeEventListener("keyup", this.game._keyUpHandler);
         this.game.tumoRng = null;
@@ -2239,8 +2367,10 @@ export class OnlineGameController {
     if (frame.opcode === MatchOpcode.Garbage) {
       try {
         const g = decodeGarbage(frame.payload);
+        // 自分のルール宛てでないフレームは捨てる（混在戦では tet 向け・puyo 向けが別に飛ぶ。#1）
+        if (g.target !== this.myRule) return;
         if (this.myRule === 'puyo') this.deliverOjamaToPlayer(g.amount, g.holes, frame.senderId);
-        else this.deliverGarbageToPlayer(g.amount, g.holes, frame.senderId);
+        else this.deliverGarbageToPlayer(g.amount, frame.senderId);
       } catch (e) {
         this.logger.warn("Invalid Garbage frame:", e);
       }
@@ -2467,16 +2597,19 @@ export class OnlineGameController {
    *  - 送り手がpuyo: stage1(internal 500ms)→stage2(pending)→stage3(ready)。ready化は送り手の
    *    連鎖終了(GarbageConfirm)を待つ（固定タイマーでは連鎖終了より早く/遅く落ちてしまうため）。
    *  - 送り手がtet: 従来どおり固定1500ms（tetの攻撃はチェイン終了という概念を持たない）。
+   * 穴はフレームの holes を使わず、着弾時に自分で決める（garbage.js applyGarbage）。
    */
-  private deliverGarbageToPlayer(amount: number, holes: number[] = [], senderId?: Uuid): void {
+  private deliverGarbageToPlayer(amount: number, senderId?: Uuid): void {
     if (amount <= 0 || !this.game || !this.myAlive) return;
     const senderRule = senderId !== undefined ? this.puppetRules.get(senderId) : undefined;
+    // _srcRule: 送り手のルール。tet の受け手は「ぷよからの攻撃は 1 回 7 ラインまで」を
+    // 送り手ごとに決める（garbage.js applyGarbage。混在戦でテトからの攻撃まで制限しない）
     if (senderRule === 'puyo') {
-      const entry: any = { amount, holes: [...holes], ready: false };
+      const entry: any = { amount, holes: [], ready: false, _srcRule: 'puyo' };
       entry._srcSender = senderId;
       deliverLocalStaged(this.game, entry, 500, false);
     } else {
-      deliverLocalWithReadyTimer(this.game, { amount, holes, ready: false }, 1500);
+      deliverLocalWithReadyTimer(this.game, { amount, holes: [], ready: false, _srcRule: 'tet', _srcSender: senderId } as any, 1500);
     }
   }
 
@@ -2491,7 +2624,7 @@ export class OnlineGameController {
   private deliverOjamaToPlayer(amount: number, columns: number[] = [], senderId?: Uuid): void {
     if (amount <= 0 || !this.game || !this.myAlive) return;
     const senderRule = senderId !== undefined ? this.puppetRules.get(senderId) : undefined;
-    const entry: any = { amount, holes: [...columns], ready: false };
+    const entry: any = { amount, holes: [...columns], ready: false, _srcRule: senderRule ?? 'tet' };
     entry._srcSender = senderId;
     if (senderRule === 'puyo') {
       deliverLocalStaged(this.game, entry, 500, true);
@@ -2562,6 +2695,8 @@ export class OnlineGameController {
     this.logger.log("WinnerNotification received. winner:", winnerId);
     // 二重通知・決着後の遅延通知はここで捨てる（カウントダウン中の相手切断勝ちも受理する）
     if (!this.lifecycle.transition("roundResolving", "WinnerNotification")) return;
+    // 開始直後の暗転（ロード画面）中に決着しても幕が残らないようにする（#9）
+    hideLoadingOverlay(true);
     this.lifecycle.recordWinner(winnerId);
     this.updateSetScore();
     this.clearWinnerFallback();
@@ -2645,6 +2780,8 @@ export class OnlineGameController {
     // 結果表示状態へ（以後 REMATCH/ROOM/LEAVE の操作を受け付ける）
     this.lifecycle.transition("roundResult", "result shown");
     this.myRematchVoted = false;
+    // リザルト画面の間も開始通知を受ける（#3-c: 取消がすれ違って自分以外で再戦が始まったとき）
+    this.ensureStartListener();
 
     if (rematchBtn) {
       const setDecided = this.lifecycle.isSetDecided() && this.lifecycle.snapshot().target > 1;
@@ -2793,6 +2930,8 @@ export class OnlineGameController {
     hideLoadingOverlay(true);
     this.setConfigured = false;
     this.clearWinnerFallback();
+    this.clearRematchStartTimer();
+    this.matchParticipants.clear();
     this.matchHalted = false;
     stopScoreTweens(false); // 次戦へ古い目標値・rAFを持ち越さない
     this.removeVisibilityListener();
@@ -2844,12 +2983,12 @@ export class OnlineGameController {
         this.game.rng = null;
       } else {
         if (this.game.timer) clearInterval(this.game.timer);
-        if (this.game.lockTimer) clearTimeout(this.game.lockTimer);
+        this.game._cancelLockTimer();
         if (this.game._garbageTimers?.length) {
-          for (const t of this.game._garbageTimers) if (t.id) clearTimeout(t.id);
+          for (const t of this.game._garbageTimers) if (t.id) this.game.clock.cancel(t.id);
         }
         if (this.game._keyLoop) clearInterval(this.game._keyLoop);
-        if (this.game._gamepadLoop) clearInterval(this.game._gamepadLoop);
+        if (this.game._gamepadLoop) cancelAnimationFrame(this.game._gamepadLoop); // rAF（tet/input.js）
         if (this.game._keyDownHandler) {
           document.removeEventListener("keydown", this.game._keyDownHandler);
         }

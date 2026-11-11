@@ -281,7 +281,7 @@ Object.assign(PuyoGame.prototype, {
     // ポーズ時間を除いた実プレイ経過ms（APM/LPM・記録保存で使用。tet側getActiveMs()と同じ思想）
     getActiveMs() {
         let ms = this.elapsed || 0;
-        if (this._timerRunning) ms += performance.now() - this._timerStart;
+        if (this._timerRunning) ms += this.clock.now() - this._timerStart;
         return ms;
     },
 
@@ -292,7 +292,7 @@ Object.assign(PuyoGame.prototype, {
 
         // ── 注意：火力補正乗率は _applyOjamaOffset の入口で実効火力として計算済み。ここでは再計算しない ──
 
-        // 穴パターン・配送は BattleGarbage(src/battle/garbage_router.ts)に集約。
+        // 配送は BattleGarbage(src/battle/garbage_router.ts)に集約。テトへ送るときは穴を決めない（受け手が着弾時に決める）。
         // ★ stage1「内部のみ」(internal:true・非表示) として送り、500ms 後に stage2「猶予(青)」へ。
         //    stage2→stage3(ready/点滅) への確定は従来どおり _confirmSentGarbage（送り手の連鎖終了）が行う。
         const BG = window.BattleGarbage;
@@ -306,11 +306,8 @@ Object.assign(PuyoGame.prototype, {
         BG.routeGarbage({
             amount: amount,
             targetRule: isOppPuyo ? 'puyo' : 'tet',
-            // テト受け手の盤面列数で穴を作る（旧実装は PConfig.cols=6 で生成しており 0〜5列にしか穴が開かなかった）
-            cols: typeof COLS_COUNT !== 'undefined' ? COLS_COUNT : 10,
-            holeRatePercent: this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate : 70,
         }, {
-            sendTetLines: (lines, holes) => deliver({ amount: lines, holes: holes, ready: false }),
+            sendTetLines: (lines) => deliver({ amount: lines, holes: [], ready: false }),
             sendOjama: (count) => deliver({ amount: count, holes: [], ready: false }),
         });
     },
@@ -353,10 +350,11 @@ Object.assign(PuyoGame.prototype, {
         if (amount <= 0 && tetAmount <= 0) return;
 
         // ── VS設定：火力補正乗率を「実効火力」としてここで一度だけ計算する ──
-        // 相殺（garbageQueueの減算）と送信（sendGarbage）の両方に同じ実効値を使用する
+        // 相殺（garbageQueueの減算）と送信（sendGarbage）の両方に同じ実効値を使用する。
+        // 切り捨てで 0 になれば送らない（最低 1 には引き上げない。乗率は分数なので誤差を足して切り捨てる）
         const _vsMult = (this.vsAttackMultiplier ?? 1.0) * (this.vsMarginMultiplier ?? 1.0);
-        const effectiveAmount    = (this.isVersusMode && amount    > 0) ? Math.max(1, Math.floor(amount    * _vsMult)) : amount;
-        const effectiveTetAmount = (this.isVersusMode && tetAmount > 0) ? Math.max(1, Math.floor(tetAmount * _vsMult)) : tetAmount;
+        const effectiveAmount    = (this.isVersusMode && amount    > 0) ? Math.floor(amount    * _vsMult + 1e-9) : amount;
+        const effectiveTetAmount = (this.isVersusMode && tetAmount > 0) ? Math.floor(tetAmount * _vsMult + 1e-9) : tetAmount;
 
         const originalAmount = effectiveAmount; // 相殺前の実効ぷよ火力
 
@@ -466,6 +464,8 @@ Object.assign(PuyoGame.prototype, {
         // おじゃまぷよの着弾音。予告表示（_updateOjamaYokoku）では鳴らさず、
         // 実際に盤面へ書き込むこの瞬間だけ1回鳴らす。
         this.playSe('puyo_ojama');
+        // 録画の印: 被弾（降ったおじゃまの数。core/replay.js）
+        if (this._rec) this._rec.hit(this, drop);
 
         let rows = Math.floor(drop / PConfig.cols);
         let fractions = drop % PConfig.cols;
@@ -489,7 +489,7 @@ Object.assign(PuyoGame.prototype, {
                 .filter(c => Number.isInteger(c) && c >= 0 && c < PConfig.cols);
             while (cols.length < fractions) {
                 const available = [0, 1, 2, 3, 4, 5].filter(c => !cols.includes(c));
-                cols.push(available.length > 0 ? available[Math.floor(this._random() * available.length)] : Math.floor(this._random() * PConfig.cols));
+                cols.push(available.length > 0 ? available[Math.floor(this._randomOjama() * available.length)] : Math.floor(this._randomOjama() * PConfig.cols));
             }
             for (let i = 0; i < fractions; i++) {
                 this.field[r][cols[i]] = 6;

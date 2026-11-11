@@ -115,19 +115,13 @@ Object.assign(Game.prototype, {
         this.playSe('hold')
 
         if (this.holdMino === null) {
-            this.holdMino = new Mino()
-            this.holdMino.type = this.mino.type
-            this.holdMino.initBlocks()
+            this.holdMino = new Mino(this.mino.type)
             this.popMino()
             this.canHold = false
         } else {
             let prevHoldType = this.holdMino.type
-            this.holdMino = new Mino()
-            this.holdMino.type = this.mino.type
-            this.holdMino.initBlocks()
-            this.mino = new Mino()
-            this.mino.type = prevHoldType
-            this.mino.initBlocks()
+            this.holdMino = new Mino(this.mino.type)
+            this.mino = new Mino(prevHoldType)
             this.mino.spawn()
 
             /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -146,10 +140,7 @@ Object.assign(Game.prototype, {
             this.lowestY = this.mino.y;
             this.moveCount = 0;
 
-            if (this.lockTimer) {
-                clearTimeout(this.lockTimer);
-                this.lockTimer = null;
-            }
+            this._cancelLockTimer();
             this.startGravity();
         }
         this.requestRedraw();

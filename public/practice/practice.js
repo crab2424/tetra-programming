@@ -368,7 +368,7 @@ class PracticeManager {
                 this._origUpdateTimeDisplay = game.updateTimeDisplay;
                 game.updateTimeDisplay = function () {
                     self._origUpdateTimeDisplay.call(this);
-                    const elapsed = this.elapsedTime + (this.isTimerRunning ? performance.now() - this.startTime : 0);
+                    const elapsed = this.elapsedTime + (this.isTimerRunning ? this.clock.now() - this.startTime : 0);
                     paintCountdown(document.getElementById('time-value'), elapsed, (ms) => {
                         const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000), cs = Math.floor((ms % 1000) / 10);
                         return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(cs).padStart(2, '0');
@@ -390,7 +390,8 @@ class PracticeManager {
         // ★ 実際の getNextType/_makePair の差し替えは上の「ツモ記録の外側ラッパー」が
         //   担う。ここでは self._innerNextType/_innerMakePair の参照先を切り替えるだけ
         //   （SEQUENCEを介さない通常抽選 → SEQUENCE経由 へ）。
-        const seqSrc = (typeof PracticeSequence !== 'undefined') ? PracticeSequence.config(this.rule) : null;
+        // リプレイから渡されたとき（noSequence）は使わない（その先のツモは元の試合の続き）
+        const seqSrc = (typeof PracticeSequence !== 'undefined' && !this.noSequence) ? PracticeSequence.config(this.rule) : null;
         this.sequenceEnabled = !!(seqSrc && seqSrc.enabled && seqSrc.bags.length);
         if (this.sequenceEnabled) {
             this.seqConfig = JSON.parse(JSON.stringify(seqSrc));
@@ -415,6 +416,9 @@ class PracticeManager {
         this._startCountdownWatch();
 
         if (typeof _initPracticePanel === 'function') _initPracticePanel(this);
+        // 演出中(isEnding/isFinished)はパッドの RESTART/PAUSE も締め出す（キーボードは _keyHandler が
+        // capture 段で奪う。パッドは本体の pollGamepad が見るので、このフックで止める）
+        game._padSystemBlocked = () => this.isEnding || this.isFinished;
         if (window.Assist) window.Assist.attach(game, 'practice');
     }
 
@@ -560,6 +564,20 @@ class PracticeManager {
         // 着弾直後の反映もここで拾える（applyGarbage() は popMino() の直前に走るため）（設計 §3.2）
         if (this.rule === 'tet') this._renderGarbageGauge();
         this._refreshRewindIndicator();
+    }
+
+    // リプレイから渡された局面を入れる（startPracticeGame の start() の直後＝カウントダウン中）。
+    // 最初のツモが出るとき（popMino / _spawnPuyo のフック）にこの局面が履歴の 1 手目になる。
+    // 乱数の列の状態も入れるので、渡した NEXT より先のツモも元の試合と同じになる。
+    applyHandoff(h) {
+        const g = this.gameInstance;
+        if (!g || !PracticeSnapshot.restore(g, this.rule, h.line)) return false;
+        for (const k of Object.keys(h.rng || {})) {
+            const fn = g._rngStream(k);
+            if (fn && fn.state) fn.state.set(h.rng[k]);
+        }
+        if (this.rule === 'tet') g.drawAll();
+        return true;
     }
 
     // 現在プレイ可能か（巻き戻しを受け付けてよい状態か）
@@ -717,7 +735,7 @@ class PracticeManager {
         g.moveCount = 0;
         g.lastActionWasRotation = false;
         g.lastRotUsedPoint5 = false;
-        if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+        g._cancelLockTimer();
         g.drawAll();
         this._flashCycle((dir > 0 ? '⟳ ' : '⟲ ') + TET_CYCLE_LABEL[type]);
         return true;
@@ -829,9 +847,9 @@ class PracticeManager {
         const g = this.gameInstance;
         if (!g) return 0;
         if (this.rule === 'tet') {
-            return g.elapsedTime + (g.isTimerRunning ? performance.now() - g.startTime : 0);
+            return g.elapsedTime + (g.isTimerRunning ? g.clock.now() - g.startTime : 0);
         }
-        return g.elapsed + (g._timerRunning ? performance.now() - g._timerStart : 0);
+        return g.elapsed + (g._timerRunning ? g.clock.now() - g._timerStart : 0);
     }
 
     _startGoalLoop() {
@@ -1040,7 +1058,7 @@ class PracticeManager {
                     if (this._cycleFitTet(type)) {
                         g.isGrounded = false; g.lowestY = g.mino.y; g.moveCount = 0;
                         g.lastActionWasRotation = false; g.lastRotUsedPoint5 = false;
-                        if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+                        g._cancelLockTimer();
                     } else {
                         g.mino = prevMino;
                         this.seqRunner = PracticeSequence.createRunner(this.seqConfig); // 置けなければ消費しない
@@ -1211,14 +1229,11 @@ class PracticeManager {
         if (this.rule === 'tet') {
             if (typeof g.stopRenderLoop === 'function') g.stopRenderLoop();
             if (g.timer) { clearInterval(g.timer); g.timer = null; }
-            if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
-            if (g._garbageTimers && g._garbageTimers.length) {
-                g._garbageTimers.forEach(t => { if (t.id) clearTimeout(t.id); });
-                g._garbageTimers = [];
-            }
+            g._cancelLockTimer();
+            g._cancelGarbageTimers();
             g.isPaused = true;
             if (g.isTimerRunning) {
-                g.elapsedTime += performance.now() - g.startTime;
+                g.elapsedTime += g.clock.now() - g.startTime;
                 g.isTimerRunning = false;
                 if (g.timerReqId) cancelAnimationFrame(g.timerReqId);
             }
@@ -1296,10 +1311,12 @@ class PracticeManager {
     // start()（tet）/ start()（puyo）はモード初期化からやり直してしまうため使えない。
     _resumeEngine() {
         const g = this.gameInstance;
+        // 止めていた間は時計が進んでいない（フレームが回っていない）ので、先に今に合わせる
+        g.clock.advance();
         if (this.rule === 'tet') {
             g.isPaused = false;
             g.isCountingDown = false;
-            g.startTime = performance.now();
+            g.startTime = g.clock.now();
             g.isTimerRunning = true;
             g.startTimerLoop();
             g.startGravity();
@@ -1307,9 +1324,9 @@ class PracticeManager {
         } else {
             g.state = 'playing';
             g.isPaused = false;
-            g.lastTime = performance.now();
+            g.lastTime = g.clock.now();
             g._timerRunning = true;
-            g._timerStart = performance.now();
+            g._timerStart = g.clock.now();
             g._timerTick();
             g._loop();
         }
@@ -1866,14 +1883,12 @@ class PracticeManager {
             if (this.rule === 'tet') {
                 if (typeof g.stopRenderLoop === 'function') g.stopRenderLoop();
                 if (g.timer) { clearInterval(g.timer); g.timer = null; }
-                if (g.lockTimer) { clearTimeout(g.lockTimer); g.lockTimer = null; }
+                g._cancelLockTimer();
                 if (g._keyLoop) { clearInterval(g._keyLoop); g._keyLoop = null; }
-                if (g._garbageTimers && g._garbageTimers.length) {
-                    g._garbageTimers.forEach(t => { if (t.id) clearTimeout(t.id); });
-                    g._garbageTimers = [];
-                }
+                g._cancelGarbageTimers();
                 if (g._keyDownHandler) document.removeEventListener('keydown', g._keyDownHandler);
                 if (g._keyUpHandler) document.removeEventListener('keyup', g._keyUpHandler);
+                if (g._gamepadLoop) { cancelAnimationFrame(g._gamepadLoop); g._gamepadLoop = null; }
                 g.isPaused = true;
                 if (g.isTimerRunning) {
                     g.isTimerRunning = false;
@@ -1899,6 +1914,7 @@ class PracticeManager {
             if (this._origStartGameplay) g._startGameplay = this._origStartGameplay;
             if (this._origUpdateStatsDisplay) g.updateStatsDisplay = this._origUpdateStatsDisplay;
             // 練習用に立てたフラグを共通エンジンから外す（VERSUS/ONLINEへ持ち越さない）
+            delete g._padSystemBlocked;
             delete g.practiceNoLock;
             delete g.practiceFallMs;
             delete g.practiceFallSpeedMs;
@@ -2188,16 +2204,18 @@ function _practiceCloseSpinner(commit) {
 
 // PRACTICE を開始する。tet/puyo どちらのエンジンも、対応するシングルプレイの
 // 開始手順をそのまま使い、PracticeManager がフックを差し込む形で載せる。
-function startPracticeGame() {
+// opts（リプレイの「ここから遊ぶ」。core/replay.js）: { rule, goal, noSequence, handoff }
+function startPracticeGame(opts = {}) {
     _stopPracticeIfActive();
 
-    const rule = practiceRule;
-    const goal = { type: practiceGoalType, value: practiceGoalValue() };
+    const rule = opts.rule || practiceRule;
+    const goal = opts.goal || { type: practiceGoalType, value: practiceGoalValue() };
 
     // APM/LPM は非表示（設計 §1.1）
     document.body.classList.add('practice-mode');
 
     const manager = new PracticeManager(rule, goal);
+    manager.noSequence = !!opts.noSequence;
     window._practiceManager = manager;
 
     if (rule === 'puyo') {
@@ -2228,6 +2246,7 @@ function startPracticeGame() {
         // 同期的に上書きするため、attach()内で先に呼んだ resizeNextCanvas() の結果が
         // 消えてしまう。start() 呼び出し（_setupCanvas() までは同期）の直後に取り直す。
         if (typeof window._puyoGame.resizeNextCanvas === 'function') window._puyoGame.resizeNextCanvas();
+        if (opts.handoff) manager.applyHandoff(opts.handoff);
         return;
     }
 
@@ -2254,6 +2273,15 @@ function startPracticeGame() {
     switchPage('game');
     setupGlobalCpuPauseKey();
     window._game.start();
+    if (opts.handoff) manager.applyHandoff(opts.handoff);
+}
+
+// リプレイの「ここから遊ぶ」（録画 M7c。core/replay.js の ReplayManager._playFromHere）。
+// h = { rule, line（practice_snapshot の 1 行）, rng（乱数の列の状態） }。目標なし・ツモ順設定なしで始める
+function startPracticeFromReplay(h) {
+    if (typeof stopAllGames === 'function') stopAllGames();
+    if (typeof GAME_MODES !== 'undefined' && GAME_MODES.practice) currentGameMode = GAME_MODES.practice;
+    startPracticeGame({ rule: h.rule, goal: { type: 'none', value: 0 }, noSequence: true, handoff: h });
 }
 
 // リザルト画面の「巻き戻す」ボタン（index.html #result-practice-rewind-btn）から呼ばれる。
