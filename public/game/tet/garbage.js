@@ -62,8 +62,10 @@ Object.assign(Game.prototype, {
             isOpponentPuyo = (opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo');
         }
 
-        // ★ 異種戦（相手がぷよ）からの攻撃は最大7ラインずつ降る
-        const limit = isOpponentPuyo ? 7 : Infinity;
+        // ★ 異種戦（相手がぷよ）からの攻撃は最大7ラインずつ降る。
+        //   オンラインの混在戦では、受け取ったおじゃまに送り手のルール(_srcRule)が付いているので
+        //   送り手ごとに決める（テトからの攻撃まで 7 ラインで止めない）。付いていなければ従来どおり。
+        const PUYO_DROP_LIMIT = 7;
         let droppedLines = 0;
 
         // ★ 追加：まとめて降ってくるおじゃまの穴位置を一貫して保持・計算するための変数
@@ -72,6 +74,8 @@ Object.assign(Game.prototype, {
         for (let j = 0; j < readyGarbage.length; j++) {
             let g = readyGarbage[j];
             let dropCount = 0;
+            const fromPuyo = (g._srcRule !== undefined) ? (g._srcRule === 'puyo') : isOpponentPuyo;
+            const limit = fromPuyo ? PUYO_DROP_LIMIT : Infinity;
 
             for (let i = 0; i < g.amount; i++) {
                 if (droppedLines >= limit) {
@@ -112,7 +116,10 @@ Object.assign(Game.prototype, {
             if (dropCount < g.amount) {
                 // 制限にかかった場合、残りの攻撃を再びreadyキューの先頭へ
                 let remainHoles = g.holes ? g.holes.slice(dropCount) : [];
-                this.garbageQueue.unshift({ amount: g.amount - dropCount, holes: remainHoles, ready: true });
+                const rest = { amount: g.amount - dropCount, holes: remainHoles, ready: true };
+                if (g._srcRule !== undefined) rest._srcRule = g._srcRule;
+                if (g._srcSender !== undefined) rest._srcSender = g._srcSender;
+                this.garbageQueue.unshift(rest);
                 for (let k = j + 1; k < readyGarbage.length; k++) {
                     this.garbageQueue.push(readyGarbage[k]);
                 }

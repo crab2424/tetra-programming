@@ -133,7 +133,7 @@ Object.assign(Game.prototype, {
         if (generatedGarbage > 0) {
             const _apmMult = this.isVersusMode ? (this.vsAttackMultiplier ?? 1.0) : 1.0;
             this._countAttackSent(_apmMult !== 1.0
-                ? Math.max(1, Math.floor(generatedGarbage * _apmMult))
+                ? Math.floor(generatedGarbage * _apmMult + 1e-9)
                 : generatedGarbage);
         }
 
@@ -247,10 +247,10 @@ Object.assign(Game.prototype, {
                     // ── 乗率適用（vsAttackMultiplierのみ。vsMarginMultiplierはぷよ側が管理） ──
                     const _vsMultTvP = (this.vsAttackMultiplier ?? 1.0);
                     const effectiveGenerated = (this.isVersusMode && generatedGarbage > 0)
-                        ? Math.max(1, Math.floor(generatedGarbage * _vsMultTvP))
+                        ? Math.floor(generatedGarbage * _vsMultTvP + 1e-9)
                         : generatedGarbage;
                     const effectivePuyoAttack = (this.isVersusMode && puyoAttack > 0)
-                        ? Math.max(1, Math.floor(puyoAttack * _vsMultTvP))
+                        ? Math.floor(puyoAttack * _vsMultTvP + 1e-9)
                         : puyoAttack;
 
                     // 2. 「今回発生した実効火力」のみを使って相殺を試みる（溜まっているゲージは使わない）
@@ -305,14 +305,16 @@ Object.assign(Game.prototype, {
                 // ★従来通り（テト同士）── マージンテーブル適用済みの generatedGarbage をそのまま使用
                 // （Scoring()内でマージンステップに応じた値を計算済みなので乗率補正は不要）
                 if (generatedGarbage > 0) {
-                    // vsAttackMultiplier のみ適用（マージン火力増加はテーブルで処理済み）
+                    // vsAttackMultiplier のみ適用（マージン火力増加はテーブルで処理済み）。
+                    // 切り捨てで 0 になれば相殺も送信もしない（最低 1 には引き上げない。vs_settings.js）。
+                    // 乗率は分数（1/3 など）なので、ちょうど割り切れる所がわずかに下へずれないよう誤差を足す
                     const _vsMultTvT = (this.vsAttackMultiplier ?? 1.0);
                     const effectiveGarbage = (this.isVersusMode && _vsMultTvT !== 1.0)
-                        ? Math.max(1, Math.floor(generatedGarbage * _vsMultTvT))
+                        ? Math.floor(generatedGarbage * _vsMultTvT + 1e-9)
                         : generatedGarbage;
 
                     // 実効火力で相殺し、余った分を送信
-                    const remainder = this.offsetGarbage(effectiveGarbage);
+                    const remainder = effectiveGarbage > 0 ? this.offsetGarbage(effectiveGarbage) : 0;
 
                     if (remainder > 0) {
                         this.sendGarbage(remainder);

@@ -416,6 +416,9 @@ class PracticeManager {
         this._startCountdownWatch();
 
         if (typeof _initPracticePanel === 'function') _initPracticePanel(this);
+        // 演出中(isEnding/isFinished)はパッドの RESTART/PAUSE も締め出す（キーボードは _keyHandler が
+        // capture 段で奪う。パッドは本体の pollGamepad が見るので、このフックで止める）
+        game._padSystemBlocked = () => this.isEnding || this.isFinished;
         if (window.Assist) window.Assist.attach(game, 'practice');
     }
 
@@ -1885,6 +1888,7 @@ class PracticeManager {
                 g._cancelGarbageTimers();
                 if (g._keyDownHandler) document.removeEventListener('keydown', g._keyDownHandler);
                 if (g._keyUpHandler) document.removeEventListener('keyup', g._keyUpHandler);
+                if (g._gamepadLoop) { cancelAnimationFrame(g._gamepadLoop); g._gamepadLoop = null; }
                 g.isPaused = true;
                 if (g.isTimerRunning) {
                     g.isTimerRunning = false;
@@ -1910,6 +1914,7 @@ class PracticeManager {
             if (this._origStartGameplay) g._startGameplay = this._origStartGameplay;
             if (this._origUpdateStatsDisplay) g.updateStatsDisplay = this._origUpdateStatsDisplay;
             // 練習用に立てたフラグを共通エンジンから外す（VERSUS/ONLINEへ持ち越さない）
+            delete g._padSystemBlocked;
             delete g.practiceNoLock;
             delete g.practiceFallMs;
             delete g.practiceFallSpeedMs;

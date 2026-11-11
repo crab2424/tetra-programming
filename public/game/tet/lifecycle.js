@@ -197,7 +197,7 @@ Object.assign(Game.prototype, {
             : 'countdown-overlay';
         const finishId = this.isVersusMode
             ? (this.canvasPrefix ? `${this.canvasPrefix}-finish-overlay` : 'versus-finish-overlay')
-            : 'versus-finish-overlay';
+            : 'finish-overlay'; // シングルの終了演出（gameOver の showFinishOverlay('finish-overlay', …)）
 
         const countdownOverlay = document.getElementById(countdownId);
         const finishOverlay = document.getElementById(finishId);
@@ -551,7 +551,13 @@ Object.assign(Game.prototype, {
             if (displayMs <= 0) {
                 displayMs = 0;
                 if (this.isTimerRunning) {
+                    // 経過時間を制限時間ちょうどに締めてから止める。先に isTimerRunning を落とすと
+                    // gameOver の中で最後の区間が elapsedTime に足されず、経過時間が 0（ポーズ後なら
+                    // 最後のポーズまで）のまま記録・リプレイ・APM/LPM に使われていた
+                    this.elapsedTime = this.timeLimit;
                     this.isTimerRunning = false;
+                    if (this.timerReqId) cancelAnimationFrame(this.timerReqId);
+                    this.updateTimeDisplay(); // 止まった状態で 00:00.00 を書く（ここへは戻らない）
                     this.gameOver(true); // 時間切れでクリア扱い
                     return;
                 }

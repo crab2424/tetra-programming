@@ -676,6 +676,15 @@ Object.assign(Game.prototype, {
         // setInterval は rAF と別タイミングで発火して入力反映が揺れやすいため、
         // キーボード入力・重力と同じく描画フレームへ寄せる。
         const pollGamepad = () => {
+            // ゲーム画面が出ていないときは読まない（ぷよ側と同じ）。メニューへ抜けた後や、
+            // VERSUS 中に参照の外れた古いシングルのインスタンスが RESTART/PAUSE を拾って
+            // 裏で試合を始めないようにする
+            const activePageId = this.anchorPageId || (this.isVersusMode ? 'versus-page' : 'game-page')
+            const gamePage = document.getElementById(activePageId)
+            if (!gamePage || !gamePage.classList.contains('active')) {
+                this._gamepadLoop = requestAnimationFrame(pollGamepad)
+                return
+            }
             const pads = (navigator.getGamepads) ? navigator.getGamepads() : []
             let pad = null
             if (this._gamepadIndex !== null && pads[this._gamepadIndex]) pad = pads[this._gamepadIndex]
@@ -727,7 +736,10 @@ Object.assign(Game.prototype, {
                 if (action === 'pause' || action === 'restart') {
                     if (pressed) {
                         try {
-                            if (action === 'pause') {
+                            // PRACTICE の終了演出中など、外側がリスタート/ポーズを締め出しているとき
+                            if (typeof this._padSystemBlocked === 'function' && this._padSystemBlocked()) {
+                                // 何もしない
+                            } else if (action === 'pause') {
                                 if (!this.isVersusMode && !this.isCountingDown && !this.isFinishing) this.togglePause()
                             } else {
                                 if (!this.isVersusMode && !this.isFinishing) this.start()

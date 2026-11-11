@@ -350,10 +350,11 @@ Object.assign(PuyoGame.prototype, {
         if (amount <= 0 && tetAmount <= 0) return;
 
         // ── VS設定：火力補正乗率を「実効火力」としてここで一度だけ計算する ──
-        // 相殺（garbageQueueの減算）と送信（sendGarbage）の両方に同じ実効値を使用する
+        // 相殺（garbageQueueの減算）と送信（sendGarbage）の両方に同じ実効値を使用する。
+        // 切り捨てで 0 になれば送らない（最低 1 には引き上げない。乗率は分数なので誤差を足して切り捨てる）
         const _vsMult = (this.vsAttackMultiplier ?? 1.0) * (this.vsMarginMultiplier ?? 1.0);
-        const effectiveAmount    = (this.isVersusMode && amount    > 0) ? Math.max(1, Math.floor(amount    * _vsMult)) : amount;
-        const effectiveTetAmount = (this.isVersusMode && tetAmount > 0) ? Math.max(1, Math.floor(tetAmount * _vsMult)) : tetAmount;
+        const effectiveAmount    = (this.isVersusMode && amount    > 0) ? Math.floor(amount    * _vsMult + 1e-9) : amount;
+        const effectiveTetAmount = (this.isVersusMode && tetAmount > 0) ? Math.floor(tetAmount * _vsMult + 1e-9) : tetAmount;
 
         const originalAmount = effectiveAmount; // 相殺前の実効ぷよ火力
 

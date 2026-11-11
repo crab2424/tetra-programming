@@ -89,6 +89,8 @@ Object.assign(PuyoGame.prototype, {
 
     _spawnPuyo() {
         const pair = this._dequeueNext();
+        // ツモごとに変わる通し番号（VERSUS の CPU ウォッチドッグがツモの替わりを見分けるのに使う）
+        this._spawnSeq = (this._spawnSeq || 0) + 1;
 
         this.pivotX = 2;
         this.pivotY = -0.5;

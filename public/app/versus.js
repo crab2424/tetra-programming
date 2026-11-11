@@ -435,7 +435,8 @@ function startVersusCpuWatchdog(sessionId) {
         || (game.state && game.state !== 'playing');
       let token = null;
       if (!idle) {
-        if (game instanceof PuyoGame) token = (game._gs === 'falling') ? (tracks[key] && tracks[key].token) || ('p' + now) : null;
+        // ぷよはツモの通し番号を目印にする（ツモが替われば目印も変わる。落下中以外は計測し直す）
+        if (game instanceof PuyoGame) token = (game._gs === 'falling') ? ('p' + (game._spawnSeq || 0)) : null;
         else token = game.mino || null;
       }
       if (!token) { delete tracks[key]; continue; }
@@ -469,6 +470,9 @@ function setupVersusPauseKey() {
   window._versusPauseHandler = function(e) {
     const versusPage = document.getElementById('versus-page');
     if (!versusPage || !versusPage.classList.contains('active')) return;
+    // オンライン対戦も同じ #versus-page を使う。そのときは CPU 戦のリスタート/ポーズを動かさない
+    // （R で CPU 戦が裏で始まる・Esc で CPU 戦のポーズ画面が出る不具合 2026-11-11 online #2）
+    if (versusPage.classList.contains('online-battle-active')) return;
 
     // ★ リスタートキー（versusモードではここで処理する）
     if (restartCodes.includes(e.code)) {

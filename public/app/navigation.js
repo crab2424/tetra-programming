@@ -41,6 +41,9 @@ function stopAllGames() {
                 if (gameInst._keyDownHandler) document.removeEventListener('keydown', gameInst._keyDownHandler);
                 if (gameInst._keyUpHandler)   document.removeEventListener('keyup',   gameInst._keyUpHandler);
                 if (gameInst._keyLoop) { clearInterval(gameInst._keyLoop); gameInst._keyLoop = null; }
+                // ゲームパッドの読み取り(rAF)も止める。残すとメニューでパッドの RESTART を押したとき
+                // 裏で試合が始まる（次の setKeyEvent で作り直される）
+                if (gameInst._gamepadLoop) { cancelAnimationFrame(gameInst._gamepadLoop); gameInst._gamepadLoop = null; }
                 // 入力のポーリングと押しっぱなしの状態も捨てる。残すと次に CPU 操作で使う盤面
                 // （setKeyEvent を呼ばない＝作り直されない）で、前の人の操作・再生の「左を押したまま」が
                 // DAS で動き続け、CPU の moveToTargetX と綱引きになって止まる（CPU 同士の VERSUS の 1P）
@@ -610,6 +613,7 @@ function renderModeCheck() {
         const ruleLabel = lv.rule === 'tet' ? 'TET' : 'PUYO';
 
         // QUIZ_LEVELSからレベル番号を算出
+        let levelNum = '';
         if (typeof QUIZ_LEVELS !== 'undefined' && QUIZ_LEVELS[lv.rule]) {
           const idx = QUIZ_LEVELS[lv.rule].findIndex(l => l.id === lv.id);
           if (idx !== -1) levelNum = idx + 1;
@@ -618,8 +622,6 @@ function renderModeCheck() {
         const diffStarsHtml = (typeof _renderDiffStars === 'function') ? _renderDiffStars(lv.diff) : '';
         const levelTitle = `${ruleLabel} - ${levelNum}`;
 
-        console.log("Current Quiz Level:", levelTitle);
-        
         // ★追加: NEXT情報の動的生成
         let nextInfoText = '';
         if (lv.rule === 'tet' && lv.nextPieces) {

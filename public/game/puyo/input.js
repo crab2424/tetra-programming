@@ -348,16 +348,24 @@ Object.assign(PuyoGame.prototype, {
             const prevPause = !!this._gpPrevState.pause;
             const prevRestart = !!this._gpPrevState.restart;
 
+            // PRACTICE の終了演出中など、外側がリスタート/ポーズを締め出しているとき
+            const sysBlocked = typeof this._padSystemBlocked === 'function' && this._padSystemBlocked();
+
             if (restartPressed && !prevRestart) {
-                if (!this.isVersusMode) {
+                if (!this.isVersusMode && !sysBlocked) {
                     const pauseOverlay = document.getElementById('pause-overlay');
                     if (pauseOverlay) pauseOverlay.classList.remove('active');
-                    this.start();
+                    // キーボードの R と同じく、CPU TEST(ぷよ)は CPU コントローラも作り直す
+                    if (this.currentMode === 'test' && typeof restartPuyoCpuTest === 'function') {
+                        restartPuyoCpuTest();
+                    } else {
+                        this.start();
+                    }
                 }
             }
 
             if (pausePressed && !prevPause) {
-                if (!this.isVersusMode) {
+                if (!this.isVersusMode && !sysBlocked) {
                     this._onPauseKey();
                 }
             }

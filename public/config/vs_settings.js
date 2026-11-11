@@ -12,10 +12,20 @@ const VS_SETTINGS_STORAGE_KEY = 'game_vs_settings';
 
 /**
  * 火力補正テーブル（bias + 3 をインデックスとする）
- * TET・PUYOで共通の乗率(%)。切り捨て適用。
+ * TET・PUYOで共通の乗率。表示用の % は四捨五入した値。
+ * 適用は floor(火力 × 乗率)（最低 1 には引き上げない＝ −3 の 1〜2 ラインは 0）。
+ * 乗率は分数のまま持つ（0.33 だと 6 × 0.33 = 1.98 → 1 のように 3 の倍数が 1 つ下へ切り捨てられていた）。
  * bias: -3 / -2 / -1 / 0 / +1 / +2 / +3
  */
-const ATTACK_BIAS_TABLE = [33, 50, 75, 100, 133, 200, 300];
+const ATTACK_BIAS_TABLE = [
+    { num: 1, den: 3, pct: 33 },
+    { num: 1, den: 2, pct: 50 },
+    { num: 3, den: 4, pct: 75 },
+    { num: 1, den: 1, pct: 100 },
+    { num: 4, den: 3, pct: 133 },
+    { num: 2, den: 1, pct: 200 },
+    { num: 3, den: 1, pct: 300 },
+];
 
 /**
  * マージンタイムのステップ定義
@@ -105,11 +115,12 @@ let currentVsSettings = loadVsSettings();
 /**
  * 火力補正の乗率を取得する（TET・PUYO共通）。
  * @param {'player'|'cpu'} side
- * @returns {number} 例: bias=0 → 1.0、bias=+1 → 1.33
+ * @returns {number} 例: bias=0 → 1.0、bias=+1 → 4/3、bias=−3 → 1/3
  */
 function getAttackMultiplier(side) {
     const bias = currentVsSettings.all.attackBias[side] ?? 0;
-    return ATTACK_BIAS_TABLE[bias + 3] / 100;
+    const e = ATTACK_BIAS_TABLE[bias + 3] || ATTACK_BIAS_TABLE[3];
+    return e.num / e.den;
 }
 
 /**
@@ -447,7 +458,7 @@ function _formatPuyoSpeed(v) {
 }
 
 function _formatBias(bias) {
-    const pct  = ATTACK_BIAS_TABLE[bias + 3];
+    const pct  = ATTACK_BIAS_TABLE[bias + 3].pct;
     const sign = bias > 0 ? '+' : '';
     return `${sign}${bias}  (${pct}%)`;
 }
