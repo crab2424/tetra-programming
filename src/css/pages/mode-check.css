@@ -231,7 +231,7 @@
   font-weight: 700;
   width: 100%;
 }
-.btn-versus-primary:hover,
+.btn-versus-primary:hover:not(:disabled),
 .btn-versus-primary.is-focused {
   opacity: 0.88;
 }

@@ -81,7 +81,7 @@
   color: var(--accent);
   border: 1px solid var(--border);
 }
-.btn-settings:hover,
+.btn-settings:hover:not(:disabled),
 .btn-settings.is-focused {
   background: rgba(196, 113, 245, 0.28);
 }

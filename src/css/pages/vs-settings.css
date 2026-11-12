@@ -208,6 +208,7 @@ body.input-mode-kbd .ms-row-editable.is-focused {
   width: 64px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
+  transition: border-color 0.15s, background 0.15s;
   border-radius: 4px;
   color: var(--accent);
   font-family: "Orbitron", monospace;
@@ -228,6 +229,15 @@ body.input-mode-kbd .ms-row-editable.is-focused {
 .ms-number:focus {
   border-color: var(--accent);
   outline: none;
+}
+@media (hover: hover) {
+  .ms-number:hover:not(:focus) {
+    border-color: rgba(196, 113, 245, 0.5);
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .ms-slider:hover {
+    filter: brightness(1.15);
+  }
 }
 .ms-unit {
   font-family: "Orbitron", monospace;

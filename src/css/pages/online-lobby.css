@@ -169,9 +169,11 @@
   text-underline-offset: 3px;
   transition: all 0.15s;
 }
-.online-code-value:hover {
-  background: rgba(196, 113, 245, 0.25);
-  border-color: var(--accent);
+@media (hover: hover) {
+  .online-code-value:hover {
+    background: rgba(196, 113, 245, 0.25);
+    border-color: var(--accent);
+  }
 }
 .online-code-value:active {
   transform: scale(0.97);
@@ -401,13 +403,37 @@
   padding: 4px 8px;
   white-space: nowrap;
   margin: 4px;
-  cursor: pointer;
 }
 
 .online-room-tag-enabled {
   color: var(--accent);
   background: rgba(196, 113, 245, 0.15);
   border-color: rgba(196, 113, 245, 0.35);
+}
+
+/* ボタンとして使うタグ（ルームのタグ・公開切替・ルール選択）だけ押せる見た目にする。
+   表示だけのタグ（span: 一覧・確認パネル・ホスト以外のタグ）は指カーソルにしない。 */
+button.online-room-tag {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+}
+@media (hover: hover) {
+  button.online-room-tag:hover:not(:disabled) {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(196, 113, 245, 0.5);
+  }
+  button.online-room-tag.online-room-tag-enabled:hover:not(:disabled) {
+    color: var(--accent);
+    background: rgba(196, 113, 245, 0.25);
+    border-color: var(--accent);
+  }
+}
+button.online-room-tag:active:not(:disabled) {
+  transform: scale(0.96);
+}
+button.online-room-tag:disabled {
+  cursor: not-allowed;
 }
 
 /* quiz.css から移設（誤って同居していただけで quiz とは無関係） */

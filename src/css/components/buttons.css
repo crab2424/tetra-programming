@@ -15,17 +15,18 @@
     color 0.2s,
     transform 0.1s;
 }
-.btn-primary:hover,
+/* 無効のボタンはホバー・押下で反応させない（:not(:disabled)） */
+.btn-primary:hover:not(:disabled),
 .btn-primary.is-focused,
-.btn-secondary:hover,
+.btn-secondary:hover:not(:disabled),
 .btn-secondary.is-focused,
-.btn-danger:hover,
+.btn-danger:hover:not(:disabled),
 .btn-danger.is-focused {
   transform: translateY(-2px);
 }
-.btn-primary:active,
-.btn-secondary:active,
-.btn-danger:active {
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.btn-danger:active:not(:disabled) {
   transform: translateY(0);
 }
 
@@ -33,7 +34,7 @@
   background: var(--btn-primary-bg);
   color: var(--btn-primary-fg);
 }
-.btn-primary:hover,
+.btn-primary:hover:not(:disabled),
 .btn-primary.is-focused {
   opacity: 0.85;
 }
@@ -43,7 +44,7 @@
   color: var(--btn-secondary-fg);
   border: 1px solid var(--btn-secondary-border);
 }
-.btn-secondary:hover,
+.btn-secondary:hover:not(:disabled),
 .btn-secondary.is-focused {
   background: var(--btn-secondary-hover-bg);
 }
@@ -53,7 +54,7 @@
   color: var(--btn-danger-fg);
   border: 1px solid var(--btn-danger-border);
 }
-.btn-danger:hover,
+.btn-danger:hover:not(:disabled),
 .btn-danger.is-focused {
   background: var(--btn-danger-hover-bg);
   color: var(--btn-danger-hover-fg);

@@ -1365,7 +1365,7 @@ class OnlineMode {
               ) : (
                 <>
                   <button
-                    class="menu-btn"
+                    class="menu-btn btn-versus-primary"
                     style={{
                       width: "100%",
                       opacity: "0.4",
