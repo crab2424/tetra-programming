@@ -191,6 +191,12 @@ function ensureOnlineTopFocusPage(): void {
     root: document.getElementById("online-top-page"),
     getItems: onlineTopGetItems,
     escapeAction: onlineTopEscapeTarget,
+    // 最初のフォーカス: RM 確認パネルは「OK！対戦する」、ルームは READY / GAME START
+    // （DOM 順のままだと「辞退する」「◀ LEAVE」から始まり、Enter で辞退・退出確認になる）
+    initialIndex: (els: HTMLElement[]) => {
+      const idx = els.findIndex((el) => el.matches("#ol-rm-ok, [data-focus-initial]"));
+      return idx >= 0 ? idx : 0;
+    },
   });
   FN.register("online-modal", {
     root: document.getElementById("online-modal-container"),
@@ -210,12 +216,16 @@ function ensureOnlineTopFocusPage(): void {
  * （Modal.showModal/hideModal側でonline-modalへの切替を専任している）。
  * preserveKey指定時（ロビーの10秒自動更新）は同じ項目へフォーカスを復元し、
  * 未指定時は素直にactivateしてトップへ戻す（登場アニメ再生時などと揃える）。 */
-function syncOnlineTopFocus(preserveKey?: string | null): void {
+function syncOnlineTopFocus(preserveKey?: string | null, opts?: { fresh?: boolean }): void {
   ensureOnlineTopFocusPage();
   const FN = focusNav();
   if (!FN) return;
   if (FN.getActivePageId() === "online-modal") return;
-  if (FN.getActivePageId() === "online-top") {
+  // ロード画面の表示中は、キー操作をロード画面（キャンセル）に置いたままにする。
+  // 裏で部屋の通知による描き直しが来ても online-top へ切り替えない（Enter で辞退・退出に
+  // なる不具合の対策）。閉じたときは focus_nav.js 側が online-top へ戻す。
+  if (isLoadingOverlayVisible()) return;
+  if (FN.getActivePageId() === "online-top" && !opts?.fresh) {
     FN.restoreFocus(preserveKey ?? null);
   } else {
     FN.activate("online-top");
@@ -1255,6 +1265,7 @@ class OnlineMode {
                 <button
                   class="menu-btn btn-versus-primary"
                   style={{ width: "100%" }}
+                  data-focus-initial=""
                   onclick={async () => {
                     // 先に自分の素材を読み終えてから開始要求を送る（全員のロード完了後に開始）
                     let cancelled = false;
@@ -1321,6 +1332,7 @@ class OnlineMode {
                     (iAmReady ? "btn-secondary" : "btn-versus-primary")
                   }
                   style={{ width: "100%" }}
+                  data-focus-initial=""
                   onclick={async () => {
                     // ★ READY = 「素材のロードまで終わって本当に開始できる」の意味。
                     //   READY を立てるときだけロード画面を挟み、解除時はそのまま送る。
@@ -1404,7 +1416,7 @@ class OnlineMode {
         </div>
       </>,
     );
-    syncOnlineTopFocus(focusKeyBeforeRebuild);
+    syncOnlineTopFocus(focusKeyBeforeRebuild, { fresh: !alreadyRendered });
   }
 
   /**
@@ -1529,6 +1541,15 @@ class OnlineMode {
       if (notif.roomId !== roomId) return;
       const myUserId = this.connection!.userId!;
       if (this.lastRoomInfo?.ownerId === myUserId) return; // 自分の変更なので通知不要
+      // 通知は READY が解除された人にだけ出す（報告済み B）。READY していない人には、
+      // 変わった値がルーム画面の MATCH SETTINGS にそのまま出るので知らせなくてよい。
+      // READY 中はロード画面が出ている。部屋の通知が先に来て readyPlayers から外れて
+      // いても、ロード画面の有無で判定できる。READY が外れると次の変更では出ない＝
+      // スライダーを続けて動かされても 1 枚で済む。
+      const wasReady =
+        isLoadingOverlayVisible() ||
+        !!this.lastRoomInfo?.readyPlayers?.includes(myUserId);
+      if (!wasReady) return;
       showToast(
         "ONLINE",
         "オーナーが対戦設定を変更しました。READYをやり直してください。",
@@ -1940,7 +1961,8 @@ class OnlineMode {
           ? "相手の確認を待っています…"
           : "OKを押すと対戦を開始します";
     }
-    syncOnlineTopFocus();
+    // 初回描画はフォーカスを「OK！対戦する」から始める（直前のマッチング画面の位置を引き継がない）
+    syncOnlineTopFocus(null, { fresh: !panelExists });
   }
 
   /** 確認パネルのOKボタン。非オーナー=READY送信、オーナー=開始許可を立てて条件チェック */

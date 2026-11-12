@@ -165,10 +165,14 @@ function fmtHudRate(count: number, activeMs: number): string {
   return ((count || 0) / (activeMs / 60000)).toFixed(1);
 }
 
-function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void {
+/** 統計 HUD（左右ブロック）を取得し、無ければ作る。fieldEl が無ければ null。 */
+function ensureOnlineStatsEls(
+  slot: "self" | number,
+  rule: "tet" | "puyo",
+): { fieldEl: HTMLElement; leftEl: HTMLElement; rightEl: HTMLElement } | null {
   const fieldPrefix = slot === "self" ? "ol-p" : `ol-opp-${slot}`;
-  const fieldEl = document.getElementById(`${fieldPrefix}-${stats.rule}-field`);
-  if (!fieldEl) return;
+  const fieldEl = document.getElementById(`${fieldPrefix}-${rule}-field`);
+  if (!fieldEl) return null;
   let leftEl = fieldEl.querySelector<HTMLElement>(".ol-stats-left");
   let rightEl = fieldEl.querySelector<HTMLElement>(".ol-stats-right");
   if (!leftEl || !rightEl) {
@@ -201,7 +205,44 @@ function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void 
       "</div>";
     fieldEl.appendChild(leftEl);
     fieldEl.appendChild(rightEl);
+    // ルールで出し分ける APM/LPM は作ったときに決める（以後ルールは変わらない）
+    fieldEl.querySelectorAll<HTMLElement>(".ol-tetonly").forEach((el) => {
+      el.style.display = rule === "tet" ? "" : "none";
+    });
   }
+  return { fieldEl, leftEl, rightEl };
+}
+
+/** TIME と APM/LPM だけを書き換える（対戦中の定期更新用。スコアの補間には触れない）。 */
+function updateOnlineClock(
+  slot: "self" | number,
+  rule: "tet" | "puyo",
+  activeMs: number,
+  lines: number,
+  attackSent: number,
+): void {
+  const els = ensureOnlineStatsEls(slot, rule);
+  if (!els) return;
+  const { leftEl, rightEl } = els;
+  if (rule === "tet") {
+    const apmEl = rightEl.querySelector<HTMLElement>('[data-stat="apm"]');
+    const lpmEl = leftEl.querySelector<HTMLElement>('[data-stat="lpm"]');
+    if (apmEl) setTextIfChanged(apmEl, fmtHudRate(attackSent, activeMs));
+    if (lpmEl) setTextIfChanged(lpmEl, fmtHudRate(lines, activeMs));
+  }
+  const timeEl = rightEl.querySelector<HTMLElement>('[data-stat="time"]');
+  if (timeEl) setTextIfChanged(timeEl, fmtHudTime(activeMs));
+}
+
+function setTextIfChanged(el: HTMLElement, text: string): void {
+  if (el.textContent !== text) el.textContent = text;
+}
+
+function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void {
+  const els = ensureOnlineStatsEls(slot, stats.rule);
+  if (!els) return;
+  const { fieldEl, leftEl, rightEl } = els;
+  const fieldPrefix = slot === "self" ? "ol-p" : `ol-opp-${slot}`;
   const score = rightEl.querySelector<HTMLElement>('[data-stat="score"]');
   const primary = leftEl.querySelector<HTMLElement>('[data-stat="primary"]');
   const label = leftEl.querySelector<HTMLElement>('[data-stat-label="primary"]');
@@ -263,6 +304,14 @@ export class OnlineGameController {
 
   private game: any = null;
   private myRule: 'tet' | 'puyo' = 'tet';
+  /**
+   * TIME の定期更新（報告済み A）。TIME・APM・LPM はスコアが変わったときしか書かれず、
+   * 操作を止めている間は止まって見えていた。対戦中だけ一定間隔で書き直す。
+   * 相手は通信を増やさず、最後に届いた activeMs に届いてからの経過時間を足して見せる。
+   */
+  private hudClockTimer: number | null = null;
+  private static readonly HUD_CLOCK_MS = 50;
+  private oppHudStats = new Map<number, { stats: StatsUpdateData; at: number; shownMs: number }>();
   /** 自分の相手のルール（異種戦判定用）。1v1なら相手のルール、複数戦でぷよが混在すればpuyo優先。
    *  board.js / ojama.js は window._cpuGame/versus* が無いオンラインではこの値で異種戦を判定する。 */
   private matchOpponentRule: 'tet' | 'puyo' = 'tet';
@@ -522,6 +571,55 @@ export class OnlineGameController {
     if (setScore) setScore.textContent = score;
   }
 
+  /** 相手の統計フレーム。時計の起点として控え、表示は戻らないよう単調にする。 */
+  private onOppStats(playerId: Uuid, index: number, stats: StatsUpdateData): void {
+    const prev = this.oppHudStats.get(index);
+    const alive = this.aliveSet.has(playerId);
+    // 生存中は外挿で先に進めた表示より小さい値（通信の遅れ分）が来ても戻さない。
+    // 脱落後は相手の確定値をそのまま出す。
+    const shownMs = alive && prev ? Math.max(prev.shownMs, stats.activeMs) : stats.activeMs;
+    this.oppHudStats.set(index, { stats, at: performance.now(), shownMs });
+    updateOnlineStats(index, { ...stats, activeMs: shownMs });
+  }
+
+  private startHudClock(): void {
+    this.stopHudClock();
+    this.hudClockTimer = window.setInterval(() => this.tickHudClock(), OnlineGameController.HUD_CLOCK_MS);
+  }
+
+  private stopHudClock(): void {
+    if (this.hudClockTimer !== null) {
+      clearInterval(this.hudClockTimer);
+      this.hudClockTimer = null;
+    }
+  }
+
+  private tickHudClock(): void {
+    if (this.lifecycle.phase !== "playing" || this.matchHalted) return;
+    const g = this.game as any;
+    if (!g) return;
+    const selfMs = typeof g.getActiveMs === "function" ? g.getActiveMs() : 0;
+    if (this.myAlive) {
+      updateOnlineClock("self", this.myRule, selfMs, g.lines ?? 0, g.attackSent ?? 0);
+    }
+    // ネットワークポーズ中は全員止まっているので相手の時計も進めない
+    if (g.isPaused) return;
+    const now = performance.now();
+    for (const [id, index] of this.puppetIndices) {
+      if (!this.aliveSet.has(id)) continue;
+      const rule = this.puppetRules.get(id) ?? "tet";
+      const entry = this.oppHudStats.get(index);
+      if (!entry) {
+        // まだ統計が一度も届いていない相手は、同時に始まった自分の時計で代用する
+        updateOnlineClock(index, rule, selfMs, 0, 0);
+        continue;
+      }
+      const ms = Math.max(entry.shownMs, entry.stats.activeMs + (now - entry.at));
+      entry.shownMs = ms;
+      updateOnlineClock(index, rule, ms, entry.stats.lines, entry.stats.attackSent);
+    }
+  }
+
   private markDead(playerId: Uuid): void {
     this.aliveSet.delete(playerId);
     this.confirmPendingFrom(playerId);
@@ -711,6 +809,7 @@ export class OnlineGameController {
     this.logger.log(`Halting match progress (${reason}).`);
     this.stopPieceStateInterval();
     this.stopBackgroundClock();
+    this.stopHudClock();
     this.freezeSelfGame();
     for (const driver of this.puppets.values()) driver.freeze();
     // 決着時は相手スコアを補間の途中で止めず、受信済みの最終値を即座に確定表示する。
@@ -922,7 +1021,7 @@ export class OnlineGameController {
         index,
         rule: oppRule,
         onDead: (playerId) => this.markDead(playerId as Uuid),
-        onStats: (statsIndex, stats) => updateOnlineStats(statsIndex, stats),
+        onStats: (statsIndex, stats) => this.onOppStats(id, statsIndex, stats),
       });
       driver.start();
       this.puppets.set(id, driver);
@@ -1073,6 +1172,7 @@ export class OnlineGameController {
         return;
       this.game._startGameplay();
       this.startPieceStateInterval();
+      this.startHudClock();
       // カウントダウン中にタブを隠したまま開始した場合、visibilitychange は発火しないので
       // ここで明示的にバックグラウンドクロックを同期する。
       this.syncBackgroundClock();
@@ -1132,6 +1232,7 @@ export class OnlineGameController {
           return;
         this.game._startGameplay();
         this.startPieceStateInterval();
+        this.startHudClock();
         // カウントダウン中にタブを隠したまま開始した場合の取りこぼし防止
         this.syncBackgroundClock();
       }, remaining);
@@ -2224,6 +2325,8 @@ export class OnlineGameController {
    * 冪等。初回マッチ（前ラウンドが無い）で呼んでも何も起きない。
    */
   private teardownFinishedRound(): void {
+    this.stopHudClock();
+    this.oppHudStats.clear();
     // ゲームエンジン停止
     if (this.game) {
       if (this.myRule === 'puyo') {
@@ -2934,6 +3037,8 @@ export class OnlineGameController {
     this.matchParticipants.clear();
     this.matchHalted = false;
     stopScoreTweens(false); // 次戦へ古い目標値・rAFを持ち越さない
+    this.stopHudClock();
+    this.oppHudStats.clear();
     this.removeVisibilityListener();
     this.teardownBackgroundClock();
     this.controlEventsSubscribed = false;

@@ -1180,12 +1180,33 @@
       isActive: isOpen,
     }, extra.pageCfg || {}));
 
+    // 開く直前にアクティブだった通常ページ（オーバーレイ以外）。閉じたとき、他に開いた
+    // オーバーレイが無く、そのページがまだ表示中ならそこへ戻す（online のロード画面を
+    // キャンセルで閉じた後、下のロビー/ルームでキーが効かなくなる不具合の対策）。
+    // 対戦開始でロード画面が閉じる経路では下のページが既に非表示なので、従来どおり deactivate。
+    let returnPageId = null;
+    const isOverlayPage = (id) => overlayWatchers.some(w => w.overlayId === id);
+    const pageStillShown = (id) => {
+      const cfg = id && registry[id];
+      if (!cfg) return false;
+      const root = cfg.root || document.getElementById(id + '-page') || document.getElementById(id);
+      if (!root) return false;
+      if (typeof cfg.isActive === 'function') return !!cfg.isActive();
+      return root.classList.contains(cfg.rootActiveClass || 'active');
+    };
+
     const obs = new MutationObserver(() => {
       if (isOpen()) {
+        if (!active || active.pageId !== overlayId) {
+          returnPageId = (active && !isOverlayPage(active.pageId)) ? active.pageId : null;
+        }
         activate(overlayId);
       } else if (active && active.pageId === overlayId) {
         const stillOpen = overlayWatchers.find(w => w.overlayId !== overlayId && w.isOpen());
+        const back = returnPageId;
+        returnPageId = null;
         if (stillOpen) activate(stillOpen.overlayId);
+        else if (pageStillShown(back)) activate(back);
         else deactivate();
       }
     });
