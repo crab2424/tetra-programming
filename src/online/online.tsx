@@ -242,6 +242,37 @@ class Modal {
     modalContainer.classList.add("online-modal-active");
     ensureOnlineTopFocusPage();
     focusNav()?.activate("online-modal");
+    // 入力欄の Enter で、そのダイアログ（設定画面は欄のある区画）の主ボタンを押す。
+    // 入力中は FocusNav がキーを見ないため、Enter では何も起きず Esc→↓→Enter が必要だった。
+    content.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return; // IME 変換の確定は除く
+      const input = e.target as HTMLElement | null;
+      if (!input || input.tagName !== "INPUT") return;
+      const type = (input as HTMLInputElement).type;
+      if (type !== "text" && type !== "number") return;
+      const scope = input.closest<HTMLElement>(".online-settings-section, .ol-dialog") ?? content;
+      const primary = scope.querySelector<HTMLButtonElement>(".btn-primary:not(:disabled)");
+      if (!primary) return;
+      e.preventDefault();
+      e.stopPropagation();
+      input.blur();
+      primary.click();
+      // ダイアログが閉じずに残る（設定画面の SAVE 等）ときは、キー操作の枠を出し直す
+      if (primary.isConnected) {
+        const FN = focusNav();
+        if (FN?.getActivePageId() === "online-modal") FN.restoreFocus(null);
+      }
+    });
+    // 入力欄が 1 つだけのダイアログ（コードで参加など）は、開いた直後から打てるようにする
+    const inputs = content.querySelectorAll<HTMLInputElement>("input[type=text], input[type=number]");
+    if (inputs.length === 1 && content.classList.contains("ol-dialog")) {
+      const only = inputs[0];
+      requestAnimationFrame(() => {
+        if (!only.isConnected) return;
+        only.focus();
+        try { only.select(); } catch { /* 非対応は無視 */ }
+      });
+    }
   }
 
   static hideModal() {
@@ -542,7 +573,15 @@ class OnlineMode {
   }
 
   private lobbyBgmPending = false;
-  private msStepTimer: number | null = null;
+  /** キー操作（←/→）での設定変更をまとめて送るタイマー。行ごとに持つ（報告書 7） */
+  private msStepTimers = new Map<string, number>();
+  /**
+   * 送ったがまだルームの通知に反映されていない設定。次に送るときの土台に重ねる。
+   * 描いたときの設定だけを土台にすると、返事の前に 2 つ目を送ったとき 1 つ目が古い値で
+   * 上書きされていた（報告書 7）。
+   */
+  private msSentPatch: Partial<OnlineMatchSetting> = {};
+  private msInflight = 0;
   private static readonly MENU_TO_LOBBY_FADE_MS = 1000;
 
   /**
@@ -770,7 +809,16 @@ class OnlineMode {
     this.applyLobbyBgm();
 
     const isOwner = roomData.ownerId === myUserId;
-    const ms = parseMatchSetting(roomData.matchSetting);
+    const msServer = parseMatchSetting(roomData.matchSetting);
+    // 送った設定が通知に反映されたら控えから外す。送信中が無ければ通知の値が正なので全部捨てる
+    if (this.msInflight === 0) this.msSentPatch = {};
+    else {
+      for (const k of Object.keys(this.msSentPatch) as (keyof OnlineMatchSetting)[]) {
+        if (msServer[k] === this.msSentPatch[k]) delete this.msSentPatch[k];
+      }
+    }
+    // 表示も送信中の変更を重ねた値にする（返事の途中の通知で一瞬元に戻って見えないように）
+    const ms: OnlineMatchSetting = { ...msServer, ...this.msSentPatch };
     const readySet = new Set(roomData.readyPlayers ?? []);
     const pingMap = new Map<Uuid, number>(roomData.pings ?? []);
     const accountMap = accountMapFromRoom(roomData);
@@ -828,10 +876,21 @@ class OnlineMode {
 
     /** マッチ設定の部分更新を送信する（失敗時はトースト） */
     const sendSetting = (patch: Partial<OnlineMatchSetting>) => {
+      Object.assign(this.msSentPatch, patch);
+      this.msInflight++;
       this.connection!.updateMatchSetting({
         roomId: roomData.roomId,
-        setting: JSON.stringify({ ...ms, ...patch }),
-      }).then((r) => this.notifyIfFailed(r, "設定変更"));
+        setting: JSON.stringify({ ...ms, ...this.msSentPatch }),
+      }).then((r) => {
+        if (!r.success) {
+          for (const k of Object.keys(patch) as (keyof OnlineMatchSetting)[]) delete this.msSentPatch[k];
+        }
+        this.notifyIfFailed(r, "設定変更");
+      }).catch(() => {
+        for (const k of Object.keys(patch) as (keyof OnlineMatchSetting)[]) delete this.msSentPatch[k];
+      }).finally(() => {
+        this.msInflight = Math.max(0, this.msInflight - 1);
+      });
     };
 
     /** ON/OFF トグル設定行（横並びセグメント） */
@@ -850,9 +909,15 @@ class OnlineMode {
             {[true, false].map((v) => (
               <button
                 class={"ms-seg-btn" + (value === v ? " active" : "")}
-                onclick={() =>
-                  sendSetting({ [key]: v } as Partial<OnlineMatchSetting>)
-                }
+                onclick={(e) => {
+                  // 返事で描き直されるまでの間も見た目を合わせる（続けて押したとき、
+                  // まだ active でない側を正しく選べるように）
+                  const btn = e.currentTarget as HTMLElement;
+                  btn.parentElement?.querySelectorAll(".ms-seg-btn").forEach((b) => {
+                    b.classList.toggle("active", b === btn);
+                  });
+                  sendSetting({ [key]: v } as Partial<OnlineMatchSetting>);
+                }}
               >
                 {v ? "ON" : "OFF"}
               </button>
@@ -947,11 +1012,13 @@ class OnlineMode {
         const text = step >= 1 ? String(n) : String(Number(n.toFixed(4)));
         slider.value = text;
         if (num) num.value = text;
-        if (this.msStepTimer !== null) clearTimeout(this.msStepTimer);
-        this.msStepTimer = window.setTimeout(() => {
-          this.msStepTimer = null;
+        const timerKey = String(key);
+        const prevTimer = this.msStepTimers.get(timerKey);
+        if (prevTimer !== undefined) clearTimeout(prevTimer);
+        this.msStepTimers.set(timerKey, window.setTimeout(() => {
+          this.msStepTimers.delete(timerKey);
           commit(text);
-        }, 250);
+        }, 250));
       };
       return row;
     };
@@ -1429,6 +1496,9 @@ class OnlineMode {
     this.stopRoomListAutoRefresh();
     this.lastRoomSig = null; // 新しいルームでは必ず一度フル描画する
     this.lastRoomInfo = null;
+    this.msSentPatch = {};
+    this.msStepTimers.forEach((t) => clearTimeout(t));
+    this.msStepTimers.clear();
     this.state = OnlineModeState.InRoom;
 
     const onlineTopContainer = document.getElementById(

@@ -560,6 +560,14 @@
     if (key === 'ArrowLeft'  || code === 'KeyA') { e.preventDefault(); move2D('left');  return; }
     if (key === 'ArrowRight' || code === 'KeyD') { e.preventDefault(); move2D('right'); return; }
     if (key === 'Enter' || code === 'Space') {
+      // 押しっぱなしのキーリピートでは決定しない（online のリザルトで RETRY の申請と
+      // 取消を繰り返していた）。activateGuardMs 指定ページは、開いた直後の決定も捨てる
+      // （ハードドロップの連打が、出たばかりのリザルトの RETRY に効いていた）。
+      if (e.repeat) { e.preventDefault(); return; }
+      if (active.activateGuardMs && performance.now() - active.activatedAt < active.activateGuardMs) {
+        e.preventDefault();
+        return;
+      }
       const items = currentItems();
       const idx = (active.index >= 0 && active.index < items.length) ? active.index : 0;
       if (items[idx]) {
@@ -601,7 +609,7 @@
     if (!cfg) return;
     const root = cfg.root || document.getElementById(pageId + '-page') || document.getElementById(pageId);
     if (!root) return;
-    active = Object.assign({ pageId, root, index: 0, _firstFocus: true }, cfg);
+    active = Object.assign({ pageId, root, index: 0, _firstFocus: true, activatedAt: performance.now() }, cfg);
 
     let framesLeft = ACTIVATE_RETRY_FRAMES;
     const tryInit = () => {
@@ -1251,7 +1259,8 @@
       {
         watchAttr: 'style',
         // RETRY/ROOMは遷移を伴い、LEAVEは破壊的操作＝安全なEscape対象が無いため明示的に無効化。
-        pageCfg: { escapeAction: () => null },
+        // ボタンが浮かび上がる 0.5 秒の間は Enter/Space で押せない（対戦中の連打の持ち越し防止）。
+        pageCfg: { escapeAction: () => null, activateGuardMs: 600 },
       }
     );
     setupOverlayWatcher(
