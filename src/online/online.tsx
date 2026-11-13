@@ -187,7 +187,8 @@ function onlineTopEscapeTarget(): HTMLElement | null {
   const roomLeave = container.querySelector<HTMLElement>(".online-header .btn-danger");
   if (roomLeave) return roomLeave;
   if (container.querySelector(".ol-connect-error")) {
-    return pickEscapeButton(container.querySelector<HTMLElement>(".ol-connect-actions") || container);
+    // 接続失敗: Escape は上の「◀ BACK」（カードには「再試行」だけが残る）
+    return pickEscapeButton(container.querySelector<HTMLElement>(".online-header") || container);
   }
   if (container.querySelector("#ol-connect-card")) {
     return pickEscapeButton(container.querySelector<HTMLElement>(".online-header") || container);
@@ -360,7 +361,7 @@ class Modal {
           }}
         >
           {title && <h2>{title}</h2>}
-          <div>{message}</div>
+          <breakableDiv body={message} />
           <div
             style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}
           >
@@ -407,7 +408,7 @@ class Modal {
           }}
         >
           {title && <h2>{title}</h2>}
-          <div>{message}</div>
+          <breakableDiv body={message} />
           <input
             id="online-prompt-input"
             type="text"
@@ -1615,7 +1616,14 @@ class OnlineMode {
         <div class="online-header">
           <button
             class="btn btn-secondary"
-            onclick={() => this.onlineTopPage()}
+            onclick={async () => {
+              // ルームの情報が届く前に戻るときも、サーバーへ退出を送る（送らないと部屋に名前が残る）
+              try {
+                await this.connection!.leaveRoom({ roomId });
+              } catch { }
+              this.currentRoom = null;
+              this.onlineTopPage();
+            }}
           >
             ◀ BACK
           </button>
@@ -1906,7 +1914,7 @@ class OnlineMode {
       finished = true;
       this.connection!.removeReaderFunction(handlerId);
       Modal.hideModal();
-      showToast("ONLINE", "対戦相手が見つかりました！", ToastColor["Success"]);
+      // 「対戦相手が見つかりました」のトーストは確認パネルの初回描画が出す（ここでも出すと 2 枚になる）
       this.isRandomMatchRoom = true;
       this.joinRoom(notif.roomId, false);
     });
@@ -2640,17 +2648,21 @@ class OnlineMode {
     if (!card) return;
     card.replaceChildren(
       <>
-        <div class="ol-connect-error">接続できませんでした<br />{message}</div>
+        <div class="ol-connect-error" title={message}>
+          サーバーに接続できませんでした
+          <div class="ol-connect-error-help">通信環境を確かめて、もう一度お試しください。</div>
+        </div>
         <div class="ol-connect-actions">
-          <button class="btn btn-secondary" onclick={() => this.backToMainMenu()}>
-            メインメニューへ戻る
-          </button>
           <button class="btn btn-primary" onclick={() => this.attemptConnect()}>
             再試行
           </button>
         </div>
       </>,
     );
+    // 接続はもう終わっているので、上の「◀ キャンセル」を「◀ BACK」に変える
+    // （カードにあった「メインメニューへ戻る」と同じ動きのボタンが 2 つ並んでいた）
+    const headerBtn = document.querySelector<HTMLElement>("#online-top-container .online-header .btn-secondary");
+    if (headerBtn) headerBtn.textContent = "◀ BACK";
     syncOnlineTopFocus();
   }
 
