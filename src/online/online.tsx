@@ -55,6 +55,21 @@ function applyEnterAnimation(nodes: (Element | null)[]): void {
   });
 }
 
+/** 入室の途中に出す待ち表示（接続中カードと同じ見た目）。 */
+function joinWaitingCard(label: string): HTMLElement {
+  return (
+    <div class="online-top-content">
+      <div class="ol-connect-card ol-join-card">
+        <div class="ol-connect-step is-active">
+          <span class="ol-connect-step-mark"></span>
+          <span>{label}</span>
+          <span class="ol-connect-step-dots"><span></span><span></span><span></span></span>
+        </div>
+      </div>
+    </div>
+  ) as HTMLElement;
+}
+
 // ─────────────────────────────────────────────
 // FocusNav（キーボード操作、public/app/focus_nav.js）連携（第13ラウンド②b）
 //
@@ -582,6 +597,31 @@ class OnlineMode {
    */
   private msSentPatch: Partial<OnlineMatchSetting> = {};
   private msInflight = 0;
+  /** 前回描いた MATCH SETTINGS の内容（設定＋ホストか）。同じなら作り直さない */
+  private lastMsSig: string | null = null;
+
+  /**
+   * ルーム画面を描き直すとき、MATCH SETTINGS（.ol-ms-section）だけ元の要素を残し、
+   * それ以外を新しい内容に差し替える。元の要素は一度も DOM から外さないので、
+   * フォーカス・数値入力・スライダーのドラッグが続く。構造が想定と違えば false（呼び出し側で全差し替え）。
+   */
+  private patchRoomKeepingMsSection(container: HTMLElement, tree: Node): boolean {
+    const oldSection = container.querySelector<HTMLElement>(".ol-room-main > .ol-ms-section");
+    const oldMain = oldSection?.parentElement;
+    const oldHeader = container.querySelector(":scope > .online-header");
+    if (!oldSection || !oldMain || !oldHeader) return false;
+    const tmp = document.createElement("div");
+    tmp.append(tree);
+    const newMain = tmp.querySelector(".ol-room-main");
+    const newSection = newMain?.querySelector(":scope > .ol-ms-section");
+    const newHeader = tmp.querySelector(":scope > .online-header");
+    if (!newMain || !newSection || !newHeader) return false;
+    newSection.remove();
+    oldHeader.replaceWith(newHeader);
+    for (const n of Array.from(oldMain.childNodes)) if (n !== oldSection) n.remove();
+    for (const n of Array.from(newMain.childNodes)) oldMain.insertBefore(n, oldSection);
+    return true;
+  }
   private static readonly MENU_TO_LOBBY_FADE_MS = 1000;
 
   /**
@@ -1031,7 +1071,13 @@ class OnlineMode {
     }
     // 設定変更の通知で作り直しても、同じ行（設定/タグ等）へフォーカスを戻す
     const focusKeyBeforeRebuild = alreadyRendered ? focusNav()?.currentFocusKey?.() ?? null : null;
-    onlineTopContainer.replaceChildren(
+    // MATCH SETTINGS の部分を作り直してよいか（報告書 16）。設定と自分がホストかが前回と
+    // 同じなら、元の要素を DOM に付けたまま残す。ほかの人の READY・入退室のたびに丸ごと
+    // 作り直すと、ホストのスライダー操作・数値入力が途切れて値が戻っていた。
+    const msSig = JSON.stringify({ ms, isOwner });
+    const keepMsSection = alreadyRendered && msSig === this.lastMsSig;
+    this.lastMsSig = msSig;
+    const roomTree = (
       <>
         <div class="online-header">
           <button
@@ -1075,7 +1121,7 @@ class OnlineMode {
           </button>
         </div>
         <div class="online-top-content">
-          <div class="width-full">
+          <div class="width-full ol-room-main">
             <div class="flex width-full flex-row space-between">
               <h2>
                 <>{roomData.roomName}</>
@@ -1447,6 +1493,7 @@ class OnlineMode {
 
             {/* ── マッチ設定 ── */}
             <div
+              class="ol-ms-section"
               style={{
                 borderTop: "1px solid var(--border)",
                 paddingTop: "12px",
@@ -1481,8 +1528,19 @@ class OnlineMode {
             </div>
           </div>
         </div>
-      </>,
-    );
+      </>
+    ) as Node;
+    if (!(keepMsSection && this.patchRoomKeepingMsSection(onlineTopContainer, roomTree))) {
+      onlineTopContainer.replaceChildren(roomTree);
+    }
+    // ルーム画面を最初に描くときだけ登場アニメ（通知での描き直しでは動かさない）
+    if (!alreadyRendered) {
+      const main = onlineTopContainer.querySelector(".ol-room-main");
+      applyEnterAnimation([
+        onlineTopContainer.querySelector(".online-header"),
+        ...(main ? Array.from(main.children).filter((el) => (el as HTMLElement).offsetHeight > 0) : []),
+      ]);
+    }
     syncOnlineTopFocus(focusKeyBeforeRebuild, { fresh: !alreadyRendered });
   }
 
@@ -1495,6 +1553,7 @@ class OnlineMode {
     // ルームに入る瞬間に一覧の自動更新を確実に止める（放置中に一覧が一瞬表示される不具合の防止）
     this.stopRoomListAutoRefresh();
     this.lastRoomSig = null; // 新しいルームでは必ず一度フル描画する
+    this.lastMsSig = null;
     this.lastRoomInfo = null;
     this.msSentPatch = {};
     this.msStepTimers.forEach((t) => clearTimeout(t));
@@ -1519,9 +1578,7 @@ class OnlineMode {
             ⚙ SETTINGS
           </button>
         </div>
-        <div class="online-top-content">
-          <div>Joining room, please wait...</div>
-        </div>
+        {joinWaitingCard("ルームに入室しています")}
       </>,
     );
 
@@ -1562,7 +1619,7 @@ class OnlineMode {
           >
             ◀ BACK
           </button>
-          <h1>🌐 ONLINE - Room</h1>
+          <h1>🌐 ONLINE</h1>
           <button
             class="btn btn-settings"
             onclick={this.settingsModal.bind(this)}
@@ -1570,9 +1627,7 @@ class OnlineMode {
             ⚙ SETTINGS
           </button>
         </div>
-        <div class="online-top-content">
-          <div>Waiting room info notification...</div>
-        </div>
+        {joinWaitingCard("ルームの情報を受け取っています")}
       </>,
     );
 
@@ -2209,7 +2264,8 @@ class OnlineMode {
    */
   /** skipEnterAnim: 10秒毎の自動更新からの再描画時のみ true にする
    *  （毎回アニメすると一覧が定期的に再登場する新規バグになるため）。 */
-  private async onlineTopPage(skipEnterAnim = false) {
+  /** @param manualRefresh 「🔄 更新」から呼ばれたとき true（一覧を短くフェードさせて押せたことを見せる） */
+  private async onlineTopPage(skipEnterAnim = false, manualRefresh = false) {
     this.state = OnlineModeState.RoomList;
     this.applyLobbyBgm();
 
@@ -2229,6 +2285,10 @@ class OnlineMode {
     }
     // 10秒毎の自動更新でも同じ項目へフォーカスを戻せるよう、作り直す前に記録しておく。
     const focusKeyBeforeRebuild = skipEnterAnim ? focusNav()?.currentFocusKey?.() ?? null : null;
+    // 一覧のスクロール位置も残す（10 秒ごとの更新で先頭へ戻っていた）
+    const listScrollTop = skipEnterAnim
+      ? document.getElementById("online-rooms-container")?.scrollTop ?? 0
+      : 0;
     onlineTopContainer.replaceChildren(
       <>
         <div class="online-header">
@@ -2261,7 +2321,7 @@ class OnlineMode {
               <button
                 class="btn btn-secondary"
                 data-focus-key="lobby-refresh"
-                onclick={() => this.onlineTopPage(true)}
+                onclick={() => this.onlineTopPage(true, true)}
               >
                 🔄 更新
               </button>
@@ -2330,6 +2390,13 @@ class OnlineMode {
       </>,
     );
 
+    const roomsEl = document.getElementById("online-rooms-container");
+    if (roomsEl && listScrollTop > 0) roomsEl.scrollTop = listScrollTop;
+    if (manualRefresh && roomsEl) {
+      roomsEl.classList.remove("ol-rooms-refreshed");
+      void roomsEl.offsetWidth;
+      roomsEl.classList.add("ol-rooms-refreshed");
+    }
     if (!skipEnterAnim) {
       applyEnterAnimation([
         onlineTopContainer.querySelector(".online-header"),
