@@ -60,6 +60,8 @@ Object.assign(Game.prototype, {
     popMino() {
         // IHS で助かるときだけ、少し待ってから出す（待ち明けにもう一度ここへ来る）
         if (this._ihsRescueWait()) return;
+        // 置いた後に先行回転・先行ホールドのキーが残っているときは、DCD のあいだ隠して待つ（rotation.js §12）
+        if (this._spawnHideStart()) return;
 
         // 出現位置での致命判定は _spawnMino の中（先行ホールド・先行回転を当てた後。rotation.js）
         if (!this._spawnMino(this.nextQueue.shift(), { allowIhs: true })) {
@@ -513,6 +515,12 @@ Object.assign(Game.prototype, {
             this.clock.cancel(this._ihsRescueTimer);
             this._ihsRescueTimer = null;
         }
+        // 非表示 DCD（先行回転・先行ホールドの暴発対策。rotation.js _spawnHideStart）も同じ扱い
+        if (this._spawnHideTimer) {
+            this.clock.cancel(this._spawnHideTimer);
+            this._spawnHideTimer = null;
+        }
+        this._spawnHide = null;
     },
 
     // おじゃま降下猶予の予約を全部取り消す

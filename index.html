@@ -1491,7 +1491,7 @@
                 <button class="opt-btn" data-value="off" onclick="setTuningOption('irs', false)">OFF</button>
               </div>
             </div>
-            <p class="tuning-option-desc">ミノが出る瞬間に回転キーを押していると、回った状態で出ます。ふだんは DCD のあいだ押し続けたときだけ回ります（出せないときはすぐ回ります）。</p>
+            <p class="tuning-option-desc">ミノが出る瞬間に回転キーを押していると、回った状態で出ます。置いた後に押したままのときは、DCD のあいだ待ってから回った状態で出ます（その間に離せば回さずに出ます）。</p>
           </div>
           <div class="tuning-option">
             <div class="option-row">
@@ -1501,7 +1501,7 @@
                 <button class="opt-btn" data-value="off" onclick="setTuningOption('ihs', false)">OFF</button>
               </div>
             </div>
-            <p class="tuning-option-desc">ミノが出る瞬間にホールドキーを押していると、ホールドしてから出ます。ふだんは DCD のあいだ押し続けたときだけホールドします（出せないときはすぐホールドします）。</p>
+            <p class="tuning-option-desc">ミノが出る瞬間にホールドキーを押していると、ホールドしてから出ます。置いた後に押したままのときは、DCD のあいだ待ってからホールドして出ます（その間に離せばホールドせずに出ます）。</p>
           </div>
         </div>
       </div>
@@ -1634,13 +1634,13 @@
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
   <script src="game/tet/lifecycle.js?v=15"></script>
-  <script src="game/tet/board.js?v=15"></script>
-  <script src="game/tet/rotation.js?v=7"></script>
+  <script src="game/tet/board.js?v=16"></script>
+  <script src="game/tet/rotation.js?v=8"></script>
   <script src="game/tet/scoring.js?v=4"></script>
   <script src="game/tet/zone.js?v=1"></script>
   <script src="game/tet/garbage.js?v=6"></script>
   <script src="game/tet/render.js?v=11"></script>
-  <script src="game/tet/input.js?v=14"></script>
+  <script src="game/tet/input.js?v=15"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1650,7 +1650,7 @@
   <script src="game/puyo/engine.js?v=19"></script>
   <script src="game/puyo/input.js?v=12"></script>
   <script src="game/puyo/draw.js?v=11"></script>
-  <script src="quiz/quiz.js?v=11"></script>
+  <script src="quiz/quiz.js?v=12"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
   <script src="app/modes.js?v=26"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>

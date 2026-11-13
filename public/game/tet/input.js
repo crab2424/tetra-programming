@@ -108,7 +108,7 @@ Object.assign(Game.prototype, {
         this._dcdUntil = 0;
         this._dcdDir = null;
         this._dcdMino = undefined;     // 新ミノ出現の検知用（undefined=未観測。ゲーム開始時の初手はDCD対象外）
-        this._spawnDefer = null;       // 出現の DCD（先行回転・先行ホールドの待ち。rotation.js _spawnMino）
+        this._spawnDropMino = null;    // 非表示 DCD 中のハードドロップ: 1 フレーム見せてから落とすミノ（rotation.js §12）
         this._dasBlockedLeft = false;  // DASが溜まった状態で左に動けず止まっているか
         this._dasBlockedRight = false;
         this._dasBlockSnapLeft = null; // 止まった時点のミノの x/rotation（動けるようになった原因の判定用）
@@ -200,6 +200,12 @@ Object.assign(Game.prototype, {
                 this._rotCCWPressed = true
             }
 
+            // 非表示 DCD 中に回転キーを新しく押した → 出すときに先行回転として当てる（後に押した方）
+            if (!this.mino && this._spawnHide && !repeat && !this.isCountingDown) {
+                if (keys.rotateCW.codes.includes(code)) this._spawnHide.forceRot = 1
+                if (keys.rotateCCW.codes.includes(code)) this._spawnHide.forceRot = -1
+            }
+
             // ソフトドロップ初動（1マス）
             if (canActNow && keys.softDrop.codes.includes(code) && this._lastSoftDropTime === 0) {
                 this._lastSoftDropTime = now
@@ -220,12 +226,17 @@ Object.assign(Game.prototype, {
             }
 
             // 単発系（押した瞬間のみ。長押しの連続発火・カウントダウン中・盤面を持たない状態は無視）
-            if (keys.hardDrop.codes.includes(code) && !repeat && !this.isCountingDown && this.mino) {
-                // 設置後の DCD は _pollInput が新ミノの出現を検知して開始する（ゲームパッド・自然設置とも共通）
-                this.hardDrop()
+            if (keys.hardDrop.codes.includes(code) && !repeat && !this.isCountingDown) {
+                if (this.mino) {
+                    // 設置後の DCD は _pollInput が新ミノの出現を検知して開始する（ゲームパッド・自然設置とも共通）
+                    this.hardDrop()
+                } else if (this._spawnHide) {
+                    this._spawnHideDrop()
+                }
             }
-            if (keys.hold.codes.includes(code) && !repeat && !this.isCountingDown && this.mino) {
-                this.holdCurrentMino()
+            if (keys.hold.codes.includes(code) && !repeat && !this.isCountingDown) {
+                if (this.mino) this.holdCurrentMino()
+                else if (this._spawnHide) this._spawnHideHold()
             }
             // ZONE 発動（ZONE が使えるモードだけ。古い録画のキー設定には zone が無い）
             if (keys.zone && keys.zone.codes.includes(code) && !repeat && this.zoneEnabled) {
@@ -355,11 +366,19 @@ Object.assign(Game.prototype, {
                 return
             }
             const now = this.clock.now()
+            // 非表示 DCD 中に押したハードドロップ: 前のフレームで出して 1 フレーム見せたので、ここで落とす
+            if (this._spawnDropMino && !this.isPaused && !this.isCountingDown) {
+                const m = this._spawnDropMino
+                this._spawnDropMino = null
+                if (this.mino === m) this.hardDrop()
+            }
             // たまったキー・ゲームパッドの入力を先に取り込む（カウントダウン中は DAS の押した時刻を記録するだけ）
             drainInput(now)
             if (this.isPaused) return
             // カウントダウン中はDASの時間を裏で記録するだけで、操作の実行はしない
             if (this.isCountingDown) return;
+            // 非表示 DCD 中（先行回転・先行ホールドのキーが残っている間。rotation.js §12）
+            if (!this.mino && this._spawnHide) { this._pollSpawnHide(now); return; }
             if (!this.mino) return;
 
             let acted = false
@@ -389,38 +408,6 @@ Object.assign(Game.prototype, {
                     const pressTime = dir === 'left' ? this._leftPressTime : this._rightPressTime
                     if (pressTime !== null && now - pressTime >= this.DAS_DELAY) {
                         this._startDcd(dir, now)
-                    }
-                }
-            }
-
-            // ─── 出現の DCD（先行回転・先行ホールド。設計 tetlabo-irs-ihs-design.md §11） ───
-            // 出た瞬間に押しっぱなしだった回転・ホールドは、DCD_DELAY のあいだ押し続けていれば
-            // ふつうの回転・ホールドとして行う。途中で離したら取り消す（予約は _spawnMino が作る）
-            const sd = this._spawnDefer
-            if (sd) {
-                if (sd.mino !== this.mino) {
-                    this._spawnDefer = null
-                } else {
-                    if (sd.until === null) sd.until = now + this.DCD_DELAY
-                    const cw = !!this.keyState.rotateCW
-                    const ccw = !!this.keyState.rotateCCW
-                    if ((sd.rot === 1 && !cw) || (sd.rot === -1 && !ccw) || (cw && ccw)) sd.rot = 0
-                    if (sd.hold && !this.keyState.hold) sd.hold = false
-                    if (!sd.rot && !sd.hold) {
-                        this._spawnDefer = null
-                    } else if (now >= sd.until) {
-                        this._spawnDefer = null
-                        if (sd.hold && this._holdAllowed()) {
-                            // ホールドで出てくるミノには、回転キーを押していれば先行回転をすぐ当てる
-                            const before = this.mino
-                            this._spawnAssistNow = true
-                            try { this.holdCurrentMino() } finally { this._spawnAssistNow = false }
-                            if (this.mino !== before) { this.requestRedraw(); return }
-                        }
-                        if (sd.rot && this.tryRotate(sd.rot)) {
-                            this.updateLowestY()
-                            acted = true
-                        }
                     }
                 }
             }
@@ -669,13 +656,26 @@ Object.assign(Game.prototype, {
             // ホールドは「押している間」も持つ（先行ホールドが出現の瞬間に見る）
             if (action === 'hold') this.keyState.hold = true
             if (action === 'hardDrop' || action === 'hold') {
-                if (this.isCountingDown || !this.mino) return
+                if (this.isCountingDown) return
+                if (!this.mino) {
+                    // 非表示 DCD 中（rotation.js §12）
+                    if (this._spawnHide) {
+                        if (action === 'hardDrop') this._spawnHideDrop()
+                        else this._spawnHideHold()
+                    }
+                    return
+                }
                 if (action === 'hardDrop') this.hardDrop()
                 else this.holdCurrentMino()
                 return
             }
             if (this.keyState[action]) return // キーボードで押している
             this.keyState[action] = true
+            // 非表示 DCD 中に回転を新しく押した → 出すときに先行回転として当てる
+            if (!this.mino && this._spawnHide && !this.isCountingDown) {
+                if (action === 'rotateCW') this._spawnHide.forceRot = 1
+                if (action === 'rotateCCW') this._spawnHide.forceRot = -1
+            }
             if (action === 'moveLeft' && this._leftPressTime === null) {
                 this._leftPressTime = now
                 this._lastMoveTimeLeft = 0

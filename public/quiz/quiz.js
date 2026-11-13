@@ -296,6 +296,7 @@ class QuizManager {
 
             // 本来のpopMino相当処理（出現位置での致命判定・先行回転・先行ホールドは _spawnMino の中）
             if (this._ihsRescueWait()) return;
+            if (this._spawnHideStart()) return;
             if (!this._spawnMino(this.nextQueue.shift(), { allowIhs: true })) {
                 this.gameOver();
                 return;
