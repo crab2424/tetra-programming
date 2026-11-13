@@ -181,6 +181,8 @@ Object.assign(Game.prototype, {
                 this._applyGravityTick();
                 // タイム表示と ULTRA の時間切れ（以前は別の rAF だった）
                 if (this.isTimerRunning) this.updateTimeDisplay();
+                // ZONE の発動中は残り時間のメーターが減っていくので毎フレーム描く（tet/zone.js）
+                if (this.zoneActive) this.requestRedraw();
             };
             this._frameDraw = () => {
                 // ダーティ時のみ描画
@@ -205,7 +207,8 @@ Object.assign(Game.prototype, {
         this.holdCtx.clearRect(0, 0, this.holdCanvas.width, this.holdCanvas.height)
 
         // キャンバス背景を不透明に塗りつぶす（透明のままだと背後のパーティクルが透過して見えるため）
-        this.mainCtx.fillStyle = '#0a0a0f';
+        // ZONE の発動中は少し暗く沈める（8 段以上でもう一段）
+        this.mainCtx.fillStyle = this.zoneActive ? (this.zoneLines >= 8 ? '#05040c' : '#07070d') : '#0a0a0f';
         this.mainCtx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
         this.nextCtx.fillStyle = '#0a0a0f';
         this.nextCtx.fillRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
@@ -269,7 +272,17 @@ Object.assign(Game.prototype, {
             this.mino.draw(this.mainCtx)
         }
 
+        // ZONE: ZONE 段の段数・終了の光（tet/zone.js）
+        if (this.zoneEnabled) this._zoneDrawField(this.mainCtx);
+
         this.mainCtx.restore();
+
+        // ZONE: 枠の上に出たブロック（重ねたキャンバス）・メーター
+        if (this.zoneEnabled || this._zoneTopUsed) {
+            this._zoneTopUsed = !!this.zoneEnabled;
+            this._zoneDrawAbove();
+            this._zoneSyncHud(false);
+        }
 
         if (this.holdMino) {
             this.holdCtx.save();

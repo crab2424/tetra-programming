@@ -1,0 +1,163 @@
+/* ─────────────────────────────────────────────
+   ZONE モード（設計 source_assets/memory/tet_zone/tetlabo-zone-design.md §6）
+   メーター（HOLD の下）・発動中の盤面の枠・枠の上のキャンバス・終了の表示
+───────────────────────────────────────────── */
+
+/* ─── メーター ─── */
+#zone-area {
+  position: absolute;
+  left: -160px;
+  top: 158px;
+  width: 132px;
+}
+#zone-area .area-label {
+  position: static;
+  display: block;
+  margin-bottom: 6px;
+  color: var(--zone-color);
+}
+#zone-meter {
+  display: flex;
+  gap: 4px;
+}
+.zone-seg {
+  position: relative;
+  flex: 1;
+  height: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+.zone-seg-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--zone-color), #ffffff);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+/* 発動中は残り時間で減る（右から削れて見えるように左寄せのまま） */
+#zone-area.is-active .zone-seg-fill {
+  background: linear-gradient(90deg, #ffffff, var(--zone-color));
+  box-shadow: 0 0 8px var(--zone-color);
+}
+.zone-status {
+  margin-top: 6px;
+  height: 18px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+.zone-ready {
+  display: none;
+  color: var(--zone-color);
+  animation: zone-ready-pulse 1.2s ease-in-out infinite;
+}
+.zone-ready b {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border: 1px solid var(--zone-color);
+  border-radius: 3px;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.zone-ready b:empty {
+  display: none;
+}
+#zone-area.is-ready .zone-ready {
+  display: inline;
+}
+.zone-sub {
+  color: #fff;
+  font-size: 16px;
+}
+@keyframes zone-ready-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* ─── 発動中の盤面の枠（8 段以上でもう一段強く。色の反転はしない） ─── */
+#main-canvas {
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+#container.zone-active #main-canvas {
+  border-color: var(--zone-color);
+  box-shadow: 0 0 28px rgba(110, 231, 214, 0.45);
+}
+#container.zone-hot #main-canvas {
+  border-color: #ffffff;
+  box-shadow: 0 0 36px rgba(110, 231, 214, 0.75), 0 0 80px rgba(255, 255, 255, 0.2);
+}
+
+/* ─── 枠の上（y=-5〜-0.5）。盤面のキャンバスの上端にぴったり重ねる ─── */
+#zone-top-canvas {
+  position: absolute;
+  left: 3px;           /* #main-canvas の枠線ぶん */
+  top: calc(3px - 144px);
+  width: 320px;
+  height: 144px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* ─── 終了の表示（盤面中央に「ZONE n LINES / +得点」） ─── */
+#zone-end-popup {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  height: 656px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 19;
+  opacity: 0;
+}
+#zone-end-popup.show {
+  animation: zone-end-pop 2.1s ease-out forwards;
+}
+.zone-end-lines {
+  font-family: "Orbitron", monospace;
+  font-weight: 900;
+  font-size: 30px;
+  letter-spacing: 3px;
+  text-shadow: 0 0 16px rgba(110, 231, 214, 0.8), 0 2px 10px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+}
+.zone-end-score {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 2px;
+  color: #fff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+@keyframes zone-end-pop {
+  0% { opacity: 0; transform: scale(0.7); }
+  12% { opacity: 1; transform: scale(1.08); }
+  22% { transform: scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-16px); }
+}
+
+/* ─── ホームのボタン ─── */
+.mode-btn-zone {
+  border-color: rgba(110, 231, 214, 0.35);
+}
+.mode-btn-zone:hover,
+.mode-btn-zone.is-focused {
+  background: rgba(110, 231, 214, 0.12);
+  border-color: var(--zone-color);
+}
+.mode-btn-zone .mode-btn-icon,
+.mode-btn-zone .mode-btn-label {
+  color: var(--zone-color);
+}

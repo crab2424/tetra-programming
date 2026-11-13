@@ -73,11 +73,17 @@ Object.assign(Game.prototype, {
             this.ren = 0;
         }
 
-        this.score += Math.floor(lineScore + renBonus);
+        // ZONE の発動中は点をためておき、終了時に倍率をかけて足す。ライン数・レベルも動かさない
+        // （ZONE で消した段は lines に数えない。設計 tetlabo-zone-design.md §5.2・§5.4）
+        if (this.zoneActive) {
+            this.zoneScorePool += Math.floor(lineScore + renBonus);
+        } else {
+            this.score += Math.floor(lineScore + renBonus);
+        }
 
-        if (linesCleared > 0) {
+        if (linesCleared > 0 && !this.zoneActive) {
             this.lines += linesCleared;
-            if (this.mode === 'marathon') {
+            if (this.mode === 'marathon' || this.mode === 'zone') {
                 const prevLevel = this.level;
                 this.level = Math.min(15, this.startLevel + Math.floor(this.lines / 10));
                 if (this.level > prevLevel) this.playSe('levelup');
@@ -329,6 +335,12 @@ Object.assign(Game.prototype, {
         if (this.mode === 'marathon') {
             key = (this.goalLines === Infinity) ? 'marathon:endless' : 'marathon:150';
             record = { score: this.score, level: this.level, lines: this.lines, timeMs, startLevel: this.startLevel };
+        } else if (this.mode === 'zone') {
+            key = 'zone:150';
+            record = {
+                score: this.score, level: this.level, lines: this.lines, timeMs, startLevel: this.startLevel,
+                zoneBest: this.zoneBest, zoneLinesTotal: this.zoneLinesTotal, zoneCount: this.zoneCount,
+            };
         } else if (this.mode === 'sprint') {
             if (!isClear) return null; // 40ライン未達成はタイム記録の対象外
             key = 'sprint:40';

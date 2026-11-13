@@ -433,6 +433,14 @@ class Block {
                 BLOCK_SIZE,
                 BLOCK_SIZE
             )
+            // ZONE 段（tet/zone.js）: 元のミノの色・形の跡を残したまま白をかぶせる
+            if (this.zone) {
+                const a = ctx.globalAlpha
+                ctx.globalAlpha = a * 0.55
+                ctx.fillStyle = '#ffffff'
+                ctx.fillRect(drawX * BLOCK_SIZE, drawY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+                ctx.globalAlpha = a
+            }
         }
     }
 
@@ -982,6 +990,7 @@ class BgmManager {
         'single_ultra_bgm':    0.90,
         'single_puyo_bgm':     0.90,
         'single_practice_bgm': 0.50,  // -9.5（practice_1.ogg。聴感ラウドネスLUFSでmenuに揃えた）
+        'single_zone_bgm':     0.90,  // ZONE（専用曲ができるまで MARATHON と同じ曲）
     };
 
     // ── シングルモードの mode → BGMキー対応 ───────────────────────────
@@ -994,6 +1003,7 @@ class BgmManager {
         ultra:    'single_ultra_bgm',
         puyo:     'single_puyo_bgm',
         practice: 'single_practice_bgm',
+        zone:     'single_zone_bgm',
     };
     static singleBgmKey(mode) {
         return this._singleBgmKeys[mode] || 'single_marathon_bgm';
@@ -1244,6 +1254,12 @@ class SeManager {
         'b2b':           1.00,  // 未配置（BACK TO BACK 成立）
         'perfect_clear': 1.00,  // PERFECT CLEAR成立。puyo_allclearと同一音源（容量削減）
         'garbage':       0.60,  // おじゃまライン着弾。puyo_ojamaと同一音源（容量削減）。予告点灯には鳴らさない
+        // ZONE（専用の音源ができるまで既存の音を借りている。下の loadSe のパスを差し替える）
+        'zone_full':     1.00,  // メーター満タン
+        'zone_start':    1.00,  // 発動
+        'zone_line':     0.90,  // 発動中の消去
+        'zone_end':      1.20,  // 終了
+        'zone_end_big':  1.00,  // 終了（16 段以上）
         // ぷよ系
         'puyo_move':     3.50,  // -33.5 / -12.9
         'puyo_rotate':   1.00,  // 未配置
@@ -1356,6 +1372,8 @@ AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/challenge_1.ogg
 AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/challenge_1.ogg');
 AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('single_practice_bgm', 'assets/audio/bgm/practice_1.ogg');
+// ZONE（設計 tetlabo-zone-design.md §6.2）。専用曲を用意したらパスを差し替える
+AudioLoader.registerBgm('single_zone_bgm',     'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 // オンライン対戦BGMは、ここでパスだけ差し替えれば変更できる。
 AudioLoader.registerBgm('online_bgm',  'assets/audio/bgm/vs_1.ogg');
@@ -1410,6 +1428,13 @@ AudioLoader.loadSe({
     'levelup':       'assets/audio/se/tet/levelup.ogg',
     // 容量削減のため puyo_ojama と同一音源を共用（tet/puyoのおじゃま着弾で統一）
     'garbage':       'assets/audio/se/puyo/ojama.ogg', // おじゃまラインの着弾
+    // ZONE（設計 tetlabo-zone-design.md §6.2）。専用の音源を用意するまで既存の音を共用する。
+    // 用意したら assets/audio/se/tet/zone_*.ogg に置いてパスを差し替え、ASSET_VERSION を +1 する
+    'zone_full':     'assets/audio/se/menu/countdown_start.ogg',
+    'zone_start':    'assets/audio/se/tet/levelup.ogg',
+    'zone_line':     'assets/audio/se/tet/1line.ogg',
+    'zone_end':      'assets/audio/se/tet/4lines.ogg',
+    'zone_end_big':  'assets/audio/se/puyo/allclear.ogg',
     // ぷよ系
     'puyo_move':     'assets/audio/se/puyo/move.ogg',
     'puyo_rotate':   'assets/audio/se/puyo/rotate.ogg',

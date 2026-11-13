@@ -20,6 +20,8 @@ const DEFAULT_BINDS = {
   hold: [{ type: 'key', code: 'ShiftLeft', label: 'SHIFT' }, { type: 'button', index: 4 }, { type: 'button', index: 5 }],
   pause: [{ type: 'key', code: 'Escape', label: 'ESC' }, { type: 'button', index: 9 }, null],
   restart: [{ type: 'key', code: 'KeyR', label: 'R' }, { type: 'button', index: 8 }, null],
+  // ─── ZONE が使えるモード専用（RT は PRACTICE の advance と同じボタンだが、同時に使うモードは無い）───
+  zone: [{ type: 'key', code: 'KeyC', label: 'C' }, { type: 'button', index: 7 }, null],
   // ─── PRACTICEモード専用（他モードでは使われない） ───
   rewind:  [{ type: 'key', code: 'KeyQ', label: 'Q' }, { type: 'button', index: 6 }, null],
   advance: [{ type: 'key', code: 'KeyE', label: 'E' }, { type: 'button', index: 7 }, null],
@@ -38,6 +40,7 @@ const ACTION_LABELS = {
   hold: { name: 'ホールド', en: 'Hold' },
   pause: { name: 'ポーズ', en: 'Pause' },
   restart: { name: 'リスタート', en: 'Restart' },
+  zone: { name: 'ZONE 発動 (ZONE)', en: 'Activate Zone' },
   // PRACTICEモード専用。各モードのCONTROLS一覧（updateMenuControlsDisplay）には出さず、
   // キーコンフィグ画面にだけ行を出す。
   rewind:  { name: '1手戻す (PRACTICE)', en: 'Rewind (Practice)' },
@@ -675,13 +678,26 @@ function getKeyLabel(e) {
 function checkConflicts() {
   const identity = (b) => b ? (b.type === 'key' ? ('key:' + b.code) : (b.type + ':' + b.index)) : null;
 
-  const count = {};
+  // 同じ割り当てを持つ枠（アクション名の列。同じアクションの中の重複も数える）
+  const users = {};
   for (const action in currentBinds) {
     currentBinds[action].forEach(b => {
       const id = identity(b);
-      if (id) count[id] = (count[id] || 0) + 1;
+      if (id) (users[id] = users[id] || []).push(action);
     });
   }
+  // 同時に使うモードが無い組み合わせは重複に数えない（PRACTICE 専用の操作と ZONE 発動）
+  const PRACTICE_ONLY = ['rewind', 'advance', 'practicePanel', 'cycleTsumo', 'cycleTsumoBack'];
+  const exempt = (a, b) => (a === 'zone' && PRACTICE_ONLY.includes(b)) || (b === 'zone' && PRACTICE_ONLY.includes(a));
+  const isDupOf = (id, action) => {
+    const list = users[id] || [];
+    let seenSelf = false;
+    for (const other of list) {
+      if (other === action && !seenSelf) { seenSelf = true; continue; }
+      if (!exempt(action, other)) return true;
+    }
+    return false;
+  };
 
   let hasDup = false;
   for (const action in currentBinds) {
@@ -689,7 +705,7 @@ function checkConflicts() {
       const badge = document.getElementById(`bind-${action}-${i}`);
       if (!badge) return;
       const id = identity(b);
-      const isDup = !!id && count[id] > 1;
+      const isDup = !!id && isDupOf(id, action);
       if (isDup) hasDup = true;
       badge.style.borderColor = isDup ? 'var(--danger)' : '';
       badge.style.color = isDup ? 'var(--danger)' : '';

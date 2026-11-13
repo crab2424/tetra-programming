@@ -160,6 +160,7 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '.mode-btn-marathon',        cls: 'menu-enter',  delay: 1   },
             { sel: '.mode-btn-sprint',          cls: 'menu-enter',  delay: 2   },
             { sel: '.mode-btn-ultra',           cls: 'menu-enter',  delay: 3   },
+            { sel: '.mode-btn-zone',            cls: 'menu-enter',  delay: 4   },
             { sel: '.mode-btn-versus',          cls: 'menu-enter',  delay: 2   },
             { sel: '.mode-btn-test',            cls: 'menu-enter',  delay: 3   },
             { sel: '.mode-btn-online',          cls: 'menu-enter',  delay: 4   },

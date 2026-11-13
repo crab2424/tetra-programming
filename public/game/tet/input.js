@@ -226,6 +226,10 @@ Object.assign(Game.prototype, {
             if (keys.hold.codes.includes(code) && !repeat && !this.isCountingDown && this.mino) {
                 this.holdCurrentMino()
             }
+            // ZONE 発動（ZONE が使えるモードだけ。古い録画のキー設定には zone が無い）
+            if (keys.zone && keys.zone.codes.includes(code) && !repeat && this.zoneEnabled) {
+                this.activateZone()
+            }
         }
 
         // 離したときの処理（以前の keyup 本体）
@@ -548,6 +552,7 @@ Object.assign(Game.prototype, {
             rotateCW: [{ type: 'button', index: 0 }], // A
             rotateCCW: [{ type: 'button', index: 1 }], // B
             hold: [{ type: 'button', index: 4 }, { type: 'button', index: 5 }], // L/R
+            zone: [{ type: 'button', index: 7 }], // RT（ZONE 発動）
             pause: [{ type: 'button', index: 9 }], // Start
             restart: [{ type: 'button', index: 8 }]  // Select / Back
         };
@@ -623,6 +628,11 @@ Object.assign(Game.prototype, {
         // 単発系（ハードドロップ・ホールド）はその場で実行、継続系は keyState に反映して
         // キーボードと同じ _pollInput のロジック（DAS・ソフトドロップ・回転）を使う。
         const applyPadDown = (action, now) => {
+            // ZONE 発動（単発。押している間の状態は持たない）
+            if (action === 'zone') {
+                if (this.zoneEnabled) this.activateZone()
+                return
+            }
             // ホールドは「押している間」も持つ（先行ホールドが出現の瞬間に見る）
             if (action === 'hold') this.keyState.hold = true
             if (action === 'hardDrop' || action === 'hold') {
@@ -662,6 +672,7 @@ Object.assign(Game.prototype, {
 
         // ゲームパッドを離した瞬間の処理（キーアップ相当）
         const applyPadUp = (action) => {
+            if (action === 'zone') return
             if (action === 'hold') this.keyState.hold = false
             if (action === 'hardDrop' || action === 'hold') return
             if (!this.keyState[action]) return

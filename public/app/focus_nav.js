@@ -1004,7 +1004,7 @@
       // モードの 3 列の最下段 ⇔ フッターの 3 ボタン（RANKING / SETTINGS / REPLAYS）を列ごとに直結する。
       // フッターは中央寄せで列と横位置が揃っていないため、座標任せだと隣の列へずれる
       const FOOTER_COLS = [
-        ['mode-btn-ultra',    'main-menu-ranking-btn'],
+        ['mode-btn-zone',     'main-menu-ranking-btn'],
         ['mode-btn-online',   'main-menu-settings-btn'],
         ['mode-btn-practice', 'main-menu-replays-btn'],
       ];

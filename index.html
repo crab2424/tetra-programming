@@ -86,6 +86,14 @@
               <span class="mode-btn-desc">2分間スコアアタック</span>
             </div>
           </button>
+          <!-- ★ ZONEモードボタン（設計 source_assets/memory/tet_zone/tetlabo-zone-design.md） -->
+          <button class="mode-btn mode-btn-zone" onclick="goToModeCheck('zone')">
+            <span class="mode-btn-icon">◎</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">ZONE</span>
+              <span class="mode-btn-desc">消したラインを底にためる</span>
+            </div>
+          </button>
         </div>
 
         <div class="menu-col">
@@ -1066,6 +1074,8 @@
         </div>
       </div>
       <canvas id="main-canvas"></canvas>
+      <!-- ★ ZONE: 発動中に枠の上へ出たブロックを描く（盤面の上に重ねる。game/tet/zone.js） -->
+      <canvas id="zone-top-canvas"></canvas>
       <canvas id="puyo-main-canvas" style="
             display: none;
             border: 3px solid var(--field-border);
@@ -1078,6 +1088,25 @@
       </div>
       <div id="finish-overlay" class="field-overlay finish-overlay">
         <span id="finish-text" class="finish-text"></span>
+      </div>
+      <!-- ★ ZONE: 終了時に盤面中央へ出す「ZONE n LINES / +得点」（game/tet/zone.js） -->
+      <div id="zone-end-popup">
+        <span class="zone-end-lines">ZONE 0 LINES</span>
+        <span class="zone-end-score">+0</span>
+      </div>
+      <!-- ★ ZONE: メーター（HOLD の下。1/4 刻みで点灯・発動中は残り時間で減る） -->
+      <div id="zone-area" style="display: none">
+        <span class="area-label">ZONE</span>
+        <div id="zone-meter">
+          <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+          <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+          <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+          <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+        </div>
+        <div class="zone-status">
+          <span class="zone-ready">READY <b id="zone-key"></b></span>
+          <span id="zone-sub" class="zone-sub"></span>
+        </div>
       </div>
       <!-- ★ PRACTICEモード専用: 設定パネルの開閉タブ（Phase 6 §8）。
            タブは#containerと一緒にスケールする（今までどおりの位置感）。
@@ -1316,6 +1345,11 @@
         <div class="result-stat-row result-stat-time">
           <span class="result-label" id="result-label-time">TIME</span>
           <span class="result-value" id="result-time">00:00.00</span>
+        </div>
+        <!-- ★ ZONE: 1 回の最大・合計・回数（ZONE のときだけ） -->
+        <div class="result-stat-row" id="result-zone-row" style="display: none">
+          <span class="result-label">ZONE</span>
+          <span class="result-value" id="result-zone-value">—</span>
         </div>
         <div class="result-stat-row" id="result-best-row" style="display: none">
           <span class="result-label">BEST</span>
@@ -1581,31 +1615,32 @@
   <div id="external-pages"></div>
 
   <script src="config/pages.js?v=9"></script>
-  <script src="core/base.js?v=24"></script>
+  <script src="core/base.js?v=25"></script>
   <!-- ゲーム時計・試合の乱数（エンジンより先に読む。設計: source_assets/memory/record/） -->
   <script src="core/game_clock.js?v=6"></script>
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=20"></script>
+  <script src="core/replay.js?v=21"></script>
   <script src="core/dialog.js?v=2"></script>
-  <script src="core/particles.js?v=8"></script>
+  <script src="core/particles.js?v=9"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=15"></script>
-  <script src="config/records.js?v=4"></script>
+  <script src="config/settings.js?v=16"></script>
+  <script src="config/records.js?v=5"></script>
   <script src="config/account.js?v=6"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js?v=6"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
-  <script src="game/tet/lifecycle.js?v=14"></script>
-  <script src="game/tet/board.js?v=14"></script>
-  <script src="game/tet/rotation.js?v=5"></script>
-  <script src="game/tet/scoring.js?v=3"></script>
+  <script src="game/tet/lifecycle.js?v=15"></script>
+  <script src="game/tet/board.js?v=15"></script>
+  <script src="game/tet/rotation.js?v=6"></script>
+  <script src="game/tet/scoring.js?v=4"></script>
+  <script src="game/tet/zone.js?v=1"></script>
   <script src="game/tet/garbage.js?v=6"></script>
-  <script src="game/tet/render.js?v=10"></script>
-  <script src="game/tet/input.js?v=12"></script>
+  <script src="game/tet/render.js?v=11"></script>
+  <script src="game/tet/input.js?v=13"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1617,16 +1652,16 @@
   <script src="game/puyo/draw.js?v=11"></script>
   <script src="quiz/quiz.js?v=11"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=25"></script>
+  <script src="app/modes.js?v=26"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <script src="app/cpu_match_log.js?v=2"></script>
   <script src="app/versus.js?v=21"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=40"></script>
+  <script src="app/navigation.js?v=41"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/replays.js?v=7"></script>
-  <script src="app/focus_nav.js?v=25"></script>
+  <script src="app/replays.js?v=8"></script>
+  <script src="app/focus_nav.js?v=26"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=8"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->

@@ -87,6 +87,16 @@ function stopAllGames() {
         el.classList.remove('fadeout');
     });
     
+    // ZONE の表示（メーター・終了の表示・枠の上のキャンバス）を消す。tet の試合を始めると _zoneInit が出し直す
+    const zoneArea = document.getElementById('zone-area');
+    if (zoneArea) zoneArea.style.display = 'none';
+    document.getElementById('zone-end-popup')?.classList.remove('show');
+    document.getElementById('container')?.classList.remove('zone-active', 'zone-hot');
+    const zoneTop = document.getElementById('zone-top-canvas');
+    if (zoneTop) zoneTop.getContext('2d').clearRect(0, 0, zoneTop.width, zoneTop.height);
+    const resultZoneRow = document.getElementById('result-zone-row');
+    if (resultZoneRow) resultZoneRow.style.display = 'none';
+
     // pause overlay も消す
     document.getElementById('pause-overlay')?.classList.remove('active');
     document.getElementById('versus-pause-overlay')?.classList.remove('active');
@@ -129,6 +139,8 @@ function updateLinesGoalDisplay(modeId) {
     el.textContent = '/40';
   } else if (modeId === 'marathon' && marathonSelectedGoal !== 'endless') {
     el.textContent = '/' + marathonSelectedGoal;
+  } else if (modeId === 'zone') {
+    el.textContent = '/150';
   } else {
     el.textContent = '';
   }
@@ -404,6 +416,7 @@ function renderModeCheckBest() {
   if (mode.id === 'marathon') key = (marathonSelectedGoal === 'endless') ? 'marathon:endless' : 'marathon:150';
   else if (mode.id === 'sprint') key = 'sprint:40';
   else if (mode.id === 'ultra') key = 'ultra';
+  else if (mode.id === 'zone') key = 'zone:150';
   else if (mode.id === 'puyo') key = 'puyo';
 
   _modeCheckBestReplayToken++;
@@ -533,6 +546,24 @@ function renderModeCheck() {
           btn.style.color = mode.color;
           btn.style.borderColor = mode.color;
       });
+    } else if (mode.id === 'zone') {
+      // ZONE: GOAL は 150 固定（ENDLESS は v1 では付けない）。START LEVEL は MARATHON と同じ値を使う
+      optionsEl.style.display = 'flex';
+      const startLevel = (window._game && window._game.marathonStartLevel) ? window._game.marathonStartLevel : 1;
+      const zoneKey = (typeof loadKeys === 'function') ? ((loadKeys().zone || {}).label || '') : '';
+      optionsEl.innerHTML = `
+        <div class="option-row">
+          <span class="option-label">START LEVEL</span>
+          <div class="option-toggle" id="marathon-level-toggle"></div>
+          <div class="option-slider">
+            <input type="range" id="marathon-level-slider" min="1" max="15" value="${startLevel}" oninput="updateMarathonLevelDisplay()">
+            <span id="marathon-level-val" class="option-val">${startLevel}</span>
+          </div>
+        </div>
+        <p class="practice-value-hint">150 ライン。8 ラインでゲージ 1/4。1/4 以上たまったら ${zoneKey ? `<b>${zoneKey}</b> キー` : 'ZONE キー'}で発動（1/4 ごとに 5 秒）</p>
+      `;
+      const levelVal = document.getElementById('marathon-level-val');
+      if (levelVal) levelVal.style.color = mode.color;
     } else if (mode.id === 'test') {
       optionsEl.style.display = 'flex';
       // OPPONENT を PUYO / TET にすると CPU 同士（異種可）。盤面・対戦は VERSUS のものを使う（versus.js startTestCpuVsCpu）
@@ -675,6 +706,8 @@ function renderModeCheck() {
         startBtn.style.background = 'linear-gradient(135deg, var(--accent3) 0%, var(--accent) 100%)';
       } else if (mode.id === 'ultra') {
         startBtn.style.background = 'linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%)';
+      } else if (mode.id === 'zone') {
+        startBtn.style.background = 'linear-gradient(135deg, var(--zone-color) 0%, var(--accent3) 100%)';
       } else {
         startBtn.style.background = 'linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%)';
       }
@@ -694,6 +727,8 @@ function _applyModePauseSelectStyle(btn) {
     btn.style.background = 'linear-gradient(135deg, var(--accent3) 0%, var(--accent) 100%)';
   } else if (mode.id === 'ultra') {
     btn.style.background = 'linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%)';
+  } else if (mode.id === 'zone') {
+    btn.style.background = 'linear-gradient(135deg, var(--zone-color) 0%, var(--accent3) 100%)';
   } else {
     btn.style.background = 'linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%)';
   }
@@ -868,6 +903,11 @@ async function startGameFromModeCheck() {
 
   if (modeId === 'marathon') {
     window._game.marathonGoal = (marathonSelectedGoal === 'endless') ? Infinity : 150;
+    const levelSlider = document.getElementById('marathon-level-slider');
+    window._game.marathonStartLevel = levelSlider ? parseInt(levelSlider.value, 10) : 1;
+  } else if (modeId === 'zone') {
+    // ZONE は MARATHON と同じ値で進む（ゴール 150 固定。設計 tetlabo-zone-design.md §3・§8）
+    window._game.marathonGoal = 150;
     const levelSlider = document.getElementById('marathon-level-slider');
     window._game.marathonStartLevel = levelSlider ? parseInt(levelSlider.value, 10) : 1;
   }

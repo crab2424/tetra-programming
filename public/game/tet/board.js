@@ -63,8 +63,11 @@ Object.assign(Game.prototype, {
 
         // 出現位置での致命判定は _spawnMino の中（先行ホールド・先行回転を当てた後。rotation.js）
         if (!this._spawnMino(this.nextQueue.shift(), { allowIhs: true })) {
-            this.gameOver();
-            return;
+            // ZONE の発動中は、まず ZONE を終わらせて盤面を下げ、同じミノを出し直す（tet/zone.js）
+            if (!this._zoneRespawnAfterTopOut()) {
+                this.gameOver();
+                return;
+            }
         }
 
         this._refillNext();
@@ -85,6 +88,8 @@ Object.assign(Game.prototype, {
 
     // ミノを即座に固定する共通処理
     secureMino(viaHardDrop = false) {
+        // ZONE の発動中か（この手の消去は「底へ移す」。tet/zone.js）
+        const inZone = !!this.zoneActive;
         let isAllOutside = this.mino.blocks.every(block => (block.y + this.mino.y) < 0);
 
         // ─── T-spin判定（固定前に行う）───
@@ -102,14 +107,19 @@ Object.assign(Game.prototype, {
 
         const renForCalc = this.ren; // ★ぷよ用火力計算のために加算前のRENを保持
 
-        const linesCleared = this.field.checkLine()
+        // ZONE の発動中は 20 段より上も見て、そろった段を底へ移す（窒息の判定より先に数える）
+        const linesCleared = inZone ? this._zoneCheckLine() : this.field.checkLine()
+        // ZONE のメーター（発動中はたまらない）
+        if (!inZone && this.zoneEnabled) this._zoneAddMeter(linesCleared)
 
         // ─── ライン消去・T-spin のSE ───
         if (tSpinResult !== null) {
             this.playSe('tspin');
         }
         
-        if (linesCleared >= 4) {
+        if (inZone && linesCleared > 0) {
+            this.playSe('zone_line');
+        } else if (linesCleared >= 4) {
             this.playSe('4lines');
         } else if (linesCleared === 3) {
             this.playSe('3lines');
@@ -123,7 +133,10 @@ Object.assign(Game.prototype, {
         const isB2BTriggered = isBtBAction && this.backToBack;
         const currentRen = (linesCleared > 0 && this.ren > 0) ? this.ren : 0;
 
-        const isPerfectClear = (this.field.blocks.length === 0);
+        // ZONE の発動中は「ZONE 段以外のブロックが 0 個」で PC
+        const isPerfectClear = inZone
+            ? (linesCleared > 0 && this._zoneIsPerfectClear())
+            : (this.field.blocks.length === 0);
         const is4Lines = (linesCleared === 4);
 
         // Scoring() の戻り値として火力（段数）を受け取る
@@ -328,6 +341,14 @@ Object.assign(Game.prototype, {
             }
         }
 
+        // ZONE: 時間切れの後の 1 手、または窒息（全ブロックが枠の上）なら、この手の消去を数えた後で終える。
+        // 窒息でも ZONE 段があれば盤面が下がるので続ける（tetlabo-zone-design.md §4.5）
+        if (inZone && this.zoneActive && (this.zoneTimeUp || isAllOutside)) {
+            const lowered = this.zoneLines > 0;
+            this._endZone(isAllOutside ? 'topout' : 'time');
+            if (isAllOutside && lowered) isAllOutside = false;
+        }
+
         // 録画: 設置ごとの盤面のハッシュを残す／再生: 録画と照らし合わせ、合わなければ止める（core/replay.js）
         if (this._rec) this._rec.lock(this);
         else if (this._replay) this._replay.onLock(this);
@@ -339,7 +360,7 @@ Object.assign(Game.prototype, {
             this.mino = null;
             this.gameOver(true); // クリア！
             return;
-        } else if (this.mode === 'marathon' && this.goalLines !== Infinity && this.lines >= this.goalLines) {
+        } else if ((this.mode === 'marathon' || this.mode === 'zone') && this.goalLines !== Infinity && this.lines >= this.goalLines) {
             this.mino = null;
             this.gameOver(true); // クリア！
             return;
@@ -425,7 +446,8 @@ Object.assign(Game.prototype, {
             // 「置くまで固定しない」＝ソフトドロップ押下中のみ固定タイマーを進め、
             // 離したら 0 にリセットする（リセット側は _applyGravityTick が毎フレ担当）。
             // 15回操作での強制固定も同条件下では無効化する。
-            if (this.practiceNoLock) {
+            // ZONE の発動中も同じ（tetlabo-zone-design.md §4.4）
+            if (this.practiceNoLock || this.zoneActive) {
                 if (!(this.keyState && this.keyState.softDrop)) {
                     this._cancelLockTimer();
                     return;
@@ -581,6 +603,7 @@ Object.assign(Game.prototype, {
     //   'teleport', rot, x, y  出現位置 y で向きを変えてから x へ飛ばす（重なるなら x はそのまま）
     //   'hardDrop'             ハードドロップ
     //   'gravity', off         CPU が操作している間の重力の停止（true で止める）
+    //   'zone'                 ZONE 発動（発動できたら true）
     // 戻り値はそれぞれの操作の結果（動けたか等）。
     // ─────────────────────────────────────────
     cpuAction(type, a, b, c) {
@@ -665,6 +688,7 @@ Object.assign(Game.prototype, {
             }
             case 'hardDrop': r = this.hardDrop(); break;
             case 'gravity': this.gravityDisabled = !!a; break;
+            case 'zone': r = this.activateZone(); break;   // ZONE 発動（tet/zone.js）
             default:
                 console.warn('[cpuAction] 知らない操作:', type);
         }

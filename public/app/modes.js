@@ -31,6 +31,16 @@ const GAME_MODES = {
     descriptionEn: 'Score as many points as possible in 2 minutes.',
     color:       'var(--accent2)',
   },
+  // ─── ZONEモード（設計 source_assets/memory/tet_zone/tetlabo-zone-design.md）───
+  // 中身は MARATHON（150 ライン）＋ ZONE。8 ラインで 1/4 チャージ
+  zone: {
+    id:          'zone',
+    label:       'ZONE',
+    icon:        '◎',
+    description: 'ラインを消してゲージをため、発動中は消したラインが底にたまる。',
+    descriptionEn: 'Charge the meter, then stop time and stack cleared lines at the bottom.',
+    color:       'var(--zone-color)',
+  },
   test: {
     id:          'test',
     label:       'CPU TEST',

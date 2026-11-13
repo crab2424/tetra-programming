@@ -291,8 +291,11 @@ Object.assign(Game.prototype, {
             （出現位置 → 1 段上。先行回転が ON なら回した向きを先に試す）
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
             if (!this._spawnMino(new Mino(prevHoldType), { allowIhs: false })) {
-                this.gameOver();
-                return;
+                // ZONE の発動中は終わらせて盤面を下げ、出し直す（tet/zone.js）
+                if (!this._zoneRespawnAfterTopOut()) {
+                    this.gameOver();
+                    return;
+                }
             }
 
             // 状態・タイマー・カウントの初期化（popMinoと同じにする）

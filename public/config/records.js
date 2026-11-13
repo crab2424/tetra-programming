@@ -3,7 +3,7 @@
 //
 // 保存先: localStorage['tetlabo_records']
 // キー設計: モード＋条件で分ける（MARATHONは150LINES/ENDLESSで難度が別物のため別枠）。
-//   marathon:150 / marathon:endless / sprint:40 / ultra / puyo
+//   marathon:150 / marathon:endless / sprint:40 / ultra / zone:150 / puyo
 //
 // 将来のサーバー同期（Discord連携等 v2.2以降）へ差し替えやすいよう、
 // - submit() は最初から Promise を返す（シグネチャを変えずに裏側だけ差し替え可能にする）
@@ -22,14 +22,16 @@
     'sprint:40':        { field: 'timeMs',   better: 'lower'  },
     'ultra':            { field: 'score',    better: 'higher' },
     'puyo':             { field: 'score',    better: 'higher' }, // v2.2.3で最大連鎖→スコアに変更
+    'zone:150':         { field: 'score',    better: 'higher' },
   };
 
   // ランキング対象キー（並び順＝RANKINGタブの並び）。worker/records.ts の RANKED_MODES とキーを一致させる。
-  const RANKED_KEYS = ['marathon:endless', 'sprint:40', 'ultra', 'puyo'];
+  const RANKED_KEYS = ['marathon:endless', 'sprint:40', 'ultra', 'zone:150', 'puyo'];
   const RANK_LABELS = {
     'marathon:endless': 'MARATHON',
     'sprint:40':        'SPRINT',
     'ultra':            'ULTRA',
+    'zone:150':         'ZONE',
     'puyo':             'PUYO',
   };
 

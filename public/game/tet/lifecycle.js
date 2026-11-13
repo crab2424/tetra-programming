@@ -65,7 +65,7 @@ Object.assign(Game.prototype, {
             this.goalLines = 0;
             this.timeLimit = 120 * 1000; // 2分（ミリ秒）
         } else {
-            // marathon
+            // marathon（ZONE も同じ進み方。レベルが上がる・ゴール 150）
             this.startLevel = this.marathonStartLevel || 1;
             this.goalLines = this.marathonGoal || 150;
             this.timeLimit = 0;
@@ -174,6 +174,8 @@ Object.assign(Game.prototype, {
         this.hidePauseOverlay()
         this.level = 1;
         this.lines = 0;
+        // ZONE（tet/zone.js）。zoneEnabled が false のモードでは何も通らない
+        this._zoneInit();
         this.updateStatsDisplay();
         this.elapsedTime = 0;
         this.isTimerRunning = false;
@@ -264,7 +266,8 @@ Object.assign(Game.prototype, {
         // checkGroundState も呼ばれないため、「接地したまま押し直した」ケースの
         // 再開はこのフレーム処理が受け持つ。接地中は this.timer が falsy なので、
         // 下の早期returnより前で判定する必要がある。
-        if (this.practiceNoLock && this.mino && !this.isPaused && !this.isCountingDown) {
+        // ZONE の発動中も同じ（設計 tetlabo-zone-design.md §4.4）
+        if ((this.practiceNoLock || this.zoneActive) && this.mino && !this.isPaused && !this.isCountingDown) {
             const softHeld = !!(this.keyState && this.keyState.softDrop);
             if (!softHeld) {
                 this._cancelLockTimer();
@@ -275,7 +278,8 @@ Object.assign(Game.prototype, {
         if (!this.timer) return;                          // OFF
         // 動かない局面では「時刻だけ前進」させる＝ポーズ復帰やカウントダウン明け
         // の瞬間に溜まった経過時間で多重落下するのを防ぐ
-        if (this.isPaused || this.isCountingDown || !this.mino || this.gravityDisabled) {
+        // ZONE の発動中は自由落下が止まる（時刻だけ進めるので、終わった瞬間にまとめて落ちない）
+        if (this.isPaused || this.isCountingDown || !this.mino || this.gravityDisabled || this.zoneActive) {
             this._gravityLastTime = this.clock.now();
             return;
         }
@@ -358,6 +362,14 @@ Object.assign(Game.prototype, {
             document.getElementById('result-level').textContent = this.level;
             document.getElementById('result-lines').textContent = this.lines;
 
+            // ZONE: 1 回の最大・合計・回数（LINES とは別に数える。設計 tetlabo-zone-design.md §5.5）
+            const zoneRow = document.getElementById('result-zone-row');
+            if (zoneRow) {
+                zoneRow.style.display = this.zoneEnabled ? '' : 'none';
+                const zv = document.getElementById('result-zone-value');
+                if (zv && this.zoneEnabled) zv.textContent = `MAX ${this.zoneBest} / ${this.zoneLinesTotal} (×${this.zoneCount})`;
+            }
+
             // Sprint モードのゲームオーバー時は記録なし（タイム非表示）
             if (this.mode === 'sprint' && !isClear) {
                 document.getElementById('result-time').textContent = "--:--.--";
@@ -376,7 +388,7 @@ Object.assign(Game.prototype, {
             if (rankEl) rankEl.style.display = 'none';
             const recordKey = (this.mode === 'marathon')
                 ? ((this.goalLines === Infinity) ? 'marathon:endless' : 'marathon:150')
-                : (this.mode === 'sprint' ? 'sprint:40' : this.mode);
+                : (this.mode === 'sprint' ? 'sprint:40' : (this.mode === 'zone' ? 'zone:150' : this.mode));
             if (typeof this._submitRecordIfEligible === 'function') {
                 const res = await this._submitRecordIfEligible(isClear);
                 if (badge) badge.style.display = (res && res.isNew) ? 'block' : 'none';
