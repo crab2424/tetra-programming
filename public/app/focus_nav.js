@@ -594,6 +594,7 @@
   function deactivate(){
     clearFocus();
     active = null;
+    padResetState();
     stopPaneScroll();
     stopFocusScroll();
   }
@@ -610,6 +611,7 @@
     const root = cfg.root || document.getElementById(pageId + '-page') || document.getElementById(pageId);
     if (!root) return;
     active = Object.assign({ pageId, root, index: 0, _firstFocus: true, activatedAt: performance.now() }, cfg);
+    padStart();
 
     let framesLeft = ACTIVATE_RETRY_FRAMES;
     const tryInit = () => {
@@ -689,6 +691,190 @@
   // held状態のままvMaxで回り続けてしまう。blur時は問答無用で減衰フェーズに移す。
   window.addEventListener('blur', () => {
     if (paneScroll) paneScroll.held = false;
+  });
+
+  // ─────────────────────────────────────────────
+  // ゲームパッド（メニュー操作）
+  // ─────────────────────────────────────────────
+  // FocusNav がページを持っている間だけ Gamepad API を読み、キーボードと同じキーイベント
+  // （矢印・Enter・Escape）を作って流す。キーボードと同じ経路を通るので、activateGuardMs・
+  // escapeAction・BACK 探索・scrollPane・PRACTICE のスピナー・replay.js の ← → などがそのまま効く。
+  //   十字キー(12〜15) / 左スティック … 上下左右（初回 PAD_DAS_MS 待ってから PAD_ARR_MS 間隔で繰り返し）
+  //   A(0) … 決定（Enter。押しっぱなしで繰り返さない）
+  //   B(1) … 戻る（Escape）
+  //   KEY CONFIG の RESTART（既定 8）… リザルト等の onRestart（キーボードの R と同じ）
+  // 対戦中は FocusNav がページを持たないので読まない（エンジンの _gamepadLoop と取り合わない）。
+  // ポーズ画面ではエンジンもパッドを読むが、ポーズ中は試合の操作を捨てるので重ならない。
+  // ページが切り替わった直後は、押されたままのボタン・方向をいったん離すまで無視する
+  // （試合最後のハードドロップや回転の押しっぱなしが、出たばかりのリザルトに効かないように）。
+  const PAD_DAS_MS = 260;
+  const PAD_ARR_MS = 90;
+  const PAD_DIR_NAMES = ['up', 'down', 'left', 'right'];
+  const PAD_DIR_BUTTONS = { up: 12, down: 13, left: 14, right: 15 };
+  const PAD_KEYS = {
+    up:     { key: 'ArrowUp',    code: 'ArrowUp',    keyCode: 38 },
+    down:   { key: 'ArrowDown',  code: 'ArrowDown',  keyCode: 40 },
+    left:   { key: 'ArrowLeft',  code: 'ArrowLeft',  keyCode: 37 },
+    right:  { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
+    enter:  { key: 'Enter',      code: 'Enter',      keyCode: 13 },
+    escape: { key: 'Escape',     code: 'Escape',     keyCode: 27 },
+  };
+  let padRaf = null;
+  let padPrev = null;      // 前フレームの押下状態。null = 次のフレームは状態を覚えるだけ（押しっぱなしを捨てる）
+  let padHeldDir = null;   // 繰り返し中の方向
+  let padNextRepeat = 0;
+
+  function padHasAny(){
+    if (!navigator.getGamepads) return false;
+    try {
+      const pads = navigator.getGamepads();
+      for (let i = 0; i < pads.length; i++) if (pads[i]) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function padDeadzone(){
+    try {
+      if (typeof currentGamepadOptions !== 'undefined' && currentGamepadOptions && Number.isFinite(currentGamepadOptions.deadzone)) {
+        return currentGamepadOptions.deadzone;
+      }
+    } catch (e) {}
+    return 0.45;
+  }
+
+  function padRestartBinds(){
+    try {
+      if (typeof currentGamepadConfig !== 'undefined' && currentGamepadConfig && Array.isArray(currentGamepadConfig.restart)) {
+        return currentGamepadConfig.restart;
+      }
+    } catch (e) {}
+    return [{ type: 'button', index: 8 }];
+  }
+
+  // つながっている全パッドの OR。1台も無ければ null
+  function padRead(){
+    if (!navigator.getGamepads) return null;
+    let pads;
+    try { pads = navigator.getGamepads(); } catch (e) { return null; }
+    const dz = padDeadzone();
+    const restartBinds = padRestartBinds();
+    const st = { up: false, down: false, left: false, right: false, a: false, b: false, restart: false, btns: [] };
+    let any = false;
+    for (let i = 0; i < pads.length; i++) {
+      const pad = pads[i];
+      if (!pad || pad.connected === false) continue;
+      any = true;
+      const btn = (n) => !!(pad.buttons && pad.buttons[n] && pad.buttons[n].pressed);
+      for (const d of PAD_DIR_NAMES) if (btn(PAD_DIR_BUTTONS[d])) st[d] = true;
+      const ax = (pad.axes && pad.axes[0]) || 0;
+      const ay = (pad.axes && pad.axes[1]) || 0;
+      // 斜めは大きい方の軸だけ（2D 移動が斜めに暴れないように）
+      if (Math.max(Math.abs(ax), Math.abs(ay)) >= dz) {
+        if (Math.abs(ax) > Math.abs(ay)) st[ax < 0 ? 'left' : 'right'] = true;
+        else st[ay < 0 ? 'up' : 'down'] = true;
+      }
+      if (pad.buttons) for (let n = 0; n < pad.buttons.length; n++) if (btn(n)) st.btns[n] = true;
+      if (btn(0)) st.a = true;
+      if (btn(1)) st.b = true;
+      for (const m of restartBinds) {
+        if (!m) continue;
+        if (m.type === 'button' && btn(m.index)) st.restart = true;
+        else if (m.type === 'axis' && pad.axes && Math.abs(pad.axes[m.index] || 0) > 0.5) st.restart = true;
+      }
+    }
+    return any ? st : null;
+  }
+
+  function padSendKey(type, name, repeat){
+    const k = PAD_KEYS[name];
+    const ae = document.activeElement;
+    const target = (ae && ae !== document.body && ae !== document.documentElement) ? ae : document;
+    target.dispatchEvent(new KeyboardEvent(type, {
+      key: k.key, code: k.code, keyCode: k.keyCode, which: k.keyCode,
+      repeat: !!repeat, bubbles: true, cancelable: true,
+    }));
+  }
+
+  function padReleaseDir(){
+    if (padHeldDir) {
+      const d = padHeldDir;
+      padHeldDir = null;
+      padSendKey('keyup', d, false); // scrollPane の慣性スクロールを止める
+    }
+  }
+
+  // ページが変わったら押しっぱなしを捨て直す（keyup は送らない＝対戦へ抜けるときにエンジンへ届かない）
+  function padResetState(){
+    padPrev = null;
+    padHeldDir = null;
+  }
+
+  // タイトル（PRESS ANY KEY）は FocusNav のページではないが、パッドのどのボタンでも抜けられるようにする
+  // （navigation.js の onTitleKey がキャプチャで Enter を受けてメインメニューへ）
+  function padTitleShown(){
+    const t = document.getElementById('title-page');
+    return !!(t && t.classList.contains('active'));
+  }
+
+  function padStart(){
+    padResetState();
+    if (padRaf === null && padHasAny()) padRaf = requestAnimationFrame(padTick);
+  }
+
+  function padTick(now){
+    padRaf = null;
+    const onTitle = !active && padTitleShown();
+    if (!active && !onTitle) { padResetState(); return; }
+    const st = padRead();
+    if (!st) { padResetState(); return; } // パッドが抜けた。次は gamepadconnected から
+    padRaf = requestAnimationFrame(padTick);
+
+    // KEY CONFIG の入力待ち中は何も流さない（作ったキーが割り当てに拾われる）。状態だけ追う
+    if (!padPrev || document.hidden || document.querySelector('.key-badge.listening')) {
+      if (padPrev) padReleaseDir();
+      padPrev = st;
+      return;
+    }
+    const prev = padPrev;
+    padPrev = st;
+
+    if (onTitle) {
+      const fresh = PAD_DIR_NAMES.some(d => st[d] && !prev[d]) || st.btns.some((p, n) => p && !prev.btns[n]);
+      if (fresh) { padSendKey('keydown', 'enter', false); padSendKey('keyup', 'enter', false); }
+      return;
+    }
+
+    // 方向: 押している方向が続く限りそれを繰り返す。離したら新しく押された方向へ
+    let dir = (padHeldDir && st[padHeldDir]) ? padHeldDir : null;
+    if (!dir) dir = PAD_DIR_NAMES.find(d => st[d] && !prev[d]) || null;
+    if (dir !== padHeldDir) {
+      padReleaseDir();
+      if (dir) {
+        padHeldDir = dir;
+        padNextRepeat = now + PAD_DAS_MS;
+        padSendKey('keydown', dir, false);
+      }
+    } else if (dir && now >= padNextRepeat) {
+      padNextRepeat = now + PAD_ARR_MS;
+      padSendKey('keydown', dir, true);
+    }
+    if (!active) return; // 方向キーでページが閉じた
+
+    // RESTART（キーボードの R と同じ。onRestart を持つページだけ）
+    if (st.restart && !prev.restart && typeof active.onRestart === 'function'
+        && rootIsActive() && !window.FocusNav.suspended && !isTypingTarget(document.activeElement)) {
+      setInputMode('kbd');
+      active.onRestart();
+      return;
+    }
+    if (st.a && !prev.a) { padSendKey('keydown', 'enter', false); padSendKey('keyup', 'enter', false); return; }
+    if (st.b && !prev.b) { padSendKey('keydown', 'escape', false); padSendKey('keyup', 'escape', false); return; }
+  }
+
+  // Chrome はボタンを押すまでパッドを見せない。つながった時点でページを持っていれば読み始める
+  // （押したボタンはそのフレームで覚えるだけ＝つないだ瞬間の 1 押しでは決定しない）
+  window.addEventListener('gamepadconnected', () => {
+    if ((active || padTitleShown()) && padRaf === null) padRaf = requestAnimationFrame(padTick);
   });
 
   window.FocusNav = {
