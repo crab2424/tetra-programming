@@ -275,7 +275,8 @@ class QuizManager {
                 return;
             }
             // 次のミノが出現する直前（前の一手が確定した瞬間）にクリア判定を行う
-            if (self._checkClear()) {
+            // （IHS の待ち明けの呼び直しでは、判定はもう済んでいる。tet/rotation.js _ihsRescueWait）
+            if (!this._ihsRescueResume && self._checkClear()) {
                 this.mino = null;
                 return;
             }
@@ -293,19 +294,28 @@ class QuizManager {
                 return;
             }
 
-            // 本来のpopMino相当処理
-            this.mino = this.nextQueue.shift();
-            this.mino.spawn();
-
-            // 出現位置での致命判定
-            if (!this.valid(0, 0)) {
-                this.mino.y -= 1;
-                if (!this.valid(0, 0)) {
-                    this.gameOver();
-                    return;
-                }
+            // 本来のpopMino相当処理（出現位置での致命判定・先行回転・先行ホールドは _spawnMino の中）
+            if (this._ihsRescueWait()) return;
+            if (!this._spawnMino(this.nextQueue.shift(), { allowIhs: true })) {
+                this.gameOver();
+                return;
             }
+            this._refillNext();
 
+            // HOLD可否の更新（先行ホールドで出たミノはもうホールドできない）
+            this.canHold = (levelData.allowHold && !this._spawnIhsUsed) ? true : false;
+            this.isGrounded = false;
+            this.lowestY = this.mino.y;
+            this.moveCount = 0;
+            this.lastActionWasRotation = false;
+            this.lastRotUsedPoint5 = false;
+
+            this._cancelLockTimer();
+            this.startGravity();
+        }.bind(game);
+
+        // NEXT の補充（popMino と先行ホールドの両方から呼ばれる）
+        game._refillNext = function() {
             // 次に補充するピースのインデックスを計算
             nextPieceIndex++;
             const absoluteNextIndex = nextPieceIndex + 4;
@@ -317,17 +327,6 @@ class QuizManager {
                 // NEXTが枯渇したら透明なダミーを補充
                 this.nextQueue.push(self._createDummyMino());
             }
-
-            // HOLD可否の更新
-            this.canHold = levelData.allowHold ? true : false;
-            this.isGrounded = false;
-            this.lowestY = this.mino.y;
-            this.moveCount = 0;
-            this.lastActionWasRotation = false;
-            this.lastRotUsedPoint5 = false;
-
-            this._cancelLockTimer();
-            this.startGravity();
         }.bind(game);
 
         game.getNextType = function() {
@@ -337,10 +336,12 @@ class QuizManager {
         // レベルごとのHOLD機能とUI(HTMLレイヤー)の制御
         if (!levelData.allowHold) {
             game.canHold = false;
+            game.holdDisabled = true;             // 先行ホールドも効かせない（tet/rotation.js _holdAllowed）
             game.holdCurrentMino = function() {}; // HOLD処理を無効化
             _setHoldOverlayVisible(true);         // HTML要素でキャンバスに合わせて斜線を表示
         } else {
             game.canHold = true;
+            game.holdDisabled = false;
             _setHoldOverlayVisible(false);        // 斜線を非表示
         }
     }
@@ -805,6 +806,8 @@ class QuizManager {
             if (this.currentLevel && this.currentLevel.rule === 'tet') {
                 if (this._originalPopMino) this.gameInstance.popMino = this._originalPopMino;
                 if (this._originalGetNextType) this.gameInstance.getNextType = this._originalGetNextType;
+                delete this.gameInstance._refillNext;   // prototype の補充に戻す
+                delete this.gameInstance.holdDisabled;
                 if (this._originalHoldCurrentMino) this.gameInstance.holdCurrentMino = this._originalHoldCurrentMino;
                 // secureMino フックも元に戻す
                 if (this._originalSecureMino) this.gameInstance.secureMino = this._originalSecureMino;

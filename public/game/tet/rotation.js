@@ -102,6 +102,168 @@ Object.assign(Game.prototype, {
         return true
     },
 
+    // ─────────────────────────────────────────
+    // 出現（先行回転 IRS・先行ホールド IHS）
+    // 設計: source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md
+    // 設定が OFF（_irsOn / _ihsOn が false）のときは、今までの「出現位置 → だめなら 1 段上」と同じ動き。
+    // ─────────────────────────────────────────
+
+    // このモードでホールドが使えるか（1 手 1 回の canHold は見ない。出現のたびに戻るため）
+    _holdAllowed() {
+        if (this.holdDisabled) return false                                   // QUIZ・ONLINE の HOLD なし
+        if (this.isVersusMode && this.vsHoldEnabled === false) return false   // VS 設定
+        if (this.practiceHoldMode === 'off') return false                     // PRACTICE 設定パネル
+        return true
+    },
+
+    // 先行回転の向き（1=右 / -1=左 / 0=なし）。両方押しているときは回さない
+    _irsDir() {
+        if (!this._irsOn || !this.keyState) return 0
+        const cw = !!this.keyState.rotateCW
+        const ccw = !!this.keyState.rotateCCW
+        if (cw === ccw) return 0
+        return cw ? 1 : -1
+    },
+
+    // mino が今の位置で盤面と重ならないか（this.mino でなくてもよい。範囲は valid と同じ）
+    _minoFits(mino) {
+        const blocks = mino.blocks
+        const field = this.field
+        for (let i = 0; i < blocks.length; i++) {
+            const x = blocks[i].x + mino.x
+            const y = blocks[i].y + mino.y
+            if (x < 0 || x >= COLS_COUNT) return false
+            if (y < -5 || y >= ROWS_COUNT) return false
+            if (field.has(x, y)) return false
+        }
+        return true
+    },
+
+    // mino を出現位置に置く。重なるなら 1 段上。どちらもだめなら false。
+    //   rotDir=0  向き 0。だめなときは今までどおり 1 段上の位置のまま返す（終了時の絵に使う）
+    //   rotDir≠0  キックなしで 1 回まわし、一番下の段が 20 段目（y=0）に来る高さにそろえる。
+    //             だめなときは向き 0 に戻して返す
+    _placeAtSpawn(mino, rotDir) {
+        mino.spawn()
+        if (rotDir) {
+            if (rotDir === 1) mino.rotate()
+            else mino.rotateCCW()
+            mino.rotation = rotDir === 1 ? 1 : 3
+            let bottom = -Infinity
+            for (let i = 0; i < mino.blocks.length; i++) {
+                if (mino.blocks[i].y > bottom) bottom = mino.blocks[i].y
+            }
+            mino.y = -bottom
+        }
+        if (this._minoFits(mino)) return true
+        mino.y -= 1
+        if (this._minoFits(mino)) return true
+        if (rotDir) {
+            mino.initBlocks()
+            mino.spawn()
+        }
+        return false
+    },
+
+    // 判定だけ（盤面・ホールド・NEXT は変えない）: type のミノが rotDir の向きで出せるか
+    _canSpawnWith(type, rotDir) {
+        return this._placeAtSpawn(new Mino(type), rotDir)
+    },
+
+    // ミノを出す。出せたら true、出せなければ false（GAME OVER などの後始末は呼び出し側）。
+    //   opts.allowIhs  先行ホールドを当ててよい出現か（プレイヤーのホールドで出るミノは false）
+    // 先行ホールドが効いたかは this._spawnIhsUsed に残す。
+    // PRACTICE の巻き戻しなど「ふつうに進んだのではない出現」は _noSpawnAssist を立てて呼ぶ（どちらも当てない）。
+    _spawnMino(mino, opts) {
+        const assist = !this._noSpawnAssist
+        this._spawnIhsUsed = false
+
+        // 先行ホールド: 押していれば必ずやる（その結果出せなくなっても戻さない）
+        if (assist && opts && opts.allowIhs && !this._spawnNoIhs && this._ihsOn
+            && this.keyState && this.keyState.hold && this._holdAllowed()) {
+            let out = null
+            if (this.holdMino) {
+                out = new Mino(this.holdMino.type)
+            } else {
+                const next = this.nextQueue[0]
+                if (next && !next._quizDummy) {
+                    out = this.nextQueue.shift()
+                    this._refillNext()
+                }
+            }
+            if (out) {
+                this.holdMino = new Mino(mino.type)
+                mino = out
+                this._spawnIhsUsed = true
+                this.playSe('hold')
+            }
+        }
+
+        this.mino = mino
+
+        // 先行回転: 回した向きを先に試し、だめなら向き 0
+        const dir = assist ? this._irsDir() : 0
+        if (dir && this._placeAtSpawn(mino, dir)) {
+            // T-Spin の「直前が回転」には数えない
+            this.lastActionWasRotation = false
+            this.lastRotUsedPoint5 = false
+            // このキーの「押した瞬間」は使い切った扱い（離して押し直すまで回らない）
+            if (dir === 1) this._rotCWPressed = true
+            else this._rotCCWPressed = true
+            this.playSe('rotate')
+            return true
+        }
+        return this._placeAtSpawn(mino, 0)
+    },
+
+    // IHS で助かるときの入力猶予（設計 §3.2・独自ルール）。待つと決めたら予約して true を返す。
+    //   待つのは: IHS が ON・ホールドが使える・いま押しているキーのままだと出せない・
+    //             IHS で出てくるミノなら（向き 0、IRS が ON なら左右の回転でも）出せる、のとき。
+    //   回転だけで助かる場合は待たない。待ち明けは popMino をもう一度呼ぶ（1 回の出現で待つのは 1 回）。
+    _ihsRescueWait() {
+        if (!this._ihsOn || this._noSpawnAssist || this._spawnNoIhs || this._ihsRescueResume) return false
+        if (!this.keyState || !this._holdAllowed()) return false
+        const cur = this.nextQueue[0]
+        if (!cur || cur._quizDummy) return false
+        // IHS で出てくるミノ（ホールドにあるミノ。空なら NEXT の次）
+        let outType = null
+        if (this.holdMino) {
+            outType = this.holdMino.type
+        } else {
+            const next = this.nextQueue[1]
+            if (next && !next._quizDummy) outType = next.type
+        }
+        if (outType === null) return false
+
+        // いま押しているキーのままで出せるなら待たない
+        const dir = this._irsDir()
+        const typeNow = this.keyState.hold ? outType : cur.type
+        if ((dir && this._canSpawnWith(typeNow, dir)) || this._canSpawnWith(typeNow, 0)) return false
+
+        // IHS（＋IRS）なら出せるか
+        const rescued = this._canSpawnWith(outType, 0)
+            || (this._irsOn && (this._canSpawnWith(outType, 1) || this._canSpawnWith(outType, -1)))
+        if (!rescued) return false
+
+        // 待つ: その間ミノはいない（重力・固定は動かない。TIME やおじゃまの猶予は止めない）
+        this._cancelLockTimer()
+        if (this.timer) { clearInterval(this.timer); this.timer = null }
+        this.mino = null
+        this.isGrounded = false
+        // ゲーム時計の予約（固定猶予と同じ。ポーズ中は時計が止まるので進まない）
+        this._ihsRescueTimer = this.clock.schedule(IHS_RESCUE_DELAY_MS, () => {
+            this._ihsRescueTimer = null
+            if (this.mino) return
+            // その時点のキーで出現をやり直す。外側のフック（PRACTICE・QUIZ・ONLINE）は
+            // _ihsRescueResume を見て、出現前の処理を二重にしない
+            this._ihsRescueResume = true
+            try { this.popMino() } finally { this._ihsRescueResume = false }
+            this.requestRedraw()
+        })
+        this.requestRedraw()
+        return true
+    },
+
     // ホールド
     holdCurrentMino() {
         // PRACTICE設定パネル：HOLDがFREEのときは1手1回の制約を外す
@@ -116,23 +278,21 @@ Object.assign(Game.prototype, {
 
         if (this.holdMino === null) {
             this.holdMino = new Mino(this.mino.type)
-            this.popMino()
+            // いまホールドしたところなので、出てくるミノに先行ホールドは当てない（先行回転は当たる）
+            this._spawnNoIhs = true
+            try { this.popMino() } finally { this._spawnNoIhs = false }
             this.canHold = false
         } else {
             let prevHoldType = this.holdMino.type
             this.holdMino = new Mino(this.mino.type)
-            this.mino = new Mino(prevHoldType)
-            this.mino.spawn()
 
             /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             ホールドから出した時の致命判定とタイマーリセット
+            （出現位置 → 1 段上。先行回転が ON なら回した向きを先に試す）
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-            if (!this.valid(0, 0)) {
-                this.mino.y -= 1; // 1列上で再試行
-                if (!this.valid(0, 0)) {
-                    this.gameOver();
-                    return;
-                }
+            if (!this._spawnMino(new Mino(prevHoldType), { allowIhs: false })) {
+                this.gameOver();
+                return;
             }
 
             // 状態・タイマー・カウントの初期化（popMinoと同じにする）

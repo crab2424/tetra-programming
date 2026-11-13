@@ -130,7 +130,9 @@ const BoardSwap = (() => {
       g.startGravity();
     } else {
       // ミノ未出現の一瞬（固定〜次の出現の間）で入れ替えた場合だけNEXTから出す
-      g.popMino();
+      // （入れ替えの出し直しなので、先行回転・先行ホールドは当てない）
+      g._noSpawnAssist = true;
+      try { g.popMino(); } finally { g._noSpawnAssist = false; }
       if (g.isFinishing) return;
     }
 

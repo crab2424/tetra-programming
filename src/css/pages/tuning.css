@@ -36,6 +36,19 @@
   color: var(--accent3);
 }
 
+/* ON/OFF の行（IRS・IHS）。ラベルとボタンの下に説明を 1 行 */
+.tuning-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tuning-option-desc {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
 input[type="range"] {
   width: 100%;
   background: transparent;

@@ -60,7 +60,7 @@ Object.assign(Game.prototype, {
     // ─────────────────────────────────────────
     setKeyEvent() {
         // CPU制御モードの場合はキーイベントを一切設定しない（前に人が使ったときのポーリングも外す）
-        if (this.isCpuControlled) { this._pollInput = null; this.keyState = {}; return; }
+        if (this.isCpuControlled) { this._pollInput = null; this.keyState = {}; this._irsOn = false; this._ihsOn = false; return; }
 
         // 押されているキーを管理
         // keyState はアクション名で管理（1アクションに複数キーを割り当てられるため）。
@@ -84,6 +84,10 @@ Object.assign(Game.prototype, {
         this.DAS_DELAY = tuning.das * frameMs;
         this.ARR_INTERVAL = tuning.arr * frameMs;
         this.DCD_DELAY = tuning.dcd * frameMs;
+        // 先行回転・先行ホールド（設計 tetlabo-irs-ihs-design.md §4・§6）。
+        // true のときだけ ON と読む（既定値で埋めない）。古い録画の tuning には無いので OFF のまま再生される
+        this._irsOn = tuning.irs === true;
+        this._ihsOn = tuning.ihs === true;
 
         // ソフトドロップ用ARR
         const currentLevelSpeed = LEVEL_SPEEDS[this.level] || 7;
@@ -619,6 +623,8 @@ Object.assign(Game.prototype, {
         // 単発系（ハードドロップ・ホールド）はその場で実行、継続系は keyState に反映して
         // キーボードと同じ _pollInput のロジック（DAS・ソフトドロップ・回転）を使う。
         const applyPadDown = (action, now) => {
+            // ホールドは「押している間」も持つ（先行ホールドが出現の瞬間に見る）
+            if (action === 'hold') this.keyState.hold = true
             if (action === 'hardDrop' || action === 'hold') {
                 if (this.isCountingDown || !this.mino) return
                 if (action === 'hardDrop') this.hardDrop()
@@ -656,6 +662,7 @@ Object.assign(Game.prototype, {
 
         // ゲームパッドを離した瞬間の処理（キーアップ相当）
         const applyPadUp = (action) => {
+            if (action === 'hold') this.keyState.hold = false
             if (action === 'hardDrop' || action === 'hold') return
             if (!this.keyState[action]) return
             this.keyState[action] = false

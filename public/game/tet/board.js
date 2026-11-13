@@ -4,6 +4,9 @@
 // ※ core.js（class Game 定義）より後に読み込むこと
 // ─────────────────────────────────────────────
 
+// IHS で助かるときだけ出現を待つ長さ（設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §3.2。仮）
+const IHS_RESCUE_DELAY_MS = 100;
+
 Object.assign(Game.prototype, {
 
     // ─── 乱数（設計: source_assets/memory/record/tetlabo-record-design.md §4.1 D3）───
@@ -48,23 +51,25 @@ Object.assign(Game.prototype, {
         }
     },
 
+    // NEXT の末尾に 1 本足す（QUIZ は問題のミノ列から足すので差し替える。quiz/quiz.js）
+    _refillNext() {
+        this.nextQueue.push(new Mino(this.getNextType()));
+    },
+
     // 新しいミノを出す
     popMino() {
-        this.mino = this.nextQueue.shift();
-        this.mino.spawn();
+        // IHS で助かるときだけ、少し待ってから出す（待ち明けにもう一度ここへ来る）
+        if (this._ihsRescueWait()) return;
 
-        // 出現位置での致命判定
-        if (!this.valid(0, 0)) {
-            // -3 などの固定値ではなく、現在の位置から1引く
-            this.mino.y -= 1;
-            if (!this.valid(0, 0)) {
-                this.gameOver();
-                return;
-            }
+        // 出現位置での致命判定は _spawnMino の中（先行ホールド・先行回転を当てた後。rotation.js）
+        if (!this._spawnMino(this.nextQueue.shift(), { allowIhs: true })) {
+            this.gameOver();
+            return;
         }
 
-        this.nextQueue.push(new Mino(this.getNextType()));
-        this.canHold = true
+        this._refillNext();
+        // 先行ホールドで出たミノは、ふつうのホールドと同じくもうホールドできない
+        this.canHold = !this._spawnIhsUsed
 
         // 状態・タイマー・カウントの初期化
         this.isGrounded = false;
@@ -475,10 +480,16 @@ Object.assign(Game.prototype, {
     },
 
     // 固定猶予の予約を取り消す（外から止めるときもこれを使う。lockTimer は setTimeout の ID ではない）
+    // 出現待ち（IHS で助かるときの待ち）の予約も一緒に取り消す。待っている間はミノがいないので、
+    // ここへ来るのは終了・リスタート・巻き戻し・盤面入れ替えなど「出現をやり直す」ときだけ
     _cancelLockTimer() {
         if (this.lockTimer) {
             this.clock.cancel(this.lockTimer);
             this.lockTimer = null;
+        }
+        if (this._ihsRescueTimer) {
+            this.clock.cancel(this._ihsRescueTimer);
+            this._ihsRescueTimer = null;
         }
     },
 

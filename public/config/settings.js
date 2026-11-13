@@ -49,12 +49,15 @@ const ACTION_LABELS = {
 
 /**
  * デフォルトチューニング設定
- * @type {{das: number, arr: number, dcd: number}}
+ * irs / ihs: 先行回転・先行ホールド（既定 OFF。設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §4）
+ * @type {{das: number, arr: number, dcd: number, irs: boolean, ihs: boolean}}
  */
 const DEFAULT_TUNING = {
   das: 9.0,
   arr: 1.6,
-  dcd: 3.0
+  dcd: 3.0,
+  irs: false,
+  ihs: false
 };
 
 // ─── デフォルト音量設定 ───────────────────────
@@ -400,6 +403,24 @@ function renderTuning() {
   document.getElementById('slider-arr').value = currentTuning.arr;
   document.getElementById('slider-dcd').value = currentTuning.dcd;
   updateTuningDisplay();
+  renderTuningOptions();
+}
+
+// IRS・IHS の ON/OFF（DAS などと同じく SAVE で保存する）
+function renderTuningOptions() {
+  for (const key of ['irs', 'ihs']) {
+    const toggle = document.getElementById(`tuning-${key}-toggle`);
+    if (!toggle) continue;
+    const on = currentTuning[key] === true;
+    toggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn.dataset.value === 'on') === on);
+    });
+  }
+}
+
+function setTuningOption(key, value) {
+  currentTuning[key] = !!value;
+  renderTuningOptions();
 }
 
 function renderVolume() {
@@ -707,7 +728,7 @@ function renderSettingsTabs() {
 const SETTINGS_RESET_TABS = {
   tuning: {
     name: 'VOLUME & TUNING',
-    hint: '音量・DAS/ARR/DCD',
+    hint: '音量・DAS/ARR/DCD・IRS/IHS',
     reset() {
       currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
       currentVolume = JSON.parse(JSON.stringify(DEFAULT_VOLUME));

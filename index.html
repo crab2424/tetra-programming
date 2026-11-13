@@ -1448,6 +1448,27 @@
               <span>0f</span><span>5f</span><span>10f</span>
             </div>
           </div>
+          <!-- 先行回転・先行ホールド（設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §4。DAS などと同じく SAVE で保存） -->
+          <div class="tuning-option">
+            <div class="option-row">
+              <span class="option-label">IRS</span>
+              <div class="option-toggle" id="tuning-irs-toggle">
+                <button class="opt-btn" data-value="on" onclick="setTuningOption('irs', true)">ON</button>
+                <button class="opt-btn" data-value="off" onclick="setTuningOption('irs', false)">OFF</button>
+              </div>
+            </div>
+            <p class="tuning-option-desc">ミノが出る瞬間に回転キーを押していると、回った状態で出ます。キーを押したまま置くと次のミノにも効きます。</p>
+          </div>
+          <div class="tuning-option">
+            <div class="option-row">
+              <span class="option-label">IHS</span>
+              <div class="option-toggle" id="tuning-ihs-toggle">
+                <button class="opt-btn" data-value="on" onclick="setTuningOption('ihs', true)">ON</button>
+                <button class="opt-btn" data-value="off" onclick="setTuningOption('ihs', false)">OFF</button>
+              </div>
+            </div>
+            <p class="tuning-option-desc">ミノが出る瞬間にホールドキーを押していると、ホールドしてから出ます。キーを押したまま置くと次のミノにも効きます。</p>
+          </div>
         </div>
       </div>
 
@@ -1570,7 +1591,7 @@
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=8"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=14"></script>
+  <script src="config/settings.js?v=15"></script>
   <script src="config/records.js?v=4"></script>
   <script src="config/account.js?v=6"></script>
   <script src="core/hud_extras.js?v=4"></script>
@@ -1579,12 +1600,12 @@
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
   <script src="game/tet/lifecycle.js?v=14"></script>
-  <script src="game/tet/board.js?v=13"></script>
-  <script src="game/tet/rotation.js?v=4"></script>
+  <script src="game/tet/board.js?v=14"></script>
+  <script src="game/tet/rotation.js?v=5"></script>
   <script src="game/tet/scoring.js?v=3"></script>
   <script src="game/tet/garbage.js?v=6"></script>
   <script src="game/tet/render.js?v=10"></script>
-  <script src="game/tet/input.js?v=11"></script>
+  <script src="game/tet/input.js?v=12"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1594,7 +1615,7 @@
   <script src="game/puyo/engine.js?v=19"></script>
   <script src="game/puyo/input.js?v=12"></script>
   <script src="game/puyo/draw.js?v=11"></script>
-  <script src="quiz/quiz.js?v=10"></script>
+  <script src="quiz/quiz.js?v=11"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
   <script src="app/modes.js?v=25"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
@@ -1607,12 +1628,12 @@
   <script src="app/replays.js?v=7"></script>
   <script src="app/focus_nav.js?v=25"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
-  <script src="app/board_swap.js?v=7"></script>
+  <script src="app/board_swap.js?v=8"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=4"></script>
   <script src="practice/practice_sequence.js?v=7"></script>
   <script src="practice/practice_panel.js?v=22"></script>
-  <script src="practice/practice.js?v=36"></script>
+  <script src="practice/practice.js?v=37"></script>
   <!-- アシスト（盤面ガイド）。PRACTICE / VERSUS から Assist.attach で呼ばれる -->
   <script src="assist/assist.js?v=6"></script>
   <script src="assist/assist_overlay.js?v=3"></script>

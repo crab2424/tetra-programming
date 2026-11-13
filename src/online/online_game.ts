@@ -1359,6 +1359,8 @@ export class OnlineGameController {
     };
 
     // holdCurrentMino: disabled if holdEnabled=false, otherwise send Spawn after swap
+    // （holdDisabled は先行ホールド用。tet/rotation.js _holdAllowed）
+    game.holdDisabled = !matchSetting.holdEnabled;
     if (!matchSetting.holdEnabled) {
       game.holdCurrentMino = () => {};
     } else {
