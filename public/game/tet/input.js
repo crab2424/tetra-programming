@@ -108,6 +108,7 @@ Object.assign(Game.prototype, {
         this._dcdUntil = 0;
         this._dcdDir = null;
         this._dcdMino = undefined;     // 新ミノ出現の検知用（undefined=未観測。ゲーム開始時の初手はDCD対象外）
+        this._spawnDefer = null;       // 出現の DCD（先行回転・先行ホールドの待ち。rotation.js _spawnMino）
         this._dasBlockedLeft = false;  // DASが溜まった状態で左に動けず止まっているか
         this._dasBlockedRight = false;
         this._dasBlockSnapLeft = null; // 止まった時点のミノの x/rotation（動けるようになった原因の判定用）
@@ -388,6 +389,38 @@ Object.assign(Game.prototype, {
                     const pressTime = dir === 'left' ? this._leftPressTime : this._rightPressTime
                     if (pressTime !== null && now - pressTime >= this.DAS_DELAY) {
                         this._startDcd(dir, now)
+                    }
+                }
+            }
+
+            // ─── 出現の DCD（先行回転・先行ホールド。設計 tetlabo-irs-ihs-design.md §11） ───
+            // 出た瞬間に押しっぱなしだった回転・ホールドは、DCD_DELAY のあいだ押し続けていれば
+            // ふつうの回転・ホールドとして行う。途中で離したら取り消す（予約は _spawnMino が作る）
+            const sd = this._spawnDefer
+            if (sd) {
+                if (sd.mino !== this.mino) {
+                    this._spawnDefer = null
+                } else {
+                    if (sd.until === null) sd.until = now + this.DCD_DELAY
+                    const cw = !!this.keyState.rotateCW
+                    const ccw = !!this.keyState.rotateCCW
+                    if ((sd.rot === 1 && !cw) || (sd.rot === -1 && !ccw) || (cw && ccw)) sd.rot = 0
+                    if (sd.hold && !this.keyState.hold) sd.hold = false
+                    if (!sd.rot && !sd.hold) {
+                        this._spawnDefer = null
+                    } else if (now >= sd.until) {
+                        this._spawnDefer = null
+                        if (sd.hold && this._holdAllowed()) {
+                            // ホールドで出てくるミノには、回転キーを押していれば先行回転をすぐ当てる
+                            const before = this.mino
+                            this._spawnAssistNow = true
+                            try { this.holdCurrentMino() } finally { this._spawnAssistNow = false }
+                            if (this.mino !== before) { this.requestRedraw(); return }
+                        }
+                        if (sd.rot && this.tryRotate(sd.rot)) {
+                            this.updateLowestY()
+                            acted = true
+                        }
                     }
                 }
             }

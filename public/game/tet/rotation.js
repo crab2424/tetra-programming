@@ -177,6 +177,27 @@ Object.assign(Game.prototype, {
     _spawnMino(mino, opts) {
         const assist = !this._noSpawnAssist
         this._spawnIhsUsed = false
+        this._spawnDefer = null
+
+        // 出現の DCD（設計 §11）: 向き 0 のままで出せるとき（＝致命でないとき）は、押しっぱなしの
+        // 回転・ホールドをすぐには当てず、DCD_DELAY のあいだ待ってから「ふつうの回転・ホールド」として行う
+        // （_pollInput。横移動の DCD ①と同じ）。前のミノを置いたときのキーの残りによる暴発を防ぐ。
+        // すぐ当てるのは: 出せない（致命）とき・DCD が 0・開始の最初のミノ（横の DCD と同じく対象外）・
+        // 出現の DCD 明けのホールドで出てくるミノ（_spawnAssistNow）
+        if (assist && !this._spawnAssistNow && this.DCD_DELAY > 0 && this._dcdMino !== undefined
+            && this._canSpawnWith(mino.type, 0)) {
+            const hold = !!(opts && opts.allowIhs && !this._spawnNoIhs && this._ihsOn
+                && this.keyState && this.keyState.hold && this._holdAllowed())
+            const rot = this._irsDir()
+            if (hold || rot) {
+                this._spawnDefer = { mino, hold, rot, until: null }
+                // 出た瞬間には回さない（離して押し直せばふつうに回る）
+                if (rot === 1) this._rotCWPressed = true
+                else if (rot === -1) this._rotCCWPressed = true
+            }
+            this.mino = mino
+            return this._placeAtSpawn(mino, 0)
+        }
 
         // 先行ホールド: 押していれば必ずやる（その結果出せなくなっても戻さない）
         if (assist && opts && opts.allowIhs && !this._spawnNoIhs && this._ihsOn

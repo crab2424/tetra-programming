@@ -1491,7 +1491,7 @@
                 <button class="opt-btn" data-value="off" onclick="setTuningOption('irs', false)">OFF</button>
               </div>
             </div>
-            <p class="tuning-option-desc">ミノが出る瞬間に回転キーを押していると、回った状態で出ます。キーを押したまま置くと次のミノにも効きます。</p>
+            <p class="tuning-option-desc">ミノが出る瞬間に回転キーを押していると、回った状態で出ます。ふだんは DCD のあいだ押し続けたときだけ回ります（出せないときはすぐ回ります）。</p>
           </div>
           <div class="tuning-option">
             <div class="option-row">
@@ -1501,7 +1501,7 @@
                 <button class="opt-btn" data-value="off" onclick="setTuningOption('ihs', false)">OFF</button>
               </div>
             </div>
-            <p class="tuning-option-desc">ミノが出る瞬間にホールドキーを押していると、ホールドしてから出ます。キーを押したまま置くと次のミノにも効きます。</p>
+            <p class="tuning-option-desc">ミノが出る瞬間にホールドキーを押していると、ホールドしてから出ます。ふだんは DCD のあいだ押し続けたときだけホールドします（出せないときはすぐホールドします）。</p>
           </div>
         </div>
       </div>
@@ -1635,12 +1635,12 @@
   <script src="game/tet/core.js?v=4"></script>
   <script src="game/tet/lifecycle.js?v=15"></script>
   <script src="game/tet/board.js?v=15"></script>
-  <script src="game/tet/rotation.js?v=6"></script>
+  <script src="game/tet/rotation.js?v=7"></script>
   <script src="game/tet/scoring.js?v=4"></script>
   <script src="game/tet/zone.js?v=1"></script>
   <script src="game/tet/garbage.js?v=6"></script>
   <script src="game/tet/render.js?v=11"></script>
-  <script src="game/tet/input.js?v=13"></script>
+  <script src="game/tet/input.js?v=14"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
