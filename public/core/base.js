@@ -183,6 +183,17 @@ window.onload = function () {
             }
         });
 
+        // 古くなった AudioContext の定期的な作り直しは、ユーザー操作の中でだけ行う。
+        // Safari はユーザー操作の外で作った AudioContext を suspended のまま始め、次の操作まで
+        // resume できない。SE 再生（CPU の手など操作の無い所）で作り直すと、CPU 連戦では
+        // 10 分ごとに SE が止まり、次の操作で溜まった分が一斉に鳴っていた。
+        const onUserGestureForAudio = () => {
+            if (window.AudioLoader) AudioLoader.refreshIfOld();
+        };
+        document.addEventListener('keydown', onUserGestureForAudio, true);
+        document.addEventListener('pointerdown', onUserGestureForAudio, true);
+        document.addEventListener('touchstart', onUserGestureForAudio, true);
+
         // ★ ぷよ画像を起動時に先読み（tetブロック画像と同じく即時キャッシュ化）。
         //   初回 startPuyoGame() 時の画像ロード待ち（約200ms）を解消する。
         //   総容量は約250KB程度で、ゲーム開始前のこの時点なら体感に影響しない。
@@ -719,7 +730,10 @@ class AudioLoader {
     static _maxContextAgeMs = 10 * 60 * 1000;
 
     static get context() {
-        if (!this._ctx) this._ctx = this._createContext();
+        if (!this._ctx) {
+            this._ctx = this._createContext();
+            this._ctxCreatedAt = performance.now();
+        }
         return this._ctx;
     }
 
@@ -730,7 +744,6 @@ class AudioLoader {
     // resume して復帰させる（バックグラウンド中の復帰は visibilitychange 側に委譲）。
     static _createContext() {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        this._ctxCreatedAt = performance.now();
         ctx.addEventListener('statechange', () => {
             if (ctx !== this._ctx) return;      // 作り直し後の旧コンテキストのイベントは無視
             if (ctx.state !== 'running' && document.visibilityState === 'visible') {
@@ -924,23 +937,62 @@ class AudioLoader {
     // BGMはHTMLAudio経由でこのコンテキストを通らないため影響を受けない＝SEのみが対象。
     // SEバッファ（decodeAudioData済みAudioBuffer）は現行ブラウザではコンテキスト間で
     // 再利用可能なため、_seBuffers は作り直さずそのまま使える。
+    //
+    // ★ 新しいコンテキストは running になってから差し替える。Safari はユーザー操作の外で
+    //   作ったコンテキストを suspended のまま始めるため、すぐ差し替えると次の操作まで SE が
+    //   止まり、その間の start(0) が溜まって一斉に鳴る。running にならなければ新しい方を
+    //   閉じて古い方を使い続ける（ユーザー操作の中で作り直せば Safari でも running になる）。
+    static _recreating = null;      // running 待ちの新しいコンテキスト（多重作成防止）
+    static _recreateWaitMs = 1000;
     static recreateContext() {
         const old = this._ctx;
-        if (!old) return;
-        // 新しいコンテキストへ差し替え（以後の play() は新コンテキストで鳴る）
-        this._ctx = this._createContext();
-        // keepAlive は古いコンテキストに紐づくので新コンテキストで張り直す
-        this._keepAlive = null;
-        this._lastHealthCheckAt = performance.now();
-        this.startKeepAlive();
-        this._ctx.resume().catch(() => {});
-        // 古いコンテキストは閉じて、溜まった出力レイテンシごとリソースを解放
-        old.close().catch(() => {});
+        if (!old || this._recreating) return;
+        const fresh = this._createContext();
+        let settled = false;
+        const commit = () => {
+            if (settled) return;
+            settled = true;
+            this._recreating = null;
+            if (this._ctx !== old) { fresh.close().catch(() => {}); return; }
+            // 新しいコンテキストへ差し替え（以後の play() は新コンテキストで鳴る）
+            this._ctx = fresh;
+            this._ctxCreatedAt = performance.now();
+            // keepAlive は古いコンテキストに紐づくので新コンテキストで張り直す
+            this._keepAlive = null;
+            this._lastHealthCheckAt = performance.now();
+            this.startKeepAlive();
+            // 古いコンテキストは閉じて、溜まった出力レイテンシごとリソースを解放
+            old.close().catch(() => {});
+        };
+        const abandon = () => {
+            if (settled) return;
+            settled = true;
+            this._recreating = null;
+            fresh.close().catch(() => {});
+        };
+        if (fresh.state === 'running') { commit(); return; }
+        this._recreating = fresh;
+        fresh.resume().then(
+            () => { if (fresh.state === 'running') commit(); else abandon(); },
+            abandon,
+        );
+        setTimeout(abandon, this._recreateWaitMs);
+    }
+
+    // 開きっぱなしで古くなったコンテキストを作り直す（outputLatency が未対応/不正確な
+    // ブラウザでも蓄積ズレを定期的に逃がす）。ユーザー操作（keydown/pointerdown）の中で呼ぶ。
+    static refreshIfOld() {
+        if (!this._ctx || this._recreating) return;
+        if (document.visibilityState !== 'visible') return;
+        if (this._ctxCreatedAt > 0 && performance.now() - this._ctxCreatedAt > this._maxContextAgeMs) {
+            this.recreateContext();
+        }
     }
 
     // フォアグラウンド復帰時やSE再生時に呼ぶ。出力レイテンシが異常に膨らんでいれば
     // コンテキストを作り直し、単に中断していただけなら resume で済ませる。
     // SE再生時は頻繁に呼ばれるため、force=false では軽量な間引きチェックにする。
+    // 経過時間による作り直しはここでは行わない（refreshIfOld＝ユーザー操作の中だけ）。
     static recoverIfDegraded(force = false) {
         const ctx = this._ctx;
         if (!ctx) return;                       // 未解錠（コンテキスト未生成）なら何もしない
@@ -949,12 +1001,8 @@ class AudioLoader {
         this._lastHealthCheckAt = now;
 
         const latencyBad = typeof ctx.outputLatency === 'number' && ctx.outputLatency > 0.05;
-        // outputLatency が未対応/不正確なブラウザでも、開きっぱなしでの蓄積ズレを定期的に逃がす。
-        const ageBad = document.visibilityState === 'visible'
-            && this._ctxCreatedAt > 0
-            && now - this._ctxCreatedAt > this._maxContextAgeMs;
 
-        if (latencyBad || ageBad) {
+        if (latencyBad) {
             this.recreateContext();             // ①: 蓄積した出力レイテンシを作り直しで解消
         } else if (ctx.state !== 'running') {
             ctx.resume().catch(() => {});       // 中断していただけなら resume で十分
@@ -1292,18 +1340,32 @@ class SeManager {
 
         AudioLoader.recoverIfDegraded();
         const ctx    = AudioLoader.context;
-        // ②対策（取りこぼし防止）：中断（suspended/interrupted）状態のまま start(0) すると
-        // この音が鳴らない。再生のたびに running 以外なら resume を試みて復帰させる。
-        if (ctx.state !== 'running') ctx.resume().catch(() => {});
-        const source = ctx.createBufferSource();
-        const gain   = ctx.createGain();
-        gain.gain.value = this._volume * (this._gain[key] ?? 1);
+        this._whenRunning(ctx, () => {
+            const source = ctx.createBufferSource();
+            const gain   = ctx.createGain();
+            gain.gain.value = this._volume * (this._gain[key] ?? 1);
 
-        source.buffer = buf;
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        source.start(0);
-        // 再生終了後は自動でGCされるため明示的な破棄は不要
+            source.buffer = buf;
+            source.connect(gain);
+            gain.connect(ctx.destination);
+            source.start(0);
+            // 再生終了後は自動でGCされるため明示的な破棄は不要
+        });
+    }
+
+    // ②対策（取りこぼし防止）＋溜め鳴り防止：
+    // 中断（suspended/interrupted）状態のコンテキストで start(0) すると、止まっている間の音が
+    // 溜まり、再開した瞬間に一斉に鳴る。running 以外なら resume を試み、すぐ（_resumeGraceMs 以内に）
+    // 再開できたときだけ鳴らす（初回操作の解錠直後の音は落とさない）。長く止まっていた間の音は捨てる。
+    static _resumeGraceMs = 150;
+    static _whenRunning(ctx, startFn) {
+        if (ctx.state === 'running') { startFn(); return; }
+        const t0 = performance.now();
+        ctx.resume().then(() => {
+            if (ctx !== AudioLoader._ctx || ctx.state !== 'running') return;
+            if (performance.now() - t0 > this._resumeGraceMs) return;
+            startFn();
+        }).catch(() => {});
     }
 
     // gainMultiplier を掛けて再生（相手のSE等を小音量で鳴らす用途）
@@ -1313,14 +1375,15 @@ class SeManager {
         if (!buf) return;
         AudioLoader.recoverIfDegraded();
         const ctx = AudioLoader.context;
-        if (ctx.state !== 'running') ctx.resume().catch(() => {});
-        const source = ctx.createBufferSource();
-        const gain = ctx.createGain();
-        gain.gain.value = this._volume * (this._gain[key] ?? 1) * gainMultiplier;
-        source.buffer = buf;
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        source.start(0);
+        this._whenRunning(ctx, () => {
+            const source = ctx.createBufferSource();
+            const gain = ctx.createGain();
+            gain.gain.value = this._volume * (this._gain[key] ?? 1) * gainMultiplier;
+            source.buffer = buf;
+            source.connect(gain);
+            gain.connect(ctx.destination);
+            source.start(0);
+        });
     }
 
     // 高頻度に鳴り得るSE（カーソル移動・ホバー）用。
@@ -1339,19 +1402,20 @@ class SeManager {
 
         AudioLoader.recoverIfDegraded();
         const ctx = AudioLoader.context;
-        if (ctx.state !== 'running') ctx.resume().catch(() => {});
-        if (st.source) {
-            try { st.source.stop(); } catch (e) { /* 再生終了済み */ }
-        }
-        const source = ctx.createBufferSource();
-        const gain = ctx.createGain();
-        gain.gain.value = this._volume * (this._gain[key] ?? 1);
-        source.buffer = buf;
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        source.onended = () => { if (st.source === source) st.source = null; };
-        source.start(0);
-        st.source = source;
+        this._whenRunning(ctx, () => {
+            if (st.source) {
+                try { st.source.stop(); } catch (e) { /* 再生終了済み */ }
+            }
+            const source = ctx.createBufferSource();
+            const gain = ctx.createGain();
+            gain.gain.value = this._volume * (this._gain[key] ?? 1);
+            source.buffer = buf;
+            source.connect(gain);
+            gain.connect(ctx.destination);
+            source.onended = () => { if (st.source === source) st.source = null; };
+            source.start(0);
+            st.source = source;
+        });
     }
 
     static setVolume(v) { this._volume = Math.max(0, Math.min(1, v)); }
