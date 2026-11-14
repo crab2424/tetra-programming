@@ -39,7 +39,7 @@ const BoardSwap = (() => {
     // ZONE（盤面の ZONE 段は field ごと移る。メーター・発動中の状態も盤面側の情報として持っていく。
     // zoneLinesTotal / zoneBest / zoneCount は HUD 側なので据え置き）
     'zoneMeter', 'zoneActive', 'zoneLines', 'zoneCharge', 'zoneTimeUp', 'zoneStartAt', 'zoneDurationMs',
-    'zoneScorePool', '_zoneB2bBefore', '_zoneLastLockAt',
+    'zoneScorePool', '_zoneB2bBefore', 'zoneAtkPool', 'zoneCarry',
   ];
 
   // puyo（PuyoGame）。score/chainMax/clearedPuyos/attackSent は据え置き。

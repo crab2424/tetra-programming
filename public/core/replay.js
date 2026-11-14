@@ -23,7 +23,7 @@
 // ─────────────────────────────────────────────
 
 const REPLAY_FORMAT_VERSION = 2;   // ファイルの形の版（§6.2）。2: 盤面 2 枚・CPU の手・キー設定の読み直し
-const REPLAY_ENGINE_VERSION = 3;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）
+const REPLAY_ENGINE_VERSION = 4;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）。4: VERSUS の ZONE の火力（発動中の通常火力を足す・マージン倍率・メーターの持ち越し・CPU の発動中の速さ）
 
 // 入力の列の種類。1 バイト目＝種類 << 1 | side
 //   キー 0〜3（bit0 押す・bit1 長押しの繰り返し）＋コードの番号、tet のパッド 4〜5（bit0 押す）＋アクションの番号
@@ -228,6 +228,9 @@ function replayTetHash(g, t0) {
         H.w(g.zoneLines);
         H.w(g.zoneScorePool);
         H.w(g.zoneLinesTotal);
+        // VERSUS だけの状態（シングルは常に 0。0 のときは足さない＝シングルの古い録画のハッシュを変えない）
+        const zv = (g.zoneAtkPool || 0) * 64 + (g.zoneCarry || 0);
+        if (zv) H.w(zv);
         let nz = 0;
         for (let i = 0; i < bs.length; i++) if (bs[i].zone) nz++;
         H.w(nz);

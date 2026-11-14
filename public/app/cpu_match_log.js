@@ -75,7 +75,7 @@ window.CpuMatchLog = (() => {
             maxRen: 0, maxSpike: 0, spikeRun: 0, garbageTaken: 0, lastGarbageAt: null,
             garbageLog: [],   // [時刻, 段数]（死ぬ直前の判定用）
             zones: 0, zoneLinesMax: 0, zoneAttack: 0,
-            zoneLog: [],      // ZONE 1 回ごと { q: 発動時の 1/4 の数, h: 発動した時点の高さ, lines, attack }
+            zoneLog: [],      // ZONE 1 回ごと { q: 発動時の 1/4 の数, h: 発動した時点の高さ, lines, attack: 出した火力の合計, normal: うち発動中の通常火力（補正前） }
         };
     }
 
@@ -98,7 +98,7 @@ window.CpuMatchLog = (() => {
     }
 
     // ZONE の発動・終了（game/tet/zone.js から。VERSUS の ZONE が ON のときだけ来る）
-    function zone(game, phase, charge, lines, attack) {
+    function zone(game, phase, charge, lines, attack, normal) {
         const s = sideOf(game);
         if (!s || !s.tet) return;
         const t = s.tet;
@@ -107,7 +107,7 @@ window.CpuMatchLog = (() => {
             t.zoneLog.push({ q: charge, h: stackHeight(game), lines: null, attack: null });
         } else {
             const last = t.zoneLog[t.zoneLog.length - 1];
-            if (last && last.lines === null) { last.lines = lines; last.attack = attack; }
+            if (last && last.lines === null) { last.lines = lines; last.attack = attack; last.normal = normal || 0; }
             if (lines > t.zoneLinesMax) t.zoneLinesMax = lines;
             t.zoneAttack += attack;
         }

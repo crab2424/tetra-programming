@@ -143,10 +143,12 @@ Object.assign(Game.prototype, {
 
         // Scoring() の戻り値として火力（段数）を受け取る
         let generatedGarbage = this.Scoring(tSpinResult, linesCleared, isPerfectClear);
-        // VERSUS の ZONE 発動中は消去ごとの火力を出さない（相殺もしない）。終了時に表の火力だけ出す
-        // （tet/zone.js _endZone。設計 tetlabo-zone-versus-cpu-design.md §2.2）
-        if (inZone && this.isVersusMode) generatedGarbage = 0;
-        if (inZone) this._zoneLastLockAt = this.clock.now();
+        // VERSUS の ZONE 発動中は消去ごとの火力をその場では出さない（相殺もしない）。ためておき、終了時に
+        // 表の火力へ足して出す（tet/zone.js _endZone。設計 tetlabo-zone-versus-cpu-design.md §11.1）
+        if (inZone && this.isVersusMode) {
+            this.zoneAtkPool = (this.zoneAtkPool || 0) + generatedGarbage;
+            generatedGarbage = 0;
+        }
         this.updateStatsDisplay();
 
         // APM計測（生成基準）：相殺の有無に関わらず、この設置で生成した火力を積む。

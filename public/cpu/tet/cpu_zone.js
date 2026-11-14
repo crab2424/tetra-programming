@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────
-// cpu/tet/cpu_zone.js — テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ・探索へ渡す盤面の印
-// 設計: source_assets/memory/tet_zone/tetlabo-zone-versus-cpu-design.md §5・§6
+// cpu/tet/cpu_zone.js — テト CPU の ZONE（VERSUS）: 発動の判断・探索へ渡す盤面の印
+// 設計: source_assets/memory/tet_zone/tetlabo-zone-versus-cpu-design.md §5・§6・§11
+// （発動中の手の速さは通常と同じ。§11.2 で待ちをやめた）
 //
 // ・各レベルの CPU（lv1〜lv7）は updateLoop の頭で CpuZone.tick(this, レベル) を呼ぶ。
 //   発動の判断は探索の評価に混ぜず、ここ（手を選ぶ前の決まり）に書く。ZONE が無い試合では何もしない。
@@ -11,12 +12,13 @@
 // ─────────────────────────────────────────────
 const CpuZone = (() => {
 
-    // 調整用の値（仮。実機で 20 秒に何段作れるかを見て決める。設計 §6・Q12）
+    // 調整用の値（仮。設計 §6・§11.2）
     const CONFIG = {
-        // 発動中、置いてから次のミノに取りかかるまでの最小間隔（ms）。CPU は手が速いので人の速さに寄せる
-        minMoveMs: 450,
-        // 発動中の 1 手にかかる見込み（ms。見込み段数の計算用。レベルごと）
-        moveMs: { 1: 1500, 2: 1100, 3: 900, 4: 800, 5: 700, 6: 650, 7: 650 },
+        // 発動中の 1 手にかかる見込み（ms。見込み段数の計算用。レベルごと）。発動中も通常と同じ速さで打つので、
+        // ふだんの 1 手の時間を入れる。lv7 は CPU 同士の記録の実測（約 2.8 手/秒）。ほかのレベルは目分量の仮の値
+        moveMs: { 1: 1300, 2: 900, 3: 700, 4: 550, 5: 450, 6: 380, 7: 360 },
+        // 発動中の通常火力の見込み（1 段あたり。REN・4 ラインをねらわない打ち方なので控えめ。仮）
+        normalPerLine: 0.5,
         // 「攻め」で発動する見込み段数（低いほど早く撃つ＝弱い）
         attackTarget: { 3: 6, 4: 6, 5: 10, 6: 10, 7: 10 },
         attackMaxHeight: 10,     // 「攻め」: これより高い盤面では撃たない
@@ -108,9 +110,14 @@ const CpuZone = (() => {
         return Math.max(0, Math.min(cap, Math.floor(moves / 2.5 + st.blocks / 10)));
     }
 
-    function attackOf(charge, lines, mult) {
+    // game が ZONE を lines 段で終えたときの見込み火力（エンジンの終了時と同じ式。設計 §11）。
+    // 通常火力は「いままでにためた分（発動中だけ）＋これから増える段 × normalPerLine」で見込む
+    function attackOf(game, charge, lines) {
+        const have = game.zoneActive ? (game.zoneAtkPool || 0) : 0;
+        const more = Math.max(0, lines - (game.zoneActive ? game.zoneLines : 0));
+        const pool = have + Math.floor(more * CONFIG.normalPerLine);
         let n = 0;
-        for (const c of zoneAttackChunks(charge, lines)) n += Math.floor(c * mult + 1e-9);
+        for (const c of zoneEndAttackChunks(charge, lines, pool, game._tetMarginStep, game.vsAttackMultiplier ?? 1.0)) n += c;
         return n;
     }
 
@@ -132,14 +139,13 @@ const CpuZone = (() => {
         const st = boardStats(g);
         const inc = incoming(g);
         const opp = opponent(g);
-        const mult = g.vsAttackMultiplier ?? 1.0;
         const lethal = inc > 0 && st.height + inc >= CONFIG.lethalHeight;
 
         // 返し: 相手が発動中で、終了時の火力を受けたら危ない → 相手の残り時間が短くなってから発動する
         if (rule.counter && opp && opp.zoneActive) {
             const oppRem = opp.zoneRemainingMs();
             const oppLines = opp.zoneLines + Math.floor(oppRem / (CONFIG.moveMs[level] || 700) / 2.5);
-            const threat = attackOf(opp.zoneCharge, oppLines, opp.vsAttackMultiplier ?? 1.0);
+            const threat = attackOf(opp, opp.zoneCharge, oppLines);
             if (st.height + inc + threat >= CONFIG.counterDanger && st.nearFull >= 1) {
                 const mine = q * g.zoneQuarterMs;
                 if (oppRem <= Math.max(1000, mine - CONFIG.counterLeadMs)) return 'counter';
@@ -162,7 +168,7 @@ const CpuZone = (() => {
             && st.height <= CONFIG.finishMaxHeight) {
             const os = boardStats(opp);
             if (os.height >= CONFIG.finishOppHeight) {
-                const atk = attackOf(q, expectedLines(q * g.zoneQuarterMs, level, st), mult);
+                const atk = attackOf(g, q, expectedLines(q * g.zoneQuarterMs, level, st));
                 // 相手が相殺に使える量: 発動できるなら大きめに、できないなら 4 ライン 1 回ぶん程度
                 const oppCancel = (opp.zoneActive || opp.zoneQuarters() >= 1) ? 8 : 3;
                 if (atk >= (20 - os.height) + oppCancel) return 'finish';
@@ -172,15 +178,13 @@ const CpuZone = (() => {
     }
 
     // 各 CPU の updateLoop の頭で毎フレーム呼ぶ。true を返したら、そのフレームは新しいミノに取りかからない
-    // （発動中の手の速さ。設計 §6）
+    // （いまは常に false。発動中も通常と同じ速さで打つ。設計 §11.2）
     function tick(cpu, level) {
         const g = cpu && cpu.game;
         if (!g || !g.zoneEnabled || !g.isVersusMode || !g.mino) return false;
         if (g.isPaused || g.isCountingDown || g.isFinishing) return false;
         if (g.mino === cpu.currentMino) return false; // もう取りかかっている
-        if (g.zoneActive) {
-            return (g.clock.now() - (g._zoneLastLockAt || 0)) < CONFIG.minMoveMs;
-        }
+        if (g.zoneActive) return false;
         if (cpu.isAutoPlay === false) return false;
         // 発動の判断は、ミノが出て取りかかる前に 1 回
         const why = decide(cpu, level);
@@ -191,6 +195,6 @@ const CpuZone = (() => {
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, plainBlocks, tick, decide, boardStats, expectedLines };
+    return { CONFIG, RULES, floor, stampBoard, plainBlocks, tick, decide, boardStats, expectedLines, attackOf };
 })();
 window.CpuZone = CpuZone;

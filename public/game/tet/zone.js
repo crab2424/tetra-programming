@@ -47,6 +47,36 @@ function zoneAttackChunks(charge, lines) {
     return row[Math.min(row.length, lines) - 1].slice();
 }
 
+// マージンタイム中、表のボーナス火力にかける倍率（10 倍の整数で持つ。小数点以下は切り捨て）。
+// 添字はマージンのステップ（_tetMarginStep 0〜5 = 突入後 0/32/64/96/128/160 秒。scoring.js の火力表と同じ段階）。
+// 未突入（null）は等倍。設計 tetlabo-zone-versus-cpu-design.md §11.4
+const ZONE_MARGIN_BONUS_X10 = [11, 12, 13, 15, 18, 20];
+
+function zoneMarginBonusX10(marginStep) {
+    if (marginStep === null || marginStep === undefined || marginStep < 0) return 10;
+    return ZONE_MARGIN_BONUS_X10[Math.min(ZONE_MARGIN_BONUS_X10.length - 1, marginStep)];
+}
+
+// VERSUS の終了時に出す火力のかたまり（補正後。設計 §11）。CPU の見込み（cpu/tet/cpu_zone.js）もこれを使う。
+//   pool       発動中にためた通常火力（Scoring の値そのまま。マージン中の火力表はもう入っている）
+//   marginStep _tetMarginStep（null = 未突入）
+//   bias       ATTACK BIAS（vsAttackMultiplier）
+// かたまりの並び: [通常火力の合計, 表のかたまり…]（原作の「通常の火力の後にボーナス」）。0 になったかたまりは除く。
+// マージンの倍率は表のかたまりだけにかける（通常火力は Scoring の中でもう上がっているので二重にしない）
+function zoneEndAttackChunks(charge, lines, pool, marginStep, bias) {
+    const b = (bias === undefined || bias === null) ? 1.0 : bias;
+    const biased = (v) => (b !== 1.0 ? Math.floor(v * b + 1e-9) : v);
+    const x10 = zoneMarginBonusX10(marginStep);
+    const out = [];
+    const normal = biased(Math.max(0, pool | 0));
+    if (normal > 0) out.push(normal);
+    for (const c of zoneAttackChunks(charge, lines)) {
+        const v = biased(Math.floor(c * x10 / 10));
+        if (v > 0) out.push(v);
+    }
+    return out;
+}
+
 function zoneTierIndex(lines) {
     let i = 0;
     while (i < ZONE_TIERS.length && lines >= ZONE_TIERS[i]) i++;
@@ -76,7 +106,8 @@ Object.assign(Game.prototype, {
                 ? this.zoneQuarterMsSetting : ZONE_MS_PER_QUARTER;
         }
         this._zoneB2bBefore = false; // VERSUS: 発動前の B2B（終了時に戻す）
-        this._zoneLastLockAt = 0;    // 発動中に最後に置いた時刻（CPU の発動中の手の速さ。cpu/tet/cpu_zone.js）
+        this.zoneAtkPool = 0;        // VERSUS: 発動中にためた通常火力（終了時に表の火力へ足して出す。§11.1）
+        this.zoneCarry = 0;          // 満タンの後に消したライン（次のメーターへ持ち越す。上限 1/4 ぶん。§11.3）
         this.zoneLastAttack = 0;     // VERSUS: 直前の終了で出した火力（補正後の合計）
         this.zoneMeter = 0;          // たまったライン数（端数も持つ）
         this.zoneActive = false;
@@ -100,10 +131,21 @@ Object.assign(Game.prototype, {
     },
 
     // ライン消去でメーターをためる（発動中は足さない。T-Spin などの上乗せはなし。§4.1）
+    // VERSUS: 満タンを超えたぶんは zoneCarry にためておき（上限 1/4 ぶん）、発動で満タンでなくなった後の
+    // 「次のライン消去」のときに、その消去と一緒にメーターへ入れる（終了した瞬間には入れない。VERSUS 編 §11.3）
     _zoneAddMeter(n) {
         if (!this.zoneEnabled || this.zoneActive || !(n > 0)) return;
         const before = this.zoneQuarters();
-        this.zoneMeter = Math.min(this.zoneQuarterLines * 4, this.zoneMeter + n);
+        const max = this.zoneQuarterLines * 4;
+        if (this.isVersusMode) {
+            if (this.zoneMeter < max && this.zoneCarry > 0) {
+                n += this.zoneCarry;
+                this.zoneCarry = 0;
+            }
+            const over = this.zoneMeter + n - max;
+            if (over > 0) this.zoneCarry = Math.min(this.zoneQuarterLines, this.zoneCarry + over);
+        }
+        this.zoneMeter = Math.min(max, this.zoneMeter + n);
         // 1/4 たまったときは鳴らさない。満タンになったときだけ
         if (before < 4 && this.zoneQuarters() >= 4) this.playSe('zone_full');
     },
@@ -122,11 +164,11 @@ Object.assign(Game.prototype, {
         this.zoneMeter -= q * this.zoneQuarterLines; // 端数は残して次へ持ち越す
         this.zoneLines = 0;
         this.zoneScorePool = 0;
+        this.zoneAtkPool = 0;
         this.zoneTimeUp = false;
         this.zoneActive = true;
         this.zoneCount++;
         this.zoneStartAt = this.clock.now();
-        this._zoneLastLockAt = this.zoneStartAt;
         this._zoneB2bBefore = !!this.backToBack;
         // VERSUS: 録画の印・CPU 同士の記録
         if (this.isVersusMode) {
@@ -248,16 +290,15 @@ Object.assign(Game.prototype, {
         this.score += bonus;
         this.zoneLinesTotal += n;
         if (n > this.zoneBest) this.zoneBest = n;
-        // VERSUS: 表から火力のかたまりを作り、補正をかけ、まず相殺、余りをかたまりごとに送る（VERSUS 編 §2.2）
+        // VERSUS: 発動中にためた通常火力＋表の火力（マージン中は倍率つき）でかたまりを作り、まず相殺、
+        // 余りをかたまりごとに送る（VERSUS 編 §2.2・§11）
         let attack = 0;
         if (this.isVersusMode) {
             const charge = this.zoneCharge;
             // 4. より先に発動を解く（送る・相殺するのはふだんの状態で）
             this.zoneActive = false;
-            const mult = this.vsAttackMultiplier ?? 1.0;
-            const chunks = zoneAttackChunks(charge, n)
-                .map(c => (mult !== 1.0 ? Math.floor(c * mult + 1e-9) : c))
-                .filter(c => c > 0);
+            const chunks = zoneEndAttackChunks(charge, n, this.zoneAtkPool, this._tetMarginStep,
+                this.vsAttackMultiplier ?? 1.0);
             for (const c of chunks) attack += c;
             if (attack > 0) {
                 this._countAttackSent(attack); // APM（生成基準。相殺ぶんも数える）
@@ -268,17 +309,18 @@ Object.assign(Game.prototype, {
                     if (c - used > 0) this.sendGarbage(c - used, { zoneChunk: true });
                 }
             }
-            // 発動中の REN・B2B は火力にしない。終了直後の 1 手に大きな REN 火力が乗らないよう戻す
+            // 発動中の REN・B2B は上の通常火力に入っている。終了直後の 1 手に大きな REN 火力が乗らないよう戻す
             this.ren = 0;
             this.backToBack = this._zoneB2bBefore;
             this.zoneLastAttack = attack;
-            if (window.CpuMatchLog && window.CpuMatchLog.zone) window.CpuMatchLog.zone(this, 'end', charge, n, attack);
+            if (window.CpuMatchLog && window.CpuMatchLog.zone) window.CpuMatchLog.zone(this, 'end', charge, n, attack, this.zoneAtkPool);
         }
         // 4. 状態を戻す
         this.zoneActive = false;
         this.zoneTimeUp = false;
         this.zoneLines = 0;
         this.zoneScorePool = 0;
+        this.zoneAtkPool = 0;
         this.zoneCharge = 0;
         this.updateStatsDisplay();
         // 落下・固定をふだんに戻す（シングルはミノを置いた後か、出せなかったときなので mino は無い）
