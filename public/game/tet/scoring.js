@@ -83,7 +83,8 @@ Object.assign(Game.prototype, {
 
         if (linesCleared > 0 && !this.zoneActive) {
             this.lines += linesCleared;
-            if (this.mode === 'marathon' || this.mode === 'zone') {
+            // ZONE はレベル固定にもできる（準備画面の LEVEL: FIXED。zoneFixedLevel）
+            if (this.mode === 'marathon' || (this.mode === 'zone' && !this.zoneFixedLevel)) {
                 const prevLevel = this.level;
                 this.level = Math.min(15, this.startLevel + Math.floor(this.lines / 10));
                 if (this.level > prevLevel) this.playSe('levelup');
@@ -336,6 +337,8 @@ Object.assign(Game.prototype, {
             key = (this.goalLines === Infinity) ? 'marathon:endless' : 'marathon:150';
             record = { score: this.score, level: this.level, lines: this.lines, timeMs, startLevel: this.startLevel };
         } else if (this.mode === 'zone') {
+            // 準備画面の設定が既定のときだけ記録する（navigation.js が recordEligible を入れる）
+            if (this.zoneRecordEligible === false) return null;
             key = 'zone:150';
             record = {
                 score: this.score, level: this.level, lines: this.lines, timeMs, startLevel: this.startLevel,

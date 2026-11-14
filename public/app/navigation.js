@@ -550,7 +550,6 @@ function renderModeCheck() {
       // ZONE: GOAL は 150 固定（ENDLESS は v1 では付けない）。START LEVEL は MARATHON と同じ値を使う
       optionsEl.style.display = 'flex';
       const startLevel = (window._game && window._game.marathonStartLevel) ? window._game.marathonStartLevel : 1;
-      const zoneKey = (typeof loadKeys === 'function') ? ((loadKeys().zone || {}).label || '') : '';
       optionsEl.innerHTML = `
         <div class="option-row">
           <span class="option-label">START LEVEL</span>
@@ -560,10 +559,14 @@ function renderModeCheck() {
             <span id="marathon-level-val" class="option-val">${startLevel}</span>
           </div>
         </div>
-        <p class="practice-value-hint">150 ライン。8 ラインでゲージ 1/4。1/4 以上たまったら ${zoneKey ? `<b>${zoneKey}</b> キー` : 'ZONE キー'}で発動（1/4 ごとに 5 秒）</p>
+        ${renderZoneOptionsHtml()}
       `;
       const levelVal = document.getElementById('marathon-level-val');
       if (levelVal) levelVal.style.color = mode.color;
+      optionsEl.querySelectorAll('.opt-btn.active').forEach(btn => {
+        btn.style.color = mode.color;
+        btn.style.borderColor = mode.color;
+      });
     } else if (mode.id === 'test') {
       optionsEl.style.display = 'flex';
       // OPPONENT を PUYO / TET にすると CPU 同士（異種可）。盤面・対戦は VERSUS のものを使う（versus.js startTestCpuVsCpu）
@@ -910,6 +913,11 @@ async function startGameFromModeCheck() {
     window._game.marathonGoal = 150;
     const levelSlider = document.getElementById('marathon-level-slider');
     window._game.marathonStartLevel = levelSlider ? parseInt(levelSlider.value, 10) : 1;
+    // 準備画面の ZONE 設定（modes.js zoneSettings）。既定以外は記録しない
+    window._game.zoneFixedLevel = zoneSettings.levelMode === 'fixed';
+    window._game.zoneQuarterMsSetting = zoneSettings.quarterMs;
+    window._game.zoneQuarterLinesSetting = zoneSettings.quarterLines;
+    window._game.zoneRecordEligible = isZoneRecordEligible();
   }
 
   const evalArea = document.getElementById('eval-area');

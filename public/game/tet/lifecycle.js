@@ -172,7 +172,9 @@ Object.assign(Game.prototype, {
         this.backToBack = false;
         this.ren = 0;
         this.hidePauseOverlay()
-        this.level = 1;
+        // ZONE は開始時から START LEVEL（LEVEL: FIXED でも効くように）。
+        // MARATHON は最初のライン消去まで 1 のまま（今までどおり。変えると古い録画がずれる）
+        this.level = (this.mode === 'zone') ? Math.max(1, Math.min(15, this.startLevel || 1)) : 1;
         this.lines = 0;
         // ZONE（tet/zone.js）。zoneEnabled が false のモードでは何も通らない
         this._zoneInit();
