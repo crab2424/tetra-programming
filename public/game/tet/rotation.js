@@ -238,18 +238,19 @@ Object.assign(Game.prototype, {
 
     // ─── 非表示 DCD（設計 §12。暴発対策）───
     // 置いた後の出現で、先行回転・先行ホールドのキーが押されたまま（＝前の操作の残りかもしれない）なら、
-    // DCD_DELAY のあいだミノを出さずに待つ（ミノは「まだ出ていない」扱い。重力・固定・ソフトドロップは止まる。
-    // 入力は受け付ける）。
+    // IRS_DCD_DELAY（設定 IRS/IHS DCD。未設定なら横の DCD と同じ値）のあいだミノを出さずに待つ
+    // （ミノは「まだ出ていない」扱い。重力・固定・ソフトドロップは止まる。入力は受け付ける）。
     //   DCD 明け          → その時点で押しているキーで先行回転・先行ホールドを当てて出す（出現位置が上がる利点を残す）
     //   残りのキーを全部離した → すぐ出す（離したキーは当てない）
-    //   単発の横移動       → 隠れたミノを内部で動かす（出すときに引き継ぐ）
+    //   横移動             → 隠れたミノ（h.vm）を内部で動かす（出すときに引き継ぐ）。DAS・ARR・横の DCD は
+    //                        非表示と無関係にふつうどおり（横の DCD ①は置いた時点から数える。設計 §13。_pollInput）
     //   ハードドロップ     → その時点のキーで出し、1 フレーム見せてから落とす（_spawnDropMino）
     //   ホールド・回転を新しく押した → 予約して、出すときに当てる
     // すぐ当てる（待たない）のは: 出せない（致命）とき・DCD が 0・開始の最初のミノ・プレイヤーのホールドで出るミノ。
     // 待ち明けは popMino をもう一度呼ぶ（IHS の待ちと同じく _ihsRescueResume を立てる。外側のフックは二重にしない）
     _spawnHideStart() {
         if (this._ihsRescueResume || this._noSpawnAssist || this._spawnNoIhs) return false
-        if (!(this.DCD_DELAY > 0) || this._dcdMino === undefined || !this.keyState) return false
+        if (!(this.IRS_DCD_DELAY > 0) || this._dcdMino === undefined || !this.keyState) return false
         const cur = this.nextQueue[0]
         if (!cur || cur._quizDummy) return false
         const rot = this._irsDir()
@@ -263,8 +264,11 @@ Object.assign(Game.prototype, {
         this.mino = null
         this.isGrounded = false
         // rot / hold: 残っているキー（離したら 0 / false）。forceRot / forceHold: 待ち中に新しく押した分
-        this._spawnHide = { type: cur.type, rot, hold, dx: 0, forceRot: 0, forceHold: false }
-        this._spawnHideTimer = this.clock.schedule(this.DCD_DELAY, () => {
+        // vm: 隠れたミノ（向き 0・出現位置）。横移動は _pollInput がこれを動かす。x0 は出現列
+        const vm = new Mino(cur.type)
+        this._placeAtSpawn(vm, 0)
+        this._spawnHide = { type: cur.type, rot, hold, vm, x0: vm.x, forceRot: 0, forceHold: false }
+        this._spawnHideTimer = this.clock.schedule(this.IRS_DCD_DELAY, () => {
             this._spawnHideTimer = null
             this._spawnHideEnd()
         })
@@ -282,9 +286,12 @@ Object.assign(Game.prototype, {
             this._spawnHideTimer = null
         }
         if (this.mino) return
-        this._spawnPlan = { dx: h.dx, hold: h.forceHold, rot: h.forceRot }
+        this._spawnPlan = { dx: h.vm.x - h.x0, hold: h.forceHold, rot: h.forceRot }
         this._ihsRescueResume = true
         try { this.popMino() } finally { this._ihsRescueResume = false; this._spawnPlan = null }
+        // 横の DCD ①は隠れたミノを見た時点（＝置いた直後）で始めている。出したミノを「新しいミノ」と
+        // 見なしてもう一度掛けないようにする（非表示の時間＋横の DCD にならないように。設計 §13）
+        if (this.mino) this._dcdMino = this.mino
         this.requestRedraw()
     },
 
@@ -299,33 +306,12 @@ Object.assign(Game.prototype, {
         if (this._holdAllowed()) this._spawnHide.forceHold = true
     },
 
-    // 隠れたミノ（向き 0・出現位置から dx 列）が入るか
-    _spawnHideFits(h, dx) {
-        const vm = new Mino(h.type)
-        if (!this._placeAtSpawn(vm, 0)) return false
-        vm.x += dx
-        return this._minoFits(vm)
-    },
-
-    // 非表示 DCD 中の毎フレームの処理（_pollInput から。キーの取り込みの後）
+    // 非表示 DCD 中の毎フレームの処理（_pollInput から。キーの取り込みと横移動の後）
     _pollSpawnHide(now) {
         const h = this._spawnHide
         const ks = this.keyState
         if ((h.rot === 1 && !ks.rotateCW) || (h.rot === -1 && !ks.rotateCCW)) h.rot = 0
         if (h.hold && !ks.hold) h.hold = false
-        // 単発の横移動（押した瞬間＝lastMoveTime が 0 の印。applyKeyDown がミノのないときに付ける）
-        const sides = [['left', -1], ['right', 1]]
-        for (let i = 0; i < sides.length; i++) {
-            const side = sides[i][0]
-            const pressT = side === 'left' ? this._leftPressTime : this._rightPressTime
-            const last = side === 'left' ? this._lastMoveTimeLeft : this._lastMoveTimeRight
-            if (pressT === null || last !== 0) continue
-            if (this._spawnHideFits(h, h.dx + sides[i][1])) {
-                h.dx += sides[i][1]
-                this.playSe('move')
-            }
-            this._setLastMoveTime(side, now)
-        }
         // 残っていたキーを全部離したらすぐ出す
         if (!h.rot && !h.hold) this._spawnHideEnd()
     },

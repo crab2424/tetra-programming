@@ -53,6 +53,7 @@ const ACTION_LABELS = {
 /**
  * デフォルトチューニング設定
  * irs / ihs: 先行回転・先行ホールド（既定 OFF。設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §4）
+ * irsDcd: IRS/IHS の非表示 DCD（設計 §13）。ここには置かない＝未設定なら dcd を使う（古い設定・録画も同じ）
  * @type {{das: number, arr: number, dcd: number, irs: boolean, ihs: boolean}}
  */
 const DEFAULT_TUNING = {
@@ -405,6 +406,8 @@ function renderTuning() {
   document.getElementById('slider-das').value = currentTuning.das;
   document.getElementById('slider-arr').value = currentTuning.arr;
   document.getElementById('slider-dcd').value = currentTuning.dcd;
+  // 未設定（古い設定）は横の DCD と同じ値で始める
+  document.getElementById('slider-irs-dcd').value = currentTuning.irsDcd ?? currentTuning.dcd;
   updateTuningDisplay();
   renderTuningOptions();
 }
@@ -451,14 +454,17 @@ function updateTuningDisplay() {
   const dasF = parseFloat(document.getElementById('slider-das').value);
   const arrF = parseFloat(document.getElementById('slider-arr').value);
   const dcdF = parseFloat(document.getElementById('slider-dcd').value);
+  const irsDcdF = parseFloat(document.getElementById('slider-irs-dcd').value);
 
   document.getElementById('val-das').textContent = `${dasF.toFixed(1)}f (${Math.round(dasF * frameMs)}ms)`;
   document.getElementById('val-arr').textContent = `${arrF.toFixed(1)}f (${Math.round(arrF * frameMs)}ms)`;
   document.getElementById('val-dcd').textContent = `${dcdF.toFixed(1)}f (${Math.round(dcdF * frameMs)}ms)`;
+  document.getElementById('val-irs-dcd').textContent = `${irsDcdF.toFixed(1)}f (${Math.round(irsDcdF * frameMs)}ms)`;
 
   currentTuning.das = dasF;
   currentTuning.arr = arrF;
   currentTuning.dcd = dcdF;
+  currentTuning.irsDcd = irsDcdF;
 }
 
 // ─── DISPLAY設定（APM/LPM・対戦TIME表示のON/OFF） ────────
@@ -571,6 +577,7 @@ function renderOnlineSettings() {
 document.getElementById('slider-das').addEventListener('input', updateTuningDisplay);
 document.getElementById('slider-arr').addEventListener('input', updateTuningDisplay);
 document.getElementById('slider-dcd').addEventListener('input', updateTuningDisplay);
+document.getElementById('slider-irs-dcd').addEventListener('input', updateTuningDisplay);
 const _deadzoneSlider = document.getElementById('slider-deadzone');
 if (_deadzoneSlider) _deadzoneSlider.addEventListener('input', updateGamepadOptionsDisplay);
 

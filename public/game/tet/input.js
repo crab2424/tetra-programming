@@ -84,6 +84,8 @@ Object.assign(Game.prototype, {
         this.DAS_DELAY = tuning.das * frameMs;
         this.ARR_INTERVAL = tuning.arr * frameMs;
         this.DCD_DELAY = tuning.dcd * frameMs;
+        // IRS/IHS の非表示 DCD（設計 tetlabo-irs-ihs-design.md §13）。未設定（古い設定・録画）は横の DCD と同じ
+        this.IRS_DCD_DELAY = (typeof tuning.irsDcd === 'number' ? tuning.irsDcd : tuning.dcd) * frameMs;
         // 先行回転・先行ホールド（設計 tetlabo-irs-ihs-design.md §4・§6）。
         // true のときだけ ON と読む（既定値で埋めない）。古い録画の tuning には無いので OFF のまま再生される
         this._irsOn = tuning.irs === true;
@@ -377,9 +379,11 @@ Object.assign(Game.prototype, {
             if (this.isPaused) return
             // カウントダウン中はDASの時間を裏で記録するだけで、操作の実行はしない
             if (this.isCountingDown) return;
-            // 非表示 DCD 中（先行回転・先行ホールドのキーが残っている間。rotation.js §12）
-            if (!this.mino && this._spawnHide) { this._pollSpawnHide(now); return; }
-            if (!this.mino) return;
+            // 非表示 DCD 中（先行回転・先行ホールドのキーが残っている間。rotation.js §12）は、隠れたミノ（vm）を
+            // このフレームだけ this.mino に置いて横移動の処理を通す（DAS・ARR・横の DCD はふつうどおり。§13）
+            const hide = this.mino ? null : this._spawnHide
+            if (!this.mino && !hide) return;
+            if (hide) this.mino = hide.vm
 
             let acted = false
             let wasGrounded = this.isGrounded; // 操作前の接地状態を記憶
@@ -460,6 +464,13 @@ Object.assign(Game.prototype, {
             }
             // ※ 逆方向を押している間も、元の方向の「止まっていた」状態は保持する
             //   （逆方向を離して元の方向に戻ったとき、動けるようになっていれば DCD ②を掛けるため）
+
+            // 非表示 DCD 中は横移動だけ（ソフトドロップ・回転・接地は出てから）
+            if (hide) {
+                this.mino = null
+                this._pollSpawnHide(now)
+                return
+            }
 
             // ソフトドロップ（専用ARR）
             const currentLevelSpeed = LEVEL_SPEEDS[this.level] || 7;

@@ -1482,6 +1482,16 @@
               <span>0f</span><span>5f</span><span>10f</span>
             </div>
           </div>
+          <!-- IRS/IHS の非表示 DCD（設計 tetlabo-irs-ihs-design.md §12・§13。未設定なら DCD と同じ値） -->
+          <div class="slider-row">
+            <div class="slider-label">
+              IRS/IHS DCD <small>(Initial Action Cut Delay)</small><span id="val-irs-dcd">3.0f (50ms)</span>
+            </div>
+            <input type="range" id="slider-irs-dcd" min="0" max="10" step="0.1" value="3.0" />
+            <div class="slider-markers">
+              <span>0f</span><span>5f</span><span>10f</span>
+            </div>
+          </div>
           <!-- 先行回転・先行ホールド（設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §4。DAS などと同じく SAVE で保存） -->
           <div class="tuning-option">
             <div class="option-row">
@@ -1491,7 +1501,7 @@
                 <button class="opt-btn" data-value="off" onclick="setTuningOption('irs', false)">OFF</button>
               </div>
             </div>
-            <p class="tuning-option-desc">ミノが出る瞬間に回転キーを押していると、回った状態で出ます。置いた後に押したままのときは、DCD のあいだ待ってから回った状態で出ます（その間に離せば回さずに出ます）。</p>
+            <p class="tuning-option-desc">ミノが出る瞬間に回転キーを押していると、回った状態で出ます。置いた後に押したままのときは、IRS/IHS DCD のあいだ待ってから回った状態で出ます（その間に離せば回さずに出ます）。</p>
           </div>
           <div class="tuning-option">
             <div class="option-row">
@@ -1501,7 +1511,7 @@
                 <button class="opt-btn" data-value="off" onclick="setTuningOption('ihs', false)">OFF</button>
               </div>
             </div>
-            <p class="tuning-option-desc">ミノが出る瞬間にホールドキーを押していると、ホールドしてから出ます。置いた後に押したままのときは、DCD のあいだ待ってからホールドして出ます（その間に離せばホールドせずに出ます）。</p>
+            <p class="tuning-option-desc">ミノが出る瞬間にホールドキーを押していると、ホールドしてから出ます。置いた後に押したままのときは、IRS/IHS DCD のあいだ待ってからホールドして出ます（その間に離せばホールドせずに出ます）。</p>
           </div>
         </div>
       </div>
@@ -1625,7 +1635,7 @@
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=9"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=16"></script>
+  <script src="config/settings.js?v=17"></script>
   <script src="config/records.js?v=5"></script>
   <script src="config/account.js?v=6"></script>
   <script src="core/hud_extras.js?v=4"></script>
@@ -1635,12 +1645,12 @@
   <script src="game/tet/core.js?v=4"></script>
   <script src="game/tet/lifecycle.js?v=15"></script>
   <script src="game/tet/board.js?v=16"></script>
-  <script src="game/tet/rotation.js?v=8"></script>
+  <script src="game/tet/rotation.js?v=9"></script>
   <script src="game/tet/scoring.js?v=4"></script>
   <script src="game/tet/zone.js?v=1"></script>
   <script src="game/tet/garbage.js?v=6"></script>
   <script src="game/tet/render.js?v=11"></script>
-  <script src="game/tet/input.js?v=15"></script>
+  <script src="game/tet/input.js?v=16"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
