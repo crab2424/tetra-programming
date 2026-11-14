@@ -1295,10 +1295,17 @@
       if (bgmRow) { const it = rowSlider(bgmRow, bgmSlider); it.scrollAnchor = volAnchor; items.push(it); }
       if (seRow)  { const it = rowSlider(seRow,  seSlider);   it.scrollAnchor = volAnchor; items.push(it); }
       const tuningContainer = document.getElementById('tuning-tet-section');
-      ['slider-das', 'slider-arr', 'slider-dcd'].forEach(id => {
+      ['slider-das', 'slider-arr', 'slider-dcd', 'slider-irs-dcd'].forEach(id => {
         const s = document.getElementById(id);
         const row = s && s.closest('.slider-row');
         if (row) { const it = rowSlider(row, s); it.scrollAnchor = tuningContainer || row; items.push(it); }
+      });
+      // IRS / IHS の ON/OFF（tet/rotation.js。DAS などと同じく SAVE で保存）
+      ['tuning-irs-toggle', 'tuning-ihs-toggle'].forEach(id => {
+        const t = document.getElementById(id);
+        const row = t && t.closest('.option-row');
+        const it = row && rowAuto(row);
+        if (it) { it.scrollAnchor = tuningContainer || row; items.push(it); }
       });
       $$('#key-config-grid .key-row').forEach(row => {
         $$('.key-badge', row).forEach(b => items.push({ el: b, scrollAnchor: keyAnchor }));
