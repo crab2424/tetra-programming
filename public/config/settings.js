@@ -21,7 +21,7 @@ const DEFAULT_BINDS = {
   pause: [{ type: 'key', code: 'Escape', label: 'ESC' }, { type: 'button', index: 9 }, null],
   restart: [{ type: 'key', code: 'KeyR', label: 'R' }, { type: 'button', index: 8 }, null],
   // ─── ZONE が使えるモード専用（RT は PRACTICE の advance と同じボタンだが、同時に使うモードは無い）───
-  zone: [{ type: 'key', code: 'KeyC', label: 'C' }, { type: 'button', index: 7 }, null],
+  zone: [{ type: 'key', code: 'KeyA', label: 'A' }, { type: 'button', index: 7 }, null],
   // ─── PRACTICEモード専用（他モードでは使われない） ───
   rewind:  [{ type: 'key', code: 'KeyQ', label: 'Q' }, { type: 'button', index: 6 }, null],
   advance: [{ type: 'key', code: 'KeyE', label: 'E' }, { type: 'button', index: 7 }, null],
