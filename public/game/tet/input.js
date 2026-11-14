@@ -473,7 +473,11 @@ Object.assign(Game.prototype, {
             }
 
             // ソフトドロップ（専用ARR）
-            const currentLevelSpeed = LEVEL_SPEEDS[this.level] || 7;
+            // シングルの ZONE の発動中は、レベル（LEVEL: FIXED でも）に関係なくレベル 1 の速さ
+            // （設計 tetlabo-zone-design.md §13。エンジン版 4 以下の録画の再生は従来どおり）
+            const zoneLv1 = this.zoneActive && this.mode === 'zone'
+                && !(this._replay && this._replay.data && (this._replay.data.engine || 0) < 5);
+            const currentLevelSpeed = LEVEL_SPEEDS[zoneLv1 ? 1 : this.level] || 7;
             const currentSoftDropArr = currentLevelSpeed / 20;
 
             if (this.keyState.softDrop) {

@@ -20,9 +20,11 @@ const ZONE_TIER_COLORS = ['#e0e0f0', '#71c5f5', '#5af5a0', '#f5e15a', '#f5a05a',
 const ZONE_END_FX_MS = 700;            // 終了の光（描画だけ）
 
 // ─── VERSUS（設計 tetlabo-zone-versus-cpu-design.md §2）───
-// VS 設定 ZONE CHARGE で選べる「1/4 あたりのライン数」（既定 6。1/4 の長さは 5 秒固定）
-const ZONE_VS_QUARTER_LINES_OPTIONS = [4, 6, 8];
+// VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ）。選べる値はシングルの準備画面と同じ
+// （ZONE_QUARTER_LINES_OPTIONS / ZONE_QUARTER_MS_OPTIONS）。既定は 6 ライン・5 秒（§12）。
+// 4 は以前の選択肢（4/6/8）。古い録画の再生のためエンジンでは受け付ける（VS 設定の画面には出さない）
 const ZONE_VS_QUARTER_LINES_DEFAULT = 6;
+const ZONE_VS_QUARTER_LINES_LEGACY = [4];
 // 終了時の火力表（原作の Zone Bonus Attack。§2.3）。[発動時のチャージ-1][合計段数-1] = 火力のかたまり。
 // かたまりは別々の予告として送る。24 段以上は 23 段の行を使う
 const ZONE_ATTACK_TABLE = [
@@ -94,10 +96,12 @@ Object.assign(Game.prototype, {
         const vs = !!(this.isVersusMode && this.currentMode === 'versus' && this.vsZone === true);
         this.zoneEnabled = (this.mode === 'zone') || vs;
         if (vs) {
-            // VERSUS: VS 設定 ZONE CHARGE（1/4 あたりのライン数）。1/4 の長さは 5 秒固定（§2.4）
-            this.zoneQuarterLines = ZONE_VS_QUARTER_LINES_OPTIONS.includes(this.vsZoneQuarterLines)
+            // VERSUS: VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ。未設定は 5 秒）（§12）
+            this.zoneQuarterLines = (ZONE_QUARTER_LINES_OPTIONS.includes(this.vsZoneQuarterLines)
+                || ZONE_VS_QUARTER_LINES_LEGACY.includes(this.vsZoneQuarterLines))
                 ? this.vsZoneQuarterLines : ZONE_VS_QUARTER_LINES_DEFAULT;
-            this.zoneQuarterMs = ZONE_MS_PER_QUARTER;
+            this.zoneQuarterMs = ZONE_QUARTER_MS_OPTIONS.includes(this.vsZoneQuarterMs)
+                ? this.vsZoneQuarterMs : ZONE_MS_PER_QUARTER;
         } else {
             // 1/4 に必要なライン数・1/4 の長さ（準備画面の設定。未設定・範囲外は既定値）
             this.zoneQuarterLines = ZONE_QUARTER_LINES_OPTIONS.includes(this.zoneQuarterLinesSetting)
