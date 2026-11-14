@@ -202,6 +202,9 @@ function initMenuAnimations(pageId = 'main-menu') {
             // 自己ベスト表示。登録漏れがあり、他がカスケード登場する中でここだけ
             // 静的にポップインしていた。DOM順（desc-block と options の間）に合わせる。
             { sel: '#mode-check-best',          cls: 'menu-enter',  delay: 2   },
+            // WATCH BEST（util-link＝ふだん減光なので TITLE 等と同じ menu-enter-dim）。
+            // リプレイの有無を調べてから display を戻すため、出た時点からアニメが始まる。
+            { sel: '#mode-check-best-replay',   cls: 'menu-enter-dim', delay: 2.5 },
             { sel: '#mode-check-options',       cls: 'menu-enter',  delay: 3   },
             { sel: '#mode-check-buttons',       cls: 'menu-enter',  delay: 4   },
         ];

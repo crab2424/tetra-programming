@@ -271,9 +271,11 @@ body::after {
     }
 }
 
+/* 終わった後は .util-link 自身の opacity(0.6) に戻す（fill を backwards にする）。
+   both だと最終フレームの 0.6 が固定され、ホバー・キーのフォーカスで明るくならなかった。
+   開始前（delay 中）は 0% のフレーム＝opacity 0 で隠れる。 */
 .menu-enter-dim {
-    opacity: 0;
-    animation: menuEnterDim 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: menuEnterDim 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 /* ---------------------------------------------------------------------------
