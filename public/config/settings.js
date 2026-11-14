@@ -99,6 +99,7 @@ window.currentDisplay = currentDisplay;
 
 function saveDisplay() {
   localStorage.setItem('game_display', JSON.stringify(currentDisplay));
+  window.CloudSync?.touch?.(); // Discord ログイン中なら端末間共有へ送る（config/cloud_sync.js）
 }
 
 // APM/LPM・対戦TIMEの表示可否をbodyクラスへ反映する（CSS側はbodyクラスで一括制御）
@@ -879,6 +880,21 @@ function saveSettings(opts = {}) {
 
   updateMenuControlsDisplay(); // ★追加：保存時にメインメニューの表示を更新
   if (!opts.silent) showToast();
+  window.CloudSync?.touch?.(); // Discord ログイン中なら端末間共有へ送る（音量と Backend URL は送らない）
+}
+
+// config/cloud_sync.js からのみ呼ばれる: アカウントから取り込んだ設定（localStorage へ書き込み済み）を
+// メモリ上の値・SETTINGS 画面・進行中のゲームのキー設定へ反映する。
+// 呼ぶ側が「SETTINGS に未保存の変更が無い」ことを確かめているので、編集中の値を消すことはない。
+function applySyncedSettings() {
+  if (typeof stopListeningBind === 'function') stopListeningBind();
+  Object.assign(currentDisplay, loadDisplay());
+  renderDisplayOptions();
+  applyDisplayClasses();
+  revertSettings();
+  if (window._game && typeof window._game.setKeyEvent === 'function'
+    && currentGameMode && currentGameMode.id !== 'puyo') window._game.setKeyEvent();
+  if (window._puyoGame && typeof window._puyoGame._setKeyHandlers === 'function') window._puyoGame._setKeyHandlers();
 }
 
 // ─── 未保存の変更の検知（設計 §3.3）────────────────────

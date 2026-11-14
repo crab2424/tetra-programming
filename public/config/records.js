@@ -28,6 +28,7 @@
   // ランキング対象キー（並び順＝RANKINGタブの並び）。worker/records.ts の RANKED_MODES とキーを一致させる。
   const RANKED_KEYS = ['marathon:endless', 'sprint:40', 'ultra', 'zone:150', 'puyo'];
   const RANK_LABELS = {
+    'marathon:150':     'MARATHON 150',
     'marathon:endless': 'MARATHON',
     'sprint:40':        'SPRINT',
     'ultra':            'ULTRA',
@@ -121,6 +122,22 @@
     if (!rec) return;
     rec.syncedTo = syncedTo;
     _saveAll(data);
+    // アカウントのものと決まった記録は端末間共有の対象になる（config/cloud_sync.js）
+    window.CloudSync?.touch?.();
+  }
+
+  // cloud_sync.js からのみ呼ばれる: アカウントに保存されていた自己ベストを、この端末の記録より
+  // 良いときだけ取り込む。リプレイはこの端末に無いので meta は空にする。
+  // @returns {boolean} 取り込んだか
+  function adopt(key, record, syncedTo) {
+    if (!record || typeof record !== 'object') return false;
+    const data = _loadAll();
+    const current = data.records[key] || null;
+    if (current && current.id === record.id) return false;
+    if (!_isBetter(key, record, current)) return false;
+    data.records[key] = Object.assign({}, record, { meta: {}, syncedTo });
+    _saveAll(data);
+    return true;
   }
 
   function reset() {
@@ -145,5 +162,9 @@
     return typeof v === 'number' ? v.toLocaleString('en-US') : '—';
   }
 
-  window.Records = { get, getAll, submit, markSynced, reset, format, RANKED_KEYS, isRanked, labelFor };
+  window.Records = {
+    get, getAll, submit, markSynced, adopt, reset, format, RANKED_KEYS, isRanked, labelFor,
+    ALL_KEYS: Object.keys(RECORD_RULES),
+    isBetter: _isBetter,
+  };
 })();

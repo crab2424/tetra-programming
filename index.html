@@ -1625,6 +1625,8 @@
     <div class="account-modal-card">
       <img id="account-modal-avatar" class="account-modal-avatar" alt="" />
       <div id="account-modal-name" class="account-modal-name"></div>
+      <!-- 端末間共有の説明（public/config/cloud_sync.js） -->
+      <p class="account-modal-note">設定（キー割当・操作感・表示）と自己ベストは、このアカウントでログインした端末のあいだで共有されます。音量と Backend URL は端末ごとです。</p>
       <button type="button" id="account-modal-close-btn" class="btn btn-secondary account-modal-close" data-se="cancel" onclick="Account.closeModal()">CLOSE</button>
       <div class="account-modal-actions">
         <button type="button" class="btn btn-secondary" onclick="Account.editName()">EDIT NAME</button>
@@ -1673,9 +1675,10 @@
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=9"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=17"></script>
-  <script src="config/records.js?v=5"></script>
-  <script src="config/account.js?v=6"></script>
+  <script src="config/settings.js?v=18"></script>
+  <script src="config/records.js?v=6"></script>
+  <script src="config/cloud_sync.js?v=1"></script>
+  <script src="config/account.js?v=7"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js?v=7"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
