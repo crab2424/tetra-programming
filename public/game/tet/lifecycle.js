@@ -172,9 +172,12 @@ Object.assign(Game.prototype, {
         this.backToBack = false;
         this.ren = 0;
         this.hidePauseOverlay()
-        // ZONE は開始時から START LEVEL（LEVEL: FIXED でも効くように）。
-        // MARATHON は最初のライン消去まで 1 のまま（今までどおり。変えると古い録画がずれる）
-        this.level = (this.mode === 'zone') ? Math.max(1, Math.min(15, this.startLevel || 1)) : 1;
+        // MARATHON・ZONE は開始時から START LEVEL。
+        // MARATHON は以前は最初のライン消去まで 1 のままだったので、エンジン版 2 以下の録画の再生だけは従来どおり 1 から
+        // （ZONE は最初から開始時の START LEVEL）
+        const oldStartLevel = this.mode === 'marathon' && this._replay && this._replay.data && (this._replay.data.engine || 0) < 3;
+        this.level = ((this.mode === 'zone' || this.mode === 'marathon') && !oldStartLevel)
+            ? Math.max(1, Math.min(15, this.startLevel || 1)) : 1;
         this.lines = 0;
         // ZONE（tet/zone.js）。zoneEnabled が false のモードでは何も通らない
         this._zoneInit();
