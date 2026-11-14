@@ -26,5 +26,8 @@ public:
     bool is_occupied(i8 x, i8 y);
 public:
     i32 clear();
+    // ZONE 発動中の消去（TETLABO lv7）。底の zone_rows 段（ZONE 段）は消去判定しない。
+    // そろった段は消さずに底へ移し、その下を 1 段上げる（上の段は動かない）
+    i32 clear_zone(i32 zone_rows);
     void print();
 };

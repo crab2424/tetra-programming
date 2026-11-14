@@ -449,9 +449,12 @@ void get_donation(Board& board, i32 heights[10], i32 depth, i32 tslot[4])
             break;
         }
 
+        // ZONE の発動中は底にそろった段（ZONE 段）が残っている。ふだんは置く前にそろった段は無い（pre == 0）
+        const u64 pre = copy.get_clear_mask();
+
         quiet.place(copy);
 
-        i32 clear = copy.clear();
+        i32 clear = pre ? copy.clear_zone(std::countr_one(pre)) : copy.clear();
 
         tslot[clear] += 1;
 

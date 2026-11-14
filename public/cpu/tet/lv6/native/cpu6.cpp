@@ -200,6 +200,8 @@ void evaluateSinglePlacementWasm(
     for(int i = 0; i < 250; i++) {
         if (boardData[i]) baseBoard.set(i % 10, i / 10);
     }
+    // ZONE: 先頭のバイトが 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）
+    if (boardData[0] >= 100) { baseBoard.zone = boardData[0] - 100; baseBoard.clear(0, 0); }
 
     EvalWeights w = unpackWeights(weightsArray);
 
@@ -264,6 +266,8 @@ void searchBestMoveWasm(
     for(int i = 0; i < 250; i++) {
         if (boardData[i]) baseBoard.set(i % 10, i / 10);
     }
+    // ZONE: 先頭のバイトが 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）
+    if (boardData[0] >= 100) { baseBoard.zone = boardData[0] - 100; baseBoard.clear(0, 0); }
 
     EvalWeights w = unpackWeights(weightsArray);
 

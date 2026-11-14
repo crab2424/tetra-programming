@@ -12,7 +12,7 @@
 (function () {
     const COLS = 10, ROWS = 20, TOP = 5;           // 盤面は y=-5..19
     const BS = 32;                                  // 1マスのpx
-    const WORKER_URL_FALLBACK = 'cpu/tet/lv7/wasm/cpu_worker7.js?v=4'; // CPU7.WORKER_URLS[0] と同じ値（再ビルド時は揃える）
+    const WORKER_URL_FALLBACK = 'cpu/tet/lv7/wasm/cpu_worker7.js?v=5'; // CPU7.WORKER_URLS[0] と同じ値（再ビルド時は揃える）
     // CPU7 の weights.searchWidth / searchDepth / thinkMs と同じ値。重みは渡さない（空 = engine の既定値 = CPU7 の既定値）
     const BEAM_WIDTH = 256, SEARCH_DEPTH = 32, THINK_MS = 80;
     const QUEUE_MAX = 40;                           // cpu_worker7.js の QUEUE_MAX（これより長いキューは切られる）

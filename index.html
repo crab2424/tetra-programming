@@ -484,6 +484,25 @@
           <canvas id="player-puyo-main-canvas" style="display: none"></canvas>
           <canvas id="player-puyo-next-canvas" style="display: none"></canvas>
 
+          <!-- ★ ZONE（VS 設定 ZONE が ON のテト同士だけ。メーター・終了の表示。game/tet/zone.js） -->
+          <div id="player-zone-area" class="versus-zone-area" style="display: none">
+            <span class="area-label">ZONE</span>
+            <div class="zone-meter">
+              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+            </div>
+            <div class="zone-status">
+              <span class="zone-ready">READY <b id="player-zone-key"></b></span>
+              <span id="player-zone-sub" class="zone-sub"></span>
+            </div>
+          </div>
+          <div id="player-zone-end-popup" class="zone-end-popup">
+            <span class="zone-end-lines">ZONE 0 LINES</span>
+            <span class="zone-end-score">ATTACK +0</span>
+          </div>
+
           <div id="player-action-label-container"></div>
           <div id="player-countdown-overlay" class="field-overlay countdown-overlay">
             <span id="player-countdown-text" class="countdown-text"></span>
@@ -549,6 +568,25 @@
           <!-- PUYO Canvas -->
           <canvas id="cpu-puyo-main-canvas" style="display: none"></canvas>
           <canvas id="cpu-puyo-next-canvas" style="display: none"></canvas>
+
+          <!-- ★ ZONE（VS 設定 ZONE が ON のテト同士だけ。メーター・終了の表示。game/tet/zone.js） -->
+          <div id="cpu-zone-area" class="versus-zone-area" style="display: none">
+            <span class="area-label">ZONE</span>
+            <div class="zone-meter">
+              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
+            </div>
+            <div class="zone-status">
+              <span class="zone-ready">READY <b id="cpu-zone-key"></b></span>
+              <span id="cpu-zone-sub" class="zone-sub"></span>
+            </div>
+          </div>
+          <div id="cpu-zone-end-popup" class="zone-end-popup">
+            <span class="zone-end-lines">ZONE 0 LINES</span>
+            <span class="zone-end-score">ATTACK +0</span>
+          </div>
 
           <div id="cpu-action-label-container"></div>
           <div id="cpu-countdown-overlay" class="field-overlay countdown-overlay">
@@ -1631,7 +1669,7 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=23"></script>
+  <script src="core/replay.js?v=24"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=9"></script>
   <script src="app/manager.js?v=1"></script>
@@ -1639,16 +1677,16 @@
   <script src="config/records.js?v=5"></script>
   <script src="config/account.js?v=6"></script>
   <script src="core/hud_extras.js?v=4"></script>
-  <script src="config/vs_settings.js?v=6"></script>
+  <script src="config/vs_settings.js?v=7"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
   <script src="game/tet/lifecycle.js?v=18"></script>
-  <script src="game/tet/board.js?v=16"></script>
+  <script src="game/tet/board.js?v=17"></script>
   <script src="game/tet/rotation.js?v=9"></script>
   <script src="game/tet/scoring.js?v=5"></script>
-  <script src="game/tet/zone.js?v=2"></script>
-  <script src="game/tet/garbage.js?v=6"></script>
+  <script src="game/tet/zone.js?v=3"></script>
+  <script src="game/tet/garbage.js?v=7"></script>
   <script src="game/tet/render.js?v=11"></script>
   <script src="game/tet/input.js?v=16"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
@@ -1662,18 +1700,20 @@
   <script src="game/puyo/draw.js?v=11"></script>
   <script src="quiz/quiz.js?v=12"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=27"></script>
+  <script src="app/modes.js?v=28"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
-  <script src="app/cpu_match_log.js?v=2"></script>
+  <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
+  <script src="cpu/tet/cpu_zone.js?v=1"></script>
+  <script src="app/cpu_match_log.js?v=3"></script>
   <script src="app/versus.js?v=21"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=42"></script>
+  <script src="app/navigation.js?v=43"></script>
   <script src="app/ranking.js?v=5"></script>
   <script src="app/replays.js?v=8"></script>
   <script src="app/focus_nav.js?v=27"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
-  <script src="app/board_swap.js?v=8"></script>
+  <script src="app/board_swap.js?v=9"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=4"></script>
   <script src="practice/practice_sequence.js?v=7"></script>
@@ -1682,7 +1722,7 @@
   <!-- アシスト（盤面ガイド）。PRACTICE / VERSUS から Assist.attach で呼ばれる -->
   <script src="assist/assist.js?v=6"></script>
   <script src="assist/assist_overlay.js?v=3"></script>
-  <script src="assist/assist_tet.js?v=19"></script>
+  <script src="assist/assist_tet.js?v=20"></script>
   <script src="assist/assist_puyo.js?v=7"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>

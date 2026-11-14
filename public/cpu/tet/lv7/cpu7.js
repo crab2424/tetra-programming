@@ -10,7 +10,7 @@
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=4'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=5'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -208,6 +208,8 @@ window.CPU7 = class {
 
     updateLoop() {
         if (!this.isActive) return;
+        // ZONE（VERSUS）: 発動の判断・発動中の手の速さ（cpu/tet/cpu_zone.js）。ZONE の無い試合では何もしない
+        if (window.CpuZone && CpuZone.tick(this, 7)) { this.game.cpuFrame(() => this.updateLoop()); return; }
         if (this.game.mino && this.game.mino !== this.currentMino) {
             this.currentMino = this.game.mino;
             this.onMinoSpawned();
@@ -239,6 +241,8 @@ window.CPU7 = class {
             const by = b.y + 5;
             if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) boardBuffer[by * 10 + b.x] = 1;
         });
+        // ZONE の発動中は印を付ける（探索が ZONE 段を消えない床として読む。cpu/tet/cpu_zone.js）
+        if (window.CpuZone) CpuZone.stampBoard(boardBuffer, this.game);
 
         // 確定 NEXT を深さぶん（HOLD が空なら1本多く使う）まで継ぎ足す。表示は先頭5個のまま、ツモの順は変わらない
         const depth = Math.max(1, Math.min(32, Math.round(this.weights.searchDepth)));
@@ -444,7 +448,8 @@ window.CPU7 = class {
             bag |= 1 << oppNext[i].type;
         }
         ctx[17] = bag === 0x7F ? 0 : bag;
-        opp.field.blocks.forEach(b => {
+        // 相手が ZONE の発動中なら、ZONE 段を除いたふつうの盤面として渡す（cpu/tet/cpu_zone.js）
+        (window.CpuZone ? CpuZone.plainBlocks(opp) : opp.field.blocks).forEach(b => {
             const by = b.y + 5;
             if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) ctx[boardAt + by * 10 + b.x] = 1;
         });

@@ -94,6 +94,13 @@ function stopAllGames() {
     document.getElementById('container')?.classList.remove('zone-active', 'zone-hot');
     const zoneTop = document.getElementById('zone-top-canvas');
     if (zoneTop) zoneTop.getContext('2d').clearRect(0, 0, zoneTop.width, zoneTop.height);
+    // VERSUS の両盤面のぶん（次がぷよ戦でも残らないように）
+    for (const pre of ['player', 'cpu']) {
+      const a = document.getElementById(`${pre}-zone-area`);
+      if (a) a.style.display = 'none';
+      document.getElementById(`${pre}-zone-end-popup`)?.classList.remove('show');
+      document.getElementById(`versus-${pre}-container`)?.classList.remove('zone-active', 'zone-hot');
+    }
     const resultZoneRow = document.getElementById('result-zone-row');
     if (resultZoneRow) resultZoneRow.style.display = 'none';
 

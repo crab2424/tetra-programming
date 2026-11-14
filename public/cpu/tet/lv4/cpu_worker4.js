@@ -29,7 +29,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=2'); // ★ v2.2.3 I: 25行化で再ビルド
+importScripts('cpu_wasm4.js?v=3'); // ★ v2.2.3 I: 25行化で再ビルド
 
 let boardPtr = null;
 let resultPtr = null;

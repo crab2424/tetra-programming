@@ -77,7 +77,7 @@ const REPLAY_TET_SINGLE = ['marathon', 'sprint', 'ultra', 'zone'];
 const REPLAY_ENV_FIELDS = {
     tet: ['gravityDisabled', 'practiceNoLock', 'practiceFallSpeedMs', 'practiceHoldMode', 'lockDelay',
         'marathonGoal', 'marathonStartLevel', 'isCpuControlled',
-        'zoneFixedLevel', 'zoneQuarterLinesSetting', 'zoneQuarterMsSetting',
+        'zoneFixedLevel', 'zoneQuarterLinesSetting', 'zoneQuarterMsSetting', 'vsZone', 'vsZoneQuarterLines',
         'vsMarginTimeMs', 'vsAttackMultiplier', 'vsGarbageHoleRate', 'vsGarbageDamageOnClear', 'vsHoldEnabled',
         'vsChainMin', 'vsOjamaRate', 'vsPuyoSpeed', 'vsMarginMultiplier'],
     puyo: ['vsEraseCount', 'vsColorCount', 'practiceFallMs', 'practiceNoLock', 'isCpuControlled', 'suppressBlink',

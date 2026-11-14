@@ -34,7 +34,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm6.js?v=20'); // ★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
+importScripts('cpu_wasm6.js?v=21'); // ★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
 
 let boardPtr = null;
 let resultPtr = null;

@@ -54,7 +54,9 @@ const DEFAULT_VS_SETTINGS = {
     tet: {
         holdEnabled: true,
         garbageHoleRate: 70,
-        garbageDamageOnClear: true
+        garbageDamageOnClear: true,
+        zone: false,          // ZONE（テト同士のときだけ効く。設計 source_assets/memory/tet_zone/tetlabo-zone-versus-cpu-design.md）
+        zoneCharge: 6         // ZONE CHARGE: 1/4 ゲージに必要なライン数（4 / 6 / 8）
     },
     puyo: {
         ojamaRate:  70,       // 10~120 (10刻み)
@@ -144,6 +146,14 @@ function getMarginTimeMs() {
 function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
     const s = currentVsSettings;
 
+    // ZONE はテト同士のときだけ（対ぷよでは無効から始める。設計 Q13）。両者へ同じ値を入れる
+    const zoneOn = !!s.tet.zone && playerRule === 'tet' && cpuRule === 'tet';
+    for (const g of [playerGame, cpuGame]) {
+        if (!g) continue;
+        g.vsZone = zoneOn;
+        g.vsZoneQuarterLines = s.tet.zoneCharge;
+    }
+
     // ── プレイヤー側 ──────────────────────────
     if (playerGame) {
         playerGame.vsAttackMultiplier = getAttackMultiplier('player');
@@ -208,7 +218,9 @@ function renderVsSettingsPage() {
     container.appendChild(_buildSection('TET', [
         _buildHoldToggleRow(),
         _buildGarbageHoleRateRow(),
-        _buildGarbageDamageRow()
+        _buildGarbageDamageRow(),
+        _buildZoneToggleRow(),
+        _buildZoneChargeRow()
     ]));
 
     // ── PUYO ──────────────────────────────────
@@ -560,6 +572,73 @@ function _buildGarbageDamageRow() {
     return _buildRow('DMG ON CLR', '', ctrl);
 }
 
+// ── ZONE ON/OFF（テト同士の対戦だけ） ─────────────
+function _buildZoneToggleRow() {
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'vs-setting-btn-group';
+
+    ['ON', 'OFF'].forEach(label => {
+        const btn = document.createElement('button');
+        btn.className = 'vs-setting-step-btn'
+            + ((label === 'ON') === !!currentVsSettings.tet.zone ? ' active' : '');
+        btn.textContent = label;
+        btn.onclick = () => {
+            currentVsSettings.tet.zone = (label === 'ON');
+            saveVsSettings();
+            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
+                b.classList.toggle('active', (b.textContent === 'ON') === !!currentVsSettings.tet.zone);
+            });
+            _syncZoneChargeInert();
+        };
+        btnGroup.appendChild(btn);
+    });
+
+    ctrl.appendChild(btnGroup);
+    return _buildRow('ZONE', '(TET vs TET)', ctrl);
+}
+
+// ZONE が OFF の間は ZONE CHARGE の行を減光する（値は保持される）
+function _syncZoneChargeInert() {
+    const row = document.getElementById('vss-row-zoneCharge');
+    if (row) row.classList.toggle('is-inert', !currentVsSettings.tet.zone);
+}
+
+// ── ZONE CHARGE（1/4 ゲージに必要なライン数） ──
+function _buildZoneChargeRow() {
+    const options = [4, 6, 8];
+    const current = currentVsSettings.tet.zoneCharge;
+
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'vs-setting-btn-group';
+
+    options.forEach(val => {
+        const btn = document.createElement('button');
+        btn.className = 'vs-setting-step-btn' + (val === current ? ' active' : '');
+        btn.textContent = String(val);
+        btn.dataset.value = String(val);
+        btn.onclick = () => {
+            currentVsSettings.tet.zoneCharge = val;
+            saveVsSettings();
+            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
+                b.classList.toggle('active', parseInt(b.dataset.value) === val);
+            });
+        };
+        btnGroup.appendChild(btn);
+    });
+
+    ctrl.appendChild(btnGroup);
+    const row = _buildRow('ZONE CHARGE', '(lines / 25%)', ctrl);
+    row.id = 'vss-row-zoneCharge';
+    row.classList.toggle('is-inert', !currentVsSettings.tet.zone);
+    return row;
+}
+
 // ── おじゃまレート（スライダー、10〜700、10刻み） ──
 function _buildOjamaRateRow() {
     const current = currentVsSettings.puyo.ojamaRate;
@@ -745,6 +824,7 @@ function _updateVsSettingsSummary() {
     if (!s.tet.garbageDamageOnClear) {
         parts.push('DMG-ON-CLR:OFF');
     }
+    if (s.tet.zone) parts.push(`ZONE:${s.tet.zoneCharge}`);
 
     if (s.puyo.ojamaRate !== DEFAULT_VS_SETTINGS.puyo.ojamaRate) {
         parts.push(`RATE:${s.puyo.ojamaRate}`);

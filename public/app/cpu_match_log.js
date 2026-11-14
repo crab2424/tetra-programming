@@ -74,6 +74,8 @@ window.CpuMatchLog = (() => {
             pieces: 0, lines: 0, attack: 0, tss: 0, tsd: 0, tst: 0, tsMini: 0, tetrises: 0, pcs: 0, b2b: 0,
             maxRen: 0, maxSpike: 0, spikeRun: 0, garbageTaken: 0, lastGarbageAt: null,
             garbageLog: [],   // [時刻, 段数]（死ぬ直前の判定用）
+            zones: 0, zoneLinesMax: 0, zoneAttack: 0,
+            zoneLog: [],      // ZONE 1 回ごと { q: 発動時の 1/4 の数, h: 発動した時点の高さ, lines, attack }
         };
     }
 
@@ -93,6 +95,22 @@ window.CpuMatchLog = (() => {
         let n = 0;
         for (const g of game.garbageQueue || []) if (!g.internal) n += g.amount;
         return n;
+    }
+
+    // ZONE の発動・終了（game/tet/zone.js から。VERSUS の ZONE が ON のときだけ来る）
+    function zone(game, phase, charge, lines, attack) {
+        const s = sideOf(game);
+        if (!s || !s.tet) return;
+        const t = s.tet;
+        if (phase === 'start') {
+            t.zones++;
+            t.zoneLog.push({ q: charge, h: stackHeight(game), lines: null, attack: null });
+        } else {
+            const last = t.zoneLog[t.zoneLog.length - 1];
+            if (last && last.lines === null) { last.lines = lines; last.attack = attack; }
+            if (lines > t.zoneLinesMax) t.zoneLinesMax = lines;
+            t.zoneAttack += attack;
+        }
     }
 
     let hooked = false;
@@ -222,6 +240,7 @@ window.CpuMatchLog = (() => {
                 tss: t.tss, tsd: t.tsd, tst: t.tst, tsMini: t.tsMini, tetrises: t.tetrises, pcs: t.pcs,
                 b2b: t.b2b, maxRen: t.maxRen, maxSpike: t.maxSpike, garbageTaken: t.garbageTaken,
             });
+            if (t.zones > 0) Object.assign(o, { zones: t.zones, zoneLinesMax: t.zoneLinesMax, zoneAttack: t.zoneAttack, zoneLog: t.zoneLog });
         } else if (s.game) {
             o.maxChain = s.game.chainMax || 0;
             o.score = s.game.score || 0;
@@ -262,7 +281,8 @@ window.CpuMatchLog = (() => {
 
     // ── 書き出し ──
     const CSV_SIDE = ['label', 'className', 'rule', 'pieces', 'pps', 'attack', 'apm', 'lines', 'tss', 'tsd', 'tst',
-                      'tsMini', 'tetrises', 'pcs', 'b2b', 'maxRen', 'maxSpike', 'garbageTaken', 'maxChain', 'disablePC', 'thinkMs'];
+                      'tsMini', 'tetrises', 'pcs', 'b2b', 'maxRen', 'maxSpike', 'garbageTaken', 'maxChain', 'disablePC', 'thinkMs',
+                      'zones', 'zoneLinesMax', 'zoneAttack'];
     const CSV_DEATH = ['reason', 'kind', 'stackHeight', 'incoming', 'garbageLast3s', 'lastGarbageAgoMs', 'inPCSequence'];
     function toCsv(list) {
         const head = ['no', 'at', 'sec', 'winner', 'winnerLabel', 'loserLabel']
@@ -353,5 +373,5 @@ window.CpuMatchLog = (() => {
             : '記録なし（終わった局を自動で残します）';
     }
 
-    return { begin, end, abort, hideDock, matches: load, download, clear, toCsv, setAuto, isAuto };
+    return { begin, end, abort, zone, hideDock, matches: load, download, clear, toCsv, setAuto, isAuto };
 })();

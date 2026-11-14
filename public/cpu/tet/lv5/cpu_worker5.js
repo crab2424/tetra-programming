@@ -29,7 +29,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js?v=3'); // ★ 2026-10-25 地形強化（T0 キック表・重み 47 要素）で再ビルド
+importScripts('cpu_wasm5.js?v=4'); // ★ 2026-10-25 地形強化（T0 キック表・重み 47 要素）で再ビルド
 
 let boardPtr = null;
 let resultPtr = null;

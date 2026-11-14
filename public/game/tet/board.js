@@ -143,6 +143,10 @@ Object.assign(Game.prototype, {
 
         // Scoring() の戻り値として火力（段数）を受け取る
         let generatedGarbage = this.Scoring(tSpinResult, linesCleared, isPerfectClear);
+        // VERSUS の ZONE 発動中は消去ごとの火力を出さない（相殺もしない）。終了時に表の火力だけ出す
+        // （tet/zone.js _endZone。設計 tetlabo-zone-versus-cpu-design.md §2.2）
+        if (inZone && this.isVersusMode) generatedGarbage = 0;
+        if (inZone) this._zoneLastLockAt = this.clock.now();
         this.updateStatsDisplay();
 
         // APM計測（生成基準）：相殺の有無に関わらず、この設置で生成した火力を積む。
@@ -375,7 +379,10 @@ Object.assign(Game.prototype, {
         }
 
         // 次のミノが出現する直前（今のミノが固定された瞬間）に、自分に届いている火力を適用
-        if (this.isVersusMode || this.garbageQueue.length > 0) {
+        // ZONE の発動中に置いた手では着弾させない（予告には積まれ、猶予も進む。終了後の「消去しない設置」で着弾）
+        if (inZone) {
+            // 着弾なし
+        } else if (this.isVersusMode || this.garbageQueue.length > 0) {
             if (this.vsGarbageDamageOnClear !== false || linesCleared === 0) {
                 this.applyGarbage();
             }

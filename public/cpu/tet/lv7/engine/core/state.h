@@ -34,6 +34,9 @@ public:
     u8 ren;
     // TETLABO lv7: 火力表のマージン段（-1＝未突入の表、0〜5＝scoring.js のマージン中の表）。ハッシュには含めない
     i8 margin;
+    // TETLABO lv7: ZONE の発動中か（消去は Board::clear_zone。ハッシュには含めない）。
+    //   発動中はそろった段が全部底の ZONE 段なので、ZONE 段の数は置く前の盤面から数えられる
+    bool zone = false;
 public:
     State() : board(Board()), hold(piece::Type::NONE), bag(Bag()), next(0), b2b(0), ren(0), margin(-1) {};
     State(Board board, piece::Type hold, Bag bag, u8 next, u8 b2b, u8 ren) : board(board), hold(hold), bag(bag), next(next), b2b(b2b), ren(ren), margin(-1) {};

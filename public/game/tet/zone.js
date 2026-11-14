@@ -19,6 +19,34 @@ const ZONE_TIERS = [4, 8, 12, 16, 18, 20]; // 段数の区切り（数字の色�
 const ZONE_TIER_COLORS = ['#e0e0f0', '#71c5f5', '#5af5a0', '#f5e15a', '#f5a05a', '#fa71cd', '#ffffff'];
 const ZONE_END_FX_MS = 700;            // 終了の光（描画だけ）
 
+// ─── VERSUS（設計 tetlabo-zone-versus-cpu-design.md §2）───
+// VS 設定 ZONE CHARGE で選べる「1/4 あたりのライン数」（既定 6。1/4 の長さは 5 秒固定）
+const ZONE_VS_QUARTER_LINES_OPTIONS = [4, 6, 8];
+const ZONE_VS_QUARTER_LINES_DEFAULT = 6;
+// 終了時の火力表（原作の Zone Bonus Attack。§2.3）。[発動時のチャージ-1][合計段数-1] = 火力のかたまり。
+// かたまりは別々の予告として送る。24 段以上は 23 段の行を使う
+const ZONE_ATTACK_TABLE = [
+    // 25%
+    [[1], [2], [2], [3], [4], [4], [4, 1], [4, 2], [4, 2], [4, 3], [4, 4], [4, 4], [4, 4, 1], [4, 4, 2], [4, 4, 2],
+        [4, 4, 3], [4, 4, 4], [4, 4, 4], [5, 4, 4], [5, 5, 4, 4], [6, 6, 6, 6], [8, 8, 8, 8], [10, 10, 10, 10]],
+    // 50%
+    [[1], [2], [3], [4], [5], [6], [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [6, 6], [6, 6, 1], [6, 6, 2], [6, 6, 3],
+        [6, 6, 4], [6, 6, 5], [6, 6, 6], [8, 6, 6], [8, 8, 8], [10, 10, 10], [14, 12, 12], [16, 16, 16]],
+    // 75%
+    [[1], [2], [3], [4], [6], [7], [8], [9], [10], [10, 2], [10, 3], [10, 4], [10, 5], [10, 6], [10, 8],
+        [10, 9], [10, 10], [11, 10], [12, 10], [14, 14], [16, 16, 4], [18, 18, 10], [20, 20, 20]],
+    // 100%
+    [[1], [3], [4], [6], [7], [9], [11], [12], [13], [15], [15, 1], [15, 3], [15, 4], [15, 6], [15, 7],
+        [15, 9], [15, 10], [15, 12], [15, 13], [17, 17], [18, 18, 10], [20, 20, 12, 10], [20, 20, 20, 20]],
+];
+
+// 終了時の火力のかたまり（補正をかける前）。段数 0 なら空
+function zoneAttackChunks(charge, lines) {
+    if (!(lines > 0)) return [];
+    const row = ZONE_ATTACK_TABLE[Math.min(4, Math.max(1, charge)) - 1];
+    return row[Math.min(row.length, lines) - 1].slice();
+}
+
 function zoneTierIndex(lines) {
     let i = 0;
     while (i < ZONE_TIERS.length && lines >= ZONE_TIERS[i]) i++;
@@ -31,13 +59,25 @@ Object.assign(Game.prototype, {
     _zoneInit() {
         if (this._zoneTimer) this.clock.cancel(this._zoneTimer);
         this._zoneTimer = null;
-        // いまはモード ZONE だけ。VERSUS などで使うときはここで立てる（§3）
-        this.zoneEnabled = (this.mode === 'zone');
-        // 1/4 に必要なライン数・1/4 の長さ（準備画面の設定。未設定・範囲外は既定値）
-        this.zoneQuarterLines = ZONE_QUARTER_LINES_OPTIONS.includes(this.zoneQuarterLinesSetting)
-            ? this.zoneQuarterLinesSetting : ZONE_QUARTER_LINES_SINGLE;
-        this.zoneQuarterMs = ZONE_QUARTER_MS_OPTIONS.includes(this.zoneQuarterMsSetting)
-            ? this.zoneQuarterMsSetting : ZONE_MS_PER_QUARTER;
+        // モード ZONE か、ローカル VERSUS で VS 設定 ZONE が ON（vsZone は applyVsSettings が入れる。
+        // テト同士のときだけ立つ。ONLINE の盤面には入らない）
+        const vs = !!(this.isVersusMode && this.currentMode === 'versus' && this.vsZone === true);
+        this.zoneEnabled = (this.mode === 'zone') || vs;
+        if (vs) {
+            // VERSUS: VS 設定 ZONE CHARGE（1/4 あたりのライン数）。1/4 の長さは 5 秒固定（§2.4）
+            this.zoneQuarterLines = ZONE_VS_QUARTER_LINES_OPTIONS.includes(this.vsZoneQuarterLines)
+                ? this.vsZoneQuarterLines : ZONE_VS_QUARTER_LINES_DEFAULT;
+            this.zoneQuarterMs = ZONE_MS_PER_QUARTER;
+        } else {
+            // 1/4 に必要なライン数・1/4 の長さ（準備画面の設定。未設定・範囲外は既定値）
+            this.zoneQuarterLines = ZONE_QUARTER_LINES_OPTIONS.includes(this.zoneQuarterLinesSetting)
+                ? this.zoneQuarterLinesSetting : ZONE_QUARTER_LINES_SINGLE;
+            this.zoneQuarterMs = ZONE_QUARTER_MS_OPTIONS.includes(this.zoneQuarterMsSetting)
+                ? this.zoneQuarterMsSetting : ZONE_MS_PER_QUARTER;
+        }
+        this._zoneB2bBefore = false; // VERSUS: 発動前の B2B（終了時に戻す）
+        this._zoneLastLockAt = 0;    // 発動中に最後に置いた時刻（CPU の発動中の手の速さ。cpu/tet/cpu_zone.js）
+        this.zoneLastAttack = 0;     // VERSUS: 直前の終了で出した火力（補正後の合計）
         this.zoneMeter = 0;          // たまったライン数（端数も持つ）
         this.zoneActive = false;
         this.zoneLines = 0;          // 発動中に底へ移した段数
@@ -86,6 +126,13 @@ Object.assign(Game.prototype, {
         this.zoneActive = true;
         this.zoneCount++;
         this.zoneStartAt = this.clock.now();
+        this._zoneLastLockAt = this.zoneStartAt;
+        this._zoneB2bBefore = !!this.backToBack;
+        // VERSUS: 録画の印・CPU 同士の記録
+        if (this.isVersusMode) {
+            if (this._rec) this._rec._mark(this, 'attack', 'ZONE', 0);
+            if (window.CpuMatchLog && window.CpuMatchLog.zone) window.CpuMatchLog.zone(this, 'start', q, 0, 0);
+        }
         this._zoneTimer = this.clock.schedule(this.zoneDurationMs, () => {
             this._zoneTimer = null;
             this._zoneOnTimeUp();
@@ -105,6 +152,9 @@ Object.assign(Game.prototype, {
 
     _zoneOnTimeUp() {
         if (!this.zoneActive) return;
+        // VERSUS の決着の演出中は何もしない（止まった盤面を下げたり、火力を送ったりしない）
+        if (this.isVersusMode && (this.isFinishing
+            || (window.BattleVersusLifecycle && window.BattleVersusLifecycle.phase !== 'playing'))) return;
         // VERSUS はその場で終わる（操作中のミノは持ち越す）。シングルはいまのミノを置くまで続く（§4.5）
         if (this.isVersusMode) {
             this._endZone('time');
@@ -113,6 +163,20 @@ Object.assign(Game.prototype, {
         this.zoneTimeUp = true;
         this._zoneSyncHud(true);
         this.requestRedraw();
+    },
+
+    // 盤面入れ替え（app/board_swap.js）の後: 時間切れの予約は前の持ち主を掴んでいるので、残り時間から貼り直す
+    _zoneReseatTimer(oldOwner) {
+        if (oldOwner && oldOwner._zoneTimer) { oldOwner.clock.cancel(oldOwner._zoneTimer); }
+        this._zoneTimer = null;
+        if (this.zoneActive && !this.zoneTimeUp) {
+            this._zoneTimer = this.clock.schedule(this.zoneRemainingMs(), () => {
+                this._zoneTimer = null;
+                this._zoneOnTimeUp();
+            });
+        }
+        this._zoneHudSig = null;
+        this._zoneSyncHud(true);
     },
 
     // 残り時間（ms）
@@ -171,6 +235,12 @@ Object.assign(Game.prototype, {
             const bs = field.blocks;
             for (let i = 0; i < bs.length; i++) bs[i].y += n;
             field.markDirty();
+            // VERSUS の時間切れは操作中のミノを持ち越す。ミノが庇の下にいると、下がってきたブロックと重なるので、
+            // そのときだけミノも同じ段数下げる（積んである形との位置関係はそのまま）
+            if (reason === 'time' && this.isVersusMode && this.mino && !this.valid(0, 0)) {
+                this.mino.y += n;
+                if (this.mino.y > this.lowestY) this.lowestY = this.mino.y;
+            }
         }
         // 3. スコア（§5.2）。lines・レベルは変えない（§5.4）
         const mult = 1 + (n >= 8 ? 1 : 0) + (this.zoneCharge === 4 ? 1 : 0);
@@ -178,6 +248,32 @@ Object.assign(Game.prototype, {
         this.score += bonus;
         this.zoneLinesTotal += n;
         if (n > this.zoneBest) this.zoneBest = n;
+        // VERSUS: 表から火力のかたまりを作り、補正をかけ、まず相殺、余りをかたまりごとに送る（VERSUS 編 §2.2）
+        let attack = 0;
+        if (this.isVersusMode) {
+            const charge = this.zoneCharge;
+            // 4. より先に発動を解く（送る・相殺するのはふだんの状態で）
+            this.zoneActive = false;
+            const mult = this.vsAttackMultiplier ?? 1.0;
+            const chunks = zoneAttackChunks(charge, n)
+                .map(c => (mult !== 1.0 ? Math.floor(c * mult + 1e-9) : c))
+                .filter(c => c > 0);
+            for (const c of chunks) attack += c;
+            if (attack > 0) {
+                this._countAttackSent(attack); // APM（生成基準。相殺ぶんも数える）
+                let canceled = attack - this.offsetGarbage(attack);
+                for (const c of chunks) {
+                    const used = Math.min(c, canceled);
+                    canceled -= used;
+                    if (c - used > 0) this.sendGarbage(c - used, { zoneChunk: true });
+                }
+            }
+            // 発動中の REN・B2B は火力にしない。終了直後の 1 手に大きな REN 火力が乗らないよう戻す
+            this.ren = 0;
+            this.backToBack = this._zoneB2bBefore;
+            this.zoneLastAttack = attack;
+            if (window.CpuMatchLog && window.CpuMatchLog.zone) window.CpuMatchLog.zone(this, 'end', charge, n, attack);
+        }
         // 4. 状態を戻す
         this.zoneActive = false;
         this.zoneTimeUp = false;
@@ -196,11 +292,13 @@ Object.assign(Game.prototype, {
             }
         }
         // 録画の印（core/replay.js）
-        if (this._rec && n > 0) this._rec._mark(this, 'attack', `ZONE ${n} LINES`, n);
+        if (this._rec && (n > 0 || this.isVersusMode)) {
+            this._rec._mark(this, 'attack', this.isVersusMode ? `ZONE ${n} (+${attack})` : `ZONE ${n} LINES`, this.isVersusMode ? attack : n);
+        }
         // 6. 表示・SE・演出（描画だけ）
         this.playSe(n >= 16 ? 'zone_end_big' : 'zone_end');
         this._zoneFx = { t: performance.now(), lines: n, reason };
-        this._zoneShowEndPopup(n, bonus);
+        this._zoneShowEndPopup(n, this.isVersusMode ? attack : bonus);
         this._zoneSyncHud(true);
         this.requestRedraw();
     },
@@ -223,16 +321,22 @@ Object.assign(Game.prototype, {
     },
 
     // ─── 画面（HUD）───
-    // シングルの盤面だけ（対戦の盤面は VERSUS の段階で）。変わったときだけ DOM を書き換える
+    // シングルの盤面と、ローカル VERSUS の両盤面（player- / cpu-。ONLINE の盤面には要素が無い）。
+    // 変わったときだけ DOM を書き換える
     _zoneHudEls() {
-        if (this.isVersusMode || this.canvasPrefix) return null;
-        if (!this._zoneEls) {
+        const pre = this.canvasPrefix || '';
+        if (this.isVersusMode ? (pre !== 'player' && pre !== 'cpu') : !!pre) return null;
+        if (!this._zoneEls || this._zoneElsPrefix !== pre) {
+            const id = pre ? (name) => `${pre}-zone-${name}` : (name) => `zone-${name}`;
+            const area = document.getElementById(id('area'));
+            this._zoneElsPrefix = pre;
             this._zoneEls = {
-                area: document.getElementById('zone-area'),
-                segs: Array.from(document.querySelectorAll('#zone-meter .zone-seg-fill')),
-                key: document.getElementById('zone-key'),
-                sub: document.getElementById('zone-sub'),
-                container: document.getElementById('container'),
+                area,
+                segs: area ? Array.from(area.querySelectorAll('.zone-seg-fill')) : [],
+                key: document.getElementById(id('key')),
+                sub: document.getElementById(id('sub')),
+                container: document.getElementById(pre ? `versus-${pre}-container` : 'container'),
+                popup: document.getElementById(id('end-popup')),
             };
         }
         return this._zoneEls.area ? this._zoneEls : null;
@@ -270,7 +374,8 @@ Object.assign(Game.prototype, {
             els.segs[i].style.transform = `scaleX(${fills[i] || 0})`;
         }
         if (els.key) {
-            const k = (typeof loadKeys === 'function') ? (loadKeys().zone || {}) : {};
+            // キー名は人が操作する盤面だけ
+            const k = (!this.isCpuControlled && typeof loadKeys === 'function') ? (loadKeys().zone || {}) : {};
             els.key.textContent = k.label || '';
         }
         if (els.sub) els.sub.textContent = sub;
@@ -281,9 +386,10 @@ Object.assign(Game.prototype, {
     },
 
     // 盤面中央の「ZONE n LINES / +得点」（描画だけ）
+    // VERSUS は「ZONE n LINES / ATTACK +火力」
     _zoneShowEndPopup(n, bonus) {
-        if (this.isVersusMode || this.canvasPrefix) return;
-        const el = document.getElementById('zone-end-popup');
+        const els = this._zoneHudEls();
+        const el = els && els.popup;
         if (!el) return;
         const linesEl = el.querySelector('.zone-end-lines');
         const scoreEl = el.querySelector('.zone-end-score');
@@ -291,7 +397,7 @@ Object.assign(Game.prototype, {
             linesEl.textContent = `ZONE ${n} LINES`;
             linesEl.style.color = ZONE_TIER_COLORS[zoneTierIndex(n)];
         }
-        if (scoreEl) scoreEl.textContent = `+${bonus}`;
+        if (scoreEl) scoreEl.textContent = this.isVersusMode ? `ATTACK +${bonus}` : `+${bonus}`;
         el.classList.remove('show');
         void el.offsetWidth; // アニメをやり直す
         el.classList.add('show');
@@ -301,9 +407,8 @@ Object.assign(Game.prototype, {
 
     _zoneHideEndPopup() {
         clearTimeout(this._zonePopupTimer);
-        if (this.isVersusMode || this.canvasPrefix) return;
-        const el = document.getElementById('zone-end-popup');
-        if (el) el.classList.remove('show');
+        const els = this._zoneHudEls();
+        if (els && els.popup) els.popup.classList.remove('show');
     },
 
     // ─── 描画（render.js の drawAll から。盤面の座標系＝上に半段の余白を取った後で呼ぶ）───

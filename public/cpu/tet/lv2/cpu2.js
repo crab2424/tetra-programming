@@ -7,7 +7,7 @@ window.CPU2 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv2/cpu_worker2.js?v=2',
+        'cpu/tet/lv2/cpu_worker2.js?v=3',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -108,6 +108,8 @@ window.CPU2 = class {
 
     updateLoop() {
         if (!this.isActive) return;
+        // ZONE（VERSUS）: 発動の判断・発動中の手の速さ（cpu/tet/cpu_zone.js）。ZONE の無い試合では何もしない
+        if (window.CpuZone && CpuZone.tick(this, 2)) { this.game.cpuFrame(() => this.updateLoop()); return; }
         if (this.game.mino && this.game.mino !== this.currentMino) {
             this.currentMino = this.game.mino;
             this.onMinoSpawned();
@@ -141,6 +143,8 @@ window.CPU2 = class {
                 boardBuffer[by * 10 + b.x] = 1; 
             }
         });
+        // ZONE の発動中は印を付ける（探索が ZONE 段を消えない床として読む。cpu/tet/cpu_zone.js）
+        if (window.CpuZone) CpuZone.stampBoard(boardBuffer, this.game);
 
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,

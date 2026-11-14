@@ -24,7 +24,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm7.js?v=4');
+importScripts('cpu_wasm7.js?v=5');
 
 const OUT_LEN = 160;       // [96..] は lv7Search2 の相手の見積もり（lv7Search は 96 まで）
 const CTX_MAX = 19 + 4 * 16 + 250;   // lv7_wasm.cpp parse_ctx の並び

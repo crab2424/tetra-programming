@@ -34,9 +34,11 @@ Lock State::lock(move::Placement& placement)
     lock.tspin = ts == 1;
     lock.mini = ts == 2;
 
+    const i32 zone_rows = this->zone ? std::countr_one(this->board.get_clear_mask()) : 0;
+
     placement.place(this->board);
 
-    lock.clear = this->board.clear();
+    lock.clear = this->zone ? this->board.clear_zone(zone_rows) : this->board.clear();
 
     if (lock.clear > 0) {
         if (lock.tspin) {

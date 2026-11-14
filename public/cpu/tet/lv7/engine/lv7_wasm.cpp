@@ -95,8 +95,13 @@ State make_root(const Cell* board, const i32* queueIn, i32 nQueue, i32 hold, i32
 {
     State state = State();
 
+    // ZONE: 先頭の値が 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）。
+    //   ZONE 段は盤面の底にそろった段として入っているので、数は State::lock が盤面から数える
+    state.zone = board[0] >= 100;
+
     for (i32 yi = 0; yi < 25; ++yi) {
         for (i32 x = 0; x < 10; ++x) {
+            if (state.zone && yi == 0 && x == 0) continue;
             if (board[yi * 10 + x]) {
                 state.board[x] |= 1ULL << (24 - yi);
             }

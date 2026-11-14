@@ -4,19 +4,22 @@
 ───────────────────────────────────────────── */
 
 /* ─── メーター ─── */
-#zone-area {
+#zone-area,
+.versus-zone-area {
   position: absolute;
   left: -160px;
   top: 158px;
   width: 132px;
 }
-#zone-area .area-label {
+#zone-area .area-label,
+.versus-zone-area .area-label {
   position: static;
   display: block;
   margin-bottom: 6px;
   color: var(--zone-color);
 }
-#zone-meter {
+#zone-meter,
+.zone-meter {
   display: flex;
   gap: 4px;
 }
@@ -37,7 +40,8 @@
   transform-origin: left center;
 }
 /* 発動中は残り時間で減る（右から削れて見えるように左寄せのまま） */
-#zone-area.is-active .zone-seg-fill {
+#zone-area.is-active .zone-seg-fill,
+.versus-zone-area.is-active .zone-seg-fill {
   background: linear-gradient(90deg, #ffffff, var(--zone-color));
   box-shadow: 0 0 8px var(--zone-color);
 }
@@ -69,7 +73,8 @@
 .zone-ready b:empty {
   display: none;
 }
-#zone-area.is-ready .zone-ready {
+#zone-area.is-ready .zone-ready,
+.versus-zone-area.is-ready .zone-ready {
   display: inline;
 }
 .zone-sub {
@@ -94,6 +99,22 @@
   box-shadow: 0 0 36px rgba(110, 231, 214, 0.75), 0 0 80px rgba(255, 255, 255, 0.2);
 }
 
+/* VERSUS（ローカルのテト同士・VS 設定 ZONE が ON）: 相手の発動が一目で分かるよう、盤面の枠を同じ色で光らせる */
+#player-main-canvas,
+#cpu-main-canvas {
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.versus-container.zone-active #player-main-canvas,
+.versus-container.zone-active #cpu-main-canvas {
+  border-color: var(--zone-color);
+  box-shadow: 0 0 28px rgba(110, 231, 214, 0.55);
+}
+.versus-container.zone-hot #player-main-canvas,
+.versus-container.zone-hot #cpu-main-canvas {
+  border-color: #ffffff;
+  box-shadow: 0 0 36px rgba(110, 231, 214, 0.8), 0 0 80px rgba(255, 255, 255, 0.25);
+}
+
 /* ─── 枠の上（y=-5〜-0.5）。盤面のキャンバスの上端にぴったり重ねる ─── */
 #zone-top-canvas {
   position: absolute;
@@ -106,7 +127,8 @@
 }
 
 /* ─── 終了の表示（盤面中央に「ZONE n LINES / +得点」） ─── */
-#zone-end-popup {
+#zone-end-popup,
+.zone-end-popup {
   position: absolute;
   top: 0;
   left: 0;
@@ -121,7 +143,8 @@
   z-index: 19;
   opacity: 0;
 }
-#zone-end-popup.show {
+#zone-end-popup.show,
+.zone-end-popup.show {
   animation: zone-end-pop 2.1s ease-out forwards;
 }
 .zone-end-lines {

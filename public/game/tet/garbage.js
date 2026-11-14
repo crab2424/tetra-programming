@@ -6,7 +6,8 @@
 
 Object.assign(Game.prototype, {
 
-    sendGarbage(amount) {
+    // opts.zoneChunk: ZONE 終了時の火力のかたまり（受ける側がかたまりごとに穴を引き直す。tet/zone.js）
+    sendGarbage(amount, opts) {
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opponent || amount <= 0) return;
 
@@ -32,7 +33,9 @@ Object.assign(Game.prototype, {
             gaugeToOjama: true,
         }, {
             sendTetLines: (lines) => {
-                BG.deliverLocalWithReadyTimer(opponent, { amount: lines, holes: [], ready: false }, 1500);
+                const entry = { amount: lines, holes: [], ready: false };
+                if (opts && opts.zoneChunk) entry.zoneChunk = true;
+                BG.deliverLocalWithReadyTimer(opponent, entry, 1500);
             },
             sendOjama: (count) => {
                 BG.deliverLocalWithReadyTimer(opponent, { amount: count, holes: [], ready: false }, 1000);
@@ -89,8 +92,9 @@ Object.assign(Game.prototype, {
                 const rng = this._rngStream('garbage');
                 if (g.holes && g.holes[i] !== undefined && g.holes[i] !== null) {
                     currentHole = g.holes[i];
-                } else if (droppedLines === 0) {
-                    // 今回受ける一番下の段（最初の1段目）は完全にランダム
+                } else if (droppedLines === 0 || (g.zoneChunk && i === 0)) {
+                    // 今回受ける一番下の段（最初の1段目）は完全にランダム。
+                    // ZONE の火力はかたまりごとに穴を引き直す（設計 tetlabo-zone-versus-cpu-design.md Q10）
                     currentHole = Math.floor(rng() * COLS_COUNT);
                 } else {
                     // 2段目以降は70%で同じ穴、30%で違う穴
@@ -119,6 +123,7 @@ Object.assign(Game.prototype, {
                 const rest = { amount: g.amount - dropCount, holes: remainHoles, ready: true };
                 if (g._srcRule !== undefined) rest._srcRule = g._srcRule;
                 if (g._srcSender !== undefined) rest._srcSender = g._srcSender;
+                if (g.zoneChunk) rest.zoneChunk = true;
                 this.garbageQueue.unshift(rest);
                 for (let k = j + 1; k < readyGarbage.length; k++) {
                     this.garbageQueue.push(readyGarbage[k]);

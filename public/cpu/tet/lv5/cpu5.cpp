@@ -83,7 +83,24 @@ public:
         if(x >= 0 && x < COLS && y >= 0 && y < ROWS) rows[y] &= ~(1 << x);
     }
 
+    // ZONE（設計 source_assets/memory/tet_zone/tetlabo-zone-versus-cpu-design.md §5.2 C1）:
+    //   底にある ZONE 段の数。-1＝発動していない（このときは今までと全く同じ動き）。
+    //   発動中は ZONE 段を消去判定せず、そろった段は「下を 1 段上げて底へ移す」（上の段は動かない）
+    int16_t zone = -1;
+    int zoneClear() {
+        const int floorY = ROWS - zone;
+        int cleared = 0, w = 0;
+        for (int y = 0; y < floorY; y++) {
+            if (rows[y] == 0x3FF) { cleared++; continue; }
+            rows[w++] = rows[y];
+        }
+        for (int y = w; y < floorY; y++) rows[y] = 0x3FF;
+        zone += cleared;
+        return cleared;
+    }
+
     int checkLineAndClear() {
+        if (zone >= 0) return zoneClear();
         int cleared = 0;
         int write_y = ROWS - 1;
         for (int y = ROWS - 1; y >= 0; y--) {
@@ -942,6 +959,8 @@ void evaluateSinglePlacementWasm(
     for(int i = 0; i < 250; i++) {
         if (boardData[i]) baseBoard.set(i % 10, i / 10);
     }
+    // ZONE: 先頭のバイトが 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）
+    if (boardData[0] >= 100) { baseBoard.zone = boardData[0] - 100; baseBoard.clear(0, 0); }
 
     EvalWeights w = loadWeights(weightsArray);
 
@@ -1010,6 +1029,8 @@ void searchBestMoveWasm(
     for(int i = 0; i < 250; i++) {
         if (boardData[i]) baseBoard.set(i % 10, i / 10);
     }
+    // ZONE: 先頭のバイトが 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）
+    if (boardData[0] >= 100) { baseBoard.zone = boardData[0] - 100; baseBoard.clear(0, 0); }
 
     EvalWeights w = loadWeights(weightsArray);
 
