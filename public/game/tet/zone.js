@@ -375,6 +375,14 @@ Object.assign(Game.prototype, {
         // 落下・固定をふだんに戻す（シングルはミノを置いた後か、出せなかったときなので mino は無い）
         if (this.mino) {
             if (this.valid(0, 1)) {
+                // 発動中にソフトドロップで ZONE 段の上に着いていたミノは、盤面が下がって宙に浮く。
+                // そのとき進んでいた固定猶予を取り消す（残すと空中で固定される。board.js の「空中にいる場合」と同じ）。
+                // 版 7 以前の録画の再生は従来どおり（core/replay.js REPLAY_ENGINE_VERSION 8）
+                const oldLock = this._replay && this._replay.data && (this._replay.data.engine || 0) < 8;
+                if (this.lockTimer && !oldLock) {
+                    this.clock.cancel(this.lockTimer);
+                    this.lockTimer = null;
+                }
                 this.isGrounded = false;
                 this.startGravity();
             } else {
