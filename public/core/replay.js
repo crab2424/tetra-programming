@@ -1023,8 +1023,20 @@ class ReplayPlayer {
     attach() {
         const clock = this.games[0].clock;
         // VERSUS は両盤面の初期化で入れたマージンタイムの予約を残す（録画でも残っている。捨てるとレートが変わらずずれる）
-        if (this.data.mode === 'versus') clock.rebase(this.t0, this.data.timers);
-        else clock.reset(this.t0);
+        if (this.data.mode === 'versus') {
+            clock.rebase(this.t0, this.data.timers);
+            // マージンタイムの「数え始めた時刻」は初期化のとき（合わせ直す前の時計）の値のまま残っている。
+            // ポーズで残り時間を出すのに使うので、合わせ直した予約から録画と同じ値に戻す
+            // （戻さないと 1 回目の再生はポーズ明けにすぐマージンに入り、火力がずれる。2 回目は前の回の時刻が残る）
+            for (const g of this.games) {
+                const h = g._vsMarginTimer;
+                if (h && typeof h.due === 'number' && typeof g._vsMarginTimerDuration === 'number') {
+                    g._vsMarginTimerStart = h.due - g._vsMarginTimerDuration;
+                }
+            }
+        } else {
+            clock.reset(this.t0);
+        }
         clock._tape = null;
         clock._feed = new ReplayReader(this.dtBytes);
         if (this.loop.recorder) this.loop.recorder = null;
