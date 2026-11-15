@@ -204,6 +204,51 @@ Object.assign(Game.prototype, {
         return amount;
     },
 
+    // 着弾できるおじゃま（ready かつ internal でない）を、1 手ごとに降る段数の列にする（予告ゲージの表示用）。
+    // applyGarbage と同じ決まりで先を読む: 古い順に取り、ZONE の分けて送る火力（zoneHold）は 1 かたまりで止め、
+    // ぷよからの火力は 1 手 7 段まで（あふれた分は次の手の先頭）。盤面・キューは変えない
+    _garbageLandingGroups() {
+        const isOpponentPuyo = this._garbageOpponentIsPuyo();
+        const PUYO_DROP_LIMIT = 7;
+        let pending = [];
+        for (const g of this.garbageQueue) {
+            if (!g.ready || g.internal || !(g.amount > 0)) continue;
+            const fromPuyo = (g._srcRule !== undefined) ? (g._srcRule === 'puyo') : isOpponentPuyo;
+            pending.push({ amount: g.amount, zoneHold: !!g.zoneHold, limit: fromPuyo ? PUYO_DROP_LIMIT : Infinity });
+        }
+        const groups = [];
+        while (pending.length && groups.length < 64) {
+            let dropped = 0;
+            let next = null;
+            let used = 0;
+            for (let j = 0; j < pending.length; j++) {
+                const g = pending[j];
+                used = j + 1;
+                const take = Math.max(0, Math.min(g.amount, g.limit - dropped));
+                dropped += take;
+                if (take < g.amount) {
+                    next = Object.assign({}, g, { amount: g.amount - take });
+                    break;
+                }
+                if (g.zoneHold) break;
+            }
+            pending = (next ? [next] : []).concat(pending.slice(used));
+            if (dropped > 0) groups.push(dropped);
+            else break;
+        }
+        return groups;
+    },
+
+    // 相手がぷよか（sendGarbage・applyGarbage と同じ決め方）
+    _garbageOpponentIsPuyo() {
+        if (this.opponentRule) return this.opponentRule === 'puyo';
+        if (typeof versusCpuRule !== 'undefined' && typeof versusPlayerRule !== 'undefined') {
+            return (this.canvasPrefix === 'cpu') ? (versusPlayerRule === 'puyo') : (versusCpuRule === 'puyo');
+        }
+        const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+        return !!opponent && ((opponent.constructor && opponent.constructor.name === 'PuyoGame') || (opponent.rule === 'puyo'));
+    },
+
     // 予告ゲージのDOMを更新
     updateGarbageGauge() {
         if (!this.isVersusMode) return;
@@ -214,60 +259,37 @@ Object.assign(Game.prototype, {
 
         gaugeEl.innerHTML = '';
 
-        // ready（確定・赤）と unready（猶予中・青）の合計をカウント（かたまり表示でないとき用）。
-        let readyCount = 0;
-        let unreadyCount = 0;
-        let held = false;
-
-        this.garbageQueue.forEach(g => {
-            if (g.internal) return; // stage1(内部のみ) は非表示
-            if (g.ready && !held) {
-                readyCount += g.amount;
-                if (g.zoneHold) held = true;
-            } else {
-                unreadyCount += g.amount;
-            }
-        });
-
+        // 予告ゲージは「かたまり」で見せる（ZONE の有無に関係なく。設計 tetlabo-zone-versus-cpu-design.md §15）。
+        //   ・色は猶予だけを表す（赤=着弾できる、青=猶予中）。
+        //   ・赤は「1 手で一緒に降る分」ごとに 1 かたまりにまとめる（_garbageLandingGroups＝applyGarbage と同じ決まり。
+        //     ふつうは着弾できる分が全部つながる／ぷよからの火力は 7 段ごと／ZONE の SPLIT は 1 かたまりごと）。
+        //   ・青は攻撃 1 回ごとに別のかたまり。着弾できるようになったら赤のかたまりへつながる。
+        //   ・かたまりの中は線を消してつなげ、かたまりの間にすき間を入れる。
+        //   ・点滅（すぐ降る合図）は次の 1 手で降るいちばん下のかたまりだけ。その後ろの赤は点灯。
         const GAUGE_MAX = 20;
-        const visible = this.garbageQueue.filter(g => !g.internal && g.amount > 0);
-        if (visible.some(g => g.zoneHold)) {
-            // ZONE の分けて送る火力が並んでいる間は「かたまり」で見せる（設計 §15）。
-            // 色は猶予だけを表す（赤=着弾できる、青=猶予中）。1 手で降るのはいちばん下の 1 かたまり。
-            // かたまりの中は線を消してつなげ、かたまりの間にすき間を入れて量を読めるようにする。
-            // 点滅（すぐ降る合図）は次の 1 手で降るいちばん下のかたまりだけ。その後ろの ready は赤の点灯にする。
-            let shown = 0;
-            let firstGroup = true;
-            for (let i = 0; i < visible.length && shown < GAUGE_MAX; i++) {
-                const g = visible[i];
-                // zoneHold のかたまりで 1 手ぶんが終わる（その前のふつうの火力は一緒に降る）
-                const groupEnd = !!g.zoneHold && i < visible.length - 1;
-                const n = Math.min(g.amount, GAUGE_MAX - shown);
-                for (let k = 0; k < n; k++) {
-                    const block = document.createElement('div');
-                    block.className = 'gauge-block chunk ' + (g.ready ? 'ready' : 'unready')
-                        + (g.ready && !firstGroup ? ' waiting' : '')
-                        + (groupEnd && k === g.amount - 1 ? ' chunk-end' : '');
-                    gaugeEl.appendChild(block);
-                }
-                shown += n;
-                if (g.zoneHold) firstGroup = false;
+        const groups = this._garbageLandingGroups().map(n => ({ n, ready: true }));
+        let readyCount = 0;
+        for (const gr of groups) readyCount += gr.n;
+        let unreadyCount = 0;
+        for (const g of this.garbageQueue) {
+            if (g.internal || g.ready || !(g.amount > 0)) continue; // stage1(内部のみ) は非表示
+            groups.push({ n: g.amount, ready: false });
+            unreadyCount += g.amount;
+        }
+        // 下から表示する（column-reverse）。ブロックは盤面の高さ（20）まで。超えた分は数を出す
+        let shown = 0;
+        for (let i = 0; i < groups.length && shown < GAUGE_MAX; i++) {
+            const gr = groups[i];
+            const n = Math.min(gr.n, GAUGE_MAX - shown);
+            const isLast = i === groups.length - 1;
+            for (let k = 0; k < n; k++) {
+                const block = document.createElement('div');
+                block.className = 'gauge-block chunk ' + (gr.ready ? 'ready' : 'unready')
+                    + (gr.ready && i > 0 ? ' waiting' : '')
+                    + (!isLast && k === gr.n - 1 ? ' chunk-end' : '');
+                gaugeEl.appendChild(block);
             }
-        } else {
-        // 下から表示するため、先にreadyを、後にunreadyをDOMに追加する
-        // ブロックは盤面の高さ（20）まで。超えた分は数を出す（赤／青の意味を保つため色は増やさない）
-        const readyShown = Math.min(readyCount, GAUGE_MAX);
-        const unreadyShown = Math.min(unreadyCount, GAUGE_MAX - readyShown);
-        for (let i = 0; i < readyShown; i++) {
-            const block = document.createElement('div');
-            block.className = 'gauge-block ready';
-            gaugeEl.appendChild(block);
-        }
-        for (let i = 0; i < unreadyShown; i++) {
-            const block = document.createElement('div');
-            block.className = 'gauge-block unready';
-            gaugeEl.appendChild(block);
-        }
+            shown += n;
         }
         const total = readyCount + unreadyCount;
         if (total > GAUGE_MAX) {
