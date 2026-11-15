@@ -187,6 +187,17 @@ const CpuZone = (() => {
         return (g && g.zoneActive && g.isVersusMode) ? 0 : ms;
     }
 
+    // 探索の結果が手を持たない（初手で出現できないと読んだ死に枝）とき用。ZONE の発動中だけ、その場で落とす。
+    // 発動中は自由落下で固定されないので、何もしないと CPU が止まったままになる（設計 §14）
+    function dropIfNoMove(cpu) {
+        const g = cpu && cpu.game;
+        if (!g || !g.zoneActive || !g.isVersusMode || cpu.isAutoPlay === false) return;
+        const mino = cpu.currentMino;
+        g.cpuSchedule(0, () => {
+            if (cpu.isActive && g.mino === mino && !g.isPaused) g.cpuAction('hardDrop');
+        });
+    }
+
     // 各 CPU の updateLoop の頭で毎フレーム呼ぶ。true を返したら、そのフレームは新しいミノに取りかからない
     // （いまは常に false。発動中も通常と同じ速さで打つ。設計 §11.2）
     function tick(cpu, level) {
@@ -205,6 +216,6 @@ const CpuZone = (() => {
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, noMoveDelay };
+    return { CONFIG, RULES, floor, stampBoard, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, noMoveDelay, dropIfNoMove };
 })();
 window.CpuZone = CpuZone;

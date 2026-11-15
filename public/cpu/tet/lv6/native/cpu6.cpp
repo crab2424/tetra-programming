@@ -298,6 +298,18 @@ void searchBestMoveWasm(
     const int P1_WEIGHT_PCT = w.p1Weight;
 
     final_states.reserve(128);
+
+    // ★ 死んだ枝（Block Out / Lock Out）は、いちばん良い 1 つだけ覚える。
+    //   以前は全部 final_states に積んでいた。死んだ枝が最後に効くのは「beam_score 最大の 1 つ」だけ
+    //   （下の最終選択。同点は先に見つけた方＝ここでも先勝ち。pick_move は死に枝を飛ばす）なので結果は同じ。
+    //   ZONE の発動中は消しても盤面が下がらず、高い盤面では毎手ほぼ全部の置き方が死に枝になるため、
+    //   8 手ぶん積むとヒープ（32MB 固定）を使い切って Aborted(OOM) になっていた
+    //   （設計 tetlabo-zone-versus-cpu-design.md §14）。
+    SearchState bestDead;
+    bool hasDead = false;
+    auto pushDead = [&](const SearchState& d) {
+        if (!hasDead || d.beam_score > bestDead.beam_score) { bestDead = d; hasDead = true; }
+    };
     current_states.reserve(BEAM_WIDTH * 2);
     next_states_N.reserve(2048);
     next_states_L.reserve(2048);
@@ -312,7 +324,7 @@ void searchBestMoveWasm(
             dead_s.beam_score  -= deathPenalty(step_num); // ★ 選択キーにも必ず入れる（旧実装は無減点）
             dead_s.dead = true;
             if (is_first) dead_s.first_action = first_action;
-            final_states.push_back(dead_s);
+            pushDead(dead_s);
             return -1; // ★ v2.2.3 I: Block Out（呼び出し側は HOLD の展開をしない）
         }
 
@@ -432,14 +444,14 @@ void searchBestMoveWasm(
                     next_s.total_score -= deathPenalty(step_num + 1);
                     next_s.beam_score  -= deathPenalty(step_num + 1);
                     next_s.dead = true;
-                    final_states.push_back(next_s);
+                    pushDead(next_s);
                     continue;
                 }
             }
 
             if (hasBlockOutside) {
                 next_s.dead = true;
-                final_states.push_back(next_s);
+                pushDead(next_s);
             } else {
                 if (p.linesCleared > 0) next_states_L.push_back(next_s);
                 else next_states_N.push_back(next_s);
@@ -525,6 +537,7 @@ void searchBestMoveWasm(
         trimAndMerge();
     }
 
+    if (hasDead) final_states.push_back(bestDead); // 死に枝は生存枝より前（以前の並びと同じ）
     for (const auto& state : current_states) {
         final_states.push_back(state);
     }

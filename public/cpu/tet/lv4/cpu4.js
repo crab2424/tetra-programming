@@ -618,6 +618,10 @@ window.CPU4 = class {
 
         if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino && bestMove.p1) {
             this.executeAction(bestMove);
+        } else if (!bestMove.p1 && window.CpuZone) {
+            // 探索が「初手で出せない」死に枝を返した（手を持たない）。ZONE の発動中は自由落下で固定されないので、
+            // 何もしないとそのまま止まる。その場で落とす（cpu/tet/cpu_zone.js dropIfNoMove。ZONE 以外は今までどおり）
+            CpuZone.dropIfNoMove(this);
         }
     }
 

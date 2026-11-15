@@ -9,7 +9,7 @@ window.CPU6 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv6/wasm/cpu_worker6.js?v=21',
+        'cpu/tet/lv6/wasm/cpu_worker6.js?v=22',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -959,6 +959,10 @@ window.CPU6 = class {
 
         if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino && bestMove.p1) {
             this.executeAction(bestMove);
+        } else if (!bestMove.p1 && window.CpuZone) {
+            // 探索が「初手で出せない」死に枝を返した（手を持たない）。ZONE の発動中は自由落下で固定されないので、
+            // 何もしないとそのまま止まる。その場で落とす（cpu/tet/cpu_zone.js dropIfNoMove。ZONE 以外は今までどおり）
+            CpuZone.dropIfNoMove(this);
         }
     }
 

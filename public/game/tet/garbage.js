@@ -7,7 +7,7 @@
 Object.assign(Game.prototype, {
 
     // opts.zoneChunk: ZONE 終了時の火力のかたまり（受ける側がかたまりごとに穴を引き直す。tet/zone.js）
-    // opts.extraDelayMs: 着弾できるようになるまでの猶予（テト同士の 1500ms）に足す時間（ZONE の表のかたまりを順に遅らせる）
+    // opts.zoneHold: 分けて送る ZONE の火力（VS 設定 ZONE ATTACK: SPLIT）。受ける側は 1 手につき 1 かたまりだけ着弾させる
     sendGarbage(amount, opts) {
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opponent || amount <= 0) return;
@@ -36,7 +36,8 @@ Object.assign(Game.prototype, {
             sendTetLines: (lines) => {
                 const entry = { amount: lines, holes: [], ready: false };
                 if (opts && opts.zoneChunk) entry.zoneChunk = true;
-                BG.deliverLocalWithReadyTimer(opponent, entry, 1500 + ((opts && opts.extraDelayMs) || 0));
+                if (opts && opts.zoneHold) entry.zoneHold = true;
+                BG.deliverLocalWithReadyTimer(opponent, entry, 1500);
             },
             sendOjama: (count) => {
                 BG.deliverLocalWithReadyTimer(opponent, { amount: count, holes: [], ready: false }, 1000);
@@ -46,8 +47,20 @@ Object.assign(Game.prototype, {
 
     applyGarbage() {
         // stage3(ready かつ internalでない)のみ落下対象。internal は ready でも残置（internal優先）
-        const readyGarbage = this.garbageQueue.filter(g => g.ready && !g.internal);
-        this.garbageQueue = this.garbageQueue.filter(g => !(g.ready && !g.internal));
+        // ZONE の分けて送る火力（zoneHold）は 1 手につき 1 かたまりだけ: 古い順に取っていき、zoneHold のかたまりを
+        // 1 つ取ったらそこで止める。残りは着弾できる状態のまま次の手を待つ（順番は変えない。設計 §14.1）
+        const readyGarbage = [];
+        const restGarbage = [];
+        let held = false;
+        for (const g of this.garbageQueue) {
+            if (g.ready && !g.internal && !held) {
+                readyGarbage.push(g);
+                if (g.zoneHold) held = true;
+            } else {
+                restGarbage.push(g);
+            }
+        }
+        this.garbageQueue = restGarbage;
 
         if (readyGarbage.length === 0) return;
 
@@ -125,6 +138,7 @@ Object.assign(Game.prototype, {
                 if (g._srcRule !== undefined) rest._srcRule = g._srcRule;
                 if (g._srcSender !== undefined) rest._srcSender = g._srcSender;
                 if (g.zoneChunk) rest.zoneChunk = true;
+                if (g.zoneHold) rest.zoneHold = true;
                 this.garbageQueue.unshift(rest);
                 for (let k = j + 1; k < readyGarbage.length; k++) {
                     this.garbageQueue.push(readyGarbage[k]);
@@ -200,14 +214,21 @@ Object.assign(Game.prototype, {
 
         gaugeEl.innerHTML = '';
 
-        // ready（確定・赤）と unready（猶予中・青）の合計をカウント
+        // ready（確定・赤）と unready（猶予中・青）の合計をカウント。
+        // ZONE の分けて送る火力（zoneHold）は、次の 1 手で着弾する 1 かたまりまでを赤にし、
+        // その後ろで待っているぶんは着弾できる状態でも青のままにする（applyGarbage と同じ数え方。設計 §14.1）
         let readyCount = 0;
         let unreadyCount = 0;
+        let held = false;
 
         this.garbageQueue.forEach(g => {
             if (g.internal) return; // stage1(内部のみ) は非表示
-            if (g.ready) readyCount += g.amount;
-            else unreadyCount += g.amount;
+            if (g.ready && !held) {
+                readyCount += g.amount;
+                if (g.zoneHold) held = true;
+            } else {
+                unreadyCount += g.amount;
+            }
         });
 
         // 下から表示するため、先にreadyを、後にunreadyをDOMに追加する
