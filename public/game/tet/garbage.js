@@ -214,9 +214,7 @@ Object.assign(Game.prototype, {
 
         gaugeEl.innerHTML = '';
 
-        // ready（確定・赤）と unready（猶予中・青）の合計をカウント。
-        // ZONE の分けて送る火力（zoneHold）は、次の 1 手で着弾する 1 かたまりまでを赤にし、
-        // その後ろで待っているぶんは着弾できる状態でも青のままにする（applyGarbage と同じ数え方。設計 §14.1）
+        // ready（確定・赤）と unready（猶予中・青）の合計をカウント（かたまり表示でないとき用）。
         let readyCount = 0;
         let unreadyCount = 0;
         let held = false;
@@ -231,9 +229,29 @@ Object.assign(Game.prototype, {
             }
         });
 
+        const GAUGE_MAX = 20;
+        const visible = this.garbageQueue.filter(g => !g.internal && g.amount > 0);
+        if (visible.some(g => g.zoneHold)) {
+            // ZONE の分けて送る火力が並んでいる間は「かたまり」で見せる（設計 §15）。
+            // 色は猶予だけを表す（赤=着弾できる、青=猶予中）。1 手で降るのはいちばん下の 1 かたまり。
+            // かたまりの中は線を消してつなげ、かたまりの間にすき間を入れて量を読めるようにする。
+            let shown = 0;
+            for (let i = 0; i < visible.length && shown < GAUGE_MAX; i++) {
+                const g = visible[i];
+                // zoneHold のかたまりで 1 手ぶんが終わる（その前のふつうの火力は一緒に降る）
+                const groupEnd = !!g.zoneHold && i < visible.length - 1;
+                const n = Math.min(g.amount, GAUGE_MAX - shown);
+                for (let k = 0; k < n; k++) {
+                    const block = document.createElement('div');
+                    block.className = 'gauge-block chunk ' + (g.ready ? 'ready' : 'unready')
+                        + (groupEnd && k === g.amount - 1 ? ' chunk-end' : '');
+                    gaugeEl.appendChild(block);
+                }
+                shown += n;
+            }
+        } else {
         // 下から表示するため、先にreadyを、後にunreadyをDOMに追加する
         // ブロックは盤面の高さ（20）まで。超えた分は数を出す（赤／青の意味を保つため色は増やさない）
-        const GAUGE_MAX = 20;
         const readyShown = Math.min(readyCount, GAUGE_MAX);
         const unreadyShown = Math.min(unreadyCount, GAUGE_MAX - readyShown);
         for (let i = 0; i < readyShown; i++) {
@@ -245,6 +263,7 @@ Object.assign(Game.prototype, {
             const block = document.createElement('div');
             block.className = 'gauge-block unready';
             gaugeEl.appendChild(block);
+        }
         }
         const total = readyCount + unreadyCount;
         if (total > GAUGE_MAX) {
