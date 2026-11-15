@@ -153,8 +153,9 @@ const CpuZone = (() => {
             }
         }
 
-        // 守り: 予告が着弾したら死ぬ。1 段以上はすぐ消せること（消せないと盤面が下がらず負ける）
-        if (rule.defend && lethal && st.nearFull >= 1) return 'defend';
+        // 守り: 予告が着弾したら死ぬ。すぐ消せる段が無くても発動する（発動しなければ次の設置で着弾して負ける。
+        // 発動中は着弾が止まるので、その間に 1 段でも消せば盤面が下がって生き延びる。設計 §13.2）
+        if (rule.defend && lethal) return 'defend';
 
         // 攻め: 満タン・穴がない・低い・予告が小さい・見込み段数が目標以上
         if (rule.attack && q === 4 && st.holes <= CONFIG.attackMaxHoles && st.height <= CONFIG.attackMaxHeight
@@ -177,6 +178,15 @@ const CpuZone = (() => {
         return null;
     }
 
+    // 探索が「置ける手がない」を返したとき、その場で落とすまでの待ち（ms）。各レベルの handleWorkerResult から。
+    // ふだんは今までどおり待つ。ZONE の発動中は待たない: 発動中は自由落下も固定もしないので、待つと ZONE の
+    // 時間だけ減る。落として枠の上で固定（または次のミノが出せない）になれば ZONE が終わり、発動中に消した
+    // 段数ぶん盤面が下がって続けられる（game/tet/zone.js _zoneRespawnAfterTopOut。設計 §13.2）
+    function noMoveDelay(cpu, ms) {
+        const g = cpu && cpu.game;
+        return (g && g.zoneActive && g.isVersusMode) ? 0 : ms;
+    }
+
     // 各 CPU の updateLoop の頭で毎フレーム呼ぶ。true を返したら、そのフレームは新しいミノに取りかからない
     // （いまは常に false。発動中も通常と同じ速さで打つ。設計 §11.2）
     function tick(cpu, level) {
@@ -195,6 +205,6 @@ const CpuZone = (() => {
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, plainBlocks, tick, decide, boardStats, expectedLines, attackOf };
+    return { CONFIG, RULES, floor, stampBoard, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, noMoveDelay };
 })();
 window.CpuZone = CpuZone;

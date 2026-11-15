@@ -60,6 +60,7 @@ const DEFAULT_VS_SETTINGS = {
         garbageDamageOnClear: true,
         zone: false,          // ZONE（テト同士のときだけ効く。設計 source_assets/memory/tet_zone/tetlabo-zone-versus-cpu-design.md）
         zoneTime: 5000,       // ZONE TIME: 1/4 ゲージあたりの長さ（ms。2.5 / 4 / 5 / 8 / 10 秒。シングルの準備画面と同じ）
+        zoneSplit: true,      // ZONE ATTACK: true=SPLIT（発動中の攻撃を 1 回ぶんずつ → 表のかたまりを後から順に）/ false=MERGE（まとめて同時に）
         zoneCharge: 6         // ZONE CHARGE: 1/4 ゲージに必要なライン数（3 / 6 / 8 / 10 / 12。シングルの準備画面と同じ）
     },
     puyo: {
@@ -161,6 +162,7 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
         g.vsZone = zoneOn;
         g.vsZoneQuarterLines = s.tet.zoneCharge;
         g.vsZoneQuarterMs = s.tet.zoneTime;
+        g.vsZoneSplit = s.tet.zoneSplit !== false;
     }
 
     // ── プレイヤー側 ──────────────────────────
@@ -230,7 +232,8 @@ function renderVsSettingsPage() {
         _buildGarbageDamageRow(),
         _buildZoneToggleRow(),
         _buildZoneTimeRow(),
-        _buildZoneChargeRow()
+        _buildZoneChargeRow(),
+        _buildZoneSplitRow()
     ]));
 
     // ── PUYO ──────────────────────────────────
@@ -612,7 +615,7 @@ function _buildZoneToggleRow() {
 
 // ZONE が OFF の間は ZONE TIME・ZONE CHARGE の行を減光する（値は保持される）
 function _syncZoneChargeInert() {
-    for (const id of ['vss-row-zoneTime', 'vss-row-zoneCharge']) {
+    for (const id of ['vss-row-zoneTime', 'vss-row-zoneCharge', 'vss-row-zoneSplit']) {
         const row = document.getElementById(id);
         if (row) row.classList.toggle('is-inert', !currentVsSettings.tet.zone);
     }
@@ -646,6 +649,36 @@ function _buildZoneTimeRow() {
     ctrl.appendChild(btnGroup);
     const row = _buildRow('ZONE TIME', '(sec / 25%)', ctrl);
     row.id = 'vss-row-zoneTime';
+    row.classList.toggle('is-inert', !currentVsSettings.tet.zone);
+    return row;
+}
+
+// ── ZONE ATTACK（終了時の火力の送り方。SPLIT=分けて送る / MERGE=まとめて送る） ──
+function _buildZoneSplitRow() {
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'vs-setting-btn-group';
+
+    const isSplit = () => currentVsSettings.tet.zoneSplit !== false;
+    ['SPLIT', 'MERGE'].forEach(label => {
+        const btn = document.createElement('button');
+        btn.className = 'vs-setting-step-btn' + ((label === 'SPLIT') === isSplit() ? ' active' : '');
+        btn.textContent = label;
+        btn.onclick = () => {
+            currentVsSettings.tet.zoneSplit = (label === 'SPLIT');
+            saveVsSettings();
+            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
+                b.classList.toggle('active', (b.textContent === 'SPLIT') === isSplit());
+            });
+        };
+        btnGroup.appendChild(btn);
+    });
+
+    ctrl.appendChild(btnGroup);
+    const row = _buildRow('ZONE ATTACK', '(send)', ctrl);
+    row.id = 'vss-row-zoneSplit';
     row.classList.toggle('is-inert', !currentVsSettings.tet.zone);
     return row;
 }
@@ -868,7 +901,7 @@ function _updateVsSettingsSummary() {
     if (!s.tet.garbageDamageOnClear) {
         parts.push('DMG-ON-CLR:OFF');
     }
-    if (s.tet.zone) parts.push(`ZONE:${s.tet.zoneTime / 1000}s/${s.tet.zoneCharge}`);
+    if (s.tet.zone) parts.push(`ZONE:${s.tet.zoneTime / 1000}s/${s.tet.zoneCharge}${s.tet.zoneSplit === false ? '/MERGE' : ''}`);
 
     if (s.puyo.ojamaRate !== DEFAULT_VS_SETTINGS.puyo.ojamaRate) {
         parts.push(`RATE:${s.puyo.ojamaRate}`);

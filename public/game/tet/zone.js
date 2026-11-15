@@ -59,6 +59,10 @@ function zoneMarginBonusX10(marginStep) {
     return ZONE_MARGIN_BONUS_X10[Math.min(ZONE_MARGIN_BONUS_X10.length - 1, marginStep)];
 }
 
+// 分けて送るとき（VS 設定 ZONE ATTACK: SPLIT。設計 §13.1）、表のかたまりを 1 個ずつ遅らせる間隔（ms。仮）。
+// k 個目（0 始まり）の表のかたまりは、ふつうの猶予 1500ms ＋ (k+1) × これ の後に着弾できるようになる
+const ZONE_SPLIT_STEP_MS = 500;
+
 // VERSUS の終了時に出す火力のかたまり（補正後。設計 §11）。CPU の見込み（cpu/tet/cpu_zone.js）もこれを使う。
 //   pool       発動中にためた通常火力（Scoring の値そのまま。マージン中の火力表はもう入っている）
 //   marginStep _tetMarginStep（null = 未突入）
@@ -77,6 +81,16 @@ function zoneEndAttackChunks(charge, lines, pool, marginStep, bias) {
         if (v > 0) out.push(v);
     }
     return out;
+}
+
+// 分けて送るとき（設計 §13.1）のかたまり。{ normal: [発動中の攻撃 1 回ぶんずつ…], bonus: [表のかたまり…] }
+//   list  発動中に出た通常火力（Scoring の値）を出た順に並べたもの。ATTACK BIAS は 1 回ぶんごとにかける（ふだんと同じ）
+function zoneEndAttackSplit(charge, lines, list, marginStep, bias) {
+    const b = (bias === undefined || bias === null) ? 1.0 : bias;
+    const biased = (v) => (b !== 1.0 ? Math.floor(v * b + 1e-9) : v);
+    const normal = (list || []).map(biased).filter(v => v > 0);
+    const bonus = zoneEndAttackChunks(charge, lines, 0, marginStep, bias);
+    return { normal, bonus };
 }
 
 function zoneTierIndex(lines) {
@@ -111,6 +125,7 @@ Object.assign(Game.prototype, {
         }
         this._zoneB2bBefore = false; // VERSUS: 発動前の B2B（終了時に戻す）
         this.zoneAtkPool = 0;        // VERSUS: 発動中にためた通常火力（終了時に表の火力へ足して出す。§11.1）
+        this.zoneAtkList = [];       // VERSUS: 同じものを攻撃 1 回ぶんずつ（分けて送るとき用。§13.1）
         this.zoneCarry = 0;          // 満タンの後に消したライン（次のメーターへ持ち越す。上限 1/4 ぶん。§11.3）
         this.zoneLastAttack = 0;     // VERSUS: 直前の終了で出した火力（補正後の合計）
         this.zoneMeter = 0;          // たまったライン数（端数も持つ）
@@ -169,6 +184,7 @@ Object.assign(Game.prototype, {
         this.zoneLines = 0;
         this.zoneScorePool = 0;
         this.zoneAtkPool = 0;
+        this.zoneAtkList = [];
         this.zoneTimeUp = false;
         this.zoneActive = true;
         this.zoneCount++;
@@ -301,16 +317,31 @@ Object.assign(Game.prototype, {
             const charge = this.zoneCharge;
             // 4. より先に発動を解く（送る・相殺するのはふだんの状態で）
             this.zoneActive = false;
-            const chunks = zoneEndAttackChunks(charge, n, this.zoneAtkPool, this._tetMarginStep,
-                this.vsAttackMultiplier ?? 1.0);
+            // VS 設定 ZONE ATTACK（§13.1）。SPLIT: 発動中の攻撃を 1 回ぶんずつそのまま送り、表のかたまりは
+            // 後から 1 個ずつ遅らせて送る。MERGE: [通常火力の合計, 表のかたまり…] を同時に送る（§11 のまま）。
+            // vsZoneSplit が無い（古い録画）は MERGE
+            const split = this.vsZoneSplit === true;
+            let chunks, delays;
+            if (split) {
+                const parts = zoneEndAttackSplit(charge, n, this.zoneAtkList, this._tetMarginStep,
+                    this.vsAttackMultiplier ?? 1.0);
+                chunks = parts.normal.concat(parts.bonus);
+                delays = parts.normal.map(() => 0).concat(parts.bonus.map((_, k) => (k + 1) * ZONE_SPLIT_STEP_MS));
+            } else {
+                chunks = zoneEndAttackChunks(charge, n, this.zoneAtkPool, this._tetMarginStep,
+                    this.vsAttackMultiplier ?? 1.0);
+                delays = chunks.map(() => 0);
+            }
             for (const c of chunks) attack += c;
             if (attack > 0) {
                 this._countAttackSent(attack); // APM（生成基準。相殺ぶんも数える）
                 let canceled = attack - this.offsetGarbage(attack);
-                for (const c of chunks) {
+                // 相殺は先頭のかたまりから順に使う
+                for (let i = 0; i < chunks.length; i++) {
+                    const c = chunks[i];
                     const used = Math.min(c, canceled);
                     canceled -= used;
-                    if (c - used > 0) this.sendGarbage(c - used, { zoneChunk: true });
+                    if (c - used > 0) this.sendGarbage(c - used, { zoneChunk: true, extraDelayMs: delays[i] });
                 }
             }
             // 発動中の REN・B2B は上の通常火力に入っている。終了直後の 1 手に大きな REN 火力が乗らないよう戻す
@@ -325,6 +356,7 @@ Object.assign(Game.prototype, {
         this.zoneLines = 0;
         this.zoneScorePool = 0;
         this.zoneAtkPool = 0;
+        this.zoneAtkList = [];
         this.zoneCharge = 0;
         this.updateStatsDisplay();
         // 落下・固定をふだんに戻す（シングルはミノを置いた後か、出せなかったときなので mino は無い）

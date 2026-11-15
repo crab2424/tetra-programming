@@ -7,6 +7,7 @@
 Object.assign(Game.prototype, {
 
     // opts.zoneChunk: ZONE 終了時の火力のかたまり（受ける側がかたまりごとに穴を引き直す。tet/zone.js）
+    // opts.extraDelayMs: 着弾できるようになるまでの猶予（テト同士の 1500ms）に足す時間（ZONE の表のかたまりを順に遅らせる）
     sendGarbage(amount, opts) {
         const opponent = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opponent || amount <= 0) return;
@@ -35,7 +36,7 @@ Object.assign(Game.prototype, {
             sendTetLines: (lines) => {
                 const entry = { amount: lines, holes: [], ready: false };
                 if (opts && opts.zoneChunk) entry.zoneChunk = true;
-                BG.deliverLocalWithReadyTimer(opponent, entry, 1500);
+                BG.deliverLocalWithReadyTimer(opponent, entry, 1500 + ((opts && opts.extraDelayMs) || 0));
             },
             sendOjama: (count) => {
                 BG.deliverLocalWithReadyTimer(opponent, { amount: count, holes: [], ready: false }, 1000);

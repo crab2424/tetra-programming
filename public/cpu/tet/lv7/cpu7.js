@@ -303,7 +303,8 @@ window.CPU7 = class {
         if (res[0] !== 1) {
             // 置ける手が無い（窒息）。その場で落とす
             if (this.isAutoPlay && this.game.mino === this.currentMino) {
-                this.game.cpuSchedule(700, () => {
+                // ZONE の発動中は待たずに落とす（待つと ZONE の時間だけ減る。cpu/tet/cpu_zone.js noMoveDelay）
+                this.game.cpuSchedule(window.CpuZone ? CpuZone.noMoveDelay(this, 700) : 700, () => {
                     if (this.isActive && this.game.mino === this.currentMino && !this.game.isPaused) this.game.cpuAction('hardDrop');
                 });
             }

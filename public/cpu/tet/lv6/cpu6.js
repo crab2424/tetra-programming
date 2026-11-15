@@ -891,7 +891,8 @@ window.CPU6 = class {
                     }
                     this.game.cpuAction('hardDrop');
                 };
-                this.game.cpuSchedule(700, tryDropFallback);
+                // ZONE の発動中は待たずに落とす（待つと ZONE の時間だけ減る。cpu/tet/cpu_zone.js noMoveDelay）
+                this.game.cpuSchedule(window.CpuZone ? CpuZone.noMoveDelay(this, 700) : 700, tryDropFallback);
             }
             return;
         }

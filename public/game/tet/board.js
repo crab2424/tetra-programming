@@ -147,6 +147,7 @@ Object.assign(Game.prototype, {
         // 表の火力へ足して出す（tet/zone.js _endZone。設計 tetlabo-zone-versus-cpu-design.md §11.1）
         if (inZone && this.isVersusMode) {
             this.zoneAtkPool = (this.zoneAtkPool || 0) + generatedGarbage;
+            if (generatedGarbage > 0) (this.zoneAtkList || (this.zoneAtkList = [])).push(generatedGarbage);
             generatedGarbage = 0;
         }
         this.updateStatsDisplay();
