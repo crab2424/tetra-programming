@@ -235,7 +235,9 @@ Object.assign(Game.prototype, {
             // ZONE の分けて送る火力が並んでいる間は「かたまり」で見せる（設計 §15）。
             // 色は猶予だけを表す（赤=着弾できる、青=猶予中）。1 手で降るのはいちばん下の 1 かたまり。
             // かたまりの中は線を消してつなげ、かたまりの間にすき間を入れて量を読めるようにする。
+            // 点滅（すぐ降る合図）は次の 1 手で降るいちばん下のかたまりだけ。その後ろの ready は赤の点灯にする。
             let shown = 0;
+            let firstGroup = true;
             for (let i = 0; i < visible.length && shown < GAUGE_MAX; i++) {
                 const g = visible[i];
                 // zoneHold のかたまりで 1 手ぶんが終わる（その前のふつうの火力は一緒に降る）
@@ -244,10 +246,12 @@ Object.assign(Game.prototype, {
                 for (let k = 0; k < n; k++) {
                     const block = document.createElement('div');
                     block.className = 'gauge-block chunk ' + (g.ready ? 'ready' : 'unready')
+                        + (g.ready && !firstGroup ? ' waiting' : '')
                         + (groupEnd && k === g.amount - 1 ? ' chunk-end' : '');
                     gaugeEl.appendChild(block);
                 }
                 shown += n;
+                if (g.zoneHold) firstGroup = false;
             }
         } else {
         // 下から表示するため、先にreadyを、後にunreadyをDOMに追加する

@@ -43,6 +43,10 @@
   border-bottom: none;
   box-shadow: none;
 }
+/* 次の 1 手では降らない後ろのかたまりの ready：点滅させず赤の点灯 */
+.gauge-block.chunk.ready.waiting {
+  animation: none;
+}
 .gauge-block.chunk.chunk-end {
   border-top: 8px solid transparent;
   background-clip: padding-box;
