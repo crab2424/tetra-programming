@@ -52,7 +52,7 @@ function zoneAttackChunks(charge, lines) {
 // マージンタイム中、表のボーナス火力にかける倍率（10 倍の整数で持つ。小数点以下は切り捨て）。
 // 添字はマージンのステップ（_tetMarginStep 0〜5 = 突入後 0/32/64/96/128/160 秒。scoring.js の火力表と同じ段階）。
 // 未突入（null）は等倍。設計 tetlabo-zone-versus-cpu-design.md §11.4
-const ZONE_MARGIN_BONUS_X10 = [11, 12, 13, 15, 18, 20];
+const ZONE_MARGIN_BONUS_X10 = [12, 14, 16, 20, 24, 30];
 
 function zoneMarginBonusX10(marginStep) {
     if (marginStep === null || marginStep === undefined || marginStep < 0) return 10;
