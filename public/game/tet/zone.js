@@ -559,10 +559,14 @@ Object.assign(Game.prototype, {
         ctx.globalAlpha = 1;
     },
 
+    // シングルは #zone-top-canvas、ローカル VERSUS は盤面ごとの {player|cpu}-zone-top-canvas（ONLINE には無い）
     _zoneTopCanvas() {
-        if (this.isVersusMode || this.canvasPrefix) return null;
+        let id = null;
+        if (!this.isVersusMode && !this.canvasPrefix) id = 'zone-top-canvas';
+        else if (this.isVersusMode && (this.canvasPrefix === 'player' || this.canvasPrefix === 'cpu')) id = `${this.canvasPrefix}-zone-top-canvas`;
+        if (!id) return null;
         if (this._zoneTop === undefined) {
-            const cv = document.getElementById('zone-top-canvas');
+            const cv = document.getElementById(id);
             if (cv) {
                 cv.width = SCREEN_WIDTH;
                 cv.height = 4.5 * BLOCK_SIZE;

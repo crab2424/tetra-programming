@@ -129,6 +129,17 @@
   z-index: 5;
 }
 
+/* VERSUS の両盤面（.versus-container の中。盤面のキャンバスの上端に重ねる） */
+.versus-zone-top-canvas {
+  position: absolute;
+  left: var(--field-border-w-main);
+  top: calc(var(--field-border-w-main) - 144px);
+  width: 320px;
+  height: 144px;
+  pointer-events: none;
+  z-index: 5;
+}
+
 /* ─── 終了の表示（盤面中央に「ZONE n LINES / +得点」） ─── */
 #zone-end-popup,
 .zone-end-popup {

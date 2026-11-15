@@ -475,6 +475,8 @@
 
           <!-- tet Canvas -->
           <canvas id="player-main-canvas"></canvas>
+          <!-- ★ ZONE: 発動中に枠の上へ出たブロックを描く（盤面の上に重ねる。game/tet/zone.js） -->
+          <canvas id="player-zone-top-canvas" class="versus-zone-top-canvas"></canvas>
           <span class="area-label versus-label-next">NEXT</span>
           <canvas id="player-next-canvas"></canvas>
           <span class="area-label versus-label-hold">HOLD</span>
@@ -560,6 +562,8 @@
 
           <!-- tet Canvas -->
           <canvas id="cpu-main-canvas"></canvas>
+          <!-- ★ ZONE: 発動中に枠の上へ出たブロックを描く（盤面の上に重ねる。game/tet/zone.js） -->
+          <canvas id="cpu-zone-top-canvas" class="versus-zone-top-canvas"></canvas>
           <span class="area-label versus-label-next-cpu">NEXT</span>
           <canvas id="cpu-next-canvas"></canvas>
           <span class="area-label versus-label-hold-cpu">HOLD</span>
@@ -1688,7 +1692,7 @@
   <script src="game/tet/board.js?v=19"></script>
   <script src="game/tet/rotation.js?v=9"></script>
   <script src="game/tet/scoring.js?v=5"></script>
-  <script src="game/tet/zone.js?v=8"></script>
+  <script src="game/tet/zone.js?v=9"></script>
   <script src="game/tet/garbage.js?v=11"></script>
   <script src="game/tet/render.js?v=11"></script>
   <script src="game/tet/input.js?v=17"></script>
@@ -1711,7 +1715,7 @@
   <script src="app/cpu_match_log.js?v=4"></script>
   <script src="app/versus.js?v=21"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=43"></script>
+  <script src="app/navigation.js?v=44"></script>
   <script src="app/ranking.js?v=5"></script>
   <script src="app/replays.js?v=8"></script>
   <script src="app/focus_nav.js?v=27"></script>

@@ -100,6 +100,8 @@ function stopAllGames() {
       if (a) a.style.display = 'none';
       document.getElementById(`${pre}-zone-end-popup`)?.classList.remove('show');
       document.getElementById(`versus-${pre}-container`)?.classList.remove('zone-active', 'zone-hot');
+      const top = document.getElementById(`${pre}-zone-top-canvas`);
+      if (top) top.getContext('2d').clearRect(0, 0, top.width, top.height);
     }
     const resultZoneRow = document.getElementById('result-zone-row');
     if (resultZoneRow) resultZoneRow.style.display = 'none';
