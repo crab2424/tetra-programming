@@ -107,9 +107,17 @@
 
         for (const [name, storageKey] of Object.entries(SETTING_SECTIONS)) {
             const local = _localString(storageKey);
-            const m = meta.sections[name];
+            let m = meta.sections[name];
             const sv = server[name] && server[name].data ? server[name] : null;
             const serverStr = sv ? JSON.stringify(sv.data) : null;
+
+            // 覚え書きが今のサーバーと合わない（サーバーに無い・rev が戻った・同じ rev なのに中身が違う）
+            // → 別の DB（つなぎ先を変えた localhost など）や消したアカウントと揃えたときのもの。
+            // そのままだと「揃っている」と見なして取り込みも送信もしないので、初めて揃える扱いに戻す
+            if (m && (!sv || sv.rev < m.rev || (sv.rev === m.rev && serverStr !== m.synced))) {
+                delete meta.sections[name];
+                m = undefined;
+            }
 
             if (!m) {
                 // この端末でこのアカウントと初めて揃える
