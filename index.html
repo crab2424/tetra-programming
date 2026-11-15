@@ -486,20 +486,8 @@
           <canvas id="player-puyo-main-canvas" style="display: none"></canvas>
           <canvas id="player-puyo-next-canvas" style="display: none"></canvas>
 
-          <!-- ★ ZONE（VS 設定 ZONE が ON のテト同士だけ。メーター・終了の表示。game/tet/zone.js） -->
-          <div id="player-zone-area" class="versus-zone-area" style="display: none">
-            <span class="area-label">ZONE</span>
-            <div class="zone-meter">
-              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-            </div>
-            <div class="zone-status">
-              <span class="zone-ready">READY <b id="player-zone-key"></b></span>
-              <span id="player-zone-sub" class="zone-sub"></span>
-            </div>
-          </div>
+          <!-- ★ ZONE（VS 設定 ZONE が ON のテト同士だけ。円形のメーター・終了の表示。game/tet/zone.js） -->
+          <div id="player-zone-area" class="versus-zone-area" style="display: none"></div>
           <div id="player-zone-end-popup" class="zone-end-popup">
             <span class="zone-end-lines">ZONE 0 LINES</span>
             <span class="zone-end-score">ATTACK +0</span>
@@ -573,20 +561,8 @@
           <canvas id="cpu-puyo-main-canvas" style="display: none"></canvas>
           <canvas id="cpu-puyo-next-canvas" style="display: none"></canvas>
 
-          <!-- ★ ZONE（VS 設定 ZONE が ON のテト同士だけ。メーター・終了の表示。game/tet/zone.js） -->
-          <div id="cpu-zone-area" class="versus-zone-area" style="display: none">
-            <span class="area-label">ZONE</span>
-            <div class="zone-meter">
-              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-              <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-            </div>
-            <div class="zone-status">
-              <span class="zone-ready">READY <b id="cpu-zone-key"></b></span>
-              <span id="cpu-zone-sub" class="zone-sub"></span>
-            </div>
-          </div>
+          <!-- ★ ZONE（VS 設定 ZONE が ON のテト同士だけ。円形のメーター・終了の表示。game/tet/zone.js） -->
+          <div id="cpu-zone-area" class="versus-zone-area" style="display: none"></div>
           <div id="cpu-zone-end-popup" class="zone-end-popup">
             <span class="zone-end-lines">ZONE 0 LINES</span>
             <span class="zone-end-score">ATTACK +0</span>
@@ -1136,20 +1112,8 @@
         <span class="zone-end-lines">ZONE 0 LINES</span>
         <span class="zone-end-score">+0</span>
       </div>
-      <!-- ★ ZONE: メーター（HOLD の下。1/4 刻みで点灯・発動中は残り時間で減る） -->
-      <div id="zone-area" style="display: none">
-        <span class="area-label">ZONE</span>
-        <div id="zone-meter">
-          <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-          <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-          <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-          <span class="zone-seg"><span class="zone-seg-fill"></span></span>
-        </div>
-        <div class="zone-status">
-          <span class="zone-ready">READY <b id="zone-key"></b></span>
-          <span id="zone-sub" class="zone-sub"></span>
-        </div>
-      </div>
+      <!-- ★ ZONE: 円形のメーター（盤面の左下。中身は game/tet/zone.js が入れる） -->
+      <div id="zone-area" style="display: none"></div>
       <!-- ★ PRACTICEモード専用: 設定パネルの開閉タブ（Phase 6 §8）。
            タブは#containerと一緒にスケールする（今までどおりの位置感）。
            カード本体(#practice-panel-dock)は#containerの外・画面固定配置にした。 -->
@@ -1692,7 +1656,7 @@
   <script src="game/tet/board.js?v=19"></script>
   <script src="game/tet/rotation.js?v=9"></script>
   <script src="game/tet/scoring.js?v=5"></script>
-  <script src="game/tet/zone.js?v=9"></script>
+  <script src="game/tet/zone.js?v=10"></script>
   <script src="game/tet/garbage.js?v=13"></script>
   <script src="game/tet/render.js?v=11"></script>
   <script src="game/tet/input.js?v=17"></script>
@@ -1715,7 +1679,7 @@
   <script src="app/cpu_match_log.js?v=4"></script>
   <script src="app/versus.js?v=21"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=44"></script>
+  <script src="app/navigation.js?v=45"></script>
   <script src="app/ranking.js?v=5"></script>
   <script src="app/replays.js?v=8"></script>
   <script src="app/focus_nav.js?v=27"></script>

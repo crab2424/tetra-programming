@@ -91,7 +91,7 @@ function stopAllGames() {
     const zoneArea = document.getElementById('zone-area');
     if (zoneArea) zoneArea.style.display = 'none';
     document.getElementById('zone-end-popup')?.classList.remove('show');
-    document.getElementById('container')?.classList.remove('zone-active', 'zone-hot');
+    document.getElementById('container')?.classList.remove('zone-on', 'zone-active', 'zone-hot', 'zone-last');
     const zoneTop = document.getElementById('zone-top-canvas');
     if (zoneTop) zoneTop.getContext('2d').clearRect(0, 0, zoneTop.width, zoneTop.height);
     // VERSUS の両盤面のぶん（次がぷよ戦でも残らないように）
@@ -99,7 +99,7 @@ function stopAllGames() {
       const a = document.getElementById(`${pre}-zone-area`);
       if (a) a.style.display = 'none';
       document.getElementById(`${pre}-zone-end-popup`)?.classList.remove('show');
-      document.getElementById(`versus-${pre}-container`)?.classList.remove('zone-active', 'zone-hot');
+      document.getElementById(`versus-${pre}-container`)?.classList.remove('zone-on', 'zone-active', 'zone-hot', 'zone-last');
       const top = document.getElementById(`${pre}-zone-top-canvas`);
       if (top) top.getContext('2d').clearRect(0, 0, top.width, top.height);
     }

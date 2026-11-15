@@ -1,121 +1,179 @@
 /* ─────────────────────────────────────────────
    ZONE モード（設計 source_assets/memory/tet_zone/tetlabo-zone-design.md §6）
-   メーター（HOLD の下）・発動中の盤面の枠・枠の上のキャンバス・終了の表示
+   円形のメーター（盤面の左下）・発動中の盤面の枠の光・枠の上のキャンバス・終了の表示
 ───────────────────────────────────────────── */
 
-/* ─── メーター ─── */
+/* ─── 円形のメーター（中身は game/tet/zone.js の ZONE_RING_HTML） ───
+   左の列（HOLD と同じ幅 128px）の下端に、列の中央へ置く。
+   シングルは LINES（下端 560px あたり）、VERSUS は LPM（下端 548px あたり）の下 */
 #zone-area,
 .versus-zone-area {
   position: absolute;
-  left: -160px;
-  /* HOLD（下端 132px）と消去名の表示（4-LINES は 204px から。scoring.js の labelLayout）の間に収める。
-     以前の 158px は下端が 218px あたりで 4-LINES に重なっていた */
-  top: 138px;
-  width: 132px;
+  left: -136px;
+  top: 576px;
+  width: 80px;
+  height: 80px;
 }
-#zone-area .area-label,
-.versus-zone-area .area-label {
-  position: static;
+/* シングルで LPM を出しているとき（DISPLAY 設定）は LPM（570px〜）と重なるので、
+   左の列の LEVEL / LINES / LPM を 45px 上げて輪の場所を空ける（消去名の表示の下端は 405px あたり） */
+body.hud-apm-visible #container.zone-on #level-area { top: 405px; }
+body.hud-apm-visible #container.zone-on #lines-area { top: 465px; }
+body.hud-apm-visible #container.zone-on #lpm-area { top: 525px; }
+
+.zone-ring {
   display: block;
-  margin-bottom: 4px;
-  line-height: 14px;
-  color: var(--zone-color);
+  overflow: visible;
 }
-#zone-meter,
-.zone-meter {
-  display: flex;
-  gap: 4px;
+.zone-ring circle {
+  fill: none;
 }
-.zone-seg {
-  position: relative;
-  flex: 1;
-  height: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.04);
-  overflow: hidden;
+.zone-ring-track {
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 7;
 }
-.zone-seg-fill {
+.zone-ring-fill,
+.zone-ring-halo {
+  stroke: var(--zone-color);
+  stroke-dasharray: 0 200;
+  /* たまるとき・終わって戻るときは滑らかに。発動中は毎フレーム書き換えるので transition なし */
+  transition: stroke-dasharray 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.zone-ring-fill {
+  stroke-width: 7;
+}
+.zone-ring-halo {
+  stroke-width: 13;
+  opacity: 0.22;
+}
+#zone-area.is-active .zone-ring-fill,
+#zone-area.is-active .zone-ring-halo,
+.versus-zone-area.is-active .zone-ring-fill,
+.versus-zone-area.is-active .zone-ring-halo {
+  transition: none;
+}
+#zone-area.is-active .zone-ring-halo,
+.versus-zone-area.is-active .zone-ring-halo {
+  opacity: 0.4;
+}
+/* 満タンのときは輪ごと明滅 */
+#zone-area.is-full .zone-ring-halo,
+.versus-zone-area.is-full .zone-ring-halo {
+  animation: zone-full-pulse 1.2s ease-in-out infinite;
+}
+/* 1/4 ごとの切れ目 */
+.zone-ring-ticks {
+  stroke: var(--bg, #0a0a0f);
+  stroke-width: 2;
+  fill: none;
+}
+.zone-ring-center {
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, var(--zone-color), #ffffff);
-  transform: scaleX(0);
-  transform-origin: left center;
-}
-/* 発動中は残り時間で減る（右から削れて見えるように左寄せのまま） */
-#zone-area.is-active .zone-seg-fill,
-.versus-zone-area.is-active .zone-seg-fill {
-  background: linear-gradient(90deg, #ffffff, var(--zone-color));
-  box-shadow: 0 0 8px var(--zone-color);
-}
-.zone-status {
-  margin-top: 4px;
-  height: 18px;
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
   font-family: "Orbitron", monospace;
-  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 2px;
+  pointer-events: none;
 }
-.zone-ready {
-  display: none;
+.zone-ring-label {
+  font-size: 11px;
+  letter-spacing: 2px;
+  margin-right: -2px; /* 字間ぶんの右の余白を打ち消して中央へ */
+  color: var(--text-dim);
+}
+#zone-area.is-ready .zone-ring-label,
+.versus-zone-area.is-ready .zone-ring-label {
   color: var(--zone-color);
   animation: zone-ready-pulse 1.2s ease-in-out infinite;
 }
-.zone-ready b {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 0 5px;
+.zone-ring-key {
+  display: none;
+  max-width: 52px;
+  padding: 0 4px;
   border: 1px solid var(--zone-color);
   border-radius: 3px;
-  font-size: 10px;
+  font-size: 9px;
+  line-height: 13px;
   letter-spacing: 1px;
+  color: var(--zone-color);
+  overflow: hidden;
+  white-space: nowrap;
 }
-.zone-ready b:empty {
+#zone-area.is-ready .zone-ring-key:not(:empty),
+.versus-zone-area.is-ready .zone-ring-key:not(:empty) {
+  display: block;
+}
+.zone-ring-sub {
   display: none;
-}
-#zone-area.is-ready .zone-ready,
-.versus-zone-area.is-ready .zone-ready {
-  display: inline;
-}
-.zone-sub {
+  font-size: 17px;
   color: #fff;
-  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 8px var(--zone-color);
+}
+/* 発動中は残り秒数だけ */
+#zone-area.is-active .zone-ring-sub,
+.versus-zone-area.is-active .zone-ring-sub {
+  display: block;
+}
+#zone-area.is-active .zone-ring-label,
+#zone-area.is-active .zone-ring-key,
+.versus-zone-area.is-active .zone-ring-label,
+.versus-zone-area.is-active .zone-ring-key {
+  display: none;
 }
 @keyframes zone-ready-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
 }
-
-/* ─── 発動中の盤面の枠（8 段以上でもう一段強く。色の反転はしない） ─── */
-#main-canvas {
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
-}
-#container.zone-active #main-canvas {
-  border-color: var(--zone-color);
-  box-shadow: 0 0 28px rgba(110, 231, 214, 0.45);
-}
-#container.zone-hot #main-canvas {
-  border-color: #ffffff;
-  box-shadow: 0 0 36px rgba(110, 231, 214, 0.75), 0 0 80px rgba(255, 255, 255, 0.2);
+@keyframes zone-full-pulse {
+  0%, 100% { opacity: 0.22; }
+  50% { opacity: 0.5; }
 }
 
-/* VERSUS（ローカルのテト同士・VS 設定 ZONE が ON）: 相手の発動が一目で分かるよう、盤面の枠を同じ色で光らせる */
-#player-main-canvas,
-#cpu-main-canvas {
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+/* ─── 発動中の盤面の枠の光（game/tet/zone.js の _zoneFrameEls が作る SVG）───
+   枠線の真上に線を引き、残り時間ぶんだけ光らせる（上辺中央から左右に消えていき、下辺中央で終わる）。
+   にじみは太い半透明の線を重ねて作る（filter は使わない）。8 段以上は白く強める（色の反転はしない） */
+.zone-frame {
+  position: absolute;
+  display: none;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 6;
 }
-.versus-container.zone-active #player-main-canvas,
-.versus-container.zone-active #cpu-main-canvas {
-  border-color: var(--zone-color);
-  box-shadow: 0 0 28px rgba(110, 231, 214, 0.55);
+.zone-active > .zone-frame {
+  display: block;
 }
-.versus-container.zone-hot #player-main-canvas,
-.versus-container.zone-hot #cpu-main-canvas {
-  border-color: #ffffff;
-  box-shadow: 0 0 36px rgba(110, 231, 214, 0.8), 0 0 80px rgba(255, 255, 255, 0.25);
+.zone-frame path {
+  fill: none;
+  stroke: var(--zone-color);
+  stroke-dasharray: 1 2;
+}
+.zone-frame-core {
+  stroke-width: 3;
+}
+.zone-frame-halo {
+  stroke-width: 9;
+  opacity: 0.3;
+}
+.zone-frame-halo2 {
+  stroke-width: 20;
+  opacity: 0.12;
+}
+.zone-hot > .zone-frame .zone-frame-core {
+  stroke: #ffffff;
+}
+.zone-hot > .zone-frame .zone-frame-halo {
+  opacity: 0.5;
+}
+.zone-hot > .zone-frame .zone-frame-halo2 {
+  opacity: 0.22;
+}
+/* シングルの時間切れ後（いまのミノを置くまで）: 下辺中央に残した短い光を明滅 */
+.zone-last > .zone-frame {
+  animation: zone-ready-pulse 0.5s ease-in-out infinite;
 }
 
 /* ─── 枠の上（y=-5〜-0.5）。盤面のキャンバスの上端にぴったり重ねる ─── */

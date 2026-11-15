@@ -18,6 +18,22 @@ const ZONE_TIERS = [4, 8, 12, 16, 18, 20]; // 段数の区切り（数字の色�
 // 区切りごとの色（ZONE_TIERS 未満は先頭の色）
 const ZONE_TIER_COLORS = ['#e0e0f0', '#71c5f5', '#5af5a0', '#f5e15a', '#f5a05a', '#fa71cd', '#ffffff'];
 const ZONE_END_FX_MS = 700;            // 終了の光（描画だけ）
+// 円形のメーターの中身（シングル・VERSUS の両盤面で同じ。_zoneHudEls が入れる）。
+// 輪は pathLength=100 で、12 時から時計回り。1/4 ごとに切れ目を入れる
+const ZONE_RING_HTML = `
+<svg class="zone-ring" viewBox="0 0 80 80" width="80" height="80" aria-hidden="true">
+  <g transform="rotate(-90 40 40)">
+    <circle class="zone-ring-track" cx="40" cy="40" r="33" pathLength="100"></circle>
+    <circle class="zone-ring-halo" cx="40" cy="40" r="33" pathLength="100"></circle>
+    <circle class="zone-ring-fill" cx="40" cy="40" r="33" pathLength="100"></circle>
+  </g>
+  <path class="zone-ring-ticks" d="M40 2.5V11.5M40 68.5V77.5M2.5 40H11.5M68.5 40H77.5"></path>
+</svg>
+<div class="zone-ring-center">
+  <span class="zone-ring-label">ZONE</span>
+  <span class="zone-ring-key"></span>
+  <span class="zone-ring-sub"></span>
+</div>`;
 
 // ─── VERSUS（設計 tetlabo-zone-versus-cpu-design.md §2）───
 // VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ）。選べる値はシングルの準備画面と同じ
@@ -397,57 +413,102 @@ Object.assign(Game.prototype, {
 
     // ─── 画面（HUD）───
     // シングルの盤面と、ローカル VERSUS の両盤面（player- / cpu-。ONLINE の盤面には要素が無い）。
-    // 変わったときだけ DOM を書き換える
+    // 変わったときだけ DOM を書き換える。
+    // ・円形のメーター（盤面の左下）: 1 周 = 4/4。12 時から時計回りにたまり、発動中は残り時間で反時計回りに減る
+    //   （1/4 = zoneQuarterMs なので、減る速さはいつも同じ）。たまるときは CSS の transition で伸びる
+    // ・盤面の枠の光: 発動した長さを全周として、上辺中央から左右に分かれて消えていき、下辺中央で終わる
     _zoneHudEls() {
         const pre = this.canvasPrefix || '';
         if (this.isVersusMode ? (pre !== 'player' && pre !== 'cpu') : !!pre) return null;
         if (!this._zoneEls || this._zoneElsPrefix !== pre) {
             const id = pre ? (name) => `${pre}-zone-${name}` : (name) => `zone-${name}`;
             const area = document.getElementById(id('area'));
+            if (area && !area.querySelector('.zone-ring')) area.innerHTML = ZONE_RING_HTML;
             this._zoneElsPrefix = pre;
             this._zoneEls = {
                 area,
-                segs: area ? Array.from(area.querySelectorAll('.zone-seg-fill')) : [],
-                key: document.getElementById(id('key')),
-                sub: document.getElementById(id('sub')),
+                fills: area ? Array.from(area.querySelectorAll('.zone-ring-fill, .zone-ring-halo')) : [],
+                key: area ? area.querySelector('.zone-ring-key') : null,
+                sub: area ? area.querySelector('.zone-ring-sub') : null,
                 container: document.getElementById(pre ? `versus-${pre}-container` : 'container'),
+                canvas: document.getElementById(pre ? `${pre}-main-canvas` : 'main-canvas'),
                 popup: document.getElementById(id('end-popup')),
+                frame: null,
+                frameLines: [],
             };
         }
         return this._zoneEls.area ? this._zoneEls : null;
+    },
+
+    // 盤面の枠に重ねる SVG（枠線の真上に線を引く）。盤面のキャンバスの大きさが取れてから 1 回だけ作る
+    _zoneFrameEls(els) {
+        if (els.frame || !els.container || !els.canvas) return els.frame;
+        const cv = els.canvas;
+        const w = cv.offsetWidth, h = cv.offsetHeight;
+        if (!w || !h) return null;
+        let svg = els.container.querySelector(':scope > .zone-frame');
+        if (!svg) {
+            const NS = 'http://www.w3.org/2000/svg';
+            svg = document.createElementNS(NS, 'svg');
+            svg.setAttribute('class', 'zone-frame');
+            svg.setAttribute('width', w);
+            svg.setAttribute('height', h);
+            svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+            svg.style.left = `${cv.offsetLeft}px`;
+            svg.style.top = `${cv.offsetTop}px`;
+            // 枠線（太さ bw）の中心を通る。下辺中央から始めて上辺中央で終わる線を左右に 1 本ずつ
+            // （線の頭から残りの割合だけ描けば、上辺中央から消えていく）
+            const bw = (w - cv.clientWidth) / 2 || 3;
+            const o = bw / 2, cx = w / 2;
+            const paths = [
+                `M${cx} ${h - o}H${o}V${o}H${cx}`,
+                `M${cx} ${h - o}H${w - o}V${o}H${cx}`,
+            ];
+            for (const cls of ['zone-frame-halo2', 'zone-frame-halo', 'zone-frame-core']) {
+                for (const d of paths) {
+                    const path = document.createElementNS(NS, 'path');
+                    path.setAttribute('class', cls);
+                    path.setAttribute('d', d);
+                    path.setAttribute('pathLength', '1');
+                    svg.appendChild(path);
+                }
+            }
+            els.container.appendChild(svg);
+        }
+        els.frame = svg;
+        els.frameLines = Array.from(svg.querySelectorAll('path'));
+        return svg;
     },
 
     _zoneSyncHud(force) {
         const els = this._zoneHudEls();
         if (!els) return;
         const on = !!this.zoneEnabled;
-        let fills, sub, ready = false;
-        if (!on) {
-            fills = [0, 0, 0, 0];
-            sub = '';
-        } else if (this.zoneActive) {
-            // 発動中はメーターがそのまま減っていく（1/4 = 5 秒）
+        // ring: 輪の長さ（0〜1。1 周 = 4/4）／ frame: 枠の光の長さ（0〜1。発動した長さが全周）
+        let ring = 0, frame = 0, sub = '', ready = false;
+        if (on && this.zoneActive) {
             const rem = this.zoneRemainingMs();
-            const per = this.zoneQuarterMs;
-            fills = [0, 1, 2, 3].map(i => Math.max(0, Math.min(1, (rem - i * per) / per)));
-            sub = this.zoneTimeUp ? 'LAST' : String(Math.ceil(rem / 1000));
-        } else {
+            ring = Math.min(1, rem / (this.zoneQuarterMs * 4));
+            frame = this.zoneDurationMs > 0 ? Math.min(1, rem / this.zoneDurationMs) : 0;
+            // 残りは 0.1 秒刻み（切り上げ。0.0 になるのは終わった後だけ）
+            sub = this.zoneTimeUp ? 'LAST' : (Math.ceil(rem / 100) / 10).toFixed(1);
+        } else if (on) {
             // 見た目は 1/4 刻み（内部の端数は出さない。§6.1）
-            const q = this.zoneQuarters();
-            fills = [0, 1, 2, 3].map(i => (i < q ? 1 : 0));
+            const q = Math.min(4, this.zoneQuarters());
+            ring = q / 4;
             ready = q >= 1;
-            sub = '';
         }
         const hot = this.zoneActive && this.zoneLines >= 8;
-        const sig = `${on}|${this.zoneActive}|${ready}|${hot}|${sub}|${fills.map(f => Math.round(f * 200)).join(',')}`;
+        const last = this.zoneActive && this.zoneTimeUp;
+        const sig = `${on}|${this.zoneActive}|${ready}|${hot}|${last}|${sub}|${Math.round(ring * 2000)}|${Math.round(frame * 2000)}`;
         if (!force && sig === this._zoneHudSig) return;
         this._zoneHudSig = sig;
         els.area.style.display = on ? '' : 'none';
         els.area.classList.toggle('is-ready', ready);
+        els.area.classList.toggle('is-full', ready && ring >= 1);
         els.area.classList.toggle('is-active', !!this.zoneActive);
-        for (let i = 0; i < els.segs.length; i++) {
-            els.segs[i].style.transform = `scaleX(${fills[i] || 0})`;
-        }
+        const dash = `${(ring * 100).toFixed(2)} 200`;
+        for (let i = 0; i < els.fills.length; i++) els.fills[i].style.strokeDasharray = dash;
         if (els.key) {
             // キー名は人が操作する盤面だけ
             const k = (!this.isCpuControlled && typeof loadKeys === 'function') ? (loadKeys().zone || {}) : {};
@@ -455,8 +516,15 @@ Object.assign(Game.prototype, {
         }
         if (els.sub) els.sub.textContent = sub;
         if (els.container) {
+            els.container.classList.toggle('zone-on', on);
             els.container.classList.toggle('zone-active', on && !!this.zoneActive);
             els.container.classList.toggle('zone-hot', on && hot);
+            els.container.classList.toggle('zone-last', on && last);
+        }
+        if (on && this._zoneFrameEls(els)) {
+            // シングルの時間切れ後（いまのミノを置くまで）は、下辺中央に短い光だけ残して明滅させる
+            const fdash = `${(last ? 0.03 : frame).toFixed(4)} 2`;
+            for (let i = 0; i < els.frameLines.length; i++) els.frameLines[i].style.strokeDasharray = fdash;
         }
     },
 
