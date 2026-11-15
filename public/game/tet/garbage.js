@@ -49,13 +49,15 @@ Object.assign(Game.prototype, {
         // stage3(ready かつ internalでない)のみ落下対象。internal は ready でも残置（internal優先）
         // ZONE の分けて送る火力（zoneHold）は 1 手につき 1 かたまりだけ: 古い順に取っていき、zoneHold のかたまりを
         // 1 つ取ったらそこで止める。残りは着弾できる状態のまま次の手を待つ（順番は変えない。設計 §14.1）
+        // VS 設定 ZONE ATTACK: SPLIT の試合では、ふつうの火力も 1 手に 1 かたまり（攻撃 1 回ぶん）ずつ（_garbageHoldEach）
+        const holdEach = this._garbageHoldEach();
         const readyGarbage = [];
         const restGarbage = [];
         let held = false;
         for (const g of this.garbageQueue) {
             if (g.ready && !g.internal && !held) {
                 readyGarbage.push(g);
-                if (g.zoneHold) held = true;
+                if (g.zoneHold || holdEach) held = true;
             } else {
                 restGarbage.push(g);
             }
@@ -205,16 +207,17 @@ Object.assign(Game.prototype, {
     },
 
     // 着弾できるおじゃま（ready かつ internal でない）を、1 手ごとに降る段数の列にする（予告ゲージの表示用）。
-    // applyGarbage と同じ決まりで先を読む: 古い順に取り、ZONE の分けて送る火力（zoneHold）は 1 かたまりで止め、
+    // applyGarbage と同じ決まりで先を読む: 古い順に取り、ZONE の分けて送る火力（zoneHold・SPLIT の試合のふつうの火力）は 1 かたまりで止め、
     // ぷよからの火力は 1 手 7 段まで（あふれた分は次の手の先頭）。盤面・キューは変えない
     _garbageLandingGroups() {
         const isOpponentPuyo = this._garbageOpponentIsPuyo();
+        const holdEach = this._garbageHoldEach();
         const PUYO_DROP_LIMIT = 7;
         let pending = [];
         for (const g of this.garbageQueue) {
             if (!g.ready || g.internal || !(g.amount > 0)) continue;
             const fromPuyo = (g._srcRule !== undefined) ? (g._srcRule === 'puyo') : isOpponentPuyo;
-            pending.push({ amount: g.amount, zoneHold: !!g.zoneHold, limit: fromPuyo ? PUYO_DROP_LIMIT : Infinity });
+            pending.push({ amount: g.amount, zoneHold: !!g.zoneHold || holdEach, limit: fromPuyo ? PUYO_DROP_LIMIT : Infinity });
         }
         const groups = [];
         while (pending.length && groups.length < 64) {
@@ -237,6 +240,15 @@ Object.assign(Game.prototype, {
             else break;
         }
         return groups;
+    },
+
+    // おじゃまを 1 手に 1 かたまりずつ着弾させるか: VERSUS の ZONE が ON で ZONE ATTACK が SPLIT のとき（テト同士）。
+    // ZONE の火力（zoneHold）だけでなく、ふつうの火力が溜まったときも攻撃 1 回ぶんずつ降る。
+    // 版 6 以前の録画の再生は従来どおり（ZONE の火力だけ。core/replay.js REPLAY_ENGINE_VERSION 7）
+    _garbageHoldEach() {
+        if (!(this.isVersusMode && this.zoneEnabled && this.vsZoneSplit === true)) return false;
+        if (this._replay && this._replay.data && (this._replay.data.engine || 0) < 7) return false;
+        return true;
     },
 
     // 相手がぷよか（sendGarbage・applyGarbage と同じ決め方）
