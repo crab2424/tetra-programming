@@ -210,9 +210,11 @@ Object.assign(Game.prototype, {
 
     _zoneOnTimeUp() {
         if (!this.zoneActive) return;
-        // VERSUS の決着の演出中は何もしない（止まった盤面を下げたり、火力を送ったりしない）
+        // VERSUS の決着の演出中は何もしない（止まった盤面を下げたり、火力を送ったりしない）。
+        // 録画の再生中（_replay）は対戦の進行（BattleVersusLifecycle）が 'playing' にならないので見ない。
+        // 見ると時間切れが無視されて ZONE が終わらず、再生がずれる（録画は決着で終わるので盤面の isFinishing で足りる）
         if (this.isVersusMode && (this.isFinishing
-            || (window.BattleVersusLifecycle && window.BattleVersusLifecycle.phase !== 'playing'))) return;
+            || (!this._replay && window.BattleVersusLifecycle && window.BattleVersusLifecycle.phase !== 'playing'))) return;
         // VERSUS はその場で終わる（操作中のミノは持ち越す）。シングルはいまのミノを置くまで続く（§4.5）
         if (this.isVersusMode) {
             this._endZone('time');
