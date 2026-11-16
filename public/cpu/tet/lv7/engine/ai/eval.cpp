@@ -187,7 +187,7 @@ void evaluate(node::Data& node, node::Data& parent, move::Placement placement, c
     node.score.eval = node.score.eval * w.scale / 1024;
 
     // Clear
-    bool pc = node.state.board.is_empty();
+    bool pc = node.state.is_pc();
 
     if (node.lock.clear > 0) {
         if (pc) {

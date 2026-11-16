@@ -10,7 +10,7 @@
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=5'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=6'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -158,8 +158,26 @@ window.CPU7 = class {
         };
     }
 
+    // ZONE（VERSUS）の発動中だけ差し替える重み。発動中は消した段が底に残って盤面が下がらないので、
+    // ふだんの「1〜3 ライン消しは減点（消すと盤面が下がる得と釣り合う）」のままだと消去が損にしか見えず、
+    // 天井まで積んでから仕方なく消す（設計 tetlabo-zone-versus-cpu-design.md §19）。
+    // 発動中は段数がそのまま終了時の火力になるので消去はどれも加点。大きい消去・T-Spin は通常火力も乗るので高く。
+    // 値は node のシミュ（発動から 55 手）で決めた仮の値。コンソールから CPU7.ZONE_WEIGHTS.clear1 = 300 のように変えられる
+    static ZONE_WEIGHTS = {
+        clear1: 150,
+        clear2: 400,
+        clear3: 650,
+        clear4: 1400,
+        tspin1: 400,
+        tspin2: 1000,
+        tspin3: 1600,
+    };
+
     weightsArray() {
-        return new Int32Array(this.constructor.WEIGHT_KEYS.map(k => Math.round(this.weights[k] || 0)));
+        const g = this.game;
+        const z = (g && g.zoneActive && g.isVersusMode) ? this.constructor.ZONE_WEIGHTS : null;
+        return new Int32Array(this.constructor.WEIGHT_KEYS.map(k =>
+            Math.round(((z && z[k] !== undefined) ? z[k] : this.weights[k]) || 0)));
     }
 
     start() {
