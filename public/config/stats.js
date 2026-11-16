@@ -23,8 +23,9 @@
 //   ぷよ: pc=置いた組数 / er=消したぷよ / ac=全消し / chMax（最大）=最大連鎖 /
 //         ch=連鎖の長さごとの回数（長さ 20 の配列。ch[k-1]=k 連鎖、20 以上は末尾。合算は要素ごとに足す）
 //
-// 入口（今はシングルだけ。VERSUS・ONLINE・QUIZ は後の段階で足す）
+// 入口
 //   beginVersus(ctx) / endVersus(r) … VERSUS（対 CPU）。app/versus.js から
+//   beginOnline(ctx) / endOnline(r, info) / discardOnline() / abortOnline() … ONLINE。src/online/online_game.ts から
 //   beginQuiz(ctx) / endQuiz(r)     … QUIZ。quiz/quiz.js から
 //   onPuyoInit(game) … game/puyo/lifecycle.js の start の頭（テトの onTetInit と同じ役目）
 //   onTetInit(game) … game/tet/lifecycle.js の _initGameState の頭。前の試合が締まっていなければ
@@ -213,6 +214,35 @@
         _pushHistory(entry);
     }
 
+    // 対戦（VERSUS・ONLINE）で共通の中身: 時間・火力・受けたおじゃま・置いた数と、ルールごとのカウンタ
+    function _addMatchPlay(bucket, game, isPuyo, placed, ms, atk) {
+        const ps = game.playStats;
+        _add(bucket, 'ms', ms);
+        _add(bucket, 'atk', atk);
+        _add(bucket, 'rcv', game.garbageTaken);
+        _add(bucket, 'pc', placed);
+        if (isPuyo) {
+            _add(bucket, 'er', game.clearedPuyos);
+            _add(bucket, 'ac', ps.ac);
+            _max(bucket, 'chMax', game.chainMax);
+            if (!Array.isArray(bucket.ch) || bucket.ch.length !== 20) bucket.ch = new Array(20).fill(0);
+            for (let i = 0; i < 20; i++) bucket.ch[i] += (ps.ch[i] || 0);
+        } else {
+            _add(bucket, 'ln', game.lines);
+            for (const f of ['t4', 'ts1', 'ts2', 'ts3', 'tsm', 'pcl']) _add(bucket, f, ps[f]);
+            _max(bucket, 'renMax', ps.renMax);
+            _max(bucket, 'b2bMax', ps.b2bMax);
+            if (game.zoneEnabled) _addZone(bucket, game);
+        }
+    }
+
+    // 連勝（途中でやめた試合では呼ばない）。今の連勝は端末ごとの owners[..].streak、最大は枠の wsMax
+    function _addStreak(owner, bucket, key, r) {
+        if (!owner.streak || typeof owner.streak !== 'object') owner.streak = {};
+        owner.streak[key] = (r === 'w') ? (owner.streak[key] || 0) + 1 : 0;
+        _max(bucket, 'wsMax', owner.streak[key]);
+    }
+
     // ─── VERSUS（対 CPU） ─────────────────────────────────
     // 枠は vs:<自分のルール>:<相手のルール>:<CPU レベル>。設定を変えた試合も全部数える（設計 §1）。
     //   w / l     … 勝ち・負け（n = w + l）
@@ -240,34 +270,15 @@
         const data = _load();
         const owner = _ownerOf(data, ownerId());
         const bucket = (owner.buckets[key] ||= {});
-        _add(bucket, 'ms', ms);
-        _add(bucket, 'atk', atk);
+        _addMatchPlay(bucket, game, isPuyo, placed, ms, atk);
         _add(bucket, 'atkRaw', atkRaw);
-        _add(bucket, 'rcv', game.garbageTaken);
-        _add(bucket, 'pc', placed);
-        if (isPuyo) {
-            _add(bucket, 'er', game.clearedPuyos);
-            _add(bucket, 'ac', ps.ac);
-            _max(bucket, 'chMax', game.chainMax);
-            if (!Array.isArray(bucket.ch) || bucket.ch.length !== 20) bucket.ch = new Array(20).fill(0);
-            for (let i = 0; i < 20; i++) bucket.ch[i] += (ps.ch[i] || 0);
-        } else {
-            _add(bucket, 'ln', game.lines);
-            for (const f of ['t4', 'ts1', 'ts2', 'ts3', 'tsm', 'pcl']) _add(bucket, f, ps[f]);
-            _max(bucket, 'renMax', ps.renMax);
-            _max(bucket, 'b2bMax', ps.b2bMax);
-            if (game.zoneEnabled) _addZone(bucket, game);
-        }
         if (r === 'q') {
             _add(bucket, 'q', 1);
         } else {
             _add(bucket, 'n', 1);
             _add(bucket, r, 1);
             if (biased) _add(bucket, 'bias', 1);
-            // 連勝（途中でやめた試合では動かさない）
-            if (!owner.streak || typeof owner.streak !== 'object') owner.streak = {};
-            owner.streak[key] = (r === 'w') ? (owner.streak[key] || 0) + 1 : 0;
-            _max(bucket, 'wsMax', owner.streak[key]);
+            _addStreak(owner, bucket, key, r);
         }
         _save(data);
 
@@ -280,6 +291,58 @@
         if (r !== 'q') {
             const rep = window.ReplayManager && window.ReplayManager.resultReplay;
             if (rep && rep.mode === 'versus' && rep.id) entry.rp = rep.id;
+        }
+        _pushHistory(entry);
+    }
+
+    // ─── ONLINE ───────────────────────────────────────────
+    // 枠は ol:<自分のルール>:<相手のルール>（3 人以上の部屋は相手を multi）。1 ラウンド＝1 試合として数える。
+    //   w / l / d … ラウンドの勝ち・負け・引き分け（n = w + l + d）
+    //   sw / sl   … セット（先取。2 本先取以上の部屋だけ）の勝ち・負け。セットが決まったラウンドで足す
+    //   dcW       … 相手の切断で勝ちになったラウンド（w にも数える）
+    //   atk / rcv … VERSUS と同じ。ONLINE には火力補正が無いので atkRaw は持たない（= atk。設計 §4）
+    //   wsMax（最大）… ラウンドの最大連勝（引き分けでは動かさない）
+    // 自分が切断したラウンドは数えない（discardOnline。サーバーの勝敗が来ないため。設計 §5）
+    // r: 'w' / 'l' / 'd' / 'q'。info = { died: 自分の盤面が倒れたか, set: 'w'|'l'|null, dc: 切断勝ちか, round, target }
+    function _closeOnline(cur, r, info) {
+        const game = cur.game;
+        const ps = game.playStats;
+        if (!ps) return;
+        info = info || {};
+        const isPuyo = cur.myRule === 'puyo';
+        // ぷよは出した組のうち、倒れていなければ操作中の 1 組を除く（倒れたときは出せなかった組は sp に入っていない）
+        const placed = isPuyo ? Math.max(0, (ps.sp || 0) - (info.died ? 0 : 1)) : (ps.pc || 0);
+        if (r === 'q' && placed === 0) return;
+
+        const key = `ol:${cur.myRule}:${cur.oppRule}`;
+        const ms = Math.max(0, Math.round((typeof game.getActiveMs === 'function') ? game.getActiveMs() : 0));
+        const score = Math.max(0, Math.floor(game.score || 0));
+        const atk = Math.max(0, Math.round(game.attackSent || 0));
+
+        const data = _load();
+        const owner = _ownerOf(data, ownerId());
+        const bucket = (owner.buckets[key] ||= {});
+        _addMatchPlay(bucket, game, isPuyo, placed, ms, atk);
+        if (r === 'q') {
+            _add(bucket, 'q', 1);
+        } else {
+            _add(bucket, 'n', 1);
+            _add(bucket, r, 1);
+            if (r === 'w' && info.dc) _add(bucket, 'dcW', 1);
+            if (info.set === 'w') _add(bucket, 'sw', 1);
+            else if (info.set === 'l') _add(bucket, 'sl', 1);
+            if (r !== 'd') _addStreak(owner, bucket, key, r);
+        }
+        _save(data);
+
+        const entry = { at: new Date().toISOString(), k: key, r, ms, sc: score, atk, pc: placed };
+        if (isPuyo) entry.cm = Math.max(0, game.chainMax || 0); else entry.ln = Math.max(0, game.lines || 0);
+        if (r !== 'q') {
+            const ol = {};
+            if (info.target > 1) { ol.round = info.round || 0; ol.target = info.target; }
+            if (info.set) ol.set = info.set;
+            if (r === 'w' && info.dc) ol.dc = 1;
+            if (Object.keys(ol).length) entry.ol = ol;
         }
         _pushHistory(entry);
     }
@@ -314,13 +377,14 @@
     }
 
     // ─── 入口 ─────────────────────────────────────────────
-    function _close(r) {
+    function _close(r, info) {
         const cur = current;
         current = null;
         if (!cur || !cur.game) return;
         if (cur.game._replay) return; // 念のため: 再生に使われている盤面は数えない
         try {
             if (cur.rule === 'vs') _closeVersus(cur, r);
+            else if (cur.rule === 'ol') _closeOnline(cur, r, info);
             else if (cur.rule === 'quiz') _closeQuiz(cur, r);
             else if (cur.rule === 'tet') _closeTetSingle(cur.game, r);
             else if (cur.rule === 'puyo') _closePuyoSingle(cur.game, r);
@@ -346,7 +410,7 @@
     }
 
     function end(game, r) {
-        if (!current || current.game !== game || current.rule === 'vs' || current.rule === 'quiz') return;
+        if (!current || current.game !== game || current.rule === 'vs' || current.rule === 'ol' || current.rule === 'quiz') return;
         _close(r === 'ok' ? 'ok' : 'ng');
     }
 
@@ -366,6 +430,32 @@
     function endVersus(r) {
         if (!current || current.rule !== 'vs') return;
         _close(r === 'w' ? 'w' : 'l');
+    }
+
+    // ONLINE（src/online/online_game.ts。カウントダウン明けにラウンドの本編が始まった所）
+    // ctx = { game, myRule: 'tet'|'puyo', oppRule: 'tet'|'puyo'|'multi' }
+    function beginOnline(ctx) {
+        _close('q');
+        if (!ctx || !ctx.game || ctx.game._replay) return;
+        if (ctx.myRule !== 'tet' && ctx.myRule !== 'puyo') return;
+        const oppRule = (ctx.oppRule === 'tet' || ctx.oppRule === 'puyo') ? ctx.oppRule : 'multi';
+        current = { game: ctx.game, rule: 'ol', myRule: ctx.myRule, oppRule };
+    }
+
+    // r: 'w' 勝ち / 'l' 負け / 'd' 引き分け（WinnerNotification・ローカル判定の決着）。info は _closeOnline を参照
+    function endOnline(r, info) {
+        if (!current || current.rule !== 'ol') return;
+        _close(r === 'w' || r === 'd' ? r : 'l', info);
+    }
+
+    // 自分の切断で終わったラウンド・決着が分からないまま終わったラウンドは何も数えない
+    function discardOnline() {
+        if (current && current.rule === 'ol') current = null;
+    }
+
+    // ONLINE の部屋を出た（cleanup）。本編の途中なら「途中でやめた」
+    function abortOnline() {
+        if (current && current.rule === 'ol') _close('q');
     }
 
     // QUIZ（quiz/quiz.js の QuizManager.start）。ctx = { game, level: 問題のデータ, no: 何問目か }
@@ -402,7 +492,8 @@
     }
 
     window.Stats = {
-        onTetInit, onPuyoInit, end, abort, beginVersus, endVersus, beginQuiz, endQuiz,
+        onTetInit, onPuyoInit, end, abort, beginVersus, endVersus, beginOnline, endOnline, discardOnline, abortOnline,
+        beginQuiz, endQuiz,
         getQuizCleared,
         getBuckets, getHistory, ownerId,
         SINGLE_KEYS, MAX_FIELDS, HISTORY_MAX,

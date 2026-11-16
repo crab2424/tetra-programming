@@ -3,14 +3,15 @@
 //
 // 中身は config/stats.js（window.Stats）の累計と履歴。設計 source_assets/memory/mode/record/stats/ §8。
 // 平均・率はここで割り算して出す（保存していない）。
-// タブ: SINGLE（枠ごとのカード）/ VERSUS（ルールの組み合わせごとの表）/ QUIZ（ルールごと）/ HISTORY（直近の一覧）。
-// ONLINE・OVERVIEW は後の段階で足す。
+// タブ: SINGLE（枠ごとのカード）/ VERSUS（ルールの組み合わせごとの表）/ ONLINE（ルールの組み合わせごと）/
+//       QUIZ（ルールごと）/ HISTORY（直近の一覧）。OVERVIEW は後の段階で足す。
 // ─────────────────────────────────────────────
 
 (function () {
   const TABS = [
     { id: 'single', label: 'SINGLE' },
     { id: 'versus', label: 'VERSUS' },
+    { id: 'online', label: 'ONLINE' },
     { id: 'quiz', label: 'QUIZ' },
     { id: 'history', label: 'HISTORY' },
   ];
@@ -46,7 +47,7 @@
 
   const pct = (a, b) => (b > 0) ? Math.round((a || 0) / b * 100) + '%' : '—';
   const pps = (pc, ms) => (ms > 0 && pc > 0) ? (pc / (ms / 1000)).toFixed(2) : '—';
-  const RULE_LABEL = { tet: 'TET', puyo: 'PUYO' };
+  const RULE_LABEL = { tet: 'TET', puyo: 'PUYO', multi: 'MULTI' };
   // CPU レベルの表示名（app/modes.js の CPU_LEVELS。読めなければ番号のまま）
   function cpuLabel(level) {
     try { const c = CPU_LEVELS[level]; if (c && c.label) return String(c.label); } catch (e) { /* 番号で出す */ }
@@ -57,11 +58,18 @@
     const m = /^vs:(tet|puyo):(tet|puyo):(.+)$/.exec(String(key));
     return m ? { my: m[1], opp: m[2], level: m[3] } : null;
   }
+  // ol:<自分>:<相手>（相手は tet / puyo / multi）
+  function parseOl(key) {
+    const m = /^ol:(tet|puyo):(tet|puyo|multi)$/.exec(String(key));
+    return m ? { my: m[1], opp: m[2] } : null;
+  }
   const quizRuleOf = (key) => { const m = /^quiz:(tet|puyo)$/.exec(String(key)); return m ? m[1] : null; };
   function label(key) {
     if (quizRuleOf(key)) return 'QUIZ ' + RULE_LABEL[quizRuleOf(key)];
     const vs = parseVs(key);
     if (vs) return `VS ${cpuLabel(vs.level)} ${RULE_LABEL[vs.my]}/${RULE_LABEL[vs.opp]}`;
+    const ol = parseOl(key);
+    if (ol) return `ONLINE ${RULE_LABEL[ol.my]}/${RULE_LABEL[ol.opp]}`;
     return (window.Records && window.Records.labelFor) ? window.Records.labelFor(key) : String(key).toUpperCase();
   }
   // 1 分あたりの火力
@@ -276,6 +284,60 @@
     if (shown === 0) list.appendChild(el('p', 'ranking-status', 'NO MATCHES'));
   }
 
+  // ─── ONLINE ─────────────────────────────
+  // ルールの組み合わせ（自分 / 相手）ごとに 1 枚。勝敗はラウンド単位、SETS は 2 本先取以上の部屋のセット
+  const OL_COMBOS = [['tet', 'tet'], ['tet', 'puyo'], ['tet', 'multi'], ['puyo', 'puyo'], ['puyo', 'tet'], ['puyo', 'multi']];
+
+  function _olCard(my, opp, b, index) {
+    const card = el('div', 'stats-card stats-row-enter');
+    card.style.animationDelay = (index * 0.05) + 's';
+    const w = b.w || 0, l = b.l || 0, d = b.d || 0;
+    const n = w + l + d;
+
+    const head = el('div', 'stats-card-head');
+    head.appendChild(el('span', 'stats-card-title', `${RULE_LABEL[my]} vs ${RULE_LABEL[opp]}`));
+    head.appendChild(el('span', 'stats-card-time', `${num(w)} W / ${num(l)} L · ${pct(w, w + l)} · TIME ${fmtTotal(b.ms || 0)}`));
+    card.appendChild(head);
+
+    const grid = el('div', 'stats-grid');
+    const roundSub = [];
+    if (d > 0) roundSub.push(`DRAW ${num(d)}`);
+    if (b.q > 0) roundSub.push(`QUIT ${num(b.q)}`);
+    grid.appendChild(_cell('ROUNDS', `${num(w)} - ${num(l)}`, roundSub.join(' / ')));
+    grid.appendChild(_cell('WIN', pct(w, w + l), b.dcW > 0 ? `DISCONNECT ${num(b.dcW)}` : ''));
+    const sets = (b.sw || 0) + (b.sl || 0);
+    grid.appendChild(_cell('SETS', sets > 0 ? `${num(b.sw || 0)} - ${num(b.sl || 0)}` : '—', sets > 0 ? pct(b.sw, sets) : ''));
+    grid.appendChild(_cell('STREAK', num(b.wsMax || 0)));
+    grid.appendChild(_cell('APM', apm(b.atk, b.ms)));
+    grid.appendChild(_cell('AVG TIME', n > 0 ? fmtTime((b.ms || 0) / (n + (b.q || 0))) : '—'));
+    grid.appendChild(_cell('RECEIVED', num(b.rcv || 0), b.ms > 0 ? `${apm(b.rcv, b.ms)} / MIN` : ''));
+    if (my === 'puyo') {
+      grid.appendChild(_cell('MAX CHAIN', num(b.chMax || 0)));
+      grid.appendChild(_cell('ALL CLEAR', num(b.ac || 0)));
+      grid.appendChild(_cell('PAIRS', num(b.pc || 0), b.ms > 0 && b.pc > 0 ? `${(b.pc / (b.ms / 60000)).toFixed(1)} / MIN` : ''));
+    } else {
+      grid.appendChild(_cell('PPS', pps(b.pc, b.ms)));
+      grid.appendChild(_cell('4 LINES', num(b.t4 || 0)));
+      grid.appendChild(_cell('T-SPIN', num((b.ts1 || 0) + (b.ts2 || 0) + (b.ts3 || 0)),
+        `S ${num(b.ts1 || 0)} / D ${num(b.ts2 || 0)} / T ${num(b.ts3 || 0)} / MINI ${num(b.tsm || 0)}`));
+      grid.appendChild(_cell('PERFECT CLEAR', num(b.pcl || 0)));
+      grid.appendChild(_cell('MAX REN', num(b.renMax || 0)));
+    }
+    card.appendChild(grid);
+    return card;
+  }
+
+  function _renderOnline(list) {
+    const buckets = window.Stats.getBuckets();
+    let shown = 0;
+    OL_COMBOS.forEach(([my, opp]) => {
+      const b = buckets[`ol:${my}:${opp}`];
+      if (!b) return;
+      list.appendChild(_olCard(my, opp, b, shown++));
+    });
+    if (shown === 0) list.appendChild(el('p', 'ranking-status', 'NO MATCHES'));
+  }
+
   // ─── QUIZ ───────────────────────────────
   // 問題の総数は quiz/quiz.js の QUIZ_LEVELS（まだ読み込んでいなければ読み込んでから描き直す）
   function _quizTotal(rule) {
@@ -340,6 +402,17 @@
         : (h.zms > 0 ? `${fmtTotal(h.ms)} · ZONE ${apm(h.zatk, h.zms)} APM` : fmtTotal(h.ms))));
       return row;
     }
+    if (parseOl(h.k)) {
+      // オンライン: 主指標は APM。2 本先取以上の部屋は何ラウンド目か・セットの決着を添える
+      const sub = [fmtTotal(h.ms)];
+      const ol = h.ol || {};
+      if (ol.target > 1) sub.push(`R${num(ol.round || 0)} · FT${num(ol.target)}`);
+      if (ol.set) sub.push(ol.set === 'w' ? 'SET WIN' : 'SET LOSE');
+      if (ol.dc) sub.push('DISCONNECT');
+      row.appendChild(el('span', 'stats-history-value', apm(h.atk, h.ms) + ' APM'));
+      row.appendChild(el('span', 'stats-history-sub', sub.join(' · ')));
+      return row;
+    }
     // 主指標: タイムの枠は完走したときだけタイム、それ以外はスコア
     const main = isTimeKey(h.k) ? (h.r === 'ok' ? fmtTime(h.ms) : '—') : num(h.sc);
     row.appendChild(el('span', 'stats-history-value', main));
@@ -373,6 +446,9 @@
     } else if (currentTab === 'quiz') {
       _renderQuiz(list);
       if (hint) hint.textContent = '1 手も置かずにやめた挑戦は数えません。解いた問題には、問題の一覧で印が付きます。';
+    } else if (currentTab === 'online') {
+      _renderOnline(list);
+      if (hint) hint.textContent = 'オンライン対戦の成績です。勝敗はラウンドごと、SETS は 2 本先取以上の部屋のセットの勝敗。自分の通信が切れたラウンドは数えません。';
     } else if (currentTab === 'versus') {
       _renderVersus(list);
       if (hint) hint.textContent = '対 CPU 戦の成績です。設定を変えた試合も数えます。火力補正（BIAS）を付けた試合があると補正を外した火力（RAW APM）、ZONE を使った試合があると発動中だけの火力（ZONE APM）も出ます。';

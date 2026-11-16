@@ -350,6 +350,10 @@ export class OnlineGameController {
   private matchParticipants: Set<Uuid> = new Set();
   /** 再戦が成立して preparing に入ってから開始通知を待つ見張り（#3）。 */
   private rematchStartTimer: number | null = null;
+  /** 成績（STATS）の枠に使う相手のルール。1v1 は相手のルール、3 人以上は multi（startBattle で決める）。 */
+  private statsOppRule: 'tet' | 'puyo' | 'multi' = 'tet';
+  /** このラウンドで、相手の切断により自分が最後の 1 人になったか（成績の dcW）。 */
+  private statsDcWin = false;
   /** ローカルで残り1人を検知してから WinnerNotification を待つタイマー。 */
   private winnerFallbackTimer: number | null = null;
   /** サーバーの WinnerNotification を待つ猶予。超えたらローカル判定で結果を出す。 */
@@ -927,6 +931,9 @@ export class OnlineGameController {
     // Determine my rule from room info
     const myPlayer = this.roomInfo.players.find(([id]) => id === this.myUserId);
     this.myRule = myPlayer?.[2] === 'puyo' ? 'puyo' : 'tet';
+    const statsOpps = this.roomInfo.players.filter(([id]) => id !== this.myUserId);
+    this.statsOppRule = statsOpps.length >= 2 ? 'multi' : (statsOpps[0]?.[2] === 'puyo' ? 'puyo' : 'tet');
+    this.statsDcWin = false;
 
     const now = this.connection.serverNow();
     // delay = 「カウントダウンを開始すべき時刻」までの残り時間（本編開始ではない）。
@@ -1171,6 +1178,7 @@ export class OnlineGameController {
       if (!this.game || !this.lifecycle.transition("playing", "countdown finished"))
         return;
       this.game._startGameplay();
+      this.beginRoundStats();
       this.startPieceStateInterval();
       this.startHudClock();
       // カウントダウン中にタブを隠したまま開始した場合、visibilitychange は発火しないので
@@ -1231,11 +1239,36 @@ export class OnlineGameController {
         if (!this.game || !this.lifecycle.transition("playing", "countdown finished"))
           return;
         this.game._startGameplay();
+        this.beginRoundStats();
         this.startPieceStateInterval();
         this.startHudClock();
         // カウントダウン中にタブを隠したまま開始した場合の取りこぼし防止
         this.syncBackgroundClock();
       }, remaining);
+    });
+  }
+
+  // ── 成績（STATS。public/config/stats.js） ────────────────────────────────
+  // 1 ラウンド＝1 試合。本編の開始（カウントダウン明け）で数え始め、勝敗の確定（showWinner）で締める。
+  // 自分の切断・決着が分からない強制終了は数えない（discardOnline）。部屋を出たら途中でやめた扱い（cleanup）。
+
+  private beginRoundStats(): void {
+    (window as any).Stats?.beginOnline?.({ game: this.game, myRule: this.myRule, oppRule: this.statsOppRule });
+  }
+
+  /** showWinner から。recordWinner（セットの勝ち数）と haltMatch（時計の停止）の後に呼ぶ。 */
+  private endRoundStats(winnerId: Uuid | null): void {
+    const stats = (window as any).Stats;
+    if (!stats?.endOnline) return;
+    const r = winnerId === null ? 'd' : winnerId === this.myUserId ? 'w' : 'l';
+    const snap = this.lifecycle.snapshot();
+    const setWinner = snap.target > 1 ? this.lifecycle.setWinner() : null;
+    stats.endOnline(r, {
+      died: !this.myAlive,
+      set: setWinner === null ? null : setWinner === this.myUserId ? 'w' : 'l',
+      dc: r === 'w' && this.statsDcWin,
+      round: snap.round,
+      target: snap.target,
     });
   }
 
@@ -2810,6 +2843,7 @@ export class OnlineGameController {
     //   stop(true) は state='idle' も cancelAnimationFrame もスキップするため、勝者側の
     //   ぷよが決着後も落ち続けていた。停止の作法は battle/freeze.ts に一本化した。
     this.haltMatch("WinnerNotification");
+    this.endRoundStats(winnerId);
     this.game?.drawAll?.();
 
     // 前マッチのボタン状態・投票UIをリセット
@@ -2924,7 +2958,13 @@ export class OnlineGameController {
   private handleOpponentDisconnect(playerId: Uuid): void {
     // S4: 最終確定なので猶予UI・安全網は不要になる。
     this.clearDisconnectWatch(playerId);
+    const statsInRound = (this.lifecycle.phase === "playing" || this.lifecycle.phase === "countdown")
+      && this.aliveSet.has(playerId);
     this.markDead(playerId);
+    // 成績: この切断で自分が最後の 1 人になった＝切断勝ち（dcW）
+    if (statsInRound && this.myAlive && this.aliveSet.size === 1 && this.aliveSet.has(this.myUserId)) {
+      this.statsDcWin = true;
+    }
     const driver = this.puppets.get(playerId);
     driver?.setDisconnected();
     const idx = this.puppetIndices.get(playerId);
@@ -2996,6 +3036,7 @@ export class OnlineGameController {
    */
   private forceLeaveAfterConnectionLoss(): void {
     this.haltMatch("connection lost watchdog timeout");
+    (window as any).Stats?.discardOnline?.(); // 決着が分からないまま終わったラウンドは数えない
     this.cleanup();
     this.postMatchCallbacks?.onForceLeave?.(
       "相手との接続が失われたため対戦を終了します",
@@ -3018,6 +3059,7 @@ export class OnlineGameController {
   forceLeaveDueToSelfDisconnect(): void {
     if (!this.isBattleActive) return;
     this.haltMatch("self connection lost, giving up reconnect");
+    (window as any).Stats?.discardOnline?.(); // 自分の切断で終わったラウンドは数えない（設計 §5）
     this.cleanup();
     this.postMatchCallbacks?.onForceLeave?.(
       "通信が回復しなかったため対戦を終了しました",
@@ -3027,6 +3069,8 @@ export class OnlineGameController {
   // ── Cleanup ──────────────────────────────────────────────────────────────
 
   cleanup(): void {
+    // 成績: 本編の途中で部屋を出たら「途中でやめた」（決着済み・強制終了で捨てた後なら何もしない）
+    (window as any).Stats?.abortOnline?.();
     // どの状態からでも idle へ戻せる。テアダウン本体は冪等なので遷移可否に関わらず実行
     this.lifecycle.transition("idle", "cleanup");
     // ★ RETRY待機中に相手がROOM/LEAVEを押してルームへ遷移した場合、toggleRematchVote()の
