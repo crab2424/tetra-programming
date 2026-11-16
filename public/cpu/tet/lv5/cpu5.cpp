@@ -151,8 +151,14 @@ struct PlacementInfo { bool isFullyGrounded; int touchingCount; };
 //   ペナルティは 1e8×(8-step)（step は 1〜7。7 は「6手目の後に次のミノが出せない」）。
 //   評価値の累積(6手で最大 ~2e7)より必ず大きく、早い死ほど重い。旧 (7-step) は step7 で 0 になる。
 static const int HIDDEN_ROWS = 5;
+
+// ZONE の発動中は、全ブロックが枠の上の設置も実機で致命にならない（game/tet/board.js secureMino・ZONE 本編 §15）。
+//   探索の入口で盤面の印（先頭バイト 100 以上。cpu/tet/cpu_zone.js stampBoard）を見て立てる。
+//   探索の中でも ZONE は続く扱い（ZONE 段の数え方と同じ）なので、1 回の探索のあいだは固定
+static bool g_zoneNoLockOut = false;
 static inline int deathPenalty(int step_num) { return 100000000 * (8 - step_num); }
 static inline bool isLockOut(const GridBlock* blocks) {
+    if (g_zoneNoLockOut) return false;
     for (int k = 0; k < 4; k++) if (blocks[k].y >= HIDDEN_ROWS) return false;
     return true;
 }
@@ -960,6 +966,7 @@ void evaluateSinglePlacementWasm(
         if (boardData[i]) baseBoard.set(i % 10, i / 10);
     }
     // ZONE: 先頭のバイトが 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）
+    g_zoneNoLockOut = boardData[0] >= 100;
     if (boardData[0] >= 100) { baseBoard.zone = boardData[0] - 100; baseBoard.clear(0, 0); }
 
     EvalWeights w = loadWeights(weightsArray);
@@ -1030,6 +1037,7 @@ void searchBestMoveWasm(
         if (boardData[i]) baseBoard.set(i % 10, i / 10);
     }
     // ZONE: 先頭のバイトが 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）
+    g_zoneNoLockOut = boardData[0] >= 100;
     if (boardData[0] >= 100) { baseBoard.zone = boardData[0] - 100; baseBoard.clear(0, 0); }
 
     EvalWeights w = loadWeights(weightsArray);

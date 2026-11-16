@@ -28,14 +28,15 @@ self.Module = {
     //   ★v=15: getAllPlacements()のBFS初期化をmemset方式→世代スタンプ方式に変更して再ビルド（挙動不変・呼び出しあたりO(2660)×3の初期化コスト削減）
     //   ★v=20: lv6 を main（v2.3）の版に戻した（2026-10-27。強化版 v=17〜19 のキャッシュを使わせない）
     //   ★v=21: 死んだ枝を 1 つだけ覚える形にして再ビルド（ZONE の発動中の Aborted(OOM) 対策。結果は同じ）
-    locateFile: function(path) { return path + '?v=21'; },
+    locateFile: function(path) { return path + '?v=22'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=22'); // ★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
+importScripts('cpu_wasm6.js?v=23');  // ★ 2026-11-17 ZONE 中は枠の上の設置を致命にしない（g_zoneNoLockOut）で再ビルド
+// （前回）★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
 
 let boardPtr = null;
 let resultPtr = null;

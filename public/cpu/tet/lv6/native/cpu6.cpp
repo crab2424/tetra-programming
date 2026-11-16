@@ -45,6 +45,11 @@ void my_free(void* ptr) { free(ptr); }
 //   評価値の絶対値は 1e7 未満なので 1e8 刻みで辞書式（生存手数 > 評価値）になる。
 static const int SEARCH_MAX_STEP = 8;
 static const int HIDDEN_ROWS = 5;
+
+// ZONE の発動中は、全ブロックが枠の上の設置も実機で致命にならない（game/tet/board.js secureMino・ZONE 本編 §15）。
+//   探索の入口で盤面の印（先頭バイト 100 以上。cpu/tet/cpu_zone.js stampBoard）を見て立てる。
+//   探索の中でも ZONE は続く扱い（ZONE 段の数え方と同じ）なので、1 回の探索のあいだは固定
+static bool g_zoneNoLockOut = false;
 // step は 1〜9（9 は「8手目の後に次のミノが出せない」）。step1: 9e8 … step9: 1e8（int32 に収まる）
 static inline int deathPenalty(int step_num) {
     return 100000000 * (SEARCH_MAX_STEP + 2 - step_num);
@@ -64,6 +69,7 @@ static bool canSpawnPiece(const Board& b, int pieceType) {
     return false;
 }
 static inline bool isLockOut(const GridBlock* blocks) {
+    if (g_zoneNoLockOut) return false;
     for (int k = 0; k < 4; k++) if (blocks[k].y >= HIDDEN_ROWS) return false;
     return true;
 }
@@ -201,6 +207,7 @@ void evaluateSinglePlacementWasm(
         if (boardData[i]) baseBoard.set(i % 10, i / 10);
     }
     // ZONE: 先頭のバイトが 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）
+    g_zoneNoLockOut = boardData[0] >= 100;
     if (boardData[0] >= 100) { baseBoard.zone = boardData[0] - 100; baseBoard.clear(0, 0); }
 
     EvalWeights w = unpackWeights(weightsArray);
@@ -267,6 +274,7 @@ void searchBestMoveWasm(
         if (boardData[i]) baseBoard.set(i % 10, i / 10);
     }
     // ZONE: 先頭のバイトが 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）
+    g_zoneNoLockOut = boardData[0] >= 100;
     if (boardData[0] >= 100) { baseBoard.zone = boardData[0] - 100; baseBoard.clear(0, 0); }
 
     EvalWeights w = unpackWeights(weightsArray);

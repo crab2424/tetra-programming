@@ -12,6 +12,11 @@ const int COLS = 10;
 const int ROWS = 25;
 const int HIDDEN_ROWS = 5;
 
+// ZONE の発動中は、全ブロックが枠の上の設置も実機で致命にならない（game/tet/board.js secureMino・ZONE 本編 §15）。
+//   探索の入口で盤面の印（先頭バイト 100 以上。cpu/tet/cpu_zone.js stampBoard）を見て立てる。
+//   探索の中でも ZONE は続く扱い（ZONE 段の数え方と同じ）なので、1 回の探索のあいだは固定
+static bool g_zoneNoLockOut = false;
+
 struct GridBlock { int x, y; };
 
 struct MinoData {
@@ -335,6 +340,7 @@ void searchBestMoveWasm(
     Board baseBoard;
     for(int i = 0; i < 250; i++) baseBoard.cells[i / 10][i % 10] = boardData[i];
     // ZONE: 先頭のバイトが 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）
+    g_zoneNoLockOut = boardData[0] >= 100;
     if(boardData[0] >= 100) { baseBoard.zone = boardData[0] - 100; baseBoard.cells[0][0] = 0; }
 
     // JSから受け取った配列を構造体にマッピング（17要素に拡張）
@@ -374,6 +380,7 @@ void searchBestMoveWasm(
         return false;
     };
     auto isLockOut = [](const std::vector<GridBlock>& blocks) {
+        if (g_zoneNoLockOut) return false;
         for (const auto& blk : blocks) if (blk.y >= HIDDEN_ROWS) return false;
         return true;
     };

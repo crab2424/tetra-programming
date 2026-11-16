@@ -29,7 +29,8 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js?v=4'); // ★ 2026-10-25 地形強化（T0 キック表・重み 47 要素）で再ビルド
+importScripts('cpu_wasm5.js?v=5');  // ★ 2026-11-17 ZONE 中は枠の上の設置を致命にしない（g_zoneNoLockOut）で再ビルド
+// （前回）★ 2026-10-25 地形強化（T0 キック表・重み 47 要素）で再ビルド
 
 let boardPtr = null;
 let resultPtr = null;

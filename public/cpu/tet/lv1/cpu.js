@@ -234,7 +234,8 @@ window.CPU = class{
                 // EVAL差の計算
                 let diff = score - baseScore;
 
-                const lockOut = droppedBlocks.every(b => b.y < 0);
+                // ZONE の発動中は、全ブロックが枠の上でも実機で致命にならない（game/tet/board.js secureMino・ZONE 本編 §15）
+                const lockOut = !(this.game && this.game.zoneActive) && droppedBlocks.every(b => b.y < 0);
                 const alive = !lockOut && (nextType === null || this.canSpawnOn(simResult.blocks, nextType));
                 if ((alive && !bestAlive) || (alive === bestAlive && diff > bestDiff)) {
                     bestAlive = alive;

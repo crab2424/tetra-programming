@@ -29,7 +29,8 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=3'); // ★ v2.2.3 I: 25行化で再ビルド
+importScripts('cpu_wasm4.js?v=4');  // ★ 2026-11-17 ZONE 中は枠の上の設置を致命にしない（g_zoneNoLockOut）で再ビルド
+// （前回）★ v2.2.3 I: 25行化で再ビルド
 
 let boardPtr = null;
 let resultPtr = null;
