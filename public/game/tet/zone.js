@@ -66,13 +66,20 @@ function zoneAttackChunks(charge, lines) {
 }
 
 // マージンタイム中、表のボーナス火力にかける倍率（10 倍の整数で持つ。小数点以下は切り捨て）。
-// 添字はマージンのステップ（_tetMarginStep 0〜5 = 突入後 0/32/64/96/128/160 秒。scoring.js の火力表と同じ段階）。
-// 未突入（null）は等倍。設計 tetlabo-zone-versus-cpu-design.md §11.4
-const ZONE_MARGIN_BONUS_X10 = [12, 14, 16, 20, 24, 30];
+// 行は発動したときのメーター（1/4・2/4・3/4・MAX ＝ zoneCharge 1〜4）。ためて撃つほど伸びが大きい。
+// 列はマージンのステップ（_tetMarginStep 0〜5 = 突入後 0/32/64/96/128/160 秒。scoring.js の火力表と同じ段階）。
+// 未突入（null）は等倍。設計 tetlabo-zone-versus-cpu-design.md §16（§11.4 の 1 行の表を置き換えた）
+const ZONE_MARGIN_BONUS_X10 = [
+    [10, 11, 12, 13, 14, 15],   // 1/4
+    [12, 14, 16, 18, 20, 24],   // 2/4
+    [12, 16, 20, 24, 30, 36],   // 3/4
+    [12, 18, 24, 32, 48, 64],   // MAX
+];
 
-function zoneMarginBonusX10(marginStep) {
+function zoneMarginBonusX10(charge, marginStep) {
     if (marginStep === null || marginStep === undefined || marginStep < 0) return 10;
-    return ZONE_MARGIN_BONUS_X10[Math.min(ZONE_MARGIN_BONUS_X10.length - 1, marginStep)];
+    const row = ZONE_MARGIN_BONUS_X10[Math.min(4, Math.max(1, charge | 0)) - 1];
+    return row[Math.min(row.length - 1, marginStep)];
 }
 
 // VERSUS の終了時に出す火力のかたまり（補正後。設計 §11）。CPU の見込み（cpu/tet/cpu_zone.js）もこれを使う。
@@ -84,7 +91,7 @@ function zoneMarginBonusX10(marginStep) {
 function zoneEndAttackChunks(charge, lines, pool, marginStep, bias) {
     const b = (bias === undefined || bias === null) ? 1.0 : bias;
     const biased = (v) => (b !== 1.0 ? Math.floor(v * b + 1e-9) : v);
-    const x10 = zoneMarginBonusX10(marginStep);
+    const x10 = zoneMarginBonusX10(charge, marginStep);
     const out = [];
     const normal = biased(Math.max(0, pool | 0));
     if (normal > 0) out.push(normal);
