@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────
 // cpu/tet/cpu_zone.js — テト CPU の ZONE（VERSUS）: 発動の判断・探索へ渡す盤面の印
-// 設計: source_assets/memory/tet_zone/tetlabo-zone-versus-cpu-design.md §5・§6・§11
+// 設計: source_assets/memory/mode/tet_zone/tetlabo-zone-versus-cpu-design.md §5・§6・§11・§17
 // （発動中の手の速さは通常と同じ。§11.2 で待ちをやめた）
 //
 // ・各レベルの CPU（lv1〜lv7）は updateLoop の頭で CpuZone.tick(this, レベル) を呼ぶ。
@@ -8,6 +8,8 @@
 // ・探索（wasm）へ渡す盤面は実盤面のまま（ZONE 段はそろった段として底に入っている）。
 //   発動中だけ先頭のバイトに印（100 + ZONE 段の数）を付け、探索側が「ZONE 段は消えない・
 //   発動中の消去は下が上がる」と読む（C1。各 cpuN.cpp / lv7 engine）。
+// ・火力の見込みは全部 attackOf（＝エンジンの zoneEndAttackChunks。火力表・マージンの倍率表・ATTACK BIAS）で出す。
+//   ここには火力の数字を持たない。game/tet/zone.js の表を変えれば、発動の判断もそのまま付いてくる（§17）。
 // ・盤面に触るのは game.cpuAction('zone') だけ（録画に残る。core/cpu_port.js）。
 // ─────────────────────────────────────────────
 const CpuZone = (() => {
@@ -19,7 +21,7 @@ const CpuZone = (() => {
         moveMs: { 1: 1300, 2: 900, 3: 700, 4: 550, 5: 450, 6: 380, 7: 360 },
         // 発動中の通常火力の見込み（1 段あたり。REN・4 ラインをねらわない打ち方なので控えめ。仮）
         normalPerLine: 0.5,
-        // 「攻め」で発動する見込み段数（低いほど早く撃つ＝弱い）
+        // 「攻め」で発動する見込み段数（満タンで撃つときの値。低いほど早く撃つ＝弱い。満タン前はメーターの割合ぶん）
         attackTarget: { 3: 6, 4: 6, 5: 10, 6: 10, 7: 10 },
         attackMaxHeight: 10,     // 「攻め」: これより高い盤面では撃たない
         attackMaxHoles: 1,       // 「攻め」: 穴がこれより多い盤面では撃たない
@@ -30,6 +32,18 @@ const CpuZone = (() => {
         counterDanger: 16,       // 「返し」: 高さ＋予告＋相手の見込み火力がこれ以上なら危ない
         counterLeadMs: 3000,     // 「返し」: 相手の終了より後にこれだけ自分の時間を残す（後出し）
         simpleDelayMs: 1500,     // lv1・lv2: 満タンになってから発動するまでの遅れ
+        // ── 火力の表から決める判断（§17）──
+        // 「攻め」: 満タンでなくても、メーター 1/4 あたりの見込み火力が「満タンまでためて撃つ」ときの
+        // この倍以上なら撃つ（1.0 = 少しでも得なら早く撃つ。大きくすると満タンまで待ちやすい。
+        // ほぼ同じなら満タンまでためる側に倒すため 1.2）
+        attackMinEfficiency: 1.2,
+        // 「攻め」: マージンの次の段階がこの時間以内に来るなら、待つ得（倍率が上がるぶんの火力）と
+        // 待つ損（待つ間に消してあふれるメーターぶんの火力）を比べる。0 にすると待たない
+        marginWaitMaxMs: 32000,
+        // 「とどめ」: 相手が ZONE で相殺してくる見込み（相手の見込み火力のこの割合。人は毎回は返せないので割り引く）
+        oppCancelRate: 0.6,
+        oppCancelPlain: 3,       // 「とどめ」: 相手が ZONE を使えないときの相殺の見込み（4 ライン 1 回ぶん程度）
+        oppMoveMs: 700,          // 相手の発動中の 1 手の見込み（ms。相手の段数の見込み用）
     };
 
     // レベルごとの決まり（設計 §5.3 の表）
@@ -104,21 +118,75 @@ const CpuZone = (() => {
     }
 
     // 発動中に作れる見込みの段数: 置ける手数 ÷ 2.5（1 手 4 マス・1 段 10 マス）＋今ある分。天井で頭打ち
-    function expectedLines(ms, level, st) {
-        const moves = ms / (CONFIG.moveMs[level] || 700);
+    function expectedLines(ms, level, st, moveMs) {
+        const moves = ms / (moveMs || CONFIG.moveMs[level] || 700);
         const cap = 20 - 1 - Math.min(6, st.holes);
         return Math.max(0, Math.min(cap, Math.floor(moves / 2.5 + st.blocks / 10)));
     }
 
     // game が ZONE を lines 段で終えたときの見込み火力（エンジンの終了時と同じ式。設計 §11）。
     // 通常火力は「いままでにためた分（発動中だけ）＋これから増える段 × normalPerLine」で見込む
-    function attackOf(game, charge, lines) {
+    // marginStep を渡すと、そのマージンの段階で終えたとして見込む（省略＝いまの段階）
+    function attackOf(game, charge, lines, marginStep) {
         const have = game.zoneActive ? (game.zoneAtkPool || 0) : 0;
         const more = Math.max(0, lines - (game.zoneActive ? game.zoneLines : 0));
         const pool = have + Math.floor(more * CONFIG.normalPerLine);
+        const step = (marginStep === undefined) ? game._tetMarginStep : marginStep;
         let n = 0;
-        for (const c of zoneEndAttackChunks(charge, lines, pool, game._tetMarginStep, game.vsAttackMultiplier ?? 1.0)) n += c;
+        for (const c of zoneEndAttackChunks(charge, lines, pool, step, game.vsAttackMultiplier ?? 1.0)) n += c;
         return n;
+    }
+
+    // いまメーター q/4 で発動したときの見込み火力（marginStep 省略＝いまの段階）
+    function attackIfFired(game, level, q, st, marginStep) {
+        return attackOf(game, q, expectedLines(q * game.zoneQuarterMs, level, st), marginStep);
+    }
+
+    // 「攻め」を満タン前に撃ってよいか: 1/4 あたりの見込み火力が、満タンで撃つときの attackMinEfficiency 倍以上。
+    // 火力表とマージンの倍率表から出すので、表が「ためるほど得」なら満タンまで待ち、そうでなければ早く撃つ
+    function worthFiringAt(game, level, q, st) {
+        if (q >= 4) return true;
+        const now = attackIfFired(game, level, q, st) / q;
+        const full = attackIfFired(game, level, 4, st) / 4;
+        return now > 0 && now >= full * CONFIG.attackMinEfficiency;
+    }
+
+    // マージンの次の段階までの時間（ms）。もう上がらない・マージンなしは Infinity
+    function nextMarginStepIn(game) {
+        if (!game._vsMarginTimer || !(game._vsMarginTimerDuration > 0)) return Infinity;
+        return Math.max(0, game._vsMarginTimerStart + game._vsMarginTimerDuration - game.clock.now());
+    }
+
+    // 「攻め」で、マージンの次の段階まで待つほうが得か。
+    //   得 = 次の段階で撃ったときの見込み火力 − いま撃ったときの見込み火力
+    //   損 = 待つ間に消す段のうちメーターに入らないぶん（満タン＋持ち越しの枠を超えるぶん）× メーター 1 段あたりの火力
+    // 待つ間もふつうの攻撃は続くので、損はあふれるメーターだけで見る
+    function shouldWaitForMargin(game, level, q, st, atkNow) {
+        const wait = nextMarginStepIn(game);
+        if (!(wait <= CONFIG.marginWaitMaxMs)) return false;
+        const cur = game._tetMarginStep;
+        const next = (cur === null || cur === undefined) ? 0 : cur + 1;
+        const gain = attackIfFired(game, level, q, st, next) - atkNow;
+        if (!(gain > 0)) return false;
+        const perMeterLine = atkNow / (4 * game.zoneQuarterLines);
+        const linesWhileWaiting = wait / (CONFIG.moveMs[level] || 700) / 2.5;
+        const room = (4 - q) * game.zoneQuarterLines
+            + Math.max(0, game.zoneQuarterLines - (game.zoneCarry || 0));
+        return gain > Math.max(0, linesWhileWaiting - room) * perMeterLine;
+    }
+
+    // 「とどめ」で、相手が相殺に使える見込み。相手が ZONE を使える（発動中も）なら、相手の見込み火力を
+    // oppCancelRate で割り引いたもの。使えないなら oppCancelPlain
+    function oppCancelOf(opp, os) {
+        let zoneAtk = 0;
+        if (opp.zoneActive) {
+            const lines = opp.zoneLines + Math.floor(opp.zoneRemainingMs() / CONFIG.oppMoveMs / 2.5);
+            zoneAtk = attackOf(opp, opp.zoneCharge, lines);
+        } else {
+            const oq = Math.min(4, opp.zoneQuarters());
+            if (oq >= 1) zoneAtk = attackOf(opp, oq, expectedLines(oq * opp.zoneQuarterMs, 0, os, CONFIG.oppMoveMs));
+        }
+        return Math.max(CONFIG.oppCancelPlain, Math.floor(zoneAtk * CONFIG.oppCancelRate));
     }
 
     // 発動するか（設計 §5.3）。理由の名前を返す（しないなら null）
@@ -157,11 +225,14 @@ const CpuZone = (() => {
         // 発動中は着弾が止まるので、その間に 1 段でも消せば盤面が下がって生き延びる。設計 §13.2）
         if (rule.defend && lethal) return 'defend';
 
-        // 攻め: 満タン・穴がない・低い・予告が小さい・見込み段数が目標以上
-        if (rule.attack && q === 4 && st.holes <= CONFIG.attackMaxHoles && st.height <= CONFIG.attackMaxHeight
+        // 攻め: 穴がない・低い・予告が小さい・見込み段数が目標以上。
+        // 満タン前は「ためても得をしない」ときだけ（worthFiringAt）。マージンの次の段階が近くて得なら待つ
+        if (rule.attack && st.holes <= CONFIG.attackMaxHoles && st.height <= CONFIG.attackMaxHeight
             && inc <= CONFIG.attackMaxIncoming
-            && expectedLines(4 * g.zoneQuarterMs, level, st) >= (CONFIG.attackTarget[level] || 10)) {
-            return 'attack';
+            && expectedLines(q * g.zoneQuarterMs, level, st) >= Math.ceil((CONFIG.attackTarget[level] || 10) * q / 4)
+            && worthFiringAt(g, level, q, st)) {
+            const atkNow = attackIfFired(g, level, q, st);
+            if (atkNow > 0 && !shouldWaitForMargin(g, level, q, st, atkNow)) return 'attack';
         }
 
         // とどめ: 相手が高い。見込み段数の火力が、相手の天井までの余裕＋相手が相殺に使える量以上
@@ -169,10 +240,8 @@ const CpuZone = (() => {
             && st.height <= CONFIG.finishMaxHeight) {
             const os = boardStats(opp);
             if (os.height >= CONFIG.finishOppHeight) {
-                const atk = attackOf(g, q, expectedLines(q * g.zoneQuarterMs, level, st));
-                // 相手が相殺に使える量: 発動できるなら大きめに、できないなら 4 ライン 1 回ぶん程度
-                const oppCancel = (opp.zoneActive || opp.zoneQuarters() >= 1) ? 8 : 3;
-                if (atk >= (20 - os.height) + oppCancel) return 'finish';
+                const atk = attackIfFired(g, level, q, st);
+                if (atk >= (20 - os.height) + oppCancelOf(opp, os)) return 'finish';
             }
         }
         return null;
@@ -216,6 +285,6 @@ const CpuZone = (() => {
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, noMoveDelay, dropIfNoMove };
+    return { CONFIG, RULES, floor, stampBoard, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, noMoveDelay, dropIfNoMove };
 })();
 window.CpuZone = CpuZone;
