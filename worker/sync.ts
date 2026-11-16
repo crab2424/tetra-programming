@@ -7,6 +7,9 @@
 //     違っていても、端末の変更時刻の方が新しければ受け付ける。
 //   records ＝端末側で「モードごとに良い方」を合成する。rev が違えば必ず断り、今の中身を返して
 //     端末に合成し直させる（時刻で片方を捨てると記録が消えるため）。
+//   stats ＝成績（STATS）。端末ごとの欄を持ち寄る形で、端末は自分の欄だけを書き換える。records と同じく
+//     rev が違えば必ず断り、端末に「今の中身＋自分の欄」で作り直させる。中身は検証しない（ランキングに
+//     使わない自己申告の数字）。設計 source_assets/memory/mode/record/stats/tetlabo-stats-design.md §6.2
 // ─────────────────────────────────────────────
 
 import type { Env } from "./env";
@@ -14,17 +17,17 @@ import { pickDb } from "./env";
 import { resolveSession } from "./auth";
 import { checkOrigin, error, json } from "./http";
 
-const SECTIONS = {
-  tuning: { strict: false },
-  display: { strict: false },
-  binds: { strict: false },
-  gamepad: { strict: false },
-  records: { strict: true },
-} as const;
+// maxBytes: 区分ごとの大きさの上限（JSON の UTF-8 バイト数）。stats は端末ごとの欄を最大 8 台ぶん持つので大きめ
+const SECTIONS: Record<string, { strict: boolean; maxBytes: number }> = {
+  tuning: { strict: false, maxBytes: 32 * 1024 },
+  display: { strict: false, maxBytes: 32 * 1024 },
+  binds: { strict: false, maxBytes: 32 * 1024 },
+  gamepad: { strict: false, maxBytes: 32 * 1024 },
+  records: { strict: true, maxBytes: 32 * 1024 },
+  stats: { strict: true, maxBytes: 128 * 1024 },
+};
 
-type Section = keyof typeof SECTIONS;
-
-const MAX_DATA_BYTES = 32 * 1024;
+type Section = "tuning" | "display" | "binds" | "gamepad" | "records" | "stats";
 
 function isSection(name: string): name is Section {
   return Object.prototype.hasOwnProperty.call(SECTIONS, name);
@@ -96,7 +99,7 @@ export async function handleSyncPut(req: Request, env: Env, url: URL): Promise<R
     const { data } = entry;
     if (!data || typeof data !== "object" || Array.isArray(data)) return error("invalid_data", 400);
     const text = JSON.stringify(data);
-    if (new TextEncoder().encode(text).length > MAX_DATA_BYTES) return error("too_large", 413);
+    if (new TextEncoder().encode(text).length > SECTIONS[name].maxBytes) return error("too_large", 413);
 
     const baseRev = Number.isInteger(entry.baseRev) ? (entry.baseRev as number) : 0;
     // 進んだ時計の端末がいつまでも勝ち続けないよう、サーバー時刻を上限にする

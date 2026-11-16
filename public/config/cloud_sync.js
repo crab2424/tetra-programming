@@ -10,6 +10,7 @@
 //     binds   = game_binds（キー・パッド割当）
 //     gamepad = game_gamepad_options（デッドゾーン）
 //   記録 … 全モードの自己ベスト（tetlabo_records のうち、このアカウントのものと決まった記録）
+//   成績 … プレイ記録（STATS。config/stats.js）。端末ごとの欄を持ち寄って足す（履歴は送らない）
 // 共有しないもの … 音量（game_volume）・Backend URL。端末ごとの都合で変えるものなので各端末に残す。
 //
 // 決め方
@@ -35,6 +36,8 @@
     let touchTimer = null;
     let askedThisSession = false; // 初回の確認ダイアログを閉じて保留にした → この起動中はもう聞かない
     let interactive = false; // 確認ダイアログを出してよい回か（起動時・ログイン直後だけ。プレイ中の保存では出さない）
+    let lastStatsSyncAt = 0; // 成績を最後にサーバーと揃えた時刻（STATS を開いたときの取り直しの間引き）
+    const STATS_REFRESH_MS = 30000;
 
     function _me() {
         return (window.Account && window.Account.me) || null;
@@ -256,6 +259,39 @@
         return adopted;
     }
 
+    // ─── 成績（STATS） ─────────────────────────────────────
+    // 端末は自分の欄だけを書く（中身の組み立ては Stats.prepareSync）。rev が違えば断られるので、
+    // 返ってきた今の中身で作り直して送り直す（records と同じ 3 回まで）。
+    // @returns {boolean} 表示する数字（他の端末の分）が変わったか
+    async function _syncStats(meta, server, uid) {
+        const Stats = window.Stats;
+        if (!Stats || typeof Stats.prepareSync !== 'function') return false;
+        let sv = server.stats && server.stats.data ? server.stats : null;
+        const before = JSON.stringify(Stats.getBuckets());
+
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const plan = Stats.prepareSync(uid, sv ? sv.data : null);
+            if (!plan.changed) {
+                Stats.commitSync(uid, plan.doc, null, plan.dev);
+                meta.sections.stats = { rev: sv ? sv.rev : 0 };
+                break;
+            }
+            const result = await _put({ stats: { data: plan.doc, baseRev: sv ? sv.rev : 0, changedAt: Date.now() } });
+            const r = result.stats;
+            if (!r) break;
+            if (r.accepted) {
+                Stats.commitSync(uid, plan.doc, plan.sent, plan.dev);
+                meta.sections.stats = { rev: r.rev };
+                break;
+            }
+            // 別の端末が先に書いていた → その中身で作り直す
+            sv = r.data ? r : null;
+        }
+        _saveMeta(meta);
+        lastStatsSyncAt = Date.now();
+        return JSON.stringify(Stats.getBuckets()) !== before;
+    }
+
     // ─── 入口 ─────────────────────────────────────────────
     async function _syncOnce() {
         const me = _me();
@@ -265,9 +301,10 @@
         if (!_me() || _me().id !== me.id) return; // 待っている間にログアウト・切替された
         const settingsApplied = await _syncSettings(meta, server);
         const recordsAdopted = await _syncRecords(meta, server, me.id);
+        const statsChanged = await _syncStats(meta, server, me.id);
         if (settingsApplied) window.showSyncToast?.('アカウントの設定を読み込みました');
-        if (settingsApplied || recordsAdopted) {
-            try { window.dispatchEvent(new CustomEvent('tetlabo:cloudsync', { detail: { settingsApplied, recordsAdopted } })); }
+        if (settingsApplied || recordsAdopted || statsChanged) {
+            try { window.dispatchEvent(new CustomEvent('tetlabo:cloudsync', { detail: { settingsApplied, recordsAdopted, statsChanged } })); }
             catch (e) { /* 通知できなくても同期自体は済んでいる */ }
         }
     }
@@ -312,5 +349,25 @@
         touchTimer = setTimeout(() => { sync(); }, TOUCH_DELAY_MS);
     }
 
-    window.CloudSync = { sync, touch };
+    // 成績（STATS）を送る機会（メインメニューに戻ったとき・タブを隠したとき）。送っていない変化があるときだけ揃える
+    // （1 試合ごとには送らない。設計 §6.7）
+    function flushStats() {
+        const me = _me();
+        if (!me || !window.Stats || !window.Stats.hasUnpushed(me.id)) return null;
+        return sync();
+    }
+
+    // STATS を開いたとき: 他の端末の分を取り直す（少し前に揃えたばかりなら何もしない）
+    function refreshStats() {
+        const me = _me();
+        if (!me) return null;
+        if (Date.now() - lastStatsSyncAt < STATS_REFRESH_MS && !(window.Stats && window.Stats.hasUnpushed(me.id))) return null;
+        return sync();
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushStats();
+    });
+
+    window.CloudSync = { sync, touch, flushStats, refreshStats };
 })();

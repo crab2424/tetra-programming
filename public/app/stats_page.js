@@ -518,7 +518,9 @@
     box.textContent = '';
     if (me) {
       box.appendChild(el('span', 'stats-owner-tag', 'ACCOUNT'));
-      box.appendChild(el('span', 'stats-owner-text', me.name || ''));
+      // 1 回でもサーバーと揃えていれば全端末の合算。まだなら（通信できていない等）この端末の分だけ
+      const merged = window.Stats.isMerged && window.Stats.isMerged();
+      box.appendChild(el('span', 'stats-owner-text', `${me.name || ''} · ${merged ? '全端末の合算' : 'この端末の分（未同期）'}`));
     } else {
       box.appendChild(el('span', 'stats-owner-tag', 'GUEST'));
       box.appendChild(el('span', 'stats-owner-text', 'この端末だけの成績'));
@@ -531,7 +533,7 @@
     const ok = await window.TetDialog.choose({
       title: 'RESET STATS',
       message: me
-        ? `アカウント（${me.name || ''}）の成績と、この端末のプレイ履歴をすべて消します。元に戻せません。自己ベストとリプレイは消えません。`
+        ? `アカウント（${me.name || ''}）の成績を、すべての端末の分まとめて消します。この端末のプレイ履歴も消えます。元に戻せません。自己ベストとリプレイは消えません。`
         : 'この端末の成績とプレイ履歴をすべて消します。元に戻せません。自己ベストとリプレイは消えません。',
       buttons: [
         { label: 'CANCEL', value: false, kind: 'secondary', cancel: true },
@@ -541,6 +543,8 @@
     });
     if (!ok) return;
     window.Stats.reset();
+    // ログイン中は、RESET をすぐアカウントへ反映する（他の端末は次の同期で揃う）
+    if (me) window.CloudSync?.sync?.();
     renderStatsPage();
     if (window.FocusNav && typeof window.FocusNav.refresh === 'function') window.FocusNav.refresh();
     window.showGlobalToast?.('成績を消しました');
@@ -584,6 +588,18 @@
     // 一覧の項目数が変わるので、キー操作の項目を取り直す
     if (window.FocusNav && typeof window.FocusNav.refresh === 'function') window.FocusNav.refresh();
   }
+
+  // 他の端末の分が届いたら、STATS を開いていれば描き直す（config/cloud_sync.js）
+  window.addEventListener('tetlabo:cloudsync', (e) => {
+    if (!e.detail || !e.detail.statsChanged) return;
+    const page = document.getElementById('stats-page');
+    if (!page || !page.classList.contains('active')) return;
+    const list = document.getElementById('stats-list');
+    const top = list ? list.scrollTop : 0;
+    renderStatsPage();
+    if (list) list.scrollTop = top;
+    if (window.FocusNav && typeof window.FocusNav.refresh === 'function') window.FocusNav.refresh();
+  });
 
   window.renderStatsPage = renderStatsPage;
   window.setStatsTab = setStatsTab;

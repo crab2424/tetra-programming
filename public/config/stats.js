@@ -477,9 +477,12 @@
     }
 
     // 解いた問題の一覧 { <問題 id>: 最初に解いた日時 }
+    // ログイン中で同期済みなら、他の端末の分（others）と合わせたもの
     function getQuizCleared() {
         const o = _load().owners[ownerId()];
-        return (o && o.quiz && o.quiz.cleared) || {};
+        if (!o) return {};
+        if (ownerId() !== 'guest' && o.others) return _mergeOwner(_clone(o.others), _minePart(o)).quiz.cleared;
+        return (o.quiz && o.quiz.cleared) || {};
     }
 
     // ─── 合算・ゲスト分の取り込み・RESET（設計 §6.3〜§6.5） ─────
@@ -561,6 +564,157 @@
         _save(data);
     }
 
+    // ─── 端末間の同期（設計 §6.2〜§6.6。通信は config/cloud_sync.js の _syncStats） ─────
+    // サーバーの中身（user_data の区分 stats）:
+    //   { epoch, devices: { <端末の欄 id>: { at, buckets, quiz } }, retired: [id…], merged: { buckets, quiz } }
+    // 端末は自分の欄だけを書く。自分の欄の中身は、この端末のそのアカウントの累計（owners[uid].buckets / quiz）そのもの。
+    // 端末側にアカウントごとに持つもの:
+    //   dev    … このアカウントで使う欄の id（既定は deviceId。まとめられたら作り直す）
+    //   pushed … 最後にサーバーへ受け付けられた自分の欄（まとめられたとき「今 − pushed」を新しい欄にするため）
+    //   others … 自分以外の欄と merged の合計（表示用。同期のたびに作り直す）
+    //   seen   … 1 回でもサーバーの中身を見たか。まだなら、サーバーの epoch が大きくても数字は捨てない
+    const DEVICES_MAX = 8;
+    const RETIRED_MAX = 64;
+
+    const _emptyPart = () => ({ buckets: {}, quiz: { cleared: {} } });
+    const _clone = (v) => JSON.parse(JSON.stringify(v));
+
+    function _normDoc(raw) {
+        const d = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+        const part = (p) => ({
+            buckets: (p && p.buckets && typeof p.buckets === 'object') ? p.buckets : {},
+            quiz: { cleared: (p && p.quiz && p.quiz.cleared && typeof p.quiz.cleared === 'object') ? p.quiz.cleared : {} },
+        });
+        const devices = {};
+        if (d.devices && typeof d.devices === 'object') {
+            for (const [id, dv] of Object.entries(d.devices)) {
+                if (dv && typeof dv === 'object') devices[id] = Object.assign(part(dv), { at: Number(dv.at) || 0 });
+            }
+        }
+        return {
+            epoch: Number.isInteger(d.epoch) && d.epoch > 0 ? d.epoch : 0,
+            devices,
+            retired: Array.isArray(d.retired) ? d.retired.map(String) : [],
+            merged: part(d.merged),
+        };
+    }
+
+    // 「今 − 最後に送ったもの」。足す値は引き算（0 未満にしない）、最大の値と解いた問題はそのまま（足し直しても変わらない）
+    function _subtractBuckets(cur, base) {
+        const out = {};
+        for (const [key, b] of Object.entries(cur || {})) {
+            const p = (base && base[key]) || {};
+            const nb = {};
+            for (const [f, v] of Object.entries(b)) {
+                if (f === 'ch' && Array.isArray(v)) {
+                    nb.ch = v.map((x, i) => Math.max(0, (x || 0) - ((Array.isArray(p.ch) && p.ch[i]) || 0)));
+                } else if (typeof v === 'number') {
+                    nb[f] = MAX_FIELDS.includes(f) ? v : Math.max(0, v - (p[f] || 0));
+                }
+            }
+            out[key] = nb;
+        }
+        return out;
+    }
+
+    const _minePart = (o) => ({ buckets: o.buckets || {}, quiz: { cleared: (o.quiz && o.quiz.cleared) || {} } });
+    const _sameStr = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+    // サーバーの今の中身から、送る中身を作る。端末側の epoch の追従・まとめられた欄の作り直しはここで保存まで済ませる。
+    // @returns { doc: 送る中身, changed: 送る必要があるか, sent: 自分の欄（受け付けられたら commitSync に渡す） }
+    function prepareSync(uid, rawDoc) {
+        uid = String(uid);
+        const data = _load();
+        const o = _ownerOf(data, uid);
+        let doc = _normDoc(rawDoc);
+        let changed = false;
+
+        const localEpoch = Number.isInteger(o.epoch) ? o.epoch : 0;
+        if (doc.epoch > localEpoch && !o.seen) {
+            // この端末でこのアカウントとまだ一度も揃えていない（新しい端末・ゲスト分を取り込んだばかり）
+            // → 数字は RESET の後に数えたものなので、捨てずに今の epoch に乗せる
+            o.epoch = doc.epoch;
+        } else if (doc.epoch > localEpoch) {
+            // 他の端末で RESET された → この端末のこのアカウントの数字も捨てて揃える（古い数字が戻ってこないように）
+            o.buckets = {}; o.quiz = { cleared: {} }; o.streak = {};
+            delete o.pushed; delete o.others;
+            o.epoch = doc.epoch;
+            if (current && ownerId() === uid) current = null;
+        } else if (localEpoch > doc.epoch) {
+            // この端末で RESET した → サーバーを空にして epoch を進める
+            doc = { epoch: localEpoch, devices: {}, retired: [], merged: _emptyPart() };
+            changed = true;
+        }
+
+        let dev = o.dev || data.deviceId;
+        if (doc.retired.includes(dev)) {
+            // この欄は merged にまとめられている → まだ送っていない差分だけを新しい欄として持ち直す（二重に数えない）
+            o.buckets = _subtractBuckets(o.buckets, o.pushed && o.pushed.buckets);
+            delete o.pushed;
+            dev = _newId();
+        }
+        o.dev = dev;
+        o.seen = true; // 以後はサーバーの epoch が進んでいたら数字を捨てる
+        _save(data);
+
+        const mine = _clone(_minePart(o));
+        const onServer = doc.devices[dev];
+        const mineEmpty = Object.keys(mine.buckets).length === 0 && Object.keys(mine.quiz.cleared).length === 0;
+        // まだ一度も遊んでいないアカウントで、空の欄を作りに行かない
+        if (onServer ? !_sameStr({ buckets: onServer.buckets, quiz: onServer.quiz }, mine) : !mineEmpty) changed = true;
+        if (changed) {
+            doc.devices[dev] = Object.assign({ at: Date.now() }, mine);
+            // 欄が多すぎたら、一番古い欄（自分以外）を merged にまとめる
+            while (Object.keys(doc.devices).length > DEVICES_MAX) {
+                let oldest = null;
+                for (const [id, dv] of Object.entries(doc.devices)) {
+                    if (id === dev) continue;
+                    if (!oldest || dv.at < doc.devices[oldest].at) oldest = id;
+                }
+                if (!oldest) break;
+                _mergeOwner(doc.merged, doc.devices[oldest]);
+                delete doc.devices[oldest];
+                doc.retired.push(oldest);
+            }
+            if (doc.retired.length > RETIRED_MAX) doc.retired = doc.retired.slice(-RETIRED_MAX);
+        }
+        return { doc, changed, sent: changed ? mine : null, dev };
+    }
+
+    // サーバーと揃った後に呼ぶ。sent（受け付けられた自分の欄）を pushed に、他の欄の合計を others に控える
+    function commitSync(uid, doc, sent, dev) {
+        uid = String(uid);
+        const d = _normDoc(doc);
+        const data = _load();
+        const o = _ownerOf(data, uid);
+        if (d.epoch !== (o.epoch || 0)) return; // 待っている間に RESET された → 次の同期で揃え直す
+        if (sent) o.pushed = sent;
+        const others = _mergeOwner(_emptyPart(), d.merged);
+        for (const [id, dv] of Object.entries(d.devices)) {
+            if (id !== dev) _mergeOwner(others, dv);
+        }
+        o.others = others;
+        o.othersAt = Date.now();
+        _save(data);
+    }
+
+    // 送っていない変化があるか（メニューに戻ったとき・タブを隠したときに、送るかどうかの判定に使う）
+    function hasUnpushed(uid) {
+        if (!uid || uid === 'guest') return false;
+        const o = _load().owners[String(uid)];
+        if (!o) return false;
+        if (!o.pushed) return Object.keys(o.buckets || {}).length > 0 || Object.keys((o.quiz && o.quiz.cleared) || {}).length > 0 || (o.epoch || 0) > 0;
+        return !_sameStr(_minePart(o), o.pushed);
+    }
+
+    // 表示している数字が全端末の合算か（ログイン中で、1 回でもサーバーと揃えたことがある）
+    function isMerged() {
+        const id = ownerId();
+        if (id === 'guest') return false;
+        const o = _load().owners[id];
+        return !!(o && o.others);
+    }
+
     // RESET（STATS 画面）。今の持ち主の累計と、この端末の履歴を消す。
     // ログイン中は epoch を +1 する（同期の段階 S7 で、他の端末の古い数字が戻ってこないようにするため。設計 §6.5）
     function reset() {
@@ -571,17 +725,24 @@
             delete data.owners.guest;
         } else {
             const prev = data.owners[id];
+            // epoch はサーバーの値（他の端末の RESET を取り込んだもの）より必ず大きくする。
+            // 欄の id は残す（RESET でサーバーの devices / retired も空になるので、そのまま使ってよい）
             data.owners[id] = { epoch: ((prev && prev.epoch) || 0) + 1, buckets: {}, quiz: { cleared: {} } };
+            if (prev && prev.dev) data.owners[id].dev = prev.dev;
+            if (prev && prev.seen) data.owners[id].seen = true;
         }
         _save(data);
         try { localStorage.removeItem(HISTORY_KEY); } catch (e) { /* 消せなくても累計は消えている */ }
     }
 
     // ─── 読み出し（app/stats_page.js） ────────────────────
+    // 表示用の累計。ログイン中で同期済みなら全端末の合算（others ＋ この端末の分）
     function getBuckets() {
         const data = _load();
         const o = data.owners[ownerId()];
-        return (o && o.buckets) || {};
+        if (!o) return {};
+        if (ownerId() !== 'guest' && o.others) return _mergeOwner(_clone(o.others), _minePart(o)).buckets;
+        return o.buckets || {};
     }
 
     function getHistory() {
@@ -592,6 +753,7 @@
         onTetInit, onPuyoInit, end, abort, beginVersus, endVersus, beginOnline, endOnline, discardOnline, abortOnline,
         beginQuiz, endQuiz,
         getQuizCleared, guestImportPending, importGuest, declineGuest, reset,
+        prepareSync, commitSync, hasUnpushed, isMerged,
         mergeBucket: _mergeBucket,
         getBuckets, getHistory, ownerId,
         SINGLE_KEYS, MAX_FIELDS, HISTORY_MAX,

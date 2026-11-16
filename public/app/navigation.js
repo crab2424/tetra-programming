@@ -252,6 +252,8 @@ function switchPage(pageId) {
   // メインメニューやタイトルに戻る際はゲーム情報を完全に破棄
   if (pageId === 'main-menu' || pageId === 'title') {
     stopAllGames();
+    // 成績（STATS）をアカウントへ送る機会。送っていない変化があるときだけ（config/cloud_sync.js・設計 §6.7）
+    window.CloudSync?.flushStats?.();
     // ★ CPUスクリプトの破棄はここ（ゲーム文脈から完全に抜けるとき）だけで行う。
     //   stopAllGames() 側でやってしまうとリスタート・再戦のたびに再ダウンロードになるため。
     //   mode-check や vs-settings を経由して同じLVで再開する場合はロード済みのまま使い回し、
@@ -388,6 +390,8 @@ function switchPage(pageId) {
     if (typeof renderRankingPage === 'function') renderRankingPage();
   } else if (pageId === 'stats') {
     if (typeof renderStatsPage === 'function') renderStatsPage();
+    // ログイン中は他の端末の分を取り直す（変わっていれば tetlabo:cloudsync で描き直される。app/stats_page.js）
+    window.CloudSync?.refreshStats?.();
   }
 
   // PRACTICE の目標値スピナーが開いたままページを離れると FocusNav.suspended が
