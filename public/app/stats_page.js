@@ -88,6 +88,38 @@
     return c;
   }
 
+  // ぷよの枠の中身（PLAYS / BEST / 平均までは共通で、その先がテトと違う）
+  function _puyoCells(grid, card, b) {
+    const ch = Array.isArray(b.ch) ? b.ch : [];
+    const chains = ch.reduce((a, v) => a + (v || 0), 0);
+    grid.appendChild(_cell('MAX CHAIN', num(b.chMax || 0)));
+    grid.appendChild(_cell('CHAINS', num(chains)));
+    grid.appendChild(_cell('ALL CLEAR', num(b.ac || 0)));
+    grid.appendChild(_cell('PAIRS', num(b.pc || 0), b.ms > 0 && b.pc > 0 ? `${(b.pc / (b.ms / 60000)).toFixed(1)} / MIN` : ''));
+    grid.appendChild(_cell('PUYOS', num(b.er || 0)));
+    card.appendChild(grid);
+    if (chains === 0) return;
+
+    // 連鎖の長さごとの回数（1 〜 出たことのある最大まで）
+    let last = 0;
+    ch.forEach((v, i) => { if (v > 0) last = i; });
+    const top = Math.max(...ch.slice(0, last + 1));
+    const box = el('div', 'stats-chain');
+    box.appendChild(el('span', 'stats-cell-label', 'CHAIN COUNT'));
+    const bars = el('div', 'stats-chain-bars');
+    for (let i = 0; i <= last; i++) {
+      const col = el('div', 'stats-chain-col');
+      col.appendChild(el('span', 'stats-chain-num', ch[i] > 0 ? num(ch[i]) : ''));
+      const bar = el('div', 'stats-chain-bar');
+      bar.style.height = Math.round((ch[i] || 0) / top * 36) + 'px';
+      col.appendChild(bar);
+      col.appendChild(el('span', 'stats-chain-len', i === 19 ? '20+' : String(i + 1)));
+      bars.appendChild(col);
+    }
+    box.appendChild(bars);
+    card.appendChild(box);
+  }
+
   function _singleCard(key, b, history, index) {
     const card = el('div', 'stats-card stats-row-enter');
     card.style.animationDelay = (index * 0.05) + 's';
@@ -119,6 +151,8 @@
       grid.appendChild(_cell('AVG SCORE', n > 0 ? num((b.sc || 0) / n) : '—'));
       grid.appendChild(_cell(`LAST ${RECENT_N}`, recent ? num(recent.value) : '—'));
     }
+
+    if (key === 'puyo') { _puyoCells(grid, card, b); return card; }
 
     // ENDLESS には完走が無い
     if (key !== 'marathon:endless') grid.appendChild(_cell('CLEAR', pct(b.ok, n), n > 0 ? `${num(b.ok || 0)} / ${num(n)}` : ''));
@@ -155,7 +189,9 @@
     // 主指標: タイムの枠は完走したときだけタイム、それ以外はスコア
     const main = isTimeKey(h.k) ? (h.r === 'ok' ? fmtTime(h.ms) : '—') : num(h.sc);
     row.appendChild(el('span', 'stats-history-value', main));
-    row.appendChild(el('span', 'stats-history-sub', `${fmtTotal(h.ms)} · ${pps(h.pc, h.ms)} PPS`));
+    row.appendChild(el('span', 'stats-history-sub', h.k === 'puyo'
+      ? `${fmtTotal(h.ms)} · MAX ${num(h.cm || 0)} CHAIN`
+      : `${fmtTotal(h.ms)} · ${pps(h.pc, h.ms)} PPS`));
     return row;
   }
 

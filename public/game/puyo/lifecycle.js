@@ -25,6 +25,9 @@ Object.assign(PuyoGame.prototype, {
     },
 
     start() {
+        // 成績（STATS）: 前の試合を途中でやめた扱いにして締め、この試合を数え始める。
+        // 前の試合の値を読むので、止めて作り直す前に呼ぶ（config/stats.js）
+        window.Stats?.onPuyoInit(this);
         this.stop();
         this.initGame(() => {
             if (this.state !== 'idle') return;
@@ -178,6 +181,8 @@ Object.assign(PuyoGame.prototype, {
         this.chainMax = 0;
         this.chainCount = 0;
         this.clearedPuyos = 0;
+        // 成績（STATS）用のカウンタ。sp=出した組の数 / ch[k-1]=k 連鎖の回数（20 以上は末尾）/ ac=全消し
+        this.playStats = { sp: 0, ch: new Array(20).fill(0), ac: 0 };
         this.chainScoreAdd = 0;
         this.chainScoreStr = "";
 

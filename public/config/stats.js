@@ -20,8 +20,11 @@
 //   t4 / ts1〜ts3 / tsm / pcl … 4 ライン / T-Spin Single〜Triple / T-Spin Mini / パーフェクトクリア
 //   zn / znLn        … ZONE の発動回数 / ZONE 中に消したライン
 //   renMax / b2bMax / znMax（最大） … 最大 REN / 最大 Back-to-Back / ZONE 1 回の最大
+//   ぷよ: pc=置いた組数 / er=消したぷよ / ac=全消し / chMax（最大）=最大連鎖 /
+//         ch=連鎖の長さごとの回数（長さ 20 の配列。ch[k-1]=k 連鎖、20 以上は末尾。合算は要素ごとに足す）
 //
-// 入口（今はテトのシングルだけ。VERSUS・ONLINE・QUIZ・PUYO は後の段階で足す）
+// 入口（今はシングルだけ。VERSUS・ONLINE・QUIZ は後の段階で足す）
+//   onPuyoInit(game) … game/puyo/lifecycle.js の start の頭（テトの onTetInit と同じ役目）
 //   onTetInit(game) … game/tet/lifecycle.js の _initGameState の頭。前の試合が締まっていなければ
 //                     「途中でやめた」で締め、数える対象ならこの試合を数え始める
 //   end(game, r)    … 決着（r = 'ok' 完走 / 'ng' ゲームオーバー）
@@ -36,9 +39,9 @@
 
     const TET_SINGLE_MODES = ['marathon', 'sprint', 'ultra', 'zone'];
     // 表示の並び（STATS の SINGLE タブ）
-    const SINGLE_KEYS = ['marathon:150', 'marathon:endless', 'sprint:40', 'ultra', 'zone:150'];
+    const SINGLE_KEYS = ['marathon:150', 'marathon:endless', 'sprint:40', 'ultra', 'zone:150', 'puyo'];
     // 合算のとき足さずに最大を取る値（今は端末内だけだが、同期の段階で使う）
-    const MAX_FIELDS = ['renMax', 'b2bMax', 'znMax'];
+    const MAX_FIELDS = ['renMax', 'b2bMax', 'znMax', 'chMax'];
 
     let current = null; // 数えている途中の試合 { game, rule }
 
@@ -159,6 +162,47 @@
         _pushHistory(entry);
     }
 
+    // ─── ぷよのシングル ───────────────────────────────────
+    function _closePuyoSingle(game, r) {
+        const ps = game.playStats;
+        if (!ps) return;
+        // 出した組のうち、ゲームオーバーなら全部・途中でやめたなら操作中の 1 組を除いたものが置いた数
+        const placed = Math.max(0, (ps.sp || 0) - (r === 'q' ? 1 : 0));
+        if (r === 'q' && placed === 0) return;
+
+        const key = 'puyo';
+        const ms = Math.max(0, Math.round((typeof game.getActiveMs === 'function') ? game.getActiveMs() : (game.elapsed || 0)));
+        const custom = (game.recordEligible === false); // 準備画面で連結数・色数を変えた
+        const score = Math.max(0, Math.floor(game.score || 0));
+        const chainMax = Math.max(0, game.chainMax || 0);
+
+        const data = _load();
+        const bucket = (_ownerOf(data, ownerId()).buckets[key] ||= {});
+        if (custom) {
+            _add(bucket, r === 'q' ? 'cq' : 'cn', 1);
+            _add(bucket, 'cms', ms);
+        } else {
+            _add(bucket, r === 'q' ? 'q' : 'n', 1);
+            _add(bucket, 'ms', ms);
+            _add(bucket, 'pc', placed);
+            _add(bucket, 'er', game.clearedPuyos);
+            _add(bucket, 'ac', ps.ac);
+            _max(bucket, 'chMax', chainMax);
+            if (!Array.isArray(bucket.ch) || bucket.ch.length !== 20) bucket.ch = new Array(20).fill(0);
+            for (let i = 0; i < 20; i++) bucket.ch[i] += (ps.ch[i] || 0);
+            if (r !== 'q') _add(bucket, 'sc', score);
+        }
+        _save(data);
+
+        const entry = { at: new Date().toISOString(), k: key, r, ms, sc: score, pc: placed, cm: chainMax };
+        if (custom) entry.c = 1;
+        if (r !== 'q') {
+            const meta = window.ReplayManager?.metaForRecord?.(key);
+            if (meta && meta.replayId) entry.rp = meta.replayId;
+        }
+        _pushHistory(entry);
+    }
+
     // ─── 入口 ─────────────────────────────────────────────
     function _close(r) {
         const cur = current;
@@ -167,6 +211,7 @@
         if (cur.game._replay) return; // 念のため: 再生に使われている盤面は数えない
         try {
             if (cur.rule === 'tet') _closeTetSingle(cur.game, r);
+            else if (cur.rule === 'puyo') _closePuyoSingle(cur.game, r);
         } catch (e) {
             console.error('[Stats]', e); // 成績が残らないだけで、試合の進行は止めない
         }
@@ -177,6 +222,13 @@
         if (!game || game._replay || game.isVersusMode || game.isCpuControlled) return;
         if (!TET_SINGLE_MODES.includes(game.currentMode)) return; // PRACTICE・QUIZ・CPU TEST は対象外
         current = { game, rule: 'tet' };
+    }
+
+    function onPuyoInit(game) {
+        _close('q');
+        if (!game || game._replay || game.isVersusMode || game.isCpuControlled) return;
+        if (game.currentMode !== 'puyo') return; // PRACTICE・QUIZ・CPU TEST は対象外
+        current = { game, rule: 'puyo' };
     }
 
     function end(game, r) {
@@ -200,7 +252,7 @@
     }
 
     window.Stats = {
-        onTetInit, end, abort,
+        onTetInit, onPuyoInit, end, abort,
         getBuckets, getHistory, ownerId,
         SINGLE_KEYS, MAX_FIELDS, HISTORY_MAX,
     };

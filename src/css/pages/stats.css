@@ -106,6 +106,42 @@
   color: var(--text-dim);
 }
 
+/* ぷよ: 連鎖の長さごとの回数（小さな棒） */
+.stats-chain {
+  margin-top: 10px;
+}
+.stats-chain-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+}
+.stats-chain-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  max-width: 34px;
+  min-width: 0;
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.stats-chain-num {
+  min-height: 11px;
+  color: var(--text);
+}
+.stats-chain-bar {
+  width: 100%;
+  min-height: 1px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent2);
+}
+.stats-chain-len {
+  color: var(--text-dim);
+}
+
 /* ─── HISTORY: 1 試合 1 行 ─── */
 .stats-history-row {
   display: grid;
