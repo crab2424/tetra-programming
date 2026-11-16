@@ -437,7 +437,7 @@
         if (!window.TetDialog) return;
         const ok = await window.TetDialog.choose({
             title: 'DELETE ACCOUNT',
-            message: '退会すると、ランキングの記録もすべて削除されます。元に戻せません。よろしいですか？',
+            message: '退会すると、ランキングの記録と、アカウントに保存した設定・自己ベスト・成績（STATS）もすべて削除されます。元に戻せません。よろしいですか？',
             buttons: [
                 { label: 'CANCEL', value: false, kind: 'secondary', cancel: true },
                 { label: 'DELETE', value: true, kind: 'danger' },
