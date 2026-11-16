@@ -3,12 +3,14 @@
 //
 // 中身は config/stats.js（window.Stats）の累計と履歴。設計 source_assets/memory/mode/record/stats/ §8。
 // 平均・率はここで割り算して出す（保存していない）。
-// タブ: SINGLE（枠ごとのカード）/ HISTORY（直近の一覧）。VERSUS・ONLINE・QUIZ・OVERVIEW は後の段階で足す。
+// タブ: SINGLE（枠ごとのカード）/ VERSUS（ルールの組み合わせごとの表）/ HISTORY（直近の一覧）。
+// ONLINE・QUIZ・OVERVIEW は後の段階で足す。
 // ─────────────────────────────────────────────
 
 (function () {
   const TABS = [
     { id: 'single', label: 'SINGLE' },
+    { id: 'versus', label: 'VERSUS' },
     { id: 'history', label: 'HISTORY' },
   ];
   const RECENT_N = 10; // 「直近 n 回の平均」に使う件数
@@ -43,7 +45,24 @@
 
   const pct = (a, b) => (b > 0) ? Math.round((a || 0) / b * 100) + '%' : '—';
   const pps = (pc, ms) => (ms > 0 && pc > 0) ? (pc / (ms / 1000)).toFixed(2) : '—';
-  const label = (key) => (window.Records && window.Records.labelFor) ? window.Records.labelFor(key) : String(key).toUpperCase();
+  const RULE_LABEL = { tet: 'TET', puyo: 'PUYO' };
+  // CPU レベルの表示名（app/modes.js の CPU_LEVELS。読めなければ番号のまま）
+  function cpuLabel(level) {
+    try { const c = CPU_LEVELS[level]; if (c && c.label) return String(c.label); } catch (e) { /* 番号で出す */ }
+    return 'LV' + level;
+  }
+  // vs:<自分>:<相手>:<レベル> を分ける（VERSUS の枠でなければ null）
+  function parseVs(key) {
+    const m = /^vs:(tet|puyo):(tet|puyo):(.+)$/.exec(String(key));
+    return m ? { my: m[1], opp: m[2], level: m[3] } : null;
+  }
+  function label(key) {
+    const vs = parseVs(key);
+    if (vs) return `VS ${cpuLabel(vs.level)} ${RULE_LABEL[vs.my]}/${RULE_LABEL[vs.opp]}`;
+    return (window.Records && window.Records.labelFor) ? window.Records.labelFor(key) : String(key).toUpperCase();
+  }
+  // 1 分あたりの火力
+  const apm = (atk, ms) => (ms > 0) ? ((atk || 0) / (ms / 60000)).toFixed(1) : '—';
   const isTimeKey = (key) => key === 'sprint:40'; // 主指標がタイムの枠
 
   function el(tag, cls, text) {
@@ -177,6 +196,69 @@
     window.Stats.SINGLE_KEYS.forEach((key, i) => list.appendChild(_singleCard(key, buckets[key] || {}, history, i)));
   }
 
+  // ─── VERSUS ─────────────────────────────
+  // ルールの組み合わせ（自分 / 相手）ごとに 1 枚。中は CPU レベルごとの行。
+  const VS_COMBOS = [['tet', 'tet'], ['tet', 'puyo'], ['puyo', 'puyo'], ['puyo', 'tet']];
+
+  function _vsCard(my, opp, rows, index) {
+    const card = el('div', 'stats-card stats-row-enter');
+    card.style.animationDelay = (index * 0.05) + 's';
+    const sum = (f) => rows.reduce((a, r) => a + (r.b[f] || 0), 0);
+    const w = sum('w'), l = sum('l');
+
+    const head = el('div', 'stats-card-head');
+    head.appendChild(el('span', 'stats-card-title', `${RULE_LABEL[my]} vs ${RULE_LABEL[opp]}`));
+    head.appendChild(el('span', 'stats-card-time', `${num(w)} W / ${num(l)} L · ${pct(w, w + l)} · TIME ${fmtTotal(sum('ms'))}`));
+    card.appendChild(head);
+
+    // 火力補正の付いた試合が 1 つでもあれば RAW APM（補正を外した火力）の列を出す
+    const showRaw = sum('bias') > 0;
+    const table = el('div', 'stats-vs-table' + (showRaw ? ' stats-vs-raw' : ''));
+    const cols = ['CPU', 'W', 'L', 'WIN', 'APM'].concat(showRaw ? ['RAW APM'] : [], ['AVG TIME', 'STREAK']);
+    const headRow = el('div', 'stats-vs-row stats-vs-head');
+    cols.forEach((c) => headRow.appendChild(el('span', '', c)));
+    table.appendChild(headRow);
+
+    rows.forEach(({ level, b }) => {
+      const n = (b.w || 0) + (b.l || 0);
+      const row = el('div', 'stats-vs-row');
+      const name = el('span', 'stats-vs-level', cpuLabel(level));
+      const notes = [];
+      if (b.q > 0) notes.push(`QUIT ${num(b.q)}`);
+      if (b.bias > 0) notes.push(`BIAS ${num(b.bias)}`);
+      if (notes.length) name.appendChild(el('span', 'stats-cell-sub', notes.join(' / ')));
+      row.appendChild(name);
+      row.appendChild(el('span', 'stats-result-w', num(b.w || 0)));
+      row.appendChild(el('span', 'stats-result-l', num(b.l || 0)));
+      row.appendChild(el('span', '', pct(b.w, n)));
+      row.appendChild(el('span', '', apm(b.atk, b.ms)));
+      if (showRaw) row.appendChild(el('span', '', apm(b.atkRaw, b.ms)));
+      row.appendChild(el('span', '', n > 0 ? fmtTime((b.ms || 0) / (n + (b.q || 0))) : '—'));
+      row.appendChild(el('span', '', num(b.wsMax || 0)));
+      table.appendChild(row);
+    });
+    card.appendChild(table);
+    return card;
+  }
+
+  function _renderVersus(list) {
+    const buckets = window.Stats.getBuckets();
+    const groups = {};
+    Object.keys(buckets).forEach((key) => {
+      const vs = parseVs(key);
+      if (!vs) return;
+      (groups[vs.my + ':' + vs.opp] ||= []).push({ level: vs.level, b: buckets[key] });
+    });
+    let shown = 0;
+    VS_COMBOS.forEach(([my, opp]) => {
+      const rows = groups[my + ':' + opp];
+      if (!rows) return;
+      rows.sort((a, b) => (Number(a.level) || 0) - (Number(b.level) || 0));
+      list.appendChild(_vsCard(my, opp, rows, shown++));
+    });
+    if (shown === 0) list.appendChild(el('p', 'ranking-status', 'NO MATCHES'));
+  }
+
   // ─── HISTORY ────────────────────────────
   const RESULT_LABEL = { ok: 'CLEAR', ng: 'GAME OVER', q: 'QUIT', w: 'WIN', l: 'LOSE', d: 'DRAW' };
 
@@ -186,6 +268,17 @@
     row.appendChild(el('span', 'stats-history-date', fmtDate(h.at)));
     row.appendChild(el('span', 'stats-history-mode', label(h.k) + (h.c ? ' *' : '')));
     row.appendChild(el('span', 'stats-history-result stats-result-' + h.r, RESULT_LABEL[h.r] || ''));
+    if (parseVs(h.k)) {
+      // 対戦: 主指標は APM。火力補正が付いていた試合は補正の値と、補正を外した APM を添える
+      const bias = (h.vs && h.vs.bias) || [0, 0];
+      const biased = !!(bias[0] || bias[1]);
+      const sign = (v) => (v > 0 ? '+' + v : String(v));
+      row.appendChild(el('span', 'stats-history-value', apm(h.atk, h.ms) + ' APM'));
+      row.appendChild(el('span', 'stats-history-sub', biased
+        ? `${fmtTotal(h.ms)} · BIAS ${sign(bias[0])}/${sign(bias[1])} · RAW ${apm(h.atkRaw, h.ms)}`
+        : fmtTotal(h.ms)));
+      return row;
+    }
     // 主指標: タイムの枠は完走したときだけタイム、それ以外はスコア
     const main = isTimeKey(h.k) ? (h.r === 'ok' ? fmtTime(h.ms) : '—') : num(h.sc);
     row.appendChild(el('span', 'stats-history-value', main));
@@ -216,6 +309,9 @@
     if (currentTab === 'history') {
       _renderHistory(list);
       if (hint) hint.textContent = `この端末で遊んだ直近 ${window.Stats.HISTORY_MAX} 件です。* は準備画面の設定を変えた試合。`;
+    } else if (currentTab === 'versus') {
+      _renderVersus(list);
+      if (hint) hint.textContent = '対 CPU 戦の成績です。設定を変えた試合も数えます。火力補正（BIAS）を付けた試合があると、補正を外した火力（RAW APM）も出ます。';
     } else {
       _renderSingle(list);
       if (hint) hint.textContent = '1 手も置かずにやり直した試合は数えません。準備画面の設定を変えた試合（CUSTOM）は回数と時間だけ数えます。';

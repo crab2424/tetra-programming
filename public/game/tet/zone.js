@@ -353,6 +353,13 @@ Object.assign(Game.prototype, {
                     this.vsAttackMultiplier ?? 1.0);
             }
             for (const c of chunks) attack += c;
+            // 成績（STATS）: 火力補正を外した場合の同じ計算（倍率 1.0）を別に積む
+            if (attack > 0 || (this.vsAttackMultiplier ?? 1.0) !== 1.0) {
+                const rawChunks = split
+                    ? (() => { const p = zoneEndAttackSplit(charge, n, this.zoneAtkList, this._tetMarginStep, 1.0); return p.normal.concat(p.bonus); })()
+                    : zoneEndAttackChunks(charge, n, this.zoneAtkPool, this._tetMarginStep, 1.0);
+                for (const c of rawChunks) this.attackRaw = (this.attackRaw || 0) + c;
+            }
             if (attack > 0) {
                 this._countAttackSent(attack); // APM（生成基準。相殺ぶんも数える）
                 let canceled = attack - this.offsetGarbage(attack);

@@ -276,6 +276,10 @@ Object.assign(PuyoGame.prototype, {
     _countAttackSent(amount) {
         if (!(amount > 0)) return;
         this.attackSent = (this.attackSent || 0) + amount;
+        // 成績（STATS）: 火力補正（ATTACK BIAS）を外した量。ぷよは補正とマージンを掛けて切り捨てた後の
+        // 「送った量」を数えているので、補正の倍率で割り戻す（切り捨てのぶん 1 未満の誤差が出る。マージンは込みのまま）
+        const bias = this.isVersusMode ? (this.vsAttackMultiplier ?? 1.0) : 1.0;
+        this.attackRaw = (this.attackRaw || 0) + (bias > 0 ? amount / bias : amount);
     },
 
     // ポーズ時間を除いた実プレイ経過ms（APM/LPM・記録保存で使用。tet側getActiveMs()と同じ思想）
@@ -460,6 +464,7 @@ Object.assign(PuyoGame.prototype, {
         this.updateGarbageGauge();
 
         if (drop <= 0) return false;
+        this.garbageTaken = (this.garbageTaken || 0) + drop; // 成績（STATS）: 降ったおじゃまぷよの数
 
         // おじゃまぷよの着弾音。予告表示（_updateOjamaYokoku）では鳴らさず、
         // 実際に盤面へ書き込むこの瞬間だけ1回鳴らす。

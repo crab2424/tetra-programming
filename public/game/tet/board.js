@@ -158,6 +158,7 @@ Object.assign(Game.prototype, {
         // 送信直前ではなくここで数える（呼び出し側で数える理由はsendGarbageがonlineで丸ごと
         // 上書きされるためだが、生成基準に変えた今はそもそも送信経路を通らなくても数えられる）。
         if (generatedGarbage > 0) {
+            this.attackRaw = (this.attackRaw || 0) + generatedGarbage; // 成績（STATS）: 火力補正を掛ける前
             const _apmMult = this.isVersusMode ? (this.vsAttackMultiplier ?? 1.0) : 1.0;
             this._countAttackSent(_apmMult !== 1.0
                 ? Math.floor(generatedGarbage * _apmMult + 1e-9)

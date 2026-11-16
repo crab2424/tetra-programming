@@ -183,6 +183,8 @@ Object.assign(PuyoGame.prototype, {
         this.clearedPuyos = 0;
         // 成績（STATS）用のカウンタ。sp=出した組の数 / ch[k-1]=k 連鎖の回数（20 以上は末尾）/ ac=全消し
         this.playStats = { sp: 0, ch: new Array(20).fill(0), ac: 0 };
+        this.attackRaw = 0;    // 火力補正を外した火力の累積（ojama.js _countAttackSent）
+        this.garbageTaken = 0; // 降ったおじゃまぷよの数
         this.chainScoreAdd = 0;
         this.chainScoreStr = "";
 

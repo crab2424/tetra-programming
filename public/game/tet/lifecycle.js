@@ -190,6 +190,8 @@ Object.assign(Game.prototype, {
         this.elapsedTime = 0;
         this.isTimerRunning = false;
         this.attackSent = 0; // APM計測用（相手へ送った実効火力の累積）
+        this.attackRaw = 0;    // 成績（STATS）用: 火力補正（ATTACK BIAS）を掛ける前の火力の累積（マージンは込み）
+        this.garbageTaken = 0; // 成績（STATS）用: 実際にせり上がった段数
 
         // リスタート時にタイマー表示をリセット
         this.updateTimeDisplay();

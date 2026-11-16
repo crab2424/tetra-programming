@@ -101,6 +101,7 @@ Object.assign(Game.prototype, {
                     break;
                 }
                 this.field.blocks.forEach(block => block.y -= 1);
+                this.garbageTaken = (this.garbageTaken || 0) + 1; // 成績（STATS）: せり上がった段数
 
                 // ★ 穴は受ける側がこの着弾（applyGarbage の1回）の中で決める（VERSUS・オンラインとも送る側は穴を付けない）。
                 //   g.holes があるのは PRACTICE が自分で穴列を作って積んだときだけ。

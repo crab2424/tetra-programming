@@ -24,6 +24,7 @@
 //         ch=連鎖の長さごとの回数（長さ 20 の配列。ch[k-1]=k 連鎖、20 以上は末尾。合算は要素ごとに足す）
 //
 // 入口（今はシングルだけ。VERSUS・ONLINE・QUIZ は後の段階で足す）
+//   beginVersus(ctx) / endVersus(r) … VERSUS（対 CPU）。app/versus.js から
 //   onPuyoInit(game) … game/puyo/lifecycle.js の start の頭（テトの onTetInit と同じ役目）
 //   onTetInit(game) … game/tet/lifecycle.js の _initGameState の頭。前の試合が締まっていなければ
 //                     「途中でやめた」で締め、数える対象ならこの試合を数え始める
@@ -41,7 +42,7 @@
     // 表示の並び（STATS の SINGLE タブ）
     const SINGLE_KEYS = ['marathon:150', 'marathon:endless', 'sprint:40', 'ultra', 'zone:150', 'puyo'];
     // 合算のとき足さずに最大を取る値（今は端末内だけだが、同期の段階で使う）
-    const MAX_FIELDS = ['renMax', 'b2bMax', 'znMax', 'chMax'];
+    const MAX_FIELDS = ['renMax', 'b2bMax', 'znMax', 'chMax', 'wsMax'];
 
     let current = null; // 数えている途中の試合 { game, rule }
 
@@ -203,6 +204,80 @@
         _pushHistory(entry);
     }
 
+    // ─── VERSUS（対 CPU） ─────────────────────────────────
+    // 枠は vs:<自分のルール>:<相手のルール>:<CPU レベル>。設定を変えた試合も全部数える（設計 §1）。
+    //   w / l     … 勝ち・負け（n = w + l）
+    //   atk       … 出した火力（HUD の APM と同じ attackSent。補正・マージン込み）
+    //   atkRaw    … 火力補正（ATTACK BIAS）を外した火力（マージンは込みのまま。設計 §4）
+    //   rcv       … 実際に受けたおじゃま（テト=せり上がった段数 / ぷよ=降ったおじゃまぷよ）
+    //   bias      … どちらかに火力補正が付いていた試合の数（決着した試合だけ）
+    //   wsMax（最大）… 最大連勝。今の連勝は端末ごとの owners[..].streak に持つ（合算しない）
+    // r: 'w' / 'l' / 'q'
+    function _closeVersus(cur, r) {
+        const game = cur.game;
+        const ps = game.playStats;
+        if (!ps) return;
+        const isPuyo = cur.myRule === 'puyo';
+        const placed = isPuyo ? Math.max(0, (ps.sp || 0) - (r === 'l' ? 0 : 1)) : (ps.pc || 0);
+        if (r === 'q' && placed === 0) return;
+
+        const key = `vs:${cur.myRule}:${cur.oppRule}:${cur.level}`;
+        const ms = Math.max(0, Math.round((typeof game.getActiveMs === 'function') ? game.getActiveMs() : 0));
+        const score = Math.max(0, Math.floor(game.score || 0));
+        const atk = Math.max(0, Math.round(game.attackSent || 0));
+        const atkRaw = Math.max(0, Math.round(game.attackRaw || 0));
+        const biased = !!(cur.bias && (cur.bias[0] || cur.bias[1]));
+
+        const data = _load();
+        const owner = _ownerOf(data, ownerId());
+        const bucket = (owner.buckets[key] ||= {});
+        _add(bucket, 'ms', ms);
+        _add(bucket, 'atk', atk);
+        _add(bucket, 'atkRaw', atkRaw);
+        _add(bucket, 'rcv', game.garbageTaken);
+        _add(bucket, 'pc', placed);
+        if (isPuyo) {
+            _add(bucket, 'er', game.clearedPuyos);
+            _add(bucket, 'ac', ps.ac);
+            _max(bucket, 'chMax', game.chainMax);
+            if (!Array.isArray(bucket.ch) || bucket.ch.length !== 20) bucket.ch = new Array(20).fill(0);
+            for (let i = 0; i < 20; i++) bucket.ch[i] += (ps.ch[i] || 0);
+        } else {
+            _add(bucket, 'ln', game.lines);
+            for (const f of ['t4', 'ts1', 'ts2', 'ts3', 'tsm', 'pcl']) _add(bucket, f, ps[f]);
+            _max(bucket, 'renMax', ps.renMax);
+            _max(bucket, 'b2bMax', ps.b2bMax);
+            if (game.zoneEnabled) {
+                _add(bucket, 'zn', game.zoneCount);
+                _add(bucket, 'znLn', game.zoneLinesTotal);
+                _max(bucket, 'znMax', game.zoneBest);
+            }
+        }
+        if (r === 'q') {
+            _add(bucket, 'q', 1);
+        } else {
+            _add(bucket, 'n', 1);
+            _add(bucket, r, 1);
+            if (biased) _add(bucket, 'bias', 1);
+            // 連勝（途中でやめた試合では動かさない）
+            if (!owner.streak || typeof owner.streak !== 'object') owner.streak = {};
+            owner.streak[key] = (r === 'w') ? (owner.streak[key] || 0) + 1 : 0;
+            _max(bucket, 'wsMax', owner.streak[key]);
+        }
+        _save(data);
+
+        const entry = {
+            at: new Date().toISOString(), k: key, r, ms, sc: score, atk, atkRaw, pc: placed,
+            vs: { bias: cur.bias || [0, 0], margin: cur.margin, zone: cur.zone ? 1 : 0 },
+        };
+        if (isPuyo) entry.cm = Math.max(0, game.chainMax || 0); else entry.ln = Math.max(0, game.lines || 0);
+        if (r !== 'q') {
+            const rep = window.ReplayManager && window.ReplayManager.resultReplay;
+            if (rep && rep.mode === 'versus' && rep.id) entry.rp = rep.id;
+        }
+        _pushHistory(entry);
+    }
+
     // ─── 入口 ─────────────────────────────────────────────
     function _close(r) {
         const cur = current;
@@ -210,7 +285,8 @@
         if (!cur || !cur.game) return;
         if (cur.game._replay) return; // 念のため: 再生に使われている盤面は数えない
         try {
-            if (cur.rule === 'tet') _closeTetSingle(cur.game, r);
+            if (cur.rule === 'vs') _closeVersus(cur, r);
+            else if (cur.rule === 'tet') _closeTetSingle(cur.game, r);
             else if (cur.rule === 'puyo') _closePuyoSingle(cur.game, r);
         } catch (e) {
             console.error('[Stats]', e); // 成績が残らないだけで、試合の進行は止めない
@@ -218,6 +294,7 @@
     }
 
     function onTetInit(game) {
+        if (game && game.isVersusMode) return; // VERSUS の盤面は beginVersus / endVersus が受け持つ
         _close('q'); // 前の試合が締まっていなければ途中でやめた扱い（リスタートなど）
         if (!game || game._replay || game.isVersusMode || game.isCpuControlled) return;
         if (!TET_SINGLE_MODES.includes(game.currentMode)) return; // PRACTICE・QUIZ・CPU TEST は対象外
@@ -225,6 +302,7 @@
     }
 
     function onPuyoInit(game) {
+        if (game && game.isVersusMode) return;
         _close('q');
         if (!game || game._replay || game.isVersusMode || game.isCpuControlled) return;
         if (game.currentMode !== 'puyo') return; // PRACTICE・QUIZ・CPU TEST は対象外
@@ -232,12 +310,26 @@
     }
 
     function end(game, r) {
-        if (!current || current.game !== game) return;
+        if (!current || current.game !== game || current.rule === 'vs') return;
         _close(r === 'ok' ? 'ok' : 'ng');
     }
 
     function abort() {
         _close('q');
+    }
+
+    // VERSUS（app/versus.js の startVersusGame。両盤面の初期化の後・人が 1P を操作するときだけ呼ばれる）
+    // ctx = { game, myRule, oppRule, level, bias: [自分, 相手], margin: 秒|null, zone }
+    function beginVersus(ctx) {
+        _close('q');
+        if (!ctx || !ctx.game || ctx.game._replay || ctx.game.isCpuControlled) return;
+        current = Object.assign({}, ctx, { rule: 'vs' });
+    }
+
+    // r: 'w' 勝ち / 'l' 負け（versusGameOver）
+    function endVersus(r) {
+        if (!current || current.rule !== 'vs') return;
+        _close(r === 'w' ? 'w' : 'l');
     }
 
     // ─── 読み出し（app/stats_page.js） ────────────────────
@@ -252,7 +344,7 @@
     }
 
     window.Stats = {
-        onTetInit, onPuyoInit, end, abort,
+        onTetInit, onPuyoInit, end, abort, beginVersus, endVersus,
         getBuckets, getHistory, ownerId,
         SINGLE_KEYS, MAX_FIELDS, HISTORY_MAX,
     };
