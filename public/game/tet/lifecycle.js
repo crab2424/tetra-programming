@@ -44,6 +44,11 @@ Object.assign(Game.prototype, {
     _initGameState() {
         this.isFinishing = false; // 前局のGAMEOVER演出締め出しフラグをリセット
 
+        // 成績（STATS）: 前の試合を途中でやめた扱いにして締め、この試合を数え始める。
+        // 前の試合の値（経過時間・カウンタ）を読むので、状態を作り直す前に呼ぶ（config/stats.js）
+        window.Stats?.onTetInit(this);
+        this._resetPlayStats();
+
         // 前局の予約（固定猶予・おじゃま猶予・マージン）を先に全部取り消してから時計を今に合わせる。
         // 時計はフレームの頭でしか進まないので、メニューにいた間のぶんをここで進めておかないと、
         // この後に入れるマージンの予約が最初のフレームでまとめて追いつかれてすぐ発火してしまう。
@@ -329,6 +334,9 @@ Object.assign(Game.prototype, {
         // 録画の締め／再生の終わり（core/replay.js）。再生のときは終了演出・リザルト・記録の保存をしない
         if (this._rec) ReplayManager.finish(this, isClear, this.isVersusMode ? { loser: replaySide(this) } : null);
         if (this._replay) { this._replay.onGameOver(this, isClear); return; }
+
+        // 成績（STATS）: シングルの決着（数える対象でなければ何もしない）
+        window.Stats?.end(this, isClear ? 'ok' : 'ng');
 
         // 対戦モードの場合は versusGameOver() に委譲する
         if (this.isVersusMode) {

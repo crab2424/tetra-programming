@@ -156,6 +156,10 @@
               <span class="menu-btn-icon">🏆</span>
               <span>RANKING</span>
             </button>
+            <button id="main-menu-stats-btn" class="menu-btn btn-secondary" onclick="switchPage('stats')">
+              <span class="menu-btn-icon">📊</span>
+              <span>STATS</span>
+            </button>
             <button id="main-menu-settings-btn" class="menu-btn btn-secondary" onclick="switchPage('settings')">
               <span class="menu-btn-icon">⚙</span>
               <span>SETTINGS</span>
@@ -233,6 +237,29 @@
       <p id="ranking-login-hint" class="ranking-hint">ログインすると記録が載ります。</p>
 
       <div id="ranking-buttons">
+        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+          <span class="menu-btn-icon">◀</span>
+          <span>BACK</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+    MARK: STATSページ（public/app/stats_page.js が描画。集計は public/config/stats.js）
+    ───────────────────────────────────────────── -->
+  <div id="stats-page" class="page">
+    <div id="stats-container">
+      <h2 class="ranking-title">STATS</h2>
+
+      <div class="option-toggle" id="stats-tab-toggle">
+        <!-- タブは public/app/stats_page.js が生成する -->
+      </div>
+
+      <div id="stats-list" class="stats-list"></div>
+      <p id="stats-hint" class="ranking-hint"></p>
+
+      <div id="stats-buttons">
         <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
           <span class="menu-btn-icon">◀</span>
           <span>BACK</span>
@@ -1641,21 +1668,22 @@
   <script src="core/game_rng.js?v=2"></script>
   <script src="core/replay.js?v=32"></script>
   <script src="core/dialog.js?v=2"></script>
-  <script src="core/particles.js?v=10"></script>
+  <script src="core/particles.js?v=11"></script>
   <script src="app/manager.js?v=1"></script>
   <script src="config/settings.js?v=18"></script>
   <script src="config/records.js?v=6"></script>
   <script src="config/cloud_sync.js?v=2"></script>
+  <script src="config/stats.js?v=1"></script>
   <script src="config/account.js?v=7"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <script src="config/vs_settings.js?v=9"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
-  <script src="game/tet/lifecycle.js?v=18"></script>
+  <script src="game/tet/lifecycle.js?v=19"></script>
   <script src="game/tet/board.js?v=19"></script>
   <script src="game/tet/rotation.js?v=9"></script>
-  <script src="game/tet/scoring.js?v=5"></script>
+  <script src="game/tet/scoring.js?v=6"></script>
   <script src="game/tet/zone.js?v=12"></script>
   <script src="game/tet/garbage.js?v=13"></script>
   <script src="game/tet/render.js?v=11"></script>
@@ -1679,10 +1707,11 @@
   <script src="app/cpu_match_log.js?v=4"></script>
   <script src="app/versus.js?v=21"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=45"></script>
+  <script src="app/navigation.js?v=46"></script>
   <script src="app/ranking.js?v=5"></script>
   <script src="app/replays.js?v=8"></script>
-  <script src="app/focus_nav.js?v=27"></script>
+  <script src="app/stats_page.js?v=1"></script>
+  <script src="app/focus_nav.js?v=28"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=11"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->

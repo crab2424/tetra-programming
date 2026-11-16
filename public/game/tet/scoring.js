@@ -73,6 +73,19 @@ Object.assign(Game.prototype, {
             this.ren = 0;
         }
 
+        // 成績（STATS）用のカウンタ。数えるだけで、乱数・時計・盤面には触らない（config/stats.js が終了時に読む）
+        const ps = this.playStats;
+        if (ps) {
+            ps.pc++;
+            if (linesCleared === 4) ps.t4++;
+            if (tSpinType === 'tspin' && linesCleared >= 1 && linesCleared <= 3) ps['ts' + linesCleared]++;
+            else if (tSpinType === 'mini' && linesCleared >= 1) ps.tsm++;
+            if (isPerfectClear) ps.pcl++;
+            if (linesCleared > 0 && this.ren - 1 > ps.renMax) ps.renMax = this.ren - 1;
+            if (isB2BTriggered) { ps.b2bRun++; if (ps.b2bRun > ps.b2bMax) ps.b2bMax = ps.b2bRun; }
+            else if (!this.backToBack) ps.b2bRun = 0;
+        }
+
         // ZONE の発動中は点をためておき、終了時に倍率をかけて足す。ライン数・レベルも動かさない
         // （ZONE で消した段は lines に数えない。設計 tetlabo-zone-design.md §5.2・§5.4）
         if (this.zoneActive) {
@@ -313,6 +326,13 @@ Object.assign(Game.prototype, {
         // ライン
         const linesEl = document.getElementById(`${prefix}lines-value`);
         if (linesEl) linesEl.textContent = this.lines;
+    },
+
+    // 成績（STATS）用のカウンタを作り直す（_initGameState から）。
+    // pc=置いた数 / t4=4 ライン / ts1〜3=T-Spin Single〜Triple / tsm=T-Spin Mini（ライン消去あり）/
+    // pcl=パーフェクトクリア / renMax=最大 REN / b2bMax=Back-to-Back が続いた最大回数（b2bRun は今の連続）
+    _resetPlayStats() {
+        this.playStats = { pc: 0, t4: 0, ts1: 0, ts2: 0, ts3: 0, tsm: 0, pcl: 0, renMax: 0, b2bMax: 0, b2bRun: 0 };
     },
 
     // 攻撃量の累積を加算する（APM計測用・生成基準）。相殺で無駄になった火力も対象に含めるため、

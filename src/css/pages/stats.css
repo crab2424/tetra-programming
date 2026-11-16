@@ -1,0 +1,190 @@
+/* ─────────────────────────────────────────────
+   STATSページ（public/app/stats_page.js が中身を描画）
+   枠・見出し・ヒントは RANKING の作り（.ranking-title / .ranking-hint / .ranking-status）を借りる
+───────────────────────────────────────────── */
+#stats-page.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  height: calc(100vh - 48px);
+  padding: 32px 16px;
+  box-sizing: border-box;
+}
+
+#stats-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 760px;
+  /* タブで中身が変わってもページの大きさが変わらないよう高さを固定する（一覧が残りを埋めて内部スクロール） */
+  height: min(88vh, 760px, 100%);
+  padding: 32px 28px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-sizing: border-box;
+}
+
+.stats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.stats-list.stats-list-history {
+  gap: 4px;
+}
+
+/* ─── SINGLE: 枠ごとのカード ─── */
+.stats-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.stats-card-empty {
+  opacity: 0.5;
+}
+
+.stats-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.stats-card-title {
+  font-family: "Orbitron", monospace;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--accent);
+}
+.stats-card-time {
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px 12px;
+  margin-top: 10px;
+}
+.stats-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.stats-cell-label {
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.stats-cell-value {
+  font-family: "Orbitron", monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.stats-cell-sub {
+  display: block;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+
+/* ─── HISTORY: 1 試合 1 行 ─── */
+.stats-history-row {
+  display: grid;
+  grid-template-columns: 118px 1fr 84px 96px 150px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.stats-history-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.02);
+}
+.stats-history-date,
+.stats-history-sub {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.stats-history-sub {
+  text-align: right;
+}
+.stats-history-mode {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 1px;
+  color: var(--text);
+}
+.stats-history-result {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.stats-result-ok,
+.stats-result-w {
+  color: var(--success);
+}
+.stats-result-ng,
+.stats-result-l {
+  color: var(--danger);
+}
+.stats-history-value {
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+@keyframes statsRowEnter {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.stats-row-enter {
+  animation: statsRowEnter 0.25s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stats-row-enter {
+    animation: none;
+  }
+}
+
+/* メインメニューのフッターは 4 ボタン（RANKING / STATS / SETTINGS / REPLAYS）。幅が足りなければ折り返す */
+#main-menu-footer-row {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stats-history-row {
+    grid-template-columns: 1fr auto auto;
+  }
+  .stats-history-date,
+  .stats-history-sub {
+    display: none;
+  }
+}

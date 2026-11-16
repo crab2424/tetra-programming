@@ -1223,6 +1223,29 @@
     },
   });
 
+  // STATS（public/app/stats_page.js）: タブ → 一覧（スクロールが要るときだけ）→ BACK。RANKING と同じ形
+  register('stats', {
+    getItems: () => {
+      const tabToggle = document.getElementById('stats-tab-toggle');
+      const btnAnchor = document.getElementById('stats-buttons');
+      const items = [];
+      if (tabToggle) items.push(rowToggle(tabToggle, tabToggle));
+      const list = document.getElementById('stats-list');
+      if (list && list.scrollHeight > list.clientHeight) items.push({ el: list });
+      $$('#stats-buttons button').forEach(b => items.push({ el: b, scrollAnchor: btnAnchor }));
+      return items;
+    },
+    initialIndex: 0,
+    scrollPane: (it, dir) => {
+      const pane = document.getElementById('stats-list');
+      if (!pane || !it || it.el !== pane) return null;
+      const atTop = pane.scrollTop <= 0;
+      const atBottom = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 1;
+      if ((dir === 'up' && atTop) || (dir === 'down' && atBottom)) return null;
+      return pane;
+    },
+  });
+
   // REPLAYS（public/app/replays.js）: 絞り込み → 各行（本体 → ★ → ⤓ → ✕ を横に）→ IMPORT / BACK
   //   各行のボタンは data-nav-key="<id>:<main|star|export|delete>"。上下は同じ種類のボタンのまま隣の行へ。
   //   リプレイを見て戻ったとき・★/削除で描き直したときは ReplaysPage.focusKey の項目へ戻す。

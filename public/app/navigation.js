@@ -6,6 +6,7 @@
 // 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
 function stopAllGames() {
     currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
+    window.Stats?.abort(); // 成績（STATS）: 遊んでいる途中なら「途中でやめた」で締める（止める前の値を読む）
     window.Assist?.detach(); // アシストの層・計算を止める
     // ★ BGMの停止/継続は switchPage が遷移先ページに応じて判断する（ここでは止めない）。
     //   これにより RETRY / NEXT LEVEL のようにゲームを再開する経路では BGM を途切れさせず継続できる。
@@ -344,7 +345,7 @@ function switchPage(pageId) {
     window.HudExtras.refresh();
   }
 
-  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog', 'practice-help', 'ranking', 'replays'].includes(_animPageId)) {
+  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog', 'practice-help', 'ranking', 'replays', 'stats'].includes(_animPageId)) {
       if (typeof initMenuAnimations === 'function') initMenuAnimations(_animPageId);
   } else {
       if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
@@ -385,6 +386,8 @@ function switchPage(pageId) {
     if (typeof renderPracticeHelpKeys === 'function') renderPracticeHelpKeys();
   } else if (pageId === 'ranking') {
     if (typeof renderRankingPage === 'function') renderRankingPage();
+  } else if (pageId === 'stats') {
+    if (typeof renderStatsPage === 'function') renderStatsPage();
   }
 
   // PRACTICE の目標値スピナーが開いたままページを離れると FocusNav.suspended が
@@ -394,7 +397,7 @@ function switchPage(pageId) {
   // ★ キーボードフォーカスナビゲーション（focus_nav.js）
   if (window.FocusNav) {
     if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
-         'result','versus-result','quiz-result','settings','credits','changelog','practice-help','ranking','replays'].includes(pageId)) {
+         'result','versus-result','quiz-result','settings','credits','changelog','practice-help','ranking','replays','stats'].includes(pageId)) {
       window.FocusNav.activate(pageId);
     } else {
       window.FocusNav.deactivate();
