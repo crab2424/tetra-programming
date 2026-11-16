@@ -27,15 +27,17 @@ const CpuZone = (() => {
         attackMaxHoles: 1,       // 「攻め」: 穴がこれより多い盤面では撃たない
         attackMaxIncoming: 3,    // 「攻め」: 予告がこれより大きいときは撃たない
         finishMaxHeight: 12,     // 「とどめ」: 自分の高さの上限
-        finishOppHeight: 10,     // 「とどめ」: 相手がこの高さ以上のとき
+        finishOppHeight: 15,     // 「とどめ」: 相手がこの高さ以上のとき
         lethalHeight: 19,        // 「守り」: 高さ＋予告がこれ以上なら着弾で死ぬとみなす
         counterDanger: 16,       // 「返し」: 高さ＋予告＋相手の見込み火力がこれ以上なら危ない
         counterLeadMs: 3000,     // 「返し」: 相手の終了より後にこれだけ自分の時間を残す（後出し）
         simpleDelayMs: 1500,     // lv1・lv2: 満タンになってから発動するまでの遅れ
         // ── 火力の表から決める判断（§17）──
-        // 「攻め」: 満タンでなくても、メーター 1/4 あたりの見込み火力が「満タンまでためて撃つ」ときの
-        // この倍以上なら撃つ（1.0 = 少しでも得なら早く撃つ。大きくすると満タンまで待ちやすい。
-        // ほぼ同じなら満タンまでためる側に倒すため 1.2）
+        // 「攻め」は満タンのときだけ（false）。true にすると、メーター 1/4 あたりの見込み火力が満タンで撃つときの
+        // attackMinEfficiency 倍以上なら満タン前でも撃つ。既定で切っている理由: 見込み段数は天井（19 段）で
+        // 頭打ちになるので、ZONE TIME が長い設定では「小さく 4 回撃つほうが得」と出てしまい、1/4 で即撃ちになった
+        // （実機で弱くなった。§18）。ためて撃つのがこのモードの本筋なので、既定は満タンまで待つ
+        attackEarly: false,
         attackMinEfficiency: 1.2,
         // 「攻め」: マージンの次の段階がこの時間以内に来るなら、待つ得（倍率が上がるぶんの火力）と
         // 待つ損（待つ間に消してあふれるメーターぶんの火力）を比べる。0 にすると待たない
@@ -146,6 +148,7 @@ const CpuZone = (() => {
     // 火力表とマージンの倍率表から出すので、表が「ためるほど得」なら満タンまで待ち、そうでなければ早く撃つ
     function worthFiringAt(game, level, q, st) {
         if (q >= 4) return true;
+        if (!CONFIG.attackEarly) return false;
         const now = attackIfFired(game, level, q, st) / q;
         const full = attackIfFired(game, level, 4, st) / 4;
         return now > 0 && now >= full * CONFIG.attackMinEfficiency;
