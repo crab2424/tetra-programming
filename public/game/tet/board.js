@@ -357,7 +357,15 @@ Object.assign(Game.prototype, {
             }
         }
 
-        // ZONE: 時間切れの後の 1 手、または窒息（全ブロックが枠の上）なら、この手の消去を数えた後で終える。
+        // ZONE の発動中は、全ブロックが枠の上の設置も致命にしない（ZONE も終えずに続ける。設計書 §4.5・§15）。
+        // 枠の上に残ったブロックは ZONE 終了後もそのまま残り、次のミノが出せなければ GAME OVER（出現不能は従来どおり）。
+        // 版 9 以前の録画の再生は従来どおり「ZONE を終え、ZONE 段が無ければ GAME OVER」（core/replay.js REPLAY_ENGINE_VERSION 10）
+        if (inZone && this.zoneActive && isAllOutside) {
+            const oldTopOut = this._replay && this._replay.data && (this._replay.data.engine || 0) < 10;
+            if (!oldTopOut) isAllOutside = false;
+        }
+
+        // ZONE: 時間切れの後の 1 手、または窒息（全ブロックが枠の上・版 9 以前の録画だけ）なら、この手の消去を数えた後で終える。
         // 窒息でも ZONE 段があれば盤面が下がるので続ける（tetlabo-zone-design.md §4.5）
         if (inZone && this.zoneActive && (this.zoneTimeUp || isAllOutside)) {
             const lowered = this.zoneLines > 0;
