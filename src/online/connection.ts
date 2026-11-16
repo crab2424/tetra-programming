@@ -135,6 +135,8 @@ export class GameConnection {
    */
   private static readonly RECONNECT_MAX_ATTEMPTS = 4;
   private static readonly RECONNECT_ATTEMPT_TIMEOUT_MS = 18000;
+  /** JSON 要求の応答を待つ上限。サーバーは即答するので、超えたら落ちたものとして諦める。 */
+  private static readonly RESPONSE_TIMEOUT_MS = 15000;
   /** 初回接続（ready()）でDataChannelが開くまでの上限。超えたら reject して呼び出し元にエラーを返す。 */
   private static readonly INITIAL_CONNECT_TIMEOUT_MS = 15000;
 
@@ -221,6 +223,12 @@ export class GameConnection {
       ordered: false,
       maxRetransmits: 0,
     });
+    // ★ 受信を ArrayBuffer に固定する。既定が "blob" のブラウザ（Firefox など）では
+    //   Blob → ArrayBuffer の変換が非同期（別タスク）になり、届いた順と処理する順が
+    //   入れ替わりうる（例: 対戦フレームと JSON 通知の追い越し）。ArrayBuffer なら
+    //   1 通ずつ同期的にさばけるので、reliable チャネルの順序がそのまま保たれる。
+    this.rdc.binaryType = "arraybuffer";
+    this.urdc.binaryType = "arraybuffer";
 
     this.rdc.onopen = () => {
       this.logger.log("Data channel opened");
@@ -889,9 +897,26 @@ export class GameConnection {
     // send binary payload
     this.sendRDC(Payload.jsonRequest(op, JSON.stringify(sendData)));
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       let responseReceived = false;
       let handlerId: Uuid | null = null;
+      // ★ 応答が来ないまま永遠に待たない。旧実装は時間制限が無く、通信が詰まって応答が
+      //   落ちると、待っている側（LEAVE の leaveRoom など）が二度と先へ進まず画面が固まった
+      //   （2026-11-16 ONLINE 不具合 #2「どの画面にも移れなくなる」）。待ち受けも外す。
+      const timeoutId = window.setTimeout(() => {
+        if (responseReceived) return;
+        responseReceived = true;
+        if (handlerId) this.rdcFunctions.delete(handlerId);
+        const type = (data as { type?: string }).type ?? "request";
+        this.logger.warn(`No response to ${type} within ${GameConnection.RESPONSE_TIMEOUT_MS}ms.`, this.debugState());
+        reject(new Error(`${type} timed out`));
+      }, GameConnection.RESPONSE_TIMEOUT_MS);
+      const settle = (value: T) => {
+        responseReceived = true;
+        window.clearTimeout(timeoutId);
+        this.rdcFunctions.delete(handlerId!);
+        resolve(value);
+      };
       const handler = (event: MessageEvent) => {
         if (responseReceived) return;
         try {
@@ -906,11 +931,8 @@ export class GameConnection {
               const ab = reader.result as ArrayBuffer;
               const b = new Uint8Array(ab);
               const decoded = JSONPayload.fromPayload(b);
-              if ("id" in decoded && decoded.id === sendData.id) {
-                responseReceived = true;
-                this.rdcFunctions.delete(handlerId!);
-                resolve(decoded as T);
-              }
+              if (responseReceived) return;
+              if ("id" in decoded && decoded.id === sendData.id) settle(decoded as T);
             };
             reader.readAsArrayBuffer(data);
             return;
@@ -923,11 +945,7 @@ export class GameConnection {
           }
 
           const decoded = JSONPayload.fromPayload(buf);
-          if ("id" in decoded && decoded.id === sendData.id) {
-            responseReceived = true;
-            this.rdcFunctions.delete(handlerId!);
-            resolve(decoded as T);
-          }
+          if ("id" in decoded && decoded.id === sendData.id) settle(decoded as T);
         } catch (e) {
           // ignore parse errors
         }
@@ -935,6 +953,19 @@ export class GameConnection {
 
       handlerId = this.addReaderFunction(handler);
     });
+  }
+
+  /** 診断用: いまの接続の状態（不具合報告のログに添える）。 */
+  debugState(): Record<string, unknown> {
+    return {
+      dcReady: this.dcReady,
+      reconnecting: this.reconnecting,
+      closed: this.closed,
+      rdc: this.rdc?.readyState,
+      rdcBuffered: this.rdc?.bufferedAmount,
+      pc: this.pc?.connectionState,
+      ice: this.pc?.iceConnectionState,
+    };
   }
 
   async waitResponseRDCBinary<T>(id: string): Promise<T> {
