@@ -158,6 +158,11 @@ Object.assign(Game.prototype, {
         this.zoneLinesTotal = 0;     // 1 局の ZONE 段の合計（lines とは別に数える。§5.4）
         this.zoneBest = 0;           // 1 回の最大
         this.zoneCount = 0;          // 発動した回数
+        // 成績（STATS）用: 発動していた時間の合計と、ZONE で出した火力（補正込み / 火力補正を外したもの）。
+        // 火力は、シングル＝発動中に出た火力（tet/board.js）、VERSUS＝終了時にまとめて出す火力（_endZone）
+        this.zoneMsTotal = 0;
+        this.zoneAtkTotal = 0;
+        this.zoneAtkRawTotal = 0;
         this._zoneFx = null;         // 終了の光（描画だけ。実時間）
         this._zoneHudSig = null;
         this._zoneHideEndPopup();
@@ -310,6 +315,7 @@ Object.assign(Game.prototype, {
     _endZone(reason) {
         if (!this.zoneActive) return;
         if (this._zoneTimer) { this.clock.cancel(this._zoneTimer); this._zoneTimer = null; }
+        this.zoneMsTotal = (this.zoneMsTotal || 0) + Math.max(0, this.clock.now() - this.zoneStartAt); // 成績（STATS）
         const n = this.zoneLines;
         const field = this.field;
         // 1. ZONE 段を消し、2. 残りを n 段下げる（操作中のミノは動かさない）
@@ -358,8 +364,12 @@ Object.assign(Game.prototype, {
                 const rawChunks = split
                     ? (() => { const p = zoneEndAttackSplit(charge, n, this.zoneAtkList, this._tetMarginStep, 1.0); return p.normal.concat(p.bonus); })()
                     : zoneEndAttackChunks(charge, n, this.zoneAtkPool, this._tetMarginStep, 1.0);
-                for (const c of rawChunks) this.attackRaw = (this.attackRaw || 0) + c;
+                for (const c of rawChunks) {
+                    this.attackRaw = (this.attackRaw || 0) + c;
+                    this.zoneAtkRawTotal = (this.zoneAtkRawTotal || 0) + c;
+                }
             }
+            this.zoneAtkTotal = (this.zoneAtkTotal || 0) + attack;
             if (attack > 0) {
                 this._countAttackSent(attack); // APM（生成基準。相殺ぶんも数える）
                 let canceled = attack - this.offsetGarbage(attack);

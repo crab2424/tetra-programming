@@ -271,15 +271,25 @@ Object.assign(PuyoGame.prototype, {
         this._updateOjamaYokoku();
     },
 
-    // 攻撃量の累積を1回だけ加算する（APM計測用。sendGarbage/sendGarbageCrossTetはonlineで
-    // 丸ごと上書きされるため、呼び出し側=_applyOjamaOffset()で送信直前に呼ぶ）
-    _countAttackSent(amount) {
-        if (!(amount > 0)) return;
-        this.attackSent = (this.attackSent || 0) + amount;
-        // 成績（STATS）: 火力補正（ATTACK BIAS）を外した量。ぷよは補正とマージンを掛けて切り捨てた後の
-        // 「送った量」を数えているので、補正の倍率で割り戻す（切り捨てのぶん 1 未満の誤差が出る。マージンは込みのまま）
-        const bias = this.isVersusMode ? (this.vsAttackMultiplier ?? 1.0) : 1.0;
-        this.attackRaw = (this.attackRaw || 0) + (bias > 0 ? amount / bias : amount);
+    // 攻撃量の累積を加算する（APM計測用・生成基準）。テト（tet/board.js）と同じく、相殺で消えたぶんも含めて
+    // 「この連鎖で作った火力」を数える（2026-11-16 までは相殺後に送った量だけを数えていた）。
+    // sendGarbage/sendGarbageCrossTet は online で丸ごと上書きされるため、送信の経路ではなく
+    // 火力を作った所（_applyOjamaOffset・対テトのスコア相殺）で呼ぶ。
+    //   amount … 火力補正（ATTACK BIAS）・マージン込みの量（attackSent）
+    //   raw    … 火力補正だけを外した量（attackRaw。成績 STATS 用。マージンは込みのまま）。省くと amount と同じ
+    _countAttackSent(amount, raw) {
+        if (amount > 0) this.attackSent = (this.attackSent || 0) + amount;
+        const r = (raw === undefined) ? amount : raw;
+        if (r > 0) this.attackRaw = (this.attackRaw || 0) + r;
+    },
+
+    // 対テト: スコアで相殺したぶん（_resolveTetAttack の特殊相殺）をライン数に直す。送るときと同じ表（レート 70 基準）を使い、
+    // 表の一番下に届かない端数は 0。消去ぷよ数の追加ラインは入れない（相殺に使った点だけを見る）
+    _tetLinesForScore(score) {
+        const rate = (this.vsOjamaRate ?? PConfig.ojamaRate);
+        const TABLE = [[13300, 7], [5320, 6], [2240, 5], [1120, 4], [700, 3], [420, 2], [210, 1]];
+        for (const [s, lines] of TABLE) if (score >= (s / 70) * rate) return lines;
+        return 0;
     },
 
     // ポーズ時間を除いた実プレイ経過ms（APM/LPM・記録保存で使用。tet側getActiveMs()と同じ思想）
@@ -401,6 +411,20 @@ Object.assign(PuyoGame.prototype, {
             return !(opponent instanceof PuyoGame) && (typeof opponent.gameOver === 'function');
         })();
 
+        // APM（生成基準）: 相殺で消えたぶんも含めて、この連鎖で作った火力を数える。
+        // 相手がテトならライン数（スコアで相殺したぶんは _resolveTetAttack 側で数える）、ぷよならおじゃまぷよの数。
+        // 補正を外した量は、補正を掛けずにマージンだけ掛けて同じ切り捨てをしたもの
+        {
+            const _marginOnly = this.isVersusMode ? (this.vsMarginMultiplier ?? 1.0) : 1.0;
+            const rawOf = (v) => (v > 0 ? Math.floor(v * _marginOnly + 1e-9) : 0);
+            if (_isOppTet) {
+                this._countAttackSent(effectiveTetAmount, rawOf(tetAmount));
+            } else {
+                this._countAttackSent(effectiveAmount, rawOf(amount));
+                if (this._hasTetOpp) this._countAttackSent(effectiveTetAmount, rawOf(tetAmount));
+            }
+        }
+
         if (_isOppTet) {
             // 相手がテトの場合、effectiveTetAmount（テト用の実効ライン数）を送信する。
             // ぷよ火力が相殺で減った場合は、その割合に応じて送信する tetAmount も減らす。
@@ -408,17 +432,14 @@ Object.assign(PuyoGame.prototype, {
                 let ratio = remaining / originalAmount; // 残った割合 (0.0 〜 1.0)
                 let sendTetAmount = Math.ceil(effectiveTetAmount * ratio);
                 if (sendTetAmount > 0) {
-                    this._countAttackSent(sendTetAmount);
                     this.sendGarbage(sendTetAmount);
                 }
             } else if (effectiveTetAmount > 0 && remaining === 0) {
-                this._countAttackSent(effectiveTetAmount);
                 this.sendGarbage(effectiveTetAmount);
             }
         } else {
             // 相手がぷよの場合、残った実効ぷよ基準の火力を送る
             if (remaining > 0) {
-                this._countAttackSent(remaining);
                 this.sendGarbage(remaining);
             }
             // ★ 混在多人数戦: 同時にテト相手へは tet ライン火力を送る（相殺で減った割合を反映）。
@@ -427,7 +448,6 @@ Object.assign(PuyoGame.prototype, {
                 const ratio = originalAmount > 0 ? (remaining / originalAmount) : (remaining === 0 ? 1 : 0);
                 const sendTetAmount = Math.ceil(effectiveTetAmount * ratio);
                 if (sendTetAmount > 0) {
-                    this._countAttackSent(sendTetAmount);
                     this.sendGarbageCrossTet(sendTetAmount);
                 }
             }
@@ -588,6 +608,14 @@ Object.assign(PuyoGame.prototype, {
 
             if (pendingOjamaCount > 0) {
                 let requiredOffsetScore = pendingOjamaCount * (this.vsOjamaRate ?? PConfig.ojamaRate);
+                // APM（生成基準）: スコアで相殺に使ったぶんをライン数に直して数える（送るぶんは _applyOjamaOffset で数える）。
+                // 補正を外した量は、使った点を補正の倍率で割ってから同じ表を引く
+                {
+                    const usedScore = Math.min(effectiveA, requiredOffsetScore);
+                    const _bias = (this.vsAttackMultiplier ?? 1.0);
+                    this._countAttackSent(this._tetLinesForScore(usedScore),
+                        this._tetLinesForScore(_bias > 0 ? usedScore / _bias : usedScore));
+                }
 
                 if (effectiveA >= requiredOffsetScore) {
                     // 相殺しきれる場合

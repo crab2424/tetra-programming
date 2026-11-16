@@ -151,6 +151,7 @@
 }
 .stats-vs-row {
   display: grid;
+  /* 列の数は出す値で変わるので、幅は stats_page.js が行ごとに入れる（ここは既定の 7 列） */
   grid-template-columns: 1.6fr 0.6fr 0.6fr 0.8fr 0.9fr 1.1fr 0.8fr;
   align-items: center;
   gap: 8px;
@@ -160,9 +161,6 @@
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text);
-}
-.stats-vs-raw .stats-vs-row {
-  grid-template-columns: 1.6fr 0.6fr 0.6fr 0.8fr 0.9fr 1fr 1.1fr 0.8fr;
 }
 .stats-vs-row > span {
   min-width: 0;

@@ -135,6 +135,12 @@ class QuizManager {
         this.isClear       = false;
         this.isFailed      = false;
 
+        // 成績（STATS）: この挑戦を数え始める（エディタの試遊は stats.js 側で弾く）
+        window.Stats?.beginQuiz({
+            game: gameInstance, level: levelData,
+            no: (QUIZ_LEVELS[levelData.rule] || []).findIndex(l => l.id === levelData.id) + 1,
+        });
+
         if (levelData.rule === 'tet') {
             this._startTet(levelData, gameInstance);
         } else {
@@ -726,6 +732,7 @@ class QuizManager {
     _onClear() {
         if (this.isClear || this.isFailed) return;
         this.isClear = true;
+        window.Stats?.endQuiz('ok'); // 成績（STATS）
         // 正解音はシングルのクリア音・PRACTICEのGOAL達成音と同一キー('clear')に統一。
         window.SeManager?.play('clear');
         this._stopGame();
@@ -745,6 +752,7 @@ class QuizManager {
     _onFailed() {
         if (this.isClear || this.isFailed) return;
         this.isFailed = true;
+        window.Stats?.endQuiz('ng'); // 成績（STATS）
         // 不正解音はゲームオーバー音と統一。_onFailed は本来の gameOver() を
         // 置き換える形で呼ばれる（gameOver 内の playSe を通らない）ためここで鳴らす。
         window.SeManager?.play('gameover');
@@ -1045,10 +1053,12 @@ async function renderQuizCheck() {
     listEl.innerHTML = '';
 
     const levels = QUIZ_LEVELS[currentQuizRule] || [];
+    const cleared = (window.Stats && window.Stats.getQuizCleared) ? window.Stats.getQuizCleared() : {};
     levels.forEach((level, idx) => {
         const btn = document.createElement('button');
         btn.className = 'quiz-level-btn';
         btn.dataset.levelId = level.id;
+        if (cleared[level.id]) btn.classList.add('quiz-level-cleared'); // 解いたことのある問題（成績 STATS）
         const diffStars = _renderDiffStars(level.diff);
         btn.innerHTML = `<span class="quiz-level-num">${idx + 1}</span>${diffStars ? `<span class="quiz-level-diff">${diffStars}</span>` : ''}`;
         btn.onclick = () => {
@@ -1462,6 +1472,7 @@ function _renderQuizNextAll(levelData) {
 
     window.addEventListener('load', async () => {
         await loadQuizLevels();
+        level._editorTest = true; // 成績（STATS）に数えない印（config/stats.js beginQuiz）
         const list = QUIZ_LEVELS[level.rule];
         const idx = list.findIndex(l => l.id === level.id);
         if (idx >= 0) list[idx] = level; else list.push(level);

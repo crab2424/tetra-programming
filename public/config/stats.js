@@ -25,6 +25,7 @@
 //
 // 入口（今はシングルだけ。VERSUS・ONLINE・QUIZ は後の段階で足す）
 //   beginVersus(ctx) / endVersus(r) … VERSUS（対 CPU）。app/versus.js から
+//   beginQuiz(ctx) / endQuiz(r)     … QUIZ。quiz/quiz.js から
 //   onPuyoInit(game) … game/puyo/lifecycle.js の start の頭（テトの onTetInit と同じ役目）
 //   onTetInit(game) … game/tet/lifecycle.js の _initGameState の頭。前の試合が締まっていなければ
 //                     「途中でやめた」で締め、数える対象ならこの試合を数え始める
@@ -105,6 +106,17 @@
         if (!(bucket[field] >= value)) bucket[field] = value;
     }
 
+    // ZONE（ZONE モードと、VERSUS の ZONE ON）。znMs / znAtk / znAtkRaw は「ZONE に限った APM」を出すための値:
+    //   znMs=発動していた時間 / znAtk=ZONE で出した火力 / znAtkRaw=その火力補正を外したもの
+    function _addZone(bucket, game) {
+        _add(bucket, 'zn', game.zoneCount);
+        _add(bucket, 'znLn', game.zoneLinesTotal);
+        _max(bucket, 'znMax', game.zoneBest);
+        _add(bucket, 'znMs', Math.round(game.zoneMsTotal || 0));
+        _add(bucket, 'znAtk', game.zoneAtkTotal);
+        _add(bucket, 'znAtkRaw', game.zoneAtkRawTotal);
+    }
+
     // ─── テトのシングル ───────────────────────────────────
     function _tetSingleKey(game) {
         const mode = game.mode || game.currentMode;
@@ -140,14 +152,11 @@
             _add(bucket, 'ms', ms);
             _add(bucket, 'pc', ps.pc);
             _add(bucket, 'ln', lines);
+            _add(bucket, 'atk', game.attackSent); // シングルでも「対戦なら出ていた火力」を数えている（HUD の APM と同じ）
             for (const f of ['t4', 'ts1', 'ts2', 'ts3', 'tsm', 'pcl']) _add(bucket, f, ps[f]);
             _max(bucket, 'renMax', ps.renMax);
             _max(bucket, 'b2bMax', ps.b2bMax);
-            if (game.zoneEnabled) {
-                _add(bucket, 'zn', game.zoneCount);
-                _add(bucket, 'znLn', game.zoneLinesTotal);
-                _max(bucket, 'znMax', game.zoneBest);
-            }
+            if (game.zoneEnabled) _addZone(bucket, game);
             if (r !== 'q') _add(bucket, 'sc', score);
             if (r === 'ok') { _add(bucket, 'ok', 1); _add(bucket, 'okMs', ms); }
         }
@@ -247,11 +256,7 @@
             for (const f of ['t4', 'ts1', 'ts2', 'ts3', 'tsm', 'pcl']) _add(bucket, f, ps[f]);
             _max(bucket, 'renMax', ps.renMax);
             _max(bucket, 'b2bMax', ps.b2bMax);
-            if (game.zoneEnabled) {
-                _add(bucket, 'zn', game.zoneCount);
-                _add(bucket, 'znLn', game.zoneLinesTotal);
-                _max(bucket, 'znMax', game.zoneBest);
-            }
+            if (game.zoneEnabled) _addZone(bucket, game);
         }
         if (r === 'q') {
             _add(bucket, 'q', 1);
@@ -271,11 +276,41 @@
             vs: { bias: cur.bias || [0, 0], margin: cur.margin, zone: cur.zone ? 1 : 0 },
         };
         if (isPuyo) entry.cm = Math.max(0, game.chainMax || 0); else entry.ln = Math.max(0, game.lines || 0);
+        if (!isPuyo && game.zoneMsTotal > 0) { entry.zms = Math.round(game.zoneMsTotal); entry.zatk = game.zoneAtkTotal || 0; }
         if (r !== 'q') {
             const rep = window.ReplayManager && window.ReplayManager.resultReplay;
             if (rep && rep.mode === 'versus' && rep.id) entry.rp = rep.id;
         }
         _pushHistory(entry);
+    }
+
+    // ─── QUIZ ─────────────────────────────────────────────
+    // 枠は quiz:<ルール>。n=決着した挑戦（正解＋失敗）/ ok=正解 / q=途中でやめた / ms=遊んだ時間。
+    // 解いた問題は owners[..].quiz.cleared[<問題 id>] = 最初に解いた日時（合算は和・日時は古い方）
+    // r: 'ok' / 'ng' / 'q'
+    function _closeQuiz(cur, r) {
+        const game = cur.game;
+        const ps = game.playStats || {};
+        const isPuyo = cur.quizRule === 'puyo';
+        // 1 手も置かずにやめた挑戦は数えない（ぷよは出した組から操作中の 1 組を除く）
+        const placed = isPuyo ? Math.max(0, (ps.sp || 0) - 1) : (ps.pc || 0);
+        if (r === 'q' && placed === 0) return;
+
+        const key = 'quiz:' + cur.quizRule;
+        const ms = Math.max(0, Math.round((typeof game.getActiveMs === 'function') ? game.getActiveMs() : 0));
+        const data = _load();
+        const owner = _ownerOf(data, ownerId());
+        const bucket = (owner.buckets[key] ||= {});
+        _add(bucket, r === 'q' ? 'q' : 'n', 1);
+        _add(bucket, 'ms', ms);
+        if (r === 'ok') {
+            _add(bucket, 'ok', 1);
+            if (!owner.quiz || typeof owner.quiz !== 'object') owner.quiz = { cleared: {} };
+            if (!owner.quiz.cleared || typeof owner.quiz.cleared !== 'object') owner.quiz.cleared = {};
+            if (cur.quizId && !owner.quiz.cleared[cur.quizId]) owner.quiz.cleared[cur.quizId] = new Date().toISOString();
+        }
+        _save(data);
+        _pushHistory({ at: new Date().toISOString(), k: key, r, ms, id: cur.quizId, no: cur.quizNo });
     }
 
     // ─── 入口 ─────────────────────────────────────────────
@@ -286,6 +321,7 @@
         if (cur.game._replay) return; // 念のため: 再生に使われている盤面は数えない
         try {
             if (cur.rule === 'vs') _closeVersus(cur, r);
+            else if (cur.rule === 'quiz') _closeQuiz(cur, r);
             else if (cur.rule === 'tet') _closeTetSingle(cur.game, r);
             else if (cur.rule === 'puyo') _closePuyoSingle(cur.game, r);
         } catch (e) {
@@ -310,7 +346,7 @@
     }
 
     function end(game, r) {
-        if (!current || current.game !== game || current.rule === 'vs') return;
+        if (!current || current.game !== game || current.rule === 'vs' || current.rule === 'quiz') return;
         _close(r === 'ok' ? 'ok' : 'ng');
     }
 
@@ -332,6 +368,28 @@
         _close(r === 'w' ? 'w' : 'l');
     }
 
+    // QUIZ（quiz/quiz.js の QuizManager.start）。ctx = { game, level: 問題のデータ, no: 何問目か }
+    // クイズエディタの試遊（level._editorTest）は数えない
+    function beginQuiz(ctx) {
+        _close('q');
+        const level = ctx && ctx.level;
+        if (!ctx || !ctx.game || !level || level._editorTest) return;
+        if (level.rule !== 'tet' && level.rule !== 'puyo') return;
+        current = { game: ctx.game, rule: 'quiz', quizRule: level.rule, quizId: String(level.id), quizNo: ctx.no || 0 };
+    }
+
+    // r: 'ok' 正解 / 'ng' 失敗（QuizManager の _onClear / _onFailed）
+    function endQuiz(r) {
+        if (!current || current.rule !== 'quiz') return;
+        _close(r === 'ok' ? 'ok' : 'ng');
+    }
+
+    // 解いた問題の一覧 { <問題 id>: 最初に解いた日時 }
+    function getQuizCleared() {
+        const o = _load().owners[ownerId()];
+        return (o && o.quiz && o.quiz.cleared) || {};
+    }
+
     // ─── 読み出し（app/stats_page.js） ────────────────────
     function getBuckets() {
         const data = _load();
@@ -344,7 +402,8 @@
     }
 
     window.Stats = {
-        onTetInit, onPuyoInit, end, abort, beginVersus, endVersus,
+        onTetInit, onPuyoInit, end, abort, beginVersus, endVersus, beginQuiz, endQuiz,
+        getQuizCleared,
         getBuckets, getHistory, ownerId,
         SINGLE_KEYS, MAX_FIELDS, HISTORY_MAX,
     };

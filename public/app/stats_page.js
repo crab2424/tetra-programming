@@ -3,14 +3,15 @@
 //
 // 中身は config/stats.js（window.Stats）の累計と履歴。設計 source_assets/memory/mode/record/stats/ §8。
 // 平均・率はここで割り算して出す（保存していない）。
-// タブ: SINGLE（枠ごとのカード）/ VERSUS（ルールの組み合わせごとの表）/ HISTORY（直近の一覧）。
-// ONLINE・QUIZ・OVERVIEW は後の段階で足す。
+// タブ: SINGLE（枠ごとのカード）/ VERSUS（ルールの組み合わせごとの表）/ QUIZ（ルールごと）/ HISTORY（直近の一覧）。
+// ONLINE・OVERVIEW は後の段階で足す。
 // ─────────────────────────────────────────────
 
 (function () {
   const TABS = [
     { id: 'single', label: 'SINGLE' },
     { id: 'versus', label: 'VERSUS' },
+    { id: 'quiz', label: 'QUIZ' },
     { id: 'history', label: 'HISTORY' },
   ];
   const RECENT_N = 10; // 「直近 n 回の平均」に使う件数
@@ -56,7 +57,9 @@
     const m = /^vs:(tet|puyo):(tet|puyo):(.+)$/.exec(String(key));
     return m ? { my: m[1], opp: m[2], level: m[3] } : null;
   }
+  const quizRuleOf = (key) => { const m = /^quiz:(tet|puyo)$/.exec(String(key)); return m ? m[1] : null; };
   function label(key) {
+    if (quizRuleOf(key)) return 'QUIZ ' + RULE_LABEL[quizRuleOf(key)];
     const vs = parseVs(key);
     if (vs) return `VS ${cpuLabel(vs.level)} ${RULE_LABEL[vs.my]}/${RULE_LABEL[vs.opp]}`;
     return (window.Records && window.Records.labelFor) ? window.Records.labelFor(key) : String(key).toUpperCase();
@@ -185,6 +188,9 @@
     grid.appendChild(_cell('MAX B2B', num(b.b2bMax || 0)));
     if (key === 'zone:150') {
       grid.appendChild(_cell('ZONE', '×' + num(b.zn || 0), `${num(b.znLn || 0)} LINES / MAX ${num(b.znMax || 0)}`));
+      // 火力は「対戦なら出ていた量」。ZONE APM は発動していた時間だけで割ったもの
+      grid.appendChild(_cell('APM', apm(b.atk, b.ms)));
+      grid.appendChild(_cell('ZONE APM', b.znMs > 0 ? apm(b.znAtk, b.znMs) : '—', b.znMs > 0 ? `ZONE TIME ${fmtTotal(b.znMs)}` : ''));
     }
     card.appendChild(grid);
     return card;
@@ -213,15 +219,20 @@
 
     // 火力補正の付いた試合が 1 つでもあれば RAW APM（補正を外した火力）の列を出す
     const showRaw = sum('bias') > 0;
-    const table = el('div', 'stats-vs-table' + (showRaw ? ' stats-vs-raw' : ''));
-    const cols = ['CPU', 'W', 'L', 'WIN', 'APM'].concat(showRaw ? ['RAW APM'] : [], ['AVG TIME', 'STREAK']);
+    // ZONE を使った試合が 1 つでもあれば ZONE APM（発動していた時間だけで割った火力）の列を出す
+    const showZone = sum('znMs') > 0;
+    const table = el('div', 'stats-vs-table');
+    const cols = ['CPU', 'W', 'L', 'WIN', 'APM'].concat(showRaw ? ['RAW APM'] : [], showZone ? ['ZONE APM'] : [], ['AVG TIME', 'STREAK']);
+    const widths = ['1.6fr', '0.6fr', '0.6fr', '0.8fr', '0.9fr'].concat(showRaw ? ['1fr'] : [], showZone ? ['1.1fr'] : [], ['1.1fr', '0.8fr']).join(' ');
     const headRow = el('div', 'stats-vs-row stats-vs-head');
+    headRow.style.gridTemplateColumns = widths;
     cols.forEach((c) => headRow.appendChild(el('span', '', c)));
     table.appendChild(headRow);
 
     rows.forEach(({ level, b }) => {
       const n = (b.w || 0) + (b.l || 0);
       const row = el('div', 'stats-vs-row');
+      row.style.gridTemplateColumns = widths;
       const name = el('span', 'stats-vs-level', cpuLabel(level));
       const notes = [];
       if (b.q > 0) notes.push(`QUIT ${num(b.q)}`);
@@ -233,6 +244,12 @@
       row.appendChild(el('span', '', pct(b.w, n)));
       row.appendChild(el('span', '', apm(b.atk, b.ms)));
       if (showRaw) row.appendChild(el('span', '', apm(b.atkRaw, b.ms)));
+      if (showZone) {
+        const z = el('span', '', b.znMs > 0 ? apm(b.znAtk, b.znMs) : '—');
+        // 補正ありの試合がある行は、補正を外した ZONE APM も添える
+        if (b.znMs > 0 && b.bias > 0) z.appendChild(el('span', 'stats-cell-sub', 'RAW ' + apm(b.znAtkRaw, b.znMs)));
+        row.appendChild(z);
+      }
       row.appendChild(el('span', '', n > 0 ? fmtTime((b.ms || 0) / (n + (b.q || 0))) : '—'));
       row.appendChild(el('span', '', num(b.wsMax || 0)));
       table.appendChild(row);
@@ -259,7 +276,45 @@
     if (shown === 0) list.appendChild(el('p', 'ranking-status', 'NO MATCHES'));
   }
 
+  // ─── QUIZ ───────────────────────────────
+  // 問題の総数は quiz/quiz.js の QUIZ_LEVELS（まだ読み込んでいなければ読み込んでから描き直す）
+  function _quizTotal(rule) {
+    try { return (QUIZ_LEVELS[rule] || []).length; } catch (e) { return 0; }
+  }
+
+  function _renderQuiz(list) {
+    const buckets = window.Stats.getBuckets();
+    const cleared = window.Stats.getQuizCleared();
+    let loaded = false;
+    ['tet', 'puyo'].forEach((rule, i) => {
+      const b = buckets['quiz:' + rule] || {};
+      const levels = (() => { try { return QUIZ_LEVELS[rule] || []; } catch (e) { return []; } })();
+      if (levels.length > 0) loaded = true;
+      // 今ある問題のうち解いたもの（消えた問題の id は数えない）
+      const solved = levels.filter((l) => cleared[l.id]).length;
+      const card = el('div', 'stats-card stats-row-enter');
+      card.style.animationDelay = (i * 0.05) + 's';
+      const head = el('div', 'stats-card-head');
+      head.appendChild(el('span', 'stats-card-title', 'QUIZ ' + RULE_LABEL[rule]));
+      head.appendChild(el('span', 'stats-card-time', 'TIME ' + fmtTotal(b.ms || 0)));
+      card.appendChild(head);
+      const grid = el('div', 'stats-grid');
+      const n = b.n || 0;
+      grid.appendChild(_cell('SOLVED', levels.length > 0 ? `${num(solved)} / ${num(levels.length)}` : '—',
+        levels.length > 0 ? pct(solved, levels.length) : ''));
+      grid.appendChild(_cell('ATTEMPTS', num(n), b.q > 0 ? `QUIT ${num(b.q)}` : ''));
+      grid.appendChild(_cell('CORRECT', num(b.ok || 0)));
+      grid.appendChild(_cell('RATE', pct(b.ok, n)));
+      card.appendChild(grid);
+      list.appendChild(card);
+    });
+    if (!loaded && typeof loadQuizLevels === 'function') {
+      loadQuizLevels().then(() => { if (currentTab === 'quiz' && _quizTotal('tet') + _quizTotal('puyo') > 0) renderStatsPage(); });
+    }
+  }
+
   // ─── HISTORY ────────────────────────────
+  // QUIZ の ng は「FAILED」（_historyRow で差し替える）
   const RESULT_LABEL = { ok: 'CLEAR', ng: 'GAME OVER', q: 'QUIT', w: 'WIN', l: 'LOSE', d: 'DRAW' };
 
   function _historyRow(h, index) {
@@ -267,7 +322,13 @@
     if (index < 12) row.style.animationDelay = (index * 0.03) + 's';
     row.appendChild(el('span', 'stats-history-date', fmtDate(h.at)));
     row.appendChild(el('span', 'stats-history-mode', label(h.k) + (h.c ? ' *' : '')));
-    row.appendChild(el('span', 'stats-history-result stats-result-' + h.r, RESULT_LABEL[h.r] || ''));
+    row.appendChild(el('span', 'stats-history-result stats-result-' + h.r,
+      (quizRuleOf(h.k) && h.r === 'ng') ? 'FAILED' : (RESULT_LABEL[h.r] || '')));
+    if (quizRuleOf(h.k)) {
+      row.appendChild(el('span', 'stats-history-value', h.no ? '#' + h.no : ''));
+      row.appendChild(el('span', 'stats-history-sub', fmtTotal(h.ms)));
+      return row;
+    }
     if (parseVs(h.k)) {
       // 対戦: 主指標は APM。火力補正が付いていた試合は補正の値と、補正を外した APM を添える
       const bias = (h.vs && h.vs.bias) || [0, 0];
@@ -276,7 +337,7 @@
       row.appendChild(el('span', 'stats-history-value', apm(h.atk, h.ms) + ' APM'));
       row.appendChild(el('span', 'stats-history-sub', biased
         ? `${fmtTotal(h.ms)} · BIAS ${sign(bias[0])}/${sign(bias[1])} · RAW ${apm(h.atkRaw, h.ms)}`
-        : fmtTotal(h.ms)));
+        : (h.zms > 0 ? `${fmtTotal(h.ms)} · ZONE ${apm(h.zatk, h.zms)} APM` : fmtTotal(h.ms))));
       return row;
     }
     // 主指標: タイムの枠は完走したときだけタイム、それ以外はスコア
@@ -309,9 +370,12 @@
     if (currentTab === 'history') {
       _renderHistory(list);
       if (hint) hint.textContent = `この端末で遊んだ直近 ${window.Stats.HISTORY_MAX} 件です。* は準備画面の設定を変えた試合。`;
+    } else if (currentTab === 'quiz') {
+      _renderQuiz(list);
+      if (hint) hint.textContent = '1 手も置かずにやめた挑戦は数えません。解いた問題には、問題の一覧で印が付きます。';
     } else if (currentTab === 'versus') {
       _renderVersus(list);
-      if (hint) hint.textContent = '対 CPU 戦の成績です。設定を変えた試合も数えます。火力補正（BIAS）を付けた試合があると、補正を外した火力（RAW APM）も出ます。';
+      if (hint) hint.textContent = '対 CPU 戦の成績です。設定を変えた試合も数えます。火力補正（BIAS）を付けた試合があると補正を外した火力（RAW APM）、ZONE を使った試合があると発動中だけの火力（ZONE APM）も出ます。';
     } else {
       _renderSingle(list);
       if (hint) hint.textContent = '1 手も置かずにやり直した試合は数えません。準備画面の設定を変えた試合（CUSTOM）は回数と時間だけ数えます。';

@@ -160,9 +160,15 @@ Object.assign(Game.prototype, {
         if (generatedGarbage > 0) {
             this.attackRaw = (this.attackRaw || 0) + generatedGarbage; // 成績（STATS）: 火力補正を掛ける前
             const _apmMult = this.isVersusMode ? (this.vsAttackMultiplier ?? 1.0) : 1.0;
-            this._countAttackSent(_apmMult !== 1.0
+            const _counted = _apmMult !== 1.0
                 ? Math.floor(generatedGarbage * _apmMult + 1e-9)
-                : generatedGarbage);
+                : generatedGarbage;
+            this._countAttackSent(_counted);
+            // 成績（STATS）: ZONE の発動中に出た火力（シングル。VERSUS は上でためて 0 にしているのでここは通らない）
+            if (inZone) {
+                this.zoneAtkTotal = (this.zoneAtkTotal || 0) + _counted;
+                this.zoneAtkRawTotal = (this.zoneAtkRawTotal || 0) + generatedGarbage;
+            }
         }
 
         // ライン消去音(1line〜4lines/tspin)に重ねて鳴らすボーナス音。
