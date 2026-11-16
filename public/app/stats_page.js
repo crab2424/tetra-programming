@@ -3,12 +3,14 @@
 //
 // 中身は config/stats.js（window.Stats）の累計と履歴。設計 source_assets/memory/mode/record/stats/ §8。
 // 平均・率はここで割り算して出す（保存していない）。
-// タブ: SINGLE（枠ごとのカード）/ VERSUS（ルールの組み合わせごとの表）/ ONLINE（ルールの組み合わせごと）/
-//       QUIZ（ルールごと）/ HISTORY（直近の一覧）。OVERVIEW は後の段階で足す。
+// タブ: OVERVIEW（全体のまとめ）/ SINGLE（枠ごとのカード）/ VERSUS（ルールの組み合わせごとの表）/
+//       ONLINE（ルールの組み合わせごと）/ QUIZ（ルールごと）/ HISTORY（直近の一覧）。
+// 見出しの下に、いま見ている成績の持ち主（ゲスト / アカウント）。下に RESET。
 // ─────────────────────────────────────────────
 
 (function () {
   const TABS = [
+    { id: 'overview', label: 'OVERVIEW' },
     { id: 'single', label: 'SINGLE' },
     { id: 'versus', label: 'VERSUS' },
     { id: 'online', label: 'ONLINE' },
@@ -17,7 +19,7 @@
   ];
   const RECENT_N = 10; // 「直近 n 回の平均」に使う件数
 
-  let currentTab = 'single';
+  let currentTab = 'overview';
 
   // ─── 整形 ───────────────────────────────
   const num = (v) => (typeof v === 'number' && isFinite(v)) ? Math.round(v).toLocaleString('en-US') : '—';
@@ -97,6 +99,83 @@
       });
     }
     toggle.querySelectorAll('.opt-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === currentTab));
+  }
+
+  // ─── OVERVIEW ───────────────────────────
+  // 枠 1 つの遊んだ回数（途中でやめた試合・設定を変えた試合も含む）と時間
+  const playsOf = (b) => (b.n || 0) + (b.q || 0) + (b.cn || 0) + (b.cq || 0);
+  const msOf = (b) => (b.ms || 0) + (b.cms || 0);
+
+  // モード別の行。シングルは枠ごと、VERSUS / ONLINE / QUIZ はまとめて 1 行
+  function _overviewRows(buckets) {
+    const rows = window.Stats.SINGLE_KEYS.map((key) => ({ name: label(key), keys: [key] }));
+    const group = (name, test) => rows.push({ name, keys: Object.keys(buckets).filter(test) });
+    group('VERSUS', (k) => !!parseVs(k));
+    group('ONLINE', (k) => !!parseOl(k));
+    group('QUIZ', (k) => !!quizRuleOf(k));
+    return rows.map((r) => {
+      let plays = 0, ms = 0;
+      r.keys.forEach((k) => { const b = buckets[k]; if (b) { plays += playsOf(b); ms += msOf(b); } });
+      return { name: r.name, plays, ms };
+    });
+  }
+
+  // 勝ち・負けの合計（VERSUS / ONLINE の枠ごとの w / l を足す）
+  function _winLoss(buckets, test) {
+    let w = 0, l = 0;
+    Object.keys(buckets).forEach((k) => { if (test(k)) { w += buckets[k].w || 0; l += buckets[k].l || 0; } });
+    return { w, l };
+  }
+
+  function _renderOverview(list) {
+    const buckets = window.Stats.getBuckets();
+    const rows = _overviewRows(buckets);
+    const totalPlays = rows.reduce((a, r) => a + r.plays, 0);
+    const totalMs = rows.reduce((a, r) => a + r.ms, 0);
+
+    const card = el('div', 'stats-card stats-row-enter');
+    const grid = el('div', 'stats-grid');
+    grid.appendChild(_cell('TOTAL TIME', fmtTotal(totalMs)));
+    grid.appendChild(_cell('TOTAL PLAYS', num(totalPlays)));
+    const vs = _winLoss(buckets, (k) => !!parseVs(k));
+    grid.appendChild(_cell('VERSUS WIN', pct(vs.w, vs.w + vs.l), vs.w + vs.l > 0 ? `${num(vs.w)} W / ${num(vs.l)} L` : ''));
+    const ol = _winLoss(buckets, (k) => !!parseOl(k));
+    grid.appendChild(_cell('ONLINE WIN', pct(ol.w, ol.w + ol.l), ol.w + ol.l > 0 ? `${num(ol.w)} W / ${num(ol.l)} L` : ''));
+    // クイズの解いた数（今ある問題のうち。問題の一覧を読み込んでいなければ解いた数だけ）
+    const cleared = window.Stats.getQuizCleared();
+    const levels = ['tet', 'puyo'].flatMap((rule) => { try { return QUIZ_LEVELS[rule] || []; } catch (e) { return []; } });
+    if (levels.length > 0) {
+      const solved = levels.filter((lv) => cleared[lv.id]).length;
+      grid.appendChild(_cell('QUIZ SOLVED', `${num(solved)} / ${num(levels.length)}`, pct(solved, levels.length)));
+    } else {
+      grid.appendChild(_cell('QUIZ SOLVED', num(Object.keys(cleared).length)));
+      if (typeof loadQuizLevels === 'function') {
+        loadQuizLevels().then(() => { if (currentTab === 'overview' && _quizTotal('tet') + _quizTotal('puyo') > 0) renderStatsPage(); });
+      }
+    }
+    card.appendChild(grid);
+    list.appendChild(card);
+
+    // モード別の回数（横棒）
+    const top = Math.max(1, ...rows.map((r) => r.plays));
+    const box = el('div', 'stats-card stats-row-enter');
+    box.style.animationDelay = '0.05s';
+    const head = el('div', 'stats-card-head');
+    head.appendChild(el('span', 'stats-card-title', 'PLAYS BY MODE'));
+    box.appendChild(head);
+    rows.forEach((r) => {
+      const row = el('div', 'stats-ov-row' + (r.plays === 0 ? ' stats-ov-empty' : ''));
+      row.appendChild(el('span', 'stats-ov-name', r.name));
+      const track = el('div', 'stats-ov-track');
+      const bar = el('div', 'stats-ov-bar');
+      bar.style.width = (r.plays / top * 100) + '%';
+      track.appendChild(bar);
+      row.appendChild(track);
+      row.appendChild(el('span', 'stats-ov-num', num(r.plays)));
+      row.appendChild(el('span', 'stats-ov-time', fmtTotal(r.ms)));
+      box.appendChild(row);
+    });
+    list.appendChild(box);
   }
 
   // ─── SINGLE ─────────────────────────────
@@ -431,9 +510,46 @@
     history.forEach((h, i) => list.appendChild(_historyRow(h, i)));
   }
 
+  // ─── 持ち主の表示・RESET ─────────────────
+  function _renderOwner() {
+    const box = document.getElementById('stats-owner');
+    if (!box) return;
+    const me = window.Account && window.Account.me;
+    box.textContent = '';
+    if (me) {
+      box.appendChild(el('span', 'stats-owner-tag', 'ACCOUNT'));
+      box.appendChild(el('span', 'stats-owner-text', me.name || ''));
+    } else {
+      box.appendChild(el('span', 'stats-owner-tag', 'GUEST'));
+      box.appendChild(el('span', 'stats-owner-text', 'この端末だけの成績'));
+    }
+  }
+
+  async function resetStats() {
+    if (!window.Stats || !window.TetDialog) return;
+    const me = window.Account && window.Account.me;
+    const ok = await window.TetDialog.choose({
+      title: 'RESET STATS',
+      message: me
+        ? `アカウント（${me.name || ''}）の成績と、この端末のプレイ履歴をすべて消します。元に戻せません。自己ベストとリプレイは消えません。`
+        : 'この端末の成績とプレイ履歴をすべて消します。元に戻せません。自己ベストとリプレイは消えません。',
+      buttons: [
+        { label: 'CANCEL', value: false, kind: 'secondary', cancel: true },
+        { label: 'RESET', value: true, kind: 'danger' },
+      ],
+      initial: false,
+    });
+    if (!ok) return;
+    window.Stats.reset();
+    renderStatsPage();
+    if (window.FocusNav && typeof window.FocusNav.refresh === 'function') window.FocusNav.refresh();
+    window.showGlobalToast?.('成績を消しました');
+  }
+
   // ─── 入口 ───────────────────────────────
   function renderStatsPage() {
     _renderTabs();
+    _renderOwner();
     const list = document.getElementById('stats-list');
     const hint = document.getElementById('stats-hint');
     if (!list || !window.Stats) return;
@@ -446,6 +562,9 @@
     } else if (currentTab === 'quiz') {
       _renderQuiz(list);
       if (hint) hint.textContent = '1 手も置かずにやめた挑戦は数えません。解いた問題には、問題の一覧で印が付きます。';
+    } else if (currentTab === 'overview') {
+      _renderOverview(list);
+      if (hint) hint.textContent = '回数には途中でやめた試合と、準備画面の設定を変えた試合も入ります。勝率は引き分けを除いて出します。';
     } else if (currentTab === 'online') {
       _renderOnline(list);
       if (hint) hint.textContent = 'オンライン対戦の成績です。勝敗はラウンドごと、SETS は 2 本先取以上の部屋のセットの勝敗。自分の通信が切れたラウンドは数えません。';
@@ -468,4 +587,5 @@
 
   window.renderStatsPage = renderStatsPage;
   window.setStatsTab = setStatsTab;
+  window.resetStats = resetStats;
 })();

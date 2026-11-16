@@ -115,9 +115,10 @@
             // 前回の通信失敗で同期し切れなかった記録があれば再送する
             (async () => {
                 const lateKeys = _latePendingKeys();
-                if (me && lateKeys.length > 0) {
+                // 自己ベストは後から対象になったキーだけ。成績（STATS）のゲスト分は、前に聞いていなければここでも聞く
+                if (me) {
                     await _maybeImportLocal(lateKeys);
-                    _markLateImportDone();
+                    if (lateKeys.length > 0) _markLateImportDone();
                 }
                 await syncLocalBests();
                 // 設定と自己ベストを他の端末と揃える（config/cloud_sync.js）
@@ -264,19 +265,33 @@
     // （そのベスト自体は再度聞かないが、次にそのモードの自己ベストが更新されたときは
     //   新しいレコードとしてsyncLocalBests()から自動送信される）。
     // keys: 確認対象の記録キー（ログイン直後は全キー、起動時は LATE_IMPORTS のうち未確認のものだけ）
+    // 成績（config/stats.js）のゲスト分も、同じダイアログでまとめて聞く（設計 tetlabo-stats-design.md §6.4）。
+    // 成績の NO は「ゲスト分が増えるまで聞かない」（Stats.declineGuest）。
     async function _maybeImportLocal(keys) {
-        if (!me || !window.Records || !window.TetDialog) return;
-        const pending = keys
+        if (!me || !window.TetDialog) return;
+        const pending = window.Records ? keys
             .map((key) => ({ key, record: window.Records.get(key) }))
-            .filter(({ record }) => record && record.syncedTo === undefined);
-        if (pending.length === 0) return;
+            .filter(({ record }) => record && record.syncedTo === undefined) : [];
+        const stats = window.Stats?.guestImportPending?.(me.id) || null;
+        if (pending.length === 0 && !stats) return;
 
         const lines = pending
             .map(({ key, record }) => `${_labelFor(key)} ${window.Records.format(key, record)}`)
             .join(' / ');
+        let statsText = '';
+        if (stats) {
+            const parts = [];
+            if (stats.plays > 0) parts.push(`${stats.plays} 回・${Math.max(1, Math.round(stats.ms / 60000))} 分`);
+            if (stats.solved > 0) parts.push(`解いたクイズ ${stats.solved} 問`);
+            statsText = parts.join('・');
+        }
+        let message;
+        if (pending.length > 0 && stats) message = `このブラウザの記録（${lines}）と成績（${statsText}）をアカウントに登録しますか？`;
+        else if (stats) message = `このブラウザの成績（${statsText}）をアカウントに取り込みますか？`;
+        else message = `このブラウザの記録（${lines}）をアカウントに登録しますか？`;
         const ok = await window.TetDialog.choose({
-            title: 'IMPORT RECORDS',
-            message: `このブラウザの記録（${lines}）をアカウントに登録しますか？`,
+            title: pending.length > 0 ? 'IMPORT RECORDS' : 'IMPORT STATS',
+            message,
             buttons: [
                 { label: 'NO', value: false, kind: 'secondary', cancel: true },
                 { label: 'YES', value: true, kind: 'primary' },
@@ -293,8 +308,10 @@
                 const result = await pushRecord(key, _recordPayload(record), 'local_import', record.at);
                 if (result && result.accepted) window.Records.markSynced(key, me.id);
             }
+            if (stats) window.Stats.importGuest(me.id);
         } else {
             for (const { key } of pending) window.Records.markSynced(key, `skip:${me.id}`);
+            if (stats) window.Stats.declineGuest(me.id);
         }
     }
 

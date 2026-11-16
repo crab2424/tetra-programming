@@ -42,6 +42,74 @@
   gap: 4px;
 }
 
+/* 見出しの下: いま見ている成績の持ち主（GUEST / ACCOUNT） */
+.stats-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -8px;
+  min-height: 18px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.stats-owner-tag {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: "Orbitron", monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+
+#stats-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+/* ─── OVERVIEW: モード別の回数（横棒） ─── */
+.stats-ov-row {
+  display: grid;
+  grid-template-columns: 11.5em 1fr 4em 5.5em;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-family: "Orbitron", monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.stats-ov-empty {
+  opacity: 0.45;
+}
+.stats-ov-name {
+  letter-spacing: 1px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stats-ov-track {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+.stats-ov-bar {
+  height: 100%;
+  min-width: 0;
+  border-radius: 4px;
+  background: var(--accent2);
+}
+.stats-ov-num {
+  text-align: right;
+  font-weight: 700;
+  color: var(--text);
+}
+.stats-ov-time {
+  text-align: right;
+  color: var(--text-dim);
+}
+
 /* ─── SINGLE: 枠ごとのカード ─── */
 .stats-card {
   padding: 12px 14px;
@@ -265,6 +333,21 @@
   #stats-tab-toggle .opt-btn {
     padding-left: 8px;
     padding-right: 8px;
+  }
+  .stats-ov-row {
+    grid-template-columns: 10.5em 1fr 3em;
+    gap: 8px;
+    font-size: 10px;
+  }
+  .stats-ov-time {
+    display: none;
+  }
+  #stats-buttons {
+    width: 100%;
+  }
+  #stats-buttons .menu-btn {
+    flex: 1 1 0;
+    min-width: 0;
   }
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);

@@ -32,6 +32,8 @@
 //                     「途中でやめた」で締め、数える対象ならこの試合を数え始める
 //   end(game, r)    … 決着（r = 'ok' 完走 / 'ng' ゲームオーバー）
 //   abort()         … 途中でやめた（app/navigation.js の stopAllGames）
+//   guestImportPending(uid) / importGuest(uid) / declineGuest(uid) … ログイン時のゲスト分の取り込み（config/account.js）
+//   reset()         … RESET（今の持ち主の累計とこの端末の履歴を消す）
 // ─────────────────────────────────────────────
 
 (function () {
@@ -480,6 +482,101 @@
         return (o && o.quiz && o.quiz.cleared) || {};
     }
 
+    // ─── 合算・ゲスト分の取り込み・RESET（設計 §6.3〜§6.5） ─────
+    // 枠を足し合わせる: 足す値は足し算、MAX_FIELDS は最大、ch（連鎖の長さごと）は要素ごとに足す。
+    // 同期（S7）で端末ごとの欄を合計するときにも使う。
+    function _mergeBucket(dst, src) {
+        for (const [f, v] of Object.entries(src || {})) {
+            if (f === 'ch') {
+                if (!Array.isArray(v)) continue;
+                if (!Array.isArray(dst.ch) || dst.ch.length !== 20) dst.ch = new Array(20).fill(0);
+                for (let i = 0; i < 20; i++) dst.ch[i] += (v[i] || 0);
+            } else if (typeof v === 'number' && isFinite(v)) {
+                if (MAX_FIELDS.includes(f)) _max(dst, f, v);
+                else _add(dst, f, v);
+            }
+        }
+        return dst;
+    }
+
+    // 持ち主の中身（枠と解いた問題）を dst に足す。解いた問題は和（日時は古い方）
+    function _mergeOwner(dst, src) {
+        for (const [key, b] of Object.entries((src && src.buckets) || {})) {
+            _mergeBucket((dst.buckets[key] ||= {}), b);
+        }
+        const from = (src && src.quiz && src.quiz.cleared) || {};
+        if (!dst.quiz || typeof dst.quiz !== 'object') dst.quiz = { cleared: {} };
+        if (!dst.quiz.cleared || typeof dst.quiz.cleared !== 'object') dst.quiz.cleared = {};
+        for (const [id, at] of Object.entries(from)) {
+            const cur = dst.quiz.cleared[id];
+            if (!cur || String(at) < String(cur)) dst.quiz.cleared[id] = at;
+        }
+        return dst;
+    }
+
+    // ゲスト分の大きさ（回数は設定を変えた試合・途中でやめた試合も含む）
+    function _ownerSize(o) {
+        let plays = 0, ms = 0;
+        for (const b of Object.values((o && o.buckets) || {})) {
+            plays += (b.n || 0) + (b.q || 0) + (b.cn || 0) + (b.cq || 0);
+            ms += (b.ms || 0) + (b.cms || 0);
+        }
+        const solved = Object.keys((o && o.quiz && o.quiz.cleared) || {}).length;
+        return { plays, ms, solved };
+    }
+
+    // 「聞いたときのゲスト分」の指紋。ゲスト分が増えたら変わる → もう一度聞く
+    const _fingerprint = (size) => `${size.plays}:${Math.round(size.ms)}:${size.solved}`;
+
+    // ログインしたとき、このアカウントへ取り込むか聞くべきゲスト分があれば { plays, ms, solved }、無ければ null
+    function guestImportPending(uid) {
+        if (!uid || uid === 'guest') return null;
+        const data = _load();
+        const size = _ownerSize(data.owners.guest);
+        if (size.plays === 0 && size.solved === 0) return null;
+        const asked = data.importAsked && data.importAsked[uid];
+        if (asked === _fingerprint(size)) return null;
+        return size;
+    }
+
+    // YES: ゲスト分をアカウントの枠へ足して、ゲスト分を空にする（履歴は端末のものなのでそのまま）
+    function importGuest(uid) {
+        if (!uid || uid === 'guest') return false;
+        const data = _load();
+        const guest = data.owners.guest;
+        if (!guest) return false;
+        _mergeOwner(_ownerOf(data, String(uid)), guest);
+        delete data.owners.guest;
+        if (data.importAsked) delete data.importAsked[uid];
+        _save(data);
+        return true;
+    }
+
+    // NO: ゲスト分はそのまま残し、増えるまでこのアカウントでは聞かない
+    function declineGuest(uid) {
+        if (!uid || uid === 'guest') return;
+        const data = _load();
+        if (!data.importAsked || typeof data.importAsked !== 'object') data.importAsked = {};
+        data.importAsked[uid] = _fingerprint(_ownerSize(data.owners.guest));
+        _save(data);
+    }
+
+    // RESET（STATS 画面）。今の持ち主の累計と、この端末の履歴を消す。
+    // ログイン中は epoch を +1 する（同期の段階 S7 で、他の端末の古い数字が戻ってこないようにするため。設計 §6.5）
+    function reset() {
+        current = null; // 念のため（STATS 画面から呼ぶので普通は数えている試合は無い）
+        const data = _load();
+        const id = ownerId();
+        if (id === 'guest') {
+            delete data.owners.guest;
+        } else {
+            const prev = data.owners[id];
+            data.owners[id] = { epoch: ((prev && prev.epoch) || 0) + 1, buckets: {}, quiz: { cleared: {} } };
+        }
+        _save(data);
+        try { localStorage.removeItem(HISTORY_KEY); } catch (e) { /* 消せなくても累計は消えている */ }
+    }
+
     // ─── 読み出し（app/stats_page.js） ────────────────────
     function getBuckets() {
         const data = _load();
@@ -494,7 +591,8 @@
     window.Stats = {
         onTetInit, onPuyoInit, end, abort, beginVersus, endVersus, beginOnline, endOnline, discardOnline, abortOnline,
         beginQuiz, endQuiz,
-        getQuizCleared,
+        getQuizCleared, guestImportPending, importGuest, declineGuest, reset,
+        mergeBucket: _mergeBucket,
         getBuckets, getHistory, ownerId,
         SINGLE_KEYS, MAX_FIELDS, HISTORY_MAX,
     };
