@@ -550,7 +550,10 @@ void search(
     // §22: 先行回転・先行ホールド・ZONE の火力表（weights の WEIGHT_LEN から先。cpu7.js weightsArray）
     //   [0]=7777 [1]=表の段数の数 N [2]=時間切れまでの手数 [3]=いまホールドできるか [4..11]=いまのミノの 4 マス（TETLABO。無ければ -100）
     //   [12..12+N) 火力表（段数ごとの合計。発動中だけ N>0）
-    const bool ext = nWeights > eval::WEIGHT_LEN + 12 && weights[eval::WEIGHT_LEN] == 7777;
+    //   §23: 火力表の後ろに [12+N] ATTACK BIAS の 100 倍・[13+N] いまのミノの向き（TETLABO 0〜3。無ければ -1）
+    //   §23: 以前は「> WEIGHT_LEN + 12」で、ZONE の外（表なし＝ちょうど 12 個）では欄ごと読み捨てていた
+    //        （ホールドできない・先行回転の位置が探索に伝わらず、ホールドの手を返して止まった）
+    const bool ext = nWeights >= eval::WEIGHT_LEN + 12 && weights[eval::WEIGHT_LEN] == 7777;
     eval::g_zone_table_n = 0;
     eval::g_zone_near = false;
     eval::g_zone_slope10 = 0;
@@ -561,6 +564,8 @@ void search(
         configs.root_ihs = root_ihs;
         configs.zone = state.zone;
         configs.zone_moves_left = state.zone ? std::max(e[2], 0) : 0;
+        const i32 nTab = std::clamp(e[1], 0, 48);
+        const i32 rootRot = nWeights >= eval::WEIGHT_LEN + 14 + nTab ? e[13 + nTab] : -1;
         // いまのミノが向き 0 の出現位置にいないとき（先行回転で出た）は、その位置から手を作る
         if (e[4] != -100 && !queue.empty()) {
             u64 want[10] = { 0 };
@@ -573,7 +578,10 @@ void search(
             const auto t = root_piece;
             bool found = false;
             move::Placement sp;
-            for (i32 r = 0; r < 4 && okc && !found; ++r) {
+            // §23: S・Z・I の縦（O は全部）は向きが違っても同じ形。ゲームの向きを先に試す（右向きと決めると、
+            //   先行回転で左向きに出たミノを回したときに 1 列ずれた）
+            for (i32 ri = 0; ri < 4 && okc && !found; ++ri) {
+                const i32 r = (rootRot >= 0 && rootRot < 4) ? (rootRot + ri) & 3 : ri;
                 for (i32 k = 0; k < 4 && !found; ++k) {
                     const i32 x0 = e[4] - piece::get_offset_x(t, piece::Rotation(r), k);
                     const i32 y0 = 19 - e[5] - piece::get_offset_y(t, piece::Rotation(r), k);
@@ -691,7 +699,11 @@ void search(
     out[11] = i32(std::min<size_t>(result.candidates[best].visit, INT32_MAX));
     out[12] = i32(std::min<u64>(result.nodes, INT32_MAX));
     out[13] = i32(result.depth);
-    out[15] = result.candidates[best].best == INT32_MIN ? 0 : result.candidates[best].best;
+    // §23: 最後の層まで続かなかった初手（ZONE を終える終点・1 層だけの探索の外）は best が無いので、終点のキーを出す（無ければ 0）
+    {
+        const auto& cb = result.candidates[best];
+        out[15] = cb.best != INT32_MIN ? cb.best : (cb.end_key != INT32_MIN ? cb.end_key : 0);
+    }
     {
         auto b = state.board;
         out[16] = placement.get_tspin_type(b);

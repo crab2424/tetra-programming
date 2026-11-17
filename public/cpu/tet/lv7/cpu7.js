@@ -10,7 +10,7 @@
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=11'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=12'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -185,8 +185,10 @@ window.CPU7 = class {
         const m = g && g.mino;
         if (m) for (const b of m.blocks) ext.push(b.x + m.x, b.y + m.y);
         else for (let i = 0; i < 8; i++) ext.push(-100);
-        // §23: 表の後ろに ATTACK BIAS の 100 倍（通常火力を表と同じ物差しで数える。表が無ければ付けない）
-        return new Int32Array(base.concat(ext, zt || [], zt ? [CpuZone.attackBias100(g)] : []));
+        // §23: 表の後ろに ATTACK BIAS の 100 倍（通常火力を表と同じ物差しで数える）と、いまのミノの向き
+        //   （S・Z・I の縦は右向きと左向きが同じ形なので、4 マスだけでは先行回転の向きが分からない）
+        const bias = (window.CpuZone && g) ? CpuZone.attackBias100(g) : 100;
+        return new Int32Array(base.concat(ext, zt || [], [bias, m ? (m.rotation & 3) : -1]));
     }
 
     start() {
@@ -393,8 +395,24 @@ window.CPU7 = class {
         if (!this.isActive || !this.isAutoPlay) return;
         if (this.isExecutingAction) return;
         if (move.useHold && !this.game.canHold) {
-            console.warn('lv7: HOLD できない局面で HOLD の手が来ました');
-            return;
+            // §23: 止まらないようにする（以前はここで return して、そのミノのまま操作が止まった）
+            const mino = this.game.mino;
+            if (mino && move.id === mino.type) {
+                move.useHold = false; // 出ているミノの手（ホールドの印だけが違う）
+            } else {
+                console.warn('lv7: HOLD できない局面で HOLD の手が来ました');
+                if (mino && this._badHoldMino !== mino) {
+                    // 1 回だけ考え直す（探索には canHold を渡している）
+                    this._badHoldMino = mino;
+                    this.onMinoSpawned();
+                } else if (mino) {
+                    // それでも来たら、その場で落とす
+                    this.game.cpuSchedule(0, () => {
+                        if (this.isActive && this.game.mino === mino && !this.game.isPaused) this.game.cpuAction('hardDrop');
+                    });
+                }
+                return;
+            }
         }
         this.isExecutingAction = true;
         if (this.game) this.game.cpuAction('gravity', true);

@@ -307,7 +307,8 @@ function replayThinkPick(rule, res) {
         o.fire = v(15); o.score = v(14); o.chain = v(20); o.why = v(23); o.spill = v(24); o.depth = v(25);
         return o;
     }
-    if (rule === 'tet' && (n === 12 || n === 26 || n === 43)) {
+    // 48 = lv6 の §22 の版（[43..47] に先行回転・先行ホールド・ZONE の終点を足した。ZONE 設計 VERSUS 編 §23）
+    if (rule === 'tet' && (n === 12 || n === 26 || n === 43 || n === 48)) {
         const id = v(3);
         if (v(0) === -1 || id < 0 || id > 6) return { k: 'tet', none: 1 };
         const o = { k: 'tet', mino: id, rot: v(4) & 3, ev: v(1) };

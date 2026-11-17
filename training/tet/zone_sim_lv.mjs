@@ -309,26 +309,37 @@ if (cmp) {
     const M1 = await loadWasm(path.resolve(cmp));
     const g = Object.create(Game.prototype);
     Object.assign(g, { field: new Field(), level: 2, score: 0, isVersusMode: true, zoneActive: false, zoneLines: 0, topLimit: -5,
-        playSe() {}, requestRedraw() {}, zoneRemainingMs: () => 0, cpuFrame() {}, cpuSchedule() {}, garbageQueue: [] });
+        playSe() {}, requestRedraw() {}, zoneRemainingMs: () => 0, cpuFrame() {}, cpuSchedule() {}, garbageQueue: [],
+        clock: { now: () => 0 }, _garbageTimers: [], ensureNextQueue() {} });
     const cpu = new CPU(g);
     cpu.workerReady = true;
-    let same = 0, diff = 0;
+    // lv7 は締め切りで結果が変わるので、幅・深さを決めて時間は十分に（§23）
+    if (LV === 7) { cpu.weights.searchWidth = 48; cpu.weights.searchDepth = 6; cpu.weights.thinkMs = 600000; }
+    let same = 0, diff = 0, empty = 0;
     for (let i = 0; i < RUNS; i++) {
         const c = new Set();
         for (let x = 0; x < 10; x++) { const h = Math.floor(rnd() * 16); for (let k = 0; k < h; k++) if (k === h - 1 || rnd() < 0.85) c.add(x + ',' + (19 - k)); }
         for (let y = -5; y < 20; y++) { let f = true; for (let x = 0; x < 10; x++) if (!c.has(x + ',' + y)) f = false; if (f) c.delete(Math.floor(rnd() * 10) + ',' + y); }
         g.field.blocks = [...c].map(s => { const [x, y] = s.split(',').map(Number); return new Block(x, y, 7); });
-        const q = Array.from({ length: 10 }, () => Math.floor(rnd() * 7));
+        // lv7 は 7 種 1 巡の並びでないと探索が空になる（is_queue_valid）
+        const q = LV === 7 ? bag().concat(bag()) : Array.from({ length: 10 }, () => Math.floor(rnd() * 7));
+        if (LV === 7) g.bag = [];
         g.mino = new Mino(q[0]); g.nextQueue = q.slice(1).map(t => new Mino(t));
         g.holdMino = rnd() < 0.5 ? new Mino(Math.floor(rnd() * 7)) : null; g.canHold = true;
         g.ren = Math.floor(rnd() * 3); g.backToBack = rnd() < 0.3;
         g.garbageQueue = rnd() < 0.3 ? [{ amount: 1 + Math.floor(rnd() * 6) }] : [];
         posted = null; cpu.isCalculating = false; cpu.onMinoSpawned();
         // 比べるのは旧来の 43 個（[43..] は §22 で足した欄）
-        const a = callWasm(posted, M0).slice(0, 43).join(','), b = callWasm(posted, M1).slice(0, 43).join(',');
+        const K = LV === 7 ? 90 : 43; // lv7 は置き場所・HOLD・経路（[0..89]。[12..15] のノード数・時間・キーは除く）
+        const pick = (o) => LV === 7 ? Array.from(o.slice(0, K)).filter((_, i) => i < 11 || i > 15).join(',') : o.slice(0, K).join(',');
+        // --trim=N: 旧 wasm へは重みを先頭 N 個だけ渡す（前の JS と同じ入力。lv7 の ZONE の外は 94）
+        const trim = parseInt(opt('trim', '0'), 10);
+        const d1 = trim > 0 ? Object.assign({}, posted, { weights: posted.weights.slice(0, trim) }) : posted;
+        const a = pick(callWasm(posted, M0)), b = pick(callWasm(d1, M1));
         if (a === b) same++; else diff++;
+        if (a.startsWith('0,')) empty++;
     }
-    console.log(`lv${LV} ZONE なし ${RUNS} 局面: 同じ ${same}／違う ${diff}`);
+    console.log(`lv${LV} ZONE なし ${RUNS} 局面: 同じ ${same}／違う ${diff}（手なし ${empty}）`);
     process.exit(0);
 }
 
