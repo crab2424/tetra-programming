@@ -1665,13 +1665,13 @@
   <div id="external-pages"></div>
 
   <script src="config/pages.js?v=10"></script>
-  <script src="core/base.js?v=26"></script>
+  <script src="core/base.js?v=27"></script>
   <!-- ゲーム時計・試合の乱数（エンジンより先に読む。設計: source_assets/memory/record/） -->
   <script src="core/game_clock.js?v=6"></script>
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=32"></script>
+  <script src="core/replay.js?v=33"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=11"></script>
   <script src="app/manager.js?v=1"></script>
@@ -1681,18 +1681,19 @@
   <script src="config/stats.js?v=7"></script>
   <script src="config/account.js?v=9"></script>
   <script src="core/hud_extras.js?v=4"></script>
-  <script src="config/vs_settings.js?v=9"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
   <script src="game/tet/lifecycle.js?v=20"></script>
-  <script src="game/tet/board.js?v=21"></script>
-  <script src="game/tet/rotation.js?v=9"></script>
+  <script src="game/tet/board.js?v=22"></script>
+  <script src="game/tet/rotation.js?v=10"></script>
   <script src="game/tet/scoring.js?v=6"></script>
-  <script src="game/tet/zone.js?v=14"></script>
+  <script src="game/tet/zone.js?v=15"></script>
   <script src="game/tet/garbage.js?v=14"></script>
   <script src="game/tet/render.js?v=11"></script>
   <script src="game/tet/input.js?v=17"></script>
+  <!-- VS 設定: ZONE の選択肢・既定値を game/tet/zone.js から読むので、テトのエンジンの後に読み込む -->
+  <script src="config/vs_settings.js?v=10"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1704,7 +1705,7 @@
   <script src="game/puyo/draw.js?v=11"></script>
   <script src="quiz/quiz.js?v=13"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=31"></script>
+  <script src="app/modes.js?v=32"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
@@ -1712,7 +1713,7 @@
   <script src="app/cpu_match_log.js?v=4"></script>
   <script src="app/versus.js?v=22"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=47"></script>
+  <script src="app/navigation.js?v=48"></script>
   <script src="app/ranking.js?v=5"></script>
   <script src="app/replays.js?v=8"></script>
   <script src="app/stats_page.js?v=7"></script>

@@ -221,10 +221,11 @@ function renderPuyoSingleOptionsHtml() {
 // 準備画面（renderModeCheck の mode.id==='zone'）で編集し、startGameFromModeCheck がエンジンへ入れる。
 // 既定以外のときは自己ベスト・ランキングに記録しない（PUYO の CONNECT / COLORS と同じ扱い）
 const ZONE_SETTINGS_STORAGE_KEY = 'game_zone_settings';
-const ZONE_SETTINGS_DEFAULT = { levelMode: 'up', quarterMs: 5000, quarterLines: 8 };
+// ZONE TIME / CHARGE の選択肢と既定値はエンジン（game/tet/zone.js。このファイルより先に読み込む）のものを使う
+const ZONE_SETTINGS_DEFAULT = { levelMode: 'up', quarterMs: ZONE_MS_PER_QUARTER, quarterLines: ZONE_QUARTER_LINES_SINGLE };
 const ZONE_LEVEL_OPTIONS = ['up', 'fixed'];
-const ZONE_TIME_OPTIONS = [2500, 4000, 5000, 8000, 10000];  // 1/4 ゲージあたりの長さ（ms）
-const ZONE_CHARGE_OPTIONS = [3, 6, 8, 10, 12];              // 1/4 ゲージに必要なライン数
+const ZONE_TIME_OPTIONS = ZONE_QUARTER_MS_OPTIONS;      // 1/4 ゲージあたりの長さ（ms）
+const ZONE_CHARGE_OPTIONS = ZONE_QUARTER_LINES_OPTIONS; // 1/4 ゲージに必要なライン数
 
 function _loadZoneSettings() {
   const out = { ...ZONE_SETTINGS_DEFAULT };

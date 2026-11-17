@@ -33,9 +33,10 @@ const ATTACK_BIAS_TABLE = [
  * 負の数 = その秒数ぶん「すでにマージンが経過した状態」で即突入する
  *          （マージンテーブルを進めた状態でVSを開始する）。-160でTET/PUYO両テーブルが上限。
  */
-// ZONE TIME / ZONE CHARGE で選べる値（シングルの準備画面 app/modes.js・エンジン game/tet/zone.js と同じ 5 個ずつ）
-const VS_ZONE_TIME_OPTIONS = [2500, 4000, 5000, 8000, 10000];
-const VS_ZONE_CHARGE_OPTIONS = [3, 6, 8, 10, 12];
+// ZONE TIME / ZONE CHARGE で選べる値・既定値はエンジン（game/tet/zone.js）のもの。
+// index.html でこのファイルは game/tet/zone.js より後に読み込む（読み込み時に loadVsSettings が使うため）
+const VS_ZONE_TIME_OPTIONS = ZONE_QUARTER_MS_OPTIONS;
+const VS_ZONE_CHARGE_OPTIONS = ZONE_QUARTER_LINES_OPTIONS;
 const MARGIN_TIME_STEPS = [-160, -128, -96, -64, -32, 0, 32, 64, 96, 128, 160, 192];
 
 /**
@@ -59,9 +60,9 @@ const DEFAULT_VS_SETTINGS = {
         garbageHoleRate: 70,
         garbageDamageOnClear: true,
         zone: false,          // ZONE（テト同士のときだけ効く。設計 source_assets/memory/tet_zone/tetlabo-zone-versus-cpu-design.md）
-        zoneTime: 5000,       // ZONE TIME: 1/4 ゲージあたりの長さ（ms。2.5 / 4 / 5 / 8 / 10 秒。シングルの準備画面と同じ）
+        zoneTime: ZONE_VS_QUARTER_MS_DEFAULT,      // ZONE TIME: 1/4 ゲージあたりの長さ（ms。選択肢は game/tet/zone.js）
         zoneSplit: true,      // ZONE ATTACK: true=SPLIT（発動中の攻撃を 1 回ぶんずつ → 表のかたまりを後から順に）/ false=MERGE（まとめて同時に）
-        zoneCharge: 6         // ZONE CHARGE: 1/4 ゲージに必要なライン数（3 / 6 / 8 / 10 / 12。シングルの準備画面と同じ）
+        zoneCharge: ZONE_VS_QUARTER_LINES_DEFAULT  // ZONE CHARGE: 1/4 ゲージに必要なライン数（選択肢は game/tet/zone.js）
     },
     puyo: {
         ojamaRate:  70,       // 10~120 (10刻み)

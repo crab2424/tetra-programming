@@ -9,11 +9,21 @@
 // 終了の演出は描画だけ（エンジンは即時に盤面を下げる。§4.5・Q5）。
 // ─────────────────────────────────────────────
 
-const ZONE_QUARTER_LINES_SINGLE = 8;   // シングル: 8 ラインで 1/4（原作の Zone Marathon）。既定値
-const ZONE_MS_PER_QUARTER = 5000;      // 1/4 の長さ（満タン 20 秒）。既定値
-// 準備画面で選べる値（設計 Q4。既定は上の仮決め）。外から zoneQuarterLinesSetting / zoneQuarterMsSetting で渡す
-const ZONE_QUARTER_LINES_OPTIONS = [3, 6, 8, 10, 12];
-const ZONE_QUARTER_MS_OPTIONS = [2500, 4000, 5000, 8000, 10000];
+// ─── ZONE の設定の選択肢と既定値（ここだけ書き換えれば画面にも反映される）───
+// シングルの準備画面（app/modes.js）と VS 設定（config/vs_settings.js）はここの値をそのまま使う。
+// 既定値はシングルの記録（自己ベスト・ランキング）の対象にもなる（既定以外は記録しない。app/modes.js isZoneRecordEligible）
+const ZONE_QUARTER_LINES_SINGLE = 6;   // シングルの既定: 1/4 に必要なライン数（原作の Zone Marathon は 8）
+const ZONE_MS_PER_QUARTER = 8000;      // シングルの既定: 1/4 の長さ（ms）
+const ZONE_VS_QUARTER_MS_DEFAULT = 5000; // VERSUS の既定: 1/4 の長さ（ms）。VS 設定 ZONE TIME の初期値
+// 選べる値（シングルの準備画面・VS 設定 共通）。外から zoneQuarterLinesSetting / zoneQuarterMsSetting（VERSUS は vsZone…）で渡す
+const ZONE_QUARTER_LINES_OPTIONS = [3, 4, 6, 8, 10, 12];
+const ZONE_QUARTER_MS_OPTIONS = [2500, 4000, 5000, 8000, 10000, 15000];
+// 設定が入っていない古い録画（設定を足す前に撮ったもの）の値。上の既定を変えても古い録画がずれないよう固定する
+const ZONE_LEGACY_QUARTER_LINES = 8;
+const ZONE_LEGACY_QUARTER_MS = 5000;
+// エンジンが受け付ける範囲（選択肢から外した値の古い録画も再生できるよう、選択肢ではなく範囲で見る）
+const zoneValidLines = (v) => Number.isInteger(v) && v >= 1 && v <= 40;
+const zoneValidMs = (v) => Number.isFinite(v) && v >= 500 && v <= 60000;
 const ZONE_TIERS = [4, 8, 12, 16, 18, 20]; // 段数の区切り（数字の色・終了の SE）
 // 区切りごとの色（ZONE_TIERS 未満は先頭の色）
 const ZONE_TIER_COLORS = ['#e0e0f0', '#71c5f5', '#5af5a0', '#f5e15a', '#f5a05a', '#fa71cd', '#ffffff'];
@@ -37,10 +47,9 @@ const ZONE_RING_HTML = `
 
 // ─── VERSUS（設計 tetlabo-zone-versus-cpu-design.md §2）───
 // VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ）。選べる値はシングルの準備画面と同じ
-// （ZONE_QUARTER_LINES_OPTIONS / ZONE_QUARTER_MS_OPTIONS）。既定は 6 ライン・5 秒（§12）。
-// 4 は以前の選択肢（4/6/8）。古い録画の再生のためエンジンでは受け付ける（VS 設定の画面には出さない）
+// （ZONE_QUARTER_LINES_OPTIONS / ZONE_QUARTER_MS_OPTIONS）。既定は 6 ライン（ここ）・ZONE_VS_QUARTER_MS_DEFAULT（§12）。
+// 設定が入っていない古い録画はこの 6 ライン・ZONE_LEGACY_QUARTER_MS で再生する
 const ZONE_VS_QUARTER_LINES_DEFAULT = 6;
-const ZONE_VS_QUARTER_LINES_LEGACY = [4];
 // 終了時の火力表（原作の Zone Bonus Attack。§2.3）。[発動時のチャージ-1][合計段数-1] = 火力のかたまり。
 // かたまりは別々の予告として送る。24 段以上は 23 段の行を使う
 const ZONE_ATTACK_TABLE = [
@@ -139,17 +148,17 @@ Object.assign(Game.prototype, {
         this.topLimit = (this.mode === 'zone' && !this.isVersusMode && !oldTop) ? ZONE_TOP_LIMIT : TET_TOP_LIMIT;
         if (vs) {
             // VERSUS: VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ。未設定は 5 秒）（§12）
-            this.zoneQuarterLines = (ZONE_QUARTER_LINES_OPTIONS.includes(this.vsZoneQuarterLines)
-                || ZONE_VS_QUARTER_LINES_LEGACY.includes(this.vsZoneQuarterLines))
+            this.zoneQuarterLines = zoneValidLines(this.vsZoneQuarterLines)
                 ? this.vsZoneQuarterLines : ZONE_VS_QUARTER_LINES_DEFAULT;
-            this.zoneQuarterMs = ZONE_QUARTER_MS_OPTIONS.includes(this.vsZoneQuarterMs)
-                ? this.vsZoneQuarterMs : ZONE_MS_PER_QUARTER;
+            this.zoneQuarterMs = zoneValidMs(this.vsZoneQuarterMs)
+                ? this.vsZoneQuarterMs : ZONE_LEGACY_QUARTER_MS;
         } else {
             // 1/4 に必要なライン数・1/4 の長さ（準備画面の設定。未設定・範囲外は既定値）
-            this.zoneQuarterLines = ZONE_QUARTER_LINES_OPTIONS.includes(this.zoneQuarterLinesSetting)
-                ? this.zoneQuarterLinesSetting : ZONE_QUARTER_LINES_SINGLE;
-            this.zoneQuarterMs = ZONE_QUARTER_MS_OPTIONS.includes(this.zoneQuarterMsSetting)
-                ? this.zoneQuarterMsSetting : ZONE_MS_PER_QUARTER;
+            // 設定が無い（古い録画）ときは当時の値。新しい試合は準備画面が必ず入れる
+            this.zoneQuarterLines = zoneValidLines(this.zoneQuarterLinesSetting)
+                ? this.zoneQuarterLinesSetting : ZONE_LEGACY_QUARTER_LINES;
+            this.zoneQuarterMs = zoneValidMs(this.zoneQuarterMsSetting)
+                ? this.zoneQuarterMsSetting : ZONE_LEGACY_QUARTER_MS;
         }
         this._zoneB2bBefore = false; // VERSUS: 発動前の B2B（終了時に戻す）
         this.zoneAtkPool = 0;        // VERSUS: 発動中にためた通常火力（終了時に表の火力へ足して出す。§11.1）
