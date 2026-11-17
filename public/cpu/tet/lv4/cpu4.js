@@ -120,7 +120,64 @@ window.CPU4 = class {
         return true;
     }
 
+    // 簡略化した操作列（buildShortActionQueue）を試しに動かし、探索の置き場所に着かなければ path どおりに操作する。
+    // 簡略化は「目標の向きが出現位置に収まるか」しか見ないので、2 回転の途中の向きがブロックに当たって
+    // キックされると、1 列・1 段ずれた所に置いてしまう（天井近くで起きる。ZONE の発動中に多い。lv7 と同じ対策）
     buildActionQueue(bestResult) {
+        const queue = this.buildShortActionQueue(bestResult);
+        if (bestResult.action === 'hold' || !bestResult.path || bestResult.path.length === 0) return queue;
+        if (this.queueLandsAt(queue, bestResult)) return queue;
+        const ACTION_MAP = { 1: 'moveLeft', 2: 'moveRight', 3: 'softDrop', 4: 'rotateCW', 5: 'rotateCCW', 6: 'harddrop' };
+        const raw = [];
+        for (const a of bestResult.path) {
+            if (a === 6) break;
+            if (ACTION_MAP[a]) raw.push({ type: ACTION_MAP[a], delay: this.actionDelay });
+        }
+        raw.push({ type: 'harddrop', delay: this.harddropDelay });
+        return raw;
+    }
+
+    // queue を processActionQueue と同じ動き（回転はキック込み・moveToTargetX は詰まると目標列へ）で試しに動かし、
+    // ハードドロップした 4 マスが bestResult（id・rot・x・y）と一致するか。ミノと関係するフラグは元に戻す
+    queueLandsAt(queue, bestResult) {
+        const g = this.game, m = g.mino;
+        if (!m || bestResult.id === undefined || bestResult.id === null) return true;
+        const saved = {
+            x: m.x, y: m.y, rotation: m.rotation, blocks: m.blocks.map(b => new Block(b.x, b.y, b.type)),
+            score: g.score, lowestY: g.lowestY,
+            lastActionWasRotation: g.lastActionWasRotation, lastRotUsedPoint5: g.lastRotUsedPoint5,
+        };
+        let landed = null;
+        for (const a of queue) {
+            if (a.type === 'rotateCW') g.tryRotate(1, true);
+            else if (a.type === 'rotateCCW') g.tryRotate(-1, true);
+            else if (a.type === 'moveLeft') { if (g.valid(-1, 0)) m.x--; }
+            else if (a.type === 'moveRight') { if (g.valid(1, 0)) m.x++; }
+            else if (a.type === 'softDrop') { if (g.valid(0, 1)) m.y++; }
+            else if (a.type === 'multiSoftDrop') { while (m.y < a.targetY && g.valid(0, 1)) m.y++; }
+            else if (a.type === 'moveToTargetX') {
+                while (m.x !== a.targetX) {
+                    const d = m.x < a.targetX ? 1 : -1;
+                    if (!g.valid(d, 0)) { m.x = a.targetX; break; }
+                    m.x += d;
+                }
+            } else if (a.type === 'harddrop') {
+                while (g.valid(0, 1)) m.y++;
+                landed = m.blocks.map(b => (b.x + m.x) + ',' + (b.y + m.y)).sort().join(' ');
+                break;
+            }
+        }
+        m.x = saved.x; m.y = saved.y; m.rotation = saved.rotation; m.blocks = saved.blocks;
+        g.score = saved.score; g.lowestY = saved.lowestY;
+        g.lastActionWasRotation = saved.lastActionWasRotation; g.lastRotUsedPoint5 = saved.lastRotUsedPoint5;
+
+        const t = new Mino(bestResult.id);
+        for (let i = 0; i < bestResult.rot; i++) t.rotate();
+        const want = t.blocks.map(b => (b.x + bestResult.x) + ',' + (b.y + bestResult.y)).sort().join(' ');
+        return landed === want;
+    }
+
+    buildShortActionQueue(bestResult) {
         let queue = [];
         
         if (bestResult.action === 'hold') {

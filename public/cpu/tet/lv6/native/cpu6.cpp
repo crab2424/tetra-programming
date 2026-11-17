@@ -50,6 +50,32 @@ static const int HIDDEN_ROWS = 5;
 //   探索の入口で盤面の印（先頭バイト 100 以上。cpu/tet/cpu_zone.js stampBoard）を見て立てる。
 //   探索の中でも ZONE は続く扱い（ZONE 段の数え方と同じ）なので、1 回の探索のあいだは固定
 static bool g_zoneNoLockOut = false;
+
+// ── ZONE の発動中の読み方（設計 tetlabo-zone-versus-cpu-design.md §20）──
+//   ・評価は「ZONE 段を除いて、その段数ぶん下げた盤面」で出す（zonePlain）。ZONE 段込みの高さで測ると
+//     高さの二乗の減点が全部を上回り、穴を作ってでも最大高さを上げない手ばかりになる。
+//   ・次のミノが出せない＝ ZONE が終わって盤面が下がるだけ。ZONE の後が安全（残る段＋予告が致死ライン未満）なら
+//     死に枝ではなく「ZONE 終了の終点」として、その時点の点のまま候補に残す（zoneEndSafe）。
+//   ・天井が近い／残り手数が少ないとき（g_zoneNear）は、消した段数を第一に見る（ZONE_LINE_BONUS）。
+//   ・残り手数（g_zoneMovesLeft。0＝分からない）を使い切った枝も同じ終点。
+static int  g_zoneMovesLeft = 0;
+static int  g_zoneIncoming  = 0;
+static bool g_zoneNear      = false;
+static const int ZONE_LINE_BONUS   = 4000; // 終盤: 1 段消すごとの加点（4 ライン 1000・TSD 2560 より上＝段数が第一、火力は次点）
+static const int ZONE_NEAR_HEIGHT  = 16;   // 終盤とみなす高さ（ZONE 段＋その上の積み。枠は 20 段）
+static const int ZONE_NEAR_MOVES   = 8;    // 終盤とみなす残り手数（探索の深さ）
+static const int ZONE_LETHAL       = 19;   // ZONE の後に残る段＋予告がこれ以上なら安全でない（cpu_zone.js lethalHeight と同じ）
+static const int ZONE_END_PLY_COMP = 250;  // 終点の枝に足す、残りの手数ぶんの埋め合わせ（1 手の接地・接触の加点の目安）
+
+static Board zonePlain(const Board& b) {
+    if (b.zone <= 0) { Board p = b; p.zone = -1; return p; }
+    Board p;
+    for (int y = ROWS - 1; y >= b.zone; y--) p.rows[y] = b.rows[y - b.zone];
+    return p;
+}
+static inline bool zoneEndSafe(int plainMaxHeight) {
+    return plainMaxHeight + g_zoneIncoming < ZONE_LETHAL;
+}
 // step は 1〜9（9 は「8手目の後に次のミノが出せない」）。step1: 9e8 … step9: 1e8（int32 に収まる）
 static inline int deathPenalty(int step_num) {
     return 100000000 * (SEARCH_MAX_STEP + 2 - step_num);
@@ -262,7 +288,8 @@ void searchBestMoveWasm(
     int canHold,
     int* weightsArray, int* outResult,
     int ren, int backToBack,
-    int incoming // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。0なら通常選択
+    int incoming, // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。0なら通常選択
+    int zoneMovesLeft // ZONE の発動中: 時間切れまでに置ける見込みの手数（0＝発動していない・分からない）
 ){
     ensurePrecalc();
 
@@ -293,9 +320,15 @@ void searchBestMoveWasm(
         return n;
     };
 
+    // ZONE の発動中か。発動中の評価は ZONE 段を除いた盤面で出す（上の zonePlain の説明）
+    const bool zn = baseBoard.zone >= 0;
     int baseMaxHeight = 0;
     // ★分割対応：初期盤面の評価値を evalBoardState で取得（初期盤面の upcomingT は全可視キュー+hold）
-    int baseScore = evalBoardState(baseBoard, w, countUpcomingT(0, holdType), &baseMaxHeight);
+    int baseScore = evalBoardState(zn ? zonePlain(baseBoard) : baseBoard, w, countUpcomingT(0, holdType), &baseMaxHeight);
+    g_zoneMovesLeft = zn ? (zoneMovesLeft > 0 ? zoneMovesLeft : 0) : 0;
+    g_zoneIncoming  = zn ? (incoming > 0 ? incoming : 0) : 0;
+    g_zoneNear = zn && (baseBoard.zone + baseMaxHeight >= ZONE_NEAR_HEIGHT
+                        || (g_zoneMovesLeft > 0 && g_zoneMovesLeft <= ZONE_NEAR_MOVES));
 
     std::vector<SearchState> final_states;
     std::vector<SearchState> current_states;
@@ -318,6 +351,14 @@ void searchBestMoveWasm(
     auto pushDead = [&](const SearchState& d) {
         if (!hasDead || d.beam_score > bestDead.beam_score) { bestDead = d; hasDead = true; }
     };
+    // ZONE 終了の終点（出現できないが ZONE の後は安全・残り手数を使い切った）。いちばん良い 1 つだけ覚える。
+    //   死に枝ではないので減点しない。残りの手数ぶんの埋め合わせを足して、深さ 8 まで生きた枝と比べられるようにする
+    SearchState bestEnded;
+    bool hasEnded = false;
+    auto pushEnded = [&](SearchState e, int step_num) {
+        e.beam_score += ZONE_END_PLY_COMP * (SEARCH_MAX_STEP - step_num);
+        if (!hasEnded || e.beam_score > bestEnded.beam_score) { bestEnded = e; hasEnded = true; }
+    };
     current_states.reserve(BEAM_WIDTH * 2);
     next_states_N.reserve(2048);
     next_states_L.reserve(2048);
@@ -326,6 +367,8 @@ void searchBestMoveWasm(
         std::vector<Placement> p_list = getAllPlacements(is_first ? baseBoard : s.board, piece, getSpawnY(piece));
 
         if (p_list.empty()) {
+            // ZONE: 出せない＝ ZONE 終了。後が安全なら、ここまでの手の枝をそのまま終点にする（初手は手が無いので今までどおり）
+            if (zn && !is_first && zoneEndSafe(s.max_height)) { pushEnded(s, step_num - 1); return -1; }
             // Block Out: この手番のミノを出せない＝この手番で死亡
             SearchState dead_s = s;
             dead_s.total_score -= deathPenalty(step_num);
@@ -354,16 +397,33 @@ void searchBestMoveWasm(
             bool cur_btb = is_first ? (backToBack != 0) : s.backToBack;
 
             int current_max_height = 0;
+            int prevHeight = is_first ? baseMaxHeight : s.max_height;
+            int stateScore, eventScore;
+            if (zn) {
+                // ZONE: 評価は ZONE 段を除いた盤面で（置いたマスも同じ段数だけ下げる）
+                const int zBefore = beforeClearBoard.zone > 0 ? beforeClearBoard.zone : 0;
+                Board plainAfter = zonePlain(simBoard);
+                Board plainBefore = zonePlain(beforeClearBoard);
+                GridBlock pb[4];
+                for (int k = 0; k < 4; k++) { pb[k].x = p.blocks[k].x; pb[k].y = p.blocks[k].y + zBefore; }
+                stateScore = evalBoardState(plainAfter, w, countUpcomingT(new_next_idx, new_hold), &current_max_height);
+                eventScore = evalPlacementEvent(
+                    plainAfter, plainBefore, p.linesCleared, p.isFullyGrounded, p.touchingCount,
+                    p.tSpinType, cur_ren, cur_btb, pb, prevHeight, w
+                );
+                // 終盤は消した段数が第一
+                if (g_zoneNear) eventScore += p.linesCleared * ZONE_LINE_BONUS;
+            } else {
             // ★分割対応：評価値（盤面の良さ）を evalBoardState で取得
             // ★Phase2: この手番以降に使えるTの本数を T-slot 先読みに渡す（placed後の new_next_idx / new_hold 基準）
-            int stateScore = evalBoardState(simBoard, w, countUpcomingT(new_next_idx, new_hold), &current_max_height);
+            stateScore = evalBoardState(simBoard, w, countUpcomingT(new_next_idx, new_hold), &current_max_height);
 
             // ★分割対応：報酬（その1手のイベント）を evalPlacementEvent で取得
-            int prevHeight = is_first ? baseMaxHeight : s.max_height;
-            int eventScore = evalPlacementEvent(
+            eventScore = evalPlacementEvent(
                 simBoard, beforeClearBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount,
                 p.tSpinType, cur_ren, cur_btb, p.blocks, prevHeight, w
             );
+            }
 
             // ★BtB状態の更新（b2bHold静的ボーナスを stateScore に乗せるため先に算出）
             int next_ren = (p.linesCleared > 0) ? (cur_ren + 1) : 0;
@@ -449,12 +509,20 @@ void searchBestMoveWasm(
             if (!hasBlockOutside) {
                 int upcoming = new_next_idx < 9 ? next_queue[new_next_idx] : 0;
                 if (!canSpawnPiece(simBoard, upcoming)) {
+                    // ZONE: 次が出せない＝ ZONE 終了。後が安全なら終点（減点なし）
+                    if (zn && zoneEndSafe(current_max_height)) { pushEnded(next_s, step_num); continue; }
                     next_s.total_score -= deathPenalty(step_num + 1);
                     next_s.beam_score  -= deathPenalty(step_num + 1);
                     next_s.dead = true;
                     pushDead(next_s);
                     continue;
                 }
+            }
+
+            // ZONE: 残り手数を使い切った＝この手の後に時間切れで ZONE が終わる。その先は読まない
+            if (zn && !hasBlockOutside && g_zoneMovesLeft > 0 && step_num >= g_zoneMovesLeft) {
+                pushEnded(next_s, step_num);
+                continue;
             }
 
             if (hasBlockOutside) {
@@ -546,6 +614,7 @@ void searchBestMoveWasm(
     }
 
     if (hasDead) final_states.push_back(bestDead); // 死に枝は生存枝より前（以前の並びと同じ）
+    if (hasEnded) final_states.push_back(bestEnded); // ZONE 終了の終点（死に枝ではない）
     for (const auto& state : current_states) {
         final_states.push_back(state);
     }
@@ -569,7 +638,9 @@ void searchBestMoveWasm(
     //   - 1つもsafeでなければ、攻撃量(spike)最大の手にフォールバック（同点は beam_score 優先）
     //   incoming<=0 のときは全手safe扱い＝従来どおり beam_score 最大が選ばれる。
     // ────────────────────────────────────────────────
-    if (incoming > 0 && bestState != nullptr) {
+    // ZONE の発動中は予告が着弾しないので、この選び直しはしない（高い盤面では全部の手が「危ない」になり、
+    // 評価に関係なく初手の火力が最大の手を選んでしまう）
+    if (!zn && incoming > 0 && bestState != nullptr) {
         const SearchState* bestSafe = nullptr;   int bestSafeScore = -2000000000;
         const SearchState* bestSpike = nullptr;  int bestSpikeAtk = -1; int bestSpikeScore = -2000000000;
         for (const auto& state : final_states) {

@@ -409,9 +409,9 @@ const CPU_CONFIGS = {
     1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=8' },
     2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js?v=8' },
     3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=9' },
-    4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=12' },
-    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=14' },
-    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=37' },
+    4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=13' },
+    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=15' },
+    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=38' },
     7: { className: 'CPU7', src: 'cpu/tet/lv7/cpu7.js?v=14' },
     // 操作系のメソッドを CPU7 から借りるので lv7 を先に読む（deps）
     8: { className: 'CPUClys', deps: [7], src: 'cpu/tet/clys/cpu_clys.js?v=5' }

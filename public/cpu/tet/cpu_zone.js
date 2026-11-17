@@ -72,6 +72,13 @@ const CpuZone = (() => {
         return buf;
     }
 
+    // 発動中、時間切れまでに置ける見込みの手数（1 以上）。発動していなければ 0。
+    // 探索へ渡して「この手数を使い切ったら ZONE が終わる」と読ませる（設計 §20）
+    function movesLeft(game, level) {
+        if (!game || !game.zoneActive || !game.isVersusMode) return 0;
+        return Math.max(1, Math.ceil(game.zoneRemainingMs() / (CONFIG.moveMs[level] || 700)));
+    }
+
     // 相手の盤面を探索へ渡すとき用: ZONE 段を除いて、その段数ぶん下げた「ふつうの盤面」のブロック（{x, y}）
     function plainBlocks(game) {
         const bs = (game && game.field && game.field.blocks) || [];
@@ -288,6 +295,6 @@ const CpuZone = (() => {
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, noMoveDelay, dropIfNoMove };
+    return { CONFIG, RULES, floor, stampBoard, movesLeft, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, noMoveDelay, dropIfNoMove };
 })();
 window.CpuZone = CpuZone;
