@@ -41,7 +41,7 @@ const PRACTICE_NEXT_MAX_HEIGHT = BLOCK_SIZE * 13.5;
 //
 // 逆にこの数字が変わらない限り、ブラウザはキャッシュから読むだけで通信しない。
 // ─────────────────────────────────────────────
-const ASSET_VERSION = 6;
+const ASSET_VERSION = 7;
 
 // 素材URLにキャッシュ用バージョンを付ける。音源・画像の取得は必ずこれを通す。
 function assetUrl(path) {
@@ -1039,7 +1039,7 @@ class BgmManager {
         'single_ultra_bgm':    0.90,
         'single_puyo_bgm':     0.90,
         'single_practice_bgm': 0.50,  // -9.5（practice_1.ogg。聴感ラウドネスLUFSでmenuに揃えた）
-        'single_zone_bgm':     0.90,  // ZONE（専用曲ができるまで MARATHON と同じ曲）
+        'single_zone_bgm':     0.50,  // -6.4 LUFS（zone_1.ogg = Acrise。menu -12.4 LUFS に揃えた）
     };
 
     // ── シングルモードの mode → BGMキー対応 ───────────────────────────
@@ -1437,8 +1437,8 @@ AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/challenge_1.ogg
 AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/challenge_1.ogg');
 AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('single_practice_bgm', 'assets/audio/bgm/practice_1.ogg');
-// ZONE（設計 tetlabo-zone-design.md §6.2）。専用曲を用意したらパスを差し替える
-AudioLoader.registerBgm('single_zone_bgm',     'assets/audio/bgm/single_1.ogg');
+// ZONE（設計 tetlabo-zone-design.md §6.2）。L.Mity & EspiDev「Acrise」(CC BY 3.0)
+AudioLoader.registerBgm('single_zone_bgm',     'assets/audio/bgm/zone_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 // オンライン対戦BGMは、ここでパスだけ差し替えれば変更できる。
 AudioLoader.registerBgm('online_bgm',  'assets/audio/bgm/vs_1.ogg');
