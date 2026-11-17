@@ -206,7 +206,7 @@ function renderPuyoSingleOptionsHtml() {
       ${inner}
     </div>`;
   const note = isPuyoSingleRecordEligible() ? '' :
-    '<p class="practice-value-hint">CONNECT / COLORS を変更中は記録されません</p>';
+    '<p class="practice-value-hint">CONNECT / COLORS を変更中は記録されません<br> 規定：4 / 4 </p>';
   const fallIdx = PUYO_SINGLE_FALL_OPTIONS.indexOf(puyoSingleSettings.fallMs);
   return row('CONNECT', `<div class="option-toggle">${btns('eraseCount', PUYO_SINGLE_ERASE_OPTIONS, 0)}</div>`)
        + row('COLORS', `<div class="option-toggle">${btns('colorCount', PUYO_SINGLE_COLOR_OPTIONS, 1)}</div>`)
@@ -309,7 +309,7 @@ function zoneSettingsHintHtml() {
   const zoneKey = (typeof loadKeys === 'function') ? ((loadKeys().zone || {}).label || '') : '';
   const s = zoneSettings;
   let html = `150 ライン。${s.quarterLines} ラインでゲージ 1/4。1/4 以上たまったら ${zoneKey ? `<b>${zoneKey}</b> キー` : 'ZONE キー'}で発動（1/4 ごとに ${s.quarterMs / 1000} 秒）`;
-  if (!isZoneRecordEligible()) html += '<br>LEVEL / ZONE TIME / CHARGE を変更中は記録されません';
+  if (!isZoneRecordEligible()) html += '<br>LEVEL / ZONE TIME / CHARGE を変更中は記録されません <br> 規定：UP / 8s / 6';
   return html;
 }
 
