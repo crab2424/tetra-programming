@@ -38,6 +38,20 @@
   animation: gauge-blink 0.4s infinite alternate;
 }
 
+/* ZONE の分けて送る火力：かたまりの中は線を消してつなげ、かたまりの間にすき間を入れる */
+.gauge-block.chunk {
+  border-bottom: none;
+  box-shadow: none;
+}
+/* 次の 1 手では降らない後ろのかたまりの ready：点滅させず赤の点灯 */
+.gauge-block.chunk.ready.waiting {
+  animation: none;
+}
+.gauge-block.chunk.chunk-end {
+  border-top: 8px solid transparent;
+  background-clip: padding-box;
+}
+
 /* 20 ラインを超えたときの合計数（ゲージ上端に重ねる） */
 .gauge-count {
   position: absolute;

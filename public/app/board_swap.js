@@ -36,6 +36,10 @@ const BoardSwap = (() => {
     'ren', 'backToBack',             // 火力計算に効くので盤面側の情報として扱う
     'pendingAttack', 'pendingInternalAttack',
     'garbageQueue', '_garbageTimers',
+    // ZONE（盤面の ZONE 段は field ごと移る。メーター・発動中の状態も盤面側の情報として持っていく。
+    // zoneLinesTotal / zoneBest / zoneCount は HUD 側なので据え置き）
+    'zoneMeter', 'zoneActive', 'zoneLines', 'zoneCharge', 'zoneTimeUp', 'zoneStartAt', 'zoneDurationMs',
+    'zoneScorePool', '_zoneB2bBefore', 'zoneAtkPool', 'zoneAtkList', 'zoneCarry',
   ];
 
   // puyo（PuyoGame）。score/chainMax/clearedPuyos/attackSent は据え置き。
@@ -114,6 +118,9 @@ const BoardSwap = (() => {
     g.lastRotUsedPoint5 = false;
     g.field.markDirty();
 
+    // ZONE の時間切れの予約は残り時間から貼り直す（swap() が入れ替え前に両方とも取り消している）
+    if (typeof g._zoneReseatTimer === 'function') g._zoneReseatTimer();
+
     // おじゃま猶予タイマーのコールバックは生成時の受け手を掴んでいるため、
     // 配列ごと持ち主が変わったこのタイミングで新しい持ち主へ貼り直す。
     window.BattleGarbage.reseatLocalGarbageTimers(g);
@@ -130,7 +137,9 @@ const BoardSwap = (() => {
       g.startGravity();
     } else {
       // ミノ未出現の一瞬（固定〜次の出現の間）で入れ替えた場合だけNEXTから出す
-      g.popMino();
+      // （入れ替えの出し直しなので、先行回転・先行ホールドは当てない）
+      g._noSpawnAssist = true;
+      try { g.popMino(); } finally { g._noSpawnAssist = false; }
       if (g.isFinishing) return;
     }
 
@@ -220,6 +229,13 @@ const BoardSwap = (() => {
     if (isPuyo) {
       flushPuyoChainScore(p);
       flushPuyoChainScore(c);
+    }
+
+    if (!isPuyo) {
+      // ZONE の時間切れの予約は持ち主を掴んでいるので、入れ替え前に取り消す（finishTet が貼り直す）
+      for (const g of [p, c]) {
+        if (g._zoneTimer) { g.clock.cancel(g._zoneTimer); g._zoneTimer = null; }
+      }
     }
 
     swapKeys(p, c, isPuyo ? PUYO_SWAP_KEYS : TET_SWAP_KEYS);

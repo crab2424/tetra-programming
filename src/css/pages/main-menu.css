@@ -264,12 +264,12 @@
     transform 0.1s;
 }
 
-.menu-btn:hover,
+.menu-btn:hover:not(:disabled),
 .menu-btn.is-focused {
   opacity: 0.85;
   transform: translateY(-2px);
 }
-.menu-btn:active {
+.menu-btn:active:not(:disabled) {
   transform: translateY(0);
 }
 

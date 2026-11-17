@@ -60,7 +60,7 @@ Object.assign(Game.prototype, {
     // ─────────────────────────────────────────
     setKeyEvent() {
         // CPU制御モードの場合はキーイベントを一切設定しない（前に人が使ったときのポーリングも外す）
-        if (this.isCpuControlled) { this._pollInput = null; this.keyState = {}; return; }
+        if (this.isCpuControlled) { this._pollInput = null; this.keyState = {}; this._irsOn = false; this._ihsOn = false; return; }
 
         // 押されているキーを管理
         // keyState はアクション名で管理（1アクションに複数キーを割り当てられるため）。
@@ -84,6 +84,12 @@ Object.assign(Game.prototype, {
         this.DAS_DELAY = tuning.das * frameMs;
         this.ARR_INTERVAL = tuning.arr * frameMs;
         this.DCD_DELAY = tuning.dcd * frameMs;
+        // IRS/IHS の非表示 DCD（設計 tetlabo-irs-ihs-design.md §13）。未設定（古い設定・録画）は横の DCD と同じ
+        this.IRS_DCD_DELAY = (typeof tuning.irsDcd === 'number' ? tuning.irsDcd : tuning.dcd) * frameMs;
+        // 先行回転・先行ホールド（設計 tetlabo-irs-ihs-design.md §4・§6）。
+        // true のときだけ ON と読む（既定値で埋めない）。古い録画の tuning には無いので OFF のまま再生される
+        this._irsOn = tuning.irs === true;
+        this._ihsOn = tuning.ihs === true;
 
         // ソフトドロップ用ARR
         const currentLevelSpeed = LEVEL_SPEEDS[this.level] || 7;
@@ -104,6 +110,7 @@ Object.assign(Game.prototype, {
         this._dcdUntil = 0;
         this._dcdDir = null;
         this._dcdMino = undefined;     // 新ミノ出現の検知用（undefined=未観測。ゲーム開始時の初手はDCD対象外）
+        this._spawnDropMino = null;    // 非表示 DCD 中のハードドロップ: 1 フレーム見せてから落とすミノ（rotation.js §12）
         this._dasBlockedLeft = false;  // DASが溜まった状態で左に動けず止まっているか
         this._dasBlockedRight = false;
         this._dasBlockSnapLeft = null; // 止まった時点のミノの x/rotation（動けるようになった原因の判定用）
@@ -195,6 +202,12 @@ Object.assign(Game.prototype, {
                 this._rotCCWPressed = true
             }
 
+            // 非表示 DCD 中に回転キーを新しく押した → 出すときに先行回転として当てる（後に押した方）
+            if (!this.mino && this._spawnHide && !repeat && !this.isCountingDown) {
+                if (keys.rotateCW.codes.includes(code)) this._spawnHide.forceRot = 1
+                if (keys.rotateCCW.codes.includes(code)) this._spawnHide.forceRot = -1
+            }
+
             // ソフトドロップ初動（1マス）
             if (canActNow && keys.softDrop.codes.includes(code) && this._lastSoftDropTime === 0) {
                 this._lastSoftDropTime = now
@@ -215,12 +228,21 @@ Object.assign(Game.prototype, {
             }
 
             // 単発系（押した瞬間のみ。長押しの連続発火・カウントダウン中・盤面を持たない状態は無視）
-            if (keys.hardDrop.codes.includes(code) && !repeat && !this.isCountingDown && this.mino) {
-                // 設置後の DCD は _pollInput が新ミノの出現を検知して開始する（ゲームパッド・自然設置とも共通）
-                this.hardDrop()
+            if (keys.hardDrop.codes.includes(code) && !repeat && !this.isCountingDown) {
+                if (this.mino) {
+                    // 設置後の DCD は _pollInput が新ミノの出現を検知して開始する（ゲームパッド・自然設置とも共通）
+                    this.hardDrop()
+                } else if (this._spawnHide) {
+                    this._spawnHideDrop()
+                }
             }
-            if (keys.hold.codes.includes(code) && !repeat && !this.isCountingDown && this.mino) {
-                this.holdCurrentMino()
+            if (keys.hold.codes.includes(code) && !repeat && !this.isCountingDown) {
+                if (this.mino) this.holdCurrentMino()
+                else if (this._spawnHide) this._spawnHideHold()
+            }
+            // ZONE 発動（ZONE が使えるモードだけ。古い録画のキー設定には zone が無い）
+            if (keys.zone && keys.zone.codes.includes(code) && !repeat && this.zoneEnabled) {
+                this.activateZone()
             }
         }
 
@@ -346,12 +368,22 @@ Object.assign(Game.prototype, {
                 return
             }
             const now = this.clock.now()
+            // 非表示 DCD 中に押したハードドロップ: 前のフレームで出して 1 フレーム見せたので、ここで落とす
+            if (this._spawnDropMino && !this.isPaused && !this.isCountingDown) {
+                const m = this._spawnDropMino
+                this._spawnDropMino = null
+                if (this.mino === m) this.hardDrop()
+            }
             // たまったキー・ゲームパッドの入力を先に取り込む（カウントダウン中は DAS の押した時刻を記録するだけ）
             drainInput(now)
             if (this.isPaused) return
             // カウントダウン中はDASの時間を裏で記録するだけで、操作の実行はしない
             if (this.isCountingDown) return;
-            if (!this.mino) return;
+            // 非表示 DCD 中（先行回転・先行ホールドのキーが残っている間。rotation.js §12）は、隠れたミノ（vm）を
+            // このフレームだけ this.mino に置いて横移動の処理を通す（DAS・ARR・横の DCD はふつうどおり。§13）
+            const hide = this.mino ? null : this._spawnHide
+            if (!this.mino && !hide) return;
+            if (hide) this.mino = hide.vm
 
             let acted = false
             let wasGrounded = this.isGrounded; // 操作前の接地状態を記憶
@@ -433,8 +465,19 @@ Object.assign(Game.prototype, {
             // ※ 逆方向を押している間も、元の方向の「止まっていた」状態は保持する
             //   （逆方向を離して元の方向に戻ったとき、動けるようになっていれば DCD ②を掛けるため）
 
+            // 非表示 DCD 中は横移動だけ（ソフトドロップ・回転・接地は出てから）
+            if (hide) {
+                this.mino = null
+                this._pollSpawnHide(now)
+                return
+            }
+
             // ソフトドロップ（専用ARR）
-            const currentLevelSpeed = LEVEL_SPEEDS[this.level] || 7;
+            // シングルの ZONE の発動中は、レベル（LEVEL: FIXED でも）に関係なくレベル 1 の速さ
+            // （設計 tetlabo-zone-design.md §13。エンジン版 4 以下の録画の再生は従来どおり）
+            const zoneLv1 = this.zoneActive && this.mode === 'zone'
+                && !(this._replay && this._replay.data && (this._replay.data.engine || 0) < 5);
+            const currentLevelSpeed = LEVEL_SPEEDS[zoneLv1 ? 1 : this.level] || 7;
             const currentSoftDropArr = currentLevelSpeed / 20;
 
             if (this.keyState.softDrop) {
@@ -544,6 +587,7 @@ Object.assign(Game.prototype, {
             rotateCW: [{ type: 'button', index: 0 }], // A
             rotateCCW: [{ type: 'button', index: 1 }], // B
             hold: [{ type: 'button', index: 4 }, { type: 'button', index: 5 }], // L/R
+            zone: [{ type: 'button', index: 7 }], // RT（ZONE 発動）
             pause: [{ type: 'button', index: 9 }], // Start
             restart: [{ type: 'button', index: 8 }]  // Select / Back
         };
@@ -619,14 +663,34 @@ Object.assign(Game.prototype, {
         // 単発系（ハードドロップ・ホールド）はその場で実行、継続系は keyState に反映して
         // キーボードと同じ _pollInput のロジック（DAS・ソフトドロップ・回転）を使う。
         const applyPadDown = (action, now) => {
+            // ZONE 発動（単発。押している間の状態は持たない）
+            if (action === 'zone') {
+                if (this.zoneEnabled) this.activateZone()
+                return
+            }
+            // ホールドは「押している間」も持つ（先行ホールドが出現の瞬間に見る）
+            if (action === 'hold') this.keyState.hold = true
             if (action === 'hardDrop' || action === 'hold') {
-                if (this.isCountingDown || !this.mino) return
+                if (this.isCountingDown) return
+                if (!this.mino) {
+                    // 非表示 DCD 中（rotation.js §12）
+                    if (this._spawnHide) {
+                        if (action === 'hardDrop') this._spawnHideDrop()
+                        else this._spawnHideHold()
+                    }
+                    return
+                }
                 if (action === 'hardDrop') this.hardDrop()
                 else this.holdCurrentMino()
                 return
             }
             if (this.keyState[action]) return // キーボードで押している
             this.keyState[action] = true
+            // 非表示 DCD 中に回転を新しく押した → 出すときに先行回転として当てる
+            if (!this.mino && this._spawnHide && !this.isCountingDown) {
+                if (action === 'rotateCW') this._spawnHide.forceRot = 1
+                if (action === 'rotateCCW') this._spawnHide.forceRot = -1
+            }
             if (action === 'moveLeft' && this._leftPressTime === null) {
                 this._leftPressTime = now
                 this._lastMoveTimeLeft = 0
@@ -656,6 +720,8 @@ Object.assign(Game.prototype, {
 
         // ゲームパッドを離した瞬間の処理（キーアップ相当）
         const applyPadUp = (action) => {
+            if (action === 'zone') return
+            if (action === 'hold') this.keyState.hold = false
             if (action === 'hardDrop' || action === 'hold') return
             if (!this.keyState[action]) return
             this.keyState[action] = false

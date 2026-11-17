@@ -135,6 +135,12 @@ class QuizManager {
         this.isClear       = false;
         this.isFailed      = false;
 
+        // 成績（STATS）: この挑戦を数え始める（エディタの試遊は stats.js 側で弾く）
+        window.Stats?.beginQuiz({
+            game: gameInstance, level: levelData,
+            no: (QUIZ_LEVELS[levelData.rule] || []).findIndex(l => l.id === levelData.id) + 1,
+        });
+
         if (levelData.rule === 'tet') {
             this._startTet(levelData, gameInstance);
         } else {
@@ -275,7 +281,8 @@ class QuizManager {
                 return;
             }
             // 次のミノが出現する直前（前の一手が確定した瞬間）にクリア判定を行う
-            if (self._checkClear()) {
+            // （IHS の待ち明けの呼び直しでは、判定はもう済んでいる。tet/rotation.js _ihsRescueWait）
+            if (!this._ihsRescueResume && self._checkClear()) {
                 this.mino = null;
                 return;
             }
@@ -293,19 +300,29 @@ class QuizManager {
                 return;
             }
 
-            // 本来のpopMino相当処理
-            this.mino = this.nextQueue.shift();
-            this.mino.spawn();
-
-            // 出現位置での致命判定
-            if (!this.valid(0, 0)) {
-                this.mino.y -= 1;
-                if (!this.valid(0, 0)) {
-                    this.gameOver();
-                    return;
-                }
+            // 本来のpopMino相当処理（出現位置での致命判定・先行回転・先行ホールドは _spawnMino の中）
+            if (this._ihsRescueWait()) return;
+            if (this._spawnHideStart()) return;
+            if (!this._spawnMino(this.nextQueue.shift(), { allowIhs: true })) {
+                this.gameOver();
+                return;
             }
+            this._refillNext();
 
+            // HOLD可否の更新（先行ホールドで出たミノはもうホールドできない）
+            this.canHold = (levelData.allowHold && !this._spawnIhsUsed) ? true : false;
+            this.isGrounded = false;
+            this.lowestY = this.mino.y;
+            this.moveCount = 0;
+            this.lastActionWasRotation = false;
+            this.lastRotUsedPoint5 = false;
+
+            this._cancelLockTimer();
+            this.startGravity();
+        }.bind(game);
+
+        // NEXT の補充（popMino と先行ホールドの両方から呼ばれる）
+        game._refillNext = function() {
             // 次に補充するピースのインデックスを計算
             nextPieceIndex++;
             const absoluteNextIndex = nextPieceIndex + 4;
@@ -317,17 +334,6 @@ class QuizManager {
                 // NEXTが枯渇したら透明なダミーを補充
                 this.nextQueue.push(self._createDummyMino());
             }
-
-            // HOLD可否の更新
-            this.canHold = levelData.allowHold ? true : false;
-            this.isGrounded = false;
-            this.lowestY = this.mino.y;
-            this.moveCount = 0;
-            this.lastActionWasRotation = false;
-            this.lastRotUsedPoint5 = false;
-
-            this._cancelLockTimer();
-            this.startGravity();
         }.bind(game);
 
         game.getNextType = function() {
@@ -337,10 +343,12 @@ class QuizManager {
         // レベルごとのHOLD機能とUI(HTMLレイヤー)の制御
         if (!levelData.allowHold) {
             game.canHold = false;
+            game.holdDisabled = true;             // 先行ホールドも効かせない（tet/rotation.js _holdAllowed）
             game.holdCurrentMino = function() {}; // HOLD処理を無効化
             _setHoldOverlayVisible(true);         // HTML要素でキャンバスに合わせて斜線を表示
         } else {
             game.canHold = true;
+            game.holdDisabled = false;
             _setHoldOverlayVisible(false);        // 斜線を非表示
         }
     }
@@ -724,6 +732,7 @@ class QuizManager {
     _onClear() {
         if (this.isClear || this.isFailed) return;
         this.isClear = true;
+        window.Stats?.endQuiz('ok'); // 成績（STATS）
         // 正解音はシングルのクリア音・PRACTICEのGOAL達成音と同一キー('clear')に統一。
         window.SeManager?.play('clear');
         this._stopGame();
@@ -743,6 +752,7 @@ class QuizManager {
     _onFailed() {
         if (this.isClear || this.isFailed) return;
         this.isFailed = true;
+        window.Stats?.endQuiz('ng'); // 成績（STATS）
         // 不正解音はゲームオーバー音と統一。_onFailed は本来の gameOver() を
         // 置き換える形で呼ばれる（gameOver 内の playSe を通らない）ためここで鳴らす。
         window.SeManager?.play('gameover');
@@ -805,6 +815,8 @@ class QuizManager {
             if (this.currentLevel && this.currentLevel.rule === 'tet') {
                 if (this._originalPopMino) this.gameInstance.popMino = this._originalPopMino;
                 if (this._originalGetNextType) this.gameInstance.getNextType = this._originalGetNextType;
+                delete this.gameInstance._refillNext;   // prototype の補充に戻す
+                delete this.gameInstance.holdDisabled;
                 if (this._originalHoldCurrentMino) this.gameInstance.holdCurrentMino = this._originalHoldCurrentMino;
                 // secureMino フックも元に戻す
                 if (this._originalSecureMino) this.gameInstance.secureMino = this._originalSecureMino;
@@ -1041,10 +1053,12 @@ async function renderQuizCheck() {
     listEl.innerHTML = '';
 
     const levels = QUIZ_LEVELS[currentQuizRule] || [];
+    const cleared = (window.Stats && window.Stats.getQuizCleared) ? window.Stats.getQuizCleared() : {};
     levels.forEach((level, idx) => {
         const btn = document.createElement('button');
         btn.className = 'quiz-level-btn';
         btn.dataset.levelId = level.id;
+        if (cleared[level.id]) btn.classList.add('quiz-level-cleared'); // 解いたことのある問題（成績 STATS）
         const diffStars = _renderDiffStars(level.diff);
         btn.innerHTML = `<span class="quiz-level-num">${idx + 1}</span>${diffStars ? `<span class="quiz-level-diff">${diffStars}</span>` : ''}`;
         btn.onclick = () => {
@@ -1458,6 +1472,7 @@ function _renderQuizNextAll(levelData) {
 
     window.addEventListener('load', async () => {
         await loadQuizLevels();
+        level._editorTest = true; // 成績（STATS）に数えない印（config/stats.js beginQuiz）
         const list = QUIZ_LEVELS[level.rule];
         const idx = list.findIndex(l => l.id === level.id);
         if (idx >= 0) list[idx] = level; else list.push(level);

@@ -306,6 +306,26 @@
 
 #ol-winner-overlay {
   z-index: 1000;
+  /* display:none → flex で表示するたびにアニメが頭から再生される */
+  animation: ol-result-scrim-in 0.25s ease both;
+}
+/* カードは transform: scale() を大きさ合わせに使っているため、transform ではなく
+   個別プロパティの translate で動かす（dialogEnter をそのまま付けると大きさが崩れる） */
+#ol-winner-overlay .ol-result-card {
+  animation: ol-result-card-in 0.3s ease-out 0.05s both;
+}
+@keyframes ol-result-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ol-result-card-in {
+  from { opacity: 0; translate: 0 8px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #ol-winner-overlay .ol-result-card {
+    animation-name: ol-result-scrim-in;
+  }
 }
 
 #ol-winner-overlay button {

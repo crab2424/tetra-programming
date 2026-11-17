@@ -3,6 +3,7 @@ import { handleAdminBanUser, handleAdminDeleteRecord, handleAdminListRecords } f
 import { handleCallback, handleDeleteMe, handleLogin, handleLogout, handleMe, handleUpdateName } from "./auth";
 import { error, json } from "./http";
 import { handleRanking, handleRankingMe, handleSubmitRecord } from "./records";
+import { handleSyncGet, handleSyncPut } from "./sync";
 import { handleOnlineTicket } from "./ticket";
 
 export default {
@@ -32,6 +33,9 @@ async function handleApi(req: Request, env: Env, url: URL): Promise<Response> {
   if (pathname === "/api/me/name" && method === "PUT") return handleUpdateName(req, env, url);
 
   if (pathname === "/api/records" && method === "POST") return handleSubmitRecord(req, env, url);
+
+  if (pathname === "/api/sync" && method === "GET") return handleSyncGet(req, env, url);
+  if (pathname === "/api/sync" && method === "PUT") return handleSyncPut(req, env, url);
 
   if (pathname === "/api/online-ticket" && method === "POST") return handleOnlineTicket(req, env, url);
 

@@ -4,6 +4,9 @@
 // ※ core.js（class Game 定義）より後に読み込むこと
 // ─────────────────────────────────────────────
 
+// IHS で助かるときだけ出現を待つ長さ（設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §3.2。仮）
+const IHS_RESCUE_DELAY_MS = 100;
+
 Object.assign(Game.prototype, {
 
     // ─── 乱数（設計: source_assets/memory/record/tetlabo-record-design.md §4.1 D3）───
@@ -48,23 +51,30 @@ Object.assign(Game.prototype, {
         }
     },
 
+    // NEXT の末尾に 1 本足す（QUIZ は問題のミノ列から足すので差し替える。quiz/quiz.js）
+    _refillNext() {
+        this.nextQueue.push(new Mino(this.getNextType()));
+    },
+
     // 新しいミノを出す
     popMino() {
-        this.mino = this.nextQueue.shift();
-        this.mino.spawn();
+        // IHS で助かるときだけ、少し待ってから出す（待ち明けにもう一度ここへ来る）
+        if (this._ihsRescueWait()) return;
+        // 置いた後に先行回転・先行ホールドのキーが残っているときは、DCD のあいだ隠して待つ（rotation.js §12）
+        if (this._spawnHideStart()) return;
 
-        // 出現位置での致命判定
-        if (!this.valid(0, 0)) {
-            // -3 などの固定値ではなく、現在の位置から1引く
-            this.mino.y -= 1;
-            if (!this.valid(0, 0)) {
+        // 出現位置での致命判定は _spawnMino の中（先行ホールド・先行回転を当てた後。rotation.js）
+        if (!this._spawnMino(this.nextQueue.shift(), { allowIhs: true })) {
+            // ZONE の発動中は、まず ZONE を終わらせて盤面を下げ、同じミノを出し直す（tet/zone.js）
+            if (!this._zoneRespawnAfterTopOut()) {
                 this.gameOver();
                 return;
             }
         }
 
-        this.nextQueue.push(new Mino(this.getNextType()));
-        this.canHold = true
+        this._refillNext();
+        // 先行ホールドで出たミノは、ふつうのホールドと同じくもうホールドできない
+        this.canHold = !this._spawnIhsUsed
 
         // 状態・タイマー・カウントの初期化
         this.isGrounded = false;
@@ -80,6 +90,8 @@ Object.assign(Game.prototype, {
 
     // ミノを即座に固定する共通処理
     secureMino(viaHardDrop = false) {
+        // ZONE の発動中か（この手の消去は「底へ移す」。tet/zone.js）
+        const inZone = !!this.zoneActive;
         let isAllOutside = this.mino.blocks.every(block => (block.y + this.mino.y) < 0);
 
         // ─── T-spin判定（固定前に行う）───
@@ -97,14 +109,19 @@ Object.assign(Game.prototype, {
 
         const renForCalc = this.ren; // ★ぷよ用火力計算のために加算前のRENを保持
 
-        const linesCleared = this.field.checkLine()
+        // ZONE の発動中は 20 段より上も見て、そろった段を底へ移す（窒息の判定より先に数える）
+        const linesCleared = inZone ? this._zoneCheckLine() : this.field.checkLine()
+        // ZONE のメーター（発動中はたまらない）
+        if (!inZone && this.zoneEnabled) this._zoneAddMeter(linesCleared)
 
         // ─── ライン消去・T-spin のSE ───
         if (tSpinResult !== null) {
             this.playSe('tspin');
         }
         
-        if (linesCleared >= 4) {
+        if (inZone && linesCleared > 0) {
+            this.playSe('zone_line');
+        } else if (linesCleared >= 4) {
             this.playSe('4lines');
         } else if (linesCleared === 3) {
             this.playSe('3lines');
@@ -118,11 +135,21 @@ Object.assign(Game.prototype, {
         const isB2BTriggered = isBtBAction && this.backToBack;
         const currentRen = (linesCleared > 0 && this.ren > 0) ? this.ren : 0;
 
-        const isPerfectClear = (this.field.blocks.length === 0);
+        // ZONE の発動中は「ZONE 段以外のブロックが 0 個」で PC
+        const isPerfectClear = inZone
+            ? (linesCleared > 0 && this._zoneIsPerfectClear())
+            : (this.field.blocks.length === 0);
         const is4Lines = (linesCleared === 4);
 
         // Scoring() の戻り値として火力（段数）を受け取る
         let generatedGarbage = this.Scoring(tSpinResult, linesCleared, isPerfectClear);
+        // VERSUS の ZONE 発動中は消去ごとの火力をその場では出さない（相殺もしない）。ためておき、終了時に
+        // 表の火力へ足して出す（tet/zone.js _endZone。設計 tetlabo-zone-versus-cpu-design.md §11.1）
+        if (inZone && this.isVersusMode) {
+            this.zoneAtkPool = (this.zoneAtkPool || 0) + generatedGarbage;
+            if (generatedGarbage > 0) (this.zoneAtkList || (this.zoneAtkList = [])).push(generatedGarbage);
+            generatedGarbage = 0;
+        }
         this.updateStatsDisplay();
 
         // APM計測（生成基準）：相殺の有無に関わらず、この設置で生成した火力を積む。
@@ -131,10 +158,17 @@ Object.assign(Game.prototype, {
         // 送信直前ではなくここで数える（呼び出し側で数える理由はsendGarbageがonlineで丸ごと
         // 上書きされるためだが、生成基準に変えた今はそもそも送信経路を通らなくても数えられる）。
         if (generatedGarbage > 0) {
+            this.attackRaw = (this.attackRaw || 0) + generatedGarbage; // 成績（STATS）: 火力補正を掛ける前
             const _apmMult = this.isVersusMode ? (this.vsAttackMultiplier ?? 1.0) : 1.0;
-            this._countAttackSent(_apmMult !== 1.0
+            const _counted = _apmMult !== 1.0
                 ? Math.floor(generatedGarbage * _apmMult + 1e-9)
-                : generatedGarbage);
+                : generatedGarbage;
+            this._countAttackSent(_counted);
+            // 成績（STATS）: ZONE の発動中に出た火力（シングル。VERSUS は上でためて 0 にしているのでここは通らない）
+            if (inZone) {
+                this.zoneAtkTotal = (this.zoneAtkTotal || 0) + _counted;
+                this.zoneAtkRawTotal = (this.zoneAtkRawTotal || 0) + generatedGarbage;
+            }
         }
 
         // ライン消去音(1line〜4lines/tspin)に重ねて鳴らすボーナス音。
@@ -323,6 +357,22 @@ Object.assign(Game.prototype, {
             }
         }
 
+        // ZONE の発動中は、全ブロックが枠の上の設置も致命にしない（ZONE も終えずに続ける。設計書 §4.5・§15）。
+        // 枠の上に残ったブロックは ZONE 終了後もそのまま残り、次のミノが出せなければ GAME OVER（出現不能は従来どおり）。
+        // 版 9 以前の録画の再生は従来どおり「ZONE を終え、ZONE 段が無ければ GAME OVER」（core/replay.js REPLAY_ENGINE_VERSION 10）
+        if (inZone && this.zoneActive && isAllOutside) {
+            const oldTopOut = this._replay && this._replay.data && (this._replay.data.engine || 0) < 10;
+            if (!oldTopOut) isAllOutside = false;
+        }
+
+        // ZONE: 時間切れの後の 1 手、または窒息（全ブロックが枠の上・版 9 以前の録画だけ）なら、この手の消去を数えた後で終える。
+        // 窒息でも ZONE 段があれば盤面が下がるので続ける（tetlabo-zone-design.md §4.5）
+        if (inZone && this.zoneActive && (this.zoneTimeUp || isAllOutside)) {
+            const lowered = this.zoneLines > 0;
+            this._endZone(isAllOutside ? 'topout' : 'time');
+            if (isAllOutside && lowered) isAllOutside = false;
+        }
+
         // 録画: 設置ごとの盤面のハッシュを残す／再生: 録画と照らし合わせ、合わなければ止める（core/replay.js）
         if (this._rec) this._rec.lock(this);
         else if (this._replay) this._replay.onLock(this);
@@ -334,7 +384,7 @@ Object.assign(Game.prototype, {
             this.mino = null;
             this.gameOver(true); // クリア！
             return;
-        } else if (this.mode === 'marathon' && this.goalLines !== Infinity && this.lines >= this.goalLines) {
+        } else if ((this.mode === 'marathon' || this.mode === 'zone') && this.goalLines !== Infinity && this.lines >= this.goalLines) {
             this.mino = null;
             this.gameOver(true); // クリア！
             return;
@@ -347,7 +397,10 @@ Object.assign(Game.prototype, {
         }
 
         // 次のミノが出現する直前（今のミノが固定された瞬間）に、自分に届いている火力を適用
-        if (this.isVersusMode || this.garbageQueue.length > 0) {
+        // ZONE の発動中に置いた手では着弾させない（予告には積まれ、猶予も進む。終了後の「消去しない設置」で着弾）
+        if (inZone) {
+            // 着弾なし
+        } else if (this.isVersusMode || this.garbageQueue.length > 0) {
             if (this.vsGarbageDamageOnClear !== false || linesCleared === 0) {
                 this.applyGarbage();
             }
@@ -420,7 +473,8 @@ Object.assign(Game.prototype, {
             // 「置くまで固定しない」＝ソフトドロップ押下中のみ固定タイマーを進め、
             // 離したら 0 にリセットする（リセット側は _applyGravityTick が毎フレ担当）。
             // 15回操作での強制固定も同条件下では無効化する。
-            if (this.practiceNoLock) {
+            // ZONE の発動中も同じ（tetlabo-zone-design.md §4.4）
+            if (this.practiceNoLock || this.zoneActive) {
                 if (!(this.keyState && this.keyState.softDrop)) {
                     this._cancelLockTimer();
                     return;
@@ -475,11 +529,23 @@ Object.assign(Game.prototype, {
     },
 
     // 固定猶予の予約を取り消す（外から止めるときもこれを使う。lockTimer は setTimeout の ID ではない）
+    // 出現待ち（IHS で助かるときの待ち）の予約も一緒に取り消す。待っている間はミノがいないので、
+    // ここへ来るのは終了・リスタート・巻き戻し・盤面入れ替えなど「出現をやり直す」ときだけ
     _cancelLockTimer() {
         if (this.lockTimer) {
             this.clock.cancel(this.lockTimer);
             this.lockTimer = null;
         }
+        if (this._ihsRescueTimer) {
+            this.clock.cancel(this._ihsRescueTimer);
+            this._ihsRescueTimer = null;
+        }
+        // 非表示 DCD（先行回転・先行ホールドの暴発対策。rotation.js _spawnHideStart）も同じ扱い
+        if (this._spawnHideTimer) {
+            this.clock.cancel(this._spawnHideTimer);
+            this._spawnHideTimer = null;
+        }
+        this._spawnHide = null;
     },
 
     // おじゃま降下猶予の予約を全部取り消す
@@ -496,7 +562,7 @@ Object.assign(Game.prototype, {
         for (let i = 0; i < newBlocks.length; i++) {
             const b = newBlocks[i]
             if (b.x < 0 || b.x >= COLS_COUNT) return false
-            if (b.y < -5 || b.y >= ROWS_COUNT) return false
+            if (b.y < this.topLimit || b.y >= ROWS_COUNT) return false
             if (field.has(b.x, b.y)) return false
         }
         return true
@@ -570,6 +636,10 @@ Object.assign(Game.prototype, {
     //   'teleport', rot, x, y  出現位置 y で向きを変えてから x へ飛ばす（重なるなら x はそのまま）
     //   'hardDrop'             ハードドロップ
     //   'gravity', off         CPU が操作している間の重力の停止（true で止める）
+    //   'zone'                 ZONE 発動（発動できたら true）
+    //   'spawnPlan', rot, hold 次に出るミノの出し方の予約（先行回転 rot=1/-1・先行ホールド hold=true。0/false で取り消し）。
+    //                          次の _spawnMino がいちど使って消す（rotation.js。CPU は今のミノを落とす前に入れる。
+    //                          ZONE 設計 VERSUS 編 §22）
     // 戻り値はそれぞれの操作の結果（動けたか等）。
     // ─────────────────────────────────────────
     cpuAction(type, a, b, c) {
@@ -654,6 +724,11 @@ Object.assign(Game.prototype, {
             }
             case 'hardDrop': r = this.hardDrop(); break;
             case 'gravity': this.gravityDisabled = !!a; break;
+            case 'zone': r = this.activateZone(); break;   // ZONE 発動（tet/zone.js）
+            case 'spawnPlan':
+                this._spawnPlan = (a || b) ? { rot: (a === 1 || a === -1) ? a : 0, hold: !!b, dx: 0 } : null;
+                r = true;
+                break;
             default:
                 console.warn('[cpuAction] 知らない操作:', type);
         }

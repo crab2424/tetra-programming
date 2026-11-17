@@ -6,6 +6,7 @@
 // 進行中の全てのゲーム（tet/PUYO、プレイヤー/CPU）を強制停止し、状態を破棄する
 function stopAllGames() {
     currentSessionId++; // セッションを更新し、進行中の非同期処理やカウントダウンを無効化
+    window.Stats?.abort(); // 成績（STATS）: 遊んでいる途中なら「途中でやめた」で締める（止める前の値を読む）
     window.Assist?.detach(); // アシストの層・計算を止める
     // ★ BGMの停止/継続は switchPage が遷移先ページに応じて判断する（ここでは止めない）。
     //   これにより RETRY / NEXT LEVEL のようにゲームを再開する経路では BGM を途切れさせず継続できる。
@@ -87,6 +88,25 @@ function stopAllGames() {
         el.classList.remove('fadeout');
     });
     
+    // ZONE の表示（メーター・終了の表示・枠の上のキャンバス）を消す。tet の試合を始めると _zoneInit が出し直す
+    const zoneArea = document.getElementById('zone-area');
+    if (zoneArea) zoneArea.style.display = 'none';
+    document.getElementById('zone-end-popup')?.classList.remove('show');
+    document.getElementById('container')?.classList.remove('zone-on', 'zone-active', 'zone-hot', 'zone-last');
+    const zoneTop = document.getElementById('zone-top-canvas');
+    if (zoneTop) zoneTop.getContext('2d').clearRect(0, 0, zoneTop.width, zoneTop.height);
+    // VERSUS の両盤面のぶん（次がぷよ戦でも残らないように）
+    for (const pre of ['player', 'cpu']) {
+      const a = document.getElementById(`${pre}-zone-area`);
+      if (a) a.style.display = 'none';
+      document.getElementById(`${pre}-zone-end-popup`)?.classList.remove('show');
+      document.getElementById(`versus-${pre}-container`)?.classList.remove('zone-on', 'zone-active', 'zone-hot', 'zone-last');
+      const top = document.getElementById(`${pre}-zone-top-canvas`);
+      if (top) top.getContext('2d').clearRect(0, 0, top.width, top.height);
+    }
+    const resultZoneRow = document.getElementById('result-zone-row');
+    if (resultZoneRow) resultZoneRow.style.display = 'none';
+
     // pause overlay も消す
     document.getElementById('pause-overlay')?.classList.remove('active');
     document.getElementById('versus-pause-overlay')?.classList.remove('active');
@@ -129,6 +149,8 @@ function updateLinesGoalDisplay(modeId) {
     el.textContent = '/40';
   } else if (modeId === 'marathon' && marathonSelectedGoal !== 'endless') {
     el.textContent = '/' + marathonSelectedGoal;
+  } else if (modeId === 'zone') {
+    el.textContent = '/150';
   } else {
     el.textContent = '';
   }
@@ -230,6 +252,8 @@ function switchPage(pageId) {
   // メインメニューやタイトルに戻る際はゲーム情報を完全に破棄
   if (pageId === 'main-menu' || pageId === 'title') {
     stopAllGames();
+    // 成績（STATS）をアカウントへ送る機会。送っていない変化があるときだけ（config/cloud_sync.js・設計 §6.7）
+    window.CloudSync?.flushStats?.();
     // ★ CPUスクリプトの破棄はここ（ゲーム文脈から完全に抜けるとき）だけで行う。
     //   stopAllGames() 側でやってしまうとリスタート・再戦のたびに再ダウンロードになるため。
     //   mode-check や vs-settings を経由して同じLVで再開する場合はロード済みのまま使い回し、
@@ -323,7 +347,7 @@ function switchPage(pageId) {
     window.HudExtras.refresh();
   }
 
-  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog', 'practice-help', 'ranking', 'replays'].includes(_animPageId)) {
+  if (['title', 'main-menu', 'mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'result', 'versus-result', 'quiz-result', 'settings', 'credits', 'changelog', 'practice-help', 'ranking', 'replays', 'stats'].includes(_animPageId)) {
       if (typeof initMenuAnimations === 'function') initMenuAnimations(_animPageId);
   } else {
       if (typeof stopMenuAnimations === 'function') stopMenuAnimations();
@@ -364,6 +388,10 @@ function switchPage(pageId) {
     if (typeof renderPracticeHelpKeys === 'function') renderPracticeHelpKeys();
   } else if (pageId === 'ranking') {
     if (typeof renderRankingPage === 'function') renderRankingPage();
+  } else if (pageId === 'stats') {
+    if (typeof renderStatsPage === 'function') renderStatsPage();
+    // ログイン中は他の端末の分を取り直す（変わっていれば tetlabo:cloudsync で描き直される。app/stats_page.js）
+    window.CloudSync?.refreshStats?.();
   }
 
   // PRACTICE の目標値スピナーが開いたままページを離れると FocusNav.suspended が
@@ -373,7 +401,7 @@ function switchPage(pageId) {
   // ★ キーボードフォーカスナビゲーション（focus_nav.js）
   if (window.FocusNav) {
     if (['main-menu','mode-check','versus-check','vs-settings','quiz-check',
-         'result','versus-result','quiz-result','settings','credits','changelog','practice-help','ranking','replays'].includes(pageId)) {
+         'result','versus-result','quiz-result','settings','credits','changelog','practice-help','ranking','replays','stats'].includes(pageId)) {
       window.FocusNav.activate(pageId);
     } else {
       window.FocusNav.deactivate();
@@ -404,6 +432,7 @@ function renderModeCheckBest() {
   if (mode.id === 'marathon') key = (marathonSelectedGoal === 'endless') ? 'marathon:endless' : 'marathon:150';
   else if (mode.id === 'sprint') key = 'sprint:40';
   else if (mode.id === 'ultra') key = 'ultra';
+  else if (mode.id === 'zone') key = 'zone:150';
   else if (mode.id === 'puyo') key = 'puyo';
 
   _modeCheckBestReplayToken++;
@@ -532,6 +561,27 @@ function renderModeCheck() {
       optionsEl.querySelectorAll('.opt-btn.active').forEach(btn => {
           btn.style.color = mode.color;
           btn.style.borderColor = mode.color;
+      });
+    } else if (mode.id === 'zone') {
+      // ZONE: GOAL は 150 固定（ENDLESS は v1 では付けない）。START LEVEL は MARATHON と同じ値を使う
+      optionsEl.style.display = 'flex';
+      const startLevel = (window._game && window._game.marathonStartLevel) ? window._game.marathonStartLevel : 1;
+      optionsEl.innerHTML = `
+        <div class="option-row">
+          <span class="option-label">START LEVEL</span>
+          <div class="option-toggle" id="marathon-level-toggle"></div>
+          <div class="option-slider">
+            <input type="range" id="marathon-level-slider" min="1" max="15" value="${startLevel}" oninput="updateMarathonLevelDisplay()">
+            <span id="marathon-level-val" class="option-val">${startLevel}</span>
+          </div>
+        </div>
+        ${renderZoneOptionsHtml()}
+      `;
+      const levelVal = document.getElementById('marathon-level-val');
+      if (levelVal) levelVal.style.color = mode.color;
+      optionsEl.querySelectorAll('.opt-btn.active').forEach(btn => {
+        btn.style.color = mode.color;
+        btn.style.borderColor = mode.color;
       });
     } else if (mode.id === 'test') {
       optionsEl.style.display = 'flex';
@@ -675,6 +725,8 @@ function renderModeCheck() {
         startBtn.style.background = 'linear-gradient(135deg, var(--accent3) 0%, var(--accent) 100%)';
       } else if (mode.id === 'ultra') {
         startBtn.style.background = 'linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%)';
+      } else if (mode.id === 'zone') {
+        startBtn.style.background = 'linear-gradient(135deg, var(--zone-color) 0%, var(--accent3) 100%)';
       } else {
         startBtn.style.background = 'linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%)';
       }
@@ -694,6 +746,8 @@ function _applyModePauseSelectStyle(btn) {
     btn.style.background = 'linear-gradient(135deg, var(--accent3) 0%, var(--accent) 100%)';
   } else if (mode.id === 'ultra') {
     btn.style.background = 'linear-gradient(135deg, var(--accent2) 0%, var(--accent) 100%)';
+  } else if (mode.id === 'zone') {
+    btn.style.background = 'linear-gradient(135deg, var(--zone-color) 0%, var(--accent3) 100%)';
   } else {
     btn.style.background = 'linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%)';
   }
@@ -870,6 +924,18 @@ async function startGameFromModeCheck() {
     window._game.marathonGoal = (marathonSelectedGoal === 'endless') ? Infinity : 150;
     const levelSlider = document.getElementById('marathon-level-slider');
     window._game.marathonStartLevel = levelSlider ? parseInt(levelSlider.value, 10) : 1;
+  } else if (modeId === 'zone') {
+    // ZONE は MARATHON と同じ値で進む（ゴール 150 固定。設計 tetlabo-zone-design.md §3・§8）
+    window._game.marathonGoal = 150;
+    const levelSlider = document.getElementById('marathon-level-slider');
+    window._game.marathonStartLevel = levelSlider ? parseInt(levelSlider.value, 10) : 1;
+    // 準備画面の ZONE 設定（modes.js zoneSettings）。既定以外は記録しない
+    window._game.zoneFixedLevel = zoneSettings.levelMode === 'fixed';
+    window._game.zoneQuarterMsSetting = zoneSettings.quarterMs;
+    window._game.zoneQuarterLinesSetting = zoneSettings.quarterLines;
+    window._game.zoneRecordEligible = isZoneRecordEligible();
+    // 表示の縮尺（見た目だけ。modes.js）
+    if (typeof applyZoneViewScale === 'function') applyZoneViewScale();
   }
 
   const evalArea = document.getElementById('eval-area');

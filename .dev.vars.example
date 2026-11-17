@@ -1,0 +1,14 @@
+# ローカル開発（pnpm dev の wrangler dev）用の Secret。
+# このファイルを .dev.vars にコピーして値を入れる（.dev.vars は gitignore 済み。コミットしない）。
+#   cp .dev.vars.example .dev.vars
+# 本番・プレビューの Secret は Cloudflare 側（Settings → Variables and Secrets）にあり、ローカルには来ない。
+# 入れていないと localhost の Discord ログインが invalid_client で失敗する
+# （/?login=error&reason=token_exchange_401_secretLenunset_...）。
+# 値を変えたら wrangler dev を起動し直す。
+
+# Discord Developer Portal → アプリ → OAuth2 → Client Secret（本番と同じ値）。
+# ★ そこで「Reset Secret」すると本番・プレビューの Secret も古くなる（Cloudflare 側も入れ直しが要る）
+DISCORD_CLIENT_SECRET=
+
+# オンライン対戦のチケット署名鍵（base64。worker/ticket.ts）。ローカルでオンラインのアカウント表示を試すときだけ要る
+TICKET_PRIVATE_KEY=

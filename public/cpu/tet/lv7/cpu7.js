@@ -10,7 +10,7 @@
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=4'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=12'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -158,8 +158,37 @@ window.CPU7 = class {
         };
     }
 
+    // ZONE（VERSUS）の発動中だけ差し替える重み。発動中は消した段が底に残って盤面が下がらないので、
+    // ふだんの「1〜3 ライン消しは減点（消すと盤面が下がる得と釣り合う）」のままだと消去が損にしか見えず、
+    // 天井まで積んでから仕方なく消す（設計 tetlabo-zone-versus-cpu-design.md §19）。
+    // 発動中は段数がそのまま終了時の火力になるので消去はどれも加点。大きい消去・T-Spin は通常火力も乗るので高く。
+    // 値は node のシミュ（発動から 55 手）で決めた仮の値。コンソールから CPU7.ZONE_WEIGHTS.clear1 = 300 のように変えられる
+    static ZONE_WEIGHTS = {
+        clear1: 150,
+        clear2: 400,
+        clear3: 650,
+        clear4: 1400,
+        tspin1: 400,
+        tspin2: 1000,
+        tspin3: 1600,
+    };
+
     weightsArray() {
-        return new Int32Array(this.constructor.WEIGHT_KEYS.map(k => Math.round(this.weights[k] || 0)));
+        const g = this.game;
+        const z = (g && g.zoneActive && g.isVersusMode) ? this.constructor.ZONE_WEIGHTS : null;
+        const base = this.constructor.WEIGHT_KEYS.map(k =>
+            Math.round(((z && z[k] !== undefined) ? z[k] : this.weights[k]) || 0));
+        // §22（ZONE 設計 VERSUS 編）: 重みの後ろに出現・ZONE の欄（engine/lv7_wasm.cpp search の ext）
+        //   7777・火力表の段数の数・時間切れまでの手数・いまホールドできるか・いまのミノの 4 マス・火力表
+        const zt = (window.CpuZone && g) ? CpuZone.zoneTable(g) : null;
+        const ext = [7777, zt ? zt.length : 0, (window.CpuZone && g) ? CpuZone.movesLeft(g, 7) : 0, (g && g.canHold) ? 1 : 0];
+        const m = g && g.mino;
+        if (m) for (const b of m.blocks) ext.push(b.x + m.x, b.y + m.y);
+        else for (let i = 0; i < 8; i++) ext.push(-100);
+        // §23: 表の後ろに ATTACK BIAS の 100 倍（通常火力を表と同じ物差しで数える）と、いまのミノの向き
+        //   （S・Z・I の縦は右向きと左向きが同じ形なので、4 マスだけでは先行回転の向きが分からない）
+        const bias = (window.CpuZone && g) ? CpuZone.attackBias100(g) : 100;
+        return new Int32Array(base.concat(ext, zt || [], [bias, m ? (m.rotation & 3) : -1]));
     }
 
     start() {
@@ -208,6 +237,8 @@ window.CPU7 = class {
 
     updateLoop() {
         if (!this.isActive) return;
+        // ZONE（VERSUS）: 発動の判断・発動中の手の速さ（cpu/tet/cpu_zone.js）。ZONE の無い試合では何もしない
+        if (window.CpuZone && CpuZone.tick(this, 7)) { this.game.cpuFrame(() => this.updateLoop()); return; }
         if (this.game.mino && this.game.mino !== this.currentMino) {
             this.currentMino = this.game.mino;
             this.onMinoSpawned();
@@ -234,11 +265,15 @@ window.CPU7 = class {
         }
         if (this.isCalculating) return;
 
-        const boardBuffer = new Uint8Array(250);
+        // 盤面は y=-20〜19 の 400 個（(y+20)*10+x。ZONE の試合は枠の上 20 段まで動けるため。engine/lv7_wasm.cpp）
+        const boardBuffer = new Uint8Array(400);
         this.game.field.blocks.forEach(b => {
-            const by = b.y + 5;
-            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) boardBuffer[by * 10 + b.x] = 1;
+            const by = b.y + 20;
+            if (by >= 0 && by < 40 && b.x >= 0 && b.x < 10) boardBuffer[by * 10 + b.x] = 1;
         });
+        // ZONE の発動中は先頭の bit7 に印（探索が ZONE 段を消えない床として読み、枠の上の手も作る）。
+        // 先頭のマス（x=0, y=-20）も ZONE の試合では埋まりうるので、ほかのレベル（cpu_zone.js stampBoard）とは別の印にする
+        if (this.game.zoneActive) boardBuffer[0] |= 0x80;
 
         // 確定 NEXT を深さぶん（HOLD が空なら1本多く使う）まで継ぎ足す。表示は先頭5個のまま、ツモの順は変わらない
         const depth = Math.max(1, Math.min(32, Math.round(this.weights.searchDepth)));
@@ -299,7 +334,8 @@ window.CPU7 = class {
         if (res[0] !== 1) {
             // 置ける手が無い（窒息）。その場で落とす
             if (this.isAutoPlay && this.game.mino === this.currentMino) {
-                this.game.cpuSchedule(700, () => {
+                // ZONE の発動中は待たずに落とす（待つと ZONE の時間だけ減る。cpu/tet/cpu_zone.js noMoveDelay）
+                this.game.cpuSchedule(window.CpuZone ? CpuZone.noMoveDelay(this, 700) : 700, () => {
                     if (this.isActive && this.game.mino === this.currentMino && !this.game.isPaused) this.game.cpuAction('hardDrop');
                 });
             }
@@ -332,6 +368,10 @@ window.CPU7 = class {
             depth: res[13],
         };
         move.p1 = { id, rot: pose.rot, x: pose.x, y: pose.y };
+        // §22: 次のミノの出し方（先行回転 0/1/-1・先行ホールド）。今のミノを落とす前に予約する
+        move.nextIrs = res.length > 95 ? res[90] : 0;
+        move.nextIhs = res.length > 95 ? res[91] : 0;
+        move.zoneEnd = res.length > 95 ? res[92] : 0;
         this.bestMoveData = move;
 
         // 相手の見積もり（out[96..]。lv7_wasm.cpp estimate_threat の表）。T0 では表示・記録だけ
@@ -355,12 +395,33 @@ window.CPU7 = class {
         if (!this.isActive || !this.isAutoPlay) return;
         if (this.isExecutingAction) return;
         if (move.useHold && !this.game.canHold) {
-            console.warn('lv7: HOLD できない局面で HOLD の手が来ました');
-            return;
+            // §23: 止まらないようにする（以前はここで return して、そのミノのまま操作が止まった）
+            const mino = this.game.mino;
+            if (mino && move.id === mino.type) {
+                move.useHold = false; // 出ているミノの手（ホールドの印だけが違う）
+            } else {
+                console.warn('lv7: HOLD できない局面で HOLD の手が来ました');
+                if (mino && this._badHoldMino !== mino) {
+                    // 1 回だけ考え直す（探索には canHold を渡している）
+                    this._badHoldMino = mino;
+                    this.onMinoSpawned();
+                } else if (mino) {
+                    // それでも来たら、その場で落とす
+                    this.game.cpuSchedule(0, () => {
+                        if (this.isActive && this.game.mino === mino && !this.game.isPaused) this.game.cpuAction('hardDrop');
+                    });
+                }
+                return;
+            }
         }
         this.isExecutingAction = true;
         if (this.game) this.game.cpuAction('gravity', true);
         this.actionQueue = this.buildHoldActionQueue(move);
+        // §22: 次のミノが向き 0 で出せない局面では、探索が決めた出し方をハードドロップの直前に予約する
+        if (move.nextIrs || move.nextIhs) {
+            const k = this.actionQueue.findIndex(a => a.type === 'harddrop');
+            if (k >= 0) this.actionQueue.splice(k, 0, { type: 'spawnPlan', rot: move.nextIrs, hold: !!move.nextIhs, delay: 0 });
+        }
         this.game.cpuSchedule(this.actionDelay, () => this.processActionQueue());
     }
 
@@ -397,7 +458,7 @@ window.CPU7 = class {
     // lv7Search2 の ctx（engine/lv7_wasm.cpp parse_ctx の並び。lv7-threat-design.md §4.4）。
     //   相手の NEXT は画面に出る 5 本まで。自分の予告は件ごとに量・ready・ready までの ms（穴は受ける側で決まるので -1）
     buildCtx() {
-        const ctx = new Int32Array(19 + 4 * 16 + 250);
+        const ctx = new Int32Array(19 + 4 * 16 + 400);
         ctx[0] = 1;
         const margin = (game) => (game && game._tetMarginStep !== null && game._tetMarginStep !== undefined) ? game._tetMarginStep : -1;
         ctx[16] = margin(this.game);
@@ -444,11 +505,12 @@ window.CPU7 = class {
             bag |= 1 << oppNext[i].type;
         }
         ctx[17] = bag === 0x7F ? 0 : bag;
-        opp.field.blocks.forEach(b => {
-            const by = b.y + 5;
-            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) ctx[boardAt + by * 10 + b.x] = 1;
+        // 相手が ZONE の発動中なら、ZONE 段を除いたふつうの盤面として渡す（cpu/tet/cpu_zone.js）
+        (window.CpuZone ? CpuZone.plainBlocks(opp) : opp.field.blocks).forEach(b => {
+            const by = b.y + 20;
+            if (by >= 0 && by < 40 && b.x >= 0 && b.x < 10) ctx[boardAt + by * 10 + b.x] = 1;
         });
-        return ctx.slice(0, boardAt + 250);
+        return ctx.slice(0, boardAt + 400);
     }
 
     getIncomingGarbage() {
@@ -881,6 +943,9 @@ window.CPU7 = class {
                 break;
             case 'harddrop':
                 this.game.cpuAction('hardDrop');
+                break;
+            case 'spawnPlan':
+                this.game.cpuAction('spawnPlan', action.rot, action.hold);
                 break;
         }
 

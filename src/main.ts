@@ -17,6 +17,8 @@ import { showToast, ToastColor } from "./components/toast";
 
 // プレーンJS（public/core/replay.js・public/app/replays.js）からの短いお知らせ（CLIP の保存・遊べない理由など）
 (window as any).showGlobalToast = (message: string) => showToast("REPLAY", message, ToastColor.Info);
+// 設定の端末間共有（public/config/cloud_sync.js）からのお知らせ
+(window as any).showSyncToast = (message: string) => showToast("SYNC", message, ToastColor.Info);
 
 document.addEventListener("DOMContentLoaded", () => {
   const urlParams = new URLSearchParams(window.location.search);

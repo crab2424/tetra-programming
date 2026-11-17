@@ -3,7 +3,7 @@
 //
 // 保存先: localStorage['tetlabo_records']
 // キー設計: モード＋条件で分ける（MARATHONは150LINES/ENDLESSで難度が別物のため別枠）。
-//   marathon:150 / marathon:endless / sprint:40 / ultra / puyo
+//   marathon:150 / marathon:endless / sprint:40 / ultra / zone:150 / puyo
 //
 // 将来のサーバー同期（Discord連携等 v2.2以降）へ差し替えやすいよう、
 // - submit() は最初から Promise を返す（シグネチャを変えずに裏側だけ差し替え可能にする）
@@ -22,14 +22,17 @@
     'sprint:40':        { field: 'timeMs',   better: 'lower'  },
     'ultra':            { field: 'score',    better: 'higher' },
     'puyo':             { field: 'score',    better: 'higher' }, // v2.2.3で最大連鎖→スコアに変更
+    'zone:150':         { field: 'score',    better: 'higher' },
   };
 
   // ランキング対象キー（並び順＝RANKINGタブの並び）。worker/records.ts の RANKED_MODES とキーを一致させる。
-  const RANKED_KEYS = ['marathon:endless', 'sprint:40', 'ultra', 'puyo'];
+  const RANKED_KEYS = ['marathon:endless', 'sprint:40', 'ultra', 'zone:150', 'puyo'];
   const RANK_LABELS = {
+    'marathon:150':     'MARATHON 150',
     'marathon:endless': 'MARATHON',
     'sprint:40':        'SPRINT',
     'ultra':            'ULTRA',
+    'zone:150':         'ZONE',
     'puyo':             'PUYO',
   };
 
@@ -119,6 +122,22 @@
     if (!rec) return;
     rec.syncedTo = syncedTo;
     _saveAll(data);
+    // アカウントのものと決まった記録は端末間共有の対象になる（config/cloud_sync.js）
+    window.CloudSync?.touch?.();
+  }
+
+  // cloud_sync.js からのみ呼ばれる: アカウントに保存されていた自己ベストを、この端末の記録より
+  // 良いときだけ取り込む。リプレイはこの端末に無いので meta は空にする。
+  // @returns {boolean} 取り込んだか
+  function adopt(key, record, syncedTo) {
+    if (!record || typeof record !== 'object') return false;
+    const data = _loadAll();
+    const current = data.records[key] || null;
+    if (current && current.id === record.id) return false;
+    if (!_isBetter(key, record, current)) return false;
+    data.records[key] = Object.assign({}, record, { meta: {}, syncedTo });
+    _saveAll(data);
+    return true;
   }
 
   function reset() {
@@ -143,5 +162,9 @@
     return typeof v === 'number' ? v.toLocaleString('en-US') : '—';
   }
 
-  window.Records = { get, getAll, submit, markSynced, reset, format, RANKED_KEYS, isRanked, labelFor };
+  window.Records = {
+    get, getAll, submit, markSynced, adopt, reset, format, RANKED_KEYS, isRanked, labelFor,
+    ALL_KEYS: Object.keys(RECORD_RULES),
+    isBetter: _isBetter,
+  };
 })();

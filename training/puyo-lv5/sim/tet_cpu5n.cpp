@@ -36,7 +36,7 @@ void cpuSearchLv5(const uint8_t board[250], int cur, int hold, const int next[5]
                   const int* weights, int ren, int b2b, int out[TET_OUT_LEN]) {
     std::call_once(g_precalcOnce5n, []() { tetcpu5n::ensurePrecalc(); });
     tetcpu5n::tetcpu5n_searchBestMoveWasm(const_cast<uint8_t*>(board), cur, hold, next[0], next[1], next[2], next[3],
-                                          next[4], canHold, const_cast<int*>(weights), out, ren, b2b);
+                                          next[4], canHold, const_cast<int*>(weights), out, ren, b2b, 0, 0); // 予告・ZONE の残り手数（シミュは ZONE なし）
 }
 
 } // namespace tsim

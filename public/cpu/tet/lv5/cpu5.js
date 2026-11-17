@@ -7,7 +7,7 @@ window.CPU5 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv5/cpu_worker5.js?v=3',
+        'cpu/tet/lv5/cpu_worker5.js?v=6',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -240,7 +240,64 @@ window.CPU5 = class {
         return true;
     }
 
+    // 簡略化した操作列（buildShortActionQueue）を試しに動かし、探索の置き場所に着かなければ path どおりに操作する。
+    // 簡略化は「目標の向きが出現位置に収まるか」しか見ないので、2 回転の途中の向きがブロックに当たって
+    // キックされると、1 列・1 段ずれた所に置いてしまう（天井近くで起きる。ZONE の発動中に多い。lv7 と同じ対策）
     buildActionQueue(bestResult) {
+        const queue = this.buildShortActionQueue(bestResult);
+        if (bestResult.action === 'hold' || !bestResult.path || bestResult.path.length === 0) return queue;
+        if (this.queueLandsAt(queue, bestResult)) return queue;
+        const ACTION_MAP = { 1: 'moveLeft', 2: 'moveRight', 3: 'softDrop', 4: 'rotateCW', 5: 'rotateCCW', 6: 'harddrop' };
+        const raw = [];
+        for (const a of bestResult.path) {
+            if (a === 6) break;
+            if (ACTION_MAP[a]) raw.push({ type: ACTION_MAP[a], delay: this.actionDelay });
+        }
+        raw.push({ type: 'harddrop', delay: this.harddropDelay });
+        return raw;
+    }
+
+    // queue を processActionQueue と同じ動き（回転はキック込み・moveToTargetX は詰まると目標列へ）で試しに動かし、
+    // ハードドロップした 4 マスが bestResult（id・rot・x・y）と一致するか。ミノと関係するフラグは元に戻す
+    queueLandsAt(queue, bestResult) {
+        const g = this.game, m = g.mino;
+        if (!m || bestResult.id === undefined || bestResult.id === null) return true;
+        const saved = {
+            x: m.x, y: m.y, rotation: m.rotation, blocks: m.blocks.map(b => new Block(b.x, b.y, b.type)),
+            score: g.score, lowestY: g.lowestY,
+            lastActionWasRotation: g.lastActionWasRotation, lastRotUsedPoint5: g.lastRotUsedPoint5,
+        };
+        let landed = null;
+        for (const a of queue) {
+            if (a.type === 'rotateCW') g.tryRotate(1, true);
+            else if (a.type === 'rotateCCW') g.tryRotate(-1, true);
+            else if (a.type === 'moveLeft') { if (g.valid(-1, 0)) m.x--; }
+            else if (a.type === 'moveRight') { if (g.valid(1, 0)) m.x++; }
+            else if (a.type === 'softDrop') { if (g.valid(0, 1)) m.y++; }
+            else if (a.type === 'multiSoftDrop') { while (m.y < a.targetY && g.valid(0, 1)) m.y++; }
+            else if (a.type === 'moveToTargetX') {
+                while (m.x !== a.targetX) {
+                    const d = m.x < a.targetX ? 1 : -1;
+                    if (!g.valid(d, 0)) { m.x = a.targetX; break; }
+                    m.x += d;
+                }
+            } else if (a.type === 'harddrop') {
+                while (g.valid(0, 1)) m.y++;
+                landed = m.blocks.map(b => (b.x + m.x) + ',' + (b.y + m.y)).sort().join(' ');
+                break;
+            }
+        }
+        m.x = saved.x; m.y = saved.y; m.rotation = saved.rotation; m.blocks = saved.blocks;
+        g.score = saved.score; g.lowestY = saved.lowestY;
+        g.lastActionWasRotation = saved.lastActionWasRotation; g.lastRotUsedPoint5 = saved.lastRotUsedPoint5;
+
+        const t = new Mino(bestResult.id);
+        for (let i = 0; i < bestResult.rot; i++) t.rotate();
+        const want = t.blocks.map(b => (b.x + bestResult.x) + ',' + (b.y + bestResult.y)).sort().join(' ');
+        return landed === want;
+    }
+
+    buildShortActionQueue(bestResult) {
         let queue = [];
         
         if (bestResult.action === 'hold') {
@@ -571,6 +628,8 @@ window.CPU5 = class {
 
     updateLoop() {
         if (!this.isActive) return;
+        // ZONE（VERSUS）: 発動の判断・発動中の手の速さ（cpu/tet/cpu_zone.js）。ZONE の無い試合では何もしない
+        if (window.CpuZone && CpuZone.tick(this, 5)) { this.game.cpuFrame(() => this.updateLoop()); return; }
 
         if (this.game.mino && this.game.mino !== this.currentMino) {
             this.currentMino = this.game.mino;
@@ -606,11 +665,15 @@ window.CPU5 = class {
 
         let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
-            let by = b.y + 5;
+            // ZONE の試合は枠の上 20 段まで積める。探索は 25 段なので、枠の上 6 段目より上は最上段にたたむ
+            // （その列は天井まで埋まっている、と読む。探索は出現位置から落とす手しか作らないので置き方は変わらない）
+            let by = Math.max(0, b.y + 5);
             if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) {
                 boardBuffer[by * 10 + b.x] = 1; 
             }
         });
+        // ZONE の発動中は印を付ける（探索が ZONE 段を消えない床として読む。cpu/tet/cpu_zone.js）
+        if (window.CpuZone) CpuZone.stampBoard(boardBuffer, this.game);
 
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
@@ -681,11 +744,15 @@ window.CPU5 = class {
 
         let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
-            let by = b.y + 5;
+            // ZONE の試合は枠の上 20 段まで積める。探索は 25 段なので、枠の上 6 段目より上は最上段にたたむ
+            // （その列は天井まで埋まっている、と読む。探索は出現位置から落とす手しか作らないので置き方は変わらない）
+            let by = Math.max(0, b.y + 5);
             if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) {
                 boardBuffer[by * 10 + b.x] = 1; 
             }
         });
+        // ZONE の発動中は印を付ける（探索が ZONE 段を消えない床として読む。cpu/tet/cpu_zone.js）
+        if (window.CpuZone) CpuZone.stampBoard(boardBuffer, this.game);
 
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
@@ -735,7 +802,10 @@ window.CPU5 = class {
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray,
             ren: currentRen,       
-            backToBack: currentBtB 
+            backToBack: currentBtB,
+            // ZONE の発動中: 予告の合計と時間切れまでに置ける見込みの手数（探索が ZONE の終わりを読む。cpu_zone.js・設計 §21）
+            incoming: window.CpuZone ? CpuZone.incoming(this.game) : 0,
+            zoneMovesLeft: window.CpuZone ? CpuZone.movesLeft(this.game, 5) : 0
         });
     }
 
@@ -755,7 +825,8 @@ window.CPU5 = class {
                     }
                     this.game.cpuAction('hardDrop');
                 };
-                this.game.cpuSchedule(700, tryDropFallback);
+                // ZONE の発動中は待たずに落とす（待つと ZONE の時間だけ減る。cpu/tet/cpu_zone.js noMoveDelay）
+                this.game.cpuSchedule(window.CpuZone ? CpuZone.noMoveDelay(this, 700) : 700, tryDropFallback);
             }
             return;
         }
@@ -822,6 +893,10 @@ window.CPU5 = class {
 
         if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino && bestMove.p1) {
             this.executeAction(bestMove);
+        } else if (!bestMove.p1 && window.CpuZone) {
+            // 探索が「初手で出せない」死に枝を返した（手を持たない）。ZONE の発動中は自由落下で固定されないので、
+            // 何もしないとそのまま止まる。その場で落とす（cpu/tet/cpu_zone.js dropIfNoMove。ZONE 以外は今までどおり）
+            CpuZone.dropIfNoMove(this);
         }
     }
 

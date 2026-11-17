@@ -226,11 +226,14 @@ class PracticeManager {
             game.popMino = function () {
                 // _capture()内でHUD更新が走るため、リセットは_capture()より前に置く
                 // （順序が逆だとCYCLE表示が1手古いままになる。設計 Phase7 §2）
-                self._cycleIndex = null; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1・Phase8 §2.1）
-                self._capture();
-                // FIXED中の自動補充は、直前のツモのライン消去が解決した直後＝次のツモの
-                // 出現直前(spawn妥当性チェック前)に行う（設計 Phase7 追補3）
-                self._maintainOjamaFixed();
+                // IHS の待ち明けの呼び直し（tet/rotation.js _ihsRescueWait）では、局面の保存と補充はもう済んでいる
+                if (!this._ihsRescueResume) {
+                    self._cycleIndex = null; // 新しいツモが出るたびにリセット（設計 Phase5 §9.1・Phase8 §2.1）
+                    self._capture();
+                    // FIXED中の自動補充は、直前のツモのライン消去が解決した直後＝次のツモの
+                    // 出現直前(spawn妥当性チェック前)に行う（設計 Phase7 追補3）
+                    self._maintainOjamaFixed();
+                }
                 self._origPopMino.call(this);
             }.bind(game);
 
@@ -802,7 +805,9 @@ class PracticeManager {
 
         if (this.rule === 'tet') {
             // 復元は「ツモ消費前」の状態なので、ここで同じミノを出し直す
-            g.popMino();
+            // （ふつうに進んだ出現ではないので、先行回転・先行ホールドは当てない。IRS/IHS 設計 §2.3）
+            g._noSpawnAssist = true;
+            try { g.popMino(); } finally { g._noSpawnAssist = false; }
             g.startGravity();
             g.drawAll();
         }

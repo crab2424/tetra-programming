@@ -157,8 +157,11 @@ TETLABO 内での再生のためにのみ同梱しています。素材として
 | Springin' Sound Stock | フューチャー3 | https://www.springin.org/sound-stock/ | [Springin' Sound Stock ガイドライン](https://www.springin.org/sound-stock/guideline/) |
 | Springin' Sound Stock | テクノ1 | https://www.springin.org/sound-stock/ | [Springin' Sound Stock ガイドライン](https://www.springin.org/sound-stock/guideline/) |
 | yuhei komatsu | Gravity | https://opentracks.com/bgm/detail/17384 | [OpenTracks 音源ライセンス](https://opentracks.com/help/articles/license/) |
+| L.Mity & EspiDev | Acrise | https://soundcloud.com/espidev/acrise | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) ※ |
 
 ※ "Antlers" by Kubbi is licensed under CC BY-SA 4.0. TETLABO に同梱しているファイルは、原曲を OGG (Opus) 形式に変換・編集したもので、同じく CC BY-SA 4.0 で提供されます。
+
+※ "Acrise" by L.Mity & EspiDev is licensed under CC BY 3.0. TETLABO に同梱しているファイルは、原曲を OGG (Opus) 形式に変換したものです。
 
 ### 効果音
 
@@ -170,6 +173,7 @@ TETLABO 内での再生のためにのみ同梱しています。素材として
 | フリー効果音素材 くらげ工匠 | http://www.kurage-kosho.info/guide.html |
 | Springin' Sound Stock | https://www.springin.org/sound-stock/guideline/ |
 | Taira Komori | https://taira-komori.net/welcome.html |
+| ポケットサウンド | https://pocket-se.info/ |
 
 ---
 

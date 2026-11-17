@@ -17,15 +17,31 @@
 
     // v2.2.3で後からランキング対象に加わったキー。ログイン済みのまま起動した利用者の過去ベストは
     // 自動送信せず、1回だけ取込ダイアログで確認する（ログイン前に出た記録＝共用PCで他人の記録かもしれないため）。
-    const LATE_RANKED_KEYS = ['marathon:endless', 'puyo'];
-    const LATE_IMPORT_FLAG = 'tetlabo_late_rank_import_v223';
+    // v2.5.0 で自己ベストの端末間共有（config/cloud_sync.js）が入り、ランキング対象外の MARATHON 150 も
+    // アカウントに結び付くようになった。これも同じ理由で 1 回だけ確認する。
+    const LATE_IMPORTS = [
+        { flag: 'tetlabo_late_rank_import_v223', keys: ['marathon:endless', 'puyo'] },
+        { flag: 'tetlabo_late_import_v250', keys: ['marathon:150'] },
+    ];
 
-    function _lateImportDone() {
-        try { return localStorage.getItem(LATE_IMPORT_FLAG) === '1'; } catch (e) { return true; }
+    function _lateDone(entry) {
+        try { return localStorage.getItem(entry.flag) === '1'; } catch (e) { return true; }
+    }
+
+    // まだ確認していない「後から対象になったキー」の一覧
+    function _latePendingKeys() {
+        return LATE_IMPORTS.filter((entry) => !_lateDone(entry)).flatMap((entry) => entry.keys);
     }
 
     function _markLateImportDone() {
-        try { localStorage.setItem(LATE_IMPORT_FLAG, '1'); } catch (e) { /* 次回また確認されるだけ */ }
+        for (const entry of LATE_IMPORTS) {
+            try { localStorage.setItem(entry.flag, '1'); } catch (e) { /* 次回また確認されるだけ */ }
+        }
+    }
+
+    // 全モードの記録キー（ランキング対象外も含む）
+    function _allKeys() {
+        return (window.Records && window.Records.ALL_KEYS) || _rankedKeys();
     }
 
     let me = null; // null | { id, name, avatarUrl, isAdmin }
@@ -98,11 +114,15 @@
             // 通常起動時: 後から対象になったモードの過去ベストを1回だけ確認 →
             // 前回の通信失敗で同期し切れなかった記録があれば再送する
             (async () => {
-                if (me && !_lateImportDone()) {
-                    await _maybeImportLocal(LATE_RANKED_KEYS);
-                    _markLateImportDone();
+                const lateKeys = _latePendingKeys();
+                // 自己ベストは後から対象になったキーだけ。成績（STATS）のゲスト分は、前に聞いていなければここでも聞く
+                if (me) {
+                    await _maybeImportLocal(lateKeys);
+                    if (lateKeys.length > 0) _markLateImportDone();
                 }
                 await syncLocalBests();
+                // 設定と自己ベストを他の端末と揃える（config/cloud_sync.js）
+                await window.CloudSync?.sync?.({ interactive: true });
             })().catch((e) => console.error(e));
             return;
         }
@@ -131,9 +151,11 @@
             });
         } else if (login === 'ok') {
             // 初回取込ダイアログ(★B) → その他の未同期分の通常同期（別アカウント切替時の記録など）
-            await _maybeImportLocal(_rankedKeys());
+            await _maybeImportLocal(_allKeys());
             if (me) _markLateImportDone(); // 全キーを確認済みなので、起動時の追加確認は不要
             await syncLocalBests();
+            // 設定と自己ベストを他の端末と揃える（config/cloud_sync.js）
+            await window.CloudSync?.sync?.({ interactive: true });
         }
     }
 
@@ -216,17 +238,23 @@
         }
     }
 
-    // ランキング対象キーのうち、まだこのアカウントへ送っていないローカル自己ベストを送信する。
-    // 通信失敗時はsyncedToが更新されないため、次回のsubmit()/起動時に自然に再送される。
+    // まだこのアカウントへ結び付けていないローカル自己ベストを結び付ける。
+    // ランキング対象キーはサーバーへ送信し、受理されたら結び付ける（通信失敗時はsyncedToが更新されない
+    // ため、次回のsubmit()/起動時に自然に再送される）。対象外のキーは送る先が無いのでその場で結び付ける。
+    // 結び付いた記録は端末間共有（config/cloud_sync.js）の対象になる。
     async function syncLocalBests() {
         if (!me || !window.Records) return;
-        const lateDone = _lateImportDone();
-        for (const key of _rankedKeys()) {
+        const latePending = _latePendingKeys();
+        for (const key of _allKeys()) {
             const record = window.Records.get(key);
             if (!record) continue;
             if (record.syncedTo === me.id || record.syncedTo === `skip:${me.id}`) continue;
             // 起動時の取込確認がまだ（ダイアログ表示中など）なら、後から対象になったモードの未確認記録は送らない
-            if (!lateDone && record.syncedTo === undefined && LATE_RANKED_KEYS.includes(key)) continue;
+            if (record.syncedTo === undefined && latePending.includes(key)) continue;
+            if (!window.Records.isRanked(key)) {
+                window.Records.markSynced(key, me.id);
+                continue;
+            }
             const result = await pushRecord(key, _recordPayload(record), 'play', record.at);
             if (result && result.accepted) window.Records.markSynced(key, me.id);
         }
@@ -236,20 +264,34 @@
     // アカウントへの登録可否を1回だけ確認する。NOの場合は'skip:<id>'を付けて以後聞かない
     // （そのベスト自体は再度聞かないが、次にそのモードの自己ベストが更新されたときは
     //   新しいレコードとしてsyncLocalBests()から自動送信される）。
-    // keys: 確認対象のランキングキー（ログイン直後は全キー、起動時は LATE_RANKED_KEYS のみ）
+    // keys: 確認対象の記録キー（ログイン直後は全キー、起動時は LATE_IMPORTS のうち未確認のものだけ）
+    // 成績（config/stats.js）のゲスト分も、同じダイアログでまとめて聞く（設計 tetlabo-stats-design.md §6.4）。
+    // 成績の NO は「ゲスト分が増えるまで聞かない」（Stats.declineGuest）。
     async function _maybeImportLocal(keys) {
-        if (!me || !window.Records || !window.TetDialog) return;
-        const pending = keys
+        if (!me || !window.TetDialog) return;
+        const pending = window.Records ? keys
             .map((key) => ({ key, record: window.Records.get(key) }))
-            .filter(({ record }) => record && record.syncedTo === undefined);
-        if (pending.length === 0) return;
+            .filter(({ record }) => record && record.syncedTo === undefined) : [];
+        const stats = window.Stats?.guestImportPending?.(me.id) || null;
+        if (pending.length === 0 && !stats) return;
 
         const lines = pending
             .map(({ key, record }) => `${_labelFor(key)} ${window.Records.format(key, record)}`)
             .join(' / ');
+        let statsText = '';
+        if (stats) {
+            const parts = [];
+            if (stats.plays > 0) parts.push(`${stats.plays} 回・${Math.max(1, Math.round(stats.ms / 60000))} 分`);
+            if (stats.solved > 0) parts.push(`解いたクイズ ${stats.solved} 問`);
+            statsText = parts.join('・');
+        }
+        let message;
+        if (pending.length > 0 && stats) message = `このブラウザの記録（${lines}）と成績（${statsText}）をアカウントに登録しますか？`;
+        else if (stats) message = `このブラウザの成績（${statsText}）をアカウントに取り込みますか？`;
+        else message = `このブラウザの記録（${lines}）をアカウントに登録しますか？`;
         const ok = await window.TetDialog.choose({
-            title: 'IMPORT RECORDS',
-            message: `このブラウザの記録（${lines}）をアカウントに登録しますか？`,
+            title: pending.length > 0 ? 'IMPORT RECORDS' : 'IMPORT STATS',
+            message,
             buttons: [
                 { label: 'NO', value: false, kind: 'secondary', cancel: true },
                 { label: 'YES', value: true, kind: 'primary' },
@@ -259,11 +301,17 @@
 
         if (ok) {
             for (const { key, record } of pending) {
+                if (!window.Records.isRanked(key)) {
+                    window.Records.markSynced(key, me.id);
+                    continue;
+                }
                 const result = await pushRecord(key, _recordPayload(record), 'local_import', record.at);
                 if (result && result.accepted) window.Records.markSynced(key, me.id);
             }
+            if (stats) window.Stats.importGuest(me.id);
         } else {
             for (const { key } of pending) window.Records.markSynced(key, `skip:${me.id}`);
+            if (stats) window.Stats.declineGuest(me.id);
         }
     }
 
@@ -389,7 +437,7 @@
         if (!window.TetDialog) return;
         const ok = await window.TetDialog.choose({
             title: 'DELETE ACCOUNT',
-            message: '退会すると、ランキングの記録もすべて削除されます。元に戻せません。よろしいですか？',
+            message: '退会すると、ランキングの記録と、アカウントに保存した設定・自己ベスト・成績（STATS）もすべて削除されます。元に戻せません。よろしいですか？',
             buttons: [
                 { label: 'CANCEL', value: false, kind: 'secondary', cancel: true },
                 { label: 'DELETE', value: true, kind: 'danger' },

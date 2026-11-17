@@ -20,6 +20,8 @@ const DEFAULT_BINDS = {
   hold: [{ type: 'key', code: 'ShiftLeft', label: 'SHIFT' }, { type: 'button', index: 4 }, { type: 'button', index: 5 }],
   pause: [{ type: 'key', code: 'Escape', label: 'ESC' }, { type: 'button', index: 9 }, null],
   restart: [{ type: 'key', code: 'KeyR', label: 'R' }, { type: 'button', index: 8 }, null],
+  // ─── ZONE が使えるモード専用（RT は PRACTICE の advance と同じボタンだが、同時に使うモードは無い）───
+  zone: [{ type: 'key', code: 'KeyA', label: 'A' }, { type: 'button', index: 7 }, null],
   // ─── PRACTICEモード専用（他モードでは使われない） ───
   rewind:  [{ type: 'key', code: 'KeyQ', label: 'Q' }, { type: 'button', index: 6 }, null],
   advance: [{ type: 'key', code: 'KeyE', label: 'E' }, { type: 'button', index: 7 }, null],
@@ -38,6 +40,7 @@ const ACTION_LABELS = {
   hold: { name: 'ホールド', en: 'Hold' },
   pause: { name: 'ポーズ', en: 'Pause' },
   restart: { name: 'リスタート', en: 'Restart' },
+  zone: { name: 'ZONE 発動 (ZONE)', en: 'Activate Zone' },
   // PRACTICEモード専用。各モードのCONTROLS一覧（updateMenuControlsDisplay）には出さず、
   // キーコンフィグ画面にだけ行を出す。
   rewind:  { name: '1手戻す (PRACTICE)', en: 'Rewind (Practice)' },
@@ -49,12 +52,16 @@ const ACTION_LABELS = {
 
 /**
  * デフォルトチューニング設定
- * @type {{das: number, arr: number, dcd: number}}
+ * irs / ihs: 先行回転・先行ホールド（既定 OFF。設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §4）
+ * irsDcd: IRS/IHS の非表示 DCD（設計 §13）。ここには置かない＝未設定なら dcd を使う（古い設定・録画も同じ）
+ * @type {{das: number, arr: number, dcd: number, irs: boolean, ihs: boolean}}
  */
 const DEFAULT_TUNING = {
   das: 9.0,
   arr: 1.6,
-  dcd: 3.0
+  dcd: 3.0,
+  irs: false,
+  ihs: false
 };
 
 // ─── デフォルト音量設定 ───────────────────────
@@ -92,6 +99,7 @@ window.currentDisplay = currentDisplay;
 
 function saveDisplay() {
   localStorage.setItem('game_display', JSON.stringify(currentDisplay));
+  window.CloudSync?.touch?.(); // Discord ログイン中なら端末間共有へ送る（config/cloud_sync.js）
 }
 
 // APM/LPM・対戦TIMEの表示可否をbodyクラスへ反映する（CSS側はbodyクラスで一括制御）
@@ -399,7 +407,27 @@ function renderTuning() {
   document.getElementById('slider-das').value = currentTuning.das;
   document.getElementById('slider-arr').value = currentTuning.arr;
   document.getElementById('slider-dcd').value = currentTuning.dcd;
+  // 未設定（古い設定）は横の DCD と同じ値で始める
+  document.getElementById('slider-irs-dcd').value = currentTuning.irsDcd ?? currentTuning.dcd;
   updateTuningDisplay();
+  renderTuningOptions();
+}
+
+// IRS・IHS の ON/OFF（DAS などと同じく SAVE で保存する）
+function renderTuningOptions() {
+  for (const key of ['irs', 'ihs']) {
+    const toggle = document.getElementById(`tuning-${key}-toggle`);
+    if (!toggle) continue;
+    const on = currentTuning[key] === true;
+    toggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn.dataset.value === 'on') === on);
+    });
+  }
+}
+
+function setTuningOption(key, value) {
+  currentTuning[key] = !!value;
+  renderTuningOptions();
 }
 
 function renderVolume() {
@@ -427,14 +455,17 @@ function updateTuningDisplay() {
   const dasF = parseFloat(document.getElementById('slider-das').value);
   const arrF = parseFloat(document.getElementById('slider-arr').value);
   const dcdF = parseFloat(document.getElementById('slider-dcd').value);
+  const irsDcdF = parseFloat(document.getElementById('slider-irs-dcd').value);
 
   document.getElementById('val-das').textContent = `${dasF.toFixed(1)}f (${Math.round(dasF * frameMs)}ms)`;
   document.getElementById('val-arr').textContent = `${arrF.toFixed(1)}f (${Math.round(arrF * frameMs)}ms)`;
   document.getElementById('val-dcd').textContent = `${dcdF.toFixed(1)}f (${Math.round(dcdF * frameMs)}ms)`;
+  document.getElementById('val-irs-dcd').textContent = `${irsDcdF.toFixed(1)}f (${Math.round(irsDcdF * frameMs)}ms)`;
 
   currentTuning.das = dasF;
   currentTuning.arr = arrF;
   currentTuning.dcd = dcdF;
+  currentTuning.irsDcd = irsDcdF;
 }
 
 // ─── DISPLAY設定（APM/LPM・対戦TIME表示のON/OFF） ────────
@@ -547,6 +578,7 @@ function renderOnlineSettings() {
 document.getElementById('slider-das').addEventListener('input', updateTuningDisplay);
 document.getElementById('slider-arr').addEventListener('input', updateTuningDisplay);
 document.getElementById('slider-dcd').addEventListener('input', updateTuningDisplay);
+document.getElementById('slider-irs-dcd').addEventListener('input', updateTuningDisplay);
 const _deadzoneSlider = document.getElementById('slider-deadzone');
 if (_deadzoneSlider) _deadzoneSlider.addEventListener('input', updateGamepadOptionsDisplay);
 
@@ -654,13 +686,26 @@ function getKeyLabel(e) {
 function checkConflicts() {
   const identity = (b) => b ? (b.type === 'key' ? ('key:' + b.code) : (b.type + ':' + b.index)) : null;
 
-  const count = {};
+  // 同じ割り当てを持つ枠（アクション名の列。同じアクションの中の重複も数える）
+  const users = {};
   for (const action in currentBinds) {
     currentBinds[action].forEach(b => {
       const id = identity(b);
-      if (id) count[id] = (count[id] || 0) + 1;
+      if (id) (users[id] = users[id] || []).push(action);
     });
   }
+  // 同時に使うモードが無い組み合わせは重複に数えない（PRACTICE 専用の操作と ZONE 発動）
+  const PRACTICE_ONLY = ['rewind', 'advance', 'practicePanel', 'cycleTsumo', 'cycleTsumoBack'];
+  const exempt = (a, b) => (a === 'zone' && PRACTICE_ONLY.includes(b)) || (b === 'zone' && PRACTICE_ONLY.includes(a));
+  const isDupOf = (id, action) => {
+    const list = users[id] || [];
+    let seenSelf = false;
+    for (const other of list) {
+      if (other === action && !seenSelf) { seenSelf = true; continue; }
+      if (!exempt(action, other)) return true;
+    }
+    return false;
+  };
 
   let hasDup = false;
   for (const action in currentBinds) {
@@ -668,7 +713,7 @@ function checkConflicts() {
       const badge = document.getElementById(`bind-${action}-${i}`);
       if (!badge) return;
       const id = identity(b);
-      const isDup = !!id && count[id] > 1;
+      const isDup = !!id && isDupOf(id, action);
       if (isDup) hasDup = true;
       badge.style.borderColor = isDup ? 'var(--danger)' : '';
       badge.style.color = isDup ? 'var(--danger)' : '';
@@ -707,7 +752,7 @@ function renderSettingsTabs() {
 const SETTINGS_RESET_TABS = {
   tuning: {
     name: 'VOLUME & TUNING',
-    hint: '音量・DAS/ARR/DCD',
+    hint: '音量・DAS/ARR/DCD・IRS/IHS',
     reset() {
       currentTuning = JSON.parse(JSON.stringify(DEFAULT_TUNING));
       currentVolume = JSON.parse(JSON.stringify(DEFAULT_VOLUME));
@@ -835,6 +880,21 @@ function saveSettings(opts = {}) {
 
   updateMenuControlsDisplay(); // ★追加：保存時にメインメニューの表示を更新
   if (!opts.silent) showToast();
+  window.CloudSync?.touch?.(); // Discord ログイン中なら端末間共有へ送る（音量と Backend URL は送らない）
+}
+
+// config/cloud_sync.js からのみ呼ばれる: アカウントから取り込んだ設定（localStorage へ書き込み済み）を
+// メモリ上の値・SETTINGS 画面・進行中のゲームのキー設定へ反映する。
+// 呼ぶ側が「SETTINGS に未保存の変更が無い」ことを確かめているので、編集中の値を消すことはない。
+function applySyncedSettings() {
+  if (typeof stopListeningBind === 'function') stopListeningBind();
+  Object.assign(currentDisplay, loadDisplay());
+  renderDisplayOptions();
+  applyDisplayClasses();
+  revertSettings();
+  if (window._game && typeof window._game.setKeyEvent === 'function'
+    && currentGameMode && currentGameMode.id !== 'puyo') window._game.setKeyEvent();
+  if (window._puyoGame && typeof window._puyoGame._setKeyHandlers === 'function') window._puyoGame._setKeyHandlers();
 }
 
 // ─── 未保存の変更の検知（設計 §3.3）────────────────────

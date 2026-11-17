@@ -341,6 +341,15 @@ async function startVersusGame() {
   if (window._cpuControllerPlayer) window._cpuControllerPlayer.softDropOnly = !!window.__cpu6SoftDrop1P;
   // アシスト（盤面ガイド）：人が操作するローカル対戦の1P盤面だけ。ONLINE は別経路なので対象外
   if (!isPlayerCpu && window.Assist) window.Assist.attach(window._game, 'versus');
+  // 成績（STATS）: 人が 1P を操作する対 CPU 戦だけ数える（CPU 同士は数えない。config/stats.js）
+  if (!isPlayerCpu) {
+    window.Stats?.beginVersus({
+      game: window._game, myRule: versusPlayerRule, oppRule: versusCpuRule, level: cpuLevel,
+      bias: [currentVsSettings.all.attackBias.player ?? 0, currentVsSettings.all.attackBias.cpu ?? 0],
+      margin: currentVsSettings.all.marginEnabled ? currentVsSettings.all.marginTime : null,
+      zone: !!(versusPlayerRule === 'tet' && versusCpuRule === 'tet' && currentVsSettings.tet.zone),
+    });
+  }
   // CPU TEST から始めた CPU 同士は1局ごとに記録する（勝敗・TSD・4-LINES・PC・負け方。app/cpu_match_log.js）
   if (versusFromTest && isPlayerCpu && window.CpuMatchLog) {
     window.CpuMatchLog.begin({
@@ -559,6 +568,7 @@ function versusGameOver(loser) {
   if (!window.BattleVersusLifecycle.transition('roundResolving', `versusGameOver(${loser})`)) return;
   window.BattleVersusLifecycle.recordWinner(loser === 'player' ? 'cpu' : 'player');
   window.CpuMatchLog?.end(loser);   // CPU TEST の CPU 同士の対局記録（記録中のときだけ残る）
+  window.Stats?.endVersus(loser === 'player' ? 'l' : 'w'); // 成績（STATS）。数えている試合が無ければ何もしない
 
   // ★ 停止処理の実体は src/battle/freeze.ts（window.BattleFreeze）に一本化してある。
   //   オンライン戦も同じ関数を使う。ぷよは isPaused を停止条件に使わず、stop() の後に

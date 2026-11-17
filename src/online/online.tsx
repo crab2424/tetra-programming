@@ -55,6 +55,21 @@ function applyEnterAnimation(nodes: (Element | null)[]): void {
   });
 }
 
+/** 入室の途中に出す待ち表示（接続中カードと同じ見た目）。 */
+function joinWaitingCard(label: string): HTMLElement {
+  return (
+    <div class="online-top-content">
+      <div class="ol-connect-card ol-join-card">
+        <div class="ol-connect-step is-active">
+          <span class="ol-connect-step-mark"></span>
+          <span>{label}</span>
+          <span class="ol-connect-step-dots"><span></span><span></span><span></span></span>
+        </div>
+      </div>
+    </div>
+  ) as HTMLElement;
+}
+
 // ─────────────────────────────────────────────
 // FocusNav（キーボード操作、public/app/focus_nav.js）連携（第13ラウンド②b）
 //
@@ -172,7 +187,8 @@ function onlineTopEscapeTarget(): HTMLElement | null {
   const roomLeave = container.querySelector<HTMLElement>(".online-header .btn-danger");
   if (roomLeave) return roomLeave;
   if (container.querySelector(".ol-connect-error")) {
-    return pickEscapeButton(container.querySelector<HTMLElement>(".ol-connect-actions") || container);
+    // 接続失敗: Escape は上の「◀ BACK」（カードには「再試行」だけが残る）
+    return pickEscapeButton(container.querySelector<HTMLElement>(".online-header") || container);
   }
   if (container.querySelector("#ol-connect-card")) {
     return pickEscapeButton(container.querySelector<HTMLElement>(".online-header") || container);
@@ -191,6 +207,12 @@ function ensureOnlineTopFocusPage(): void {
     root: document.getElementById("online-top-page"),
     getItems: onlineTopGetItems,
     escapeAction: onlineTopEscapeTarget,
+    // 最初のフォーカス: RM 確認パネルは「OK！対戦する」、ルームは READY / GAME START
+    // （DOM 順のままだと「辞退する」「◀ LEAVE」から始まり、Enter で辞退・退出確認になる）
+    initialIndex: (els: HTMLElement[]) => {
+      const idx = els.findIndex((el) => el.matches("#ol-rm-ok, [data-focus-initial]"));
+      return idx >= 0 ? idx : 0;
+    },
   });
   FN.register("online-modal", {
     root: document.getElementById("online-modal-container"),
@@ -210,12 +232,16 @@ function ensureOnlineTopFocusPage(): void {
  * （Modal.showModal/hideModal側でonline-modalへの切替を専任している）。
  * preserveKey指定時（ロビーの10秒自動更新）は同じ項目へフォーカスを復元し、
  * 未指定時は素直にactivateしてトップへ戻す（登場アニメ再生時などと揃える）。 */
-function syncOnlineTopFocus(preserveKey?: string | null): void {
+function syncOnlineTopFocus(preserveKey?: string | null, opts?: { fresh?: boolean }): void {
   ensureOnlineTopFocusPage();
   const FN = focusNav();
   if (!FN) return;
   if (FN.getActivePageId() === "online-modal") return;
-  if (FN.getActivePageId() === "online-top") {
+  // ロード画面の表示中は、キー操作をロード画面（キャンセル）に置いたままにする。
+  // 裏で部屋の通知による描き直しが来ても online-top へ切り替えない（Enter で辞退・退出に
+  // なる不具合の対策）。閉じたときは focus_nav.js 側が online-top へ戻す。
+  if (isLoadingOverlayVisible()) return;
+  if (FN.getActivePageId() === "online-top" && !opts?.fresh) {
     FN.restoreFocus(preserveKey ?? null);
   } else {
     FN.activate("online-top");
@@ -232,6 +258,37 @@ class Modal {
     modalContainer.classList.add("online-modal-active");
     ensureOnlineTopFocusPage();
     focusNav()?.activate("online-modal");
+    // 入力欄の Enter で、そのダイアログ（設定画面は欄のある区画）の主ボタンを押す。
+    // 入力中は FocusNav がキーを見ないため、Enter では何も起きず Esc→↓→Enter が必要だった。
+    content.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return; // IME 変換の確定は除く
+      const input = e.target as HTMLElement | null;
+      if (!input || input.tagName !== "INPUT") return;
+      const type = (input as HTMLInputElement).type;
+      if (type !== "text" && type !== "number") return;
+      const scope = input.closest<HTMLElement>(".online-settings-section, .ol-dialog") ?? content;
+      const primary = scope.querySelector<HTMLButtonElement>(".btn-primary:not(:disabled)");
+      if (!primary) return;
+      e.preventDefault();
+      e.stopPropagation();
+      input.blur();
+      primary.click();
+      // ダイアログが閉じずに残る（設定画面の SAVE 等）ときは、キー操作の枠を出し直す
+      if (primary.isConnected) {
+        const FN = focusNav();
+        if (FN?.getActivePageId() === "online-modal") FN.restoreFocus(null);
+      }
+    });
+    // 入力欄が 1 つだけのダイアログ（コードで参加など）は、開いた直後から打てるようにする
+    const inputs = content.querySelectorAll<HTMLInputElement>("input[type=text], input[type=number]");
+    if (inputs.length === 1 && content.classList.contains("ol-dialog")) {
+      const only = inputs[0];
+      requestAnimationFrame(() => {
+        if (!only.isConnected) return;
+        only.focus();
+        try { only.select(); } catch { /* 非対応は無視 */ }
+      });
+    }
   }
 
   static hideModal() {
@@ -304,7 +361,7 @@ class Modal {
           }}
         >
           {title && <h2>{title}</h2>}
-          <div>{message}</div>
+          <breakableDiv body={message} />
           <div
             style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}
           >
@@ -351,7 +408,7 @@ class Modal {
           }}
         >
           {title && <h2>{title}</h2>}
-          <div>{message}</div>
+          <breakableDiv body={message} />
           <input
             id="online-prompt-input"
             type="text"
@@ -532,7 +589,40 @@ class OnlineMode {
   }
 
   private lobbyBgmPending = false;
-  private msStepTimer: number | null = null;
+  /** キー操作（←/→）での設定変更をまとめて送るタイマー。行ごとに持つ（報告書 7） */
+  private msStepTimers = new Map<string, number>();
+  /**
+   * 送ったがまだルームの通知に反映されていない設定。次に送るときの土台に重ねる。
+   * 描いたときの設定だけを土台にすると、返事の前に 2 つ目を送ったとき 1 つ目が古い値で
+   * 上書きされていた（報告書 7）。
+   */
+  private msSentPatch: Partial<OnlineMatchSetting> = {};
+  private msInflight = 0;
+  /** 前回描いた MATCH SETTINGS の内容（設定＋ホストか）。同じなら作り直さない */
+  private lastMsSig: string | null = null;
+
+  /**
+   * ルーム画面を描き直すとき、MATCH SETTINGS（.ol-ms-section）だけ元の要素を残し、
+   * それ以外を新しい内容に差し替える。元の要素は一度も DOM から外さないので、
+   * フォーカス・数値入力・スライダーのドラッグが続く。構造が想定と違えば false（呼び出し側で全差し替え）。
+   */
+  private patchRoomKeepingMsSection(container: HTMLElement, tree: Node): boolean {
+    const oldSection = container.querySelector<HTMLElement>(".ol-room-main > .ol-ms-section");
+    const oldMain = oldSection?.parentElement;
+    const oldHeader = container.querySelector(":scope > .online-header");
+    if (!oldSection || !oldMain || !oldHeader) return false;
+    const tmp = document.createElement("div");
+    tmp.append(tree);
+    const newMain = tmp.querySelector(".ol-room-main");
+    const newSection = newMain?.querySelector(":scope > .ol-ms-section");
+    const newHeader = tmp.querySelector(":scope > .online-header");
+    if (!newMain || !newSection || !newHeader) return false;
+    newSection.remove();
+    oldHeader.replaceWith(newHeader);
+    for (const n of Array.from(oldMain.childNodes)) if (n !== oldSection) n.remove();
+    for (const n of Array.from(newMain.childNodes)) oldMain.insertBefore(n, oldSection);
+    return true;
+  }
   private static readonly MENU_TO_LOBBY_FADE_MS = 1000;
 
   /**
@@ -760,7 +850,16 @@ class OnlineMode {
     this.applyLobbyBgm();
 
     const isOwner = roomData.ownerId === myUserId;
-    const ms = parseMatchSetting(roomData.matchSetting);
+    const msServer = parseMatchSetting(roomData.matchSetting);
+    // 送った設定が通知に反映されたら控えから外す。送信中が無ければ通知の値が正なので全部捨てる
+    if (this.msInflight === 0) this.msSentPatch = {};
+    else {
+      for (const k of Object.keys(this.msSentPatch) as (keyof OnlineMatchSetting)[]) {
+        if (msServer[k] === this.msSentPatch[k]) delete this.msSentPatch[k];
+      }
+    }
+    // 表示も送信中の変更を重ねた値にする（返事の途中の通知で一瞬元に戻って見えないように）
+    const ms: OnlineMatchSetting = { ...msServer, ...this.msSentPatch };
     const readySet = new Set(roomData.readyPlayers ?? []);
     const pingMap = new Map<Uuid, number>(roomData.pings ?? []);
     const accountMap = accountMapFromRoom(roomData);
@@ -818,10 +917,21 @@ class OnlineMode {
 
     /** マッチ設定の部分更新を送信する（失敗時はトースト） */
     const sendSetting = (patch: Partial<OnlineMatchSetting>) => {
+      Object.assign(this.msSentPatch, patch);
+      this.msInflight++;
       this.connection!.updateMatchSetting({
         roomId: roomData.roomId,
-        setting: JSON.stringify({ ...ms, ...patch }),
-      }).then((r) => this.notifyIfFailed(r, "設定変更"));
+        setting: JSON.stringify({ ...ms, ...this.msSentPatch }),
+      }).then((r) => {
+        if (!r.success) {
+          for (const k of Object.keys(patch) as (keyof OnlineMatchSetting)[]) delete this.msSentPatch[k];
+        }
+        this.notifyIfFailed(r, "設定変更");
+      }).catch(() => {
+        for (const k of Object.keys(patch) as (keyof OnlineMatchSetting)[]) delete this.msSentPatch[k];
+      }).finally(() => {
+        this.msInflight = Math.max(0, this.msInflight - 1);
+      });
     };
 
     /** ON/OFF トグル設定行（横並びセグメント） */
@@ -840,9 +950,15 @@ class OnlineMode {
             {[true, false].map((v) => (
               <button
                 class={"ms-seg-btn" + (value === v ? " active" : "")}
-                onclick={() =>
-                  sendSetting({ [key]: v } as Partial<OnlineMatchSetting>)
-                }
+                onclick={(e) => {
+                  // 返事で描き直されるまでの間も見た目を合わせる（続けて押したとき、
+                  // まだ active でない側を正しく選べるように）
+                  const btn = e.currentTarget as HTMLElement;
+                  btn.parentElement?.querySelectorAll(".ms-seg-btn").forEach((b) => {
+                    b.classList.toggle("active", b === btn);
+                  });
+                  sendSetting({ [key]: v } as Partial<OnlineMatchSetting>);
+                }}
               >
                 {v ? "ON" : "OFF"}
               </button>
@@ -937,11 +1053,13 @@ class OnlineMode {
         const text = step >= 1 ? String(n) : String(Number(n.toFixed(4)));
         slider.value = text;
         if (num) num.value = text;
-        if (this.msStepTimer !== null) clearTimeout(this.msStepTimer);
-        this.msStepTimer = window.setTimeout(() => {
-          this.msStepTimer = null;
+        const timerKey = String(key);
+        const prevTimer = this.msStepTimers.get(timerKey);
+        if (prevTimer !== undefined) clearTimeout(prevTimer);
+        this.msStepTimers.set(timerKey, window.setTimeout(() => {
+          this.msStepTimers.delete(timerKey);
           commit(text);
-        }, 250);
+        }, 250));
       };
       return row;
     };
@@ -954,7 +1072,13 @@ class OnlineMode {
     }
     // 設定変更の通知で作り直しても、同じ行（設定/タグ等）へフォーカスを戻す
     const focusKeyBeforeRebuild = alreadyRendered ? focusNav()?.currentFocusKey?.() ?? null : null;
-    onlineTopContainer.replaceChildren(
+    // MATCH SETTINGS の部分を作り直してよいか（報告書 16）。設定と自分がホストかが前回と
+    // 同じなら、元の要素を DOM に付けたまま残す。ほかの人の READY・入退室のたびに丸ごと
+    // 作り直すと、ホストのスライダー操作・数値入力が途切れて値が戻っていた。
+    const msSig = JSON.stringify({ ms, isOwner });
+    const keepMsSection = alreadyRendered && msSig === this.lastMsSig;
+    this.lastMsSig = msSig;
+    const roomTree = (
       <>
         <div class="online-header">
           <button
@@ -998,7 +1122,7 @@ class OnlineMode {
           </button>
         </div>
         <div class="online-top-content">
-          <div class="width-full">
+          <div class="width-full ol-room-main">
             <div class="flex width-full flex-row space-between">
               <h2>
                 <>{roomData.roomName}</>
@@ -1255,6 +1379,7 @@ class OnlineMode {
                 <button
                   class="menu-btn btn-versus-primary"
                   style={{ width: "100%" }}
+                  data-focus-initial=""
                   onclick={async () => {
                     // 先に自分の素材を読み終えてから開始要求を送る（全員のロード完了後に開始）
                     let cancelled = false;
@@ -1287,7 +1412,7 @@ class OnlineMode {
               ) : (
                 <>
                   <button
-                    class="menu-btn"
+                    class="menu-btn btn-versus-primary"
                     style={{
                       width: "100%",
                       opacity: "0.4",
@@ -1321,6 +1446,7 @@ class OnlineMode {
                     (iAmReady ? "btn-secondary" : "btn-versus-primary")
                   }
                   style={{ width: "100%" }}
+                  data-focus-initial=""
                   onclick={async () => {
                     // ★ READY = 「素材のロードまで終わって本当に開始できる」の意味。
                     //   READY を立てるときだけロード画面を挟み、解除時はそのまま送る。
@@ -1368,6 +1494,7 @@ class OnlineMode {
 
             {/* ── マッチ設定 ── */}
             <div
+              class="ol-ms-section"
               style={{
                 borderTop: "1px solid var(--border)",
                 paddingTop: "12px",
@@ -1402,9 +1529,20 @@ class OnlineMode {
             </div>
           </div>
         </div>
-      </>,
-    );
-    syncOnlineTopFocus(focusKeyBeforeRebuild);
+      </>
+    ) as Node;
+    if (!(keepMsSection && this.patchRoomKeepingMsSection(onlineTopContainer, roomTree))) {
+      onlineTopContainer.replaceChildren(roomTree);
+    }
+    // ルーム画面を最初に描くときだけ登場アニメ（通知での描き直しでは動かさない）
+    if (!alreadyRendered) {
+      const main = onlineTopContainer.querySelector(".ol-room-main");
+      applyEnterAnimation([
+        onlineTopContainer.querySelector(".online-header"),
+        ...(main ? Array.from(main.children).filter((el) => (el as HTMLElement).offsetHeight > 0) : []),
+      ]);
+    }
+    syncOnlineTopFocus(focusKeyBeforeRebuild, { fresh: !alreadyRendered });
   }
 
   /**
@@ -1416,7 +1554,11 @@ class OnlineMode {
     // ルームに入る瞬間に一覧の自動更新を確実に止める（放置中に一覧が一瞬表示される不具合の防止）
     this.stopRoomListAutoRefresh();
     this.lastRoomSig = null; // 新しいルームでは必ず一度フル描画する
+    this.lastMsSig = null;
     this.lastRoomInfo = null;
+    this.msSentPatch = {};
+    this.msStepTimers.forEach((t) => clearTimeout(t));
+    this.msStepTimers.clear();
     this.state = OnlineModeState.InRoom;
 
     const onlineTopContainer = document.getElementById(
@@ -1437,9 +1579,7 @@ class OnlineMode {
             ⚙ SETTINGS
           </button>
         </div>
-        <div class="online-top-content">
-          <div>Joining room, please wait...</div>
-        </div>
+        {joinWaitingCard("ルームに入室しています")}
       </>,
     );
 
@@ -1476,11 +1616,18 @@ class OnlineMode {
         <div class="online-header">
           <button
             class="btn btn-secondary"
-            onclick={() => this.onlineTopPage()}
+            onclick={async () => {
+              // ルームの情報が届く前に戻るときも、サーバーへ退出を送る（送らないと部屋に名前が残る）
+              try {
+                await this.connection!.leaveRoom({ roomId });
+              } catch { }
+              this.currentRoom = null;
+              this.onlineTopPage();
+            }}
           >
             ◀ BACK
           </button>
-          <h1>🌐 ONLINE - Room</h1>
+          <h1>🌐 ONLINE</h1>
           <button
             class="btn btn-settings"
             onclick={this.settingsModal.bind(this)}
@@ -1488,9 +1635,7 @@ class OnlineMode {
             ⚙ SETTINGS
           </button>
         </div>
-        <div class="online-top-content">
-          <div>Waiting room info notification...</div>
-        </div>
+        {joinWaitingCard("ルームの情報を受け取っています")}
       </>,
     );
 
@@ -1529,6 +1674,15 @@ class OnlineMode {
       if (notif.roomId !== roomId) return;
       const myUserId = this.connection!.userId!;
       if (this.lastRoomInfo?.ownerId === myUserId) return; // 自分の変更なので通知不要
+      // 通知は READY が解除された人にだけ出す（報告済み B）。READY していない人には、
+      // 変わった値がルーム画面の MATCH SETTINGS にそのまま出るので知らせなくてよい。
+      // READY 中はロード画面が出ている。部屋の通知が先に来て readyPlayers から外れて
+      // いても、ロード画面の有無で判定できる。READY が外れると次の変更では出ない＝
+      // スライダーを続けて動かされても 1 枚で済む。
+      const wasReady =
+        isLoadingOverlayVisible() ||
+        !!this.lastRoomInfo?.readyPlayers?.includes(myUserId);
+      if (!wasReady) return;
       showToast(
         "ONLINE",
         "オーナーが対戦設定を変更しました。READYをやり直してください。",
@@ -1760,7 +1914,7 @@ class OnlineMode {
       finished = true;
       this.connection!.removeReaderFunction(handlerId);
       Modal.hideModal();
-      showToast("ONLINE", "対戦相手が見つかりました！", ToastColor["Success"]);
+      // 「対戦相手が見つかりました」のトーストは確認パネルの初回描画が出す（ここでも出すと 2 枚になる）
       this.isRandomMatchRoom = true;
       this.joinRoom(notif.roomId, false);
     });
@@ -1940,7 +2094,8 @@ class OnlineMode {
           ? "相手の確認を待っています…"
           : "OKを押すと対戦を開始します";
     }
-    syncOnlineTopFocus();
+    // 初回描画はフォーカスを「OK！対戦する」から始める（直前のマッチング画面の位置を引き継がない）
+    syncOnlineTopFocus(null, { fresh: !panelExists });
   }
 
   /** 確認パネルのOKボタン。非オーナー=READY送信、オーナー=開始許可を立てて条件チェック */
@@ -2117,7 +2272,8 @@ class OnlineMode {
    */
   /** skipEnterAnim: 10秒毎の自動更新からの再描画時のみ true にする
    *  （毎回アニメすると一覧が定期的に再登場する新規バグになるため）。 */
-  private async onlineTopPage(skipEnterAnim = false) {
+  /** @param manualRefresh 「🔄 更新」から呼ばれたとき true（一覧を短くフェードさせて押せたことを見せる） */
+  private async onlineTopPage(skipEnterAnim = false, manualRefresh = false) {
     this.state = OnlineModeState.RoomList;
     this.applyLobbyBgm();
 
@@ -2137,6 +2293,10 @@ class OnlineMode {
     }
     // 10秒毎の自動更新でも同じ項目へフォーカスを戻せるよう、作り直す前に記録しておく。
     const focusKeyBeforeRebuild = skipEnterAnim ? focusNav()?.currentFocusKey?.() ?? null : null;
+    // 一覧のスクロール位置も残す（10 秒ごとの更新で先頭へ戻っていた）
+    const listScrollTop = skipEnterAnim
+      ? document.getElementById("online-rooms-container")?.scrollTop ?? 0
+      : 0;
     onlineTopContainer.replaceChildren(
       <>
         <div class="online-header">
@@ -2169,7 +2329,7 @@ class OnlineMode {
               <button
                 class="btn btn-secondary"
                 data-focus-key="lobby-refresh"
-                onclick={() => this.onlineTopPage(true)}
+                onclick={() => this.onlineTopPage(true, true)}
               >
                 🔄 更新
               </button>
@@ -2238,6 +2398,13 @@ class OnlineMode {
       </>,
     );
 
+    const roomsEl = document.getElementById("online-rooms-container");
+    if (roomsEl && listScrollTop > 0) roomsEl.scrollTop = listScrollTop;
+    if (manualRefresh && roomsEl) {
+      roomsEl.classList.remove("ol-rooms-refreshed");
+      void roomsEl.offsetWidth;
+      roomsEl.classList.add("ol-rooms-refreshed");
+    }
     if (!skipEnterAnim) {
       applyEnterAnimation([
         onlineTopContainer.querySelector(".online-header"),
@@ -2481,17 +2648,21 @@ class OnlineMode {
     if (!card) return;
     card.replaceChildren(
       <>
-        <div class="ol-connect-error">接続できませんでした<br />{message}</div>
+        <div class="ol-connect-error" title={message}>
+          サーバーに接続できませんでした
+          <div class="ol-connect-error-help">通信環境を確かめて、もう一度お試しください。</div>
+        </div>
         <div class="ol-connect-actions">
-          <button class="btn btn-secondary" onclick={() => this.backToMainMenu()}>
-            メインメニューへ戻る
-          </button>
           <button class="btn btn-primary" onclick={() => this.attemptConnect()}>
             再試行
           </button>
         </div>
       </>,
     );
+    // 接続はもう終わっているので、上の「◀ キャンセル」を「◀ BACK」に変える
+    // （カードにあった「メインメニューへ戻る」と同じ動きのボタンが 2 つ並んでいた）
+    const headerBtn = document.querySelector<HTMLElement>("#online-top-container .online-header .btn-secondary");
+    if (headerBtn) headerBtn.textContent = "◀ BACK";
     syncOnlineTopFocus();
   }
 

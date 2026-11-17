@@ -41,6 +41,8 @@ public:
     //   0=回転では着かない 1=回転で着く 2=回転で着き、その回転で SRS の5番目のキック（Point 5）を使える
     //   比較（==）・ハッシュには含めない
     u8 spin = 0;
+    // TETLABO lv7 §22: この置き方を先行回転で出したミノから作ったか（0=向き 0 から 1=右 -1=左）。比較・ハッシュには含めない
+    i8 irs = 0;
 public:
     Placement() : x(0), y(0), r(piece::Rotation::UP), type(piece::Type::NONE) {};
     Placement(i8 x, i8 y, piece::Rotation r, piece::Type type) : x(x), y(y), r(r), type(type) {};
@@ -91,7 +93,26 @@ void move_drop(Placement& piece, Map& collision);
 
 bool is_convex(const Board& board, const Map& map_collision);
 
+// TETLABO lv7: ZONE の発動中の決まりで手を作るか（lv7_wasm.cpp search が自分の探索の間だけ立てる）。
+//   立っている間は ①LOCK_HEIGHT_LUT（全ブロック枠外＝Lock Out の手を作らない決まり）を外す
+//   ②盤面の上限（engine の y=39＝TETLABO の y=-20）より上へ出る位置をふさぐ。下がっているときは今までと全く同じ
+extern bool g_zone_rules;
+
 std::vector<Placement> generate(const Board& board, piece::Type type);
+
+// TETLABO lv7 §22: start の位置・向きから作る（先行回転で出ているミノ。盤面が低くても速い作り方は使わない）
+std::vector<Placement> generate(const Board& board, piece::Type type, const Placement* start);
+
+// TETLABO lv7 §22: 向き 0 で出現できないか（出現位置と 1 段上が両方ふさがっている。rotation.js _placeAtSpawn）
+bool spawn_blocked(const Board& board, piece::Type type);
+
+// TETLABO lv7 §22: 先行回転（dir 1=右 -1=左）で出たときの位置（rotation.js _placeAtSpawn: 回した形の一番下を
+//   TETLABO の y=0 に置き、ふさがっていれば 1 段上）。出せなければ false
+bool irs_spawn(const Board& board, piece::Type type, i32 dir, Placement& out);
+
+// TETLABO lv7 §22: 新しく出るミノの置き方。向き 0 で出せればふつうに作る。出せず allow_irs なら先行回転の右・左から作る
+//   （どちらから作ったかは Placement::irs に残す）
+std::vector<Placement> generate_spawn(const Board& board, piece::Type type, bool allow_irs);
 
 void expand(const Placement& piece, Map& collision, Map& visited, Map& locked, std::vector<Placement>& result,
             Map& spin, Map& spin5);

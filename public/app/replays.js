@@ -156,7 +156,7 @@ async function replayDownload(data) {
 }
 
 // ─── 一覧の 1 行の中身 ───
-const REPLAY_MODE_LABEL = { marathon: 'MARATHON', sprint: 'SPRINT', ultra: 'ULTRA', puyo: 'PUYO', versus: 'VERSUS', test: 'CPU TEST' };
+const REPLAY_MODE_LABEL = { marathon: 'MARATHON', sprint: 'SPRINT', ultra: 'ULTRA', zone: 'ZONE', puyo: 'PUYO', versus: 'VERSUS', test: 'CPU TEST' };
 
 function replaySummary(data) {
     const r = data.result || {};

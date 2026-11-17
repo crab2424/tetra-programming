@@ -165,10 +165,14 @@ function fmtHudRate(count: number, activeMs: number): string {
   return ((count || 0) / (activeMs / 60000)).toFixed(1);
 }
 
-function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void {
+/** 統計 HUD（左右ブロック）を取得し、無ければ作る。fieldEl が無ければ null。 */
+function ensureOnlineStatsEls(
+  slot: "self" | number,
+  rule: "tet" | "puyo",
+): { fieldEl: HTMLElement; leftEl: HTMLElement; rightEl: HTMLElement } | null {
   const fieldPrefix = slot === "self" ? "ol-p" : `ol-opp-${slot}`;
-  const fieldEl = document.getElementById(`${fieldPrefix}-${stats.rule}-field`);
-  if (!fieldEl) return;
+  const fieldEl = document.getElementById(`${fieldPrefix}-${rule}-field`);
+  if (!fieldEl) return null;
   let leftEl = fieldEl.querySelector<HTMLElement>(".ol-stats-left");
   let rightEl = fieldEl.querySelector<HTMLElement>(".ol-stats-right");
   if (!leftEl || !rightEl) {
@@ -201,7 +205,44 @@ function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void 
       "</div>";
     fieldEl.appendChild(leftEl);
     fieldEl.appendChild(rightEl);
+    // ルールで出し分ける APM/LPM は作ったときに決める（以後ルールは変わらない）
+    fieldEl.querySelectorAll<HTMLElement>(".ol-tetonly").forEach((el) => {
+      el.style.display = rule === "tet" ? "" : "none";
+    });
   }
+  return { fieldEl, leftEl, rightEl };
+}
+
+/** TIME と APM/LPM だけを書き換える（対戦中の定期更新用。スコアの補間には触れない）。 */
+function updateOnlineClock(
+  slot: "self" | number,
+  rule: "tet" | "puyo",
+  activeMs: number,
+  lines: number,
+  attackSent: number,
+): void {
+  const els = ensureOnlineStatsEls(slot, rule);
+  if (!els) return;
+  const { leftEl, rightEl } = els;
+  if (rule === "tet") {
+    const apmEl = rightEl.querySelector<HTMLElement>('[data-stat="apm"]');
+    const lpmEl = leftEl.querySelector<HTMLElement>('[data-stat="lpm"]');
+    if (apmEl) setTextIfChanged(apmEl, fmtHudRate(attackSent, activeMs));
+    if (lpmEl) setTextIfChanged(lpmEl, fmtHudRate(lines, activeMs));
+  }
+  const timeEl = rightEl.querySelector<HTMLElement>('[data-stat="time"]');
+  if (timeEl) setTextIfChanged(timeEl, fmtHudTime(activeMs));
+}
+
+function setTextIfChanged(el: HTMLElement, text: string): void {
+  if (el.textContent !== text) el.textContent = text;
+}
+
+function updateOnlineStats(slot: "self" | number, stats: StatsUpdateData): void {
+  const els = ensureOnlineStatsEls(slot, stats.rule);
+  if (!els) return;
+  const { fieldEl, leftEl, rightEl } = els;
+  const fieldPrefix = slot === "self" ? "ol-p" : `ol-opp-${slot}`;
   const score = rightEl.querySelector<HTMLElement>('[data-stat="score"]');
   const primary = leftEl.querySelector<HTMLElement>('[data-stat="primary"]');
   const label = leftEl.querySelector<HTMLElement>('[data-stat-label="primary"]');
@@ -263,6 +304,14 @@ export class OnlineGameController {
 
   private game: any = null;
   private myRule: 'tet' | 'puyo' = 'tet';
+  /**
+   * TIME の定期更新（報告済み A）。TIME・APM・LPM はスコアが変わったときしか書かれず、
+   * 操作を止めている間は止まって見えていた。対戦中だけ一定間隔で書き直す。
+   * 相手は通信を増やさず、最後に届いた activeMs に届いてからの経過時間を足して見せる。
+   */
+  private hudClockTimer: number | null = null;
+  private static readonly HUD_CLOCK_MS = 50;
+  private oppHudStats = new Map<number, { stats: StatsUpdateData; at: number; shownMs: number }>();
   /** 自分の相手のルール（異種戦判定用）。1v1なら相手のルール、複数戦でぷよが混在すればpuyo優先。
    *  board.js / ojama.js は window._cpuGame/versus* が無いオンラインではこの値で異種戦を判定する。 */
   private matchOpponentRule: 'tet' | 'puyo' = 'tet';
@@ -301,6 +350,17 @@ export class OnlineGameController {
   private matchParticipants: Set<Uuid> = new Set();
   /** 再戦が成立して preparing に入ってから開始通知を待つ見張り（#3）。 */
   private rematchStartTimer: number | null = null;
+  /** 成績（STATS）の枠に使う相手のルール。1v1 は相手のルール、3 人以上は multi（startBattle で決める）。 */
+  private statsOppRule: 'tet' | 'puyo' | 'multi' = 'tet';
+  /** このラウンドで、相手の切断により自分が最後の 1 人になったか（成績の dcW）。 */
+  private statsDcWin = false;
+  /** 自分の脱落（GameOver フレーム＋NotifyGameOver）を送り直す見張り（2026-11-16 #3）。 */
+  private deathReportTimer: number | null = null;
+  /** 送り直す GameOver フレーム（TET の block-out は衝突ミノ同梱）。null = 送り直し不要。 */
+  private deathReportFrame: Uint8Array | null = null;
+  private deathReportAttempts = 0;
+  private static readonly DEATH_REPORT_INTERVAL_MS = 1000;
+  private static readonly DEATH_REPORT_MAX_ATTEMPTS = 30;
   /** ローカルで残り1人を検知してから WinnerNotification を待つタイマー。 */
   private winnerFallbackTimer: number | null = null;
   /** サーバーの WinnerNotification を待つ猶予。超えたらローカル判定で結果を出す。 */
@@ -522,6 +582,55 @@ export class OnlineGameController {
     if (setScore) setScore.textContent = score;
   }
 
+  /** 相手の統計フレーム。時計の起点として控え、表示は戻らないよう単調にする。 */
+  private onOppStats(playerId: Uuid, index: number, stats: StatsUpdateData): void {
+    const prev = this.oppHudStats.get(index);
+    const alive = this.aliveSet.has(playerId);
+    // 生存中は外挿で先に進めた表示より小さい値（通信の遅れ分）が来ても戻さない。
+    // 脱落後は相手の確定値をそのまま出す。
+    const shownMs = alive && prev ? Math.max(prev.shownMs, stats.activeMs) : stats.activeMs;
+    this.oppHudStats.set(index, { stats, at: performance.now(), shownMs });
+    updateOnlineStats(index, { ...stats, activeMs: shownMs });
+  }
+
+  private startHudClock(): void {
+    this.stopHudClock();
+    this.hudClockTimer = window.setInterval(() => this.tickHudClock(), OnlineGameController.HUD_CLOCK_MS);
+  }
+
+  private stopHudClock(): void {
+    if (this.hudClockTimer !== null) {
+      clearInterval(this.hudClockTimer);
+      this.hudClockTimer = null;
+    }
+  }
+
+  private tickHudClock(): void {
+    if (this.lifecycle.phase !== "playing" || this.matchHalted) return;
+    const g = this.game as any;
+    if (!g) return;
+    const selfMs = typeof g.getActiveMs === "function" ? g.getActiveMs() : 0;
+    if (this.myAlive) {
+      updateOnlineClock("self", this.myRule, selfMs, g.lines ?? 0, g.attackSent ?? 0);
+    }
+    // ネットワークポーズ中は全員止まっているので相手の時計も進めない
+    if (g.isPaused) return;
+    const now = performance.now();
+    for (const [id, index] of this.puppetIndices) {
+      if (!this.aliveSet.has(id)) continue;
+      const rule = this.puppetRules.get(id) ?? "tet";
+      const entry = this.oppHudStats.get(index);
+      if (!entry) {
+        // まだ統計が一度も届いていない相手は、同時に始まった自分の時計で代用する
+        updateOnlineClock(index, rule, selfMs, 0, 0);
+        continue;
+      }
+      const ms = Math.max(entry.shownMs, entry.stats.activeMs + (now - entry.at));
+      entry.shownMs = ms;
+      updateOnlineClock(index, rule, ms, entry.stats.lines, entry.stats.attackSent);
+    }
+  }
+
   private markDead(playerId: Uuid): void {
     this.aliveSet.delete(playerId);
     this.confirmPendingFrom(playerId);
@@ -581,6 +690,73 @@ export class OnlineGameController {
   }
 
   /**
+   * 自分の脱落をサーバー（NotifyGameOver）と相手（GameOver フレーム）へ知らせ、
+   * サーバーの WinnerNotification が届くまで一定間隔で送り直す。
+   *
+   * ★ 旧実装は 1 回だけ送っていた。通信が一時的に詰まる・切れて再接続する等でこの 1 回が
+   *   サーバーへ届かないと、サーバーの部屋は Playing のまま（勝者が決まらない）・相手は
+   *   GameOver を受け取れず操作を続けられ、自分の画面だけがフォールバックで結果へ進んでいた。
+   *   部屋が Playing のままなので、その後の RETRY も（READY が通らず）始まらない
+   *   （2026-11-16 ONLINE 不具合 #3。#2 の一因にもなる）。
+   *
+   * 送り直しは冪等: サーバーは脱落済みの人の 2 回目を数えず（record_game_over）、決着後は
+   * 何もしない。相手のクライアントも同じ人の 2 回目の GameOver は生存者集合の整合だけに使う。
+   *
+   * 止めるのは「サーバーの勝敗通知を受けた」「自分が RETRY を押した（申請より前に必ず
+   * 最後の 1 回を送る）」「次のラウンド・部屋を出る」のいずれか。申請より後に送らないので、
+   * 送り直しがサーバーで次のラウンドの脱落として数えられることはない（同じ reliable
+   * チャネルの順に処理されるため、開始より前に必ず処理される）。
+   */
+  private reportMyDeath(frame: Uint8Array): void {
+    this.stopDeathReport();
+    this.deathReportFrame = frame;
+    this.deathReportAttempts = 0;
+    this.sendDeathReport();
+    const tick = () => {
+      this.deathReportTimer = null;
+      if (!this.deathReportFrame) return;
+      if (this.deathReportAttempts >= OnlineGameController.DEATH_REPORT_MAX_ATTEMPTS) {
+        this.logger.warn("Gave up resending GameOver (no WinnerNotification).", this.connection.debugState?.());
+        this.deathReportFrame = null;
+        return;
+      }
+      this.logger.warn(
+        `WinnerNotification not received yet. Resending GameOver (#${this.deathReportAttempts}).`,
+        this.connection.debugState?.(),
+      );
+      this.sendDeathReport();
+      this.deathReportTimer = window.setTimeout(tick, OnlineGameController.DEATH_REPORT_INTERVAL_MS);
+    };
+    this.deathReportTimer = window.setTimeout(tick, OnlineGameController.DEATH_REPORT_INTERVAL_MS);
+  }
+
+  private sendDeathReport(): void {
+    const frame = this.deathReportFrame;
+    if (!frame) return;
+    this.deathReportAttempts++;
+    const roomId = this.roomInfo.roomId;
+    try {
+      this.connection.sendMatchEvent(frame);
+    } catch (e) {
+      this.logger.warn("Failed to send GameOver frame:", e);
+    }
+    this.connection
+      .notifyGameOver({ roomId })
+      .then((res) => this.logger.log("NotifyGameOver response:", res))
+      .catch((e) => this.logger.warn("NotifyGameOver failed:", e));
+  }
+
+  /** 送り直しを止める。flush=true なら止める前に最後の 1 回を送る（RETRY 申請の直前用）。 */
+  private stopDeathReport(flush = false): void {
+    if (flush && this.deathReportFrame) this.sendDeathReport();
+    if (this.deathReportTimer !== null) {
+      clearTimeout(this.deathReportTimer);
+      this.deathReportTimer = null;
+    }
+    this.deathReportFrame = null;
+  }
+
+  /**
    * ローカルの生存者集合だけで決着を検知する（サーバー通知に依存しないフェイルセーフ）。
    *
    * aliveSet は「自分の gameOver」「相手の GameOver(0x26)」「PlayerDisconnected」の
@@ -599,6 +775,7 @@ export class OnlineGameController {
       const survivor = this.aliveSet.size === 1 ? [...this.aliveSet][0] : null;
       this.logger.warn(
         "WinnerNotification did not arrive in time. Falling back to local result.",
+        { myAlive: this.myAlive, alive: [...this.aliveSet], conn: this.connection.debugState?.() },
       );
       this.showWinner(survivor);
     }, OnlineGameController.WINNER_FALLBACK_MS);
@@ -711,6 +888,7 @@ export class OnlineGameController {
     this.logger.log(`Halting match progress (${reason}).`);
     this.stopPieceStateInterval();
     this.stopBackgroundClock();
+    this.stopHudClock();
     this.freezeSelfGame();
     for (const driver of this.puppets.values()) driver.freeze();
     // 決着時は相手スコアを補間の途中で止めず、受信済みの最終値を即座に確定表示する。
@@ -814,6 +992,7 @@ export class OnlineGameController {
     this.myAlive = true;
     this.matchHalted = false;
     this.clearWinnerFallback();
+    this.stopDeathReport();
     this.addVisibilityListener();
     this.aliveSet = new Set(this.roomInfo.players.map(([id]) => id));
     this.matchParticipants = new Set(this.aliveSet);
@@ -828,6 +1007,9 @@ export class OnlineGameController {
     // Determine my rule from room info
     const myPlayer = this.roomInfo.players.find(([id]) => id === this.myUserId);
     this.myRule = myPlayer?.[2] === 'puyo' ? 'puyo' : 'tet';
+    const statsOpps = this.roomInfo.players.filter(([id]) => id !== this.myUserId);
+    this.statsOppRule = statsOpps.length >= 2 ? 'multi' : (statsOpps[0]?.[2] === 'puyo' ? 'puyo' : 'tet');
+    this.statsDcWin = false;
 
     const now = this.connection.serverNow();
     // delay = 「カウントダウンを開始すべき時刻」までの残り時間（本編開始ではない）。
@@ -922,7 +1104,7 @@ export class OnlineGameController {
         index,
         rule: oppRule,
         onDead: (playerId) => this.markDead(playerId as Uuid),
-        onStats: (statsIndex, stats) => updateOnlineStats(statsIndex, stats),
+        onStats: (statsIndex, stats) => this.onOppStats(id, statsIndex, stats),
       });
       driver.start();
       this.puppets.set(id, driver);
@@ -1018,6 +1200,36 @@ export class OnlineGameController {
     });
   }
 
+  /**
+   * カウントダウン中、自分の NEXT（と HOLD）を相手パペットへ知らせる sentinel を送り続ける。
+   *
+   * ★ 旧実装は開始後 120〜2200ms（ぷよは〜1500ms）の固定の数回だけ送っていた。受け手の
+   *   受信ハンドラ（onMatchEvent）は相手側の setupBattleUnderCover で付くが、ぷよは画像ロード
+   *   （initGame のコールバック）を待ってから付けるうえ、暗転の開始は端末ごとの時計合わせ・
+   *   タブの裏表（タイマーの間引き）でもずれる。受け手の準備がこの数回より遅れると全部が
+   *   捨てられ、READY の間は相手の NEXT が空のまま・START 後の最初の出現で初めて出ていた
+   *   （2026-11-16 ONLINE 不具合 #1）。カウントダウンが終わるまで一定間隔で送り直す。
+   *   受け手は NEXT/HOLD を上書きするだけなので何度届いても害はない（driver.ts の sentinel 分岐）。
+   *   本編開始（playing へ遷移）で止めるので、本物の最初の Spawn より後に届くことはない
+   *   （同じ reliable チャネルで順に届く）。
+   */
+  private startNextSentinel(send: () => void): void {
+    const game = this.game;
+    const FIRST_MS = 120;
+    const INTERVAL_MS = 300;
+    const tick = () => {
+      if (!this.game || this.game !== game || !this.myAlive) return;
+      if (this.lifecycle.phase !== "countdown") return;
+      try {
+        send();
+      } catch (e) {
+        this.logger.log("NEXT sentinel send failed:", e);
+      }
+      window.setTimeout(tick, INTERVAL_MS);
+    };
+    window.setTimeout(tick, FIRST_MS);
+  }
+
   private initTetBattle(
     notif: StartMatchNotification,
     matchSetting: OnlineMatchSetting,
@@ -1056,23 +1268,21 @@ export class OnlineGameController {
 
     this.matchHandlerId = this.connection.onMatchEvent((frame) => this.handleMatchFrame(frame));
 
-    const sentinelDelays = [120, 280, 500, 900, 1500, 2200];
-    for (const d of sentinelDelays) {
-      setTimeout(() => {
-        const g = this.game;
-        if (!g || !this.myAlive) return;
-        const holdType = g.holdMino ? g.holdMino.type : 0xff;
-        const nextTypes = (g.nextQueue as any[]).slice(0, 5).map((m: any) => m.type);
-        this.connection.sendMatchEvent(encodeSpawn(0xff, holdType, nextTypes));
-      }, d);
-    }
+    this.startNextSentinel(() => {
+      const g = this.game;
+      const holdType = g.holdMino ? g.holdMino.type : 0xff;
+      const nextTypes = (g.nextQueue as any[]).slice(0, 5).map((m: any) => m.type);
+      this.connection.sendMatchEvent(encodeSpawn(0xff, holdType, nextTypes));
+    });
 
     setTimeout(() => {
       // カウントダウン中に決着（相手切断）やcleanupが起きていたら本編を開始しない
       if (!this.game || !this.lifecycle.transition("playing", "countdown finished"))
         return;
       this.game._startGameplay();
+      this.beginRoundStats();
       this.startPieceStateInterval();
+      this.startHudClock();
       // カウントダウン中にタブを隠したまま開始した場合、visibilitychange は発火しないので
       // ここで明示的にバックグラウンドクロックを同期する。
       this.syncBackgroundClock();
@@ -1110,16 +1320,11 @@ export class OnlineGameController {
       this.matchHandlerId = this.connection.onMatchEvent((frame) => this.handleMatchFrame(frame));
 
       // Puyo sentinel: カウントダウン中に nextQueue を相手へ通知
-      const sentinelDelays = [120, 280, 500, 900, 1500];
-      for (const d of sentinelDelays) {
-        setTimeout(() => {
-          const g = this.game;
-          if (!g || !this.myAlive) return;
-          const nextPairs = (g.nextQueue as any[]).slice(0, 3).map((p: any): [number, number] => [p[0], p[1]]);
-          // pivotColor=0, childColor=0 をsentinelとして使用 (受信側はnextQueueのみ更新)
-          this.connection.sendMatchEvent(encodePuyoSpawn(0, 0, nextPairs));
-        }, d);
-      }
+      this.startNextSentinel(() => {
+        const nextPairs = (this.game.nextQueue as any[]).slice(0, 3).map((p: any): [number, number] => [p[0], p[1]]);
+        // pivotColor=0, childColor=0 をsentinelとして使用 (受信側はnextQueueのみ更新)
+        this.connection.sendMatchEvent(encodePuyoSpawn(0, 0, nextPairs));
+      });
 
       const elapsed = performance.now() - initStart;
       const remaining = Math.max(0, delay - elapsed);
@@ -1131,10 +1336,36 @@ export class OnlineGameController {
         if (!this.game || !this.lifecycle.transition("playing", "countdown finished"))
           return;
         this.game._startGameplay();
+        this.beginRoundStats();
         this.startPieceStateInterval();
+        this.startHudClock();
         // カウントダウン中にタブを隠したまま開始した場合の取りこぼし防止
         this.syncBackgroundClock();
       }, remaining);
+    });
+  }
+
+  // ── 成績（STATS。public/config/stats.js） ────────────────────────────────
+  // 1 ラウンド＝1 試合。本編の開始（カウントダウン明け）で数え始め、勝敗の確定（showWinner）で締める。
+  // 自分の切断・決着が分からない強制終了は数えない（discardOnline）。部屋を出たら途中でやめた扱い（cleanup）。
+
+  private beginRoundStats(): void {
+    (window as any).Stats?.beginOnline?.({ game: this.game, myRule: this.myRule, oppRule: this.statsOppRule });
+  }
+
+  /** showWinner から。recordWinner（セットの勝ち数）と haltMatch（時計の停止）の後に呼ぶ。 */
+  private endRoundStats(winnerId: Uuid | null): void {
+    const stats = (window as any).Stats;
+    if (!stats?.endOnline) return;
+    const r = winnerId === null ? 'd' : winnerId === this.myUserId ? 'w' : 'l';
+    const snap = this.lifecycle.snapshot();
+    const setWinner = snap.target > 1 ? this.lifecycle.setWinner() : null;
+    stats.endOnline(r, {
+      died: !this.myAlive,
+      set: setWinner === null ? null : setWinner === this.myUserId ? 'w' : 'l',
+      dc: r === 'w' && this.statsDcWin,
+      round: snap.round,
+      target: snap.target,
     });
   }
 
@@ -1258,6 +1489,8 @@ export class OnlineGameController {
     };
 
     // holdCurrentMino: disabled if holdEnabled=false, otherwise send Spawn after swap
+    // （holdDisabled は先行ホールド用。tet/rotation.js _holdAllowed）
+    game.holdDisabled = !matchSetting.holdEnabled;
     if (!matchSetting.holdEnabled) {
       game.holdCurrentMino = () => {};
     } else {
@@ -1313,10 +1546,7 @@ export class OnlineGameController {
       game.drawAll();
 
       this.logger.log("Local game over. Notifying server...");
-      conn.sendMatchEvent(encodeGameOver(dyingMino));
-      conn
-        .notifyGameOver({ roomId })
-        .then((res) => this.logger.log("NotifyGameOver response:", res));
+      this.reportMyDeath(encodeGameOver(dyingMino));
 
       // 自分の盤面に GAME OVER を出す。★ ルールに応じたオーバーレイを選ぶ
       //   （旧実装は常に tet 用の ol-p-finish-overlay を叩いていたため、
@@ -1509,8 +1739,7 @@ export class OnlineGameController {
       game._render?.();
 
       this.logger.log("Local puyo game over. Notifying server...");
-      conn.sendMatchEvent(encodeGameOver());
-      conn.notifyGameOver({ roomId }).then((res) => this.logger.log("NotifyGameOver response:", res));
+      this.reportMyDeath(encodeGameOver());
 
       // 自分の盤面に GAME OVER を出す（ルールに応じたオーバーレイ）
       this.showSelfFinish("gameover");
@@ -1785,6 +2014,8 @@ export class OnlineGameController {
 
     const winnerId = conn.onWinnerNotification((n) => {
       if (n.roomId !== this.roomInfo.roomId) return;
+      // サーバーが決着を記録した＝自分の脱落は届いている（フォールバックで結果表示済みでも止める）
+      this.stopDeathReport();
       this.showWinner(n.winner as Uuid | null);
     });
 
@@ -1830,6 +2061,13 @@ export class OnlineGameController {
 
   /** RETRY ボタンを押したときのトグル投票（部屋モード・ランダムマッチ共通） */
   private async toggleRematchVote(): Promise<void> {
+    // 全員そろって開始通知を待っている間（preparing）のキャンセルは、再戦の取り下げとして扱う。
+    // ★ 旧実装はここで何もせず、ロード画面のキャンセルを押しても見張りの 8 秒が過ぎるまで
+    //   抜けられなかった（2026-11-16 ONLINE 不具合 #2）。
+    if (this.lifecycle.phase === "preparing" && this.rematchStartTimer !== null) {
+      this.cancelPendingRematch();
+      return;
+    }
     // 再戦準備(preparing)へ進んだ後の連打は無視。結果表示中のみ受け付ける
     if (this.lifecycle.phase !== "roundResult") return;
 
@@ -1858,6 +2096,8 @@ export class OnlineGameController {
       // ★ 承認後もキャンセルできるようにする（S3⑤）。既存のトグルを呼び直すだけで
       //   READY解除+Cancel投票が走る。
       setLoadingCancel({ label: "キャンセル", onCancel: () => { this.toggleRematchVote(); } });
+      // 自分の脱落がまだサーバーに届いていなければ、申請より前に最後の 1 回を送って止める（#3）
+      this.stopDeathReport(true);
       // READY を立ててからvote → サーバーは同一接続を順序処理するため、
       // オーナーが startMatch を送る時点で全員 READY 済みになる
       this.connection.setReady({ roomId, ready: true }).catch((e) =>
@@ -1959,6 +2199,8 @@ export class OnlineGameController {
     options: { notice?: string; forced?: boolean } = {},
   ): void {
     if (!this.lifecycle.transition("postMatch", `navigate:${target}`)) return;
+    // LEAVE/ROOM の前にも脱落を届けておく（部屋を出る処理より前に順に処理される）
+    this.stopDeathReport(true);
     // ★ RETRY投票中に出したロード画面(runBattlePreload)は、forcedの1.2秒待ちの間も
     //   ここで消しておく（cleanup()は遷移直前まで走らないため）。S2⑦。
     hideLoadingOverlay(true);
@@ -2095,12 +2337,8 @@ export class OnlineGameController {
       this.rematchStartTimer = null;
       if (this.lifecycle.phase !== "preparing") return;
       this.logger.warn("StartMatchNotification did not arrive after rematch agreement. Back to result.");
-      this.connection.setReady({ roomId, ready: false }).catch((e) =>
-        this.logger.log("setReady(false) failed:", e),
-      );
-      this.connection.sendPostMatchAction({ roomId, action: PostMatchAction.Cancel });
+      this.cancelPendingRematch();
       showToast("ONLINE", "再戦を開始できませんでした。もう一度 RETRY を押してください", ToastColor["Info"]);
-      this.abortRematch();
     }, OnlineGameController.REMATCH_START_TIMEOUT_MS);
 
     const isOwner = this.roomInfo.ownerId === this.myUserId;
@@ -2119,6 +2357,20 @@ export class OnlineGameController {
           this.abortRematch();
         });
     }
+  }
+
+  /** 全員そろった後、開始通知が来る前に再戦を取り下げてリザルト画面へ戻す（キャンセル・見張り切れ）。 */
+  private cancelPendingRematch(): void {
+    const roomId = this.roomInfo.roomId;
+    try {
+      this.connection.setReady({ roomId, ready: false }).catch((e) =>
+        this.logger.log("setReady(false) failed:", e),
+      );
+      this.connection.sendPostMatchAction({ roomId, action: PostMatchAction.Cancel });
+    } catch (e) {
+      this.logger.log("Failed to send rematch cancel:", e);
+    }
+    this.abortRematch();
   }
 
   /**
@@ -2165,6 +2417,7 @@ export class OnlineGameController {
     this.lifecycle.transition("preparing", "await next match");
     this.stopPieceStateInterval();
     this.clearWinnerFallback();
+    this.stopDeathReport();
     this.matchHalted = false;
 
     // ★ 受信ハンドラだけは即座に外す。次マッチのフレームが旧パペットへ流れ込むのを防ぐため、
@@ -2224,6 +2477,8 @@ export class OnlineGameController {
    * 冪等。初回マッチ（前ラウンドが無い）で呼んでも何も起きない。
    */
   private teardownFinishedRound(): void {
+    this.stopHudClock();
+    this.oppHudStats.clear();
     // ゲームエンジン停止
     if (this.game) {
       if (this.myRule === 'puyo') {
@@ -2705,10 +2960,17 @@ export class OnlineGameController {
     //   stop(true) は state='idle' も cancelAnimationFrame もスキップするため、勝者側の
     //   ぷよが決着後も落ち続けていた。停止の作法は battle/freeze.ts に一本化した。
     this.haltMatch("WinnerNotification");
+    this.endRoundStats(winnerId);
     this.game?.drawAll?.();
 
     // 前マッチのボタン状態・投票UIをリセット
-    this.rematchVotes.clear();
+    // ★ 相手の RETRY 申請（rematchVotes）はここで消さない。前のラウンドの申請は startBattle で
+    //   消してあるので、いまここにあるのは「このラウンドの結果を先に出した相手の申請」だけ。
+    //   相手の WinnerNotification が先に届いた・自分が通知待ちでフォールバックした等で、相手の
+    //   申請が自分の結果表示より先に届くことがある。旧実装はそれを消していたため、相手の画面は
+    //   「✓ (2/2)」で開始待ち、自分の画面は相手が「選択中…」のままになり再戦が始まらなかった
+    //   （2026-11-16 ONLINE 不具合 #2）。自分の申請だけは押し直すまで無いことにする。
+    this.rematchVotes.delete(this.myUserId);
     this.setPostMatchButtonsEnabled(true);
     const prevRematchBtn = document.getElementById("ol-btn-rematch") as HTMLButtonElement | null;
     if (prevRematchBtn) {
@@ -2819,7 +3081,13 @@ export class OnlineGameController {
   private handleOpponentDisconnect(playerId: Uuid): void {
     // S4: 最終確定なので猶予UI・安全網は不要になる。
     this.clearDisconnectWatch(playerId);
+    const statsInRound = (this.lifecycle.phase === "playing" || this.lifecycle.phase === "countdown")
+      && this.aliveSet.has(playerId);
     this.markDead(playerId);
+    // 成績: この切断で自分が最後の 1 人になった＝切断勝ち（dcW）
+    if (statsInRound && this.myAlive && this.aliveSet.size === 1 && this.aliveSet.has(this.myUserId)) {
+      this.statsDcWin = true;
+    }
     const driver = this.puppets.get(playerId);
     driver?.setDisconnected();
     const idx = this.puppetIndices.get(playerId);
@@ -2891,6 +3159,7 @@ export class OnlineGameController {
    */
   private forceLeaveAfterConnectionLoss(): void {
     this.haltMatch("connection lost watchdog timeout");
+    (window as any).Stats?.discardOnline?.(); // 決着が分からないまま終わったラウンドは数えない
     this.cleanup();
     this.postMatchCallbacks?.onForceLeave?.(
       "相手との接続が失われたため対戦を終了します",
@@ -2913,6 +3182,7 @@ export class OnlineGameController {
   forceLeaveDueToSelfDisconnect(): void {
     if (!this.isBattleActive) return;
     this.haltMatch("self connection lost, giving up reconnect");
+    (window as any).Stats?.discardOnline?.(); // 自分の切断で終わったラウンドは数えない（設計 §5）
     this.cleanup();
     this.postMatchCallbacks?.onForceLeave?.(
       "通信が回復しなかったため対戦を終了しました",
@@ -2922,6 +3192,8 @@ export class OnlineGameController {
   // ── Cleanup ──────────────────────────────────────────────────────────────
 
   cleanup(): void {
+    // 成績: 本編の途中で部屋を出たら「途中でやめた」（決着済み・強制終了で捨てた後なら何もしない）
+    (window as any).Stats?.abortOnline?.();
     // どの状態からでも idle へ戻せる。テアダウン本体は冪等なので遷移可否に関わらず実行
     this.lifecycle.transition("idle", "cleanup");
     // ★ RETRY待機中に相手がROOM/LEAVEを押してルームへ遷移した場合、toggleRematchVote()の
@@ -2931,9 +3203,12 @@ export class OnlineGameController {
     this.setConfigured = false;
     this.clearWinnerFallback();
     this.clearRematchStartTimer();
+    this.stopDeathReport();
     this.matchParticipants.clear();
     this.matchHalted = false;
     stopScoreTweens(false); // 次戦へ古い目標値・rAFを持ち越さない
+    this.stopHudClock();
+    this.oppHudStats.clear();
     this.removeVisibilityListener();
     this.teardownBackgroundClock();
     this.controlEventsSubscribed = false;

@@ -240,6 +240,7 @@ Object.assign(PuyoGame.prototype, {
                     this._gs = 'gameover';
                     this._beginGameOver();
                 } else {
+                    if (this.playStats) this.playStats.sp++; // 成績（STATS）: 出した組の数
                     this._gs = 'falling';
                     this.hasDroppedOjamaThisTurn = false;
 
@@ -344,6 +345,7 @@ Object.assign(PuyoGame.prototype, {
 
                         this._updateScoreDisplay();
                         this.isAllClear = true; // ★ ALL CLEARフラグON
+                        if (this.playStats) this.playStats.ac++; // 成績（STATS）: 全消しの回数
                         this.playSe('puyo_allclear'); // 全消し音（連鎖音に重ねて鳴らす）
                         isZenkeshi = true;
                     }
@@ -532,6 +534,8 @@ Object.assign(PuyoGame.prototype, {
             case 'spawnAnim':
                 this._stepSpawnAnim(adt);
                 if (this.spawnAnimTimer >= PConfig.spawnAnimMs) {
+                    // 成績（STATS）: 終わった連鎖を長さごとに数える（20 以上は末尾にまとめる。config/stats.js）
+                    if (this.chainCount > 0 && this.playStats) this.playStats.ch[Math.min(this.chainCount, 20) - 1]++;
                     this.chainCount = 0;
                     this._gs = 'spawn';
                 }
@@ -1014,6 +1018,9 @@ Object.assign(PuyoGame.prototype, {
         // 録画の締め／再生の終わり（core/replay.js）。再生のときは終了演出・リザルト・記録の保存をしない
         if (this._rec) ReplayManager.finish(this, false, this.isVersusMode ? { loser: replaySide(this) } : null);
         if (this._replay) { this._replay.onGameOver(this, false); return; }
+
+        // 成績（STATS）: シングルの決着（数える対象でなければ何もしない）
+        window.Stats?.end(this, 'ng');
 
         if (this.isVersusMode) {
             const loser = (this.canvasPrefix === 'cpu') ? 'cpu' : 'player';

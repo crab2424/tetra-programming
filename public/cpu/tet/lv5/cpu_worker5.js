@@ -29,7 +29,8 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js?v=3'); // ★ 2026-10-25 地形強化（T0 キック表・重み 47 要素）で再ビルド
+importScripts('cpu_wasm5.js?v=6');  // ★ 2026-11-17 ZONE 終了の終点・ZONE 段を除いた評価・残り手数（設計 §21）で再ビルド
+// （前回）★ 2026-10-25 地形強化（T0 キック表・重み 47 要素）で再ビルド
 
 let boardPtr = null;
 let resultPtr = null;
@@ -100,7 +101,9 @@ self.onmessage = function(e) {
         weightsPtr, 
         resultPtr,
         data.ren,        
-        data.backToBack  
+        data.backToBack,
+        data.incoming || 0,      // 予告の合計（ZONE の終点が安全かの判定だけ）
+        data.zoneMovesLeft || 0  // ZONE の発動中: 時間切れまでに置ける見込みの手数（cpu_zone.js movesLeft。設計 §21）
     );
 
     const endTime = performance.now();

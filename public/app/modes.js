@@ -31,6 +31,16 @@ const GAME_MODES = {
     descriptionEn: 'Score as many points as possible in 2 minutes.',
     color:       'var(--accent2)',
   },
+  // ─── ZONEモード（設計 source_assets/memory/tet_zone/tetlabo-zone-design.md）───
+  // 中身は MARATHON（150 ライン）＋ ZONE。8 ラインで 1/4 チャージ
+  zone: {
+    id:          'zone',
+    label:       'ZONE',
+    icon:        '◎',
+    description: 'ラインを消してゲージをため、発動中は消したラインが底にたまる。',
+    descriptionEn: 'Charge the meter, then stop time and stack cleared lines at the bottom.',
+    color:       'var(--zone-color)',
+  },
   test: {
     id:          'test',
     label:       'CPU TEST',
@@ -196,7 +206,7 @@ function renderPuyoSingleOptionsHtml() {
       ${inner}
     </div>`;
   const note = isPuyoSingleRecordEligible() ? '' :
-    '<p class="practice-value-hint">CONNECT / COLORS を変更中は記録されません</p>';
+    '<p class="practice-value-hint">CONNECT / COLORS を変更中は記録されません<br> 規定：4 / 4 </p>';
   const fallIdx = PUYO_SINGLE_FALL_OPTIONS.indexOf(puyoSingleSettings.fallMs);
   return row('CONNECT', `<div class="option-toggle">${btns('eraseCount', PUYO_SINGLE_ERASE_OPTIONS, 0)}</div>`)
        + row('COLORS', `<div class="option-toggle">${btns('colorCount', PUYO_SINGLE_COLOR_OPTIONS, 1)}</div>`)
@@ -205,6 +215,119 @@ function renderPuyoSingleOptionsHtml() {
             <span id="puyo-single-fall-val" class="option-val" style="width:52px">${puyoSingleSettings.fallMs}ms</span>
           </div>`)
        + note;
+}
+
+// ─── ZONE モードの設定（設計 tetlabo-zone-design.md Q4。既定は仮決めの値）───
+// 準備画面（renderModeCheck の mode.id==='zone'）で編集し、startGameFromModeCheck がエンジンへ入れる。
+// 既定以外のときは自己ベスト・ランキングに記録しない（PUYO の CONNECT / COLORS と同じ扱い）
+const ZONE_SETTINGS_STORAGE_KEY = 'game_zone_settings';
+// ZONE TIME / CHARGE の選択肢と既定値はエンジン（game/tet/zone.js。このファイルより先に読み込む）のものを使う
+const ZONE_SETTINGS_DEFAULT = { levelMode: 'up', quarterMs: ZONE_MS_PER_QUARTER, quarterLines: ZONE_QUARTER_LINES_SINGLE };
+const ZONE_LEVEL_OPTIONS = ['up', 'fixed'];
+const ZONE_TIME_OPTIONS = ZONE_QUARTER_MS_OPTIONS;      // 1/4 ゲージあたりの長さ（ms）
+const ZONE_CHARGE_OPTIONS = ZONE_QUARTER_LINES_OPTIONS; // 1/4 ゲージに必要なライン数
+
+function _loadZoneSettings() {
+  const out = { ...ZONE_SETTINGS_DEFAULT };
+  try {
+    const saved = JSON.parse(localStorage.getItem(ZONE_SETTINGS_STORAGE_KEY) || 'null');
+    if (saved) {
+      if (ZONE_LEVEL_OPTIONS.includes(saved.levelMode)) out.levelMode = saved.levelMode;
+      if (ZONE_TIME_OPTIONS.includes(saved.quarterMs)) out.quarterMs = saved.quarterMs;
+      if (ZONE_CHARGE_OPTIONS.includes(saved.quarterLines)) out.quarterLines = saved.quarterLines;
+    }
+  } catch (e) { /* 壊れた保存値は既定に戻す */ }
+  return out;
+}
+let zoneSettings = _loadZoneSettings();
+
+function isZoneRecordEligible() {
+  return zoneSettings.levelMode === ZONE_SETTINGS_DEFAULT.levelMode
+      && zoneSettings.quarterMs === ZONE_SETTINGS_DEFAULT.quarterMs
+      && zoneSettings.quarterLines === ZONE_SETTINGS_DEFAULT.quarterLines;
+}
+
+// 再描画すると START LEVEL のスライダーが戻るので、ボタンの選択と説明だけ書き換える
+function setZoneSetting(key, value) {
+  if (!(key in ZONE_SETTINGS_DEFAULT) || zoneSettings[key] === value) return;
+  zoneSettings[key] = value;
+  try { localStorage.setItem(ZONE_SETTINGS_STORAGE_KEY, JSON.stringify(zoneSettings)); } catch (e) { /* 保存失敗は無視 */ }
+  const color = (GAME_MODES.zone && GAME_MODES.zone.color) || '';
+  document.querySelectorAll(`#mode-check-options .opt-btn[data-zone-key="${key}"]`).forEach((btn) => {
+    const on = btn.dataset.zoneValue === String(value);
+    btn.classList.toggle('active', on);
+    btn.style.color = on ? color : '';
+    btn.style.borderColor = on ? color : '';
+  });
+  const hint = document.getElementById('zone-settings-hint');
+  if (hint) hint.innerHTML = zoneSettingsHintHtml();
+}
+
+// ─── ZONE の表示の縮尺（SCALE。ZONE 本編 §16）───
+// 見た目だけ（エンジン・録画・記録には関わらない）。シングルの ZONE の盤面（#container.zone-on）にだけ効く。
+// 縮めるときは盤面の底を固定して、空いたぶん枠の上（最大 20 段）が見えるようにする（src/css/pages/zone.css）。
+// 記録に関わる zoneSettings とは別に保存する（isZoneRecordEligible・setZoneSetting に混ぜない）
+const ZONE_VIEW_STORAGE_KEY = 'game_zone_view_scale';
+const ZONE_VIEW_OPTIONS = [100, 90, 80, 70, 60, 50];   // %
+const ZONE_VIEW_DEFAULT = 100;
+let zoneViewScale = (() => {
+  try {
+    const v = Number(localStorage.getItem(ZONE_VIEW_STORAGE_KEY));
+    if (ZONE_VIEW_OPTIONS.includes(v)) return v;
+  } catch (e) { /* 読めなければ既定 */ }
+  return ZONE_VIEW_DEFAULT;
+})();
+
+// #container に縮尺の変数を入れる。CSS は #container.zone-on のときだけ読むので、ほかのモードでは何も変わらない
+function applyZoneViewScale() {
+  const c = document.getElementById('container');
+  if (c) c.style.setProperty('--zone-view', String(zoneViewScale / 100));
+}
+
+function setZoneViewScale(value) {
+  if (!ZONE_VIEW_OPTIONS.includes(value) || zoneViewScale === value) return;
+  zoneViewScale = value;
+  try { localStorage.setItem(ZONE_VIEW_STORAGE_KEY, String(value)); } catch (e) { /* 保存失敗は無視 */ }
+  const color = (GAME_MODES.zone && GAME_MODES.zone.color) || '';
+  document.querySelectorAll('#mode-check-options .opt-btn[data-zone-view]').forEach((btn) => {
+    const on = btn.dataset.zoneView === String(value);
+    btn.classList.toggle('active', on);
+    btn.style.color = on ? color : '';
+    btn.style.borderColor = on ? color : '';
+  });
+  applyZoneViewScale();
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyZoneViewScale);
+else applyZoneViewScale();
+
+function _zoneSecLabel(ms) {
+  return (ms / 1000) + 's';
+}
+
+function zoneSettingsHintHtml() {
+  const zoneKey = (typeof loadKeys === 'function') ? ((loadKeys().zone || {}).label || '') : '';
+  const s = zoneSettings;
+  let html = `150 ライン。${s.quarterLines} ラインでゲージ 1/4。1/4 以上たまったら ${zoneKey ? `<b>${zoneKey}</b> キー` : 'ZONE キー'}で発動（1/4 ごとに ${s.quarterMs / 1000} 秒）`;
+  if (!isZoneRecordEligible()) html += '<br>LEVEL / ZONE TIME / CHARGE を変更中は記録されません <br> 規定：UP / 8s / 6';
+  return html;
+}
+
+// 準備画面の option-row HTML（START LEVEL の行の後に並べる）
+function renderZoneOptionsHtml() {
+  const btns = (key, values, label) => values.map(v =>
+    `<button class="opt-btn ${zoneSettings[key] === v ? 'active' : ''}" data-zone-key="${key}" data-zone-value="${v}" onclick="setZoneSetting('${key}', ${typeof v === 'string' ? `'${v}'` : v})">${label(v)}</button>`).join('');
+  const row = (label, inner) => `
+    <div class="option-row">
+      <span class="option-label">${label}</span>
+      <div class="option-toggle">${inner}</div>
+    </div>`;
+  return row('LEVEL', btns('levelMode', ZONE_LEVEL_OPTIONS, v => (v === 'up' ? 'UP' : 'FIXED')))
+       + row('ZONE TIME', btns('quarterMs', ZONE_TIME_OPTIONS, _zoneSecLabel))
+       + row('CHARGE', btns('quarterLines', ZONE_CHARGE_OPTIONS, v => String(v)))
+       + row('SCALE %', ZONE_VIEW_OPTIONS.map(v =>
+           `<button class="opt-btn ${zoneViewScale === v ? 'active' : ''}" data-zone-view="${v}" onclick="setZoneViewScale(${v})">${v}</button>`).join(''))
+       + `<p class="practice-value-hint" id="zone-settings-hint">${zoneSettingsHintHtml()}</p>`;
 }
 
 let testCpuControl = true; 
@@ -283,13 +406,13 @@ let selectedPlayerCpuLevel = null; // null = 2P と同じレベル
 
 const CPU_CONFIGS = {
   tet: {
-    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=4' },
-    2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js?v=4' },
-    3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=4' },
-    4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=7' },
-    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=9' },
-    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=32' },
-    7: { className: 'CPU7', src: 'cpu/tet/lv7/cpu7.js?v=10' },
+    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=8' },
+    2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js?v=8' },
+    3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=9' },
+    4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=14' },
+    5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=16' },
+    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=40' },
+    7: { className: 'CPU7', src: 'cpu/tet/lv7/cpu7.js?v=18' },
     // 操作系のメソッドを CPU7 から借りるので lv7 を先に読む（deps）
     8: { className: 'CPUClys', deps: [7], src: 'cpu/tet/clys/cpu_clys.js?v=5' }
   },

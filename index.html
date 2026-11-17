@@ -86,6 +86,14 @@
               <span class="mode-btn-desc">2分間スコアアタック</span>
             </div>
           </button>
+          <!-- ★ ZONEモードボタン（設計 source_assets/memory/tet_zone/tetlabo-zone-design.md） -->
+          <button class="mode-btn mode-btn-zone" onclick="goToModeCheck('zone')">
+            <span class="mode-btn-icon">◎</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">ZONE</span>
+              <span class="mode-btn-desc">消したラインを底にためる</span>
+            </div>
+          </button>
         </div>
 
         <div class="menu-col">
@@ -147,6 +155,10 @@
             <button id="main-menu-ranking-btn" class="menu-btn btn-secondary" onclick="switchPage('ranking')">
               <span class="menu-btn-icon">🏆</span>
               <span>RANKING</span>
+            </button>
+            <button id="main-menu-stats-btn" class="menu-btn btn-secondary" onclick="switchPage('stats')">
+              <span class="menu-btn-icon">📊</span>
+              <span>STATS</span>
             </button>
             <button id="main-menu-settings-btn" class="menu-btn btn-secondary" onclick="switchPage('settings')">
               <span class="menu-btn-icon">⚙</span>
@@ -225,6 +237,34 @@
       <p id="ranking-login-hint" class="ranking-hint">ログインすると記録が載ります。</p>
 
       <div id="ranking-buttons">
+        <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+          <span class="menu-btn-icon">◀</span>
+          <span>BACK</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+    MARK: STATSページ（public/app/stats_page.js が描画。集計は public/config/stats.js）
+    ───────────────────────────────────────────── -->
+  <div id="stats-page" class="page">
+    <div id="stats-container">
+      <h2 class="ranking-title">STATS</h2>
+      <div id="stats-owner" class="stats-owner"></div>
+
+      <div class="option-toggle" id="stats-tab-toggle">
+        <!-- タブは public/app/stats_page.js が生成する -->
+      </div>
+
+      <div id="stats-list" class="stats-list"></div>
+      <p id="stats-hint" class="ranking-hint"></p>
+
+      <div id="stats-buttons">
+        <button class="menu-btn btn-danger" onclick="resetStats()">
+          <span class="menu-btn-icon">✕</span>
+          <span>RESET</span>
+        </button>
         <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
           <span class="menu-btn-icon">◀</span>
           <span>BACK</span>
@@ -467,6 +507,8 @@
 
           <!-- tet Canvas -->
           <canvas id="player-main-canvas"></canvas>
+          <!-- ★ ZONE: 発動中に枠の上へ出たブロックを描く（盤面の上に重ねる。game/tet/zone.js） -->
+          <canvas id="player-zone-top-canvas" class="versus-zone-top-canvas"></canvas>
           <span class="area-label versus-label-next">NEXT</span>
           <canvas id="player-next-canvas"></canvas>
           <span class="area-label versus-label-hold">HOLD</span>
@@ -475,6 +517,13 @@
           <!-- PUYO Canvas -->
           <canvas id="player-puyo-main-canvas" style="display: none"></canvas>
           <canvas id="player-puyo-next-canvas" style="display: none"></canvas>
+
+          <!-- ★ ZONE（VS 設定 ZONE が ON のテト同士だけ。円形のメーター・終了の表示。game/tet/zone.js） -->
+          <div id="player-zone-area" class="versus-zone-area" style="display: none"></div>
+          <div id="player-zone-end-popup" class="zone-end-popup">
+            <span class="zone-end-lines">ZONE 0 LINES</span>
+            <span class="zone-end-score">ATTACK +0</span>
+          </div>
 
           <div id="player-action-label-container"></div>
           <div id="player-countdown-overlay" class="field-overlay countdown-overlay">
@@ -533,6 +582,8 @@
 
           <!-- tet Canvas -->
           <canvas id="cpu-main-canvas"></canvas>
+          <!-- ★ ZONE: 発動中に枠の上へ出たブロックを描く（盤面の上に重ねる。game/tet/zone.js） -->
+          <canvas id="cpu-zone-top-canvas" class="versus-zone-top-canvas"></canvas>
           <span class="area-label versus-label-next-cpu">NEXT</span>
           <canvas id="cpu-next-canvas"></canvas>
           <span class="area-label versus-label-hold-cpu">HOLD</span>
@@ -541,6 +592,13 @@
           <!-- PUYO Canvas -->
           <canvas id="cpu-puyo-main-canvas" style="display: none"></canvas>
           <canvas id="cpu-puyo-next-canvas" style="display: none"></canvas>
+
+          <!-- ★ ZONE（VS 設定 ZONE が ON のテト同士だけ。円形のメーター・終了の表示。game/tet/zone.js） -->
+          <div id="cpu-zone-area" class="versus-zone-area" style="display: none"></div>
+          <div id="cpu-zone-end-popup" class="zone-end-popup">
+            <span class="zone-end-lines">ZONE 0 LINES</span>
+            <span class="zone-end-score">ATTACK +0</span>
+          </div>
 
           <div id="cpu-action-label-container"></div>
           <div id="cpu-countdown-overlay" class="field-overlay countdown-overlay">
@@ -1066,6 +1124,8 @@
         </div>
       </div>
       <canvas id="main-canvas"></canvas>
+      <!-- ★ ZONE: 発動中に枠の上へ出たブロックを描く（盤面の上に重ねる。game/tet/zone.js） -->
+      <canvas id="zone-top-canvas"></canvas>
       <canvas id="puyo-main-canvas" style="
             display: none;
             border: 3px solid var(--field-border);
@@ -1079,6 +1139,13 @@
       <div id="finish-overlay" class="field-overlay finish-overlay">
         <span id="finish-text" class="finish-text"></span>
       </div>
+      <!-- ★ ZONE: 終了時に盤面中央へ出す「ZONE n LINES / +得点」（game/tet/zone.js） -->
+      <div id="zone-end-popup">
+        <span class="zone-end-lines">ZONE 0 LINES</span>
+        <span class="zone-end-score">+0</span>
+      </div>
+      <!-- ★ ZONE: 円形のメーター（盤面の左下。中身は game/tet/zone.js が入れる） -->
+      <div id="zone-area" style="display: none"></div>
       <!-- ★ PRACTICEモード専用: 設定パネルの開閉タブ（Phase 6 §8）。
            タブは#containerと一緒にスケールする（今までどおりの位置感）。
            カード本体(#practice-panel-dock)は#containerの外・画面固定配置にした。 -->
@@ -1317,6 +1384,11 @@
           <span class="result-label" id="result-label-time">TIME</span>
           <span class="result-value" id="result-time">00:00.00</span>
         </div>
+        <!-- ★ ZONE: 1 回の最大・合計・回数（ZONE のときだけ） -->
+        <div class="result-stat-row" id="result-zone-row" style="display: none">
+          <span class="result-label">ZONE</span>
+          <span class="result-value" id="result-zone-value">—</span>
+        </div>
         <div class="result-stat-row" id="result-best-row" style="display: none">
           <span class="result-label">BEST</span>
           <span class="result-value" id="result-best-value">—</span>
@@ -1448,6 +1520,37 @@
               <span>0f</span><span>5f</span><span>10f</span>
             </div>
           </div>
+          <!-- IRS/IHS の非表示 DCD（設計 tetlabo-irs-ihs-design.md §12・§13。未設定なら DCD と同じ値） -->
+          <div class="slider-row">
+            <div class="slider-label">
+              IRS/IHS DCD <small>(Initial Action Cut Delay)</small><span id="val-irs-dcd">3.0f (50ms)</span>
+            </div>
+            <input type="range" id="slider-irs-dcd" min="0" max="10" step="0.1" value="3.0" />
+            <div class="slider-markers">
+              <span>0f</span><span>5f</span><span>10f</span>
+            </div>
+          </div>
+          <!-- 先行回転・先行ホールド（設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §4。DAS などと同じく SAVE で保存） -->
+          <div class="tuning-option">
+            <div class="option-row">
+              <span class="option-label">IRS</span>
+              <div class="option-toggle" id="tuning-irs-toggle">
+                <button class="opt-btn" data-value="on" onclick="setTuningOption('irs', true)">ON</button>
+                <button class="opt-btn" data-value="off" onclick="setTuningOption('irs', false)">OFF</button>
+              </div>
+            </div>
+            <p class="tuning-option-desc">ミノが出る瞬間に回転キーを押していると、回った状態で出ます。置いた後に押したままのときは、IRS/IHS DCD のあいだ待ってから回った状態で出ます（その間に離せば回さずに出ます）。</p>
+          </div>
+          <div class="tuning-option">
+            <div class="option-row">
+              <span class="option-label">IHS</span>
+              <div class="option-toggle" id="tuning-ihs-toggle">
+                <button class="opt-btn" data-value="on" onclick="setTuningOption('ihs', true)">ON</button>
+                <button class="opt-btn" data-value="off" onclick="setTuningOption('ihs', false)">OFF</button>
+              </div>
+            </div>
+            <p class="tuning-option-desc">ミノが出る瞬間にホールドキーを押していると、ホールドしてから出ます。置いた後に押したままのときは、IRS/IHS DCD のあいだ待ってからホールドして出ます（その間に離せばホールドせずに出ます）。</p>
+          </div>
         </div>
       </div>
 
@@ -1522,6 +1625,8 @@
     <div class="account-modal-card">
       <img id="account-modal-avatar" class="account-modal-avatar" alt="" />
       <div id="account-modal-name" class="account-modal-name"></div>
+      <!-- 端末間共有の説明（public/config/cloud_sync.js） -->
+      <p class="account-modal-note">設定（キー割当・操作感・表示）・自己ベスト・成績（STATS）は、このアカウントでログインした端末のあいだで共有されます。音量・Backend URL・プレイ履歴は端末ごとです。</p>
       <button type="button" id="account-modal-close-btn" class="btn btn-secondary account-modal-close" data-se="cancel" onclick="Account.closeModal()">CLOSE</button>
       <div class="account-modal-actions">
         <button type="button" class="btn btn-secondary" onclick="Account.editName()">EDIT NAME</button>
@@ -1559,64 +1664,71 @@
     ───────────────────────────────────────────── -->
   <div id="external-pages"></div>
 
-  <script src="config/pages.js?v=9"></script>
-  <script src="core/base.js?v=24"></script>
+  <script src="config/pages.js?v=10"></script>
+  <script src="core/base.js?v=27"></script>
   <!-- ゲーム時計・試合の乱数（エンジンより先に読む。設計: source_assets/memory/record/） -->
   <script src="core/game_clock.js?v=6"></script>
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=20"></script>
+  <script src="core/replay.js?v=36"></script>
   <script src="core/dialog.js?v=2"></script>
-  <script src="core/particles.js?v=8"></script>
+  <script src="core/particles.js?v=11"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=14"></script>
-  <script src="config/records.js?v=4"></script>
-  <script src="config/account.js?v=6"></script>
+  <script src="config/settings.js?v=18"></script>
+  <script src="config/records.js?v=6"></script>
+  <script src="config/cloud_sync.js?v=3"></script>
+  <script src="config/stats.js?v=7"></script>
+  <script src="config/account.js?v=9"></script>
   <script src="core/hud_extras.js?v=4"></script>
-  <script src="config/vs_settings.js?v=6"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
-  <script src="game/tet/lifecycle.js?v=14"></script>
-  <script src="game/tet/board.js?v=13"></script>
-  <script src="game/tet/rotation.js?v=4"></script>
-  <script src="game/tet/scoring.js?v=3"></script>
-  <script src="game/tet/garbage.js?v=6"></script>
-  <script src="game/tet/render.js?v=10"></script>
-  <script src="game/tet/input.js?v=11"></script>
+  <script src="game/tet/lifecycle.js?v=21"></script>
+  <script src="game/tet/board.js?v=23"></script>
+  <script src="game/tet/rotation.js?v=10"></script>
+  <script src="game/tet/scoring.js?v=6"></script>
+  <script src="game/tet/zone.js?v=18"></script>
+  <script src="game/tet/garbage.js?v=14"></script>
+  <script src="game/tet/render.js?v=11"></script>
+  <script src="game/tet/input.js?v=17"></script>
+  <!-- VS 設定: ZONE の選択肢・既定値を game/tet/zone.js から読むので、テトのエンジンの後に読み込む -->
+  <script src="config/vs_settings.js?v=10"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
-  <script src="game/puyo/lifecycle.js?v=9"></script>
+  <script src="game/puyo/lifecycle.js?v=11"></script>
   <script src="game/puyo/connect.js"></script>
-  <script src="game/puyo/ojama.js?v=9"></script>
-  <script src="game/puyo/engine.js?v=19"></script>
+  <script src="game/puyo/ojama.js?v=11"></script>
+  <script src="game/puyo/engine.js?v=20"></script>
   <script src="game/puyo/input.js?v=12"></script>
   <script src="game/puyo/draw.js?v=11"></script>
-  <script src="quiz/quiz.js?v=10"></script>
+  <script src="quiz/quiz.js?v=13"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=25"></script>
+  <script src="app/modes.js?v=35"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
-  <script src="app/cpu_match_log.js?v=2"></script>
-  <script src="app/versus.js?v=21"></script>
+  <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
+  <script src="cpu/tet/cpu_zone.js?v=11"></script>
+  <script src="app/cpu_match_log.js?v=4"></script>
+  <script src="app/versus.js?v=22"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=40"></script>
+  <script src="app/navigation.js?v=48"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/replays.js?v=7"></script>
-  <script src="app/focus_nav.js?v=22"></script>
+  <script src="app/replays.js?v=8"></script>
+  <script src="app/stats_page.js?v=7"></script>
+  <script src="app/focus_nav.js?v=28"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
-  <script src="app/board_swap.js?v=7"></script>
+  <script src="app/board_swap.js?v=11"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=4"></script>
   <script src="practice/practice_sequence.js?v=7"></script>
   <script src="practice/practice_panel.js?v=22"></script>
-  <script src="practice/practice.js?v=36"></script>
+  <script src="practice/practice.js?v=37"></script>
   <!-- アシスト（盤面ガイド）。PRACTICE / VERSUS から Assist.attach で呼ばれる -->
   <script src="assist/assist.js?v=6"></script>
   <script src="assist/assist_overlay.js?v=3"></script>
-  <script src="assist/assist_tet.js?v=19"></script>
+  <script src="assist/assist_tet.js?v=23"></script>
   <script src="assist/assist_puyo.js?v=7"></script>
   <script type="module" src="/src/online/online.tsx"></script>
 </body>

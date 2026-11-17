@@ -1,0 +1,728 @@
+// ─────────────────────────────────────────────
+// tet/zone.js  ―  Game.prototype mixin
+// ZONE（ライン消去でメーターをため、発動中は消したラインが底へたまる。時間切れで一気に消える）
+// 設計: source_assets/memory/tet_zone/tetlabo-zone-design.md
+// ※ core.js（class Game 定義）より後に読み込むこと
+//
+// エンジンには「ZONE という能力」として足す（zoneEnabled が false なら、ここの処理は何も通らない）。
+// 時間は全部ゲーム時計（clock.schedule / clock.now）。ポーズ・録画の再生・シークがそのまま効く。
+// 終了の演出は描画だけ（エンジンは即時に盤面を下げる。§4.5・Q5）。
+// ─────────────────────────────────────────────
+
+// ─── ZONE の設定の選択肢と既定値（ここだけ書き換えれば画面にも反映される）───
+// シングルの準備画面（app/modes.js）と VS 設定（config/vs_settings.js）はここの値をそのまま使う。
+// 既定値はシングルの記録（自己ベスト・ランキング）の対象にもなる（既定以外は記録しない。app/modes.js isZoneRecordEligible）
+const ZONE_QUARTER_LINES_SINGLE = 6;   // シングルの既定: 1/4 に必要なライン数（原作の Zone Marathon は 8）
+const ZONE_MS_PER_QUARTER = 8000;      // シングルの既定: 1/4 の長さ（ms）
+const ZONE_VS_QUARTER_MS_DEFAULT = 5000; // VERSUS の既定: 1/4 の長さ（ms）。VS 設定 ZONE TIME の初期値
+// 選べる値（シングルの準備画面・VS 設定 共通）。外から zoneQuarterLinesSetting / zoneQuarterMsSetting（VERSUS は vsZone…）で渡す
+const ZONE_QUARTER_LINES_OPTIONS = [3, 4, 6, 8, 10, 12];
+const ZONE_QUARTER_MS_OPTIONS = [2500, 4000, 5000, 8000, 10000, 15000];
+// 設定が入っていない古い録画（設定を足す前に撮ったもの）の値。上の既定を変えても古い録画がずれないよう固定する
+const ZONE_LEGACY_QUARTER_LINES = 8;
+const ZONE_LEGACY_QUARTER_MS = 5000;
+// エンジンが受け付ける範囲（選択肢から外した値の古い録画も再生できるよう、選択肢ではなく範囲で見る）
+const zoneValidLines = (v) => Number.isInteger(v) && v >= 1 && v <= 40;
+const zoneValidMs = (v) => Number.isFinite(v) && v >= 500 && v <= 60000;
+const ZONE_TIERS = [4, 8, 12, 16, 18, 20]; // 段数の区切り（数字の色・終了の SE）
+// 区切りごとの色（ZONE_TIERS 未満は先頭の色）
+const ZONE_TIER_COLORS = ['#e0e0f0', '#71c5f5', '#5af5a0', '#f5e15a', '#f5a05a', '#fa71cd', '#ffffff'];
+const ZONE_END_FX_MS = 700;            // 終了の光（描画だけ）
+// 円形のメーターの中身（シングル・VERSUS の両盤面で同じ。_zoneHudEls が入れる）。
+// 輪は pathLength=100 で、12 時から時計回り。1/4 ごとに切れ目を入れる
+const ZONE_RING_HTML = `
+<svg class="zone-ring" viewBox="0 0 80 80" width="80" height="80" aria-hidden="true">
+  <g transform="rotate(-90 40 40)">
+    <circle class="zone-ring-track" cx="40" cy="40" r="33" pathLength="100"></circle>
+    <circle class="zone-ring-halo" cx="40" cy="40" r="33" pathLength="100"></circle>
+    <circle class="zone-ring-fill" cx="40" cy="40" r="33" pathLength="100"></circle>
+  </g>
+  <path class="zone-ring-ticks" d="M40 2.5V11.5M40 68.5V77.5M2.5 40H11.5M68.5 40H77.5"></path>
+</svg>
+<div class="zone-ring-center">
+  <span class="zone-ring-label">ZONE</span>
+  <span class="zone-ring-key"></span>
+  <span class="zone-ring-sub"></span>
+</div>`;
+
+// ─── VERSUS（設計 tetlabo-zone-versus-cpu-design.md §2）───
+// VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ）。選べる値はシングルの準備画面と同じ
+// （ZONE_QUARTER_LINES_OPTIONS / ZONE_QUARTER_MS_OPTIONS）。既定は 6 ライン（ここ）・ZONE_VS_QUARTER_MS_DEFAULT（§12）。
+// 設定が入っていない古い録画はこの 6 ライン・ZONE_LEGACY_QUARTER_MS で再生する
+const ZONE_VS_QUARTER_LINES_DEFAULT = 6;
+// 終了時の火力表（原作の Zone Bonus Attack。§2.3）。[発動時のチャージ-1][合計段数-1] = 火力のかたまり。
+// かたまりは別々の予告として送る。24 段以上は 23 段の行を使う
+const ZONE_ATTACK_TABLE = [
+    // 25%
+    [[1], [2], [2], [3], [4], [4], [4, 1], [4, 2], [4, 2], [4, 3], [4, 4], [4, 4], [4, 4, 1], [4, 4, 2], [4, 4, 2],
+        [4, 4, 3], [4, 4, 4], [4, 4, 4], [5, 4, 4], [5, 5, 4, 4], [6, 6, 6, 6], [8, 8, 8, 8], [10, 10, 10, 10]],
+    // 50%
+    [[1], [2], [3], [4], [5], [6], [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [6, 6], [6, 6, 1], [6, 6, 2], [6, 6, 3],
+        [6, 6, 4], [6, 6, 5], [6, 6, 6], [8, 6, 6], [8, 8, 8], [10, 10, 10], [14, 12, 12], [16, 16, 16]],
+    // 75%
+    [[1], [2], [3], [4], [6], [7], [8], [9], [10], [10, 2], [10, 3], [10, 4], [10, 5], [10, 6], [10, 8],
+        [10, 9], [10, 10], [11, 10], [12, 10], [14, 14], [16, 16, 4], [18, 18, 10], [20, 20, 20]],
+    // 100%
+    [[1], [3], [4], [6], [7], [9], [11], [12], [13], [15], [15, 1], [15, 3], [15, 4], [15, 6], [15, 7],
+        [15, 9], [15, 10], [15, 12], [15, 13], [17, 17], [18, 18, 10], [20, 20, 12, 10], [20, 20, 20, 20]],
+];
+
+// 終了時の火力のかたまり（補正をかける前）。段数 0 なら空
+function zoneAttackChunks(charge, lines) {
+    if (!(lines > 0)) return [];
+    const row = ZONE_ATTACK_TABLE[Math.min(4, Math.max(1, charge)) - 1];
+    return row[Math.min(row.length, lines) - 1].slice();
+}
+
+// マージンタイム中、表のボーナス火力にかける倍率（10 倍の整数で持つ。小数点以下は切り捨て）。
+// 行は発動したときのメーター（1/4・2/4・3/4・MAX ＝ zoneCharge 1〜4）。ためて撃つほど伸びが大きい。
+// 列はマージンのステップ（_tetMarginStep 0〜5 = 突入後 0/32/64/96/128/160 秒。scoring.js の火力表と同じ段階）。
+// 未突入（null）は等倍。設計 tetlabo-zone-versus-cpu-design.md §16（§11.4 の 1 行の表を置き換えた）
+const ZONE_MARGIN_BONUS_X10 = [
+    [10, 11, 12, 13, 14, 15],   // 1/4
+    [12, 14, 16, 18, 20, 24],   // 2/4
+    [12, 16, 20, 24, 30, 36],   // 3/4
+    [12, 18, 24, 32, 48, 64],   // MAX
+];
+
+function zoneMarginBonusX10(charge, marginStep) {
+    if (marginStep === null || marginStep === undefined || marginStep < 0) return 10;
+    const row = ZONE_MARGIN_BONUS_X10[Math.min(4, Math.max(1, charge | 0)) - 1];
+    return row[Math.min(row.length - 1, marginStep)];
+}
+
+// VERSUS の終了時に出す火力のかたまり（補正後。設計 §11）。CPU の見込み（cpu/tet/cpu_zone.js）もこれを使う。
+//   pool       発動中にためた通常火力（Scoring の値そのまま。マージン中の火力表はもう入っている）
+//   marginStep _tetMarginStep（null = 未突入）
+//   bias       ATTACK BIAS（vsAttackMultiplier）
+// かたまりの並び: [通常火力の合計, 表のかたまり…]（原作の「通常の火力の後にボーナス」）。0 になったかたまりは除く。
+// マージンの倍率は表のかたまりだけにかける（通常火力は Scoring の中でもう上がっているので二重にしない）
+function zoneEndAttackChunks(charge, lines, pool, marginStep, bias) {
+    const b = (bias === undefined || bias === null) ? 1.0 : bias;
+    const biased = (v) => (b !== 1.0 ? Math.floor(v * b + 1e-9) : v);
+    const x10 = zoneMarginBonusX10(charge, marginStep);
+    const out = [];
+    const normal = biased(Math.max(0, pool | 0));
+    if (normal > 0) out.push(normal);
+    for (const c of zoneAttackChunks(charge, lines)) {
+        const v = biased(Math.floor(c * x10 / 10));
+        if (v > 0) out.push(v);
+    }
+    return out;
+}
+
+// 分けて送るとき（設計 §13.1）のかたまり。{ normal: [発動中の攻撃 1 回ぶんずつ…], bonus: [表のかたまり…] }
+//   list  発動中に出た通常火力（Scoring の値）を出た順に並べたもの。ATTACK BIAS は 1 回ぶんごとにかける（ふだんと同じ）
+function zoneEndAttackSplit(charge, lines, list, marginStep, bias) {
+    const b = (bias === undefined || bias === null) ? 1.0 : bias;
+    const biased = (v) => (b !== 1.0 ? Math.floor(v * b + 1e-9) : v);
+    const normal = (list || []).map(biased).filter(v => v > 0);
+    const bonus = zoneEndAttackChunks(charge, lines, 0, marginStep, bias);
+    return { normal, bonus };
+}
+
+function zoneTierIndex(lines) {
+    let i = 0;
+    while (i < ZONE_TIERS.length && lines >= ZONE_TIERS[i]) i++;
+    return i; // 0 = 4 未満、6 = 20 以上
+}
+
+// ミノが動ける一番上の段（y がこれ以上）。ふつうは枠の上 5 段（計 25 段）。
+// ZONE が使える試合（シングルの ZONE・ローカル VERSUS の ZONE）は枠の上 20 段（計 40 段。盤面の上限）まで（ZONE 本編 §16・§17）
+const TET_TOP_LIMIT = -5;
+const ZONE_TOP_LIMIT = -20;
+Game.prototype.topLimit = TET_TOP_LIMIT;
+
+Object.assign(Game.prototype, {
+
+    // 試合の頭（_initGameState）で呼ぶ。終了の予約も取り消す
+    _zoneInit() {
+        if (this._zoneTimer) this.clock.cancel(this._zoneTimer);
+        this._zoneTimer = null;
+        // モード ZONE か、ローカル VERSUS で VS 設定 ZONE が ON（vsZone は applyVsSettings が入れる。
+        // テト同士のときだけ立つ。ONLINE の盤面には入らない）
+        const vs = !!(this.isVersusMode && this.currentMode === 'versus' && this.vsZone === true);
+        this.zoneEnabled = (this.mode === 'zone') || vs;
+        // 動ける範囲。古い録画の再生は従来どおり 25 段（シングルは版 10 以前、VERSUS は版 11 以前。
+        // core/replay.js REPLAY_ENGINE_VERSION 11・12）
+        const recEngine = (this._replay && this._replay.data) ? (this._replay.data.engine || 0) : Infinity;
+        const tall = this.zoneEnabled && recEngine >= (vs ? 12 : 11);
+        this.topLimit = tall ? ZONE_TOP_LIMIT : TET_TOP_LIMIT;
+        if (vs) {
+            // VERSUS: VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ。未設定は 5 秒）（§12）
+            this.zoneQuarterLines = zoneValidLines(this.vsZoneQuarterLines)
+                ? this.vsZoneQuarterLines : ZONE_VS_QUARTER_LINES_DEFAULT;
+            this.zoneQuarterMs = zoneValidMs(this.vsZoneQuarterMs)
+                ? this.vsZoneQuarterMs : ZONE_LEGACY_QUARTER_MS;
+        } else {
+            // 1/4 に必要なライン数・1/4 の長さ（準備画面の設定。未設定・範囲外は既定値）
+            // 設定が無い（古い録画）ときは当時の値。新しい試合は準備画面が必ず入れる
+            this.zoneQuarterLines = zoneValidLines(this.zoneQuarterLinesSetting)
+                ? this.zoneQuarterLinesSetting : ZONE_LEGACY_QUARTER_LINES;
+            this.zoneQuarterMs = zoneValidMs(this.zoneQuarterMsSetting)
+                ? this.zoneQuarterMsSetting : ZONE_LEGACY_QUARTER_MS;
+        }
+        this._zoneB2bBefore = false; // VERSUS: 発動前の B2B（終了時に戻す）
+        this.zoneAtkPool = 0;        // VERSUS: 発動中にためた通常火力（終了時に表の火力へ足して出す。§11.1）
+        this.zoneAtkList = [];       // VERSUS: 同じものを攻撃 1 回ぶんずつ（分けて送るとき用。§13.1）
+        this.zoneCarry = 0;          // 満タンの後に消したライン（次のメーターへ持ち越す。上限 1/4 ぶん。§11.3）
+        this.zoneLastAttack = 0;     // VERSUS: 直前の終了で出した火力（補正後の合計）
+        this.zoneMeter = 0;          // たまったライン数（端数も持つ）
+        this.zoneActive = false;
+        this.zoneLines = 0;          // 発動中に底へ移した段数
+        this.zoneCharge = 0;         // 発動時の 1/4 の数
+        this.zoneTimeUp = false;     // 時間は切れたが、いまのミノを置くまで続いている（シングル）
+        this.zoneStartAt = 0;
+        this.zoneDurationMs = 0;
+        this.zoneScorePool = 0;      // 発動中にためた点（終了時に倍率をかけて足す）
+        this.zoneLinesTotal = 0;     // 1 局の ZONE 段の合計（lines とは別に数える。§5.4）
+        this.zoneBest = 0;           // 1 回の最大
+        this.zoneCount = 0;          // 発動した回数
+        // 成績（STATS）用: 発動していた時間の合計と、ZONE で出した火力（補正込み / 火力補正を外したもの）。
+        // 火力は、シングル＝発動中に出た火力（tet/board.js）、VERSUS＝終了時にまとめて出す火力（_endZone）
+        this.zoneMsTotal = 0;
+        this.zoneAtkTotal = 0;
+        this.zoneAtkRawTotal = 0;
+        this._zoneFx = null;         // 終了の光（描画だけ。実時間）
+        this._zoneHudSig = null;
+        this._zoneHideEndPopup();
+        this._zoneSyncHud(true);
+    },
+
+    zoneQuarters() {
+        return Math.floor(this.zoneMeter / this.zoneQuarterLines);
+    },
+
+    // ライン消去でメーターをためる（発動中は足さない。T-Spin などの上乗せはなし。§4.1）
+    // VERSUS: 満タンを超えたぶんは zoneCarry にためておき（上限 1/4 ぶん）、発動で満タンでなくなった後の
+    // 「次のライン消去」のときに、その消去と一緒にメーターへ入れる（終了した瞬間には入れない。VERSUS 編 §11.3）
+    _zoneAddMeter(n) {
+        if (!this.zoneEnabled || this.zoneActive || !(n > 0)) return;
+        const before = this.zoneQuarters();
+        const max = this.zoneQuarterLines * 4;
+        if (this.isVersusMode) {
+            if (this.zoneMeter < max && this.zoneCarry > 0) {
+                n += this.zoneCarry;
+                this.zoneCarry = 0;
+            }
+            const over = this.zoneMeter + n - max;
+            if (over > 0) this.zoneCarry = Math.min(this.zoneQuarterLines, this.zoneCarry + over);
+        }
+        this.zoneMeter = Math.min(max, this.zoneMeter + n);
+        // 1/4 たまったときは鳴らさない。満タンになったときだけ
+        if (before < 4 && this.zoneQuarters() >= 4) this.playSe('zone_full');
+    },
+
+    canActivateZone() {
+        return !!(this.zoneEnabled && !this.zoneActive && this.zoneQuarters() >= 1
+            && this.mino && !this.isPaused && !this.isCountingDown);
+    },
+
+    // 発動（操作 zone・CPU は cpuAction('zone')）。発動できたら true
+    activateZone() {
+        if (!this.canActivateZone()) return false;
+        const q = Math.min(4, this.zoneQuarters());
+        this.zoneCharge = q;
+        this.zoneDurationMs = q * this.zoneQuarterMs;
+        this.zoneMeter -= q * this.zoneQuarterLines; // 端数は残して次へ持ち越す
+        this.zoneLines = 0;
+        this.zoneScorePool = 0;
+        this.zoneAtkPool = 0;
+        this.zoneAtkList = [];
+        this.zoneTimeUp = false;
+        this.zoneActive = true;
+        this._zoneFrozenRem = null;
+        this.zoneCount++;
+        this.zoneStartAt = this.clock.now();
+        this._zoneB2bBefore = !!this.backToBack;
+        // VERSUS: 録画の印・CPU 同士の記録
+        if (this.isVersusMode) {
+            if (this._rec) this._rec._mark(this, 'attack', 'ZONE', 0);
+            if (window.CpuMatchLog && window.CpuMatchLog.zone) window.CpuMatchLog.zone(this, 'start', q, 0, 0);
+        }
+        this._zoneTimer = this.clock.schedule(this.zoneDurationMs, () => {
+            this._zoneTimer = null;
+            this._zoneOnTimeUp();
+        });
+        // 進んでいた固定猶予は取り消す（発動中はソフトドロップ中だけ固定猶予が進む。§4.4。
+        // 押したままなら次のフレームの _applyGravityTick が始め直す）
+        if (this.lockTimer) {
+            this.clock.cancel(this.lockTimer);
+            this.lockTimer = null;
+        }
+        this.moveCount = 0;
+        this.playSe('zone_start');
+        this._zoneSyncHud(true);
+        this.requestRedraw();
+        return true;
+    },
+
+    _zoneOnTimeUp() {
+        if (!this.zoneActive) return;
+        // VERSUS の決着の演出中は何もしない（止まった盤面を下げたり、火力を送ったりしない）。
+        // 録画の再生中（_replay）は対戦の進行（BattleVersusLifecycle）が 'playing' にならないので見ない。
+        // 見ると時間切れが無視されて ZONE が終わらず、再生がずれる（録画は決着で終わるので盤面の isFinishing で足りる）
+        if (this.isVersusMode && (this.isFinishing
+            || (!this._replay && window.BattleVersusLifecycle && window.BattleVersusLifecycle.phase !== 'playing'))) return;
+        // VERSUS はその場で終わる（操作中のミノは持ち越す）。シングルはいまのミノを置くまで続く（§4.5）
+        if (this.isVersusMode) {
+            this._endZone('time');
+            return;
+        }
+        this.zoneTimeUp = true;
+        this._zoneSyncHud(true);
+        this.requestRedraw();
+    },
+
+    // 盤面入れ替え（app/board_swap.js）の後: 時間切れの予約は前の持ち主を掴んでいるので、残り時間から貼り直す
+    _zoneReseatTimer(oldOwner) {
+        if (oldOwner && oldOwner._zoneTimer) { oldOwner.clock.cancel(oldOwner._zoneTimer); }
+        this._zoneTimer = null;
+        if (this.zoneActive && !this.zoneTimeUp) {
+            this._zoneTimer = this.clock.schedule(this.zoneRemainingMs(), () => {
+                this._zoneTimer = null;
+                this._zoneOnTimeUp();
+            });
+        }
+        this._zoneHudSig = null;
+        this._zoneSyncHud(true);
+    },
+
+    // 残り時間（ms）
+    zoneRemainingMs() {
+        if (!this.zoneActive) { this._zoneFrozenRem = null; return 0; }
+        // VERSUS の決着後は時計が演出のために進み続けるので、決着した所の残りで止める
+        // （勝った側は isFinishing にならないので、対戦の進行の phase も見る）
+        if (this._zoneFrozenRem != null) return this._zoneFrozenRem;
+        const rem = Math.max(0, this.zoneDurationMs - (this.clock.now() - this.zoneStartAt));
+        if (this.isVersusMode && (this.isFinishing || this.isGameOver
+            || (!this._replay && window.BattleVersusLifecycle
+                && ['roundResolving', 'roundResult', 'postMatch'].includes(window.BattleVersusLifecycle.phase)))) {
+            this._zoneFrozenRem = rem;
+        }
+        return rem;
+    },
+
+    // 発動中の消去判定（§4.3）。そろった段は消さずに底へ移し、block.zone の印を付ける。
+    // 見えている 20 段より上（y < 0）も見る（21 段以上のため）。下の段から順に処理する。戻り値はそろった段数
+    _zoneCheckLine() {
+        const field = this.field;
+        const bs = field.blocks;
+        let floorY = ROWS_COUNT - this.zoneLines; // ここから下は ZONE 段
+        let minY = floorY;
+        for (let i = 0; i < bs.length; i++) if (bs[i].y < minY) minY = bs[i].y;
+        let n = 0;
+        // 下から上へ。r の段を処理すると r より下（まだそろっていない段）が 1 段上がって r に来るだけなので、次は r-1 を見ればよい
+        for (let r = floorY - 1; r >= minY; r--) {
+            let c = 0;
+            for (let i = 0; i < bs.length; i++) if (bs[i].y === r) c++;
+            if (c < COLS_COUNT) continue;
+            for (let i = 0; i < bs.length; i++) {
+                const b = bs[i];
+                if (b.y === r) {
+                    b.y = floorY - 1;  // そろった段はそのまま底へ（色は元のまま）
+                    b.zone = true;
+                } else if (b.y > r && b.y < floorY) {
+                    b.y -= 1;          // 消した段より下は 1 段上がる（上の段は動かない）
+                }
+            }
+            floorY--;
+            this.zoneLines++;
+            n++;
+        }
+        if (n > 0) field.markDirty();
+        return n;
+    },
+
+    // 発動中の PC: ZONE 段以外のブロックが 0 個（§4.3）
+    _zoneIsPerfectClear() {
+        const bs = this.field.blocks;
+        for (let i = 0; i < bs.length; i++) if (!bs[i].zone) return false;
+        return true;
+    },
+
+    // 終了（時間切れ・窒息）。reason: 'time' | 'topout'
+    _endZone(reason) {
+        if (!this.zoneActive) return;
+        if (this._zoneTimer) { this.clock.cancel(this._zoneTimer); this._zoneTimer = null; }
+        this.zoneMsTotal = (this.zoneMsTotal || 0) + Math.max(0, this.clock.now() - this.zoneStartAt); // 成績（STATS）
+        const n = this.zoneLines;
+        const field = this.field;
+        // 1. ZONE 段を消し、2. 残りを n 段下げる（操作中のミノは動かさない）
+        if (n > 0) {
+            field.blocks = field.blocks.filter(b => !b.zone);
+            const bs = field.blocks;
+            for (let i = 0; i < bs.length; i++) bs[i].y += n;
+            field.markDirty();
+            // VERSUS の時間切れは操作中のミノを持ち越す。ミノが庇の下にいると、下がってきたブロックと重なるので、
+            // そのときだけミノも同じ段数下げる（積んである形との位置関係はそのまま）
+            if (reason === 'time' && this.isVersusMode && this.mino && !this.valid(0, 0)) {
+                this.mino.y += n;
+                if (this.mino.y > this.lowestY) this.lowestY = this.mino.y;
+            }
+        }
+        // 3. スコア（§5.2）。lines・レベルは変えない（§5.4）
+        const mult = 1 + (n >= 8 ? 1 : 0) + (this.zoneCharge === 4 ? 1 : 0);
+        const bonus = Math.floor(this.zoneScorePool * mult) + n * 100;
+        this.score += bonus;
+        this.zoneLinesTotal += n;
+        if (n > this.zoneBest) this.zoneBest = n;
+        // VERSUS: 発動中にためた通常火力＋表の火力（マージン中は倍率つき）でかたまりを作り、まず相殺、
+        // 余りをかたまりごとに送る（VERSUS 編 §2.2・§11）
+        let attack = 0;
+        if (this.isVersusMode) {
+            const charge = this.zoneCharge;
+            // 4. より先に発動を解く（送る・相殺するのはふだんの状態で）
+            this.zoneActive = false;
+            // VS 設定 ZONE ATTACK（§13.1・§14）。SPLIT: 発動中の攻撃を 1 回ぶんずつ → 表のかたまり、の順に別々の
+            // 予告で送り、受ける側は 1 手につき 1 かたまりだけ着弾させる（zoneHold。tet/garbage.js applyGarbage）。
+            // MERGE: [通常火力の合計, 表のかたまり…] を送り、ふつうの火力と同じく 1 手でまとめて着弾（§11 のまま）。
+            // vsZoneSplit が無い（古い録画）は MERGE
+            const split = this.vsZoneSplit === true;
+            let chunks;
+            if (split) {
+                const parts = zoneEndAttackSplit(charge, n, this.zoneAtkList, this._tetMarginStep,
+                    this.vsAttackMultiplier ?? 1.0);
+                chunks = parts.normal.concat(parts.bonus);
+            } else {
+                chunks = zoneEndAttackChunks(charge, n, this.zoneAtkPool, this._tetMarginStep,
+                    this.vsAttackMultiplier ?? 1.0);
+            }
+            for (const c of chunks) attack += c;
+            // 成績（STATS）: 火力補正を外した場合の同じ計算（倍率 1.0）を別に積む
+            if (attack > 0 || (this.vsAttackMultiplier ?? 1.0) !== 1.0) {
+                const rawChunks = split
+                    ? (() => { const p = zoneEndAttackSplit(charge, n, this.zoneAtkList, this._tetMarginStep, 1.0); return p.normal.concat(p.bonus); })()
+                    : zoneEndAttackChunks(charge, n, this.zoneAtkPool, this._tetMarginStep, 1.0);
+                for (const c of rawChunks) {
+                    this.attackRaw = (this.attackRaw || 0) + c;
+                    this.zoneAtkRawTotal = (this.zoneAtkRawTotal || 0) + c;
+                }
+            }
+            this.zoneAtkTotal = (this.zoneAtkTotal || 0) + attack;
+            if (attack > 0) {
+                this._countAttackSent(attack); // APM（生成基準。相殺ぶんも数える）
+                let canceled = attack - this.offsetGarbage(attack);
+                // 相殺は先頭のかたまりから順に使う
+                for (let i = 0; i < chunks.length; i++) {
+                    const c = chunks[i];
+                    const used = Math.min(c, canceled);
+                    canceled -= used;
+                    if (c - used > 0) this.sendGarbage(c - used, { zoneChunk: true, zoneHold: split });
+                }
+            }
+            // 発動中の REN・B2B は上の通常火力に入っている。終了直後の 1 手に大きな REN 火力が乗らないよう戻す
+            this.ren = 0;
+            this.backToBack = this._zoneB2bBefore;
+            this.zoneLastAttack = attack;
+            if (window.CpuMatchLog && window.CpuMatchLog.zone) window.CpuMatchLog.zone(this, 'end', charge, n, attack, this.zoneAtkPool);
+        }
+        // 4. 状態を戻す
+        this.zoneActive = false;
+        this.zoneTimeUp = false;
+        this.zoneLines = 0;
+        this.zoneScorePool = 0;
+        this.zoneAtkPool = 0;
+        this.zoneAtkList = [];
+        this.zoneCharge = 0;
+        this.updateStatsDisplay();
+        // 落下・固定をふだんに戻す（シングルはミノを置いた後か、出せなかったときなので mino は無い）
+        if (this.mino) {
+            if (this.valid(0, 1)) {
+                // 発動中にソフトドロップで ZONE 段の上に着いていたミノは、盤面が下がって宙に浮く。
+                // そのとき進んでいた固定猶予を取り消す（残すと空中で固定される。board.js の「空中にいる場合」と同じ）。
+                // 版 7 以前の録画の再生は従来どおり（core/replay.js REPLAY_ENGINE_VERSION 8）
+                const oldLock = this._replay && this._replay.data && (this._replay.data.engine || 0) < 8;
+                if (this.lockTimer && !oldLock) {
+                    this.clock.cancel(this.lockTimer);
+                    this.lockTimer = null;
+                }
+                this.isGrounded = false;
+                this.startGravity();
+            } else {
+                this.isGrounded = true;
+                if (!this.lockTimer) this.startLockTimer();
+            }
+        }
+        // 録画の印（core/replay.js）
+        if (this._rec && (n > 0 || this.isVersusMode)) {
+            this._rec._mark(this, 'attack', this.isVersusMode ? `ZONE ${n} (+${attack})` : `ZONE ${n} LINES`, this.isVersusMode ? attack : n);
+        }
+        // 6. 表示・SE・演出（描画だけ）
+        this.playSe(n >= 16 ? 'zone_end_big' : 'zone_end');
+        this._zoneFx = { t: performance.now(), lines: n, reason };
+        this._zoneShowEndPopup(n, this.isVersusMode ? attack : bonus);
+        this._zoneSyncHud(true);
+        this.requestRedraw();
+    },
+
+    // 出現できなかった（窒息）。発動中なら ZONE を終わらせて、盤面が下がったら同じミノを出し直す。
+    // 出し直せたら true（呼び出し側は GAME OVER にしない）。発動していない・盤面が下がらない・それでも出せないなら false
+    _zoneRespawnAfterTopOut() {
+        if (!this.zoneActive || !this.mino) return false;
+        const lowered = this.zoneLines > 0;
+        const mino = this.mino;
+        this.mino = null; // 出せなかったミノは盤面に無い扱い（_endZone が落下・固定を始めないように）
+        this._endZone('topout');
+        this.mino = mino;
+        if (!lowered) return false;
+        // NEXT は進めない（いま出そうとしたミノをもう一度置く）。先行ホールドは済んでいるので二重にしない
+        const ihsUsed = this._spawnIhsUsed;
+        const ok = this._spawnMino(mino, { allowIhs: false });
+        this._spawnIhsUsed = ihsUsed;
+        return ok;
+    },
+
+    // ─── 画面（HUD）───
+    // シングルの盤面と、ローカル VERSUS の両盤面（player- / cpu-。ONLINE の盤面には要素が無い）。
+    // 変わったときだけ DOM を書き換える。
+    // ・円形のメーター（盤面の左下）: 1 周 = 4/4。12 時から時計回りにたまり、発動中は残り時間で反時計回りに減る
+    //   （1/4 = zoneQuarterMs なので、減る速さはいつも同じ）。たまるときは CSS の transition で伸びる
+    // ・盤面の枠の光: 発動した長さを全周として、上辺中央から左右に分かれて消えていき、下辺中央で終わる
+    _zoneHudEls() {
+        const pre = this.canvasPrefix || '';
+        if (this.isVersusMode ? (pre !== 'player' && pre !== 'cpu') : !!pre) return null;
+        if (!this._zoneEls || this._zoneElsPrefix !== pre) {
+            const id = pre ? (name) => `${pre}-zone-${name}` : (name) => `zone-${name}`;
+            const area = document.getElementById(id('area'));
+            if (area && !area.querySelector('.zone-ring')) area.innerHTML = ZONE_RING_HTML;
+            this._zoneElsPrefix = pre;
+            this._zoneEls = {
+                area,
+                fills: area ? Array.from(area.querySelectorAll('.zone-ring-fill, .zone-ring-halo')) : [],
+                key: area ? area.querySelector('.zone-ring-key') : null,
+                sub: area ? area.querySelector('.zone-ring-sub') : null,
+                container: document.getElementById(pre ? `versus-${pre}-container` : 'container'),
+                canvas: document.getElementById(pre ? `${pre}-main-canvas` : 'main-canvas'),
+                popup: document.getElementById(id('end-popup')),
+                frame: null,
+                frameLines: [],
+            };
+        }
+        return this._zoneEls.area ? this._zoneEls : null;
+    },
+
+    // 盤面の枠に重ねる SVG（枠線の真上に線を引く）。盤面のキャンバスの大きさが取れてから 1 回だけ作る
+    _zoneFrameEls(els) {
+        if (els.frame || !els.container || !els.canvas) return els.frame;
+        const cv = els.canvas;
+        const w = cv.offsetWidth, h = cv.offsetHeight;
+        if (!w || !h) return null;
+        let svg = els.container.querySelector(':scope > .zone-frame');
+        if (!svg) {
+            const NS = 'http://www.w3.org/2000/svg';
+            svg = document.createElementNS(NS, 'svg');
+            svg.setAttribute('class', 'zone-frame');
+            svg.setAttribute('width', w);
+            svg.setAttribute('height', h);
+            svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+            svg.style.left = `${cv.offsetLeft}px`;
+            svg.style.top = `${cv.offsetTop}px`;
+            // 枠線（太さ bw）の中心を通る。下辺中央から始めて上辺中央で終わる線を左右に 1 本ずつ
+            // （線の頭から残りの割合だけ描けば、上辺中央から消えていく）
+            const bw = (w - cv.clientWidth) / 2 || 3;
+            const o = bw / 2, cx = w / 2;
+            const paths = [
+                `M${cx} ${h - o}H${o}V${o}H${cx}`,
+                `M${cx} ${h - o}H${w - o}V${o}H${cx}`,
+            ];
+            for (const cls of ['zone-frame-halo2', 'zone-frame-halo', 'zone-frame-core']) {
+                for (const d of paths) {
+                    const path = document.createElementNS(NS, 'path');
+                    path.setAttribute('class', cls);
+                    path.setAttribute('d', d);
+                    path.setAttribute('pathLength', '1');
+                    svg.appendChild(path);
+                }
+            }
+            els.container.appendChild(svg);
+        }
+        els.frame = svg;
+        els.frameLines = Array.from(svg.querySelectorAll('path'));
+        return svg;
+    },
+
+    _zoneSyncHud(force) {
+        const els = this._zoneHudEls();
+        if (!els) return;
+        const on = !!this.zoneEnabled;
+        // ring: 輪の長さ（0〜1。1 周 = 4/4）／ frame: 枠の光の長さ（0〜1。発動した長さが全周）
+        let ring = 0, frame = 0, sub = '', ready = false;
+        if (on && this.zoneActive) {
+            const rem = this.zoneRemainingMs();
+            ring = Math.min(1, rem / (this.zoneQuarterMs * 4));
+            frame = this.zoneDurationMs > 0 ? Math.min(1, rem / this.zoneDurationMs) : 0;
+            // 残りは 0.1 秒刻み（切り上げ。0.0 になるのは終わった後だけ）
+            sub = this.zoneTimeUp ? 'LAST' : (Math.ceil(rem / 100) / 10).toFixed(1);
+        } else if (on) {
+            // 見た目は 1/4 刻み（内部の端数は出さない。§6.1）
+            const q = Math.min(4, this.zoneQuarters());
+            ring = q / 4;
+            ready = q >= 1;
+        }
+        const hot = this.zoneActive && this.zoneLines >= 8;
+        const last = this.zoneActive && this.zoneTimeUp;
+        const sig = `${on}|${this.zoneActive}|${ready}|${hot}|${last}|${sub}|${Math.round(ring * 2000)}|${Math.round(frame * 2000)}`;
+        if (!force && sig === this._zoneHudSig) return;
+        this._zoneHudSig = sig;
+        els.area.style.display = on ? '' : 'none';
+        els.area.classList.toggle('is-ready', ready);
+        els.area.classList.toggle('is-full', ready && ring >= 1);
+        els.area.classList.toggle('is-active', !!this.zoneActive);
+        const dash = `${(ring * 100).toFixed(2)} 200`;
+        for (let i = 0; i < els.fills.length; i++) els.fills[i].style.strokeDasharray = dash;
+        if (els.key) {
+            // キー名は人が操作する盤面だけ
+            const k = (!this.isCpuControlled && typeof loadKeys === 'function') ? (loadKeys().zone || {}) : {};
+            els.key.textContent = k.label || '';
+        }
+        if (els.sub) els.sub.textContent = sub;
+        if (els.container) {
+            els.container.classList.toggle('zone-on', on);
+            els.container.classList.toggle('zone-active', on && !!this.zoneActive);
+            els.container.classList.toggle('zone-hot', on && hot);
+            els.container.classList.toggle('zone-last', on && last);
+        }
+        if (on && this._zoneFrameEls(els)) {
+            // シングルの時間切れ後（いまのミノを置くまで）は、下辺中央に短い光だけ残して明滅させる
+            const fdash = `${(last ? 0.03 : frame).toFixed(4)} 2`;
+            for (let i = 0; i < els.frameLines.length; i++) els.frameLines[i].style.strokeDasharray = fdash;
+        }
+    },
+
+    // 盤面中央の「ZONE n LINES / +得点」（描画だけ）
+    // VERSUS は「ZONE n LINES / ATTACK +火力」
+    _zoneShowEndPopup(n, bonus) {
+        const els = this._zoneHudEls();
+        const el = els && els.popup;
+        if (!el) return;
+        const linesEl = el.querySelector('.zone-end-lines');
+        const scoreEl = el.querySelector('.zone-end-score');
+        if (linesEl) {
+            linesEl.textContent = `ZONE ${n} LINES`;
+            linesEl.style.color = ZONE_TIER_COLORS[zoneTierIndex(n)];
+        }
+        if (scoreEl) scoreEl.textContent = this.isVersusMode ? `ATTACK +${bonus}` : `+${bonus}`;
+        el.classList.remove('show');
+        void el.offsetWidth; // アニメをやり直す
+        el.classList.add('show');
+        clearTimeout(this._zonePopupTimer);
+        this._zonePopupTimer = setTimeout(() => el.classList.remove('show'), 2200);
+    },
+
+    _zoneHideEndPopup() {
+        clearTimeout(this._zonePopupTimer);
+        const els = this._zoneHudEls();
+        if (els && els.popup) els.popup.classList.remove('show');
+    },
+
+    // ─── 描画（render.js の drawAll から。盤面の座標系＝上に半段の余白を取った後で呼ぶ）───
+    _zoneDrawField(ctx) {
+        // ZONE 段の中央に段数
+        if (this.zoneActive && this.zoneLines > 0) {
+            const floorY = ROWS_COUNT - this.zoneLines;
+            const top = Math.max(-0.5, floorY);
+            const cy = ((top + ROWS_COUNT) / 2) * BLOCK_SIZE;
+            const size = Math.min(72, Math.max(26, (ROWS_COUNT - top) * BLOCK_SIZE * 0.7));
+            ctx.save();
+            ctx.font = `900 ${size}px Orbitron, monospace`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = 'rgba(10,10,15,0.85)';
+            ctx.strokeText(String(this.zoneLines), SCREEN_WIDTH / 2, cy);
+            ctx.fillStyle = ZONE_TIER_COLORS[zoneTierIndex(this.zoneLines)];
+            ctx.fillText(String(this.zoneLines), SCREEN_WIDTH / 2, cy);
+            ctx.restore();
+        }
+        // 終了の光（底から上へ消えていく。描画だけなので実時間）
+        const fx = this._zoneFx;
+        if (fx) {
+            const k = (performance.now() - fx.t) / ZONE_END_FX_MS;
+            if (k >= 1 || fx.lines <= 0) {
+                this._zoneFx = null;
+            } else {
+                const rows = Math.min(ROWS_COUNT, fx.lines);
+                const h = rows * BLOCK_SIZE;
+                ctx.save();
+                ctx.globalAlpha = (1 - k) * 0.75;
+                const grad = ctx.createLinearGradient(0, ROWS_COUNT * BLOCK_SIZE - h * (1 + k), 0, ROWS_COUNT * BLOCK_SIZE);
+                grad.addColorStop(0, 'rgba(255,255,255,0)');
+                grad.addColorStop(1, 'rgba(255,255,255,1)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, ROWS_COUNT * BLOCK_SIZE - h * (1 + k), SCREEN_WIDTH, h * (1 + k));
+                ctx.restore();
+                this.requestRedraw();
+            }
+        }
+    },
+
+    // 枠の上（y < -0.5）に出たブロック・ミノを、盤面の上に重ねたキャンバスへ描く（§6.1・Q9。高さは §16）
+    _zoneDrawAbove() {
+        const cv = this._zoneTopCanvas();
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        if (!this.zoneEnabled) return;
+        // キャンバスの下端 = 盤面の y=-0.5（そこから下は盤面のキャンバスが描く）。y=topLimit〜-0.5 を受け持つ
+        const oy = cv.height + VISIBLE_EXTRA_ROW_RATIO * BLOCK_SIZE; // y=0 の位置
+        const draw = (x, y, img, alpha) => {
+            if (y >= 0 || x < 0 || x >= COLS_COUNT) return;
+            const py = oy + y * BLOCK_SIZE;
+            if (py + BLOCK_SIZE <= 0) return;
+            ctx.globalAlpha = alpha;
+            ctx.drawImage(img, x * BLOCK_SIZE, py, BLOCK_SIZE, BLOCK_SIZE);
+        };
+        const bs = this.field.blocks;
+        for (let i = 0; i < bs.length; i++) {
+            const b = bs[i];
+            if (b.y < 0) draw(b.x, b.y, b.image, 1);
+        }
+        if (this.mino) {
+            const m = this.mino;
+            if (this.showGhost !== false) {
+                const gy = this.getGhostY();
+                if (gy !== m.y) for (const b of m.blocks) draw(m.x + b.x, gy + b.y, b.image, 0.25);
+            }
+            for (const b of m.blocks) draw(m.x + b.x, m.y + b.y, b.image, 1);
+        }
+        ctx.globalAlpha = 1;
+    },
+
+    // シングルは #zone-top-canvas、ローカル VERSUS は盤面ごとの {player|cpu}-zone-top-canvas（ONLINE には無い）
+    _zoneTopCanvas() {
+        let id = null;
+        if (!this.isVersusMode && !this.canvasPrefix) id = 'zone-top-canvas';
+        else if (this.isVersusMode && (this.canvasPrefix === 'player' || this.canvasPrefix === 'cpu')) id = `${this.canvasPrefix}-zone-top-canvas`;
+        if (!id) return null;
+        // 覚えるキャンバスは id ごと。VERSUS の 1P の Game（window._tetGamePlayer）は試合後も window._game に残り、
+        // シングルでそのまま使われる。id を見ずに 1 回目のキャンバスを使い続けると、シングルの ZONE が
+        // 隠れた VERSUS のキャンバスへ描いて枠の上が見えず、そのキャンバスに 19.5 段の大きさまで書き込んで
+        // 次の VERSUS の枠の上が引き伸ばされていた
+        if (this._zoneTopId !== id) {
+            const cv = document.getElementById(id);
+            if (cv) cv.width = SCREEN_WIDTH;
+            this._zoneTop = cv || null;
+            this._zoneTopId = id;
+        }
+        // 高さ = 動ける一番上（topLimit）から y=-0.5 まで。ふつう 4.5 段、シングルの ZONE は 19.5 段（§16）
+        const cv = this._zoneTop;
+        if (cv) {
+            const h = (-this.topLimit - VISIBLE_EXTRA_ROW_RATIO) * BLOCK_SIZE;
+            if (cv.height !== h) {
+                cv.height = h;
+                // シングルは CSS の大きさも合わせる（盤面のキャンバスと同じ 1 画素 = 1px）
+                if (id === 'zone-top-canvas') {
+                    cv.style.height = h + 'px';
+                    cv.style.top = `calc(3px - ${h}px)`;
+                } else {
+                    // VERSUS は CSS（.versus-zone-top-canvas）が盤面と同じ割合で縮める。画素の高さだけ渡す
+                    cv.style.height = '';
+                    cv.style.top = '';
+                    cv.style.setProperty('--zone-top-px', String(h));
+                }
+            }
+        }
+        return cv;
+    },
+});

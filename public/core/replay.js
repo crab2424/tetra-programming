@@ -23,7 +23,7 @@
 // ─────────────────────────────────────────────
 
 const REPLAY_FORMAT_VERSION = 2;   // ファイルの形の版（§6.2）。2: 盤面 2 枚・CPU の手・キー設定の読み直し
-const REPLAY_ENGINE_VERSION = 2;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間
+const REPLAY_ENGINE_VERSION = 12;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）。4: VERSUS の ZONE の火力（発動中の通常火力を足す・マージン倍率・メーターの持ち越し・CPU の発動中の速さ）。5: シングルの ZONE の発動中はレベル 1 の速さでソフトドロップ（4 以下の録画は従来どおり再生。tet/input.js）。6: ZONE の分けて送る火力は 1 手につき 1 かたまりだけ着弾（SPLIT の録画は 5 とずれる）。7: ZONE SPLIT の試合はふつうの火力も 1 手に 1 かたまりずつ着弾（6 以下の録画は従来どおり再生。tet/garbage.js）。8: VERSUS の ZONE 終了で盤面が下がって浮いたミノの固定猶予を取り消す（7 以下の録画は従来どおり再生。tet/zone.js）。9: ZONE のマージン倍率を発動時のメーターごとの表に（マージン中に ZONE が終わる 8 以下の VERSUS の録画はずれる。tet/zone.js）。10: ZONE の発動中は全ブロックが枠の上の設置を致命にせず ZONE も続ける（9 以下の録画は従来どおり再生。tet/board.js）。11: シングルの ZONE はミノが枠の上 20 段まで動ける（10 以下の録画は 5 段のまま。tet/zone.js topLimit）。12: VERSUS の ZONE の試合も枠の上 20 段まで・CPU も 40 段を読む（11 以下の VERSUS の録画は 5 段のまま）
 
 // 入力の列の種類。1 バイト目＝種類 << 1 | side
 //   キー 0〜3（bit0 押す・bit1 長押しの繰り返し）＋コードの番号、tet のパッド 4〜5（bit0 押す）＋アクションの番号
@@ -34,12 +34,15 @@ const REPLAY_EV_SKIP = 10;    // このフレームはゲーム画面が出て�
 const REPLAY_EV_CONFIG = 11;  // 次のフレームの頭: キー設定・DAS を読み直した（設定画面で保存）＋設定の番号
 const REPLAY_EV_CPU = 12;     // CPU の手（cpuAction）＋種類の番号・引数
 const REPLAY_EV_COUNTDOWN = 13; // 次のフレームの頭: VERSUS のカウントダウンを始めた（ロード画面の後なのでフレームの間で起きる）
-const REPLAY_PAD_ACTIONS = ['moveLeft', 'moveRight', 'softDrop', 'hardDrop', 'rotateCW', 'rotateCCW', 'hold'];
+// 足すときは末尾へ（番号で記録しているので、古い録画の番号を変えない）
+const REPLAY_PAD_ACTIONS = ['moveLeft', 'moveRight', 'softDrop', 'hardDrop', 'rotateCW', 'rotateCCW', 'hold', 'zone'];
 const REPLAY_CPU_ACTIONS = [
     // tet
     'hold', 'rotate', 'move', 'shift', 'softDrop', 'softDropQuiet', 'stepToX', 'warp', 'teleport', 'hardDrop', 'gravity',
     // puyo
     'quickDrop', 'softDropStart', 'softDropStep', 'forceLock', 'softKey',
+    // tet（あとから足したもの。番号を変えないよう末尾へ）
+    'zone', 'spawnPlan',
 ];
 const REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
 // 印の画面（UI 設計書 §7）: 札の幅・同じ段の札の間隔（札の中心どうし）・時刻 1ms あたりの幅（1 秒 40px）
@@ -68,12 +71,13 @@ function replayTetLabel(tSpin, lines, b2b, ren, pc) {
     if (ren >= 2) parts.push('REN ' + ren);
     return parts.join(' ');
 }
-const REPLAY_TET_SINGLE = ['marathon', 'sprint', 'ultra'];
+const REPLAY_TET_SINGLE = ['marathon', 'sprint', 'ultra', 'zone'];
 
 // 盤面の設定のうち結果に響くもの（外の画面が書き込む値。PRACTICE などが残した値も含めて録画したときと同じにする）
 const REPLAY_ENV_FIELDS = {
     tet: ['gravityDisabled', 'practiceNoLock', 'practiceFallSpeedMs', 'practiceHoldMode', 'lockDelay',
         'marathonGoal', 'marathonStartLevel', 'isCpuControlled',
+        'zoneFixedLevel', 'zoneQuarterLinesSetting', 'zoneQuarterMsSetting', 'vsZone', 'vsZoneQuarterLines', 'vsZoneQuarterMs', 'vsZoneSplit',
         'vsMarginTimeMs', 'vsAttackMultiplier', 'vsGarbageHoleRate', 'vsGarbageDamageOnClear', 'vsHoldEnabled',
         'vsChainMin', 'vsOjamaRate', 'vsPuyoSpeed', 'vsMarginMultiplier'],
     puyo: ['vsEraseCount', 'vsColorCount', 'practiceFallMs', 'practiceNoLock', 'isCpuControlled', 'suppressBlink',
@@ -217,6 +221,20 @@ function replayTetHash(g, t0) {
     for (let i = 0; i < nq.length && i < 7; i++) H.w(nq[i].type);
     const gq = g.garbageQueue || [];
     for (let i = 0; i < gq.length; i++) H.w(gq[i].amount * 2 + (gq[i].ready ? 1 : 0));
+    // ZONE（tet/zone.js）。ZONE の無いモードでは何も足さない（古い録画のハッシュを変えない）
+    if (g.zoneEnabled) {
+        H.w(g.zoneMeter);
+        H.w(g.zoneActive ? 1 : 0);
+        H.w(g.zoneLines);
+        H.w(g.zoneScorePool);
+        H.w(g.zoneLinesTotal);
+        // VERSUS だけの状態（シングルは常に 0。0 のときは足さない＝シングルの古い録画のハッシュを変えない）
+        const zv = (g.zoneAtkPool || 0) * 64 + (g.zoneCarry || 0);
+        if (zv) H.w(zv);
+        let nz = 0;
+        for (let i = 0; i < bs.length; i++) if (bs[i].zone) nz++;
+        H.w(nz);
+    }
     H.w(Math.round((g.clock.now() - t0) * 16));
     return H.get();
 }
@@ -289,7 +307,8 @@ function replayThinkPick(rule, res) {
         o.fire = v(15); o.score = v(14); o.chain = v(20); o.why = v(23); o.spill = v(24); o.depth = v(25);
         return o;
     }
-    if (rule === 'tet' && (n === 12 || n === 26 || n === 43)) {
+    // 48 = lv6 の §22 の版（[43..47] に先行回転・先行ホールド・ZONE の終点を足した。ZONE 設計 VERSUS 編 §23）
+    if (rule === 'tet' && (n === 12 || n === 26 || n === 43 || n === 48)) {
         const id = v(3);
         if (v(0) === -1 || id < 0 || id > 6) return { k: 'tet', none: 1 };
         const o = { k: 'tet', mino: id, rot: v(4) & 3, ev: v(1) };
@@ -1005,8 +1024,20 @@ class ReplayPlayer {
     attach() {
         const clock = this.games[0].clock;
         // VERSUS は両盤面の初期化で入れたマージンタイムの予約を残す（録画でも残っている。捨てるとレートが変わらずずれる）
-        if (this.data.mode === 'versus') clock.rebase(this.t0, this.data.timers);
-        else clock.reset(this.t0);
+        if (this.data.mode === 'versus') {
+            clock.rebase(this.t0, this.data.timers);
+            // マージンタイムの「数え始めた時刻」は初期化のとき（合わせ直す前の時計）の値のまま残っている。
+            // ポーズで残り時間を出すのに使うので、合わせ直した予約から録画と同じ値に戻す
+            // （戻さないと 1 回目の再生はポーズ明けにすぐマージンに入り、火力がずれる。2 回目は前の回の時刻が残る）
+            for (const g of this.games) {
+                const h = g._vsMarginTimer;
+                if (h && typeof h.due === 'number' && typeof g._vsMarginTimerDuration === 'number') {
+                    g._vsMarginTimerStart = h.due - g._vsMarginTimerDuration;
+                }
+            }
+        } else {
+            clock.reset(this.t0);
+        }
         clock._tape = null;
         clock._feed = new ReplayReader(this.dtBytes);
         if (this.loop.recorder) this.loop.recorder = null;
@@ -2061,6 +2092,7 @@ const ReplayManager = {
         if (p.state === 'desync') why = 'ずれた所からは遊べません';
         else if ((p.ended || p.state === 'end') && !p.clipCut) why = '終わった所からは遊べません'; // 途中で切ったクリップの終わりからは遊べる
         else if (p.data.mode === 'versus' && (p.state !== 'pause' || !p.canGoLive())) why = 'ここからは遊べません（シーク中・カウントダウン・ポーズ・決着の所）';
+        else if (p.data.mode === 'zone') why = 'ZONE はまだ PRACTICE で遊べません';
         const here = $('replay-pause-here');
         if (here) here.disabled = !!why;
         const note = $('replay-pause-here-note');
@@ -2128,6 +2160,11 @@ const ReplayManager = {
         const p = this.player;
         if (!p) return;
         if (p.data.mode === 'versus') { this._continueVersus(); return; }
+        // ZONE は PRACTICE にまだ無い（ZONE 段の印・メーターを渡せない。設計 tetlabo-zone-design.md Q7）
+        if (p.data.mode === 'zone') {
+            if (typeof showGlobalToast === 'function') showGlobalToast('ZONE はまだ PRACTICE で遊べません');
+            return;
+        }
         p.pause();
         const h = p.practiceHandoff();
         if (!h || typeof startPracticeFromReplay !== 'function') {

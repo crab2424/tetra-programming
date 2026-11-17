@@ -124,6 +124,10 @@ export function setLoadingCancel(handler: null | { label: string; onCancel: () =
   btn.style.display = "";
   btn.disabled = false;
   btn.onclick = handler.onCancel;
+  // FocusNav は開いた直後の約 1 秒しか項目を探さない。読み込みに時間がかかり、後から
+  // 出たキャンセルにキー操作の枠が付かなかったので、出したときに合わせ直す。
+  const FN = (window as any).FocusNav;
+  if (FN?.getActivePageId?.() === OVERLAY_ID) FN.refresh?.();
 }
 
 /**

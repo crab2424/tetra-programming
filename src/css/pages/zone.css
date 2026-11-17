@@ -1,0 +1,278 @@
+/* ─────────────────────────────────────────────
+   ZONE モード（設計 source_assets/memory/tet_zone/tetlabo-zone-design.md §6）
+   円形のメーター（盤面の左下）・発動中の盤面の枠の光・枠の上のキャンバス・終了の表示
+───────────────────────────────────────────── */
+
+/* ─── 円形のメーター（中身は game/tet/zone.js の ZONE_RING_HTML） ───
+   左の列（HOLD と同じ幅 128px）の下端に、列の中央へ置く。
+   シングルは LINES（下端 560px あたり）、VERSUS は LPM（下端 548px あたり）の下 */
+#zone-area,
+.versus-zone-area {
+  position: absolute;
+  left: -136px;
+  top: 576px;
+  width: 80px;
+  height: 80px;
+}
+/* シングルで LPM を出しているとき（DISPLAY 設定）は LPM（570px〜）と重なるので、
+   左の列の LEVEL / LINES / LPM を 45px 上げて輪の場所を空ける（消去名の表示の下端は 405px あたり） */
+body.hud-apm-visible #container.zone-on #level-area { top: 405px; }
+body.hud-apm-visible #container.zone-on #lines-area { top: 465px; }
+body.hud-apm-visible #container.zone-on #lpm-area { top: 525px; }
+
+.zone-ring {
+  display: block;
+  overflow: visible;
+}
+.zone-ring circle {
+  fill: none;
+}
+.zone-ring-track {
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 7;
+}
+.zone-ring-fill,
+.zone-ring-halo {
+  stroke: var(--zone-color);
+  stroke-dasharray: 0 200;
+  /* たまるとき・終わって戻るときは滑らかに。発動中は毎フレーム書き換えるので transition なし */
+  transition: stroke-dasharray 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.zone-ring-fill {
+  stroke-width: 7;
+}
+.zone-ring-halo {
+  stroke-width: 13;
+  opacity: 0.22;
+}
+#zone-area.is-active .zone-ring-fill,
+#zone-area.is-active .zone-ring-halo,
+.versus-zone-area.is-active .zone-ring-fill,
+.versus-zone-area.is-active .zone-ring-halo {
+  transition: none;
+}
+#zone-area.is-active .zone-ring-halo,
+.versus-zone-area.is-active .zone-ring-halo {
+  opacity: 0.4;
+}
+/* 満タンのときは輪ごと明滅 */
+#zone-area.is-full .zone-ring-halo,
+.versus-zone-area.is-full .zone-ring-halo {
+  animation: zone-full-pulse 1.2s ease-in-out infinite;
+}
+/* 1/4 ごとの切れ目 */
+.zone-ring-ticks {
+  stroke: var(--bg, #0a0a0f);
+  stroke-width: 2;
+  fill: none;
+}
+.zone-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  pointer-events: none;
+}
+.zone-ring-label {
+  font-size: 11px;
+  letter-spacing: 2px;
+  margin-right: -2px; /* 字間ぶんの右の余白を打ち消して中央へ */
+  color: var(--text-dim);
+}
+#zone-area.is-ready .zone-ring-label,
+.versus-zone-area.is-ready .zone-ring-label {
+  color: var(--zone-color);
+  animation: zone-ready-pulse 1.2s ease-in-out infinite;
+}
+.zone-ring-key {
+  display: none;
+  max-width: 52px;
+  padding: 0 4px;
+  border: 1px solid var(--zone-color);
+  border-radius: 3px;
+  font-size: 9px;
+  line-height: 13px;
+  letter-spacing: 1px;
+  color: var(--zone-color);
+  overflow: hidden;
+  white-space: nowrap;
+}
+#zone-area.is-ready .zone-ring-key:not(:empty),
+.versus-zone-area.is-ready .zone-ring-key:not(:empty) {
+  display: block;
+}
+.zone-ring-sub {
+  display: none;
+  font-size: 17px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 8px var(--zone-color);
+}
+/* 発動中は残り秒数だけ */
+#zone-area.is-active .zone-ring-sub,
+.versus-zone-area.is-active .zone-ring-sub {
+  display: block;
+}
+#zone-area.is-active .zone-ring-label,
+#zone-area.is-active .zone-ring-key,
+.versus-zone-area.is-active .zone-ring-label,
+.versus-zone-area.is-active .zone-ring-key {
+  display: none;
+}
+@keyframes zone-ready-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@keyframes zone-full-pulse {
+  0%, 100% { opacity: 0.22; }
+  50% { opacity: 0.5; }
+}
+
+/* ─── 発動中の盤面の枠の光（game/tet/zone.js の _zoneFrameEls が作る SVG）───
+   枠線の真上に線を引き、残り時間ぶんだけ光らせる（上辺中央から左右に消えていき、下辺中央で終わる）。
+   にじみは太い半透明の線を重ねて作る（filter は使わない）。8 段以上は白く強める（色の反転はしない） */
+.zone-frame {
+  position: absolute;
+  display: none;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 6;
+}
+.zone-active > .zone-frame {
+  display: block;
+}
+.zone-frame path {
+  fill: none;
+  stroke: var(--zone-color);
+  stroke-dasharray: 1 2;
+}
+.zone-frame-core {
+  stroke-width: 3;
+}
+.zone-frame-halo {
+  stroke-width: 9;
+  opacity: 0.3;
+}
+.zone-frame-halo2 {
+  stroke-width: 20;
+  opacity: 0.12;
+}
+.zone-hot > .zone-frame .zone-frame-core {
+  stroke: #ffffff;
+}
+.zone-hot > .zone-frame .zone-frame-halo {
+  opacity: 0.5;
+}
+.zone-hot > .zone-frame .zone-frame-halo2 {
+  opacity: 0.22;
+}
+/* シングルの時間切れ後（いまのミノを置くまで）: 下辺中央に残した短い光を明滅 */
+.zone-last > .zone-frame {
+  animation: zone-ready-pulse 0.5s ease-in-out infinite;
+}
+
+/* ─── 表示の縮尺（準備画面の SCALE。app/modes.js applyZoneViewScale が --zone-view に 0.5〜1 を入れる）───
+   シングルの ZONE の盤面（#container.zone-on）だけ。single-play.css の #container と同じ式に --zone-view を掛け、
+   盤面の底の位置は変えずに縮める（底 = 中心から 320px 下。縮めたぶん下へずらすと、空いた所に枠の上が見える）。
+   --zone-view が 1 のときは元の式と同じ。録画を見ているときは replay.css の式（高さの余白 120px）に合わせる */
+#container.zone-on {
+  transform: translate(-50%, -50%)
+    scale(calc(clamp(0.2, min(calc((100vw - 32px) / 750px), calc((100vh - 48px) / 700px)), 2) * var(--zone-view, 1)))
+    translateY(calc(320px * (1 - var(--zone-view, 1)) / var(--zone-view, 1)));
+}
+body.replay-watching:not(.replay-ui-hidden) #container.zone-on {
+  transform: translate(-50%, -50%)
+    scale(calc(clamp(0.2, min(calc((100vw - 32px) / 750px), calc((100vh - 120px) / 700px)), 2) * var(--zone-view, 1)))
+    translateY(calc(320px * (1 - var(--zone-view, 1)) / var(--zone-view, 1)));
+}
+
+/* ─── 枠の上（シングルの ZONE は y=-20〜-0.5。高さは tet/zone.js _zoneTopCanvas が合わせる）。盤面のキャンバスの上端にぴったり重ねる ─── */
+#zone-top-canvas {
+  position: absolute;
+  left: 3px;           /* #main-canvas の枠線ぶん */
+  top: calc(3px - 144px);
+  width: 320px;
+  height: 144px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* VERSUS の両盤面（.versus-container の中。盤面のキャンバスの上端に重ねる）。
+   VERSUS の盤面キャンバスは枠線込みで --field-w × --field-h（border-box）なので、中身は枠線ぶん縮んで
+   描かれている（320×656 の画素を 314×650 に）。上のキャンバス（320×144 の画素）も同じ割合で縮める。
+   --zone-top-px / 656 = 上のキャンバスの画素の高さ（tet/zone.js が入れる。ZONE の試合は 19.5 段＝624、ふだん 4.5 段＝144）
+   / 盤面の画素の高さ（SCREEN_HEIGHT） */
+.versus-zone-top-canvas {
+  --zone-top-h: calc((var(--field-h) - 2 * var(--field-border-w-main)) * var(--zone-top-px, 144) / 656);
+  position: absolute;
+  left: var(--field-border-w-main);
+  top: calc(var(--field-border-w-main) - var(--zone-top-h));
+  width: calc(var(--field-w) - 2 * var(--field-border-w-main));
+  height: var(--zone-top-h);
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* ─── 終了の表示（盤面中央に「ZONE n LINES / +得点」） ─── */
+#zone-end-popup,
+.zone-end-popup {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 320px;
+  height: 656px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 19;
+  opacity: 0;
+}
+#zone-end-popup.show,
+.zone-end-popup.show {
+  animation: zone-end-pop 2.1s ease-out forwards;
+}
+.zone-end-lines {
+  font-family: "Orbitron", monospace;
+  font-weight: 900;
+  font-size: 30px;
+  letter-spacing: 3px;
+  text-shadow: 0 0 16px rgba(110, 231, 214, 0.8), 0 2px 10px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+}
+.zone-end-score {
+  font-family: "Orbitron", monospace;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 2px;
+  color: #fff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+@keyframes zone-end-pop {
+  0% { opacity: 0; transform: scale(0.7); }
+  12% { opacity: 1; transform: scale(1.08); }
+  22% { transform: scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-16px); }
+}
+
+/* ─── ホームのボタン ─── */
+.mode-btn-zone {
+  border-color: rgba(110, 231, 214, 0.35);
+}
+.mode-btn-zone:hover,
+.mode-btn-zone.is-focused {
+  background: rgba(110, 231, 214, 0.12);
+  border-color: var(--zone-color);
+}
+.mode-btn-zone .mode-btn-icon,
+.mode-btn-zone .mode-btn-label {
+  color: var(--zone-color);
+}

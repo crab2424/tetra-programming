@@ -31,7 +31,7 @@ namespace tsim {
 void cpuSearchLv4(const uint8_t board[250], int cur, int hold, const int next[5], int canHold,
                   const int* weights, int out[TET_OUT_LEN]) {
     tetcpu4::tetcpu4_searchBestMoveWasm(const_cast<uint8_t*>(board), cur, hold, next[0], next[1], next[2], next[3],
-                                        next[4], canHold, const_cast<int*>(weights), out);
+                                        next[4], canHold, const_cast<int*>(weights), out, 0, 0); // 予告・ZONE の残り手数（シミュは ZONE なし）
 }
 
 } // namespace tsim

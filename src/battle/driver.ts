@@ -114,6 +114,8 @@ export class NetworkDriver implements OpponentDriver {
   private pendingSpawn: Extract<PuyoReplayItem, { kind: "spawn" }> | null = null;
   /** 決着後に凍結済みか。以後の受信フレームは全て捨てる。 */
   private frozen = false;
+  /** GameOver を受けて脱落済みか（同じ人の 2 回目の GameOver を無視する）。 */
+  private dead = false;
   /**
    * frozen 後も「決着直後に追送される最終スナップショット」（Lock→PieceState、
    * TETのblock-out用）だけは、この時刻までは例外的に受理する。
@@ -193,6 +195,10 @@ export class NetworkDriver implements OpponentDriver {
   }
 
   markDead(): void {
+    // ★ 相手は自分の脱落を勝敗通知が届くまで送り直してくる（online_game.ts reportMyDeath）。
+    //   2 回目以降は何もしない（3 人以上の対戦で GAME OVER 演出が出し直されないように）。
+    if (this.dead) return;
+    this.dead = true;
     this.onDead(this.id);
     if (this.rule === "puyo") {
       this.stopPuyoReplay();

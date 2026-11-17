@@ -7,7 +7,7 @@ window.CPU3 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv3/cpu_worker3.js?v=2',
+        'cpu/tet/lv3/cpu_worker3.js?v=4',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -304,6 +304,8 @@ window.CPU3 = class {
 
     updateLoop() {
         if (!this.isActive) return;
+        // ZONE（VERSUS）: 発動の判断・発動中の手の速さ（cpu/tet/cpu_zone.js）。ZONE の無い試合では何もしない
+        if (window.CpuZone && CpuZone.tick(this, 3)) { this.game.cpuFrame(() => this.updateLoop()); return; }
         if (this.game.mino && this.game.mino !== this.currentMino) {
             this.currentMino = this.game.mino;
             this.onMinoSpawned();
@@ -333,11 +335,15 @@ window.CPU3 = class {
         //   旧20行は可視外のブロックを落としており、はみ出して置いたブロックや出現位置の塞がりを読めなかった。
         let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
-            const by = b.y + 5;
+            // ZONE の試合は枠の上 20 段まで積める。探索は 25 段なので、枠の上 6 段目より上は最上段にたたむ
+            // （その列は天井まで埋まっている、と読む。探索は出現位置から落とす手しか作らないので置き方は変わらない）
+            const by = Math.max(0, b.y + 5);
             if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) {
                 boardBuffer[by * 10 + b.x] = 1; 
             }
         });
+        // ZONE の発動中は印を付ける（探索が ZONE 段を消えない床として読む。cpu/tet/cpu_zone.js）
+        if (window.CpuZone) CpuZone.stampBoard(boardBuffer, this.game);
 
         let weightsArray = new Int32Array([
             this.weights.lineClear, this.weights.hole, this.weights.heightLimit,
@@ -387,7 +393,8 @@ window.CPU3 = class {
                     }
                     this.game.cpuAction('hardDrop');
                 };
-                this.game.cpuSchedule(700, tryDropFallback);
+                // ZONE の発動中は待たずに落とす（待つと ZONE の時間だけ減る。cpu/tet/cpu_zone.js noMoveDelay）
+                this.game.cpuSchedule(window.CpuZone ? CpuZone.noMoveDelay(this, 700) : 700, tryDropFallback);
             }
             return;
         }
@@ -453,6 +460,10 @@ window.CPU3 = class {
 
         if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino && bestMove.p1) {
             this.executeAction(bestMove);
+        } else if (!bestMove.p1 && window.CpuZone) {
+            // 探索が「初手で出せない」死に枝を返した（手を持たない）。ZONE の発動中は自由落下で固定されないので、
+            // 何もしないとそのまま止まる。その場で落とす（cpu/tet/cpu_zone.js dropIfNoMove。ZONE 以外は今までどおり）
+            CpuZone.dropIfNoMove(this);
         }
     }
 

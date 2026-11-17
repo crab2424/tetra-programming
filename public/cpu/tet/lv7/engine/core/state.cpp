@@ -34,9 +34,11 @@ Lock State::lock(move::Placement& placement)
     lock.tspin = ts == 1;
     lock.mini = ts == 2;
 
+    const i32 zone_rows = this->zone ? std::countr_one(this->board.get_clear_mask()) : 0;
+
     placement.place(this->board);
 
-    lock.clear = this->board.clear();
+    lock.clear = this->zone ? this->board.clear_zone(zone_rows) : this->board.clear();
 
     if (lock.clear > 0) {
         if (lock.tspin) {
@@ -62,12 +64,12 @@ Lock State::lock(move::Placement& placement)
         lock.attack += this->b2b > 1;
         lock.attack += REN_LUT[std::min(this->ren, u8(std::size(REN_LUT) - 1))];
 
-        if (this->board.is_empty()) {
+        if (this->is_pc()) {
             lock.attack = 10;
         }
 
         if (this->margin >= 0) {
-            lock.attack = u8(this->get_margin_attack(lock, this->board.is_empty()));
+            lock.attack = u8(this->get_margin_attack(lock, this->is_pc()));
         }
     }
     else {

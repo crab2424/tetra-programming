@@ -41,7 +41,7 @@ const PRACTICE_NEXT_MAX_HEIGHT = BLOCK_SIZE * 13.5;
 //
 // 逆にこの数字が変わらない限り、ブラウザはキャッシュから読むだけで通信しない。
 // ─────────────────────────────────────────────
-const ASSET_VERSION = 6;
+const ASSET_VERSION = 8;
 
 // 素材URLにキャッシュ用バージョンを付ける。音源・画像の取得は必ずこれを通す。
 function assetUrl(path) {
@@ -182,6 +182,17 @@ window.onload = function () {
                 AudioLoader.recoverIfDegraded(true);
             }
         });
+
+        // 古くなった AudioContext の定期的な作り直しは、ユーザー操作の中でだけ行う。
+        // Safari はユーザー操作の外で作った AudioContext を suspended のまま始め、次の操作まで
+        // resume できない。SE 再生（CPU の手など操作の無い所）で作り直すと、CPU 連戦では
+        // 10 分ごとに SE が止まり、次の操作で溜まった分が一斉に鳴っていた。
+        const onUserGestureForAudio = () => {
+            if (window.AudioLoader) AudioLoader.refreshIfOld();
+        };
+        document.addEventListener('keydown', onUserGestureForAudio, true);
+        document.addEventListener('pointerdown', onUserGestureForAudio, true);
+        document.addEventListener('touchstart', onUserGestureForAudio, true);
 
         // ★ ぷよ画像を起動時に先読み（tetブロック画像と同じく即時キャッシュ化）。
         //   初回 startPuyoGame() 時の画像ロード待ち（約200ms）を解消する。
@@ -433,6 +444,14 @@ class Block {
                 BLOCK_SIZE,
                 BLOCK_SIZE
             )
+            // ZONE 段（tet/zone.js）: 元のミノの色・形の跡を残したまま白をかぶせる
+            if (this.zone) {
+                const a = ctx.globalAlpha
+                ctx.globalAlpha = a * 0.55
+                ctx.fillStyle = '#ffffff'
+                ctx.fillRect(drawX * BLOCK_SIZE, drawY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+                ctx.globalAlpha = a
+            }
         }
     }
 
@@ -599,7 +618,7 @@ class Field {
         // has() / getGhostY() が rAF ループから何度も呼ばれるため、
         // blocks.some() の線形探索と、ゴースト計算で毎フレ生成していた
         // Set + 'x,y' 文字列を排除する。
-        // valid() は y >= -5 まで参照するため上方 5 行ぶんのマージンを確保。
+        // valid() は y >= topLimit（ふつう -5・シングルの ZONE は -20）まで参照するため上方 TOP_PAD 行ぶんのマージンを確保。
         // 部分オーバーフローして y<0 にロックされたブロックも保持できる。
         this._occ = new Uint8Array(COLS_COUNT * (ROWS_COUNT + Field.TOP_PAD))
         this._occDirty = true
@@ -683,7 +702,8 @@ class Field {
         return this._occ[yy * COLS_COUNT + x] === 1
     }
 }
-Field.TOP_PAD = 5
+// 上の余白（段）。ふつうは y >= -5 だが、シングルの ZONE は y >= -20 まで動ける（Game.topLimit・tet/zone.js）
+Field.TOP_PAD = 20
 
 
 // ==========================================
@@ -711,7 +731,10 @@ class AudioLoader {
     static _maxContextAgeMs = 10 * 60 * 1000;
 
     static get context() {
-        if (!this._ctx) this._ctx = this._createContext();
+        if (!this._ctx) {
+            this._ctx = this._createContext();
+            this._ctxCreatedAt = performance.now();
+        }
         return this._ctx;
     }
 
@@ -722,7 +745,6 @@ class AudioLoader {
     // resume して復帰させる（バックグラウンド中の復帰は visibilitychange 側に委譲）。
     static _createContext() {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        this._ctxCreatedAt = performance.now();
         ctx.addEventListener('statechange', () => {
             if (ctx !== this._ctx) return;      // 作り直し後の旧コンテキストのイベントは無視
             if (ctx.state !== 'running' && document.visibilityState === 'visible') {
@@ -916,23 +938,62 @@ class AudioLoader {
     // BGMはHTMLAudio経由でこのコンテキストを通らないため影響を受けない＝SEのみが対象。
     // SEバッファ（decodeAudioData済みAudioBuffer）は現行ブラウザではコンテキスト間で
     // 再利用可能なため、_seBuffers は作り直さずそのまま使える。
+    //
+    // ★ 新しいコンテキストは running になってから差し替える。Safari はユーザー操作の外で
+    //   作ったコンテキストを suspended のまま始めるため、すぐ差し替えると次の操作まで SE が
+    //   止まり、その間の start(0) が溜まって一斉に鳴る。running にならなければ新しい方を
+    //   閉じて古い方を使い続ける（ユーザー操作の中で作り直せば Safari でも running になる）。
+    static _recreating = null;      // running 待ちの新しいコンテキスト（多重作成防止）
+    static _recreateWaitMs = 1000;
     static recreateContext() {
         const old = this._ctx;
-        if (!old) return;
-        // 新しいコンテキストへ差し替え（以後の play() は新コンテキストで鳴る）
-        this._ctx = this._createContext();
-        // keepAlive は古いコンテキストに紐づくので新コンテキストで張り直す
-        this._keepAlive = null;
-        this._lastHealthCheckAt = performance.now();
-        this.startKeepAlive();
-        this._ctx.resume().catch(() => {});
-        // 古いコンテキストは閉じて、溜まった出力レイテンシごとリソースを解放
-        old.close().catch(() => {});
+        if (!old || this._recreating) return;
+        const fresh = this._createContext();
+        let settled = false;
+        const commit = () => {
+            if (settled) return;
+            settled = true;
+            this._recreating = null;
+            if (this._ctx !== old) { fresh.close().catch(() => {}); return; }
+            // 新しいコンテキストへ差し替え（以後の play() は新コンテキストで鳴る）
+            this._ctx = fresh;
+            this._ctxCreatedAt = performance.now();
+            // keepAlive は古いコンテキストに紐づくので新コンテキストで張り直す
+            this._keepAlive = null;
+            this._lastHealthCheckAt = performance.now();
+            this.startKeepAlive();
+            // 古いコンテキストは閉じて、溜まった出力レイテンシごとリソースを解放
+            old.close().catch(() => {});
+        };
+        const abandon = () => {
+            if (settled) return;
+            settled = true;
+            this._recreating = null;
+            fresh.close().catch(() => {});
+        };
+        if (fresh.state === 'running') { commit(); return; }
+        this._recreating = fresh;
+        fresh.resume().then(
+            () => { if (fresh.state === 'running') commit(); else abandon(); },
+            abandon,
+        );
+        setTimeout(abandon, this._recreateWaitMs);
+    }
+
+    // 開きっぱなしで古くなったコンテキストを作り直す（outputLatency が未対応/不正確な
+    // ブラウザでも蓄積ズレを定期的に逃がす）。ユーザー操作（keydown/pointerdown）の中で呼ぶ。
+    static refreshIfOld() {
+        if (!this._ctx || this._recreating) return;
+        if (document.visibilityState !== 'visible') return;
+        if (this._ctxCreatedAt > 0 && performance.now() - this._ctxCreatedAt > this._maxContextAgeMs) {
+            this.recreateContext();
+        }
     }
 
     // フォアグラウンド復帰時やSE再生時に呼ぶ。出力レイテンシが異常に膨らんでいれば
     // コンテキストを作り直し、単に中断していただけなら resume で済ませる。
     // SE再生時は頻繁に呼ばれるため、force=false では軽量な間引きチェックにする。
+    // 経過時間による作り直しはここでは行わない（refreshIfOld＝ユーザー操作の中だけ）。
     static recoverIfDegraded(force = false) {
         const ctx = this._ctx;
         if (!ctx) return;                       // 未解錠（コンテキスト未生成）なら何もしない
@@ -941,12 +1002,8 @@ class AudioLoader {
         this._lastHealthCheckAt = now;
 
         const latencyBad = typeof ctx.outputLatency === 'number' && ctx.outputLatency > 0.05;
-        // outputLatency が未対応/不正確なブラウザでも、開きっぱなしでの蓄積ズレを定期的に逃がす。
-        const ageBad = document.visibilityState === 'visible'
-            && this._ctxCreatedAt > 0
-            && now - this._ctxCreatedAt > this._maxContextAgeMs;
 
-        if (latencyBad || ageBad) {
+        if (latencyBad) {
             this.recreateContext();             // ①: 蓄積した出力レイテンシを作り直しで解消
         } else if (ctx.state !== 'running') {
             ctx.resume().catch(() => {});       // 中断していただけなら resume で十分
@@ -982,6 +1039,7 @@ class BgmManager {
         'single_ultra_bgm':    0.90,
         'single_puyo_bgm':     0.90,
         'single_practice_bgm': 0.50,  // -9.5（practice_1.ogg。聴感ラウドネスLUFSでmenuに揃えた）
+        'single_zone_bgm':     0.50,  // -6.4 LUFS（zone_1.ogg = Acrise。menu -12.4 LUFS に揃えた）
     };
 
     // ── シングルモードの mode → BGMキー対応 ───────────────────────────
@@ -994,6 +1052,7 @@ class BgmManager {
         ultra:    'single_ultra_bgm',
         puyo:     'single_puyo_bgm',
         practice: 'single_practice_bgm',
+        zone:     'single_zone_bgm',
     };
     static singleBgmKey(mode) {
         return this._singleBgmKeys[mode] || 'single_marathon_bgm';
@@ -1244,6 +1303,12 @@ class SeManager {
         'b2b':           1.00,  // 未配置（BACK TO BACK 成立）
         'perfect_clear': 1.00,  // PERFECT CLEAR成立。puyo_allclearと同一音源（容量削減）
         'garbage':       0.60,  // おじゃまライン着弾。puyo_ojamaと同一音源（容量削減）。予告点灯には鳴らさない
+        // ZONE（専用の音源ができるまで既存の音を借りている。下の loadSe のパスを差し替える）
+        'zone_full':     1.00,  // メーター満タン
+        'zone_start':    1.00,  // -24.5 / 0.0（zone_start.ogg。ピーク張り付き＝据え置き）
+        'zone_line':     1.30,  // -25.2 / -2.8（zone_line.ogg。ピーク-0.5まで）
+        'zone_end':      1.20,  // 終了
+        'zone_end_big':  1.00,  // 終了（16 段以上）
         // ぷよ系
         'puyo_move':     3.50,  // -33.5 / -12.9
         'puyo_rotate':   1.00,  // 未配置
@@ -1276,18 +1341,32 @@ class SeManager {
 
         AudioLoader.recoverIfDegraded();
         const ctx    = AudioLoader.context;
-        // ②対策（取りこぼし防止）：中断（suspended/interrupted）状態のまま start(0) すると
-        // この音が鳴らない。再生のたびに running 以外なら resume を試みて復帰させる。
-        if (ctx.state !== 'running') ctx.resume().catch(() => {});
-        const source = ctx.createBufferSource();
-        const gain   = ctx.createGain();
-        gain.gain.value = this._volume * (this._gain[key] ?? 1);
+        this._whenRunning(ctx, () => {
+            const source = ctx.createBufferSource();
+            const gain   = ctx.createGain();
+            gain.gain.value = this._volume * (this._gain[key] ?? 1);
 
-        source.buffer = buf;
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        source.start(0);
-        // 再生終了後は自動でGCされるため明示的な破棄は不要
+            source.buffer = buf;
+            source.connect(gain);
+            gain.connect(ctx.destination);
+            source.start(0);
+            // 再生終了後は自動でGCされるため明示的な破棄は不要
+        });
+    }
+
+    // ②対策（取りこぼし防止）＋溜め鳴り防止：
+    // 中断（suspended/interrupted）状態のコンテキストで start(0) すると、止まっている間の音が
+    // 溜まり、再開した瞬間に一斉に鳴る。running 以外なら resume を試み、すぐ（_resumeGraceMs 以内に）
+    // 再開できたときだけ鳴らす（初回操作の解錠直後の音は落とさない）。長く止まっていた間の音は捨てる。
+    static _resumeGraceMs = 150;
+    static _whenRunning(ctx, startFn) {
+        if (ctx.state === 'running') { startFn(); return; }
+        const t0 = performance.now();
+        ctx.resume().then(() => {
+            if (ctx !== AudioLoader._ctx || ctx.state !== 'running') return;
+            if (performance.now() - t0 > this._resumeGraceMs) return;
+            startFn();
+        }).catch(() => {});
     }
 
     // gainMultiplier を掛けて再生（相手のSE等を小音量で鳴らす用途）
@@ -1297,14 +1376,15 @@ class SeManager {
         if (!buf) return;
         AudioLoader.recoverIfDegraded();
         const ctx = AudioLoader.context;
-        if (ctx.state !== 'running') ctx.resume().catch(() => {});
-        const source = ctx.createBufferSource();
-        const gain = ctx.createGain();
-        gain.gain.value = this._volume * (this._gain[key] ?? 1) * gainMultiplier;
-        source.buffer = buf;
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        source.start(0);
+        this._whenRunning(ctx, () => {
+            const source = ctx.createBufferSource();
+            const gain = ctx.createGain();
+            gain.gain.value = this._volume * (this._gain[key] ?? 1) * gainMultiplier;
+            source.buffer = buf;
+            source.connect(gain);
+            gain.connect(ctx.destination);
+            source.start(0);
+        });
     }
 
     // 高頻度に鳴り得るSE（カーソル移動・ホバー）用。
@@ -1323,19 +1403,20 @@ class SeManager {
 
         AudioLoader.recoverIfDegraded();
         const ctx = AudioLoader.context;
-        if (ctx.state !== 'running') ctx.resume().catch(() => {});
-        if (st.source) {
-            try { st.source.stop(); } catch (e) { /* 再生終了済み */ }
-        }
-        const source = ctx.createBufferSource();
-        const gain = ctx.createGain();
-        gain.gain.value = this._volume * (this._gain[key] ?? 1);
-        source.buffer = buf;
-        source.connect(gain);
-        gain.connect(ctx.destination);
-        source.onended = () => { if (st.source === source) st.source = null; };
-        source.start(0);
-        st.source = source;
+        this._whenRunning(ctx, () => {
+            if (st.source) {
+                try { st.source.stop(); } catch (e) { /* 再生終了済み */ }
+            }
+            const source = ctx.createBufferSource();
+            const gain = ctx.createGain();
+            gain.gain.value = this._volume * (this._gain[key] ?? 1);
+            source.buffer = buf;
+            source.connect(gain);
+            gain.connect(ctx.destination);
+            source.onended = () => { if (st.source === source) st.source = null; };
+            source.start(0);
+            st.source = source;
+        });
     }
 
     static setVolume(v) { this._volume = Math.max(0, Math.min(1, v)); }
@@ -1356,6 +1437,8 @@ AudioLoader.registerBgm('single_sprint_bgm',   'assets/audio/bgm/challenge_1.ogg
 AudioLoader.registerBgm('single_ultra_bgm',    'assets/audio/bgm/challenge_1.ogg');
 AudioLoader.registerBgm('single_puyo_bgm',     'assets/audio/bgm/single_1.ogg');
 AudioLoader.registerBgm('single_practice_bgm', 'assets/audio/bgm/practice_1.ogg');
+// ZONE（設計 tetlabo-zone-design.md §6.2）。L.Mity & EspiDev「Acrise」(CC BY 3.0)
+AudioLoader.registerBgm('single_zone_bgm',     'assets/audio/bgm/zone_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
 // オンライン対戦BGMは、ここでパスだけ差し替えれば変更できる。
 AudioLoader.registerBgm('online_bgm',  'assets/audio/bgm/vs_1.ogg');
@@ -1410,6 +1493,13 @@ AudioLoader.loadSe({
     'levelup':       'assets/audio/se/tet/levelup.ogg',
     // 容量削減のため puyo_ojama と同一音源を共用（tet/puyoのおじゃま着弾で統一）
     'garbage':       'assets/audio/se/puyo/ojama.ogg', // おじゃまラインの着弾
+    // ZONE（設計 tetlabo-zone-design.md §6.2）。zone_start/zone_line はポケットサウンド。残りは既存の音を共用する。
+    // 用意したら assets/audio/se/tet/zone_*.ogg に置いてパスを差し替え、ASSET_VERSION を +1 する
+    'zone_full':     'assets/audio/se/menu/countdown_start.ogg',
+    'zone_start':    'assets/audio/se/tet/zone_start.ogg',
+    'zone_line':     'assets/audio/se/tet/zone_line.ogg',
+    'zone_end':      'assets/audio/se/tet/4lines.ogg',
+    'zone_end_big':  'assets/audio/se/puyo/allclear.ogg',
     // ぷよ系
     'puyo_move':     'assets/audio/se/puyo/move.ogg',
     'puyo_rotate':   'assets/audio/se/puyo/rotate.ogg',

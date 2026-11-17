@@ -10,9 +10,12 @@
 // ─────────────────────────────────────────────
 
 (function () {
-    const COLS = 10, ROWS = 20, TOP = 5;           // 盤面は y=-5..19
+    // 盤面の並びは y=-20..19（LV7 の worker に渡す 400 個と同じ）。ミノが動ける一番上は試合ごとの topLimit
+    // （ふつう -5、ZONE の試合は -20。game/tet/zone.js）で、gridFromGame が topNow に入れる
+    const COLS = 10, ROWS = 20, TOP = 20;
+    let topNow = -5;
     const BS = 32;                                  // 1マスのpx
-    const WORKER_URL_FALLBACK = 'cpu/tet/lv7/wasm/cpu_worker7.js?v=4'; // CPU7.WORKER_URLS[0] と同じ値（再ビルド時は揃える）
+    const WORKER_URL_FALLBACK = 'cpu/tet/lv7/wasm/cpu_worker7.js?v=12'; // CPU7.WORKER_URLS[0] と同じ値（再ビルド時は揃える）
     // CPU7 の weights.searchWidth / searchDepth / thinkMs と同じ値。重みは渡さない（空 = engine の既定値 = CPU7 の既定値）
     const BEAM_WIDTH = 256, SEARCH_DEPTH = 32, THINK_MS = 80;
     const QUEUE_MAX = 40;                           // cpu_worker7.js の QUEUE_MAX（これより長いキューは切られる）
@@ -40,12 +43,13 @@
     // ─── 盤面（占有マップ）───
     function gridFromGame(g) {
         const grid = new Uint8Array(COLS * (ROWS + TOP));
+        topNow = (typeof g.topLimit === 'number') ? g.topLimit : -5;
         g.field.blocks.forEach(b => {
             if (b.x >= 0 && b.x < COLS && b.y >= -TOP && b.y < ROWS) grid[(b.y + TOP) * COLS + b.x] = 1;
         });
         return grid;
     }
-    const occ = (grid, x, y) => x < 0 || x >= COLS || y < -TOP || y >= ROWS || grid[(y + TOP) * COLS + x] === 1;
+    const occ = (grid, x, y) => x < 0 || x >= COLS || y < topNow || y >= ROWS || grid[(y + TOP) * COLS + x] === 1;
 
     function fits(grid, type, rot, x, y) {
         const bl = shapeOf(type, rot).blocks;
@@ -106,7 +110,7 @@
     function findPath(grid, type, tx, ty, trot) {
         const sx = 3, sy = (type === 0) ? -1 : -2;
         if (!fits(grid, type, 0, sx, sy)) return null;
-        const key = (x, y, r, l) => ((((x + 4) * 40 + (y + TOP + 4)) * 4 + r) * 3 + l);
+        const key = (x, y, r, l) => ((((x + 4) * 64 + (y + TOP + 4)) * 4 + r) * 3 + l);
         const seen = new Map();
         const q = [];
         const push = (x, y, r, l, from, act) => {

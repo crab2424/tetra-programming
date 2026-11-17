@@ -126,6 +126,38 @@ i32 Board::clear()
     return std::popcount(mask);
 };
 
+i32 Board::clear_zone(i32 zone_rows)
+{
+    const u64 low = zone_rows >= 64 ? ~0ULL : ((1ULL << zone_rows) - 1);
+    const u64 mask = this->get_clear_mask() & ~low;
+
+    if (mask == 0) {
+        return 0;
+    }
+
+    const i32 count = std::popcount(mask);
+    const i32 base = zone_rows + count;
+    const u64 floor = base >= 64 ? ~0ULL : ((1ULL << base) - 1);
+
+    for (i32 i = 0; i < 10; ++i) {
+        u64 out = 0;
+        i32 w = 0;
+
+        for (i32 y = zone_rows; y < 64; ++y) {
+            if ((mask >> y) & 1) {
+                continue;
+            }
+
+            out |= ((this->cols[i] >> y) & 1ULL) << w;
+            ++w;
+        }
+
+        this->cols[i] = floor | (base >= 64 ? 0 : (out << base));
+    }
+
+    return count;
+};
+
 void Board::print()
 {
     using namespace std;

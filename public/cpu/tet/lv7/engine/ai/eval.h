@@ -96,6 +96,25 @@ Weight from_array(const i32* a, i32 n);
 // 原作 config.json の値（配列の並び）
 extern const i32 DEFAULT_WEIGHTS[WEIGHT_LEN];
 
+// TETLABO lv7 §22（ZONE 設計 VERSUS 編）: ZONE の発動中の段の価値。lv7_wasm.cpp search が探索の前に入れる。
+//   g_zone_table_n > 0 のとき、消した段 1 つごとに max(表の増えぶん, 終盤ならならした伸び) × g_zone_atk_w を行動の報酬に足す
+extern i32 g_zone_table_n;
+extern i32 g_zone_table[48];
+extern i32 g_zone_slope10;   // いまの段数から 22 段までの 1 段あたりの火力の平均（10 倍）
+extern bool g_zone_near;     // 終盤（天井が近い・残り手数が少ない）
+extern i32 g_zone_atk_w;     // 火力 1 段あたりの点
+extern i32 g_zone_bias100;   // §23: ATTACK BIAS の 100 倍（発動中の通常火力に終了時に掛かる）
+#ifndef ZONE_NORMAL_PCT_DEF
+#define ZONE_NORMAL_PCT_DEF 100
+#endif
+constexpr i32 ZONE_NORMAL_PCT = ZONE_NORMAL_PCT_DEF; // §23: 通常火力を表と同じ物差し（火力 × BIAS × g_zone_atk_w）で足す割合 %
+constexpr i32 ZONE_GOAL = 22;
+#ifndef ZONE_DEPTH_DISC_DEF
+#define ZONE_DEPTH_DISC_DEF 2
+#endif
+constexpr i32 ZONE_DEPTH_DISC = ZONE_DEPTH_DISC_DEF; // 消した段の価値を深さ 1 あたり何 % 引くか（早く消すほうを選ぶ）
+i32 zone_table_at(i32 lines);      // 表の段数 lines の合計（表が無ければ 0）
+
 // incoming：root の予告のおじゃま（段）。node.sent（経路の火力の累計）と合わせて L1・L2 に使う
 void evaluate(node::Data& node, node::Data& parent, move::Placement placement, const std::vector<piece::Type>& queue, const Weight& w, i32 incoming = 0);
 

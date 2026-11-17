@@ -47,6 +47,8 @@ window.CPU = class{
 
     updateLoop() {
         if (!this.isActive) return;
+        // ZONE（VERSUS）: 発動の判断・発動中の手の速さ（cpu/tet/cpu_zone.js）。ZONE の無い試合では何もしない
+        if (window.CpuZone && CpuZone.tick(this, 1)) { this.game.cpuFrame(() => this.updateLoop()); return; }
 
         if (this.game.mino && this.game.mino !== this.currentMino) {
             this.currentMino = this.game.mino;
@@ -120,7 +122,8 @@ window.CPU = class{
                     }
                     this.game.cpuAction('hardDrop');
                 };
-                this.game.cpuSchedule(1000, tryDropFallback);
+                // ZONE の発動中は待たずに落とす（待つと ZONE の時間だけ減る。cpu/tet/cpu_zone.js noMoveDelay）
+                this.game.cpuSchedule(window.CpuZone ? CpuZone.noMoveDelay(this, 1000) : 1000, tryDropFallback);
             }
         }
     }
@@ -231,7 +234,8 @@ window.CPU = class{
                 // EVAL差の計算
                 let diff = score - baseScore;
 
-                const lockOut = droppedBlocks.every(b => b.y < 0);
+                // ZONE の発動中は、全ブロックが枠の上でも実機で致命にならない（game/tet/board.js secureMino・ZONE 本編 §15）
+                const lockOut = !(this.game && this.game.zoneActive) && droppedBlocks.every(b => b.y < 0);
                 const alive = !lockOut && (nextType === null || this.canSpawnOn(simResult.blocks, nextType));
                 if ((alive && !bestAlive) || (alive === bestAlive && diff > bestDiff)) {
                     bestAlive = alive;
@@ -300,6 +304,25 @@ window.CPU = class{
         }
         
         let linesCleared = 0;
+
+        // ZONE の発動中（VERSUS）: 底のそろった段（ZONE 段）は消えない。そろった段は底へ移り、その下が 1 段上がる
+        // （game/tet/zone.js _zoneCheckLine と同じ。ZONE 段の数は置く前の盤面の底から数える）
+        if (this.game && this.game.zoneActive) {
+            const rowOf = (list, r) => list.reduce((n, b) => n + (b.y === r ? 1 : 0), 0);
+            let floorY = 20;
+            while (floorY > 0 && rowOf(fieldBlocks, floorY - 1) === 10) floorY--;
+            const top = (typeof this.game.topLimit === 'number') ? this.game.topLimit : -5; // ZONE の試合は -20
+            for (let r = floorY - 1; r >= top; r--) {
+                if (rowOf(blocks, r) !== 10) continue;
+                for (const b of blocks) {
+                    if (b.y === r) b.y = floorY - 1;
+                    else if (b.y > r && b.y < floorY) b.y -= 1;
+                }
+                floorY--;
+                linesCleared++;
+            }
+            return { blocks, linesCleared };
+        }
         
         for (let r = 0; r < 20; r++) {
             let rowCount = blocks.filter(b => b.y === r).length;

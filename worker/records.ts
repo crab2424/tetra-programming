@@ -12,6 +12,8 @@ export const RANKED_MODES = {
   "marathon:endless": { primary: "score", better: "higher", min: 0, max: 999_999_999 },
   "sprint:40": { primary: "timeMs", better: "lower", min: 1_000, max: 3_600_000 },
   ultra: { primary: "score", better: "higher", min: 0, max: 99_999_999 },
+  // ZONE（150 ライン）。ZONE の倍率で MARATHON より伸びるので上限は倍
+  "zone:150": { primary: "score", better: "higher", min: 0, max: 1_999_999_999 },
   puyo: { primary: "score", better: "higher", min: 0, max: 999_999_999 },
 } as const;
 

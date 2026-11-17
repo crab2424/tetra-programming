@@ -560,6 +560,14 @@
     if (key === 'ArrowLeft'  || code === 'KeyA') { e.preventDefault(); move2D('left');  return; }
     if (key === 'ArrowRight' || code === 'KeyD') { e.preventDefault(); move2D('right'); return; }
     if (key === 'Enter' || code === 'Space') {
+      // 押しっぱなしのキーリピートでは決定しない（online のリザルトで RETRY の申請と
+      // 取消を繰り返していた）。activateGuardMs 指定ページは、開いた直後の決定も捨てる
+      // （ハードドロップの連打が、出たばかりのリザルトの RETRY に効いていた）。
+      if (e.repeat) { e.preventDefault(); return; }
+      if (active.activateGuardMs && performance.now() - active.activatedAt < active.activateGuardMs) {
+        e.preventDefault();
+        return;
+      }
       const items = currentItems();
       const idx = (active.index >= 0 && active.index < items.length) ? active.index : 0;
       if (items[idx]) {
@@ -586,6 +594,7 @@
   function deactivate(){
     clearFocus();
     active = null;
+    padResetState();
     stopPaneScroll();
     stopFocusScroll();
   }
@@ -601,7 +610,8 @@
     if (!cfg) return;
     const root = cfg.root || document.getElementById(pageId + '-page') || document.getElementById(pageId);
     if (!root) return;
-    active = Object.assign({ pageId, root, index: 0, _firstFocus: true }, cfg);
+    active = Object.assign({ pageId, root, index: 0, _firstFocus: true, activatedAt: performance.now() }, cfg);
+    padStart();
 
     let framesLeft = ACTIVATE_RETRY_FRAMES;
     const tryInit = () => {
@@ -681,6 +691,190 @@
   // held状態のままvMaxで回り続けてしまう。blur時は問答無用で減衰フェーズに移す。
   window.addEventListener('blur', () => {
     if (paneScroll) paneScroll.held = false;
+  });
+
+  // ─────────────────────────────────────────────
+  // ゲームパッド（メニュー操作）
+  // ─────────────────────────────────────────────
+  // FocusNav がページを持っている間だけ Gamepad API を読み、キーボードと同じキーイベント
+  // （矢印・Enter・Escape）を作って流す。キーボードと同じ経路を通るので、activateGuardMs・
+  // escapeAction・BACK 探索・scrollPane・PRACTICE のスピナー・replay.js の ← → などがそのまま効く。
+  //   十字キー(12〜15) / 左スティック … 上下左右（初回 PAD_DAS_MS 待ってから PAD_ARR_MS 間隔で繰り返し）
+  //   A(0) … 決定（Enter。押しっぱなしで繰り返さない）
+  //   B(1) … 戻る（Escape）
+  //   KEY CONFIG の RESTART（既定 8）… リザルト等の onRestart（キーボードの R と同じ）
+  // 対戦中は FocusNav がページを持たないので読まない（エンジンの _gamepadLoop と取り合わない）。
+  // ポーズ画面ではエンジンもパッドを読むが、ポーズ中は試合の操作を捨てるので重ならない。
+  // ページが切り替わった直後は、押されたままのボタン・方向をいったん離すまで無視する
+  // （試合最後のハードドロップや回転の押しっぱなしが、出たばかりのリザルトに効かないように）。
+  const PAD_DAS_MS = 260;
+  const PAD_ARR_MS = 90;
+  const PAD_DIR_NAMES = ['up', 'down', 'left', 'right'];
+  const PAD_DIR_BUTTONS = { up: 12, down: 13, left: 14, right: 15 };
+  const PAD_KEYS = {
+    up:     { key: 'ArrowUp',    code: 'ArrowUp',    keyCode: 38 },
+    down:   { key: 'ArrowDown',  code: 'ArrowDown',  keyCode: 40 },
+    left:   { key: 'ArrowLeft',  code: 'ArrowLeft',  keyCode: 37 },
+    right:  { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
+    enter:  { key: 'Enter',      code: 'Enter',      keyCode: 13 },
+    escape: { key: 'Escape',     code: 'Escape',     keyCode: 27 },
+  };
+  let padRaf = null;
+  let padPrev = null;      // 前フレームの押下状態。null = 次のフレームは状態を覚えるだけ（押しっぱなしを捨てる）
+  let padHeldDir = null;   // 繰り返し中の方向
+  let padNextRepeat = 0;
+
+  function padHasAny(){
+    if (!navigator.getGamepads) return false;
+    try {
+      const pads = navigator.getGamepads();
+      for (let i = 0; i < pads.length; i++) if (pads[i]) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function padDeadzone(){
+    try {
+      if (typeof currentGamepadOptions !== 'undefined' && currentGamepadOptions && Number.isFinite(currentGamepadOptions.deadzone)) {
+        return currentGamepadOptions.deadzone;
+      }
+    } catch (e) {}
+    return 0.45;
+  }
+
+  function padRestartBinds(){
+    try {
+      if (typeof currentGamepadConfig !== 'undefined' && currentGamepadConfig && Array.isArray(currentGamepadConfig.restart)) {
+        return currentGamepadConfig.restart;
+      }
+    } catch (e) {}
+    return [{ type: 'button', index: 8 }];
+  }
+
+  // つながっている全パッドの OR。1台も無ければ null
+  function padRead(){
+    if (!navigator.getGamepads) return null;
+    let pads;
+    try { pads = navigator.getGamepads(); } catch (e) { return null; }
+    const dz = padDeadzone();
+    const restartBinds = padRestartBinds();
+    const st = { up: false, down: false, left: false, right: false, a: false, b: false, restart: false, btns: [] };
+    let any = false;
+    for (let i = 0; i < pads.length; i++) {
+      const pad = pads[i];
+      if (!pad || pad.connected === false) continue;
+      any = true;
+      const btn = (n) => !!(pad.buttons && pad.buttons[n] && pad.buttons[n].pressed);
+      for (const d of PAD_DIR_NAMES) if (btn(PAD_DIR_BUTTONS[d])) st[d] = true;
+      const ax = (pad.axes && pad.axes[0]) || 0;
+      const ay = (pad.axes && pad.axes[1]) || 0;
+      // 斜めは大きい方の軸だけ（2D 移動が斜めに暴れないように）
+      if (Math.max(Math.abs(ax), Math.abs(ay)) >= dz) {
+        if (Math.abs(ax) > Math.abs(ay)) st[ax < 0 ? 'left' : 'right'] = true;
+        else st[ay < 0 ? 'up' : 'down'] = true;
+      }
+      if (pad.buttons) for (let n = 0; n < pad.buttons.length; n++) if (btn(n)) st.btns[n] = true;
+      if (btn(0)) st.a = true;
+      if (btn(1)) st.b = true;
+      for (const m of restartBinds) {
+        if (!m) continue;
+        if (m.type === 'button' && btn(m.index)) st.restart = true;
+        else if (m.type === 'axis' && pad.axes && Math.abs(pad.axes[m.index] || 0) > 0.5) st.restart = true;
+      }
+    }
+    return any ? st : null;
+  }
+
+  function padSendKey(type, name, repeat){
+    const k = PAD_KEYS[name];
+    const ae = document.activeElement;
+    const target = (ae && ae !== document.body && ae !== document.documentElement) ? ae : document;
+    target.dispatchEvent(new KeyboardEvent(type, {
+      key: k.key, code: k.code, keyCode: k.keyCode, which: k.keyCode,
+      repeat: !!repeat, bubbles: true, cancelable: true,
+    }));
+  }
+
+  function padReleaseDir(){
+    if (padHeldDir) {
+      const d = padHeldDir;
+      padHeldDir = null;
+      padSendKey('keyup', d, false); // scrollPane の慣性スクロールを止める
+    }
+  }
+
+  // ページが変わったら押しっぱなしを捨て直す（keyup は送らない＝対戦へ抜けるときにエンジンへ届かない）
+  function padResetState(){
+    padPrev = null;
+    padHeldDir = null;
+  }
+
+  // タイトル（PRESS ANY KEY）は FocusNav のページではないが、パッドのどのボタンでも抜けられるようにする
+  // （navigation.js の onTitleKey がキャプチャで Enter を受けてメインメニューへ）
+  function padTitleShown(){
+    const t = document.getElementById('title-page');
+    return !!(t && t.classList.contains('active'));
+  }
+
+  function padStart(){
+    padResetState();
+    if (padRaf === null && padHasAny()) padRaf = requestAnimationFrame(padTick);
+  }
+
+  function padTick(now){
+    padRaf = null;
+    const onTitle = !active && padTitleShown();
+    if (!active && !onTitle) { padResetState(); return; }
+    const st = padRead();
+    if (!st) { padResetState(); return; } // パッドが抜けた。次は gamepadconnected から
+    padRaf = requestAnimationFrame(padTick);
+
+    // KEY CONFIG の入力待ち中は何も流さない（作ったキーが割り当てに拾われる）。状態だけ追う
+    if (!padPrev || document.hidden || document.querySelector('.key-badge.listening')) {
+      if (padPrev) padReleaseDir();
+      padPrev = st;
+      return;
+    }
+    const prev = padPrev;
+    padPrev = st;
+
+    if (onTitle) {
+      const fresh = PAD_DIR_NAMES.some(d => st[d] && !prev[d]) || st.btns.some((p, n) => p && !prev.btns[n]);
+      if (fresh) { padSendKey('keydown', 'enter', false); padSendKey('keyup', 'enter', false); }
+      return;
+    }
+
+    // 方向: 押している方向が続く限りそれを繰り返す。離したら新しく押された方向へ
+    let dir = (padHeldDir && st[padHeldDir]) ? padHeldDir : null;
+    if (!dir) dir = PAD_DIR_NAMES.find(d => st[d] && !prev[d]) || null;
+    if (dir !== padHeldDir) {
+      padReleaseDir();
+      if (dir) {
+        padHeldDir = dir;
+        padNextRepeat = now + PAD_DAS_MS;
+        padSendKey('keydown', dir, false);
+      }
+    } else if (dir && now >= padNextRepeat) {
+      padNextRepeat = now + PAD_ARR_MS;
+      padSendKey('keydown', dir, true);
+    }
+    if (!active) return; // 方向キーでページが閉じた
+
+    // RESTART（キーボードの R と同じ。onRestart を持つページだけ）
+    if (st.restart && !prev.restart && typeof active.onRestart === 'function'
+        && rootIsActive() && !window.FocusNav.suspended && !isTypingTarget(document.activeElement)) {
+      setInputMode('kbd');
+      active.onRestart();
+      return;
+    }
+    if (st.a && !prev.a) { padSendKey('keydown', 'enter', false); padSendKey('keyup', 'enter', false); return; }
+    if (st.b && !prev.b) { padSendKey('keydown', 'escape', false); padSendKey('keyup', 'escape', false); return; }
+  }
+
+  // Chrome はボタンを押すまでパッドを見せない。つながった時点でページを持っていれば読み始める
+  // （押したボタンはそのフレームで覚えるだけ＝つないだ瞬間の 1 押しでは決定しない）
+  window.addEventListener('gamepadconnected', () => {
+    if ((active || padTitleShown()) && padRaf === null) padRaf = requestAnimationFrame(padTick);
   });
 
   window.FocusNav = {
@@ -810,7 +1004,7 @@
       // モードの 3 列の最下段 ⇔ フッターの 3 ボタン（RANKING / SETTINGS / REPLAYS）を列ごとに直結する。
       // フッターは中央寄せで列と横位置が揃っていないため、座標任せだと隣の列へずれる
       const FOOTER_COLS = [
-        ['mode-btn-ultra',    'main-menu-ranking-btn'],
+        ['mode-btn-zone',     'main-menu-ranking-btn'],
         ['mode-btn-online',   'main-menu-settings-btn'],
         ['mode-btn-practice', 'main-menu-replays-btn'],
       ];
@@ -1029,6 +1223,29 @@
     },
   });
 
+  // STATS（public/app/stats_page.js）: タブ → 一覧（スクロールが要るときだけ）→ BACK。RANKING と同じ形
+  register('stats', {
+    getItems: () => {
+      const tabToggle = document.getElementById('stats-tab-toggle');
+      const btnAnchor = document.getElementById('stats-buttons');
+      const items = [];
+      if (tabToggle) items.push(rowToggle(tabToggle, tabToggle));
+      const list = document.getElementById('stats-list');
+      if (list && list.scrollHeight > list.clientHeight) items.push({ el: list });
+      $$('#stats-buttons button').forEach(b => items.push({ el: b, scrollAnchor: btnAnchor }));
+      return items;
+    },
+    initialIndex: 0,
+    scrollPane: (it, dir) => {
+      const pane = document.getElementById('stats-list');
+      if (!pane || !it || it.el !== pane) return null;
+      const atTop = pane.scrollTop <= 0;
+      const atBottom = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 1;
+      if ((dir === 'up' && atTop) || (dir === 'down' && atBottom)) return null;
+      return pane;
+    },
+  });
+
   // REPLAYS（public/app/replays.js）: 絞り込み → 各行（本体 → ★ → ⤓ → ✕ を横に）→ IMPORT / BACK
   //   各行のボタンは data-nav-key="<id>:<main|star|export|delete>"。上下は同じ種類のボタンのまま隣の行へ。
   //   リプレイを見て戻ったとき・★/削除で描き直したときは ReplaysPage.focusKey の項目へ戻す。
@@ -1101,10 +1318,17 @@
       if (bgmRow) { const it = rowSlider(bgmRow, bgmSlider); it.scrollAnchor = volAnchor; items.push(it); }
       if (seRow)  { const it = rowSlider(seRow,  seSlider);   it.scrollAnchor = volAnchor; items.push(it); }
       const tuningContainer = document.getElementById('tuning-tet-section');
-      ['slider-das', 'slider-arr', 'slider-dcd'].forEach(id => {
+      ['slider-das', 'slider-arr', 'slider-dcd', 'slider-irs-dcd'].forEach(id => {
         const s = document.getElementById(id);
         const row = s && s.closest('.slider-row');
         if (row) { const it = rowSlider(row, s); it.scrollAnchor = tuningContainer || row; items.push(it); }
+      });
+      // IRS / IHS の ON/OFF（tet/rotation.js。DAS などと同じく SAVE で保存）
+      ['tuning-irs-toggle', 'tuning-ihs-toggle'].forEach(id => {
+        const t = document.getElementById(id);
+        const row = t && t.closest('.option-row');
+        const it = row && rowAuto(row);
+        if (it) { it.scrollAnchor = tuningContainer || row; items.push(it); }
       });
       $$('#key-config-grid .key-row').forEach(row => {
         $$('.key-badge', row).forEach(b => items.push({ el: b, scrollAnchor: keyAnchor }));
@@ -1180,12 +1404,33 @@
       isActive: isOpen,
     }, extra.pageCfg || {}));
 
+    // 開く直前にアクティブだった通常ページ（オーバーレイ以外）。閉じたとき、他に開いた
+    // オーバーレイが無く、そのページがまだ表示中ならそこへ戻す（online のロード画面を
+    // キャンセルで閉じた後、下のロビー/ルームでキーが効かなくなる不具合の対策）。
+    // 対戦開始でロード画面が閉じる経路では下のページが既に非表示なので、従来どおり deactivate。
+    let returnPageId = null;
+    const isOverlayPage = (id) => overlayWatchers.some(w => w.overlayId === id);
+    const pageStillShown = (id) => {
+      const cfg = id && registry[id];
+      if (!cfg) return false;
+      const root = cfg.root || document.getElementById(id + '-page') || document.getElementById(id);
+      if (!root) return false;
+      if (typeof cfg.isActive === 'function') return !!cfg.isActive();
+      return root.classList.contains(cfg.rootActiveClass || 'active');
+    };
+
     const obs = new MutationObserver(() => {
       if (isOpen()) {
+        if (!active || active.pageId !== overlayId) {
+          returnPageId = (active && !isOverlayPage(active.pageId)) ? active.pageId : null;
+        }
         activate(overlayId);
       } else if (active && active.pageId === overlayId) {
         const stillOpen = overlayWatchers.find(w => w.overlayId !== overlayId && w.isOpen());
+        const back = returnPageId;
+        returnPageId = null;
         if (stillOpen) activate(stillOpen.overlayId);
+        else if (pageStillShown(back)) activate(back);
         else deactivate();
       }
     });
@@ -1230,7 +1475,8 @@
       {
         watchAttr: 'style',
         // RETRY/ROOMは遷移を伴い、LEAVEは破壊的操作＝安全なEscape対象が無いため明示的に無効化。
-        pageCfg: { escapeAction: () => null },
+        // ボタンが浮かび上がる 0.5 秒の間は Enter/Space で押せない（対戦中の連打の持ち越し防止）。
+        pageCfg: { escapeAction: () => null, activateGuardMs: 600 },
       }
     );
     setupOverlayWatcher(

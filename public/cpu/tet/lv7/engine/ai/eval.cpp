@@ -1,4 +1,6 @@
 #include "eval.h"
+#include <bit>
+#include <algorithm>
 
 namespace eval
 {
@@ -22,6 +24,19 @@ const i32 DEFAULT_WEIGHTS[WEIGHT_LEN] = {
     0, 0, 0, 0, 0,
     0, 0, 0, 0
 };
+
+i32 g_zone_table_n = 0;
+i32 g_zone_table[48] = { 0 };
+i32 g_zone_slope10 = 0;
+bool g_zone_near = false;
+i32 g_zone_atk_w = 0;
+i32 g_zone_bias100 = 100;
+
+i32 zone_table_at(i32 lines)
+{
+    if (g_zone_table_n <= 0) return 0;
+    return g_zone_table[std::clamp(lines, 0, g_zone_table_n - 1)];
+}
 
 Weight from_array(const i32* a, i32 n)
 {
@@ -187,7 +202,7 @@ void evaluate(node::Data& node, node::Data& parent, move::Placement placement, c
     node.score.eval = node.score.eval * w.scale / 1024;
 
     // Clear
-    bool pc = node.state.board.is_empty();
+    bool pc = node.state.is_pc();
 
     if (node.lock.clear > 0) {
         if (pc) {
@@ -201,6 +216,21 @@ void evaluate(node::Data& node, node::Data& parent, move::Placement placement, c
                 node.score.action += w.clear[node.lock.clear - 1];
             }
         }
+    }
+
+    // TETLABO lv7 §22: ZONE の段の価値（終了時の火力表の増えぶん。発動中は消した段がそのまま ZONE 段になる）
+    if (g_zone_table_n > 0 && node.lock.clear > 0 && node.state.zone) {
+        const i32 zb = std::countr_one(parent.state.board.get_clear_mask());
+        const i32 za = zb + node.lock.clear;
+        auto at = [] (i32 l) { return g_zone_table[std::clamp(l, 0, g_zone_table_n - 1)]; };
+        // 同じ段数なら早く消すほうを選ぶ（深さ 1 あたり 2% 引く）。時間切れや読み違いで最後の消去を取りこぼさないように
+        const i32 disc = std::max(100 - ZONE_DEPTH_DISC * (i32(node.depth) - 1), 50);
+        for (i32 l = zb + 1; l <= za; ++l) {
+            const i32 d10 = (at(l) - at(l - 1)) * 10;
+            node.score.action += std::max(d10, (g_zone_near && l <= ZONE_GOAL) ? g_zone_slope10 : 0) * g_zone_atk_w / 10 * disc / 100;
+        }
+        // §23: 通常火力も終了時に BIAS を掛けて送られるので、表と同じ物差しで足す
+        if (ZONE_NORMAL_PCT > 0) node.score.action += i32(node.lock.attack) * g_zone_bias100 * g_zone_atk_w / 100 * ZONE_NORMAL_PCT / 100;
     }
 
     // B2b
@@ -449,9 +479,12 @@ void get_donation(Board& board, i32 heights[10], i32 depth, i32 tslot[4])
             break;
         }
 
+        // ZONE の発動中は底にそろった段（ZONE 段）が残っている。ふだんは置く前にそろった段は無い（pre == 0）
+        const u64 pre = copy.get_clear_mask();
+
         quiet.place(copy);
 
-        i32 clear = copy.clear();
+        i32 clear = pre ? copy.clear_zone(std::countr_one(pre)) : copy.clear();
 
         tslot[clear] += 1;
 

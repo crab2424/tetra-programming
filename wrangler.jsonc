@@ -25,6 +25,9 @@
       "database_name": "tetlabo-dev",
       "database_id": "9c3ff786-130e-4e3b-aa10-bf55f8af7b57",
       "migrations_dir": "worker/migrations",
+      // ローカル（wrangler dev）でも Cloudflare 上の開発DBを読み書きする（プレビューURLと同じデータ＝
+      // ログイン・設定の同期がそろう）。本番の DB には付けない（localhost から本番データに触れない）
+      "remote": true,
     },
   ],
   "vars": {

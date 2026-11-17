@@ -73,11 +73,31 @@ Object.assign(Game.prototype, {
             this.ren = 0;
         }
 
-        this.score += Math.floor(lineScore + renBonus);
+        // 成績（STATS）用のカウンタ。数えるだけで、乱数・時計・盤面には触らない（config/stats.js が終了時に読む）
+        const ps = this.playStats;
+        if (ps) {
+            ps.pc++;
+            if (linesCleared === 4) ps.t4++;
+            if (tSpinType === 'tspin' && linesCleared >= 1 && linesCleared <= 3) ps['ts' + linesCleared]++;
+            else if (tSpinType === 'mini' && linesCleared >= 1) ps.tsm++;
+            if (isPerfectClear) ps.pcl++;
+            if (linesCleared > 0 && this.ren - 1 > ps.renMax) ps.renMax = this.ren - 1;
+            if (isB2BTriggered) { ps.b2bRun++; if (ps.b2bRun > ps.b2bMax) ps.b2bMax = ps.b2bRun; }
+            else if (!this.backToBack) ps.b2bRun = 0;
+        }
 
-        if (linesCleared > 0) {
+        // ZONE の発動中は点をためておき、終了時に倍率をかけて足す。ライン数・レベルも動かさない
+        // （ZONE で消した段は lines に数えない。設計 tetlabo-zone-design.md §5.2・§5.4）
+        if (this.zoneActive) {
+            this.zoneScorePool += Math.floor(lineScore + renBonus);
+        } else {
+            this.score += Math.floor(lineScore + renBonus);
+        }
+
+        if (linesCleared > 0 && !this.zoneActive) {
             this.lines += linesCleared;
-            if (this.mode === 'marathon') {
+            // ZONE はレベル固定にもできる（準備画面の LEVEL: FIXED。zoneFixedLevel）
+            if (this.mode === 'marathon' || (this.mode === 'zone' && !this.zoneFixedLevel)) {
                 const prevLevel = this.level;
                 this.level = Math.min(15, this.startLevel + Math.floor(this.lines / 10));
                 if (this.level > prevLevel) this.playSe('levelup');
@@ -308,6 +328,13 @@ Object.assign(Game.prototype, {
         if (linesEl) linesEl.textContent = this.lines;
     },
 
+    // 成績（STATS）用のカウンタを作り直す（_initGameState から）。
+    // pc=置いた数 / t4=4 ライン / ts1〜3=T-Spin Single〜Triple / tsm=T-Spin Mini（ライン消去あり）/
+    // pcl=パーフェクトクリア / renMax=最大 REN / b2bMax=Back-to-Back が続いた最大回数（b2bRun は今の連続）
+    _resetPlayStats() {
+        this.playStats = { pc: 0, t4: 0, ts1: 0, ts2: 0, ts3: 0, tsm: 0, pcl: 0, renMax: 0, b2bMax: 0, b2bRun: 0 };
+    },
+
     // 攻撃量の累積を加算する（APM計測用・生成基準）。相殺で無駄になった火力も対象に含めるため、
     // 送信直前ではなく board.js の secureMino() 内で Scoring() 直後（相殺判定より前）に呼ぶ。
     // シングルプレイ・対戦のどちらでも呼ばれる（isVersusMode による分岐なし）。
@@ -329,6 +356,14 @@ Object.assign(Game.prototype, {
         if (this.mode === 'marathon') {
             key = (this.goalLines === Infinity) ? 'marathon:endless' : 'marathon:150';
             record = { score: this.score, level: this.level, lines: this.lines, timeMs, startLevel: this.startLevel };
+        } else if (this.mode === 'zone') {
+            // 準備画面の設定が既定のときだけ記録する（navigation.js が recordEligible を入れる）
+            if (this.zoneRecordEligible === false) return null;
+            key = 'zone:150';
+            record = {
+                score: this.score, level: this.level, lines: this.lines, timeMs, startLevel: this.startLevel,
+                zoneBest: this.zoneBest, zoneLinesTotal: this.zoneLinesTotal, zoneCount: this.zoneCount,
+            };
         } else if (this.mode === 'sprint') {
             if (!isClear) return null; // 40ライン未達成はタイム記録の対象外
             key = 'sprint:40';
