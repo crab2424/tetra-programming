@@ -4,7 +4,7 @@
 //   盤面の進め方は ZONE の決まりの最小限: そろった段は底へ送って ZONE 段にする（消えない）。出現できなければ終わり。
 //   ZONE 設計 §19.4・§20.2・§21。lv7 は training/tet/lv7_zone_sim.mjs。
 //
-// 使い方: node training/tet/zone_sim_lv.mjs <レベル 2〜6> [秒=40] [回数=12] [--wasm=別の cpu_wasmN.js] [--show]
+// 使い方: node training/tet/zone_sim_lv.mjs <レベル 2〜7> [秒=40] [回数=12] [--wasm=別の cpu_wasmN.js] [--show] [--margin=段階] [--bias=倍率]
 //         node training/tet/zone_sim_lv.mjs <レベル> 0 <局面数> --compare=旧の cpu_wasmN.js（ZONE なしで結果が同じか）
 //   秒 … 発動の長さ。手数は 秒×1000÷CpuZone.CONFIG.moveMs[レベル]（§19.4 と同じ数え方）
 import { readFileSync } from 'node:fs';
@@ -27,6 +27,9 @@ const RUNS = parseInt(positional[2] || '12', 10);
 const SHOW = args.includes('--show');
 const NOPLAN = args.includes('--noplan');
 const TRACE = opt('trace', ''); // 例 --trace=empty:10（その回の手を全部出す）
+// --margin=段階（マージンの倍率表の段階。省略＝マージンなし）・--bias=ATTACK BIAS（省略 1.0）: 実機の対戦設定に近い表で比べる（§23）
+const MARGIN = opt('margin', '') === '' ? null : parseInt(opt('margin', ''), 10);
+const BIAS = parseFloat(opt('bias', '1'));
 let runKind = '', runIdx = 0; // 出し方の予約を使わない（§22 より前の wasm と比べるとき）
 const FILES = {
     2: ['lv2/cpu2.js', 'lv2/cpu_wasm2.js', 'CPU2'],
@@ -134,6 +137,7 @@ function startBoard(kind) {
 function bag() { const a = [0, 1, 2, 3, 4, 5, 6]; for (let i = 6; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
 function run(kind) {
+    let atkHi = 0;
     let cells = startBoard(kind), zone = 0, holdType = -1, attack = 0, ren = 0, b2b = false, pcs = 0;
     let queue = [], bagLeft = [], moves = 0, ended = 'time', canHold = true;
     let plan = { irs: 0, ihs: 0 }, usedIrs = 0, usedIhs = 0, chose = 0;
@@ -142,7 +146,7 @@ function run(kind) {
     Object.assign(g, {
         field: new Field(), level: 2, score: 0, isVersusMode: true, backToBack: false, ren: 0,
         zoneActive: true, zoneLines: 0, topLimit: -20, playSe() {}, requestRedraw() {},
-        zoneCharge: 4, _tetMarginStep: null, vsAttackMultiplier: 1.0,
+        zoneCharge: 4, _tetMarginStep: MARGIN, vsAttackMultiplier: BIAS,
         zoneRemainingMs: () => Math.max(0, (MOVES - moves) * CpuZone.CONFIG.moveMs[LV]),
         cpuFrame() {}, cpuSchedule() {}, garbageQueue: [],
         clock: { now: () => 0 }, _garbageTimers: [], ensureNextQueue() {},
@@ -183,7 +187,7 @@ function run(kind) {
                 if (TRACE === `${runKind}:${runIdx}`) {
                     const st = { cells: [...cells].map(c => c.split(',').map(Number)), mino: { type: mino.type, rot: mino.rotation, x: mino.x, y: mino.y },
                         hold: holdType, canHold, next: queue.slice(1), bag: bagLeft.slice(), zoneLines: zone, remain: g.zoneRemainingMs(),
-                        zoneCharge: 4, margin: null, mult: 1.0, b2b, ren, blocks: mino.blocks.map(b => [b.x, b.y]) };
+                        zoneCharge: 4, margin: MARGIN, mult: BIAS, b2b, ren, blocks: mino.blocks.map(b => [b.x, b.y]) };
                     console.log('NOMOVE ' + JSON.stringify(st));
                 }
                 break;
@@ -217,6 +221,7 @@ function run(kind) {
         const n = full.length;
         if (n) {
             const tspin = tspinOut;
+            const atk0 = attack;
             const b2bAct = tspin || n === 4;
             attack += tspin ? [2, 4, 6][n - 1] : [0, 1, 2, 4][n - 1];
             if (b2bAct && b2b) attack += 1;
@@ -233,6 +238,7 @@ function run(kind) {
             for (let k = 0; k < zone; k++) for (let x = 0; x < 10; x++) shifted.add(x + ',' + (19 - k));
             cells = shifted;
             if (cells.size === zone * 10) { pcs++; attack += 10; }
+            if (zone - n >= 10) atkHi += attack - atk0; // §23: 10 段より先で出した通常火力
         } else ren = 0;
     }
     let rest = 0, holes = 0;
@@ -249,8 +255,9 @@ function run(kind) {
         console.log(`[${kind}] ${ended} 手数 ${moves}\n` + rows.join('\n'));
     }
     let table = 0;
-    for (const c of ctx.zoneEndAttackChunks(4, zone, 0, null, 1.0)) table += c;
-    return { zone, rest, holes, attack, moves, ended, pcs, total: attack + table, usedIrs, usedIhs, chose };
+    for (const c of ctx.zoneEndAttackChunks(4, zone, 0, MARGIN, BIAS)) table += c;
+    // 通常火力は終了時に BIAS を掛けて送る（game/tet/zone.js。マージンの通常火力の上乗せは数えていない）
+    return { zone, rest, holes, attack, moves, ended, pcs, total: Math.floor(attack * BIAS + 1e-9) + table, atkHi, usedIrs, usedIhs, chose };
 }
 
 // --pos=局面の JSON（リプレイから取り出した 1 局面）: その局面で 1 回だけ考えさせて結果を出す
@@ -335,6 +342,6 @@ for (const kind of ['empty', 'right', 'hole', 'rough']) {
     const hist = {};
     for (const r of rs) hist[r.zone] = (hist[r.zone] || 0) + 1;
     const hs = Object.keys(hist).map(Number).sort((a, b) => a - b).map(k => `${k}:${hist[k]}`).join(' ');
-    console.log(`${kind.padEnd(6)} 段数 ${avg('zone')}  残ったマス ${avg('rest')}  穴 ${avg('holes')}  通常火力 ${avg('attack')}  合計(MAX) ${avg('total')}  手数 ${avg('moves')}  先行回転 ${avg('usedIrs')} 先行ホールド ${avg('usedIhs')} 終える判断 ${avg('chose')}  段数の分布 ${hs}  終わり方 ${ends}`);
+    console.log(`${kind.padEnd(6)} 段数 ${avg('zone')}  残ったマス ${avg('rest')}  穴 ${avg('holes')}  通常火力 ${avg('attack')}（10段より先 ${avg('atkHi')}）  合計(MAX) ${avg('total')}  手数 ${avg('moves')}  先行回転 ${avg('usedIrs')} 先行ホールド ${avg('usedIhs')} 終える判断 ${avg('chose')}  段数の分布 ${hs}  終わり方 ${ends}`);
     if (args.includes('--each')) console.log('       各回の段数 ' + rs.map(r => r.zone).join(' '));
 }

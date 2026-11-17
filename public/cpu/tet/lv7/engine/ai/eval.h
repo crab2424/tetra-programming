@@ -103,6 +103,11 @@ extern i32 g_zone_table[48];
 extern i32 g_zone_slope10;   // いまの段数から 22 段までの 1 段あたりの火力の平均（10 倍）
 extern bool g_zone_near;     // 終盤（天井が近い・残り手数が少ない）
 extern i32 g_zone_atk_w;     // 火力 1 段あたりの点
+extern i32 g_zone_bias100;   // §23: ATTACK BIAS の 100 倍（発動中の通常火力に終了時に掛かる）
+#ifndef ZONE_NORMAL_PCT_DEF
+#define ZONE_NORMAL_PCT_DEF 100
+#endif
+constexpr i32 ZONE_NORMAL_PCT = ZONE_NORMAL_PCT_DEF; // §23: 通常火力を表と同じ物差し（火力 × BIAS × g_zone_atk_w）で足す割合 %
 constexpr i32 ZONE_GOAL = 22;
 #ifndef ZONE_DEPTH_DISC_DEF
 #define ZONE_DEPTH_DISC_DEF 2

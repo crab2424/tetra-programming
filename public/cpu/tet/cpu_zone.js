@@ -96,6 +96,11 @@ const CpuZone = (() => {
         return out;
     }
 
+    // 発動中にためた通常火力に終了時に掛かる倍率（ATTACK BIAS）の 100 倍。探索が通常火力を表と同じ物差しで数える用（設計 §23）
+    function attackBias100(game) {
+        return Math.round(((game && game.vsAttackMultiplier) ?? 1.0) * 100);
+    }
+
     // 相手の盤面を探索へ渡すとき用: ZONE 段を除いて、その段数ぶん下げた「ふつうの盤面」のブロック（{x, y}）
     function plainBlocks(game) {
         const bs = (game && game.field && game.field.blocks) || [];
@@ -312,6 +317,6 @@ const CpuZone = (() => {
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, movesLeft, incoming, zoneTable, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, noMoveDelay, dropIfNoMove };
+    return { CONFIG, RULES, floor, stampBoard, movesLeft, incoming, zoneTable, attackBias100, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, noMoveDelay, dropIfNoMove };
 })();
 window.CpuZone = CpuZone;

@@ -30,6 +30,7 @@ i32 g_zone_table[48] = { 0 };
 i32 g_zone_slope10 = 0;
 bool g_zone_near = false;
 i32 g_zone_atk_w = 0;
+i32 g_zone_bias100 = 100;
 
 i32 zone_table_at(i32 lines)
 {
@@ -228,6 +229,8 @@ void evaluate(node::Data& node, node::Data& parent, move::Placement placement, c
             const i32 d10 = (at(l) - at(l - 1)) * 10;
             node.score.action += std::max(d10, (g_zone_near && l <= ZONE_GOAL) ? g_zone_slope10 : 0) * g_zone_atk_w / 10 * disc / 100;
         }
+        // §23: 通常火力も終了時に BIAS を掛けて送られるので、表と同じ物差しで足す
+        if (ZONE_NORMAL_PCT > 0) node.score.action += i32(node.lock.attack) * g_zone_bias100 * g_zone_atk_w / 100 * ZONE_NORMAL_PCT / 100;
     }
 
     // B2b

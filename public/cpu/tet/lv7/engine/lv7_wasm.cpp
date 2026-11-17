@@ -106,8 +106,14 @@ constexpr i32 ZONE_END_SAVE_MOVES = 2; // §22: 出現位置をふさいで終�
 #define ZONE_ATK_W_DEF 150
 #endif
 constexpr i32 ZONE_ATK_W = ZONE_ATK_W_DEF;   // ZONE の火力 1 段あたりの点（§22: 300 → 150。12 秒の ZONE で通常火力を削りすぎていた）
-constexpr i32 ZONE_NEAR_HEIGHT = 16;         // 終盤とみなす高さ（ZONE 段込み）
-constexpr i32 ZONE_NEAR_MOVES = 8;           // 終盤とみなす残り手数
+#ifndef ZONE_NEAR_HEIGHT_DEF
+#define ZONE_NEAR_HEIGHT_DEF 16
+#endif
+#ifndef ZONE_NEAR_MOVES_DEF
+#define ZONE_NEAR_MOVES_DEF 8
+#endif
+constexpr i32 ZONE_NEAR_HEIGHT = ZONE_NEAR_HEIGHT_DEF; // 終盤とみなす高さ（ZONE 段込み）
+constexpr i32 ZONE_NEAR_MOVES = ZONE_NEAR_MOVES_DEF;   // 終盤とみなす残り手数
 constexpr i32 BOARD_CELLS = BOARD_ROWS * 10;
 
 // 盤面（(y+20)*10+x の 400 個、bit0=中身）・HOLD・b2b・ren・bag（queue を引いた後）から探索の root を作る
@@ -594,6 +600,9 @@ void search(
             for (i32 i = 0; i < n; ++i) eval::g_zone_table[i] = e[12 + i];
             eval::g_zone_table_n = n;
             eval::g_zone_atk_w = ZONE_ATK_W;
+            // §23: 表の後ろに ATTACK BIAS の 100 倍（古い JS は付けない → 100）
+            const i32 bias = nWeights >= eval::WEIGHT_LEN + 13 + n ? e[12 + n] : 0;
+            eval::g_zone_bias100 = (bias > 0 && bias <= 1000) ? bias : 100;
             i32 h[10];
             Board b = state.board;
             b.get_heights(h);
@@ -620,13 +629,16 @@ void search(
     }
 
     // 選び方：visit の多い順（select_best なら最後の層のキーの大きい順）
+    //   §23: 1 層しか読めなかった（ZONE の残り 1 手で深さを切った・締め切り）ときは visit が全部 0 で、
+    //   並び順の先頭（手を作った順の最初＝ほぼ出現位置の真下）を選んでいた。そのときはキーで選ぶ
     auto choose = [&] (const beam::Result& r, bool& zoneEnd, const State& st, const std::vector<piece::Type>& qq) -> size_t {
         std::vector<size_t> order(r.candidates.size());
         for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+        const bool byBest = (w.select_best || r.depth <= 1) && !r.decided;
         std::stable_sort(order.begin(), order.end(), [&] (size_t a, size_t b) {
             const auto& ca = r.candidates[a];
             const auto& cb = r.candidates[b];
-            if (w.select_best && !r.decided) return ca.best > cb.best;
+            if (byBest) return ca.best > cb.best;
             return ca.visit > cb.visit;
         });
         zoneEnd = false;

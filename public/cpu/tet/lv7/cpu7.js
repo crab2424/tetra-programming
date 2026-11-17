@@ -10,7 +10,7 @@
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=10'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=11'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -185,7 +185,8 @@ window.CPU7 = class {
         const m = g && g.mino;
         if (m) for (const b of m.blocks) ext.push(b.x + m.x, b.y + m.y);
         else for (let i = 0; i < 8; i++) ext.push(-100);
-        return new Int32Array(base.concat(ext, zt || []));
+        // §23: 表の後ろに ATTACK BIAS の 100 倍（通常火力を表と同じ物差しで数える。表が無ければ付けない）
+        return new Int32Array(base.concat(ext, zt || [], zt ? [CpuZone.attackBias100(g)] : []));
     }
 
     start() {
