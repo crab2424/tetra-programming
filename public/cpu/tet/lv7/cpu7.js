@@ -10,7 +10,7 @@
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=6'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=7'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -254,13 +254,15 @@ window.CPU7 = class {
         }
         if (this.isCalculating) return;
 
-        const boardBuffer = new Uint8Array(250);
+        // 盤面は y=-20〜19 の 400 個（(y+20)*10+x。ZONE の試合は枠の上 20 段まで動けるため。engine/lv7_wasm.cpp）
+        const boardBuffer = new Uint8Array(400);
         this.game.field.blocks.forEach(b => {
-            const by = b.y + 5;
-            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) boardBuffer[by * 10 + b.x] = 1;
+            const by = b.y + 20;
+            if (by >= 0 && by < 40 && b.x >= 0 && b.x < 10) boardBuffer[by * 10 + b.x] = 1;
         });
-        // ZONE の発動中は印を付ける（探索が ZONE 段を消えない床として読む。cpu/tet/cpu_zone.js）
-        if (window.CpuZone) CpuZone.stampBoard(boardBuffer, this.game);
+        // ZONE の発動中は先頭の bit7 に印（探索が ZONE 段を消えない床として読み、枠の上の手も作る）。
+        // 先頭のマス（x=0, y=-20）も ZONE の試合では埋まりうるので、ほかのレベル（cpu_zone.js stampBoard）とは別の印にする
+        if (this.game.zoneActive) boardBuffer[0] |= 0x80;
 
         // 確定 NEXT を深さぶん（HOLD が空なら1本多く使う）まで継ぎ足す。表示は先頭5個のまま、ツモの順は変わらない
         const depth = Math.max(1, Math.min(32, Math.round(this.weights.searchDepth)));
@@ -420,7 +422,7 @@ window.CPU7 = class {
     // lv7Search2 の ctx（engine/lv7_wasm.cpp parse_ctx の並び。lv7-threat-design.md §4.4）。
     //   相手の NEXT は画面に出る 5 本まで。自分の予告は件ごとに量・ready・ready までの ms（穴は受ける側で決まるので -1）
     buildCtx() {
-        const ctx = new Int32Array(19 + 4 * 16 + 250);
+        const ctx = new Int32Array(19 + 4 * 16 + 400);
         ctx[0] = 1;
         const margin = (game) => (game && game._tetMarginStep !== null && game._tetMarginStep !== undefined) ? game._tetMarginStep : -1;
         ctx[16] = margin(this.game);
@@ -469,10 +471,10 @@ window.CPU7 = class {
         ctx[17] = bag === 0x7F ? 0 : bag;
         // 相手が ZONE の発動中なら、ZONE 段を除いたふつうの盤面として渡す（cpu/tet/cpu_zone.js）
         (window.CpuZone ? CpuZone.plainBlocks(opp) : opp.field.blocks).forEach(b => {
-            const by = b.y + 5;
-            if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) ctx[boardAt + by * 10 + b.x] = 1;
+            const by = b.y + 20;
+            if (by >= 0 && by < 40 && b.x >= 0 && b.x < 10) ctx[boardAt + by * 10 + b.x] = 1;
         });
-        return ctx.slice(0, boardAt + 250);
+        return ctx.slice(0, boardAt + 400);
     }
 
     getIncomingGarbage() {

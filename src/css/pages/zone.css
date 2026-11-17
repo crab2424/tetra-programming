@@ -205,9 +205,10 @@ body.replay-watching:not(.replay-ui-hidden) #container.zone-on {
 /* VERSUS の両盤面（.versus-container の中。盤面のキャンバスの上端に重ねる）。
    VERSUS の盤面キャンバスは枠線込みで --field-w × --field-h（border-box）なので、中身は枠線ぶん縮んで
    描かれている（320×656 の画素を 314×650 に）。上のキャンバス（320×144 の画素）も同じ割合で縮める。
-   144 / 656 = 上のキャンバスの高さ（4.5 段）/ 盤面の画素の高さ（SCREEN_HEIGHT） */
+   --zone-top-px / 656 = 上のキャンバスの画素の高さ（tet/zone.js が入れる。ZONE の試合は 19.5 段＝624、ふだん 4.5 段＝144）
+   / 盤面の画素の高さ（SCREEN_HEIGHT） */
 .versus-zone-top-canvas {
-  --zone-top-h: calc((var(--field-h) - 2 * var(--field-border-w-main)) * 144 / 656);
+  --zone-top-h: calc((var(--field-h) - 2 * var(--field-border-w-main)) * var(--zone-top-px, 144) / 656);
   position: absolute;
   left: var(--field-border-w-main);
   top: calc(var(--field-border-w-main) - var(--zone-top-h));

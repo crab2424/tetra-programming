@@ -91,6 +91,11 @@ void move_drop(Placement& piece, Map& collision);
 
 bool is_convex(const Board& board, const Map& map_collision);
 
+// TETLABO lv7: ZONE の発動中の決まりで手を作るか（lv7_wasm.cpp search が自分の探索の間だけ立てる）。
+//   立っている間は ①LOCK_HEIGHT_LUT（全ブロック枠外＝Lock Out の手を作らない決まり）を外す
+//   ②盤面の上限（engine の y=39＝TETLABO の y=-20）より上へ出る位置をふさぐ。下がっているときは今までと全く同じ
+extern bool g_zone_rules;
+
 std::vector<Placement> generate(const Board& board, piece::Type type);
 
 void expand(const Placement& piece, Map& collision, Map& visited, Map& locked, std::vector<Placement>& result,

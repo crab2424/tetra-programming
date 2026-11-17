@@ -17,17 +17,17 @@ let wasmReady = false;
 
 self.Module = {
     // ★再ビルドしたら ?v= を上げる（グルーjs・wasm・cpu7.js の WORKER_URLS を揃える）
-    locateFile: function(path) { return path + '?v=5'; },
+    locateFile: function(path) { return path + '?v=6'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm7.js?v=6');
+importScripts('cpu_wasm7.js?v=7');
 
 const OUT_LEN = 160;       // [96..] は lv7Search2 の相手の見積もり（lv7Search は 96 まで）
-const CTX_MAX = 19 + 4 * 16 + 250;   // lv7_wasm.cpp parse_ctx の並び
+const CTX_MAX = 19 + 4 * 16 + 400;   // lv7_wasm.cpp parse_ctx の並び（相手の盤面は 40 段 = 400 個）
 const QUEUE_MAX = 40;     // current＋確定 NEXT（深さ 32＋HOLD 空の1本＋余裕）
 const WEIGHTS_MAX = 96;
 let boardPtr = null;
@@ -42,7 +42,7 @@ self.onmessage = function(e) {
     if (data.type !== 'calculate') return;
 
     if (boardPtr === null) {
-        boardPtr   = Module._lv7_malloc(250);
+        boardPtr   = Module._lv7_malloc(400); // 盤面 40 段（(y+20)*10+x）
         queuePtr   = Module._lv7_malloc(4 * QUEUE_MAX);
         weightsPtr = Module._lv7_malloc(4 * WEIGHTS_MAX);
         outPtr     = Module._lv7_malloc(4 * OUT_LEN);

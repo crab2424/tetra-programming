@@ -311,7 +311,8 @@ window.CPU = class{
             const rowOf = (list, r) => list.reduce((n, b) => n + (b.y === r ? 1 : 0), 0);
             let floorY = 20;
             while (floorY > 0 && rowOf(fieldBlocks, floorY - 1) === 10) floorY--;
-            for (let r = floorY - 1; r >= -5; r--) {
+            const top = (typeof this.game.topLimit === 'number') ? this.game.topLimit : -5; // ZONE の試合は -20
+            for (let r = floorY - 1; r >= top; r--) {
                 if (rowOf(blocks, r) !== 10) continue;
                 for (const b of blocks) {
                     if (b.y === r) b.y = floorY - 1;

@@ -5,8 +5,9 @@
 //   設計: source_assets/memory/cpu/tet/lv6-phase1-search-design.md
 //   lv7Search2 は ctx（相手の状態・予告の時刻表・マージン段）を足した入口（lv7-threat-design.md §4）
 //
-// 座標: TETLABO は y=-5（隠し最上段）〜19（床）、盤面バッファは (y+5)*10+x の 250 バイト。
-//       engine は y=0 が床の列ビットボード。engine の y = 19 − TETLABO の y。
+// 座標: TETLABO は y=-20（動ける最上段。ZONE の試合だけ使う。ふだんは -5）〜19（床）、
+//       盤面バッファは (y+20)*10+x の 400 個（BOARD_CELLS）。engine は y=0 が床の列ビットボード。engine の y = 19 − TETLABO の y。
+//       自分の盤面の先頭 [0] は bit0 が中身、bit7（0x80）が ZONE の発動中の印（cpu7.js が付ける）
 // ミノ番号: TETLABO I0 O1 T2 J3 L4 S5 Z6 ／ engine I0 J1 L2 O3 S4 T5 Z6
 // ─────────────────────────────────────────────
 
@@ -88,22 +89,29 @@ i32 build_path(Board board, move::Placement placement, i32* out, i32 cap)
     return len;
 }
 
-// 盤面（(y+5)*10+x の 250 個、0=空）・HOLD・b2b・ren・bag（queue を引いた後）から探索の root を作る
+// 盤面バッファの段数（一番下が TETLABO の y=19）。本番は 40（y=-20〜19）。
+// 学習用シミュ（training/puyo-lv5/sim/tet_cpu6n.cpp）は 25（y=-5〜19・250 個）を定義して取り込む
+#ifndef LV7_BOARD_ROWS
+#define LV7_BOARD_ROWS 40
+#endif
+constexpr i32 BOARD_ROWS = LV7_BOARD_ROWS;
+constexpr i32 BOARD_CELLS = BOARD_ROWS * 10;
+
+// 盤面（(y+20)*10+x の 400 個、bit0=中身）・HOLD・b2b・ren・bag（queue を引いた後）から探索の root を作る
 template <class Cell>
 State make_root(const Cell* board, const i32* queueIn, i32 nQueue, i32 hold, i32 bagAfter, i32 b2b, i32 ren,
                 std::vector<piece::Type>& queue)
 {
     State state = State();
 
-    // ZONE: 先頭の値が 100 以上なら発動中（100 + ZONE 段の数。cpu/tet/cpu_zone.js stampBoard）。
+    // ZONE: 先頭の bit7 が立っていれば発動中（cpu7.js）。
     //   ZONE 段は盤面の底にそろった段として入っているので、数は State::lock が盤面から数える
-    state.zone = board[0] >= 100;
+    state.zone = (i32(board[0]) & 0x80) != 0;
 
-    for (i32 yi = 0; yi < 25; ++yi) {
+    for (i32 yi = 0; yi < BOARD_ROWS; ++yi) {
         for (i32 x = 0; x < 10; ++x) {
-            if (state.zone && yi == 0 && x == 0) continue;
-            if (board[yi * 10 + x]) {
-                state.board[x] |= 1ULL << (24 - yi);
+            if (i32(board[yi * 10 + x]) & 1) {
+                state.board[x] |= 1ULL << (BOARD_ROWS - 1 - yi);
             }
         }
     }
@@ -138,7 +146,7 @@ State make_root(const Cell* board, const i32* queueIn, i32 nQueue, i32 hold, i32
 //   [12] 相手の b2b [13] 相手の ren [14] 相手の予告の合計 [15] 相手のマージン段（-1＝未突入） [16] 自分のマージン段
 //   [17] 相手の bag（見える NEXT を引いた後。TETLABO 番号のビット、0＝次から新しい bag） [18] 自分の予告の件数 g
 //   [19..] 件ごとに 4 つ：量・ready（0/1）・ready までの ms・穴の列（-1＝不明。今は使わない）
-//   その後ろに相手の盤面 250 個（0/1）
+//   その後ろに相手の盤面 400 個（0/1。(y+20)*10+x）
 constexpr i32 CTX_VERSION = 1;
 constexpr i32 CTX_GARBAGE = 19;
 constexpr i32 CTX_GARBAGE_MAX = 16;
@@ -174,7 +182,7 @@ Ctx parse_ctx(const i32* ctx, i32 len)
         c.g_ms[i] = std::max(ctx[CTX_GARBAGE + 4 * i + 2], 0);
     }
 
-    if (ctx[1] != 1 || len < board_at + 250 || ctx[2] < 0 || ctx[2] > 6) return c;
+    if (ctx[1] != 1 || len < board_at + BOARD_CELLS || ctx[2] < 0 || ctx[2] > 6) return c;
 
     c.has_opp = true;
     c.opp_queue[0] = ctx[2];
@@ -319,8 +327,8 @@ bool opp_danger(const Ctx& c, const eval::Weight& w)
 {
     if (w.press_h <= 0) return true;
     i32 h = 0;
-    for (i32 i = 0; i < 250 && h == 0; ++i) {
-        if (c.opp_board[i]) h = 20 - (i / 10 - 5);
+    for (i32 i = 0; i < BOARD_CELLS && h == 0; ++i) {
+        if (c.opp_board[i]) h = 20 - (i / 10 - (BOARD_ROWS - 20));
     }
     return h + c.opp_incoming >= w.press_h;
 }
@@ -462,6 +470,9 @@ void search(
 
     if (ctx.valid && w.margin_own) state.margin = i8(ctx.my_margin);
 
+    // 相手の見積もりはふだんの決まりで手を作る（相手が ZONE の発動中かは渡していない）
+    move::g_zone_rules = false;
+
     // 相手の見積もり（締め切りの内側で先に。残りの時間で自分の探索）。T0 では出力するだけで、手の選び方には使わない
     Threat threat;
     if (ctx.has_opp && (w.threat_width > 0 || w.ren_width > 0) && outLen >= OUT_THREAT_LEN) {
@@ -504,7 +515,11 @@ void search(
     }
     if (outLen >= OUT_THREAT_LEN) out[126] = t4_flags;
 
+    // 自分の探索: ZONE の発動中は Lock Out の手も作り、盤面の上限（TETLABO の y=-20）でふさぐ（core/move.cpp）
+    move::g_zone_rules = state.zone;
     auto result = beam::search(state, queue, ws, configs, start + thinkMs);
+    // 経路（path::find）は自前の手の作り方。上限は Board::is_occupied（y>39 はふさがり）で効いている
+    struct ZoneRulesOff { ~ZoneRulesOff() { move::g_zone_rules = false; } } zone_rules_off;
 
     if (result.candidates.empty()) {
         out[14] = i32(beam::now_ms() - start);
@@ -570,7 +585,7 @@ extern "C" {
 LV7_EXPORT void* lv7_malloc(int size) { return malloc(size); }
 LV7_EXPORT void lv7_free(void* p) { free(p); }
 
-// board     : 250 バイト（(y+5)*10+x、0=空）
+// board     : 400 バイト（(y+20)*10+x、bit0=中身。[0] の bit7=ZONE の発動中）
 // queue     : current＋確定 NEXT（TETLABO のミノ番号）。探索は先頭から depth＋1 本まで
 // nQueue    : queue の本数
 // hold      : HOLD のミノ（-1 = 空）

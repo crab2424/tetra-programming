@@ -30,6 +30,8 @@
 #include <unordered_set>
 #include <vector>
 
+// シミュの盤面は 25 段（250 個。y=-5〜19）のまま（本番 wasm は 40 段。lv7_wasm.cpp LV7_BOARD_ROWS）
+#define LV7_BOARD_ROWS 25
 #define lv7_malloc tetlv6n_lv7_malloc
 #define lv7_free   tetlv6n_lv7_free
 #define lv7Search  tetlv6n_lv7Search

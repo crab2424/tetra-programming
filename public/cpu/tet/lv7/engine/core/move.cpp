@@ -375,6 +375,8 @@ bool is_convex(const Board& board, const Map& map_collision)
 };
 
 // Move generation using depth first search
+bool g_zone_rules = false;
+
 std::vector<Placement> generate(const Board& board, piece::Type type)
 {
     std::vector<Placement> result;
@@ -427,6 +429,16 @@ std::vector<Placement> generate(const Board& board, piece::Type type)
 
                 collision.data[r][x] |= c;
             }
+        }
+    }
+
+    // ZONE の発動中: 盤面の上限（y=39）より上にブロックが出る位置をふさぐ（TETLABO の topLimit = -20）
+    if (g_zone_rules) {
+        for (i8 r = 0; r < 4; ++r) {
+            i8 top = 0;
+            for (i8 i = 0; i < 4; ++i) top = std::max<i8>(top, piece::get_offset_y(type, piece::Rotation(r), i));
+            const u64 ceil = ~0ULL << (40 - top);
+            for (i8 x = 0; x < 10; ++x) collision.data[r][x] |= ceil;
         }
     }
 
@@ -524,7 +536,8 @@ void expand(const Placement& piece, Map& collision, Map& visited, Map& locked, s
 
     move::move_drop(drop, collision);
 
-    if (drop.y <= move::get_lock_height(drop.type, drop.r)) {
+    // ZONE の発動中は全ブロック枠外でも置ける（game/tet/board.js secureMino・ZONE 本編 §15）
+    if (g_zone_rules || drop.y <= move::get_lock_height(drop.type, drop.r)) {
         auto lock = drop;
         lock.normalize();
         

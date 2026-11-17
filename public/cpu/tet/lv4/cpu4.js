@@ -477,7 +477,9 @@ window.CPU4 = class {
         //   旧20行は可視外のブロックを落としており、はみ出して置いたブロックや出現位置の塞がりを読めなかった。
         let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
-            const by = b.y + 5;
+            // ZONE の試合は枠の上 20 段まで積める。探索は 25 段なので、枠の上 6 段目より上は最上段にたたむ
+            // （その列は天井まで埋まっている、と読む。探索は出現位置から落とす手しか作らないので置き方は変わらない）
+            const by = Math.max(0, b.y + 5);
             if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) {
                 boardBuffer[by * 10 + b.x] = 1; 
             }

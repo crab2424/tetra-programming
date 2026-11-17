@@ -128,7 +128,7 @@ function zoneTierIndex(lines) {
 }
 
 // ミノが動ける一番上の段（y がこれ以上）。ふつうは枠の上 5 段（計 25 段）。
-// シングルの ZONE だけ枠の上 20 段（計 40 段。盤面の上限）まで（ZONE 本編 §16）。CPU の探索は 25 段前提なので VERSUS は広げない
+// ZONE が使える試合（シングルの ZONE・ローカル VERSUS の ZONE）は枠の上 20 段（計 40 段。盤面の上限）まで（ZONE 本編 §16・§17）
 const TET_TOP_LIMIT = -5;
 const ZONE_TOP_LIMIT = -20;
 Game.prototype.topLimit = TET_TOP_LIMIT;
@@ -143,9 +143,11 @@ Object.assign(Game.prototype, {
         // テト同士のときだけ立つ。ONLINE の盤面には入らない）
         const vs = !!(this.isVersusMode && this.currentMode === 'versus' && this.vsZone === true);
         this.zoneEnabled = (this.mode === 'zone') || vs;
-        // 動ける範囲（版 10 以前の録画の再生は従来どおり 25 段。core/replay.js REPLAY_ENGINE_VERSION 11）
-        const oldTop = this._replay && this._replay.data && (this._replay.data.engine || 0) < 11;
-        this.topLimit = (this.mode === 'zone' && !this.isVersusMode && !oldTop) ? ZONE_TOP_LIMIT : TET_TOP_LIMIT;
+        // 動ける範囲。古い録画の再生は従来どおり 25 段（シングルは版 10 以前、VERSUS は版 11 以前。
+        // core/replay.js REPLAY_ENGINE_VERSION 11・12）
+        const recEngine = (this._replay && this._replay.data) ? (this._replay.data.engine || 0) : Infinity;
+        const tall = this.zoneEnabled && recEngine >= (vs ? 12 : 11);
+        this.topLimit = tall ? ZONE_TOP_LIMIT : TET_TOP_LIMIT;
         if (vs) {
             // VERSUS: VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ。未設定は 5 秒）（§12）
             this.zoneQuarterLines = zoneValidLines(this.vsZoneQuarterLines)
@@ -699,14 +701,15 @@ Object.assign(Game.prototype, {
             const h = (-this.topLimit - VISIBLE_EXTRA_ROW_RATIO) * BLOCK_SIZE;
             if (cv.height !== h) {
                 cv.height = h;
-                // シングルは CSS の大きさも合わせる（盤面のキャンバスと同じ 1 画素 = 1px。VERSUS は 4.5 段のまま）
+                // シングルは CSS の大きさも合わせる（盤面のキャンバスと同じ 1 画素 = 1px）
                 if (id === 'zone-top-canvas') {
                     cv.style.height = h + 'px';
                     cv.style.top = `calc(3px - ${h}px)`;
                 } else {
-                    // VERSUS の大きさは CSS（.versus-zone-top-canvas）に任せる
+                    // VERSUS は CSS（.versus-zone-top-canvas）が盤面と同じ割合で縮める。画素の高さだけ渡す
                     cv.style.height = '';
                     cv.style.top = '';
+                    cv.style.setProperty('--zone-top-px', String(h));
                 }
             }
         }
