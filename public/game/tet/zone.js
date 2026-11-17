@@ -683,10 +683,15 @@ Object.assign(Game.prototype, {
         if (!this.isVersusMode && !this.canvasPrefix) id = 'zone-top-canvas';
         else if (this.isVersusMode && (this.canvasPrefix === 'player' || this.canvasPrefix === 'cpu')) id = `${this.canvasPrefix}-zone-top-canvas`;
         if (!id) return null;
-        if (this._zoneTop === undefined) {
+        // 覚えるキャンバスは id ごと。VERSUS の 1P の Game（window._tetGamePlayer）は試合後も window._game に残り、
+        // シングルでそのまま使われる。id を見ずに 1 回目のキャンバスを使い続けると、シングルの ZONE が
+        // 隠れた VERSUS のキャンバスへ描いて枠の上が見えず、そのキャンバスに 19.5 段の大きさまで書き込んで
+        // 次の VERSUS の枠の上が引き伸ばされていた
+        if (this._zoneTopId !== id) {
             const cv = document.getElementById(id);
             if (cv) cv.width = SCREEN_WIDTH;
             this._zoneTop = cv || null;
+            this._zoneTopId = id;
         }
         // 高さ = 動ける一番上（topLimit）から y=-0.5 まで。ふつう 4.5 段、シングルの ZONE は 19.5 段（§16）
         const cv = this._zoneTop;
@@ -698,6 +703,10 @@ Object.assign(Game.prototype, {
                 if (id === 'zone-top-canvas') {
                     cv.style.height = h + 'px';
                     cv.style.top = `calc(3px - ${h}px)`;
+                } else {
+                    // VERSUS の大きさは CSS（.versus-zone-top-canvas）に任せる
+                    cv.style.height = '';
+                    cv.style.top = '';
                 }
             }
         }
