@@ -29,7 +29,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=4');  // ★ 2026-11-17 ZONE 中は枠の上の設置を致命にしない（g_zoneNoLockOut）で再ビルド
+importScripts('cpu_wasm4.js?v=5');  // ★ 2026-11-17 ZONE 終了の終点・ZONE 段を除いた評価・残り手数（設計 §21）で再ビルド
 // （前回）★ v2.2.3 I: 25行化で再ビルド
 
 let boardPtr = null;
@@ -65,7 +65,9 @@ self.onmessage = function(e) {
         data.next5,
         data.canHold,
         weightsPtr, 
-        resultPtr
+        resultPtr,
+        data.incoming || 0,      // 予告の合計（ZONE の終点が安全かの判定だけ）
+        data.zoneMovesLeft || 0  // ZONE の発動中: 時間切れまでに置ける見込みの手数（cpu_zone.js movesLeft。設計 §21）
     );
 
     const endTime = performance.now();

@@ -157,6 +157,23 @@ static const int HIDDEN_ROWS = 5;
 //   探索の中でも ZONE は続く扱い（ZONE 段の数え方と同じ）なので、1 回の探索のあいだは固定
 static bool g_zoneNoLockOut = false;
 static inline int deathPenalty(int step_num) { return 100000000 * (8 - step_num); }
+
+// ── ZONE の発動中の読み方（lv6 と同じ考え方。設計 tetlabo-zone-versus-cpu-design.md §20・§21）──
+//   ・評価は「ZONE 段を除いて、その段数ぶん下げた盤面」で出す（zonePlain）。ZONE 段込みの高さで測ると
+//     高さの減点（18 段以上は 100×高さ²）が全部を上回り、穴を作ってでも最大高さを上げない手ばかりになる。
+//   ・次のミノが出せない＝ ZONE が終わって盤面が下がるだけ。ZONE の後が安全（残る段＋予告が致死ライン未満）なら
+//     死に枝ではなく「ZONE 終了の終点」として候補に残す。手ごとの点の合計で比べるので、
+//     読めなかった残りの手数ぶんは終点の盤面の点がそのまま続くとみて足す（pushEnded）。
+//   ・天井が近い／残り手数が少ないとき（g_zoneNear）は、消した段数を第一に見る（ZONE_LINE_BONUS）。
+//   ・残り手数（g_zoneMovesLeft。0＝分からない）を使い切った枝も同じ終点。
+static const int SEARCH_STEPS = 6;     // 読む手数（下の探索の深さ）
+static int  g_zoneMovesLeft = 0;
+static int  g_zoneIncoming  = 0;
+static bool g_zoneNear      = false;
+static const int ZONE_LINE_BONUS  = 1500; // 終盤: 1 段消すごとの加点 ×(7−手番)。TSD の 1 段ぶん（2560÷2）・4 ライン（500÷4）より上
+static const int ZONE_NEAR_HEIGHT = 16;   // 終盤とみなす高さ（ZONE 段＋その上の積み。枠は 20 段）
+static const int ZONE_LETHAL      = 19;   // ZONE の後に残る段＋予告がこれ以上なら安全でない（cpu_zone.js lethalHeight と同じ）
+static const int ZONE_END_COMP_PCT = 50; // 終点の枝に足す「残りの手数 × 終点の盤面の点」の割合（%）。100 だと終わりを急ぎ、0 だと盤面の点が負のとき終わりを急ぐ（§21 の表）
 static inline bool isLockOut(const GridBlock* blocks) {
     if (g_zoneNoLockOut) return false;
     for (int k = 0; k < 4; k++) if (blocks[k].y >= HIDDEN_ROWS) return false;
@@ -932,6 +949,7 @@ struct SearchState {
     int p_id[6];        
 
     int max_height;     
+    int last_score;     // ZONE の終点の埋め合わせ用: 最後の手の後の盤面の点（イベントの加点を除く）
     
     int ren;        
     bool backToBack; 
@@ -943,6 +961,7 @@ struct SearchState {
         p1_score = 0;
         total_score = 0;
         max_height = 0;
+        last_score = 0;
         ren = 0;        
         backToBack = false; 
         for(int i = 0; i < 6; ++i) { 
@@ -952,6 +971,16 @@ struct SearchState {
         }
     }
 };
+
+static Board zonePlain(const Board& b) {
+    Board p;
+    if (b.zone <= 0) { p = b; p.zone = -1; return p; }
+    for (int y = ROWS - 1; y >= b.zone; y--) p.rows[y] = b.rows[y - b.zone];
+    return p;
+}
+static inline bool zoneEndSafe(int plainMaxHeight) {
+    return plainMaxHeight + g_zoneIncoming < ZONE_LETHAL;
+}
 
 EMSCRIPTEN_KEEPALIVE
 void evaluateSinglePlacementWasm(
@@ -1025,7 +1054,9 @@ EMSCRIPTEN_KEEPALIVE
 void searchBestMoveWasm(
     uint8_t* boardData, int currentType, int holdType, int next1, int next2, int next3, int next4, int next5, int canHold,
     int* weightsArray, int* outResult,
-    int ren, int backToBack 
+    int ren, int backToBack,
+    int incoming,      // 予告のおじゃまの合計（ZONE の終点が安全かの判定だけに使う）
+    int zoneMovesLeft  // ZONE の発動中: 時間切れまでに置ける見込みの手数（0＝発動していない・分からない。cpu_zone.js movesLeft）
 ){
     ensurePrecalc();
     
@@ -1042,8 +1073,14 @@ void searchBestMoveWasm(
 
     EvalWeights w = loadWeights(weightsArray);
 
+    // ZONE の発動中か。発動中の評価は ZONE 段を除いた盤面で出す（zonePlain の説明）
+    const bool zn = baseBoard.zone >= 0;
     int baseMaxHeight = 0; 
-    int baseScore = evaluateBoard(baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0, &baseMaxHeight);
+    int baseScore = evaluateBoard(zn ? zonePlain(baseBoard) : baseBoard, 0, false, 0, w, ren, backToBack != 0, nullptr, 0, &baseMaxHeight);
+    g_zoneMovesLeft = zn ? (zoneMovesLeft > 0 ? zoneMovesLeft : 0) : 0;
+    g_zoneIncoming  = zn ? (incoming > 0 ? incoming : 0) : 0;
+    g_zoneNear = zn && (baseBoard.zone + baseMaxHeight >= ZONE_NEAR_HEIGHT
+                        || (g_zoneMovesLeft > 0 && g_zoneMovesLeft <= SEARCH_STEPS));
     
     int next_queue[7] = { currentType, next1, next2, next3, next4, next5, 0 };
     auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; }; 
@@ -1074,10 +1111,19 @@ void searchBestMoveWasm(
     next_states_N.reserve(1024);
     next_states_L.reserve(1024);
 
+    // ZONE 終了の終点（出現できないが ZONE の後は安全・残り手数を使い切った）。死に枝ではないので減点しない。
+    //   読めなかった残りの手数ぶん、終点の盤面の点を足して、最後まで読めた枝と比べられるようにする
+    auto pushEnded = [&](SearchState e, int step_num) {
+        if (step_num < SEARCH_STEPS) e.total_score += e.last_score * ZONE_END_COMP_PCT / 100 * (SEARCH_STEPS - step_num);
+        final_states.push_back(e);
+    };
+
     auto expandState = [&](const SearchState& s, int piece, int new_hold, int new_next_idx, int step_num, bool is_first, int first_action) -> int {
         std::vector<Placement> p_list = getAllPlacements(is_first ? baseBoard : s.board, piece, getSpawnY(piece));
         
         if (p_list.empty()) {
+            // ZONE: 出せない＝ ZONE 終了。後が安全なら、ここまでの手の枝をそのまま終点にする（初手は手が無いので今までどおり）
+            if (zn && !is_first && zoneEndSafe(s.max_height)) { pushEnded(s, step_num - 1); return -1; }
             SearchState dead_s = s;
             dead_s.total_score -= deathPenalty(step_num); 
             if (is_first) dead_s.first_action = first_action;
@@ -1104,8 +1150,23 @@ void searchBestMoveWasm(
 
             int current_max_height = 0;
             int tsdFactor = 100;
-            int score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, cur_ren, cur_btb, p.blocks, p.tSpinType, &current_max_height, needBeforeClear ? &beforeClear : nullptr, &tsdFactor);
+            int score;
+            if (zn) {
+                // ZONE: 評価は ZONE 段を除いた盤面で（置いたマス・消す前の盤面も同じ段数だけ下げる）
+                const Board& src = is_first ? baseBoard : s.board;
+                const int zBefore = src.zone > 0 ? src.zone : 0;
+                GridBlock pb[4];
+                for (int k = 0; k < 4; k++) { pb[k].x = p.blocks[k].x; pb[k].y = p.blocks[k].y + zBefore; }
+                Board plainAfter = zonePlain(simBoard);
+                Board plainBefore;
+                if (needBeforeClear) { Board bc = beforeClear; bc.zone = zBefore; plainBefore = zonePlain(bc); }
+                score = evaluateBoard(plainAfter, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, cur_ren, cur_btb, pb, p.tSpinType, &current_max_height, needBeforeClear ? &plainBefore : nullptr, &tsdFactor);
+            } else {
+            score = evaluateBoard(simBoard, p.linesCleared, p.isFullyGrounded, p.touchingCount, w, cur_ren, cur_btb, p.blocks, p.tSpinType, &current_max_height, needBeforeClear ? &beforeClear : nullptr, &tsdFactor);
+            }
             int eventBonus = calcEventBonus(p, step_num, tsdFactor);
+            // ZONE の終盤は消した段数が第一（早い手ほど重い。ほかのイベントの加点と同じ掛け方）
+            if (zn && g_zoneNear) eventBonus += p.linesCleared * ZONE_LINE_BONUS * (7 - step_num);
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
 
             if (hasBlockOutside) stepScore -= deathPenalty(step_num);
@@ -1127,6 +1188,7 @@ void searchBestMoveWasm(
             next_s.ren = next_ren;       
             next_s.backToBack = next_btb; 
             next_s.max_height = current_max_height;
+            next_s.last_score = score;
             if (is_first) {
                 next_s.first_action = first_action;
                 next_s.p1_score = score;
@@ -1144,10 +1206,18 @@ void searchBestMoveWasm(
             if (!hasBlockOutside) {
                 int upcoming = new_next_idx < 6 ? next_queue[new_next_idx] : 0;
                 if (!canSpawnPiece(simBoard, upcoming)) {
+                    // ZONE: 次が出せない＝ ZONE 終了。後が安全なら終点（減点なし）
+                    if (zn && zoneEndSafe(current_max_height)) { pushEnded(next_s, step_num); continue; }
                     next_s.total_score -= deathPenalty(step_num + 1);
                     final_states.push_back(next_s);
                     continue;
                 }
+            }
+
+            // ZONE: 残り手数を使い切った＝この手の後に時間切れで ZONE が終わる。その先は読まない
+            if (zn && !hasBlockOutside && g_zoneMovesLeft > 0 && step_num >= g_zoneMovesLeft) {
+                pushEnded(next_s, step_num);
+                continue;
             }
 
             if (hasBlockOutside) {

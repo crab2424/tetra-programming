@@ -432,16 +432,6 @@ std::vector<Placement> generate(const Board& board, piece::Type type)
         }
     }
 
-    // ZONE の発動中: 盤面の上限（y=39）より上にブロックが出る位置をふさぐ（TETLABO の topLimit = -20）
-    if (g_zone_rules) {
-        for (i8 r = 0; r < 4; ++r) {
-            i8 top = 0;
-            for (i8 i = 0; i < 4; ++i) top = std::max<i8>(top, piece::get_offset_y(type, piece::Rotation(r), i));
-            const u64 ceil = ~0ULL << (40 - top);
-            for (i8 x = 0; x < 10; ++x) collision.data[r][x] |= ceil;
-        }
-    }
-
     // Move generation for board with no tucks
     if (fast && move::is_convex(board, collision)) {
         for (i8 r = 0; r < 4; ++r) {
@@ -509,6 +499,19 @@ std::vector<Placement> generate(const Board& board, piece::Type type)
 
         mark_spin(result);
         return result;
+    }
+
+    // ZONE の発動中: 盤面の上限（y=39）より上にブロックが出る位置をふさぐ（TETLABO の topLimit = -20）。
+    //   上の fast（全列 16 段以下）の 2 つは collision の一番上のビットから着地の高さを読むので、ふさぎはその後に入れる
+    //   （先に入れると着地がすべて y=64 になり、盤面が低い ZONE の序盤で手がでたらめになる。ZONE 設計 §21）。
+    //   fast のときはミノが y=39 に届かないので、ふさがなくても同じ
+    if (g_zone_rules) {
+        for (i8 r = 0; r < 4; ++r) {
+            i8 top = 0;
+            for (i8 i = 0; i < 4; ++i) top = std::max<i8>(top, piece::get_offset_y(type, piece::Rotation(r), i));
+            const u64 ceil = ~0ULL << (40 - top);
+            for (i8 x = 0; x < 10; ++x) collision.data[r][x] |= ceil;
+        }
     }
 
     // Move generation from the starting position

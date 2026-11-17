@@ -295,6 +295,6 @@ const CpuZone = (() => {
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, movesLeft, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, noMoveDelay, dropIfNoMove };
+    return { CONFIG, RULES, floor, stampBoard, movesLeft, incoming, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, noMoveDelay, dropIfNoMove };
 })();
 window.CpuZone = CpuZone;

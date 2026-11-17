@@ -7,7 +7,7 @@ window.CPU5 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv5/cpu_worker5.js?v=5',
+        'cpu/tet/lv5/cpu_worker5.js?v=6',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -802,7 +802,10 @@ window.CPU5 = class {
             canHold: this.game.canHold ? 1 : 0,
             weightsArray: weightsArray,
             ren: currentRen,       
-            backToBack: currentBtB 
+            backToBack: currentBtB,
+            // ZONE の発動中: 予告の合計と時間切れまでに置ける見込みの手数（探索が ZONE の終わりを読む。cpu_zone.js・設計 §21）
+            incoming: window.CpuZone ? CpuZone.incoming(this.game) : 0,
+            zoneMovesLeft: window.CpuZone ? CpuZone.movesLeft(this.game, 5) : 0
         });
     }
 

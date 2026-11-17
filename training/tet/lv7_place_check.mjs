@@ -60,12 +60,12 @@ vm.runInContext(`
 const BLOCK_SIZE = 32, COLS_COUNT = 10, ROWS_COUNT = 20;
 const LEVEL_SPEEDS = [0, 1000, 793, 618, 473, 355, 262, 190, 135, 94, 64, 43, 28, 18, 11, 7];
 const Asset = { blockImages: [] };
-${pick(base, 'class Block {', 'Field.TOP_PAD = 5')}
+${pick(base, 'class Block {', 'Field.TOP_PAD = 20')}
 class Game {}
 globalThis.Block = Block; globalThis.Mino = Mino; globalThis.Field = Field; globalThis.Game = Game;
 globalThis.LEVEL_SPEEDS = LEVEL_SPEEDS;
 `, ctx);
-for (const f of ['game/tet/board.js', 'game/tet/rotation.js', 'cpu/tet/lv7/cpu7.js']) {
+for (const f of ['game/tet/board.js', 'game/tet/rotation.js', 'game/tet/zone.js', 'cpu/tet/lv7/cpu7.js']) {
     vm.runInContext(readFileSync(path.join(pub, f), 'utf8'), ctx, { filename: f });
 }
 const { Game, Mino, Block, Field, CPU7 } = ctx;
@@ -87,15 +87,16 @@ const M = await new Promise((resolve) => {
     fn(createRequire(wasmJs), path.dirname(wasmJs), wasmJs, { exports: {} }, mod);
 });
 const OUT_LEN = 96, QUEUE_MAX = 40, WEIGHTS_MAX = 96;
-const boardPtr = M._lv7_malloc(250), queuePtr = M._lv7_malloc(4 * QUEUE_MAX);
+const boardPtr = M._lv7_malloc(400), queuePtr = M._lv7_malloc(4 * QUEUE_MAX);
 const weightsPtr = M._lv7_malloc(4 * WEIGHTS_MAX), outPtr = M._lv7_malloc(4 * OUT_LEN);
 
 // cpu7.js onMinoSpawned と同じ入力で探索する
 function search(game, cpu) {
-    const boardBuffer = new Uint8Array(250);
+    // 盤面は y=-20〜19 の 400 個（(y+20)*10+x。cpu7.js onMinoSpawned と同じ）
+    const boardBuffer = new Uint8Array(400);
     for (const b of game.field.blocks) {
-        const by = b.y + 5;
-        if (by >= 0 && by < 25 && b.x >= 0 && b.x < 10) boardBuffer[by * 10 + b.x] = 1;
+        const by = b.y + 20;
+        if (by >= 0 && by < 40 && b.x >= 0 && b.x < 10) boardBuffer[by * 10 + b.x] = 1;
     }
     const depth = Math.max(1, Math.min(32, Math.round(cpu.weights.searchDepth)));
     game.ensureNextQueue(depth + 1);
