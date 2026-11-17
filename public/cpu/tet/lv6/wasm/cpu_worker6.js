@@ -30,14 +30,15 @@ self.Module = {
     //   ★v=21: 死んだ枝を 1 つだけ覚える形にして再ビルド（ZONE の発動中の Aborted(OOM) 対策。結果は同じ）
     //   ★v=23: ZONE の発動中は ZONE 段を除いた盤面で評価・出現できない枝は ZONE 終了の終点（設計 §20）
     //   ★v=24: 先行回転・先行ホールド・ZONE の火力表と終え方（設計 §22）
-    locateFile: function(path) { return path + '?v=24'; },
+    //   ★v=25: §22 の直し（出現位置をふさいで終えるのは時間切れより 2 手以上早いときだけ・終了時の火力の相殺込みで安全を見る）
+    locateFile: function(path) { return path + '?v=25'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=25');  // ★ 2026-11-17 先行回転・先行ホールド・ZONE の火力表と終え方（設計 §22）で再ビルド
+importScripts('cpu_wasm6.js?v=26');  // ★ 2026-11-17 §22 の直し（終え方は 2 手以上早いときだけ・相殺込みの安全判定）で再ビルド
 // （前回）★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
 
 // §22: 重みの後ろに ZONE の火力表が続く（7777・段数の数・表）・結果は [43..47] まで。

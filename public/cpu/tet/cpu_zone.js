@@ -74,9 +74,11 @@ const CpuZone = (() => {
 
     // 発動中、時間切れまでに置ける見込みの手数（1 以上）。発動していなければ 0。
     // 探索へ渡して「この手数を使い切ったら ZONE が終わる」と読ませる（設計 §20）
+    // §22: 切り捨て。1 手ぶんに足りない残りでは置き切れない（切り上げだと最後の 1 手を当てにして、
+    //   消す手を後回しにしたまま時間切れになっていた）
     function movesLeft(game, level) {
         if (!game || !game.zoneActive || !game.isVersusMode) return 0;
-        return Math.max(1, Math.ceil(game.zoneRemainingMs() / (CONFIG.moveMs[level] || 700)));
+        return Math.max(1, Math.floor(game.zoneRemainingMs() / (CONFIG.moveMs[level] || 700)));
     }
 
     // 発動中の終了時の火力表（段数 0〜ZONE_TABLE_LEN-1 ごとの表のかたまりの合計。マージン倍率・ATTACK BIAS 込み）。

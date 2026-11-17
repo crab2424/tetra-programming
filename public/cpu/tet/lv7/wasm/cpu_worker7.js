@@ -17,19 +17,19 @@ let wasmReady = false;
 
 self.Module = {
     // ★再ビルドしたら ?v= を上げる（グルーjs・wasm・cpu7.js の WORKER_URLS を揃える）
-    locateFile: function(path) { return path + '?v=7'; },
+    locateFile: function(path) { return path + '?v=9'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm7.js?v=8');
+importScripts('cpu_wasm7.js?v=10');
 
 const OUT_LEN = 160;       // [96..] は lv7Search2 の相手の見積もり（lv7Search は 96 まで）
 const CTX_MAX = 19 + 4 * 16 + 400;   // lv7_wasm.cpp parse_ctx の並び（相手の盤面は 40 段 = 400 個）
 const QUEUE_MAX = 40;     // current＋確定 NEXT（深さ 32＋HOLD 空の1本＋余裕）
-const WEIGHTS_MAX = 96;
+const WEIGHTS_MAX = 160;   // 82 個の重み＋§22 の出現・ZONE の欄（12＋火力表 32）
 let boardPtr = null;
 let queuePtr = null;
 let weightsPtr = null;

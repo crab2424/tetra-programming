@@ -1,4 +1,5 @@
 #include "beam.h"
+#include <bit>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -59,7 +60,9 @@ u32 expand(
     const std::vector<piece::Type>& queue,
     node::Data& node,
     const std::function<void(node::Data&, move::Placement)>& callback,
-    const garbage::Plan* plan
+    const garbage::Plan* plan,
+    const Configs* configs,
+    bool is_root
 )
 {
     u32 nodes = 0;
@@ -79,7 +82,27 @@ u32 expand(
             break;
         }
 
-        auto locks = move::generate(node.state.board, pieces[p]);
+        std::vector<move::Placement> locks;
+        if (configs && configs->spawn_rules) {
+            if (is_root && !configs->root_planned) {
+                // root のミノはもう出ている（先行回転で出ていればその位置から）。ホールドはふつうのホールド＝向き 0 だけ
+                if (configs->root_ihs) {
+                    // 先行ホールドで出ている: 出ているのはホールド側（pieces[1]）。引いたミノ（pieces[0]）はもうホールドの中
+                    if (p == 1) locks = configs->root_start ? move::generate(node.state.board, pieces[1], &configs->start)
+                                                            : move::generate(node.state.board, pieces[1]);
+                }
+                else if (p == 0) locks = configs->root_start ? move::generate(node.state.board, pieces[0], &configs->start)
+                                                        : move::generate(node.state.board, pieces[0]);
+                else if (configs->root_hold) locks = move::generate(node.state.board, pieces[1]);
+            }
+            else {
+                // これから出すミノ: 向き 0 で出せなければ先行回転。ホールドのミノは先行ホールドで出せる（いまのミノを出さずに）
+                locks = move::generate_spawn(node.state.board, pieces[p], true);
+            }
+        }
+        else {
+            locks = move::generate(node.state.board, pieces[p]);
+        }
 
         for (auto& placement : locks) {
             auto child = node;
@@ -97,6 +120,17 @@ u32 expand(
 
     return nodes;
 };
+
+i32 zone_rows(const Board& board)
+{
+    return std::countr_one(Board(board).get_clear_mask());
+};
+
+namespace
+{
+constexpr i32 ZONE_LETHAL = 19;     // ZONE の後に残る段＋予告がこれ以上なら終点にしない（cpu_zone.js lethalHeight）
+constexpr i32 ZONE_END_COMP = 50;   // 終点のキーに足す、残りの深さ 1 あたり（同じ段数なら早く終えるほうを選ぶ）
+}
 
 Result search(
     State state,
@@ -143,25 +177,52 @@ Result search(
             // かけていたので、ここでは add（重複除去＋上位 width 個）にする
             layers[0].add(child);
         },
-        plan
+        plan, &configs, true
     );
 
     if (result.candidates.empty()) {
         return result;
     }
 
+    // §22: ZONE の終点を覚える（向き 0 で出せないノード。後が安全なときだけ）
+    auto record_end = [&] (node::Data& node) {
+        if (!configs.zone || node.index < 0) return;
+        if (size_t(node.state.next) >= queue.size()) return;
+        if (!move::spawn_blocked(node.state.board, queue[node.state.next])) return;
+        i32 h[10];
+        Board b = node.state.board;
+        b.get_heights(h);
+        const i32 zr = zone_rows(b);
+        // ZONE が終わると、終了時の火力でまず予告を相殺する（game/tet/zone.js）
+        const i32 rem = std::max(configs.incoming - node.sent - eval::zone_table_at(zr), 0);
+        if (*std::max_element(h, h + 10) - zr + rem >= ZONE_LETHAL) return;
+        auto& c = result.candidates[size_t(node.index)];
+        const i32 key = node.score.action + node.score.eval + ZONE_END_COMP * std::max(i32(configs.depth) - i32(node.depth), 0);
+        if (zr > c.end_lines || (zr == c.end_lines && key > c.end_key)) {
+            c.end_lines = zr;
+            c.end_key = key;
+            c.end_depth = node.depth;
+        }
+    };
+
     result.depth = 1;
 
     // 読める深さ：キューの本数（HOLD が空なら1本多く使う）と configs.depth の小さい方
-    const size_t max_layers = std::min(
+    size_t max_layers = std::min(
         configs.depth,
         queue.size() - (root.state.hold == piece::Type::NONE)
     );
+    // §22: ZONE の時間切れの先は読まない
+    if (configs.zone && configs.zone_moves_left > 0) max_layers = std::min(max_layers, size_t(configs.zone_moves_left));
 
     auto mark_last = [&] (Beam& layer) {
         layer.for_each([&] (node::Data& node) {
             auto& c = result.candidates[node.index];
             c.best = std::max(c.best, node.score.action + node.score.eval);
+            if (configs.zone) {
+                result.live_max = std::max(result.live_max, zone_rows(node.state.board));
+                record_end(node);
+            }
         });
     };
 
@@ -183,11 +244,15 @@ Result search(
         parents.sort();
 
         parents.for_each([&] (node::Data& node) {
-            result.nodes += beam::expand(queue, node, [&] (node::Data& child, move::Placement placement) {
+            record_end(node);
+            const u32 made = beam::expand(queue, node, [&] (node::Data& child, move::Placement placement) {
                 eval::evaluate(child, node, placement, queue, w, configs.incoming);
                 apply_press(child, configs);
                 children.add(child);
-            }, plan);
+            }, plan, &configs, false);
+            result.nodes += made;
+            // §22: 続けられる枝（子を作れた）の段数も「生きた枝」に数える。最後の層が空でも live_max が残るように
+            if (configs.zone && made > 0) result.live_max = std::max(result.live_max, zone_rows(node.state.board));
         });
 
         parents.clear();
@@ -207,7 +272,7 @@ Result search(
 
         result.depth += 1;
 
-        if (same) {
+        if (same && !configs.zone) {
             // 子が全部同じ初手から来た：その初手で決まり
             result.decided = true;
             for (auto& c : result.candidates) c.best = INT32_MIN;

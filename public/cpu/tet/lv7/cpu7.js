@@ -10,7 +10,7 @@
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=8'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=10'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -176,8 +176,16 @@ window.CPU7 = class {
     weightsArray() {
         const g = this.game;
         const z = (g && g.zoneActive && g.isVersusMode) ? this.constructor.ZONE_WEIGHTS : null;
-        return new Int32Array(this.constructor.WEIGHT_KEYS.map(k =>
-            Math.round(((z && z[k] !== undefined) ? z[k] : this.weights[k]) || 0)));
+        const base = this.constructor.WEIGHT_KEYS.map(k =>
+            Math.round(((z && z[k] !== undefined) ? z[k] : this.weights[k]) || 0));
+        // §22（ZONE 設計 VERSUS 編）: 重みの後ろに出現・ZONE の欄（engine/lv7_wasm.cpp search の ext）
+        //   7777・火力表の段数の数・時間切れまでの手数・いまホールドできるか・いまのミノの 4 マス・火力表
+        const zt = (window.CpuZone && g) ? CpuZone.zoneTable(g) : null;
+        const ext = [7777, zt ? zt.length : 0, (window.CpuZone && g) ? CpuZone.movesLeft(g, 7) : 0, (g && g.canHold) ? 1 : 0];
+        const m = g && g.mino;
+        if (m) for (const b of m.blocks) ext.push(b.x + m.x, b.y + m.y);
+        else for (let i = 0; i < 8; i++) ext.push(-100);
+        return new Int32Array(base.concat(ext, zt || []));
     }
 
     start() {
@@ -357,6 +365,10 @@ window.CPU7 = class {
             depth: res[13],
         };
         move.p1 = { id, rot: pose.rot, x: pose.x, y: pose.y };
+        // §22: 次のミノの出し方（先行回転 0/1/-1・先行ホールド）。今のミノを落とす前に予約する
+        move.nextIrs = res.length > 95 ? res[90] : 0;
+        move.nextIhs = res.length > 95 ? res[91] : 0;
+        move.zoneEnd = res.length > 95 ? res[92] : 0;
         this.bestMoveData = move;
 
         // 相手の見積もり（out[96..]。lv7_wasm.cpp estimate_threat の表）。T0 では表示・記録だけ
@@ -386,6 +398,11 @@ window.CPU7 = class {
         this.isExecutingAction = true;
         if (this.game) this.game.cpuAction('gravity', true);
         this.actionQueue = this.buildHoldActionQueue(move);
+        // §22: 次のミノが向き 0 で出せない局面では、探索が決めた出し方をハードドロップの直前に予約する
+        if (move.nextIrs || move.nextIhs) {
+            const k = this.actionQueue.findIndex(a => a.type === 'harddrop');
+            if (k >= 0) this.actionQueue.splice(k, 0, { type: 'spawnPlan', rot: move.nextIrs, hold: !!move.nextIhs, delay: 0 });
+        }
         this.game.cpuSchedule(this.actionDelay, () => this.processActionQueue());
     }
 
@@ -907,6 +924,9 @@ window.CPU7 = class {
                 break;
             case 'harddrop':
                 this.game.cpuAction('hardDrop');
+                break;
+            case 'spawnPlan':
+                this.game.cpuAction('spawnPlan', action.rot, action.hold);
                 break;
         }
 

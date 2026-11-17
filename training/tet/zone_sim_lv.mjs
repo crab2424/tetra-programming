@@ -178,7 +178,16 @@ function run(kind) {
         const out = callWasm(posted);
         let placed, id, holdUsed, tspinOut;
         if (LV === 7) {
-            if (out[0] !== 1) { ended = 'nomove'; break; }
+            if (out[0] !== 1) {
+                ended = 'nomove';
+                if (TRACE === `${runKind}:${runIdx}`) {
+                    const st = { cells: [...cells].map(c => c.split(',').map(Number)), mino: { type: mino.type, rot: mino.rotation, x: mino.x, y: mino.y },
+                        hold: holdType, canHold, next: queue.slice(1), bag: bagLeft.slice(), zoneLines: zone, remain: g.zoneRemainingMs(),
+                        zoneCharge: 4, margin: null, mult: 1.0, b2b, ren, blocks: mino.blocks.map(b => [b.x, b.y]) };
+                    console.log('NOMOVE ' + JSON.stringify(st));
+                }
+                break;
+            }
             id = out[1]; holdUsed = out[10] === 1; tspinOut = out[16] === 1;
             placed = [0, 1, 2, 3].map(i => ({ x: out[2 + i * 2], y: out[3 + i * 2] }));
             plan = NOPLAN ? { irs: 0, ihs: 0 } : { irs: out[90], ihs: out[91] };
@@ -242,6 +251,49 @@ function run(kind) {
     let table = 0;
     for (const c of ctx.zoneEndAttackChunks(4, zone, 0, null, 1.0)) table += c;
     return { zone, rest, holes, attack, moves, ended, pcs, total: attack + table, usedIrs, usedIhs, chose };
+}
+
+// --pos=局面の JSON（リプレイから取り出した 1 局面）: その局面で 1 回だけ考えさせて結果を出す
+//   JSON: { cells:[[x,y]..], mino:{type,rot,x,y}, hold, canHold, next:[..], bag:[..], zoneLines, remain, zoneCharge, margin, mult, b2b, ren }
+const posFile = opt('pos', '');
+if (posFile) {
+    const st = JSON.parse(readFileSync(posFile, 'utf8'));
+    const g = Object.create(Game.prototype);
+    Object.assign(g, {
+        field: new Field(), level: 2, score: 0, isVersusMode: true, backToBack: !!st.b2b, ren: st.ren || 0,
+        zoneActive: st.zoneActive !== false, zoneLines: st.zoneLines, topLimit: -20, playSe() {}, requestRedraw() {},
+        zoneCharge: st.zoneCharge, _tetMarginStep: st.margin, vsAttackMultiplier: st.mult ?? 1.0,
+        zoneRemainingMs: () => st.remain, cpuFrame() {}, cpuSchedule() {}, garbageQueue: st.garbageQueue || [],
+        clock: { now: () => 0 }, _garbageTimers: [], ensureNextQueue() {},
+    });
+    g.field.blocks = st.cells.map(([x, y]) => new Block(x, y, 7));
+    g.field.markDirty && g.field.markDirty();
+    const mino = new Mino(st.mino.type);
+    g.mino = mino;
+    // 出現は実機と同じ _placeAtSpawn（向き 1＝右の先行回転、3＝左の先行回転）
+    if (!g._placeAtSpawn(mino, st.mino.rot === 1 ? 1 : st.mino.rot === 3 ? -1 : 0)) throw new Error('出現できません');
+    if (mino.x !== st.mino.x || mino.y !== st.mino.y) console.log(`出現位置が違います x=${mino.x} y=${mino.y}`); g.holdMino = st.hold >= 0 ? new Mino(st.hold) : null; g.canHold = st.canHold !== false;
+    g.nextQueue = st.next.map(t => new Mino(t)); g.bag = (st.bag || []).slice();
+    const cpu = new CPU(g); cpu.workerReady = true;
+    posted = null; cpu.isCalculating = false; cpu.onMinoSpawned();
+    if (opt('dump', '')) {
+        // ネイティブで調べる用: 探索へ渡す中身をそのまま書き出す（lv7）
+        const d = posted;
+        const j = { board: Array.from(d.boardBuffer), queue: Array.from(d.queue), hold: d.holdType, bagAfter: d.bagAfter, b2b: d.backToBack, ren: d.ren,
+            incoming: d.incoming, weights: Array.from(d.weights), width: d.width, depth: d.depth, thinkMs: d.thinkMs, ctx: d.ctx ? Array.from(d.ctx) : [] };
+        (await import('node:fs')).writeFileSync(opt('dump', ''), JSON.stringify(j));
+    }
+    const out = callWasm(posted);
+    console.log('out', Array.from(out).join(','));
+    if (LV !== 7) {
+        const t = new Mino(out[3]); for (let i = 0; i < out[4]; i++) t.rotate();
+        const placed = t.blocks.map(b => ({ x: b.x + out[5], y: b.y + out[6] - 5 }));
+        const cells = new Set(st.cells.map(([x, y]) => x + ',' + y));
+        const rows = [];
+        for (let y = -8; y < 20 - st.zoneLines; y++) { let r = ''; for (let x = 0; x < 10; x++) r += placed.some(b => b.x === x && b.y === y) ? '@' : (cells.has(x + ',' + y) ? '#' : '.'); rows.push(String(y).padStart(3) + ' ' + r); }
+        console.log(`ミノ ${'IOTJLSZ'[out[3]]} ホールド=${out[0]} irs=${out[43]} ihs=${out[44]} 終点=${out[45]} 終える=${out[46]} 段=${out[47]}\n` + rows.join('\n'));
+    }
+    process.exit(0);
 }
 
 // --compare=旧 wasm: ZONE でない盤面（ランダム）で、旧 wasm と結果の配列が全部同じかを数えて終わる

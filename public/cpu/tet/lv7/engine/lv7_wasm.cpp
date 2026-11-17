@@ -42,13 +42,14 @@ i32 to_tet(piece::Type t)
 
 // 経路：path::find（出現位置からの最短操作。T-spin の置き場所は最後が回転の経路）を TETLABO の操作番号に直す。
 //   1=左 2=右 3=SD（1段） 4=CW 5=CCW 6=HD。DOWN（底まで落とす）は落ちた段数ぶんの SD。届かなければ 0 を返す
-i32 build_path(Board board, move::Placement placement, i32* out, i32 cap)
+i32 build_path(Board board, move::Placement placement, i32* out, i32 cap, const move::Placement* start = nullptr)
 {
-    auto inputs = path::find(board, placement, false);
+    auto inputs = path::find(board, placement, false, start);
 
     path::Node node;
     node.position = move::Placement(4, 19, piece::Rotation::UP, placement.type);
-    if (node.position.is_colliding(board)) node.position.y = 20;
+    if (start) { node.position = *start; node.position.type = placement.type; }
+    else if (node.position.is_colliding(board)) node.position.y = 20;
 
     i32 len = 0;
     bool reached = false;
@@ -95,6 +96,18 @@ i32 build_path(Board board, move::Placement placement, i32* out, i32 cap)
 #define LV7_BOARD_ROWS 40
 #endif
 constexpr i32 BOARD_ROWS = LV7_BOARD_ROWS;
+
+// §22（ZONE 設計 VERSUS 編）: 出力の [90..95]（経路は [18..89]）
+//   [90] 次のミノの先行回転（0/1/-1） [91] 先行ホールド（0/1） [92] ZONE を終えると決めた（これ以上消せない）
+//   [93] 選んだ初手の終点の ZONE 段 [94] 生きている枝の ZONE 段の最大 [95] この手で ZONE を終える
+constexpr i32 OUT_PLAN = 90;
+constexpr i32 ZONE_END_SAVE_MOVES = 2; // §22: 出現位置をふさいで終えるのは、時間切れよりこの手数以上早く終わるときだけ
+#ifndef ZONE_ATK_W_DEF
+#define ZONE_ATK_W_DEF 150
+#endif
+constexpr i32 ZONE_ATK_W = ZONE_ATK_W_DEF;   // ZONE の火力 1 段あたりの点（§22: 300 → 150。12 秒の ZONE で通常火力を削りすぎていた）
+constexpr i32 ZONE_NEAR_HEIGHT = 16;         // 終盤とみなす高さ（ZONE 段込み）
+constexpr i32 ZONE_NEAR_MOVES = 8;           // 終盤とみなす残り手数
 constexpr i32 BOARD_CELLS = BOARD_ROWS * 10;
 
 // 盤面（(y+20)*10+x の 400 個、bit0=中身）・HOLD・b2b・ren・bag（queue を引いた後）から探索の root を作る
@@ -465,6 +478,19 @@ void search(
 
     std::vector<piece::Type> queue;
     State state = make_root(board, queueIn, nQueue, hold, bagAfter, b2b, ren, queue);
+    // §22: 先行ホールドで出たミノは bag の並びに無い（いまのミノ＝前のホールド、ホールド＝引いたミノ）。
+    //   そのままだと is_queue_valid で探索が空になる（手が無い＝その場に落とす）ので、並びどおりに戻した
+    //   「いまのミノ＝引いたミノ・ホールド＝出ているミノ」を root にし、初手はホールドのミノだけにする
+    bool root_ihs = false;
+    if (hold >= 0 && nQueue >= 2 && !beam::is_queue_valid(queue, state.bag)) {
+        std::vector<i32> qs(queueIn, queueIn + nQueue);
+        const i32 h2 = qs[0];
+        qs[0] = hold;
+        std::vector<piece::Type> q2;
+        State s2 = make_root(board, qs.data(), nQueue, h2, bagAfter, b2b, ren, q2);
+        if (beam::is_queue_valid(q2, s2.bag)) { state = s2; queue = q2; root_ihs = true; }
+    }
+    const piece::Type root_piece = root_ihs ? state.hold : (queue.empty() ? piece::Type::NONE : queue[0]);
 
     const eval::Weight w = eval::from_array(weights, nWeights);
 
@@ -515,6 +541,73 @@ void search(
     }
     if (outLen >= OUT_THREAT_LEN) out[126] = t4_flags;
 
+    // §22: 先行回転・先行ホールド・ZONE の火力表（weights の WEIGHT_LEN から先。cpu7.js weightsArray）
+    //   [0]=7777 [1]=表の段数の数 N [2]=時間切れまでの手数 [3]=いまホールドできるか [4..11]=いまのミノの 4 マス（TETLABO。無ければ -100）
+    //   [12..12+N) 火力表（段数ごとの合計。発動中だけ N>0）
+    const bool ext = nWeights > eval::WEIGHT_LEN + 12 && weights[eval::WEIGHT_LEN] == 7777;
+    eval::g_zone_table_n = 0;
+    eval::g_zone_near = false;
+    eval::g_zone_slope10 = 0;
+    if (ext) {
+        const i32* e = weights + eval::WEIGHT_LEN;
+        configs.spawn_rules = true;
+        configs.root_hold = e[3] != 0;
+        configs.root_ihs = root_ihs;
+        configs.zone = state.zone;
+        configs.zone_moves_left = state.zone ? std::max(e[2], 0) : 0;
+        // いまのミノが向き 0 の出現位置にいないとき（先行回転で出た）は、その位置から手を作る
+        if (e[4] != -100 && !queue.empty()) {
+            u64 want[10] = { 0 };
+            bool okc = true;
+            for (i32 i = 0; i < 4; ++i) {
+                const i32 x = e[4 + i * 2], y = 19 - e[5 + i * 2];
+                if (x < 0 || x > 9 || y < 0 || y > 63) { okc = false; break; }
+                want[x] |= 1ULL << y;
+            }
+            const auto t = root_piece;
+            bool found = false;
+            move::Placement sp;
+            for (i32 r = 0; r < 4 && okc && !found; ++r) {
+                for (i32 k = 0; k < 4 && !found; ++k) {
+                    const i32 x0 = e[4] - piece::get_offset_x(t, piece::Rotation(r), k);
+                    const i32 y0 = 19 - e[5] - piece::get_offset_y(t, piece::Rotation(r), k);
+                    u64 got[10] = { 0 };
+                    bool in = true;
+                    for (i32 i = 0; i < 4; ++i) {
+                        const i32 x = x0 + piece::get_offset_x(t, piece::Rotation(r), i), y = y0 + piece::get_offset_y(t, piece::Rotation(r), i);
+                        if (x < 0 || x > 9 || y < 0 || y > 63) { in = false; break; }
+                        got[x] |= 1ULL << y;
+                    }
+                    if (!in) continue;
+                    bool same = true;
+                    for (i32 x = 0; x < 10; ++x) if (got[x] != want[x]) { same = false; break; }
+                    if (same) { found = true; sp = move::Placement(i8(x0), i8(y0), piece::Rotation(r), t); }
+                }
+            }
+            if (found && !(sp.r == piece::Rotation::UP && sp.x == 4 && (sp.y == 19 || sp.y == 20))) {
+                configs.root_start = true;
+                configs.start = sp;
+            }
+        }
+        const i32 n = std::clamp(e[1], 0, 48);
+        if (state.zone && n > 0 && nWeights >= eval::WEIGHT_LEN + 12 + n) {
+            for (i32 i = 0; i < n; ++i) eval::g_zone_table[i] = e[12 + i];
+            eval::g_zone_table_n = n;
+            eval::g_zone_atk_w = ZONE_ATK_W;
+            i32 h[10];
+            Board b = state.board;
+            b.get_heights(h);
+            const i32 z0 = beam::zone_rows(b);
+            eval::g_zone_near = *std::max_element(h, h + 10) >= ZONE_NEAR_HEIGHT
+                || (configs.zone_moves_left > 0 && configs.zone_moves_left <= ZONE_NEAR_MOVES);
+            if (z0 < eval::ZONE_GOAL) {
+                auto at = [&] (i32 l) { return eval::g_zone_table[std::clamp(l, 0, n - 1)]; };
+                eval::g_zone_slope10 = (at(eval::ZONE_GOAL) - at(z0)) * 10 / (eval::ZONE_GOAL - z0);
+            }
+        }
+    }
+    struct ZoneTableOff { ~ZoneTableOff() { eval::g_zone_table_n = 0; eval::g_zone_near = false; } } zone_table_off;
+
     // 自分の探索: ZONE の発動中は Lock Out の手も作り、盤面の上限（TETLABO の y=-20）でふさぐ（core/move.cpp）
     move::g_zone_rules = state.zone;
     auto result = beam::search(state, queue, ws, configs, start + thinkMs);
@@ -527,33 +620,53 @@ void search(
     }
 
     // 選び方：visit の多い順（select_best なら最後の層のキーの大きい順）
-    std::vector<size_t> order(result.candidates.size());
-    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
-    std::stable_sort(order.begin(), order.end(), [&] (size_t a, size_t b) {
-        const auto& ca = result.candidates[a];
-        const auto& cb = result.candidates[b];
-        if (w.select_best && !result.decided) return ca.best > cb.best;
-        return ca.visit > cb.visit;
-    });
-
-    // 生存判定：中央列の高さ＋incoming−火力−消去数 ≤ 20 を満たす最初の手（clys Engine::request）
-    size_t best = order[0];
-    for (size_t k = 0; k < order.size(); ++k) {
-        auto simulate = state;
-        auto placement = result.candidates[order[k]].placement;
-        auto lock = simulate.advance(placement, queue);
-
-        i32 heights[10];
-        simulate.board.get_heights(heights);
-
-        i32 height_center_max = *std::max_element(heights + 3, heights + 7);
-
-        if (height_center_max + incoming - lock.attack - lock.clear <= 20) {
-            best = order[k];
-            break;
+    auto choose = [&] (const beam::Result& r, bool& zoneEnd, const State& st, const std::vector<piece::Type>& qq) -> size_t {
+        std::vector<size_t> order(r.candidates.size());
+        for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+        std::stable_sort(order.begin(), order.end(), [&] (size_t a, size_t b) {
+            const auto& ca = r.candidates[a];
+            const auto& cb = r.candidates[b];
+            if (w.select_best && !r.decided) return ca.best > cb.best;
+            return ca.visit > cb.visit;
+        });
+        zoneEnd = false;
+        // §22: 読みの中で、ZONE を終える終点より多く消せる生きた枝が無い＝どう積んでもこれ以上消せない。
+        //   いちばん段数の多い終点の初手を選ぶ（同じ段数ならキー最大＝早く終えるほど埋め合わせが多い）
+        if (configs.zone) {
+            i32 endMax = -1;
+            for (const auto& c : r.candidates) endMax = std::max(endMax, c.end_lines);
+            if (endMax >= 0 && endMax >= r.live_max) {
+                size_t pick = order[0];
+                i32 key = INT32_MIN;
+                for (size_t i = 0; i < r.candidates.size(); ++i) {
+                    const auto& c = r.candidates[i];
+                    if (c.end_lines == endMax && c.end_key > key) { key = c.end_key; pick = i; }
+                }
+                // 出現位置をふさいで終えるのは、時間切れより 2 手以上早く終わるときだけ。
+                //   ふさいだミノは ZONE の後も残る（中央に塔が立つ）ので、時間がほとんど無いなら時間切れまでふつうに置く
+                const auto& pc = r.candidates[pick];
+                const i32 ml = configs.zone_moves_left;
+                if (ml <= 0 || i32(pc.end_depth) + ZONE_END_SAVE_MOVES <= ml) {
+                    zoneEnd = true;
+                    return pick;
+                }
+            }
+            return order[0];
         }
-    }
-
+        // 生存判定：中央列の高さ＋incoming−火力−消去数 ≤ 20 を満たす最初の手（clys Engine::request）
+        for (size_t k = 0; k < order.size(); ++k) {
+            auto simulate = st;
+            auto placement = r.candidates[order[k]].placement;
+            auto lock = simulate.advance(placement, qq);
+            i32 heights[10];
+            simulate.board.get_heights(heights);
+            i32 height_center_max = *std::max_element(heights + 3, heights + 7);
+            if (height_center_max + incoming - lock.attack - lock.clear <= 20) return order[k];
+        }
+        return order[0];
+    };
+    bool zoneEnd = false;
+    size_t best = choose(result, zoneEnd, state, queue);
     auto placement = result.candidates[best].placement;
 
     out[0] = 1;
@@ -562,7 +675,7 @@ void search(
         out[2 + i * 2] = placement.x + piece::get_offset_x(placement.type, placement.r, i);
         out[3 + i * 2] = 19 - (placement.y + piece::get_offset_y(placement.type, placement.r, i));
     }
-    out[10] = placement.type != queue[0];
+    out[10] = placement.type != root_piece;
     out[11] = i32(std::min<size_t>(result.candidates[best].visit, INT32_MAX));
     out[12] = i32(std::min<u64>(result.nodes, INT32_MAX));
     out[13] = i32(result.depth);
@@ -572,7 +685,48 @@ void search(
         out[16] = placement.get_tspin_type(b);
     }
 
-    out[17] = path_end > 18 ? build_path(state.board, placement, out + 18, path_end - 18) : 0;
+    // 経路は [18..89]（[90..95] は §22 の欄）
+    const i32 path_cap = std::min(path_end, OUT_PLAN) - 18;
+    const bool rootStart = configs.root_start && placement.type == root_piece;
+    out[17] = path_cap > 0 ? build_path(state.board, placement, out + 18, path_cap, rootStart ? &configs.start : nullptr) : 0;
+
+    // §22: 次のミノの出し方。次（と、そのホールド）のミノが向き 0 で出せないときだけ、置いた後の盤面からもう一度
+    //   探索して（root のミノも「これから出す」扱い）、その初手の出し方を予約させる。ZONE を「この手で終える」なら予約しない
+    if (ext && outLen >= OUT_THREAT) {
+        const auto& bc = result.candidates[best];
+        const bool endNow = zoneEnd && bc.end_depth == 1;
+        out[OUT_PLAN + 2] = zoneEnd ? 1 : 0;
+        out[OUT_PLAN + 3] = bc.end_lines;
+        out[OUT_PLAN + 4] = result.live_max;
+        out[OUT_PLAN + 5] = endNow ? 1 : 0;
+        State post = state;
+        auto pl = placement;
+        post.advance(pl, queue);
+        if (!endNow && size_t(post.next) + 1 < queue.size()) {
+            const auto cur = queue[post.next];
+            const auto hp = post.hold != piece::Type::NONE ? post.hold : queue[post.next + 1];
+            const bool curBlocked = move::spawn_blocked(post.board, cur);
+            if (curBlocked || (hp != cur && move::spawn_blocked(post.board, hp))) {
+                std::vector<piece::Type> q2(queue.begin() + post.next, queue.end());
+                State s2 = post;
+                s2.next = 0;
+                beam::Configs c2 = configs;
+                c2.root_planned = true;
+                c2.root_start = false;
+                c2.root_ihs = false;
+                c2.root_hold = true;
+                if (c2.zone_moves_left > 0) c2.zone_moves_left = std::max(c2.zone_moves_left - 1, 1);
+                const double now = beam::now_ms();
+                auto r2 = beam::search(s2, q2, ws, c2, now + std::clamp(double(thinkMs) / 3.0, 5.0, 40.0));
+                if (!r2.candidates.empty()) {
+                    bool ze2 = false;
+                    const auto p2 = r2.candidates[choose(r2, ze2, s2, q2)].placement;
+                    out[OUT_PLAN] = p2.irs;
+                    out[OUT_PLAN + 1] = (p2.type != cur && (curBlocked || p2.irs != 0)) ? 1 : 0;
+                }
+            }
+        }
+    }
     out[14] = i32(beam::now_ms() - start);
 
     if (ctx.valid && outLen >= OUT_D0_LEN) record_d0(state, queue, result, best, incoming, ctx, w, out);

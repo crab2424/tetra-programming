@@ -65,7 +65,15 @@ static const int ZONE_LINE_BONUS   = 4000; // 終盤: 1 段消すごとの加点
 static const int ZONE_NEAR_HEIGHT  = 16;   // 終盤とみなす高さ（ZONE 段＋その上の積み。枠は 20 段）
 static const int ZONE_NEAR_MOVES   = 8;    // 終盤とみなす残り手数（探索の深さ）
 static const int ZONE_LETHAL       = 19;   // ZONE の後に残る段＋予告がこれ以上なら安全でない（cpu_zone.js lethalHeight と同じ）
-static const int ZONE_END_PLY_COMP = 250;  // 終点の枝に足す、残りの手数ぶんの埋め合わせ（1 手の接地・接触の加点の目安）
+static const int ZONE_END_PLY_COMP = 250;
+#ifndef ZONE_STEP_DISC_DEF
+#define ZONE_STEP_DISC_DEF 0
+#endif
+#ifndef ZONE_END_SAVE_DEF
+#define ZONE_END_SAVE_DEF 2
+#endif
+static const int ZONE_STEP_DISC = ZONE_STEP_DISC_DEF;         // §22: 消した段の価値を 1 手あたり何 % 引くか（早く消すほうを選ぶ）
+static const int ZONE_END_SAVE_MOVES = ZONE_END_SAVE_DEF;    // §22: 出現位置をふさいで終えるのは、時間切れよりこの手数以上早いときだけ  // 終点の枝に足す、残りの手数ぶんの埋め合わせ（1 手の接地・接触の加点の目安）
 
 // ── 先行回転・先行ホールド／ZONE の終了時の火力（設計 tetlabo-zone-versus-cpu-design.md §22）──
 //   ・次のミノが向き 0 で出せないときだけ、先行回転（右・左に回した形で出す）と先行ホールド（ホールドのミノ、
@@ -88,6 +96,7 @@ static int  g_zoneTable[48];
 static const int ZONE_GOAL = ZONE_GOAL_DEF;   // 1 段の価値をならす先（この段数までの平均の伸びを下限にする）
 static int  g_zoneSlopeX10 = 0;               // 探索の始めの段数から ZONE_GOAL までの、1 段あたりの火力の平均（10 倍）
 static inline int zoneTableAt(int L) {
+    if (g_zoneTableN <= 0) return 0;
     if (L < 0) L = 0;
     if (L >= g_zoneTableN) L = g_zoneTableN - 1;
     return g_zoneTable[L];
@@ -99,8 +108,10 @@ static Board zonePlain(const Board& b) {
     for (int y = ROWS - 1; y >= b.zone; y--) p.rows[y] = b.rows[y - b.zone];
     return p;
 }
-static inline bool zoneEndSafe(int plainMaxHeight) {
-    return plainMaxHeight + g_zoneIncoming < ZONE_LETHAL;
+// ZONE が終わると、終了時の火力（表の段数 lines の合計）でまず予告を相殺する（game/tet/zone.js）
+static inline bool zoneEndSafe(int plainMaxHeight, int lines) {
+    const int rem = std::max(g_zoneIncoming - zoneTableAt(lines), 0);
+    return plainMaxHeight + rem < ZONE_LETHAL;
 }
 // step は 1〜9（9 は「8手目の後に次のミノが出せない」）。step1: 9e8 … step9: 1e8（int32 に収まる）
 static inline int deathPenalty(int step_num) {
@@ -167,6 +178,7 @@ struct SearchState {
     int8_t spawn_irs[8];
     int8_t spawn_ihs[8];
     int8_t end_kind;
+    int8_t end_step;   // 終点になった手（1 = 初手を置いたら終わる）
 
     SearchState() {
         first_action = -1;
@@ -183,6 +195,7 @@ struct SearchState {
         first_attack = 0;
         dead = false;
         end_kind = 0;
+        end_step = 0;
         for(int i = 0; i < 8; ++i) {  // ★深さ8対応: 6→8
             spawn_irs[i] = 0;
             spawn_ihs[i] = 0;
@@ -417,6 +430,7 @@ void searchBestMoveWasm(
     auto pushEnded = [&](SearchState e, int step_num, int kind) {
         e.beam_score += ZONE_END_PLY_COMP * (SEARCH_MAX_STEP - step_num);
         e.end_kind = (int8_t)kind;
+        e.end_step = (int8_t)step_num;
         if (kind == 2) {
             if (!hasTimeout || e.beam_score > bestTimeout.beam_score) { bestTimeout = e; hasTimeout = true; }
             return;
@@ -505,9 +519,11 @@ void searchBestMoveWasm(
                 if (g_zoneTableN > 0) {
                     // §22: 段の価値は終了時の火力表の増えぶん（20 段から先は表で大きく跳ねる）
                     const int zAfter = simBoard.zone > 0 ? simBoard.zone : 0;
+                    // 同じ段数なら早く消すほうを選ぶ（1 手あたり 2% 引く）。時間切れで最後の消去を取りこぼさないように
+                    const int disc = std::max(100 - ZONE_STEP_DISC * (step_num - 1), 50);
                     for (int l = zBefore + 1; l <= zAfter; l++) {
                         const int d10 = (zoneTableAt(l) - zoneTableAt(l - 1)) * 10;
-                        eventScore += std::max(d10, (g_zoneNear && l <= ZONE_GOAL) ? g_zoneSlopeX10 : 0) * ZONE_ATK_W / 10;
+                        eventScore += std::max(d10, (g_zoneNear && l <= ZONE_GOAL) ? g_zoneSlopeX10 : 0) * ZONE_ATK_W / 10 * disc / 100;
                     }
                 } else if (g_zoneNear) {
                     // 表が無いとき（古い JS）: 終盤は消した段数が第一（§20）
@@ -612,7 +628,7 @@ void searchBestMoveWasm(
                 int upcoming = new_next_idx < 9 ? next_queue[new_next_idx] : 0;
                 if (!canSpawnPiece(simBoard, upcoming)) {
                     // ZONE: 次が向き 0 で出せない＝何もしなければ ZONE 終了。後が安全なら終点として残す（減点なし）
-                    const bool endOk = zn && zoneEndSafe(current_max_height);
+                    const bool endOk = zn && zoneEndSafe(current_max_height, simBoard.zone);
                     if (endOk) pushEnded(next_s, step_num, 1);
                     // §22: 先行回転・先行ホールドで出せるなら、続ける枝としてもビームに残す
                     const int ihsPiece = new_hold != -1 ? new_hold : (new_next_idx + 1 < 9 ? next_queue[new_next_idx + 1] : -1);
@@ -758,9 +774,16 @@ void searchBestMoveWasm(
     // §22: 読みの中で、出現位置をふさいで終える終点より多く消せる生きた枝が無い＝どう積んでもこれ以上消せない。
     //   いちばん段数の多い終点を選んで ZONE を終える（同じ段数の中では点のいちばん良いもの＝早く終わるほど埋め合わせが多い）
     bool zoneEndChosen = false;
+    //   出現位置をふさいで終えるのは、時間切れより ZONE_END_SAVE_MOVES 手以上早く終わるときだけ
+    //   （ふさいだミノは ZONE の後も残る。時間がほとんど無いなら時間切れまでふつうに置く）
     if (zn && endMax >= 0 && endMax >= liveMax) {
         for (const auto& state : final_states) {
-            if (state.end_kind == 1 && state.board.zone == endMax) { bestState = &state; zoneEndChosen = true; break; }
+            if (state.end_kind == 1 && state.board.zone == endMax) {
+                if (g_zoneMovesLeft <= 0 || state.end_step + ZONE_END_SAVE_MOVES <= g_zoneMovesLeft) {
+                    bestState = &state; zoneEndChosen = true;
+                }
+                break;
+            }
         }
     }
 

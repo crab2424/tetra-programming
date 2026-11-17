@@ -55,7 +55,7 @@ public:
     void clear();
 };
 
-Queue find(Board board, move::Placement destination, bool force_20);
+Queue find(Board board, move::Placement destination, bool force_20, const move::Placement* start = nullptr);
 
 // TETLABO lv7: T-spin の置き場所へは「最後に回転して」着く経路を探す（rotation.js の「直前が回転」）
 struct SpinTarget

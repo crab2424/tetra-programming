@@ -30,6 +30,16 @@ struct Configs
     i32 incoming = 0;          // root の予告のおじゃま（段）。評価の L1・L2 に渡す
     garbage::Plan plan;        // T3：探索の中で相殺・着弾させる予告（active でなければ今までどおり）
     Press press;               // T4
+
+    // §22（ZONE 設計 VERSUS 編）: 先行回転・先行ホールドの出現と ZONE の終点。spawn_rules が false なら今までと同じ
+    bool spawn_rules = false;  // 2 手目から: 向き 0 で出せないミノは先行回転で、ホールドのミノは先行ホールドでも出せる
+    bool root_planned = false; // root のミノも「これから出す」扱い（次のミノの出し方を決める探索）
+    bool root_hold = true;     // root でホールドしてよいか（先行ホールドで出たミノはもうホールドできない）
+    bool root_ihs = false;     // root のミノは先行ホールドで出ている（state.hold のミノ）。初手はそのミノだけ
+    bool root_start = false;   // root のミノは start の位置・向きから（先行回転で出ている）
+    move::Placement start;
+    bool zone = false;         // ZONE の発動中: 向き 0 で出せない所を「ZONE を終える」終点として覚える
+    i32 zone_moves_left = 0;   // 時間切れまでの手数（0 = 分からない）。読む深さをこれで切る
 };
 
 struct Candidate
@@ -37,6 +47,10 @@ struct Candidate
     move::Placement placement = move::Placement();
     size_t visit = 0;
     i32 best = INT32_MIN;      // この初手から来た最後の層のノードのキーの最大（select_best 用）
+    // §22: この初手から来た「ZONE を終える」終点のうち、段数が最大のもの（同じ段数ならキー最大）
+    i32 end_lines = -1;
+    i32 end_key = INT32_MIN;
+    u8 end_depth = 0;          // その終点の深さ（1 = この初手を置いたらすぐ終える）
 };
 
 struct Result
@@ -45,6 +59,7 @@ struct Result
     u64 nodes = 0;             // 実際に展開したノード数
     u32 depth = 0;             // 読み終えた深さ
     bool decided = false;      // 子が全部同じ初手から来て打ち切った
+    i32 live_max = -1;         // §22: 最後の層（生きている枝）の ZONE 段の最大
 };
 
 // plan が有効なら、子ごとに設置の後の予告の相殺・着弾（garbage::after_lock）を済ませてから callback を呼ぶ
@@ -52,8 +67,13 @@ u32 expand(
     const std::vector<piece::Type>& queue,
     node::Data& node,
     const std::function<void(node::Data&, move::Placement)>& callback,
-    const garbage::Plan* plan = nullptr
+    const garbage::Plan* plan = nullptr,
+    const Configs* configs = nullptr,
+    bool is_root = false
 );
+
+// §22: ZONE 段の数（底からそろった段）
+i32 zone_rows(const Board& board);
 
 Result search(
     State state,

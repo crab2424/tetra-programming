@@ -1,4 +1,5 @@
 #include "move.h"
+#include <cmath>
 
 namespace move
 {
@@ -379,6 +380,11 @@ bool g_zone_rules = false;
 
 std::vector<Placement> generate(const Board& board, piece::Type type)
 {
+    return generate(board, type, nullptr);
+};
+
+std::vector<Placement> generate(const Board& board, piece::Type type, const Placement* start)
+{
     std::vector<Placement> result;
     result.reserve(128);
 
@@ -398,9 +404,9 @@ std::vector<Placement> generate(const Board& board, piece::Type type)
     // Check for fast mode
     // If the search board is low enough, we know that can reach any columns using hard drop
     // This removes the need to simulate piece from the starting positions
-    bool fast = true;
+    bool fast = start == nullptr;
 
-    for (i32 i = 0; i < 10; ++i) {
+    for (i32 i = 0; i < 10 && fast; ++i) {
         if (64 - std::countl_zero(board.cols[i]) > 16) {
             fast = false;
             break;
@@ -517,7 +523,11 @@ std::vector<Placement> generate(const Board& board, piece::Type type)
     // Move generation from the starting position
     Placement init = Placement(i8(4), i8(19), piece::Rotation::UP, type);
 
-    if (collision.data[0][4] & (1ULL << 19)) {
+    if (start) {
+        init = *start;
+        init.type = type;
+    }
+    else if (collision.data[0][4] & (1ULL << 19)) {
         init.y += 1;
 
         if (collision.data[0][4] & (1ULL << 20)) {
@@ -600,6 +610,119 @@ void expand(const Placement& piece, Map& collision, Map& visited, Map& locked, s
             move::expand(rot, collision, visited, locked, result, spin, spin5);
         }
     }
+};
+
+// ─── TETLABO lv7 §22: 先行回転・先行ホールドの出現 ───
+namespace
+{
+
+// TETLABO のミノの形（core/base.js Mino.initBlocks）と回転の中心。engine のミノ番号の順（I J L O S T Z）
+constexpr i8 TET_BLOCKS[7][4][2] = {
+    {{ 0, 1 }, { 1, 1 }, { 2, 1 }, { 3, 1 }},  // I
+    {{ 0, 1 }, { 0, 2 }, { 1, 2 }, { 2, 2 }},  // J
+    {{ 2, 1 }, { 0, 2 }, { 1, 2 }, { 2, 2 }},  // L
+    {{ 1, 1 }, { 2, 1 }, { 1, 2 }, { 2, 2 }},  // O
+    {{ 1, 1 }, { 2, 1 }, { 0, 2 }, { 1, 2 }},  // S
+    {{ 1, 1 }, { 0, 2 }, { 1, 2 }, { 2, 2 }},  // T
+    {{ 0, 1 }, { 1, 1 }, { 1, 2 }, { 2, 2 }},  // Z
+};
+constexpr bool TET_HALF_PIVOT[7] = { true, false, false, true, false, false, false }; // I・O は (1.5, 1.5)、ほかは (1, 2)
+
+struct IrsPose { bool ok = false; Placement p; };
+IrsPose g_irs_pose[7][2];
+bool g_irs_ready = false;
+
+// JS の Math.round（.5 は +∞ 側）
+inline i32 js_round(double v) { return i32(std::floor(v + 0.5)); }
+
+void make_irs_poses()
+{
+    for (i32 t = 0; t < 7; ++t) {
+        const double px = TET_HALF_PIVOT[t] ? 1.5 : 1.0, py = TET_HALF_PIVOT[t] ? 1.5 : 2.0;
+        for (i32 d = 0; d < 2; ++d) {
+            // 回した形（Mino.rotate / rotateCCW）。x は出現列 3、一番下のブロックを y=0 に（_placeAtSpawn）
+            i32 cx[4], cy[4], bottom = -100;
+            for (i32 i = 0; i < 4; ++i) {
+                const double rx = TET_BLOCKS[t][i][0] - px, ry = TET_BLOCKS[t][i][1] - py;
+                const double nx = d == 0 ? -ry : ry, ny = d == 0 ? rx : -rx;
+                cx[i] = js_round(nx + px);
+                cy[i] = js_round(ny + py);
+                bottom = std::max(bottom, cy[i]);
+            }
+            u64 want[10] = { 0 };
+            for (i32 i = 0; i < 4; ++i) {
+                const i32 x = cx[i] + 3, ty = cy[i] - bottom, ey = 19 - ty;
+                if (x >= 0 && x < 10 && ey >= 0) want[x] |= 1ULL << ey;
+            }
+            // 同じマスになる engine の置き方を探す
+            for (i32 r = 0; r < 4 && !g_irs_pose[t][d].ok; ++r) {
+                for (i32 k = 0; k < 4 && !g_irs_pose[t][d].ok; ++k) {
+                    const i32 ex = cx[0] + 3 - piece::get_offset_x(t, r, k);
+                    const i32 ey = 19 - (cy[0] - bottom) - piece::get_offset_y(t, r, k);
+                    u64 got[10] = { 0 };
+                    bool inside = true;
+                    for (i32 i = 0; i < 4; ++i) {
+                        const i32 x = ex + piece::get_offset_x(t, r, i), y = ey + piece::get_offset_y(t, r, i);
+                        if (x < 0 || x > 9 || y < 0 || y > 63) { inside = false; break; }
+                        got[x] |= 1ULL << y;
+                    }
+                    if (!inside) continue;
+                    bool same = true;
+                    for (i32 x = 0; x < 10; ++x) if (got[x] != want[x]) { same = false; break; }
+                    if (same) {
+                        g_irs_pose[t][d].ok = true;
+                        g_irs_pose[t][d].p = Placement(i8(ex), i8(ey), piece::Rotation(r), piece::Type(t));
+                    }
+                }
+            }
+        }
+    }
+    g_irs_ready = true;
+}
+
+}
+
+bool spawn_blocked(const Board& board, piece::Type type)
+{
+    Board b = board;
+    Placement p(i8(4), i8(19), piece::Rotation::UP, type);
+    if (!p.is_colliding(b)) return false;
+    p.y = 20;
+    return p.is_colliding(b);
+};
+
+bool irs_spawn(const Board& board, piece::Type type, i32 dir, Placement& out)
+{
+    if (!g_irs_ready) make_irs_poses();
+    const auto& pose = g_irs_pose[static_cast<i32>(type)][dir == 1 ? 0 : 1];
+    if (!pose.ok) return false;
+    Board b = board;
+    Placement p = pose.p;
+    if (p.is_colliding(b)) {
+        p.y += 1;
+        if (p.is_colliding(b)) return false;
+    }
+    out = p;
+    return true;
+};
+
+std::vector<Placement> generate_spawn(const Board& board, piece::Type type, bool allow_irs)
+{
+    if (!spawn_blocked(board, type)) return generate(board, type);
+    if (!allow_irs) return {};
+    std::vector<Placement> result;
+    for (i32 dir : { 1, -1 }) {
+        Placement start;
+        if (!irs_spawn(board, type, dir, start)) continue;
+        for (auto& q : generate(board, type, &start)) {
+            bool dup = false;
+            for (auto& e : result) if (e == q) { dup = true; break; }
+            if (dup) continue;
+            q.irs = i8(dir);
+            result.push_back(q);
+        }
+    }
+    return result;
 };
 
 };

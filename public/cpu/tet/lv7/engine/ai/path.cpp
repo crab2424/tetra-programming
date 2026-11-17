@@ -296,7 +296,7 @@ void Map::clear()
     }
 };
 
-Queue find(Board board, move::Placement destination, bool force_20)
+Queue find(Board board, move::Placement destination, bool force_20, const move::Placement* start)
 {
     std::vector<Input> move;
     move.clear();
@@ -316,7 +316,12 @@ Queue find(Board board, move::Placement destination, bool force_20)
 
     init.position = move::Placement(4, 19, piece::Rotation::UP, destination.type);
 
-    if (init.position.is_colliding(board)) {
+    if (start) {
+        // TETLABO lv7 §22: 先行回転で出たミノは、その位置・向きから
+        init.position = *start;
+        init.position.type = destination.type;
+    }
+    else if (init.position.is_colliding(board)) {
         init.position.y = 20;
 
         if (init.position.is_colliding(board)) {
