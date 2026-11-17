@@ -9,7 +9,7 @@ window.CPU6 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv6/wasm/cpu_worker6.js?v=24',
+        'cpu/tet/lv6/wasm/cpu_worker6.js?v=25',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -204,6 +204,12 @@ window.CPU6 = class {
             // CPU操作中は重力を無効にし、ソフトドロップとの干渉を防ぐ
             if (this.game) this.game.cpuAction('gravity', true);
             this.actionQueue = this.buildActionQueue(bestResult);
+            // §22: 次のミノが向き 0 で出せない局面では、探索が選んだ出し方（先行回転・先行ホールド）を
+            //   ハードドロップの直前に予約する（固定の直後の出現で使われる。game.cpuAction('spawnPlan')）
+            if (bestResult.nextIrs || bestResult.nextIhs) {
+                const k = this.actionQueue.findIndex(a => a.type === 'harddrop');
+                if (k >= 0) this.actionQueue.splice(k, 0, { type: 'spawnPlan', rot: bestResult.nextIrs, hold: !!bestResult.nextIhs, delay: 0 });
+            }
 
             this.game.cpuSchedule(this.actionDelay, () => {
                 this.processActionQueue();
@@ -602,6 +608,9 @@ window.CPU6 = class {
             case 'harddrop':
                 this.game.cpuAction('hardDrop');
                 break;
+            case 'spawnPlan':
+                this.game.cpuAction('spawnPlan', action.rot, action.hold);
+                break;
         }
 
         if (typeof this.game.drawAll === 'function') {
@@ -893,6 +902,16 @@ window.CPU6 = class {
             this.weights.tSlotReadyFin,         // ★追加 [37]
             this.weights.tSlotReadyTst          // ★追加 [38]
         ]);
+        // §22: ZONE の発動中は [39..] に終了時の火力表（7777・段数の数・表。cpu_zone.js zoneTable）
+        const zt = window.CpuZone ? CpuZone.zoneTable(this.game) : null;
+        if (zt) {
+            const wa = new Int32Array(41 + zt.length);
+            wa.set(weightsArray, 0);
+            wa[39] = 7777;
+            wa[40] = zt.length;
+            wa.set(zt, 41);
+            weightsArray = wa;
+        }
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
 
@@ -921,7 +940,11 @@ window.CPU6 = class {
             backToBack: currentBtB,
             incoming: incoming,
             // ZONE の発動中: 時間切れまでに置ける見込みの手数（探索が時間切れを ZONE 終了として読む。cpu_zone.js）
-            zoneMovesLeft: window.CpuZone ? CpuZone.movesLeft(this.game, 6) : 0
+            zoneMovesLeft: window.CpuZone ? CpuZone.movesLeft(this.game, 6) : 0,
+            // §22: 先行回転で出たミノは、その向き・位置から手を作る（内部座標 y+5）
+            startRot: mino.rotation || 0,
+            startX: mino.x,
+            startY: mino.y + 5
         });
     }
 
@@ -975,6 +998,11 @@ window.CPU6 = class {
             p5: (res[21] >= 0 && res[21] <= 6) ? { id: res[21], rot: res[22], x: res[23], y: res[24] - 5 } : null, 
             p6: (res[25] >= 0 && res[25] <= 6) ? { id: res[25], rot: res[26], x: res[27], y: res[28] - 5 } : null, 
             
+            // §22: 次のミノの出し方（先行回転 0/1/-1・先行ホールド）。今のミノを落とす前に予約する
+            nextIrs: res.length > 44 ? res[43] : 0,
+            nextIhs: res.length > 44 ? res[44] : 0,
+            zoneEnd: res.length > 46 ? res[46] : 0, // ZONE を終えると決めた（これ以上消せない）
+
             totalScore: res[29] || 0,
             step1Score: res[30] || 0,
             step2Score: res[31] || 0,

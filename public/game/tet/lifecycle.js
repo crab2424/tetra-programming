@@ -54,6 +54,7 @@ Object.assign(Game.prototype, {
         // この後に入れるマージンの予約が最初のフレームでまとめて追いつかれてすぐ発火してしまう。
         this._cancelLockTimer();
         this._cancelGarbageTimers();
+        this._spawnPlan = null; // CPU の出し方の予約（cpuAction 'spawnPlan'）を前局から持ち越さない
         if (this._vsMarginTimer) { this.clock.cancel(this._vsMarginTimer); this._vsMarginTimer = null; }
         this.clock.resume(); // ポーズ中のリスタートなどで止まったままの時計を動かす
         this.clock.advance();

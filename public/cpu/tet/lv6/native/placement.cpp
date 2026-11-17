@@ -1,6 +1,7 @@
 #include "placement.h"
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 
 const int KICK_I_CW[4][5][2] = {
     {{0,0}, {-2,0}, {1,0}, {-2,1}, {1,-2}},
@@ -37,7 +38,39 @@ struct ParentInfo {
     int8_t x, y, rot, action;
 };
 
+// 出現位置（実機 game/tet/rotation.js _placeAtSpawn と同じ）。内部座標（y は実機 +5）で起点を返す。
+//   irsDir 0     … 向き 0。出現位置 → だめなら 1 段上
+//   irsDir 1/-1  … 先行回転（右/左）。回した形の一番下のブロックを実機 y=0（内部 5）に置く → だめなら 1 段上
+bool spawnPose(const Board& b, int pieceType, int irsDir, int& rot, int& x, int& y) {
+    rot = irsDir == 1 ? 1 : (irsDir == -1 ? 3 : 0);
+    x = COLS / 2 - 2;
+    if (irsDir == 0) {
+        y = (pieceType == 0) ? 4 : 3;
+    } else {
+        int bottom = -100;
+        for (int i = 0; i < 4; i++) bottom = std::max(bottom, PRECALC_MINO_BLOCKS[pieceType][rot][i].y);
+        y = 5 - bottom;
+    }
+    for (int dy = 0; dy <= 1; dy++) {
+        GridBlock blk[4];
+        for (int i = 0; i < 4; i++) {
+            blk[i].x = PRECALC_MINO_BLOCKS[pieceType][rot][i].x + x;
+            blk[i].y = PRECALC_MINO_BLOCKS[pieceType][rot][i].y + y - dy;
+        }
+        if (isValidPlacement(b, blk)) { y -= dy; return true; }
+    }
+    return false;
+}
+
 std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, int spawnY) {
+    int rot, x, y;
+    (void)spawnY;
+    if (!spawnPose(baseBoard, pieceType, 0, rot, x, y)) return {};
+    return getAllPlacementsFrom(baseBoard, pieceType, rot, x, y);
+}
+
+// 起点（向き・位置。内部座標で、盤面に重ならないこと）から BFS で全部の置き方を作る
+std::vector<Placement> getAllPlacementsFrom(const Board& baseBoard, int pieceType, int startRot, int startX, int startY) {
     std::vector<Placement> placements;
     placements.reserve(64);
 
@@ -53,23 +86,9 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
     static thread_local int generation = 0;
     ++generation;
 
-    int spawnX = COLS / 2 - 2;
-    int initialRot = 0;
-
-    // ★最適化：getRotatedBlocks() の呼び出しを排除し、事前計算されたテーブルから直接ブロック位置を取得
-    GridBlock startBlocks[4];
-    for(int i=0; i<4; i++) {
-        startBlocks[i].x = PRECALC_MINO_BLOCKS[pieceType][initialRot][i].x + spawnX;
-        startBlocks[i].y = PRECALC_MINO_BLOCKS[pieceType][initialRot][i].y + spawnY;
-    }
-
-    if (!isValidPlacement(baseBoard, startBlocks)) {
-        spawnY -= 1;
-        for(int i=0; i<4; i++) {
-            startBlocks[i].y = PRECALC_MINO_BLOCKS[pieceType][initialRot][i].y + spawnY;
-        }
-        if (!isValidPlacement(baseBoard, startBlocks)) return placements;
-    }
+    int spawnX = startX;
+    int spawnY = startY;
+    int initialRot = startRot;
 
     static thread_local BFSState bfsQueue[3000];
     int qHead = 0, qTail = 0;

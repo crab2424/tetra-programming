@@ -29,16 +29,20 @@ self.Module = {
     //   ★v=20: lv6 を main（v2.3）の版に戻した（2026-10-27。強化版 v=17〜19 のキャッシュを使わせない）
     //   ★v=21: 死んだ枝を 1 つだけ覚える形にして再ビルド（ZONE の発動中の Aborted(OOM) 対策。結果は同じ）
     //   ★v=23: ZONE の発動中は ZONE 段を除いた盤面で評価・出現できない枝は ZONE 終了の終点（設計 §20）
-    locateFile: function(path) { return path + '?v=23'; },
+    //   ★v=24: 先行回転・先行ホールド・ZONE の火力表と終え方（設計 §22）
+    locateFile: function(path) { return path + '?v=24'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=24');  // ★ 2026-11-17 ZONE 終了の終点・ZONE 段を除いた評価・残り手数（設計 §20）で再ビルド
+importScripts('cpu_wasm6.js?v=25');  // ★ 2026-11-17 先行回転・先行ホールド・ZONE の火力表と終え方（設計 §22）で再ビルド
 // （前回）★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
 
+// §22: 重みの後ろに ZONE の火力表が続く（7777・段数の数・表）・結果は [43..47] まで。
+//   evaluate_single と calculate は同じ領域を使うので、どちらが先でもこの大きさで取る
+const WEIGHTS_CAP = 96, OUT_LEN = 48;
 let boardPtr = null;
 let resultPtr = null;
 let weightsPtr = null;
@@ -51,9 +55,9 @@ self.onmessage = function(e) {
     if (data.type === 'evaluate_single') {
         if (boardPtr === null) {
             boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
-            // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応
-            weightsPtr = Module._my_malloc(4 * 39);
-            resultPtr  = Module._my_malloc(4 * 43);
+            // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応（§22 で表のぶん広げた）
+            weightsPtr = Module._my_malloc(4 * WEIGHTS_CAP);
+            resultPtr  = Module._my_malloc(4 * OUT_LEN);
         }
 
         HEAPU8.set(data.boardBuffer, boardPtr);
@@ -86,12 +90,15 @@ self.onmessage = function(e) {
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張
         // ★修正: 重み要素数 39（[37]tSlotReadyFin/[38]tSlotReadyTst 追加）に対応
-        weightsPtr = Module._my_malloc(4 * 39);
-        resultPtr  = Module._my_malloc(4 * 43);
+        // §22: ZONE の発動中は [39..] に終了時の火力表が続く（7777・段数の数・表）。余裕を持って 96 個
+        weightsPtr = Module._my_malloc(4 * WEIGHTS_CAP);
+        resultPtr  = Module._my_malloc(4 * OUT_LEN);
     }
 
     HEAPU8.set(data.boardBuffer, boardPtr);
-    HEAP32.set(data.weightsArray, weightsPtr / 4);
+    // 前の呼び出しの火力表が残らないよう、毎回 0 で埋めてから書く
+    HEAP32.fill(0, weightsPtr / 4, weightsPtr / 4 + WEIGHTS_CAP);
+    HEAP32.set(data.weightsArray.subarray(0, WEIGHTS_CAP), weightsPtr / 4);
 
     const startTime = performance.now();
 
@@ -113,7 +120,8 @@ self.onmessage = function(e) {
         data.ren,
         data.backToBack,
         data.incoming || 0, // ★着弾おじゃまライン数（生存判定 pick_move 用）
-        data.zoneMovesLeft || 0 // ZONE の発動中: 時間切れまでに置ける見込みの手数（cpu_zone.js movesLeft）
+        data.zoneMovesLeft || 0, // ZONE の発動中: 時間切れまでに置ける見込みの手数（cpu_zone.js movesLeft）
+        data.startRot || 0, data.startX || 0, data.startY || 0 // §22: 先行回転で出ているミノの向き・位置（内部座標）
     );
 
     const endTime = performance.now();
@@ -121,7 +129,7 @@ self.onmessage = function(e) {
 
     console.log(`⚡ Wasm CPU6 Calculated in: ${timeTaken} ms`);
 
-    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, 43); 
+    const resultArray = new Int32Array(HEAP32.buffer, resultPtr, OUT_LEN); // [43..47] は §22 の出し方・ZONE の終点
 
     self.postMessage({
         type: 'result',

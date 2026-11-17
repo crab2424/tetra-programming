@@ -4,6 +4,9 @@ bool isValidPlacement(const Board& b, const GridBlock blocks[4]) {
     for(int i = 0; i < 4; i++) {
         const auto& blk = blocks[i];
         if(blk.x < 0 || blk.x >= COLS || blk.y >= ROWS || (blk.y >= 0 && ((b.rows[blk.y] >> blk.x) & 1))) return false;
+        // ZONE の発動中: 探索の盤面（25 段＝枠の上 5 段まで）より上はふさがっている扱い。実機は枠の上 20 段まで
+        //   動けるが、ここより上に置いた手は盤面に残せない（先行回転・キックで上がる手。§22）
+        if (blk.y < 0 && b.zone >= 0) return false;
     }
     return true;
 }

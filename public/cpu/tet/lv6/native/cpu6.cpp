@@ -67,6 +67,32 @@ static const int ZONE_NEAR_MOVES   = 8;    // 終盤とみなす残り手数（�
 static const int ZONE_LETHAL       = 19;   // ZONE の後に残る段＋予告がこれ以上なら安全でない（cpu_zone.js lethalHeight と同じ）
 static const int ZONE_END_PLY_COMP = 250;  // 終点の枝に足す、残りの手数ぶんの埋め合わせ（1 手の接地・接触の加点の目安）
 
+// ── 先行回転・先行ホールド／ZONE の終了時の火力（設計 tetlabo-zone-versus-cpu-design.md §22）──
+//   ・次のミノが向き 0 で出せないときだけ、先行回転（右・左に回した形で出す）と先行ホールド（ホールドのミノ、
+//     空なら NEXT の次で出す）を手として作る。どの手で出したかは spawn_irs / spawn_ihs に残し、JS が
+//     今のミノを落とす前に予約する（game.cpuAction('spawnPlan')）。向き 0 で出せるときは今までと同じ手だけ。
+//   ・ZONE の発動中は、向き 0 で出せない所で「ZONE を終える（わざと出現位置をふさぐ）」も終点として残す。
+//   ・ZONE の段の価値は終了時の火力表（JS が段数ごとの合計を渡す。cpu_zone.js zoneTable）の増えぶん × ZONE_ATK_W。
+//     20 段から先は表で大きく跳ねるので、届くなら自然にそちらを選ぶ。
+//   ・読みの中で、終点より多く消せる生きた枝が無ければ（どう積んでもこれ以上消せない）、終点を選んで ZONE を終える。
+#ifndef ZONE_ATK_W_DEF
+#define ZONE_ATK_W_DEF 400
+#endif
+static const int ZONE_ATK_W = ZONE_ATK_W_DEF; // 火力 1 段あたりの点（300/400/600/1000 を測って 400。§22）
+static const int ZONE_TABLE_MAGIC = 7777;     // weightsArray[39] がこれなら [40] に段数の数、[41..] に火力表
+static int  g_zoneTableN = 0;
+static int  g_zoneTable[48];
+#ifndef ZONE_GOAL_DEF
+#define ZONE_GOAL_DEF 22
+#endif
+static const int ZONE_GOAL = ZONE_GOAL_DEF;   // 1 段の価値をならす先（この段数までの平均の伸びを下限にする）
+static int  g_zoneSlopeX10 = 0;               // 探索の始めの段数から ZONE_GOAL までの、1 段あたりの火力の平均（10 倍）
+static inline int zoneTableAt(int L) {
+    if (L < 0) L = 0;
+    if (L >= g_zoneTableN) L = g_zoneTableN - 1;
+    return g_zoneTable[L];
+}
+
 static Board zonePlain(const Board& b) {
     if (b.zone <= 0) { Board p = b; p.zone = -1; return p; }
     Board p;
@@ -93,6 +119,11 @@ static bool canSpawnPiece(const Board& b, int pieceType) {
         if (isValidPlacement(b, blk)) return true;
     }
     return false;
+}
+// 先行回転（右か左）で出せるか
+static bool canSpawnIrs(const Board& b, int pieceType) {
+    int r, x, y;
+    return spawnPose(b, pieceType, 1, r, x, y) || spawnPose(b, pieceType, -1, r, x, y);
 }
 static inline bool isLockOut(const GridBlock* blocks) {
     if (g_zoneNoLockOut) return false;
@@ -132,6 +163,11 @@ struct SearchState {
     // ★ v2.2.3 I: この枝が死亡(Block Out / Lock Out)で終わったか。pick_move で死に枝を除外するのに使う。
     bool dead;
 
+    // §22: 各手の出し方（先行回転 0/1/-1・先行ホールド 0/1）と、ZONE の終点の種類（0=生きている 1=出現位置をふさいで終える 2=時間切れ）
+    int8_t spawn_irs[8];
+    int8_t spawn_ihs[8];
+    int8_t end_kind;
+
     SearchState() {
         first_action = -1;
         hold_mino = -1;
@@ -146,7 +182,10 @@ struct SearchState {
         first_center_h = 0;
         first_attack = 0;
         dead = false;
+        end_kind = 0;
         for(int i = 0; i < 8; ++i) {  // ★深さ8対応: 6→8
+            spawn_irs[i] = 0;
+            spawn_ihs[i] = 0;
             has_p[i] = false;
             step_score[i] = 0;
             p_id[i] = -1;
@@ -289,12 +328,13 @@ void searchBestMoveWasm(
     int* weightsArray, int* outResult,
     int ren, int backToBack,
     int incoming, // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。0なら通常選択
-    int zoneMovesLeft // ZONE の発動中: 時間切れまでに置ける見込みの手数（0＝発動していない・分からない）
+    int zoneMovesLeft, // ZONE の発動中: 時間切れまでに置ける見込みの手数（0＝発動していない・分からない）
+    int startRot, int startX, int startY // §22: いまのミノが先行回転で出ているときの向き・位置（内部座標）。startRot<=0 ならふつうの出現位置
 ){
     ensurePrecalc();
 
-    for(int i = 0; i < 43; i++) outResult[i] = -1;
-    for(int i = 36; i < 43; i++) outResult[i] = 0;
+    for(int i = 0; i < 48; i++) outResult[i] = -1;
+    for(int i = 36; i < 48; i++) outResult[i] = 0;
 
     Board baseBoard;
     for(int i = 0; i < 250; i++) {
@@ -305,6 +345,14 @@ void searchBestMoveWasm(
     if (boardData[0] >= 100) { baseBoard.zone = boardData[0] - 100; baseBoard.clear(0, 0); }
 
     EvalWeights w = unpackWeights(weightsArray);
+    // §22: ZONE の終了時の火力表（段数 0..N-1 の合計火力。発動中だけ JS が付ける）
+    g_zoneTableN = 0;
+    if (boardData[0] >= 100 && weightsArray[39] == ZONE_TABLE_MAGIC) {
+        int n = weightsArray[40];
+        if (n > 48) n = 48;
+        for (int i = 0; i < n; i++) g_zoneTable[i] = weightsArray[41 + i];
+        g_zoneTableN = n > 0 ? n : 0;
+    }
 
     // ★深さ8対応: current + next1..next8 + 終端0 = 10要素
     // （holdが空の開幕でインデックスが1ずれるため、深さ8で最大 index=8 を参照する）
@@ -329,6 +377,12 @@ void searchBestMoveWasm(
     g_zoneIncoming  = zn ? (incoming > 0 ? incoming : 0) : 0;
     g_zoneNear = zn && (baseBoard.zone + baseMaxHeight >= ZONE_NEAR_HEIGHT
                         || (g_zoneMovesLeft > 0 && g_zoneMovesLeft <= ZONE_NEAR_MOVES));
+    // §22: 表は 20 段から急に伸びるので、8 手の読みでは手前の段の価値が見えない（16 段から 1 段増やしても火力 +1 など）。
+    //   いまの段数から ZONE_GOAL 段までの平均の伸びを、1 段の価値の下限にする（先の段の価値を手前にならす）
+    g_zoneSlopeX10 = 0;
+    if (zn && g_zoneTableN > 0 && baseBoard.zone < ZONE_GOAL) {
+        g_zoneSlopeX10 = (zoneTableAt(ZONE_GOAL) - zoneTableAt(baseBoard.zone)) * 10 / (ZONE_GOAL - baseBoard.zone);
+    }
 
     std::vector<SearchState> final_states;
     std::vector<SearchState> current_states;
@@ -353,30 +407,67 @@ void searchBestMoveWasm(
     };
     // ZONE 終了の終点（出現できないが ZONE の後は安全・残り手数を使い切った）。いちばん良い 1 つだけ覚える。
     //   死に枝ではないので減点しない。残りの手数ぶんの埋め合わせを足して、深さ 8 まで生きた枝と比べられるようにする
-    SearchState bestEnded;
-    bool hasEnded = false;
-    auto pushEnded = [&](SearchState e, int step_num) {
+    //   §22: 出現位置をふさいで終える終点は ZONE の段数ごとにいちばん良い 1 つ、時間切れの終点は 1 つ覚える
+    //   （「どう積んでもこれ以上消せないなら終える」を段数で比べるため）
+    static const int ZMAX = 48;
+    std::vector<SearchState> endedByZone(ZMAX); // 1 つが大きい（手の経路込み）のでスタックに置かない
+    bool hasEndedZ[ZMAX] = { false };
+    SearchState bestTimeout;
+    bool hasTimeout = false;
+    auto pushEnded = [&](SearchState e, int step_num, int kind) {
         e.beam_score += ZONE_END_PLY_COMP * (SEARCH_MAX_STEP - step_num);
-        if (!hasEnded || e.beam_score > bestEnded.beam_score) { bestEnded = e; hasEnded = true; }
+        e.end_kind = (int8_t)kind;
+        if (kind == 2) {
+            if (!hasTimeout || e.beam_score > bestTimeout.beam_score) { bestTimeout = e; hasTimeout = true; }
+            return;
+        }
+        int L = e.board.zone < 0 ? 0 : (e.board.zone >= ZMAX ? ZMAX - 1 : e.board.zone);
+        if (!hasEndedZ[L] || e.beam_score > endedByZone[L].beam_score) { endedByZone[L] = e; hasEndedZ[L] = true; }
     };
     current_states.reserve(BEAM_WIDTH * 2);
     next_states_N.reserve(2048);
     next_states_L.reserve(2048);
 
-    auto expandState = [&](const SearchState& s, int piece, int new_hold, int new_next_idx, int step_num, bool is_first, int first_action) -> int {
-        std::vector<Placement> p_list = getAllPlacements(is_first ? baseBoard : s.board, piece, getSpawnY(piece));
+    // allowIrs: 先行回転で出してよいか（新しく出るミノ。ふつうのホールドで出るミノは向き 0 だけ＝実機と同じ）
+    // ihs     : このミノは先行ホールドで出す
+    // 戻り値 -1 = 向き 0 で出せなかった（呼び出し側は先行ホールドを試す）
+    auto expandState = [&](const SearchState& s, int piece, int new_hold, int new_next_idx, int step_num, bool is_first, int first_action,
+                           bool allowIrs, bool ihs) -> int {
+        const Board& src = is_first ? baseBoard : s.board;
+        std::vector<Placement> p_list;
+        bool rot0Blocked = false;
+        int sr, sx, sy;
+        if (is_first && first_action == 0 && startRot > 0) {
+            // いまのミノは先行回転で出ている。実際の向き・位置から作る
+            p_list = getAllPlacementsFrom(src, piece, startRot, startX, startY);
+        } else if (spawnPose(src, piece, 0, sr, sx, sy)) {
+            p_list = getAllPlacementsFrom(src, piece, sr, sx, sy);
+        } else {
+            rot0Blocked = true;
+            if (allowIrs && !is_first) {
+                for (int dir : {1, -1}) {
+                    if (!spawnPose(src, piece, dir, sr, sx, sy)) continue;
+                    auto more = getAllPlacementsFrom(src, piece, sr, sx, sy);
+                    for (auto& q : more) {
+                        bool dup = false;
+                        for (const auto& e : p_list) if (e.rot == q.rot && e.x == q.x && e.y == q.y) { dup = true; break; }
+                        if (!dup) { q.spawnIrs = (int8_t)dir; p_list.push_back(q); }
+                    }
+                }
+            }
+        }
+        if (ihs) for (auto& q : p_list) q.spawnIhs = 1;
 
         if (p_list.empty()) {
-            // ZONE: 出せない＝ ZONE 終了。後が安全なら、ここまでの手の枝をそのまま終点にする（初手は手が無いので今までどおり）
-            if (zn && !is_first && zoneEndSafe(s.max_height)) { pushEnded(s, step_num - 1); return -1; }
             // Block Out: この手番のミノを出せない＝この手番で死亡
+            //   （ZONE の終点は、前の手を置いた所の「次が向き 0 で出せない」で残してある）
             SearchState dead_s = s;
             dead_s.total_score -= deathPenalty(step_num);
             dead_s.beam_score  -= deathPenalty(step_num); // ★ 選択キーにも必ず入れる（旧実装は無減点）
             dead_s.dead = true;
             if (is_first) dead_s.first_action = first_action;
             pushDead(dead_s);
-            return -1; // ★ v2.2.3 I: Block Out（呼び出し側は HOLD の展開をしない）
+            return -1;
         }
 
         int pushed_count = 0;
@@ -411,8 +502,17 @@ void searchBestMoveWasm(
                     plainAfter, plainBefore, p.linesCleared, p.isFullyGrounded, p.touchingCount,
                     p.tSpinType, cur_ren, cur_btb, pb, prevHeight, w
                 );
-                // 終盤は消した段数が第一
-                if (g_zoneNear) eventScore += p.linesCleared * ZONE_LINE_BONUS;
+                if (g_zoneTableN > 0) {
+                    // §22: 段の価値は終了時の火力表の増えぶん（20 段から先は表で大きく跳ねる）
+                    const int zAfter = simBoard.zone > 0 ? simBoard.zone : 0;
+                    for (int l = zBefore + 1; l <= zAfter; l++) {
+                        const int d10 = (zoneTableAt(l) - zoneTableAt(l - 1)) * 10;
+                        eventScore += std::max(d10, (g_zoneNear && l <= ZONE_GOAL) ? g_zoneSlopeX10 : 0) * ZONE_ATK_W / 10;
+                    }
+                } else if (g_zoneNear) {
+                    // 表が無いとき（古い JS）: 終盤は消した段数が第一（§20）
+                    eventScore += p.linesCleared * ZONE_LINE_BONUS;
+                }
             } else {
             // ★分割対応：評価値（盤面の良さ）を evalBoardState で取得
             // ★Phase2: この手番以降に使えるTの本数を T-slot 先読みに渡す（placed後の new_next_idx / new_hold 基準）
@@ -502,6 +602,8 @@ void searchBestMoveWasm(
             next_s.has_p[step_num - 1] = true;
             next_s.step_score[step_num - 1] = stepScore;
             next_s.p_id[step_num - 1] = piece;
+            next_s.spawn_irs[step_num - 1] = p.spawnIrs;
+            next_s.spawn_ihs[step_num - 1] = p.spawnIhs;
 
             // ★ v2.2.3 I: 次に出るミノ（HOLDに関係なく必ず出現する）が出せない盤面は、その場で
             //   「次の手番で死亡」として final へ送る。ビーム枠を死ぬ枝に使わせず、評価値の低い
@@ -509,19 +611,28 @@ void searchBestMoveWasm(
             if (!hasBlockOutside) {
                 int upcoming = new_next_idx < 9 ? next_queue[new_next_idx] : 0;
                 if (!canSpawnPiece(simBoard, upcoming)) {
-                    // ZONE: 次が出せない＝ ZONE 終了。後が安全なら終点（減点なし）
-                    if (zn && zoneEndSafe(current_max_height)) { pushEnded(next_s, step_num); continue; }
-                    next_s.total_score -= deathPenalty(step_num + 1);
-                    next_s.beam_score  -= deathPenalty(step_num + 1);
-                    next_s.dead = true;
-                    pushDead(next_s);
-                    continue;
+                    // ZONE: 次が向き 0 で出せない＝何もしなければ ZONE 終了。後が安全なら終点として残す（減点なし）
+                    const bool endOk = zn && zoneEndSafe(current_max_height);
+                    if (endOk) pushEnded(next_s, step_num, 1);
+                    // §22: 先行回転・先行ホールドで出せるなら、続ける枝としてもビームに残す
+                    const int ihsPiece = new_hold != -1 ? new_hold : (new_next_idx + 1 < 9 ? next_queue[new_next_idx + 1] : -1);
+                    const bool cont = canSpawnIrs(simBoard, upcoming)
+                        || (ihsPiece >= 0 && (canSpawnPiece(simBoard, ihsPiece) || canSpawnIrs(simBoard, ihsPiece)));
+                    if (!cont) {
+                        if (!endOk) {
+                            next_s.total_score -= deathPenalty(step_num + 1);
+                            next_s.beam_score  -= deathPenalty(step_num + 1);
+                            next_s.dead = true;
+                            pushDead(next_s);
+                        }
+                        continue;
+                    }
                 }
             }
 
             // ZONE: 残り手数を使い切った＝この手の後に時間切れで ZONE が終わる。その先は読まない
             if (zn && !hasBlockOutside && g_zoneMovesLeft > 0 && step_num >= g_zoneMovesLeft) {
-                pushEnded(next_s, step_num);
+                pushEnded(next_s, step_num, 2);
                 continue;
             }
 
@@ -567,7 +678,7 @@ void searchBestMoveWasm(
     initial_state.backToBack = (backToBack != 0);
     initial_state.max_height = baseMaxHeight;
 
-    expandState(initial_state, next_queue[0], holdType, 1, 1, true, 0);
+    expandState(initial_state, next_queue[0], holdType, 1, 1, true, 0, false, false);
 
     if(canHold == 1) {
         int piece;
@@ -580,7 +691,7 @@ void searchBestMoveWasm(
             piece = next_queue[1];
             new_next_idx = 2;
         }
-        expandState(initial_state, piece, new_hold, new_next_idx, 1, true, 1);
+        expandState(initial_state, piece, new_hold, new_next_idx, 1, true, 1, false, false);
     }
 
     trimAndMerge();
@@ -595,10 +706,19 @@ void searchBestMoveWasm(
 
             // ★ v2.2.3 I: 次のミノが出現位置に出られない（Block Out）なら、HOLD する前にその場で死亡。
             //   旧実装は HOLD 側の展開で「別のミノなら出せる」として生存扱いしていた。
-            if (expandState(state, cur_mino, state.hold_mino, state.next_idx + 1, step_num, false, -1) < 0) continue;
+            if (expandState(state, cur_mino, state.hold_mino, state.next_idx + 1, step_num, false, -1, true, false) < 0) {
+                // §22: 向き 0 で出せない。先行ホールドなら、いまのミノを出さずにホールドのミノ（空なら NEXT の次）を出せる
+                if (state.hold_mino != -1) {
+                    if (state.hold_mino != cur_mino)
+                        expandState(state, state.hold_mino, cur_mino, state.next_idx + 1, step_num, false, -1, true, true);
+                } else if (state.next_idx + 1 < 9) {
+                    expandState(state, next_queue[state.next_idx + 1], cur_mino, state.next_idx + 2, step_num, false, -1, true, true);
+                }
+                continue;
+            }
 
             if (state.hold_mino != -1 && state.hold_mino != cur_mino) {
-                expandState(state, state.hold_mino, cur_mino, state.next_idx + 1, step_num, false, -1);
+                expandState(state, state.hold_mino, cur_mino, state.next_idx + 1, step_num, false, -1, false, false);
             }
         }
 
@@ -614,10 +734,16 @@ void searchBestMoveWasm(
     }
 
     if (hasDead) final_states.push_back(bestDead); // 死に枝は生存枝より前（以前の並びと同じ）
-    if (hasEnded) final_states.push_back(bestEnded); // ZONE 終了の終点（死に枝ではない）
+    // ZONE 終了の終点（死に枝ではない）
+    int endMax = -1;
+    for (int L = 0; L < ZMAX; L++) if (hasEndedZ[L]) { final_states.push_back(endedByZone[L]); endMax = L; }
+    if (hasTimeout) final_states.push_back(bestTimeout);
+    int liveMax = -1;
     for (const auto& state : current_states) {
         final_states.push_back(state);
+        if (state.board.zone > liveMax) liveMax = state.board.zone;
     }
+    if (hasTimeout && bestTimeout.board.zone > liveMax) liveMax = bestTimeout.board.zone;
 
     int bestTotalScore = -2000000000;
     const SearchState* bestState = nullptr;
@@ -627,6 +753,14 @@ void searchBestMoveWasm(
         if(state.beam_score > bestTotalScore) {
             bestTotalScore = state.beam_score;
             bestState = &state;
+        }
+    }
+    // §22: 読みの中で、出現位置をふさいで終える終点より多く消せる生きた枝が無い＝どう積んでもこれ以上消せない。
+    //   いちばん段数の多い終点を選んで ZONE を終える（同じ段数の中では点のいちばん良いもの＝早く終わるほど埋め合わせが多い）
+    bool zoneEndChosen = false;
+    if (zn && endMax >= 0 && endMax >= liveMax) {
+        for (const auto& state : final_states) {
+            if (state.end_kind == 1 && state.board.zone == endMax) { bestState = &state; zoneEndChosen = true; break; }
         }
     }
 
@@ -685,6 +819,15 @@ void searchBestMoveWasm(
         outResult[33] = bestState->has_p[3] ? bestState->step_score[3] : 0;
         outResult[34] = bestState->has_p[4] ? bestState->step_score[4] : 0;
         outResult[35] = bestState->has_p[5] ? bestState->step_score[5] : 0;
+
+        // §22: 次のミノ（2 手目）の出し方。JS が今のミノを落とす前に予約する（0,0 なら予約しない）
+        outResult[43] = bestState->has_p[1] ? bestState->spawn_irs[1] : 0;
+        outResult[44] = bestState->has_p[1] ? bestState->spawn_ihs[1] : 0;
+        // [45] 選んだ枝: 0=生きている 1=出現位置をふさいで ZONE を終える 2=時間切れ。[46] 終えると決めた（これ以上消せない）
+        outResult[45] = bestState->end_kind;
+        outResult[46] = zoneEndChosen ? 1 : 0;
+        // [47] 選んだ枝の終わりの ZONE 段の数（発動していなければ -1）
+        outResult[47] = zn ? bestState->board.zone : -1;
 
         int finalPath[64];
         int finalPathLen = 0;

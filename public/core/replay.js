@@ -42,7 +42,7 @@ const REPLAY_CPU_ACTIONS = [
     // puyo
     'quickDrop', 'softDropStart', 'softDropStep', 'forceLock', 'softKey',
     // tet（あとから足したもの。番号を変えないよう末尾へ）
-    'zone',
+    'zone', 'spawnPlan',
 ];
 const REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
 // 印の画面（UI 設計書 §7）: 札の幅・同じ段の札の間隔（札の中心どうし）・時刻 1ms あたりの幅（1 秒 40px）

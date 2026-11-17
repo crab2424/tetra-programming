@@ -637,6 +637,9 @@ Object.assign(Game.prototype, {
     //   'hardDrop'             ハードドロップ
     //   'gravity', off         CPU が操作している間の重力の停止（true で止める）
     //   'zone'                 ZONE 発動（発動できたら true）
+    //   'spawnPlan', rot, hold 次に出るミノの出し方の予約（先行回転 rot=1/-1・先行ホールド hold=true。0/false で取り消し）。
+    //                          次の _spawnMino がいちど使って消す（rotation.js。CPU は今のミノを落とす前に入れる。
+    //                          ZONE 設計 VERSUS 編 §22）
     // 戻り値はそれぞれの操作の結果（動けたか等）。
     // ─────────────────────────────────────────
     cpuAction(type, a, b, c) {
@@ -722,6 +725,10 @@ Object.assign(Game.prototype, {
             case 'hardDrop': r = this.hardDrop(); break;
             case 'gravity': this.gravityDisabled = !!a; break;
             case 'zone': r = this.activateZone(); break;   // ZONE 発動（tet/zone.js）
+            case 'spawnPlan':
+                this._spawnPlan = (a || b) ? { rot: (a === 1 || a === -1) ? a : 0, hold: !!b, dx: 0 } : null;
+                r = true;
+                break;
             default:
                 console.warn('[cpuAction] 知らない操作:', type);
         }

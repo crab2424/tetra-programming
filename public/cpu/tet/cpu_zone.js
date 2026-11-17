@@ -79,6 +79,21 @@ const CpuZone = (() => {
         return Math.max(1, Math.ceil(game.zoneRemainingMs() / (CONFIG.moveMs[level] || 700)));
     }
 
+    // 発動中の終了時の火力表（段数 0〜ZONE_TABLE_LEN-1 ごとの表のかたまりの合計。マージン倍率・ATTACK BIAS 込み）。
+    // 探索（lv6 など）が「段を増やす価値」をこれで読む（設計 §22）。発動していなければ null。
+    // 発動中にためた通常火力（pool）は入れない（探索が手ごとの火力として数えている）
+    const ZONE_TABLE_LEN = 32;
+    function zoneTable(game) {
+        if (!game || !game.zoneActive || !game.isVersusMode || typeof zoneEndAttackChunks !== 'function') return null;
+        const out = [];
+        for (let L = 0; L < ZONE_TABLE_LEN; L++) {
+            let sum = 0;
+            for (const c of zoneEndAttackChunks(game.zoneCharge, L, 0, game._tetMarginStep, game.vsAttackMultiplier ?? 1.0)) sum += c;
+            out.push(sum);
+        }
+        return out;
+    }
+
     // 相手の盤面を探索へ渡すとき用: ZONE 段を除いて、その段数ぶん下げた「ふつうの盤面」のブロック（{x, y}）
     function plainBlocks(game) {
         const bs = (game && game.field && game.field.blocks) || [];
@@ -295,6 +310,6 @@ const CpuZone = (() => {
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, movesLeft, incoming, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, noMoveDelay, dropIfNoMove };
+    return { CONFIG, RULES, floor, stampBoard, movesLeft, incoming, zoneTable, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, noMoveDelay, dropIfNoMove };
 })();
 window.CpuZone = CpuZone;
