@@ -41,7 +41,7 @@ const PRACTICE_NEXT_MAX_HEIGHT = BLOCK_SIZE * 13.5;
 //
 // 逆にこの数字が変わらない限り、ブラウザはキャッシュから読むだけで通信しない。
 // ─────────────────────────────────────────────
-const ASSET_VERSION = 7;
+const ASSET_VERSION = 8;
 
 // 素材URLにキャッシュ用バージョンを付ける。音源・画像の取得は必ずこれを通す。
 function assetUrl(path) {
@@ -1305,8 +1305,8 @@ class SeManager {
         'garbage':       0.60,  // おじゃまライン着弾。puyo_ojamaと同一音源（容量削減）。予告点灯には鳴らさない
         // ZONE（専用の音源ができるまで既存の音を借りている。下の loadSe のパスを差し替える）
         'zone_full':     1.00,  // メーター満タン
-        'zone_start':    1.00,  // 発動
-        'zone_line':     0.90,  // 発動中の消去
+        'zone_start':    1.00,  // -24.5 / 0.0（zone_start.ogg。ピーク張り付き＝据え置き）
+        'zone_line':     1.30,  // -25.2 / -2.8（zone_line.ogg。ピーク-0.5まで）
         'zone_end':      1.20,  // 終了
         'zone_end_big':  1.00,  // 終了（16 段以上）
         // ぷよ系
@@ -1493,11 +1493,11 @@ AudioLoader.loadSe({
     'levelup':       'assets/audio/se/tet/levelup.ogg',
     // 容量削減のため puyo_ojama と同一音源を共用（tet/puyoのおじゃま着弾で統一）
     'garbage':       'assets/audio/se/puyo/ojama.ogg', // おじゃまラインの着弾
-    // ZONE（設計 tetlabo-zone-design.md §6.2）。専用の音源を用意するまで既存の音を共用する。
+    // ZONE（設計 tetlabo-zone-design.md §6.2）。zone_start/zone_line はポケットサウンド。残りは既存の音を共用する。
     // 用意したら assets/audio/se/tet/zone_*.ogg に置いてパスを差し替え、ASSET_VERSION を +1 する
     'zone_full':     'assets/audio/se/menu/countdown_start.ogg',
-    'zone_start':    'assets/audio/se/tet/levelup.ogg',
-    'zone_line':     'assets/audio/se/tet/1line.ogg',
+    'zone_start':    'assets/audio/se/tet/zone_start.ogg',
+    'zone_line':     'assets/audio/se/tet/zone_line.ogg',
     'zone_end':      'assets/audio/se/tet/4lines.ogg',
     'zone_end_big':  'assets/audio/se/puyo/allclear.ogg',
     // ぷよ系
