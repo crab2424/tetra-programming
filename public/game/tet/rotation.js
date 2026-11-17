@@ -96,7 +96,7 @@ Object.assign(Game.prototype, {
             const wx = Math.round(rx + px) + mx
             const wy = Math.round(ry + py) + my
             if (wx < 0 || wx >= COLS_COUNT) return false
-            if (wy < -5 || wy >= ROWS_COUNT) return false
+            if (wy < this.topLimit || wy >= ROWS_COUNT) return false
             if (field.has(wx, wy)) return false
         }
         return true
@@ -133,7 +133,7 @@ Object.assign(Game.prototype, {
             const x = blocks[i].x + mino.x
             const y = blocks[i].y + mino.y
             if (x < 0 || x >= COLS_COUNT) return false
-            if (y < -5 || y >= ROWS_COUNT) return false
+            if (y < this.topLimit || y >= ROWS_COUNT) return false
             if (field.has(x, y)) return false
         }
         return true

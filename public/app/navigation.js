@@ -934,6 +934,8 @@ async function startGameFromModeCheck() {
     window._game.zoneQuarterMsSetting = zoneSettings.quarterMs;
     window._game.zoneQuarterLinesSetting = zoneSettings.quarterLines;
     window._game.zoneRecordEligible = isZoneRecordEligible();
+    // 表示の縮尺（見た目だけ。modes.js）
+    if (typeof applyZoneViewScale === 'function') applyZoneViewScale();
   }
 
   const evalArea = document.getElementById('eval-area');

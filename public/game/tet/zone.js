@@ -118,6 +118,12 @@ function zoneTierIndex(lines) {
     return i; // 0 = 4 未満、6 = 20 以上
 }
 
+// ミノが動ける一番上の段（y がこれ以上）。ふつうは枠の上 5 段（計 25 段）。
+// シングルの ZONE だけ枠の上 20 段（計 40 段。盤面の上限）まで（ZONE 本編 §16）。CPU の探索は 25 段前提なので VERSUS は広げない
+const TET_TOP_LIMIT = -5;
+const ZONE_TOP_LIMIT = -20;
+Game.prototype.topLimit = TET_TOP_LIMIT;
+
 Object.assign(Game.prototype, {
 
     // 試合の頭（_initGameState）で呼ぶ。終了の予約も取り消す
@@ -128,6 +134,9 @@ Object.assign(Game.prototype, {
         // テト同士のときだけ立つ。ONLINE の盤面には入らない）
         const vs = !!(this.isVersusMode && this.currentMode === 'versus' && this.vsZone === true);
         this.zoneEnabled = (this.mode === 'zone') || vs;
+        // 動ける範囲（版 10 以前の録画の再生は従来どおり 25 段。core/replay.js REPLAY_ENGINE_VERSION 11）
+        const oldTop = this._replay && this._replay.data && (this._replay.data.engine || 0) < 11;
+        this.topLimit = (this.mode === 'zone' && !this.isVersusMode && !oldTop) ? ZONE_TOP_LIMIT : TET_TOP_LIMIT;
         if (vs) {
             // VERSUS: VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ。未設定は 5 秒）（§12）
             this.zoneQuarterLines = (ZONE_QUARTER_LINES_OPTIONS.includes(this.vsZoneQuarterLines)
@@ -627,14 +636,14 @@ Object.assign(Game.prototype, {
         }
     },
 
-    // 枠の上（y < -0.5）に出たブロック・ミノを、盤面の上に重ねたキャンバスへ描く（§6.1・Q9）
+    // 枠の上（y < -0.5）に出たブロック・ミノを、盤面の上に重ねたキャンバスへ描く（§6.1・Q9。高さは §16）
     _zoneDrawAbove() {
         const cv = this._zoneTopCanvas();
         if (!cv) return;
         const ctx = cv.getContext('2d');
         ctx.clearRect(0, 0, cv.width, cv.height);
         if (!this.zoneEnabled) return;
-        // キャンバスの下端 = 盤面の y=-0.5（そこから下は盤面のキャンバスが描く）。y=-5〜-0.5 を受け持つ
+        // キャンバスの下端 = 盤面の y=-0.5（そこから下は盤面のキャンバスが描く）。y=topLimit〜-0.5 を受け持つ
         const oy = cv.height + VISIBLE_EXTRA_ROW_RATIO * BLOCK_SIZE; // y=0 の位置
         const draw = (x, y, img, alpha) => {
             if (y >= 0 || x < 0 || x >= COLS_COUNT) return;
@@ -667,12 +676,22 @@ Object.assign(Game.prototype, {
         if (!id) return null;
         if (this._zoneTop === undefined) {
             const cv = document.getElementById(id);
-            if (cv) {
-                cv.width = SCREEN_WIDTH;
-                cv.height = 4.5 * BLOCK_SIZE;
-            }
+            if (cv) cv.width = SCREEN_WIDTH;
             this._zoneTop = cv || null;
         }
-        return this._zoneTop;
+        // 高さ = 動ける一番上（topLimit）から y=-0.5 まで。ふつう 4.5 段、シングルの ZONE は 19.5 段（§16）
+        const cv = this._zoneTop;
+        if (cv) {
+            const h = (-this.topLimit - VISIBLE_EXTRA_ROW_RATIO) * BLOCK_SIZE;
+            if (cv.height !== h) {
+                cv.height = h;
+                // シングルは CSS の大きさも合わせる（盤面のキャンバスと同じ 1 画素 = 1px。VERSUS は 4.5 段のまま）
+                if (id === 'zone-top-canvas') {
+                    cv.style.height = h + 'px';
+                    cv.style.top = `calc(3px - ${h}px)`;
+                }
+            }
+        }
+        return cv;
     },
 });

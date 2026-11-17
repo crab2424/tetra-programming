@@ -262,6 +262,44 @@ function setZoneSetting(key, value) {
   if (hint) hint.innerHTML = zoneSettingsHintHtml();
 }
 
+// ─── ZONE の表示の縮尺（SCALE。ZONE 本編 §16）───
+// 見た目だけ（エンジン・録画・記録には関わらない）。シングルの ZONE の盤面（#container.zone-on）にだけ効く。
+// 縮めるときは盤面の底を固定して、空いたぶん枠の上（最大 20 段）が見えるようにする（src/css/pages/zone.css）。
+// 記録に関わる zoneSettings とは別に保存する（isZoneRecordEligible・setZoneSetting に混ぜない）
+const ZONE_VIEW_STORAGE_KEY = 'game_zone_view_scale';
+const ZONE_VIEW_OPTIONS = [100, 90, 80, 70, 60, 50];   // %
+const ZONE_VIEW_DEFAULT = 100;
+let zoneViewScale = (() => {
+  try {
+    const v = Number(localStorage.getItem(ZONE_VIEW_STORAGE_KEY));
+    if (ZONE_VIEW_OPTIONS.includes(v)) return v;
+  } catch (e) { /* 読めなければ既定 */ }
+  return ZONE_VIEW_DEFAULT;
+})();
+
+// #container に縮尺の変数を入れる。CSS は #container.zone-on のときだけ読むので、ほかのモードでは何も変わらない
+function applyZoneViewScale() {
+  const c = document.getElementById('container');
+  if (c) c.style.setProperty('--zone-view', String(zoneViewScale / 100));
+}
+
+function setZoneViewScale(value) {
+  if (!ZONE_VIEW_OPTIONS.includes(value) || zoneViewScale === value) return;
+  zoneViewScale = value;
+  try { localStorage.setItem(ZONE_VIEW_STORAGE_KEY, String(value)); } catch (e) { /* 保存失敗は無視 */ }
+  const color = (GAME_MODES.zone && GAME_MODES.zone.color) || '';
+  document.querySelectorAll('#mode-check-options .opt-btn[data-zone-view]').forEach((btn) => {
+    const on = btn.dataset.zoneView === String(value);
+    btn.classList.toggle('active', on);
+    btn.style.color = on ? color : '';
+    btn.style.borderColor = on ? color : '';
+  });
+  applyZoneViewScale();
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyZoneViewScale);
+else applyZoneViewScale();
+
 function _zoneSecLabel(ms) {
   return (ms / 1000) + 's';
 }
@@ -286,6 +324,8 @@ function renderZoneOptionsHtml() {
   return row('LEVEL', btns('levelMode', ZONE_LEVEL_OPTIONS, v => (v === 'up' ? 'UP' : 'FIXED')))
        + row('ZONE TIME', btns('quarterMs', ZONE_TIME_OPTIONS, _zoneSecLabel))
        + row('CHARGE', btns('quarterLines', ZONE_CHARGE_OPTIONS, v => String(v)))
+       + row('SCALE %', ZONE_VIEW_OPTIONS.map(v =>
+           `<button class="opt-btn ${zoneViewScale === v ? 'active' : ''}" data-zone-view="${v}" onclick="setZoneViewScale(${v})">${v}</button>`).join(''))
        + `<p class="practice-value-hint" id="zone-settings-hint">${zoneSettingsHintHtml()}</p>`;
 }
 

@@ -562,7 +562,7 @@ Object.assign(Game.prototype, {
         for (let i = 0; i < newBlocks.length; i++) {
             const b = newBlocks[i]
             if (b.x < 0 || b.x >= COLS_COUNT) return false
-            if (b.y < -5 || b.y >= ROWS_COUNT) return false
+            if (b.y < this.topLimit || b.y >= ROWS_COUNT) return false
             if (field.has(b.x, b.y)) return false
         }
         return true

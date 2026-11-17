@@ -618,7 +618,7 @@ class Field {
         // has() / getGhostY() が rAF ループから何度も呼ばれるため、
         // blocks.some() の線形探索と、ゴースト計算で毎フレ生成していた
         // Set + 'x,y' 文字列を排除する。
-        // valid() は y >= -5 まで参照するため上方 5 行ぶんのマージンを確保。
+        // valid() は y >= topLimit（ふつう -5・シングルの ZONE は -20）まで参照するため上方 TOP_PAD 行ぶんのマージンを確保。
         // 部分オーバーフローして y<0 にロックされたブロックも保持できる。
         this._occ = new Uint8Array(COLS_COUNT * (ROWS_COUNT + Field.TOP_PAD))
         this._occDirty = true
@@ -702,7 +702,8 @@ class Field {
         return this._occ[yy * COLS_COUNT + x] === 1
     }
 }
-Field.TOP_PAD = 5
+// 上の余白（段）。ふつうは y >= -5 だが、シングルの ZONE は y >= -20 まで動ける（Game.topLimit・tet/zone.js）
+Field.TOP_PAD = 20
 
 
 // ==========================================

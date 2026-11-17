@@ -176,7 +176,22 @@ body.hud-apm-visible #container.zone-on #lpm-area { top: 525px; }
   animation: zone-ready-pulse 0.5s ease-in-out infinite;
 }
 
-/* ─── 枠の上（y=-5〜-0.5）。盤面のキャンバスの上端にぴったり重ねる ─── */
+/* ─── 表示の縮尺（準備画面の SCALE。app/modes.js applyZoneViewScale が --zone-view に 0.5〜1 を入れる）───
+   シングルの ZONE の盤面（#container.zone-on）だけ。single-play.css の #container と同じ式に --zone-view を掛け、
+   盤面の底の位置は変えずに縮める（底 = 中心から 320px 下。縮めたぶん下へずらすと、空いた所に枠の上が見える）。
+   --zone-view が 1 のときは元の式と同じ。録画を見ているときは replay.css の式（高さの余白 120px）に合わせる */
+#container.zone-on {
+  transform: translate(-50%, -50%)
+    scale(calc(clamp(0.2, min(calc((100vw - 32px) / 750px), calc((100vh - 48px) / 700px)), 2) * var(--zone-view, 1)))
+    translateY(calc(320px * (1 - var(--zone-view, 1)) / var(--zone-view, 1)));
+}
+body.replay-watching:not(.replay-ui-hidden) #container.zone-on {
+  transform: translate(-50%, -50%)
+    scale(calc(clamp(0.2, min(calc((100vw - 32px) / 750px), calc((100vh - 120px) / 700px)), 2) * var(--zone-view, 1)))
+    translateY(calc(320px * (1 - var(--zone-view, 1)) / var(--zone-view, 1)));
+}
+
+/* ─── 枠の上（シングルの ZONE は y=-20〜-0.5。高さは tet/zone.js _zoneTopCanvas が合わせる）。盤面のキャンバスの上端にぴったり重ねる ─── */
 #zone-top-canvas {
   position: absolute;
   left: 3px;           /* #main-canvas の枠線ぶん */
