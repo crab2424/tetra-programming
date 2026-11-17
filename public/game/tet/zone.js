@@ -231,6 +231,7 @@ Object.assign(Game.prototype, {
         this.zoneAtkList = [];
         this.zoneTimeUp = false;
         this.zoneActive = true;
+        this._zoneFrozenRem = null;
         this.zoneCount++;
         this.zoneStartAt = this.clock.now();
         this._zoneB2bBefore = !!this.backToBack;
@@ -289,8 +290,17 @@ Object.assign(Game.prototype, {
 
     // 残り時間（ms）
     zoneRemainingMs() {
-        if (!this.zoneActive) return 0;
-        return Math.max(0, this.zoneDurationMs - (this.clock.now() - this.zoneStartAt));
+        if (!this.zoneActive) { this._zoneFrozenRem = null; return 0; }
+        // VERSUS の決着後は時計が演出のために進み続けるので、決着した所の残りで止める
+        // （勝った側は isFinishing にならないので、対戦の進行の phase も見る）
+        if (this._zoneFrozenRem != null) return this._zoneFrozenRem;
+        const rem = Math.max(0, this.zoneDurationMs - (this.clock.now() - this.zoneStartAt));
+        if (this.isVersusMode && (this.isFinishing || this.isGameOver
+            || (!this._replay && window.BattleVersusLifecycle
+                && ['roundResolving', 'roundResult', 'postMatch'].includes(window.BattleVersusLifecycle.phase)))) {
+            this._zoneFrozenRem = rem;
+        }
+        return rem;
     },
 
     // 発動中の消去判定（§4.3）。そろった段は消さずに底へ移し、block.zone の印を付ける。
