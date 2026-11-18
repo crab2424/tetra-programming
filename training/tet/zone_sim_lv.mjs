@@ -110,7 +110,7 @@ function callWasm(d, M = M0) {
     M.HEAPU8.set(d.boardBuffer, B);
     M.HEAP32.fill(0, W >> 2, (W >> 2) + 96);
     M.HEAP32.set(d.weightsArray.subarray(0, 96), W >> 2);
-    if (LV === 2) M._searchBestMoveWasm(B, d.currentType, d.holdType, d.next1, d.next2, d.canHold, W, O);
+    if (LV === 2) M._searchBestMoveWasm(B, d.currentType, d.holdType, d.next1, d.next2, d.canHold, d.curX, d.curY, d.curRot, W, O); // curX/Y/Rot: 2026-11-18 1 操作ずつ入れて届く手だけ
     else if (LV === 3) M._searchBestMoveWasm(B, d.currentType, d.holdType, d.next1, d.next2, d.next3, d.canHold, W, O);
     // lv4・lv5 の後ろ 2 つ（予告・残り手数）は §21 で足した引数。古い wasm は余分な引数を読まない
     else if (LV === 4) M._searchBestMoveWasm(B, d.currentType, d.holdType, d.next1, d.next2, d.next3, d.next4, d.next5, d.canHold, W, O, d.incoming || 0, d.zoneMovesLeft || 0);
@@ -148,7 +148,7 @@ function run(kind) {
         zoneActive: true, zoneLines: 0, topLimit: -20, playSe() {}, requestRedraw() {},
         zoneCharge: 4, _tetMarginStep: MARGIN, vsAttackMultiplier: BIAS,
         zoneRemainingMs: () => Math.max(0, (MOVES - moves) * CpuZone.CONFIG.moveMs[LV]),
-        cpuFrame() {}, cpuSchedule() {}, garbageQueue: [],
+        cpuFrame() {}, cpuSchedule() {}, garbageQueue: [], _cpuRunning: true, // フレームの外で onMinoSpawned を呼ぶので警告を止める
         clock: { now: () => 0 }, _garbageTimers: [], ensureNextQueue() {},
     });
     const cpu = new CPU(g);

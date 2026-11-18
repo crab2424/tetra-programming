@@ -291,10 +291,24 @@ struct Placement {
     std::vector<GridBlock> blocks;
 };
 
-std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, int spawnY) {
+// 1 操作ずつ入れて届く手だけを作る（設計 source_assets/memory/mode/cpu/tet/lv1-2/lv1-2-input-design.md §2.2）。
+//   (x0, spawnY, r0) はミノの今の位置・向き（これから出るミノは出現位置・向き 0）。
+//   回転は x0 でその場で回れる向きだけ（途中の向きもキック無しで重ならない。実機の SRS も最初の試しは (0,0)）。
+//   横移動は spawnY の高さで、x0 から途中の列がすべて空いている所まで。O は回さない（lv1 cpu.js reachableRanges と同じ）
+std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, int spawnY, int x0 = COLS / 2 - 2, int r0 = 0) {
     std::vector<Placement> placements;
+    auto fits = [&](int r, int x) { return isValidPlacement(baseBoard, getRotatedBlocks(pieceType, r, x, spawnY)); };
     for(int rot = 0; rot < 4; rot++) {
-        for(int x = -2; x < 12; x++) {
+        if(pieceType == 1 && rot != r0) continue;
+        const int d = (rot - r0 + 4) % 4;
+        bool turnOk = fits(r0, x0);
+        if(turnOk && d == 3) turnOk = fits(rot, x0);
+        for(int i = 1; turnOk && d != 3 && i <= d; i++) turnOk = fits((r0 + i) % 4, x0);
+        if(!turnOk) continue;
+        int lo = x0, hi = x0;
+        while(fits(rot, lo - 1)) lo--;
+        while(fits(rot, hi + 1)) hi++;
+        for(int x = lo; x <= hi; x++) {
             std::vector<GridBlock> simBlocks = getRotatedBlocks(pieceType, rot, x, spawnY);
             if(!isValidPlacement(baseBoard, simBlocks)) continue;
 
@@ -334,6 +348,7 @@ void my_free(void* ptr) {
 EMSCRIPTEN_KEEPALIVE
 void searchBestMoveWasm(
     uint8_t* boardData, int currentType, int holdType, int next1, int next2, int canHold,
+    int curX, int curY, int curRot, // 今のミノの位置・向き（内部座標。y = 実機 y + 5）。HOLD しない枝の 1 手目はここから動かす
     int* weightsArray, 
     int* outResult
 ){
@@ -368,6 +383,13 @@ void searchBestMoveWasm(
     }
 
     auto getSpawnY = [](int type) { return type == 0 ? 4 : 3; }; // 内部座標（実機 -1 / -2）
+    // 出る時の高さ（実機 board.js popMino: 出現位置が塞がっていれば 1 段上に出る）
+    auto spawnYOn = [&](const Board& b, int type) {
+        const int y = getSpawnY(type);
+        if(!isValidPlacement(b, getRotatedBlocks(type, 0, COLS / 2 - 2, y)) &&
+            isValidPlacement(b, getRotatedBlocks(type, 0, COLS / 2 - 2, y - 1))) return y - 1;
+        return y;
+    };
 
     // ─── ★ v2.2.3 I: 致死判定（自滅対策）───
     //   旧実装: 2手目が置けない枝は `score1*P1 - 10000` だけで、2手目の評価が -10000 より悪いと
@@ -400,7 +422,9 @@ void searchBestMoveWasm(
     for(const auto& path : paths) {
         // HOLD 経路は HOLD から/キューから出るミノが出現できなければ選べない（実機では即死）
         if (path.action == 1 && !canSpawnPiece(baseBoard, path.p1)) continue;
-        std::vector<Placement> p1_list = getAllPlacements(baseBoard, path.p1, getSpawnY(path.p1));
+        std::vector<Placement> p1_list = (path.action == 0)
+            ? getAllPlacements(baseBoard, path.p1, curY, curX, curRot)
+            : getAllPlacements(baseBoard, path.p1, spawnYOn(baseBoard, path.p1));
         for(const auto& p1 : p1_list) {
             int score1 = evaluateBoard(p1.board, p1.linesCleared, p1.isFullyGrounded, p1.touchingCount, w, p1.blocks);
             int deathStep = isLockOut(p1.blocks) ? 1 : (!canSpawnPiece(p1.board, spawn2Of(path)) ? 2 : 0);
@@ -425,7 +449,7 @@ void searchBestMoveWasm(
         }
 
         std::vector<Placement> p2_list;
-        if (ep1.deathStep == 0) p2_list = getAllPlacements(ep1.p1.board, ep1.path.p2, getSpawnY(ep1.path.p2));
+        if (ep1.deathStep == 0) p2_list = getAllPlacements(ep1.p1.board, ep1.path.p2, spawnYOn(ep1.p1.board, ep1.path.p2));
         
         if(p2_list.empty()) {
             int totalScore = ep1.score1 * P1_WEIGHT - deathPenalty(ep1.deathStep == 1 ? 1 : 2);

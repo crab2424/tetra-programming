@@ -24,7 +24,8 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm2.js?v=4');  // ★ 2026-11-17 ZONE 中は枠の上の設置を致命にしない（g_zoneNoLockOut）で再ビルド
+importScripts('cpu_wasm2.js?v=5');  // ★ 2026-11-18 1 操作ずつ入れて届く手だけ探す（今のミノの位置・向きを受け取る）で再ビルド
+// （前回）★ 2026-11-17 ZONE 中は枠の上の設置を致命にしない（g_zoneNoLockOut）で再ビルド
 // （前回）★ v2.2.3 I: 25行化で再ビルド
 
 let boardPtr = null;
@@ -57,6 +58,7 @@ self.onmessage = function(e) {
         data.next1,
         data.next2,
         data.canHold,
+        data.curX, data.curY, data.curRot, // 今のミノの位置・向き（内部座標）
         weightsPtr, 
         resultPtr
     );

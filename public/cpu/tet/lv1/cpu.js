@@ -490,7 +490,7 @@ window.CPU = class{
             this.game.cpuSchedule(this.harddropDelay, tryDrop);
         };
 
-        if (queue.length === 0) { this.game.cpuSchedule(this.harddropDelay, tryDrop); return; }
+        if (queue.length === 0) { this.holdGravity(false); this.game.cpuSchedule(this.harddropDelay, tryDrop); return; }
         this.holdGravity(true);
         this.game.cpuSchedule(this.firstDelay, step);
     }
