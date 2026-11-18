@@ -7,7 +7,7 @@ window.CPU2 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv2/cpu_worker2.js?v=5',
+        'cpu/tet/lv2/cpu_worker2.js?v=6',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -45,7 +45,10 @@ window.CPU2 = class {
             downstackGood: 48,   
             downstackBad: -3,    
 
-            P1_WEIGHT: 0.8,             
+            // 1 手目の評価にかける重み（cpu2.cpp: score1 * P1_WEIGHT + score2。整数でそのまま掛ける）。
+            // 2026-11-18 まで JS が送っておらず、wasm は確保の外（中身 0）を読んでいた＝ずっと 0 で動いていた。
+            // 強さを変えないため 0 を明示して送る（設計 lv1-2-input-design.md §5 L2）
+            P1_WEIGHT: 0,             
         };
 
         // Workerの生成
@@ -165,7 +168,8 @@ window.CPU2 = class {
             this.weights.step1Bad, this.weights.step2Plus, this.weights.groundedBonus,
             this.weights.touchingBonus, 
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
-            this.weights.line4, this.weights.downstackGood, this.weights.downstackBad
+            this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
+            Math.round(this.weights.P1_WEIGHT)
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;

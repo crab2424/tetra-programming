@@ -40,7 +40,7 @@ self.onmessage = function(e) {
 
     if (boardPtr === null) {
         boardPtr = Module._my_malloc(250); // ★ v2.2.3 I: 隠し5行込みの 25 行
-        weightsPtr = Module._my_malloc(4 * 16); // パラメータを16個に拡張済み
+        weightsPtr = Module._my_malloc(4 * 17); // 重み 17 個（[16] = P1_WEIGHT。cpu2.cpp EvalWeights）
         resultPtr = Module._my_malloc(4 * 12);  
     }
 
