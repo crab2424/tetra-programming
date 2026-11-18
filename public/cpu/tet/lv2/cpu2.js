@@ -17,9 +17,9 @@ window.CPU2 = class {
         this.baseScore = 0;     
 
         // 1 操作ずつ入れる間隔（ms。設計 source_assets/memory/mode/cpu/tet/lv1-2/lv1-2-input-design.md §2.4。仮の値）
-        this.firstDelay = 180;      // 思考の結果 → 最初の操作
-        this.actionDelay = 180;     // 操作 → 次の操作
-        this.harddropDelay = 800;   // 最後の操作 → ハードドロップ（今までの「飛ばしてから待つ」と同じ）
+        this.firstDelay = 150;      // 思考の結果 → 最初の操作
+        this.actionDelay = 150;     // 操作 → 次の操作
+        this.harddropDelay = 315;   // 最後の操作 → ハードドロップ（今までの「飛ばしてから待つ」と同じ）
         this._gravityHeld = false;
 
         this.weights = {

@@ -12,9 +12,9 @@ window.CPU = class{
         this.baseScore = 0;     // 出現時の盤面の基礎点
 
         // 1 操作ずつ入れる間隔（ms。設計 source_assets/memory/mode/cpu/tet/lv1-2/lv1-2-input-design.md §2.4。仮の値）
-        this.firstDelay = 250;      // 出現 → 最初の操作
-        this.actionDelay = 250;     // 操作 → 次の操作
-        this.harddropDelay = 1000;  // 最後の操作 → ハードドロップ（今までの「飛ばしてから待つ」と同じ）
+        this.firstDelay = 300;      // 出現 → 最初の操作
+        this.actionDelay = 300;     // 操作 → 次の操作
+        this.harddropDelay = 350;  // 最後の操作 → ハードドロップ（今までの「飛ばしてから待つ」と同じ）
         this._gravityHeld = false;
 
         this.weights = {
