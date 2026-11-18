@@ -406,7 +406,7 @@ let selectedPlayerCpuLevel = null; // null = 2P と同じレベル
 
 const CPU_CONFIGS = {
   tet: {
-    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=8' },
+    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=9' },
     2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js?v=8' },
     3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=9' },
     4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=14' },
