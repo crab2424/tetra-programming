@@ -337,7 +337,7 @@ if (cmp) {
         const d1 = trim > 0 ? Object.assign({}, posted, { weights: posted.weights.slice(0, trim) }) : posted;
         const a = pick(callWasm(posted, M0)), b = pick(callWasm(d1, M1));
         if (a === b) same++; else diff++;
-        if (a.startsWith('0,')) empty++;
+        if (LV === 7 && a.startsWith('0,')) empty++; // lv7 の [0]=0 は手なし（lv6 の [0]=0 はふつうの手）
     }
     console.log(`lv${LV} ZONE なし ${RUNS} 局面: 同じ ${same}／違う ${diff}（手なし ${empty}）`);
     process.exit(0);
