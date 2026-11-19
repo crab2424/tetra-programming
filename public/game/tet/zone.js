@@ -54,17 +54,18 @@ const ZONE_VS_QUARTER_LINES_DEFAULT = 6;
 // ─── ZONE BATTLE のフェーズ（設計 source_assets/memory/mode/tet_zone/tetlabo-zone-battle-design.md §1・§3）───
 // 試合で 1 つ（両者共通）の matchPhase 1〜3。両者のスコアの最大値がしきい値「以上」で進み、戻らない（1 回で 01 → 03 もある）。
 // フェーズで 1/4 に必要なライン数・1/4 の長さ・穴の変わる確率（holeIn / holeBetween、%）が変わる。
-// しきい値は画面で選ばせない（調整はここ）。表はここが既定（原作）で、VS 設定の PHASE 01〜03 で試合ごとに変えられる（zonePhaseTableFrom）。PHASE OFF の試合（vsZonePhase が true でない）はここを一切通らない
-const ZONE_PHASE_SCORES = [20000, 60000];          // 02・03 へ進むスコア（両者の最大値）。PHASE TRIGGER: SCORE（既定）
+// 表はここが既定（原作）で、VS 設定の PHASE 01〜03 で試合ごとに変えられる（zonePhaseTableFrom）。進むスコア（score）も表の行が持つ（§15）。
+// 時間のしきい値（ZONE_PHASE_TIMES_MS）は画面で選ばせない（調整はここ）。PHASE OFF の試合（vsZonePhase が true でない）はここを一切通らない
 const ZONE_PHASE_TIMES_MS = [64000, 192000];       // 02・03 へ進む試合の時計（初期化から）。PHASE TRIGGER: TIME（§5.2。マージンの 32 秒刻みの倍数・比 1:3）
 // MARGIN TRIGGER: SCORE（ZONE BATTLE だけ。§5.2）: VS 設定 MARGIN SCORE の点で突入し、以後この点ごとに 1 段階（0〜5）。
 // 両者のスコアの最大値で見る。突入の点の選択肢は VS 設定（config/vs_settings.js MARGIN_SCORE_STEPS）
 const TET_MARGIN_SCORE_STEP = 20000;
 const TET_MARGIN_MAX_STEP_SCORE = 5;
 const ZONE_PHASE_TABLE = [
-    { quarterLines: 6,  quarterMs: 5000, holeIn: 10, holeBetween: 10 },   // 01（開始時）
-    { quarterLines: 8,  quarterMs: 4000, holeIn: 10, holeBetween: 90 },   // 02
-    { quarterLines: 10, quarterMs: 2500, holeIn: 90, holeBetween: 90 },   // 03
+    // score = そのフェーズへ進むスコア（両者の最大値・以上。PHASE TRIGGER: SCORE のとき。01 は 0 = 開始時）
+    { quarterLines: 6,  quarterMs: 5000, holeIn: 10, holeBetween: 10, score: 0 },       // 01（開始時）
+    { quarterLines: 8,  quarterMs: 4000, holeIn: 10, holeBetween: 90, score: 20000 },   // 02
+    { quarterLines: 10, quarterMs: 2500, holeIn: 90, holeBetween: 90, score: 60000 },   // 03
 ];
 
 // VS 設定で入れたフェーズごとの値（applyVsSettings の vsZonePhaseTable。ZONE_PHASE_TABLE と同じ形）を読む。
@@ -73,21 +74,28 @@ const ZONE_PHASE_TABLE = [
 function zonePhaseTableFrom(v) {
     if (!Array.isArray(v) || v.length !== ZONE_PHASE_TABLE.length) return ZONE_PHASE_TABLE;
     const pct = (x) => Number.isFinite(x) && x >= 0 && x <= 100;
+    let prevScore = 0;
     return ZONE_PHASE_TABLE.map((d, i) => {
         const r = v[i] || {};
+        // 進むスコア: 01 は常に 0。キーの無い行（16 以前の録画）は原作の点。前のフェーズより小さくはしない
+        let score = i === 0 ? 0 : (Number.isFinite(r.score) && r.score >= 0 ? r.score : d.score);
+        score = Math.max(prevScore, score);
+        prevScore = score;
         return {
             quarterLines: zoneValidLines(r.quarterLines) ? r.quarterLines : d.quarterLines,
             quarterMs: zoneValidMs(r.quarterMs) ? r.quarterMs : d.quarterMs,
             holeIn: pct(r.holeIn) ? r.holeIn : d.holeIn,
             holeBetween: pct(r.holeBetween) ? r.holeBetween : d.holeBetween,
+            score,
         };
     });
 }
 
-// スコアからフェーズ（1〜3）
-function zonePhaseForScore(score) {
+// スコアからフェーズ（1〜3）。table は試合の表（zonePhaseTable）
+function zonePhaseForScore(score, table) {
+    const t = table || ZONE_PHASE_TABLE;
     let p = 1;
-    for (let i = 0; i < ZONE_PHASE_SCORES.length; i++) if (score >= ZONE_PHASE_SCORES[i]) p = i + 2;
+    for (let i = 1; i < t.length; i++) if (score >= t[i].score) p = i + 1;
     return p;
 }
 // 終了時の火力表（原作の Zone Bonus Attack。§2.3）。[発動時のチャージ-1][合計段数-1] = 火力のかたまり。
@@ -260,7 +268,7 @@ Object.assign(Game.prototype, {
         const top = Math.max(this.score || 0, opp.score || 0);
         // フェーズ（PHASE TRIGGER: SCORE のときだけ。TIME は予約で進む）
         if (this.matchPhase && this.matchPhaseTrigger === 'score' && this.matchPhase < this.zonePhaseTable.length && opp.matchPhase) {
-            const p = zonePhaseForScore(top);
+            const p = zonePhaseForScore(top, this.zonePhaseTable);
             if (p > this.matchPhase) {
                 this._zoneSetPhase(p);
                 opp._zoneSetPhase(p);

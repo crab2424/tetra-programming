@@ -42,7 +42,9 @@ const VS_ZONE_TIME_OPTIONS = ZONE_QUARTER_MS_OPTIONS;
 const VS_ZONE_CHARGE_OPTIONS = ZONE_QUARTER_LINES_OPTIONS;
 const MARGIN_TIME_STEPS = [-160, -128, -96, -64, -32, 0, 32, 64, 96, 128, 160, 192];
 // MARGIN SCORE（ZONE BATTLE の MARGIN TRIGGER: SCORE）の突入の点。0 = 即時。以後の刻みはエンジンの TET_MARGIN_SCORE_STEP（game/tet/zone.js）
-const MARGIN_SCORE_STEPS = [0, 20000, 40000, 60000, 80000];
+const MARGIN_SCORE_STEPS = [0, 20000, 40000, 80000, 100000, 160000, 200000];
+// PHASE 02・03 へ進むスコア（PHASE TRIGGER: SCORE のとき。フェーズごとの値。既定は game/tet/zone.js ZONE_PHASE_TABLE の score）
+const PHASE_SCORE_STEPS = [10000, 20000, 30000, 40000, 60000, 80000, 100000, 120000, 160000, 200000];
 
 /**
  * PUYO SPEED の段階（演出時間の倍率。設計 source_assets/memory/v2.3.2/tetlabo-v2.3.2-puyo-speed-design.md）
@@ -96,9 +98,9 @@ const DEFAULT_ZONE_BATTLE_SETTINGS = {
     },
     tet: {
         holdEnabled: true,
-        garbageHoleRate: 70,
+        garbageHoleRate: 90,
         garbageHoleChunk: 10, // HOLE RATE between: かたまりの間（次の攻撃の 1 段目）で同じ穴の確率（PHASE OFF のとき。10 ≒ 今までの「毎回ランダム」）
-        garbageDamageOnClear: true,
+        garbageDamageOnClear: false,
         phaseTrigger: 'score', // PHASE TRIGGER: 'score' = 両者のスコアの最大値 / 'time' = 試合の時計（しきい値は game/tet/zone.js）
         phase: true,          // PHASE: ON = スコアでフェーズが進み、ZONE TIME / CHARGE はフェーズの表（game/tet/zone.js ZONE_PHASE_TABLE）。OFF = 下の 2 つを使う
         zoneTime: ZONE_VS_QUARTER_MS_DEFAULT,      // ZONE TIME: 1/4 ゲージあたりの長さ（ms。PHASE OFF のとき）
@@ -110,7 +112,8 @@ const DEFAULT_ZONE_BATTLE_SETTINGS = {
             holeRate: 100 - r.holeIn,       // HOLE RATE (in chunk)
             holeChunk: 100 - r.holeBetween, // HOLE RATE (between)
             zoneTime: r.quarterMs,          // ZONE TIME（1/4 の長さ ms）
-            zoneCharge: r.quarterLines      // ZONE CHARGE（1/4 のライン数）
+            zoneCharge: r.quarterLines,     // ZONE CHARGE（1/4 のライン数）
+            score: r.score                  // TRIGGER SCORE（このフェーズへ進むスコア。01 は 0 固定）
         }))
     }
 };
@@ -181,13 +184,19 @@ function loadVsSettings() {
 
 function _sanitizePhaseTable(v, d) {
     const src = Array.isArray(v) ? v : [];
+    let prevScore = 0;
     return d.map((def, i) => {
         const r = (src[i] && typeof src[i] === 'object') ? src[i] : {};
+        // 進むスコア: 01 は 0。選べない値は既定。前のフェーズより小さい値は前のフェーズにそろえる
+        let score = i === 0 ? 0 : (PHASE_SCORE_STEPS.includes(r.score) ? r.score : def.score);
+        score = Math.max(prevScore, score);
+        prevScore = score;
         return {
             holeRate: vsValidHoleRate(r.holeRate) ? r.holeRate : def.holeRate,
             holeChunk: vsValidHoleRate(r.holeChunk) ? r.holeChunk : def.holeChunk,
             zoneTime: VS_ZONE_TIME_OPTIONS.includes(r.zoneTime) ? r.zoneTime : def.zoneTime,
             zoneCharge: VS_ZONE_CHARGE_OPTIONS.includes(r.zoneCharge) ? r.zoneCharge : def.zoneCharge,
+            score,
         };
     });
 }
@@ -343,6 +352,7 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
             g.vsZonePhaseTable = s.tet.phaseTable.map(r => ({
                 quarterLines: r.zoneCharge, quarterMs: r.zoneTime,
                 holeIn: 100 - r.holeRate, holeBetween: 100 - r.holeChunk,
+                score: r.score,
             }));
         } else delete g.vsZonePhaseTable;
         // ZONE BATTLE の穴の決め方（かたまりの間も着弾をまたいでつなぐ）。通常 VERSUS は入れない＝今までの決め方
@@ -611,14 +621,60 @@ function _formatMarginScore(v) {
     return v === 0 ? 'INSTANT' : `${v / 1000}K`;
 }
 
-// ── MARGIN SCORE（ZONE BATTLE だけ。突入の点。以後 TET_MARGIN_SCORE_STEP ごとに 1 段階） ──
+// ── MARGIN SCORE（ZONE BATTLE だけ。突入の点。以後 TET_MARGIN_SCORE_STEP ごとに 1 段階）。MARGIN TIME と同じスライダー ──
 function _buildMarginScoreRow() {
-    const row = _buildChoiceRow('MARGIN SCORE', `(+1 / ${TET_MARGIN_SCORE_STEP / 1000}K)`,
-        MARGIN_SCORE_STEPS.map(v => ({ label: _formatMarginScore(v), value: v })),
+    const row = _buildStepSliderRow('MARGIN SCORE', `(+1 / ${TET_MARGIN_SCORE_STEP / 1000}K)`,
+        MARGIN_SCORE_STEPS, _formatMarginScore,
         () => currentVsSettings.all.marginScore,
         (v) => { currentVsSettings.all.marginScore = v; },
-        'vss-row-marginScore');
+        _vsDefaults().all.marginScore, true);
+    row.id = 'vss-row-marginScore';
     row.classList.toggle('is-inert', !currentVsSettings.all.marginEnabled || currentVsSettings.all.marginTrigger !== 'score');
+    return row;
+}
+
+// 決まった値の並び（steps）から選ぶスライダーの行（つまみは並びの番号）。値が並びに無いときは fallback の位置。
+// 返す行の refresh() で、外から値を変えたときに表示をそろえる
+function _buildStepSliderRow(label, sub, steps, fmt, get, set, fallback, wide) {
+    const idxOf = (v) => {
+        const i = steps.indexOf(v);
+        if (i !== -1) return i;
+        const j = steps.indexOf(fallback);
+        return j !== -1 ? j : 0;
+    };
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const valLabel = document.createElement('span');
+    valLabel.className = 'vs-setting-value-label';
+
+    const slider = document.createElement('input');
+    slider.type  = 'range';
+    slider.min   = '0';
+    slider.max   = String(steps.length - 1);
+    slider.step  = '1';
+    slider.className = 'vs-setting-slider' + (wide ? ' vs-setting-slider--wide' : '');
+
+    const refresh = () => {
+        const i = idxOf(get());
+        slider.value = String(i);
+        valLabel.textContent = fmt(steps[i]);
+    };
+    slider.oninput = () => {
+        const val = steps[parseInt(slider.value)];
+        set(val);
+        valLabel.textContent = fmt(val);
+        saveVsSettings();
+        if (row.onStepChange) row.onStepChange(val);
+    };
+    refresh();
+
+    ctrl.appendChild(valLabel);
+    ctrl.appendChild(slider);
+    ctrl.appendChild(_buildSliderMarkers(steps.map((v, i) => ({ pos: i, label: fmt(v) })), 0, steps.length - 1, wide));
+
+    const row = _buildRow(label, sub, ctrl);
+    row.refresh = refresh;
     return row;
 }
 
@@ -911,11 +967,18 @@ function _buildZonePhaseRow() {
     return _buildRow('PHASE', '', ctrl);
 }
 
-// PHASE TRIGGER のしきい値（画面で選ばせない。game/tet/zone.js の ZONE_PHASE_SCORES / ZONE_PHASE_TIMES_MS）
+// PHASE TRIGGER のしきい値。SCORE はフェーズごとの TRIGGER SCORE（PHASE タブの 02・03）、
+// TIME は画面で選ばせない（game/tet/zone.js の ZONE_PHASE_TIMES_MS）
+function _phaseScores() {
+    return currentVsSettings.tet.phaseTable.slice(1).map(r => r.score);
+}
 function _phaseTriggerSub() {
     return currentVsSettings.tet.phaseTrigger === 'time'
         ? '(' + ZONE_PHASE_TIMES_MS.map(v => `${v / 1000}s`).join(' / ') + ')'
-        : '(' + ZONE_PHASE_SCORES.map(v => v.toLocaleString('en-US')).join(' / ') + ')';
+        : '(' + _phaseScores().map(v => v.toLocaleString('en-US')).join(' / ') + ')';
+}
+function _formatPhaseScore(v) {
+    return `${v / 1000}K`;
 }
 
 // ── PHASE TRIGGER（SCORE = 両者のスコアの最大値 / TIME = 試合の時計） ──
@@ -959,7 +1022,7 @@ function _phaseStartSub(p) {
     if (p <= 1) return '(start)';
     return currentVsSettings.tet.phaseTrigger === 'time'
         ? `(${ZONE_PHASE_TIMES_MS[p - 2] / 1000}s~)`
-        : `(${ZONE_PHASE_SCORES[p - 2].toLocaleString('en-US')}~)`;
+        : `(${currentVsSettings.tet.phaseTable[p - 1].score.toLocaleString('en-US')}~)`;
 }
 
 function _buildZonePhaseValuesGroup() {
@@ -989,10 +1052,31 @@ function _buildZonePhaseValuesGroup() {
 
     const table = () => currentVsSettings.tet.phaseTable;
     const phaseKeys = { holeIn: 'holeRate', holeBetween: 'holeChunk', time: 'zoneTime', charge: 'zoneCharge' };
+    const scoreRows = {};
     [1, 2, 3].forEach(p => {
         const set = document.createElement('div');
         set.className = 'vs-setting-group-set';
         set.dataset.set = String(p);
+        // 02・03: このフェーズへ進むスコア（PHASE TRIGGER: SCORE のとき。TIME の間は減光）。
+        // 前後のフェーズと逆にならないよう、02 を 03 より上げたら 03 も、03 を 02 より下げたら 02 もそろえる
+        if (p >= 2) {
+            const row = _buildStepSliderRow('TRIGGER SCORE', '(max of both)', PHASE_SCORE_STEPS, _formatPhaseScore,
+                () => table()[p - 1].score,
+                (v) => {
+                    const t = table();
+                    t[p - 1].score = v;
+                    for (let i = p; i < t.length; i++) if (t[i].score < v) t[i].score = v;
+                    for (let i = p - 2; i >= 1; i--) if (t[i].score > v) t[i].score = v;
+                },
+                _vsDefaults().tet.phaseTable[p - 1].score, true);
+            row.classList.add('vs-setting-phase-score');
+            row.onStepChange = () => {
+                Object.keys(scoreRows).forEach(k => { if (+k !== p) scoreRows[k].refresh(); });
+                _syncZonePhaseGroup();
+            };
+            scoreRows[p] = row;
+            set.appendChild(row);
+        }
         _buildZoneValueRows(() => table()[p - 1], phaseKeys).forEach(r => set.appendChild(r));
         group.appendChild(set);
     });
@@ -1013,9 +1097,16 @@ function _buildZonePhaseValuesGroup() {
 function _syncZonePhaseGroup(groupEl) {
     const on = currentVsSettings.tet.phase !== false;
     const trig = document.getElementById('vss-row-phaseTrigger');
-    if (trig) trig.classList.toggle('is-inert', !on);
+    if (trig) {
+        trig.classList.toggle('is-inert', !on);
+        const tsub = trig.querySelector('.vs-setting-sublabel');
+        if (tsub) tsub.textContent = _phaseTriggerSub();
+    }
     const group = (groupEl instanceof Element) ? groupEl : document.getElementById('vss-phase-group');
     if (!group) return;
+    // TRIGGER SCORE は PHASE TRIGGER: TIME の間は使わないので減光
+    const byTime = currentVsSettings.tet.phaseTrigger === 'time';
+    group.querySelectorAll('.vs-setting-phase-score').forEach(r => r.classList.toggle('is-inert', byTime));
     const show = on ? String(vsPhaseEdit) : 'fixed';
     group.querySelectorAll('.vs-setting-group-set').forEach(set => {
         const visible = set.dataset.set === show;
@@ -1280,6 +1371,7 @@ function _updateVsSettingsSummary() {
                 if (r.holeChunk !== d.holeChunk) parts.push(`${tag} HOLE-BETWEEN:${r.holeChunk}%`);
                 if (r.zoneTime !== d.zoneTime) parts.push(`${tag} ZONE TIME:${r.zoneTime / 1000}s`);
                 if (r.zoneCharge !== d.zoneCharge) parts.push(`${tag} ZONE CHARGE:${r.zoneCharge}`);
+                if (i > 0 && s.tet.phaseTrigger !== 'time' && r.score !== d.score) parts.push(`${tag} SCORE:${_formatPhaseScore(r.score)}`);
             });
         }
         if ((s.tet.zoneSplit !== false) !== (D.tet.zoneSplit !== false)) parts.push(`ZONE ATTACK:${s.tet.zoneSplit === false ? 'MERGE' : 'SPLIT'}`);

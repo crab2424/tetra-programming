@@ -15,6 +15,17 @@ function backFromVsSettings() {
 // ─────────────────────────────────────────────
 // 対戦の種類を切り替える（'standard' = 通常 VERSUS / 'zone' = ZONE BATTLE）。
 // VS 設定の保存（プロファイル）も一緒に切り替える（config/vs_settings.js）
+// 対戦の BGM（ZONE BATTLE は専用の曲。core/base.js zone_battle_bgm）
+function _versusBgmKey() {
+  return versusBattle === 'zone' ? 'zone_battle_bgm' : 'versus_bgm';
+}
+
+// いまの試合が ZONE の対戦か（PAUSE・結果画面の色。PLAY HERE の続きも盤面の状態で決める）
+function _isZoneBattleMatch() {
+  const g = window._game;
+  return !!(g && g.isVersusMode && g.zoneEnabled);
+}
+
 function setVersusBattle(battle) {
   versusBattle = battle === 'zone' ? 'zone' : 'standard';
   if (typeof switchVsSettingsProfile === 'function') switchVsSettingsProfile(versusBattle);
@@ -240,7 +251,7 @@ async function startVersusGame() {
   if (isPlayerCpu) cpuSpecs.push({ level: playerCpuLevel, rule: versusPlayerRule, label: _cpuLabel(playerCpuLevel) + ' (1P)' });
   const prep = await window.BattleLocalLoading.prepare({
     rules: [versusPlayerRule, versusCpuRule],
-    bgmKey: 'versus_bgm',
+    bgmKey: _versusBgmKey(),
     cpus: cpuSpecs,
     isStale,
   });
@@ -438,7 +449,7 @@ async function startVersusGame() {
   window.ReplayManager?.countdown(window._game);
   runCountdown('player-countdown-overlay', 'player-countdown-text', () => {
     if (isStale()) return; // セッションが変わっていたら開始しない
-    if (window.BgmManager) window.BgmManager.play('versus_bgm'); // ★ START! のタイミングでBGM開始
+    if (window.BgmManager) window.BgmManager.play(_versusBgmKey()); // ★ START! のタイミングでBGM開始
     window._game._startGameplay();
     const pc = window._cpuControllerPlayer;
     if (pc && typeof pc.start === 'function') pc.start();
@@ -595,6 +606,7 @@ function toggleVersusPause() {
     if (window._cpuGame && typeof window._cpuGame.pause === 'function') window._cpuGame.pause();
     // ③ ポーズ中はBGMを止めず小音量で流し続ける（ぷよ専用インスタンス時もここで確実にダッキング）
     window.BgmManager?.duck();
+    overlay.classList.toggle('is-zone-battle', _isZoneBattleMatch());
     overlay.classList.add('active');
   }
 }
@@ -732,6 +744,7 @@ function versusGameOver(loser) {
     }
 
     window.BattleVersusLifecycle.transition('roundResult', 'result shown');
+    document.getElementById('versus-result-page')?.classList.toggle('is-zone-battle', _isZoneBattleMatch());
     switchPage('versus-result');
   });
 }

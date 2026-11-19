@@ -229,7 +229,7 @@ const CpuZone = (() => {
         }
         const opp = opponent(game);
         const top = Math.max(game.score || 0, opp ? (opp.score || 0) : 0);
-        return (ZONE_PHASE_SCORES[p - 1] - top <= CONFIG.phaseNearScore) ? table[p] : null;
+        return (table[p].score - top <= CONFIG.phaseNearScore) ? table[p] : null;
     }
 
     // 「フェーズ前」: いま撃つ見込み火力が、進んだ後の見込み（同じメーターで撃つ／満タンまでためて撃つ×割り引き）

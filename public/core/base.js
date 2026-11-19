@@ -1031,6 +1031,7 @@ class BgmManager {
         'menu_bgm':   1.00,  // -14.1
         'quiz_bgm':   0.63,  // -10.0
         'versus_bgm': 0.50,  // -8.0
+        'zone_battle_bgm': 0.50,  // zone_1.ogg（single_zone_bgm と同じ）
         'online_bgm': 0.50,
         'online_lobby_bgm': 0.73,  // -11.4
         // シングル各モードBGM（今は同一ファイル＝同係数。モード別音源にしたら個別に実測して調整）
@@ -1440,6 +1441,9 @@ AudioLoader.registerBgm('single_practice_bgm', 'assets/audio/bgm/practice_1.ogg'
 // ZONE（設計 tetlabo-zone-design.md §6.2）。L.Mity & EspiDev「Acrise」(CC BY 3.0)
 AudioLoader.registerBgm('single_zone_bgm',     'assets/audio/bgm/zone_1.ogg');
 AudioLoader.registerBgm('versus_bgm', 'assets/audio/bgm/vs_1.ogg');
+// ZONE BATTLE（CPU TEST の BATTLE: ZONE も。設計 tetlabo-zone-battle-design.md §15）。
+// 専用の曲を用意したらパスをここで差し替える（今はシングル ZONE と同じ zone_1 = Acrise）。差し替えたら _gain も実測し直す
+AudioLoader.registerBgm('zone_battle_bgm', 'assets/audio/bgm/zone_1.ogg');
 // オンライン対戦BGMは、ここでパスだけ差し替えれば変更できる。
 AudioLoader.registerBgm('online_bgm',  'assets/audio/bgm/vs_1.ogg');
 // ONLINEのロビー・ルーム・マッチング確認画面用（対戦中は上の online_bgm を使う）。

@@ -392,9 +392,14 @@ body.input-mode-kbd #vs-settings-page.is-zone-battle #vs-settings-tab-toggle.is-
   animation: settings-tab-in 0.18s ease-out;
 }
 
-/* ZONE BATTLE のフェーズ（中央の時間の下・切り替わりの表示。game/tet/zone.js） */
+/* ZONE BATTLE のフェーズ（中央の時計のすぐ上・切り替わりの表示。game/tet/zone.js）。
+   中央の余白は NEXT / HOLD の枠より細く、盤面の高さの中ほどに置くと枠に食い込むので、
+   枠の下端より下（時計の上。時計を出していないときは時計の位置）へ置く */
 .versus-phase-display {
-  margin-top: 6px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 32px;
   font-family: "Orbitron", monospace;
   font-size: 12px;
   font-weight: 700;
@@ -403,6 +408,34 @@ body.input-mode-kbd #vs-settings-page.is-zone-battle #vs-settings-tab-toggle.is-
   text-align: center;
   white-space: nowrap;
 }
+body.hud-versus-time-visible .versus-phase-display {
+  bottom: 56px;
+}
+/* 切り替わりの「PHASE 02」は盤面の上寄りに出す（中央は ZONE 終了の「ZONE n LINES / ATTACK」、
+   下は発動中の段数と重なるため） */
+.zone-phase-popup {
+  justify-content: flex-start;
+  padding-top: 132px;
+  box-sizing: border-box;
+}
 .zone-phase-popup .zone-end-lines {
   color: var(--zone-color);
+  font-size: 26px;
+}
+
+/* ─── ZONE BATTLE の PAUSE・結果画面（app/versus.js が試合の盤面を見て .is-zone-battle を付ける） ─── */
+#versus-pause-overlay.is-zone-battle .versus-pause-modal {
+  box-shadow: 0 0 48px rgba(var(--zone-battle-rgb), 0.18);
+}
+#versus-pause-overlay.is-zone-battle #versus-pause-title {
+  color: var(--zone-battle-color);
+}
+#versus-pause-overlay.is-zone-battle .btn-versus-primary,
+#versus-result-page.is-zone-battle .btn-versus-primary {
+  background: linear-gradient(135deg, var(--zone-battle-color) 0%, var(--zone-battle-color2) 100%);
+}
+#versus-result-page.is-zone-battle .result-value {
+  background: linear-gradient(90deg, var(--zone-battle-color), var(--zone-battle-color2));
+  -webkit-background-clip: text;
+  background-clip: text;
 }
