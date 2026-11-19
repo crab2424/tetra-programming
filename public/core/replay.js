@@ -23,7 +23,7 @@
 // ─────────────────────────────────────────────
 
 const REPLAY_FORMAT_VERSION = 2;   // ファイルの形の版（§6.2）。2: 盤面 2 枚・CPU の手・キー設定の読み直し
-const REPLAY_ENGINE_VERSION = 14;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）。4: VERSUS の ZONE の火力（発動中の通常火力を足す・マージン倍率・メーターの持ち越し・CPU の発動中の速さ）。5: シングルの ZONE の発動中はレベル 1 の速さでソフトドロップ（4 以下の録画は従来どおり再生。tet/input.js）。6: ZONE の分けて送る火力は 1 手につき 1 かたまりだけ着弾（SPLIT の録画は 5 とずれる）。7: ZONE SPLIT の試合はふつうの火力も 1 手に 1 かたまりずつ着弾（6 以下の録画は従来どおり再生。tet/garbage.js）。8: VERSUS の ZONE 終了で盤面が下がって浮いたミノの固定猶予を取り消す（7 以下の録画は従来どおり再生。tet/zone.js）。9: ZONE のマージン倍率を発動時のメーターごとの表に（マージン中に ZONE が終わる 8 以下の VERSUS の録画はずれる。tet/zone.js）。10: ZONE の発動中は全ブロックが枠の上の設置を致命にせず ZONE も続ける（9 以下の録画は従来どおり再生。tet/board.js）。11: シングルの ZONE はミノが枠の上 20 段まで動ける（10 以下の録画は 5 段のまま。tet/zone.js topLimit）。12: VERSUS の ZONE の試合も枠の上 20 段まで・CPU も 40 段を読む（11 以下の VERSUS の録画は 5 段のまま）。13: ZONE BATTLE のフェーズ（vsZonePhase。キーの無い録画はフェーズなしで今までどおり。tet/zone.js）。14: ZONE BATTLE の穴の決め方（かたまりの中 a・間 b・着弾をまたぐ。13 以下の録画は今までの決め方。tet/garbage.js）
+const REPLAY_ENGINE_VERSION = 15;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）。4: VERSUS の ZONE の火力（発動中の通常火力を足す・マージン倍率・メーターの持ち越し・CPU の発動中の速さ）。5: シングルの ZONE の発動中はレベル 1 の速さでソフトドロップ（4 以下の録画は従来どおり再生。tet/input.js）。6: ZONE の分けて送る火力は 1 手につき 1 かたまりだけ着弾（SPLIT の録画は 5 とずれる）。7: ZONE SPLIT の試合はふつうの火力も 1 手に 1 かたまりずつ着弾（6 以下の録画は従来どおり再生。tet/garbage.js）。8: VERSUS の ZONE 終了で盤面が下がって浮いたミノの固定猶予を取り消す（7 以下の録画は従来どおり再生。tet/zone.js）。9: ZONE のマージン倍率を発動時のメーターごとの表に（マージン中に ZONE が終わる 8 以下の VERSUS の録画はずれる。tet/zone.js）。10: ZONE の発動中は全ブロックが枠の上の設置を致命にせず ZONE も続ける（9 以下の録画は従来どおり再生。tet/board.js）。11: シングルの ZONE はミノが枠の上 20 段まで動ける（10 以下の録画は 5 段のまま。tet/zone.js topLimit）。12: VERSUS の ZONE の試合も枠の上 20 段まで・CPU も 40 段を読む（11 以下の VERSUS の録画は 5 段のまま）。13: ZONE BATTLE のフェーズ（vsZonePhase。キーの無い録画はフェーズなしで今までどおり。tet/zone.js）。14: ZONE BATTLE の穴の決め方（かたまりの中 a・間 b・着弾をまたぐ。13 以下の録画は今までの決め方。tet/garbage.js）。15: ZONE BATTLE の PHASE TRIGGER（TIME）・MARGIN TRIGGER（SCORE）（キーの無い録画は SCORE・TIME のまま）
 
 // 入力の列の種類。1 バイト目＝種類 << 1 | side
 //   キー 0〜3（bit0 押す・bit1 長押しの繰り返し）＋コードの番号、tet のパッド 4〜5（bit0 押す）＋アクションの番号
@@ -77,7 +77,7 @@ const REPLAY_TET_SINGLE = ['marathon', 'sprint', 'ultra', 'zone'];
 const REPLAY_ENV_FIELDS = {
     tet: ['gravityDisabled', 'practiceNoLock', 'practiceFallSpeedMs', 'practiceHoldMode', 'lockDelay',
         'marathonGoal', 'marathonStartLevel', 'isCpuControlled',
-        'zoneFixedLevel', 'zoneQuarterLinesSetting', 'zoneQuarterMsSetting', 'vsZone', 'vsZoneQuarterLines', 'vsZoneQuarterMs', 'vsZoneSplit', 'vsZonePhase',
+        'zoneFixedLevel', 'zoneQuarterLinesSetting', 'zoneQuarterMsSetting', 'vsZone', 'vsZoneQuarterLines', 'vsZoneQuarterMs', 'vsZoneSplit', 'vsZonePhase', 'vsZonePhaseTrigger', 'vsMarginTrigger', 'vsMarginScore',
         'vsMarginTimeMs', 'vsAttackMultiplier', 'vsGarbageHoleRate', 'vsGarbageHoleChunk', 'vsGarbageDamageOnClear', 'vsHoldEnabled',
         'vsChainMin', 'vsOjamaRate', 'vsPuyoSpeed', 'vsMarginMultiplier'],
     puyo: ['vsEraseCount', 'vsColorCount', 'practiceFallMs', 'practiceNoLock', 'isCpuControlled', 'suppressBlink',

@@ -55,7 +55,12 @@ const ZONE_VS_QUARTER_LINES_DEFAULT = 6;
 // 試合で 1 つ（両者共通）の matchPhase 1〜3。両者のスコアの最大値がしきい値「以上」で進み、戻らない（1 回で 01 → 03 もある）。
 // フェーズで 1/4 に必要なライン数・1/4 の長さが変わる（穴のばらつき holeIn / holeBetween は B3 で使う。今は持っているだけ）。
 // しきい値・表は画面で選ばせない（調整はここ）。PHASE OFF の試合（vsZonePhase が true でない）はここを一切通らない
-const ZONE_PHASE_SCORES = [20000, 60000];          // 02・03 へ進むスコア（両者の最大値）
+const ZONE_PHASE_SCORES = [20000, 60000];          // 02・03 へ進むスコア（両者の最大値）。PHASE TRIGGER: SCORE（既定）
+const ZONE_PHASE_TIMES_MS = [64000, 192000];       // 02・03 へ進む試合の時計（初期化から）。PHASE TRIGGER: TIME（§5.2。マージンの 32 秒刻みの倍数・比 1:3）
+// MARGIN TRIGGER: SCORE（ZONE BATTLE だけ。§5.2）: VS 設定 MARGIN SCORE の点で突入し、以後この点ごとに 1 段階（0〜5）。
+// 両者のスコアの最大値で見る。突入の点の選択肢は VS 設定（config/vs_settings.js MARGIN_SCORE_STEPS）
+const TET_MARGIN_SCORE_STEP = 20000;
+const TET_MARGIN_MAX_STEP_SCORE = 5;
 const ZONE_PHASE_TABLE = [
     { quarterLines: 6,  quarterMs: 5000, holeIn: 10, holeBetween: 10 },   // 01（開始時）
     { quarterLines: 8,  quarterMs: 4000, holeIn: 10, holeBetween: 90 },   // 02
@@ -169,6 +174,17 @@ Object.assign(Game.prototype, {
         // ZONE BATTLE のフェーズ（0 = フェーズなし。§3）。ON なら ZONE CHARGE / ZONE TIME の代わりにフェーズの表の値
         this.matchPhase = (vs && this.vsZonePhase === true) ? 1 : 0;
         this.zoneActiveQuarterMs = 0; // 発動したときの 1/4 の長さ（発動中にフェーズが進んでも輪はこの長さで減る）
+        // PHASE TRIGGER（'score' | 'time'）。TIME は試合の時計の予約で進める（初期化で入れた予約は録画の再生でも残る。
+        // core/replay.js の clock.rebase）。両盤面がそれぞれ同じ時刻に予約するので同じ advance の中で両方進む
+        if (this._zonePhaseTimers) for (const h of this._zonePhaseTimers) this.clock.cancel(h);
+        this._zonePhaseTimers = null;
+        this.matchPhaseTrigger = (this.matchPhase && this.vsZonePhaseTrigger === 'time') ? 'time' : 'score';
+        if (this.matchPhase && this.matchPhaseTrigger === 'time') {
+            this._zonePhaseTimers = ZONE_PHASE_TIMES_MS.map((ms, i) => this.clock.schedule(ms, () => this._zonePhaseOnTime(i + 2)));
+        }
+        // MARGIN TRIGGER: SCORE（ZONE BATTLE だけ）。時間の予約は tet/lifecycle.js が入れない。突入 0 点は即時（段階 0）
+        this.marginScoreOn = !!(vs && this.vsMarginTrigger === 'score' && typeof this.vsMarginScore === 'number');
+        if (this.marginScoreOn && this.vsMarginScore <= 0) this._tetMarginStep = 0;
         if (this.matchPhase) {
             this.zoneQuarterLines = ZONE_PHASE_TABLE[0].quarterLines;
             this.zoneQuarterMs = ZONE_PHASE_TABLE[0].quarterMs;
@@ -214,21 +230,41 @@ Object.assign(Game.prototype, {
         this._zoneSyncPhaseHud();
     },
 
-    // ─── フェーズ（ZONE BATTLE。§3）───
+    // ─── フェーズ・スコアのマージン（ZONE BATTLE。§3・§5）───
     // 毎フレームの頭（render.js _frameUpdate。時計を進めた後）で見る。両者のスコアの最大値から進める。
     // 見つけた側が両方の盤面へ同時に入れる（試合のループは 1P → 2P の順なので、録画の再生でも同じフレームで進む）
-    _zonePhaseCheck() {
-        if (!this.matchPhase || this.matchPhase >= ZONE_PHASE_TABLE.length) return;
+    _zoneBattleCheck() {
         const opp = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
-        if (!opp || opp === this || !opp.matchPhase) return;
+        if (!opp || opp === this || typeof opp._zoneSetPhase !== 'function') return;
         // 決着した後は進めない（どちらの盤面の状態でも決める。対戦の進行の phase は再生で変わるので見ない）
         if (this.isGameOver || this.isFinishing || opp.isGameOver || opp.isFinishing) return;
-        const p = zonePhaseForScore(Math.max(this.score || 0, opp.score || 0));
-        if (p <= this.matchPhase) return;
+        const top = Math.max(this.score || 0, opp.score || 0);
+        // フェーズ（PHASE TRIGGER: SCORE のときだけ。TIME は予約で進む）
+        if (this.matchPhase && this.matchPhaseTrigger === 'score' && this.matchPhase < ZONE_PHASE_TABLE.length && opp.matchPhase) {
+            const p = zonePhaseForScore(top);
+            if (p > this.matchPhase) {
+                this._zoneSetPhase(p);
+                opp._zoneSetPhase(p);
+                // 音は 1 回だけ（人が操作する側の盤面で）
+                (this.isCpuControlled && !opp.isCpuControlled ? opp : this).playSe('levelup');
+            }
+        }
+        // マージン（MARGIN TRIGGER: SCORE）。段階は両者同じ値を入れる
+        if (this.marginScoreOn && top >= this.vsMarginScore) {
+            const step = Math.min(TET_MARGIN_MAX_STEP_SCORE, Math.floor((top - this.vsMarginScore) / TET_MARGIN_SCORE_STEP));
+            for (const g of [this, opp]) {
+                if (g.marginScoreOn && (g._tetMarginStep === null || g._tetMarginStep === undefined || step > g._tetMarginStep)) g._tetMarginStep = step;
+            }
+        }
+    },
+
+    // PHASE TRIGGER: TIME の予約（両盤面がそれぞれ自分を進める。決着した後は進めない）
+    _zonePhaseOnTime(p) {
+        const opp = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+        if (this.isGameOver || this.isFinishing || (opp && (opp.isGameOver || opp.isFinishing))) return;
+        if (!(p > this.matchPhase)) return;
         this._zoneSetPhase(p);
-        opp._zoneSetPhase(p);
-        // 音は 1 回だけ（人が操作する側の盤面で）
-        (this.isCpuControlled && !opp.isCpuControlled ? opp : this).playSe('levelup');
+        if (this.canvasPrefix === 'player' && !this.isCpuControlled) this.playSe('levelup');
     },
 
     // フェーズを入れる。メーターは割合を保って換算する（§3.2・ZB3）。

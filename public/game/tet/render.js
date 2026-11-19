@@ -174,7 +174,7 @@ Object.assign(Game.prototype, {
         if (!this._frameUpdate) {
             this._frameUpdate = () => {
                 // ZONE BATTLE のフェーズ（両者のスコアを見る。時計の予約・前のフレームの 2P の点もここで拾う。tet/zone.js）
-                if (this.matchPhase) this._zonePhaseCheck();
+                if (this.matchPhase || this.marginScoreOn) this._zoneBattleCheck();
                 // 入力ポーリング（player側のみ this._pollInput が設定される）
                 if (this._pollInput) this._pollInput();
                 // CPU の手（待ち時間の予約・毎フレームの polling・思考結果）。人のキーと同じ所で盤面に入る

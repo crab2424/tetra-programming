@@ -41,6 +41,8 @@ const ATTACK_BIAS_TABLE = [
 const VS_ZONE_TIME_OPTIONS = ZONE_QUARTER_MS_OPTIONS;
 const VS_ZONE_CHARGE_OPTIONS = ZONE_QUARTER_LINES_OPTIONS;
 const MARGIN_TIME_STEPS = [-160, -128, -96, -64, -32, 0, 32, 64, 96, 128, 160, 192];
+// MARGIN SCORE（ZONE BATTLE の MARGIN TRIGGER: SCORE）の突入の点。0 = 即時。以後の刻みはエンジンの TET_MARGIN_SCORE_STEP（game/tet/zone.js）
+const MARGIN_SCORE_STEPS = [0, 20000, 40000, 60000, 80000];
 
 /**
  * PUYO SPEED の段階（演出時間の倍率。設計 source_assets/memory/v2.3.2/tetlabo-v2.3.2-puyo-speed-design.md）
@@ -84,7 +86,9 @@ const DEFAULT_VS_SETTINGS = {
 const DEFAULT_ZONE_BATTLE_SETTINGS = {
     all: {
         marginEnabled: true,
+        marginTrigger: 'time',   // MARGIN TRIGGER: 'time' = MARGIN TIME で突入・32 秒ごと（今どおり）/ 'score' = MARGIN SCORE で突入・20,000 点ごと
         marginTime: 96,
+        marginScore: 20000,
         attackBias: {
             player: 0,
             cpu:    0
@@ -95,6 +99,7 @@ const DEFAULT_ZONE_BATTLE_SETTINGS = {
         garbageHoleRate: 70,
         garbageHoleChunk: 10, // HOLE RATE between: かたまりの間（次の攻撃の 1 段目）で同じ穴の確率（PHASE OFF のとき。10 ≒ 今までの「毎回ランダム」）
         garbageDamageOnClear: true,
+        phaseTrigger: 'score', // PHASE TRIGGER: 'score' = 両者のスコアの最大値 / 'time' = 試合の時計（しきい値は game/tet/zone.js）
         phase: true,          // PHASE: ON = スコアでフェーズが進み、ZONE TIME / CHARGE はフェーズの表（game/tet/zone.js ZONE_PHASE_TABLE）。OFF = 下の 2 つを使う
         zoneTime: ZONE_VS_QUARTER_MS_DEFAULT,      // ZONE TIME: 1/4 ゲージあたりの長さ（ms。PHASE OFF のとき）
         zoneSplit: true,      // ZONE ATTACK: true=SPLIT（発動中の攻撃を 1 回ぶんずつ → 表のかたまりを後から順に）/ false=MERGE（まとめて同時に）
@@ -298,6 +303,16 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
         // ZONE BATTLE の穴の決め方（かたまりの間も着弾をまたいでつなぐ）。通常 VERSUS は入れない＝今までの決め方
         if (zoneOn) g.vsGarbageHoleChunk = s.tet.garbageHoleChunk;
         else delete g.vsGarbageHoleChunk;
+        // PHASE TRIGGER・MARGIN TRIGGER（ZONE BATTLE だけ。通常 VERSUS は入れない＝スコアのフェーズなし・時間のマージン）
+        if (zoneOn) {
+            g.vsZonePhaseTrigger = s.tet.phaseTrigger === 'time' ? 'time' : 'score';
+            g.vsMarginTrigger = (s.all.marginEnabled && s.all.marginTrigger === 'score') ? 'score' : 'time';
+            g.vsMarginScore = s.all.marginScore;
+        } else {
+            delete g.vsZonePhaseTrigger;
+            delete g.vsMarginTrigger;
+            delete g.vsMarginScore;
+        }
     }
 
     // ── プレイヤー側 ──────────────────────────
@@ -357,7 +372,9 @@ function renderVsSettingsPage() {
     // ── ALL（共通） ────────────────────────────
     container.appendChild(_buildSection('ALL', [
         _buildMarginEnabledRow(),
+        ...(isZone ? [_buildMarginTriggerRow()] : []),
         _buildMarginTimeRow(),
+        ...(isZone ? [_buildMarginScoreRow()] : []),
         _buildAttackBiasRow('player'),
         _buildAttackBiasRow('cpu')
     ]));
@@ -369,7 +386,7 @@ function renderVsSettingsPage() {
         _buildGarbageHoleRateRow(),
         ...(isZone ? [_buildGarbageHoleChunkRow()] : []),
         _buildGarbageDamageRow(),
-        ...(isZone ? [_buildZonePhaseRow(), _buildZoneTimeRow(), _buildZoneChargeRow(), _buildZoneSplitRow()] : [])
+        ...(isZone ? [_buildZonePhaseRow(), _buildZonePhaseTriggerRow(), _buildZoneTimeRow(), _buildZoneChargeRow(), _buildZoneSplitRow()] : [])
     ]));
 
     // ── PUYO（ZONE BATTLE はテト同士だけなので無し） ──
@@ -468,10 +485,68 @@ function _buildMarginEnabledRow() {
     return _buildRow('MARGIN', '', ctrl);
 }
 
-// MARGIN が OFF の間は秒数の行を減光する（値は保持され、ONに戻すとそのまま使われる）
+// MARGIN が OFF の間は秒数の行を減光する（値は保持され、ONに戻すとそのまま使われる）。
+// ZONE BATTLE は MARGIN TRIGGER で使わないほう（TIME / SCORE）も減光する
 function _syncMarginTimeInert() {
-    const row = document.getElementById('vss-row-marginTime');
-    if (row) row.classList.toggle('is-inert', !currentVsSettings.all.marginEnabled);
+    const on = currentVsSettings.all.marginEnabled;
+    const byScore = vsSettingsProfile === 'zone' && currentVsSettings.all.marginTrigger === 'score';
+    const set = (id, inert) => { const row = document.getElementById(id); if (row) row.classList.toggle('is-inert', inert); };
+    set('vss-row-marginTime', !on || byScore);
+    set('vss-row-marginTrigger', !on);
+    set('vss-row-marginScore', !on || !byScore);
+}
+
+// ボタンを並べた行（選んだボタンだけ active）。options: [{ label, value }]
+function _buildChoiceRow(label, sub, options, get, set, rowId, onChange) {
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'vs-setting-btn-group';
+    options.forEach((o, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'vs-setting-step-btn' + (o.value === get() ? ' active' : '');
+        btn.textContent = o.label;
+        btn.dataset.idx = String(i);
+        btn.onclick = () => {
+            set(o.value);
+            saveVsSettings();
+            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
+                b.classList.toggle('active', options[+b.dataset.idx].value === get());
+            });
+            if (onChange) onChange();
+        };
+        btnGroup.appendChild(btn);
+    });
+    ctrl.appendChild(btnGroup);
+    const row = _buildRow(label, sub, ctrl);
+    if (rowId) row.id = rowId;
+    return row;
+}
+
+// ── MARGIN TRIGGER（ZONE BATTLE だけ。TIME = MARGIN TIME / SCORE = MARGIN SCORE） ──
+function _buildMarginTriggerRow() {
+    const row = _buildChoiceRow('MARGIN TRIGGER', '',
+        [{ label: 'TIME', value: 'time' }, { label: 'SCORE', value: 'score' }],
+        () => (currentVsSettings.all.marginTrigger === 'score' ? 'score' : 'time'),
+        (v) => { currentVsSettings.all.marginTrigger = v; },
+        'vss-row-marginTrigger', _syncMarginTimeInert);
+    row.classList.toggle('is-inert', !currentVsSettings.all.marginEnabled);
+    return row;
+}
+
+function _formatMarginScore(v) {
+    return v === 0 ? 'INSTANT' : `${v / 1000}K`;
+}
+
+// ── MARGIN SCORE（ZONE BATTLE だけ。突入の点。以後 TET_MARGIN_SCORE_STEP ごとに 1 段階） ──
+function _buildMarginScoreRow() {
+    const row = _buildChoiceRow('MARGIN SCORE', `(+1 / ${TET_MARGIN_SCORE_STEP / 1000}K)`,
+        MARGIN_SCORE_STEPS.map(v => ({ label: _formatMarginScore(v), value: v })),
+        () => currentVsSettings.all.marginScore,
+        (v) => { currentVsSettings.all.marginScore = v; },
+        'vss-row-marginScore');
+    row.classList.toggle('is-inert', !currentVsSettings.all.marginEnabled || currentVsSettings.all.marginTrigger !== 'score');
+    return row;
 }
 
 function _buildMarginTimeRow() {
@@ -517,7 +592,8 @@ function _buildMarginTimeRow() {
 
     const row = _buildRow('MARGIN TIME', '(sec)', ctrl);
     row.id = 'vss-row-marginTime';
-    row.classList.toggle('is-inert', !currentVsSettings.all.marginEnabled);
+    row.classList.toggle('is-inert', !currentVsSettings.all.marginEnabled
+        || (vsSettingsProfile === 'zone' && currentVsSettings.all.marginTrigger === 'score'));
     return row;
 }
 
@@ -764,12 +840,32 @@ function _buildZonePhaseRow() {
     });
 
     ctrl.appendChild(btnGroup);
-    // しきい値は画面で選ばせない（game/tet/zone.js の ZONE_PHASE_SCORES）。サブラベルに出すだけ
-    return _buildRow('PHASE', '(score ' + ZONE_PHASE_SCORES.map(v => v.toLocaleString('en-US')).join(' / ') + ')', ctrl);
+    return _buildRow('PHASE', '', ctrl);
+}
+
+// PHASE TRIGGER のしきい値（画面で選ばせない。game/tet/zone.js の ZONE_PHASE_SCORES / ZONE_PHASE_TIMES_MS）
+function _phaseTriggerSub() {
+    return currentVsSettings.tet.phaseTrigger === 'time'
+        ? '(' + ZONE_PHASE_TIMES_MS.map(v => `${v / 1000}s`).join(' / ') + ')'
+        : '(' + ZONE_PHASE_SCORES.map(v => v.toLocaleString('en-US')).join(' / ') + ')';
+}
+
+// ── PHASE TRIGGER（SCORE = 両者のスコアの最大値 / TIME = 試合の時計） ──
+function _buildZonePhaseTriggerRow() {
+    const row = _buildChoiceRow('PHASE TRIGGER', _phaseTriggerSub(),
+        [{ label: 'SCORE', value: 'score' }, { label: 'TIME', value: 'time' }],
+        () => (currentVsSettings.tet.phaseTrigger === 'time' ? 'time' : 'score'),
+        (v) => { currentVsSettings.tet.phaseTrigger = v; },
+        'vss-row-phaseTrigger',
+        () => { const sub = document.querySelector('#vss-row-phaseTrigger .vs-setting-sublabel'); if (sub) sub.textContent = _phaseTriggerSub(); });
+    row.classList.toggle('is-inert', currentVsSettings.tet.phase === false);
+    return row;
 }
 
 function _syncZonePhaseInert() {
     const on = currentVsSettings.tet.phase !== false;
+    const trig = document.getElementById('vss-row-phaseTrigger');
+    if (trig) trig.classList.toggle('is-inert', !on);
     for (const id of ['vss-row-zoneTime', 'vss-row-zoneCharge', 'vss-row-garbageHoleRate', 'vss-row-garbageHoleChunk']) {
         const row = document.getElementById(id);
         if (row) row.classList.toggle('is-inert', on);
@@ -1040,6 +1136,8 @@ function _updateVsSettingsSummary() {
     const mt = s.all.marginTime;
     if (!s.all.marginEnabled) {
         parts.push('MARGIN:OFF');
+    } else if (s.all.marginTrigger === 'score') {
+        parts.push(`MARGIN:SCORE ${_formatMarginScore(s.all.marginScore)}`);
     } else if (mt !== D.all.marginTime) {
         parts.push(`MARGIN:${_formatMarginTime(mt)}`);
     }
@@ -1064,6 +1162,7 @@ function _updateVsSettingsSummary() {
     // ZONE BATTLE: ZONE TIME / CHARGE / ATTACK は既定と違うものだけ
     // PHASE OFF のときだけ PHASE:OFF と ZONE TIME / CHARGE（ON の間は使わないので出さない）
     if (D.tet.zoneTime !== undefined) {
+        if (s.tet.phase !== false && s.tet.phaseTrigger === 'time') parts.push('PHASE:TIME');
         if (s.tet.phase === false) {
             parts.push('PHASE:OFF');
             parts.push(`ZONE TIME:${s.tet.zoneTime / 1000}s`);
