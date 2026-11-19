@@ -93,6 +93,7 @@ const DEFAULT_ZONE_BATTLE_SETTINGS = {
     tet: {
         holdEnabled: true,
         garbageHoleRate: 70,
+        garbageHoleChunk: 10, // HOLE RATE between: かたまりの間（次の攻撃の 1 段目）で同じ穴の確率（PHASE OFF のとき。10 ≒ 今までの「毎回ランダム」）
         garbageDamageOnClear: true,
         phase: true,          // PHASE: ON = スコアでフェーズが進み、ZONE TIME / CHARGE はフェーズの表（game/tet/zone.js ZONE_PHASE_TABLE）。OFF = 下の 2 つを使う
         zoneTime: ZONE_VS_QUARTER_MS_DEFAULT,      // ZONE TIME: 1/4 ゲージあたりの長さ（ms。PHASE OFF のとき）
@@ -294,6 +295,9 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
         g.vsZoneQuarterMs = zoneOn ? s.tet.zoneTime : ZONE_VS_QUARTER_MS_DEFAULT;
         g.vsZoneSplit = zoneOn ? s.tet.zoneSplit !== false : true;
         g.vsZonePhase = zoneOn && s.tet.phase !== false;
+        // ZONE BATTLE の穴の決め方（かたまりの間も着弾をまたいでつなぐ）。通常 VERSUS は入れない＝今までの決め方
+        if (zoneOn) g.vsGarbageHoleChunk = s.tet.garbageHoleChunk;
+        else delete g.vsGarbageHoleChunk;
     }
 
     // ── プレイヤー側 ──────────────────────────
@@ -363,6 +367,7 @@ function renderVsSettingsPage() {
     container.appendChild(_buildSection('TET', [
         _buildHoldToggleRow(),
         _buildGarbageHoleRateRow(),
+        ...(isZone ? [_buildGarbageHoleChunkRow()] : []),
         _buildGarbageDamageRow(),
         ...(isZone ? [_buildZonePhaseRow(), _buildZoneTimeRow(), _buildZoneChargeRow(), _buildZoneSplitRow()] : [])
     ]));
@@ -657,15 +662,16 @@ function _buildHoldToggleRow() {
 }
 
 // ── おじゃま直列確率 ───────────────────────────
-function _buildGarbageHoleRateRow() {
-    const current = currentVsSettings.tet.garbageHoleRate;
+function _buildGarbageHoleRateRow(key = 'garbageHoleRate', sub) {
+    const current = currentVsSettings.tet[key];
+    const isZone = vsSettingsProfile === 'zone';
 
     const ctrl = document.createElement('div');
     ctrl.className = 'vs-setting-control';
 
     const valLabel = document.createElement('span');
     valLabel.className = 'vs-setting-value-label';
-    valLabel.id = 'vss-val-garbageHoleRate';
+    valLabel.id = `vss-val-${key}`;
     valLabel.textContent = `${current}%`;
 
     const slider = document.createElement('input');
@@ -678,7 +684,7 @@ function _buildGarbageHoleRateRow() {
 
     slider.oninput = () => {
         const val = parseInt(slider.value);
-        currentVsSettings.tet.garbageHoleRate = val;
+        currentVsSettings.tet[key] = val;
         valLabel.textContent = `${val}%`;
         saveVsSettings();
     };
@@ -688,7 +694,18 @@ function _buildGarbageHoleRateRow() {
 
     ctrl.appendChild(_buildSliderMarkers([0, 50, 100].map(v => ({ pos: v, label: String(v) })), 0, 100));
 
-    return _buildRow('HOLE RATE', '', ctrl);
+    // ZONE BATTLE は a（かたまりの中）と b（かたまりの間）の 2 行。PHASE ON の間はフェーズの表で決まるので減光
+    const row = _buildRow('HOLE RATE', sub || (isZone ? '(in chunk)' : ''), ctrl);
+    if (isZone) {
+        row.id = `vss-row-${key}`;
+        row.classList.toggle('is-inert', currentVsSettings.tet.phase !== false);
+    }
+    return row;
+}
+
+// ── HOLE RATE between（ZONE BATTLE だけ。かたまりの間で同じ穴の確率） ──
+function _buildGarbageHoleChunkRow() {
+    return _buildGarbageHoleRateRow('garbageHoleChunk', '(between)');
 }
 
 // ── ライン消去中ダメージ ───────────────────────
@@ -753,7 +770,7 @@ function _buildZonePhaseRow() {
 
 function _syncZonePhaseInert() {
     const on = currentVsSettings.tet.phase !== false;
-    for (const id of ['vss-row-zoneTime', 'vss-row-zoneCharge']) {
+    for (const id of ['vss-row-zoneTime', 'vss-row-zoneCharge', 'vss-row-garbageHoleRate', 'vss-row-garbageHoleChunk']) {
         const row = document.getElementById(id);
         if (row) row.classList.toggle('is-inert', on);
     }
@@ -1033,8 +1050,13 @@ function _updateVsSettingsSummary() {
     if (bc !== 0) parts.push(`C-BIAS:${bc > 0 ? '+' : ''}${bc}`);
 
     if (!s.tet.holdEnabled) parts.push('HOLD:OFF');
-    if (s.tet.garbageHoleRate !== D.tet.garbageHoleRate) {
+    // ZONE BATTLE の PHASE ON の間は穴の 2 行を使わないので出さない
+    const holeUsed = D.tet.garbageHoleChunk === undefined || s.tet.phase === false;
+    if (holeUsed && s.tet.garbageHoleRate !== D.tet.garbageHoleRate) {
         parts.push(`HOLE:${s.tet.garbageHoleRate}%`);
+    }
+    if (holeUsed && D.tet.garbageHoleChunk !== undefined && s.tet.garbageHoleChunk !== D.tet.garbageHoleChunk) {
+        parts.push(`HOLE-BETWEEN:${s.tet.garbageHoleChunk}%`);
     }
     if (!s.tet.garbageDamageOnClear) {
         parts.push('DMG-ON-CLR:OFF');

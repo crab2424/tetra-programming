@@ -92,6 +92,7 @@ Object.assign(Game.prototype, {
             this.nextQueue.push(new Mino(this.getNextType()));
         }
         this.garbageQueue = [];
+        this._garbageLastHole = -1; // ZONE BATTLE の穴: 最後に受けた段の穴（着弾をまたいで続ける。tet/garbage.js）
         this.updateGarbageGauge();
 
         this.pendingAttack = 0;

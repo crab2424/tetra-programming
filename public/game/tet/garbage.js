@@ -89,6 +89,9 @@ Object.assign(Game.prototype, {
 
         // ★ 追加：まとめて降ってくるおじゃまの穴位置を一貫して保持・計算するための変数
         let lastHole = -1;
+        // ZONE BATTLE の穴の決め方（かたまりの中 a・かたまりの間 b の「変わる確率」。着弾をまたいで前の穴から続ける）。
+        // null なら今までの決め方（設計 tetlabo-zone-battle-design.md §4）
+        const holeRates = this._garbageHoleChangeRates();
 
         for (let j = 0; j < readyGarbage.length; j++) {
             let g = readyGarbage[j];
@@ -109,6 +112,17 @@ Object.assign(Game.prototype, {
                 const rng = this._rngStream('garbage');
                 if (g.holes && g.holes[i] !== undefined && g.holes[i] !== null) {
                     currentHole = g.holes[i];
+                } else if (holeRates) {
+                    // かたまり（予告の 1 項目＝攻撃 1 回ぶん）の頭は b、2 段目からは a で「今の穴から変わる」。
+                    // 変わるときは今の穴以外の 9 列から等確率。試合の最初の 1 段だけ 10 列から等確率
+                    const prev = this._garbageLastHole;
+                    if (!(prev >= 0)) {
+                        currentHole = Math.floor(rng() * COLS_COUNT);
+                    } else if (rng() < (i === 0 ? holeRates.between : holeRates.within)) {
+                        currentHole = (prev + Math.floor(rng() * (COLS_COUNT - 1)) + 1) % COLS_COUNT;
+                    } else {
+                        currentHole = prev;
+                    }
                 } else if (droppedLines === 0 || (g.zoneChunk && i === 0)) {
                     // 今回受ける一番下の段（最初の1段目）は完全にランダム。
                     // ZONE の火力はかたまりごとに穴を引き直す（設計 tetlabo-zone-versus-cpu-design.md Q10）
@@ -124,6 +138,7 @@ Object.assign(Game.prototype, {
                     }
                 }
                 lastHole = currentHole;
+                this._garbageLastHole = currentHole;
 
                 for (let x = 0; x < COLS_COUNT; x++) {
                     if (x !== currentHole) {
@@ -158,6 +173,26 @@ Object.assign(Game.prototype, {
 
         // おじゃまがフィールドに出現したのでゲージを減らす
         this.updateGarbageGauge();
+    },
+
+    // ZONE BATTLE の穴の「変わる確率」{ within: a, between: b }（0〜1）。今までの決め方の試合は null。
+    //   フェーズあり: フェーズの表（game/tet/zone.js ZONE_PHASE_TABLE の holeIn / holeBetween）
+    //   フェーズなし: VS 設定 HOLE RATE（a）・HOLE RATE between（b）。どちらも「同じ穴の確率」なので 1 から引く
+    // vsGarbageHoleChunk は ZONE BATTLE の VS 設定だけが入れる。版 13 以前の録画は今までの決め方で再生する
+    _garbageHoleChangeRates() {
+        // ZONE BATTLE（ローカル VERSUS で ZONE が使える試合）だけ。ONLINE などに前の試合の値が残っていても使わない
+        if (!(this.isVersusMode && this.zoneEnabled && this.vsZone === true)) return null;
+        const rec = this._replay && this._replay.data;
+        if (rec && (rec.engine || 0) < 14) return null;
+        if (this.matchPhase > 0 && typeof ZONE_PHASE_TABLE !== 'undefined') {
+            const row = ZONE_PHASE_TABLE[this.matchPhase - 1];
+            return { within: row.holeIn / 100, between: row.holeBetween / 100 };
+        }
+        if (typeof this.vsGarbageHoleChunk === 'number') {
+            const a = this.vsGarbageHoleRate !== undefined ? this.vsGarbageHoleRate : 70;
+            return { within: 1 - a / 100, between: 1 - this.vsGarbageHoleChunk / 100 };
+        }
+        return null;
     },
 
     // 自分に降ってくる予定の火力を相殺し、余った火力を返す
