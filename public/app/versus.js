@@ -145,6 +145,8 @@ function setCpuLevel(lv) {
 // レイアウト切替の実体は src/battle/layout.ts（CPU戦・オンライン戦共通の唯一の編集場所）
 function _switchToVersusMixedLayout(playerRule, cpuRule) {
     window.BattleLayout.applyVersusLayout(playerRule, cpuRule);
+    // ZONE BATTLE の PHASE の列はテトの盤面が _zoneInit で出し直す（ぷよの盤面に前の試合の表示を残さない）
+    document.querySelectorAll('.versus-phase-block').forEach((el) => { el.style.display = 'none'; });
 }
 
 // ★ ゲームでは使っていない（2026-11 から試合の乱数は core/game_rng.js）。

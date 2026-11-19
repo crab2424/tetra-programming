@@ -392,24 +392,15 @@ body.input-mode-kbd #vs-settings-page.is-zone-battle #vs-settings-tab-toggle.is-
   animation: settings-tab-in 0.18s ease-out;
 }
 
-/* ZONE BATTLE のフェーズ（中央の時計のすぐ上・切り替わりの表示。game/tet/zone.js）。
-   中央の余白は NEXT / HOLD の枠より細く、盤面の高さの中ほどに置くと枠に食い込むので、
-   枠の下端より下（時計の上。時計を出していないときは時計の位置）へ置く */
-.versus-phase-display {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 32px;
-  font-family: "Orbitron", monospace;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: var(--zone-color);
-  text-align: center;
-  white-space: nowrap;
+/* ZONE BATTLE のフェーズ（各盤面の右の列・SCORE / APM の下。ONLINE の TIME と同じ所。game/tet/zone.js _zoneSyncPhaseHud）。
+   以前は中央の時計の上に置いていたが、時計と近くて読みにくかった（設計 tetlabo-zone-battle-design.md §16） */
+.versus-phase-block {
+  margin-top: calc(8px * var(--ol-scale, 1));
 }
-body.hud-versus-time-visible .versus-phase-display {
-  bottom: 56px;
+.versus-phase-value {
+  background: linear-gradient(90deg, var(--zone-battle-color), var(--zone-battle-color2));
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 /* 切り替わりの「PHASE 02」は盤面の上寄りに出す（中央は ZONE 終了の「ZONE n LINES / ATTACK」、
    下は発動中の段数と重なるため） */

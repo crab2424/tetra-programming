@@ -55,17 +55,18 @@ const ZONE_VS_QUARTER_LINES_DEFAULT = 6;
 // 試合で 1 つ（両者共通）の matchPhase 1〜3。両者のスコアの最大値がしきい値「以上」で進み、戻らない（1 回で 01 → 03 もある）。
 // フェーズで 1/4 に必要なライン数・1/4 の長さ・穴の変わる確率（holeIn / holeBetween、%）が変わる。
 // 表はここが既定（原作）で、VS 設定の PHASE 01〜03 で試合ごとに変えられる（zonePhaseTableFrom）。進むスコア（score）も表の行が持つ（§15）。
-// 時間のしきい値（ZONE_PHASE_TIMES_MS）は画面で選ばせない（調整はここ）。PHASE OFF の試合（vsZonePhase が true でない）はここを一切通らない
-const ZONE_PHASE_TIMES_MS = [64000, 192000];       // 02・03 へ進む試合の時計（初期化から）。PHASE TRIGGER: TIME（§5.2。マージンの 32 秒刻みの倍数・比 1:3）
+// 進む試合の時計（timeMs）も同じ（§16）。PHASE OFF の試合（vsZonePhase が true でない）はここを一切通らない
 // MARGIN TRIGGER: SCORE（ZONE BATTLE だけ。§5.2）: VS 設定 MARGIN SCORE の点で突入し、以後この点ごとに 1 段階（0〜5）。
 // 両者のスコアの最大値で見る。突入の点の選択肢は VS 設定（config/vs_settings.js MARGIN_SCORE_STEPS）
 const TET_MARGIN_SCORE_STEP = 20000;
 const TET_MARGIN_MAX_STEP_SCORE = 5;
 const ZONE_PHASE_TABLE = [
     // score = そのフェーズへ進むスコア（両者の最大値・以上。PHASE TRIGGER: SCORE のとき。01 は 0 = 開始時）
-    { quarterLines: 6,  quarterMs: 5000, holeIn: 10, holeBetween: 10, score: 0 },       // 01（開始時）
-    { quarterLines: 8,  quarterMs: 4000, holeIn: 10, holeBetween: 90, score: 20000 },   // 02
-    { quarterLines: 10, quarterMs: 2500, holeIn: 90, holeBetween: 90, score: 60000 },   // 03
+    // timeMs = そのフェーズへ進む試合の時計（初期化から。PHASE TRIGGER: TIME のとき。§5.2 マージンの 32 秒刻みの倍数・比 1:3）。
+    // どちらも試合の始まりからの値（VS 設定は「前のフェーズに足す」で持ち、applyVsSettings が足し上げて渡す）
+    { quarterLines: 6,  quarterMs: 5000, holeIn: 10, holeBetween: 10, score: 0,     timeMs: 0 },        // 01（開始時）
+    { quarterLines: 8,  quarterMs: 4000, holeIn: 10, holeBetween: 90, score: 20000, timeMs: 64000 },    // 02
+    { quarterLines: 10, quarterMs: 2500, holeIn: 90, holeBetween: 90, score: 60000, timeMs: 192000 },   // 03
 ];
 
 // VS 設定で入れたフェーズごとの値（applyVsSettings の vsZonePhaseTable。ZONE_PHASE_TABLE と同じ形）を読む。
@@ -74,19 +75,21 @@ const ZONE_PHASE_TABLE = [
 function zonePhaseTableFrom(v) {
     if (!Array.isArray(v) || v.length !== ZONE_PHASE_TABLE.length) return ZONE_PHASE_TABLE;
     const pct = (x) => Number.isFinite(x) && x >= 0 && x <= 100;
-    let prevScore = 0;
+    let prevScore = 0, prevTime = 0;
+    const pick = (i, x, def, prev) => Math.max(prev, i === 0 ? 0 : (Number.isFinite(x) && x >= 0 ? x : def));
     return ZONE_PHASE_TABLE.map((d, i) => {
         const r = v[i] || {};
-        // 進むスコア: 01 は常に 0。キーの無い行（16 以前の録画）は原作の点。前のフェーズより小さくはしない
-        let score = i === 0 ? 0 : (Number.isFinite(r.score) && r.score >= 0 ? r.score : d.score);
-        score = Math.max(prevScore, score);
-        prevScore = score;
+        // 進むスコア・時計: 01 は常に 0。キーの無い行（score は 16 以前・timeMs は 17 以前の録画）は原作の値。
+        // 前のフェーズより小さくはしない
+        const score = prevScore = pick(i, r.score, d.score, prevScore);
+        const timeMs = prevTime = pick(i, r.timeMs, d.timeMs, prevTime);
         return {
             quarterLines: zoneValidLines(r.quarterLines) ? r.quarterLines : d.quarterLines,
             quarterMs: zoneValidMs(r.quarterMs) ? r.quarterMs : d.quarterMs,
             holeIn: pct(r.holeIn) ? r.holeIn : d.holeIn,
             holeBetween: pct(r.holeBetween) ? r.holeBetween : d.holeBetween,
             score,
+            timeMs,
         };
     });
 }
@@ -207,7 +210,7 @@ Object.assign(Game.prototype, {
         this._zonePhaseTimers = null;
         this.matchPhaseTrigger = (this.matchPhase && this.vsZonePhaseTrigger === 'time') ? 'time' : 'score';
         if (this.matchPhase && this.matchPhaseTrigger === 'time') {
-            this._zonePhaseTimers = ZONE_PHASE_TIMES_MS.map((ms, i) => this.clock.schedule(ms, () => this._zonePhaseOnTime(i + 2)));
+            this._zonePhaseTimers = this.zonePhaseTable.slice(1).map((r, i) => this.clock.schedule(r.timeMs, () => this._zonePhaseOnTime(i + 2)));
         }
         // MARGIN TRIGGER: SCORE（ZONE BATTLE だけ）。時間の予約は tet/lifecycle.js が入れない。突入 0 点は即時（段階 0）
         this.marginScoreOn = !!(vs && this.vsMarginTrigger === 'score' && typeof this.vsMarginScore === 'number');
@@ -316,13 +319,15 @@ Object.assign(Game.prototype, {
         this.requestRedraw();
     },
 
-    // 中央の時間の下の「PHASE 01」（1P の盤面が書く。フェーズなしの試合では隠す）
+    // 盤面の右の列の「PHASE 01」（ONLINE の TIME と同じ所。各盤面が自分の列に書く。フェーズなしの試合では隠す）
     _zoneSyncPhaseHud() {
-        if (!this.isVersusMode || this.canvasPrefix !== 'player') return;
-        const el = document.getElementById('versus-phase-display');
-        if (!el) return;
-        el.style.display = this.matchPhase ? '' : 'none';
-        if (this.matchPhase) el.textContent = 'PHASE ' + String(this.matchPhase).padStart(2, '0');
+        const pre = this.canvasPrefix;
+        if (!this.isVersusMode || (pre !== 'player' && pre !== 'cpu')) return;
+        const block = document.getElementById(`${pre}-phase-block`);
+        if (!block) return;
+        block.style.display = this.matchPhase ? '' : 'none';
+        const v = document.getElementById(`${pre}-phase-value`);
+        if (v && this.matchPhase) v.textContent = String(this.matchPhase).padStart(2, '0');
     },
 
     // 切り替わった瞬間に盤面の中央へ「PHASE 02」（描画だけ）
