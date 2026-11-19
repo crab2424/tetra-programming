@@ -12,16 +12,66 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 32px;
-  padding-top: 32px;
-  width: 660px;
+  gap: 24px;
+  width: 760px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 32px 32px;
+  margin-top: 32px;
+  position: relative;
+  z-index: 2;
+}
+
+/* ヘッダーを上端に固定（#settings-sticky と同じ作り） */
+#vs-settings-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  align-self: stretch;
+  margin: 0 -32px;
+  padding: 32px 32px 0;
+  background: var(--panel-bg);
+  border-radius: 12px 12px 0 0;
+}
+
+#vs-settings-page h2 {
+  font-family: "Orbitron", monospace;
+  font-size: 14px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+/* タブ（ホーム画面 SETTINGS の #settings-tab-toggle と同じ作り） */
+#vs-settings-tab-toggle {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+  margin-bottom: 8px;
+}
+#vs-settings-tab-toggle .opt-btn {
+  flex: 1;
+  font-size: 11px;
+}
+body.input-mode-kbd #vs-settings-tab-toggle.is-focused {
+  outline: none;
+  box-shadow: none;
+}
+body.input-mode-kbd #vs-settings-tab-toggle.is-focused .opt-btn.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.vs-settings-tab-panel { display: none !important; }
+.vs-settings-tab-panel.active {
+  display: flex !important;
+  animation: settings-tab-in 0.18s ease-out;
 }
 
 #vs-settings-header {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .vs-settings-subtitle {

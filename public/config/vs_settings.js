@@ -102,15 +102,79 @@ function loadVsSettings() {
     return _deepClone(DEFAULT_VS_SETTINGS);
 }
 
+// 各コントロールの変更はメモリ上の currentVsSettings に入れるだけ（SAVE を押すまで確定しない。
+// ホーム画面の SETTINGS と同じ扱い）。保存は commitVsSettings()。
 function saveVsSettings() {
+    _updateVsSettingsSummary();
+}
+
+function commitVsSettings() {
     localStorage.setItem(VS_SETTINGS_STORAGE_KEY, JSON.stringify(currentVsSettings));
     _updateVsSettingsSummary();
 }
 
-function resetVsSettings() {
-    currentVsSettings = _deepClone(DEFAULT_VS_SETTINGS);
-    saveVsSettings();
+function saveVsSettingsFromUi() {
+    commitVsSettings();
+    if (typeof showToast === 'function') showToast();
+    window.SeManager?.play('menu_decide');
+}
+
+// タブ（ALL / TET / PUYO）。設定のキー（currentVsSettings.all など）と同じ名前
+let currentVsSettingsTab = 'all';
+
+function setVsSettingsTab(tab) {
+    if (!document.querySelector(`.vs-settings-tab-panel[data-tab="${tab}"]`)) return;
+    currentVsSettingsTab = tab;
+    document.querySelectorAll('#vs-settings-tab-toggle .opt-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    document.querySelectorAll('.vs-settings-tab-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.dataset.tab === tab);
+    });
+}
+
+// RESET DEFAULT: 確認ダイアログで「表示中のタブだけ」か「すべて」かを選ばせる（SAVE まで確定しない）
+async function resetVsSettings() {
+    if (typeof stopListeningBind === 'function') stopListeningBind();
+    const tab = currentVsSettingsTab;
+    const choice = await TetDialog.choose({
+        title: 'RESET DEFAULT',
+        message: `${tab.toUpperCase()} タブの設定を初期値に戻します。\nSAVE を押すまで確定しません。`,
+        buttons: [
+            { label: 'THIS TAB', value: 'tab', kind: 'danger' },
+            { label: 'ALL TABS', value: 'all', kind: 'danger' },
+            { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+        ],
+        initial: 'cancel',
+    });
+    if (choice === 'tab') currentVsSettings[tab] = _deepClone(DEFAULT_VS_SETTINGS[tab]);
+    else if (choice === 'all') currentVsSettings = _deepClone(DEFAULT_VS_SETTINGS);
+    else return;
+    _updateVsSettingsSummary();
     renderVsSettingsPage();
+    window.SeManager?.play('menu_decide');
+}
+
+// 保存済みの値と比べて未保存の変更があるか
+function isVsSettingsDirty() {
+    return JSON.stringify(currentVsSettings) !== JSON.stringify(loadVsSettings());
+}
+
+// BACK（Esc もここへ来る）。未保存の変更があれば確認ダイアログを出す
+async function requestLeaveVsSettings() {
+    if (!isVsSettingsDirty()) { backFromVsSettings(); return; }
+    const choice = await TetDialog.choose({
+        title: 'UNSAVED CHANGES',
+        message: '変更が保存されていません。保存してから戻りますか？',
+        buttons: [
+            { label: 'SAVE & BACK', value: 'save', kind: 'primary' },
+            { label: 'DISCARD', value: 'discard', kind: 'danger' },
+            { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+        ],
+        initial: 'save',
+    });
+    if (choice === 'save') { commitVsSettings(); backFromVsSettings(); }
+    else if (choice === 'discard') { currentVsSettings = loadVsSettings(); _updateVsSettingsSummary(); backFromVsSettings(); }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -247,12 +311,7 @@ function renderVsSettingsPage() {
         _buildPuyoSpeedRow('cpu')
     ]));
 
-    // ── リセットボタン ─────────────────────────
-    const resetBtn = document.createElement('button');
-    resetBtn.className = 'menu-btn btn-reset vs-settings-reset-btn';
-    resetBtn.innerHTML = '<span class="menu-btn-icon">↺</span><span>RESET DEFAULT</span>';
-    resetBtn.onclick = () => resetVsSettings();
-    container.appendChild(resetBtn);
+    setVsSettingsTab(currentVsSettingsTab);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -261,7 +320,8 @@ function renderVsSettingsPage() {
 
 function _buildSection(title, rows) {
     const sec = document.createElement('div');
-    sec.className = 'vs-setting-section';
+    sec.className = 'vs-setting-section vs-settings-tab-panel';
+    sec.dataset.tab = title.toLowerCase();
 
     const label = document.createElement('p');
     label.className = 'vs-setting-section-label';

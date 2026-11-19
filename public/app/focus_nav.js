@@ -1108,8 +1108,11 @@
   register('vs-settings', {
     getItems: () => {
       const itemsContainer = document.getElementById('vs-settings-items');
-      const btnAnchor      = document.getElementById('vs-settings-buttons');
+      const headAnchor     = document.getElementById('vs-settings-sticky');
       const items = [];
+      $$('#vs-settings-sticky .settings-actions button').forEach(b => items.push({ el: b, scrollAnchor: headAnchor }));
+      const vsTabs = document.getElementById('vs-settings-tab-toggle');
+      if (vsTabs) { const it = rowToggle(vsTabs, vsTabs); it.scrollAnchor = headAnchor; items.push(it); }
       if (itemsContainer) {
         $$('.vs-setting-section', itemsContainer).forEach(section => {
           $$('.vs-setting-row', section).forEach(row => {
@@ -1129,12 +1132,20 @@
             }
           });
         });
-        $$('.vs-settings-reset-btn', itemsContainer).forEach(b => items.push({ el: b, scrollAnchor: btnAnchor }));
       }
-      $$('#vs-settings-buttons button').forEach(b => items.push({ el: b, scrollAnchor: btnAnchor }));
       return items;
     },
-    initialIndex: 0,
+    stickyTop: () => document.getElementById('vs-settings-sticky'),
+    // タブ行からの ↑ は、ヘッダーの SAVE へ
+    onMove2D: (dir, cur, items) => {
+      if (dir === 'up' && items[cur] && items[cur].el.id === 'vs-settings-tab-toggle') {
+        const i = items.findIndex(it => it.el.classList && it.el.classList.contains('btn-save'));
+        if (i >= 0) return i;
+      }
+      return null;
+    },
+    // 開いた直後はタブ行（RESET DEFAULT に誤って決定しないよう先頭のボタンにはしない）
+    initialIndex: (els) => Math.max(0, els.findIndex(el => el && el.id === 'vs-settings-tab-toggle')),
   });
 
   register('quiz-check', {
