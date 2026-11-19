@@ -94,9 +94,10 @@ const DEFAULT_ZONE_BATTLE_SETTINGS = {
         holdEnabled: true,
         garbageHoleRate: 70,
         garbageDamageOnClear: true,
-        zoneTime: ZONE_VS_QUARTER_MS_DEFAULT,      // ZONE TIME: 1/4 ゲージあたりの長さ（ms）
+        phase: true,          // PHASE: ON = スコアでフェーズが進み、ZONE TIME / CHARGE はフェーズの表（game/tet/zone.js ZONE_PHASE_TABLE）。OFF = 下の 2 つを使う
+        zoneTime: ZONE_VS_QUARTER_MS_DEFAULT,      // ZONE TIME: 1/4 ゲージあたりの長さ（ms。PHASE OFF のとき）
         zoneSplit: true,      // ZONE ATTACK: true=SPLIT（発動中の攻撃を 1 回ぶんずつ → 表のかたまりを後から順に）/ false=MERGE（まとめて同時に）
-        zoneCharge: ZONE_VS_QUARTER_LINES_DEFAULT  // ZONE CHARGE: 1/4 ゲージに必要なライン数
+        zoneCharge: ZONE_VS_QUARTER_LINES_DEFAULT  // ZONE CHARGE: 1/4 ゲージに必要なライン数（PHASE OFF のとき）
     }
 };
 
@@ -292,6 +293,7 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
         g.vsZoneQuarterLines = zoneOn ? s.tet.zoneCharge : ZONE_VS_QUARTER_LINES_DEFAULT;
         g.vsZoneQuarterMs = zoneOn ? s.tet.zoneTime : ZONE_VS_QUARTER_MS_DEFAULT;
         g.vsZoneSplit = zoneOn ? s.tet.zoneSplit !== false : true;
+        g.vsZonePhase = zoneOn && s.tet.phase !== false;
     }
 
     // ── プレイヤー側 ──────────────────────────
@@ -362,7 +364,7 @@ function renderVsSettingsPage() {
         _buildHoldToggleRow(),
         _buildGarbageHoleRateRow(),
         _buildGarbageDamageRow(),
-        ...(isZone ? [_buildZoneTimeRow(), _buildZoneChargeRow(), _buildZoneSplitRow()] : [])
+        ...(isZone ? [_buildZonePhaseRow(), _buildZoneTimeRow(), _buildZoneChargeRow(), _buildZoneSplitRow()] : [])
     ]));
 
     // ── PUYO（ZONE BATTLE はテト同士だけなので無し） ──
@@ -720,6 +722,43 @@ function _buildGarbageDamageRow() {
     return _buildRow('DMG ON CLR', '', ctrl);
 }
 
+// ── PHASE（ZONE BATTLE。ON の間は ZONE TIME / CHARGE をフェーズの表で決めるので、その 2 行を減光） ──
+function _buildZonePhaseRow() {
+    const ctrl = document.createElement('div');
+    ctrl.className = 'vs-setting-control';
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'vs-setting-btn-group';
+
+    const isOn = () => currentVsSettings.tet.phase !== false;
+    ['ON', 'OFF'].forEach(label => {
+        const btn = document.createElement('button');
+        btn.className = 'vs-setting-step-btn' + ((label === 'ON') === isOn() ? ' active' : '');
+        btn.textContent = label;
+        btn.onclick = () => {
+            currentVsSettings.tet.phase = (label === 'ON');
+            saveVsSettings();
+            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
+                b.classList.toggle('active', (b.textContent === 'ON') === isOn());
+            });
+            _syncZonePhaseInert();
+        };
+        btnGroup.appendChild(btn);
+    });
+
+    ctrl.appendChild(btnGroup);
+    // しきい値は画面で選ばせない（game/tet/zone.js の ZONE_PHASE_SCORES）。サブラベルに出すだけ
+    return _buildRow('PHASE', '(score ' + ZONE_PHASE_SCORES.map(v => v.toLocaleString('en-US')).join(' / ') + ')', ctrl);
+}
+
+function _syncZonePhaseInert() {
+    const on = currentVsSettings.tet.phase !== false;
+    for (const id of ['vss-row-zoneTime', 'vss-row-zoneCharge']) {
+        const row = document.getElementById(id);
+        if (row) row.classList.toggle('is-inert', on);
+    }
+}
+
 // ── ZONE TIME（1/4 ゲージあたりの長さ） ──
 function _buildZoneTimeRow() {
     const current = currentVsSettings.tet.zoneTime;
@@ -748,6 +787,7 @@ function _buildZoneTimeRow() {
     ctrl.appendChild(btnGroup);
     const row = _buildRow('ZONE TIME', '(sec / 25%)', ctrl);
     row.id = 'vss-row-zoneTime';
+    row.classList.toggle('is-inert', currentVsSettings.tet.phase !== false);
     return row;
 }
 
@@ -809,6 +849,7 @@ function _buildZoneChargeRow() {
     ctrl.appendChild(btnGroup);
     const row = _buildRow('ZONE CHARGE', '(lines / 25%)', ctrl);
     row.id = 'vss-row-zoneCharge';
+    row.classList.toggle('is-inert', currentVsSettings.tet.phase !== false);
     return row;
 }
 
@@ -999,9 +1040,13 @@ function _updateVsSettingsSummary() {
         parts.push('DMG-ON-CLR:OFF');
     }
     // ZONE BATTLE: ZONE TIME / CHARGE / ATTACK は既定と違うものだけ
+    // PHASE OFF のときだけ PHASE:OFF と ZONE TIME / CHARGE（ON の間は使わないので出さない）
     if (D.tet.zoneTime !== undefined) {
-        if (s.tet.zoneTime !== D.tet.zoneTime) parts.push(`ZONE TIME:${s.tet.zoneTime / 1000}s`);
-        if (s.tet.zoneCharge !== D.tet.zoneCharge) parts.push(`ZONE CHARGE:${s.tet.zoneCharge}`);
+        if (s.tet.phase === false) {
+            parts.push('PHASE:OFF');
+            parts.push(`ZONE TIME:${s.tet.zoneTime / 1000}s`);
+            parts.push(`ZONE CHARGE:${s.tet.zoneCharge}`);
+        }
         if ((s.tet.zoneSplit !== false) !== (D.tet.zoneSplit !== false)) parts.push(`ZONE ATTACK:${s.tet.zoneSplit === false ? 'MERGE' : 'SPLIT'}`);
     }
 

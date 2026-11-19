@@ -290,3 +290,18 @@ body.replay-watching:not(.replay-ui-hidden) #container.zone-on {
 .mode-btn-zone-battle .mode-btn-label {
   color: var(--zone-color);
 }
+
+/* ZONE BATTLE のフェーズ（中央の時間の下・切り替わりの表示。game/tet/zone.js） */
+.versus-phase-display {
+  margin-top: 6px;
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--zone-color);
+  text-align: center;
+  white-space: nowrap;
+}
+.zone-phase-popup .zone-end-lines {
+  color: var(--zone-color);
+}

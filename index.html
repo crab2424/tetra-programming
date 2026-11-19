@@ -517,6 +517,9 @@
             <span class="zone-end-lines">ZONE 0 LINES</span>
             <span class="zone-end-score">ATTACK +0</span>
           </div>
+          <div id="player-zone-phase-popup" class="zone-end-popup zone-phase-popup">
+            <span class="zone-end-lines">PHASE 02</span>
+          </div>
 
           <div id="player-action-label-container"></div>
           <div id="player-countdown-overlay" class="field-overlay countdown-overlay">
@@ -560,6 +563,8 @@
         <div id="versus-time-display" class="hud-time-block">
           <span id="versus-time-value" class="versus-time-value">00:00.00</span>
         </div>
+        <!-- ★ ZONE BATTLE のフェーズ（フェーズありの試合だけ出す。game/tet/zone.js _zoneSyncPhaseHud） -->
+        <div id="versus-phase-display" class="versus-phase-display" style="display: none">PHASE 01</div>
       </div>
 
       <!-- 右側：CPU -->
@@ -591,6 +596,9 @@
           <div id="cpu-zone-end-popup" class="zone-end-popup">
             <span class="zone-end-lines">ZONE 0 LINES</span>
             <span class="zone-end-score">ATTACK +0</span>
+          </div>
+          <div id="cpu-zone-phase-popup" class="zone-end-popup zone-phase-popup">
+            <span class="zone-end-lines">PHASE 02</span>
           </div>
 
           <div id="cpu-action-label-container"></div>
@@ -1664,7 +1672,7 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=36"></script>
+  <script src="core/replay.js?v=37"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=11"></script>
   <script src="app/manager.js?v=1"></script>
@@ -1681,12 +1689,12 @@
   <script src="game/tet/board.js?v=23"></script>
   <script src="game/tet/rotation.js?v=10"></script>
   <script src="game/tet/scoring.js?v=6"></script>
-  <script src="game/tet/zone.js?v=18"></script>
+  <script src="game/tet/zone.js?v=19"></script>
   <script src="game/tet/garbage.js?v=14"></script>
-  <script src="game/tet/render.js?v=11"></script>
+  <script src="game/tet/render.js?v=12"></script>
   <script src="game/tet/input.js?v=17"></script>
   <!-- VS 設定: ZONE の選択肢・既定値を game/tet/zone.js から読むので、テトのエンジンの後に読み込む -->
-  <script src="config/vs_settings.js?v=13"></script>
+  <script src="config/vs_settings.js?v=14"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1712,7 +1720,7 @@
   <script src="app/stats_page.js?v=7"></script>
   <script src="app/focus_nav.js?v=30"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
-  <script src="app/board_swap.js?v=11"></script>
+  <script src="app/board_swap.js?v=12"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=4"></script>
   <script src="practice/practice_sequence.js?v=7"></script>
