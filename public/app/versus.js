@@ -63,6 +63,7 @@ function setCpuLevel(lv) {
   // LV6 を新たに選んだときは puyo の隠しモード（高速落下で設置）を解除する
   if (lv === 6 && selectedCpuLevel !== 6) window.__cpu6SoftDrop2P = false;
   selectedCpuLevel = lv;
+  saveCpuLevel();
   const toggle = document.getElementById('cpu-level-toggle');
   if (toggle) {
     toggle.querySelectorAll('.opt-btn').forEach((btn, idx) => {

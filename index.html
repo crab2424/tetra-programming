@@ -1533,7 +1533,7 @@
           <!-- 先行回転・先行ホールド（設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §4。DAS などと同じく SAVE で保存） -->
           <div class="tuning-option">
             <div class="option-row">
-              <span class="option-label">IRS</span>
+              <span class="option-label">IRS（先行回転）</span>
               <div class="option-toggle" id="tuning-irs-toggle">
                 <button class="opt-btn" data-value="on" onclick="setTuningOption('irs', true)">ON</button>
                 <button class="opt-btn" data-value="off" onclick="setTuningOption('irs', false)">OFF</button>
@@ -1543,7 +1543,7 @@
           </div>
           <div class="tuning-option">
             <div class="option-row">
-              <span class="option-label">IHS</span>
+              <span class="option-label">IHS（先行ホールド）</span>
               <div class="option-toggle" id="tuning-ihs-toggle">
                 <button class="opt-btn" data-value="on" onclick="setTuningOption('ihs', true)">ON</button>
                 <button class="opt-btn" data-value="off" onclick="setTuningOption('ihs', false)">OFF</button>
@@ -1705,15 +1705,15 @@
   <script src="game/puyo/draw.js?v=11"></script>
   <script src="quiz/quiz.js?v=13"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=35"></script>
+  <script src="app/modes.js?v=36"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
   <script src="cpu/tet/cpu_zone.js?v=13"></script>
   <script src="app/cpu_match_log.js?v=4"></script>
-  <script src="app/versus.js?v=22"></script>
+  <script src="app/versus.js?v=23"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=48"></script>
+  <script src="app/navigation.js?v=49"></script>
   <script src="app/ranking.js?v=5"></script>
   <script src="app/replays.js?v=8"></script>
   <script src="app/stats_page.js?v=7"></script>
@@ -1726,7 +1726,7 @@
   <script src="practice/practice_panel.js?v=22"></script>
   <script src="practice/practice.js?v=37"></script>
   <!-- アシスト（盤面ガイド）。PRACTICE / VERSUS から Assist.attach で呼ばれる -->
-  <script src="assist/assist.js?v=6"></script>
+  <script src="assist/assist.js?v=8"></script>
   <script src="assist/assist_overlay.js?v=3"></script>
   <script src="assist/assist_tet.js?v=23"></script>
   <script src="assist/assist_puyo.js?v=7"></script>

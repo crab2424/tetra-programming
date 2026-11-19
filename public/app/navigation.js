@@ -644,6 +644,7 @@ function renderModeCheck() {
       fillLevels('test-cpu-level-toggle', () => selectedCpuLevel, (lv) => {
         if (lv === 6 && selectedCpuLevel !== 6) window.__cpu6SoftDrop = false;
         selectedCpuLevel = lv;
+        saveCpuLevel();
       }, vsCpu ? testOpponent : testRule);
       if (vsCpu) fillLevels('test-player-cpu-level-toggle', () => testPlayerCpuLevel, (lv) => {
         if (lv === 6 && testPlayerCpuLevel !== 6) window.__cpu6SoftDropTest1P = false;
@@ -1380,7 +1381,7 @@ function handlePauseAction(action) {
       }
     } else {
       const id = playerSide ? 'test-player-cpu-level-toggle' : 'test-cpu-level-toggle';
-      if (playerSide) testPlayerCpuLevel = lv; else selectedCpuLevel = lv;
+      if (playerSide) testPlayerCpuLevel = lv; else { selectedCpuLevel = lv; saveCpuLevel(); }
       const t = document.getElementById(id);
       if (t) t.querySelectorAll('.opt-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === lv));
     }

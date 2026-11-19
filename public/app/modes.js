@@ -379,7 +379,7 @@ const CPU_LEVELS = {
   4: { label: 'LV 4', desc: '上級者向け', gravityLevel: 2 },
   5: { label: 'LV 5', desc: '最上級者向け', gravityLevel: 2 },
   // tet は VERSUS の準備画面に通常のボタンで出す。puyo（lv5 の学習済み重み版）は準備画面で「6」キーを押すと出現
-  6: { label: 'LV 6', desc: '超上級者向け', gravityLevel: 2 },
+  6: { label: 'LV 6', desc: 'プロ向け', gravityLevel: 2 },
   // ★ 隠し要素（tet のみ）: 準備画面で「7」キーを押すと出現。clys 型の探索（cpu/tet/lv7）
   //   （設計 source_assets/memory/cpu/tet/lv6-phase1-search-design.md）
   7: { label: 'LV 7', desc: '???', gravityLevel: 2 },
@@ -387,7 +387,16 @@ const CPU_LEVELS = {
   //   （設計 source_assets/memory/cpu/tet/clys-port-design.md）
   8: { label: 'CLYS', desc: '参考AI clys', gravityLevel: 2 },
 };
-let selectedCpuLevel = 1;
+const CPU_LEVEL_STORAGE_KEY = 'tetlabo.cpuLevel';
+let selectedCpuLevel = (() => {
+  try {
+    const v = parseInt(localStorage.getItem(CPU_LEVEL_STORAGE_KEY), 10);
+    return (v >= 1 && v <= 6) ? v : 1;   // 隠し(7/8)は保存しても復元しない
+  } catch (e) { return 1; }
+})();
+function saveCpuLevel() {
+  try { localStorage.setItem(CPU_LEVEL_STORAGE_KEY, String(selectedCpuLevel)); } catch (e) { /* 保存失敗は無視 */ }
+}
 
 // 開発用の環境か（localhost とプレビュー <branch>-citgame.pptlabo.workers.dev）。本番 citgame.pptlabo.workers.dev は false。
 // CLYS（レベル 8）は開発用の環境でだけ CPU TEST に出す（quiz.js の _bootQuizEditorTest と同じ判定）
