@@ -284,6 +284,8 @@ Object.assign(Game.prototype, {
         this._zoneSyncHud(true);
         this._zoneSyncPhaseHud();
         this._zoneShowPhasePopup(p);
+        // CPU 同士の記録（記録中だけ。1P の盤面から 1 回）
+        if (this.canvasPrefix === 'player' && window.CpuMatchLog && window.CpuMatchLog.phase) window.CpuMatchLog.phase(this, p);
         this.requestRedraw();
     },
 
