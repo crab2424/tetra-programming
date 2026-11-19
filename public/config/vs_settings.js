@@ -103,14 +103,34 @@ const DEFAULT_ZONE_BATTLE_SETTINGS = {
         phase: true,          // PHASE: ON = スコアでフェーズが進み、ZONE TIME / CHARGE はフェーズの表（game/tet/zone.js ZONE_PHASE_TABLE）。OFF = 下の 2 つを使う
         zoneTime: ZONE_VS_QUARTER_MS_DEFAULT,      // ZONE TIME: 1/4 ゲージあたりの長さ（ms。PHASE OFF のとき）
         zoneSplit: true,      // ZONE ATTACK: true=SPLIT（発動中の攻撃を 1 回ぶんずつ → 表のかたまりを後から順に）/ false=MERGE（まとめて同時に）
-        zoneCharge: ZONE_VS_QUARTER_LINES_DEFAULT  // ZONE CHARGE: 1/4 ゲージに必要なライン数（PHASE OFF のとき）
+        zoneCharge: ZONE_VS_QUARTER_LINES_DEFAULT,  // ZONE CHARGE: 1/4 ゲージに必要なライン数（PHASE OFF のとき）
+        // PHASE 01〜03 ごとの値（PHASE ON のとき）。既定はエンジンの原作の表（game/tet/zone.js ZONE_PHASE_TABLE）。
+        // 画面の HOLE RATE と同じく穴は「同じ穴の確率」で持つ（エンジンの表は「変わる確率」なので 100 から引いて渡す）
+        phaseTable: ZONE_PHASE_TABLE.map(r => ({
+            holeRate: 100 - r.holeIn,       // HOLE RATE (in chunk)
+            holeChunk: 100 - r.holeBetween, // HOLE RATE (between)
+            zoneTime: r.quarterMs,          // ZONE TIME（1/4 の長さ ms）
+            zoneCharge: r.quarterLines      // ZONE CHARGE（1/4 のライン数）
+        }))
     }
 };
 
 const VS_SETTINGS_PROFILES = {
     standard: { key: VS_SETTINGS_STORAGE_KEY,      defaults: DEFAULT_VS_SETTINGS,          subtitle: 'VERSUS MODE ONLY', tabs: ['all', 'tet', 'puyo'] },
-    zone:     { key: VS_SETTINGS_ZONE_STORAGE_KEY, defaults: DEFAULT_ZONE_BATTLE_SETTINGS, subtitle: 'ZONE BATTLE',      tabs: ['all', 'tet'] },
+    zone:     { key: VS_SETTINGS_ZONE_STORAGE_KEY, defaults: DEFAULT_ZONE_BATTLE_SETTINGS, subtitle: 'ZONE BATTLE',      tabs: ['all', 'margin', 'phase'] },
 };
+
+// ZONE BATTLE のタブは役割で分ける（保存の形 all / tet とは別。設計 tetlabo-zone-battle-design.md §14）。
+// RESET DEFAULT の THIS TAB はここに挙げたキーだけ戻す
+const VS_ZONE_TAB_KEYS = {
+    all:    [['all', 'attackBias'], ['tet', 'holdEnabled'], ['tet', 'garbageDamageOnClear'], ['tet', 'zoneSplit']],
+    margin: [['all', 'marginEnabled'], ['all', 'marginTrigger'], ['all', 'marginTime'], ['all', 'marginScore']],
+    phase:  [['tet', 'phase'], ['tet', 'phaseTrigger'], ['tet', 'phaseTable'],
+             ['tet', 'garbageHoleRate'], ['tet', 'garbageHoleChunk'], ['tet', 'zoneTime'], ['tet', 'zoneCharge']],
+};
+
+// HOLE RATE の選択肢（0〜100 の 10 刻み）
+const vsValidHoleRate = (v) => Number.isInteger(v) && v >= 0 && v <= 100 && v % 10 === 0;
 
 // いま読み書きしているプロファイル（versus.js の setVersusBattle が switchVsSettingsProfile で切り替える）
 let vsSettingsProfile = 'standard';
@@ -148,6 +168,8 @@ function loadVsSettings() {
                 // ZONE CHARGE / ZONE TIME: 選べない値（以前の選択肢 4 など）は既定へ戻す
                 if (!VS_ZONE_CHARGE_OPTIONS.includes(merged.tet.zoneCharge)) merged.tet.zoneCharge = defaults.tet.zoneCharge;
                 if (!VS_ZONE_TIME_OPTIONS.includes(merged.tet.zoneTime)) merged.tet.zoneTime = defaults.tet.zoneTime;
+                // PHASE 01〜03 の値: 形が違う・選べない値は既定（原作の表）へ戻す
+                merged.tet.phaseTable = _sanitizePhaseTable(merged.tet.phaseTable, defaults.tet.phaseTable);
             }
             return merged;
         } catch (e) {
@@ -155,6 +177,19 @@ function loadVsSettings() {
         }
     }
     return _deepClone(defaults);
+}
+
+function _sanitizePhaseTable(v, d) {
+    const src = Array.isArray(v) ? v : [];
+    return d.map((def, i) => {
+        const r = (src[i] && typeof src[i] === 'object') ? src[i] : {};
+        return {
+            holeRate: vsValidHoleRate(r.holeRate) ? r.holeRate : def.holeRate,
+            holeChunk: vsValidHoleRate(r.holeChunk) ? r.holeChunk : def.holeChunk,
+            zoneTime: VS_ZONE_TIME_OPTIONS.includes(r.zoneTime) ? r.zoneTime : def.zoneTime,
+            zoneCharge: VS_ZONE_CHARGE_OPTIONS.includes(r.zoneCharge) ? r.zoneCharge : def.zoneCharge,
+        };
+    });
 }
 
 /**
@@ -217,7 +252,10 @@ async function resetVsSettings() {
         initial: 'cancel',
     });
     const defaults = _vsDefaults();
-    if (choice === 'tab') currentVsSettings[tab] = _deepClone(defaults[tab]);
+    if (choice === 'tab' && vsSettingsProfile === 'zone') {
+        for (const [sec, key] of (VS_ZONE_TAB_KEYS[tab] || [])) currentVsSettings[sec][key] = _deepClone(defaults[sec][key]);
+    }
+    else if (choice === 'tab') currentVsSettings[tab] = _deepClone(defaults[tab]);
     else if (choice === 'all') currentVsSettings = _deepClone(defaults);
     else return;
     _updateVsSettingsSummary();
@@ -300,6 +338,13 @@ function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
         g.vsZoneQuarterMs = zoneOn ? s.tet.zoneTime : ZONE_VS_QUARTER_MS_DEFAULT;
         g.vsZoneSplit = zoneOn ? s.tet.zoneSplit !== false : true;
         g.vsZonePhase = zoneOn && s.tet.phase !== false;
+        // PHASE 01〜03 の値（エンジンの表の形 ZONE_PHASE_TABLE。穴は「変わる確率」へ直す）。PHASE OFF・通常 VERSUS は入れない
+        if (g.vsZonePhase && Array.isArray(s.tet.phaseTable)) {
+            g.vsZonePhaseTable = s.tet.phaseTable.map(r => ({
+                quarterLines: r.zoneCharge, quarterMs: r.zoneTime,
+                holeIn: 100 - r.holeRate, holeBetween: 100 - r.holeChunk,
+            }));
+        } else delete g.vsZonePhaseTable;
         // ZONE BATTLE の穴の決め方（かたまりの間も着弾をまたいでつなぐ）。通常 VERSUS は入れない＝今までの決め方
         if (zoneOn) g.vsGarbageHoleChunk = s.tet.garbageHoleChunk;
         else delete g.vsGarbageHoleChunk;
@@ -369,28 +414,30 @@ function renderVsSettingsPage() {
     const isZone = vsSettingsProfile === 'zone';
     _syncVsSettingsChrome();
 
+    if (isZone) {
+        _renderZoneBattleSections(container);
+        setVsSettingsTab(currentVsSettingsTab);
+        return;
+    }
+
     // ── ALL（共通） ────────────────────────────
     container.appendChild(_buildSection('ALL', [
         _buildMarginEnabledRow(),
-        ...(isZone ? [_buildMarginTriggerRow()] : []),
         _buildMarginTimeRow(),
-        ...(isZone ? [_buildMarginScoreRow()] : []),
         _buildAttackBiasRow('player'),
         _buildAttackBiasRow('cpu')
     ]));
 
     // ── TET ───────────────────────────────────
-    // ZONE の行は ZONE BATTLE だけ（常に ON なので ON/OFF の行は無い）
+    // ZONE の行は ZONE BATTLE だけ（_renderZoneBattleSections）
     container.appendChild(_buildSection('TET', [
         _buildHoldToggleRow(),
         _buildGarbageHoleRateRow(),
-        ...(isZone ? [_buildGarbageHoleChunkRow()] : []),
-        _buildGarbageDamageRow(),
-        ...(isZone ? [_buildZonePhaseRow(), _buildZonePhaseTriggerRow(), _buildZoneTimeRow(), _buildZoneChargeRow(), _buildZoneSplitRow()] : [])
+        _buildGarbageDamageRow()
     ]));
 
-    // ── PUYO（ZONE BATTLE はテト同士だけなので無し） ──
-    if (!isZone) container.appendChild(_buildSection('PUYO', [
+    // ── PUYO ──
+    container.appendChild(_buildSection('PUYO', [
         _buildOjamaRateRow(),
         _buildEraseCountRow(),
         _buildColorCountRow(),
@@ -402,9 +449,35 @@ function renderVsSettingsPage() {
     setVsSettingsTab(currentVsSettingsTab);
 }
 
-// 見出し下のプロファイル名と、タブのボタン（ZONE BATTLE は PUYO タブを出さない）
+// ── ZONE BATTLE: タブは役割で分ける（ALL = 共通 / MARGIN = 火力の上がり方 / PHASE = フェーズとフェーズごとの値。
+// 設計 tetlabo-zone-battle-design.md §14）。保存の形（all / tet）はそのまま
+function _renderZoneBattleSections(container) {
+    container.appendChild(_buildSection('ALL', [
+        _buildAttackBiasRow('player'),
+        _buildAttackBiasRow('cpu'),
+        _buildHoldToggleRow(),
+        _buildGarbageDamageRow(),
+        _buildZoneSplitRow()
+    ]));
+    container.appendChild(_buildSection('MARGIN', [
+        _buildMarginEnabledRow(),
+        _buildMarginTriggerRow(),
+        _buildMarginTimeRow(),
+        _buildMarginScoreRow()
+    ]));
+    container.appendChild(_buildSection('PHASE', [
+        _buildZonePhaseRow(),
+        _buildZonePhaseTriggerRow(),
+        _buildZonePhaseValuesGroup()
+    ]));
+}
+
+// 見出し下のプロファイル名と、タブのボタン（ZONE BATTLE は ALL / MARGIN / PHASE、通常 VERSUS は ALL / TET / PUYO）。
+// ZONE BATTLE の色（src/css/pages/zone.css の .is-zone-battle）もここで切り替える
 function _syncVsSettingsChrome() {
     const prof = _vsProfile();
+    const page = document.getElementById('vs-settings-page');
+    if (page) page.classList.toggle('is-zone-battle', vsSettingsProfile === 'zone');
     const sub = document.querySelector('#vs-settings-header .vs-settings-subtitle');
     if (sub) sub.textContent = prof.subtitle;
     document.querySelectorAll('#vs-settings-tab-toggle .opt-btn').forEach(btn => {
@@ -738,16 +811,15 @@ function _buildHoldToggleRow() {
 }
 
 // ── おじゃま直列確率 ───────────────────────────
-function _buildGarbageHoleRateRow(key = 'garbageHoleRate', sub) {
-    const current = currentVsSettings.tet[key];
-    const isZone = vsSettingsProfile === 'zone';
+// 0〜100%（10 刻み）のスライダーの行。get / set で読み書きする値を決める（ZONE BATTLE のフェーズごとの値でも使う）
+function _buildPctSliderRow(label, sub, get, set) {
+    const current = get();
 
     const ctrl = document.createElement('div');
     ctrl.className = 'vs-setting-control';
 
     const valLabel = document.createElement('span');
     valLabel.className = 'vs-setting-value-label';
-    valLabel.id = `vss-val-${key}`;
     valLabel.textContent = `${current}%`;
 
     const slider = document.createElement('input');
@@ -760,7 +832,7 @@ function _buildGarbageHoleRateRow(key = 'garbageHoleRate', sub) {
 
     slider.oninput = () => {
         const val = parseInt(slider.value);
-        currentVsSettings.tet[key] = val;
+        set(val);
         valLabel.textContent = `${val}%`;
         saveVsSettings();
     };
@@ -770,18 +842,14 @@ function _buildGarbageHoleRateRow(key = 'garbageHoleRate', sub) {
 
     ctrl.appendChild(_buildSliderMarkers([0, 50, 100].map(v => ({ pos: v, label: String(v) })), 0, 100));
 
-    // ZONE BATTLE は a（かたまりの中）と b（かたまりの間）の 2 行。PHASE ON の間はフェーズの表で決まるので減光
-    const row = _buildRow('HOLE RATE', sub || (isZone ? '(in chunk)' : ''), ctrl);
-    if (isZone) {
-        row.id = `vss-row-${key}`;
-        row.classList.toggle('is-inert', currentVsSettings.tet.phase !== false);
-    }
-    return row;
+    return _buildRow(label, sub, ctrl);
 }
 
-// ── HOLE RATE between（ZONE BATTLE だけ。かたまりの間で同じ穴の確率） ──
-function _buildGarbageHoleChunkRow() {
-    return _buildGarbageHoleRateRow('garbageHoleChunk', '(between)');
+// 通常 VERSUS の HOLE RATE（同じ着弾の中で同じ穴の確率）
+function _buildGarbageHoleRateRow() {
+    return _buildPctSliderRow('HOLE RATE', '',
+        () => currentVsSettings.tet.garbageHoleRate,
+        (v) => { currentVsSettings.tet.garbageHoleRate = v; });
 }
 
 // ── ライン消去中ダメージ ───────────────────────
@@ -834,7 +902,7 @@ function _buildZonePhaseRow() {
             btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
                 b.classList.toggle('active', (b.textContent === 'ON') === isOn());
             });
-            _syncZonePhaseInert();
+            _syncZonePhaseGroup();
         };
         btnGroup.appendChild(btn);
     });
@@ -857,51 +925,118 @@ function _buildZonePhaseTriggerRow() {
         () => (currentVsSettings.tet.phaseTrigger === 'time' ? 'time' : 'score'),
         (v) => { currentVsSettings.tet.phaseTrigger = v; },
         'vss-row-phaseTrigger',
-        () => { const sub = document.querySelector('#vss-row-phaseTrigger .vs-setting-sublabel'); if (sub) sub.textContent = _phaseTriggerSub(); });
+        () => {
+            const sub = document.querySelector('#vss-row-phaseTrigger .vs-setting-sublabel');
+            if (sub) sub.textContent = _phaseTriggerSub();
+            _syncZonePhaseGroup();
+        });
     row.classList.toggle('is-inert', currentVsSettings.tet.phase === false);
     return row;
 }
 
-function _syncZonePhaseInert() {
+// ── フェーズごとの値（PHASE タブの枠。設計 §14） ──
+// PHASE ON: 枠の頭の 01 / 02 / 03 の切替（カルーセル）で、そのフェーズの HOLE RATE ×2・ZONE TIME・ZONE CHARGE を出す。
+// PHASE OFF: 切替を隠し、試合を通して使う値（FIXED）の 4 行を出す。
+// 4 行の組は 01〜03・FIXED の 4 つを最初に全部作り、表示だけ切り替える（キー操作のフォーカスが切替の行から外れないように）
+let vsPhaseEdit = 1; // いま開いているフェーズ（保存しない）
+
+// 4 行の組（HOLE RATE in / between・ZONE TIME・ZONE CHARGE）。obj はその値を持つオブジェクト、keys はキーの名前
+function _buildZoneValueRows(obj, keys) {
+    return [
+        _buildPctSliderRow('HOLE RATE', '(in chunk)', () => obj()[keys.holeIn], (v) => { obj()[keys.holeIn] = v; }),
+        _buildPctSliderRow('HOLE RATE', '(between)', () => obj()[keys.holeBetween], (v) => { obj()[keys.holeBetween] = v; }),
+        _buildChoiceRow('ZONE TIME', '(sec / 25%)',
+            VS_ZONE_TIME_OPTIONS.map(v => ({ label: (v / 1000) + 's', value: v })),
+            () => obj()[keys.time], (v) => { obj()[keys.time] = v; }),
+        _buildChoiceRow('ZONE CHARGE', '(lines / 25%)',
+            VS_ZONE_CHARGE_OPTIONS.map(v => ({ label: String(v), value: v })),
+            () => obj()[keys.charge], (v) => { obj()[keys.charge] = v; }),
+    ];
+}
+
+// フェーズに進む条件（切替の行のサブラベル）
+function _phaseStartSub(p) {
+    if (p <= 1) return '(start)';
+    return currentVsSettings.tet.phaseTrigger === 'time'
+        ? `(${ZONE_PHASE_TIMES_MS[p - 2] / 1000}s~)`
+        : `(${ZONE_PHASE_SCORES[p - 2].toLocaleString('en-US')}~)`;
+}
+
+function _buildZonePhaseValuesGroup() {
+    const group = document.createElement('div');
+    group.className = 'vs-setting-group';
+    group.id = 'vss-phase-group';
+
+    const head = document.createElement('div');
+    head.className = 'vs-setting-group-head';
+    const title = document.createElement('p');
+    title.className = 'vs-setting-group-label';
+    title.id = 'vss-phase-group-label';
+    const note = document.createElement('p');
+    note.className = 'vs-setting-group-note';
+    note.id = 'vss-phase-group-note';
+    head.appendChild(title);
+    head.appendChild(note);
+    group.appendChild(head);
+
+    // 01 / 02 / 03 の切替（←/→ でも切り替わる。行として FocusNav に載る）
+    const sel = _buildChoiceRow('PHASE', _phaseStartSub(vsPhaseEdit),
+        [1, 2, 3].map(p => ({ label: String(p).padStart(2, '0'), value: p })),
+        () => vsPhaseEdit, (v) => { vsPhaseEdit = v; },
+        'vss-row-phaseSelect', _syncZonePhaseGroup);
+    sel.classList.add('vs-setting-phase-select');
+    group.appendChild(sel);
+
+    const table = () => currentVsSettings.tet.phaseTable;
+    const phaseKeys = { holeIn: 'holeRate', holeBetween: 'holeChunk', time: 'zoneTime', charge: 'zoneCharge' };
+    [1, 2, 3].forEach(p => {
+        const set = document.createElement('div');
+        set.className = 'vs-setting-group-set';
+        set.dataset.set = String(p);
+        _buildZoneValueRows(() => table()[p - 1], phaseKeys).forEach(r => set.appendChild(r));
+        group.appendChild(set);
+    });
+    const fixed = document.createElement('div');
+    fixed.className = 'vs-setting-group-set';
+    fixed.dataset.set = 'fixed';
+    _buildZoneValueRows(() => currentVsSettings.tet,
+        { holeIn: 'garbageHoleRate', holeBetween: 'garbageHoleChunk', time: 'zoneTime', charge: 'zoneCharge' })
+        .forEach(r => fixed.appendChild(r));
+    group.appendChild(fixed);
+
+    // 描いた直後に表示をそろえる（まだ DOM に入っていないので要素を直接渡す）
+    _syncZonePhaseGroup(group);
+    return group;
+}
+
+// PHASE の ON/OFF・切替に合わせて、PHASE TRIGGER の減光と枠の中の表示をそろえる
+function _syncZonePhaseGroup(groupEl) {
     const on = currentVsSettings.tet.phase !== false;
     const trig = document.getElementById('vss-row-phaseTrigger');
     if (trig) trig.classList.toggle('is-inert', !on);
-    for (const id of ['vss-row-zoneTime', 'vss-row-zoneCharge', 'vss-row-garbageHoleRate', 'vss-row-garbageHoleChunk']) {
-        const row = document.getElementById(id);
-        if (row) row.classList.toggle('is-inert', on);
-    }
-}
-
-// ── ZONE TIME（1/4 ゲージあたりの長さ） ──
-function _buildZoneTimeRow() {
-    const current = currentVsSettings.tet.zoneTime;
-
-    const ctrl = document.createElement('div');
-    ctrl.className = 'vs-setting-control';
-
-    const btnGroup = document.createElement('div');
-    btnGroup.className = 'vs-setting-btn-group';
-
-    VS_ZONE_TIME_OPTIONS.forEach(val => {
-        const btn = document.createElement('button');
-        btn.className = 'vs-setting-step-btn' + (val === current ? ' active' : '');
-        btn.textContent = (val / 1000) + 's';
-        btn.dataset.value = String(val);
-        btn.onclick = () => {
-            currentVsSettings.tet.zoneTime = val;
-            saveVsSettings();
-            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
-                b.classList.toggle('active', parseInt(b.dataset.value) === val);
-            });
-        };
-        btnGroup.appendChild(btn);
+    const group = (groupEl instanceof Element) ? groupEl : document.getElementById('vss-phase-group');
+    if (!group) return;
+    const show = on ? String(vsPhaseEdit) : 'fixed';
+    group.querySelectorAll('.vs-setting-group-set').forEach(set => {
+        const visible = set.dataset.set === show;
+        if (visible && set.style.display === 'none') {
+            // 切り替えたときだけ軽く出す（タブと同じ動き）
+            set.classList.remove('is-entering'); void set.offsetWidth; set.classList.add('is-entering');
+        }
+        set.style.display = visible ? '' : 'none';
     });
-
-    ctrl.appendChild(btnGroup);
-    const row = _buildRow('ZONE TIME', '(sec / 25%)', ctrl);
-    row.id = 'vss-row-zoneTime';
-    row.classList.toggle('is-inert', currentVsSettings.tet.phase !== false);
-    return row;
+    const sel = group.querySelector('#vss-row-phaseSelect');
+    if (sel) {
+        sel.style.display = on ? '' : 'none';
+        const sub = sel.querySelector('.vs-setting-sublabel');
+        if (sub) sub.textContent = _phaseStartSub(vsPhaseEdit);
+    }
+    const label = group.querySelector('#vss-phase-group-label');
+    if (label) label.textContent = on ? 'PER PHASE' : 'FIXED';
+    const note = group.querySelector('#vss-phase-group-note');
+    if (note) note.textContent = on
+        ? 'フェーズごとに、おじゃまの穴の変わり方と ZONE の長さ・たまり方を決める'
+        : 'PHASE OFF の試合で通して使う値';
 }
 
 // ── ZONE ATTACK（終了時の火力の送り方。SPLIT=分けて送る / MERGE=まとめて送る） ──
@@ -930,39 +1065,6 @@ function _buildZoneSplitRow() {
     ctrl.appendChild(btnGroup);
     const row = _buildRow('ZONE ATTACK', '(send)', ctrl);
     row.id = 'vss-row-zoneSplit';
-    return row;
-}
-
-// ── ZONE CHARGE（1/4 ゲージに必要なライン数） ──
-function _buildZoneChargeRow() {
-    const options = VS_ZONE_CHARGE_OPTIONS;
-    const current = currentVsSettings.tet.zoneCharge;
-
-    const ctrl = document.createElement('div');
-    ctrl.className = 'vs-setting-control';
-
-    const btnGroup = document.createElement('div');
-    btnGroup.className = 'vs-setting-btn-group';
-
-    options.forEach(val => {
-        const btn = document.createElement('button');
-        btn.className = 'vs-setting-step-btn' + (val === current ? ' active' : '');
-        btn.textContent = String(val);
-        btn.dataset.value = String(val);
-        btn.onclick = () => {
-            currentVsSettings.tet.zoneCharge = val;
-            saveVsSettings();
-            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
-                b.classList.toggle('active', parseInt(b.dataset.value) === val);
-            });
-        };
-        btnGroup.appendChild(btn);
-    });
-
-    ctrl.appendChild(btnGroup);
-    const row = _buildRow('ZONE CHARGE', '(lines / 25%)', ctrl);
-    row.id = 'vss-row-zoneCharge';
-    row.classList.toggle('is-inert', currentVsSettings.tet.phase !== false);
     return row;
 }
 
@@ -1156,8 +1258,9 @@ function _updateVsSettingsSummary() {
     if (holeUsed && D.tet.garbageHoleChunk !== undefined && s.tet.garbageHoleChunk !== D.tet.garbageHoleChunk) {
         parts.push(`HOLE-BETWEEN:${s.tet.garbageHoleChunk}%`);
     }
-    if (!s.tet.garbageDamageOnClear) {
-        parts.push('DMG-ON-CLR:OFF');
+    // 既定と違うときだけ（ZONE BATTLE は既定が OFF のことがある）
+    if (s.tet.garbageDamageOnClear !== D.tet.garbageDamageOnClear) {
+        parts.push(`DMG-ON-CLR:${s.tet.garbageDamageOnClear ? 'ON' : 'OFF'}`);
     }
     // ZONE BATTLE: ZONE TIME / CHARGE / ATTACK は既定と違うものだけ
     // PHASE OFF のときだけ PHASE:OFF と ZONE TIME / CHARGE（ON の間は使わないので出さない）
@@ -1168,13 +1271,24 @@ function _updateVsSettingsSummary() {
             parts.push(`ZONE TIME:${s.tet.zoneTime / 1000}s`);
             parts.push(`ZONE CHARGE:${s.tet.zoneCharge}`);
         }
+        // PHASE ON: フェーズごとの値は既定（原作の表）と違うものだけ（例 P02 ZONE TIME:5s）
+        if (s.tet.phase !== false && Array.isArray(s.tet.phaseTable) && Array.isArray(D.tet.phaseTable)) {
+            s.tet.phaseTable.forEach((r, i) => {
+                const d = D.tet.phaseTable[i] || {};
+                const tag = 'P' + String(i + 1).padStart(2, '0');
+                if (r.holeRate !== d.holeRate) parts.push(`${tag} HOLE:${r.holeRate}%`);
+                if (r.holeChunk !== d.holeChunk) parts.push(`${tag} HOLE-BETWEEN:${r.holeChunk}%`);
+                if (r.zoneTime !== d.zoneTime) parts.push(`${tag} ZONE TIME:${r.zoneTime / 1000}s`);
+                if (r.zoneCharge !== d.zoneCharge) parts.push(`${tag} ZONE CHARGE:${r.zoneCharge}`);
+            });
+        }
         if ((s.tet.zoneSplit !== false) !== (D.tet.zoneSplit !== false)) parts.push(`ZONE ATTACK:${s.tet.zoneSplit === false ? 'MERGE' : 'SPLIT'}`);
     }
 
     if (s.puyo) _pushPuyoSummary(parts, s, D);
 
     el.textContent = parts.join(' / ');
-    el.style.color = 'var(--accent, #c471ed)';
+    el.style.color = vsSettingsProfile === 'zone' ? 'var(--zone-battle-color)' : 'var(--accent, #c471ed)';
 }
 
 function _pushPuyoSummary(parts, s, D) {

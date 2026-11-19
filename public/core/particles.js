@@ -162,8 +162,10 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '.mode-btn-ultra',           cls: 'menu-enter',  delay: 3   },
             { sel: '.mode-btn-zone',            cls: 'menu-enter',  delay: 4   },
             { sel: '.mode-btn-versus',          cls: 'menu-enter',  delay: 2   },
-            { sel: '.mode-btn-test',            cls: 'menu-enter',  delay: 3   },
-            { sel: '.mode-btn-online',          cls: 'menu-enter',  delay: 4   },
+            // ZONE BATTLE（.mode-btn-zone とはクラス名が別なので個別に登録する。以前は漏れていて静的に出ていた）
+            { sel: '.mode-btn-zone-battle',     cls: 'menu-enter',  delay: 3   },
+            { sel: '.mode-btn-test',            cls: 'menu-enter',  delay: 4   },
+            { sel: '.mode-btn-online',          cls: 'menu-enter',  delay: 5   },
             { sel: '.mode-btn-puyo',            cls: 'menu-enter',  delay: 3   },
             { sel: '.mode-btn-quiz',            cls: 'menu-enter',  delay: 4   },
             { sel: '.mode-btn-practice',        cls: 'menu-enter',  delay: 5   },
@@ -228,10 +230,13 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '#versus-check-buttons',     cls: 'menu-enter',  delay: 4   },
         ];
     } else if (pageId === 'vs-settings') {
+        // ヘッダー（見出し＋RESET/SAVE/BACK）→ タブ → 項目。以前はタブとボタン群（.settings-actions）が
+        // 登録されておらず、見出しと項目だけが登場していた（存在しない #vs-settings-buttons を指していた）
         targets = [
             { sel: '#vs-settings-header',       cls: 'menu-enter',  delay: 0   },
-            { sel: '#vs-settings-items',        cls: 'menu-enter',  delay: 1   },
-            { sel: '#vs-settings-buttons',      cls: 'menu-enter',  delay: 2   },
+            { sel: '#vs-settings-sticky .settings-actions', cls: 'menu-enter', delay: 1 },
+            { sel: '#vs-settings-tab-toggle',   cls: 'menu-enter',  delay: 2   },
+            { sel: '#vs-settings-items',        cls: 'menu-enter',  delay: 3   },
         ];
     } else if (pageId === 'quiz-check') {
         targets = [

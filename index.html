@@ -462,7 +462,7 @@
       <div id="vs-settings-sticky">
         <div class="settings-header">
           <div id="vs-settings-header">
-            <h2 style="margin-bottom: 0; color: var(--versus-color, #f5c542)">⚙ VS SETTINGS</h2>
+            <h2 class="vs-settings-title">⚙ VS SETTINGS</h2>
             <p class="vs-settings-subtitle">VERSUS MODE ONLY</p>
           </div>
           <div class="settings-actions">
@@ -476,6 +476,9 @@
           <button class="opt-btn active" data-tab="all" onclick="setVsSettingsTab('all')">ALL</button>
           <button class="opt-btn" data-tab="tet" onclick="setVsSettingsTab('tet')">TET</button>
           <button class="opt-btn" data-tab="puyo" onclick="setVsSettingsTab('puyo')">PUYO</button>
+          <!-- ZONE BATTLE だけ（役割で分ける。通常 VERSUS では隠す） -->
+          <button class="opt-btn" data-tab="margin" onclick="setVsSettingsTab('margin')" style="display: none">MARGIN</button>
+          <button class="opt-btn" data-tab="phase" onclick="setVsSettingsTab('phase')" style="display: none">PHASE</button>
         </div>
       </div>
 
@@ -1672,9 +1675,9 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=39"></script>
+  <script src="core/replay.js?v=40"></script>
   <script src="core/dialog.js?v=2"></script>
-  <script src="core/particles.js?v=11"></script>
+  <script src="core/particles.js?v=12"></script>
   <script src="app/manager.js?v=1"></script>
   <script src="config/settings.js?v=18"></script>
   <script src="config/records.js?v=6"></script>
@@ -1689,12 +1692,12 @@
   <script src="game/tet/board.js?v=23"></script>
   <script src="game/tet/rotation.js?v=10"></script>
   <script src="game/tet/scoring.js?v=6"></script>
-  <script src="game/tet/zone.js?v=21"></script>
-  <script src="game/tet/garbage.js?v=15"></script>
+  <script src="game/tet/zone.js?v=22"></script>
+  <script src="game/tet/garbage.js?v=16"></script>
   <script src="game/tet/render.js?v=13"></script>
   <script src="game/tet/input.js?v=17"></script>
   <!-- VS 設定: ZONE の選択肢・既定値を game/tet/zone.js から読むので、テトのエンジンの後に読み込む -->
-  <script src="config/vs_settings.js?v=16"></script>
+  <script src="config/vs_settings.js?v=17"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1710,9 +1713,9 @@
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
-  <script src="cpu/tet/cpu_zone.js?v=14"></script>
+  <script src="cpu/tet/cpu_zone.js?v=15"></script>
   <script src="app/cpu_match_log.js?v=5"></script>
-  <script src="app/versus.js?v=24"></script>
+  <script src="app/versus.js?v=25"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
   <script src="app/navigation.js?v=50"></script>
   <script src="app/ranking.js?v=5"></script>

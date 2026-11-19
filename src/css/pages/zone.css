@@ -277,18 +277,119 @@ body.replay-watching:not(.replay-ui-hidden) #container.zone-on {
   color: var(--zone-color);
 }
 
-/* ZONE BATTLE（ホームの VERSUS 列。シングルの ZONE と同じ色） */
+/* ZONE BATTLE（ホームの VERSUS 列。色は --zone-battle-color） */
 .mode-btn-zone-battle {
-  border-color: rgba(110, 231, 214, 0.35);
+  border-color: rgba(var(--zone-battle-rgb), 0.35);
 }
 .mode-btn-zone-battle:hover,
 .mode-btn-zone-battle.is-focused {
-  background: rgba(110, 231, 214, 0.12);
-  border-color: var(--zone-color);
+  background: rgba(var(--zone-battle-rgb), 0.12);
+  border-color: var(--zone-battle-color);
 }
 .mode-btn-zone-battle .mode-btn-icon,
 .mode-btn-zone-battle .mode-btn-label {
-  color: var(--zone-color);
+  color: var(--zone-battle-color);
+}
+/* シングルの ZONE と見分けるため、アイコンと名前は START と同じグラデーション */
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .mode-btn-zone-battle .mode-btn-icon,
+  .mode-btn-zone-battle .mode-btn-label {
+    background: linear-gradient(90deg, var(--zone-battle-color), var(--zone-battle-color2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
+
+/* ─── ZONE BATTLE の確認画面・VS 設定（画面は通常 VERSUS と共用。.is-zone-battle は
+   app/versus.js _renderVersusCheckBattle・config/vs_settings.js _syncVsSettingsChrome が付ける） ─── */
+#versus-check-page.is-zone-battle .btn-versus-primary {
+  background: linear-gradient(135deg, var(--zone-battle-color) 0%, var(--zone-battle-color2) 100%);
+}
+#versus-check-page.is-zone-battle .btn-vs-settings {
+  background: rgba(var(--zone-battle-rgb), 0.1);
+  color: var(--zone-battle-color);
+  border-color: rgba(var(--zone-battle-rgb), 0.4);
+}
+#versus-check-page.is-zone-battle .btn-vs-settings:hover,
+#versus-check-page.is-zone-battle .btn-vs-settings.is-focused {
+  background: rgba(var(--zone-battle-rgb), 0.2);
+  border-color: var(--zone-battle-color);
+}
+
+#vs-settings-page.is-zone-battle .vs-settings-title {
+  color: var(--zone-battle-color);
+}
+#vs-settings-page.is-zone-battle .vs-settings-subtitle,
+#vs-settings-page.is-zone-battle .vs-setting-section-label {
+  color: rgba(var(--zone-battle-rgb), 0.6);
+}
+#vs-settings-page.is-zone-battle #vs-settings-tab-toggle .opt-btn.active {
+  background: rgba(var(--zone-battle-rgb), 0.15);
+  border-color: var(--zone-battle-color);
+  color: var(--zone-battle-color);
+}
+body.input-mode-kbd #vs-settings-page.is-zone-battle #vs-settings-tab-toggle.is-focused .opt-btn.active {
+  outline-color: var(--zone-battle-color);
+}
+#vs-settings-page.is-zone-battle .vs-setting-step-btn.active {
+  background: rgba(var(--zone-battle-rgb), 0.16);
+  color: var(--zone-battle-color);
+  border-color: var(--zone-battle-color);
+}
+#vs-settings-page.is-zone-battle .vs-setting-value-label {
+  color: var(--zone-battle-color);
+}
+#vs-settings-page.is-zone-battle .vs-setting-slider {
+  accent-color: var(--zone-battle-color);
+}
+
+/* PHASE タブのフェーズごとの値の枠（頭に 01 / 02 / 03 の切替。config/vs_settings.js _buildZonePhaseValuesGroup） */
+.vs-setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px 16px 16px;
+  border: 1px solid rgba(var(--zone-battle-rgb), 0.25);
+  border-radius: 8px;
+  background: rgba(var(--zone-battle-rgb), 0.03);
+}
+.vs-setting-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.vs-setting-group-label {
+  margin: 0;
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--zone-battle-color);
+}
+.vs-setting-group-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+/* 01 / 02 / 03 の切替は枠の中の小さなタブに見せる */
+.vs-setting-phase-select {
+  padding-bottom: 12px;
+  border-bottom: 1px dashed rgba(var(--zone-battle-rgb), 0.25);
+}
+.vs-setting-phase-select .vs-setting-step-btn {
+  min-width: 56px;
+  font-size: 12px;
+  letter-spacing: 2px;
+}
+.vs-setting-group-set {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.vs-setting-group-set.is-entering {
+  animation: settings-tab-in 0.18s ease-out;
 }
 
 /* ZONE BATTLE のフェーズ（中央の時間の下・切り替わりの表示。game/tet/zone.js） */

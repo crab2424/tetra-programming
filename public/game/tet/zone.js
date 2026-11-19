@@ -53,8 +53,8 @@ const ZONE_VS_QUARTER_LINES_DEFAULT = 6;
 
 // ─── ZONE BATTLE のフェーズ（設計 source_assets/memory/mode/tet_zone/tetlabo-zone-battle-design.md §1・§3）───
 // 試合で 1 つ（両者共通）の matchPhase 1〜3。両者のスコアの最大値がしきい値「以上」で進み、戻らない（1 回で 01 → 03 もある）。
-// フェーズで 1/4 に必要なライン数・1/4 の長さが変わる（穴のばらつき holeIn / holeBetween は B3 で使う。今は持っているだけ）。
-// しきい値・表は画面で選ばせない（調整はここ）。PHASE OFF の試合（vsZonePhase が true でない）はここを一切通らない
+// フェーズで 1/4 に必要なライン数・1/4 の長さ・穴の変わる確率（holeIn / holeBetween、%）が変わる。
+// しきい値は画面で選ばせない（調整はここ）。表はここが既定（原作）で、VS 設定の PHASE 01〜03 で試合ごとに変えられる（zonePhaseTableFrom）。PHASE OFF の試合（vsZonePhase が true でない）はここを一切通らない
 const ZONE_PHASE_SCORES = [20000, 60000];          // 02・03 へ進むスコア（両者の最大値）。PHASE TRIGGER: SCORE（既定）
 const ZONE_PHASE_TIMES_MS = [64000, 192000];       // 02・03 へ進む試合の時計（初期化から）。PHASE TRIGGER: TIME（§5.2。マージンの 32 秒刻みの倍数・比 1:3）
 // MARGIN TRIGGER: SCORE（ZONE BATTLE だけ。§5.2）: VS 設定 MARGIN SCORE の点で突入し、以後この点ごとに 1 段階（0〜5）。
@@ -66,6 +66,23 @@ const ZONE_PHASE_TABLE = [
     { quarterLines: 8,  quarterMs: 4000, holeIn: 10, holeBetween: 90 },   // 02
     { quarterLines: 10, quarterMs: 2500, holeIn: 90, holeBetween: 90 },   // 03
 ];
+
+// VS 設定で入れたフェーズごとの値（applyVsSettings の vsZonePhaseTable。ZONE_PHASE_TABLE と同じ形）を読む。
+// 無い（キーの無い録画・通常 VERSUS）・形が違う・選べない値の行は原作の表（ZONE_PHASE_TABLE）の値を使う
+// （設計 tetlabo-zone-battle-design.md §14）
+function zonePhaseTableFrom(v) {
+    if (!Array.isArray(v) || v.length !== ZONE_PHASE_TABLE.length) return ZONE_PHASE_TABLE;
+    const pct = (x) => Number.isFinite(x) && x >= 0 && x <= 100;
+    return ZONE_PHASE_TABLE.map((d, i) => {
+        const r = v[i] || {};
+        return {
+            quarterLines: zoneValidLines(r.quarterLines) ? r.quarterLines : d.quarterLines,
+            quarterMs: zoneValidMs(r.quarterMs) ? r.quarterMs : d.quarterMs,
+            holeIn: pct(r.holeIn) ? r.holeIn : d.holeIn,
+            holeBetween: pct(r.holeBetween) ? r.holeBetween : d.holeBetween,
+        };
+    });
+}
 
 // スコアからフェーズ（1〜3）
 function zonePhaseForScore(score) {
@@ -173,6 +190,8 @@ Object.assign(Game.prototype, {
         this.topLimit = tall ? ZONE_TOP_LIMIT : TET_TOP_LIMIT;
         // ZONE BATTLE のフェーズ（0 = フェーズなし。§3）。ON なら ZONE CHARGE / ZONE TIME の代わりにフェーズの表の値
         this.matchPhase = (vs && this.vsZonePhase === true) ? 1 : 0;
+        // フェーズごとの値（VS 設定の PHASE 01〜03。キーの無い録画は原作の表）
+        this.zonePhaseTable = this.matchPhase ? zonePhaseTableFrom(this.vsZonePhaseTable) : ZONE_PHASE_TABLE;
         this.zoneActiveQuarterMs = 0; // 発動したときの 1/4 の長さ（発動中にフェーズが進んでも輪はこの長さで減る）
         // PHASE TRIGGER（'score' | 'time'）。TIME は試合の時計の予約で進める（初期化で入れた予約は録画の再生でも残る。
         // core/replay.js の clock.rebase）。両盤面がそれぞれ同じ時刻に予約するので同じ advance の中で両方進む
@@ -186,8 +205,8 @@ Object.assign(Game.prototype, {
         this.marginScoreOn = !!(vs && this.vsMarginTrigger === 'score' && typeof this.vsMarginScore === 'number');
         if (this.marginScoreOn && this.vsMarginScore <= 0) this._tetMarginStep = 0;
         if (this.matchPhase) {
-            this.zoneQuarterLines = ZONE_PHASE_TABLE[0].quarterLines;
-            this.zoneQuarterMs = ZONE_PHASE_TABLE[0].quarterMs;
+            this.zoneQuarterLines = this.zonePhaseTable[0].quarterLines;
+            this.zoneQuarterMs = this.zonePhaseTable[0].quarterMs;
         } else if (vs) {
             // VERSUS: VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ。未設定は 5 秒）（§12）
             this.zoneQuarterLines = zoneValidLines(this.vsZoneQuarterLines)
@@ -240,7 +259,7 @@ Object.assign(Game.prototype, {
         if (this.isGameOver || this.isFinishing || opp.isGameOver || opp.isFinishing) return;
         const top = Math.max(this.score || 0, opp.score || 0);
         // フェーズ（PHASE TRIGGER: SCORE のときだけ。TIME は予約で進む）
-        if (this.matchPhase && this.matchPhaseTrigger === 'score' && this.matchPhase < ZONE_PHASE_TABLE.length && opp.matchPhase) {
+        if (this.matchPhase && this.matchPhaseTrigger === 'score' && this.matchPhase < this.zonePhaseTable.length && opp.matchPhase) {
             const p = zonePhaseForScore(top);
             if (p > this.matchPhase) {
                 this._zoneSetPhase(p);
@@ -271,7 +290,7 @@ Object.assign(Game.prototype, {
     // 発動中の ZONE は前のフェーズの長さのまま数える（予約もそのまま。輪は zoneActiveQuarterMs で減る）
     _zoneSetPhase(p) {
         if (!(p > this.matchPhase)) return;
-        const row = ZONE_PHASE_TABLE[p - 1];
+        const row = this.zonePhaseTable[p - 1];
         const L0 = this.zoneQuarterLines, L1 = row.quarterLines;
         const scale = (v) => Math.round(v * L1 / L0 * 1e6) / 1e6;
         if (L0 > 0 && L1 !== L0) {

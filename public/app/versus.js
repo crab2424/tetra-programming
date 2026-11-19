@@ -50,7 +50,7 @@ const VERSUS_CHECK_TEXT = {
     en: 'Battle against CPU. The match ends when either side tops out.',
   },
   zone: {
-    icon: '◎', label: 'ZONE BATTLE', color: 'var(--zone-color)',
+    icon: '◎', label: 'ZONE BATTLE', color: 'var(--zone-battle-color)',
     ja: 'ZONE ありの CPU 対戦（テト同士）。消したラインをためて ZONE を発動し、終了時にまとめて送りつける。',
     en: 'Battle against CPU with ZONE. TET vs TET only.',
   },
@@ -68,6 +68,9 @@ function _renderVersusCheckBattle() {
   if (en) en.textContent = t.en;
   const rules = document.getElementById('versus-rule-options');
   if (rules) rules.style.display = versusBattle === 'zone' ? 'none' : 'flex';
+  // ボタン（START・VS SETTINGS）・サマリーの色を ZONE BATTLE の色へ（src/css/pages/zone.css の .is-zone-battle）
+  const page = document.getElementById('versus-check-page');
+  if (page) page.classList.toggle('is-zone-battle', versusBattle === 'zone');
 }
 
 function setVersusPlayerRule(rule) {

@@ -184,8 +184,9 @@ Object.assign(Game.prototype, {
         if (!(this.isVersusMode && this.zoneEnabled && this.vsZone === true)) return null;
         const rec = this._replay && this._replay.data;
         if (rec && (rec.engine || 0) < 14) return null;
-        if (this.matchPhase > 0 && typeof ZONE_PHASE_TABLE !== 'undefined') {
-            const row = ZONE_PHASE_TABLE[this.matchPhase - 1];
+        if (this.matchPhase > 0 && this.zonePhaseTable) {
+            // フェーズごとの値（VS 設定の PHASE 01〜03。キーの無い録画は原作の表。tet/zone.js _zoneInit）
+            const row = this.zonePhaseTable[this.matchPhase - 1];
             return { within: row.holeIn / 100, between: row.holeBetween / 100 };
         }
         if (typeof this.vsGarbageHoleChunk === 'number') {

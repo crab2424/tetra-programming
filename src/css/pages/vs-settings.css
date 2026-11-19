@@ -35,6 +35,11 @@
   border-radius: 12px 12px 0 0;
 }
 
+/* 見出しの色（ZONE BATTLE は src/css/pages/zone.css で上書き） */
+.vs-settings-title {
+  color: #f5c542;
+}
+
 #vs-settings-page h2 {
   font-family: "Orbitron", monospace;
   font-size: 14px;

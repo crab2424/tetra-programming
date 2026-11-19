@@ -215,19 +215,21 @@ const CpuZone = (() => {
         return gain > Math.max(0, linesWhileWaiting - room) * perMeterLine;
     }
 
-    // ZONE BATTLE: 次のフェーズがもうすぐ来るなら、その行（ZONE_PHASE_TABLE の次の行）。来ない・フェーズなしは null。
+    // ZONE BATTLE: 次のフェーズがもうすぐ来るなら、その行（試合のフェーズの表 game.zonePhaseTable の次の行。
+    // VS 設定の PHASE 01〜03 の値。tet/zone.js _zoneInit）。来ない・フェーズなしは null。
     //   SCORE: 両者のスコアの最大値がしきい値まで phaseNearScore 以内／TIME: 次の予約まで phaseNearMs 以内
     function phaseSoon(game) {
         const p = game.matchPhase;
-        if (!p || typeof ZONE_PHASE_TABLE === 'undefined' || p >= ZONE_PHASE_TABLE.length) return null;
+        const table = game.zonePhaseTable;
+        if (!p || !table || p >= table.length) return null;
         if (game.matchPhaseTrigger === 'time') {
             const h = game._zonePhaseTimers && game._zonePhaseTimers[p - 1];
             if (!h || typeof h.due !== 'number') return null;
-            return (h.due - game.clock.now() <= CONFIG.phaseNearMs) ? ZONE_PHASE_TABLE[p] : null;
+            return (h.due - game.clock.now() <= CONFIG.phaseNearMs) ? table[p] : null;
         }
         const opp = opponent(game);
         const top = Math.max(game.score || 0, opp ? (opp.score || 0) : 0);
-        return (ZONE_PHASE_SCORES[p - 1] - top <= CONFIG.phaseNearScore) ? ZONE_PHASE_TABLE[p] : null;
+        return (ZONE_PHASE_SCORES[p - 1] - top <= CONFIG.phaseNearScore) ? table[p] : null;
     }
 
     // 「フェーズ前」: いま撃つ見込み火力が、進んだ後の見込み（同じメーターで撃つ／満タンまでためて撃つ×割り引き）
