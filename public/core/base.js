@@ -1031,7 +1031,7 @@ class BgmManager {
         'menu_bgm':   1.00,  // -14.1
         'quiz_bgm':   0.63,  // -10.0
         'versus_bgm': 0.50,  // -8.0
-        'zone_battle_bgm': 0.50,  // zone_1.ogg（single_zone_bgm と同じ）
+        'zone_battle_bgm': 0.90,  // zone_1.ogg（single_zone_bgm と同じ）
         'online_bgm': 0.50,
         'online_lobby_bgm': 0.73,  // -11.4
         // シングル各モードBGM（今は同一ファイル＝同係数。モード別音源にしたら個別に実測して調整）
@@ -1040,7 +1040,7 @@ class BgmManager {
         'single_ultra_bgm':    0.90,
         'single_puyo_bgm':     0.90,
         'single_practice_bgm': 0.50,  // -9.5（practice_1.ogg。聴感ラウドネスLUFSでmenuに揃えた）
-        'single_zone_bgm':     0.50,  // -6.4 LUFS（zone_1.ogg = Acrise。menu -12.4 LUFS に揃えた）
+        'single_zone_bgm':     0.90,  // -6.4 LUFS（zone_1.ogg = Acrise。menu -12.4 LUFS に揃えた）
     };
 
     // ── シングルモードの mode → BGMキー対応 ───────────────────────────
