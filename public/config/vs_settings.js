@@ -8,7 +8,10 @@
 // 定数
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// 保存は対戦の種類（プロファイル）ごと。通常 VERSUS = 'standard'、ZONE BATTLE = 'zone'
+// （設計 source_assets/memory/mode/tet_zone/tetlabo-zone-battle-design.md §2.4）
 const VS_SETTINGS_STORAGE_KEY = 'game_vs_settings';
+const VS_SETTINGS_ZONE_STORAGE_KEY = 'game_vs_settings_zone';
 
 /**
  * 火力補正テーブル（bias + 3 をインデックスとする）
@@ -58,11 +61,8 @@ const DEFAULT_VS_SETTINGS = {
     tet: {
         holdEnabled: true,
         garbageHoleRate: 70,
-        garbageDamageOnClear: true,
-        zone: false,          // ZONE（テト同士のときだけ効く。設計 source_assets/memory/tet_zone/tetlabo-zone-versus-cpu-design.md）
-        zoneTime: ZONE_VS_QUARTER_MS_DEFAULT,      // ZONE TIME: 1/4 ゲージあたりの長さ（ms。選択肢は game/tet/zone.js）
-        zoneSplit: true,      // ZONE ATTACK: true=SPLIT（発動中の攻撃を 1 回ぶんずつ → 表のかたまりを後から順に）/ false=MERGE（まとめて同時に）
-        zoneCharge: ZONE_VS_QUARTER_LINES_DEFAULT  // ZONE CHARGE: 1/4 ゲージに必要なライン数（選択肢は game/tet/zone.js）
+        garbageDamageOnClear: true
+        // ZONE は ZONE BATTLE（DEFAULT_ZONE_BATTLE_SETTINGS）だけ。通常 VERSUS は常に ZONE なし
     },
     puyo: {
         ojamaRate:  70,       // 10~120 (10刻み)
@@ -76,12 +76,55 @@ const DEFAULT_VS_SETTINGS = {
     }
 };
 
+/**
+ * ZONE BATTLE の既定値（テト同士だけなので PUYO の節は持たない。ZONE は常に ON）。
+ * ZONE TIME / CHARGE の値と既定はエンジン（game/tet/zone.js）のもの。
+ * B2 以降でフェーズ・MARGIN TRIGGER などをここへ足す。
+ */
+const DEFAULT_ZONE_BATTLE_SETTINGS = {
+    all: {
+        marginEnabled: true,
+        marginTime: 96,
+        attackBias: {
+            player: 0,
+            cpu:    0
+        }
+    },
+    tet: {
+        holdEnabled: true,
+        garbageHoleRate: 70,
+        garbageDamageOnClear: true,
+        zoneTime: ZONE_VS_QUARTER_MS_DEFAULT,      // ZONE TIME: 1/4 ゲージあたりの長さ（ms）
+        zoneSplit: true,      // ZONE ATTACK: true=SPLIT（発動中の攻撃を 1 回ぶんずつ → 表のかたまりを後から順に）/ false=MERGE（まとめて同時に）
+        zoneCharge: ZONE_VS_QUARTER_LINES_DEFAULT  // ZONE CHARGE: 1/4 ゲージに必要なライン数
+    }
+};
+
+const VS_SETTINGS_PROFILES = {
+    standard: { key: VS_SETTINGS_STORAGE_KEY,      defaults: DEFAULT_VS_SETTINGS,          subtitle: 'VERSUS MODE ONLY', tabs: ['all', 'tet', 'puyo'] },
+    zone:     { key: VS_SETTINGS_ZONE_STORAGE_KEY, defaults: DEFAULT_ZONE_BATTLE_SETTINGS, subtitle: 'ZONE BATTLE',      tabs: ['all', 'tet'] },
+};
+
+// いま読み書きしているプロファイル（versus.js の setVersusBattle が switchVsSettingsProfile で切り替える）
+let vsSettingsProfile = 'standard';
+
+function _vsProfile() {
+    return VS_SETTINGS_PROFILES[vsSettingsProfile] || VS_SETTINGS_PROFILES.standard;
+}
+
+function _vsDefaults() {
+    return _vsProfile().defaults;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ロード / セーブ
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function loadVsSettings() {
-    const saved = localStorage.getItem(VS_SETTINGS_STORAGE_KEY);
+    const prof = _vsProfile();
+    const defaults = prof.defaults;
+    let saved = null;
+    try { saved = localStorage.getItem(prof.key); } catch (e) { /* 読めなければ既定 */ }
     if (saved) {
         try {
             const parsed = JSON.parse(saved);
@@ -90,16 +133,34 @@ function loadVsSettings() {
                 parsed.all.marginEnabled = false;
                 delete parsed.all.marginTime;
             }
-            const merged = _deepMerge(DEFAULT_VS_SETTINGS, parsed);
-            // ZONE CHARGE / ZONE TIME: 選べない値（以前の選択肢 4 など）は既定へ戻す
-            if (!VS_ZONE_CHARGE_OPTIONS.includes(merged.tet.zoneCharge)) merged.tet.zoneCharge = DEFAULT_VS_SETTINGS.tet.zoneCharge;
-            if (!VS_ZONE_TIME_OPTIONS.includes(merged.tet.zoneTime)) merged.tet.zoneTime = DEFAULT_VS_SETTINGS.tet.zoneTime;
+            const merged = _deepMerge(defaults, parsed);
+            // 既定に無い節・キーは読み捨てる（通常 VERSUS に以前あった tet.zone / zoneTime などは
+            // ZONE BATTLE へ移さず、ここで捨てる。設計 §2.4）
+            _dropUnknownKeys(merged, defaults);
+            if (vsSettingsProfile === 'zone') {
+                // ZONE CHARGE / ZONE TIME: 選べない値（以前の選択肢 4 など）は既定へ戻す
+                if (!VS_ZONE_CHARGE_OPTIONS.includes(merged.tet.zoneCharge)) merged.tet.zoneCharge = defaults.tet.zoneCharge;
+                if (!VS_ZONE_TIME_OPTIONS.includes(merged.tet.zoneTime)) merged.tet.zoneTime = defaults.tet.zoneTime;
+            }
             return merged;
         } catch (e) {
-            localStorage.removeItem(VS_SETTINGS_STORAGE_KEY);
+            try { localStorage.removeItem(prof.key); } catch (e2) { /* 無視 */ }
         }
     }
-    return _deepClone(DEFAULT_VS_SETTINGS);
+    return _deepClone(defaults);
+}
+
+/**
+ * 読み書きするプロファイルを切り替え、その保存を読み直す（未保存の変更は捨てる）。
+ * @param {'standard'|'zone'} profile
+ */
+function switchVsSettingsProfile(profile) {
+    const next = VS_SETTINGS_PROFILES[profile] ? profile : 'standard';
+    if (next === vsSettingsProfile) return;
+    vsSettingsProfile = next;
+    currentVsSettings = loadVsSettings();
+    if (!_vsProfile().tabs.includes(currentVsSettingsTab)) currentVsSettingsTab = 'all';
+    _updateVsSettingsSummary();
 }
 
 // 各コントロールの変更はメモリ上の currentVsSettings に入れるだけ（SAVE を押すまで確定しない。
@@ -109,7 +170,7 @@ function saveVsSettings() {
 }
 
 function commitVsSettings() {
-    localStorage.setItem(VS_SETTINGS_STORAGE_KEY, JSON.stringify(currentVsSettings));
+    try { localStorage.setItem(_vsProfile().key, JSON.stringify(currentVsSettings)); } catch (e) { /* 保存できなくても続ける */ }
     _updateVsSettingsSummary();
 }
 
@@ -123,6 +184,7 @@ function saveVsSettingsFromUi() {
 let currentVsSettingsTab = 'all';
 
 function setVsSettingsTab(tab) {
+    if (!_vsProfile().tabs.includes(tab)) tab = 'all';
     if (!document.querySelector(`.vs-settings-tab-panel[data-tab="${tab}"]`)) return;
     currentVsSettingsTab = tab;
     document.querySelectorAll('#vs-settings-tab-toggle .opt-btn').forEach(btn => {
@@ -147,8 +209,9 @@ async function resetVsSettings() {
         ],
         initial: 'cancel',
     });
-    if (choice === 'tab') currentVsSettings[tab] = _deepClone(DEFAULT_VS_SETTINGS[tab]);
-    else if (choice === 'all') currentVsSettings = _deepClone(DEFAULT_VS_SETTINGS);
+    const defaults = _vsDefaults();
+    if (choice === 'tab') currentVsSettings[tab] = _deepClone(defaults[tab]);
+    else if (choice === 'all') currentVsSettings = _deepClone(defaults);
     else return;
     _updateVsSettingsSummary();
     renderVsSettingsPage();
@@ -220,14 +283,15 @@ function getMarginTimeMs() {
 function applyVsSettings(playerGame, cpuGame, playerRule, cpuRule) {
     const s = currentVsSettings;
 
-    // ZONE はテト同士のときだけ（対ぷよでは無効から始める。設計 Q13）。両者へ同じ値を入れる
-    const zoneOn = !!s.tet.zone && playerRule === 'tet' && cpuRule === 'tet';
+    // ZONE は ZONE BATTLE（テト同士）のときだけ。通常 VERSUS は常に無し。両者へ同じ値を入れる
+    // （ZONE の値が無い通常 VERSUS ではエンジンの既定を入れておく。vsZone=false なので使われない）
+    const zoneOn = vsSettingsProfile === 'zone' && playerRule === 'tet' && cpuRule === 'tet';
     for (const g of [playerGame, cpuGame]) {
         if (!g) continue;
         g.vsZone = zoneOn;
-        g.vsZoneQuarterLines = s.tet.zoneCharge;
-        g.vsZoneQuarterMs = s.tet.zoneTime;
-        g.vsZoneSplit = s.tet.zoneSplit !== false;
+        g.vsZoneQuarterLines = zoneOn ? s.tet.zoneCharge : ZONE_VS_QUARTER_LINES_DEFAULT;
+        g.vsZoneQuarterMs = zoneOn ? s.tet.zoneTime : ZONE_VS_QUARTER_MS_DEFAULT;
+        g.vsZoneSplit = zoneOn ? s.tet.zoneSplit !== false : true;
     }
 
     // ── プレイヤー側 ──────────────────────────
@@ -281,6 +345,8 @@ function renderVsSettingsPage() {
     if (!container) return;
 
     container.innerHTML = '';
+    const isZone = vsSettingsProfile === 'zone';
+    _syncVsSettingsChrome();
 
     // ── ALL（共通） ────────────────────────────
     container.appendChild(_buildSection('ALL', [
@@ -291,18 +357,16 @@ function renderVsSettingsPage() {
     ]));
 
     // ── TET ───────────────────────────────────
+    // ZONE の行は ZONE BATTLE だけ（常に ON なので ON/OFF の行は無い）
     container.appendChild(_buildSection('TET', [
         _buildHoldToggleRow(),
         _buildGarbageHoleRateRow(),
         _buildGarbageDamageRow(),
-        _buildZoneToggleRow(),
-        _buildZoneTimeRow(),
-        _buildZoneChargeRow(),
-        _buildZoneSplitRow()
+        ...(isZone ? [_buildZoneTimeRow(), _buildZoneChargeRow(), _buildZoneSplitRow()] : [])
     ]));
 
-    // ── PUYO ──────────────────────────────────
-    container.appendChild(_buildSection('PUYO', [
+    // ── PUYO（ZONE BATTLE はテト同士だけなので無し） ──
+    if (!isZone) container.appendChild(_buildSection('PUYO', [
         _buildOjamaRateRow(),
         _buildEraseCountRow(),
         _buildColorCountRow(),
@@ -312,6 +376,16 @@ function renderVsSettingsPage() {
     ]));
 
     setVsSettingsTab(currentVsSettingsTab);
+}
+
+// 見出し下のプロファイル名と、タブのボタン（ZONE BATTLE は PUYO タブを出さない）
+function _syncVsSettingsChrome() {
+    const prof = _vsProfile();
+    const sub = document.querySelector('#vs-settings-header .vs-settings-subtitle');
+    if (sub) sub.textContent = prof.subtitle;
+    document.querySelectorAll('#vs-settings-tab-toggle .opt-btn').forEach(btn => {
+        btn.style.display = prof.tabs.includes(btn.dataset.tab) ? '' : 'none';
+    });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -399,7 +473,7 @@ function _buildMarginTimeRow() {
     // 現在値に対応するスライダーインデックス（見つからなければデフォルト値の位置）
     const currentIdx = (() => {
         const idx = MARGIN_TIME_STEPS.indexOf(current);
-        return idx !== -1 ? idx : MARGIN_TIME_STEPS.indexOf(DEFAULT_VS_SETTINGS.all.marginTime);
+        return idx !== -1 ? idx : MARGIN_TIME_STEPS.indexOf(_vsDefaults().all.marginTime);
     })();
 
     const ctrl = document.createElement('div');
@@ -646,42 +720,6 @@ function _buildGarbageDamageRow() {
     return _buildRow('DMG ON CLR', '', ctrl);
 }
 
-// ── ZONE ON/OFF（テト同士の対戦だけ） ─────────────
-function _buildZoneToggleRow() {
-    const ctrl = document.createElement('div');
-    ctrl.className = 'vs-setting-control';
-
-    const btnGroup = document.createElement('div');
-    btnGroup.className = 'vs-setting-btn-group';
-
-    ['ON', 'OFF'].forEach(label => {
-        const btn = document.createElement('button');
-        btn.className = 'vs-setting-step-btn'
-            + ((label === 'ON') === !!currentVsSettings.tet.zone ? ' active' : '');
-        btn.textContent = label;
-        btn.onclick = () => {
-            currentVsSettings.tet.zone = (label === 'ON');
-            saveVsSettings();
-            btnGroup.querySelectorAll('.vs-setting-step-btn').forEach(b => {
-                b.classList.toggle('active', (b.textContent === 'ON') === !!currentVsSettings.tet.zone);
-            });
-            _syncZoneChargeInert();
-        };
-        btnGroup.appendChild(btn);
-    });
-
-    ctrl.appendChild(btnGroup);
-    return _buildRow('ZONE', '(TET vs TET)', ctrl);
-}
-
-// ZONE が OFF の間は ZONE TIME・ZONE CHARGE の行を減光する（値は保持される）
-function _syncZoneChargeInert() {
-    for (const id of ['vss-row-zoneTime', 'vss-row-zoneCharge', 'vss-row-zoneSplit']) {
-        const row = document.getElementById(id);
-        if (row) row.classList.toggle('is-inert', !currentVsSettings.tet.zone);
-    }
-}
-
 // ── ZONE TIME（1/4 ゲージあたりの長さ） ──
 function _buildZoneTimeRow() {
     const current = currentVsSettings.tet.zoneTime;
@@ -710,7 +748,6 @@ function _buildZoneTimeRow() {
     ctrl.appendChild(btnGroup);
     const row = _buildRow('ZONE TIME', '(sec / 25%)', ctrl);
     row.id = 'vss-row-zoneTime';
-    row.classList.toggle('is-inert', !currentVsSettings.tet.zone);
     return row;
 }
 
@@ -740,7 +777,6 @@ function _buildZoneSplitRow() {
     ctrl.appendChild(btnGroup);
     const row = _buildRow('ZONE ATTACK', '(send)', ctrl);
     row.id = 'vss-row-zoneSplit';
-    row.classList.toggle('is-inert', !currentVsSettings.tet.zone);
     return row;
 }
 
@@ -773,7 +809,6 @@ function _buildZoneChargeRow() {
     ctrl.appendChild(btnGroup);
     const row = _buildRow('ZONE CHARGE', '(lines / 25%)', ctrl);
     row.id = 'vss-row-zoneCharge';
-    row.classList.toggle('is-inert', !currentVsSettings.tet.zone);
     return row;
 }
 
@@ -933,7 +968,8 @@ function _updateVsSettingsSummary() {
     if (!el) return;
 
     const s = currentVsSettings;
-    const isDefault = JSON.stringify(s) === JSON.stringify(DEFAULT_VS_SETTINGS);
+    const D = _vsDefaults();
+    const isDefault = JSON.stringify(s) === JSON.stringify(D);
 
     if (isDefault) {
         el.textContent = 'ALL DEFAULT';
@@ -946,7 +982,7 @@ function _updateVsSettingsSummary() {
     const mt = s.all.marginTime;
     if (!s.all.marginEnabled) {
         parts.push('MARGIN:OFF');
-    } else if (mt !== DEFAULT_VS_SETTINGS.all.marginTime) {
+    } else if (mt !== D.all.marginTime) {
         parts.push(`MARGIN:${_formatMarginTime(mt)}`);
     }
 
@@ -956,21 +992,33 @@ function _updateVsSettingsSummary() {
     if (bc !== 0) parts.push(`C-BIAS:${bc > 0 ? '+' : ''}${bc}`);
 
     if (!s.tet.holdEnabled) parts.push('HOLD:OFF');
-    if (s.tet.garbageHoleRate !== DEFAULT_VS_SETTINGS.tet.garbageHoleRate) {
+    if (s.tet.garbageHoleRate !== D.tet.garbageHoleRate) {
         parts.push(`HOLE:${s.tet.garbageHoleRate}%`);
     }
     if (!s.tet.garbageDamageOnClear) {
         parts.push('DMG-ON-CLR:OFF');
     }
-    if (s.tet.zone) parts.push(`ZONE:${s.tet.zoneTime / 1000}s/${s.tet.zoneCharge}${s.tet.zoneSplit === false ? '/MERGE' : ''}`);
+    // ZONE BATTLE: ZONE TIME / CHARGE / ATTACK は既定と違うものだけ
+    if (D.tet.zoneTime !== undefined) {
+        if (s.tet.zoneTime !== D.tet.zoneTime) parts.push(`ZONE TIME:${s.tet.zoneTime / 1000}s`);
+        if (s.tet.zoneCharge !== D.tet.zoneCharge) parts.push(`ZONE CHARGE:${s.tet.zoneCharge}`);
+        if ((s.tet.zoneSplit !== false) !== (D.tet.zoneSplit !== false)) parts.push(`ZONE ATTACK:${s.tet.zoneSplit === false ? 'MERGE' : 'SPLIT'}`);
+    }
 
-    if (s.puyo.ojamaRate !== DEFAULT_VS_SETTINGS.puyo.ojamaRate) {
+    if (s.puyo) _pushPuyoSummary(parts, s, D);
+
+    el.textContent = parts.join(' / ');
+    el.style.color = 'var(--accent, #c471ed)';
+}
+
+function _pushPuyoSummary(parts, s, D) {
+    if (s.puyo.ojamaRate !== D.puyo.ojamaRate) {
         parts.push(`RATE:${s.puyo.ojamaRate}`);
     }
-    if (s.puyo.eraseCount !== DEFAULT_VS_SETTINGS.puyo.eraseCount) {
+    if (s.puyo.eraseCount !== D.puyo.eraseCount) {
         parts.push(`CONNECT:${s.puyo.eraseCount}`);
     }
-    if (s.puyo.colorCount !== DEFAULT_VS_SETTINGS.puyo.colorCount) {
+    if (s.puyo.colorCount !== D.puyo.colorCount) {
         parts.push(`COLORS:${s.puyo.colorCount}`);
     }
     if (s.puyo.chainMin) {
@@ -978,9 +1026,6 @@ function _updateVsSettingsSummary() {
     }
     if (s.puyo.speed.player !== 1) parts.push(`P-SPEED:${_formatPuyoSpeed(s.puyo.speed.player)}`);
     if (s.puyo.speed.cpu !== 1)    parts.push(`C-SPEED:${_formatPuyoSpeed(s.puyo.speed.cpu)}`);
-
-    el.textContent = parts.join(' / ');
-    el.style.color = 'var(--accent, #c471ed)';
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -989,6 +1034,17 @@ function _updateVsSettingsSummary() {
 
 function _deepClone(obj) {
     return JSON.parse(JSON.stringify(obj));
+}
+
+// 既定に無いキーを消す（入れ子のオブジェクトも。値の形は _deepMerge の結果のまま）
+function _dropUnknownKeys(obj, defaults) {
+    for (const key of Object.keys(obj)) {
+        if (!(key in defaults)) { delete obj[key]; continue; }
+        const d = defaults[key];
+        if (d && typeof d === 'object' && !Array.isArray(d) && obj[key] && typeof obj[key] === 'object') {
+            _dropUnknownKeys(obj[key], d);
+        }
+    }
 }
 
 function _deepMerge(defaults, overrides) {

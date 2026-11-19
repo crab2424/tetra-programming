@@ -276,3 +276,17 @@ body.replay-watching:not(.replay-ui-hidden) #container.zone-on {
 .mode-btn-zone .mode-btn-label {
   color: var(--zone-color);
 }
+
+/* ZONE BATTLE（ホームの VERSUS 列。シングルの ZONE と同じ色） */
+.mode-btn-zone-battle {
+  border-color: rgba(110, 231, 214, 0.35);
+}
+.mode-btn-zone-battle:hover,
+.mode-btn-zone-battle.is-focused {
+  background: rgba(110, 231, 214, 0.12);
+  border-color: var(--zone-color);
+}
+.mode-btn-zone-battle .mode-btn-icon,
+.mode-btn-zone-battle .mode-btn-label {
+  color: var(--zone-color);
+}

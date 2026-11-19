@@ -364,6 +364,20 @@ function setTestOpponent(v) {
   renderModeCheck();
 }
 
+// CPU TEST の CPU 同士の BATTLE（'standard' | 'zone'）。ZONE はテト同士のときだけ選べる（それ以外は STANDARD で戦う）。
+// 戦うときは選んだほうの VS 設定（通常 VERSUS / ZONE BATTLE の保存）を使う（versus.js startTestCpuVsCpu）
+let testBattle = 'standard';
+
+function setTestBattle(v) {
+  testBattle = v === 'zone' ? 'zone' : 'standard';
+  renderModeCheck();
+}
+
+// 対戦の種類（設計 source_assets/memory/mode/tet_zone/tetlabo-zone-battle-design.md §2）。
+// 'standard' = 通常 VERSUS（ZONE なし）/ 'zone' = ZONE BATTLE（ZONE あり・テト同士だけ）。
+// VERSUS 確認画面・VS 設定の画面は共用で、VS 設定の保存はこれで分ける（versus.js setVersusBattle）
+let versusBattle = 'standard';
+
 let currentGameMode = null;
 let versusRule = 'tet'; // 既存の互換性のため残す
 let versusPlayerRule = 'tet'; // プレイヤー側のルール ('tet' or 'puyo')

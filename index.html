@@ -104,6 +104,15 @@
               <span class="mode-btn-desc">CPU対戦モード</span>
             </div>
           </button>
+          <!-- ★ ZONE BATTLE（ZONE ありの対戦。確認画面・VS 設定は VERSUS と共用で保存だけ別。
+               設計 source_assets/memory/mode/tet_zone/tetlabo-zone-battle-design.md） -->
+          <button class="mode-btn mode-btn-zone-battle" onclick="goToZoneBattleCheck()">
+            <span class="mode-btn-icon">◎</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">ZONE BATTLE</span>
+              <span class="mode-btn-desc">ZONEありのCPU対戦</span>
+            </div>
+          </button>
           <button class="mode-btn mode-btn-test" onclick="goToModeCheck('test')">
             <span class="mode-btn-icon">🤖</span>
             <div class="mode-btn-text">
@@ -330,8 +339,8 @@
       <!-- 左: 説明（読む情報） / 右: ルール選択と操作ボタン -->
       <div class="check-col check-col-info">
       <div id="versus-check-header">
-        <span class="mode-check-icon" style="color: var(--versus-color, #f5c542)">⚔</span>
-        <h2 class="mode-check-label" style="color: var(--versus-color, #f5c542)">
+        <span class="mode-check-icon" id="versus-check-icon" style="color: var(--versus-color, #f5c542)">⚔</span>
+        <h2 class="mode-check-label" id="versus-check-label" style="color: var(--versus-color, #f5c542)">
           VERSUS
         </h2>
       </div>
@@ -343,10 +352,10 @@
             padding: 20px 24px;
             text-align: center;
           ">
-        <p class="mode-check-desc-ja">
+        <p class="mode-check-desc-ja" id="versus-check-desc-ja">
           CPUと対戦。どちらかがゲームオーバーになった時点で終了。
         </p>
-        <p class="mode-check-desc-en">
+        <p class="mode-check-desc-en" id="versus-check-desc-en">
           Battle against CPU. The match ends when either side tops out.
         </p>
       </div>
@@ -1677,7 +1686,7 @@
   <script src="game/tet/render.js?v=11"></script>
   <script src="game/tet/input.js?v=17"></script>
   <!-- VS 設定: ZONE の選択肢・既定値を game/tet/zone.js から読むので、テトのエンジンの後に読み込む -->
-  <script src="config/vs_settings.js?v=12"></script>
+  <script src="config/vs_settings.js?v=13"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1689,17 +1698,17 @@
   <script src="game/puyo/draw.js?v=11"></script>
   <script src="quiz/quiz.js?v=13"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=36"></script>
+  <script src="app/modes.js?v=37"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
   <script src="cpu/tet/cpu_zone.js?v=13"></script>
   <script src="app/cpu_match_log.js?v=4"></script>
-  <script src="app/versus.js?v=23"></script>
+  <script src="app/versus.js?v=24"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=49"></script>
+  <script src="app/navigation.js?v=50"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/replays.js?v=8"></script>
+  <script src="app/replays.js?v=9"></script>
   <script src="app/stats_page.js?v=7"></script>
   <script src="app/focus_nav.js?v=30"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->

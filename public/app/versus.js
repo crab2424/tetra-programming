@@ -13,8 +13,61 @@ function backFromVsSettings() {
   switchPage('versus-check');
 }
 // ─────────────────────────────────────────────
+// 対戦の種類を切り替える（'standard' = 通常 VERSUS / 'zone' = ZONE BATTLE）。
+// VS 設定の保存（プロファイル）も一緒に切り替える（config/vs_settings.js）
+function setVersusBattle(battle) {
+  versusBattle = battle === 'zone' ? 'zone' : 'standard';
+  if (typeof switchVsSettingsProfile === 'function') switchVsSettingsProfile(versusBattle);
+}
+
+// ZONE BATTLE はテト同士に固定する。通常 VERSUS で選んでいたルールは退避して、戻ったときに元へ戻す
+let _standardVersusRules = null;
+
 function goToVersusCheck() {
+  setVersusBattle('standard');
+  if (_standardVersusRules) {
+    setVersusPlayerRule(_standardVersusRules.player);
+    setVersusCpuRule(_standardVersusRules.cpu);
+    _standardVersusRules = null;
+  }
   switchPage('versus-check');
+}
+
+// ホームの ZONE BATTLE（設計 source_assets/memory/mode/tet_zone/tetlabo-zone-battle-design.md §2.2 案 A）
+function goToZoneBattleCheck() {
+  if (!_standardVersusRules) _standardVersusRules = { player: versusPlayerRule, cpu: versusCpuRule };
+  setVersusBattle('zone');
+  setVersusPlayerRule('tet');
+  setVersusCpuRule('tet');
+  switchPage('versus-check');
+}
+
+// 確認画面の見出し・説明・ルール欄を対戦の種類に合わせる
+const VERSUS_CHECK_TEXT = {
+  standard: {
+    icon: '⚔', label: 'VERSUS', color: 'var(--versus-color, #f5c542)',
+    ja: 'CPUと対戦。どちらかがゲームオーバーになった時点で終了。',
+    en: 'Battle against CPU. The match ends when either side tops out.',
+  },
+  zone: {
+    icon: '◎', label: 'ZONE BATTLE', color: 'var(--zone-color)',
+    ja: 'ZONE ありの CPU 対戦（テト同士）。消したラインをためて ZONE を発動し、終了時にまとめて送りつける。',
+    en: 'Battle against CPU with ZONE. TET vs TET only.',
+  },
+};
+
+function _renderVersusCheckBattle() {
+  const t = VERSUS_CHECK_TEXT[versusBattle] || VERSUS_CHECK_TEXT.standard;
+  const icon = document.getElementById('versus-check-icon');
+  const label = document.getElementById('versus-check-label');
+  if (icon) { icon.textContent = t.icon; icon.style.color = t.color; }
+  if (label) { label.textContent = t.label; label.style.color = t.color; }
+  const ja = document.getElementById('versus-check-desc-ja');
+  const en = document.getElementById('versus-check-desc-en');
+  if (ja) ja.textContent = t.ja;
+  if (en) en.textContent = t.en;
+  const rules = document.getElementById('versus-rule-options');
+  if (rules) rules.style.display = versusBattle === 'zone' ? 'none' : 'flex';
 }
 
 function setVersusPlayerRule(rule) {
@@ -38,6 +91,7 @@ function setVersusCpuRule(rule) {
 }
 
 function renderVersusCheck() {
+  _renderVersusCheckBattle();
   const toggle = document.getElementById('cpu-level-toggle');
   if (toggle) {
     toggle.innerHTML = '';
@@ -124,10 +178,12 @@ function _stopVersusCpuControllers() {
 let _testVsSaved = null;
 
 function startTestCpuVsCpu() {
-  if (!versusFromTest) _testVsSaved = { versusPlayerRule, versusCpuRule };
+  if (!versusFromTest) _testVsSaved = { versusPlayerRule, versusCpuRule, versusBattle };
   versusFromTest = true;
   versusPlayerRule = testRule;       // 1P = RULE
   versusCpuRule = testOpponent;      // 2P = OPPONENT（'puyo' | 'tet'。1P と違えば異種対戦）
+  // BATTLE: ZONE はテト同士のときだけ。選んだほうの VS 設定で戦う
+  setVersusBattle(testBattle === 'zone' && testRule === 'tet' && testOpponent === 'tet' ? 'zone' : 'standard');
   versusPlayerIsCpu = true;
   selectedPlayerCpuLevel = testPlayerCpuLevel;      // 2P は selectedCpuLevel（CPU TEST と共通）
   // 準備画面の 7 / Shift+7 は puyo LV6 の「高速落下で設置」（tet の 7 は LV7 の指定なのでフラグは立たない）
@@ -139,7 +195,11 @@ function startTestCpuVsCpu() {
 function endTestCpuVsCpu() {
   if (!versusFromTest) return;
   versusFromTest = false;
-  if (_testVsSaved) { versusPlayerRule = _testVsSaved.versusPlayerRule; versusCpuRule = _testVsSaved.versusCpuRule; }
+  if (_testVsSaved) {
+    versusPlayerRule = _testVsSaved.versusPlayerRule;
+    versusCpuRule = _testVsSaved.versusCpuRule;
+    setVersusBattle(_testVsSaved.versusBattle);
+  }
   _testVsSaved = null;
   versusPlayerIsCpu = false;
   selectedPlayerCpuLevel = null;
@@ -348,7 +408,7 @@ async function startVersusGame() {
       game: window._game, myRule: versusPlayerRule, oppRule: versusCpuRule, level: cpuLevel,
       bias: [currentVsSettings.all.attackBias.player ?? 0, currentVsSettings.all.attackBias.cpu ?? 0],
       margin: currentVsSettings.all.marginEnabled ? currentVsSettings.all.marginTime : null,
-      zone: !!(versusPlayerRule === 'tet' && versusCpuRule === 'tet' && currentVsSettings.tet.zone),
+      zone: versusBattle === 'zone' && versusPlayerRule === 'tet' && versusCpuRule === 'tet',
     });
   }
   // CPU TEST から始めた CPU 同士は1局ごとに記録する（勝敗・TSD・4-LINES・PC・負け方。app/cpu_match_log.js）

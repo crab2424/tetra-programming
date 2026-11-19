@@ -603,6 +603,14 @@ function renderModeCheck() {
             <button class="opt-btn ${testOpponent === 'puyo' ? 'active' : ''}" onclick="setTestOpponent('puyo')">PUYO</button>
           </div>
         </div>
+        ${vsCpu && testRule === 'tet' && testOpponent === 'tet' ? `
+        <div class="option-row">
+          <span class="option-label">BATTLE</span>
+          <div class="option-toggle" id="test-battle-toggle">
+            <button class="opt-btn ${testBattle !== 'zone' ? 'active' : ''}" onclick="setTestBattle('standard')">STANDARD</button>
+            <button class="opt-btn ${testBattle === 'zone' ? 'active' : ''}" onclick="setTestBattle('zone')">ZONE</button>
+          </div>
+        </div>` : ''}
         ${vsCpu ? `
         <div class="option-row">
           <span class="option-label">1P LEVEL</span>

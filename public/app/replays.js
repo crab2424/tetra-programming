@@ -164,6 +164,8 @@ function replaySummary(data) {
     const pl = data.players || [];
     let mode = REPLAY_MODE_LABEL[data.mode] || String(data.mode).toUpperCase();
     if (data.mode === 'marathon' && data.modeOption) mode += data.modeOption === 'endless' ? ' ENDLESS' : ' ' + data.modeOption;
+    // ZONE ありの VERSUS（ZONE BATTLE。以前の VERSUS ＋ VS 設定 ZONE: ON の録画も同じ）は印を分ける。絞り込みは VERSUS の中
+    if (data.mode === 'versus' && pl.some((p) => p.env && p.env.vsZone === true)) mode = 'ZONE BATTLE';
     let result, stat;
     if (data.mode === 'versus') {
         const loser = r.loser !== undefined ? r.loser : r.endedBy;
