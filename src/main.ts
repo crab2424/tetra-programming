@@ -23,7 +23,13 @@ import { showToast, ToastColor } from "./components/toast";
 document.addEventListener("DOMContentLoaded", () => {
   const urlParams = new URLSearchParams(window.location.search);
   const tetlaboServerUrl = urlParams.get("tetlaboServerUrl");
-  if (tetlaboServerUrl) {
+  // 旧サーバー（DuckDNS）宛ての共有リンクは取り込まず、パラメータだけ消して既定のサーバーを使う
+  const isLegacyBackendHost = (window as any).isLegacyBackendHost as ((host: string) => boolean) | undefined;
+  if (tetlaboServerUrl && isLegacyBackendHost?.(tetlaboServerUrl)) {
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.delete("tetlaboServerUrl");
+    history.replaceState(null, "", newUrl.toString());
+  } else if (tetlaboServerUrl) {
     console.log(`URL Parameter "tetlaboServerUrl" found: ${tetlaboServerUrl}`);
     localStorage.setItem("tetlaboServerUrl", tetlaboServerUrl);
 

@@ -1,3 +1,20 @@
+// ─── Backend URL の移行 ─────────────────────────────
+// 接続先は未設定（空欄）なら既定のサーバー（src/online/online.tsx の api.tetlabo.com）を使う。
+// 以前は URL を手入力する必要があり、旧サーバー（DuckDNS）のホスト名が保存されたままの
+// 端末があるので、読み込み時に消して既定のサーバーへ切り替える。
+// main.ts（?tetlaboServerUrl= の取り込み）からも window.isLegacyBackendHost で使う。
+const LEGACY_BACKEND_HOSTS = ['tetlabo-canary.duckdns.org'];
+function isLegacyBackendHost(host) {
+  const h = String(host || '').trim().toLowerCase().replace(/^(http|ws)s?:\/\//, '').replace(/\/.*$/, '');
+  return LEGACY_BACKEND_HOSTS.includes(h);
+}
+window.isLegacyBackendHost = isLegacyBackendHost;
+try {
+  if (isLegacyBackendHost(localStorage.getItem('tetlaboServerUrl'))) {
+    localStorage.removeItem('tetlaboServerUrl');
+  }
+} catch (_) { /* localStorage が使えない環境では何もしない */ }
+
 // ─────────────────────────────────────────────
 // settings.js
 // キーコンフィグおよびチューニング設定画面の UI ロジック
@@ -859,6 +876,8 @@ function normalizeBackendUrl(raw) {
     backendUrl = backendUrl.replace(/(http|ws)s*:\/\//, '');
     backendUrl = backendUrl.replace(/\/+$/, '');
   }
+  // 旧サーバーのホスト名は空欄（＝既定のサーバー）として扱う
+  if (isLegacyBackendHost(backendUrl)) backendUrl = '';
   return backendUrl;
 }
 
