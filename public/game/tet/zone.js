@@ -198,6 +198,9 @@ Object.assign(Game.prototype, {
         // core/replay.js REPLAY_ENGINE_VERSION 11・12）
         const recEngine = (this._replay && this._replay.data) ? (this._replay.data.engine || 0) : Infinity;
         const tall = this.zoneEnabled && recEngine >= (vs ? 12 : 11);
+        // 版 20 から: シングルも満タン超えを持ち越す・フェーズの換算は「1/4 の数は割合、端数は段数のまま」
+        // （19 以下の録画は従来どおり＝シングルは持ち越さない・メーター全体を割合で換算。core/replay.js REPLAY_ENGINE_VERSION 20）
+        this._zoneV20 = recEngine >= 20;
         this.topLimit = tall ? ZONE_TOP_LIMIT : TET_TOP_LIMIT;
         // ZONE BATTLE のフェーズ（0 = フェーズなし。§3）。ON なら ZONE CHARGE / ZONE TIME の代わりにフェーズの表の値
         this.matchPhase = (vs && this.vsZonePhase === true) ? 1 : 0;
@@ -305,8 +308,19 @@ Object.assign(Game.prototype, {
         const L0 = this.zoneQuarterLines, L1 = row.quarterLines;
         const scale = (v) => Math.round(v * L1 / L0 * 1e6) / 1e6;
         if (L0 > 0 && L1 !== L0) {
-            this.zoneMeter = Math.min(L1 * 4, scale(this.zoneMeter));
-            this.zoneCarry = Math.min(L1, scale(this.zoneCarry || 0));
+            if (this._zoneV20) {
+                // たまった 1/4 の数はそのまま（新しい 1/4 の段数で数え直す）、1/4 に届かない端数は段数のまま足す。
+                // 端数が新しい 1/4 以上になる（1/4 が短くなる）ときは 1/4 未満に切る
+                const q = Math.min(4, Math.floor(this.zoneMeter / L0 + 1e-9));
+                const r = Math.max(0, this.zoneMeter - q * L0);
+                this.zoneMeter = Math.min(L1 * 4, q * L1 + (q >= 4 ? 0 : Math.min(r, L1 - 1)));
+                // 持ち越し（上限 1/4）: ちょうど 1/4 ぶんなら新しい 1/4、それ未満は段数のまま
+                const c = this.zoneCarry || 0;
+                this.zoneCarry = c >= L0 ? L1 : Math.min(L1, c);
+            } else {
+                this.zoneMeter = Math.min(L1 * 4, scale(this.zoneMeter));
+                this.zoneCarry = Math.min(L1, scale(this.zoneCarry || 0));
+            }
         }
         this.zoneQuarterLines = L1;
         this.zoneQuarterMs = row.quarterMs;
@@ -350,13 +364,13 @@ Object.assign(Game.prototype, {
     },
 
     // ライン消去でメーターをためる（発動中は足さない。T-Spin などの上乗せはなし。§4.1）
-    // VERSUS: 満タンを超えたぶんは zoneCarry にためておき（上限 1/4 ぶん）、発動で満タンでなくなった後の
+    // 満タンを超えたぶんは zoneCarry にためておき（上限 1/4 ぶん）、発動で満タンでなくなった後の
     // 「次のライン消去」のときに、その消去と一緒にメーターへ入れる（終了した瞬間には入れない。VERSUS 編 §11.3）
     _zoneAddMeter(n) {
         if (!this.zoneEnabled || this.zoneActive || !(n > 0)) return;
         const before = this.zoneQuarters();
         const max = this.zoneQuarterLines * 4;
-        if (this.isVersusMode) {
+        if (this.isVersusMode || this._zoneV20) {
             if (this.zoneMeter < max && this.zoneCarry > 0) {
                 n += this.zoneCarry;
                 this.zoneCarry = 0;

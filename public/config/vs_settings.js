@@ -1071,7 +1071,8 @@ function _buildZonePhaseValuesGroup() {
         const set = document.createElement('div');
         set.className = 'vs-setting-group-set';
         set.dataset.set = String(p);
-        // 02・03: このフェーズへ進むしきい値。前のフェーズのしきい値に足す値で持つ（大小を気にせず選べる）。
+        _buildZoneValueRows(() => table()[p - 1], phaseKeys).forEach(r => set.appendChild(r));
+        // 02・03: このフェーズへ進むしきい値（01〜03 で共通の行がずれないよう末尾に置く）。前のフェーズのしきい値に足す値で持つ（大小を気にせず選べる）。
         // 値の表示は「+足す値 (試合の始まりからの値)」。PHASE TRIGGER に合う方（SCORE / TIME）の行だけ出す
         if (p >= 2) {
             const from = `(+ PHASE ${String(p - 1).padStart(2, '0')})`;
@@ -1094,7 +1095,6 @@ function _buildZonePhaseValuesGroup() {
             mk('TRIGGER SCORE', 'vs-setting-phase-score', PHASE_SCORE_STEPS, _formatPhaseScore, 'scoreAdd', 'score');
             mk('TRIGGER TIME', 'vs-setting-phase-time', PHASE_TIME_STEPS, _formatPhaseTime, 'timeAdd', 'timeMs');
         }
-        _buildZoneValueRows(() => table()[p - 1], phaseKeys).forEach(r => set.appendChild(r));
         group.appendChild(set);
     });
     const fixed = document.createElement('div');
