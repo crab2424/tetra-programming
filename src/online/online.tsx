@@ -2718,7 +2718,7 @@ class OnlineMode {
     syncOnlineTopFocus();
 
     const tetlaboServerUrl =
-      `ws${isSecureProtocol ? "s" : ""}://` + (localStorage.getItem("tetlaboServerUrl") || "example.com") + "/ws";
+      `ws${isSecureProtocol ? "s" : ""}://` + (localStorage.getItem("tetlaboServerUrl") || "api.tetlabo.com") + "/ws";
 
     let connection: GameConnection | null = null;
     // ★ ready() が解決する（＝データチャネル確立）まで true にしない。
