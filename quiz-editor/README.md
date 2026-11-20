@@ -18,7 +18,7 @@ main 以外のブランチを push すると、Workers Builds のプレビュー
 
 - ビルドに含めるかは `vite.config.ts` が `WORKERS_CI_BRANCH`（Workers Builds が設定するブランチ名）で判定する。
   ローカルの `pnpm build` は本番と同じく含めない。確認したい時は `QUIZ_EDITOR=1 pnpm build`
-- 万一本番ホスト（`citgame.pptlabo.workers.dev`）で開かれても `prod-guard.ts` が起動を止める
+- 万一本番ホスト（`tetlabo.com`・`citgame.pptlabo.workers.dev`）で開かれても `prod-guard.ts` が起動を止める
 - プレビューで読める tdata/pdata.json は「そのブランチをデプロイした時点」のもの
 
 ## 使い方

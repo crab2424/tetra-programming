@@ -15,7 +15,22 @@
     <div class="changelog-list">
       <!-- 以降、バージョンごとに .changelog-entry を追加。内容は適宜編集 -->
 
-      <!-- v2.5.0: 日付は仮（マージ時に確認） -->
+      <!-- v2.6.0: 日付は仮（マージ時に確認） -->
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v2.6.0</span>
+          <span class="changelog-date">2026/11/21</span>
+        </div>
+        <ul class="changelog-items">
+          <li>新モード ZONE BATTLE を追加（TET）。ホームの VERSUS の下から選べる ZONE ありの対戦で、スコアや時間でフェーズ（01→03）が進み、ZONE CHARGE・ZONE TIME・おじゃまの穴のばらつきが変わる。PHASE TRIGGER（SCORE/TIME）・MARGIN TRIGGER（TIME/SCORE）やフェーズごとの値を VS 設定で変えられる。CPU もフェーズが進む前に ZONE を撃つ</li>
+          <li>通常の VERSUS から ZONE の設定を外し、ZONE BATTLE と VS 設定を別に保存するように。CPU TEST の CPU 同士で STANDARD / ZONE を選べる</li>
+          <li>VS SETTINGS をホームの SETTINGS と同じ形（タブ・SAVE で確定・RESET の確認）に変更。ASSIST の既定を OFF にし、CPU LEVEL を保存するように</li>
+          <li>ZONE の火力を調整し、シングルでもメーター満タンを超えた分を次へ持ち越すように</li>
+          <li>TET CPU LV1・LV2 が回転・横移動を 1 操作ずつ入れるように。LV3 の T-spin のソフトドロップを人と同じ速さに。LV6 が天井近くで置き場所を 1 列ずらす不具合を修正</li>
+          <li>独自ドメイン tetlabo.com で遊べるように。オンライン対戦の既定の接続先を新しいサーバー（api.tetlabo.com）に変更し、旧サーバーを設定していた場合は自動で切り替える</li>
+        </ul>
+      </div>
+
       <div class="changelog-entry">
         <div class="changelog-entry-head">
           <span class="changelog-ver">v2.5.0</span>
