@@ -4,6 +4,12 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-04-07",
   "compatibility_flags": ["nodejs_compat"],
+  // 本番の独自ドメイン（wrangler deploy で付く。プレビュー版のURLは従来どおり workers.dev のまま）。
+  // tetlabo.com のDNSがこのCloudflareアカウントにある（ネームサーバーをCloudflareに向けた）ことが前提
+  "routes": [{ "pattern": "tetlabo.com", "custom_domain": true }],
+  // routes を書くと workers.dev が既定で無効になるため明示する（移行中の旧URL・プレビュー版のURLを残す）
+  "workers_dev": true,
+  "preview_urls": true,
   "observability": {
     "enabled": true,
   },
@@ -32,8 +38,9 @@
   ],
   "vars": {
     "DISCORD_CLIENT_ID": "1549580482486730763",
-    // このホストへのリクエストだけ本番DB(DB)を使う。それ以外(プレビュー/localhost)は開発DB(DB_DEV)
-    "PROD_HOST": "citgame.pptlabo.workers.dev",
+    // これらのホストへのリクエストだけ本番DB(DB)を使う（カンマ区切り）。それ以外(プレビュー/localhost)は開発DB(DB_DEV)。
+    // 独自ドメインへの移行中は新旧両方を本番にする（旧URLの利用者がいなくなったら workers.dev を外す）
+    "PROD_HOST": "tetlabo.com,citgame.pptlabo.workers.dev",
     "ADMIN_DISCORD_IDS": "1039886230202110006",
   },
   // Secret（Cloudflareダッシュボードで「Secret」として登録済み・デプロイで消えない）:
