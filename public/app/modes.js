@@ -364,6 +364,20 @@ function setTestOpponent(v) {
   renderModeCheck();
 }
 
+// CPU TEST の CPU 同士の BATTLE（'standard' | 'zone'）。ZONE はテト同士のときだけ選べる（それ以外は STANDARD で戦う）。
+// 戦うときは選んだほうの VS 設定（通常 VERSUS / ZONE BATTLE の保存）を使う（versus.js startTestCpuVsCpu）
+let testBattle = 'standard';
+
+function setTestBattle(v) {
+  testBattle = v === 'zone' ? 'zone' : 'standard';
+  renderModeCheck();
+}
+
+// 対戦の種類（設計 source_assets/memory/mode/tet_zone/tetlabo-zone-battle-design.md §2）。
+// 'standard' = 通常 VERSUS（ZONE なし）/ 'zone' = ZONE BATTLE（ZONE あり・テト同士だけ）。
+// VERSUS 確認画面・VS 設定の画面は共用で、VS 設定の保存はこれで分ける（versus.js setVersusBattle）
+let versusBattle = 'standard';
+
 let currentGameMode = null;
 let versusRule = 'tet'; // 既存の互換性のため残す
 let versusPlayerRule = 'tet'; // プレイヤー側のルール ('tet' or 'puyo')
@@ -379,7 +393,7 @@ const CPU_LEVELS = {
   4: { label: 'LV 4', desc: '上級者向け', gravityLevel: 2 },
   5: { label: 'LV 5', desc: '最上級者向け', gravityLevel: 2 },
   // tet は VERSUS の準備画面に通常のボタンで出す。puyo（lv5 の学習済み重み版）は準備画面で「6」キーを押すと出現
-  6: { label: 'LV 6', desc: '超上級者向け', gravityLevel: 2 },
+  6: { label: 'LV 6', desc: 'プロ向け', gravityLevel: 2 },
   // ★ 隠し要素（tet のみ）: 準備画面で「7」キーを押すと出現。clys 型の探索（cpu/tet/lv7）
   //   （設計 source_assets/memory/cpu/tet/lv6-phase1-search-design.md）
   7: { label: 'LV 7', desc: '???', gravityLevel: 2 },
@@ -387,9 +401,18 @@ const CPU_LEVELS = {
   //   （設計 source_assets/memory/cpu/tet/clys-port-design.md）
   8: { label: 'CLYS', desc: '参考AI clys', gravityLevel: 2 },
 };
-let selectedCpuLevel = 1;
+const CPU_LEVEL_STORAGE_KEY = 'tetlabo.cpuLevel';
+let selectedCpuLevel = (() => {
+  try {
+    const v = parseInt(localStorage.getItem(CPU_LEVEL_STORAGE_KEY), 10);
+    return (v >= 1 && v <= 6) ? v : 1;   // 隠し(7/8)は保存しても復元しない
+  } catch (e) { return 1; }
+})();
+function saveCpuLevel() {
+  try { localStorage.setItem(CPU_LEVEL_STORAGE_KEY, String(selectedCpuLevel)); } catch (e) { /* 保存失敗は無視 */ }
+}
 
-// 開発用の環境か（localhost とプレビュー <branch>-citgame.pptlabo.workers.dev）。本番 citgame.pptlabo.workers.dev は false。
+// 開発用の環境か（localhost とプレビュー <branch>-citgame.pptlabo.workers.dev）。本番 tetlabo.com・citgame.pptlabo.workers.dev は false。
 // CLYS（レベル 8）は開発用の環境でだけ CPU TEST に出す（quiz.js の _bootQuizEditorTest と同じ判定）
 const IS_DEV_HOST = (() => {
   const host = location.hostname;
@@ -406,12 +429,12 @@ let selectedPlayerCpuLevel = null; // null = 2P と同じレベル
 
 const CPU_CONFIGS = {
   tet: {
-    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=8' },
-    2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js?v=8' },
-    3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=9' },
+    1: { className: 'CPU',  src: 'cpu/tet/lv1/cpu.js?v=11' },
+    2: { className: 'CPU2', src: 'cpu/tet/lv2/cpu2.js?v=11' },
+    3: { className: 'CPU3', src: 'cpu/tet/lv3/cpu3.js?v=10' },
     4: { className: 'CPU4', src: 'cpu/tet/lv4/cpu4.js?v=14' },
     5: { className: 'CPU5', src: 'cpu/tet/lv5/cpu5.js?v=16' },
-    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=40' },
+    6: { className: 'CPU6', src: 'cpu/tet/lv6/cpu6.js?v=41' },
     7: { className: 'CPU7', src: 'cpu/tet/lv7/cpu7.js?v=18' },
     // 操作系のメソッドを CPU7 から借りるので lv7 を先に読む（deps）
     8: { className: 'CPUClys', deps: [7], src: 'cpu/tet/clys/cpu_clys.js?v=5' }

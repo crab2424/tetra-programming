@@ -16,7 +16,7 @@
     const MODES = ['off', 'hint', 'all'];
     const DEPTH_MIN = 1, DEPTH_MAX = 6;
     const CHAIN_MIN = 2, CHAIN_MAX = 7;
-    const DEFAULTS = () => ({ mode: 'hint', depth: 3, chain: 4 });
+    const DEFAULTS = () => ({ mode: 'off', depth: 3, chain: 4 });   // 既定は OFF
 
     let store = null;
 

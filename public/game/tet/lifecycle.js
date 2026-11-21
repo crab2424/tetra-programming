@@ -92,6 +92,7 @@ Object.assign(Game.prototype, {
             this.nextQueue.push(new Mino(this.getNextType()));
         }
         this.garbageQueue = [];
+        this._garbageLastHole = -1; // ZONE BATTLE の穴: 最後に受けた段の穴（着弾をまたいで続ける。tet/garbage.js）
         this.updateGarbageGauge();
 
         this.pendingAttack = 0;
@@ -108,7 +109,9 @@ Object.assign(Game.prototype, {
         this._vsMarginTimerCb = null;
         this._vsMarginTimerRemaining = null;
 
-        if (this.isVersusMode && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
+        // ZONE BATTLE の MARGIN TRIGGER: SCORE は時間の予約を入れない（段階はスコアで tet/zone.js _zoneBattleCheck が入れる）
+        const marginByScore = this.vsZone === true && this.vsMarginTrigger === 'score';
+        if (this.isVersusMode && !marginByScore && typeof this.vsMarginTimeMs === 'number' && this.vsMarginTimeMs !== null) {
             const TET_MARGIN_INTERVAL_MS = 32000; // 32秒ごとにステップアップ
             const TET_MARGIN_MAX_STEP = 5;        // 最大インデックス（160秒で到達）
             // preElapsedMs: マージン突入時点で「すでに経過したものとして扱う」ミリ秒数。

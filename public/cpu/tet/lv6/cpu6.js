@@ -258,7 +258,85 @@ window.CPU6 = class {
             if (ACTION_MAP[a]) raw.push({ type: ACTION_MAP[a], delay: this.actionDelay });
         }
         raw.push({ type: 'harddrop', delay: this.harddropDelay });
-        return raw;
+        if (this.queueLandsAt(raw, bestResult)) return raw;
+        // §23: path どおりでも着かない。探索の盤面は 25 段（y=-5 より上は ZONE 中ふさがり扱い）なので、
+        //   天井近くでゲームが y<-5 へ逃がすキックを探索は使えず、同じ操作でも 1 列ずれる（録画 20261119-0015 の I）。
+        //   ゲームの回転・キックそのままで置き場所までの操作を探す
+        const found = this.findGamePath(bestResult);
+        return found || raw;
+    }
+
+    // ゲームの動き（移動・ソフトドロップ・回転はキック込み）で、いまのミノを探索の置き場所（4 マス）へ運ぶ操作列を幅優先で探す。
+    // T-Spin の手は最後の操作が回転のものだけを答えにする。見つからなければ null。ミノと関係するフラグは元に戻す
+    findGamePath(bestResult) {
+        const g = this.game, m = g.mino;
+        if (!m || bestResult.id === undefined || bestResult.id === null || m.type !== bestResult.id) return null;
+        const t = new Mino(bestResult.id);
+        for (let i = 0; i < bestResult.rot; i++) t.rotate();
+        const want = t.blocks.map(b => (b.x + bestResult.x) + ',' + (b.y + bestResult.y)).sort().join(' ');
+        const needSpin = bestResult.tSpinType > 0;
+        const shapes = [];
+        for (let r = 0; r < 4; r++) {
+            const u = new Mino(bestResult.id);
+            for (let i = 0; i < r; i++) u.rotate();
+            shapes.push(u.blocks);
+        }
+        const saved = {
+            x: m.x, y: m.y, rotation: m.rotation, blocks: m.blocks.map(b => new Block(b.x, b.y, b.type)),
+            score: g.score, lowestY: g.lowestY,
+            lastActionWasRotation: g.lastActionWasRotation, lastRotUsedPoint5: g.lastRotUsedPoint5,
+        };
+        const put = (st) => { m.x = st.x; m.y = st.y; m.rotation = st.r; m.blocks = shapes[st.r].map(b => new Block(b.x, b.y, b.type)); };
+        const start = { x: m.x, y: m.y, r: m.rotation & 3, spin: 0, prev: null, op: null };
+        const keyOf = (st) => st.x + ',' + st.y + ',' + st.r + ',' + st.spin;
+        const seen = new Set([keyOf(start)]);
+        const q = [start];
+        let goal = null;
+        try {
+            for (let qi = 0; qi < q.length && qi < 6000 && !goal; qi++) {
+                const cur = q[qi];
+                for (const op of ['moveLeft', 'moveRight', 'softDrop', 'rotateCW', 'rotateCCW']) {
+                    put(cur);
+                    let nx = cur.x, ny = cur.y, nr = cur.r;
+                    if (op === 'moveLeft') { if (!g.valid(-1, 0)) continue; nx--; }
+                    else if (op === 'moveRight') { if (!g.valid(1, 0)) continue; nx++; }
+                    else if (op === 'softDrop') { if (!g.valid(0, 1)) continue; ny++; }
+                    else {
+                        g.tryRotate(op === 'rotateCW' ? 1 : -1, true);
+                        if ((m.rotation & 3) === cur.r) continue; // 回れなかった
+                        nx = m.x; ny = m.y; nr = m.rotation & 3;
+                    }
+                    const nxt = { x: nx, y: ny, r: nr, spin: (op === 'rotateCW' || op === 'rotateCCW') ? 1 : 0, prev: cur, op };
+                    const k = keyOf(nxt);
+                    if (seen.has(k)) continue;
+                    seen.add(k);
+                    put(nxt);
+                    if (!g.valid(0, 1) && (!needSpin || nxt.spin)
+                        && m.blocks.map(b => (b.x + m.x) + ',' + (b.y + m.y)).sort().join(' ') === want) { goal = nxt; break; }
+                    q.push(nxt);
+                }
+            }
+        } finally {
+            m.x = saved.x; m.y = saved.y; m.rotation = saved.rotation; m.blocks = saved.blocks;
+            g.score = saved.score; g.lowestY = saved.lowestY;
+            g.lastActionWasRotation = saved.lastActionWasRotation; g.lastRotUsedPoint5 = saved.lastRotUsedPoint5;
+        }
+        if (!goal) {
+            // 回転なしで真下に落とすだけで着く（いまの位置がもう置き場所の真上）
+            return null;
+        }
+        const ops = [];
+        for (let st = goal; st.prev; st = st.prev) ops.unshift(st);
+        const out = [];
+        for (const st of ops) {
+            // 続くソフトドロップは 1 つにまとめる（processActionQueue の multiSoftDrop）
+            const last = out[out.length - 1];
+            if (st.op === 'softDrop' && last && last.type === 'multiSoftDrop') { last.targetY = st.y; continue; }
+            if (st.op === 'softDrop') { out.push({ type: 'multiSoftDrop', targetY: st.y, delay: this.actionDelay }); continue; }
+            out.push({ type: st.op, delay: this.actionDelay });
+        }
+        out.push({ type: 'harddrop', delay: this.harddropDelay });
+        return out;
     }
 
     // queue を processActionQueue と同じ動き（回転はキック込み・moveToTargetX は詰まると目標列へ）で試しに動かし、

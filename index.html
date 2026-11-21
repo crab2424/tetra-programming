@@ -104,6 +104,15 @@
               <span class="mode-btn-desc">CPU対戦モード</span>
             </div>
           </button>
+          <!-- ★ ZONE BATTLE（ZONE ありの対戦。確認画面・VS 設定は VERSUS と共用で保存だけ別。
+               設計 source_assets/memory/mode/tet_zone/tetlabo-zone-battle-design.md） -->
+          <button class="mode-btn mode-btn-zone-battle" onclick="goToZoneBattleCheck()">
+            <span class="mode-btn-icon">◎</span>
+            <div class="mode-btn-text">
+              <span class="mode-btn-label">ZONE BATTLE</span>
+              <span class="mode-btn-desc">ZONEありのCPU対戦</span>
+            </div>
+          </button>
           <button class="mode-btn mode-btn-test" onclick="goToModeCheck('test')">
             <span class="mode-btn-icon">🤖</span>
             <div class="mode-btn-text">
@@ -330,8 +339,8 @@
       <!-- 左: 説明（読む情報） / 右: ルール選択と操作ボタン -->
       <div class="check-col check-col-info">
       <div id="versus-check-header">
-        <span class="mode-check-icon" style="color: var(--versus-color, #f5c542)">⚔</span>
-        <h2 class="mode-check-label" style="color: var(--versus-color, #f5c542)">
+        <span class="mode-check-icon" id="versus-check-icon" style="color: var(--versus-color, #f5c542)">⚔</span>
+        <h2 class="mode-check-label" id="versus-check-label" style="color: var(--versus-color, #f5c542)">
           VERSUS
         </h2>
       </div>
@@ -343,10 +352,10 @@
             padding: 20px 24px;
             text-align: center;
           ">
-        <p class="mode-check-desc-ja">
+        <p class="mode-check-desc-ja" id="versus-check-desc-ja">
           CPUと対戦。どちらかがゲームオーバーになった時点で終了。
         </p>
-        <p class="mode-check-desc-en">
+        <p class="mode-check-desc-en" id="versus-check-desc-en">
           Battle against CPU. The match ends when either side tops out.
         </p>
       </div>
@@ -449,45 +458,32 @@
     ───────────────────────────────────────────── -->
   <div id="vs-settings-page" class="page">
     <div id="vs-settings-container">
-      <div id="vs-settings-header">
-        <span class="mode-check-icon" style="color: var(--versus-color, #f5c542)">⚙</span>
-        <h2 class="mode-check-label" style="color: var(--versus-color, #f5c542)">
-          VS SETTINGS
-        </h2>
-        <p class="vs-settings-subtitle">VERSUS MODE ONLY</p>
-      </div>
-
-      <!-- 設定項目エリア（将来ここにrenderVsSettingsPage()が動的生成） -->
-      <div id="vs-settings-items">
-        <!-- ─── 現在は設定項目なし ─── -->
-        <div id="vs-settings-empty">
-          <span class="vs-settings-empty-icon">🔧</span>
-          <p class="vs-settings-empty-title">COMING SOON</p>
-          <p class="vs-settings-empty-desc">
-            詳細設定項目は近日追加予定です。
-          </p>
-          <p class="vs-settings-empty-desc-en">
-            Detailed settings will be available soon.
-          </p>
-        </div>
-
-        <!-- ─── 将来の設定項目はここに追加 ───
-          <div class="vs-setting-section">
-            <p class="vs-setting-section-label">BALANCE</p>
-            <div class="vs-setting-row">
-              <span class="vs-setting-label">火力補正</span>
-              <div class="vs-setting-control">...</div>
-            </div>
+      <!-- ホーム画面の SETTINGS と同じ形式: ヘッダー（RESET DEFAULT / SAVE / BACK）を固定し、SAVE で確定する -->
+      <div id="vs-settings-sticky">
+        <div class="settings-header">
+          <div id="vs-settings-header">
+            <h2 class="vs-settings-title">⚙ VS SETTINGS</h2>
+            <p class="vs-settings-subtitle">VERSUS MODE ONLY</p>
           </div>
-          ─── -->
+          <div class="settings-actions">
+            <button class="btn btn-reset" onclick="resetVsSettings()">RESET DEFAULT</button>
+            <button class="btn btn-save" onclick="saveVsSettingsFromUi()">SAVE</button>
+            <button class="btn btn-back" onclick="requestLeaveVsSettings()">◀ BACK</button>
+          </div>
+        </div>
+        <!-- タブ（切替は public/config/vs_settings.js の setVsSettingsTab()） -->
+        <div class="option-toggle" id="vs-settings-tab-toggle">
+          <button class="opt-btn active" data-tab="all" onclick="setVsSettingsTab('all')">ALL</button>
+          <button class="opt-btn" data-tab="tet" onclick="setVsSettingsTab('tet')">TET</button>
+          <button class="opt-btn" data-tab="puyo" onclick="setVsSettingsTab('puyo')">PUYO</button>
+          <!-- ZONE BATTLE だけ（役割で分ける。通常 VERSUS では隠す） -->
+          <button class="opt-btn" data-tab="margin" onclick="setVsSettingsTab('margin')" style="display: none">MARGIN</button>
+          <button class="opt-btn" data-tab="phase" onclick="setVsSettingsTab('phase')" style="display: none">PHASE</button>
+        </div>
       </div>
 
-      <div id="vs-settings-buttons">
-        <button class="menu-btn btn-versus-primary" onclick="backFromVsSettings()">
-          <span class="menu-btn-icon">✓</span>
-          <span>DONE</span>
-        </button>
-      </div>
+      <!-- 設定項目エリア（renderVsSettingsPage() が動的生成） -->
+      <div id="vs-settings-items"></div>
     </div>
   </div>
 
@@ -524,6 +520,9 @@
             <span class="zone-end-lines">ZONE 0 LINES</span>
             <span class="zone-end-score">ATTACK +0</span>
           </div>
+          <div id="player-zone-phase-popup" class="zone-end-popup zone-phase-popup">
+            <span class="zone-end-lines">PHASE 02</span>
+          </div>
 
           <div id="player-action-label-container"></div>
           <div id="player-countdown-overlay" class="field-overlay countdown-overlay">
@@ -555,6 +554,11 @@
             <div class="versus-stat-block hud-apm-block versus-apm-lpm-player">
               <span class="area-label">APM</span>
               <span id="player-apm-value" class="versus-stat-value">--</span>
+            </div>
+            <!-- ★ ZONE BATTLE のフェーズ（ONLINE の TIME と同じく各盤面の右の列。フェーズありの試合だけ。game/tet/zone.js _zoneSyncPhaseHud） -->
+            <div class="versus-stat-block versus-phase-block" id="player-phase-block" style="display: none">
+              <span class="area-label">PHASE</span>
+              <span id="player-phase-value" class="versus-stat-value versus-phase-value">01</span>
             </div>
           </div>
         </div>
@@ -599,6 +603,9 @@
             <span class="zone-end-lines">ZONE 0 LINES</span>
             <span class="zone-end-score">ATTACK +0</span>
           </div>
+          <div id="cpu-zone-phase-popup" class="zone-end-popup zone-phase-popup">
+            <span class="zone-end-lines">PHASE 02</span>
+          </div>
 
           <div id="cpu-action-label-container"></div>
           <div id="cpu-countdown-overlay" class="field-overlay countdown-overlay">
@@ -630,6 +637,11 @@
             <div class="versus-stat-block hud-apm-block versus-apm-lpm-cpu">
               <span class="area-label">APM</span>
               <span id="cpu-apm-value" class="versus-stat-value">--</span>
+            </div>
+            <!-- ★ ZONE BATTLE のフェーズ（ONLINE の TIME と同じく各盤面の右の列。フェーズありの試合だけ。game/tet/zone.js _zoneSyncPhaseHud） -->
+            <div class="versus-stat-block versus-phase-block" id="cpu-phase-block" style="display: none">
+              <span class="area-label">PHASE</span>
+              <span id="cpu-phase-value" class="versus-stat-value versus-phase-value">01</span>
             </div>
           </div>
         </div>
@@ -1533,7 +1545,7 @@
           <!-- 先行回転・先行ホールド（設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §4。DAS などと同じく SAVE で保存） -->
           <div class="tuning-option">
             <div class="option-row">
-              <span class="option-label">IRS</span>
+              <span class="option-label">IRS（先行回転）</span>
               <div class="option-toggle" id="tuning-irs-toggle">
                 <button class="opt-btn" data-value="on" onclick="setTuningOption('irs', true)">ON</button>
                 <button class="opt-btn" data-value="off" onclick="setTuningOption('irs', false)">OFF</button>
@@ -1543,7 +1555,7 @@
           </div>
           <div class="tuning-option">
             <div class="option-row">
-              <span class="option-label">IHS</span>
+              <span class="option-label">IHS（先行ホールド）</span>
               <div class="option-toggle" id="tuning-ihs-toggle">
                 <button class="opt-btn" data-value="on" onclick="setTuningOption('ihs', true)">ON</button>
                 <button class="opt-btn" data-value="off" onclick="setTuningOption('ihs', false)">OFF</button>
@@ -1603,7 +1615,7 @@
         <div class="online-container">
           <div class="slider-row">
             <div class="slider-label">TETLABO Backend URL</div>
-            <input type="text" id="settings-online-backend" class="settings-online-input" />
+            <input type="text" id="settings-online-backend" class="settings-online-input" placeholder="api.tetlabo.com（空欄で既定のサーバー）" />
           </div>
         </div>
       </div>
@@ -1665,17 +1677,17 @@
   <div id="external-pages"></div>
 
   <script src="config/pages.js?v=10"></script>
-  <script src="core/base.js?v=27"></script>
+  <script src="core/base.js?v=28"></script>
   <!-- ゲーム時計・試合の乱数（エンジンより先に読む。設計: source_assets/memory/record/） -->
   <script src="core/game_clock.js?v=6"></script>
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=36"></script>
+  <script src="core/replay.js?v=43"></script>
   <script src="core/dialog.js?v=2"></script>
-  <script src="core/particles.js?v=11"></script>
+  <script src="core/particles.js?v=12"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=18"></script>
+  <script src="config/settings.js?v=19"></script>
   <script src="config/records.js?v=6"></script>
   <script src="config/cloud_sync.js?v=3"></script>
   <script src="config/stats.js?v=7"></script>
@@ -1684,16 +1696,16 @@
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
-  <script src="game/tet/lifecycle.js?v=21"></script>
+  <script src="game/tet/lifecycle.js?v=23"></script>
   <script src="game/tet/board.js?v=23"></script>
   <script src="game/tet/rotation.js?v=10"></script>
   <script src="game/tet/scoring.js?v=6"></script>
-  <script src="game/tet/zone.js?v=18"></script>
-  <script src="game/tet/garbage.js?v=14"></script>
-  <script src="game/tet/render.js?v=11"></script>
+  <script src="game/tet/zone.js?v=26"></script>
+  <script src="game/tet/garbage.js?v=16"></script>
+  <script src="game/tet/render.js?v=13"></script>
   <script src="game/tet/input.js?v=17"></script>
   <!-- VS 設定: ZONE の選択肢・既定値を game/tet/zone.js から読むので、テトのエンジンの後に読み込む -->
-  <script src="config/vs_settings.js?v=10"></script>
+  <script src="config/vs_settings.js?v=20"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1705,28 +1717,28 @@
   <script src="game/puyo/draw.js?v=11"></script>
   <script src="quiz/quiz.js?v=13"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=35"></script>
+  <script src="app/modes.js?v=37"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
-  <script src="cpu/tet/cpu_zone.js?v=11"></script>
-  <script src="app/cpu_match_log.js?v=4"></script>
-  <script src="app/versus.js?v=22"></script>
+  <script src="cpu/tet/cpu_zone.js?v=16"></script>
+  <script src="app/cpu_match_log.js?v=5"></script>
+  <script src="app/versus.js?v=27"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=48"></script>
+  <script src="app/navigation.js?v=50"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/replays.js?v=8"></script>
+  <script src="app/replays.js?v=9"></script>
   <script src="app/stats_page.js?v=7"></script>
-  <script src="app/focus_nav.js?v=28"></script>
+  <script src="app/focus_nav.js?v=30"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
-  <script src="app/board_swap.js?v=11"></script>
+  <script src="app/board_swap.js?v=13"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=4"></script>
   <script src="practice/practice_sequence.js?v=7"></script>
   <script src="practice/practice_panel.js?v=22"></script>
   <script src="practice/practice.js?v=37"></script>
   <!-- アシスト（盤面ガイド）。PRACTICE / VERSUS から Assist.attach で呼ばれる -->
-  <script src="assist/assist.js?v=6"></script>
+  <script src="assist/assist.js?v=8"></script>
   <script src="assist/assist_overlay.js?v=3"></script>
   <script src="assist/assist_tet.js?v=23"></script>
   <script src="assist/assist_puyo.js?v=7"></script>

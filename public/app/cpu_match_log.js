@@ -75,7 +75,8 @@ window.CpuMatchLog = (() => {
             maxRen: 0, maxSpike: 0, spikeRun: 0, garbageTaken: 0, lastGarbageAt: null,
             garbageLog: [],   // [時刻, 段数]（死ぬ直前の判定用）
             zones: 0, zoneLinesMax: 0, zoneAttack: 0,
-            zoneLog: [],      // ZONE 1 回ごと { q: 発動時の 1/4 の数, h: 発動した時点の高さ, lines, attack: 出した火力の合計, normal: うち発動中の通常火力（補正前） }
+            zoneLog: [],      // ZONE 1 回ごと { q: 発動時の 1/4 の数, h: 発動した時点の高さ, lines, attack: 出した火力の合計, normal: うち発動中の通常火力（補正前）,
+                              //   phase: 発動時のフェーズ（ZONE BATTLE のフェーズありだけ）, why: CPU の発動の理由（cpu_zone.js decide） }
         };
     }
 
@@ -104,13 +105,28 @@ window.CpuMatchLog = (() => {
         const t = s.tet;
         if (phase === 'start') {
             t.zones++;
-            t.zoneLog.push({ q: charge, h: stackHeight(game), lines: null, attack: null });
+            const e = { q: charge, h: stackHeight(game), lines: null, attack: null };
+            if (game.matchPhase) e.phase = game.matchPhase;
+            if (s.cpu && s.cpu.zoneWhy) e.why = s.cpu.zoneWhy;
+            t.zoneLog.push(e);
         } else {
             const last = t.zoneLog[t.zoneLog.length - 1];
             if (last && last.lines === null) { last.lines = lines; last.attack = attack; last.normal = normal || 0; }
             if (lines > t.zoneLinesMax) t.zoneLinesMax = lines;
             t.zoneAttack += attack;
         }
+    }
+
+    // ZONE BATTLE のフェーズが進んだ（game/tet/zone.js _zoneSetPhase。1P の盤面から 1 回だけ来る）。
+    // 操作が始まってからの秒と、そのときの両者のスコアを残す
+    function phase(game, p) {
+        if (!current || !sideOf(game)) return;
+        const s1 = current.sides['1P'], s2 = current.sides['2P'];
+        const starts = [s1.startedAt, s2.startedAt].filter(v => v !== null);
+        const sec = starts.length ? +((now() - Math.min(...starts)) / 1000).toFixed(1) : 0;
+        (current.phaseLog || (current.phaseLog = [])).push({
+            p, sec, score: [s1.game ? s1.game.score || 0 : 0, s2.game ? s2.game.score || 0 : 0],
+        });
     }
 
     let hooked = false;
@@ -268,6 +284,7 @@ window.CpuMatchLog = (() => {
             '1P': sideResult(current.sides['1P'], endT),
             '2P': sideResult(current.sides['2P'], endT),
         };
+        if (current.phaseLog) rec.phaseLog = current.phaseLog;
         list.push(rec);
         save(list);
         current = null;
@@ -373,5 +390,5 @@ window.CpuMatchLog = (() => {
             : '記録なし（終わった局を自動で残します）';
     }
 
-    return { begin, end, abort, zone, hideDock, matches: load, download, clear, toCsv, setAuto, isAuto };
+    return { begin, end, abort, zone, phase, hideDock, matches: load, download, clear, toCsv, setAuto, isAuto };
 })();

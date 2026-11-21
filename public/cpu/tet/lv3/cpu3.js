@@ -173,6 +173,13 @@ window.CPU3 = class {
         return queue;
     }
 
+    // ソフトドロップ 1 段の間隔（ms）。game/tet/input.js と同じ（シングルの ZONE の発動中はレベル 1 の速さ）
+    softDropArr() {
+        const g = this.game;
+        const lv = (g.zoneActive && g.mode === 'zone') ? 1 : g.level;
+        return (LEVEL_SPEEDS[lv] || 7) / 20;
+    }
+
     processActionQueue() {
         if (!this.isActive || !this.isAutoPlay || this.actionQueue.length === 0) {
             this.isExecutingAction = false;
@@ -210,9 +217,12 @@ window.CPU3 = class {
                 if (this.game.cpuAction('stepToX', action.targetX, false)) this.actionQueue.unshift(action);
                 break;
             case 'softdropToBottom':
-                if (this.game.cpuAction('softDropQuiet')) {
+                // 人のソフトドロップと同じ速さ・音（game/tet/input.js: 1 段目はすぐ、その後は LEVEL_SPEEDS[レベル] / 20 ms ごと）。
+                // cpuSchedule は予約の予定時刻から数えて同じフレームで追いつくので、1 段の間隔が 1 フレームより短い
+                // レベルでも 1 フレームに何段も落ちる（人と同じ）
+                if (this.game.cpuAction('softDrop')) {
                     if (this.game.valid(0, 1)) {
-                        action.delay = 15; 
+                        action.delay = this.softDropArr();
                         this.actionQueue.unshift(action);
                     }
                 }

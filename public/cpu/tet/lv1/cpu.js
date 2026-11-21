@@ -11,6 +11,12 @@ window.CPU = class{
         this.currentMino = null;
         this.baseScore = 0;     // 出現時の盤面の基礎点
 
+        // 1 操作ずつ入れる間隔（ms。設計 source_assets/memory/mode/cpu/tet/lv1-2/lv1-2-input-design.md §2.4。仮の値）
+        this.firstDelay = 300;      // 出現 → 最初の操作
+        this.actionDelay = 300;     // 操作 → 次の操作
+        this.harddropDelay = 350;  // 最後の操作 → ハードドロップ（今までの「飛ばしてから待つ」と同じ）
+        this._gravityHeld = false;
+
         this.weights = {
             lineClear:    20,
             hole:         -16,
@@ -38,6 +44,9 @@ window.CPU = class{
 
     stop() {
         this.isActive = false;
+        // 操作の途中で止めたら重力を戻す（フレームの外なので cpuAction は通さない。lv6・lv7 と同じ）
+        if (this._gravityHeld && this.game) this.game.gravityDisabled = false;
+        this._gravityHeld = false;
     }
 
     isEvalDisplayVisible() {
@@ -94,22 +103,8 @@ window.CPU = class{
                     }
                 }
 
-                // 移動そのものは即座に行う
                 if (this.isActive && this.game.mino === this.currentMino) {
-                    this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
-
-                    // ★変更：ポーズ中は待機してリトライするドロップ関数を定義
-                    const tryDrop = () => {
-                        if (!this.isActive || this.game.mino !== this.currentMino) return;
-                        
-                        if (this.game.isPaused || this.game.state === 'paused') {
-                            this.game.cpuSchedule(100, tryDrop); // ポーズ中なら100ms後に再チェック
-                            return;
-                        }
-                        this.game.cpuAction('hardDrop');
-                    };
-                    
-                    this.game.cpuSchedule(1000, tryDrop); // 1秒待機してからドロップを試みる
+                    this.runMove(bestMove);
                 }
             } else {
                 // 最適手が見つからなかった場合（ゲームオーバー寸前など）のフォールバック
@@ -198,10 +193,15 @@ window.CPU = class{
 
         const currentBlocks = this.game.field.blocks.map(b => ({ x: b.x, y: b.y }));
         const baseScore = this.evaluateBoard(currentBlocks, 0, false, 0);
+        const reach = this.reachableRanges(mino, currentBlocks);
 
         for (let rot = 0; rot < 4; rot++) {
+            // 1 操作ずつ入れて届く手だけ（設計 source_assets/memory/mode/cpu/tet/lv1-2/lv1-2-input-design.md §2.2）
+            const range = reach[rot];
+            if (!range) continue;
             for (let x = -2; x < 12; x++) {
                 if (searchCount >= SEARCH_LIMIT) break;
+                if (x < range.lo || x > range.hi) continue;
 
                 let simMino = new Mino(mino.type);
                 simMino.rotation = 0;
@@ -246,6 +246,33 @@ window.CPU = class{
         }
         
         return bestMove;
+    }
+
+    // 向きごとに、今の位置から 1 操作ずつ（回転 → 1 マスずつ横移動）入れて届く列の範囲 { lo, hi }。届かない向きは null。
+    // 回転は出現の列でその場で回れるものだけ（途中の向きも含めてキック無しで重ならない。SRS の最初の試しは (0,0)
+    // なので、その場で回れれば実機の回転も同じ所に回る）。横移動は出現の高さで、途中の列がすべて空いている所まで。
+    // O は回しても形が同じなので回さない
+    reachableRanges(mino, currentBlocks) {
+        const x0 = mino.x, y0 = mino.y, r0 = mino.rotation;
+        const shapes = [];
+        for (let k = 0; k < 4; k++) {
+            const m = new Mino(mino.type);
+            for (let i = 0; i < k; i++) m.rotate();
+            shapes.push(m);
+        }
+        const fits = (k, x) => this.isValidPlacement(shapes[k], x, y0, currentBlocks);
+        const out = [null, null, null, null];
+        for (let rot = 0; rot < 4; rot++) {
+            if (mino.type === 1 && rot !== r0) continue;
+            const d = (rot - r0 + 4) % 4;
+            const turns = d === 3 ? [rot] : Array.from({ length: d + 1 }, (_, i) => (r0 + i) % 4);
+            if (!turns.every(k => fits(k, x0))) continue;
+            let lo = x0, hi = x0;
+            while (fits(rot, lo - 1)) lo--;
+            while (fits(rot, hi + 1)) hi++;
+            out[rot] = { lo, hi };
+        }
+        return out;
     }
 
     calculatePlacementInfo(currentBlocks, droppedBlocks) {
@@ -412,12 +439,59 @@ window.CPU = class{
         return score;
     }
 
-    // めり込みを防止しつつ目標の位置へ移動する（出現位置で向きを変えてから x へ飛ばす。game.cpuAction 'teleport'）
-    moveMinoTo(id, targetRot, targetX, spawnY) {
+    // 置く手を 1 操作ずつの列にする（回転 → 1 マスずつ横移動。最後のハードドロップは runMove が入れる）
+    buildActionQueue(move) {
         const mino = this.game.mino;
-        if (!mino || mino.type !== id) return;
-        this.game.cpuAction('teleport', targetRot, targetX, spawnY);
+        const queue = [];
+        const d = (move.rot - mino.rotation + 4) % 4;
+        if (mino.type !== 1) {
+            if (d === 3) queue.push({ type: 'rotate', dir: -1 });
+            else for (let i = 0; i < d; i++) queue.push({ type: 'rotate', dir: 1 });
+        }
+        const dx = move.x - mino.x;
+        for (let i = 0; i < Math.abs(dx); i++) queue.push({ type: 'shift', dir: Math.sign(dx) });
+        return queue;
+    }
 
-        this.game.drawAll();
+    // 操作の間は重力を止める（探索は出現の高さで通り道を調べている。§2.3）。stop() は game.gravityDisabled を直接戻す
+    holdGravity(on) {
+        if (on === !!this._gravityHeld) return;
+        this._gravityHeld = on;
+        this.game.cpuAction('gravity', on);
+    }
+
+    // 手を 1 操作ずつ入れる（game.cpuAction 'rotate' / 'shift' / 'hardDrop'。設計 lv1-2-input-design.md §2）。
+    // 操作の間隔を空けて動きを見せ、入れ終えたら重力を戻して少し待ってからハードドロップする
+    runMove(move) {
+        const mino = this.currentMino;
+        const queue = this.buildActionQueue(move);
+        const alive = () => this.isActive && this.game.mino === mino;
+        const paused = () => this.game.isPaused || this.game.state === 'paused';
+
+        const tryDrop = () => {
+            if (!alive()) return;
+            if (paused()) { this.game.cpuSchedule(100, tryDrop); return; }
+            this.game.cpuAction('hardDrop');
+        };
+        const step = () => {
+            if (!alive()) { if (this.isActive) this.holdGravity(false); return; }
+            if (paused()) { this.game.cpuSchedule(100, step); return; }
+            const a = queue.shift();
+            if (a) {
+                const ok = a.type === 'rotate'
+                    ? this.game.cpuAction('rotate', a.dir)
+                    : this.game.cpuAction('shift', a.dir, true);
+                // 動けなかったら（探索の読みと違う。ふつうは起きない）それ以上は寄せずにその場で落とす
+                if (!ok) queue.length = 0;
+                this.game.drawAll();
+            }
+            if (queue.length > 0) { this.game.cpuSchedule(this.actionDelay, step); return; }
+            this.holdGravity(false);
+            this.game.cpuSchedule(this.harddropDelay, tryDrop);
+        };
+
+        if (queue.length === 0) { this.holdGravity(false); this.game.cpuSchedule(this.harddropDelay, tryDrop); return; }
+        this.holdGravity(true);
+        this.game.cpuSchedule(this.firstDelay, step);
     }
 }

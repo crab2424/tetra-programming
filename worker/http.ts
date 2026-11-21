@@ -38,8 +38,10 @@ export function readCookie(req: Request, name: string): string | null {
   return null;
 }
 
-// 本番ホスト・プレビューホスト(<branch>-citgame.pptlabo.workers.dev)・ローカル開発(vite)のみ許可
-const ALLOWED_ORIGIN_RE = /^https:\/\/(?:[a-z0-9-]+-)?citgame\.pptlabo\.workers\.dev$|^http:\/\/localhost:5173$/;
+// 本番ホスト(tetlabo.com・移行前の citgame.pptlabo.workers.dev)・プレビューホスト(<branch>-citgame.pptlabo.workers.dev)・
+// ローカル開発(vite)のみ許可
+const ALLOWED_ORIGIN_RE =
+  /^https:\/\/tetlabo\.com$|^https:\/\/(?:[a-z0-9-]+-)?citgame\.pptlabo\.workers\.dev$|^http:\/\/localhost:5173$/;
 
 export function isAllowedOrigin(origin: string): boolean {
   return ALLOWED_ORIGIN_RE.test(origin);

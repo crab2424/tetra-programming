@@ -50,21 +50,72 @@ const ZONE_RING_HTML = `
 // （ZONE_QUARTER_LINES_OPTIONS / ZONE_QUARTER_MS_OPTIONS）。既定は 6 ライン（ここ）・ZONE_VS_QUARTER_MS_DEFAULT（§12）。
 // 設定が入っていない古い録画はこの 6 ライン・ZONE_LEGACY_QUARTER_MS で再生する
 const ZONE_VS_QUARTER_LINES_DEFAULT = 6;
+
+// ─── ZONE BATTLE のフェーズ（設計 source_assets/memory/mode/tet_zone/tetlabo-zone-battle-design.md §1・§3）───
+// 試合で 1 つ（両者共通）の matchPhase 1〜3。両者のスコアの最大値がしきい値「以上」で進み、戻らない（1 回で 01 → 03 もある）。
+// フェーズで 1/4 に必要なライン数・1/4 の長さ・穴の変わる確率（holeIn / holeBetween、%）が変わる。
+// 表はここが既定（原作）で、VS 設定の PHASE 01〜03 で試合ごとに変えられる（zonePhaseTableFrom）。進むスコア（score）も表の行が持つ（§15）。
+// 進む試合の時計（timeMs）も同じ（§16）。PHASE OFF の試合（vsZonePhase が true でない）はここを一切通らない
+// MARGIN TRIGGER: SCORE（ZONE BATTLE だけ。§5.2）: VS 設定 MARGIN SCORE の点で突入し、以後この点ごとに 1 段階（0〜5）。
+// 両者のスコアの最大値で見る。突入の点の選択肢は VS 設定（config/vs_settings.js MARGIN_SCORE_STEPS）
+const TET_MARGIN_SCORE_STEP = 20000;
+const TET_MARGIN_MAX_STEP_SCORE = 5;
+const ZONE_PHASE_TABLE = [
+    // score = そのフェーズへ進むスコア（両者の最大値・以上。PHASE TRIGGER: SCORE のとき。01 は 0 = 開始時）
+    // timeMs = そのフェーズへ進む試合の時計（初期化から。PHASE TRIGGER: TIME のとき。§5.2 マージンの 32 秒刻みの倍数・比 1:3）。
+    // どちらも試合の始まりからの値（VS 設定は「前のフェーズに足す」で持ち、applyVsSettings が足し上げて渡す）
+    { quarterLines: 6,  quarterMs: 5000, holeIn: 10, holeBetween: 10, score: 0,     timeMs: 0 },        // 01（開始時）
+    { quarterLines: 8,  quarterMs: 4000, holeIn: 10, holeBetween: 90, score: 20000, timeMs: 64000 },    // 02
+    { quarterLines: 10, quarterMs: 2500, holeIn: 90, holeBetween: 90, score: 60000, timeMs: 192000 },   // 03
+];
+
+// VS 設定で入れたフェーズごとの値（applyVsSettings の vsZonePhaseTable。ZONE_PHASE_TABLE と同じ形）を読む。
+// 無い（キーの無い録画・通常 VERSUS）・形が違う・選べない値の行は原作の表（ZONE_PHASE_TABLE）の値を使う
+// （設計 tetlabo-zone-battle-design.md §14）
+function zonePhaseTableFrom(v) {
+    if (!Array.isArray(v) || v.length !== ZONE_PHASE_TABLE.length) return ZONE_PHASE_TABLE;
+    const pct = (x) => Number.isFinite(x) && x >= 0 && x <= 100;
+    let prevScore = 0, prevTime = 0;
+    const pick = (i, x, def, prev) => Math.max(prev, i === 0 ? 0 : (Number.isFinite(x) && x >= 0 ? x : def));
+    return ZONE_PHASE_TABLE.map((d, i) => {
+        const r = v[i] || {};
+        // 進むスコア・時計: 01 は常に 0。キーの無い行（score は 16 以前・timeMs は 17 以前の録画）は原作の値。
+        // 前のフェーズより小さくはしない
+        const score = prevScore = pick(i, r.score, d.score, prevScore);
+        const timeMs = prevTime = pick(i, r.timeMs, d.timeMs, prevTime);
+        return {
+            quarterLines: zoneValidLines(r.quarterLines) ? r.quarterLines : d.quarterLines,
+            quarterMs: zoneValidMs(r.quarterMs) ? r.quarterMs : d.quarterMs,
+            holeIn: pct(r.holeIn) ? r.holeIn : d.holeIn,
+            holeBetween: pct(r.holeBetween) ? r.holeBetween : d.holeBetween,
+            score,
+            timeMs,
+        };
+    });
+}
+
+// スコアからフェーズ（1〜3）。table は試合の表（zonePhaseTable）
+function zonePhaseForScore(score, table) {
+    const t = table || ZONE_PHASE_TABLE;
+    let p = 1;
+    for (let i = 1; i < t.length; i++) if (score >= t[i].score) p = i + 1;
+    return p;
+}
 // 終了時の火力表（原作の Zone Bonus Attack。§2.3）。[発動時のチャージ-1][合計段数-1] = 火力のかたまり。
 // かたまりは別々の予告として送る。24 段以上は 23 段の行を使う
 const ZONE_ATTACK_TABLE = [
     // 25%
     [[1], [2], [2], [3], [4], [4], [4, 1], [4, 2], [4, 2], [4, 3], [4, 4], [4, 4], [4, 4, 1], [4, 4, 2], [4, 4, 2],
-        [4, 4, 3], [4, 4, 4], [4, 4, 4], [5, 4, 4], [5, 5, 4, 4], [6, 6, 6, 6], [8, 8, 8, 8], [10, 10, 10, 10]],
+        [4, 4, 3], [4, 4, 4], [4, 4, 4], [5, 4, 4], [5, 5, 4], [6, 5, 5], [5, 5, 5, 5], [6, 6, 6, 6], [8, 8, 8, 6]],
     // 50%
     [[1], [2], [3], [4], [5], [6], [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [6, 6], [6, 6, 1], [6, 6, 2], [6, 6, 3],
-        [6, 6, 4], [6, 6, 5], [6, 6, 6], [8, 6, 6], [8, 8, 8], [10, 10, 10], [14, 12, 12], [16, 16, 16]],
+        [6, 6, 4], [6, 6, 5], [6, 6, 6], [7, 6, 6], [7, 7, 7], [8, 8, 8], [10, 10, 8], [12, 10, 10], [16, 12, 12]],
     // 75%
     [[1], [2], [3], [4], [6], [7], [8], [9], [10], [10, 2], [10, 3], [10, 4], [10, 5], [10, 6], [10, 8],
-        [10, 9], [10, 10], [11, 10], [12, 10], [14, 14], [16, 16, 4], [18, 18, 10], [20, 20, 20]],
+        [10, 9], [10, 10], [12, 10], [12, 12], [13, 13], [15, 14], [16, 10, 8], [18, 12, 10], [20, 15, 15]],
     // 100%
     [[1], [3], [4], [6], [7], [9], [11], [12], [13], [15], [15, 1], [15, 3], [15, 4], [15, 6], [15, 7],
-        [15, 9], [15, 10], [15, 12], [15, 13], [17, 17], [18, 18, 10], [20, 20, 12, 10], [20, 20, 20, 20]],
+        [15, 9], [15, 10], [15, 12], [15, 13], [16, 16], [18, 18], [20, 12, 10], [20, 10, 10, 10], [20, 16, 12, 12]],
 ];
 
 // 終了時の火力のかたまり（補正をかける前）。段数 0 なら空
@@ -79,10 +130,10 @@ function zoneAttackChunks(charge, lines) {
 // 列はマージンのステップ（_tetMarginStep 0〜5 = 突入後 0/32/64/96/128/160 秒。scoring.js の火力表と同じ段階）。
 // 未突入（null）は等倍。設計 tetlabo-zone-versus-cpu-design.md §16（§11.4 の 1 行の表を置き換えた）
 const ZONE_MARGIN_BONUS_X10 = [
-    [10, 11, 12, 13, 14, 15],   // 1/4
-    [12, 14, 16, 18, 20, 24],   // 2/4
-    [12, 16, 20, 24, 30, 36],   // 3/4
-    [12, 18, 24, 32, 48, 64],   // MAX
+    [10, 11, 12, 14, 16, 18],   // 1/4
+    [10, 12, 14, 16, 18, 20],   // 2/4
+    [11, 13, 16, 18, 20, 24],   // 3/4
+    [12, 15, 18, 20, 24, 32],   // MAX
 ];
 
 function zoneMarginBonusX10(charge, marginStep) {
@@ -147,8 +198,30 @@ Object.assign(Game.prototype, {
         // core/replay.js REPLAY_ENGINE_VERSION 11・12）
         const recEngine = (this._replay && this._replay.data) ? (this._replay.data.engine || 0) : Infinity;
         const tall = this.zoneEnabled && recEngine >= (vs ? 12 : 11);
+        // 版 20 から: シングルも満タン超えを持ち越す・フェーズの換算は「1/4 の数は割合、端数は段数のまま」
+        // （19 以下の録画は従来どおり＝シングルは持ち越さない・メーター全体を割合で換算。core/replay.js REPLAY_ENGINE_VERSION 20）
+        this._zoneV20 = recEngine >= 20;
         this.topLimit = tall ? ZONE_TOP_LIMIT : TET_TOP_LIMIT;
-        if (vs) {
+        // ZONE BATTLE のフェーズ（0 = フェーズなし。§3）。ON なら ZONE CHARGE / ZONE TIME の代わりにフェーズの表の値
+        this.matchPhase = (vs && this.vsZonePhase === true) ? 1 : 0;
+        // フェーズごとの値（VS 設定の PHASE 01〜03。キーの無い録画は原作の表）
+        this.zonePhaseTable = this.matchPhase ? zonePhaseTableFrom(this.vsZonePhaseTable) : ZONE_PHASE_TABLE;
+        this.zoneActiveQuarterMs = 0; // 発動したときの 1/4 の長さ（発動中にフェーズが進んでも輪はこの長さで減る）
+        // PHASE TRIGGER（'score' | 'time'）。TIME は試合の時計の予約で進める（初期化で入れた予約は録画の再生でも残る。
+        // core/replay.js の clock.rebase）。両盤面がそれぞれ同じ時刻に予約するので同じ advance の中で両方進む
+        if (this._zonePhaseTimers) for (const h of this._zonePhaseTimers) this.clock.cancel(h);
+        this._zonePhaseTimers = null;
+        this.matchPhaseTrigger = (this.matchPhase && this.vsZonePhaseTrigger === 'time') ? 'time' : 'score';
+        if (this.matchPhase && this.matchPhaseTrigger === 'time') {
+            this._zonePhaseTimers = this.zonePhaseTable.slice(1).map((r, i) => this.clock.schedule(r.timeMs, () => this._zonePhaseOnTime(i + 2)));
+        }
+        // MARGIN TRIGGER: SCORE（ZONE BATTLE だけ）。時間の予約は tet/lifecycle.js が入れない。突入 0 点は即時（段階 0）
+        this.marginScoreOn = !!(vs && this.vsMarginTrigger === 'score' && typeof this.vsMarginScore === 'number');
+        if (this.marginScoreOn && this.vsMarginScore <= 0) this._tetMarginStep = 0;
+        if (this.matchPhase) {
+            this.zoneQuarterLines = this.zonePhaseTable[0].quarterLines;
+            this.zoneQuarterMs = this.zonePhaseTable[0].quarterMs;
+        } else if (vs) {
             // VERSUS: VS 設定 ZONE CHARGE（1/4 あたりのライン数）・ZONE TIME（1/4 の長さ。未設定は 5 秒）（§12）
             this.zoneQuarterLines = zoneValidLines(this.vsZoneQuarterLines)
                 ? this.vsZoneQuarterLines : ZONE_VS_QUARTER_LINES_DEFAULT;
@@ -187,6 +260,103 @@ Object.assign(Game.prototype, {
         this._zoneHudSig = null;
         this._zoneHideEndPopup();
         this._zoneSyncHud(true);
+        this._zoneSyncPhaseHud();
+    },
+
+    // ─── フェーズ・スコアのマージン（ZONE BATTLE。§3・§5）───
+    // 毎フレームの頭（render.js _frameUpdate。時計を進めた後）で見る。両者のスコアの最大値から進める。
+    // 見つけた側が両方の盤面へ同時に入れる（試合のループは 1P → 2P の順なので、録画の再生でも同じフレームで進む）
+    _zoneBattleCheck() {
+        const opp = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+        if (!opp || opp === this || typeof opp._zoneSetPhase !== 'function') return;
+        // 決着した後は進めない（どちらの盤面の状態でも決める。対戦の進行の phase は再生で変わるので見ない）
+        if (this.isGameOver || this.isFinishing || opp.isGameOver || opp.isFinishing) return;
+        const top = Math.max(this.score || 0, opp.score || 0);
+        // フェーズ（PHASE TRIGGER: SCORE のときだけ。TIME は予約で進む）
+        if (this.matchPhase && this.matchPhaseTrigger === 'score' && this.matchPhase < this.zonePhaseTable.length && opp.matchPhase) {
+            const p = zonePhaseForScore(top, this.zonePhaseTable);
+            if (p > this.matchPhase) {
+                this._zoneSetPhase(p);
+                opp._zoneSetPhase(p);
+                // 音は 1 回だけ（人が操作する側の盤面で）
+                (this.isCpuControlled && !opp.isCpuControlled ? opp : this).playSe('levelup');
+            }
+        }
+        // マージン（MARGIN TRIGGER: SCORE）。段階は両者同じ値を入れる
+        if (this.marginScoreOn && top >= this.vsMarginScore) {
+            const step = Math.min(TET_MARGIN_MAX_STEP_SCORE, Math.floor((top - this.vsMarginScore) / TET_MARGIN_SCORE_STEP));
+            for (const g of [this, opp]) {
+                if (g.marginScoreOn && (g._tetMarginStep === null || g._tetMarginStep === undefined || step > g._tetMarginStep)) g._tetMarginStep = step;
+            }
+        }
+    },
+
+    // PHASE TRIGGER: TIME の予約（両盤面がそれぞれ自分を進める。決着した後は進めない）
+    _zonePhaseOnTime(p) {
+        const opp = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+        if (this.isGameOver || this.isFinishing || (opp && (opp.isGameOver || opp.isFinishing))) return;
+        if (!(p > this.matchPhase)) return;
+        this._zoneSetPhase(p);
+        if (this.canvasPrefix === 'player' && !this.isCpuControlled) this.playSe('levelup');
+    },
+
+    // フェーズを入れる。メーターは割合を保って換算する（§3.2・ZB3）。
+    // 発動中の ZONE は前のフェーズの長さのまま数える（予約もそのまま。輪は zoneActiveQuarterMs で減る）
+    _zoneSetPhase(p) {
+        if (!(p > this.matchPhase)) return;
+        const row = this.zonePhaseTable[p - 1];
+        const L0 = this.zoneQuarterLines, L1 = row.quarterLines;
+        const scale = (v) => Math.round(v * L1 / L0 * 1e6) / 1e6;
+        if (L0 > 0 && L1 !== L0) {
+            if (this._zoneV20) {
+                // たまった 1/4 の数はそのまま（新しい 1/4 の段数で数え直す）、1/4 に届かない端数は段数のまま足す。
+                // 端数が新しい 1/4 以上になる（1/4 が短くなる）ときは 1/4 未満に切る
+                const q = Math.min(4, Math.floor(this.zoneMeter / L0 + 1e-9));
+                const r = Math.max(0, this.zoneMeter - q * L0);
+                this.zoneMeter = Math.min(L1 * 4, q * L1 + (q >= 4 ? 0 : Math.min(r, L1 - 1)));
+                // 持ち越し（上限 1/4）: ちょうど 1/4 ぶんなら新しい 1/4、それ未満は段数のまま
+                const c = this.zoneCarry || 0;
+                this.zoneCarry = c >= L0 ? L1 : Math.min(L1, c);
+            } else {
+                this.zoneMeter = Math.min(L1 * 4, scale(this.zoneMeter));
+                this.zoneCarry = Math.min(L1, scale(this.zoneCarry || 0));
+            }
+        }
+        this.zoneQuarterLines = L1;
+        this.zoneQuarterMs = row.quarterMs;
+        this.matchPhase = p;
+        this._zoneSyncHud(true);
+        this._zoneSyncPhaseHud();
+        this._zoneShowPhasePopup(p);
+        // CPU 同士の記録（記録中だけ。1P の盤面から 1 回）
+        if (this.canvasPrefix === 'player' && window.CpuMatchLog && window.CpuMatchLog.phase) window.CpuMatchLog.phase(this, p);
+        this.requestRedraw();
+    },
+
+    // 盤面の右の列の「PHASE 01」（ONLINE の TIME と同じ所。各盤面が自分の列に書く。フェーズなしの試合では隠す）
+    _zoneSyncPhaseHud() {
+        const pre = this.canvasPrefix;
+        if (!this.isVersusMode || (pre !== 'player' && pre !== 'cpu')) return;
+        const block = document.getElementById(`${pre}-phase-block`);
+        if (!block) return;
+        block.style.display = this.matchPhase ? '' : 'none';
+        const v = document.getElementById(`${pre}-phase-value`);
+        if (v && this.matchPhase) v.textContent = String(this.matchPhase).padStart(2, '0');
+    },
+
+    // 切り替わった瞬間に盤面の中央へ「PHASE 02」（描画だけ）
+    _zoneShowPhasePopup(p) {
+        const pre = this.canvasPrefix;
+        if (!this.isVersusMode || (pre !== 'player' && pre !== 'cpu')) return;
+        const el = document.getElementById(`${pre}-zone-phase-popup`);
+        if (!el) return;
+        const t = el.querySelector('.zone-end-lines');
+        if (t) t.textContent = 'PHASE ' + String(p).padStart(2, '0');
+        el.classList.remove('show');
+        void el.offsetWidth;
+        el.classList.add('show');
+        clearTimeout(this._zonePhasePopupTimer);
+        this._zonePhasePopupTimer = setTimeout(() => el.classList.remove('show'), 2200);
     },
 
     zoneQuarters() {
@@ -194,13 +364,13 @@ Object.assign(Game.prototype, {
     },
 
     // ライン消去でメーターをためる（発動中は足さない。T-Spin などの上乗せはなし。§4.1）
-    // VERSUS: 満タンを超えたぶんは zoneCarry にためておき（上限 1/4 ぶん）、発動で満タンでなくなった後の
+    // 満タンを超えたぶんは zoneCarry にためておき（上限 1/4 ぶん）、発動で満タンでなくなった後の
     // 「次のライン消去」のときに、その消去と一緒にメーターへ入れる（終了した瞬間には入れない。VERSUS 編 §11.3）
     _zoneAddMeter(n) {
         if (!this.zoneEnabled || this.zoneActive || !(n > 0)) return;
         const before = this.zoneQuarters();
         const max = this.zoneQuarterLines * 4;
-        if (this.isVersusMode) {
+        if (this.isVersusMode || this._zoneV20) {
             if (this.zoneMeter < max && this.zoneCarry > 0) {
                 n += this.zoneCarry;
                 this.zoneCarry = 0;
@@ -223,6 +393,7 @@ Object.assign(Game.prototype, {
         if (!this.canActivateZone()) return false;
         const q = Math.min(4, this.zoneQuarters());
         this.zoneCharge = q;
+        this.zoneActiveQuarterMs = this.zoneQuarterMs;
         this.zoneDurationMs = q * this.zoneQuarterMs;
         this.zoneMeter -= q * this.zoneQuarterLines; // 端数は残して次へ持ち越す
         this.zoneLines = 0;
@@ -550,7 +721,7 @@ Object.assign(Game.prototype, {
         let ring = 0, frame = 0, sub = '', ready = false;
         if (on && this.zoneActive) {
             const rem = this.zoneRemainingMs();
-            ring = Math.min(1, rem / (this.zoneQuarterMs * 4));
+            ring = Math.min(1, rem / ((this.zoneActiveQuarterMs || this.zoneQuarterMs) * 4));
             frame = this.zoneDurationMs > 0 ? Math.min(1, rem / this.zoneDurationMs) : 0;
             // 残りは 0.1 秒刻み（切り上げ。0.0 になるのは終わった後だけ）
             sub = this.zoneTimeUp ? 'LAST' : (Math.ceil(rem / 100) / 10).toFixed(1);

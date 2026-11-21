@@ -18,7 +18,7 @@ const CpuZone = (() => {
     const CONFIG = {
         // 発動中の 1 手にかかる見込み（ms。見込み段数の計算用。レベルごと）。発動中も通常と同じ速さで打つので、
         // ふだんの 1 手の時間を入れる。lv7 は CPU 同士の記録の実測（約 2.8 手/秒）。ほかのレベルは目分量の仮の値
-        moveMs: { 1: 1300, 2: 900, 3: 700, 4: 550, 5: 450, 6: 380, 7: 360 },
+        moveMs: { 1: 2000, 2: 1500, 3: 700, 4: 550, 5: 450, 6: 380, 7: 360 },
         // 発動中の通常火力の見込み（1 段あたり。REN・4 ラインをねらわない打ち方なので控えめ。仮）
         normalPerLine: 0.5,
         // 「攻め」で発動する見込み段数（満タンで撃つときの値。低いほど早く撃つ＝弱い。満タン前はメーターの割合ぶん）
@@ -46,6 +46,14 @@ const CpuZone = (() => {
         oppCancelRate: 0.6,
         oppCancelPlain: 3,       // 「とどめ」: 相手が ZONE を使えないときの相殺の見込み（4 ライン 1 回ぶん程度）
         oppMoveMs: 700,          // 相手の発動中の 1 手の見込み（ms。相手の段数の見込み用）
+        // ── ZONE BATTLE のフェーズ（設計 tetlabo-zone-battle-design.md §3.3・§13）──
+        // フェーズが進むと 1/4 の長さが縮む（5 → 4 → 2.5 秒。メーターは割合のまま）。発動中に進んでも前の長さで
+        // 数えるので、「もうすぐ進む」なら今の長さで撃つほうが段数が出る。
+        phaseNearScore: 3000,    // SCORE: 両者の最大スコアがしきい値までこの点以内なら「もうすぐ」
+        phaseNearMs: 8000,       // TIME: 次のフェーズの予約までこの時間以内なら「もうすぐ」
+        phaseMinQ: 2,            // これより少ないメーターでは撃たない
+        // 進んだ後に満タンまでためて撃つ見込みにかける割り引き（ためる間の時間・次のフェーズが近づくぶん）
+        phaseFullDiscount: 0.75,
     };
 
     // レベルごとの決まり（設計 §5.3 の表）
@@ -54,9 +62,9 @@ const CpuZone = (() => {
         2: { simple: true },
         3: { attack: true, defend: true },
         4: { attack: true, defend: true },
-        5: { attack: true, finish: true, defend: true },
-        6: { attack: true, finish: true, defend: true },
-        7: { attack: true, finish: true, defend: true, counter: true },
+        5: { attack: true, finish: true, defend: true, phase: true },
+        6: { attack: true, finish: true, defend: true, phase: true },
+        7: { attack: true, finish: true, defend: true, counter: true, phase: true },
     };
 
     // 発動中なら ZONE 段の数、していなければ -1
@@ -207,6 +215,39 @@ const CpuZone = (() => {
         return gain > Math.max(0, linesWhileWaiting - room) * perMeterLine;
     }
 
+    // ZONE BATTLE: 次のフェーズがもうすぐ来るなら、その行（試合のフェーズの表 game.zonePhaseTable の次の行。
+    // VS 設定の PHASE 01〜03 の値。tet/zone.js _zoneInit）。来ない・フェーズなしは null。
+    //   SCORE: 両者のスコアの最大値がしきい値まで phaseNearScore 以内／TIME: 次の予約まで phaseNearMs 以内
+    function phaseSoon(game) {
+        const p = game.matchPhase;
+        const table = game.zonePhaseTable;
+        if (!p || !table || p >= table.length) return null;
+        if (game.matchPhaseTrigger === 'time') {
+            const h = game._zonePhaseTimers && game._zonePhaseTimers[p - 1];
+            if (!h || typeof h.due !== 'number') return null;
+            return (h.due - game.clock.now() <= CONFIG.phaseNearMs) ? table[p] : null;
+        }
+        const opp = opponent(game);
+        const top = Math.max(game.score || 0, opp ? (opp.score || 0) : 0);
+        return (table[p].score - top <= CONFIG.phaseNearScore) ? table[p] : null;
+    }
+
+    // 「フェーズ前」: いま撃つ見込み火力が、進んだ後の見込み（同じメーターで撃つ／満タンまでためて撃つ×割り引き）
+    // 以上なら撃つ。マージンの次の段階が近いときは、進んだ後にマージンも上がった見込みとも比べる（どちらか得なら待つ）
+    function shouldFireBeforePhase(game, level, q, st, atkNow) {
+        const row = phaseSoon(game);
+        if (!row || !(atkNow > 0)) return false;
+        const linesAfter = (k) => expectedLines(k * row.quarterMs, level, st);
+        let alt = Math.max(attackOf(game, q, linesAfter(q)),
+            Math.floor(attackOf(game, 4, linesAfter(4)) * CONFIG.phaseFullDiscount));
+        if (nextMarginStepIn(game) <= CONFIG.marginWaitMaxMs) {
+            const cur = game._tetMarginStep;
+            const next = (cur === null || cur === undefined) ? 0 : cur + 1;
+            alt = Math.max(alt, attackOf(game, q, linesAfter(q), next));
+        }
+        return atkNow >= alt;
+    }
+
     // 「とどめ」で、相手が相殺に使える見込み。相手が ZONE を使える（発動中も）なら、相手の見込み火力を
     // oppCancelRate で割り引いたもの。使えないなら oppCancelPlain
     function oppCancelOf(opp, os) {
@@ -256,6 +297,11 @@ const CpuZone = (() => {
         // 守り: 予告が着弾したら死ぬ。すぐ消せる段が無くても発動する（発動しなければ次の設置で着弾して負ける。
         // 発動中は着弾が止まるので、その間に 1 段でも消せば盤面が下がって生き延びる。設計 §13.2）
         if (rule.defend && lethal) return 'defend';
+
+        // フェーズ前（ZONE BATTLE）: 攻めと同じく盤面がきれいなときだけ。満タン前でも、進んだ後より得なら撃つ
+        if (rule.phase && q >= CONFIG.phaseMinQ && st.holes <= CONFIG.attackMaxHoles
+            && st.height <= CONFIG.attackMaxHeight && inc <= CONFIG.attackMaxIncoming
+            && shouldFireBeforePhase(g, level, q, st, attackIfFired(g, level, q, st))) return 'phase';
 
         // 攻め: 穴がない・低い・予告が小さい・見込み段数が目標以上。
         // 満タン前は「ためても得をしない」ときだけ（worthFiringAt）。マージンの次の段階が近くて得なら待つ
@@ -310,13 +356,15 @@ const CpuZone = (() => {
         if (cpu.isAutoPlay === false) return false;
         // 発動の判断は、ミノが出て取りかかる前に 1 回
         const why = decide(cpu, level);
-        if (why && g.cpuAction('zone')) {
-            cpu._zoneFullAt = null;
-            cpu.zoneWhy = why; // 記録・デバッグ用
+        if (why) {
+            const prevWhy = cpu.zoneWhy;
+            cpu.zoneWhy = why; // 記録・デバッグ用（発動の中で CPU 同士の記録 app/cpu_match_log.js が読むので先に入れる）
+            if (g.cpuAction('zone')) cpu._zoneFullAt = null;
+            else cpu.zoneWhy = prevWhy;
         }
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, movesLeft, incoming, zoneTable, attackBias100, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, noMoveDelay, dropIfNoMove };
+    return { CONFIG, RULES, floor, stampBoard, movesLeft, incoming, zoneTable, attackBias100, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, phaseSoon, shouldFireBeforePhase, noMoveDelay, dropIfNoMove };
 })();
 window.CpuZone = CpuZone;

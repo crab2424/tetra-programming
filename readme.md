@@ -1,6 +1,6 @@
 # TETLABO
 
-https://citgame.pptlabo.workers.dev/
+https://tetlabo.com/
 
 # ローカルでの開発方法
 

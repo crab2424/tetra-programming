@@ -7,7 +7,7 @@ window.CPU2 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv2/cpu_worker2.js?v=4',
+        'cpu/tet/lv2/cpu_worker2.js?v=6',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -15,6 +15,12 @@ window.CPU2 = class {
         this.isAutoPlay = true; 
         this.currentMino = null;
         this.baseScore = 0;     
+
+        // 1 操作ずつ入れる間隔（ms。設計 source_assets/memory/mode/cpu/tet/lv1-2/lv1-2-input-design.md §2.4。仮の値）
+        this.firstDelay = 150;      // 思考の結果 → 最初の操作
+        this.actionDelay = 150;     // 操作 → 次の操作
+        this.harddropDelay = 315;   // 最後の操作 → ハードドロップ（今までの「飛ばしてから待つ」と同じ）
+        this._gravityHeld = false;
 
         this.weights = {
             lineClear: 14,
@@ -39,7 +45,10 @@ window.CPU2 = class {
             downstackGood: 48,   
             downstackBad: -3,    
 
-            P1_WEIGHT: 0.8,             
+            // 1 手目の評価にかける重み（cpu2.cpp: score1 * P1_WEIGHT + score2。整数でそのまま掛ける）。
+            // 2026-11-18 まで JS が送っておらず、wasm は確保の外（中身 0）を読んでいた＝ずっと 0 で動いていた。
+            // 強さを変えないため 0 を明示して送る（設計 lv1-2-input-design.md §5 L2）
+            P1_WEIGHT: 0,             
         };
 
         // Workerの生成
@@ -96,6 +105,9 @@ window.CPU2 = class {
     stop() {
         this.isActive = false;
         this.bestMoveData = null;
+        // 操作の途中で止めたら重力を戻す（フレームの外なので cpuAction は通さない。lv6・lv7 と同じ）
+        if (this._gravityHeld && this.game) this.game.gravityDisabled = false;
+        this._gravityHeld = false;
         if (this.estimateContainer) {
             this.estimateContainer.innerHTML = '';
         }
@@ -134,6 +146,8 @@ window.CPU2 = class {
 
         if (this.isCalculating) return;
         this.isCalculating = true; 
+        // 考えている間も重力を止める（探索は今の位置から通り道を調べる。§2.3）
+        this.holdGravity(true);
 
         // ★ v2.2.3 I: 隠し5行（実機 y=-5〜-1）も含めた 25 行で渡す（内部 y = 実機 y + 5）。
         let boardBuffer = new Uint8Array(250);
@@ -154,7 +168,8 @@ window.CPU2 = class {
             this.weights.step1Bad, this.weights.step2Plus, this.weights.groundedBonus,
             this.weights.touchingBonus, 
             this.weights.iWell, this.weights.iWellOver, this.weights.blocksOverHole,
-            this.weights.line4, this.weights.downstackGood, this.weights.downstackBad
+            this.weights.line4, this.weights.downstackGood, this.weights.downstackBad,
+            Math.round(this.weights.P1_WEIGHT)
         ]);
 
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
@@ -167,6 +182,8 @@ window.CPU2 = class {
             next1: this.game.nextQueue[0].type,
             next2: this.game.nextQueue[1].type,
             canHold: this.game.canHold ? 1 : 0,
+            // 今のミノの位置・向き（探索はここから 1 操作ずつ動かして届く手だけを作る。内部 y = 実機 y + 5）
+            curX: mino.x, curY: mino.y + 5, curRot: mino.rotation,
             weightsArray: weightsArray
         });
     }
@@ -178,6 +195,7 @@ window.CPU2 = class {
         
         if (actionInt === -1) {
             this.bestMoveData = null;
+            this.holdGravity(false);
             if (this.isAutoPlay && this.isActive) {
                 const tryDropFallback = () => {
                     if (!this.isActive || this.game.mino !== this.currentMino) return;
@@ -238,36 +256,79 @@ window.CPU2 = class {
         if (this.isAutoPlay && this.isActive && this.game.mino === this.currentMino) {
             if (bestMove.action === 'hold') {
                 const tryHold = () => {
-                    if (!this.isActive || this.game.mino !== this.currentMino) return;
+                    if (!this.isActive || this.game.mino !== this.currentMino) { if (this.isActive) this.holdGravity(false); return; }
                     if (this.game.isPaused || this.game.state === 'paused') {
                         this.game.cpuSchedule(100, tryHold);
                         return;
                     }
+                    this.holdGravity(false);
                     this.game.cpuAction('hold');
                 };
                 this.game.cpuSchedule(200, tryHold);
             } else {
-                const tryMoveAndDrop = () => {
-                    if (!this.isActive || this.game.mino !== this.currentMino) return;
-                    if (this.game.isPaused || this.game.state === 'paused') {
-                        this.game.cpuSchedule(100, tryMoveAndDrop);
-                        return;
-                    }
-                    this.moveMinoTo(bestMove.id, bestMove.rot, bestMove.x, bestMove.spawnY);
-                    
-                    const tryDrop = () => {
-                        if (!this.isActive || this.game.mino !== this.currentMino) return;
-                        if (this.game.isPaused || this.game.state === 'paused') {
-                            this.game.cpuSchedule(100, tryDrop);
-                            return;
-                        }
-                        this.game.cpuAction('hardDrop');
-                    };
-                    this.game.cpuSchedule(800, tryDrop);
-                };
-                tryMoveAndDrop();
+                this.runMove(bestMove);
             }
+        } else {
+            // 手を打たない（CPU TEST で人が打つ・ミノが変わった等）なら重力を戻す
+            this.holdGravity(false);
         }
+    }
+
+    // ── 置く手を 1 操作ずつ入れる（lv1 cpu.js と同じ作り。設計 lv1-2-input-design.md §2）──
+    // 置く手を 1 操作ずつの列にする（回転 → 1 マスずつ横移動。最後のハードドロップは runMove が入れる）
+    buildActionQueue(move) {
+        const mino = this.game.mino;
+        const queue = [];
+        const d = (move.rot - mino.rotation + 4) % 4;
+        if (mino.type !== 1) {
+            if (d === 3) queue.push({ type: 'rotate', dir: -1 });
+            else for (let i = 0; i < d; i++) queue.push({ type: 'rotate', dir: 1 });
+        }
+        const dx = move.x - mino.x;
+        for (let i = 0; i < Math.abs(dx); i++) queue.push({ type: 'shift', dir: Math.sign(dx) });
+        return queue;
+    }
+
+    // 操作の間は重力を止める（探索は出現の高さで通り道を調べている。§2.3）。stop() は game.gravityDisabled を直接戻す
+    holdGravity(on) {
+        if (on === !!this._gravityHeld) return;
+        this._gravityHeld = on;
+        this.game.cpuAction('gravity', on);
+    }
+
+    // 手を 1 操作ずつ入れる（game.cpuAction 'rotate' / 'shift' / 'hardDrop'。設計 lv1-2-input-design.md §2）。
+    // 操作の間隔を空けて動きを見せ、入れ終えたら重力を戻して少し待ってからハードドロップする
+    runMove(move) {
+        const mino = this.currentMino;
+        const queue = this.buildActionQueue(move);
+        const alive = () => this.isActive && this.game.mino === mino;
+        const paused = () => this.game.isPaused || this.game.state === 'paused';
+
+        const tryDrop = () => {
+            if (!alive()) return;
+            if (paused()) { this.game.cpuSchedule(100, tryDrop); return; }
+            this.game.cpuAction('hardDrop');
+        };
+        const step = () => {
+            if (!alive()) { if (this.isActive) this.holdGravity(false); return; }
+            if (paused()) { this.game.cpuSchedule(100, step); return; }
+            const a = queue.shift();
+            if (a) {
+                const ok = a.type === 'rotate'
+                    ? this.game.cpuAction('rotate', a.dir)
+                    : this.game.cpuAction('shift', a.dir, true);
+                // 動けなかったら（探索の読みと違う。ふつうは起きない）それ以上は寄せずにその場で落とす
+                if (!ok) queue.length = 0;
+                this.game.drawAll();
+            }
+            if (queue.length > 0) { this.game.cpuSchedule(this.actionDelay, step); return; }
+            this.holdGravity(false);
+            this.game.cpuSchedule(this.harddropDelay, tryDrop);
+        };
+
+        if (queue.length === 0) { this.holdGravity(false); this.game.cpuSchedule(this.harddropDelay, tryDrop); return; }
+        this.holdGravity(true);
+        this.game.cpuSchedule(this.firstDelay, step);
     }
 
     getClearedLines(fieldBlocks, minoBlocks) {
@@ -283,15 +344,6 @@ window.CPU2 = class {
             }
         }
         return clearedRowIndices;
-    }
-
-    // 出現位置で向きを変えてから x へ飛ばす（重なるなら x はそのまま。game.cpuAction 'teleport'）
-    moveMinoTo(id, targetRot, targetX, spawnY) {
-        const mino = this.game.mino;
-        if (!mino || mino.type !== id) return;
-        this.game.cpuAction('teleport', targetRot, targetX, spawnY);
-
-        this.game.drawAll();
     }
 
     renderEstimatePlace() {
