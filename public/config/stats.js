@@ -749,10 +749,81 @@
         return _loadHistory();
     }
 
+    // ─── 旧URL（workers.dev）からの引き継ぎ（v2.6.1・config/legacy_import.js から） ─────
+    // raw は旧URLの tetlabo_stats（JSON 文字列）。中身の大きさだけ返す（確認ダイアログ用）。無ければ null
+    function legacySize(raw) {
+        let old = null;
+        try { old = JSON.parse(raw || 'null'); } catch (e) { old = null; }
+        if (!old || typeof old !== 'object' || !old.owners || typeof old.owners !== 'object') return null;
+        const total = { plays: 0, ms: 0, solved: 0, deviceId: typeof old.deviceId === 'string' ? old.deviceId : null };
+        for (const [id, o] of Object.entries(old.owners)) {
+            // importLegacy と同じく、アカウントへ送り済みの分は数えない（足す分だけを見せる）
+            const part = (id !== 'guest' && o && o.pushed)
+                ? { buckets: _subtractBuckets(o.buckets, o.pushed.buckets), quiz: o.quiz }
+                : o;
+            const sz = _ownerSize(part);
+            total.plays += sz.plays; total.ms += sz.ms; total.solved += sz.solved;
+        }
+        return total;
+    }
+
+    // 旧URLの成績をこの端末の成績に足す。持ち主（guest / Discord ID）ごとに足す。
+    // ログインしていた持ち主で、旧URLからアカウントへ送り済みの分（pushed）は、サーバーに旧URLの端末の欄として
+    // 残っている（同期で others に入る）ので足さず、まだ送っていない差分だけを足す（二重に数えない）。
+    // 旧URLより後にこのアカウントが RESET されていたら（epoch が新しい）、その持ち主の分は足さない。
+    // historyRaw（tetlabo_stats_history）は新しい順に混ぜる。リプレイは引き継がないので rp は外す。
+    // @returns {boolean} 足したか
+    function importLegacy(raw, historyRaw) {
+        let old = null;
+        try { old = JSON.parse(raw || 'null'); } catch (e) { old = null; }
+        let imported = false;
+        if (old && typeof old === 'object' && old.owners && typeof old.owners === 'object') {
+            const data = _load();
+            for (const [id, oo] of Object.entries(old.owners)) {
+                if (!oo || typeof oo !== 'object') continue;
+                const o = _ownerOf(data, id);
+                const oldEpoch = Number.isInteger(oo.epoch) ? oo.epoch : 0;
+                const curEpoch = Number.isInteger(o.epoch) ? o.epoch : 0;
+                if (id !== 'guest' && curEpoch > oldEpoch) continue;
+                const part = (id !== 'guest' && oo.pushed)
+                    ? { buckets: _subtractBuckets(oo.buckets, oo.pushed.buckets), quiz: oo.quiz }
+                    : oo;
+                _mergeOwner(o, part);
+                if (id !== 'guest' && oldEpoch > curEpoch) o.epoch = oldEpoch;
+                imported = true;
+            }
+            if (imported) _save(data);
+        }
+
+        let oldList = [];
+        try { oldList = JSON.parse(historyRaw || '[]'); } catch (e) { oldList = []; }
+        if (Array.isArray(oldList) && oldList.length > 0) {
+            const seen = new Set();
+            const merged = [];
+            for (const e of _loadHistory().concat(oldList.map((x) => {
+                if (!x || typeof x !== 'object') return null;
+                const { rp, ...rest } = x;
+                return rest;
+            }))) {
+                if (!e || typeof e.at !== 'string') continue;
+                const id = `${e.at}|${e.k}`;
+                if (seen.has(id)) continue;
+                seen.add(id);
+                merged.push(e);
+            }
+            merged.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+            if (merged.length > HISTORY_MAX) merged.length = HISTORY_MAX;
+            try { localStorage.setItem(HISTORY_KEY, JSON.stringify(merged)); } catch (e) { /* 履歴は無くても累計は残る */ }
+            imported = true;
+        }
+        return imported;
+    }
+
     window.Stats = {
         onTetInit, onPuyoInit, end, abort, beginVersus, endVersus, beginOnline, endOnline, discardOnline, abortOnline,
         beginQuiz, endQuiz,
         getQuizCleared, guestImportPending, importGuest, declineGuest, reset,
+        legacySize, importLegacy,
         prepareSync, commitSync, hasUnpushed, isMerged,
         mergeBucket: _mergeBucket,
         getBuckets, getHistory, ownerId,

@@ -5,13 +5,15 @@ export interface Env {
 
   DISCORD_CLIENT_ID: string;
   PROD_HOST: string;
+  /** 旧URL（workers.dev）。ゲーム画面・/api を外し、お知らせと引き継ぎの入口だけ出す（空なら無効） */
+  LEGACY_HOST?: string;
   ADMIN_DISCORD_IDS: string;
 
   DISCORD_CLIENT_SECRET: string;
   TICKET_PRIVATE_KEY: string;
 }
 
-/** PROD_HOST はカンマ区切りで複数指定できる（独自ドメインへの移行中は新旧どちらも本番として扱う）。 */
+/** PROD_HOST はカンマ区切りで複数指定できる。 */
 export function isProdHost(host: string, env: Env): boolean {
   const h = host.toLowerCase();
   return env.PROD_HOST.split(",").some((p) => p.trim().toLowerCase() === h);
@@ -21,4 +23,10 @@ export function isProdHost(host: string, env: Env): boolean {
 export function pickDb(req: Request, env: Env): D1Database {
   const host = new URL(req.url).hostname;
   return isProdHost(host, env) ? env.DB : env.DB_DEV;
+}
+
+/** 旧URL（LEGACY_HOST）へのリクエストか。 */
+export function isLegacyHost(host: string, env: Env): boolean {
+  const legacy = (env.LEGACY_HOST ?? "").trim().toLowerCase();
+  return legacy !== "" && host.toLowerCase() === legacy;
 }

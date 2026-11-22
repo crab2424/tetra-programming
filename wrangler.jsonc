@@ -7,7 +7,7 @@
   // 本番の独自ドメイン（wrangler deploy で付く。プレビュー版のURLは従来どおり workers.dev のまま）。
   // tetlabo.com のDNSがこのCloudflareアカウントにある（ネームサーバーをCloudflareに向けた）ことが前提
   "routes": [{ "pattern": "tetlabo.com", "custom_domain": true }],
-  // routes を書くと workers.dev が既定で無効になるため明示する（移行中の旧URL・プレビュー版のURLを残す）
+  // routes を書くと workers.dev が既定で無効になるため明示する（プレビュー版のURLと、旧URLのお知らせ画面を残す）
   "workers_dev": true,
   "preview_urls": true,
   "observability": {
@@ -16,8 +16,9 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-    // この2パターンだけ Worker を先に通す。静的アセットは従来通り Worker を経由しない
-    "run_worker_first": ["/api/*", "/auth/*"],
+    // これらだけ Worker を先に通す。静的アセットは従来通り Worker を経由しない。
+    // "/" と "/index.html" は旧URL（LEGACY_HOST）のときにゲーム画面の代わりにお知らせを返すため（worker/index.ts）
+    "run_worker_first": ["/", "/index.html", "/api/*", "/auth/*"],
   },
   "d1_databases": [
     {
@@ -39,8 +40,9 @@
   "vars": {
     "DISCORD_CLIENT_ID": "1549580482486730763",
     // これらのホストへのリクエストだけ本番DB(DB)を使う（カンマ区切り）。それ以外(プレビュー/localhost)は開発DB(DB_DEV)。
-    // 独自ドメインへの移行中は新旧両方を本番にする（旧URLの利用者がいなくなったら workers.dev を外す）
-    "PROD_HOST": "tetlabo.com,citgame.pptlabo.workers.dev",
+    "PROD_HOST": "tetlabo.com",
+    // 旧URL。ゲーム画面と /api を外し、お知らせ＋引き継ぎの入口（public/legacy.html）だけ出す（v2.6.1）
+    "LEGACY_HOST": "citgame.pptlabo.workers.dev",
     "ADMIN_DISCORD_IDS": "1039886230202110006",
   },
   // Secret（Cloudflareダッシュボードで「Secret」として登録済み・デプロイで消えない）:

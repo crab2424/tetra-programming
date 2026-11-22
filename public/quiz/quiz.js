@@ -1456,7 +1456,7 @@ function _renderQuizNextAll(levelData) {
 // エディタが localStorage に置いた1問を、メモリ上の QUIZ_LEVELS に差し込んで（同じ id なら置換・新規なら末尾）
 // その問題を選んだ状態の準備画面を開く。JSON ファイルは変更しない。本番ホストでは何もしない。
 // プレビュー（*-citgame.pptlabo.workers.dev）は Cloudflare Access で保護されている。
-// 本番の citgame.pptlabo.workers.dev は先頭に「-」が無いので一致しない。
+// 旧URL citgame.pptlabo.workers.dev は先頭に「-」が無いので一致しない（v2.6.1 からゲーム画面も出さない）。
 (function _bootQuizEditorTest() {
     const host = location.hostname;
     const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
