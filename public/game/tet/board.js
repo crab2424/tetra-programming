@@ -73,8 +73,8 @@ Object.assign(Game.prototype, {
         }
 
         this._refillNext();
-        // 先行ホールドで出たミノは、ふつうのホールドと同じくもうホールドできない
-        this.canHold = !this._spawnIhsUsed
+        // 先行ホールドで出たミノ・ホールドで出たミノ（IRS の猶予の待ち明けも）は、もうホールドできない
+        this.canHold = !this._spawnIhsUsed && !this._spawnNoIhs
 
         // 状態・タイマー・カウントの初期化
         this.isGrounded = false;

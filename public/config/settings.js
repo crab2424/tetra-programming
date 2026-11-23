@@ -93,7 +93,6 @@ const DEFAULT_DISPLAY = {
   versusTime: true, // 対戦画面のTIME表示
   ghostStyle: 'fill', // 'fill'=ゴーストが薄い塗り・アシストが枠線 / 'outline'=入れ替え（ゴーストが枠線・アシストが薄い塗り）
   replayAutoSave: true, // 最後まで遊んだ試合のリプレイを自動で保存する（OFF でも最高記録のものは残す。app/replays.js）
-  playHereCountdown: true, // リプレイの PLAY HERE（PRACTICE・VERSUS の続き）を 3・2・1 から始める（core/replay.js）
 };
 
 // ゴーストを枠線で描くか（true のときアシストが薄い塗りになる）
@@ -101,10 +100,18 @@ function isGhostOutline() {
   return !!window.currentDisplay && window.currentDisplay.ghostStyle === 'outline';
 }
 
+// 今は使わない表示設定のキー（古い保存値・他の端末から届いた値に残っていても捨てる）
+//   playHereCountdown … v2.6.1 の PLAY HERE COUNTDOWN。PLAY HERE は常にカウントダウンから（core/replay.js）
+const RETIRED_DISPLAY_KEYS = ['playHereCountdown'];
+function stripRetiredDisplay(d) {
+  RETIRED_DISPLAY_KEYS.forEach((k) => { delete d[k]; });
+  return d;
+}
+
 function loadDisplay() {
   const saved = localStorage.getItem('game_display');
   if (saved) {
-    try { return { ...DEFAULT_DISPLAY, ...JSON.parse(saved) }; }
+    try { return stripRetiredDisplay({ ...DEFAULT_DISPLAY, ...JSON.parse(saved) }); }
     catch (e) { localStorage.removeItem('game_display'); }
   }
   return { ...DEFAULT_DISPLAY };
@@ -117,6 +124,7 @@ window.currentDisplay = currentDisplay;
 
 function saveDisplay() {
   localStorage.setItem('game_display', JSON.stringify(currentDisplay));
+  capturePresetFromStorage(); // 使っているプリセットにも書く（DISPLAY はプリセットの中身）
   window.CloudSync?.touch?.(); // Discord ログイン中なら端末間共有へ送る（config/cloud_sync.js）
 }
 
@@ -513,12 +521,6 @@ function renderDisplayOptions() {
       btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.replayAutoSave);
     });
   }
-  const cdToggle = document.getElementById('display-playhere-countdown-toggle');
-  if (cdToggle) {
-    cdToggle.querySelectorAll('.opt-btn').forEach((btn) => {
-      btn.classList.toggle('active', (btn.dataset.value === 'on') === (currentDisplay.playHereCountdown !== false));
-    });
-  }
 }
 
 // GHOST/ASSIST の見た目の小プレビュー（tet・puyo）。実際の描画と同じ配色・段階で並べる。
@@ -904,6 +906,7 @@ function saveSettings(opts = {}) {
   if (backendInput) backendInput.value = backendUrl;
   localStorage.setItem('tetlaboServerUrl', backendUrl);
 
+  capturePresetFromStorage(); // 使っているプリセットにも書く（音量・Backend URL はプリセットの外）
   updateMenuControlsDisplay(); // ★追加：保存時にメインメニューの表示を更新
   if (!opts.silent) showToast();
   window.CloudSync?.touch?.(); // Discord ログイン中なら端末間共有へ送る（音量と Backend URL は送らない）
@@ -912,8 +915,20 @@ function saveSettings(opts = {}) {
 // config/cloud_sync.js からのみ呼ばれる: アカウントから取り込んだ設定（localStorage へ書き込み済み）を
 // メモリ上の値・SETTINGS 画面・進行中のゲームのキー設定へ反映する。
 // 呼ぶ側が「SETTINGS に未保存の変更が無い」ことを確かめているので、編集中の値を消すことはない。
-function applySyncedSettings() {
+//   pulled: 取り込んだ区分の名前。presets なら使っているプリセットの中身を今の設定へ、
+//           古い区分（tuning など。プリセット導入前のアカウント）なら今の設定を使っているプリセットへ写す
+function applySyncedSettings(pulled) {
   if (typeof stopListeningBind === 'function') stopListeningBind();
+  const fromPresets = Array.isArray(pulled) && pulled.includes('presets');
+  if (fromPresets) applyActivePresetToStorage();
+  _reloadSettingsFromStorage();
+  if (!fromPresets) capturePresetFromStorage();
+  renderPresetRow();
+}
+
+// 保存値（localStorage）を読み直して、メモリ上の値・SETTINGS 画面・進行中のゲームのキー設定へ反映する
+function _reloadSettingsFromStorage() {
+  Object.keys(currentDisplay).forEach((k) => delete currentDisplay[k]);
   Object.assign(currentDisplay, loadDisplay());
   renderDisplayOptions();
   applyDisplayClasses();
@@ -923,15 +938,177 @@ function applySyncedSettings() {
   if (window._puyoGame && typeof window._puyoGame._setKeyHandlers === 'function') window._puyoGame._setKeyHandlers();
 }
 
+// ─── 設定のプリセット（ロードマップ I-3）──────────────────
+// 操作系（TUNING・KEY CONFIG・デッドゾーン）と DISPLAY を 3 つまで持ち、SETTINGS の上で切り替える。
+//   ・ゲームが読むのは今までどおり game_tuning / game_binds / game_gamepad_options / game_display。
+//     これが「使っているプリセット」の中身で、保存（saveSettings・saveDisplay）のたびにプリセットへ写す。
+//   ・プリセットの中身と名前は端末間で共有する（tetlabo_presets。config/cloud_sync.js の presets 区分）。
+//   ・どのプリセットを使っているかは端末ごと（tetlabo_preset_active。共有しない）。
+//   ・音量・Backend URL はプリセットの外（端末ごと・共有しない）。
+const PRESET_COUNT = 3;
+const PRESETS_KEY = 'tetlabo_presets';
+const PRESET_ACTIVE_KEY = 'tetlabo_preset_active';
+const PRESET_NAME_MAX = 16;
+
+function presetDefaultName(i) {
+  return `PRESET ${i + 1}`;
+}
+
+function sanitizePresetName(name, i) {
+  const t = String(name == null ? '' : name).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, PRESET_NAME_MAX);
+  return t || presetDefaultName(i);
+}
+
+// 今の保存値（ゲームが読む値）を 1 つのプリセットの形で
+function _presetSnapshot(name) {
+  return { name, tuning: loadTuning(), binds: loadBinds(), gamepad: loadGamepadOptions(), display: loadDisplay() };
+}
+
+function _readPresetsRaw() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PRESETS_KEY) || 'null');
+    return raw && typeof raw === 'object' && Array.isArray(raw.list) ? raw : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 設定をまだ一度も保存していない端末か（プリセットを作らずにおく＝ログインしたらアカウントの分をそのまま取り込む）
+function _hasSavedSettings() {
+  return ['game_tuning', 'game_binds', 'game_gamepad_options', 'game_display', 'game_keyconfig']
+    .some((k) => localStorage.getItem(k) !== null);
+}
+
+// 3 つ分そろえて返す。無い・壊れた枠は今の保存値で埋める（初めて作るときは 3 つとも今の設定の写し）
+function loadPresets() {
+  const raw = _readPresetsRaw();
+  const list = [];
+  for (let i = 0; i < PRESET_COUNT; i++) {
+    const e = raw && raw.list[i] && typeof raw.list[i] === 'object' ? raw.list[i] : null;
+    const snap = e ? null : _presetSnapshot(presetDefaultName(i));
+    const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
+    list.push({
+      name: sanitizePresetName(e ? e.name : null, i),
+      tuning: (e && obj(e.tuning)) || (snap || _presetSnapshot()).tuning,
+      binds: (e && obj(e.binds)) || (snap || _presetSnapshot()).binds,
+      gamepad: (e && obj(e.gamepad)) || (snap || _presetSnapshot()).gamepad,
+      display: (e && obj(e.display)) || (snap || _presetSnapshot()).display,
+    });
+  }
+  return { v: 1, list };
+}
+
+function savePresets(p) {
+  try { localStorage.setItem(PRESETS_KEY, JSON.stringify({ v: 1, list: p.list })); } catch (e) { /* 次の保存でまた書く */ }
+}
+
+function getActivePresetIndex() {
+  const n = parseInt(localStorage.getItem(PRESET_ACTIVE_KEY) || '0', 10);
+  return Number.isInteger(n) && n >= 0 && n < PRESET_COUNT ? n : 0;
+}
+
+// 今の保存値を使っているプリセットへ写す。変わったら true（呼ぶ側が CloudSync.touch で送る）。
+//   force: 設定を保存したことのない端末でもプリセットを作る（切り替え・名前の変更のとき）
+function capturePresetFromStorage(force) {
+  const raw = _readPresetsRaw();
+  if (!raw && !force && !_hasSavedSettings()) return false;
+  const p = loadPresets();
+  const i = getActivePresetIndex();
+  const next = _presetSnapshot(p.list[i].name);
+  if (raw && JSON.stringify(p.list[i]) === JSON.stringify(next)) return false;
+  p.list[i] = next;
+  savePresets(p);
+  return true;
+}
+
+// 使っているプリセットの中身を保存値へ書く（切り替え・アカウントから取り込んだとき）
+function applyActivePresetToStorage() {
+  if (!_readPresetsRaw()) return;
+  const e = loadPresets().list[getActivePresetIndex()];
+  localStorage.setItem('game_tuning', JSON.stringify(e.tuning));
+  localStorage.setItem('game_binds', JSON.stringify(e.binds));
+  localStorage.setItem('game_gamepad_options', JSON.stringify(e.gamepad));
+  localStorage.setItem('game_display', JSON.stringify(e.display));
+}
+
+function renderPresetRow() {
+  const toggle = document.getElementById('settings-preset-toggle');
+  if (!toggle) return;
+  const p = _readPresetsRaw() ? loadPresets() : null;
+  const active = getActivePresetIndex();
+  toggle.querySelectorAll('.opt-btn').forEach((btn) => {
+    const i = parseInt(btn.dataset.preset, 10);
+    btn.textContent = p ? p.list[i].name : presetDefaultName(i);
+    btn.classList.toggle('active', i === active);
+  });
+}
+
+// PRESET の切り替え。未保存の変更があれば、今のプリセットへ保存するか捨てるかを先に聞く
+async function selectPreset(i) {
+  if (typeof stopListeningBind === 'function') stopListeningBind();
+  const cur = getActivePresetIndex();
+  if (!(i >= 0 && i < PRESET_COUNT) || i === cur) { renderPresetRow(); return; }
+  if (isSettingsDirty()) {
+    const name = (_readPresetsRaw() ? loadPresets().list[cur].name : presetDefaultName(cur));
+    const choice = await TetDialog.choose({
+      title: 'UNSAVED CHANGES',
+      message: `変更が保存されていません。${name} に保存してから切り替えますか？`,
+      buttons: [
+        { label: 'SAVE & SWITCH', value: 'save', kind: 'primary' },
+        { label: 'DISCARD', value: 'discard', kind: 'danger' },
+        { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+      ],
+      initial: 'save',
+    });
+    if (choice === 'save') saveSettings({ silent: true });
+    else if (choice !== 'discard') { renderPresetRow(); return; }
+  }
+  capturePresetFromStorage(true); // 初めてならここで 3 つ作る（今の設定の写し）
+  try { localStorage.setItem(PRESET_ACTIVE_KEY, String(i)); } catch (e) { /* この起動の間だけ */ }
+  applyActivePresetToStorage();
+  _reloadSettingsFromStorage();
+  renderPresetRow();
+  if (typeof showGlobalToast === 'function') showGlobalToast(`${loadPresets().list[i].name} に切り替えました`);
+  window.CloudSync?.touch?.();
+}
+
+// 使っているプリセットの名前を変える（すぐ保存。空欄で既定の名前）
+async function renamePreset() {
+  if (typeof stopListeningBind === 'function') stopListeningBind();
+  const i = getActivePresetIndex();
+  const before = _readPresetsRaw() ? loadPresets().list[i].name : presetDefaultName(i);
+  const r = await TetDialog.choose({
+    title: 'RENAME PRESET',
+    message: `名前を入力してください（${PRESET_NAME_MAX} 文字まで。空欄で ${presetDefaultName(i)}）`,
+    input: { value: before, maxLength: PRESET_NAME_MAX, placeholder: presetDefaultName(i) },
+    buttons: [
+      { label: 'OK', value: 'ok', kind: 'primary' },
+      { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+    ],
+    initial: 'ok',
+  });
+  if (!r || r.value !== 'ok') return;
+  capturePresetFromStorage(true);
+  const p = loadPresets();
+  p.list[i].name = sanitizePresetName(r.text, i);
+  savePresets(p);
+  renderPresetRow();
+  window.CloudSync?.touch?.();
+}
+
 // ─── 未保存の変更の検知（設計 §3.3）────────────────────
 // 「画面に入った時点の状態」を別途記録するのではなく、メモリ上の現在値と
 // localStorageの保存値を毎回比較する。入口が複数（メインメニュー／ポーズ）
 // あっても取りこぼしが起きない。
+// irsDcd は保存値に無ければ dcd と同じ（renderTuning が画面を描くときに足す）。足しただけで「未保存」に見えないよう、比べる前にそろえる
+function _tuningForCompare(t) {
+  return { ...t, irsDcd: t.irsDcd ?? t.dcd };
+}
 function settingsSnapshot() {
   const backendInput = document.getElementById('settings-online-backend');
   return JSON.stringify({
     b: currentBinds,
-    t: currentTuning,
+    t: _tuningForCompare(currentTuning),
     v: currentVolume,
     g: currentGamepadOptions,
     u: normalizeBackendUrl(backendInput ? backendInput.value : ''),
@@ -940,7 +1117,7 @@ function settingsSnapshot() {
 function savedSnapshot() {
   return JSON.stringify({
     b: loadBinds(),
-    t: loadTuning(),
+    t: _tuningForCompare(loadTuning()),
     v: loadVolume(),
     g: loadGamepadOptions(),
     u: localStorage.getItem('tetlaboServerUrl') || '',
@@ -1001,4 +1178,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderGamepadOptions();
   renderOnlineSettings();
   updateMenuControlsDisplay(); // ★追加：初期表示でも実行
+  // 保存値が使っているプリセットと食い違っていたら（旧 URL からの引き継ぎ・プリセット導入前の端末）保存値に合わせる
+  capturePresetFromStorage();
+  renderPresetRow();
 });

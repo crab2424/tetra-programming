@@ -5,10 +5,11 @@
 //
 // 共有するもの
 //   設定 … SETTINGS のうち端末差の小さいもの
-//     tuning  = game_tuning（DAS/ARR/DCD・IRS/IHS など）
-//     display = game_display（APM 表示・ゴーストの描き方など）
-//     binds   = game_binds（キー・パッド割当）
-//     gamepad = game_gamepad_options（デッドゾーン）
+//     presets = tetlabo_presets（設定のプリセット 3 つ分の名前と中身。config/settings.js）
+//               中身は操作系（DAS/ARR/DCD・IRS/IHS・キー/パッド割当・デッドゾーン）と DISPLAY。
+//               どのプリセットを使っているか（tetlabo_preset_active）は端末ごとで送らない。
+//     以前の区分（プリセット導入前。アカウントにまだ presets が無いときだけ、取り込みのために見る）
+//       tuning  = game_tuning / display = game_display / binds = game_binds / gamepad = game_gamepad_options
 //   記録 … 全モードの自己ベスト（tetlabo_records のうち、このアカウントのものと決まった記録）
 //   成績 … プレイ記録（STATS。config/stats.js）。端末ごとの欄を持ち寄って足す（履歴は送らない）
 // 共有しないもの … 音量（game_volume）・Backend URL。端末ごとの都合で変えるものなので各端末に残す。
@@ -24,11 +25,14 @@
 (function () {
     const META_KEY = 'tetlabo_sync_meta';
     const SETTING_SECTIONS = {
+        presets: 'tetlabo_presets',
         tuning: 'game_tuning',
         display: 'game_display',
         binds: 'game_binds',
         gamepad: 'game_gamepad_options',
     };
+    // プリセット導入前の区分。アカウントに presets がまだ無いときだけ揃える（取り込んだ値はプリセットへ写る）
+    const LEGACY_SECTIONS = ['tuning', 'display', 'binds', 'gamepad'];
     const TOUCH_DELAY_MS = 1500;
 
     let running = null;      // 実行中の sync() の Promise
@@ -103,12 +107,28 @@
         } catch (e) { return false; }
     }
 
+    // 設定: アカウントにプリセットがまだ無ければ、先に以前の区分を揃えて（取り込んだ値は今のプリセットへ写る）から
+    // プリセットを送る。プリセットがあればプリセットだけ。
     async function _syncSettings(meta, server) {
+        let applied = false;
+        if (!(server.presets && server.presets.data)) {
+            const legacy = await _syncSettingSections(meta, server, LEGACY_SECTIONS);
+            applied = legacy.applied;
+            // どちらを使うか聞いて閉じられた → プリセットも送らない（次の起動でもう一度聞く）
+            if (legacy.undecided) return applied;
+        }
+        const r = await _syncSettingSections(meta, server, ['presets']);
+        return applied || r.applied;
+    }
+
+    async function _syncSettingSections(meta, server, names) {
         const push = {};      // name -> { data, baseRev, changedAt }
         const pull = [];      // name
         const firstDiff = []; // 初めて揃える区分のうち、端末とアカウントで中身が違うもの
+        let undecided = false;
 
-        for (const [name, storageKey] of Object.entries(SETTING_SECTIONS)) {
+        for (const name of names) {
+            const storageKey = SETTING_SECTIONS[name];
             const local = _localString(storageKey);
             let m = meta.sections[name];
             const sv = server[name] && server[name].data ? server[name] : null;
@@ -160,6 +180,7 @@
                 }
             }
             // 閉じただけ → 何もしない（次の起動でもう一度聞く）
+            else undecided = true;
         }
 
         if (Object.keys(push).length > 0) {
@@ -177,7 +198,7 @@
             }
         }
 
-        let applied = false;
+        const pulled = [];
         if (pull.length > 0 && !_settingsBusy()) {
             for (const name of pull) {
                 const sv = server[name];
@@ -185,13 +206,13 @@
                 const text = JSON.stringify(sv.data);
                 try { localStorage.setItem(SETTING_SECTIONS[name], text); } catch (e) { continue; }
                 meta.sections[name] = { rev: sv.rev, synced: text };
-                applied = true;
+                pulled.push(name);
             }
         }
         _saveMeta(meta);
-        // 保存値を画面とゲームへ反映する（config/settings.js）
-        if (applied && typeof applySyncedSettings === 'function') applySyncedSettings();
-        return applied;
+        // 保存値を画面とゲームへ反映する（config/settings.js。presets なら使っているプリセットを今の設定へ）
+        if (pulled.length > 0 && typeof applySyncedSettings === 'function') applySyncedSettings(pulled);
+        return { applied: pulled.length > 0, undecided };
     }
 
     async function _askFirst() {

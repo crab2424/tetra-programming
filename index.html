@@ -660,7 +660,7 @@
           </button>
           <button class="pause-btn btn-restart" onclick="restartVersus()" data-retry-kind="versus" data-normal="↺ RESTART" data-here="↺ RETRY HERE">↺ RESTART</button>
           <!-- ★ 録画の PLAY HERE で始めた対戦の続きのときだけ（core/replay.js の _setBack） -->
-          <button class="pause-btn btn-settings" id="versus-pause-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+          <button class="pause-btn btn-settings" id="versus-pause-replay-back-btn" data-se="decide" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
             ◀ REPLAY
           </button>
           <button class="pause-btn btn-versus-primary" onclick="versusGoToModeSelect()">
@@ -1011,7 +1011,7 @@
           <span data-retry-kind="versus" data-normal="RETRY" data-here="RETRY HERE">RETRY</span>
         </button>
         <!-- ★ 録画の PLAY HERE で始めた対戦の続きのときだけ（core/replay.js の _setBack） -->
-        <button class="menu-btn btn-secondary" id="versus-result-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+        <button class="menu-btn btn-secondary" id="versus-result-replay-back-btn" data-se="decide" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
           <span class="menu-btn-icon">◀</span>
           <span>REPLAY</span>
         </button>
@@ -1350,7 +1350,7 @@
               ◀ LEVEL SELECT
             </button>
             <!-- ★ 録画の PLAY HERE で始めた PRACTICE のときだけ（core/replay.js の _setBack） -->
-            <button class="pause-btn btn-settings" id="pause-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+            <button class="pause-btn btn-settings" id="pause-replay-back-btn" data-se="decide" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
               ◀ REPLAY
             </button>
             <!-- ★ PRACTICEモード専用: 任意のタイミングでリザルトへ抜ける -->
@@ -1417,7 +1417,7 @@
           <span data-retry-kind="practice" data-normal="RETRY" data-here="RETRY HERE">RETRY</span>
         </button>
         <!-- ★ 録画の PLAY HERE で始めた PRACTICE のときだけ（core/replay.js の _setBack） -->
-        <button class="menu-btn btn-secondary" id="result-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
+        <button class="menu-btn btn-secondary" id="result-replay-back-btn" data-se="decide" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
           <span class="menu-btn-icon">◀</span>
           <span>REPLAY</span>
         </button>
@@ -1467,6 +1467,17 @@
           ◀ BACK
         </button>
       </div>
+    </div>
+
+    <!-- プリセット（操作系＋DISPLAY を 3 つまで。切替・名前は public/config/settings.js の selectPreset()/renamePreset()） -->
+    <div class="settings-preset-row" title="TUNING・KEY CONFIG・DISPLAY をプリセットごとに持ちます（音量・Backend URL は共通）。Discord ログイン中は他の端末と共有します">
+      <span class="settings-preset-label">PRESET</span>
+      <div class="option-toggle" id="settings-preset-toggle">
+        <button class="opt-btn active" data-preset="0" onclick="selectPreset(0)">PRESET 1</button>
+        <button class="opt-btn" data-preset="1" onclick="selectPreset(1)">PRESET 2</button>
+        <button class="opt-btn" data-preset="2" onclick="selectPreset(2)">PRESET 3</button>
+      </div>
+      <button class="btn btn-secondary" id="settings-preset-rename" onclick="renamePreset()">RENAME</button>
     </div>
 
     <!-- タブ（切替は public/config/settings.js の setSettingsTab()） -->
@@ -1604,13 +1615,6 @@
               <button class="opt-btn" data-value="off" onclick="setDisplayOption('replayAutoSave', false)">OFF</button>
             </div>
           </div>
-          <div class="option-row" title="OFF のときはカウントダウンなしで、すぐに続きが始まります">
-            <span class="option-label">PLAY HERE COUNTDOWN</span>
-            <div class="option-toggle" id="display-playhere-countdown-toggle">
-              <button class="opt-btn" data-value="on" onclick="setDisplayOption('playHereCountdown', true)">ON</button>
-              <button class="opt-btn" data-value="off" onclick="setDisplayOption('playHereCountdown', false)">OFF</button>
-            </div>
-          </div>
           <div class="option-row">
             <span class="option-label">最高記録</span>
             <button class="btn btn-reset-records" onclick="resetRecords()">RESET RECORDS</button>
@@ -1684,19 +1688,19 @@
   <div id="external-pages"></div>
 
   <script src="config/pages.js?v=10"></script>
-  <script src="core/base.js?v=28"></script>
+  <script src="core/base.js?v=29"></script>
   <!-- ゲーム時計・試合の乱数（エンジンより先に読む。設計: source_assets/memory/record/） -->
   <script src="core/game_clock.js?v=6"></script>
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=44"></script>
+  <script src="core/replay.js?v=45"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=12"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=20"></script>
+  <script src="config/settings.js?v=21"></script>
   <script src="config/records.js?v=6"></script>
-  <script src="config/cloud_sync.js?v=3"></script>
+  <script src="config/cloud_sync.js?v=4"></script>
   <script src="config/stats.js?v=9"></script>
   <script src="config/account.js?v=9"></script>
   <script src="config/legacy_import.js?v=1"></script>
@@ -1704,9 +1708,9 @@
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
-  <script src="game/tet/lifecycle.js?v=24"></script>
-  <script src="game/tet/board.js?v=24"></script>
-  <script src="game/tet/rotation.js?v=11"></script>
+  <script src="game/tet/lifecycle.js?v=25"></script>
+  <script src="game/tet/board.js?v=25"></script>
+  <script src="game/tet/rotation.js?v=12"></script>
   <script src="game/tet/scoring.js?v=6"></script>
   <script src="game/tet/zone.js?v=26"></script>
   <script src="game/tet/garbage.js?v=16"></script>
@@ -1717,7 +1721,7 @@
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
-  <script src="game/puyo/lifecycle.js?v=12"></script>
+  <script src="game/puyo/lifecycle.js?v=13"></script>
   <script src="game/puyo/connect.js"></script>
   <script src="game/puyo/ojama.js?v=11"></script>
   <script src="game/puyo/engine.js?v=20"></script>
@@ -1731,20 +1735,20 @@
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
   <script src="cpu/tet/cpu_zone.js?v=16"></script>
   <script src="app/cpu_match_log.js?v=5"></script>
-  <script src="app/versus.js?v=28"></script>
+  <script src="app/versus.js?v=29"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=51"></script>
+  <script src="app/navigation.js?v=52"></script>
   <script src="app/ranking.js?v=5"></script>
   <script src="app/replays.js?v=10"></script>
   <script src="app/stats_page.js?v=7"></script>
-  <script src="app/focus_nav.js?v=30"></script>
+  <script src="app/focus_nav.js?v=31"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=14"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=4"></script>
   <script src="practice/practice_sequence.js?v=7"></script>
   <script src="practice/practice_panel.js?v=22"></script>
-  <script src="practice/practice.js?v=38"></script>
+  <script src="practice/practice.js?v=39"></script>
   <!-- アシスト（盤面ガイド）。PRACTICE / VERSUS から Assist.attach で呼ばれる -->
   <script src="assist/assist.js?v=8"></script>
   <script src="assist/assist_overlay.js?v=3"></script>

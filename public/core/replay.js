@@ -23,7 +23,7 @@
 // ─────────────────────────────────────────────
 
 const REPLAY_FORMAT_VERSION = 2;   // ファイルの形の版（§6.2）。2: 盤面 2 枚・CPU の手・キー設定の読み直し
-const REPLAY_ENGINE_VERSION = 21;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）。4: VERSUS の ZONE の火力（発動中の通常火力を足す・マージン倍率・メーターの持ち越し・CPU の発動中の速さ）。5: シングルの ZONE の発動中はレベル 1 の速さでソフトドロップ（4 以下の録画は従来どおり再生。tet/input.js）。6: ZONE の分けて送る火力は 1 手につき 1 かたまりだけ着弾（SPLIT の録画は 5 とずれる）。7: ZONE SPLIT の試合はふつうの火力も 1 手に 1 かたまりずつ着弾（6 以下の録画は従来どおり再生。tet/garbage.js）。8: VERSUS の ZONE 終了で盤面が下がって浮いたミノの固定猶予を取り消す（7 以下の録画は従来どおり再生。tet/zone.js）。9: ZONE のマージン倍率を発動時のメーターごとの表に（マージン中に ZONE が終わる 8 以下の VERSUS の録画はずれる。tet/zone.js）。10: ZONE の発動中は全ブロックが枠の上の設置を致命にせず ZONE も続ける（9 以下の録画は従来どおり再生。tet/board.js）。11: シングルの ZONE はミノが枠の上 20 段まで動ける（10 以下の録画は 5 段のまま。tet/zone.js topLimit）。12: VERSUS の ZONE の試合も枠の上 20 段まで・CPU も 40 段を読む（11 以下の VERSUS の録画は 5 段のまま）。13: ZONE BATTLE のフェーズ（vsZonePhase。キーの無い録画はフェーズなしで今までどおり。tet/zone.js）。14: ZONE BATTLE の穴の決め方（かたまりの中 a・間 b・着弾をまたぐ。13 以下の録画は今までの決め方。tet/garbage.js）。15: ZONE BATTLE の PHASE TRIGGER（TIME）・MARGIN TRIGGER（SCORE）（キーの無い録画は SCORE・TIME のまま）。16: ZONE BATTLE のフェーズごとの値（vsZonePhaseTable。VS 設定の PHASE 01〜03。キーの無い録画は原作の表のまま。tet/zone.js zonePhaseTableFrom）。17: ZONE BATTLE のフェーズへ進むスコアを表の行に（vsZonePhaseTable の score。キーの無い録画は 20,000 / 60,000 のまま）。18: ZONE の終了時火力表（ZONE_ATTACK_TABLE）とマージン倍率表（ZONE_MARGIN_BONUS_X10）の再編（17 以下の ZONE VERSUS の録画は火力がずれる。tet/zone.js）。19: PHASE TRIGGER: TIME の時計も表の行に（vsZonePhaseTable の timeMs。キーの無い録画は 64 / 192 秒のまま）。20: ZONE の端数の持ち越し（シングルも満タン超えを次のメーターへ・フェーズの換算は 1/4 の数は割合で端数は段数のまま。19 以下の録画は従来どおり。tet/zone.js _zoneV20）。21: IRS だけで助かる出現も IHS と同じく待つ（IRS ON の録画だけに効く。20 以下の録画は従来どおり待たない。tet/rotation.js _ihsRescueWait）
+const REPLAY_ENGINE_VERSION = 22;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）。4: VERSUS の ZONE の火力（発動中の通常火力を足す・マージン倍率・メーターの持ち越し・CPU の発動中の速さ）。5: シングルの ZONE の発動中はレベル 1 の速さでソフトドロップ（4 以下の録画は従来どおり再生。tet/input.js）。6: ZONE の分けて送る火力は 1 手につき 1 かたまりだけ着弾（SPLIT の録画は 5 とずれる）。7: ZONE SPLIT の試合はふつうの火力も 1 手に 1 かたまりずつ着弾（6 以下の録画は従来どおり再生。tet/garbage.js）。8: VERSUS の ZONE 終了で盤面が下がって浮いたミノの固定猶予を取り消す（7 以下の録画は従来どおり再生。tet/zone.js）。9: ZONE のマージン倍率を発動時のメーターごとの表に（マージン中に ZONE が終わる 8 以下の VERSUS の録画はずれる。tet/zone.js）。10: ZONE の発動中は全ブロックが枠の上の設置を致命にせず ZONE も続ける（9 以下の録画は従来どおり再生。tet/board.js）。11: シングルの ZONE はミノが枠の上 20 段まで動ける（10 以下の録画は 5 段のまま。tet/zone.js topLimit）。12: VERSUS の ZONE の試合も枠の上 20 段まで・CPU も 40 段を読む（11 以下の VERSUS の録画は 5 段のまま）。13: ZONE BATTLE のフェーズ（vsZonePhase。キーの無い録画はフェーズなしで今までどおり。tet/zone.js）。14: ZONE BATTLE の穴の決め方（かたまりの中 a・間 b・着弾をまたぐ。13 以下の録画は今までの決め方。tet/garbage.js）。15: ZONE BATTLE の PHASE TRIGGER（TIME）・MARGIN TRIGGER（SCORE）（キーの無い録画は SCORE・TIME のまま）。16: ZONE BATTLE のフェーズごとの値（vsZonePhaseTable。VS 設定の PHASE 01〜03。キーの無い録画は原作の表のまま。tet/zone.js zonePhaseTableFrom）。17: ZONE BATTLE のフェーズへ進むスコアを表の行に（vsZonePhaseTable の score。キーの無い録画は 20,000 / 60,000 のまま）。18: ZONE の終了時火力表（ZONE_ATTACK_TABLE）とマージン倍率表（ZONE_MARGIN_BONUS_X10）の再編（17 以下の ZONE VERSUS の録画は火力がずれる。tet/zone.js）。19: PHASE TRIGGER: TIME の時計も表の行に（vsZonePhaseTable の timeMs。キーの無い録画は 64 / 192 秒のまま）。20: ZONE の端数の持ち越し（シングルも満タン超えを次のメーターへ・フェーズの換算は 1/4 の数は割合で端数は段数のまま。19 以下の録画は従来どおり。tet/zone.js _zoneV20）。21: IRS だけで助かる出現も IHS と同じく待つ（IRS ON の録画だけに効く。20 以下の録画は従来どおり待たない。tet/rotation.js _ihsRescueWait）。22: ホールドで出るミノも IRS だけで助かるなら待つ（21 以下の録画は従来どおり待たない）
 
 // 入力の列の種類。1 バイト目＝種類 << 1 | side
 //   キー 0〜3（bit0 押す・bit1 長押しの繰り返し）＋コードの番号、tet のパッド 4〜5（bit0 押す）＋アクションの番号
@@ -1732,16 +1732,19 @@ const ReplayManager = {
         }
         if (!b.handoff || typeof startPracticeFromReplay !== 'function') return;
         b.fresh = true; // PRACTICE を始める start() の 1 回目の begin では消さない
-        b.handoff.countdown = this._playHereCountdown();
         const pause = document.getElementById('pause-overlay');
         if (pause) pause.classList.remove('active');
+        this._fadeBgmForPractice();
         startPracticeFromReplay(b.handoff);
         this._setBack(b);
     },
 
-    // PLAY HERE を 3・2・1 から始めるか（SETTINGS › DISPLAY › PLAY HERE COUNTDOWN）
-    _playHereCountdown() {
-        return !(window.currentDisplay && window.currentDisplay.playHereCountdown === false);
+    // PLAY HERE で PRACTICE へ移るとき: 流れているリプレイの曲を 3・2・1 のあいだにフェードアウトする
+    // （START! で PRACTICE の曲が鳴る。tet/lifecycle.js・puyo/lifecycle.js。同じ曲ならそのまま）
+    _fadeBgmForPractice() {
+        const bgm = window.BgmManager;
+        if (!bgm || bgm.isCurrent(bgm.singleBgmKey('practice'))) return;
+        bgm.stop(false, typeof COUNTDOWN_TO_START_MS === 'number' ? COUNTDOWN_TO_START_MS : 2100);
     },
 
     // ◀ REPLAY: 試合を止めて、PLAY HERE を押した所から見直す（止めた状態。スナップショットは作り直しなので長い試合はシークに少しかかる）
@@ -1881,8 +1884,9 @@ const ReplayManager = {
         this._msg(data.engine !== REPLAY_ENGINE_VERSION
             ? `v${data.app}（${data.build}）で録画されたリプレイです。今の版では途中からずれることがあります`
             : '');
-        // BGM は等速で流し続ける（1 回だけ鳴らす。同じ曲が流れていればそのまま）
-        if (window.BgmManager) window.BgmManager.play(p.mode.bgm(data));
+        // BGM は等速で流し続ける（1 回だけ鳴らす。同じ曲が流れていればそのまま）。
+        // 別の曲（REPLAYS のメニュー曲・◀ REPLAY で戻る前の PRACTICE の曲）からはクロスフェードで移る
+        if (window.BgmManager) window.BgmManager.crossfadeTo(p.mode.bgm(data));
         p.restart();
         p.play();
         if (opts && opts.at != null) {
@@ -2257,11 +2261,11 @@ const ReplayManager = {
         // ◀ REPLAY の戻り先（puyo は次のぷよが出る所まで進めてから渡すので、その時刻）。
         // PRACTICE を始める start() の 1 回目の begin では消さない（fresh）
         const back = this._backFrom(p, true);
-        h.countdown = this._playHereCountdown();
         back.handoff = h; // RETRY HERE で同じ局面から始め直す
         this.resultReplay = null; // PRACTICE のリザルトに元の試合の WATCH REPLAY を出さない
         this._endWatch(false);
         this._setBack(back);
+        this._fadeBgmForPractice();
         startPracticeFromReplay(h);
     },
 
@@ -2314,19 +2318,17 @@ const ReplayManager = {
         // ロード画面を出していたら先に消す（カウントダウンを見せるため）
         await window.BattleLocalLoading.reveal();
         if (stale()) return;
-        // 3・2・1（SETTINGS › DISPLAY › PLAY HERE COUNTDOWN）。その間は再生を止めたまま、キーも受けない
-        if (this._playHereCountdown()) {
-            this._goingLive = true;
-            try {
-                await new Promise((resolve) => {
-                    runCountdown('player-countdown-overlay', 'player-countdown-text', resolve, null, undefined, false, null);
-                    runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', null, null, undefined, true, null);
-                });
-            } finally {
-                this._goingLive = false;
-            }
-            if (stale()) return;
+        // 3・2・1（PLAY HERE は常にカウントダウンから。急に試合が動き出さないように）。その間は再生を止めたまま、キーも受けない
+        this._goingLive = true;
+        try {
+            await new Promise((resolve) => {
+                runCountdown('player-countdown-overlay', 'player-countdown-text', resolve, null, undefined, false, null);
+                runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', null, null, undefined, true, null);
+            });
+        } finally {
+            this._goingLive = false;
         }
+        if (stale()) return;
         if (p.state !== 'pause' || !p.canGoLive()) return;
         // 再生をやめて、盤面はそのまま本物の試合へ
         const back = again ? Object.assign({}, again, { fresh: false }) : this._backFrom(p, false);

@@ -277,7 +277,8 @@ function switchPage(pageId) {
   const _animPageId = pageId;
 
   // 準備画面（mode select 等）もメニューBGM。リザルトから戻った場合はクロスフェードで滑らかに切替。
-  const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check'];
+  // REPLAYS（リプレイの一覧）も同じ。再生をやめて一覧へ戻ったら、リプレイの曲からメニュー曲へ戻す
+  const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'replays'];
   // CPU同士の対戦（隠しコマンド）は準備画面を開き直したら通常に戻す（v2.2.3 J）
   if (pageId === 'versus-check') {
     if (selectedCpuLevel === 8) selectedCpuLevel = 6; // CLYS は CPU TEST 専用

@@ -2271,8 +2271,6 @@ function startPracticeGame(opts = {}) {
         switchPage('game');
         // start() は内部で stop()→initGame()→カウントダウン。フックは prototype ではなく
         // インスタンスに載せているので、この再初期化でも外れない。
-        // リプレイの PLAY HERE で PLAY HERE COUNTDOWN が OFF なら、カウントダウンなしで始める（puyo/lifecycle.js）
-        if (opts.handoff && opts.handoff.countdown === false) window._puyoGame._skipCountdownOnce = true;
         window._puyoGame.start();
         // start()→initGame()→_setupCanvas() が nextCanvas を既定サイズ(128×259)へ
         // 同期的に上書きするため、attach()内で先に呼んだ resizeNextCanvas() の結果が
@@ -2305,7 +2303,6 @@ function startPracticeGame(opts = {}) {
 
     switchPage('game');
     setupGlobalCpuPauseKey();
-    if (opts.handoff && opts.handoff.countdown === false) window._game._skipCountdownOnce = true; // tet/lifecycle.js
     window._game.start();
     if (opts.handoff) {
         manager.applyHandoff(opts.handoff);

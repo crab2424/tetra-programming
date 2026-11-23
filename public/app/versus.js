@@ -290,6 +290,9 @@ async function startVersusGame() {
     window.ReplayManager.retryHere();
     return;
   }
+  // リプレイの再生中（RETRY HERE で続きへ向かう途中も）は対戦を始めない（再生の盤面を壊す）
+  const rm = window.ReplayManager;
+  if (rm && ((rm.player && rm.player.watching) || rm._autoContinue || rm._goingLive)) return;
   // 開始/再スタートの状態遷移（リトライはどこからでも idle を経由して開始できる）
   const lc = window.BattleVersusLifecycle;
   lc.transition('idle', 'startVersusGame');
