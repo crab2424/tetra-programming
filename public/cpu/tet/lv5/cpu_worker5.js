@@ -29,7 +29,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm5.js?v=6');  // ★ 2026-11-17 ZONE 終了の終点・ZONE 段を除いた評価・残り手数（設計 §21）で再ビルド
+importScripts('cpu_wasm5.js?v=7');  // ★ 2026-11-23 ZONE の段数の上限 setZoneCap（v2.6.2 B）で再ビルド
 // （前回）★ 2026-10-25 地形強化（T0 キック表・重み 47 要素）で再ビルド
 
 let boardPtr = null;
@@ -75,6 +75,8 @@ self.onmessage = function(e) {
     }
 
     if (data.type !== 'calculate') return;
+    // ZONE で消せる段数の上限（v2.6.2 B。0＝なし。古い wasm は関数が無い）
+    if (Module._setZoneCap) Module._setZoneCap(data.zoneCap || 0);
 
     if (boardPtr === null) {
         boardPtr   = Module._my_malloc(250); // ★修正: Y=-5〜19に対応するため 200 -> 250 に拡張

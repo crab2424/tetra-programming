@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { pickDb } from "./env";
 import { checkOrigin, error, json } from "./http";
-import { avatarUrl, resolveName, resolveSession } from "./auth";
+import { anonName, avatarUrl, resolveName, resolveSession } from "./auth";
 
 const SUBMIT_MIN_INTERVAL_MS = 3000;
 const RANKING_LIMIT = 100;
@@ -165,6 +165,13 @@ interface RankingRow {
   global_name: string | null;
   custom_name: string | null;
   avatar: string | null;
+  ranking_anon: number | null;
+  anon_tag: string | null;
+}
+
+// 匿名を切り替えたとき（worker/auth.ts の PUT /api/me/ranking-anon）: 全モードのキャッシュを捨てて、すぐ見えるようにする
+export async function purgeRankingCache(url: URL): Promise<void> {
+  await Promise.all(Object.keys(RANKED_MODES).map((k) => caches.default.delete(rankingCacheKey(url, k as ModeKey))));
 }
 
 export function parseDetail(detail: string): unknown {
@@ -181,16 +188,26 @@ export async function handleRanking(req: Request, env: Env, url: URL): Promise<R
   const modeKey = url.searchParams.get("mode");
   if (typeof modeKey !== "string" || !isRankedMode(modeKey)) return error("unranked_mode", 400);
 
+  // 管理者（?admin=1）は匿名の人も本当の ID・名前で受け取る（DELETE / BAN のため）。キャッシュは使わない
+  let admin = false;
+  if (url.searchParams.get("admin") === "1") {
+    const resolved = await resolveSession(req, env, url);
+    if (!resolved || !resolved.user.isAdmin) return error("forbidden", 403);
+    admin = true;
+  }
+
   const cache = caches.default;
   const cacheKey = rankingCacheKey(url, modeKey);
-  const cached = await cache.match(cacheKey);
-  if (cached) return cached;
+  if (!admin) {
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+  }
 
   const db = pickDb(req, env);
   const rows = await db
     .prepare(
       `SELECT r.id AS record_id, b.rank_value, b.created_at, r.value, r.detail, r.played_at,
-              u.discord_id, u.username, u.global_name, u.custom_name, u.avatar
+              u.discord_id, u.username, u.global_name, u.custom_name, u.avatar, u.ranking_anon, u.anon_tag
        FROM best_records b
        JOIN records r ON r.id = b.record_id
        JOIN users u   ON u.discord_id = b.discord_id
@@ -209,20 +226,32 @@ export async function handleRanking(req: Request, env: Env, url: URL): Promise<R
       lastRank = idx + 1;
       lastRankValue = row.rank_value;
     }
+    // 匿名の人（migrations/0004）: 名前は PLAYER-xxxx、アイコンと Discord の ID は出さない（ID からも辿れないように）
+    const anon = !!row.ranking_anon && !!row.anon_tag;
+    const user = anon
+      ? {
+          id: admin ? row.discord_id : null,
+          name: anonName(row.anon_tag as string),
+          avatarUrl: null,
+          anon: true,
+          ...(admin ? { realName: resolveName(row.custom_name, row.global_name, row.username) } : {}),
+        }
+      : {
+          id: row.discord_id,
+          name: resolveName(row.custom_name, row.global_name, row.username),
+          avatarUrl: avatarUrl(row.discord_id, row.avatar),
+        };
     return {
       rank: lastRank,
       recordId: row.record_id,
-      user: {
-        id: row.discord_id,
-        name: resolveName(row.custom_name, row.global_name, row.username),
-        avatarUrl: avatarUrl(row.discord_id, row.avatar),
-      },
+      user,
       value: row.value,
       detail: parseDetail(row.detail),
       playedAt: row.played_at,
     };
   });
 
+  if (admin) return json({ mode: modeKey, updatedAt: Date.now(), entries }, { headers: { "Cache-Control": "no-store" } });
   const response = json({ mode: modeKey, updatedAt: Date.now(), entries });
   const toCache = response.clone();
   toCache.headers.set("Cache-Control", `public, max-age=${RANKING_CACHE_MAX_AGE_SEC}`);

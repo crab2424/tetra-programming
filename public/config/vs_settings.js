@@ -154,8 +154,9 @@ function _vsDefaults() {
 // ロード / セーブ
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function loadVsSettings() {
-    const prof = _vsProfile();
+// profile: 読むプロファイル（省略で今のプロファイル。プリセットの作成で両方を読む）
+function loadVsSettings(profile = vsSettingsProfile) {
+    const prof = VS_SETTINGS_PROFILES[profile] || VS_SETTINGS_PROFILES.standard;
     const defaults = prof.defaults;
     let saved = null;
     try { saved = localStorage.getItem(prof.key); } catch (e) { /* 読めなければ既定 */ }
@@ -171,7 +172,7 @@ function loadVsSettings() {
             // 既定に無い節・キーは読み捨てる（通常 VERSUS に以前あった tet.zone / zoneTime などは
             // ZONE BATTLE へ移さず、ここで捨てる。設計 §2.4）
             _dropUnknownKeys(merged, defaults);
-            if (vsSettingsProfile === 'zone') {
+            if (prof === VS_SETTINGS_PROFILES.zone) {
                 // ZONE CHARGE / ZONE TIME: 選べない値（以前の選択肢 4 など）は既定へ戻す
                 if (!VS_ZONE_CHARGE_OPTIONS.includes(merged.tet.zoneCharge)) merged.tet.zoneCharge = defaults.tet.zoneCharge;
                 if (!VS_ZONE_TIME_OPTIONS.includes(merged.tet.zoneTime)) merged.tet.zoneTime = defaults.tet.zoneTime;
@@ -215,6 +216,7 @@ function switchVsSettingsProfile(profile) {
     currentVsSettings = loadVsSettings();
     if (!_vsProfile().tabs.includes(currentVsSettingsTab)) currentVsSettingsTab = 'all';
     _updateVsSettingsSummary();
+    renderVsPresetRow();
 }
 
 // 各コントロールの変更はメモリ上の currentVsSettings に入れるだけ（SAVE を押すまで確定しない。
@@ -225,7 +227,193 @@ function saveVsSettings() {
 
 function commitVsSettings() {
     try { localStorage.setItem(_vsProfile().key, JSON.stringify(currentVsSettings)); } catch (e) { /* 保存できなくても続ける */ }
+    captureVsPresetFromStorage(); // 使っているプリセットにも書く
     _updateVsSettingsSummary();
+    window.CloudSync?.touch?.(); // Discord ログイン中なら端末間共有へ送る（vs_presets 区分）
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// プリセット（v2.6.2。SETTINGS のプリセット config/settings.js と同じ作り）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VS 設定を 3 つまで持ち、VS SETTINGS の上で切り替える。通常 VERSUS と ZONE BATTLE は別々に 3 つずつ。
+//   ・ゲームが読むのは今までどおり game_vs_settings / game_vs_settings_zone（＝使っているプリセットの中身）。
+//     SAVE（commitVsSettings）のたびに使っているプリセットへ写す。
+//   ・プリセットの中身と名前は端末間で共有する（tetlabo_vs_presets。config/cloud_sync.js の vs_presets 区分・
+//     worker/sync.ts と同時デプロイ）。どれを使っているかは端末ごと（tetlabo_vs_preset_active。共有しない）。
+const VS_PRESET_COUNT = 3;
+const VS_PRESETS_KEY = 'tetlabo_vs_presets';
+const VS_PRESET_ACTIVE_KEY = 'tetlabo_vs_preset_active';
+
+function _vsPresetsRaw() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(VS_PRESETS_KEY) || 'null');
+        return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+// VS 設定をまだ一度も保存していない端末か（プリセットを作らずにおく＝ログインしたらアカウントの分をそのまま取り込む）
+function _hasSavedVsSettings() {
+    try {
+        return Object.values(VS_SETTINGS_PROFILES).some((prof) => localStorage.getItem(prof.key) !== null);
+    } catch (e) {
+        return false;
+    }
+}
+
+// 両プロファイルの 3 つ分をそろえて返す。無い・壊れた枠はそのプロファイルの今の保存値で埋める
+function loadVsPresets() {
+    const raw = _vsPresetsRaw();
+    const out = { v: 1 };
+    for (const profile of Object.keys(VS_SETTINGS_PROFILES)) {
+        const src = raw && Array.isArray(raw[profile]) ? raw[profile] : [];
+        let cur = null;
+        out[profile] = [];
+        for (let i = 0; i < VS_PRESET_COUNT; i++) {
+            const e = src[i] && typeof src[i] === 'object' ? src[i] : null;
+            const ok = e && e.settings && typeof e.settings === 'object' && !Array.isArray(e.settings);
+            if (!ok && !cur) cur = loadVsSettings(profile);
+            out[profile].push({
+                name: (typeof sanitizePresetName === 'function') ? sanitizePresetName(e ? e.name : null, i) : `PRESET ${i + 1}`,
+                settings: ok ? e.settings : _deepClone(cur),
+            });
+        }
+    }
+    return out;
+}
+
+function saveVsPresets(p) {
+    const o = { v: 1 };
+    for (const profile of Object.keys(VS_SETTINGS_PROFILES)) o[profile] = p[profile];
+    try { localStorage.setItem(VS_PRESETS_KEY, JSON.stringify(o)); } catch (e) { /* 次の保存でまた書く */ }
+}
+
+function _vsPresetActiveAll() {
+    try {
+        const a = JSON.parse(localStorage.getItem(VS_PRESET_ACTIVE_KEY) || 'null');
+        return a && typeof a === 'object' ? a : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function getActiveVsPresetIndex(profile = vsSettingsProfile) {
+    const n = _vsPresetActiveAll()[profile];
+    return Number.isInteger(n) && n >= 0 && n < VS_PRESET_COUNT ? n : 0;
+}
+
+// 保存値を使っているプリセットへ写す（今のプロファイル）。変わったら true。
+//   force: VS 設定を保存したことのない端末でもプリセットを作る（切り替え・名前の変更のとき）
+function captureVsPresetFromStorage(force, profile = vsSettingsProfile) {
+    const raw = _vsPresetsRaw();
+    if (!raw && !force && !_hasSavedVsSettings()) return false;
+    const p = loadVsPresets();
+    const i = getActiveVsPresetIndex(profile);
+    const next = { name: p[profile][i].name, settings: loadVsSettings(profile) };
+    if (raw && JSON.stringify(p[profile][i]) === JSON.stringify(next)) return false;
+    p[profile][i] = next;
+    saveVsPresets(p);
+    return true;
+}
+
+// 使っているプリセットの中身を保存値へ書く（切り替え・アカウントから取り込んだとき）
+function applyActiveVsPresetToStorage(profiles = [vsSettingsProfile]) {
+    if (!_vsPresetsRaw()) return;
+    const p = loadVsPresets();
+    for (const profile of profiles) {
+        const prof = VS_SETTINGS_PROFILES[profile];
+        if (!prof) continue;
+        try { localStorage.setItem(prof.key, JSON.stringify(p[profile][getActiveVsPresetIndex(profile)].settings)); } catch (e) { /* 続ける */ }
+    }
+}
+
+function renderVsPresetRow() {
+    const toggle = document.getElementById('vs-settings-preset-toggle');
+    if (!toggle) return;
+    const p = _vsPresetsRaw() ? loadVsPresets() : null;
+    const active = getActiveVsPresetIndex();
+    toggle.querySelectorAll('.opt-btn').forEach((btn) => {
+        const i = parseInt(btn.dataset.preset, 10);
+        btn.textContent = p ? p[vsSettingsProfile][i].name : `PRESET ${i + 1}`;
+        btn.classList.toggle('active', i === active);
+    });
+}
+
+// 名前（VS SETTINGS の要約の頭に出す。プリセットを作っていなければ null）
+function activeVsPresetName() {
+    if (!_vsPresetsRaw()) return null;
+    return loadVsPresets()[vsSettingsProfile][getActiveVsPresetIndex()].name;
+}
+
+// PRESET の切り替え。未保存の変更があれば、今のプリセットへ保存するか捨てるかを先に聞く
+async function selectVsPreset(i) {
+    if (typeof stopListeningBind === 'function') stopListeningBind();
+    const cur = getActiveVsPresetIndex();
+    if (!(i >= 0 && i < VS_PRESET_COUNT) || i === cur) { renderVsPresetRow(); return; }
+    if (isVsSettingsDirty()) {
+        const name = activeVsPresetName() || `PRESET ${cur + 1}`;
+        const choice = await TetDialog.choose({
+            title: 'UNSAVED CHANGES',
+            message: `変更が保存されていません。${name} に保存してから切り替えますか？`,
+            buttons: [
+                { label: 'SAVE & SWITCH', value: 'save', kind: 'primary' },
+                { label: 'DISCARD', value: 'discard', kind: 'danger' },
+                { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+            ],
+            initial: 'save',
+        });
+        if (choice === 'save') commitVsSettings();
+        else if (choice !== 'discard') { renderVsPresetRow(); return; }
+    }
+    captureVsPresetFromStorage(true); // 初めてならここで作る（両プロファイルとも今の設定の写し）
+    const a = _vsPresetActiveAll();
+    a[vsSettingsProfile] = i;
+    try { localStorage.setItem(VS_PRESET_ACTIVE_KEY, JSON.stringify(a)); } catch (e) { /* この起動の間だけ */ }
+    applyActiveVsPresetToStorage();
+    currentVsSettings = loadVsSettings();
+    _updateVsSettingsSummary();
+    renderVsPresetRow();
+    if (document.getElementById('vs-settings-page')?.classList.contains('active')) renderVsSettingsPage();
+    window.CloudSync?.touch?.();
+    window.SeManager?.play('menu_decide');
+}
+
+// 使っているプリセットの名前を変える（すぐ保存。空欄で既定の名前）
+async function renameVsPreset() {
+    if (typeof stopListeningBind === 'function') stopListeningBind();
+    const i = getActiveVsPresetIndex();
+    const max = (typeof PRESET_NAME_MAX !== 'undefined') ? PRESET_NAME_MAX : 16;
+    const def = `PRESET ${i + 1}`;
+    const r = await TetDialog.choose({
+        title: 'RENAME PRESET',
+        message: `名前を入力してください（${max} 文字まで。空欄で ${def}）`,
+        input: { value: activeVsPresetName() || def, maxLength: max, placeholder: def },
+        buttons: [
+            { label: 'OK', value: 'ok', kind: 'primary' },
+            { label: 'CANCEL', value: 'cancel', kind: 'secondary', cancel: true },
+        ],
+        initial: 'ok',
+    });
+    if (!r || r.value !== 'ok') return;
+    captureVsPresetFromStorage(true);
+    const p = loadVsPresets();
+    p[vsSettingsProfile][i].name = (typeof sanitizePresetName === 'function') ? sanitizePresetName(r.text, i) : (String(r.text || '').trim().slice(0, max) || def);
+    saveVsPresets(p);
+    renderVsPresetRow();
+    _updateVsSettingsSummary();
+    window.CloudSync?.touch?.();
+}
+
+// config/cloud_sync.js からのみ呼ばれる: アカウントから vs_presets を取り込んだ（localStorage へ書き込み済み）。
+// 使っているプリセットの中身を両プロファイルの保存値へ書き、メモリ上の値と画面を読み直す。
+// 呼ぶ側が「VS SETTINGS に未保存の変更が無い」ことを確かめている
+function applySyncedVsPresets() {
+    applyActiveVsPresetToStorage(Object.keys(VS_SETTINGS_PROFILES));
+    currentVsSettings = loadVsSettings();
+    _updateVsSettingsSummary();
+    renderVsPresetRow();
+    if (document.getElementById('vs-settings-page')?.classList.contains('active')) renderVsSettingsPage();
 }
 
 function saveVsSettingsFromUi() {
@@ -1335,9 +1523,12 @@ function _updateVsSettingsSummary() {
     const s = currentVsSettings;
     const D = _vsDefaults();
     const isDefault = JSON.stringify(s) === JSON.stringify(D);
+    // プリセットを作っていれば、使っているプリセットの名前を頭に（v2.6.2）
+    const pname = activeVsPresetName();
+    const head = pname ? `${pname} · ` : '';
 
     if (isDefault) {
-        el.textContent = 'ALL DEFAULT';
+        el.textContent = head + 'ALL DEFAULT';
         el.style.color = '';
         return;
     }
@@ -1398,7 +1589,7 @@ function _updateVsSettingsSummary() {
 
     if (s.puyo) _pushPuyoSummary(parts, s, D);
 
-    el.textContent = parts.join(' / ');
+    el.textContent = head + parts.join(' / ');
     el.style.color = vsSettingsProfile === 'zone' ? 'var(--zone-battle-color)' : 'var(--accent, #c471ed)';
 }
 
@@ -1459,6 +1650,9 @@ function _deepMerge(defaults, overrides) {
 // 初期化
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// 保存値が使っているプリセットと食い違っていたら（プリセット導入前の端末）保存値に合わせる（SETTINGS と同じ）
+captureVsPresetFromStorage(false, 'standard');
+captureVsPresetFromStorage(false, 'zone');
 _updateVsSettingsSummary();
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1480,4 +1674,5 @@ function renderVsSettingsSummary() {
  */
 function _updateVsSettingsPage() {
     renderVsSettingsPage();
+    renderVsPresetRow();
 }

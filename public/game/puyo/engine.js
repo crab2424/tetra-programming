@@ -1098,6 +1098,8 @@ Object.assign(PuyoGame.prototype, {
             if (bestRow) bestRow.style.display = 'none';
         }
 
+        // 右の列 DETAIL（消したぷよ・全消し・連鎖ごとの回数など。core/result_detail.js）
+        if (window.ResultDetail) window.ResultDetail.render('result-detail', [this]);
         if (typeof switchPage === 'function') switchPage('result');
     },
 

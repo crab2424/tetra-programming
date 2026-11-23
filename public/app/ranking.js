@@ -65,14 +65,25 @@
     rankEl.className = 'ranking-rank';
     rankEl.textContent = `#${rank}`;
 
-    const avatarEl = document.createElement('img');
-    avatarEl.className = 'ranking-avatar';
-    avatarEl.alt = '';
-    avatarEl.src = user.avatarUrl;
+    // 匿名の人（アカウント画面の RANKING NAME）はアイコンなし＝同じ大きさの丸だけ
+    let avatarEl;
+    if (user.avatarUrl) {
+      avatarEl = document.createElement('img');
+      avatarEl.className = 'ranking-avatar';
+      avatarEl.alt = '';
+      avatarEl.src = user.avatarUrl;
+    } else {
+      avatarEl = document.createElement('span');
+      avatarEl.className = 'ranking-avatar ranking-avatar-anon';
+      avatarEl.setAttribute('aria-hidden', 'true');
+    }
 
     const nameEl = document.createElement('span');
     nameEl.className = 'ranking-name';
     nameEl.textContent = user.name;
+    // 管理者には匿名の人の本当の名前を添える（?admin=1 の応答だけに入る）
+    if (user.realName) nameEl.title = user.realName;
+    if (user.anon && user.realName) nameEl.textContent = `${user.name} (${user.realName})`;
 
     const valueEl = document.createElement('span');
     valueEl.className = 'ranking-value';
@@ -178,11 +189,19 @@
     listEl.innerHTML = ''; // 一覧全体の再構築（DOM生成中なので安全）
     if (statusEl) { statusEl.textContent = '読み込み中…'; statusEl.style.display = ''; }
 
+    const me0 = window.Account && window.Account.me;
+    const adminQs = (me0 && me0.isAdmin) ? '&admin=1' : ''; // 管理者は匿名の人も ID つきで受け取る（DELETE / BAN）
+    // 自分が匿名だと一覧に自分の ID が載らないので、自分の行は /api/ranking/me の recordId で見分ける
+    const meP = (me0 && me0.rankingAnon)
+      ? fetch(`/api/ranking/me?mode=${encodeURIComponent(mode)}`, { credentials: 'same-origin' })
+        .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      : Promise.resolve(null);
     let data = null;
     try {
-      const res = await fetch(`/api/ranking?mode=${encodeURIComponent(mode)}`, { credentials: 'same-origin' });
+      const res = await fetch(`/api/ranking?mode=${encodeURIComponent(mode)}${adminQs}`, { credentials: 'same-origin' });
       if (res.ok) data = await res.json();
     } catch (e) { /* below: dataがnullのまま失敗表示 */ }
+    const meEarly = await meP;
     if (token !== loadToken) return; // タブが切り替わっていたら古い結果は捨てる
 
     if (!data || !Array.isArray(data.entries)) {
@@ -197,10 +216,11 @@
     if (containerEl) containerEl.classList.toggle('is-admin', isAdmin);
     let myEntryInTop = false;
     data.entries.forEach((entry, idx) => {
-      const isMine = !!myId && entry.user.id === myId;
+      const isMine = !!myId && (entry.user.id === myId
+        || (!!meEarly && meEarly.hasRecord && entry.recordId === meEarly.recordId));
       if (isMine) myEntryInTop = true;
       const adminActions = isAdmin
-        ? { recordId: entry.recordId, userId: entry.user.id, userName: entry.user.name }
+        ? { recordId: entry.recordId, userId: entry.user.id, userName: entry.user.realName || entry.user.name }
         : null;
       const row = _row(entry.rank, entry.user, _formatValue(mode, entry.detail), _formatDate(entry.playedAt), isMine, adminActions, _subTextFor(mode, entry.detail));
       // 上位100行を全部ずらして出すと待ち時間が伸びすぎるため、先頭12行だけカスケードにして
@@ -220,8 +240,11 @@
     // 自分が100位圏外なら、自分の行だけ追加取得して最下部に固定表示（★C）
     if (myId && !myEntryInTop) {
       try {
-        const meRes = await fetch(`/api/ranking/me?mode=${encodeURIComponent(mode)}`, { credentials: 'same-origin' });
-        const meData = meRes.ok ? await meRes.json() : null;
+        let meData = meEarly;
+        if (!meData) {
+          const meRes = await fetch(`/api/ranking/me?mode=${encodeURIComponent(mode)}`, { credentials: 'same-origin' });
+          meData = meRes.ok ? await meRes.json() : null;
+        }
         if (token !== loadToken) return;
         if (meData && meData.hasRecord) {
           const sep = document.createElement('div');
@@ -232,7 +255,9 @@
             : null;
           const myRow = _row(
             meData.rank,
-            { id: myId, name: window.Account.me.name, avatarUrl: window.Account.me.avatarUrl },
+            window.Account.me.rankingAnon
+              ? { id: myId, name: window.Account.me.anonName || window.Account.me.name, avatarUrl: null }
+              : { id: myId, name: window.Account.me.name, avatarUrl: window.Account.me.avatarUrl },
             _formatValue(mode, meData.detail),
             _formatDate(meData.playedAt),
             true,

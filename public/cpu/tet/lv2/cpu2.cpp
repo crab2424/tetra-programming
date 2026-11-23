@@ -373,7 +373,9 @@ void searchBestMoveWasm(
     struct Path { int action; int p1; int p2; };
     std::vector<Path> paths;
     paths.push_back({0, A, C});
-    paths.push_back({0, A, B != -1 ? B : D});
+    // VS 設定で HOLD なしの試合（JS が canHold=0・holdType=-1 を渡す。v2.6.2 A）は、2 手目の HOLD 入れ替えも読まない
+    const bool holdOff = (canHold == 0 && holdType == -1);
+    if (!holdOff) paths.push_back({0, A, B != -1 ? B : D});
 
     if(canHold == 1) {
         int firstPieceToPlay = (B != -1) ? B : C;

@@ -1115,6 +1115,11 @@
       const headAnchor     = document.getElementById('vs-settings-sticky');
       const items = [];
       $$('#vs-settings-sticky .settings-actions button').forEach(b => items.push({ el: b, scrollAnchor: headAnchor }));
+      // プリセット（PRESET 1〜3 は ← → で切替）と RENAME（v2.6.2。SETTINGS と同じ）
+      const vsPreset = document.getElementById('vs-settings-preset-toggle');
+      if (vsPreset) { const it = rowToggle(vsPreset, vsPreset); it.scrollAnchor = headAnchor; items.push(it); }
+      const vsPresetRename = document.getElementById('vs-settings-preset-rename');
+      if (vsPresetRename) items.push({ el: vsPresetRename, scrollAnchor: headAnchor });
       const vsTabs = document.getElementById('vs-settings-tab-toggle');
       if (vsTabs) { const it = rowToggle(vsTabs, vsTabs); it.scrollAnchor = headAnchor; items.push(it); }
       if (itemsContainer) {
@@ -1140,9 +1145,13 @@
       return items;
     },
     stickyTop: () => document.getElementById('vs-settings-sticky'),
-    // タブ行からの ↑ は、ヘッダーの SAVE へ
+    // タブ行からの ↑ はプリセット行へ、プリセット行からの ↑ はヘッダーの SAVE へ
     onMove2D: (dir, cur, items) => {
       if (dir === 'up' && items[cur] && items[cur].el.id === 'vs-settings-tab-toggle') {
+        const p = items.findIndex(it => it.el.id === 'vs-settings-preset-toggle');
+        if (p >= 0) return p;
+      }
+      if (dir === 'up' && items[cur] && ['vs-settings-tab-toggle', 'vs-settings-preset-toggle', 'vs-settings-preset-rename'].includes(items[cur].el.id)) {
         const i = items.findIndex(it => it.el.classList && it.el.classList.contains('btn-save'));
         if (i >= 0) return i;
       }

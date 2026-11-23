@@ -10,7 +10,7 @@
 
 window.CPU7 = class {
     // ★ wasm を再ビルドしたら ?v= を上げる（cpu_worker7.js の ?v と揃える）
-    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=12'];
+    static WORKER_URLS = ['cpu/tet/lv7/wasm/cpu_worker7.js?v=13'];
 
     // 重みの並び（engine/ai/eval.h の WEIGHT_LEN の表と同じ順。追加は必ず末尾に）
     static WEIGHT_KEYS = [
@@ -181,14 +181,21 @@ window.CPU7 = class {
         // §22（ZONE 設計 VERSUS 編）: 重みの後ろに出現・ZONE の欄（engine/lv7_wasm.cpp search の ext）
         //   7777・火力表の段数の数・時間切れまでの手数・いまホールドできるか・いまのミノの 4 マス・火力表
         const zt = (window.CpuZone && g) ? CpuZone.zoneTable(g) : null;
-        const ext = [7777, zt ? zt.length : 0, (window.CpuZone && g) ? CpuZone.movesLeft(g, 7) : 0, (g && g.canHold) ? 1 : 0];
+        // [3]: ビット 1 = いまホールドできる・ビット 2 = VS 設定で HOLD なしの試合（自分も相手も HOLD を読まない。v2.6.2 A）
+        const holdOk = !g || typeof g._holdAllowed !== 'function' || g._holdAllowed();
+        const ext = [7777, zt ? zt.length : 0, (window.CpuZone && g) ? CpuZone.movesLeft(g, 7) : 0,
+            (holdOk && g && g.canHold ? 1 : 0) | (holdOk ? 0 : 2)];
         const m = g && g.mino;
         if (m) for (const b of m.blocks) ext.push(b.x + m.x, b.y + m.y);
         else for (let i = 0; i < 8; i++) ext.push(-100);
         // §23: 表の後ろに ATTACK BIAS の 100 倍（通常火力を表と同じ物差しで数える）と、いまのミノの向き
         //   （S・Z・I の縦は右向きと左向きが同じ形なので、4 マスだけでは先行回転の向きが分からない）
         const bias = (window.CpuZone && g) ? CpuZone.attackBias100(g) : 100;
-        return new Int32Array(base.concat(ext, zt || [], [bias, m ? (m.rotation & 3) : -1]));
+        // v2.6.2 A: その後ろに DAMAGE ON CLEAR（ビット 1 = OFF）と HOLE RATE（同じ列の確率 %）。探索の中の予告の着弾を VS 設定に合わせる
+        const vs = !!(g && g.isVersusMode);
+        const dmgOff = vs && g.vsGarbageDamageOnClear === false ? 1 : 0;
+        const holeRate = vs && typeof g.vsGarbageHoleRate === 'number' ? g.vsGarbageHoleRate : 70;
+        return new Int32Array(base.concat(ext, zt || [], [bias, m ? (m.rotation & 3) : -1, dmgOff, holeRate]));
     }
 
     start() {
@@ -291,7 +298,7 @@ window.CPU7 = class {
             type: 'calculate',
             boardBuffer,
             queue: new Int32Array(queue),
-            holdType: this.game.holdMino !== null ? this.game.holdMino.type : -1,
+            holdType: (this.game.holdMino !== null && (typeof this.game._holdAllowed !== 'function' || this.game._holdAllowed())) ? this.game.holdMino.type : -1,
             bagAfter,
             backToBack: this.game.backToBack ? 1 : 0,
             ren: this.game.ren || 0,

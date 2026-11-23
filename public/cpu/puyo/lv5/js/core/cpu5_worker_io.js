@@ -136,6 +136,8 @@ Object.assign(window.PuyoCPU5.prototype, {
 
         this.worker.postMessage({
             type:           'calculate',
+            eraseCount:  (this.game.vsEraseCount ?? PConfig.eraseCount), // VS 設定の消去数（v2.6.2 A）
+            chainMin:    (this.game.isVersusMode && this.game.vsChainMin) || 0, // VS 設定の連鎖縛り（v2.6.2 A）
             boardBuffer:    boardBuffer,
             nextPairs:      nextPairs,
             weightsArray:   weightsArray,

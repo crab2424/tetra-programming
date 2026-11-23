@@ -8,7 +8,7 @@ window.PuyoCPU2 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/puyo/lv2/cpu_worker2.js?v=2',
+        'cpu/puyo/lv2/cpu_worker2.js?v=3',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -193,6 +193,7 @@ window.PuyoCPU2 = class {
 
         this.worker.postMessage({
             type:           'calculate',
+            eraseCount:  (this.game.vsEraseCount ?? PConfig.eraseCount), // VS 設定の消去数（v2.6.2 A）
             boardBuffer:    boardBuffer,
             nextPairs:      nextPairs,      
             weightsArray:   weightsArray,

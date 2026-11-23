@@ -8,6 +8,8 @@
 #include <vector>
 
 // スコア計算用テーブル（本ファイル内のみで使用）
+int g_eraseCount = 4;
+int g_chainMin = 0;
 static const int SCORE_BASE = 10;
 static const int CHAIN_BONUS_TABLE[] = {0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512};
 static const int COLOR_BONUS_TABLE[] = {0, 3, 6, 12, 24};
@@ -76,7 +78,7 @@ ChainResult simulateChain(BitBoard& b, CellMask* popped) {
                     }
                 }
 
-                if ((int)group.size() >= 4) {
+                if ((int)group.size() >= g_eraseCount) {
                     found = true;
                     if ((int)group.size() > res.maxGroup) res.maxGroup = (int)group.size();
                     res.totalErased += (int)group.size();
@@ -165,7 +167,7 @@ static bool potentialFormsGroup4At(const BitBoard& b, int col, int ar, uint8_t c
     const int dc[] = { 0, 0,-1, 1};
     while (!stack.empty()) {
         auto [cr, cc] = stack.back(); stack.pop_back();
-        if (++size >= 4) return true;
+        if (++size >= g_eraseCount) return true;
         for (int d = 0; d < 4; ++d) {
             int nr = cr + dr[d], nc = cc + dc[d];
             if (nr < HIDDEN || nr >= TOTAL_ROWS || nc < 0 || nc >= COLS) continue;

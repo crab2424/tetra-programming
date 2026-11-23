@@ -206,3 +206,10 @@
     display: none;
   }
 }
+
+/* 匿名の人（アカウント画面の RANKING NAME）: アイコンの代わりの丸 */
+.ranking-avatar-anon {
+  display: inline-block;
+  background: color-mix(in srgb, var(--text, #fff) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text, #fff) 30%, transparent);
+}

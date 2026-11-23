@@ -26,7 +26,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm2.js?v=2'); // ★ v2.2.3 I: 窒息判定の追加で再ビルド
+importScripts('cpu_wasm2.js?v=3'); // ★ v2.6.2 A: 消去数（setEraseCount）で再ビルド
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -40,6 +40,8 @@ self.onmessage = function (e) {
 
     const data = e.data;
     if (data.type !== 'calculate') return;
+    // VS 設定の消去数（CONNECT。v2.6.2 A）。古い wasm（関数が無い）は 4 のまま
+    if (Module._setEraseCount) Module._setEraseCount(data.eraseCount || 4);
 
     if (boardPtr === null) {
         boardPtr     = Module._my_malloc(102);      

@@ -1313,6 +1313,8 @@ class PracticeManager {
         if (rewindCountEl) rewindCountEl.textContent = this.cursor;
 
         if (typeof _switchToPuyoLayout === 'function') _switchToPuyoLayout(this.rule === 'puyo');
+        // DETAIL は出さない（巻き戻しで数が合わなくなるため。core/result_detail.js）
+        if (window.ResultDetail) window.ResultDetail.clear('result-detail');
         if (typeof switchPage === 'function') switchPage('result');
     }
 

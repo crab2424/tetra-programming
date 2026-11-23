@@ -200,6 +200,7 @@ body.replay-watching:not(.replay-ui-hidden) #versus-layout {
 .replay-mark.replay-mark-hit { background: var(--danger); }
 .replay-mark.replay-mark-end { background: var(--success); }
 .replay-mark.replay-mark-pause { background: var(--text-dim); }
+.replay-mark.replay-mark-branch { background: #f5b942; } /* 二重リプレイの分かれた所（v2.6.2 F） */
 
 /* 印の画面（core/replay.js の _openMarks / _mkRender。UI 設計書 §7）。暗い幕の上に札を時刻順に横へ並べる。
    中央の縦線＝選んだ札（列のほうを流す）、点線＝今の時刻（NOW）。札の位置（translateX）は JS */
@@ -310,6 +311,7 @@ body:has(#replay-marks-overlay.active) .puyo-chain-text {
 .replay-mk-card.replay-mark-hit { --mk-color: var(--danger); }
 .replay-mk-card.replay-mark-end { --mk-color: var(--success); }
 .replay-mk-card.replay-mark-pause { --mk-color: var(--text-dim); }
+.replay-mk-card.replay-mark-branch { --mk-color: #f5b942; }
 .replay-mk-card:hover .replay-mk-body {
   opacity: 0.9;
 }
@@ -400,6 +402,101 @@ body:has(#replay-marks-overlay.active) .puyo-chain-text {
   color: var(--text-dim);
 }
 #replay-marks-overlay .replay-pause-keys {
+  text-align: center;
+}
+
+/* 上の帯の I: RULES（ルールの画面を開く。キーの I と同じ） */
+.replay-info-btn {
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+/* ルールの画面（core/replay.js の _openInfo。v2.6.2）。録画に入っている設定を節ごとの表で見せる。
+   見た目は印の画面と同じ暗い幕。対戦は 1P・2P の 2 列 */
+#replay-info-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 4, 14, 0.88);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  font-family: var(--font-orbitron);
+}
+#replay-info-overlay.active {
+  display: flex;
+}
+body:has(#replay-info-overlay.active) .puyo-chain-text {
+  visibility: hidden;
+}
+.replay-info-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  box-sizing: border-box;
+}
+.replay-info-head {
+  width: 100%;
+}
+.replay-info-body {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 4px 18px 4px 16px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.replay-info-sec {
+  padding: 12px 0;
+}
+.replay-info-sec + .replay-info-sec {
+  border-top: 1px solid var(--border);
+}
+.replay-info-sec-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--accent);
+}
+.replay-info-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.replay-info-table th,
+.replay-info-table td {
+  padding: 3px 8px 3px 0;
+  text-align: left;
+  vertical-align: top;
+}
+.replay-info-table th {
+  width: 34%;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.replay-info-table td {
+  font-family: var(--font-main);
+  color: var(--text);
+  word-break: break-word;
+}
+.replay-info-table.is-two td {
+  width: 33%;
+}
+/* 2 列の表の見出し行（1P / 2P） */
+.replay-info-table.is-two tr:first-child th {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--accent2);
+}
+#replay-info-overlay .replay-pause-keys {
   text-align: center;
 }
 
@@ -648,6 +745,10 @@ body:has(#replay-pause-overlay.active) .puyo-chain-text {
   border-color: #f5b942;
   color: #f5b942;
 }
+.replays-tag-branch {
+  border-color: var(--accent2);
+  color: var(--accent2);
+}
 .replays-icon {
   width: 34px;
   font-size: 15px;
@@ -701,4 +802,22 @@ body:has(#replay-pause-overlay.active) .puyo-chain-text {
 .mode-check-best-replay {
   align-self: center;
   margin-top: -6px;
+}
+
+/* 枝（PLAY HERE から続けた試合）を親のリプレイにまとめた印（kind 'fork'）と、枝の行き来のボタン */
+.replay-mark.replay-mark-fork {
+  background: #f5b942;
+  width: 4px;
+  box-shadow: 0 0 6px #f5b942;
+}
+.replay-mk-card.replay-mark-fork { --mk-color: #f5b942; }
+.replay-mk-card.replay-mark-fork .replay-mk-body { border-style: dashed; }
+.replay-mk-nav { color: #f5b942; }
+.replay-title-branch {
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid #f5b942;
+  border-radius: 4px;
+  font-size: 10px;
+  color: #f5b942;
 }

@@ -7,7 +7,7 @@ window.CPU5 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv5/cpu_worker5.js?v=6',
+        'cpu/tet/lv5/cpu_worker5.js?v=7',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -784,7 +784,13 @@ window.CPU5 = class {
             this.weights.coveredCells, this.weights.coverMax, this.weights.lidGood, this.weights.lidBad
         ]);
 
+        // VS 設定で HOLD なしの試合は、探索に「HOLD できない・中身なし」を渡す（2 手目より先でも HOLD を使わない。v2.6.2 A）
+
+        const holdOk = typeof this.game._holdAllowed !== 'function' || this.game._holdAllowed();
+
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
+
+        if (!holdOk) holdType = -1;
 
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
@@ -799,13 +805,15 @@ window.CPU5 = class {
             next3: this.game.nextQueue[2].type, 
             next4: this.game.nextQueue[3].type, 
             next5: this.game.nextQueue[4].type, 
-            canHold: this.game.canHold ? 1 : 0,
+            canHold: (holdOk && this.game.canHold) ? 1 : 0,
             weightsArray: weightsArray,
             ren: currentRen,       
             backToBack: currentBtB,
             // ZONE の発動中: 予告の合計と時間切れまでに置ける見込みの手数（探索が ZONE の終わりを読む。cpu_zone.js・設計 §21）
             incoming: window.CpuZone ? CpuZone.incoming(this.game) : 0,
-            zoneMovesLeft: window.CpuZone ? CpuZone.movesLeft(this.game, 5) : 0
+            zoneMovesLeft: window.CpuZone ? CpuZone.movesLeft(this.game, 5) : 0,
+            // ZONE で消せる段数の上限（v2.6.2 B。lv6・lv7 との差。cpu_zone.js CONFIG.lineCap）
+            zoneCap: window.CpuZone ? CpuZone.lineCap(5) : 0
         });
     }
 

@@ -7,6 +7,11 @@
 
 #include "core/bitboard.h"
 
+// VS 設定の消去数（CONNECT。v2.6.2 A）。setEraseCount で worker が探索の前に入れる。既定 4
+extern int g_eraseCount;
+// VS 設定の連鎖縛り（CHAIN MIN。0=OFF）。縛り未満の連鎖は火力 0 なので、fire gate が緊急以外では撃たない（build.cpp）
+extern int g_chainMin;
+
 struct ChainResult {
     int chains;
     int totalErased;

@@ -808,6 +808,14 @@ function versusGameOver(loser) {
       cpuLinesValEl.textContent = cStat;
     }
 
+    // 右の列 DETAIL（1P / 2P の 2 列。core/result_detail.js）
+    if (window.ResultDetail) {
+      const names = isCpuVsCpu
+        ? ['1P', '2P']
+        : ['YOU', 'CPU'];
+      window.ResultDetail.render('versus-result-detail', [window._game, window._cpuGame], { names, versus: true });
+    }
+
     window.BattleVersusLifecycle.transition('roundResult', 'result shown');
     document.getElementById('versus-result-page')?.classList.toggle('is-zone-battle', _isZoneBattleMatch());
     switchPage('versus-result');

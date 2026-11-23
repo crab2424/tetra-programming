@@ -10,6 +10,100 @@
   width: 420px;
 }
 
+/* シングル・対戦のリザルト: 左＝今までの項目とボタン（.result-main）、右＝DETAIL（core/result_detail.js）。
+   DETAIL が空のときは左だけ＝今までと同じ見た目。狭い画面では準備画面と同じく zoom で縮める */
+#result-container.result-split {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 40px;
+  width: auto;
+}
+#result-container.result-split.has-detail {
+  width: 900px;
+  zoom: clamp(0.35, calc((100vw - 32px) / 900px), 1);
+  padding-bottom: 24px;
+}
+.result-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  width: 420px;
+  flex-shrink: 0;
+}
+.result-detail {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 440px;
+  margin-top: 72px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 20px 16px;
+}
+.result-detail-title {
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.result-detail-table {
+  display: flex;
+  flex-direction: column;
+}
+.result-detail-sec {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--accent);
+  margin: 10px 0 2px;
+  opacity: 0.85;
+}
+.result-detail-row {
+  display: grid;
+  grid-template-columns: 1fr repeat(var(--rd-cols, 1), 72px);
+  align-items: baseline;
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.result-detail-head {
+  border-bottom: 1px solid var(--border);
+}
+.result-detail-head .result-detail-value {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+.result-detail-label {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+.result-detail-value {
+  font-family: "Orbitron", monospace;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: right;
+  color: var(--text);
+}
+.result-detail-row.is-zero .result-detail-value,
+.result-detail-value.is-none {
+  opacity: 0.35;
+}
+@media (max-width: 720px) {
+  #result-container.result-split.has-detail {
+    flex-direction: column;
+    align-items: center;
+    width: 420px;
+    zoom: clamp(0.35, calc((100vw - 32px) / 420px), 1);
+  }
+  .result-detail { margin-top: 0; width: 100%; max-width: none; }
+}
+
 #result-title,
 #quiz-result-title {
   font-family: "Orbitron", monospace;

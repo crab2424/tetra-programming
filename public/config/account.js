@@ -342,6 +342,15 @@
         const name = document.getElementById('account-modal-name');
         if (avatar) avatar.src = me.avatarUrl;
         if (name) name.textContent = me.name;
+        const anonState = document.getElementById('account-modal-anon-state');
+        if (anonState) anonState.textContent = me.rankingAnon ? 'ANONYMOUS' : 'SHOWN';
+        const anonBtn = document.getElementById('account-modal-anon-btn');
+        if (anonBtn) {
+            anonBtn.classList.toggle('is-on', !!me.rankingAnon);
+            anonBtn.title = me.rankingAnon
+                ? `ランキングでは ${me.anonName || 'PLAYER-xxxx'} と表示されます（アイコンなし）`
+                : 'ランキングに Discord のアイコンと表示名を出しています';
+        }
     }
 
     function openModal() {
@@ -433,6 +442,46 @@
         _renderModal();
     }
 
+    // ─── ランキングの匿名表示（worker/auth.ts の PUT /api/me/ranking-anon） ───
+    // ON にすると、ランキングでは名前が PLAYER-xxxx（人ごとに固定の番号）になり、アイコンと Discord の ID は出なくなる。
+    async function toggleRankingAnon() {
+        if (!me || !window.TetDialog) return;
+        const turnOn = !me.rankingAnon;
+        const ok = await window.TetDialog.choose({
+            title: 'RANKING NAME',
+            message: turnOn
+                ? 'ランキングでの名前を匿名（PLAYER-xxxx の番号）にします。Discord のアイコンと表示名はランキングに出なくなります。記録はそのまま残ります。'
+                : 'ランキングに Discord のアイコンと表示名（EDIT NAME の名前）を出すように戻します。',
+            buttons: [
+                { label: 'CANCEL', value: false, kind: 'secondary', cancel: true },
+                { label: turnOn ? 'ANONYMOUS' : 'SHOW NAME', value: true, kind: 'primary' },
+            ],
+            initial: true,
+        });
+        if (!ok) return;
+        let data = null;
+        try {
+            const res = await fetch('/api/me/ranking-anon', {
+                method: 'PUT',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ anonymous: turnOn }),
+            });
+            data = res.ok ? await res.json().catch(() => null) : null;
+        } catch (e) { data = null; }
+        if (!data) {
+            await window.TetDialog.choose({
+                title: 'RANKING NAME',
+                message: '変更に失敗しました。通信環境を確認してもう一度お試しください。',
+                buttons: [{ label: 'OK', value: true, kind: 'primary', cancel: true }],
+            });
+            return;
+        }
+        me = Object.assign({}, me, { rankingAnon: !!data.rankingAnon, anonName: data.anonName || me.anonName });
+        notify();
+        _renderModal();
+    }
+
     async function confirmDeleteAccount() {
         if (!window.TetDialog) return;
         const ok = await window.TetDialog.choose({
@@ -468,6 +517,7 @@
         logoutFromModal,
         confirmDeleteAccount,
         editName,
+        toggleRankingAnon,
         pushRecord,
         syncLocalBests,
         onRecordSynced,

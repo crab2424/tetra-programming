@@ -49,7 +49,9 @@ const REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
 const REPLAY_MK_CARD_W = 150;
 const REPLAY_MK_STEP = 162;
 const REPLAY_MK_PX_PER_MS = 0.04;
-const REPLAY_MK_KIND = { attack: 'ATTACK', hit: 'HIT', end: 'END', pause: 'PAUSE' };
+// 二重リプレイ（v2.6.2 F）を開いたとき、分かれた所のこれだけ前から見る
+const REPLAY_BRANCH_LEAD_MS = 2000;
+const REPLAY_MK_KIND = { attack: 'ATTACK', hit: 'HIT', end: 'END', pause: 'PAUSE', branch: 'PLAY HERE', fork: 'BRANCH' };
 
 // 自動の印の閾値（§8.1・§13）。tet はライン、puyo はおじゃまの個数。localStorage.replay_mark_thresholds で変えられる
 const REPLAY_MARK_DEFAULT = { tetAttack: 2, tetHit: 2, puyoAttack: 6, puyoHit: 6 };
@@ -395,6 +397,157 @@ function replayFmtTime(ms) {
     return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(cs).padStart(2, '0');
 }
 
+// ─── ルールの画面（I。v2.6.2）: 録画に入っている設定を表にする ───
+// 返すのは [{ title, cols: ['1P', '2P'] | [''], rows: [[ラベル, 値, 値?], …] }]。値は文字。
+// 盤面ごとの設定（players[].env）は盤面ごとの列に、試合全体のもの（モード・版など）は 1 列に入れる。
+// 当てはまらない盤面（TET の行の PUYO 盤面など）は '—'
+function replayRulesSections(data) {
+    const pl = (data.players || []).slice().sort((a, b) => (a.side || 0) - (b.side || 0));
+    const versus = data.mode === 'versus';
+    const cols = versus ? pl.map((p) => (p.side ? '2P' : '1P')) : [''];
+    const env = (p) => (p && p.env) || {};
+    const has = (k) => pl.some((p) => k in env(p));
+    const onOff = (v) => (v ? 'ON' : 'OFF');
+    const sec = [];
+    const one = (title, rows) => { if (rows.length) sec.push({ title, cols: [''], rows }); };
+    const per = (title, rows) => { if (rows.length) sec.push({ title, cols, rows }); };
+    // 盤面ごとの 1 行。fmt(v, p) が undefined を返したら '—'。どの盤面にも無ければ行を出さない
+    const row = (rows, label, key, fmt, rule) => {
+        if (!has(key)) return;
+        const cells = pl.map((p) => {
+            if (rule && p.rule !== rule) return '—';
+            const e = env(p);
+            if (!(key in e)) return '—';
+            const t = fmt(e[key] === 'Infinity' ? Infinity : e[key], p);
+            return t === undefined ? '—' : String(t);
+        });
+        if (cells.every((c) => c === '—')) return;
+        rows.push([label, ...(versus ? cells : cells.slice(0, 1))]);
+    };
+
+    // 試合
+    const sum = (typeof replaySummary === 'function') ? replaySummary(data) : { mode: String(data.mode || '').toUpperCase() };
+    const match = [['MODE', sum.mode]];
+    if (sum.result) match.push(['RESULT', sum.stat ? `${sum.result}（${sum.stat}）` : sum.result]);
+    const date = (typeof replayDateText === 'function') ? replayDateText(data.recordedAt) : '';
+    if (date) match.push(['RECORDED', date]);
+    match.push(['LENGTH', replayFmtTime(data.durationMs || 0)]);
+    if (data.clip) match.push(['CLIP', `${data.clip.label || 'CLIP'}（${replayFmtTime(data.clip.fromMs || 0)} から）`]);
+    if (data.branch) {
+        const b = data.branch;
+        match.push(['CONTINUED', `元のリプレイの ${replayFmtTime(b.atMs || 0)} から続けた試合${b.depth > 1 ? `（${b.depth} 回目）` : ''}`]);
+    }
+    if (Array.isArray(data.mods) && data.mods.length) {
+        const L = (typeof VERSUS_MOD_LABELS !== 'undefined') ? VERSUS_MOD_LABELS : {};
+        match.push(['MOD', data.mods.map((m) => L[m] || String(m)).join(' / ')]);
+    }
+    one('MATCH', match);
+
+    // 盤面（人・CPU）
+    const who = [
+        ['NAME', ...pl.map((p) => p.name || '—')],
+        ['RULE', ...pl.map((p) => (p.rule === 'tet' ? 'TET' : 'PUYO'))],
+        ['PLAYER', ...pl.map((p) => (p.kind === 'cpu' ? 'CPU' : 'HUMAN'))],
+    ];
+    if (pl.some((p) => p.level != null)) who.push(['CPU LEVEL', ...pl.map((p) => (p.level != null ? String(p.level) : '—'))]);
+    if (pl.some((p) => p.cpu && p.cpu.className)) {
+        who.push(['CPU', ...pl.map((p) => (p.cpu && p.cpu.className ? p.cpu.className + (p.cpu.weightsId ? ` / ${p.cpu.weightsId}` : '') : '—'))]);
+    }
+    per('PLAYERS', who.map((r) => (versus ? r : r.slice(0, 2))));
+
+    // ルール（モード・VS 設定）
+    const rules = [];
+    row(rules, 'GOAL', 'marathonGoal', (v) => (data.mode === 'marathon' ? (v === Infinity ? 'ENDLESS' : `${v} LINES`) : undefined));
+    row(rules, 'START LEVEL', 'marathonStartLevel', (v) => ((data.mode === 'marathon' || data.mode === 'zone') ? v : undefined));
+    if (data.mode === 'zone') {
+        row(rules, 'ZONE LEVEL', 'zoneFixedLevel', (v) => (v ? 'FIXED' : 'UP'));
+        row(rules, 'ZONE TIME', 'zoneQuarterMsSetting', (v) => `${v / 1000}s / 25%`);
+        row(rules, 'ZONE CHARGE', 'zoneQuarterLinesSetting', (v) => `${v} LINES / 25%`);
+    }
+    if (versus) {
+        const margin = (v, p) => {
+            const e = env(p);
+            if (v === null) return 'OFF';
+            if (e.vsMarginTrigger === 'score') return `SCORE ${e.vsMarginScore === 0 ? 'INSTANT' : `${(e.vsMarginScore || 0) / 1000}K`}`;
+            return v === 0 ? 'INSTANT' : `${v / 1000}s`;
+        };
+        row(rules, 'MARGIN', 'vsMarginTimeMs', margin);
+        row(rules, 'ATTACK BIAS', 'vsAttackMultiplier', (v) => {
+            const tbl = (typeof ATTACK_BIAS_TABLE !== 'undefined') ? ATTACK_BIAS_TABLE : [];
+            const i = tbl.findIndex((e) => Math.abs(e.num / e.den - v) < 1e-9);
+            return i >= 0 ? `${i - 3 > 0 ? '+' : ''}${i - 3}（${tbl[i].pct}%）` : `${Math.round(v * 100)}%`;
+        });
+        row(rules, 'HOLD', 'vsHoldEnabled', onOff, 'tet');
+        // PHASE ON の ZONE BATTLE は穴をフェーズの表で決める（下の ZONE の節）
+        const phaseOn = (p) => env(p).vsZone === true && env(p).vsZonePhase === true;
+        row(rules, 'HOLE RATE', 'vsGarbageHoleRate', (v, p) => (phaseOn(p) ? undefined : `${v}%`), 'tet');
+        row(rules, 'HOLE RATE (between)', 'vsGarbageHoleChunk', (v, p) => (phaseOn(p) ? undefined : `${v}%`), 'tet');
+        row(rules, 'DMG ON CLR', 'vsGarbageDamageOnClear', onOff, 'tet');
+        row(rules, 'OJAMA RATE', 'vsOjamaRate', (v) => v, 'puyo');
+    }
+    row(rules, 'MIN CONNECT', 'vsEraseCount', (v) => v, 'puyo');
+    row(rules, 'COLORS', 'vsColorCount', (v) => v, 'puyo');
+    if (versus) {
+        row(rules, 'CHAIN LIMIT', 'vsChainMin', (v) => (v ? `${v} CHAIN` : 'OFF'), 'puyo');
+        row(rules, 'PUYO SPEED', 'vsPuyoSpeed', (v) => `×${Number(v).toFixed(v * 100 % 10 === 0 ? 1 : 2)}`, 'puyo');
+    }
+    row(rules, 'GRAVITY', 'gravityDisabled', (v) => (v ? 'OFF' : undefined), 'tet');
+    row(rules, 'NO LOCK', 'practiceNoLock', (v) => (v ? 'ON' : undefined));
+    per('RULES', rules);
+
+    // ZONE（ZONE BATTLE）。両盤面に同じ値が入るので 1 列
+    const zp = pl.find((p) => env(p).vsZone === true);
+    if (versus && zp) {
+        const e = env(zp);
+        const z = [];
+        z.push(['ZONE ATTACK', e.vsZoneSplit === false ? 'MERGE' : 'SPLIT']);
+        z.push(['PHASE', onOff(e.vsZonePhase === true)]);
+        if (e.vsZonePhase === true) {
+            const byTime = e.vsZonePhaseTrigger === 'time';
+            z.push(['PHASE TRIGGER', byTime ? 'TIME' : 'SCORE']);
+            const tbl = Array.isArray(e.vsZonePhaseTable) ? e.vsZonePhaseTable
+                : ((typeof ZONE_PHASE_TABLE !== 'undefined') ? ZONE_PHASE_TABLE : []);
+            tbl.forEach((r, i) => {
+                const from = i === 0 ? 'START' : (byTime ? `${(r.timeMs || 0) / 1000}s` : (r.score || 0).toLocaleString('en-US'));
+                z.push([`PHASE ${String(i + 1).padStart(2, '0')}`,
+                    `FROM ${from}　HOLE ${100 - r.holeIn}% / ${100 - r.holeBetween}%　ZONE ${r.quarterMs / 1000}s・${r.quarterLines} LINES`]);
+            });
+            if (!Array.isArray(e.vsZonePhaseTable)) z.push(['', 'フェーズの値は既定の表（この録画には表が入っていません）']);
+        } else {
+            z.push(['ZONE TIME', `${(e.vsZoneQuarterMs || 0) / 1000}s / 25%`]);
+            z.push(['ZONE CHARGE', `${e.vsZoneQuarterLines} LINES / 25%`]);
+        }
+        one('ZONE', z);
+    }
+
+    // 操作（録画の最初の設定。人が操作した盤面だけ）
+    const cfgs = (data.settings && data.settings.configs) || [];
+    const tun = (p) => (p.kind !== 'cpu' && p.config != null && cfgs[p.config]) ? (cfgs[p.config].tuning || {}) : null;
+    if (pl.some((p) => tun(p))) {
+        const f = (v) => (typeof v === 'number' ? `${v.toFixed(1)}f` : '—');
+        const ctl = [];
+        const add = (label, fn) => ctl.push([label, ...pl.map((p) => { const t = tun(p); return t ? fn(t) : '—'; })]);
+        add('DAS', (t) => f(t.das));
+        add('ARR', (t) => f(t.arr));
+        add('DCD', (t) => f(t.dcd));
+        if (pl.some((p) => p.rule === 'tet' && tun(p))) {
+            add('IRS', (t) => onOff(!!t.irs));
+            add('IHS', (t) => onOff(!!t.ihs));
+            add('IRS/IHS DCD', (t) => f(t.irsDcd != null ? t.irsDcd : t.dcd));
+        }
+        const changes = Math.max(0, cfgs.length - pl.filter((p) => p.config != null).length);
+        if (changes) ctl.push(['CHANGED', ...cols.map((c, i) => (i === 0 ? `試合中に ${changes} 回保存し直しています` : ''))]);
+        per('CONTROLS', ctl.map((r) => (versus ? r : r.slice(0, 2))));
+    }
+
+    // 版
+    const ver = [['APP', `v${data.app || '?'} / ${data.build || '?'}`]];
+    ver.push(['ENGINE', data.engine === REPLAY_ENGINE_VERSION ? String(data.engine) : `${data.engine}（今の版は ${REPLAY_ENGINE_VERSION}）`]);
+    if (data.seed) ver.push(['SEED', String(data.seed)]);
+    one('VERSION', ver);
+    return sec;
+}
+
 // ─── 録画（1 試合ぶん）───
 // spec: { mode, modeOption, games: [1P, 2P?], players: [{ name, kind, cpu }] }
 class ReplayRecorder {
@@ -429,6 +582,8 @@ class ReplayRecorder {
         this.marks = [];    // 自動の印（§8.1）
         // 隠し機能を使った対戦（MOD。app/versus.js VERSUS_MOD_LABELS）。REPLAYS に MOD の印を出す
         this.mods = Array.isArray(spec.mods) ? spec.mods.slice() : [];
+        // 二重リプレイ（v2.6.2 F）: 元のリプレイの途中から続けた試合。{ parentId, atMs, depth, parentRecordedAt }
+        this.branch = null;
         this._th = replayMarkThresholds();
         this.clock._tape = this.dts;
         this.loop.recorder = this;
@@ -442,6 +597,44 @@ class ReplayRecorder {
     // 試合の親ループの step の頭
     beginFrame() {
         this.cur = this.nFrames++;
+    }
+
+    // 二重リプレイ（v2.6.2 F）: VERSUS の続き（PLAY HERE）を、元のリプレイの頭から分かれた所までの入力ごと録る。
+    //   CLIP（makeClip）と同じく、元の時計の進み・入力・照合を分かれた所で切って頭に残し、その後ろへ続きを書き足す。
+    //   スナップショットはファイルに書けないので使わない＝このリプレイだけで最初から再生できる（親が消えても見られる）。
+    //   親子のつながり（branch）は一覧の表示と、見始める所（分かれた所の少し前）に使うだけ。
+    //   cut: ReplayPlayer.branchCut()（detachLive の前に取る）。games: [1P, 2P]（再生していた盤面のまま）
+    static fromBranch(data, cut, games, mods) {
+        const rec = new ReplayRecorder({ mode: 'versus', modeOption: data.modeOption || null, games, mods });
+        rec.seed = data.seed;
+        rec.t0 = data.t0;
+        rec.timers = Array.isArray(data.timers) ? data.timers.slice() : null;
+        rec.players = (data.players || []).map((x) => JSON.parse(JSON.stringify(x)));
+        rec.configs = JSON.parse(JSON.stringify((data.settings && data.settings.configs) || []));
+        rec.codes = (data.codes || []).slice();
+        rec._codeIdx = new Map(rec.codes.map((c, i) => [c, i]));
+        const put = (buf, bytes) => { buf._room(bytes.length); buf.a.set(bytes, buf.n); buf.n += bytes.length; };
+        put(rec.dts, replayFromB64(data.frames).subarray(0, cut.dtLen));
+        put(rec.events, replayFromB64(data.inputs).subarray(0, cut.inEnd));
+        put(rec.checks, replayFromB64(data.checks).subarray(0, cut.checks * 4));
+        rec._lastEv = cut.lastEvFrame;
+        rec.nFrames = cut.frames;
+        rec.cur = Math.max(0, cut.frames - 1);
+        rec.locks = cut.checks;
+        rec.thinks = Array.isArray(data.think) ? data.think.filter((e) => Array.isArray(e) && e[0] < cut.frames) : [];
+        // 元の印は分かれた所まで＋分かれた所の印
+        rec.marks = (data.events || []).filter((m) => m.t <= cut.atMs && m.kind !== 'end').map((m) => Object.assign({}, m));
+        rec.marks.push({ t: cut.atMs, side: 0, kind: 'branch', label: 'PLAY HERE', value: 0 });
+        const pb = data.branch || null;
+        rec.branch = {
+            parentId: data.id, atMs: cut.atMs, depth: (pb && pb.depth ? pb.depth : 0) + 1,
+            parentRecordedAt: data.recordedAt || null,
+            // 枝を親のリプレイの中にまとめる（v2.6.2 その後）: 一番上のリプレイの id と、親と同じ頭の長さ。
+            // 保存は親と同じ頭を除いた後ろだけ（replayBranchNode）、見るときに親の頭とつなぎ直す（replayBranchFull）
+            rootId: pb ? (pb.rootId || null) : data.id,
+            cut: { frames: cut.frames, dtLen: cut.dtLen, inEnd: cut.inEnd, checks: cut.checks, thinks: rec.thinks.length },
+        };
+        return rec;
     }
 
     _player(g) {
@@ -560,7 +753,8 @@ class ReplayRecorder {
         this._mark(g, 'end', isClear ? 'CLEAR' : (this.mode === 'versus' ? 'K.O.' : 'GAME OVER'), 0);
         const events = this.marks.slice().sort((a, x) => a.t - x.t);
         const results = this.games.map((x) => {
-            const r = { side: replaySide(x), score: x.score };
+            // attack: 出した火力（APM と同じ生成基準）。CPU 同士の自動保存の条件（app/cpu_match_log.js）と一覧の表示に使う
+            const r = { side: replaySide(x), score: x.score, attack: x.attackSent || 0 };
             if (replayRule(x) === 'tet') {
                 r.lines = x.lines;
                 r.level = x.level;
@@ -602,8 +796,57 @@ class ReplayRecorder {
             checks: replayToB64(this.checks.bytes()),
             think: this.thinks.length ? this.thinks : null,
             ...(this.mods.length ? { mods: this.mods.slice() } : {}),
+            ...(this.branch ? { branch: Object.assign({}, this.branch) } : {}),
         };
     }
+}
+
+// ─── 枝（PLAY HERE の続き）を親のリプレイの中にまとめる ───
+//   親のリプレイ（data）の branches に、子の枝を「親と同じ頭を除いた後ろ」（tail）だけで持つ。子の枝の branches も同じ（木）。
+//   見るときは親の頭（branch.cut まで）と tail をつなぎ直して 1 本のリプレイにする。頭は録画のときに親から写したものなので、
+//   つなぎ直すと録画した 1 本とバイトまで同じになる。保存・30 本の上限は app/replays.js の ReplayStore.addBranch。
+const REPLAY_BRANCH_MAX = 30; // 1 階層の枝の数
+
+function replayBranchNode(full) {
+    const c = full.branch.cut;
+    const node = Object.assign({}, full);
+    node.tail = {
+        frames: replayToB64(replayFromB64(full.frames).subarray(c.dtLen)),
+        inputs: replayToB64(replayFromB64(full.inputs).subarray(c.inEnd)),
+        checks: replayToB64(replayFromB64(full.checks).subarray(c.checks * 4)),
+        think: Array.isArray(full.think) ? full.think.slice(c.thinks || 0) : null,
+    };
+    delete node.frames;
+    delete node.inputs;
+    delete node.checks;
+    delete node.think;
+    node.branches = Array.isArray(full.branches) ? full.branches : [];
+    return node;
+}
+
+function replayBranchFull(parent, node) {
+    const c = node.branch.cut;
+    const cat = (a, b) => { const o = new Uint8Array(a.length + b.length); o.set(a); o.set(b, a.length); return o; };
+    const join = (pb64, n, tb64) => replayToB64(cat(replayFromB64(pb64).subarray(0, n), replayFromB64(tb64 || '')));
+    const out = Object.assign({}, node);
+    delete out.tail;
+    delete out.star;
+    delete out.savedAt;
+    out.frames = join(parent.frames, c.dtLen, node.tail.frames);
+    out.inputs = join(parent.inputs, c.inEnd, node.tail.inputs);
+    out.checks = join(parent.checks, c.checks * 4, node.tail.checks);
+    const head = Array.isArray(parent.think) ? parent.think.filter((e) => Array.isArray(e) && e[0] < c.frames) : [];
+    const think = head.concat(node.tail.think || []);
+    out.think = think.length ? think : null;
+    out.branches = Array.isArray(node.branches) ? node.branches : [];
+    return out;
+}
+
+// 枝の数（子・孫まで全部）と、★のある枝があるか
+function replayBranchCount(list) {
+    let n = 0;
+    for (const b of (list || [])) n += 1 + replayBranchCount(b.branches);
+    return n;
 }
 
 // ─── 再生のモードごとの組み立て ───
@@ -1448,6 +1691,7 @@ class ReplayPlayer {
                     createdAt: new Date().toISOString(),
                 },
             });
+            delete out.branches; // 枝はクリップに入れない
         });
         // 見ていた所へ戻る
         this.seek(back);
@@ -1486,6 +1730,20 @@ class ReplayPlayer {
         const rng = {};
         if (g._rng) for (const k of Object.keys(g._rng)) if (g._rng[k] && g._rng[k].state) rng[k] = Array.from(g._rng[k].state);
         return { rule, line: PracticeSnapshot.capture(view, rule, { tp: 0, tg: 0 }), rng };
+    }
+
+    // 二重リプレイ（v2.6.2 F）: いま止まっている所で録画を切る位置（detachLive の前に取る。ReplayRecorder.fromBranch）
+    branchCut() {
+        const clock = this.games[0].clock;
+        if (!clock._feed) return null;
+        return {
+            frames: this.nFrames,
+            dtLen: clock._feed.p,
+            inEnd: this.ep ? this.evs[this.ep - 1].end : 0,
+            lastEvFrame: this.ep ? this.evs[this.ep - 1].f : 0,
+            checks: this.checkIdx,
+            atMs: this.time(),
+        };
     }
 
     // VERSUS の続き（M7d）: 今の局面のまま本物の対戦に切り替えられるか（両盤面とも本編の途中）
@@ -1679,6 +1937,7 @@ const ReplayManager = {
         }
         if (pageId === 'replays' && window.ReplaysPage) {
             this.returnPage = 'replays';
+            this._branchStack = []; // 一覧から見始めるたびに、枝の行き来で覚えた親を忘れる
             setTimeout(() => window.ReplaysPage.render({ open: true }), 0); // ページが切り替わってから描く
         }
     },
@@ -1892,6 +2151,9 @@ const ReplayManager = {
             if (opts.speed) p.setSpeed(opts.speed);
             p.pause();
             p.seek(opts.at);
+        } else if (data.branch && typeof data.branch.atMs === 'number' && data.branch.atMs > 0) {
+            // 二重リプレイ（v2.6.2 F）: 分かれた所の少し前から見る（前は元の試合。シークで戻れる）
+            p.seek(Math.max(0, data.branch.atMs - REPLAY_BRANCH_LEAD_MS));
         }
         // VERSUS の MOD は再生でも VS の下に出す（app/versus.js）
         if (data.mode === 'versus' && typeof setVersusMods === 'function') setVersusMods(data.mods || []);
@@ -1906,6 +2168,7 @@ const ReplayManager = {
         this._autoContinue = null;
         this._closePause(false);
         this._closeMarks(null);
+        this._closeInfo(null);
         this._mk = null;
         this._clearEnd();
         this._prevState = null;
@@ -1930,6 +2193,12 @@ const ReplayManager = {
         const mode = (typeof replaySummary === 'function') ? replaySummary(data).mode : String(data.mode || '').toUpperCase();
         const date = (typeof replayDateText === 'function') ? replayDateText(data.recordedAt) : '';
         el.textContent = mode;
+        if (data.branch) {
+            const d = document.createElement('span');
+            d.className = 'replay-title-branch';
+            d.textContent = `BRANCH${data.branch.depth > 1 ? ' ×' + data.branch.depth : ''}`;
+            el.appendChild(d);
+        }
         if (date) {
             const d = document.createElement('span');
             d.className = 'replay-title-date';
@@ -2042,6 +2311,11 @@ const ReplayManager = {
         }
         const marksBtn = $('replay-marks-btn');
         if (marksBtn) { marksBtn.onmousedown = (e) => e.preventDefault(); marksBtn.onclick = () => this._openMarks(); }
+        // ルールの画面（I。v2.6.2）
+        const infoBtn = $('replay-info-btn');
+        if (infoBtn) { infoBtn.onmousedown = (e) => e.preventDefault(); infoBtn.onclick = () => this._openInfo(); }
+        const infoClose = $('replay-info-close');
+        if (infoClose) { infoClose.onmousedown = (e) => e.preventDefault(); infoClose.onclick = () => this._closeInfo('back'); }
         // 印の画面（UI 設計書 §7）: 閉じる・ホイールで横に流す
         const mkClose = $('replay-mk-close');
         if (mkClose) { mkClose.onmousedown = (e) => e.preventDefault(); mkClose.onclick = () => this._closeMarks('back'); }
@@ -2075,6 +2349,7 @@ const ReplayManager = {
                 e.preventDefault();
                 return;
             }
+            if (this._infoOpen()) { this._infoKey(e); return; }
             if (this._marksOpen()) { this._marksKey(e); return; }
             const menu = this._pauseOpen();
             if (this._pauseCodes().indexOf(e.code) >= 0) {
@@ -2088,7 +2363,7 @@ const ReplayManager = {
             if (menu) {
                 if (['ArrowUp', 'ArrowDown', 'KeyW', 'KeyS', 'Enter', 'NumpadEnter', 'Space'].indexOf(e.code) >= 0) return;
                 if (['ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Comma', 'Period'].indexOf(e.code) >= 0) this._closePause(false);
-                else if (e.code !== 'KeyH' && e.code !== 'KeyM' && this._restartCodes().indexOf(e.code) < 0) {
+                else if (e.code !== 'KeyH' && e.code !== 'KeyM' && e.code !== 'KeyI' && this._restartCodes().indexOf(e.code) < 0) {
                     e.stopImmediatePropagation();
                     if (e.code === 'Tab') e.preventDefault();
                     return;
@@ -2103,10 +2378,10 @@ const ReplayManager = {
                 this._restartWatch();
                 return;
             }
-            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM'];
+            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM', 'KeyI'];
             if (handled.indexOf(e.code) < 0) return;
             e.preventDefault();
-            if (e.repeat && (e.code === 'Space' || e.code === 'KeyH' || e.code === 'KeyM')) return;
+            if (e.repeat && (e.code === 'Space' || e.code === 'KeyH' || e.code === 'KeyM' || e.code === 'KeyI')) return;
             switch (e.code) {
                 case 'Space': this._togglePlay(); break;
                 case 'ArrowLeft': p.seek(this._targetTime() - 5000); break;
@@ -2115,6 +2390,7 @@ const ReplayManager = {
                 case 'ArrowDown': this._stepSpeed(-1); break;
                 case 'KeyH': this._toggleUi(); break;
                 case 'KeyM': this._openMarks(); break;
+                case 'KeyI': this._openInfo(); break;
                 case 'BracketLeft': this._jumpMark(-1); break;
                 case 'BracketRight': this._jumpMark(1); break;
                 case 'Comma': p.stepLock(-1); break;
@@ -2135,7 +2411,7 @@ const ReplayManager = {
     _restartCodes() {
         const keys = (typeof loadKeys === 'function') ? loadKeys() : null;
         const codes = (keys && keys.restart && keys.restart.codes && keys.restart.codes.length) ? keys.restart.codes : ['KeyR'];
-        const used = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM', 'Escape'];
+        const used = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM', 'KeyI', 'Escape'];
         return codes.filter((c) => used.indexOf(c) < 0 && this._pauseCodes().indexOf(c) < 0);
     },
 
@@ -2172,7 +2448,7 @@ const ReplayManager = {
             if (b) b.style.display = show ? '' : 'none';
         }
         const marks = $('replay-pause-marks');
-        if (marks) marks.style.display = (p.data.events || []).length ? '' : 'none';
+        if (marks) marks.style.display = this._marksOf(p).length ? '' : 'none';
         // PLAY HERE: VERSUS の続きは止めた所（シーク中・カウントダウン・決着の所以外）からだけ
         let why = '';
         if (p.state === 'desync') why = 'ずれた所からは遊べません';
@@ -2340,11 +2616,15 @@ const ReplayManager = {
         if (p.state !== 'pause' || !p.canGoLive()) { restoreUi(); return; }
         // 再生をやめて、盤面はそのまま本物の試合へ
         const back = again ? Object.assign({}, again, { fresh: false }) : this._backFrom(p, false);
+        // 二重リプレイ（v2.6.2 F）: 続きも録る。今のエンジンの版で録ったリプレイだけ（古い版の動きと今の動きは 1 本に書けない）
+        const canRecord = p.data.engine === REPLAY_ENGINE_VERSION;
+        const cut = canRecord ? p.branchCut() : null;
+        const parentData = p.data;
         this.player = null;
         p.onUi = null;
         const globals = p.detachLive();
         document.body.classList.remove('replay-watching');
-        this.resultReplay = null; // 続きの試合は録画しない（対戦結果に WATCH REPLAY を出さない）
+        this.resultReplay = null;
         // 準備画面の設定は試合が終わって VERSUS の画面を離れるときに戻す（onSwitchPage）
         this._liveSaved = {
             pr: globals ? globals.pr : versusPlayerRule, cr: globals ? globals.cr : versusCpuRule,
@@ -2363,6 +2643,14 @@ const ReplayManager = {
         lc.transition('playing', 'replay continue');
 
         const games = [window._game, window._cpuGame];
+        const branchMods = (p.data.mods || []).filter((m) => m !== 'branch').concat(['branch']);
+        // 録画は人の盤面のキーを付け直す前に始める（今のキー設定を「設定を読み直した」出来事として残す）
+        if (cut) {
+            for (const g of games) if (g._rec) g._rec.detach();
+            ReplayRecorder.fromBranch(parentData, cut, games, branchMods);
+            // 枝の保存（app/replays.js の ReplayStore.addBranch）で、親がまだ保存されていなければ親ごと残すため
+            this._branchParent = parentData;
+        }
         games.forEach((g, side) => {
             const cpu = sideCpu(side);
             g.isCpuControlled = !!cpu;
@@ -2393,11 +2681,14 @@ const ReplayManager = {
         if (!sideCpu(0) && window.Assist) window.Assist.attach(window._game, 'versus');
         window.CpuMatchLog?.hideDock();
         // リプレイの続きは MOD（記録した試合の MOD も引き継ぐ。app/versus.js）
-        if (typeof setVersusMods === 'function') setVersusMods((p.data.mods || []).concat(['branch']));
+        if (typeof setVersusMods === 'function') setVersusMods(branchMods);
         setupVersusPauseKey();
         if (typeof startVersusCpuWatchdog === 'function') startVersusCpuWatchdog(currentSessionId);
         this._setBack(back);
-        if (typeof showGlobalToast === 'function') showGlobalToast('ここから対戦の続きです（録画はしません）');
+        if (typeof showGlobalToast === 'function') {
+            showGlobalToast(cut ? 'ここから対戦の続きです（続きも録画します）'
+                : '古い版で録ったリプレイなので、続きは録画しません');
+        }
     },
 
     // 印の少し前（1 秒）から見る
@@ -2421,7 +2712,7 @@ const ReplayManager = {
     _jumpMark(dir) {
         const p = this.player;
         if (!p) return;
-        const ev = p.data.events || [];
+        const ev = this._marksOf(p);
         const now = this._targetTime();
         let target = null;
         if (dir > 0) target = ev.find((m) => this._markTime(m) > now + 50);
@@ -2430,8 +2721,28 @@ const ReplayManager = {
     },
 
     // シークバーの上の印と ◆ n（見始めに 1 回）。印の画面の並びは開いたときに作る（_mkLayout）
+    // 印＝録画の印（events）＋この試合から分かれた枝（data.branches。kind 'fork'）。時刻順
+    _marksOf(p) {
+        if (p._marksCache) return p._marksCache;
+        const ev = (p.data.events || []).slice();
+        // 枝のリプレイ: 分かれた所（PLAY HERE）の印から ◀ PARENT で元へ戻る（印が無い形でも出す）
+        const b = p.data.branch;
+        if (b && typeof b.atMs === 'number' && !ev.some((m) => m.kind === 'branch' && Math.abs(m.t - b.atMs) < 1)) {
+            ev.push({ t: b.atMs, side: 0, kind: 'branch', label: 'PLAY HERE', value: 0 });
+        }
+        const kids = Array.isArray(p.data.branches) ? p.data.branches : [];
+        kids.forEach((b, i) => {
+            if (!b || !b.branch || typeof b.branch.atMs !== 'number') return;
+            ev.push({ t: b.branch.atMs, side: 0, kind: 'fork', label: replayForkLabel(b, i), value: 0, branchId: b.id });
+        });
+        ev.sort((a, b) => a.t - b.t);
+        p._marksCache = ev;
+        return ev;
+    },
+
     _drawMarks(p) {
-        const ev = p.data.events || [];
+        p._marksCache = null;
+        const ev = this._marksOf(p);
         const layer = document.getElementById('replay-marks');
         const btn = document.getElementById('replay-marks-btn');
         const from = p.clipFrom;
@@ -2466,7 +2777,7 @@ const ReplayManager = {
     _mkLayout(p) {
         const pl = p.data.players || [];
         const two = pl.length > 1;
-        const items = (p.data.events || []).map((m, k) => ({ m, k })).sort((a, b) => (a.m.t - b.m.t) || (a.m.side - b.m.side) || (a.k - b.k));
+        const items = this._marksOf(p).map((m, k) => ({ m, k })).sort((a, b) => (a.m.t - b.m.t) || (a.m.side - b.m.side) || (a.k - b.k));
         const lastX = [-Infinity, -Infinity];
         let prev = -Infinity;
         const list = items.map(({ m }) => {
@@ -2530,7 +2841,7 @@ const ReplayManager = {
         const p = this.player;
         const o = document.getElementById('replay-marks-overlay');
         if (!p || !o || this._marksOpen()) return;
-        if (!(p.data.events || []).length) {
+        if (!this._marksOf(p).length) {
             if (typeof showGlobalToast === 'function') showGlobalToast('印がありません');
             return;
         }
@@ -2654,10 +2965,19 @@ const ReplayManager = {
         const clip = document.createElement('button');
         clip.type = 'button';
         clip.className = 'replay-btn replay-mk-clip';
-        clip.textContent = 'CLIP';
-        clip.title = '前 5 秒・後 3 秒を切り出して保存 C';
         clip.onmousedown = (e) => e.preventDefault();
-        clip.onclick = () => { this._mkSelect(i); this._clip(m, this._mkLabel(m)); };
+        if (this._mkNavOf(m)) {
+            // 枝（fork）: その枝のリプレイへ／分かれた所（PLAY HERE）: 元のリプレイへ。B キーでも
+            const nav = this._mkNavOf(m);
+            clip.textContent = nav === 'open' ? 'OPEN ▶' : '◀ PARENT';
+            clip.title = nav === 'open' ? 'この枝（PLAY HERE から続けた試合）を見る B' : '分かれる前の元のリプレイへ戻る B';
+            clip.classList.add('replay-mk-nav');
+            clip.onclick = () => { this._mkSelect(i); this._mkNav(m); };
+        } else {
+            clip.textContent = 'CLIP';
+            clip.title = '前 5 秒・後 3 秒を切り出して保存 C';
+            clip.onclick = () => { this._mkSelect(i); this._clip(m, this._mkLabel(m)); };
+        }
         card.append(body, clip);
         return card;
     },
@@ -2707,6 +3027,106 @@ const ReplayManager = {
         p.seek(this._markTime(m));
     },
 
+    // ─── ルールの画面（I。v2.6.2）───
+    // 録画に入っている設定（replayRulesSections）を表で見せる。開いている間は止め、閉じたら開く前に戻す
+    // （PAUSE 画面から I で開いたら PAUSE へ戻る。印の画面と同じ）
+    _infoOpen() {
+        const o = document.getElementById('replay-info-overlay');
+        return !!(o && o.classList.contains('active'));
+    },
+
+    _openInfo() {
+        const p = this.player;
+        const o = document.getElementById('replay-info-overlay');
+        const body = document.getElementById('replay-info-body');
+        if (!p || !o || !body || this._infoOpen()) return;
+        if (this._marksOpen()) return;
+        const fromPause = this._pauseOpen();
+        if (fromPause) {
+            this._infoBack = { pause: true, resume: this._pauseResume };
+            this._closePause(false);
+        } else {
+            this._infoBack = { pause: false, resume: p.state === 'play' || (p.state === 'seek' && p.seekResume === 'play') };
+        }
+        p.pause();
+        if (this._infoFor !== p.data) {
+            this._infoFor = p.data;
+            body.textContent = '';
+            let secs = [];
+            try { secs = replayRulesSections(p.data); } catch (e) { console.warn('[replay] ルールを読めませんでした', e); }
+            for (const sec of secs) {
+                const box = document.createElement('section');
+                box.className = 'replay-info-sec';
+                const h = document.createElement('h3');
+                h.className = 'replay-info-sec-title';
+                h.textContent = sec.title;
+                box.appendChild(h);
+                const tbl = document.createElement('table');
+                tbl.className = 'replay-info-table' + (sec.cols.length > 1 ? ' is-two' : '');
+                if (sec.cols.length > 1) {
+                    const tr = document.createElement('tr');
+                    for (const c of ['', ...sec.cols]) {
+                        const th = document.createElement('th');
+                        th.textContent = c;
+                        tr.appendChild(th);
+                    }
+                    tbl.appendChild(tr);
+                }
+                for (const r of sec.rows) {
+                    const tr = document.createElement('tr');
+                    r.forEach((v, i) => {
+                        const td = document.createElement(i === 0 ? 'th' : 'td');
+                        td.textContent = v;
+                        tr.appendChild(td);
+                    });
+                    tbl.appendChild(tr);
+                }
+                box.appendChild(tbl);
+                body.appendChild(box);
+            }
+            const sub = document.getElementById('replay-info-sub');
+            if (sub) sub.textContent = (typeof replaySummary === 'function') ? replaySummary(p.data).mode : '';
+        }
+        body.scrollTop = 0;
+        o.classList.add('active');
+    },
+
+    // how: 'back'（ESC・I・CLOSE。開く前に戻す）／null（見終わるときなど。何もしない）
+    _closeInfo(how) {
+        const o = document.getElementById('replay-info-overlay');
+        if (!o || !o.classList.contains('active')) return;
+        o.classList.remove('active');
+        if (document.activeElement && o.contains(document.activeElement)) document.activeElement.blur();
+        const back = this._infoBack;
+        this._infoBack = null;
+        if (how !== 'back' || !back || !this.player) return;
+        if (back.pause) {
+            this._openPause();
+            this._pauseResume = back.resume;
+        } else if (back.resume) {
+            this.player.play();
+        }
+    },
+
+    // 開いている間のキーはここで全部受ける（ゲーム・FocusNav へは通さない）
+    _infoKey(e) {
+        e.stopImmediatePropagation();
+        const code = e.code;
+        if (this._pauseCodes().indexOf(code) >= 0 || code === 'KeyI') {
+            e.preventDefault();
+            if (!e.repeat) this._closeInfo('back');
+            return;
+        }
+        const body = document.getElementById('replay-info-body');
+        const step = { ArrowUp: -60, KeyW: -60, ArrowDown: 60, KeyS: 60, PageUp: -300, PageDown: 300 }[code];
+        if (step !== undefined) {
+            e.preventDefault();
+            if (body) body.scrollTop += step;
+            return;
+        }
+        if (['Space', 'Tab', 'Enter', 'NumpadEnter', 'ArrowLeft', 'ArrowRight'].indexOf(code) >= 0) e.preventDefault();
+    },
+
     _marksKey(e) {
         e.stopImmediatePropagation();
         const mk = this._mk;
@@ -2716,7 +3136,7 @@ const ReplayManager = {
             if (!e.repeat) this._closeMarks('back');
             return;
         }
-        const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS', 'Enter', 'NumpadEnter', 'KeyC', 'Tab', 'Space'];
+        const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS', 'Enter', 'NumpadEnter', 'KeyC', 'KeyB', 'Tab', 'Space'];
         if (keys.indexOf(code) < 0) return;
         e.preventDefault();
         if (!mk) return;
@@ -2726,8 +3146,67 @@ const ReplayManager = {
             case 'ArrowUp': case 'KeyW': this._mkLane(-1); break;
             case 'ArrowDown': case 'KeyS': this._mkLane(1); break;
             case 'Enter': case 'NumpadEnter': if (!e.repeat) this._mkJump(); break;
-            case 'KeyC': if (!e.repeat && mk.list[mk.sel]) this._clip(mk.list[mk.sel].m, this._mkLabel(mk.list[mk.sel].m)); break;
+            case 'KeyC': if (!e.repeat && mk.list[mk.sel] && !this._mkNavOf(mk.list[mk.sel].m)) this._clip(mk.list[mk.sel].m, this._mkLabel(mk.list[mk.sel].m)); break;
+            case 'KeyB': if (!e.repeat && mk.list[mk.sel]) this._mkNav(mk.list[mk.sel].m); break;
         }
+    },
+
+    // ─── 枝の行き来（枝は親のリプレイの中にまとめてある。replayBranchFull）───
+    // 'open'＝この試合から分かれた枝の印 / 'parent'＝この枝が分かれた所（PLAY HERE）の印 / null
+    _mkNavOf(m) {
+        const p = this.player;
+        if (!p || !m) return null;
+        if (m.kind === 'fork' && m.branchId) return 'open';
+        if (m.kind === 'branch' && p.data.branch && p.data.branch.parentId && Math.abs(m.t - p.data.branch.atMs) < 1) return 'parent';
+        return null;
+    },
+
+    _mkNav(m) {
+        const nav = this._mkNavOf(m);
+        if (nav === 'open') this.openBranch(m.branchId);
+        else if (nav === 'parent') this.openParent();
+    },
+
+    // 今見ているリプレイの枝（子）を見る。親は手元に覚えておき、◀ PARENT で戻る
+    openBranch(id) {
+        const p = this.player;
+        if (!p) return;
+        const node = (p.data.branches || []).find((b) => b && b.id === id);
+        if (!node) return;
+        let full;
+        try {
+            full = replayBranchFull(p.data, node);
+        } catch (e) {
+            console.warn('[replay] 枝を組み立てられませんでした', e);
+            if (typeof showGlobalToast === 'function') showGlobalToast('この枝は開けません');
+            return;
+        }
+        this._closeMarks(null);
+        (this._branchStack || (this._branchStack = [])).push(p.data);
+        this.watch(full, this.returnPage);
+    },
+
+    // 枝から元のリプレイ（親）へ。分かれた所で止めて見せる。親は手元（openBranch で覚えた物）か保存先（app/replays.js）から
+    async openParent() {
+        const p = this.player;
+        const b = p && p.data.branch;
+        if (!b || !b.parentId) return;
+        const stack = this._branchStack || [];
+        let parent = null;
+        while (stack.length) {
+            const top = stack.pop();
+            if (top && top.id === b.parentId) { parent = top; break; }
+        }
+        if (!parent && typeof this.findReplayData === 'function') {
+            try { parent = await this.findReplayData(b.parentId); } catch (e) { parent = null; }
+        }
+        if (this.player !== p) return;
+        if (!parent) {
+            if (typeof showGlobalToast === 'function') showGlobalToast('元のリプレイが見つかりません（REPLAYS に残っていません）');
+            return;
+        }
+        this._closeMarks(null);
+        this.watch(parent, this.returnPage, { at: Math.max(0, b.atMs - REPLAY_BRANCH_LEAD_MS), speed: p.speed });
     },
 
     // シーク中は向かっている時刻から数える（←→ を続けて押したとき）
@@ -2807,3 +3286,11 @@ const ReplayManager = {
     },
 };
 window.ReplayManager = ReplayManager;
+
+// 枝の印の名前（印の画面・シークバー）: BRANCH n · 勝敗
+function replayForkLabel(b, i) {
+    let res = '';
+    try { res = (typeof replaySummary === 'function') ? replaySummary(b).result : ''; } catch (e) { res = ''; }
+    const kids = replayBranchCount(b.branches);
+    return `BRANCH ${i + 1}${res ? ' · ' + res : ''}${kids ? ' (+' + kids + ')' : ''}`;
+}

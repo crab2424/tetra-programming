@@ -42,7 +42,10 @@ void Queue::push(i32 amount, i32 arrive, i32 ready)
     this->n += 1;
 }
 
-i32 after_lock(Board& board, Queue& q, i32 attack, i32 depth, u64 seed)
+bool g_rise_on_clear = true;
+i32 g_hole_same_pct = 70;
+
+i32 after_lock(Board& board, Queue& q, i32 attack, i32 depth, u64 seed, bool cleared)
 {
     if (q.n == 0) return 0;
 
@@ -66,17 +69,18 @@ i32 after_lock(Board& board, Queue& q, i32 attack, i32 depth, u64 seed)
         attack -= c;
     }
 
-    // ③ ready の分を上げる（古い順。1回の着弾の中で1段目は乱数、2段目から 70% で前の段と同じ列）
+    // ③ ready の分を上げる（古い順。1回の着弾の中で1段目は乱数、2段目から HOLE RATE（既定 70%）で前の段と同じ列）
+    //   DAMAGE ON CLEAR が OFF の試合は、消去した手では上げない（次の消去しない手まで残る）
     i32 lines = 0;
     i32 hole = -1;
     u64 r = mix(seed ^ (u64(depth) << 32));
     u16 rows[64];
-    for (i32 i = 0; i < q.n; ++i) {
+    for (i32 i = 0; i < q.n && (g_rise_on_clear || !cleared); ++i) {
         if (q.arrive[i] > depth || q.ready[i] > depth || q.amount[i] == 0) continue;
         for (i32 k = 0; k < q.amount[i] && lines < 40; ++k) {
             r = mix(r);
             if (hole < 0) hole = i32(r % 10);
-            else if ((r >> 20) % 100 >= 70) hole = (hole + 1 + i32((r >> 40) % 9)) % 10;
+            else if (i32((r >> 20) % 100) >= g_hole_same_pct) hole = (hole + 1 + i32((r >> 40) % 9)) % 10;
             rows[lines++] = u16(0x3FF & ~(1u << hole));
         }
         q.amount[i] = 0;

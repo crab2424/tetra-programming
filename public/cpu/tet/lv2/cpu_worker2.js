@@ -24,7 +24,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm2.js?v=5');  // ★ 2026-11-18 1 操作ずつ入れて届く手だけ探す（今のミノの位置・向きを受け取る）で再ビルド
+importScripts('cpu_wasm2.js?v=6');  // ★ 2026-11-23 VS 設定の HOLD なし（canHold=0・holdType=-1）で 2 手目の HOLD も読まない
 // （前回）★ 2026-11-17 ZONE 中は枠の上の設置を致命にしない（g_zoneNoLockOut）で再ビルド
 // （前回）★ v2.2.3 I: 25行化で再ビルド
 

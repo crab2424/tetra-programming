@@ -26,6 +26,12 @@ const SEC = parseFloat(positional[1] || '40');
 const RUNS = parseInt(positional[2] || '12', 10);
 const SHOW = args.includes('--show');
 const NOPLAN = args.includes('--noplan');
+// --nohold: VS 設定の HOLD なし（g.vsHoldEnabled=false）。探索が HOLD の手・先行ホールドを返したら数える（v2.6.2 A）
+const NOHOLD = args.includes('--nohold');
+// --nocap: lv5 の ZONE の段数の上限を外す（v2.6.2 B の比べ用）・--zone0=N: ZONE 段 N 段から始める（上限が効く所を見る）
+const NOCAP = args.includes('--nocap');
+const ZONE0 = parseInt(opt('zone0', '0'), 10);
+let holdViolations = 0;
 const TRACE = opt('trace', ''); // 例 --trace=empty:10（その回の手を全部出す）
 // --margin=段階（マージンの倍率表の段階。省略＝マージンなし）・--bias=ATTACK BIAS（省略 1.0）: 実機の対戦設定に近い表で比べる（§23）
 const MARGIN = opt('margin', '') === '' ? null : parseInt(opt('margin', ''), 10);
@@ -107,6 +113,7 @@ function callWasm(d, M = M0) {
         return Int32Array.from(M.HEAP32.subarray(O >> 2, (O >> 2) + 160));
     }
     const [B, W, O] = M.ptrs;
+    if (M._setZoneCap) M._setZoneCap(NOCAP ? 0 : (opt('cap', '') !== '' ? parseInt(opt('cap', ''), 10) : (d.zoneCap || 0))); // --cap=N: 上限を N に差し替え（試験用） // lv5 の ZONE の段数の上限（v2.6.2 B。--nocap で外す）
     M.HEAPU8.set(d.boardBuffer, B);
     M.HEAP32.fill(0, W >> 2, (W >> 2) + 96);
     M.HEAP32.set(d.weightsArray.subarray(0, 96), W >> 2);
@@ -141,12 +148,18 @@ function run(kind) {
     let cells = startBoard(kind), zone = 0, holdType = -1, attack = 0, ren = 0, b2b = false, pcs = 0;
     let queue = [], bagLeft = [], moves = 0, ended = 'time', canHold = true;
     let plan = { irs: 0, ihs: 0 }, usedIrs = 0, usedIhs = 0, chose = 0;
+    if (ZONE0 > 0) { // ZONE 段 ZONE0 段の上に開始盤面を載せる
+        const up = new Set();
+        for (const c of cells) { const [x, y] = c.split(',').map(Number); up.add(x + ',' + (y - ZONE0)); }
+        for (let k = 0; k < ZONE0; k++) for (let x = 0; x < 10; x++) up.add(x + ',' + (19 - k));
+        cells = up; zone = ZONE0;
+    }
     const refill = () => { while (queue.length < (LV === 7 ? 36 : 12)) { if (!bagLeft.length) bagLeft = bag(); queue.push(bagLeft.shift()); } };
     const g = Object.create(Game.prototype);
     Object.assign(g, {
         field: new Field(), level: 2, score: 0, isVersusMode: true, backToBack: false, ren: 0,
         zoneActive: true, zoneLines: 0, topLimit: -20, playSe() {}, requestRedraw() {},
-        zoneCharge: 4, _tetMarginStep: MARGIN, vsAttackMultiplier: BIAS,
+        zoneCharge: 4, _tetMarginStep: MARGIN, vsAttackMultiplier: BIAS, vsHoldEnabled: !NOHOLD,
         zoneRemainingMs: () => Math.max(0, (MOVES - moves) * CpuZone.CONFIG.moveMs[LV]),
         cpuFrame() {}, cpuSchedule() {}, garbageQueue: [], _cpuRunning: true, // フレームの外で onMinoSpawned を呼ぶので警告を止める
         clock: { now: () => 0 }, _garbageTimers: [], ensureNextQueue() {},
@@ -206,6 +219,7 @@ function run(kind) {
         const py = out[6] - 5;
         placed = t.blocks.map(b => ({ x: b.x + out[5], y: b.y + py }));
         }
+        if (NOHOLD && (holdUsed || plan.ihs)) { holdViolations++; holdUsed = false; plan.ihs = 0; }
         if (holdUsed) { // HOLD してから置く
             if (holdType < 0) { holdType = queue.shift(); queue.shift(); } else { holdType = queue.shift(); }
         } else queue.shift();
@@ -356,3 +370,4 @@ for (const kind of ['empty', 'right', 'hole', 'rough']) {
     console.log(`${kind.padEnd(6)} 段数 ${avg('zone')}  残ったマス ${avg('rest')}  穴 ${avg('holes')}  通常火力 ${avg('attack')}（10段より先 ${avg('atkHi')}）  合計(MAX) ${avg('total')}  手数 ${avg('moves')}  先行回転 ${avg('usedIrs')} 先行ホールド ${avg('usedIhs')} 終える判断 ${avg('chose')}  段数の分布 ${hs}  終わり方 ${ends}`);
     if (args.includes('--each')) console.log('       各回の段数 ' + rs.map(r => r.zone).join(' '));
 }
+if (NOHOLD) console.log(`HOLD なし: 探索が HOLD／先行ホールドを返した回数 ${holdViolations}`);

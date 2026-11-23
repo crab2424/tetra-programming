@@ -19,6 +19,9 @@ const CpuZone = (() => {
         // 発動中の 1 手にかかる見込み（ms。見込み段数の計算用。レベルごと）。発動中も通常と同じ速さで打つので、
         // ふだんの 1 手の時間を入れる。lv7 は CPU 同士の記録の実測（約 2.8 手/秒）。ほかのレベルは目分量の仮の値
         moveMs: { 1: 2000, 2: 1500, 3: 700, 4: 550, 5: 450, 6: 380, 7: 360 },
+        // ZONE で消せる段数の上限（v2.6.2 B。lv7 が一番強い並びを保つ。lv5 は 23 段以上を出さない＝22 まで）。
+        // 探索が上限を超えて消す手を大きく減点する（cpu5.cpp g_zoneCap）。書いていないレベルは上限なし
+        lineCap: { 5: 22 },
         // 発動中の通常火力の見込み（1 段あたり。REN・4 ラインをねらわない打ち方なので控えめ。仮）
         normalPerLine: 0.5,
         // 「攻め」で発動する見込み段数（満タンで撃つときの値。低いほど早く撃つ＝弱い。満タン前はメーターの割合ぶん）
@@ -84,6 +87,11 @@ const CpuZone = (() => {
     // 探索へ渡して「この手数を使い切ったら ZONE が終わる」と読ませる（設計 §20）
     // §22: 切り捨て。1 手ぶんに足りない残りでは置き切れない（切り上げだと最後の 1 手を当てにして、
     //   消す手を後回しにしたまま時間切れになっていた）
+    // ZONE で消せる段数の上限（0＝なし）
+    function lineCap(level) {
+        return CONFIG.lineCap[level] || 0;
+    }
+
     function movesLeft(game, level) {
         if (!game || !game.zoneActive || !game.isVersusMode) return 0;
         return Math.max(1, Math.floor(game.zoneRemainingMs() / (CONFIG.moveMs[level] || 700)));
@@ -365,6 +373,6 @@ const CpuZone = (() => {
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, movesLeft, incoming, zoneTable, attackBias100, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, phaseSoon, shouldFireBeforePhase, noMoveDelay, dropIfNoMove };
+    return { CONFIG, RULES, floor, stampBoard, lineCap, movesLeft, incoming, zoneTable, attackBias100, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, phaseSoon, shouldFireBeforePhase, noMoveDelay, dropIfNoMove };
 })();
 window.CpuZone = CpuZone;

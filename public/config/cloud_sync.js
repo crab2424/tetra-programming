@@ -8,6 +8,8 @@
 //     presets = tetlabo_presets（設定のプリセット 3 つ分の名前と中身。config/settings.js）
 //               中身は操作系（DAS/ARR/DCD・IRS/IHS・キー/パッド割当・デッドゾーン）と DISPLAY。
 //               どのプリセットを使っているか（tetlabo_preset_active）は端末ごとで送らない。
+//     vs_presets = tetlabo_vs_presets（VS 設定のプリセット。通常 VERSUS・ZONE BATTLE 3 つずつ。config/vs_settings.js）
+//               どれを使っているか（tetlabo_vs_preset_active）は端末ごと。v2.6.2 で追加（worker/sync.ts と同時デプロイ）
 //     以前の区分（プリセット導入前。アカウントにまだ presets が無いときだけ、取り込みのために見る）
 //       tuning  = game_tuning / display = game_display / binds = game_binds / gamepad = game_gamepad_options
 //   記録 … 全モードの自己ベスト（tetlabo_records のうち、このアカウントのものと決まった記録）
@@ -26,6 +28,7 @@
     const META_KEY = 'tetlabo_sync_meta';
     const SETTING_SECTIONS = {
         presets: 'tetlabo_presets',
+        vs_presets: 'tetlabo_vs_presets',
         tuning: 'game_tuning',
         display: 'game_display',
         binds: 'game_binds',
@@ -40,6 +43,7 @@
     let touchTimer = null;
     let askedThisSession = false; // 初回の確認ダイアログを閉じて保留にした → この起動中はもう聞かない
     let interactive = false; // 確認ダイアログを出してよい回か（起動時・ログイン直後だけ。プレイ中の保存では出さない）
+    let firstChoice = null;  // この回の「どちらを使うか」の答え（presets と vs_presets で 2 回聞かない）
     let lastStatsSyncAt = 0; // 成績を最後にサーバーと揃えた時刻（STATS を開いたときの取り直しの間引き）
     const STATS_REFRESH_MS = 30000;
 
@@ -99,10 +103,13 @@
     // SETTINGS で保存していない変更があるあいだは取り込まない（取り込むと編集中の値が消える）
     // 画面を開いていないときは編集中の値が無いので、いつでも取り込んでよい（古い形式の保存値は
     // 画面を開いていなくても「未保存」に見えることがあるので、開いているかどうかも見る）。
-    function _settingsBusy() {
+    // vs_presets は VS SETTINGS の未保存の変更を見る
+    function _settingsBusy(names) {
         try {
-            const page = document.getElementById('settings-page');
+            const vs = Array.isArray(names) && names.includes('vs_presets');
+            const page = document.getElementById(vs ? 'vs-settings-page' : 'settings-page');
             if (!page || !page.classList.contains('active')) return false;
+            if (vs) return typeof isVsSettingsDirty === 'function' && isVsSettingsDirty();
             return typeof isSettingsDirty === 'function' && isSettingsDirty();
         } catch (e) { return false; }
     }
@@ -118,7 +125,16 @@
             if (legacy.undecided) return applied;
         }
         const r = await _syncSettingSections(meta, server, ['presets']);
-        return applied || r.applied;
+        applied = applied || r.applied;
+        // VS 設定のプリセット（v2.6.2）。サーバーがまだ vs_presets を知らない（worker/sync.ts が古い）と
+        // PUT が invalid_section で断られるので、ほかの区分（記録・成績）を止めないよう別に受ける
+        try {
+            const v = await _syncSettingSections(meta, server, ['vs_presets']);
+            applied = applied || v.applied;
+        } catch (e) {
+            console.warn('[CloudSync] vs_presets', e && e.message ? e.message : e);
+        }
+        return applied;
     }
 
     async function _syncSettingSections(meta, server, names) {
@@ -199,7 +215,7 @@
         }
 
         const pulled = [];
-        if (pull.length > 0 && !_settingsBusy()) {
+        if (pull.length > 0 && !_settingsBusy(names)) {
             for (const name of pull) {
                 const sv = server[name];
                 if (!sv || !sv.data) continue;
@@ -211,11 +227,15 @@
         }
         _saveMeta(meta);
         // 保存値を画面とゲームへ反映する（config/settings.js。presets なら使っているプリセットを今の設定へ）
-        if (pulled.length > 0 && typeof applySyncedSettings === 'function') applySyncedSettings(pulled);
+        // vs_presets は config/vs_settings.js へ
+        const rest = pulled.filter((n) => n !== 'vs_presets');
+        if (rest.length > 0 && typeof applySyncedSettings === 'function') applySyncedSettings(rest);
+        if (pulled.includes('vs_presets') && typeof applySyncedVsPresets === 'function') applySyncedVsPresets();
         return { applied: pulled.length > 0, undecided };
     }
 
     async function _askFirst() {
+        if (firstChoice) return firstChoice;
         if (!interactive || askedThisSession || !window.TetDialog) return null;
         const choice = await window.TetDialog.choose({
             title: 'SETTINGS SYNC',
@@ -227,6 +247,7 @@
             initial: 'account',
         });
         if (choice !== 'device' && choice !== 'account') { askedThisSession = true; return null; }
+        firstChoice = choice;
         return choice;
     }
 
@@ -320,6 +341,7 @@
         const meta = _loadMeta(me.id);
         const server = await _get();
         if (!_me() || _me().id !== me.id) return; // 待っている間にログアウト・切替された
+        firstChoice = null;
         const settingsApplied = await _syncSettings(meta, server);
         const recordsAdopted = await _syncRecords(meta, server, me.id);
         const statsChanged = await _syncStats(meta, server, me.id);

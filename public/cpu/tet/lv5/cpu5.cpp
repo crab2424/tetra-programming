@@ -173,6 +173,10 @@ static bool g_zoneNear      = false;
 static const int ZONE_LINE_BONUS  = 1500; // 終盤: 1 段消すごとの加点 ×(7−手番)。TSD の 1 段ぶん（2560÷2）・4 ライン（500÷4）より上
 static const int ZONE_NEAR_HEIGHT = 16;   // 終盤とみなす高さ（ZONE 段＋その上の積み。枠は 20 段）
 static const int ZONE_LETHAL      = 19;   // ZONE の後に残る段＋予告がこれ以上なら安全でない（cpu_zone.js lethalHeight と同じ）
+// v2.6.2 B: ZONE で消せる段数の上限（0＝なし。lv5 は 22 で lv6・lv7 との差をつける。cpu_zone.js CONFIG.lineCap）。
+//   上限を超えて消す手は 1 段ごとに大きく減点する（死よりは軽い）。上限に届いたら消さずに積んで ZONE の終わりを待つ
+static int g_zoneCap = 0;
+static const int ZONE_CAP_PENALTY = 10000000;
 static const int ZONE_END_COMP_PCT = 50; // 終点の枝に足す「残りの手数 × 終点の盤面の点」の割合（%）。100 だと終わりを急ぎ、0 だと盤面の点が負のとき終わりを急ぐ（§21 の表）
 static inline bool isLockOut(const GridBlock* blocks) {
     if (g_zoneNoLockOut) return false;
@@ -929,6 +933,9 @@ std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, i
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE
+void setZoneCap(int n) { g_zoneCap = (n > 0 && n <= 40) ? n : 0; }
+
+EMSCRIPTEN_KEEPALIVE
 void* my_malloc(size_t size) { return malloc(size); }
 
 EMSCRIPTEN_KEEPALIVE
@@ -1168,6 +1175,12 @@ void searchBestMoveWasm(
             // ZONE の終盤は消した段数が第一（早い手ほど重い。ほかのイベントの加点と同じ掛け方）
             if (zn && g_zoneNear) eventBonus += p.linesCleared * ZONE_LINE_BONUS * (7 - step_num);
             int stepScore = is_first ? (score * P1_WEIGHT_PCT / 100 + eventBonus) : (score + eventBonus);
+            // v2.6.2 B: ZONE の段数の上限（この手で新しく上限を超えた段ごとに減点）
+            if (zn && g_zoneCap > 0 && simBoard.zone > g_zoneCap) {
+                const int zPrev = (is_first ? baseBoard : s.board).zone;
+                const int over = simBoard.zone - std::max(zPrev, g_zoneCap);
+                if (over > 0) stepScore -= ZONE_CAP_PENALTY * over;
+            }
 
             if (hasBlockOutside) stepScore -= deathPenalty(step_num);
 

@@ -13,6 +13,10 @@
 namespace beam
 {
 
+// VS 設定で HOLD なしの試合（v2.6.2 A）。立っていると自分の探索・相手の見積もりのどちらも HOLD を使わない
+//   （search の頭で weights の欄 [3] のビット 2 から入れる。lv7_wasm.cpp）
+extern bool g_no_hold;
+
 // T4：送った火力のうち、相手が消しきれずに着弾する見込みの段に報酬を出す
 //   着弾の見込み（d 手目まで）＝ max(0, 送った火力の累計 − incoming − cap[d])。cap[d] は d 手目の火力が相手で ready になるまでに
 //   相手が撃てる火力（方法 A の m[j]、相手に届いている予告ぶんは先に引く）

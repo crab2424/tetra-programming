@@ -17,7 +17,7 @@ i32 key(const node::Data& d) { return d.score.action + d.score.eval; }
 // 読める手数：HOLD が空なら1本多く使う（beam::search と同じ）
 size_t max_layers(const State& s, const std::vector<piece::Type>& queue, size_t cap)
 {
-    const size_t n = queue.size() - (s.hold == piece::Type::NONE ? 1 : 0);
+    const size_t n = queue.size() - ((!beam::g_no_hold && s.hold == piece::Type::NONE) ? 1 : 0);
     return std::min(n, cap);
 }
 
@@ -141,9 +141,10 @@ RenRun ren_beam(const State& root, const std::vector<piece::Type>& queue, size_t
         for (auto& n : layer) {
             // 締め切りは親ごとにも見る（途中で越えたら、この通りは使わない）
             if (beam::now_ms() >= deadline_ms) { run.complete = false; break; }
-            if (size_t(n.s.next) + 1 >= queue.size()) continue;
+            if (size_t(n.s.next) + (beam::g_no_hold ? 0 : 1) >= queue.size()) continue;
 
-            piece::Type pieces[2] = { queue[n.s.next], n.s.hold == piece::Type::NONE ? queue[n.s.next + 1] : n.s.hold };
+            piece::Type pieces[2] = { queue[n.s.next], beam::g_no_hold ? piece::Type::NONE
+                                                       : (n.s.hold == piece::Type::NONE ? queue[n.s.next + 1] : n.s.hold) };
             if (pieces[0] == pieces[1]) pieces[1] = piece::Type::NONE;
 
             for (auto p : pieces) {

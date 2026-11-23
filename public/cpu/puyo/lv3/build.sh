@@ -8,7 +8,7 @@ set -e
 cd "$(dirname "$0")"
 emcc cpu3.cpp -o cpu_wasm3.js \
   -O3 -s WASM=1 \
-  -s EXPORTED_FUNCTIONS='["_my_malloc","_my_free","_searchBestMovePuyoWasm"]' \
+  -s EXPORTED_FUNCTIONS='["_my_malloc","_my_free","_searchBestMovePuyoWasm","_setEraseCount"]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","HEAP32"]' \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s INITIAL_MEMORY=16777216

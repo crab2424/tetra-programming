@@ -17,6 +17,8 @@ const int COLS       = 6;
 const int ROWS       = 12; 
 const int HIDDEN     = 5;  
 const int TOTAL_ROWS = ROWS + HIDDEN;
+// VS 設定の消去数（CONNECT。v2.6.2 A）。setEraseCount で worker が探索の前に入れる。既定 4
+static int g_eraseCount = 4;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // BitBoard 
@@ -194,7 +196,7 @@ static ChainResult simulateChain(BitBoard& b) {
                     }
                 }
 
-                if ((int)group.size() >= 4) {
+                if ((int)group.size() >= g_eraseCount) {
                     found = true;
                     if ((int)group.size() > res.maxGroup) res.maxGroup = (int)group.size();
                     res.totalErased += (int)group.size();
@@ -493,6 +495,9 @@ struct SearchNode {
 // Wasm エクスポート
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+void setEraseCount(int n) { g_eraseCount = (n >= 2 && n <= 6) ? n : 4; }
 
 EMSCRIPTEN_KEEPALIVE
 void* my_malloc(size_t size) { return malloc(size); }

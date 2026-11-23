@@ -10,6 +10,10 @@
 //   ・画面左下の小さな欄に件数・勝敗と EXPORT（JSON / CSV）・CLEAR を出す（対戦画面で記録中のときだけ）
 //   ・AUTO（自動再戦）を ON にすると、結果画面が出てから AUTO_DELAY_MS 後に RETRY と同じ再戦を始める（放置で回す用）。
 //     ON/OFF は localStorage（tetlabo.cpuMatchLog.auto）に残す。結果画面から離れたら取りやめる
+//   ・REPLAY（リプレイの自動保存）: ALL＝ふだんどおり（SETTINGS › DISPLAY の自動保存に従う）/ FILTER＝条件を満たした局だけ
+//     保存（自動保存 OFF でも残す）/ OFF＝自動では残さない。条件は TIME（分）・SCORE・CHAIN（ぷよ）・ATTACK の下限で、
+//     空欄は使わない。ALL（すべて満たす）か ANY（どれか 1 つ）。SCORE・CHAIN・ATTACK はどちらかの盤面が届けばよい。
+//     localStorage（tetlabo.cpuMatchLog.replay）。判定は app/replays.js の ReplayManager.onRecorded から replayDecision(data)
 //   ・コンソール: CpuMatchLog.matches() / CpuMatchLog.download('csv') / CpuMatchLog.clear() / CpuMatchLog.setAuto(true)
 // ─────────────────────────────────────────────
 
@@ -18,6 +22,14 @@ window.CpuMatchLog = (() => {
     const AUTO_KEY = 'tetlabo.cpuMatchLog.auto';
     const AUTO_DELAY_MS = 2000;      // 結果画面が出てから再戦するまで
     const GARBAGE_DEATH_MS = 3000;   // 死ぬ直前この時間内にせり上がりがあれば「おじゃまで押し上げ」
+
+    const REPLAY_KEY = 'tetlabo.cpuMatchLog.replay';
+    const REPLAY_FIELDS = [   // [キー, 見出し, 単位, 盤面の値の取り出し]
+        ['minMin', 'TIME', '分'],
+        ['minScore', 'SCORE', '点'],
+        ['minChain', 'CHAIN', '連鎖'],
+        ['minAttack', 'ATTACK', ''],
+    ];
 
     let current = null;   // 記録中の1局 { startedAt, sides: { '1P': side, '2P': side } }
     let dock = null;
@@ -57,6 +69,60 @@ window.CpuMatchLog = (() => {
             if (now() - t0 < 20000) autoTimer = setTimeout(tick, 200);   // 終了演出の途中。20秒たっても結果画面が出なければやめる
         };
         autoTimer = setTimeout(tick, 200);
+    }
+
+    // ── リプレイの自動保存の条件 ──
+    function replayFilter() {
+        let f = null;
+        try { f = JSON.parse(localStorage.getItem(REPLAY_KEY) || 'null'); } catch (_) { f = null; }
+        if (!f || typeof f !== 'object') f = {};
+        const num = (v) => (typeof v === 'number' && isFinite(v) && v > 0 ? v : null);
+        return {
+            mode: (f.mode === 'filter' || f.mode === 'off') ? f.mode : 'all',
+            match: f.match === 'any' ? 'any' : 'all',
+            minMin: num(f.minMin), minScore: num(f.minScore), minChain: num(f.minChain), minAttack: num(f.minAttack),
+            saved: (typeof f.saved === 'number' && f.saved > 0) ? f.saved : 0,
+        };
+    }
+    function setReplayFilter(patch) {
+        const f = Object.assign(replayFilter(), patch || {});
+        try { localStorage.setItem(REPLAY_KEY, JSON.stringify(f)); } catch (_) { /* noop */ }
+        renderDock();
+        return f;
+    }
+    function isCpuVsCpuReplay(data) {
+        const pl = (data && data.players) || [];
+        return !!data && data.mode === 'versus' && pl.length === 2 && pl.every((p) => p.kind === 'cpu');
+    }
+    // リプレイの値（durationMs・result.boards[].score / chainMax / attack）が条件を満たすか。
+    // CHAIN はぷよの盤面だけを見る（ぷよが無い試合では CHAIN の条件は使わない）
+    function replayMeets(data, f) {
+        const boards = (data.result && data.result.boards) || [];
+        const max = (k) => boards.reduce((m, b) => (typeof b[k] === 'number' && b[k] > m ? b[k] : m), 0);
+        const checks = [];
+        if (f.minMin) checks.push((data.durationMs || 0) >= f.minMin * 60000);
+        if (f.minScore) checks.push(max('score') >= f.minScore);
+        if (f.minChain && boards.some((b) => typeof b.chainMax === 'number')) checks.push(max('chainMax') >= f.minChain);
+        if (f.minAttack) checks.push(max('attack') >= f.minAttack);
+        if (!checks.length) return true; // 条件なし＝全部残す
+        return f.match === 'any' ? checks.some(Boolean) : checks.every(Boolean);
+    }
+    // app/replays.js から: CPU 同士の局なら 'save' / 'skip'、それ以外（人の対戦など）は null＝ふだんどおり
+    function replayDecision(data) {
+        if (!isCpuVsCpuReplay(data)) return null;
+        const f = replayFilter();
+        if (f.mode === 'all') return null;
+        if (f.mode === 'off') return 'skip';
+        const ok = replayMeets(data, f);
+        if (ok) setReplayFilter({ saved: f.saved + 1 });
+        return ok ? 'save' : 'skip';
+    }
+    function replayFilterText(f) {
+        if (f.mode === 'off') return 'REPLAY: 自動保存しない';
+        if (f.mode === 'all') return 'REPLAY: ふだんどおり（DISPLAY の自動保存）';
+        const parts = REPLAY_FIELDS.filter(([k]) => f[k]).map(([k, label, unit]) => `${label} ≥ ${f[k].toLocaleString()}${unit}`);
+        const cond = parts.length ? parts.join(f.match === 'any' ? ' or ' : ' and ') : '条件なし（全部）';
+        return `REPLAY: ${cond}（保存 ${f.saved} 本）`;
     }
 
     function load() {
@@ -350,18 +416,78 @@ window.CpuMatchLog = (() => {
                     <button type="button" data-act="csv" tabindex="-1">CSV</button>
                     <button type="button" data-act="clear" tabindex="-1">CLEAR</button>
                     <button type="button" data-act="auto" class="cml-auto" tabindex="-1" title="結果画面から自動で再戦する（放置で回す）">AUTO</button>
+                </div>
+                <div class="cml-replay">
+                    <div class="cml-replay-sum"></div>
+                    <div class="cml-btns">
+                        <button type="button" data-act="rmode" class="cml-rmode" tabindex="-1" title="リプレイの自動保存: ALL＝ふだんどおり / FILTER＝条件を満たした局だけ / OFF＝残さない">REPLAY</button>
+                        <button type="button" data-act="redit" class="cml-redit" tabindex="-1" title="保存する条件を変える">EDIT</button>
+                    </div>
+                    <div class="cml-replay-form" style="display:none">
+                        ${REPLAY_FIELDS.map(([k, label, unit]) => `<label><span>${label} ≥</span><input type="number" min="0" step="${k === 'minMin' ? '0.5' : '1'}" data-k="${k}" placeholder="—"><em>${unit}</em></label>`).join('')}
+                        <div class="cml-btns">
+                            <button type="button" data-act="rmatch" class="cml-rmatch" tabindex="-1" title="ALL＝すべて満たす / ANY＝どれか 1 つ">ALL</button>
+                            <button type="button" data-act="rsave" tabindex="-1">OK</button>
+                        </div>
+                    </div>
                 </div>`;
             dock.addEventListener('click', (e) => {
                 const act = e.target && e.target.dataset && e.target.dataset.act;
                 if (act === 'json' || act === 'csv') download(act);
                 else if (act === 'clear' && confirm('対局記録をすべて消します。よろしいですか？')) clear();
                 else if (act === 'auto') setAuto(!isAuto());
-                if (e.target && e.target.blur) e.target.blur();   // SPACE 等のキーがボタンに残らないように
+                else if (act === 'rmode') {
+                    const order = ['all', 'filter', 'off'];
+                    const f = replayFilter();
+                    setReplayFilter({ mode: order[(order.indexOf(f.mode) + 1) % order.length] });
+                } else if (act === 'redit') toggleReplayForm();
+                else if (act === 'rmatch') {
+                    const b = e.target;
+                    b.textContent = b.textContent === 'ALL' ? 'ANY' : 'ALL';
+                } else if (act === 'rsave') saveReplayForm();
+                if (e.target && e.target.blur && e.target.tagName === 'BUTTON') e.target.blur();   // SPACE 等のキーがボタンに残らないように
             });
+            // 数字の入力中のキーはゲーム（ポーズ・リスタート等）へ渡さない。Enter で確定、Esc で閉じる
+            const stop = (e) => {
+                if (!e.target || e.target.tagName !== 'INPUT') return;
+                e.stopPropagation();
+                if (e.type === 'keydown' && e.key === 'Enter') { e.preventDefault(); saveReplayForm(); }
+                else if (e.type === 'keydown' && e.key === 'Escape') { e.preventDefault(); toggleReplayForm(false); }
+            };
+            dock.addEventListener('keydown', stop, true);
+            dock.addEventListener('keyup', stop, true);
+            dock.addEventListener('keypress', stop, true);
             document.body.appendChild(dock);
         }
         dock.style.display = '';
         renderDock();
+    }
+
+    function toggleReplayForm(show) {
+        if (!dock) return;
+        const form = dock.querySelector('.cml-replay-form');
+        const open = show === undefined ? form.style.display === 'none' : !!show;
+        if (open) {
+            const f = replayFilter();
+            form.querySelectorAll('input[data-k]').forEach((inp) => { inp.value = f[inp.dataset.k] || ''; });
+            form.querySelector('.cml-rmatch').textContent = f.match === 'any' ? 'ANY' : 'ALL';
+        } else if (document.activeElement && form.contains(document.activeElement)) {
+            document.activeElement.blur();
+        }
+        form.style.display = open ? '' : 'none';
+    }
+    function saveReplayForm() {
+        if (!dock) return;
+        const form = dock.querySelector('.cml-replay-form');
+        const patch = { match: form.querySelector('.cml-rmatch').textContent === 'ANY' ? 'any' : 'all' };
+        form.querySelectorAll('input[data-k]').forEach((inp) => {
+            const v = parseFloat(inp.value);
+            patch[inp.dataset.k] = (isFinite(v) && v > 0) ? v : null;
+        });
+        // 条件を書いたら FILTER にする（ALL / OFF のままだと効かないため）
+        if (replayFilter().mode !== 'filter') patch.mode = 'filter';
+        setReplayFilter(patch);
+        toggleReplayForm(false);
     }
 
     function hideDock() {
@@ -377,6 +503,14 @@ window.CpuMatchLog = (() => {
             autoBtn.textContent = isAuto() ? 'AUTO: ON' : 'AUTO: OFF';
             autoBtn.classList.toggle('is-on', isAuto());
         }
+        const rf = replayFilter();
+        const rmode = dock.querySelector('.cml-rmode');
+        if (rmode) {
+            rmode.textContent = `REPLAY: ${rf.mode.toUpperCase()}`;
+            rmode.classList.toggle('is-on', rf.mode === 'filter');
+        }
+        const rsum = dock.querySelector('.cml-replay-sum');
+        if (rsum) rsum.textContent = replayFilterText(rf);
         const list = load();
         const tally = {};
         for (const r of list) {
@@ -390,5 +524,8 @@ window.CpuMatchLog = (() => {
             : '記録なし（終わった局を自動で残します）';
     }
 
-    return { begin, end, abort, zone, phase, hideDock, matches: load, download, clear, toCsv, setAuto, isAuto };
+    return {
+        begin, end, abort, zone, phase, hideDock, matches: load, download, clear, toCsv, setAuto, isAuto,
+        replayFilter, setReplayFilter, replayDecision, replayMeets,
+    };
 })();
