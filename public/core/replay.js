@@ -23,7 +23,7 @@
 // ─────────────────────────────────────────────
 
 const REPLAY_FORMAT_VERSION = 2;   // ファイルの形の版（§6.2）。2: 盤面 2 枚・CPU の手・キー設定の読み直し
-const REPLAY_ENGINE_VERSION = 21;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）。4: VERSUS の ZONE の火力（発動中の通常火力を足す・マージン倍率・メーターの持ち越し・CPU の発動中の速さ）。5: シングルの ZONE の発動中はレベル 1 の速さでソフトドロップ（4 以下の録画は従来どおり再生。tet/input.js）。6: ZONE の分けて送る火力は 1 手につき 1 かたまりだけ着弾（SPLIT の録画は 5 とずれる）。7: ZONE SPLIT の試合はふつうの火力も 1 手に 1 かたまりずつ着弾（6 以下の録画は従来どおり再生。tet/garbage.js）。8: VERSUS の ZONE 終了で盤面が下がって浮いたミノの固定猶予を取り消す（7 以下の録画は従来どおり再生。tet/zone.js）。9: ZONE のマージン倍率を発動時のメーターごとの表に（マージン中に ZONE が終わる 8 以下の VERSUS の録画はずれる。tet/zone.js）。10: ZONE の発動中は全ブロックが枠の上の設置を致命にせず ZONE も続ける（9 以下の録画は従来どおり再生。tet/board.js）。11: シングルの ZONE はミノが枠の上 20 段まで動ける（10 以下の録画は 5 段のまま。tet/zone.js topLimit）。12: VERSUS の ZONE の試合も枠の上 20 段まで・CPU も 40 段を読む（11 以下の VERSUS の録画は 5 段のまま）。13: ZONE BATTLE のフェーズ（vsZonePhase。キーの無い録画はフェーズなしで今までどおり。tet/zone.js）。14: ZONE BATTLE の穴の決め方（かたまりの中 a・間 b・着弾をまたぐ。13 以下の録画は今までの決め方。tet/garbage.js）。15: ZONE BATTLE の PHASE TRIGGER（TIME）・MARGIN TRIGGER（SCORE）（キーの無い録画は SCORE・TIME のまま）。16: ZONE BATTLE のフェーズごとの値（vsZonePhaseTable。VS 設定の PHASE 01〜03。キーの無い録画は原作の表のまま。tet/zone.js zonePhaseTableFrom）。17: ZONE BATTLE のフェーズへ進むスコアを表の行に（vsZonePhaseTable の score。キーの無い録画は 20,000 / 60,000 のまま）。18: ZONE の終了時火力表（ZONE_ATTACK_TABLE）とマージン倍率表（ZONE_MARGIN_BONUS_X10）の再編（17 以下の ZONE VERSUS の録画は火力がずれる。tet/zone.js）。19: PHASE TRIGGER: TIME の時計も表の行に（vsZonePhaseTable の timeMs。キーの無い録画は 64 / 192 秒のまま）。20: ZONE の端数の持ち越し（シングルも満タン超えを次のメーターへ・フェーズの換算は 1/4 の数は割合で端数は段数のまま。19 以下の録画は従来どおり。tet/zone.js _zoneV20）。21: IRS だけで助かる出現も IHS と同じく待つ（IRS ON の録画だけに効く。20 以下の録画は従来どおり待たない。tet/rotation.js _ihsRescueWait）
+const REPLAY_ENGINE_VERSION = 20;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）。4: VERSUS の ZONE の火力（発動中の通常火力を足す・マージン倍率・メーターの持ち越し・CPU の発動中の速さ）。5: シングルの ZONE の発動中はレベル 1 の速さでソフトドロップ（4 以下の録画は従来どおり再生。tet/input.js）。6: ZONE の分けて送る火力は 1 手につき 1 かたまりだけ着弾（SPLIT の録画は 5 とずれる）。7: ZONE SPLIT の試合はふつうの火力も 1 手に 1 かたまりずつ着弾（6 以下の録画は従来どおり再生。tet/garbage.js）。8: VERSUS の ZONE 終了で盤面が下がって浮いたミノの固定猶予を取り消す（7 以下の録画は従来どおり再生。tet/zone.js）。9: ZONE のマージン倍率を発動時のメーターごとの表に（マージン中に ZONE が終わる 8 以下の VERSUS の録画はずれる。tet/zone.js）。10: ZONE の発動中は全ブロックが枠の上の設置を致命にせず ZONE も続ける（9 以下の録画は従来どおり再生。tet/board.js）。11: シングルの ZONE はミノが枠の上 20 段まで動ける（10 以下の録画は 5 段のまま。tet/zone.js topLimit）。12: VERSUS の ZONE の試合も枠の上 20 段まで・CPU も 40 段を読む（11 以下の VERSUS の録画は 5 段のまま）。13: ZONE BATTLE のフェーズ（vsZonePhase。キーの無い録画はフェーズなしで今までどおり。tet/zone.js）。14: ZONE BATTLE の穴の決め方（かたまりの中 a・間 b・着弾をまたぐ。13 以下の録画は今までの決め方。tet/garbage.js）。15: ZONE BATTLE の PHASE TRIGGER（TIME）・MARGIN TRIGGER（SCORE）（キーの無い録画は SCORE・TIME のまま）。16: ZONE BATTLE のフェーズごとの値（vsZonePhaseTable。VS 設定の PHASE 01〜03。キーの無い録画は原作の表のまま。tet/zone.js zonePhaseTableFrom）。17: ZONE BATTLE のフェーズへ進むスコアを表の行に（vsZonePhaseTable の score。キーの無い録画は 20,000 / 60,000 のまま）。18: ZONE の終了時火力表（ZONE_ATTACK_TABLE）とマージン倍率表（ZONE_MARGIN_BONUS_X10）の再編（17 以下の ZONE VERSUS の録画は火力がずれる。tet/zone.js）。19: PHASE TRIGGER: TIME の時計も表の行に（vsZonePhaseTable の timeMs。キーの無い録画は 64 / 192 秒のまま）。20: ZONE の端数の持ち越し（シングルも満タン超えを次のメーターへ・フェーズの換算は 1/4 の数は割合で端数は段数のまま。19 以下の録画は従来どおり。tet/zone.js _zoneV20）
 
 // 入力の列の種類。1 バイト目＝種類 << 1 | side
 //   キー 0〜3（bit0 押す・bit1 長押しの繰り返し）＋コードの番号、tet のパッド 4〜5（bit0 押す）＋アクションの番号
@@ -427,8 +427,6 @@ class ReplayRecorder {
         this.locks = 0;
         this.thinks = [];   // [フレーム, side, 思考の結果の写し]
         this.marks = [];    // 自動の印（§8.1）
-        // 隠し機能を使った対戦（MOD。app/versus.js VERSUS_MOD_LABELS）。REPLAYS に MOD の印を出す
-        this.mods = Array.isArray(spec.mods) ? spec.mods.slice() : [];
         this._th = replayMarkThresholds();
         this.clock._tape = this.dts;
         this.loop.recorder = this;
@@ -601,7 +599,6 @@ class ReplayRecorder {
             inputs: replayToB64(this.events.bytes()),
             checks: replayToB64(this.checks.bytes()),
             think: this.thinks.length ? this.thinks : null,
-            ...(this.mods.length ? { mods: this.mods.slice() } : {}),
         };
     }
 }
@@ -1564,7 +1561,7 @@ const ReplayManager = {
     resultReplay: null,  // リザルト画面の WATCH REPLAY で見るもの（別の画面へ移ったら消す）
     player: null,        // 画面で見ている再生
     returnPage: 'result',
-    backTo: null,        // PLAY HERE の戻り先 { data, t, returnPage, speed, fresh, handoff }（UI 設計書 §8.2。◀ REPLAY・RETRY HERE）
+    backTo: null,        // PLAY HERE の戻り先 { data, t, returnPage, speed, fresh }（UI 設計書 §8.2。◀ REPLAY）
     _keyHandler: null,
     _uiBound: false,
 
@@ -1709,39 +1706,6 @@ const ReplayManager = {
                 if (el) el.style.display = k === kind ? '' : 'none';
             }
         }
-        // RESTART・RETRY は PLAY HERE の局面からやり直す（retryHere）ので、文言も RETRY HERE に
-        for (const el of document.querySelectorAll('[data-retry-kind]')) {
-            el.textContent = el.dataset.retryKind === kind ? el.dataset.here : el.dataset.normal;
-        }
-    },
-
-    // RETRY HERE（ロードマップ E③）: PLAY HERE で遊んでいる途中・後に、PLAY HERE を押した局面からもう一度遊ぶ。
-    //   PLAY HERE の先では RESTART・RETRY・R キーが全部ここへ来る（別のモードへは移らない。抜けるのは MODE SELECT・MAIN MENU）。
-    //   PRACTICE: 同じ局面（handoff）で PRACTICE を始め直す。
-    //   VERSUS の続き: PLAY HERE を押した所まで再生し直して（止めた状態でシーク）、済んだらそのまま続きへ。
-    retryHere() {
-        const b = this.backTo;
-        if (!b) return;
-        if (b.data.mode === 'versus') {
-            this._setBack(null);
-            if (window.BattleVersusLifecycle) window.BattleVersusLifecycle.transition('idle', 'retry here');
-            this._restoreLive();
-            if (typeof stopAllGames === 'function') stopAllGames();
-            this.watch(b.data, b.returnPage, { at: b.t, speed: b.speed, thenContinue: b });
-            return;
-        }
-        if (!b.handoff || typeof startPracticeFromReplay !== 'function') return;
-        b.fresh = true; // PRACTICE を始める start() の 1 回目の begin では消さない
-        b.handoff.countdown = this._playHereCountdown();
-        const pause = document.getElementById('pause-overlay');
-        if (pause) pause.classList.remove('active');
-        startPracticeFromReplay(b.handoff);
-        this._setBack(b);
-    },
-
-    // PLAY HERE を 3・2・1 から始めるか（SETTINGS › DISPLAY › PLAY HERE COUNTDOWN）
-    _playHereCountdown() {
-        return !(window.currentDisplay && window.currentDisplay.playHereCountdown === false);
     },
 
     // ◀ REPLAY: 試合を止めて、PLAY HERE を押した所から見直す（止めた状態。スナップショットは作り直しなので長い試合はシークに少しかかる）
@@ -1890,17 +1854,12 @@ const ReplayManager = {
             p.pause();
             p.seek(opts.at);
         }
-        // VERSUS の MOD は再生でも VS の下に出す（app/versus.js）
-        if (data.mode === 'versus' && typeof setVersusMods === 'function') setVersusMods(data.mods || []);
-        // RETRY HERE（VERSUS の続き）: シークが済んで止まったら、そのまま対戦の続きへ（_updateUi から）
-        this._autoContinue = (opts && opts.thenContinue) || null;
     },
 
     // 見るのをやめる（toBack: 来た画面へ戻る）
     _endWatch(toBack) {
         const p = this.player;
         if (!p) return;
-        this._autoContinue = null;
         this._closePause(false);
         this._closeMarks(null);
         this._mk = null;
@@ -1998,7 +1957,8 @@ const ReplayManager = {
             },
             'replay-pause-restart': () => {
                 this._closePause(false);
-                this._restartWatch();
+                const p = this.player;
+                if (p && p.state !== 'desync') { p.restart(); p.play(); }
             },
             'replay-pause-marks': () => this._openMarks(),
             'replay-pause-here': () => { this._closePause(false); this._playFromHere(); },
@@ -2066,12 +2026,6 @@ const ReplayManager = {
             if (!p || !p.watching) return;
             const gp = document.getElementById(p.page + '-page');
             if (!gp || !gp.classList.contains('active')) return;
-            // RETRY HERE で続きへ向かっている間（シーク・カウントダウン）はキーを受けない
-            if (this._autoContinue || this._goingLive) {
-                e.stopImmediatePropagation();
-                e.preventDefault();
-                return;
-            }
             if (this._marksOpen()) { this._marksKey(e); return; }
             const menu = this._pauseOpen();
             if (this._pauseCodes().indexOf(e.code) >= 0) {
@@ -2085,21 +2039,13 @@ const ReplayManager = {
             if (menu) {
                 if (['ArrowUp', 'ArrowDown', 'KeyW', 'KeyS', 'Enter', 'NumpadEnter', 'Space'].indexOf(e.code) >= 0) return;
                 if (['ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Comma', 'Period'].indexOf(e.code) >= 0) this._closePause(false);
-                else if (e.code !== 'KeyH' && e.code !== 'KeyM' && this._restartCodes().indexOf(e.code) < 0) {
+                else if (e.code !== 'KeyH' && e.code !== 'KeyM') {
                     e.stopImmediatePropagation();
                     if (e.code === 'Tab') e.preventDefault();
                     return;
                 }
             }
             e.stopImmediatePropagation();
-            // リスタートキー（既定 R）: 最初から見直す（PAUSE の RESTART と同じ）
-            if (this._restartCodes().indexOf(e.code) >= 0) {
-                e.preventDefault();
-                if (e.repeat) return;
-                if (menu) this._closePause(false);
-                this._restartWatch();
-                return;
-            }
             const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM'];
             if (handled.indexOf(e.code) < 0) return;
             e.preventDefault();
@@ -2128,20 +2074,6 @@ const ReplayManager = {
     },
 
     // 設定のポーズキー（キーボードの割り当て）。ESC はいつでも
-    // リスタートキー（KEY CONFIG の RESTART。再生の操作キーと重なるものは除く）
-    _restartCodes() {
-        const keys = (typeof loadKeys === 'function') ? loadKeys() : null;
-        const codes = (keys && keys.restart && keys.restart.codes && keys.restart.codes.length) ? keys.restart.codes : ['KeyR'];
-        const used = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM', 'Escape'];
-        return codes.filter((c) => used.indexOf(c) < 0 && this._pauseCodes().indexOf(c) < 0);
-    },
-
-    // 最初から見直す（R キー・PAUSE の RESTART）
-    _restartWatch() {
-        const p = this.player;
-        if (p && p.state !== 'desync') { p.restart(); p.play(); }
-    },
-
     _pauseCodes() {
         const keys = (typeof loadKeys === 'function') ? loadKeys() : null;
         const codes = (keys && keys.pause && keys.pause.codes) ? keys.pause.codes.slice() : [];
@@ -2257,8 +2189,6 @@ const ReplayManager = {
         // ◀ REPLAY の戻り先（puyo は次のぷよが出る所まで進めてから渡すので、その時刻）。
         // PRACTICE を始める start() の 1 回目の begin では消さない（fresh）
         const back = this._backFrom(p, true);
-        h.countdown = this._playHereCountdown();
-        back.handoff = h; // RETRY HERE で同じ局面から始め直す
         this.resultReplay = null; // PRACTICE のリザルトに元の試合の WATCH REPLAY を出さない
         this._endWatch(false);
         this._setBack(back);
@@ -2277,8 +2207,7 @@ const ReplayManager = {
     // VERSUS の続きを遊ぶ（M7d。§10）: 相手の CPU を読み込み、入力の出どころをリプレイからキーボードへ
     // 切り替え、CPU に今の局面から考えさせる。続きは録画しない。
     // versus.js の startVersusGame と同じ順に、盤面を作り直さずに試合の外回り（状態・CPU・キー・ポーズ・見張り）だけ付ける
-    // again: RETRY HERE のときの戻り先（PLAY HERE を最初に押した所。シークの誤差で時刻がずれないように持ち越す）
-    async _continueVersus(again) {
+    async _continueVersus() {
         const p = this.player;
         if (!p || this._goingLive) return;
         p.pause();
@@ -2311,25 +2240,8 @@ const ReplayManager = {
             return;
         }
         if (p.state !== 'pause' || !p.canGoLive()) return; // 読み込みの間に再生・シークされた
-        // ロード画面を出していたら先に消す（カウントダウンを見せるため）
-        await window.BattleLocalLoading.reveal();
-        if (stale()) return;
-        // 3・2・1（SETTINGS › DISPLAY › PLAY HERE COUNTDOWN）。その間は再生を止めたまま、キーも受けない
-        if (this._playHereCountdown()) {
-            this._goingLive = true;
-            try {
-                await new Promise((resolve) => {
-                    runCountdown('player-countdown-overlay', 'player-countdown-text', resolve, null, undefined, false, null);
-                    runCountdown('cpu-countdown-overlay', 'cpu-countdown-text', null, null, undefined, true, null);
-                });
-            } finally {
-                this._goingLive = false;
-            }
-            if (stale()) return;
-        }
-        if (p.state !== 'pause' || !p.canGoLive()) return;
         // 再生をやめて、盤面はそのまま本物の試合へ
-        const back = again ? Object.assign({}, again, { fresh: false }) : this._backFrom(p, false);
+        const back = this._backFrom(p, false);
         this.player = null;
         p.onUi = null;
         const globals = p.detachLive();
@@ -2382,8 +2294,7 @@ const ReplayManager = {
         });
         if (!sideCpu(0) && window.Assist) window.Assist.attach(window._game, 'versus');
         window.CpuMatchLog?.hideDock();
-        // リプレイの続きは MOD（記録した試合の MOD も引き継ぐ。app/versus.js）
-        if (typeof setVersusMods === 'function') setVersusMods((p.data.mods || []).concat(['branch']));
+        await window.BattleLocalLoading.reveal();
         setupVersusPauseKey();
         if (typeof startVersusCpuWatchdog === 'function') startVersusCpuWatchdog(currentSessionId);
         this._setBack(back);
@@ -2745,14 +2656,6 @@ const ReplayManager = {
         const p = this.player;
         if (!p) return;
         const $ = (id) => document.getElementById(id);
-        // RETRY HERE（VERSUS の続き）: PLAY HERE を押した所まで来たら続きへ。行けなければ再生のまま止める
-        //   （シーク中に再生に切り替えられたら続きへは行かず、そのまま見る）
-        if (this._autoContinue && p.state !== 'seek') {
-            const again = this._autoContinue;
-            this._autoContinue = null;
-            if (p.state === 'pause') this._continueVersus(again);
-            else if (p.state !== 'play' && typeof showGlobalToast === 'function') showGlobalToast('ここからは遊べません');
-        }
         // 再生していて最後に着いた瞬間だけ終了演出。最後から離れたら（最初から・シーク・1 手戻る）消す
         if (p.state === 'end' && this._prevState === 'play' && !this._endShown) this._showEnd(p);
         else if (this._endShown && p.state !== 'end') this._clearEnd();

@@ -763,12 +763,6 @@ function _applyModePauseSelectStyle(btn) {
 }
 
 async function startGameFromModeCheck() {
-  // リプレイの PLAY HERE から始めた PRACTICE のリザルトの RETRY は RETRY HERE（PLAY HERE の局面から。core/replay.js）
-  if (window.ReplayManager?.backTo && window.ReplayManager.backTo.handoff
-      && currentGameMode && currentGameMode.id === 'practice') {
-    window.ReplayManager.retryHere();
-    return;
-  }
   // CPU TEST の CPU 同士（OPPONENT: PUYO / TET）は VERSUS の盤面で動かす（versus.js）
   if (currentGameMode && currentGameMode.id === 'test' && testOpponent !== 'none') {
     startTestCpuVsCpu();
