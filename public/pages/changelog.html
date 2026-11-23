@@ -15,7 +15,25 @@
     <div class="changelog-list">
       <!-- 以降、バージョンごとに .changelog-entry を追加。内容は適宜編集 -->
 
-      <!-- v2.6.1: 日付は仮（マージ時に確認） -->
+      <!-- v2.6.2: 日付は仮（マージ時に確認） -->
+      <div class="changelog-entry">
+        <div class="changelog-entry-head">
+          <span class="changelog-ver">v2.6.2</span>
+          <span class="changelog-date">2026/11/24</span>
+        </div>
+        <ul class="changelog-items">
+          <li>CPU が VS 設定に合わせて動くように。HOLD なしの試合では TET CPU が HOLD を使う手を読まず、LV7 は DAMAGE ON CLEAR・HOLE RATE も考える。PUYO CPU は消去数の設定に合わせて消え方を読み、LV4〜6 は連鎖縛り未満の連鎖を（ピンチのとき以外は）撃たない</li>
+          <li>TET CPU LV5 の ZONE は 22 段までに抑えるように</li>
+          <li>VERSUS の REPLAY から PLAY HERE で続けた試合を、元のリプレイの中に枝（BRANCH）として保存するように。1 か所から 30 本まで（超えたら★のない古い枝から消す）。再生中の印の画面（M）から OPEN ▶ で枝を開き、◀ PARENT で元へ戻れる。REPLAYS 一覧には元のリプレイの 1 行だけが出る</li>
+          <li>REPLAY の再生中に I でその試合のルール（モード・VS 設定・ZONE BATTLE のフェーズ・操作設定・版など）を見られるように</li>
+          <li>VS SETTINGS にも PRESET を追加（3 つまで・VERSUS と ZONE BATTLE で別々・名前を変更可。Discord でログインしていると端末間で共有）。PRESET の切替を下線の見た目に</li>
+          <li>リザルト画面を左右 2 列にし、右に DETAIL（PPS・APM・LPM、ライン消しと T-Spin の種類ごとの回数、パーフェクトクリア、最大 REN・B2B、消したぷよ・全消し・連鎖数ごとの回数）を表示するように。VERSUS は 1P / 2P を並べて表示</li>
+          <li>ランキングで名前を隠せるように（ホーム右上のアカウント画面の RANKING NAME）。隠すと PLAYER-xxxx と表示され、アイコンは出ない</li>
+          <li>CPU TEST の CPU 同士で、リプレイを保存する条件（時間・スコア・連鎖・火力の下限）を MATCH LOG から設定できるように</li>
+          <li>名前の変更で Enter を押して確定すると、戻った画面のボタン（VS SETTINGS では RESET DEFAULT）まで押されてしまう不具合を修正</li>
+        </ul>
+      </div>
+
       <div class="changelog-entry">
         <div class="changelog-entry-head">
           <span class="changelog-ver">v2.6.1</span>
