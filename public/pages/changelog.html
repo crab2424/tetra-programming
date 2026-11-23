@@ -22,14 +22,13 @@
           <span class="changelog-date">2026/11/24</span>
         </div>
         <ul class="changelog-items">
-          <li>CPU が VS 設定に合わせて動くように。HOLD なしの試合では TET CPU が HOLD を使う手を読まず、LV7 は DAMAGE ON CLEAR・HOLE RATE も考える。PUYO CPU は消去数の設定に合わせて消え方を読み、LV4〜6 は連鎖縛り未満の連鎖を（ピンチのとき以外は）撃たない</li>
-          <li>TET CPU LV5 の ZONE は 22 段までに抑えるように</li>
-          <li>VERSUS の REPLAY から PLAY HERE で続けた試合を、元のリプレイの中に枝（BRANCH）として保存するように。1 か所から 30 本まで（超えたら★のない古い枝から消す）。再生中の印の画面（M）から OPEN ▶ で枝を開き、◀ PARENT で元へ戻れる。REPLAYS 一覧には元のリプレイの 1 行だけが出る</li>
-          <li>REPLAY の再生中に I でその試合のルール（モード・VS 設定・ZONE BATTLE のフェーズ・操作設定・版など）を見られるように</li>
-          <li>VS SETTINGS にも PRESET を追加（3 つまで・VERSUS と ZONE BATTLE で別々・名前を変更可。Discord でログインしていると端末間で共有）。PRESET の切替を下線の見た目に</li>
-          <li>リザルト画面を左右 2 列にし、右に DETAIL（PPS・APM・LPM、ライン消しと T-Spin の種類ごとの回数、パーフェクトクリア、最大 REN・B2B、消したぷよ・全消し・連鎖数ごとの回数）を表示するように。VERSUS は 1P / 2P を並べて表示</li>
+          <li>CPU が VS 設定に合わせて動くように。</li>
+          <li>TET CPU LV5 の ZONE を少しだけ弱体化</li>
+          <li>VERSUS の REPLAY から PLAY HERE で続けた試合を、元のリプレイの中に枝（BRANCH）として保存するように。</li>
+          <li>REPLAY の再生中に I でその試合のルールを見られるように</li>
+          <li>VS SETTINGS にも PRESET を追加</li>
+          <li>リザルト画面を左右 2 列にし、右に詳細を表示</li>
           <li>ランキングで名前を隠せるように（ホーム右上のアカウント画面の RANKING NAME）。隠すと PLAYER-xxxx と表示され、アイコンは出ない</li>
-          <li>CPU TEST の CPU 同士で、リプレイを保存する条件（時間・スコア・連鎖・火力の下限）を MATCH LOG から設定できるように</li>
           <li>名前の変更で Enter を押して確定すると、戻った画面のボタン（VS SETTINGS では RESET DEFAULT）まで押されてしまう不具合を修正</li>
         </ul>
       </div>
@@ -40,8 +39,7 @@
           <span class="changelog-date">2026/11/23</span>
         </div>
         <ul class="changelog-items">
-          <li>特殊な遊び方（TET CPU LV7・PUYO CPU の高速設置・CPU 同士・盤面入れ替え・REPLAY からの続き）をした試合に MOD の印を付けるように。HUD・リザルト・REPLAYS 一覧に表示し、自己ベスト・ランキング・STATS には数えない</li>
-          <li>REPLAY の再生中に R で最初から見直せるように。PLAY HERE で続きを遊んでいる間の R・RETRY は、その局面からやり直す RETRY HERE になる。PLAY HERE は常に 3・2・1 のカウントダウンから始まり、始まる前に再生用の表示を消すように</li>
+          <li>REPLAY の再生中に R で最初から見直せるように</li>
           <li>REPLAY に入る・戻るときの BGM を、前の曲をフェードアウトしてから切り替えるように</li>
           <li>先行回転（IRS）だけで助かる出現（HOLD からの出現も含む）では、少し待ってから窒息を判定するように</li>
           <li>SETTINGS に操作・表示の設定を 3 つまで保存して切り替えられる PRESET を追加（名前を変更可。Discord でログインしていると端末間で共有）</li>
@@ -56,12 +54,12 @@
           <span class="changelog-date">2026/11/22</span>
         </div>
         <ul class="changelog-items">
-          <li>新モード ZONE BATTLE を追加（TET）。ホームの VERSUS の下から選べる ZONE ありの対戦で、スコアや時間でフェーズ（01→03）が進み、ZONE CHARGE・ZONE TIME・おじゃまの穴のばらつきが変わる。PHASE TRIGGER（SCORE/TIME）・MARGIN TRIGGER（TIME/SCORE）やフェーズごとの値を VS 設定で変えられる。CPU もフェーズが進む前に ZONE を撃つ</li>
-          <li>通常の VERSUS から ZONE の設定を外し、ZONE BATTLE と VS 設定を別に保存するように。CPU TEST の CPU 同士で STANDARD / ZONE を選べる</li>
+          <li>新モード ZONE BATTLE を追加（TET）。ホームの VERSUS の下から選べる ZONE ありの対戦で、スコアや時間でフェーズ（01→03）が進み、ZONE CHARGE・ZONE TIME・おじゃまの穴のばらつきが変わる。PHASE TRIGGER（SCORE/TIME）・MARGIN TRIGGER（TIME/SCORE）やフェーズごとの値を VS 設定で変えられる。</li>
+          <li>通常の VERSUS から ZONE の設定を外し、ZONE BATTLE と VS 設定を別に保存するように。</li>
           <li>VS SETTINGS をホームの SETTINGS と同じ形（タブ・SAVE で確定・RESET の確認）に変更。ASSIST の既定を OFF にし、CPU LEVEL を保存するように</li>
-          <li>ZONE の火力を調整し、シングルでもメーター満タンを超えた分を次へ持ち越すように</li>
-          <li>TET CPU LV1・LV2 が回転・横移動を 1 操作ずつ入れるように。LV3 の T-spin のソフトドロップを人と同じ速さに。LV6 が天井近くで置き場所を 1 列ずらす不具合を修正</li>
-          <li>独自ドメイン tetlabo.com で遊べるように。オンライン対戦の既定の接続先を新しいサーバー（api.tetlabo.com）に変更し、旧サーバーを設定していた場合は自動で切り替える</li>
+          <li>ZONE の火力とゲージ進行を調整</li>
+          <li>TET CPU の一部 LV の挙動を修正</li>
+          <li>TETLABOのドメインを tetlabo.com に変更。オンライン対戦の既定の接続先を新しいサーバー（api.tetlabo.com）に変更し、旧サーバーを設定していた場合は自動で切り替える</li>
         </ul>
       </div>
 
@@ -77,7 +75,7 @@
           <li>ゲームパッドでメニュー画面を操作できるように</li>
           <li>VERSUSの予告ゲージを、どの火力でも「1手で降るかたまり」で表示するように。準備画面のWATCH BESTに登場アニメを追加</li>
           <li>TET CPU LV6・LV7がZONEと先行回転・先行ホールドを使うように。ZONEの終わり方や、高い盤面での置き場所ずれなどの不具合を調整</li>
-          <li>プレイ記録（STATS）を追加。メインメニューの STATS から、モードごとの遊んだ回数・時間・平均スコアや平均タイム・PPS・T-SPIN などの数、VERSUS（対 CPU）と ONLINE の勝敗・勝率・APM、QUIZ の解いた問題数、直近 100 件の履歴を見られる。Discord でログインしていると、ログインした端末すべての成績を合算して表示する</li>
+          <li>プレイ記録（STATS）を追加。</li>
           <li>オンライン対戦で、READY中の相手のNEXT表示、再戦が始まらない不具合、窒息しても決着しない不具合を修正</li>
           <li>MARATHONのSTART LEVELが開始時から効くように修正。CPU連戦で10分ごとにSEが止まる不具合を修正。その他軽微なバグを修正</li>
         </ul>
