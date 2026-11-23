@@ -290,6 +290,11 @@ const ReplaysPage = {
         if (d.clip) tags.push('<span class="replays-tag">CLIP</span>');
         if (it.keepFor && it.keepFor.length) tags.push('<span class="replays-tag">BEST</span>');
         if (it.imported) tags.push('<span class="replays-tag">IMPORT</span>');
+        // 隠し機能を使った対戦（MOD。app/versus.js）。中身は title に
+        if (Array.isArray(d.mods) && d.mods.length) {
+            const t = (typeof versusModTitle === 'function') ? versusModTitle(d.mods) : 'MOD';
+            tags.push(`<span class="replays-tag replays-tag-mod" title="${t.replace(/"/g, '&quot;')}">MOD</span>`);
+        }
         if (d.engine !== REPLAY_ENGINE_VERSION) tags.push('<span class="replays-tag replays-tag-old">OLD</span>');
         const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
         main.innerHTML =

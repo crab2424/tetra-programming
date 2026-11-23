@@ -583,6 +583,30 @@ class PracticeManager {
         return true;
     }
 
+    // リプレイの PLAY HERE から始めた PRACTICE: R キー・パッドの RESTART・ポーズの RESTART（どれも
+    // エンジンの start() を直接呼ぶ）を RETRY HERE（PLAY HERE の局面からもう一度。core/replay.js retryHere）に変える。
+    // 最初の start() の後に付け、destroy() で外す（インスタンスは他のモードでも使い回すため）。
+    guardReplayRestart() {
+        const g = this.gameInstance;
+        if (!g || this._replayStartGuard) return;
+        const own = Object.prototype.hasOwnProperty.call(g, 'start');
+        const orig = g.start;
+        this._replayStartGuard = { g, own, orig };
+        g.start = function (...args) {
+            const rm = window.ReplayManager;
+            if (rm && rm.backTo && rm.backTo.handoff) { rm.retryHere(); return; }
+            return orig.apply(this, args);
+        };
+    }
+
+    _unguardReplayRestart() {
+        const r = this._replayStartGuard;
+        if (!r) return;
+        this._replayStartGuard = null;
+        if (r.own) r.g.start = r.orig;
+        else delete r.g.start;
+    }
+
     // 現在プレイ可能か（巻き戻しを受け付けてよい状態か）
     _isLive() {
         const g = this.gameInstance;
@@ -1868,6 +1892,7 @@ class PracticeManager {
     // 破棄（stopAllGames から呼ばれる）
     // ─────────────────────────────────────────
     destroy() {
+        this._unguardReplayRestart();
         if (window.Assist) window.Assist.detach();
         this._removeKeyHandler();
         this._removeGamepadHandler();
@@ -2252,6 +2277,7 @@ function startPracticeGame(opts = {}) {
         // 消えてしまう。start() 呼び出し（_setupCanvas() までは同期）の直後に取り直す。
         if (typeof window._puyoGame.resizeNextCanvas === 'function') window._puyoGame.resizeNextCanvas();
         if (opts.handoff) manager.applyHandoff(opts.handoff);
+        if (opts.handoff) manager.guardReplayRestart();
         return;
     }
 
@@ -2278,7 +2304,10 @@ function startPracticeGame(opts = {}) {
     switchPage('game');
     setupGlobalCpuPauseKey();
     window._game.start();
-    if (opts.handoff) manager.applyHandoff(opts.handoff);
+    if (opts.handoff) {
+        manager.applyHandoff(opts.handoff);
+        manager.guardReplayRestart();
+    }
 }
 
 // リプレイの「ここから遊ぶ」（録画 M7c。core/replay.js の ReplayManager._playFromHere）。

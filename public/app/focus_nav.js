@@ -527,6 +527,10 @@
       if (restartCodes.includes(code)) {
         if (e.repeat) return;
         e.preventDefault();
+        // この後の keydown の受け手へは渡さない。onRestart で画面が切り替わる（VERSUS の続きの RETRY HERE は
+        // リプレイの再生画面へ）と、同じ R を VERSUS のリスタートキー（app/versus.js setupVersusPauseKey）が拾い、
+        // PLAY HERE の戻り先が消えた後の startVersusGame で裏に新しい対戦を始めてしまう（操作が効かなくなる）
+        e.stopImmediatePropagation();
         active.onRestart();
         return;
       }
@@ -1320,6 +1324,11 @@
       const keyAnchor    = document.getElementById('key-config-grid');
       const items = [];
       $$('.settings-header .settings-actions button').forEach(b => items.push({ el: b, scrollAnchor: headerAnchor }));
+      // プリセット（PRESET 1〜3 は ← → で切替）と RENAME
+      const presetToggle = document.getElementById('settings-preset-toggle');
+      if (presetToggle) { const it = rowToggle(presetToggle, presetToggle); it.scrollAnchor = headerAnchor; items.push(it); }
+      const presetRename = document.getElementById('settings-preset-rename');
+      if (presetRename) items.push({ el: presetRename, scrollAnchor: headerAnchor });
       if (tabToggle) { const it = rowToggle(tabToggle, tabToggle); it.scrollAnchor = headerAnchor; items.push(it); }
       const bgmSlider = document.getElementById('slider-bgm-volume');
       const seSlider  = document.getElementById('slider-se-volume');
@@ -1359,9 +1368,13 @@
       if (backend) items.push({ el: backend, scrollAnchor: backend.closest('.online-container') || backend, onActivate: () => backend.focus() });
       return items;
     },
-    // タブ行からの ↑ は、ヘッダーの SAVE へ（視覚配置の最寄りだと BACK 等になるため）
+    // プリセット行からの ↑ は、ヘッダーの SAVE へ（視覚配置の最寄りだと BACK 等になるため）。タブ行からの ↑ はプリセット行へ
     onMove2D: (dir, cur, items) => {
       if (dir === 'up' && items[cur] && items[cur].el.id === 'settings-tab-toggle') {
+        const i = items.findIndex(it => it.el.id === 'settings-preset-toggle');
+        if (i >= 0) return i;
+      }
+      if (dir === 'up' && items[cur] && (items[cur].el.id === 'settings-preset-toggle' || items[cur].el.id === 'settings-preset-rename')) {
         const i = items.findIndex(it => it.el.classList && it.el.classList.contains('btn-save'));
         if (i >= 0) return i;
       }

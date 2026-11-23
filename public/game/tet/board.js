@@ -4,7 +4,7 @@
 // ※ core.js（class Game 定義）より後に読み込むこと
 // ─────────────────────────────────────────────
 
-// IHS で助かるときだけ出現を待つ長さ（設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §3.2。仮）
+// IHS・IRS で助かるときだけ出現を待つ長さ（設計 source_assets/memory/mode/tet_zone/tetlabo-irs-ihs-design.md §3.2。仮）
 const IHS_RESCUE_DELAY_MS = 100;
 
 Object.assign(Game.prototype, {
@@ -58,7 +58,7 @@ Object.assign(Game.prototype, {
 
     // 新しいミノを出す
     popMino() {
-        // IHS で助かるときだけ、少し待ってから出す（待ち明けにもう一度ここへ来る）
+        // IHS・IRS で助かるときだけ、少し待ってから出す（待ち明けにもう一度ここへ来る）
         if (this._ihsRescueWait()) return;
         // 置いた後に先行回転・先行ホールドのキーが残っているときは、DCD のあいだ隠して待つ（rotation.js §12）
         if (this._spawnHideStart()) return;
@@ -73,8 +73,8 @@ Object.assign(Game.prototype, {
         }
 
         this._refillNext();
-        // 先行ホールドで出たミノは、ふつうのホールドと同じくもうホールドできない
-        this.canHold = !this._spawnIhsUsed
+        // 先行ホールドで出たミノ・ホールドで出たミノ（IRS の猶予の待ち明けも）は、もうホールドできない
+        this.canHold = !this._spawnIhsUsed && !this._spawnNoIhs
 
         // 状態・タイマー・カウントの初期化
         this.isGrounded = false;

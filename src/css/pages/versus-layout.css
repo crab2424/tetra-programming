@@ -277,6 +277,33 @@
   display: none;
 }
 
+/* MOD（隠し機能を使った対戦の印。app/versus.js setVersusMods）。中央の余白の上端に小さく */
+.mod-badge {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  line-height: 1;
+  padding: 3px 6px 3px 8px;
+  border: 1px solid #f5b942;
+  border-radius: 3px;
+  color: #f5b942;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  cursor: default;
+  user-select: none;
+}
+#versus-mod-badge {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.mod-badge-result {
+  display: inline-block;
+  margin: -6px auto 10px;
+}
+
 /* APM/LPM/TIME（上級者向けHUD）: SETTINGS > DISPLAY のON/OFFに body クラスで連動する。
    APM/LPMはtet専用のためBattleLayout側でルールに応じたinline displayも別途制御する。 */
 .hud-apm-block {

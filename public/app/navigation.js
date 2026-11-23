@@ -277,7 +277,8 @@ function switchPage(pageId) {
   const _animPageId = pageId;
 
   // 準備画面（mode select 等）もメニューBGM。リザルトから戻った場合はクロスフェードで滑らかに切替。
-  const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check'];
+  // REPLAYS（リプレイの一覧）も同じ。再生をやめて一覧へ戻ったら、リプレイの曲からメニュー曲へ戻す
+  const menuPages = ['mode-check', 'versus-check', 'vs-settings', 'quiz-check', 'replays'];
   // CPU同士の対戦（隠しコマンド）は準備画面を開き直したら通常に戻す（v2.2.3 J）
   if (pageId === 'versus-check') {
     if (selectedCpuLevel === 8) selectedCpuLevel = 6; // CLYS は CPU TEST 専用
@@ -289,7 +290,8 @@ function switchPage(pageId) {
     // （CPU同士の 1P 側だけ、1P の LV 指定と合わせて開き直しで通常へ戻す）
   }
   if (menuPages.includes(pageId)) {
-    if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
+    // REPLAYS へはリプレイの曲を消し切ってからメニュー曲（REPLAY の出入りは重ねない。core/replay.js と同じ）
+    if (window.BgmManager) window.BgmManager[pageId === 'replays' ? 'fadeTo' : 'crossfadeTo']('menu_bgm');
   }
 
   // リザルト画面ではプレイ中のBGMをそのまま引き継ぐ（消さない）。
@@ -763,6 +765,12 @@ function _applyModePauseSelectStyle(btn) {
 }
 
 async function startGameFromModeCheck() {
+  // リプレイの PLAY HERE から始めた PRACTICE のリザルトの RETRY は RETRY HERE（PLAY HERE の局面から。core/replay.js）
+  if (window.ReplayManager?.backTo && window.ReplayManager.backTo.handoff
+      && currentGameMode && currentGameMode.id === 'practice') {
+    window.ReplayManager.retryHere();
+    return;
+  }
   // CPU TEST の CPU 同士（OPPONENT: PUYO / TET）は VERSUS の盤面で動かす（versus.js）
   if (currentGameMode && currentGameMode.id === 'test' && testOpponent !== 'none') {
     startTestCpuVsCpu();

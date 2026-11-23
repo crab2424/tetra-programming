@@ -316,33 +316,56 @@ Object.assign(Game.prototype, {
         if (!h.rot && !h.hold) this._spawnHideEnd()
     },
 
-    // IHS で助かるときの入力猶予（設計 §3.2・独自ルール）。待つと決めたら予約して true を返す。
-    //   待つのは: IHS が ON・ホールドが使える・いま押しているキーのままだと出せない・
-    //             IHS で出てくるミノなら（向き 0、IRS が ON なら左右の回転でも）出せる、のとき。
-    //   回転だけで助かる場合は待たない。待ち明けは popMino をもう一度呼ぶ（1 回の出現で待つのは 1 回）。
-    _ihsRescueWait() {
-        if (!this._ihsOn || this._noSpawnAssist || this._spawnNoIhs || this._ihsRescueResume) return false
-        if (!this.keyState || !this._holdAllowed()) return false
-        const cur = this.nextQueue[0]
-        if (!cur || cur._quizDummy) return false
-        // IHS で出てくるミノ（ホールドにあるミノ。空なら NEXT の次）
-        let outType = null
-        if (this.holdMino) {
-            outType = this.holdMino.type
+    // IHS・IRS で助かるときの入力猶予（設計 §3.2・独自ルール）。待つと決めたら予約して true を返す。
+    //   待つのは: いま押しているキーのままだと出せない、かつ次のどちらかで出せるとき
+    //     IHS … IHS が ON・ホールドが使える・IHS で出てくるミノなら（向き 0、IRS が ON なら左右の回転でも）出せる
+    //     IRS … IRS が ON・今のミノを左右どちらかに回せば出せる（v2.6.1 から。録画の版 21 以上。
+    //           20 以下の録画の再生は今までどおり待たない。core/replay.js REPLAY_ENGINE_VERSION 21）
+    //   ホールドで出るミノ（ホールドが空なら NEXT から＝_spawnNoIhs、中身があれば入れ替え＝spec）は
+    //   IHS は当てない（いまホールドしたところ）ので IRS だけで見る（録画の版 22 以上）。
+    //   spec: ホールドの入れ替えで出すとき { type: 出すミノ, resume: 待ち明けに出し直す関数 }。
+    //         省略時は NEXT の先頭を popMino で出す（待ち明けは popMino をもう一度呼ぶ）。1 回の出現で待つのは 1 回。
+    _ihsRescueWait(spec) {
+        if (this._noSpawnAssist || this._ihsRescueResume) return false
+        if (!this.keyState || (!this._ihsOn && !this._irsOn)) return false
+        const recEngine = (this._replay && this._replay.data) ? (this._replay.data.engine || 0) : Infinity
+        let curType, fromHold, resume
+        if (spec) {
+            curType = spec.type
+            fromHold = true
+            resume = spec.resume
         } else {
-            const next = this.nextQueue[1]
-            if (next && !next._quizDummy) outType = next.type
+            const cur = this.nextQueue[0]
+            if (!cur || cur._quizDummy) return false
+            curType = cur.type
+            fromHold = !!this._spawnNoIhs
+            resume = fromHold
+                ? () => { this._spawnNoIhs = true; try { this.popMino() } finally { this._spawnNoIhs = false } }
+                : () => this.popMino()
         }
-        if (outType === null) return false
+        if (fromHold && recEngine < 22) return false
+        const irsRescue = this._irsOn && recEngine >= 21
+        // IHS で出てくるミノ（ホールドにあるミノ。空なら NEXT の次）。IHS が使えなければ null
+        let outType = null
+        if (!fromHold && this._ihsOn && this._holdAllowed()) {
+            if (this.holdMino) {
+                outType = this.holdMino.type
+            } else {
+                const next = this.nextQueue[1]
+                if (next && !next._quizDummy) outType = next.type
+            }
+        }
+        if (outType === null && !irsRescue) return false
 
-        // いま押しているキーのままで出せるなら待たない
+        // いま押しているキーのままで出せるなら待たない（ホールドを押していれば IHS で出るミノで見る）
         const dir = this._irsDir()
-        const typeNow = this.keyState.hold ? outType : cur.type
+        const typeNow = (outType !== null && this.keyState.hold) ? outType : curType
         if ((dir && this._canSpawnWith(typeNow, dir)) || this._canSpawnWith(typeNow, 0)) return false
 
-        // IHS（＋IRS）なら出せるか
-        const rescued = this._canSpawnWith(outType, 0)
-            || (this._irsOn && (this._canSpawnWith(outType, 1) || this._canSpawnWith(outType, -1)))
+        // IHS（＋IRS）か、IRS だけで出せるか
+        const rescued = (outType !== null && (this._canSpawnWith(outType, 0)
+                || (this._irsOn && (this._canSpawnWith(outType, 1) || this._canSpawnWith(outType, -1)))))
+            || (irsRescue && (this._canSpawnWith(curType, 1) || this._canSpawnWith(curType, -1)))
         if (!rescued) return false
 
         // 待つ: その間ミノはいない（重力・固定は動かない。TIME やおじゃまの猶予は止めない）
@@ -357,7 +380,7 @@ Object.assign(Game.prototype, {
             // その時点のキーで出現をやり直す。外側のフック（PRACTICE・QUIZ・ONLINE）は
             // _ihsRescueResume を見て、出現前の処理を二重にしない
             this._ihsRescueResume = true
-            try { this.popMino() } finally { this._ihsRescueResume = false }
+            try { resume() } finally { this._ihsRescueResume = false }
             this.requestRedraw()
         })
         this.requestRedraw()
@@ -383,30 +406,37 @@ Object.assign(Game.prototype, {
             try { this.popMino() } finally { this._spawnNoIhs = false }
             this.canHold = false
         } else {
-            let prevHoldType = this.holdMino.type
+            const prevHoldType = this.holdMino.type
             this.holdMino = new Mino(this.mino.type)
-
-            /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            ホールドから出した時の致命判定とタイマーリセット
-            （出現位置 → 1 段上。先行回転が ON なら回した向きを先に試す）
-            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-            if (!this._spawnMino(new Mino(prevHoldType), { allowIhs: false })) {
-                // ZONE の発動中は終わらせて盤面を下げ、出し直す（tet/zone.js）
-                if (!this._zoneRespawnAfterTopOut()) {
-                    this.gameOver();
-                    return;
-                }
+            // IRS だけで助かるときは少し待ってから出す（_ihsRescueWait。待ち明けに _spawnFromHold）
+            if (!this._ihsRescueWait({ type: prevHoldType, resume: () => this._spawnFromHold(prevHoldType) })) {
+                this._spawnFromHold(prevHoldType)
             }
-
-            // 状態・タイマー・カウントの初期化（popMinoと同じにする）
-            this.isGrounded = false;
-            this.lowestY = this.mino.y;
-            this.moveCount = 0;
-
-            this._cancelLockTimer();
-            this.startGravity();
         }
         this.requestRedraw();
+    },
+
+    // ホールドの入れ替えで出たミノを出す（holdCurrentMino・IRS の猶予の待ち明け）
+    _spawnFromHold(type) {
+        /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        ホールドから出した時の致命判定とタイマーリセット
+        （出現位置 → 1 段上。先行回転が ON なら回した向きを先に試す）
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+        if (!this._spawnMino(new Mino(type), { allowIhs: false })) {
+            // ZONE の発動中は終わらせて盤面を下げ、出し直す（tet/zone.js）
+            if (!this._zoneRespawnAfterTopOut()) {
+                this.gameOver();
+                return;
+            }
+        }
+
+        // 状態・タイマー・カウントの初期化（popMinoと同じにする）
+        this.isGrounded = false;
+        this.lowestY = this.mino.y;
+        this.moveCount = 0;
+
+        this._cancelLockTimer();
+        this.startGravity();
     },
 
     // ─────────────────────────────────────────

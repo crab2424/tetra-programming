@@ -24,7 +24,7 @@
 //         ch=連鎖の長さごとの回数（長さ 20 の配列。ch[k-1]=k 連鎖、20 以上は末尾。合算は要素ごとに足す）
 //
 // 入口
-//   beginVersus(ctx) / endVersus(r) … VERSUS（対 CPU）。app/versus.js から
+//   beginVersus(ctx) / endVersus(r) / discardVersus() … VERSUS（対 CPU）。app/versus.js から（MOD の対戦は数えない）
 //   beginOnline(ctx) / endOnline(r, info) / discardOnline() / abortOnline() … ONLINE。src/online/online_game.ts から
 //   beginQuiz(ctx) / endQuiz(r)     … QUIZ。quiz/quiz.js から
 //   onPuyoInit(game) … game/puyo/lifecycle.js の start の頭（テトの onTetInit と同じ役目）
@@ -434,6 +434,11 @@
         _close(r === 'w' ? 'w' : 'l');
     }
 
+    // 試合の途中で MOD になった（盤面入れ替えなど。app/versus.js addVersusMod）: この対戦は数えない
+    function discardVersus() {
+        if (current && current.rule === 'vs') current = null;
+    }
+
     // ONLINE（src/online/online_game.ts。カウントダウン明けにラウンドの本編が始まった所）
     // ctx = { game, myRule: 'tet'|'puyo', oppRule: 'tet'|'puyo'|'multi' }
     function beginOnline(ctx) {
@@ -820,7 +825,7 @@
     }
 
     window.Stats = {
-        onTetInit, onPuyoInit, end, abort, beginVersus, endVersus, beginOnline, endOnline, discardOnline, abortOnline,
+        onTetInit, onPuyoInit, end, abort, beginVersus, endVersus, discardVersus, beginOnline, endOnline, discardOnline, abortOnline,
         beginQuiz, endQuiz,
         getQuizCleared, guestImportPending, importGuest, declineGuest, reset,
         legacySize, importLegacy,

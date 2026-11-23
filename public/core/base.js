@@ -1191,6 +1191,15 @@ class BgmManager {
         this._whenPlayable(src, audio, (playable) => this._fadeIn(audio, playable, stepCount));
     }
 
+    // 別BGMへ「前の曲を ms かけて消し切ってから」切り替える（重ねない。REPLAY の出入りで使用）。
+    // 同じ曲が流れていれば（フェードアウト中でも）戻してそのまま。消している途中に別の play/stop が来たら鳴らさない。
+    static fadeTo(key, ms = 800) {
+        if (!AudioLoader.getBgmSrc(key)) return;
+        if (this._currentKey === key && this._audio) { this.crossfadeTo(key, ms); return; }
+        if (!this._audio) { this.play(key); return; }
+        this.stop(false, ms, () => this.play(key));
+    }
+
     static _fadeIn(audio, playable, stepCount) {
         audio.src = playable;
         if (!this._pauseRequested) audio.play().catch(() => {});
@@ -1543,10 +1552,16 @@ AudioLoader.loadSe({
     //   'practice_board_clear' を practiceClearBoard() 側で鳴らしており、
     //   マウス経路だけ menu_decide と二重に鳴ってしまうため。
 
+    // 戻る系: class に back/mainmenu/cancel を含む・data-se="cancel"・表示が ◀ か ⌂ で始まる
+    //   （◀ BACK・⌂ MAIN MENU・◀ MODE SELECT・◀ LEVEL SELECT・◀ EXIT・◀ TITLE・ONLINE の ◀ LEAVE / ◀ キャンセル など）。
+    //   ◀ で始まっても先へ進むもの（◀ REPLAY = PLAY HERE の先からリプレイへ）は data-se="decide" で決定音にする。
     const isCancelBtn = (el) => {
-        const cls = el.className || '';
-        return cls.includes('back') || cls.includes('mainmenu') || cls.includes('cancel')
-            || el.dataset?.se === 'cancel';
+        const se = el.dataset?.se;
+        if (se === 'decide') return false;
+        if (se === 'cancel') return true;
+        const cls = typeof el.className === 'string' ? el.className : '';
+        if (cls.includes('back') || cls.includes('mainmenu') || cls.includes('cancel')) return true;
+        return /^[◀⌂]/.test((el.textContent || '').trim());
     };
 
     // ON/OFF・レベル・ステップ等の「選択を切り替えるだけ」のボタンは決定音ではなく選択音
@@ -1559,8 +1574,10 @@ AudioLoader.loadSe({
             window.SeManager?.playExclusive('menu_cursor');
             return;
         }
-        const btn = e.target.closest(CLICK_SELECTOR);
+        let btn = e.target.closest(CLICK_SELECTOR);
         if (!btn) return;
+        // ボタンの中のアイコン（.menu-btn-icon の ◀ など）を押したときは、外側のボタン本体で見る
+        if (btn.classList.contains('menu-btn-icon')) btn = btn.parentElement?.closest(CLICK_SELECTOR) || btn;
         window.SeManager?.play(isCancelBtn(btn) ? 'menu_cancel' : 'menu_decide');
     }, true);
 
