@@ -290,7 +290,8 @@ function switchPage(pageId) {
     // （CPU同士の 1P 側だけ、1P の LV 指定と合わせて開き直しで通常へ戻す）
   }
   if (menuPages.includes(pageId)) {
-    if (window.BgmManager) window.BgmManager.crossfadeTo('menu_bgm');
+    // REPLAYS へはリプレイの曲を消し切ってからメニュー曲（REPLAY の出入りは重ねない。core/replay.js と同じ）
+    if (window.BgmManager) window.BgmManager[pageId === 'replays' ? 'fadeTo' : 'crossfadeTo']('menu_bgm');
   }
 
   // リザルト画面ではプレイ中のBGMをそのまま引き継ぐ（消さない）。

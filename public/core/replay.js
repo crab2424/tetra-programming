@@ -1739,12 +1739,11 @@ const ReplayManager = {
         this._setBack(b);
     },
 
-    // PLAY HERE で PRACTICE へ移るとき: 流れているリプレイの曲を 3・2・1 のあいだにフェードアウトする
-    // （START! で PRACTICE の曲が鳴る。tet/lifecycle.js・puyo/lifecycle.js。同じ曲ならそのまま）
+    // PLAY HERE で PRACTICE へ移るとき: 流れているリプレイの曲を消し切ってから PRACTICE の曲を鳴らす
+    // （カウントダウンには合わせない。START! の play は同じ曲なのでそのまま続く。tet/lifecycle.js・puyo/lifecycle.js）
     _fadeBgmForPractice() {
         const bgm = window.BgmManager;
-        if (!bgm || bgm.isCurrent(bgm.singleBgmKey('practice'))) return;
-        bgm.stop(false, typeof COUNTDOWN_TO_START_MS === 'number' ? COUNTDOWN_TO_START_MS : 2100);
+        if (bgm) bgm.fadeTo(bgm.singleBgmKey('practice'));
     },
 
     // ◀ REPLAY: 試合を止めて、PLAY HERE を押した所から見直す（止めた状態。スナップショットは作り直しなので長い試合はシークに少しかかる）
@@ -1885,8 +1884,8 @@ const ReplayManager = {
             ? `v${data.app}（${data.build}）で録画されたリプレイです。今の版では途中からずれることがあります`
             : '');
         // BGM は等速で流し続ける（1 回だけ鳴らす。同じ曲が流れていればそのまま）。
-        // 別の曲（REPLAYS のメニュー曲・◀ REPLAY で戻る前の PRACTICE の曲）からはクロスフェードで移る
-        if (window.BgmManager) window.BgmManager.crossfadeTo(p.mode.bgm(data));
+        // 別の曲（REPLAYS のメニュー曲・◀ REPLAY で戻る前の PRACTICE の曲）は消し切ってから鳴らす
+        if (window.BgmManager) window.BgmManager.fadeTo(p.mode.bgm(data));
         p.restart();
         p.play();
         if (opts && opts.at != null) {
@@ -2318,6 +2317,15 @@ const ReplayManager = {
         // ロード画面を出していたら先に消す（カウントダウンを見せるため）
         await window.BattleLocalLoading.reveal();
         if (stale()) return;
+        // 外枠のリプレイの UI（上の帯・下のバー。body.replay-watching）はカウントダウンの前に消す
+        // （START! で消すと盤面の位置がその瞬間に動く）。続きへ行けなかったら戻す
+        const uiHidden = document.body.classList.contains('replay-ui-hidden');
+        document.body.classList.remove('replay-watching', 'replay-ui-hidden');
+        const restoreUi = () => {
+            if (this.player !== p || !p.watching) return;
+            document.body.classList.add('replay-watching');
+            if (uiHidden) document.body.classList.add('replay-ui-hidden');
+        };
         // 3・2・1（PLAY HERE は常にカウントダウンから。急に試合が動き出さないように）。その間は再生を止めたまま、キーも受けない
         this._goingLive = true;
         try {
@@ -2328,8 +2336,8 @@ const ReplayManager = {
         } finally {
             this._goingLive = false;
         }
-        if (stale()) return;
-        if (p.state !== 'pause' || !p.canGoLive()) return;
+        if (stale()) { restoreUi(); return; }
+        if (p.state !== 'pause' || !p.canGoLive()) { restoreUi(); return; }
         // 再生をやめて、盤面はそのまま本物の試合へ
         const back = again ? Object.assign({}, again, { fresh: false }) : this._backFrom(p, false);
         this.player = null;

@@ -1068,7 +1068,6 @@ async function selectPreset(i) {
   applyActivePresetToStorage();
   _reloadSettingsFromStorage();
   renderPresetRow();
-  if (typeof showGlobalToast === 'function') showGlobalToast(`${loadPresets().list[i].name} に切り替えました`);
   window.CloudSync?.touch?.();
 }
 

@@ -1191,6 +1191,15 @@ class BgmManager {
         this._whenPlayable(src, audio, (playable) => this._fadeIn(audio, playable, stepCount));
     }
 
+    // 別BGMへ「前の曲を ms かけて消し切ってから」切り替える（重ねない。REPLAY の出入りで使用）。
+    // 同じ曲が流れていれば（フェードアウト中でも）戻してそのまま。消している途中に別の play/stop が来たら鳴らさない。
+    static fadeTo(key, ms = 800) {
+        if (!AudioLoader.getBgmSrc(key)) return;
+        if (this._currentKey === key && this._audio) { this.crossfadeTo(key, ms); return; }
+        if (!this._audio) { this.play(key); return; }
+        this.stop(false, ms, () => this.play(key));
+    }
+
     static _fadeIn(audio, playable, stepCount) {
         audio.src = playable;
         if (!this._pauseRequested) audio.play().catch(() => {});
