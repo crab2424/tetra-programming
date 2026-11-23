@@ -93,6 +93,7 @@ const DEFAULT_DISPLAY = {
   versusTime: true, // 対戦画面のTIME表示
   ghostStyle: 'fill', // 'fill'=ゴーストが薄い塗り・アシストが枠線 / 'outline'=入れ替え（ゴーストが枠線・アシストが薄い塗り）
   replayAutoSave: true, // 最後まで遊んだ試合のリプレイを自動で保存する（OFF でも最高記録のものは残す。app/replays.js）
+  playHereCountdown: true, // リプレイの PLAY HERE（PRACTICE・VERSUS の続き）を 3・2・1 から始める（core/replay.js）
 };
 
 // ゴーストを枠線で描くか（true のときアシストが薄い塗りになる）
@@ -510,6 +511,12 @@ function renderDisplayOptions() {
   if (autoSaveToggle) {
     autoSaveToggle.querySelectorAll('.opt-btn').forEach((btn) => {
       btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.replayAutoSave);
+    });
+  }
+  const cdToggle = document.getElementById('display-playhere-countdown-toggle');
+  if (cdToggle) {
+    cdToggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn.dataset.value === 'on') === (currentDisplay.playHereCountdown !== false));
     });
   }
 }

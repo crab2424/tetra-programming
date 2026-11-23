@@ -316,33 +316,40 @@ Object.assign(Game.prototype, {
         if (!h.rot && !h.hold) this._spawnHideEnd()
     },
 
-    // IHS で助かるときの入力猶予（設計 §3.2・独自ルール）。待つと決めたら予約して true を返す。
-    //   待つのは: IHS が ON・ホールドが使える・いま押しているキーのままだと出せない・
-    //             IHS で出てくるミノなら（向き 0、IRS が ON なら左右の回転でも）出せる、のとき。
-    //   回転だけで助かる場合は待たない。待ち明けは popMino をもう一度呼ぶ（1 回の出現で待つのは 1 回）。
+    // IHS・IRS で助かるときの入力猶予（設計 §3.2・独自ルール）。待つと決めたら予約して true を返す。
+    //   待つのは: いま押しているキーのままだと出せない、かつ次のどちらかで出せるとき
+    //     IHS … IHS が ON・ホールドが使える・IHS で出てくるミノなら（向き 0、IRS が ON なら左右の回転でも）出せる
+    //     IRS … IRS が ON・今のミノを左右どちらかに回せば出せる（v2.6.1 から。録画の版 21 以上。
+    //           20 以下の録画の再生は今までどおり待たない。core/replay.js REPLAY_ENGINE_VERSION 21）
+    //   待ち明けは popMino をもう一度呼ぶ（1 回の出現で待つのは 1 回）。
     _ihsRescueWait() {
-        if (!this._ihsOn || this._noSpawnAssist || this._spawnNoIhs || this._ihsRescueResume) return false
-        if (!this.keyState || !this._holdAllowed()) return false
+        if (this._noSpawnAssist || this._spawnNoIhs || this._ihsRescueResume) return false
+        if (!this.keyState || (!this._ihsOn && !this._irsOn)) return false
         const cur = this.nextQueue[0]
         if (!cur || cur._quizDummy) return false
-        // IHS で出てくるミノ（ホールドにあるミノ。空なら NEXT の次）
+        const recEngine = (this._replay && this._replay.data) ? (this._replay.data.engine || 0) : Infinity
+        const irsRescue = this._irsOn && recEngine >= 21
+        // IHS で出てくるミノ（ホールドにあるミノ。空なら NEXT の次）。IHS が使えなければ null
         let outType = null
-        if (this.holdMino) {
-            outType = this.holdMino.type
-        } else {
-            const next = this.nextQueue[1]
-            if (next && !next._quizDummy) outType = next.type
+        if (this._ihsOn && this._holdAllowed()) {
+            if (this.holdMino) {
+                outType = this.holdMino.type
+            } else {
+                const next = this.nextQueue[1]
+                if (next && !next._quizDummy) outType = next.type
+            }
         }
-        if (outType === null) return false
+        if (outType === null && !irsRescue) return false
 
-        // いま押しているキーのままで出せるなら待たない
+        // いま押しているキーのままで出せるなら待たない（ホールドを押していれば IHS で出るミノで見る）
         const dir = this._irsDir()
-        const typeNow = this.keyState.hold ? outType : cur.type
+        const typeNow = (outType !== null && this.keyState.hold) ? outType : cur.type
         if ((dir && this._canSpawnWith(typeNow, dir)) || this._canSpawnWith(typeNow, 0)) return false
 
-        // IHS（＋IRS）なら出せるか
-        const rescued = this._canSpawnWith(outType, 0)
-            || (this._irsOn && (this._canSpawnWith(outType, 1) || this._canSpawnWith(outType, -1)))
+        // IHS（＋IRS）か、IRS だけで出せるか
+        const rescued = (outType !== null && (this._canSpawnWith(outType, 0)
+                || (this._irsOn && (this._canSpawnWith(outType, 1) || this._canSpawnWith(outType, -1)))))
+            || (irsRescue && (this._canSpawnWith(cur.type, 1) || this._canSpawnWith(cur.type, -1)))
         if (!rescued) return false
 
         // 待つ: その間ミノはいない（重力・固定は動かない。TIME やおじゃまの猶予は止めない）
