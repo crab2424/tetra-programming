@@ -397,6 +397,157 @@ function replayFmtTime(ms) {
     return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(cs).padStart(2, '0');
 }
 
+// ─── ルールの画面（I。v2.6.2）: 録画に入っている設定を表にする ───
+// 返すのは [{ title, cols: ['1P', '2P'] | [''], rows: [[ラベル, 値, 値?], …] }]。値は文字。
+// 盤面ごとの設定（players[].env）は盤面ごとの列に、試合全体のもの（モード・版など）は 1 列に入れる。
+// 当てはまらない盤面（TET の行の PUYO 盤面など）は '—'
+function replayRulesSections(data) {
+    const pl = (data.players || []).slice().sort((a, b) => (a.side || 0) - (b.side || 0));
+    const versus = data.mode === 'versus';
+    const cols = versus ? pl.map((p) => (p.side ? '2P' : '1P')) : [''];
+    const env = (p) => (p && p.env) || {};
+    const has = (k) => pl.some((p) => k in env(p));
+    const onOff = (v) => (v ? 'ON' : 'OFF');
+    const sec = [];
+    const one = (title, rows) => { if (rows.length) sec.push({ title, cols: [''], rows }); };
+    const per = (title, rows) => { if (rows.length) sec.push({ title, cols, rows }); };
+    // 盤面ごとの 1 行。fmt(v, p) が undefined を返したら '—'。どの盤面にも無ければ行を出さない
+    const row = (rows, label, key, fmt, rule) => {
+        if (!has(key)) return;
+        const cells = pl.map((p) => {
+            if (rule && p.rule !== rule) return '—';
+            const e = env(p);
+            if (!(key in e)) return '—';
+            const t = fmt(e[key] === 'Infinity' ? Infinity : e[key], p);
+            return t === undefined ? '—' : String(t);
+        });
+        if (cells.every((c) => c === '—')) return;
+        rows.push([label, ...(versus ? cells : cells.slice(0, 1))]);
+    };
+
+    // 試合
+    const sum = (typeof replaySummary === 'function') ? replaySummary(data) : { mode: String(data.mode || '').toUpperCase() };
+    const match = [['MODE', sum.mode]];
+    if (sum.result) match.push(['RESULT', sum.stat ? `${sum.result}（${sum.stat}）` : sum.result]);
+    const date = (typeof replayDateText === 'function') ? replayDateText(data.recordedAt) : '';
+    if (date) match.push(['RECORDED', date]);
+    match.push(['LENGTH', replayFmtTime(data.durationMs || 0)]);
+    if (data.clip) match.push(['CLIP', `${data.clip.label || 'CLIP'}（${replayFmtTime(data.clip.fromMs || 0)} から）`]);
+    if (data.branch) {
+        const b = data.branch;
+        match.push(['CONTINUED', `元のリプレイの ${replayFmtTime(b.atMs || 0)} から続けた試合${b.depth > 1 ? `（${b.depth} 回目）` : ''}`]);
+    }
+    if (Array.isArray(data.mods) && data.mods.length) {
+        const L = (typeof VERSUS_MOD_LABELS !== 'undefined') ? VERSUS_MOD_LABELS : {};
+        match.push(['MOD', data.mods.map((m) => L[m] || String(m)).join(' / ')]);
+    }
+    one('MATCH', match);
+
+    // 盤面（人・CPU）
+    const who = [
+        ['NAME', ...pl.map((p) => p.name || '—')],
+        ['RULE', ...pl.map((p) => (p.rule === 'tet' ? 'TET' : 'PUYO'))],
+        ['PLAYER', ...pl.map((p) => (p.kind === 'cpu' ? 'CPU' : 'HUMAN'))],
+    ];
+    if (pl.some((p) => p.level != null)) who.push(['CPU LEVEL', ...pl.map((p) => (p.level != null ? String(p.level) : '—'))]);
+    if (pl.some((p) => p.cpu && p.cpu.className)) {
+        who.push(['CPU', ...pl.map((p) => (p.cpu && p.cpu.className ? p.cpu.className + (p.cpu.weightsId ? ` / ${p.cpu.weightsId}` : '') : '—'))]);
+    }
+    per('PLAYERS', who.map((r) => (versus ? r : r.slice(0, 2))));
+
+    // ルール（モード・VS 設定）
+    const rules = [];
+    row(rules, 'GOAL', 'marathonGoal', (v) => (data.mode === 'marathon' ? (v === Infinity ? 'ENDLESS' : `${v} LINES`) : undefined));
+    row(rules, 'START LEVEL', 'marathonStartLevel', (v) => ((data.mode === 'marathon' || data.mode === 'zone') ? v : undefined));
+    if (data.mode === 'zone') {
+        row(rules, 'ZONE LEVEL', 'zoneFixedLevel', (v) => (v ? 'FIXED' : 'UP'));
+        row(rules, 'ZONE TIME', 'zoneQuarterMsSetting', (v) => `${v / 1000}s / 25%`);
+        row(rules, 'ZONE CHARGE', 'zoneQuarterLinesSetting', (v) => `${v} LINES / 25%`);
+    }
+    if (versus) {
+        const margin = (v, p) => {
+            const e = env(p);
+            if (v === null) return 'OFF';
+            if (e.vsMarginTrigger === 'score') return `SCORE ${e.vsMarginScore === 0 ? 'INSTANT' : `${(e.vsMarginScore || 0) / 1000}K`}`;
+            return v === 0 ? 'INSTANT' : `${v / 1000}s`;
+        };
+        row(rules, 'MARGIN', 'vsMarginTimeMs', margin);
+        row(rules, 'ATTACK BIAS', 'vsAttackMultiplier', (v) => {
+            const tbl = (typeof ATTACK_BIAS_TABLE !== 'undefined') ? ATTACK_BIAS_TABLE : [];
+            const i = tbl.findIndex((e) => Math.abs(e.num / e.den - v) < 1e-9);
+            return i >= 0 ? `${i - 3 > 0 ? '+' : ''}${i - 3}（${tbl[i].pct}%）` : `${Math.round(v * 100)}%`;
+        });
+        row(rules, 'HOLD', 'vsHoldEnabled', onOff, 'tet');
+        // PHASE ON の ZONE BATTLE は穴をフェーズの表で決める（下の ZONE の節）
+        const phaseOn = (p) => env(p).vsZone === true && env(p).vsZonePhase === true;
+        row(rules, 'HOLE RATE', 'vsGarbageHoleRate', (v, p) => (phaseOn(p) ? undefined : `${v}%`), 'tet');
+        row(rules, 'HOLE RATE (between)', 'vsGarbageHoleChunk', (v, p) => (phaseOn(p) ? undefined : `${v}%`), 'tet');
+        row(rules, 'DMG ON CLR', 'vsGarbageDamageOnClear', onOff, 'tet');
+        row(rules, 'OJAMA RATE', 'vsOjamaRate', (v) => v, 'puyo');
+    }
+    row(rules, 'MIN CONNECT', 'vsEraseCount', (v) => v, 'puyo');
+    row(rules, 'COLORS', 'vsColorCount', (v) => v, 'puyo');
+    if (versus) {
+        row(rules, 'CHAIN LIMIT', 'vsChainMin', (v) => (v ? `${v} CHAIN` : 'OFF'), 'puyo');
+        row(rules, 'PUYO SPEED', 'vsPuyoSpeed', (v) => `×${Number(v).toFixed(v * 100 % 10 === 0 ? 1 : 2)}`, 'puyo');
+    }
+    row(rules, 'GRAVITY', 'gravityDisabled', (v) => (v ? 'OFF' : undefined), 'tet');
+    row(rules, 'NO LOCK', 'practiceNoLock', (v) => (v ? 'ON' : undefined));
+    per('RULES', rules);
+
+    // ZONE（ZONE BATTLE）。両盤面に同じ値が入るので 1 列
+    const zp = pl.find((p) => env(p).vsZone === true);
+    if (versus && zp) {
+        const e = env(zp);
+        const z = [];
+        z.push(['ZONE ATTACK', e.vsZoneSplit === false ? 'MERGE' : 'SPLIT']);
+        z.push(['PHASE', onOff(e.vsZonePhase === true)]);
+        if (e.vsZonePhase === true) {
+            const byTime = e.vsZonePhaseTrigger === 'time';
+            z.push(['PHASE TRIGGER', byTime ? 'TIME' : 'SCORE']);
+            const tbl = Array.isArray(e.vsZonePhaseTable) ? e.vsZonePhaseTable
+                : ((typeof ZONE_PHASE_TABLE !== 'undefined') ? ZONE_PHASE_TABLE : []);
+            tbl.forEach((r, i) => {
+                const from = i === 0 ? 'START' : (byTime ? `${(r.timeMs || 0) / 1000}s` : (r.score || 0).toLocaleString('en-US'));
+                z.push([`PHASE ${String(i + 1).padStart(2, '0')}`,
+                    `FROM ${from}　HOLE ${100 - r.holeIn}% / ${100 - r.holeBetween}%　ZONE ${r.quarterMs / 1000}s・${r.quarterLines} LINES`]);
+            });
+            if (!Array.isArray(e.vsZonePhaseTable)) z.push(['', 'フェーズの値は既定の表（この録画には表が入っていません）']);
+        } else {
+            z.push(['ZONE TIME', `${(e.vsZoneQuarterMs || 0) / 1000}s / 25%`]);
+            z.push(['ZONE CHARGE', `${e.vsZoneQuarterLines} LINES / 25%`]);
+        }
+        one('ZONE', z);
+    }
+
+    // 操作（録画の最初の設定。人が操作した盤面だけ）
+    const cfgs = (data.settings && data.settings.configs) || [];
+    const tun = (p) => (p.kind !== 'cpu' && p.config != null && cfgs[p.config]) ? (cfgs[p.config].tuning || {}) : null;
+    if (pl.some((p) => tun(p))) {
+        const f = (v) => (typeof v === 'number' ? `${v.toFixed(1)}f` : '—');
+        const ctl = [];
+        const add = (label, fn) => ctl.push([label, ...pl.map((p) => { const t = tun(p); return t ? fn(t) : '—'; })]);
+        add('DAS', (t) => f(t.das));
+        add('ARR', (t) => f(t.arr));
+        add('DCD', (t) => f(t.dcd));
+        if (pl.some((p) => p.rule === 'tet' && tun(p))) {
+            add('IRS', (t) => onOff(!!t.irs));
+            add('IHS', (t) => onOff(!!t.ihs));
+            add('IRS/IHS DCD', (t) => f(t.irsDcd != null ? t.irsDcd : t.dcd));
+        }
+        const changes = Math.max(0, cfgs.length - pl.filter((p) => p.config != null).length);
+        if (changes) ctl.push(['CHANGED', ...cols.map((c, i) => (i === 0 ? `試合中に ${changes} 回保存し直しています` : ''))]);
+        per('CONTROLS', ctl.map((r) => (versus ? r : r.slice(0, 2))));
+    }
+
+    // 版
+    const ver = [['APP', `v${data.app || '?'} / ${data.build || '?'}`]];
+    ver.push(['ENGINE', data.engine === REPLAY_ENGINE_VERSION ? String(data.engine) : `${data.engine}（今の版は ${REPLAY_ENGINE_VERSION}）`]);
+    if (data.seed) ver.push(['SEED', String(data.seed)]);
+    one('VERSION', ver);
+    return sec;
+}
+
 // ─── 録画（1 試合ぶん）───
 // spec: { mode, modeOption, games: [1P, 2P?], players: [{ name, kind, cpu }] }
 class ReplayRecorder {
@@ -1962,6 +2113,7 @@ const ReplayManager = {
         this._autoContinue = null;
         this._closePause(false);
         this._closeMarks(null);
+        this._closeInfo(null);
         this._mk = null;
         this._clearEnd();
         this._prevState = null;
@@ -2098,6 +2250,11 @@ const ReplayManager = {
         }
         const marksBtn = $('replay-marks-btn');
         if (marksBtn) { marksBtn.onmousedown = (e) => e.preventDefault(); marksBtn.onclick = () => this._openMarks(); }
+        // ルールの画面（I。v2.6.2）
+        const infoBtn = $('replay-info-btn');
+        if (infoBtn) { infoBtn.onmousedown = (e) => e.preventDefault(); infoBtn.onclick = () => this._openInfo(); }
+        const infoClose = $('replay-info-close');
+        if (infoClose) { infoClose.onmousedown = (e) => e.preventDefault(); infoClose.onclick = () => this._closeInfo('back'); }
         // 印の画面（UI 設計書 §7）: 閉じる・ホイールで横に流す
         const mkClose = $('replay-mk-close');
         if (mkClose) { mkClose.onmousedown = (e) => e.preventDefault(); mkClose.onclick = () => this._closeMarks('back'); }
@@ -2131,6 +2288,7 @@ const ReplayManager = {
                 e.preventDefault();
                 return;
             }
+            if (this._infoOpen()) { this._infoKey(e); return; }
             if (this._marksOpen()) { this._marksKey(e); return; }
             const menu = this._pauseOpen();
             if (this._pauseCodes().indexOf(e.code) >= 0) {
@@ -2144,7 +2302,7 @@ const ReplayManager = {
             if (menu) {
                 if (['ArrowUp', 'ArrowDown', 'KeyW', 'KeyS', 'Enter', 'NumpadEnter', 'Space'].indexOf(e.code) >= 0) return;
                 if (['ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Comma', 'Period'].indexOf(e.code) >= 0) this._closePause(false);
-                else if (e.code !== 'KeyH' && e.code !== 'KeyM' && this._restartCodes().indexOf(e.code) < 0) {
+                else if (e.code !== 'KeyH' && e.code !== 'KeyM' && e.code !== 'KeyI' && this._restartCodes().indexOf(e.code) < 0) {
                     e.stopImmediatePropagation();
                     if (e.code === 'Tab') e.preventDefault();
                     return;
@@ -2159,10 +2317,10 @@ const ReplayManager = {
                 this._restartWatch();
                 return;
             }
-            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM'];
+            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM', 'KeyI'];
             if (handled.indexOf(e.code) < 0) return;
             e.preventDefault();
-            if (e.repeat && (e.code === 'Space' || e.code === 'KeyH' || e.code === 'KeyM')) return;
+            if (e.repeat && (e.code === 'Space' || e.code === 'KeyH' || e.code === 'KeyM' || e.code === 'KeyI')) return;
             switch (e.code) {
                 case 'Space': this._togglePlay(); break;
                 case 'ArrowLeft': p.seek(this._targetTime() - 5000); break;
@@ -2171,6 +2329,7 @@ const ReplayManager = {
                 case 'ArrowDown': this._stepSpeed(-1); break;
                 case 'KeyH': this._toggleUi(); break;
                 case 'KeyM': this._openMarks(); break;
+                case 'KeyI': this._openInfo(); break;
                 case 'BracketLeft': this._jumpMark(-1); break;
                 case 'BracketRight': this._jumpMark(1); break;
                 case 'Comma': p.stepLock(-1); break;
@@ -2191,7 +2350,7 @@ const ReplayManager = {
     _restartCodes() {
         const keys = (typeof loadKeys === 'function') ? loadKeys() : null;
         const codes = (keys && keys.restart && keys.restart.codes && keys.restart.codes.length) ? keys.restart.codes : ['KeyR'];
-        const used = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM', 'Escape'];
+        const used = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM', 'KeyI', 'Escape'];
         return codes.filter((c) => used.indexOf(c) < 0 && this._pauseCodes().indexOf(c) < 0);
     },
 
@@ -2774,6 +2933,106 @@ const ReplayManager = {
         const m = mk.list[mk.sel].m;
         this._closeMarks('jump');
         p.seek(this._markTime(m));
+    },
+
+    // ─── ルールの画面（I。v2.6.2）───
+    // 録画に入っている設定（replayRulesSections）を表で見せる。開いている間は止め、閉じたら開く前に戻す
+    // （PAUSE 画面から I で開いたら PAUSE へ戻る。印の画面と同じ）
+    _infoOpen() {
+        const o = document.getElementById('replay-info-overlay');
+        return !!(o && o.classList.contains('active'));
+    },
+
+    _openInfo() {
+        const p = this.player;
+        const o = document.getElementById('replay-info-overlay');
+        const body = document.getElementById('replay-info-body');
+        if (!p || !o || !body || this._infoOpen()) return;
+        if (this._marksOpen()) return;
+        const fromPause = this._pauseOpen();
+        if (fromPause) {
+            this._infoBack = { pause: true, resume: this._pauseResume };
+            this._closePause(false);
+        } else {
+            this._infoBack = { pause: false, resume: p.state === 'play' || (p.state === 'seek' && p.seekResume === 'play') };
+        }
+        p.pause();
+        if (this._infoFor !== p.data) {
+            this._infoFor = p.data;
+            body.textContent = '';
+            let secs = [];
+            try { secs = replayRulesSections(p.data); } catch (e) { console.warn('[replay] ルールを読めませんでした', e); }
+            for (const sec of secs) {
+                const box = document.createElement('section');
+                box.className = 'replay-info-sec';
+                const h = document.createElement('h3');
+                h.className = 'replay-info-sec-title';
+                h.textContent = sec.title;
+                box.appendChild(h);
+                const tbl = document.createElement('table');
+                tbl.className = 'replay-info-table' + (sec.cols.length > 1 ? ' is-two' : '');
+                if (sec.cols.length > 1) {
+                    const tr = document.createElement('tr');
+                    for (const c of ['', ...sec.cols]) {
+                        const th = document.createElement('th');
+                        th.textContent = c;
+                        tr.appendChild(th);
+                    }
+                    tbl.appendChild(tr);
+                }
+                for (const r of sec.rows) {
+                    const tr = document.createElement('tr');
+                    r.forEach((v, i) => {
+                        const td = document.createElement(i === 0 ? 'th' : 'td');
+                        td.textContent = v;
+                        tr.appendChild(td);
+                    });
+                    tbl.appendChild(tr);
+                }
+                box.appendChild(tbl);
+                body.appendChild(box);
+            }
+            const sub = document.getElementById('replay-info-sub');
+            if (sub) sub.textContent = (typeof replaySummary === 'function') ? replaySummary(p.data).mode : '';
+        }
+        body.scrollTop = 0;
+        o.classList.add('active');
+    },
+
+    // how: 'back'（ESC・I・CLOSE。開く前に戻す）／null（見終わるときなど。何もしない）
+    _closeInfo(how) {
+        const o = document.getElementById('replay-info-overlay');
+        if (!o || !o.classList.contains('active')) return;
+        o.classList.remove('active');
+        if (document.activeElement && o.contains(document.activeElement)) document.activeElement.blur();
+        const back = this._infoBack;
+        this._infoBack = null;
+        if (how !== 'back' || !back || !this.player) return;
+        if (back.pause) {
+            this._openPause();
+            this._pauseResume = back.resume;
+        } else if (back.resume) {
+            this.player.play();
+        }
+    },
+
+    // 開いている間のキーはここで全部受ける（ゲーム・FocusNav へは通さない）
+    _infoKey(e) {
+        e.stopImmediatePropagation();
+        const code = e.code;
+        if (this._pauseCodes().indexOf(code) >= 0 || code === 'KeyI') {
+            e.preventDefault();
+            if (!e.repeat) this._closeInfo('back');
+            return;
+        }
+        const body = document.getElementById('replay-info-body');
+        const step = { ArrowUp: -60, KeyW: -60, ArrowDown: 60, KeyS: 60, PageUp: -300, PageDown: 300 }[code];
+        if (step !== undefined) {
+            e.preventDefault();
+            if (body) body.scrollTop += step;
+            return;
+        }
+        if (['Space', 'Tab', 'Enter', 'NumpadEnter', 'ArrowLeft', 'ArrowRight'].indexOf(code) >= 0) e.preventDefault();
     },
 
     _marksKey(e) {

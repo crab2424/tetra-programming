@@ -1054,6 +1054,7 @@
     <span id="replay-title" class="replay-title"></span>
     <span id="replay-state" class="replay-state"></span>
     <span class="replay-top-spacer"></span>
+    <button id="replay-info-btn" class="replay-btn replay-info-btn" type="button" title="この試合のルール I">I: RULES</button>
     <button id="replay-ui-btn" class="replay-btn replay-icon-btn" type="button" title="UI を隠す H">◱</button>
     <button id="replay-menu-btn" class="replay-btn replay-icon-btn" type="button" title="PAUSE ESC">≡</button>
   </div>
@@ -1097,6 +1098,20 @@
     </div>
     <p class="replay-pause-keys">← → 前/次の印　↑ ↓ 段を移る　Enter その印へ（1 秒前・止めたまま）　C CLIP（前 5 秒・後 3 秒）　ESC / M 閉じる<br>札をクリックで選ぶ・もう一度で飛ぶ　ホイールで横に流す</p>
   </div>
+  <!-- ★ ルールの画面（I／上の帯の I: RULES で開閉。v2.6.2）。録画に入っている設定（モード・VS 設定・ZONE・MOD・CPU・
+       操作の設定・版）を表にして見せる。中身は core/replay.js（replayRulesSections）が作る。開いている間は止める -->
+  <div id="replay-info-overlay">
+    <div class="replay-info-panel">
+      <div class="replay-mk-head replay-info-head">
+        <span class="replay-mk-title">RULES</span>
+        <span id="replay-info-sub" class="replay-mk-count"></span>
+        <span class="replay-top-spacer"></span>
+        <button id="replay-info-close" class="replay-btn" type="button" title="閉じる ESC / I">✕ CLOSE</button>
+      </div>
+      <div id="replay-info-body" class="replay-info-body"></div>
+      <p class="replay-pause-keys">↑ ↓ スクロール　ESC / I 閉じる</p>
+    </div>
+  </div>
   <!-- ★ 再生専用の PAUSE 画面（ポーズキー／≡ で開く。見た目はゲームの #pause-overlay と同じ。UI 設計書 §5）。
        SPACE は幕なしの停止/再生のまま。開いている間に ← → , . [ ] を押したら閉じて止めたまま動かす -->
   <div id="replay-pause-overlay">
@@ -1113,7 +1128,7 @@
         <button class="pause-btn btn-restart" id="replay-pause-exit" type="button">◀ EXIT</button>
         <button class="pause-btn btn-mainmenu" id="replay-pause-mainmenu" type="button">⌂ MAIN MENU</button>
       </div>
-      <p class="replay-pause-keys">SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む　R 最初から<br>↑ ↓ 速さ　[ ] 前/次の印　M 印の画面　H UI 表示　ESC ポーズ</p>
+      <p class="replay-pause-keys">SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む　R 最初から<br>↑ ↓ 速さ　[ ] 前/次の印　M 印の画面　I ルール　H UI 表示　ESC ポーズ</p>
     </div>
   </div>
 
@@ -1694,7 +1709,7 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=47"></script>
+  <script src="core/replay.js?v=48"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=12"></script>
   <script src="app/manager.js?v=1"></script>
