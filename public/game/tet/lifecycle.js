@@ -24,8 +24,11 @@ Object.assign(Game.prototype, {
         // （CPU 操作でキーイベントを持たない盤面も。setKeyEvent が回し始めていればそのまま）
         this.startRenderLoop();
 
-        // カウントダウン開始
-        runCountdown(overlayId, textElId, () => {
+        // カウントダウン開始（_skipCountdownOnce: リプレイの PLAY HERE で PLAY HERE COUNTDOWN が OFF。
+        // 次のフレームで始める＝呼び出し側が start() の直後に盤面を差し替えられる。practice/practice.js）
+        const skip = !!this._skipCountdownOnce;
+        this._skipCountdownOnce = false;
+        (skip ? (o, t, onStart) => { this.clock.schedule(0, onStart); } : runCountdown)(overlayId, textElId, () => {
             // START! のタイミングでBGM開始（versus は startVersusGame 側で鳴らすため除外）。
             // CPU TEST(currentMode==='test')は専用BGM、それ以外のシングル(marathon/sprint/ultra)は singleBgmKey でモード別キーに解決。
             // 再生中は鳴らし直さない（BGM は再生の頭で 1 回だけ。core/replay.js）

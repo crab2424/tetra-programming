@@ -644,6 +644,10 @@ body:has(#replay-pause-overlay.active) .puyo-chain-text {
   border-color: var(--danger);
   color: var(--danger);
 }
+.replays-tag-mod {
+  border-color: #f5b942;
+  color: #f5b942;
+}
 .replays-icon {
   width: 34px;
   font-size: 15px;
