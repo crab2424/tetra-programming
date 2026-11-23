@@ -568,6 +568,8 @@
       <div id="versus-center">
         <div id="versus-vs-label">VS</div>
         <div id="versus-cpu-level-display"></div>
+        <!-- 隠し機能を使った対戦（MOD）のときだけ。app/versus.js setVersusMods -->
+        <div id="versus-mod-badge" class="mod-badge" style="display: none">MOD</div>
         <div id="versus-time-display" class="hud-time-block">
           <span id="versus-time-value" class="versus-time-value">00:00.00</span>
         </div>
@@ -656,9 +658,7 @@
           <button class="pause-btn btn-resume" onclick="resumeVersus()">
             ▶ RESUME
           </button>
-          <button class="pause-btn btn-restart" onclick="restartVersus()">
-            ↺ RESTART
-          </button>
+          <button class="pause-btn btn-restart" onclick="restartVersus()" data-retry-kind="versus" data-normal="↺ RESTART" data-here="↺ RETRY HERE">↺ RESTART</button>
           <!-- ★ 録画の PLAY HERE で始めた対戦の続きのときだけ（core/replay.js の _setBack） -->
           <button class="pause-btn btn-settings" id="versus-pause-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
             ◀ REPLAY
@@ -982,6 +982,7 @@
   <div id="versus-result-page" class="page">
     <div id="result-container">
       <h2 id="versus-result-title">RESULT</h2>
+      <div id="versus-result-mod" class="mod-badge mod-badge-result" style="display: none">MOD</div>
       <div id="result-stats">
         <div class="result-stat-row">
           <span class="result-label">WINNER</span>
@@ -1007,7 +1008,7 @@
       <div id="result-buttons">
         <button class="menu-btn btn-versus-primary" onclick="restartVersusFromResult()">
           <span class="menu-btn-icon">↺</span>
-          <span>RETRY</span>
+          <span data-retry-kind="versus" data-normal="RETRY" data-here="RETRY HERE">RETRY</span>
         </button>
         <!-- ★ 録画の PLAY HERE で始めた対戦の続きのときだけ（core/replay.js の _setBack） -->
         <button class="menu-btn btn-secondary" id="versus-result-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
@@ -1112,7 +1113,7 @@
         <button class="pause-btn btn-restart" id="replay-pause-exit" type="button">◀ EXIT</button>
         <button class="pause-btn btn-mainmenu" id="replay-pause-mainmenu" type="button">⌂ MAIN MENU</button>
       </div>
-      <p class="replay-pause-keys">SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む<br>↑ ↓ 速さ　[ ] 前/次の印　M 印の画面　H UI 表示　ESC ポーズ</p>
+      <p class="replay-pause-keys">SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む　R 最初から<br>↑ ↓ 速さ　[ ] 前/次の印　M 印の画面　H UI 表示　ESC ポーズ</p>
     </div>
   </div>
 
@@ -1342,9 +1343,8 @@
             <button class="pause-btn btn-settings" onclick="handlePauseAction('settings')">
               ⚙ SETTINGS
             </button>
-            <button class="pause-btn btn-restart" onclick="handlePauseAction('restart')">
-              ↺ RESTART
-            </button>
+            <!-- PLAY HERE で始めた PRACTICE では RETRY HERE（PLAY HERE の局面から。core/replay.js _setBack） -->
+            <button class="pause-btn btn-restart" onclick="handlePauseAction('restart')" data-retry-kind="practice" data-normal="↺ RESTART" data-here="↺ RETRY HERE">↺ RESTART</button>
             <button class="pause-btn btn-quiz-primary" id="pause-quiz-level-select-btn"
               onclick="handlePauseAction('quiz-levelselect')" style="display: none">
               ◀ LEVEL SELECT
@@ -1414,7 +1414,7 @@
         </button>
         <button class="menu-btn btn-primary" id="result-retry-btn" onclick="startGameFromModeCheck()">
           <span class="menu-btn-icon">↺</span>
-          <span>RETRY</span>
+          <span data-retry-kind="practice" data-normal="RETRY" data-here="RETRY HERE">RETRY</span>
         </button>
         <!-- ★ 録画の PLAY HERE で始めた PRACTICE のときだけ（core/replay.js の _setBack） -->
         <button class="menu-btn btn-secondary" id="result-replay-back-btn" onclick="ReplayManager.backToReplay()" title="PLAY HERE を押した所からリプレイを見直す" style="display: none">
@@ -1604,6 +1604,13 @@
               <button class="opt-btn" data-value="off" onclick="setDisplayOption('replayAutoSave', false)">OFF</button>
             </div>
           </div>
+          <div class="option-row" title="OFF のときはカウントダウンなしで、すぐに続きが始まります">
+            <span class="option-label">PLAY HERE COUNTDOWN</span>
+            <div class="option-toggle" id="display-playhere-countdown-toggle">
+              <button class="opt-btn" data-value="on" onclick="setDisplayOption('playHereCountdown', true)">ON</button>
+              <button class="opt-btn" data-value="off" onclick="setDisplayOption('playHereCountdown', false)">OFF</button>
+            </div>
+          </div>
           <div class="option-row">
             <span class="option-label">最高記録</span>
             <button class="btn btn-reset-records" onclick="resetRecords()">RESET RECORDS</button>
@@ -1683,23 +1690,23 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=43"></script>
+  <script src="core/replay.js?v=44"></script>
   <script src="core/dialog.js?v=2"></script>
   <script src="core/particles.js?v=12"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=19"></script>
+  <script src="config/settings.js?v=20"></script>
   <script src="config/records.js?v=6"></script>
   <script src="config/cloud_sync.js?v=3"></script>
-  <script src="config/stats.js?v=8"></script>
+  <script src="config/stats.js?v=9"></script>
   <script src="config/account.js?v=9"></script>
   <script src="config/legacy_import.js?v=1"></script>
   <script src="core/hud_extras.js?v=4"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
-  <script src="game/tet/lifecycle.js?v=23"></script>
-  <script src="game/tet/board.js?v=23"></script>
-  <script src="game/tet/rotation.js?v=10"></script>
+  <script src="game/tet/lifecycle.js?v=24"></script>
+  <script src="game/tet/board.js?v=24"></script>
+  <script src="game/tet/rotation.js?v=11"></script>
   <script src="game/tet/scoring.js?v=6"></script>
   <script src="game/tet/zone.js?v=26"></script>
   <script src="game/tet/garbage.js?v=16"></script>
@@ -1710,7 +1717,7 @@
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
-  <script src="game/puyo/lifecycle.js?v=11"></script>
+  <script src="game/puyo/lifecycle.js?v=12"></script>
   <script src="game/puyo/connect.js"></script>
   <script src="game/puyo/ojama.js?v=11"></script>
   <script src="game/puyo/engine.js?v=20"></script>
@@ -1724,20 +1731,20 @@
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
   <script src="cpu/tet/cpu_zone.js?v=16"></script>
   <script src="app/cpu_match_log.js?v=5"></script>
-  <script src="app/versus.js?v=27"></script>
+  <script src="app/versus.js?v=28"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
-  <script src="app/navigation.js?v=50"></script>
+  <script src="app/navigation.js?v=51"></script>
   <script src="app/ranking.js?v=5"></script>
-  <script src="app/replays.js?v=9"></script>
+  <script src="app/replays.js?v=10"></script>
   <script src="app/stats_page.js?v=7"></script>
   <script src="app/focus_nav.js?v=30"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
-  <script src="app/board_swap.js?v=13"></script>
+  <script src="app/board_swap.js?v=14"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=4"></script>
   <script src="practice/practice_sequence.js?v=7"></script>
   <script src="practice/practice_panel.js?v=22"></script>
-  <script src="practice/practice.js?v=37"></script>
+  <script src="practice/practice.js?v=38"></script>
   <!-- アシスト（盤面ガイド）。PRACTICE / VERSUS から Assist.attach で呼ばれる -->
   <script src="assist/assist.js?v=8"></script>
   <script src="assist/assist_overlay.js?v=3"></script>
