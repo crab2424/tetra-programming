@@ -100,9 +100,13 @@ const TetDialog = (() => {
 
             if (inputEl) {
                 // Enterで初期ボタン（無ければ先頭ボタン）をsubmit扱いにする。
+                // ここで閉じると FocusNav は開く前のページに戻るので、同じ Enter がそのページへ届かないよう止める
+                // （届くと戻った先で選ばれているボタン＝VS SETTINGS の RESET DEFAULT などが押されていた）
                 inputEl.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
+                        if (e.isComposing) return; // IME の変換確定の Enter は送信にしない
                         e.preventDefault();
+                        e.stopPropagation();
                         (initialBtn || btnRow.querySelector('button'))?.click();
                     }
                 });

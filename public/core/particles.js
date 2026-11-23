@@ -230,13 +230,14 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: '#versus-check-buttons',     cls: 'menu-enter',  delay: 4   },
         ];
     } else if (pageId === 'vs-settings') {
-        // ヘッダー（見出し＋RESET/SAVE/BACK）→ タブ → 項目。以前はタブとボタン群（.settings-actions）が
+        // ヘッダー（見出し＋RESET/SAVE/BACK）→ PRESET → タブ → 項目。以前はタブとボタン群（.settings-actions）が
         // 登録されておらず、見出しと項目だけが登場していた（存在しない #vs-settings-buttons を指していた）
         targets = [
             { sel: '#vs-settings-header',       cls: 'menu-enter',  delay: 0   },
             { sel: '#vs-settings-sticky .settings-actions', cls: 'menu-enter', delay: 1 },
-            { sel: '#vs-settings-tab-toggle',   cls: 'menu-enter',  delay: 2   },
-            { sel: '#vs-settings-items',        cls: 'menu-enter',  delay: 3   },
+            { sel: '#vs-settings-preset-row',   cls: 'menu-enter',  delay: 2   }, // PRESET（v2.6.2。VERSUS・ZONE BATTLE とも）
+            { sel: '#vs-settings-tab-toggle',   cls: 'menu-enter',  delay: 3   },
+            { sel: '#vs-settings-items',        cls: 'menu-enter',  delay: 4   },
         ];
     } else if (pageId === 'quiz-check') {
         targets = [
