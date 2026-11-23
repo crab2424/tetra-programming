@@ -223,8 +223,6 @@ const BoardSwap = (() => {
 
     // 盤面の中身を入れ替えるのは入力では再現できないので、この試合の録画はやめる（core/replay.js）
     window.ReplayManager?.cancel(p);
-    // 隠し機能を使った対戦（MOD）。STATS にも数えない（app/versus.js addVersusMod。CPU TEST から始めた対戦は対象外）
-    if (typeof addVersusMod === 'function' && !versusFromTest) addVersusMod('swap');
 
     // 入れ替えから後始末・CPU同期までは同期的に走りきるので、途中でCPUが
     // 古い盤面へ入力を流し込む隙はない（ここで stop() する必要はない）。

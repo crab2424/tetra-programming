@@ -43,10 +43,7 @@ Object.assign(PuyoGame.prototype, {
                 ? (this.canvasPrefix ? `${this.canvasPrefix}-countdown-text` : 'versus-countdown-text')
                 : 'countdown-text';
 
-            // _skipCountdownOnce: リプレイの PLAY HERE で PLAY HERE COUNTDOWN が OFF（次のフレームで始める。practice/practice.js）
-            const skip = !!this._skipCountdownOnce;
-            this._skipCountdownOnce = false;
-            (skip ? (o, t, onStart) => { this.clock.schedule(0, onStart); } : runCountdown)(overlayId, textElId, () => {
+            runCountdown(overlayId, textElId, () => {
                 if (this.state !== 'starting') return;
                 // START! のタイミングでBGM開始（versus は startVersusGame 側で鳴らすため除外）。
                 // CPU TEST(currentMode==='test')は専用BGM、それ以外のシングル(puyo)は singleBgmKey でモード別キーに解決。

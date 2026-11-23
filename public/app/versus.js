@@ -232,64 +232,7 @@ function versusResultBack() {
   switchPage(_versusBackPage());
 }
 
-// ─── MOD（隠し機能を使った対戦の印。ロードマップ G・設計 source_assets/memory/versions/v2.6.0~/tetlabo-v2.6.1-design.md §1）───
-// 使ったら VS の下と対戦リザルトに MOD を出し、STATS に数えない（リプレイは残す・REPLAYS に MOD の印）。
-// CPU TEST から始めた CPU 同士（versusFromTest）は対象外（もともと数えないテスト用のモード）。
-//   lv7      … tet の CPU LV7（準備画面の 7 キー）
-//   fastDrop … puyo LV6 の「高速落下で設置」（準備画面の 7 / Shift+7）
-//   cpuVsCpu … 1P も CPU（準備画面の 0 / Shift+数字）
-//   swap     … 盤面入れ替え（Shift+Alt+S / 9。app/board_swap.js）
-//   branch   … リプレイの PLAY HERE から始めた対戦の続き（core/replay.js _continueVersus）
-const VERSUS_MOD_LABELS = {
-  lv7: 'CPU LV 7', fastDrop: 'PUYO LV 6 FAST DROP', cpuVsCpu: 'CPU VS CPU', swap: 'BOARD SWAP', branch: 'REPLAY CONTINUE',
-};
-let versusMods = [];
-
-function setVersusMods(list) {
-  versusMods = Array.isArray(list) ? list.filter((m, i) => VERSUS_MOD_LABELS[m] && list.indexOf(m) === i) : [];
-  _renderVersusMods();
-}
-
-// 試合の途中で MOD になった（盤面入れ替えなど）。数えている STATS はやめる
-function addVersusMod(flag) {
-  if (!VERSUS_MOD_LABELS[flag] || versusMods.includes(flag)) return;
-  versusMods = versusMods.concat([flag]);
-  _renderVersusMods();
-  window.Stats?.discardVersus();
-}
-
-function versusModTitle(list = versusMods) {
-  return 'MOD: ' + list.map((m) => VERSUS_MOD_LABELS[m] || m).join(' / ');
-}
-
-function _renderVersusMods() {
-  const on = versusMods.length > 0;
-  for (const id of ['versus-mod-badge', 'versus-result-mod']) {
-    const el = document.getElementById(id);
-    if (!el) continue;
-    el.style.display = on ? '' : 'none';
-    el.title = on ? versusModTitle() : '';
-  }
-}
-
-// 準備画面の選択から、この対戦の MOD を決める
-function _versusModsFor(isPlayerCpu, cpuLevel, playerCpuLevel) {
-  if (versusFromTest) return [];
-  const mods = [];
-  if ((versusCpuRule === 'tet' && cpuLevel === 7) || (isPlayerCpu && versusPlayerRule === 'tet' && playerCpuLevel === 7)) mods.push('lv7');
-  if ((versusCpuRule === 'puyo' && cpuLevel === 6 && window.__cpu6SoftDrop2P)
-      || (isPlayerCpu && versusPlayerRule === 'puyo' && playerCpuLevel === 6 && window.__cpu6SoftDrop1P)) mods.push('fastDrop');
-  if (isPlayerCpu) mods.push('cpuVsCpu');
-  return mods;
-}
-
 async function startVersusGame() {
-  // リプレイの PLAY HERE から始めた対戦の続きでは、RESTART・RETRY・R は「PLAY HERE を押した局面からもう一度」
-  // （別の対戦へは移らない。MODE SELECT・MAIN MENU で抜ける。core/replay.js retryHere）
-  if (window.ReplayManager?.backTo && window.ReplayManager.backTo.data.mode === 'versus') {
-    window.ReplayManager.retryHere();
-    return;
-  }
   // 開始/再スタートの状態遷移（リトライはどこからでも idle を経由して開始できる）
   const lc = window.BattleVersusLifecycle;
   lc.transition('idle', 'startVersusGame');
@@ -302,7 +245,6 @@ async function startVersusGame() {
   const cpuLevel = selectedCpuLevel;
   const playerCpuLevel = isPlayerCpu ? _playerCpuLevel() : null;
   const cpuConfig = CPU_LEVELS[cpuLevel];
-  const mods = _versusModsFor(isPlayerCpu, cpuLevel, playerCpuLevel);
 
   // ─── ロード（v2.2.3 H）───
   // 画像・SE・BGM・CPU（クラスJS＋思考 worker を ready まで）を揃えてから開始する。
@@ -330,7 +272,6 @@ async function startVersusGame() {
   lc.transition('playing', 'startVersusGame'); // カウントダウンはエンジン内で行うため即 playing 扱い
 
   switchPage('versus');
-  setVersusMods(mods);
 
   const cpuLevelDisp = document.getElementById('versus-cpu-level-display');
   if (cpuLevelDisp) cpuLevelDisp.textContent = 'CPU ' + cpuConfig.label;
@@ -459,7 +400,6 @@ async function startVersusGame() {
       isPlayerCpu ? { name: _cpuLabel(playerCpuLevel) + ' (1P)', kind: 'cpu', level: playerCpuLevel } : { name: 'PLAYER', kind: 'human' },
       { name: _cpuLabel(cpuLevel), kind: 'cpu', level: cpuLevel },
     ],
-    mods,
   });
 
   // カウントダウンは試合の時計の予約で進むので、ここから両盤面のフレームを回す
@@ -478,8 +418,8 @@ async function startVersusGame() {
   if (window._cpuControllerPlayer) window._cpuControllerPlayer.softDropOnly = !!window.__cpu6SoftDrop1P;
   // アシスト（盤面ガイド）：人が操作するローカル対戦の1P盤面だけ。ONLINE は別経路なので対象外
   if (!isPlayerCpu && window.Assist) window.Assist.attach(window._game, 'versus');
-  // 成績（STATS）: 人が 1P を操作する対 CPU 戦だけ数える（CPU 同士・MOD の対戦は数えない。config/stats.js）
-  if (!isPlayerCpu && mods.length === 0) {
+  // 成績（STATS）: 人が 1P を操作する対 CPU 戦だけ数える（CPU 同士は数えない。config/stats.js）
+  if (!isPlayerCpu) {
     window.Stats?.beginVersus({
       game: window._game, myRule: versusPlayerRule, oppRule: versusCpuRule, level: cpuLevel,
       bias: [currentVsSettings.all.attackBias.player ?? 0, currentVsSettings.all.attackBias.cpu ?? 0],
