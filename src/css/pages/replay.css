@@ -200,6 +200,7 @@ body.replay-watching:not(.replay-ui-hidden) #versus-layout {
 .replay-mark.replay-mark-hit { background: var(--danger); }
 .replay-mark.replay-mark-end { background: var(--success); }
 .replay-mark.replay-mark-pause { background: var(--text-dim); }
+.replay-mark.replay-mark-branch { background: #f5b942; } /* 二重リプレイの分かれた所（v2.6.2 F） */
 
 /* 印の画面（core/replay.js の _openMarks / _mkRender。UI 設計書 §7）。暗い幕の上に札を時刻順に横へ並べる。
    中央の縦線＝選んだ札（列のほうを流す）、点線＝今の時刻（NOW）。札の位置（translateX）は JS */
@@ -310,6 +311,7 @@ body:has(#replay-marks-overlay.active) .puyo-chain-text {
 .replay-mk-card.replay-mark-hit { --mk-color: var(--danger); }
 .replay-mk-card.replay-mark-end { --mk-color: var(--success); }
 .replay-mk-card.replay-mark-pause { --mk-color: var(--text-dim); }
+.replay-mk-card.replay-mark-branch { --mk-color: #f5b942; }
 .replay-mk-card:hover .replay-mk-body {
   opacity: 0.9;
 }
@@ -647,6 +649,10 @@ body:has(#replay-pause-overlay.active) .puyo-chain-text {
 .replays-tag-mod {
   border-color: #f5b942;
   color: #f5b942;
+}
+.replays-tag-branch {
+  border-color: var(--accent2);
+  color: var(--accent2);
 }
 .replays-icon {
   width: 34px;

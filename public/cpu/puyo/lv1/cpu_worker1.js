@@ -28,7 +28,7 @@ self.Module = {
 };
 
 // Wasm JS グルーコードの読み込み（同じディレクトリに配置すること）
-importScripts('cpu_wasm1.js?v=2'); // ★ v2.2.3 I: 窒息判定の追加で再ビルド
+importScripts('cpu_wasm1.js?v=3'); // ★ v2.6.2 A: 消去数（setEraseCount）で再ビルド
 
 // メモリポインタ（一度だけ確保して使い回す）
 let boardPtr   = null;
@@ -40,6 +40,8 @@ self.onmessage = function (e) {
 
     const data = e.data;
     if (data.type !== 'calculate') return;
+    // VS 設定の消去数（CONNECT。v2.6.2 A）。古い wasm（関数が無い）は 4 のまま
+    if (Module._setEraseCount) Module._setEraseCount(data.eraseCount || 4);
 
     // ── メモリ確保（初回のみ） ──
     // boardData   : uint8_t[17 * 6] = 102 bytes (TOTAL_ROWS=17)

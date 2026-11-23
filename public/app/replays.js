@@ -186,6 +186,9 @@ function replaySummary(data) {
         result = 'CLIP';
         stat = data.clip.label || stat;
         duration = Math.max(0, duration - (data.clip.fromMs || 0));
+    } else if (data.branch && typeof data.branch.atMs === 'number') {
+        // 二重リプレイ（v2.6.2 F）: 長さは分かれた所から
+        duration = Math.max(0, duration - data.branch.atMs);
     }
     return { mode, result, stat, opponent, rule, duration, marks: (data.events || []).length };
 }
@@ -288,6 +291,14 @@ const ReplaysPage = {
         };
         const tags = [];
         if (d.clip) tags.push('<span class="replays-tag">CLIP</span>');
+        // 二重リプレイ（v2.6.2 F）: 元のリプレイの途中（PLAY HERE）から続けた試合。重ねた数と元の日時は title に
+        if (d.branch) {
+            const b = d.branch;
+            const depth = b.depth > 1 ? ` ×${b.depth}` : '';
+            const from = b.parentRecordedAt ? replayDateText(b.parentRecordedAt) : '';
+            const t = `PLAY HERE から続けた試合${from ? '（元: ' + from + ' の ' + replayFmtTime(b.atMs) + '）' : ''}`;
+            tags.push(`<span class="replays-tag replays-tag-branch" title="${t.replace(/"/g, '&quot;')}">BRANCH${depth}</span>`);
+        }
         if (it.keepFor && it.keepFor.length) tags.push('<span class="replays-tag">BEST</span>');
         if (it.imported) tags.push('<span class="replays-tag">IMPORT</span>');
         // 隠し機能を使った対戦（MOD。app/versus.js）。中身は title に

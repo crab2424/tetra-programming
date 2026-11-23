@@ -372,7 +372,13 @@ window.CPU3 = class {
             this.weights.pureHole                     
         ]);
 
+        // VS 設定で HOLD なしの試合は、探索に「HOLD できない・中身なし」を渡す（2 手目より先でも HOLD を使わない。v2.6.2 A）
+
+        const holdOk = typeof this.game._holdAllowed !== 'function' || this.game._holdAllowed();
+
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
+
+        if (!holdOk) holdType = -1;
 
         this.worker.postMessage({
             type: 'calculate',
@@ -382,7 +388,7 @@ window.CPU3 = class {
             next1: this.game.nextQueue[0].type,
             next2: this.game.nextQueue[1].type,
             next3: this.game.nextQueue[2].type, 
-            canHold: this.game.canHold ? 1 : 0,
+            canHold: (holdOk && this.game.canHold) ? 1 : 0,
             weightsArray: weightsArray
         });
     }

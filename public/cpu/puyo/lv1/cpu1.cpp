@@ -21,6 +21,8 @@ const int ROWS       = 12; // 見える行数
 // ★ おじゃまぷよ一斉落下システムのために隠し行領域を 2→5 に拡張
 const int HIDDEN     = 5;  
 const int TOTAL_ROWS = ROWS + HIDDEN; // 内部総行数 = 17
+// VS 設定の消去数（CONNECT。v2.6.2 A）。setEraseCount で worker が探索の前に入れる。既定 4
+static int g_eraseCount = 4;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Board : 内部盤面 (17行×6列)
@@ -238,7 +240,7 @@ static ChainResult simulateChain(Board& b) {
                     }
                 }
 
-                if ((int)group.size() >= 4) {
+                if ((int)group.size() >= g_eraseCount) {
                     found = true;
                     if ((int)group.size() > res.maxGroup)
                         res.maxGroup = (int)group.size();
@@ -424,6 +426,9 @@ static inline int deathPenalty(int step) { return 100000000 * (4 - step); }
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+void setEraseCount(int n) { g_eraseCount = (n >= 2 && n <= 6) ? n : 4; }
 
 EMSCRIPTEN_KEEPALIVE
 void* my_malloc(size_t size) { return malloc(size); }

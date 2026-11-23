@@ -117,7 +117,7 @@ static bool hasGroup4At(const BitBoard& b, int col, int row, uint8_t color) {
     int size = 0;
     while (!stack.empty()) {
         auto [cr, cc] = stack.back(); stack.pop_back();
-        if (++size >= 4) return true;
+        if (++size >= g_eraseCount) return true;
         for (int d = 0; d < 4; ++d) {
             int nr = cr + dr[d], nc = cc + dc[d];
             if (nr < HIDDEN || nr >= TOTAL_ROWS || nc < 0 || nc >= COLS) continue;
@@ -314,7 +314,7 @@ static bool groupIgnitableAfter(const BitBoard& b1, const int h1[COLS], const Ce
             int ar = row + HIDDEN;
             plan.set(x, ar, color);
             CellMask grp = ignitionGroup(plan, x, ar, color, nullptr, 0);
-            if (grp.count() >= 4 && (grp & g).any()) return true;
+            if (grp.count() >= g_eraseCount && (grp & g).any()) return true;
         }
     }
     return false;

@@ -116,7 +116,7 @@ static bool hasGroup4At(const BitBoard& b, int col, int row, uint8_t color) {
     int size = 0;
     while (!stack.empty()) {
         auto [cr, cc] = stack.back(); stack.pop_back();
-        if (++size >= 4) return true;
+        if (++size >= g_eraseCount) return true;
         for (int d = 0; d < 4; ++d) {
             int nr = cr + dr[d], nc = cc + dc[d];
             if (nr < HIDDEN || nr >= TOTAL_ROWS || nc < 0 || nc >= COLS) continue;

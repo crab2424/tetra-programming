@@ -25,7 +25,7 @@ SRCS=(
 emcc "${SRCS[@]}" -o ../wasm/cpu_wasm4.js \
   -I. \
   -O3 -s WASM=1 \
-  -s EXPORTED_FUNCTIONS='["_my_malloc","_my_free","_searchBestMovePuyoWasm"]' \
+  -s EXPORTED_FUNCTIONS='["_my_malloc","_my_free","_searchBestMovePuyoWasm","_setEraseCount","_setChainMin"]' \
   -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8","HEAP32"]' \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s INITIAL_MEMORY=8388608

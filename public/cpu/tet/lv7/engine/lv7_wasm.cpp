@@ -389,7 +389,8 @@ i32 max_attack_next(const State& s, const std::vector<piece::Type>& queue)
 {
     piece::Type types[2] = { piece::Type::NONE, piece::Type::NONE };
     if (s.next < queue.size()) types[0] = queue[s.next];
-    if (s.hold != piece::Type::NONE) types[1] = s.hold;
+    if (beam::g_no_hold) {} // HOLD なしの試合
+    else if (s.hold != piece::Type::NONE) types[1] = s.hold;
     else if (size_t(s.next) + 1 < queue.size()) types[1] = queue[s.next + 1];
 
     i32 best = 0;
@@ -481,6 +482,20 @@ void search(
     const double start = beam::now_ms();
 
     for (i32 i = 0; i < outLen; ++i) out[i] = 0;
+    // HOLD なしの試合か（欄 [3] のビット 2。cpu7.js weightsArray）。相手の見積もり（make_threat）より前に入れる
+    beam::g_no_hold = nWeights >= eval::WEIGHT_LEN + 12 && weights[eval::WEIGHT_LEN] == 7777
+                      && (weights[eval::WEIGHT_LEN + 3] & 2) != 0;
+    // DAMAGE ON CLEAR・HOLE RATE（欄の [14+N]・[15+N]。古い JS は付けない → 既定 ON・70%）
+    garbage::g_rise_on_clear = true;
+    garbage::g_hole_same_pct = 70;
+    if (nWeights >= eval::WEIGHT_LEN + 12 && weights[eval::WEIGHT_LEN] == 7777) {
+        const i32 nT = std::clamp(weights[eval::WEIGHT_LEN + 1], 0, 48);
+        if (nWeights >= eval::WEIGHT_LEN + 16 + nT) {
+            const i32* e = weights + eval::WEIGHT_LEN;
+            garbage::g_rise_on_clear = (e[14 + nT] & 1) == 0;
+            garbage::g_hole_same_pct = std::clamp(e[15 + nT], 0, 100);
+        }
+    }
 
     std::vector<piece::Type> queue;
     State state = make_root(board, queueIn, nQueue, hold, bagAfter, b2b, ren, queue);
@@ -548,9 +563,10 @@ void search(
     if (outLen >= OUT_THREAT_LEN) out[126] = t4_flags;
 
     // §22: 先行回転・先行ホールド・ZONE の火力表（weights の WEIGHT_LEN から先。cpu7.js weightsArray）
-    //   [0]=7777 [1]=表の段数の数 N [2]=時間切れまでの手数 [3]=いまホールドできるか [4..11]=いまのミノの 4 マス（TETLABO。無ければ -100）
+    //   [0]=7777 [1]=表の段数の数 N [2]=時間切れまでの手数 [3]=いまホールドできるか（ビット 1。ビット 2 = HOLD なしの試合 v2.6.2） [4..11]=いまのミノの 4 マス（TETLABO。無ければ -100）
     //   [12..12+N) 火力表（段数ごとの合計。発動中だけ N>0）
     //   §23: 火力表の後ろに [12+N] ATTACK BIAS の 100 倍・[13+N] いまのミノの向き（TETLABO 0〜3。無ければ -1）
+    //   v2.6.2 A: [14+N] ビット 1 = DAMAGE ON CLEAR が OFF・[15+N] HOLE RATE（同じ列の確率 %）
     //   §23: 以前は「> WEIGHT_LEN + 12」で、ZONE の外（表なし＝ちょうど 12 個）では欄ごと読み捨てていた
     //        （ホールドできない・先行回転の位置が探索に伝わらず、ホールドの手を返して止まった）
     const bool ext = nWeights >= eval::WEIGHT_LEN + 12 && weights[eval::WEIGHT_LEN] == 7777;
@@ -560,7 +576,7 @@ void search(
     if (ext) {
         const i32* e = weights + eval::WEIGHT_LEN;
         configs.spawn_rules = true;
-        configs.root_hold = e[3] != 0;
+        configs.root_hold = (e[3] & 1) != 0 && !beam::g_no_hold;
         configs.root_ihs = root_ihs;
         configs.zone = state.zone;
         configs.zone_moves_left = state.zone ? std::max(e[2], 0) : 0;
@@ -728,7 +744,7 @@ void search(
         post.advance(pl, queue);
         if (!endNow && size_t(post.next) + 1 < queue.size()) {
             const auto cur = queue[post.next];
-            const auto hp = post.hold != piece::Type::NONE ? post.hold : queue[post.next + 1];
+            const auto hp = beam::g_no_hold ? cur : (post.hold != piece::Type::NONE ? post.hold : queue[post.next + 1]);
             const bool curBlocked = move::spawn_blocked(post.board, cur);
             if (curBlocked || (hp != cur && move::spawn_blocked(post.board, hp))) {
                 std::vector<piece::Type> q2(queue.begin() + post.next, queue.end());
@@ -738,7 +754,7 @@ void search(
                 c2.root_planned = true;
                 c2.root_start = false;
                 c2.root_ihs = false;
-                c2.root_hold = true;
+                c2.root_hold = !beam::g_no_hold;
                 if (c2.zone_moves_left > 0) c2.zone_moves_left = std::max(c2.zone_moves_left - 1, 1);
                 const double now = beam::now_ms();
                 auto r2 = beam::search(s2, q2, ws, c2, now + std::clamp(double(thinkMs) / 3.0, 5.0, 40.0));

@@ -49,7 +49,9 @@ const REPLAY_SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
 const REPLAY_MK_CARD_W = 150;
 const REPLAY_MK_STEP = 162;
 const REPLAY_MK_PX_PER_MS = 0.04;
-const REPLAY_MK_KIND = { attack: 'ATTACK', hit: 'HIT', end: 'END', pause: 'PAUSE' };
+// 二重リプレイ（v2.6.2 F）を開いたとき、分かれた所のこれだけ前から見る
+const REPLAY_BRANCH_LEAD_MS = 2000;
+const REPLAY_MK_KIND = { attack: 'ATTACK', hit: 'HIT', end: 'END', pause: 'PAUSE', branch: 'PLAY HERE' };
 
 // 自動の印の閾値（§8.1・§13）。tet はライン、puyo はおじゃまの個数。localStorage.replay_mark_thresholds で変えられる
 const REPLAY_MARK_DEFAULT = { tetAttack: 2, tetHit: 2, puyoAttack: 6, puyoHit: 6 };
@@ -429,6 +431,8 @@ class ReplayRecorder {
         this.marks = [];    // 自動の印（§8.1）
         // 隠し機能を使った対戦（MOD。app/versus.js VERSUS_MOD_LABELS）。REPLAYS に MOD の印を出す
         this.mods = Array.isArray(spec.mods) ? spec.mods.slice() : [];
+        // 二重リプレイ（v2.6.2 F）: 元のリプレイの途中から続けた試合。{ parentId, atMs, depth, parentRecordedAt }
+        this.branch = null;
         this._th = replayMarkThresholds();
         this.clock._tape = this.dts;
         this.loop.recorder = this;
@@ -442,6 +446,40 @@ class ReplayRecorder {
     // 試合の親ループの step の頭
     beginFrame() {
         this.cur = this.nFrames++;
+    }
+
+    // 二重リプレイ（v2.6.2 F）: VERSUS の続き（PLAY HERE）を、元のリプレイの頭から分かれた所までの入力ごと録る。
+    //   CLIP（makeClip）と同じく、元の時計の進み・入力・照合を分かれた所で切って頭に残し、その後ろへ続きを書き足す。
+    //   スナップショットはファイルに書けないので使わない＝このリプレイだけで最初から再生できる（親が消えても見られる）。
+    //   親子のつながり（branch）は一覧の表示と、見始める所（分かれた所の少し前）に使うだけ。
+    //   cut: ReplayPlayer.branchCut()（detachLive の前に取る）。games: [1P, 2P]（再生していた盤面のまま）
+    static fromBranch(data, cut, games, mods) {
+        const rec = new ReplayRecorder({ mode: 'versus', modeOption: data.modeOption || null, games, mods });
+        rec.seed = data.seed;
+        rec.t0 = data.t0;
+        rec.timers = Array.isArray(data.timers) ? data.timers.slice() : null;
+        rec.players = (data.players || []).map((x) => JSON.parse(JSON.stringify(x)));
+        rec.configs = JSON.parse(JSON.stringify((data.settings && data.settings.configs) || []));
+        rec.codes = (data.codes || []).slice();
+        rec._codeIdx = new Map(rec.codes.map((c, i) => [c, i]));
+        const put = (buf, bytes) => { buf._room(bytes.length); buf.a.set(bytes, buf.n); buf.n += bytes.length; };
+        put(rec.dts, replayFromB64(data.frames).subarray(0, cut.dtLen));
+        put(rec.events, replayFromB64(data.inputs).subarray(0, cut.inEnd));
+        put(rec.checks, replayFromB64(data.checks).subarray(0, cut.checks * 4));
+        rec._lastEv = cut.lastEvFrame;
+        rec.nFrames = cut.frames;
+        rec.cur = Math.max(0, cut.frames - 1);
+        rec.locks = cut.checks;
+        rec.thinks = Array.isArray(data.think) ? data.think.filter((e) => Array.isArray(e) && e[0] < cut.frames) : [];
+        // 元の印は分かれた所まで＋分かれた所の印
+        rec.marks = (data.events || []).filter((m) => m.t <= cut.atMs && m.kind !== 'end').map((m) => Object.assign({}, m));
+        rec.marks.push({ t: cut.atMs, side: 0, kind: 'branch', label: 'PLAY HERE', value: 0 });
+        const pb = data.branch || null;
+        rec.branch = {
+            parentId: data.id, atMs: cut.atMs, depth: (pb && pb.depth ? pb.depth : 0) + 1,
+            parentRecordedAt: data.recordedAt || null,
+        };
+        return rec;
     }
 
     _player(g) {
@@ -602,6 +640,7 @@ class ReplayRecorder {
             checks: replayToB64(this.checks.bytes()),
             think: this.thinks.length ? this.thinks : null,
             ...(this.mods.length ? { mods: this.mods.slice() } : {}),
+            ...(this.branch ? { branch: Object.assign({}, this.branch) } : {}),
         };
     }
 }
@@ -1488,6 +1527,20 @@ class ReplayPlayer {
         return { rule, line: PracticeSnapshot.capture(view, rule, { tp: 0, tg: 0 }), rng };
     }
 
+    // 二重リプレイ（v2.6.2 F）: いま止まっている所で録画を切る位置（detachLive の前に取る。ReplayRecorder.fromBranch）
+    branchCut() {
+        const clock = this.games[0].clock;
+        if (!clock._feed) return null;
+        return {
+            frames: this.nFrames,
+            dtLen: clock._feed.p,
+            inEnd: this.ep ? this.evs[this.ep - 1].end : 0,
+            lastEvFrame: this.ep ? this.evs[this.ep - 1].f : 0,
+            checks: this.checkIdx,
+            atMs: this.time(),
+        };
+    }
+
     // VERSUS の続き（M7d）: 今の局面のまま本物の対戦に切り替えられるか（両盤面とも本編の途中）
     canGoLive() {
         if (this.ended || this.desynced || this.state === 'desync') return false;
@@ -1892,6 +1945,9 @@ const ReplayManager = {
             if (opts.speed) p.setSpeed(opts.speed);
             p.pause();
             p.seek(opts.at);
+        } else if (data.branch && typeof data.branch.atMs === 'number' && data.branch.atMs > 0) {
+            // 二重リプレイ（v2.6.2 F）: 分かれた所の少し前から見る（前は元の試合。シークで戻れる）
+            p.seek(Math.max(0, data.branch.atMs - REPLAY_BRANCH_LEAD_MS));
         }
         // VERSUS の MOD は再生でも VS の下に出す（app/versus.js）
         if (data.mode === 'versus' && typeof setVersusMods === 'function') setVersusMods(data.mods || []);
@@ -2340,11 +2396,15 @@ const ReplayManager = {
         if (p.state !== 'pause' || !p.canGoLive()) { restoreUi(); return; }
         // 再生をやめて、盤面はそのまま本物の試合へ
         const back = again ? Object.assign({}, again, { fresh: false }) : this._backFrom(p, false);
+        // 二重リプレイ（v2.6.2 F）: 続きも録る。今のエンジンの版で録ったリプレイだけ（古い版の動きと今の動きは 1 本に書けない）
+        const canRecord = p.data.engine === REPLAY_ENGINE_VERSION;
+        const cut = canRecord ? p.branchCut() : null;
+        const parentData = p.data;
         this.player = null;
         p.onUi = null;
         const globals = p.detachLive();
         document.body.classList.remove('replay-watching');
-        this.resultReplay = null; // 続きの試合は録画しない（対戦結果に WATCH REPLAY を出さない）
+        this.resultReplay = null;
         // 準備画面の設定は試合が終わって VERSUS の画面を離れるときに戻す（onSwitchPage）
         this._liveSaved = {
             pr: globals ? globals.pr : versusPlayerRule, cr: globals ? globals.cr : versusCpuRule,
@@ -2363,6 +2423,12 @@ const ReplayManager = {
         lc.transition('playing', 'replay continue');
 
         const games = [window._game, window._cpuGame];
+        const branchMods = (p.data.mods || []).filter((m) => m !== 'branch').concat(['branch']);
+        // 録画は人の盤面のキーを付け直す前に始める（今のキー設定を「設定を読み直した」出来事として残す）
+        if (cut) {
+            for (const g of games) if (g._rec) g._rec.detach();
+            ReplayRecorder.fromBranch(parentData, cut, games, branchMods);
+        }
         games.forEach((g, side) => {
             const cpu = sideCpu(side);
             g.isCpuControlled = !!cpu;
@@ -2393,11 +2459,14 @@ const ReplayManager = {
         if (!sideCpu(0) && window.Assist) window.Assist.attach(window._game, 'versus');
         window.CpuMatchLog?.hideDock();
         // リプレイの続きは MOD（記録した試合の MOD も引き継ぐ。app/versus.js）
-        if (typeof setVersusMods === 'function') setVersusMods((p.data.mods || []).concat(['branch']));
+        if (typeof setVersusMods === 'function') setVersusMods(branchMods);
         setupVersusPauseKey();
         if (typeof startVersusCpuWatchdog === 'function') startVersusCpuWatchdog(currentSessionId);
         this._setBack(back);
-        if (typeof showGlobalToast === 'function') showGlobalToast('ここから対戦の続きです（録画はしません）');
+        if (typeof showGlobalToast === 'function') {
+            showGlobalToast(cut ? 'ここから対戦の続きです（続きも録画します）'
+                : '古い版で録ったリプレイなので、続きは録画しません');
+        }
     },
 
     // 印の少し前（1 秒）から見る

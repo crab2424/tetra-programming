@@ -23,7 +23,7 @@ self.Module = {
     // ★ .wasm もファイル名でキャッシュされるため ?v= を付けてキャッシュバストする
     //   （グルーjs/worker と同じバージョンに揃えること）。
     locateFile: function (path) {
-        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=35' : path;
+        return path === 'cpu_wasm4.wasm' ? 'cpu_wasm4.wasm?v=36' : path;
     },
     onRuntimeInitialized: function () {
         wasmReady = true;
@@ -31,7 +31,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm4.js?v=36');
+importScripts('cpu_wasm4.js?v=37');
 
 let boardPtr     = null;
 let weightsPtr   = null;
@@ -43,6 +43,10 @@ self.onmessage = function (e) {
 
     const data = e.data;
     if (data.type !== 'calculate') return;
+    // VS 設定の消去数（CONNECT。v2.6.2 A）。古い wasm（関数が無い）は 4 のまま
+    if (Module._setEraseCount) Module._setEraseCount(data.eraseCount || 4);
+    // VS 設定の連鎖縛り（0=OFF。v2.6.2 A）
+    if (Module._setChainMin) Module._setChainMin(data.chainMin || 0);
 
     if (boardPtr === null) {
         boardPtr     = Module._my_malloc(102);

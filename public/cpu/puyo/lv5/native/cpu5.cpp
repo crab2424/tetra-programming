@@ -23,12 +23,19 @@
 #include "core/bitboard.h"
 #include "core/weights.h"
 #include "build/build.h"
+#include "core/chain.h"
 #include "eval/shape.h"
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Wasm エクスポート
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+void setEraseCount(int n) { g_eraseCount = (n >= 2 && n <= 6) ? n : 4; }
+
+EMSCRIPTEN_KEEPALIVE
+void setChainMin(int n) { g_chainMin = (n >= 2 && n <= 20) ? n : 0; }
 
 EMSCRIPTEN_KEEPALIVE
 void* my_malloc(size_t size) { return malloc(size); }

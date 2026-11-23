@@ -8,6 +8,8 @@
 namespace beam
 {
 
+bool g_no_hold = false;
+
 namespace
 {
 
@@ -69,7 +71,10 @@ u32 expand(
 
     piece::Type pieces[2] = { queue[node.state.next], node.state.hold };
 
-    if (pieces[1] == piece::Type::NONE) {
+    if (g_no_hold) {
+        pieces[1] = piece::Type::NONE; // HOLD なしの試合: いまのミノだけ
+    }
+    else if (pieces[1] == piece::Type::NONE) {
         pieces[1] = queue[node.state.next + 1];
     }
 
@@ -110,7 +115,7 @@ u32 expand(
             child.sent += child.lock.attack;
             child.depth = u8(std::min(i32(node.depth) + 1, 255));
             if (plan && plan->active && child.gq.n > 0) {
-                garbage::after_lock(child.state.board, child.gq, child.lock.attack, child.depth, plan->seed);
+                garbage::after_lock(child.state.board, child.gq, child.lock.attack, child.depth, plan->seed, child.lock.clear > 0);
             }
             callback(child, placement);
         }
@@ -210,7 +215,7 @@ Result search(
     // 読める深さ：キューの本数（HOLD が空なら1本多く使う）と configs.depth の小さい方
     size_t max_layers = std::min(
         configs.depth,
-        queue.size() - (root.state.hold == piece::Type::NONE)
+        queue.size() - (!g_no_hold && root.state.hold == piece::Type::NONE)
     );
     // §22: ZONE の時間切れの先は読まない
     if (configs.zone && configs.zone_moves_left > 0) max_layers = std::min(max_layers, size_t(configs.zone_moves_left));

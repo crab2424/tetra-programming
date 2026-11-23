@@ -561,7 +561,13 @@ window.CPU4 = class {
             this.weights.pureHole                     
         ]);
 
+        // VS 設定で HOLD なしの試合は、探索に「HOLD できない・中身なし」を渡す（2 手目より先でも HOLD を使わない。v2.6.2 A）
+
+        const holdOk = typeof this.game._holdAllowed !== 'function' || this.game._holdAllowed();
+
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
+
+        if (!holdOk) holdType = -1;
 
         this.worker.postMessage({
             type: 'calculate',
@@ -573,7 +579,7 @@ window.CPU4 = class {
             next3: this.game.nextQueue[2].type, 
             next4: this.game.nextQueue[3].type, 
             next5: this.game.nextQueue[4].type, 
-            canHold: this.game.canHold ? 1 : 0,
+            canHold: (holdOk && this.game.canHold) ? 1 : 0,
             weightsArray: weightsArray,
             // ZONE の発動中: 予告の合計と時間切れまでに置ける見込みの手数（探索が ZONE の終わりを読む。cpu_zone.js・設計 §21）
             incoming: window.CpuZone ? CpuZone.incoming(this.game) : 0,

@@ -33,7 +33,13 @@ struct Plan
     u64 seed = 0;
 };
 
-// depth 手目の設置の後の処理。上がった段数を返す
-i32 after_lock(Board& board, Queue& q, i32 attack, i32 depth, u64 seed);
+// VS 設定（v2.6.2 A。search の頭で weights の欄から入れる。lv7_wasm.cpp）
+//   g_rise_on_clear : DAMAGE ON CLEAR（false なら消去した手では ③ を飛ばす＝上がらない。game/tet/board.js と同じ）
+//   g_hole_same_pct : HOLE RATE（1 回の着弾の中で前の段と同じ列の確率 %）
+extern bool g_rise_on_clear;
+extern i32 g_hole_same_pct;
+
+// depth 手目の設置の後の処理。上がった段数を返す。cleared: その手で消去したか
+i32 after_lock(Board& board, Queue& q, i32 attack, i32 depth, u64 seed, bool cleared = false);
 
 };

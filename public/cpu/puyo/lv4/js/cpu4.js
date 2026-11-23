@@ -19,7 +19,7 @@ window.PuyoCPU4 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/puyo/lv4/wasm/cpu_worker4.js?v=36',
+        'cpu/puyo/lv4/wasm/cpu_worker4.js?v=37',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;

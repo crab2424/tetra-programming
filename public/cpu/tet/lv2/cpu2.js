@@ -7,7 +7,7 @@ window.CPU2 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv2/cpu_worker2.js?v=6',
+        'cpu/tet/lv2/cpu_worker2.js?v=7',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -172,7 +172,13 @@ window.CPU2 = class {
             Math.round(this.weights.P1_WEIGHT)
         ]);
 
+        // VS 設定で HOLD なしの試合は、探索に「HOLD できない・中身なし」を渡す（2 手目より先でも HOLD を使わない。v2.6.2 A）
+
+        const holdOk = typeof this.game._holdAllowed !== 'function' || this.game._holdAllowed();
+
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
+
+        if (!holdOk) holdType = -1;
 
         this.worker.postMessage({
             type: 'calculate',
@@ -181,7 +187,7 @@ window.CPU2 = class {
             holdType: holdType,
             next1: this.game.nextQueue[0].type,
             next2: this.game.nextQueue[1].type,
-            canHold: this.game.canHold ? 1 : 0,
+            canHold: (holdOk && this.game.canHold) ? 1 : 0,
             // 今のミノの位置・向き（探索はここから 1 操作ずつ動かして届く手だけを作る。内部 y = 実機 y + 5）
             curX: mino.x, curY: mino.y + 5, curRot: mino.rotation,
             weightsArray: weightsArray

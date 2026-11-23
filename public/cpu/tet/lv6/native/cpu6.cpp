@@ -386,6 +386,8 @@ void searchBestMoveWasm(
     int baseMaxHeight = 0;
     // ★分割対応：初期盤面の評価値を evalBoardState で取得（初期盤面の upcomingT は全可視キュー+hold）
     int baseScore = evalBoardState(zn ? zonePlain(baseBoard) : baseBoard, w, countUpcomingT(0, holdType), &baseMaxHeight);
+    // VS 設定で HOLD なしの試合（JS が canHold=0・holdType=-1 を渡す。v2.6.2 A）: 先行ホールドで出す手も読まない
+    const bool holdOff = (canHold == 0 && holdType == -1);
     g_zoneMovesLeft = zn ? (zoneMovesLeft > 0 ? zoneMovesLeft : 0) : 0;
     g_zoneIncoming  = zn ? (incoming > 0 ? incoming : 0) : 0;
     g_zoneNear = zn && (baseBoard.zone + baseMaxHeight >= ZONE_NEAR_HEIGHT
@@ -631,7 +633,7 @@ void searchBestMoveWasm(
                     const bool endOk = zn && zoneEndSafe(current_max_height, simBoard.zone);
                     if (endOk) pushEnded(next_s, step_num, 1);
                     // §22: 先行回転・先行ホールドで出せるなら、続ける枝としてもビームに残す
-                    const int ihsPiece = new_hold != -1 ? new_hold : (new_next_idx + 1 < 9 ? next_queue[new_next_idx + 1] : -1);
+                    const int ihsPiece = holdOff ? -1 : (new_hold != -1 ? new_hold : (new_next_idx + 1 < 9 ? next_queue[new_next_idx + 1] : -1));
                     const bool cont = canSpawnIrs(simBoard, upcoming)
                         || (ihsPiece >= 0 && (canSpawnPiece(simBoard, ihsPiece) || canSpawnIrs(simBoard, ihsPiece)));
                     if (!cont) {
@@ -724,7 +726,9 @@ void searchBestMoveWasm(
             //   旧実装は HOLD 側の展開で「別のミノなら出せる」として生存扱いしていた。
             if (expandState(state, cur_mino, state.hold_mino, state.next_idx + 1, step_num, false, -1, true, false) < 0) {
                 // §22: 向き 0 で出せない。先行ホールドなら、いまのミノを出さずにホールドのミノ（空なら NEXT の次）を出せる
-                if (state.hold_mino != -1) {
+                if (holdOff) {
+                    // HOLD なしの試合: 先行ホールドもできない
+                } else if (state.hold_mino != -1) {
                     if (state.hold_mino != cur_mino)
                         expandState(state, state.hold_mino, cur_mino, state.next_idx + 1, step_num, false, -1, true, true);
                 } else if (state.next_idx + 1 < 9) {

@@ -428,6 +428,10 @@ static void runExpectedChainSelection(
             // どちらも不成立＝本線を守って育成継続（bestFm のまま撃たない）
         }
 
+        // v2.6.2 A: 連鎖縛り（g_chainMin）。縛り未満の連鎖は火力 0（相殺もしない）なので、
+        //   緊急（2 盤面整理・3 延命）のとき以外は撃たずに育成の手のまま
+        if (fireFm >= 0 && g_chainMin > 0 && cands[fireFm].fireChains < g_chainMin
+            && dbgFireReason != 2 && dbgFireReason != 3) { fireFm = -1; dbgFireReason = 0; }
         if (fireFm >= 0) {
             bestFm = fireFm;
             selChain = cands[fireFm].fireScore;   // 表示は実発火スコア

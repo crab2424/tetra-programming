@@ -9,7 +9,7 @@ window.CPU6 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv6/wasm/cpu_worker6.js?v=26',
+        'cpu/tet/lv6/wasm/cpu_worker6.js?v=27',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -991,7 +991,13 @@ window.CPU6 = class {
             weightsArray = wa;
         }
 
+        // VS 設定で HOLD なしの試合は、探索に「HOLD できない・中身なし」を渡す（2 手目より先でも HOLD を使わない。v2.6.2 A）
+
+        const holdOk = typeof this.game._holdAllowed !== 'function' || this.game._holdAllowed();
+
         let holdType = this.game.holdMino !== null ? this.game.holdMino.type : -1;
+
+        if (!holdOk) holdType = -1;
 
         const currentRen = this.game.ren || 0;
         const currentBtB = this.game.backToBack ? 1 : 0;
@@ -1012,7 +1018,7 @@ window.CPU6 = class {
             next6: this.game.nextQueue[5] ? this.game.nextQueue[5].type : 0, // ★深さ8対応
             next7: this.game.nextQueue[6] ? this.game.nextQueue[6].type : 0, // ★深さ8対応
             next8: this.game.nextQueue[7] ? this.game.nextQueue[7].type : 0, // ★深さ8対応
-            canHold: this.game.canHold ? 1 : 0,
+            canHold: (holdOk && this.game.canHold) ? 1 : 0,
             weightsArray: weightsArray,
             ren: currentRen,
             backToBack: currentBtB,
