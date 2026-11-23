@@ -252,6 +252,7 @@ function initMenuAnimations(pageId = 'main-menu') {
             { sel: 'h2',                        cls: 'menu-enter',  delay: 0   },
             { sel: '#result-stats',             cls: 'menu-enter',  delay: 1   },
             { sel: '#result-buttons',           cls: 'menu-enter',  delay: 2   },
+            { sel: '.result-detail',            cls: 'menu-enter',  delay: 3   }, // DETAIL（core/result_detail.js）
         ];
     } else if (pageId === 'settings') {
         // settings-page 直下は ヘッダー → タブ → タブパネル群(#settings-tab-panels) の3つ。

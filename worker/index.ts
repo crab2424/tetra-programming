@@ -1,6 +1,6 @@
 import { isLegacyHost, type Env } from "./env";
 import { handleAdminBanUser, handleAdminDeleteRecord, handleAdminListRecords } from "./admin";
-import { handleCallback, handleDeleteMe, handleLogin, handleLogout, handleMe, handleUpdateName } from "./auth";
+import { handleCallback, handleDeleteMe, handleLogin, handleLogout, handleMe, handleUpdateName, handleUpdateRankingAnon } from "./auth";
 import { error, json } from "./http";
 import { handleRanking, handleRankingMe, handleSubmitRecord } from "./records";
 import { handleSyncGet, handleSyncPut } from "./sync";
@@ -46,6 +46,7 @@ async function handleApi(req: Request, env: Env, url: URL): Promise<Response> {
   if (pathname === "/api/me" && method === "GET") return handleMe(req, env, url);
   if (pathname === "/api/me" && method === "DELETE") return handleDeleteMe(req, env, url);
   if (pathname === "/api/me/name" && method === "PUT") return handleUpdateName(req, env, url);
+  if (pathname === "/api/me/ranking-anon" && method === "PUT") return handleUpdateRankingAnon(req, env, url);
 
   if (pathname === "/api/records" && method === "POST") return handleSubmitRecord(req, env, url);
 

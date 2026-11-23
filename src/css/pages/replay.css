@@ -803,3 +803,21 @@ body:has(#replay-pause-overlay.active) .puyo-chain-text {
   align-self: center;
   margin-top: -6px;
 }
+
+/* 枝（PLAY HERE から続けた試合）を親のリプレイにまとめた印（kind 'fork'）と、枝の行き来のボタン */
+.replay-mark.replay-mark-fork {
+  background: #f5b942;
+  width: 4px;
+  box-shadow: 0 0 6px #f5b942;
+}
+.replay-mk-card.replay-mark-fork { --mk-color: #f5b942; }
+.replay-mk-card.replay-mark-fork .replay-mk-body { border-style: dashed; }
+.replay-mk-nav { color: #f5b942; }
+.replay-title-branch {
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid #f5b942;
+  border-radius: 4px;
+  font-size: 10px;
+  color: #f5b942;
+}

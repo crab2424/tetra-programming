@@ -78,8 +78,9 @@ Object.assign(Game.prototype, {
         if (ps) {
             ps.pc++;
             if (linesCleared === 4) ps.t4++;
-            if (tSpinType === 'tspin' && linesCleared >= 1 && linesCleared <= 3) ps['ts' + linesCleared]++;
-            else if (tSpinType === 'mini' && linesCleared >= 1) ps.tsm++;
+            else if (!tSpinType && linesCleared >= 1 && linesCleared <= 3) ps['l' + linesCleared]++; // リザルトの詳細（core/result_detail.js）
+            if (tSpinType === 'tspin' && linesCleared >= 0 && linesCleared <= 3) ps['ts' + linesCleared]++; // ts0 は消さない T-Spin（リザルトの詳細だけ）
+            else if (tSpinType === 'mini') { if (linesCleared >= 1) ps.tsm++; else ps.tsm0++; }
             if (isPerfectClear) ps.pcl++;
             if (linesCleared > 0 && this.ren - 1 > ps.renMax) ps.renMax = this.ren - 1;
             if (isB2BTriggered) { ps.b2bRun++; if (ps.b2bRun > ps.b2bMax) ps.b2bMax = ps.b2bRun; }
@@ -332,7 +333,8 @@ Object.assign(Game.prototype, {
     // pc=置いた数 / t4=4 ライン / ts1〜3=T-Spin Single〜Triple / tsm=T-Spin Mini（ライン消去あり）/
     // pcl=パーフェクトクリア / renMax=最大 REN / b2bMax=Back-to-Back が続いた最大回数（b2bRun は今の連続）
     _resetPlayStats() {
-        this.playStats = { pc: 0, t4: 0, ts1: 0, ts2: 0, ts3: 0, tsm: 0, pcl: 0, renMax: 0, b2bMax: 0, b2bRun: 0 };
+        // l1〜l3=通常の 1〜3 ライン消し / ts0=消さない T-Spin / tsm0=消さない T-Spin Mini（リザルトの詳細 core/result_detail.js だけが使う）
+        this.playStats = { pc: 0, t4: 0, ts1: 0, ts2: 0, ts3: 0, tsm: 0, pcl: 0, renMax: 0, b2bMax: 0, b2bRun: 0, l1: 0, l2: 0, l3: 0, ts0: 0, tsm0: 0 };
     },
 
     // 攻撃量の累積を加算する（APM計測用・生成基準）。相殺で無駄になった火力も対象に含めるため、

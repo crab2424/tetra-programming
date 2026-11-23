@@ -167,3 +167,8 @@
   outline: none;
   border-color: var(--accent3);
 }
+
+/* RANKING NAME: ANONYMOUS のとき */
+#account-modal-anon-btn.is-on #account-modal-anon-state {
+  color: var(--accent, #6cf);
+}

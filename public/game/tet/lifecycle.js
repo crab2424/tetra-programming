@@ -429,6 +429,8 @@ Object.assign(Game.prototype, {
                 if (bestRow) bestRow.style.display = 'none';
             }
 
+            // 右の列 DETAIL（各種 T-Spin・4 ライン・PC・最大 REN など。core/result_detail.js）
+            if (window.ResultDetail) window.ResultDetail.render('result-detail', [this]);
             if (typeof switchPage === 'function') switchPage('result');
         });
     },

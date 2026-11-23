@@ -8,6 +8,10 @@
 //     直近 30 本を残して古いものから消す（並びは保存した時刻。インポートしたものも同じ）。
 //     ★を付けたもの・最高記録に結び付いたもの（keepFor）・クリップは消さない。
 //   ・最高記録: records.js の記録の meta.replayId にリプレイを結び付け、準備画面の BEST の下から見られる。
+//   ・枝（PLAY HERE で遊んだ VERSUS の続き）は 1 本のリプレイにまとめる: 親のリプレイの data.branches に、親と同じ頭を除いた
+//     後ろだけ（core/replay.js の replayBranchNode）で入れる。枝の枝も同じ（木）。1 階層 30 本（REPLAY_BRANCH_MAX）を超えたら
+//     ★の無い古い枝から消す。一覧には親の 1 行だけ（BRANCH n の札）。見るのは再生中の印の画面（枝の印・OPEN ▶ / ◀ PARENT）。
+//     親が保存されていなければ親ごと保存する。親が見つからない古い形の枝は今までどおり 1 本で保存する。
 //   ・ファイル: 1 本 = 1 ファイル（.tlreplay＝JSON を gzip。CompressionStream が無ければ JSON のまま）。
 //     インポートは形・版・大きさを確かめ、壊れたファイルでは止まらずにメッセージを出す。
 // ─────────────────────────────────────────────
@@ -48,8 +52,14 @@ const ReplayStore = (() => {
     };
 
     // 1 件 = { id, savedAt, star, keepFor: [記録のキー], imported, data }
+    //   枝（data.branch.cut あり）は親の中へ（addBranch）。opts.parentData: 親がまだ保存されていないときに親ごと残す
     async function save(data, opts = {}) {
-        const prev = await get(data.id);
+        if (data && data.branch && data.branch.cut && data.branch.rootId) return addBranch(data, opts);
+        return saveRaw(data, opts);
+    }
+
+    async function saveRaw(data, opts = {}) {
+        const prev = await getRaw(data.id);
         const item = prev || { id: data.id, savedAt: Date.now(), star: false, keepFor: [], imported: !!opts.imported, data };
         item.data = data;
         await tx('readwrite', (st) => st.put(item));
@@ -57,9 +67,108 @@ const ReplayStore = (() => {
         return item;
     }
 
-    function get(id) {
+    function getRaw(id) {
         if (!id) return Promise.resolve(null);
         return tx('readonly', (st) => st.get(id)).then((x) => x || null);
+    }
+
+    // 木の中から id の枝を探す。{ node, list（その枝が入っている配列）, chain（一番上から親までの枝） }
+    function findNode(list, id, chain = []) {
+        for (const n of (list || [])) {
+            if (!n) continue;
+            if (n.id === id) return { node: n, list, chain };
+            const f = findNode(n.branches, id, chain.concat([n]));
+            if (f) return f;
+        }
+        return null;
+    }
+
+    // id が枝なら、入っている一番上のリプレイ（保存した 1 件）と枝を返す
+    async function findBranch(id) {
+        const all = (await tx('readonly', (st) => st.getAll())) || [];
+        for (const it of all) {
+            const f = it.data && findNode(it.data.branches, id);
+            if (f) return Object.assign({ root: it }, f);
+        }
+        return null;
+    }
+
+    // 枝の 1 本のリプレイ（親の頭とつなぎ直したもの）
+    function branchData(root, f) {
+        let d = root.data;
+        for (const n of f.chain.concat([f.node])) d = replayBranchFull(d, n);
+        return d;
+    }
+
+    // 1 件。枝の id なら { id, star, keepFor: [], data: つなぎ直した 1 本, branchOf: 一番上の id }
+    async function get(id) {
+        const it = await getRaw(id);
+        if (it || !id) return it;
+        const f = await findBranch(id);
+        if (!f) return null;
+        return { id, savedAt: f.node.savedAt || f.root.savedAt, star: !!f.node.star, keepFor: [], imported: false, data: branchData(f.root, f), branchOf: f.root.id };
+    }
+
+    // 枝を親の中へ入れる（1 階層 REPLAY_BRANCH_MAX 本まで。超えたら★の無い古い枝から消す）
+    async function addBranch(full, opts = {}) {
+        const b = full.branch;
+        const parentData = opts.parentData || (window.ReplayManager && ReplayManager._branchParent) || null;
+        let root = await getRaw(b.rootId);
+        if (!root) {
+            // 親（一番上）がまだ無い: 手元の親が一番上なら親ごと保存。それ以外（枝の枝で途中が無い）は 1 本で保存
+            if (parentData && parentData.id === b.rootId && !parentData.branch) {
+                const rd = Object.assign({}, parentData);
+                root = await saveRaw(rd, opts.parentOpts || {});
+            } else {
+                return saveRaw(full, opts);
+            }
+        }
+        const rd = root.data;
+        let list;
+        if (b.parentId === rd.id) {
+            list = Array.isArray(rd.branches) ? rd.branches : (rd.branches = []);
+        } else {
+            const f = findNode(rd.branches, b.parentId);
+            if (!f) return saveRaw(full, opts);
+            list = Array.isArray(f.node.branches) ? f.node.branches : (f.node.branches = []);
+        }
+        const at = list.findIndex((n) => n && n.id === full.id);
+        const node = replayBranchNode(full);
+        node.savedAt = Date.now();
+        node.star = at >= 0 ? !!list[at].star : false;
+        if (at >= 0) {
+            node.branches = list[at].branches || [];
+            node.savedAt = list[at].savedAt || node.savedAt;
+            list[at] = node;
+        } else {
+            list.push(node);
+        }
+        while (list.length > REPLAY_BRANCH_MAX) {
+            let drop = -1;
+            list.forEach((n, i) => {
+                if (n.id === node.id || n.star || hasStarBranch(n.branches)) return; // ★の枝（子・孫も）は残す
+                if (drop < 0 || (n.savedAt || 0) < (list[drop].savedAt || 0)) drop = i;
+            });
+            if (drop < 0) break;
+            list.splice(drop, 1);
+        }
+        if (list.length > REPLAY_BRANCH_MAX) {
+            // 全部★: 新しい枝は入れない
+            list.splice(list.indexOf(node), 1);
+            if (typeof showGlobalToast === 'function') showGlobalToast(`枝が ${REPLAY_BRANCH_MAX} 本（全部★）あるので保存できませんでした`);
+            return null;
+        }
+        root.savedAt = Date.now(); // 枝を足した親は新しく触った物として扱う（30 本の数え方）
+        await tx('readwrite', (st) => st.put(root));
+        await prune();
+        if (window.ReplayManager && ReplayManager.onBranchSaved) ReplayManager.onBranchSaved(b.parentId, node);
+        return { id: full.id, savedAt: node.savedAt, star: node.star, keepFor: [], imported: false, data: full, branchOf: root.id };
+    }
+
+    // id のリプレイのデータ（枝ならつなぎ直した 1 本）
+    async function findData(id) {
+        const it = await get(id);
+        return it ? it.data : null;
     }
 
     async function list() {
@@ -73,15 +182,26 @@ const ReplayStore = (() => {
     }
 
     async function update(id, fn) {
-        const item = await get(id);
-        if (!item) return null;
+        const item = await getRaw(id);
+        if (!item) {
+            // 枝: ★だけを変えられる
+            const f = await findBranch(id);
+            if (!f) return null;
+            const view = { id, star: !!f.node.star, keepFor: [] };
+            fn(view);
+            f.node.star = !!view.star;
+            await tx('readwrite', (st) => st.put(f.root));
+            await prune();
+            return { id, savedAt: f.node.savedAt, star: f.node.star, keepFor: [], imported: false, data: null, branchOf: f.root.id };
+        }
         fn(item);
         await tx('readwrite', (st) => st.put(item));
         await prune();
         return item;
     }
 
-    const isKept = (it) => it.star || (it.keepFor && it.keepFor.length) || (it.data && it.data.clip);
+    const hasStarBranch = (list) => (list || []).some((n) => n && (n.star || hasStarBranch(n.branches)));
+    const isKept = (it) => it.star || (it.keepFor && it.keepFor.length) || (it.data && it.data.clip) || (it.data && hasStarBranch(it.data.branches));
 
     // 直近 30 本（守るものを除く）を残す
     async function prune() {
@@ -92,7 +212,7 @@ const ReplayStore = (() => {
         await tx('readwrite', (st) => { drop.forEach((it) => st.delete(it.id)); return null; });
     }
 
-    return { save, get, list, remove, update, isKept };
+    return { save, get, list, remove, update, isKept, addBranch, findData };
 })();
 
 // 設定の DISPLAY › REPLAY AUTO SAVE（config/settings.js。既定 ON）
@@ -237,7 +357,7 @@ const ReplaysPage = {
         const hint = document.getElementById('replays-hint');
         if (hint) {
             hint.textContent = replayAutoSave()
-                ? '最後まで遊んだ試合を直近 30 本まで自動で残します（★・最高記録・CLIP は消えません）。CLIP は再生中の印の画面（M）から作れます。ファイルをここへドロップしても読み込めます。'
+                ? '最後まで遊んだ試合を直近 30 本まで自動で残します（★・最高記録・CLIP は消えません）。CLIP は再生中の印の画面（M）から作れます。PLAY HERE で続けた試合は元のリプレイの中に枝としてまとまり、印の画面から開けます。ファイルをここへドロップしても読み込めます。'
                 : '自動保存は OFF です（SETTINGS › DISPLAY）。リザルトの SAVE で残せます（最高記録・CLIP は OFF でも残ります）。ファイルをここへドロップしても読み込めます。';
         }
         const f = this.filter;
@@ -292,12 +412,19 @@ const ReplaysPage = {
         const tags = [];
         if (d.clip) tags.push('<span class="replays-tag">CLIP</span>');
         // 二重リプレイ（v2.6.2 F）: 元のリプレイの途中（PLAY HERE）から続けた試合。重ねた数と元の日時は title に
+        // 枝をまとめた親（data.branches）: 枝の数（子・孫まで）。中身は再生中の印の画面（M）で選ぶ
+        const nb = replayBranchCount(d.branches);
+        if (nb) {
+            const t = `PLAY HERE から続けた試合が ${nb} 本入っています（再生中に M の印の画面で枝を選んで OPEN）`;
+            tags.push(`<span class="replays-tag replays-tag-branch" title="${t.replace(/"/g, '&quot;')}">BRANCH ${nb}</span>`);
+        }
         if (d.branch) {
+            // 1 本で保存した枝（元のリプレイが無いとき・古い形）
             const b = d.branch;
             const depth = b.depth > 1 ? ` ×${b.depth}` : '';
             const from = b.parentRecordedAt ? replayDateText(b.parentRecordedAt) : '';
             const t = `PLAY HERE から続けた試合${from ? '（元: ' + from + ' の ' + replayFmtTime(b.atMs) + '）' : ''}`;
-            tags.push(`<span class="replays-tag replays-tag-branch" title="${t.replace(/"/g, '&quot;')}">BRANCH${depth}</span>`);
+            tags.push(`<span class="replays-tag replays-tag-branch" title="${t.replace(/"/g, '&quot;')}">CONTINUED${depth}</span>`);
         }
         if (it.keepFor && it.keepFor.length) tags.push('<span class="replays-tag">BEST</span>');
         if (it.imported) tags.push('<span class="replays-tag">IMPORT</span>');
@@ -407,10 +534,22 @@ const ReplaysPage = {
 // 自動保存の書き込み中（onBest がその後に keepFor を付けるので、終わるのを待つ）
 let replaySavePending = Promise.resolve();
 
+// CPU TEST の CPU 同士で、MATCH LOG の REPLAY の条件に合わず残さなかったリプレイ（リザルトに SAVE を出すため）
+let replaySkippedId = null;
+
 ReplayManager.onRecorded = (data) => {
-    if (!replayAutoSave()) return; // OFF: リザルトの SAVE か、最高記録の更新（onBest）で残す
+    replaySkippedId = null;
+    // CPU 同士は MATCH LOG の REPLAY（ALL / FILTER / OFF）で決める（app/cpu_match_log.js）。FILTER で条件に合えば自動保存 OFF でも残す
+    const decision = window.CpuMatchLog && CpuMatchLog.replayDecision ? CpuMatchLog.replayDecision(data) : null;
+    if (decision === 'skip') { replaySkippedId = data.id; return; }
+    if (decision !== 'save' && !replayAutoSave()) return; // OFF: リザルトの SAVE か、最高記録の更新（onBest）で残す
     replaySavePending = ReplayStore.save(data).catch((e) => console.warn('[replay] 保存できませんでした', e));
 };
+
+// リザルト・PAUSE の SAVE を出すか（自動保存 OFF か、CPU 同士の条件で残さなかったとき）
+function replayManualSave(d) {
+    return !replayAutoSave() || (!!d && d.id === replaySkippedId);
+}
 
 // 今のリザルトのリプレイが保存されていなければ保存する（SAVE・★・最高記録から）
 async function replaySaveResultIfNeeded(d) {
@@ -457,6 +596,28 @@ ReplayManager.onClip = (data) => {
         });
 };
 
+// 枝を保存したら、手元の親（◀ REPLAY・RETRY HERE で見直す元・枝の行き来で覚えた親）にも入れる（印の画面にすぐ出るように）
+ReplayManager.onBranchSaved = (parentId, node) => {
+    const add = (d) => {
+        if (!d || d.id !== parentId) return;
+        const list = Array.isArray(d.branches) ? d.branches : (d.branches = []);
+        const i = list.findIndex((n) => n && n.id === node.id);
+        if (i >= 0) list[i] = node; else list.push(node);
+        while (list.length > REPLAY_BRANCH_MAX) {
+            const drop = list.findIndex((n) => n.id !== node.id && !n.star && !ReplayStore.isKept({ data: { branches: n.branches } }));
+            if (drop < 0) break;
+            list.splice(drop, 1);
+        }
+    };
+    const seen = new Set();
+    for (const d of [ReplayManager._branchParent, ReplayManager.backTo && ReplayManager.backTo.data].concat(ReplayManager._branchStack || [])) {
+        if (d && !seen.has(d)) { seen.add(d); add(d); }
+    }
+};
+
+// 枝から元のリプレイへ戻るとき（core/replay.js の openParent）
+ReplayManager.findReplayData = (id) => ReplayStore.findData(id);
+
 ReplayManager.watchById = async (id, returnPage) => {
     const it = await ReplayStore.get(id);
     if (!it) { if (typeof showGlobalToast === 'function') showGlobalToast('リプレイが見つかりません'); return; }
@@ -496,7 +657,7 @@ ReplayManager.saveResult = () => {
 
 // 再生中の PAUSE 画面に SAVE REPLAY を出すか（自動保存 OFF で、まだ保存していないときだけ）
 ReplayManager.needsSave = async (d) => {
-    if (replayAutoSave() || !d) return false;
+    if (!d || !replayManualSave(d)) return false;
     await replaySavePending;
     return !(await ReplayStore.get(d.id).catch(() => null));
 };
@@ -516,7 +677,7 @@ ReplayManager.updateResultTools = async (it) => {
     });
     // SAVE は自動保存 OFF のときだけ。保存済み（SAVE・★・最高記録）なら SAVED で押せない
     document.querySelectorAll('.result-replay-save').forEach((b) => {
-        const show = !!d && !replayAutoSave();
+        const show = !!d && replayManualSave(d);
         b.style.display = show ? '' : 'none';
         b.disabled = !!it;
         b.querySelector('.result-replay-save-label').textContent = it ? 'SAVED' : 'SAVE';
