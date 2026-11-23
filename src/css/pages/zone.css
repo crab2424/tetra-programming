@@ -332,6 +332,14 @@ body.replay-watching:not(.replay-ui-hidden) #container.zone-on {
 body.input-mode-kbd #vs-settings-page.is-zone-battle #vs-settings-tab-toggle.is-focused .opt-btn.active {
   outline-color: var(--zone-battle-color);
 }
+/* PRESET（下線。settings.css の .settings-preset-toggle）も ZONE BATTLE の色に */
+#vs-settings-page.is-zone-battle .settings-preset-toggle .opt-btn.active {
+  color: var(--zone-battle-color);
+  border-bottom-color: var(--zone-battle-color);
+}
+body.input-mode-kbd #vs-settings-page.is-zone-battle .settings-preset-toggle.is-focused .opt-btn.active {
+  outline-color: var(--zone-battle-color);
+}
 #vs-settings-page.is-zone-battle .vs-setting-step-btn.active {
   background: rgba(var(--zone-battle-rgb), 0.16);
   color: var(--zone-battle-color);

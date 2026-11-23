@@ -30,7 +30,8 @@
   margin-bottom: 20px;
 }
 
-/* プリセット（PRESET 1〜3 ＋ RENAME）。タブの上 */
+/* プリセット（PRESET 1〜3 ＋ RENAME）。タブの上。SETTINGS と VS SETTINGS で共通（v2.6.2）。
+   下の項目のタブ（枠つきのボタン）と見分けがつくよう、枠を付けずに下線で選んでいるものを示す */
 .settings-preset-row {
   display: flex;
   align-items: center;
@@ -44,30 +45,47 @@
   color: var(--text-dim);
   flex: none;
 }
-#settings-preset-toggle {
+.settings-preset-toggle {
   flex: 1;
   min-width: 0;
+  gap: 4px;
 }
-#settings-preset-toggle .opt-btn {
+.settings-preset-toggle .opt-btn {
   flex: 1;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 6px 10px 5px;
   font-size: 11px;
   letter-spacing: 1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-dim);
 }
-body.input-mode-kbd #settings-preset-toggle.is-focused {
+.settings-preset-toggle .opt-btn:hover {
+  color: var(--text);
+  border-bottom-color: var(--text-dim);
+}
+.settings-preset-toggle .opt-btn.active {
+  background: transparent;
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  box-shadow: none;
+}
+body.input-mode-kbd .settings-preset-toggle.is-focused {
   outline: none;
   box-shadow: none;
 }
-body.input-mode-kbd #settings-preset-toggle.is-focused .opt-btn.active {
+body.input-mode-kbd .settings-preset-toggle.is-focused .opt-btn.active {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  box-shadow: 0 0 0 1px rgba(196, 113, 245, 0.45);
+  border-radius: 2px;
 }
-#settings-preset-rename {
+.settings-preset-rename {
   flex: none;
   padding: 8px 12px;
   font-size: 11px;

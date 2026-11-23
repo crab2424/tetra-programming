@@ -3,7 +3,7 @@
 //
 // GET /api/sync            … このアカウントの全区分を返す
 // PUT /api/sync {sections} … 区分ごとに書き込む。食い違ったときの決め方は区分で違う:
-//   設定（presets＝設定のプリセット 3 つ分。tuning/display/binds/gamepad はプリセット導入前の区分）＝新しい方が勝つ。端末が最後に見た rev と今の rev が
+//   設定（presets＝設定のプリセット 3 つ分。vs_presets＝VS 設定のプリセット（v2.6.2）。tuning/display/binds/gamepad はプリセット導入前の区分）＝新しい方が勝つ。端末が最後に見た rev と今の rev が
 //     違っていても、端末の変更時刻の方が新しければ受け付ける。
 //   records ＝端末側で「モードごとに良い方」を合成する。rev が違えば必ず断り、今の中身を返して
 //     端末に合成し直させる（時刻で片方を捨てると記録が消えるため）。
@@ -20,6 +20,7 @@ import { checkOrigin, error, json } from "./http";
 // maxBytes: 区分ごとの大きさの上限（JSON の UTF-8 バイト数）。stats は端末ごとの欄を最大 8 台ぶん持つので大きめ
 const SECTIONS: Record<string, { strict: boolean; maxBytes: number }> = {
   presets: { strict: false, maxBytes: 64 * 1024 },
+  vs_presets: { strict: false, maxBytes: 64 * 1024 },
   tuning: { strict: false, maxBytes: 32 * 1024 },
   display: { strict: false, maxBytes: 32 * 1024 },
   binds: { strict: false, maxBytes: 32 * 1024 },
@@ -28,7 +29,7 @@ const SECTIONS: Record<string, { strict: boolean; maxBytes: number }> = {
   stats: { strict: true, maxBytes: 128 * 1024 },
 };
 
-type Section = "presets" | "tuning" | "display" | "binds" | "gamepad" | "records" | "stats";
+type Section = "presets" | "vs_presets" | "tuning" | "display" | "binds" | "gamepad" | "records" | "stats";
 
 function isSection(name: string): name is Section {
   return Object.prototype.hasOwnProperty.call(SECTIONS, name);
