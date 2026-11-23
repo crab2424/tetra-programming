@@ -412,7 +412,7 @@ function saveCpuLevel() {
   try { localStorage.setItem(CPU_LEVEL_STORAGE_KEY, String(selectedCpuLevel)); } catch (e) { /* 保存失敗は無視 */ }
 }
 
-// 開発用の環境か（localhost とプレビュー <branch>-citgame.pptlabo.workers.dev）。本番 tetlabo.com・citgame.pptlabo.workers.dev は false。
+// 開発用の環境か（localhost とプレビュー <branch>-citgame.pptlabo.workers.dev）。本番 tetlabo.com は false（旧URL citgame.pptlabo.workers.dev はゲーム画面を出さない）。
 // CLYS（レベル 8）は開発用の環境でだけ CPU TEST に出す（quiz.js の _bootQuizEditorTest と同じ判定）
 const IS_DEV_HOST = (() => {
   const host = location.hostname;

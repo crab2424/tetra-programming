@@ -1,4 +1,4 @@
-import type { Env } from "./env";
+import { isLegacyHost, type Env } from "./env";
 import { handleAdminBanUser, handleAdminDeleteRecord, handleAdminListRecords } from "./admin";
 import { handleCallback, handleDeleteMe, handleLogin, handleLogout, handleMe, handleUpdateName } from "./auth";
 import { error, json } from "./http";
@@ -10,6 +10,10 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
 
+    // 旧URL（workers.dev）: ゲーム画面と /api・/auth は外し、入口（/ と /index.html）ではお知らせを出す。
+    // ここに来るのは wrangler.jsonc の run_worker_first に書いたパスだけ（他の静的ファイルは Worker を通らない）。
+    if (isLegacyHost(url.hostname, env)) return handleLegacy(env, url);
+
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) {
       return handleApi(req, env, url);
     }
@@ -17,6 +21,17 @@ export default {
     return env.ASSETS.fetch(req);
   },
 };
+
+// お知らせ画面（public/legacy.html）。旧URLの手元のデータを tetlabo.com へ渡す入口も兼ねる
+async function handleLegacy(env: Env, url: URL): Promise<Response> {
+  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) {
+    return error("moved", 410, "This address has moved to https://tetlabo.com");
+  }
+  const res = await env.ASSETS.fetch(new Request(new URL("/legacy", url), { method: "GET" }));
+  const headers = new Headers(res.headers);
+  headers.set("Cache-Control", "no-store");
+  return new Response(res.body, { status: res.status, headers });
+}
 
 async function handleApi(req: Request, env: Env, url: URL): Promise<Response> {
   const { pathname } = url;

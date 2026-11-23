@@ -38,10 +38,10 @@ export function readCookie(req: Request, name: string): string | null {
   return null;
 }
 
-// 本番ホスト(tetlabo.com・移行前の citgame.pptlabo.workers.dev)・プレビューホスト(<branch>-citgame.pptlabo.workers.dev)・
-// ローカル開発(vite)のみ許可
+// 本番ホスト(tetlabo.com)・プレビューホスト(<branch>-citgame.pptlabo.workers.dev)・ローカル開発(vite)のみ許可。
+// 旧URL citgame.pptlabo.workers.dev（先頭に「-」が無い）は v2.6.1 で外した（/api は index.ts の handleLegacy が 410 を返す）
 const ALLOWED_ORIGIN_RE =
-  /^https:\/\/tetlabo\.com$|^https:\/\/(?:[a-z0-9-]+-)?citgame\.pptlabo\.workers\.dev$|^http:\/\/localhost:5173$/;
+  /^https:\/\/tetlabo\.com$|^https:\/\/[a-z0-9-]+-citgame\.pptlabo\.workers\.dev$|^http:\/\/localhost:5173$/;
 
 export function isAllowedOrigin(origin: string): boolean {
   return ALLOWED_ORIGIN_RE.test(origin);

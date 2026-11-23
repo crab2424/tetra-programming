@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ja">
+<!--
+  legacy.html — 旧URL（citgame.pptlabo.workers.dev）のお知らせ画面（v2.6.1）
+  worker/index.ts の handleLegacy が、旧URLの / と /index.html でゲーム画面の代わりにこれを返す。
+  このページは旧URLのオリジンで動くので、旧URLの localStorage（設定・自己ベスト・STATS）を読める。
+  「引き継いで開く」で tetlabo.com を新しいタブで開き、postMessage でデータを渡す
+  （受け取り側は public/config/legacy_import.js。送り先・送り元のオリジンは双方で決め打ちで確かめる）。
+  リプレイ（IndexedDB）は引き継がない（ロードマップ §0.2）。
+-->
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>テトラボは tetlabo.com に移りました</title>
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b0f1a;
+      --panel: #141a2b;
+      --line: #2a3350;
+      --text: #e6e9f2;
+      --muted: #9aa3bd;
+      --accent: #4fd1ff;
+      --ok: #6ee7a8;
+      --ng: #ff8a8a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      line-height: 1.7;
+    }
+    main {
+      width: 100%;
+      max-width: 560px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 32px 28px;
+    }
+    h1 {
+      margin: 0 0 4px;
+      font-family: Orbitron, sans-serif;
+      font-weight: 800;
+      font-size: 28px;
+      letter-spacing: 0.08em;
+    }
+    .sub {
+      margin: 0 0 24px;
+      font-family: Orbitron, sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+    }
+    p { margin: 0 0 16px; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .actions { display: flex; flex-direction: column; gap: 12px; margin: 24px 0 8px; }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--accent);
+      font: inherit;
+      font-family: Orbitron, sans-serif;
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: 0.06em;
+      text-align: center;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .btn-primary { background: var(--accent); color: #06121c; }
+    .btn-secondary { background: transparent; color: var(--accent); }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+    .btn:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+    #status { min-height: 1.7em; margin: 12px 0 0; font-size: 14px; }
+    #status.ok { color: var(--ok); }
+    #status.ng { color: var(--ng); }
+    code { font-size: 0.95em; }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>TETLABO</h1>
+    <p class="sub">MOVED TO TETLABO.COM</p>
+    <p>テトラボは新しいアドレス <a href="https://tetlabo.com/" style="color: var(--accent)">https://tetlabo.com</a> に移りました。このアドレスでは遊べなくなりました。</p>
+    <p class="muted">このブラウザに残っている<strong>設定・自己ベスト・成績（STATS）</strong>は、下のボタンで tetlabo.com に引き継げます。自己ベストは良い方を残し、成績は足し合わせます。設定はこちらの内容に置き換わります。リプレイは引き継がれません。</p>
+    <div class="actions">
+      <button id="import" class="btn btn-primary" type="button">IMPORT &amp; OPEN</button>
+      <a id="open" class="btn btn-secondary" href="https://tetlabo.com/">OPEN TETLABO.COM</a>
+    </div>
+    <p id="status" role="status" aria-live="polite"></p>
+    <p class="muted">IMPORT &amp; OPEN は tetlabo.com を新しいタブで開き、そのタブで確認してから取り込みます。開かないときはポップアップを許可してください。</p>
+  </main>
+
+  <script>
+    (function () {
+      'use strict';
+      var LEGACY_HOST = 'citgame.pptlabo.workers.dev';
+      var host = location.hostname;
+
+      // 送り先（新しいアドレス）。手元の確認用に 127.0.0.1 で開いたときは localhost の同じポートへ送る
+      // （受け取り側 legacy_import.js の組み合わせと揃える）
+      var target = null;
+      if (host === LEGACY_HOST) target = 'https://tetlabo.com';
+      else if (host === '127.0.0.1') target = 'http://localhost' + (location.port ? ':' + location.port : '');
+      if (host === 'tetlabo.com') { location.replace('/'); return; }
+
+      // 引き継ぐ localStorage のキー（受け取り側にも同じ一覧があり、一覧に無いキーは受け取らない）
+      var KEYS = [
+        // 設定
+        'game_tuning', 'game_display', 'game_binds', 'game_gamepad_options', 'game_keyconfig', 'game_gamepadconfig',
+        'game_volume', 'game_vs_settings', 'game_vs_settings_zone', 'game_puyo_single_settings', 'game_zone_settings',
+        'game_zone_view_scale', 'tetlabo.cpuLevel', 'tetlabo.assist', 'tetlaboPreferredRule', 'tetlaboServerUrl',
+        'tetlaboUserName', 'tetlaboOnlineSelfSide', 'replay_mark_thresholds', 'replayUiHidden',
+        // 自己ベスト・成績
+        'tetlabo_records', 'tetlabo_stats', 'tetlabo_stats_history',
+      ];
+
+      var btn = document.getElementById('import');
+      var statusEl = document.getElementById('status');
+      var openLink = document.getElementById('open');
+      if (target) openLink.href = target + '/';
+
+      function setStatus(text, kind) {
+        statusEl.textContent = text;
+        statusEl.className = kind || '';
+      }
+
+      function collect() {
+        var items = {};
+        var count = 0;
+        for (var i = 0; i < KEYS.length; i++) {
+          var v = null;
+          try { v = localStorage.getItem(KEYS[i]); } catch (e) { v = null; }
+          if (typeof v === 'string') { items[KEYS[i]] = v; count++; }
+        }
+        return { items: items, count: count };
+      }
+
+      // このアドレスのゲーム用のキャッシュ（Service Worker）は要らなくなったので片付ける（localStorage は消さない）
+      try {
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (r) { r.unregister(); });
+          }).catch(function () {});
+        }
+        if (window.caches && caches.keys) {
+          caches.keys().then(function (keys) {
+            keys.forEach(function (k) { caches.delete(k); });
+          }).catch(function () {});
+        }
+      } catch (e) { /* 片付けられなくても困らない */ }
+
+      if (!target) {
+        btn.disabled = true;
+        setStatus('このアドレスからは引き継げません。', 'ng');
+        return;
+      }
+
+      var data = collect();
+      if (data.count === 0) {
+        btn.disabled = true;
+        setStatus('このブラウザには引き継ぐデータがありません。そのまま tetlabo.com で遊べます。');
+      }
+
+      var win = null;
+      var timer = null;
+
+      window.addEventListener('message', function (e) {
+        if (!win || e.origin !== target || e.source !== win) return;
+        var d = e.data;
+        if (!d || typeof d !== 'object' || d.v !== 1) return;
+        if (d.type === 'tetlabo-legacy-ready') {
+          clearTimeout(timer);
+          var fresh = collect();
+          win.postMessage({ type: 'tetlabo-legacy-data', v: 1, items: fresh.items }, target);
+          setStatus('tetlabo.com のタブで確認してください。');
+        } else if (d.type === 'tetlabo-legacy-done') {
+          setStatus('引き継ぎました。これからは tetlabo.com で遊んでください。', 'ok');
+          btn.disabled = false;
+        } else if (d.type === 'tetlabo-legacy-cancel') {
+          setStatus('引き継ぎをやめました。もう一度押すとやり直せます。');
+          btn.disabled = false;
+        } else if (d.type === 'tetlabo-legacy-error') {
+          setStatus('引き継げませんでした。' + (typeof d.message === 'string' ? d.message : ''), 'ng');
+          btn.disabled = false;
+        }
+      });
+
+      btn.addEventListener('click', function () {
+        // noopener を付けない（受け取り側が window.opener に「準備できた」を返すため）
+        win = window.open(target + '/#legacy-import', '_blank');
+        if (!win) {
+          setStatus('新しいタブを開けませんでした。ポップアップを許可してから、もう一度押してください。', 'ng');
+          return;
+        }
+        btn.disabled = true;
+        setStatus('tetlabo.com を開いています…');
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          setStatus('tetlabo.com から応答がありません。開いたタブを閉じて、もう一度押してください。', 'ng');
+          btn.disabled = false;
+        }, 60000);
+      });
+    })();
+  </script>
+</body>
+</html>
