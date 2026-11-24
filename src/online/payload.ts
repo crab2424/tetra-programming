@@ -379,6 +379,8 @@ export interface RoomInfoNotification {
    * 設計 v2.2.2 §7.2。ゲストは含まれない。旧サーバー(PROTOCOL_VERSION未対応)との
    * 互換のため optional にしている。 */
   accounts?: [Uuid, string, string][];
+  /** 部屋の種類（PROTOCOL 4 から。作った後は変わらない）。無ければ VERSUS */
+  battle?: BattleKind;
 }
 export const isRoomInfoNotification = (
   data: any,
@@ -486,6 +488,133 @@ export function parseMatchSetting(json: string): OnlineMatchSetting {
   } catch {
     return { ...defaultMatchSetting };
   }
+}
+
+// ── ZONE BATTLE の部屋（設計 source_assets/memory/mode/tet_zone/tetlabo-zone-online-design.md §3・§4）──
+
+/** 部屋の種類。作るときに決め、後から変えない。ZONE BATTLE の部屋は全員テト */
+export type BattleKind = "versus" | "zone";
+export const parseBattleKind = (v: unknown): BattleKind => (v === "zone" ? "zone" : "versus");
+
+/**
+ * PHASE 01〜03 の 1 行（ローカル ZONE BATTLE の VS 設定 tet.phaseTable と同じ形。
+ * 穴は「同じ穴の確率」・しきい値は前のフェーズに足す値）
+ */
+export interface ZonePhaseRow {
+  holeRate: number;
+  holeChunk: number;
+  zoneTime: number;
+  zoneCharge: number;
+  scoreAdd: number;
+  timeAdd: number;
+}
+
+/** ZONE BATTLE の部屋の MatchSetting（JSON のキー。サーバーの sanitize_match_setting と手で合わせる） */
+export interface OnlineZoneMatchSetting {
+  setTarget: number;
+  /** GARBAGE ×（ローカルの ATTACK BIAS の代わり。丸めは Math.round） */
+  garbageMultiplier: number;
+  holdEnabled: boolean;
+  b2bBonus: boolean;
+  garbageDamageOnClear: boolean;
+  /** ZONE ATTACK: true = SPLIT / false = MERGE */
+  zoneSplit: boolean;
+  marginEnabled: boolean;
+  marginTrigger: "time" | "score";
+  /** 秒（ローカルの MARGIN_TIME_STEPS。0 = 即時、負 = 事前経過） */
+  marginTime: number;
+  /** 突入の点（ローカルの MARGIN_SCORE_STEPS） */
+  marginScore: number;
+  phase: boolean;
+  phaseTrigger: "score" | "time";
+  phaseTable: ZonePhaseRow[];
+  /** PHASE OFF のときの固定値 */
+  garbageHoleRate: number;
+  garbageHoleChunk: number;
+  zoneQuarterMs: number;
+  zoneQuarterLines: number;
+}
+
+// 選択肢・既定値はローカルの ZONE BATTLE（public/game/tet/zone.js・public/config/vs_settings.js）の
+// トップレベルの const をそのまま読む（classic script の const は window に乗らないので素の名前で参照する）。
+declare const DEFAULT_ZONE_BATTLE_SETTINGS: any;
+declare const MARGIN_TIME_STEPS: number[];
+declare const MARGIN_SCORE_STEPS: number[];
+declare const VS_ZONE_TIME_OPTIONS: number[];
+declare const VS_ZONE_CHARGE_OPTIONS: number[];
+declare function _sanitizePhaseTable(v: unknown, d: unknown): ZonePhaseRow[];
+
+const zoneDefaults = (): any => {
+  try { return DEFAULT_ZONE_BATTLE_SETTINGS; } catch { return null; }
+};
+
+/** ZONE BATTLE の部屋の既定（ローカル ZONE BATTLE の既定。SET TO・GARBAGE ×・B2B は ONLINE だけの行） */
+export function defaultZoneMatchSetting(): OnlineZoneMatchSetting {
+  const d = zoneDefaults();
+  return {
+    setTarget: 1,
+    garbageMultiplier: 1.0,
+    holdEnabled: d ? d.tet.holdEnabled : true,
+    b2bBonus: true,
+    garbageDamageOnClear: d ? d.tet.garbageDamageOnClear : false,
+    zoneSplit: d ? d.tet.zoneSplit !== false : true,
+    marginEnabled: d ? d.all.marginEnabled : true,
+    marginTrigger: d && d.all.marginTrigger === "score" ? "score" : "time",
+    marginTime: d ? d.all.marginTime : 96,
+    marginScore: d ? d.all.marginScore : 20000,
+    phase: d ? d.tet.phase !== false : true,
+    phaseTrigger: d && d.tet.phaseTrigger === "time" ? "time" : "score",
+    phaseTable: d ? d.tet.phaseTable.map((r: ZonePhaseRow) => ({ ...r })) : [],
+    garbageHoleRate: d ? d.tet.garbageHoleRate : 90,
+    garbageHoleChunk: d ? d.tet.garbageHoleChunk : 10,
+    zoneQuarterMs: d ? d.tet.zoneTime : 5000,
+    zoneQuarterLines: d ? d.tet.zoneCharge : 6,
+  };
+}
+
+const isHoleRate = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 100 && (v as number) % 10 === 0;
+
+/** ZONE BATTLE の部屋の MatchSetting を読む。選べない値・無いキーは既定（サーバーも同じ範囲で検査する） */
+export function parseZoneMatchSetting(json: string): OnlineZoneMatchSetting {
+  const def = defaultZoneMatchSetting();
+  let p: any = {};
+  try {
+    const v = JSON.parse(json);
+    if (v && typeof v === "object") p = v;
+  } catch { /* 既定 */ }
+  const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
+  const pick = (v: unknown, opts: number[] | undefined, d: number) =>
+    (typeof v === "number" && (!opts || opts.includes(v)) ? v : d);
+  const g = <T,>(f: () => T): T | undefined => { try { return f(); } catch { return undefined; } };
+  const marginTimes = g(() => MARGIN_TIME_STEPS);
+  const marginScores = g(() => MARGIN_SCORE_STEPS);
+  const zoneTimes = g(() => VS_ZONE_TIME_OPTIONS);
+  const zoneCharges = g(() => VS_ZONE_CHARGE_OPTIONS);
+  const d = zoneDefaults();
+  const phaseTable = d && typeof _sanitizePhaseTable === "function"
+    ? _sanitizePhaseTable(p.phaseTable, d.tet.phaseTable)
+    : def.phaseTable;
+  const mult = typeof p.garbageMultiplier === "number" && Number.isFinite(p.garbageMultiplier)
+    ? Math.max(0, Math.min(3, Math.round(p.garbageMultiplier * 10) / 10)) : def.garbageMultiplier;
+  return {
+    setTarget: typeof p.setTarget === "number" ? Math.max(1, Math.min(9, Math.floor(p.setTarget))) : def.setTarget,
+    garbageMultiplier: mult,
+    holdEnabled: bool(p.holdEnabled, def.holdEnabled),
+    b2bBonus: bool(p.b2bBonus, def.b2bBonus),
+    garbageDamageOnClear: bool(p.garbageDamageOnClear, def.garbageDamageOnClear),
+    zoneSplit: bool(p.zoneSplit, def.zoneSplit),
+    marginEnabled: bool(p.marginEnabled, def.marginEnabled),
+    marginTrigger: p.marginTrigger === "score" ? "score" : p.marginTrigger === "time" ? "time" : def.marginTrigger,
+    marginTime: pick(p.marginTime, marginTimes, def.marginTime),
+    marginScore: pick(p.marginScore, marginScores, def.marginScore),
+    phase: bool(p.phase, def.phase),
+    phaseTrigger: p.phaseTrigger === "time" ? "time" : p.phaseTrigger === "score" ? "score" : def.phaseTrigger,
+    phaseTable,
+    garbageHoleRate: isHoleRate(p.garbageHoleRate) ? p.garbageHoleRate : def.garbageHoleRate,
+    garbageHoleChunk: isHoleRate(p.garbageHoleChunk) ? p.garbageHoleChunk : def.garbageHoleChunk,
+    zoneQuarterMs: pick(p.zoneQuarterMs, zoneTimes, def.zoneQuarterMs),
+    zoneQuarterLines: pick(p.zoneQuarterLines, zoneCharges, def.zoneQuarterLines),
+  };
 }
 
 export interface PauseRequest { id: Uuid; roomId: Uuid; }

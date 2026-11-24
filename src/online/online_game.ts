@@ -6,7 +6,7 @@ import type {
   Uuid,
   OnlineMatchSetting,
 } from "./payload";
-import { parseMatchSetting } from "./payload";
+import { parseMatchSetting, parseZoneMatchSetting, parseBattleKind } from "./payload";
 import { showToast, ToastColor } from "../components/toast";
 import {
   encodePieceState,
@@ -53,6 +53,12 @@ import {
   ONLINE_OPP_SLOT_COUNT,
 } from "../battle/layout";
 import { NetworkDriver } from "../battle/driver";
+import {
+  applyZoneBattleToGame,
+  clearZoneBattleFromGame,
+  ensureOnlineZoneEls,
+  resetOnlineZoneEls,
+} from "../battle/zone_online";
 import { freezeGameByRule } from "../battle/freeze";
 import { renderOnlineResult, resetOnlineResult } from "../battle/online_result";
 import {
@@ -202,7 +208,14 @@ function ensureOnlineStatsEls(
       '<div class="versus-stat-block hud-time-block">' +
       '<span class="area-label">TIME</span>' +
       '<span class="versus-stat-value versus-time-value" data-stat="time">00:00.00</span>' +
-      "</div>";
+      "</div>" +
+      // ZONE BATTLE のフェーズ（tet だけ。フェーズありの試合だけ zone.js _zoneSyncPhaseHud が出す）
+      (rule === "tet"
+        ? `<div class="versus-stat-block versus-phase-block" id="${fieldPrefix}-phase-block" style="display: none">` +
+          '<span class="area-label">PHASE</span>' +
+          `<span id="${fieldPrefix}-phase-value" class="versus-stat-value versus-phase-value">01</span>` +
+          "</div>"
+        : "");
     fieldEl.appendChild(leftEl);
     fieldEl.appendChild(rightEl);
     // ルールで出し分ける APM/LPM は作ったときに決める（以後ルールは変わらない）
@@ -401,6 +414,11 @@ export class OnlineGameController {
   private get matchInProgress(): boolean {
     return this.lifecycle.phase === "playing";
   }
+  /** ZONE BATTLE の部屋か（部屋の種類は作った後は変わらない。設計 §3） */
+  private get isZoneBattle(): boolean {
+    return parseBattleKind(this.roomInfo.battle) === "zone";
+  }
+
   /** visibilitychange リスナーを登録済みか（多重登録防止）。 */
   private visibilityListenerActive = false;
   /** バックグラウンドでゲームを進めるためのクロックWorker（rAFの代替）。 */
@@ -827,6 +845,8 @@ export class OnlineGameController {
     };
 
     game.sendGarbage = (amount: number) => {
+      // 決着の後（haltMatch）に ZONE の時間切れなどで火力を送らない（設計 §12）
+      if (this.matchHalted) return;
       const targetRule = game.opponentRule === 'puyo' ? 'puyo' : 'tet';
       routeGarbage(
         {
@@ -1255,6 +1275,21 @@ export class OnlineGameController {
     this.game.vsGarbageHoleRate = matchSetting.garbageHoleRate;
     this.game.vsGarbageDamageOnClear = matchSetting.garbageDamageOnClear;
     this.game.vsB2bBonusEnabled = matchSetting.b2bBonus;
+
+    // ZONE BATTLE の部屋（設計 tetlabo-zone-online-design.md §4・§8）: ローカルの applyVsSettings と同じ名前で
+    // ZONE・フェーズ・マージンの値を入れる（_initGameState の _zoneInit・マージンの予約が読む）。
+    // 表示の DOM（輪・枠の上・終了の表示・PHASE の行）は _initGameState より前に作る（_zoneInit が書くため）
+    ensureOnlineStatsEls("self", "tet");
+    ensureOnlineZoneEls("ol-p");
+    resetOnlineZoneEls("ol-p");
+    if (this.isZoneBattle) {
+      applyZoneBattleToGame(this.game, parseZoneMatchSetting(notif.matchSetting));
+    } else {
+      clearZoneBattleFromGame(this.game);
+    }
+    // zone.js の「決着の後は進めない・時間切れで終わらせない」は、ローカル VERSUS の進行
+    // （window.BattleVersusLifecycle。前のローカル対戦の値のまま）ではなくこの部屋の進行で決める
+    this.game.onlineMatchSettled = () => this.matchHalted || this.lifecycle.phase !== "playing";
 
     this.subscribeToControlEvents();
 

@@ -438,3 +438,30 @@ body.input-mode-kbd #vs-settings-page.is-zone-battle .settings-preset-toggle.is-
   -webkit-background-clip: text;
   background-clip: text;
 }
+
+/* ─── ONLINE の盤面（自分 ol-p・相手 ol-opp-N。DOM は src/battle/zone_online.ts）───
+   ローカル VERSUS の .versus-container の中と同じ位置・大きさを、人数で変わる --ol-scale に乗せる
+   （2 人は 1 = ローカル VERSUS と同じ実寸。設計 tetlabo-zone-online-design.md §9）。
+   輪と終了の表示は中身ごと縮める（transform。位置は縮める前の値に --ol-scale を掛ける） */
+.ol-zone-area {
+  left: calc(-136px * var(--ol-scale, 1));
+  top: calc(576px * var(--ol-scale, 1));
+  transform: scale(var(--ol-scale, 1));
+  transform-origin: 0 0;
+}
+.ol-zone-popup {
+  transform: scale(var(--ol-scale, 1));
+  transform-origin: 0 0;
+}
+/* 枠の上: ONLINE の盤面のキャンバスは --field-w/h × --ol-scale（枠線は縮めない）。
+   その中身の幅・高さに合わせて、上のキャンバス（320 × --zone-top-px の画素）を同じ割合で縮める */
+.ol-zone-top-canvas {
+  --zone-top-h: calc((var(--field-h) * var(--ol-scale, 1) - 2 * var(--field-border-w-main)) * var(--zone-top-px, 144) / 656);
+  position: absolute;
+  left: var(--field-border-w-main);
+  top: calc(var(--field-border-w-main) - var(--zone-top-h));
+  width: calc(var(--field-w) * var(--ol-scale, 1) - 2 * var(--field-border-w-main));
+  height: var(--zone-top-h);
+  pointer-events: none;
+  z-index: 5;
+}
