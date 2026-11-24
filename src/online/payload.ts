@@ -233,6 +233,8 @@ export interface JSONGetRoomsResponse {
     maxPlayers: number;
     locked: boolean;
     tags: RoomTag[];
+    /** 部屋の種類（PROTOCOL 4）。無ければ VERSUS */
+    battle?: BattleKind;
   }[];
   /** 現在接続中の人数（集計値のみ、個人が追える情報は含まない）。旧サーバー未対応時は undefined。 */
   onlineCount?: number;
@@ -250,6 +252,8 @@ export interface CreateRoomRequest {
   tags: RoomTag[];
   username: string;
   rule: Games;
+  /** 部屋の種類（作った後は変えない。ZONE BATTLE は全員テト） */
+  battle: BattleKind;
 }
 
 export interface CreateRoomResponse {
