@@ -249,26 +249,53 @@ export function encodeSE(seId: number): Uint8Array {
 // attack/attackVisible は tet が対ぷよ戦で溜める送信用火力(pendingAttack)の表示同期用
 // （tet同士・puyo送信では常に 0/false。旧クライアント(3バイト)から見ればready/unready
 // はそのまま読め、attackはbyteLengthガードで0扱いになる＝相互に安全）。
+// ZONE BATTLE ONLINE（PROTOCOL 4）で末尾にかたまりの列を足した（7 + k bytes）:
+//   + k(u8) + k 個の u8（bit7 = 赤（着弾できる）・bit0-6 = 段数 1〜127。下から＝tet/garbage.js _garbageGaugeGroups の順）。
+// 受け手は相手の盤面のゲージをローカルと同じ「かたまり」で描く（renderGarbageGaugeGroups）。列が無い（ぷよの送り手）
+// ときは ready/unready だけで従来どおり描く。
+export interface GaugeGroup { n: number; ready: boolean; }
+export const PENDING_GAUGE_GROUPS_MAX = 40;
 export function encodePendingUpdate(
   ready: number, unready: number, attack: number = 0, attackVisible: boolean = false,
+  groups?: readonly GaugeGroup[],
 ): Uint8Array {
-  const buf = new Uint8Array(6);
+  const list = (groups ?? []).filter((g) => g.n > 0).slice(0, PENDING_GAUGE_GROUPS_MAX);
+  const buf = new Uint8Array(groups ? 7 + list.length : 6);
   const view = new DataView(buf.buffer);
   buf[0] = MatchOpcode.PendingUpdate;
   buf[1] = ready & 0xff;
   buf[2] = unready & 0xff;
   view.setUint16(3, Math.max(0, Math.min(0xffff, Math.trunc(attack))), true);
   buf[5] = attackVisible ? 1 : 0;
+  if (groups) {
+    buf[6] = list.length;
+    list.forEach((g, i) => { buf[7 + i] = (g.ready ? 0x80 : 0) | Math.min(127, Math.trunc(g.n)); });
+  }
   return buf;
 }
-export interface PendingUpdateData { ready: number; unready: number; attack: number; attackVisible: boolean; }
+export interface PendingUpdateData {
+  ready: number; unready: number; attack: number; attackVisible: boolean;
+  /** かたまりの列（下から）。送り手が付けていないときは undefined */
+  groups?: GaugeGroup[];
+}
 export function decodePendingUpdate(p: Uint8Array): PendingUpdateData {
   const view = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  let groups: GaugeGroup[] | undefined;
+  if (p.byteLength >= 6) {
+    const k = Math.min(p[5], p.byteLength - 6, PENDING_GAUGE_GROUPS_MAX);
+    groups = [];
+    for (let i = 0; i < k; i++) {
+      const v = p[6 + i];
+      const n = v & 0x7f;
+      if (n > 0) groups.push({ n, ready: (v & 0x80) !== 0 });
+    }
+  }
   return {
     ready: p[0] ?? 0,
     unready: p[1] ?? 0,
     attack: p.byteLength >= 4 ? view.getUint16(2, true) : 0,
     attackVisible: p.byteLength >= 5 ? p[4] !== 0 : false,
+    groups,
   };
 }
 

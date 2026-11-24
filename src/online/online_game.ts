@@ -17,6 +17,7 @@ import {
   encodeClear,
   encodeSE,
   encodePendingUpdate,
+  type GaugeGroup,
   encodeHoldState,
   encodeStatsUpdate,
   type StatsUpdateData,
@@ -1673,6 +1674,7 @@ export class OnlineGameController {
     // 1つの PendingUpdate frame で送る（4値の組でdedup）。相手スロットのアタックゲージ
     // 同期のため updateGarbageGauge・updateAttackGauge の両方をフックする。
     let lastPendingReady = -1, lastPendingUnready = -1, lastPendingAttack = -1, lastPendingAttackVisible = false;
+    let lastPendingGroups = "";
     const sendGaugeState = () => {
       let ready = 0, unready = 0;
       for (const g of (game.garbageQueue ?? [])) {
@@ -1685,13 +1687,20 @@ export class OnlineGameController {
       //   相手ルールを再判定すると多人数混在戦で送信者の見え方とズレる恐れがある。
       const attackGaugeEl = document.getElementById(`${game.canvasPrefix}-attack-gauge`);
       const attackVisible = !!attackGaugeEl && attackGaugeEl.style.display !== "none";
+      // 予告ゲージのかたまりの列（tet/garbage.js _garbageGaugeGroups）。相手の盤面でもローカルと同じ
+      // 「1 手で一緒に降る分ごとにつなげる」描き方にする（SPLIT の区切りなど）
+      const groups: GaugeGroup[] | undefined = typeof game._garbageGaugeGroups === "function"
+        ? game._garbageGaugeGroups() : undefined;
+      const groupsKey = groups ? groups.map((g) => `${g.ready ? "r" : "u"}${g.n}`).join(",") : "";
       if (ready !== lastPendingReady || unready !== lastPendingUnready
-        || attack !== lastPendingAttack || attackVisible !== lastPendingAttackVisible) {
+        || attack !== lastPendingAttack || attackVisible !== lastPendingAttackVisible
+        || groupsKey !== lastPendingGroups) {
         lastPendingReady = ready;
         lastPendingUnready = unready;
         lastPendingAttack = attack;
         lastPendingAttackVisible = attackVisible;
-        conn.sendMatchEvent(encodePendingUpdate(Math.min(ready, 255), Math.min(unready, 255), attack, attackVisible));
+        lastPendingGroups = groupsKey;
+        conn.sendMatchEvent(encodePendingUpdate(Math.min(ready, 255), Math.min(unready, 255), attack, attackVisible, groups));
       }
     };
 
@@ -2724,10 +2733,17 @@ export class OnlineGameController {
     if (typeof puppet.updateGarbageGauge === 'function') puppet.updateGarbageGauge();
   }
 
-  private updateOpponentGauge(idx: number, ready: number, unready: number): void {
+  private updateOpponentGauge(idx: number, ready: number, unready: number, groups?: GaugeGroup[]): void {
+    // 送り手がかたまりの列を付けていれば（tet）、自分の盤面と同じ描き方（tet/garbage.js renderGarbageGaugeGroups）
+    const render = (window as any).renderGarbageGaugeGroups as
+      ((el: HTMLElement, groups: GaugeGroup[]) => void) | undefined;
     for (const gaugeId of [`ol-opp-${idx}-garbage-gauge`, `ol-opp-${idx}-puyo-garbage-gauge`]) {
       const gaugeEl = document.getElementById(gaugeId);
       if (!gaugeEl) continue;
+      if (groups && typeof render === 'function') {
+        render(gaugeEl, groups);
+        continue;
+      }
       gaugeEl.innerHTML = '';
       for (let i = 0; i < ready; i++) {
         const b = document.createElement('div');
@@ -2829,7 +2845,7 @@ export class OnlineGameController {
         if (rule === 'puyo') {
           this.updateOpponentPuyoYokoku(frame.senderId, d.ready + d.unready);
         } else {
-          this.updateOpponentGauge(idx, d.ready, d.unready);
+          this.updateOpponentGauge(idx, d.ready, d.unready, d.groups);
           this.updateOpponentAttackGauge(frame.senderId, d.attack, d.attackVisible);
         }
       }
