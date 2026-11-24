@@ -98,6 +98,12 @@ function focusNav(): any {
   return (window as any).FocusNav;
 }
 
+/** 最後の入力がパッド（FocusNav の合成キー）か（ロードマップ D §4.2）。
+ * 合成キーでは文字入力・数値欄のブラウザ標準の動きが起きないので、入力欄に入らない判断に使う。 */
+function isPadInput(): boolean {
+  return !!focusNav()?.isPadInput?.();
+}
+
 /** ルーム一覧の10秒自動更新でDOMが作り直されても、同じ項目へフォーカスを戻すための識別子。
  * 静的ボタンは各所で data-focus-key を明示、ルーム項目は data-room-id から合成する。 */
 function focusKeyOf(el: HTMLElement): string | undefined {
@@ -146,6 +152,9 @@ function msRowItem(row: HTMLElement): FocusItem {
   item.onLeft = () => step?.(-1);
   item.onRight = () => step?.(+1);
   item.onActivate = () => {
+    // パッドの A では数値の欄に入らない（合成キーでは数字を打てず、B で抜けるしかなくなる。§4.1）。
+    // 値は ←/→（押しっぱなしで繰り返し）で変えられる。キーボードの Enter は今のまま欄へ入る。
+    if (isPadInput()) return;
     const num = row.querySelector<HTMLInputElement>(".ms-number");
     if (!num) return;
     num.focus();
@@ -362,8 +371,10 @@ class Modal {
       }
     });
     // 入力欄が 1 つだけのダイアログ（コードで参加など）は、開いた直後から打てるようにする
+    // ただし最後の入力がパッドなら入らない（合成キーは欄に文字を入れられず、A が欄の Enter として
+    // 主ボタンを押してしまう。部屋を作るダイアログが既定値のまま作成される不具合だった。§4.2）
     const inputs = content.querySelectorAll<HTMLInputElement>("input[type=text], input[type=number]");
-    if (inputs.length === 1 && content.classList.contains("ol-dialog")) {
+    if (inputs.length === 1 && content.classList.contains("ol-dialog") && !isPadInput()) {
       const only = inputs[0];
       requestAnimationFrame(() => {
         if (!only.isConnected) return;
