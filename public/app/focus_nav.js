@@ -707,6 +707,7 @@
   //   A(0) … 決定（Enter。押しっぱなしで繰り返さない）
   //   B(1) … 戻る（Escape）
   //   KEY CONFIG の RESTART（既定 8）… リザルト等の onRestart（キーボードの R と同じ）
+  //   LB(4) / RB(5) … ページ設定の onShoulder(-1/+1)（持つページだけ。ONLINE のタブ切替）
   // 対戦中は FocusNav がページを持たないので読まない（エンジンの _gamepadLoop と取り合わない）。
   // ポーズ画面ではエンジンもパッドを読むが、ポーズ中は試合の操作を捨てるので重ならない。
   // ページが切り替わった直後は、押されたままのボタン・方向をいったん離すまで無視する
@@ -872,6 +873,15 @@
       window.FocusNav.lastInputSource = 'pad';
       setInputMode('kbd');
       active.onRestart();
+      return;
+    }
+    // LB(4) / RB(5) … ページ設定の onShoulder(-1/+1)（タブの切替。ロードマップ D §4.6）。押し始めだけ・繰り返さない
+    const shoulder = (st.btns[4] && !prev.btns[4]) ? -1 : (st.btns[5] && !prev.btns[5]) ? 1 : 0;
+    if (shoulder && typeof active.onShoulder === 'function'
+        && rootIsActive() && !window.FocusNav.suspended && !isTypingTarget(document.activeElement)) {
+      window.FocusNav.lastInputSource = 'pad';
+      setInputMode('kbd');
+      active.onShoulder(shoulder);
       return;
     }
     if (st.a && !prev.a) { padSendKey('keydown', 'enter', false); padSendKey('keyup', 'enter', false); return; }

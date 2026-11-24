@@ -117,6 +117,8 @@ function toFocusItem(el: HTMLElement): FocusItem {
   const item: FocusItem = { el, key: focusKeyOf(el) };
   if (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA") {
     item.onActivate = (it) => {
+      // パッドの A では文字の欄に入らない（合成キーでは文字を打てない。既定値のまま進める。§4.3）
+      if (isPadInput()) return;
       (it.el as HTMLInputElement).focus();
       const withSelect = it.el as { select?: () => void };
       if (typeof withSelect.select === "function") {
@@ -290,6 +292,41 @@ function onlineTopEscapeTarget(): HTMLElement | null {
   return null;
 }
 
+/** LB/RB のタブ切替（§4.6）のあと、少しの間だけ描き直し（ロビーの絞り込みは非同期）でも面倒を見る。 */
+let shoulderPending: { rowKey: string; until: number } | null = null;
+
+/**
+ * タブを切り替えたあとのフォーカス: 今の項目が見えていればそのまま、消えた（別のタブの行だった・
+ * 絞り込みで部屋が消えた）ならタブ行へ。
+ */
+function settleFocusAfterTabSwitch(prevKey: string | null | undefined, rowKey: string): void {
+  const FN = focusNav();
+  if (!FN || FN.getActivePageId() !== "online-top") return;
+  const visible = onlineTopGetItems().filter((it) => it.el.isConnected && it.el.offsetParent !== null);
+  if (prevKey != null) {
+    FN.restoreFocus(visible.some((it) => it.key === prevKey) ? prevKey : rowKey);
+    return;
+  }
+  const cur = onlineTopContainerEl()?.querySelector<HTMLElement>(".is-focused");
+  if (cur && visible.some((it) => it.el === cur)) return;
+  FN.restoreFocus(rowKey);
+}
+
+/** LB(-1)/RB(+1): 見えているタブ行（ロビーの種類の絞り込み・ZONE BATTLE の MATCH SETTINGS）の前後のタブを押す。 */
+function onlineTopShoulder(dir: number): void {
+  const container = onlineTopContainerEl();
+  if (!container) return;
+  const row = Array.from(container.querySelectorAll<HTMLElement>(".ms-tabs-row")).find((r) => r.offsetParent !== null);
+  if (!row) return;
+  const rowKey = row.dataset.focusKey;
+  const prevKey = focusNav()?.currentFocusKey?.() ?? null;
+  const item = tabsRowItem(row);
+  (dir < 0 ? item.onLeft : item.onRight)?.();
+  if (!rowKey) return;
+  settleFocusAfterTabSwitch(prevKey, rowKey);
+  shoulderPending = { rowKey, until: Date.now() + 2000 };
+}
+
 function ensureOnlineTopFocusPage(): void {
   const FN = focusNav();
   if (!FN || FN.__onlineTopRegistered) return;
@@ -298,6 +335,7 @@ function ensureOnlineTopFocusPage(): void {
     root: document.getElementById("online-top-page"),
     getItems: onlineTopGetItems,
     escapeAction: onlineTopEscapeTarget,
+    onShoulder: onlineTopShoulder,
     // 最初のフォーカス: RM 確認パネルは「OK！対戦する」、ルームは READY / GAME START
     // （DOM 順のままだと「辞退する」「◀ LEAVE」から始まり、Enter で辞退・退出確認になる）
     initialIndex: (els: HTMLElement[]) => {
@@ -334,6 +372,12 @@ function syncOnlineTopFocus(preserveKey?: string | null, opts?: { fresh?: boolea
   if (isLoadingOverlayVisible()) return;
   if (FN.getActivePageId() === "online-top" && !opts?.fresh) {
     FN.restoreFocus(preserveKey ?? null);
+    // LB/RB の直後の描き直し（ロビーの絞り込み）: 今の項目が消えていたらタブ行へ
+    const pending = shoulderPending;
+    if (pending) {
+      shoulderPending = null;
+      if (Date.now() < pending.until) settleFocusAfterTabSwitch(preserveKey, pending.rowKey);
+    }
   } else {
     FN.activate("online-top");
   }
