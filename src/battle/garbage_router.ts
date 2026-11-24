@@ -18,10 +18,19 @@
 
 /** 配送先の抽象化。ルールごとのフレーム種別/キュー形式の差はここで吸収する */
 export interface GarbageSink {
-  /** テト受け手へライン火力を送る（穴は受け手が着弾時に決める） */
-  sendTetLines(lines: number): void;
+  /**
+   * テト受け手へライン火力を送る（穴は受け手が着弾時に決める）。
+   * zone は ZONE 終了時の火力の印（tet/zone.js _endZone の sendGarbage 第 2 引数。ONLINE は Garbage 版 3 の flags で送る）
+   */
+  sendTetLines(lines: number, zone?: GarbageZoneMark): void;
   /** ぷよ受け手へおじゃまぷよ個数を送る */
   sendOjama(count: number): void;
+}
+
+/** ZONE の火力の印（受ける側が garbageQueue の項目に付ける） */
+export interface GarbageZoneMark {
+  zoneChunk?: boolean;
+  zoneHold?: boolean;
 }
 
 export interface RouteGarbageOptions {
@@ -38,6 +47,8 @@ export interface RouteGarbageOptions {
    * CPU戦のテト送り手のみ true（オンラインはエンジンが個数を渡すため変換しない）。
    */
   gaugeToOjama?: boolean;
+  /** ZONE の火力の印（テト向けだけ sink へ渡す） */
+  zone?: GarbageZoneMark;
 }
 
 /**
@@ -64,7 +75,7 @@ export function routeGarbage(opts: RouteGarbageOptions, sink: GarbageSink): void
     sink.sendOjama(ojama);
   } else {
     adjusted = Math.min(adjusted, opts.maxAmount ?? Infinity);
-    sink.sendTetLines(adjusted);
+    sink.sendTetLines(adjusted, opts.zone);
   }
 }
 

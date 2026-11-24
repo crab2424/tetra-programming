@@ -110,6 +110,9 @@ export function resetOnlineZoneEls(prefix: string): void {
   if (block) block.style.display = "none";
   const wrap = document.getElementById(`${prefix}-main-canvas`)?.parentElement;
   wrap?.classList.remove("zone-on", "zone-active", "zone-hot", "zone-last");
+  // 枠の光の SVG（zone.js _zoneFrameEls）は作ったときの盤面の大きさ（px）で固定なので、試合ごとに作り直させる
+  // （人数で --ol-scale が変わると、前の試合の大きさのまま残ってしまう）
+  wrap?.querySelectorAll(":scope > .zone-frame").forEach((el) => el.remove());
 }
 
 /**

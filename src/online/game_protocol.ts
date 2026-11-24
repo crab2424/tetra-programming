@@ -19,6 +19,7 @@ export const MatchOpcode = {
   PendingUpdate: 0x29, // reliable: self incoming-garbage gauge state
   HoldState: 0x2a,    // reliable: current hold availability (0/1)
   StatsUpdate: 0x2b,  // reliable: display-only score/lines/chains snapshot
+  ZoneState: 0x2c,    // reliable: ZONE BATTLE の ZONE（メーター・発動・終了）を相手に見せる（PROTOCOL 4・表示だけ）
   /**
    * reliable: puyo送り手の連鎖終了トリガー（_confirmSentGarbage 発火の通知）。
    * CPU戦は送信元と着弾先が同一メモリ空間のためオブジェクト参照で ready 化できるが、
@@ -167,29 +168,36 @@ export function encodeClear(lines: number, flags: number, combo: number): Uint8A
   return new Uint8Array([MatchOpcode.Clear, lines & 0xff, flags & 0xff, combo & 0xff]);
 }
 
-const GARBAGE_PROTOCOL_VERSION = 2;
+// 版 3（PROTOCOL 4。ZONE BATTLE ONLINE 設計 §6.2）: target の後に flags を足した。ZONE 以外の火力も版 3（flags = 0）
+const GARBAGE_PROTOCOL_VERSION = 3;
+/** Garbage の印（版 3 の flags）。zoneChunk = かたまりごとに穴を引き直す、zoneHold = 受ける側は 1 手に 1 かたまり */
+export const GARBAGE_FLAG_ZONE_CHUNK = 0x01;
+export const GARBAGE_FLAG_ZONE_HOLD = 0x02;
 const MAX_GARBAGE_AMOUNT = 1000;
 
 /** Garbage の宛先ルール（受け手のルール）。wire 上は 1=tet / 2=puyo */
 export type GarbageTarget = "tet" | "puyo";
 const GARBAGE_TARGET_CODE: Record<GarbageTarget, number> = { tet: 1, puyo: 2 };
 
-// Garbage: opcode + version:u8(=2) + target:u8 + amount:u16(LE) + holes:u8[amount]
+// Garbage: opcode + version:u8(=3) + target:u8 + flags:u8 + amount:u16(LE) + holes:u8[amount]
+// flags（テト向けだけ。ぷよ向けは 0）: bit0 = zoneChunk・bit1 = zoneHold（tet/zone.js _endZone が付ける印。
+// 受ける側は garbageQueue の項目に付けて garbage.js applyGarbage が読む。サーバーは知らない bit・ぷよ向けの印を断る）
 // target は「このフレームを受け取るべきルール」（1=tet: amount はライン数 / 2=puyo: おじゃま個数）。
 // 混在 3 人以上の対戦では 1 回の攻撃で tet 向け・puyo 向けの 2 本を送るので、宛先が無いと
 // 両方が全員に届き、受け手がそれぞれ自分の単位で読んでしまう（不具合 2026-11-11 #1）。
 // サーバーは target のルールの生きている相手だけへ中継し、受け手も違う宛先は捨てる。
 // TET受信時の holes は使わない（送る側は渡さず 0 で埋まる）。TET の受け手は穴を着弾時に
 // 自分で決める（PROTOCOL_VERSION 3 から。garbage.js applyGarbage）。PUYO受信時はおじゃま列番号。
-export function encodeGarbage(lines: number, holes: number[] | undefined, target: GarbageTarget): Uint8Array {
+export function encodeGarbage(lines: number, holes: number[] | undefined, target: GarbageTarget, flags = 0): Uint8Array {
   const n = Math.max(0, Math.min(MAX_GARBAGE_AMOUNT, Math.trunc(lines)));
-  const buf = new Uint8Array(1 + 1 + 1 + 2 + n);
+  const buf = new Uint8Array(1 + 1 + 1 + 1 + 2 + n);
   buf[0] = MatchOpcode.Garbage;
   buf[1] = GARBAGE_PROTOCOL_VERSION;
   buf[2] = GARBAGE_TARGET_CODE[target];
-  new DataView(buf.buffer).setUint16(3, n, true);
+  buf[3] = target === "tet" ? (flags & (GARBAGE_FLAG_ZONE_CHUNK | GARBAGE_FLAG_ZONE_HOLD)) : 0;
+  new DataView(buf.buffer).setUint16(4, n, true);
   for (let i = 0; i < n; i++) {
-    buf[5 + i] = (holes?.[i] ?? 0) & 0xff;
+    buf[6 + i] = (holes?.[i] ?? 0) & 0xff;
   }
   return buf;
 }
@@ -359,6 +367,10 @@ export const SE_IDS: Record<string, number> = {
   move: 24,        // tet 横移動
   drop: 25,        // tet ソフトドロップ（毎マス）
   puyo_move: 26,   // puyo 横移動
+  // ZONE BATTLE（PROTOCOL 4。tet/zone.js）。フェーズの levelup は各端末が自分のフェーズで鳴らすので同期しない
+  zone_start: 27,
+  zone_end: 28,
+  zone_end_big: 29,
 };
 // ID → name の逆引き
 export const SE_NAMES: Record<number, string> = Object.fromEntries(
@@ -412,34 +424,102 @@ export function decodeClear(p: Uint8Array): ClearData {
   return { lines: p[0], flags: p[1], combo: p[2] };
 }
 
-export interface GarbageData { amount: number; holes: number[]; target: GarbageTarget; }
+export interface GarbageData {
+  amount: number; holes: number[]; target: GarbageTarget;
+  /** ZONE の印（版 3 の flags） */
+  zoneChunk: boolean; zoneHold: boolean;
+}
 export function decodeGarbage(p: Uint8Array): GarbageData {
-  if (p.length < 4 || p[0] !== GARBAGE_PROTOCOL_VERSION) {
+  if (p.length < 5 || p[0] !== GARBAGE_PROTOCOL_VERSION) {
     throw new Error("Unsupported Garbage payload");
   }
   const target: GarbageTarget | null = p[1] === 1 ? "tet" : p[1] === 2 ? "puyo" : null;
   if (!target) throw new Error("Invalid Garbage target");
-  const amount = new DataView(p.buffer, p.byteOffset, p.byteLength).getUint16(2, true);
-  if (amount < 1 || amount > MAX_GARBAGE_AMOUNT || p.length !== 4 + amount) {
+  const flags = p[2];
+  const amount = new DataView(p.buffer, p.byteOffset, p.byteLength).getUint16(3, true);
+  if (amount < 1 || amount > MAX_GARBAGE_AMOUNT || p.length !== 5 + amount) {
     throw new Error("Invalid Garbage amount/length");
   }
-  const holes = Array.from(p.slice(4, 4 + amount));
-  return { amount, holes, target };
+  const holes = Array.from(p.slice(5, 5 + amount));
+  return {
+    amount, holes, target,
+    zoneChunk: (flags & GARBAGE_FLAG_ZONE_CHUNK) !== 0,
+    zoneHold: (flags & GARBAGE_FLAG_ZONE_HOLD) !== 0,
+  };
+}
+
+// ── ZoneState（0x2C。ZONE BATTLE ONLINE 設計 §6.3）──────────────────────────
+// 固定 12 バイト: opcode + kind + meter + quarterLines + charge + durationMs/10(u16 LE)
+//                 + remainingMs/10(u16 LE) + zoneLines + attack(u16 LE)
+// kind: 0 = 試合の頭 / 1 = メーター / 2 = 発動 / 3 = 終了。相手に見せるだけ（サーバーは中身を見ずに中継）。
+// 受ける側は届いた時刻と remainingMs から自分で残りを減らす（表示だけ。通信の遅れぶん少し遅れて見える）。
+export const ZoneStateKind = { Start: 0, Meter: 1, Activate: 2, End: 3 } as const;
+export interface ZoneStateData {
+  kind: number;
+  /** たまったライン数（端数は切り捨て。上限 48） */
+  meter: number;
+  /** いまの 1/4 のライン数（フェーズで変わる） */
+  quarterLines: number;
+  /** 発動時の 1/4 の数 1〜4（発動中でなければ 0） */
+  charge: number;
+  durationMs: number;
+  remainingMs: number;
+  /** 終了時: その回の段数 */
+  zoneLines: number;
+  /** 終了時: 出した火力の合計 */
+  attack: number;
+}
+export const ZONE_STATE_BYTES = 12;
+export function encodeZoneState(d: ZoneStateData): Uint8Array {
+  const buf = new Uint8Array(ZONE_STATE_BYTES);
+  const view = new DataView(buf.buffer);
+  const u8 = (v: number) => Math.max(0, Math.min(0xff, Math.trunc(v)));
+  const u16 = (v: number) => Math.max(0, Math.min(0xffff, Math.trunc(v)));
+  buf[0] = MatchOpcode.ZoneState;
+  buf[1] = u8(d.kind);
+  buf[2] = u8(Math.min(48, d.meter));
+  buf[3] = u8(d.quarterLines);
+  buf[4] = u8(d.charge);
+  view.setUint16(5, u16(d.durationMs / 10), true);
+  view.setUint16(7, u16(d.remainingMs / 10), true);
+  buf[9] = u8(d.zoneLines);
+  view.setUint16(10, u16(d.attack), true);
+  return buf;
+}
+/** p は中継された中身（opcode・送信元 UUID を除いた 11 バイト）。短いものは null */
+export function decodeZoneState(p: Uint8Array): ZoneStateData | null {
+  if (p.length < ZONE_STATE_BYTES - 1) return null;
+  const view = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  return {
+    kind: p[0],
+    meter: p[1],
+    quarterLines: p[2],
+    charge: p[3],
+    durationMs: view.getUint16(4, true) * 10,
+    remainingMs: view.getUint16(6, true) * 10,
+    zoneLines: p[8],
+    attack: view.getUint16(9, true),
+  };
 }
 export function decodeHold(p: Uint8Array): number { return p[0]; }
 
 // ── Board serialization helpers ────────────────────────────────────────
+/** Lock の 1 マスの ZONE 段の印（PROTOCOL 4。値の下位 4 ビットが「種別 + 1」） */
+export const LOCK_ZONE_FLAG = 0x80;
+export const LOCK_TYPE_MASK = 0x0f;
+
 // Convert game field.blocks array → flat type array (for encodeLock)
+// ZONE 段（block.zone。tet/zone.js _zoneCheckLine）は 0x80 を立てる（相手の盤面で白く見せるため）
 // ★ wire上は「0=空セル」「1〜7=ミノtype 0〜6」とする(+1オフセット)。
 //   Iミノは type 0 のため、+1しないと空セルと区別できず相手盤面で消える。
 //   デコード側 (Lock handler) は値が非0のとき type = 値-1 で復元する。
 // ★ おじゃませり上がりでスタックが y<0 へはみ出すため、y=-BOARD_BUFFER_ROWS..BOARD_ROWS-1
 //   の40行を row = y + BOARD_BUFFER_ROWS で格納する。バッファ外(y<-20)は実質トップアウトなので破棄。
-export function fieldBlocksToArray(blocks: Array<{x: number; y: number; type: number}>): number[] {
+export function fieldBlocksToArray(blocks: Array<{x: number; y: number; type: number; zone?: boolean}>): number[] {
   const arr = new Array(BOARD_SIZE).fill(0);
   for (const b of blocks) {
     if (b.x >= 0 && b.x < BOARD_COLS && b.y >= -BOARD_BUFFER_ROWS && b.y < BOARD_ROWS) {
-      arr[(b.y + BOARD_BUFFER_ROWS) * BOARD_COLS + b.x] = ((b.type ?? 6) + 1);
+      arr[(b.y + BOARD_BUFFER_ROWS) * BOARD_COLS + b.x] = ((b.type ?? 6) + 1) | (b.zone ? LOCK_ZONE_FLAG : 0);
     }
   }
   return arr;

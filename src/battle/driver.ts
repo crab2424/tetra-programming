@@ -10,6 +10,10 @@ import {
   decodeSpawn,
   decodeHoldState,
   decodeStatsUpdate,
+  decodeZoneState,
+  ZoneStateKind,
+  LOCK_ZONE_FLAG,
+  LOCK_TYPE_MASK,
   MatchOpcode,
   PuyoLockPhase,
   BOARD_BUFFER_ROWS,
@@ -127,6 +131,17 @@ export class NetworkDriver implements OpponentDriver {
   /** 相手の初回データ（Spawn/PuyoSpawn＝NEXT等）を受信済みか。ロード画面の待機に使う。 */
   private dataReceived = false;
   private dataResolvers: Array<() => void> = [];
+  // ── ZONE BATTLE（設計 tetlabo-zone-online-design.md §6.3・§9）──
+  /** ZONE BATTLE の試合か（setupZone で立つ。テトの相手だけ） */
+  private zoneOn = false;
+  /** 発動中の残り時間の起点（受けた時刻 performance.now と、そのときの残り ms） */
+  private zoneRemAt = 0;
+  private zoneRem = 0;
+  /** 凍結したときの残り（決着の後は減らさない） */
+  private zoneFrozenRem: number | null = null;
+  /** 発動中・終了の光の間だけ回す rAF（輪・枠の光・終了の光を進める） */
+  private zoneFrame: number | null = null;
+  private zoneFxUntil = 0;
 
   constructor(options: NetworkDriverOptions) {
     this.id = options.id;
@@ -169,6 +184,7 @@ export class NetworkDriver implements OpponentDriver {
   }
 
   stop(): void {
+    this.stopZoneFrame();
     this.stopPuyoReplay();
     if (this.rule === "puyo") {
       // ★ freeze() が立てた _versusFinishing を戻す。放置すると puppet.stop() の
@@ -199,6 +215,7 @@ export class NetworkDriver implements OpponentDriver {
     //   2 回目以降は何もしない（3 人以上の対戦で GAME OVER 演出が出し直されないように）。
     if (this.dead) return;
     this.dead = true;
+    this.freezeZone(); // 脱落した相手の ZONE の残り時間はその場で止める
     this.onDead(this.id);
     if (this.rule === "puyo") {
       this.stopPuyoReplay();
@@ -233,6 +250,7 @@ export class NetworkDriver implements OpponentDriver {
     //   同期的に呼ばれる（applyFrame内のmarkDead→onDead→…→freeze）。その直後に
     //   別メッセージとして届くLock/PieceStateを取りこぼさないよう、短い猶予を与える。
     if (this.rule === "tet") this.acceptFinalSnapshotUntil = performance.now() + 1500;
+    this.freezeZone();
     this.stopPuyoReplay();
     this.puyoReplayQueue.length = 0;
     if (this.rule === "puyo") {
@@ -271,6 +289,130 @@ export class NetworkDriver implements OpponentDriver {
     } else {
       this.puppet.drawAll?.();
     }
+  }
+
+  // ── ZONE BATTLE: 相手の ZONE の表示（設計 tetlabo-zone-online-design.md §6.3・§9）──────────────
+  //
+  // 人形（描画だけの Game）に zone.js と同じ名前の値を入れて、zone.js の表示（輪・枠の光・ZONE 段の数字・
+  // 枠の上 20 段・終了の表示・PHASE の表示）をそのまま使う。残り時間は人形の時計ではなく、受けた時刻から減らす。
+
+  /**
+   * ZONE BATTLE の試合の頭（テトの相手だけ。DOM は online_game.ts が先に作る）。
+   * quarterLines: 開始時の 1/4 のライン数、phase: フェーズ（0 = フェーズなし）
+   */
+  setupZone(opts: { quarterLines: number; phase: number }): void {
+    if (this.rule !== "tet") return;
+    const p = this.puppet;
+    this.zoneOn = true;
+    this.zoneFrozenRem = null;
+    p.vsZone = true;
+    p.zoneEnabled = true;
+    p.topLimit = -20; // 枠の上 20 段（zone.js ZONE_TOP_LIMIT）
+    p.isCpuControlled = true; // 輪にこの端末のキー名を出さない
+    p.matchPhase = opts.phase;
+    p.zoneQuarterLines = opts.quarterLines;
+    p.zoneMeter = 0;
+    p.zoneActive = false;
+    p.zoneLines = 0;
+    p.zoneCharge = 0;
+    p.zoneDurationMs = 0;
+    p.zoneActiveQuarterMs = 0;
+    p.zoneTimeUp = false;
+    p.zoneRemainingMs = () => this.zoneRemainingMs();
+    p._zoneHudSig = null;
+    p._zoneSyncHud?.(true);
+    p._zoneSyncPhaseHud?.();
+    p.drawAll?.();
+  }
+
+  /** フェーズが進んだ（この端末のフェーズ。部屋で 1 つ）。相手の盤面にも PHASE の表示とポップアップを出す */
+  setZonePhase(phase: number): void {
+    if (!this.zoneOn || this.frozen) return;
+    const p = this.puppet;
+    if (!(phase > (p.matchPhase || 0))) return;
+    p.matchPhase = phase;
+    p._zoneSyncPhaseHud?.();
+    p._zoneShowPhasePopup?.(phase);
+  }
+
+  private zoneRemainingMs(): number {
+    if (!this.puppet.zoneActive) return 0;
+    if (this.zoneFrozenRem !== null) return this.zoneFrozenRem;
+    return Math.max(0, this.zoneRem - (performance.now() - this.zoneRemAt));
+  }
+
+  private applyZoneState(d: ReturnType<typeof decodeZoneState> & object): void {
+    const p = this.puppet;
+    if (d.quarterLines > 0) p.zoneQuarterLines = d.quarterLines;
+    p.zoneMeter = d.meter;
+    switch (d.kind) {
+      case ZoneStateKind.Start:
+        p.zoneActive = false;
+        p.zoneLines = 0;
+        p.zoneCharge = 0;
+        break;
+      case ZoneStateKind.Meter:
+        break;
+      case ZoneStateKind.Activate:
+        p.zoneActive = true;
+        p.zoneCharge = d.charge;
+        p.zoneDurationMs = d.durationMs;
+        p.zoneActiveQuarterMs = d.charge > 0 ? d.durationMs / d.charge : p.zoneActiveQuarterMs;
+        p.zoneLines = 0;
+        this.zoneRem = d.remainingMs;
+        this.zoneRemAt = performance.now();
+        this.zoneFrozenRem = null;
+        break;
+      case ZoneStateKind.End: {
+        // 相手の _endZone と同じく ZONE 段を消して残りを下げる（相手の次の Lock を待たずに見た目を合わせる）
+        const bs = p.field?.blocks as any[] | undefined;
+        if (bs && d.zoneLines > 0) {
+          const rest = bs.filter((b) => !b.zone);
+          for (const b of rest) b.y += d.zoneLines;
+          p.field.blocks = rest;
+          p.field.markDirty?.();
+          if (p.mino && typeof p.valid === "function" && !p.valid(0, 0)) p.mino.y += d.zoneLines;
+        }
+        p.zoneActive = false;
+        p.zoneLines = 0;
+        p.zoneCharge = 0;
+        p._zoneShowEndPopup?.(d.zoneLines, d.attack);
+        // 終了の光（zone.js _zoneDrawField。描画のたびに進む）
+        p._zoneFx = { t: performance.now(), lines: d.zoneLines, reason: "time" };
+        this.zoneFxUntil = performance.now() + 800;
+        break;
+      }
+    }
+    p._zoneSyncHud?.(true);
+    p.drawAll?.();
+    if (p.zoneActive || performance.now() < this.zoneFxUntil) this.startZoneFrame();
+  }
+
+  private startZoneFrame(): void {
+    if (this.zoneFrame !== null) return;
+    const tick = () => {
+      this.zoneFrame = null;
+      if (this.frozen) return;
+      const p = this.puppet;
+      const fx = performance.now() < this.zoneFxUntil;
+      p._zoneSyncHud?.();
+      if (fx) p.drawAll?.();
+      if (p.zoneActive || fx) this.zoneFrame = requestAnimationFrame(tick);
+    };
+    this.zoneFrame = requestAnimationFrame(tick);
+  }
+
+  private stopZoneFrame(): void {
+    if (this.zoneFrame !== null) cancelAnimationFrame(this.zoneFrame);
+    this.zoneFrame = null;
+  }
+
+  /** 決着（freeze）: 残り時間を止めて rAF を止める（盤面・輪はそのまま残す） */
+  private freezeZone(): void {
+    if (!this.zoneOn) return;
+    if (this.puppet.zoneActive) this.zoneFrozenRem = this.zoneRemainingMs();
+    this.stopZoneFrame();
+    this.puppet._zoneSyncHud?.(true);
   }
 
   /** ワイヤー上の位置情報から実 Mino を組み立てる（PieceState / Spawn / Lock / GameOver 共通）。 */
@@ -329,15 +471,26 @@ export class NetworkDriver implements OpponentDriver {
         }
         const { board, dyingMino } = decodeLock(payload);
         const blocks: any[] = [];
+        const zoneRows = new Set<number>();
         for (let i = 0; i < board.length; i++) {
           const value = board[i];
-          if (value !== 0) blocks.push(new Block(
-            i % BOARD_COLS,
-            Math.floor(i / BOARD_COLS) - BOARD_BUFFER_ROWS,
-            value - 1,
-          ));
+          if (value !== 0) {
+            // 下位 4 ビットが「種別 + 1」、0x80 が ZONE 段（PROTOCOL 4）
+            const b = new Block(
+              i % BOARD_COLS,
+              Math.floor(i / BOARD_COLS) - BOARD_BUFFER_ROWS,
+              (value & LOCK_TYPE_MASK) - 1,
+            );
+            if (value & LOCK_ZONE_FLAG) {
+              b.zone = true;
+              zoneRows.add(b.y);
+            }
+            blocks.push(b);
+          }
         }
         puppet.field.blocks = blocks;
+        // 発動中の ZONE 段の段数（盤面の中央の数字。tet/zone.js _zoneDrawField）
+        if (this.zoneOn) puppet.zoneLines = puppet.zoneActive ? zoneRows.size : 0;
         puppet.field.markDirty?.();
         // ★ 致命(block-out)時は、盤面へ固定されなかった衝突ミノが同梱されてくる。
         //   通常の設置Lockでは null（＝次のSpawnまで操作ミノなし）が正しい。
@@ -403,6 +556,12 @@ export class NetworkDriver implements OpponentDriver {
       case MatchOpcode.StatsUpdate:
         this.onStats?.(this.index, decodeStatsUpdate(payload));
         return;
+      case MatchOpcode.ZoneState: {
+        if (this.rule !== "tet" || !this.zoneOn) return;
+        const d = decodeZoneState(payload);
+        if (d) this.applyZoneState(d);
+        return;
+      }
       case MatchOpcode.ChainReplay: {
         if (this.rule !== "puyo") return;
         const chain = decodePuyoChain(payload);
