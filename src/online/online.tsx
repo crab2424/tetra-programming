@@ -232,7 +232,7 @@ function collectFocusable(root: HTMLElement): FocusItem[] {
   // .online-room はクリックで入室する div（buttonではない）なので明示的に含める。
   // .ms-row-editable・.ms-tabs-row は行ごと1項目（中のボタン/inputは個別に拾わない）。
   return Array.from(
-    root.querySelectorAll<HTMLElement>("button, input, select, .online-room, .ms-row-editable, .ms-tabs-row"),
+    root.querySelectorAll<HTMLElement>("button, input, select, .online-room, .ms-row-editable, .ms-tabs-row, .ol-code-spinner"),
   )
     .filter((el) => !el.matches(":disabled"))
     .filter((el) => el.classList.contains("ms-row-editable") || el.classList.contains("ms-tabs-row")
@@ -549,6 +549,98 @@ class Modal {
         </div>
       );
       Modal.showModal(modalContent);
+    });
+  }
+
+  /**
+   * 数字の桁スピナーで入力するダイアログ（ロードマップ D §3。パッドから開いた JOIN BY CODE）。
+   * PRACTICE の目標値スピナー（practice.js）と同じ操作: ←/→ で桁移動、↑/↓ でその桁を 0〜9 で回す
+   * （パッドは FocusNav の DAS/ARR で繰り返す）、数字キーはその桁に入れて次の桁へ（最後の桁は上書き）、
+   * Enter（A）で決定、Escape（B）で取消。開いている間は FocusNav.suspended でキーを奪う。
+   * 決定で digits を連ねた文字列、取消で null。
+   */
+  static async codeSpinner(
+    message: string,
+    title: string,
+    digits: number,
+    okMessage: string = "OK",
+    cancelMessage: string = "Cancel",
+  ): Promise<string | null> {
+    return new Promise<string | null>((resolve) => {
+      const values = new Array<number>(digits).fill(0);
+      let pos = 0;
+      const boxes = values.map((_, i) => (
+        <span class="ol-code-digit" onclick={() => { pos = i; render(); }}>0</span>
+      ) as HTMLElement);
+      const render = () => {
+        boxes.forEach((b, i) => {
+          b.textContent = String(values[i]);
+          b.classList.toggle("is-active", i === pos);
+        });
+      };
+      let done = false;
+      const finish = (result: string | null) => {
+        if (done) return;
+        done = true;
+        cleanup();
+        Modal.hideModal();
+        resolve(result);
+      };
+      const onKey = (e: KeyboardEvent) => {
+        // 別のダイアログに置き換わった・ページを離れたときは、キーを奪うのをやめるだけ
+        if (!modalContent.isConnected) { cleanup(); return; }
+        let handled = true;
+        if (e.key === "Enter") { if (!e.repeat) finish(values.join("")); }
+        else if (e.key === "Escape") finish(null);
+        else if (e.key === "ArrowLeft") { pos = Math.max(0, pos - 1); render(); }
+        else if (e.key === "ArrowRight") { pos = Math.min(digits - 1, pos + 1); render(); }
+        else if (e.key === "ArrowUp") { values[pos] = (values[pos] + 1) % 10; render(); }
+        else if (e.key === "ArrowDown") { values[pos] = (values[pos] + 9) % 10; render(); }
+        else if (e.key.length === 1 && e.key >= "0" && e.key <= "9") {
+          values[pos] = Number(e.key);
+          pos = Math.min(digits - 1, pos + 1);
+          render();
+        } else handled = false;
+        if (handled) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      };
+      const cleanup = () => {
+        document.removeEventListener("keydown", onKey, true);
+        const FN = focusNav();
+        if (FN) FN.suspended = false;
+      };
+      const modalContent = (
+        <div
+          class="ol-dialog"
+          style={{
+            padding: "20px",
+            gap: "10px",
+            minWidth: "300px",
+          }}
+        >
+          <h2>{title}</h2>
+          <breakableDiv body={message} />
+          <div class="ol-code-spinner">{boxes}</div>
+          <div class="ol-code-hint">←/→ 桁　↑/↓ 数字　A 決定　B キャンセル</div>
+          <div
+            style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}
+          >
+            <button class="btn btn-secondary" onclick={() => finish(null)}>
+              {cancelMessage}
+            </button>
+            <button class="btn btn-primary" onclick={() => finish(values.join(""))}>
+              {okMessage}
+            </button>
+          </div>
+        </div>
+      ) as HTMLElement;
+      render();
+      Modal.showModal(modalContent);
+      const FN = focusNav();
+      if (FN) FN.suspended = true;
+      document.addEventListener("keydown", onKey, true);
     });
   }
 }
@@ -2382,13 +2474,23 @@ class OnlineMode {
 
   /** 6桁コードでルームに参加する */
   private async joinRoomByCode() {
-    const code = await Modal.prompt(
-      "6桁のルームコードを入力してください。",
-      "コードで参加",
-      "",
-      "参加",
-      "キャンセル",
-    );
+    // パッドから開いたときは桁スピナー（合成キーでは入力欄に数字を打てない。ロードマップ D §3）。
+    // キーボード・マウスから開いたときは今までどおり入力欄（打てる・貼り付けられる）。
+    const code = isPadInput()
+      ? await Modal.codeSpinner(
+        "6桁のルームコードを入力してください。",
+        "コードで参加",
+        6,
+        "参加",
+        "キャンセル",
+      )
+      : await Modal.prompt(
+        "6桁のルームコードを入力してください。",
+        "コードで参加",
+        "",
+        "参加",
+        "キャンセル",
+      );
     if (code === null) return;
     const trimmed = code.trim();
     if (!/^\d{6}$/.test(trimmed)) {
