@@ -655,6 +655,15 @@ export interface PlayerReconnectedNotification { roomId: Uuid; playerId: Uuid; }
 export const isPlayerReconnectedNotification = (d: any): d is PlayerReconnectedNotification =>
   d && d.type === "JSONPlayerReconnectedNotification";
 
+/**
+ * ZONE BATTLE: 部屋の全員（脱落者も含む）のスコアの最大値でフェーズ・SCORE のマージンの段階が上がったとき、
+ * サーバーが部屋の全員へ送る（設計 tetlabo-zone-online-design.md §5・§6.4。PROTOCOL 4）。
+ * phase は今のフェーズ（1〜3。フェーズなし・PHASE TRIGGER: TIME のときは 1 のまま）、marginStep は段階（未突入は null）。
+ */
+export interface ZonePhaseNotification { roomId: Uuid; phase: number; marginStep: number | null; }
+export const isZonePhaseNotification = (d: any): d is ZonePhaseNotification =>
+  d && d.type === "JSONZonePhaseNotification";
+
 export class JSONPayload {
   static toPayload(op: Opcodes, data: string): Uint8Array {
     return Payload.jsonRequest(op, data);

@@ -1779,6 +1779,26 @@ export class OnlineGameController {
     };
   }
 
+  /**
+   * ZONE BATTLE: サーバーのフェーズ・マージン段階の通知を自分の盤面へ入れる（設計 §5.1 の 4）。
+   * 届いた時点で入れる（越えた本人も自分のスコアでは先に進めない＝全員が同じ順序）。一度上がったら下げない。
+   * フェーズは PHASE TRIGGER: SCORE の試合だけ（TIME は各自の時計の予約）、段階は MARGIN TRIGGER: SCORE の試合だけ。
+   * 脱落した後も表示（自分・相手の盤面の PHASE）は進める。決着の後は何もしない。
+   */
+  private applyZonePhaseNotification(phase: number, marginStep: number | null): void {
+    const game = this.game;
+    if (!game || !this.isZoneBattle || this.matchHalted || this.lifecycle.phase !== "playing") return;
+    if (game.matchPhase && game.matchPhaseTrigger === "score" && phase > game.matchPhase && phase <= 3) {
+      // _zoneSetPhase は hookZoneState が包んでいる（メーターを相手へ送り直し・相手の盤面の PHASE も進める）
+      game._zoneSetPhase(phase);
+      if (this.myAlive) game.playSe?.("levelup");
+    }
+    if (game.marginScoreOn && typeof marginStep === "number" && marginStep >= 0
+      && (game._tetMarginStep === null || game._tetMarginStep === undefined || marginStep > game._tetMarginStep)) {
+      game._tetMarginStep = Math.min(5, marginStep);
+    }
+  }
+
   private hookPuyoGameMethods(matchSetting: OnlineMatchSetting): void {
     const game = this.game;
     const conn = this.connection;
@@ -2163,6 +2183,12 @@ export class OnlineGameController {
       this.handleOpponentReconnected(n.playerId as Uuid);
     });
 
+    // ZONE BATTLE: サーバーが全員のスコアの最大値で決めたフェーズ・マージンの段階（設計 §5）
+    const zonePhaseId = conn.onZonePhaseNotification((n) => {
+      if (n.roomId !== this.roomInfo.roomId) return;
+      this.applyZonePhaseNotification(n.phase, n.marginStep);
+    });
+
     const postMatchId = conn.onPostMatchAction((n) => {
       if (n.roomId !== this.roomInfo.roomId) return;
       this.rematchVotes.set(n.playerId as Uuid, n.action);
@@ -2170,7 +2196,7 @@ export class OnlineGameController {
     });
 
     this.subscriptionIds.push(
-      pauseId, resumeId, winnerId, disconnId, connLostId, reconnectedId, postMatchId,
+      pauseId, resumeId, winnerId, disconnId, connLostId, reconnectedId, postMatchId, zonePhaseId,
     );
   }
 
