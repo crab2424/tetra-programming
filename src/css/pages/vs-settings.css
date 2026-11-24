@@ -300,6 +300,10 @@ body.input-mode-kbd .ms-row-editable.is-focused {
   color: var(--text-dim);
   width: 16px;
 }
+/* 値で表示が変わる単位（MARGIN TIME の 0 = INSTANT）。幅を固定して行の並びが動かないようにする */
+.ms-unit-wide {
+  width: 52px;
+}
 
 /* VS SETTINGSページのボタン */
 #vs-settings-buttons {

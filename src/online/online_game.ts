@@ -1301,7 +1301,8 @@ export class OnlineGameController {
     this.zoneStateSend = null;
     if (this.isZoneBattle) this.hookZoneState();
 
-    this.game.vsMarginTimeMs = matchSetting.marginTime * 1000;
+    // MARGIN OFF は null（ローカルの getMarginTimeMs と同じ。0 は INSTANT＝即時突入）
+    this.game.vsMarginTimeMs = matchSetting.marginEnabled ? matchSetting.marginTime * 1000 : null;
     this.game.vsGarbageHoleRate = matchSetting.garbageHoleRate;
     this.game.vsGarbageDamageOnClear = matchSetting.garbageDamageOnClear;
     this.game.vsB2bBonusEnabled = matchSetting.b2bBonus;
@@ -1372,7 +1373,8 @@ export class OnlineGameController {
     this.game.opponentRule = this.matchOpponentRule; // 異種戦判定をエンジンへ注入
     this.game._hasTetOpp = this.matchHasTetOpp;   // 混在多人数: テト相手が居るか
     this.game._hasPuyoOpp = this.matchHasPuyoOpp; // 混在多人数: ぷよ相手が居るか
-    this.game.vsMarginTimeMs = matchSetting.marginTime * 1000;
+    // MARGIN OFF は null（ローカルの getMarginTimeMs と同じ。0 は INSTANT＝即時突入）
+    this.game.vsMarginTimeMs = matchSetting.marginEnabled ? matchSetting.marginTime * 1000 : null;
     this.game.vsOjamaRate = matchSetting.ojamaRate;
 
     // RNGを initGame (内部の _resetState → _initNextQueue) より前に注入

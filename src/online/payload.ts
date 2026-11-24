@@ -453,7 +453,9 @@ export interface OnlineMatchSetting {
   holdEnabled: boolean;
   b2bBonus: boolean;
   garbageMultiplier: number; // 1.0 = 等倍
-  /** マージンタイム（秒）。0 = 無効 */
+  /** マージンタイムを使うか（OFF ならマージンに入らない。ローカルの VS 設定の MARGIN と同じ） */
+  marginEnabled: boolean;
+  /** マージンタイム（秒）。0 = INSTANT（即時突入。ローカルの VS 設定と同じ意味） */
   marginTime: number;
   /** おじゃま穴の連続率 (%) */
   garbageHoleRate: number;
@@ -468,6 +470,7 @@ export const defaultMatchSetting: OnlineMatchSetting = {
   holdEnabled: true,
   b2bBonus: true,
   garbageMultiplier: 1.0,
+  marginEnabled: true,
   marginTime: 96,
   garbageHoleRate: 70,
   garbageDamageOnClear: true,
@@ -484,6 +487,7 @@ export function parseMatchSetting(json: string): OnlineMatchSetting {
       holdEnabled: parsed.holdEnabled ?? defaultMatchSetting.holdEnabled,
       b2bBonus: parsed.b2bBonus ?? defaultMatchSetting.b2bBonus,
       garbageMultiplier: typeof parsed.garbageMultiplier === "number" ? parsed.garbageMultiplier : defaultMatchSetting.garbageMultiplier,
+      marginEnabled: typeof parsed.marginEnabled === "boolean" ? parsed.marginEnabled : defaultMatchSetting.marginEnabled,
       marginTime: typeof parsed.marginTime === "number" ? parsed.marginTime : defaultMatchSetting.marginTime,
       garbageHoleRate: typeof parsed.garbageHoleRate === "number" ? parsed.garbageHoleRate : defaultMatchSetting.garbageHoleRate,
       garbageDamageOnClear: parsed.garbageDamageOnClear ?? defaultMatchSetting.garbageDamageOnClear,

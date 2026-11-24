@@ -1023,7 +1023,16 @@ class OnlineMode {
       max: number,
       step: number,
       unit: string,
+      /** 値で単位の表示を変える（MARGIN TIME の 0 = INSTANT。ローカルの VS 設定と同じ表示） */
+      unitOf?: (v: number) => string,
+      /** 使わない行を薄くする（MARGIN OFF のときの MARGIN TIME。ローカルの is-inert と同じ。操作はできる） */
+      inert = false,
     ) => {
+      const u = (v: number) => (unitOf ? unitOf(v) : unit);
+      const syncUnit = (rowEl: Element | null | undefined, v: number) => {
+        const el = rowEl?.querySelector<HTMLElement>(".ms-unit");
+        if (el) el.textContent = u(v);
+      };
       let lastCommitted = value;
       const commit = (raw: string) => {
         let n = Number(raw);
@@ -1038,7 +1047,7 @@ class OnlineMode {
       };
       const row = (
         <div
-          class={"ms-row ms-row-slider" + (isOwner ? " ms-row-editable" : "")}
+          class={"ms-row ms-row-slider" + (isOwner ? " ms-row-editable" : "") + (inert ? " is-inert" : "")}
           data-focus-key={"ms:" + String(key)}
         >
           <span class="ms-label">{label}</span>
@@ -1054,6 +1063,7 @@ class OnlineMode {
                 oninput={(e) => {
                   const num = (e.target as HTMLElement).parentElement?.querySelector<HTMLInputElement>(".ms-number");
                   if (num) num.value = (e.target as HTMLInputElement).value;
+                  syncUnit((e.target as HTMLElement).parentElement, Number((e.target as HTMLInputElement).value));
                 }}
                 onchange={(e) => commit((e.target as HTMLInputElement).value)}
               />
@@ -1075,12 +1085,11 @@ class OnlineMode {
                   }
                 }}
               />
-              <span class="ms-unit">{unit}</span>
+              <span class={"ms-unit" + (unitOf ? " ms-unit-wide" : "")}>{u(value)}</span>
             </div>
           ) : (
             <span class="ms-readonly">
-              {value}
-              {unit}
+              {unitOf && u(value) !== unit ? u(value) : `${value}${unit}`}
             </span>
           )}
         </div>
@@ -1097,6 +1106,7 @@ class OnlineMode {
         const text = step >= 1 ? String(n) : String(Number(n.toFixed(4)));
         slider.value = text;
         if (num) num.value = text;
+        syncUnit(row, n);
         const timerKey = String(key);
         const prevTimer = this.msStepTimers.get(timerKey);
         if (prevTimer !== undefined) clearTimeout(prevTimer);
@@ -1573,7 +1583,9 @@ class OnlineMode {
                 {toggleRow("DMG ON CLEAR", "garbageDamageOnClear", ms.garbageDamageOnClear,)}
                 {sliderRow("SET TO", "setTarget", ms.setTarget, 1, 9, 1, " wins",)}
                 {sliderRow("GARBAGE ×", "garbageMultiplier", ms.garbageMultiplier, 0, 3, 0.1, "x",)}
-                {sliderRow("MARGIN TIME", "marginTime", ms.marginTime, 0, 300, 1, "s",)}
+                {toggleRow("MARGIN", "marginEnabled", ms.marginEnabled)}
+                {sliderRow("MARGIN TIME", "marginTime", ms.marginTime, 0, 300, 1, "s",
+                  (v) => (v === 0 ? "INSTANT" : "s"), !ms.marginEnabled)}
                 {sliderRow("HOLE RATE", "garbageHoleRate", ms.garbageHoleRate, 0, 100, 1, "%",)}
                 {sliderRow("OJAMA RATE", "ojamaRate", ms.ojamaRate, 0, 200, 1, "%",)}
               </div>}
