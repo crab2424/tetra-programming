@@ -171,6 +171,54 @@ function tabsRowItem(row: HTMLElement): FocusItem {
   };
 }
 
+/** <select> の値を d だけ動かす（wrap: 端で先頭へ回す）。変わったら change を投げる。 */
+function stepSelect(sel: HTMLSelectElement, d: number, wrap: boolean): void {
+  const n = sel.options.length;
+  if (n === 0) return;
+  let i = sel.selectedIndex + d;
+  if (wrap) i = ((i % n) + n) % n;
+  else if (i < 0 || i >= n) return;
+  if (i === sel.selectedIndex) return;
+  sel.selectedIndex = i;
+  sel.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+/**
+ * <select> を ←/→ で選ぶ行にする（設計 §2）。合成キー（パッド）ではネイティブの選択が開かないため。
+ * ←/→ で前後（端で止める）、Enter で次（端で先頭へ）。フォーカス枠は ◀ ▶ を含む .ol-select-row に出す。
+ */
+function selectRowItem(sel: HTMLSelectElement): FocusItem {
+  return {
+    el: sel.closest<HTMLElement>(".ol-select-row") ?? sel,
+    key: sel.dataset.focusKey ?? (sel.id ? "select:" + sel.id : undefined),
+    type: "row",
+    onLeft: () => stepSelect(sel, -1, false),
+    onRight: () => stepSelect(sel, +1, false),
+    onActivate: () => stepSelect(sel, +1, true),
+  };
+}
+
+/** ◀ <select> ▶ の行。◀ ▶ はマウスでも押せる（label の中に置いても select を開かないよう既定動作を止める）。 */
+function selectRow(sel: HTMLSelectElement): HTMLElement {
+  const arrow = (d: number) => (
+    <span
+      class="ol-select-arrow"
+      aria-hidden="true"
+      onmousedown={(e: MouseEvent) => e.preventDefault()}
+      onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); stepSelect(sel, d, false); }}
+    >
+      {d < 0 ? "◀" : "▶"}
+    </span>
+  );
+  return (
+    <div class="ol-select-row">
+      {arrow(-1)}
+      {sel}
+      {arrow(+1)}
+    </div>
+  ) as HTMLElement;
+}
+
 function collectFocusable(root: HTMLElement): FocusItem[] {
   // .online-room はクリックで入室する div（buttonではない）なので明示的に含める。
   // .ms-row-editable・.ms-tabs-row は行ごと1項目（中のボタン/inputは個別に拾わない）。
@@ -181,7 +229,8 @@ function collectFocusable(root: HTMLElement): FocusItem[] {
     .filter((el) => el.classList.contains("ms-row-editable") || el.classList.contains("ms-tabs-row")
       || !el.closest(".ms-row-editable, .ms-tabs-row"))
     .map((el) => (el.classList.contains("ms-tabs-row") ? tabsRowItem(el)
-      : el.classList.contains("ms-row-editable") ? msRowItem(el) : toFocusItem(el)));
+      : el.classList.contains("ms-row-editable") ? msRowItem(el)
+      : el.tagName === "SELECT" ? selectRowItem(el as HTMLSelectElement) : toFocusItem(el)));
 }
 
 /** #online-top-container 配下、モーダルや`.btn-danger`(破壊的操作)を除いた中から
@@ -1804,10 +1853,12 @@ class OnlineMode {
             style={{ display: "flex", flexDirection: "column", gap: "4px" }}
           >
             BATTLE
-            <select id="online-create-battle" class="settings-online-input">
-              <option value="versus">VERSUS（テト・ぷよ）</option>
-              <option value="zone">ZONE BATTLE（テトのみ・ZONE あり）</option>
-            </select>
+            {selectRow(
+              <select id="online-create-battle" class="settings-online-input">
+                <option value="versus">VERSUS（テト・ぷよ）</option>
+                <option value="zone">ZONE BATTLE（テトのみ・ZONE あり）</option>
+              </select> as HTMLSelectElement,
+            )}
             <span class="ol-create-note">作成後は変更できません</span>
           </label>
           <label
@@ -1825,23 +1876,27 @@ class OnlineMode {
             style={{ display: "flex", flexDirection: "column", gap: "4px" }}
           >
             最大人数
-            <select
-              id="online-create-max-players"
-              class="settings-online-input"
-            >
-              <option value="4">4人</option>
-              <option value="3">3人</option>
-              <option value="2">2人</option>
-            </select>
+            {selectRow(
+              <select
+                id="online-create-max-players"
+                class="settings-online-input"
+              >
+                <option value="4">4人</option>
+                <option value="3">3人</option>
+                <option value="2">2人</option>
+              </select> as HTMLSelectElement,
+            )}
           </label>
           <label
             style={{ display: "flex", flexDirection: "column", gap: "4px" }}
           >
             公開設定
-            <select id="online-create-visibility" class="settings-online-input">
-              <option value="private">🔒 プライベート（コード参加のみ）</option>
-              <option value="public">🌍 パブリック（一覧に表示）</option>
-            </select>
+            {selectRow(
+              <select id="online-create-visibility" class="settings-online-input">
+                <option value="private">🔒 プライベート（コード参加のみ）</option>
+                <option value="public">🌍 パブリック（一覧に表示）</option>
+              </select> as HTMLSelectElement,
+            )}
           </label>
           <div
             style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}

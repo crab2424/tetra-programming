@@ -468,6 +468,31 @@ button.online-room-tag:disabled {
   color: var(--accent);
 }
 
+/* ─── <select> の行（ロードマップ D §2）: ◀ select ▶。←/→ で選ぶ（online.tsx selectRow） ─── */
+.ol-select-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+}
+.ol-select-row select {
+  flex: 1;
+  min-width: 0;
+}
+.ol-select-arrow {
+  flex: 0 0 auto;
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+.ol-select-arrow:hover,
+body.input-mode-kbd .ol-select-row.is-focused .ol-select-arrow {
+  color: var(--accent);
+}
+
 /* ─── ONLINE SETTINGS modal ─── */
 .online-settings-modal {
   display: flex;
