@@ -31,11 +31,8 @@ window.ResultDetail = (() => {
         if (!g) return out;
         const ps = g.playStats || {};
         const ms = activeMs(g);
-        const n = pieces(g);
-        out.pieces = String(n);
-        out.ppm = perMin(n, ms);   // 1 分あたりのミノ・ぷよの数（APM・LPM と同じく分あたり）
+        out.ppm = perMin(pieces(g), ms);   // 1 分あたりのミノ・ぷよの数（APM・LPM と同じく分あたり）
         if (versus) {
-            out.attack = String(g.attackSent || 0);
             out.apm = perMin(g.attackSent, ms);
         }
         if (isPuyo(g)) {
@@ -46,7 +43,6 @@ window.ResultDetail = (() => {
             for (let k = 0; k < ch.length; k++) out['ch' + (k + 1)] = String(ch[k] || 0);
             out._chains = ch;
         } else {
-            out.lines = String(g.lines || 0);
             out.lpm = perMin(g.lines, ms);
             out.l1 = String(ps.l1 || 0);
             out.l2 = String(ps.l2 || 0);
@@ -56,8 +52,7 @@ window.ResultDetail = (() => {
             out.ts1 = String(ps.ts1 || 0);
             out.ts2 = String(ps.ts2 || 0);
             out.ts3 = String(ps.ts3 || 0);
-            out.tsm0 = String(ps.tsm0 || 0);
-            out.tsm = String(ps.tsm || 0);
+            out.tsmAll = String((ps.tsm0 || 0) + (ps.tsm || 0));   // MINI は消した列の有無を分けずに 1 行
             out.pcl = String(ps.pcl || 0);
             out.renMax = String(ps.renMax || 0);
             out.b2bMax = String(ps.b2bMax || 0);
@@ -67,15 +62,14 @@ window.ResultDetail = (() => {
 
     // 節と行（どの盤面にも値が無い行は出さない）
     const SECTIONS = [
-        { title: 'PACE', rows: [
-            ['pieces', 'PIECES'], ['ppm', 'PPM'], ['attack', 'ATTACK'], ['apm', 'APM'], ['lines', 'LINES'], ['lpm', 'LPM'],
-        ] },
+        // 数そのもの（PIECES / ATTACK / LINES）は出さず、1 分あたりだけ（2026-11-25 コンパクト化）
+        { title: 'PACE', rows: [['ppm', 'PPM'], ['apm', 'APM'], ['lpm', 'LPM']] },
         { title: 'LINE CLEARS', rows: [
             ['l1', 'SINGLE'], ['l2', 'DOUBLE'], ['l3', 'TRIPLE'], ['t4', '4-LINES'], ['pcl', 'PERFECT CLEAR'],
         ] },
         { title: 'T-SPIN', rows: [
             ['ts0', 'T-SPIN ZERO'], ['ts1', 'T-SPIN SINGLE'], ['ts2', 'T-SPIN DOUBLE'], ['ts3', 'T-SPIN TRIPLE'],
-            ['tsm0', 'MINI ZERO'], ['tsm', 'MINI'],
+            ['tsmAll', 'T-SPIN MINI'],
         ] },
         { title: 'COMBO', rows: [['renMax', 'MAX REN'], ['b2bMax', 'MAX B2B']] },
         { title: 'PUYO', rows: [['erased', 'ERASED PUYO'], ['maxChain', 'MAX CHAIN'], ['allClear', 'ALL CLEAR']] },
