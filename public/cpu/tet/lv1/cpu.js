@@ -3,6 +3,17 @@
 // CPUの思考・操作・解析をつかさどるクラス
 // ─────────────────────────────────────────────
 
+// SRS のキック（game/tet/rotation.js tryRotate と同じ表。実機は (dx, -dy) を足して試す）。
+// CPU のスクリプトは読み直されることがあるので var（const だと 2 回目の読み込みで止まる）
+var CPU_KICK_I_CW = { '0->1': [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], '1->2': [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
+                      '2->3': [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], '3->0': [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]] };
+var CPU_KICK_CW   = { '0->1': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], '1->2': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],
+                      '2->3': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], '3->0': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]] };
+var CPU_KICK_I_CCW = { '0->3': [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], '3->2': [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
+                       '2->1': [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], '1->0': [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]] };
+var CPU_KICK_CCW   = { '0->3': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], '3->2': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],
+                       '2->1': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], '1->0': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]] };
+
 window.CPU = class{
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -213,13 +224,13 @@ window.CPU = class{
                 }
 
                 // 共通ロジックを使って出現位置の重なりを判定
-                let isSpawnValid = this.isValidPlacement(simMino, x, mino.y, currentBlocks);
+                let isSpawnValid = this.isValidPlacement(simMino, x, range.y, currentBlocks);
                 if (!isSpawnValid) continue;
 
                 searchCount++;
 
                 // 共通ロジックを使って落下位置を計算
-                let ghostY = mino.y;
+                let ghostY = range.y;
                 while (this.isValidPlacement(simMino, x, ghostY + 1, currentBlocks)) {
                     ghostY++;
                 }
@@ -248,10 +259,11 @@ window.CPU = class{
         return bestMove;
     }
 
-    // 向きごとに、今の位置から 1 操作ずつ（回転 → 1 マスずつ横移動）入れて届く列の範囲 { lo, hi }。届かない向きは null。
-    // 回転は出現の列でその場で回れるものだけ（途中の向きも含めてキック無しで重ならない。SRS の最初の試しは (0,0)
-    // なので、その場で回れれば実機の回転も同じ所に回る）。横移動は出現の高さで、途中の列がすべて空いている所まで。
-    // O は回しても形が同じなので回さない
+    // 向きごとに、今の位置から 1 操作ずつ（回転 → 1 マスずつ横移動）入れて届く列の範囲 { lo, hi, y }。届かない向きは null。
+    // 回転は今と同じく 右 1 回 / 右 2 回 / 左 1 回で、実機と同じ SRS のキック込み（game/tet/rotation.js tryRotate の表。
+    // 2026-11-25: キック無しだと高く積んだ所で縦の I が井戸へ入れず自滅した）。y は回転の後の高さ（キックで変わる）。
+    // 横移動はその高さで、途中の列がすべて空いている所まで。横移動の後に回したり下へ動かしたりはしないので、
+    // 回転入れ・キックで登る動きは作らない。O は回しても形が同じなので回さない
     reachableRanges(mino, currentBlocks) {
         const x0 = mino.x, y0 = mino.y, r0 = mino.rotation;
         const shapes = [];
@@ -260,17 +272,32 @@ window.CPU = class{
             for (let i = 0; i < k; i++) m.rotate();
             shapes.push(m);
         }
-        const fits = (k, x) => this.isValidPlacement(shapes[k], x, y0, currentBlocks);
+        const top = (this.game && typeof this.game.topLimit === 'number') ? this.game.topLimit : -5;
+        const fits = (k, x, y) => this.isValidPlacement(shapes[k], x, y, currentBlocks)
+            && shapes[k].blocks.every(b => b.y + y >= top);
+        const isI = mino.type === 0;
+        const turn = (p, dir) => {
+            const to = (p.r + (dir === 1 ? 1 : 3)) % 4;
+            const tbl = (dir === 1 ? (isI ? CPU_KICK_I_CW : CPU_KICK_CW) : (isI ? CPU_KICK_I_CCW : CPU_KICK_CCW))[`${p.r}->${to}`];
+            for (const [dx, dy] of tbl) {
+                // 実機と同じく (dx, -dy) を足した所を試す
+                if (fits(to, p.x + dx, p.y - dy)) return { r: to, x: p.x + dx, y: p.y - dy };
+            }
+            return null;
+        };
         const out = [null, null, null, null];
+        if (!fits(r0, x0, y0)) return out;
         for (let rot = 0; rot < 4; rot++) {
             if (mino.type === 1 && rot !== r0) continue;
             const d = (rot - r0 + 4) % 4;
-            const turns = d === 3 ? [rot] : Array.from({ length: d + 1 }, (_, i) => (r0 + i) % 4);
-            if (!turns.every(k => fits(k, x0))) continue;
-            let lo = x0, hi = x0;
-            while (fits(rot, lo - 1)) lo--;
-            while (fits(rot, hi + 1)) hi++;
-            out[rot] = { lo, hi };
+            let p = { r: r0, x: x0, y: y0 };
+            if (d === 3) p = turn(p, -1);
+            else for (let i = 0; p && i < d; i++) p = turn(p, 1);
+            if (!p) continue;
+            let lo = p.x, hi = p.x;
+            while (fits(rot, lo - 1, p.y)) lo--;
+            while (fits(rot, hi + 1, p.y)) hi++;
+            out[rot] = { lo, hi, y: p.y };
         }
         return out;
     }
@@ -439,7 +466,8 @@ window.CPU = class{
         return score;
     }
 
-    // 置く手を 1 操作ずつの列にする（回転 → 1 マスずつ横移動。最後のハードドロップは runMove が入れる）
+    // 置く手を 1 操作ずつの列にする（回転 → 1 マスずつ横移動。最後のハードドロップは runMove が入れる）。
+    // moveTo は 1 マスずつ寄せる（今の列から目標の列まで。着くまで列に残る）
     buildActionQueue(move) {
         const mino = this.game.mino;
         const queue = [];
@@ -448,8 +476,8 @@ window.CPU = class{
             if (d === 3) queue.push({ type: 'rotate', dir: -1 });
             else for (let i = 0; i < d; i++) queue.push({ type: 'rotate', dir: 1 });
         }
-        const dx = move.x - mino.x;
-        for (let i = 0; i < Math.abs(dx); i++) queue.push({ type: 'shift', dir: Math.sign(dx) });
+        // 横移動は回転の後の列から数える（回転はキックで列が変わることがある。探索も同じ順で調べている）
+        if (move.x !== mino.x || queue.length > 0) queue.push({ type: 'moveTo', x: move.x });
         return queue;
     }
 
@@ -476,15 +504,22 @@ window.CPU = class{
         const step = () => {
             if (!alive()) { if (this.isActive) this.holdGravity(false); return; }
             if (paused()) { this.game.cpuSchedule(100, step); return; }
-            const a = queue.shift();
+            let a = queue.shift();
+            // 回転の後にもう目標の列にいれば寄せない
+            while (a && a.type === 'moveTo' && this.game.mino.x === a.x) a = queue.shift();
             if (a) {
-                const ok = a.type === 'rotate'
-                    ? this.game.cpuAction('rotate', a.dir)
-                    : this.game.cpuAction('shift', a.dir, true);
+                let ok;
+                if (a.type === 'rotate') ok = this.game.cpuAction('rotate', a.dir);
+                else {
+                    ok = this.game.cpuAction('shift', Math.sign(a.x - this.game.mino.x), true);
+                    if (ok && this.game.mino.x !== a.x) queue.unshift(a);
+                }
                 // 動けなかったら（探索の読みと違う。ふつうは起きない）それ以上は寄せずにその場で落とす
                 if (!ok) queue.length = 0;
                 this.game.drawAll();
             }
+            // 回転だけで目標の列に着いたら、寄せの番を待たずにハードドロップへ
+            while (queue.length > 0 && queue[0].type === 'moveTo' && this.game.mino.x === queue[0].x) queue.shift();
             if (queue.length > 0) { this.game.cpuSchedule(this.actionDelay, step); return; }
             this.holdGravity(false);
             this.game.cpuSchedule(this.harddropDelay, tryDrop);

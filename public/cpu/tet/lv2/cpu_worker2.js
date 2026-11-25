@@ -24,7 +24,7 @@ self.Module = {
     }
 };
 
-importScripts('cpu_wasm2.js?v=6');  // ★ 2026-11-23 VS 設定の HOLD なし（canHold=0・holdType=-1）で 2 手目の HOLD も読まない
+importScripts('cpu_wasm2.js?v=7');  // ★ 2026-11-25 回転はキック込みで届く手を探す（高く積んだ所で縦の I が井戸へ入れず自滅した）
 // （前回）★ 2026-11-17 ZONE 中は枠の上の設置を致命にしない（g_zoneNoLockOut）で再ビルド
 // （前回）★ v2.2.3 I: 25行化で再ビルド
 

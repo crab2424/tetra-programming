@@ -291,28 +291,77 @@ struct Placement {
     std::vector<GridBlock> blocks;
 };
 
-// 1 操作ずつ入れて届く手だけを作る（設計 source_assets/memory/mode/cpu/tet/lv1-2/lv1-2-input-design.md §2.2）。
+// SRS のキック（実機 game/tet/rotation.js tryRotate と同じ表を画面の向き（y は下が正）にしたもの。lv4 cpu4.cpp と同じ）
+const int KICK_I_CW[4][5][2] = {
+    {{0,0}, {-2,0}, {1,0}, {-2,1}, {1,-2}},
+    {{0,0}, {-1,0}, {2,0}, {-1,-2}, {2,1}},
+    {{0,0}, {2,0}, {-1,0}, {2,-1}, {-1,2}},
+    {{0,0}, {1,0}, {-2,0}, {1,2}, {-2,-1}}
+};
+const int KICK_I_CCW[4][5][2] = {
+    {{0,0}, {-1,0}, {2,0}, {-1,-2}, {2,1}},
+    {{0,0}, {-2,0}, {1,0}, {-2,1}, {1,-2}},
+    {{0,0}, {1,0}, {-2,0}, {1,2}, {-2,-1}},
+    {{0,0}, {2,0}, {-1,0}, {2,-1}, {-1,2}}
+};
+const int KICK_OTHER_CW[4][5][2] = {
+    {{0,0}, {-1,0}, {-1,-1}, {0,2}, {-1,2}},
+    {{0,0}, {1,0}, {1,1}, {0,-2}, {1,-2}},
+    {{0,0}, {1,0}, {1,-1}, {0,2}, {1,2}},
+    {{0,0}, {-1,0}, {-1,1}, {0,-2}, {-1,-2}}
+};
+const int KICK_OTHER_CCW[4][5][2] = {
+    {{0,0}, {1,0}, {1,-1}, {0,2}, {1,2}},
+    {{0,0}, {-1,0}, {-1,1}, {0,-2}, {-1,-2}},
+    {{0,0}, {-1,0}, {-1,-1}, {0,2}, {-1,2}},
+    {{0,0}, {1,0}, {1,1}, {0,-2}, {1,-2}}
+};
+
+// 1 操作ずつ入れて届く手だけを作る（設計 source_assets/memory/mode/cpu/tet/lv1-2/lv1-2-input-design.md §2.2・§7）。
 //   (x0, spawnY, r0) はミノの今の位置・向き（これから出るミノは出現位置・向き 0）。
-//   回転は x0 でその場で回れる向きだけ（途中の向きもキック無しで重ならない。実機の SRS も最初の試しは (0,0)）。
-//   横移動は spawnY の高さで、x0 から途中の列がすべて空いている所まで。O は回さない（lv1 cpu.js reachableRanges と同じ）
+//   操作は「回転（今と同じく 右 1 回 / 右 2 回 / 左 1 回）→ 横移動 → ハードドロップ」の順だけ。
+//   回転は実機と同じ SRS のキック込み（2026-11-25: キック無しだと高く積んだ所で縦の I が井戸へ入れず自滅した）。
+//   横移動の後に回したりソフトドロップしたりはしないので、回転入れ・キックで登る動きは作らない。
+//   横移動は回転後の高さで、途中の列がすべて空いている所まで。O は回さない（lv1 cpu.js reachableRanges と同じ）
 std::vector<Placement> getAllPlacements(const Board& baseBoard, int pieceType, int spawnY, int x0 = COLS / 2 - 2, int r0 = 0) {
     std::vector<Placement> placements;
-    auto fits = [&](int r, int x) { return isValidPlacement(baseBoard, getRotatedBlocks(pieceType, r, x, spawnY)); };
+    // 実機の天井（TET_TOP_LIMIT = -5 ＝内部 0）より上へは出られない。ZONE の発動中は高い所まで動ける
+    auto fitsAt = [&](int r, int x, int y) {
+        std::vector<GridBlock> bl = getRotatedBlocks(pieceType, r, x, y);
+        if(!isValidPlacement(baseBoard, bl)) return false;
+        if(!g_zoneNoLockOut) for(const auto& b : bl) if(b.y < 0) return false;
+        return true;
+    };
+    // 1 回の回転（dir 1 = 右 / -1 = 左）。実機の tryRotate と同じく表の順に試し、最初に入れた所へ動く
+    auto turn = [&](int& r, int& x, int& y, int dir) {
+        const int to = (r + (dir == 1 ? 1 : 3)) % 4;
+        const int (*tbl)[2] = pieceType == 0 ? (dir == 1 ? KICK_I_CW[r] : KICK_I_CCW[r])
+                                             : (dir == 1 ? KICK_OTHER_CW[r] : KICK_OTHER_CCW[r]);
+        for(int i = 0; i < 5; i++) {
+            const int nx = x + tbl[i][0], ny = y + tbl[i][1];
+            if(fitsAt(to, nx, ny)) { r = to; x = nx; y = ny; return true; }
+        }
+        return false;
+    };
+    if(!fitsAt(r0, x0, spawnY)) return placements;
     for(int rot = 0; rot < 4; rot++) {
         if(pieceType == 1 && rot != r0) continue;
         const int d = (rot - r0 + 4) % 4;
-        bool turnOk = fits(r0, x0);
-        if(turnOk && d == 3) turnOk = fits(rot, x0);
-        for(int i = 1; turnOk && d != 3 && i <= d; i++) turnOk = fits((r0 + i) % 4, x0);
+        int r = r0, cx = x0, cy = spawnY;
+        bool turnOk = true;
+        if(d == 3) turnOk = turn(r, cx, cy, -1);
+        else for(int i = 0; turnOk && i < d; i++) turnOk = turn(r, cx, cy, 1);
         if(!turnOk) continue;
-        int lo = x0, hi = x0;
+        const int startY = cy;
+        auto fits = [&](int rr, int x) { return fitsAt(rr, x, startY); };
+        int lo = cx, hi = cx;
         while(fits(rot, lo - 1)) lo--;
         while(fits(rot, hi + 1)) hi++;
         for(int x = lo; x <= hi; x++) {
-            std::vector<GridBlock> simBlocks = getRotatedBlocks(pieceType, rot, x, spawnY);
+            std::vector<GridBlock> simBlocks = getRotatedBlocks(pieceType, rot, x, startY);
             if(!isValidPlacement(baseBoard, simBlocks)) continue;
 
-            int ghostY = spawnY;
+            int ghostY = startY;
             while(true) {
                 std::vector<GridBlock> testBlocks = getRotatedBlocks(pieceType, rot, x, ghostY + 1);
                 if(isValidPlacement(baseBoard, testBlocks)) ghostY++;
