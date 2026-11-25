@@ -1656,6 +1656,13 @@
               <button class="opt-btn" data-value="off" onclick="setDisplayOption('replayAutoSave', false)">OFF</button>
             </div>
           </div>
+          <div class="option-row" title="PLAY HERE で続けた試合（枝）を元のリプレイに何本も残すか。OFF は最新の 1 本だけ残して容量を節約します（★の枝は消えません）">
+            <span class="option-label">REPLAY BRANCH MULTI SAVE</span>
+            <div class="option-toggle" id="display-replay-branch-toggle">
+              <button class="opt-btn" data-value="on" onclick="setDisplayOption('replayBranchMulti', true)">ON</button>
+              <button class="opt-btn" data-value="off" onclick="setDisplayOption('replayBranchMulti', false)">OFF</button>
+            </div>
+          </div>
           <div class="option-row">
             <span class="option-label">最高記録</span>
             <button class="btn btn-reset-records" onclick="resetRecords()">RESET RECORDS</button>
@@ -1741,7 +1748,7 @@
   <script src="core/dialog.js?v=4"></script>
   <script src="core/particles.js?v=14"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=22"></script>
+  <script src="config/settings.js?v=23"></script>
   <script src="config/records.js?v=6"></script>
   <script src="config/cloud_sync.js?v=5"></script>
   <script src="config/stats.js?v=9"></script>
@@ -1783,7 +1790,7 @@
   <script src="app/cpu_weights_panel.js?v=6"></script>
   <script src="app/navigation.js?v=53"></script>
   <script src="app/ranking.js?v=6"></script>
-  <script src="app/replays.js?v=13"></script>
+  <script src="app/replays.js?v=14"></script>
   <script src="app/stats_page.js?v=8"></script>
   <script src="app/focus_nav.js?v=34"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->

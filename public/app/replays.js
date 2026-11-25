@@ -9,7 +9,8 @@
 //     ★を付けたもの・最高記録に結び付いたもの（keepFor）・クリップは消さない。
 //   ・最高記録: records.js の記録の meta.replayId にリプレイを結び付け、準備画面の BEST の下から見られる。
 //   ・枝（PLAY HERE で遊んだ VERSUS の続き）は 1 本のリプレイにまとめる: 親のリプレイの data.branches に、親と同じ頭を除いた
-//     後ろだけ（core/replay.js の replayBranchNode）で入れる。枝の枝も同じ（木）。1 階層 30 本（REPLAY_BRANCH_MAX）を超えたら
+//     後ろだけ（core/replay.js の replayBranchNode）で入れる。枝の枝も同じ（木）。1 階層 30 本（REPLAY_BRANCH_MAX。設定の
+//     REPLAY BRANCH MULTI SAVE が OFF なら 1 本＝最新だけ・★の枝は別に残す）を超えたら
 //     ★の無い古い枝から消す。一覧には親の 1 行だけ（BRANCH n の札）。見るのは再生中の印の画面（枝の印・OPEN ▶ / ◀ PARENT）。
 //     親が保存されていなければ親ごと保存する。親が見つからない古い形の枝は今までどおり 1 本で保存する。
 //   ・ファイル: 1 本 = 1 ファイル（.tlreplay＝JSON を gzip。CompressionStream が無ければ JSON のまま）。
@@ -143,7 +144,8 @@ const ReplayStore = (() => {
         } else {
             list.push(node);
         }
-        while (list.length > REPLAY_BRANCH_MAX) {
+        const limit = replayBranchLimit();
+        while (list.length > limit) {
             let drop = -1;
             list.forEach((n, i) => {
                 if (n.id === node.id || n.star || hasStarBranch(n.branches)) return; // ★の枝（子・孫も）は残す
@@ -152,8 +154,8 @@ const ReplayStore = (() => {
             if (drop < 0) break;
             list.splice(drop, 1);
         }
-        if (list.length > REPLAY_BRANCH_MAX) {
-            // 全部★: 新しい枝は入れない
+        if (limit === REPLAY_BRANCH_MAX && list.length > REPLAY_BRANCH_MAX) {
+            // 全部★: 新しい枝は入れない（MULTI SAVE OFF のときは★の枝は数に入れず、新しい 1 本を必ず残す）
             list.splice(list.indexOf(node), 1);
             if (typeof showGlobalToast === 'function') showGlobalToast(`枝が ${REPLAY_BRANCH_MAX} 本（全部★）あるので保存できませんでした`);
             return null;
@@ -218,6 +220,14 @@ const ReplayStore = (() => {
 // 設定の DISPLAY › REPLAY AUTO SAVE（config/settings.js。既定 ON）
 function replayAutoSave() {
     return !(window.currentDisplay && window.currentDisplay.replayAutoSave === false);
+}
+
+// 設定の DISPLAY › REPLAY BRANCH MULTI SAVE（既定 ON）。1 階層に残す枝の数: ON = REPLAY_BRANCH_MAX、OFF = 最新の 1 本（★の枝は別に残す）
+function replayBranchMulti() {
+    return !(window.currentDisplay && window.currentDisplay.replayBranchMulti === false);
+}
+function replayBranchLimit() {
+    return replayBranchMulti() ? REPLAY_BRANCH_MAX : 1;
 }
 
 // ─── ファイル ───
@@ -603,7 +613,8 @@ ReplayManager.onBranchSaved = (parentId, node) => {
         const list = Array.isArray(d.branches) ? d.branches : (d.branches = []);
         const i = list.findIndex((n) => n && n.id === node.id);
         if (i >= 0) list[i] = node; else list.push(node);
-        while (list.length > REPLAY_BRANCH_MAX) {
+        const limit = replayBranchLimit();
+        while (list.length > limit) {
             const drop = list.findIndex((n) => n.id !== node.id && !n.star && !ReplayStore.isKept({ data: { branches: n.branches } }));
             if (drop < 0) break;
             list.splice(drop, 1);
