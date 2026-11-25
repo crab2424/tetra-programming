@@ -765,48 +765,12 @@ function versusGameOver(loser) {
     }
     if (winnerEl) winnerEl.textContent = winner;
 
-    // ★ プレイヤーのスコアと固有スタット（ルールに応じてラベルと値を切り替え）
-    const isPlayerPuyo = versusPlayerRule === 'puyo';
-    const isCpuPuyo    = versusCpuRule    === 'puyo';
+    const winnerRow = document.getElementById('versus-result-winner-row');
+    if (winnerRow) winnerRow.style.display = isCpuVsCpu ? '' : 'none';
 
+    // ★ スコア（LINES / MAX CHAINS は右の DETAIL に出すので左には置かない）
     document.getElementById('versus-result-player-score').textContent = window._game ? window._game.score : 0;
     document.getElementById('versus-result-cpu-score').textContent    = window._cpuGame ? window._cpuGame.score : 0;
-
-    // YOUR LINES ラベルをルールに応じて切り替え
-    const playerLinesLabelEl = document.getElementById('versus-result-player-lines-label');
-    if (playerLinesLabelEl) {
-      const who = isCpuVsCpu ? '1P' : 'YOUR';
-      playerLinesLabelEl.textContent = isPlayerPuyo ? `${who} MAX CHAINS` : `${who} LINES`;
-    }
-
-    // YOUR LINES 値をルールに応じて取得
-    let pStat = 0;
-    if (window._game) {
-      if (isPlayerPuyo) {
-        // ぷよ：最大連鎖数
-        pStat = window._game.chainMax !== undefined ? window._game.chainMax : 0;
-      } else {
-        // テト：消したライン数
-        pStat = window._game.lines !== undefined ? window._game.lines : 0;
-      }
-    }
-    document.getElementById('versus-result-player-lines').textContent = pStat;
-
-    // CPU LINES ラベルと値も同様に切り替え
-    const cpuLinesLabelEl = document.getElementById('versus-result-cpu-lines-label');
-    const cpuLinesValEl   = document.getElementById('versus-result-cpu-lines');
-    if (cpuLinesLabelEl && cpuLinesValEl) {
-      cpuLinesLabelEl.textContent = isCpuPuyo ? 'CPU MAX CHAINS' : 'CPU LINES';
-      let cStat = 0;
-      if (window._cpuGame) {
-        if (isCpuPuyo) {
-          cStat = window._cpuGame.chainMax !== undefined ? window._cpuGame.chainMax : 0;
-        } else {
-          cStat = window._cpuGame.lines !== undefined ? window._cpuGame.lines : 0;
-        }
-      }
-      cpuLinesValEl.textContent = cStat;
-    }
 
     // 対戦時間（ポーズを除く。負けた側はトップアウトで止まるので長いほう）とハンデ（ATTACK BIAS。盤面の乗率から読む）
     const timeEl = document.getElementById('versus-result-time');

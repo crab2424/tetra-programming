@@ -368,7 +368,7 @@
           </button>
           <div id="vs-settings-summary-block">
             <span class="vs-settings-summary-label">SETTINGS:</span>
-            <span id="vs-settings-summary">ALL DEFAULT</span>
+            <span id="vs-settings-summary">DEFAULT</span>
           </div>
         </div>
         <button class="menu-btn btn-versus-primary" id="versus-check-start-btn" onclick="startVersusGame()">
@@ -996,7 +996,9 @@
         <h2 id="versus-result-title">RESULT</h2>
         <div id="versus-result-mod" class="mod-badge mod-badge-result" style="display: none">MOD</div>
         <div id="result-stats">
-          <div class="result-stat-row">
+          <!-- WINNER は見出し（YOU WIN! / YOU LOSE）と同じなので CPU 同士のときだけ出す（勝った側のレベルが分かる）。
+               LINES / MAX CHAINS は右の DETAIL にあるので左には置かない -->
+          <div class="result-stat-row" id="versus-result-winner-row" style="display: none">
             <span class="result-label">WINNER</span>
             <span class="result-value" id="versus-result-winner">—</span>
           </div>
@@ -1007,14 +1009,6 @@
           <div class="result-stat-row">
             <span class="result-label">CPU SCORE</span>
             <span class="result-value" id="versus-result-cpu-score">0</span>
-          </div>
-          <div class="result-stat-row">
-            <span class="result-label" id="versus-result-player-lines-label">YOUR LINES</span>
-            <span class="result-value" id="versus-result-player-lines">0</span>
-          </div>
-          <div class="result-stat-row">
-            <span class="result-label" id="versus-result-cpu-lines-label">CPU LINES</span>
-            <span class="result-value" id="versus-result-cpu-lines">0</span>
           </div>
           <div class="result-stat-row">
             <span class="result-label">MATCH TIME</span>
@@ -1051,14 +1045,16 @@
               <span class="menu-btn-icon">⤓</span>
             </button>
           </div>
-          <button class="menu-btn btn-secondary" onclick="versusResultBack()">
-            <span class="menu-btn-icon">◀</span>
-            <span>MODE SELECT</span>
-          </button>
-          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
-            <span class="menu-btn-icon">⌂</span>
-            <span>MAIN MENU</span>
-          </button>
+          <div class="result-btn-pair">
+            <button class="menu-btn btn-secondary" onclick="versusResultBack()">
+              <span class="menu-btn-icon">◀</span>
+              <span>MODE SELECT</span>
+            </button>
+            <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+              <span class="menu-btn-icon">⌂</span>
+              <span>MAIN MENU</span>
+            </button>
+          </div>
         </div>
       </div>
       <div class="result-detail" id="versus-result-detail" style="display: none"></div>
@@ -1768,7 +1764,7 @@
   <script src="game/tet/render.js?v=13"></script>
   <script src="game/tet/input.js?v=17"></script>
   <!-- VS 設定: ZONE の選択肢・既定値を game/tet/zone.js から読むので、テトのエンジンの後に読み込む -->
-  <script src="config/vs_settings.js?v=22"></script>
+  <script src="config/vs_settings.js?v=23"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1786,7 +1782,7 @@
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
   <script src="cpu/tet/cpu_zone.js?v=17"></script>
   <script src="app/cpu_match_log.js?v=6"></script>
-  <script src="app/versus.js?v=31"></script>
+  <script src="app/versus.js?v=32"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
   <script src="app/navigation.js?v=53"></script>
   <script src="app/ranking.js?v=6"></script>

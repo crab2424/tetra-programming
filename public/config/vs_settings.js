@@ -1538,12 +1538,13 @@ function _updateVsSettingsSummary() {
     const s = currentVsSettings;
     const D = _vsDefaults();
     const isDefault = JSON.stringify(s) === JSON.stringify(D);
-    // プリセットを作っていれば、使っているプリセットの名前を頭に（v2.6.2）
+    // 準備画面には短く「使っているプリセットの名前」か DEFAULT / CUSTOM（変えた数）だけを出す。
+    // 項目が増えて一覧では欄に収まらなくなったため（2026-11-25）。変えた項目の一覧はマウスを載せたときの title に
     const pname = activeVsPresetName();
-    const head = pname ? `${pname} · ` : '';
 
     if (isDefault) {
-        el.textContent = head + 'ALL DEFAULT';
+        el.textContent = pname || 'DEFAULT';
+        el.title = '';
         el.style.color = '';
         return;
     }
@@ -1604,7 +1605,8 @@ function _updateVsSettingsSummary() {
 
     if (s.puyo) _pushPuyoSummary(parts, s, D);
 
-    el.textContent = head + parts.join(' / ');
+    el.textContent = pname || (parts.length ? `CUSTOM (${parts.length})` : 'CUSTOM');
+    el.title = parts.join('\n');
     el.style.color = vsSettingsProfile === 'zone' ? 'var(--zone-battle-color)' : 'var(--accent, #c471ed)';
 }
 
