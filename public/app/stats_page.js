@@ -48,7 +48,8 @@
   }
 
   const pct = (a, b) => (b > 0) ? Math.round((a || 0) / b * 100) + '%' : '—';
-  const pps = (pc, ms) => (ms > 0 && pc > 0) ? (pc / (ms / 1000)).toFixed(2) : '—';
+  // 1 分あたりのミノの数（APM・LPM と同じく分あたりにそろえる）
+  const ppm = (pc, ms) => (ms > 0 && pc > 0) ? (pc / (ms / 60000)).toFixed(1) : '—';
   const RULE_LABEL = { tet: 'TET', puyo: 'PUYO', multi: 'MULTI' };
   // CPU レベルの表示名（app/modes.js の CPU_LEVELS。読めなければ番号のまま）
   function cpuLabel(level) {
@@ -265,7 +266,7 @@
 
     // ENDLESS には完走が無い
     if (key !== 'marathon:endless') grid.appendChild(_cell('CLEAR', pct(b.ok, n), n > 0 ? `${num(b.ok || 0)} / ${num(n)}` : ''));
-    grid.appendChild(_cell('PPS', pps(b.pc, b.ms)));
+    grid.appendChild(_cell('PPM', ppm(b.pc, b.ms)));
     grid.appendChild(_cell('LINES', num(b.ln || 0)));
     grid.appendChild(_cell('4 LINES', num(b.t4 || 0)));
     grid.appendChild(_cell('T-SPIN', num((b.ts1 || 0) + (b.ts2 || 0) + (b.ts3 || 0)),
@@ -395,7 +396,7 @@
       grid.appendChild(_cell('ALL CLEAR', num(b.ac || 0)));
       grid.appendChild(_cell('PAIRS', num(b.pc || 0), b.ms > 0 && b.pc > 0 ? `${(b.pc / (b.ms / 60000)).toFixed(1)} / MIN` : ''));
     } else {
-      grid.appendChild(_cell('PPS', pps(b.pc, b.ms)));
+      grid.appendChild(_cell('PPM', ppm(b.pc, b.ms)));
       grid.appendChild(_cell('4 LINES', num(b.t4 || 0)));
       grid.appendChild(_cell('T-SPIN', num((b.ts1 || 0) + (b.ts2 || 0) + (b.ts3 || 0)),
         `S ${num(b.ts1 || 0)} / D ${num(b.ts2 || 0)} / T ${num(b.ts3 || 0)} / MINI ${num(b.tsm || 0)}`));
@@ -497,7 +498,7 @@
     row.appendChild(el('span', 'stats-history-value', main));
     row.appendChild(el('span', 'stats-history-sub', h.k === 'puyo'
       ? `${fmtTotal(h.ms)} · MAX ${num(h.cm || 0)} CHAIN`
-      : `${fmtTotal(h.ms)} · ${pps(h.pc, h.ms)} PPS`));
+      : `${fmtTotal(h.ms)} · ${ppm(h.pc, h.ms)} PPM`));
     return row;
   }
 

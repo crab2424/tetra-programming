@@ -1016,6 +1016,14 @@
             <span class="result-label" id="versus-result-cpu-lines-label">CPU LINES</span>
             <span class="result-value" id="versus-result-cpu-lines">0</span>
           </div>
+          <div class="result-stat-row">
+            <span class="result-label">MATCH TIME</span>
+            <span class="result-value" id="versus-result-time">—</span>
+          </div>
+          <div class="result-stat-row">
+            <span class="result-label">HANDICAP</span>
+            <span class="result-value" id="versus-result-handicap" title="ATTACK BIAS（VS SETTINGS の火力補正）">—</span>
+          </div>
         </div>
         <div id="result-buttons">
           <button class="menu-btn btn-versus-primary" onclick="restartVersusFromResult()">
@@ -1740,7 +1748,7 @@
   <script src="config/account.js?v=10"></script>
   <script src="config/legacy_import.js?v=1"></script>
   <script src="core/hud_extras.js?v=4"></script>
-  <script src="core/result_detail.js?v=1"></script>
+  <script src="core/result_detail.js?v=2"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
@@ -1753,7 +1761,7 @@
   <script src="game/tet/render.js?v=13"></script>
   <script src="game/tet/input.js?v=17"></script>
   <!-- VS 設定: ZONE の選択肢・既定値を game/tet/zone.js から読むので、テトのエンジンの後に読み込む -->
-  <script src="config/vs_settings.js?v=21"></script>
+  <script src="config/vs_settings.js?v=22"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1771,12 +1779,12 @@
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
   <script src="cpu/tet/cpu_zone.js?v=17"></script>
   <script src="app/cpu_match_log.js?v=6"></script>
-  <script src="app/versus.js?v=30"></script>
+  <script src="app/versus.js?v=31"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
   <script src="app/navigation.js?v=53"></script>
   <script src="app/ranking.js?v=6"></script>
   <script src="app/replays.js?v=13"></script>
-  <script src="app/stats_page.js?v=7"></script>
+  <script src="app/stats_page.js?v=8"></script>
   <script src="app/focus_nav.js?v=34"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=14"></script>

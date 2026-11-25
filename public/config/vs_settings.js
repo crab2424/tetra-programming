@@ -508,6 +508,21 @@ function getAttackMultiplier(side) {
 }
 
 /**
+ * 盤面に入っている火力補正の乗率（vsAttackMultiplier）から、ATTACK BIAS の段階と % を読む（リザルトの HANDICAP）。
+ * 設定ではなく盤面の値から読むので、リプレイの続き（PLAY HERE）でもその試合の補正が出る。
+ * @param {number} mult
+ * @returns {{bias:number, pct:number}}
+ */
+function vsBiasFromMultiplier(mult) {
+    const m = typeof mult === 'number' && isFinite(mult) ? mult : 1;
+    let best = 3;
+    ATTACK_BIAS_TABLE.forEach((e, i) => {
+        if (Math.abs(e.num / e.den - m) < Math.abs(ATTACK_BIAS_TABLE[best].num / ATTACK_BIAS_TABLE[best].den - m)) best = i;
+    });
+    return { bias: best - 3, pct: ATTACK_BIAS_TABLE[best].pct };
+}
+
+/**
  * マージンタイムをミリ秒で取得する。
  * @returns {number|null} null=OFF、0=即時、正数=突入までのms、負数=事前経過ms（テーブルを進めて即突入）
  */

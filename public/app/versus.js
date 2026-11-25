@@ -808,6 +808,25 @@ function versusGameOver(loser) {
       cpuLinesValEl.textContent = cStat;
     }
 
+    // 対戦時間（ポーズを除く。負けた側はトップアウトで止まるので長いほう）とハンデ（ATTACK BIAS。盤面の乗率から読む）
+    const timeEl = document.getElementById('versus-result-time');
+    if (timeEl) {
+      const ms = Math.max(0, ...[window._game, window._cpuGame].map((g) => {
+        try { return g && typeof g.getActiveMs === 'function' ? g.getActiveMs() : 0; } catch (e) { return 0; }
+      }));
+      const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000), cs = Math.floor((ms % 1000) / 10);
+      timeEl.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+    }
+    const hcEl = document.getElementById('versus-result-handicap');
+    if (hcEl && typeof vsBiasFromMultiplier === 'function') {
+      const [p, c] = [window._game, window._cpuGame].map((g) => vsBiasFromMultiplier(g ? g.vsAttackMultiplier : 1));
+      const sign = (b) => (b > 0 ? '+' + b : b < 0 ? String(b) : '±0');
+      const [pn, cn] = isCpuVsCpu ? ['1P', '2P'] : ['YOU', 'CPU'];
+      hcEl.textContent = (p.bias === 0 && c.bias === 0)
+        ? 'NONE'
+        : `${pn} ${sign(p.bias)} (${p.pct}%) / ${cn} ${sign(c.bias)} (${c.pct}%)`;
+    }
+
     // 右の列 DETAIL（1P / 2P の 2 列。core/result_detail.js）
     if (window.ResultDetail) {
       const names = isCpuVsCpu

@@ -195,6 +195,11 @@
 .result-stat-time .result-value {
   font-size: 22px;
 }
+/* 対戦リザルトの HANDICAP（YOU +1 (133%) / CPU ±0 (100%)）は長いので小さく 1 行に */
+#versus-result-handicap {
+  font-size: 15px;
+  white-space: nowrap;
+}
 
 #result-buttons {
   display: flex;

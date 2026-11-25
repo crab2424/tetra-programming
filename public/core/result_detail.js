@@ -19,7 +19,6 @@ window.ResultDetail = (() => {
         catch (e) { return 0; }
     }
     function perMin(n, ms) { return ms > 0 ? ((n || 0) / (ms / 60000)).toFixed(1) : '—'; }
-    function perSec(n, ms) { return ms > 0 ? ((n || 0) / (ms / 1000)).toFixed(2) : '—'; }
 
     function pieces(g) {
         const ps = g.playStats || {};
@@ -34,7 +33,7 @@ window.ResultDetail = (() => {
         const ms = activeMs(g);
         const n = pieces(g);
         out.pieces = String(n);
-        out.pps = perSec(n, ms);
+        out.ppm = perMin(n, ms);   // 1 分あたりのミノ・ぷよの数（APM・LPM と同じく分あたり）
         if (versus) {
             out.attack = String(g.attackSent || 0);
             out.apm = perMin(g.attackSent, ms);
@@ -69,7 +68,7 @@ window.ResultDetail = (() => {
     // 節と行（どの盤面にも値が無い行は出さない）
     const SECTIONS = [
         { title: 'PACE', rows: [
-            ['pieces', 'PIECES'], ['pps', 'PPS'], ['attack', 'ATTACK'], ['apm', 'APM'], ['lines', 'LINES'], ['lpm', 'LPM'],
+            ['pieces', 'PIECES'], ['ppm', 'PPM'], ['attack', 'ATTACK'], ['apm', 'APM'], ['lines', 'LINES'], ['lpm', 'LPM'],
         ] },
         { title: 'LINE CLEARS', rows: [
             ['l1', 'SINGLE'], ['l2', 'DOUBLE'], ['l3', 'TRIPLE'], ['t4', '4-LINES'], ['pcl', 'PERFECT CLEAR'],
