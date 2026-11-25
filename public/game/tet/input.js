@@ -207,6 +207,11 @@ Object.assign(Game.prototype, {
                 if (keys.rotateCW.codes.includes(code)) this._spawnHide.forceRot = 1
                 if (keys.rotateCCW.codes.includes(code)) this._spawnHide.forceRot = -1
             }
+            // IHS・IRS の猶予の待ちの間も同じく、待ち明けまでに離しても当てる（rotation.js _ihsRescueNote）
+            if (!this.mino && this._ihsRescueKeep && !repeat && !this.isCountingDown) {
+                if (keys.rotateCW.codes.includes(code)) this._ihsRescueNote(1)
+                if (keys.rotateCCW.codes.includes(code)) this._ihsRescueNote(-1)
+            }
 
             // ソフトドロップ初動（1マス）
             if (canActNow && keys.softDrop.codes.includes(code) && this._lastSoftDropTime === 0) {
@@ -239,6 +244,7 @@ Object.assign(Game.prototype, {
             if (keys.hold.codes.includes(code) && !repeat && !this.isCountingDown) {
                 if (this.mino) this.holdCurrentMino()
                 else if (this._spawnHide) this._spawnHideHold()
+                else this._ihsRescueNote('hold')
             }
             // ZONE 発動（ZONE が使えるモードだけ。古い録画のキー設定には zone が無い）
             if (keys.zone && keys.zone.codes.includes(code) && !repeat && this.zoneEnabled) {
@@ -677,6 +683,8 @@ Object.assign(Game.prototype, {
                     if (this._spawnHide) {
                         if (action === 'hardDrop') this._spawnHideDrop()
                         else this._spawnHideHold()
+                    } else if (action === 'hold') {
+                        this._ihsRescueNote('hold')
                     }
                     return
                 }
@@ -690,6 +698,10 @@ Object.assign(Game.prototype, {
             if (!this.mino && this._spawnHide && !this.isCountingDown) {
                 if (action === 'rotateCW') this._spawnHide.forceRot = 1
                 if (action === 'rotateCCW') this._spawnHide.forceRot = -1
+            }
+            if (!this.mino && this._ihsRescueKeep && !this.isCountingDown) {
+                if (action === 'rotateCW') this._ihsRescueNote(1)
+                if (action === 'rotateCCW') this._ihsRescueNote(-1)
             }
             if (action === 'moveLeft' && this._leftPressTime === null) {
                 this._leftPressTime = now

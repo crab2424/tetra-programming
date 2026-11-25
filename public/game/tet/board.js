@@ -539,6 +539,7 @@ Object.assign(Game.prototype, {
         if (this._ihsRescueTimer) {
             this.clock.cancel(this._ihsRescueTimer);
             this._ihsRescueTimer = null;
+            this._ihsRescueKeep = null;
         }
         // 非表示 DCD（先行回転・先行ホールドの暴発対策。rotation.js _spawnHideStart）も同じ扱い
         if (this._spawnHideTimer) {
