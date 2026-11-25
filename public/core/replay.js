@@ -23,7 +23,7 @@
 // ─────────────────────────────────────────────
 
 const REPLAY_FORMAT_VERSION = 2;   // ファイルの形の版（§6.2）。2: 盤面 2 枚・CPU の手・キー設定の読み直し
-const REPLAY_ENGINE_VERSION = 22;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）。4: VERSUS の ZONE の火力（発動中の通常火力を足す・マージン倍率・メーターの持ち越し・CPU の発動中の速さ）。5: シングルの ZONE の発動中はレベル 1 の速さでソフトドロップ（4 以下の録画は従来どおり再生。tet/input.js）。6: ZONE の分けて送る火力は 1 手につき 1 かたまりだけ着弾（SPLIT の録画は 5 とずれる）。7: ZONE SPLIT の試合はふつうの火力も 1 手に 1 かたまりずつ着弾（6 以下の録画は従来どおり再生。tet/garbage.js）。8: VERSUS の ZONE 終了で盤面が下がって浮いたミノの固定猶予を取り消す（7 以下の録画は従来どおり再生。tet/zone.js）。9: ZONE のマージン倍率を発動時のメーターごとの表に（マージン中に ZONE が終わる 8 以下の VERSUS の録画はずれる。tet/zone.js）。10: ZONE の発動中は全ブロックが枠の上の設置を致命にせず ZONE も続ける（9 以下の録画は従来どおり再生。tet/board.js）。11: シングルの ZONE はミノが枠の上 20 段まで動ける（10 以下の録画は 5 段のまま。tet/zone.js topLimit）。12: VERSUS の ZONE の試合も枠の上 20 段まで・CPU も 40 段を読む（11 以下の VERSUS の録画は 5 段のまま）。13: ZONE BATTLE のフェーズ（vsZonePhase。キーの無い録画はフェーズなしで今までどおり。tet/zone.js）。14: ZONE BATTLE の穴の決め方（かたまりの中 a・間 b・着弾をまたぐ。13 以下の録画は今までの決め方。tet/garbage.js）。15: ZONE BATTLE の PHASE TRIGGER（TIME）・MARGIN TRIGGER（SCORE）（キーの無い録画は SCORE・TIME のまま）。16: ZONE BATTLE のフェーズごとの値（vsZonePhaseTable。VS 設定の PHASE 01〜03。キーの無い録画は原作の表のまま。tet/zone.js zonePhaseTableFrom）。17: ZONE BATTLE のフェーズへ進むスコアを表の行に（vsZonePhaseTable の score。キーの無い録画は 20,000 / 60,000 のまま）。18: ZONE の終了時火力表（ZONE_ATTACK_TABLE）とマージン倍率表（ZONE_MARGIN_BONUS_X10）の再編（17 以下の ZONE VERSUS の録画は火力がずれる。tet/zone.js）。19: PHASE TRIGGER: TIME の時計も表の行に（vsZonePhaseTable の timeMs。キーの無い録画は 64 / 192 秒のまま）。20: ZONE の端数の持ち越し（シングルも満タン超えを次のメーターへ・フェーズの換算は 1/4 の数は割合で端数は段数のまま。19 以下の録画は従来どおり。tet/zone.js _zoneV20）。21: IRS だけで助かる出現も IHS と同じく待つ（IRS ON の録画だけに効く。20 以下の録画は従来どおり待たない。tet/rotation.js _ihsRescueWait）。22: ホールドで出るミノも IRS だけで助かるなら待つ（21 以下の録画は従来どおり待たない）
+const REPLAY_ENGINE_VERSION = 23;   // エンジンの動きの版（§7）。動きを変える修正をしたら上げる。2: ATTACK BIAS の切り捨て（分数・最低 1 なし）と ULTRA 時間切れの経過時間。3: MARATHON の START LEVEL を開始時から（2 以下の録画は従来どおり再生。tet/lifecycle.js）。4: VERSUS の ZONE の火力（発動中の通常火力を足す・マージン倍率・メーターの持ち越し・CPU の発動中の速さ）。5: シングルの ZONE の発動中はレベル 1 の速さでソフトドロップ（4 以下の録画は従来どおり再生。tet/input.js）。6: ZONE の分けて送る火力は 1 手につき 1 かたまりだけ着弾（SPLIT の録画は 5 とずれる）。7: ZONE SPLIT の試合はふつうの火力も 1 手に 1 かたまりずつ着弾（6 以下の録画は従来どおり再生。tet/garbage.js）。8: VERSUS の ZONE 終了で盤面が下がって浮いたミノの固定猶予を取り消す（7 以下の録画は従来どおり再生。tet/zone.js）。9: ZONE のマージン倍率を発動時のメーターごとの表に（マージン中に ZONE が終わる 8 以下の VERSUS の録画はずれる。tet/zone.js）。10: ZONE の発動中は全ブロックが枠の上の設置を致命にせず ZONE も続ける（9 以下の録画は従来どおり再生。tet/board.js）。11: シングルの ZONE はミノが枠の上 20 段まで動ける（10 以下の録画は 5 段のまま。tet/zone.js topLimit）。12: VERSUS の ZONE の試合も枠の上 20 段まで・CPU も 40 段を読む（11 以下の VERSUS の録画は 5 段のまま）。13: ZONE BATTLE のフェーズ（vsZonePhase。キーの無い録画はフェーズなしで今までどおり。tet/zone.js）。14: ZONE BATTLE の穴の決め方（かたまりの中 a・間 b・着弾をまたぐ。13 以下の録画は今までの決め方。tet/garbage.js）。15: ZONE BATTLE の PHASE TRIGGER（TIME）・MARGIN TRIGGER（SCORE）（キーの無い録画は SCORE・TIME のまま）。16: ZONE BATTLE のフェーズごとの値（vsZonePhaseTable。VS 設定の PHASE 01〜03。キーの無い録画は原作の表のまま。tet/zone.js zonePhaseTableFrom）。17: ZONE BATTLE のフェーズへ進むスコアを表の行に（vsZonePhaseTable の score。キーの無い録画は 20,000 / 60,000 のまま）。18: ZONE の終了時火力表（ZONE_ATTACK_TABLE）とマージン倍率表（ZONE_MARGIN_BONUS_X10）の再編（17 以下の ZONE VERSUS の録画は火力がずれる。tet/zone.js）。19: PHASE TRIGGER: TIME の時計も表の行に（vsZonePhaseTable の timeMs。キーの無い録画は 64 / 192 秒のまま）。20: ZONE の端数の持ち越し（シングルも満タン超えを次のメーターへ・フェーズの換算は 1/4 の数は割合で端数は段数のまま。19 以下の録画は従来どおり。tet/zone.js _zoneV20）。21: IRS だけで助かる出現も IHS と同じく待つ（IRS ON の録画だけに効く。20 以下の録画は従来どおり待たない。tet/rotation.js _ihsRescueWait）。22: ホールドで出るミノも IRS だけで助かるなら待つ（21 以下の録画は従来どおり待たない）。23: IHS・IRS の猶予の待ちの間に押して離した回転・ホールドも出すときに当てる（22 以下の録画は待ち明けのキーだけで見る。tet/rotation.js _ihsRescueNote）
 
 // 入力の列の種類。1 バイト目＝種類 << 1 | side
 //   キー 0〜3（bit0 押す・bit1 長押しの繰り返し）＋コードの番号、tet のパッド 4〜5（bit0 押す）＋アクションの番号
@@ -2602,8 +2602,10 @@ const ReplayManager = {
             document.body.classList.add('replay-watching');
             if (uiHidden) document.body.classList.add('replay-ui-hidden');
         };
-        // 3・2・1（PLAY HERE は常にカウントダウンから。急に試合が動き出さないように）。その間は再生を止めたまま、キーも受けない
+        // 3・2・1（PLAY HERE は常にカウントダウンから。急に試合が動き出さないように）。その間は再生を止めたまま、キーも受けない。
+        // ただしカウントダウン中に押したままの横移動・ソフトドロップのキーは START で押したことにする（先行入力。_injectHeldKeys）
         this._goingLive = true;
+        const held = this._trackHeldKeys();
         try {
             await new Promise((resolve) => {
                 runCountdown('player-countdown-overlay', 'player-countdown-text', resolve, null, undefined, false, null);
@@ -2611,6 +2613,7 @@ const ReplayManager = {
             });
         } finally {
             this._goingLive = false;
+            held.stop();
         }
         if (stale()) { restoreUi(); return; }
         if (p.state !== 'pause' || !p.canGoLive()) { restoreUi(); return; }
@@ -2668,6 +2671,7 @@ const ReplayManager = {
                 g._arrTimer = 0;
                 g._setKeyHandlers();
             }
+            this._injectHeldKeys(g, held.codes);
         });
         _stopVersusCpuControllers();
         cpus.forEach((x, i) => {
@@ -2688,6 +2692,40 @@ const ReplayManager = {
         if (typeof showGlobalToast === 'function') {
             showGlobalToast(cut ? 'ここから対戦の続きです（続きも録画します）'
                 : '古い版で録ったリプレイなので、続きは録画しません');
+        }
+    },
+
+    // VERSUS の続きのカウントダウンの間、押したままのキー（物理キーの code）を覚える。stop() で外す。
+    // （その間は盤面のキーの受け口が再生用のままで、人のキーを受けないため。パッドは付け直した後の最初の
+    //  ポーリングで「押した」になるので、ここで見なくても START で効く）
+    _trackHeldKeys() {
+        const codes = new Set();
+        const down = (e) => { codes.add(e.code); };
+        const up = (e) => { codes.delete(e.code); };
+        const blur = () => { codes.clear(); };
+        document.addEventListener('keydown', down, true);
+        document.addEventListener('keyup', up, true);
+        window.addEventListener('blur', blur);
+        return {
+            codes,
+            stop: () => {
+                document.removeEventListener('keydown', down, true);
+                document.removeEventListener('keyup', up, true);
+                window.removeEventListener('blur', blur);
+            },
+        };
+    },
+
+    // 先行入力: 押したままの横移動・ソフトドロップのキーを、受け口を付け直した盤面の入力にためる
+    // （ふつうの入力と同じ道を通るので、続きの録画にも残る）。回転・ホールド・ハードドロップは
+    // ふつうの対戦の開始と同じく押し直すまで効かせない（押しっぱなしで START と同時に動かないように）
+    _injectHeldKeys(g, codes) {
+        if (!codes || !codes.size || !g._inputQueue || !g._keysUsed) return;
+        const k = g._keysUsed;
+        const want = ['moveLeft', 'moveRight', 'softDrop']
+            .flatMap((a) => (k[a] && Array.isArray(k[a].codes) ? k[a].codes : []));
+        for (const code of codes) {
+            if (want.includes(code)) g._inputQueue.push({ pad: false, down: true, code, repeat: false });
         }
     },
 
