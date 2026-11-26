@@ -31,14 +31,16 @@ self.Module = {
     //   ★v=23: ZONE の発動中は ZONE 段を除いた盤面で評価・出現できない枝は ZONE 終了の終点（設計 §20）
     //   ★v=24: 先行回転・先行ホールド・ZONE の火力表と終え方（設計 §22）
     //   ★v=25: §22 の直し（出現位置をふさいで終えるのは時間切れより 2 手以上早いときだけ・終了時の火力の相殺込みで安全を見る）
-    locateFile: function(path) { return path + '?v=26'; },
+    //   ★v=28: DAMAGE ON CLEAR が OFF の試合で、着弾の選び直しが消す手を安全と読む（garbageFlags。2026-11-26）
+    locateFile: function(path) { return path + '?v=28'; },
     onRuntimeInitialized: function() {
         wasmReady = true;
         self.postMessage({ type: 'ready' });
     }
 };
 
-importScripts('cpu_wasm6.js?v=27');  // ★ 2026-11-23 VS 設定の HOLD なし（canHold=0・holdType=-1）で先行ホールドも読まない（v2.6.2 A）
+importScripts('cpu_wasm6.js?v=29');  // ★ 2026-11-26 searchBestMoveWasm の最後に garbageFlags（DAMAGE ON CLEAR）
+// （前回 v=27）  // ★ 2026-11-23 VS 設定の HOLD なし（canHold=0・holdType=-1）で先行ホールドも読まない（v2.6.2 A）
 // （前回）★再ビルドのキャッシュバスト（getAllPlacements世代スタンプ化, v=15）
 
 // §22: 重みの後ろに ZONE の火力表が続く（7777・段数の数・表）・結果は [43..47] まで。
@@ -122,7 +124,8 @@ self.onmessage = function(e) {
         data.backToBack,
         data.incoming || 0, // ★着弾おじゃまライン数（生存判定 pick_move 用）
         data.zoneMovesLeft || 0, // ZONE の発動中: 時間切れまでに置ける見込みの手数（cpu_zone.js movesLeft）
-        data.startRot || 0, data.startX || 0, data.startY || 0 // §22: 先行回転で出ているミノの向き・位置（内部座標）
+        data.startRot || 0, data.startX || 0, data.startY || 0, // §22: 先行回転で出ているミノの向き・位置（内部座標）
+        data.garbageFlags || 0 // ビット 1 = DAMAGE ON CLEAR が OFF（消す手は着弾しない。2026-11-26）
     );
 
     const endTime = performance.now();

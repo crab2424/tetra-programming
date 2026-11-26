@@ -146,6 +146,7 @@ window.CPU2 = class {
 
         if (this.isCalculating) return;
         this.isCalculating = true; 
+        if (window.CpuZone) CpuZone.planMark(this); // この盤面で決める（ZONE が終わって動いたら考え直す）
         // 考えている間も重力を止める（探索は今の位置から通り道を調べる。§2.3）
         this.holdGravity(true);
 
@@ -196,6 +197,8 @@ window.CPU2 = class {
 
     handleWorkerResult(res) {
         this.isCalculating = false; 
+        // 考えている間に ZONE が終わって盤面が下がった。この結果は捨てて、いまのミノで考え直す
+        if (window.CpuZone && CpuZone.planStale(this)) { this.holdGravity(false); CpuZone.planDrop(this); return; }
 
         let actionInt = res[0];
         
@@ -310,15 +313,25 @@ window.CPU2 = class {
         const queue = this.buildActionQueue(move);
         const alive = () => this.isActive && this.game.mino === mino;
         const paused = () => this.game.isPaused || this.game.state === 'paused';
+        // ZONE が終わって盤面が下がった（発動中の盤面で決めた手はもう合わない）。操作をやめて、いまのミノで考え直す
+        // （cpu/tet/cpu_zone.js planStale。次のフレームで updateLoop が onMinoSpawned を呼ぶ）
+        const stale = () => {
+            if (!(window.CpuZone && CpuZone.planStale(this))) return false;
+            this.holdGravity(false);
+            CpuZone.planDrop(this);
+            return true;
+        };
 
         const tryDrop = () => {
             if (!alive()) return;
             if (paused()) { this.game.cpuSchedule(100, tryDrop); return; }
+            if (stale()) return;
             this.game.cpuAction('hardDrop');
         };
         const step = () => {
             if (!alive()) { if (this.isActive) this.holdGravity(false); return; }
             if (paused()) { this.game.cpuSchedule(100, step); return; }
+            if (stale()) return;
             let a = queue.shift();
             // 回転の後にもう目標の列にいれば寄せない
             while (a && a.type === 'moveTo' && this.game.mino.x === a.x) a = queue.shift();

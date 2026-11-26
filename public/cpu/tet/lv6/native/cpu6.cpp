@@ -170,6 +170,7 @@ struct SearchState {
     //   着弾おじゃまincomingがある時、これらを使って「中央が天井(20)を超えないか」を判定する。
     int first_center_h;
     int first_attack;
+    int first_lines;   // 1 手目で消した段数（DAMAGE ON CLEAR が OFF の試合で、消した手は着弾しない）
 
     // ★ v2.2.3 I: この枝が死亡(Block Out / Lock Out)で終わったか。pick_move で死に枝を除外するのに使う。
     bool dead;
@@ -193,6 +194,7 @@ struct SearchState {
         backToBack = false;
         first_center_h = 0;
         first_attack = 0;
+        first_lines = 0;
         dead = false;
         end_kind = 0;
         end_step = 0;
@@ -342,7 +344,8 @@ void searchBestMoveWasm(
     int ren, int backToBack,
     int incoming, // ★着弾予定のおじゃまライン数（生存判定 pick_move 用）。0なら通常選択
     int zoneMovesLeft, // ZONE の発動中: 時間切れまでに置ける見込みの手数（0＝発動していない・分からない）
-    int startRot, int startX, int startY // §22: いまのミノが先行回転で出ているときの向き・位置（内部座標）。startRot<=0 ならふつうの出現位置
+    int startRot, int startX, int startY, // §22: いまのミノが先行回転で出ているときの向き・位置（内部座標）。startRot<=0 ならふつうの出現位置
+    int garbageFlags // ビット 1 = VS 設定 DAMAGE ON CLEAR が OFF（消去した手では予告が着弾しない。古い JS は渡さない＝0）
 ){
     ensurePrecalc();
 
@@ -440,6 +443,10 @@ void searchBestMoveWasm(
         int L = e.board.zone < 0 ? 0 : (e.board.zone >= ZMAX ? ZMAX - 1 : e.board.zone);
         if (!hasEndedZ[L] || e.beam_score > endedByZone[L].beam_score) { endedByZone[L] = e; hasEndedZ[L] = true; }
     };
+    // 1 手目で消す手のうち、いちばん良いもの（DAMAGE ON CLEAR が OFF の試合の着弾の選び直し用。下の pick_move）。
+    //   深さ 8 まで残った枝だけを見ると、消す初手の枝が途中で刈られていて選べないことがある（録画 20261125-1924 の枝）
+    SearchState firstClear;
+    bool hasFirstClear = false;
     current_states.reserve(BEAM_WIDTH * 2);
     next_states_N.reserve(2048);
     next_states_L.reserve(2048);
@@ -613,6 +620,7 @@ void searchBestMoveWasm(
                 }
                 next_s.first_center_h = center_h;
                 next_s.first_attack = estimateAttack(p.linesCleared, p.tSpinType, cur_btb, cur_ren);
+                next_s.first_lines = p.linesCleared;
             }
             next_s.total_score += stepScore;
             next_s.board = simBoard;
@@ -660,6 +668,9 @@ void searchBestMoveWasm(
             } else {
                 if (p.linesCleared > 0) next_states_L.push_back(next_s);
                 else next_states_N.push_back(next_s);
+                if (is_first && p.linesCleared > 0 && (!hasFirstClear || next_s.beam_score > firstClear.beam_score)) {
+                    firstClear = next_s; hasFirstClear = true;
+                }
                 pushed_count++;
             }
         }
@@ -801,6 +812,7 @@ void searchBestMoveWasm(
     // ────────────────────────────────────────────────
     // ZONE の発動中は予告が着弾しないので、この選び直しはしない（高い盤面では全部の手が「危ない」になり、
     // 評価に関係なく初手の火力が最大の手を選んでしまう）
+    const bool dmgOff = (garbageFlags & 1) != 0;
     if (!zn && incoming > 0 && bestState != nullptr) {
         const SearchState* bestSafe = nullptr;   int bestSafeScore = -2000000000;
         const SearchState* bestSpike = nullptr;  int bestSpikeAtk = -1; int bestSpikeScore = -2000000000;
@@ -808,7 +820,10 @@ void searchBestMoveWasm(
             // ★ v2.2.3 I: 死に枝は候補にしない（spike フォールバックが死ぬ手を選んでいた）。
             //   全枝が死ぬ局面では bestState（最も遅く死ぬ手）のまま。
             if (state.dead) continue;
-            bool safe = (incoming - state.first_attack + state.first_center_h <= 20);
+            // DAMAGE ON CLEAR が OFF なら、1 手目で消す手はこの手では着弾しないので安全（2026-11-26。録画 20261125-1924 の枝:
+            //   予告 90 段で全部の手が「危ない」→ 火力最大（シングルは 0 で並ぶ）→ 評価の良い消さない手を選び、着弾して負けた）
+            bool safe = (dmgOff && state.first_lines > 0)
+                     || (incoming - state.first_attack + state.first_center_h <= 20);
             if (safe && state.beam_score > bestSafeScore) {
                 bestSafeScore = state.beam_score;
                 bestSafe = &state;
@@ -821,6 +836,8 @@ void searchBestMoveWasm(
             }
         }
         if (bestSafe != nullptr)       bestState = bestSafe;
+        // DAMAGE ON CLEAR が OFF: 読みの最後まで残った枝に消す初手が無くても、消せる初手があればそれを打つ（着弾を 1 手延ばす）
+        else if (dmgOff && hasFirstClear) bestState = &firstClear;
         else if (bestSpike != nullptr) bestState = bestSpike;
     }
 

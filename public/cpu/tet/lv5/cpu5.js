@@ -254,7 +254,11 @@ window.CPU5 = class {
             if (ACTION_MAP[a]) raw.push({ type: ACTION_MAP[a], delay: this.actionDelay });
         }
         raw.push({ type: 'harddrop', delay: this.harddropDelay });
-        return raw;
+        if (this.queueLandsAt(raw, bestResult)) return raw;
+        // path は出現位置から読んだ操作なので、ミノが出現位置にいないと（ZONE の終了で考え直した手など）なぞっても着かない。
+        //   ゲームの回転・キックそのままで置き場所までの操作を探す（cpu/tet/cpu_zone.js gamePath。lv6 と同じ）
+        const found = window.CpuZone ? CpuZone.gamePath(this, bestResult) : null;
+        return found || raw;
     }
 
     // queue を processActionQueue と同じ動き（回転はキック込み・moveToTargetX は詰まると目標列へ）で試しに動かし、
@@ -500,6 +504,9 @@ window.CPU5 = class {
             return;
         }
 
+        // ZONE が終わって盤面が下がった（発動中の盤面で決めた手はもう合わない）。操作を捨てて、いまのミノで考え直す
+        if (window.CpuZone && CpuZone.planStale(this)) { this.dropStalePlan(); return; }
+
         const action = this.actionQueue.shift();
 
         if (!this.game.mino) {
@@ -577,6 +584,15 @@ window.CPU5 = class {
             };
             this.game.cpuSchedule(delayTime, tryFinish);
         }
+    }
+
+    // 決めた手を捨てる（ZONE の終了で盤面が動いた。cpu/tet/cpu_zone.js planStale）。次のフレームで updateLoop が
+    // いまのミノ（向き・位置はそのまま）について考え直す
+    dropStalePlan() {
+        this.actionQueue = [];
+        this.bestMoveData = null;
+        this.isExecutingAction = false;
+        CpuZone.planDrop(this);
     }
 
     initEstimateContainer() {
@@ -741,6 +757,7 @@ window.CPU5 = class {
 
         if (this.isCalculating) return;
         this.isCalculating = true; 
+        if (window.CpuZone) CpuZone.planMark(this); // この盤面で決める（ZONE が終わって動いたら考え直す）
 
         let boardBuffer = new Uint8Array(250);
         this.game.field.blocks.forEach(b => {
@@ -819,6 +836,8 @@ window.CPU5 = class {
 
     handleWorkerResult(res) {
         this.isCalculating = false; 
+        // 考えている間に ZONE が終わって盤面が下がった。この結果は捨てて、いまのミノで考え直す
+        if (window.CpuZone && CpuZone.planStale(this)) { this.dropStalePlan(); return; }
 
         let actionInt = res[0];
         

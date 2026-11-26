@@ -9,7 +9,7 @@ window.CPU6 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv6/wasm/cpu_worker6.js?v=27',
+        'cpu/tet/lv6/wasm/cpu_worker6.js?v=29',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -266,77 +266,9 @@ window.CPU6 = class {
         return found || raw;
     }
 
-    // ゲームの動き（移動・ソフトドロップ・回転はキック込み）で、いまのミノを探索の置き場所（4 マス）へ運ぶ操作列を幅優先で探す。
-    // T-Spin の手は最後の操作が回転のものだけを答えにする。見つからなければ null。ミノと関係するフラグは元に戻す
+    // ゲームの動き（キック込み）で、いまのミノを探索の置き場所へ運ぶ操作列（cpu/tet/cpu_zone.js gamePath。見つからなければ null）
     findGamePath(bestResult) {
-        const g = this.game, m = g.mino;
-        if (!m || bestResult.id === undefined || bestResult.id === null || m.type !== bestResult.id) return null;
-        const t = new Mino(bestResult.id);
-        for (let i = 0; i < bestResult.rot; i++) t.rotate();
-        const want = t.blocks.map(b => (b.x + bestResult.x) + ',' + (b.y + bestResult.y)).sort().join(' ');
-        const needSpin = bestResult.tSpinType > 0;
-        const shapes = [];
-        for (let r = 0; r < 4; r++) {
-            const u = new Mino(bestResult.id);
-            for (let i = 0; i < r; i++) u.rotate();
-            shapes.push(u.blocks);
-        }
-        const saved = {
-            x: m.x, y: m.y, rotation: m.rotation, blocks: m.blocks.map(b => new Block(b.x, b.y, b.type)),
-            score: g.score, lowestY: g.lowestY,
-            lastActionWasRotation: g.lastActionWasRotation, lastRotUsedPoint5: g.lastRotUsedPoint5,
-        };
-        const put = (st) => { m.x = st.x; m.y = st.y; m.rotation = st.r; m.blocks = shapes[st.r].map(b => new Block(b.x, b.y, b.type)); };
-        const start = { x: m.x, y: m.y, r: m.rotation & 3, spin: 0, prev: null, op: null };
-        const keyOf = (st) => st.x + ',' + st.y + ',' + st.r + ',' + st.spin;
-        const seen = new Set([keyOf(start)]);
-        const q = [start];
-        let goal = null;
-        try {
-            for (let qi = 0; qi < q.length && qi < 6000 && !goal; qi++) {
-                const cur = q[qi];
-                for (const op of ['moveLeft', 'moveRight', 'softDrop', 'rotateCW', 'rotateCCW']) {
-                    put(cur);
-                    let nx = cur.x, ny = cur.y, nr = cur.r;
-                    if (op === 'moveLeft') { if (!g.valid(-1, 0)) continue; nx--; }
-                    else if (op === 'moveRight') { if (!g.valid(1, 0)) continue; nx++; }
-                    else if (op === 'softDrop') { if (!g.valid(0, 1)) continue; ny++; }
-                    else {
-                        g.tryRotate(op === 'rotateCW' ? 1 : -1, true);
-                        if ((m.rotation & 3) === cur.r) continue; // 回れなかった
-                        nx = m.x; ny = m.y; nr = m.rotation & 3;
-                    }
-                    const nxt = { x: nx, y: ny, r: nr, spin: (op === 'rotateCW' || op === 'rotateCCW') ? 1 : 0, prev: cur, op };
-                    const k = keyOf(nxt);
-                    if (seen.has(k)) continue;
-                    seen.add(k);
-                    put(nxt);
-                    if (!g.valid(0, 1) && (!needSpin || nxt.spin)
-                        && m.blocks.map(b => (b.x + m.x) + ',' + (b.y + m.y)).sort().join(' ') === want) { goal = nxt; break; }
-                    q.push(nxt);
-                }
-            }
-        } finally {
-            m.x = saved.x; m.y = saved.y; m.rotation = saved.rotation; m.blocks = saved.blocks;
-            g.score = saved.score; g.lowestY = saved.lowestY;
-            g.lastActionWasRotation = saved.lastActionWasRotation; g.lastRotUsedPoint5 = saved.lastRotUsedPoint5;
-        }
-        if (!goal) {
-            // 回転なしで真下に落とすだけで着く（いまの位置がもう置き場所の真上）
-            return null;
-        }
-        const ops = [];
-        for (let st = goal; st.prev; st = st.prev) ops.unshift(st);
-        const out = [];
-        for (const st of ops) {
-            // 続くソフトドロップは 1 つにまとめる（processActionQueue の multiSoftDrop）
-            const last = out[out.length - 1];
-            if (st.op === 'softDrop' && last && last.type === 'multiSoftDrop') { last.targetY = st.y; continue; }
-            if (st.op === 'softDrop') { out.push({ type: 'multiSoftDrop', targetY: st.y, delay: this.actionDelay }); continue; }
-            out.push({ type: st.op, delay: this.actionDelay });
-        }
-        out.push({ type: 'harddrop', delay: this.harddropDelay });
-        return out;
+        return window.CpuZone ? CpuZone.gamePath(this, bestResult) : null;
     }
 
     // queue を processActionQueue と同じ動き（回転はキック込み・moveToTargetX は詰まると目標列へ）で試しに動かし、
@@ -641,6 +573,9 @@ window.CPU6 = class {
             return;
         }
 
+        // ZONE が終わって盤面が下がった（発動中の盤面で決めた手はもう合わない）。操作を捨てて、いまのミノで考え直す
+        if (window.CpuZone && CpuZone.planStale(this)) { this.dropStalePlan(); return; }
+
         const action = this.actionQueue.shift();
 
         if (!this.game.mino) {
@@ -723,6 +658,16 @@ window.CPU6 = class {
             };
             this.game.cpuSchedule(delayTime, tryFinish);
         }
+    }
+
+    // 決めた手を捨てる（ZONE の終了で盤面が動いた。cpu/tet/cpu_zone.js planStale）。次のフレームで updateLoop が
+    // いまのミノ（向き・位置はそのまま。探索へ startRot/startX/startY で渡す）について考え直す
+    dropStalePlan() {
+        this.actionQueue = [];
+        this.bestMoveData = null;
+        if (this.isExecutingAction) this.game.cpuAction('gravity', false);
+        this.isExecutingAction = false;
+        CpuZone.planDrop(this);
     }
 
     initEstimateContainer() {
@@ -1005,8 +950,13 @@ window.CPU6 = class {
         const incoming = this.getIncomingGarbage();
 
         this.isCalculating = true;
+        if (window.CpuZone) CpuZone.planMark(this); // この盤面で決める（ZONE が終わって動いたら考え直す）
+        // VS 設定 DAMAGE ON CLEAR が OFF の試合は、消去した手では予告が着弾しない（game/tet/board.js）。
+        //   探索の「着弾で天井を超えないか」の選び直しで、消す手を安全と読ませる（ビット 1）
+        const garbageFlags = (this.game.isVersusMode && this.game.vsGarbageDamageOnClear === false) ? 1 : 0;
         this.worker.postMessage({
             type: 'calculate',
+            garbageFlags,
             boardBuffer: boardBuffer,
             currentType: mino.type,
             holdType: holdType,
@@ -1046,6 +996,8 @@ window.CPU6 = class {
 
     handleWorkerResult(res) {
         this.isCalculating = false;
+        // 考えている間に ZONE が終わって盤面が下がった。この結果は捨てて、いまのミノで考え直す
+        if (window.CpuZone && CpuZone.planStale(this)) { this.dropStalePlan(); return; }
 
 
         let actionInt = res[0];
