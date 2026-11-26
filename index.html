@@ -368,7 +368,7 @@
           </button>
           <div id="vs-settings-summary-block">
             <span class="vs-settings-summary-label">SETTINGS:</span>
-            <span id="vs-settings-summary">ALL DEFAULT</span>
+            <span id="vs-settings-summary">DEFAULT</span>
           </div>
         </div>
         <button class="menu-btn btn-versus-primary" id="versus-check-start-btn" onclick="startVersusGame()">
@@ -996,7 +996,9 @@
         <h2 id="versus-result-title">RESULT</h2>
         <div id="versus-result-mod" class="mod-badge mod-badge-result" style="display: none">MOD</div>
         <div id="result-stats">
-          <div class="result-stat-row">
+          <!-- WINNER は見出し（YOU WIN! / YOU LOSE）と同じなので CPU 同士のときだけ出す（勝った側のレベルが分かる）。
+               LINES / MAX CHAINS は右の DETAIL にあるので左には置かない -->
+          <div class="result-stat-row" id="versus-result-winner-row" style="display: none">
             <span class="result-label">WINNER</span>
             <span class="result-value" id="versus-result-winner">—</span>
           </div>
@@ -1009,12 +1011,12 @@
             <span class="result-value" id="versus-result-cpu-score">0</span>
           </div>
           <div class="result-stat-row">
-            <span class="result-label" id="versus-result-player-lines-label">YOUR LINES</span>
-            <span class="result-value" id="versus-result-player-lines">0</span>
+            <span class="result-label">MATCH TIME</span>
+            <span class="result-value" id="versus-result-time">—</span>
           </div>
           <div class="result-stat-row">
-            <span class="result-label" id="versus-result-cpu-lines-label">CPU LINES</span>
-            <span class="result-value" id="versus-result-cpu-lines">0</span>
+            <span class="result-label">HANDICAP</span>
+            <span class="result-value" id="versus-result-handicap" title="ATTACK BIAS（VS SETTINGS の火力補正）">—</span>
           </div>
         </div>
         <div id="result-buttons">
@@ -1043,14 +1045,16 @@
               <span class="menu-btn-icon">⤓</span>
             </button>
           </div>
-          <button class="menu-btn btn-secondary" onclick="versusResultBack()">
-            <span class="menu-btn-icon">◀</span>
-            <span>MODE SELECT</span>
-          </button>
-          <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
-            <span class="menu-btn-icon">⌂</span>
-            <span>MAIN MENU</span>
-          </button>
+          <div class="result-btn-pair">
+            <button class="menu-btn btn-secondary" onclick="versusResultBack()">
+              <span class="menu-btn-icon">◀</span>
+              <span>MODE SELECT</span>
+            </button>
+            <button class="menu-btn btn-secondary" onclick="switchPage('main-menu')">
+              <span class="menu-btn-icon">⌂</span>
+              <span>MAIN MENU</span>
+            </button>
+          </div>
         </div>
       </div>
       <div class="result-detail" id="versus-result-detail" style="display: none"></div>
@@ -1648,6 +1652,13 @@
               <button class="opt-btn" data-value="off" onclick="setDisplayOption('replayAutoSave', false)">OFF</button>
             </div>
           </div>
+          <div class="option-row" title="PLAY HERE で続けた試合（枝）を元のリプレイに何本も残すか。OFF は最新の 1 本だけ残して容量を節約します（★の枝は消えません）">
+            <span class="option-label">REPLAY BRANCH MULTI SAVE</span>
+            <div class="option-toggle" id="display-replay-branch-toggle">
+              <button class="opt-btn" data-value="on" onclick="setDisplayOption('replayBranchMulti', true)">ON</button>
+              <button class="opt-btn" data-value="off" onclick="setDisplayOption('replayBranchMulti', false)">OFF</button>
+            </div>
+          </div>
           <div class="option-row">
             <span class="option-label">最高記録</span>
             <button class="btn btn-reset-records" onclick="resetRecords()">RESET RECORDS</button>
@@ -1729,31 +1740,31 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=51"></script>
-  <script src="core/dialog.js?v=3"></script>
+  <script src="core/replay.js?v=52"></script>
+  <script src="core/dialog.js?v=4"></script>
   <script src="core/particles.js?v=14"></script>
   <script src="app/manager.js?v=1"></script>
-  <script src="config/settings.js?v=22"></script>
+  <script src="config/settings.js?v=23"></script>
   <script src="config/records.js?v=6"></script>
   <script src="config/cloud_sync.js?v=5"></script>
   <script src="config/stats.js?v=9"></script>
   <script src="config/account.js?v=10"></script>
   <script src="config/legacy_import.js?v=1"></script>
   <script src="core/hud_extras.js?v=4"></script>
-  <script src="core/result_detail.js?v=1"></script>
+  <script src="core/result_detail.js?v=3"></script>
   <!-- TETエンジン：Game を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
   <script src="game/tet/lifecycle.js?v=26"></script>
-  <script src="game/tet/board.js?v=25"></script>
-  <script src="game/tet/rotation.js?v=12"></script>
+  <script src="game/tet/board.js?v=26"></script>
+  <script src="game/tet/rotation.js?v=13"></script>
   <script src="game/tet/scoring.js?v=7"></script>
-  <script src="game/tet/zone.js?v=26"></script>
-  <script src="game/tet/garbage.js?v=16"></script>
+  <script src="game/tet/zone.js?v=27"></script>
+  <script src="game/tet/garbage.js?v=17"></script>
   <script src="game/tet/render.js?v=13"></script>
-  <script src="game/tet/input.js?v=17"></script>
+  <script src="game/tet/input.js?v=18"></script>
   <!-- VS 設定: ZONE の選択肢・既定値を game/tet/zone.js から読むので、テトのエンジンの後に読み込む -->
-  <script src="config/vs_settings.js?v=21"></script>
+  <script src="config/vs_settings.js?v=23"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
   <!-- 旧 src/p_game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/puyo/core.js?v=8"></script>
@@ -1769,15 +1780,15 @@
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
-  <script src="cpu/tet/cpu_zone.js?v=17"></script>
+  <script src="cpu/tet/cpu_zone.js?v=18"></script>
   <script src="app/cpu_match_log.js?v=6"></script>
-  <script src="app/versus.js?v=30"></script>
+  <script src="app/versus.js?v=32"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
   <script src="app/navigation.js?v=53"></script>
   <script src="app/ranking.js?v=6"></script>
-  <script src="app/replays.js?v=13"></script>
-  <script src="app/stats_page.js?v=7"></script>
-  <script src="app/focus_nav.js?v=32"></script>
+  <script src="app/replays.js?v=14"></script>
+  <script src="app/stats_page.js?v=8"></script>
+  <script src="app/focus_nav.js?v=34"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
   <script src="app/board_swap.js?v=14"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->

@@ -194,6 +194,9 @@ window.CPU3 = class {
             return;
         }
 
+        // ZONE が終わって盤面が下がった（発動中の盤面で決めた手はもう合わない）。操作を捨てて、いまのミノで考え直す
+        if (window.CpuZone && CpuZone.planStale(this)) { this.dropStalePlan(); return; }
+
         const action = this.actionQueue.shift();
 
         if (!this.game.mino) {
@@ -270,6 +273,15 @@ window.CPU3 = class {
         }
     }
 
+    // 決めた手を捨てる（ZONE の終了で盤面が動いた。cpu/tet/cpu_zone.js planStale）。次のフレームで updateLoop が
+    // いまのミノ（向き・位置はそのまま）について考え直す
+    dropStalePlan() {
+        this.actionQueue = [];
+        this.bestMoveData = null;
+        this.isExecutingAction = false;
+        CpuZone.planDrop(this);
+    }
+
     initEstimateContainer() {
         const canvasId = this.game.canvasPrefix ? `${this.game.canvasPrefix}-main-canvas` : 'main-canvas';
         const canvas = document.getElementById(canvasId);
@@ -340,6 +352,7 @@ window.CPU3 = class {
 
         if (this.isCalculating) return;
         this.isCalculating = true; 
+        if (window.CpuZone) CpuZone.planMark(this); // この盤面で決める（ZONE が終わって動いたら考え直す）
 
         // ★ v2.2.3 I: 隠し5行（実機 y=-5〜-1）も含めた 25 行で渡す（内部 y = 実機 y + 5）。
         //   旧20行は可視外のブロックを落としており、はみ出して置いたブロックや出現位置の塞がりを読めなかった。
@@ -395,6 +408,8 @@ window.CPU3 = class {
 
     handleWorkerResult(res) {
         this.isCalculating = false; 
+        // 考えている間に ZONE が終わって盤面が下がった。この結果は捨てて、いまのミノで考え直す
+        if (window.CpuZone && CpuZone.planStale(this)) { this.dropStalePlan(); return; }
 
         let actionInt = res[0];
         

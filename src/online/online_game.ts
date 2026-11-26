@@ -6,7 +6,7 @@ import type {
   Uuid,
   OnlineMatchSetting,
 } from "./payload";
-import { parseMatchSetting } from "./payload";
+import { parseMatchSetting, parseZoneMatchSetting, parseBattleKind } from "./payload";
 import { showToast, ToastColor } from "../components/toast";
 import {
   encodePieceState,
@@ -17,6 +17,7 @@ import {
   encodeClear,
   encodeSE,
   encodePendingUpdate,
+  type GaugeGroup,
   encodeHoldState,
   encodeStatsUpdate,
   type StatsUpdateData,
@@ -34,6 +35,10 @@ import {
   SE_IDS,
   SE_NAMES,
   createSeededRng,
+  GARBAGE_FLAG_ZONE_CHUNK,
+  GARBAGE_FLAG_ZONE_HOLD,
+  encodeZoneState,
+  ZoneStateKind,
 } from "./game_protocol";
 import { Logger } from "./logger";
 import { BattleLifecycle } from "../battle/lifecycle";
@@ -42,6 +47,7 @@ import {
   deliverLocalWithReadyTimer,
   deliverLocalStaged,
   type GarbageSink,
+  type GarbageZoneMark,
 } from "../battle/garbage_router";
 import {
   setOnlineSelfRule,
@@ -53,6 +59,12 @@ import {
   ONLINE_OPP_SLOT_COUNT,
 } from "../battle/layout";
 import { NetworkDriver } from "../battle/driver";
+import {
+  applyZoneBattleToGame,
+  clearZoneBattleFromGame,
+  ensureOnlineZoneEls,
+  resetOnlineZoneEls,
+} from "../battle/zone_online";
 import { freezeGameByRule } from "../battle/freeze";
 import { renderOnlineResult, resetOnlineResult } from "../battle/online_result";
 import {
@@ -202,7 +214,14 @@ function ensureOnlineStatsEls(
       '<div class="versus-stat-block hud-time-block">' +
       '<span class="area-label">TIME</span>' +
       '<span class="versus-stat-value versus-time-value" data-stat="time">00:00.00</span>' +
-      "</div>";
+      "</div>" +
+      // ZONE BATTLE のフェーズ（tet だけ。フェーズありの試合だけ zone.js _zoneSyncPhaseHud が出す）
+      (rule === "tet"
+        ? `<div class="versus-stat-block versus-phase-block" id="${fieldPrefix}-phase-block" style="display: none">` +
+          '<span class="area-label">PHASE</span>' +
+          `<span id="${fieldPrefix}-phase-value" class="versus-stat-value versus-phase-value">01</span>` +
+          "</div>"
+        : "");
     fieldEl.appendChild(leftEl);
     fieldEl.appendChild(rightEl);
     // ルールで出し分ける APM/LPM は作ったときに決める（以後ルールは変わらない）
@@ -401,6 +420,14 @@ export class OnlineGameController {
   private get matchInProgress(): boolean {
     return this.lifecycle.phase === "playing";
   }
+  /** ZONE BATTLE: 自分の ZONE を相手に見せる ZoneState を送る（hookZoneState が入れる。VERSUS の部屋では null） */
+  private zoneStateSend: ((kind: number, end?: { zoneLines: number; attack: number }) => void) | null = null;
+
+  /** ZONE BATTLE の部屋か（部屋の種類は作った後は変わらない。設計 §3） */
+  private get isZoneBattle(): boolean {
+    return parseBattleKind(this.roomInfo.battle) === "zone";
+  }
+
   /** visibilitychange リスナーを登録済みか（多重登録防止）。 */
   private visibilityListenerActive = false;
   /** バックグラウンドでゲームを進めるためのクロックWorker（rAFの代替）。 */
@@ -812,8 +839,10 @@ export class OnlineGameController {
     const game = this.game;
     const conn = this.connection;
     const sink: GarbageSink = {
-      sendTetLines: (lines) => {
-        conn.sendMatchEvent(encodeGarbage(lines, undefined, "tet"));
+      sendTetLines: (lines, zone) => {
+        // ZONE の火力の印は Garbage 版 3 の flags で送る（設計 §6.2）
+        const flags = (zone?.zoneChunk ? GARBAGE_FLAG_ZONE_CHUNK : 0) | (zone?.zoneHold ? GARBAGE_FLAG_ZONE_HOLD : 0);
+        conn.sendMatchEvent(encodeGarbage(lines, undefined, "tet", flags));
         game._olGarbageSentThisChain = true;
       },
       sendOjama: (count) => {
@@ -826,7 +855,11 @@ export class OnlineGameController {
       maxAmount: 255,
     };
 
-    game.sendGarbage = (amount: number) => {
+    // 第 2 引数は ZONE 終了時の火力の印（tet/zone.js _endZone。{ zoneChunk, zoneHold }）。
+    // GARBAGE × はかたまりごとに Math.round（今の ONLINE の丸め。設計 §12）
+    game.sendGarbage = (amount: number, zone?: GarbageZoneMark) => {
+      // 決着の後（haltMatch）に ZONE の時間切れなどで火力を送らない（設計 §12）
+      if (this.matchHalted) return;
       const targetRule = game.opponentRule === 'puyo' ? 'puyo' : 'tet';
       routeGarbage(
         {
@@ -834,6 +867,7 @@ export class OnlineGameController {
           amount,
           targetRule,
           gaugeToOjama: this.myRule === 'tet' && targetRule === 'puyo',
+          zone: targetRule === 'tet' ? zone : undefined,
         },
         sink,
       );
@@ -1118,6 +1152,21 @@ export class OnlineGameController {
     this.matchHasPuyoOpp = oppRules.includes('puyo');
 
     const matchSetting = parseMatchSetting(notif.matchSetting);
+    // ZONE BATTLE: 相手の盤面にも ZONE の表示（輪・枠の上・終了の表示・PHASE）を出す。
+    // VERSUS の部屋では前の ZONE BATTLE の表示を消すだけ（設計 §9）
+    for (let i = 0; i < ONLINE_OPP_SLOT_COUNT; i++) {
+      ensureOnlineZoneEls(`ol-opp-${i}`);
+      resetOnlineZoneEls(`ol-opp-${i}`);
+    }
+    if (this.isZoneBattle) {
+      const zs = parseZoneMatchSetting(notif.matchSetting);
+      const quarterLines = zs.phase ? zs.phaseTable[0].zoneCharge : zs.zoneQuarterLines;
+      for (const [id, driver] of this.puppets) {
+        if (this.puppetRules.get(id) !== "tet") continue;
+        ensureOnlineStatsEls(driver.index, "tet"); // 右の列の PHASE の行（setupZone が出す）
+        driver.setupZone({ quarterLines, phase: zs.phase ? 1 : 0 });
+      }
+    }
     if (!this.setConfigured) {
       this.lifecycle.configureSet(matchSetting.setTarget);
       this.setConfigured = true;
@@ -1250,11 +1299,29 @@ export class OnlineGameController {
     this.game._hasPuyoOpp = this.matchHasPuyoOpp; // 混在多人数: ぷよ相手が居るか
 
     this.hookTetGameMethods(matchSetting);
+    this.zoneStateSend = null;
+    if (this.isZoneBattle) this.hookZoneState();
 
-    this.game.vsMarginTimeMs = matchSetting.marginTime * 1000;
+    // MARGIN OFF は null（ローカルの getMarginTimeMs と同じ。0 は INSTANT＝即時突入）
+    this.game.vsMarginTimeMs = matchSetting.marginEnabled ? matchSetting.marginTime * 1000 : null;
     this.game.vsGarbageHoleRate = matchSetting.garbageHoleRate;
     this.game.vsGarbageDamageOnClear = matchSetting.garbageDamageOnClear;
     this.game.vsB2bBonusEnabled = matchSetting.b2bBonus;
+
+    // ZONE BATTLE の部屋（設計 tetlabo-zone-online-design.md §4・§8）: ローカルの applyVsSettings と同じ名前で
+    // ZONE・フェーズ・マージンの値を入れる（_initGameState の _zoneInit・マージンの予約が読む）。
+    // 表示の DOM（輪・枠の上・終了の表示・PHASE の行）は _initGameState より前に作る（_zoneInit が書くため）
+    ensureOnlineStatsEls("self", "tet");
+    ensureOnlineZoneEls("ol-p");
+    resetOnlineZoneEls("ol-p");
+    if (this.isZoneBattle) {
+      applyZoneBattleToGame(this.game, parseZoneMatchSetting(notif.matchSetting));
+    } else {
+      clearZoneBattleFromGame(this.game);
+    }
+    // zone.js の「決着の後は進めない・時間切れで終わらせない」は、ローカル VERSUS の進行
+    // （window.BattleVersusLifecycle。前のローカル対戦の値のまま）ではなくこの部屋の進行で決める
+    this.game.onlineMatchSettled = () => this.matchHalted || this.lifecycle.phase !== "playing";
 
     this.subscribeToControlEvents();
 
@@ -1283,6 +1350,8 @@ export class OnlineGameController {
       this.beginRoundStats();
       this.startPieceStateInterval();
       this.startHudClock();
+      // ZONE BATTLE: 相手の盤面の ZONE の表示を試合の頭にそろえる（前のラウンドの値を残さない）
+      this.zoneStateSend?.(ZoneStateKind.Start);
       // カウントダウン中にタブを隠したまま開始した場合、visibilitychange は発火しないので
       // ここで明示的にバックグラウンドクロックを同期する。
       this.syncBackgroundClock();
@@ -1305,7 +1374,8 @@ export class OnlineGameController {
     this.game.opponentRule = this.matchOpponentRule; // 異種戦判定をエンジンへ注入
     this.game._hasTetOpp = this.matchHasTetOpp;   // 混在多人数: テト相手が居るか
     this.game._hasPuyoOpp = this.matchHasPuyoOpp; // 混在多人数: ぷよ相手が居るか
-    this.game.vsMarginTimeMs = matchSetting.marginTime * 1000;
+    // MARGIN OFF は null（ローカルの getMarginTimeMs と同じ。0 は INSTANT＝即時突入）
+    this.game.vsMarginTimeMs = matchSetting.marginEnabled ? matchSetting.marginTime * 1000 : null;
     this.game.vsOjamaRate = matchSetting.ojamaRate;
 
     // RNGを initGame (内部の _resetState → _initNextQueue) より前に注入
@@ -1604,6 +1674,7 @@ export class OnlineGameController {
     // 1つの PendingUpdate frame で送る（4値の組でdedup）。相手スロットのアタックゲージ
     // 同期のため updateGarbageGauge・updateAttackGauge の両方をフックする。
     let lastPendingReady = -1, lastPendingUnready = -1, lastPendingAttack = -1, lastPendingAttackVisible = false;
+    let lastPendingGroups = "";
     const sendGaugeState = () => {
       let ready = 0, unready = 0;
       for (const g of (game.garbageQueue ?? [])) {
@@ -1616,13 +1687,20 @@ export class OnlineGameController {
       //   相手ルールを再判定すると多人数混在戦で送信者の見え方とズレる恐れがある。
       const attackGaugeEl = document.getElementById(`${game.canvasPrefix}-attack-gauge`);
       const attackVisible = !!attackGaugeEl && attackGaugeEl.style.display !== "none";
+      // 予告ゲージのかたまりの列（tet/garbage.js _garbageGaugeGroups）。相手の盤面でもローカルと同じ
+      // 「1 手で一緒に降る分ごとにつなげる」描き方にする（SPLIT の区切りなど）
+      const groups: GaugeGroup[] | undefined = typeof game._garbageGaugeGroups === "function"
+        ? game._garbageGaugeGroups() : undefined;
+      const groupsKey = groups ? groups.map((g) => `${g.ready ? "r" : "u"}${g.n}`).join(",") : "";
       if (ready !== lastPendingReady || unready !== lastPendingUnready
-        || attack !== lastPendingAttack || attackVisible !== lastPendingAttackVisible) {
+        || attack !== lastPendingAttack || attackVisible !== lastPendingAttackVisible
+        || groupsKey !== lastPendingGroups) {
         lastPendingReady = ready;
         lastPendingUnready = unready;
         lastPendingAttack = attack;
         lastPendingAttackVisible = attackVisible;
-        conn.sendMatchEvent(encodePendingUpdate(Math.min(ready, 255), Math.min(unready, 255), attack, attackVisible));
+        lastPendingGroups = groupsKey;
+        conn.sendMatchEvent(encodePendingUpdate(Math.min(ready, 255), Math.min(unready, 255), attack, attackVisible, groups));
       }
     };
 
@@ -1649,6 +1727,87 @@ export class OnlineGameController {
       const ol = document.getElementById("ol-pause-overlay");
       if (ol) ol.style.display = "none";
     };
+  }
+
+  /**
+   * ZONE BATTLE: 自分の ZONE（メーター・発動・終了）を ZoneState（0x2C）で相手へ送り、
+   * 自分のフェーズが進んだら相手の盤面の PHASE の表示も進める（設計 §6.3・§9）。
+   * 送るのは変わったときだけ（メーターは「たまったライン数の整数部・1/4 のライン数」が変わったとき）。
+   */
+  private hookZoneState(): void {
+    const game = this.game;
+    const conn = this.connection;
+    let lastMeterSig = "";
+    const meterSig = () => `${Math.floor((game.zoneMeter ?? 0) + 1e-6)}|${game.zoneQuarterLines ?? 0}`;
+    const send = (kind: number, end?: { zoneLines: number; attack: number }) => {
+      if (!this.myAlive || this.matchHalted || this.game !== game) return;
+      const active = !!game.zoneActive;
+      lastMeterSig = meterSig();
+      conn.sendMatchEvent(encodeZoneState({
+        kind,
+        meter: Math.floor((game.zoneMeter ?? 0) + 1e-6),
+        quarterLines: game.zoneQuarterLines ?? 0,
+        charge: active ? game.zoneCharge ?? 0 : 0,
+        durationMs: active ? game.zoneDurationMs ?? 0 : 0,
+        remainingMs: active && typeof game.zoneRemainingMs === "function" ? game.zoneRemainingMs() : 0,
+        zoneLines: end?.zoneLines ?? 0,
+        attack: end?.attack ?? 0,
+      }));
+    };
+    this.zoneStateSend = send;
+    const sendMeterIfChanged = () => {
+      if (game.zoneActive || meterSig() === lastMeterSig) return;
+      send(ZoneStateKind.Meter);
+    };
+
+    const origActivate: AnyFn = game.activateZone.bind(game);
+    game.activateZone = () => {
+      const ok = origActivate();
+      if (ok) send(ZoneStateKind.Activate);
+      return ok;
+    };
+    const origEnd: AnyFn = game._endZone.bind(game);
+    game._endZone = (reason: string) => {
+      const wasActive = !!game.zoneActive;
+      const lines = game.zoneLines ?? 0;
+      origEnd(reason);
+      if (wasActive) send(ZoneStateKind.End, { zoneLines: lines, attack: game.zoneLastAttack ?? 0 });
+    };
+    const origAddMeter: AnyFn = game._zoneAddMeter.bind(game);
+    game._zoneAddMeter = (n: number) => {
+      origAddMeter(n);
+      sendMeterIfChanged();
+    };
+    const origSetPhase: AnyFn = game._zoneSetPhase.bind(game);
+    game._zoneSetPhase = (p: number) => {
+      const before = game.matchPhase;
+      origSetPhase(p);
+      if (game.matchPhase === before) return;
+      // メーターは割合で換算されるので相手にも送り直す。相手の盤面の PHASE の表示もこの端末のフェーズで進める
+      if (game.zoneActive) send(ZoneStateKind.Meter);
+      else sendMeterIfChanged();
+      for (const d of this.puppets.values()) d.setZonePhase(game.matchPhase);
+    };
+  }
+
+  /**
+   * ZONE BATTLE: サーバーのフェーズ・マージン段階の通知を自分の盤面へ入れる（設計 §5.1 の 4）。
+   * 届いた時点で入れる（越えた本人も自分のスコアでは先に進めない＝全員が同じ順序）。一度上がったら下げない。
+   * フェーズは PHASE TRIGGER: SCORE の試合だけ（TIME は各自の時計の予約）、段階は MARGIN TRIGGER: SCORE の試合だけ。
+   * 脱落した後も表示（自分・相手の盤面の PHASE）は進める。決着の後は何もしない。
+   */
+  private applyZonePhaseNotification(phase: number, marginStep: number | null): void {
+    const game = this.game;
+    if (!game || !this.isZoneBattle || this.matchHalted || this.lifecycle.phase !== "playing") return;
+    if (game.matchPhase && game.matchPhaseTrigger === "score" && phase > game.matchPhase && phase <= 3) {
+      // _zoneSetPhase は hookZoneState が包んでいる（メーターを相手へ送り直し・相手の盤面の PHASE も進める）
+      game._zoneSetPhase(phase);
+      if (this.myAlive) game.playSe?.("levelup");
+    }
+    if (game.marginScoreOn && typeof marginStep === "number" && marginStep >= 0
+      && (game._tetMarginStep === null || game._tetMarginStep === undefined || marginStep > game._tetMarginStep)) {
+      game._tetMarginStep = Math.min(5, marginStep);
+    }
   }
 
   private hookPuyoGameMethods(matchSetting: OnlineMatchSetting): void {
@@ -2035,6 +2194,12 @@ export class OnlineGameController {
       this.handleOpponentReconnected(n.playerId as Uuid);
     });
 
+    // ZONE BATTLE: サーバーが全員のスコアの最大値で決めたフェーズ・マージンの段階（設計 §5）
+    const zonePhaseId = conn.onZonePhaseNotification((n) => {
+      if (n.roomId !== this.roomInfo.roomId) return;
+      this.applyZonePhaseNotification(n.phase, n.marginStep);
+    });
+
     const postMatchId = conn.onPostMatchAction((n) => {
       if (n.roomId !== this.roomInfo.roomId) return;
       this.rematchVotes.set(n.playerId as Uuid, n.action);
@@ -2042,7 +2207,7 @@ export class OnlineGameController {
     });
 
     this.subscriptionIds.push(
-      pauseId, resumeId, winnerId, disconnId, connLostId, reconnectedId, postMatchId,
+      pauseId, resumeId, winnerId, disconnId, connLostId, reconnectedId, postMatchId, zonePhaseId,
     );
   }
 
@@ -2568,10 +2733,17 @@ export class OnlineGameController {
     if (typeof puppet.updateGarbageGauge === 'function') puppet.updateGarbageGauge();
   }
 
-  private updateOpponentGauge(idx: number, ready: number, unready: number): void {
+  private updateOpponentGauge(idx: number, ready: number, unready: number, groups?: GaugeGroup[]): void {
+    // 送り手がかたまりの列を付けていれば（tet）、自分の盤面と同じ描き方（tet/garbage.js renderGarbageGaugeGroups）
+    const render = (window as any).renderGarbageGaugeGroups as
+      ((el: HTMLElement, groups: GaugeGroup[]) => void) | undefined;
     for (const gaugeId of [`ol-opp-${idx}-garbage-gauge`, `ol-opp-${idx}-puyo-garbage-gauge`]) {
       const gaugeEl = document.getElementById(gaugeId);
       if (!gaugeEl) continue;
+      if (groups && typeof render === 'function') {
+        render(gaugeEl, groups);
+        continue;
+      }
       gaugeEl.innerHTML = '';
       for (let i = 0; i < ready; i++) {
         const b = document.createElement('div');
@@ -2625,7 +2797,7 @@ export class OnlineGameController {
         // 自分のルール宛てでないフレームは捨てる（混在戦では tet 向け・puyo 向けが別に飛ぶ。#1）
         if (g.target !== this.myRule) return;
         if (this.myRule === 'puyo') this.deliverOjamaToPlayer(g.amount, g.holes, frame.senderId);
-        else this.deliverGarbageToPlayer(g.amount, frame.senderId);
+        else this.deliverGarbageToPlayer(g.amount, frame.senderId, { zoneChunk: g.zoneChunk, zoneHold: g.zoneHold });
       } catch (e) {
         this.logger.warn("Invalid Garbage frame:", e);
       }
@@ -2673,7 +2845,7 @@ export class OnlineGameController {
         if (rule === 'puyo') {
           this.updateOpponentPuyoYokoku(frame.senderId, d.ready + d.unready);
         } else {
-          this.updateOpponentGauge(idx, d.ready, d.unready);
+          this.updateOpponentGauge(idx, d.ready, d.unready, d.groups);
           this.updateOpponentAttackGauge(frame.senderId, d.attack, d.attackVisible);
         }
       }
@@ -2854,8 +3026,12 @@ export class OnlineGameController {
    *  - 送り手がtet: 従来どおり固定1500ms（tetの攻撃はチェイン終了という概念を持たない）。
    * 穴はフレームの holes を使わず、着弾時に自分で決める（garbage.js applyGarbage）。
    */
-  private deliverGarbageToPlayer(amount: number, senderId?: Uuid): void {
+  private deliverGarbageToPlayer(amount: number, senderId?: Uuid, zone?: GarbageZoneMark): void {
     if (amount <= 0 || !this.game || !this.myAlive) return;
+    // ZONE の火力の印（ローカルの garbage.js sendGarbage と同じく予告の項目に付ける。applyGarbage が読む）
+    const mark: { zoneChunk?: true; zoneHold?: true } = {};
+    if (zone?.zoneChunk) mark.zoneChunk = true;
+    if (zone?.zoneHold) mark.zoneHold = true;
     const senderRule = senderId !== undefined ? this.puppetRules.get(senderId) : undefined;
     // _srcRule: 送り手のルール。tet の受け手は「ぷよからの攻撃は 1 回 7 ラインまで」を
     // 送り手ごとに決める（garbage.js applyGarbage。混在戦でテトからの攻撃まで制限しない）
@@ -2864,7 +3040,7 @@ export class OnlineGameController {
       entry._srcSender = senderId;
       deliverLocalStaged(this.game, entry, 500, false);
     } else {
-      deliverLocalWithReadyTimer(this.game, { amount, holes: [], ready: false, _srcRule: 'tet', _srcSender: senderId } as any, 1500);
+      deliverLocalWithReadyTimer(this.game, { amount, holes: [], ready: false, _srcRule: 'tet', _srcSender: senderId, ...mark } as any, 1500);
     }
   }
 

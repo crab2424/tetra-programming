@@ -105,6 +105,7 @@
 }
 
 #result-title,
+#versus-result-title,
 #quiz-result-title {
   font-family: "Orbitron", monospace;
   font-size: 40px;
@@ -195,6 +196,11 @@
 .result-stat-time .result-value {
   font-size: 22px;
 }
+/* 対戦リザルトの HANDICAP（YOU +1 (133%) / CPU ±0 (100%)）は長いので小さく 1 行に */
+#versus-result-handicap {
+  font-size: 15px;
+  white-space: nowrap;
+}
 
 #result-buttons {
   display: flex;
@@ -202,6 +208,29 @@
   gap: 14px;
   width: 100%;
   animation: result-appear 0.5s 0.2s ease-out both;
+}
+
+/* 対戦リザルト: ボタンまで 1 画面に収まるよう、項目の間を詰めて MODE SELECT / MAIN MENU を 1 行に */
+#versus-result-page .result-main {
+  gap: 24px;
+}
+#versus-result-page .result-stat-row {
+  padding: 12px 28px;
+}
+#versus-result-page .result-detail {
+  margin-top: 56px;
+}
+.result-btn-pair {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+.result-btn-pair > .menu-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: 12px;
+  padding-right: 12px;
+  white-space: nowrap;
 }
 
 /* ─────────────────────────────────────────────

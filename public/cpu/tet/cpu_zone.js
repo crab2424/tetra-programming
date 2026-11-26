@@ -353,6 +353,117 @@ const CpuZone = (() => {
         });
     }
 
+    // ── ZONE の終了で盤面が動いたときの考え直し（2026-11-26）──
+    // VERSUS の時間切れは操作の途中でも ZONE を終える。ZONE 段が消えて残りが段数ぶん下がるが、操作中のミノは
+    // その場に残る（game/tet/zone.js _endZone）。発動中の盤面で決めた手（置き場所・操作列）をそのまま続けると、
+    // 下がった盤面の違う所へ落としてしまう（録画 20261126-0049: lv6 が T-Spin の穴へ T を運ぶ途中で 15 段下がり、
+    // 消さずに置いて予告が着弾して負けた）。
+    // 各レベルは探索を頼む（手を決める）ときに planMark で盤面の世代を覚え、結果を受けたとき・操作を 1 つ入れる前に
+    // planStale で調べる。動いていたら決めた手を捨てて planDrop（次のフレームでいまのミノから考え直す）
+    function boardEpoch(game) {
+        return (game && game.zoneActive) ? 'z' + game.zoneStartAt : '';
+    }
+
+    function planMark(cpu) {
+        if (cpu) cpu._zonePlanEpoch = boardEpoch(cpu.game);
+    }
+
+    // 決めた手が、いまの盤面ではもう使えない（決めた後に ZONE が終わって盤面が下がった）
+    function planStale(cpu) {
+        const e = cpu && cpu._zonePlanEpoch;
+        return e !== undefined && e !== null && e !== boardEpoch(cpu.game);
+    }
+
+    // 決めた手を捨てる。各レベルの updateLoop が次のフレームで、いまのミノ（向き・位置はそのまま）について探索を頼み直す。
+    // 操作列・重力など各レベルの持ち物は呼び出し側で戻す
+    function planDrop(cpu) {
+        cpu._zonePlanEpoch = null;
+        cpu.currentMino = null;
+    }
+
+    // ゲームの動き（移動・ソフトドロップ・回転はキック込み）で、いまのミノを探索の置き場所（id・rot・x・y の 4 マス）へ
+    // 運ぶ操作列を幅優先で探す（lv4〜lv6 の操作列の最後の手段）。T-Spin の手は最後の操作が回転のものだけを答えにする。
+    // 見つからなければ null。ミノと関係するフラグは元に戻す。
+    // 探索は出現位置から読んだ path を返すので、ミノが出現位置にいないとき（上の考え直しで、回したり動かしたりした後の
+    // ミノから置き直す）は path をなぞっても着かない。ここで実際の位置から運び方を探す（lv6 は §23 の天井近くのキックにも使う）
+    function gamePath(cpu, best) {
+        const g = cpu.game, m = g && g.mino;
+        if (!m || best.id === undefined || best.id === null || m.type !== best.id) return null;
+        const t = new Mino(best.id);
+        for (let i = 0; i < best.rot; i++) t.rotate();
+        const want = t.blocks.map(b => (b.x + best.x) + ',' + (b.y + best.y)).sort().join(' ');
+        const needSpin = best.tSpinType > 0 || best.isTSpin === true; // lv4 は isTSpin
+        const shapes = [];
+        for (let r = 0; r < 4; r++) {
+            const u = new Mino(best.id);
+            for (let i = 0; i < r; i++) u.rotate();
+            shapes.push(u.blocks);
+        }
+        const saved = {
+            x: m.x, y: m.y, rotation: m.rotation, blocks: m.blocks.map(b => new Block(b.x, b.y, b.type)),
+            score: g.score, lowestY: g.lowestY,
+            lastActionWasRotation: g.lastActionWasRotation, lastRotUsedPoint5: g.lastRotUsedPoint5,
+        };
+        const put = (st) => { m.x = st.x; m.y = st.y; m.rotation = st.r; m.blocks = shapes[st.r].map(b => new Block(b.x, b.y, b.type)); };
+        const start = { x: m.x, y: m.y, r: m.rotation & 3, spin: 0, prev: null, op: null };
+        const keyOf = (st) => st.x + ',' + st.y + ',' + st.r + ',' + st.spin;
+        const seen = new Set([keyOf(start)]);
+        const q = [start];
+        let goal = null;
+        try {
+            // 回さずに真下へ落とすだけで着く（いまの位置がもう置き場所の真上）
+            put(start);
+            {
+                let y = m.y;
+                while (g.valid(0, y - m.y + 1)) y++;
+                const oy = m.y; m.y = y;
+                const here = m.blocks.map(b => (b.x + m.x) + ',' + (b.y + m.y)).sort().join(' ');
+                m.y = oy;
+                if (here === want && !needSpin) goal = start;
+            }
+            for (let qi = 0; qi < q.length && qi < 6000 && !goal; qi++) {
+                const cur = q[qi];
+                for (const op of ['moveLeft', 'moveRight', 'softDrop', 'rotateCW', 'rotateCCW']) {
+                    put(cur);
+                    let nx = cur.x, ny = cur.y, nr = cur.r;
+                    if (op === 'moveLeft') { if (!g.valid(-1, 0)) continue; nx--; }
+                    else if (op === 'moveRight') { if (!g.valid(1, 0)) continue; nx++; }
+                    else if (op === 'softDrop') { if (!g.valid(0, 1)) continue; ny++; }
+                    else {
+                        g.tryRotate(op === 'rotateCW' ? 1 : -1, true);
+                        if ((m.rotation & 3) === cur.r) continue; // 回れなかった
+                        nx = m.x; ny = m.y; nr = m.rotation & 3;
+                    }
+                    const nxt = { x: nx, y: ny, r: nr, spin: (op === 'rotateCW' || op === 'rotateCCW') ? 1 : 0, prev: cur, op };
+                    const k = keyOf(nxt);
+                    if (seen.has(k)) continue;
+                    seen.add(k);
+                    put(nxt);
+                    if (!g.valid(0, 1) && (!needSpin || nxt.spin)
+                        && m.blocks.map(b => (b.x + m.x) + ',' + (b.y + m.y)).sort().join(' ') === want) { goal = nxt; break; }
+                    q.push(nxt);
+                }
+            }
+        } finally {
+            m.x = saved.x; m.y = saved.y; m.rotation = saved.rotation; m.blocks = saved.blocks;
+            g.score = saved.score; g.lowestY = saved.lowestY;
+            g.lastActionWasRotation = saved.lastActionWasRotation; g.lastRotUsedPoint5 = saved.lastRotUsedPoint5;
+        }
+        if (!goal) return null;
+        const ops = [];
+        for (let st = goal; st.prev; st = st.prev) ops.unshift(st);
+        const out = [];
+        for (const st of ops) {
+            // 続くソフトドロップは 1 つにまとめる（processActionQueue の multiSoftDrop）
+            const last = out[out.length - 1];
+            if (st.op === 'softDrop' && last && last.type === 'multiSoftDrop') { last.targetY = st.y; continue; }
+            if (st.op === 'softDrop') { out.push({ type: 'multiSoftDrop', targetY: st.y, delay: cpu.actionDelay }); continue; }
+            out.push({ type: st.op, delay: cpu.actionDelay });
+        }
+        out.push({ type: 'harddrop', delay: cpu.harddropDelay });
+        return out;
+    }
+
     // 各 CPU の updateLoop の頭で毎フレーム呼ぶ。true を返したら、そのフレームは新しいミノに取りかからない
     // （いまは常に false。発動中も通常と同じ速さで打つ。設計 §11.2）
     function tick(cpu, level) {
@@ -373,6 +484,7 @@ const CpuZone = (() => {
         return false;
     }
 
-    return { CONFIG, RULES, floor, stampBoard, lineCap, movesLeft, incoming, zoneTable, attackBias100, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, phaseSoon, shouldFireBeforePhase, noMoveDelay, dropIfNoMove };
+    return { CONFIG, RULES, floor, stampBoard, lineCap, movesLeft, incoming, zoneTable, attackBias100, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, phaseSoon, shouldFireBeforePhase, noMoveDelay, dropIfNoMove,
+        boardEpoch, planMark, planStale, planDrop, gamePath };
 })();
 window.CpuZone = CpuZone;

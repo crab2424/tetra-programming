@@ -110,7 +110,10 @@ const TetDialog = (() => {
                         (initialBtn || btnRow.querySelector('button'))?.click();
                     }
                 });
-                requestAnimationFrame(() => { inputEl.focus(); inputEl.select(); });
+                // 最後の入力がパッドなら欄に入らない（合成キーでは文字を打てず、A が欄の Enter になる）。
+                // FocusNav のボタン（initial）にフォーカスを置き、既定値のまま進める（ロードマップ D §4.3）
+                const fromPad = !!(window.FocusNav && window.FocusNav.isPadInput && window.FocusNav.isPadInput());
+                if (!fromPad) requestAnimationFrame(() => { inputEl.focus(); inputEl.select(); });
             }
 
             if (window.FocusNav) {

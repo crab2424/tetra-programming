@@ -293,6 +293,7 @@ window.CPU7 = class {
         for (const t of (this.game.bag || [])) bagAfter |= 1 << t;
 
         this.isCalculating = true;
+        if (window.CpuZone) CpuZone.planMark(this); // この盤面で決める（ZONE が終わって動いたら考え直す）
         this._calcMino = mino;
         this.worker.postMessage({
             type: 'calculate',
@@ -332,6 +333,8 @@ window.CPU7 = class {
     handleWorkerResult(res) {
         this.isCalculating = false;
         if (!this.isActive) return;
+        // 考えている間に ZONE が終わって盤面が下がった。この結果は捨てて、いまのミノで考え直す
+        if (window.CpuZone && CpuZone.planStale(this)) { this.dropStalePlan(); return; }
         // 探索中に次のミノへ進んでいたら（重力で接地した等）結果は捨てて、いまのミノで考え直す
         if (this._calcMino !== this.currentMino) {
             if (this.currentMino && !this.isExecutingAction) this.onMinoSpawned();
@@ -906,6 +909,9 @@ window.CPU7 = class {
             return;
         }
 
+        // ZONE が終わって盤面が下がった（発動中の盤面で決めた手はもう合わない）。操作を捨てて、いまのミノで考え直す
+        if (window.CpuZone && CpuZone.planStale(this)) { this.dropStalePlan(); return; }
+
         const action = this.actionQueue.shift();
 
         if (!this.game.mino) {
@@ -988,6 +994,17 @@ window.CPU7 = class {
             };
             this.game.cpuSchedule(delayTime, tryFinish);
         }
+    }
+
+    // 決めた手を捨てる（ZONE の終了で盤面が動いた。cpu/tet/cpu_zone.js planStale）。次のフレームで updateLoop が
+    // いまのミノ（向き・位置はそのまま）について考え直す
+    dropStalePlan() {
+        this.actionQueue = [];
+        this.bestMoveData = null;
+        if (this.isExecutingAction) this.game.cpuAction('gravity', false);
+        this._holdSpawnType = null;
+        this.isExecutingAction = false;
+        CpuZone.planDrop(this);
     }
 
     initEstimateContainer() {

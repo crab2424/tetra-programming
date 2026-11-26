@@ -218,14 +218,23 @@
   display: flex;
   flex-direction: column-reverse;
   align-items: center;
-  gap: 1px;
   overflow: hidden;
   pointer-events: none;
   z-index: 5;
 }
+/* ブロックの区切りはローカルと同じく .gauge-block の下線（versus-result.css）。flex の gap を入れると
+   かたまり（.chunk）の中までブロックごとに切れて見えるので入れない */
 .ol-opp-garbage-gauge .gauge-block {
   width: calc(var(--field-gauge-w) * var(--ol-scale));
   height: calc(32px * var(--ol-scale));
+}
+/* かたまりの間のすき間（ローカル 8px）と合計の数も盤面の倍率に合わせる */
+.ol-opp-garbage-gauge .gauge-block.chunk.chunk-end {
+  border-top-width: calc(8px * var(--ol-scale));
+}
+.ol-opp-garbage-gauge .gauge-count {
+  font-size: calc(13px * var(--ol-scale));
+  line-height: calc(32px * var(--ol-scale));
 }
 
 /* 攻撃(送る・貯蓄)ゲージ: ol-opp-main-wrap 右側に縦棒として絶対配置。

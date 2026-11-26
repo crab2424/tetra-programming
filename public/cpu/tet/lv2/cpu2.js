@@ -7,7 +7,7 @@ window.CPU2 = class {
     // ★ 思考用 worker の URL（CpuWorkerPool が使い回す。ロード画面の prewarm もこれを見る）。
     //   wasm を再ビルドしたらここの ?v= を上げること。
     static WORKER_URLS = [
-        'cpu/tet/lv2/cpu_worker2.js?v=7',
+        'cpu/tet/lv2/cpu_worker2.js?v=8',
     ];
     constructor(gameInstance) {
         this.game = gameInstance;
@@ -146,6 +146,7 @@ window.CPU2 = class {
 
         if (this.isCalculating) return;
         this.isCalculating = true; 
+        if (window.CpuZone) CpuZone.planMark(this); // この盤面で決める（ZONE が終わって動いたら考え直す）
         // 考えている間も重力を止める（探索は今の位置から通り道を調べる。§2.3）
         this.holdGravity(true);
 
@@ -196,6 +197,8 @@ window.CPU2 = class {
 
     handleWorkerResult(res) {
         this.isCalculating = false; 
+        // 考えている間に ZONE が終わって盤面が下がった。この結果は捨てて、いまのミノで考え直す
+        if (window.CpuZone && CpuZone.planStale(this)) { this.holdGravity(false); CpuZone.planDrop(this); return; }
 
         let actionInt = res[0];
         
@@ -281,7 +284,8 @@ window.CPU2 = class {
     }
 
     // ── 置く手を 1 操作ずつ入れる（lv1 cpu.js と同じ作り。設計 lv1-2-input-design.md §2）──
-    // 置く手を 1 操作ずつの列にする（回転 → 1 マスずつ横移動。最後のハードドロップは runMove が入れる）
+    // 置く手を 1 操作ずつの列にする（回転 → 1 マスずつ横移動。最後のハードドロップは runMove が入れる）。
+    // moveTo は 1 マスずつ寄せる（今の列から目標の列まで。着くまで列に残る）
     buildActionQueue(move) {
         const mino = this.game.mino;
         const queue = [];
@@ -290,8 +294,8 @@ window.CPU2 = class {
             if (d === 3) queue.push({ type: 'rotate', dir: -1 });
             else for (let i = 0; i < d; i++) queue.push({ type: 'rotate', dir: 1 });
         }
-        const dx = move.x - mino.x;
-        for (let i = 0; i < Math.abs(dx); i++) queue.push({ type: 'shift', dir: Math.sign(dx) });
+        // 横移動は回転の後の列から数える（回転はキックで列が変わることがある。探索も同じ順で調べている）
+        if (move.x !== mino.x || queue.length > 0) queue.push({ type: 'moveTo', x: move.x });
         return queue;
     }
 
@@ -309,24 +313,41 @@ window.CPU2 = class {
         const queue = this.buildActionQueue(move);
         const alive = () => this.isActive && this.game.mino === mino;
         const paused = () => this.game.isPaused || this.game.state === 'paused';
+        // ZONE が終わって盤面が下がった（発動中の盤面で決めた手はもう合わない）。操作をやめて、いまのミノで考え直す
+        // （cpu/tet/cpu_zone.js planStale。次のフレームで updateLoop が onMinoSpawned を呼ぶ）
+        const stale = () => {
+            if (!(window.CpuZone && CpuZone.planStale(this))) return false;
+            this.holdGravity(false);
+            CpuZone.planDrop(this);
+            return true;
+        };
 
         const tryDrop = () => {
             if (!alive()) return;
             if (paused()) { this.game.cpuSchedule(100, tryDrop); return; }
+            if (stale()) return;
             this.game.cpuAction('hardDrop');
         };
         const step = () => {
             if (!alive()) { if (this.isActive) this.holdGravity(false); return; }
             if (paused()) { this.game.cpuSchedule(100, step); return; }
-            const a = queue.shift();
+            if (stale()) return;
+            let a = queue.shift();
+            // 回転の後にもう目標の列にいれば寄せない
+            while (a && a.type === 'moveTo' && this.game.mino.x === a.x) a = queue.shift();
             if (a) {
-                const ok = a.type === 'rotate'
-                    ? this.game.cpuAction('rotate', a.dir)
-                    : this.game.cpuAction('shift', a.dir, true);
+                let ok;
+                if (a.type === 'rotate') ok = this.game.cpuAction('rotate', a.dir);
+                else {
+                    ok = this.game.cpuAction('shift', Math.sign(a.x - this.game.mino.x), true);
+                    if (ok && this.game.mino.x !== a.x) queue.unshift(a);
+                }
                 // 動けなかったら（探索の読みと違う。ふつうは起きない）それ以上は寄せずにその場で落とす
                 if (!ok) queue.length = 0;
                 this.game.drawAll();
             }
+            // 回転だけで目標の列に着いたら、寄せの番を待たずにハードドロップへ
+            while (queue.length > 0 && queue[0].type === 'moveTo' && this.game.mino.x === queue[0].x) queue.shift();
             if (queue.length > 0) { this.game.cpuSchedule(this.actionDelay, step); return; }
             this.holdGravity(false);
             this.game.cpuSchedule(this.harddropDelay, tryDrop);

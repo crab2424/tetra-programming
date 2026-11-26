@@ -181,6 +181,9 @@ function zoneTierIndex(lines) {
 // ミノが動ける一番上の段（y がこれ以上）。ふつうは枠の上 5 段（計 25 段）。
 // ZONE が使える試合（シングルの ZONE・ローカル VERSUS の ZONE）は枠の上 20 段（計 40 段。盤面の上限）まで（ZONE 本編 §16・§17）
 const TET_TOP_LIMIT = -5;
+// 対戦の盤面の prefix（ローカル VERSUS の player / cpu・ONLINE の自分 ol-p と相手 ol-opp-0〜2）。
+// ONLINE の盤面の ZONE の DOM は src/battle/zone_online.ts が作る（設計 tetlabo-zone-online-design.md §8・§9）
+const zoneIsVsPrefix = (pre) => pre === 'player' || pre === 'cpu' || /^ol-(p|opp-\d)$/.test(pre || '');
 const ZONE_TOP_LIMIT = -20;
 Game.prototype.topLimit = TET_TOP_LIMIT;
 
@@ -191,7 +194,7 @@ Object.assign(Game.prototype, {
         if (this._zoneTimer) this.clock.cancel(this._zoneTimer);
         this._zoneTimer = null;
         // モード ZONE か、ローカル VERSUS で VS 設定 ZONE が ON（vsZone は applyVsSettings が入れる。
-        // テト同士のときだけ立つ。ONLINE の盤面には入らない）
+        // テト同士のときだけ立つ）。ONLINE は ZONE BATTLE の部屋だけ online_game.ts initTetBattle が同じ名前で入れる
         const vs = !!(this.isVersusMode && this.currentMode === 'versus' && this.vsZone === true);
         this.zoneEnabled = (this.mode === 'zone') || vs;
         // 動ける範囲。古い録画の再生は従来どおり 25 段（シングルは版 10 以前、VERSUS は版 11 以前。
@@ -267,6 +270,9 @@ Object.assign(Game.prototype, {
     // 毎フレームの頭（render.js _frameUpdate。時計を進めた後）で見る。両者のスコアの最大値から進める。
     // 見つけた側が両方の盤面へ同時に入れる（試合のループは 1P → 2P の順なので、録画の再生でも同じフレームで進む）
     _zoneBattleCheck() {
+        // ONLINE は相手の Game が無いので、サーバーの通知（全員のスコアの最大値。online_game.ts）で進める。
+        // window._game / _cpuGame は前のローカル対戦の盤面が残っていることがあるので読まない
+        if (this.isOnline) return;
         const opp = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
         if (!opp || opp === this || typeof opp._zoneSetPhase !== 'function') return;
         // 決着した後は進めない（どちらの盤面の状態でも決める。対戦の進行の phase は再生で変わるので見ない）
@@ -293,11 +299,21 @@ Object.assign(Game.prototype, {
 
     // PHASE TRIGGER: TIME の予約（両盤面がそれぞれ自分を進める。決着した後は進めない）
     _zonePhaseOnTime(p) {
-        const opp = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
-        if (this.isGameOver || this.isFinishing || (opp && (opp.isGameOver || opp.isFinishing))) return;
+        if (this.isOnline) {
+            // ONLINE: 決着の後（自分の脱落・勝敗の確定）は進めない。相手の盤面は見ない（部屋の進行を見る）
+            if (this.isGameOver || this.isFinishing || this._zoneOnlineSettled()) return;
+        } else {
+            const opp = this.canvasPrefix === 'cpu' ? window._game : window._cpuGame;
+            if (this.isGameOver || this.isFinishing || (opp && (opp.isGameOver || opp.isFinishing))) return;
+        }
         if (!(p > this.matchPhase)) return;
         this._zoneSetPhase(p);
-        if (this.canvasPrefix === 'player' && !this.isCpuControlled) this.playSe('levelup');
+        if ((this.canvasPrefix === 'player' || this.isOnline) && !this.isCpuControlled) this.playSe('levelup');
+    },
+
+    // ONLINE の試合が決着した（勝敗の確定・ローカルの残り 1 人の検知）か。online_game.ts が関数を入れる
+    _zoneOnlineSettled() {
+        return typeof this.onlineMatchSettled === 'function' ? !!this.onlineMatchSettled() : false;
     },
 
     // フェーズを入れる。メーターは割合を保って換算する（§3.2・ZB3）。
@@ -336,7 +352,7 @@ Object.assign(Game.prototype, {
     // 盤面の右の列の「PHASE 01」（ONLINE の TIME と同じ所。各盤面が自分の列に書く。フェーズなしの試合では隠す）
     _zoneSyncPhaseHud() {
         const pre = this.canvasPrefix;
-        if (!this.isVersusMode || (pre !== 'player' && pre !== 'cpu')) return;
+        if (!this.isVersusMode || !zoneIsVsPrefix(pre)) return;
         const block = document.getElementById(`${pre}-phase-block`);
         if (!block) return;
         block.style.display = this.matchPhase ? '' : 'none';
@@ -347,7 +363,7 @@ Object.assign(Game.prototype, {
     // 切り替わった瞬間に盤面の中央へ「PHASE 02」（描画だけ）
     _zoneShowPhasePopup(p) {
         const pre = this.canvasPrefix;
-        if (!this.isVersusMode || (pre !== 'player' && pre !== 'cpu')) return;
+        if (!this.isVersusMode || !zoneIsVsPrefix(pre)) return;
         const el = document.getElementById(`${pre}-zone-phase-popup`);
         if (!el) return;
         const t = el.querySelector('.zone-end-lines');
@@ -433,8 +449,11 @@ Object.assign(Game.prototype, {
         // VERSUS の決着の演出中は何もしない（止まった盤面を下げたり、火力を送ったりしない）。
         // 録画の再生中（_replay）は対戦の進行（BattleVersusLifecycle）が 'playing' にならないので見ない。
         // 見ると時間切れが無視されて ZONE が終わらず、再生がずれる（録画は決着で終わるので盤面の isFinishing で足りる）
+        // ONLINE はローカル VERSUS の進行（BattleVersusLifecycle。前のローカル対戦の値のまま）を見ない。
+        // 見ると時間切れが無視されて ZONE が終わらない。部屋の進行（_zoneOnlineSettled）で決める
         if (this.isVersusMode && (this.isFinishing
-            || (!this._replay && window.BattleVersusLifecycle && window.BattleVersusLifecycle.phase !== 'playing'))) return;
+            || (this.isOnline ? this._zoneOnlineSettled()
+                : (!this._replay && window.BattleVersusLifecycle && window.BattleVersusLifecycle.phase !== 'playing')))) return;
         // VERSUS はその場で終わる（操作中のミノは持ち越す）。シングルはいまのミノを置くまで続く（§4.5）
         if (this.isVersusMode) {
             this._endZone('time');
@@ -467,8 +486,9 @@ Object.assign(Game.prototype, {
         if (this._zoneFrozenRem != null) return this._zoneFrozenRem;
         const rem = Math.max(0, this.zoneDurationMs - (this.clock.now() - this.zoneStartAt));
         if (this.isVersusMode && (this.isFinishing || this.isGameOver
-            || (!this._replay && window.BattleVersusLifecycle
-                && ['roundResolving', 'roundResult', 'postMatch'].includes(window.BattleVersusLifecycle.phase)))) {
+            || (this.isOnline ? this._zoneOnlineSettled()
+                : (!this._replay && window.BattleVersusLifecycle
+                    && ['roundResolving', 'roundResult', 'postMatch'].includes(window.BattleVersusLifecycle.phase))))) {
             this._zoneFrozenRem = rem;
         }
         return rem;
@@ -645,26 +665,29 @@ Object.assign(Game.prototype, {
     },
 
     // ─── 画面（HUD）───
-    // シングルの盤面と、ローカル VERSUS の両盤面（player- / cpu-。ONLINE の盤面には要素が無い）。
+    // シングルの盤面と、ローカル VERSUS の両盤面（player- / cpu-）、ONLINE の盤面（ol-p / ol-opp-N。DOM は src/battle/zone_online.ts）。
     // 変わったときだけ DOM を書き換える。
     // ・円形のメーター（盤面の左下）: 1 周 = 4/4。12 時から時計回りにたまり、発動中は残り時間で反時計回りに減る
     //   （1/4 = zoneQuarterMs なので、減る速さはいつも同じ）。たまるときは CSS の transition で伸びる
     // ・盤面の枠の光: 発動した長さを全周として、上辺中央から左右に分かれて消えていき、下辺中央で終わる
     _zoneHudEls() {
         const pre = this.canvasPrefix || '';
-        if (this.isVersusMode ? (pre !== 'player' && pre !== 'cpu') : !!pre) return null;
+        if (this.isVersusMode ? !zoneIsVsPrefix(pre) : !!pre) return null;
         if (!this._zoneEls || this._zoneElsPrefix !== pre) {
             const id = pre ? (name) => `${pre}-zone-${name}` : (name) => `zone-${name}`;
             const area = document.getElementById(id('area'));
             if (area && !area.querySelector('.zone-ring')) area.innerHTML = ZONE_RING_HTML;
+            const canvas = document.getElementById(pre ? `${pre}-main-canvas` : 'main-canvas');
+            // 枠の光の SVG を入れる箱: ローカル VERSUS は versus-<pre>-container、ONLINE は盤面のキャンバスの親（.ol-opp-main-wrap）
             this._zoneElsPrefix = pre;
             this._zoneEls = {
                 area,
                 fills: area ? Array.from(area.querySelectorAll('.zone-ring-fill, .zone-ring-halo')) : [],
                 key: area ? area.querySelector('.zone-ring-key') : null,
                 sub: area ? area.querySelector('.zone-ring-sub') : null,
-                container: document.getElementById(pre ? `versus-${pre}-container` : 'container'),
-                canvas: document.getElementById(pre ? `${pre}-main-canvas` : 'main-canvas'),
+                container: pre.startsWith('ol-') ? (canvas ? canvas.parentElement : null)
+                    : document.getElementById(pre ? `versus-${pre}-container` : 'container'),
+                canvas,
                 popup: document.getElementById(id('end-popup')),
                 frame: null,
                 frameLines: [],
@@ -860,11 +883,12 @@ Object.assign(Game.prototype, {
         ctx.globalAlpha = 1;
     },
 
-    // シングルは #zone-top-canvas、ローカル VERSUS は盤面ごとの {player|cpu}-zone-top-canvas（ONLINE には無い）
+    // シングルは #zone-top-canvas、ローカル VERSUS は盤面ごとの {player|cpu}-zone-top-canvas、
+    // ONLINE は ol-p / ol-opp-N-zone-top-canvas（src/battle/zone_online.ts が作る）
     _zoneTopCanvas() {
         let id = null;
         if (!this.isVersusMode && !this.canvasPrefix) id = 'zone-top-canvas';
-        else if (this.isVersusMode && (this.canvasPrefix === 'player' || this.canvasPrefix === 'cpu')) id = `${this.canvasPrefix}-zone-top-canvas`;
+        else if (this.isVersusMode && zoneIsVsPrefix(this.canvasPrefix)) id = `${this.canvasPrefix}-zone-top-canvas`;
         if (!id) return null;
         // 覚えるキャンバスは id ごと。VERSUS の 1P の Game（window._tetGamePlayer）は試合後も window._game に残り、
         // シングルでそのまま使われる。id を見ずに 1 回目のキャンバスを使い続けると、シングルの ZONE が
@@ -887,7 +911,7 @@ Object.assign(Game.prototype, {
                     cv.style.height = h + 'px';
                     cv.style.top = `calc(3px - ${h}px)`;
                 } else {
-                    // VERSUS は CSS（.versus-zone-top-canvas）が盤面と同じ割合で縮める。画素の高さだけ渡す
+                    // VERSUS・ONLINE は CSS（.versus-zone-top-canvas / .ol-zone-top-canvas）が盤面と同じ割合で縮める。画素の高さだけ渡す
                     cv.style.height = '';
                     cv.style.top = '';
                     cv.style.setProperty('--zone-top-px', String(h));

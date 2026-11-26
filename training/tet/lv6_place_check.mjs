@@ -46,7 +46,7 @@ class Game {}
 globalThis.Block = Block; globalThis.Mino = Mino; globalThis.Field = Field; globalThis.Game = Game;
 globalThis.LEVEL_SPEEDS = LEVEL_SPEEDS;
 `, ctx);
-for (const f of ['game/tet/board.js', 'game/tet/rotation.js', 'cpu/tet/lv6/cpu6.js']) {
+for (const f of ['game/tet/board.js', 'game/tet/rotation.js', 'cpu/tet/cpu_zone.js', 'cpu/tet/lv6/cpu6.js']) { // cpu_zone.js: findGamePath の本体（CpuZone.gamePath）
     vm.runInContext(readFileSync(path.join(pub, f), 'utf8'), ctx, { filename: f });
 }
 const { Game, Mino, Block, Field, CPU6 } = ctx;

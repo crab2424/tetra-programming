@@ -707,6 +707,7 @@
   //   A(0) … 決定（Enter。押しっぱなしで繰り返さない）
   //   B(1) … 戻る（Escape）
   //   KEY CONFIG の RESTART（既定 8）… リザルト等の onRestart（キーボードの R と同じ）
+  //   LB(4) / RB(5) … ページ設定の onShoulder(-1/+1)（持つページだけ。ONLINE のタブ切替）
   // 対戦中は FocusNav がページを持たないので読まない（エンジンの _gamepadLoop と取り合わない）。
   // ポーズ画面ではエンジンもパッドを読むが、ポーズ中は試合の操作を捨てるので重ならない。
   // ページが切り替わった直後は、押されたままのボタン・方向をいったん離すまで無視する
@@ -791,6 +792,8 @@
 
   function padSendKey(type, name, repeat){
     const k = PAD_KEYS[name];
+    // パッドから来た入力の印（ロードマップ D §4.2）。本物のキー・マウスで戻す（下の markInputSource）
+    if (window.FocusNav) window.FocusNav.lastInputSource = 'pad';
     const ae = document.activeElement;
     const target = (ae && ae !== document.body && ae !== document.documentElement) ? ae : document;
     target.dispatchEvent(new KeyboardEvent(type, {
@@ -867,8 +870,18 @@
     // RESTART（キーボードの R と同じ。onRestart を持つページだけ）
     if (st.restart && !prev.restart && typeof active.onRestart === 'function'
         && rootIsActive() && !window.FocusNav.suspended && !isTypingTarget(document.activeElement)) {
+      window.FocusNav.lastInputSource = 'pad';
       setInputMode('kbd');
       active.onRestart();
+      return;
+    }
+    // LB(4) / RB(5) … ページ設定の onShoulder(-1/+1)（タブの切替。ロードマップ D §4.6）。押し始めだけ・繰り返さない
+    const shoulder = (st.btns[4] && !prev.btns[4]) ? -1 : (st.btns[5] && !prev.btns[5]) ? 1 : 0;
+    if (shoulder && typeof active.onShoulder === 'function'
+        && rootIsActive() && !window.FocusNav.suspended && !isTypingTarget(document.activeElement)) {
+      window.FocusNav.lastInputSource = 'pad';
+      setInputMode('kbd');
+      active.onShoulder(shoulder);
       return;
     }
     if (st.a && !prev.a) { padSendKey('keydown', 'enter', false); padSendKey('keyup', 'enter', false); return; }
@@ -881,10 +894,25 @@
     if ((active || padTitleShown()) && padRaf === null) padRaf = requestAnimationFrame(padTick);
   });
 
+  // 最後の入力がどこから来たか（ロードマップ D §4.2）。'pad' は padSendKey が合成の直前に立てる。
+  // 本物のキー（isTrusted）で 'kbd'、マウス・タッチで 'pointer' に戻す。パッドの合成キーでは
+  // ブラウザ標準の動き（文字入力・数値欄）が起きないため、入力欄に入るかどうかの判断に使う。
+  window.addEventListener('keydown', (e) => {
+    if (e.isTrusted && window.FocusNav) window.FocusNav.lastInputSource = 'kbd';
+  }, true);
+  ['mousedown', 'pointerdown', 'touchstart'].forEach(t => {
+    window.addEventListener(t, (e) => {
+      if (e.isTrusted && window.FocusNav) window.FocusNav.lastInputSource = 'pointer';
+    }, { capture: true, passive: true });
+  });
+
   window.FocusNav = {
     // suspended: 独自の数値編集UIがキー入力を占有している間 true（PRACTICEの桁スピナー等）。
     // rowHandlers: data-nav-row="<name>" の行に紐づく操作ハンドラの登録先。
     suspended: false,
+    // lastInputSource: 'pad' | 'kbd' | 'pointer'（上の説明）。isPadInput() は 'pad' のとき true
+    lastInputSource: 'kbd',
+    isPadInput: () => window.FocusNav.lastInputSource === 'pad',
     rowHandlers: {},
     register,
     activate,

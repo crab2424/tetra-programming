@@ -10,8 +10,13 @@ import {
   type UpdateRoomRequest,
   parseMatchSetting,
   type OnlineMatchSetting,
+  parseZoneMatchSetting,
+  type OnlineZoneMatchSetting,
+  parseBattleKind,
+  type BattleKind,
   accountMapFromRoom,
 } from "./payload";
+import { buildZoneSettingsGrid, type ZoneSettingsView } from "./zone_room_settings";
 import { showToast, ToastColor } from "../components/toast";
 import { AllTags, getTagName } from "./room";
 import { OnlineGameController } from "./online_game";
@@ -93,6 +98,12 @@ function focusNav(): any {
   return (window as any).FocusNav;
 }
 
+/** 最後の入力がパッド（FocusNav の合成キー）か（ロードマップ D §4.2）。
+ * 合成キーでは文字入力・数値欄のブラウザ標準の動きが起きないので、入力欄に入らない判断に使う。 */
+function isPadInput(): boolean {
+  return !!focusNav()?.isPadInput?.();
+}
+
 /** ルーム一覧の10秒自動更新でDOMが作り直されても、同じ項目へフォーカスを戻すための識別子。
  * 静的ボタンは各所で data-focus-key を明示、ルーム項目は data-room-id から合成する。 */
 function focusKeyOf(el: HTMLElement): string | undefined {
@@ -106,6 +117,8 @@ function toFocusItem(el: HTMLElement): FocusItem {
   const item: FocusItem = { el, key: focusKeyOf(el) };
   if (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA") {
     item.onActivate = (it) => {
+      // パッドの A では文字の欄に入らない（合成キーでは文字を打てない。既定値のまま進める。§4.3）
+      if (isPadInput()) return;
       (it.el as HTMLInputElement).focus();
       const withSelect = it.el as { select?: () => void };
       if (typeof withSelect.select === "function") {
@@ -122,6 +135,15 @@ function msRowItem(row: HTMLElement): FocusItem {
   const item: FocusItem = { el: row, key: row.dataset.focusKey, type: "row" };
   const seg = row.querySelector<HTMLElement>(".ms-segment");
   if (seg) {
+    const btns = Array.from(seg.querySelectorAll<HTMLElement>(".ms-seg-btn"));
+    if (btns.length > 2) {
+      // 3 つ以上の選択肢（ZONE TIME・ZONE CHARGE・PHASE 01/02/03 など）は ←/→ で隣へ、Enter で次へ（端で先頭へ）
+      const cur = () => btns.findIndex((b) => b.classList.contains("active"));
+      item.onLeft = () => { const i = cur(); if (i > 0) btns[i - 1].click(); };
+      item.onRight = () => { const i = cur(); if (i < btns.length - 1) btns[i + 1].click(); };
+      item.onActivate = () => btns[(cur() + 1) % btns.length].click();
+      return item;
+    }
     const toggle = () => seg.querySelector<HTMLElement>(".ms-seg-btn:not(.active)")?.click();
     item.onLeft = toggle;
     item.onRight = toggle;
@@ -132,6 +154,9 @@ function msRowItem(row: HTMLElement): FocusItem {
   item.onLeft = () => step?.(-1);
   item.onRight = () => step?.(+1);
   item.onActivate = () => {
+    // パッドの A では数値の欄に入らない（合成キーでは数字を打てず、B で抜けるしかなくなる。§4.1）。
+    // 値は ←/→（押しっぱなしで繰り返し）で変えられる。キーボードの Enter は今のまま欄へ入る。
+    if (isPadInput()) return;
     const num = row.querySelector<HTMLInputElement>(".ms-number");
     if (!num) return;
     num.focus();
@@ -140,15 +165,83 @@ function msRowItem(row: HTMLElement): FocusItem {
   return item;
 }
 
+/**
+ * タブの行（ZONE BATTLE の MATCH SETTINGS の ALL / MARGIN / PHASE・部屋一覧の種類の絞り込み）を 1 項目として扱う。
+ * ←/→ で切替（ローカルの VS 設定のタブ行 rowToggle と同じ）。Enter は次のタブ（端で先頭）。
+ */
+function tabsRowItem(row: HTMLElement): FocusItem {
+  const btns = () => Array.from(row.querySelectorAll<HTMLElement>(".opt-btn")).filter((b) => b.style.display !== "none");
+  const cur = () => btns().findIndex((b) => b.classList.contains("active"));
+  return {
+    el: row,
+    key: row.dataset.focusKey,
+    type: "row",
+    onLeft: () => { const i = cur(); if (i > 0) btns()[i - 1].click(); },
+    onRight: () => { const b = btns(); const i = cur(); if (i < b.length - 1) b[i + 1].click(); },
+    onActivate: () => { const b = btns(); b[(cur() + 1) % b.length]?.click(); },
+  };
+}
+
+/** <select> の値を d だけ動かす（wrap: 端で先頭へ回す）。変わったら change を投げる。 */
+function stepSelect(sel: HTMLSelectElement, d: number, wrap: boolean): void {
+  const n = sel.options.length;
+  if (n === 0) return;
+  let i = sel.selectedIndex + d;
+  if (wrap) i = ((i % n) + n) % n;
+  else if (i < 0 || i >= n) return;
+  if (i === sel.selectedIndex) return;
+  sel.selectedIndex = i;
+  sel.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+/**
+ * <select> を ←/→ で選ぶ行にする（設計 §2）。合成キー（パッド）ではネイティブの選択が開かないため。
+ * ←/→ で前後（端で止める）、Enter で次（端で先頭へ）。フォーカス枠は ◀ ▶ を含む .ol-select-row に出す。
+ */
+function selectRowItem(sel: HTMLSelectElement): FocusItem {
+  return {
+    el: sel.closest<HTMLElement>(".ol-select-row") ?? sel,
+    key: sel.dataset.focusKey ?? (sel.id ? "select:" + sel.id : undefined),
+    type: "row",
+    onLeft: () => stepSelect(sel, -1, false),
+    onRight: () => stepSelect(sel, +1, false),
+    onActivate: () => stepSelect(sel, +1, true),
+  };
+}
+
+/** ◀ <select> ▶ の行。◀ ▶ はマウスでも押せる（label の中に置いても select を開かないよう既定動作を止める）。 */
+function selectRow(sel: HTMLSelectElement): HTMLElement {
+  const arrow = (d: number) => (
+    <span
+      class="ol-select-arrow"
+      aria-hidden="true"
+      onmousedown={(e: MouseEvent) => e.preventDefault()}
+      onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); stepSelect(sel, d, false); }}
+    >
+      {d < 0 ? "◀" : "▶"}
+    </span>
+  );
+  return (
+    <div class="ol-select-row">
+      {arrow(-1)}
+      {sel}
+      {arrow(+1)}
+    </div>
+  ) as HTMLElement;
+}
+
 function collectFocusable(root: HTMLElement): FocusItem[] {
   // .online-room はクリックで入室する div（buttonではない）なので明示的に含める。
-  // .ms-row-editable は行ごと1項目（中のボタン/inputは個別に拾わない）。
+  // .ms-row-editable・.ms-tabs-row は行ごと1項目（中のボタン/inputは個別に拾わない）。
   return Array.from(
-    root.querySelectorAll<HTMLElement>("button, input, select, .online-room, .ms-row-editable"),
+    root.querySelectorAll<HTMLElement>("button, input, select, .online-room, .ms-row-editable, .ms-tabs-row, .ol-code-spinner"),
   )
     .filter((el) => !el.matches(":disabled"))
-    .filter((el) => el.classList.contains("ms-row-editable") || !el.closest(".ms-row-editable"))
-    .map((el) => (el.classList.contains("ms-row-editable") ? msRowItem(el) : toFocusItem(el)));
+    .filter((el) => el.classList.contains("ms-row-editable") || el.classList.contains("ms-tabs-row")
+      || !el.closest(".ms-row-editable, .ms-tabs-row"))
+    .map((el) => (el.classList.contains("ms-tabs-row") ? tabsRowItem(el)
+      : el.classList.contains("ms-row-editable") ? msRowItem(el)
+      : el.tagName === "SELECT" ? selectRowItem(el as HTMLSelectElement) : toFocusItem(el)));
 }
 
 /** #online-top-container 配下、モーダルや`.btn-danger`(破壊的操作)を除いた中から
@@ -199,6 +292,41 @@ function onlineTopEscapeTarget(): HTMLElement | null {
   return null;
 }
 
+/** LB/RB のタブ切替（§4.6）のあと、少しの間だけ描き直し（ロビーの絞り込みは非同期）でも面倒を見る。 */
+let shoulderPending: { rowKey: string; until: number } | null = null;
+
+/**
+ * タブを切り替えたあとのフォーカス: 今の項目が見えていればそのまま、消えた（別のタブの行だった・
+ * 絞り込みで部屋が消えた）ならタブ行へ。
+ */
+function settleFocusAfterTabSwitch(prevKey: string | null | undefined, rowKey: string): void {
+  const FN = focusNav();
+  if (!FN || FN.getActivePageId() !== "online-top") return;
+  const visible = onlineTopGetItems().filter((it) => it.el.isConnected && it.el.offsetParent !== null);
+  if (prevKey != null) {
+    FN.restoreFocus(visible.some((it) => it.key === prevKey) ? prevKey : rowKey);
+    return;
+  }
+  const cur = onlineTopContainerEl()?.querySelector<HTMLElement>(".is-focused");
+  if (cur && visible.some((it) => it.el === cur)) return;
+  FN.restoreFocus(rowKey);
+}
+
+/** LB(-1)/RB(+1): 見えているタブ行（ロビーの種類の絞り込み・ZONE BATTLE の MATCH SETTINGS）の前後のタブを押す。 */
+function onlineTopShoulder(dir: number): void {
+  const container = onlineTopContainerEl();
+  if (!container) return;
+  const row = Array.from(container.querySelectorAll<HTMLElement>(".ms-tabs-row")).find((r) => r.offsetParent !== null);
+  if (!row) return;
+  const rowKey = row.dataset.focusKey;
+  const prevKey = focusNav()?.currentFocusKey?.() ?? null;
+  const item = tabsRowItem(row);
+  (dir < 0 ? item.onLeft : item.onRight)?.();
+  if (!rowKey) return;
+  settleFocusAfterTabSwitch(prevKey, rowKey);
+  shoulderPending = { rowKey, until: Date.now() + 2000 };
+}
+
 function ensureOnlineTopFocusPage(): void {
   const FN = focusNav();
   if (!FN || FN.__onlineTopRegistered) return;
@@ -207,6 +335,7 @@ function ensureOnlineTopFocusPage(): void {
     root: document.getElementById("online-top-page"),
     getItems: onlineTopGetItems,
     escapeAction: onlineTopEscapeTarget,
+    onShoulder: onlineTopShoulder,
     // 最初のフォーカス: RM 確認パネルは「OK！対戦する」、ルームは READY / GAME START
     // （DOM 順のままだと「辞退する」「◀ LEAVE」から始まり、Enter で辞退・退出確認になる）
     initialIndex: (els: HTMLElement[]) => {
@@ -243,6 +372,12 @@ function syncOnlineTopFocus(preserveKey?: string | null, opts?: { fresh?: boolea
   if (isLoadingOverlayVisible()) return;
   if (FN.getActivePageId() === "online-top" && !opts?.fresh) {
     FN.restoreFocus(preserveKey ?? null);
+    // LB/RB の直後の描き直し（ロビーの絞り込み）: 今の項目が消えていたらタブ行へ
+    const pending = shoulderPending;
+    if (pending) {
+      shoulderPending = null;
+      if (Date.now() < pending.until) settleFocusAfterTabSwitch(preserveKey, pending.rowKey);
+    }
   } else {
     FN.activate("online-top");
   }
@@ -280,8 +415,10 @@ class Modal {
       }
     });
     // 入力欄が 1 つだけのダイアログ（コードで参加など）は、開いた直後から打てるようにする
+    // ただし最後の入力がパッドなら入らない（合成キーは欄に文字を入れられず、A が欄の Enter として
+    // 主ボタンを押してしまう。部屋を作るダイアログが既定値のまま作成される不具合だった。§4.2）
     const inputs = content.querySelectorAll<HTMLInputElement>("input[type=text], input[type=number]");
-    if (inputs.length === 1 && content.classList.contains("ol-dialog")) {
+    if (inputs.length === 1 && content.classList.contains("ol-dialog") && !isPadInput()) {
       const only = inputs[0];
       requestAnimationFrame(() => {
         if (!only.isConnected) return;
@@ -458,6 +595,98 @@ class Modal {
       Modal.showModal(modalContent);
     });
   }
+
+  /**
+   * 数字の桁スピナーで入力するダイアログ（ロードマップ D §3。パッドから開いた JOIN BY CODE）。
+   * PRACTICE の目標値スピナー（practice.js）と同じ操作: ←/→ で桁移動、↑/↓ でその桁を 0〜9 で回す
+   * （パッドは FocusNav の DAS/ARR で繰り返す）、数字キーはその桁に入れて次の桁へ（最後の桁は上書き）、
+   * Enter（A）で決定、Escape（B）で取消。開いている間は FocusNav.suspended でキーを奪う。
+   * 決定で digits を連ねた文字列、取消で null。
+   */
+  static async codeSpinner(
+    message: string,
+    title: string,
+    digits: number,
+    okMessage: string = "OK",
+    cancelMessage: string = "Cancel",
+  ): Promise<string | null> {
+    return new Promise<string | null>((resolve) => {
+      const values = new Array<number>(digits).fill(0);
+      let pos = 0;
+      const boxes = values.map((_, i) => (
+        <span class="ol-code-digit" onclick={() => { pos = i; render(); }}>0</span>
+      ) as HTMLElement);
+      const render = () => {
+        boxes.forEach((b, i) => {
+          b.textContent = String(values[i]);
+          b.classList.toggle("is-active", i === pos);
+        });
+      };
+      let done = false;
+      const finish = (result: string | null) => {
+        if (done) return;
+        done = true;
+        cleanup();
+        Modal.hideModal();
+        resolve(result);
+      };
+      const onKey = (e: KeyboardEvent) => {
+        // 別のダイアログに置き換わった・ページを離れたときは、キーを奪うのをやめるだけ
+        if (!modalContent.isConnected) { cleanup(); return; }
+        let handled = true;
+        if (e.key === "Enter") { if (!e.repeat) finish(values.join("")); }
+        else if (e.key === "Escape") finish(null);
+        else if (e.key === "ArrowLeft") { pos = Math.max(0, pos - 1); render(); }
+        else if (e.key === "ArrowRight") { pos = Math.min(digits - 1, pos + 1); render(); }
+        else if (e.key === "ArrowUp") { values[pos] = (values[pos] + 1) % 10; render(); }
+        else if (e.key === "ArrowDown") { values[pos] = (values[pos] + 9) % 10; render(); }
+        else if (e.key.length === 1 && e.key >= "0" && e.key <= "9") {
+          values[pos] = Number(e.key);
+          pos = Math.min(digits - 1, pos + 1);
+          render();
+        } else handled = false;
+        if (handled) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      };
+      const cleanup = () => {
+        document.removeEventListener("keydown", onKey, true);
+        const FN = focusNav();
+        if (FN) FN.suspended = false;
+      };
+      const modalContent = (
+        <div
+          class="ol-dialog"
+          style={{
+            padding: "20px",
+            gap: "10px",
+            minWidth: "300px",
+          }}
+        >
+          <h2>{title}</h2>
+          <breakableDiv body={message} />
+          <div class="ol-code-spinner">{boxes}</div>
+          <div class="ol-code-hint">←/→ 桁　↑/↓ 数字　A 決定　B キャンセル</div>
+          <div
+            style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}
+          >
+            <button class="btn btn-secondary" onclick={() => finish(null)}>
+              {cancelMessage}
+            </button>
+            <button class="btn btn-primary" onclick={() => finish(values.join(""))}>
+              {okMessage}
+            </button>
+          </div>
+        </div>
+      ) as HTMLElement;
+      render();
+      Modal.showModal(modalContent);
+      const FN = focusNav();
+      if (FN) FN.suspended = true;
+      document.addEventListener("keydown", onKey, true);
+    });
+  }
 }
 
 /**
@@ -596,7 +825,11 @@ class OnlineMode {
    * 描いたときの設定だけを土台にすると、返事の前に 2 つ目を送ったとき 1 つ目が古い値で
    * 上書きされていた（報告書 7）。
    */
-  private msSentPatch: Partial<OnlineMatchSetting> = {};
+  private msSentPatch: Record<string, unknown> = {};
+  /** ZONE BATTLE の部屋の MATCH SETTINGS で開いているタブ・PHASE の小タブ（描き直しをまたいで残す。送らない） */
+  private zoneSettingsView: ZoneSettingsView = { tab: "all", phase: 1 };
+  /** 部屋一覧の種類の絞り込み（設計 §13 Q6） */
+  private roomListFilter: "all" | BattleKind = "all";
   private msInflight = 0;
   /** 前回描いた MATCH SETTINGS の内容（設定＋ホストか）。同じなら作り直さない */
   private lastMsSig: string | null = null;
@@ -850,16 +1083,22 @@ class OnlineMode {
     this.applyLobbyBgm();
 
     const isOwner = roomData.ownerId === myUserId;
-    const msServer = parseMatchSetting(roomData.matchSetting);
+    // 部屋の種類（作った後は変わらない）。ZONE BATTLE は全員テト・部屋設定も ZONE BATTLE 用（設計 §3・§4）
+    const isZone = parseBattleKind(roomData.battle) === "zone";
+    const msServer: Record<string, unknown> = isZone
+      ? { ...parseZoneMatchSetting(roomData.matchSetting) }
+      : { ...parseMatchSetting(roomData.matchSetting) };
     // 送った設定が通知に反映されたら控えから外す。送信中が無ければ通知の値が正なので全部捨てる
     if (this.msInflight === 0) this.msSentPatch = {};
     else {
-      for (const k of Object.keys(this.msSentPatch) as (keyof OnlineMatchSetting)[]) {
-        if (msServer[k] === this.msSentPatch[k]) delete this.msSentPatch[k];
+      for (const k of Object.keys(this.msSentPatch)) {
+        if (JSON.stringify(msServer[k]) === JSON.stringify(this.msSentPatch[k])) delete this.msSentPatch[k];
       }
     }
     // 表示も送信中の変更を重ねた値にする（返事の途中の通知で一瞬元に戻って見えないように）
-    const ms: OnlineMatchSetting = { ...msServer, ...this.msSentPatch };
+    const msAny = { ...msServer, ...this.msSentPatch };
+    const ms = msAny as unknown as OnlineMatchSetting;
+    const zs = msAny as unknown as OnlineZoneMatchSetting;
     const readySet = new Set(roomData.readyPlayers ?? []);
     const pingMap = new Map<Uuid, number>(roomData.pings ?? []);
     const accountMap = accountMapFromRoom(roomData);
@@ -894,6 +1133,7 @@ class OnlineMode {
     // pingReport(5秒毎)で RoomInfoNotification が頻繁に来るため、毎回全再構築すると
     // アイコンのちらつきや入力・スクロール状態のリセットが起きる。差分でそれを防ぐ。
     const sig = JSON.stringify({
+      battle: roomData.battle,
       players: roomData.players,
       owner: roomData.ownerId,
       ready: [...readySet].sort(),
@@ -916,19 +1156,19 @@ class OnlineMode {
     // （ランダムマッチの自動READY/STARTは上の早期returnブロックで処理済み）
 
     /** マッチ設定の部分更新を送信する（失敗時はトースト） */
-    const sendSetting = (patch: Partial<OnlineMatchSetting>) => {
+    const sendSetting = (patch: Record<string, unknown>) => {
       Object.assign(this.msSentPatch, patch);
       this.msInflight++;
       this.connection!.updateMatchSetting({
         roomId: roomData.roomId,
-        setting: JSON.stringify({ ...ms, ...this.msSentPatch }),
+        setting: JSON.stringify({ ...msAny, ...this.msSentPatch }),
       }).then((r) => {
         if (!r.success) {
-          for (const k of Object.keys(patch) as (keyof OnlineMatchSetting)[]) delete this.msSentPatch[k];
+          for (const k of Object.keys(patch)) delete this.msSentPatch[k];
         }
         this.notifyIfFailed(r, "設定変更");
       }).catch(() => {
-        for (const k of Object.keys(patch) as (keyof OnlineMatchSetting)[]) delete this.msSentPatch[k];
+        for (const k of Object.keys(patch)) delete this.msSentPatch[k];
       }).finally(() => {
         this.msInflight = Math.max(0, this.msInflight - 1);
       });
@@ -979,7 +1219,16 @@ class OnlineMode {
       max: number,
       step: number,
       unit: string,
+      /** 値で単位の表示を変える（MARGIN TIME の 0 = INSTANT。ローカルの VS 設定と同じ表示） */
+      unitOf?: (v: number) => string,
+      /** 使わない行を薄くする（MARGIN OFF のときの MARGIN TIME。ローカルの is-inert と同じ。操作はできる） */
+      inert = false,
     ) => {
+      const u = (v: number) => (unitOf ? unitOf(v) : unit);
+      const syncUnit = (rowEl: Element | null | undefined, v: number) => {
+        const el = rowEl?.querySelector<HTMLElement>(".ms-unit");
+        if (el) el.textContent = u(v);
+      };
       let lastCommitted = value;
       const commit = (raw: string) => {
         let n = Number(raw);
@@ -994,7 +1243,7 @@ class OnlineMode {
       };
       const row = (
         <div
-          class={"ms-row ms-row-slider" + (isOwner ? " ms-row-editable" : "")}
+          class={"ms-row ms-row-slider" + (isOwner ? " ms-row-editable" : "") + (inert ? " is-inert" : "")}
           data-focus-key={"ms:" + String(key)}
         >
           <span class="ms-label">{label}</span>
@@ -1010,6 +1259,7 @@ class OnlineMode {
                 oninput={(e) => {
                   const num = (e.target as HTMLElement).parentElement?.querySelector<HTMLInputElement>(".ms-number");
                   if (num) num.value = (e.target as HTMLInputElement).value;
+                  syncUnit((e.target as HTMLElement).parentElement, Number((e.target as HTMLInputElement).value));
                 }}
                 onchange={(e) => commit((e.target as HTMLInputElement).value)}
               />
@@ -1031,12 +1281,11 @@ class OnlineMode {
                   }
                 }}
               />
-              <span class="ms-unit">{unit}</span>
+              <span class={"ms-unit" + (unitOf ? " ms-unit-wide" : "")}>{u(value)}</span>
             </div>
           ) : (
             <span class="ms-readonly">
-              {value}
-              {unit}
+              {unitOf && u(value) !== unit ? u(value) : `${value}${unit}`}
             </span>
           )}
         </div>
@@ -1053,6 +1302,7 @@ class OnlineMode {
         const text = step >= 1 ? String(n) : String(Number(n.toFixed(4)));
         slider.value = text;
         if (num) num.value = text;
+        syncUnit(row, n);
         const timerKey = String(key);
         const prevTimer = this.msStepTimers.get(timerKey);
         if (prevTimer !== undefined) clearTimeout(prevTimer);
@@ -1075,7 +1325,7 @@ class OnlineMode {
     // MATCH SETTINGS の部分を作り直してよいか（報告書 16）。設定と自分がホストかが前回と
     // 同じなら、元の要素を DOM に付けたまま残す。ほかの人の READY・入退室のたびに丸ごと
     // 作り直すと、ホストのスライダー操作・数値入力が途切れて値が戻っていた。
-    const msSig = JSON.stringify({ ms, isOwner });
+    const msSig = JSON.stringify({ ms: msAny, isOwner, isZone });
     const keepMsSection = alreadyRendered && msSig === this.lastMsSig;
     this.lastMsSig = msSig;
     const roomTree = (
@@ -1128,6 +1378,7 @@ class OnlineMode {
                 <>{roomData.roomName}</>
                 &nbsp;
                 <>{!(roomData.isPublic ?? false) ? "🔒" : "🌍"}</>
+                {isZone && <span class="ol-battle-badge ol-battle-zone">ZONE BATTLE</span>}
               </h2>
               <div
                 style={{ display: "flex", alignItems: "center", gap: "12px" }}
@@ -1308,8 +1559,9 @@ class OnlineMode {
                         </span>
                       ))}
                   </span>
-                  {id === myUserId ? (
+                  {id === myUserId && !isZone ? (
                     // READY 中はルール変更不可（相手が見た条件と食い違うのを防ぐ）。
+                    // ZONE BATTLE の部屋は全員テトなのでルールの切替を出さない（下の表示だけ）
                     // READY を解除すれば再び変更できる。
                     <div
                       style={{
@@ -1516,16 +1768,23 @@ class OnlineMode {
                     : "（オーナーのみ変更可）"}
                 </span>
               </div>
-              <div class="ms-grid">
+              {isZone ? buildZoneSettingsGrid({
+                setting: zs,
+                isOwner,
+                view: this.zoneSettingsView,
+                send: (patch) => sendSetting(patch as Record<string, unknown>),
+              }) : <div class="ms-grid">
                 {toggleRow("HOLD", "holdEnabled", ms.holdEnabled)}
                 {toggleRow("B2B BONUS", "b2bBonus", ms.b2bBonus)}
                 {toggleRow("DMG ON CLEAR", "garbageDamageOnClear", ms.garbageDamageOnClear,)}
                 {sliderRow("SET TO", "setTarget", ms.setTarget, 1, 9, 1, " wins",)}
                 {sliderRow("GARBAGE ×", "garbageMultiplier", ms.garbageMultiplier, 0, 3, 0.1, "x",)}
-                {sliderRow("MARGIN TIME", "marginTime", ms.marginTime, 0, 300, 1, "s",)}
+                {toggleRow("MARGIN", "marginEnabled", ms.marginEnabled)}
+                {sliderRow("MARGIN TIME", "marginTime", ms.marginTime, 0, 300, 1, "s",
+                  (v) => (v === 0 ? "INSTANT" : "s"), !ms.marginEnabled)}
                 {sliderRow("HOLE RATE", "garbageHoleRate", ms.garbageHoleRate, 0, 100, 1, "%",)}
                 {sliderRow("OJAMA RATE", "ojamaRate", ms.ojamaRate, 0, 200, 1, "%",)}
-              </div>
+              </div>}
             </div>
           </div>
         </div>
@@ -1557,6 +1816,7 @@ class OnlineMode {
     this.lastMsSig = null;
     this.lastRoomInfo = null;
     this.msSentPatch = {};
+    this.zoneSettingsView = { tab: "all", phase: 1 };
     this.msStepTimers.forEach((t) => clearTimeout(t));
     this.msStepTimers.clear();
     this.state = OnlineModeState.InRoom;
@@ -1703,6 +1963,7 @@ class OnlineMode {
       roomName: string;
       maxPlayers: number;
       isPublic: boolean;
+      battle: BattleKind;
     };
     const form = await new Promise<CreateRoomForm | null>((resolve) => {
       const readForm = (): CreateRoomForm => {
@@ -1715,10 +1976,14 @@ class OnlineMode {
         const visInput = document.getElementById(
           "online-create-visibility",
         ) as HTMLSelectElement | null;
+        const battleInput = document.getElementById(
+          "online-create-battle",
+        ) as HTMLSelectElement | null;
         return {
           roomName: nameInput?.value?.trim() || this.userName + "の部屋",
           maxPlayers: Number(maxInput?.value) || 4,
           isPublic: visInput?.value === "public",
+          battle: parseBattleKind(battleInput?.value),
         };
       };
       const modalContent = (
@@ -1734,6 +1999,18 @@ class OnlineMode {
           <label
             style={{ display: "flex", flexDirection: "column", gap: "4px" }}
           >
+            BATTLE
+            {selectRow(
+              <select id="online-create-battle" class="settings-online-input">
+                <option value="versus">VERSUS（テト・ぷよ）</option>
+                <option value="zone">ZONE BATTLE（テトのみ・ZONE あり）</option>
+              </select> as HTMLSelectElement,
+            )}
+            <span class="ol-create-note">作成後は変更できません</span>
+          </label>
+          <label
+            style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+          >
             ルーム名
             <input
               id="online-create-room-name"
@@ -1746,23 +2023,27 @@ class OnlineMode {
             style={{ display: "flex", flexDirection: "column", gap: "4px" }}
           >
             最大人数
-            <select
-              id="online-create-max-players"
-              class="settings-online-input"
-            >
-              <option value="4">4人</option>
-              <option value="3">3人</option>
-              <option value="2">2人</option>
-            </select>
+            {selectRow(
+              <select
+                id="online-create-max-players"
+                class="settings-online-input"
+              >
+                <option value="4">4人</option>
+                <option value="3">3人</option>
+                <option value="2">2人</option>
+              </select> as HTMLSelectElement,
+            )}
           </label>
           <label
             style={{ display: "flex", flexDirection: "column", gap: "4px" }}
           >
             公開設定
-            <select id="online-create-visibility" class="settings-online-input">
-              <option value="private">🔒 プライベート（コード参加のみ）</option>
-              <option value="public">🌍 パブリック（一覧に表示）</option>
-            </select>
+            {selectRow(
+              <select id="online-create-visibility" class="settings-online-input">
+                <option value="private">🔒 プライベート（コード参加のみ）</option>
+                <option value="public">🌍 パブリック（一覧に表示）</option>
+              </select> as HTMLSelectElement,
+            )}
           </label>
           <div
             style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}
@@ -1793,15 +2074,17 @@ class OnlineMode {
     });
     if (!form) return;
 
-    const { roomName, maxPlayers, isPublic } = form;
+    const { roomName, maxPlayers, isPublic, battle } = form;
 
     const { roomId } = await this.connection!.createRoom({
       roomName,
       maxPlayers,
       tags: [],
       username: this.userName,
-      rule: this.getPreferredRule(),
+      // ZONE BATTLE の部屋は全員テト（サーバーもテトに置き換える）
+      rule: battle === "zone" ? "tet" : this.getPreferredRule(),
       isPublic,
+      battle,
     });
     this.logger.info("Created room with ID:", roomId);
     this.currentRoom = {
@@ -2235,13 +2518,23 @@ class OnlineMode {
 
   /** 6桁コードでルームに参加する */
   private async joinRoomByCode() {
-    const code = await Modal.prompt(
-      "6桁のルームコードを入力してください。",
-      "コードで参加",
-      "",
-      "参加",
-      "キャンセル",
-    );
+    // パッドから開いたときは桁スピナー（合成キーでは入力欄に数字を打てない。ロードマップ D §3）。
+    // キーボード・マウスから開いたときは今までどおり入力欄（打てる・貼り付けられる）。
+    const code = isPadInput()
+      ? await Modal.codeSpinner(
+        "6桁のルームコードを入力してください。",
+        "コードで参加",
+        6,
+        "参加",
+        "キャンセル",
+      )
+      : await Modal.prompt(
+        "6桁のルームコードを入力してください。",
+        "コードで参加",
+        "",
+        "参加",
+        "キャンセル",
+      );
     if (code === null) return;
     const trimmed = code.trim();
     if (!/^\d{6}$/.test(trimmed)) {
@@ -2277,7 +2570,10 @@ class OnlineMode {
     this.state = OnlineModeState.RoomList;
     this.applyLobbyBgm();
 
-    const { rooms, onlineCount, inMatchCount } = await this.connection!.getRooms();
+    const { rooms: allRooms, onlineCount, inMatchCount } = await this.connection!.getRooms();
+    // 種類の絞り込み（VERSUS / ZONE BATTLE。設計 §13 Q6）
+    const filter = this.roomListFilter;
+    const rooms = allRooms.filter((r) => filter === "all" || parseBattleKind(r.battle) === filter);
     this.logger.log("Received rooms from server:", rooms);
 
     // 直後に state が変わっていたら描画しない（自動更新とページ遷移の競合防止）
@@ -2342,6 +2638,22 @@ class OnlineMode {
               ＋ ルーム作成
             </button>
           </div>
+          {/* 種類の絞り込み（行として 1 フォーカス・←/→ で切替。tabsRowItem） */}
+          <div class="option-toggle ol-room-filter ms-tabs-row" data-focus-key="lobby-filter">
+            {([["all", "ALL"], ["versus", "VERSUS"], ["zone", "ZONE BATTLE"]] as const).map(([v, text]) => (
+              <button
+                class={"opt-btn" + (filter === v ? " active" : "") + (v === "zone" ? " ol-filter-zone" : "")}
+                data-filter={v}
+                onclick={() => {
+                  if (this.roomListFilter === v) return;
+                  this.roomListFilter = v;
+                  this.onlineTopPage(true, true);
+                }}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
 
           {/* 中段: ルーム一覧（縦スクロール） */}
           <div id="online-rooms-container">
@@ -2356,6 +2668,9 @@ class OnlineMode {
                     <span class="online-room-name">
                       {room.locked ? "🔒 " : ""}
                       {room.roomName}
+                      {parseBattleKind(room.battle) === "zone" && (
+                        <span class="ol-battle-badge ol-battle-zone">ZONE BATTLE</span>
+                      )}
                     </span>
                     <span class="online-room-count">
                       👤 {room.players}/{room.maxPlayers}
@@ -2373,7 +2688,11 @@ class OnlineMode {
                 </div>
               ))
             ) : (
-              <div class="online-rooms-empty">現在ルームはありません．</div>
+              <div class="online-rooms-empty">
+                {filter === "all" || allRooms.length === 0
+                  ? "現在ルームはありません．"
+                  : `${filter === "zone" ? "ZONE BATTLE" : "VERSUS"} のルームはありません．`}
+              </div>
             )}
           </div>
 
@@ -2410,6 +2729,7 @@ class OnlineMode {
         onlineTopContainer.querySelector(".online-header"),
         onlineTopContainer.querySelector(".online-count-badge"),
         onlineTopContainer.querySelector(".online-list-header"),
+        onlineTopContainer.querySelector(".ol-room-filter"),
         document.getElementById("online-rooms-container"),
         onlineTopContainer.querySelector(".online-list-footer"),
       ]);

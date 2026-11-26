@@ -508,6 +508,21 @@ function getAttackMultiplier(side) {
 }
 
 /**
+ * 盤面に入っている火力補正の乗率（vsAttackMultiplier）から、ATTACK BIAS の段階と % を読む（リザルトの HANDICAP）。
+ * 設定ではなく盤面の値から読むので、リプレイの続き（PLAY HERE）でもその試合の補正が出る。
+ * @param {number} mult
+ * @returns {{bias:number, pct:number}}
+ */
+function vsBiasFromMultiplier(mult) {
+    const m = typeof mult === 'number' && isFinite(mult) ? mult : 1;
+    let best = 3;
+    ATTACK_BIAS_TABLE.forEach((e, i) => {
+        if (Math.abs(e.num / e.den - m) < Math.abs(ATTACK_BIAS_TABLE[best].num / ATTACK_BIAS_TABLE[best].den - m)) best = i;
+    });
+    return { bias: best - 3, pct: ATTACK_BIAS_TABLE[best].pct };
+}
+
+/**
  * マージンタイムをミリ秒で取得する。
  * @returns {number|null} null=OFF、0=即時、正数=突入までのms、負数=事前経過ms（テーブルを進めて即突入）
  */
@@ -1523,12 +1538,13 @@ function _updateVsSettingsSummary() {
     const s = currentVsSettings;
     const D = _vsDefaults();
     const isDefault = JSON.stringify(s) === JSON.stringify(D);
-    // プリセットを作っていれば、使っているプリセットの名前を頭に（v2.6.2）
+    // 準備画面には短く「使っているプリセットの名前」か DEFAULT / CUSTOM（変えた数）だけを出す。
+    // 項目が増えて一覧では欄に収まらなくなったため（2026-11-25）。変えた項目の一覧はマウスを載せたときの title に
     const pname = activeVsPresetName();
-    const head = pname ? `${pname} · ` : '';
 
     if (isDefault) {
-        el.textContent = head + 'ALL DEFAULT';
+        el.textContent = pname || 'DEFAULT';
+        el.title = '';
         el.style.color = '';
         return;
     }
@@ -1589,7 +1605,8 @@ function _updateVsSettingsSummary() {
 
     if (s.puyo) _pushPuyoSummary(parts, s, D);
 
-    el.textContent = head + parts.join(' / ');
+    el.textContent = pname || (parts.length ? `CUSTOM (${parts.length})` : 'CUSTOM');
+    el.title = parts.join('\n');
     el.style.color = vsSettingsProfile === 'zone' ? 'var(--zone-battle-color)' : 'var(--accent, #c471ed)';
 }
 

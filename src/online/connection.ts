@@ -49,6 +49,8 @@ import {
   type NotifyGameOverResponse,
   type WinnerNotification,
   isWinnerNotification,
+  isZonePhaseNotification,
+  type ZonePhaseNotification,
   type PostMatchActionRequest,
   type PostMatchActionNotification,
   isPostMatchActionNotification,
@@ -1227,6 +1229,12 @@ export class GameConnection {
   onWinnerNotification(cb: (n: WinnerNotification) => void): Uuid {
     return this.addJsonReaderFunction((e) => {
       if (isWinnerNotification(e)) cb(e as any);
+    });
+  }
+
+  onZonePhaseNotification(cb: (n: ZonePhaseNotification) => void): Uuid {
+    return this.addJsonReaderFunction((e) => {
+      if (isZonePhaseNotification(e)) cb(e as any);
     });
   }
 

@@ -315,38 +315,18 @@ Object.assign(Game.prototype, {
         //   ・青は攻撃 1 回ごとに別のかたまり。着弾できるようになったら赤のかたまりへつながる。
         //   ・かたまりの中は線を消してつなげ、かたまりの間にすき間を入れる。
         //   ・点滅（すぐ降る合図）は次の 1 手で降るいちばん下のかたまりだけ。その後ろの赤は点灯。
-        const GAUGE_MAX = 20;
+        renderGarbageGaugeGroups(gaugeEl, this._garbageGaugeGroups());
+    },
+
+    // 予告ゲージに出すかたまりの列（下から）: 赤＝1 手で一緒に降る分ごと（_garbageLandingGroups）、青＝攻撃 1 回ごと。
+    // ONLINE では同じ列を PendingUpdate で相手へ送り、相手の盤面のゲージも同じ形で描く（online_game.ts）
+    _garbageGaugeGroups() {
         const groups = this._garbageLandingGroups().map(n => ({ n, ready: true }));
-        let readyCount = 0;
-        for (const gr of groups) readyCount += gr.n;
-        let unreadyCount = 0;
         for (const g of this.garbageQueue) {
             if (g.internal || g.ready || !(g.amount > 0)) continue; // stage1(内部のみ) は非表示
             groups.push({ n: g.amount, ready: false });
-            unreadyCount += g.amount;
         }
-        // 下から表示する（column-reverse）。ブロックは盤面の高さ（20）まで。超えた分は数を出す
-        let shown = 0;
-        for (let i = 0; i < groups.length && shown < GAUGE_MAX; i++) {
-            const gr = groups[i];
-            const n = Math.min(gr.n, GAUGE_MAX - shown);
-            const isLast = i === groups.length - 1;
-            for (let k = 0; k < n; k++) {
-                const block = document.createElement('div');
-                block.className = 'gauge-block chunk ' + (gr.ready ? 'ready' : 'unready')
-                    + (gr.ready && i > 0 ? ' waiting' : '')
-                    + (!isLast && k === gr.n - 1 ? ' chunk-end' : '');
-                gaugeEl.appendChild(block);
-            }
-            shown += n;
-        }
-        const total = readyCount + unreadyCount;
-        if (total > GAUGE_MAX) {
-            const count = document.createElement('div');
-            count.className = 'gauge-count';
-            count.textContent = String(total);
-            gaugeEl.appendChild(count);
-        }
+        return groups;
     },
 
     // ★追加: 攻撃(送る用)ゲージの更新
@@ -420,3 +400,36 @@ Object.assign(Game.prototype, {
         }
     },
 });
+
+// 予告ゲージをかたまりの列（[{ n, ready }]・下から）で描く。自分の盤面（updateGarbageGauge）と
+// ONLINE の相手の盤面（online_game.ts updateOpponentGauge）で共用する。
+//   ・かたまりの中は線を消してつなげ、かたまりの間にすき間を入れる（.chunk / .chunk-end）。
+//   ・点滅（すぐ降る合図）は次の 1 手で降るいちばん下のかたまりだけ。その後ろの赤は点灯（.waiting）。
+//   ・ブロックは盤面の高さ（20）まで。超えた分は合計の数を出す
+function renderGarbageGaugeGroups(gaugeEl, groups) {
+    const GAUGE_MAX = 20;
+    gaugeEl.innerHTML = '';
+    let total = 0;
+    let shown = 0;
+    for (let i = 0; i < groups.length; i++) {
+        const gr = groups[i];
+        total += gr.n;
+        if (shown >= GAUGE_MAX) continue;
+        const n = Math.min(gr.n, GAUGE_MAX - shown);
+        const isLast = i === groups.length - 1;
+        for (let k = 0; k < n; k++) {
+            const block = document.createElement('div');
+            block.className = 'gauge-block chunk ' + (gr.ready ? 'ready' : 'unready')
+                + (gr.ready && i > 0 ? ' waiting' : '')
+                + (!isLast && k === gr.n - 1 ? ' chunk-end' : '');
+            gaugeEl.appendChild(block);
+        }
+        shown += n;
+    }
+    if (total > GAUGE_MAX) {
+        const count = document.createElement('div');
+        count.className = 'gauge-count';
+        count.textContent = String(total);
+        gaugeEl.appendChild(count);
+    }
+}

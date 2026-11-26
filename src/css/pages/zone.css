@@ -438,3 +438,201 @@ body.input-mode-kbd #vs-settings-page.is-zone-battle .settings-preset-toggle.is-
   -webkit-background-clip: text;
   background-clip: text;
 }
+
+/* ─── ONLINE の盤面（自分 ol-p・相手 ol-opp-N。DOM は src/battle/zone_online.ts）───
+   ローカル VERSUS の .versus-container の中と同じ位置・大きさを、人数で変わる --ol-scale に乗せる
+   （2 人は 1 = ローカル VERSUS と同じ実寸。設計 tetlabo-zone-online-design.md §9）。
+   輪と終了の表示は中身ごと縮める（transform。位置は縮める前の値に --ol-scale を掛ける） */
+.ol-zone-area {
+  left: calc(-136px * var(--ol-scale, 1));
+  top: calc(576px * var(--ol-scale, 1));
+  transform: scale(var(--ol-scale, 1));
+  transform-origin: 0 0;
+}
+.ol-zone-popup {
+  transform: scale(var(--ol-scale, 1));
+  transform-origin: 0 0;
+}
+/* 枠の上: ONLINE の盤面のキャンバスは --field-w/h × --ol-scale（枠線は縮めない）。
+   その中身の幅・高さに合わせて、上のキャンバス（320 × --zone-top-px の画素）を同じ割合で縮める */
+.ol-zone-top-canvas {
+  --zone-top-h: calc((var(--field-h) * var(--ol-scale, 1) - 2 * var(--field-border-w-main)) * var(--zone-top-px, 144) / 656);
+  position: absolute;
+  left: var(--field-border-w-main);
+  top: calc(var(--field-border-w-main) - var(--zone-top-h));
+  width: calc(var(--field-w) * var(--ol-scale, 1) - 2 * var(--field-border-w-main));
+  height: var(--zone-top-h);
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* ─── ONLINE の部屋（ZONE BATTLE ONLINE 設計 §3・§4。src/online/online.tsx・zone_room_settings.tsx）─── */
+/* 部屋の種類の札（部屋一覧・部屋画面の見出し） */
+.ol-battle-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.ol-battle-zone {
+  color: var(--zone-battle-color);
+  background: rgba(var(--zone-battle-rgb), 0.1);
+  border: 1px solid rgba(var(--zone-battle-rgb), 0.45);
+}
+h2 .ol-battle-badge {
+  font-size: 11px;
+}
+.ol-create-note {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* 部屋一覧の種類の絞り込み（タブの行。ローカルの VS 設定のタブと同じ .option-toggle・キーは online.tsx tabsRowItem） */
+.ol-room-filter {
+  width: 100%;
+}
+.ol-room-filter .opt-btn {
+  flex: 1;
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+@media (hover: hover) {
+  .ol-room-filter .opt-btn:not(.active):hover,
+  .ol-ms-tabs .opt-btn:not(.active):hover {
+    color: var(--text);
+    border-color: rgba(196, 113, 245, 0.5);
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .ol-room-filter .opt-btn.ol-filter-zone:not(.active):hover {
+    color: var(--zone-battle-color);
+    border-color: rgba(var(--zone-battle-rgb), 0.5);
+    background: rgba(var(--zone-battle-rgb), 0.06);
+  }
+}
+.ol-room-filter .opt-btn.ol-filter-zone.active {
+  background: rgba(var(--zone-battle-rgb), 0.15);
+  border-color: var(--zone-battle-color);
+  color: var(--zone-battle-color);
+}
+body.input-mode-kbd .ol-room-filter.is-focused,
+body.input-mode-kbd .ol-ms-tabs.is-focused {
+  outline: none;
+  box-shadow: none;
+}
+body.input-mode-kbd .ol-room-filter.is-focused .opt-btn.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+body.input-mode-kbd .ol-room-filter.is-focused .opt-btn.ol-filter-zone.active,
+body.input-mode-kbd .ol-ms-tabs.is-focused .opt-btn.active {
+  outline: 2px solid var(--zone-battle-color);
+  outline-offset: 2px;
+}
+
+/* MATCH SETTINGS（ZONE BATTLE）: ALL / MARGIN / PHASE のタブ。色は ZONE BATTLE の色 */
+.ol-ms-tabs {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 2px;
+}
+.ol-ms-tabs .opt-btn {
+  flex: 1;
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+.ol-ms-tabs .opt-btn.active {
+  background: rgba(var(--zone-battle-rgb), 0.15);
+  border-color: var(--zone-battle-color);
+  color: var(--zone-battle-color);
+}
+.ol-ms-panel {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+}
+.ol-ms-panel.active {
+  display: flex;
+}
+/* タブ・小タブを切り替えたときだけ軽く出す（描き直しでは動かさない） */
+.ol-ms-panel.is-entering,
+.ol-ms-phase-set.is-entering {
+  animation: settings-tab-in 0.18s ease-out;
+}
+.ol-zone-ms .ms-seg-btn.active {
+  color: #0b1a18;
+  background: var(--zone-battle-color);
+}
+.ol-zone-ms .ms-seg-btn:not(.active):hover {
+  background: rgba(var(--zone-battle-rgb), 0.15);
+}
+.ol-zone-ms .ms-slider {
+  accent-color: var(--zone-battle-color);
+}
+body.input-mode-kbd .ol-zone-ms .ms-row-editable.is-focused {
+  background: rgba(var(--zone-battle-rgb), 0.08);
+}
+.ol-zone-ms .ms-seg-btn {
+  padding: 5px 12px;
+}
+.ms-sub {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.ms-step-value {
+  min-width: 88px;
+  text-align: right;
+  font-family: "Orbitron", monospace;
+  font-size: 12px;
+  color: var(--zone-battle-color);
+  white-space: nowrap;
+}
+.ms-row.is-inert {
+  opacity: 0.4;
+}
+/* PHASE タブのフェーズごとの値の枠（ローカルの .vs-setting-group と同じ見た目） */
+.ol-ms-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(var(--zone-battle-rgb), 0.25);
+  border-radius: 8px;
+  background: rgba(var(--zone-battle-rgb), 0.03);
+}
+.ol-ms-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ol-ms-group-label {
+  font-family: "Orbitron", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--zone-battle-color);
+}
+.ol-ms-group-note {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.ol-ms-phase-select {
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(var(--zone-battle-rgb), 0.25);
+}
+.ol-ms-phase-select .ms-seg-btn {
+  min-width: 48px;
+  letter-spacing: 2px;
+}
+.ol-ms-phase-set {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

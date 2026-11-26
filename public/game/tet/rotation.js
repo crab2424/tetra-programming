@@ -369,6 +369,9 @@ Object.assign(Game.prototype, {
         if (!rescued) return false
 
         // 待つ: その間ミノはいない（重力・固定は動かない。TIME やおじゃまの猶予は止めない）
+        // 待ちの間に新しく押した回転・ホールドは、待ち明けまでに離しても出すときに当てる（_ihsRescueNote。録画の版 23 以上。
+        // 22 以下は待ち明けの時点のキーだけで見ていたので、100ms より短いタップは当たらず GAME OVER になっていた）
+        this._ihsRescueKeep = recEngine >= 23 ? { rot: 0, hold: false } : null
         this._cancelLockTimer()
         if (this.timer) { clearInterval(this.timer); this.timer = null }
         this.mino = null
@@ -376,15 +379,27 @@ Object.assign(Game.prototype, {
         // ゲーム時計の予約（固定猶予と同じ。ポーズ中は時計が止まるので進まない）
         this._ihsRescueTimer = this.clock.schedule(IHS_RESCUE_DELAY_MS, () => {
             this._ihsRescueTimer = null
+            const keep = this._ihsRescueKeep
+            this._ihsRescueKeep = null
             if (this.mino) return
-            // その時点のキーで出現をやり直す。外側のフック（PRACTICE・QUIZ・ONLINE）は
-            // _ihsRescueResume を見て、出現前の処理を二重にしない
+            // その時点のキーで出現をやり直す（待ちの間に押して離した回転・ホールドは出し方 _spawnPlan で渡す）。
+            // 外側のフック（PRACTICE・QUIZ・ONLINE）は _ihsRescueResume を見て、出現前の処理を二重にしない
+            if (keep && (keep.rot || keep.hold)) this._spawnPlan = { dx: 0, rot: keep.rot, hold: keep.hold }
             this._ihsRescueResume = true
-            try { resume() } finally { this._ihsRescueResume = false }
+            try { resume() } finally { this._ihsRescueResume = false; this._spawnPlan = null }
             this.requestRedraw()
         })
         this.requestRedraw()
         return true
+    },
+
+    // IHS・IRS の猶予の待ちの間に回転・ホールドを新しく押した（input.js のキーボード・パッドから）。
+    // dir: 1 / -1 = 回転、'hold' = ホールド。後に押した回転が勝つ
+    _ihsRescueNote(dir) {
+        const keep = this._ihsRescueKeep
+        if (!keep || this.mino || !this._ihsRescueTimer) return
+        if (dir === 'hold') keep.hold = true
+        else keep.rot = dir
     },
 
     // ホールド
