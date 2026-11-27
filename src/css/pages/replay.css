@@ -500,6 +500,153 @@ body:has(#replay-info-overlay.active) .puyo-chain-text {
   text-align: center;
 }
 
+/* 枝の図（core/replay.js の _openBranches）。幕は RULES と同じ。行は 名前 | 時間の線 | 結果・時刻。
+   線は行の真ん中の列に重ねた .replay-br-track の上に、行番号（--i）から高さを出して置く */
+#replay-branches-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 4, 14, 0.88);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  font-family: var(--font-orbitron);
+}
+#replay-branches-overlay.active {
+  display: flex;
+}
+body:has(#replay-branches-overlay.active) .puyo-chain-text {
+  visibility: hidden;
+}
+#replay-branches-overlay .replay-pause-keys {
+  text-align: center;
+}
+.replay-br-panel {
+  width: min(960px, calc(100vw - 32px));
+}
+.replay-br-body {
+  padding: 10px 12px;
+}
+.replay-br-wrap {
+  --row-h: 32px;
+  --name-w: 190px;
+  --info-w: 210px;
+  position: relative;
+}
+.replay-br-row {
+  display: grid;
+  grid-template-columns: var(--name-w) 1fr var(--info-w);
+  align-items: center;
+  height: var(--row-h);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+.replay-br-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.replay-br-row.is-path {
+  color: var(--text);
+}
+.replay-br-row.is-sel {
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--text);
+}
+.replay-br-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 8px;
+}
+.replay-br-row.is-cur .replay-br-name {
+  color: var(--accent);
+  font-weight: 700;
+}
+.replay-br-now {
+  margin-left: 8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--bg, #000);
+  background: var(--accent);
+}
+.replay-br-info {
+  padding-left: 12px;
+  font-family: var(--font-main);
+  font-size: 12px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.replay-br-track {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--name-w);
+  right: var(--info-w);
+  pointer-events: none;
+}
+.replay-br-bar,
+.replay-br-fork,
+.replay-br-end,
+.replay-br-cursor {
+  position: absolute;
+  background: var(--text-dim);
+  opacity: 0.55;
+}
+.replay-br-bar {
+  top: calc(var(--i) * var(--row-h) + var(--row-h) / 2 - 1.5px);
+  height: 3px;
+  border-radius: 2px;
+}
+.replay-br-fork {
+  width: 2px;
+  margin-left: -1px;
+  top: calc(var(--from) * var(--row-h) + var(--row-h) / 2);
+  height: calc((var(--to) - var(--from)) * var(--row-h));
+}
+.replay-br-end {
+  top: calc(var(--i) * var(--row-h) + var(--row-h) / 2 - 4px);
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+}
+.replay-br-bar.is-path,
+.replay-br-fork.is-path,
+.replay-br-end.is-path {
+  background: var(--accent2);
+  opacity: 0.9;
+}
+.replay-br-bar.is-sel,
+.replay-br-fork.is-sel,
+.replay-br-end.is-sel {
+  background: var(--accent);
+  opacity: 1;
+}
+.replay-br-bar.is-cur,
+.replay-br-end.is-cur {
+  background: var(--accent);
+  opacity: 1;
+}
+/* 今見ている所（今の行の線の上） */
+.replay-br-cursor {
+  top: calc(var(--i) * var(--row-h) + 6px);
+  height: calc(var(--row-h) - 12px);
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+  opacity: 1;
+}
+
 /* 古い版・ずれのメッセージ（上の帯のすぐ下） */
 .replay-msg {
   position: fixed;

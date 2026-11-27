@@ -2148,6 +2148,7 @@ const ReplayManager = {
     _startWatch(p, opts) {
         const data = p.data;
         this._drawMarks(p);
+        this._showBranchesBtn(p);
         p.prepare();
         p.watching = true;
         p.snapOn = true;
@@ -2190,6 +2191,7 @@ const ReplayManager = {
         this._closePause(false);
         this._closeMarks(null);
         this._closeInfo(null);
+        this._closeBranches(null);
         this._mk = null;
         this._clearEnd();
         this._prevState = null;
@@ -2294,6 +2296,7 @@ const ReplayManager = {
                 this._restartWatch();
             },
             'replay-pause-marks': () => this._openMarks(),
+            'replay-pause-branches': () => this._openBranches(),
             'replay-pause-here': () => { this._closePause(false); this._playFromHere(); },
             'replay-pause-save': async () => {
                 const p = this.player;
@@ -2335,6 +2338,11 @@ const ReplayManager = {
         // ルールの画面（I。v2.6.2）
         const infoBtn = $('replay-info-btn');
         if (infoBtn) { infoBtn.onmousedown = (e) => e.preventDefault(); infoBtn.onclick = () => this._openInfo(); }
+        // 枝の図（B）
+        const brBtn = $('replay-branches-btn');
+        if (brBtn) { brBtn.onmousedown = (e) => e.preventDefault(); brBtn.onclick = () => this._openBranches(); }
+        const brClose = $('replay-br-close');
+        if (brClose) { brClose.onmousedown = (e) => e.preventDefault(); brClose.onclick = () => this._closeBranches('back'); }
         const infoClose = $('replay-info-close');
         if (infoClose) { infoClose.onmousedown = (e) => e.preventDefault(); infoClose.onclick = () => this._closeInfo('back'); }
         // 印の画面（UI 設計書 §7）: 閉じる・ホイールで横に流す
@@ -2371,6 +2379,7 @@ const ReplayManager = {
                 return;
             }
             if (this._infoOpen()) { this._infoKey(e); return; }
+            if (this._brOpen()) { this._brKey(e); return; }
             if (this._marksOpen()) { this._marksKey(e); return; }
             const menu = this._pauseOpen();
             if (this._pauseCodes().indexOf(e.code) >= 0) {
@@ -2384,7 +2393,7 @@ const ReplayManager = {
             if (menu) {
                 if (['ArrowUp', 'ArrowDown', 'KeyW', 'KeyS', 'Enter', 'NumpadEnter', 'Space'].indexOf(e.code) >= 0) return;
                 if (['ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Comma', 'Period'].indexOf(e.code) >= 0) this._closePause(false);
-                else if (e.code !== 'KeyH' && e.code !== 'KeyM' && e.code !== 'KeyI' && this._restartCodes().indexOf(e.code) < 0) {
+                else if (e.code !== 'KeyH' && e.code !== 'KeyM' && e.code !== 'KeyI' && e.code !== 'KeyB' && this._restartCodes().indexOf(e.code) < 0) {
                     e.stopImmediatePropagation();
                     if (e.code === 'Tab') e.preventDefault();
                     return;
@@ -2399,10 +2408,10 @@ const ReplayManager = {
                 this._restartWatch();
                 return;
             }
-            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM', 'KeyI'];
+            const handled = ['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'BracketLeft', 'BracketRight', 'Comma', 'Period', 'KeyH', 'KeyM', 'KeyI', 'KeyB'];
             if (handled.indexOf(e.code) < 0) return;
             e.preventDefault();
-            if (e.repeat && (e.code === 'Space' || e.code === 'KeyH' || e.code === 'KeyM' || e.code === 'KeyI')) return;
+            if (e.repeat && (e.code === 'Space' || e.code === 'KeyH' || e.code === 'KeyM' || e.code === 'KeyI' || e.code === 'KeyB')) return;
             switch (e.code) {
                 case 'Space': this._togglePlay(); break;
                 case 'ArrowLeft': p.seek(this._targetTime() - 5000); break;
@@ -2412,6 +2421,7 @@ const ReplayManager = {
                 case 'KeyH': this._toggleUi(); break;
                 case 'KeyM': this._openMarks(); break;
                 case 'KeyI': this._openInfo(); break;
+                case 'KeyB': this._openBranches(); break;
                 case 'BracketLeft': this._jumpMark(-1); break;
                 case 'BracketRight': this._jumpMark(1); break;
                 case 'Comma': p.stepLock(-1); break;
@@ -2470,6 +2480,8 @@ const ReplayManager = {
         }
         const marks = $('replay-pause-marks');
         if (marks) marks.style.display = this._marksOf(p).length ? '' : 'none';
+        const branches = $('replay-pause-branches');
+        if (branches) branches.style.display = this._brHas(p) ? '' : 'none';
         // PLAY HERE: VERSUS の続きは止めた所（シーク中・カウントダウン・決着の所以外）からだけ
         let why = '';
         if (p.state === 'desync') why = 'ずれた所からは遊べません';
@@ -3090,6 +3102,265 @@ const ReplayManager = {
     // ─── ルールの画面（I。v2.6.2）───
     // 録画に入っている設定（replayRulesSections）を表で見せる。開いている間は止め、閉じたら開く前に戻す
     // （PAUSE 画面から I で開いたら PAUSE へ戻る。印の画面と同じ）
+    // ─── 枝の図（B／上の帯の B: BRANCHES／PAUSE の BRANCHES）───
+    // 枝のある試合（data.branches／data.branch）の木を、時間を横軸にした線で見せる。一番上が元の試合で、
+    // 枝は分かれた時刻から親の線の下へ伸びる。今見ているものと、元の試合からそこまでの道を色で分ける。
+    // 選んだ枝へは、元の試合から順につなぎ直して（replayBranchFull）飛ぶ。印の画面の B（子・親だけ）とは別に、
+    // 兄弟・いとこ・孫へも 1 回で行ける。開いている間は止める（RULES と同じ）
+    _brHas(p) {
+        return !!(p && p.data && (p.data.branch || (Array.isArray(p.data.branches) && p.data.branches.length)));
+    },
+
+    _showBranchesBtn(p) {
+        const b = document.getElementById('replay-branches-btn');
+        if (b) b.style.display = this._brHas(p) ? '' : 'none';
+    },
+
+    _brOpen() {
+        const o = document.getElementById('replay-branches-overlay');
+        return !!(o && o.classList.contains('active'));
+    },
+
+    // 木の一番上（元の試合）。手元に覚えている物（枝の行き来・続きを遊んだ元）→ 保存先の順に探す
+    async _brRoot(p) {
+        const b = p.data.branch;
+        if (!b) return p.data;
+        const id = b.rootId || null;
+        const near = (this._branchStack || []).concat([this._branchParent, this.backTo && this.backTo.data]);
+        for (const d of near) if (d && !d.branch && d.id === id) return d;
+        if (id && typeof this.findReplayData === 'function') {
+            try {
+                const d = await this.findReplayData(id);
+                if (d) return d;
+            } catch (e) { /* 見つからない */ }
+        }
+        return null;
+    },
+
+    // 木を上から順（深さ優先）に並べる。{ nodes: [{ node, data, path, depth, parent, label, t0, t1 }], cur }
+    _brBuild(root, curId) {
+        const nodes = [];
+        const walk = (node, data, path, depth, parent, label) => {
+            const i = nodes.length;
+            const t0 = (node && node.branch && typeof node.branch.atMs === 'number') ? node.branch.atMs : 0;
+            nodes.push({ node, data, path, depth, parent, label, t0, t1: Math.max(t0, data.durationMs || 0) });
+            const kids = Array.isArray(data.branches) ? data.branches : [];
+            kids.forEach((k, j) => {
+                if (!k || !k.branch || typeof k.branch.atMs !== 'number') return;
+                walk(k, k, path.concat([k]), depth + 1, i, (depth ? label + '-' : 'BRANCH ') + (j + 1));
+            });
+        };
+        walk(null, root, [], 0, -1, 'ORIGINAL');
+        return { nodes, cur: nodes.findIndex((n) => (n.node ? n.node.id : root.id) === curId) };
+    },
+
+    async _openBranches() {
+        const p = this.player;
+        const o = document.getElementById('replay-branches-overlay');
+        const body = document.getElementById('replay-br-body');
+        if (!p || !o || !body || this._brOpen()) return;
+        if (this._marksOpen() || this._infoOpen()) return;
+        if (!this._brHas(p)) {
+            if (typeof showGlobalToast === 'function') showGlobalToast('枝がありません');
+            return;
+        }
+        const fromPause = this._pauseOpen();
+        if (fromPause) {
+            this._brBack = { pause: true, resume: this._pauseResume };
+            this._closePause(false);
+        } else {
+            this._brBack = { pause: false, resume: p.state === 'play' || (p.state === 'seek' && p.seekResume === 'play') };
+        }
+        p.pause();
+        body.textContent = '';
+        o.classList.add('active');
+        this._br = null;
+        const root = await this._brRoot(p);
+        if (this.player !== p || !this._brOpen()) return;
+        let tree = root ? this._brBuild(root, p.data.id) : null;
+        let partial = false;
+        if (!tree || tree.cur < 0) {
+            // 元の試合が見つからない（保存されていない・消した）: 今の枝から下だけ見せる
+            partial = true;
+            tree = this._brBuild(p.data, p.data.id);
+            tree.nodes[0].label = 'THIS';
+        }
+        this._br = { p, root: partial ? null : root, partial, nodes: tree.nodes, cur: tree.cur, sel: tree.cur };
+        this._brRender();
+    },
+
+    // how: 'back'（ESC・B・CLOSE。開く前に戻す）／null（見終わる・枝へ飛ぶとき。何もしない）
+    _closeBranches(how) {
+        const o = document.getElementById('replay-branches-overlay');
+        if (!o || !o.classList.contains('active')) return;
+        o.classList.remove('active');
+        if (document.activeElement && o.contains(document.activeElement)) document.activeElement.blur();
+        const back = this._brBack;
+        this._brBack = null;
+        this._br = null;
+        if (how !== 'back' || !back || !this.player) return;
+        if (back.pause) {
+            this._openPause('replay-pause-branches');
+            this._pauseResume = back.resume;
+        } else if (back.resume) {
+            this.player.play();
+        }
+    },
+
+    _brRender() {
+        const br = this._br;
+        const body = document.getElementById('replay-br-body');
+        if (!br || !body) return;
+        const { nodes, cur, p } = br;
+        const sub = document.getElementById('replay-br-sub');
+        if (sub) sub.textContent = `${nodes.length - 1} BRANCH${nodes.length - 1 === 1 ? '' : 'ES'}` + (br.partial ? '（元の試合が見つかりません。この枝から下だけ）' : '');
+        // 元の試合から今見ているものまでの道
+        const onPath = new Set();
+        for (let i = cur; i >= 0; i = nodes[i].parent) onPath.add(i);
+        const tMax = Math.max(1, ...nodes.map((n) => n.t1));
+        const x = (t) => (100 * Math.max(0, Math.min(tMax, t)) / tMax) + '%';
+        body.textContent = '';
+        const wrap = document.createElement('div');
+        wrap.className = 'replay-br-wrap';
+        wrap.style.setProperty('--rows', nodes.length);
+        const track = document.createElement('div');
+        track.className = 'replay-br-track';
+        nodes.forEach((n, i) => {
+            const res = (() => { try { return (typeof replaySummary === 'function') ? replaySummary(n.data).result : ''; } catch (e) { return ''; } })();
+            const row = document.createElement('div');
+            row.className = 'replay-br-row' + (i === br.sel ? ' is-sel' : '') + (i === cur ? ' is-cur' : '') + (onPath.has(i) ? ' is-path' : '');
+            row.style.setProperty('--i', i);
+            row.dataset.i = i;
+            const name = document.createElement('span');
+            name.className = 'replay-br-name';
+            name.style.paddingLeft = (n.depth * 12) + 'px';
+            name.textContent = n.label + ((n.node && n.node.star) ? ' ★' : '');
+            const info = document.createElement('span');
+            info.className = 'replay-br-info';
+            info.textContent = `${res}${res ? ' · ' : ''}${replayFmtTime(n.t0)}–${replayFmtTime(n.t1)}`;
+            row.append(name, document.createElement('span'), info);
+            if (i === cur) {
+                const tag = document.createElement('span');
+                tag.className = 'replay-br-now';
+                tag.textContent = 'NOW';
+                name.appendChild(tag);
+            }
+            row.onmousedown = (e) => e.preventDefault();
+            row.onclick = () => { if (this._br && this._br.sel === i) this._brJump(); else this._brSelect(i); };
+            wrap.appendChild(row);
+            // 線（分かれた時刻から終わりまで）と、親の線から下りる縦の線
+            const cls = (i === cur ? ' is-cur' : '') + (onPath.has(i) ? ' is-path' : '') + (i === br.sel ? ' is-sel' : '');
+            const bar = document.createElement('div');
+            bar.className = 'replay-br-bar' + cls;
+            bar.style.setProperty('--i', i);
+            bar.style.left = x(n.t0);
+            bar.style.width = `calc(${x(n.t1)} - ${x(n.t0)})`;
+            track.appendChild(bar);
+            if (n.parent >= 0) {
+                const v = document.createElement('div');
+                v.className = 'replay-br-fork' + cls;
+                v.style.left = x(n.t0);
+                v.style.setProperty('--from', n.parent);
+                v.style.setProperty('--to', i);
+                track.appendChild(v);
+            }
+            const end = document.createElement('div');
+            end.className = 'replay-br-end' + cls;
+            end.style.setProperty('--i', i);
+            end.style.left = x(n.t1);
+            track.appendChild(end);
+        });
+        // 今見ている所: 分かれる前の時刻なら、その時刻を通っている祖先の線の上に置く
+        const tNow = p.time();
+        let ci = cur;
+        while (ci > 0 && nodes[ci].parent >= 0 && tNow < nodes[ci].t0) ci = nodes[ci].parent;
+        const now = document.createElement('div');
+        now.className = 'replay-br-cursor';
+        now.style.setProperty('--i', ci);
+        now.style.left = x(tNow);
+        track.appendChild(now);
+        wrap.appendChild(track);
+        body.appendChild(wrap);
+        this._brScroll();
+    },
+
+    _brSelect(i) {
+        const br = this._br;
+        if (!br) return;
+        br.sel = Math.max(0, Math.min(br.nodes.length - 1, i));
+        const body = document.getElementById('replay-br-body');
+        if (!body) return;
+        body.querySelectorAll('.is-sel').forEach((el) => el.classList.remove('is-sel'));
+        body.querySelectorAll(`.replay-br-row[data-i="${br.sel}"]`).forEach((el) => el.classList.add('is-sel'));
+        // 線も選んだものを明るく（行と同じ --i を持つ物）
+        body.querySelectorAll('.replay-br-bar, .replay-br-end').forEach((el) => {
+            if (Number(el.style.getPropertyValue('--i')) === br.sel) el.classList.add('is-sel');
+        });
+        body.querySelectorAll('.replay-br-fork').forEach((el) => {
+            if (Number(el.style.getPropertyValue('--to')) === br.sel) el.classList.add('is-sel');
+        });
+        this._brScroll();
+    },
+
+    _brScroll() {
+        const br = this._br;
+        const body = document.getElementById('replay-br-body');
+        const row = br && body && body.querySelector(`.replay-br-row[data-i="${br.sel}"]`);
+        if (row) row.scrollIntoView({ block: 'nearest' });
+    },
+
+    // 選んだものへ飛ぶ。元の試合から順につなぎ直し、途中の親は ◀ PARENT 用に覚える。
+    //   今見ているものの祖先（元の試合・親）へは、今の枝へ分かれた所の少し前で止めて見せる（openParent と同じ）。
+    //   それ以外（子・孫・兄弟など）は、その枝が分かれた所の少し前から流す（openBranch と同じ）
+    _brJump() {
+        const br = this._br;
+        if (!br) return;
+        const { nodes, cur, sel, p } = br;
+        if (sel === cur) { this._closeBranches('back'); return; }
+        const target = nodes[sel];
+        let base = br.partial ? p.data : br.root;
+        const stack = br.partial ? (this._branchStack || []).slice() : [];
+        let full = base;
+        try {
+            for (const n of target.path) {
+                stack.push(full);
+                full = replayBranchFull(full, n);
+            }
+        } catch (e) {
+            console.warn('[replay] 枝を組み立てられませんでした', e);
+            if (typeof showGlobalToast === 'function') showGlobalToast('この枝は開けません');
+            return;
+        }
+        let opts;
+        // 祖先か: 今見ているものから親をたどって sel に着くか
+        let child = -1;
+        for (let i = cur; i >= 0; i = nodes[i].parent) {
+            if (nodes[i].parent === sel) { child = i; break; }
+        }
+        if (child >= 0) opts = { at: Math.max(0, nodes[child].t0 - REPLAY_BRANCH_LEAD_MS), speed: p.speed };
+        this._closeBranches(null);
+        this._branchStack = stack;
+        this.watch(full, this.returnPage, opts);
+    },
+
+    _brKey(e) {
+        e.stopImmediatePropagation();
+        const code = e.code;
+        if (this._pauseCodes().indexOf(code) >= 0 || code === 'KeyB') {
+            e.preventDefault();
+            if (!e.repeat) this._closeBranches('back');
+            return;
+        }
+        const br = this._br;
+        switch (code) {
+            case 'ArrowUp': case 'KeyW': e.preventDefault(); if (br) this._brSelect(br.sel - 1); return;
+            case 'ArrowDown': case 'KeyS': e.preventDefault(); if (br) this._brSelect(br.sel + 1); return;
+            case 'ArrowLeft': case 'KeyA': e.preventDefault(); if (br && br.nodes[br.sel].parent >= 0) this._brSelect(br.nodes[br.sel].parent); return;
+            case 'Enter': case 'NumpadEnter': case 'Space': e.preventDefault(); if (!e.repeat && br) this._brJump(); return;
+        }
+        if (['Tab', 'ArrowRight'].indexOf(code) >= 0) e.preventDefault();
+    },
+
     _infoOpen() {
         const o = document.getElementById('replay-info-overlay');
         return !!(o && o.classList.contains('active'));
@@ -3100,7 +3371,7 @@ const ReplayManager = {
         const o = document.getElementById('replay-info-overlay');
         const body = document.getElementById('replay-info-body');
         if (!p || !o || !body || this._infoOpen()) return;
-        if (this._marksOpen()) return;
+        if (this._marksOpen() || this._brOpen()) return;
         const fromPause = this._pauseOpen();
         if (fromPause) {
             this._infoBack = { pause: true, resume: this._pauseResume };

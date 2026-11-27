@@ -1072,6 +1072,7 @@
     <span id="replay-title" class="replay-title"></span>
     <span id="replay-state" class="replay-state"></span>
     <span class="replay-top-spacer"></span>
+    <button id="replay-branches-btn" class="replay-btn replay-info-btn" type="button" title="枝の図 B" style="display: none">B: BRANCHES</button>
     <button id="replay-info-btn" class="replay-btn replay-info-btn" type="button" title="この試合のルール I">I: RULES</button>
     <button id="replay-ui-btn" class="replay-btn replay-icon-btn" type="button" title="UI を隠す H">◱</button>
     <button id="replay-menu-btn" class="replay-btn replay-icon-btn" type="button" title="PAUSE ESC">≡</button>
@@ -1116,6 +1117,20 @@
     </div>
     <p class="replay-pause-keys">← → 前/次の印　↑ ↓ 段を移る　Enter その印へ（1 秒前・止めたまま）　C CLIP（前 5 秒・後 3 秒）　B 枝を開く / 元へ戻る　ESC / M 閉じる<br>札をクリックで選ぶ・もう一度で飛ぶ　ホイールで横に流す</p>
   </div>
+  <!-- ★ 枝の図（B／上の帯の B: BRANCHES／PAUSE の BRANCHES で開閉）。元の試合と枝（PLAY HERE の続き）の木を、
+       時間を横軸にした線で見せる。選んだ枝へ 1 回で飛ぶ。中身は core/replay.js（_brRender）が作る。開いている間は止める -->
+  <div id="replay-branches-overlay">
+    <div class="replay-info-panel replay-br-panel">
+      <div class="replay-mk-head replay-info-head">
+        <span class="replay-mk-title">BRANCHES</span>
+        <span id="replay-br-sub" class="replay-mk-count"></span>
+        <span class="replay-top-spacer"></span>
+        <button id="replay-br-close" class="replay-btn" type="button" title="閉じる ESC / B">✕ CLOSE</button>
+      </div>
+      <div id="replay-br-body" class="replay-info-body replay-br-body"></div>
+      <p class="replay-pause-keys">↑ ↓ 選ぶ　← 親を選ぶ　Enter その枝へ　ESC / B 閉じる<br>行をクリックで選ぶ・もう一度で開く</p>
+    </div>
+  </div>
   <!-- ★ ルールの画面（I／上の帯の I: RULES で開閉。v2.6.2）。録画に入っている設定（モード・VS 設定・ZONE・MOD・CPU・
        操作の設定・版）を表にして見せる。中身は core/replay.js（replayRulesSections）が作る。開いている間は止める -->
   <div id="replay-info-overlay">
@@ -1140,13 +1155,14 @@
         <button class="pause-btn btn-resume" id="replay-pause-again" type="button" style="display: none">↺ REPLAY AGAIN</button>
         <button class="pause-btn btn-restart" id="replay-pause-restart" type="button">↺ RESTART</button>
         <button class="pause-btn btn-restart" id="replay-pause-marks" type="button">◆ MARKS</button>
+        <button class="pause-btn btn-restart" id="replay-pause-branches" type="button" style="display: none">⑂ BRANCHES</button>
         <button class="pause-btn btn-settings" id="replay-pause-here" type="button">⚑ PLAY HERE</button>
         <p class="replay-pause-note" id="replay-pause-here-note" style="display: none"></p>
         <button class="pause-btn btn-settings" id="replay-pause-save" type="button" style="display: none">⤓ SAVE REPLAY</button>
         <button class="pause-btn btn-restart" id="replay-pause-exit" type="button">◀ EXIT</button>
         <button class="pause-btn btn-mainmenu" id="replay-pause-mainmenu" type="button">⌂ MAIN MENU</button>
       </div>
-      <p class="replay-pause-keys">SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む　R 最初から<br>↑ ↓ 速さ　[ ] 前/次の印　M 印の画面　I ルール　H UI 表示　ESC ポーズ</p>
+      <p class="replay-pause-keys">SPACE 再生/停止　← → 5秒戻る/進む　, . 1手戻る/進む　R 最初から<br>↑ ↓ 速さ　[ ] 前/次の印　M 印の画面　B 枝の図　I ルール　H UI 表示　ESC ポーズ</p>
     </div>
   </div>
 
@@ -1740,7 +1756,7 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=53"></script>
+  <script src="core/replay.js?v=55"></script>
   <script src="core/dialog.js?v=4"></script>
   <script src="core/particles.js?v=14"></script>
   <script src="app/manager.js?v=1"></script>
