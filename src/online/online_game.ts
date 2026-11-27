@@ -1289,6 +1289,8 @@ export class OnlineGameController {
 
     this.game = new Game("ol-p");
     (window as any)._olGame = this.game; // E2Eテスト用フック
+    // 隠れている間も Worker のタイマーで進めるので、1 フレームの上限（game_clock.js）は付けない
+    this.game.clock.maxStepMs = Infinity;
     this.game.isVersusMode = true;
     // ★ CPU戦(versus.js)と同じ 'versus' モード。'marathon' のままだと10ライン毎に
     //   レベルが上昇し(scoring.js)、150ライン到達で誤ってクリア扱いにもなる(board.js)。
@@ -1368,6 +1370,8 @@ export class OnlineGameController {
 
     this.game = new PuyoGame("ol-p");
     (window as any)._olGame = this.game; // E2Eテスト用フック
+    // 隠れている間も Worker のタイマーで進めるので、1 フレームの上限（game_clock.js）は付けない
+    this.game.clock.maxStepMs = Infinity;
     this.game.isVersusMode = true;
     this.game.currentMode = "versus"; // CPU戦(versus.js)と揃える
     this.game.isOnline = true;

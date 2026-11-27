@@ -18,9 +18,14 @@
 //   ・録画・再生（core/replay.js、設計 §5）: 録画中は advance() のたびに進めた量を _tape に書き、
 //     再生中は実時間の代わりに _feed から読んだ量で進める（どちらも 1/16ms 単位の整数）。
 //     止まっている間・予約の実行中の advance() は何も書かず何も読まない（録画と再生で同じ所を通るため）。
+//   ・1 回の advance で進める量は maxStepMs（既定 100ms）まで。画面が隠れてフレームが止まっていた間
+//     （盤面は動かない）の実時間を 1 フレームでまとめて足すと、TIME・APM・マージンなどだけが進むため。
+//     切ったあとの量を録画するので、再生も同じに進む。ONLINE は隠れている間も別のタイマーで進めるので外す（Infinity）。
 // ─────────────────────────────────────────────
 
 class GameClock {
+    static MAX_STEP_MS = 100;
+
     constructor() {
         this._last = performance.now();               // 最後に advance したときの実時間
         this._t = Math.round(this._last * 16) / 16;   // ゲーム時刻（実時間に近い値から始める）
@@ -30,6 +35,7 @@ class GameClock {
         this._advancing = false;
         this._tape = null;                            // 録画: 進めた量を書く先（ReplayBuf）
         this._feed = null;                            // 再生: 進める量を読む元（ReplayReader）
+        this.maxStepMs = GameClock.MAX_STEP_MS;       // 1 回の advance で進める上限（実時間で進むときだけ）
     }
 
     now() {
@@ -43,7 +49,10 @@ class GameClock {
         if (this._feed) {
             dt = this._feed.done ? 0 : this._feed.varint() / 16;
         } else {
-            dt = Math.round((performance.now() - this._last) * 16) / 16;
+            const real = performance.now() - this._last;
+            // 上限を超えた分は捨てる（実時間の基準もそこまで進める）
+            if (real > this.maxStepMs) this._last += real - this.maxStepMs;
+            dt = Math.round(Math.min(real, this.maxStepMs) * 16) / 16;
             if (this._tape) this._tape.varint(dt > 0 ? dt * 16 : 0);
         }
         if (dt <= 0) return 0;

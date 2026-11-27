@@ -1747,11 +1747,32 @@ class ReplayPlayer {
     }
 
     // VERSUS の続き（M7d）: 今の局面のまま本物の対戦に切り替えられるか（両盤面とも本編の途中）
-    canGoLive() {
+    //   orSpawning: 次のミノを出すのを待っている所（IRS/IHS の非表示 DCD・IHS/IRS で助かるときの待ち。
+    //   ツモの間でミノがいない）も「出るまで進めれば遊べる」として通す（settleForLive で出してから渡す）
+    canGoLive(orSpawning) {
         if (this.ended || this.desynced || this.state === 'desync') return false;
         return this.games.every((g) => (replayRule(g) === 'tet')
-            ? (!!g._renderLoopId && !g.isCountingDown && !g.isPaused && !g.isFinishing && !!g.mino)
+            ? (!!g._renderLoopId && !g.isCountingDown && !g.isPaused && !g.isFinishing
+                && (!!g.mino || (!!orSpawning && this._spawnWaiting(g))))
             : g.state === 'playing');
+    }
+
+    _spawnWaiting(g) {
+        return !!(g._spawnHideTimer || g._ihsRescueTimer);
+    }
+
+    // VERSUS の続きの前: ツモの間（ミノを出す待ち）で止めていたら、両盤面にミノが出るまで描かずに進める
+    // （待ちは長くても DCD・100ms ほど。進めた所を今の時刻にする）。戻り値は canGoLive()
+    settleForLive() {
+        if (this.state !== 'pause' || this.canGoLive() || !this.canGoLive(true)) return this.canGoLive();
+        this._withSe(true, () => {
+            let n = 0;
+            while (!this.ended && !this.desynced && !this.canGoLive() && this.canGoLive(true) && n < 120) { this.step(false); n++; }
+        });
+        this.seekTarget = this.time();
+        this.playTime = this.time();
+        if (this.onUi) this.onUi();
+        return this.canGoLive();
     }
 
     // 再生をやめて、盤面をそのまま本物の試合に渡す（盤面の設定・時計・ループ・おじゃまの予約・マージンはそのまま）。
@@ -2453,7 +2474,8 @@ const ReplayManager = {
         let why = '';
         if (p.state === 'desync') why = 'ずれた所からは遊べません';
         else if ((p.ended || p.state === 'end') && !p.clipCut) why = '終わった所からは遊べません'; // 途中で切ったクリップの終わりからは遊べる
-        else if (p.data.mode === 'versus' && (p.state !== 'pause' || !p.canGoLive())) why = 'ここからは遊べません（シーク中・カウントダウン・ポーズ・決着の所）';
+        else if (p.data.mode === 'versus' && p.state === 'seek') why = 'シーク中は遊べません（止まってから押してください）';
+        else if (p.data.mode === 'versus' && (p.state !== 'pause' || !p.canGoLive(true))) why = 'ここからは遊べません（カウントダウン・ポーズ・決着の所）';
         else if (p.data.mode === 'zone') why = 'ZONE はまだ PRACTICE で遊べません';
         const here = $('replay-pause-here');
         if (here) here.disabled = !!why;
@@ -2561,8 +2583,8 @@ const ReplayManager = {
         const p = this.player;
         if (!p || this._goingLive) return;
         p.pause();
-        if (p.state !== 'pause' || !p.canGoLive()) {
-            if (typeof showGlobalToast === 'function') showGlobalToast('ここからは遊べません（シーク中・カウントダウン・ポーズ・決着の所）');
+        if (p.state !== 'pause' || !p.settleForLive()) {
+            if (typeof showGlobalToast === 'function') showGlobalToast(p.state === 'seek' ? 'シーク中は遊べません（止まってから押してください）' : 'ここからは遊べません（カウントダウン・ポーズ・決着の所）');
             return;
         }
         const pl = p.data.players || [];
