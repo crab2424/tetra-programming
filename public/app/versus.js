@@ -542,6 +542,9 @@ function recreateVersusCpuController(key) {
   if (!old) return null;
   const game = (key === '_cpuControllerPlayer') ? window._game : window._cpuGame;
   const CPUClass = old.constructor;
+  // CPU が止めていた重力は stop() が直に戻す（録画に残らない）。フレームの入力の所（_runCpu の中）なら
+  // 先に cpuAction で戻して録画に残す（再生で同じフレームに戻り、盤面がずれない）
+  if (game && game._cpuRunning && game.gravityDisabled && typeof game.cpuAction === 'function') game.cpuAction('gravity', false);
   if (typeof old.stop === 'function') old.stop();
   const ctrl = new CPUClass(game);
   // ぷよ LV5/LV6 の思考ログの手数・試合の集計を引き継ぐ（作り直しで数え直さない）
@@ -558,6 +561,9 @@ function recreateVersusCpuController(key) {
 // 1つのミノ／ぷよに対して CPU が STALL_MS 以上手を出さない（重力だけで落ちている）状態を検出し、
 // コントローラの状態をログに出してから作り直す。通常 CPU は 1 秒未満で置くので、
 // 重力任せで落ちきるより十分短い閾値にしている。
+// 時間はゲーム時計で測る（画面が隠れてフレームが止まっている間は盤面も CPU も止まっているので、
+// 実時間で測ると止まったと見なして作り直してしまう）。作り直しはフレームの入力の所（cpuFrame）で行う
+// （試合の途中で盤面の設定を変えるので、録画・再生で同じ所を通すため）
 const CPU_STALL_MS = 6000;
 let _cpuWatchdogTimer = null;
 
@@ -573,12 +579,12 @@ function startVersusCpuWatchdog(sessionId) {
     if (window.BattleVersusLifecycle.phase !== 'playing') return;
     const pauseOverlay = document.getElementById('versus-pause-overlay');
     const paused = pauseOverlay && pauseOverlay.classList.contains('active');
-    const now = performance.now();
 
     for (const key of ['_cpuController', '_cpuControllerPlayer']) {
       const ctrl = window[key];
       if (!ctrl || !ctrl.isActive || !ctrl.isAutoPlay) { delete tracks[key]; continue; }
       const game = ctrl.game;
+      const now = (game && game.clock) ? game.clock.now() : performance.now();
       // 監視対象外の時間帯（ポーズ・カウントダウン・終了演出・ぷよの連鎖中など）は計測し直す
       const idle = paused || !game || game.isPaused || game.isCountingDown || game.isFinishing
         || (game.state && game.state !== 'playing');
@@ -604,7 +610,13 @@ function startVersusCpuWatchdog(sessionId) {
         gs: game._gs,
       });
       delete tracks[key];
-      recreateVersusCpuController(key);
+      if (typeof game.cpuFrame === 'function') {
+        game.cpuFrame(() => {
+          if (currentSessionId === sessionId && window[key] === ctrl) recreateVersusCpuController(key);
+        });
+      } else {
+        recreateVersusCpuController(key);
+      }
     }
   }, 1000);
 }
