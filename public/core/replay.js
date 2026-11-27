@@ -3121,37 +3121,52 @@ const ReplayManager = {
         return !!(o && o.classList.contains('active'));
     },
 
-    // 木の一番上（元の試合）。手元に覚えている物（枝の行き来・続きを遊んだ元）→ 保存先の順に探す
-    async _brRoot(p) {
+    // 木の一番上（元の試合）の候補。保存先（いちばん新しい木）→ 手元に覚えている物（枝の行き来・続きを遊んだ元）の順。
+    //   手元の物は、続きを保存する前に覚えたので今の枝が入っていないことがある（葉の枝から PLAY HERE したときなど）
+    async _brRoots(p) {
         const b = p.data.branch;
-        if (!b) return p.data;
+        if (!b) return [p.data];
         const id = b.rootId || null;
-        const near = (this._branchStack || []).concat([this._branchParent, this.backTo && this.backTo.data]);
-        for (const d of near) if (d && !d.branch && d.id === id) return d;
+        const out = [];
         if (id && typeof this.findReplayData === 'function') {
             try {
                 const d = await this.findReplayData(id);
-                if (d) return d;
+                if (d) out.push(d);
             } catch (e) { /* 見つからない */ }
         }
-        return null;
+        const near = (this._branchStack || []).concat([this._branchParent, this.backTo && this.backTo.data]);
+        for (const d of near) if (d && !d.branch && d.id === id && out.indexOf(d) < 0) out.push(d);
+        return out;
     },
 
-    // 木を上から順（深さ優先）に並べる。{ nodes: [{ node, data, path, depth, parent, label, t0, t1 }], cur }
-    _brBuild(root, curId) {
+    // 木を上から順（深さ優先）に並べる。{ nodes: [{ node, data, path, depth, parent, name, t0, t1 }], cur }
+    //   extra: 木にまだ無い今の枝（1 本のリプレイ）。親が木にあればその下に足す
+    _brBuild(root, curId, extra) {
         const nodes = [];
-        const walk = (node, data, path, depth, parent, label) => {
+        const walk = (node, data, path, depth, parent, nums) => {
             const i = nodes.length;
             const t0 = (node && node.branch && typeof node.branch.atMs === 'number') ? node.branch.atMs : 0;
-            nodes.push({ node, data, path, depth, parent, label, t0, t1: Math.max(t0, data.durationMs || 0) });
+            nodes.push({ node, data, path, depth, parent, name: this._brName(nums), t0, t1: Math.max(t0, data.durationMs || 0) });
             const kids = Array.isArray(data.branches) ? data.branches : [];
             kids.forEach((k, j) => {
                 if (!k || !k.branch || typeof k.branch.atMs !== 'number') return;
-                walk(k, k, path.concat([k]), depth + 1, i, (depth ? label + '-' : 'BRANCH ') + (j + 1));
+                walk(k, k, path.concat([k]), depth + 1, i, nums.concat([j + 1]));
             });
+            // まだ木に入っていない今の枝（保存しなかった・保存に失敗した）: 親の下に仮に足す。飛ぶときは 1 本のまま使う
+            if (extra && extra.branch.parentId === data.id && !kids.some((k) => k && k.id === extra.id)) {
+                walk(extra, extra, path.concat([extra]), depth + 1, i, nums.concat([kids.length + 1]));
+            }
         };
-        walk(null, root, [], 0, -1, 'ORIGINAL');
+        walk(null, root, [], 0, -1, []);
         return { nodes, cur: nodes.findIndex((n) => (n.node ? n.node.id : root.id) === curId) };
+    },
+
+    // 名前: 番号だけ（1-2-1）。深い枝は後ろの 4 つだけ（…-2-1-1-3）にして、深さを横に出す。全部は title に
+    _brName(nums) {
+        if (!nums.length) return { text: 'ORIGINAL', full: 'ORIGINAL', depth: 0 };
+        const full = 'BRANCH ' + nums.join('-');
+        const text = nums.length > 5 ? '…-' + nums.slice(-4).join('-') : nums.join('-');
+        return { text, full, depth: nums.length };
     },
 
     async _openBranches() {
@@ -3175,15 +3190,24 @@ const ReplayManager = {
         body.textContent = '';
         o.classList.add('active');
         this._br = null;
-        const root = await this._brRoot(p);
+        const roots = await this._brRoots(p);
         if (this.player !== p || !this._brOpen()) return;
-        let tree = root ? this._brBuild(root, p.data.id) : null;
+        // 今の枝が入っている木 → 無ければ親が入っている木に今の枝を仮に足す
+        let root = null, tree = null;
+        const extras = p.data.branch ? [null, p.data] : [null];
+        for (const extra of extras) {
+            for (const r of roots) {
+                const t = this._brBuild(r, p.data.id, extra);
+                if (t.cur >= 0) { root = r; tree = t; break; }
+            }
+            if (tree) break;
+        }
         let partial = false;
         if (!tree || tree.cur < 0) {
             // 元の試合が見つからない（保存されていない・消した）: 今の枝から下だけ見せる
             partial = true;
             tree = this._brBuild(p.data, p.data.id);
-            tree.nodes[0].label = 'THIS';
+            tree.nodes[0].name = { text: 'THIS', full: 'THIS', depth: 0 };
         }
         this._br = { p, root: partial ? null : root, partial, nodes: tree.nodes, cur: tree.cur, sel: tree.cur };
         this._brRender();
@@ -3233,8 +3257,17 @@ const ReplayManager = {
             row.dataset.i = i;
             const name = document.createElement('span');
             name.className = 'replay-br-name';
-            name.style.paddingLeft = (n.depth * 12) + 'px';
-            name.textContent = n.label + ((n.node && n.node.star) ? ' ★' : '');
+            name.title = n.name.full;
+            const label = document.createElement('span');
+            label.className = 'replay-br-label';
+            label.textContent = n.name.text + ((n.node && n.node.star) ? ' ★' : '');
+            name.appendChild(label);
+            if (n.name.depth > 5) {
+                const dep = document.createElement('span');
+                dep.className = 'replay-br-depth';
+                dep.textContent = '×' + n.name.depth;
+                name.appendChild(dep);
+            }
             const info = document.createElement('span');
             info.className = 'replay-br-info';
             info.textContent = `${res}${res ? ' · ' : ''}${replayFmtTime(n.t0)}–${replayFmtTime(n.t1)}`;
@@ -3324,7 +3357,7 @@ const ReplayManager = {
         try {
             for (const n of target.path) {
                 stack.push(full);
-                full = replayBranchFull(full, n);
+                full = n.tail ? replayBranchFull(full, n) : n; // tail が無い＝木に仮に足した今の枝（1 本のまま）
             }
         } catch (e) {
             console.warn('[replay] 枝を組み立てられませんでした', e);

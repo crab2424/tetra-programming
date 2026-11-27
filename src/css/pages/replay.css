@@ -559,10 +559,25 @@ body:has(#replay-branches-overlay.active) .puyo-chain-text {
   color: var(--text);
 }
 .replay-br-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 8px 0 10px;
   white-space: nowrap;
+}
+.replay-br-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-right: 8px;
+}
+.replay-br-depth {
+  flex: none;
+  margin-left: 6px;
+  font-size: 9px;
+  opacity: 0.6;
+}
+.replay-br-name .replay-br-now {
+  flex: none;
 }
 .replay-br-row.is-cur .replay-br-name {
   color: var(--accent);
