@@ -1387,6 +1387,13 @@
         const it = row && rowAuto(row);
         if (it) { it.scrollAnchor = tuningContainer || row; items.push(it); }
       });
+      // TUNING (PUYO)（puyo/input.js _puyoShiftMs）
+      const puyoTuning = document.getElementById('tuning-puyo-section');
+      ['slider-puyo-das', 'slider-puyo-arr'].forEach(id => {
+        const s = document.getElementById(id);
+        const row = s && s.closest('.slider-row');
+        if (row) { const it = rowSlider(row, s); it.scrollAnchor = puyoTuning || row; items.push(it); }
+      });
       $$('#key-config-grid .key-row').forEach(row => {
         $$('.key-badge', row).forEach(b => items.push({ el: b, scrollAnchor: keyAnchor }));
       });

@@ -45,8 +45,14 @@ Object.assign(Game.prototype, {
 
         if (!table) return false
 
+        // 床蹴り（持ち上げる回転入れ）の 15 回制限（エンジン版 24〜。_kickLiftLimitOn）。
+        //   15 回に達したら持ち上げるキックは使わない＝浮いたまま回転で耐え続けられない（落ちて着地すれば固定）
+        const liftRule = this._kickLiftLimitOn()
+        const noLift = liftRule && this.moveCount >= 15
+
         for (let i = 0; i < table.length; i++) {
             const [dx, dy] = table[i];
+            if (noLift && -dy < 0) continue
             // 「回転後の形状でキックオフセット(dx,-dy)を加算した位置」を検証する
             // rotDir で回転、moveX/moveY でキックを別々に渡す
             if (this.validRotated(rotDir, dx, -dy)) {
@@ -56,6 +62,9 @@ Object.assign(Game.prototype, {
                 this.mino.x += dx
                 this.mino.y += -dy
                 this.mino.rotation = to
+                // 宙で持ち上げた回転も 1 回と数える（接地中の操作は checkGroundState が数えるので二重にしない）。
+                //   I ミノを床の 1 段上で縦にすると床で弾かれて 2 段上がり、一度も接地せずに耐え続けられたため
+                if (liftRule && -dy < 0 && !this.isGrounded) this.moveCount++
 
                 // T-spin判定用フラグを記録
                 // キックテーブルの5番目（index=4）がPoint 5（井戸抜け用）
@@ -70,6 +79,14 @@ Object.assign(Game.prototype, {
             }
         }
         return false
+    },
+
+    // 床蹴りの 15 回制限を当てるか。15 回の強制固定を止めているとき（PRACTICE の置くまで固定しない・ZONE の発動中）と
+    // エンジン版 23 以下の録画の再生では当てない
+    _kickLiftLimitOn() {
+        if (this.practiceNoLock || this.zoneActive) return false
+        if (this._replay && this._replay.data && (this._replay.data.engine || 0) < 24) return false
+        return true
     },
 
     // 回転後にキックオフセットを加えた位置が有効かどうかを検証

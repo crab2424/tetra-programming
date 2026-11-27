@@ -185,6 +185,8 @@ Object.assign(Game.prototype, {
                 if (this.isTimerRunning) this.updateTimeDisplay();
                 // ZONE の発動中は残り時間のメーターが減っていくので毎フレーム描く（tet/zone.js）
                 if (this.zoneActive) this.requestRedraw();
+                // 消去エフェクトが動いている間は毎フレーム描く（core/clear_fx.js）
+                if (this._fx && this._fx.active) this.requestRedraw();
             };
             this._frameDraw = () => {
                 // ダーティ時のみ描画
@@ -276,6 +278,9 @@ Object.assign(Game.prototype, {
 
         // ZONE: ZONE 段の段数・終了の光（tet/zone.js）
         if (this.zoneEnabled) this._zoneDrawField(this.mainCtx);
+
+        // 消去エフェクト（盤面の座標のまま。core/clear_fx.js）
+        if (this._fx && this._fx.active) this._fx.draw(this.mainCtx, SCREEN_WIDTH, ROWS_COUNT * BLOCK_SIZE);
 
         this.mainCtx.restore();
 

@@ -71,14 +71,17 @@ const ACTION_LABELS = {
  * デフォルトチューニング設定
  * irs / ihs: 先行回転・先行ホールド（既定 OFF。設計 source_assets/memory/tet_zone/tetlabo-irs-ihs-design.md §4）
  * irsDcd: IRS/IHS の非表示 DCD（設計 §13）。ここには置かない＝未設定なら dcd を使う（古い設定・録画も同じ）
- * @type {{das: number, arr: number, dcd: number, irs: boolean, ihs: boolean}}
+ * @type {{das: number, arr: number, dcd: number, irs: boolean, ihs: boolean, puyoDas: number, puyoArr: number}}
  */
 const DEFAULT_TUNING = {
   das: 9.0,
   arr: 1.6,
   dcd: 3.0,
   irs: false,
-  ihs: false
+  ihs: false,
+  // ぷよの横移動（TUNING (PUYO)）。テトの das / arr とは別（エンジン版 24〜。23 以下の録画はテトの値で再生）
+  puyoDas: 9.0,
+  puyoArr: 1.6
 };
 
 // ─── デフォルト音量設定 ───────────────────────
@@ -93,6 +96,7 @@ const DEFAULT_DISPLAY = {
   versusTime: true, // 対戦画面のTIME表示
   ghostStyle: 'fill', // 'fill'=ゴーストが薄い塗り・アシストが枠線 / 'outline'=入れ替え（ゴーストが枠線・アシストが薄い塗り）
   replayAutoSave: true, // 最後まで遊んだ試合のリプレイを自動で保存する（OFF でも最高記録のものは残す。app/replays.js）
+  clearEffect: 'low', // ミノのライン消去・ぷよの消去のエフェクト 'off' / 'low' / 'high'（見た目だけ。core/clear_fx.js）
   replayBranchMulti: true, // PLAY HERE の続き（枝）を 1 つの元につき何本も残す。OFF＝最新の 1 本だけ（★の枝は残す。容量節約。app/replays.js）
 };
 
@@ -436,6 +440,8 @@ function renderTuning() {
   document.getElementById('slider-dcd').value = currentTuning.dcd;
   // 未設定（古い設定）は横の DCD と同じ値で始める
   document.getElementById('slider-irs-dcd').value = currentTuning.irsDcd ?? currentTuning.dcd;
+  document.getElementById('slider-puyo-das').value = currentTuning.puyoDas ?? DEFAULT_TUNING.puyoDas;
+  document.getElementById('slider-puyo-arr').value = currentTuning.puyoArr ?? DEFAULT_TUNING.puyoArr;
   updateTuningDisplay();
   renderTuningOptions();
 }
@@ -483,16 +489,22 @@ function updateTuningDisplay() {
   const arrF = parseFloat(document.getElementById('slider-arr').value);
   const dcdF = parseFloat(document.getElementById('slider-dcd').value);
   const irsDcdF = parseFloat(document.getElementById('slider-irs-dcd').value);
+  const puyoDasF = parseFloat(document.getElementById('slider-puyo-das').value);
+  const puyoArrF = parseFloat(document.getElementById('slider-puyo-arr').value);
 
   document.getElementById('val-das').textContent = `${dasF.toFixed(1)}f (${Math.round(dasF * frameMs)}ms)`;
   document.getElementById('val-arr').textContent = `${arrF.toFixed(1)}f (${Math.round(arrF * frameMs)}ms)`;
   document.getElementById('val-dcd').textContent = `${dcdF.toFixed(1)}f (${Math.round(dcdF * frameMs)}ms)`;
   document.getElementById('val-irs-dcd').textContent = `${irsDcdF.toFixed(1)}f (${Math.round(irsDcdF * frameMs)}ms)`;
+  document.getElementById('val-puyo-das').textContent = `${puyoDasF.toFixed(1)}f (${Math.round(puyoDasF * frameMs)}ms)`;
+  document.getElementById('val-puyo-arr').textContent = `${puyoArrF.toFixed(1)}f (${Math.round(puyoArrF * frameMs)}ms)`;
 
   currentTuning.das = dasF;
   currentTuning.arr = arrF;
   currentTuning.dcd = dcdF;
   currentTuning.irsDcd = irsDcdF;
+  currentTuning.puyoDas = puyoDasF;
+  currentTuning.puyoArr = puyoArrF;
 }
 
 // ─── DISPLAY設定（APM/LPM・対戦TIME表示のON/OFF） ────────
@@ -520,6 +532,13 @@ function renderDisplayOptions() {
   if (autoSaveToggle) {
     autoSaveToggle.querySelectorAll('.opt-btn').forEach((btn) => {
       btn.classList.toggle('active', (btn.dataset.value === 'on') === currentDisplay.replayAutoSave);
+    });
+  }
+  const fxToggle = document.getElementById('display-clear-effect-toggle');
+  if (fxToggle) {
+    const lv = (window.ClearFx && ClearFx.level) ? ClearFx.level() : (currentDisplay.clearEffect || 'low');
+    fxToggle.querySelectorAll('.opt-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.value === lv);
     });
   }
   const branchToggle = document.getElementById('display-replay-branch-toggle');
@@ -612,6 +631,8 @@ document.getElementById('slider-das').addEventListener('input', updateTuningDisp
 document.getElementById('slider-arr').addEventListener('input', updateTuningDisplay);
 document.getElementById('slider-dcd').addEventListener('input', updateTuningDisplay);
 document.getElementById('slider-irs-dcd').addEventListener('input', updateTuningDisplay);
+document.getElementById('slider-puyo-das').addEventListener('input', updateTuningDisplay);
+document.getElementById('slider-puyo-arr').addEventListener('input', updateTuningDisplay);
 const _deadzoneSlider = document.getElementById('slider-deadzone');
 if (_deadzoneSlider) _deadzoneSlider.addEventListener('input', updateGamepadOptionsDisplay);
 
@@ -1108,7 +1129,7 @@ async function renamePreset() {
 // あっても取りこぼしが起きない。
 // irsDcd は保存値に無ければ dcd と同じ（renderTuning が画面を描くときに足す）。足しただけで「未保存」に見えないよう、比べる前にそろえる
 function _tuningForCompare(t) {
-  return { ...t, irsDcd: t.irsDcd ?? t.dcd };
+  return { ...DEFAULT_TUNING, ...t, irsDcd: t.irsDcd ?? t.dcd };
 }
 function settingsSnapshot() {
   const backendInput = document.getElementById('settings-online-backend');

@@ -905,10 +905,26 @@ Object.assign(PuyoGame.prototype, {
 
     _applyErase() {
         if (!this._erasingCells) return;
+        // 消去エフェクト（見た目だけ。消える前の色を写す。core/clear_fx.js）
+        if (typeof ClearFx === 'function' && ClearFx.allowed(this)) this._fxErase();
         for (const { r, c } of this._erasingCells) {
             this.field[r][c] = 0;
         }
         this._erasingCells = null;
+    },
+
+    _fxErase() {
+        const cs = PConfig.cellSize;
+        const cells = [];
+        for (const { r, c } of this._erasingCells) {
+            const color = this.field[r][c];
+            const y = r - PConfig.hiddenRows;
+            if (!color || y < 0) continue; // 見えない段（枠の上）は出さない
+            cells.push({ x: c * cs, y: y * cs, color });
+        }
+        if (!cells.length) return;
+        if (!this._fx) this._fx = new ClearFx();
+        this._fx.puyoErase(cells, this.chainCount || 1, cs, PConfig.cols * cs, PConfig.rows * cs);
     },
 
     _calcChainScore(groups) {

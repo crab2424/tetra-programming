@@ -430,20 +430,41 @@ Object.assign(PuyoGame.prototype, {
         }
     },
 
+    // 横移動の DAS / ARR（ms）。ぷよは TUNING (PUYO) の puyoDas / puyoArr を使う。
+    //   エンジン版 23 以下の録画はテトの das / arr で動いていたので、その再生だけテトの値（core/replay.js）
+    //   ふだんは試合の頭に読んだ設定（_tuningUsed＝録画に残る値）を使う。毎フレーム localStorage を読まない
+    _puyoShiftMs() {
+        const t = (this._replay ? this._replay.configFor(this).tuning : this._tuningUsed) || {};
+        const old = this._replay && this._replay.data && (this._replay.data.engine || 0) < 24;
+        const das = old ? t.das : t.puyoDas;
+        const arr = old ? t.arr : t.puyoArr;
+        return {
+            das: (typeof das === 'number' ? das : 9) * 16.67,
+            arr: (typeof arr === 'number' ? arr : 1.6) * 16.67,
+        };
+    },
+
     _updateDAS(dt) {
-        const tuning = this._replay ? this._replay.configFor(this).tuning
-            : ((typeof loadTuning === 'function') ? loadTuning() : { das: 9, arr: 1.5 });
-        const dasMs = tuning.das * 16.67;
-        const arrMs = tuning.arr * 16.67;
+        const { das: dasMs, arr: arrMs } = this._puyoShiftMs();
 
         if (this._dasDir !== 0) {
             this._dasTimer += dt;
             if (this._dasTimer >= dasMs) {
                 this._arrTimer += dt;
                 if (this._gs === 'falling') {
-                    while (this._arrTimer >= arrMs) {
-                        this._arrTimer -= arrMs;
-                        this._tryMove(this._dasDir);
+                    if (arrMs <= 0) {
+                        // ARR 0 は壁（動けなくなる所）まで一気に。0 を引き続ける無限ループにしない
+                        this._arrTimer = 0;
+                        for (let i = 0; i < PConfig.cols && this._gs === 'falling'; i++) {
+                            const x = this.pivotX;
+                            this._tryMove(this._dasDir);
+                            if (this.pivotX === x) break;
+                        }
+                    } else {
+                        while (this._arrTimer >= arrMs) {
+                            this._arrTimer -= arrMs;
+                            this._tryMove(this._dasDir);
+                        }
                     }
                 } else {
                     if (this._arrTimer >= arrMs) {

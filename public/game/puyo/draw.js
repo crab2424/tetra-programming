@@ -354,6 +354,9 @@ Object.assign(PuyoGame.prototype, {
             this._drawPuyo(ctx, this.splitPuyo.col * cs, this.splitPuyo.y * cs, this.splitPuyo.color, cs, 0);
         }
 
+        // 消去エフェクト（論理 px のまま。core/clear_fx.js）
+        if (this._fx && this._fx.active) this._fx.draw(ctx, logicalW, logicalH);
+
         ctx.restore();
 
         if (this._gs === 'eraseWait' && this.chainTextInfo && this.chainTextInfo.el) {

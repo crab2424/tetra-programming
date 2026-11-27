@@ -88,6 +88,22 @@ Object.assign(Game.prototype, {
         this.startGravity(); // 重力をリセットして開始
     },
 
+    // そろった段（消える前）と各列のブロックの種類。固定した瞬間に 1 回だけ呼ぶ（消去エフェクト用）
+    _fxFullRows() {
+        const byRow = new Map();
+        for (const b of this.field.blocks) {
+            if (b.y < 0 || b.y >= ROWS_COUNT) continue;
+            let r = byRow.get(b.y);
+            if (!r) { r = new Array(COLS_COUNT).fill(-1); byRow.set(b.y, r); }
+            r[b.x] = b.type;
+        }
+        const rows = [];
+        for (const [y, types] of byRow) {
+            if (types.every((t) => t >= 0)) rows.push({ y, types });
+        }
+        return rows;
+    },
+
     // ミノを即座に固定する共通処理
     secureMino(viaHardDrop = false) {
         // ZONE の発動中か（この手の消去は「底へ移す」。tet/zone.js）
@@ -108,6 +124,9 @@ Object.assign(Game.prototype, {
         this.playSe(viaHardDrop ? 'lock_hard' : 'lock');
 
         const renForCalc = this.ren; // ★ぷよ用火力計算のために加算前のRENを保持
+
+        // 消去エフェクト用に、消える前のそろった段を写す（見た目だけ。ZONE の発動中は底へ移すだけなので出さない。core/clear_fx.js）
+        const fxRows = (!inZone && typeof ClearFx === 'function' && ClearFx.allowed(this)) ? this._fxFullRows() : null;
 
         // ZONE の発動中は 20 段より上も見て、そろった段を底へ移す（窒息の判定より先に数える）
         const linesCleared = inZone ? this._zoneCheckLine() : this.field.checkLine()
@@ -140,6 +159,11 @@ Object.assign(Game.prototype, {
             ? (linesCleared > 0 && this._zoneIsPerfectClear())
             : (this.field.blocks.length === 0);
         const is4Lines = (linesCleared === 4);
+        if (fxRows && fxRows.length && linesCleared > 0) {
+            if (!this._fx) this._fx = new ClearFx();
+            this._fx.tetClear(fxRows, linesCleared, tSpinResult, isPerfectClear, BLOCK_SIZE, SCREEN_WIDTH);
+            this.requestRedraw();
+        }
 
         // Scoring() の戻り値として火力（段数）を受け取る
         let generatedGarbage = this.Scoring(tSpinResult, linesCleared, isPerfectClear);
