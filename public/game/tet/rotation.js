@@ -45,43 +45,67 @@ Object.assign(Game.prototype, {
 
         if (!table) return false
 
-        // 床蹴り（持ち上げる回転入れ）の 15 回制限（エンジン版 24〜。_kickLiftLimitOn）。
-        //   15 回に達したら持ち上げるキックは使わない＝浮いたまま回転で耐え続けられない（落ちて着地すれば固定）
+        // 床蹴りの 15 回ルール（エンジン版 24〜。_kickLiftLimitOn）:
+        //   lowestY を更新しないまま 15 回操作したら、回転入れで持ち上がる分を 1 段低くする（選ぶキックは SRS のまま）。
+        //   低くした位置が埋まるなら回転せず、その場で落として固定する（_kickLock → checkGroundState / cpuAction）。
+        //   silent（CPU の試し動かし）はカウントもロックの予約もしない（位置だけ同じ規則で求める）
         const liftRule = this._kickLiftLimitOn()
-        const noLift = liftRule && this.moveCount >= 15
+        if (liftRule && this._kickLock) return !silent // 固定待ち（同じフレームの 2 回目の回転）は何もしない
 
         for (let i = 0; i < table.length; i++) {
             const [dx, dy] = table[i];
-            if (noLift && -dy < 0) continue
             // 「回転後の形状でキックオフセット(dx,-dy)を加算した位置」を検証する
             // rotDir で回転、moveX/moveY でキックを別々に渡す
-            if (this.validRotated(rotDir, dx, -dy)) {
-                if (rotDir === 1) this.mino.rotate()
-                else this.mino.rotateCCW()
-
-                this.mino.x += dx
-                this.mino.y += -dy
-                this.mino.rotation = to
+            if (!this.validRotated(rotDir, dx, -dy)) continue
+            let ky = -dy
+            if (liftRule && ky < 0) {
+                if (this.moveCount >= 15) {
+                    ky += 1 // 持ち上げを 1 段低く
+                    if (!this.validRotated(rotDir, dx, ky)) {
+                        if (silent) return false
+                        this._kickLock = true // 埋まる → 落として固定（呼んだ側の接地判定で）
+                        return true
+                    }
+                }
                 // 宙で持ち上げた回転も 1 回と数える（接地中の操作は checkGroundState が数えるので二重にしない）。
                 //   I ミノを床の 1 段上で縦にすると床で弾かれて 2 段上がり、一度も接地せずに耐え続けられたため
-                if (liftRule && -dy < 0 && !this.isGrounded) this.moveCount++
-
-                // T-spin判定用フラグを記録
-                // キックテーブルの5番目（index=4）がPoint 5（井戸抜け用）
-                this.lastRotUsedPoint5 = (i === 4);
-                this.lastActionWasRotation = true;
-                // 回転後の位置がT-spin判定になる場合は専用SE（人間・CPU共通）。
-                // silent（CPUのパス再生中）はSEを抑止する。
-                if (!silent) {
-                    this.playSe(this.checkTSpin() !== null ? 'tspin_rot' : 'rotate');
-                }
-                return true
+                if (ky < 0 && !silent && !this.isGrounded) this.moveCount++
             }
+
+            if (rotDir === 1) this.mino.rotate()
+            else this.mino.rotateCCW()
+
+            this.mino.x += dx
+            this.mino.y += ky
+            this.mino.rotation = to
+
+            // T-spin判定用フラグを記録
+            // キックテーブルの5番目（index=4）がPoint 5（井戸抜け用）
+            this.lastRotUsedPoint5 = (i === 4);
+            this.lastActionWasRotation = true;
+            // 回転後の位置がT-spin判定になる場合は専用SE（人間・CPU共通）。
+            // silent（CPUのパス再生中）はSEを抑止する。
+            if (!silent) {
+                this.playSe(this.checkTSpin() !== null ? 'tspin_rot' : 'rotate');
+            }
+            return true
         }
         return false
     },
 
-    // 床蹴りの 15 回制限を当てるか。15 回の強制固定を止めているとき（PRACTICE の置くまで固定しない・ZONE の発動中）と
+    // 床蹴りの 15 回ルールで埋まった回転 → いまの向きのまま落ちるところまで落として固定（ハードドロップの点は付けない）
+    _kickLockNow() {
+        this._kickLock = false
+        if (!this.mino) return
+        let d = 0
+        while (this.valid(0, 1)) { this.mino.y++; d++ }
+        if (d > 0) this.lastActionWasRotation = false
+        if (this.timer) { clearInterval(this.timer); this.timer = null }
+        this._cancelLockTimer()
+        this.secureMino()
+    },
+
+    // 床蹴りの 15 回ルールを当てるか。15 回の強制固定を止めているとき（PRACTICE の置くまで固定しない・ZONE の発動中）と
     // エンジン版 23 以下の録画の再生では当てない
     _kickLiftLimitOn() {
         if (this.practiceNoLock || this.zoneActive) return false

@@ -80,6 +80,7 @@ Object.assign(Game.prototype, {
         this.isGrounded = false;
         this.lowestY = this.mino.y;
         this.moveCount = 0;
+        this._kickLock = false;
         // T-spin判定フラグのリセット
         this.lastActionWasRotation = false;
         this.lastRotUsedPoint5 = false;
@@ -478,6 +479,8 @@ Object.assign(Game.prototype, {
 
     // 接地状態をチェックし、重力と固定猶予タイマーを切り替える
     checkGroundState(actionHappened = false, wasGrounded = false) {
+        // 床蹴りの 15 回ルールで回転が埋まった → 落として固定（rotation.js tryRotate）
+        if (this._kickLock) { this._kickLockNow(); return; }
         // 接地状態からの操作ならカウントを進める
         if (actionHappened && wasGrounded) {
             this.moveCount++;
@@ -678,7 +681,10 @@ Object.assign(Game.prototype, {
         const mino = this.mino;
         switch (type) {
             case 'hold': r = this.holdCurrentMino(); break;
-            case 'rotate': r = this.tryRotate(a); break;
+            case 'rotate':
+                r = this.tryRotate(a);
+                if (this._kickLock) { this._kickLockNow(); r = false; } // 床蹴りの 15 回ルール（rotation.js）
+                break;
             case 'move': r = a < 0 ? this.moveLeft() : this.moveRight(); break;
             case 'shift':
                 r = false;
