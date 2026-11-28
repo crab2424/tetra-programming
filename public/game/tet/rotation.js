@@ -49,16 +49,20 @@ Object.assign(Game.prototype, {
         //   lowestY を更新しないまま 15 回操作したら、回転入れで持ち上がる分を 1 段低くする（選ぶキックは SRS のまま）。
         //   低くした位置が埋まるなら回転せず、その場で落として固定する（_kickLock → checkGroundState / cpuAction）。
         //   silent（CPU の試し動かし）はカウントもロックの予約もしない（位置だけ同じ規則で求める）
+        //   エンジン版 26〜は実機 PPT2 に合わせて、15 回を使い切った後の回転は SRS の 5 つのキックを全部 1 段下で試す
+        //   （持ち上げは 1 段少なく、その場の回転も 1 段下がる。どれも入らなければ回転しない。宙で粘っても 1 回ごとに 1 段下がる）
         const liftRule = this._kickLiftLimitOn()
+        const v26 = this._lockV26()
         if (liftRule && this._kickLock) return !silent // 固定待ち（同じフレームの 2 回目の回転）は何もしない
+        const down = (liftRule && v26 && this.moveCount >= 15) ? 1 : 0
 
         for (let i = 0; i < table.length; i++) {
             const [dx, dy] = table[i];
             // 「回転後の形状でキックオフセット(dx,-dy)を加算した位置」を検証する
             // rotDir で回転、moveX/moveY でキックを別々に渡す
-            if (!this.validRotated(rotDir, dx, -dy)) continue
-            let ky = -dy
-            if (liftRule && ky < 0) {
+            if (!this.validRotated(rotDir, dx, -dy + down)) continue
+            let ky = -dy + down
+            if (liftRule && !v26 && ky < 0) {
                 if (this.moveCount >= 15) {
                     ky += 1 // 持ち上げを 1 段低く
                     if (!this.validRotated(rotDir, dx, ky)) {

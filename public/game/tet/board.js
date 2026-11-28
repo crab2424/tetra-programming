@@ -100,6 +100,11 @@ Object.assign(Game.prototype, {
         return !(this._replay && this._replay.data && (this._replay.data.engine || 0) < 25);
     },
 
+    // 15 回の後の回転は全部のキックを 1 段下で試す・床蹴りでその層に接地した扱い（エンジン版 26〜。実機 PPT2 の J の記録 j-mino.json）
+    _lockV26() {
+        return !(this._replay && this._replay.data && (this._replay.data.engine || 0) < 26);
+    },
+
     // 最下層の測り方（大きいほど下）
     _lockLowY() {
         const m = this.mino;
@@ -129,6 +134,8 @@ Object.assign(Game.prototype, {
         if (this.updateLowestY()) return;
         if (this.practiceNoLock || this.zoneActive) return;
         if (this._layerTouched || lifted) this.moveCount++;
+        // 床蹴り（持ち上げる回転）は積みに当たった＝その層に接地した扱い。この後の宙の操作も数える（版 26〜）
+        if (lifted && this._lockV26()) this._layerTouched = true;
     },
 
     // そろった段（消える前）と各列のブロックの種類。固定した瞬間に 1 回だけ呼ぶ（消去エフェクト用）
