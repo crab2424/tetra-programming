@@ -227,6 +227,8 @@ Object.assign(Game.prototype, {
         // 上に少し余白を作る（-1行目の一部を表示）
         this.mainCtx.save();
         this.mainCtx.translate(0, BLOCK_SIZE * VISIBLE_EXTRA_ROW_RATIO);
+        // 消去エフェクト案 1（背景側。ブロックの下。core/clear_fx.js）
+        if (this._fx && this._fx.active) this._fx.drawUnder(this.mainCtx, SCREEN_WIDTH, ROWS_COUNT * BLOCK_SIZE);
 
         // 固定ブロックはオフスクリーンキャッシュを 1 枚 blit するだけ。
         // 中身が変わるのはロック・ライン消去・おじゃま着弾時のみで、その瞬間に

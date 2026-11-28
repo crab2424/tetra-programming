@@ -15,6 +15,8 @@ const CLEAR_FX_MAX_SPARKS = 320;
 const CLEAR_FX_MAX_BANDS = 8;
 const CLEAR_FX_MAX_RINGS = 48;
 const CLEAR_FX_MAX_LINES = 8;
+const CLEAR_FX_ALT_COLORS = ['#ffffff', '#bff4ff', '#d79bff', '#ffd76a'];
+const CLEAR_FX_GLOW_RGB = ['255,255,255', '191,244,255', '215,155,255', '255,215,106']; // 白・4 段・T-Spin・PERFECT CLEAR
 
 // ぷよの色（1〜5。draw.js の GHOST_OUTLINE_PUYO と同じ並び）・6=おじゃま
 const CLEAR_FX_PUYO_COLORS = ['#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f', '#c8c8d0'];
@@ -37,7 +39,18 @@ class ClearFx {
         for (let i = 0; i < CLEAR_FX_MAX_LINES; i++) {
             this.lines.push({ on: false, y: 0, t: 0, life: 1, color: '#fff', width: 2, delay: 0 });
         }
-        this.frame = { on: false, t: 0, life: 1, color: '#fff' }; // 盤面の縁の光（PERFECT CLEAR）
+        this.unders = [];    // 案 1: 盤面の背景側（ブロックの下）に描く光
+        this.ends = [];      // 案 2: 消えた段の両端
+        this.snaps = [];     // 案 3: ごく短い細線
+        for (let i = 0; i < CLEAR_FX_MAX_BANDS; i++) {
+            this.unders.push({ on: false, y: 0, h: 0, t: 0, life: 1, alpha: 1, color: '#fff' });
+            this.ends.push({ on: false, y: 0, t: 0, life: 1, len: 1, alpha: 1, color: '#fff' });
+            this.snaps.push({ on: false, y: 0, t: 0, life: 1, alpha: 1, width: 2, color: '#fff' });
+        }
+        this.uflash = { on: false, t: 0, life: 1, alpha: 0, color: '#fff' }; // 案 1: 背景側の盤面全体の光
+        this.glow = { on: false, t: 0, life: 1, ci: 0, str: 1 };            // 案 4: 盤面の枠の外の光（DOM の box-shadow）
+        this._glowEl = null; this._glowBase = ''; this._glowCache = new Map(); this._glowStep = -1;
+        this.frame = { on: false, t: 0, life: 1, color: '#fff', alpha: 0.85, wide: 1 }; // 盤面の縁の光
         this.screen = { on: false, t: 0, life: 1, alpha: 0, color: '#fff' };
         this._tailRaf = 0;   // 試合の後の描き足し（tail）
         this._next = 0;      // 次に使う粒（いっぱいなら古いものから上書き）
@@ -49,6 +62,12 @@ class ClearFx {
     static level() {
         const v = window.currentDisplay && window.currentDisplay.clearEffect;
         return (v === 'off' || v === 'high') ? v : 'low';
+    }
+
+    // テトの案の番号（開発用の隠し設定 currentDisplay.clearEffectStyle。0=今の版 1=UNDER 2=EDGE 3=SNAP 4=FRAME。未設定は 0）
+    static style() {
+        const v = window.currentDisplay && window.currentDisplay.clearEffectStyle;
+        return (v === 1 || v === 2 || v === 3 || v === 4) ? v : 0;
     }
 
     // この盤面でいま出してよいか。リプレイは等倍〜2 倍の再生中だけ（シーク・止めての 1 手送り・照らし合わせでは出さない）
@@ -64,10 +83,43 @@ class ClearFx {
         for (const b of this.bands) b.on = false;
         for (const r of this.rings) r.on = false;
         for (const l of this.lines) l.on = false;
+        for (const b of this.unders) b.on = false;
+        for (const b of this.ends) b.on = false;
+        for (const b of this.snaps) b.on = false;
+        this.uflash.on = false;
+        this.glow.on = false;
+        this._glowApply(-1, 0);
         this.frame.on = false;
         this.screen.on = false;
         this.active = false;
         this._stopTail();
+    }
+
+    // 枠の外の光（案 4）。step 0〜15 の強さ。-1 で元に戻す。文字列は強さごとに 1 度だけ作って使い回す
+    _glowApply(step, ci, el) {
+        if (step < 0) {
+            if (this._glowEl && this._glowStep !== -1) this._glowEl.style.boxShadow = '';
+            this._glowStep = -1;
+            return;
+        }
+        if (el && el !== this._glowEl) {
+            this._glowEl = el;
+            const cs = getComputedStyle(el).boxShadow;
+            this._glowBase = (cs && cs !== 'none') ? cs + ', ' : '';
+            this._glowCache.clear();
+        }
+        if (!this._glowEl) return;
+        const key = ci * 16 + step;
+        if (key === this._glowStep) return;
+        this._glowStep = key;
+        let v = this._glowCache.get(key);
+        if (!v) {
+            const c = CLEAR_FX_GLOW_RGB[ci];
+            const a = (step + 1) / 16;
+            v = this._glowBase + '0 0 ' + Math.round(10 + 34 * a) + 'px ' + Math.round(2 + 10 * a) + 'px rgba(' + c + ',' + (0.75 * a).toFixed(2) + '), 0 0 3px 1px rgba(' + c + ',' + a.toFixed(2) + ')';
+            this._glowCache.set(key, v);
+        }
+        this._glowEl.style.boxShadow = v;
     }
 
     // 盤面のループが止まった後（試合の終わり）も、出ているエフェクトが消えるまで redraw() で描き足す
@@ -125,9 +177,9 @@ class ClearFx {
     }
 
     // 盤面の縁が光って消える（PERFECT CLEAR）
-    edge(color, life) {
+    edge(color, life, alpha, wide) {
         const f = this.frame;
-        f.on = true; f.color = color; f.t = 0; f.life = life;
+        f.on = true; f.color = color; f.t = 0; f.life = life; f.alpha = alpha || 0.85; f.wide = wide || 1;
         this._wake();
     }
 
@@ -148,9 +200,39 @@ class ClearFx {
         this._wake();
     }
 
+    _put(arr, o) { // 空きの入れ物を取る（いっぱいなら先頭を上書き）
+        for (let i = 0; i < arr.length; i++) if (!arr[i].on) return arr[i];
+        return arr[0];
+    }
+
     _wake() {
         if (!this.active) this._last = performance.now();
         this.active = true;
+    }
+
+    // 案 1: 盤面の背景側（グリッドの上・ブロックの下）に描く光。時間は draw() が進める
+    drawUnder(ctx, w, h) {
+        if (!this.active) return;
+        ctx.save();
+        const f = this.uflash;
+        if (f.on) {
+            ctx.globalAlpha = f.alpha * (1 - f.t / f.life);
+            ctx.fillStyle = f.color;
+            ctx.fillRect(0, 0, w, h);
+        }
+        for (const b of this.unders) {
+            if (!b.on) continue;
+            const k = Math.min(1, b.t / b.life);
+            const a = b.alpha * (1 - k) * (1 - k);
+            ctx.fillStyle = b.color;
+            const grow = 0.7 + 0.9 * k; // 段の位置から上下へふくらみながら消える
+            for (let i = 0; i < 4; i++) { // 外ほど薄い 4 層（グラデーションを作らない）
+                const hh = b.h * grow * (1 + i * 1.6);
+                ctx.globalAlpha = a * 0.34;
+                ctx.fillRect(0, b.y + (b.h - hh) / 2, w, hh);
+            }
+        }
+        ctx.restore();
     }
 
     // 進めて描く。w・h は盤面の大きさ（フラッシュ用）
@@ -192,11 +274,54 @@ class ClearFx {
             else {
                 alive = true;
                 const k = fr.t / fr.life;
-                ctx.globalAlpha = 0.85 * (1 - k);
+                ctx.globalAlpha = fr.alpha * (1 - k);
                 ctx.strokeStyle = fr.color;
-                const lw = 2 + 10 * (1 - k);
+                const lw = (2 + 10 * (1 - k)) * fr.wide;
                 ctx.lineWidth = lw;
                 ctx.strokeRect(lw / 2, lw / 2, w - lw, h - lw);
+            }
+        }
+        // 案 2: 消えた段の両端（盤面の左右の縁から内へ短く伸びる）
+        for (const e of this.ends) {
+            if (!e.on) continue;
+            e.t += dt;
+            if (e.t >= e.life) { e.on = false; continue; }
+            alive = true;
+            const k = e.t / e.life;
+            const ext = e.len * (1 - (1 - k) * (1 - k) * (1 - k)); // 縁から内へ伸びて止まる
+            const a = e.alpha * (1 - k);
+            ctx.fillStyle = e.color;
+            for (let i = 0; i < 3; i++) { // 縁ほど濃い 3 段の階調（グラデーションを作らない）
+                const ww = ext * (1 - i * 0.3);
+                ctx.globalAlpha = a * (i === 0 ? 0.3 : 0.4);
+                ctx.fillRect(0, e.y, ww, e.h);
+                ctx.fillRect(w - ww, e.y, ww, e.h);
+            }
+            ctx.globalAlpha = a;
+            ctx.fillRect(0, e.y, 4, e.h);
+            ctx.fillRect(w - 4, e.y, 4, e.h);
+        }
+        // 案 3: ごく短い細線（塗らない。段の位置に線だけ）
+        for (const sn of this.snaps) {
+            if (!sn.on) continue;
+            sn.t += dt;
+            if (sn.t >= sn.life) { sn.on = false; continue; }
+            alive = true;
+            const k = sn.t / sn.life;
+            ctx.globalAlpha = sn.alpha * (1 - k);
+            ctx.fillStyle = sn.color;
+            const ww = sn.width * (1 + 1.5 * k); // 線は消えながら少し太る
+            ctx.fillRect(0, sn.y - ww / 2, w, ww);
+        }
+        // 案 4: 枠の外の光
+        const gl = this.glow;
+        if (gl.on) {
+            gl.t += dt;
+            if (gl.t >= gl.life) { gl.on = false; this._glowApply(-1, 0); }
+            else {
+                alive = true;
+                const k = gl.t / gl.life;
+                this._glowApply(Math.max(0, Math.min(15, Math.round(15 * gl.str * (1 - k) * (1 - k)))), gl.ci, ctx.canvas);
             }
         }
         ctx.globalCompositeOperation = 'lighter';
@@ -252,6 +377,8 @@ class ClearFx {
     //   LOW : 段が光って細い線に縮む
     //   HIGH: ＋段の中心から左右へ光の線が走る・4 段 / T-Spin は盤面が軽く光る・PERFECT CLEAR は縁も光る
     tetClear(rows, lines, tSpin, pc, bs, w) {
+        const style = ClearFx.style();
+        if (style !== 0) { this._tetClearAlt(style, rows, lines, tSpin, pc, bs, w); return; }
         const high = ClearFx.level() === 'high';
         const tspin = tSpin === 'tspin';
         const mini = tSpin === 'mini';
@@ -272,6 +399,62 @@ class ClearFx {
         } else if (high && (lines >= 4 || tspin)) {
             this.flash(tspin ? '#c471f5' : '#9be8ff', 0.14, 300);
         }
+    }
+
+
+    // ─── テトの別案（開発用。currentDisplay.clearEffectStyle = 1〜4。重なっても盤面が見にくくならない方向）───
+    //   1 UNDER: ブロックの下（背景側）に光る。ブロックは隠れず、空いたマスや溝から光が見える
+    //   2 EDGE : 消えた段の両端だけが光る。HIGH は 3 段以上・T-Spin で枠も光る
+    //   3 SNAP : 約 0.1 秒の細線だけ（塗らない）。HIGH は 2 本重ね・大技で枠もまたたく
+    //   4 FRAME: 盤面の外（枠のまわり）が光る。盤面の中には描かない
+    _tetClearAlt(style, rows, lines, tSpin, pc, bs, w) {
+        const high = ClearFx.level() === 'high';
+        const tspin = tSpin === 'tspin', mini = tSpin === 'mini';
+        const big = lines >= 4 || tspin;
+        const ci = pc ? 3 : (tspin || mini ? 2 : (lines >= 4 ? 1 : 0));
+        const color = CLEAR_FX_ALT_COLORS[ci];
+        const str = Math.min(1, 0.4 + 0.15 * lines + (tspin ? 0.15 : 0) + (high ? 0.1 : 0)); // 0〜1 の強さ
+        if (style === 1) {
+            for (const r of rows) {
+                const b = this._put(this.unders);
+                b.on = true; b.y = r.y * bs; b.h = bs; b.color = color; b.t = 0;
+                b.life = (high ? 420 : 300) + 50 * lines; b.alpha = Math.min(1, str * (high ? 1.15 : 0.9));
+            }
+            if (high && (big || pc)) {
+                const f = this.uflash;
+                f.on = true; f.color = pc ? '#ffd76a' : color; f.alpha = pc ? 0.32 : 0.2; f.t = 0; f.life = pc ? 700 : 380;
+            }
+            if (pc) this.edge('#ffd76a', high ? 700 : 450, 0.85, 1);
+        } else if (style === 2) {
+            for (const r of rows) {
+                const e = this._put(this.ends);
+                e.on = true; e.y = r.y * bs; e.h = bs; e.color = color; e.t = 0;
+                e.life = (high ? 380 : 260) + 30 * lines; e.alpha = Math.min(1, 0.55 + 0.1 * lines);
+                e.len = bs * (high ? 1.4 + 0.5 * lines : 0.8 + 0.2 * lines) * (tspin ? 1.2 : 1);
+            }
+            if (pc || (big && high) || (lines >= 3 && high)) this.edge(color, pc ? 800 : 320, pc ? 0.9 : 0.55, 0.6);
+            else if (big) this.edge(color, 220, 0.4, 0.4);
+        } else if (style === 3) {
+            for (const r of rows) {
+                const y = r.y * bs + bs / 2;
+                this._snap(y, color, high ? 170 : 110, Math.min(1, 0.6 + 0.1 * lines), 2);
+                if (high) this._snap(y, color, 260, 0.35, 5);
+            }
+            if (pc) this.edge('#ffd76a', 500, 0.8, 0.5);
+            else if (high && big) this.edge(color, 160, 0.45, 0.35);
+        } else {
+            const g = this.glow;
+            g.on = true; g.ci = ci; g.t = 0;
+            g.life = (high ? 520 : 340) + 60 * lines + (pc ? 300 : 0);
+            g.str = Math.min(1, str * (high ? 1 : 0.75) + (pc ? 0.3 : 0));
+            this._wake();
+        }
+        this._wake();
+    }
+
+    _snap(y, color, life, alpha, width) {
+        const sn = this._put(this.snaps);
+        sn.on = true; sn.y = y; sn.color = color; sn.t = 0; sn.life = life; sn.alpha = alpha; sn.width = width;
     }
 
     // ─── ぷよ: 消えたぷよ（cells: [{ x, y, color }] を px で）。chain で強さを変える ───
