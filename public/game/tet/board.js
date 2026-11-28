@@ -77,16 +77,58 @@ Object.assign(Game.prototype, {
         this.canHold = !this._spawnIhsUsed && !this._spawnNoIhs
 
         // 状態・タイマー・カウントの初期化
-        this.isGrounded = false;
-        this.lowestY = this.mino.y;
-        this.moveCount = 0;
-        this._kickLock = false;
+        this._resetLockState();
         // T-spin判定フラグのリセット
         this.lastActionWasRotation = false;
         this.lastRotUsedPoint5 = false;
 
         this._cancelLockTimer();
         this.startGravity(); // 重力をリセットして開始
+        this._lockSpawnCheck();
+    },
+
+    // ─── 操作ロック（15 回の強制固定）の規則 ───
+    // 設計 source_assets/memory/mode/tet_lock/tetlabo-tet-lock-design.md。エンジン版 25〜:
+    //   ・最下層は ブロックのいちばん下の段（24 以下は箱の原点 mino.y）
+    //   ・成功した横移動・回転を 1 つずつ数える（24 以下は接地中の操作を checkGroundState 1 回につき 1 回）
+    //   ・最下層を更新した操作は数えない（0 に戻すだけ）。その層で一度接地した後は宙の操作も数える。
+    //     接地する前でも、持ち上げる回転（床蹴り）は数える（I ミノの浮き続け。rotation.js tryRotate）
+    //   ・ソフトドロップ・重力の落下は数えない。失敗した操作は数えず、猶予も戻さない
+    //   ・出現した瞬間に接地を見る（重力の 1 マスを待たない）
+    //   ・PRACTICE の置くまで固定しない・ZONE の発動中は数えない（ZONE の終わりで 0 に戻す。tet/zone.js）
+    _lockV25() {
+        return !(this._replay && this._replay.data && (this._replay.data.engine || 0) < 25);
+    },
+
+    // 最下層の測り方（大きいほど下）
+    _lockLowY() {
+        const m = this.mino;
+        if (!this._lockV25()) return m.y;
+        let b = -Infinity;
+        for (let i = 0; i < m.blocks.length; i++) if (m.blocks[i].y > b) b = m.blocks[i].y;
+        return m.y + b;
+    },
+
+    // 出現（ホールド・盤面の入れ替え・PRACTICE のツモ替え・QUIZ も）のときの初期化
+    _resetLockState() {
+        this.isGrounded = false;
+        this.lowestY = this.mino ? this._lockLowY() : 0;
+        this.moveCount = 0;
+        this._layerTouched = false;
+        this._kickLock = false;
+    },
+
+    // 出現した瞬間に接地を見る（版 25〜。カウントダウン中は重力の再開に任せる）
+    _lockSpawnCheck() {
+        if (this.mino && this._lockV25() && !this.isCountingDown) this.checkGroundState();
+    },
+
+    // 成功した横移動・回転を 1 つ数える（版 25〜）。lifted: 持ち上げる回転（床蹴り）だった
+    _lockOp(lifted = false) {
+        if (!this.mino || !this._lockV25()) return;
+        if (this.updateLowestY()) return;
+        if (this.practiceNoLock || this.zoneActive) return;
+        if (this._layerTouched || lifted) this.moveCount++;
     },
 
     // そろった段（消える前）と各列のブロックの種類。固定した瞬間に 1 回だけ呼ぶ（消去エフェクト用）
@@ -107,6 +149,9 @@ Object.assign(Game.prototype, {
 
     // ミノを即座に固定する共通処理
     secureMino(viaHardDrop = false) {
+        // 置いた回数（CPU が決めた手の世代。固定猶予・15 回の固定で CPU の操作の途中に置かれたら、残りの手を捨てる。
+        // cpu/tet/cpu_zone.js boardEpoch）
+        this._lockSerial = (this._lockSerial || 0) + 1;
         // ZONE の発動中か（この手の消去は「底へ移す」。tet/zone.js）
         const inZone = !!this.zoneActive;
         let isAllOutside = this.mino.blocks.every(block => (block.y + this.mino.y) < 0);
@@ -481,8 +526,8 @@ Object.assign(Game.prototype, {
     checkGroundState(actionHappened = false, wasGrounded = false) {
         // 床蹴りの 15 回ルールで回転が埋まった → 落として固定（rotation.js tryRotate）
         if (this._kickLock) { this._kickLockNow(); return; }
-        // 接地状態からの操作ならカウントを進める
-        if (actionHappened && wasGrounded) {
+        // 接地状態からの操作ならカウントを進める（エンジン版 24 以下。25〜は操作ごとに _lockOp が数える）
+        if (actionHappened && wasGrounded && !this._lockV25()) {
             this.moveCount++;
         }
 
@@ -495,6 +540,7 @@ Object.assign(Game.prototype, {
                     this.timer = null;
                 }
             }
+            this._layerTouched = true; // この層で接地した（版 25〜はこの後の宙の操作も数える）
 
             // ─── PRACTICE: 自由落下0のときの固定仕様（設計 §8.1）───
             // 「置くまで固定しない」＝ソフトドロップ押下中のみ固定タイマーを進め、
@@ -531,12 +577,17 @@ Object.assign(Game.prototype, {
         }
     },
 
-    // 最低Y座標を更新し、更新されたら操作回数をリセットする
+    // 最下層を更新し、更新されたら操作回数をリセットする（更新したら true。測り方は _lockLowY）
     updateLowestY() {
-        if (this.mino.y > this.lowestY) {
-            this.lowestY = this.mino.y;
+        if (!this.mino) return false;
+        const y = this._lockLowY();
+        if (y > this.lowestY) {
+            this.lowestY = y;
             this.moveCount = 0; // 最低位置が更新されたら15カウントをリセット
+            this._layerTouched = false; // 新しい層ではまだ接地していない
+            return true;
         }
+        return false;
     },
 
     // 固定猶予タイマーの起動・リセット
@@ -679,6 +730,7 @@ Object.assign(Game.prototype, {
         }
         let r;
         const mino = this.mino;
+        const x0 = mino ? mino.x : 0;
         switch (type) {
             case 'hold': r = this.holdCurrentMino(); break;
             case 'rotate':
@@ -764,6 +816,19 @@ Object.assign(Game.prototype, {
                 console.warn('[cpuAction] 知らない操作:', type);
         }
         if (this.requestRedraw) this.requestRedraw();
+        // 操作ロック（エンジン版 25〜。人と同じ規則: 成功した横移動・回転を数え、操作のあとに接地を見る。
+        //   回転は tryRotate の中で数える。固定されたら CPU は手を捨てて考え直す（cpu/tet/cpu_zone.js boardEpoch）
+        if (mino && this.mino === mino && this._lockV25()) {
+            let moved = false;
+            if (type === 'move' || type === 'shift') moved = !!r;
+            else if (type === 'stepToX') moved = mino.x !== x0;
+            else if (type === 'warp') moved = true;
+            if (moved) this._lockOp();
+            if (type === 'teleport') this.updateLowestY();
+            if (moved || type === 'teleport' || ((type === 'rotate' || type === 'softDrop' || type === 'softDropQuiet') && r)) {
+                this.checkGroundState(true);
+            }
+        }
         return r;
     },
 });

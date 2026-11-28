@@ -311,14 +311,13 @@ class QuizManager {
 
             // HOLD可否の更新（先行ホールドで出たミノはもうホールドできない）
             this.canHold = (levelData.allowHold && !this._spawnIhsUsed) ? true : false;
-            this.isGrounded = false;
-            this.lowestY = this.mino.y;
-            this.moveCount = 0;
+            this._resetLockState(); // 接地・最下層・操作ロックの回数（tet/board.js）
             this.lastActionWasRotation = false;
             this.lastRotUsedPoint5 = false;
 
             this._cancelLockTimer();
             this.startGravity();
+            this._lockSpawnCheck(); // 出現した瞬間に接地を見る（tet/board.js）
         }.bind(game);
 
         // NEXT の補充（popMino と先行ホールドの両方から呼ばれる）

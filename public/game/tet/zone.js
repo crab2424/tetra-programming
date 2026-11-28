@@ -619,6 +619,12 @@ Object.assign(Game.prototype, {
         this.updateStatsDisplay();
         // 落下・固定をふだんに戻す（シングルはミノを置いた後か、出せなかったときなので mino は無い）
         if (this.mino) {
+            // 操作ロックの回数を 0 に戻し、いまの段を最下層にする（ミノを持ち越す VERSUS だけ。エンジン版 25〜。board.js _lockOp）
+            if (this._lockV25()) {
+                this.moveCount = 0;
+                this.lowestY = this._lockLowY();
+                this._layerTouched = !this.valid(0, 1);
+            }
             if (this.valid(0, 1)) {
                 // 発動中にソフトドロップで ZONE 段の上に着いていたミノは、盤面が下がって宙に浮く。
                 // そのとき進んでいた固定猶予を取り消す（残すと空中で固定される。board.js の「空中にいる場合」と同じ）。

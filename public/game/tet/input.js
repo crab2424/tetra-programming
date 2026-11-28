@@ -159,6 +159,7 @@ Object.assign(Game.prototype, {
                         this.mino.x--
                         this.lastActionWasRotation = false
                         this.playSe('move')
+                        this._lockOp() // 操作ロックの回数（board.js。版 25〜）
                         acted = true
                     }
                     // DAS 計測の基準を押した時刻に揃える（_pollInput 側で
@@ -177,6 +178,7 @@ Object.assign(Game.prototype, {
                         this.mino.x++
                         this.lastActionWasRotation = false
                         this.playSe('move')
+                        this._lockOp() // 操作ロックの回数（board.js。版 25〜）
                         acted = true
                     }
                     this._lastMoveTimeRight = now
@@ -436,6 +438,7 @@ Object.assign(Game.prototype, {
                             this.mino.x += dx
                             this.lastActionWasRotation = false; // 移動したので回転フラグを解除
                             this.playSe('move')
+                            if (!hide) this._lockOp() // 操作ロックの回数（board.js。版 25〜）
                             acted = true
                         }
                         this._setLastMoveTime(dir, now)
@@ -457,6 +460,7 @@ Object.assign(Game.prototype, {
                                     this.mino.x += dx
                                     this.lastActionWasRotation = false; // 移動したので回転フラグを解除
                                     this.playSe('move')
+                                    if (!hide) this._lockOp()
                                     acted = true
                                 }
                             } else {

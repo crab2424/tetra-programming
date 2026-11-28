@@ -757,9 +757,7 @@ class PracticeManager {
         const type = TET_CYCLE[idx];
         if (!this._cycleFitTet(type)) return false; // 出現位置へのワープは廃止（設計 Phase10 §6.2④）
         // 接地・ロック関連の状態をpopMino()と同じに初期化する（canHoldは変えない＝ツモ未消費）
-        g.isGrounded = false;
-        g.lowestY = g.mino.y;
-        g.moveCount = 0;
+        g._resetLockState(); // 接地・最下層・操作ロックの回数（tet/board.js）
         g.lastActionWasRotation = false;
         g.lastRotUsedPoint5 = false;
         g._cancelLockTimer();
@@ -1085,7 +1083,7 @@ class PracticeManager {
                     const type = PracticeSequence.nextTetType(this.seqConfig, this.seqRunner);
                     const prevMino = g.mino;
                     if (this._cycleFitTet(type)) {
-                        g.isGrounded = false; g.lowestY = g.mino.y; g.moveCount = 0;
+                        g._resetLockState();
                         g.lastActionWasRotation = false; g.lastRotUsedPoint5 = false;
                         g._cancelLockTimer();
                     } else {

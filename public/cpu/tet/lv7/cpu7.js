@@ -425,6 +425,7 @@ window.CPU7 = class {
             }
         }
         this.isExecutingAction = true;
+        if (window.CpuZone) CpuZone.execMark(this); // この手で動かすミノ（途中で置かれたら残りを捨てる）
         if (this.game) this.game.cpuAction('gravity', true);
         this.actionQueue = this.buildHoldActionQueue(move);
         // §22: 次のミノが向き 0 で出せない局面では、探索が決めた出し方をハードドロップの直前に予約する
@@ -910,7 +911,8 @@ window.CPU7 = class {
         }
 
         // ZONE が終わって盤面が下がった（発動中の盤面で決めた手はもう合わない）。操作を捨てて、いまのミノで考え直す
-        if (window.CpuZone && CpuZone.planStale(this)) { this.dropStalePlan(); return; }
+        // 操作の途中で固定猶予・15 回の固定で置かれた（ミノが替わった）ときも同じく捨てて考え直す（CpuZone.execLost）
+        if (window.CpuZone && (CpuZone.planStale(this) || CpuZone.execLost(this))) { this.dropStalePlan(); return; }
 
         const action = this.actionQueue.shift();
 
@@ -961,6 +963,8 @@ window.CPU7 = class {
                 this.game.cpuAction('spawnPlan', action.rot, action.hold);
                 break;
         }
+
+        if (window.CpuZone) CpuZone.execMark(this); // いま動かしているミノ（ホールドで替わった分も）
 
         if (typeof this.game.drawAll === 'function') {
             this.game.drawAll();

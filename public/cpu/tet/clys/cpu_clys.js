@@ -227,6 +227,7 @@ window.CPUClys = class {
             return;
         }
         this.isExecutingAction = true;
+        if (window.CpuZone) CpuZone.execMark(this); // この手で動かすミノ（途中で置かれたら残りを捨てる）
         if (this.game) this.game.cpuAction('gravity', true);
         this.actionQueue = this.buildClysActionQueue(move);
         this.game.cpuSchedule(this.actionDelay, () => this.processActionQueue());

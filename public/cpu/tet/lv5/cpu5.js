@@ -205,6 +205,7 @@ window.CPU5 = class {
             if (this.isExecutingAction) return;
 
             this.isExecutingAction = true;
+            if (window.CpuZone) CpuZone.execMark(this); // この手で動かすミノ（途中で置かれたら残りを捨てる）
             this.actionQueue = this.buildActionQueue(bestResult);
             
             this.game.cpuSchedule(this.actionDelay, () => {
@@ -505,7 +506,8 @@ window.CPU5 = class {
         }
 
         // ZONE が終わって盤面が下がった（発動中の盤面で決めた手はもう合わない）。操作を捨てて、いまのミノで考え直す
-        if (window.CpuZone && CpuZone.planStale(this)) { this.dropStalePlan(); return; }
+        // 操作の途中で固定猶予・15 回の固定で置かれた（ミノが替わった）ときも同じく捨てて考え直す（CpuZone.execLost）
+        if (window.CpuZone && (CpuZone.planStale(this) || CpuZone.execLost(this))) { this.dropStalePlan(); return; }
 
         const action = this.actionQueue.shift();
 
@@ -553,6 +555,8 @@ window.CPU5 = class {
                 this.game.cpuAction('hardDrop');
                 break;
         }
+
+        if (window.CpuZone) CpuZone.execMark(this); // いま動かしているミノ（ホールドで替わった分も）
 
         if (typeof this.game.drawAll === 'function') {
             this.game.drawAll();

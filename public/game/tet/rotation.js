@@ -69,7 +69,8 @@ Object.assign(Game.prototype, {
                 }
                 // 宙で持ち上げた回転も 1 回と数える（接地中の操作は checkGroundState が数えるので二重にしない）。
                 //   I ミノを床の 1 段上で縦にすると床で弾かれて 2 段上がり、一度も接地せずに耐え続けられたため
-                if (ky < 0 && !silent && !this.isGrounded) this.moveCount++
+                //   （エンジン版 25〜は下の _lockOp がまとめて数える）
+                if (ky < 0 && !silent && !this.isGrounded && !this._lockV25()) this.moveCount++
             }
 
             if (rotDir === 1) this.mino.rotate()
@@ -78,6 +79,8 @@ Object.assign(Game.prototype, {
             this.mino.x += dx
             this.mino.y += ky
             this.mino.rotation = to
+            // 操作ロックの回数（版 25〜。最下層の更新もここ。board.js _lockOp）
+            if (!silent) this._lockOp(liftRule && ky < 0)
 
             // T-spin判定用フラグを記録
             // キックテーブルの5番目（index=4）がPoint 5（井戸抜け用）
@@ -487,12 +490,11 @@ Object.assign(Game.prototype, {
         }
 
         // 状態・タイマー・カウントの初期化（popMinoと同じにする）
-        this.isGrounded = false;
-        this.lowestY = this.mino.y;
-        this.moveCount = 0;
+        this._resetLockState();
 
         this._cancelLockTimer();
         this.startGravity();
+        this._lockSpawnCheck();
     },
 
     // ─────────────────────────────────────────

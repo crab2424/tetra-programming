@@ -360,8 +360,11 @@ const CpuZone = (() => {
     // 消さずに置いて予告が着弾して負けた）。
     // 各レベルは探索を頼む（手を決める）ときに planMark で盤面の世代を覚え、結果を受けたとき・操作を 1 つ入れる前に
     // planStale で調べる。動いていたら決めた手を捨てて planDrop（次のフレームでいまのミノから考え直す）
+    // 置いた回数（game._lockSerial。tet/board.js secureMino）も世代に入れる: 固定猶予・15 回の固定（tet/board.js _lockOp）で
+    // 操作の途中に置かれたら、残りの手を次のミノに当てずに考え直す（自分のハードドロップは手の最後なので影響しない）
     function boardEpoch(game) {
-        return (game && game.zoneActive) ? 'z' + game.zoneStartAt : '';
+        if (!game) return '';
+        return (game.zoneActive ? 'z' + game.zoneStartAt : '') + '#' + (game._lockSerial || 0);
     }
 
     function planMark(cpu) {
@@ -372,6 +375,19 @@ const CpuZone = (() => {
     function planStale(cpu) {
         const e = cpu && cpu._zonePlanEpoch;
         return e !== undefined && e !== null && e !== boardEpoch(cpu.game);
+    }
+
+    // 手の列を動かしている間のミノ（lv3〜lv7・CLYS の processActionQueue）。固定猶予・15 回の固定（tet/board.js _lockOp）で
+    // 操作の途中に置かれると、次のミノの探索が planMark を書き換えるので planStale では気づけない。動かしているミノを
+    // 覚えておき（execMark: 手の列の始めと操作を 1 つ入れるたび。ホールドで替わった分も）、知らない間に替わっていたら捨てる
+    function execMark(cpu) {
+        if (cpu && cpu.game) cpu._execMino = cpu.game.mino || null;
+    }
+    function execLost(cpu) {
+        const m = cpu && cpu._execMino;
+        if (!m || !cpu.game || cpu.game.mino === m) return false;
+        cpu._execMino = null;
+        return true;
     }
 
     // 決めた手を捨てる。各レベルの updateLoop が次のフレームで、いまのミノ（向き・位置はそのまま）について探索を頼み直す。
@@ -485,6 +501,6 @@ const CpuZone = (() => {
     }
 
     return { CONFIG, RULES, floor, stampBoard, lineCap, movesLeft, incoming, zoneTable, attackBias100, plainBlocks, tick, decide, boardStats, expectedLines, attackOf, attackIfFired, worthFiringAt, nextMarginStepIn, shouldWaitForMargin, oppCancelOf, phaseSoon, shouldFireBeforePhase, noMoveDelay, dropIfNoMove,
-        boardEpoch, planMark, planStale, planDrop, gamePath };
+        boardEpoch, planMark, planStale, planDrop, execMark, execLost, gamePath };
 })();
 window.CpuZone = CpuZone;

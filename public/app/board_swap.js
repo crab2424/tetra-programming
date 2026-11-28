@@ -133,8 +133,9 @@ const BoardSwap = (() => {
         g.mino.y -= 1;
         if (!g.valid(0, 0)) { g.gameOver(); return; }
       }
-      g.lowestY = g.mino.y;
+      g._resetLockState(); // 最下層・操作ロックの回数（tet/board.js）
       g.startGravity();
+      g._lockSpawnCheck();
     } else {
       // ミノ未出現の一瞬（固定〜次の出現の間）で入れ替えた場合だけNEXTから出す
       // （入れ替えの出し直しなので、先行回転・先行ホールドは当てない）

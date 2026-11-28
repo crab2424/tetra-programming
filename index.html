@@ -1787,7 +1787,7 @@
   <script src="core/match_loop.js?v=3"></script>
   <script src="core/cpu_port.js?v=3"></script>
   <script src="core/game_rng.js?v=2"></script>
-  <script src="core/replay.js?v=58"></script>
+  <script src="core/replay.js?v=59"></script>
   <script src="core/dialog.js?v=4"></script>
   <script src="core/particles.js?v=14"></script>
   <script src="core/clear_fx.js?v=4"></script>
@@ -1804,13 +1804,13 @@
   <!-- 旧 src/game.js は分割前のバックアップとして残置（読み込みはしない） -->
   <script src="game/tet/core.js?v=4"></script>
   <script src="game/tet/lifecycle.js?v=27"></script>
-  <script src="game/tet/board.js?v=28"></script>
-  <script src="game/tet/rotation.js?v=15"></script>
+  <script src="game/tet/board.js?v=29"></script>
+  <script src="game/tet/rotation.js?v=16"></script>
   <script src="game/tet/scoring.js?v=7"></script>
-  <script src="game/tet/zone.js?v=27"></script>
+  <script src="game/tet/zone.js?v=28"></script>
   <script src="game/tet/garbage.js?v=17"></script>
   <script src="game/tet/render.js?v=16"></script>
-  <script src="game/tet/input.js?v=18"></script>
+  <script src="game/tet/input.js?v=19"></script>
   <!-- VS 設定: ZONE の選択肢・既定値を game/tet/zone.js から読むので、テトのエンジンの後に読み込む -->
   <script src="config/vs_settings.js?v=23"></script>
   <!-- PUYOエンジン：PuyoGame を prototype mixin で分割（core を最初に読み込むこと） -->
@@ -1822,13 +1822,13 @@
   <script src="game/puyo/engine.js?v=23"></script>
   <script src="game/puyo/input.js?v=13"></script>
   <script src="game/puyo/draw.js?v=12"></script>
-  <script src="quiz/quiz.js?v=14"></script>
+  <script src="quiz/quiz.js?v=15"></script>
   <!-- router.js を責務別に4分割（旧 src/app/router.js はバックアップとして残置・未読込）。読込順: modes→cpu_loader→versus→navigation -->
-  <script src="app/modes.js?v=39"></script>
+  <script src="app/modes.js?v=40"></script>
   <script src="app/cpu_worker_pool.js?v=1"></script>
   <script src="app/cpu_loader.js?v=4"></script>
   <!-- テト CPU の ZONE（VERSUS）: 発動の判断・発動中の手の速さ。各レベルの CPU が使う -->
-  <script src="cpu/tet/cpu_zone.js?v=18"></script>
+  <script src="cpu/tet/cpu_zone.js?v=19"></script>
   <script src="app/cpu_match_log.js?v=6"></script>
   <script src="app/versus.js?v=33"></script>
   <script src="app/cpu_weights_panel.js?v=6"></script>
@@ -1838,12 +1838,12 @@
   <script src="app/stats_page.js?v=8"></script>
   <script src="app/focus_nav.js?v=35"></script>
   <!-- 【デバッグ用・隠し機能】VERSUS中の盤面入れ替え（Shift+Alt+S / 9キー） -->
-  <script src="app/board_swap.js?v=14"></script>
+  <script src="app/board_swap.js?v=15"></script>
   <!-- PRACTICE は focus_nav の rowHandlers / suspended に登録するため、focus_nav.js の後に読む -->
   <script src="practice/practice_snapshot.js?v=4"></script>
   <script src="practice/practice_sequence.js?v=7"></script>
   <script src="practice/practice_panel.js?v=22"></script>
-  <script src="practice/practice.js?v=40"></script>
+  <script src="practice/practice.js?v=41"></script>
   <!-- アシスト（盤面ガイド）。PRACTICE / VERSUS から Assist.attach で呼ばれる -->
   <script src="assist/assist.js?v=8"></script>
   <script src="assist/assist_overlay.js?v=3"></script>
