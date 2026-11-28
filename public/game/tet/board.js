@@ -121,6 +121,7 @@ Object.assign(Game.prototype, {
         this.moveCount = 0;
         this._layerTouched = false;
         this._kickLock = false;
+        this._lockSpent = false;
     },
 
     // 出現した瞬間に接地を見る（版 25〜。カウントダウン中は重力の再開に任せる）
@@ -132,8 +133,9 @@ Object.assign(Game.prototype, {
     _lockOp(lifted = false) {
         if (!this.mino || !this._lockV25()) return;
         if (this._lockV26()) {
-            // 版 26〜: 先に数えてから最下層を見る（実機は「使い切ったか」の判定が最下層の更新より先。i-mino.json）。
+            // 版 26〜: 操作の前に 15 回を使い切っていたかを覚えてから数え、最下層を見る（updateLowestY の byOp）。
             //   床蹴り（持ち上げる回転）は積みに当たった＝その層に接地した扱い。この後の宙の操作も数える
+            this._lockSpent = this.moveCount >= 15;
             if (!(this.practiceNoLock || this.zoneActive) && (this._layerTouched || lifted)) this.moveCount++;
             if (lifted) this._layerTouched = true;
             this.updateLowestY(true);
@@ -591,14 +593,14 @@ Object.assign(Game.prototype, {
     },
 
     // 最下層を更新し、更新されたら操作回数をリセットする（更新したら true。測り方は _lockLowY）
-    // byOp: 横移動・回転で下がったとき。版 26〜は、その操作で 15 回を使い切って接地しているなら更新せず
-    //   （0 に戻さず）、続く checkGroundState で固定させる。重力・ソフトドロップで下がったときはいつも更新する
-    //   （実機の 1 フレームは「操作 → 使い切って接地なら固定 → 1 マス下へ（ここで最下層の更新）」の順。i-mino.json の group1 と group2）
+    // byOp: 横移動・回転で下がったとき。版 26〜は、その操作の前にもう 15 回を使い切っていて（_lockSpent）接地したなら
+    //   更新せず（0 に戻さず）、続く checkGroundState で固定させる（実機 i-mino.json の group1）。
+    //   15 回目の操作で下がったときは 0 に戻る（実機 T の穴。Q1 と同じ）。重力・ソフトドロップで下がったときはいつも更新する
     updateLowestY(byOp = false) {
         if (!this.mino) return false;
         const y = this._lockLowY();
         if (y > this.lowestY) {
-            if (byOp && this.moveCount >= 15 && !this.practiceNoLock && !this.zoneActive
+            if (byOp && this._lockSpent && !this.practiceNoLock && !this.zoneActive
                 && this._lockV26() && !this.valid(0, 1)) return false;
             this.lowestY = y;
             this.moveCount = 0; // 最低位置が更新されたら15カウントをリセット
