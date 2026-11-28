@@ -100,6 +100,7 @@ Object.assign(PuyoGame.prototype, {
             //    必ず再構築するため、持ち越されることはない。
             this._clearYokokuDOM();
             this._stopLoop();
+            if (this._fx) this._fx.clear(); // 消去エフェクト（終わった後の描き足しも）を消す
         }
     },
 
@@ -173,6 +174,7 @@ Object.assign(PuyoGame.prototype, {
     },
 
     _resetState() {
+        if (this._fx) this._fx.clear(); // 前の試合の消去エフェクトを消す
         this._initField();
         this._initNextQueue();
         this._initOjamaYokokuDOM();

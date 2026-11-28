@@ -197,6 +197,7 @@ Object.assign(Game.prototype, {
             };
         }
         this._renderLoopId = true;
+        if (this._fx) this._fx._stopTail(); // ループで描くので試合の後の描き足しは止める
         this.loop.add(this, this._frameUpdate, this._frameDraw);
     },
 

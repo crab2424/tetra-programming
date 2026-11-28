@@ -42,6 +42,7 @@ Object.assign(Game.prototype, {
     // ゲーム状態の初期化（カウントダウン前に呼ぶ）
     // ─────────────────────────────────────────
     _initGameState() {
+        if (this._fx) this._fx.clear(); // 前の試合の消去エフェクト（終わった後の描き足しも）を消す
         this.isFinishing = false; // 前局のGAMEOVER演出締め出しフラグをリセット
 
         // 成績（STATS）: 前の試合を途中でやめた扱いにして締め、この試合を数え始める。
@@ -324,6 +325,8 @@ Object.assign(Game.prototype, {
         this.drawAll();
         // rAF描画＆入力ループを停止
         this.stopRenderLoop();
+        // 最後の消去エフェクトは止めずに最後まで描く（core/clear_fx.js tail。次の試合の頭で消す）
+        if (this._fx && this._fx.active) this._fx.tail(() => this.drawAll());
         if (this.timer) { clearInterval(this.timer); this.timer = null; }
         this._cancelLockTimer();
         // おじゃま降下猶予タイマーを全て停止

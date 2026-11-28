@@ -165,6 +165,8 @@ Object.assign(PuyoGame.prototype, {
                 const continueForVersus = this.isVersusMode && this._versusFinishing;
                 if (this.state !== 'playing' && this.state !== 'starting' && !continueForVersus) {
                     this._stopLoop();
+                    // 最後の消去エフェクトは止めずに最後まで描く（core/clear_fx.js tail。次の試合の頭で消す）
+                    if (this._fx && this._fx.active) this._fx.tail(() => this._render());
                     return;
                 }
                 let now = this.clock.now();
@@ -190,6 +192,7 @@ Object.assign(PuyoGame.prototype, {
             };
         }
         this._loopId = true;
+        if (this._fx) this._fx._stopTail(); // ループで描くので試合の後の描き足しは止める
         this.loop.add(this, this._frameUpdate, this._frameDraw);
     },
 

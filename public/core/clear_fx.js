@@ -7,14 +7,15 @@
 //   ・粒・帯は最初に作った固定数の入れ物を使い回す（毎フレームのゴミを出さない。versus のカクつき対策と同じ考え）。
 //   ・リプレイのシーク・1 手送り・照らし合わせ（描かない再生）・速い倍速では出さない（ClearFx.allowed）。
 //   ・座標は呼ぶ側の盤面の座標（テト: ブロック px、ぷよ: 論理 px）。描く側は盤面の ctx 変換の中で draw() を呼ぶ。
+//   ・テトは粒を使わない（段が光って細い線に縮み、線が左右へ走る）。粒はぷよだけ。
+//   ・試合が終わって盤面のループが止まっても、出ているエフェクトは tail() で最後まで描く。次の試合の頭で clear() する。
 // ─────────────────────────────────────────────
 
 const CLEAR_FX_MAX_SPARKS = 320;
 const CLEAR_FX_MAX_BANDS = 8;
 const CLEAR_FX_MAX_RINGS = 48;
+const CLEAR_FX_MAX_LINES = 8;
 
-// テトのブロックの種類ごとの粒の色（block-0〜7.png の推奨色）
-const CLEAR_FX_TET_COLORS = ['#4fd8ff', '#ffe14d', '#c471f5', '#4f7dff', '#ff9a3c', '#5be36b', '#ff5050', '#a0a0a8'];
 // ぷよの色（1〜5。draw.js の GHOST_OUTLINE_PUYO と同じ並び）・6=おじゃま
 const CLEAR_FX_PUYO_COLORS = ['#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f', '#c8c8d0'];
 
@@ -32,7 +33,13 @@ class ClearFx {
         for (let i = 0; i < CLEAR_FX_MAX_RINGS; i++) {
             this.rings.push({ on: false, x: 0, y: 0, r0: 0, r1: 0, t: 0, life: 1, color: '#fff', width: 3 });
         }
+        this.lines = [];
+        for (let i = 0; i < CLEAR_FX_MAX_LINES; i++) {
+            this.lines.push({ on: false, y: 0, t: 0, life: 1, color: '#fff', width: 2, delay: 0 });
+        }
+        this.frame = { on: false, t: 0, life: 1, color: '#fff' }; // 盤面の縁の光（PERFECT CLEAR）
         this.screen = { on: false, t: 0, life: 1, alpha: 0, color: '#fff' };
+        this._tailRaf = 0;   // 試合の後の描き足し（tail）
         this._next = 0;      // 次に使う粒（いっぱいなら古いものから上書き）
         this._last = 0;      // 前に描いた実時刻
         this.active = false; // 動いているものがあるか（テトの描き直しの判断に使う）
@@ -56,8 +63,28 @@ class ClearFx {
         for (const s of this.sparks) s.on = false;
         for (const b of this.bands) b.on = false;
         for (const r of this.rings) r.on = false;
+        for (const l of this.lines) l.on = false;
+        this.frame.on = false;
         this.screen.on = false;
         this.active = false;
+        this._stopTail();
+    }
+
+    // 盤面のループが止まった後（試合の終わり）も、出ているエフェクトが消えるまで redraw() で描き足す
+    tail(redraw) {
+        this._stopTail();
+        if (!this.active) return;
+        const step = () => {
+            this._tailRaf = 0;
+            if (!this.active) return;
+            try { redraw(); } catch (e) { this.clear(); return; }
+            if (this.active) this._tailRaf = requestAnimationFrame(step);
+        };
+        this._tailRaf = requestAnimationFrame(step);
+    }
+
+    _stopTail() {
+        if (this._tailRaf) { cancelAnimationFrame(this._tailRaf); this._tailRaf = 0; }
     }
 
     // 粒を n 個、(x, y) の w×h の範囲から飛ばす
@@ -86,6 +113,21 @@ class ClearFx {
         let b = this.bands.find((x) => !x.on);
         if (!b) b = this.bands[0];
         b.on = true; b.y = y; b.h = h; b.color = color; b.alpha = alpha; b.t = 0; b.life = life;
+        this._wake();
+    }
+
+    // 段の中心から左右へ走る光の線（テト）。delay ms 後に走り出す
+    line(y, color, life, width, delay) {
+        let l = this.lines.find((x) => !x.on);
+        if (!l) l = this.lines[0];
+        l.on = true; l.y = y; l.color = color; l.t = 0; l.life = life; l.width = width; l.delay = delay || 0;
+        this._wake();
+    }
+
+    // 盤面の縁が光って消える（PERFECT CLEAR）
+    edge(color, life) {
+        const f = this.frame;
+        f.on = true; f.color = color; f.t = 0; f.life = life;
         this._wake();
     }
 
@@ -137,12 +179,43 @@ class ClearFx {
             if (b.t >= b.life) { b.on = false; continue; }
             alive = true;
             const k = b.t / b.life;
-            const grow = b.h * 0.6 * k; // 少しふくらみながら消える
-            ctx.globalAlpha = b.alpha * (1 - k) * (1 - k);
+            // 段いっぱいに光ってから、中心の細い線へ縮みながら消える
+            const hh = b.h * Math.max(0.08, (1 - k) * (1 - k));
+            ctx.globalAlpha = b.alpha * (1 - k * k);
             ctx.fillStyle = b.color;
-            ctx.fillRect(0, b.y - grow / 2, w, b.h + grow);
+            ctx.fillRect(0, b.y + (b.h - hh) / 2, w, hh);
+        }
+        if (this.frame.on) {
+            const fr = this.frame;
+            fr.t += dt;
+            if (fr.t >= fr.life) fr.on = false;
+            else {
+                alive = true;
+                const k = fr.t / fr.life;
+                ctx.globalAlpha = 0.85 * (1 - k);
+                ctx.strokeStyle = fr.color;
+                const lw = 2 + 10 * (1 - k);
+                ctx.lineWidth = lw;
+                ctx.strokeRect(lw / 2, lw / 2, w - lw, h - lw);
+            }
         }
         ctx.globalCompositeOperation = 'lighter';
+        for (const l of this.lines) {
+            if (!l.on) continue;
+            l.t += dt;
+            if (l.t >= l.delay + l.life) { l.on = false; continue; }
+            alive = true;
+            if (l.t < l.delay) continue;
+            const k = (l.t - l.delay) / l.life;
+            const e = 1 - (1 - k) * (1 - k) * (1 - k); // 速く走り出して止まる
+            const half = (w / 2) * e;
+            const a = 1 - k;
+            ctx.fillStyle = l.color;
+            ctx.globalAlpha = 0.35 * a;
+            ctx.fillRect(w / 2 - half, l.y - l.width * 2, half * 2, l.width * 4);
+            ctx.globalAlpha = a;
+            ctx.fillRect(w / 2 - half, l.y - l.width / 2, half * 2, l.width);
+        }
         for (const o of this.rings) {
             if (!o.on) continue;
             o.t += dt;
@@ -175,35 +248,29 @@ class ClearFx {
         this.active = alive;
     }
 
-    // ─── テト: そろった段（rows: [{ y, types: [種類×10] }]）。lines・tSpin・pc で強さと色を変える ───
+    // ─── テト: そろった段（rows: [{ y, types: [種類×10] }]）。lines・tSpin・pc で強さと色を変える（粒は使わない）───
+    //   LOW : 段が光って細い線に縮む
+    //   HIGH: ＋段の中心から左右へ光の線が走る・4 段 / T-Spin は盤面が軽く光る・PERFECT CLEAR は縁も光る
     tetClear(rows, lines, tSpin, pc, bs, w) {
         const high = ClearFx.level() === 'high';
         const tspin = tSpin === 'tspin';
         const mini = tSpin === 'mini';
-        // 帯の色: T-Spin は紫・4 段は水色がかった白・ほかは白
-        const bandColor = tspin ? '#d79bff' : (mini ? '#c9a4ff' : (lines >= 4 ? '#bff4ff' : '#ffffff'));
-        const bandAlpha = Math.min(0.95, 0.4 + 0.13 * lines + (tspin ? 0.15 : 0));
-        const life = 260 + 50 * lines + (tspin ? 80 : 0);
+        // 色: T-Spin は紫・4 段は水色がかった白・ほかは白
+        const color = tspin ? '#d79bff' : (mini ? '#c9a4ff' : (lines >= 4 ? '#bff4ff' : '#ffffff'));
+        const bandAlpha = Math.min(0.95, 0.45 + 0.12 * lines + (tspin ? 0.15 : 0));
+        const life = 220 + 40 * lines + (tspin ? 60 : 0);
         for (const r of rows) {
-            this.band(r.y * bs, bs, bandColor, bandAlpha, life);
-            // 粒: LOW は 1 ブロック 1 個前後、HIGH は段数・T-Spin で増やす
-            const per = high ? (2 + lines + (tspin ? 2 : 0)) : (lines >= 4 || tspin ? 2 : 1);
-            const speed = bs * (high ? 7 + lines : 5 + lines * 0.5);
-            for (let x = 0; x < r.types.length; x++) {
-                const c = tspin ? (Math.random() < 0.5 ? '#e2b4ff' : CLEAR_FX_TET_COLORS[r.types[x]] || '#fff')
-                    : (CLEAR_FX_TET_COLORS[r.types[x]] || '#fff');
-                this.spark(x * bs, r.y * bs, bs, bs, c, per, speed, 420 + lines * 60, bs * 0.22, bs * 14);
+            this.band(r.y * bs, bs, color, bandAlpha, life);
+            if (high) {
+                this.line(r.y * bs + bs / 2, color, 300 + 40 * lines, Math.max(2, bs * (lines >= 4 || tspin ? 0.16 : 0.1)), life * 0.35);
             }
         }
         if (pc) {
-            // PERFECT CLEAR: 金色のフラッシュ（HIGH は盤面じゅうに粒）
-            this.flash('#ffd76a', high ? 0.45 : 0.25, high ? 700 : 450);
-            if (high) {
-                const top = rows.length ? Math.min(...rows.map((r) => r.y)) : 0;
-                this.spark(0, (top - 6) * bs, w, bs * 10, '#ffe9a8', 90, bs * 11, 900, bs * 0.26, bs * 10);
-            }
+            // PERFECT CLEAR: 金色のフラッシュ（HIGH は縁も光る）
+            this.flash('#ffd76a', high ? 0.4 : 0.22, high ? 650 : 420);
+            if (high) this.edge('#ffd76a', 900);
         } else if (high && (lines >= 4 || tspin)) {
-            this.flash(tspin ? '#c471f5' : '#9be8ff', 0.16, 320);
+            this.flash(tspin ? '#c471f5' : '#9be8ff', 0.14, 300);
         }
     }
 
