@@ -191,14 +191,14 @@ Object.assign(Game.prototype, {
             // 回転（押した瞬間のみ単発）
             if (canActNow && keys.rotateCW.codes.includes(code) && !repeat && !this._rotCWPressed) {
                 if (this.tryRotate(1)) {
-                    this.updateLowestY()
+                    this.updateLowestY(true)
                     acted = true
                 }
                 this._rotCWPressed = true
             }
             if (canActNow && keys.rotateCCW.codes.includes(code) && !repeat && !this._rotCCWPressed) {
                 if (this.tryRotate(-1)) {
-                    this.updateLowestY()
+                    this.updateLowestY(true)
                     acted = true
                 }
                 this._rotCCWPressed = true
@@ -543,7 +543,7 @@ Object.assign(Game.prototype, {
             if (this.keyState.rotateCW) {
                 if (!this._rotCWPressed) {
                     if (this.tryRotate(1)) {
-                        this.updateLowestY(); // キック等でY座標が下がった時のため
+                        this.updateLowestY(true); // キック等でY座標が下がった時のため
                         acted = true
                     }
                     this._rotCWPressed = true
@@ -556,7 +556,7 @@ Object.assign(Game.prototype, {
             if (this.keyState.rotateCCW) {
                 if (!this._rotCCWPressed) {
                     if (this.tryRotate(-1)) {
-                        this.updateLowestY(); // キック等でY座標が下がった時のため
+                        this.updateLowestY(true); // キック等でY座標が下がった時のため
                         acted = true
                     }
                     this._rotCCWPressed = true
